@@ -82,6 +82,8 @@ OS固有のUSB検知APIは使わず、まずは手動選択で目標を満たす
 - **お気に入り・検索**（ファイル名・評価等での絞り込み）→ 検索は**第4部で実装済み**。
 - **E2Eテスト**: Tauri WebDriver / Playwright による「USBフォルダ取り込み→サムネイル表示」の通しテスト。
 - **CI/CD**: `cargo clippy` / `fmt` / `test` の自動実行、Windows/macOS/Linux のバイナリビルド。
+  → **Windows は実装済み（2026-08-13〜14）**。`ci.yml`（検査）と `release.yml`（MSI＋ZIP）。
+  macOS/Linux のジョブは未着手（rav1d の事情は引き継ぎ節を見ること）。
 - **テレメトリ**: `tracing` による構造化ログ（I/O所要時間・メモリ計測）、日次ログ出力。
 - **非UTF-8パス対応**（ゲート1レビューのP2繰り延べ）: 現状パスをTEXTで保存しており、Unixの非UTF-8ファイル名は `to_string_lossy` で情報が落ちる。Linux本格対応時にBLOB保存へ移行する。
 
@@ -601,7 +603,8 @@ RAW・HEIC・TIFFだけが「詰め直しが要る」側で、残りはブラウ
 | | 結果 |
 |---|---|
 | ライセンス | BSD-2-Clause。義務は著作権表示の再掲だけで、依存ツリーには既に同ライセンスが居る |
-| `x86_64-pc-windows-gnu` | 通る。ただし `asm` feature は**NASMをビルド時に要求する** |
+| `x86_64-pc-windows-gnu` | 通る。ただし `asm` feature は**NASMをビルド時に要求する**（msvcでも同じ） |
+| `aarch64-apple-darwin` | **crates.io版は通らない**。パッケージに `src/arm/asm-offsets.h` が入っていない（引き継ぎ節「macOSで作業するとき」） |
 | デコード | **40〜53ms**（`asm` 有り）。**無しだと156〜190ms** で6倍遅いので有効にする |
 | バイナリ増分 | **+2.79MB**（10bit対応込み。24.68→27.61MB） |
 | HEVCへの流用 | **不可**。rav1dはAV1専用 |
@@ -1187,7 +1190,7 @@ Wikimediaは規約に沿ったUser-Agentと**1〜2秒の間隔**が要る（429�
   gtk 0.18.2 ← tao/muda ← tauri が固定している）。tauri が上げるまで動かせないので据え置き
 - **MSIは管理者権限が要る**（per-machine）。管理者になれない人にはポータブルZIPが受け皿
 
-**公開（public化）の段取り（2026-08-13、ユーザー判断）**:
+**公開（public化）の段取り（2026-08-13、ユーザー判断）** ✅ **実行済み**:
 リリース前に**履歴をリセットし、新しいリポジトリへ単一コミットで push する**。
 理由: **GitHubはforce pushしても古いコミットを即座に回収しない**ので、
 SHAを直接指定すれば読める。private のうちは見えないが、**public にした瞬間に読める**。
@@ -1208,16 +1211,54 @@ SHAを直接指定すれば読める。private のうちは見えないが、**p
   pictkura が MCP サーバーとして「検索・タグ付け・整理」の道具を公開する形
 
 ---
-# 【引き継ぎ】現在地と、次にやること（2026-08-13）
+# 【引き継ぎ】現在地と、次にやること（2026-08-14）
 
 **このファイルが唯一の引き継ぎ資料**。開発機を替えると、対話AIの記憶（メモリ）は
 引き継がれないので、環境の準備・運用の約束・踏んだ落とし穴もここに全部書いてある。
 
 ## いまどこ
 
-第1〜9部＋段階H/H-2、および **v0.1の配布準備までひととおり完了**（push済み）。
-`pwsh tools/release.ps1` で MSI（ja-JP / en-US）とポータブルZIPが1コマンドで揃う。
-**公開（public化）はまだしていない**（ユーザー判断で保留）。
+第1〜9部＋段階H/H-2、および **v0.1の配布準備までひととおり完了**。
+
+**公開リポジトリへ移った（2026-08-13）**。段取りは「v0.1」の節に書いたとおりに実行した。
+
+| | |
+|---|---|
+| 公開 | https://github.com/Harusame64/pictkura （PUBLIC・単一コミットから始まる） |
+| 旧リポジトリ | `pictkura-dev`（PRIVATE・59コミットの履歴を保持）＋ ローカルに `git bundle` を退避 |
+
+**CI/CD ができた（2026-08-13〜14）**。「未着手」に挙げていた項目のうち CI がここで埋まった。
+
+| ワークフロー | 中身 |
+|---|---|
+| `.github/workflows/ci.yml` | push（main）とPRで、**Windows**上で UIビルド → fmt → clippy（`-D warnings`）→ テスト |
+| `.github/workflows/release.yml` | タグ `v*` の push で MSI 2言語＋ポータブルZIPを作って Releases に載せる。手動実行（`workflow_dispatch`）では作るだけ |
+
+`release.yml` は**空撃ちで通ることを実測済み**（2026-08-14、`workflow_dispatch`／11分）。
+MSI 8.0MB×2・ポータブルZIP 8.1MB が出て、ZIPの中身（実行ファイル・取説・
+ライセンス一覧・画像）の点検も通った。手元の `pwsh tools/release.ps1` は今も同じに動く。
+
+### 決着: MSVC で作ってよい（2026-08-14に実測）
+
+このファイルは長らく `x86_64-pc-windows-gnu` を前提に書いてきたが、
+**CIは `windows-latest` の既定＝MSVC でビルドしている**。MSVC はCランタイムを
+動的リンクするため「素のWindowsでポータブル版が起動しないのでは」という疑いがあった。
+`dumpbin /dependents` で測った結果:
+
+```
+bcryptprimitives / advapi32 / ntdll / user32 / kernel32 / comctl32 / gdi32 /
+ole32 / shlwapi / combase / shell32 / oleaut32 / dwmapi / propsys /
+api-ms-win-core-synch-l1-2-0 /
+api-ms-win-crt-{math,string,convert,heap,stdio,utility,runtime,time,locale}-*
+```
+
+**`vcruntime140.dll` も `msvcp140.dll` も無い。** Cランタイムは `api-ms-win-crt-*`
+（UCRTのAPIセット）経由で、これは**Windows 10以降のOSに同梱**されている。
+VC++再頒布可能パッケージは要らない。したがって MSVC で作った配布物で問題ない。
+
+ただし測ったのは `pictkura.exe` の**静的インポート**であって、
+「素のWindowsで起動する」ことの検証ではない（WebView2ランタイムが別途要るのは既知）。
+手元のGNU環境をMSVCへ移すかどうかは別の判断——**配布物はCIが作るMSVCの方**になる。
 
 ## 別のPCで続きをやるときの準備
 
@@ -1225,14 +1266,14 @@ SHAを直接指定すれば読める。private のうちは見えないが、**p
 
 | もの | 用途・注意 |
 |---|---|
-| Rust（`x86_64-pc-windows-gnu`） | **GNUターゲット**。msvcではない（cdylib不可なのでrlibのみ） |
-| MinGW-w64 の `gcc` | SQLite・libwebp・libjpeg-turbo をソースからビルドする |
+| Rust（`x86_64-pc-windows-gnu`） | 手元はこれで通してきた（cdylib不可なのでrlibのみ）。**CIとリリースはMSVC**で、依存DLLの実測から問題ないことが分かっている（上記） |
+| MinGW-w64 の `gcc` | SQLite・libwebp・libjpeg-turbo をソースからビルドする（GNUターゲットの場合） |
 | **NASM** | rav1d（AVIF）と libjpeg-turbo のアセンブリ。**外すと6倍遅くなる** |
 | Node.js / npm | UIのビルドと、npm側のライセンス一覧の生成 |
 | `cargo install tauri-cli --version "^2.0"` | `cargo tauri build`（MSI）に要る。**`--features cli` は不要** |
 | `cargo install cargo-about --features cli` | OSSライセンス一覧の生成。**`--features cli` が無いとバイナリが入らない** |
 | ffmpeg | 動画の検証用ファイルを合成する（下記） |
-| codex CLI（ログイン済み） | 2ゲートレビューのゲート1 |
+| codex CLI（ログイン済み） | 2ゲートレビューのゲート1。**版による制約あり**（「運用の約束」を見ること） |
 
 ### 最初にやること
 
@@ -1284,6 +1325,60 @@ cargo run -p pictkura --release      # debugビルドはサムネ生成が10倍�
       **Linuxを配るようになったら判断し直すこと**（そのときはtauriがgtkを
       上げているかを先に見る）。なお新しいリポジトリへ移すと同じ警告が再び出る
       ——`Cargo.lock` が同じなので、そこでも同じ理由でdismissする
+- [x] **`release.yml` の空撃ち**: 2026-08-14に実施。配布物の生成と依存DLLの実測が済み、
+      MSVC/GNU も決着した（「いまどこ」の節）。**初回のタグを打つ前にやること**という
+      2ゲートレビューの助言に従ったもので、実際 `cargo tauri build` と WiX は
+      それまでCIで一度も動いていなかった
+
+## macOS で作業するとき（2026-08-14）
+
+開発機をmacOS（Apple Silicon）へ移したときに分かったこと。
+
+- **rav1d 1.1.0 は crates.io 版がARM64で壊れている**。`Cargo.toml` の
+  `exclude` に `*.h` が入っているためパッケージに `src/arm/asm-offsets.h` が含まれず、
+  ARM64のasm（`refmvs.S` / `filmgrain.S` / `filmgrain16.S`）が `#include` に失敗する。
+  回避は `[patch.crates-io]` で git のタグ `v1.1.0` に差し替えること:
+
+  ```toml
+  [patch.crates-io]
+  rav1d = { git = "https://github.com/memorysafety/rav1d", tag = "v1.1.0" }
+  ```
+
+  **2026-08-14のユーザー判断: これはコミットしない**（手元の未コミット変更のまま）。
+  配るものの中身に効く差し替えなので、macOSを実際に配ると決めるまで動かさない。
+  したがって**macOSのジョブはCIに足せない**。足すなら先にこの判断が要る。
+  他の道は「aarch64だけ `asm` feature を落とす」（AVIFデコードが6倍遅くなる）か
+  「上流に `exclude` の修正を出す」
+- **テストはmacOSでも全部通る**（264件。Windowsの276件との差12件は `cfg(windows)` のぶん）。
+  移した直後は10件落ちたが、**すべてテスト側がWindowsの環境を前提にしていたのが原因**で、
+  製品コードの欠陥ではなかった。DBもパス正規化も、既に**文字として**両方の区切りを扱っている
+  （`pk_name` / `pk_folder` / `parent_dir_expr`）。直した内容は
+  「2ゲートレビューで直したところ（2026-08-14）」を見ること
+- **`src-tauri/gen/schemas/` は生成物**。ビルドのたびにACLから作り直され、
+  **作られる顔ぶれがOSで変わる**（macOSでは `macOS-schema.json` が増える）。
+  中身は `desktop-schema.json` / `windows-schema.json` とバイト単位で同一なので、
+  追跡から外した（Tauri v2の公式テンプレートも同じ扱いをしている）
+
+## 2ゲートレビューで直したところ（2026-08-13 CI の回 / 2026-08-14 macOS の回）
+
+**CIの回**。この機械にcodexが無かったのでOpusとFableの2者に見せた。
+
+- **テストの検出力が落ちていた**（両者が独立に指摘・一番効いた）。
+  `usn`: 8.3短縮名を解決するのに `canonicalize` を**両側**に掛けたため、
+  「`resolve_frn` は長い綴りを返す」という契約を張っていた唯一の網が消えていた。
+  退行しても緑のまま通り、その先で `rebase_to_root_spelling` の前方一致が外れて
+  **差分同期が黙って取りこぼす**（段階G-3と同じ系統）。→ 比較を非対称にした
+  （期待値だけ解決、製品の出力は小文字化のみ）。
+  `namedate`: `assert_ne!` → `assert_eq!` の修正は方向は正しかったが、
+  **UTCの機械では検出力がゼロ**だった。→ 判定関数 `is_utc_naming` を直接assertする形にした
+- **タグを push すると `ci.yml` が走らない**穴（Opusが単独で発見）。→ 上の「落とし穴」に記載
+- 配布物の点検、`workflow_dispatch` でタグrefを選んだときに公開してしまう件、
+  `permissions` / `concurrency` / `persist-credentials` / NASMの版固定
+
+**macOSの回**（PR #2 / #3）。両ゲートとも指摘なし。ゲート2は周辺まで洗って、
+同じ系統の穴が他に無いこと（`db.rs:2173` / `:2245` は既にgate済み）、
+`search_names` の変更がWindowsで挙動不変であること、`unwrap_or("")` が到達不能であること、
+生成スキーマが本当に再生成されること（`tauri-build` の `create_dir_all`）を確認した。
 
 ## 大きめの残件
 
@@ -1321,13 +1416,21 @@ Range要求ごとに `moof`+`mdat` を組んで返す。常駐はindexだけで1
 - 取り込み元ツリーのキーボード操作が無い
 - 取り込みの中断ができない
 - RTL（アラビア語等）は未対応。CSSの論理プロパティ化が前提
-- CI/CD と E2E が無い
+- E2E が無い（CIは2026-08-13〜14に用意した。「いまどこ」の節）
 
 ## 運用の約束（AIとの進め方）
 
 - **2ゲートレビュー**をマイルストーンごとに必ず実施する。
   ゲート1 = `codex review --base <ref>` / ゲート2 = Claude の `/code-review high <範囲>`。
   **`codex review --commit <sha>` は未コミットの作業ツリーを巻き戻す**ので、実行前に必ずコミットする
+- **レビューに掛ける前に、無関係な未コミット変更は `git stash` で外す**。
+  レビュアは作業ツリーを見るので、混ざっていると**そこを差分だと誤認する**
+  （2026-08-13、rav1dの実験を「配布物に入る」と誤って指摘された）
+- **codex CLI 0.147.0 では `--base` / `--commit` / `--uncommitted` と自作プロンプトが排他**
+  （`error: the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`）。
+  範囲を指定すると既定のプロンプトになり、リポジトリの流儀を渡せない。
+  範囲の正しさを優先すること。**codex自身は `cargo test` を走らせようとする**ので、
+  macOSでは rav1d のビルドで落ちる——テストの裏取りは自分でやる
 - **測ってから決める**。このファイルの実測値はすべて手元で取ったもの。
   推測で設計を変えない
 - **用語**: メディアの入れ物は「**コンテナ**」（「容器」は使わない）
@@ -1351,3 +1454,12 @@ Range要求ごとに `moof`+`mdat` を組んで返す。常駐はindexだけで1
   ところだった（Codex P1で発見）
 - **一度きりの移行に「済んだ印」を持たせない**。印を先に書くと、投げた仕事が終わる前に
   アプリが落ちたとき二度と拾い直せない。**条件から自然に外れる形**に設計する
+- **タグの push では `ci.yml` が1行も走らない**（`on.push.branches` フィルタは
+  タグのrefにマッチしない）。CIが赤のコミットにタグを打つだけで未検査の配布物が
+  Releasesに載る経路になるので、`release.yml` 側でも fmt とテストを通している
+- **`if-no-files-found: error` は検索結果が「全部空」のときしか発火しない**。
+  MSIだけ出てZIPが無い・言語が1つ欠けた、を素通しする。**数えて確かめる**
+- **テストのパスをOSに解釈させない**。Windowsの綴り（`D:\...`）を
+  `Path::file_name` に渡すと、macOS/Linuxでは区切りと見なされず**パス全体が
+  ファイル名として返る**。製品側（`pk_name` / `parent_dir_expr`）は文字で切っているので、
+  テストもそちらに揃える
