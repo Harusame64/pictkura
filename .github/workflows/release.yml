@@ -99,6 +99,22 @@ jobs:
 
           $msi + $zip | ForEach-Object { "  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
 
+      # **配るものの素性を測る**。plan.md は `x86_64-pc-windows-gnu` を前提にしているが、
+      # ここは `windows-latest` の既定＝msvc で作っている。msvc は既定でCランタイムを
+      # 動的リンクするので、`vcruntime140.dll` を要求するなら素のWindowsで
+      # ポータブル版が起動しない経路が残る。**推測せず出力を見る**（門にはしない）
+      - name: 依存DLLを見る
+        continue-on-error: true
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { Write-Output "vswhere が無いので測れない"; return }
+          $vs = & $vswhere -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $dumpbin) { Write-Output "dumpbin が無いので測れない"; return }
+          rustc -vV
+          & $dumpbin.FullName /dependents target\release\pictkura.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: pictkura-windows
