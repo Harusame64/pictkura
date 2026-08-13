@@ -29,11 +29,13 @@ export default function Settings({
   onClose,
   config,
   onConfigChanged,
+  onError,
 }: {
   open: boolean;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
+  onError: (message: string) => void;
 }) {
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
@@ -169,9 +171,16 @@ export default function Settings({
                     title: t.pickDestination,
                   });
                   if (typeof dest !== "string") return;
-                  // 選んだ先が消えている・ネットワークが切れている等で失敗しうる。
-                  // 握り潰さずに、少なくとも設定を変えないまま終わらせる
-                  await setImportDestination(dest).catch(() => {});
+                  // 選んだ先が消えている・ネットワークが切れている・
+                  // 写真.appのライブラリの中だった等で失敗しうる。
+                  // 設定は変えないまま、**理由は出す**（黙って何も起きないと
+                  // 押し損ねたのか断られたのか分からない）
+                  try {
+                    await setImportDestination(dest);
+                  } catch (e) {
+                    onError(String(e));
+                    return;
+                  }
                   onConfigChanged();
                 }}
               >

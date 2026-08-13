@@ -33,12 +33,22 @@ pub struct ScanOutcome {
     pub ok_roots: Vec<PathBuf>,
 }
 
-/// アプリが管理するパッケージ。**見た目はフォルダだが中身は内部ファイル**なので、
-/// ライブラリの走査でも取り込み元の走査でも常に落とす。
+/// アプリが管理するパッケージ。**見た目はフォルダだが中身は内部ファイル**。
 ///
-/// ライブラリ側は利用者が編集できる `exclude_patterns` の既定に入るが、
-/// 取り込み元側は**固定**（利用者の除外設定を取り込み元へ流用すると、
-/// DCIMに誤マッチして「USBに写真が無い」ように見える事故になるため）。
+/// 効き方が2種類あるので、混同しないこと:
+///
+/// - **入口では固定**（利用者の設定に関係なく断る）。ライブラリのルート登録、
+///   コピー先の設定、取り込み元の指定と一覧がこれ。パッケージを**ルートに
+///   名指しされた**ときだけは、走査の「ルート自身は除外判定しない」例外を
+///   打ち消す必要がある——索引はできても監視とUSNは更新を全部落とすので、
+///   **索引されたまま永久に古い**という壊れ方をするため
+/// - **走査の途中では設定に従う**。既定の `exclude_patterns` に同じものが
+///   入っており、利用者が消せば配下のパッケージは索引される（`.*` を消せる
+///   のと同じ扱い）。ここを固定にすると、TOMLの手編集という唯一の逃げ道が
+///   塞がる
+///
+/// 取り込み元側が固定なのは、利用者の除外設定を取り込み元へ流用すると
+/// DCIMに誤マッチして「USBに写真が無い」ように見える事故になるため。
 /// **1箇所にまとめてあるのは片方だけに足す事故を防ぐため**——取り込み元は
 /// ファイルを**コピーする**経路なので、漏らすと索引より重い結果になる。
 pub const MANAGED_PACKAGE_PATTERNS: &[&str] = &[
@@ -244,16 +254,25 @@ pub fn scan_roots_pruned(
     let mut outcome = PrunedScanOutcome::default();
     for root in roots {
         let mut had_error = false;
-        walk_pruned(
-            root,
-            false,
-            extensions,
-            &excluded,
-            known_dirs,
-            &children,
-            &mut outcome,
-            &mut had_error,
-        );
+        // ルート自身の判定は**ここでだけ**行う（`scan_roots` の `depth 0` と同じ）。
+        // `walk_pruned` の中に置くと再帰のたびに全構成要素を舐めることになり、
+        // mtime枝刈りの高速路（`metadata` 1回）に釣り合わない。
+        // 配下でパッケージに出会う場合は `excluded`（利用者の除外パターン。
+        // 既定に入っている）が名前だけで落とす
+        if !is_managed_package_path(root) {
+            walk_pruned(
+                root,
+                false,
+                extensions,
+                &excluded,
+                known_dirs,
+                &children,
+                &mut outcome,
+                &mut had_error,
+            );
+        }
+        // 「読めなかった」ではなく「見ないと決めた」なので had_error は立てず、
+        // ok_roots に入れる（既に索引されていた行は apply_scan が掃き出す）
         if !had_error {
             outcome.ok_roots.push(root.clone());
         }
@@ -291,6 +310,10 @@ pub fn scan_dirty_dirs(
     let mut outcome = PrunedScanOutcome::default();
     let mut had_error = false;
     for dir in dirty_dirs {
+        // ルートと同じ理由でここだけ判定する（`scan_roots_pruned` を参照）
+        if is_managed_package_path(dir) {
+            continue;
+        }
         walk_pruned(
             dir,
             true,
@@ -318,14 +341,6 @@ fn walk_pruned(
     outcome: &mut PrunedScanOutcome,
     had_error: &mut bool,
 ) {
-    // 呼び出し元（`scan_roots_pruned` / `scan_dirty_dirs`）は**渡された
-    // ディレクトリ自身の名前を判定しない**ので、`scan_roots` の `depth 0` と
-    // 同じ扱いをここで揃える。設定に直接書かれたルートもここを通る。
-    // `had_error` は立てない——「読めなかった」ではなく「見ないと決めた」なので、
-    // 既に索引されていた行は掃き出してよい
-    if is_managed_package_path(dir) {
-        return;
-    }
     let mtime_ms = match std::fs::metadata(dir) {
         Ok(m) if m.is_dir() => mtime_of(&m),
         _ => {

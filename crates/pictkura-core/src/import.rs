@@ -253,22 +253,24 @@ pub fn import_files(
         .destination
         .as_ref()
         .ok_or(ImportError::NoDestination)?;
-    // 一覧の経路（`list_source_dir` / `list_source_tree`）が既に断っているので
-    // ここへパッケージの中身が来ることは無いはずだが、**入口ごとに守る**。
-    // `import_from` だけ守って選択取り込みが素通り、という非対称は
-    // `MANAGED_PACKAGE_PATTERNS` を1箇所にまとめた狙いに反する
-    if let Some(bad) = files.iter().find(|p| is_managed_package_path(p)) {
-        return Err(ImportError::SourceIsManagedPackage(bad.clone()));
-    }
-
     let total = files.len();
     let mut stats = ImportStats::default();
     for (i, path) in files.iter().enumerate() {
         // ウィザードで一覧を出した後にファイルが消えている可能性があるので
-        // ここで改めてstatする（読めなければ失敗として数え、他は続行する）
-        let result = match std::fs::metadata(path) {
-            Ok(meta) => import_one(path, meta.len(), mtime_ms_of(&meta), dest_root, config),
-            Err(_) => ImportOneResult::Failed,
+        // ここで改めてstatする（読めなければ失敗として数え、他は続行する）。
+        //
+        // アプリが管理するパッケージの中身も同じ扱いで**1件ずつ落とす**。
+        // 一覧の経路（`list_source_dir` / `list_source_tree`）が既に断っているので
+        // ここへ来ることは無いはずだが、入口ごとに守る。ただし**一括中止はしない**
+        // ——紛れ込んだ1件で1000件の取り込みが丸ごと消えるのは、
+        // 読めないファイルを1件ずつ数えるこの関数の作法に合わない
+        let result = if is_managed_package_path(path) {
+            ImportOneResult::Failed
+        } else {
+            match std::fs::metadata(path) {
+                Ok(meta) => import_one(path, meta.len(), mtime_ms_of(&meta), dest_root, config),
+                Err(_) => ImportOneResult::Failed,
+            }
         };
         match result {
             ImportOneResult::Copied => stats.copied += 1,

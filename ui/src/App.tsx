@@ -2033,6 +2033,7 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         config={config}
         onConfigChanged={refreshRoots}
+        onError={onWizardError}
       />
       <ContextMenu
         pos={menu?.pos ?? null}
