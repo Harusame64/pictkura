@@ -1,0 +1,125 @@
+/* pictkura デザイントークン（「Darkroom Neutral」）
+ *
+ * 方針:
+ * - 写真が主役。クロームは無彩色で一段引かせ、彩度は選択・フォーカスにだけ使う。
+ *   周辺に彩度があると同時対比で写真の色が歪んで見える（Lightroom等が
+ *   ニュートラルグレーを既定にするのと同じ理由）。
+ * - primitive（生の色）→ semantic（用途名）の2層。コンポーネントCSSは
+ *   semanticだけを参照し、色リテラルを書かない。
+ * - ダーク／ライト両対応。既定はOSのテーマに追従し、html[data-theme] で上書きできる。
+ * - UIライブラリは入れない（起動の速さを売りにするアプリでランタイムを増やさない）。
+ */
+
+:root {
+  /* ---- primitive: 無彩色スケール（chroma=0。写真の色を歪めない） ---- */
+  --n-0: oklch(0.99 0 0);
+  --n-1: oklch(0.975 0 0);
+  --n-2: oklch(0.945 0 0);
+  --n-3: oklch(0.9 0 0);
+  --n-4: oklch(0.8 0 0);
+  --n-5: oklch(0.62 0 0);
+  --n-6: oklch(0.45 0 0);
+  --n-7: oklch(0.3 0 0);
+  --n-8: oklch(0.24 0 0);
+  --n-9: oklch(0.19 0 0);
+  --n-10: oklch(0.15 0 0);
+
+  /* ---- primitive: アクセント ---- */
+  --blue-strong: oklch(0.55 0.17 255); /* ライト用 */
+  --blue-soft: oklch(0.7 0.14 255); /* ダーク用（暗い地には明るい青が要る） */
+  --amber: oklch(0.82 0.16 85); /* ★お気に入り */
+  --red: oklch(0.58 0.21 25); /* 削除・危険 */
+  --orange: oklch(0.68 0.15 60); /* 警告 */
+
+  /* ---- semantic: ライト ---- */
+  color-scheme: light;
+  --bg: var(--n-1); /* クローム地 */
+  --bg-canvas: var(--n-0); /* グリッド背景（写真の後ろ） */
+  --surface: var(--n-0); /* パレット・カード */
+  --surface-2: var(--n-2); /* ホバー面・入力地 */
+  --border: oklch(0 0 0 / 0.1);
+  --border-strong: oklch(0 0 0 / 0.18);
+  --text: var(--n-8);
+  --text-muted: var(--n-6);
+  --text-faint: var(--n-5);
+  --accent: var(--blue-strong);
+  --accent-contrast: #fff;
+  --accent-soft: oklch(0.55 0.17 255 / 0.12);
+  --fav: var(--amber);
+  --danger: var(--red);
+  --warn: var(--orange);
+  --scrim: oklch(0.15 0 0 / 0.45);
+  --shadow-1: 0 1px 3px oklch(0 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.1);
+  --shadow-2: 0 1px 3px oklch(0 0 0 / 0.06), 0 10px 24px -6px oklch(0 0 0 / 0.14);
+  --shadow-3: 0 2px 6px oklch(0 0 0 / 0.1), 0 24px 56px -12px oklch(0 0 0 / 0.3);
+
+  /* ---- スケール（テーマ非依存） ---- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --radius: 8px;
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.5);
+  --radius-full: 999px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 14px;
+  --fs-xl: 16px;
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, "Hiragino Sans",
+    "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+  --easing: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+}
+
+/* ダークのセマンティック定義。OS追従（既定）と明示指定の両方で同じ値を使う。
+ * サーフェスを4段（地／キャンバス／浮上1／浮上2）持たせるのが要点で、
+ * グレー1色で塗るとダークは奥行きを失う */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: var(--n-9);
+    --bg-canvas: var(--n-10); /* グリッドは一段暗く＝写真が最前面に浮く */
+    --surface: var(--n-8);
+    --surface-2: var(--n-7);
+    --border: oklch(1 0 0 / 0.09);
+    --border-strong: oklch(1 0 0 / 0.16);
+    --text: oklch(0.93 0 0);
+    --text-muted: oklch(0.7 0 0);
+    --text-faint: oklch(0.52 0 0);
+    --accent: var(--blue-soft);
+    --accent-contrast: var(--n-10);
+    --accent-soft: oklch(0.7 0.14 255 / 0.16);
+    --scrim: oklch(0 0 0 / 0.6);
+    --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
+    --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
+    --shadow-3: 0 2px 6px oklch(0 0 0 / 0.5), 0 24px 56px -12px oklch(0 0 0 / 0.7);
+  }
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--n-9);
+  --bg-canvas: var(--n-10);
+  --surface: var(--n-8);
+  --surface-2: var(--n-7);
+  --border: oklch(1 0 0 / 0.09);
+  --border-strong: oklch(1 0 0 / 0.16);
+  --text: oklch(0.93 0 0);
+  --text-muted: oklch(0.7 0 0);
+  --text-faint: oklch(0.52 0 0);
+  --accent: var(--blue-soft);
+  --accent-contrast: var(--n-10);
+  --accent-soft: oklch(0.7 0.14 255 / 0.16);
+  --scrim: oklch(0 0 0 / 0.6);
+  --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
+  --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
+  --shadow-3: 0 2px 6px oklch(0 0 0 / 0.5), 0 24px 56px -12px oklch(0 0 0 / 0.7);
+}

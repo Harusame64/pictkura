@@ -1,0 +1,15 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node (フロントエンド導入後に使用)
+node_modules/
+dist/
+
+# ローカル設定・ログ
+*.log
+.DS_Store
+Thumbs.db
+
+# TypeScriptの差分ビルド情報（生成物）
+*.tsbuildinfo

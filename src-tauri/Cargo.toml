@@ -1,0 +1,35 @@
+[package]
+name = "pictkura"
+description = "最小機能×爆速の画像管理アプリ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# crates.io へ上げるものではない（OSSライセンス一覧からも自分自身が外れる）
+publish = false
+
+[lib]
+name = "pictkura_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+pictkura-core = { path = "../crates/pictkura-core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+# OS既定アプリで開く／エクスプローラーで場所を表示する（クロスプラットフォーム）
+tauri-plugin-opener = "2"
+# 削除はゴミ箱へ入れる（完全削除にしない）
+trash = "5"
+sysinfo = { version = "0.33", default-features = false, features = ["disk"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 設定画面のプレビュー（今日の日付でフォルダ例を作る）用
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# ドライブ種別（リムーバブル/固定/ネットワーク/光学）の判定に GetDriveTypeW を使う。
+# sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
+# 「取り込み元」として自動走査してしまうため
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem"] }

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pictkura 取扱説明書</title>
+<style>
+  /* アプリと同じ Darkroom Neutral の考え方。ダーク既定＋OS追従 */
+  :root {
+    --bg: #fbfbfa; --surface: #ffffff; --surface-2: #f1f0ee;
+    --text: #1b1a18; --text-muted: #6b6863; --border: #e0dedb;
+    --accent: #3b7dd8; --accent-soft: #e8f0fc; --warn-bg: #fff6e5; --warn-line: #e0a94a;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131312; --surface: #1b1b1a; --surface-2: #232322;
+      --text: #eceae6; --text-muted: #9a968f; --border: #302f2d;
+      --accent: #79aef5; --accent-soft: #1d2938; --warn-bg: #2a2418; --warn-line: #a37c2c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131312; --surface: #1b1b1a; --surface-2: #232322;
+    --text: #eceae6; --text-muted: #9a968f; --border: #302f2d;
+    --accent: #79aef5; --accent-soft: #1d2938; --warn-bg: #2a2418; --warn-line: #a37c2c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75; font-size: 16px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+  h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 1.35rem; margin: 56px 0 16px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  h3 { font-size: 1.05rem; margin: 32px 0 8px; }
+  p, li { color: var(--text); }
+  .lead { color: var(--text-muted); margin: 0; }
+  a { color: var(--accent); }
+  code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+  }
+  img { max-width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+  figure { margin: 20px 0; }
+  figcaption { color: var(--text-muted); font-size: 0.85rem; margin-top: 8px; }
+  /* 表は幅の狭い画面で自分だけ横スクロールする（本文は横に伸ばさない） */
+  .table-scroll { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+  td.center, th.center { text-align: center; }
+  kbd {
+    font-family: inherit; font-size: 0.85em; background: var(--surface-2);
+    border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 7px; white-space: nowrap;
+  }
+  .note {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: var(--radius);
+    padding: 12px 16px; margin: 20px 0;
+  }
+  .warn { background: var(--warn-bg); border-left-color: var(--warn-line); }
+  .note p { margin: 0; }
+  nav.toc {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 8px;
+  }
+  nav.toc ol { margin: 0; padding-left: 1.3em; }
+  nav.toc a { text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  footer { margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>pictkura 取扱説明書</h1>
+  <p class="lead">写真を取り込んで、並べて、探して、見る。それだけの画像管理アプリです。</p>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#start">はじめる — ライブラリを登録する</a></li>
+    <li><a href="#import">USB / SDカードから取り込む</a></li>
+    <li><a href="#folders">取り込み先のフォルダ構成を決める</a></li>
+    <li><a href="#search">探す</a></li>
+    <li><a href="#viewer">見る</a></li>
+    <li><a href="#formats">対応しているファイル形式</a></li>
+    <li><a href="#cloud">クラウドにしか実体が無いファイル</a></li>
+    <li><a href="#notes">注意事項・できないこと</a></li>
+    <li><a href="#files">設定とデータの置き場所</a></li>
+  </ol>
+</nav>
+
+<h2 id="start">1. はじめる — ライブラリを登録する</h2>
+
+<p>
+初回起動したら、左ペインのいちばん下にある「<strong>フォルダを追加</strong>」に
+写真の入っているフォルダを入れて「追加」を押します。ドライブの一覧からも選べます。
+</p>
+<p>
+登録するとすぐ走査が始まり、日付ごとに並んだ一覧ができあがります。
+走査中も一覧は動きます（できたところから順に出ます）。
+</p>
+
+<figure>
+  <img src="images/grid.jpg" alt="日付ごとに写真が並んだ一覧画面">
+  <figcaption>一覧。右端の縦棒は年のスクラバーで、つまんで一気に移動できます。</figcaption>
+</figure>
+
+<div class="note">
+  <p>
+    <strong>2回目からはもっと速くなります。</strong>
+    Windowsのファイルシステムが持っている変更記録（USNジャーナル）を読んで、
+    <strong>前回以降に変わったファイルだけ</strong>を見に行きます。
+    右上の ⚡ に「どれだけ手を抜けたか」が出ます。
+  </p>
+</div>
+
+<h2 id="import">2. USB / SDカードから取り込む</h2>
+
+<p>上部の「<strong>USBから取り込み</strong>」を押します。</p>
+
+<figure>
+  <img src="images/import.jpg" alt="取り込みウィザード。左に取り込み元のツリー、右に写真の一覧">
+  <figcaption>左で取り込み元を選ぶと、中の写真が並びます。</figcaption>
+</figure>
+
+<div class="table-scroll">
+<table>
+  <tr><th>操作</th><th>内容</th></tr>
+  <tr><td>下の階層も含める</td><td>DCIM の下に日付フォルダが切られていても、まとめて拾います。フォルダを選ぶと既定で下まで走査します</td></tr>
+  <tr><td>取り込み済みを隠す</td><td>既にライブラリにあるものを伏せます。判定は取り込み本体と同じ経路なので、見えている「済」と実際が食い違いません</td></tr>
+  <tr><td>コピー先</td><td>下部の「変更」から任意のフォルダを指定します。未設定なら取り込み開始時に聞かれます</td></tr>
+  <tr><td>フォルダごと</td><td>選択中のフォルダを丸ごと取り込みます</td></tr>
+</table>
+</div>
+
+<p>
+コピー中は進捗バー・残り時間・<strong>いま入れている写真</strong>が出ます。
+コピーが終わるとサイズを比べて検証します。
+</p>
+
+<h2 id="folders">3. 取り込み先のフォルダ構成を決める</h2>
+
+<p>
+⚙（設定）→「取り込み先のフォルダ構成」。写真の置き場所は後から変えにくいので、
+最初に決めておくのがおすすめです。よく使う7種類から選べます。
+</p>
+
+<figure>
+  <img src="images/settings.jpg" alt="設定ダイアログ。フォルダ構成の選択肢と自由記述の入力欄">
+  <figcaption>「自分で決める」を選ぶと、自由に書けます。</figcaption>
+</figure>
+
+<div class="table-scroll">
+<table>
+  <tr><th>書けるもの</th><th>置き換わるもの</th></tr>
+  <tr><td><code>{year}</code></td><td>4桁の年（<code>2026</code>）</td></tr>
+  <tr><td><code>{month}</code></td><td>2桁の月（<code>08</code>）</td></tr>
+  <tr><td><code>{day}</code></td><td>2桁の日（<code>13</code>）</td></tr>
+  <tr><td><code>/</code></td><td>フォルダの階層</td></tr>
+</table>
+</div>
+
+<p>
+入力すると<strong>実際にできるフォルダ名</strong>がその場に出ます。
+たとえば <code>{year}nen/{month}gatsu-{day}nichi</code> と書くと
+<code>2026nen/08gatsu-13nichi/</code> になります。
+</p>
+
+<div class="note">
+  <p>
+    <code>..</code>（上の階層へ戻る指定）や絶対パス、ファイル名に使えない文字は
+    <strong>自動的に落とします</strong>。何を書いてもコピー先の外に書き出されることはありません。
+  </p>
+</div>
+
+<h3>日付はどこから決まるのか</h3>
+<p>次の順に見て、最初に見つかったものを使います。</p>
+<ol>
+  <li><strong>EXIFの撮影日時</strong> — カメラやスマホが書いた日時</li>
+  <li><strong>OSが持っている情報</strong> — 実体がクラウドにしか無い場合でもここから取れます</li>
+  <li><strong>ファイル名の日付</strong> — <code>2024-01-01 12.34.56.jpg</code> のように日時が入っていれば使います</li>
+  <li><strong>ファイルの更新日時</strong> — 上のどれも無いとき</li>
+</ol>
+<p>
+スクリーンショットやSNSから保存した画像はEXIFを持たないことが多く、更新日時だけだと
+「保存した日」に並んでしまいます。名前に日時があればそちらを優先するので、正しい日に並びます。
+</p>
+
+<h2 id="search">4. 探す</h2>
+
+<p>上部の検索ボックス、または <kbd>Ctrl</kbd> + <kbd>K</kbd> のコマンドパレットから。</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>入力</th><th>意味</th></tr>
+  <tr><td><code>沖縄</code></td><td>ファイル名・フォルダ名・カメラ名の部分一致。日本語は中間一致なので「旅行」で「沖縄旅行」が引けます</td></tr>
+  <tr><td><code>camera:α7</code></td><td>カメラで絞り込む（左ペインの「カメラとメディア」と同じ）</td></tr>
+  <tr><td><code>folder:旅行</code></td><td>フォルダ名で絞り込む</td></tr>
+  <tr><td><code>2019年</code> <code>2019-08</code> <code>2019年8月11日</code></td><td>撮影日で絞り込む</td></tr>
+  <tr><td><code>★</code></td><td>お気に入りだけ</td></tr>
+</table>
+</div>
+
+<p>条件はすべてANDです。並び順は撮影日の新しい順で固定です。</p>
+
+<h2 id="viewer">5. 見る</h2>
+
+<p>タイルをクリックすると原寸のビューアが開きます。</p>
+
+<figure>
+  <img src="images/viewer.jpg" alt="ビューア。上部に倍率と操作ボタン、下部にファイル名と日付">
+  <figcaption>マウスを止めると操作系が消え、動かすと戻ります。</figcaption>
+</figure>
+
+<div class="table-scroll">
+<table>
+  <tr><th>キー</th><th>動き</th></tr>
+  <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>前後の写真へ（動画のときも同じ）</td></tr>
+  <tr><td><kbd>Space</kbd></td><td>スライドショーの開始・停止。動画のときは再生／一時停止</td></tr>
+  <tr><td><kbd>I</kbd></td><td>撮影情報（カメラ・レンズ・絞り・シャッター・ISO・GPS）</td></tr>
+  <tr><td><kbd>F11</kbd></td><td>全画面</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>閉じる</td></tr>
+</table>
+</div>
+
+<p>
+右クリックで「開く」「他のアプリで開く…」「場所を表示」「ゴミ箱へ」。
+一度選んだ編集アプリは覚えて、次からメニューに並びます。
+</p>
+
+<div class="note">
+  <p>
+    <strong>削除は必ずゴミ箱経由です。</strong>
+    アプリがファイルを直接消すことはありません。
+  </p>
+</div>
+
+<h2 id="formats">6. 対応しているファイル形式</h2>
+
+<h3>写真</h3>
+<div class="table-scroll">
+<table>
+  <tr><th>形式</th><th class="center">一覧</th><th class="center">表示</th><th>備考</th></tr>
+  <tr><td><code>jpg</code> <code>jpeg</code></td><td class="center">✅</td><td class="center">✅</td><td>縮小しながら展開するので大きい写真でも速い</td></tr>
+  <tr><td><code>png</code> <code>webp</code></td><td class="center">✅</td><td class="center">✅</td><td></td></tr>
+  <tr><td><code>avif</code></td><td class="center">✅</td><td class="center">✅</td><td>デコーダを同梱。OSの拡張機能は要りません</td></tr>
+  <tr><td><code>heic</code> <code>heif</code> <code>hif</code></td><td class="center">✅</td><td class="center">✅</td><td>iPhoneの既定形式。画素の展開はOS任せ（下記）</td></tr>
+  <tr><td><code>bmp</code> <code>gif</code> <code>tif</code> <code>tiff</code></td><td class="center">✅</td><td class="center">✅</td><td>tiff は表示用にJPEGへ詰め直します</td></tr>
+  <tr><td><code>svg</code></td><td class="center">✅</td><td class="center">✅</td><td>原本をそのまま描くので拡大しても劣化しません</td></tr>
+</table>
+</div>
+
+<h3>RAW</h3>
+<p>
+<strong>現像（デモザイク）はしません。</strong>カメラが背面液晶用に書いた表示用JPEGを
+取り出して使います。1枚あたり数msで済み、色もカメラの絵作りのままです。
+</p>
+<div class="table-scroll">
+<table>
+  <tr><th>形式</th><th class="center">絵が出るか</th><th>備考</th></tr>
+  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>sr2</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code></td><td class="center">✅</td><td>Apple ProRAW（DNG）を含みます</td></tr>
+  <tr><td><code>3fr</code> <code>iiq</code> <code>erf</code> <code>dcr</code> <code>kdc</code> <code>x3f</code></td><td class="center">✅</td><td>JPEGを持たない機種は非圧縮プレビューから組み立てます</td></tr>
+  <tr><td><code>mrw</code>（Minolta）</td><td class="center">⚠️</td><td>サムネイルの先頭バイトを潰す独自仕様のため絵が出ません</td></tr>
+  <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td>プレビュー自体が入っていません</td></tr>
+</table>
+</div>
+
+<h3>動画</h3>
+<div class="table-scroll">
+<table>
+  <tr><th>形式</th><th class="center">一覧</th><th class="center">アプリ内再生</th><th>備考</th></tr>
+  <tr><td><code>mp4</code> <code>m4v</code> <code>mov</code> <code>webm</code></td><td class="center">✅</td><td class="center">✅</td><td>コーデックはOS依存（HEVCは下記）</td></tr>
+  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>一覧には絵・長さ・撮影日が出ます。再生は「既定のアプリで開く」へ</td></tr>
+</table>
+</div>
+<p>
+一覧の絵はOSのサムネイル機構から借ります（<strong>現在はWindowsのみ</strong>）。
+長さ・寸法・撮影日時はコンテナのヘッダだけを読むので、画素は1バイトも読みません。
+</p>
+
+<h2 id="cloud">7. クラウドにしか実体が無いファイル</h2>
+
+<p>
+Windowsの「ピクチャ」は既定でOneDriveに向いており、しばらく使っていると
+中身の多くが「<strong>オンラインのみ</strong>」（実体はクラウド、手元にあるのは目印だけ）に
+なっていきます。
+</p>
+
+<div class="note warn">
+  <p>
+    pictkura は<strong>こちらから勝手にダウンロードしません</strong>。
+    アプリを入れただけで何GBも通信が走ることはありません。
+  </p>
+</div>
+
+<ul>
+  <li><strong>一覧には出ます。</strong>寸法・撮影日時はOSが持っているぶんを使うので、正しい日付の位置に並びます</li>
+  <li><strong>絵は出ないことがあります。</strong>実際にその場所を開いて見たときに、初めて実体を取りに行きます</li>
+  <li><strong>動画の長さは出ません。</strong>コンテナを読まないと分からず、そのためには実体が要るためです</li>
+  <li><strong>動画は開く前に止めます。</strong>数GBの動画を開くと全部落ちてくるので、案内を出して「既定のアプリで開く」へ寄せます</li>
+</ul>
+
+<h2 id="notes">8. 注意事項・できないこと</h2>
+
+<div class="table-scroll">
+<table>
+  <tr><th>事柄</th><th>内容</th></tr>
+  <tr>
+    <td>HEIC / HEVC にOSの部品が要る</td>
+    <td>Windowsでは「HEIF Image Extensions」（無料）に加え、画素の展開に「HEVC Video Extensions」（有料・数百円）が要ります。<strong>HEVCのデコーダは同梱しません</strong>——特許の都合で、OSが持っていれば使う方針です。必要なときはアプリから案内を出します</td>
+  </tr>
+  <tr><td>動画のサムネイルはWindowsのみ</td><td>macOS・Linuxは未対応で、枠だけが並びます</td></tr>
+  <tr><td><code>.m2ts</code> / <code>.avi</code> はアプリ内で再生できない</td><td>ブラウザ側がコンテナを扱えないためです。一覧には出ます</td></tr>
+  <tr><td>検索索引の再構築UIが無い</td><td>壊れた場合は設定フォルダの <code>pictkura.db</code> を消して作り直してください（サムネイルも作り直しになります）</td></tr>
+  <tr><td>検索結果の並び替えが無い</td><td>撮影日の新しい順で固定です</td></tr>
+  <tr><td>取り込みの中断ができない</td><td>開始したら最後まで走ります</td></tr>
+  <tr><td>RTL言語のレイアウト</td><td>アラビア語等の右から左に読む言語は未対応です</td></tr>
+</table>
+</div>
+
+<h2 id="files">9. 設定とデータの置き場所</h2>
+
+<div class="table-scroll">
+<table>
+  <tr><th>ファイル</th><th>場所（Windows）</th></tr>
+  <tr><td>設定</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
+  <tr><td>データベース</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
+  <tr><td>サムネイル</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
+</table>
+</div>
+
+<p>
+設定ファイルは手で編集できます。アプリが持っていない細かい設定
+（走査から除くフォルダのパターンなど）はここから変えられます。
+<strong>写真そのものはここには入りません。</strong>
+データベースを消しても写真は消えません（作り直されるだけです）。
+</p>
+
+<footer>
+  pictkura は MIT ライセンスです。同梱しているサードパーティ製ソフトウェアの
+  著作権表示とライセンス条文は <code>THIRD-PARTY-LICENSES.txt</code> にまとめてあります。<br>
+  この説明書のスクリーンショットに写っている写真は、Wikimedia Commons の
+  CC0 / パブリックドメインの作品です。
+</footer>
+
+</div>
+</body>
+</html>

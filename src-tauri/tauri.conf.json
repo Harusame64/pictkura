@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "pictkura",
+  "version": "0.1.0",
+  "identifier": "dev.harusame.pictkura",
+  "build": {
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "pictkura",
+        "width": 1280,
+        "height": 840
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' media: http://media.localhost; media-src 'self' media: http://media.localhost; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "publisher": "Harusame64",
+    "copyright": "Copyright (c) 2026 Harusame64",
+    "category": "Photography",
+    "shortDescription": "写真の取り込みと一覧表示に特化した画像管理",
+    "longDescription": "USBやSDカードからの取り込みと、大量の写真の一覧表示に特化した画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドにしか実体が無いファイルを勝手にダウンロードしません。",
+    "licenseFile": "../LICENSE",
+    "resources": [
+      "../THIRD-PARTY-LICENSES.txt",
+      "../docs/manual.html",
+      "../docs/images/*.jpg"
+    ],
+    "windows": {
+      "wix": {
+        "language": ["ja-JP", "en-US"]
+      }
+    }
+  }
+}

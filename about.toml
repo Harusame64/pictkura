@@ -1,0 +1,45 @@
+# OSSライセンス一覧の生成設定（cargo-about）。
+#
+# 出力は `THIRD-PARTY-LICENSES.txt` で、**生成物をリポジトリへ入れる**。
+# 配布ビルドのたびに cargo-about を要求すると、ビルド環境の要件が増えるため
+# （NASMだけでも十分に重い）。依存を足したら手で作り直す:
+#
+#   cargo about generate about.hbs -o THIRD-PARTY-LICENSES.txt
+#
+# 配るバイナリに入るものだけを対象にする。開発用の依存（テスト・ベンチ）は
+# 配布物へ入らないので外す。ビルド用の依存は残す——`mozjpeg-sys` のように
+# Cのコードを一緒にリンクするものがあり、過不足なら過剰な方が安全。
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    # mozjpeg / libjpeg-turbo。BSD相当の許諾で、著作権表示と
+    # but-not-limited 条項の再掲が要る（条文をそのまま載せることで満たす）
+    "IJG",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+    "Unlicense",
+    "OpenSSL",
+    "CDLA-Permissive-2.0",
+    "NCSA",
+]
+
+# 配布対象。macOS/Linux を配るときはここへ足して作り直す
+targets = ["x86_64-pc-windows-gnu"]
+
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+ignore-transitive-dependencies = false
+
+# 自分自身は一覧に載せない（LICENSE ファイルが本体）。
+# これが効くのは `publish = false` のクレートだけなので、両方のCargo.tomlにも
+# 書いてある——公開する予定が無いのに crates.io へ上げられる事故も同時に防げる
+private = { ignore = true }

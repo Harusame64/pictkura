@@ -1,0 +1,81 @@
+[package]
+name = "pictkura-core"
+description = "pictkura のコアライブラリ（設定・スキャン・DB・サムネイル管理）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# crates.io へ上げるものではない（OSSライセンス一覧からも自分自身が外れる）
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"
+# functions: 検索インデックスのCJK bigram展開をSQL関数として登録し、トリガから呼ぶ
+rusqlite = { version = "0.32", features = ["bundled", "functions"] }
+walkdir = "2"
+# bmp/gif/tiff は純Rustのデコーダが付いてくる（追加のCライブラリ不要）。
+# tiff は WebView が描けないので配信時にJPEGへ詰め直す
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+    "bmp",
+    "gif",
+    "tiff",
+] }
+# JPEGを「間引きながら」展開するためのデコーダ（libjpeg-turbo/mozjpeg）。
+# image が使う zune-jpeg は常に原寸で展開するので、512pxのサムネイルを
+# 作るのに 19MP を全部起こしてしまう。こちらは 1/8 まで落として展開でき、
+# ハフマン復号そのものも速い（実測 92ms → 40ms／19MP）。
+# ビルドにNASMが要るが、rav1dのasmで既に要求しているので増えない。
+# ライセンスはIJG（BSD相当の許諾）で、MIT配布と両立する
+mozjpeg = "0.10"
+# 縮小のSIMD実装（SSE4.1/AVX2/NEONを実行時に選ぶ）。imageクレートの
+# imageops は素のスカラーで、サムネイル生成の一番重い部分がここに乗る。
+# MIT OR Apache-2.0 で、Cライブラリは増えない
+fast_image_resize = { version = "6", features = ["image"] }
+# 高品質サムネイルのWebP(lossy)エンコード用（imageクレートはlossless WebPのみ）
+webp = { version = "0.3", default-features = false }
+kamadak-exif = "0.6"
+# AVIF（AV1）のデコーダ。dav1d の Rust 移植で、Cライブラリを持ち込まずに済む。
+# BSD-2-Clause なのでMIT配布と両立する（表示はOSSライセンス一覧へ）。
+# `asm` は x86 で NASM を要求する代わりに 6倍速い（実測 25ms 対 160ms／12MP）。
+# bitdepth_16 はiPhone等の10bit AVIF用
+rav1d = { version = "1.1", default-features = false, features = [
+    "bitdepth_8",
+    "bitdepth_16",
+    "asm",
+] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+filetime = "0.2"
+notify-debouncer-mini = "0.5"
+
+# USNジャーナル（段階B-1）用のWin32 API宣言
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+] }
+# HEIC/HEIF のデコードはOS任せ（第7部 段階G）。WICはCOMインターフェイスなので
+# 生のvtableを触るwindows-sysでは扱いにくく、ラッパのあるwindowsクレートを使う。
+# Tauri側が既に同じ版を引いているので、依存が増えても新しくビルドされない
+# Win32_UI_Shell / Win32_Graphics_Gdi は動画のサムネイルをShellから借りる用（第9部）
+# Win32_UI_Shell_PropertiesSystem 一式は、寸法・撮影日時・長さをShellから借りる用
+# （同 段階H。PROPVARIANT を触るので StructuredStorage と Variant も要る）
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+
+[dev-dependencies]
+tempfile = "3"

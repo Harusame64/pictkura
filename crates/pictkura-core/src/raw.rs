@@ -1,0 +1,906 @@
+//! RAW画像の埋め込みプレビュー抽出（第6部 段階F）。
+//!
+//! **RAWを現像しない**のが方針。現像（デモザイク＋色変換）は1枚あたり数百ms〜秒で、
+//! 「爆速」と両立しない。一方、実用上のRAWはほぼ例外なく
+//! **カメラが書いた表示用JPEG**を内部に持っている（撮影時に背面液晶へ出すため）。
+//! これを取り出せば、一覧のサムネイルもビューアの表示も**デコード1回**で足りる。
+//!
+//! 取り出し方は形式で違うので、素直な順に3段構えにする:
+//!
+//! 1. **EXIF/TIFFの申告**（CR2・NEF・ARW・DNG・ORF・PEF・RW2 など）。
+//!    TIFF系RAWは複数のIFDを持ち、それぞれがプレビューJPEGの位置と長さを申告する。
+//!    ヘッダだけ読めば場所が分かるので、ここで当たれば**ファイル全体を読まない**
+//! 2. **ブロック走査**（CR3・RAF など、TIFFではない形式）。
+//!    CR3はISO-BMFF、RAFは独自ヘッダで、いずれもJPEGを丸ごと抱えている。
+//!    形式ごとのパーサを書く代わりに、先頭の一定量からJPEGの塊を拾う
+//! 3. **非圧縮RGBの組み立て**（Leica DNG・Epson ERF・Hasselblad 3FR・
+//!    Phase One IIQ・Kodak DCR）。これらは**JPEGを1枚も持たず**、プレビューを
+//!    生のRGBとしてTIFFのストリップに置いている。ストリップを繋いで絵にする
+//! 4. 見つからなければ諦める（サムネイル無しとして扱い、一覧には枠だけ出る）
+
+use std::path::Path;
+
+use exif::{In, Tag};
+
+/// ブロック走査で読む上限。RAWの埋め込みプレビューはファイル先頭側にあるため、
+/// 全体（20〜80MB）を読まずに済ませる。CR3のPRVWもRAFのJPEGもこの範囲に入る。
+const SCAN_LIMIT: usize = 16 * 1024 * 1024;
+
+/// 拡張子がRAWか（大文字小文字は無視）。
+///
+/// ここに無い拡張子は「普通の画像」として `image` クレートに渡る。
+pub fn is_raw_extension(ext: &str) -> bool {
+    const RAW_EXTENSIONS: &[&str] = &[
+        "cr2", "cr3", "crw", // Canon
+        "nef", "nrw", // Nikon
+        "arw", "srf", "sr2", // Sony
+        "raf", // Fujifilm
+        "orf", // OM System / Olympus
+        "rw2", // Panasonic
+        "pef", "ptx", // Pentax
+        "srw", // Samsung
+        "dng", // Adobe / 各社共通
+        "raw", "rwl", // Leica
+        "3fr", "fff", // Hasselblad
+        "iiq", // Phase One
+        "erf", // Epson
+        "mrw", // Minolta
+        "x3f", // Sigma
+        "dcr", "kdc", // Kodak
+        "mos", // Leaf
+    ];
+    let lower = ext.to_ascii_lowercase();
+    RAW_EXTENSIONS.contains(&lower.as_str())
+}
+
+/// JPEGらしきバイト列か（SOIマーカー）。
+fn looks_like_jpeg(bytes: &[u8]) -> bool {
+    bytes.len() > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF
+}
+
+/// JPEGを1枚ぶん読み切った結果。
+struct JpegSpan {
+    /// SOIから数えた終端（EOIの直後）
+    end: usize,
+    /// `image` クレートでデコードして画面に出せるか
+    displayable: bool,
+}
+
+/// バイト列の `start` から始まるJPEGを**セグメントを辿って**読み、終端と種別を返す。
+///
+/// 「0xFFD9 を探すだけ」ではいけない。JPEGのEXIF（APP1）には**サムネイルJPEGが
+/// 丸ごと入っている**ことがあり、その内側のEOIで切ってしまうと壊れた画像になる。
+/// APP1は長さ付きセグメントなので、長さで飛ばせば内側のEOIを踏まない。
+///
+/// 同時に SOF を見て「表示できるJPEGか」も判定する。RAWはセンサーの生データを
+/// **ロスレスJPEG(SOF3)** として抱えていることがあり、大きさで選ぶと必ずそれを掴む。
+fn jpeg_span(buf: &[u8], start: usize) -> Option<JpegSpan> {
+    if !looks_like_jpeg(buf.get(start..)?) {
+        return None;
+    }
+    let mut displayable = false;
+    let mut i = start + 2;
+    while i + 1 < buf.len() {
+        // マーカーの前には詰め物の 0xFF が並ぶことがある
+        if buf[i] != 0xFF {
+            return None; // セグメントの切れ目に来ていない＝壊れている
+        }
+        let mut marker_pos = i;
+        while marker_pos + 1 < buf.len() && buf[marker_pos + 1] == 0xFF {
+            marker_pos += 1;
+        }
+        let marker = *buf.get(marker_pos + 1)?;
+        i = marker_pos + 2;
+        match marker {
+            // 終端
+            0xD9 => {
+                return Some(JpegSpan {
+                    end: i,
+                    displayable,
+                })
+            }
+            // 長さフィールドを持たないマーカー
+            0x01 | 0xD0..=0xD8 => continue,
+            _ => {}
+        }
+        let len = u16::from_be_bytes([*buf.get(i)?, *buf.get(i + 1)?]) as usize;
+        if len < 2 {
+            return None;
+        }
+        match marker {
+            // 普通のJPEG（ベースライン・拡張シーケンシャル・プログレッシブ）。
+            // 8ビット精度・成分1〜4のものだけ受け付ける
+            0xC0..=0xC2 => {
+                let sof = buf.get(i + 2..i + 8)?;
+                displayable = sof[0] == 8
+                    && u16::from_be_bytes([sof[1], sof[2]]) > 0
+                    && u16::from_be_bytes([sof[3], sof[4]]) > 0
+                    && (1..=4).contains(&sof[5]);
+            }
+            // ロスレス・差分・算術符号はデコードできない
+            0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF => displayable = false,
+            _ => {}
+        }
+        i += len;
+
+        // SOS の後ろは画素データ。次のマーカーまで読み飛ばす
+        // （0xFF00 は詰め物、0xFFD0〜D7 はリスタートマーカーで区切りではない）
+        if marker == 0xDA {
+            while i + 1 < buf.len() {
+                if buf[i] == 0xFF && !matches!(buf[i + 1], 0x00 | 0xFF | 0xD0..=0xD7) {
+                    break;
+                }
+                i += 1;
+            }
+        }
+    }
+    None
+}
+
+/// 完結した1枚のJPEGで、かつ表示できるか。
+fn is_displayable_jpeg(bytes: &[u8]) -> bool {
+    matches!(jpeg_span(bytes, 0), Some(span) if span.displayable && span.end == bytes.len())
+}
+
+/// EXIF/TIFFの申告から、埋め込みJPEGの (オフセット, 長さ) 候補を集める。
+///
+/// 見るのは2種類:
+/// - `JPEGInterchangeFormat` / `...Length`（サムネイルIFDやSubIFDのプレビュー）
+/// - `StripOffsets` / `StripByteCounts` で `Compression = 6`（旧JPEG圧縮）。
+///   CR2の全画素サイズのプレビューはこの形で入っている
+///
+/// 候補は**長さの大きい順**に返す。大きいJPEGほど元画像に近い。
+fn declared_previews(exif: &exif::Exif) -> Vec<(usize, usize)> {
+    /// この規格のIFD番号は 0(PRIMARY) と 1(THUMBNAIL) が定義済み。
+    /// RAWはSubIFDを複数持つため、実際に出てきたIFD番号を舐める
+    fn ifds(exif: &exif::Exif) -> Vec<In> {
+        let mut seen: Vec<In> = Vec::new();
+        for field in exif.fields() {
+            if !seen.contains(&field.ifd_num) {
+                seen.push(field.ifd_num);
+            }
+        }
+        seen
+    }
+
+    let value_at = |ifd: In, tag: Tag| -> Option<usize> {
+        exif.get_field(tag, ifd)?
+            .value
+            .get_uint(0)
+            .map(|v| v as usize)
+    };
+
+    let mut candidates = Vec::new();
+    for ifd in ifds(exif) {
+        if let (Some(offset), Some(len)) = (
+            value_at(ifd, Tag::JPEGInterchangeFormat),
+            value_at(ifd, Tag::JPEGInterchangeFormatLength),
+        ) {
+            candidates.push((offset, len));
+        }
+        // JPEG圧縮のストリップ（6=旧JPEG, 7=新JPEG）は、そのままJPEGファイル
+        if matches!(value_at(ifd, Tag::Compression), Some(6) | Some(7)) {
+            if let (Some(offset), Some(len)) = (
+                value_at(ifd, Tag::StripOffsets),
+                value_at(ifd, Tag::StripByteCounts),
+            ) {
+                candidates.push((offset, len));
+            }
+        }
+    }
+    candidates.sort_by_key(|(_, len)| std::cmp::Reverse(*len));
+    candidates
+}
+
+/// バイト列から**表示できるJPEGのうち最大のもの**を切り出す。
+///
+/// 形式ごとのパーサを書かずにCR3・RAF等の表示用JPEGへ届くための手段。
+fn scan_largest_jpeg(buf: &[u8]) -> Option<&[u8]> {
+    let mut best: Option<&[u8]> = None;
+    let mut i = 0usize;
+    while i + 3 < buf.len() {
+        if !looks_like_jpeg(&buf[i..]) {
+            i += 1;
+            continue;
+        }
+        match jpeg_span(buf, i) {
+            Some(span) => {
+                let block = &buf[i..span.end];
+                if span.displayable && best.is_none_or(|b| b.len() < block.len()) {
+                    best = Some(block);
+                }
+                // 読み切れた分は飛ばす（内側のサムネイルを二重に拾わない）
+                i = span.end;
+            }
+            // 途中で壊れていた: このSOIは諦めて次を探す
+            None => i += 2,
+        }
+    }
+    best
+}
+
+/// 非圧縮プレビューの置き場所（TIFFのストリップ）。
+struct UncompressedStrips {
+    width: u32,
+    height: u32,
+    /// 1成分あたりのビット数（8 または 16）
+    bits: u32,
+    offsets: Vec<u32>,
+    counts: Vec<u32>,
+}
+
+/// 非圧縮RGBストリップのプレビューを組み立ててJPEGにする。
+///
+/// 旧世代・中判のRAW（Leica DNG・Epson ERF・Hasselblad 3FR・Phase One IIQ・
+/// Kodak DCR など）は**JPEGを1枚も持たず**、プレビューを「非圧縮のRGB」として
+/// TIFFのストリップに置いている。JPEGを探すだけでは永遠に見つからないので、
+/// ここで組み立てる。
+///
+/// 選ぶのは `Compression=1`（非圧縮）かつ `PhotometricInterpretation=2`（RGB）の
+/// IFD。センサーの生データ（`Photometric=32803` = CFA）は**選ばない**
+/// （現像していないので絵にならない）。
+fn uncompressed_preview(path: &Path, exif: &exif::Exif, big_endian: bool) -> Option<Vec<u8>> {
+    /// 組み立てを許す最大バイト数。プレビューは数百KB〜数MBで、
+    /// これを超えるものは生データを掴んでいる可能性が高い
+    const MAX_BYTES: usize = 64 * 1024 * 1024;
+
+    let ifds: Vec<In> = {
+        let mut seen: Vec<In> = Vec::new();
+        for field in exif.fields() {
+            if !seen.contains(&field.ifd_num) {
+                seen.push(field.ifd_num);
+            }
+        }
+        seen
+    };
+
+    let uint = |ifd: In, tag: Tag| -> Option<u32> { exif.get_field(tag, ifd)?.value.get_uint(0) };
+    let uints = |ifd: In, tag: Tag| -> Vec<u32> {
+        let Some(field) = exif.get_field(tag, ifd) else {
+            return Vec::new();
+        };
+        (0..)
+            .map_while(|i| field.value.get_uint(i))
+            .collect::<Vec<_>>()
+    };
+
+    // 候補のうち一番大きいものを使う
+    let mut best: Option<UncompressedStrips> = None;
+    for ifd in ifds {
+        if uint(ifd, Tag::Compression) != Some(1) {
+            continue;
+        }
+        if uint(ifd, Tag::PhotometricInterpretation) != Some(2) {
+            continue; // RGB以外（CFAの生データ等）は絵にならない
+        }
+        let (Some(width), Some(height)) = (uint(ifd, Tag::ImageWidth), uint(ifd, Tag::ImageLength))
+        else {
+            continue;
+        };
+        let bits = uint(ifd, Tag::BitsPerSample).unwrap_or(8);
+        let samples = uint(ifd, Tag::SamplesPerPixel).unwrap_or(3);
+        // 平面分離（PlanarConfiguration=2）は面ごとに並ぶので扱わない
+        if samples != 3 || !matches!(bits, 8 | 16) || uint(ifd, Tag::PlanarConfiguration) == Some(2)
+        {
+            continue;
+        }
+        let offsets = uints(ifd, Tag::StripOffsets);
+        let counts = uints(ifd, Tag::StripByteCounts);
+        if offsets.is_empty() || offsets.len() != counts.len() {
+            continue;
+        }
+        let expected = (width as usize) * (height as usize) * 3 * (bits as usize / 8);
+        if expected == 0 || expected > MAX_BYTES {
+            continue;
+        }
+        let area = (width as usize) * (height as usize);
+        if best
+            .as_ref()
+            .is_none_or(|b| (b.width as usize) * (b.height as usize) < area)
+        {
+            best = Some(UncompressedStrips {
+                width,
+                height,
+                bits,
+                offsets,
+                counts,
+            });
+        }
+    }
+
+    let UncompressedStrips {
+        width,
+        height,
+        bits,
+        offsets,
+        counts,
+    } = best?;
+    let mut raw = Vec::new();
+    for (offset, count) in offsets.iter().zip(&counts) {
+        raw.extend_from_slice(&read_window(path, *offset as usize, *count as usize)?);
+    }
+
+    let needed = (width as usize) * (height as usize) * 3;
+    let pixels: Vec<u8> = if bits == 8 {
+        raw
+    } else {
+        // 16ビットのプレビューは**リニア**（ガンマ未適用）で入っている。
+        // 上位8ビットをそのまま使うと真っ暗な絵になるので、sRGB相当の
+        // ガンマを掛けてから8ビットへ落とす（Kodak DCRで実際に発生）
+        let lut: Vec<u8> = (0..=255u32)
+            .map(|v| ((v as f32 / 255.0).powf(1.0 / 2.2) * 255.0).round() as u8)
+            .collect();
+        raw.chunks_exact(2)
+            .map(|p| lut[if big_endian { p[0] } else { p[1] } as usize])
+            .collect()
+    };
+    if pixels.len() < needed {
+        return None; // ストリップが欠けている
+    }
+
+    let image = image::RgbImage::from_raw(width, height, pixels[..needed].to_vec())?;
+    encode_jpeg(image::DynamicImage::ImageRgb8(image))
+}
+
+/// デコード済み画像をJPEGへ（プレビューの返り値はJPEGバイト列に統一する）。
+pub(crate) fn encode_jpeg(img: image::DynamicImage) -> Option<Vec<u8>> {
+    // JPEGは透過を持てない。alphaを捨てるだけだと、SIMDの縮小を通った
+    // 透明部分が黒で残る（resize::flatten_onto_white の説明を参照）
+    let rgb = crate::resize::flatten_onto_white(&img);
+    let mut bytes = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 82);
+    rgb.write_with_encoder(encoder).ok()?;
+    Some(bytes)
+}
+
+/// RAWから表示用のJPEGを取り出す。見つからなければNone。
+///
+/// 返すのは**カメラが書いたJPEGそのまま**（再エンコードしない）。
+/// 向きの補正は呼び出し側が [`crate::thumbs::apply_orientation`] で行う
+/// （RAWのEXIF Orientation はプレビューJPEGにも効く）。
+pub fn embedded_preview(path: &Path) -> Option<Vec<u8>> {
+    // 1段目: TIFFの申告を読む。ヘッダだけで位置が分かるので、
+    // 当たれば必要な範囲しか読まない
+    if let Ok(file) = std::fs::File::open(path) {
+        let mut reader = std::io::BufReader::new(file);
+        if let Ok(exif) = exif::Reader::new().read_from_container(&mut reader) {
+            for (offset, len) in declared_previews(&exif) {
+                if len == 0 {
+                    continue;
+                }
+                // まずEXIFパーサが保持しているバッファから切り出せるか試す
+                // （サムネイルIFDのJPEGはここに入っている）
+                if let Some(bytes) = exif.buf().get(offset..offset.saturating_add(len)) {
+                    if is_displayable_jpeg(bytes) {
+                        return Some(bytes.to_vec());
+                    }
+                }
+                // 申告の長さが実物と合わないファイルがある（切れたJPEGになる）。
+                // 少し多めに読んで、終端はJPEG自身のセグメントから決める
+                if let Some(window) =
+                    read_window(path, offset, len.saturating_mul(2).max(64 * 1024))
+                {
+                    if let Some(span) = jpeg_span(&window, 0) {
+                        if span.displayable {
+                            return Some(window[..span.end].to_vec());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2段目: 先頭を読んでJPEGの塊を拾う（CR3・RAF等）
+    if let Some(head) = read_head(path, SCAN_LIMIT) {
+        if let Some(found) = scan_largest_jpeg(&head) {
+            return Some(found.to_vec());
+        }
+    }
+
+    // 3段目: JPEGが1枚も無い形式（Leica DNG・Epson ERF・Hasselblad 3FR・
+    // Phase One IIQ・Kodak DCR）。非圧縮RGBのプレビューを組み立てる
+    let big_endian = matches!(read_window(path, 0, 2).as_deref(), Some(b"MM"));
+    let file = std::fs::File::open(path).ok()?;
+    let mut reader = std::io::BufReader::new(file);
+    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
+    uncompressed_preview(path, &exif, big_endian)
+}
+
+/// ファイルの指定位置から最大 `len` バイト読む（足りなければ読めた分だけ）。
+fn read_window(path: &Path, offset: usize, len: usize) -> Option<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    file.seek(SeekFrom::Start(offset as u64)).ok()?;
+    let mut buf = Vec::new();
+    file.take(len.min(SCAN_LIMIT) as u64)
+        .read_to_end(&mut buf)
+        .ok()?;
+    (!buf.is_empty()).then_some(buf)
+}
+
+/// ファイルの先頭を最大 `limit` バイト読む。
+fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut buf = Vec::new();
+    file.take(limit as u64).read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
+/// ISO-BMFF（CR3等）から**TIFF形式のメタデータブロック**を取り出す。
+///
+/// CR3はTIFFではないのでEXIFパーサが直接読めない。Canonは撮影情報を
+/// `moov/uuid` の下の `CMT1`（IFD0: メーカー・機種・向き）と
+/// `CMT2`（Exif IFD: 撮影日時）に、**中身はTIFFのまま**入れている。
+/// このボックスの中身をそのままEXIFパーサへ渡せば、普通のJPEGと同じに読める。
+///
+/// 箱を辿るだけなので読むのはヘッダ周辺だけ（数十KB）。
+pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
+    /// ISO-BMFFで中に箱が入っている（＝再帰して良い）コンテナ。
+    /// `uuid` は先頭16バイトがUUIDで、その後ろに子の箱が続く
+    const CONTAINERS: &[&[u8; 4]] = &[b"moov", b"trak", b"mdia", b"minf", b"stbl", b"uuid"];
+    /// TIFF形式のメタデータが入っている箱（CMT1=IFD0, CMT2=Exif IFD）
+    const METADATA: &[&[u8; 4]] = &[b"CMT1", b"CMT2", b"CMT3", b"CMT4"];
+
+    fn walk(buf: &[u8], depth: usize, out: &mut Vec<Vec<u8>>) {
+        // 壊れたファイルで無限に潜らない
+        if depth > 6 {
+            return;
+        }
+        let mut pos = 0usize;
+        while pos + 8 <= buf.len() {
+            let size = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
+            let kind = &buf[pos + 4..pos + 8];
+            // size=0 は「以降すべて」、size=1 は64ビット長。ここでは扱わず打ち切る
+            let size = size as usize;
+            if size < 8 || pos + size > buf.len() {
+                return;
+            }
+            let body = &buf[pos + 8..pos + size];
+            if METADATA.iter().any(|k| *k == kind) {
+                out.push(body.to_vec());
+            } else if CONTAINERS.iter().any(|k| *k == kind) {
+                // uuidの先頭16バイトはUUIDそのもの。飛ばしてから中を見る
+                let inner = if kind == b"uuid" && body.len() > 16 {
+                    &body[16..]
+                } else {
+                    body
+                };
+                walk(inner, depth + 1, out);
+            }
+            pos += size;
+        }
+    }
+
+    // moovはCR3ではファイル先頭側にある。画素データ（mdat）まで読まない
+    let Some(head) = read_head(path, 1024 * 1024) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    walk(&head, 0, &mut out);
+    out
+}
+
+/// パスの拡張子がRAWか。
+pub fn is_raw_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(is_raw_extension)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// テスト用の小さなJPEGを作る（内容は問わないが、デコードできること）。
+    fn jpeg_bytes(width: u32, height: u32) -> Vec<u8> {
+        let img = image::RgbImage::new(width, height);
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Jpeg)
+            .unwrap();
+        out.into_inner()
+    }
+
+    /// TIFFのIFDエントリ1つぶん。
+    struct Entry {
+        tag: u16,
+        /// 3=SHORT, 4=LONG
+        kind: u16,
+        values: Vec<u32>,
+    }
+
+    fn entry(tag: u16, kind: u16, values: &[u32]) -> Entry {
+        Entry {
+            tag,
+            kind,
+            values: values.to_vec(),
+        }
+    }
+
+    /// 任意のIFDと付随データを持つTIFFを組み立てる（バイト順を選べる）。
+    ///
+    /// 実物のRAWは各社バラバラなので、テストは「構造」を作って確かめる。
+    fn build_tiff(entries: &[Entry], blobs: &[(usize, Vec<u8>)], big_endian: bool) -> Vec<u8> {
+        let u16b = |v: u16| -> Vec<u8> {
+            if big_endian {
+                v.to_be_bytes().to_vec()
+            } else {
+                v.to_le_bytes().to_vec()
+            }
+        };
+        let u32b = |v: u32| -> Vec<u8> {
+            if big_endian {
+                v.to_be_bytes().to_vec()
+            } else {
+                v.to_le_bytes().to_vec()
+            }
+        };
+
+        let mut buf: Vec<u8> = if big_endian {
+            vec![0x4D, 0x4D, 0x00, 0x2A]
+        } else {
+            vec![0x49, 0x49, 0x2A, 0x00]
+        };
+        buf.extend(u32b(8));
+
+        // 値が4バイトに収まらないエントリは、IFDの後ろへ置く
+        let ifd_end = 8 + 2 + entries.len() * 12 + 4;
+        let mut extra: Vec<u8> = Vec::new();
+        let mut ifd: Vec<u8> = u16b(entries.len() as u16);
+        for e in entries {
+            ifd.extend(u16b(e.tag));
+            ifd.extend(u16b(e.kind));
+            ifd.extend(u32b(e.values.len() as u32));
+            let width = if e.kind == 3 { 2 } else { 4 };
+            let size = width * e.values.len();
+            let mut packed: Vec<u8> = Vec::new();
+            for v in &e.values {
+                packed.extend(if e.kind == 3 {
+                    u16b(*v as u16)
+                } else {
+                    u32b(*v)
+                });
+            }
+            if size <= 4 {
+                packed.resize(4, 0);
+                ifd.extend(packed);
+            } else {
+                ifd.extend(u32b((ifd_end + extra.len()) as u32));
+                extra.extend(packed);
+            }
+        }
+        ifd.extend(u32b(0)); // 次のIFDは無し
+        buf.extend(ifd);
+        buf.extend(extra);
+
+        // 指定オフセットへデータ（ストリップ等）を置く
+        for (offset, bytes) in blobs {
+            if buf.len() < *offset {
+                buf.resize(*offset, 0);
+            }
+            buf.extend_from_slice(bytes);
+        }
+        buf
+    }
+
+    /// 非圧縮プレビューを持つテスト用TIFFの仕様。
+    struct PreviewSpec {
+        width: u32,
+        height: u32,
+        color: [u8; 3],
+        /// ストリップ分割数
+        strips: u32,
+        /// 1成分あたりのビット数
+        bits: u32,
+        big_endian: bool,
+    }
+
+    /// 非圧縮RGBのプレビューを持つTIFFを書く（Leica DNG・Epson ERF等の縮図）。
+    fn tiff_with_uncompressed_preview(
+        dir: &Path,
+        name: &str,
+        spec: PreviewSpec,
+    ) -> std::path::PathBuf {
+        let PreviewSpec {
+            width,
+            height,
+            color,
+            strips,
+            bits,
+            big_endian,
+        } = spec;
+        let rows_per_strip = height.div_ceil(strips);
+        let bytes_per_row = width * 3 * (bits / 8);
+        let mut offsets = Vec::new();
+        let mut counts = Vec::new();
+        let mut blobs = Vec::new();
+        let mut cursor = 4096usize; // IFDと重ならない位置から置く
+        let mut remaining = height;
+        for _ in 0..strips {
+            let rows = rows_per_strip.min(remaining);
+            remaining -= rows;
+            let mut data = Vec::new();
+            for _ in 0..(rows * width) {
+                for channel in color {
+                    if bits == 8 {
+                        data.push(channel);
+                    } else if big_endian {
+                        data.extend_from_slice(&[channel, 0]);
+                    } else {
+                        data.extend_from_slice(&[0, channel]);
+                    }
+                }
+            }
+            offsets.push(cursor as u32);
+            counts.push(rows * bytes_per_row);
+            cursor += data.len();
+            let at = *offsets.last().unwrap() as usize;
+            blobs.push((at, data));
+        }
+
+        let entries = vec![
+            entry(256, 4, &[width]),            // ImageWidth
+            entry(257, 4, &[height]),           // ImageLength
+            entry(258, 3, &[bits, bits, bits]), // BitsPerSample
+            entry(259, 3, &[1]),                // Compression = 非圧縮
+            entry(262, 3, &[2]),                // Photometric = RGB
+            entry(273, 4, &offsets),            // StripOffsets
+            entry(277, 3, &[3]),                // SamplesPerPixel
+            entry(278, 4, &[rows_per_strip]),   // RowsPerStrip
+            entry(279, 4, &counts),             // StripByteCounts
+            entry(284, 3, &[1]),                // PlanarConfiguration
+        ];
+        let path = dir.join(name);
+        std::fs::write(&path, build_tiff(&entries, &blobs, big_endian)).unwrap();
+        path
+    }
+
+    #[test]
+    fn 非圧縮rgbのプレビューを組み立てる() {
+        let dir = tempfile::tempdir().unwrap();
+        // 複数ストリップに分かれていても1枚に繋がる
+        let path = tiff_with_uncompressed_preview(
+            dir.path(),
+            "leica.dng",
+            PreviewSpec {
+                width: 32,
+                height: 24,
+                color: [200, 100, 50],
+                strips: 4,
+                bits: 8,
+                big_endian: false,
+            },
+        );
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let img = image::load_from_memory(&preview).unwrap().to_rgb8();
+        assert_eq!((img.width(), img.height()), (32, 24));
+        // JPEGは非可逆なので厳密一致はしない。色味が保たれていれば良い
+        let px = img.get_pixel(16, 12).0;
+        assert!(
+            px[0] > 150 && (60..140).contains(&px[1]) && px[2] < 100,
+            "色が保たれる: {px:?}"
+        );
+    }
+
+    #[test]
+    fn ビッグエンディアンの非圧縮プレビューも読める() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = tiff_with_uncompressed_preview(
+            dir.path(),
+            "epson.erf",
+            PreviewSpec {
+                width: 16,
+                height: 16,
+                color: [30, 180, 90],
+                strips: 1,
+                bits: 8,
+                big_endian: true,
+            },
+        );
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let img = image::load_from_memory(&preview).unwrap();
+        assert_eq!((img.width(), img.height()), (16, 16));
+    }
+
+    #[test]
+    fn 十六ビットの非圧縮プレビューは明るさを補正して読む() {
+        let dir = tempfile::tempdir().unwrap();
+        // 16ビットのプレビューはリニア（ガンマ未適用）で入っている。
+        // 上位8ビットをそのまま使うと真っ暗になるので補正が要る
+        let path = tiff_with_uncompressed_preview(
+            dir.path(),
+            "kodak.dcr",
+            PreviewSpec {
+                width: 16,
+                height: 16,
+                color: [40, 40, 40],
+                strips: 1,
+                bits: 16,
+                big_endian: true,
+            },
+        );
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let img = image::load_from_memory(&preview).unwrap().to_rgb8();
+        let px = img.get_pixel(8, 8).0;
+        assert!(px[0] > 80, "リニアのまま暗く出ていない: {px:?}");
+    }
+
+    #[test]
+    fn センサーの生データはプレビューに使わない() {
+        // Photometric=32803（CFA）は現像していないので絵にならない。
+        // 非圧縮でも選んではいけない
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("raw-only.dng");
+        let entries = vec![
+            entry(256, 4, &[64]),
+            entry(257, 4, &[64]),
+            entry(258, 3, &[8, 8, 8]),
+            entry(259, 3, &[1]),
+            entry(262, 3, &[32803]), // CFA
+            entry(273, 4, &[4096]),
+            entry(277, 3, &[3]),
+            entry(279, 4, &[64 * 64 * 3]),
+        ];
+        let blob = vec![128u8; 64 * 64 * 3];
+        std::fs::write(&path, build_tiff(&entries, &[(4096, blob)], false)).unwrap();
+        assert!(embedded_preview(&path).is_none());
+    }
+
+    #[test]
+    fn 実サンプルでプレビューが取れる() {
+        // 実物のRAWは各社バラバラなので、手元にサンプルがある人だけ走る
+        // （raw.pixls.us のCC0サンプルを想定。環境変数が無ければskip）
+        let Ok(dir) = std::env::var("PICTKURA_RAW_SAMPLES") else {
+            return;
+        };
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if !path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(is_raw_extension)
+            {
+                continue;
+            }
+            // プレビューを持たないファイルもあるので、
+            // 「取れたなら必ずデコードできる」ことを確かめる
+            if let Some(preview) = embedded_preview(&path) {
+                image::load_from_memory(&preview)
+                    .unwrap_or_else(|e| panic!("{}: デコードできない: {e}", path.display()));
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "サンプルが1件も見つからない: {dir}");
+    }
+
+    /// 「IFD0にプレビューJPEGを申告するTIFF」を組み立てる（CR2やNEFの縮図）。
+    fn tiff_with_declared_preview(dir: &Path, name: &str, jpeg: &[u8]) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mut buf: Vec<u8> = Vec::new();
+        // TIFFヘッダ（リトルエンディアン、IFD0は8バイト目から）
+        buf.extend_from_slice(b"II\x2a\x00");
+        buf.extend_from_slice(&8u32.to_le_bytes());
+
+        // IFD0: エントリ2つ（JPEGInterchangeFormat=513, その長さ=514）
+        let entry_count: u16 = 2;
+        let ifd_size = 2 + entry_count as usize * 12 + 4;
+        let jpeg_offset = (8 + ifd_size) as u32;
+
+        buf.extend_from_slice(&entry_count.to_le_bytes());
+        for (tag, value) in [(513u16, jpeg_offset), (514u16, jpeg.len() as u32)] {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&4u16.to_le_bytes()); // type = LONG
+            buf.extend_from_slice(&1u32.to_le_bytes()); // count
+            buf.extend_from_slice(&value.to_le_bytes());
+        }
+        buf.extend_from_slice(&0u32.to_le_bytes()); // 次のIFDは無し
+        buf.extend_from_slice(jpeg);
+
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&buf).unwrap();
+        path
+    }
+
+    #[test]
+    fn raw拡張子を見分ける() {
+        for ext in ["CR2", "cr3", "arw", "NEF", "dng", "raf"] {
+            assert!(is_raw_extension(ext), "{ext} はRAW");
+        }
+        for ext in ["jpg", "png", "webp", "mp4", ""] {
+            assert!(!is_raw_extension(ext), "{ext} はRAWではない");
+        }
+    }
+
+    #[test]
+    fn tiffの申告からプレビューを取り出す() {
+        let dir = tempfile::tempdir().unwrap();
+        let jpeg = jpeg_bytes(160, 120);
+        let path = tiff_with_declared_preview(dir.path(), "sample.cr2", &jpeg);
+
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        assert_eq!(preview, jpeg, "カメラが書いたJPEGをそのまま返す");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (160, 120));
+    }
+
+    #[test]
+    fn 申告が無くてもjpegの塊を拾う() {
+        // CR3やRAFのように、TIFFの申告が無くJPEGを抱えているだけのファイル
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.cr3");
+        let small = jpeg_bytes(16, 16);
+        let large = jpeg_bytes(320, 240);
+        let mut buf = b"ftypcrx \x00\x00\x00\x00".to_vec();
+        buf.extend_from_slice(&small);
+        buf.extend_from_slice(b"\x00\x00moov");
+        buf.extend_from_slice(&large);
+        std::fs::write(&path, &buf).unwrap();
+
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (320, 240),
+            "小さい方ではなく大きい方を選ぶ"
+        );
+    }
+
+    #[test]
+    fn bmffのメタデータ箱を取り出す() {
+        // CR3の構造を最小限で再現: moov > uuid > CMT1
+        fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("meta.cr3");
+
+        let cmt1 = box_of(b"CMT1", b"II* metadata-here");
+        let mut uuid_body = vec![0u8; 16]; // UUID
+        uuid_body.extend_from_slice(&cmt1);
+        let moov = box_of(b"moov", &box_of(b"uuid", &uuid_body));
+        let mut file = box_of(b"ftyp", b"crx ");
+        file.extend_from_slice(&moov);
+        std::fs::write(&path, &file).unwrap();
+
+        let blocks = bmff_metadata_blocks(&path);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].starts_with(b"II"), "TIFFの中身がそのまま出る");
+    }
+
+    #[test]
+    fn 壊れたbmffでも止まる() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("broken.cr3");
+        // サイズが自分より大きい箱（壊れている）
+        let mut buf = 999_999u32.to_be_bytes().to_vec();
+        buf.extend_from_slice(b"moov");
+        std::fs::write(&path, &buf).unwrap();
+        assert!(bmff_metadata_blocks(&path).is_empty());
+    }
+
+    #[test]
+    fn jpegを含まないファイルはnone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("broken.arw");
+        std::fs::write(&path, vec![0u8; 4096]).unwrap();
+        assert!(embedded_preview(&path).is_none());
+    }
+
+    #[test]
+    fn 途中で切れたjpegは拾わない() {
+        // SOIはあるがEOIが無い（壊れたRAW）。無理に返すとデコードで落ちる
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("truncated.nef");
+        let mut buf = vec![0u8; 64];
+        buf.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xE0]);
+        buf.extend_from_slice(&[0u8; 512]);
+        std::fs::write(&path, &buf).unwrap();
+        assert!(embedded_preview(&path).is_none());
+    }
+}

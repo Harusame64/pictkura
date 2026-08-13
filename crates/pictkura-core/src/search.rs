@@ -1,0 +1,521 @@
+//! 爆速検索のクエリ言語とインデックス用テキスト整形（第4部 段階D）。
+//!
+//! 爆速の原則:
+//! - 検索は**必ずインデックスシーク**に落とす。mediaへのLIKE '%x%'（全表スキャン）は禁止。
+//! - 自由語はFTS5（`media_fts`）のMATCHで解決し、返ったrowidで本表を引く。
+//! - カメラは低カーディナリティのファセットなので、FTSに載せず
+//!   `cameras` 表（数十行）を引いて `camera_id` のインデックスをシークする。
+//! - 日付・お気に入りは既存の `day_key` / 部分インデックスの条件として重ねる。
+//!
+//! 分かち書きしない言語の扱い（N-gram索引）:
+//! FTS5標準のunicode61トークナイザは、単語をスペースで区切らない言語
+//! （日本語・中国語・タイ語・ラオ語・クメール語・ビルマ語）で文がまるごと
+//! 1トークンになり、「沖縄旅行.jpg」に対する「旅行」が引けない。
+//! trigramトークナイザは中間一致ができる代わりに2文字クエリ
+//! （沖縄・家族・花火…日本語では最頻）が効かない。
+//! そこで**索引を書くときにそれらの文字の連続だけをbigramへ展開**する。
+//! 「沖縄旅行」→「沖縄 縄旅 旅行」。クエリ側も同じ展開をして**フレーズ検索**に
+//! すれば、位置が連続するbigramだけがヒットするため誤検出も出ない。
+//! ラテン・キリル・ギリシャ・インド系・アラビア文字などスペースで区切る言語は
+//! 展開せず、unicode61のトークン＋前方一致でそのまま引ける。
+
+/// この文字が「分かち書きしない文字体系」か（bigram展開の対象）。
+///
+/// 単語をスペースで区切らない言語は、unicode61トークナイザだと文がまるごと
+/// 1トークンになってしまい部分一致が引けない。日本語・中国語だけでなく
+/// タイ語・ラオ語・クメール語・ビルマ語も同じ問題を持つので、まとめて
+/// bigram展開の対象にする（話者数の多い言語をなるべく広く拾う）。
+///
+/// ハングルは分かち書きするが、bigramにしても害はなく、
+/// 助詞が続けて書かれる分だけ部分一致が効くようになるので含めている。
+fn is_unsegmented(c: char) -> bool {
+    matches!(c as u32,
+        0x0E00..=0x0E7F   // タイ文字
+        | 0x0E80..=0x0EFF // ラオ文字
+        | 0x1000..=0x109F // ビルマ文字
+        | 0x1780..=0x17FF // クメール文字
+        | 0x3040..=0x30FF // ひらがな・カタカナ
+        | 0x3400..=0x4DBF // CJK拡張A
+        | 0x4E00..=0x9FFF // CJK統合漢字
+        | 0xAC00..=0xD7AF // ハングル音節
+        | 0xF900..=0xFAFF // CJK互換漢字
+        | 0xFF66..=0xFF9F // 半角カナ
+    )
+}
+
+/// 索引用テキストへ整形する。CJKの連続はbigramの列へ、それ以外はそのまま。
+///
+/// 例: `"2019 沖縄旅行.jpg"` → `"2019 沖縄 縄旅 旅行 行 .jpg"`
+///
+/// CJKの前後には必ず空白を入れる（`"沖縄A"` が1トークン `沖縄a` に
+/// 化けるのを防ぐ）。1文字だけのCJK連続はその文字自身をトークンにする。
+///
+/// **末尾の1文字も単独トークンとして足す**。bigramだけだと「沖縄旅行」の
+/// 索引語は `沖縄 縄旅 旅行` になり、1文字検索の `"行"*` が
+/// 「行で始まる語」を探しても当たらない（行は常にbigramの2文字目にしか出ない）。
+/// 末尾の1文字を足せば、どの位置の1文字でも引けるようになる。
+/// 追加は連続ごとに1トークンだけなので索引はほとんど増えない。
+pub fn index_text(s: &str) -> String {
+    expand(s, true)
+}
+
+/// CJKの連続をbigramへ展開する。
+///
+/// `trailing_unigram` は**索引側だけ**true にすること。クエリ側で足すと、
+/// 例えば「沖縄旅行」の検索が `沖縄 縄旅 旅行 行` のフレーズになり、
+/// 「沖縄旅行記」（…旅行 行記 記）では4語目の位置に `行記` が来るため
+/// 一致しなくなる＝部分一致が壊れる。
+fn expand(s: &str, trailing_unigram: bool) -> String {
+    let mut out = String::with_capacity(s.len() * 2);
+    let mut run: Vec<char> = Vec::new();
+
+    let flush = |run: &mut Vec<char>, out: &mut String| {
+        if run.is_empty() {
+            return;
+        }
+        if run.len() == 1 {
+            out.push(' ');
+            out.push(run[0]);
+        } else {
+            for w in run.windows(2) {
+                out.push(' ');
+                out.push(w[0]);
+                out.push(w[1]);
+            }
+            if trailing_unigram {
+                // 末尾1文字（bigramの先頭には現れない文字）を単独で引けるようにする。
+                // bigram列の**後ろ**に置くので、フレーズ照合（位置が連続するbigram）は壊れない
+                out.push(' ');
+                out.push(run[run.len() - 1]);
+            }
+        }
+        out.push(' ');
+        run.clear();
+    };
+
+    for c in s.chars() {
+        if is_unsegmented(c) {
+            run.push(c);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
+/// FTS5の文字列リテラルとして引用する（`"` は `""` へエスケープ）。
+fn quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+/// 1語をFTS5のMATCH式へ変換する。
+///
+/// - CJKの連続 → bigram列の**フレーズ**（`"沖縄 縄旅 旅行"`）。位置が連続する
+///   ものだけを拾うのでN-gram特有の誤検出が出ない
+/// - それ以外 → unicode61のトークンをそのまま並べる
+/// - 式全体の末尾には `*` を付けて**前方一致**にする（打鍵ごとの絞り込み用）。
+///   1文字のCJK（`"沖"*`）もこれでヒットする
+///
+/// トークンが1つも取れない（記号だけ等）場合は `None`。
+fn term_to_match(word: &str) -> Option<String> {
+    // クエリ側は末尾ユニグラムを足さない（[`expand`] のコメント参照）
+    let expanded = expand(word, false);
+    let tokens: Vec<&str> = expanded
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    // CJK由来のbigram列は連続位置に並ぶため、フレーズ1つにまとめて精度を上げる。
+    // ASCII語との混在（"IMG 家族" 等）は隣接を要求すると外れるので、
+    // 「CJKの連続」単位でフレーズを作り、語同士はAND（空白区切り）にする。
+    let mut parts: Vec<String> = Vec::new();
+    let mut phrase: Vec<&str> = Vec::new();
+    let is_bigram = |t: &str| t.chars().all(is_unsegmented);
+    for tok in tokens {
+        if is_bigram(tok) {
+            phrase.push(tok);
+        } else {
+            if !phrase.is_empty() {
+                parts.push(quote(&phrase.join(" ")));
+                phrase.clear();
+            }
+            parts.push(quote(tok));
+        }
+    }
+    if !phrase.is_empty() {
+        parts.push(quote(&phrase.join(" ")));
+    }
+    // 末尾だけ前方一致にする（インクリメンタル検索で「途中まで打った語」を拾う）
+    if let Some(last) = parts.last_mut() {
+        last.push('*');
+    }
+    Some(parts.join(" "))
+}
+
+/// 検索条件。すべての条件はAND（絞り込み）で重なる。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SearchQuery {
+    /// 自由語（ファイル名・フォルダ名・カメラ名のいずれかに一致すれば拾う）
+    pub terms: Vec<String>,
+    /// `camera:` 指定（カメラ名だけが対象）
+    pub camera: Vec<String>,
+    /// `folder:` 指定（フォルダ名だけが対象）
+    pub folder: Vec<String>,
+    /// 表示日の下限（YYYYMMDD整数、含む）
+    pub day_from: Option<i64>,
+    /// 表示日の上限（YYYYMMDD整数、含む）
+    pub day_to: Option<i64>,
+    /// お気に入り（★）のみ
+    pub favorites_only: bool,
+}
+
+impl SearchQuery {
+    /// お気に入りフィルタだけの（＝検索語なしの）クエリ。
+    pub fn favorites(favorites_only: bool) -> Self {
+        Self {
+            favorites_only,
+            ..Default::default()
+        }
+    }
+
+    /// 全件表示（絞り込みなし）か。既存のタイムライン経路と同じ計画で実行できる。
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty()
+            && self.camera.is_empty()
+            && self.folder.is_empty()
+            && self.day_from.is_none()
+            && self.day_to.is_none()
+            && !self.favorites_only
+    }
+
+    /// FTSを引く必要があるか（自由語・フォルダのいずれかがある）。
+    /// カメラはFTSではなく `cameras` 表＋`camera_id` のインデックスで解決する。
+    pub fn needs_fts(&self) -> bool {
+        !self.terms.is_empty() || !self.folder.is_empty()
+    }
+
+    /// 自由語ごとの `media_fts MATCH ?` 式を、元の語とセットで返す。
+    ///
+    /// **語ごとに分けて返す**のは、自由語が「名前・フォルダに一致」だけでなく
+    /// 「カメラ名に一致」でも拾えるようにするため（DB側で語単位に
+    /// `FTS一致 OR camera_id一致` を組む）。条件同士はAND（絞り込み）で重なる。
+    ///
+    /// カメラ指定をFTSの列に入れないのは、機種数が数十しかない低カーディナリティの
+    /// ファセットで、全行ぶんの索引エントリを持つのが容量・速度ともに無駄なため。
+    ///
+    /// MATCH式が `None` の語は**索引語を1つも作れない**もの（記号・絵文字だけ等）。
+    /// 条件を落とすと絞り込みが消えて全件が返ってしまうため、呼び出し側は
+    /// 「一致なし」として扱うこと（カメラ名に当たる可能性は残る）。
+    pub fn term_matches(&self) -> Vec<(&str, Option<String>)> {
+        self.terms
+            .iter()
+            .map(|t| (t.as_str(), term_to_match(t)))
+            .collect()
+    }
+
+    /// `folder:` 指定ごとのMATCH式（folder列に限定）。
+    pub fn folder_matches(&self) -> Vec<String> {
+        self.folder
+            .iter()
+            .filter_map(|w| term_to_match(w).map(|m| format!("{{folder}} : ({m})")))
+            .collect()
+    }
+}
+
+/// 入力文字列を空白区切りのトークンへ分割する（`"..."` でくくると空白を含められる）。
+fn tokenize(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quoted = false;
+    for c in input.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            // 全角スペースも区切りとして扱う（日本語入力のまま検索できるように）
+            c if !quoted && (c.is_whitespace() || c == '\u{3000}') => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// 日付らしいトークンを (下限, 上限) のday_key範囲へ変換する。
+///
+/// 認識する形（区切りは `-` `/` `.` と 年月日）:
+/// `2019年` `2019-08` `2019/8` `2019年8月` `2019-08-11` `2019年8月11日`
+///
+/// **裸の4桁数字（`2019`）は日付として扱わない**。ファイル名の検索語と
+/// 区別できないため、日付で絞りたいときは `2019年` のように単位を付ける
+/// （UIのコマンドパレットが日付候補を出して補う）。
+fn parse_date_range(token: &str) -> Option<(i64, i64)> {
+    let mut nums: Vec<i64> = Vec::new();
+    let mut cur = String::new();
+    let mut had_unit = false;
+    for c in token.chars() {
+        if c.is_ascii_digit() {
+            cur.push(c);
+        } else {
+            if !cur.is_empty() {
+                nums.push(cur.parse().ok()?);
+                cur.clear();
+            }
+            match c {
+                '-' | '/' | '.' => {}
+                '年' | '月' | '日' => had_unit = true,
+                _ => return None, // 想定外の文字が混ざるものは日付ではない
+            }
+        }
+    }
+    if !cur.is_empty() {
+        nums.push(cur.parse().ok()?);
+    }
+    // 単位も区切りもない裸の数字は日付扱いしない
+    if nums.len() == 1 && !had_unit {
+        return None;
+    }
+    let year = *nums.first()?;
+    if !(1800..=9999).contains(&year) {
+        return None;
+    }
+    match nums.len() {
+        1 => Some((year * 10000 + 101, year * 10000 + 1231)),
+        2 => {
+            let m = nums[1];
+            if !(1..=12).contains(&m) {
+                return None;
+            }
+            Some((year * 10000 + m * 100 + 1, year * 10000 + m * 100 + 31))
+        }
+        3 => {
+            let (m, d) = (nums[1], nums[2]);
+            if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+                return None;
+            }
+            let key = year * 10000 + m * 100 + d;
+            Some((key, key))
+        }
+        _ => None,
+    }
+}
+
+/// 検索文字列を [`SearchQuery`] へ解析する。
+///
+/// 対応する指定:
+/// - `camera:α7` / `cam:α7` / `カメラ:α7` — カメラ名で絞る
+/// - `folder:沖縄` / `dir:沖縄` / `フォルダ:沖縄` — フォルダ名で絞る
+/// - `2019年` `2019-08` `2019年8月11日` — 撮影日で絞る
+/// - `★` / `fav:` — お気に入りのみ
+/// - それ以外 — 自由語（ファイル名・フォルダ名・カメラ名が対象）
+pub fn parse_query(input: &str, favorites_only: bool) -> SearchQuery {
+    let mut q = SearchQuery {
+        favorites_only,
+        ..Default::default()
+    };
+    for token in tokenize(input) {
+        // `key:value` 指定
+        if let Some((key, value)) = token.split_once(':') {
+            let value = value.trim();
+            let matched = match key.to_ascii_lowercase().as_str() {
+                "camera" | "cam" | "カメラ" => {
+                    if !value.is_empty() {
+                        q.camera.push(value.to_string());
+                    }
+                    true
+                }
+                "folder" | "dir" | "フォルダ" => {
+                    if !value.is_empty() {
+                        q.folder.push(value.to_string());
+                    }
+                    true
+                }
+                "fav" | "favorite" | "★" => {
+                    q.favorites_only = true;
+                    true
+                }
+                _ => false,
+            };
+            if matched {
+                continue;
+            }
+        }
+        if token == "★" {
+            q.favorites_only = true;
+            continue;
+        }
+        if let Some((from, to)) = parse_date_range(&token) {
+            // 複数の日付指定は範囲の共通部分（＝より狭い方）を採る
+            q.day_from = Some(q.day_from.map_or(from, |v: i64| v.max(from)));
+            q.day_to = Some(q.day_to.map_or(to, |v: i64| v.min(to)));
+            continue;
+        }
+        q.terms.push(token);
+    }
+    q
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cjkはbigramへ展開される() {
+        // 索引側は末尾1文字も単独トークンにする（どの位置の1文字でも引けるように）
+        assert_eq!(index_text("沖縄旅行"), " 沖縄 縄旅 旅行 行 ");
+        // 1文字のCJKはその文字自身
+        assert_eq!(index_text("空"), " 空 ");
+        // ASCIIは展開しない。CJKの前後には必ず空白が入る
+        assert_eq!(index_text("2019 沖縄A"), "2019  沖縄 縄 A");
+        assert_eq!(index_text("DSC00123.JPG"), "DSC00123.JPG");
+        // クエリ側は末尾1文字を足さない（足すと部分一致が壊れる）
+        assert_eq!(expand("沖縄旅行", false), " 沖縄 縄旅 旅行 ");
+    }
+
+    #[test]
+    fn 分かち書きしない言語はまとめてbigramになる() {
+        // タイ語（สวัสดี = こんにちは）。unicode61だと1トークンで中間一致できない
+        assert_eq!(expand("สวัส", false), " สว วั ัส ");
+        // ハングルも対象（助詞が続けて書かれるぶん部分一致が効くようになる）
+        assert_eq!(expand("한국", false), " 한국 ");
+        // スペースで区切る言語（ラテン・キリル・アラビア）は展開しない。
+        // unicode61のトークン＋前方一致でそのまま引ける
+        assert_eq!(expand("Ferien", false), "Ferien");
+        assert_eq!(expand("Отпуск", false), "Отпуск");
+        assert_eq!(expand("رحلة", false), "رحلة");
+    }
+
+    #[test]
+    fn 分かち書きしない言語も中間一致のmatch式になる() {
+        // 語の途中（วั）が phrase の一部として引ける
+        assert_eq!(term_to_match("สวัส").unwrap(), "\"สว วั ัส\"*");
+        // ラテン語はトークンそのまま＋前方一致
+        assert_eq!(term_to_match("Ferien").unwrap(), "\"Ferien\"*");
+    }
+
+    #[test]
+    fn cjk語はフレーズ_ascii語は前方一致になる() {
+        assert_eq!(term_to_match("沖縄旅行").unwrap(), "\"沖縄 縄旅 旅行\"*");
+        assert_eq!(term_to_match("旅行").unwrap(), "\"旅行\"*");
+        assert_eq!(term_to_match("沖").unwrap(), "\"沖\"*");
+        assert_eq!(term_to_match("dsc").unwrap(), "\"dsc\"*");
+        // 記号で区切られたASCIIは複数トークンのAND、末尾だけ前方一致
+        assert_eq!(term_to_match("ILCE-7M3").unwrap(), "\"ILCE\" \"7M3\"*");
+        // トークンが取れないものはNone（MATCH式に空文字を渡さない）
+        assert_eq!(term_to_match("!!!"), None);
+        assert_eq!(term_to_match(""), None);
+    }
+
+    #[test]
+    fn 引用符はエスケープされる() {
+        let m = term_to_match("a\"b").unwrap();
+        assert_eq!(m, "\"a\" \"b\"*");
+    }
+
+    #[test]
+    fn 日付は単位か区切りがあるときだけ認識する() {
+        assert_eq!(parse_date_range("2019年"), Some((20190101, 20191231)));
+        assert_eq!(parse_date_range("2019-08"), Some((20190801, 20190831)));
+        assert_eq!(parse_date_range("2019年8月"), Some((20190801, 20190831)));
+        assert_eq!(parse_date_range("2019/8/11"), Some((20190811, 20190811)));
+        assert_eq!(
+            parse_date_range("2019年8月11日"),
+            Some((20190811, 20190811))
+        );
+        // 裸の数字はファイル名の検索語と区別できないので日付にしない
+        assert_eq!(parse_date_range("2019"), None);
+        assert_eq!(parse_date_range("1234"), None);
+        // 妥当でない月日・年は日付ではない
+        assert_eq!(parse_date_range("2019-13"), None);
+        assert_eq!(parse_date_range("2019/8/32"), None);
+        assert_eq!(parse_date_range("99年"), None);
+        // 日付ではない文字列
+        assert_eq!(parse_date_range("DSC00123.JPG"), None);
+        assert_eq!(parse_date_range("沖縄"), None);
+    }
+
+    #[test]
+    fn クエリを条件へ分解する() {
+        let q = parse_query("沖縄 camera:α7 2019年8月 ★", false);
+        assert_eq!(q.terms, vec!["沖縄"]);
+        assert_eq!(q.camera, vec!["α7"]);
+        assert_eq!((q.day_from, q.day_to), (Some(20190801), Some(20190831)));
+        assert!(q.favorites_only);
+        assert!(!q.is_empty());
+        assert!(q.needs_fts());
+    }
+
+    #[test]
+    fn 引用符で空白を含む語を指定できる() {
+        let q = parse_query("\"家族 写真\" folder:\"2019 夏\"", false);
+        assert_eq!(q.terms, vec!["家族 写真"]);
+        assert_eq!(q.folder, vec!["2019 夏"]);
+    }
+
+    #[test]
+    fn 全角スペースも区切りになる() {
+        let q = parse_query("沖縄　花火", false);
+        assert_eq!(q.terms, vec!["沖縄", "花火"]);
+    }
+
+    #[test]
+    fn 空のクエリは絞り込みなし() {
+        let q = parse_query("   ", false);
+        assert!(q.is_empty());
+        assert!(!q.needs_fts());
+        assert!(q.term_matches().is_empty());
+        // ★だけなら絞り込みはあるがFTSは不要
+        let q = parse_query("", true);
+        assert!(!q.is_empty());
+        assert!(!q.needs_fts());
+    }
+
+    #[test]
+    fn 自由語とフォルダ指定はそれぞれのmatch式になる() {
+        let q = parse_query("沖縄 dsc folder:旅行", false);
+        assert_eq!(
+            q.term_matches(),
+            vec![
+                ("沖縄", Some("\"沖縄\"*".to_string())),
+                ("dsc", Some("\"dsc\"*".to_string()))
+            ]
+        );
+        assert_eq!(q.folder_matches(), vec!["{folder} : (\"旅行\"*)"]);
+    }
+
+    #[test]
+    fn 索引語を作れない語は落とさずnoneで返す() {
+        // 条件ごと落とすと絞り込みが消えて全件が返ってしまうため、
+        // 「一致なし」としてDB側で扱えるよう語自体は残す
+        let q = parse_query("!!! 沖縄", false);
+        assert_eq!(
+            q.term_matches(),
+            vec![("!!!", None), ("沖縄", Some("\"沖縄\"*".to_string()))]
+        );
+        assert!(!q.is_empty(), "絞り込みは効いている");
+    }
+
+    #[test]
+    fn カメラ指定はftsに含めない() {
+        // camerasテーブル＋camera_idのインデックスで解決するため、MATCH式には出ない
+        let q = parse_query("camera:α7", false);
+        assert!(q.term_matches().is_empty());
+        assert!(q.folder_matches().is_empty());
+        assert!(!q.needs_fts());
+        assert!(!q.is_empty(), "絞り込み条件としては有効");
+    }
+
+    #[test]
+    fn 日付範囲は狭い方へ絞り込まれる() {
+        let q = parse_query("2019年 2019年8月", false);
+        assert_eq!((q.day_from, q.day_to), (Some(20190801), Some(20190831)));
+    }
+}

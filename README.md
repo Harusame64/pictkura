@@ -1,0 +1,235 @@
+# pictkura
+
+**English** ｜ [日本語](README.ja.md)
+
+A small, fast desktop photo manager. It does two things well: importing from a camera
+card and browsing what you already have — even when that is tens of thousands of files.
+
+![Library](docs/images/grid.jpg)
+
+## Goals
+
+- **Cross-platform** — Tauri v2 (Windows / macOS / Linux)
+- **Import from a card to wherever you want** — sorted into folders by capture date
+- **No waiting** — a deliberately small feature set, spent on speed instead
+
+---
+
+## Getting started
+
+### 1. Add a folder to the library
+
+On first launch, use **"フォルダを追加" (Add folder)** at the bottom of the left pane, or
+pick one of the drives. Scanning starts immediately and the grid fills in by date.
+
+> From the second launch onwards, pictkura reads the NTFS change journal and only visits
+> **files that changed since last time**. The ⚡ in the top right shows how much it skipped.
+
+### 2. Import from a card
+
+![Import](docs/images/import.jpg)
+
+Press **"USBから取り込み" (Import from USB)**. Pick a source folder on the left and its
+photos appear on the right.
+
+- **Include subfolders** — picks things up even when DCIM has per-date folders inside
+- **Hide already imported** — uses the same check as the importer, so what you see matches
+- **Destination** — "変更" (Change) at the bottom takes any folder you like
+- **Sorting** — files are filed by capture date using the folder pattern you chose
+
+Progress, time remaining, and **the photo currently being copied** are shown while it runs.
+File sizes are verified after each copy.
+
+### 3. Choose how folders are named
+
+![Settings](docs/images/settings.jpg)
+
+⚙ (Settings) → "取り込み先のフォルダ構成". Pick one of seven presets, or choose
+**"自分で決める" (Custom)** and write your own.
+
+| Token | Becomes |
+|---|---|
+| `{year}` | 4-digit year (`2026`) |
+| `{month}` | 2-digit month (`08`) |
+| `{day}` | 2-digit day (`13`) |
+| `/` | a folder level |
+
+The **resulting folder name** is shown as you type. `..`, absolute paths and characters
+that are illegal in file names are stripped, so nothing can be written outside the
+destination no matter what you type.
+
+### 4. Find things
+
+Use the search box, or the command palette with **Ctrl + K**.
+
+| Query | Meaning |
+|---|---|
+| `okinawa` | substring match on file name, folder name and camera |
+| `camera:α7` | filter by camera (same as the left pane) |
+| `folder:trip` | filter by folder name |
+| `2019` / `2019-08` | filter by capture date |
+| `★` | favourites only |
+
+All conditions are ANDed. Results are ordered by capture date, newest first.
+
+### 5. Look at them
+
+![Viewer](docs/images/viewer.jpg)
+
+| Key | Action |
+|---|---|
+| `←` `→` | previous / next |
+| `Space` | slideshow (play / pause for video) |
+| `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
+| `F11` | full screen |
+| `Esc` | close |
+
+The controls fade out when the mouse stops and come back when it moves. Right-click for
+open / open with / show in folder / move to trash. **Deleting always goes through the
+recycle bin** — pictkura never removes a file outright.
+
+---
+
+## Supported formats
+
+"**Grid**" means a thumbnail appears; "**View**" means the full-size image opens.
+
+### Photos
+
+| Format | Grid | View | Notes |
+|---|:--:|:--:|---|
+| `jpg` `jpeg` | ✅ | ✅ | decoded while downscaling, so large photos stay quick |
+| `png` `webp` | ✅ | ✅ | |
+| `avif` | ✅ | ✅ | decoder bundled (rav1d); no OS extension required |
+| `heic` `heif` `hif` | ✅ | ✅ | iPhone's default. **Pixels are decoded by the OS** (see caveats) |
+| `bmp` `gif` `tif` `tiff` | ✅ | ✅ | tiff is re-wrapped as JPEG because browsers cannot draw it |
+| `svg` | ✅ | ✅ | drawn from the original, so it stays sharp at any zoom |
+
+### RAW (no demosaicing)
+
+pictkura does **not** develop RAW files. It pulls out the display JPEG the camera wrote
+for its own screen — a few milliseconds per file, with the camera's own colour rendering.
+
+| Format | Image | Notes |
+|---|:--:|---|
+| `cr2` `cr3` `nef` `nrw` `arw` `sr2` `raf` `orf` `rw2` `pef` `srw` `dng` `rwl` | ✅ | includes Apple ProRAW (which is DNG) |
+| `3fr` `iiq` `erf` `dcr` `kdc` `x3f` | ✅ | bodies without an embedded JPEG are assembled from the uncompressed preview |
+| `mrw` (Minolta) | ⚠️ | its thumbnail has its leading bytes overwritten by design |
+| Blackmagic CinemaDNG | ⚠️ | contains no preview at all |
+
+### Video
+
+| Format | Grid | Plays in app | Notes |
+|---|:--:|:--:|---|
+| `mp4` `m4v` `mov` `webm` | ✅ | ✅ | codec support comes from the OS (see HEVC below) |
+| `avi` `mts` `m2ts` `mkv` `3gp` `wmv` `mpg` `mpeg` | ✅ | ❌ | thumbnail, duration and date still show; playback opens your default player |
+
+Video thumbnails are borrowed from the OS (**Windows only** for now). Duration, dimensions
+and capture time are read from the container header — not a single pixel is decoded.
+
+---
+
+## Caveats and known gaps
+
+| Topic | Detail |
+|---|---|
+| **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows (duration is not available). The real file is fetched only when you actually look at it |
+| **HEIC / HEVC need OS components** | On Windows that means "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) for the pixels. **No HEVC decoder is bundled** — patent licensing applies to shipping a decoder, so pictkura uses the one the OS already has |
+| **Video thumbnails are Windows-only** | macOS (QuickLook) and Linux (distro thumbnailers) are not wired up yet |
+| **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
+| **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date |
+| **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too) |
+| **No sort order for results** | always newest capture date first |
+| **Imports cannot be cancelled** | once started, an import runs to completion |
+| **No RTL layout** | Arabic and other right-to-left languages are not supported |
+
+---
+
+## Design notes
+
+| Principle | How |
+|---|---|
+| Detect changes by size + mtime only | never hash a file (`scanner.rs`) |
+| No base64 | image bytes stream through a `media://` custom protocol |
+| Keep the DOM small | virtual scrolling with TanStack Virtual |
+| Fast writes | SQLite in WAL mode, batched inserts in one transaction |
+| No layout shift | width and height live in the DB, so tiles are sized before the image arrives |
+| Instant first paint | the embedded EXIF thumbnail is used as-is, without re-encoding |
+| No blank tiles when scrolling | the thumbnail queue prioritises whatever is on screen |
+| Serve while scanning | directory scans run outside the DB lock |
+| No full transfer at startup | a date→count index, fetching only the days in view |
+| Don't walk the disk at startup | the NTFS USN journal supplies only what changed |
+| Every search is an index seek | FTS5, with CJK expanded to bigrams for substring matching |
+| Don't develop RAW | use the display JPEG the camera embedded |
+| SIMD for thumbnails | `fast_image_resize` for scaling, JPEG decoded at a reduced scale (2.5× overall) |
+| Don't pull files out of the cloud | ask the OS for what it already knows (measured: 3,166 files in 20s, zero network) |
+
+---
+
+## Layout
+
+```
+crates/pictkura-core/   core library (config / scanner / DB / import / thumbnails / search)
+src-tauri/              the Tauri app (commands, media:// protocol)
+ui/                     front end (React + Vite + TanStack Virtual)
+docs/                   manual and screenshots
+plan.md                 development roadmap (in Japanese)
+```
+
+## Building
+
+You need a **C compiler** and **NASM** in addition to Rust.
+
+- **C compiler** — SQLite (`rusqlite` bundled), libwebp and libjpeg-turbo are built from
+  source. On the Windows GNU target that means MinGW-w64's `gcc`
+- **NASM** — assembly for rav1d (AVIF) and libjpeg-turbo. **Removing it makes decoding
+  six times slower**, so don't
+
+```bash
+# core tests
+cargo test -p pictkura-core
+
+# build the UI, then run the app
+npm --prefix ui install && npm --prefix ui run build
+cargo run -p pictkura --release
+
+# measure response times at scale with synthetic data (no real images)
+cargo run --release --bin bench -- --count 1000000
+```
+
+### Producing the distributables
+
+```powershell
+pwsh tools/release.ps1
+```
+
+This builds the UI, then the MSI, then the portable ZIP, in that order. Building the UI
+first matters: `ui/dist` is a build artifact, so skipping it would quietly ship whatever
+happened to be on disk. `cargo tauri build` needs the Tauri CLI
+(`cargo install tauri-cli --version "^2.0"`).
+
+Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows.
+
+### Regenerating the third-party licence list
+
+After adding a dependency, rebuild the bundled `THIRD-PARTY-LICENSES.txt`:
+
+```bash
+cargo install cargo-about --features cli
+cargo about generate about.hbs -o THIRD-PARTY-LICENSES.txt
+node ui/scripts/licenses.mjs >> THIRD-PARTY-LICENSES.txt
+```
+
+## Quality gates
+
+Every milestone goes through two independent reviews (Claude `/code-review` and OpenAI
+Codex) and the confirmed findings are fixed before merging.
+
+## Licence
+
+pictkura is released under the [MIT licence](LICENSE). Copyright notices and licence texts
+for the third-party software it bundles and uses are collected in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
+
+The photographs in the screenshots are **CC0 / public domain** works from Wikimedia
+Commons; the list is in [docs/images/SOURCES.tsv](docs/images/SOURCES.tsv).

@@ -1,0 +1,453 @@
+/**
+ * UI文字列の多言語対応。
+ *
+ * 方針:
+ * - ランタイムを増やさない（i18nライブラリを入れない）。辞書は素のオブジェクトで、
+ *   バンドルに乗るのは選ばれた言語ではなく全言語だが、UI文字列は数KBなので
+ *   起動時間には響かない（＝分割ロードの複雑さを買う理由がない）。
+ * - 言語の追加は**この辞書に1ブロック足すだけ**。キーの型は日本語辞書から
+ *   導出しているので、追加言語でキーの抜けがあればコンパイルエラーになる。
+ * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
+ * - 話者数の多い言語を優先。RTL（アラビア語等）はレイアウトの論理プロパティ化が
+ *   済んでから追加する。
+ */
+
+/** 日本語辞書。これがキーの正（他言語はこの形に合わせる） */
+const ja = {
+  appName: "pictkura",
+  viewThumbnails: "サムネイル",
+  viewCalendar: "カレンダー",
+  searchPlaceholder: "検索（ファイル名・フォルダ・カメラ・2019年8月）",
+  searchClear: "検索を消す (Esc)",
+  commandPalette: "コマンドパレット",
+  importFromUsb: "USBから取り込み",
+  rescan: "再スキャン",
+  size: "サイズ",
+  itemsSuffix: "件",
+  navPlaces: "画像の場所",
+  navAllPhotos: "すべての画像",
+  navFavorites: "★ お気に入り",
+  navCameras: "カメラとメディア",
+  navLibraryFolders: "ライブラリのフォルダ",
+  navDrives: "ドライブ",
+  navAddFolder: "フォルダを追加",
+  add: "追加",
+  addFolderPlaceholder: "例: D:\\Pictures",
+  showMore: (n: number) => `他${n}台`,
+  collapse: "閉じる",
+  photosCount: (n: number) => `${n}枚`,
+  memoriesTitle: (years: number) => `${years}年前の今日`,
+  viewerFavorite: "お気に入り (F)",
+  viewerSlideshow: "スライドショー (Space)",
+  viewerExif: "撮影情報 (I)",
+  viewerFullscreen: "フルスクリーン (F11)",
+  viewerClose: "閉じる (Esc)",
+  viewerPrev: "前へ (←)",
+  viewerNext: "次へ (→)",
+  viewerFitToScreen: "画面に合わせる (0)",
+  viewerActualSize: "等倍100%で表示 (1)　※ダブルクリックでも切替",
+  actualSizeBadge: "等倍",
+  // 動画（第9部）
+  videoUnsupported: "この形式はアプリ内で再生できません",
+  videoMissing: "このファイルが見つかりません（移動または削除されたようです）",
+  videoCloudOnly: "この動画はクラウドにあります",
+  videoCloudOnlyNote:
+    "アプリ内で再生するとダウンロードが始まり、終わるまで何も映りません。既定のアプリで開くと、進み具合を見ながら取り寄せられます。",
+  videoFailed: "この動画を再生できませんでした",
+  videoOpenExternal: "既定のアプリで開く",
+  videoCodecNote:
+    "iPhoneなどの動画はHEVC（H.265）で記録されています。再生にはOSのデコーダが必要で、Windowsでは有料の拡張機能（数百円）になります。",
+  videoCodecHelp: "HEVC拡張機能を見る（有料）",
+  loading: "読み込み中…",
+  exifTitle: "撮影情報",
+  exifCamera: "カメラ",
+  exifLens: "レンズ",
+  exifAperture: "絞り",
+  exifShutter: "シャッター",
+  exifIso: "ISO",
+  exifFocal: "焦点距離",
+  exifLocation: "撮影地",
+  exifNone: "EXIF情報がありません",
+  paletteInput: "日付・カメラ・キーワード・操作…",
+  paletteNoResults: "候補がありません",
+  paletteGroupJumpDate: "日付へジャンプ",
+  paletteGroupRecentDays: "最近の日",
+  paletteGroupCameras: "カメラで絞り込む",
+  paletteGroupSearch: "検索",
+  paletteGroupActions: "操作",
+  paletteSearchFor: (q: string) => `「${q}」を検索`,
+  paletteSearchHint: "ファイル名・フォルダ・カメラ",
+  paletteSelect: "選択",
+  paletteRun: "実行",
+  paletteCloseHint: "閉じる",
+  actionShowFavorites: "お気に入りだけ表示",
+  actionShowAll: "すべての画像を表示",
+  actionCalendar: "カレンダー表示",
+  actionThumbnails: "サムネイル表示",
+  indexBuilding: "🔍 検索インデックスを作成中… ",
+  cameraScanning: "📷 カメラ情報を読み取り中… ",
+  indexIncompleteWarning:
+    "⚠ 検索インデックスの作成を中断しました ／ 検索結果が一部欠けています（次の起動で続きから作り直します）",
+  indexProgressSuffix: "％ ／ 完了までは検索結果が一部欠けます",
+  removeRoot: (path: string) => `${path} をライブラリから外す`,
+  importFrom: (path: string) => `${path} から取り込む`,
+  filterByCamera: (name: string) => `${name} で撮った写真だけを表示`,
+  jumpToYear: (year: number) => `${year}年へ`,
+  importing: (done: number, total: number) => `取り込み中… ${done}/${total}`,
+  importDone: (copied: number, skipped: number) =>
+    `取り込み完了: コピー${copied} スキップ${skipped}`,
+  importFailed: (n: number) => ` 失敗${n}`,
+  importIncomplete: " ⚠読み取れないフォルダあり（カードを消去しないでください）",
+  syncDone: (added: number, changed: number, removed: number) =>
+    `追加${added} 変更${changed} 削除${removed}`,
+  pickSource: "取り込み元フォルダ（USB/DCIM）を選択",
+  pickDestination: "コピー先フォルダを選択",
+  // 取り込みウィザード（第5部 段階E）
+  wizardTitle: "取り込み",
+  wizardSources: "取り込み元",
+  wizardOtherFolder: "他のフォルダ…",
+  wizardRefresh: "ドライブを再検出",
+  wizardRemovable: "リムーバブル",
+  wizardNoDrives: "ドライブが見つかりません",
+  wizardPickFolderHint: "左からフォルダを選ぶと、この中の画像が並びます",
+  wizardNoImages: "このフォルダに画像はありません",
+  wizardUnreadable: "フォルダを読めませんでした（取り外された可能性があります）",
+  wizardCounting: "読み込み中…",
+  wizardSelectAll: "すべて選択",
+  wizardSelectNew: "未取り込みだけ選択",
+  wizardClearSelection: "選択を解除",
+  wizardSelected: (n: number) => `${n}枚を選択中`,
+  wizardImportedBadge: "済",
+  wizardImportedTitle: "取り込み済み（コピー先に同じファイルがあります）",
+  wizardDestination: "コピー先",
+  wizardChangeDestination: "変更",
+  wizardStructure: "振り分け",
+  wizardImportButton: (n: number) => `${n}枚を取り込む`,
+  wizardImportAll: "このフォルダを丸ごと取り込む（下の階層も含む）",
+  wizardImportAllShort: "フォルダごと",
+  wizardDeep: "下の階層も含める",
+  wizardDeepHint: "メディアの中を全部さらって並べます（どこに入っているか分からなくてもOK）",
+  wizardScanning: "メディアの中を探しています…",
+  wizardTruncated: (n: number) =>
+    `多すぎるため先頭${n}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
+  wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
+  decoderHeifNotice: (n: number) =>
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境では絵を作れません。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
+  decoderHeifHow: "HEIF拡張機能（無料）",
+  decoderHevcHow: "HEVC拡張機能（有料）",
+  decoderNoticeDismiss: "今後表示しない",
+  wizardOfflineTitle:
+    "クラウド上のファイルです（この場では絵を出しません。取り込むとダウンロードされます）",
+  wizardHideImported: "取り込み済みを隠す",
+  wizardAllImported: "新しい写真はありません（このフォルダはすべて取り込み済みです）",
+  wizardHiddenCount: (n: number) => `取り込み済み${n}枚は隠しています`,
+  wizardCopying: "取り込み中",
+  wizardEtaSeconds: (n: number) => `残り約${n}秒`,
+  wizardEtaMinutes: (n: number) => `残り約${n}分`,
+  wizardEtaCalculating: "残り時間を見積もっています…",
+  wizardCapped: (n: number) => `${n}+枚`,
+  wizardMoreFiles: (n: number) => `ほか${n}枚（スクロールで表示）`,
+  // ファイル操作
+  menuOpen: "開く",
+  menuOpenWith: (name: string) => `${name} で開く`,
+  menuOpenWithOther: "他のアプリで開く…",
+  menuReveal: "ファイルの場所を開く",
+  menuDelete: "削除（ゴミ箱へ）",
+  menuFavoriteOn: "お気に入りに追加",
+  menuFavoriteOff: "お気に入りを外す",
+  pickEditor: "編集に使うアプリを選択",
+  deleteConfirm: (n: number) =>
+    n === 1
+      ? "この写真をゴミ箱へ移動しますか？"
+      : `${n}枚の写真をゴミ箱へ移動しますか？`,
+  deleted: (n: number) => `${n}枚をゴミ箱へ移動しました`,
+  // 設定
+  settings: "設定",
+  close: "閉じる",
+  settingsTitle: "設定",
+  settingsImportStructure: "取り込み先のフォルダ構成",
+  settingsImportStructureNote:
+    "USBから取り込んだ写真を、撮影日でどう振り分けるか。数千枚に効くので後から変えにくい設定です。",
+  settingsDestination: "コピー先",
+  settingsDestinationUnset: "（未設定：初回の取り込み時に選びます）",
+  settingsFlatExample: "IMG_0001.JPG（振り分けない）",
+  settingsCustomPattern: "自分で決める",
+  settingsCustomPatternNote:
+    "{year} {month} {day} が日付に置き換わります。/ で階層になります。使えない文字や上の階層への移動（..）は自動で落とします。",
+  settingsCustomPatternResult: "できるフォルダ",
+  settingsAbout: "このアプリについて",
+  settingsAboutLicense: "MIT ライセンスで配布しています。",
+  settingsManual: "取扱説明書",
+  settingsOssLicenses: "使っているオープンソース",
+  settingsDocNotBundled: "（開発中の実行では同梱されていません）",
+  settingsTheme: "テーマ",
+  themeSystem: "システムに合わせる",
+  themeLight: "ライト",
+  themeDark: "ダーク",
+  settingsEditors: "編集に使うアプリ",
+  settingsEditorsNote: "「他のアプリで開く…」で選んだアプリを覚えています。",
+  settingsForgetEditor: "一覧から外す",
+  calendarEmpty: "写真がありません",
+  weekdays: ["日", "月", "火", "水", "木", "金", "土"],
+  // ⚡爆速メーター
+  speedPrefix: (sec: string) => `⚡ ${sec}秒で起動チェック — `,
+  speedUsn: "USNジャーナル差分: ",
+  speedUsnNoChange: "変更ゼロ、フォルダ走査なし",
+  speedUsnDirty: (records: number, dirs: number) =>
+    `${records}件のログ → ${dirs}フォルダだけ再走査`,
+  speedPruned: (skipped: number) => `枝刈りスキャン: ${skipped}フォルダをスキップ`,
+  speedFull: (total: number) => `フルスキャン（${total}件）`,
+  speedNoDiff: " ／ 変更なし",
+  speedDiff: (added: number, changed: number, removed: number) =>
+    ` ／ 追加${added}・変更${changed}・削除${removed}`,
+};
+
+/** 辞書の形。追加言語はこの型を満たす必要がある（キーの抜けはコンパイルエラー） */
+export type Dict = typeof ja;
+
+const en: Dict = {
+  appName: "pictkura",
+  viewThumbnails: "Photos",
+  viewCalendar: "Calendar",
+  searchPlaceholder: "Search files, folders, cameras, or 2019-08",
+  searchClear: "Clear search (Esc)",
+  commandPalette: "Command palette",
+  importFromUsb: "Import from USB",
+  rescan: "Rescan",
+  size: "Size",
+  itemsSuffix: "items",
+  navPlaces: "Places",
+  navAllPhotos: "All photos",
+  navFavorites: "★ Favorites",
+  navCameras: "Cameras & media",
+  navLibraryFolders: "Library folders",
+  navDrives: "Drives",
+  navAddFolder: "Add a folder",
+  add: "Add",
+  addFolderPlaceholder: "e.g. D:\\Pictures",
+  showMore: (n: number) => `${n} more`,
+  collapse: "Show less",
+  photosCount: (n: number) => `${n}`,
+  memoriesTitle: (years: number) =>
+    years === 1 ? "1 year ago today" : `${years} years ago today`,
+  viewerFavorite: "Favorite (F)",
+  viewerSlideshow: "Slideshow (Space)",
+  viewerExif: "Photo info (I)",
+  viewerFullscreen: "Full screen (F11)",
+  viewerClose: "Close (Esc)",
+  viewerPrev: "Previous (←)",
+  viewerNext: "Next (→)",
+  viewerFitToScreen: "Fit to screen (0)",
+  viewerActualSize: "Actual size, 100% (1) — or double-click",
+  actualSizeBadge: "1:1",
+  // 動画（第9部）
+  videoUnsupported: "This format cannot be played in the app",
+  videoMissing: "This file is missing (it looks moved or deleted)",
+  videoCloudOnly: "This video lives in the cloud",
+  videoCloudOnlyNote:
+    "Playing it here starts a download and shows nothing until it finishes. Opening it in the default app lets you watch the download progress.",
+  videoFailed: "Could not play this video",
+  videoOpenExternal: "Open in default app",
+  videoCodecNote:
+    "Videos from iPhones and similar cameras use HEVC (H.265). Playback needs an OS decoder; on Windows that is a paid extension (a few dollars).",
+  videoCodecHelp: "Get the HEVC extension (paid)",
+  loading: "Loading…",
+  exifTitle: "Photo info",
+  exifCamera: "Camera",
+  exifLens: "Lens",
+  exifAperture: "Aperture",
+  exifShutter: "Shutter",
+  exifIso: "ISO",
+  exifFocal: "Focal length",
+  exifLocation: "Location",
+  exifNone: "No EXIF data",
+  paletteInput: "Date, camera, keyword, or command…",
+  paletteNoResults: "No results",
+  paletteGroupJumpDate: "Jump to date",
+  paletteGroupRecentDays: "Recent days",
+  paletteGroupCameras: "Filter by camera",
+  paletteGroupSearch: "Search",
+  paletteGroupActions: "Actions",
+  paletteSearchFor: (q: string) => `Search for “${q}”`,
+  paletteSearchHint: "File name, folder, camera",
+  paletteSelect: "Select",
+  paletteRun: "Run",
+  paletteCloseHint: "Close",
+  actionShowFavorites: "Show favorites only",
+  actionShowAll: "Show all photos",
+  actionCalendar: "Calendar view",
+  actionThumbnails: "Photo grid",
+  indexBuilding: "🔍 Building the search index… ",
+  cameraScanning: "📷 Reading camera info… ",
+  indexIncompleteWarning:
+    "⚠ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",
+  indexProgressSuffix: "% — results may be incomplete until this finishes",
+  removeRoot: (path: string) => `Remove ${path} from the library`,
+  importFrom: (path: string) => `Import from ${path}`,
+  filterByCamera: (name: string) => `Show only photos taken with ${name}`,
+  jumpToYear: (year: number) => `Jump to ${year}`,
+  importing: (done: number, total: number) => `Importing… ${done}/${total}`,
+  importDone: (copied: number, skipped: number) =>
+    `Import finished: ${copied} copied, ${skipped} skipped`,
+  importFailed: (n: number) => `, ${n} failed`,
+  importIncomplete: " ⚠ Some folders could not be read — do not erase the card yet",
+  syncDone: (added: number, changed: number, removed: number) =>
+    `${added} added, ${changed} changed, ${removed} removed`,
+  pickSource: "Choose the folder to import from (USB / DCIM)",
+  pickDestination: "Choose the destination folder",
+  wizardTitle: "Import",
+  wizardSources: "Source",
+  wizardOtherFolder: "Other folder…",
+  wizardRefresh: "Rescan drives",
+  wizardRemovable: "Removable",
+  wizardNoDrives: "No drives found",
+  wizardPickFolderHint: "Pick a folder on the left to see the photos in it",
+  wizardNoImages: "No photos in this folder",
+  wizardUnreadable: "Could not read this folder (it may have been removed)",
+  wizardCounting: "Loading…",
+  wizardSelectAll: "Select all",
+  wizardSelectNew: "Select new only",
+  wizardClearSelection: "Clear selection",
+  wizardSelected: (n: number) => `${n} selected`,
+  wizardImportedBadge: "✓",
+  wizardImportedTitle: "Already imported (the same file exists in the destination)",
+  wizardDestination: "Destination",
+  wizardChangeDestination: "Change",
+  wizardStructure: "Filing",
+  wizardImportButton: (n: number) => `Import ${n}`,
+  wizardImportAll: "Import this whole folder (including subfolders)",
+  wizardImportAllShort: "Whole folder",
+  wizardDeep: "Include subfolders",
+  wizardDeepHint: "Sweeps the whole media so you do not have to know where the photos are",
+  wizardScanning: "Looking through the media…",
+  wizardTruncated: (n: number) =>
+    `Showing the first ${n} only. Use "Whole folder" to import everything`,
+  wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
+  decoderHeifNotice: (n: number) =>
+    `⚠ ${n.toLocaleString()} HEIC/HEIF photos cannot be shown here. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
+  decoderHeifHow: "HEIF extension (free)",
+  decoderHevcHow: "HEVC extension (paid)",
+  decoderNoticeDismiss: "Don't show again",
+  wizardOfflineTitle:
+    "This file lives in the cloud (no preview here; importing will download it)",
+  wizardHideImported: "Hide already imported",
+  wizardAllImported: "Nothing new here (everything in this folder is already imported)",
+  wizardHiddenCount: (n: number) => `${n} already-imported hidden`,
+  wizardCopying: "Importing",
+  wizardEtaSeconds: (n: number) => `about ${n}s left`,
+  wizardEtaMinutes: (n: number) => `about ${n} min left`,
+  wizardEtaCalculating: "estimating time left…",
+  wizardCapped: (n: number) => `${n}+`,
+  wizardMoreFiles: (n: number) => `${n} more (scroll to load)`,
+  menuOpen: "Open",
+  menuOpenWith: (name: string) => `Open with ${name}`,
+  menuOpenWithOther: "Open with another app…",
+  menuReveal: "Show in folder",
+  menuDelete: "Delete (move to trash)",
+  menuFavoriteOn: "Add to favorites",
+  menuFavoriteOff: "Remove from favorites",
+  pickEditor: "Choose an app to edit with",
+  deleteConfirm: (n: number) =>
+    n === 1
+      ? "Move this photo to the trash?"
+      : `Move ${n} photos to the trash?`,
+  deleted: (n: number) => `Moved ${n} to the trash`,
+  settings: "Settings",
+  close: "Close",
+  settingsTitle: "Settings",
+  settingsImportStructure: "Import folder structure",
+  settingsImportStructureNote:
+    "How imported photos are filed by capture date. This affects thousands of files, so it is hard to change later.",
+  settingsDestination: "Destination",
+  settingsDestinationUnset: "(not set — you'll choose it on the first import)",
+  settingsFlatExample: "IMG_0001.JPG (no subfolders)",
+  settingsCustomPattern: "Custom",
+  settingsCustomPatternNote:
+    "{year} {month} {day} are replaced with the date. Use / for nesting. Unusable characters and moves to a parent folder (..) are dropped automatically.",
+  settingsCustomPatternResult: "Resulting folder",
+  settingsAbout: "About",
+  settingsAboutLicense: "Distributed under the MIT license.",
+  settingsManual: "Manual",
+  settingsOssLicenses: "Open source we use",
+  settingsDocNotBundled: "(not bundled in a development build)",
+  settingsTheme: "Theme",
+  themeSystem: "Match system",
+  themeLight: "Light",
+  themeDark: "Dark",
+  settingsEditors: "Editing apps",
+  settingsEditorsNote: "Apps you picked in “Open with another app…”.",
+  settingsForgetEditor: "Remove from the list",
+  calendarEmpty: "No photos",
+  weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  speedPrefix: (sec: string) => `⚡ Startup check in ${sec}s — `,
+  speedUsn: "USN journal delta: ",
+  speedUsnNoChange: "no changes, no folders walked",
+  speedUsnDirty: (records: number, dirs: number) =>
+    `${records} journal records → rescanned only ${dirs} folders`,
+  speedPruned: (skipped: number) => `pruned scan: skipped ${skipped} folders`,
+  speedFull: (total: number) => `full scan (${total} files)`,
+  speedNoDiff: " — no changes",
+  speedDiff: (added: number, changed: number, removed: number) =>
+    ` — ${added} added, ${changed} changed, ${removed} removed`,
+};
+
+/** 対応言語。追加はここに1行足すだけ */
+const DICTS: Record<string, Dict> = { ja, en };
+
+/** 表示に使う言語コードを決める（OSの優先言語 → 対応があればそれ、なければ英語） */
+function pickLocale(): string {
+  for (const tag of navigator.languages ?? [navigator.language]) {
+    // "ja-JP" → "ja" のように地域を落として照合する
+    const base = tag.toLowerCase().split("-")[0];
+    if (DICTS[tag.toLowerCase()]) return tag.toLowerCase();
+    if (DICTS[base]) return base;
+  }
+  return "en";
+}
+
+/** 現在の言語コード（"ja" / "en" …） */
+export const locale = pickLocale();
+
+/** 現在の辞書。`t.searchPlaceholder` のように使う */
+export const t: Dict = DICTS[locale] ?? en;
+
+/** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
+export const formatDateTime = (ms: number) =>
+  new Date(ms).toLocaleString(locale);
+
+/** day_key（YYYYMMDD整数）を、その言語の日付表記にする */
+export const formatDayKey = (dayKey: number) => {
+  const y = Math.floor(dayKey / 10000);
+  const m = Math.floor(dayKey / 100) % 100;
+  const d = dayKey % 100;
+  return new Date(y, m - 1, d).toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+/** 「2026年8月」等の月見出し */
+export const formatMonth = (year: number, month: number) =>
+  new Date(year, month - 1, 1).toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+  });
+
+/**
+ * 動画の長さ（ミリ秒）を `0:12` / `1:02:03` にする（第9部）。
+ *
+ * Intlの `DurationFormat` は「1時間2分3秒」のように綴るので一覧のバッジには
+ * 長すぎる。時計表記はどの言語でも同じ形なので、辞書にも入れない。
+ */
+export const formatDuration = (ms: number) => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+};
+
+/** 件数などの数値（桁区切りをロケールに合わせる） */
+export const formatNumber = (n: number) => n.toLocaleString(locale);
