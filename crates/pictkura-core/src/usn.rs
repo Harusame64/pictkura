@@ -383,13 +383,18 @@ mod tests {
         match read_changes_since(&volume, Some(&pos)) {
             UsnOutcome::Delta(delta) => {
                 assert!(delta.record_count > 0);
-                let canon_temp = dunce_lower(dir.path());
+                // **比較は非対称にする**。期待値（TEMP）は短縮名のことがあるので解決するが、
+                // 製品の出力は小文字化しかしない。両側を解決すると、`resolve_frn` が
+                // 短縮名を返す退行をテストが洗浄してしまい、緑のまま通ってしまう
+                // （そうなると `rebase_to_root_spelling` の前方一致が外れ、
+                // ダーティディレクトリが黙って捨てられて差分同期が取りこぼす）
+                let canon_temp = canon_lower(dir.path());
                 assert!(
                     delta
                         .dirty_dirs
                         .iter()
-                        .any(|d| dunce_lower(d) == canon_temp),
-                    "一時ディレクトリがダーティ集合に含まれる: {:?}",
+                        .any(|d| plain_lower(d) == canon_temp),
+                    "一時ディレクトリ {canon_temp} がダーティ集合に含まれる: {:?}",
                     delta.dirty_dirs
                 );
                 assert!(delta.position.next_usn >= pos.next_usn);
@@ -399,9 +404,25 @@ mod tests {
         }
     }
 
-    /// パス比較用の正規化（8.3短縮名やシンボリックリンクは解決済みの前提で小文字化のみ）。
+    /// **期待値側**の正規化。8.3短縮名を長い綴りへ解決してから小文字化する。
+    ///
+    /// `TEMP` は短縮名のことがある（GitHub Actions のランナーは
+    /// `C:\Users\RUNNER~1\...`）。ジャーナル側は `GetFinalPathNameByHandleW` の
+    /// 長い綴りなので、解決しないと `runneradmin` と `runner~1` が一致せず、
+    /// 正しい実装のまま失敗する。`canonicalize` が付ける拡張長プレフィックスは剥がす。
     #[cfg(windows)]
-    fn dunce_lower(p: &Path) -> String {
+    fn canon_lower(p: &Path) -> String {
+        let resolved = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let s = resolved.to_string_lossy();
+        s.strip_prefix(r"\\?\").unwrap_or(&s).to_lowercase()
+    }
+
+    /// **製品出力側**の正規化。大小の揺れだけを吸収し、それ以上は何もしない。
+    ///
+    /// ここで解決までしてしまうと、このテストが張っている契約
+    /// （「`resolve_frn` は長い綴りを返す」）が消える。
+    #[cfg(windows)]
+    fn plain_lower(p: &Path) -> String {
         p.to_string_lossy().to_lowercase()
     }
 }

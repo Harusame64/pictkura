@@ -1,0 +1,142 @@
+# Windows の配布物（MSI ja-JP / en-US ＋ 持ち歩き版ZIP）を作る。
+#
+# **手元の `pwsh tools/release.ps1` をそのまま呼ぶ**のが要点。CIに手順を書き写すと
+# 二重管理になり、「手元では出るのにCIでは出ない」が静かに生まれる。
+# UIのビルドを先に走らせる理由もあのスクリプトのコメントに書いてある。
+#
+# 動かし方は2通り:
+#   - `v0.1.0` のようなタグを push  … Releases に配布物が付く
+#   - 手動実行（workflow_dispatch）  … 成果物だけ作って中身を確かめる
+name: Release (Windows)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# 同じタグを2回押しても、同じReleaseを2つのジョブが触りにいかないようにする。
+# **途中で止めない**（配布物を作りかけで捨てない）
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      # `gh release create` がリリースを作るのに要る
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 既定では書き込み権のあるトークンが .git/config に平文で残る。
+          # このジョブは依存のbuild.rsとnpmのスクリプトを走らせるので置かない
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # rav1d（AVIF）と mozjpeg のアセンブリに要る。**外すと6倍遅くなる**。
+      # 版を固定するのは、これが**配布バイナリの中身に直接効く入力**だから
+      - name: NASM を入れる
+        run: |
+          choco install nasm -y --no-progress --version=3.2.0
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+
+      - uses: Swatinem/rust-cache@v2
+
+      # MSIを作るのに要る。`--features cli` は不要（plan.md の引き継ぎ節）。
+      # ~/.cargo/bin は上のキャッシュに乗るが、**キャッシュはrefごと**なので
+      # タグからの実行では基本コールドになる（mainでの手動実行が温めた場合だけ効く）
+      - name: tauri-cli
+        run: |
+          if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+            cargo install tauri-cli --version "^2.0" --locked
+          }
+
+      - name: npm の依存
+        run: npm --prefix ui ci
+
+      # **タグ push では ci.yml が1行も走らない**（`branches:` フィルタは tag ref に
+      # マッチしない）。ここで検査しないと、CIが赤のコミットへタグを打つだけで
+      # 未検査の配布物がReleasesに載る。UIのビルドは release.ps1 が改めて行うが、
+      # `tauri::generate_context!` の展開に `ui/dist` が要るのでテストの前に置く。
+      # clippy は書式・作法の門なので main 側（ci.yml）に任せ、ここでは正しさだけ見る
+      - name: 検査（タグはci.ymlを迂回するため）
+        run: |
+          npm --prefix ui run build
+          cargo fmt --all --check
+          cargo test --workspace --locked
+
+      # WiX は tauri-cli が必要になった時点で自分で取ってくる
+      - name: 配布物を作る
+        run: pwsh tools/release.ps1
+
+      # **数えて確かめる**。`if-no-files-found: error` は検索結果が「全部空」の
+      # ときしか発火しないので、MSIだけ出てZIPが出ない・言語が1つ欠けた、を素通しする。
+      # ZIPの中身も見るのは、アプリが実行ファイルの隣から取説とライセンス一覧を
+      # 探すため——並びが崩れると「同梱されていません」になる（pack-portable.ps1）
+      - name: 配布物が揃っているか
+        run: |
+          $msi = @(Get-ChildItem "target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue)
+          $zip = @(Get-ChildItem "target\release\bundle\portable\*.zip" -ErrorAction SilentlyContinue)
+          if ($msi.Count -ne 2) { throw "MSIが2つ（ja-JP / en-US）ではない: $($msi.Count)" }
+          if ($zip.Count -ne 1) { throw "ポータブルZIPが1つではない: $($zip.Count)" }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip[0].FullName)
+          try {
+            $names = $archive.Entries.FullName | ForEach-Object { $_.Replace('\', '/') }
+          } finally { $archive.Dispose() }
+
+          foreach ($need in 'pictkura.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.txt', 'docs/manual.html') {
+            if (-not ($names | Where-Object { $_.EndsWith($need) })) { throw "ZIPに $need が無い" }
+          }
+          if (-not ($names | Where-Object { $_ -like '*.jpg' })) { throw "ZIPにスクリーンショットが無い" }
+
+          $msi + $zip | ForEach-Object { "  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
+
+      # **配るものの素性を測る**。plan.md は `x86_64-pc-windows-gnu` を前提にしているが、
+      # ここは `windows-latest` の既定＝msvc で作っている。msvc は既定でCランタイムを
+      # 動的リンクするので、`vcruntime140.dll` を要求するなら素のWindowsで
+      # ポータブル版が起動しない経路が残る。**推測せず出力を見る**（門にはしない）
+      - name: 依存DLLを見る
+        continue-on-error: true
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { Write-Output "vswhere が無いので測れない"; return }
+          $vs = & $vswhere -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $dumpbin) { Write-Output "dumpbin が無いので測れない"; return }
+          rustc -vV
+          & $dumpbin.FullName /dependents target\release\pictkura.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pictkura-windows
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/portable/*.zip
+          if-no-files-found: error
+
+      # **タグを push したときだけ**載せる。workflow_dispatch はタグの ref も選べるので、
+      # `startsWith(github.ref, ...)` だけだと手動実行で公開してしまう
+      - name: Release に載せる
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem -Recurse -File target\release\bundle |
+            Where-Object { $_.Extension -in ".msi", ".zip" } |
+            ForEach-Object { $_.FullName }
+          if (-not $files) { throw "配布物が1つも見つからない" }
+          gh release create $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --generate-notes $files
+          if ($LASTEXITCODE -ne 0) {
+            # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）
+            gh release upload $env:GITHUB_REF_NAME $files --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Releaseへの登録に失敗" }
+          }

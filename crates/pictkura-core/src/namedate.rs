@@ -196,13 +196,27 @@ mod tests {
     }
 
     /// 取り込みの衝突リネーム（`_iOS-1`）でもUTCのまま
+    ///
+    /// **判定そのものを直接見るのが要点**。読み取った時刻どうしを比べる形にすると、
+    /// UTCの機械（CI）では現地時刻とUTCが同値になり、
+    /// どちらに転んでも通ってしまって**何も検査しなくなる**。
     #[test]
     fn keeps_utc_naming_through_collision_renames() {
+        assert!(is_utc_naming("20220121_020918000_iOS"));
+        // 連番は剥がす（取り込みの衝突リネーム）
+        assert!(is_utc_naming("20220121_020918000_iOS-1"));
+        assert!(is_utc_naming("20220121_020918000_iOS-12"));
+        // 連番でない語尾は剥がさない（別の命名を巻き込まない）＝現地時刻として読む
+        assert!(!is_utc_naming("20220121_020918000_iOS-copy"));
+
+        // 読み取り結果としても、連番付きは連番なしと同じ瞬間になる
         let plain = guess("20220121_020918000_iOS.jpg").unwrap();
         assert_eq!(guess("20220121_020918000_iOS-1.jpg"), Some(plain));
         assert_eq!(guess("20220121_020918000_iOS-12.jpg"), Some(plain));
-        // 連番でない語尾は剥がさない（別の命名を巻き込まない）
-        assert_ne!(guess("20220121_020918000_iOS-copy.jpg"), Some(plain));
+        assert_eq!(
+            guess("20220121_020918000_iOS-copy.jpg"),
+            Some(local_ms(2022, 1, 21, 2, 9, 18))
+        );
     }
 
     /// `_iOS` が付かない命名は現地時刻

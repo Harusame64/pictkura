@@ -397,11 +397,7 @@ impl Picture {
                 count += 1;
             }
         }
-        if count == 0 {
-            0
-        } else {
-            sum / count
-        }
+        sum.checked_div(count).unwrap_or(0)
     }
 
     /// 出力の升目へ、このタイルが受け持つぶんを書き込む。
