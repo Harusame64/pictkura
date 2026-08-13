@@ -1359,6 +1359,35 @@ cargo run -p pictkura --release      # debugビルドはサムネ生成が10倍�
   中身は `desktop-schema.json` / `windows-schema.json` とバイト単位で同一なので、
   追跡から外した（Tauri v2の公式テンプレートも同じ扱いをしている）
 
+### アプリはmacOSで起動する（2026-08-14に実測）
+
+`target/debug/pictkura`（Mach-O arm64）をそのまま実行するとウィンドウが出て、
+走査もサムネイル生成も動いた。設定とDBは `~/Library/Application Support/dev.harusame.pictkura/`。
+**「動かない」ではなく「一部の機能が無い」**が正しい（動画のサムネイル・HEICの画素・
+`shell::metadata` はWindows専用のまま）。
+
+ただしそのとき**写真.appのパッケージを索引する事故**を踏んだ。
+既定のルートが `picture_dir()`＝`~/Pictures` になり、その配下の
+`写真ライブラリ.photoslibrary` の中身を **14,938件・サムネイル5,399枚・84MB**
+（1分ちょっと）ぶん索引した。`.photoslibrary` は見た目こそフォルダだが
+写真.appが管理するパッケージで、中身はUUID名の内部ファイル。
+既定の除外（`.*` / `Thumbs.db` / `$RECYCLE.BIN`）は**ドットで始まる名前**が対象なので当たらない。
+
+→ 既定の除外に `*.photoslibrary` を足した。**これはmacOS対応ではなくv0.1の品質**——
+Macから移った人が外付けHDDやNASへコピーしていれば、Windowsでもただのフォルダとして
+同じ事故が起きる。
+
+**この手の既定値は「タグを打つ前」にしか安く直せない。** 初回起動時に
+`config.save()` が設定を**全量**書き出すので（`lib.rs` の `first_launch`）、
+一度でも起動した環境のTOMLには当時の既定が焼き付く。あとから既定を変えても届かない。
+届かせる仕組みは `upgrade_extensions` の LEGACY_DEFAULTS 方式が**拡張子専用**に
+あるだけで、`exclude_patterns` には無い。配布後にやるなら移行機構ごと要る。
+なお除外パターンは `scan_fingerprint` に入っているので、変えると次回はフルスキャンへ
+落ち、`apply_scan` が索引済みのレコードを掃き出す（自己修復する）。
+
+同系統の候補（Lightroomの `*.lrdata`、Apertureの `*.aplibrary` など）は
+**実際に踏んでいないので足していない**。足すならタグの前に。
+
 ## 2ゲートレビューで直したところ（2026-08-13 CI の回 / 2026-08-14 macOS の回）
 
 **CIの回**。この機械にcodexが無かったのでOpusとFableの2者に見せた。

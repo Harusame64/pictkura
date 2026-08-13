@@ -207,7 +207,18 @@ impl Default for LibraryConfig {
     fn default() -> Self {
         Self {
             roots: Vec::new(),
-            exclude_patterns: vec![".*".into(), "Thumbs.db".into(), "$RECYCLE.BIN".into()],
+            // `*.photoslibrary` は macOS の写真.app が管理するパッケージ。
+            // 見た目はフォルダなので走査は素通りし、中のUUID名の内部ファイルを
+            // 索引してしまう（実測: 14,938件・サムネイル5,399枚・84MB）。
+            // **Windowsでも効かせる**——Macから移った人が外付けHDDやNASへ
+            // コピーしていれば、ただのフォルダとして同じ事故が起きる。
+            // `.*` はドットで始まる名前が対象なので、この名前には当たらない
+            exclude_patterns: vec![
+                ".*".into(),
+                "Thumbs.db".into(),
+                "$RECYCLE.BIN".into(),
+                "*.photoslibrary".into(),
+            ],
         }
     }
 }
@@ -409,6 +420,27 @@ worker_threads = 4
         assert_eq!(parsed.library.exclude_patterns, vec!["backup"]);
         assert_eq!(parsed.performance.thumbnail_size, 256);
         assert_eq!(parsed.performance.worker_threads, 4);
+    }
+
+    /// 既定の除外が写真.appのパッケージを本当に弾くこと。
+    /// 実測で踏んだ事故（14,938件を索引し、サムネイルを5,399枚作った）の回帰試験。
+    /// **OS非依存**——Windowsでも外付けHDD経由で同じ名前のフォルダに出会う
+    #[test]
+    fn 既定の除外は写真ライブラリのパッケージを弾く() {
+        let patterns = LibraryConfig::default().exclude_patterns;
+        let excluded = |p: &str| crate::scanner::is_excluded_path(Path::new(p), &patterns);
+
+        // パッケージの中に入った時点で弾かれる（名前は日本語環境でも英語環境でも）
+        assert!(excluded(
+            "/Users/me/Pictures/写真ライブラリ.photoslibrary/originals/0/x.heic"
+        ));
+        assert!(excluded(
+            "/Users/me/Pictures/Photos Library.photoslibrary/originals/0/x.heic"
+        ));
+
+        // 効きすぎていないこと。普通の写真も、拡張子でない同名フォルダも通す
+        assert!(!excluded("/Users/me/Pictures/2020/a.jpg"));
+        assert!(!excluded("/Users/me/Pictures/photoslibrary/a.jpg"));
     }
 
     #[test]
