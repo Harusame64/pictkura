@@ -1,0 +1,76 @@
+# Windows の配布物（MSI ja-JP / en-US ＋ 持ち歩き版ZIP）を作る。
+#
+# **手元の `pwsh tools/release.ps1` をそのまま呼ぶ**のが要点。CIに手順を書き写すと
+# 二重管理になり、「手元では出るのにCIでは出ない」が静かに生まれる。
+# UIのビルドを先に走らせる理由もあのスクリプトのコメントに書いてある。
+#
+# 動かし方は2通り:
+#   - `v0.1.0` のようなタグを push  … Releases に配布物が付く
+#   - 手動実行（workflow_dispatch）  … 成果物だけ作って中身を確かめる
+name: Release (Windows)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      # `gh release create` がリリースを作るのに要る
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # rav1d（AVIF）と mozjpeg のアセンブリに要る。**外すと6倍遅くなる**
+      - name: NASM を入れる
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+
+      - uses: Swatinem/rust-cache@v2
+
+      # MSIを作るのに要る。`--features cli` は不要（plan.md の引き継ぎ節）。
+      # ~/.cargo/bin は上のキャッシュに乗るので2回目以降は素通りする
+      - name: tauri-cli
+        run: |
+          if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+            cargo install tauri-cli --version "^2.0" --locked
+          }
+
+      - name: npm の依存
+        run: npm --prefix ui ci
+
+      # WiX は tauri-cli が必要になった時点で自分で取ってくる
+      - name: 配布物を作る
+        run: pwsh tools/release.ps1
+
+      - name: できたものを一覧する
+        run: Get-ChildItem -Recurse -File target\release\bundle | Select-Object Length, FullName
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pictkura-windows
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/portable/*.zip
+          if-no-files-found: error
+
+      # タグから来たときだけ Releases に載せる。手動実行では成果物どまり
+      - name: Release に載せる
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = Get-ChildItem -Recurse -File target\release\bundle |
+            Where-Object { $_.Extension -in ".msi", ".zip" } |
+            ForEach-Object { $_.FullName }
+          if (-not $files) { throw "配布物が1つも見つからない" }
+          gh release create $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --generate-notes $files

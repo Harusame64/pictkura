@@ -1,0 +1,63 @@
+# 変更のたびに「壊れていないこと」だけを見る（配布物は release.yml で作る）。
+#
+# **Windowsで走らせる**のが要点。このリポジトリはOSに寄り添う部分が多く
+# （WIC・Shell・USNジャーナル）、`cfg(windows)` の側はWindows以外では
+# 1行もコンパイルされない。Linuxで緑になっても何も保証しない。
+#
+# macOSは rav1d 1.1.0 が `src/arm/asm-offsets.h` をクレートに同梱していない
+# （`exclude = [..., "*.h", ...]`）ためARM64のasmがビルドできない。
+# 解決してからジョブを足す。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同じブランチへ続けて push したら前の実行は捨てる（無駄に並べない）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rav1d（AVIF）と mozjpeg のアセンブリに要る。**外すと6倍遅くなる**ので
+      # 「速いことが仕様」のこのアプリでは無効化を選べない
+      - name: NASM を入れる
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+
+      - name: Rust の道具を揃える
+        run: rustup component add clippy rustfmt
+
+      # mozjpeg・rav1d・SQLite をソースからビルドするので、キャッシュが無いと
+      # 毎回10分以上かかる
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 書式
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: テスト
+        run: cargo test --workspace
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # `tsc -b` が型の壊れを拾う。UIは配布物に丸ごと入るので、
+      # ここが通らないと release.yml も通らない
+      - name: UI のビルド
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
