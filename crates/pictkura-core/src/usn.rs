@@ -389,7 +389,7 @@ mod tests {
                         .dirty_dirs
                         .iter()
                         .any(|d| dunce_lower(d) == canon_temp),
-                    "一時ディレクトリがダーティ集合に含まれる: {:?}",
+                    "一時ディレクトリ {canon_temp} がダーティ集合に含まれる: {:?}",
                     delta.dirty_dirs
                 );
                 assert!(delta.position.next_usn >= pos.next_usn);
@@ -399,9 +399,17 @@ mod tests {
         }
     }
 
-    /// パス比較用の正規化（8.3短縮名やシンボリックリンクは解決済みの前提で小文字化のみ）。
+    /// パス比較用の正規化。
+    ///
+    /// **8.3短縮名を解決するのが要点**。ジャーナル側は
+    /// `GetFinalPathNameByHandleW` が返す長い綴りだが、`TEMP` は短縮名のことがある
+    /// （GitHub Actions のランナーは `C:\Users\RUNNER~1\...`）。小文字化だけでは
+    /// `runneradmin` と `runner~1` が一致せず、正しい実装のまま失敗する。
+    /// `canonicalize` が付ける拡張長プレフィックスはここで剥がす。
     #[cfg(windows)]
     fn dunce_lower(p: &Path) -> String {
-        p.to_string_lossy().to_lowercase()
+        let resolved = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let s = resolved.to_string_lossy();
+        s.strip_prefix(r"\\?\").unwrap_or(&s).to_lowercase()
     }
 }

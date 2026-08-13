@@ -201,8 +201,13 @@ mod tests {
         let plain = guess("20220121_020918000_iOS.jpg").unwrap();
         assert_eq!(guess("20220121_020918000_iOS-1.jpg"), Some(plain));
         assert_eq!(guess("20220121_020918000_iOS-12.jpg"), Some(plain));
-        // 連番でない語尾は剥がさない（別の命名を巻き込まない）
-        assert_ne!(guess("20220121_020918000_iOS-copy.jpg"), Some(plain));
+        // 連番でない語尾は剥がさない（別の命名を巻き込まない）＝`_iOS` と見なさず現地時刻で読む。
+        // **`assert_ne!(.., plain)` と書いてはいけない**——UTCの機械（CI）では
+        // 現地時刻とUTCが同値になり、正しい実装のまま失敗する
+        assert_eq!(
+            guess("20220121_020918000_iOS-copy.jpg"),
+            Some(local_ms(2022, 1, 21, 2, 9, 18))
+        );
     }
 
     /// `_iOS` が付かない命名は現地時刻
