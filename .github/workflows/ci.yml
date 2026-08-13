@@ -20,6 +20,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 検査するだけなので読めれば足りる（リポジトリの既定が書き込みでも引き上げない）
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: windows-latest
@@ -30,7 +34,7 @@ jobs:
       # 「速いことが仕様」のこのアプリでは無効化を選べない
       - name: NASM を入れる
         run: |
-          choco install nasm -y --no-progress
+          choco install nasm -y --no-progress --version=3.2.0
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
 
       - uses: actions/setup-node@v4
