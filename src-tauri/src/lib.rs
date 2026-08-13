@@ -1126,6 +1126,16 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
         if !root.is_dir() {
             return Err(format!("フォルダが見つかりません: {path}"));
         }
+        // 走査は `depth 0` を除外判定しないので、パッケージ（やその中）を
+        // ルートに登録すると内部ファイルが索引される。しかも監視とUSNは
+        // `is_excluded_path` が全構成要素を見るため更新イベントを全部落とす
+        // ——**索引されるのに永久に古いまま**という壊れた状態になる。
+        // 取り込み側と同じ理由で断る
+        if pictkura_core::import::is_managed_package_path(&root) {
+            return Err(
+                pictkura_core::ImportError::SourceIsManagedPackage(root.clone()).to_string(),
+            );
+        }
         update_config(&state, |c| {
             if !c.library.roots.iter().any(|r| same_path(r, &root)) {
                 c.library.roots.push(root.clone());
@@ -1388,7 +1398,7 @@ async fn list_source_dir(
         // **取り込み元はネイティブのフォルダ選択ダイアログで選ぶ**ので、
         // 一覧から隠しても写真.appのライブラリそのものを名指しで選べてしまう。
         // 中身はUUID名の内部ファイルなので、開かずに理由を返す
-        if pictkura_core::import::is_managed_package(&dir) {
+        if pictkura_core::import::is_managed_package_path(&dir) {
             return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
         }
         let extensions = lock_ok(&state.config).import.extensions.clone();
@@ -1423,7 +1433,7 @@ async fn list_source_tree(
         // `list_source_dir` と同じ理由（ネイティブのダイアログで名指しできる）。
         // こちらは**下の階層まで**集めるので、通すと内部の派生画像が
         // そのまま選択候補として並ぶ
-        if pictkura_core::import::is_managed_package(&dir) {
+        if pictkura_core::import::is_managed_package_path(&dir) {
             return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
         }
         let extensions = lock_ok(&state.config).import.extensions.clone();

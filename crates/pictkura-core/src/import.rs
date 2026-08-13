@@ -15,15 +15,22 @@ use crate::config::Config;
 use crate::scanner;
 use crate::thumbs::read_exif;
 
-/// アプリが管理するパッケージそのものか（名前で判定する）。
-pub fn is_managed_package(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|name| {
+/// アプリが管理するパッケージ**そのもの、またはその中**を指しているか。
+///
+/// **葉の名前だけを見てはいけない。** 取り込み元はネイティブのフォルダ選択
+/// ダイアログで選ぶので、`E:\Photos Library.photoslibrary\resources\derivatives`
+/// のように**中を名指しできる**。走査の除外はルート自身を判定しない
+/// （`scan_roots` の `filter_entry` が `depth 0` を素通しする）ため、
+/// 中を起点にされると内部の派生画像を全部コピーしてしまう。
+pub fn is_managed_package_path(path: &Path) -> bool {
+    path.components().any(|c| match c {
+        std::path::Component::Normal(name) => name.to_str().is_some_and(|n| {
             scanner::MANAGED_PACKAGE_PATTERNS
                 .iter()
-                .any(|p| scanner::matches_pattern(name, p))
-        })
+                .any(|p| scanner::matches_pattern(n, p))
+        }),
+        _ => false,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -32,10 +39,10 @@ pub enum ImportError {
     NoDestination,
     #[error("取り込み元フォルダが読めません: {0}")]
     SourceUnreadable(PathBuf),
-    /// 写真.appのライブラリのような、アプリが管理するパッケージそのものを
+    /// 写真.appのライブラリのような、アプリが管理するパッケージの中を
     /// 取り込み元に指定した。中身はUUID名の内部ファイルなので、
     /// 取り込むと派生画像を数千枚コピーすることになる
-    #[error("アプリが管理するライブラリは取り込めません（中身は内部ファイルです）: {0}")]
+    #[error("アプリが管理するライブラリの中は取り込めません（中身は内部ファイルです）: {0}")]
     SourceIsManagedPackage(PathBuf),
 }
 
@@ -197,11 +204,11 @@ pub fn import_from(
     if !source.is_dir() {
         return Err(ImportError::SourceUnreadable(source.to_path_buf()));
     }
-    // **取り込み元そのもの**がパッケージのときは、下の除外では止まらない
+    // **取り込み元がパッケージの中**のときは、下の除外では止まらない
     // （`scan_roots` はルート自身を除外判定しない）。ここで断る——
     // 黙って0件を返すと「USBに写真が無い」と同じ見え方になり、
     // 何が起きたのか分からないため
-    if is_managed_package(source) {
+    if is_managed_package_path(source) {
         return Err(ImportError::SourceIsManagedPackage(source.to_path_buf()));
     }
 
@@ -477,18 +484,33 @@ mod tests {
         );
         // 1枚もコピーしていない
         assert!(!dest.exists());
+
+        // **中のフォルダを名指しされても断る**。ネイティブのダイアログは
+        // パッケージの中へ入って選べるので、葉の名前だけでは守れない
+        let err = import_from(&inner, &config, |_, _, _| {}).unwrap_err();
+        assert!(
+            matches!(err, ImportError::SourceIsManagedPackage(_)),
+            "err={err}"
+        );
+        assert!(!dest.exists());
     }
 
     #[test]
-    fn パッケージかどうかは名前で判る() {
-        assert!(is_managed_package(Path::new(
+    fn パッケージの中を指していても判る() {
+        assert!(is_managed_package_path(Path::new(
             "/x/写真ライブラリ.photoslibrary"
         )));
-        assert!(is_managed_package(Path::new(
+        assert!(is_managed_package_path(Path::new(
             r"E:\Photos Library.photoslibrary"
         )));
-        assert!(!is_managed_package(Path::new("/x/DCIM")));
-        assert!(!is_managed_package(Path::new("/x/photoslibrary")));
+        // **中を名指しした場合**。葉の名前だけの判定ではここが抜ける
+        // （ネイティブのダイアログはパッケージの中へ入って選べる）
+        assert!(is_managed_package_path(Path::new(
+            "/x/写真ライブラリ.photoslibrary/originals/0"
+        )));
+
+        assert!(!is_managed_package_path(Path::new("/x/DCIM")));
+        assert!(!is_managed_package_path(Path::new("/x/photoslibrary/a")));
     }
 
     /// アプリが管理するパッケージの中身は取り込まない。

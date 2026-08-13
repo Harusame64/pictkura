@@ -140,7 +140,10 @@ export default function ImportWizard({
       const result = await listSourceDir(path);
       setListings((prev) => ({ ...prev, [path]: result }));
       return result;
-    } catch {
+    } catch (e) {
+      // 握りつぶすと「0件」と見分けが付かない。断られた理由（写真.appの
+      // ライブラリの中など）は出す。ツリーの展開は続けたいので投げ直さない
+      onErrorRef.current(String(e));
       return undefined;
     }
   }, []);

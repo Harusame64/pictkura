@@ -173,32 +173,17 @@ fn upgrade_extensions(current: &[String]) -> Option<Vec<String>> {
         })
 }
 
-/// 除外パターンを新しい既定へ引き上げるべきか（[`upgrade_extensions`] と同じ流儀）。
-///
-/// **この仕組みが無いと、既定を足しても既存の環境には永久に届かない。**
-/// 初回起動で設定を全量書き出す作りなので、一度でも起動したTOMLには
-/// そのときの既定が焼き付いているため。
-///
-/// 拡張子と同じく、**旧バージョンの既定そのままのときだけ**差し替える
-/// （ユーザーが自分で消した除外を勝手に復活させない）。
-fn upgrade_exclude_patterns(current: &[String]) -> Option<Vec<String>> {
-    /// これまでの既定。どれかと完全一致なら「触っていない」と判断できる
-    const LEGACY_DEFAULTS: &[&[&str]] = &[
-        // 写真.appのパッケージ対応より前
-        &[".*", "Thumbs.db", "$RECYCLE.BIN"],
-    ];
-    let normalized: Vec<String> = current.iter().map(|p| p.to_ascii_lowercase()).collect();
-    LEGACY_DEFAULTS
-        .iter()
-        .any(|legacy| {
-            normalized
-                == legacy
-                    .iter()
-                    .map(|p| p.to_ascii_lowercase())
-                    .collect::<Vec<_>>()
-        })
-        .then(|| LibraryConfig::default().exclude_patterns)
-}
+// 除外パターンには拡張子のような「引き上げ」を**置かない**。
+//
+// 一度は入れたが、`upgrade_extensions` と同じLEGACY_DEFAULTS方式では
+// **利用者が自分で消した除外を毎回復活させてしまう**。新しい既定は
+// 旧既定＋1件なので、`*.photoslibrary` を消した設定は旧既定と同じ形になり、
+// 起動のたびに書き戻される。除外を編集するUIは無く、TOMLの手編集が
+// 唯一の逃げ道なので、それを塞ぐと直す手段が無くなる。
+//
+// v0.1はまだ配っていないため、引き上げが要る既存の環境は開発機だけ
+// （TOMLを消せば済む）。**配ったあとに既定を変える必要が出たら、
+// 中身から推測するのではなく設定にスキーマ版を持たせること。**
 
 /// `[routing]` 取り込んだファイルのコピー先の決定ルール。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -295,9 +280,6 @@ impl Config {
                 let mut config = Self::from_toml_str(&s)?;
                 if let Some(upgraded) = upgrade_extensions(&config.import.extensions) {
                     config.import.extensions = upgraded;
-                }
-                if let Some(upgraded) = upgrade_exclude_patterns(&config.library.exclude_patterns) {
-                    config.library.exclude_patterns = upgraded;
                 }
                 Ok(config)
             }
@@ -464,40 +446,26 @@ worker_threads = 4
         assert!(!excluded("/Users/me/Pictures/2020/a.jpg"));
     }
 
-    /// **これが無いと、既定を足しても既存の環境には永久に届かない。**
-    /// 初回起動で設定を全量書き出す作りなので、一度でも起動したTOMLには
-    /// そのときの既定が焼き付いている。拡張子と同じ引き上げが要る。
+    /// 除外パターンは**書いてあるとおりに読む**。拡張子のような引き上げをすると、
+    /// 利用者が消した除外を毎回復活させてしまう（除外を編集するUIは無く、
+    /// TOMLの手編集が唯一の逃げ道なので、塞ぐと直す手段が無くなる）。
     #[test]
-    fn 旧既定の除外パターンは新しい既定へ引き上げられる() {
-        let toml = r#"
-[library]
-exclude_patterns = [".*", "Thumbs.db", "$RECYCLE.BIN"]
-"#;
+    fn 除外パターンは書いてあるとおりに読む() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.toml");
-        std::fs::write(&path, toml).unwrap();
 
+        // 新しい既定から `*.photoslibrary` を消した設定
+        std::fs::write(
+            &path,
+            "[library]\nexclude_patterns = [\".*\", \"Thumbs.db\", \"$RECYCLE.BIN\"]\n",
+        )
+        .unwrap();
         let config = Config::load(&path).unwrap();
         assert_eq!(
             config.library.exclude_patterns,
-            LibraryConfig::default().exclude_patterns,
-            "旧既定そのままなら新しい既定へ差し替わる"
+            vec![".*", "Thumbs.db", "$RECYCLE.BIN"],
+            "消したものが書き戻されない"
         );
-    }
-
-    /// 自分で編集した除外は尊重する（消した除外を勝手に復活させない）。
-    #[test]
-    fn 自分で編集した除外パターンは尊重される() {
-        let toml = r#"
-[library]
-exclude_patterns = [".*", "backup"]
-"#;
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("pictkura.toml");
-        std::fs::write(&path, toml).unwrap();
-
-        let config = Config::load(&path).unwrap();
-        assert_eq!(config.library.exclude_patterns, vec![".*", "backup"]);
     }
 
     #[test]
