@@ -15,23 +15,7 @@ use crate::config::Config;
 use crate::scanner;
 use crate::thumbs::read_exif;
 
-/// アプリが管理するパッケージ**そのもの、またはその中**を指しているか。
-///
-/// **葉の名前だけを見てはいけない。** 取り込み元はネイティブのフォルダ選択
-/// ダイアログで選ぶので、`E:\Photos Library.photoslibrary\resources\derivatives`
-/// のように**中を名指しできる**。走査の除外はルート自身を判定しない
-/// （`scan_roots` の `filter_entry` が `depth 0` を素通しする）ため、
-/// 中を起点にされると内部の派生画像を全部コピーしてしまう。
-pub fn is_managed_package_path(path: &Path) -> bool {
-    path.components().any(|c| match c {
-        std::path::Component::Normal(name) => name.to_str().is_some_and(|n| {
-            scanner::MANAGED_PACKAGE_PATTERNS
-                .iter()
-                .any(|p| scanner::matches_pattern(n, p))
-        }),
-        _ => false,
-    })
-}
+pub use scanner::is_managed_package_path;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
@@ -269,6 +253,13 @@ pub fn import_files(
         .destination
         .as_ref()
         .ok_or(ImportError::NoDestination)?;
+    // 一覧の経路（`list_source_dir` / `list_source_tree`）が既に断っているので
+    // ここへパッケージの中身が来ることは無いはずだが、**入口ごとに守る**。
+    // `import_from` だけ守って選択取り込みが素通り、という非対称は
+    // `MANAGED_PACKAGE_PATTERNS` を1箇所にまとめた狙いに反する
+    if let Some(bad) = files.iter().find(|p| is_managed_package_path(p)) {
+        return Err(ImportError::SourceIsManagedPackage(bad.clone()));
+    }
 
     let total = files.len();
     let mut stats = ImportStats::default();

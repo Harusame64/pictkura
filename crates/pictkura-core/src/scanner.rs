@@ -46,6 +46,28 @@ pub const MANAGED_PACKAGE_PATTERNS: &[&str] = &[
     "*.photoslibrary",
 ];
 
+/// パス上のどこかが、アプリが管理するパッケージか（**全構成要素**を見る）。
+///
+/// 葉の名前だけでは足りない。ルートも取り込み元もネイティブのフォルダ選択
+/// ダイアログで選ぶので、`E:\Photos Library.photoslibrary\originals` のように
+/// **中を名指しできる**ため。
+///
+/// これは利用者が編集できる `exclude_patterns` とは**別の固定の判定**で、
+/// 走査が「ルート自身は除外判定しない」としている例外（`.*` で始まるフォルダを
+/// ルートに指定したい人のため）を、パッケージにだけは適用しないために使う。
+/// 索引だけできても、監視とUSNは全構成要素を見るので更新が永久に届かず、
+/// **索引されたまま古い**という壊れた状態になる。
+pub fn is_managed_package_path(path: &Path) -> bool {
+    path.components().any(|c| match c {
+        std::path::Component::Normal(name) => name.to_str().is_some_and(|n| {
+            MANAGED_PACKAGE_PATTERNS
+                .iter()
+                .any(|p| matches_pattern(n, p))
+        }),
+        _ => false,
+    })
+}
+
 /// 名前が除外パターンに一致するか。
 /// パターンは `*` をワイルドカードとする単純グロブ（例: `.*`, `Thumbs.db`, `*.tmp`）。
 /// Windowsのファイル名は大文字小文字を区別しないため、比較は小文字化して行う。
@@ -116,9 +138,13 @@ pub fn scan_roots(
         let mut had_error = !root.is_dir();
         if !had_error {
             let walker = WalkDir::new(root).into_iter().filter_entry(|e| {
-                // ルート自身は除外判定しない（ドット始まりのルート指定などを許す）
+                // ルート自身は**利用者の除外パターンでは**判定しない
+                // （ドット始まりのルート指定などを許すため）。
+                // ただしアプリが管理するパッケージだけは、ルートに書かれていても
+                // 索引しない——監視とUSNが更新を全部落とすので、
+                // 索引されたまま永久に古い状態になるだけだから
                 if e.depth() == 0 {
-                    return true;
+                    return !is_managed_package_path(e.path());
                 }
                 match e.file_name().to_str() {
                     Some(name) => !excluded(name),
@@ -292,6 +318,14 @@ fn walk_pruned(
     outcome: &mut PrunedScanOutcome,
     had_error: &mut bool,
 ) {
+    // 呼び出し元（`scan_roots_pruned` / `scan_dirty_dirs`）は**渡された
+    // ディレクトリ自身の名前を判定しない**ので、`scan_roots` の `depth 0` と
+    // 同じ扱いをここで揃える。設定に直接書かれたルートもここを通る。
+    // `had_error` は立てない——「読めなかった」ではなく「見ないと決めた」なので、
+    // 既に索引されていた行は掃き出してよい
+    if is_managed_package_path(dir) {
+        return;
+    }
     let mtime_ms = match std::fs::metadata(dir) {
         Ok(m) if m.is_dir() => mtime_of(&m),
         _ => {
@@ -517,6 +551,50 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["a.jpg", "b.jpg"]);
+    }
+
+    /// **ルートに指定されても**索引しない。
+    ///
+    /// 走査は「ルート自身は除外判定しない」を通例にしている（`.*` で始まる
+    /// フォルダをルートにしたい人のため）が、パッケージだけは例外。
+    /// 設定ファイルへ直接書かれた場合もここを通る。索引だけできても
+    /// 監視とUSNが更新を全部落とすので、永久に古い状態になるだけだから
+    #[test]
+    fn パッケージはルートに指定されても索引しない() {
+        let dir = tempfile::tempdir().unwrap();
+        write_file(
+            dir.path(),
+            "写真ライブラリ.photoslibrary/originals/0/x.jpg",
+            b"x",
+        );
+        let pkg = dir.path().join("写真ライブラリ.photoslibrary");
+        let patterns = crate::config::LibraryConfig::default().exclude_patterns;
+
+        // パッケージそのものをルートに
+        let outcome = scan_roots(std::slice::from_ref(&pkg), &jpg_extensions(), &patterns);
+        assert!(outcome.files.is_empty());
+        // 「読めなかった」ではないので、掃き出しは効く（ok_rootsに入る）
+        assert_eq!(outcome.ok_roots, vec![pkg.clone()]);
+
+        // パッケージの**中**をルートに
+        let inner = pkg.join("originals");
+        let outcome = scan_roots(std::slice::from_ref(&inner), &jpg_extensions(), &patterns);
+        assert!(outcome.files.is_empty());
+
+        // 枝刈り版（起動時の通常経路）でも同じ
+        let known = HashMap::new();
+        let pruned = scan_roots_pruned(
+            std::slice::from_ref(&pkg),
+            &jpg_extensions(),
+            &patterns,
+            &known,
+        );
+        assert!(pruned.files.is_empty());
+        assert!(
+            pruned.seen_dirs.is_empty(),
+            "見ないと決めたので記録もしない"
+        );
+        assert_eq!(pruned.ok_roots, vec![pkg]);
     }
 
     // 差分検知（追加・変更・削除、ルート成否による保持）のテストは

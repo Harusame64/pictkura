@@ -351,6 +351,11 @@ export default function ImportWizard({
   const addFolderRoot = async () => {
     const picked = await open({ directory: true, title: t.pickSource });
     if (!picked) return;
+    // **読めることを確かめてから**ツリーに足す。写真.appのライブラリのように
+    // 断られるフォルダを先に足すと、消す手段が無いまま残り、
+    // 展開のたびに同じエラーを出し続ける
+    const listing = await loadDir(picked);
+    if (!listing) return;
     setExtraRoots((prev) => (prev.includes(picked) ? prev : [...prev, picked]));
     // 自分で選んだフォルダは「ここを見たい」が明確なので下まで走査する
     openFolder(picked, true);

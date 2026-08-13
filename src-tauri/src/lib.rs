@@ -1132,9 +1132,9 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
         // ——**索引されるのに永久に古いまま**という壊れた状態になる。
         // 取り込み側と同じ理由で断る
         if pictkura_core::import::is_managed_package_path(&root) {
-            return Err(
-                pictkura_core::ImportError::SourceIsManagedPackage(root.clone()).to_string(),
-            );
+            return Err(format!(
+                "アプリが管理するライブラリはフォルダとして登録できません（中身は内部ファイルです）: {path}"
+            ));
         }
         update_config(&state, |c| {
             if !c.library.roots.iter().any(|r| same_path(r, &root)) {
@@ -1289,6 +1289,13 @@ fn set_import_destination(state: tauri::State<'_, AppState>, path: String) -> Re
     let dest = PathBuf::from(&path);
     if !dest.is_dir() {
         return Err(format!("フォルダが見つかりません: {path}"));
+    }
+    // コピー先は取り込み後に**ライブラリのルートへ足される**（`finish_import`）ので、
+    // ルート登録と同じ理由でパッケージの中は断る
+    if pictkura_core::import::is_managed_package_path(&dest) {
+        return Err(format!(
+            "アプリが管理するライブラリはコピー先にできません（中身は内部ファイルです）: {path}"
+        ));
     }
     update_config(&state, |c| c.routing.destination = Some(dest))
 }
