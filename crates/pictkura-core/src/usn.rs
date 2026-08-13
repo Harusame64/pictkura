@@ -80,8 +80,11 @@ pub fn volume_of(path: &Path) -> Option<String> {
 
 /// 1回の起動で扱うダーティディレクトリ数の上限。
 /// これを超える変更はFRN解決のコストが線形に効くため、枝刈りフルスキャンの方が速い。
+/// （読むのはジャーナルの実装だけなので、他のOSでは未使用の警告になる）
+#[cfg(windows)]
 const MAX_DIRTY_DIRS: usize = 512;
 /// ジャーナルレコード数の上限（大量変更時の暴走防止）。
+#[cfg(windows)]
 const MAX_RECORDS: usize = 200_000;
 
 /// ボリュームのUSNジャーナルを `stored` の位置から読み、差分を返す。
@@ -354,6 +357,10 @@ mod tests {
         assert_eq!(UsnPosition::from_meta(""), None);
     }
 
+    /// Windows専用。ドライブ文字は `Component::Prefix` として解析されるが、
+    /// この要素はWindowsの `Path` にしか存在しない（他のOSでは `D:\photos\a`
+    /// 全体が1つのファイル名になり、常に `None` になる）
+    #[cfg(windows)]
     #[test]
     fn volume_ofはドライブレターを返す() {
         assert_eq!(volume_of(Path::new(r"D:\photos\a")), Some("D:".into()));

@@ -3025,6 +3025,11 @@ mod tests {
     }
 
     /// 検索して、ヒットしたファイル名を昇順で返す。
+    ///
+    /// 名前の切り出しは `Path::file_name` ではなく**両方の区切り文字**で行う。
+    /// テストデータはWindowsの綴り（`D:\写真\...`）だが、macOS/Linuxの
+    /// `Path` は `\` を区切りと見ないため、パス全体が1つのファイル名になる。
+    /// DB側（`pk_name`）も同じく文字で切っており、そちらに合わせる
     fn search_names(db: &Db, input: &str) -> Vec<String> {
         let query = crate::search::parse_query(input, false);
         let mut names: Vec<String> = db
@@ -3032,7 +3037,10 @@ mod tests {
             .unwrap()
             .iter()
             .flat_map(|d| db.search_day(d.day_key, &query).unwrap())
-            .map(|r| r.path.file_name().unwrap().to_string_lossy().into_owned())
+            .map(|r| {
+                let path = r.path.to_string_lossy();
+                path.rsplit(['\\', '/']).next().unwrap_or("").to_string()
+            })
             .collect();
         names.sort();
         names
