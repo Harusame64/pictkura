@@ -1269,7 +1269,7 @@ fn list_drives() -> Vec<DriveDto> {
         .collect();
     // マウント位置（Windowsならドライブレター）順に並べる。OSの列挙順のままだと
     // C: D: E: の並びが起動ごとに入れ替わって見え、目的のドライブを探しにくい
-    drives.sort_by(|a, b| a.path.to_uppercase().cmp(&b.path.to_uppercase()));
+    drives.sort_by_key(|d| d.path.to_uppercase());
     drives
 }
 
