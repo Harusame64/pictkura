@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"メインウィンドウの既定権限","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-open"]}}

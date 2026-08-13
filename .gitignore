@@ -13,3 +13,8 @@ Thumbs.db
 
 # TypeScriptの差分ビルド情報（生成物）
 *.tsbuildinfo
+
+# TauriがビルドのたびにACLから作り直すスキーマ（生成物）。
+# 作られる顔ぶれはOSで変わる（macOSでは macOS-schema.json が増える）ので、
+# 追跡すると開発機を替えるたびに差分が出る
+src-tauri/gen/schemas/
