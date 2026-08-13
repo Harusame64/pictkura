@@ -309,11 +309,13 @@ pub fn scan_dirty_dirs(
 
     let mut outcome = PrunedScanOutcome::default();
     let mut had_error = false;
+    // **ここでは固定の判定を当てない。** dirty dir は利用者が設定したルートではなく、
+    // ジャーナルが報告してきた「走査の途中のディレクトリ」なので、
+    // 設定に従う側（`excluded`）だけが効く。当ててしまうと、
+    // `*.photoslibrary` を消して opt-out した人の差分更新だけが黙って捨てられ、
+    // フルスキャンでは索引されるのに差分では古いまま、という食い違いになる。
+    // 呼び出し元（`lib.rs`）が `is_excluded_path` で設定どおりに絞り込み済み
     for dir in dirty_dirs {
-        // ルートと同じ理由でここだけ判定する（`scan_roots_pruned` を参照）
-        if is_managed_package_path(dir) {
-            continue;
-        }
         walk_pruned(
             dir,
             true,
