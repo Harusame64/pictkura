@@ -109,10 +109,8 @@ fn probe(dir: &Path, extensions: &[String]) -> (bool, usize, bool) {
                     has_subdirs = true;
                 }
             }
-            Ok(ft) if ft.is_file() => {
-                if has_target_extension(&entry.path(), extensions) {
-                    count += 1;
-                }
+            Ok(ft) if ft.is_file() && has_target_extension(&entry.path(), extensions) => {
+                count += 1;
             }
             _ => {}
         }
