@@ -173,6 +173,33 @@ fn upgrade_extensions(current: &[String]) -> Option<Vec<String>> {
         })
 }
 
+/// 除外パターンを新しい既定へ引き上げるべきか（[`upgrade_extensions`] と同じ流儀）。
+///
+/// **この仕組みが無いと、既定を足しても既存の環境には永久に届かない。**
+/// 初回起動で設定を全量書き出す作りなので、一度でも起動したTOMLには
+/// そのときの既定が焼き付いているため。
+///
+/// 拡張子と同じく、**旧バージョンの既定そのままのときだけ**差し替える
+/// （ユーザーが自分で消した除外を勝手に復活させない）。
+fn upgrade_exclude_patterns(current: &[String]) -> Option<Vec<String>> {
+    /// これまでの既定。どれかと完全一致なら「触っていない」と判断できる
+    const LEGACY_DEFAULTS: &[&[&str]] = &[
+        // 写真.appのパッケージ対応より前
+        &[".*", "Thumbs.db", "$RECYCLE.BIN"],
+    ];
+    let normalized: Vec<String> = current.iter().map(|p| p.to_ascii_lowercase()).collect();
+    LEGACY_DEFAULTS
+        .iter()
+        .any(|legacy| {
+            normalized
+                == legacy
+                    .iter()
+                    .map(|p| p.to_ascii_lowercase())
+                    .collect::<Vec<_>>()
+        })
+        .then(|| LibraryConfig::default().exclude_patterns)
+}
+
 /// `[routing]` 取り込んだファイルのコピー先の決定ルール。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -207,18 +234,18 @@ impl Default for LibraryConfig {
     fn default() -> Self {
         Self {
             roots: Vec::new(),
-            // `*.photoslibrary` は macOS の写真.app が管理するパッケージ。
-            // 見た目はフォルダなので走査は素通りし、中のUUID名の内部ファイルを
+            // アプリが管理するパッケージ（`*.photoslibrary` など）は
+            // 見た目こそフォルダなので走査が素通りし、中のUUID名の内部ファイルを
             // 索引してしまう（実測: 14,938件・サムネイル5,399枚・84MB）。
+            // `.*` はドットで始まる名前が対象なので、この名前には当たらない。
             // **Windowsでも効かせる**——Macから移った人が外付けHDDやNASへ
             // コピーしていれば、ただのフォルダとして同じ事故が起きる。
-            // `.*` はドットで始まる名前が対象なので、この名前には当たらない
-            exclude_patterns: vec![
-                ".*".into(),
-                "Thumbs.db".into(),
-                "$RECYCLE.BIN".into(),
-                "*.photoslibrary".into(),
-            ],
+            // 一覧は取り込み元と共有する（`MANAGED_PACKAGE_PATTERNS`）
+            exclude_patterns: [".*", "Thumbs.db", "$RECYCLE.BIN"]
+                .iter()
+                .chain(crate::scanner::MANAGED_PACKAGE_PATTERNS)
+                .map(|p| (*p).to_string())
+                .collect(),
         }
     }
 }
@@ -268,6 +295,9 @@ impl Config {
                 let mut config = Self::from_toml_str(&s)?;
                 if let Some(upgraded) = upgrade_extensions(&config.import.extensions) {
                     config.import.extensions = upgraded;
+                }
+                if let Some(upgraded) = upgrade_exclude_patterns(&config.library.exclude_patterns) {
+                    config.library.exclude_patterns = upgraded;
                 }
                 Ok(config)
             }
@@ -422,25 +452,52 @@ worker_threads = 4
         assert_eq!(parsed.performance.worker_threads, 4);
     }
 
-    /// 既定の除外が写真.appのパッケージを本当に弾くこと。
-    /// 実測で踏んだ事故（14,938件を索引し、サムネイルを5,399枚作った）の回帰試験。
-    /// **OS非依存**——Windowsでも外付けHDD経由で同じ名前のフォルダに出会う
+    /// 監視・USN側も同じ既定で弾くこと（走査側の試験は scanner.rs にある）。
     #[test]
-    fn 既定の除外は写真ライブラリのパッケージを弾く() {
+    fn 既定の除外は監視側でも写真ライブラリを弾く() {
         let patterns = LibraryConfig::default().exclude_patterns;
         let excluded = |p: &str| crate::scanner::is_excluded_path(Path::new(p), &patterns);
 
-        // パッケージの中に入った時点で弾かれる（名前は日本語環境でも英語環境でも）
         assert!(excluded(
             "/Users/me/Pictures/写真ライブラリ.photoslibrary/originals/0/x.heic"
         ));
-        assert!(excluded(
-            "/Users/me/Pictures/Photos Library.photoslibrary/originals/0/x.heic"
-        ));
-
-        // 効きすぎていないこと。普通の写真も、拡張子でない同名フォルダも通す
         assert!(!excluded("/Users/me/Pictures/2020/a.jpg"));
-        assert!(!excluded("/Users/me/Pictures/photoslibrary/a.jpg"));
+    }
+
+    /// **これが無いと、既定を足しても既存の環境には永久に届かない。**
+    /// 初回起動で設定を全量書き出す作りなので、一度でも起動したTOMLには
+    /// そのときの既定が焼き付いている。拡張子と同じ引き上げが要る。
+    #[test]
+    fn 旧既定の除外パターンは新しい既定へ引き上げられる() {
+        let toml = r#"
+[library]
+exclude_patterns = [".*", "Thumbs.db", "$RECYCLE.BIN"]
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.toml");
+        std::fs::write(&path, toml).unwrap();
+
+        let config = Config::load(&path).unwrap();
+        assert_eq!(
+            config.library.exclude_patterns,
+            LibraryConfig::default().exclude_patterns,
+            "旧既定そのままなら新しい既定へ差し替わる"
+        );
+    }
+
+    /// 自分で編集した除外は尊重する（消した除外を勝手に復活させない）。
+    #[test]
+    fn 自分で編集した除外パターンは尊重される() {
+        let toml = r#"
+[library]
+exclude_patterns = [".*", "backup"]
+"#;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.toml");
+        std::fs::write(&path, toml).unwrap();
+
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.library.exclude_patterns, vec![".*", "backup"]);
     }
 
     #[test]

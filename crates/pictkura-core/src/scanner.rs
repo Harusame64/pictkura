@@ -33,6 +33,19 @@ pub struct ScanOutcome {
     pub ok_roots: Vec<PathBuf>,
 }
 
+/// アプリが管理するパッケージ。**見た目はフォルダだが中身は内部ファイル**なので、
+/// ライブラリの走査でも取り込み元の走査でも常に落とす。
+///
+/// ライブラリ側は利用者が編集できる `exclude_patterns` の既定に入るが、
+/// 取り込み元側は**固定**（利用者の除外設定を取り込み元へ流用すると、
+/// DCIMに誤マッチして「USBに写真が無い」ように見える事故になるため）。
+/// **1箇所にまとめてあるのは片方だけに足す事故を防ぐため**——取り込み元は
+/// ファイルを**コピーする**経路なので、漏らすと索引より重い結果になる。
+pub const MANAGED_PACKAGE_PATTERNS: &[&str] = &[
+    // macOS の写真.app。実測で 14,938件・サムネイル5,399枚を索引した
+    "*.photoslibrary",
+];
+
 /// 名前が除外パターンに一致するか。
 /// パターンは `*` をワイルドカードとする単純グロブ（例: `.*`, `Thumbs.db`, `*.tmp`）。
 /// Windowsのファイル名は大文字小文字を区別しないため、比較は小文字化して行う。
@@ -468,6 +481,42 @@ mod tests {
         assert_eq!(outcome.files.len(), 1);
         let p = &outcome.files[0].path;
         assert!(p.ends_with("keep/a.jpg") || p.ends_with("keep\\a.jpg"));
+    }
+
+    /// 既定の除外が写真.appのパッケージを弾くこと。**実際に走査させて**確かめる。
+    ///
+    /// 実測で踏んだ事故（14,938件を索引し、サムネイルを5,399枚作った）の回帰試験。
+    /// `matches_pattern` や `is_excluded_path` を直接叩くのでは、
+    /// 本番が通る `filter_entry` の枝が変わったときに緑のまま通ってしまう。
+    /// **OS非依存**——Windowsでも外付けHDD経由で同じ名前のフォルダに出会う
+    #[test]
+    fn 既定の除外は写真ライブラリのパッケージを弾く() {
+        let dir = tempfile::tempdir().unwrap();
+        // パッケージの中身（日本語環境と英語環境の両方の名前）
+        write_file(
+            dir.path(),
+            "写真ライブラリ.photoslibrary/originals/0/x.jpg",
+            b"x",
+        );
+        write_file(
+            dir.path(),
+            "Photos Library.photoslibrary/resources/derivatives/y.jpg",
+            b"y",
+        );
+        // 普通の写真と、拡張子ではない同名フォルダは通す
+        write_file(dir.path(), "2020/a.jpg", b"a");
+        write_file(dir.path(), "photoslibrary/b.jpg", b"b");
+
+        let patterns = crate::config::LibraryConfig::default().exclude_patterns;
+        let outcome = scan_roots(&[dir.path().to_path_buf()], &jpg_extensions(), &patterns);
+
+        let mut names: Vec<String> = outcome
+            .files
+            .iter()
+            .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.jpg", "b.jpg"]);
     }
 
     // 差分検知（追加・変更・削除、ルート成否による保持）のテストは

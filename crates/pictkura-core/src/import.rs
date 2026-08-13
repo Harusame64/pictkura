@@ -182,14 +182,21 @@ pub fn import_from(
         return Err(ImportError::SourceUnreadable(source.to_path_buf()));
     }
 
-    // 取り込み元の除外はドットフォルダ（.Trashes等）のみ。
-    // ライブラリ用のexclude_patternsをここに適用すると、ユーザーの除外設定が
-    // DCIMフォルダに誤マッチして写真を静かに取りこぼす恐れがある
+    // 取り込み元の除外はドットフォルダ（.Trashes等）と、アプリが管理する
+    // パッケージ（写真.app等）だけ。**固定の一覧**で、ライブラリ用の
+    // exclude_patterns はここに適用しない——ユーザーの除外設定が
+    // DCIMフォルダに誤マッチして写真を静かに取りこぼす恐れがあるため。
+    // パッケージを落とすのは、中身が内部ファイルだから: 外付けHDDに
+    // 写真ライブラリがあると、派生JPEGを数千枚**コピーしてしまう**
     let source_buf = source.to_path_buf();
+    let exclude: Vec<String> = std::iter::once(".*")
+        .chain(scanner::MANAGED_PACKAGE_PATTERNS.iter().copied())
+        .map(|p| p.to_string())
+        .collect();
     let outcome = scanner::scan_roots(
         std::slice::from_ref(&source_buf),
         &config.import.extensions,
-        &[".*".to_string()],
+        &exclude,
     );
 
     let total = outcome.files.len();
@@ -423,6 +430,35 @@ mod tests {
             let rel = p.strip_prefix(&dest).unwrap();
             assert_eq!(rel.components().count(), 3);
         }
+    }
+
+    /// アプリが管理するパッケージの中身は取り込まない。
+    ///
+    /// ここは**ファイルをコピーする**経路なので、漏らすと索引より重い
+    /// ——外付けHDDに写真ライブラリがあると、内部の派生JPEGを数千枚
+    /// コピー先へ書いてしまう
+    #[test]
+    fn 写真ライブラリのパッケージは取り込まない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        let pkg = src.join("写真ライブラリ.photoslibrary/resources/derivatives");
+        fs::create_dir_all(&pkg).unwrap();
+        fs::write(pkg.join("derived.jpg"), b"xxx").unwrap();
+        fs::create_dir_all(src.join("DCIM")).unwrap();
+        fs::write(src.join("DCIM/a.jpg"), b"aaa").unwrap();
+
+        let config = test_config(&dest);
+        let stats = import_from(&src, &config, |_, _, _| {}).unwrap();
+        assert_eq!(stats.copied, 1, "DCIMの1枚だけ");
+
+        let copied: Vec<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(copied, vec!["a.jpg"]);
     }
 
     #[test]

@@ -73,6 +73,10 @@ fn is_hidden_dir(name: &str) -> bool {
         || name.eq_ignore_ascii_case("$RECYCLE.BIN")
         || name.eq_ignore_ascii_case("System Volume Information")
         || name.eq_ignore_ascii_case("$Extend")
+        // アプリが管理するパッケージ。中身は内部ファイルなので見せても選べない
+        || crate::scanner::MANAGED_PACKAGE_PATTERNS
+            .iter()
+            .any(|p| crate::scanner::matches_pattern(name, p))
 }
 
 /// メタデータから更新日時（Unixエポックミリ秒）を取り出す。取れなければ0。
@@ -379,6 +383,26 @@ mod tests {
         let listing = list_dir(root, &exts());
         let names: Vec<_> = listing.dirs.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, vec!["写真"]);
+    }
+
+    /// アプリが管理するパッケージは取り込み元でも見せない。
+    /// 中身はUUID名の内部ファイルで、選んでも意味が無い
+    #[test]
+    fn 写真ライブラリのパッケージは取り込み元に出さない() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for name in [
+            "写真ライブラリ.photoslibrary",
+            "Photos Library.photoslibrary",
+            "photoslibrary", // 拡張子ではない同名フォルダは出す
+            "DCIM",
+        ] {
+            fs::create_dir_all(root.join(name)).unwrap();
+        }
+        let listing = list_dir(root, &exts());
+        let mut names: Vec<_> = listing.dirs.iter().map(|d| d.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["DCIM", "photoslibrary"]);
     }
 
     #[test]
