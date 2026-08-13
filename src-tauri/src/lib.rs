@@ -1385,16 +1385,22 @@ async fn list_source_dir(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let dir = PathBuf::from(&path);
+        // **取り込み元はネイティブのフォルダ選択ダイアログで選ぶ**ので、
+        // 一覧から隠しても写真.appのライブラリそのものを名指しで選べてしまう。
+        // 中身はUUID名の内部ファイルなので、開かずに理由を返す
+        if pictkura_core::import::is_managed_package(&dir) {
+            return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
+        }
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::browse::list_dir(&dir, &extensions);
         // 実際に開けたフォルダだけをプレビュー配信の許可に加える
         if !listing.unreadable {
             lock_ok(&state.browse_allow).insert(dir);
         }
-        listing
+        Ok(listing)
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// 取り込み元の**下の階層まで**画像を集める（第5部 段階E-5）。
@@ -1414,6 +1420,12 @@ async fn list_source_tree(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let dir = PathBuf::from(&path);
+        // `list_source_dir` と同じ理由（ネイティブのダイアログで名指しできる）。
+        // こちらは**下の階層まで**集めるので、通すと内部の派生画像が
+        // そのまま選択候補として並ぶ
+        if pictkura_core::import::is_managed_package(&dir) {
+            return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
+        }
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::list_tree(&dir, &extensions, TREE_LIMIT);
         {
@@ -1428,10 +1440,10 @@ async fn list_source_tree(
                 }
             }
         }
-        listing
+        Ok(listing)
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// 渡したファイルが既にコピー先へ取り込み済みかを1件ずつ返す（第5部 段階E）。

@@ -15,12 +15,28 @@ use crate::config::Config;
 use crate::scanner;
 use crate::thumbs::read_exif;
 
+/// アプリが管理するパッケージそのものか（名前で判定する）。
+pub fn is_managed_package(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|name| {
+            scanner::MANAGED_PACKAGE_PATTERNS
+                .iter()
+                .any(|p| scanner::matches_pattern(name, p))
+        })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     #[error("コピー先フォルダが設定されていません")]
     NoDestination,
     #[error("取り込み元フォルダが読めません: {0}")]
     SourceUnreadable(PathBuf),
+    /// 写真.appのライブラリのような、アプリが管理するパッケージそのものを
+    /// 取り込み元に指定した。中身はUUID名の内部ファイルなので、
+    /// 取り込むと派生画像を数千枚コピーすることになる
+    #[error("アプリが管理するライブラリは取り込めません（中身は内部ファイルです）: {0}")]
+    SourceIsManagedPackage(PathBuf),
 }
 
 /// 取り込み結果の件数サマリ。
@@ -180,6 +196,13 @@ pub fn import_from(
         .ok_or(ImportError::NoDestination)?;
     if !source.is_dir() {
         return Err(ImportError::SourceUnreadable(source.to_path_buf()));
+    }
+    // **取り込み元そのもの**がパッケージのときは、下の除外では止まらない
+    // （`scan_roots` はルート自身を除外判定しない）。ここで断る——
+    // 黙って0件を返すと「USBに写真が無い」と同じ見え方になり、
+    // 何が起きたのか分からないため
+    if is_managed_package(source) {
+        return Err(ImportError::SourceIsManagedPackage(source.to_path_buf()));
     }
 
     // 取り込み元の除外はドットフォルダ（.Trashes等）と、アプリが管理する
@@ -430,6 +453,42 @@ mod tests {
             let rel = p.strip_prefix(&dest).unwrap();
             assert_eq!(rel.components().count(), 3);
         }
+    }
+
+    /// **取り込み元そのもの**にパッケージを指定したら断る。
+    ///
+    /// 取り込み元はネイティブのフォルダ選択ダイアログで選ぶので、一覧から
+    /// 隠しても名指しで選べる。`scan_roots` はルート自身を除外判定しないため、
+    /// ここで止めないと内部の派生画像を全部コピーする
+    #[test]
+    fn 取り込み元そのものがパッケージなら断る() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("写真ライブラリ.photoslibrary");
+        let dest = dir.path().join("photos");
+        let inner = src.join("resources/derivatives");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(inner.join("derived.jpg"), b"xxx").unwrap();
+
+        let config = test_config(&dest);
+        let err = import_from(&src, &config, |_, _, _| {}).unwrap_err();
+        assert!(
+            matches!(err, ImportError::SourceIsManagedPackage(_)),
+            "err={err}"
+        );
+        // 1枚もコピーしていない
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn パッケージかどうかは名前で判る() {
+        assert!(is_managed_package(Path::new(
+            "/x/写真ライブラリ.photoslibrary"
+        )));
+        assert!(is_managed_package(Path::new(
+            r"E:\Photos Library.photoslibrary"
+        )));
+        assert!(!is_managed_package(Path::new("/x/DCIM")));
+        assert!(!is_managed_package(Path::new("/x/photoslibrary")));
     }
 
     /// アプリが管理するパッケージの中身は取り込まない。
