@@ -33,6 +33,21 @@ jobs:
           choco install nasm -y --no-progress
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # **Rustの検査より先に置く**。`tauri::generate_context!` は展開のときに
+      # `ui/dist` の実在を確かめるので、UIを先に作らないと clippy も test も
+      # 「frontendDist が無い」で止まる（`tools/release.ps1` と同じ順序）。
+      # `tsc -b` が型の壊れを拾う役目も兼ねる
+      - name: UI のビルド
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui run build
+
       - name: Rust の道具を揃える
         run: rustup component add clippy rustfmt
 
@@ -48,16 +63,3 @@ jobs:
 
       - name: テスト
         run: cargo test --workspace
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-
-      # `tsc -b` が型の壊れを拾う。UIは配布物に丸ごと入るので、
-      # ここが通らないと release.yml も通らない
-      - name: UI のビルド
-        run: |
-          npm --prefix ui ci
-          npm --prefix ui run build
