@@ -6,3 +6,15 @@ members = ["crates/pictkura-core", "src-tauri"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+
+# rav1d 1.1.0 の crates.io 版は ARM64 でビルドできない。あちらの `Cargo.toml` の
+# `exclude` に `*.h` が入っているためパッケージに `src/arm/asm-offsets.h` が含まれず、
+# ARM64のasm（`refmvs.S` / `filmgrain.S` / `filmgrain16.S`）が `#include` に失敗する。
+# **同じ版（タグ v1.1.0）を git から取る**ことで回避する。中身は上流のタグそのもの。
+#
+# `[patch.crates-io]` は**ターゲット別に書けない**ので、これは Windows の配布物にも
+# 効く（供給元が crates.io → git に変わる。版は同じ）。macOSを配ると決めた
+# 2026-08-14に、それを承知で入れた。asm を落とす道はAVIFデコードが6倍遅くなるので取らない。
+# **上流の `exclude` が直った版が出たら、ここは消してcrates.ioへ戻すこと。**
+[patch.crates-io]
+rav1d = { git = "https://github.com/memorysafety/rav1d", tag = "v1.1.0" }
