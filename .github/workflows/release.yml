@@ -132,8 +132,10 @@ jobs:
             target/release/bundle/portable/*.zip
           if-no-files-found: error
 
-  # macOS（Apple Silicon）。**未署名**なので、受け取った人は初回だけ
-  # 右クリック→開く（か `xattr -dr com.apple.quarantine`）が要る。
+  # macOS（Apple Silicon）。**Developer ID の署名も公証もしていない**ので、
+  # 受け取った人は初回だけ、一度弾かれてから
+  # システム設定→プライバシーとセキュリティ→「このまま開く」を踏む必要がある
+  # （`xattr -dr com.apple.quarantine` でも同じ。右クリック→開くは macOS 15 以降きかない）。
   # その案内はZIPに同梱する「はじめにお読みください.txt」に書いてある
   macos:
     runs-on: macos-latest
