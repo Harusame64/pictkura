@@ -66,6 +66,9 @@ export default function Settings({
   useEffect(() => {
     if (!open) {
       initialised.current = false;
+      // 閉じても状態は残る（`!open` で null を返すだけ）ので、
+      // 前回の拒否メッセージを次に開いたとき出さないよう消す
+      setDestError(null);
       return;
     }
     if (initialised.current || patterns.length === 0 || !config) return;
