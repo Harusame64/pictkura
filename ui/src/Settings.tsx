@@ -38,6 +38,8 @@ export default function Settings({
   onError: (message: string) => void;
 }) {
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
+  /** コピー先の変更が断られた理由（ダイアログ内に出す） */
+  const [destError, setDestError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   /** 自由記述の入力欄を開いているか、その中身と、実際にできるフォルダ名 */
   const [customMode, setCustomMode] = useState(false);
@@ -178,15 +180,21 @@ export default function Settings({
                   try {
                     await setImportDestination(dest);
                   } catch (e) {
+                    // **ダイアログの中に出す。** 画面下の状態バーへ流しても
+                    // このダイアログが覆っているうえ32chで省略されるので、
+                    // 断られた理由もパスも読めない
+                    setDestError(String(e));
                     onError(String(e));
                     return;
                   }
+                  setDestError(null);
                   onConfigChanged();
                 }}
               >
                 {t.wizardChangeDestination}
               </button>
             </div>
+            {destError && <p className="settings-error">{destError}</p>}
             <div className="pattern-list">
               {patterns.map((p) => (
                 <label

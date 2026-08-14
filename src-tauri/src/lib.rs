@@ -550,6 +550,16 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
         .filter(|dir| {
             !pictkura_core::scanner::is_excluded_path(dir, &config.library.exclude_patterns)
         })
+        // **ルートがパッケージなら、その配下は差分でも拾わない。**
+        // 走査側（`scan_roots_pruned`）はそのルートを丸ごと飛ばすので、
+        // ここだけ拾うと差分で入れた行を次のフルスキャンが消す、の往復になる。
+        // 逆にルートの**配下**にあるパッケージは設定に従う（利用者が
+        // `*.photoslibrary` を消せば索引される）ので、ここでは落とさない
+        .filter(|dir| {
+            !config.library.roots.iter().any(|root| {
+                dir.starts_with(root) && pictkura_core::import::is_managed_package_path(root)
+            })
+        })
         .filter(|dir| seen_dirty.insert(dir.clone()))
         .collect();
     let dirty_count = dirty_dirs.len();

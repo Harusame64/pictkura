@@ -502,6 +502,17 @@ mod tests {
             "/x/写真ライブラリ.photoslibrary/originals/0"
         )));
 
+        // 写真.appの系譜はまとめて落とす（どれも `~/Pictures` に住む）
+        assert!(is_managed_package_path(Path::new(
+            "/x/iPhoto Library.photolibrary"
+        )));
+        assert!(is_managed_package_path(Path::new(
+            "/x/iPhoto Library.migratedphotolibrary"
+        )));
+        assert!(is_managed_package_path(Path::new(
+            "/x/Aperture Library.aplibrary"
+        )));
+
         assert!(!is_managed_package_path(Path::new("/x/DCIM")));
         assert!(!is_managed_package_path(Path::new("/x/photoslibrary/a")));
     }

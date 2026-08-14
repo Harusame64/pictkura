@@ -1422,7 +1422,10 @@ export default function App() {
             onChange={(e) => setCellSize(Number(e.target.value))}
           />
         </label>
-        <span className="status">{status}</span>
+        {/* 32ch で省略されるので、全文はホバーで読めるようにする */}
+        <span className="status" title={status}>
+          {status}
+        </span>
         <span className={"count" + (query ? " searching" : "")}>
           {query && "🔍 "}
           {formatNumber(totalShown)} {t.itemsSuffix}
