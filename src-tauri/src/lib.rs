@@ -68,6 +68,22 @@ fn rebuild_watcher(app: &tauri::AppHandle) {
     *lock_ok(&state.watcher) = watcher;
 }
 
+/// 設定されたルートのうち、アプリが管理するパッケージだったもの。
+///
+/// 走査（`scan_roots_pruned`）はこのルートを丸ごと飛ばすので、差分の入口
+/// （監視・USN）も揃えて落とさないと、**差分で入れた行を次のフルスキャンが消す**
+/// という往復になる。判定はルートだけで決まるので、イベントごとではなく
+/// **1回だけ**求めて使い回す。
+fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
+    config
+        .library
+        .roots
+        .iter()
+        .filter(|r| pictkura_core::import::is_managed_package_path(r))
+        .cloned()
+        .collect()
+}
+
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
 fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
@@ -105,17 +121,18 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
             !same && db.upsert_files(std::slice::from_ref(&f)).is_ok()
         };
 
+        // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
+        // 走査（`scan_roots_pruned`）はそのルートを丸ごと飛ばすので、
+        // ここだけ拾うと入れた行を次のフルスキャンが消す、の往復になる。
+        // ルートの**配下**にあるパッケージは設定に従う（ここでは落とさない）。
+        // 判定はルートだけで決まるので**ループの外で1回**（イベントごとに
+        // 全構成要素を舐め直さない）
+        let package_roots = managed_package_roots(&config);
         for p in paths {
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
                 continue;
             }
-            // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
-            // 走査（`scan_roots_pruned`）はそのルートを丸ごと飛ばすので、
-            // ここだけ拾うと入れた行を次のフルスキャンが消す、の往復になる。
-            // ルートの**配下**にあるパッケージは設定に従う（ここでは落とさない）
-            if config.library.roots.iter().any(|root| {
-                p.starts_with(root) && pictkura_core::import::is_managed_package_path(root)
-            }) {
+            if package_roots.iter().any(|root| p.starts_with(root)) {
                 continue;
             }
             if p.is_file() {
@@ -552,6 +569,7 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
     }
     // ライブラリ配下のディレクトリだけに絞り、綴りを設定ルートへ揃える
     let specs = root_specs(roots);
+    let package_roots = managed_package_roots(config);
     let mut seen_dirty = std::collections::HashSet::new();
     let dirty_dirs: Vec<PathBuf> = dirty_dirs
         .iter()
@@ -564,11 +582,7 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
         // ここだけ拾うと差分で入れた行を次のフルスキャンが消す、の往復になる。
         // 逆にルートの**配下**にあるパッケージは設定に従う（利用者が
         // `*.photoslibrary` を消せば索引される）ので、ここでは落とさない
-        .filter(|dir| {
-            !config.library.roots.iter().any(|root| {
-                dir.starts_with(root) && pictkura_core::import::is_managed_package_path(root)
-            })
-        })
+        .filter(|dir| !package_roots.iter().any(|root| dir.starts_with(root)))
         .filter(|dir| seen_dirty.insert(dir.clone()))
         .collect();
     let dirty_count = dirty_dirs.len();
