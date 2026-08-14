@@ -30,36 +30,47 @@ on up-to-date Windows 10.
 
 ### macOS: the first launch needs a few extra steps
 
-The macOS build is **not signed with an Apple Developer ID**, so the first time you
-open it nothing starts and macOS shows a dialog saying it *"could not verify pictkura
-is free of malware."* The app is not damaged or infected — that message is what
-Gatekeeper shows for any app it cannot check with Apple.
+The macOS build is **not signed with an Apple Developer ID**, so Gatekeeper stops the
+first launch. The app is neither damaged nor infected.
 
-The dialog has no button that lets you continue. Click **Done**, then:
+**First, move `pictkura.app` to wherever you want to keep it** (`/Applications`, say).
+This is not just tidiness: launched from where it was unzipped, macOS copies the app
+into a read-only temporary location and runs it from there (App Translocation).
 
-1. **Move** `pictkura.app` to wherever you want to keep it (`/Applications`, say).
-2. Double-click it. The message above appears — click **Done**.
-3. Open **System Settings** → **Privacy & Security** and **scroll to the bottom**.
-4. Find the line saying `pictkura` was blocked, and click **Open Anyway**.
-5. Authenticate when asked. The app starts.
+After that, **the steps depend on your macOS version**.
 
-Only the first launch needs this; afterwards it opens by double-clicking.
+#### macOS 15 (Sequoia) and later
 
-If you prefer the terminal, this one line does the same thing:
+Double-clicking shows a dialog saying macOS *"could not verify pictkura is free of
+malware,"* offering only **Move to Trash** and **Done**. Nothing there lets you
+continue, so:
+
+1. Click **Done**.
+2. Open **System Settings** → **Privacy & Security** and **scroll to the bottom**.
+3. Find the line saying `pictkura` was blocked, and click **Open Anyway**.
+4. Authenticate when asked. The app starts.
+
+That line only appears *after* a blocked double-click, so keep the order.
+
+#### macOS 11 to 14
+
+**Right-click** (or control-click) `pictkura.app` → **Open** → **Open** in the dialog.
+
+> **macOS 15 removed this bypass.** Conversely, the System Settings steps above do not
+> apply to macOS 11–12, where that pane is called System Preferences → Security &
+> Privacy. Follow the section matching your version.
+
+#### Any version (Terminal)
 
 ```
 xattr -dr com.apple.quarantine /path/to/pictkura.app
 ```
 
-> **Right-click (control-click) → Open does not work.** It did up to macOS 14, but
-> **macOS 15 removed that bypass**. Plenty of older guides still describe it.
+---
 
-Moving the app first (step 1) is not just tidiness: launched from where it was
-unzipped, macOS copies the app into a read-only temporary location and runs it from
-there (App Translocation).
-
-The same message appears whether the app ships as a `.zip` or a `.dmg` — the archive
-format has nothing to do with it.
+Only the first launch needs this; afterwards it opens by double-clicking. The same
+block happens whether the app ships as a `.zip` or a `.dmg` — the archive format has
+nothing to do with it.
 
 There is no Intel (x86_64) build, and no Linux build.
 
