@@ -144,9 +144,10 @@ jobs:
           persist-credentials: false
 
       # **アーキテクチャを推測しない**。`macos-latest` の指す実機はGitHub都合で変わる。
-      # x86_64に変わったことに気付かないと、Apple Silicon専用と称して
-      # Intel版を配ることになる（ZIPの名前は `uname -m` から付くので気付ける、が
-      # 気付くのが配ったあとでは遅い）。**先に止める**
+      # x86_64に変わったことに気付かないと、Apple Silicon専用と称してIntel版を配ることになる。
+      # **本来の門は `tools/release-macos.sh` の側**（手元から呼んでも効かせるため。
+      # ゲート1の指摘）。ここにも置くのは、tauri-cli の導入・npm・UIビルドという
+      # 10分ぶんの支度をする**前に**落とすため——同じ判定が2箇所にあるのはそのぶん
       - name: Apple Silicon であることを確かめる
         run: |
           arch="$(uname -m)"

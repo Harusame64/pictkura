@@ -19,6 +19,18 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+# **配る対象はApple Siliconだけ**と決めてある（plan.md「macOSも配る」）。
+# ここで止めないと、Intel機で走らせたときに `uname -m` が `x86_64` を返し、
+# 「対応しないと明言した版」が名前だけ違う配布物として黙って出来上がる。
+# ワークフロー側にも同じ確認があるが、あちらは**10分の支度をする前に落とす**ため。
+# 実際の門はこちら——`release-macos.sh` は手元からも呼ぶものなので
+arch="$(uname -m)"
+if [ "$arch" != "arm64" ]; then
+    echo "Apple Silicon（arm64）でしか作れません: $arch" >&2
+    echo "Intel版とUniversalは作らないと決めています（plan.md「macOSも配る」）。" >&2
+    exit 1
+fi
+
 echo "== 1/3 UI をビルド =="
 npm --prefix ui run build
 
@@ -32,9 +44,9 @@ echo "== 3/3 配布用のZIPを作る =="
 app="target/release/bundle/macos/pictkura.app"
 [ -d "$app" ] || { echo "アプリがない: $app （cargo tauri build に失敗している）" >&2; exit 1; }
 
-# 版は tauri.conf.json を唯一の出どころにする（ここで二重管理しない）
+# 版は tauri.conf.json を唯一の出どころにする（ここで二重管理しない）。
+# `arch` は先頭のガードで確かめたものをそのまま使う
 version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-arch="$(uname -m)"
 
 stage="target/release/macos-stage/pictkura-$version"
 rm -rf "$stage"

@@ -82,11 +82,20 @@ mod tests {
         let batch = rx
             .recv_timeout(Duration::from_secs(5))
             .expect("イベントが届かなかった");
+        // **親と比べるときは両側を解決する。** macOSの `/var` は `/private/var` への
+        // シンボリックリンクで、FSEventsは**解決後の綴り**を返す。`dir.path()`
+        // （＝`/var/folders/...`）と直に比べると必ず外れるため、ここを解決しないと
+        // 「ファイル単体のイベントが来たときだけ通る」テストになる。
+        // どちらが来るかはFSEventsの束ね方次第（CIでは親、開発機ではファイルが来た）。
+        //
+        // なお**製品側は解決していない**。監視が返す綴りは `rebase_to_root_spelling`
+        // を通らないので、シンボリックリンク配下のルートでは監視とフルスキャンが
+        // 違う綴りで入れる余地が残っている（plan.md「監視が返す綴り」の節）
+        let root = dir.path().canonicalize().expect("一時フォルダを解決できる");
         assert!(
-            batch
-                .iter()
-                .any(|p| p.ends_with("new.jpg") || p == dir.path()),
-            "new.jpg（またはその親）のイベントが含まれる: {batch:?}"
+            batch.iter().any(|p| p.ends_with("new.jpg")
+                || p.canonicalize().is_ok_and(|resolved| resolved == root)),
+            "new.jpg（またはその親）のイベントが含まれる: {batch:?}（親: {root:?}）"
         );
         drop(watcher);
     }
