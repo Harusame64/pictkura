@@ -15,6 +15,35 @@
 
 ---
 
+## 入手とインストール
+
+[Releases](https://github.com/Harusame64/pictkura/releases) から最新版を取得してください。
+
+| 対象 | ファイル | 備考 |
+|---|---|---|
+| **Windows 10/11（x64）** | `pictkura_<版>_x64_<言語>.msi` | PC全体へ入れるため管理者権限を求められます。日本語版と英語版で別ファイルです |
+| **Windows・インストール不要** | `pictkura_<版>_x64-portable.zip` | 展開して `pictkura.exe` を実行するだけ。管理者になれない場合はこちら |
+| **macOS 11以降（Apple Silicon）** | `pictkura_<版>_arm64.zip` | 展開して `pictkura.app` を好きな場所へ。**初回起動の前に下の注意を読んでください** |
+
+Windows では別途 **WebView2 ランタイム**が要ります（Windows 11 と、更新済みの
+Windows 10 には最初から入っています）。
+
+### macOS は初回だけ開き方に手順が要ります
+
+macOS版は **Appleの開発者署名を受けていません**。そのため初回はダブルクリックしても
+「**"pictkura"は壊れているため開けません**」と表示されます。壊れてはいません——
+未署名のアプリに対してGatekeeperが出す定型の文言です。次のどちらかで開いてください。
+
+- `pictkura.app` を**右クリック**（またはcontrol＋クリック）→「**開く**」→ 確認で「**開く**」
+- ターミナルで `xattr -dr com.apple.quarantine /パス/pictkura.app` を実行
+
+必要なのは初回だけです。なお**この表示は配布形式が `.zip` でも `.dmg` でも同じ**で、
+形式を変えても回避できません。
+
+Intel（x86_64）版と Linux 版はありません。
+
+---
+
 ## 使い方（最短の導線）
 
 ### 1. ライブラリのフォルダを登録する
@@ -185,7 +214,8 @@ Rust とは別に、**Cコンパイラ**と **NASM** が要ります。
 - **Cコンパイラ**: SQLite（`rusqlite` の bundled）・libwebp・libjpeg-turbo を
   ソースからビルドするため。Windows の GNU ターゲットなら MinGW-w64 の `gcc`
 - **NASM**: rav1d（AVIF）と libjpeg-turbo のアセンブリ。
-  **外すと6倍遅くなる**ので外さないでください
+  **外すと6倍遅くなる**ので外さないでください。NASMはx86のアセンブラなので、
+  **Apple Silicon では要りません**（そちらは両ライブラリとも `.S` を clang に通します）
 
 ```bash
 # コアのテスト
@@ -202,14 +232,32 @@ cargo run --release --bin bench -- --count 1000000
 ### 配布物を作る
 
 ```powershell
+# Windows: MSI（ja-JP / en-US）と持ち歩き版ZIP
 pwsh tools/release.ps1
 ```
 
-UIビルド → MSI → 持ち歩き版ZIP をこの順で作ります。**UIのビルドを飛ばさない**のが
-要点で、`ui/dist` は生成物なので、飛ばすと古い画面が配布物へ入っても気付けません。
+```bash
+# macOS（Apple Silicon）: pictkura.app を収めたZIP
+bash tools/release-macos.sh
+```
+
+どちらも UIビルド → バンドル の順です。**UIのビルドを飛ばさない**のが要点で、
+`ui/dist` は生成物なので、飛ばすと古い画面が配布物へ入っても気付けません。
 `cargo tauri build` には Tauri CLI が要ります（`cargo install tauri-cli --version "^2.0"`）。
 
-設定は `%APPDATA%/dev.harusame.pictkura/pictkura.toml`（Windows）に保存されます。
+macOSのバンドル対象は `src-tauri/tauri.macos.conf.json` で決めています
+（Tauriが `tauri.conf.json` へ自動で重ねます。既定の `msi` はmacOSでは作れません）。
+`.app` は **ad-hoc署名だけ**で、Developer ID の署名も公証もしていません。
+**ここは省くと壊れます**——arm64のリンカは実行ファイルに勝手にad-hoc署名を付けるので、
+バンドル側を署名しないと「実行ファイルは署名済みなのにバンドルに `_CodeSignature` が無い」
+という**未署名より悪い状態**になります。`signingIdentity: "-"` がそれを防いでいます。
+
+`v*` のタグを push すると両方がCIで走り、4つのファイルがReleasesに付きます。
+**片方だけでは公開しません**——両方が揃うのを待って4つ揃っているかを数える
+ジョブを別に置いてあるので、片OSの失敗で「半分だけのリリース」は出ません。
+
+設定は `%APPDATA%/dev.harusame.pictkura/pictkura.toml`（Windows）、
+`~/Library/Application Support/dev.harusame.pictkura/`（macOS）に保存されます。
 `[import]` `[routing]` `[library]` `[performance]` `[editors]` の構成です。
 
 ### OSSライセンス一覧を作り直す

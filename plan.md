@@ -1231,12 +1231,20 @@ SHAを直接指定すれば読める。private のうちは見えないが、**p
 
 | ワークフロー | 中身 |
 |---|---|
-| `.github/workflows/ci.yml` | push（main）とPRで、**Windows**上で UIビルド → fmt → clippy（`-D warnings`）→ テスト |
-| `.github/workflows/release.yml` | タグ `v*` の push で MSI 2言語＋ポータブルZIPを作って Releases に載せる。手動実行（`workflow_dispatch`）では作るだけ |
+| `.github/workflows/ci.yml` | push（main）とPRで、**Windows と macOS** の両方で UIビルド → fmt → clippy（`-D warnings`）→ テスト（`fail-fast: false`） |
+| `.github/workflows/release.yml` | タグ `v*` の push で、Windowsは MSI 2言語＋ポータブルZIP、macOSは `.app` のZIPを作り、**両方揃ってから** Releases に載せる。手動実行（`workflow_dispatch`）では作るだけ |
 
 `release.yml` は**空撃ちで通ることを実測済み**（2026-08-14、`workflow_dispatch`／11分）。
 MSI 8.0MB×2・ポータブルZIP 8.1MB が出て、ZIPの中身（実行ファイル・取説・
 ライセンス一覧・画像）の点検も通った。手元の `pwsh tools/release.ps1` は今も同じに動く。
+
+**macOSを足した（2026-08-14）**。詳しくは「macOSも配る」の節。
+
+**公開は `publish` ジョブに切り出した。** 各ビルドジョブが自分で `gh release create`
+すると、2つが同時に同じReleaseを作りにいって競り合ううえ、**片方が落ちたときに
+片OSだけのリリースが出来てしまう**。両方が揃うのを待ち、配布物が4つ
+（MSI×2・ポータブルZIP・macOSのZIP）あることを数えてから1回だけ載せる。
+書き込み権を持つのはこのジョブだけで、ビルドジョブは `contents: read` に落とした。
 
 ### 決着: MSVC で作ってよい（2026-08-14に実測）
 
@@ -1309,7 +1317,10 @@ cargo run -p pictkura --release      # debugビルドはサムネ生成が10倍�
 
 ## すぐ手を付けられる残件
 
-- [ ] **`docs/images/settings.jpg` を撮り直す**（小さいが、公開前には直したい）。
+- [ ] **`docs/images/settings.jpg` を撮り直す**。**v0.1.0には撮り直さないと決めた**
+      （2026-08-14のユーザー判断。次の版で直す）。この画像は `tauri.conf.json` の
+      `resources` に入っているので**MSI・ポータブルZIP・.app のすべてに同梱される**
+      ——README だけの問題ではない。次に版を上げるときに必ず消化すること。
       いまの画像は**修正前のUI**で、プリセットと「自分で決める」が**両方選択済みに見える**
       ——2ゲートレビューで指摘された不具合そのものが写っている。コードは修正済み。
       撮り方は「v0.1」の節（識別子を `-demo` に変えたビルドで撮る）
@@ -1344,12 +1355,18 @@ cargo run -p pictkura --release      # debugビルドはサムネ生成が10倍�
   rav1d = { git = "https://github.com/memorysafety/rav1d", tag = "v1.1.0" }
   ```
 
-  **2026-08-14のユーザー判断: これはコミットしない**（手元の未コミット変更のまま）。
-  配るものの中身に効く差し替えなので、macOSを実際に配ると決めるまで動かさない。
-  したがって**macOSのジョブはCIに足せない**。足すなら先にこの判断が要る。
-  他の道は「aarch64だけ `asm` feature を落とす」（AVIFデコードが6倍遅くなる）か
-  「上流に `exclude` の修正を出す」
-- **テストはmacOSでも全部通る**（264件。Windowsの276件との差12件は `cfg(windows)` のぶん）。
+  **2026-08-14に判断を覆してコミットした**（同日、macOSを配ると決めたため。
+  それまでは「配るものの中身に効く差し替えなので、実際に配ると決めるまで動かさない」
+  として未コミットで持っていた）。`[patch.crates-io]` は**ターゲット別に書けない**ので、
+  これは**Windowsの配布物にも効く**——供給元が crates.io から git に変わる。
+  版は同じタグなので中身は上流そのもの。取らなかった道は
+  「aarch64だけ `asm` feature を落とす」（AVIFデコードが6倍遅くなり「速いことが仕様」に
+  正面から反する）と「上流に `exclude` の修正を出す」（マージと新版リリースの時期が
+  読めず、リリースが無期限に止まる）。
+  **上流の `exclude` が直った版が出たら、`Cargo.toml` の patch を消してcrates.ioへ戻すこと**
+- **テストはmacOSでも全部通る**（移した当日は264件、パッケージ除外の回を入れて
+  **2026-08-14時点で272件**。Windowsとの差は `cfg(windows)` のぶん。
+  件数は増えるので、**この数字ではなく緑かどうかを見ること**）。
   移した直後は10件落ちたが、**すべてテスト側がWindowsの環境を前提にしていたのが原因**で、
   製品コードの欠陥ではなかった。DBもパス正規化も、既に**文字として**両方の区切りを扱っている
   （`pk_name` / `pk_folder` / `parent_dir_expr`）。直した内容は
@@ -1484,6 +1501,148 @@ Lightroomの `*.lrdata` は入れていない。あれは `~/Pictures` の既定
 入れるべき**——`thumbs` 配下を走査して `media` に無いものを落とす一掃を、
 起動時か janitor に足すのが素直。
 
+## macOSも配る（2026-08-14のユーザー判断）
+
+**Windows版とmacOS版の両方をGitHub Actionsで作る**と決めた。前提だった rav1d の
+判断（上記）を覆してコミットしたのが起点。
+
+| 決めたこと | 中身 |
+|---|---|
+| 対象 | **Apple Silicon（arm64）のみ**。Intel（x86_64）版とUniversalは作らない |
+| 配布形式 | **`.app` を収めたZIP**。DMGは後日の判断 |
+| 署名 | **ad-hoc署名のみ**。Developer ID の署名も公証もしない |
+| 最低OS版 | **11.0**（Apple Siliconの実機の下限。Tauri既定の10.13は嘘になる） |
+
+**DMGではなくZIPにしたが、Gatekeeperの観点で両者に差は無い。** ブラウザで
+ダウンロードすると `com.apple.quarantine` が付き、**展開した `.app` にも伝播する**ので、
+未署名ならどちらの形式でも初回は弾かれる。ZIPを選んだのはCIが単純だからで、
+「ZIPなら回避できる」からではない。回避手順（右クリック→開く／`xattr -dr`）は
+ZIPに同梱する「はじめにお読みください.txt」とREADME（英日とも）に書いた。
+
+### 実測で分かったこと（2026-08-14・開発機のApple Silicon）
+
+- **release ビルドは通る**。`cargo build --release` が1分27秒、`cargo tauri build` の
+  `.app` バンドルまで通る。ZIPは7.3MB（Windows側のポータブルZIPは8.1MB）
+- **NASMは要らない**。あれはx86のアセンブラで、ARM64では rav1d も libjpeg-turbo も
+  `.S` を clang に通す。**Windows側とは事情が違う**のでCIでも入れていない
+- **`.icns` はリポジトリに要らない**。`src-tauri/icons/` にあるのは `.ico` と 256×256 の
+  `.png` だけだが、tauri-bundler が png から `pictkura.icns` を作る。
+  ただし**元が256pxなので、Finderの大アイコン表示では甘い**。1024pxの原本を用意すれば直る
+- **資源は `Contents/Resources/_up_/` に入る**。`tauri.conf.json` の `resources` を
+  `../` 付きで書いているため（`lib.rs` の `about_info` のコメントにある `_up_` の罠と同じ）。
+  `.app` の中で完結するので、ZIPの側に取説を置く必要は無い
+
+### 踏んだ罠: バンドルを署名しないと「未署名より悪い」状態になる
+
+最初は署名の設定を入れずに作った。すると `codesign -v` がこう言う:
+
+```
+code has no resources but signature indicates they must be present
+```
+
+**arm64のリンカは実行ファイルに勝手にad-hoc署名を付ける**（`flags=0x20002(adhoc,
+linker-signed)`、`Identifier=pictkura-0e6f515c462272a7` という自動生成の識別子）。
+一方で `.app` バンドルの側は署名されないので `Contents/_CodeSignature` が無く、
+**署名が「壊れている」状態**になる。単なる未署名より悪く、quarantineを外しても
+弾かれる経路が残る。
+
+`tauri.macos.conf.json` に `"signingIdentity": "-"` を置いて `cargo tauri build` に
+バンドルごと署名させると直る（`Identifier=dev.harusame.pictkura`、
+`flags=0x10002(adhoc,runtime)`、`_CodeSignature/CodeResources` が出来る）。
+**CIの点検にも `codesign -v` を入れた**——ZIPから出したものに対して掛けるので、
+`ditto` が署名を保つことまで込みで見る。
+
+なお `.app` をZIPに詰めるのは **`ditto` を使うこと**。`.app` はシンボリックリンクと
+実行権限を含むので `zip -r` では壊れ、しかも**ZIPは正常に見える**（起動しない
+`.app` が配られる）。
+
+### 見つかった穴: 監視が返す綴り（2026-08-14・macOSをCIに載せて判明）
+
+**macOSをCIに載せた初回で、`watch::tests::ファイル追加イベントがバッチで届く` が落ちた**
+（開発機では通っていた）。CIが返したのは
+`/private/var/folders/.../T/.tmpQAdK8f`、テストが比べていたのは `dir.path()` ＝
+`/var/folders/.../T/.tmpQAdK8f`。**macOSの `/var` は `/private/var` への
+シンボリックリンクで、FSEventsは解決後の綴りを返す**。
+
+テスト側は両側を `canonicalize` して直した。開発機で通っていたのは、FSEventsが
+**ファイル単体のイベント**を返したから（`ends_with("new.jpg")` の枝で通っていた）。
+CIでは**親フォルダ**が返り、壊れていた方の枝に落ちた。どちらが来るかはFSEventsの
+束ね方次第なので、**この差はいつ開発機側で出てもおかしくなかった**。
+
+**製品側にも同じ根の穴が残っている（直していない）。**
+`rebase_to_root_spelling`（綴りを設定ルートへ揃える処理）は
+**`try_usn_sync` にしか掛かっておらず、監視経路の `handle_fs_events` は素通し**。
+したがってシンボリックリンク配下のルートを登録すると、監視は解決後の綴りで、
+フルスキャン（`scan_roots_pruned` は設定の綴りから歩く）は設定の綴りで入れ、
+**同じ写真が2件登録される**——段階G-3と同じ系統。
+
+**同じ食い違いがパッケージ除外の門も外す**（ゲート2が指摘。こちらは記録し漏れていた）。
+`handle_fs_events` の `package_roots.iter().any(|root| p.starts_with(root))` は
+設定の綴りと比べるので、解決後の綴りが来ると**一致しない**。つまり監視だけが
+パッケージの中身を索引し、次のフルスキャンがそれを消す——`lib.rs` の
+そのすぐ上のコメントが「やってはいけない」と書いている往復そのものが起きる。
+
+直さなかったのは、これが**パスの綴りの手術**で、macOS配布のPRに混ぜる範囲ではないから
+（混ぜると2ゲートがどちらの変更を見ているのか分からなくなる）。現実の露出は小さい:
+ルートはネイティブのフォルダ選択ダイアログで選ぶので、`~/Pictures` や `/Volumes/...`
+なら解決前後で綴りが変わらない。`/tmp` や `/var`、あるいは自分で張ったシンボリック
+リンク経由でライブラリを登録した人が対象。
+
+**直すなら**、`handle_fs_events` にも `root_specs` / `rebase_to_root_spelling` を通すのが
+素直（USN側と対にする。「USN側だけ直して監視側を忘れ、次の周で指摘された」のと同じ形）。
+ただし `rebase_to_root_spelling` は `/` を `\` へ寄せる**Windows前提の正規化**なので、
+macOSで使うには先にそこを直す必要がある。
+
+### まだ確かめていないこと
+
+- **他人の機械での初回起動**。開発機はこのリポジトリを触っているのでquarantineが
+  付いていない。「右クリック→開く」で本当に開けるかは、ダウンロードして試すまで分からない
+- **macOS 11〜14での動作**。`minimumSystemVersion` に11.0と書いたが、
+  実際に確かめたのは開発機の版だけ。**書いた値は「arm64の下限」であって実測ではない**
+- **release ビルドのアプリの起動**。plan.md が「起動する」と書いているのは
+  `target/debug/pictkura` を直に実行したときの話で、`.app` からの起動は未確認
+
+### macOS版に無い機能（Windows版との差）
+
+`README` の注意事項に既にあるものと同じ。ZIPの同梱テキストにも書いた。
+
+- 動画のサムネイル（`shell::thumbnail` がWindows専用。QuickLookの枝は未実装）
+- HEIC/HEIFの画素（macOSは ImageIO を使えば行けるが未実装）
+- クラウドにしか実体が無いファイルの素性（`shell::metadata` がWindows専用）
+
+### 2ゲートレビューで直したところ（2026-08-14・macOS配布の回）
+
+**ゲート1（codex）は1件**。`tools/release-macos.sh` にアーキテクチャの門が無く、
+ワークフローにしか無い、という指摘。**呼ばれる側に門を置いた**（手元から呼んでも効く）。
+
+**ゲート2（Opus）は6件**。効いた順に:
+
+- **門が「機械」を見ていて「作った物」を見ていなかった**（一番効いた）。
+  `uname -m` はApple Silicon機なら `arm64` を返すが、**rustup の既定ホストが
+  `x86_64-apple-darwin` だと出てくるバイナリは x86_64**（Rosetta下でrustupを
+  入れると起きる）。それを `..._arm64.zip` という名前で配ることになり、
+  止めたかったことがそのまま起きる。→ ビルド後の `lipo -archs` を本当の門にし、
+  **ZIPの名前もその値から付ける**（素性と名前の出どころを1つにした）。
+  `uname -m` の方は「10分のビルド前に明らかなIntel機を弾く」役として残した
+- **前の版のZIPが隣に残りうる**。`target/` はCIのキャッシュから復元されるので、
+  版を上げた最初の実行で `ls .../*.zip` が2行返る。員数確認も4つではなく5つに
+  なって落ちる。→ スクリプトは置き場ごと作り直し、ワークフロー側は独立に1つを数える
+- **`codesign -dvv | grep -q` が正しい署名で気まぐれに落ちる**。`grep -q` は
+  一致した時点で終わるので、まだ書いている `codesign` がSIGPIPEで死に、
+  `pipefail` が終了141を拾う。→ 先に変数へ受けてから見る
+- **タグと `tauri.conf.json` の版が食い違っても素通りする**。配布物の名前は
+  すべて `tauri.conf.json` から付くので、上げ忘れたまま `v0.2.0` を押すと
+  「v0.2.0」のReleaseに `pictkura_0.1.0_*` が4つ並び、**員数は4つなので通る**。
+  → `publish` の先頭で照合する
+- **マトリクス化で報告名が変わる**（`check` → `check (windows-latest)` 他）。
+  ブランチ保護が `check` を必須にしていると永久に待つ、という指摘。
+  **このリポジトリは保護もルールセットも掛けていないので実害なし**（実地で確認）。
+  ただし「両方を必須にしている」と読める私のコメントが誤解の元だったので、
+  掛けるときの注意に書き換えた
+- **監視の綴り問題**（上記）。plan.md が先送りを宣言していることを確認したうえで、
+  **私が記録し漏れていた二次被害**——パッケージ除外の門も同じ理由で外れる——を指摘した。
+  記録に足した。直すのは別PR
+
 ## 2ゲートレビューで直したところ（2026-08-13 CI の回 / 2026-08-14 macOS の回）
 
 **CIの回**。この機械にcodexが無かったのでOpusとFableの2者に見せた。
@@ -1528,11 +1687,27 @@ Range要求ごとに `moof`+`mdat` を組んで返す。常駐はindexだけで1
 
 ### macOS / Linux の対応
 
-- **動画のサムネイル**: `shell::thumbnail` が唯一の入口。ここに QuickLook /
-  ディストリのサムネイラの枝を足す。**この機械では検証できない**
-- **HEIC の画素**: macOSは ImageIO、Linuxは非対応のまま
+**macOSは2026-08-14から配っている**（「macOSも配る」の節）。配ってはいるが、
+下の3つはWindows専用のまま——「動かない」ではなく「一部の機能が無い」状態。
+**開発機がApple Siliconになったので、いまはここを検証できる**。
+
+- **動画のサムネイル**: `shell::thumbnail` が唯一の入口。ここに QuickLook
+  （`QLThumbnailGenerator`）/ ディストリのサムネイラの枝を足す。
+  macOS版を配った以上、**ここが一番効く残件**（動画が枠だけ並ぶ）
+- **HEIC の画素**: macOSは ImageIO、Linuxは非対応のまま。
+  iPhoneの既定形式なので、macOS利用者ほど当たりやすい
 - **`shell::metadata`（段階H）もWindows専用**。macOS/Linuxではクラウドのみの
   ファイルの素性が空のままになる
+
+**監視が返す綴り**（`handle_fs_events` が `rebase_to_root_spelling` を通らない件）も
+ここに属する。詳しくは「見つかった穴: 監視が返す綴り」の節。
+
+macOS版の配布そのものの残件は次の2つ。
+
+- **Developer ID 署名と公証**。いまは ad-hoc署名だけなので、受け取った人は
+  初回に右クリック→開くが要る。Apple Developer Program（年 $99）への加入が前提
+- **DMG**。「後日の判断」として保留。Gatekeeperの観点ではZIPと差は無いので、
+  見栄え以外の理由は無い
 
 ### 使い勝手の穴
 

@@ -1,13 +1,21 @@
-# Windows の配布物（MSI ja-JP / en-US ＋ 持ち歩き版ZIP）を作る。
+# 配布物を作る。
 #
-# **手元の `pwsh tools/release.ps1` をそのまま呼ぶ**のが要点。CIに手順を書き写すと
-# 二重管理になり、「手元では出るのにCIでは出ない」が静かに生まれる。
+#   Windows … MSI ja-JP / en-US ＋ 持ち歩き版ZIP
+#   macOS   … pictkura.app を収めたZIP（Apple Silicon 専用・未署名）
+#
+# **手元のスクリプト（`tools/release.ps1` / `tools/release-macos.sh`）を
+# そのまま呼ぶ**のが要点。CIに手順を書き写すと二重管理になり、
+# 「手元では出るのにCIでは出ない」が静かに生まれる。
 # UIのビルドを先に走らせる理由もあのスクリプトのコメントに書いてある。
 #
 # 動かし方は2通り:
 #   - `v0.1.0` のようなタグを push  … Releases に配布物が付く
 #   - 手動実行（workflow_dispatch）  … 成果物だけ作って中身を確かめる
-name: Release (Windows)
+#
+# **公開は別ジョブ（`publish`）に切り出してある。** 各ビルドジョブが自分で
+# `gh release create` すると、2つが同時に同じReleaseを作りにいって競り合ううえ、
+# 片方が落ちたときに**片OSだけのリリースが出来てしまう**。両方揃ってから1回だけ載せる。
+name: Release
 
 on:
   push:
@@ -20,12 +28,13 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# 既定は読めれば足りる。書き込みは `publish` だけが自分で引き上げる
+permissions:
+  contents: read
+
 jobs:
   windows:
     runs-on: windows-latest
-    permissions:
-      # `gh release create` がリリースを作るのに要る
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,20 +132,193 @@ jobs:
             target/release/bundle/portable/*.zip
           if-no-files-found: error
 
-      # **タグを push したときだけ**載せる。workflow_dispatch はタグの ref も選べるので、
-      # `startsWith(github.ref, ...)` だけだと手動実行で公開してしまう
+  # macOS（Apple Silicon）。**未署名**なので、受け取った人は初回だけ
+  # 右クリック→開く（か `xattr -dr com.apple.quarantine`）が要る。
+  # その案内はZIPに同梱する「はじめにお読みください.txt」に書いてある
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Windows側と同じ理由。このジョブは依存のbuild.rsとnpmのスクリプトを走らせる
+          persist-credentials: false
+
+      # **アーキテクチャを推測しない**。`macos-latest` の指す実機はGitHub都合で変わる。
+      # x86_64に変わったことに気付かないと、Apple Silicon専用と称してIntel版を配ることになる。
+      # **本来の門は `tools/release-macos.sh` の側**（手元から呼んでも効かせるため。
+      # ゲート1の指摘）。ここにも置くのは、tauri-cli の導入・npm・UIビルドという
+      # 10分ぶんの支度をする**前に**落とすため——同じ判定が2箇所にあるのはそのぶん
+      - name: Apple Silicon であることを確かめる
+        run: |
+          arch="$(uname -m)"
+          echo "runner arch: $arch"
+          [ "$arch" = "arm64" ] || { echo "arm64ではない: $arch"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # **NASMは要らない**（2026-08-14に実測）。あれはx86のアセンブラで、
+      # ARM64では rav1d も libjpeg-turbo も `.S` を clang に通す。Windows側とは事情が違う
+      - uses: Swatinem/rust-cache@v2
+
+      - name: tauri-cli
+        run: |
+          if ! command -v cargo-tauri >/dev/null 2>&1; then
+            cargo install tauri-cli --version "^2.0" --locked
+          fi
+
+      - name: npm の依存
+        run: npm --prefix ui ci
+
+      # Windows側と同じ理由——**タグ push では ci.yml が1行も走らない**。
+      # `tauri::generate_context!` の展開に `ui/dist` が要るのでUIのビルドをテストの前に置く
+      - name: 検査（タグはci.ymlを迂回するため）
+        run: |
+          npm --prefix ui run build
+          cargo fmt --all --check
+          cargo test --workspace --locked
+
+      - name: 配布物を作る
+        run: bash tools/release-macos.sh
+
+      # **数えて確かめる**。`if-no-files-found: error` は「全部空」のときしか
+      # 発火しないので、ZIPは出たが中身が欠けた、を素通しする。
+      # `.app` の実行ファイルに実行権が残っているかまで見るのは、`ditto` を使う
+      # 理由そのものだから——ここが崩れたZIPは、展開しても起動しない
+      - name: 配布物が揃っているか
+        run: |
+          set -euo pipefail
+          # **1つであることを数える。** `target/` はキャッシュから復元されるので、
+          # 版を上げた最初の実行では前の版のZIPが隣に残りうる。`ls` を素で使うと
+          # 2行返って以降が全部おかしくなる（スクリプト側でも置き場ごと消しているが、
+          # ここは「作った物を検める」側なので独立に数える）。
+          # **`mapfile` は使わない**——macOSの `/bin/bash` は3.2で、あれが無い
+          zips="$(find target/release/bundle/zip -maxdepth 1 -name '*.zip' | sort)"
+          count="$(printf '%s' "$zips" | grep -c . || true)"
+          if [ "$count" -ne 1 ]; then
+            echo "$zips"
+            echo "ZIPが1つではない: $count"; exit 1
+          fi
+          zip="$zips"
+
+          work="$(mktemp -d)"
+          ditto -x -k "$zip" "$work"
+          app="$(find "$work" -maxdepth 2 -name 'pictkura.app' -type d)"
+          [ -n "$app" ] || { echo "ZIPに pictkura.app が無い"; exit 1; }
+
+          for need in \
+            "$app/Contents/MacOS/pictkura" \
+            "$app/Contents/Info.plist" \
+            "$app/Contents/Resources/_up_/THIRD-PARTY-LICENSES.txt" \
+            "$app/Contents/Resources/_up_/docs/manual.html"
+          do
+            [ -e "$need" ] || { echo "$need が無い"; exit 1; }
+          done
+          [ -x "$app/Contents/MacOS/pictkura" ] || { echo "実行権が落ちている"; exit 1; }
+          ls "$app/Contents/Resources/_up_/docs/images/"*.jpg >/dev/null
+
+          # **署名の整合をZIPから出したもので見る**。arm64のリンカは実行ファイルに
+          # 勝手にad-hoc署名を付けるので、バンドルを署名し忘れると
+          # 「実行ファイルは署名済みだがバンドルには `_CodeSignature` が無い」という
+          # **未署名より悪い状態**になり、quarantineを外しても弾かれる経路が残る。
+          # `tauri.macos.conf.json` の `signingIdentity: "-"` がそれを防いでいる。
+          # ZIPを経由して見るのは、`ditto` が署名を保つことまで込みで確かめるため
+          codesign -v --verbose=2 "$app"
+          # **パイプで `grep -q` へ渡さない。** `grep -q` は一致した時点で終わるので、
+          # まだ書いている `codesign` がSIGPIPEで死に、`pipefail` が拾って
+          # 終了141になる。**正しくad-hoc署名されたアプリで、気まぐれに落ちる**
+          # （ゲート2の指摘）。先に受け取ってから見る
+          sig="$(codesign -dvv "$app" 2>&1)"
+          grep -q "^Signature=adhoc" <<<"$sig" || { echo "$sig"; echo "ad-hoc署名ではない"; exit 1; }
+
+          for need in "はじめにお読みください.txt" LICENSE THIRD-PARTY-LICENSES.txt; do
+            [ -e "$(dirname "$app")/$need" ] || { echo "ZIPに $need が無い"; exit 1; }
+          done
+
+          ls -lh "$zip" | awk '{ printf "  %7s  %s\n", $5, $9 }'
+
+      # **配るものの素性を測る**。Windows側で `dumpbin /dependents` を見るのと同じ趣旨。
+      # 署名の状態（未署名なら adhoc）と、本当にarm64単体かを出す。**門にはしない**
+      - name: 素性を見る
+        continue-on-error: true
+        run: |
+          app="target/release/bundle/macos/pictkura.app"
+          rustc -vV
+          file "$app/Contents/MacOS/pictkura"
+          lipo -info "$app/Contents/MacOS/pictkura" || true
+          codesign -dvv "$app" 2>&1 || true
+          otool -L "$app/Contents/MacOS/pictkura" | head -30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pictkura-macos
+          path: target/release/bundle/zip/*.zip
+          if-no-files-found: error
+
+  # **両方が揃ってから1回だけ載せる。** ここだけが書き込み権を持つ
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    # **タグを push したときだけ**載せる。workflow_dispatch はタグの ref も選べるので、
+    # `startsWith(github.ref, ...)` だけだと手動実行で公開してしまう
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      # `gh release create` がリリースを作るのに要る
+      contents: write
+    steps:
+      # **タグと `tauri.conf.json` の版が一致していることを先に見る。**
+      # 配布物の名前はすべて `tauri.conf.json` の `version` から付く（macOSは
+      # `release-macos.sh`、MSIはTauri自身）。上げ忘れたまま `v0.2.0` を押すと、
+      # 「v0.2.0」という名前のReleaseに `pictkura_0.1.0_*` が4つ並び、
+      # **員数確認は4つなので素通りする**（ゲート2の指摘）。
+      # ここだけは版を読むためにチェックアウトが要る（浅くていい）
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+
+      - name: タグと版が一致しているか
+        run: |
+          set -euo pipefail
+          conf="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "v$conf" != "$GITHUB_REF_NAME" ]; then
+            echo "タグ($GITHUB_REF_NAME)と tauri.conf.json の版(v$conf)が違う"
+            echo "配布物の名前は tauri.conf.json 側から付くので、揃えてから打ち直すこと"
+            exit 1
+          fi
+          echo "版: v$conf"
+
+      # 名前を指定せず全部取る（`pictkura-windows` と `pictkura-macos`）
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
       - name: Release に載せる
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+          # **`checkout` していないので `gh` はリポジトリを知らない。**
+          # git の作業ツリーから推測できないぶん、ここで明示しないと
+          # 「not a git repository」で落ちる
+          GH_REPO: ${{ github.repository }}
         run: |
-          $files = Get-ChildItem -Recurse -File target\release\bundle |
-            Where-Object { $_.Extension -in ".msi", ".zip" } |
-            ForEach-Object { $_.FullName }
-          if (-not $files) { throw "配布物が1つも見つからない" }
-          gh release create $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --generate-notes $files
-          if ($LASTEXITCODE -ne 0) {
+          set -euo pipefail
+          files=()
+          while IFS= read -r f; do files+=("$f"); done < <(find dist -type f \( -name '*.msi' -o -name '*.zip' \) | sort)
+
+          # **数えて確かめる**。MSI 2言語＋ポータブルZIP＋macOSのZIP＝4つ。
+          # 欠けたまま公開すると「Windows版が無いRelease」が静かに出来る
+          if [ "${#files[@]}" -ne 4 ]; then
+            printf '%s\n' "${files[@]}"
+            echo "配布物が4つ（MSI×2・ポータブルZIP・macOS ZIP）ではない: ${#files[@]}"
+            exit 1
+          fi
+          printf '  %s\n' "${files[@]}"
+
+          if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes "${files[@]}"; then
             # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）
-            gh release upload $env:GITHUB_REF_NAME $files --clobber
-            if ($LASTEXITCODE -ne 0) { throw "Releaseへの登録に失敗" }
-          }
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          fi
