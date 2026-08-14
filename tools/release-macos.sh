@@ -20,13 +20,17 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 # **配る対象はApple Siliconだけ**と決めてある（plan.md「macOSも配る」）。
-# ここで止めないと、Intel機で走らせたときに `uname -m` が `x86_64` を返し、
-# 「対応しないと明言した版」が名前だけ違う配布物として黙って出来上がる。
-# ワークフロー側にも同じ確認があるが、あちらは**10分の支度をする前に落とす**ため。
-# 実際の門はこちら——`release-macos.sh` は手元からも呼ぶものなので
-arch="$(uname -m)"
-if [ "$arch" != "arm64" ]; then
-    echo "Apple Silicon（arm64）でしか作れません: $arch" >&2
+# Intel機で走らせると「対応しないと明言した版」が黙って出来上がるので、先に止める。
+#
+# **ただしこれは機械の素性であって、作った物の素性ではない。** 本当の門は
+# ビルド後の `lipo` の方（下）。Apple Silicon機でも rustup の既定ホストが
+# `x86_64-apple-darwin` だと（Rosetta下で入れた場合に起きる）、`uname -m` は
+# `arm64` を返すのに x86_64 のバイナリが出る。ここだけだと**それを
+# `..._arm64.zip` という名前で配る**——止めたかったことがそのまま起きる（ゲート2の指摘）。
+# ここに置いてあるのは、10分ぶんのビルドをする前に明らかなIntel機を弾くため
+host_arch="$(uname -m)"
+if [ "$host_arch" != "arm64" ]; then
+    echo "Apple Silicon（arm64）でしか作れません: $host_arch" >&2
     echo "Intel版とUniversalは作らないと決めています（plan.md「macOSも配る」）。" >&2
     exit 1
 fi
@@ -44,8 +48,20 @@ echo "== 3/3 配布用のZIPを作る =="
 app="target/release/bundle/macos/pictkura.app"
 [ -d "$app" ] || { echo "アプリがない: $app （cargo tauri build に失敗している）" >&2; exit 1; }
 
-# 版は tauri.conf.json を唯一の出どころにする（ここで二重管理しない）。
-# `arch` は先頭のガードで確かめたものをそのまま使う
+# **作った物そのものの素性を見る。ここが本当の門。**
+# ZIPの名前とREADMEの「Apple Silicon 専用」が指すのは機械ではなくバイナリなので、
+# 名前もこの値から付ける——**素性と名前の出どころを1つにする**（食い違いようがなくなる）。
+# `lipo -archs` はUniversalなら "arm64 x86_64" のように複数を返すので、
+# 完全一致で見れば「arm64単体」以外は全部落ちる
+arch="$(lipo -archs "$app/Contents/MacOS/pictkura")"
+if [ "$arch" != "arm64" ]; then
+    echo "arm64単体のバイナリではありません: $arch" >&2
+    echo "rustup の既定ホストを確かめてください（rustup show）。" >&2
+    echo "Apple Silicon機でも既定が x86_64-apple-darwin だと x86_64 が出ます。" >&2
+    exit 1
+fi
+
+# 版は tauri.conf.json を唯一の出どころにする（ここで二重管理しない）
 version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 
 stage="target/release/macos-stage/pictkura-$version"
@@ -103,10 +119,14 @@ pictkura ${version}（macOS版・Apple Silicon 専用）
 - クラウドにしか実体が無いファイルの撮影日などの取得
 EOF
 
+# **今の版のファイルだけを消すのでは足りない。置き場ごと作り直す。**
+# `target/` はCIのキャッシュから復元されるので、版を上げた最初の実行では
+# 前の版のZIPが隣に残る。すると集める側の `ls .../*.zip` が2行返り、
+# 配布物の員数確認（4つ）も5つに見えて落ちる（ゲート2の指摘）
 out="target/release/bundle/zip"
-zip="$out/pictkura_${version}_${arch}.zip"
+rm -rf "$out"
 mkdir -p "$out"
-rm -f "$zip"
+zip="$out/pictkura_${version}_${arch}.zip"
 
 # `--keepParent` で ZIP の中に `pictkura-$version/` を1階層残す。
 # 展開したときにデスクトップへ中身が散らばらないようにするため

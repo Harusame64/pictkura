@@ -28,7 +28,13 @@ permissions:
 jobs:
   check:
     # **片方が落ちてももう片方は最後まで走らせる**。両方を同時に直したいので、
-    # 「Windowsが赤いからmacOSの結果は分からない」を作らない
+    # 「Windowsが赤いからmacOSの結果は分からない」を作らない。
+    #
+    # **マトリクスにすると報告名が変わる**（`check` →
+    # `check (windows-latest)` / `check (macos-latest)`）。このリポジトリは
+    # 2026-08-14時点でブランチ保護もルールセットも掛けていないので実害は無いが、
+    # **あとで `main` に保護を掛けるときは新しい方の名前で必須にすること**
+    # ——`check` を必須にすると、二度と報告されない名前を待ち続けてPRが固まる
     strategy:
       fail-fast: false
       matrix:

@@ -191,8 +191,18 @@ jobs:
       - name: 配布物が揃っているか
         run: |
           set -euo pipefail
-          zip="$(ls target/release/bundle/zip/*.zip)"
-          [ -n "$zip" ] || { echo "ZIPが無い"; exit 1; }
+          # **1つであることを数える。** `target/` はキャッシュから復元されるので、
+          # 版を上げた最初の実行では前の版のZIPが隣に残りうる。`ls` を素で使うと
+          # 2行返って以降が全部おかしくなる（スクリプト側でも置き場ごと消しているが、
+          # ここは「作った物を検める」側なので独立に数える）。
+          # **`mapfile` は使わない**——macOSの `/bin/bash` は3.2で、あれが無い
+          zips="$(find target/release/bundle/zip -maxdepth 1 -name '*.zip' | sort)"
+          count="$(printf '%s' "$zips" | grep -c . || true)"
+          if [ "$count" -ne 1 ]; then
+            echo "$zips"
+            echo "ZIPが1つではない: $count"; exit 1
+          fi
+          zip="$zips"
 
           work="$(mktemp -d)"
           ditto -x -k "$zip" "$work"
@@ -217,7 +227,12 @@ jobs:
           # `tauri.macos.conf.json` の `signingIdentity: "-"` がそれを防いでいる。
           # ZIPを経由して見るのは、`ditto` が署名を保つことまで込みで確かめるため
           codesign -v --verbose=2 "$app"
-          codesign -dvv "$app" 2>&1 | grep -q "^Signature=adhoc" || { echo "ad-hoc署名ではない"; exit 1; }
+          # **パイプで `grep -q` へ渡さない。** `grep -q` は一致した時点で終わるので、
+          # まだ書いている `codesign` がSIGPIPEで死に、`pipefail` が拾って
+          # 終了141になる。**正しくad-hoc署名されたアプリで、気まぐれに落ちる**
+          # （ゲート2の指摘）。先に受け取ってから見る
+          sig="$(codesign -dvv "$app" 2>&1)"
+          grep -q "^Signature=adhoc" <<<"$sig" || { echo "$sig"; echo "ad-hoc署名ではない"; exit 1; }
 
           for need in "はじめにお読みください.txt" LICENSE THIRD-PARTY-LICENSES.txt; do
             [ -e "$(dirname "$app")/$need" ] || { echo "ZIPに $need が無い"; exit 1; }
@@ -254,6 +269,29 @@ jobs:
       # `gh release create` がリリースを作るのに要る
       contents: write
     steps:
+      # **タグと `tauri.conf.json` の版が一致していることを先に見る。**
+      # 配布物の名前はすべて `tauri.conf.json` の `version` から付く（macOSは
+      # `release-macos.sh`、MSIはTauri自身）。上げ忘れたまま `v0.2.0` を押すと、
+      # 「v0.2.0」という名前のReleaseに `pictkura_0.1.0_*` が4つ並び、
+      # **員数確認は4つなので素通りする**（ゲート2の指摘）。
+      # ここだけは版を読むためにチェックアウトが要る（浅くていい）
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+
+      - name: タグと版が一致しているか
+        run: |
+          set -euo pipefail
+          conf="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "v$conf" != "$GITHUB_REF_NAME" ]; then
+            echo "タグ($GITHUB_REF_NAME)と tauri.conf.json の版(v$conf)が違う"
+            echo "配布物の名前は tauri.conf.json 側から付くので、揃えてから打ち直すこと"
+            exit 1
+          fi
+          echo "版: v$conf"
+
       # 名前を指定せず全部取る（`pictkura-windows` と `pictkura-macos`）
       - uses: actions/download-artifact@v4
         with:
