@@ -57,8 +57,8 @@ That line only appears *after* a blocked double-click, so keep the order.
 **Right-click** (or control-click) `pictkura.app` → **Open** → **Open** in the dialog.
 
 > **macOS 15 removed this bypass.** Conversely, the System Settings steps above do not
-> apply to macOS 11–12, where that pane is called System Preferences → Security &
-> Privacy. Follow the section matching your version.
+> apply to macOS 11–12, where that pane goes by a different name. Follow the section
+> matching your version.
 
 #### Any version (Terminal)
 
