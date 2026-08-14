@@ -33,13 +33,76 @@ pub struct ScanOutcome {
     pub ok_roots: Vec<PathBuf>,
 }
 
+/// アプリが管理するパッケージ。**見た目はフォルダだが中身は内部ファイル**。
+///
+/// 効き方が2種類あるので、混同しないこと:
+///
+/// - **入口では固定**（利用者の設定に関係なく断る）。ライブラリのルート登録、
+///   コピー先の設定、取り込み元の指定と一覧がこれ。パッケージを**ルートに
+///   名指しされた**ときだけは、走査の「ルート自身は除外判定しない」例外を
+///   打ち消す必要がある——索引はできても監視とUSNは更新を全部落とすので、
+///   **索引されたまま永久に古い**という壊れ方をするため
+/// - **走査の途中では設定に従う**。既定の `exclude_patterns` に同じものが
+///   入っており、利用者が消せば配下のパッケージは索引される（`.*` を消せる
+///   のと同じ扱い）。ここを固定にすると、TOMLの手編集という唯一の逃げ道が
+///   塞がる
+///
+/// 取り込み元側が固定なのは、利用者の除外設定を取り込み元へ流用すると
+/// DCIMに誤マッチして「USBに写真が無い」ように見える事故になるため。
+/// **1箇所にまとめてあるのは片方だけに足す事故を防ぐため**——取り込み元は
+/// ファイルを**コピーする**経路なので、漏らすと索引より重い結果になる。
+/// 一覧はAppleの写真アプリの系譜。**どれも既定のルート（`~/Pictures`）に住む**ので、
+/// 事故の形は完全に同じ。**タグを打つ前でないと既定に足す意味が薄れる**
+/// （初回起動で設定が固まり、走査途中の除外は既存の環境へ届かなくなる）ため、
+/// 実物を踏んだのは写真.appだけだが、同じ系譜はまとめて入れた。
+pub const MANAGED_PACKAGE_PATTERNS: &[&str] = &[
+    // 写真.app（現行）。実測で 14,938件・サムネイル5,399枚を索引した
+    "*.photoslibrary",
+    // iPhoto（写真.appへ移行すると .migratedphotolibrary になる）
+    "*.photolibrary",
+    "*.migratedphotolibrary",
+    // Aperture
+    "*.aplibrary",
+];
+
+/// パス上のどこかが、アプリが管理するパッケージか（**全構成要素**を見る）。
+///
+/// 葉の名前だけでは足りない。ルートも取り込み元もネイティブのフォルダ選択
+/// ダイアログで選ぶので、`E:\Photos Library.photoslibrary\originals` のように
+/// **中を名指しできる**ため。
+///
+/// これは利用者が編集できる `exclude_patterns` とは**別の固定の判定**で、
+/// 走査が「ルート自身は除外判定しない」としている例外（`.*` で始まるフォルダを
+/// ルートに指定したい人のため）を、パッケージにだけは適用しないために使う。
+/// 索引だけできても、監視とUSNは全構成要素を見るので更新が永久に届かず、
+/// **索引されたまま古い**という壊れた状態になる。
+pub fn is_managed_package_path(path: &Path) -> bool {
+    path.components().any(|c| match c {
+        std::path::Component::Normal(name) => name.to_str().is_some_and(|n| {
+            MANAGED_PACKAGE_PATTERNS
+                .iter()
+                .any(|p| matches_pattern(n, p))
+        }),
+        _ => false,
+    })
+}
+
 /// 名前が除外パターンに一致するか。
 /// パターンは `*` をワイルドカードとする単純グロブ（例: `.*`, `Thumbs.db`, `*.tmp`）。
 /// Windowsのファイル名は大文字小文字を区別しないため、比較は小文字化して行う。
 /// 反復2ポインタ法でO(名前長×パターン長)を保証する（再帰バックトラックの指数爆発を回避）。
 pub fn matches_pattern(name: &str, pattern: &str) -> bool {
-    let name = name.to_lowercase();
-    let pattern = pattern.to_lowercase();
+    matches_pattern_lower(&name.to_lowercase(), &pattern.to_lowercase())
+}
+
+/// [`matches_pattern`] の中身。**両方とも小文字化済み**であることが前提。
+///
+/// 走査の内側のループは1エントリごとにパターンの数だけここを通る。
+/// 素の [`matches_pattern`] は呼ぶたびに両側を `to_lowercase()` するので、
+/// 既定が7パターンあると1エントリで14回の確保になる——
+/// 「爆速」を掲げる枝刈りの高速路に乗せる重さではない。
+/// 呼び出し側はパターンを一度だけ小文字化し、名前も1回で済ませること。
+fn matches_pattern_lower(name: &str, pattern: &str) -> bool {
     let (n, p) = (name.as_bytes(), pattern.as_bytes());
     let (mut ni, mut pi) = (0usize, 0usize);
     let mut star: Option<usize> = None;
@@ -65,6 +128,11 @@ pub fn matches_pattern(name: &str, pattern: &str) -> bool {
         pi += 1;
     }
     pi == p.len()
+}
+
+/// 除外パターンを小文字化して持ち直す（走査の前に一度だけ）。
+fn lower_patterns(patterns: &[String]) -> Vec<String> {
+    patterns.iter().map(|p| p.to_lowercase()).collect()
 }
 
 /// 拡張子（小文字）が対象リストに含まれるか。
@@ -96,14 +164,26 @@ pub fn scan_roots(
     extensions: &[String],
     exclude_patterns: &[String],
 ) -> ScanOutcome {
-    let excluded = |name: &str| exclude_patterns.iter().any(|p| matches_pattern(name, p));
+    // パターンは一度だけ小文字化する（内側のループで確保を繰り返さない）
+    let lowered = lower_patterns(exclude_patterns);
+    let excluded = |name: &str| {
+        let name = name.to_lowercase();
+        lowered.iter().any(|p| matches_pattern_lower(&name, p))
+    };
     let mut outcome = ScanOutcome::default();
 
     for root in roots {
         let mut had_error = !root.is_dir();
         if !had_error {
             let walker = WalkDir::new(root).into_iter().filter_entry(|e| {
-                // ルート自身は除外判定しない（ドット始まりのルート指定などを許す）
+                // ルート自身は除外判定しない（ドット始まりのルート指定などを許す）。
+                //
+                // **ここに固定のパッケージ判定は置かない。** この関数に渡るのは
+                // 設定されたルートではなく、監視が拾った「移動されてきたフォルダ」
+                // （`lib.rs`）と取り込み元（そちらは呼ぶ手前で判定済み）。
+                // ここで固定判定をすると、opt-outした人の監視経路だけが索引せず、
+                // 次のフルスキャンは索引する、という食い違いになる。
+                // 設定されたルートの判定は `scan_roots_pruned` 側にある
                 if e.depth() == 0 {
                     return true;
                 }
@@ -190,9 +270,13 @@ pub fn scan_roots_pruned(
     exclude_patterns: &[String],
     known_dirs: &HashMap<PathBuf, i64>,
 ) -> PrunedScanOutcome {
+    // パターンは一度だけ小文字化する（内側のループで確保を繰り返さない）
+    let lowered = lower_patterns(exclude_patterns);
     let excluded = |name: &std::ffi::OsStr| {
-        name.to_str()
-            .is_some_and(|n| exclude_patterns.iter().any(|p| matches_pattern(n, p)))
+        name.to_str().is_some_and(|n| {
+            let n = n.to_lowercase();
+            lowered.iter().any(|p| matches_pattern_lower(&n, p))
+        })
     };
     // 既知ディレクトリの親→子インデックス（スキップ時の再帰先）
     let mut children: HashMap<&Path, Vec<&PathBuf>> = HashMap::new();
@@ -205,16 +289,25 @@ pub fn scan_roots_pruned(
     let mut outcome = PrunedScanOutcome::default();
     for root in roots {
         let mut had_error = false;
-        walk_pruned(
-            root,
-            false,
-            extensions,
-            &excluded,
-            known_dirs,
-            &children,
-            &mut outcome,
-            &mut had_error,
-        );
+        // ルート自身の判定は**ここでだけ**行う（`scan_roots` の `depth 0` と同じ）。
+        // `walk_pruned` の中に置くと再帰のたびに全構成要素を舐めることになり、
+        // mtime枝刈りの高速路（`metadata` 1回）に釣り合わない。
+        // 配下でパッケージに出会う場合は `excluded`（利用者の除外パターン。
+        // 既定に入っている）が名前だけで落とす
+        if !is_managed_package_path(root) {
+            walk_pruned(
+                root,
+                false,
+                extensions,
+                &excluded,
+                known_dirs,
+                &children,
+                &mut outcome,
+                &mut had_error,
+            );
+        }
+        // 「読めなかった」ではなく「見ないと決めた」なので had_error は立てず、
+        // ok_roots に入れる（既に索引されていた行は apply_scan が掃き出す）
         if !had_error {
             outcome.ok_roots.push(root.clone());
         }
@@ -238,9 +331,13 @@ pub fn scan_dirty_dirs(
     exclude_patterns: &[String],
     known_dirs: &HashMap<PathBuf, i64>,
 ) -> (PrunedScanOutcome, bool) {
+    // パターンは一度だけ小文字化する（内側のループで確保を繰り返さない）
+    let lowered = lower_patterns(exclude_patterns);
     let excluded = |name: &std::ffi::OsStr| {
-        name.to_str()
-            .is_some_and(|n| exclude_patterns.iter().any(|p| matches_pattern(n, p)))
+        name.to_str().is_some_and(|n| {
+            let n = n.to_lowercase();
+            lowered.iter().any(|p| matches_pattern_lower(&n, p))
+        })
     };
     let mut children: HashMap<&Path, Vec<&PathBuf>> = HashMap::new();
     for dir in known_dirs.keys() {
@@ -251,6 +348,12 @@ pub fn scan_dirty_dirs(
 
     let mut outcome = PrunedScanOutcome::default();
     let mut had_error = false;
+    // **ここでは固定の判定を当てない。** dirty dir は利用者が設定したルートではなく、
+    // ジャーナルが報告してきた「走査の途中のディレクトリ」なので、
+    // 設定に従う側（`excluded`）だけが効く。当ててしまうと、
+    // `*.photoslibrary` を消して opt-out した人の差分更新だけが黙って捨てられ、
+    // フルスキャンでは索引されるのに差分では古いまま、という食い違いになる。
+    // 呼び出し元（`lib.rs`）が `is_excluded_path` で設定どおりに絞り込み済み
     for dir in dirty_dirs {
         walk_pruned(
             dir,
@@ -468,6 +571,90 @@ mod tests {
         assert_eq!(outcome.files.len(), 1);
         let p = &outcome.files[0].path;
         assert!(p.ends_with("keep/a.jpg") || p.ends_with("keep\\a.jpg"));
+    }
+
+    /// 既定の除外が写真.appのパッケージを弾くこと。**実際に走査させて**確かめる。
+    ///
+    /// 実測で踏んだ事故（14,938件を索引し、サムネイルを5,399枚作った）の回帰試験。
+    /// `matches_pattern` や `is_excluded_path` を直接叩くのでは、
+    /// 本番が通る `filter_entry` の枝が変わったときに緑のまま通ってしまう。
+    /// **OS非依存**——Windowsでも外付けHDD経由で同じ名前のフォルダに出会う
+    #[test]
+    fn 既定の除外は写真ライブラリのパッケージを弾く() {
+        let dir = tempfile::tempdir().unwrap();
+        // パッケージの中身（日本語環境と英語環境の両方の名前）
+        write_file(
+            dir.path(),
+            "写真ライブラリ.photoslibrary/originals/0/x.jpg",
+            b"x",
+        );
+        write_file(
+            dir.path(),
+            "Photos Library.photoslibrary/resources/derivatives/y.jpg",
+            b"y",
+        );
+        // 普通の写真と、拡張子ではない同名フォルダは通す
+        write_file(dir.path(), "2020/a.jpg", b"a");
+        write_file(dir.path(), "photoslibrary/b.jpg", b"b");
+
+        let patterns = crate::config::LibraryConfig::default().exclude_patterns;
+        let outcome = scan_roots(&[dir.path().to_path_buf()], &jpg_extensions(), &patterns);
+
+        let mut names: Vec<String> = outcome
+            .files
+            .iter()
+            .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.jpg", "b.jpg"]);
+    }
+
+    /// **ルートに指定されても**索引しない。
+    ///
+    /// 走査は「ルート自身は除外判定しない」を通例にしている（`.*` で始まる
+    /// フォルダをルートにしたい人のため）が、パッケージだけは例外。
+    /// 設定ファイルへ直接書かれた場合もここを通る。索引だけできても
+    /// 監視とUSNが更新を全部落とすので、永久に古い状態になるだけだから。
+    ///
+    /// 判定があるのは**設定されたルートを受け取る `scan_roots_pruned`** の側。
+    /// `scan_roots` には置かない（あちらに渡るのは監視が拾った移動先フォルダと
+    /// 取り込み元で、どちらも設定されたルートではない）
+    #[test]
+    fn パッケージはルートに指定されても索引しない() {
+        let dir = tempfile::tempdir().unwrap();
+        write_file(
+            dir.path(),
+            "写真ライブラリ.photoslibrary/originals/0/x.jpg",
+            b"x",
+        );
+        let pkg = dir.path().join("写真ライブラリ.photoslibrary");
+        let patterns = crate::config::LibraryConfig::default().exclude_patterns;
+
+        let known = HashMap::new();
+        let pruned = scan_roots_pruned(
+            std::slice::from_ref(&pkg),
+            &jpg_extensions(),
+            &patterns,
+            &known,
+        );
+        assert!(pruned.files.is_empty());
+        assert!(
+            pruned.seen_dirs.is_empty(),
+            "見ないと決めたので記録もしない"
+        );
+        // 「読めなかった」ではないので掃き出しは効く（ok_rootsに入る）
+        assert_eq!(pruned.ok_roots, vec![pkg.clone()]);
+
+        // パッケージの**中**をルートにしても同じ
+        let inner = pkg.join("originals");
+        let pruned = scan_roots_pruned(
+            std::slice::from_ref(&inner),
+            &jpg_extensions(),
+            &patterns,
+            &known,
+        );
+        assert!(pruned.files.is_empty());
+        assert_eq!(pruned.ok_roots, vec![inner]);
     }
 
     // 差分検知（追加・変更・削除、ルート成否による保持）のテストは

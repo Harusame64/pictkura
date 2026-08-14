@@ -68,6 +68,22 @@ fn rebuild_watcher(app: &tauri::AppHandle) {
     *lock_ok(&state.watcher) = watcher;
 }
 
+/// 設定されたルートのうち、アプリが管理するパッケージだったもの。
+///
+/// 走査（`scan_roots_pruned`）はこのルートを丸ごと飛ばすので、差分の入口
+/// （監視・USN）も揃えて落とさないと、**差分で入れた行を次のフルスキャンが消す**
+/// という往復になる。判定はルートだけで決まるので、イベントごとではなく
+/// **1回だけ**求めて使い回す。
+fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
+    config
+        .library
+        .roots
+        .iter()
+        .filter(|r| pictkura_core::import::is_managed_package_path(r))
+        .cloned()
+        .collect()
+}
+
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
 fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
@@ -105,8 +121,18 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
             !same && db.upsert_files(std::slice::from_ref(&f)).is_ok()
         };
 
+        // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
+        // 走査（`scan_roots_pruned`）はそのルートを丸ごと飛ばすので、
+        // ここだけ拾うと入れた行を次のフルスキャンが消す、の往復になる。
+        // ルートの**配下**にあるパッケージは設定に従う（ここでは落とさない）。
+        // 判定はルートだけで決まるので**ループの外で1回**（イベントごとに
+        // 全構成要素を舐め直さない）
+        let package_roots = managed_package_roots(&config);
         for p in paths {
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
+                continue;
+            }
+            if package_roots.iter().any(|root| p.starts_with(root)) {
                 continue;
             }
             if p.is_file() {
@@ -543,6 +569,7 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
     }
     // ライブラリ配下のディレクトリだけに絞り、綴りを設定ルートへ揃える
     let specs = root_specs(roots);
+    let package_roots = managed_package_roots(config);
     let mut seen_dirty = std::collections::HashSet::new();
     let dirty_dirs: Vec<PathBuf> = dirty_dirs
         .iter()
@@ -550,6 +577,12 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
         .filter(|dir| {
             !pictkura_core::scanner::is_excluded_path(dir, &config.library.exclude_patterns)
         })
+        // **ルートがパッケージなら、その配下は差分でも拾わない。**
+        // 走査側（`scan_roots_pruned`）はそのルートを丸ごと飛ばすので、
+        // ここだけ拾うと差分で入れた行を次のフルスキャンが消す、の往復になる。
+        // 逆にルートの**配下**にあるパッケージは設定に従う（利用者が
+        // `*.photoslibrary` を消せば索引される）ので、ここでは落とさない
+        .filter(|dir| !package_roots.iter().any(|root| dir.starts_with(root)))
         .filter(|dir| seen_dirty.insert(dir.clone()))
         .collect();
     let dirty_count = dirty_dirs.len();
@@ -1126,6 +1159,16 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
         if !root.is_dir() {
             return Err(format!("フォルダが見つかりません: {path}"));
         }
+        // 走査は `depth 0` を除外判定しないので、パッケージ（やその中）を
+        // ルートに登録すると内部ファイルが索引される。しかも監視とUSNは
+        // `is_excluded_path` が全構成要素を見るため更新イベントを全部落とす
+        // ——**索引されるのに永久に古いまま**という壊れた状態になる。
+        // 取り込み側と同じ理由で断る
+        if pictkura_core::import::is_managed_package_path(&root) {
+            return Err(format!(
+                "アプリが管理するライブラリはフォルダとして登録できません（中身は内部ファイルです）: {path}"
+            ));
+        }
         update_config(&state, |c| {
             if !c.library.roots.iter().any(|r| same_path(r, &root)) {
                 c.library.roots.push(root.clone());
@@ -1280,6 +1323,13 @@ fn set_import_destination(state: tauri::State<'_, AppState>, path: String) -> Re
     if !dest.is_dir() {
         return Err(format!("フォルダが見つかりません: {path}"));
     }
+    // コピー先は取り込み後に**ライブラリのルートへ足される**（`finish_import`）ので、
+    // ルート登録と同じ理由でパッケージの中は断る
+    if pictkura_core::import::is_managed_package_path(&dest) {
+        return Err(format!(
+            "アプリが管理するライブラリはコピー先にできません（中身は内部ファイルです）: {path}"
+        ));
+    }
     update_config(&state, |c| c.routing.destination = Some(dest))
 }
 
@@ -1385,16 +1435,22 @@ async fn list_source_dir(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let dir = PathBuf::from(&path);
+        // **取り込み元はネイティブのフォルダ選択ダイアログで選ぶ**ので、
+        // 一覧から隠しても写真.appのライブラリそのものを名指しで選べてしまう。
+        // 中身はUUID名の内部ファイルなので、開かずに理由を返す
+        if pictkura_core::import::is_managed_package_path(&dir) {
+            return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
+        }
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::browse::list_dir(&dir, &extensions);
         // 実際に開けたフォルダだけをプレビュー配信の許可に加える
         if !listing.unreadable {
             lock_ok(&state.browse_allow).insert(dir);
         }
-        listing
+        Ok(listing)
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// 取り込み元の**下の階層まで**画像を集める（第5部 段階E-5）。
@@ -1414,6 +1470,12 @@ async fn list_source_tree(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let dir = PathBuf::from(&path);
+        // `list_source_dir` と同じ理由（ネイティブのダイアログで名指しできる）。
+        // こちらは**下の階層まで**集めるので、通すと内部の派生画像が
+        // そのまま選択候補として並ぶ
+        if pictkura_core::import::is_managed_package_path(&dir) {
+            return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
+        }
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::list_tree(&dir, &extensions, TREE_LIMIT);
         {
@@ -1428,10 +1490,10 @@ async fn list_source_tree(
                 }
             }
         }
-        listing
+        Ok(listing)
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// 渡したファイルが既にコピー先へ取り込み済みかを1件ずつ返す（第5部 段階E）。

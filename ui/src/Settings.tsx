@@ -29,13 +29,17 @@ export default function Settings({
   onClose,
   config,
   onConfigChanged,
+  onError,
 }: {
   open: boolean;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
+  onError: (message: string) => void;
 }) {
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
+  /** コピー先の変更が断られた理由（ダイアログ内に出す） */
+  const [destError, setDestError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   /** 自由記述の入力欄を開いているか、その中身と、実際にできるフォルダ名 */
   const [customMode, setCustomMode] = useState(false);
@@ -62,6 +66,9 @@ export default function Settings({
   useEffect(() => {
     if (!open) {
       initialised.current = false;
+      // 閉じても状態は残る（`!open` で null を返すだけ）ので、
+      // 前回の拒否メッセージを次に開いたとき出さないよう消す
+      setDestError(null);
       return;
     }
     if (initialised.current || patterns.length === 0 || !config) return;
@@ -169,15 +176,28 @@ export default function Settings({
                     title: t.pickDestination,
                   });
                   if (typeof dest !== "string") return;
-                  // 選んだ先が消えている・ネットワークが切れている等で失敗しうる。
-                  // 握り潰さずに、少なくとも設定を変えないまま終わらせる
-                  await setImportDestination(dest).catch(() => {});
+                  // 選んだ先が消えている・ネットワークが切れている・
+                  // 写真.appのライブラリの中だった等で失敗しうる。
+                  // 設定は変えないまま、**理由は出す**（黙って何も起きないと
+                  // 押し損ねたのか断られたのか分からない）
+                  try {
+                    await setImportDestination(dest);
+                  } catch (e) {
+                    // **ダイアログの中に出す。** 画面下の状態バーへ流しても
+                    // このダイアログが覆っているうえ32chで省略されるので、
+                    // 断られた理由もパスも読めない
+                    setDestError(String(e));
+                    onError(String(e));
+                    return;
+                  }
+                  setDestError(null);
                   onConfigChanged();
                 }}
               >
                 {t.wizardChangeDestination}
               </button>
             </div>
+            {destError && <p className="settings-error">{destError}</p>}
             <div className="pattern-list">
               {patterns.map((p) => (
                 <label

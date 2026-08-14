@@ -173,6 +173,18 @@ fn upgrade_extensions(current: &[String]) -> Option<Vec<String>> {
         })
 }
 
+// 除外パターンには拡張子のような「引き上げ」を**置かない**。
+//
+// 一度は入れたが、`upgrade_extensions` と同じLEGACY_DEFAULTS方式では
+// **利用者が自分で消した除外を毎回復活させてしまう**。新しい既定は
+// 旧既定＋1件なので、`*.photoslibrary` を消した設定は旧既定と同じ形になり、
+// 起動のたびに書き戻される。除外を編集するUIは無く、TOMLの手編集が
+// 唯一の逃げ道なので、それを塞ぐと直す手段が無くなる。
+//
+// v0.1はまだ配っていないため、引き上げが要る既存の環境は開発機だけ
+// （TOMLを消せば済む）。**配ったあとに既定を変える必要が出たら、
+// 中身から推測するのではなく設定にスキーマ版を持たせること。**
+
 /// `[routing]` 取り込んだファイルのコピー先の決定ルール。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -207,7 +219,18 @@ impl Default for LibraryConfig {
     fn default() -> Self {
         Self {
             roots: Vec::new(),
-            exclude_patterns: vec![".*".into(), "Thumbs.db".into(), "$RECYCLE.BIN".into()],
+            // アプリが管理するパッケージ（`*.photoslibrary` など）は
+            // 見た目こそフォルダなので走査が素通りし、中のUUID名の内部ファイルを
+            // 索引してしまう（実測: 14,938件・サムネイル5,399枚・84MB）。
+            // `.*` はドットで始まる名前が対象なので、この名前には当たらない。
+            // **Windowsでも効かせる**——Macから移った人が外付けHDDやNASへ
+            // コピーしていれば、ただのフォルダとして同じ事故が起きる。
+            // 一覧は取り込み元と共有する（`MANAGED_PACKAGE_PATTERNS`）
+            exclude_patterns: [".*", "Thumbs.db", "$RECYCLE.BIN"]
+                .iter()
+                .chain(crate::scanner::MANAGED_PACKAGE_PATTERNS)
+                .map(|p| (*p).to_string())
+                .collect(),
         }
     }
 }
@@ -409,6 +432,40 @@ worker_threads = 4
         assert_eq!(parsed.library.exclude_patterns, vec!["backup"]);
         assert_eq!(parsed.performance.thumbnail_size, 256);
         assert_eq!(parsed.performance.worker_threads, 4);
+    }
+
+    /// 監視・USN側も同じ既定で弾くこと（走査側の試験は scanner.rs にある）。
+    #[test]
+    fn 既定の除外は監視側でも写真ライブラリを弾く() {
+        let patterns = LibraryConfig::default().exclude_patterns;
+        let excluded = |p: &str| crate::scanner::is_excluded_path(Path::new(p), &patterns);
+
+        assert!(excluded(
+            "/Users/me/Pictures/写真ライブラリ.photoslibrary/originals/0/x.heic"
+        ));
+        assert!(!excluded("/Users/me/Pictures/2020/a.jpg"));
+    }
+
+    /// 除外パターンは**書いてあるとおりに読む**。拡張子のような引き上げをすると、
+    /// 利用者が消した除外を毎回復活させてしまう（除外を編集するUIは無く、
+    /// TOMLの手編集が唯一の逃げ道なので、塞ぐと直す手段が無くなる）。
+    #[test]
+    fn 除外パターンは書いてあるとおりに読む() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.toml");
+
+        // 新しい既定から `*.photoslibrary` を消した設定
+        std::fs::write(
+            &path,
+            "[library]\nexclude_patterns = [\".*\", \"Thumbs.db\", \"$RECYCLE.BIN\"]\n",
+        )
+        .unwrap();
+        let config = Config::load(&path).unwrap();
+        assert_eq!(
+            config.library.exclude_patterns,
+            vec![".*", "Thumbs.db", "$RECYCLE.BIN"],
+            "消したものが書き戻されない"
+        );
     }
 
     #[test]

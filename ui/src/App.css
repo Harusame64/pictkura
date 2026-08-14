@@ -986,6 +986,14 @@ body {
   font-size: var(--fs-xl);
   color: var(--text);
 }
+/* 断られた理由をダイアログの中に出す。画面下の状態バーは
+   このダイアログが覆っているうえ32chで省略されるため読めない */
+.settings-error {
+  margin: var(--sp-2) 0 0;
+  color: var(--danger);
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+}
 .settings-close {
   border: none;
   background: none;

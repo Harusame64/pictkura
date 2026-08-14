@@ -15,12 +15,23 @@ use crate::config::Config;
 use crate::scanner;
 use crate::thumbs::read_exif;
 
+pub use scanner::is_managed_package_path;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     #[error("コピー先フォルダが設定されていません")]
     NoDestination,
     #[error("取り込み元フォルダが読めません: {0}")]
     SourceUnreadable(PathBuf),
+    /// 写真.appのライブラリのような、アプリが管理するパッケージの中を
+    /// 取り込み元に指定した。中身はUUID名の内部ファイルなので、
+    /// 取り込むと派生画像を数千枚コピーすることになる
+    #[error(
+        "アプリが管理するライブラリの中は取り込めません（中身は内部ファイルです）。\
+         中の写真を取り出したいときは、フォルダ名から拡張子（.photoslibrary など）を\
+         外してから選び直してください: {0}"
+    )]
+    SourceIsManagedPackage(PathBuf),
 }
 
 /// 取り込み結果の件数サマリ。
@@ -181,15 +192,29 @@ pub fn import_from(
     if !source.is_dir() {
         return Err(ImportError::SourceUnreadable(source.to_path_buf()));
     }
+    // **取り込み元がパッケージの中**のときは、下の除外では止まらない
+    // （`scan_roots` はルート自身を除外判定しない）。ここで断る——
+    // 黙って0件を返すと「USBに写真が無い」と同じ見え方になり、
+    // 何が起きたのか分からないため
+    if is_managed_package_path(source) {
+        return Err(ImportError::SourceIsManagedPackage(source.to_path_buf()));
+    }
 
-    // 取り込み元の除外はドットフォルダ（.Trashes等）のみ。
-    // ライブラリ用のexclude_patternsをここに適用すると、ユーザーの除外設定が
-    // DCIMフォルダに誤マッチして写真を静かに取りこぼす恐れがある
+    // 取り込み元の除外はドットフォルダ（.Trashes等）と、アプリが管理する
+    // パッケージ（写真.app等）だけ。**固定の一覧**で、ライブラリ用の
+    // exclude_patterns はここに適用しない——ユーザーの除外設定が
+    // DCIMフォルダに誤マッチして写真を静かに取りこぼす恐れがあるため。
+    // パッケージを落とすのは、中身が内部ファイルだから: 外付けHDDに
+    // 写真ライブラリがあると、派生JPEGを数千枚**コピーしてしまう**
     let source_buf = source.to_path_buf();
+    let exclude: Vec<String> = std::iter::once(".*")
+        .chain(scanner::MANAGED_PACKAGE_PATTERNS.iter().copied())
+        .map(|p| p.to_string())
+        .collect();
     let outcome = scanner::scan_roots(
         std::slice::from_ref(&source_buf),
         &config.import.extensions,
-        &[".*".to_string()],
+        &exclude,
     );
 
     let total = outcome.files.len();
@@ -232,15 +257,24 @@ pub fn import_files(
         .destination
         .as_ref()
         .ok_or(ImportError::NoDestination)?;
-
     let total = files.len();
     let mut stats = ImportStats::default();
     for (i, path) in files.iter().enumerate() {
         // ウィザードで一覧を出した後にファイルが消えている可能性があるので
-        // ここで改めてstatする（読めなければ失敗として数え、他は続行する）
-        let result = match std::fs::metadata(path) {
-            Ok(meta) => import_one(path, meta.len(), mtime_ms_of(&meta), dest_root, config),
-            Err(_) => ImportOneResult::Failed,
+        // ここで改めてstatする（読めなければ失敗として数え、他は続行する）。
+        //
+        // アプリが管理するパッケージの中身も同じ扱いで**1件ずつ落とす**。
+        // 一覧の経路（`list_source_dir` / `list_source_tree`）が既に断っているので
+        // ここへ来ることは無いはずだが、入口ごとに守る。ただし**一括中止はしない**
+        // ——紛れ込んだ1件で1000件の取り込みが丸ごと消えるのは、
+        // 読めないファイルを1件ずつ数えるこの関数の作法に合わない
+        let result = if is_managed_package_path(path) {
+            ImportOneResult::Failed
+        } else {
+            match std::fs::metadata(path) {
+                Ok(meta) => import_one(path, meta.len(), mtime_ms_of(&meta), dest_root, config),
+                Err(_) => ImportOneResult::Failed,
+            }
         };
         match result {
             ImportOneResult::Copied => stats.copied += 1,
@@ -423,6 +457,97 @@ mod tests {
             let rel = p.strip_prefix(&dest).unwrap();
             assert_eq!(rel.components().count(), 3);
         }
+    }
+
+    /// **取り込み元そのもの**にパッケージを指定したら断る。
+    ///
+    /// 取り込み元はネイティブのフォルダ選択ダイアログで選ぶので、一覧から
+    /// 隠しても名指しで選べる。`scan_roots` はルート自身を除外判定しないため、
+    /// ここで止めないと内部の派生画像を全部コピーする
+    #[test]
+    fn 取り込み元そのものがパッケージなら断る() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("写真ライブラリ.photoslibrary");
+        let dest = dir.path().join("photos");
+        let inner = src.join("resources/derivatives");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(inner.join("derived.jpg"), b"xxx").unwrap();
+
+        let config = test_config(&dest);
+        let err = import_from(&src, &config, |_, _, _| {}).unwrap_err();
+        assert!(
+            matches!(err, ImportError::SourceIsManagedPackage(_)),
+            "err={err}"
+        );
+        // 1枚もコピーしていない
+        assert!(!dest.exists());
+
+        // **中のフォルダを名指しされても断る**。ネイティブのダイアログは
+        // パッケージの中へ入って選べるので、葉の名前だけでは守れない
+        let err = import_from(&inner, &config, |_, _, _| {}).unwrap_err();
+        assert!(
+            matches!(err, ImportError::SourceIsManagedPackage(_)),
+            "err={err}"
+        );
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn パッケージの中を指していても判る() {
+        assert!(is_managed_package_path(Path::new(
+            "/x/写真ライブラリ.photoslibrary"
+        )));
+        assert!(is_managed_package_path(Path::new(
+            r"E:\Photos Library.photoslibrary"
+        )));
+        // **中を名指しした場合**。葉の名前だけの判定ではここが抜ける
+        // （ネイティブのダイアログはパッケージの中へ入って選べる）
+        assert!(is_managed_package_path(Path::new(
+            "/x/写真ライブラリ.photoslibrary/originals/0"
+        )));
+
+        // 写真.appの系譜はまとめて落とす（どれも `~/Pictures` に住む）
+        assert!(is_managed_package_path(Path::new(
+            "/x/iPhoto Library.photolibrary"
+        )));
+        assert!(is_managed_package_path(Path::new(
+            "/x/iPhoto Library.migratedphotolibrary"
+        )));
+        assert!(is_managed_package_path(Path::new(
+            "/x/Aperture Library.aplibrary"
+        )));
+
+        assert!(!is_managed_package_path(Path::new("/x/DCIM")));
+        assert!(!is_managed_package_path(Path::new("/x/photoslibrary/a")));
+    }
+
+    /// アプリが管理するパッケージの中身は取り込まない。
+    ///
+    /// ここは**ファイルをコピーする**経路なので、漏らすと索引より重い
+    /// ——外付けHDDに写真ライブラリがあると、内部の派生JPEGを数千枚
+    /// コピー先へ書いてしまう
+    #[test]
+    fn 写真ライブラリのパッケージは取り込まない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        let pkg = src.join("写真ライブラリ.photoslibrary/resources/derivatives");
+        fs::create_dir_all(&pkg).unwrap();
+        fs::write(pkg.join("derived.jpg"), b"xxx").unwrap();
+        fs::create_dir_all(src.join("DCIM")).unwrap();
+        fs::write(src.join("DCIM/a.jpg"), b"aaa").unwrap();
+
+        let config = test_config(&dest);
+        let stats = import_from(&src, &config, |_, _, _| {}).unwrap();
+        assert_eq!(stats.copied, 1, "DCIMの1枚だけ");
+
+        let copied: Vec<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(copied, vec!["a.jpg"]);
     }
 
     #[test]

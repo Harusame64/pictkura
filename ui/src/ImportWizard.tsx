@@ -140,7 +140,10 @@ export default function ImportWizard({
       const result = await listSourceDir(path);
       setListings((prev) => ({ ...prev, [path]: result }));
       return result;
-    } catch {
+    } catch (e) {
+      // 握りつぶすと「0件」と見分けが付かない。断られた理由（写真.appの
+      // ライブラリの中など）は出す。ツリーの展開は続けたいので投げ直さない
+      onErrorRef.current(String(e));
       return undefined;
     }
   }, []);
@@ -348,6 +351,15 @@ export default function ImportWizard({
   const addFolderRoot = async () => {
     const picked = await open({ directory: true, title: t.pickSource });
     if (!picked) return;
+    // **読めることを確かめてから**ツリーに足す。写真.appのライブラリのように
+    // 断られるフォルダを先に足すと、消す手段が無いまま残り、
+    // 展開のたびに同じエラーを出し続ける。
+    // この確認ぶんだけ列挙が1回増えるが、**押した本人が待っている操作**の
+    // 1回だけで、キャッシュを持ち込んで取り込み元の変化を見落とすより安い
+    setLoading(true);
+    const listing = await loadDir(picked);
+    setLoading(false);
+    if (!listing) return;
     setExtraRoots((prev) => (prev.includes(picked) ? prev : [...prev, picked]));
     // 自分で選んだフォルダは「ここを見たい」が明確なので下まで走査する
     openFolder(picked, true);
@@ -641,7 +653,14 @@ export default function ImportWizard({
                   title: t.pickDestination,
                 });
                 if (!dest) return;
-                await setImportDestination(dest);
+                // 断られうる（写真.appのライブラリの中など）。投げっぱなしにすると
+                // 未処理の拒否になり、コピー先が黙って元のまま残る
+                try {
+                  await setImportDestination(dest);
+                } catch (e) {
+                  onErrorRef.current(String(e));
+                  return;
+                }
                 onConfigChanged();
               }}
             >
