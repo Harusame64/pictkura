@@ -80,8 +80,8 @@ cp LICENSE THIRD-PARTY-LICENSES.txt "$stage/"
 cat > "$stage/はじめにお読みください.txt" <<EOF
 pictkura ${version}（macOS版・Apple Silicon 専用）
 
-インストールは要りません。pictkura.app を「アプリケーション」フォルダなど
-好きな場所へ移してから実行してください。
+インストールは要りません。ただし置き場所と初回の開き方に決まりがあるので、
+下の「初回だけ、開き方に手順が要ります」を先にお読みください。
 
 
 ■ 初回だけ、開き方に手順が要ります
@@ -90,8 +90,8 @@ pictkura ${version}（macOS版・Apple Silicon 専用）
 起動せず、Gatekeeperに止められます。壊れてはいません。
 
 まず pictkura.app を「アプリケーション」フォルダなど、置いておきたい場所へ
-移してください。これは作法ではありません。移さずに起動すると、macOSはアプリを
-読み取り専用の一時領域へ写して実行します（App Translocation）。
+移してください。これは省いてよい作法ではありません。移さずに起動すると、
+macOSはアプリを読み取り専用の一時領域へ写して実行します（App Translocation）。
 
 そのうえで、お使いの macOS の版によって手順が違います。
 
