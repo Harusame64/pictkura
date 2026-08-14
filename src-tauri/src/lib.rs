@@ -109,6 +109,15 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
                 continue;
             }
+            // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
+            // 走査（`scan_roots_pruned`）はそのルートを丸ごと飛ばすので、
+            // ここだけ拾うと入れた行を次のフルスキャンが消す、の往復になる。
+            // ルートの**配下**にあるパッケージは設定に従う（ここでは落とさない）
+            if config.library.roots.iter().any(|root| {
+                p.starts_with(root) && pictkura_core::import::is_managed_package_path(root)
+            }) {
+                continue;
+            }
             if p.is_file() {
                 if scanner::has_target_extension(&p, &config.import.extensions) {
                     if let Some(f) = stat_file(&p) {
