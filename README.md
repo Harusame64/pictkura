@@ -15,6 +15,35 @@ card and browsing what you already have — even when that is tens of thousands 
 
 ---
 
+## Installing
+
+Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/releases).
+
+| Platform | File | Notes |
+|---|---|---|
+| **Windows 10/11 (x64)** | `pictkura_<version>_x64_<lang>.msi` | Installs per-machine, so it asks for administrator rights. Japanese and English installers are separate files |
+| **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe`. Use this if you cannot become an administrator |
+| **macOS 11+ (Apple Silicon)** | `pictkura_<version>_arm64.zip` | Unzip and move `pictkura.app` wherever you like. **See the note below before the first launch** |
+
+Windows also needs the **WebView2 runtime**, which is already present on Windows 11 and
+on up-to-date Windows 10.
+
+### macOS: the first launch needs one extra step
+
+The macOS build is **not signed with an Apple Developer ID**, so the first time you
+open it macOS says *"pictkura is damaged and can't be opened."* It is not damaged —
+that message is what Gatekeeper shows for any unsigned app. Either:
+
+- **right-click** (or control-click) `pictkura.app` → **Open** → **Open** in the dialog, or
+- run `xattr -dr com.apple.quarantine /path/to/pictkura.app` in Terminal.
+
+Only the first launch needs this. Note that the same message appears whether the app is
+delivered as a `.zip` or a `.dmg` — the archive format has nothing to do with it.
+
+There is no Intel (x86_64) build, and no Linux build.
+
+---
+
 ## Getting started
 
 ### 1. Add a folder to the library
@@ -183,7 +212,8 @@ You need a **C compiler** and **NASM** in addition to Rust.
 - **C compiler** — SQLite (`rusqlite` bundled), libwebp and libjpeg-turbo are built from
   source. On the Windows GNU target that means MinGW-w64's `gcc`
 - **NASM** — assembly for rav1d (AVIF) and libjpeg-turbo. **Removing it makes decoding
-  six times slower**, so don't
+  six times slower**, so don't. NASM is an x86 assembler, so it is **not needed on Apple
+  Silicon** — there both libraries hand their `.S` files to clang instead
 
 ```bash
 # core tests
@@ -200,15 +230,32 @@ cargo run --release --bin bench -- --count 1000000
 ### Producing the distributables
 
 ```powershell
+# Windows: MSI (ja-JP and en-US) plus the portable ZIP
 pwsh tools/release.ps1
 ```
 
-This builds the UI, then the MSI, then the portable ZIP, in that order. Building the UI
-first matters: `ui/dist` is a build artifact, so skipping it would quietly ship whatever
+```bash
+# macOS (Apple Silicon): pictkura.app inside a ZIP
+bash tools/release-macos.sh
+```
+
+Both build the UI first and then the bundle, in that order. Building the UI first
+matters: `ui/dist` is a build artifact, so skipping it would quietly ship whatever
 happened to be on disk. `cargo tauri build` needs the Tauri CLI
 (`cargo install tauri-cli --version "^2.0"`).
 
-Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows.
+The macOS bundle target comes from `src-tauri/tauri.macos.conf.json`, which Tauri merges
+over `tauri.conf.json` automatically — the default `msi` target cannot be built there.
+The `.app` is **ad-hoc signed only** (that is what the linker does on arm64); there is no
+Developer ID signing or notarisation step, which is why the ZIP ships with instructions
+for getting past Gatekeeper.
+
+Pushing a `v*` tag runs both of these in CI and attaches all four files to a GitHub
+Release. Neither platform publishes on its own: a separate job waits for both and checks
+that all four are present, so a failure on one OS cannot produce a half release.
+
+Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
+`~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
 ### Regenerating the third-party licence list
 

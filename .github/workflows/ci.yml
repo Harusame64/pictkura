@@ -1,12 +1,13 @@
 # 変更のたびに「壊れていないこと」だけを見る（配布物は release.yml で作る）。
 #
-# **Windowsで走らせる**のが要点。このリポジトリはOSに寄り添う部分が多く
+# **Windowsが本命**。このリポジトリはOSに寄り添う部分が多く
 # （WIC・Shell・USNジャーナル）、`cfg(windows)` の側はWindows以外では
 # 1行もコンパイルされない。Linuxで緑になっても何も保証しない。
 #
-# macOSは rav1d 1.1.0 が `src/arm/asm-offsets.h` をクレートに同梱していない
-# （`exclude = [..., "*.h", ...]`）ためARM64のasmがビルドできない。
-# 解決してからジョブを足す。
+# **macOSも配るようになったので足した**（2026-08-14）。rav1d 1.1.0 の
+# crates.io 版がARM64でビルドできない件は `Cargo.toml` の `[patch.crates-io]`
+# で解決済み。こちらは `cfg(windows)` のぶん（12件）だけテストが少ない。
+# 両方を必須にしているのは、**片方だけ直して配布物の片方が壊れる**のを防ぐため
 name: CI
 
 on:
@@ -26,13 +27,22 @@ permissions:
 
 jobs:
   check:
-    runs-on: windows-latest
+    # **片方が落ちてももう片方は最後まで走らせる**。両方を同時に直したいので、
+    # 「Windowsが赤いからmacOSの結果は分からない」を作らない
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       # rav1d（AVIF）と mozjpeg のアセンブリに要る。**外すと6倍遅くなる**ので
-      # 「速いことが仕様」のこのアプリでは無効化を選べない
+      # 「速いことが仕様」のこのアプリでは無効化を選べない。
+      # **macOSでは要らない**——NASMはx86のアセンブラで、ARM64では
+      # rav1d も libjpeg-turbo も `.S` を clang に通す（2026-08-14に実測）
       - name: NASM を入れる
+        if: runner.os == 'Windows'
         run: |
           choco install nasm -y --no-progress --version=3.2.0
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
