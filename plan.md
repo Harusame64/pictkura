@@ -1148,6 +1148,75 @@ mtime（13:07:00＝録画10秒＋書き込み）とも合う。Shellも同じ値
   「HEVCデコーダを配らない」線は守る
 
 ---
+## 【第10部：USB/SDカード挿入時の自動起動（AutoPlay）】✅ **実装済み（2026-08-15）**
+
+第2部で「USB挿入の自動検知」は**アプリ起動中の5秒ポーリング**として実装済みだが、
+**アプリ自体が立ち上がっていないときに挿しても何も起きない**。
+「挿したら pictkura で取り込む」を、Windowsの**自動再生（AutoPlay）**に乗せた。
+
+### 決めたこと: AutoPlayハンドラを登録する（autorun.infは使わない）
+- **autorun.inf は使えない**。Microsoftがセキュリティ上、USB向けの自動実行を
+  無効化している（CD/DVDのみ）。正攻法は**AutoPlayハンドラ登録**で、挿すと
+  「このデバイスに対して行う操作」の一覧に候補として並ぶ。**既定は乗っ取らない**
+  ——選ぶのは利用者。
+- 登録先は **HKCU**（`Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers`
+  ＋ `Software\Classes\<ProgID>`）なので**管理者権限が要らない**。MSI/WiXに埋める手も
+  あるが、HKCUなら**ポータブルZIP版でも効く**うえ、起動のたびに冪等に書き直せば
+  実行ファイルを移動してもパスが追従する（`autoplay.rs`）。
+- 出す到着イベントは3つ: `ShowPicturesOnArrival`（SDカード＝写真）・
+  `ShowMixedContentOnArrival`・`StorageOnArrival`（USBメモリ＝汎用ストレージ）。
+  SDカードもUSBメモリも拾える。
+- 設定 `[import] register_autoplay`（既定ON）で登録/解除。OFFにすると
+  `unregister` が候補ごと消す。**Windows専用**で、他OSはno-op（呼び出し側を分岐させない）。
+
+### 実装の要点
+- **single-instanceプラグイン**（`tauri-plugin-single-instance`、**最初のプラグイン**で
+  なければならない）。挿入で2重に立ち上がっても新しい窓を開かず、動作中の
+  インスタンスへ argv を渡して前面化＋取り込みウィザードを開く。
+- 起動引数は `pictkura.exe --import <ドライブ>`。冷起動（AutoPlayでこのプロセスが
+  最初に立つとき）はフロントのリスナー登録より前に決まるので、
+  マウント後に `take_pending_import` で拾う（⚡爆速メーターの起動レポートと同じ
+  取りこぼし対策）。2重起動は `open-import-drive` イベントで届く。フロントは
+  どちらも既存の `openWizard(path)` に流すだけ（ドライブクリックと同じ経路）。
+
+### 罠
+- **`%L` を引用符で囲まない**。AutoPlayが渡すドライブ直下は `E:\` のように
+  **末尾がバックスラッシュ**になり、`"E:\"` と囲むと閉じ引用符がエスケープされて
+  `E:"` と解釈され壊れる。ドライブ直下にスペースは無いので裸で渡す。
+  実行ファイルのパスはスペースを含みうる（Program Files）ので**そちらは囲む**。
+  →コマンドは `"<exe>" --import %L`。保険として `E:`（末尾`\`なし）が来たら
+  `E:\` に直す（`import_path_from_args`）。
+- **登録は失敗しても起動を止めない**。レジストリが書けない環境でもアプリは動くべき
+  （`eprintln` して継続）。
+
+### 実測での確認（2026-08-15, Windows 11, debugビルド）
+`--import` の引数処理はユニットテスト（`E:`→`E:\`・値なし・空文字でパニックしない）。
+実機では:
+- 起動すると HKCU に全キーが正しく書かれた（Handlerの5値・ProgIDコマンド
+  `"…\pictkura.exe" --import %L`・3イベントの紐付け）。
+- 2重起動 `--import <フォルダ>` は single-instance が**プライマリへ転送して即終了**。
+- 転送を受けたプライマリで**取り込みウィザードがそのフォルダで開き**、
+  中の画像が「未取り込みだけ選択」で自動選択された（スクリーンショットで確認）。
+
+### 開発機の準備で分かったこと
+- **このWindows機はビルド道具が揃っていなかった**。Rust（1.95.0・MSVC）と
+  VS Build Tools 2022（VCコンパイラ）はあったが、**NASMが無い**（rav1d/mozjpegの
+  アセンブリに要る）。`winget install NASM.NASM` で入れると
+  `C:\Users\<user>\AppData\Local\bin\NASM\nasm.exe` に入り、PATHを通せば
+  `cargo build` が通る（クリーンなdebugビルドで3分）。CIと同じ構成。
+- **rust 1.95.0 の clippy が既存コードを新たに引っかけた**（`browse.rs` の
+  `collapsible-match`）。機能とは無関係だが `clippy -D warnings` を通すため別コミットで直した。
+  CIのrunnerが同じlintを持つと**mainも赤くなる**性質なので、遠からず要る修正だった。
+
+### 未着手・要判断
+- **既定でON登録**にしている（挿したら候補に出したい、という要望どおり）。
+  Settings に「USB挿入時に候補に出す」トグルを出すかは未定（今はTOMLの手編集が逃げ道）。
+- **メニュー文言**は「pictkura で写真を取り込む」。要調整なら `autoplay.rs` の `ACTION`。
+- **物理USBを挿したときの実挙動**（自動再生ダイアログに実際に並ぶか）は
+  合成した2重起動でしか確認していない——**実機でUSBを挿す確認は要**。
+- **macOS/Linuxはno-op**。macOSに同等のAutoPlayは無い（Image Captureはカメラ向けで別物）。
+
+---
 ## 【v0.1（最初の配布）】✅ **ひととおり完了（2026-08-13）**
 
 機能追加はここで止め、**今あるものを配れる形にする**のが v0.1 の定義。
