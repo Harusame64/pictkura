@@ -32,15 +32,16 @@ on up-to-date Windows 10.
 
 pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
 broken, but you will see the security warnings below; just proceed and the app works normally.
-**SmartScreen appears only the first time**, while the **UAC prompt (admin approval) appears
-every time you install**.
+**SmartScreen can appear for each version you download**, while the **UAC prompt (admin
+approval) appears every time you install**.
 
 **Installing the MSI**
 
-1. **SmartScreen** (only the first time, right after downloading): you may see
+1. **SmartScreen** (right after downloading): you may see
    "**Windows protected your PC**." Click **More info**, then the **Run anyway** button that
-   appears. Once you've run it, it won't show again (**reinstalling the same MSI may not even
-   reproduce it**).
+   appears. SmartScreen judges **each downloaded file**, so clearing one MSI does not cover the
+   next release, and the same file can prompt again on another PC. Within one PC and one file,
+   though, it usually stops asking after you've run it once.
 2. **User Account Control (UAC)**: next, Windows asks whether to allow **an app from an unknown
    publisher** to make changes and shows **Publisher: Unknown** (because it isn't signed). Click
    **Yes**. This prompt appears **every time you install**.
@@ -51,10 +52,15 @@ No install is needed, but the **first time you run** the extracted `pictkura.exe
 **SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
 anyway**.
 
-> Authenticode signing would remove the **SmartScreen prompt and the "Publisher: Unknown"
-> label** (the UAC prompt itself still appears on every install, but shows the publisher name).
-> The certificate is paid, so it is **deferred for v0.1**. The macOS build is likewise unsigned
-> (below).
+If **Smart App Control** is on (it can be, on a clean install of Windows 11), it may block an
+unsigned app **outright**, with no **Run anyway** to click. Note that switching it off is
+one-way — Windows cannot turn it back on without a reinstall — so weigh that before changing it.
+
+> Authenticode signing would reliably replace **"Publisher: Unknown"** with the publisher name,
+> and makes SmartScreen fire less often — but it does **not** categorically remove it: a newly
+> signed binary that hasn't built up reputation can still be flagged. (The UAC prompt itself
+> still appears on every install either way.) The certificate is paid, so it is **deferred for
+> v0.1**. The macOS build is likewise unsigned (below).
 
 ### macOS: the first launch needs a few extra steps
 
