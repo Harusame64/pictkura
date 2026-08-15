@@ -28,6 +28,31 @@ Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/rel
 Windows also needs the **WebView2 runtime**, which is already present on Windows 11 and
 on up-to-date Windows 10.
 
+### Windows shows warnings because the app is not signed
+
+pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
+broken, but you will see security warnings when installing and on first launch. **Both are
+one-time**, and the app works normally once you proceed.
+
+**Installing the MSI**
+
+1. **SmartScreen** (only the first time, right after downloading): you may see
+   "**Windows protected your PC**." Click **More info**, then the **Run anyway** button that
+   appears. Once you've run it, it won't show again (**reinstalling the same MSI may not even
+   reproduce it**).
+2. **User Account Control (UAC)**: next, Windows asks whether to allow the app to make
+   changes and shows **Publisher: Unknown** (because it isn't signed). Click **Yes**. This one
+   appears every time until the app is signed.
+
+**Portable ZIP**
+
+No install is needed, but the **first time you run** the extracted `pictkura.exe`, the same
+**SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
+anyway**.
+
+> Authenticode signing would remove these warnings, but the certificate is paid, so it is
+> **deferred for v0.1**. The macOS build is likewise unsigned (below).
+
 ### macOS: the first launch needs a few extra steps
 
 The macOS build is **not signed with an Apple Developer ID**, so Gatekeeper stops the
