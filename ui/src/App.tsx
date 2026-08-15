@@ -683,12 +683,13 @@ export default function App() {
     setBusy(true);
     try {
       await addLibraryRoot(path);
-      setFolderInput("");
       await reloadAll();
       await refreshRoots();
       checkDecoders();
+      return true;
     } catch (e) {
       setStatus(String(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -698,12 +699,18 @@ export default function App() {
     // ボタンは disabled になるが Enter キーは素通りするので、ここでも弾く
     if (busy) return;
     const path = folderInput.trim();
-    if (path) void addFolder(path);
+    // 入力欄を空にするのは手入力から追加できたときだけ。「参照…」からの
+    // 追加でここを消すと、打ちかけのパスが黙って消える
+    if (path)
+      void addFolder(path).then((ok) => {
+        if (ok) setFolderInput("");
+      });
   };
 
   // 「参照…」。取り込みウィザードや設定と同じネイティブのフォルダ選択を使う。
   // ここだけ手入力のままだったのを揃える（選んだら即追加する）
   const onBrowseFolder = async () => {
+    if (busy) return;
     try {
       const picked = await open({ directory: true, title: t.pickLibraryFolder });
       if (typeof picked === "string") await addFolder(picked);
