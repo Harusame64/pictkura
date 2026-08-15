@@ -677,9 +677,9 @@ export default function App() {
     [refreshRoots, checkDecoders],
   );
 
-  const onAddFolder = async () => {
-    const path = folderInput.trim();
-    if (!path) return;
+  // ライブラリのルート追加の本体。手入力（onAddFolder）と
+  // ネイティブのフォルダ選択（onBrowseFolder）の両方から呼ぶ
+  const addFolder = async (path: string) => {
     setBusy(true);
     try {
       await addLibraryRoot(path);
@@ -692,6 +692,18 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const onAddFolder = () => {
+    const path = folderInput.trim();
+    if (path) void addFolder(path);
+  };
+
+  // 「参照…」。取り込みウィザードや設定と同じネイティブのフォルダ選択を使う。
+  // ここだけ手入力のままだったのを揃える（選んだら即追加する）
+  const onBrowseFolder = async () => {
+    const picked = await open({ directory: true, title: t.pickLibraryFolder });
+    if (typeof picked === "string") await addFolder(picked);
   };
 
   const onRemoveRoot = async (path: string) => {
@@ -1568,16 +1580,25 @@ export default function App() {
           ))}
           <div className="nav-section">{t.navAddFolder}</div>
           <div className="add-folder">
-            <input
-              type="text"
-              placeholder="例: D:\\Pictures"
-              value={folderInput}
-              onChange={(e) => setFolderInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onAddFolder()}
-            />
-            <button onClick={onAddFolder} disabled={busy}>
-              {t.add}
+            <button
+              className="browse-folder"
+              onClick={onBrowseFolder}
+              disabled={busy}
+            >
+              📂 {t.browse}
             </button>
+            <div className="add-folder-manual">
+              <input
+                type="text"
+                placeholder={t.addFolderPlaceholder}
+                value={folderInput}
+                onChange={(e) => setFolderInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onAddFolder()}
+              />
+              <button onClick={onAddFolder} disabled={busy}>
+                {t.add}
+              </button>
+            </div>
           </div>
         </nav>
         <div className="main">

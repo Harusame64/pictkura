@@ -337,8 +337,25 @@ body {
 
 .add-folder {
   display: flex;
+  flex-direction: column;
   gap: var(--sp-1);
   padding: var(--sp-1) var(--sp-2);
+}
+/* 「参照…」を主動線にする（フォルダ選択ダイアログを開く）。手入力は下に控えとして残す */
+.add-folder .browse-folder {
+  width: 100%;
+  justify-content: center;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+.add-folder .browse-folder:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.add-folder-manual {
+  display: flex;
+  gap: var(--sp-1);
 }
 .add-folder input {
   flex: 1;
