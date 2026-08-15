@@ -31,8 +31,9 @@ on up-to-date Windows 10.
 ### Windows shows warnings because the app is not signed
 
 pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
-broken, but you will see security warnings when installing and on first launch. **Both are
-one-time**, and the app works normally once you proceed.
+broken, but you will see the security warnings below; just proceed and the app works normally.
+**SmartScreen appears only the first time**, while the **UAC prompt (admin approval) appears
+every time you install**.
 
 **Installing the MSI**
 
@@ -40,9 +41,9 @@ one-time**, and the app works normally once you proceed.
    "**Windows protected your PC**." Click **More info**, then the **Run anyway** button that
    appears. Once you've run it, it won't show again (**reinstalling the same MSI may not even
    reproduce it**).
-2. **User Account Control (UAC)**: next, Windows asks whether to allow the app to make
-   changes and shows **Publisher: Unknown** (because it isn't signed). Click **Yes**. This one
-   appears every time until the app is signed.
+2. **User Account Control (UAC)**: next, Windows asks whether to allow **an app from an unknown
+   publisher** to make changes and shows **Publisher: Unknown** (because it isn't signed). Click
+   **Yes**. This prompt appears **every time you install**.
 
 **Portable ZIP**
 
@@ -50,8 +51,10 @@ No install is needed, but the **first time you run** the extracted `pictkura.exe
 **SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
 anyway**.
 
-> Authenticode signing would remove these warnings, but the certificate is paid, so it is
-> **deferred for v0.1**. The macOS build is likewise unsigned (below).
+> Authenticode signing would remove the **SmartScreen prompt and the "Publisher: Unknown"
+> label** (the UAC prompt itself still appears on every install, but shows the publisher name).
+> The certificate is paid, so it is **deferred for v0.1**. The macOS build is likewise unsigned
+> (below).
 
 ### macOS: the first launch needs a few extra steps
 
