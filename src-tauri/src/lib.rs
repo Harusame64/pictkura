@@ -14,6 +14,8 @@ use pictkura_core::{Config, Db, ReadPool, SyncStats, ThumbnailService};
 use tauri::http::{Response, StatusCode};
 use tauri::{Emitter, Manager};
 
+mod autoplay;
+
 /// ポイズニングされていてもロックを取得する（パニックの連鎖でアプリ全体が死ぬのを防ぐ）。
 fn lock_ok<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -52,6 +54,51 @@ struct AppState {
     /// `media://src/...` はライブラリ外の任意パスを配信できてしまうため、
     /// 「UIがユーザー操作で開いたフォルダの直下」だけに配信先を限る。
     browse_allow: Mutex<HashSet<PathBuf>>,
+    /// AutoPlayや2重起動の `--import <パス>` で冷起動したときの取り込み対象。
+    /// 冷起動ではフロントのリスナー登録より前にこの値が決まるので、
+    /// マウント後に `take_pending_import` で取りに来る（起動レポートと同じ方式）。
+    pending_import: Mutex<Option<String>>,
+}
+
+/// 起動引数から取り込み対象のドライブ/フォルダを取り出す。
+/// AutoPlay（`pictkura.exe --import E:\`）や2重起動で渡る。
+fn import_path_from_args(argv: &[String]) -> Option<String> {
+    let mut it = argv.iter();
+    while let Some(a) = it.next() {
+        if a == "--import" {
+            let p = it.next()?.trim();
+            if p.is_empty() {
+                return None;
+            }
+            // `E:` だけで来たらルートに直す（AutoPlayは通常 `E:\` を渡すが保険）。
+            return Some(if p.ends_with(':') {
+                format!("{p}\\")
+            } else {
+                p.to_string()
+            });
+        }
+    }
+    None
+}
+
+/// 既に起動中のインスタンスへ2重起動の引数が届いたとき（single-instance）。
+/// 窓を前面に出し、取り込み対象があればウィザードを開くイベントを送る。
+fn handle_second_instance(app: &tauri::AppHandle, argv: &[String]) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    if let Some(path) = import_path_from_args(argv) {
+        let _ = app.emit("open-import-drive", path);
+    }
+}
+
+/// 冷起動時に `--import` で渡されたパスを一度だけ返す（取り込みウィザードを開くため）。
+/// 2重起動はイベント（`open-import-drive`）で届くが、冷起動はフロントのリスナー登録より
+/// 前に来て取りこぼすので、マウント後にこれで取りに来る。
+#[tauri::command]
+fn take_pending_import(state: tauri::State<AppState>) -> Option<String> {
+    lock_ok(&state.pending_import).take()
 }
 
 /// 現在のルート構成でファイルシステム監視を張り直す。
@@ -1841,6 +1888,12 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // single-instanceは**最初のプラグイン**でなければならない（Tauriの規約）。
+        // USB挿入の自動起動で2重に立ち上がっても、新しい窓を開かず動作中の
+        // インスタンスへ引数（`--import <ドライブ>`）を渡してウィザードを開く
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            handle_second_instance(app, &argv);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -1889,6 +1942,10 @@ pub fn run() {
             );
 
             let thumb_cache_mb = config.performance.thumb_cache_mb;
+            // AutoPlayの登録可否は設定から。configはこの後AppStateへ移すので先に読む
+            let register_autoplay = config.import.register_autoplay;
+            // 冷起動（AutoPlay/2重起動でこのプロセスが最初のとき）の取り込み対象
+            let pending_import = import_path_from_args(&std::env::args().collect::<Vec<_>>());
             app.manage(AppState {
                 db: Mutex::new(db),
                 read_pool,
@@ -1902,7 +1959,23 @@ pub fn run() {
                 startup_report: Mutex::new(None),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
+                pending_import: Mutex::new(pending_import),
             });
+
+            // USB/SDカードの自動再生（AutoPlay）に「pictkuraで取り込む」を候補として
+            // 足す（Windowsのみ・HKCU・管理者不要）。既定は乗っ取らない。冪等なので
+            // 起動のたびに書き直し、ポータブル版を移動しても実行ファイルのパスが追従する。
+            // 失敗しても起動は続ける（レジストリが書けない環境でもアプリは動くべき）
+            if let Ok(exe) = std::env::current_exe() {
+                let result = if register_autoplay {
+                    autoplay::register(&exe)
+                } else {
+                    autoplay::unregister()
+                };
+                if let Err(e) = result {
+                    eprintln!("AutoPlayの登録に失敗（無視して継続）: {e}");
+                }
+            }
 
             // 検索インデックスの初期構築（第4部 段階D）。
             // 索引導入前に取り込んだ既存レコードを後追いで索引化する。
@@ -2169,8 +2242,57 @@ pub fn run() {
             delete_media,
             list_folder_patterns,
             set_folder_pattern,
-            preview_folder_pattern
+            preview_folder_pattern,
+            take_pending_import
         ])
         .run(tauri::generate_context!())
         .expect("Tauriアプリの起動に失敗");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::import_path_from_args;
+
+    fn args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn autoplayの引数からドライブを取り出す() {
+        // AutoPlayは `exe --import E:\` の形で渡す（argv[0]は実行ファイル）
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:\\"])),
+            Some("E:\\".to_string())
+        );
+    }
+
+    #[test]
+    fn ドライブ文字だけならルートに直す() {
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:"])),
+            Some("E:\\".to_string())
+        );
+    }
+
+    #[test]
+    fn importが無ければnone() {
+        assert_eq!(import_path_from_args(&args(&["pictkura.exe"])), None);
+    }
+
+    #[test]
+    fn importの後ろが無ければnone() {
+        // 末尾に値が無い（壊れた呼び出し）ときにパニックしない
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import"])),
+            None
+        );
+    }
+
+    #[test]
+    fn 値が空文字ならnone() {
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "   "])),
+            None
+        );
+    }
 }

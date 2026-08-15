@@ -260,6 +260,10 @@ export const listMemories = () => invoke<Memory[]>("list_memories");
 export const getStats = () => invoke<LibraryStats>("get_stats");
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
+// USB挿入の自動起動（AutoPlay）で `--import <ドライブ>` 付きで冷起動したときの
+// 取り込み対象を一度だけ受け取る。2重起動は open-import-drive イベントで届く
+export const takePendingImport = () =>
+  invoke<string | null>("take_pending_import");
 export const listDrives = () => invoke<DriveInfo[]>("list_drives");
 export const syncNow = () => invoke<SyncStats>("sync_now");
 export const getConfig = () => invoke<AppConfig>("get_config");

@@ -82,6 +82,10 @@ pub struct ImportConfig {
     pub verify_after_copy: bool,
     /// 取り込み対象とする拡張子（小文字で比較）。
     pub extensions: Vec<String>,
+    /// USB/SDカードを挿したときに、pictkura を Windows の「自動再生」の
+    /// 候補に出すか（Windows のみ。他のOSでは無視される）。既定はON。
+    /// 起動のたびに HKCU へ冪等登録し、OFF にすると候補ごと消す。
+    pub register_autoplay: bool,
 }
 
 impl Default for ImportConfig {
@@ -93,6 +97,7 @@ impl Default for ImportConfig {
                 .iter()
                 .map(|e| (*e).to_string())
                 .collect(),
+            register_autoplay: true,
         }
     }
 }

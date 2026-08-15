@@ -27,6 +27,7 @@ import {
   listMemories,
   modKeyLabel,
   openDefault,
+  takePendingImport,
   openWith,
   removeLibraryRoot,
   revealInFolder,
@@ -661,6 +662,30 @@ export default function App() {
     setWizardStart(startPath);
     setWizardOpen(true);
   }, []);
+
+  // USB/SDカードの自動起動（AutoPlay）で「pictkuraで取り込む」が選ばれたとき、
+  // そのドライブで取り込みウィザードを開く。2重起動はバックエンドが
+  // open-import-drive イベントで届け、冷起動はマウント後に take_pending_import で拾う
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const f = await listen<string>("open-import-drive", (ev) => {
+        if (ev.payload) openWizard(ev.payload);
+      });
+      if (cancelled) {
+        f();
+        return;
+      }
+      unlisten = f;
+      const pending = await takePendingImport().catch(() => null);
+      if (!cancelled && pending) openWizard(pending);
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [openWizard]);
 
   // ウィザードの取り込み結果をグリッドへ反映する（コピー先の走査は
   // バックエンド側で済んでおり、ここではルート一覧と表示の更新だけ）
