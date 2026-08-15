@@ -665,7 +665,9 @@ export default function App() {
 
   // USB/SDカードの自動起動（AutoPlay）で「pictkuraで取り込む」が選ばれたとき、
   // そのドライブで取り込みウィザードを開く。2重起動はバックエンドが
-  // open-import-drive イベントで届け、冷起動はマウント後に take_pending_import で拾う
+  // open-import-drive イベントで届け、冷起動はマウント後に take_pending_import で拾う。
+  // listen を先に張ってから take するのは順序の約束で、バックエンドは take が
+  // 来るまで（＝まだ聞かれていない間）2重起動ぶんもそちらへ積んでくる
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;

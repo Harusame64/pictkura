@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaKind, MediaTarget};
@@ -54,10 +55,15 @@ struct AppState {
     /// `media://src/...` はライブラリ外の任意パスを配信できてしまうため、
     /// 「UIがユーザー操作で開いたフォルダの直下」だけに配信先を限る。
     browse_allow: Mutex<HashSet<PathBuf>>,
-    /// AutoPlayや2重起動の `--import <パス>` で冷起動したときの取り込み対象。
-    /// 冷起動ではフロントのリスナー登録より前にこの値が決まるので、
+    /// AutoPlayや2重起動の `--import <パス>` で渡された取り込み対象のうち、
+    /// **まだフロントへ渡せていない**もの。冷起動ではリスナー登録より前に値が
+    /// 決まるし、起動途中に来た2重起動も同じく聞き手が居ない。どちらも
     /// マウント後に `take_pending_import` で取りに来る（起動レポートと同じ方式）。
     pending_import: Mutex<Option<String>>,
+    /// フロントが `open-import-drive` を待ち受け始めたか。
+    /// `take_pending_import` はリスナー登録の**後**に呼ばれるので、これが立って
+    /// いれば2重起動をイベントで送ってよい。立つ前に送っても誰も聞いていない。
+    ui_ready: AtomicBool,
 }
 
 /// 起動引数から取り込み対象のドライブ/フォルダを取り出す。
@@ -89,7 +95,15 @@ fn handle_second_instance(app: &tauri::AppHandle, argv: &[String]) {
         let _ = w.set_focus();
     }
     if let Some(path) = import_path_from_args(argv) {
-        let _ = app.emit("open-import-drive", path);
+        let state = app.state::<AppState>();
+        // 起動途中に2重起動が来ると、フロントのリスナー登録より先に emit してしまい、
+        // 2つ目のプロセスは用が済んで終了するので**要求が永久に消える**。まだ
+        // 聞いていないなら冷起動と同じ置き場へ積み、マウント後に拾わせる。
+        if state.ui_ready.load(Ordering::SeqCst) {
+            let _ = app.emit("open-import-drive", path);
+        } else {
+            *lock_ok(&state.pending_import) = Some(path);
+        }
     }
 }
 
@@ -98,6 +112,9 @@ fn handle_second_instance(app: &tauri::AppHandle, argv: &[String]) {
 /// 前に来て取りこぼすので、マウント後にこれで取りに来る。
 #[tauri::command]
 fn take_pending_import(state: tauri::State<AppState>) -> Option<String> {
+    // ここへ来た＝フロントは `open-import-drive` の登録を終えている。
+    // 以降の2重起動はイベントで直接届けてよい（handle_second_instance）
+    state.ui_ready.store(true, Ordering::SeqCst);
     lock_ok(&state.pending_import).take()
 }
 
@@ -1960,6 +1977,7 @@ pub fn run() {
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
+                ui_ready: AtomicBool::new(false),
             });
 
             // USB/SDカードの自動再生（AutoPlay）に「pictkuraで取り込む」を候補として
