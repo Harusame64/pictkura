@@ -37,7 +37,7 @@ approval) appears every time you install**.
 
 **Installing the MSI**
 
-1. **SmartScreen** (right after downloading): you may see
+1. **SmartScreen** (when you open the downloaded MSI — not at download time): you may see
    "**Windows protected your PC**." Click **More info**, then the **Run anyway** button that
    appears. SmartScreen judges **each downloaded file**, so clearing one MSI does not cover the
    next release, and the same file can prompt again on another PC. Within one PC and one file,
@@ -52,9 +52,14 @@ No install is needed, but the **first time you run** the extracted `pictkura.exe
 **SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
 anyway**.
 
-If **Smart App Control** is on (it can be, on a clean install of Windows 11), it may block an
-unsigned app **outright**, with no **Run anyway** to click. Note that switching it off is
-one-way — Windows cannot turn it back on without a reinstall — so weigh that before changing it.
+**Either way: Smart App Control**
+
+If **Smart App Control** is on — it can be, on a clean install of Windows 11 — it may block an
+unsigned app **outright**, with no **Run anyway** to click. This applies to **both** the MSI and
+the portable ZIP, since it judges the code, not how it reached you. There is no way around it
+from the app's side: you would need a PC without SAC, or a signed build. Switching SAC off does
+lift the block, but it is **one-way** — Windows cannot turn it back on without a reinstall — so
+we don't suggest it just to run this app.
 
 > Authenticode signing would reliably replace **"Publisher: Unknown"** with the publisher name,
 > and makes SmartScreen fire less often — but it does **not** categorically remove it: a newly
