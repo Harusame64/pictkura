@@ -695,6 +695,8 @@ export default function App() {
   };
 
   const onAddFolder = () => {
+    // ボタンは disabled になるが Enter キーは素通りするので、ここでも弾く
+    if (busy) return;
     const path = folderInput.trim();
     if (path) void addFolder(path);
   };
@@ -702,8 +704,13 @@ export default function App() {
   // 「参照…」。取り込みウィザードや設定と同じネイティブのフォルダ選択を使う。
   // ここだけ手入力のままだったのを揃える（選んだら即追加する）
   const onBrowseFolder = async () => {
-    const picked = await open({ directory: true, title: t.pickLibraryFolder });
-    if (typeof picked === "string") await addFolder(picked);
+    try {
+      const picked = await open({ directory: true, title: t.pickLibraryFolder });
+      if (typeof picked === "string") await addFolder(picked);
+    } catch (e) {
+      // 握りつぶすと「押したのに何も起きない」になる（onOpenWithOther と同じ扱い）
+      setStatus(String(e));
+    }
   };
 
   const onRemoveRoot = async (path: string) => {
@@ -1585,7 +1592,7 @@ export default function App() {
               onClick={onBrowseFolder}
               disabled={busy}
             >
-              📂 {t.browse}
+              <span aria-hidden="true">📂</span> {t.browse}
             </button>
             <div className="add-folder-manual">
               <input
