@@ -32,8 +32,9 @@ mod imp {
 
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegSetValueExW, HKEY,
-        HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+        RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW,
+        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+        RRF_RT_REG_SZ,
     };
 
     /// AutoPlayハンドラの内部識別子（EventHandlersに並ぶ名前）。
@@ -105,13 +106,62 @@ mod imp {
         Ok(())
     }
 
+    /// `HKCU\<subkey>` の文字列値を読む（無ければ `None`）。`name=None` は既定値。
+    fn get_string(subkey: &str, name: Option<&str>) -> Option<String> {
+        let subkey_w = wide(subkey);
+        let name_w = name.map(wide);
+        let name_ptr = name_w.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
+        // まず必要なバイト数を聞く（NUL込みで返る）。
+        let mut len: u32 = 0;
+        let rc = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                subkey_w.as_ptr(),
+                name_ptr,
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut len,
+            )
+        };
+        if rc != ERROR_SUCCESS || len < 2 {
+            return None;
+        }
+        let mut buf = vec![0u16; (len as usize).div_ceil(2)];
+        let mut len2 = len;
+        let rc = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                subkey_w.as_ptr(),
+                name_ptr,
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr() as *mut std::ffi::c_void,
+                &mut len2,
+            )
+        };
+        if rc != ERROR_SUCCESS {
+            return None;
+        }
+        let chars = (len2 as usize / 2).min(buf.len());
+        let s = &buf[..chars];
+        let s = match s.iter().position(|&c| c == 0) {
+            Some(i) => &s[..i],
+            None => s,
+        };
+        Some(String::from_utf16_lossy(s))
+    }
+
     pub fn register(exe: &Path) -> io::Result<()> {
         let exe = exe.display().to_string();
-        // verbのコマンド。`%L` がドライブのパスに置き換わる。ドライブ直下は `E:\` の
-        // ように**末尾がバックスラッシュ**になるので、`"%L"` と囲むと閉じ引用符が
-        // エスケープされて壊れる（`E:"` と解釈される）。ドライブ直下にスペースは
-        // 無いので裸で渡す。実行ファイルのパスはスペースを含みうる（Program Files）ので囲む。
-        let command = format!("\"{exe}\" --import %L");
+        // verbのコマンド。`%L` が対象のパスに置き換わる。ドライブ直下なら `E:\` で
+        // スペースは無いが、`ShowPicturesOnArrival` は MTP/ポータブル機器や
+        // フォルダにマウントされたボリュームでも上がり、そこでは `C:\My Photos\` の
+        // ようにスペースを含みうる。裸で渡すと `C:\My` で切れて存在しない
+        // フォルダを開いてしまうので**囲む**。ただし末尾のバックスラッシュが
+        // 閉じ引用符をエスケープして `E:"` の形で届くため、受け側
+        // （`import_path_from_args`）で元に戻している。
+        let command = format!("\"{exe}\" --import \"%L\"");
         set_string(
             &format!(r"Software\Classes\{PROGID}\shell\{VERB}\command"),
             None,
@@ -146,6 +196,17 @@ mod imp {
             let name = wide(HANDLER);
             unsafe {
                 RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr());
+            }
+            // 「常にこの操作」で pictkura を選ばれていた場合、その記録も消す。
+            // 残すとエクスプローラーは**もう居ないハンドラを呼び続け**、
+            // 通常の選択画面にも戻らない。他アプリの選択を巻き添えにしないよう、
+            // 中身がこちらのハンドラのときだけ消す。
+            let chosen = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers\{event}");
+            if get_string(&chosen, None).as_deref() == Some(HANDLER) {
+                let key = wide(&chosen);
+                unsafe {
+                    RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr());
+                }
             }
         }
         for tree in [
