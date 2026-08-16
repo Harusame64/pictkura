@@ -214,6 +214,14 @@ export default function App() {
    */
   const lastRangeRef = useRef<{ anchor: number; ids: number[] } | null>(null);
   /**
+   * 選択操作の世代。**解除するたびに進める**。
+   *
+   * 検索条件やライブラリの世代とは別に要る——Escで解除しても条件は変わらないので、
+   * それだけでは「待っている最中に解除されたか」を見分けられず、
+   * `listMediaIds` の応答が**消したはずの選択を作り直す**。
+   */
+  const selectEpochRef = useRef(0);
+  /**
    * キー操作のハンドラから読む最新の値。
    * 依存に入れるとキーを押すたびにリスナーを張り替えることになる。
    */
@@ -832,8 +840,18 @@ export default function App() {
       patch(next);
       try {
         await setFavorite(item.id, next);
-        // ★のみ表示中は骨組み（枚数・日の有無）が変わる
-        if (filterRef.current === "fav") await reloadAll();
+        // ★のみ表示中は骨組み（枚数・日の有無）が変わる。
+        // **画面から消えるものは選択からも外す**——残すと、見えていない写真に
+        // 一括操作が効いてしまう
+        if (filterRef.current === "fav") {
+          setSelected((prev) => {
+            if (!prev.has(item.id)) return prev;
+            const s2 = new Set(prev);
+            s2.delete(item.id);
+            return s2;
+          });
+          await reloadAll();
+        }
       } catch {
         patch(!next); // 失敗したら戻す
       }
@@ -1356,6 +1374,7 @@ export default function App() {
   useEffect(() => {
     idsCacheRef.current = null;
     lastRangeRef.current = null;
+    selectEpochRef.current += 1;
     setSelected(new Set());
     setAnchorId(null);
   }, [query, filter]);
@@ -1368,6 +1387,8 @@ export default function App() {
     setSelected(new Set());
     setAnchorId(null);
     lastRangeRef.current = null;
+    // 待っている選択の応答を無効にする（Escの直後に範囲が復活しないように）
+    selectEpochRef.current += 1;
   }, []);
 
   /**
@@ -1379,7 +1400,7 @@ export default function App() {
    */
   const selectionKey = useCallback(
     () =>
-      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${generationRef.current}`,
+      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${generationRef.current}\u0000${selectEpochRef.current}`,
     [],
   );
 
@@ -1488,6 +1509,26 @@ export default function App() {
     lastRangeRef.current = null;
   }, [orderedIds, selectionKey]);
 
+  /**
+   * 一括操作に掛ける前に、**いまの条件で本当に出ているものだけへ絞る**。
+   *
+   * 選択したあとに条件が変わらなくても、中身が変わることがある——★表示中に
+   * 右クリックからお気に入りを外すと、その写真は画面から消えるのに選択には残る。
+   * そのまま削除すると**画面に出ていない写真がゴミ箱へ行く**。
+   * 絞った結果が減っていたら、選択の表示もそこへ合わせる。
+   */
+  const visibleSelection = useCallback(async () => {
+    const current = selectedRef.current;
+    if (current.size === 0) return [];
+    const key = selectionKey();
+    const ids = await orderedIds();
+    if (selectionKey() !== key) return [];
+    const valid = new Set(ids);
+    const kept = [...current].filter((id) => valid.has(id));
+    if (kept.length !== current.size) setSelected(new Set(kept));
+    return kept;
+  }, [orderedIds, selectionKey]);
+
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
   useLayoutEffect(() => {
@@ -1558,7 +1599,7 @@ export default function App() {
    */
   const onBulkFavorite = useCallback(
     async (favorite: boolean) => {
-      const ids = [...selected];
+      const ids = await visibleSelection();
       if (ids.length === 0) return;
       const patch = (fav: boolean) => {
         setDayItems((prev) => {
@@ -1599,12 +1640,12 @@ export default function App() {
       if (filterRef.current === "fav") await reloadAll();
       else await refreshSummary();
     },
-    [selected, reloadAll, refreshSummary, clearSelection],
+    [selected, visibleSelection, reloadAll, refreshSummary, clearSelection],
   );
 
   /** 選んだものをまとめてゴミ箱へ（確認あり） */
   const onBulkDelete = useCallback(async () => {
-    const ids = [...selected];
+    const ids = await visibleSelection();
     if (ids.length === 0) return;
     const ok = await confirmDialog(t.deleteConfirm(ids.length), {
       title: t.appName,
@@ -1627,9 +1668,22 @@ export default function App() {
       clearSelection();
       await refreshSummary();
     } catch (e) {
+      // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
+      // 落としてからエラーを返すので、画面をそのままにすると
+      // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
       setStatus(String(e));
+      setDayItems((prev) => {
+        const next = new Map(prev);
+        for (const [dayKey, items] of prev) {
+          if (items.some((it) => selected.has(it.id))) next.delete(dayKey);
+        }
+        return next;
+      });
+      idsCacheRef.current = null;
+      clearSelection();
+      await refreshSummary().catch(() => {});
     }
-  }, [selected, refreshSummary, clearSelection]);
+  }, [selected, visibleSelection, refreshSummary, clearSelection]);
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
   const onOpenWithOther = useCallback(
