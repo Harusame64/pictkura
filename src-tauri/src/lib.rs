@@ -1061,6 +1061,7 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
 #[tauri::command]
 fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
     let mut deleted: Vec<PathBuf> = Vec::new();
+    let mut first_err: Option<String> = None;
     for id in &ids {
         let Ok(path) = path_of(&state, *id) else {
             continue;
@@ -1069,16 +1070,28 @@ fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usiz
         match trash::delete(&path) {
             Ok(()) => deleted.push(path),
             Err(_) if !path.exists() => deleted.push(path),
-            Err(e) => return Err(format!("ゴミ箱へ移動できません: {e}")),
+            Err(e) => {
+                // **ここで返してはいけない**。既にゴミ箱へ入れたぶんがDBに残り、
+                // 一覧には居るのに実体が無い行になる。最初のエラーだけ覚えて、
+                // **消せたぶんは必ずDBへ反映してから**返す
+                if first_err.is_none() {
+                    first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+                }
+            }
         }
     }
-    if deleted.is_empty() {
-        return Ok(0);
+    if !deleted.is_empty() {
+        lock_ok(&state.db)
+            .remove_paths(&deleted)
+            .map_err(|e| e.to_string())?;
     }
-    lock_ok(&state.db)
-        .remove_paths(&deleted)
-        .map_err(|e| e.to_string())?;
-    Ok(deleted.len())
+    match first_err {
+        Some(e) if deleted.is_empty() => Err(e),
+        // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
+        // 「何枚消えたのか」が分からない
+        Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
+        None => Ok(deleted.len()),
+    }
 }
 
 /// 取り込み先フォルダ構成の選択肢1つ（パターンと、今日の日付での実例）。

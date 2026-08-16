@@ -386,15 +386,15 @@ const en: Dict = {
   selectAll: "Select all",
   clearSelection: "Clear selection (Esc)",
   selectDay: "Select this whole day",
-  bulkFavoriteOn: "Add to favourites",
-  bulkFavoriteOff: "Remove from favourites",
+  bulkFavoriteOn: "Add to favorites",
+  bulkFavoriteOff: "Remove from favorites",
   bulkDelete: "Move to trash",
   bulkFavoriteDone: (n: number) =>
-    n === 1 ? "1 photo added to favourites" : `${n} photos added to favourites`,
+    n === 1 ? "1 photo added to favorites" : `${n} photos added to favorites`,
   bulkUnfavoriteDone: (n: number) =>
     n === 1
-      ? "1 photo removed from favourites"
-      : `${n} photos removed from favourites`,
+      ? "1 photo removed from favorites"
+      : `${n} photos removed from favorites`,
   settings: "Settings",
   close: "Close",
   settingsTitle: "Settings",
