@@ -1121,13 +1121,27 @@ fn set_folder_pattern(state: tauri::State<'_, AppState>, pattern: String) -> Res
 /// 切る**という使い方では、切ったあとに起動し直す機会が無い。
 #[tauri::command]
 fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     if enabled {
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         autoplay::register(&exe).map_err(|e| e.to_string())?;
     } else {
         autoplay::unregister().map_err(|e| e.to_string())?;
     }
-    update_config(&state, |c| c.import.register_autoplay = enabled)
+    // 設定の保存に失敗したら**レジストリを元へ戻す**。戻さないと、画面と設定ファイルは
+    // 元のまま・レジストリだけ変わった状態で残り、しかも次の起動で起動時の同期処理が
+    // 設定に合わせて戻す——利用者から見ると「切ったのに戻っている」。
+    if let Err(e) = update_config(&state, |c| c.import.register_autoplay = enabled) {
+        let rollback = if enabled {
+            autoplay::unregister()
+        } else {
+            autoplay::register(&exe)
+        };
+        return Err(match rollback {
+            Ok(()) => e,
+            Err(re) => format!("{e}（レジストリを元に戻すのにも失敗: {re}）"),
+        });
+    }
+    Ok(())
 }
 
 /// 自由記述のフォルダ構成が、実際にどんなフォルダ名になるかを返す。
