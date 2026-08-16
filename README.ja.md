@@ -282,8 +282,10 @@ crates/pictkura-core/   コアライブラリ（Config / スキャナー / DB / 
 src-tauri/              Tauriアプリ本体（コマンド・media://プロトコル）
 ui/                     フロントエンド（React + Vite + TanStack Virtual）
 docs/                   取扱説明書とスクリーンショット
-plan.md                 開発ロードマップ（フェーズ別のAI向け指示書）
 ```
+
+開発日誌（`plan.md`）は非公開の別リポジトリに置いています。ソース中のコメントに
+ある「`plan.md` 第3部」などの参照先は、このリポジトリには入っていません。
 
 ## 開発
 

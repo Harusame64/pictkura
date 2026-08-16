@@ -273,8 +273,11 @@ crates/pictkura-core/   core library (config / scanner / DB / import / thumbnail
 src-tauri/              the Tauri app (commands, media:// protocol)
 ui/                     front end (React + Vite + TanStack Virtual)
 docs/                   manual and screenshots
-plan.md                 development roadmap (in Japanese)
 ```
+
+The development journal (`plan.md`, in Japanese) lives in a private companion
+repository, so comments in the source that point at `plan.md` refer to a file that
+is not in this repository.
 
 ## Building
 
