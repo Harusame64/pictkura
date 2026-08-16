@@ -30,7 +30,7 @@ mod imp {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
 
-    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW,
         RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
@@ -188,15 +188,26 @@ mod imp {
         Ok(())
     }
 
-    /// 登録を消す（`register_autoplay = false` のとき）。失敗しても致命的ではないので
-    /// 個々の削除エラーは無視する（既に無い鍵の削除は失敗するため）。
+    /// 登録を消す（`register_autoplay = false` のとき）。
+    ///
+    /// **「無かった」と「消せなかった」を分ける**のが要点。既に無い鍵や値の削除は
+    /// `ERROR_FILE_NOT_FOUND` を返すが、これは目的（候補が出ないこと）を満たしている
+    /// ので成功として扱う。一方、権限やポリシーで削除を拒まれた場合まで握り潰すと、
+    /// **候補が残ったまま「切れました」と答える**ことになる。
+    ///
+    /// 途中で失敗しても残りの削除は続け、**最初の本物のエラー**を返す。1つ消せない
+    /// からといって他を残すと、中途半端な登録がかえって始末に負えない。
     pub fn unregister() -> io::Result<()> {
+        let mut first_err: Option<i32> = None;
+        let mut check = |rc: u32| {
+            if rc != ERROR_SUCCESS && rc != ERROR_FILE_NOT_FOUND && first_err.is_none() {
+                first_err = Some(rc as i32);
+            }
+        };
         for event in EVENTS {
             let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
             let name = wide(HANDLER);
-            unsafe {
-                RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr());
-            }
+            check(unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) });
             // 「常にこの操作」で pictkura を選ばれていた場合、その記録も消す。
             // 残すとエクスプローラーは**もう居ないハンドラを呼び続け**、
             // 通常の選択画面にも戻らない。他アプリの選択を巻き添えにしないよう、
@@ -204,9 +215,7 @@ mod imp {
             let chosen = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers\{event}");
             if get_string(&chosen, None).as_deref() == Some(HANDLER) {
                 let key = wide(&chosen);
-                unsafe {
-                    RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr());
-                }
+                check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
             }
         }
         for tree in [
@@ -214,10 +223,11 @@ mod imp {
             format!(r"Software\Classes\{PROGID}"),
         ] {
             let key = wide(&tree);
-            unsafe {
-                RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr());
-            }
+            check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
         }
-        Ok(())
+        match first_err {
+            Some(rc) => Err(io::Error::from_raw_os_error(rc)),
+            None => Ok(()),
+        }
     }
 }

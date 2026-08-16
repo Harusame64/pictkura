@@ -177,6 +177,10 @@ const ja = {
   settingsCustomPatternNote:
     "{year} {month} {day} が日付に置き換わります。/ で階層になります。使えない文字や上の階層への移動（..）は自動で落とします。",
   settingsCustomPatternResult: "できるフォルダ",
+  settingsAutoplay: "USBやSDカードを挿したとき",
+  settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
+  settingsAutoplayNote:
+    "Windowsの「自動再生」の選択肢に並びます。勝手に起動することはありません。インストーラで消す場合はアンインストール時に自動で解除しますが、持ち歩き版と、同じPCの他の利用者のぶんは残ります——その場合は、消す前にここを切ってください。",
   settingsAbout: "このアプリについて",
   settingsAboutLicense: "MIT ライセンスで配布しています。",
   settingsManual: "取扱説明書",
@@ -369,6 +373,10 @@ const en: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} are replaced with the date. Use / for nesting. Unusable characters and moves to a parent folder (..) are dropped automatically.",
   settingsCustomPatternResult: "Resulting folder",
+  settingsAutoplay: "When you insert a USB drive or SD card",
+  settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
+  settingsAutoplayNote:
+    "Adds pictkura to the Windows AutoPlay choices. It never starts on its own. Note that the entry itself is worded in Japanese. Uninstalling with the installer removes it, but the portable build — and other users’ copies on a shared PC — are not covered; turn this off before removing pictkura in those cases.",
   settingsAbout: "About",
   settingsAboutLicense: "Distributed under the MIT license.",
   settingsManual: "Manual",

@@ -85,7 +85,11 @@ export interface StartupScanReport {
 }
 
 export interface AppConfig {
-  import: { last_source_dir: string | null };
+  import: {
+    last_source_dir: string | null;
+    /** USB/SDカードを挿したときの「自動再生」の候補に出すか（Windowsのみ意味を持つ） */
+    register_autoplay: boolean;
+  };
   routing: { destination: string | null; folder_pattern: string };
   library: { roots: string[] };
   editors: { apps: ExternalApp[] };
@@ -330,6 +334,13 @@ export const previewFolderPattern = (pattern: string) =>
 
 export const setFolderPattern = (pattern: string) =>
   invoke<void>("set_folder_pattern", { pattern });
+
+/**
+ * USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
+ * その場でレジストリへ反映されるので、切ったらすぐ候補から消える。
+ */
+export const setRegisterAutoplay = (enabled: boolean) =>
+  invoke<void>("set_register_autoplay", { enabled });
 
 /**
  * media:// カスタムプロトコル経由のサムネイルURL（Base64禁止・直接ストリーミング）。

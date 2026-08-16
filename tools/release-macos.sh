@@ -31,7 +31,7 @@ cd "$root"
 host_arch="$(uname -m)"
 if [ "$host_arch" != "arm64" ]; then
     echo "Apple Silicon（arm64）でしか作れません: $host_arch" >&2
-    echo "Intel版とUniversalは作らないと決めています（plan.md「macOSも配る」）。" >&2
+    echo "Intel版とUniversalは作らないと決めています。" >&2
     exit 1
 fi
 

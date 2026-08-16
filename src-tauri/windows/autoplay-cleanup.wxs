@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  アンインストール時に AutoPlay（自動再生）の登録を消すためのWiX断片。
+
+  なぜ要るか: AutoPlayの登録は **アプリが起動のたびに実行時にHKCUへ書く**もので、
+  MSIのコンポーネントではない。したがって MSI でアンインストールしても
+  レジストリには残り、USB/SDカードを挿すたびに「pictkura で写真を取り込む」が
+  候補に並び続け、選ぶと**もう居ない実行ファイル**を呼ぶ。
+
+  直し方: ファイルを消す前（RemoveFiles の前）に、まだ在る `pictkura.exe` を
+  解除オプション付きで呼ぶ。この入口はアプリ側にあり、窓を出さずに解除だけして終了する。
+
+  効かない場合と限界:
+  - **消せるのはアンインストールを実行したユーザーのHKCUだけ**。per-machine
+    インストールなので、一度でも起動した他のユーザーのぶんは残る。その人は
+    設定の「USBやSDカードを挿したとき」を切ってからアンインストールする必要がある。
+  - 実行に失敗してもアンインストール自体は続ける（`Return="ignore"`）。
+    解除できないことは、消せないことより軽い。
+
+  注意: XMLのコメントにはハイフン2つを書けない。解除オプションの綴りは
+  下の `ExeCommand` を見ること。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!--
+      断片は「参照されたものだけ」がリンクされる。カスタムアクションだけを
+      書いても取り込まれないので、`componentRefs` から引ける入れ物を1つ置く。
+      中身はフォルダの確保だけ（ファイルもレジストリ値も増やさない）。
+      Win64="yes" は ICE80 対策。配るのは x64 だけで、INSTALLDIR は
+      64ビット側の Program Files の下にある。
+    -->
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AutoPlayCleanup" Guid="A7F3C1D2-8B4E-4C6A-9E7F-3D2B1A5C8E90" Win64="yes">
+        <CreateFolder />
+      </Component>
+    </DirectoryRef>
+
+    <!--
+      `FileKey="Path"` は Tauri のテンプレートが本体の実行ファイルに付けるId
+      （テンプレート側の `LaunchApplication` も同じものを使っている）。
+
+      即時実行（`Execute` を書かない＝immediate）にしている。遅延実行だと
+      昇格した側＝SYSTEM で走り、**別のユーザーのHKCU**を見てしまうため。
+      即時実行のカスタムアクションは msiexec のクライアント側、つまり
+      アンインストールを始めた本人の権限で動く。HKCUを消すだけなので
+      昇格は要らない。
+    -->
+    <CustomAction Id="UnregisterAutoPlay"
+                  FileKey="Path"
+                  ExeCommand="--unregister-autoplay"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!--
+        RemoveFiles より前に置く。後ろだと呼ぶ実行ファイルがもう無い。
+        `NOT UPGRADINGPRODUCTCODE` は版上げ対策。メジャーアップグレードは
+        「古い版のアンインストール」を内側で回すので、これが無いと
+        **更新するたびに登録が消える**。
+      -->
+      <Custom Action="UnregisterAutoPlay" Before="RemoveFiles">
+        <![CDATA[REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE]]>
+      </Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>
