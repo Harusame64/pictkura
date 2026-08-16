@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pictkura Manual</title>
+<style>
+  /* アプリと同じ Darkroom Neutral の考え方。ダーク既定＋OS追従 */
+  :root {
+    --bg: #fbfbfa; --surface: #ffffff; --surface-2: #f1f0ee;
+    --text: #1b1a18; --text-muted: #6b6863; --border: #e0dedb;
+    --accent: #3b7dd8; --accent-soft: #e8f0fc; --warn-bg: #fff6e5; --warn-line: #e0a94a;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131312; --surface: #1b1b1a; --surface-2: #232322;
+      --text: #eceae6; --text-muted: #9a968f; --border: #302f2d;
+      --accent: #79aef5; --accent-soft: #1d2938; --warn-bg: #2a2418; --warn-line: #a37c2c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131312; --surface: #1b1b1a; --surface-2: #232322;
+    --text: #eceae6; --text-muted: #9a968f; --border: #302f2d;
+    --accent: #79aef5; --accent-soft: #1d2938; --warn-bg: #2a2418; --warn-line: #a37c2c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    line-height: 1.75; font-size: 16px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+  h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 {
+    font-size: 1.35rem; margin: 56px 0 16px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+  h3 { font-size: 1.05rem; margin: 32px 0 8px; }
+  p, li { color: var(--text); }
+  .lead { color: var(--text-muted); margin: 0; }
+  a { color: var(--accent); }
+  code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+  }
+  img { max-width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
+  figure { margin: 20px 0; }
+  figcaption { color: var(--text-muted); font-size: 0.85rem; margin-top: 8px; }
+  /* 表は幅の狭い画面で自分だけ横スクロールする（本文は横に伸ばさない） */
+  .table-scroll { overflow-x: auto; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+  td.center, th.center { text-align: center; }
+  kbd {
+    font-family: inherit; font-size: 0.85em; background: var(--surface-2);
+    border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 7px; white-space: nowrap;
+  }
+  .note {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: var(--radius);
+    padding: 12px 16px; margin: 20px 0;
+  }
+  .warn { background: var(--warn-bg); border-left-color: var(--warn-line); }
+  .note p { margin: 0; }
+  nav.toc {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 8px;
+  }
+  nav.toc ol { margin: 0; padding-left: 1.3em; }
+  nav.toc a { text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  footer { margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>pictkura Manual</h1>
+  <p class="lead">Import your photos, lay them out, find them, look at them. That is all this app does.</p>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#start">Getting started — register a library</a></li>
+    <li><a href="#import">Import from a USB drive or SD card</a></li>
+    <li><a href="#folders">Decide how imported photos are filed</a></li>
+    <li><a href="#search">Find</a></li>
+    <li><a href="#viewer">Look</a></li>
+    <li><a href="#formats">Supported file formats</a></li>
+    <li><a href="#cloud">Files that only exist in the cloud</a></li>
+    <li><a href="#notes">Limitations and things it does not do</a></li>
+    <li><a href="#files">Where settings and data live</a></li>
+  </ol>
+</nav>
+
+<h2 id="start">1. Getting started — register a library</h2>
+
+<p>
+On first launch, use “<strong>Add a folder</strong>” at the bottom of the left pane:
+type the folder that holds your photos and press “Add”. You can also pick one from the
+list of drives.
+</p>
+<p>
+Scanning starts immediately, and a grid ordered by date builds up. The grid stays live
+while the scan runs — rows appear as they are ready.
+</p>
+
+<figure>
+  <img src="images/grid.en.jpg" alt="The grid, with photos laid out by date">
+  <figcaption>The grid. The vertical strip on the right is the year scrubber — grab it to jump.</figcaption>
+</figure>
+
+<div class="note">
+  <p>
+    <strong>The second launch is much faster.</strong>
+    pictkura reads the change journal the Windows file system already keeps (the USN journal)
+    and only looks at <strong>the files that changed since last time</strong>.
+    The ⚡ readout at the top right shows how much work it managed to skip.
+  </p>
+</div>
+
+<h2 id="import">2. Import from a USB drive or SD card</h2>
+
+<p>Press “<strong>Import from USB</strong>” at the top.</p>
+
+<figure>
+  <img src="images/import.en.jpg" alt="The import wizard: a source tree on the left, photos on the right">
+  <figcaption>Pick a source on the left and its photos appear.</figcaption>
+</figure>
+
+<div class="table-scroll">
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td>Include subfolders</td><td>Picks everything up even when the card has date folders under DCIM. Choosing a folder scans all the way down by default</td></tr>
+  <tr><td>Hide already imported</td><td>Hides what is already in your library. The check runs through the same code as the import itself, so the “done” badges never disagree with reality</td></tr>
+  <tr><td>Destination</td><td>Set any folder from “Change” at the bottom. If it is unset, you are asked when the import starts</td></tr>
+  <tr><td>Whole folder</td><td>Imports the selected folder in its entirety</td></tr>
+</table>
+</div>
+
+<p>
+While copying you get a progress bar, an estimated time remaining, and
+<strong>the photo currently being copied</strong>. When a copy finishes, sizes are compared
+to verify it.
+</p>
+
+<h3>Offer pictkura when a card is inserted (Windows only)</h3>
+
+<p>
+pictkura adds itself to the Windows AutoPlay choices that appear when you insert a USB
+drive or an SD card. This is on by default, but <strong>it never starts on its own</strong> —
+the import wizard opens on that drive only when you choose it.
+Note that the entry itself is worded in Japanese.
+</p>
+
+<p>
+To turn it off, clear the “<strong>When you insert a USB drive or SD card</strong>” checkbox
+in Settings ⚙. It disappears from the choices right away.
+<strong>That is also the reliable way to remove it before uninstalling.</strong>
+Uninstalling with the installer removes it automatically, but only
+<strong>for the user who ran the uninstall</strong> (the setting is per user).
+The portable build is just a folder you delete, so run
+<code>pictkura.exe --unregister-autoplay</code> before deleting it.
+</p>
+
+<h3>When inserting a card asks you nothing</h3>
+
+<p>
+<strong>If this PC already has a default action, inserting a card shows no choices at all.</strong>
+Windows silently performs whatever was decided (for example “Open folder to view files”).
+pictkura is registered as a candidate, but nothing ever asks.
+</p>
+
+<p>
+Check and change it under <strong>Settings → Bluetooth &amp; devices → AutoPlay</strong>.
+“Choose AutoPlay defaults” lists “Removable drive” and “Memory card”. Pick
+<strong>“Ask me every time”</strong> if you want to choose on every insert, or
+pictkura’s own entry if you always want pictkura. <strong>That entry reads
+「pictkura で写真を取り込む」</strong> — it is worded in Japanese whatever your
+Windows language is, so look for the pictkura icon and the name in brackets.
+<strong>If that list shows it at all, the registration is working.</strong>
+</p>
+
+<p>
+If you would rather <strong>see the choices once</strong> without changing the default,
+right-click the drive in File Explorer and choose <strong>“Open AutoPlay”</strong>:
+the picker that should have appeared on insert opens on the spot.
+In the Windows 11 right-click menu it lives under <strong>“Show more options”</strong>
+(or <kbd>Shift</kbd>+<kbd>F10</kbd>).
+</p>
+
+<h2 id="folders">3. Decide how imported photos are filed</h2>
+
+<p>
+⚙ (Settings) → “Import folder structure”. Where photos end up is hard to change later,
+so it is worth deciding first. There are nine common layouts to choose from.
+</p>
+
+<figure>
+  <img src="images/settings.en.jpg" alt="The settings dialog: folder layout choices and the custom pattern field">
+  <figcaption>Choose “Custom” to write your own.</figcaption>
+</figure>
+
+<div class="table-scroll">
+<table>
+  <tr><th>What you can write</th><th>What it becomes</th></tr>
+  <tr><td><code>{year}</code></td><td>four-digit year (<code>2026</code>)</td></tr>
+  <tr><td><code>{month}</code></td><td>two-digit month (<code>08</code>)</td></tr>
+  <tr><td><code>{day}</code></td><td>two-digit day (<code>13</code>)</td></tr>
+  <tr><td><code>/</code></td><td>a folder level</td></tr>
+</table>
+</div>
+
+<p>
+As you type, <strong>the folder name you will actually get</strong> is shown right there.
+Writing <code>{year}nen/{month}gatsu-{day}nichi</code>, for instance, gives
+<code>2026nen/08gatsu-13nichi/</code>.
+</p>
+
+<p>
+<strong>If you keep the year folders yourself</strong>, point the destination at that year’s
+folder and choose <code>2026-08-16/</code> (no year level) or <code>08/2026-08-16/</code>.
+Only date folders are then added underneath.
+</p>
+
+<div class="note">
+  <p>
+    <strong>Folder names are built year-first in every language.</strong>
+    That is so sorting by name sorts by time, which is the usual convention for photo
+    tools (Immich defaults to <code>Year/Year-Month-Day</code>, and every dated folder
+    format Lightroom Classic offers starts with the year). Dates shown on screen follow
+    your language; dates in folder names follow the sort order.
+  </p>
+</div>
+
+<div class="note">
+  <p>
+    <code>..</code> (move to the parent folder), absolute paths, and characters that are not
+    allowed in file names are <strong>dropped automatically</strong>. Whatever you write,
+    nothing is ever written outside the destination.
+  </p>
+</div>
+
+<h3>Where the date comes from</h3>
+<p>The first of these that exists is used.</p>
+<ol>
+  <li><strong>EXIF capture time</strong> — written by the camera or phone</li>
+  <li><strong>What the OS already knows</strong> — available even when the file only exists in the cloud</li>
+  <li><strong>A date in the file name</strong> — used when the name carries one, as in <code>2024-01-01 12.34.56.jpg</code></li>
+  <li><strong>File modification time</strong> — when none of the above exist</li>
+</ol>
+<p>
+Screenshots and images saved from social apps usually carry no EXIF, and modification time
+alone files them under “the day you saved it”. When the name carries a date, that wins, so
+they land on the right day.
+</p>
+
+<h2 id="search">4. Find</h2>
+
+<p>Use the search box at the top, or the command palette with <kbd>Ctrl</kbd> + <kbd>K</kbd>.</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>What you type</th><th>What it means</th></tr>
+  <tr><td><code>okinawa</code></td><td>Substring match on file name, folder name and camera name. Languages that are not written with spaces match in the middle too, so 「旅行」 finds 「沖縄旅行」</td></tr>
+  <tr><td><code>camera:α7</code></td><td>Narrow by camera (the same as “Cameras &amp; media” in the left pane)</td></tr>
+  <tr><td><code>folder:trip</code></td><td>Narrow by folder name</td></tr>
+  <tr><td><code>2019-08</code> <code>2019/8</code> <code>2019-08-11</code></td><td>Narrow by capture date. <strong>A bare <code>2019</code> is treated as text, not a date</strong> — it cannot be told apart from a file name</td></tr>
+  <tr><td><code>year:2019</code></td><td>Narrow to a single year</td></tr>
+  <tr><td><code>★</code></td><td>Favorites only</td></tr>
+</table>
+</div>
+
+<p>All terms are ANDed. The order is fixed: newest capture date first.</p>
+
+<h2 id="viewer">5. Look</h2>
+
+<p>Click a tile to open the full-size viewer.</p>
+
+<figure>
+  <img src="images/viewer.en.jpg" alt="The viewer, with zoom and controls at the top and file name and date at the bottom">
+  <figcaption>Hold the mouse still and the controls fade out; move it and they come back.</figcaption>
+</figure>
+
+<div class="table-scroll">
+<table>
+  <tr><th>Key</th><th>What it does</th></tr>
+  <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next photo (same for videos)</td></tr>
+  <tr><td><kbd>Space</kbd></td><td>Start or stop the slideshow. On a video, play / pause</td></tr>
+  <tr><td><kbd>I</kbd></td><td>Capture details (camera, lens, aperture, shutter, ISO, GPS)</td></tr>
+  <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
+</table>
+</div>
+
+<p>
+Right-click for “Open”, “Open with another app…”, “Show in folder” and “Delete (move to trash)”.
+An editing app you pick once is remembered and appears in the menu from then on.
+</p>
+
+<div class="note">
+  <p>
+    <strong>Deleting always goes through the Recycle Bin.</strong>
+    The app never removes a file outright.
+  </p>
+</div>
+
+<h2 id="formats">6. Supported file formats</h2>
+
+<h3>Photos</h3>
+<div class="table-scroll">
+<table>
+  <tr><th>Format</th><th class="center">Grid</th><th class="center">Viewer</th><th>Notes</th></tr>
+  <tr><td><code>jpg</code> <code>jpeg</code></td><td class="center">✅</td><td class="center">✅</td><td>Decoded while downscaling, so even large photos are quick</td></tr>
+  <tr><td><code>png</code> <code>webp</code></td><td class="center">✅</td><td class="center">✅</td><td></td></tr>
+  <tr><td><code>avif</code></td><td class="center">✅</td><td class="center">✅</td><td>Decoder is bundled; no OS extension needed</td></tr>
+  <tr><td><code>heic</code> <code>heif</code> <code>hif</code></td><td class="center">✅</td><td class="center">✅</td><td>The iPhone default. Pixel decoding is left to the OS (see below)</td></tr>
+  <tr><td><code>bmp</code> <code>gif</code> <code>tif</code> <code>tiff</code></td><td class="center">✅</td><td class="center">✅</td><td>TIFF is re-encoded to JPEG for display</td></tr>
+  <tr><td><code>svg</code></td><td class="center">✅</td><td class="center">✅</td><td>Drawn from the original, so zooming never degrades it</td></tr>
+</table>
+</div>
+
+<h3>RAW</h3>
+<p>
+<strong>No demosaicing.</strong> pictkura pulls out the display JPEG the camera wrote for its
+own rear screen. That takes a few milliseconds per file, and the colours are the camera’s own
+rendering.
+</p>
+<div class="table-scroll">
+<table>
+  <tr><th>Format</th><th class="center">Image available</th><th>Notes</th></tr>
+  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>sr2</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code></td><td class="center">✅</td><td>Includes Apple ProRAW (DNG)</td></tr>
+  <tr><td><code>3fr</code> <code>iiq</code> <code>erf</code> <code>dcr</code> <code>kdc</code> <code>x3f</code></td><td class="center">✅</td><td>Bodies that embed no JPEG are assembled from the uncompressed preview</td></tr>
+  <tr><td><code>mrw</code> (Minolta)</td><td class="center">⚠️</td><td>No image: the format overwrites the first bytes of its own thumbnail</td></tr>
+  <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td>Carries no preview at all</td></tr>
+</table>
+</div>
+
+<h3>Video</h3>
+<div class="table-scroll">
+<table>
+  <tr><th>Format</th><th class="center">Grid</th><th class="center">Plays in app</th><th>Notes</th></tr>
+  <tr><td><code>mp4</code> <code>m4v</code> <code>mov</code> <code>webm</code></td><td class="center">✅</td><td class="center">✅</td><td>Codecs depend on the OS (HEVC — see below)</td></tr>
+  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>Thumbnail, duration and capture date still appear in the grid. Use “Open in default app” to play</td></tr>
+</table>
+</div>
+<p>
+Grid thumbnails are borrowed from the OS thumbnail service (<strong>Windows only for now</strong>).
+Duration, dimensions and capture time come from the container header alone — not a single byte
+of pixel data is read.
+</p>
+
+<h2 id="cloud">7. Files that only exist in the cloud</h2>
+
+<p>
+On Windows, “Pictures” points at OneDrive by default, and after a while much of what is in it
+becomes “<strong>online-only</strong>”: the real file lives in the cloud and all you have locally
+is a marker.
+</p>
+
+<div class="note warn">
+  <p>
+    pictkura <strong>never downloads them on its own</strong>.
+    Installing the app will not quietly pull gigabytes over your connection.
+  </p>
+</div>
+
+<ul>
+  <li><strong>They do appear in the grid.</strong> Dimensions and capture time come from what the OS already knows, so they sit on the correct date</li>
+  <li><strong>The image may not appear.</strong> The real file is fetched only when you actually go and look at it</li>
+  <li><strong>Video duration is missing.</strong> It cannot be known without reading the container, and that needs the real file</li>
+  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in default app”</li>
+</ul>
+
+<h2 id="notes">8. Limitations and things it does not do</h2>
+
+<div class="table-scroll">
+<table>
+  <tr><th>Subject</th><th>Detail</th></tr>
+  <tr>
+    <td>HEIC / HEVC need OS components</td>
+    <td>On Windows you need “HEIF Image Extensions” (free) plus “HEVC Video Extensions” (paid, about a dollar) to decode the pixels. <strong>The HEVC decoder is not bundled</strong> — patent licensing makes that impractical, so pictkura uses the one the OS has. It tells you when one is missing</td>
+  </tr>
+  <tr><td>Video thumbnails are Windows-only</td><td>macOS and Linux are not supported yet; you get empty frames</td></tr>
+  <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
+  <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
+  <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
+  <tr><td>An import cannot be cancelled</td><td>Once started, it runs to the end</td></tr>
+  <tr><td>RTL layouts</td><td>Right-to-left languages such as Arabic are not supported yet</td></tr>
+</table>
+</div>
+
+<h2 id="files">9. Where settings and data live</h2>
+
+<div class="table-scroll">
+<table>
+  <tr><th>File</th><th>Location (Windows)</th></tr>
+  <tr><td>Settings</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
+  <tr><td>Database</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
+  <tr><td>Thumbnails</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
+</table>
+</div>
+
+<p>
+You can edit the settings file by hand. Anything the app has no UI for — the patterns of
+folders to exclude from scanning, for instance — can be changed there.
+<strong>Your photos are never stored in these places.</strong>
+Deleting the database does not delete any photo; it is simply rebuilt.
+</p>
+
+<footer>
+  pictkura is MIT licensed. Copyright notices and licence texts for the bundled third-party
+  software are collected in <code>THIRD-PARTY-LICENSES.txt</code>.<br>
+  The photographs shown in the screenshots in this manual are CC0 / public-domain works from
+  Wikimedia Commons.
+</footer>
+
+</div>
+</body>
+</html>

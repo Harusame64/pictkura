@@ -18,6 +18,7 @@ import {
 } from "./api";
 import {
   LOCALES,
+  locale,
   readLocaleChoice,
   setLocaleChoice,
   t,
@@ -153,6 +154,25 @@ export default function Settings({
   }, [open, closeDialog]);
 
   if (!open) return null;
+
+  /**
+   * 開くべき取扱説明書の種類（同梱されていなければ `null`）。
+   *
+   * 説明書がある言語で使っているならその言語のものを、無ければ**英語へ落とす**。
+   * 日本語版へ落とさないのは、**言語を増やしたときに読めない確率が低い方**を
+   * 選ぶため（`pickLocale` の既定が英語なのと同じ考え）。
+   */
+  const manualDoc: "manual" | "manual-en" | null = (
+    locale.startsWith("ja")
+      ? [
+          ["manual", about?.manual_path],
+          ["manual-en", about?.manual_en_path],
+        ]
+      : [
+          ["manual-en", about?.manual_en_path],
+          ["manual", about?.manual_path],
+        ]
+  ).find(([, path]) => path)?.[0] as "manual" | "manual-en" | undefined ?? null;
 
   const current = config?.routing.folder_pattern ?? "";
   const destination = config?.routing.destination ?? null;
@@ -394,10 +414,21 @@ export default function Settings({
             </div>
             <p className="settings-note">{t.settingsAboutLicense}</p>
             <div className="about-links">
+              {/*
+                取扱説明書は表示言語で出し分ける。英語版が同梱されていない実行では
+                日本語版へ落とす——**ボタンを消さない**のが要点で、説明書が open
+                できないより、読める言語でないものが開く方がまだ手掛かりになる。
+              */}
               <button
-                disabled={!about?.manual_path}
-                title={about?.manual_path ?? t.settingsDocNotBundled}
-                onClick={() => openBundledDoc("manual").catch(() => {})}
+                disabled={!manualDoc}
+                title={
+                  (manualDoc === "manual-en"
+                    ? about?.manual_en_path
+                    : about?.manual_path) ?? t.settingsDocNotBundled
+                }
+                onClick={() =>
+                  manualDoc && openBundledDoc(manualDoc).catch(() => {})
+                }
               >
                 {t.settingsManual}
               </button>
