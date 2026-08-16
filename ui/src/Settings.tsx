@@ -310,17 +310,21 @@ export default function Settings({
           )}
 
           <section className="settings-section">
-            <h3>{t.settingsLanguage}</h3>
+            {/*
+              見出しはそこに文字が並んでいるだけで、`select` の名前にはならない
+              （名前の無い「コンボボックス」と読まれる）。`aria-label` で同じ文字を
+              別に持たせる手もあるが、**見えているラベルをそのまま指す**方が
+              二重管理にならず、表示と読み上げが食い違わない。
+
+              **閉じたままの矢印キーは1段ごとに確定する**（Chromium系の作法）。
+              2段先を狙うと途中で読み込み直しが挟まるが、Alt+↓ で開いてから選べば
+              確定は1回で済む。選択肢が3つなので、専用の「適用」ボタンは置かない。
+            */}
+            <h3 id="settings-language-label">{t.settingsLanguage}</h3>
             <select
               className="settings-select"
-              // 見出しの `<h3>` は読み上げソフトから見ると「近くにある文字」でしかなく、
-              // この `select` の名前にはならない（名前が無いまま「コンボボックス」とだけ
-              // 読まれる）。見出しと同じ言葉を明示的に結び付ける
-              aria-label={t.settingsLanguage}
+              aria-labelledby="settings-language-label"
               value={langChoice ?? ""}
-              // **閉じたままの矢印キーでも1段ごとに確定する**（Chromium系の作法）。
-              // 2段先を狙うと途中で読み込み直しが挟まるが、Alt+↓ で開いてから選べば
-              // 確定は1回で済む。選択肢が3つなので、専用の「適用」ボタンは置かない
               onChange={(e) => {
                 const code = e.target.value === "" ? null : e.target.value;
                 setLangChoice(code);
