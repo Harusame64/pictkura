@@ -1112,6 +1112,24 @@ fn set_folder_pattern(state: tauri::State<'_, AppState>, pattern: String) -> Res
     update_config(&state, |c| c.routing.folder_pattern = pattern)
 }
 
+/// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
+///
+/// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
+/// 設定だけ変わって「切ったはずなのに候補が残る」というずれ方をする。
+///
+/// 起動時にも同じ処理が走るが、ここでその場で反映するのが要点。**アプリを消す前に
+/// 切る**という使い方では、切ったあとに起動し直す機会が無い。
+#[tauri::command]
+fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    if enabled {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        autoplay::register(&exe).map_err(|e| e.to_string())?;
+    } else {
+        autoplay::unregister().map_err(|e| e.to_string())?;
+    }
+    update_config(&state, |c| c.import.register_autoplay = enabled)
+}
+
 /// 自由記述のフォルダ構成が、実際にどんなフォルダ名になるかを返す。
 ///
 /// **フロントで組み立てない**のが要点。`render_folder_pattern` は置換だけでなく
@@ -2292,6 +2310,7 @@ pub fn run() {
             list_folder_patterns,
             set_folder_pattern,
             preview_folder_pattern,
+            set_register_autoplay,
             take_pending_import
         ])
         .run(tauri::generate_context!())

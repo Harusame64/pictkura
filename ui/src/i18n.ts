@@ -177,6 +177,10 @@ const ja = {
   settingsCustomPatternNote:
     "{year} {month} {day} が日付に置き換わります。/ で階層になります。使えない文字や上の階層への移動（..）は自動で落とします。",
   settingsCustomPatternResult: "できるフォルダ",
+  settingsAutoplay: "USBやSDカードを挿したとき",
+  settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
+  settingsAutoplayNote:
+    "Windowsの「自動再生」の選択肢に並びます。勝手に起動することはありません。アンインストールする前にここを切ってください——切らずに消すと、挿すたびに、もう無い pictkura を呼ぶ候補が残り続けます。",
   settingsAbout: "このアプリについて",
   settingsAboutLicense: "MIT ライセンスで配布しています。",
   settingsManual: "取扱説明書",
@@ -369,6 +373,10 @@ const en: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} are replaced with the date. Use / for nesting. Unusable characters and moves to a parent folder (..) are dropped automatically.",
   settingsCustomPatternResult: "Resulting folder",
+  settingsAutoplay: "When you insert a USB drive or SD card",
+  settingsAutoplayToggle: "Offer “Import photos with pictkura”",
+  settingsAutoplayNote:
+    "Adds pictkura to the Windows AutoPlay choices. It never starts on its own. Turn this off before you uninstall — otherwise the choice keeps appearing every time you insert a card, pointing at an app that is no longer there.",
   settingsAbout: "About",
   settingsAboutLicense: "Distributed under the MIT license.",
   settingsManual: "Manual",

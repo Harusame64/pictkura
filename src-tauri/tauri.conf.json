@@ -36,7 +36,9 @@
     ],
     "windows": {
       "wix": {
-        "language": ["ja-JP", "en-US"]
+        "language": ["ja-JP", "en-US"],
+        "fragmentPaths": ["windows/autoplay-cleanup.wxs"],
+        "componentRefs": ["AutoPlayCleanup"]
       }
     }
   }

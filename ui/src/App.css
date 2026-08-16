@@ -1087,6 +1087,18 @@ body {
 .pattern-item input {
   accent-color: var(--accent);
 }
+/* 入／切のひとつだけのチェック。説明文が下に続くので行間は詰めない */
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.settings-toggle input {
+  accent-color: var(--accent);
+}
 /* コピー先の「変更」。見出しの一部なので、押せると分かる最小限の装いにする */
 .settings-dest-change {
   margin-left: var(--sp-2);

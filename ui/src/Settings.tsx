@@ -4,11 +4,13 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   aboutInfo,
   forgetEditor,
+  isWindows,
   listFolderPatterns,
   openBundledDoc,
   previewFolderPattern,
   setFolderPattern,
   setImportDestination,
+  setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
   type ExternalApp,
@@ -265,6 +267,34 @@ export default function Settings({
               )}
             </div>
           </section>
+
+          {/*
+            AutoPlayはWindowsだけの機構（macOS/Linuxでは登録処理そのものが
+            何もしない）。効かない設定は出さない。
+          */}
+          {isWindows && (
+            <section className="settings-section">
+              <h3>{t.settingsAutoplay}</h3>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={config?.import.register_autoplay ?? true}
+                  onChange={async (e) => {
+                    try {
+                      await setRegisterAutoplay(e.target.checked);
+                    } catch (err) {
+                      // レジストリに書けなかった場合。設定は保存されていないので
+                      // 下の onConfigChanged で表示は元の状態に戻る
+                      onError(String(err));
+                    }
+                    onConfigChanged();
+                  }}
+                />
+                {t.settingsAutoplayToggle}
+              </label>
+              <p className="settings-note">{t.settingsAutoplayNote}</p>
+            </section>
+          )}
 
           <section className="settings-section">
             <h3>{t.settingsTheme}</h3>
