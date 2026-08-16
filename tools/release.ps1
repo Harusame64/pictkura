@@ -17,6 +17,14 @@ try {
     npm --prefix ui run build
     if ($LASTEXITCODE -ne 0) { throw "UIのビルドに失敗" }
 
+    # **前の版のMSIを置き場ごと片付ける**。`cargo tauri build` は自分の版の
+    # ファイルしか書かないので、版を上げた最初の実行では 0.1.0 の2つが
+    # 0.1.1 の隣に残り、CIの員数確認（MSIが2つ・ZIPが1つ）が落ちる。
+    # ポータブルZIPの置き場は pack-portable.ps1 が同じことをする。
+    # macOS側の release-macos.sh も置き場ごと作り直している。
+    $msiDir = Join-Path $root "target\release\bundle\msi"
+    if (Test-Path $msiDir) { Remove-Item -Recurse -Force $msiDir }
+
     Write-Output "== 2/3 本体とMSIをビルド =="
     Push-Location (Join-Path $root "src-tauri")
     try {

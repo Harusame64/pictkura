@@ -42,11 +42,22 @@ pictkura $version（持ち歩き版）
   %APPDATA%\dev.harusame.pictkura\
 
 アンインストールは、このフォルダと上の設定フォルダを消すだけです。
+ただし、USB/SDカードを挿したときに「pictkura で写真を取り込む」を候補として
+出す設定（既定で有効）は、Windowsのレジストリに書かれています。**消す前に**
+次を実行して解除してください（窓は出ません。すぐ終わります）。
+
+  pictkura.exe --unregister-autoplay
+
+解除しないまま消すと、カードを挿すたびに、もう無い pictkura を呼ぶ候補が
+並び続けます。
 "@ | Set-Content -Path (Join-Path $stage "はじめにお読みください.txt") -Encoding utf8
 
-$zip = Join-Path $root "target\release\bundle\portable\pictkura_${version}_x64-portable.zip"
-New-Item -ItemType Directory -Path (Split-Path $zip) -Force | Out-Null
-if (Test-Path $zip) { Remove-Item -Force $zip }
+# **置き場ごと作り直す**。同じ版のZIPを消すだけだと、版を上げた最初の実行で
+# 前の版のZIPが隣に残り、CIの員数確認（ポータブルZIPは1つ）が落ちる。
+$out = Join-Path $root "target\release\bundle\portable"
+if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+New-Item -ItemType Directory -Path $out -Force | Out-Null
+$zip = Join-Path $out "pictkura_${version}_x64-portable.zip"
 Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
 
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
