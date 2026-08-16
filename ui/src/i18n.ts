@@ -456,12 +456,13 @@ function readStored(): string | null {
     return null;
   }
 }
-function writeStored(code: string | null) {
+function writeStored(code: string | null): boolean {
   try {
     if (code === null) localStorage.removeItem(LOCALE_KEY);
     else localStorage.setItem(LOCALE_KEY, code);
+    return true;
   } catch {
-    /* 保存できなくても、この起動のあいだは選んだ言語で動く */
+    return false;
   }
 }
 
@@ -500,13 +501,19 @@ export function readLocaleChoice(): string | null {
  * 決まる定数で、画面のあちこちが直接それを読んでいる。差し替えて回るより、
  * 読み直したほうが取りこぼしが無い（ローカルのWebViewなので一瞬で、
  * 表示中の内容はバックエンドから引き直される）。
+ *
+ * **切り替わったかを返す**。保存できなければ言語は変わらないので、
+ * 呼び出し側が「その言語になっている」と表示してしまわないようにする。
+ * 保存が効かない状態でメモリ上だけ切り替えても、読み込み直した先で
+ * 元に戻るだけで、かえって分からなくなる。
  */
-export function setLocaleChoice(code: string | null) {
-  if (code !== null && !hasDict(code)) return;
-  writeStored(code);
+export function setLocaleChoice(code: string | null): boolean {
+  if (code !== null && !hasDict(code)) return false;
+  if (!writeStored(code)) return false;
   // **書いたあとで決め直す**。「OSに合わせる」を選んだ結果いまと同じ言語に
   // なることもあるので、指定そのものではなく**結果**を見て判断する
   if (pickLocale() !== locale) location.reload();
+  return true;
 }
 
 /** 現在の辞書。`t.searchPlaceholder` のように使う */

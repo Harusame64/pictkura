@@ -327,8 +327,11 @@ export default function Settings({
               value={langChoice ?? ""}
               onChange={(e) => {
                 const code = e.target.value === "" ? null : e.target.value;
-                setLangChoice(code);
-                setLocaleChoice(code);
+                // **保存できたときだけ表示を進める**。保存に失敗すると言語は
+                // 変わらないので、先に表示だけ変えると「その言語になっている」と
+                // 嘘をつくことになる。state を変えなければ、Reactが
+                // プルダウンを元の選択へ戻してくれる
+                if (setLocaleChoice(code)) setLangChoice(code);
               }}
             >
               <option value="">{t.settingsLanguageSystem}</option>
