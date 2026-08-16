@@ -157,17 +157,22 @@ export default function Settings({
 
   /**
    * 開くべき取扱説明書の種類（同梱されていなければ `null`）。
-   * 英語で使っている人には英語版を、無ければ日本語版を開く。
+   *
+   * 説明書がある言語で使っているならその言語のものを、無ければ**英語へ落とす**。
+   * 日本語版へ落とさないのは、**言語を増やしたときに読めない確率が低い方**を
+   * 選ぶため（`pickLocale` の既定が英語なのと同じ考え）。
    */
-  const manualDoc: "manual" | "manual-en" | null = locale.startsWith("en")
-    ? about?.manual_en_path
-      ? "manual-en"
-      : about?.manual_path
-        ? "manual"
-        : null
-    : about?.manual_path
-      ? "manual"
-      : null;
+  const manualDoc: "manual" | "manual-en" | null = (
+    locale.startsWith("ja")
+      ? [
+          ["manual", about?.manual_path],
+          ["manual-en", about?.manual_en_path],
+        ]
+      : [
+          ["manual-en", about?.manual_en_path],
+          ["manual", about?.manual_path],
+        ]
+  ).find(([, path]) => path)?.[0] as "manual" | "manual-en" | undefined ?? null;
 
   const current = config?.routing.folder_pattern ?? "";
   const destination = config?.routing.destination ?? null;

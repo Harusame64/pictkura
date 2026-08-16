@@ -180,8 +180,10 @@ pictkura is registered as a candidate, but nothing ever asks.
 Check and change it under <strong>Settings → Bluetooth &amp; devices → AutoPlay</strong>.
 “Choose AutoPlay defaults” lists “Removable drive” and “Memory card”. Pick
 <strong>“Ask me every time”</strong> if you want to choose on every insert, or
-<strong>“Import photos with pictkura”</strong> if you always want pictkura.
-<strong>If that list shows pictkura at all, the registration is working.</strong>
+pictkura’s own entry if you always want pictkura. <strong>That entry reads
+「pictkura で写真を取り込む」</strong> — it is worded in Japanese whatever your
+Windows language is, so look for the pictkura icon and the name in brackets.
+<strong>If that list shows it at all, the registration is working.</strong>
 </p>
 
 <p>
@@ -297,7 +299,7 @@ they land on the right day.
 </div>
 
 <p>
-Right-click for “Open”, “Open with another app…”, “Show in folder” and “Move to Recycle Bin”.
+Right-click for “Open”, “Open with another app…”, “Show in folder” and “Delete (move to trash)”.
 An editing app you pick once is remembered and appears in the menu from then on.
 </p>
 
@@ -344,7 +346,7 @@ rendering.
 <table>
   <tr><th>Format</th><th class="center">Grid</th><th class="center">Plays in app</th><th>Notes</th></tr>
   <tr><td><code>mp4</code> <code>m4v</code> <code>mov</code> <code>webm</code></td><td class="center">✅</td><td class="center">✅</td><td>Codecs depend on the OS (HEVC — see below)</td></tr>
-  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>Thumbnail, duration and capture date still appear in the grid. Use “Open in the default app” to play</td></tr>
+  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>Thumbnail, duration and capture date still appear in the grid. Use “Open in default app” to play</td></tr>
 </table>
 </div>
 <p>
@@ -372,7 +374,7 @@ is a marker.
   <li><strong>They do appear in the grid.</strong> Dimensions and capture time come from what the OS already knows, so they sit on the correct date</li>
   <li><strong>The image may not appear.</strong> The real file is fetched only when you actually go and look at it</li>
   <li><strong>Video duration is missing.</strong> It cannot be known without reading the container, and that needs the real file</li>
-  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in the default app”</li>
+  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
 <h2 id="notes">8. Limitations and things it does not do</h2>

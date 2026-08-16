@@ -101,10 +101,20 @@ jobs:
             $names = $archive.Entries.FullName | ForEach-Object { $_.Replace('\', '/') }
           } finally { $archive.Dispose() }
 
-          foreach ($need in 'pictkura.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.txt', 'docs/manual.html', 'docs/manual.en.html') {
+          foreach ($need in 'pictkura.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.txt') {
             if (-not ($names | Where-Object { $_.EndsWith($need) })) { throw "ZIPに $need が無い" }
           }
           if (-not ($names | Where-Object { $_ -like '*.jpg' })) { throw "ZIPにスクリーンショットが無い" }
+
+          # **説明書は名前を並べず、リポジトリにある分と突き合わせる**。言語を足したときに
+          # ここの列挙を更新し忘れて**その言語だけ黙って配布物から落ちる**のを防ぐ
+          # （実際にこの穴を踏んだ——`resources` に足しただけではZIPに入らなかった）
+          $want = @(Get-ChildItem "docs\manual*.html" | ForEach-Object { $_.Name })
+          $got = @($names | Where-Object { $_ -match '/docs/manual[^/]*\.html$' } |
+                   ForEach-Object { Split-Path $_ -Leaf })
+          $missing = @($want | Where-Object { $_ -notin $got })
+          if ($missing) { throw "ZIPに入っていない説明書: $($missing -join ', ')" }
+          "  同梱した説明書: $($got -join ', ')"
 
           $msi + $zip | ForEach-Object { "  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
 
@@ -214,13 +224,21 @@ jobs:
           for need in \
             "$app/Contents/MacOS/pictkura" \
             "$app/Contents/Info.plist" \
-            "$app/Contents/Resources/_up_/THIRD-PARTY-LICENSES.txt" \
-            "$app/Contents/Resources/_up_/docs/manual.html"
+            "$app/Contents/Resources/_up_/THIRD-PARTY-LICENSES.txt"
           do
             [ -e "$need" ] || { echo "$need が無い"; exit 1; }
           done
           [ -x "$app/Contents/MacOS/pictkura" ] || { echo "実行権が落ちている"; exit 1; }
           ls "$app/Contents/Resources/_up_/docs/images/"*.jpg >/dev/null
+
+          # **説明書は名前を並べず、リポジトリにある分と突き合わせる**（Windows側と
+          # 同じ理由）。列挙を1箇所だけ直して**macOSだけ落ちる**のを防ぐ
+          for m in docs/manual*.html; do
+            name="$(basename "$m")"
+            [ -e "$app/Contents/Resources/_up_/docs/$name" ] || {
+              echo ".app に入っていない説明書: $name"; exit 1; }
+          done
+          ls "$app/Contents/Resources/_up_/docs/"manual*.html | xargs -n1 basename
 
           # **署名の整合をZIPから出したもので見る**。arm64のリンカは実行ファイルに
           # 勝手にad-hoc署名を付けるので、バンドルを署名し忘れると

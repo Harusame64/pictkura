@@ -198,8 +198,9 @@ recycle bin** — pictkura never removes a file outright.
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
 overrides that; switching reloads the window.
 
-The full manual ships with the app — ⚙ (Settings) → **Manual** — and is also here:
-[English](docs/manual.en.html) / [日本語](docs/manual.html).
+The full manual ships with the app — ⚙ (Settings) → **Manual**. In this repository it
+lives at `docs/manual.en.html` and `docs/manual.html`; GitHub shows those as HTML source,
+so download the file and open it in a browser to read it here.
 
 > One thing is still Japanese-only: the entry pictkura adds to the Windows AutoPlay
 > choices reads「pictkura で写真を取り込む」regardless of the UI language.
