@@ -30,11 +30,13 @@ mod imp {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
 
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Foundation::{
+        ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+    };
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW,
-        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
-        RRF_RT_REG_SZ,
+        RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegEnumKeyExW,
+        RegGetValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
+        REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
     };
 
     /// AutoPlayハンドラの内部識別子（EventHandlersに並ぶ名前）。
@@ -50,9 +52,17 @@ mod imp {
     /// 両方で拾えるようにする。挿しても既定にはならず、あくまで選択肢に並ぶだけ。
     const EVENTS: &[&str] = &[
         "ShowPicturesOnArrival",
-        "ShowMixedContentOnArrival",
+        "MixedContentOnArrival",
         "StorageOnArrival",
     ];
+
+    /// もう使わないイベント名。**登録はしないが、解除では消す**。
+    ///
+    /// `ShowMixedContentOnArrival` は**OSに無いイベント名だった**（正しくは
+    /// `MixedContentOnArrival`。HKLMの `EventHandlers` の一覧で確認）。発火しないので
+    /// 実害は無かったが、古い版が HKCU に孤立した鍵を作っている。版を上げた人の
+    /// ぶんも掃除する。
+    const LEGACY_EVENTS: &[&str] = &["ShowMixedContentOnArrival"];
 
     const AUTOPLAY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers";
 
@@ -106,8 +116,16 @@ mod imp {
         Ok(())
     }
 
-    /// `HKCU\<subkey>` の文字列値を読む（無ければ `None`）。`name=None` は既定値。
-    fn get_string(subkey: &str, name: Option<&str>) -> Option<String> {
+    /// `HKCU\<subkey>` の文字列値を読む。`name=None` は既定値。
+    ///
+    /// **「無い」と「読めなかった」を区別する**のが要点。どちらも `None` に畳むと、
+    /// 権限やポリシーで読めなかったときに「こちらのハンドラではない」と誤判定して
+    /// 消し漏らし、しかも成功として返してしまう。
+    ///
+    /// - `Ok(Some(s))` 値がある
+    /// - `Ok(None)`    鍵か値が無い（目的は満たしている）
+    /// - `Err(rc)`     読めなかった
+    fn get_string(subkey: &str, name: Option<&str>) -> Result<Option<String>, u32> {
         let subkey_w = wide(subkey);
         let name_w = name.map(wide);
         let name_ptr = name_w.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
@@ -124,8 +142,15 @@ mod imp {
                 &mut len,
             )
         };
-        if rc != ERROR_SUCCESS || len < 2 {
-            return None;
+        if rc == ERROR_FILE_NOT_FOUND || rc == ERROR_PATH_NOT_FOUND {
+            return Ok(None);
+        }
+        if rc != ERROR_SUCCESS {
+            return Err(rc);
+        }
+        // 空文字（NULだけ）は「値はあるが中身なし」。照合には使えないので無い扱い。
+        if len < 2 {
+            return Ok(None);
         }
         let mut buf = vec![0u16; (len as usize).div_ceil(2)];
         let mut len2 = len;
@@ -141,7 +166,7 @@ mod imp {
             )
         };
         if rc != ERROR_SUCCESS {
-            return None;
+            return Err(rc);
         }
         let chars = (len2 as usize / 2).min(buf.len());
         let s = &buf[..chars];
@@ -149,7 +174,49 @@ mod imp {
             Some(i) => &s[..i],
             None => s,
         };
-        Some(String::from_utf16_lossy(s))
+        Ok(Some(String::from_utf16_lossy(s)))
+    }
+
+    /// `HKCU\<subkey>` の直下にあるサブキーの名前を並べる。
+    ///
+    /// 開けなかったときは `Err(rc)`。**空と区別する**——開けないまま空を返すと、
+    /// その下にある記録を丸ごと見落としたまま成功として返してしまう。
+    fn subkeys(subkey: &str) -> Result<Vec<String>, u32> {
+        let subkey_w = wide(subkey);
+        let mut hkey: HKEY = std::ptr::null_mut();
+        let rc =
+            unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey) };
+        if rc != ERROR_SUCCESS {
+            return Err(rc);
+        }
+        let mut names = Vec::new();
+        // レジストリの鍵名は255文字まで（終端込みで256）。
+        let mut buf = [0u16; 256];
+        let mut index = 0u32;
+        loop {
+            let mut len = buf.len() as u32;
+            let rc = unsafe {
+                RegEnumKeyExW(
+                    hkey,
+                    index,
+                    buf.as_mut_ptr(),
+                    &mut len,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+            if rc != ERROR_SUCCESS {
+                break;
+            }
+            names.push(String::from_utf16_lossy(&buf[..len as usize]));
+            index += 1;
+        }
+        unsafe {
+            RegCloseKey(hkey);
+        }
+        Ok(names)
     }
 
     pub fn register(exe: &Path) -> io::Result<()> {
@@ -204,20 +271,58 @@ mod imp {
                 first_err = Some(rc as i32);
             }
         };
+        // 正規のイベントの鍵は**他アプリも値を並べている**ので、こちらの値だけ消す。
         for event in EVENTS {
             let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
             let name = wide(HANDLER);
             check(unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) });
-            // 「常にこの操作」で pictkura を選ばれていた場合、その記録も消す。
-            // 残すとエクスプローラーは**もう居ないハンドラを呼び続け**、
-            // 通常の選択画面にも戻らない。他アプリの選択を巻き添えにしないよう、
-            // 中身がこちらのハンドラのときだけ消す。
-            let chosen = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers\{event}");
-            if get_string(&chosen, None).as_deref() == Some(HANDLER) {
-                let key = wide(&chosen);
-                check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
+        }
+        // 古い名前の鍵は**丸ごと**消す。OSに無いイベント名なので他アプリが
+        // 相乗りしようがなく、値だけ消すと空の殻が残る。
+        for event in LEGACY_EVENTS {
+            let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
+            check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
+        }
+
+        // 「常にこの操作」で pictkura を選ばれていた場合、その記録も消す。
+        // 残すとエクスプローラーは**もう居ないハンドラを呼び続け**、
+        // 通常の選択画面にも戻らない。
+        //
+        // **記録は入れ子になっている**のが罠。リムーバブルドライブで選ぶと
+        // `UserChosenExecuteHandlers\StorageOnArrival` に直接書かれるが、
+        // **メモリカードで選ぶと `UserChosenExecuteHandlers\CameraAlternate\
+        // ShowPicturesOnArrival` に書かれる**（実測）。直下だけ見ていると
+        // メモリカード側の選択が残る。イベント名を決め打ちで辿るのはやめて、
+        // **中身がこちらのハンドラである鍵を探して消す**（他アプリの選択は
+        // 中身が違うので巻き添えにしない）。
+        let root = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers");
+        // 深さは2まで（`UCEH\<イベント>` と `UCEH\<種別>\<イベント>`）。
+        // 際限なく潜らないのは、壊れたレジストリで回り続けないため。
+        let mut stack: Vec<(String, u32)> = vec![(root, 0)];
+        while let Some((key, depth)) = stack.pop() {
+            match get_string(&key, None) {
+                Ok(Some(v)) if v == HANDLER => {
+                    let w = wide(&key);
+                    check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) });
+                    continue;
+                }
+                Ok(_) => {}
+                // 読めなければ、こちらのものか判断が付かない。**黙って飛ばさない**
+                Err(rc) => check(rc),
+            }
+            if depth < 2 {
+                match subkeys(&key) {
+                    Ok(children) => {
+                        for child in children {
+                            stack.push((format!(r"{key}\{child}"), depth + 1));
+                        }
+                    }
+                    // 開けなければ、その下の記録を見落としたことになる
+                    Err(rc) => check(rc),
+                }
             }
         }
+
         for tree in [
             format!(r"{AUTOPLAY}\Handlers\{HANDLER}"),
             format!(r"Software\Classes\{PROGID}"),
