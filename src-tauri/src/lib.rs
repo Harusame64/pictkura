@@ -1248,6 +1248,42 @@ fn set_favorite(state: tauri::State<'_, AppState>, id: i64, favorite: bool) -> R
         .map_err(|e| e.to_string())
 }
 
+/// お気に入りをまとめて付ける・外す（複数選択の一括操作）。
+///
+/// 1件ずつ `set_favorite` を呼ぶ形にしないのは、数千件でその数だけコミットが
+/// 走るため。DB側で1つのトランザクションにまとめている。
+#[tauri::command]
+fn set_favorites(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<i64>,
+    favorite: bool,
+) -> Result<usize, String> {
+    lock_ok(&state.db)
+        .set_favorites(&ids, favorite)
+        .map_err(|e| e.to_string())
+}
+
+/// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
+///
+/// 範囲選択（Shift+クリック）と全選択のためのもの。一覧は日ごとに遅延読み込み
+/// するので、画面から見えている範囲だけで選択を決めると
+/// **まだ読んでいない日の写真が黙って外れる**。IDなら1件8バイトなので、
+/// 3万件でも240KB——選択のたびに引き直しても割に合う。
+///
+/// 読み取り専用プールを使う（書き込みロックを取らない）。
+#[tauri::command]
+fn list_media_ids(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    favorites_only: bool,
+) -> Result<Vec<i64>, String> {
+    let query = pictkura_core::parse_query(&query, favorites_only);
+    state
+        .read_pool
+        .with(|db| db.search_ids(&query))
+        .map_err(|e| e.to_string())
+}
+
 /// 可視領域のIDをサムネイル生成キューへオンデマンド投入し、最優先へ引き上げる。
 /// 段階B-3: 高品質サムネイルはこの経路でのみ生成される（全件事前生成の廃止）。
 /// LRU削除済み（state=0へ戻ったもの）もここで再生成される。
@@ -2329,6 +2365,8 @@ pub fn run() {
             list_folder_patterns,
             set_folder_pattern,
             preview_folder_pattern,
+            set_favorites,
+            list_media_ids,
             set_register_autoplay,
             take_pending_import
         ])

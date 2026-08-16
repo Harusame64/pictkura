@@ -277,6 +277,20 @@ export const removeLibraryRoot = (path: string) =>
   invoke<SyncStats>("remove_library_root", { path });
 export const setFavorite = (id: number, favorite: boolean) =>
   invoke<void>("set_favorite", { id, favorite });
+
+/** お気に入りをまとめて付ける・外す（DB側で1トランザクション）。変えた件数を返す */
+export const setFavorites = (ids: number[], favorite: boolean) =>
+  invoke<number>("set_favorites", { ids, favorite });
+
+/**
+ * 検索条件に一致する**IDだけ**を、一覧に並ぶ順で取る。
+ *
+ * 一覧は日ごとに遅延読み込みするので、画面に出ているものだけで選択を決めると
+ * **まだ読んでいない日の写真が黙って外れる**。範囲選択と全選択はこれを使う。
+ * IDなら1件8バイトなので、3万件でも240KB。
+ */
+export const listMediaIds = (query: string, favoritesOnly: boolean) =>
+  invoke<number[]>("list_media_ids", { query, favoritesOnly });
 export const importFromFolder = (source: string) =>
   invoke<ImportStats>("import_from_folder", { source });
 export const addLibraryRoot = (path: string) =>

@@ -1,3 +1,6 @@
+// **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
+// 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
@@ -32,6 +35,8 @@ import {
   removeLibraryRoot,
   revealInFolder,
   setFavorite,
+  setFavorites,
+  listMediaIds,
   setVisiblePriority,
   syncNow,
   thumbSrc,
@@ -133,6 +138,13 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"grid" | "calendar">("grid");
   const [filter, setFilter] = useState<"all" | "fav">("all");
+  /**
+   * 選択中のID。**空なら選択モードではない**——モードを別の状態で持つと、
+   * 「選択が0なのにモードだけ残る」というずれ方をする。
+   */
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  /** Shift+クリックの起点。最後に単独で触ったもの */
+  const [anchorId, setAnchorId] = useState<number | null>(null);
   /** 検索ボックスの入力（打鍵ごとの値） */
   const [queryInput, setQueryInput] = useState("");
   /** 実際にバックエンドへ投げている検索クエリ（入力のデバウンス後） */
@@ -182,6 +194,20 @@ export default function App() {
   } | null>(null);
   // イベントリスナーから最新のfilter/query状態を参照するためのref
   const filterRef = useRef<"all" | "fav">("all");
+  /**
+   * 「いまの検索条件に一致する全ID」の控え。範囲選択と全選択に要る。
+   *
+   * 一覧は日ごとに遅延読み込みするので、画面に出ているものだけで範囲を決めると
+   * **間に挟まる未読み込みの日が黙って外れる**。条件が変わったら捨てる。
+   */
+  const idsCacheRef = useRef<{ key: string; ids: number[] } | null>(null);
+  /**
+   * キー操作のハンドラから読む最新の値。
+   * 依存に入れるとキーを押すたびにリスナーを張り替えることになる。
+   */
+  const selectedRef = useRef<ReadonlySet<number>>(new Set());
+  const selectAllRef = useRef<() => Promise<void>>(async () => {});
+  const clearSelectionRef = useRef<() => void>(() => {});
   const queryRef = useRef("");
   /** フィルタ切替・全体再読込のたびに増える世代番号。古い応答を捨てる */
   const generationRef = useRef(0);
@@ -1275,10 +1301,155 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 複数選択のキー操作。**入力欄では効かせない**（検索中のCtrl+Aは文字の全選択）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      // ビューアやダイアログが出ているときは、そちらのEscを邪魔しない
+      if (viewer !== null || paletteOpen || settingsOpen) return;
+      if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        selectAllRef.current().catch(() => {});
+        return;
+      }
+      if (e.key === "Escape" && selectedRef.current.size > 0) {
+        e.preventDefault();
+        clearSelectionRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewer, paletteOpen, settingsOpen]);
+
+  // 検索条件が変わったら、ID一覧の控えも選択も捨てる。
+  // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
+  useEffect(() => {
+    idsCacheRef.current = null;
+    setSelected(new Set());
+    setAnchorId(null);
+  }, [query, filter]);
+
+  /** 選択中かどうか。**選択が0なら選択モードではない** */
+  const selecting = selected.size > 0;
+
+  /** 選択をやめる */
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setAnchorId(null);
+  }, []);
+
+  /**
+   * いまの検索条件に一致する全IDを、一覧の並び順で取る（控えがあればそれ）。
+   *
+   * 範囲選択と全選択のためのもの。IDだけなので3万件でも240KB。
+   */
+  const orderedIds = useCallback(async () => {
+    const fav = filterRef.current === "fav";
+    const key = `${queryRef.current}\u0000${fav}`;
+    if (idsCacheRef.current?.key === key) return idsCacheRef.current.ids;
+    const ids = await listMediaIds(queryRef.current, fav);
+    idsCacheRef.current = { key, ids };
+    return ids;
+  }, []);
+
+  /** 1枚の選択を入れ替える */
+  const toggleOne = useCallback((id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+    setAnchorId(id);
+  }, []);
+
+  /**
+   * 起点から今のものまでをまとめて選ぶ（Shift+クリック）。
+   *
+   * **画面に出ているものだけで決めない**。間に未読み込みの日が挟まると、
+   * その日の写真が黙って外れる。全IDの並びから添字で切り出す。
+   */
+  const selectRange = useCallback(
+    async (fromId: number, toId: number) => {
+      const ids = await orderedIds();
+      const a = ids.indexOf(fromId);
+      const b = ids.indexOf(toId);
+      if (a < 0 || b < 0) {
+        // 条件が変わって起点が消えている等。単独の選択に落とす
+        toggleOne(toId);
+        return;
+      }
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (let i = lo; i <= hi; i++) next.add(ids[i]);
+        return next;
+      });
+      // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
+    },
+    [orderedIds, toggleOne],
+  );
+
+  /** その日をまとめて選ぶ／外す（日付の見出しを押したとき） */
+  const toggleDay = useCallback(
+    async (dayKey: number) => {
+      const loaded = dayItems.get(dayKey);
+      const items =
+        loaded ??
+        (await listDay(dayKey, queryRef.current, filterRef.current === "fav"));
+      const ids = items.map((it) => it.id);
+      if (ids.length === 0) return;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        // **全部入っているときだけ外す**。半端に入っているなら足す方が素直
+        if (ids.every((id) => prev.has(id))) {
+          for (const id of ids) next.delete(id);
+        } else {
+          for (const id of ids) next.add(id);
+        }
+        return next;
+      });
+      setAnchorId(ids[0]);
+    },
+    [dayItems],
+  );
+
+  /** 表示中の条件に一致する全部を選ぶ（Ctrl+A） */
+  const selectAll = useCallback(async () => {
+    const ids = await orderedIds();
+    setSelected(new Set(ids));
+    setAnchorId(ids[0] ?? null);
+  }, [orderedIds]);
+
+  selectedRef.current = selected;
+  selectAllRef.current = selectAll;
+  clearSelectionRef.current = clearSelection;
+
+  /** タイルを押したときの振り分け */
+  const onCellClick = useCallback(
+    (item: MediaItem, dayKey: number, e: React.MouseEvent) => {
+      if (e.shiftKey && anchorId !== null) {
+        e.preventDefault();
+        selectRange(anchorId, item.id).catch((err) => setStatus(String(err)));
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || selecting) {
+        toggleOne(item.id);
+        return;
+      }
+      setViewer({ dayKey, id: item.id });
+    },
+    [anchorId, selecting, selectRange, toggleOne],
+  );
+
   /** 1枚をゴミ箱へ移動する（確認あり）。写真は取り返しがつかないのでOSのゴミ箱経由 */
   const onDelete = useCallback(
     async (item: MediaItem) => {
-      if (!window.confirm(t.deleteConfirm(1))) return;
+      const ok = await confirmDialog(t.deleteConfirm(1), {
+        title: t.appName,
+        kind: "warning",
+      });
+      if (!ok) return;
       try {
         const n = await deleteMedia([item.id]);
         setStatus(t.deleted(n));
@@ -1297,6 +1468,77 @@ export default function App() {
     },
     [refreshSummary],
   );
+
+  /**
+   * 選んだものをまとめてお気に入りに付ける／外す。
+   *
+   * 画面は先に書き換えて、失敗したら戻す（1枚のときと同じ流儀）。
+   * **★のみ表示中は骨組みが変わる**ので取り直す。
+   */
+  const onBulkFavorite = useCallback(
+    async (favorite: boolean) => {
+      const ids = [...selected];
+      if (ids.length === 0) return;
+      const patch = (fav: boolean) => {
+        setDayItems((prev) => {
+          const next = new Map(prev);
+          for (const [dayKey, items] of prev) {
+            if (!items.some((it) => selected.has(it.id))) continue;
+            next.set(
+              dayKey,
+              items.map((it) =>
+                selected.has(it.id) ? { ...it, favorite: fav } : it,
+              ),
+            );
+          }
+          return next;
+        });
+      };
+      patch(favorite);
+      try {
+        const n = await setFavorites(ids, favorite);
+        setStatus(
+          favorite ? t.bulkFavoriteDone(n) : t.bulkUnfavoriteDone(n),
+        );
+        if (filterRef.current === "fav") await reloadAll();
+        else await refreshSummary();
+        clearSelection();
+      } catch (e) {
+        patch(!favorite);
+        setStatus(String(e));
+      }
+    },
+    [selected, reloadAll, refreshSummary, clearSelection],
+  );
+
+  /** 選んだものをまとめてゴミ箱へ（確認あり） */
+  const onBulkDelete = useCallback(async () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(t.deleteConfirm(ids.length), {
+      title: t.appName,
+      kind: "warning",
+    });
+    if (!ok) return;
+    try {
+      const n = await deleteMedia(ids);
+      setStatus(t.deleted(n));
+      // 消えた日を丸ごと捨てて取り直す（骨組みの枚数も変わる）
+      setDayItems((prev) => {
+        const next = new Map(prev);
+        for (const [dayKey, items] of prev) {
+          if (items.some((it) => selected.has(it.id))) next.delete(dayKey);
+        }
+        return next;
+      });
+      setViewer((v) => (v && selected.has(v.id as number) ? null : v));
+      idsCacheRef.current = null;
+      clearSelection();
+      await refreshSummary();
+    } catch (e) {
+      setStatus(String(e));
+    }
+  }, [selected, refreshSummary, clearSelection]);
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
   const onOpenWithOther = useCallback(
@@ -1417,6 +1659,33 @@ export default function App() {
 
   return (
     <div className="app">
+      {selecting && (
+        <div className="select-bar">
+          <button
+            className="select-bar-close"
+            title={t.clearSelection}
+            onClick={clearSelection}
+          >
+            ✕
+          </button>
+          <span className="select-bar-count">
+            {t.selectedCount(selected.size)}
+          </span>
+          <button onClick={() => selectAll().catch((e) => setStatus(String(e)))}>
+            {t.selectAll}
+          </button>
+          <span className="select-bar-spacer" />
+          <button onClick={() => onBulkFavorite(true)}>
+            ★ {t.bulkFavoriteOn}
+          </button>
+          <button onClick={() => onBulkFavorite(false)}>
+            {t.bulkFavoriteOff}
+          </button>
+          <button className="danger" onClick={onBulkDelete}>
+            🗑 {t.bulkDelete}
+          </button>
+        </div>
+      )}
       <header className="topbar">
         <span className="logo">{t.appName}</span>
         <div className="view-switch">
@@ -1718,10 +1987,23 @@ export default function App() {
                     >
                       {row.kind === "header" ? (
                         <div className="date-header">
-                          {row.label}
-                          <span className="date-count">
-                            {t.photosCount(row.count)}
-                          </span>
+                          {/*
+                            日付を押すとその日をまとめて選ぶ。**全部入っているときだけ
+                            外す**——半端に入っている状態から押したら足す方が素直。
+                          */}
+                          <button
+                            className="date-header-btn"
+                            title={t.selectDay}
+                            onClick={() => {
+                              const key = row.dayKey;
+                              toggleDay(key).catch((e) => setStatus(String(e)));
+                            }}
+                          >
+                            {row.label}
+                            <span className="date-count">
+                              {t.photosCount(row.count)}
+                            </span>
+                          </button>
                         </div>
                       ) : row.kind === "placeholder" ? (
                         <div
@@ -1733,7 +2015,10 @@ export default function App() {
                           {row.cells.map((cell) => (
                             <div
                               key={cell.item.id}
-                              className="cell-wrap"
+                              className={
+                                "cell-wrap" +
+                                (selected.has(cell.item.id) ? " picked" : "")
+                              }
                               style={{ width: cell.w, height: cell.h }}
                             >
                               <img
@@ -1748,11 +2033,8 @@ export default function App() {
                                 // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
                                 // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
                                 alt=""
-                                onClick={() =>
-                                  setViewer({
-                                    dayKey: row.dayKey,
-                                    id: cell.item.id,
-                                  })
+                                onClick={(e) =>
+                                  onCellClick(cell.item, row.dayKey, e)
                                 }
                                 onContextMenu={(e) => {
                                   e.preventDefault();
@@ -1775,6 +2057,28 @@ export default function App() {
                               {cell.item.favorite && (
                                 <span className="cell-fav">★</span>
                               )}
+                              {/*
+                                選択の丸。ホバーで出て、選択中は出しっぱなし。
+                                タイルのクリックとは別扱いにする（**選択モードに
+                                入っていなくてもここからは選べる**）
+                              */}
+                              <button
+                                className="cell-pick"
+                                title={t.selectItem}
+                                aria-pressed={selected.has(cell.item.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (e.shiftKey && anchorId !== null) {
+                                    selectRange(anchorId, cell.item.id).catch(
+                                      (err) => setStatus(String(err)),
+                                    );
+                                    return;
+                                  }
+                                  toggleOne(cell.item.id);
+                                }}
+                              >
+                                {selected.has(cell.item.id) ? "✓" : ""}
+                              </button>
                             </div>
                           ))}
                         </div>

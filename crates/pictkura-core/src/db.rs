@@ -1221,6 +1221,30 @@ impl Db {
         Ok(())
     }
 
+    /// お気に入りをまとめて付ける・外す。
+    ///
+    /// **1つのトランザクションで書く**。1件ずつ `set_favorite` を呼ぶと、
+    /// 数千件でその数だけコミットが走る。途中で落ちたときに半端に付いた状態が
+    /// 残るのも避けたい。
+    ///
+    /// トランザクションは**必ずIMMEDIATE**（`write_tx`）。DEFERREDだと
+    /// `SQLITE_BUSY_SNAPSHOT` が `busy_timeout` を無視して即返る。
+    pub fn set_favorites(&mut self, ids: &[i64], favorite: bool) -> Result<usize, DbError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.write_tx()?;
+        let mut changed = 0;
+        {
+            let mut stmt = tx.prepare_cached("UPDATE media SET favorite = ?2 WHERE id = ?1")?;
+            for id in ids {
+                changed += stmt.execute(params![id, favorite as i64])?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self.conn.prepare_cached(
@@ -1386,6 +1410,32 @@ impl Db {
             conds.join(" AND ")
         ))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), Self::row_to_record)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
+    ///
+    /// 範囲選択（Shift+クリック）と全選択のためのもの。一覧は日ごとに遅延読み込み
+    /// するので、**まだ読んでいない日の写真も選択の対象になる**。かといって
+    /// レコードごと引くと万単位で無駄になる——IDなら1件8バイトで、3万件でも240KB。
+    ///
+    /// 並びは `search_day` と同じ（`SORT_TS DESC, id DESC`）。日をまたいでも
+    /// 画面の順序と一致するので、2点のIDが決まれば範囲は添字で切り出せる。
+    pub fn search_ids(&self, query: &SearchQuery) -> Result<Vec<i64>, DbError> {
+        let (conds, args) = self.query_filter(query)?;
+        let filter = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT id FROM media {filter} ORDER BY {SORT_TS} DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -3122,6 +3172,58 @@ mod tests {
         let y2019 = search_names(&db, "2019年");
         assert_eq!(y2019, ["DSC00123.JPG", "DSC00124.JPG"]);
         assert!(search_names(&db, "2019年 花火").is_empty());
+    }
+
+    #[test]
+    fn search_idsは一覧と同じ並びで全件返す() {
+        let db = seed_search_db();
+        let q = crate::search::parse_query("", false);
+        let ids = db.search_ids(&q).unwrap();
+        assert_eq!(ids.len(), 4, "条件なしなら全件");
+
+        // **一覧に出る順と一致すること**が肝。日をまたいでも、2点のIDが決まれば
+        // 添字で範囲を切り出せる、という前提がここで担保される
+        let mut expected = Vec::new();
+        for day in db.search_summary(&q).unwrap() {
+            for rec in db.search_day(day.day_key, &q).unwrap() {
+                expected.push(rec.id);
+            }
+        }
+        assert_eq!(ids, expected, "日ごとに引いた順と同じ");
+
+        // 絞り込みも効く
+        let q = crate::search::parse_query("沖縄", false);
+        assert_eq!(db.search_ids(&q).unwrap().len(), 2);
+        let q = crate::search::parse_query("見つからない語", false);
+        assert!(db.search_ids(&q).unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_favoritesはまとめて付け外しできる() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", false))
+            .unwrap();
+        let two = &all[..2];
+
+        assert_eq!(db.set_favorites(two, true).unwrap(), 2);
+        let favs = db
+            .search_ids(&crate::search::parse_query("", true))
+            .unwrap();
+        assert_eq!(favs.len(), 2);
+        assert!(two.iter().all(|id| favs.contains(id)));
+
+        // 外すのも同じ経路
+        assert_eq!(db.set_favorites(two, false).unwrap(), 2);
+        assert!(db
+            .search_ids(&crate::search::parse_query("", true))
+            .unwrap()
+            .is_empty());
+
+        // 空の指定は何もしない（トランザクションも開かない）
+        assert_eq!(db.set_favorites(&[], true).unwrap(), 0);
+        // 居ないIDを混ぜても、居るぶんだけ付く
+        assert_eq!(db.set_favorites(&[all[0], -1], true).unwrap(), 1);
     }
 
     #[test]
