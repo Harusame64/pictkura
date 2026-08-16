@@ -337,8 +337,26 @@ body {
 
 .add-folder {
   display: flex;
+  flex-direction: column;
   gap: var(--sp-1);
   padding: var(--sp-1) var(--sp-2);
+}
+/* 「参照…」を主動線にする（フォルダ選択ダイアログを開く）。手入力は下に控えとして残す */
+.add-folder .browse-folder {
+  width: 100%;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+/* アクセント地の文字色はテーマで反転する（暗い地では明るい青＋濃色の字）ので
+   `#fff` を直に置かない。disabled 中は busy なので塗り潰さない */
+.add-folder .browse-folder:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.add-folder-manual {
+  display: flex;
+  gap: var(--sp-1);
 }
 .add-folder input {
   flex: 1;
@@ -366,9 +384,13 @@ body {
   font-size: var(--fs-sm);
   cursor: pointer;
 }
-.add-folder button:hover {
+.add-folder button:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--text);
+}
+.add-folder button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ===== メイン領域 ===== */

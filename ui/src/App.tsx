@@ -677,20 +677,46 @@ export default function App() {
     [refreshRoots, checkDecoders],
   );
 
-  const onAddFolder = async () => {
-    const path = folderInput.trim();
-    if (!path) return;
+  // ライブラリのルート追加の本体。手入力（onAddFolder）と
+  // ネイティブのフォルダ選択（onBrowseFolder）の両方から呼ぶ
+  const addFolder = async (path: string) => {
     setBusy(true);
     try {
       await addLibraryRoot(path);
-      setFolderInput("");
       await reloadAll();
       await refreshRoots();
       checkDecoders();
+      return true;
     } catch (e) {
       setStatus(String(e));
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onAddFolder = () => {
+    // ボタンは disabled になるが Enter キーは素通りするので、ここでも弾く
+    if (busy) return;
+    const path = folderInput.trim();
+    // 入力欄を空にするのは手入力から追加できたときだけ。「参照…」からの
+    // 追加でここを消すと、打ちかけのパスが黙って消える
+    if (path)
+      void addFolder(path).then((ok) => {
+        if (ok) setFolderInput("");
+      });
+  };
+
+  // 「参照…」。取り込みウィザードや設定と同じネイティブのフォルダ選択を使う。
+  // ここだけ手入力のままだったのを揃える（選んだら即追加する）
+  const onBrowseFolder = async () => {
+    if (busy) return;
+    try {
+      const picked = await open({ directory: true, title: t.pickLibraryFolder });
+      if (typeof picked === "string") await addFolder(picked);
+    } catch (e) {
+      // 握りつぶすと「押したのに何も起きない」になる（onOpenWithOther と同じ扱い）
+      setStatus(String(e));
     }
   };
 
@@ -1568,16 +1594,25 @@ export default function App() {
           ))}
           <div className="nav-section">{t.navAddFolder}</div>
           <div className="add-folder">
-            <input
-              type="text"
-              placeholder="例: D:\\Pictures"
-              value={folderInput}
-              onChange={(e) => setFolderInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onAddFolder()}
-            />
-            <button onClick={onAddFolder} disabled={busy}>
-              {t.add}
+            <button
+              className="browse-folder"
+              onClick={onBrowseFolder}
+              disabled={busy}
+            >
+              <span aria-hidden="true">📂</span> {t.browse}
             </button>
+            <div className="add-folder-manual">
+              <input
+                type="text"
+                placeholder={t.addFolderPlaceholder}
+                value={folderInput}
+                onChange={(e) => setFolderInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onAddFolder()}
+              />
+              <button onClick={onAddFolder} disabled={busy}>
+                {t.add}
+              </button>
+            </div>
           </div>
         </nav>
         <div className="main">
