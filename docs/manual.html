@@ -194,7 +194,7 @@ Windows 11 の右クリックメニューでは <strong>「その他のオプシ
 
 <p>
 ⚙（設定）→「取り込み先のフォルダ構成」。写真の置き場所は後から変えにくいので、
-最初に決めておくのがおすすめです。よく使う7種類から選べます。
+最初に決めておくのがおすすめです。よく使う9種類から選べます。
 </p>
 
 <figure>
@@ -217,6 +217,22 @@ Windows 11 の右クリックメニューでは <strong>「その他のオプシ
 たとえば <code>{year}nen/{month}gatsu-{day}nichi</code> と書くと
 <code>2026nen/08gatsu-13nichi/</code> になります。
 </p>
+
+<p>
+<strong>年の階層を自分で作っている人</strong>は、コピー先をその年のフォルダにしたうえで
+<code>2026-08-16/</code>（年の階層を作らない）や <code>08/2026-08-16/</code> を選ぶと、
+下に日付のフォルダだけが増えていきます。
+</p>
+
+<div class="note">
+  <p>
+    <strong>フォルダ名は言語を問わず年月日の順で作ります。</strong>
+    名前順に並べたときに時系列になるためで、写真管理ソフトではこれが通例です
+    （Immich の既定も <code>年/年-月-日</code>、Lightroom Classic の日付フォルダも
+    すべて年が先頭です）。表示上の日付は言語に合わせて変わりますが、
+    フォルダ名は並び順を優先しています。
+  </p>
+</div>
 
 <div class="note">
   <p>
@@ -248,7 +264,8 @@ Windows 11 の右クリックメニューでは <strong>「その他のオプシ
   <tr><td><code>沖縄</code></td><td>ファイル名・フォルダ名・カメラ名の部分一致。日本語は中間一致なので「旅行」で「沖縄旅行」が引けます</td></tr>
   <tr><td><code>camera:α7</code></td><td>カメラで絞り込む（左ペインの「カメラとメディア」と同じ）</td></tr>
   <tr><td><code>folder:旅行</code></td><td>フォルダ名で絞り込む</td></tr>
-  <tr><td><code>2019年</code> <code>2019-08</code> <code>2019年8月11日</code></td><td>撮影日で絞り込む</td></tr>
+  <tr><td><code>2019年</code> <code>2019-08</code> <code>2019年8月11日</code></td><td>撮影日で絞り込む。<strong>裸の <code>2019</code> は日付として扱いません</strong>——ファイル名の検索語と区別が付かないためです</td></tr>
+  <tr><td><code>year:2019</code> <code>年:2019</code></td><td>その年だけに絞り込む（<code>2019年</code> と同じ）</td></tr>
   <tr><td><code>★</code></td><td>お気に入りだけ</td></tr>
 </table>
 </div>

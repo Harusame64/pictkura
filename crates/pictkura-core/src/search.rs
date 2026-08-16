@@ -257,6 +257,22 @@ fn tokenize(input: &str) -> Vec<String> {
 /// **裸の4桁数字（`2019`）は日付として扱わない**。ファイル名の検索語と
 /// 区別できないため、日付で絞りたいときは `2019年` のように単位を付ける
 /// （UIのコマンドパレットが日付候補を出して補う）。
+/// `year:` の値を年の範囲（その年の元日〜大晦日）にする。
+///
+/// 受けるのは**4桁の数字だけ**。`parse_date_range` と違って前後関係が
+/// はっきりしている（`year:` と明示されている）ので、単位も区切りも要らない。
+fn parse_year(value: &str) -> Option<(i64, i64)> {
+    let value = value.trim();
+    if value.len() != 4 || !value.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let year: i64 = value.parse().ok()?;
+    if !(1000..=9999).contains(&year) {
+        return None;
+    }
+    Some((year * 10000 + 101, year * 10000 + 1231))
+}
+
 fn parse_date_range(token: &str) -> Option<(i64, i64)> {
     let mut nums: Vec<i64> = Vec::new();
     let mut cur = String::new();
@@ -313,6 +329,7 @@ fn parse_date_range(token: &str) -> Option<(i64, i64)> {
 /// 対応する指定:
 /// - `camera:α7` / `cam:α7` / `カメラ:α7` — カメラ名で絞る
 /// - `folder:沖縄` / `dir:沖縄` / `フォルダ:沖縄` — フォルダ名で絞る
+/// - `year:2019` / `年:2019` — その年だけに絞る（`2019年` と同じ範囲）
 /// - `2019年` `2019-08` `2019年8月11日` — 撮影日で絞る
 /// - `★` / `fav:` — お気に入りのみ
 /// - それ以外 — 自由語（ファイル名・フォルダ名・カメラ名が対象）
@@ -336,6 +353,20 @@ pub fn parse_query(input: &str, favorites_only: bool) -> SearchQuery {
                     if !value.is_empty() {
                         q.folder.push(value.to_string());
                     }
+                    true
+                }
+                // **年だけで絞る口**。裸の `2019` を日付にしない方針（ファイル名の
+                // 検索語と区別できない）は変えないが、日本語の「年」に当たる単位が
+                // 無い言語では、そのままだと**検索ボックスから年で絞る手段が無い**。
+                // `camera:` `folder:` と同じ形で、言語に依らない入口を用意する。
+                "year" | "年" => {
+                    if let Some((from, to)) = parse_year(value) {
+                        q.day_from = Some(q.day_from.map_or(from, |v: i64| v.max(from)));
+                        q.day_to = Some(q.day_to.map_or(to, |v: i64| v.min(to)));
+                    }
+                    // 値が年として読めなくても、`year:` は指定として食べる。
+                    // 検索語に落とすと `year:abc` がファイル名の検索になって、
+                    // 「絞ったつもりが全然違うものが出る」ことになる
                     true
                 }
                 "fav" | "favorite" | "★" => {
@@ -418,6 +449,32 @@ mod tests {
     fn 引用符はエスケープされる() {
         let m = term_to_match("a\"b").unwrap();
         assert_eq!(m, "\"a\" \"b\"*");
+    }
+
+    #[test]
+    fn yearは年だけで絞れる() {
+        // `2019年` と同じ範囲になる
+        let q = parse_query("year:2019", false);
+        assert_eq!(q.day_from, Some(20190101));
+        assert_eq!(q.day_to, Some(20191231));
+        assert!(q.terms.is_empty(), "検索語には落ちない");
+        // 日本語の単位でも同じ
+        let q = parse_query("年:2019", false);
+        assert_eq!(q.day_from, Some(20190101));
+        // 他の条件と併用できる（範囲は狭い方に寄る）
+        let q = parse_query("沖縄 year:2019 2019年8月", false);
+        assert_eq!(q.terms, vec!["沖縄"]);
+        assert_eq!(q.day_from, Some(20190801));
+        assert_eq!(q.day_to, Some(20190831));
+        // **年として読めない値でも検索語には落とさない**。落とすと
+        // 「絞ったつもりが全然違うものが出る」ことになる
+        let q = parse_query("year:abc", false);
+        assert!(q.terms.is_empty());
+        assert_eq!(q.day_from, None);
+        for bad in ["19", "20190", "12x4", ""] {
+            assert_eq!(parse_year(bad), None, "年として読めない: {bad}");
+        }
+        assert_eq!(parse_year("2019"), Some((20190101, 20191231)));
     }
 
     #[test]

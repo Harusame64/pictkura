@@ -88,6 +88,8 @@ pub const FOLDER_PATTERN_PRESETS: &[&str] = &[
     "{year}/{month}/{day}",                // 2026/08/12
     "{year}/{month}-{day}",                // 2026/08-12
     "{year}-{month}/{year}-{month}-{day}", // 2026-08/2026-08-12
+    "{year}-{month}-{day}",                // 2026-08-12（年の階層は作らない）
+    "{month}/{year}-{month}-{day}",        // 08/2026-08-12
     "{year}/{month}",                      // 2026/08（月単位）
     "{year}",                              // 2026（年単位）
     "",                                    // 振り分けない（コピー先直下）
@@ -760,9 +762,13 @@ mod tests {
         assert_eq!(rendered[1], "2026/08/12");
         assert_eq!(rendered[2], "2026/08-12");
         assert_eq!(rendered[3], "2026-08/2026-08-12");
-        assert_eq!(rendered[4], "2026/08");
-        assert_eq!(rendered[5], "2026");
-        assert_eq!(rendered[6], "", "空パターンはコピー先直下");
+        // 年の階層を自分で作る人向け（コピー先を年フォルダにして、この下に日付だけ）
+        assert_eq!(rendered[4], "2026-08-12");
+        assert_eq!(rendered[5], "08/2026-08-12");
+        assert_eq!(rendered[6], "2026/08");
+        assert_eq!(rendered[7], "2026");
+        assert_eq!(rendered[8], "", "空パターンはコピー先直下");
+        assert_eq!(rendered.len(), FOLDER_PATTERN_PRESETS.len());
         for r in &rendered {
             assert!(!Path::new(r).is_absolute(), "絶対パスにならない: {r}");
         }
