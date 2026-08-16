@@ -249,14 +249,54 @@ fn tokenize(input: &str) -> Vec<String> {
     out
 }
 
+/// 日付として認める年の範囲。`year:` と `2019年` で食い違わないよう、
+/// **両方がこれを使う**。
+const MIN_YEAR: i64 = 1800;
+const MAX_YEAR: i64 = 9999;
+
+/// 「何にも当たらない範囲」を作るための番兵（`day_from > day_to`）。
+const MIN_DAY_KEY: i64 = MIN_YEAR * 10000;
+const MAX_DAY_KEY: i64 = MAX_YEAR * 10000 + 1231;
+
+/// `year:` の値を年の範囲（その年の元日〜大晦日）にする。
+///
+/// 受けるのは**4桁の数字だけ**。`parse_date_range` と違って前後関係が
+/// はっきりしている（`year:` と明示されている）ので、単位も区切りも要らない。
+///
+/// **全角の数字も受ける**。`年:` という別名は日本語入力の利用者向けなのに、
+/// IMEが全角のままだと弾かれる——しかも `year:` は指定として食べるので、
+/// **絞ったつもりで全件が出る**という一番たちの悪い壊れ方をする。
+///
+/// 年として認める範囲は `parse_date_range` と揃える（`year:1500` と `1500年` で
+/// 挙動が食い違わないように）。
+fn parse_year(value: &str) -> Option<(i64, i64)> {
+    // 全角数字（Ｕ+FF10〜FF19）を半角へ寄せる
+    let value: String = value
+        .trim()
+        .chars()
+        .map(|c| match c {
+            '０'..='９' => char::from(b'0' + (c as u32 - '０' as u32) as u8),
+            other => other,
+        })
+        .collect();
+    if value.len() != 4 || !value.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let year: i64 = value.parse().ok()?;
+    if !(MIN_YEAR..=MAX_YEAR).contains(&year) {
+        return None;
+    }
+    Some((year * 10000 + 101, year * 10000 + 1231))
+}
+
 /// 日付らしいトークンを (下限, 上限) のday_key範囲へ変換する。
 ///
 /// 認識する形（区切りは `-` `/` `.` と 年月日）:
 /// `2019年` `2019-08` `2019/8` `2019年8月` `2019-08-11` `2019年8月11日`
 ///
 /// **裸の4桁数字（`2019`）は日付として扱わない**。ファイル名の検索語と
-/// 区別できないため、日付で絞りたいときは `2019年` のように単位を付ける
-/// （UIのコマンドパレットが日付候補を出して補う）。
+/// 区別できないため、日付で絞りたいときは `2019年` のように単位を付けるか、
+/// `year:2019` と書く（UIのコマンドパレットが日付候補を出して補う）。
 fn parse_date_range(token: &str) -> Option<(i64, i64)> {
     let mut nums: Vec<i64> = Vec::new();
     let mut cur = String::new();
@@ -284,7 +324,7 @@ fn parse_date_range(token: &str) -> Option<(i64, i64)> {
         return None;
     }
     let year = *nums.first()?;
-    if !(1800..=9999).contains(&year) {
+    if !(MIN_YEAR..=MAX_YEAR).contains(&year) {
         return None;
     }
     match nums.len() {
@@ -313,6 +353,7 @@ fn parse_date_range(token: &str) -> Option<(i64, i64)> {
 /// 対応する指定:
 /// - `camera:α7` / `cam:α7` / `カメラ:α7` — カメラ名で絞る
 /// - `folder:沖縄` / `dir:沖縄` / `フォルダ:沖縄` — フォルダ名で絞る
+/// - `year:2019` / `年:2019` — その年だけに絞る（`2019年` と同じ範囲）
 /// - `2019年` `2019-08` `2019年8月11日` — 撮影日で絞る
 /// - `★` / `fav:` — お気に入りのみ
 /// - それ以外 — 自由語（ファイル名・フォルダ名・カメラ名が対象）
@@ -336,6 +377,23 @@ pub fn parse_query(input: &str, favorites_only: bool) -> SearchQuery {
                     if !value.is_empty() {
                         q.folder.push(value.to_string());
                     }
+                    true
+                }
+                // **年だけで絞る口**。裸の `2019` を日付にしない方針（ファイル名の
+                // 検索語と区別できない）は変えないが、日本語の「年」に当たる単位が
+                // 無い言語では、そのままだと**検索ボックスから年で絞る手段が無い**。
+                // `camera:` `folder:` と同じ形で、言語に依らない入口を用意する。
+                "year" | "年" => {
+                    // 値が年として読めなくても、`year:` は指定として食べる。
+                    // 検索語に落とすと `year:abc` がファイル名の検索になって、
+                    // 「絞ったつもりが全然違うものが出る」ことになる。
+                    //
+                    // **読めなかったときは何にも当たらない範囲にする**。ただ無視すると
+                    // 絞り込みが黙って消えて**全件が出る**——絞ったつもりの利用者には
+                    // 一番分かりにくい壊れ方になる。0件なら打ち間違いに気付ける
+                    let (from, to) = parse_year(value).unwrap_or((MAX_DAY_KEY, MIN_DAY_KEY));
+                    q.day_from = Some(q.day_from.map_or(from, |v: i64| v.max(from)));
+                    q.day_to = Some(q.day_to.map_or(to, |v: i64| v.min(to)));
                     true
                 }
                 "fav" | "favorite" | "★" => {
@@ -418,6 +476,45 @@ mod tests {
     fn 引用符はエスケープされる() {
         let m = term_to_match("a\"b").unwrap();
         assert_eq!(m, "\"a\" \"b\"*");
+    }
+
+    #[test]
+    fn yearは年だけで絞れる() {
+        // `2019年` と同じ範囲になる
+        let q = parse_query("year:2019", false);
+        assert_eq!(q.day_from, Some(20190101));
+        assert_eq!(q.day_to, Some(20191231));
+        assert!(q.terms.is_empty(), "検索語には落ちない");
+        // 日本語の単位でも同じ
+        let q = parse_query("年:2019", false);
+        assert_eq!(q.day_from, Some(20190101));
+        // 他の条件と併用できる（範囲は狭い方に寄る）
+        let q = parse_query("沖縄 year:2019 2019年8月", false);
+        assert_eq!(q.terms, vec!["沖縄"]);
+        assert_eq!(q.day_from, Some(20190801));
+        assert_eq!(q.day_to, Some(20190831));
+        // 全角のままでも通る（`年:` は日本語入力の利用者向けなので、ここが
+        // 効かないと「絞ったつもりで全件」という一番たちの悪い壊れ方をする）
+        let q = parse_query("年:２０１９", false);
+        assert_eq!(q.day_from, Some(20190101));
+        assert_eq!(q.day_to, Some(20191231));
+        assert!(q.terms.is_empty());
+        // **年として読めない値でも検索語には落とさない**。落とすと
+        // 「絞ったつもりが全然違うものが出る」ことになる。代わりに
+        // **何にも当たらない範囲**にして、0件で打ち間違いに気付けるようにする
+        let q = parse_query("year:abc", false);
+        assert!(q.terms.is_empty());
+        assert!(
+            q.day_from.unwrap() > q.day_to.unwrap(),
+            "読めない年は何にも当たらない範囲になる"
+        );
+        for bad in ["19", "20190", "12x4", "", "1500"] {
+            assert_eq!(parse_year(bad), None, "年として読めない: {bad}");
+        }
+        assert_eq!(parse_year("2019"), Some((20190101, 20191231)));
+        // 年の範囲は `2019年` 側と揃っている
+        assert_eq!(parse_year("1800"), parse_date_range("1800年"));
+        assert_eq!(parse_year("1799"), parse_date_range("1799年"));
     }
 
     #[test]
