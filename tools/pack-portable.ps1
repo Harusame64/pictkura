@@ -18,8 +18,11 @@ if (-not (Test-Path $exe)) {
 $conf = Get-Content (Join-Path $root "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json
 $version = $conf.version
 
-$stage = Join-Path $root "target\release\portable\pictkura-$version"
-if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+# 組み立て場も置き場ごと作り直す（ZIPの置き場と同じ理屈）。同じ版のぶんだけ
+# 消していると、版を上げるたびに pictkura-0.1.0 / pictkura-0.1.1 と溜まっていく。
+$stageRoot = Join-Path $root "target\release\portable"
+if (Test-Path $stageRoot) { Remove-Item -Recurse -Force $stageRoot }
+$stage = Join-Path $stageRoot "pictkura-$version"
 New-Item -ItemType Directory -Path (Join-Path $stage "docs\images") -Force | Out-Null
 
 Copy-Item $exe (Join-Path $stage "pictkura.exe")
