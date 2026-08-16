@@ -209,10 +209,17 @@ export default function App() {
    */
   const idsCacheRef = useRef<{ key: string; ids: number[] } | null>(null);
   /**
-   * 直前のShift+クリックで選んだ範囲。同じ起点から選び直すときに**取り消してから**
-   * 新しい範囲を足すために持つ（足すだけだと範囲を縮められない）。
+   * Shift+クリックの土台。**範囲を始めた時点の選択**を覚える。
+   *
+   * 同じ起点から選び直すときは、前の範囲を消して新しい範囲を足す——のではなく、
+   * **土台に新しい範囲を足し直す**。前の範囲をIDごと引くと、
+   * **範囲より前に選んでいたもの**まで巻き添えで消える（範囲の中にたまたま
+   * 入っていた場合）。
    */
-  const lastRangeRef = useRef<{ anchor: number; ids: number[] } | null>(null);
+  const lastRangeRef = useRef<{
+    anchor: number;
+    base: ReadonlySet<number>;
+  } | null>(null);
   /**
    * 選択操作の世代。**解除するたびに進める**。
    *
@@ -221,6 +228,14 @@ export default function App() {
    * `listMediaIds` の応答が**消したはずの選択を作り直す**。
    */
   const selectEpochRef = useRef(0);
+  /**
+   * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
+   *
+   * 解除だけでなく**あらゆる選択操作**で進めるのが要点。3万件のライブラリで
+   * Ctrl+Aの応答を待つ間にタイルを1枚触ると、あとから返ってきた全選択が
+   * **新しい方の選択を上書きする**。
+   */
+  const beginSelectOp = () => (selectEpochRef.current += 1);
   /**
    * キー操作のハンドラから読む最新の値。
    * 依存に入れるとキーを押すたびにリスナーを張り替えることになる。
@@ -1388,7 +1403,7 @@ export default function App() {
     setAnchorId(null);
     lastRangeRef.current = null;
     // 待っている選択の応答を無効にする（Escの直後に範囲が復活しないように）
-    selectEpochRef.current += 1;
+    beginSelectOp();
   }, []);
 
   /**
@@ -1424,6 +1439,7 @@ export default function App() {
 
   /** 1枚の選択を入れ替える */
   const toggleOne = useCallback((id: number) => {
+    beginSelectOp();
     setSelected((prev) => {
       const next = new Set(prev);
       if (!next.delete(id)) next.add(id);
@@ -1441,6 +1457,7 @@ export default function App() {
    */
   const selectRange = useCallback(
     async (fromId: number, toId: number) => {
+      beginSelectOp();
       const key = selectionKey();
       const ids = await orderedIds();
       // 待っている間に条件が変わったら、古い並びで選択を作らない
@@ -1454,19 +1471,17 @@ export default function App() {
       }
       const [lo, hi] = a <= b ? [a, b] : [b, a];
       const range = ids.slice(lo, hi + 1);
-      const prevRange =
+      // 同じ起点で選び直すなら土台は据え置き。初回なら「いまの選択」が土台
+      const base =
         lastRangeRef.current?.anchor === fromId
-          ? lastRangeRef.current.ids
-          : null;
-      setSelected((prev) => {
-        const next = new Set(prev);
-        // **前の範囲は取り消してから新しい範囲を足す**。足すだけだと、
-        // 同じ起点から範囲を縮めたときに外側が選ばれたまま残る
-        if (prevRange) for (const id of prevRange) next.delete(id);
-        for (const id of range) next.add(id);
-        return next;
-      });
-      lastRangeRef.current = { anchor: fromId, ids: range };
+          ? lastRangeRef.current.base
+          : selectedRef.current;
+      lastRangeRef.current = { anchor: fromId, base };
+      // **土台に範囲を足し直す**。前の範囲をIDごと引く形にすると、範囲の中に
+      // たまたま入っていた「前から選んでいたもの」まで消える
+      const next = new Set(base);
+      for (const id of range) next.add(id);
+      setSelected(next);
       // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
     },
     [orderedIds, selectionKey, toggleOne],
@@ -1475,6 +1490,7 @@ export default function App() {
   /** その日をまとめて選ぶ／外す（日付の見出しを押したとき） */
   const toggleDay = useCallback(
     async (dayKey: number) => {
+      beginSelectOp();
       const key = selectionKey();
       const loaded = dayItems.get(dayKey);
       const items =
@@ -1501,6 +1517,7 @@ export default function App() {
 
   /** 表示中の条件に一致する全部を選ぶ（Ctrl+A） */
   const selectAll = useCallback(async () => {
+    beginSelectOp();
     const key = selectionKey();
     const ids = await orderedIds();
     if (selectionKey() !== key) return;
