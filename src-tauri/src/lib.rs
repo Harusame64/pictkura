@@ -914,8 +914,11 @@ fn open_decoder_help(kind: String) -> Result<(), String> {
 #[derive(serde::Serialize)]
 struct AboutDto {
     version: String,
-    /// 同梱した取扱説明書。開発中の実行では見つからないので `None` になりうる
+    /// 同梱した取扱説明書（日本語）。開発中の実行では見つからないので `None` になりうる
     manual_path: Option<String>,
+    /// 同梱した取扱説明書（英語）。表示言語で出し分けるのはフロント側の仕事なので、
+    /// **両方の在り処を返す**（片方しか同梱されていない実行でもボタンの有効・無効が出せる）
+    manual_en_path: Option<String>,
     /// 同梱したOSSライセンス一覧
     licenses_path: Option<String>,
 }
@@ -943,6 +946,7 @@ fn about_info(app: tauri::AppHandle) -> AboutDto {
     AboutDto {
         version: app.package_info().version.to_string(),
         manual_path: resolve("docs/manual.html"),
+        manual_en_path: resolve("docs/manual.en.html"),
         licenses_path: resolve("THIRD-PARTY-LICENSES.txt"),
     }
 }
@@ -956,6 +960,7 @@ fn open_bundled_doc(app: tauri::AppHandle, kind: String) -> Result<(), String> {
     let info = about_info(app.clone());
     let path = match kind.as_str() {
         "manual" => info.manual_path,
+        "manual-en" => info.manual_en_path,
         "licenses" => info.licenses_path,
         _ => return Err("文書の種類が不正です".into()),
     }

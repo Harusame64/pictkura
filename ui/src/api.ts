@@ -319,13 +319,20 @@ export const listFolderPatterns = () =>
 export interface AboutInfo {
   version: string;
   manual_path: string | null;
+  /** 英語版の取扱説明書。表示言語での出し分けはフロント側で行う */
+  manual_en_path: string | null;
   licenses_path: string | null;
 }
 
 export const aboutInfo = () => invoke<AboutInfo>("about_info");
 
-/** 同梱した文書をOSの既定のアプリで開く。 */
-export const openBundledDoc = (kind: "manual" | "licenses") =>
+/**
+ * 同梱した文書をOSの既定のアプリで開く。
+ *
+ * 引数はパスではなく**種類**。任意のパスを受け取る口を作ると、フロント側の不具合や
+ * 細工でどこでも開けてしまう（Rust側で種類からパスへ引き直している）。
+ */
+export const openBundledDoc = (kind: "manual" | "manual-en" | "licenses") =>
   invoke<void>("open_bundled_doc", { kind });
 
 /** 自由記述のパターンが実際どんなフォルダ名になるか（無害化まで通した結果）。 */

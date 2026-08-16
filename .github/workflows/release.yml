@@ -101,7 +101,7 @@ jobs:
             $names = $archive.Entries.FullName | ForEach-Object { $_.Replace('\', '/') }
           } finally { $archive.Dispose() }
 
-          foreach ($need in 'pictkura.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.txt', 'docs/manual.html') {
+          foreach ($need in 'pictkura.exe', 'LICENSE', 'THIRD-PARTY-LICENSES.txt', 'docs/manual.html', 'docs/manual.en.html') {
             if (-not ($names | Where-Object { $_.EndsWith($need) })) { throw "ZIPに $need が無い" }
           }
           if (-not ($names | Where-Object { $_ -like '*.jpg' })) { throw "ZIPにスクリーンショットが無い" }

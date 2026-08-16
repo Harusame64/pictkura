@@ -28,7 +28,10 @@ New-Item -ItemType Directory -Path (Join-Path $stage "docs\images") -Force | Out
 Copy-Item $exe (Join-Path $stage "pictkura.exe")
 Copy-Item (Join-Path $root "LICENSE") $stage
 Copy-Item (Join-Path $root "THIRD-PARTY-LICENSES.txt") $stage
+# 取扱説明書は日英とも入れる。**個別に並べるのが要点**——画像はグロブで拾えるが、
+# 説明書を1つずつ書いていると、言語を足したときに黙って落ちる（実際に落とした）
 Copy-Item (Join-Path $root "docs\manual.html") (Join-Path $stage "docs")
+Copy-Item (Join-Path $root "docs\manual.en.html") (Join-Path $stage "docs")
 Copy-Item (Join-Path $root "docs\images\*.jpg") (Join-Path $stage "docs\images")
 
 # 展開した人が最初に開くもの。ZIPを開いた画面で目に入る位置に置く
@@ -37,7 +40,7 @@ pictkura $version（持ち歩き版）
 
 インストールは要りません。pictkura.exe をそのまま実行してください。
 
-- 使い方: docs\manual.html をブラウザで開いてください
+- 使い方: docs\manual.html をブラウザで開いてください（英語版は docs\manual.en.html）
 - ライセンス: LICENSE（MIT）
 - 同梱しているオープンソース: THIRD-PARTY-LICENSES.txt
 

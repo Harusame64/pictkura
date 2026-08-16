@@ -5,7 +5,7 @@
 A small, fast desktop photo manager. It does two things well: importing from a camera
 card and browsing what you already have — even when that is tens of thousands of files.
 
-![Library](docs/images/grid.jpg)
+![Library](docs/images/grid.en.jpg)
 
 ## Goals
 
@@ -119,7 +119,7 @@ There is no Intel (x86_64) build, and no Linux build.
 
 ### 1. Add a folder to the library
 
-On first launch, use **"フォルダを追加" (Add folder)** at the bottom of the left pane, or
+On first launch, use **Add a folder** at the bottom of the left pane, or
 pick one of the drives. Scanning starts immediately and the grid fills in by date.
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
@@ -127,14 +127,14 @@ pick one of the drives. Scanning starts immediately and the grid fills in by dat
 
 ### 2. Import from a card
 
-![Import](docs/images/import.jpg)
+![Import](docs/images/import.en.jpg)
 
-Press **"USBから取り込み" (Import from USB)**. Pick a source folder on the left and its
+Press **Import from USB**. Pick a source folder on the left and its
 photos appear on the right.
 
 - **Include subfolders** — picks things up even when DCIM has per-date folders inside
 - **Hide already imported** — uses the same check as the importer, so what you see matches
-- **Destination** — "変更" (Change) at the bottom takes any folder you like
+- **Destination** — **Change** at the bottom takes any folder you like
 - **Sorting** — files are filed by capture date using the folder pattern you chose
 
 Progress, time remaining, and **the photo currently being copied** are shown while it runs.
@@ -142,10 +142,10 @@ File sizes are verified after each copy.
 
 ### 3. Choose how folders are named
 
-![Settings](docs/images/settings.jpg)
+![Settings](docs/images/settings.en.jpg)
 
-⚙ (Settings) → "取り込み先のフォルダ構成". Pick one of nine presets, or choose
-**"自分で決める" (Custom)** and write your own.
+⚙ (Settings) → **Import folder structure**. Pick one of nine presets, or choose
+**Custom** and write your own.
 
 | Token | Becomes |
 |---|---|
@@ -179,7 +179,7 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 
 ### 5. Look at them
 
-![Viewer](docs/images/viewer.jpg)
+![Viewer](docs/images/viewer.en.jpg)
 
 | Key | Action |
 |---|---|
@@ -192,6 +192,17 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 open / open with / show in folder / move to trash. **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright.
+
+### 6. Language
+
+pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
+overrides that; switching reloads the window.
+
+The full manual ships with the app — ⚙ (Settings) → **Manual** — and is also here:
+[English](docs/manual.en.html) / [日本語](docs/manual.html).
+
+> One thing is still Japanese-only: the entry pictkura adds to the Windows AutoPlay
+> choices reads「pictkura で写真を取り込む」regardless of the UI language.
 
 ---
 
@@ -277,7 +288,7 @@ and capture time are read from the container header — not a single pixel is de
 crates/pictkura-core/   core library (config / scanner / DB / import / thumbnails / search)
 src-tauri/              the Tauri app (commands, media:// protocol)
 ui/                     front end (React + Vite + TanStack Virtual)
-docs/                   manual and screenshots
+docs/                   manuals (en / ja) and screenshots
 ```
 
 The development journal (`plan.md`, in Japanese) lives in a private companion

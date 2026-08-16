@@ -32,6 +32,7 @@
     "resources": [
       "../THIRD-PARTY-LICENSES.txt",
       "../docs/manual.html",
+      "../docs/manual.en.html",
       "../docs/images/*.jpg"
     ],
     "windows": {
