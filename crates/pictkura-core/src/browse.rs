@@ -108,10 +108,8 @@ fn probe(dir: &Path, extensions: &[String]) -> (bool, usize, bool) {
         }
         // file_type()はread_dirが返す情報から取れる（statが要らない＝USBでも速い）
         match entry.file_type() {
-            Ok(ft) if ft.is_dir() => {
-                if !is_hidden_dir(&entry.file_name().to_string_lossy()) {
-                    has_subdirs = true;
-                }
+            Ok(ft) if ft.is_dir() && !is_hidden_dir(&entry.file_name().to_string_lossy()) => {
+                has_subdirs = true;
             }
             Ok(ft) if ft.is_file() && has_target_extension(&entry.path(), extensions) => {
                 count += 1;

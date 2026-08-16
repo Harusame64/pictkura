@@ -73,6 +73,7 @@ export default function ImportWizard({
   drives,
   config,
   startPath,
+  startNonce,
   onImported,
   onError,
   onConfigChanged,
@@ -83,6 +84,9 @@ export default function ImportWizard({
   config: AppConfig | null;
   /** ドライブをクリックして開いたときの初期選択フォルダ */
   startPath?: string;
+  /** 開く要求ごとに増える番号。同じ `startPath` で開き直された
+   *  （＝同じスロットにカードを差し替えた）ときに読み直すため */
+  startNonce?: number;
   onImported: (stats: ImportStats) => void;
   onError: (message: string) => void;
   onConfigChanged: () => void;
@@ -254,11 +258,14 @@ export default function ImportWizard({
     [loadView],
   );
 
-  // 開いたときの初期表示: メディアから来たならその中を丸ごと見せる
+  // 開いたときの初期表示: メディアから来たならその中を丸ごと見せる。
+  // `startNonce` も見るのは、開いたまま同じドライブで開き直された場合
+  // （カードを差し替えて再びAutoPlayを選ぶ）に、前のカードの一覧を
+  // 出しっぱなしにしないため
   useEffect(() => {
     if (!isOpen || !startPath) return;
     openFolder(startPath, true);
-  }, [isOpen, startPath, openFolder]);
+  }, [isOpen, startPath, startNonce, openFolder]);
 
   // 開き直したら「済」判定と中身を読み直す（前回の取り込みで状況が変わっている）
   useEffect(() => {

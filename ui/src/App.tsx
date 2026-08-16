@@ -27,6 +27,7 @@ import {
   listMemories,
   modKeyLabel,
   openDefault,
+  takePendingImport,
   openWith,
   removeLibraryRoot,
   revealInFolder,
@@ -152,6 +153,7 @@ export default function App() {
   // 取り込みウィザード（第5部 段階E）。startPathはドライブから開いたときの初期フォルダ
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStart, setWizardStart] = useState<string | undefined>(undefined);
+  const [wizardNonce, setWizardNonce] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
   /** ビューアの撮影情報パネル（iキーで開閉） */
   const [showExif, setShowExif] = useState(false);
@@ -656,11 +658,42 @@ export default function App() {
   /** ウィザードからのエラー通知。毎レンダで作り直すと向こうのeffectが再実行される */
   const onWizardError = useCallback((message: string) => setStatus(message), []);
 
-  // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める
+  // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
+  // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
   const openWizard = useCallback((startPath?: string) => {
     setWizardStart(startPath);
+    setWizardNonce((n) => n + 1);
     setWizardOpen(true);
   }, []);
+
+  // USB/SDカードの自動起動（AutoPlay）で「pictkuraで取り込む」が選ばれたとき、
+  // そのドライブで取り込みウィザードを開く。2重起動はバックエンドが
+  // open-import-drive イベントで届け、冷起動はマウント後に take_pending_import で拾う。
+  // バックエンドは2重起動ぶんも必ず置き場へ積んでから通知してくる（起動途中や
+  // WebViewの再読み込み中は聞き手が居ないため）。受け取れたらこちらで消す——
+  // 消さないと、次にマウントしたときに同じ要求でもう一度ウィザードが開く
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const f = await listen<string>("open-import-drive", (ev) => {
+        if (!ev.payload) return;
+        void takePendingImport().catch(() => null);
+        openWizard(ev.payload);
+      });
+      if (cancelled) {
+        f();
+        return;
+      }
+      unlisten = f;
+      const pending = await takePendingImport().catch(() => null);
+      if (!cancelled && pending) openWizard(pending);
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [openWizard]);
 
   // ウィザードの取り込み結果をグリッドへ反映する（コピー先の走査は
   // バックエンド側で済んでおり、ここではルート一覧と表示の更新だけ）
@@ -2062,6 +2095,7 @@ export default function App() {
         drives={drives}
         config={config}
         startPath={wizardStart}
+        startNonce={wizardNonce}
         onImported={onImported}
         onError={onWizardError}
         onConfigChanged={refreshRoots}

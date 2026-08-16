@@ -20,6 +20,9 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 # OS既定アプリで開く／エクスプローラーで場所を表示する（クロスプラットフォーム）
 tauri-plugin-opener = "2"
+# USB挿入の自動起動（AutoPlay）で2重起動されたとき、新しい窓を開かず
+# 動作中のインスタンスへドライブパスを渡す
+tauri-plugin-single-instance = "2"
 # 削除はゴミ箱へ入れる（完全削除にしない）
 trash = "5"
 sysinfo = { version = "0.33", default-features = false, features = ["disk"] }
@@ -32,4 +35,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
 # 「取り込み元」として自動走査してしまうため
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem"] }
+# Win32_System_Registry: AutoPlayハンドラをHKCUへ登録する（autoplay.rs）
+windows-sys = { version = "0.60", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
+    "Win32_Foundation",
+] }
