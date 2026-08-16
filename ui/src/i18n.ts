@@ -5,8 +5,10 @@
  * - ランタイムを増やさない（i18nライブラリを入れない）。辞書は素のオブジェクトで、
  *   バンドルに乗るのは選ばれた言語ではなく全言語だが、UI文字列は数KBなので
  *   起動時間には響かない（＝分割ロードの複雑さを買う理由がない）。
- * - 言語の追加は**この辞書に1ブロック足すだけ**。キーの型は日本語辞書から
- *   導出しているので、追加言語でキーの抜けがあればコンパイルエラーになる。
+ * - 言語の追加は**辞書を1ブロック足し、`DICTS` と `LOCALES` に1行ずつ**。
+ *   キーの型は日本語辞書から導出しているので、追加言語でキーの抜けがあれば
+ *   コンパイルエラーになる。**`LOCALES` への追加を忘れると、OSの言語が
+ *   それだったときは出るのに設定からは選べない**という半端な状態になる。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
  * - 話者数の多い言語を優先。RTL（アラビア語等）はレイアウトの論理プロパティ化が
  *   済んでから追加する。
@@ -186,6 +188,10 @@ const ja = {
   settingsManual: "取扱説明書",
   settingsOssLicenses: "使っているオープンソース",
   settingsDocNotBundled: "（開発中の実行では同梱されていません）",
+  settingsLanguage: "言語",
+  settingsLanguageSystem: "OSに合わせる",
+  settingsLanguageNote:
+    "選ぶと画面を読み込み直します。コピーそのものは裏で続きますが、取り込みウィザードは閉じて進み具合が見えなくなるので、取り込み中は終わってから切り替えてください。",
   settingsTheme: "テーマ",
   themeSystem: "システムに合わせる",
   themeLight: "ライト",
@@ -382,6 +388,10 @@ const en: Dict = {
   settingsManual: "Manual",
   settingsOssLicenses: "Open source we use",
   settingsDocNotBundled: "(not bundled in a development build)",
+  settingsLanguage: "Language",
+  settingsLanguageSystem: "Match system",
+  settingsLanguageNote:
+    "Switching reloads the window. Copying itself keeps running in the background, but the import wizard closes and you lose sight of its progress — so wait until an import finishes before switching.",
   settingsTheme: "Theme",
   themeSystem: "Match system",
   themeLight: "Light",
@@ -403,11 +413,69 @@ const en: Dict = {
     ` — ${added} added, ${changed} changed, ${removed} removed`,
 };
 
-/** 対応言語。追加はここに1行足すだけ */
+/** 対応言語。ここと `LOCALES` の両方に足すこと */
 const DICTS: Record<string, Dict> = { ja, en };
 
-/** 表示に使う言語コードを決める（OSの優先言語 → 対応があればそれ、なければ英語） */
+/**
+ * 選択肢に出す言語（コードと、その言語自身での呼び名）。
+ *
+ * **呼び名はその言語で書く**。英語しか読めない画面になってしまった人が
+ * 日本語へ戻れるように、「日本語」は日本語のまま出す（"Japanese" にしない）。
+ */
+export const LOCALES: { code: string; label: string }[] = [
+  { code: "ja", label: "日本語" },
+  { code: "en", label: "English" },
+];
+
+/** 言語の指定を置く場所（テーマと同じくlocalStorage） */
+const LOCALE_KEY = "pictkura.locale";
+
+/**
+ * その言語コードの辞書を持っているか。
+ *
+ * **`DICTS[code]` で判定してはいけない**。`DICTS` は素のオブジェクトなので
+ * `"constructor"` や `"toString"` が真になり、辞書のつもりで**関数**を掴む。
+ * そうなると画面じゅうが `undefined` になる（localStorageを直に書き換えた場合に届く）。
+ *
+ * `Object.hasOwn` はES2022なので、この設定（ES2021）では使えない。
+ */
+const hasDict = (code: string) =>
+  Object.prototype.hasOwnProperty.call(DICTS, code);
+
+/**
+ * localStorageの読み書き。**失敗しても落とさない**。
+ *
+ * `locale` はモジュールを読んだ時点で決まるので、ここで例外が飛ぶと
+ * i18nを読み込む画面すべてが真っ白になる。言語の指定は無くても既定で動く類の
+ * 情報なので、読めない・書けないときは黙って諦める。
+ */
+function readStored(): string | null {
+  try {
+    return localStorage.getItem(LOCALE_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeStored(code: string | null): boolean {
+  try {
+    if (code === null) localStorage.removeItem(LOCALE_KEY);
+    else localStorage.setItem(LOCALE_KEY, code);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 表示に使う言語コードを決める。
+ *
+ * **設定で選んだ言語 → OSの優先言語 → 英語** の順。設定を先に見るのは、
+ * OSが日本語でも英語で使いたい人がいるため（説明書のスクリーンショットを
+ * 撮るときにも要る）。
+ */
 function pickLocale(): string {
+  const chosen = readStored();
+  if (chosen && hasDict(chosen)) return chosen;
   for (const tag of navigator.languages ?? [navigator.language]) {
     // "ja-JP" → "ja" のように地域を落として照合する
     const base = tag.toLowerCase().split("-")[0];
@@ -419,6 +487,34 @@ function pickLocale(): string {
 
 /** 現在の言語コード（"ja" / "en" …） */
 export const locale = pickLocale();
+
+/** 設定で選ばれている言語（未指定なら `null` ＝ OSに合わせる） */
+export function readLocaleChoice(): string | null {
+  const chosen = readStored();
+  return chosen && hasDict(chosen) ? chosen : null;
+}
+
+/**
+ * 言語を切り替える。`null` を渡すとOSの優先言語に戻る。
+ *
+ * **画面を読み込み直す**のが要点。辞書 `t` はモジュールを読んだ時点で
+ * 決まる定数で、画面のあちこちが直接それを読んでいる。差し替えて回るより、
+ * 読み直したほうが取りこぼしが無い（ローカルのWebViewなので一瞬で、
+ * 表示中の内容はバックエンドから引き直される）。
+ *
+ * **切り替わったかを返す**。保存できなければ言語は変わらないので、
+ * 呼び出し側が「その言語になっている」と表示してしまわないようにする。
+ * 保存が効かない状態でメモリ上だけ切り替えても、読み込み直した先で
+ * 元に戻るだけで、かえって分からなくなる。
+ */
+export function setLocaleChoice(code: string | null): boolean {
+  if (code !== null && !hasDict(code)) return false;
+  if (!writeStored(code)) return false;
+  // **書いたあとで決め直す**。「OSに合わせる」を選んだ結果いまと同じ言語に
+  // なることもあるので、指定そのものではなく**結果**を見て判断する
+  if (pickLocale() !== locale) location.reload();
+  return true;
+}
 
 /** 現在の辞書。`t.searchPlaceholder` のように使う */
 export const t: Dict = DICTS[locale] ?? en;

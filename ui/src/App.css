@@ -1675,3 +1675,20 @@ body {
 .speed-toast.decoder-notice button:hover {
   background: color-mix(in oklch, currentColor 15%, transparent);
 }
+
+/* 言語のプルダウン。ネイティブの select をトークンの色に寄せるだけに留める
+   （自前のドロップダウンを作ると、キーボード操作と読み上げを作り直すことになる） */
+.settings-select {
+  margin-bottom: var(--sp-2);
+  padding: 5px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.settings-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

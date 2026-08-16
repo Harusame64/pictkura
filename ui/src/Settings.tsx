@@ -16,7 +16,12 @@ import {
   type ExternalApp,
   type FolderPattern,
 } from "./api";
-import { t } from "./i18n";
+import {
+  LOCALES,
+  readLocaleChoice,
+  setLocaleChoice,
+  t,
+} from "./i18n";
 import { applyTheme, readTheme, type ThemeChoice } from "./theme";
 
 /**
@@ -48,6 +53,14 @@ export default function Settings({
   const [custom, setCustom] = useState("");
   const [customPreview, setCustomPreview] = useState("");
   const [about, setAbout] = useState<AboutInfo | null>(null);
+  /**
+   * 選ばれている言語。**stateに持つのが要点**。`select` は制御された部品なので、
+   * 選んでも再レンダーが起きないと React が DOM を前の値へ戻す。言語が実際には
+   * 変わらない選び方（日本語OSで「OSに合わせる」→「日本語」など）では
+   * 読み込み直しも起きないため、保存はされているのに表示だけ戻り、
+   * 「効かなかった」ように見えていた。
+   */
+  const [langChoice, setLangChoice] = useState<string | null>(readLocaleChoice);
 
   useEffect(() => {
     if (!open) return;
@@ -295,6 +308,41 @@ export default function Settings({
               <p className="settings-note">{t.settingsAutoplayNote}</p>
             </section>
           )}
+
+          <section className="settings-section">
+            {/*
+              見出しはそこに文字が並んでいるだけで、`select` の名前にはならない
+              （名前の無い「コンボボックス」と読まれる）。`aria-label` で同じ文字を
+              別に持たせる手もあるが、**見えているラベルをそのまま指す**方が
+              二重管理にならず、表示と読み上げが食い違わない。
+
+              **閉じたままの矢印キーは1段ごとに確定する**（Chromium系の作法）。
+              2段先を狙うと途中で読み込み直しが挟まるが、Alt+↓ で開いてから選べば
+              確定は1回で済む。選択肢が3つなので、専用の「適用」ボタンは置かない。
+            */}
+            <h3 id="settings-language-label">{t.settingsLanguage}</h3>
+            <select
+              className="settings-select"
+              aria-labelledby="settings-language-label"
+              value={langChoice ?? ""}
+              onChange={(e) => {
+                const code = e.target.value === "" ? null : e.target.value;
+                // **保存できたときだけ表示を進める**。保存に失敗すると言語は
+                // 変わらないので、先に表示だけ変えると「その言語になっている」と
+                // 嘘をつくことになる。state を変えなければ、Reactが
+                // プルダウンを元の選択へ戻してくれる
+                if (setLocaleChoice(code)) setLangChoice(code);
+              }}
+            >
+              <option value="">{t.settingsLanguageSystem}</option>
+              {LOCALES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <p className="settings-note">{t.settingsLanguageNote}</p>
+          </section>
 
           <section className="settings-section">
             <h3>{t.settingsTheme}</h3>
