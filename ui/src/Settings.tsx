@@ -16,7 +16,12 @@ import {
   type ExternalApp,
   type FolderPattern,
 } from "./api";
-import { t } from "./i18n";
+import {
+  LOCALES,
+  readLocaleChoice,
+  setLocaleChoice,
+  t,
+} from "./i18n";
 import { applyTheme, readTheme, type ThemeChoice } from "./theme";
 
 /**
@@ -295,6 +300,25 @@ export default function Settings({
               <p className="settings-note">{t.settingsAutoplayNote}</p>
             </section>
           )}
+
+          <section className="settings-section">
+            <h3>{t.settingsLanguage}</h3>
+            <select
+              className="settings-select"
+              value={readLocaleChoice() ?? ""}
+              onChange={(e) =>
+                setLocaleChoice(e.target.value === "" ? null : e.target.value)
+              }
+            >
+              <option value="">{t.settingsLanguageSystem}</option>
+              {LOCALES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <p className="settings-note">{t.settingsLanguageNote}</p>
+          </section>
 
           <section className="settings-section">
             <h3>{t.settingsTheme}</h3>
