@@ -18,3 +18,7 @@ Thumbs.db
 # 作られる顔ぶれはOSで変わる（macOSでは macOS-schema.json が増える）ので、
 # 追跡すると開発機を替えるたびに差分が出る
 src-tauri/gen/schemas/
+
+# 開発日誌（非公開リポ Harusame64/pictkura-dev）を入れ子でcloneする場所。
+# コードのコメントにある「plan.md 第3部」等の参照先はそこにある
+/dev/
