@@ -30,7 +30,9 @@ mod imp {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
 
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows_sys::Win32::Foundation::{
+        ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+    };
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegEnumKeyExW,
         RegGetValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
@@ -114,8 +116,16 @@ mod imp {
         Ok(())
     }
 
-    /// `HKCU\<subkey>` の文字列値を読む（無ければ `None`）。`name=None` は既定値。
-    fn get_string(subkey: &str, name: Option<&str>) -> Option<String> {
+    /// `HKCU\<subkey>` の文字列値を読む。`name=None` は既定値。
+    ///
+    /// **「無い」と「読めなかった」を区別する**のが要点。どちらも `None` に畳むと、
+    /// 権限やポリシーで読めなかったときに「こちらのハンドラではない」と誤判定して
+    /// 消し漏らし、しかも成功として返してしまう。
+    ///
+    /// - `Ok(Some(s))` 値がある
+    /// - `Ok(None)`    鍵か値が無い（目的は満たしている）
+    /// - `Err(rc)`     読めなかった
+    fn get_string(subkey: &str, name: Option<&str>) -> Result<Option<String>, u32> {
         let subkey_w = wide(subkey);
         let name_w = name.map(wide);
         let name_ptr = name_w.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
@@ -132,8 +142,15 @@ mod imp {
                 &mut len,
             )
         };
-        if rc != ERROR_SUCCESS || len < 2 {
-            return None;
+        if rc == ERROR_FILE_NOT_FOUND || rc == ERROR_PATH_NOT_FOUND {
+            return Ok(None);
+        }
+        if rc != ERROR_SUCCESS {
+            return Err(rc);
+        }
+        // 空文字（NULだけ）は「値はあるが中身なし」。照合には使えないので無い扱い。
+        if len < 2 {
+            return Ok(None);
         }
         let mut buf = vec![0u16; (len as usize).div_ceil(2)];
         let mut len2 = len;
@@ -149,7 +166,7 @@ mod imp {
             )
         };
         if rc != ERROR_SUCCESS {
-            return None;
+            return Err(rc);
         }
         let chars = (len2 as usize / 2).min(buf.len());
         let s = &buf[..chars];
@@ -157,17 +174,20 @@ mod imp {
             Some(i) => &s[..i],
             None => s,
         };
-        Some(String::from_utf16_lossy(s))
+        Ok(Some(String::from_utf16_lossy(s)))
     }
 
-    /// `HKCU\<subkey>` の直下にあるサブキーの名前を並べる（無ければ空）。
-    fn subkeys(subkey: &str) -> Vec<String> {
+    /// `HKCU\<subkey>` の直下にあるサブキーの名前を並べる。
+    ///
+    /// 開けなかったときは `Err(rc)`。**空と区別する**——開けないまま空を返すと、
+    /// その下にある記録を丸ごと見落としたまま成功として返してしまう。
+    fn subkeys(subkey: &str) -> Result<Vec<String>, u32> {
         let subkey_w = wide(subkey);
         let mut hkey: HKEY = std::ptr::null_mut();
         let rc =
             unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey) };
         if rc != ERROR_SUCCESS {
-            return Vec::new();
+            return Err(rc);
         }
         let mut names = Vec::new();
         // レジストリの鍵名は255文字まで（終端込みで256）。
@@ -196,7 +216,7 @@ mod imp {
         unsafe {
             RegCloseKey(hkey);
         }
-        names
+        Ok(names)
     }
 
     pub fn register(exe: &Path) -> io::Result<()> {
@@ -251,10 +271,17 @@ mod imp {
                 first_err = Some(rc as i32);
             }
         };
-        for event in EVENTS.iter().chain(LEGACY_EVENTS) {
+        // 正規のイベントの鍵は**他アプリも値を並べている**ので、こちらの値だけ消す。
+        for event in EVENTS {
             let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
             let name = wide(HANDLER);
             check(unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) });
+        }
+        // 古い名前の鍵は**丸ごと**消す。OSに無いイベント名なので他アプリが
+        // 相乗りしようがなく、値だけ消すと空の殻が残る。
+        for event in LEGACY_EVENTS {
+            let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
+            check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
         }
 
         // 「常にこの操作」で pictkura を選ばれていた場合、その記録も消す。
@@ -273,14 +300,25 @@ mod imp {
         // 際限なく潜らないのは、壊れたレジストリで回り続けないため。
         let mut stack: Vec<(String, u32)> = vec![(root, 0)];
         while let Some((key, depth)) = stack.pop() {
-            if get_string(&key, None).as_deref() == Some(HANDLER) {
-                let w = wide(&key);
-                check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) });
-                continue;
+            match get_string(&key, None) {
+                Ok(Some(v)) if v == HANDLER => {
+                    let w = wide(&key);
+                    check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) });
+                    continue;
+                }
+                Ok(_) => {}
+                // 読めなければ、こちらのものか判断が付かない。**黙って飛ばさない**
+                Err(rc) => check(rc),
             }
             if depth < 2 {
-                for child in subkeys(&key) {
-                    stack.push((format!(r"{key}\{child}"), depth + 1));
+                match subkeys(&key) {
+                    Ok(children) => {
+                        for child in children {
+                            stack.push((format!(r"{key}\{child}"), depth + 1));
+                        }
+                    }
+                    // 開けなければ、その下の記録を見落としたことになる
+                    Err(rc) => check(rc),
                 }
             }
         }
