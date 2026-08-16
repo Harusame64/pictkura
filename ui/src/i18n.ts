@@ -171,7 +171,7 @@ const ja = {
   settingsTitle: "設定",
   settingsImportStructure: "取り込み先のフォルダ構成",
   settingsImportStructureNote:
-    "USBから取り込んだ写真を、撮影日でどう振り分けるか。数千枚に効くので後から変えにくい設定です。フォルダ名は言語を問わず年月日の順で作ります——名前順に並べたときに時系列になるためです。",
+    "USBから取り込んだ写真を、撮影日でどう振り分けるか。数千枚に効くので後から変えにくい設定です。フォルダ名に日付を入れるときは、言語を問わず年月日の順にします——名前順に並べたときに時系列になるためです。",
   settingsDestination: "コピー先",
   settingsDestinationUnset: "（未設定：初回の取り込み時に選びます）",
   settingsFlatExample: "IMG_0001.JPG（振り分けない）",
@@ -371,7 +371,7 @@ const en: Dict = {
   settingsTitle: "Settings",
   settingsImportStructure: "Import folder structure",
   settingsImportStructureNote:
-    "How imported photos are filed by capture date. This affects thousands of files, so it is hard to change later. Folder names are built year-first in every language, so that sorting by name sorts by time.",
+    "How imported photos are filed by capture date. This affects thousands of files, so it is hard to change later. Where a folder name carries a date, it is written year-first in every language, so that sorting by name sorts by time.",
   settingsDestination: "Destination",
   settingsDestinationUnset: "(not set — you'll choose it on the first import)",
   settingsFlatExample: "IMG_0001.JPG (no subfolders)",

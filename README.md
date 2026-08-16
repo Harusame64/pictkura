@@ -144,7 +144,7 @@ File sizes are verified after each copy.
 
 ![Settings](docs/images/settings.jpg)
 
-⚙ (Settings) → "取り込み先のフォルダ構成". Pick one of seven presets, or choose
+⚙ (Settings) → "取り込み先のフォルダ構成". Pick one of nine presets, or choose
 **"自分で決める" (Custom)** and write your own.
 
 | Token | Becomes |
@@ -158,6 +158,10 @@ The **resulting folder name** is shown as you type. `..`, absolute paths and cha
 that are illegal in file names are stripped, so nothing can be written outside the
 destination no matter what you type.
 
+Where a folder name carries a date, it is written **year-first in every language**, so that
+sorting by name sorts by time. If you keep the year folders yourself, point the destination
+at that year's folder and pick the preset that adds only `2026-08-16/`.
+
 ### 4. Find things
 
 Use the search box, or the command palette with **Ctrl + K**.
@@ -167,7 +171,8 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `okinawa` | substring match on file name, folder name and camera |
 | `camera:α7` | filter by camera (same as the left pane) |
 | `folder:trip` | filter by folder name |
-| `2019` / `2019-08` | filter by capture date |
+| `2019-08` / `2019-08-11` | filter by capture date. **A bare `2019` is treated as text**, not a date — it cannot be told apart from a file name |
+| `year:2019` | filter to a single year |
 | `★` | favourites only |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
