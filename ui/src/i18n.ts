@@ -5,8 +5,10 @@
  * - ランタイムを増やさない（i18nライブラリを入れない）。辞書は素のオブジェクトで、
  *   バンドルに乗るのは選ばれた言語ではなく全言語だが、UI文字列は数KBなので
  *   起動時間には響かない（＝分割ロードの複雑さを買う理由がない）。
- * - 言語の追加は**この辞書に1ブロック足すだけ**。キーの型は日本語辞書から
- *   導出しているので、追加言語でキーの抜けがあればコンパイルエラーになる。
+ * - 言語の追加は**辞書を1ブロック足し、`DICTS` と `LOCALES` に1行ずつ**。
+ *   キーの型は日本語辞書から導出しているので、追加言語でキーの抜けがあれば
+ *   コンパイルエラーになる。**`LOCALES` への追加を忘れると、OSの言語が
+ *   それだったときは出るのに設定からは選べない**という半端な状態になる。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
  * - 話者数の多い言語を優先。RTL（アラビア語等）はレイアウトの論理プロパティ化が
  *   済んでから追加する。
@@ -411,7 +413,7 @@ const en: Dict = {
     ` — ${added} added, ${changed} changed, ${removed} removed`,
 };
 
-/** 対応言語。追加はここに1行足すだけ */
+/** 対応言語。ここと `LOCALES` の両方に足すこと */
 const DICTS: Record<string, Dict> = { ja, en };
 
 /**
@@ -429,6 +431,41 @@ export const LOCALES: { code: string; label: string }[] = [
 const LOCALE_KEY = "pictkura.locale";
 
 /**
+ * その言語コードの辞書を持っているか。
+ *
+ * **`DICTS[code]` で判定してはいけない**。`DICTS` は素のオブジェクトなので
+ * `"constructor"` や `"toString"` が真になり、辞書のつもりで**関数**を掴む。
+ * そうなると画面じゅうが `undefined` になる（localStorageを直に書き換えた場合に届く）。
+ *
+ * `Object.hasOwn` はES2022なので、この設定（ES2021）では使えない。
+ */
+const hasDict = (code: string) =>
+  Object.prototype.hasOwnProperty.call(DICTS, code);
+
+/**
+ * localStorageの読み書き。**失敗しても落とさない**。
+ *
+ * `locale` はモジュールを読んだ時点で決まるので、ここで例外が飛ぶと
+ * i18nを読み込む画面すべてが真っ白になる。言語の指定は無くても既定で動く類の
+ * 情報なので、読めない・書けないときは黙って諦める。
+ */
+function readStored(): string | null {
+  try {
+    return localStorage.getItem(LOCALE_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeStored(code: string | null) {
+  try {
+    if (code === null) localStorage.removeItem(LOCALE_KEY);
+    else localStorage.setItem(LOCALE_KEY, code);
+  } catch {
+    /* 保存できなくても、この起動のあいだは選んだ言語で動く */
+  }
+}
+
+/**
  * 表示に使う言語コードを決める。
  *
  * **設定で選んだ言語 → OSの優先言語 → 英語** の順。設定を先に見るのは、
@@ -436,8 +473,8 @@ const LOCALE_KEY = "pictkura.locale";
  * 撮るときにも要る）。
  */
 function pickLocale(): string {
-  const chosen = localStorage.getItem(LOCALE_KEY);
-  if (chosen && DICTS[chosen]) return chosen;
+  const chosen = readStored();
+  if (chosen && hasDict(chosen)) return chosen;
   for (const tag of navigator.languages ?? [navigator.language]) {
     // "ja-JP" → "ja" のように地域を落として照合する
     const base = tag.toLowerCase().split("-")[0];
@@ -452,8 +489,8 @@ export const locale = pickLocale();
 
 /** 設定で選ばれている言語（未指定なら `null` ＝ OSに合わせる） */
 export function readLocaleChoice(): string | null {
-  const chosen = localStorage.getItem(LOCALE_KEY);
-  return chosen && DICTS[chosen] ? chosen : null;
+  const chosen = readStored();
+  return chosen && hasDict(chosen) ? chosen : null;
 }
 
 /**
@@ -465,12 +502,8 @@ export function readLocaleChoice(): string | null {
  * 表示中の内容はバックエンドから引き直される）。
  */
 export function setLocaleChoice(code: string | null) {
-  if (code !== null && !DICTS[code]) return;
-  if (code === null) {
-    localStorage.removeItem(LOCALE_KEY);
-  } else {
-    localStorage.setItem(LOCALE_KEY, code);
-  }
+  if (code !== null && !hasDict(code)) return;
+  writeStored(code);
   // **書いたあとで決め直す**。「OSに合わせる」を選んだ結果いまと同じ言語に
   // なることもあるので、指定そのものではなく**結果**を見て判断する
   if (pickLocale() !== locale) location.reload();

@@ -53,6 +53,14 @@ export default function Settings({
   const [custom, setCustom] = useState("");
   const [customPreview, setCustomPreview] = useState("");
   const [about, setAbout] = useState<AboutInfo | null>(null);
+  /**
+   * 選ばれている言語。**stateに持つのが要点**。`select` は制御された部品なので、
+   * 選んでも再レンダーが起きないと React が DOM を前の値へ戻す。言語が実際には
+   * 変わらない選び方（日本語OSで「OSに合わせる」→「日本語」など）では
+   * 読み込み直しも起きないため、保存はされているのに表示だけ戻り、
+   * 「効かなかった」ように見えていた。
+   */
+  const [langChoice, setLangChoice] = useState<string | null>(readLocaleChoice);
 
   useEffect(() => {
     if (!open) return;
@@ -305,10 +313,19 @@ export default function Settings({
             <h3>{t.settingsLanguage}</h3>
             <select
               className="settings-select"
-              value={readLocaleChoice() ?? ""}
-              onChange={(e) =>
-                setLocaleChoice(e.target.value === "" ? null : e.target.value)
-              }
+              // 見出しの `<h3>` は読み上げソフトから見ると「近くにある文字」でしかなく、
+              // この `select` の名前にはならない（名前が無いまま「コンボボックス」とだけ
+              // 読まれる）。見出しと同じ言葉を明示的に結び付ける
+              aria-label={t.settingsLanguage}
+              value={langChoice ?? ""}
+              // **閉じたままの矢印キーでも1段ごとに確定する**（Chromium系の作法）。
+              // 2段先を狙うと途中で読み込み直しが挟まるが、Alt+↓ で開いてから選べば
+              // 確定は1回で済む。選択肢が3つなので、専用の「適用」ボタンは置かない
+              onChange={(e) => {
+                const code = e.target.value === "" ? null : e.target.value;
+                setLangChoice(code);
+                setLocaleChoice(code);
+              }}
             >
               <option value="">{t.settingsLanguageSystem}</option>
               {LOCALES.map((l) => (
