@@ -1329,31 +1329,42 @@ export default function App() {
       if (back[k]) ordered.push(back[k]);
     }
 
-    // 予算は**表示中の1枚を含めて**数える（崖は全体の総量で来る）
-    let bytes = decodedBytes(viewerInfo.item);
-    let transcodes = 0;
-    const chosen: MediaItem[] = [];
-    for (const it of ordered) {
-      // 動画は先読みしない。Range配信で待ちが小さく、予算の桁も違う
-      if (it.is_video) continue;
-      if (cloudOnlyRef.current.get(it.id)) continue;
-      // 詰め直しの要る形式は、**表示中の1枚が出てから**しか裏で作らない。
-      // 出る前に投げると、Rust側の錠（同時1枚）に仕掛かりが積み上がり、
-      // 見ている側がその後ろで待つ——実測で送りが3.0秒になった
-      if (
-        it.needs_transcode &&
-        (!navSettled ||
-          !(fullLoaded || viewerInfo.item.is_video) ||
-          transcodes >= PRELOAD_MAX_TRANSCODES)
-      )
-        continue;
-      const b = decodedBytes(it);
-      // 入らない1枚が出たら、そこで打ち切る（近い順に並んでいる）
-      if (bytes + b > PRELOAD_BUDGET_BYTES) break;
-      bytes += b;
-      if (it.needs_transcode) transcodes++;
-      chosen.push(it);
-    }
+    /**
+     * 候補から実際に先読みする分を選ぶ。**クラウド判定の答えが返るたびに
+     * 選び直す**——判定待ちの1枚を予算に数えたままにすると、結局読まない
+     * プレースホルダが、その先の近所を予算から押し出してしまう（ゲート1のP2）。
+     */
+    const select = () => {
+      // 予算は**表示中の1枚を含めて**数える（崖は全体の総量で来る）
+      let bytes = decodedBytes(viewerInfo.item);
+      let transcodes = 0;
+      const out: MediaItem[] = [];
+      for (const it of ordered) {
+        // 動画は先読みしない。Range配信で待ちが小さく、予算の桁も違う
+        if (it.is_video) continue;
+        // **クラウドにしか無いものと、まだ聞いていないものは数にも入れない**。
+        // 聞いていないものを先読みしないのは、プレースホルダを裏で読んで
+        // ダウンロードを起こさないため（答えが返ったら選び直す）
+        if (cloudOnlyRef.current.get(it.id) !== false) continue;
+        // 詰め直しの要る形式は、**表示中の1枚が出てから**しか裏で作らない。
+        // 出る前に投げると、Rust側の錠（同時1枚）に仕掛かりが積み上がり、
+        // 見ている側がその後ろで待つ——実測で送りが3.0秒になった
+        if (
+          it.needs_transcode &&
+          (!navSettled ||
+            !(fullLoaded || viewerInfo.item.is_video) ||
+            transcodes >= PRELOAD_MAX_TRANSCODES)
+        )
+          continue;
+        const b = decodedBytes(it);
+        // 入らない1枚が出たら、そこで打ち切る（近い順に並んでいる）
+        if (bytes + b > PRELOAD_BUDGET_BYTES) break;
+        bytes += b;
+        if (it.needs_transcode) transcodes++;
+        out.push(it);
+      }
+      return out;
+    };
 
     let cancelled = false;
     const apply = (items: MediaItem[]) => {
@@ -1365,11 +1376,11 @@ export default function App() {
           : items,
       );
     };
-    // まだ聞いていないidは**先読みしない**まま出す。プレースホルダを裏で
-    // 読んでしまうより、答えが返るまでの数十msを待つほうがましである
-    apply(chosen.filter((it) => cloudOnlyRef.current.get(it.id) === false));
-    const unknown = chosen
-      .filter((it) => !cloudOnlyRef.current.has(it.id))
+    apply(select());
+    // 聞くのは候補ぜんぶ（多くても前後8枚ずつ）。判定はファイル属性を見るだけで
+    // 中身は開かないので、ダウンロードは起きない
+    const unknown = ordered
+      .filter((it) => !it.is_video && !cloudOnlyRef.current.has(it.id))
       .map((it) => it.id)
       .slice(0, CLOUD_ASK_MAX);
     if (unknown.length > 0) {
@@ -1377,7 +1388,7 @@ export default function App() {
         .then((cloud) => {
           for (const id of unknown) cloudOnlyRef.current.set(id, false);
           for (const id of cloud) cloudOnlyRef.current.set(id, true);
-          apply(chosen.filter((it) => !cloudOnlyRef.current.get(it.id)));
+          apply(select());
         })
         .catch(() => {
           // 聞けなかったら先読みしない（勝手にダウンロードを起こさない）
