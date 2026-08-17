@@ -7,6 +7,7 @@
 //! - 同名・別サイズなら `名前-1.jpg` 形式で衝突回避
 //! - コピー後にサイズ比較で検証する（`verify_after_copy`）
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Local, TimeZone};
@@ -140,7 +141,7 @@ fn sanitize_relative(rendered: &str) -> String {
 }
 
 /// コピー先パスの決定結果。
-enum DestResolution {
+pub(crate) enum DestResolution {
     /// このパスへコピーする
     CopyTo(PathBuf),
     /// 同名・同サイズのファイルが既にある（取り込み済み）
@@ -150,12 +151,66 @@ enum DestResolution {
 }
 
 /// コピー先のフルパスを決める。同名・別内容の場合は `-1`, `-2` … で衝突回避。
-fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64) -> DestResolution {
+pub(crate) fn resolve_dest_path(
+    dest_dir: &Path,
+    file_name: &str,
+    src_size: u64,
+    src_mtime_ms: i64,
+) -> DestResolution {
+    resolve_dest_path_avoiding(dest_dir, file_name, src_size, src_mtime_ms, &HashSet::new())
+}
+
+/// 「同じもの」と見なしてよいか。**サイズと更新時刻だけで決める**
+/// （このリポジトリの差分検知の原則。ハッシュは取らない——衝突のたびに
+/// 両方を丸ごと読み直すことになり、USBへの再書き出しで全ファイルに効いてしまう）。
+///
+/// 更新時刻は**2秒の幅**を持たせる。FAT32 は2秒刻みでしか保持できないので、
+/// USBメモリへ書き出したものを比べると、厳密一致では必ず別物になる。
+///
+/// **ちょうど1時間のずれも同じものとみなす**。FAT32 は更新時刻をローカル時刻で
+/// 持つため、夏時間の切り替えをまたぐと同じファイルが1時間ずれて見える
+/// （robocopy の `/DST` と同じ話。日本では起きないが、英語でも配っている）。
+/// これを見落とすと、**カード1枚が丸ごと二重に取り込まれる**。
+/// 誤って同じとみなすのは「名前もサイズも同じで、撮影時刻がちょうど1時間違い」の
+/// 別写真だけで、取りこぼしの害のほうが大きい。
+fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
+    let Ok(meta) = existing.metadata() else {
+        return false;
+    };
+    if meta.len() != src_size {
+        return false;
+    }
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    let dest_ms = filetime::FileTime::from_system_time(mtime).unix_seconds() * 1000;
+    let diff = (dest_ms - src_mtime_ms).abs();
+    diff <= MTIME_TOLERANCE_MS || (diff - 3_600_000).abs() <= MTIME_TOLERANCE_MS
+}
+
+/// 更新時刻の許容差（FAT32 の2秒刻み）。
+const MTIME_TOLERANCE_MS: i64 = 2_000;
+
+/// 上と同じだが、**この操作で自分が書いたばかりのパス**（`taken`）は
+/// 「同じもの」と見なさずに連番へ回す。
+///
+/// 「同名・同サイズなら同じもの」は取り込みでは成り立つ（日付でフォルダが分かれるので、
+/// 別の日の同名ファイルが同じフォルダへ来ない）。**平置きの書き出しでは成り立たない**
+/// ——カメラの連番が一周すると別の日の `DSC00001.ARW` が同じフォルダへ落ちるし、
+/// 非圧縮RAWは中身が違ってもサイズが同じになる。**選んだ写真が黙って1枚欠ける**ので、
+/// 自分が書いたものとの衝突は必ず連番で避ける。
+pub(crate) fn resolve_dest_path_avoiding(
+    dest_dir: &Path,
+    file_name: &str,
+    src_size: u64,
+    src_mtime_ms: i64,
+    taken: &HashSet<PathBuf>,
+) -> DestResolution {
     let candidate = dest_dir.join(file_name);
-    if !candidate.exists() {
+    if !candidate.exists() && !taken.contains(&candidate) {
         return DestResolution::CopyTo(candidate);
     }
-    if candidate.metadata().map(|m| m.len()).ok() == Some(src_size) {
+    if !taken.contains(&candidate) && looks_same(&candidate, src_size, src_mtime_ms) {
         return DestResolution::AlreadyImported;
     }
     let (stem, ext) = match (
@@ -167,10 +222,13 @@ fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64) -> DestRes
     };
     for i in 1..1000 {
         let alt = dest_dir.join(format!("{stem}-{i}{ext}"));
+        if taken.contains(&alt) {
+            continue;
+        }
         if !alt.exists() {
             return DestResolution::CopyTo(alt);
         }
-        if alt.metadata().map(|m| m.len()).ok() == Some(src_size) {
+        if looks_same(&alt, src_size, src_mtime_ms) {
             return DestResolution::AlreadyImported;
         }
     }
@@ -309,12 +367,13 @@ pub fn is_already_imported(path: &Path, config: &Config) -> bool {
     let Ok(meta) = std::fs::metadata(path) else {
         return false;
     };
-    let dest_dir = dest_dir_for(path, mtime_ms_of(&meta), dest_root, config);
+    let mtime_ms = mtime_ms_of(&meta);
+    let dest_dir = dest_dir_for(path, mtime_ms, dest_root, config);
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
     matches!(
-        resolve_dest_path(&dest_dir, file_name, meta.len()),
+        resolve_dest_path(&dest_dir, file_name, meta.len(), mtime_ms),
         DestResolution::AlreadyImported
     )
 }
@@ -369,7 +428,7 @@ fn import_one(
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return ImportOneResult::Failed;
     };
-    let dest_path = match resolve_dest_path(&dest_dir, file_name, size) {
+    let dest_path = match resolve_dest_path(&dest_dir, file_name, size, mtime_ms) {
         DestResolution::CopyTo(p) => p,
         DestResolution::AlreadyImported => return ImportOneResult::Skipped,
         // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される
@@ -429,6 +488,33 @@ mod tests {
             "2026/2026-08-05"
         );
         assert_eq!(render_folder_pattern("{year}/{month}", date), "2026/08");
+    }
+
+    #[test]
+    fn 同名同サイズでも更新時刻が違えば取り込み済みとみなさない() {
+        // 差分検知の原則（サイズと更新時刻だけを見る）を取り込みの重複判定にも
+        // 効かせている。**別の日の同名ファイル**（連番が一周したRAW等）を
+        // 「もう取り込んだ」と誤判定して落とさないため
+        let dir = tempfile::tempdir().unwrap();
+        let dest_dir = dir.path().join("dest");
+        fs::create_dir_all(&dest_dir).unwrap();
+        fs::write(dest_dir.join("DSC00001.ARW"), b"1111").unwrap();
+        filetime::set_file_mtime(
+            dest_dir.join("DSC00001.ARW"),
+            filetime::FileTime::from_unix_time(1_000_000_000, 0),
+        )
+        .unwrap();
+
+        // 同じ名前・同じサイズ・別の時刻 → 連番へ回る
+        assert!(matches!(
+            resolve_dest_path(&dest_dir, "DSC00001.ARW", 4, 1_700_000_000_000),
+            DestResolution::CopyTo(_)
+        ));
+        // 時刻も合っていれば「もうある」
+        assert!(matches!(
+            resolve_dest_path(&dest_dir, "DSC00001.ARW", 4, 1_000_000_000_000),
+            DestResolution::AlreadyImported
+        ));
     }
 
     #[test]

@@ -63,6 +63,21 @@ export interface ImportStats {
   scan_incomplete: boolean;
 }
 
+export interface ExportStats {
+  done: number;
+  skipped: number;
+  failed: number;
+  /** コピーはできたが、元を消せなかった件数（移動のときだけ） */
+  left_behind: number;
+}
+
+export interface ExportProgress {
+  done: number;
+  total: number;
+  /** いま書き出したファイルの名前（場所は渡さない） */
+  name: string;
+}
+
 export interface ImportProgress {
   done: number;
   total: number;
@@ -316,6 +331,14 @@ export const listMediaIdsBetween = (
  * 渡したIDのうち、**いまの条件で実際に一覧に並んでいるもの**だけを取る。
  * 返る順は渡した順。一括操作の直前の確認に使う。
  */
+/**
+ * 選んだものを、指定したフォルダへ**コピー／移動**する。
+ *
+ * 書き出し先は平置き（日付のフォルダは作らない）。移動でライブラリから出たぶんは
+ * DBの行も落ちる。`leftBehind` は「コピーはできたが元を消せなかった」件数。
+ */
+export const exportMedia = (ids: number[], dest: string, moveFiles: boolean) =>
+  invoke<ExportStats>("export_media", { ids, dest, moveFiles });
 export const visibleMediaIds = (
   query: string,
   favoritesOnly: boolean,

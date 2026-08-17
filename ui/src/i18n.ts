@@ -177,6 +177,22 @@ const ja = {
   bulkFavoriteOn: "お気に入りに追加",
   bulkFavoriteOff: "お気に入りを外す",
   bulkDelete: "ゴミ箱へ",
+  bulkCopy: "フォルダへコピー",
+  bulkMove: "フォルダへ移動",
+  pickExportFolder: "書き出し先のフォルダを選ぶ",
+  moveConfirm: (n: number) =>
+    n === 1
+      ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（お気に入りは引き継がれません）。"
+      : `${n}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（お気に入りは引き継がれません）。`,
+  exporting: (done: number, total: number, name: string) =>
+    `書き出し中… ${done}/${total} ${name}`,
+  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts = [`${done}枚を書き出しました`];
+    if (skipped > 0) parts.push(`${skipped}枚は同じものが既にありました`);
+    if (failed > 0) parts.push(`${failed}枚は失敗しました`);
+    if (leftBehind > 0) parts.push(`${leftBehind}枚は元を消せませんでした`);
+    return parts.join("。");
+  },
   bulkFavoriteDone: (n: number) => `${n}枚をお気に入りに追加しました`,
   bulkUnfavoriteDone: (n: number) => `${n}枚のお気に入りを外しました`,
   // 設定
@@ -389,6 +405,22 @@ const en: Dict = {
   bulkFavoriteOn: "Add to favorites",
   bulkFavoriteOff: "Remove from favorites",
   bulkDelete: "Move to trash",
+  bulkCopy: "Copy to folder",
+  bulkMove: "Move to folder",
+  pickExportFolder: "Choose a folder to export to",
+  moveConfirm: (n: number) =>
+    n === 1
+      ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (favorites are not carried over)."
+      : `Move ${n} photos to a folder you pick next? They leave their current place and leave the library (favorites are not carried over).`,
+  exporting: (done: number, total: number, name: string) =>
+    `Exporting… ${done}/${total} ${name}`,
+  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts = [done === 1 ? "Exported 1 photo" : `Exported ${done} photos`];
+    if (skipped > 0) parts.push(`${skipped} already there`);
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (leftBehind > 0) parts.push(`${leftBehind} could not be removed from the original place`);
+    return parts.join(". ") + ".";
+  },
   bulkFavoriteDone: (n: number) =>
     n === 1 ? "1 photo added to favorites" : `${n} photos added to favorites`,
   bulkUnfavoriteDone: (n: number) =>

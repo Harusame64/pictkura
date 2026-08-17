@@ -1053,6 +1053,45 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
     })
 }
 
+/// まとめて**ゴミ箱へ**送り、（実体が消えた意味で）片付いたパスと最初のエラーを返す。
+///
+/// 実体がもう無いものは**先に分ける**。ファイルが1つ欠けるだけで、まとめての操作は
+/// 全体が失敗して1件ずつへ落ちてしまう（選択したあとに外から消えるのは、
+/// 同期フォルダでは普通に起きる）。無いものはDBからだけ落とす（実体に合わせる）。
+///
+/// **まとめて1回で渡す**のが要点。Windowsの `trash::delete` は1件ごとにシェルの
+/// ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
+/// 失敗したときだけ1件ずつへ落とし、**消せたぶんだけ**返す。
+fn trash_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Option<String>) {
+    let (mut gone, present): (Vec<PathBuf>, Vec<PathBuf>) =
+        paths.into_iter().partition(|p| !p.exists());
+    match trash::delete_all(&present) {
+        Ok(()) => {
+            gone.extend(present);
+            (gone, None)
+        }
+        Err(_) => {
+            let mut first_err: Option<String> = None;
+            for path in present {
+                // ファイルが既に無い場合も片付いた扱い（実体に合わせる）。
+                // まとめての操作が途中まで通っていたぶんも、ここで拾える
+                match trash::delete(&path) {
+                    Ok(()) => gone.push(path),
+                    Err(_) if !path.exists() => gone.push(path),
+                    Err(e) => {
+                        // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
+                        // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
+                        if first_err.is_none() {
+                            first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+                        }
+                    }
+                }
+            }
+            (gone, first_err)
+        }
+    }
+}
+
 /// ファイルを**ゴミ箱へ**移動し、DBからも取り除く。
 ///
 /// 完全削除はしない（写真は取り返しがつかないため、OSのゴミ箱経由にして
@@ -1065,41 +1104,7 @@ fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usiz
         .iter()
         .filter_map(|id| path_of(&state, *id).ok())
         .collect();
-    // 実体がもう無いものは**先に分ける**。ファイルが1つ欠けるだけで
-    // まとめての操作は全体が失敗し、下の1件ずつへ落ちてしまう
-    // （選択したあとに外から消えるのは、同期フォルダでは普通に起きる）。
-    // 無いものはDBからだけ落とす（実体に合わせる）
-    let (mut deleted, present): (Vec<PathBuf>, Vec<PathBuf>) =
-        paths.into_iter().partition(|p| !p.exists());
-    // **まとめて1回で渡す**。Windowsの `trash::delete` は1件ごとにシェルの
-    // ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
-    // 失敗したら下の1件ずつへ落とし、**消せたぶんだけ**DBへ反映する
-    let first_err = match trash::delete_all(&present) {
-        Ok(()) => {
-            deleted.extend(present);
-            None
-        }
-        Err(_) => {
-            let mut first_err: Option<String> = None;
-            for path in present {
-                // ファイルが既に無い場合もDBからは消す（実体に合わせる）。
-                // まとめての操作が途中まで通っていたぶんも、ここで拾える
-                match trash::delete(&path) {
-                    Ok(()) => deleted.push(path),
-                    Err(_) if !path.exists() => deleted.push(path),
-                    Err(e) => {
-                        // **ここで返してはいけない**。既にゴミ箱へ入れたぶんがDBに残り、
-                        // 一覧には居るのに実体が無い行になる。最初のエラーだけ覚えて、
-                        // **消せたぶんは必ずDBへ反映してから**返す
-                        if first_err.is_none() {
-                            first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
-                        }
-                    }
-                }
-            }
-            first_err
-        }
-    };
+    let (deleted, first_err) = trash_paths(paths);
     if !deleted.is_empty() {
         lock_ok(&state.db)
             .remove_paths(&deleted)
@@ -1112,6 +1117,77 @@ fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usiz
         Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
         None => Ok(deleted.len()),
     }
+}
+
+/// 書き出し（コピー／移動）の結果。
+#[derive(serde::Serialize)]
+struct ExportStatsDto {
+    done: usize,
+    skipped: usize,
+    failed: usize,
+    /// コピーはできたが、**元を消せなかった**件数（移動のときだけ）。
+    /// 両方に残っているので、黙って「移動しました」と言ってはいけない
+    left_behind: usize,
+}
+
+/// 選んだものを、指定のフォルダへ**コピー／移動**する。
+///
+/// 書き出し先は利用者がフォルダ選択ダイアログで選んだ場所（ライブラリの外が普通）。
+/// 移動でライブラリから出たぶんは、**DBの行も落とす**——残すと、一覧には居るのに
+/// 実体が別の場所にある行になる。移動先がライブラリの中なら、監視が拾い直す。
+#[tauri::command]
+async fn export_media(
+    app: tauri::AppHandle,
+    ids: Vec<i64>,
+    dest: String,
+    move_files: bool,
+) -> Result<ExportStatsDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
+        let paths: Vec<PathBuf> = ids
+            .iter()
+            .filter_map(|id| path_of(&state, *id).ok())
+            .collect();
+        let mode = if move_files {
+            pictkura_core::ExportMode::Move
+        } else {
+            pictkura_core::ExportMode::Copy
+        };
+        let progress_app = app.clone();
+        let outcome = pictkura_core::export_files(
+            &paths,
+            Path::new(&dest),
+            mode,
+            move |done, total, path| emit_export_progress(&progress_app, done, total, path),
+        )
+        .map_err(|e| e.to_string())?;
+
+        let mut stats = ExportStatsDto {
+            done: outcome.stats.done,
+            skipped: outcome.stats.skipped,
+            failed: outcome.stats.failed,
+            left_behind: 0,
+        };
+        // 別のドライブへ移したぶんは、コピーが済んでいて元が残っている。
+        // **元はゴミ箱へ**送る——「アプリがファイルを直接消すことはない」を移動でも守る
+        let mut gone = outcome.moved;
+        if !outcome.to_remove.is_empty() {
+            let asked = outcome.to_remove.len();
+            let (trashed, _) = trash_paths(outcome.to_remove);
+            stats.left_behind = asked - trashed.len();
+            gone.extend(trashed);
+        }
+        if !gone.is_empty() {
+            lock_ok(&state.db)
+                .remove_paths(&gone)
+                .map_err(|e| e.to_string())?;
+            let _ = app.emit("library-updated", ());
+        }
+        Ok(stats)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 取り込み先フォルダ構成の選択肢1つ（パターンと、今日の日付での実例）。
@@ -1583,6 +1659,33 @@ fn emit_import_progress(app: &tauri::AppHandle, done: usize, total: usize, path:
             done,
             total,
             path: path.to_string_lossy().into_owned(),
+        },
+    );
+}
+
+/// 書き出しの進捗。**ファイル名だけ**を送る（一覧の外の場所を webview へ渡さない）。
+#[derive(Clone, serde::Serialize)]
+struct ExportProgress {
+    done: usize,
+    total: usize,
+    name: String,
+}
+
+fn emit_export_progress(app: &tauri::AppHandle, done: usize, total: usize, path: &Path) {
+    // 取り込みと同じ間引き（1件ごとに送ると、数千件でイベントが溢れる）
+    let step = (total / 200).max(1);
+    if !done.is_multiple_of(step) && done != total {
+        return;
+    }
+    let _ = app.emit(
+        "export-progress",
+        ExportProgress {
+            done,
+            total,
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
         },
     );
 }
@@ -2436,6 +2539,7 @@ pub fn run() {
             set_folder_pattern,
             preview_folder_pattern,
             set_favorites,
+            export_media,
             list_media_ids,
             list_media_ids_between,
             visible_media_ids,
