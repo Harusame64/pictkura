@@ -1274,9 +1274,13 @@ export default function App() {
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
-    // 前の絵に立てた印は捨てる。**nullへ戻すのは真偽値時代の問題を起こさない**
-    // ——残った古いidは新しいidと一致せず、隠れたままだから
+    // 前の絵に立てた印は**3つとも**捨てる。残しておくと、A→B→Aと戻ったときに
+    // 「Aはもう出ている・落ち着いている」が最初から成立し、**まだ動いている
+    // 最中なのに裏の詰め直しが始まる**（門の意味が消える）。
+    // nullへ戻すのは安全な向き——古いidが新しいidと一致して門が開くことは無い
     setSlowId(null);
+    setLoadedId(null);
+    setSettledId(null);
     if (viewerItemId === undefined) return;
     const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが

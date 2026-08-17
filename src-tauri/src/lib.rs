@@ -1035,16 +1035,25 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
     if ids.len() > MAX_IDS {
         return Err(format!("一度に聞けるのは{MAX_IDS}件までです"));
     }
-    Ok(state.read_pool.with(|db| {
-        ids.into_iter()
-            .filter(|&id| {
-                db.get_by_id(id)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|r| pictkura_core::cloud::is_cloud_only_path(&r.path))
-            })
-            .collect()
-    }))
+    state.read_pool.with(|db| {
+        let mut cloud = Vec::new();
+        for id in ids {
+            match db.get_by_id(id) {
+                Ok(Some(r)) => {
+                    if pictkura_core::cloud::is_cloud_only_path(&r.path) {
+                        cloud.push(id);
+                    }
+                }
+                // 行が消えている: 配信も404になるので、先読みしても何も起きない
+                Ok(None) => {}
+                // **引けなかったら断る**。返さないidをフロントは「ローカルにある」と
+                // 読むので、DBの一時的な失敗が**先読みのダウンロード**に化ける。
+                // ここは開いて困る側なので、迷ったら答えない
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(cloud)
+    })
 }
 
 /// レコードIDから実ファイルのパスを引く（ファイル操作コマンドの共通部）。
