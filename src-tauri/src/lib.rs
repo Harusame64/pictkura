@@ -1060,26 +1060,38 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
 /// 戻り値は実際に削除できた件数。
 #[tauri::command]
 fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
-    let mut deleted: Vec<PathBuf> = Vec::new();
-    let mut first_err: Option<String> = None;
-    for id in &ids {
-        let Ok(path) = path_of(&state, *id) else {
-            continue;
-        };
-        // ファイルが既に無い場合もDBからは消す（実体に合わせる）
-        match trash::delete(&path) {
-            Ok(()) => deleted.push(path),
-            Err(_) if !path.exists() => deleted.push(path),
-            Err(e) => {
-                // **ここで返してはいけない**。既にゴミ箱へ入れたぶんがDBに残り、
-                // 一覧には居るのに実体が無い行になる。最初のエラーだけ覚えて、
-                // **消せたぶんは必ずDBへ反映してから**返す
-                if first_err.is_none() {
-                    first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+    // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
+    let paths: Vec<PathBuf> = ids
+        .iter()
+        .filter_map(|id| path_of(&state, *id).ok())
+        .collect();
+    // **まとめて1回で渡す**。Windowsの `trash::delete` は1件ごとにシェルの
+    // ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
+    // 失敗したら下の1件ずつへ落とし、**消せたぶんだけ**DBへ反映する
+    let (deleted, first_err) = match trash::delete_all(&paths) {
+        Ok(()) => (paths, None),
+        Err(_) => {
+            let mut deleted: Vec<PathBuf> = Vec::new();
+            let mut first_err: Option<String> = None;
+            for path in paths {
+                // ファイルが既に無い場合もDBからは消す（実体に合わせる）。
+                // まとめての操作が途中まで通っていたぶんも、ここで拾える
+                match trash::delete(&path) {
+                    Ok(()) => deleted.push(path),
+                    Err(_) if !path.exists() => deleted.push(path),
+                    Err(e) => {
+                        // **ここで返してはいけない**。既にゴミ箱へ入れたぶんがDBに残り、
+                        // 一覧には居るのに実体が無い行になる。最初のエラーだけ覚えて、
+                        // **消せたぶんは必ずDBへ反映してから**返す
+                        if first_err.is_none() {
+                            first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+                        }
+                    }
                 }
             }
+            (deleted, first_err)
         }
-    }
+    };
     if !deleted.is_empty() {
         lock_ok(&state.db)
             .remove_paths(&deleted)

@@ -193,7 +193,28 @@ The controls fade out when the mouse stops and come back when it moves. Right-cl
 open / open with / show in folder / move to trash. **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright.
 
-### 6. Language
+### 6. Select several at once
+
+Hover a tile and click the circle in its corner, or `Ctrl` + click it (`⌘` on macOS), to
+start selecting. A bar appears at the top of the window with what you can do to the
+selection.
+
+| Action | What it does |
+|---|---|
+| circle, or `Ctrl` + click | add or remove one photo |
+| `Shift` + click | select everything between the tile you clicked last and this one — days you have not scrolled to yet are included |
+| click a date heading | select that whole day; click it again to unselect it |
+| `Ctrl` + `A` | select everything the current search and ★ filter match |
+| `Esc` | stop selecting |
+
+While something is selected, a plain click toggles a tile instead of opening the viewer.
+From the bar you can add or remove ★ for the whole selection, or move all of it to the
+recycle bin in one go — it asks first, and **deleting still goes through the recycle bin**.
+
+The selection follows what is on screen. Changing the search or the ★ filter, or switching
+to the calendar, clears it, so a bulk action never reaches photos you cannot see.
+
+### 7. Language
 
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
 overrides that; switching reloads the window.

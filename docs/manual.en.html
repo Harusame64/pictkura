@@ -91,6 +91,7 @@
     <li><a href="#folders">Decide how imported photos are filed</a></li>
     <li><a href="#search">Find</a></li>
     <li><a href="#viewer">Look</a></li>
+    <li><a href="#select">Select several at once</a></li>
     <li><a href="#formats">Supported file formats</a></li>
     <li><a href="#cloud">Files that only exist in the cloud</a></li>
     <li><a href="#notes">Limitations and things it does not do</a></li>
@@ -310,7 +311,41 @@ An editing app you pick once is remembered and appears in the menu from then on.
   </p>
 </div>
 
-<h2 id="formats">6. Supported file formats</h2>
+<h2 id="select">6. Select several at once</h2>
+
+<p>
+Hover a tile and click the circle in its corner, or <kbd>Ctrl</kbd> + click it
+(<kbd>⌘</kbd> on macOS), to start selecting. A bar appears at the top of the window with
+what you can do to the selection.
+</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>Action</th><th>What it does</th></tr>
+  <tr><td>The circle, or <kbd>Ctrl</kbd> + click</td><td>Add or remove one photo</td></tr>
+  <tr><td><kbd>Shift</kbd> + click</td><td>Select everything between the tile you clicked last and this one. Days you have not scrolled to yet are included</td></tr>
+  <tr><td>Click a date heading</td><td>Select that whole day. Click it again to unselect it</td></tr>
+  <tr><td><kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select everything the current search and ★ filter match</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>Stop selecting</td></tr>
+</table>
+</div>
+
+<p>
+While something is selected, a plain click toggles a tile instead of opening the viewer.
+From the bar you can add or remove ★ for the whole selection, or move all of it to the
+Recycle Bin in one go. It asks before deleting.
+</p>
+
+<div class="note">
+  <p>
+    <strong>The selection follows what is on screen.</strong>
+    Changing the search or the ★ filter, or switching to the calendar, clears it — so a
+    bulk action never reaches photos you cannot see. Deleting still goes through the
+    Recycle Bin.
+  </p>
+</div>
+
+<h2 id="formats">7. Supported file formats</h2>
 
 <h3>Photos</h3>
 <div class="table-scroll">
@@ -355,7 +390,7 @@ Duration, dimensions and capture time come from the container header alone — n
 of pixel data is read.
 </p>
 
-<h2 id="cloud">7. Files that only exist in the cloud</h2>
+<h2 id="cloud">8. Files that only exist in the cloud</h2>
 
 <p>
 On Windows, “Pictures” points at OneDrive by default, and after a while much of what is in it
@@ -377,7 +412,7 @@ is a marker.
   <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
-<h2 id="notes">8. Limitations and things it does not do</h2>
+<h2 id="notes">9. Limitations and things it does not do</h2>
 
 <div class="table-scroll">
 <table>
@@ -395,7 +430,7 @@ is a marker.
 </table>
 </div>
 
-<h2 id="files">9. Where settings and data live</h2>
+<h2 id="files">10. Where settings and data live</h2>
 
 <div class="table-scroll">
 <table>

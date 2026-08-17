@@ -1441,17 +1441,6 @@ export default function App() {
     [],
   );
 
-  /**
-   * いまの「何を選べる状態か」を表す鍵。並びの鍵に**選択操作の世代**を足したもの。
-   *
-   * **非同期の選択はこれを前後で見比べる**。待っている間に条件が変わったのに
-   * 古い結果で選択を作ると、**画面に出ていない写真が選ばれたまま**になり、
-   * 一括削除がそこに効く。Escでの解除は条件を変えないので、世代の分だけ見分けがつく。
-   */
-  const selectionKey = useCallback(
-    () => `${resultKey()}\u0000${selectEpochRef.current}`,
-    [resultKey],
-  );
 
   /**
    * いまの検索条件に一致する全IDを、一覧の並び順で取る（控えがあればそれ）。
@@ -1471,6 +1460,28 @@ export default function App() {
     if (resultKey() === key) idsCacheRef.current = { key, ids };
     return ids;
   }, [resultKey]);
+
+  /**
+   * 全IDを、**並びが動いていない状態で**取る。取れなければ null。
+   *
+   * 引き直すのが要点。サムネイルの一括生成中は `refreshSummary` が数秒おきに
+   * 控えを捨てるので、1回きりの見比べだと待っている全選択・範囲選択が片端から落ち、
+   * **押しても何も起きない**操作になる。
+   *
+   * ただし**選択の世代が進んだら諦める**——Escでの解除や、あとから来た別の選択操作を、
+   * 古い応答が上書きしてはいけない。検索条件やフィルタの変更も世代を進めるので、
+   * 「画面に出ていないものが選ばれたまま」にはならない。
+   */
+  const stableIds = useCallback(async () => {
+    const epoch = selectEpochRef.current;
+    for (let i = 0; i < 3; i++) {
+      const key = resultKey();
+      const ids = await orderedIds();
+      if (selectEpochRef.current !== epoch) return null;
+      if (resultKey() === key) return ids;
+    }
+    return null;
+  }, [orderedIds, resultKey]);
 
   /** 1枚の選択を入れ替える */
   const toggleOne = useCallback((id: number) => {
@@ -1493,10 +1504,9 @@ export default function App() {
   const selectRange = useCallback(
     async (fromId: number, toId: number) => {
       beginSelectOp();
-      const key = selectionKey();
-      const ids = await orderedIds();
-      // 待っている間に条件が変わったら、古い並びで選択を作らない
-      if (selectionKey() !== key) return;
+      // 待っている間に解除・別の選択が入ったら、古い並びで選択を作らない
+      const ids = await stableIds();
+      if (!ids) return;
       const a = ids.indexOf(fromId);
       const b = ids.indexOf(toId);
       if (a < 0 || b < 0) {
@@ -1519,19 +1529,21 @@ export default function App() {
       setSelected(next);
       // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
     },
-    [orderedIds, selectionKey, toggleOne],
+    [stableIds, toggleOne],
   );
 
   /** その日をまとめて選ぶ／外す（日付の見出しを押したとき） */
   const toggleDay = useCallback(
     async (dayKey: number) => {
       beginSelectOp();
-      const key = selectionKey();
+      const epoch = selectEpochRef.current;
       const loaded = dayItems.get(dayKey);
       const items =
         loaded ??
         (await listDay(dayKey, queryRef.current, filterRef.current === "fav"));
-      if (selectionKey() !== key) return;
+      // 待っている間に解除・別の選択・条件変更が入っていたら捨てる
+      // （条件の変更も選択の世代を進める）
+      if (selectEpochRef.current !== epoch) return;
       const ids = items.map((it) => it.id);
       if (ids.length === 0) return;
       setSelected((prev) => {
@@ -1547,19 +1559,18 @@ export default function App() {
       setAnchorId(ids[0]);
       lastRangeRef.current = null;
     },
-    [dayItems, selectionKey],
+    [dayItems],
   );
 
   /** 表示中の条件に一致する全部を選ぶ（Ctrl+A） */
   const selectAll = useCallback(async () => {
     beginSelectOp();
-    const key = selectionKey();
-    const ids = await orderedIds();
-    if (selectionKey() !== key) return;
+    const ids = await stableIds();
+    if (!ids) return;
     setSelected(new Set(ids));
     setAnchorId(ids[0] ?? null);
     lastRangeRef.current = null;
-  }, [orderedIds, selectionKey]);
+  }, [stableIds]);
 
   /**
    * 一括操作に掛ける前に、**いまの条件で本当に出ているものだけへ絞る**。
@@ -1572,14 +1583,13 @@ export default function App() {
   const visibleSelection = useCallback(async () => {
     const current = selectedRef.current;
     if (current.size === 0) return [];
-    const key = selectionKey();
-    const ids = await orderedIds();
-    if (selectionKey() !== key) return [];
+    const ids = await stableIds();
+    if (!ids) return [];
     const valid = new Set(ids);
     const kept = [...current].filter((id) => valid.has(id));
     if (kept.length !== current.size) setSelected(new Set(kept));
     return kept;
-  }, [orderedIds, selectionKey]);
+  }, [stableIds]);
 
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
@@ -1653,15 +1663,18 @@ export default function App() {
     async (favorite: boolean) => {
       const ids = await visibleSelection();
       if (ids.length === 0) return;
+      // **絞ったあとのIDで画面も触る**。`visibleSelection` が落としたぶん
+      // （もう画面に出ていないもの）まで★を付け替えると、表示だけが嘘になる
+      const touched = new Set(ids);
       const patch = (fav: boolean) => {
         setDayItems((prev) => {
           const next = new Map(prev);
           for (const [dayKey, items] of prev) {
-            if (!items.some((it) => selected.has(it.id))) continue;
+            if (!items.some((it) => touched.has(it.id))) continue;
             next.set(
               dayKey,
               items.map((it) =>
-                selected.has(it.id) ? { ...it, favorite: fav } : it,
+                touched.has(it.id) ? { ...it, favorite: fav } : it,
               ),
             );
           }
@@ -1679,7 +1692,7 @@ export default function App() {
         setDayItems((prev) => {
           const next = new Map(prev);
           for (const [dayKey, items] of prev) {
-            if (items.some((it) => selected.has(it.id))) next.delete(dayKey);
+            if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
           }
           return next;
         });
@@ -1692,13 +1705,15 @@ export default function App() {
       if (filterRef.current === "fav") await reloadAll();
       else await refreshSummary();
     },
-    [selected, visibleSelection, reloadAll, refreshSummary, clearSelection],
+    [visibleSelection, reloadAll, refreshSummary, clearSelection],
   );
 
   /** 選んだものをまとめてゴミ箱へ（確認あり） */
   const onBulkDelete = useCallback(async () => {
     const ids = await visibleSelection();
     if (ids.length === 0) return;
+    // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
+    const touched = new Set(ids);
     const ok = await confirmDialog(t.deleteConfirm(ids.length), {
       title: t.appName,
       kind: "warning",
@@ -1711,11 +1726,11 @@ export default function App() {
       setDayItems((prev) => {
         const next = new Map(prev);
         for (const [dayKey, items] of prev) {
-          if (items.some((it) => selected.has(it.id))) next.delete(dayKey);
+          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
         }
         return next;
       });
-      setViewer((v) => (v && selected.has(v.id as number) ? null : v));
+      setViewer((v) => (v && touched.has(v.id as number) ? null : v));
       invalidateIds();
       clearSelection();
       await refreshSummary();
@@ -1727,7 +1742,7 @@ export default function App() {
       setDayItems((prev) => {
         const next = new Map(prev);
         for (const [dayKey, items] of prev) {
-          if (items.some((it) => selected.has(it.id))) next.delete(dayKey);
+          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
         }
         return next;
       });
@@ -1735,7 +1750,7 @@ export default function App() {
       clearSelection();
       await refreshSummary().catch(() => {});
     }
-  }, [selected, visibleSelection, refreshSummary, clearSelection]);
+  }, [visibleSelection, refreshSummary, clearSelection]);
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
   const onOpenWithOther = useCallback(
