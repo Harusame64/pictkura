@@ -208,8 +208,16 @@ selection.
 | `Esc` | stop selecting |
 
 While something is selected, a plain click toggles a tile instead of opening the viewer.
-From the bar you can add or remove ★ for the whole selection, or move all of it to the
-recycle bin in one go — it asks first, and **deleting still goes through the recycle bin**.
+From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
+you pick, or move all of it to the recycle bin in one go — deleting asks first, and
+**it still goes through the recycle bin**.
+
+**Copy to folder / Move to folder** put the selected files straight into the folder you
+pick, without date subfolders — handy for handing a few photos to someone or filling a USB
+stick. A file that is already there with the same name and size is left alone; a different
+file with the same name gets `-1`, `-2` appended. Moving asks first: those photos leave
+their current place and leave the library, and their ★ is not carried over. Moving to
+another drive copies first and then sends the original to the recycle bin.
 
 The selection follows what is on screen. Changing the search or the ★ filter, or switching
 to the calendar, clears it, so a bulk action never reaches photos you cannot see.

@@ -332,9 +332,34 @@ what you can do to the selection.
 
 <p>
 While something is selected, a plain click toggles a tile instead of opening the viewer.
-From the bar you can add or remove ★ for the whole selection, or move all of it to the
-Recycle Bin in one go. It asks before deleting.
+From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
+you pick, or move all of it to the Recycle Bin in one go. It asks before deleting.
 </p>
+
+<h3>Copy to folder / Move to folder</h3>
+
+<p>
+These put the selected files straight into the folder you pick, without date subfolders —
+handy for handing a few photos to someone, or filling a USB stick. A file that is already
+there with the same name and size is left alone; a different file with the same name gets
+<code>-1</code>, <code>-2</code> appended.
+</p>
+
+<div class="note warn">
+  <p>
+    <strong>Moving takes those photos out of the library.</strong>
+    They leave their current place, disappear from the grid, and their ★ is not carried
+    over. pictkura asks first. Moving to another drive copies the file and then sends the
+    original to the Recycle Bin — the app still never removes a file outright.
+  </p>
+</div>
+
+<div class="note">
+  <p>
+    Files that only exist in the cloud are downloaded first, because copying has to read
+    them. See <a href="#cloud">8. Files that only exist in the cloud</a>.
+  </p>
+</div>
 
 <div class="note">
   <p>

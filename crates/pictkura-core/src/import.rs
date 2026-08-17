@@ -140,7 +140,7 @@ fn sanitize_relative(rendered: &str) -> String {
 }
 
 /// コピー先パスの決定結果。
-enum DestResolution {
+pub(crate) enum DestResolution {
     /// このパスへコピーする
     CopyTo(PathBuf),
     /// 同名・同サイズのファイルが既にある（取り込み済み）
@@ -150,7 +150,7 @@ enum DestResolution {
 }
 
 /// コピー先のフルパスを決める。同名・別内容の場合は `-1`, `-2` … で衝突回避。
-fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64) -> DestResolution {
+pub(crate) fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64) -> DestResolution {
     let candidate = dest_dir.join(file_name);
     if !candidate.exists() {
         return DestResolution::CopyTo(candidate);

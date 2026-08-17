@@ -43,6 +43,7 @@ import {
   revealInFolder,
   setFavorite,
   setFavorites,
+  exportMedia,
   listMediaIds,
   listMediaIdsBetween,
   visibleMediaIds,
@@ -55,6 +56,7 @@ import {
   type DriveInfo,
   type ExifInfo,
   type AppConfig,
+  type ExportProgress,
   type ExternalApp,
   type ImportStats,
   type IndexProgress,
@@ -516,12 +518,23 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let unlistenCameras: (() => void) | undefined;
+    let unlistenExport: (() => void) | undefined;
     (async () => {
       const f = await listen<IndexProgress>("index-progress", (ev) => {
         // 中断した場合は「終わった」と誤解させないよう表示を残す
         const p = ev.payload;
         if (!cancelled) setIndexProgress(p.building || p.incomplete ? p : null);
       });
+      // 書き出しの進捗はステータス行に出す（枚数が多いと数分かかる）
+      const exportProgress = await listen<ExportProgress>(
+        "export-progress",
+        (ev) =>
+          setStatus(
+            t.exporting(ev.payload.done, ev.payload.total, ev.payload.name),
+          ),
+      );
+      if (cancelled) exportProgress();
+      else unlistenExport = exportProgress;
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else unlistenCameras = camerasDone;
@@ -538,6 +551,7 @@ export default function App() {
       cancelled = true;
       unlisten?.();
       unlistenCameras?.();
+      unlistenExport?.();
     };
   }, [refreshCameras]);
   // 索引の構築が終わったらカメラ一覧も揃うので取り直す
@@ -1689,6 +1703,40 @@ export default function App() {
     }
   }, [visibleSelection, refreshSummary, clearSelection]);
 
+  /**
+   * 選んだものを、フォルダへコピー／移動する。
+   *
+   * **一括操作の作法は削除と同じ**——先に `visibleSelection` でいま出ているものへ
+   * 絞ってから渡す。移動は元の場所から無くなるので確認を取る。
+   */
+  const onBulkExport = useCallback(
+    async (moveFiles: boolean) => {
+      const ids = await visibleSelection();
+      if (ids.length === 0) return;
+      if (moveFiles) {
+        const ok = await confirmDialog(t.moveConfirm(ids.length), {
+          title: t.appName,
+          kind: "warning",
+        });
+        if (!ok) return;
+      }
+      const dest = await open({ directory: true, title: t.pickExportFolder });
+      if (typeof dest !== "string") return;
+      try {
+        const st = await exportMedia(ids, dest, moveFiles);
+        setStatus(t.exportDone(st.done, st.skipped, st.failed, st.left_behind));
+        if (moveFiles) {
+          // 移動したぶんはライブラリから外れている。選択も画面も取り直す
+          clearSelection();
+          await reloadAll();
+        }
+      } catch (e) {
+        setStatus(String(e));
+      }
+    },
+    [visibleSelection, clearSelection, reloadAll],
+  );
+
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
   const onOpenWithOther = useCallback(
     async (item: MediaItem) => {
@@ -1837,6 +1885,16 @@ export default function App() {
             }
           >
             {t.bulkFavoriteOff}
+          </button>
+          <button
+            onClick={() => onBulkExport(false).catch((e) => setStatus(String(e)))}
+          >
+            {t.bulkCopy}
+          </button>
+          <button
+            onClick={() => onBulkExport(true).catch((e) => setStatus(String(e)))}
+          >
+            {t.bulkMove}
           </button>
           <button
             className="danger"
