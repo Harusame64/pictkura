@@ -124,6 +124,30 @@ fn parent_dir_expr(path_expr: &str) -> String {
 }
 
 /// `IN (...)` 用のプレースホルダ列（`?,?,?`）を作る。
+/// 検索語の条件をどう書くか。**実行計画がこれで決まる**。
+#[derive(Clone, Copy)]
+enum FtsMode {
+    /// 一致するrowidの集合を1回作り、それへの `IN` で絞る。
+    /// 日の一覧・サマリのように「索引でその日へシークしてから絞る」問い合わせ向き。
+    List,
+    /// 候補の行ごとにFTSをrowidで引く（相関サブクエリ）。
+    /// **範囲や選択の確認のように、候補が先に小さく決まる**問い合わせ向き。
+    /// 一致集合を作らないので、ライブラリ全体の一致件数に引きずられない。
+    /// 表を `media` の名前で参照するので、別名を付けた文では使えない。
+    Probe,
+}
+
+impl FtsMode {
+    fn cond(self) -> &'static str {
+        match self {
+            FtsMode::List => "id IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ?)",
+            FtsMode::Probe => {
+                "EXISTS (SELECT 1 FROM media_fts WHERE media_fts MATCH ? AND rowid = media.id)"
+            }
+        }
+    }
+}
+
 /// 全ID取得の文。**並びは索引がそのまま供給する**（`idx_media_day_sort`）。
 /// 実行計画のテストと同じ文を共有するために切り出してある。
 fn all_ids_sql(filter: &str) -> String {
@@ -1312,12 +1336,24 @@ impl Db {
     /// 条件が空（＝絞り込みなし）なら空のリストを返し、呼び出し側は
     /// WHERE句そのものを省いて既存のタイムラインと同じ実行計画になる。
     /// プレースホルダは無名の `?` なので、パラメータは条件と同じ順で渡すこと。
+    ///
+    /// FTSの形は [`FtsMode`] で選ぶ。**既定は一致集合を1回作る形**（日の一覧・
+    /// サマリのように、その日ぶんを索引シークで取る問い合わせに向く）。
     fn query_filter(
         &self,
         query: &SearchQuery,
     ) -> Result<(Vec<String>, Vec<rusqlite::types::Value>), DbError> {
+        self.query_filter_mode(query, FtsMode::List)
+    }
+
+    /// [`Db::query_filter`] の、FTSの形を選べる版。
+    fn query_filter_mode(
+        &self,
+        query: &SearchQuery,
+        fts_mode: FtsMode,
+    ) -> Result<(Vec<String>, Vec<rusqlite::types::Value>), DbError> {
         use rusqlite::types::Value;
-        const FTS_SEEK: &str = "id IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ?)";
+        let fts = fts_mode.cond();
         let mut conds: Vec<String> = Vec::new();
         let mut args: Vec<Value> = Vec::new();
 
@@ -1331,7 +1367,7 @@ impl Db {
             let seek = match matcher {
                 Some(m) => {
                     args.push(Value::Text(m));
-                    FTS_SEEK
+                    fts
                 }
                 None => "0",
             };
@@ -1344,7 +1380,7 @@ impl Db {
             args.extend(ids.into_iter().map(Value::Integer));
         }
         for matcher in query.folder_matches() {
-            conds.push(FTS_SEEK.to_string());
+            conds.push(fts.to_string());
             args.push(Value::Text(matcher));
         }
         // `camera:` 指定はカメラ名だけに効く（名前やフォルダの一致は拾わない）
@@ -1485,7 +1521,10 @@ impl Db {
         to_id: i64,
     ) -> Result<Vec<i64>, DbError> {
         use rusqlite::types::Value;
-        let (conds, args) = self.query_filter(query)?;
+        // **候補が先に小さく決まる問い合わせ**なので、FTSは行ごとに引く形にする。
+        // 一致集合を1回作る形にすると、隣り合う2枚を選ぶだけで
+        // ライブラリ全体の一致を数え上げることになる（実行計画で確認済み）
+        let (conds, args) = self.query_filter_mode(query, FtsMode::Probe)?;
 
         // **端の並びの鍵を先に引く**。順位を数え上げる形（ROW_NUMBER）にすると、
         // 隣り合う2枚のためにライブラリ全体を並べ直すことになる。
@@ -1547,7 +1586,8 @@ impl Db {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let (conds, base_args) = self.query_filter(query)?;
+        // 渡されたIDが候補を決めるので、こちらもFTSは行ごとに引く形
+        let (conds, base_args) = self.query_filter_mode(query, FtsMode::Probe)?;
         let mut found: std::collections::HashSet<i64> = std::collections::HashSet::new();
         for chunk in ids.chunks(400) {
             let mut conds = conds.clone();
@@ -3401,6 +3441,45 @@ mod tests {
         assert!(
             plan.contains("SEARCH"),
             "範囲がシークになっていない: {plan}"
+        );
+
+        // ★の絞り込みは部分索引に乗る。ここも並べ直しにならないこと
+        let mut fav = vec!["favorite = 1".to_string()];
+        fav.extend(super::between_conds());
+        let plan = plan_of(&db, &super::between_sql(&fav));
+        assert!(plan.contains("idx_media_fav_day"), "★の範囲: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "★の範囲が並べ直しになっている: {plan}"
+        );
+
+        // **検索語つきが本番**。一致集合を1回作る形にすると、隣り合う2枚を
+        // 選ぶだけでライブラリ全体の一致を数え上げ、そのうえ並べ直しになる。
+        // 行ごとに引く形（`FtsMode::Probe`）なら日の索引が主役のまま
+        let q = crate::search::parse_query("沖縄", false);
+        let (conds, _) = db.query_filter_mode(&q, super::FtsMode::Probe).unwrap();
+        let mut with_term = conds.clone();
+        with_term.extend(super::between_conds());
+        let plan = plan_of(&db, &super::between_sql(&with_term));
+        assert!(
+            plan.contains("idx_media_day_sort"),
+            "検索語つきの範囲が日の索引で駆動されていない: {plan}"
+        );
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "検索語つきの範囲が並べ直しになっている: {plan}"
+        );
+
+        // 選択の確認は、渡したIDが候補を決める。ここでも一致集合は作らない
+        let mut with_ids = conds;
+        with_ids.push("id IN (?, ?)".to_string());
+        let plan = plan_of(
+            &db,
+            &format!("SELECT id FROM media WHERE {}", with_ids.join(" AND ")),
+        );
+        assert!(
+            !plan.contains("LIST SUBQUERY"),
+            "選択の確認が一致集合を作っている: {plan}"
         );
     }
 
