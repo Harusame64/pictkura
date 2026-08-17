@@ -62,6 +62,12 @@ struct AppState {
     /// 受け取れたフロントが `take_pending_import` で消すので、取りこぼしと
     /// 二重処理のどちらも起きない。
     pending_import: Mutex<Option<String>>,
+    /// 原寸表示用JPEG（HEIC/RAW/TIFF）のバイト列LRU（0.2 ①）。
+    ///
+    /// WebViewが描けない形式だけがここを通る。実測でHEICは1枚1095msかかり、
+    /// ビューアで前後へ行き来するたびに払い直していた。バイト列は1枚3.29MBで、
+    /// 同じ絵をデコード済み画素で持つ93MiBより30倍安い
+    display_cache: pictkura_core::display_cache::DisplayCache,
 }
 
 /// 起動引数から取り込み対象のドライブ/フォルダを取り出す。
@@ -336,6 +342,18 @@ struct MediaItemDto {
     /// アプリ内で再生できるか。偽なら「既定のアプリで開く」へ逃がす
     /// （.m2ts/.avi はWebViewがコンテナごと相手にしない）
     plays_in_app: bool,
+    /// 原寸表示にRust側の詰め直しが要るか（HEIC・RAW・TIFF）。
+    ///
+    /// 実測でHEICは1枚1095ms・TIFFは約300ms。ビューアはこれを見て
+    /// 「先読みを1枚に絞る」「読み込み中と正直に出す」を決める（0.2 ①）。
+    /// **判定は拡張子だけ**なのでファイルには触らない——`cloud_only` を
+    /// ここに載せないのと違い、1件あたりの費用がゼロなのでDTOに載せてよい。
+    ///
+    /// **RAWは横位置なら18ms**（Canon CR3・24MP・`bench --display-dir` で実測）で
+    /// JPEG並みに安い。それでも同じ枠に入れているのは、**向きが1でないRAW**が
+    /// 埋め込みプレビューを起こして回して詰め直す経路（[`pictkura_core::thumbs::raw_display_jpeg`]）
+    /// に落ち、24MPの再エンコードぶん桁が変わるため。拡張子だけでは見分けられない
+    needs_transcode: bool,
 }
 
 impl From<pictkura_core::MediaRecord> for MediaItemDto {
@@ -358,6 +376,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             duration_ms: r.duration_ms,
             is_video: pictkura_core::video::is_video_path(&r.path),
             plays_in_app: pictkura_core::video::plays_in_webview(&r.path),
+            needs_transcode: pictkura_core::thumbs::needs_display_transcode(&r.path),
         }
     }
 }
@@ -994,6 +1013,53 @@ fn video_status(state: tauri::State<'_, AppState>, id: i64) -> Result<VideoStatu
         // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
         // ここではダウンロードは起きない）
         exists: path.exists(),
+    })
+}
+
+/// ビューアの先読み候補のうち、**実体がクラウドにしか無い**ものを返す（0.2 ①）。
+///
+/// 先読みは**利用者の意思ではない**。OneDriveのプレースホルダを裏で読むと
+/// その場でダウンロードが始まり、見てもいない写真のために通信とディスクを使う。
+/// ビューアが隣を読み込む前にここで聞き、返ってきたidは先読みしない
+/// （利用者が実際にそこへ送ったときは、今までどおり普通に開く）。
+///
+/// 一覧のDTOに載せない理由は [`video_status`] と同じ——判定はファイル属性の
+/// 読み出しなので、1000件の日を開くたびに撒くのは割に合わない。聞くのは
+/// 隣接の数件だけ。判定そのものはファイルを開かないのでダウンロードは起きない。
+#[tauri::command]
+fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<Vec<i64>, String> {
+    /// 一度に聞ける上限。先読みの隣接はどんなに広げてもこの桁に収まる。
+    /// 超える呼びは「全件を運ぼうとしている」UI側の間違いなので、黙って
+    /// 切り詰めずに断る（属性読みを大量に撒くのがまさに避けたいこと）
+    const MAX_IDS: usize = 64;
+    if ids.len() > MAX_IDS {
+        return Err(format!("一度に聞けるのは{MAX_IDS}件までです"));
+    }
+    state.read_pool.with(|db| {
+        let mut cloud = Vec::new();
+        for id in ids {
+            match db.get_by_id(id) {
+                Ok(Some(r)) => match std::fs::symlink_metadata(&r.path) {
+                    Ok(m) => {
+                        if pictkura_core::cloud::is_cloud_only(&m) {
+                            cloud.push(id);
+                        }
+                    }
+                    // 属性が読めない＝**分からない**。`is_cloud_only_path` は
+                    // 読めないと「クラウドではない」に倒すが、それは一覧の
+                    // 表示向けの安全側で、ここでは逆。先読みは開いて困る側なので、
+                    // 分からないものは「触らない」に入れる
+                    Err(_) => cloud.push(id),
+                },
+                // 行が消えている: 配信も404になるので、先読みしても何も起きない
+                Ok(None) => {}
+                // **引けなかったら断る**。返さないidをフロントは「ローカルにある」と
+                // 読むので、DBの一時的な失敗が**先読みのダウンロード**に化ける。
+                // ここは開いて困る側なので、迷ったら答えない
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(cloud)
     })
 }
 
@@ -2106,6 +2172,9 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     // - クラウドにしか実体が無いファイルは、**読んだ瞬間にダウンロードが走る**。
     //   サムネイル生成を後回しにした意味が消えるうえ、可視セルごとに毎回起きる
     let is_video = pictkura_core::video::is_video_path(&record.path);
+    // 表示用JPEGキャッシュの鍵に使う。この下で record.path / record.thumb_path を
+    // 取り出す（部分ムーブ）ので、先に控えておく
+    let mtime_ms = record.mtime_ms;
     // 動画の再生（第9部）。ここだけが原本を丸ごと相手にする経路で、
     // Rangeで刻んで返す。WebViewが扱えないコンテナ（.m2ts/.avi）は渡しても
     // 黒い枠になるだけなので、415を返してUIの「既定のアプリで開く」へ寄せる
@@ -2142,13 +2211,43 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     // TIFF。いずれも原本をそのまま返しても絵にならないのでJPEGへ詰め直す。
     // AVIF・SVG・BMP・GIF はブラウザが直接描けるので、この下で原本を返す
     if kind == MediaKind::Full && pictkura_core::thumbs::needs_display_transcode(&path) {
-        return match pictkura_core::thumbs::display_jpeg(&path) {
-            Some(bytes) => Response::builder()
+        // 詰め直しは高い（実測: HEIC 1095ms / TIFF 約300ms）ので、できた
+        // バイト列をLRUに残す（0.2 ①）。ビューアの先読みが投げる要求も
+        // ここを温めるので、フロントの画素キャッシュが崖で全滅しても
+        // 戻ってきたときに払うのはファイル読み出しぶんだけになる。
+        //
+        // **鍵に mtime を含める**——同じidでもファイルが差し替われば別物
+        let key = pictkura_core::display_cache::Key { id, mtime_ms };
+        let served = |bytes: Vec<u8>| {
+            Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "image/jpeg")
                 .header("Cache-Control", "max-age=31536000, immutable")
                 .body(bytes)
-                .unwrap(),
+                .unwrap()
+        };
+        if let Some(hit) = state.display_cache.get(key) {
+            return served(hit.as_ref().clone());
+        }
+        // ここから先は実際に詰め直す。**わざと直列化していない**（0.2 ①）。
+        //
+        // 一度は「同時に走るのは1枚だけ」と錠を掛けたが、それだと
+        // **いま見ている1枚が、もう捨てた先読みの後ろで待つ**——1枚1095msの
+        // HEICでは、先読みを入れたせいで送りがかえって遅くなる。しかも
+        // 隠し `<img>` を外しても、走り出した `spawn_blocking` は取り消せない。
+        //
+        // 同時に走る数は**投げる側で絞る**: 先読みは「表示中の1枚が出てから
+        // 隣の1枚だけ」というのが `ui/src/App.tsx` の約束で、押しっぱなしの
+        // 送りでも1回の操作につき1枚しか増えない。ここは要求のたびに
+        // そのまま作る（この経路はPR #20の前からずっとそうだった）
+        return match pictkura_core::thumbs::display_jpeg(&path) {
+            Some(bytes) => {
+                let bytes = std::sync::Arc::new(bytes);
+                state
+                    .display_cache
+                    .insert(key, std::sync::Arc::clone(&bytes));
+                served(bytes.as_ref().clone())
+            }
             None => not_found(),
         };
     }
@@ -2255,6 +2354,7 @@ pub fn run() {
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
+                display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
 
             // USB/SDカードの自動再生（AutoPlay）に「pictkuraで取り込む」を候補として
@@ -2528,6 +2628,7 @@ pub fn run() {
             open_decoder_help,
             get_index_progress,
             video_status,
+            cloud_only_media,
             open_default,
             reveal_in_folder,
             about_info,

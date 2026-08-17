@@ -199,6 +199,66 @@ fn bench_raw_dir(dir: &std::path::Path) {
     );
 }
 
+/// 原寸表示用JPEGを作る費用を測る（0.2 ① 先読みの深さの根拠）。
+///
+/// ビューアが `media://full/<id>` で払う値段そのもの。対象は
+/// [`pictkura_core::thumbs::needs_display_transcode`] が真の形式だけ
+/// （RAW・HEIC・TIFF）——JPEG/PNG/AVIF はRustを素通りするので測る意味がない。
+///
+/// 2回測るのは、1回目にOSのファイルキャッシュへ載る時間が混ざるため。
+/// 先読みの深さを決めるときに見るのは**2回目（温まった側）**である。
+fn bench_display_dir(dir: &std::path::Path) {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| pictkura_core::thumbs::needs_display_transcode(p))
+        .collect();
+    entries.sort();
+
+    println!("== pictkura 原寸表示の詰め直し ==");
+    println!("対象: {}", dir.display());
+    println!(
+        "{:<28} {:>9} {:>9} {:>9}  出力",
+        "ファイル", "1回目", "2回目", "元MB"
+    );
+    let mut warm_total = std::time::Duration::ZERO;
+    for path in &entries {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let t = Instant::now();
+        let cold = pictkura_core::thumbs::display_jpeg(path);
+        let cold_ms = fmt_ms(t.elapsed());
+        let t = Instant::now();
+        let warm = pictkura_core::thumbs::display_jpeg(path);
+        let warm_d = t.elapsed();
+        warm_total += warm_d;
+        let out = match (cold, warm) {
+            (Some(bytes), _) | (_, Some(bytes)) => {
+                let dims = image::load_from_memory(&bytes)
+                    .map(|img| format!("{}x{}", img.width(), img.height()))
+                    .unwrap_or_else(|e| format!("デコード失敗: {e}"));
+                format!("{:.2}MB {dims}", bytes.len() as f64 / 1024.0 / 1024.0)
+            }
+            _ => "作れなかった".to_string(),
+        };
+        println!(
+            "{name:<28} {cold_ms:>9} {:>9} {:>9.1}  {out}",
+            fmt_ms(warm_d),
+            size as f64 / 1024.0 / 1024.0
+        );
+    }
+    if !entries.is_empty() {
+        println!(
+            "
+{}件の平均（2回目）: {}",
+            entries.len(),
+            fmt_ms(warm_total / entries.len() as u32)
+        );
+    }
+}
+
 /// HEIC/HEIF を1枚調べる（第7部 段階G）。
 ///
 /// コンテナから読める素性（寸法・向き）と、OSデコーダで実際に絵になるかを
@@ -1063,6 +1123,10 @@ fn main() {
     }
     if let Some(dir) = arg_value(&args, "--raw-dir") {
         bench_raw_dir(std::path::Path::new(&dir));
+        return;
+    }
+    if let Some(dir) = arg_value(&args, "--display-dir") {
+        bench_display_dir(std::path::Path::new(&dir));
         return;
     }
     if let Some(file) = arg_value(&args, "--raw") {

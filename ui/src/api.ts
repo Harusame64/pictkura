@@ -26,6 +26,13 @@ export interface MediaItem {
   is_video: boolean;
   /** アプリ内で再生できるコンテナか。偽なら「既定のアプリで開く」へ逃がす */
   plays_in_app: boolean;
+  /**
+   * 原寸表示にRust側の詰め直しが要るか（HEIC・RAW・TIFF）。
+   * 実測でHEICは1枚1095ms・TIFFは約300ms（RAWは横位置なら18msと安いが、
+   * 縦位置は詰め直しに落ちるので同じ枠にしてある）。ビューアはこれを見て
+   * 先読みを絞り、待たせるときは読み込み中と出す（0.2 ①）
+   */
+  needs_transcode: boolean;
 }
 
 /** タイムライン索引の1日分（日付・枚数と、カレンダー用の代表サムネイル） */
@@ -270,6 +277,16 @@ export interface VideoStatus {
 
 export const videoStatus = (id: number) =>
   invoke<VideoStatus>("video_status", { id });
+
+/**
+ * 渡したidのうち、**実体がクラウドにしか無い**ものを返す（ビューアの先読み用）。
+ *
+ * 先読みは利用者の意思ではないので、OneDriveのプレースホルダを裏で読んで
+ * ダウンロードを走らせてはいけない。**一度に64件まで**——一覧の全件を
+ * ここへ流すのは間違い（1件ずつファイル属性を読む）。
+ */
+export const cloudOnlyMedia = (ids: number[]) =>
+  invoke<number[]>("cloud_only_media", { ids });
 
 export const getExifInfo = (id: number) =>
   invoke<ExifInfo>("get_exif_info", { id });

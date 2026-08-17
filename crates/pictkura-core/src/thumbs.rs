@@ -434,6 +434,8 @@ pub fn display_jpeg(path: &Path) -> Option<Vec<u8>> {
     // TIFFは image クレートが読む。向きはEXIFのOrientationに従う。
     // 1億画素のスキャンTIFFのような極端なものでも、配信するJPEGは
     // 画面で見る大きさに収める（原寸のまま詰め直すと数百MBを抱える）
+    // **変えるときは `ui/src/App.tsx` の `DISPLAY_MAX_EDGE` も直す**。
+    // ビューアの先読みは、TIFFが配信後に丸められる寸法で画素の予算を数えている
     const MAX_DISPLAY_EDGE: u32 = 4096;
     let exif = read_exif(path);
     let img = image::open(path).ok()?;

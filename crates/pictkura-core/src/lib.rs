@@ -12,6 +12,7 @@ pub mod browse;
 pub mod cloud;
 pub mod config;
 pub mod db;
+pub mod display_cache;
 pub mod export;
 pub mod heif;
 pub mod import;
