@@ -1407,16 +1407,29 @@ export default function App() {
   }, []);
 
   /**
-   * いまの「何を選べる状態か」を表す鍵。検索条件とライブラリの世代からなる。
+   * いまの一覧に**何が並んでいるか**を表す鍵。検索条件とライブラリの世代からなる。
+   *
+   * ID一覧の控えはこちらで見分ける。**選択の世代を混ぜてはいけない**——
+   * 選択操作はどれも世代を進めるので、混ぜると鍵が毎回変わり、
+   * **控えが一度も当たらない**。3万件のライブラリでは、範囲を伸縮するたびに
+   * 全IDを引き直すことになる。
+   */
+  const resultKey = useCallback(
+    () =>
+      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${generationRef.current}`,
+    [],
+  );
+
+  /**
+   * いまの「何を選べる状態か」を表す鍵。並びの鍵に**選択操作の世代**を足したもの。
    *
    * **非同期の選択はこれを前後で見比べる**。待っている間に条件が変わったのに
    * 古い結果で選択を作ると、**画面に出ていない写真が選ばれたまま**になり、
-   * 一括削除がそこに効く。
+   * 一括削除がそこに効く。Escでの解除は条件を変えないので、世代の分だけ見分けがつく。
    */
   const selectionKey = useCallback(
-    () =>
-      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${generationRef.current}\u0000${selectEpochRef.current}`,
-    [],
+    () => `${resultKey()}\u0000${selectEpochRef.current}`,
+    [resultKey],
   );
 
   /**
@@ -1426,16 +1439,17 @@ export default function App() {
    * 控えの鍵にライブラリの世代を含めるので、取り込みや削除のあとは引き直す。
    */
   const orderedIds = useCallback(async () => {
-    const key = selectionKey();
+    const key = resultKey();
     if (idsCacheRef.current?.key === key) return idsCacheRef.current.ids;
     const ids = await listMediaIds(
       queryRef.current,
       filterRef.current === "fav",
     );
-    // 待っている間に条件が変わっていたら、控えにも残さない
-    if (selectionKey() === key) idsCacheRef.current = { key, ids };
+    // 待っている間に**並びが**変わっていたら、控えにも残さない。
+    // 選択の世代は見ない——Escで解除されても、引いたID一覧そのものは有効
+    if (resultKey() === key) idsCacheRef.current = { key, ids };
     return ids;
-  }, [selectionKey]);
+  }, [resultKey]);
 
   /** 1枚の選択を入れ替える */
   const toggleOne = useCallback((id: number) => {
