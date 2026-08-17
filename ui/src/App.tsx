@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
+// 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -32,6 +42,10 @@ import {
   removeLibraryRoot,
   revealInFolder,
   setFavorite,
+  setFavorites,
+  listMediaIds,
+  listMediaIdsBetween,
+  visibleMediaIds,
   setVisiblePriority,
   syncNow,
   thumbSrc,
@@ -133,6 +147,13 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"grid" | "calendar">("grid");
   const [filter, setFilter] = useState<"all" | "fav">("all");
+  /**
+   * 選択中のID。**空なら選択モードではない**——モードを別の状態で持つと、
+   * 「選択が0なのにモードだけ残る」というずれ方をする。
+   */
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  /** Shift+クリックの起点。最後に単独で触ったもの */
+  const [anchorId, setAnchorId] = useState<number | null>(null);
   /** 検索ボックスの入力（打鍵ごとの値） */
   const [queryInput, setQueryInput] = useState("");
   /** 実際にバックエンドへ投げている検索クエリ（入力のデバウンス後） */
@@ -182,6 +203,41 @@ export default function App() {
   } | null>(null);
   // イベントリスナーから最新のfilter/query状態を参照するためのref
   const filterRef = useRef<"all" | "fav">("all");
+  /**
+   * Shift+クリックの土台。**範囲を始めた時点の選択**を覚える。
+   *
+   * 同じ起点から選び直すときは、前の範囲を消して新しい範囲を足す——のではなく、
+   * **土台に新しい範囲を足し直す**。前の範囲をIDごと引くと、
+   * **範囲より前に選んでいたもの**まで巻き添えで消える（範囲の中にたまたま
+   * 入っていた場合）。
+   */
+  const lastRangeRef = useRef<{
+    anchor: number;
+    base: ReadonlySet<number>;
+  } | null>(null);
+  /**
+   * 選択操作の世代。**解除するたびに進める**。
+   *
+   * 検索条件やライブラリの世代とは別に要る——Escで解除しても条件は変わらないので、
+   * それだけでは「待っている最中に解除されたか」を見分けられず、
+   * `listMediaIds` の応答が**消したはずの選択を作り直す**。
+   */
+  const selectEpochRef = useRef(0);
+  /**
+   * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
+   *
+   * 解除だけでなく**あらゆる選択操作**で進めるのが要点。3万件のライブラリで
+   * Ctrl+Aの応答を待つ間にタイルを1枚触ると、あとから返ってきた全選択が
+   * **新しい方の選択を上書きする**。
+   */
+  const beginSelectOp = () => (selectEpochRef.current += 1);
+  /**
+   * キー操作のハンドラから読む最新の値。
+   * 依存に入れるとキーを押すたびにリスナーを張り替えることになる。
+   */
+  const selectedRef = useRef<ReadonlySet<number>>(new Set());
+  const selectAllRef = useRef<() => Promise<void>>(async () => {});
+  const clearSelectionRef = useRef<() => void>(() => {});
   const queryRef = useRef("");
   /** フィルタ切替・全体再読込のたびに増える世代番号。古い応答を捨てる */
   const generationRef = useRef(0);
@@ -789,8 +845,23 @@ export default function App() {
       patch(next);
       try {
         await setFavorite(item.id, next);
-        // ★のみ表示中は骨組み（枚数・日の有無）が変わる
-        if (filterRef.current === "fav") await reloadAll();
+        // ★のみ表示中は骨組み（枚数・日の有無）が変わる。
+        // **画面から消えるものは選択からも外す**——残すと、見えていない写真に
+        // 一括操作が効いてしまう
+        if (filterRef.current === "fav") {
+          setSelected((prev) => {
+            if (!prev.has(item.id)) return prev;
+            const s2 = new Set(prev);
+            s2.delete(item.id);
+            return s2;
+          });
+          // **起点と範囲の土台も忘れる**（単独削除と同じ）。居なくなったものを
+          // 起点にしたまま Shift+クリックを続けると、古い土台が
+          // 「もう画面に無いもの」を選び直し、間の写真のほうが外れる
+          setAnchorId((a) => (a === item.id ? null : a));
+          lastRangeRef.current = null;
+          await reloadAll();
+        }
       } catch {
         patch(!next); // 失敗したら戻す
       }
@@ -1275,10 +1346,223 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 複数選択のキー操作。**入力欄では効かせない**（検索中のCtrl+Aは文字の全選択）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      // 何かが手前に出ているときは、そちらのEscを邪魔しない。
+      // **取り込みウィザードと右クリックメニューも含める**——これが抜けていると、
+      // モーダルの裏でグリッドが全選択されたり、Escの1押しで
+      // 「メニューを閉じる」と「選択を解除」が同時に起きたりする。
+      // 一覧を出していないカレンダー表示でも、選択だけ作られても仕方がない
+      if (
+        viewer !== null ||
+        paletteOpen ||
+        settingsOpen ||
+        wizardOpen ||
+        menu !== null ||
+        view !== "grid"
+      )
+        return;
+      if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        selectAllRef.current().catch(() => {});
+        return;
+      }
+      if (e.key === "Escape" && selectedRef.current.size > 0) {
+        e.preventDefault();
+        clearSelectionRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewer, paletteOpen, settingsOpen, wizardOpen, menu, view]);
+
+  // 検索条件が変わったら選択を捨てる。
+  // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
+  useEffect(() => {
+    lastRangeRef.current = null;
+    selectEpochRef.current += 1;
+    setSelected(new Set());
+    setAnchorId(null);
+  }, [query, filter]);
+
+  /** 選択中かどうか。**選択が0なら選択モードではない** */
+  const selecting = selected.size > 0;
+
+  /** 選択をやめる */
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+    setAnchorId(null);
+    lastRangeRef.current = null;
+    // 待っている選択の応答を無効にする（Escの直後に範囲が復活しないように）
+    beginSelectOp();
+  }, []);
+
+  // **一覧から離れたら選択をやめる**。カレンダーには写真が並ばないのに選択バーだけ
+  // 残ると、画面に出ていないものへ一括削除が効いてしまう。
+  // `clearSelection` は選択の世代も進めるので、待っている全選択・範囲選択の応答も落ちる
+  useEffect(() => {
+    if (view !== "grid") clearSelection();
+  }, [view, clearSelection]);
+
+  /** 1枚の選択を入れ替える */
+  const toggleOne = useCallback((id: number) => {
+    beginSelectOp();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+    setAnchorId(id);
+    lastRangeRef.current = null; // 起点が動くので、前の範囲は忘れる
+  }, []);
+
+  /**
+   * 起点から今のものまでをまとめて選ぶ（Shift+クリック）。
+   *
+   * **画面に出ているものだけで決めない**。間に未読み込みの日が挟まると、
+   * その日の写真が黙って外れる。並びの切り出しはDB側でやり、
+   * **範囲のぶんだけ**を受け取る。
+   */
+  const selectRange = useCallback(
+    async (fromId: number, toId: number) => {
+      beginSelectOp();
+      const epoch = selectEpochRef.current;
+      // **範囲のぶんだけ**をDBから受け取る。切り出しはSQL側の仕事で、
+      // 隣り合う2枚のために全IDを送らせない
+      const range = await listMediaIdsBetween(
+        queryRef.current,
+        filterRef.current === "fav",
+        fromId,
+        toId,
+      );
+      // 待っている間に解除・別の選択・条件変更が入ったら、古い並びで選択を作らない
+      if (selectEpochRef.current !== epoch) return;
+      if (range.length === 0) {
+        // 条件が変わって両端とも消えている等。単独の選択に落とす
+        toggleOne(toId);
+        return;
+      }
+      // 同じ起点で選び直すなら土台は据え置き。初回なら「いまの選択」が土台
+      const base =
+        lastRangeRef.current?.anchor === fromId
+          ? lastRangeRef.current.base
+          : selectedRef.current;
+      lastRangeRef.current = { anchor: fromId, base };
+      // **土台に範囲を足し直す**。前の範囲をIDごと引く形にすると、範囲の中に
+      // たまたま入っていた「前から選んでいたもの」まで消える
+      const next = new Set(base);
+      for (const id of range) next.add(id);
+      setSelected(next);
+      // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
+    },
+    [toggleOne],
+  );
+
+  /** その日をまとめて選ぶ／外す（日付の見出しを押したとき） */
+  const toggleDay = useCallback(
+    async (dayKey: number) => {
+      beginSelectOp();
+      const epoch = selectEpochRef.current;
+      const loaded = dayItems.get(dayKey);
+      const items =
+        loaded ??
+        (await listDay(dayKey, queryRef.current, filterRef.current === "fav"));
+      // 待っている間に解除・別の選択・条件変更が入っていたら捨てる
+      // （条件の変更も選択の世代を進める）
+      if (selectEpochRef.current !== epoch) return;
+      const ids = items.map((it) => it.id);
+      if (ids.length === 0) return;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        // **全部入っているときだけ外す**。半端に入っているなら足す方が素直
+        if (ids.every((id) => prev.has(id))) {
+          for (const id of ids) next.delete(id);
+        } else {
+          for (const id of ids) next.add(id);
+        }
+        return next;
+      });
+      setAnchorId(ids[0]);
+      lastRangeRef.current = null;
+    },
+    [dayItems],
+  );
+
+  /** 表示中の条件に一致する全部を選ぶ（Ctrl+A） */
+  const selectAll = useCallback(async () => {
+    beginSelectOp();
+    const epoch = selectEpochRef.current;
+    // ここだけは全IDを引く（「全部」を選ぶ操作なので、件数ぶんの選択が要る）
+    const ids = await listMediaIds(
+      queryRef.current,
+      filterRef.current === "fav",
+    );
+    if (selectEpochRef.current !== epoch) return;
+    setSelected(new Set(ids));
+    setAnchorId(ids[0] ?? null);
+    lastRangeRef.current = null;
+  }, []);
+
+  /**
+   * 一括操作に掛ける前に、**いまの条件で本当に出ているものだけへ絞る**。
+   *
+   * 選択したあとに条件が変わらなくても、中身が変わることがある——★表示中に
+   * 右クリックからお気に入りを外すと、その写真は画面から消えるのに選択には残る。
+   * そのまま削除すると**画面に出ていない写真がゴミ箱へ行く**。
+   * 絞った結果が減っていたら、選択の表示もそこへ合わせる。
+   */
+  const visibleSelection = useCallback(async () => {
+    const current = selectedRef.current;
+    if (current.size === 0) return [];
+    const epoch = selectEpochRef.current;
+    // **選んだIDだけを渡して確かめる**。全IDを引いて突き合わせると、
+    // 数枚の確認のために一覧の全件がIPCを渡ることになる
+    const kept = await visibleMediaIds(
+      queryRef.current,
+      filterRef.current === "fav",
+      [...current],
+    );
+    if (selectEpochRef.current !== epoch) return [];
+    if (kept.length !== current.size) setSelected(new Set(kept));
+    return kept;
+  }, []);
+
+  // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
+  // レンダーの値が残りうる）。描画が確定してから差し替える
+  useLayoutEffect(() => {
+    selectedRef.current = selected;
+    selectAllRef.current = selectAll;
+    clearSelectionRef.current = clearSelection;
+  });
+
+  /** タイルを押したときの振り分け */
+  const onCellClick = useCallback(
+    (item: MediaItem, dayKey: number, e: React.MouseEvent) => {
+      if (e.shiftKey && anchorId !== null) {
+        e.preventDefault();
+        selectRange(anchorId, item.id).catch((err) => setStatus(String(err)));
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || selecting) {
+        toggleOne(item.id);
+        return;
+      }
+      setViewer({ dayKey, id: item.id });
+    },
+    [anchorId, selecting, selectRange, toggleOne],
+  );
+
   /** 1枚をゴミ箱へ移動する（確認あり）。写真は取り返しがつかないのでOSのゴミ箱経由 */
   const onDelete = useCallback(
     async (item: MediaItem) => {
-      if (!window.confirm(t.deleteConfirm(1))) return;
+      const ok = await confirmDialog(t.deleteConfirm(1), {
+        title: t.appName,
+        kind: "warning",
+      });
+      if (!ok) return;
       try {
         const n = await deleteMedia([item.id]);
         setStatus(t.deleted(n));
@@ -1290,6 +1574,16 @@ export default function App() {
           return next;
         });
         setViewer((v) => (v && v.id === item.id ? null : v));
+        // **選択からも外す**。残すと、操作バーの枚数と次の確認文言が実際より
+        // 多く出て、居ないIDに一括操作を掛けることになる
+        setSelected((prev) => {
+          if (!prev.has(item.id)) return prev;
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+        setAnchorId((a) => (a === item.id ? null : a));
+        lastRangeRef.current = null;
         await refreshSummary();
       } catch (e) {
         setStatus(String(e));
@@ -1297,6 +1591,103 @@ export default function App() {
     },
     [refreshSummary],
   );
+
+  /**
+   * 選んだものをまとめてお気に入りに付ける／外す。
+   *
+   * 画面は先に書き換えて、失敗したら戻す（1枚のときと同じ流儀）。
+   * **★のみ表示中は骨組みが変わる**ので取り直す。
+   */
+  const onBulkFavorite = useCallback(
+    async (favorite: boolean) => {
+      const ids = await visibleSelection();
+      if (ids.length === 0) return;
+      // **絞ったあとのIDで画面も触る**。`visibleSelection` が落としたぶん
+      // （もう画面に出ていないもの）まで★を付け替えると、表示だけが嘘になる
+      const touched = new Set(ids);
+      const patch = (fav: boolean) => {
+        setDayItems((prev) => {
+          const next = new Map(prev);
+          for (const [dayKey, items] of prev) {
+            if (!items.some((it) => touched.has(it.id))) continue;
+            next.set(
+              dayKey,
+              items.map((it) =>
+                touched.has(it.id) ? { ...it, favorite: fav } : it,
+              ),
+            );
+          }
+          return next;
+        });
+      };
+      patch(favorite);
+      let n: number;
+      try {
+        n = await setFavorites(ids, favorite);
+      } catch (e) {
+        // **反転で戻さない**。選択に付いている・付いていないが混ざっていると、
+        // 反転では元に戻らない（付ける操作の失敗で、全部が「外れた」表示になる）。
+        // 触った日を捨ててDBから引き直すのが確実
+        setDayItems((prev) => {
+          const next = new Map(prev);
+          for (const [dayKey, items] of prev) {
+            if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
+          }
+          return next;
+        });
+        setStatus(String(e));
+        return;
+      }
+      setStatus(favorite ? t.bulkFavoriteDone(n) : t.bulkUnfavoriteDone(n));
+      clearSelection();
+      // ここから先が転んでも、DBは既に正しい。画面の巻き戻しはしない
+      if (filterRef.current === "fav") await reloadAll();
+      else await refreshSummary();
+    },
+    [visibleSelection, reloadAll, refreshSummary, clearSelection],
+  );
+
+  /** 選んだものをまとめてゴミ箱へ（確認あり） */
+  const onBulkDelete = useCallback(async () => {
+    const ids = await visibleSelection();
+    if (ids.length === 0) return;
+    // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
+    const touched = new Set(ids);
+    const ok = await confirmDialog(t.deleteConfirm(ids.length), {
+      title: t.appName,
+      kind: "warning",
+    });
+    if (!ok) return;
+    try {
+      const n = await deleteMedia(ids);
+      setStatus(t.deleted(n));
+      // 消えた日を丸ごと捨てて取り直す（骨組みの枚数も変わる）
+      setDayItems((prev) => {
+        const next = new Map(prev);
+        for (const [dayKey, items] of prev) {
+          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
+        }
+        return next;
+      });
+      setViewer((v) => (v && touched.has(v.id as number) ? null : v));
+      clearSelection();
+      await refreshSummary();
+    } catch (e) {
+      // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
+      // 落としてからエラーを返すので、画面をそのままにすると
+      // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
+      setStatus(String(e));
+      setDayItems((prev) => {
+        const next = new Map(prev);
+        for (const [dayKey, items] of prev) {
+          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
+        }
+        return next;
+      });
+      clearSelection();
+      await refreshSummary().catch(() => {});
+    }
+  }, [visibleSelection, refreshSummary, clearSelection]);
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
   const onOpenWithOther = useCallback(
@@ -1417,6 +1808,44 @@ export default function App() {
 
   return (
     <div className="app">
+      {selecting && (
+        <div className="select-bar">
+          <button
+            className="select-bar-close"
+            title={t.clearSelection}
+            onClick={clearSelection}
+          >
+            ✕
+          </button>
+          <span className="select-bar-count">
+            {t.selectedCount(selected.size)}
+          </span>
+          <button onClick={() => selectAll().catch((e) => setStatus(String(e)))}>
+            {t.selectAll}
+          </button>
+          <span className="select-bar-spacer" />
+          <button
+            onClick={() =>
+              onBulkFavorite(true).catch((e) => setStatus(String(e)))
+            }
+          >
+            ★ {t.bulkFavoriteOn}
+          </button>
+          <button
+            onClick={() =>
+              onBulkFavorite(false).catch((e) => setStatus(String(e)))
+            }
+          >
+            {t.bulkFavoriteOff}
+          </button>
+          <button
+            className="danger"
+            onClick={() => onBulkDelete().catch((e) => setStatus(String(e)))}
+          >
+            🗑 {t.bulkDelete}
+          </button>
+        </div>
+      )}
       <header className="topbar">
         <span className="logo">{t.appName}</span>
         <div className="view-switch">
@@ -1718,10 +2147,23 @@ export default function App() {
                     >
                       {row.kind === "header" ? (
                         <div className="date-header">
-                          {row.label}
-                          <span className="date-count">
-                            {t.photosCount(row.count)}
-                          </span>
+                          {/*
+                            日付を押すとその日をまとめて選ぶ。**全部入っているときだけ
+                            外す**——半端に入っている状態から押したら足す方が素直。
+                          */}
+                          <button
+                            className="date-header-btn"
+                            title={t.selectDay}
+                            onClick={() => {
+                              const key = row.dayKey;
+                              toggleDay(key).catch((e) => setStatus(String(e)));
+                            }}
+                          >
+                            {row.label}
+                            <span className="date-count">
+                              {t.photosCount(row.count)}
+                            </span>
+                          </button>
                         </div>
                       ) : row.kind === "placeholder" ? (
                         <div
@@ -1733,7 +2175,10 @@ export default function App() {
                           {row.cells.map((cell) => (
                             <div
                               key={cell.item.id}
-                              className="cell-wrap"
+                              className={
+                                "cell-wrap" +
+                                (selected.has(cell.item.id) ? " picked" : "")
+                              }
                               style={{ width: cell.w, height: cell.h }}
                             >
                               <img
@@ -1748,11 +2193,8 @@ export default function App() {
                                 // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
                                 // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
                                 alt=""
-                                onClick={() =>
-                                  setViewer({
-                                    dayKey: row.dayKey,
-                                    id: cell.item.id,
-                                  })
+                                onClick={(e) =>
+                                  onCellClick(cell.item, row.dayKey, e)
                                 }
                                 onContextMenu={(e) => {
                                   e.preventDefault();
@@ -1775,6 +2217,30 @@ export default function App() {
                               {cell.item.favorite && (
                                 <span className="cell-fav">★</span>
                               )}
+                              {/*
+                                選択の丸。ホバーで出て、選択中は出しっぱなし。
+                                タイルのクリックとは別扱いにする（**選択モードに
+                                入っていなくてもここからは選べる**）
+                              */}
+                              <button
+                                className="cell-pick"
+                                title={t.selectItem}
+                                // 未選択のときは中身が空なので、名前を明示する
+                                aria-label={t.selectItem}
+                                aria-pressed={selected.has(cell.item.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (e.shiftKey && anchorId !== null) {
+                                    selectRange(anchorId, cell.item.id).catch(
+                                      (err) => setStatus(String(err)),
+                                    );
+                                    return;
+                                  }
+                                  toggleOne(cell.item.id);
+                                }}
+                              >
+                                {selected.has(cell.item.id) ? "✓" : ""}
+                              </button>
                             </div>
                           ))}
                         </div>

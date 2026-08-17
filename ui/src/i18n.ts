@@ -168,6 +168,17 @@ const ja = {
       ? "この写真をゴミ箱へ移動しますか？"
       : `${n}枚の写真をゴミ箱へ移動しますか？`,
   deleted: (n: number) => `${n}枚をゴミ箱へ移動しました`,
+  // 複数選択と一括操作
+  selectItem: "選択",
+  selectedCount: (n: number) => `${n}枚を選択中`,
+  selectAll: "すべて選択",
+  clearSelection: "選択を解除 (Esc)",
+  selectDay: "この日をまとめて選ぶ",
+  bulkFavoriteOn: "お気に入りに追加",
+  bulkFavoriteOff: "お気に入りを外す",
+  bulkDelete: "ゴミ箱へ",
+  bulkFavoriteDone: (n: number) => `${n}枚をお気に入りに追加しました`,
+  bulkUnfavoriteDone: (n: number) => `${n}枚のお気に入りを外しました`,
   // 設定
   settings: "設定",
   close: "閉じる",
@@ -369,6 +380,21 @@ const en: Dict = {
       ? "Move this photo to the trash?"
       : `Move ${n} photos to the trash?`,
   deleted: (n: number) => `Moved ${n} to the trash`,
+  // 複数選択と一括操作
+  selectItem: "Select",
+  selectedCount: (n: number) => (n === 1 ? "1 selected" : `${n} selected`),
+  selectAll: "Select all",
+  clearSelection: "Clear selection (Esc)",
+  selectDay: "Select this whole day",
+  bulkFavoriteOn: "Add to favorites",
+  bulkFavoriteOff: "Remove from favorites",
+  bulkDelete: "Move to trash",
+  bulkFavoriteDone: (n: number) =>
+    n === 1 ? "1 photo added to favorites" : `${n} photos added to favorites`,
+  bulkUnfavoriteDone: (n: number) =>
+    n === 1
+      ? "1 photo removed from favorites"
+      : `${n} photos removed from favorites`,
   settings: "Settings",
   close: "Close",
   settingsTitle: "Settings",

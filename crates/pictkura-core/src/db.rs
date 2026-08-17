@@ -124,6 +124,79 @@ fn parent_dir_expr(path_expr: &str) -> String {
 }
 
 /// `IN (...)` 用のプレースホルダ列（`?,?,?`）を作る。
+/// 範囲選択と選択の確認で使うFTSの形。**測って決めた**
+/// （`検索語つきの選択はどちらの形が速いか` のベンチ。2026-08-17に3万件で実測）。
+///
+/// 実行計画だけ見ると `Probe` が良く見える——日の索引で駆動し、一時表も
+/// 並べ直しも出ない。**が、実際は桁で遅い**。FTSを行ごとに引く定数が乗るうえ、
+/// このアプリの検索語は必ず末尾が前方一致（`term_to_match`）なので、
+/// 行ごとに辞書の範囲展開が走る。3万件・一致1.5万件での実測:
+///
+/// | | List | Probe |
+/// |---|---:|---:|
+/// | 範囲選択（151件ぶん） | 6.7ms | 636.8ms |
+/// | 範囲選択（全域） | 9.2ms | 26.1秒 |
+/// | 選択の確認（500枚） | 8.4ms | 529.1ms |
+/// | 選択の確認（1.5万枚） | 295.5ms | 26.7秒 |
+///
+/// 一致集合を1回作る側は1行あたりの定数が極端に小さいので、
+/// **一致件数に比例しても十分速い**。もっと大きなライブラリで問題になるなら、
+/// 行ごとに引くのではなく「一致集合を操作ごとに1回だけ一時表へ実体化して
+/// 使い回す」形が筋。`Probe` は計測用に残してある。
+const FTS_FOR_SELECTION: FtsMode = FtsMode::List;
+
+/// 検索語の条件をどう書くか。**実行計画がこれで決まる**。
+#[derive(Clone, Copy, Debug)]
+enum FtsMode {
+    /// 一致するrowidの集合を1回作り、それへの `IN` で絞る。
+    /// 日の一覧・サマリのように「索引でその日へシークしてから絞る」問い合わせ向き。
+    List,
+    /// 候補の行ごとにFTSをrowidで引く（相関サブクエリ）。
+    /// **範囲や選択の確認のように、候補が先に小さく決まる**問い合わせ向き。
+    /// 一致集合を作らないので、ライブラリ全体の一致件数に引きずられない。
+    /// 表を `media` の名前で参照するので、別名を付けた文では使えない。
+    ///
+    /// **製品では使っていない**。計画は綺麗になるが実測では桁で遅い
+    /// （[`FTS_FOR_SELECTION`] の表）。比べ直せるように残してある
+    #[allow(dead_code)]
+    Probe,
+}
+
+impl FtsMode {
+    fn cond(self) -> &'static str {
+        match self {
+            FtsMode::List => "id IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ?)",
+            FtsMode::Probe => {
+                "EXISTS (SELECT 1 FROM media_fts WHERE media_fts MATCH ? AND rowid = media.id)"
+            }
+        }
+    }
+}
+
+/// 全ID取得の文。**並びは索引がそのまま供給する**（`idx_media_day_sort`）。
+/// 実行計画のテストと同じ文を共有するために切り出してある。
+fn all_ids_sql(filter: &str) -> String {
+    format!("SELECT id FROM media {filter} ORDER BY day_key DESC, {SORT_TS} DESC, id DESC")
+}
+
+/// 範囲取得の条件。**`day_key` を先頭に置く**ので索引でシークでき、
+/// 端の日の中だけを表示時刻とidで削る。
+fn between_conds() -> Vec<String> {
+    vec![
+        "day_key BETWEEN ? AND ?".to_string(),
+        format!("(day_key < ? OR {SORT_TS} < ? OR ({SORT_TS} = ? AND id <= ?))"),
+        format!("(day_key > ? OR {SORT_TS} > ? OR ({SORT_TS} = ? AND id >= ?))"),
+    ]
+}
+
+/// 範囲取得の文。条件は [`between_conds`] を含んだもの。
+fn between_sql(conds: &[String]) -> String {
+    format!(
+        "SELECT id FROM media WHERE {} ORDER BY day_key DESC, {SORT_TS} DESC, id DESC",
+        conds.join(" AND ")
+    )
+}
+
 fn camera_placeholders(n: usize) -> String {
     std::iter::repeat_n("?", n).collect::<Vec<_>>().join(",")
 }
@@ -1221,6 +1294,30 @@ impl Db {
         Ok(())
     }
 
+    /// お気に入りをまとめて付ける・外す。
+    ///
+    /// **1つのトランザクションで書く**。1件ずつ `set_favorite` を呼ぶと、
+    /// 数千件でその数だけコミットが走る。途中で落ちたときに半端に付いた状態が
+    /// 残るのも避けたい。
+    ///
+    /// トランザクションは**必ずIMMEDIATE**（`write_tx`）。DEFERREDだと
+    /// `SQLITE_BUSY_SNAPSHOT` が `busy_timeout` を無視して即返る。
+    pub fn set_favorites(&mut self, ids: &[i64], favorite: bool) -> Result<usize, DbError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.write_tx()?;
+        let mut changed = 0;
+        {
+            let mut stmt = tx.prepare_cached("UPDATE media SET favorite = ?2 WHERE id = ?1")?;
+            for id in ids {
+                changed += stmt.execute(params![id, favorite as i64])?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self.conn.prepare_cached(
@@ -1264,12 +1361,24 @@ impl Db {
     /// 条件が空（＝絞り込みなし）なら空のリストを返し、呼び出し側は
     /// WHERE句そのものを省いて既存のタイムラインと同じ実行計画になる。
     /// プレースホルダは無名の `?` なので、パラメータは条件と同じ順で渡すこと。
+    ///
+    /// FTSの形は [`FtsMode`] で選ぶ。**既定は一致集合を1回作る形**（日の一覧・
+    /// サマリのように、その日ぶんを索引シークで取る問い合わせに向く）。
     fn query_filter(
         &self,
         query: &SearchQuery,
     ) -> Result<(Vec<String>, Vec<rusqlite::types::Value>), DbError> {
+        self.query_filter_mode(query, FtsMode::List)
+    }
+
+    /// [`Db::query_filter`] の、FTSの形を選べる版。
+    fn query_filter_mode(
+        &self,
+        query: &SearchQuery,
+        fts_mode: FtsMode,
+    ) -> Result<(Vec<String>, Vec<rusqlite::types::Value>), DbError> {
         use rusqlite::types::Value;
-        const FTS_SEEK: &str = "id IN (SELECT rowid FROM media_fts WHERE media_fts MATCH ?)";
+        let fts = fts_mode.cond();
         let mut conds: Vec<String> = Vec::new();
         let mut args: Vec<Value> = Vec::new();
 
@@ -1283,7 +1392,7 @@ impl Db {
             let seek = match matcher {
                 Some(m) => {
                     args.push(Value::Text(m));
-                    FTS_SEEK
+                    fts
                 }
                 None => "0",
             };
@@ -1296,7 +1405,7 @@ impl Db {
             args.extend(ids.into_iter().map(Value::Integer));
         }
         for matcher in query.folder_matches() {
-            conds.push(FTS_SEEK.to_string());
+            conds.push(fts.to_string());
             args.push(Value::Text(matcher));
         }
         // `camera:` 指定はカメラ名だけに効く（名前やフォルダの一致は拾わない）
@@ -1391,6 +1500,159 @@ impl Db {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
+    ///
+    /// 全選択（Ctrl+A）のためのもの。一覧は日ごとに遅延読み込みするので、
+    /// **まだ読んでいない日の写真も選択の対象になる**。かといってレコードごと
+    /// 引くと万単位で無駄になる——IDなら1件8バイトで、3万件でも240KB。
+    ///
+    /// **範囲選択と、選択の絞り込みにはこれを使わないこと**。
+    /// 数枚のために全件をUIへ送ることになる（このモジュールの「UIへ全件を渡さない」
+    /// 原則に反する）。[`Db::search_ids_between`] と [`Db::visible_ids`] を使う。
+    ///
+    /// 並びは `search_day` と同じ（`SORT_TS DESC, id DESC`）。
+    pub fn search_ids(&self, query: &SearchQuery) -> Result<Vec<i64>, DbError> {
+        let (conds, args) = self.query_filter(query)?;
+        let filter = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        // 並びは表示と同じ。**`day_key` を先頭に置く**ので `idx_media_day_sort` が
+        // そのまま順序を供給でき、全件の並べ直しが起きない
+        let mut stmt = self.conn.prepare_cached(&all_ids_sql(&filter))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 並びの中で、**2つのIDに挟まれた範囲のIDだけ**を返す（Shift+クリック用）。
+    ///
+    /// [`Db::search_ids`] と違い、返るのは範囲のぶんだけ。隣り合う2枚を選ぶために
+    /// 全件を送っていては、1000万件を想定した設計が成り立たない。順番の割り出しは
+    /// SQL側でやる（`ROW_NUMBER`）ので、Rustにもメモリへ全件は載らない。
+    ///
+    /// 端のIDが条件から外れていたら、**見つかったほうだけ**の範囲になる。
+    /// 両方とも無ければ空。並びは [`Db::search_ids`] と同じ。
+    pub fn search_ids_between(
+        &self,
+        query: &SearchQuery,
+        from_id: i64,
+        to_id: i64,
+    ) -> Result<Vec<i64>, DbError> {
+        self.search_ids_between_mode(query, from_id, to_id, FTS_FOR_SELECTION)
+    }
+
+    /// [`Db::search_ids_between`] の、FTSの形を選べる版（速さの計測用）。
+    fn search_ids_between_mode(
+        &self,
+        query: &SearchQuery,
+        from_id: i64,
+        to_id: i64,
+        fts_mode: FtsMode,
+    ) -> Result<Vec<i64>, DbError> {
+        use rusqlite::types::Value;
+        let (conds, args) = self.query_filter_mode(query, fts_mode)?;
+
+        // **端の並びの鍵を先に引く**。順位を数え上げる形（ROW_NUMBER）にすると、
+        // 隣り合う2枚のためにライブラリ全体を並べ直すことになる。
+        // 条件から外れているIDはここで落ちる
+        let mut ends_conds = conds.clone();
+        ends_conds.push("id IN (?, ?)".to_string());
+        let mut ends_args = args.clone();
+        ends_args.push(Value::Integer(from_id));
+        ends_args.push(Value::Integer(to_id));
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT day_key, {SORT_TS}, id FROM media WHERE {}",
+            ends_conds.join(" AND ")
+        ))?;
+        let mut keys: Vec<(i64, i64, i64)> = Vec::new();
+        let rows = stmt.query_map(rusqlite::params_from_iter(ends_args.iter()), |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        for row in rows {
+            keys.push(row?);
+        }
+        let (Some(lo), Some(hi)) = (keys.iter().min().copied(), keys.iter().max().copied()) else {
+            return Ok(Vec::new());
+        };
+
+        // 鍵で挟んで引く。`day_key` を先頭に置くのが要点で、これで
+        // `idx_media_day_sort` がシークと並びの両方を賄う（並べ直しが起きない）。
+        // `day_key` は表示時刻の単調な関数なので、日をまたぐ並びも表示と一致する
+        let mut conds = conds;
+        conds.extend(between_conds());
+        let mut args = args;
+        args.extend([Value::Integer(lo.0), Value::Integer(hi.0)]);
+        args.extend([
+            Value::Integer(hi.0),
+            Value::Integer(hi.1),
+            Value::Integer(hi.1),
+            Value::Integer(hi.2),
+        ]);
+        args.extend([
+            Value::Integer(lo.0),
+            Value::Integer(lo.1),
+            Value::Integer(lo.1),
+            Value::Integer(lo.2),
+        ]);
+        let mut stmt = self.conn.prepare_cached(&between_sql(&conds))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**だけを返す。
+    ///
+    /// 一括操作の直前に、選択が画面の中身とズレていないか確かめるためのもの。
+    /// 全IDを引いて突き合わせると、数枚の確認のために全件を送ることになる。
+    /// 返す順番は渡された順。SQLの変数上限があるので分けて問い合わせる。
+    pub fn visible_ids(&self, query: &SearchQuery, ids: &[i64]) -> Result<Vec<i64>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.visible_ids_mode(query, ids, FTS_FOR_SELECTION)
+    }
+
+    /// [`Db::visible_ids`] の、FTSの形を選べる版（速さの計測用）。
+    fn visible_ids_mode(
+        &self,
+        query: &SearchQuery,
+        ids: &[i64],
+        fts_mode: FtsMode,
+    ) -> Result<Vec<i64>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (conds, base_args) = self.query_filter_mode(query, fts_mode)?;
+        let mut found: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for chunk in ids.chunks(400) {
+            let mut conds = conds.clone();
+            conds.push(format!("id IN ({})", camera_placeholders(chunk.len())));
+            let mut args = base_args.clone();
+            args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
+            let mut stmt = self.conn.prepare_cached(&format!(
+                "SELECT id FROM media WHERE {}",
+                conds.join(" AND ")
+            ))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+            for row in rows {
+                found.insert(row?);
+            }
+        }
+        Ok(ids
+            .iter()
+            .copied()
+            .filter(|id| found.contains(id))
+            .collect())
     }
 
     /// 検索条件に一致する総枚数（検索結果の件数表示用）。
@@ -3122,6 +3384,261 @@ mod tests {
         let y2019 = search_names(&db, "2019年");
         assert_eq!(y2019, ["DSC00123.JPG", "DSC00124.JPG"]);
         assert!(search_names(&db, "2019年 花火").is_empty());
+    }
+
+    #[test]
+    fn search_idsは一覧と同じ並びで全件返す() {
+        let db = seed_search_db();
+        let q = crate::search::parse_query("", false);
+        let ids = db.search_ids(&q).unwrap();
+        assert_eq!(ids.len(), 4, "条件なしなら全件");
+
+        // **一覧に出る順と一致すること**が肝。日をまたいでも、2点のIDが決まれば
+        // 添字で範囲を切り出せる、という前提がここで担保される
+        let mut expected = Vec::new();
+        for day in db.search_summary(&q).unwrap() {
+            for rec in db.search_day(day.day_key, &q).unwrap() {
+                expected.push(rec.id);
+            }
+        }
+        assert_eq!(ids, expected, "日ごとに引いた順と同じ");
+
+        // 絞り込みも効く
+        let q = crate::search::parse_query("沖縄", false);
+        assert_eq!(db.search_ids(&q).unwrap().len(), 2);
+        let q = crate::search::parse_query("見つからない語", false);
+        assert!(db.search_ids(&q).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_ids_betweenは範囲のぶんだけ返す() {
+        let db = seed_search_db();
+        let q = crate::search::parse_query("", false);
+        let all = db.search_ids(&q).unwrap();
+        assert_eq!(all.len(), 4);
+
+        // **全件を引かずに、同じ添字の切り出しになる**ことが肝
+        let mid = db.search_ids_between(&q, all[1], all[2]).unwrap();
+        assert_eq!(mid, all[1..3].to_vec());
+        // 端の順序はどちらから指しても同じ
+        assert_eq!(db.search_ids_between(&q, all[2], all[1]).unwrap(), mid);
+        // 同じIDを2回指したら1枚
+        assert_eq!(db.search_ids_between(&q, all[0], all[0]).unwrap(), [all[0]]);
+        // 全体
+        assert_eq!(db.search_ids_between(&q, all[0], all[3]).unwrap(), all);
+
+        // 絞り込みの外にあるIDは、範囲の端として効かない。
+        // 片方だけ生き残っていれば、その1枚ぶんの範囲になる
+        let oki = crate::search::parse_query("沖縄", false);
+        let oki_ids = db.search_ids(&oki).unwrap();
+        assert_eq!(oki_ids.len(), 2);
+        let outside = all
+            .iter()
+            .find(|id| !oki_ids.contains(id))
+            .copied()
+            .unwrap();
+        assert_eq!(
+            db.search_ids_between(&oki, oki_ids[0], outside).unwrap(),
+            [oki_ids[0]]
+        );
+        // 両方とも条件の外なら空
+        assert!(db.search_ids_between(&oki, outside, -1).unwrap().is_empty());
+    }
+
+    /// 実行計画を1行にまとめて返す（`EXPLAIN QUERY PLAN`）。
+    fn plan_of(db: &Db, sql: &str) -> String {
+        let mut stmt = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        // 変数は値によらないので、数だけ合わせて NULL を渡す
+        let holes = vec![rusqlite::types::Value::Null; sql.matches('?').count()];
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(holes.iter()), |r| {
+                r.get::<_, String>(3)
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect::<Vec<_>>();
+        rows.join(" / ")
+    }
+
+    #[test]
+    fn 選択に使う問い合わせは索引の並びで引く() {
+        // **測って釘を打つ**。`ORDER BY` が索引の並びと食い違うと、
+        // 1000万件では全件を並べ直すことになる（Shift+クリックのたびに数秒）
+        let db = seed_search_db();
+
+        let plan = plan_of(&db, &super::all_ids_sql(""));
+        assert!(plan.contains("idx_media_day_sort"), "全件: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "全件が並べ直しになっている: {plan}"
+        );
+
+        let plan = plan_of(&db, &super::between_sql(&super::between_conds()));
+        assert!(plan.contains("idx_media_day_sort"), "範囲: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "範囲が並べ直しになっている: {plan}"
+        );
+        // 端の日だけを見るシークになっていること（全件走査に落ちていない）
+        assert!(
+            plan.contains("SEARCH"),
+            "範囲がシークになっていない: {plan}"
+        );
+
+        // ★の絞り込みは部分索引に乗る。ここも並べ直しにならないこと
+        let mut fav = vec!["favorite = 1".to_string()];
+        fav.extend(super::between_conds());
+        let plan = plan_of(&db, &super::between_sql(&fav));
+        assert!(plan.contains("idx_media_fav_day"), "★の範囲: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "★の範囲が並べ直しになっている: {plan}"
+        );
+
+        // **検索語つきは一致集合の側から駆動される**。計画としては見栄えが悪い
+        // （一時表と並べ直しが出る）が、行ごとにFTSを引く形は桁で遅い——
+        // 測った結果は `FTS_FOR_SELECTION` の表に残してある。
+        // ここでは「そういう計画になる」ことだけ確かめて、釘は打たない
+        let q = crate::search::parse_query("沖縄", false);
+        let (conds, _) = db.query_filter(&q).unwrap();
+        let mut with_term = conds.clone();
+        with_term.extend(super::between_conds());
+        let plan = plan_of(&db, &super::between_sql(&with_term));
+        assert!(plan.contains("media_fts"), "検索語つきの範囲: {plan}");
+    }
+
+    /// 検索語つきの範囲選択・選択の確認で、FTSの2つの形のどちらが速いかを測る。
+    ///
+    /// **実行計画の見た目ではなく時間で決める**ためのもの。索引で駆動する形
+    /// （`Probe`）は計画が綺麗に見えるが、FTSを行ごとに引く定数が乗る。
+    /// CIでは走らせない（時間がかかるため `#[ignore]`）。
+    ///
+    /// ```text
+    /// cargo test --release -p pictkura-core -- --ignored --nocapture 速さ
+    /// ```
+    #[test]
+    #[ignore]
+    fn 検索語つきの選択はどちらの形が速いか() {
+        use std::time::Instant;
+        let mut db = Db::open_in_memory().unwrap();
+        // 3万件・600日ぶん。名前は実際のカメラと同じ連番
+        let mut files = Vec::with_capacity(30_000);
+        for i in 0..30_000i64 {
+            let day = i / 50;
+            files.push(scanned(
+                &format!(r"D:\写真0-{:02}\IMG_{:05}.JPG", day % 12 + 1, i),
+                1,
+                1_500_000_000_000 + day * 86_400_000 + (i % 50) * 60_000,
+            ));
+        }
+        db.upsert_files(&files).unwrap();
+
+        let all = db
+            .search_ids(&crate::search::parse_query("", false))
+            .unwrap();
+        assert_eq!(all.len(), 30_000);
+
+        for term in ["img_1", "img_12345"] {
+            let q = crate::search::parse_query(term, false);
+            let hits = db.search_ids(&q).unwrap();
+            // **端は一致集合の中から取る**（画面に出ているものしか押せない）
+            for (label, from, to) in [
+                ("狭い範囲（150件ぶん）", hits[0], hits[150]),
+                ("広い範囲（全域）", hits[0], hits[hits.len() - 1]),
+            ] {
+                for mode in [FtsMode::List, FtsMode::Probe] {
+                    let t = Instant::now();
+                    let got = db.search_ids_between_mode(&q, from, to, mode).unwrap();
+                    println!(
+                        "範囲 {label} 「{term}」（一致{}件）{:?}: {:.1}ms / {}件",
+                        hits.len(),
+                        mode,
+                        t.elapsed().as_secs_f64() * 1000.0,
+                        got.len()
+                    );
+                }
+            }
+            for (label, ids) in [("選択500枚", &all[..500]), ("全選択のあと", &all[..])] {
+                for mode in [FtsMode::List, FtsMode::Probe] {
+                    let t = Instant::now();
+                    let got = db.visible_ids_mode(&q, ids, mode).unwrap();
+                    println!(
+                        "確認 {label} 「{term}」（一致{}件）{:?}: {:.1}ms / {}件",
+                        hits.len(),
+                        mode,
+                        t.elapsed().as_secs_f64() * 1000.0,
+                        got.len()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn visible_idsは並んでいるものだけを渡した順で返す() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", false))
+            .unwrap();
+        let oki = crate::search::parse_query("沖縄", false);
+        let oki_ids = db.search_ids(&oki).unwrap();
+
+        // 渡した順を保つ（選択の順序をそのまま一括操作へ渡すため）
+        let mixed: Vec<i64> = all.iter().rev().copied().collect();
+        let kept = db.visible_ids(&oki, &mixed).unwrap();
+        let expected: Vec<i64> = mixed
+            .iter()
+            .copied()
+            .filter(|id| oki_ids.contains(id))
+            .collect();
+        assert_eq!(kept, expected);
+
+        // 居ないIDは落ちる／空の指定は空
+        assert_eq!(
+            db.visible_ids(&crate::search::parse_query("", false), &[all[0], -1])
+                .unwrap(),
+            [all[0]]
+        );
+        assert!(db
+            .visible_ids(&crate::search::parse_query("", false), &[])
+            .unwrap()
+            .is_empty());
+
+        // ★の絞り込みも条件のうち
+        db.set_favorites(&all[..1], true).unwrap();
+        let fav = crate::search::parse_query("", true);
+        assert_eq!(db.visible_ids(&fav, &all).unwrap(), [all[0]]);
+    }
+
+    #[test]
+    fn set_favoritesはまとめて付け外しできる() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", false))
+            .unwrap();
+        let two = &all[..2];
+
+        assert_eq!(db.set_favorites(two, true).unwrap(), 2);
+        let favs = db
+            .search_ids(&crate::search::parse_query("", true))
+            .unwrap();
+        assert_eq!(favs.len(), 2);
+        assert!(two.iter().all(|id| favs.contains(id)));
+
+        // 外すのも同じ経路
+        assert_eq!(db.set_favorites(two, false).unwrap(), 2);
+        assert!(db
+            .search_ids(&crate::search::parse_query("", true))
+            .unwrap()
+            .is_empty());
+
+        // 空の指定は何もしない（トランザクションも開かない）
+        assert_eq!(db.set_favorites(&[], true).unwrap(), 0);
+        // 居ないIDを混ぜても、居るぶんだけ付く
+        assert_eq!(db.set_favorites(&[all[0], -1], true).unwrap(), 1);
     }
 
     #[test]

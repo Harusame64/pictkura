@@ -91,6 +91,7 @@
     <li><a href="#folders">取り込み先のフォルダ構成を決める</a></li>
     <li><a href="#search">探す</a></li>
     <li><a href="#viewer">見る</a></li>
+    <li><a href="#select">まとめて選ぶ</a></li>
     <li><a href="#formats">対応しているファイル形式</a></li>
     <li><a href="#cloud">クラウドにしか実体が無いファイル</a></li>
     <li><a href="#notes">注意事項・できないこと</a></li>
@@ -304,7 +305,38 @@ Windows 11 の右クリックメニューでは <strong>「その他のオプシ
   </p>
 </div>
 
-<h2 id="formats">6. 対応しているファイル形式</h2>
+<h2 id="select">6. まとめて選ぶ</h2>
+
+<p>
+タイルにマウスを載せると角に丸が出ます。押すか、<kbd>Ctrl</kbd> を押しながらタイルを
+クリック（macOS は <kbd>⌘</kbd>）すると選択が始まり、画面の上に選択バーが出ます。
+</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>操作</th><th>動き</th></tr>
+  <tr><td>角の丸／<kbd>Ctrl</kbd> + クリック</td><td>1枚を選ぶ・外す</td></tr>
+  <tr><td><kbd>Shift</kbd> + クリック</td><td>最後に押したタイルからここまでをまとめて選ぶ。まだスクロールしていない日も含まれます</td></tr>
+  <tr><td>日付の見出しを押す</td><td>その日を全部選ぶ。もう一度押すと外す</td></tr>
+  <tr><td><kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>いまの検索と ★ の絞り込みに一致するもの全部</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>選択をやめる</td></tr>
+</table>
+</div>
+
+<p>
+選択中は、ふつうのクリックがビューアではなく選択の入れ替えになります。バーからは
+選択したぶんの ★ の付け外しと、まとめてゴミ箱へ移動ができます。削除の前には確認します。
+</p>
+
+<div class="note">
+  <p>
+    <strong>選択は画面に出ているものに追従します。</strong>
+    検索や ★ の絞り込みを変えたり、カレンダー表示へ切り替えたりすると選択は解除されます
+    ——見えていない写真に一括操作が効くことはありません。削除は変わらずゴミ箱経由です。
+  </p>
+</div>
+
+<h2 id="formats">7. 対応しているファイル形式</h2>
 
 <h3>写真</h3>
 <div class="table-scroll">
@@ -347,7 +379,7 @@ Windows 11 の右クリックメニューでは <strong>「その他のオプシ
 長さ・寸法・撮影日時はコンテナのヘッダだけを読むので、画素は1バイトも読みません。
 </p>
 
-<h2 id="cloud">7. クラウドにしか実体が無いファイル</h2>
+<h2 id="cloud">8. クラウドにしか実体が無いファイル</h2>
 
 <p>
 Windowsの「ピクチャ」は既定でOneDriveに向いており、しばらく使っていると
@@ -369,7 +401,7 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
   <li><strong>動画は開く前に止めます。</strong>数GBの動画を開くと全部落ちてくるので、案内を出して「既定のアプリで開く」へ寄せます</li>
 </ul>
 
-<h2 id="notes">8. 注意事項・できないこと</h2>
+<h2 id="notes">9. 注意事項・できないこと</h2>
 
 <div class="table-scroll">
 <table>
@@ -387,7 +419,7 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
 </table>
 </div>
 
-<h2 id="files">9. 設定とデータの置き場所</h2>
+<h2 id="files">10. 設定とデータの置き場所</h2>
 
 <div class="table-scroll">
 <table>

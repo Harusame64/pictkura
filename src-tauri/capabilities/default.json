@@ -1,7 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウの既定権限",
+  "description": "メインウィンドウの既定権限。`dialog:allow-message` は削除の確認ダイアログに要る（プラグインの `confirm` は内部で `message` コマンドを呼ぶ。`allow-confirm` は非推奨の別名）",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-message"
+  ]
 }

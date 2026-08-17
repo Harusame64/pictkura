@@ -1060,25 +1060,58 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
 /// 戻り値は実際に削除できた件数。
 #[tauri::command]
 fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
-    let mut deleted: Vec<PathBuf> = Vec::new();
-    for id in &ids {
-        let Ok(path) = path_of(&state, *id) else {
-            continue;
-        };
-        // ファイルが既に無い場合もDBからは消す（実体に合わせる）
-        match trash::delete(&path) {
-            Ok(()) => deleted.push(path),
-            Err(_) if !path.exists() => deleted.push(path),
-            Err(e) => return Err(format!("ゴミ箱へ移動できません: {e}")),
+    // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
+    let paths: Vec<PathBuf> = ids
+        .iter()
+        .filter_map(|id| path_of(&state, *id).ok())
+        .collect();
+    // 実体がもう無いものは**先に分ける**。ファイルが1つ欠けるだけで
+    // まとめての操作は全体が失敗し、下の1件ずつへ落ちてしまう
+    // （選択したあとに外から消えるのは、同期フォルダでは普通に起きる）。
+    // 無いものはDBからだけ落とす（実体に合わせる）
+    let (mut deleted, present): (Vec<PathBuf>, Vec<PathBuf>) =
+        paths.into_iter().partition(|p| !p.exists());
+    // **まとめて1回で渡す**。Windowsの `trash::delete` は1件ごとにシェルの
+    // ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
+    // 失敗したら下の1件ずつへ落とし、**消せたぶんだけ**DBへ反映する
+    let first_err = match trash::delete_all(&present) {
+        Ok(()) => {
+            deleted.extend(present);
+            None
         }
+        Err(_) => {
+            let mut first_err: Option<String> = None;
+            for path in present {
+                // ファイルが既に無い場合もDBからは消す（実体に合わせる）。
+                // まとめての操作が途中まで通っていたぶんも、ここで拾える
+                match trash::delete(&path) {
+                    Ok(()) => deleted.push(path),
+                    Err(_) if !path.exists() => deleted.push(path),
+                    Err(e) => {
+                        // **ここで返してはいけない**。既にゴミ箱へ入れたぶんがDBに残り、
+                        // 一覧には居るのに実体が無い行になる。最初のエラーだけ覚えて、
+                        // **消せたぶんは必ずDBへ反映してから**返す
+                        if first_err.is_none() {
+                            first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+                        }
+                    }
+                }
+            }
+            first_err
+        }
+    };
+    if !deleted.is_empty() {
+        lock_ok(&state.db)
+            .remove_paths(&deleted)
+            .map_err(|e| e.to_string())?;
     }
-    if deleted.is_empty() {
-        return Ok(0);
+    match first_err {
+        Some(e) if deleted.is_empty() => Err(e),
+        // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
+        // 「何枚消えたのか」が分からない
+        Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
+        None => Ok(deleted.len()),
     }
-    lock_ok(&state.db)
-        .remove_paths(&deleted)
-        .map_err(|e| e.to_string())?;
-    Ok(deleted.len())
 }
 
 /// 取り込み先フォルダ構成の選択肢1つ（パターンと、今日の日付での実例）。
@@ -1245,6 +1278,79 @@ async fn sync_now(app: tauri::AppHandle) -> Result<SyncStatsDto, String> {
 fn set_favorite(state: tauri::State<'_, AppState>, id: i64, favorite: bool) -> Result<(), String> {
     lock_ok(&state.db)
         .set_favorite(id, favorite)
+        .map_err(|e| e.to_string())
+}
+
+/// お気に入りをまとめて付ける・外す（複数選択の一括操作）。
+///
+/// 1件ずつ `set_favorite` を呼ぶ形にしないのは、数千件でその数だけコミットが
+/// 走るため。DB側で1つのトランザクションにまとめている。
+#[tauri::command]
+fn set_favorites(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<i64>,
+    favorite: bool,
+) -> Result<usize, String> {
+    lock_ok(&state.db)
+        .set_favorites(&ids, favorite)
+        .map_err(|e| e.to_string())
+}
+
+/// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
+///
+/// 範囲選択（Shift+クリック）と全選択のためのもの。一覧は日ごとに遅延読み込み
+/// するので、画面から見えている範囲だけで選択を決めると
+/// **まだ読んでいない日の写真が黙って外れる**。IDなら1件8バイトなので、
+/// 3万件でも240KB——選択のたびに引き直しても割に合う。
+///
+/// 読み取り専用プールを使う（書き込みロックを取らない）。
+#[tauri::command]
+fn list_media_ids(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    favorites_only: bool,
+) -> Result<Vec<i64>, String> {
+    let query = pictkura_core::parse_query(&query, favorites_only);
+    state
+        .read_pool
+        .with(|db| db.search_ids(&query))
+        .map_err(|e| e.to_string())
+}
+
+/// 範囲選択（Shift+クリック）で、**2点に挟まれたIDだけ**を取る。
+///
+/// 全IDを返す `list_media_ids` を範囲選択に使うと、隣り合う2枚のために
+/// 一覧の全件がIPCを渡る。切り出しはDB側でやる。
+#[tauri::command]
+fn list_media_ids_between(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    favorites_only: bool,
+    from_id: i64,
+    to_id: i64,
+) -> Result<Vec<i64>, String> {
+    let query = pictkura_core::parse_query(&query, favorites_only);
+    state
+        .read_pool
+        .with(|db| db.search_ids_between(&query, from_id, to_id))
+        .map_err(|e| e.to_string())
+}
+
+/// 渡されたIDのうち、**いまの条件で実際に一覧に並んでいるもの**だけを返す。
+///
+/// 一括操作の直前の確認用。選択したあとに★を外した・撮影日が確定して
+/// 検索から外れた等で、画面に出ていないものが選択に残ることがある。
+#[tauri::command]
+fn visible_media_ids(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    favorites_only: bool,
+    ids: Vec<i64>,
+) -> Result<Vec<i64>, String> {
+    let query = pictkura_core::parse_query(&query, favorites_only);
+    state
+        .read_pool
+        .with(|db| db.visible_ids(&query, &ids))
         .map_err(|e| e.to_string())
 }
 
@@ -2329,6 +2435,10 @@ pub fn run() {
             list_folder_patterns,
             set_folder_pattern,
             preview_folder_pattern,
+            set_favorites,
+            list_media_ids,
+            list_media_ids_between,
+            visible_media_ids,
             set_register_autoplay,
             take_pending_import
         ])

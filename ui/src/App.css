@@ -1692,3 +1692,99 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* ===== 複数選択 ===== */
+
+/* 日付の見出しは押せる（その日をまとめて選ぶ）。見出しの見た目は変えず、
+   押せることはホバーで示す */
+.date-header-btn {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 2px 6px;
+  margin: -2px -6px;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.date-header-btn:hover {
+  background: var(--surface-2);
+}
+
+/* 選択の丸。ホバーで出て、選択済みは出しっぱなし。
+   写真の上に乗るので、下地の明暗に関わらず読めるよう縁取りと影を付ける */
+.cell-pick {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  font-size: 13px;
+  color: transparent;
+  background: oklch(0 0 0 / 0.35);
+  border: 2px solid oklch(1 0 0 / 0.85);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.cell-wrap:hover .cell-pick,
+.cell-pick:focus-visible {
+  opacity: 1;
+}
+.cell-pick[aria-pressed="true"] {
+  opacity: 1;
+  /* アクセント地の文字色はテーマで反転する（暗い地では明るい青＋濃色の字）ので
+     `#fff` を直に置かない */
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 選択済みのタイル。**枠を内側に描く**（outlineだと隣と重なる） */
+.cell-wrap.picked .cell {
+  box-shadow: inset 0 0 0 3px var(--accent);
+  filter: brightness(0.82);
+}
+
+/* 選択中に出る操作バー。上部のバーの上に重ねず、その上に積む */
+.select-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-3);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+}
+.select-bar-count {
+  font-weight: 700;
+  color: var(--accent);
+}
+.select-bar-spacer {
+  flex: 1;
+}
+.select-bar button {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.select-bar button:hover {
+  background: var(--surface-2);
+}
+.select-bar button.danger {
+  color: var(--danger);
+}
+.select-bar-close {
+  padding: 4px 8px !important;
+}
