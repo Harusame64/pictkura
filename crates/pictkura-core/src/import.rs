@@ -166,6 +166,13 @@ pub(crate) fn resolve_dest_path(
 ///
 /// 更新時刻は**2秒の幅**を持たせる。FAT32 は2秒刻みでしか保持できないので、
 /// USBメモリへ書き出したものを比べると、厳密一致では必ず別物になる。
+///
+/// **ちょうど1時間のずれも同じものとみなす**。FAT32 は更新時刻をローカル時刻で
+/// 持つため、夏時間の切り替えをまたぐと同じファイルが1時間ずれて見える
+/// （robocopy の `/DST` と同じ話。日本では起きないが、英語でも配っている）。
+/// これを見落とすと、**カード1枚が丸ごと二重に取り込まれる**。
+/// 誤って同じとみなすのは「名前もサイズも同じで、撮影時刻がちょうど1時間違い」の
+/// 別写真だけで、取りこぼしの害のほうが大きい。
 fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
     let Ok(meta) = existing.metadata() else {
         return false;
@@ -177,8 +184,12 @@ fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
         return false;
     };
     let dest_ms = filetime::FileTime::from_system_time(mtime).unix_seconds() * 1000;
-    (dest_ms - src_mtime_ms).abs() <= 2_000
+    let diff = (dest_ms - src_mtime_ms).abs();
+    diff <= MTIME_TOLERANCE_MS || (diff - 3_600_000).abs() <= MTIME_TOLERANCE_MS
 }
+
+/// 更新時刻の許容差（FAT32 の2秒刻み）。
+const MTIME_TOLERANCE_MS: i64 = 2_000;
 
 /// 上と同じだが、**この操作で自分が書いたばかりのパス**（`taken`）は
 /// 「同じもの」と見なさずに連番へ回す。
@@ -477,6 +488,33 @@ mod tests {
             "2026/2026-08-05"
         );
         assert_eq!(render_folder_pattern("{year}/{month}", date), "2026/08");
+    }
+
+    #[test]
+    fn 同名同サイズでも更新時刻が違えば取り込み済みとみなさない() {
+        // 差分検知の原則（サイズと更新時刻だけを見る）を取り込みの重複判定にも
+        // 効かせている。**別の日の同名ファイル**（連番が一周したRAW等）を
+        // 「もう取り込んだ」と誤判定して落とさないため
+        let dir = tempfile::tempdir().unwrap();
+        let dest_dir = dir.path().join("dest");
+        fs::create_dir_all(&dest_dir).unwrap();
+        fs::write(dest_dir.join("DSC00001.ARW"), b"1111").unwrap();
+        filetime::set_file_mtime(
+            dest_dir.join("DSC00001.ARW"),
+            filetime::FileTime::from_unix_time(1_000_000_000, 0),
+        )
+        .unwrap();
+
+        // 同じ名前・同じサイズ・別の時刻 → 連番へ回る
+        assert!(matches!(
+            resolve_dest_path(&dest_dir, "DSC00001.ARW", 4, 1_700_000_000_000),
+            DestResolution::CopyTo(_)
+        ));
+        // 時刻も合っていれば「もうある」
+        assert!(matches!(
+            resolve_dest_path(&dest_dir, "DSC00001.ARW", 4, 1_000_000_000_000),
+            DestResolution::AlreadyImported
+        ));
     }
 
     #[test]

@@ -127,8 +127,6 @@ fn export_one(
             }
         };
 
-    written.insert(dest_path.clone());
-
     // 同じドライブの移動は `rename` で終わる（メタデータの更新だけ）。
     // 別のドライブだと失敗するので、そのときはコピーへ落とす。
     //
@@ -141,15 +139,18 @@ fn export_one(
         && std::fs::rename(path, &dest_path).is_ok()
     {
         out.stats.done += 1;
+        written.insert(dest_path);
         out.moved.push(path.to_path_buf());
         return;
     }
 
     if !copy_verified(path, &dest_path, meta.len()) {
+        // **失敗した名前は使用済みにしない**。次の1枚が理由もなく連番になる
         out.stats.failed += 1;
         return;
     }
     out.stats.done += 1;
+    written.insert(dest_path);
     if mode == ExportMode::Move {
         // **元を消すのはここではない**（モジュールの説明を参照）
         out.to_remove.push(path.to_path_buf());
@@ -329,6 +330,59 @@ mod tests {
         let second =
             export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
         assert_eq!(second.stats.skipped, 1, "同じものは飛ばす");
+        assert_eq!(files_in(&dest), ["a.jpg"]);
+    }
+
+    #[test]
+    fn 夏時間で1時間ずれても同じものとみなす() {
+        // FAT32 は更新時刻をローカル時刻で持つので、夏時間の切り替えをまたぐと
+        // 同じファイルが**ちょうど1時間**ずれて見える。ここを見落とすと
+        // USBメモリ1本ぶんが丸ごと二重に書き出される
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(src.join("a.jpg"), b"aaa").unwrap();
+        fs::write(dest.join("a.jpg"), b"aaa").unwrap();
+        filetime::set_file_mtime(
+            src.join("a.jpg"),
+            filetime::FileTime::from_unix_time(1_700_000_000, 0),
+        )
+        .unwrap();
+        filetime::set_file_mtime(
+            dest.join("a.jpg"),
+            filetime::FileTime::from_unix_time(1_700_000_000 + 3_600, 0),
+        )
+        .unwrap();
+
+        let out =
+            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+
+        assert_eq!(out.stats.skipped, 1, "1時間ちょうどのずれは同じもの");
+        assert_eq!(files_in(&dest), ["a.jpg"]);
+    }
+
+    #[test]
+    fn 書き出しに失敗した名前は使用済みにしない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.jpg"), b"aaa").unwrap();
+
+        // 1枚目は読めない（失敗する）。2枚目は同じ名前で書ける
+        let out = export_files(
+            &[dir.path().join("gone/a.jpg"), src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.failed, 1);
+        assert_eq!(out.stats.done, 1);
+        // 落ちた1枚のせいで `a-1.jpg` にならないこと
         assert_eq!(files_in(&dest), ["a.jpg"]);
     }
 
