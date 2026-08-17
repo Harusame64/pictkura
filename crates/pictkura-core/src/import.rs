@@ -151,8 +151,33 @@ pub(crate) enum DestResolution {
 }
 
 /// コピー先のフルパスを決める。同名・別内容の場合は `-1`, `-2` … で衝突回避。
-pub(crate) fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64) -> DestResolution {
-    resolve_dest_path_avoiding(dest_dir, file_name, src_size, &HashSet::new())
+pub(crate) fn resolve_dest_path(
+    dest_dir: &Path,
+    file_name: &str,
+    src_size: u64,
+    src_mtime_ms: i64,
+) -> DestResolution {
+    resolve_dest_path_avoiding(dest_dir, file_name, src_size, src_mtime_ms, &HashSet::new())
+}
+
+/// 「同じもの」と見なしてよいか。**サイズと更新時刻だけで決める**
+/// （このリポジトリの差分検知の原則。ハッシュは取らない——衝突のたびに
+/// 両方を丸ごと読み直すことになり、USBへの再書き出しで全ファイルに効いてしまう）。
+///
+/// 更新時刻は**2秒の幅**を持たせる。FAT32 は2秒刻みでしか保持できないので、
+/// USBメモリへ書き出したものを比べると、厳密一致では必ず別物になる。
+fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
+    let Ok(meta) = existing.metadata() else {
+        return false;
+    };
+    if meta.len() != src_size {
+        return false;
+    }
+    let Ok(mtime) = meta.modified() else {
+        return false;
+    };
+    let dest_ms = filetime::FileTime::from_system_time(mtime).unix_seconds() * 1000;
+    (dest_ms - src_mtime_ms).abs() <= 2_000
 }
 
 /// 上と同じだが、**この操作で自分が書いたばかりのパス**（`taken`）は
@@ -167,13 +192,14 @@ pub(crate) fn resolve_dest_path_avoiding(
     dest_dir: &Path,
     file_name: &str,
     src_size: u64,
+    src_mtime_ms: i64,
     taken: &HashSet<PathBuf>,
 ) -> DestResolution {
     let candidate = dest_dir.join(file_name);
     if !candidate.exists() && !taken.contains(&candidate) {
         return DestResolution::CopyTo(candidate);
     }
-    if !taken.contains(&candidate) && candidate.metadata().map(|m| m.len()).ok() == Some(src_size) {
+    if !taken.contains(&candidate) && looks_same(&candidate, src_size, src_mtime_ms) {
         return DestResolution::AlreadyImported;
     }
     let (stem, ext) = match (
@@ -191,7 +217,7 @@ pub(crate) fn resolve_dest_path_avoiding(
         if !alt.exists() {
             return DestResolution::CopyTo(alt);
         }
-        if alt.metadata().map(|m| m.len()).ok() == Some(src_size) {
+        if looks_same(&alt, src_size, src_mtime_ms) {
             return DestResolution::AlreadyImported;
         }
     }
@@ -330,12 +356,13 @@ pub fn is_already_imported(path: &Path, config: &Config) -> bool {
     let Ok(meta) = std::fs::metadata(path) else {
         return false;
     };
-    let dest_dir = dest_dir_for(path, mtime_ms_of(&meta), dest_root, config);
+    let mtime_ms = mtime_ms_of(&meta);
+    let dest_dir = dest_dir_for(path, mtime_ms, dest_root, config);
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
     matches!(
-        resolve_dest_path(&dest_dir, file_name, meta.len()),
+        resolve_dest_path(&dest_dir, file_name, meta.len(), mtime_ms),
         DestResolution::AlreadyImported
     )
 }
@@ -390,7 +417,7 @@ fn import_one(
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return ImportOneResult::Failed;
     };
-    let dest_path = match resolve_dest_path(&dest_dir, file_name, size) {
+    let dest_path = match resolve_dest_path(&dest_dir, file_name, size, mtime_ms) {
         DestResolution::CopyTo(p) => p,
         DestResolution::AlreadyImported => return ImportOneResult::Skipped,
         // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される

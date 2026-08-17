@@ -20,6 +20,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::import::{resolve_dest_path_avoiding, DestResolution};
+use crate::scanner::is_managed_package_path;
 
 /// コピーか移動か。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +57,11 @@ pub struct ExportOutcome {
 pub enum ExportError {
     #[error("書き出し先のフォルダを作れません: {0}")]
     DestUnusable(PathBuf),
+    /// アプリが中身を管理している入れ物（macOSの `写真ライブラリ.photoslibrary` 等）。
+    /// **フォルダ選択のダイアログでは中に入って選べてしまう**が、そこへ直接書くと
+    /// 写真アプリの管理外のファイルを内部へ置くことになる
+    #[error("この場所へは書き出せません（アプリが管理している入れ物です）: {0}")]
+    DestIsPackage(PathBuf),
 }
 
 /// `files` を `dest_dir` へコピー／移動する。
@@ -69,6 +75,11 @@ pub fn export_files(
     mode: ExportMode,
     on_progress: impl Fn(usize, usize, &Path),
 ) -> Result<ExportOutcome, ExportError> {
+    // **取り込み先と同じ門を通す**（`set_import_destination` も同じ判定で断っている）。
+    // ネイティブのダイアログは `.photoslibrary` の中まで選べてしまう
+    if is_managed_package_path(dest_dir) {
+        return Err(ExportError::DestIsPackage(dest_dir.to_path_buf()));
+    }
     if std::fs::create_dir_all(dest_dir).is_err() || !dest_dir.is_dir() {
         return Err(ExportError::DestUnusable(dest_dir.to_path_buf()));
     }
@@ -100,19 +111,21 @@ fn export_one(
         out.stats.failed += 1;
         return;
     };
-    let dest_path = match resolve_dest_path_avoiding(dest_dir, file_name, meta.len(), written) {
-        DestResolution::CopyTo(p) => p,
-        DestResolution::AlreadyImported => {
-            // **同じものが既にある。移動でも元は消さない**——消してよいかは
-            // 「同名・同サイズ」だけでは決められない（中身までは見ていない）
-            out.stats.skipped += 1;
-            return;
-        }
-        DestResolution::Exhausted => {
-            out.stats.failed += 1;
-            return;
-        }
-    };
+    let mtime_ms = filetime::FileTime::from_last_modification_time(&meta).unix_seconds() * 1000;
+    let dest_path =
+        match resolve_dest_path_avoiding(dest_dir, file_name, meta.len(), mtime_ms, written) {
+            DestResolution::CopyTo(p) => p,
+            DestResolution::AlreadyImported => {
+                // **同じものが既にある。移動でも元は消さない**——消してよいかは
+                // 「同名・同サイズ」だけでは決められない（中身までは見ていない）
+                out.stats.skipped += 1;
+                return;
+            }
+            DestResolution::Exhausted => {
+                out.stats.failed += 1;
+                return;
+            }
+        };
 
     written.insert(dest_path.clone());
 
@@ -261,6 +274,78 @@ mod tests {
         ];
         bodies.sort();
         assert_eq!(bodies, vec![b"1111".to_vec(), b"2222".to_vec()]);
+    }
+
+    #[test]
+    fn 前の書き出しと同名同サイズでも中身が違えば残す() {
+        // 「同名・同サイズ＝同じもの」は平置きでは成り立たない。**別の操作で**書いた
+        // ものとの衝突（USBメモリへ何度も足していく使い方）でも落とさないこと
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(src.join("DSC00001.ARW"), b"2222").unwrap();
+        // 先に別物（同じサイズ・別の日）が書き出されている
+        fs::write(dest.join("DSC00001.ARW"), b"1111").unwrap();
+        filetime::set_file_mtime(
+            dest.join("DSC00001.ARW"),
+            filetime::FileTime::from_unix_time(1_000_000_000, 0),
+        )
+        .unwrap();
+        filetime::set_file_mtime(
+            src.join("DSC00001.ARW"),
+            filetime::FileTime::from_unix_time(1_700_000_000, 0),
+        )
+        .unwrap();
+
+        let out = export_files(
+            &[src.join("DSC00001.ARW")],
+            &dest,
+            ExportMode::Copy,
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.done, 1, "撮影時刻が違うので別物として書き出す");
+        assert_eq!(out.stats.skipped, 0);
+        assert_eq!(files_in(&dest), ["DSC00001-1.ARW", "DSC00001.ARW"]);
+        assert_eq!(fs::read(dest.join("DSC00001.ARW")).unwrap(), b"1111");
+        assert_eq!(fs::read(dest.join("DSC00001-1.ARW")).unwrap(), b"2222");
+    }
+
+    #[test]
+    fn 同じものを書き出し直しても増えない() {
+        // USBメモリへ足していく使い方。2回目は何も増えない
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.jpg"), b"aaa").unwrap();
+
+        let first =
+            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        assert_eq!(first.stats.done, 1);
+        let second =
+            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        assert_eq!(second.stats.skipped, 1, "同じものは飛ばす");
+        assert_eq!(files_in(&dest), ["a.jpg"]);
+    }
+
+    #[test]
+    fn アプリが管理する入れ物へは書き出さない() {
+        // ネイティブのフォルダ選択は `.photoslibrary` の中まで選べてしまう
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("a.jpg"), b"aaa").unwrap();
+        let dest = dir.path().join("写真ライブラリ.photoslibrary/originals");
+
+        let err =
+            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap_err();
+
+        assert!(matches!(err, ExportError::DestIsPackage(_)), "{err:?}");
+        assert!(!dest.exists(), "フォルダも作らない");
     }
 
     #[test]

@@ -214,8 +214,9 @@ you pick, or move all of it to the recycle bin in one go — deleting asks first
 
 **Copy to folder / Move to folder** put the selected files straight into the folder you
 pick, without date subfolders — handy for handing a few photos to someone or filling a USB
-stick. A file that is already there with the same name and size is left alone; a different
-file with the same name gets `-1`, `-2` appended. Moving asks first: those photos leave
+stick. A file that is already there — same name, size and
+timestamp — is left alone, so writing the same photos to the same folder again adds
+nothing; a different file that happens to share a name gets `-1`, `-2` appended. Moving asks first: those photos leave
 their current place and leave the library, and their ★ is not carried over. Moving to
 another drive — and moving a file that only exists in the cloud — copies first and then
 sends the original to the recycle bin.
