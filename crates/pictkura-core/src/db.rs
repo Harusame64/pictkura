@@ -124,8 +124,29 @@ fn parent_dir_expr(path_expr: &str) -> String {
 }
 
 /// `IN (...)` 用のプレースホルダ列（`?,?,?`）を作る。
+/// 範囲選択と選択の確認で使うFTSの形。**測って決めた**
+/// （`検索語つきの選択はどちらの形が速いか` のベンチ。2026-08-17に3万件で実測）。
+///
+/// 実行計画だけ見ると `Probe` が良く見える——日の索引で駆動し、一時表も
+/// 並べ直しも出ない。**が、実際は桁で遅い**。FTSを行ごとに引く定数が乗るうえ、
+/// このアプリの検索語は必ず末尾が前方一致（`term_to_match`）なので、
+/// 行ごとに辞書の範囲展開が走る。3万件・一致1.5万件での実測:
+///
+/// | | List | Probe |
+/// |---|---:|---:|
+/// | 範囲選択（151件ぶん） | 6.7ms | 636.8ms |
+/// | 範囲選択（全域） | 9.2ms | 26.1秒 |
+/// | 選択の確認（500枚） | 8.4ms | 529.1ms |
+/// | 選択の確認（1.5万枚） | 295.5ms | 26.7秒 |
+///
+/// 一致集合を1回作る側は1行あたりの定数が極端に小さいので、
+/// **一致件数に比例しても十分速い**。もっと大きなライブラリで問題になるなら、
+/// 行ごとに引くのではなく「一致集合を操作ごとに1回だけ一時表へ実体化して
+/// 使い回す」形が筋。`Probe` は計測用に残してある。
+const FTS_FOR_SELECTION: FtsMode = FtsMode::List;
+
 /// 検索語の条件をどう書くか。**実行計画がこれで決まる**。
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum FtsMode {
     /// 一致するrowidの集合を1回作り、それへの `IN` で絞る。
     /// 日の一覧・サマリのように「索引でその日へシークしてから絞る」問い合わせ向き。
@@ -134,6 +155,10 @@ enum FtsMode {
     /// **範囲や選択の確認のように、候補が先に小さく決まる**問い合わせ向き。
     /// 一致集合を作らないので、ライブラリ全体の一致件数に引きずられない。
     /// 表を `media` の名前で参照するので、別名を付けた文では使えない。
+    ///
+    /// **製品では使っていない**。計画は綺麗になるが実測では桁で遅い
+    /// （[`FTS_FOR_SELECTION`] の表）。比べ直せるように残してある
+    #[allow(dead_code)]
     Probe,
 }
 
@@ -1520,11 +1545,19 @@ impl Db {
         from_id: i64,
         to_id: i64,
     ) -> Result<Vec<i64>, DbError> {
+        self.search_ids_between_mode(query, from_id, to_id, FTS_FOR_SELECTION)
+    }
+
+    /// [`Db::search_ids_between`] の、FTSの形を選べる版（速さの計測用）。
+    fn search_ids_between_mode(
+        &self,
+        query: &SearchQuery,
+        from_id: i64,
+        to_id: i64,
+        fts_mode: FtsMode,
+    ) -> Result<Vec<i64>, DbError> {
         use rusqlite::types::Value;
-        // **候補が先に小さく決まる問い合わせ**なので、FTSは行ごとに引く形にする。
-        // 一致集合を1回作る形にすると、隣り合う2枚を選ぶだけで
-        // ライブラリ全体の一致を数え上げることになる（実行計画で確認済み）
-        let (conds, args) = self.query_filter_mode(query, FtsMode::Probe)?;
+        let (conds, args) = self.query_filter_mode(query, fts_mode)?;
 
         // **端の並びの鍵を先に引く**。順位を数え上げる形（ROW_NUMBER）にすると、
         // 隣り合う2枚のためにライブラリ全体を並べ直すことになる。
@@ -1586,8 +1619,20 @@ impl Db {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        // 渡されたIDが候補を決めるので、こちらもFTSは行ごとに引く形
-        let (conds, base_args) = self.query_filter_mode(query, FtsMode::Probe)?;
+        self.visible_ids_mode(query, ids, FTS_FOR_SELECTION)
+    }
+
+    /// [`Db::visible_ids`] の、FTSの形を選べる版（速さの計測用）。
+    fn visible_ids_mode(
+        &self,
+        query: &SearchQuery,
+        ids: &[i64],
+        fts_mode: FtsMode,
+    ) -> Result<Vec<i64>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (conds, base_args) = self.query_filter_mode(query, fts_mode)?;
         let mut found: std::collections::HashSet<i64> = std::collections::HashSet::new();
         for chunk in ids.chunks(400) {
             let mut conds = conds.clone();
@@ -3453,34 +3498,83 @@ mod tests {
             "★の範囲が並べ直しになっている: {plan}"
         );
 
-        // **検索語つきが本番**。一致集合を1回作る形にすると、隣り合う2枚を
-        // 選ぶだけでライブラリ全体の一致を数え上げ、そのうえ並べ直しになる。
-        // 行ごとに引く形（`FtsMode::Probe`）なら日の索引が主役のまま
+        // **検索語つきは一致集合の側から駆動される**。計画としては見栄えが悪い
+        // （一時表と並べ直しが出る）が、行ごとにFTSを引く形は桁で遅い——
+        // 測った結果は `FTS_FOR_SELECTION` の表に残してある。
+        // ここでは「そういう計画になる」ことだけ確かめて、釘は打たない
         let q = crate::search::parse_query("沖縄", false);
-        let (conds, _) = db.query_filter_mode(&q, super::FtsMode::Probe).unwrap();
+        let (conds, _) = db.query_filter(&q).unwrap();
         let mut with_term = conds.clone();
         with_term.extend(super::between_conds());
         let plan = plan_of(&db, &super::between_sql(&with_term));
-        assert!(
-            plan.contains("idx_media_day_sort"),
-            "検索語つきの範囲が日の索引で駆動されていない: {plan}"
-        );
-        assert!(
-            !plan.contains("TEMP B-TREE"),
-            "検索語つきの範囲が並べ直しになっている: {plan}"
-        );
+        assert!(plan.contains("media_fts"), "検索語つきの範囲: {plan}");
+    }
 
-        // 選択の確認は、渡したIDが候補を決める。ここでも一致集合は作らない
-        let mut with_ids = conds;
-        with_ids.push("id IN (?, ?)".to_string());
-        let plan = plan_of(
-            &db,
-            &format!("SELECT id FROM media WHERE {}", with_ids.join(" AND ")),
-        );
-        assert!(
-            !plan.contains("LIST SUBQUERY"),
-            "選択の確認が一致集合を作っている: {plan}"
-        );
+    /// 検索語つきの範囲選択・選択の確認で、FTSの2つの形のどちらが速いかを測る。
+    ///
+    /// **実行計画の見た目ではなく時間で決める**ためのもの。索引で駆動する形
+    /// （`Probe`）は計画が綺麗に見えるが、FTSを行ごとに引く定数が乗る。
+    /// CIでは走らせない（時間がかかるため `#[ignore]`）。
+    ///
+    /// ```text
+    /// cargo test --release -p pictkura-core -- --ignored --nocapture 速さ
+    /// ```
+    #[test]
+    #[ignore]
+    fn 検索語つきの選択はどちらの形が速いか() {
+        use std::time::Instant;
+        let mut db = Db::open_in_memory().unwrap();
+        // 3万件・600日ぶん。名前は実際のカメラと同じ連番
+        let mut files = Vec::with_capacity(30_000);
+        for i in 0..30_000i64 {
+            let day = i / 50;
+            files.push(scanned(
+                &format!(r"D:\写真0-{:02}\IMG_{:05}.JPG", day % 12 + 1, i),
+                1,
+                1_500_000_000_000 + day * 86_400_000 + (i % 50) * 60_000,
+            ));
+        }
+        db.upsert_files(&files).unwrap();
+
+        let all = db
+            .search_ids(&crate::search::parse_query("", false))
+            .unwrap();
+        assert_eq!(all.len(), 30_000);
+
+        for term in ["img_1", "img_12345"] {
+            let q = crate::search::parse_query(term, false);
+            let hits = db.search_ids(&q).unwrap();
+            // **端は一致集合の中から取る**（画面に出ているものしか押せない）
+            for (label, from, to) in [
+                ("狭い範囲（150件ぶん）", hits[0], hits[150]),
+                ("広い範囲（全域）", hits[0], hits[hits.len() - 1]),
+            ] {
+                for mode in [FtsMode::List, FtsMode::Probe] {
+                    let t = Instant::now();
+                    let got = db.search_ids_between_mode(&q, from, to, mode).unwrap();
+                    println!(
+                        "範囲 {label} 「{term}」（一致{}件）{:?}: {:.1}ms / {}件",
+                        hits.len(),
+                        mode,
+                        t.elapsed().as_secs_f64() * 1000.0,
+                        got.len()
+                    );
+                }
+            }
+            for (label, ids) in [("選択500枚", &all[..500]), ("全選択のあと", &all[..])] {
+                for mode in [FtsMode::List, FtsMode::Probe] {
+                    let t = Instant::now();
+                    let got = db.visible_ids_mode(&q, ids, mode).unwrap();
+                    println!(
+                        "確認 {label} 「{term}」（一致{}件）{:?}: {:.1}ms / {}件",
+                        hits.len(),
+                        mode,
+                        t.elapsed().as_secs_f64() * 1000.0,
+                        got.len()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
