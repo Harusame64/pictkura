@@ -225,6 +225,8 @@ export default function App() {
    * `listMediaIds` の応答が**消したはずの選択を作り直す**。
    */
   const selectEpochRef = useRef(0);
+  /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
+  const exportingRef = useRef(false);
   /**
    * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
    *
@@ -1711,21 +1713,24 @@ export default function App() {
    */
   const onBulkExport = useCallback(
     async (moveFiles: boolean) => {
-      const ids = await visibleSelection();
-      if (ids.length === 0) return;
-      if (moveFiles) {
-        const ok = await confirmDialog(t.moveConfirm(ids.length), {
-          title: t.appName,
-          kind: "warning",
-        });
-        if (!ok) return;
-      }
-      const dest = await open({ directory: true, title: t.pickExportFolder });
-      if (typeof dest !== "string") return;
-      // **走っている間はバーを止める**。数分かかる操作なので、二度押しで
-      // 同じ選択の書き出しが並走すると件数の報告が濁る
+      // **確認とフォルダ選択を待つ前に鍵を掛ける**。ボタンの非活性は
+      // `busy` の反映（次のレンダー）を待つので、続けて2回押されると
+      // 2本ともダイアログまで進んでしまう。refなら即座に効く
+      if (exportingRef.current) return;
+      exportingRef.current = true;
       setBusy(true);
       try {
+        const ids = await visibleSelection();
+        if (ids.length === 0) return;
+        if (moveFiles) {
+          const ok = await confirmDialog(t.moveConfirm(ids.length), {
+            title: t.appName,
+            kind: "warning",
+          });
+          if (!ok) return;
+        }
+        const dest = await open({ directory: true, title: t.pickExportFolder });
+        if (typeof dest !== "string") return;
         const st = await exportMedia(ids, dest, moveFiles);
         setStatus(t.exportDone(st.done, st.skipped, st.failed, st.left_behind));
         if (moveFiles) {
@@ -1742,6 +1747,7 @@ export default function App() {
           await reloadAll().catch(() => {});
         }
       } finally {
+        exportingRef.current = false;
         setBusy(false);
       }
     },
