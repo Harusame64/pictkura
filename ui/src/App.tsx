@@ -209,6 +209,20 @@ export default function App() {
    */
   const idsCacheRef = useRef<{ key: string; ids: number[] } | null>(null);
   /**
+   * ID一覧の控えの世代。**控えを捨てるたびに進める**。
+   *
+   * 捨てるだけでは足りない——`listMediaIds` の応答を待っている最中に
+   * 中身が変わると、**捨てた直後に古い並びで控えを埋め直す**。
+   * 検索条件もライブラリの世代も変わらない経路（撮影日が確定して日が移った等、
+   * `refreshSummary` が通る場面）があるので、専用の世代が要る。
+   */
+  const idsGenRef = useRef(0);
+  /** ID一覧の控えを捨てる。**世代も進めて、待っている応答を無効にする** */
+  const invalidateIds = () => {
+    idsCacheRef.current = null;
+    idsGenRef.current += 1;
+  };
+  /**
    * Shift+クリックの土台。**範囲を始めた時点の選択**を覚える。
    *
    * 同じ起点から選び直すときは、前の範囲を消して新しい範囲を足す——のではなく、
@@ -271,7 +285,7 @@ export default function App() {
     inflightRef.current.clear();
     // **ID一覧の控えは必ず捨てる**。ライブラリの中身が変わったのに残しておくと、
     // 次の全選択が「もう画面に無い写真」を掴み、そのまま一括削除まで通ってしまう
-    idsCacheRef.current = null;
+    invalidateIds();
     const fav = filterRef.current === "fav";
     const [sum, st, mem] = await Promise.all([
       timelineSummary(queryRef.current, fav),
@@ -295,7 +309,7 @@ export default function App() {
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
     // 同上。件数や日の顔ぶれが変わる場面はここも通る
-    idsCacheRef.current = null;
+    invalidateIds();
     const gen = generationRef.current;
     const fav = filterRef.current === "fav";
     const [sum, st] = await Promise.all([
@@ -1387,7 +1401,7 @@ export default function App() {
   // 検索条件が変わったら、ID一覧の控えも選択も捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
   useEffect(() => {
-    idsCacheRef.current = null;
+    invalidateIds();
     lastRangeRef.current = null;
     selectEpochRef.current += 1;
     setSelected(new Set());
@@ -1407,7 +1421,7 @@ export default function App() {
   }, []);
 
   /**
-   * いまの一覧に**何が並んでいるか**を表す鍵。検索条件とライブラリの世代からなる。
+   * いまの一覧に**何が並んでいるか**を表す鍵。検索条件と、控えの世代からなる。
    *
    * ID一覧の控えはこちらで見分ける。**選択の世代を混ぜてはいけない**——
    * 選択操作はどれも世代を進めるので、混ぜると鍵が毎回変わり、
@@ -1416,7 +1430,7 @@ export default function App() {
    */
   const resultKey = useCallback(
     () =>
-      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${generationRef.current}`,
+      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${idsGenRef.current}`,
     [],
   );
 
@@ -1436,7 +1450,7 @@ export default function App() {
    * いまの検索条件に一致する全IDを、一覧の並び順で取る（控えがあればそれ）。
    *
    * 範囲選択と全選択のためのもの。IDだけなので3万件でも240KB。
-   * 控えの鍵にライブラリの世代を含めるので、取り込みや削除のあとは引き直す。
+   * 控えの鍵に控えの世代を含めるので、取り込み・削除・日の移動のあとは引き直す。
    */
   const orderedIds = useCallback(async () => {
     const key = resultKey();
@@ -1695,7 +1709,7 @@ export default function App() {
         return next;
       });
       setViewer((v) => (v && selected.has(v.id as number) ? null : v));
-      idsCacheRef.current = null;
+      invalidateIds();
       clearSelection();
       await refreshSummary();
     } catch (e) {
@@ -1710,7 +1724,7 @@ export default function App() {
         }
         return next;
       });
-      idsCacheRef.current = null;
+      invalidateIds();
       clearSelection();
       await refreshSummary().catch(() => {});
     }
