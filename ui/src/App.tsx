@@ -1420,6 +1420,13 @@ export default function App() {
     beginSelectOp();
   }, []);
 
+  // **一覧から離れたら選択をやめる**。カレンダーには写真が並ばないのに選択バーだけ
+  // 残ると、画面に出ていないものへ一括削除が効いてしまう。
+  // `clearSelection` は選択の世代も進めるので、待っている全選択・範囲選択の応答も落ちる
+  useEffect(() => {
+    if (view !== "grid") clearSelection();
+  }, [view, clearSelection]);
+
   /**
    * いまの一覧に**何が並んでいるか**を表す鍵。検索条件と、控えの世代からなる。
    *
