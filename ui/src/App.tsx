@@ -1279,10 +1279,23 @@ export default function App() {
   const cloudOnlyRef = useRef(new Map<number, boolean>());
   /** 先読みの `<img>` 実体。decodeを表示順にかけるために持つ */
   const preloadElsRef = useRef(new Map<number, HTMLImageElement>());
+  /**
+   * 裏で作らせている詰め直し（HEIC/RAW/TIFF）の1枚。**始めたら終わるまで手放さない**。
+   *
+   * 隠し `<img>` を外しても、Rust側で走り出した変換は取り消せない。送るたびに
+   * 隣へ乗り換えると、**捨てた変換だけが積み上がってCPUを食い、あとで開いた
+   * 1枚がその陰で遅くなる**（ゲート1のP1）。裏で走るのは常にこの1枚だけにする
+   */
+  const pendingTranscodeRef = useRef<MediaItem | null>(null);
+  /** 上の1枚が終わったことを、先読みの選び直しへ伝える目印 */
+  const [transcodeTick, setTranscodeTick] = useState(0);
   // ビューアを閉じたらクラウド判定の覚えを捨てる。OneDriveは後から実体を
   // 落としたり空けたりするので、古い答えをいつまでも信じない
   useEffect(() => {
-    if (viewer === null) cloudOnlyRef.current.clear();
+    if (viewer === null) {
+      cloudOnlyRef.current.clear();
+      pendingTranscodeRef.current = null;
+    }
   }, [viewer]);
 
   useEffect(() => {
@@ -1337,8 +1350,11 @@ export default function App() {
      * プレースホルダが、その先の近所を予算から押し出してしまう（ゲート1のP2）。
      */
     const select = () => {
-      // 予算は**表示中の1枚を含めて**数える（崖は全体の総量で来る）
-      let bytes = decodedBytes(viewerInfo.item);
+      // 予算は**表示中の1枚と、裏で作らせている1枚**を含めて数える
+      // （崖は全体の総量で来る）
+      const pending = pendingTranscodeRef.current;
+      let bytes =
+        decodedBytes(viewerInfo.item) + (pending ? decodedBytes(pending) : 0);
       let transcodes = 0;
       const out: MediaItem[] = [];
       for (const it of ordered) {
@@ -1355,7 +1371,9 @@ export default function App() {
         const current = viewerInfo.item;
         if (
           it.needs_transcode &&
-          (settledId !== current.id ||
+          // 仕掛かり中の1枚があるなら、終わるまで次の詰め直しは始めない
+          (pending !== null ||
+            settledId !== current.id ||
             !(loadedId === current.id || current.is_video) ||
             transcodes >= PRELOAD_MAX_TRANSCODES)
         )
@@ -1367,6 +1385,10 @@ export default function App() {
         if (it.needs_transcode) transcodes++;
         out.push(it);
       }
+      // 仕掛かり中の1枚は、いま隣でなくても持ち続ける（外すと、取り消せない
+      // 変換だけが宙に浮く）。**列の最後**に置く——decodeを待つ順で先頭に来ると、
+      // 速いJPEGの先読みが1秒級の変換の後ろに並んでしまう
+      if (pending) out.push(pending);
       return out;
     };
 
@@ -1404,7 +1426,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [viewerInfo, dayItems, summary, settledId, loadedId]);
+  }, [viewerInfo, dayItems, summary, settledId, loadedId, transcodeTick]);
 
   // 先読みは**表示順に1枚ずつ**取りに行かせる。`src` をまとめて置くと
   // ブラウザは全部を同時に取りに行き、decodeを順に待っても
@@ -1420,11 +1442,20 @@ export default function App() {
         if (!el) continue;
         const src = fullSrc(it.id, it.mtime_ms);
         // 既に読んだものは触らない（同じ値を入れ直すと読み込みが起き直る）
-        if (el.getAttribute("src") !== src) el.setAttribute("src", src);
+        if (el.getAttribute("src") !== src) {
+          // Rust側の変換はここで始まる。**始めた1枚を控えておく**
+          if (it.needs_transcode) pendingTranscodeRef.current = it;
+          el.setAttribute("src", src);
+        }
         try {
           await el.decode();
         } catch {
           // 読めない絵（壊れている・消えた）は諦める。実際に開いたときに出る
+        }
+        // 仕掛かりが終わった。次の1枚を選び直させる
+        if (pendingTranscodeRef.current?.id === it.id) {
+          pendingTranscodeRef.current = null;
+          setTranscodeTick((t) => t + 1);
         }
       }
     })();
