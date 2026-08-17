@@ -463,6 +463,9 @@ export default function App() {
       const f = await listen("library-updated", () => {
         reloadAll().catch((e) => setStatus(String(e)));
         refreshCameras();
+        // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
+        // 実体を後から退避するので、古い「ローカルにある」を信じない
+        cloudOnlyRef.current.clear();
       });
       if (cancelled) {
         f();
@@ -1240,23 +1243,34 @@ export default function App() {
   //   裏でOneDriveのダウンロードを走らせてはいけない
   // - **詰め直しの要る形式は隣の1枚だけ**（HEICは1枚1095ms）
 
-  /** 表示中の原寸が届いたか（`false` のまま長引くと「読み込み中」を出す） */
-  const [fullLoaded, setFullLoaded] = useState(false);
-  /** 先読みが効かず待たせているか（詰め直しの要る形式だけ・300ms超） */
-  const [slowLoad, setSlowLoad] = useState(false);
+  // 以下の3つは**真偽値ではなくidで持つ**。送った直後の1コミットでは、
+  // 状態を戻すeffectがまだ走っておらず、真偽値だと「前の絵が出ている」を
+  // 新しい絵の判定に使ってしまう（ゲート2のP2-1）。idなら一致しないので、
+  // 1コミット目から正しく閉じる
+
+  /** 原寸が届いた絵のid */
+  const [loadedId, setLoadedId] = useState<number | null>(null);
+  /** 送りが落ち着いた（250ms動かなかった）絵のid */
+  const [settledId, setSettledId] = useState<number | null>(null);
+  /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
+  const [slowId, setSlowId] = useState<number | null>(null);
   const viewerItemId = viewerItem?.id;
   /** 表示に詰め直しが要るか（HEIC 1095ms / TIFF 約300ms） */
   const viewerTranscoding = Boolean(
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
-    setFullLoaded(false);
-    setSlowLoad(false);
+    if (viewerItemId === undefined) return;
+    const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
     // 効いていれば詰め直しの要る形式も数msで出るので、少し待ってから出す
-    if (viewerItemId === undefined || !viewerTranscoding) return;
-    const timer = window.setTimeout(() => setSlowLoad(true), 300);
-    return () => window.clearTimeout(timer);
+    const slow = viewerTranscoding
+      ? window.setTimeout(() => setSlowId(viewerItemId), 300)
+      : undefined;
+    return () => {
+      window.clearTimeout(settle);
+      if (slow !== undefined) window.clearTimeout(slow);
+    };
   }, [viewerItemId, viewerTranscoding]);
 
   /** 先読みする隣接画像（表示順に 次1→前1→次2→…） */
@@ -1265,18 +1279,6 @@ export default function App() {
   const cloudOnlyRef = useRef(new Map<number, boolean>());
   /** 先読みの `<img>` 実体。decodeを表示順にかけるために持つ */
   const preloadElsRef = useRef(new Map<number, HTMLImageElement>());
-  /**
-   * 送りが落ち着いたか。詰め直しの要る形式（HEIC/RAW/TIFF）は1枚1秒級なので、
-   * 押しっぱなしで送っている間に投げると**終わらない変換が積み上がる**。
-   * Rust側は同時1枚に絞ってあり、積み上がると表示中の1枚がその後ろで待つ
-   */
-  const [navSettled, setNavSettled] = useState(false);
-  useEffect(() => {
-    setNavSettled(false);
-    const timer = window.setTimeout(() => setNavSettled(true), 250);
-    return () => window.clearTimeout(timer);
-  }, [viewer?.dayKey, viewer?.id]);
-
   // ビューアを閉じたらクラウド判定の覚えを捨てる。OneDriveは後から実体を
   // 落としたり空けたりするので、古い答えをいつまでも信じない
   useEffect(() => {
@@ -1347,12 +1349,14 @@ export default function App() {
         // ダウンロードを起こさないため（答えが返ったら選び直す）
         if (cloudOnlyRef.current.get(it.id) !== false) continue;
         // 詰め直しの要る形式は、**表示中の1枚が出てから**しか裏で作らない。
-        // 出る前に投げると、Rust側の錠（同時1枚）に仕掛かりが積み上がり、
-        // 見ている側がその後ろで待つ——実測で送りが3.0秒になった
+        // 1枚1秒級（HEIC 1095ms）なので、出る前に投げると取り消せない変換が
+        // 積み上がり、CPUも通信も見ていない絵に取られる——実測で送りが3.0秒に
+        // なったのがこの形（当時は錠があり、見ている側がその後ろで待った）
+        const current = viewerInfo.item;
         if (
           it.needs_transcode &&
-          (!navSettled ||
-            !(fullLoaded || viewerInfo.item.is_video) ||
+          (settledId !== current.id ||
+            !(loadedId === current.id || current.is_video) ||
             transcodes >= PRELOAD_MAX_TRANSCODES)
         )
           continue;
@@ -1371,7 +1375,10 @@ export default function App() {
       if (cancelled) return;
       setPreload((prev) =>
         prev.length === items.length &&
-        prev.every((x, i) => x.id === items[i].id)
+        prev.every(
+          // mtimeまで見る。差し替わったファイルを古い `?v=` で先読みしない
+          (x, i) => x.id === items[i].id && x.mtime_ms === items[i].mtime_ms,
+        )
           ? prev // 中身が同じなら参照を変えない（decodeのやり直しを防ぐ）
           : items,
       );
@@ -1397,10 +1404,12 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [viewerInfo, dayItems, summary, navSettled, fullLoaded]);
+  }, [viewerInfo, dayItems, summary, settledId, loadedId]);
 
-  // decodeは**表示順に1枚ずつ**かける。まとめて起こすと、いちばん要る
-  // 「次の1枚」が最後に仕上がることがある
+  // 先読みは**表示順に1枚ずつ**取りに行かせる。`src` をまとめて置くと
+  // ブラウザは全部を同時に取りに行き、decodeを順に待っても
+  // **いちばん要る「次の1枚」が最後に仕上がる**ことがある（ゲート1の指摘）。
+  // だから `src` はここで1枚ずつ入れる——JSX側は空の `<img>` を置くだけ
   useEffect(() => {
     if (preload.length === 0) return;
     let cancelled = false;
@@ -1409,6 +1418,9 @@ export default function App() {
         if (cancelled) return;
         const el = preloadElsRef.current.get(it.id);
         if (!el) continue;
+        const src = fullSrc(it.id, it.mtime_ms);
+        // 既に読んだものは触らない（同じ値を入れ直すと読み込みが起き直る）
+        if (el.getAttribute("src") !== src) el.setAttribute("src", src);
         try {
           await el.decode();
         } catch {
@@ -2675,8 +2687,8 @@ export default function App() {
               draggable={false}
               // 読み込み中表示をここで畳む。失敗（onError）でも畳む——
               // 出ない絵のために「読み込み中」を出し続けない
-              onLoad={() => setFullLoaded(true)}
-              onError={() => setFullLoaded(true)}
+              onLoad={() => setLoadedId(viewerItem.id)}
+              onError={() => setLoadedId(viewerItem.id)}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 cursor: zoom > 1 ? "grab" : "zoom-in",
@@ -2740,13 +2752,12 @@ export default function App() {
                 if (el) preloadElsRef.current.set(it.id, el);
                 else preloadElsRef.current.delete(it.id);
               }}
-              src={fullSrc(it.id, it.mtime_ms)}
               alt=""
               aria-hidden
               style={{ display: "none" }}
             />
           ))}
-          {slowLoad && !fullLoaded && (
+          {viewerItem && slowId === viewerItem.id && loadedId !== viewerItem.id && (
             <div className="viewer-loading viewer-loading-overlay">
               {t.loading}
             </div>

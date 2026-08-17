@@ -68,13 +68,6 @@ struct AppState {
     /// ビューアで前後へ行き来するたびに払い直していた。バイト列は1枚3.29MBで、
     /// 同じ絵をデコード済み画素で持つ93MiBより30倍安い
     display_cache: pictkura_core::display_cache::DisplayCache,
-    /// 表示用JPEGの詰め直しを**同時に1枚だけ**にする錠（0.2 ①）。
-    ///
-    /// HEICのデコードはOSのWICが1スレッドで持っていく。ビューアの先読みが
-    /// 投げた変換と、いま見ている1枚の変換が同時に走ると、**見ている側が遅くなる**。
-    /// 錠を取ってからもう一度キャッシュを見るので、同じ絵を待っていた側は
-    /// 作り直さずに済む（先客の結果をもらう）
-    display_transcode: Mutex<()>,
 }
 
 /// 起動引数から取り込み対象のドライブ/フォルダを取り出す。
@@ -2220,14 +2213,17 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         if let Some(hit) = state.display_cache.get(key) {
             return served(hit.as_ref().clone());
         }
-        // ここから先は実際に詰め直す。**同時に走るのは1枚だけ**にする——
-        // 先読みの変換と表示中の変換が重なると、見ている側が遅くなるだけで
-        // 誰も得をしない（WICのデコードは1スレッドを持っていく）
-        let _gate = lock_ok(&state.display_transcode);
-        // 待っている間に、同じ絵を作っていた先客が入れてくれていることがある
-        if let Some(hit) = state.display_cache.get(key) {
-            return served(hit.as_ref().clone());
-        }
+        // ここから先は実際に詰め直す。**わざと直列化していない**（0.2 ①）。
+        //
+        // 一度は「同時に走るのは1枚だけ」と錠を掛けたが、それだと
+        // **いま見ている1枚が、もう捨てた先読みの後ろで待つ**——1枚1095msの
+        // HEICでは、先読みを入れたせいで送りがかえって遅くなる。しかも
+        // 隠し `<img>` を外しても、走り出した `spawn_blocking` は取り消せない。
+        //
+        // 同時に走る数は**投げる側で絞る**: 先読みは「表示中の1枚が出てから
+        // 隣の1枚だけ」というのが `ui/src/App.tsx` の約束で、押しっぱなしの
+        // 送りでも1回の操作につき1枚しか増えない。ここは要求のたびに
+        // そのまま作る（この経路はPR #20の前からずっとそうだった）
         return match pictkura_core::thumbs::display_jpeg(&path) {
             Some(bytes) => {
                 let bytes = std::sync::Arc::new(bytes);
@@ -2343,7 +2339,6 @@ pub fn run() {
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
-                display_transcode: Mutex::new(()),
             });
 
             // USB/SDカードの自動再生（AutoPlay）に「pictkuraで取り込む」を候補として
