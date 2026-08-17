@@ -108,6 +108,20 @@ const PRELOAD_MAX_ITEMS = 8;
 const PRELOAD_MAX_TRANSCODES = 1;
 /** 一度にクラウド判定を聞ける件数（Rust側 `cloud_only_media` の上限と一致） */
 const CLOUD_ASK_MAX = 64;
+/**
+ * 「ローカルにある」という答えの寿命。
+ *
+ * OneDriveの「空き容量を増やす」は、**中身を退避しても更新日時も大きさも
+ * 変えない**。監視は更新日時と大きさの変化でしか `library-updated` を出さない
+ * ので、ビューアを開いたままだと古い答えを信じ続け、先読みが
+ * プレースホルダを触ってダウンロードを起こしうる。だから聞き直す
+ */
+const CLOUD_ANSWER_TTL_MS = 20_000;
+/**
+ * 仕掛かり中の詰め直しの画素を手放したとき、印を降ろすまでの待ち。
+ * 変換の終わりが観測できなくなるので、時間で見切る（実測1枚1095ms）
+ */
+const PENDING_WATCHDOG_MS = 4000;
 /** 詰め直しの出力は長辺がここへ丸められる（`thumbs::display_jpeg` と一致） */
 const DISPLAY_MAX_EDGE = 4096;
 
@@ -1260,6 +1274,9 @@ export default function App() {
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
+    // 前の絵に立てた印は捨てる。**nullへ戻すのは真偽値時代の問題を起こさない**
+    // ——残った古いidは新しいidと一致せず、隠れたままだから
+    setSlowId(null);
     if (viewerItemId === undefined) return;
     const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
@@ -1275,8 +1292,23 @@ export default function App() {
 
   /** 先読みする隣接画像（表示順に 次1→前1→次2→…） */
   const [preload, setPreload] = useState<MediaItem[]>([]);
-  /** id → 実体がクラウドにしか無いか。一度聞いた答えは覚えておく */
-  const cloudOnlyRef = useRef(new Map<number, boolean>());
+  /**
+   * id → 実体がクラウドにしか無いか。答えは覚えておくが、**寿命がある**
+   * （[`CLOUD_ANSWER_TTL_MS`]）。「ローカルにある」は後から嘘になるため
+   */
+  const cloudOnlyRef = useRef(new Map<number, { cloud: boolean; at: number }>());
+  /** 覚えている答えを引く。古い「ローカルにある」は忘れて聞き直させる */
+  const cloudAnswer = useCallback((id: number): boolean | undefined => {
+    const a = cloudOnlyRef.current.get(id);
+    if (a === undefined) return undefined;
+    // 「クラウドにしか無い」側は寝かせてよい——先読みしない方向の答えなので、
+    // 古くても危なくない。危ないのは「ローカルにある」が古びたときだけ
+    if (!a.cloud && Date.now() - a.at > CLOUD_ANSWER_TTL_MS) {
+      cloudOnlyRef.current.delete(id);
+      return undefined;
+    }
+    return a.cloud;
+  }, []);
   /** 先読みの `<img>` 実体。decodeを表示順にかけるために持つ */
   const preloadElsRef = useRef(new Map<number, HTMLImageElement>());
   /**
@@ -1287,6 +1319,8 @@ export default function App() {
    * 1枚がその陰で遅くなる**（ゲート1のP1）。裏で走るのは常にこの1枚だけにする
    */
   const pendingTranscodeRef = useRef<MediaItem | null>(null);
+  /** 仕掛かりの画素を手放したときの見張り（終わりを観測できなくなるため） */
+  const pendingWatchdogRef = useRef<number | null>(null);
   /** 上の1枚が終わったことを、先読みの選び直しへ伝える目印 */
   const [transcodeTick, setTranscodeTick] = useState(0);
   // ビューアを閉じたらクラウド判定の覚えを捨てる。OneDriveは後から実体を
@@ -1295,6 +1329,10 @@ export default function App() {
     if (viewer === null) {
       cloudOnlyRef.current.clear();
       pendingTranscodeRef.current = null;
+      if (pendingWatchdogRef.current !== null) {
+        window.clearTimeout(pendingWatchdogRef.current);
+        pendingWatchdogRef.current = null;
+      }
     }
   }, [viewer]);
 
@@ -1352,7 +1390,24 @@ export default function App() {
     const select = () => {
       // 予算は**表示中の1枚と、裏で作らせている1枚**を含めて数える
       // （崖は全体の総量で来る）
-      const pending = pendingTranscodeRef.current;
+      const started = pendingTranscodeRef.current;
+      // 仕掛かりを抱えたままでは予算を割るなら、**画素のほうを手放す**。
+      // 崖は全か無かなので、1枚のために先読み全部を捨てられるほうが高くつく。
+      // 変換自体は取り消せないから、印は見張り時計で降ろす（それまで次の
+      // 詰め直しは始めない）
+      const pending =
+        started !== null &&
+        decodedBytes(viewerInfo.item) + decodedBytes(started) <=
+          PRELOAD_BUDGET_BYTES
+          ? started
+          : null;
+      if (started !== null && pending === null && pendingWatchdogRef.current === null) {
+        pendingWatchdogRef.current = window.setTimeout(() => {
+          pendingWatchdogRef.current = null;
+          pendingTranscodeRef.current = null;
+          setTranscodeTick((t) => t + 1);
+        }, PENDING_WATCHDOG_MS);
+      }
       let bytes =
         decodedBytes(viewerInfo.item) + (pending ? decodedBytes(pending) : 0);
       let transcodes = 0;
@@ -1363,7 +1418,7 @@ export default function App() {
         // **クラウドにしか無いものと、まだ聞いていないものは数にも入れない**。
         // 聞いていないものを先読みしないのは、プレースホルダを裏で読んで
         // ダウンロードを起こさないため（答えが返ったら選び直す）
-        if (cloudOnlyRef.current.get(it.id) !== false) continue;
+        if (cloudAnswer(it.id) !== false) continue;
         // 詰め直しの要る形式は、**表示中の1枚が出てから**しか裏で作らない。
         // 1枚1秒級（HEIC 1095ms）なので、出る前に投げると取り消せない変換が
         // 積み上がり、CPUも通信も見ていない絵に取られる——実測で送りが3.0秒に
@@ -1372,7 +1427,7 @@ export default function App() {
         if (
           it.needs_transcode &&
           // 仕掛かり中の1枚があるなら、終わるまで次の詰め直しは始めない
-          (pending !== null ||
+          (started !== null ||
             settledId !== current.id ||
             !(loadedId === current.id || current.is_video) ||
             transcodes >= PRELOAD_MAX_TRANSCODES)
@@ -1409,14 +1464,16 @@ export default function App() {
     // 聞くのは候補ぜんぶ（多くても前後8枚ずつ）。判定はファイル属性を見るだけで
     // 中身は開かないので、ダウンロードは起きない
     const unknown = ordered
-      .filter((it) => !it.is_video && !cloudOnlyRef.current.has(it.id))
+      .filter((it) => !it.is_video && cloudAnswer(it.id) === undefined)
       .map((it) => it.id)
       .slice(0, CLOUD_ASK_MAX);
     if (unknown.length > 0) {
       cloudOnlyMedia(unknown)
         .then((cloud) => {
-          for (const id of unknown) cloudOnlyRef.current.set(id, false);
-          for (const id of cloud) cloudOnlyRef.current.set(id, true);
+          const at = Date.now();
+          for (const id of unknown)
+            cloudOnlyRef.current.set(id, { cloud: false, at });
+          for (const id of cloud) cloudOnlyRef.current.set(id, { cloud: true, at });
           apply(select());
         })
         .catch(() => {
@@ -1455,6 +1512,10 @@ export default function App() {
         // 仕掛かりが終わった。次の1枚を選び直させる
         if (pendingTranscodeRef.current?.id === it.id) {
           pendingTranscodeRef.current = null;
+          if (pendingWatchdogRef.current !== null) {
+            window.clearTimeout(pendingWatchdogRef.current);
+            pendingWatchdogRef.current = null;
+          }
           setTranscodeTick((t) => t + 1);
         }
       }
@@ -2717,8 +2778,14 @@ export default function App() {
               alt={viewerItem.file_name}
               draggable={false}
               // 読み込み中表示をここで畳む。失敗（onError）でも畳む——
-              // 出ない絵のために「読み込み中」を出し続けない
-              onLoad={() => setLoadedId(viewerItem.id)}
+              // 出ない絵のために「読み込み中」を出し続けない。
+              // **どの絵のloadか要素側で確かめる**: 送った直後は前の絵の
+              // 完了が遅れて届くことがあり、そのまま信じると「まだ出ていない
+              // 新しい絵」を出たものとして扱ってしまう
+              onLoad={(e) => {
+                if (e.currentTarget.currentSrc.includes(`full/${viewerItem.id}`))
+                  setLoadedId(viewerItem.id);
+              }}
               onError={() => setLoadedId(viewerItem.id)}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
