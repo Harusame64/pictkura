@@ -124,6 +124,30 @@ fn parent_dir_expr(path_expr: &str) -> String {
 }
 
 /// `IN (...)` 用のプレースホルダ列（`?,?,?`）を作る。
+/// 全ID取得の文。**並びは索引がそのまま供給する**（`idx_media_day_sort`）。
+/// 実行計画のテストと同じ文を共有するために切り出してある。
+fn all_ids_sql(filter: &str) -> String {
+    format!("SELECT id FROM media {filter} ORDER BY day_key DESC, {SORT_TS} DESC, id DESC")
+}
+
+/// 範囲取得の条件。**`day_key` を先頭に置く**ので索引でシークでき、
+/// 端の日の中だけを表示時刻とidで削る。
+fn between_conds() -> Vec<String> {
+    vec![
+        "day_key BETWEEN ? AND ?".to_string(),
+        format!("(day_key < ? OR {SORT_TS} < ? OR ({SORT_TS} = ? AND id <= ?))"),
+        format!("(day_key > ? OR {SORT_TS} > ? OR ({SORT_TS} = ? AND id >= ?))"),
+    ]
+}
+
+/// 範囲取得の文。条件は [`between_conds`] を含んだもの。
+fn between_sql(conds: &[String]) -> String {
+    format!(
+        "SELECT id FROM media WHERE {} ORDER BY day_key DESC, {SORT_TS} DESC, id DESC",
+        conds.join(" AND ")
+    )
+}
+
 fn camera_placeholders(n: usize) -> String {
     std::iter::repeat_n("?", n).collect::<Vec<_>>().join(",")
 }
@@ -1435,9 +1459,9 @@ impl Db {
         } else {
             format!("WHERE {}", conds.join(" AND "))
         };
-        let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id FROM media {filter} ORDER BY {SORT_TS} DESC, id DESC"
-        ))?;
+        // 並びは表示と同じ。**`day_key` を先頭に置く**ので `idx_media_day_sort` が
+        // そのまま順序を供給でき、全件の並べ直しが起きない
+        let mut stmt = self.conn.prepare_cached(&all_ids_sql(&filter))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
         let mut out = Vec::new();
         for row in rows {
@@ -1460,25 +1484,52 @@ impl Db {
         from_id: i64,
         to_id: i64,
     ) -> Result<Vec<i64>, DbError> {
-        let (conds, mut args) = self.query_filter(query)?;
-        let filter = if conds.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conds.join(" AND "))
-        };
+        use rusqlite::types::Value;
+        let (conds, args) = self.query_filter(query)?;
+
+        // **端の並びの鍵を先に引く**。順位を数え上げる形（ROW_NUMBER）にすると、
+        // 隣り合う2枚のためにライブラリ全体を並べ直すことになる。
+        // 条件から外れているIDはここで落ちる
+        let mut ends_conds = conds.clone();
+        ends_conds.push("id IN (?, ?)".to_string());
+        let mut ends_args = args.clone();
+        ends_args.push(Value::Integer(from_id));
+        ends_args.push(Value::Integer(to_id));
         let mut stmt = self.conn.prepare_cached(&format!(
-            "WITH ordered AS (
-                 SELECT id, ROW_NUMBER() OVER (ORDER BY {SORT_TS} DESC, id DESC) AS pos
-                 FROM media {filter}
-             ), ends AS (
-                 SELECT MIN(pos) AS lo, MAX(pos) AS hi FROM ordered WHERE id IN (?, ?)
-             )
-             SELECT ordered.id FROM ordered, ends
-             WHERE ordered.pos BETWEEN ends.lo AND ends.hi
-             ORDER BY ordered.pos"
+            "SELECT day_key, {SORT_TS}, id FROM media WHERE {}",
+            ends_conds.join(" AND ")
         ))?;
-        args.push(rusqlite::types::Value::Integer(from_id));
-        args.push(rusqlite::types::Value::Integer(to_id));
+        let mut keys: Vec<(i64, i64, i64)> = Vec::new();
+        let rows = stmt.query_map(rusqlite::params_from_iter(ends_args.iter()), |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        for row in rows {
+            keys.push(row?);
+        }
+        let (Some(lo), Some(hi)) = (keys.iter().min().copied(), keys.iter().max().copied()) else {
+            return Ok(Vec::new());
+        };
+
+        // 鍵で挟んで引く。`day_key` を先頭に置くのが要点で、これで
+        // `idx_media_day_sort` がシークと並びの両方を賄う（並べ直しが起きない）。
+        // `day_key` は表示時刻の単調な関数なので、日をまたぐ並びも表示と一致する
+        let mut conds = conds;
+        conds.extend(between_conds());
+        let mut args = args;
+        args.extend([Value::Integer(lo.0), Value::Integer(hi.0)]);
+        args.extend([
+            Value::Integer(hi.0),
+            Value::Integer(hi.1),
+            Value::Integer(hi.1),
+            Value::Integer(hi.2),
+        ]);
+        args.extend([
+            Value::Integer(lo.0),
+            Value::Integer(lo.1),
+            Value::Integer(lo.1),
+            Value::Integer(lo.2),
+        ]);
+        let mut stmt = self.conn.prepare_cached(&between_sql(&conds))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
         let mut out = Vec::new();
         for row in rows {
@@ -3307,6 +3358,50 @@ mod tests {
         );
         // 両方とも条件の外なら空
         assert!(db.search_ids_between(&oki, outside, -1).unwrap().is_empty());
+    }
+
+    /// 実行計画を1行にまとめて返す（`EXPLAIN QUERY PLAN`）。
+    fn plan_of(db: &Db, sql: &str) -> String {
+        let mut stmt = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        // 変数は値によらないので、数だけ合わせて NULL を渡す
+        let holes = vec![rusqlite::types::Value::Null; sql.matches('?').count()];
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(holes.iter()), |r| {
+                r.get::<_, String>(3)
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect::<Vec<_>>();
+        rows.join(" / ")
+    }
+
+    #[test]
+    fn 選択に使う問い合わせは索引の並びで引く() {
+        // **測って釘を打つ**。`ORDER BY` が索引の並びと食い違うと、
+        // 1000万件では全件を並べ直すことになる（Shift+クリックのたびに数秒）
+        let db = seed_search_db();
+
+        let plan = plan_of(&db, &super::all_ids_sql(""));
+        assert!(plan.contains("idx_media_day_sort"), "全件: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "全件が並べ直しになっている: {plan}"
+        );
+
+        let plan = plan_of(&db, &super::between_sql(&super::between_conds()));
+        assert!(plan.contains("idx_media_day_sort"), "範囲: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "範囲が並べ直しになっている: {plan}"
+        );
+        // 端の日だけを見るシークになっていること（全件走査に落ちていない）
+        assert!(
+            plan.contains("SEARCH"),
+            "範囲がシークになっていない: {plan}"
+        );
     }
 
     #[test]
