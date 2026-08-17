@@ -1039,11 +1039,18 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
         let mut cloud = Vec::new();
         for id in ids {
             match db.get_by_id(id) {
-                Ok(Some(r)) => {
-                    if pictkura_core::cloud::is_cloud_only_path(&r.path) {
-                        cloud.push(id);
+                Ok(Some(r)) => match std::fs::symlink_metadata(&r.path) {
+                    Ok(m) => {
+                        if pictkura_core::cloud::is_cloud_only(&m) {
+                            cloud.push(id);
+                        }
                     }
-                }
+                    // 属性が読めない＝**分からない**。`is_cloud_only_path` は
+                    // 読めないと「クラウドではない」に倒すが、それは一覧の
+                    // 表示向けの安全側で、ここでは逆。先読みは開いて困る側なので、
+                    // 分からないものは「触らない」に入れる
+                    Err(_) => cloud.push(id),
+                },
                 // 行が消えている: 配信も404になるので、先読みしても何も起きない
                 Ok(None) => {}
                 // **引けなかったら断る**。返さないidをフロントは「ローカルにある」と

@@ -125,6 +125,20 @@ const PENDING_WATCHDOG_MS = 4000;
 /** 詰め直しの出力は長辺がここへ丸められる（`thumbs::display_jpeg` と一致） */
 const DISPLAY_MAX_EDGE = 4096;
 
+/**
+ * その配信URLが、このidの原寸か。
+ *
+ * **前方一致で見ない**——`full/1` は `full/12` にも当たるので、送った直後に
+ * 遅れて届いた前の絵の完了を、新しい絵のものと取り違える
+ */
+function isSrcOf(src: string, id: number): boolean {
+  try {
+    return new URL(src).pathname === `/full/${id}`;
+  } catch {
+    return false;
+  }
+}
+
 /** 拡張子がTIFFか（配信時に長辺を丸められる唯一の形式） */
 const isTiffName = (name: string) => /\.tiff?$/i.test(name);
 
@@ -1332,10 +1346,18 @@ export default function App() {
   useEffect(() => {
     if (viewer === null) {
       cloudOnlyRef.current.clear();
-      pendingTranscodeRef.current = null;
-      if (pendingWatchdogRef.current !== null) {
-        window.clearTimeout(pendingWatchdogRef.current);
-        pendingWatchdogRef.current = null;
+      // **仕掛かりの印は消さない**。閉じても走り出した変換は取り消せないので、
+      // 消すと開き直すたびに新しい変換を始められてしまう。終わりを観測する
+      // 隠し `<img>` はもう無いので、見張り時計に委ねる
+      if (
+        pendingTranscodeRef.current !== null &&
+        pendingWatchdogRef.current === null
+      ) {
+        pendingWatchdogRef.current = window.setTimeout(() => {
+          pendingWatchdogRef.current = null;
+          pendingTranscodeRef.current = null;
+          setTranscodeTick((t) => t + 1);
+        }, PENDING_WATCHDOG_MS);
       }
     }
   }, [viewer]);
@@ -2787,10 +2809,17 @@ export default function App() {
               // 完了が遅れて届くことがあり、そのまま信じると「まだ出ていない
               // 新しい絵」を出たものとして扱ってしまう
               onLoad={(e) => {
-                if (e.currentTarget.currentSrc.includes(`full/${viewerItem.id}`))
+                if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id))
                   setLoadedId(viewerItem.id);
               }}
-              onError={() => setLoadedId(viewerItem.id)}
+              onError={(e) => {
+                // 失敗したのが**いまの絵**のときだけ畳む。ただし `currentSrc` が
+                // 空のまま失敗することもあるので、そのときは畳む側に倒す
+                // （出ない絵のために「読み込み中」を出し続けないため）
+                const src = e.currentTarget.currentSrc;
+                if (!src || isSrcOf(src, viewerItem.id))
+                  setLoadedId(viewerItem.id);
+              }}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 cursor: zoom > 1 ? "grab" : "zoom-in",
