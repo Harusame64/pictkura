@@ -217,7 +217,8 @@ pick, without date subfolders — handy for handing a few photos to someone or f
 stick. A file that is already there with the same name and size is left alone; a different
 file with the same name gets `-1`, `-2` appended. Moving asks first: those photos leave
 their current place and leave the library, and their ★ is not carried over. Moving to
-another drive copies first and then sends the original to the recycle bin.
+another drive — and moving a file that only exists in the cloud — copies first and then
+sends the original to the recycle bin.
 
 The selection follows what is on screen. Changing the search or the ★ filter, or switching
 to the calendar, clears it, so a bulk action never reaches photos you cannot see.

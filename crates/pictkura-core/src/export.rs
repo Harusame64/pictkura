@@ -16,9 +16,10 @@
 //! ——「アプリがファイルを直接消すことはない」という利用者への約束を、
 //! 移動でも崩さないため。
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::import::{resolve_dest_path, DestResolution};
+use crate::import::{resolve_dest_path_avoiding, DestResolution};
 
 /// コピーか移動か。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,14 +74,23 @@ pub fn export_files(
     }
     let total = files.len();
     let mut out = ExportOutcome::default();
+    // **この操作で自分が書いたパス**を覚える。名前もサイズも同じで中身が違う写真
+    // （連番が一周したRAW等）を「もうある」と誤判定して落とさないため
+    let mut written: HashSet<PathBuf> = HashSet::new();
     for (i, path) in files.iter().enumerate() {
-        export_one(path, dest_dir, mode, &mut out);
+        export_one(path, dest_dir, mode, &mut written, &mut out);
         on_progress(i + 1, total, path);
     }
     Ok(out)
 }
 
-fn export_one(path: &Path, dest_dir: &Path, mode: ExportMode, out: &mut ExportOutcome) {
+fn export_one(
+    path: &Path,
+    dest_dir: &Path,
+    mode: ExportMode,
+    written: &mut HashSet<PathBuf>,
+    out: &mut ExportOutcome,
+) {
     // 一覧に出したあとに消えている可能性があるので、ここで改めてstatする
     let Ok(meta) = std::fs::metadata(path) else {
         out.stats.failed += 1;
@@ -90,7 +100,7 @@ fn export_one(path: &Path, dest_dir: &Path, mode: ExportMode, out: &mut ExportOu
         out.stats.failed += 1;
         return;
     };
-    let dest_path = match resolve_dest_path(dest_dir, file_name, meta.len()) {
+    let dest_path = match resolve_dest_path_avoiding(dest_dir, file_name, meta.len(), written) {
         DestResolution::CopyTo(p) => p,
         DestResolution::AlreadyImported => {
             // **同じものが既にある。移動でも元は消さない**——消してよいかは
@@ -104,9 +114,19 @@ fn export_one(path: &Path, dest_dir: &Path, mode: ExportMode, out: &mut ExportOu
         }
     };
 
+    written.insert(dest_path.clone());
+
     // 同じドライブの移動は `rename` で終わる（メタデータの更新だけ）。
-    // 別のドライブだと失敗するので、そのときはコピーへ落とす
-    if mode == ExportMode::Move && std::fs::rename(path, &dest_path).is_ok() {
+    // 別のドライブだと失敗するので、そのときはコピーへ落とす。
+    //
+    // **クラウドにしか実体が無いものは `rename` しない**。中身を持たない印だけが
+    // 同期フォルダの外へ動き、同期側は「消えた」と見て**クラウドの実体まで消しに行く**
+    // ——移した先には中身の無い印だけが残る。コピー（＝取り寄せ）してから
+    // 元をゴミ箱へ送る経路に必ず落とす
+    if mode == ExportMode::Move
+        && !crate::cloud::is_cloud_only_path(path)
+        && std::fs::rename(path, &dest_path).is_ok()
+    {
         out.stats.done += 1;
         out.moved.push(path.to_path_buf());
         return;
@@ -125,6 +145,10 @@ fn export_one(path: &Path, dest_dir: &Path, mode: ExportMode, out: &mut ExportOu
 
 /// コピーして、**サイズが合っていることを確かめる**。
 /// 合わなければ中途半端なファイルを残さずに消して失敗を返す。
+///
+/// **見るのはサイズだけ**（取り込みの `verify_after_copy` と同じ）。中身の化けは
+/// すり抜けるが、ハッシュを取ると1枚ごとに全体を読み直すことになる。
+/// 移動でも元はゴミ箱に残るので、取り返しはつく。
 fn copy_verified(src: &Path, dest: &Path, expected: u64) -> bool {
     if std::fs::copy(src, dest).is_err() {
         // 途中まで書けている可能性がある
@@ -203,6 +227,40 @@ mod tests {
             export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
         assert_eq!(out.stats.done, 1);
         assert_eq!(files_in(&dest), ["a-1.jpg", "a.jpg"]);
+    }
+
+    #[test]
+    fn 別の日の同名同サイズでも1枚も落とさない() {
+        // カメラの連番が一周すると、別の日の `DSC00001` が同じフォルダへ落ちる。
+        // 非圧縮RAWは中身が違ってもサイズが同じなので、「同名・同サイズ＝同じもの」で
+        // 飛ばすと**選んだ写真が黙って1枚欠ける**
+        let dir = tempfile::tempdir().unwrap();
+        let day1 = dir.path().join("lib/2024-05");
+        let day2 = dir.path().join("lib/2025-09");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&day1).unwrap();
+        fs::create_dir_all(&day2).unwrap();
+        fs::write(day1.join("DSC00001.ARW"), b"1111").unwrap();
+        fs::write(day2.join("DSC00001.ARW"), b"2222").unwrap(); // 同じサイズ・別内容
+
+        let out = export_files(
+            &[day1.join("DSC00001.ARW"), day2.join("DSC00001.ARW")],
+            &dest,
+            ExportMode::Copy,
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.done, 2, "2枚とも書き出される");
+        assert_eq!(out.stats.skipped, 0);
+        assert_eq!(files_in(&dest), ["DSC00001-1.ARW", "DSC00001.ARW"]);
+        // 中身が入れ替わっていないこと
+        let mut bodies = vec![
+            fs::read(dest.join("DSC00001.ARW")).unwrap(),
+            fs::read(dest.join("DSC00001-1.ARW")).unwrap(),
+        ];
+        bodies.sort();
+        assert_eq!(bodies, vec![b"1111".to_vec(), b"2222".to_vec()]);
     }
 
     #[test]

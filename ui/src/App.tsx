@@ -1722,6 +1722,9 @@ export default function App() {
       }
       const dest = await open({ directory: true, title: t.pickExportFolder });
       if (typeof dest !== "string") return;
+      // **走っている間はバーを止める**。数分かかる操作なので、二度押しで
+      // 同じ選択の書き出しが並走すると件数の報告が濁る
+      setBusy(true);
       try {
         const st = await exportMedia(ids, dest, moveFiles);
         setStatus(t.exportDone(st.done, st.skipped, st.failed, st.left_behind));
@@ -1731,7 +1734,15 @@ export default function App() {
           await reloadAll();
         }
       } catch (e) {
+        // **一部だけ動いていることがある**（DBへの反映で転んだ場合など）。
+        // 画面をそのままにすると、もう別の場所にある写真が並んだまま残る
         setStatus(String(e));
+        if (moveFiles) {
+          clearSelection();
+          await reloadAll().catch(() => {});
+        }
+      } finally {
+        setBusy(false);
       }
     },
     [visibleSelection, clearSelection, reloadAll],
@@ -1868,11 +1879,15 @@ export default function App() {
           <span className="select-bar-count">
             {t.selectedCount(selected.size)}
           </span>
-          <button onClick={() => selectAll().catch((e) => setStatus(String(e)))}>
+          <button
+            disabled={busy}
+            onClick={() => selectAll().catch((e) => setStatus(String(e)))}
+          >
             {t.selectAll}
           </button>
           <span className="select-bar-spacer" />
           <button
+            disabled={busy}
             onClick={() =>
               onBulkFavorite(true).catch((e) => setStatus(String(e)))
             }
@@ -1880,6 +1895,7 @@ export default function App() {
             ★ {t.bulkFavoriteOn}
           </button>
           <button
+            disabled={busy}
             onClick={() =>
               onBulkFavorite(false).catch((e) => setStatus(String(e)))
             }
@@ -1887,17 +1903,20 @@ export default function App() {
             {t.bulkFavoriteOff}
           </button>
           <button
+            disabled={busy}
             onClick={() => onBulkExport(false).catch((e) => setStatus(String(e)))}
           >
             {t.bulkCopy}
           </button>
           <button
+            disabled={busy}
             onClick={() => onBulkExport(true).catch((e) => setStatus(String(e)))}
           >
             {t.bulkMove}
           </button>
           <button
             className="danger"
+            disabled={busy}
             onClick={() => onBulkDelete().catch((e) => setStatus(String(e)))}
           >
             🗑 {t.bulkDelete}

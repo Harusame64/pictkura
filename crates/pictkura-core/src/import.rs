@@ -7,6 +7,7 @@
 //! - 同名・別サイズなら `名前-1.jpg` 形式で衝突回避
 //! - コピー後にサイズ比較で検証する（`verify_after_copy`）
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Local, TimeZone};
@@ -151,11 +152,28 @@ pub(crate) enum DestResolution {
 
 /// コピー先のフルパスを決める。同名・別内容の場合は `-1`, `-2` … で衝突回避。
 pub(crate) fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64) -> DestResolution {
+    resolve_dest_path_avoiding(dest_dir, file_name, src_size, &HashSet::new())
+}
+
+/// 上と同じだが、**この操作で自分が書いたばかりのパス**（`taken`）は
+/// 「同じもの」と見なさずに連番へ回す。
+///
+/// 「同名・同サイズなら同じもの」は取り込みでは成り立つ（日付でフォルダが分かれるので、
+/// 別の日の同名ファイルが同じフォルダへ来ない）。**平置きの書き出しでは成り立たない**
+/// ——カメラの連番が一周すると別の日の `DSC00001.ARW` が同じフォルダへ落ちるし、
+/// 非圧縮RAWは中身が違ってもサイズが同じになる。**選んだ写真が黙って1枚欠ける**ので、
+/// 自分が書いたものとの衝突は必ず連番で避ける。
+pub(crate) fn resolve_dest_path_avoiding(
+    dest_dir: &Path,
+    file_name: &str,
+    src_size: u64,
+    taken: &HashSet<PathBuf>,
+) -> DestResolution {
     let candidate = dest_dir.join(file_name);
-    if !candidate.exists() {
+    if !candidate.exists() && !taken.contains(&candidate) {
         return DestResolution::CopyTo(candidate);
     }
-    if candidate.metadata().map(|m| m.len()).ok() == Some(src_size) {
+    if !taken.contains(&candidate) && candidate.metadata().map(|m| m.len()).ok() == Some(src_size) {
         return DestResolution::AlreadyImported;
     }
     let (stem, ext) = match (
@@ -167,6 +185,9 @@ pub(crate) fn resolve_dest_path(dest_dir: &Path, file_name: &str, src_size: u64)
     };
     for i in 1..1000 {
         let alt = dest_dir.join(format!("{stem}-{i}{ext}"));
+        if taken.contains(&alt) {
+            continue;
+        }
         if !alt.exists() {
             return DestResolution::CopyTo(alt);
         }
