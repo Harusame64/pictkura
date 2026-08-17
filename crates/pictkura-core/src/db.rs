@@ -1419,12 +1419,15 @@ impl Db {
 
     /// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
     ///
-    /// 範囲選択（Shift+クリック）と全選択のためのもの。一覧は日ごとに遅延読み込み
-    /// するので、**まだ読んでいない日の写真も選択の対象になる**。かといって
-    /// レコードごと引くと万単位で無駄になる——IDなら1件8バイトで、3万件でも240KB。
+    /// 全選択（Ctrl+A）のためのもの。一覧は日ごとに遅延読み込みするので、
+    /// **まだ読んでいない日の写真も選択の対象になる**。かといってレコードごと
+    /// 引くと万単位で無駄になる——IDなら1件8バイトで、3万件でも240KB。
     ///
-    /// 並びは `search_day` と同じ（`SORT_TS DESC, id DESC`）。日をまたいでも
-    /// 画面の順序と一致するので、2点のIDが決まれば範囲は添字で切り出せる。
+    /// **範囲選択と、選択の絞り込みにはこれを使わないこと**。
+    /// 数枚のために全件をUIへ送ることになる（このモジュールの「UIへ全件を渡さない」
+    /// 原則に反する）。[`Db::search_ids_between`] と [`Db::visible_ids`] を使う。
+    ///
+    /// 並びは `search_day` と同じ（`SORT_TS DESC, id DESC`）。
     pub fn search_ids(&self, query: &SearchQuery) -> Result<Vec<i64>, DbError> {
         let (conds, args) = self.query_filter(query)?;
         let filter = if conds.is_empty() {
@@ -1441,6 +1444,79 @@ impl Db {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// 並びの中で、**2つのIDに挟まれた範囲のIDだけ**を返す（Shift+クリック用）。
+    ///
+    /// [`Db::search_ids`] と違い、返るのは範囲のぶんだけ。隣り合う2枚を選ぶために
+    /// 全件を送っていては、1000万件を想定した設計が成り立たない。順番の割り出しは
+    /// SQL側でやる（`ROW_NUMBER`）ので、Rustにもメモリへ全件は載らない。
+    ///
+    /// 端のIDが条件から外れていたら、**見つかったほうだけ**の範囲になる。
+    /// 両方とも無ければ空。並びは [`Db::search_ids`] と同じ。
+    pub fn search_ids_between(
+        &self,
+        query: &SearchQuery,
+        from_id: i64,
+        to_id: i64,
+    ) -> Result<Vec<i64>, DbError> {
+        let (conds, mut args) = self.query_filter(query)?;
+        let filter = if conds.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conds.join(" AND "))
+        };
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "WITH ordered AS (
+                 SELECT id, ROW_NUMBER() OVER (ORDER BY {SORT_TS} DESC, id DESC) AS pos
+                 FROM media {filter}
+             ), ends AS (
+                 SELECT MIN(pos) AS lo, MAX(pos) AS hi FROM ordered WHERE id IN (?, ?)
+             )
+             SELECT ordered.id FROM ordered, ends
+             WHERE ordered.pos BETWEEN ends.lo AND ends.hi
+             ORDER BY ordered.pos"
+        ))?;
+        args.push(rusqlite::types::Value::Integer(from_id));
+        args.push(rusqlite::types::Value::Integer(to_id));
+        let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**だけを返す。
+    ///
+    /// 一括操作の直前に、選択が画面の中身とズレていないか確かめるためのもの。
+    /// 全IDを引いて突き合わせると、数枚の確認のために全件を送ることになる。
+    /// 返す順番は渡された順。SQLの変数上限があるので分けて問い合わせる。
+    pub fn visible_ids(&self, query: &SearchQuery, ids: &[i64]) -> Result<Vec<i64>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (conds, base_args) = self.query_filter(query)?;
+        let mut found: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for chunk in ids.chunks(400) {
+            let mut conds = conds.clone();
+            conds.push(format!("id IN ({})", camera_placeholders(chunk.len())));
+            let mut args = base_args.clone();
+            args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
+            let mut stmt = self.conn.prepare_cached(&format!(
+                "SELECT id FROM media WHERE {}",
+                conds.join(" AND ")
+            ))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+            for row in rows {
+                found.insert(row?);
+            }
+        }
+        Ok(ids
+            .iter()
+            .copied()
+            .filter(|id| found.contains(id))
+            .collect())
     }
 
     /// 検索条件に一致する総枚数（検索結果の件数表示用）。
@@ -3196,6 +3272,77 @@ mod tests {
         assert_eq!(db.search_ids(&q).unwrap().len(), 2);
         let q = crate::search::parse_query("見つからない語", false);
         assert!(db.search_ids(&q).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_ids_betweenは範囲のぶんだけ返す() {
+        let db = seed_search_db();
+        let q = crate::search::parse_query("", false);
+        let all = db.search_ids(&q).unwrap();
+        assert_eq!(all.len(), 4);
+
+        // **全件を引かずに、同じ添字の切り出しになる**ことが肝
+        let mid = db.search_ids_between(&q, all[1], all[2]).unwrap();
+        assert_eq!(mid, all[1..3].to_vec());
+        // 端の順序はどちらから指しても同じ
+        assert_eq!(db.search_ids_between(&q, all[2], all[1]).unwrap(), mid);
+        // 同じIDを2回指したら1枚
+        assert_eq!(db.search_ids_between(&q, all[0], all[0]).unwrap(), [all[0]]);
+        // 全体
+        assert_eq!(db.search_ids_between(&q, all[0], all[3]).unwrap(), all);
+
+        // 絞り込みの外にあるIDは、範囲の端として効かない。
+        // 片方だけ生き残っていれば、その1枚ぶんの範囲になる
+        let oki = crate::search::parse_query("沖縄", false);
+        let oki_ids = db.search_ids(&oki).unwrap();
+        assert_eq!(oki_ids.len(), 2);
+        let outside = all
+            .iter()
+            .find(|id| !oki_ids.contains(id))
+            .copied()
+            .unwrap();
+        assert_eq!(
+            db.search_ids_between(&oki, oki_ids[0], outside).unwrap(),
+            [oki_ids[0]]
+        );
+        // 両方とも条件の外なら空
+        assert!(db.search_ids_between(&oki, outside, -1).unwrap().is_empty());
+    }
+
+    #[test]
+    fn visible_idsは並んでいるものだけを渡した順で返す() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", false))
+            .unwrap();
+        let oki = crate::search::parse_query("沖縄", false);
+        let oki_ids = db.search_ids(&oki).unwrap();
+
+        // 渡した順を保つ（選択の順序をそのまま一括操作へ渡すため）
+        let mixed: Vec<i64> = all.iter().rev().copied().collect();
+        let kept = db.visible_ids(&oki, &mixed).unwrap();
+        let expected: Vec<i64> = mixed
+            .iter()
+            .copied()
+            .filter(|id| oki_ids.contains(id))
+            .collect();
+        assert_eq!(kept, expected);
+
+        // 居ないIDは落ちる／空の指定は空
+        assert_eq!(
+            db.visible_ids(&crate::search::parse_query("", false), &[all[0], -1])
+                .unwrap(),
+            [all[0]]
+        );
+        assert!(db
+            .visible_ids(&crate::search::parse_query("", false), &[])
+            .unwrap()
+            .is_empty());
+
+        // ★の絞り込みも条件のうち
+        db.set_favorites(&all[..1], true).unwrap();
+        let fav = crate::search::parse_query("", true);
+        assert_eq!(db.visible_ids(&fav, &all).unwrap(), [all[0]]);
     }
 
     #[test]

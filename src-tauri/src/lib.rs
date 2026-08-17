@@ -1065,15 +1065,23 @@ fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usiz
         .iter()
         .filter_map(|id| path_of(&state, *id).ok())
         .collect();
+    // 実体がもう無いものは**先に分ける**。ファイルが1つ欠けるだけで
+    // まとめての操作は全体が失敗し、下の1件ずつへ落ちてしまう
+    // （選択したあとに外から消えるのは、同期フォルダでは普通に起きる）。
+    // 無いものはDBからだけ落とす（実体に合わせる）
+    let (mut deleted, present): (Vec<PathBuf>, Vec<PathBuf>) =
+        paths.into_iter().partition(|p| !p.exists());
     // **まとめて1回で渡す**。Windowsの `trash::delete` は1件ごとにシェルの
     // ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
     // 失敗したら下の1件ずつへ落とし、**消せたぶんだけ**DBへ反映する
-    let (deleted, first_err) = match trash::delete_all(&paths) {
-        Ok(()) => (paths, None),
+    let first_err = match trash::delete_all(&present) {
+        Ok(()) => {
+            deleted.extend(present);
+            None
+        }
         Err(_) => {
-            let mut deleted: Vec<PathBuf> = Vec::new();
             let mut first_err: Option<String> = None;
-            for path in paths {
+            for path in present {
                 // ファイルが既に無い場合もDBからは消す（実体に合わせる）。
                 // まとめての操作が途中まで通っていたぶんも、ここで拾える
                 match trash::delete(&path) {
@@ -1089,7 +1097,7 @@ fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usiz
                     }
                 }
             }
-            (deleted, first_err)
+            first_err
         }
     };
     if !deleted.is_empty() {
@@ -1306,6 +1314,43 @@ fn list_media_ids(
     state
         .read_pool
         .with(|db| db.search_ids(&query))
+        .map_err(|e| e.to_string())
+}
+
+/// 範囲選択（Shift+クリック）で、**2点に挟まれたIDだけ**を取る。
+///
+/// 全IDを返す `list_media_ids` を範囲選択に使うと、隣り合う2枚のために
+/// 一覧の全件がIPCを渡る。切り出しはDB側でやる。
+#[tauri::command]
+fn list_media_ids_between(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    favorites_only: bool,
+    from_id: i64,
+    to_id: i64,
+) -> Result<Vec<i64>, String> {
+    let query = pictkura_core::parse_query(&query, favorites_only);
+    state
+        .read_pool
+        .with(|db| db.search_ids_between(&query, from_id, to_id))
+        .map_err(|e| e.to_string())
+}
+
+/// 渡されたIDのうち、**いまの条件で実際に一覧に並んでいるもの**だけを返す。
+///
+/// 一括操作の直前の確認用。選択したあとに★を外した・撮影日が確定して
+/// 検索から外れた等で、画面に出ていないものが選択に残ることがある。
+#[tauri::command]
+fn visible_media_ids(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    favorites_only: bool,
+    ids: Vec<i64>,
+) -> Result<Vec<i64>, String> {
+    let query = pictkura_core::parse_query(&query, favorites_only);
+    state
+        .read_pool
+        .with(|db| db.visible_ids(&query, &ids))
         .map_err(|e| e.to_string())
 }
 
@@ -2392,6 +2437,8 @@ pub fn run() {
             preview_folder_pattern,
             set_favorites,
             list_media_ids,
+            list_media_ids_between,
+            visible_media_ids,
             set_register_autoplay,
             take_pending_import
         ])

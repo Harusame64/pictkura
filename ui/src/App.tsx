@@ -44,6 +44,8 @@ import {
   setFavorite,
   setFavorites,
   listMediaIds,
+  listMediaIdsBetween,
+  visibleMediaIds,
   setVisiblePriority,
   syncNow,
   thumbSrc,
@@ -202,27 +204,6 @@ export default function App() {
   // イベントリスナーから最新のfilter/query状態を参照するためのref
   const filterRef = useRef<"all" | "fav">("all");
   /**
-   * 「いまの検索条件に一致する全ID」の控え。範囲選択と全選択に要る。
-   *
-   * 一覧は日ごとに遅延読み込みするので、画面に出ているものだけで範囲を決めると
-   * **間に挟まる未読み込みの日が黙って外れる**。条件が変わったら捨てる。
-   */
-  const idsCacheRef = useRef<{ key: string; ids: number[] } | null>(null);
-  /**
-   * ID一覧の控えの世代。**控えを捨てるたびに進める**。
-   *
-   * 捨てるだけでは足りない——`listMediaIds` の応答を待っている最中に
-   * 中身が変わると、**捨てた直後に古い並びで控えを埋め直す**。
-   * 検索条件もライブラリの世代も変わらない経路（撮影日が確定して日が移った等、
-   * `refreshSummary` が通る場面）があるので、専用の世代が要る。
-   */
-  const idsGenRef = useRef(0);
-  /** ID一覧の控えを捨てる。**世代も進めて、待っている応答を無効にする** */
-  const invalidateIds = () => {
-    idsCacheRef.current = null;
-    idsGenRef.current += 1;
-  };
-  /**
    * Shift+クリックの土台。**範囲を始めた時点の選択**を覚える。
    *
    * 同じ起点から選び直すときは、前の範囲を消して新しい範囲を足す——のではなく、
@@ -283,9 +264,6 @@ export default function App() {
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     inflightRef.current.clear();
-    // **ID一覧の控えは必ず捨てる**。ライブラリの中身が変わったのに残しておくと、
-    // 次の全選択が「もう画面に無い写真」を掴み、そのまま一括削除まで通ってしまう
-    invalidateIds();
     const fav = filterRef.current === "fav";
     const [sum, st, mem] = await Promise.all([
       timelineSummary(queryRef.current, fav),
@@ -308,8 +286,6 @@ export default function App() {
    * 合致するようになった」等で起きる。listDayは常にその日の全件を返すので、
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
-    // 同上。件数や日の顔ぶれが変わる場面はここも通る
-    invalidateIds();
     const gen = generationRef.current;
     const fav = filterRef.current === "fav";
     const [sum, st] = await Promise.all([
@@ -1398,10 +1374,9 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewer, paletteOpen, settingsOpen, wizardOpen, menu, view]);
 
-  // 検索条件が変わったら、ID一覧の控えも選択も捨てる。
+  // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
   useEffect(() => {
-    invalidateIds();
     lastRangeRef.current = null;
     selectEpochRef.current += 1;
     setSelected(new Set());
@@ -1427,62 +1402,6 @@ export default function App() {
     if (view !== "grid") clearSelection();
   }, [view, clearSelection]);
 
-  /**
-   * いまの一覧に**何が並んでいるか**を表す鍵。検索条件と、控えの世代からなる。
-   *
-   * ID一覧の控えはこちらで見分ける。**選択の世代を混ぜてはいけない**——
-   * 選択操作はどれも世代を進めるので、混ぜると鍵が毎回変わり、
-   * **控えが一度も当たらない**。3万件のライブラリでは、範囲を伸縮するたびに
-   * 全IDを引き直すことになる。
-   */
-  const resultKey = useCallback(
-    () =>
-      `${queryRef.current}\u0000${filterRef.current === "fav"}\u0000${idsGenRef.current}`,
-    [],
-  );
-
-
-  /**
-   * いまの検索条件に一致する全IDを、一覧の並び順で取る（控えがあればそれ）。
-   *
-   * 範囲選択と全選択のためのもの。IDだけなので3万件でも240KB。
-   * 控えの鍵に控えの世代を含めるので、取り込み・削除・日の移動のあとは引き直す。
-   */
-  const orderedIds = useCallback(async () => {
-    const key = resultKey();
-    if (idsCacheRef.current?.key === key) return idsCacheRef.current.ids;
-    const ids = await listMediaIds(
-      queryRef.current,
-      filterRef.current === "fav",
-    );
-    // 待っている間に**並びが**変わっていたら、控えにも残さない。
-    // 選択の世代は見ない——Escで解除されても、引いたID一覧そのものは有効
-    if (resultKey() === key) idsCacheRef.current = { key, ids };
-    return ids;
-  }, [resultKey]);
-
-  /**
-   * 全IDを、**並びが動いていない状態で**取る。取れなければ null。
-   *
-   * 引き直すのが要点。サムネイルの一括生成中は `refreshSummary` が数秒おきに
-   * 控えを捨てるので、1回きりの見比べだと待っている全選択・範囲選択が片端から落ち、
-   * **押しても何も起きない**操作になる。
-   *
-   * ただし**選択の世代が進んだら諦める**——Escでの解除や、あとから来た別の選択操作を、
-   * 古い応答が上書きしてはいけない。検索条件やフィルタの変更も世代を進めるので、
-   * 「画面に出ていないものが選ばれたまま」にはならない。
-   */
-  const stableIds = useCallback(async () => {
-    const epoch = selectEpochRef.current;
-    for (let i = 0; i < 3; i++) {
-      const key = resultKey();
-      const ids = await orderedIds();
-      if (selectEpochRef.current !== epoch) return null;
-      if (resultKey() === key) return ids;
-    }
-    return null;
-  }, [orderedIds, resultKey]);
-
   /** 1枚の選択を入れ替える */
   const toggleOne = useCallback((id: number) => {
     beginSelectOp();
@@ -1499,23 +1418,28 @@ export default function App() {
    * 起点から今のものまでをまとめて選ぶ（Shift+クリック）。
    *
    * **画面に出ているものだけで決めない**。間に未読み込みの日が挟まると、
-   * その日の写真が黙って外れる。全IDの並びから添字で切り出す。
+   * その日の写真が黙って外れる。並びの切り出しはDB側でやり、
+   * **範囲のぶんだけ**を受け取る。
    */
   const selectRange = useCallback(
     async (fromId: number, toId: number) => {
       beginSelectOp();
-      // 待っている間に解除・別の選択が入ったら、古い並びで選択を作らない
-      const ids = await stableIds();
-      if (!ids) return;
-      const a = ids.indexOf(fromId);
-      const b = ids.indexOf(toId);
-      if (a < 0 || b < 0) {
-        // 条件が変わって起点が消えている等。単独の選択に落とす
+      const epoch = selectEpochRef.current;
+      // **範囲のぶんだけ**をDBから受け取る。切り出しはSQL側の仕事で、
+      // 隣り合う2枚のために全IDを送らせない
+      const range = await listMediaIdsBetween(
+        queryRef.current,
+        filterRef.current === "fav",
+        fromId,
+        toId,
+      );
+      // 待っている間に解除・別の選択・条件変更が入ったら、古い並びで選択を作らない
+      if (selectEpochRef.current !== epoch) return;
+      if (range.length === 0) {
+        // 条件が変わって両端とも消えている等。単独の選択に落とす
         toggleOne(toId);
         return;
       }
-      const [lo, hi] = a <= b ? [a, b] : [b, a];
-      const range = ids.slice(lo, hi + 1);
       // 同じ起点で選び直すなら土台は据え置き。初回なら「いまの選択」が土台
       const base =
         lastRangeRef.current?.anchor === fromId
@@ -1529,7 +1453,7 @@ export default function App() {
       setSelected(next);
       // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
     },
-    [stableIds, toggleOne],
+    [toggleOne],
   );
 
   /** その日をまとめて選ぶ／外す（日付の見出しを押したとき） */
@@ -1565,12 +1489,17 @@ export default function App() {
   /** 表示中の条件に一致する全部を選ぶ（Ctrl+A） */
   const selectAll = useCallback(async () => {
     beginSelectOp();
-    const ids = await stableIds();
-    if (!ids) return;
+    const epoch = selectEpochRef.current;
+    // ここだけは全IDを引く（「全部」を選ぶ操作なので、件数ぶんの選択が要る）
+    const ids = await listMediaIds(
+      queryRef.current,
+      filterRef.current === "fav",
+    );
+    if (selectEpochRef.current !== epoch) return;
     setSelected(new Set(ids));
     setAnchorId(ids[0] ?? null);
     lastRangeRef.current = null;
-  }, [stableIds]);
+  }, []);
 
   /**
    * 一括操作に掛ける前に、**いまの条件で本当に出ているものだけへ絞る**。
@@ -1583,13 +1512,18 @@ export default function App() {
   const visibleSelection = useCallback(async () => {
     const current = selectedRef.current;
     if (current.size === 0) return [];
-    const ids = await stableIds();
-    if (!ids) return [];
-    const valid = new Set(ids);
-    const kept = [...current].filter((id) => valid.has(id));
+    const epoch = selectEpochRef.current;
+    // **選んだIDだけを渡して確かめる**。全IDを引いて突き合わせると、
+    // 数枚の確認のために一覧の全件がIPCを渡ることになる
+    const kept = await visibleMediaIds(
+      queryRef.current,
+      filterRef.current === "fav",
+      [...current],
+    );
+    if (selectEpochRef.current !== epoch) return [];
     if (kept.length !== current.size) setSelected(new Set(kept));
     return kept;
-  }, [stableIds]);
+  }, []);
 
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
@@ -1731,7 +1665,6 @@ export default function App() {
         return next;
       });
       setViewer((v) => (v && touched.has(v.id as number) ? null : v));
-      invalidateIds();
       clearSelection();
       await refreshSummary();
     } catch (e) {
@@ -1746,7 +1679,6 @@ export default function App() {
         }
         return next;
       });
-      invalidateIds();
       clearSelection();
       await refreshSummary().catch(() => {});
     }
@@ -1887,13 +1819,24 @@ export default function App() {
             {t.selectAll}
           </button>
           <span className="select-bar-spacer" />
-          <button onClick={() => onBulkFavorite(true)}>
+          <button
+            onClick={() =>
+              onBulkFavorite(true).catch((e) => setStatus(String(e)))
+            }
+          >
             ★ {t.bulkFavoriteOn}
           </button>
-          <button onClick={() => onBulkFavorite(false)}>
+          <button
+            onClick={() =>
+              onBulkFavorite(false).catch((e) => setStatus(String(e)))
+            }
+          >
             {t.bulkFavoriteOff}
           </button>
-          <button className="danger" onClick={onBulkDelete}>
+          <button
+            className="danger"
+            onClick={() => onBulkDelete().catch((e) => setStatus(String(e)))}
+          >
             🗑 {t.bulkDelete}
           </button>
         </div>

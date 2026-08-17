@@ -286,11 +286,41 @@ export const setFavorites = (ids: number[], favorite: boolean) =>
  * 検索条件に一致する**IDだけ**を、一覧に並ぶ順で取る。
  *
  * 一覧は日ごとに遅延読み込みするので、画面に出ているものだけで選択を決めると
- * **まだ読んでいない日の写真が黙って外れる**。範囲選択と全選択はこれを使う。
+ * **まだ読んでいない日の写真が黙って外れる**。全選択（Ctrl+A）はこれを使う。
  * IDなら1件8バイトなので、3万件でも240KB。
+ *
+ * **範囲選択と選択の確認には使わない**。数枚のために全件を運ぶことになる
+ * ——`listMediaIdsBetween` と `visibleMediaIds` がそれぞれの担当。
  */
 export const listMediaIds = (query: string, favoritesOnly: boolean) =>
   invoke<number[]>("list_media_ids", { query, favoritesOnly });
+/**
+ * 一覧の並びで、**2点に挟まれた範囲のIDだけ**を取る（Shift+クリック）。
+ *
+ * 切り出しはDB側の仕事。端のIDが条件から外れていたら、見つかったほうだけの
+ * 範囲になり、両方無ければ空が返る。
+ */
+export const listMediaIdsBetween = (
+  query: string,
+  favoritesOnly: boolean,
+  fromId: number,
+  toId: number,
+) =>
+  invoke<number[]>("list_media_ids_between", {
+    query,
+    favoritesOnly,
+    fromId,
+    toId,
+  });
+/**
+ * 渡したIDのうち、**いまの条件で実際に一覧に並んでいるもの**だけを取る。
+ * 返る順は渡した順。一括操作の直前の確認に使う。
+ */
+export const visibleMediaIds = (
+  query: string,
+  favoritesOnly: boolean,
+  ids: number[],
+) => invoke<number[]>("visible_media_ids", { query, favoritesOnly, ids });
 export const importFromFolder = (source: string) =>
   invoke<ImportStats>("import_from_folder", { source });
 export const addLibraryRoot = (path: string) =>
