@@ -855,6 +855,11 @@ export default function App() {
             s2.delete(item.id);
             return s2;
           });
+          // **起点と範囲の土台も忘れる**（単独削除と同じ）。居なくなったものを
+          // 起点にしたまま Shift+クリックを続けると、古い土台が
+          // 「もう画面に無いもの」を選び直し、間の写真のほうが外れる
+          setAnchorId((a) => (a === item.id ? null : a));
+          lastRangeRef.current = null;
           await reloadAll();
         }
       } catch {
