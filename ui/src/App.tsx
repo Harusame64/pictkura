@@ -130,6 +130,28 @@ const CLOUD_ANSWER_TTL_MS = 20_000;
 const PENDING_WATCHDOG_MS = 4000;
 /** 詰め直しの出力は長辺がここへ丸められる（`thumbs::display_jpeg` と一致） */
 const DISPLAY_MAX_EDGE = 4096;
+/**
+ * 「連打で送っている最中」と見なす間隔。
+ *
+ * この速さで次の絵へ行っているあいだは、**詰め直しの要る形式の原寸を
+ * 取りに行かない**（0.2 ②の測り直し）。HEICは1枚0.6〜1秒かかるうえ、
+ * Rust側は同時に1枚しか変換しないので、通り過ぎた絵のぶんまで投げると
+ * **止まった1枚がその行列の後ろに並ぶ**。止まれば
+ * [`viewerSettled`] の250msで取りに行く。
+ *
+ * ゆっくり見ているとき（前の送りからこの時間より後）は今までどおり
+ * すぐ取りに行く——1枚ずつ見る人に250msの待ちを足さないため
+ */
+const FAST_FLIP_MS = 400;
+/**
+ * ビューア下部のフィルムストリップに出す**片側の枚数**（0.2 ②）。
+ *
+ * 出しているのは一覧と同じWebPサムネイル（長辺512px）なので、
+ * 21枚でもデコード済み画素は約15MB——原寸の先読み予算
+ * （[`PRELOAD_BUDGET_BYTES`]）に対して桁が2つ小さい。
+ * 送るたびに端の1枚が増えるだけで、残りは要素ごと使い回される
+ */
+const STRIP_RADIUS = 10;
 
 /**
  * その配信URLが、このidの絵か。
@@ -1398,6 +1420,15 @@ export default function App() {
   const [fullFailedId, setFullFailedId] = useState<number | null>(null);
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
+  /**
+   * **原寸を取りに行ってよい**絵のid（0.2 ②）。
+   *
+   * 詰め直しの要る形式を連打で通り過ぎているあいだは閉じておく
+   * （[`FAST_FLIP_MS`]）。開くのは送りが止まった250ms後
+   */
+  const [fullGateId, setFullGateId] = useState<number | null>(null);
+  /** 直前に絵が変わった時刻（連打かどうかの判定に使う） */
+  const lastViewerChangeRef = useRef(0);
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
   const [slowId, setSlowId] = useState<number | null>(null);
   const viewerItemId = viewerItem?.id;
@@ -1434,8 +1465,21 @@ export default function App() {
     setThumbShownId(null);
     setFullShownId(null);
     setFullFailedId(null);
-    if (viewerItemId === undefined) return;
-    const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
+    if (viewerItemId === undefined) {
+      setFullGateId(null);
+      return;
+    }
+    // 連打で送っている最中は、詰め直しの要る形式の原寸を**まだ取りに行かない**。
+    // 通り過ぎた絵の変換が積み上がると、止まった1枚がその後ろに並ぶ
+    const now = Date.now();
+    const flipping = now - lastViewerChangeRef.current < FAST_FLIP_MS;
+    lastViewerChangeRef.current = now;
+    setFullGateId(viewerTranscoding && flipping ? null : viewerItemId);
+    const settle = window.setTimeout(() => {
+      setSettledId(viewerItemId);
+      // 止まった。ここで初めて取りに行く（上で閉じていた場合）
+      setFullGateId(viewerItemId);
+    }, 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
     // 効いていれば詰め直しの要る形式も数msで出るので、少し待ってから出す
     const slow = viewerTranscoding
@@ -1514,18 +1558,18 @@ export default function App() {
     }
   }, [viewer]);
 
-  useEffect(() => {
-    if (!viewerInfo) {
-      setPreload([]);
-      return;
-    }
-    const start = { d: viewerInfo.dayIdx, i: viewerInfo.itemIdx };
-    /** 1つ隣の位置へ。端と**未取得の日**で止まる（moveViewer と同じ歩き方） */
-    const step = (
+  /**
+   * 一覧の並びで**1つ隣の位置**へ（`moveViewer` と同じ歩き方）。
+   * 端と**未取得の日**で止まる（届けば呼び直される）。
+   *
+   * 先読み（0.2 ①）とフィルムストリップ（0.2 ②）が同じ歩き方を使う
+   */
+  const stepPos = useCallback(
+    (
       pos: { d: number; i: number },
       dir: 1 | -1,
     ): { d: number; i: number } | null => {
-      const items = dayItems.get(summary[pos.d].day_key);
+      const items = dayItems.get(summary[pos.d]?.day_key);
       if (!items) return null;
       const ni = pos.i + dir;
       if (ni >= 0 && ni < items.length) return { d: pos.d, i: ni };
@@ -1534,10 +1578,61 @@ export default function App() {
         nd >= 0 && nd < summary.length
           ? dayItems.get(summary[nd].day_key)
           : undefined;
-      // 未取得の日は諦める（上の effect が取りに行っている。届けば再実行される）
       if (!next || next.length === 0) return null;
       return { d: nd, i: dir === 1 ? 0 : next.length - 1 };
-    };
+    },
+    [dayItems, summary],
+  );
+
+  /**
+   * スコープで開いていれば列の、そうでなければ一覧の**隣の絵**を1枚返す。
+   * `k` は正で次、負で前（`k = 0` はいまの絵）。取れなければ null
+   */
+  const neighborItem = useCallback(
+    (k: number): MediaItem | null => {
+      if (!viewerInfo) return null;
+      if (k === 0) return viewerInfo.item;
+      if (viewerScope && scopeIdx !== undefined) {
+        const at = viewerScope[scopeIdx + k];
+        if (!at) return null;
+        return dayItems.get(at.day_key)?.find((x) => x.id === at.id) ?? null;
+      }
+      const dir: 1 | -1 = k > 0 ? 1 : -1;
+      let cur: { d: number; i: number } | null = {
+        d: viewerInfo.dayIdx,
+        i: viewerInfo.itemIdx,
+      };
+      for (let n = 0; n < Math.abs(k); n++) {
+        cur = stepPos(cur, dir);
+        if (!cur) return null;
+      }
+      return dayItems.get(summary[cur.d].day_key)?.[cur.i] ?? null;
+    },
+    [viewerInfo, viewerScope, scopeIdx, dayItems, summary, stepPos],
+  );
+
+  /**
+   * ビューア下部に出す前後の絵（0.2 ②）。いまの絵を真ん中に、
+   * 前後 [`STRIP_RADIUS`] 枚ずつ。**取れないもの（未取得の日・端）は詰めない**
+   * ——並びを詰めると、送るたびに真ん中が動いて見える
+   */
+  const strip = useMemo(() => {
+    if (!viewerItem) return [];
+    const out: { item: MediaItem; offset: number }[] = [];
+    for (let k = -STRIP_RADIUS; k <= STRIP_RADIUS; k++) {
+      const it = neighborItem(k);
+      if (it) out.push({ item: it, offset: k });
+    }
+    return out;
+  }, [viewerItem, neighborItem]);
+
+  useEffect(() => {
+    if (!viewerInfo) {
+      setPreload([]);
+      return;
+    }
+    const start = { d: viewerInfo.dayIdx, i: viewerInfo.itemIdx };
+    const step = stepPos;
     /**
      * 送る向きの隣を近い順に集める。**スコープで開いていればその列を歩く**
      * （0.2 ②）——一覧の隣ではなく、送りが実際に行く先を先読みするため
@@ -1685,6 +1780,7 @@ export default function App() {
     transcodeTick,
     viewerScope,
     scopeIdx,
+    stepPos,
   ]);
 
   // 先読みは**表示順に1枚ずつ**取りに行かせる。`src` をまとめて置くと
@@ -3091,7 +3187,13 @@ export default function App() {
           ) : viewerItem ? (
             <img
               className="viewer-image"
-              src={fullSrc(viewerItem.id, viewerItem.mtime_ms)}
+              // 門が開くまで `src` を置かない＝要求そのものを出さない。
+              // 置いてから消しても、Rust側で走り出した変換は取り消せない
+              src={
+                fullGateId === viewerItem.id
+                  ? fullSrc(viewerItem.id, viewerItem.mtime_ms)
+                  : undefined
+              }
               // 原寸が出せず下敷きが唯一の絵になったときは、代替テキストを黙らせる
               // ——絵の真ん中にファイル名が浮くと、情報ではなくゴミに見える
               alt={fallbackToThumb ? "" : viewerItem.file_name}
@@ -3245,6 +3347,14 @@ export default function App() {
               style={{ display: "none" }}
             />
           ))}
+          {/* 粗い絵（下敷きのサムネイル）を見ているあいだの細い線（0.2 ②）。
+              **原寸が出た瞬間に消える**ので、切り替わりがそのまま見える。
+              CSSで140ms待ってから現れるので、先読み済みの絵（6ms）では
+              一度も光らない。動画には出さない（Rangeで刻んで届くので、
+              「粗い絵を見ている」状態が無い） */}
+          {viewerItem && !viewerItem.is_video && loadedId !== viewerItem.id && (
+            <div className="viewer-progress" aria-hidden />
+          )}
           {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
               サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
           {viewerItem &&
@@ -3255,6 +3365,30 @@ export default function App() {
                 {t.loading}
               </div>
             )}
+          {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
+              見えていると選別が進む。クリックでそこへ飛ぶ */}
+          {viewerItem && strip.length > 1 && (
+            <div className="viewer-strip" onClick={(e) => e.stopPropagation()}>
+              {strip.map(({ item, offset }) => (
+                <button
+                  key={item.id}
+                  className={"strip-cell" + (offset === 0 ? " current" : "")}
+                  title={item.file_name}
+                  onClick={() =>
+                    setViewer({ dayKey: item.day_key, id: item.id })
+                  }
+                >
+                  {item.has_thumb ? (
+                    <img src={thumbSrc(item)} alt="" draggable={false} />
+                  ) : (
+                    <span className="strip-blank" />
+                  )}
+                  {item.picked && <span className="strip-flag">⚑</span>}
+                  {item.favorite && <span className="strip-fav">★</span>}
+                </button>
+              ))}
+            </div>
+          )}
           {viewerItem && (
             <div
               className="viewer-caption"
