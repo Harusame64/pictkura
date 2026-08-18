@@ -557,6 +557,17 @@ body {
   pointer-events: none;
 }
 
+/* 選別の印（⚑。0.2 ②）。★の隣に並べる——別の棚なので色も分ける */
+.cell-flag {
+  position: absolute;
+  top: var(--sp-1);
+  right: 26px;
+  color: var(--pick);
+  filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
+  font-size: var(--fs-lg);
+  pointer-events: none;
+}
+
 /* 動画のバッジ（第9部）。左下に▶と長さ。
  * 写真の上に文字を置くので、地の明るさに関係なく読めるよう影付きの黒帯にする */
 .cell-video {
@@ -828,6 +839,11 @@ body {
 }
 .viewer-tool.on {
   background: var(--fav);
+  color: var(--n-10);
+}
+/* 選別の印が付いている状態（★の「on」と見分けられる色にする） */
+.viewer-tool.picked {
+  background: var(--pick);
   color: var(--n-10);
 }
 /* 倍率表示（クリックで等倍⇔フィット） */

@@ -211,6 +211,7 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | Key | Action |
 |---|---|
 | `←` `→` | previous / next |
+| `P` / `U` | pick (flag it ⚑) / unpick. By default this **moves on to the next photo**; you can turn that off in settings |
 | `Space` | slideshow (play / pause for video) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `F11` | full screen |
@@ -238,6 +239,15 @@ While something is selected, a plain click toggles a tile instead of opening the
 From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
 you pick, or move all of it to the recycle bin in one go — deleting asks first, and
 **it still goes through the recycle bin**.
+
+**View the selection** opens the viewer on just those photos: `←` `→` stay inside the
+selection and the counter shows how many you picked out. Going through a burst is then
+`P` and `→` — or just `P`, with the default move-on-to-the-next setting.
+
+⚑ is **a separate shelf from ★ favourites**: ★ is "a photo I want to come back to",
+⚑ is "the one frame I keep out of this burst". Mixing them would fill your favourites
+with the leftovers of every culling session. **⚑ Picked** in the sidebar lists what you
+picked, and the search box takes `⚑` (or `pick:`) as a filter.
 
 **Copy to folder / Move to folder** put the selected files straight into the folder you
 pick, without date subfolders — handy for handing a few photos to someone or filling a USB

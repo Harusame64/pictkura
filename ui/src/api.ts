@@ -20,6 +20,8 @@ export interface MediaItem {
   /** サムネイルの品質段階: 0=なし, 1=即席, 2=高品質 */
   thumb_state: number;
   favorite: boolean;
+  /** 選別で選んだ印（⚑ Pick。0.2 ②）。★とは別の棚 */
+  picked: boolean;
   /** 動画の長さ（ミリ秒）。動画以外・未読取はnull（第9部） */
   duration_ms: number | null;
   /** 動画か（一覧の▶バッジ、ビューアのプレイヤー切り替え） */
@@ -54,6 +56,8 @@ export interface Memory {
 export interface LibraryStats {
   total: number;
   favorites: number;
+  /** 選別で選んだ件数（⚑。0.2 ②） */
+  picked: number;
 }
 
 export interface SyncStats {
@@ -115,6 +119,8 @@ export interface AppConfig {
   routing: { destination: string | null; folder_pattern: string };
   library: { roots: string[] };
   editors: { apps: ExternalApp[] };
+  /** 全画面ビューアの操作（0.2 ②）。配ったあとに足した節なので**欠けうる** */
+  viewer?: { auto_advance: boolean };
 }
 
 /** 取り込み先フォルダ構成の選択肢（今日の日付での実例つき） */
@@ -239,13 +245,21 @@ export const isWindows = (() => {
 /** コマンドパレットのショートカット表記（⌘K / Ctrl+K） */
 export const modKeyLabel = isMac ? "⌘K" : "Ctrl+K";
 
-export const timelineSummary = (query: string, favoritesOnly: boolean) =>
-  invoke<DaySummary[]>("timeline_summary", { query, favoritesOnly });
+/**
+ * 一覧の絞り込み（画面左の「すべての画像 / ★ / ⚑」）。
+ *
+ * **★と⚑は別の棚**（0.2 ②）。「あとで見返したい写真」と
+ * 「この連写から残す1枚」を同じ印にしないため
+ */
+export type MediaFilter = "all" | "fav" | "picked";
+
+export const timelineSummary = (query: string, filter: MediaFilter) =>
+  invoke<DaySummary[]>("timeline_summary", { query, filter });
 export const listDay = (
   dayKey: number,
   query: string,
-  favoritesOnly: boolean,
-) => invoke<MediaItem[]>("list_day", { dayKey, query, favoritesOnly });
+  filter: MediaFilter,
+) => invoke<MediaItem[]>("list_day", { dayKey, query, filter });
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */
@@ -310,6 +324,14 @@ export const removeLibraryRoot = (path: string) =>
 export const setFavorite = (id: number, favorite: boolean) =>
   invoke<void>("set_favorite", { id, favorite });
 
+/** 選別の印（⚑ Pick）を付ける・外す（0.2 ②）。★とは別の列を触る */
+export const setPicked = (id: number, picked: boolean) =>
+  invoke<void>("set_picked", { id, picked });
+
+/** 選別の印をまとめて付ける・外す。変えた件数を返す */
+export const setPickeds = (ids: number[], picked: boolean) =>
+  invoke<number>("set_pickeds", { ids, picked });
+
 /** お気に入りをまとめて付ける・外す（DB側で1トランザクション）。変えた件数を返す */
 export const setFavorites = (ids: number[], favorite: boolean) =>
   invoke<number>("set_favorites", { ids, favorite });
@@ -324,8 +346,8 @@ export const setFavorites = (ids: number[], favorite: boolean) =>
  * **範囲選択と選択の確認には使わない**。数枚のために全件を運ぶことになる
  * ——`listMediaIdsBetween` と `visibleMediaIds` がそれぞれの担当。
  */
-export const listMediaIds = (query: string, favoritesOnly: boolean) =>
-  invoke<number[]>("list_media_ids", { query, favoritesOnly });
+export const listMediaIds = (query: string, filter: MediaFilter) =>
+  invoke<number[]>("list_media_ids", { query, filter });
 /**
  * 一覧の並びで、**2点に挟まれた範囲のIDだけ**を取る（Shift+クリック）。
  *
@@ -334,13 +356,13 @@ export const listMediaIds = (query: string, favoritesOnly: boolean) =>
  */
 export const listMediaIdsBetween = (
   query: string,
-  favoritesOnly: boolean,
+  filter: MediaFilter,
   fromId: number,
   toId: number,
 ) =>
   invoke<number[]>("list_media_ids_between", {
     query,
-    favoritesOnly,
+    filter,
     fromId,
     toId,
   });
@@ -356,11 +378,30 @@ export const listMediaIdsBetween = (
  */
 export const exportMedia = (ids: number[], dest: string, moveFiles: boolean) =>
   invoke<ExportStats>("export_media", { ids, dest, moveFiles });
+/** ビューアの選択スコープの1件（idとその日）。位置は `(day_key, id)` で持つ */
+export interface ScopeItem {
+  id: number;
+  day_key: number;
+}
+
+/**
+ * 選択を**ビューアのスコープ**にするために、いま並んでいるものだけを
+ * 一覧と同じ並びで、その日と一緒に取る（0.2 ②）。
+ *
+ * `visibleMediaIds` との違いは並びと `day_key`。選択はJS側では集合なので、
+ * 並べ直しをこちらでやると一覧とずれる（未読の日の写真は順番が分からない）。
+ */
+export const scopeMedia = (
+  query: string,
+  filter: MediaFilter,
+  ids: number[],
+) => invoke<ScopeItem[]>("scope_media", { query, filter, ids });
+
 export const visibleMediaIds = (
   query: string,
-  favoritesOnly: boolean,
+  filter: MediaFilter,
   ids: number[],
-) => invoke<number[]>("visible_media_ids", { query, favoritesOnly, ids });
+) => invoke<number[]>("visible_media_ids", { query, filter, ids });
 export const importFromFolder = (source: string) =>
   invoke<ImportStats>("import_from_folder", { source });
 export const addLibraryRoot = (path: string) =>
@@ -430,6 +471,10 @@ export const setFolderPattern = (pattern: string) =>
  * USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
  * その場でレジストリへ反映されるので、切ったらすぐ候補から消える。
  */
+/** 選別キー（P / U）のあと次の絵へ自動で送るかを切り替える（0.2 ②） */
+export const setAutoAdvance = (enabled: boolean) =>
+  invoke<void>("set_auto_advance", { enabled });
+
 export const setRegisterAutoplay = (enabled: boolean) =>
   invoke<void>("set_register_autoplay", { enabled });
 

@@ -10,6 +10,7 @@ import {
   previewFolderPattern,
   setFolderPattern,
   setImportDestination,
+  setAutoAdvance,
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
@@ -299,6 +300,34 @@ export default function Settings({
                 </div>
               )}
             </div>
+          </section>
+
+          {/*
+            全画面ビューアの選別（0.2 ②）。キーバインドは既定の1種だけを持ち、
+            プリセット機構は作らない（`dev/plan.0.2.rev.md` 決定事項3）ので、
+            設定に出すのは自動送りの入切だけ。
+          */}
+          <section className="settings-section">
+            <h3>{t.settingsViewer}</h3>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                // 配ったあとに足した節なので、古い設定ファイルには無い。
+                // Rust側の既定（ON）に合わせる
+                checked={config?.viewer?.auto_advance ?? true}
+                onChange={async (e) => {
+                  try {
+                    await setAutoAdvance(e.target.checked);
+                  } catch (err) {
+                    // 保存できなければ下の onConfigChanged で表示が元に戻る
+                    onError(String(err));
+                  }
+                  onConfigChanged();
+                }}
+              />
+              {t.settingsAutoAdvanceToggle}
+            </label>
+            <p className="settings-note">{t.settingsAutoAdvanceNote}</p>
           </section>
 
           {/*

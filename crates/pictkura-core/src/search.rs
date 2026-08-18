@@ -171,13 +171,32 @@ pub struct SearchQuery {
     pub day_to: Option<i64>,
     /// お気に入り（★）のみ
     pub favorites_only: bool,
+    /// 選別で選んだもの（⚑ Pick。0.2 ②）のみ
+    pub picked_only: bool,
+}
+
+/// 一覧の絞り込み（画面左の「すべての画像 / ★ / ⚑」に対応する）。
+///
+/// **★と⚑は別の棚**。検索語の側では `★ ⚑` と重ねられるが、
+/// この入口は1つだけ選ぶ形にしてある（画面の作りに合わせる）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaFilter {
+    /// 絞り込みなし
+    #[default]
+    All,
+    /// お気に入り（★）だけ
+    Fav,
+    /// 選別で選んだもの（⚑）だけ
+    Picked,
 }
 
 impl SearchQuery {
-    /// お気に入りフィルタだけの（＝検索語なしの）クエリ。
-    pub fn favorites(favorites_only: bool) -> Self {
+    /// 入口の絞り込みだけの（＝検索語なしの）クエリ。
+    pub fn filtered(filter: MediaFilter) -> Self {
         Self {
-            favorites_only,
+            favorites_only: filter == MediaFilter::Fav,
+            picked_only: filter == MediaFilter::Picked,
             ..Default::default()
         }
     }
@@ -190,6 +209,7 @@ impl SearchQuery {
             && self.day_from.is_none()
             && self.day_to.is_none()
             && !self.favorites_only
+            && !self.picked_only
     }
 
     /// FTSを引く必要があるか（自由語・フォルダのいずれかがある）。
@@ -356,12 +376,10 @@ fn parse_date_range(token: &str) -> Option<(i64, i64)> {
 /// - `year:2019` / `年:2019` — その年だけに絞る（`2019年` と同じ範囲）
 /// - `2019年` `2019-08` `2019年8月11日` — 撮影日で絞る
 /// - `★` / `fav:` — お気に入りのみ
+/// - `⚑` / `pick:` — 選別で選んだもののみ（0.2 ②）
 /// - それ以外 — 自由語（ファイル名・フォルダ名・カメラ名が対象）
-pub fn parse_query(input: &str, favorites_only: bool) -> SearchQuery {
-    let mut q = SearchQuery {
-        favorites_only,
-        ..Default::default()
-    };
+pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
+    let mut q = SearchQuery::filtered(filter);
     for token in tokenize(input) {
         // `key:value` 指定
         if let Some((key, value)) = token.split_once(':') {
@@ -400,6 +418,10 @@ pub fn parse_query(input: &str, favorites_only: bool) -> SearchQuery {
                     q.favorites_only = true;
                     true
                 }
+                "pick" | "picked" | "選別" => {
+                    q.picked_only = true;
+                    true
+                }
                 _ => false,
             };
             if matched {
@@ -408,6 +430,10 @@ pub fn parse_query(input: &str, favorites_only: bool) -> SearchQuery {
         }
         if token == "★" {
             q.favorites_only = true;
+            continue;
+        }
+        if token == "⚑" {
+            q.picked_only = true;
             continue;
         }
         if let Some((from, to)) = parse_date_range(&token) {
@@ -481,28 +507,28 @@ mod tests {
     #[test]
     fn yearは年だけで絞れる() {
         // `2019年` と同じ範囲になる
-        let q = parse_query("year:2019", false);
+        let q = parse_query("year:2019", crate::MediaFilter::All);
         assert_eq!(q.day_from, Some(20190101));
         assert_eq!(q.day_to, Some(20191231));
         assert!(q.terms.is_empty(), "検索語には落ちない");
         // 日本語の単位でも同じ
-        let q = parse_query("年:2019", false);
+        let q = parse_query("年:2019", crate::MediaFilter::All);
         assert_eq!(q.day_from, Some(20190101));
         // 他の条件と併用できる（範囲は狭い方に寄る）
-        let q = parse_query("沖縄 year:2019 2019年8月", false);
+        let q = parse_query("沖縄 year:2019 2019年8月", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["沖縄"]);
         assert_eq!(q.day_from, Some(20190801));
         assert_eq!(q.day_to, Some(20190831));
         // 全角のままでも通る（`年:` は日本語入力の利用者向けなので、ここが
         // 効かないと「絞ったつもりで全件」という一番たちの悪い壊れ方をする）
-        let q = parse_query("年:２０１９", false);
+        let q = parse_query("年:２０１９", crate::MediaFilter::All);
         assert_eq!(q.day_from, Some(20190101));
         assert_eq!(q.day_to, Some(20191231));
         assert!(q.terms.is_empty());
         // **年として読めない値でも検索語には落とさない**。落とすと
         // 「絞ったつもりが全然違うものが出る」ことになる。代わりに
         // **何にも当たらない範囲**にして、0件で打ち間違いに気付けるようにする
-        let q = parse_query("year:abc", false);
+        let q = parse_query("year:abc", crate::MediaFilter::All);
         assert!(q.terms.is_empty());
         assert!(
             q.day_from.unwrap() > q.day_to.unwrap(),
@@ -541,7 +567,7 @@ mod tests {
 
     #[test]
     fn クエリを条件へ分解する() {
-        let q = parse_query("沖縄 camera:α7 2019年8月 ★", false);
+        let q = parse_query("沖縄 camera:α7 2019年8月 ★", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["沖縄"]);
         assert_eq!(q.camera, vec!["α7"]);
         assert_eq!((q.day_from, q.day_to), (Some(20190801), Some(20190831)));
@@ -550,34 +576,48 @@ mod tests {
         assert!(q.needs_fts());
     }
 
+    /// 選別の印（⚑）は★とは**別の入口**であること（0.2 ②）
+    #[test]
+    fn 選別の印はお気に入りとは別の条件になる() {
+        let q = parse_query("⚑", crate::MediaFilter::All);
+        assert!(q.picked_only && !q.favorites_only);
+        let q = parse_query("pick:1", crate::MediaFilter::All);
+        assert!(q.picked_only && q.terms.is_empty());
+        let q = parse_query("", crate::MediaFilter::Picked);
+        assert!(q.picked_only && !q.favorites_only && !q.is_empty());
+        let q = parse_query("★ ⚑", crate::MediaFilter::All);
+        assert!(q.picked_only && q.favorites_only, "検索語では重ねられる");
+        assert!(parse_query("", crate::MediaFilter::All).is_empty());
+    }
+
     #[test]
     fn 引用符で空白を含む語を指定できる() {
-        let q = parse_query("\"家族 写真\" folder:\"2019 夏\"", false);
+        let q = parse_query("\"家族 写真\" folder:\"2019 夏\"", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["家族 写真"]);
         assert_eq!(q.folder, vec!["2019 夏"]);
     }
 
     #[test]
     fn 全角スペースも区切りになる() {
-        let q = parse_query("沖縄　花火", false);
+        let q = parse_query("沖縄　花火", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["沖縄", "花火"]);
     }
 
     #[test]
     fn 空のクエリは絞り込みなし() {
-        let q = parse_query("   ", false);
+        let q = parse_query("   ", crate::MediaFilter::All);
         assert!(q.is_empty());
         assert!(!q.needs_fts());
         assert!(q.term_matches().is_empty());
         // ★だけなら絞り込みはあるがFTSは不要
-        let q = parse_query("", true);
+        let q = parse_query("", crate::MediaFilter::Fav);
         assert!(!q.is_empty());
         assert!(!q.needs_fts());
     }
 
     #[test]
     fn 自由語とフォルダ指定はそれぞれのmatch式になる() {
-        let q = parse_query("沖縄 dsc folder:旅行", false);
+        let q = parse_query("沖縄 dsc folder:旅行", crate::MediaFilter::All);
         assert_eq!(
             q.term_matches(),
             vec![
@@ -592,7 +632,7 @@ mod tests {
     fn 索引語を作れない語は落とさずnoneで返す() {
         // 条件ごと落とすと絞り込みが消えて全件が返ってしまうため、
         // 「一致なし」としてDB側で扱えるよう語自体は残す
-        let q = parse_query("!!! 沖縄", false);
+        let q = parse_query("!!! 沖縄", crate::MediaFilter::All);
         assert_eq!(
             q.term_matches(),
             vec![("!!!", None), ("沖縄", Some("\"沖縄\"*".to_string()))]
@@ -603,7 +643,7 @@ mod tests {
     #[test]
     fn カメラ指定はftsに含めない() {
         // camerasテーブル＋camera_idのインデックスで解決するため、MATCH式には出ない
-        let q = parse_query("camera:α7", false);
+        let q = parse_query("camera:α7", crate::MediaFilter::All);
         assert!(q.term_matches().is_empty());
         assert!(q.folder_matches().is_empty());
         assert!(!q.needs_fts());
@@ -612,7 +652,7 @@ mod tests {
 
     #[test]
     fn 日付範囲は狭い方へ絞り込まれる() {
-        let q = parse_query("2019年 2019年8月", false);
+        let q = parse_query("2019年 2019年8月", crate::MediaFilter::All);
         assert_eq!((q.day_from, q.day_to), (Some(20190801), Some(20190831)));
     }
 }
