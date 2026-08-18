@@ -154,6 +154,22 @@ function isSrcOf(
 const isTiffName = (name: string) => /\.tiff?$/i.test(name);
 
 /**
+ * **配信される絵の寸法**（DBの寸法とは限らない）。
+ *
+ * ビューアへ流す原寸は、TIFFだけ長辺 [`DISPLAY_MAX_EDGE`] へ丸められる
+ * （`thumbs::display_jpeg`）。下敷きの枠にDBの寸法を名乗らせると、
+ * **上限より大きな画面**では下敷きだけが大きく描かれ、差し替えで絵が縮む。
+ */
+function servedSize(item: MediaItem): [number, number] {
+  const long = Math.max(item.width, item.height);
+  if (!isTiffName(item.file_name) || long <= DISPLAY_MAX_EDGE) {
+    return [item.width, item.height];
+  }
+  const k = DISPLAY_MAX_EDGE / long;
+  return [Math.round(item.width * k), Math.round(item.height * k)];
+}
+
+/**
  * 先読みで抱えるデコード済み画素のバイト数（幅×高さ×4）。
  *
  * **デコード済み画素はOSのメモリ計に現れない**（10枚≒916MiB保持しても
@@ -1337,6 +1353,19 @@ export default function App() {
       if (slow !== undefined) window.clearTimeout(slow);
     };
   }, [viewerItemId, viewerTranscoding]);
+
+  /**
+   * 原寸が出せず、下敷きのサムネイルが唯一の絵になっているか（0.2 ②）。
+   *
+   * このとき原寸の `<img>` は**中身の無い絵の枠**として残す（当たり判定と
+   * 拡大・移動・右クリックのため）。
+   */
+  const fallbackToThumb =
+    viewerItem !== null &&
+    fullFailedId === viewerItem.id &&
+    thumbShownId === viewerItem.id;
+  /** 配信される絵の寸法（TIFFだけ長辺が丸められる） */
+  const [servedW, servedH] = viewerItem ? servedSize(viewerItem) : [0, 0];
 
   /** 先読みする隣接画像（表示順に 次1→前1→次2→…） */
   const [preload, setPreload] = useState<MediaItem[]>([]);
@@ -2831,7 +2860,9 @@ export default function App() {
             <img
               className="viewer-image"
               src={fullSrc(viewerItem.id, viewerItem.mtime_ms)}
-              alt={viewerItem.file_name}
+              // 原寸が出せず下敷きが唯一の絵になったときは、代替テキストを黙らせる
+              // ——絵の真ん中にファイル名が浮くと、情報ではなくゴミに見える
+              alt={fallbackToThumb ? "" : viewerItem.file_name}
               draggable={false}
               // 読み込み中表示をここで畳む。失敗（onError）でも畳む——
               // 出ない絵のために「読み込み中」を出し続けない。
@@ -2863,13 +2894,15 @@ export default function App() {
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 cursor: zoom > 1 ? "grab" : "zoom-in",
-                // 出せなかった絵は、**下敷きが出ているなら隠す**。壊れた画像の
-                // 枠とファイル名が絵の真ん中に浮くと、情報ではなくゴミに見える
-                // （`alt` を空にするだけでは、失敗済みの <img> の描画は変わらない）。
-                // 見せる絵が何も無いときは、今までどおり名前だけでも出す
-                ...(fullFailedId === viewerItem.id &&
-                thumbShownId === viewerItem.id
-                  ? { display: "none" }
+                // 原寸が出せず下敷きが唯一の絵になったときも、**この <img> は
+                // 消さずに絵の枠として残す**。消すと拡大・移動・右クリックが
+                // 効かない絵になり、写真をクリックしただけでビューアが閉じる
+                // （下敷きは `pointer-events: none` なので、当たり判定はここ）。
+                // **透明にするだけで消さない**——寸法を持つ失敗画像には、
+                // Chromiumが枠と壊れアイコンを描く（`alt` を空にしても消えない）。
+                // `opacity: 0` なら何も描かれず、当たり判定だけが残る
+                ...(fallbackToThumb
+                  ? { width: servedW, height: servedH, opacity: 0 }
                   : null),
               }}
               onClick={(e) => e.stopPropagation()}
@@ -2961,8 +2994,8 @@ export default function App() {
                 // 原寸の <img>（`max-width`/`max-height` で縮む）と描画結果が
                 // ぴったり一致し、差し替わるときに絵が動かない
                 style={{
-                  width: viewerItem.width,
-                  height: viewerItem.height,
+                  width: servedW,
+                  height: servedH,
                   transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 }}
               />
