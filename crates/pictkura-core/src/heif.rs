@@ -1046,9 +1046,20 @@ pub struct ScaledDecodeProbe {
 }
 
 impl ScaledDecodeProbe {
-    /// 希望どおり縮めて起こせるか（原寸がそのまま返ってきたら false）。
-    pub fn scales(&self) -> bool {
-        self.has_transform && self.closest != self.full
+    /// 希望どおり縮めて起こせるか。
+    ///
+    /// **`None` は「聞けていない」**。元が既に `max_edge` に収まっていると
+    /// 希望寸法＝原寸になり、デコーダは当然そのまま返す。これを false（＝
+    /// 縮小に対応していない）と読むと、小さい素材で測っただけで
+    /// 「WICは縮小デコードできない」と断じてしまう。
+    pub fn scales(&self) -> Option<bool> {
+        if !self.has_transform {
+            return Some(false);
+        }
+        if self.requested == self.full {
+            return None;
+        }
+        Some(self.closest != self.full)
     }
 }
 

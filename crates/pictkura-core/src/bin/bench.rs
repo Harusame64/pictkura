@@ -438,42 +438,61 @@ fn bench_heif_encode(dir: &std::path::Path) {
 fn bench_wic_scaled_decode(entries: &[std::path::PathBuf]) {
     const EDGES: [u32; 2] = [4096, 2048];
 
-    let Some(first) = entries.first() else {
+    // **一番大きい素材で聞く**。元が `max_edge` に収まっていると希望寸法＝原寸に
+    // なり、デコーダは当然そのまま返す——それを「縮小に対応していない」と
+    // 読み違える。コンテナの申告（0.2ms）だけで並べ替えられるので画素は起こさない
+    let mut by_size: Vec<_> = entries
+        .iter()
+        .map(|p| {
+            let px = pictkura_core::heif::display_dimensions(p)
+                .map(|(w, h)| u64::from(w) * u64::from(h))
+                .unwrap_or(0);
+            (px, p)
+        })
+        .collect();
+    by_size.sort_by(|a, b| b.0.cmp(&a.0));
+    let sample: Vec<_> = by_size.iter().take(3).map(|(_, p)| *p).collect();
+    let Some(first) = sample.first() else {
         return;
     };
+
     println!(
         "
 -- WICの縮小デコード --"
     );
+    let mut askable = Vec::new();
     for edge in EDGES {
-        match pictkura_core::heif::probe_scaled_decode(first, edge) {
-            Some(p) => println!(
-                "長辺{edge}の答え: {}（原寸 {}x{} → 希望 {}x{} → 出せる {}x{}・形式 {}）",
-                if p.scales() {
-                    "縮めて出せる"
-                } else if p.has_transform {
-                    "原寸しか出せない"
-                } else {
-                    "IWICBitmapSourceTransform を実装していない"
-                },
-                p.full.0,
-                p.full.1,
-                p.requested.0,
-                p.requested.1,
-                p.closest.0,
-                p.closest.1,
-                p.closest_format
-            ),
-            None => {
-                println!("長辺{edge}: 問い合わせできなかった");
-                return;
-            }
+        let Some(p) = pictkura_core::heif::probe_scaled_decode(first, edge) else {
+            println!("長辺{edge}: 問い合わせできなかった");
+            return;
+        };
+        let verdict = match p.scales() {
+            Some(true) => "縮めて出せる",
+            Some(false) => "原寸しか出せない",
+            // 一番大きい素材でも縮小を頼めない＝この素材からは何も言えない
+            None => "この素材は既に小さい（縮小を頼んでいない）",
+        };
+        if p.scales().is_some() {
+            askable.push(edge);
         }
+        println!(
+            "長辺{edge}の答え: {verdict}（原寸 {}x{} → 希望 {}x{} → 出せる {}x{}・形式 {}）",
+            p.full.0,
+            p.full.1,
+            p.requested.0,
+            p.requested.1,
+            p.closest.0,
+            p.closest.1,
+            p.closest_format
+        );
+    }
+    if askable.is_empty() {
+        println!("縮小を頼める素材が無いので、時間は測らない");
+        return;
     }
 
     // 「縮めて出せる」と答えても、値段が変わらなければ意味が無い。
     // 3枚ずつ通して原寸と並べる（1枚だとファイルキャッシュの当たり外れが乗る）
-    let sample: Vec<_> = entries.iter().take(3).collect();
     let mut full = std::time::Duration::ZERO;
     for path in &sample {
         let t = Instant::now();
@@ -489,7 +508,7 @@ fn bench_wic_scaled_decode(entries: &[std::path::PathBuf]) {
         fmt_ms(full / sample.len() as u32),
         sample.len()
     );
-    for edge in EDGES {
+    for edge in askable {
         let mut sum = std::time::Duration::ZERO;
         let mut size = None;
         let mut failed = false;
