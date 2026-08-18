@@ -1316,6 +1316,11 @@ export default function App() {
   const [thumbShownId, setThumbShownId] = useState<number | null>(null);
   /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
   const [fullFailedId, setFullFailedId] = useState<number | null>(null);
+  /** 送りが落ち着いた（250ms動かなかった）絵のid */
+  const [settledId, setSettledId] = useState<number | null>(null);
+  /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
+  const [slowId, setSlowId] = useState<number | null>(null);
+  const viewerItemId = viewerItem?.id;
   /**
    * **待つのをやめてよい**絵のid。原寸が届いたときと、届かないと分かったとき
    * （`onError`）の両方で立つ——「読み込み中」を畳み、裏の詰め直しを始めてよい
@@ -1323,14 +1328,18 @@ export default function App() {
    *
    * 上の2つから**導く**（別の印として持たない）。持っていたころは
    * 「出た／出せなかった」を立てるたびにこちらも立てる必要があり、
-   * 置き忘れると「読み込み中」が消えなくなった（PR #22 のゲート2 P2-1がそれ）
+   * 置き忘れると「読み込み中」が消えなくなった（PR #22 のゲート2 P2-1がそれ）。
+   *
+   * **いまの絵に一致する印だけを見る**。`fullShownId ?? fullFailedId` と書くと、
+   * 送った直後に**前の絵の「出た」が残っている**あいだは、新しい絵が失敗しても
+   * 前の絵のidを答えてしまう（印を捨てるeffectとイベントの前後関係に賭ける形に
+   * なる。PR #23 のゲート1 P2）。ここは順序に依らない形で書く
    */
-  const loadedId = fullShownId ?? fullFailedId;
-  /** 送りが落ち着いた（250ms動かなかった）絵のid */
-  const [settledId, setSettledId] = useState<number | null>(null);
-  /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
-  const [slowId, setSlowId] = useState<number | null>(null);
-  const viewerItemId = viewerItem?.id;
+  const loadedId =
+    viewerItemId !== undefined &&
+    (fullShownId === viewerItemId || fullFailedId === viewerItemId)
+      ? viewerItemId
+      : null;
   /** 表示に詰め直しが要るか（HEIC 0.6〜1秒 / TIFF 約300ms） */
   const viewerTranscoding = Boolean(
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
