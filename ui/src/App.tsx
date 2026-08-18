@@ -101,8 +101,8 @@ const PRELOAD_UNKNOWN_PIXELS = 24_000_000;
 const PRELOAD_MAX_ITEMS = 8;
 /**
  * 裏で走らせてよい詰め直し（HEIC/RAW/TIFF）の枚数。
- * HEICは実測1枚1095msで、OSのWICデコードが1スレッドを持っていく。
- * 何枚も撒くと**表示中の1枚が飢える**ので、隣の1枚だけにする。
+ * HEICは実測1枚0.6〜1秒（`bench --display-dir`）で、OSのWICデコードが
+ * 1スレッドを持っていく。何枚も撒くと**表示中の1枚が飢える**ので、隣の1枚だけにする。
  * （RAWは横位置なら18msだが、縦位置は詰め直しに落ちるので同じ扱いにしてある）
  */
 const PRELOAD_MAX_TRANSCODES = 1;
@@ -119,7 +119,8 @@ const CLOUD_ASK_MAX = 64;
 const CLOUD_ANSWER_TTL_MS = 20_000;
 /**
  * 仕掛かり中の詰め直しの画素を手放したとき、印を降ろすまでの待ち。
- * 変換の終わりが観測できなくなるので、時間で見切る（実測1枚1095ms）
+ * 変換の終わりが観測できなくなるので、時間で見切る（詰め直しは1枚0.6〜1秒。
+ * mozjpeg化の前は最大1.1秒だったので、この4秒には余裕がある）
  */
 const PENDING_WATCHDOG_MS = 4000;
 /** 詰め直しの出力は長辺がここへ丸められる（`thumbs::display_jpeg` と一致） */
@@ -1296,7 +1297,7 @@ export default function App() {
   // - **総画素の崖**（[`PRELOAD_BUDGET_BYTES`]）。踏むと全滅するので下で止める
   // - **クラウドのみのファイルは触らない**。先読みは利用者の意思ではないので、
   //   裏でOneDriveのダウンロードを走らせてはいけない
-  // - **詰め直しの要る形式は隣の1枚だけ**（HEICは1枚1095ms）
+  // - **詰め直しの要る形式は隣の1枚だけ**（HEICは1枚0.6〜1秒）
 
   // 以下の印は**真偽値ではなくidで持つ**。送った直後の1コミットでは、
   // 状態を戻すeffectがまだ走っておらず、真偽値だと「前の絵が出ている」を
@@ -1330,7 +1331,7 @@ export default function App() {
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
   const [slowId, setSlowId] = useState<number | null>(null);
   const viewerItemId = viewerItem?.id;
-  /** 表示に詰め直しが要るか（HEIC 1095ms / TIFF 約300ms） */
+  /** 表示に詰め直しが要るか（HEIC 0.6〜1秒 / TIFF 約300ms） */
   const viewerTranscoding = Boolean(
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
@@ -1508,7 +1509,7 @@ export default function App() {
         // ダウンロードを起こさないため（答えが返ったら選び直す）
         if (cloudAnswer(it.id) !== false) continue;
         // 詰め直しの要る形式は、**表示中の1枚が出てから**しか裏で作らない。
-        // 1枚1秒級（HEIC 1095ms）なので、出る前に投げると取り消せない変換が
+        // 1枚1秒級なので、出る前に投げると取り消せない変換が
         // 積み上がり、CPUも通信も見ていない絵に取られる——実測で送りが3.0秒に
         // なったのがこの形（当時は錠があり、見ている側がその後ろで待った）
         const current = viewerInfo.item;
@@ -2959,7 +2960,7 @@ export default function App() {
           {/* 原寸が届くまで、グリッドで既に描いたサムネイルを下に敷く（0.2 ②）。
               クリックした瞬間、その絵の512pxはブラウザにデコード済みで載っている
               ＝**待ち時間ゼロで絵が出る**。原寸は詰め直しに約950msかかる
-              （HEIC実測: WIC展開446ms＋imageクレートのエンコード428ms）ので、
+              （HEIC実測: 24.5MPで0.6秒級。大半はOSのWICデコード）ので、
               その間を埋める。
 
               詰め直しの要る形式（HEIC・RAW・TIFF）だけに敷く——JPEGは6msで
