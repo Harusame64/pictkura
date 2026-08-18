@@ -396,8 +396,12 @@ pub fn raw_display_jpeg(path: &Path) -> Option<Vec<u8>> {
     if exif.orientation == 1 {
         return Some(bytes);
     }
+    // 元のプレビューが**すでに間引かれているときだけ**間引く。すでに4:2:0の絵を
+    // 4:4:4で詰め直しても上げ底の色差を運ぶだけだが、4:2:2で書く機種もあるので
+    // 決め打ちはしない。読めなければ間引かない側へ倒す
+    let chroma = crate::jpeg::chroma_of(&bytes).unwrap_or(crate::jpeg::ChromaSampling::Full);
     let img = image::load_from_memory(&bytes).ok()?;
-    crate::raw::encode_jpeg(apply_orientation(img, exif.orientation))
+    crate::raw::encode_jpeg(apply_orientation(img, exif.orientation), chroma)
 }
 
 /// HEIFを原寸表示用のJPEGにする（第7部 段階G）。
@@ -405,7 +409,10 @@ pub fn raw_display_jpeg(path: &Path) -> Option<Vec<u8>> {
 /// `.heic` をそのまま返してもWebViewは描けないので、OSのデコーダで展開して
 /// JPEGに詰め直す。向きは [`crate::heif::decode`] が適用済み。
 pub fn heif_display_jpeg(path: &Path) -> Option<Vec<u8>> {
-    crate::raw::encode_jpeg(crate::heif::decode(path)?)
+    // 元が4:2:0のときだけ間引く（iPhoneはこちら）。Canonの `.HIF` は4:2:2で、
+    // 規格上は4:4:4もある。コンテナから読めなければ間引かない側へ倒す
+    let chroma = crate::heif::stored_chroma(path).unwrap_or(crate::jpeg::ChromaSampling::Full);
+    crate::raw::encode_jpeg(crate::heif::decode(path)?, chroma)
 }
 
 /// 拡張子がTIFFか。
@@ -445,7 +452,12 @@ pub fn display_jpeg(path: &Path) -> Option<Vec<u8>> {
     } else {
         img
     };
-    crate::raw::encode_jpeg(apply_orientation(img, exif.orientation))
+    // TIFFは色差を間引かない形式。スキャンした文字や線画が混ざるので、
+    // ここだけ4:4:4のまま出す（圧縮は50msほど高くつくが、通る枚数が少ない）
+    crate::raw::encode_jpeg(
+        apply_orientation(img, exif.orientation),
+        crate::jpeg::ChromaSampling::Full,
+    )
 }
 
 /// EXIF Orientation（1〜8）をデコード済み画像へ適用する。

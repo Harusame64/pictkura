@@ -262,18 +262,38 @@ fn bench_display_dir(dir: &std::path::Path) {
 
 /// HEICの詰め直しの内訳と、JPEGエンコーダの比較を測る（0.2 HEICの詰め直し）。
 ///
-/// 初見のHEICは1枚約953ms掛かり、先読みでは埋められない。内訳は
-/// 「WICで展開 428ms ＋ JPEGへ再エンコード 約525ms」で、**後半が
-/// `image` クレートの純Rustエンコーダの値段**。mozjpeg（libjpeg-turbo）は
-/// 既に依存に入っている（`jpeg.rs` の展開で使っている）ので、
-/// 差し替えれば新しい依存なしで縮む見込み——それを数字にする。
+/// 初見のHEICは1枚1秒級で、先読みでは埋められない。**このプロジェクトの
+/// 詰め直しの内訳は、ここが出す列を正とする**（他の場所は比だけを引く）。
+///
+/// 実測（iPhoneのHEIC 20枚・4284x5712＝24.5MP・release・機械を空けて）:
+///
+/// | 段 | 時間 |
+/// |---|---|
+/// | WICで主画像を展開 | 522ms |
+/// | 平坦化（alphaを白へ） | 10ms |
+/// | JPEGへ詰める（`image` 4:4:4） | 496ms |
+/// | mozjpeg 4:4:4 に替えると | 133ms |
+/// | mozjpeg 4:2:0 に替えると | 79ms |
+///
+/// 詰めるほうが `image` クレートの純Rustエンコーダの値段で、**展開と同じくらい
+/// 重い**。mozjpeg（libjpeg-turbo）は既に依存に入っている（`jpeg.rs` の展開で
+/// 使っている）ので、差し替えれば新しい依存なしで縮む——それを数字にする。
+///
+/// **以前ここには「WIC 428ms ＋ 再エンコード 約525ms」と書いてあったが、
+/// あれは3枚を粗く区切った内訳で、重さの向きが逆だった**。同じ画素を段ごとに
+/// 通して20枚で測ると、2つの機械・2つの素材のどちらでもWICのほうが重い。
+/// **内訳を引くときは、この列を測り直して使うこと**（PR #23 のゲート2 P2）。
+///
+/// **msの絶対値は機械の状態で2割動く**。裏で何かを走らせたまま測ると全部の列が
+/// 伸びるので、**見るのは比のほう**。
 ///
 ///   cargo run --release --bin bench -- --heif-encode D:\pics\heic
 ///
 /// **クラウドのみ（OneDriveのプレースホルダ）は測らない**。開いた瞬間に
 /// ダウンロードが走り、測っているのが回線速度になる。
 fn bench_heif_encode(dir: &std::path::Path) {
-    const QUALITY: u8 = 82; // raw.rs::encode_jpeg と同じ
+    // 本体が配信するのと同じ品質で測る（値がずれると比較にならない）
+    const QUALITY: u8 = pictkura_core::raw::DISPLAY_QUALITY;
 
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .into_iter()
@@ -338,7 +358,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
         let by_444 = pictkura_core::jpeg::encode_rgb(&rgb, QUALITY, ChromaSampling::Full);
         let moz444_d = t.elapsed();
 
-        // 候補その2: 4:2:0（カメラが書くJPEGもiPhoneのHEICもこちら）。
+        // 候補その2: 4:2:0（iPhoneのHEICはこちら。カメラのJPEGは4:2:2もある）。
         // 速さも小ささもここが最良だが、**間引きの分が混ざっている**
         let t = Instant::now();
         let by_420 = pictkura_core::jpeg::encode_rgb(&rgb, QUALITY, ChromaSampling::Half);

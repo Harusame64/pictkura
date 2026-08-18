@@ -104,8 +104,12 @@ pub enum ChromaSampling {
 
 /// RGB8の画素をJPEGへ詰める（libjpeg-turbo）。
 ///
-/// `image` クレートの純Rustエンコーダの代わり。**展開ではなく圧縮のほうが
-/// 原寸表示の値段の大半**で、HEICの詰め直し 953ms のうち約525msがここだった。
+/// `image` クレートの純Rustエンコーダの代わり。純Rust側の圧縮は**OSのデコーダで
+/// 展開するのと同じくらい重く**、HEICの詰め直しのおよそ半分を食っていた。
+/// mozjpegに替えると**同じ4:4:4で3.7倍速い**。
+///
+/// **msの内訳はここに写さない**——`bench --heif-encode` の列を正とする
+/// （同じ数字が複数箇所にあると、片方だけ古くなる。PR #23 のゲート2 P2）。
 ///
 /// mozjpeg の既定はtrellis量子化とスキャン最適化（プログレッシブ）を回して
 /// ファイルを小さくするが、その分だけ遅い。ここは**配信して数秒で捨てる絵**なので
@@ -138,6 +142,75 @@ pub fn encode_rgb(rgb: &image::RgbImage, quality: u8, chroma: ChromaSampling) ->
         started.write_scanlines(rgb.as_raw()).ok()?;
         started.finish().ok()
     })
+}
+
+/// JPEGのヘッダから色差の間引きを読む（`SOF` の標本化係数）。デコードしない。
+///
+/// 詰め直しでどこまで間引いてよいかを決めるのに要る。カメラがRAWへ埋める
+/// プレビューはたいてい4:2:0だが、**4:2:2で書く機種がある**——そこを間引くと
+/// 色の境目が崩れる。「たぶん4:2:0だろう」で決め打ちせず、書いてあるものを読む。
+///
+/// **分からないときは `None`**。呼び出し側は間引かない側（4:4:4）へ倒すこと。
+pub fn chroma_of(bytes: &[u8]) -> Option<ChromaSampling> {
+    if bytes.len() < 2 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
+        return None;
+    }
+    let mut pos = 2usize;
+    while pos + 2 <= bytes.len() {
+        if bytes[pos] != 0xFF {
+            return None; // 並びが壊れている
+        }
+        let marker = bytes[pos + 1];
+        // マーカーの前には詰め物の 0xFF がいくつ入ってもよい
+        if marker == 0xFF {
+            pos += 1;
+            continue;
+        }
+        pos += 2;
+        // 長さを持たないマーカー（TEM・RSTn・SOI・EOI）
+        if marker == 0x01 || (0xD0..=0xD9).contains(&marker) {
+            continue;
+        }
+        // SOS まで来たら、その先は走査データ＝SOFは無かった
+        if marker == 0xDA {
+            return None;
+        }
+        if pos + 2 > bytes.len() {
+            return None;
+        }
+        let len = usize::from(u16::from_be_bytes([bytes[pos], bytes[pos + 1]]));
+        if len < 2 {
+            return None;
+        }
+        // SOF0〜SOF15。C4=DHT・C8=JPG・CC=DAC はSOFではない
+        if matches!(marker, 0xC0..=0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF) {
+            return chroma_of_sof(bytes.get(pos + 2..pos + len)?);
+        }
+        pos += len;
+    }
+    None
+}
+
+/// `SOF` の中身から間引きを読む。
+///
+/// 並びは precision(1) / height(2) / width(2) / 成分数(1) ののち、
+/// 成分ごとに id(1) / 標本化係数(1) / 量子化表番号(1)。
+/// 標本化係数は上位4ビットが水平、下位4ビットが垂直。
+fn chroma_of_sof(body: &[u8]) -> Option<ChromaSampling> {
+    let count = usize::from(*body.get(5)?);
+    // グレースケール（1成分）やCMYK（4成分）は「4:2:0ではない」と分かる。
+    // 間引かない側で答える——分からないのではなく、間引く相手ではない
+    if count != 3 {
+        return Some(ChromaSampling::Full);
+    }
+    let comps = body.get(6..6 + count * 3)?;
+    let factor = |i: usize| comps[i * 3 + 1];
+    // 輝度が縦横2倍で、色差が両方とも等倍のときだけ 4:2:0
+    if factor(0) == 0x22 && factor(1) == 0x11 && factor(2) == 0x11 {
+        Some(ChromaSampling::Half)
+    } else {
+        Some(ChromaSampling::Full)
+    }
 }
 
 fn scaled<R: std::io::BufRead>(mut dec: Decompress<R>, max_edge: u32) -> Option<DynamicImage> {
@@ -332,6 +405,50 @@ mod tests {
         assert!(mean < 24.0, "元の絵と違いすぎる: 平均差 {mean}");
     }
 
+    /// 詰めたJPEGの間引きを、ヘッダから読み戻せる。
+    ///
+    /// **書いた側と読む側を突き合わせる**形にしてある。`chroma_of` は
+    /// RAWの埋め込みプレビューをどこまで間引いてよいかの判断に使うので、
+    /// ここが逆さまだと**間引き済みの絵をもう一度間引く**（色の境目が崩れる）
+    #[test]
+    fn chroma_of_reads_back_what_we_wrote() {
+        let rgb = image::RgbImage::from_fn(64, 48, |x, y| {
+            image::Rgb([128, (x % 256) as u8, (y % 256) as u8])
+        });
+        for want in [ChromaSampling::Full, ChromaSampling::Half] {
+            let bytes = encode_rgb(&rgb, 82, want).unwrap();
+            assert_eq!(chroma_of(&bytes), Some(want), "{want:?} を読み戻せない");
+        }
+    }
+
+    /// JPEGでないものを渡されても答えを作らない（間引かない側へ倒すため）
+    #[test]
+    fn chroma_of_says_nothing_about_non_jpeg() {
+        assert_eq!(chroma_of(&[]), None);
+        assert_eq!(chroma_of(b"not a jpeg at all"), None);
+        // SOIだけあって SOF が来ないまま走査データに入る
+        assert_eq!(chroma_of(&[0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02]), None);
+    }
+
+    /// 4:2:2（輝度だけ横に2倍）は**間引かない側**と答える。
+    ///
+    /// Canonの一部がこれで書く。`0x21` を「2が付いているから4:2:0」と
+    /// 読むと、色差を横半分に潰したうえで縦にも潰すことになる
+    #[test]
+    fn chroma_of_treats_422_as_full() {
+        // precision(1) height(2) width(2) 成分数(1) ＋ 成分3つ
+        let body = [
+            8, 0, 48, 0, 64, 3, //
+            1, 0x21, 0, //
+            2, 0x11, 0, //
+            3, 0x11, 0,
+        ];
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xC0];
+        jpeg.extend_from_slice(&((body.len() + 2) as u16).to_be_bytes());
+        jpeg.extend_from_slice(&body);
+        assert_eq!(chroma_of(&jpeg), Some(ChromaSampling::Full));
+    }
+
     /// 品質を上げれば大きくなる（set_quality が効いている＝
     /// set_fastest_defaults の後に呼べている）
     #[test]
@@ -351,7 +468,8 @@ mod tests {
     /// これが黙って揃っていないと数字の意味が変わる
     #[test]
     fn chroma_sampling_reaches_the_encoder() {
-        // 色差だけが動く絵（輝度をほぼ一定に保つと間引きの差が出やすい）
+        // **色差が大きく動く絵**にすると、間引きの差が大きさに出る。
+        // （Gが振れるので輝度も一緒に動く。ここで要るのは色差の振れだけ）
         let rgb = image::RgbImage::from_fn(256, 256, |x, y| {
             image::Rgb([128, (x % 256) as u8, (y % 256) as u8])
         });

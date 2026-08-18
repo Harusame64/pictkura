@@ -64,7 +64,7 @@ struct AppState {
     pending_import: Mutex<Option<String>>,
     /// 原寸表示用JPEG（HEIC/RAW/TIFF）のバイト列LRU（0.2 ①）。
     ///
-    /// WebViewが描けない形式だけがここを通る。実測でHEICは1枚1095msかかり、
+    /// WebViewが描けない形式だけがここを通る。実測でHEICは1枚0.6〜1秒かかり、
     /// ビューアで前後へ行き来するたびに払い直していた。バイト列は1枚3.29MBで、
     /// 同じ絵をデコード済み画素で持つ93MiBより30倍安い
     display_cache: pictkura_core::display_cache::DisplayCache,
@@ -344,7 +344,7 @@ struct MediaItemDto {
     plays_in_app: bool,
     /// 原寸表示にRust側の詰め直しが要るか（HEIC・RAW・TIFF）。
     ///
-    /// 実測でHEICは1枚1095ms・TIFFは約300ms。ビューアはこれを見て
+    /// 実測でHEICは1枚0.6〜1秒・TIFFは約300ms。ビューアはこれを見て
     /// 「先読みを1枚に絞る」「読み込み中と正直に出す」を決める（0.2 ①）。
     /// **判定は拡張子だけ**なのでファイルには触らない——`cloud_only` を
     /// ここに載せないのと違い、1件あたりの費用がゼロなのでDTOに載せてよい。
@@ -2211,7 +2211,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     // TIFF。いずれも原本をそのまま返しても絵にならないのでJPEGへ詰め直す。
     // AVIF・SVG・BMP・GIF はブラウザが直接描けるので、この下で原本を返す
     if kind == MediaKind::Full && pictkura_core::thumbs::needs_display_transcode(&path) {
-        // 詰め直しは高い（実測: HEIC 1095ms / TIFF 約300ms）ので、できた
+        // 詰め直しは高い（実測: HEIC 0.6〜1秒 / TIFF 約300ms）ので、できた
         // バイト列をLRUに残す（0.2 ①）。ビューアの先読みが投げる要求も
         // ここを温めるので、フロントの画素キャッシュが崖で全滅しても
         // 戻ってきたときに払うのはファイル読み出しぶんだけになる。
@@ -2232,7 +2232,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // ここから先は実際に詰め直す。**わざと直列化していない**（0.2 ①）。
         //
         // 一度は「同時に走るのは1枚だけ」と錠を掛けたが、それだと
-        // **いま見ている1枚が、もう捨てた先読みの後ろで待つ**——1枚1095msの
+        // **いま見ている1枚が、もう捨てた先読みの後ろで待つ**——1枚1秒級の
         // HEICでは、先読みを入れたせいで送りがかえって遅くなる。しかも
         // 隠し `<img>` を外しても、走り出した `spawn_blocking` は取り消せない。
         //

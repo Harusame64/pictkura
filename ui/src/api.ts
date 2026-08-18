@@ -28,7 +28,7 @@ export interface MediaItem {
   plays_in_app: boolean;
   /**
    * 原寸表示にRust側の詰め直しが要るか（HEIC・RAW・TIFF）。
-   * 実測でHEICは1枚1095ms・TIFFは約300ms（RAWは横位置なら18msと安いが、
+   * 実測でHEICは1枚0.6〜1秒・TIFFは約300ms（RAWは横位置なら18msと安いが、
    * 縦位置は詰め直しに落ちるので同じ枠にしてある）。ビューアはこれを見て
    * 先読みを絞り、待たせるときは読み込み中と出す（0.2 ①）
    */
