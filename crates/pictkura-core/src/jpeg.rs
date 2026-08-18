@@ -113,8 +113,9 @@ pub enum ChromaSampling {
 /// ——速さが要るのであって、数十KBの節約に用は無い。
 ///
 /// **設定の順番に意味がある**。`set_fastest_defaults` は内部で `jpeg_set_defaults`
-/// を呼び、寸法・品質・間引きの指定を消す。だから必ずその後に置く
-/// （テストで固定した）。
+/// を呼び直すので、**品質は75へ戻り、間引きは色空間の既定へ戻る**
+/// （寸法はここでは触られないが、まとめて後に置くほうが間違えにくい）。
+/// だから品質と間引きは必ずその後に設定する（テストで固定した）。
 pub fn encode_rgb(rgb: &image::RgbImage, quality: u8, chroma: ChromaSampling) -> Option<Vec<u8>> {
     let (w, h) = (rgb.width(), rgb.height());
     if w == 0 || h == 0 {

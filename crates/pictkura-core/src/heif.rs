@@ -1079,7 +1079,10 @@ pub fn probe_scaled_decode(path: &Path, max_edge: u32) -> Option<ScaledDecodePro
     }
 }
 
-/// 長辺 `max_edge` に収まる大きさで**縮小しながら**デコードする（Windowsのみ）。
+/// 長辺 `max_edge` を目指して**縮小しながら**デコードする（Windowsのみ）。
+///
+/// **収まるとは限らない**。出せる寸法を決めるのはデコーダで、縮小に
+/// 対応していなければ原寸がそのまま返る。呼ぶ側は返った絵の寸法を見ること。
 ///
 /// [`probe_scaled_decode`] が「対応あり」と答えても、デコーダが内部で
 /// 原寸まで起こしてから縮めているだけなら1msも得しない。**本当に安いかは
@@ -1384,7 +1387,10 @@ mod windows_wic {
             3usize
         } else if format == GUID_WICPixelFormat32bppBGR || format == GUID_WICPixelFormat32bppBGRA {
             // 4バイト形式は先頭3バイトがBGRで、4本目は未使用（BGR）か
-            // アルファ（BGRA）。HEICに透過は無いので、どちらも捨てて詰め直す
+            // アルファ（BGRA）。どちらも捨てて詰め直す——HEIFは規格上
+            // 透過を持てる（`auxl` の補助アイテム。AVIF側の `read_alpha` が
+            // 読んでいるのがそれ）が、iPhoneのHEICは持たないし、
+            // **既存の原寸経路（`to_image`）も24bppBGRへ変換して捨てている**
             4usize
         } else {
             return None;
@@ -1433,6 +1439,41 @@ mod windows_wic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 縮小デコードの可否は三値。**「縮小を頼んでいない」を「できない」と
+    /// 読まない**ことが要点（素材がたまたま小さいだけで、WICが縮小に
+    /// 対応していないと断じてしまう）。WICの要らない純粋な分岐なので
+    /// この環境でも回せる
+    #[test]
+    fn scaled_decode_probe_is_three_valued() {
+        let probe = |has_transform, full, requested, closest| ScaledDecodeProbe {
+            has_transform,
+            full,
+            requested,
+            closest,
+            closest_format: String::new(),
+        };
+        // 頼んで、縮んで返ってきた
+        assert_eq!(
+            probe(true, (4000, 3000), (2048, 1536), (2048, 1536)).scales(),
+            Some(true)
+        );
+        // 頼んだのに原寸が返ってきた
+        assert_eq!(
+            probe(true, (4000, 3000), (2048, 1536), (4000, 3000)).scales(),
+            Some(false)
+        );
+        // そもそも頼んでいない（元が既に小さい）＝何も言えない
+        assert_eq!(
+            probe(true, (1600, 1200), (1600, 1200), (1600, 1200)).scales(),
+            None
+        );
+        // 問い合わせ先が無いなら、頼めるかによらず「できない」
+        assert_eq!(
+            probe(false, (4000, 3000), (2048, 1536), (4000, 3000)).scales(),
+            Some(false)
+        );
+    }
 
     /// テスト用に最小限のHEIFコンテナを組み立てる。
     ///

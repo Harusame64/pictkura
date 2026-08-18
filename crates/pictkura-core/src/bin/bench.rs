@@ -311,7 +311,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
 
         let t = Instant::now();
         let Some(img) = pictkura_core::heif::decode(path) else {
-            println!("{name:<26} {:>10}  ✗ 展開できない", fmt_ms(t.elapsed()));
+            println!("{name:<24} {:>9}  ✗ 展開できない", fmt_ms(t.elapsed()));
             continue;
         };
         let decode = t.elapsed();
@@ -438,90 +438,79 @@ fn bench_heif_encode(dir: &std::path::Path) {
 fn bench_wic_scaled_decode(entries: &[std::path::PathBuf]) {
     const EDGES: [u32; 2] = [4096, 2048];
 
-    // **一番大きい素材で聞く**。元が `max_edge` に収まっていると希望寸法＝原寸に
-    // なり、デコーダは当然そのまま返す——それを「縮小に対応していない」と
-    // 読み違える。コンテナの申告（0.2ms）だけで並べ替えられるので画素は起こさない
+    // コンテナの申告（0.2ms）だけで大きい順に並べる。画素は起こさない
     let mut by_size: Vec<_> = entries
         .iter()
-        .map(|p| {
-            let px = pictkura_core::heif::display_dimensions(p)
-                .map(|(w, h)| u64::from(w) * u64::from(h))
-                .unwrap_or(0);
-            (px, p)
-        })
+        .filter_map(|p| pictkura_core::heif::display_dimensions(p).map(|(w, h)| (w.max(h), p)))
         .collect();
-    by_size.sort_by_key(|(px, _)| std::cmp::Reverse(*px));
-    let sample: Vec<_> = by_size.iter().take(3).map(|(_, p)| *p).collect();
-    let Some(first) = sample.first() else {
+    by_size.sort_by_key(|(long, _)| std::cmp::Reverse(*long));
+    if by_size.is_empty() {
         return;
-    };
+    }
 
     println!(
         "
 -- WICの縮小デコード --"
     );
-    let mut askable = Vec::new();
     for edge in EDGES {
-        let Some(p) = pictkura_core::heif::probe_scaled_decode(first, edge) else {
+        // **その辺で本当に縮小を頼める素材だけ**を測る。元が既に `edge` に
+        // 収まっている絵を混ぜると、`fit_within` が原寸を返すので
+        // 「縮小」の列に原寸デコードが紛れ込み、平均が原寸側へ寄る
+        let sample: Vec<_> = by_size
+            .iter()
+            .filter(|(long, _)| *long > edge)
+            .take(3)
+            .map(|(_, p)| *p)
+            .collect();
+        let Some(first) = sample.first() else {
+            println!("長辺{edge}: これより大きい素材が無いので測らない");
+            continue;
+        };
+
+        let Some(probe) = pictkura_core::heif::probe_scaled_decode(first, edge) else {
             println!("長辺{edge}: 問い合わせできなかった");
-            return;
+            continue;
         };
-        let verdict = match p.scales() {
+        let verdict = match probe.scales() {
             Some(true) => "縮めて出せる",
-            Some(false) => "原寸しか出せない",
-            // 一番大きい素材でも縮小を頼めない＝この素材からは何も言えない
-            None => "この素材は既に小さい（縮小を頼んでいない）",
+            Some(false) if probe.has_transform => "原寸しか出せない",
+            Some(false) => "IWICBitmapSourceTransform を実装していない",
+            // 素材の選び方で弾いてあるので、ここへは来ないはず
+            None => "縮小を頼んでいない",
         };
-        if p.scales().is_some() {
-            askable.push(edge);
-        }
         println!(
             "長辺{edge}の答え: {verdict}（原寸 {}x{} → 希望 {}x{} → 出せる {}x{}・形式 {}）",
-            p.full.0,
-            p.full.1,
-            p.requested.0,
-            p.requested.1,
-            p.closest.0,
-            p.closest.1,
-            p.closest_format
+            probe.full.0,
+            probe.full.1,
+            probe.requested.0,
+            probe.requested.1,
+            probe.closest.0,
+            probe.closest.1,
+            probe.closest_format
         );
-    }
-    if askable.is_empty() {
-        println!("縮小を頼める素材が無いので、時間は測らない");
-        return;
-    }
 
-    // 「縮めて出せる」と答えても、値段が変わらなければ意味が無い。
-    // 3枚ずつ通して原寸と並べる（1枚だとファイルキャッシュの当たり外れが乗る）
-    let mut full = std::time::Duration::ZERO;
-    for path in &sample {
-        let t = Instant::now();
-        let img = pictkura_core::heif::decode(path);
-        full += t.elapsed();
-        if img.is_none() {
-            println!("原寸: 展開できない");
-            return;
-        }
-    }
-    println!(
-        "原寸: {}（{}枚の平均）",
-        fmt_ms(full / sample.len() as u32),
-        sample.len()
-    );
-    for edge in askable {
-        let mut sum = std::time::Duration::ZERO;
+        // 「縮めて出せる」と答えても、値段が変わらなければ意味が無い。
+        // **同じ素材で**原寸と並べる（1枚だとファイルキャッシュの当たり外れが乗る）
+        let n = sample.len() as u32;
+        let mut full = std::time::Duration::ZERO;
+        let mut scaled = std::time::Duration::ZERO;
         let mut size = None;
         let mut failed = false;
         for path in &sample {
             let t = Instant::now();
+            let ok = pictkura_core::heif::decode(path).is_some();
+            full += t.elapsed();
+
+            let t = Instant::now();
             let img = pictkura_core::heif::decode_scaled(path, edge);
-            sum += t.elapsed();
+            scaled += t.elapsed();
+
             match img {
-                Some(img) => size = Some((img.width(), img.height())),
-                None => {
-                    // 1枚でも落ちたら、その辺の平均は**枚数が合わない**。
-                    // 前の1枚の寸法だけ残って正しく見える数字が出るのが一番まずい
-                    println!("長辺{edge}: 縮小デコードできない（この辺は測らない）");
+                Some(img) if ok => size = Some((img.width(), img.height())),
+                // 1枚でも落ちたら、その辺の平均は**枚数が合わない**。
+                // 前の1枚の寸法だけ残って正しく見える数字が出るのが一番まずい
+                _ => {
+                    println!("長辺{edge}: 展開できない1枚があった（この辺は測らない）");
                     failed = true;
                     break;
                 }
@@ -532,9 +521,10 @@ fn bench_wic_scaled_decode(entries: &[std::path::PathBuf]) {
         }
         let Some((w, h)) = size else { continue };
         println!(
-            "長辺{edge}: {}（{w}x{h}・原寸比 {:.0}%）",
-            fmt_ms(sum / sample.len() as u32),
-            sum.as_secs_f64() / full.as_secs_f64() * 100.0
+            "長辺{edge}: 原寸 {} → 縮小 {}（{w}x{h}・原寸比 {:.0}%・{n}枚の平均）",
+            fmt_ms(full / n),
+            fmt_ms(scaled / n),
+            scaled.as_secs_f64() / full.as_secs_f64() * 100.0
         );
     }
 }
