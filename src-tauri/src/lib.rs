@@ -2367,9 +2367,13 @@ pub fn run() {
                 if let Ok(pictures) = app.path().picture_dir() {
                     if pictures.is_dir() {
                         config.library.roots.push(pictures);
-                        config.save(&config_path)?;
                     }
                 }
+                // **写真フォルダが無くても必ず書く**。設定ファイルの有無を
+                // 「一度でも使ったか」の目印にしている場所がある
+                // （インストーラから呼ぶ `--sync-autoplay`）。書かないと、
+                // 使っている人を「まだ使っていない人」と読み違える
+                config.save(&config_path)?;
             }
             let db_path = data_dir.join("pictkura.db");
             let db = Db::open(&db_path)?;

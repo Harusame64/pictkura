@@ -399,9 +399,10 @@ The `.app` is **ad-hoc signed only** (that is what the linker does on arm64); th
 Developer ID signing or notarisation step, which is why the ZIP ships with instructions
 for getting past Gatekeeper.
 
-Pushing a `v*` tag runs both of these in CI and attaches all four files to a GitHub
-Release. Neither platform publishes on its own: a separate job waits for both and checks
-that all four are present, so a failure on one OS cannot produce a half release.
+Pushing a `v*` tag runs both of these in CI and attaches all five files to a GitHub
+Release (two MSIs, the NSIS installer, the portable ZIP, and the macOS ZIP). Neither
+platform publishes on its own: a separate job waits for both and checks that all five are
+present, so a failure on one OS cannot produce a half release.
 
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.

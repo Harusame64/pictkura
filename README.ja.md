@@ -403,8 +403,9 @@ macOSのバンドル対象は `src-tauri/tauri.macos.conf.json` で決めてい�
 バンドル側を署名しないと「実行ファイルは署名済みなのにバンドルに `_CodeSignature` が無い」
 という**未署名より悪い状態**になります。`signingIdentity: "-"` がそれを防いでいます。
 
-`v*` のタグを push すると両方がCIで走り、4つのファイルがReleasesに付きます。
-**片方だけでは公開しません**——両方が揃うのを待って4つ揃っているかを数える
+`v*` のタグを push すると両方がCIで走り、5つのファイルがReleasesに付きます
+（MSI×2・NSISのインストーラ・ポータブルZIP・macOSのZIP）。
+**片方だけでは公開しません**——両方が揃うのを待って5つ揃っているかを数える
 ジョブを別に置いてあるので、片OSの失敗で「半分だけのリリース」は出ません。
 
 設定は `%APPDATA%/dev.harusame.pictkura/pictkura.toml`（Windows）、
