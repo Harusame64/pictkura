@@ -382,6 +382,55 @@ fn read_info_at(meta: &[u8], start: usize, end: usize, primary: u32) -> Option<H
     Some(info)
 }
 
+/// `hvcC`（HEVCDecoderConfigurationRecord）の中で `chroma_format_idc` が居る位置。
+///
+/// 先頭から順に configurationVersion(1) / profile_space+tier+profile_idc(1) /
+/// compatibility_flags(4) / constraint_indicator(6) / level_idc(1) /
+/// min_spatial_segmentation_idc(2) / parallelismType(1) と並び、その次。
+const HVCC_CHROMA_OFFSET: usize = 16;
+
+/// 格納されている画素の色差の間引きを読む。デコードしない。
+///
+/// 詰め直しでどこまで間引いてよいかを決めるのに要る。**元が4:2:0なら4:2:0で
+/// 出しても失うものは無い**が、HEIFは4:2:0とは限らない——Canonの `.HIF`
+/// （EOS R系）は**4:2:2**で書かれ、規格上は4:4:4も許される。そこを間引くと
+/// 色の境目が目に見えて崩れる。
+///
+/// **分からないときは `None`**。呼び出し側は間引かない側（4:4:4）へ倒すこと。
+///
+/// iPhoneの主画像は `grid`（タイルの寄せ集め）で、`hvcC` は主アイテムではなく
+/// **タイル側**に付く。だから主アイテムのプロパティだけを見ても見つからない。
+/// `ipco` にある `hvcC` を全部見て、**揃っているときだけ**答える。
+pub fn stored_chroma(path: &Path) -> Option<crate::jpeg::ChromaSampling> {
+    let meta = read_meta_box(path)?;
+    if meta.len() < 4 {
+        return None;
+    }
+    let (iprp_b, iprp_e) = find_box(&meta, 4, meta.len(), b"iprp")?;
+    let (ipco_b, ipco_e) = find_box(&meta, iprp_b, iprp_e, b"ipco")?;
+
+    let mut found: Option<u8> = None;
+    for (kind, b, e) in boxes(&meta, ipco_b, ipco_e) {
+        if &kind != b"hvcC" || e <= b + HVCC_CHROMA_OFFSET {
+            continue;
+        }
+        // 版が違えば並びも違うかもしれない。**当てずっぽうで読むより黙る**
+        if meta[b] != 1 {
+            return None;
+        }
+        let idc = meta[b + HVCC_CHROMA_OFFSET] & 0b11;
+        if found.is_some_and(|seen| seen != idc) {
+            return None; // タイルごとに違う＝一枚の絵として何とも言えない
+        }
+        found = Some(idc);
+    }
+    // 0=モノクロ / 1=4:2:0 / 2=4:2:2 / 3=4:4:4。4:2:0以外は間引かない側へ
+    Some(match found? {
+        1 => crate::jpeg::ChromaSampling::Half,
+        _ => crate::jpeg::ChromaSampling::Full,
+    })
+}
+
 /// 表示上の寸法（回転を反映）。コンテナが読めなければ None。
 pub fn display_dimensions(path: &Path) -> Option<(u32, u32)> {
     read_info(path).map(|i| i.display_size())
@@ -1564,6 +1613,69 @@ mod tests {
             n += 1;
         }
         n
+    }
+
+    /// `hvcC` だけを持つ最小のHEIFを組み立てる。
+    ///
+    /// `stored_chroma` は `ipco` を舐めるだけなので、`ipma` の紐づけは要らない。
+    /// `idc` を並べて渡すと、その数だけタイルぶんの `hvcC` を置く
+    fn synth_heif_hvcc(idcs: &[u8], version: u8) -> Vec<u8> {
+        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        let mut ipco = Vec::new();
+        for idc in idcs {
+            let mut body = vec![0u8; HVCC_CHROMA_OFFSET + 1];
+            body[0] = version;
+            body[HVCC_CHROMA_OFFSET] = 0b1111_1100 | (idc & 0b11); // 上位6ビットは予約（全部1）
+            ipco.extend_from_slice(&boxed(b"hvcC", &body));
+        }
+        let iprp = boxed(b"ipco", &ipco);
+        let mut meta_body = vec![0u8; 4]; // meta はフルボックス
+        meta_body.extend_from_slice(&boxed(b"iprp", &iprp));
+
+        let mut file = boxed(b"ftyp", b"heic    mif1heic");
+        file.extend_from_slice(&boxed(b"meta", &meta_body));
+        file
+    }
+
+    /// 元の色差の間引きをコンテナから読む。
+    ///
+    /// **形式で決め打ちしてはいけない**——HEIFは4:2:0とは限らず、Canonの `.HIF`
+    /// は4:2:2で書かれる。4:2:0だと思い込んで詰め直すと、色の境目が目に見えて
+    /// 崩れる（PR #23 のゲート1 P2）
+    #[test]
+    fn 元の色差の間引きを読む() {
+        use crate::jpeg::ChromaSampling;
+        let cases = [
+            (0u8, ChromaSampling::Full), // モノクロ
+            (1, ChromaSampling::Half),   // 4:2:0（iPhone）
+            (2, ChromaSampling::Full),   // 4:2:2（Canonの.HIF）
+            (3, ChromaSampling::Full),   // 4:4:4
+        ];
+        for (idc, want) in cases {
+            let (_dir, path) = write_temp(&synth_heif_hvcc(&[idc], 1), "a.heic");
+            assert_eq!(stored_chroma(&path), Some(want), "chroma_format_idc={idc}");
+        }
+    }
+
+    /// 答えられないときは黙る（呼び出し側が間引かない側へ倒せるように）。
+    ///
+    /// 「たぶん4:2:0だろう」で埋めると、**間引かない形式を静かに間引く**
+    #[test]
+    fn 色差が分からないときは黙る() {
+        // hvcC が1つも無い（grid だけのファイル・壊れたコンテナ）
+        let (_d1, p1) = write_temp(&synth_heif_hvcc(&[], 1), "none.heic");
+        assert_eq!(stored_chroma(&p1), None);
+        // タイルごとに違う値が書いてある
+        let (_d2, p2) = write_temp(&synth_heif_hvcc(&[1, 3], 1), "mixed.heic");
+        assert_eq!(stored_chroma(&p2), None);
+        // 知らない版＝並びが違うかもしれないので読まない
+        let (_d3, p3) = write_temp(&synth_heif_hvcc(&[1], 2), "v2.heic");
+        assert_eq!(stored_chroma(&p3), None);
     }
 
     fn write_temp(bytes: &[u8], name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
