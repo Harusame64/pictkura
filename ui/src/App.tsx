@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
@@ -340,6 +341,36 @@ export default function App() {
    * 変わっても、選んだ範囲を歩き切れるほうが選別の道具として正しい
    */
   const [viewerScope, setViewerScope] = useState<ScopeItem[] | null>(null);
+  /**
+   * ボツの候補（0.2 ③）。`X` で付く印で、**ファイルは1バイトも動かさない**。
+   *
+   * 判定のたびにゴミ箱へ入れる形は測って捨てた（1件あたり中央20ms・最悪215msの
+   * 固定費が判定のリズムに刺さる。`dev/plan.0.2.research.md` §2-1）。
+   * 印だけなら判定の追加コストは0で、確定するまで何も失われない。
+   *
+   * **idの集合ではなく写真そのものを持つ**。関所（確認のモーダル）で
+   * サムネイルと名前を出すのに要るが、日をまたいで印を付けたあと
+   * その日のキャッシュが間引かれると、idからは引き直せなくなる。
+   *
+   * 不変条件: **ビューアが閉じている間は常に空**（確定・破棄のどちらでも
+   * 空にしてから閉じる）。閉じたまま印だけが残ると、次に開いたときに
+   * 身に覚えのない✕が並ぶ
+   */
+  const [rejected, setRejected] = useState<Map<number, MediaItem>>(new Map());
+  /**
+   * 関所（ボツをゴミ箱へ入れる前の確認）。`closeAfter` は
+   * **閉じようとして開いた**か（true）、チップからの途中確認か（false）。
+   */
+  const [rejectGate, setRejectGate] = useState<{ closeAfter: boolean } | null>(
+    null,
+  );
+  /** ゴミ箱へ移動している最中か（500件で約2.3秒かかる） */
+  const [trashing, setTrashing] = useState(false);
+  /** 窓を閉じる要求など、**登録が1回きりの経路**から今の印を見るための控え */
+  const rejectedRef = useRef(rejected);
+  useEffect(() => {
+    rejectedRef.current = rejected;
+  }, [rejected]);
   /** ビューアのズーム・パン・スライドショー。zoomは「画面に収めた状態」を1とする倍率 */
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -1420,13 +1451,54 @@ export default function App() {
    * 連打しても付けたり外したりにならない。自動送りがONなら続けて次の絵へ。
    * 印の反映は楽観的更新なので、書き込みを待たずに送ってよい
    */
+  /**
+   * ボツの候補に入れる・戻す（0.2 ③）。**印だけでファイルは触らない**。
+   * 実際にゴミ箱へ入るのは関所で確定したときの1回だけ。
+   */
+  const markReject = useCallback((item: MediaItem, on: boolean) => {
+    setRejected((prev) => {
+      if (on === prev.has(item.id)) return prev;
+      const next = new Map(prev);
+      if (on) next.set(item.id, item);
+      else next.delete(item.id);
+      return next;
+    });
+  }, []);
+
   const judgeViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
       void setMark(item, "picked", pick);
+      // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
+      // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
+      markReject(item, false);
       if (autoAdvance) moveViewer(1);
     },
-    [setMark, autoAdvance, moveViewer],
+    [setMark, markReject, autoAdvance, moveViewer],
   );
+
+  /**
+   * `X` の判定（0.2 ③）。`P` と同じく**押した向きに決める**ので、
+   * 連写を見ながら連打してもトグルにならない。自動送りがONなら続けて次へ。
+   */
+  const rejectViewer = useCallback(
+    (item: MediaItem) => {
+      markReject(item, true);
+      if (autoAdvance) moveViewer(1);
+    },
+    [markReject, autoAdvance, moveViewer],
+  );
+
+  /**
+   * ビューアを閉じる要求（0.2 ③）。**✕の印が残っていれば関所を出す**。
+   *
+   * 印はファイルを動かしていないので、ここを素通しすると
+   * 「ボツにしたのに何も起きていない」に見える。逆に、関所を出せずに
+   * 落ちた場合も**何も消えない側**に倒れる
+   */
+  const requestCloseViewer = useCallback(() => {
+    if (rejectedRef.current.size > 0) setRejectGate({ closeAfter: true });
+    else setViewer(null);
+  }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
 
@@ -1974,8 +2046,32 @@ export default function App() {
       // スコープは**閉じたら捨てる**。次にタイルから開いたときに、
       // 前の選択の列を歩き続けてしまわないように
       setViewerScope(null);
+      // ボツの印も捨てる（0.2 ③の不変条件）。関所を通さずに閉じる経路
+      // （その日ごと消えた等）でも、**何も消えない側**へ倒れる
+      setRejected((prev) => (prev.size === 0 ? prev : new Map()));
+      setRejectGate(null);
     }
   }, [viewer]);
+
+  /**
+   * 窓の×で閉じようとしたとき（0.2 ③）。**ボツの印が残っていれば止めて
+   * 関所を出す**——「✕を付けたのに何も消えていない」という誤解を塞ぐ。
+   *
+   * 出せずに落ちる経路（OSのシャットダウン等）が残っても、印はファイルを
+   * 触っていないので**何も消えない側**へ倒れる。
+   *
+   * 登録は一度きりなので、印は [`rejectedRef`] から見る。
+   */
+  useEffect(() => {
+    const un = getCurrentWindow().onCloseRequested((e) => {
+      if (rejectedRef.current.size === 0) return;
+      e.preventDefault();
+      setRejectGate({ closeAfter: true });
+    });
+    return () => {
+      void un.then((off) => off()).catch(() => {});
+    };
+  }, []);
 
   // スライドショー: 3秒ごとに次へ（末尾までいったら先頭へループ）。
   //
@@ -2008,13 +2104,21 @@ export default function App() {
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
       if (paletteOpen || shortcutsOpen || typing) return;
-      if (e.key === "Escape") setViewer(null);
+      // 関所が開いているあいだは、下のキーを一切通さない（0.2 ③）。
+      // Escapeは「関所を閉じる」＝ビューアへ戻る（印はそのまま）
+      if (rejectGate) {
+        if (e.key === "Escape" && !trashing) setRejectGate(null);
+        return;
+      }
+      if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
       else if (e.key === "f" || e.key === "F") {
         if (viewerItem) toggleFavorite(viewerItem);
       } else if (judging(e, "p")) {
         if (viewerItem) judgeViewer(viewerItem, true);
+      } else if (judging(e, "x")) {
+        if (viewerItem) rejectViewer(viewerItem);
       } else if (judging(e, "u")) {
         if (viewerItem) judgeViewer(viewerItem, false);
       } else if (e.key === "i" || e.key === "I") {
@@ -2048,6 +2152,10 @@ export default function App() {
     moveViewer,
     toggleFavorite,
     judgeViewer,
+    rejectViewer,
+    requestCloseViewer,
+    rejectGate,
+    trashing,
     paletteOpen,
     shortcutsOpen,
     toggleFullscreen,
@@ -2448,6 +2556,26 @@ export default function App() {
     [visibleSelection, reloadAll, refreshSummary, clearSelection],
   );
 
+  /**
+   * 消したあとの後始末（0.2 ③で括り出した。`onBulkDelete` と関所で同じ形）。
+   *
+   * **消えた日を丸ごと捨てて取り直す**——枚数も骨組みも変わるので、
+   * 行を1つずつ抜くより取り直すほうが確か。
+   *
+   * **スコープの席は抜かない**。0.2 ②で「消えたidの席は残し、送りでは飛ばす」
+   * 形にしてあり（ゲート2のP2）、寄せ先を探すときの目印にもなっている。
+   * 抜くと、いま見ている1枚を消したときに**隣がどこか分からなくなる**
+   */
+  const forgetDeleted = useCallback((touched: Set<number>) => {
+    setDayItems((prev) => {
+      const next = new Map(prev);
+      for (const [dayKey, items] of prev) {
+        if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
+      }
+      return next;
+    });
+  }, []);
+
   /** 選んだものをまとめてゴミ箱へ（確認あり） */
   const onBulkDelete = useCallback(async () => {
     const ids = await visibleSelection();
@@ -2462,14 +2590,7 @@ export default function App() {
     try {
       const n = await deleteMedia(ids);
       setStatus(t.deleted(n));
-      // 消えた日を丸ごと捨てて取り直す（骨組みの枚数も変わる）
-      setDayItems((prev) => {
-        const next = new Map(prev);
-        for (const [dayKey, items] of prev) {
-          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
-        }
-        return next;
-      });
+      forgetDeleted(touched);
       setViewer((v) => (v && touched.has(v.id as number) ? null : v));
       clearSelection();
       await refreshSummary();
@@ -2478,17 +2599,65 @@ export default function App() {
       // 落としてからエラーを返すので、画面をそのままにすると
       // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
       setStatus(String(e));
-      setDayItems((prev) => {
-        const next = new Map(prev);
-        for (const [dayKey, items] of prev) {
-          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
-        }
-        return next;
-      });
+      forgetDeleted(touched);
       clearSelection();
       await refreshSummary().catch(() => {});
     }
-  }, [visibleSelection, refreshSummary, clearSelection]);
+  }, [visibleSelection, refreshSummary, clearSelection, forgetDeleted]);
+
+  /**
+   * 関所で確定して、ボツの候補をまとめてゴミ箱へ（0.2 ③）。
+   *
+   * **待ちはここ1回だけ**。判定のたびに消す形（1件20ms〜215ms）を避けた
+   * 眼目がこれで、200件917ms・500件約2.3秒を1回にまとめて払う。
+   */
+  const confirmTrash = useCallback(async () => {
+    const gate = rejectGate;
+    if (!gate || trashing) return;
+    const ids = [...rejected.keys()];
+    if (ids.length === 0) return;
+    setTrashing(true);
+    try {
+      // **実行直前に、いま出ているものだけへ絞る**（一括操作の作法・PR #18）。
+      // スコープや絞り込みから外れたものはここで落ちる。`media.id` の
+      // 使い回し（既知のP3）への安い緩和でもある
+      const kept = await visibleMediaIds(
+        queryRef.current,
+        filterRef.current,
+        ids,
+      );
+      if (kept.length > 0) {
+        const n = await deleteMedia(kept);
+        setStatus(t.deleted(n));
+        forgetDeleted(new Set(kept));
+        await refreshSummary();
+      }
+      setRejected(new Map());
+      setRejectGate(null);
+      if (gate.closeAfter) setViewer(null);
+    } catch (e) {
+      // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
+      // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
+      // ようにする。閉じようとして開いた関所でも、ここでは閉じない
+      setStatus(String(e));
+      forgetDeleted(new Set(ids));
+      await refreshSummary().catch(() => {});
+      setRejectGate(null);
+    } finally {
+      setTrashing(false);
+    }
+  }, [rejectGate, trashing, rejected, forgetDeleted, refreshSummary]);
+
+  /**
+   * 印を全部「戻す」と、確かめるものが無くなる。関所は畳む——
+   * 閉じようとして開いていたなら、そのまま閉じる（利用者の元の意思）
+   */
+  useEffect(() => {
+    if (!rejectGate || rejected.size > 0 || trashing) return;
+    const { closeAfter } = rejectGate;
+    setRejectGate(null);
+    if (closeAfter) setViewer(null);
+  }, [rejectGate, rejected, trashing]);
 
   /**
    * 選んだものを、フォルダへコピー／移動する。
@@ -3193,7 +3362,7 @@ export default function App() {
       {viewer && (
         <div
           className={"viewer" + (viewerIdle ? " idle" : "")}
-          onClick={() => setViewer(null)}
+          onClick={requestCloseViewer}
         >
           {viewerItem && viewerItem.is_video ? (
             // 動画（第9部）。`<img>` ではなく `<video>` に渡す。
@@ -3449,6 +3618,12 @@ export default function App() {
           {viewerItem && !viewerItem.is_video && loadedId !== viewerItem.id && (
             <div className="viewer-progress" aria-hidden />
           )}
+          {/* いま見ている1枚がボツの候補なら、写真の上に小さく出す（0.2 ③）。
+              ✕は下の帯にも出ているが、**見ている絵そのもの**に付いていないと
+              「どっちだったか」を帯で数え直すことになる */}
+          {viewerItem && rejected.has(viewerItem.id) && (
+            <div className="viewer-reject-badge">✕ {t.viewerRejected}</div>
+          )}
           {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
               サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
           {viewerItem &&
@@ -3466,7 +3641,11 @@ export default function App() {
               {strip.map(({ item, offset }) => (
                 <button
                   key={item.id}
-                  className={"strip-cell" + (offset === 0 ? " current" : "")}
+                  className={
+                    "strip-cell" +
+                    (offset === 0 ? " current" : "") +
+                    (rejected.has(item.id) ? " rejected" : "")
+                  }
                   title={item.file_name}
                   onClick={() =>
                     setViewer({ dayKey: item.day_key, id: item.id })
@@ -3479,6 +3658,11 @@ export default function App() {
                   )}
                   {item.picked && <span className="strip-flag">⚑</span>}
                   {item.favorite && <span className="strip-fav">★</span>}
+                  {/* ✕の足あと（0.2 ③）。ここに残るので、連打で巻き添えに
+                      したときも数枚のうちに気付ける */}
+                  {rejected.has(item.id) && (
+                    <span className="strip-reject">✕</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -3495,6 +3679,17 @@ export default function App() {
               <span className="viewer-pos">
                 {viewerPos} / {viewerTotal}
               </span>
+              {/* ボツの候補の数（0.2 ③）。押すといつでも関所で顔を見られる。
+                  0件のときは出さない——選別中に面を1つも増やさないため */}
+              {rejected.size > 0 && (
+                <button
+                  className="viewer-reject-chip"
+                  title={t.rejectChipTitle}
+                  onClick={() => setRejectGate({ closeAfter: false })}
+                >
+                  {t.rejectChip(rejected.size)}
+                </button>
+              )}
             </div>
           )}
           {showExif && viewerItem && (
@@ -3627,7 +3822,7 @@ export default function App() {
             <button
               className="viewer-tool"
               title={t.viewerClose}
-              onClick={() => setViewer(null)}
+              onClick={requestCloseViewer}
             >
               ✕
             </button>
@@ -3683,6 +3878,86 @@ export default function App() {
       />
       {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、
           いま押せるものがその場で分かるように出す */}
+      {/* 関所（0.2 ③）。**顔を見てから確定する**——文字だけの
+          「200枚をゴミ箱へ移動しますか？」では、何が消えるのか押す瞬間に
+          確かめられない。ここは自前のDOMなので、`window.confirm` が無言で
+          trueを返す罠（2026-08-16）には当たらない */}
+      {rejectGate && (
+        <div
+          className="reject-gate-backdrop"
+          onClick={() => {
+            if (!trashing) setRejectGate(null);
+          }}
+        >
+          <div
+            className="reject-gate"
+            role="dialog"
+            aria-label={t.rejectGateTitle(rejected.size)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="reject-gate-head">
+              <h2>{t.rejectGateTitle(rejected.size)}</h2>
+              {/* 逃げ道が見えていることが、不安感を消す要 */}
+              <p>{t.rejectGateNote}</p>
+            </div>
+            <div className="reject-gate-grid">
+              {[...rejected.values()].map((item) => (
+                <div className="reject-cell" key={item.id}>
+                  {item.has_thumb ? (
+                    <img
+                      src={thumbSrc(item)}
+                      alt={item.file_name}
+                      title={item.file_name}
+                      // **飾りではなく崖対策**（0.2 ①の予算）。96pxで出しても
+                      // デコードは512pxの実寸で走るので、200枚を一度に開くと
+                      // 約140MiB。見えているぶんだけに絞る
+                      loading="lazy"
+                      draggable={false}
+                    />
+                  ) : (
+                    <span className="strip-blank" />
+                  )}
+                  <button
+                    className="reject-restore"
+                    onClick={() => markReject(item, false)}
+                    disabled={trashing}
+                  >
+                    {t.rejectGateRestore}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="reject-gate-actions">
+              {/* 初期フォーカスは**安全側**。Enter連打は「戻る」に落ちる */}
+              <button autoFocus onClick={() => setRejectGate(null)} disabled={trashing}>
+                {t.rejectGateBack}
+              </button>
+              {rejectGate.closeAfter && (
+                <button
+                  className="quiet"
+                  onClick={() => {
+                    setRejected(new Map());
+                    setRejectGate(null);
+                    setViewer(null);
+                  }}
+                  disabled={trashing}
+                >
+                  {t.rejectGateDiscard}
+                </button>
+              )}
+              <button
+                className="danger"
+                onClick={() => void confirmTrash()}
+                disabled={trashing}
+              >
+                {trashing
+                  ? t.rejectGateTrashing(rejected.size)
+                  : t.rejectGateConfirm(rejected.size)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {shortcutsOpen && (
         <div
           className="shortcuts-backdrop"

@@ -1176,26 +1176,36 @@ fn trash_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Option<String>) {
 /// 完全削除はしない（写真は取り返しがつかないため、OSのゴミ箱経由にして
 /// 誤操作から戻せるようにする）。ゴミ箱に入れられたものだけをDBから消す。
 /// 戻り値は実際に削除できた件数。
+///
+/// **別スレッドで走らせる**（`export_media` と同じ形）。シェルのゴミ箱APIは
+/// 1件あたり中央20ms・最悪215msの固定費で、500件なら約2.3秒かかる
+/// （`dev/plan.0.2.research.md` §2-1）。同期コマンドのままだと、その間
+/// メインスレッドが塞がって**呼び出し側の「移動中…」表示ごと固まる**。
 #[tauri::command]
-fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
-    // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
-    let paths: Vec<PathBuf> = ids
-        .iter()
-        .filter_map(|id| path_of(&state, *id).ok())
-        .collect();
-    let (deleted, first_err) = trash_paths(paths);
-    if !deleted.is_empty() {
-        lock_ok(&state.db)
-            .remove_paths(&deleted)
-            .map_err(|e| e.to_string())?;
-    }
-    match first_err {
-        Some(e) if deleted.is_empty() => Err(e),
-        // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
-        // 「何枚消えたのか」が分からない
-        Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
-        None => Ok(deleted.len()),
-    }
+async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
+        let paths: Vec<PathBuf> = ids
+            .iter()
+            .filter_map(|id| path_of(&state, *id).ok())
+            .collect();
+        let (deleted, first_err) = trash_paths(paths);
+        if !deleted.is_empty() {
+            lock_ok(&state.db)
+                .remove_paths(&deleted)
+                .map_err(|e| e.to_string())?;
+        }
+        match first_err {
+            Some(e) if deleted.is_empty() => Err(e),
+            // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
+            // 「何枚消えたのか」が分からない
+            Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
+            None => Ok(deleted.len()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 書き出し（コピー／移動）の結果。

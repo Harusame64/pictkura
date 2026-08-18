@@ -293,7 +293,8 @@ they land on the right day.
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
   <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next photo (same for videos)</td></tr>
-  <tr><td><kbd>P</kbd> / <kbd>U</kbd></td><td>Pick (flag it ⚑) / unpick. By default this moves on to the next photo; Settings → “When you view a photo full screen” turns that off</td></tr>
+  <tr><td><kbd>P</kbd> / <kbd>U</kbd></td><td>Pick (flag it ⚑) / undo the judgement on this photo (clear ⚑ and ✕). By default this moves on to the next photo; Settings → “When you view a photo full screen” turns that off</td></tr>
+  <tr><td><kbd>X</kbd></td><td>Reject it (✕). <strong>Nothing is deleted when you press it</strong> — rejected photos go to the trash together when you close the viewer</td></tr>
   <tr><td><kbd>Space</kbd></td><td>Start or stop the slideshow. On a video, play / pause</td></tr>
   <tr><td><kbd>I</kbd></td><td>Capture details (camera, lens, aperture, shutter, ISO, GPS)</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
@@ -348,6 +349,24 @@ Sharing one mark would fill your favourites with the leftovers of every culling 
 <strong>“⚑ Picked”</strong> in the sidebar lists what you picked, the search box takes
 <code>⚑</code> (or <code>pick:</code>), and the selection bar can pick or unpick a whole
 selection at once.
+</p>
+
+<h3>✕ Reject</h3>
+
+<p>
+Press <kbd>X</kbd> in the viewer and the photo becomes a <strong>rejection candidate</strong>.
+No file moves at that moment — the photo dims in the filmstrip below, and a “✕ 3” chip
+next to the caption counts them. Click the chip to look them over at any time, and
+press <kbd>U</kbd> if you change your mind.
+</p>
+
+<p>
+When you close the viewer (<kbd>Esc</kbd>, a click outside the photo, or the ✕ at the top right)
+with candidates still marked, a <strong>confirmation screen</strong> opens. It shows every
+marked photo as a thumbnail: press “Keep” on the ones you want back, then
+“Move N to trash” to move the rest in one go. They go to the <strong>OS trash</strong>,
+so you can restore them later — restored files are picked up by the watcher and come back
+to the library (★ favourites and ⚑ picks have to be set again).
 </p>
 
 <h3>View the selection</h3>
