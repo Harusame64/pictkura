@@ -15,7 +15,11 @@ use tauri::http::{Response, StatusCode};
 use tauri::{Emitter, Manager};
 
 /// アプリの識別子。`tauri.conf.json` の `identifier` と**同じ綴り**でなければ、
-/// [`config_path_without_app`] が別の場所を指す（テストで突き合わせている）
+/// [`config_path_without_app`] が別の場所を指す（テストで突き合わせている）。
+///
+/// **Windows専用**——使うのは AutoPlay まわりだけなので、他のOSでは
+/// 「使われていない定数」になり clippy の `dead_code` で落ちる（CIで踏んだ）
+#[cfg(windows)]
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
@@ -2720,7 +2724,9 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{import_path_from_args, APP_IDENTIFIER};
+    use super::import_path_from_args;
+    #[cfg(windows)]
+    use super::APP_IDENTIFIER;
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -2813,6 +2819,7 @@ mod tests {
     /// ずれると [`config_path_without_app`] が**空のフォルダ**を指し、
     /// `--sync-autoplay` は「設定ファイルが無い」と読んで黙って何もしなくなる
     /// （MSIから乗り換えた人のAutoPlay登録が戻らない。PR #24 のゲート1 P2）
+    #[cfg(windows)]
     #[test]
     fn 識別子がtauriの設定と一致する() {
         let conf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
