@@ -134,13 +134,16 @@ const DISPLAY_MAX_EDGE = 4096;
  * 「連打で送っている最中」と見なす間隔。
  *
  * この速さで次の絵へ行っているあいだは、**詰め直しの要る形式の原寸を
- * 取りに行かない**（0.2 ②の測り直し）。HEICは1枚0.6〜1秒かかるうえ、
- * Rust側は同時に1枚しか変換しないので、通り過ぎた絵のぶんまで投げると
- * **止まった1枚がその行列の後ろに並ぶ**。止まれば
- * [`viewerSettled`] の250msで取りに行く。
+ * すぐには取りに行かない**（0.2 ②の測り直し）。HEICは1枚0.6〜1秒かかり、
+ * Rust側は要求のたびに**並列で**詰め直すので、通り過ぎた絵のぶんまで投げると
+ * 止まった1枚がその競争に巻き込まれる。
  *
  * ゆっくり見ているとき（前の送りからこの時間より後）は今までどおり
- * すぐ取りに行く——1枚ずつ見る人に250msの待ちを足さないため
+ * すぐ取りに行く——1枚ずつ見る人に待ちを足さないため。
+ *
+ * **門が開くのは `settledId` と同じ250msの時計**なので、実効的に守れるのは
+ * 250ms未満の連打だけ。250〜400msの間隔では「250ms遅れて要求が出る」形になる
+ * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
 /**
@@ -1300,9 +1303,24 @@ export default function App() {
     }
   }, [viewer, dayItems, dayIdxByKey, summary, loadDay]);
 
-  // 位置が解決不能になったらビューアを閉じる（★解除で対象外になった、
-  // 撮影日確定で別の日へ移った、サマリ更新でその日が消えた等）。
-  // 「読み込み中…」のまま操作不能で固まるのを防ぐ
+  /**
+   * いま見ている絵が、その日の中で何番目だったか。
+   *
+   * **居なくなったときの寄せ先**に使う。同じ番号には、いま繰り上がってきた
+   * 次の1枚が居る（`U` で外した写真が一覧から消えたときの自然な着地点）
+   */
+  const lastViewerIdxRef = useRef(0);
+  useEffect(() => {
+    if (viewerInfo) lastViewerIdxRef.current = viewerInfo.itemIdx;
+  }, [viewerInfo]);
+
+  // 位置が解決不能になったとき（⚑や★を外して絞り込みから外れた、削除された、
+  // 撮影日確定で別の日へ移った、サマリ更新でその日が消えた等）の後始末。
+  //
+  // **閉じずに隣へ寄せる**（0.2 ②・ゲート2のP2）。⚑で絞り込みながら `U` で
+  // 外していくのは選別の本線の使い方で、そのたびにビューアが消えると
+  // 選別が続けられない。寄せ先が無いときだけ閉じる（「読み込み中…」のまま
+  // 操作不能で固まるのは防ぐ、という元の目的はそのまま）
   useEffect(() => {
     if (!viewer) return;
     const items = dayItems.get(viewer.dayKey);
@@ -1311,8 +1329,33 @@ export default function App() {
       viewer.id === "first" || viewer.id === "last"
         ? items.length > 0
         : items.some((it) => it.id === viewer.id);
-    if (!resolvable || !dayIdxByKey.has(viewer.dayKey)) setViewer(null);
-  }, [viewer, dayItems, dayIdxByKey]);
+    if (resolvable && dayIdxByKey.has(viewer.dayKey)) return;
+
+    // スコープで開いているなら、列の**次**（無ければ前）で、いま一覧に
+    // 居るものへ寄せる。列は作り直さない設計なので、消えたidも席は残っている
+    if (viewerScope && typeof viewer.id === "number") {
+      const idx = scopeIndexById.get(viewer.id);
+      if (idx !== undefined) {
+        for (const dir of [1, -1] as const) {
+          for (let k = idx + dir; k >= 0 && k < viewerScope.length; k += dir) {
+            const at = viewerScope[k];
+            const dayList = dayItems.get(at.day_key);
+            // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
+            if (dayList && !dayList.some((x) => x.id === at.id)) continue;
+            setViewer({ dayKey: at.day_key, id: at.id });
+            return;
+          }
+        }
+      }
+    }
+    // 通常オープン: **同じ日の同じ番号**へ寄せる（繰り上がってきた1枚）
+    if (items.length > 0 && dayIdxByKey.has(viewer.dayKey)) {
+      const i = Math.min(lastViewerIdxRef.current, items.length - 1);
+      setViewer({ dayKey: viewer.dayKey, id: items[i].id });
+      return;
+    }
+    setViewer(null); // その日ごと消えた
+  }, [viewer, dayItems, dayIdxByKey, viewerScope, scopeIndexById]);
 
   /** ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ（スライドショー用） */
   const moveViewer = useCallback(
@@ -1321,8 +1364,24 @@ export default function App() {
       // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
       // 日をまたいでも列の順に進む——選んだ範囲が一覧の並びで固定してある
       if (viewerScope && scopeIdx !== undefined) {
-        const at = viewerScope[scopeIdx + dir] ?? (wrap ? viewerScope[0] : null);
-        if (at) setViewer({ dayKey: at.day_key, id: at.id });
+        // **一覧から消えた席は飛ばす**（ゲート2のP2）。⚑を外した・消したものが
+        // 列には残っているので、そこへ歩くと行き止まりになる。
+        // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
+        for (
+          let k = scopeIdx + dir;
+          k >= 0 && k < viewerScope.length;
+          k += dir
+        ) {
+          const at = viewerScope[k];
+          const dayList = dayItems.get(at.day_key);
+          if (dayList && !dayList.some((x) => x.id === at.id)) continue;
+          setViewer({ dayKey: at.day_key, id: at.id });
+          return;
+        }
+        if (wrap && viewerScope.length > 0) {
+          const at = viewerScope[0];
+          setViewer({ dayKey: at.day_key, id: at.id });
+        }
         return;
       }
       const { dayIdx, itemIdx } = viewerInfo;
@@ -1613,8 +1672,11 @@ export default function App() {
 
   /**
    * ビューア下部に出す前後の絵（0.2 ②）。いまの絵を真ん中に、
-   * 前後 [`STRIP_RADIUS`] 枚ずつ。**取れないもの（未取得の日・端）は詰めない**
-   * ——並びを詰めると、送るたびに真ん中が動いて見える
+   * 前後 [`STRIP_RADIUS`] 枚ずつ。
+   *
+   * **取れないもの（端・未取得の日）はその席ごと並べない**ので、帯は端で短く
+   * なり、いまの絵は中央から寄る。反対側から余計に取って枚数を揃えることは
+   * しない——「前後に何があるか」を見せる帯で、左右の距離感を偽らないため
    */
   const strip = useMemo(() => {
     if (!viewerItem) return [];
@@ -1929,7 +1991,7 @@ export default function App() {
     if (viewer === null) return;
     /**
      * 選別の判定キーか（0.2 ②）。**修飾キーと一緒なら見送る**——
-     * `Ctrl` + `P` はブラウザ由来の印刷で、押した人に★を付ける気は無い。
+     * `Ctrl` + `P` はブラウザ由来の印刷で、押した人に⚑を付ける気は無い。
      * 他の1文字キーと違い、判定は写真の状態を書き換えるので念を入れる
      */
     const judging = (e: KeyboardEvent, key: string) =>
@@ -3194,9 +3256,14 @@ export default function App() {
                   ? fullSrc(viewerItem.id, viewerItem.mtime_ms)
                   : undefined
               }
-              // 原寸が出せず下敷きが唯一の絵になったときは、代替テキストを黙らせる
-              // ——絵の真ん中にファイル名が浮くと、情報ではなくゴミに見える
-              alt={fallbackToThumb ? "" : viewerItem.file_name}
+              // 絵が出ていないあいだ（門が閉じている・原寸が出せなかった）は
+              // 代替テキストを黙らせる——絵の真ん中にファイル名が浮くと、
+              // 情報ではなくゴミに見える
+              alt={
+                fallbackToThumb || fullGateId !== viewerItem.id
+                  ? ""
+                  : viewerItem.file_name
+              }
               draggable={false}
               // 読み込み中表示をここで畳む。失敗（onError）でも畳む——
               // 出ない絵のために「読み込み中」を出し続けない。

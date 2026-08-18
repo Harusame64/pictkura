@@ -188,8 +188,8 @@ const ja = {
   pickExportFolder: "書き出し先のフォルダを選ぶ",
   moveConfirm: (n: number) =>
     n === 1
-      ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（お気に入りは引き継がれません）。"
-      : `${n}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（お気に入りは引き継がれません）。`,
+      ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。"
+      : `${n}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。`,
   exporting: (done: number, total: number, name: string) =>
     `書き出し中… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
@@ -430,8 +430,8 @@ const en: Dict = {
   pickExportFolder: "Choose a folder to export to",
   moveConfirm: (n: number) =>
     n === 1
-      ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (favorites are not carried over)."
-      : `Move ${n} photos to a folder you pick next? They leave their current place and leave the library (favorites are not carried over).`,
+      ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (★ and ⚑ marks are not carried over)."
+      : `Move ${n} photos to a folder you pick next? They leave their current place and leave the library (★ and ⚑ marks are not carried over).`,
   exporting: (done: number, total: number, name: string) =>
     `Exporting… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

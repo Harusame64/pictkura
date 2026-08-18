@@ -531,7 +531,8 @@ impl Db {
                 norm     TEXT PRIMARY KEY,
                 keep_id  INTEGER NOT NULL,
                 donor_id INTEGER,
-                favorite INTEGER NOT NULL DEFAULT 0
+                favorite INTEGER NOT NULL DEFAULT 0,
+                picked   INTEGER NOT NULL DEFAULT 0
             );
             DELETE FROM path_dup_tmp;
             INSERT INTO path_dup_tmp (norm, keep_id)
@@ -542,12 +543,17 @@ impl Db {
             FROM path_fix_tmp t GROUP BY t.norm HAVING COUNT(*) > 1;
 
             -- 消える側のうち、**メタデータが埋まっている行**を1つ選んで引き継ぎ元にする。
-            -- お気に入りは片方でも付いていれば残す（ユーザーが付けた情報は消さない）
+            -- お気に入り（★）と選別の印（⚑）は片方でも付いていれば残す
+            -- （ユーザーが付けた情報は消さない）。**★と⚑は対称に扱うこと**——
+            -- 移行を作り直して再実行したときに、片方だけ黙って落ちるのを防ぐ
             UPDATE path_dup_tmp SET
                 donor_id = (SELECT o.id FROM media o JOIN path_fix_tmp ot ON ot.id = o.id
                             WHERE ot.norm = path_dup_tmp.norm AND o.id <> path_dup_tmp.keep_id
                             ORDER BY (o.width IS NOT NULL) DESC, o.id ASC LIMIT 1),
                 favorite = COALESCE((SELECT MAX(o.favorite) FROM media o
+                                     JOIN path_fix_tmp ot ON ot.id = o.id
+                                     WHERE ot.norm = path_dup_tmp.norm), 0),
+                picked   = COALESCE((SELECT MAX(o.picked) FROM media o
                                      JOIN path_fix_tmp ot ON ot.id = o.id
                                      WHERE ot.norm = path_dup_tmp.norm), 0);
             "#,
@@ -558,6 +564,7 @@ impl Db {
             r#"
             UPDATE media SET
                 favorite    = COALESCE((SELECT d.favorite FROM path_dup_tmp d WHERE d.keep_id = media.id), favorite),
+                picked      = COALESCE((SELECT d.picked   FROM path_dup_tmp d WHERE d.keep_id = media.id), picked),
                 taken_at_ms = COALESCE(taken_at_ms, (SELECT o.taken_at_ms FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
                 camera_id   = COALESCE(camera_id,   (SELECT o.camera_id FROM media o
@@ -1948,8 +1955,7 @@ impl Db {
         Ok(out)
     }
 
-    /// お気に入り（★）の総数。部分インデックスのスキャンで返る。
-    /// 選別で選んだ件数（サイドバー表示用。0.2 ②）。部分索引で数える
+    /// 選別で選んだ（⚑）件数。部分インデックスのスキャンで返る（0.2 ②）。
     pub fn count_picked(&self) -> Result<i64, DbError> {
         Ok(self
             .conn
@@ -1958,6 +1964,7 @@ impl Db {
             })?)
     }
 
+    /// お気に入り（★）の総数。部分インデックスのスキャンで返る。
     pub fn count_favorites(&self) -> Result<i64, DbError> {
         Ok(self
             .conn

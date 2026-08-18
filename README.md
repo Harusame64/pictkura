@@ -201,6 +201,7 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `2019-08` / `2019-08-11` | filter by capture date. **A bare `2019` is treated as text**, not a date — it cannot be told apart from a file name |
 | `year:2019` | filter to a single year |
 | `★` | favourites only |
+| `⚑` / `pick:` | picked photos only |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
 
@@ -232,7 +233,7 @@ selection.
 | circle, or `Ctrl` + click | add or remove one photo |
 | `Shift` + click | select everything between the tile you clicked last and this one — days you have not scrolled to yet are included |
 | click a date heading | select that whole day; click it again to unselect it |
-| `Ctrl` + `A` | select everything the current search and ★ filter match |
+| `Ctrl` + `A` | select everything the current search and ★ / ⚑ filter match |
 | `Esc` | stop selecting |
 
 While something is selected, a plain click toggles a tile instead of opening the viewer.
@@ -254,11 +255,11 @@ pick, without date subfolders — handy for handing a few photos to someone or f
 stick. A file that is already there — same name, size and
 timestamp — is left alone, so writing the same photos to the same folder again adds
 nothing; a different file that happens to share a name gets `-1`, `-2` appended. Moving asks first: those photos leave
-their current place and leave the library, and their ★ is not carried over. Moving to
+their current place and leave the library, and their ★ / ⚑ marks are not carried over. Moving to
 another drive — and moving a file that only exists in the cloud — copies first and then
 sends the original to the recycle bin.
 
-The selection follows what is on screen. Changing the search or the ★ filter, or switching
+The selection follows what is on screen. Changing the search or the ★ / ⚑ filter, or switching
 to the calendar, clears it, so a bulk action never reaches photos you cannot see.
 
 ### 7. Language
