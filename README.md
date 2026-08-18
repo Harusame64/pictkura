@@ -21,21 +21,48 @@ Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/rel
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11 (x64)** | `pictkura_<version>_x64_<lang>.msi` | Installs per-machine, so it asks for administrator rights. Japanese and English installers are separate files |
-| **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe`. Use this if you cannot become an administrator |
+| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). Pick Japanese or English at the start |
+| **Windows, install for everyone** | `pictkura_<version>_x64_<lang>.msi` | For installing per-machine. **Asks for administrator rights.** Japanese and English installers are separate files |
+| **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe` |
 | **macOS 11+ (Apple Silicon)** | `pictkura_<version>_arm64.zip` | Unzip and move `pictkura.app` wherever you like. **See the note below before the first launch** |
 
 Windows also needs the **WebView2 runtime**, which is already present on Windows 11 and
 on up-to-date Windows 10.
 
+> **Moving from the MSI to `-setup.exe` needs no manual step.** When `-setup.exe` finds an
+> existing MSI install, it **removes that first**, then installs. Removing the MSI touches the
+> whole machine, so **that step asks for administrator approval (UAC)**.
+>
+> **Take care on a shared PC.** The MSI is installed for everyone, so switching **removes
+> pictkura for the other users** (`-setup.exe` installs only for you). Each person should run
+> `-setup.exe` themselves. Also, if another user had launched pictkura at least once, **their
+> AutoPlay entry stays behind** — they can reinstall and turn off "When a USB drive or SD card
+> is inserted" in Settings, or pick a new AutoPlay default in Windows Settings.
+>
+> The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
+> uninstall from Settings → Apps first in that case.
+
 ### Windows shows warnings because the app is not signed
 
 pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
 broken, but you will see the security warnings below; just proceed and the app works normally.
-**SmartScreen can appear for each version you download**, while the **UAC prompt (admin
-approval) appears every time you install**.
+**SmartScreen can appear for each version you download.**
 
-**Installing the MSI**
+**Installing `-setup.exe` (recommended)**
+
+You only get **SmartScreen** ("**Windows protected your PC**" → **More info** → **Run
+anyway**). **There is no UAC prompt**, because it installs into your own user profile rather
+than the whole machine, so no administrator approval is required.
+
+**Two exceptions**, both where it does something machine-wide on your behalf:
+
+1. If an older **MSI install is present**, `-setup.exe` removes it before installing, and
+   **that one step does prompt for UAC**. It will not prompt on later installs
+2. On a PC **without the WebView2 runtime**, the installer fetches and installs it. WebView2 is
+   machine-wide, so that prompts for UAC too (Windows 11 and up-to-date Windows 10 already
+   have it, so normally this does not come up)
+
+**Installing the MSI** (this one also prompts for UAC)
 
 1. **SmartScreen** (when you open the downloaded MSI — not at download time): you may see
    "**Windows protected your PC**." Click **More info**, then the **Run anyway** button that
@@ -52,19 +79,19 @@ No install is needed, but the **first time you run** the extracted `pictkura.exe
 **SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
 anyway**.
 
-**Either way: Smart App Control**
+**All of them: Smart App Control**
 
 If **Smart App Control** is on — it can be, on a clean install of Windows 11 — it may block an
-unsigned app **outright**, with no **Run anyway** to click. This applies to **both** the MSI and
-the portable ZIP, since it judges the code, not how it reached you. There is no way around it
+unsigned app **outright**, with no **Run anyway** to click. This applies to **every** download
+here, since it judges the code, not how it reached you. There is no way around it
 from the app's side: you would need a PC without SAC, or a signed build. Switching SAC off does
 lift the block, but it is **one-way** — Windows cannot turn it back on without a reinstall — so
 we don't suggest it just to run this app.
 
 > Authenticode signing would reliably replace **"Publisher: Unknown"** with the publisher name,
 > and makes SmartScreen fire less often — but it does **not** categorically remove it: a newly
-> signed binary that hasn't built up reputation can still be flagged. (The UAC prompt itself
-> still appears on every install either way.) The certificate is paid, so it is **deferred for
+> signed binary that hasn't built up reputation can still be flagged. (The MSI's UAC prompt
+> itself still appears on every install either way.) The certificate is paid, so it is **deferred for
 > v0.1**. The macOS build is likewise unsigned (below).
 
 ### macOS: the first launch needs a few extra steps
@@ -352,7 +379,7 @@ cargo run --release --bin bench -- --count 1000000
 ### Producing the distributables
 
 ```powershell
-# Windows: MSI (ja-JP and en-US) plus the portable ZIP
+# Windows: the two MSIs (ja-JP, en-US), the NSIS installer, and the portable ZIP
 pwsh tools/release.ps1
 ```
 
@@ -372,9 +399,10 @@ The `.app` is **ad-hoc signed only** (that is what the linker does on arm64); th
 Developer ID signing or notarisation step, which is why the ZIP ships with instructions
 for getting past Gatekeeper.
 
-Pushing a `v*` tag runs both of these in CI and attaches all four files to a GitHub
-Release. Neither platform publishes on its own: a separate job waits for both and checks
-that all four are present, so a failure on one OS cannot produce a half release.
+Pushing a `v*` tag runs both of these in CI and attaches all five files to a GitHub
+Release (two MSIs, the NSIS installer, the portable ZIP, and the macOS ZIP). Neither
+platform publishes on its own: a separate job waits for both and checks that all five are
+present, so a failure on one OS cannot produce a half release.
 
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.

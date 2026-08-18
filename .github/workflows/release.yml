@@ -91,8 +91,11 @@ jobs:
       - name: 配布物が揃っているか
         run: |
           $msi = @(Get-ChildItem "target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue)
+          $nsis = @(Get-ChildItem "target\release\bundle\nsis\*-setup.exe" -ErrorAction SilentlyContinue)
           $zip = @(Get-ChildItem "target\release\bundle\portable\*.zip" -ErrorAction SilentlyContinue)
           if ($msi.Count -ne 2) { throw "MSIが2つ（ja-JP / en-US）ではない: $($msi.Count)" }
+          # NSISは**1本に日英が入る**（`displayLanguageSelector` で選ばせる）ので、MSIと違って2つにはならない
+          if ($nsis.Count -ne 1) { throw "NSISのインストーラが1つではない: $($nsis.Count)" }
           if ($zip.Count -ne 1) { throw "ポータブルZIPが1つではない: $($zip.Count)" }
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -116,7 +119,7 @@ jobs:
           if ($missing) { throw "ZIPに入っていない説明書: $($missing -join ', ')" }
           "  同梱した説明書: $($got -join ', ')"
 
-          $msi + $zip | ForEach-Object { "  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
+          $msi + $nsis + $zip | ForEach-Object { "  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
 
       # **配るものの素性を測る**。plan.md は `x86_64-pc-windows-gnu` を前提にしているが、
       # ここは `windows-latest` の既定＝msvc で作っている。msvc は既定でCランタイムを
@@ -139,6 +142,7 @@ jobs:
           name: pictkura-windows
           path: |
             target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*-setup.exe
             target/release/bundle/portable/*.zip
           if-no-files-found: error
 
@@ -327,13 +331,13 @@ jobs:
         run: |
           set -euo pipefail
           files=()
-          while IFS= read -r f; do files+=("$f"); done < <(find dist -type f \( -name '*.msi' -o -name '*.zip' \) | sort)
+          while IFS= read -r f; do files+=("$f"); done < <(find dist -type f \( -name '*.msi' -o -name '*-setup.exe' -o -name '*.zip' \) | sort)
 
-          # **数えて確かめる**。MSI 2言語＋ポータブルZIP＋macOSのZIP＝4つ。
+          # **数えて確かめる**。MSI 2言語＋NSIS 1本＋ポータブルZIP＋macOSのZIP＝5つ。
           # 欠けたまま公開すると「Windows版が無いRelease」が静かに出来る
-          if [ "${#files[@]}" -ne 4 ]; then
+          if [ "${#files[@]}" -ne 5 ]; then
             printf '%s\n' "${files[@]}"
-            echo "配布物が4つ（MSI×2・ポータブルZIP・macOS ZIP）ではない: ${#files[@]}"
+            echo "配布物が5つ（MSI×2・NSIS・ポータブルZIP・macOS ZIP）ではない: ${#files[@]}"
             exit 1
           fi
           printf '  %s\n' "${files[@]}"
