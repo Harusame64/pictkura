@@ -306,6 +306,10 @@ fn bench_heif_encode(dir: &std::path::Path) {
     let mut sum_moz444 = std::time::Duration::ZERO;
     let mut sum_moz420 = std::time::Duration::ZERO;
     let (mut sum_image_bytes, mut sum_444_bytes, mut sum_420_bytes) = (0usize, 0usize, 0usize);
+    // 縮小デコードの計測へ渡すのは**ここを通り抜けた（実際に絵になった）もの**だけ。
+    // 壊れた1枚・コーデックの無い1枚が先頭に居るだけで、あちらの計測が
+    // まるごと落ちるのを避ける
+    let mut decodable: Vec<std::path::PathBuf> = Vec::new();
     for path in &entries {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
 
@@ -346,6 +350,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
         };
 
         n += 1;
+        decodable.push(path.clone());
         sum_decode += decode;
         sum_flatten += flatten;
         sum_image += image_d;
@@ -423,7 +428,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
    見るなら mozjpeg 4:4:4 と比べること。4:2:0 の分は間引きの手柄が混ざっている"
     );
 
-    bench_wic_scaled_decode(&entries);
+    bench_wic_scaled_decode(&decodable);
 }
 
 /// WICが「縮小しながら展開」できるか、聞いた上で実際に測る。
@@ -435,11 +440,14 @@ fn bench_heif_encode(dir: &std::path::Path) {
 /// `GetClosestSize` が希望どおりの寸法を答えても、**内部で原寸まで起こしてから
 /// 縮めているだけ**なら1msも得しない。だから聞くだけで終わりにせず、
 /// 原寸と縮小の両方を通して時間を並べる。
-fn bench_wic_scaled_decode(entries: &[std::path::PathBuf]) {
+///
+/// 渡すのは**上の比較で実際に絵になったものだけ**。壊れた1枚・コーデックの
+/// 無い1枚が先頭に居るだけで、この計測がまるごと落ちる。
+fn bench_wic_scaled_decode(decodable: &[std::path::PathBuf]) {
     const EDGES: [u32; 2] = [4096, 2048];
 
     // コンテナの申告（0.2ms）だけで大きい順に並べる。画素は起こさない
-    let mut by_size: Vec<_> = entries
+    let mut by_size: Vec<_> = decodable
         .iter()
         .filter_map(|p| pictkura_core::heif::display_dimensions(p).map(|(w, h)| (w.max(h), p)))
         .collect();
