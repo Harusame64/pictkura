@@ -126,21 +126,48 @@ const PENDING_WATCHDOG_MS = 4000;
 const DISPLAY_MAX_EDGE = 4096;
 
 /**
- * その配信URLが、このidの原寸か。
+ * その配信URLが、このidの絵か。
  *
  * **前方一致で見ない**——`full/1` は `full/12` にも当たるので、送った直後に
- * 遅れて届いた前の絵の完了を、新しい絵のものと取り違える
+ * 遅れて届いた前の絵の完了を、新しい絵のものと取り違える。
+ *
+ * **`pathname` をそのまま比べてはいけない**。`convertFileSrc` は経路を
+ * `encodeURIComponent` で包むので、`full/8132` は
+ * `http://media.localhost/full%2F8132` として届く。素の `pathname` は
+ * `/full%2F8132` で、`/full/8132` とは**永遠に一致しない**
+ * （Rust側の `parse_media_url` も `percent_decode` してから見ている）。
  */
-function isSrcOf(src: string, id: number): boolean {
+function isSrcOf(
+  src: string,
+  id: number,
+  kind: "full" | "thumb" = "full",
+): boolean {
   try {
-    return new URL(src).pathname === `/full/${id}`;
+    return decodeURIComponent(new URL(src).pathname) === `/${kind}/${id}`;
   } catch {
+    // 壊れたパーセント記法は decodeURIComponent が投げる。ここも false 側へ
     return false;
   }
 }
 
 /** 拡張子がTIFFか（配信時に長辺を丸められる唯一の形式） */
 const isTiffName = (name: string) => /\.tiff?$/i.test(name);
+
+/**
+ * **配信される絵の寸法**（DBの寸法とは限らない）。
+ *
+ * ビューアへ流す原寸は、TIFFだけ長辺 [`DISPLAY_MAX_EDGE`] へ丸められる
+ * （`thumbs::display_jpeg`）。下敷きの枠にDBの寸法を名乗らせると、
+ * **上限より大きな画面**では下敷きだけが大きく描かれ、差し替えで絵が縮む。
+ */
+function servedSize(item: MediaItem): [number, number] {
+  const long = Math.max(item.width, item.height);
+  if (!isTiffName(item.file_name) || long <= DISPLAY_MAX_EDGE) {
+    return [item.width, item.height];
+  }
+  const k = DISPLAY_MAX_EDGE / long;
+  return [Math.round(item.width * k), Math.round(item.height * k)];
+}
 
 /**
  * 先読みで抱えるデコード済み画素のバイト数（幅×高さ×4）。
@@ -1276,8 +1303,24 @@ export default function App() {
   // 新しい絵の判定に使ってしまう（ゲート2のP2-1）。idなら一致しないので、
   // 1コミット目から正しく閉じる
 
-  /** 原寸が届いた絵のid */
+  /**
+   * **待つのをやめてよい**絵のid。原寸が届いたときと、届かないと分かったとき
+   * （`onError`）の両方で立つ——「読み込み中」を畳み、裏の詰め直しを始めてよい
+   * 合図であって、**絵が出たという意味ではない**
+   */
   const [loadedId, setLoadedId] = useState<number | null>(null);
+  /**
+   * 原寸が**実際に出た**絵のid（0.2 ②）。
+   *
+   * [`loadedId`] と分けてあるのは、原本が消えている・取り寄せられない・
+   * 詰め直せないときに `onError` が走るから。あちらで下敷きを外すと、
+   * **出ていたサムネイルまで消えて真っ黒になる**（ゲート1のP2）
+   */
+  const [fullShownId, setFullShownId] = useState<number | null>(null);
+  /** 下敷きのサムネイルが出た絵のid（0.2 ②） */
+  const [thumbShownId, setThumbShownId] = useState<number | null>(null);
+  /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
+  const [fullFailedId, setFullFailedId] = useState<number | null>(null);
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
@@ -1288,13 +1331,16 @@ export default function App() {
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
-    // 前の絵に立てた印は**3つとも**捨てる。残しておくと、A→B→Aと戻ったときに
+    // 前の絵に立てた印は**6つとも**捨てる。残しておくと、A→B→Aと戻ったときに
     // 「Aはもう出ている・落ち着いている」が最初から成立し、**まだ動いている
     // 最中なのに裏の詰め直しが始まる**（門の意味が消える）。
     // nullへ戻すのは安全な向き——古いidが新しいidと一致して門が開くことは無い
     setSlowId(null);
     setLoadedId(null);
     setSettledId(null);
+    setThumbShownId(null);
+    setFullShownId(null);
+    setFullFailedId(null);
     if (viewerItemId === undefined) return;
     const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
@@ -1307,6 +1353,19 @@ export default function App() {
       if (slow !== undefined) window.clearTimeout(slow);
     };
   }, [viewerItemId, viewerTranscoding]);
+
+  /**
+   * 原寸が出せず、下敷きのサムネイルが唯一の絵になっているか（0.2 ②）。
+   *
+   * このとき原寸の `<img>` は**中身の無い絵の枠**として残す（当たり判定と
+   * 拡大・移動・右クリックのため）。
+   */
+  const fallbackToThumb =
+    viewerItem !== null &&
+    fullFailedId === viewerItem.id &&
+    thumbShownId === viewerItem.id;
+  /** 配信される絵の寸法（TIFFだけ長辺が丸められる） */
+  const [servedW, servedH] = viewerItem ? servedSize(viewerItem) : [0, 0];
 
   /** 先読みする隣接画像（表示順に 次1→前1→次2→…） */
   const [preload, setPreload] = useState<MediaItem[]>([]);
@@ -2801,7 +2860,9 @@ export default function App() {
             <img
               className="viewer-image"
               src={fullSrc(viewerItem.id, viewerItem.mtime_ms)}
-              alt={viewerItem.file_name}
+              // 原寸が出せず下敷きが唯一の絵になったときは、代替テキストを黙らせる
+              // ——絵の真ん中にファイル名が浮くと、情報ではなくゴミに見える
+              alt={fallbackToThumb ? "" : viewerItem.file_name}
               draggable={false}
               // 読み込み中表示をここで畳む。失敗（onError）でも畳む——
               // 出ない絵のために「読み込み中」を出し続けない。
@@ -2809,20 +2870,40 @@ export default function App() {
               // 完了が遅れて届くことがあり、そのまま信じると「まだ出ていない
               // 新しい絵」を出たものとして扱ってしまう
               onLoad={(e) => {
-                if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id))
+                if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id)) {
                   setLoadedId(viewerItem.id);
+                  // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）
+                  setFullShownId(viewerItem.id);
+                  // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
+                  // 来ることがあり（下のonError参照）、その後で本命の load が
+                  // 成功する。印を残すと「原寸は隠す・下敷きは外す」が同時に
+                  // 成立して**何も映らない**（ゲート2のP2）
+                  setFullFailedId(null);
+                }
               }}
               onError={(e) => {
                 // 失敗したのが**いまの絵**のときだけ畳む。ただし `currentSrc` が
                 // 空のまま失敗することもあるので、そのときは畳む側に倒す
                 // （出ない絵のために「読み込み中」を出し続けないため）
                 const src = e.currentTarget.currentSrc;
-                if (!src || isSrcOf(src, viewerItem.id))
+                if (!src || isSrcOf(src, viewerItem.id)) {
                   setLoadedId(viewerItem.id);
+                  setFullFailedId(viewerItem.id);
+                }
               }}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 cursor: zoom > 1 ? "grab" : "zoom-in",
+                // 原寸が出せず下敷きが唯一の絵になったときも、**この <img> は
+                // 消さずに絵の枠として残す**。消すと拡大・移動・右クリックが
+                // 効かない絵になり、写真をクリックしただけでビューアが閉じる
+                // （下敷きは `pointer-events: none` なので、当たり判定はここ）。
+                // **透明にするだけで消さない**——寸法を持つ失敗画像には、
+                // Chromiumが枠と壊れアイコンを描く（`alt` を空にしても消えない）。
+                // `opacity: 0` なら何も描かれず、当たり判定だけが残る
+                ...(fallbackToThumb
+                  ? { width: servedW, height: servedH, opacity: 0 }
+                  : null),
               }}
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => {
@@ -2873,6 +2954,52 @@ export default function App() {
           ) : (
             <div className="viewer-loading">{t.loading}</div>
           )}
+          {/* 原寸が届くまで、グリッドで既に描いたサムネイルを下に敷く（0.2 ②）。
+              クリックした瞬間、その絵の512pxはブラウザにデコード済みで載っている
+              ＝**待ち時間ゼロで絵が出る**。原寸は詰め直しに約950msかかる
+              （HEIC実測: WIC展開446ms＋imageクレートのエンコード428ms）ので、
+              その間を埋める。
+
+              詰め直しの要る形式（HEIC・RAW・TIFF）だけに敷く——JPEGは6msで
+              出るので、敷いても一瞬ぼやけた絵が見えるだけ損。
+
+              **原寸の <img> より後に置くこと**。ブラウザは `src` を差し替えても
+              新しい絵の最初のフレームが出るまで**前の絵を描き続ける**ので、
+              送りで冷えた1枚へ行くと約1秒「前の写真」が残る。位置指定つきの
+              こちらを後に置くと、その残像の上に新しい絵の下敷きが載る
+              （ゲート2のP2）。字幕・送りボタン・読み込み中はさらに後ろにあるので
+              こちらより前に描かれる */}
+          {viewerItem &&
+            viewerTranscoding &&
+            viewerItem.has_thumb &&
+            viewerItem.width > 0 &&
+            viewerItem.height > 0 &&
+            fullShownId !== viewerItem.id && (
+              <img
+                className="viewer-thumb"
+                src={thumbSrc(viewerItem)}
+                // ふだんは原寸の下に敷くだけの飾り。**原寸が出せなかったときは
+                // これが唯一見えている絵**になるので、そのときだけ名前を名乗る
+                alt={fullFailedId === viewerItem.id ? viewerItem.file_name : ""}
+                aria-hidden={fullFailedId !== viewerItem.id}
+                draggable={false}
+                onLoad={(e) => {
+                  if (
+                    isSrcOf(e.currentTarget.currentSrc, viewerItem.id, "thumb")
+                  )
+                    setThumbShownId(viewerItem.id);
+                }}
+                // **原寸と同じ場所に同じ大きさで描く**。枠には原本の寸法を
+                // 名乗らせ、`object-fit: contain` で中に収める——こうすると
+                // 原寸の <img>（`max-width`/`max-height` で縮む）と描画結果が
+                // ぴったり一致し、差し替わるときに絵が動かない
+                style={{
+                  width: servedW,
+                  height: servedH,
+                  transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                }}
+              />
+            )}
           {/* 先読み（0.2 ①）。`display:none` でも画素は保持される（実測で
               opacity:0・画面外配置と同じ。小細工は要らない）。クリックも
               受けないので、地をクリックして閉じる操作の邪魔にならない */}
@@ -2888,11 +3015,16 @@ export default function App() {
               style={{ display: "none" }}
             />
           ))}
-          {viewerItem && slowId === viewerItem.id && loadedId !== viewerItem.id && (
-            <div className="viewer-loading viewer-loading-overlay">
-              {t.loading}
-            </div>
-          )}
+          {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
+              サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
+          {viewerItem &&
+            slowId === viewerItem.id &&
+            loadedId !== viewerItem.id &&
+            thumbShownId !== viewerItem.id && (
+              <div className="viewer-loading viewer-loading-overlay">
+                {t.loading}
+              </div>
+            )}
           {viewerItem && (
             <div
               className="viewer-caption"
