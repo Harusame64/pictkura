@@ -5,6 +5,7 @@
 //! - `[routing]`     : 取り込んだファイルのコピー先の決定ルール
 //! - `[library]`     : ライブラリ（スキャン対象）の場所と除外パターン
 //! - `[performance]` : サムネイルサイズやワーカー数などの性能パラメータ
+//! - `[viewer]`      : 全画面ビューアの操作
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,7 @@ pub struct Config {
     pub library: LibraryConfig,
     pub performance: PerformanceConfig,
     pub editors: EditorsConfig,
+    pub viewer: ViewerConfig,
 }
 
 /// `[editors]` 外部の編集アプリ。
@@ -263,6 +265,25 @@ impl Default for PerformanceConfig {
     }
 }
 
+/// `[viewer]` 全画面ビューアの操作（0.2 ②）。
+///
+/// キーバインドは**既定の1種だけ**を持ち、プリセット機構は作らない
+/// （`dev/plan.0.2.rev.md` 決定事項3）。設定に出すのは自動送りの入切だけ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewerConfig {
+    /// 選別のキー（`P`＝★を付ける / `U`＝外す）を押したとき、
+    /// 続けて次の絵へ送るか。既定はON（判定1回＝1アクションで進む）。
+    /// OFFにすると★だけ変えてその絵に留まる。
+    pub auto_advance: bool,
+}
+
+impl Default for ViewerConfig {
+    fn default() -> Self {
+        Self { auto_advance: true }
+    }
+}
+
 impl Config {
     /// TOML文字列からパースする。欠けているフィールドはデフォルト値で補完される。
     pub fn from_toml_str(s: &str) -> Result<Self, ConfigError> {
@@ -309,6 +330,25 @@ mod tests {
     #[test]
     fn 動画の拡張子はすべて走査対象に入っている() {
         super::video_extensions_are_all_scanned().unwrap();
+    }
+
+    /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**
+    /// ので、既定で補われること＝自動送りがONで始まることを固定しておく。
+    #[test]
+    fn viewerの節が無い設定でも自動送りはonで読める() {
+        let config = Config::from_toml_str(
+            "[import]
+verify_after_copy = true
+",
+        )
+        .unwrap();
+        assert!(config.viewer.auto_advance);
+
+        // 切ったら切ったまま往復する
+        let mut off = Config::default();
+        off.viewer.auto_advance = false;
+        let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
+        assert!(!back.viewer.auto_advance);
     }
 
     #[test]

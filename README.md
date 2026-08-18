@@ -201,6 +201,7 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `2019-08` / `2019-08-11` | filter by capture date. **A bare `2019` is treated as text**, not a date — it cannot be told apart from a file name |
 | `year:2019` | filter to a single year |
 | `★` | favourites only |
+| `⚑` / `pick:` | picked photos only |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
 
@@ -211,10 +212,12 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | Key | Action |
 |---|---|
 | `←` `→` | previous / next |
+| `P` / `U` | pick (flag it ⚑) / unpick. By default this **moves on to the next photo**; you can turn that off in settings |
 | `Space` | slideshow (play / pause for video) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `F11` | full screen |
 | `Esc` | close |
+| `?` | show the keyboard shortcuts (from anywhere) |
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 open / open with / show in folder / move to trash. **Deleting always goes through the
@@ -231,7 +234,7 @@ selection.
 | circle, or `Ctrl` + click | add or remove one photo |
 | `Shift` + click | select everything between the tile you clicked last and this one — days you have not scrolled to yet are included |
 | click a date heading | select that whole day; click it again to unselect it |
-| `Ctrl` + `A` | select everything the current search and ★ filter match |
+| `Ctrl` + `A` | select everything the current search and ★ / ⚑ filter match |
 | `Esc` | stop selecting |
 
 While something is selected, a plain click toggles a tile instead of opening the viewer.
@@ -239,16 +242,25 @@ From the bar you can add or remove ★ for the whole selection, copy or move it 
 you pick, or move all of it to the recycle bin in one go — deleting asks first, and
 **it still goes through the recycle bin**.
 
+**View the selection** opens the viewer on just those photos: `←` `→` stay inside the
+selection and the counter shows how many you picked out. Going through a burst is then
+`P` and `→` — or just `P`, with the default move-on-to-the-next setting.
+
+⚑ is **a separate shelf from ★ favourites**: ★ is "a photo I want to come back to",
+⚑ is "the one frame I keep out of this burst". Mixing them would fill your favourites
+with the leftovers of every culling session. **⚑ Picked** in the sidebar lists what you
+picked, and the search box takes `⚑` (or `pick:`) as a filter.
+
 **Copy to folder / Move to folder** put the selected files straight into the folder you
 pick, without date subfolders — handy for handing a few photos to someone or filling a USB
 stick. A file that is already there — same name, size and
 timestamp — is left alone, so writing the same photos to the same folder again adds
 nothing; a different file that happens to share a name gets `-1`, `-2` appended. Moving asks first: those photos leave
-their current place and leave the library, and their ★ is not carried over. Moving to
+their current place and leave the library, and their ★ / ⚑ marks are not carried over. Moving to
 another drive — and moving a file that only exists in the cloud — copies first and then
 sends the original to the recycle bin.
 
-The selection follows what is on screen. Changing the search or the ★ filter, or switching
+The selection follows what is on screen. Changing the search or the ★ / ⚑ filter, or switching
 to the calendar, clears it, so a bulk action never reaches photos you cannot see.
 
 ### 7. Language

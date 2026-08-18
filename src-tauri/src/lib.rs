@@ -343,6 +343,8 @@ struct MediaItemDto {
     /// URLバージョンに含めて、即席→高品質の差し替え時にキャッシュを割る
     thumb_state: i64,
     favorite: bool,
+    /// 選別で選んだ印（⚑ Pick。0.2 ②）。★とは別の棚
+    picked: bool,
     /// 動画の長さ（ミリ秒）。動画以外・未読取は null（第9部）
     duration_ms: Option<i64>,
     /// 動画か（一覧の▶バッジと、ビューアでプレイヤーを出すかの判断）
@@ -381,6 +383,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             has_thumb: r.thumb_path.is_some(),
             thumb_state: r.thumb_state,
             favorite: r.favorite,
+            picked: r.picked,
             duration_ms: r.duration_ms,
             is_video: pictkura_core::video::is_video_path(&r.path),
             plays_in_app: pictkura_core::video::plays_in_webview(&r.path),
@@ -413,6 +416,8 @@ struct MemoryDto {
 struct LibraryStatsDto {
     total: i64,
     favorites: i64,
+    /// 選別で選んだ件数（⚑。0.2 ②）
+    picked: i64,
 }
 
 /// カメラ別の枚数（左ペイン「カメラとメディア」用、第4部 段階D）。
@@ -794,9 +799,9 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
 fn timeline_summary(
     state: tauri::State<'_, AppState>,
     query: String,
-    favorites_only: bool,
+    filter: pictkura_core::MediaFilter,
 ) -> Result<Vec<DaySummaryDto>, String> {
-    let query = pictkura_core::parse_query(&query, favorites_only);
+    let query = pictkura_core::parse_query(&query, filter);
     Ok(state
         .read_pool
         .with(|db| db.search_summary(&query))
@@ -819,9 +824,9 @@ fn list_day(
     state: tauri::State<'_, AppState>,
     day_key: i64,
     query: String,
-    favorites_only: bool,
+    filter: pictkura_core::MediaFilter,
 ) -> Result<Vec<MediaItemDto>, String> {
-    let query = pictkura_core::parse_query(&query, favorites_only);
+    let query = pictkura_core::parse_query(&query, filter);
     Ok(state
         .read_pool
         .with(|db| db.search_day(day_key, &query))
@@ -1300,6 +1305,12 @@ fn set_folder_pattern(state: tauri::State<'_, AppState>, pattern: String) -> Res
     update_config(&state, |c| c.routing.folder_pattern = pattern)
 }
 
+/// ビューアの選別キー（`P` / `U`）を押したあと、次の絵へ自動で送るかを切り替える（0.2 ②）。
+#[tauri::command]
+fn set_auto_advance(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    update_config(&state, |c| c.viewer.auto_advance = enabled)
+}
+
 /// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
 ///
 /// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
@@ -1386,6 +1397,7 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
             Ok(LibraryStatsDto {
                 total: db.count()?,
                 favorites: db.count_favorites()?,
+                picked: db.count_picked()?,
             })
         })
         .map_err(|e: pictkura_core::DbError| e.to_string())
@@ -1423,6 +1435,26 @@ async fn sync_now(app: tauri::AppHandle) -> Result<SyncStatsDto, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// 選別の印（⚑ Pick。0.2 ②）を設定する。★とは別の列を触る。
+#[tauri::command]
+fn set_picked(state: tauri::State<'_, AppState>, id: i64, picked: bool) -> Result<(), String> {
+    lock_ok(&state.db)
+        .set_picked(id, picked)
+        .map_err(|e| e.to_string())
+}
+
+/// 選別の印をまとめて付ける・外す（複数選択の一括操作）。
+#[tauri::command]
+fn set_pickeds(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<i64>,
+    picked: bool,
+) -> Result<usize, String> {
+    lock_ok(&state.db)
+        .set_pickeds(&ids, picked)
+        .map_err(|e| e.to_string())
+}
+
 /// お気に入り（★）を設定する。
 #[tauri::command]
 fn set_favorite(state: tauri::State<'_, AppState>, id: i64, favorite: bool) -> Result<(), String> {
@@ -1458,9 +1490,9 @@ fn set_favorites(
 fn list_media_ids(
     state: tauri::State<'_, AppState>,
     query: String,
-    favorites_only: bool,
+    filter: pictkura_core::MediaFilter,
 ) -> Result<Vec<i64>, String> {
-    let query = pictkura_core::parse_query(&query, favorites_only);
+    let query = pictkura_core::parse_query(&query, filter);
     state
         .read_pool
         .with(|db| db.search_ids(&query))
@@ -1475,11 +1507,11 @@ fn list_media_ids(
 fn list_media_ids_between(
     state: tauri::State<'_, AppState>,
     query: String,
-    favorites_only: bool,
+    filter: pictkura_core::MediaFilter,
     from_id: i64,
     to_id: i64,
 ) -> Result<Vec<i64>, String> {
-    let query = pictkura_core::parse_query(&query, favorites_only);
+    let query = pictkura_core::parse_query(&query, filter);
     state
         .read_pool
         .with(|db| db.search_ids_between(&query, from_id, to_id))
@@ -1494,14 +1526,46 @@ fn list_media_ids_between(
 fn visible_media_ids(
     state: tauri::State<'_, AppState>,
     query: String,
-    favorites_only: bool,
+    filter: pictkura_core::MediaFilter,
     ids: Vec<i64>,
 ) -> Result<Vec<i64>, String> {
-    let query = pictkura_core::parse_query(&query, favorites_only);
+    let query = pictkura_core::parse_query(&query, filter);
     state
         .read_pool
         .with(|db| db.visible_ids(&query, &ids))
         .map_err(|e| e.to_string())
+}
+
+/// 選択をビューアの**スコープ**として固定するために、
+/// 「いま並んでいるものだけ」を**一覧と同じ並び**で、その日と一緒に返す（0.2 ②）。
+///
+/// [`visible_media_ids`] との違いは並びと `day_key`。ビューアは位置を
+/// `(day_key, id)` で持つので、隣へ送るにはその日が要る。選択はJS側では
+/// 集合（入れた順）なので、並べ直しをフロントでやると一覧とずれる。
+#[tauri::command]
+fn scope_media(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    filter: pictkura_core::MediaFilter,
+    ids: Vec<i64>,
+) -> Result<Vec<ScopeItemDto>, String> {
+    let query = pictkura_core::parse_query(&query, filter);
+    state
+        .read_pool
+        .with(|db| db.visible_ids_in_order(&query, &ids))
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(id, day_key)| ScopeItemDto { id, day_key })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// [`scope_media`] が返す1件。
+#[derive(serde::Serialize, Clone)]
+struct ScopeItemDto {
+    id: i64,
+    day_key: i64,
 }
 
 /// 可視領域のIDをサムネイル生成キューへオンデマンド投入し、最優先へ引き上げる。
@@ -2720,6 +2784,10 @@ pub fn run() {
             list_media_ids,
             list_media_ids_between,
             visible_media_ids,
+            scope_media,
+            set_picked,
+            set_pickeds,
+            set_auto_advance,
             set_register_autoplay,
             take_pending_import
         ])

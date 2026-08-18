@@ -274,6 +274,7 @@ they land on the right day.
   <tr><td><code>2019-08</code> <code>2019/8</code> <code>2019-08-11</code></td><td>Narrow by capture date. <strong>A bare <code>2019</code> is treated as text, not a date</strong> — it cannot be told apart from a file name</td></tr>
   <tr><td><code>year:2019</code></td><td>Narrow to a single year</td></tr>
   <tr><td><code>★</code></td><td>Favorites only</td></tr>
+  <tr><td><code>⚑</code> <code>pick:</code></td><td>Picked photos only (a separate shelf from ★)</td></tr>
 </table>
 </div>
 
@@ -292,10 +293,12 @@ they land on the right day.
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
   <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next photo (same for videos)</td></tr>
+  <tr><td><kbd>P</kbd> / <kbd>U</kbd></td><td>Pick (flag it ⚑) / unpick. By default this moves on to the next photo; Settings → “When you view a photo full screen” turns that off</td></tr>
   <tr><td><kbd>Space</kbd></td><td>Start or stop the slideshow. On a video, play / pause</td></tr>
   <tr><td><kbd>I</kbd></td><td>Capture details (camera, lens, aperture, shutter, ISO, GPS)</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
+  <tr><td><kbd>?</kbd></td><td>Show the keyboard shortcuts (works in the grid too)</td></tr>
 </table>
 </div>
 
@@ -325,7 +328,7 @@ what you can do to the selection.
   <tr><td>The circle, or <kbd>Ctrl</kbd> + click</td><td>Add or remove one photo</td></tr>
   <tr><td><kbd>Shift</kbd> + click</td><td>Select everything between the tile you clicked last and this one. Days you have not scrolled to yet are included</td></tr>
   <tr><td>Click a date heading</td><td>Select that whole day. Click it again to unselect it</td></tr>
-  <tr><td><kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select everything the current search and ★ filter match</td></tr>
+  <tr><td><kbd>Ctrl</kbd> + <kbd>A</kbd></td><td>Select everything the current search and ★ / ⚑ filter match</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Stop selecting</td></tr>
 </table>
 </div>
@@ -334,6 +337,26 @@ what you can do to the selection.
 While something is selected, a plain click toggles a tile instead of opening the viewer.
 From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
 you pick, or move all of it to the Recycle Bin in one go. It asks before deleting.
+</p>
+
+<h3>⚑ Picked</h3>
+
+<p>
+The ⚑ that <kbd>P</kbd> puts on a photo is <strong>a separate shelf from ★ favourites</strong>.
+★ is “a photo I want to come back to”; ⚑ is “the one frame I keep out of this burst”.
+Sharing one mark would fill your favourites with the leftovers of every culling session.
+<strong>“⚑ Picked”</strong> in the sidebar lists what you picked, the search box takes
+<code>⚑</code> (or <code>pick:</code>), and the selection bar can pick or unpick a whole
+selection at once.
+</p>
+
+<h3>View the selection</h3>
+
+<p>
+<strong>“View the selection”</strong> in the bar opens the viewer on just those photos.
+<kbd>←</kbd> <kbd>→</kbd> stay inside the selection, and the counter in the corner
+counts the photos you picked out. To choose one frame out of a burst, select the burst,
+come in here, and walk it with <kbd>P</kbd> and <kbd>U</kbd>.
 </p>
 
 <h3>Copy to folder / Move to folder</h3>
@@ -349,7 +372,7 @@ same folder again adds nothing; a different file that happens to share a name ge
 <div class="note warn">
   <p>
     <strong>Moving takes those photos out of the library.</strong>
-    They leave their current place, disappear from the grid, and their ★ is not carried
+    They leave their current place, disappear from the grid, and their ★ / ⚑ marks are not carried
     over. pictkura asks first. Moving to another drive copies the file and then sends the
     original to the Recycle Bin — the app still never removes a file outright.
   </p>
@@ -366,7 +389,7 @@ same folder again adds nothing; a different file that happens to share a name ge
 <div class="note">
   <p>
     <strong>The selection follows what is on screen.</strong>
-    Changing the search or the ★ filter, or switching to the calendar, clears it — so a
+    Changing the search or the ★ / ⚑ filter, or switching to the calendar, clears it — so a
     bulk action never reaches photos you cannot see. Deleting still goes through the
     Recycle Bin.
   </p>

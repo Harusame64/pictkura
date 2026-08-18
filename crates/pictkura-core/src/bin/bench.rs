@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use pictkura_core::jpeg::ChromaSampling;
-use pictkura_core::{Db, ScannedFile};
+use pictkura_core::{Db, MediaFilter, ScannedFile};
 use rusqlite::{params, Connection};
 
 /// 決定的な擬似乱数（xorshift64*）。ベンチの再現性のためrandクレートは使わない。
@@ -1548,7 +1548,7 @@ fn main() {
         "IMG_000001",
         "camera:α7",
     ] {
-        let query = pictkura_core::parse_query(probe, false);
+        let query = pictkura_core::parse_query(probe, MediaFilter::All);
         let t = Instant::now();
         let hits = db.search_count(&query).unwrap();
         let count_ms = fmt_ms(t.elapsed());
@@ -1585,7 +1585,7 @@ fn main() {
     println!("count: {n}件 {}", fmt_ms(t.elapsed()));
 
     let t = Instant::now();
-    let summary = db.timeline_summary(false).unwrap();
+    let summary = db.timeline_summary(MediaFilter::All).unwrap();
     println!(
         "timeline_summary: {}日分 {}  ← 起動時にUIへ渡す索引",
         summary.len(),
@@ -1594,7 +1594,7 @@ fn main() {
 
     let busiest = summary.iter().max_by_key(|d| d.count).unwrap().clone();
     let t = Instant::now();
-    let day = db.list_day(busiest.day_key, false).unwrap();
+    let day = db.list_day(busiest.day_key, MediaFilter::All).unwrap();
     println!(
         "list_day(最多日 {} {}枚): {}件 {}  ← スクロールで1日分を取得",
         busiest.day_key,
@@ -1616,7 +1616,7 @@ fn main() {
     println!("count_favorites: {favs}件 {}", fmt_ms(t.elapsed()));
 
     let t = Instant::now();
-    let fav_summary = db.timeline_summary(true).unwrap();
+    let fav_summary = db.timeline_summary(MediaFilter::Fav).unwrap();
     println!(
         "timeline_summary(★のみ): {}日分 {}",
         fav_summary.len(),

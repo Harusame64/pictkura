@@ -50,6 +50,9 @@ pub struct MediaRecord {
     pub thumb_state: i64,
     /// お気に入り（★）。ファイル更新でも維持される
     pub favorite: bool,
+    /// 選別で選んだ印（⚑ Pick。0.2 ②）。★とは**別の棚**で、
+    /// 「あとで見返したい写真」と「この連写から残す1枚」を混ぜないための列
+    pub picked: bool,
     /// 動画の長さ（ミリ秒）。画像はNULL（第9部）
     pub duration_ms: Option<i64>,
 }
@@ -320,6 +323,7 @@ impl Db {
                 thumb_path  TEXT,
                 thumb_state INTEGER NOT NULL DEFAULT 0,
                 favorite    INTEGER NOT NULL DEFAULT 0,
+                picked      INTEGER NOT NULL DEFAULT 0,
                 day_key     INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_media_taken_at ON media(taken_at_ms DESC);
@@ -336,6 +340,11 @@ impl Db {
         );
         let _ = conn.execute(
             "ALTER TABLE media ADD COLUMN day_key INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // 0.2 ②: 選別の印（★とは別の棚）
+        let _ = conn.execute(
+            "ALTER TABLE media ADD COLUMN picked INTEGER NOT NULL DEFAULT 0",
             [],
         );
         // 段階B-3: 高品質サムネイルのLRUキャッシュ管理用
@@ -374,6 +383,8 @@ impl Db {
                 ON media(day_key DESC, {SORT_TS} DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_media_fav_day
                 ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE favorite = 1;
+            CREATE INDEX IF NOT EXISTS idx_media_picked_day
+                ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE picked = 1;
             CREATE INDEX IF NOT EXISTS idx_media_thumb_lru
                 ON media(thumb_used_ms, thumb_bytes) WHERE thumb_state = 2;
             "#
@@ -520,7 +531,8 @@ impl Db {
                 norm     TEXT PRIMARY KEY,
                 keep_id  INTEGER NOT NULL,
                 donor_id INTEGER,
-                favorite INTEGER NOT NULL DEFAULT 0
+                favorite INTEGER NOT NULL DEFAULT 0,
+                picked   INTEGER NOT NULL DEFAULT 0
             );
             DELETE FROM path_dup_tmp;
             INSERT INTO path_dup_tmp (norm, keep_id)
@@ -531,12 +543,17 @@ impl Db {
             FROM path_fix_tmp t GROUP BY t.norm HAVING COUNT(*) > 1;
 
             -- 消える側のうち、**メタデータが埋まっている行**を1つ選んで引き継ぎ元にする。
-            -- お気に入りは片方でも付いていれば残す（ユーザーが付けた情報は消さない）
+            -- お気に入り（★）と選別の印（⚑）は片方でも付いていれば残す
+            -- （ユーザーが付けた情報は消さない）。**★と⚑は対称に扱うこと**——
+            -- 移行を作り直して再実行したときに、片方だけ黙って落ちるのを防ぐ
             UPDATE path_dup_tmp SET
                 donor_id = (SELECT o.id FROM media o JOIN path_fix_tmp ot ON ot.id = o.id
                             WHERE ot.norm = path_dup_tmp.norm AND o.id <> path_dup_tmp.keep_id
                             ORDER BY (o.width IS NOT NULL) DESC, o.id ASC LIMIT 1),
                 favorite = COALESCE((SELECT MAX(o.favorite) FROM media o
+                                     JOIN path_fix_tmp ot ON ot.id = o.id
+                                     WHERE ot.norm = path_dup_tmp.norm), 0),
+                picked   = COALESCE((SELECT MAX(o.picked) FROM media o
                                      JOIN path_fix_tmp ot ON ot.id = o.id
                                      WHERE ot.norm = path_dup_tmp.norm), 0);
             "#,
@@ -547,6 +564,7 @@ impl Db {
             r#"
             UPDATE media SET
                 favorite    = COALESCE((SELECT d.favorite FROM path_dup_tmp d WHERE d.keep_id = media.id), favorite),
+                picked      = COALESCE((SELECT d.picked   FROM path_dup_tmp d WHERE d.keep_id = media.id), picked),
                 taken_at_ms = COALESCE(taken_at_ms, (SELECT o.taken_at_ms FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
                 camera_id   = COALESCE(camera_id,   (SELECT o.camera_id FROM media o
@@ -1285,6 +1303,35 @@ impl Db {
         Ok(victims)
     }
 
+    /// 選別の印（⚑ Pick。0.2 ②）を設定する。
+    ///
+    /// ★（[`Db::set_favorite`]）とは**別の列**。連写から1枚を選ぶ作業の結果が
+    /// 「あとで見返したい写真」の棚へ流れ込まないように分けてある
+    pub fn set_picked(&mut self, id: i64, picked: bool) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE media SET picked = ?2 WHERE id = ?1",
+            params![id, picked as i64],
+        )?;
+        Ok(())
+    }
+
+    /// 選別の印をまとめて付ける・外す（[`Db::set_favorites`] と同じ書き方）。
+    pub fn set_pickeds(&mut self, ids: &[i64], picked: bool) -> Result<usize, DbError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self.write_tx()?;
+        let mut changed = 0;
+        {
+            let mut stmt = tx.prepare_cached("UPDATE media SET picked = ?2 WHERE id = ?1")?;
+            for id in ids {
+                changed += stmt.execute(params![id, picked as i64])?;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
     /// お気に入り（★）を設定する。
     pub fn set_favorite(&mut self, id: i64, favorite: bool) -> Result<(), DbError> {
         self.conn.execute(
@@ -1322,7 +1369,7 @@ impl Db {
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, duration_ms
+                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
              FROM media WHERE id = ?1",
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -1335,8 +1382,8 @@ impl Db {
     /// タイムライン索引: 「日付→枚数＋代表レコード」のサマリを新しい日付順で返す。
     /// 集計は複合インデックスのスキャンで行い、行本体は代表1件分しか読まない。
     /// （MAX()と同時に選択したベア列は最大値の行から取られる: SQLiteの保証仕様）
-    pub fn timeline_summary(&self, favorites_only: bool) -> Result<Vec<DaySummary>, DbError> {
-        self.search_summary(&SearchQuery::favorites(favorites_only))
+    pub fn timeline_summary(&self, filter: crate::MediaFilter) -> Result<Vec<DaySummary>, DbError> {
+        self.search_summary(&SearchQuery::filtered(filter))
     }
 
     /// 指定日（YYYYMMDD整数）のレコードを表示順（新しい順）で返す。
@@ -1344,9 +1391,9 @@ impl Db {
     pub fn list_day(
         &self,
         day_key: i64,
-        favorites_only: bool,
+        filter: crate::MediaFilter,
     ) -> Result<Vec<MediaRecord>, DbError> {
-        self.search_day(day_key, &SearchQuery::favorites(favorites_only))
+        self.search_day(day_key, &SearchQuery::filtered(filter))
     }
 
     /// 検索条件をWHERE句の条件リストとパラメータへ変換する（第4部 段階D）。
@@ -1419,6 +1466,9 @@ impl Db {
             conds.push(format!("camera_id IN ({})", camera_placeholders(ids.len())));
             args.extend(ids.into_iter().map(Value::Integer));
         }
+        if query.picked_only {
+            conds.push("picked = 1".to_string());
+        }
         if query.favorites_only {
             conds.push("favorite = 1".to_string());
         }
@@ -1489,7 +1539,7 @@ impl Db {
         args.insert(0, rusqlite::types::Value::Integer(day_key));
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, duration_ms
+                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
              FROM media WHERE {}
              ORDER BY {SORT_TS} DESC, id DESC",
             conds.join(" AND ")
@@ -1608,6 +1658,50 @@ impl Db {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**を、
+    /// **一覧と同じ並び**で、その日（`day_key`）と一緒に返す（0.2 ②）。
+    ///
+    /// ビューアの選択スコープ用。ビューアは位置を `(day_key, id)` で持つので、
+    /// 隣へ送るには「次のid」だけでなく**その日**が要る。選択は入れた順の集合で
+    /// あって並び順を持たないため、並べ直しもここでやる。
+    ///
+    /// 並びは [`Db::search_ids`] と同じ（`day_key` → 表示時刻 → id の降順）。
+    /// 渡された順を保つ [`Db::visible_ids`] とはそこが違う。
+    pub fn visible_ids_in_order(
+        &self,
+        query: &SearchQuery,
+        ids: &[i64],
+    ) -> Result<Vec<(i64, i64)>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (conds, base_args) = self.query_filter_mode(query, FTS_FOR_SELECTION)?;
+        // 並べる鍵ごと引く。SQLの変数上限があるので [`Db::visible_ids`] と
+        // 同じように分けて問い合わせ、並べ直しはこちらで1回だけやる
+        let mut rows_out: Vec<(i64, i64, i64)> = Vec::new();
+        for chunk in ids.chunks(400) {
+            let mut conds = conds.clone();
+            conds.push(format!("id IN ({})", camera_placeholders(chunk.len())));
+            let mut args = base_args.clone();
+            args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
+            let mut stmt = self.conn.prepare_cached(&format!(
+                "SELECT day_key, {SORT_TS}, id FROM media WHERE {}",
+                conds.join(" AND ")
+            ))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?;
+            for row in rows {
+                rows_out.push(row?);
+            }
+        }
+        // 同じIDを2度渡されても2度並ばないようにしておく（選択は集合だが、
+        // 呼ぶ側の作り方に依存したくない）
+        rows_out.sort_unstable_by(|a, b| b.cmp(a));
+        rows_out.dedup_by_key(|r| r.2);
+        Ok(rows_out.into_iter().map(|(day, _, id)| (id, day)).collect())
     }
 
     /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**だけを返す。
@@ -1843,7 +1937,7 @@ impl Db {
         let mut out = Vec::new();
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, duration_ms
+                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
              FROM media WHERE day_key = ?1
              ORDER BY {SORT_TS} DESC, id DESC LIMIT ?2"
         ))?;
@@ -1859,6 +1953,15 @@ impl Db {
             }
         }
         Ok(out)
+    }
+
+    /// 選別で選んだ（⚑）件数。部分インデックスのスキャンで返る（0.2 ②）。
+    pub fn count_picked(&self) -> Result<i64, DbError> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM media WHERE picked = 1", [], |r| {
+                r.get(0)
+            })?)
     }
 
     /// お気に入り（★）の総数。部分インデックスのスキャンで返る。
@@ -1877,7 +1980,7 @@ impl Db {
     pub fn list_all(&self) -> Result<Vec<MediaRecord>, DbError> {
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, duration_ms
+                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
              FROM media ORDER BY {SORT_TS} DESC, id DESC"
         ))?;
         let rows = stmt.query_map([], Self::row_to_record)?;
@@ -2046,7 +2149,8 @@ impl Db {
             thumb_path: row.get::<_, Option<String>>(8)?.map(PathBuf::from),
             thumb_state: row.get(9)?,
             favorite: row.get::<_, i64>(10)? != 0,
-            duration_ms: row.get(11)?,
+            picked: row.get::<_, i64>(11)? != 0,
+            duration_ms: row.get(12)?,
         })
     }
 }
@@ -2340,7 +2444,7 @@ mod tests {
         ])
         .unwrap();
 
-        let summary = db.timeline_summary(false).unwrap();
+        let summary = db.timeline_summary(crate::MediaFilter::All).unwrap();
         let keys: Vec<_> = summary.iter().map(|d| (d.day_key, d.count)).collect();
         assert_eq!(
             keys,
@@ -2351,17 +2455,25 @@ mod tests {
         let b_id = db.get_meta_by_path(Path::new("b.jpg")).unwrap().unwrap().id;
         assert_eq!(summary[1].cover_id, b_id, "日内最新がカバーになる");
 
-        let day = db.list_day(20240811, false).unwrap();
+        let day = db.list_day(20240811, crate::MediaFilter::All).unwrap();
         let names: Vec<_> = db
-            .list_day(20240811, false)
+            .list_day(20240811, crate::MediaFilter::All)
             .unwrap()
             .iter()
             .map(|r| r.path.to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec!["b.jpg", "a.jpg"], "日内は新しい順");
         assert_eq!(day.len(), 2);
-        assert!(db.list_day(20240812, false).unwrap().len() == 1);
-        assert!(db.list_day(19990101, false).unwrap().is_empty());
+        assert!(
+            db.list_day(20240812, crate::MediaFilter::All)
+                .unwrap()
+                .len()
+                == 1
+        );
+        assert!(db
+            .list_day(19990101, crate::MediaFilter::All)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2371,7 +2483,7 @@ mod tests {
         db.upsert_files(&[scanned("a.jpg", 1, d1), scanned("b.jpg", 1, d1 + 1000)])
             .unwrap();
         let id = db
-            .list_day(20240811, false)
+            .list_day(20240811, crate::MediaFilter::All)
             .unwrap()
             .iter()
             .find(|r| r.path == Path::new("a.jpg"))
@@ -2379,11 +2491,11 @@ mod tests {
             .id;
         db.set_favorite(id, true).unwrap();
 
-        let summary = db.timeline_summary(true).unwrap();
+        let summary = db.timeline_summary(crate::MediaFilter::Fav).unwrap();
         assert_eq!(summary.len(), 1);
         assert_eq!((summary[0].day_key, summary[0].count), (20240811, 1));
         assert_eq!(summary[0].cover_id, id, "★のみの場合のカバーも★の行");
-        let day = db.list_day(20240811, true).unwrap();
+        let day = db.list_day(20240811, crate::MediaFilter::Fav).unwrap();
         assert_eq!(day.len(), 1);
         assert_eq!(day[0].path, PathBuf::from("a.jpg"));
     }
@@ -3293,7 +3405,7 @@ mod tests {
     /// `Path` は `\` を区切りと見ないため、パス全体が1つのファイル名になる。
     /// DB側（`pk_name`）も同じく文字で切っており、そちらに合わせる
     fn search_names(db: &Db, input: &str) -> Vec<String> {
-        let query = crate::search::parse_query(input, false);
+        let query = crate::search::parse_query(input, crate::MediaFilter::All);
         let mut names: Vec<String> = db
             .search_summary(&query)
             .unwrap()
@@ -3389,7 +3501,7 @@ mod tests {
     #[test]
     fn search_idsは一覧と同じ並びで全件返す() {
         let db = seed_search_db();
-        let q = crate::search::parse_query("", false);
+        let q = crate::search::parse_query("", crate::MediaFilter::All);
         let ids = db.search_ids(&q).unwrap();
         assert_eq!(ids.len(), 4, "条件なしなら全件");
 
@@ -3404,16 +3516,16 @@ mod tests {
         assert_eq!(ids, expected, "日ごとに引いた順と同じ");
 
         // 絞り込みも効く
-        let q = crate::search::parse_query("沖縄", false);
+        let q = crate::search::parse_query("沖縄", crate::MediaFilter::All);
         assert_eq!(db.search_ids(&q).unwrap().len(), 2);
-        let q = crate::search::parse_query("見つからない語", false);
+        let q = crate::search::parse_query("見つからない語", crate::MediaFilter::All);
         assert!(db.search_ids(&q).unwrap().is_empty());
     }
 
     #[test]
     fn search_ids_betweenは範囲のぶんだけ返す() {
         let db = seed_search_db();
-        let q = crate::search::parse_query("", false);
+        let q = crate::search::parse_query("", crate::MediaFilter::All);
         let all = db.search_ids(&q).unwrap();
         assert_eq!(all.len(), 4);
 
@@ -3429,7 +3541,7 @@ mod tests {
 
         // 絞り込みの外にあるIDは、範囲の端として効かない。
         // 片方だけ生き残っていれば、その1枚ぶんの範囲になる
-        let oki = crate::search::parse_query("沖縄", false);
+        let oki = crate::search::parse_query("沖縄", crate::MediaFilter::All);
         let oki_ids = db.search_ids(&oki).unwrap();
         assert_eq!(oki_ids.len(), 2);
         let outside = all
@@ -3502,7 +3614,7 @@ mod tests {
         // （一時表と並べ直しが出る）が、行ごとにFTSを引く形は桁で遅い——
         // 測った結果は `FTS_FOR_SELECTION` の表に残してある。
         // ここでは「そういう計画になる」ことだけ確かめて、釘は打たない
-        let q = crate::search::parse_query("沖縄", false);
+        let q = crate::search::parse_query("沖縄", crate::MediaFilter::All);
         let (conds, _) = db.query_filter(&q).unwrap();
         let mut with_term = conds.clone();
         with_term.extend(super::between_conds());
@@ -3537,12 +3649,12 @@ mod tests {
         db.upsert_files(&files).unwrap();
 
         let all = db
-            .search_ids(&crate::search::parse_query("", false))
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
             .unwrap();
         assert_eq!(all.len(), 30_000);
 
         for term in ["img_1", "img_12345"] {
-            let q = crate::search::parse_query(term, false);
+            let q = crate::search::parse_query(term, crate::MediaFilter::All);
             let hits = db.search_ids(&q).unwrap();
             // **端は一致集合の中から取る**（画面に出ているものしか押せない）
             for (label, from, to) in [
@@ -3581,9 +3693,9 @@ mod tests {
     fn visible_idsは並んでいるものだけを渡した順で返す() {
         let mut db = seed_search_db();
         let all = db
-            .search_ids(&crate::search::parse_query("", false))
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
             .unwrap();
-        let oki = crate::search::parse_query("沖縄", false);
+        let oki = crate::search::parse_query("沖縄", crate::MediaFilter::All);
         let oki_ids = db.search_ids(&oki).unwrap();
 
         // 渡した順を保つ（選択の順序をそのまま一括操作へ渡すため）
@@ -3598,32 +3710,138 @@ mod tests {
 
         // 居ないIDは落ちる／空の指定は空
         assert_eq!(
-            db.visible_ids(&crate::search::parse_query("", false), &[all[0], -1])
-                .unwrap(),
+            db.visible_ids(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &[all[0], -1]
+            )
+            .unwrap(),
             [all[0]]
         );
         assert!(db
-            .visible_ids(&crate::search::parse_query("", false), &[])
+            .visible_ids(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &[]
+            )
             .unwrap()
             .is_empty());
 
         // ★の絞り込みも条件のうち
         db.set_favorites(&all[..1], true).unwrap();
-        let fav = crate::search::parse_query("", true);
+        let fav = crate::search::parse_query("", crate::MediaFilter::Fav);
         assert_eq!(db.visible_ids(&fav, &all).unwrap(), [all[0]]);
+    }
+
+    #[test]
+    fn visible_ids_in_orderは一覧と同じ並びで日付を添えて返す() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
+            .unwrap();
+
+        // 選択は集合なので渡る順はばらばら。逆順でも重複つきでも、
+        // 返るのは**一覧と同じ並び**で1件ずつ（ビューアが隣へ歩く順序になる）
+        let mixed: Vec<i64> = all
+            .iter()
+            .rev()
+            .copied()
+            .chain(all.iter().copied())
+            .collect();
+        let got = db
+            .visible_ids_in_order(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &mixed,
+            )
+            .unwrap();
+        assert_eq!(got.iter().map(|(id, _)| *id).collect::<Vec<_>>(), all);
+
+        // 添える日は行のもの（ビューアはこれで日をまたぐ）
+        for (id, day) in &got {
+            assert_eq!(db.get_by_id(*id).unwrap().unwrap().day_key, *day);
+        }
+
+        // 条件から外れたもの・居ないIDは落ちる／空の指定は空
+        let oki = crate::search::parse_query("沖縄", crate::MediaFilter::All);
+        let oki_ids = db.search_ids(&oki).unwrap();
+        assert_eq!(
+            db.visible_ids_in_order(&oki, &all)
+                .unwrap()
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            oki_ids
+        );
+        assert_eq!(
+            db.visible_ids_in_order(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &[-1]
+            )
+            .unwrap(),
+            []
+        );
+        assert!(db
+            .visible_ids_in_order(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &[]
+            )
+            .unwrap()
+            .is_empty());
+
+        // ★の絞り込みも条件のうち
+        db.set_favorites(&all[..1], true).unwrap();
+        let fav = crate::search::parse_query("", crate::MediaFilter::Fav);
+        assert_eq!(
+            db.visible_ids_in_order(&fav, &all)
+                .unwrap()
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            [all[0]]
+        );
+    }
+
+    /// 選別の印は★と**別の棚**であること（0.2 ②）。片方を触っても
+    /// もう片方は動かない——ここが混ざると、連写の選別で★の棚が荒れる
+    #[test]
+    fn 選別の印はお気に入りとは別に付け外しできる() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
+            .unwrap();
+
+        db.set_picked(all[0], true).unwrap();
+        let row = db.get_by_id(all[0]).unwrap().unwrap();
+        assert!(row.picked, "⚑が付く");
+        assert!(!row.favorite, "★は動かない");
+
+        db.set_favorite(all[1], true).unwrap();
+        assert!(
+            !db.get_by_id(all[1]).unwrap().unwrap().picked,
+            "⚑は動かない"
+        );
+
+        // 絞り込みも別々に効く
+        let picked = crate::search::parse_query("", crate::MediaFilter::Picked);
+        assert_eq!(db.search_ids(&picked).unwrap(), [all[0]]);
+        let fav = crate::search::parse_query("", crate::MediaFilter::Fav);
+        assert_eq!(db.search_ids(&fav).unwrap(), [all[1]]);
+
+        // まとめて外す
+        assert_eq!(db.set_pickeds(&all, false).unwrap(), all.len());
+        assert!(db.search_ids(&picked).unwrap().is_empty());
+        assert_eq!(db.search_ids(&fav).unwrap(), [all[1]], "★は残る");
     }
 
     #[test]
     fn set_favoritesはまとめて付け外しできる() {
         let mut db = seed_search_db();
         let all = db
-            .search_ids(&crate::search::parse_query("", false))
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
             .unwrap();
         let two = &all[..2];
 
         assert_eq!(db.set_favorites(two, true).unwrap(), 2);
         let favs = db
-            .search_ids(&crate::search::parse_query("", true))
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::Fav))
             .unwrap();
         assert_eq!(favs.len(), 2);
         assert!(two.iter().all(|id| favs.contains(id)));
@@ -3631,7 +3849,7 @@ mod tests {
         // 外すのも同じ経路
         assert_eq!(db.set_favorites(two, false).unwrap(), 2);
         assert!(db
-            .search_ids(&crate::search::parse_query("", true))
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::Fav))
             .unwrap()
             .is_empty());
 
@@ -3645,7 +3863,7 @@ mod tests {
     fn 検索件数とカメラ別集計が取れる() {
         let db = seed_search_db();
         assert_eq!(
-            db.search_count(&crate::search::parse_query("沖縄", false))
+            db.search_count(&crate::search::parse_query("沖縄", crate::MediaFilter::All))
                 .unwrap(),
             2
         );
@@ -3796,8 +4014,11 @@ mod tests {
             vec![("SONY ILCE-7M3".into(), 1)]
         );
         assert_eq!(
-            db.search_count(&crate::search::parse_query("camera:SONY", false))
-                .unwrap(),
+            db.search_count(&crate::search::parse_query(
+                "camera:SONY",
+                crate::MediaFilter::All
+            ))
+            .unwrap(),
             1
         );
     }

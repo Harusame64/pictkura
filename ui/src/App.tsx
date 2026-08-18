@@ -44,9 +44,12 @@ import {
   revealInFolder,
   setFavorite,
   setFavorites,
+  setPicked,
+  setPickeds,
   exportMedia,
   listMediaIds,
   listMediaIdsBetween,
+  scopeMedia,
   visibleMediaIds,
   setVisiblePriority,
   syncNow,
@@ -62,8 +65,10 @@ import {
   type ImportStats,
   type IndexProgress,
   type LibraryStats,
+  type MediaFilter,
   type MediaItem,
   type Memory,
+  type ScopeItem,
   type StartupScanReport,
 } from "./api";
 import type { VideoStatus } from "./api";
@@ -125,6 +130,31 @@ const CLOUD_ANSWER_TTL_MS = 20_000;
 const PENDING_WATCHDOG_MS = 4000;
 /** 詰め直しの出力は長辺がここへ丸められる（`thumbs::display_jpeg` と一致） */
 const DISPLAY_MAX_EDGE = 4096;
+/**
+ * 「連打で送っている最中」と見なす間隔。
+ *
+ * この速さで次の絵へ行っているあいだは、**詰め直しの要る形式の原寸を
+ * すぐには取りに行かない**（0.2 ②の測り直し）。HEICは1枚0.6〜1秒かかり、
+ * Rust側は要求のたびに**並列で**詰め直すので、通り過ぎた絵のぶんまで投げると
+ * 止まった1枚がその競争に巻き込まれる。
+ *
+ * ゆっくり見ているとき（前の送りからこの時間より後）は今までどおり
+ * すぐ取りに行く——1枚ずつ見る人に待ちを足さないため。
+ *
+ * **門が開くのは `settledId` と同じ250msの時計**なので、実効的に守れるのは
+ * 250ms未満の連打だけ。250〜400msの間隔では「250ms遅れて要求が出る」形になる
+ * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
+ */
+const FAST_FLIP_MS = 400;
+/**
+ * ビューア下部のフィルムストリップに出す**片側の枚数**（0.2 ②）。
+ *
+ * 出しているのは一覧と同じWebPサムネイル（長辺512px）なので、
+ * 21枚でもデコード済み画素は約15MB——原寸の先読み予算
+ * （[`PRELOAD_BUDGET_BYTES`]）に対して桁が2つ小さい。
+ * 送るたびに端の1枚が増えるだけで、残りは要素ごと使い回される
+ */
+const STRIP_RADIUS = 10;
 
 /**
  * その配信URLが、このidの絵か。
@@ -249,7 +279,11 @@ export default function App() {
   const [dayItems, setDayItems] = useState<Map<number, MediaItem[]>>(
     () => new Map(),
   );
-  const [stats, setStats] = useState<LibraryStats>({ total: 0, favorites: 0 });
+  const [stats, setStats] = useState<LibraryStats>({
+    total: 0,
+    favorites: 0,
+    picked: 0,
+  });
   const [memories, setMemories] = useState<Memory[]>([]);
   const [cellSize, setCellSize] = useState(180);
   const [status, setStatus] = useState("");
@@ -258,7 +292,7 @@ export default function App() {
   const [roots, setRoots] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"grid" | "calendar">("grid");
-  const [filter, setFilter] = useState<"all" | "fav">("all");
+  const [filter, setFilter] = useState<MediaFilter>("all");
   /**
    * 選択中のID。**空なら選択モードではない**——モードを別の状態で持つと、
    * 「選択が0なのにモードだけ残る」というずれ方をする。
@@ -275,6 +309,8 @@ export default function App() {
   /** カメラ一覧を全部見せるか（既定は上位数台だけ） */
   const [camerasExpanded, setCamerasExpanded] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** ショートカット一覧（`?` / `F1`）。ビューアの上にも出す */
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** 右クリックメニューの表示位置と対象（nullで非表示） */
   const [menu, setMenu] = useState<{ pos: MenuPos; item: MediaItem } | null>(
     null,
@@ -295,6 +331,15 @@ export default function App() {
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
   const [viewer, setViewer] = useState<ViewerPos | null>(null);
+  /**
+   * ビューアの**選択スコープ**（0.2 ②）。複数選択から開いたときだけ入り、
+   * 送りも分母もこの列の中だけになる（連写の集中選別のため）。
+   *
+   * 中身は開く瞬間にRust側で「いま並んでいるものだけ」へ絞って並べたもの
+   * （`scopeMedia`）。**あとから作り直さない**——見ている最中に一覧が
+   * 変わっても、選んだ範囲を歩き切れるほうが選別の道具として正しい
+   */
+  const [viewerScope, setViewerScope] = useState<ScopeItem[] | null>(null);
   /** ビューアのズーム・パン・スライドショー。zoomは「画面に収めた状態」を1とする倍率 */
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -314,7 +359,7 @@ export default function App() {
     panY: number;
   } | null>(null);
   // イベントリスナーから最新のfilter/query状態を参照するためのref
-  const filterRef = useRef<"all" | "fav">("all");
+  const filterRef = useRef<MediaFilter>("all");
   /**
    * Shift+クリックの土台。**範囲を始めた時点の選択**を覚える。
    *
@@ -378,9 +423,8 @@ export default function App() {
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     inflightRef.current.clear();
-    const fav = filterRef.current === "fav";
     const [sum, st, mem] = await Promise.all([
-      timelineSummary(queryRef.current, fav),
+      timelineSummary(queryRef.current, filterRef.current),
       getStats(),
       listMemories(),
     ]);
@@ -401,9 +445,8 @@ export default function App() {
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
-    const fav = filterRef.current === "fav";
     const [sum, st] = await Promise.all([
-      timelineSummary(queryRef.current, fav),
+      timelineSummary(queryRef.current, filterRef.current),
       getStats(),
     ]);
     if (generationRef.current !== gen) return; // リロードが割り込んだら捨てる
@@ -441,7 +484,7 @@ export default function App() {
     if (inflightRef.current.has(dayKey)) return;
     inflightRef.current.add(dayKey);
     const gen = generationRef.current;
-    listDay(dayKey, queryRef.current, filterRef.current === "fav")
+    listDay(dayKey, queryRef.current, filterRef.current)
       .then((items) => {
         inflightRef.current.delete(dayKey);
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
@@ -686,7 +729,7 @@ export default function App() {
   const patchTimer = useRef<number | null>(null);
   const applyPatches = useCallback(
     (patches: MediaItem[]) => {
-      const fav = filterRef.current === "fav";
+      const filter = filterRef.current;
       // 検索中は「その項目が結果に含まれるか」をフロント側で判定できない。
       // 表示中の項目の差し替え（サムネイル完成）だけを行い、日の捨て直しはしない
       // （判定できないまま捨てると、生成のたびにシマー→再取得を繰り返す）。
@@ -707,11 +750,12 @@ export default function App() {
             }
             continue;
           }
-          // ★のみ表示中、★でない項目は表示対象外。
+          // ★（または⚑）のみ表示中、その印が無い項目は表示対象外。
           // 読み込み済みの日に古い姿が残っていれば外すだけで、日の再取得はしない
-          // （サムネイル完成イベントは★以外にも届くため、ここで日を捨てると
-          //  可視日が生成のたびにシマー→再取得を繰り返してしまう）
-          const shown = !fav || p.favorite;
+          // （サムネイル完成イベントは印の有無に関わらず届くため、ここで日を
+          //  捨てると可視日が生成のたびにシマー→再取得を繰り返してしまう）
+          const shown =
+            filter === "fav" ? p.favorite : filter === "picked" ? p.picked : true;
           const arr = current().get(p.day_key);
           const idx = arr?.findIndex((it) => it.id === p.id) ?? -1;
           if (arr && idx >= 0 && shown) {
@@ -951,33 +995,45 @@ export default function App() {
     }
   };
 
-  // お気に入りトグル（楽観的更新: 先にUIへ反映してからバックエンドへ）
-  const toggleFavorite = useCallback(
-    async (item: MediaItem) => {
-      const next = !item.favorite;
-      const patch = (fav: boolean) => {
+  /**
+   * 写真に付ける印の種類。★（お気に入り）と ⚑（選別）は**同じ仕組みの別の棚**
+   * （0.2 ②）。「あとで見返したい写真」と「この連写から残す1枚」を混ぜない
+   */
+  type MarkKind = "favorite" | "picked";
+
+  /**
+   * 印を付ける・外す（楽観的更新: 先にUIへ反映してからバックエンドへ）。
+   *
+   * **その印で絞り込んでいる最中は、外したものが画面から消える**。消えるものを
+   * 選択に残すと、見えていない写真へ一括操作が効いてしまうので、選択・起点・
+   * 範囲の土台もそこで忘れる
+   */
+  const setMark = useCallback(
+    async (item: MediaItem, kind: MarkKind, next: boolean) => {
+      if (item[kind] === next) return; // 既にその向きなら触らない
+      const patch = (on: boolean) => {
         setDayItems((prev) => {
           const arr = prev.get(item.day_key);
           if (!arr) return prev;
           const out = new Map(prev);
           out.set(
             item.day_key,
-            arr.map((it) => (it.id === item.id ? { ...it, favorite: fav } : it)),
+            arr.map((it) => (it.id === item.id ? { ...it, [kind]: on } : it)),
           );
           return out;
         });
-        setStats((s) => ({
-          ...s,
-          favorites: s.favorites + (fav ? 1 : -1),
-        }));
+        setStats((s) =>
+          kind === "favorite"
+            ? { ...s, favorites: s.favorites + (on ? 1 : -1) }
+            : { ...s, picked: s.picked + (on ? 1 : -1) },
+        );
       };
       patch(next);
       try {
-        await setFavorite(item.id, next);
-        // ★のみ表示中は骨組み（枚数・日の有無）が変わる。
-        // **画面から消えるものは選択からも外す**——残すと、見えていない写真に
-        // 一括操作が効いてしまう
-        if (filterRef.current === "fav") {
+        if (kind === "favorite") await setFavorite(item.id, next);
+        else await setPicked(item.id, next);
+        // その印で絞り込み中は骨組み（枚数・日の有無）が変わる
+        if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
           setSelected((prev) => {
             if (!prev.has(item.id)) return prev;
             const s2 = new Set(prev);
@@ -996,6 +1052,12 @@ export default function App() {
       }
     },
     [reloadAll],
+  );
+
+  /** お気に入り（★）のトグル */
+  const toggleFavorite = useCallback(
+    (item: MediaItem) => setMark(item, "favorite", !item.favorite),
+    [setMark],
   );
 
   /** 現在のフィルタでの総枚数（ヘッダ表示用） */
@@ -1209,6 +1271,23 @@ export default function App() {
     return { item: items[itemIdx], dayIdx, itemIdx, dayLength: items.length };
   }, [viewer, dayItems, dayIdxByKey]);
 
+  /** スコープのid → 列の中での位置。送りのたびに端から探さないため */
+  const scopeIndexById = useMemo(() => {
+    const map = new Map<number, number>();
+    viewerScope?.forEach((e, i) => map.set(e.id, i));
+    return map;
+  }, [viewerScope]);
+  /**
+   * いまの絵がスコープの何番目か。**スコープなし・列の外なら `undefined`**。
+   *
+   * 列の外に出るのは、見ている最中に★を外した等で選んだものが一覧から
+   * 消えたとき。そのときは一覧の歩き方へ落ちる（送りが利かなくなるより良い）
+   */
+  const scopeIdx =
+    viewerScope && viewerInfo
+      ? scopeIndexById.get(viewerInfo.item.id)
+      : undefined;
+
   // ビューアの表示日をキャッシュ間引きの保護対象として共有する
   useEffect(() => {
     viewerDayRef.current = viewer?.dayKey ?? null;
@@ -1226,9 +1305,24 @@ export default function App() {
     }
   }, [viewer, dayItems, dayIdxByKey, summary, loadDay]);
 
-  // 位置が解決不能になったらビューアを閉じる（★解除で対象外になった、
-  // 撮影日確定で別の日へ移った、サマリ更新でその日が消えた等）。
-  // 「読み込み中…」のまま操作不能で固まるのを防ぐ
+  /**
+   * いま見ている絵が、その日の中で何番目だったか。
+   *
+   * **居なくなったときの寄せ先**に使う。同じ番号には、いま繰り上がってきた
+   * 次の1枚が居る（`U` で外した写真が一覧から消えたときの自然な着地点）
+   */
+  const lastViewerIdxRef = useRef(0);
+  useEffect(() => {
+    if (viewerInfo) lastViewerIdxRef.current = viewerInfo.itemIdx;
+  }, [viewerInfo]);
+
+  // 位置が解決不能になったとき（⚑や★を外して絞り込みから外れた、削除された、
+  // 撮影日確定で別の日へ移った、サマリ更新でその日が消えた等）の後始末。
+  //
+  // **閉じずに隣へ寄せる**（0.2 ②・ゲート2のP2）。⚑で絞り込みながら `U` で
+  // 外していくのは選別の本線の使い方で、そのたびにビューアが消えると
+  // 選別が続けられない。寄せ先が無いときだけ閉じる（「読み込み中…」のまま
+  // 操作不能で固まるのは防ぐ、という元の目的はそのまま）
   useEffect(() => {
     if (!viewer) return;
     const items = dayItems.get(viewer.dayKey);
@@ -1237,13 +1331,61 @@ export default function App() {
       viewer.id === "first" || viewer.id === "last"
         ? items.length > 0
         : items.some((it) => it.id === viewer.id);
-    if (!resolvable || !dayIdxByKey.has(viewer.dayKey)) setViewer(null);
-  }, [viewer, dayItems, dayIdxByKey]);
+    if (resolvable && dayIdxByKey.has(viewer.dayKey)) return;
+
+    // スコープで開いているなら、列の**次**（無ければ前）で、いま一覧に
+    // 居るものへ寄せる。列は作り直さない設計なので、消えたidも席は残っている
+    if (viewerScope && typeof viewer.id === "number") {
+      const idx = scopeIndexById.get(viewer.id);
+      if (idx !== undefined) {
+        for (const dir of [1, -1] as const) {
+          for (let k = idx + dir; k >= 0 && k < viewerScope.length; k += dir) {
+            const at = viewerScope[k];
+            const dayList = dayItems.get(at.day_key);
+            // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
+            if (dayList && !dayList.some((x) => x.id === at.id)) continue;
+            setViewer({ dayKey: at.day_key, id: at.id });
+            return;
+          }
+        }
+      }
+    }
+    // 通常オープン: **同じ日の同じ番号**へ寄せる（繰り上がってきた1枚）
+    if (items.length > 0 && dayIdxByKey.has(viewer.dayKey)) {
+      const i = Math.min(lastViewerIdxRef.current, items.length - 1);
+      setViewer({ dayKey: viewer.dayKey, id: items[i].id });
+      return;
+    }
+    setViewer(null); // その日ごと消えた
+  }, [viewer, dayItems, dayIdxByKey, viewerScope, scopeIndexById]);
 
   /** ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ（スライドショー用） */
   const moveViewer = useCallback(
     (dir: 1 | -1, wrap = false) => {
       if (!viewerInfo) return;
+      // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
+      // 日をまたいでも列の順に進む——選んだ範囲が一覧の並びで固定してある
+      if (viewerScope && scopeIdx !== undefined) {
+        // **一覧から消えた席は飛ばす**（ゲート2のP2）。⚑を外した・消したものが
+        // 列には残っているので、そこへ歩くと行き止まりになる。
+        // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
+        for (
+          let k = scopeIdx + dir;
+          k >= 0 && k < viewerScope.length;
+          k += dir
+        ) {
+          const at = viewerScope[k];
+          const dayList = dayItems.get(at.day_key);
+          if (dayList && !dayList.some((x) => x.id === at.id)) continue;
+          setViewer({ dayKey: at.day_key, id: at.id });
+          return;
+        }
+        if (wrap && viewerScope.length > 0) {
+          const at = viewerScope[0];
+          setViewer({ dayKey: at.day_key, id: at.id });
+        }
+        return;
+      }
       const { dayIdx, itemIdx } = viewerInfo;
       const items = dayItems.get(summary[dayIdx].day_key);
       if (!items) return;
@@ -1262,7 +1404,28 @@ export default function App() {
         setViewer({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, dayItems, summary],
+    [viewerInfo, dayItems, summary, viewerScope, scopeIdx],
+  );
+
+  /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
+  const autoAdvance = config?.viewer?.auto_advance ?? true;
+  /**
+   * 選別の判定（0.2 ②）。`P` で選び（⚑を付け）、`U` で選び直す（⚑を外す）。
+   *
+   * **★とは別の棚**に印を付ける。★は「あとで見返したい写真」、⚑は
+   * 「この連写から残す1枚」で、混ぜると選別のたびに★の棚が荒れる
+   * （2026-08-18の利用者判断）。
+   *
+   * トグルの `f` と違い**押した向きに決める**ので、連写を見ながら `P` を
+   * 連打しても付けたり外したりにならない。自動送りがONなら続けて次の絵へ。
+   * 印の反映は楽観的更新なので、書き込みを待たずに送ってよい
+   */
+  const judgeViewer = useCallback(
+    (item: MediaItem, pick: boolean) => {
+      void setMark(item, "picked", pick);
+      if (autoAdvance) moveViewer(1);
+    },
+    [setMark, autoAdvance, moveViewer],
   );
 
   const viewerItem = viewerInfo?.item ?? null;
@@ -1318,6 +1481,15 @@ export default function App() {
   const [fullFailedId, setFullFailedId] = useState<number | null>(null);
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
+  /**
+   * **原寸を取りに行ってよい**絵のid（0.2 ②）。
+   *
+   * 詰め直しの要る形式を連打で通り過ぎているあいだは閉じておく
+   * （[`FAST_FLIP_MS`]）。開くのは送りが止まった250ms後
+   */
+  const [fullGateId, setFullGateId] = useState<number | null>(null);
+  /** 直前に絵が変わった時刻（連打かどうかの判定に使う） */
+  const lastViewerChangeRef = useRef(0);
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
   const [slowId, setSlowId] = useState<number | null>(null);
   const viewerItemId = viewerItem?.id;
@@ -1354,8 +1526,21 @@ export default function App() {
     setThumbShownId(null);
     setFullShownId(null);
     setFullFailedId(null);
-    if (viewerItemId === undefined) return;
-    const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
+    if (viewerItemId === undefined) {
+      setFullGateId(null);
+      return;
+    }
+    // 連打で送っている最中は、詰め直しの要る形式の原寸を**まだ取りに行かない**。
+    // 通り過ぎた絵の変換が積み上がると、止まった1枚がその後ろに並ぶ
+    const now = Date.now();
+    const flipping = now - lastViewerChangeRef.current < FAST_FLIP_MS;
+    lastViewerChangeRef.current = now;
+    setFullGateId(viewerTranscoding && flipping ? null : viewerItemId);
+    const settle = window.setTimeout(() => {
+      setSettledId(viewerItemId);
+      // 止まった。ここで初めて取りに行く（上で閉じていた場合）
+      setFullGateId(viewerItemId);
+    }, 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
     // 効いていれば詰め直しの要る形式も数msで出るので、少し待ってから出す
     const slow = viewerTranscoding
@@ -1434,18 +1619,18 @@ export default function App() {
     }
   }, [viewer]);
 
-  useEffect(() => {
-    if (!viewerInfo) {
-      setPreload([]);
-      return;
-    }
-    const start = { d: viewerInfo.dayIdx, i: viewerInfo.itemIdx };
-    /** 1つ隣の位置へ。端と**未取得の日**で止まる（moveViewer と同じ歩き方） */
-    const step = (
+  /**
+   * 一覧の並びで**1つ隣の位置**へ（`moveViewer` と同じ歩き方）。
+   * 端と**未取得の日**で止まる（届けば呼び直される）。
+   *
+   * 先読み（0.2 ①）とフィルムストリップ（0.2 ②）が同じ歩き方を使う
+   */
+  const stepPos = useCallback(
+    (
       pos: { d: number; i: number },
       dir: 1 | -1,
     ): { d: number; i: number } | null => {
-      const items = dayItems.get(summary[pos.d].day_key);
+      const items = dayItems.get(summary[pos.d]?.day_key);
       if (!items) return null;
       const ni = pos.i + dir;
       if (ni >= 0 && ni < items.length) return { d: pos.d, i: ni };
@@ -1454,12 +1639,81 @@ export default function App() {
         nd >= 0 && nd < summary.length
           ? dayItems.get(summary[nd].day_key)
           : undefined;
-      // 未取得の日は諦める（上の effect が取りに行っている。届けば再実行される）
       if (!next || next.length === 0) return null;
       return { d: nd, i: dir === 1 ? 0 : next.length - 1 };
-    };
+    },
+    [dayItems, summary],
+  );
+
+  /**
+   * スコープで開いていれば列の、そうでなければ一覧の**隣の絵**を1枚返す。
+   * `k` は正で次、負で前（`k = 0` はいまの絵）。取れなければ null
+   */
+  const neighborItem = useCallback(
+    (k: number): MediaItem | null => {
+      if (!viewerInfo) return null;
+      if (k === 0) return viewerInfo.item;
+      if (viewerScope && scopeIdx !== undefined) {
+        const at = viewerScope[scopeIdx + k];
+        if (!at) return null;
+        return dayItems.get(at.day_key)?.find((x) => x.id === at.id) ?? null;
+      }
+      const dir: 1 | -1 = k > 0 ? 1 : -1;
+      let cur: { d: number; i: number } | null = {
+        d: viewerInfo.dayIdx,
+        i: viewerInfo.itemIdx,
+      };
+      for (let n = 0; n < Math.abs(k); n++) {
+        cur = stepPos(cur, dir);
+        if (!cur) return null;
+      }
+      return dayItems.get(summary[cur.d].day_key)?.[cur.i] ?? null;
+    },
+    [viewerInfo, viewerScope, scopeIdx, dayItems, summary, stepPos],
+  );
+
+  /**
+   * ビューア下部に出す前後の絵（0.2 ②）。いまの絵を真ん中に、
+   * 前後 [`STRIP_RADIUS`] 枚ずつ。
+   *
+   * **取れないもの（端・未取得の日）はその席ごと並べない**ので、帯は端で短く
+   * なり、いまの絵は中央から寄る。反対側から余計に取って枚数を揃えることは
+   * しない——「前後に何があるか」を見せる帯で、左右の距離感を偽らないため
+   */
+  const strip = useMemo(() => {
+    if (!viewerItem) return [];
+    const out: { item: MediaItem; offset: number }[] = [];
+    for (let k = -STRIP_RADIUS; k <= STRIP_RADIUS; k++) {
+      const it = neighborItem(k);
+      if (it) out.push({ item: it, offset: k });
+    }
+    return out;
+  }, [viewerItem, neighborItem]);
+
+  useEffect(() => {
+    if (!viewerInfo) {
+      setPreload([]);
+      return;
+    }
+    const start = { d: viewerInfo.dayIdx, i: viewerInfo.itemIdx };
+    const step = stepPos;
+    /**
+     * 送る向きの隣を近い順に集める。**スコープで開いていればその列を歩く**
+     * （0.2 ②）——一覧の隣ではなく、送りが実際に行く先を先読みするため
+     */
     const walk = (dir: 1 | -1) => {
       const out: MediaItem[] = [];
+      if (viewerScope && scopeIdx !== undefined) {
+        for (let k = 1; k <= PRELOAD_MAX_ITEMS; k++) {
+          const at = viewerScope[scopeIdx + dir * k];
+          if (!at) break;
+          const it = dayItems.get(at.day_key)?.find((x) => x.id === at.id);
+          // 未取得の日は諦める（送って行けば取りに行く。届けば再実行される）
+          if (!it) break;
+          out.push(it);
+        }
+        return out;
+      }
       let cur = start;
       for (let k = 0; k < PRELOAD_MAX_ITEMS; k++) {
         const next = step(cur, dir);
@@ -1581,7 +1835,17 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [viewerInfo, dayItems, summary, settledId, loadedId, transcodeTick]);
+  }, [
+    viewerInfo,
+    dayItems,
+    summary,
+    settledId,
+    loadedId,
+    transcodeTick,
+    viewerScope,
+    scopeIdx,
+    stepPos,
+  ]);
 
   // 先読みは**表示順に1枚ずつ**取りに行かせる。`src` をまとめて置くと
   // ブラウザは全部を同時に取りに行き、decodeを順に待っても
@@ -1705,7 +1969,12 @@ export default function App() {
     };
   }, [viewer]);
   useEffect(() => {
-    if (viewer === null) setPlaying(false);
+    if (viewer === null) {
+      setPlaying(false);
+      // スコープは**閉じたら捨てる**。次にタイルから開いたときに、
+      // 前の選択の列を歩き続けてしまわないように
+      setViewerScope(null);
+    }
   }, [viewer]);
 
   // スライドショー: 3秒ごとに次へ（末尾までいったら先頭へループ）。
@@ -1722,6 +1991,13 @@ export default function App() {
 
   useEffect(() => {
     if (viewer === null) return;
+    /**
+     * 選別の判定キーか（0.2 ②）。**修飾キーと一緒なら見送る**——
+     * `Ctrl` + `P` はブラウザ由来の印刷で、押した人に⚑を付ける気は無い。
+     * 他の1文字キーと違い、判定は写真の状態を書き換えるので念を入れる
+     */
+    const judging = (e: KeyboardEvent, key: string) =>
+      e.key.toLowerCase() === key && !e.ctrlKey && !e.metaKey && !e.altKey;
     const onKey = (e: KeyboardEvent) => {
       // 文字入力中はビューアの1文字ショートカットを効かせない。
       // パレットはビューアの上にも開けるので、"family" と打つと f で★が
@@ -1731,12 +2007,16 @@ export default function App() {
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
-      if (paletteOpen || typing) return;
+      if (paletteOpen || shortcutsOpen || typing) return;
       if (e.key === "Escape") setViewer(null);
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
       else if (e.key === "f" || e.key === "F") {
         if (viewerItem) toggleFavorite(viewerItem);
+      } else if (judging(e, "p")) {
+        if (viewerItem) judgeViewer(viewerItem, true);
+      } else if (judging(e, "u")) {
+        if (viewerItem) judgeViewer(viewerItem, false);
       } else if (e.key === "i" || e.key === "I") {
         setShowExif((s) => !s);
       } else if (e.key === "F11") {
@@ -1767,7 +2047,9 @@ export default function App() {
     viewerItem,
     moveViewer,
     toggleFavorite,
+    judgeViewer,
     paletteOpen,
+    shortcutsOpen,
     toggleFullscreen,
     toggleActualSize,
   ]);
@@ -1799,12 +2081,29 @@ export default function App() {
     if (viewer === null) setShowExif(false);
   }, [viewer]);
 
-  // コマンドパレット（Ctrl+K / ⌘K）。ビューア表示中でも開ける
+  // コマンドパレット（Ctrl+K / ⌘K）とショートカット一覧（`?` / `F1`）。
+  // どちらもビューア表示中でも開ける
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((p) => !p);
+        return;
+      }
+      // 文字入力中は効かせない（検索欄に「?」と打てなくなる）
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el?.tagName === "INPUT" ||
+        el?.tagName === "TEXTAREA" ||
+        el?.isContentEditable === true;
+      if (typing) return;
+      if (e.key === "?" || e.key === "F1") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        // **開いていたら閉じるだけ**。他のEsc（ビューアを閉じる・選択解除）は
+        // それぞれの担当が見ているので、ここでは畳むだけにして横取りしない
+        setShortcutsOpen((v) => (v ? false : v));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1824,6 +2123,7 @@ export default function App() {
       if (
         viewer !== null ||
         paletteOpen ||
+        shortcutsOpen ||
         settingsOpen ||
         wizardOpen ||
         menu !== null ||
@@ -1842,7 +2142,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, settingsOpen, wizardOpen, menu, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
@@ -1899,7 +2199,7 @@ export default function App() {
       // 隣り合う2枚のために全IDを送らせない
       const range = await listMediaIdsBetween(
         queryRef.current,
-        filterRef.current === "fav",
+        filterRef.current,
         fromId,
         toId,
       );
@@ -1934,7 +2234,7 @@ export default function App() {
       const loaded = dayItems.get(dayKey);
       const items =
         loaded ??
-        (await listDay(dayKey, queryRef.current, filterRef.current === "fav"));
+        (await listDay(dayKey, queryRef.current, filterRef.current));
       // 待っている間に解除・別の選択・条件変更が入っていたら捨てる
       // （条件の変更も選択の世代を進める）
       if (selectEpochRef.current !== epoch) return;
@@ -1963,7 +2263,7 @@ export default function App() {
     // ここだけは全IDを引く（「全部」を選ぶ操作なので、件数ぶんの選択が要る）
     const ids = await listMediaIds(
       queryRef.current,
-      filterRef.current === "fav",
+      filterRef.current,
     );
     if (selectEpochRef.current !== epoch) return;
     setSelected(new Set(ids));
@@ -1987,12 +2287,35 @@ export default function App() {
     // 数枚の確認のために一覧の全件がIPCを渡ることになる
     const kept = await visibleMediaIds(
       queryRef.current,
-      filterRef.current === "fav",
+      filterRef.current,
       [...current],
     );
     if (selectEpochRef.current !== epoch) return [];
     if (kept.length !== current.size) setSelected(new Set(kept));
     return kept;
+  }, []);
+
+  /**
+   * 選んだぶんだけをビューアで見る（0.2 ②）。連写ゾーンの集中選別の入口。
+   *
+   * 並べ直しと「いま並んでいるものだけ」への絞り込みは**Rust側で1回**やる
+   * （`scopeMedia`）。選択はJS側では集合なので、こちらで並べると一覧とずれる
+   * ——まだ読んでいない日の写真は、そもそも順番が分からない
+   */
+  const openSelectionInViewer = useCallback(async () => {
+    const ids = [...selectedRef.current];
+    if (ids.length === 0) return;
+    const epoch = selectEpochRef.current;
+    const scope = await scopeMedia(
+      queryRef.current,
+      filterRef.current,
+      ids,
+    );
+    // 待っている間に選択が変わっていたら開かない（一括操作と同じ守り）
+    if (selectEpochRef.current !== epoch) return;
+    if (scope.length === 0) return;
+    setViewerScope(scope);
+    setViewer({ dayKey: scope[0].day_key, id: scope[0].id });
   }, []);
 
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
@@ -2058,19 +2381,19 @@ export default function App() {
   );
 
   /**
-   * 選んだものをまとめてお気に入りに付ける／外す。
+   * 選んだものをまとめて印を付ける／外す（★も⚑も同じ道を通る）。
    *
    * 画面は先に書き換えて、失敗したら戻す（1枚のときと同じ流儀）。
-   * **★のみ表示中は骨組みが変わる**ので取り直す。
+   * **その印で絞り込み中は骨組みが変わる**ので取り直す。
    */
-  const onBulkFavorite = useCallback(
-    async (favorite: boolean) => {
+  const onBulkMark = useCallback(
+    async (kind: MarkKind, on: boolean) => {
       const ids = await visibleSelection();
       if (ids.length === 0) return;
       // **絞ったあとのIDで画面も触る**。`visibleSelection` が落としたぶん
-      // （もう画面に出ていないもの）まで★を付け替えると、表示だけが嘘になる
+      // （もう画面に出ていないもの）まで印を付け替えると、表示だけが嘘になる
       const touched = new Set(ids);
-      const patch = (fav: boolean) => {
+      const patch = (value: boolean) => {
         setDayItems((prev) => {
           const next = new Map(prev);
           for (const [dayKey, items] of prev) {
@@ -2078,17 +2401,20 @@ export default function App() {
             next.set(
               dayKey,
               items.map((it) =>
-                touched.has(it.id) ? { ...it, favorite: fav } : it,
+                touched.has(it.id) ? { ...it, [kind]: value } : it,
               ),
             );
           }
           return next;
         });
       };
-      patch(favorite);
+      patch(on);
       let n: number;
       try {
-        n = await setFavorites(ids, favorite);
+        n =
+          kind === "favorite"
+            ? await setFavorites(ids, on)
+            : await setPickeds(ids, on);
       } catch (e) {
         // **反転で戻さない**。選択に付いている・付いていないが混ざっていると、
         // 反転では元に戻らない（付ける操作の失敗で、全部が「外れた」表示になる）。
@@ -2103,10 +2429,20 @@ export default function App() {
         setStatus(String(e));
         return;
       }
-      setStatus(favorite ? t.bulkFavoriteDone(n) : t.bulkUnfavoriteDone(n));
+      setStatus(
+        kind === "favorite"
+          ? on
+            ? t.bulkFavoriteDone(n)
+            : t.bulkUnfavoriteDone(n)
+          : on
+            ? t.bulkPickDone(n)
+            : t.bulkUnpickDone(n),
+      );
       clearSelection();
       // ここから先が転んでも、DBは既に正しい。画面の巻き戻しはしない
-      if (filterRef.current === "fav") await reloadAll();
+      // その印で絞り込み中なら、外したものが画面から消える＝骨組みが変わる
+      if (filterRef.current === (kind === "favorite" ? "fav" : "picked"))
+        await reloadAll();
       else await refreshSummary();
     },
     [visibleSelection, reloadAll, refreshSummary, clearSelection],
@@ -2241,6 +2577,10 @@ export default function App() {
         run: () => toggleFavorite(item),
       },
       {
+        label: item.picked ? t.bulkPickOff : t.bulkPickOn,
+        run: () => void setMark(item, "picked", !item.picked),
+      },
+      {
         label: t.menuDelete,
         danger: true,
         separator: true,
@@ -2284,6 +2624,18 @@ export default function App() {
       },
       {
         group: t.paletteGroupActions,
+        icon: "⚑",
+        label: t.actionShowPicked,
+        run: () => setFilter("picked"),
+      },
+      {
+        group: t.paletteGroupActions,
+        icon: "⌨",
+        label: t.actionShortcuts,
+        run: () => setShortcutsOpen(true),
+      },
+      {
+        group: t.paletteGroupActions,
         icon: "🖼",
         label: t.actionShowAll,
         run: () => {
@@ -2307,18 +2659,29 @@ export default function App() {
     [openWizard, onSync],
   );
 
+  // 選択スコープで開いているあいだは、端も分母も**その列**で決まる（0.2 ②）
   const hasPrev =
-    viewerInfo !== null && !(viewerInfo.dayIdx === 0 && viewerInfo.itemIdx === 0);
+    scopeIdx !== undefined
+      ? scopeIdx > 0
+      : viewerInfo !== null &&
+        !(viewerInfo.dayIdx === 0 && viewerInfo.itemIdx === 0);
   const hasNext =
-    viewerInfo !== null &&
-    !(
-      viewerInfo.dayIdx === summary.length - 1 &&
-      viewerInfo.itemIdx === viewerInfo.dayLength - 1
-    );
+    scopeIdx !== undefined
+      ? scopeIdx < (viewerScope?.length ?? 0) - 1
+      : viewerInfo !== null &&
+        !(
+          viewerInfo.dayIdx === summary.length - 1 &&
+          viewerInfo.itemIdx === viewerInfo.dayLength - 1
+        );
   const viewerPos =
-    viewerInfo !== null
-      ? prefixCounts[viewerInfo.dayIdx] + viewerInfo.itemIdx + 1
-      : 0;
+    scopeIdx !== undefined
+      ? scopeIdx + 1
+      : viewerInfo !== null
+        ? prefixCounts[viewerInfo.dayIdx] + viewerInfo.itemIdx + 1
+        : 0;
+  /** カウンターの分母。スコープで開いていれば選んだ枚数 */
+  const viewerTotal =
+    scopeIdx !== undefined ? (viewerScope?.length ?? 0) : totalShown;
 
   return (
     <div className="app">
@@ -2340,11 +2703,35 @@ export default function App() {
           >
             {t.selectAll}
           </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              openSelectionInViewer().catch((e) => setStatus(String(e)))
+            }
+          >
+            {t.bulkViewer}
+          </button>
           <span className="select-bar-spacer" />
           <button
             disabled={busy}
             onClick={() =>
-              onBulkFavorite(true).catch((e) => setStatus(String(e)))
+              onBulkMark("picked", true).catch((e) => setStatus(String(e)))
+            }
+          >
+            ⚑ {t.bulkPickOn}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              onBulkMark("picked", false).catch((e) => setStatus(String(e)))
+            }
+          >
+            {t.bulkPickOff}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() =>
+              onBulkMark("favorite", true).catch((e) => setStatus(String(e)))
             }
           >
             ★ {t.bulkFavoriteOn}
@@ -2352,7 +2739,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkFavorite(false).catch((e) => setStatus(String(e)))
+              onBulkMark("favorite", false).catch((e) => setStatus(String(e)))
             }
           >
             {t.bulkFavoriteOff}
@@ -2517,6 +2904,16 @@ export default function App() {
             {t.navFavorites}
             {stats.favorites > 0 && (
               <span className="fav-count">{stats.favorites}</span>
+            )}
+          </div>
+          {/* 選別で選んだもの（⚑。0.2 ②）。★とは別の棚なので入口も分ける */}
+          <div
+            className={"nav-item" + (filter === "picked" ? " active" : "")}
+            onClick={() => setFilter("picked")}
+          >
+            {t.navPicked}
+            {stats.picked > 0 && (
+              <span className="fav-count">{stats.picked}</span>
             )}
           </div>
           {cameras.length > 0 && (
@@ -2749,6 +3146,13 @@ export default function App() {
                               {cell.item.favorite && (
                                 <span className="cell-fav">★</span>
                               )}
+                              {/* 選別の印。`cell-pick` は複数選択の丸なので
+                                  名前を分ける（`cell-flag`） */}
+                              {cell.item.picked && (
+                                <span className="cell-flag" title={t.viewerPicked}>
+                                  ⚑
+                                </span>
+                              )}
                               {/*
                                 選択の丸。ホバーで出て、選択中は出しっぱなし。
                                 タイルのクリックとは別扱いにする（**選択モードに
@@ -2872,10 +3276,21 @@ export default function App() {
           ) : viewerItem ? (
             <img
               className="viewer-image"
-              src={fullSrc(viewerItem.id, viewerItem.mtime_ms)}
-              // 原寸が出せず下敷きが唯一の絵になったときは、代替テキストを黙らせる
-              // ——絵の真ん中にファイル名が浮くと、情報ではなくゴミに見える
-              alt={fallbackToThumb ? "" : viewerItem.file_name}
+              // 門が開くまで `src` を置かない＝要求そのものを出さない。
+              // 置いてから消しても、Rust側で走り出した変換は取り消せない
+              src={
+                fullGateId === viewerItem.id
+                  ? fullSrc(viewerItem.id, viewerItem.mtime_ms)
+                  : undefined
+              }
+              // 絵が出ていないあいだ（門が閉じている・原寸が出せなかった）は
+              // 代替テキストを黙らせる——絵の真ん中にファイル名が浮くと、
+              // 情報ではなくゴミに見える
+              alt={
+                fallbackToThumb || fullGateId !== viewerItem.id
+                  ? ""
+                  : viewerItem.file_name
+              }
               draggable={false}
               // 読み込み中表示をここで畳む。失敗（onError）でも畳む——
               // 出ない絵のために「読み込み中」を出し続けない。
@@ -3026,6 +3441,14 @@ export default function App() {
               style={{ display: "none" }}
             />
           ))}
+          {/* 粗い絵（下敷きのサムネイル）を見ているあいだの細い線（0.2 ②）。
+              **原寸が出た瞬間に消える**ので、切り替わりがそのまま見える。
+              CSSで140ms待ってから現れるので、先読み済みの絵（6ms）では
+              一度も光らない。動画には出さない（Rangeで刻んで届くので、
+              「粗い絵を見ている」状態が無い） */}
+          {viewerItem && !viewerItem.is_video && loadedId !== viewerItem.id && (
+            <div className="viewer-progress" aria-hidden />
+          )}
           {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
               サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
           {viewerItem &&
@@ -3036,6 +3459,30 @@ export default function App() {
                 {t.loading}
               </div>
             )}
+          {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
+              見えていると選別が進む。クリックでそこへ飛ぶ */}
+          {viewerItem && strip.length > 1 && (
+            <div className="viewer-strip" onClick={(e) => e.stopPropagation()}>
+              {strip.map(({ item, offset }) => (
+                <button
+                  key={item.id}
+                  className={"strip-cell" + (offset === 0 ? " current" : "")}
+                  title={item.file_name}
+                  onClick={() =>
+                    setViewer({ dayKey: item.day_key, id: item.id })
+                  }
+                >
+                  {item.has_thumb ? (
+                    <img src={thumbSrc(item)} alt="" draggable={false} />
+                  ) : (
+                    <span className="strip-blank" />
+                  )}
+                  {item.picked && <span className="strip-flag">⚑</span>}
+                  {item.favorite && <span className="strip-fav">★</span>}
+                </button>
+              ))}
+            </div>
+          )}
           {viewerItem && (
             <div
               className="viewer-caption"
@@ -3046,7 +3493,7 @@ export default function App() {
                 {formatDateTime(viewerItem.taken_at_ms)}
               </span>
               <span className="viewer-pos">
-                {viewerPos} / {totalShown}
+                {viewerPos} / {viewerTotal}
               </span>
             </div>
           )}
@@ -3122,6 +3569,15 @@ export default function App() {
                 {viewerItem.favorite ? "★" : "☆"}
               </button>
             )}
+            {viewerItem && (
+              <button
+                className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
+                title={viewerItem.picked ? t.viewerUnpick : t.viewerPick}
+                onClick={() => void setMark(viewerItem, "picked", !viewerItem.picked)}
+              >
+                ⚑
+              </button>
+            )}
             <button
               className={"viewer-tool" + (showExif ? " on" : "")}
               title={t.viewerExif}
@@ -3154,6 +3610,13 @@ export default function App() {
                 🗑
               </button>
             )}
+            <button
+              className="viewer-tool"
+              title={t.shortcutsTitle}
+              onClick={() => setShortcutsOpen(true)}
+            >
+              ?
+            </button>
             <button
               className={"viewer-tool" + (isFullscreen ? " on" : "")}
               title={t.viewerFullscreen}
@@ -3218,6 +3681,54 @@ export default function App() {
         items={menu ? menuItemsFor(menu.item) : []}
         onClose={() => setMenu(null)}
       />
+      {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、
+          いま押せるものがその場で分かるように出す */}
+      {shortcutsOpen && (
+        <div
+          className="shortcuts-backdrop"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="shortcuts"
+            role="dialog"
+            aria-label={t.shortcutsTitle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="shortcuts-head">
+              <h2>{t.shortcutsTitle}</h2>
+              <button
+                className="shortcuts-close"
+                title={t.close}
+                onClick={() => setShortcutsOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="shortcuts-cols">
+              {t.shortcutGroups.map((group) => (
+                <section key={group.title}>
+                  <h3>{group.title}</h3>
+                  <dl>
+                    {group.keys.map(([key, what]) => (
+                      <div key={key + what}>
+                        <dt>
+                          {key.split(" / ").map((k, i) => (
+                            <span key={k}>
+                              {i > 0 && <span className="shortcut-or"> / </span>}
+                              <kbd>{k}</kbd>
+                            </span>
+                          ))}
+                        </dt>
+                        <dd>{what}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <Palette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

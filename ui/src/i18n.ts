@@ -32,6 +32,47 @@ const ja = {
   navPlaces: "画像の場所",
   navAllPhotos: "すべての画像",
   navFavorites: "★ お気に入り",
+  navPicked: "⚑ 選別で選んだもの",
+  // ショートカット一覧（`?` / `F1`）
+  shortcutsTitle: "ショートカット一覧 (?)",
+  actionShortcuts: "ショートカット一覧を出す",
+  shortcutGroups: [
+    {
+      title: "一覧",
+      keys: [
+        ["Ctrl+K / ⌘K", "コマンドパレット（日付・カメラへ飛ぶ、検索、取り込み）"],
+        ["Ctrl+A / ⌘A", "いまの検索と絞り込みに一致するもの全部を選ぶ"],
+        ["Shift + クリック", "最後に押したタイルからここまでをまとめて選ぶ"],
+        ["Ctrl + クリック", "1枚を選ぶ・外す（macOSは ⌘ + クリック）"],
+        ["日付の見出しを押す", "その日を全部選ぶ（もう一度で解除）"],
+        ["Esc", "選択をやめる"],
+      ],
+    },
+    {
+      title: "写真を大きく見る",
+      keys: [
+        ["← / →", "前後の写真へ"],
+        ["P", "選ぶ（⚑ を付ける）。既定では続けて次の写真へ"],
+        ["U", "選ぶのをやめる（⚑ を外す）"],
+        ["F", "お気に入り（★）の付け外し"],
+        ["I", "撮影情報（カメラ・レンズ・絞り・ISO・GPS）"],
+        ["Space", "スライドショー。動画のときは再生／一時停止"],
+        ["1 / 0", "等倍100% ／ 画面に合わせる"],
+        ["F11", "全画面"],
+        ["Esc", "閉じる"],
+      ],
+    },
+    {
+      title: "マウス（写真を大きく見ているとき）",
+      keys: [
+        ["ダブルクリック", "等倍100% ⇔ 画面に合わせる"],
+        ["ホイール", "拡大・縮小"],
+        ["ドラッグ", "拡大中に位置を動かす"],
+        ["右クリック", "開く／他のアプリで開く／場所を表示／ゴミ箱へ"],
+        ["下の帯をクリック", "前後の写真へ飛ぶ"],
+      ],
+    },
+  ] as { title: string; keys: [string, string][] }[],
   navCameras: "カメラとメディア",
   navLibraryFolders: "ライブラリのフォルダ",
   navDrives: "ドライブ",
@@ -45,6 +86,9 @@ const ja = {
   photosCount: (n: number) => `${n}枚`,
   memoriesTitle: (years: number) => `${years}年前の今日`,
   viewerFavorite: "お気に入り (F)",
+  viewerPick: "選ぶ (P)",
+  viewerUnpick: "選ぶのをやめる (U)",
+  viewerPicked: "選別で選んだ写真",
   viewerSlideshow: "スライドショー (Space)",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
@@ -88,6 +132,7 @@ const ja = {
   paletteRun: "実行",
   paletteCloseHint: "閉じる",
   actionShowFavorites: "お気に入りだけ表示",
+  actionShowPicked: "選別で選んだものだけ表示",
   actionShowAll: "すべての画像を表示",
   actionCalendar: "カレンダー表示",
   actionThumbnails: "サムネイル表示",
@@ -179,11 +224,12 @@ const ja = {
   bulkDelete: "ゴミ箱へ",
   bulkCopy: "フォルダへコピー",
   bulkMove: "フォルダへ移動",
+  bulkViewer: "選んだぶんを見る",
   pickExportFolder: "書き出し先のフォルダを選ぶ",
   moveConfirm: (n: number) =>
     n === 1
-      ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（お気に入りは引き継がれません）。"
-      : `${n}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（お気に入りは引き継がれません）。`,
+      ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。"
+      : `${n}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。`,
   exporting: (done: number, total: number, name: string) =>
     `書き出し中… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
@@ -193,6 +239,10 @@ const ja = {
     if (leftBehind > 0) parts.push(`${leftBehind}枚は元を消せませんでした`);
     return parts.join("。");
   },
+  bulkPickOn: "選ぶ",
+  bulkPickOff: "選ぶのをやめる",
+  bulkPickDone: (n: number) => `${n}枚を選別で選びました`,
+  bulkUnpickDone: (n: number) => `${n}枚の選別の印を外しました`,
   bulkFavoriteDone: (n: number) => `${n}枚をお気に入りに追加しました`,
   bulkUnfavoriteDone: (n: number) => `${n}枚のお気に入りを外しました`,
   // 設定
@@ -209,6 +259,10 @@ const ja = {
   settingsCustomPatternNote:
     "{year} {month} {day} が日付に置き換わります。/ で階層になります。使えない文字や上の階層への移動（..）は自動で落とします。",
   settingsCustomPatternResult: "できるフォルダ",
+  settingsViewer: "写真を大きく見るとき",
+  settingsAutoAdvanceToggle: "P / U で判定したら、次の写真へ進む",
+  settingsAutoAdvanceNote:
+    "全画面表示で P を押すと ⚑ の印が付き（★ お気に入りとは別の棚です）、U で外れます。この設定を入れておくと、続けて次の写真が出ます（選ぶ作業が1枚1操作で進みます）。切ると、その写真に留まります。",
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
   settingsAutoplayNote:
@@ -261,6 +315,47 @@ const en: Dict = {
   navPlaces: "Places",
   navAllPhotos: "All photos",
   navFavorites: "★ Favorites",
+  navPicked: "⚑ Picked",
+  // ショートカット一覧（`?` / `F1`）
+  shortcutsTitle: "Keyboard shortcuts (?)",
+  actionShortcuts: "Show keyboard shortcuts",
+  shortcutGroups: [
+    {
+      title: "Grid",
+      keys: [
+        ["Ctrl+K / ⌘K", "Command palette (jump to a date or camera, search, import)"],
+        ["Ctrl+A / ⌘A", "Select everything the current search and filter match"],
+        ["Shift + click", "Select everything between the last tile you clicked and this one"],
+        ["Ctrl + click", "Add or remove one photo (⌘ + click on macOS)"],
+        ["Click a date heading", "Select that whole day (click again to clear)"],
+        ["Esc", "Stop selecting"],
+      ],
+    },
+    {
+      title: "Viewer",
+      keys: [
+        ["← / →", "Previous / next photo"],
+        ["P", "Pick it (⚑). By default this moves on to the next photo"],
+        ["U", "Unpick it (clear ⚑)"],
+        ["F", "Toggle favorite (★)"],
+        ["I", "Capture details (camera, lens, aperture, ISO, GPS)"],
+        ["Space", "Slideshow. On a video, play / pause"],
+        ["1 / 0", "Actual size 100% / fit to screen"],
+        ["F11", "Full screen"],
+        ["Esc", "Close"],
+      ],
+    },
+    {
+      title: "Mouse (in the viewer)",
+      keys: [
+        ["Double-click", "Actual size 100% ⇔ fit to screen"],
+        ["Wheel", "Zoom in / out"],
+        ["Drag", "Move around while zoomed in"],
+        ["Right-click", "Open / open with / show in folder / move to trash"],
+        ["Click the strip", "Jump to that photo"],
+      ],
+    },
+  ] as { title: string; keys: [string, string][] }[],
   navCameras: "Cameras & media",
   navLibraryFolders: "Library folders",
   navDrives: "Drives",
@@ -275,6 +370,9 @@ const en: Dict = {
   memoriesTitle: (years: number) =>
     years === 1 ? "1 year ago today" : `${years} years ago today`,
   viewerFavorite: "Favorite (F)",
+  viewerPick: "Pick (P)",
+  viewerUnpick: "Unpick (U)",
+  viewerPicked: "Picked photo",
   viewerSlideshow: "Slideshow (Space)",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",
@@ -318,6 +416,7 @@ const en: Dict = {
   paletteRun: "Run",
   paletteCloseHint: "Close",
   actionShowFavorites: "Show favorites only",
+  actionShowPicked: "Show picked only",
   actionShowAll: "Show all photos",
   actionCalendar: "Calendar view",
   actionThumbnails: "Photo grid",
@@ -407,11 +506,12 @@ const en: Dict = {
   bulkDelete: "Move to trash",
   bulkCopy: "Copy to folder",
   bulkMove: "Move to folder",
+  bulkViewer: "View the selection",
   pickExportFolder: "Choose a folder to export to",
   moveConfirm: (n: number) =>
     n === 1
-      ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (favorites are not carried over)."
-      : `Move ${n} photos to a folder you pick next? They leave their current place and leave the library (favorites are not carried over).`,
+      ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (★ and ⚑ marks are not carried over)."
+      : `Move ${n} photos to a folder you pick next? They leave their current place and leave the library (★ and ⚑ marks are not carried over).`,
   exporting: (done: number, total: number, name: string) =>
     `Exporting… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
@@ -421,6 +521,12 @@ const en: Dict = {
     if (leftBehind > 0) parts.push(`${leftBehind} could not be removed from the original place`);
     return parts.join(". ") + ".";
   },
+  bulkPickOn: "Pick",
+  bulkPickOff: "Unpick",
+  bulkPickDone: (n: number) =>
+    n === 1 ? "1 photo picked" : `${n} photos picked`,
+  bulkUnpickDone: (n: number) =>
+    n === 1 ? "1 photo unpicked" : `${n} photos unpicked`,
   bulkFavoriteDone: (n: number) =>
     n === 1 ? "1 photo added to favorites" : `${n} photos added to favorites`,
   bulkUnfavoriteDone: (n: number) =>
@@ -440,6 +546,10 @@ const en: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} are replaced with the date. Use / for nesting. Unusable characters and moves to a parent folder (..) are dropped automatically.",
   settingsCustomPatternResult: "Resulting folder",
+  settingsViewer: "When you view a photo full screen",
+  settingsAutoAdvanceToggle: "Move to the next photo after P / U",
+  settingsAutoAdvanceNote:
+    "In full screen, P flags the photo with ⚑ (a separate shelf from ★ favorites) and U clears it. With this on, the next photo follows right away, so picking takes one key per photo. With it off, you stay on the same photo.",
   settingsAutoplay: "When you insert a USB drive or SD card",
   settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
   settingsAutoplayNote:

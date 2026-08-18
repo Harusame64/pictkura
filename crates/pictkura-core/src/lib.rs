@@ -38,7 +38,7 @@ pub use db::{Db, DbError, DirSnapshot, MediaRecord, ReadPool};
 pub use export::{export_files, ExportError, ExportMode, ExportOutcome, ExportStats};
 pub use import::{import_files, import_from, is_already_imported, ImportError, ImportStats};
 pub use scanner::{PrunedScanOutcome, ScanOutcome, ScannedFile};
-pub use search::{parse_query, SearchQuery};
+pub use search::{parse_query, MediaFilter, SearchQuery};
 pub use sync::{
     apply_scan, scan_library, scan_library_pruned, sync_library, LibraryScan, SyncStats,
 };
