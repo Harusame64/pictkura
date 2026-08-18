@@ -27,7 +27,7 @@
 use std::path::Path;
 
 use image::DynamicImage;
-use mozjpeg::{ColorSpace, Decompress};
+use mozjpeg::{ColorSpace, Compress, Decompress};
 
 /// 元ファイルが名乗ってよい画素数の上限（**間引く前**の値で見る）。
 ///
@@ -81,11 +81,40 @@ pub fn decode_scaled_mem(bytes: &[u8], max_edge: u32) -> Option<DynamicImage> {
 /// libjpeg 由来のパニックを `None` に均す。
 ///
 /// `resume_unwind` はパニックハンドラを通らないので、コンソールには何も出ない。
-/// 巻き戻しの途中で `Decompress` の Drop が走り、libjpeg 側の確保は解放される。
-fn catching(f: impl FnOnce() -> Option<DynamicImage>) -> Option<DynamicImage> {
+/// 巻き戻しの途中で `Decompress`／`Compress` の Drop が走り、
+/// libjpeg 側の確保は解放される。
+fn catching<T>(f: impl FnOnce() -> Option<T>) -> Option<T> {
     // AssertUnwindSafe: 失敗したら結果を丸ごと捨てるだけで、
     // 途中まで書いた状態を外へ持ち出さない
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()?
+}
+
+/// RGB8の画素をJPEGへ詰める（libjpeg-turbo）。
+///
+/// `image` クレートの純Rustエンコーダの代わり。**展開ではなく圧縮のほうが
+/// 原寸表示の値段の大半**で、HEICの詰め直し 953ms のうち約525msがここだった。
+///
+/// mozjpeg の既定はtrellis量子化とスキャン最適化（プログレッシブ）を回して
+/// ファイルを小さくするが、その分だけ遅い。ここは**配信して数秒で捨てる絵**なので
+/// [`Compress::set_fastest_defaults`] で libjpeg v6 相当まで落とす
+/// ——速さが要るのであって、数十KBの節約に用は無い。
+///
+/// `set_fastest_defaults` は内部で `jpeg_set_defaults` を呼ぶので、
+/// **寸法と品質はその後に設定する**（先に置くと消える）。
+pub fn encode_rgb(rgb: &image::RgbImage, quality: u8) -> Option<Vec<u8>> {
+    let (w, h) = (rgb.width(), rgb.height());
+    if w == 0 || h == 0 {
+        return None;
+    }
+    catching(|| {
+        let mut comp = Compress::new(ColorSpace::JCS_RGB);
+        comp.set_fastest_defaults();
+        comp.set_size(w as usize, h as usize);
+        comp.set_quality(f32::from(quality));
+        let mut started = comp.start_compress(Vec::new()).ok()?;
+        started.write_scanlines(rgb.as_raw()).ok()?;
+        started.finish().ok()
+    })
 }
 
 fn scaled<R: std::io::BufRead>(mut dec: Decompress<R>, max_edge: u32) -> Option<DynamicImage> {
@@ -258,6 +287,44 @@ mod tests {
         let path = dir.path().join("garbage.jpg");
         std::fs::write(&path, vec![0xFFu8; 4096]).unwrap();
         assert!(decode_scaled(&path, 512).is_none());
+    }
+
+    /// mozjpegで詰めたJPEGが、そのまま読み戻せること（寸法・色が化けていない）
+    #[test]
+    fn encodes_rgb_that_decodes_back() {
+        let rgb = image::RgbImage::from_fn(320, 240, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x ^ y) % 253) as u8])
+        });
+        let bytes = encode_rgb(&rgb, 82).expect("詰められるはず");
+        assert_eq!(&bytes[..2], &[0xFF, 0xD8], "JPEGのSOIが無い");
+        let back = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert_eq!((back.width(), back.height()), (320, 240));
+        let mean: f64 = back
+            .as_raw()
+            .iter()
+            .zip(rgb.as_raw())
+            .map(|(a, b)| a.abs_diff(*b) as f64)
+            .sum::<f64>()
+            / back.as_raw().len() as f64;
+        assert!(mean < 24.0, "元の絵と違いすぎる: 平均差 {mean}");
+    }
+
+    /// 品質を上げれば大きくなる（set_quality が効いている＝
+    /// set_fastest_defaults の後に呼べている）
+    #[test]
+    fn quality_reaches_the_encoder() {
+        let rgb = image::RgbImage::from_fn(256, 256, |x, y| {
+            image::Rgb([(x * y % 256) as u8, (x % 256) as u8, (y % 256) as u8])
+        });
+        let low = encode_rgb(&rgb, 40).unwrap().len();
+        let high = encode_rgb(&rgb, 95).unwrap().len();
+        assert!(high > low, "品質が効いていない: q40={low} q95={high}");
+    }
+
+    /// 0画素は libjpeg へ渡す前に断る（渡すとlongjmpで飛んでくる）
+    #[test]
+    fn refuses_empty_images() {
+        assert!(encode_rgb(&image::RgbImage::new(0, 0), 82).is_none());
     }
 
     /// 間引いた絵が、原寸から縮めた絵とだいたい一致すること（色が化けていない）
