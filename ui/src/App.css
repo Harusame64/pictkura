@@ -913,6 +913,100 @@ body {
   background: var(--fav);
   color: var(--n-10);
 }
+/* ショートカット一覧（`?` / `F1`）。ビューアの上にも出るので、
+   背景は暗い地に合わせて濃いめの膜を敷く */
+.shortcuts-backdrop {
+  position: fixed;
+  inset: 0;
+  /* ビューア(100)・パレット(200)・右クリック(300)より前。
+     どこからでも `?` で出せるので、いちばん手前に置く */
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+}
+.shortcuts {
+  width: min(900px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  padding: var(--sp-4);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-3);
+}
+.shortcuts-head h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+.shortcuts-close {
+  padding: 4px 10px;
+  font: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.shortcuts-close:hover {
+  background: var(--surface-2);
+}
+/* 3列で並べ、狭いときは自然に折り返す */
+.shortcuts-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-4);
+}
+.shortcuts h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.shortcuts dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.shortcuts dl > div {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  gap: var(--sp-2);
+  align-items: baseline;
+}
+.shortcuts dt {
+  white-space: nowrap;
+}
+.shortcuts dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.shortcuts kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+.shortcut-or {
+  color: var(--text-faint);
+}
+
 /* 粗い絵を見ているあいだの細い線（0.2 ②）。
    原寸が届いた瞬間に消えるので、**切り替わりが目で分かる**。
    140ms待ってから現れるので、先読み済み（6ms）では一度も光らない */

@@ -309,6 +309,8 @@ export default function App() {
   /** カメラ一覧を全部見せるか（既定は上位数台だけ） */
   const [camerasExpanded, setCamerasExpanded] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** ショートカット一覧（`?` / `F1`）。ビューアの上にも出す */
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** 右クリックメニューの表示位置と対象（nullで非表示） */
   const [menu, setMenu] = useState<{ pos: MenuPos; item: MediaItem } | null>(
     null,
@@ -2005,7 +2007,7 @@ export default function App() {
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
-      if (paletteOpen || typing) return;
+      if (paletteOpen || shortcutsOpen || typing) return;
       if (e.key === "Escape") setViewer(null);
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
@@ -2047,6 +2049,7 @@ export default function App() {
     toggleFavorite,
     judgeViewer,
     paletteOpen,
+    shortcutsOpen,
     toggleFullscreen,
     toggleActualSize,
   ]);
@@ -2078,12 +2081,29 @@ export default function App() {
     if (viewer === null) setShowExif(false);
   }, [viewer]);
 
-  // コマンドパレット（Ctrl+K / ⌘K）。ビューア表示中でも開ける
+  // コマンドパレット（Ctrl+K / ⌘K）とショートカット一覧（`?` / `F1`）。
+  // どちらもビューア表示中でも開ける
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((p) => !p);
+        return;
+      }
+      // 文字入力中は効かせない（検索欄に「?」と打てなくなる）
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el?.tagName === "INPUT" ||
+        el?.tagName === "TEXTAREA" ||
+        el?.isContentEditable === true;
+      if (typing) return;
+      if (e.key === "?" || e.key === "F1") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        // **開いていたら閉じるだけ**。他のEsc（ビューアを閉じる・選択解除）は
+        // それぞれの担当が見ているので、ここでは畳むだけにして横取りしない
+        setShortcutsOpen((v) => (v ? false : v));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -2103,6 +2123,7 @@ export default function App() {
       if (
         viewer !== null ||
         paletteOpen ||
+        shortcutsOpen ||
         settingsOpen ||
         wizardOpen ||
         menu !== null ||
@@ -2121,7 +2142,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, settingsOpen, wizardOpen, menu, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
@@ -2606,6 +2627,12 @@ export default function App() {
         icon: "⚑",
         label: t.actionShowPicked,
         run: () => setFilter("picked"),
+      },
+      {
+        group: t.paletteGroupActions,
+        icon: "⌨",
+        label: t.actionShortcuts,
+        run: () => setShortcutsOpen(true),
       },
       {
         group: t.paletteGroupActions,
@@ -3584,6 +3611,13 @@ export default function App() {
               </button>
             )}
             <button
+              className="viewer-tool"
+              title={t.shortcutsTitle}
+              onClick={() => setShortcutsOpen(true)}
+            >
+              ?
+            </button>
+            <button
               className={"viewer-tool" + (isFullscreen ? " on" : "")}
               title={t.viewerFullscreen}
               onClick={toggleFullscreen}
@@ -3647,6 +3681,54 @@ export default function App() {
         items={menu ? menuItemsFor(menu.item) : []}
         onClose={() => setMenu(null)}
       />
+      {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、
+          いま押せるものがその場で分かるように出す */}
+      {shortcutsOpen && (
+        <div
+          className="shortcuts-backdrop"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="shortcuts"
+            role="dialog"
+            aria-label={t.shortcutsTitle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="shortcuts-head">
+              <h2>{t.shortcutsTitle}</h2>
+              <button
+                className="shortcuts-close"
+                title={t.close}
+                onClick={() => setShortcutsOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="shortcuts-cols">
+              {t.shortcutGroups.map((group) => (
+                <section key={group.title}>
+                  <h3>{group.title}</h3>
+                  <dl>
+                    {group.keys.map(([key, what]) => (
+                      <div key={key + what}>
+                        <dt>
+                          {key.split(" / ").map((k, i) => (
+                            <span key={k}>
+                              {i > 0 && <span className="shortcut-or"> / </span>}
+                              <kbd>{k}</kbd>
+                            </span>
+                          ))}
+                        </dt>
+                        <dd>{what}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <Palette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

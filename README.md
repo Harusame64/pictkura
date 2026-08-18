@@ -217,6 +217,7 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `F11` | full screen |
 | `Esc` | close |
+| `?` | show the keyboard shortcuts (from anywhere) |
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 open / open with / show in folder / move to trash. **Deleting always goes through the

@@ -33,6 +33,46 @@ const ja = {
   navAllPhotos: "すべての画像",
   navFavorites: "★ お気に入り",
   navPicked: "⚑ 選別で選んだもの",
+  // ショートカット一覧（`?` / `F1`）
+  shortcutsTitle: "ショートカット一覧 (?)",
+  actionShortcuts: "ショートカット一覧を出す",
+  shortcutGroups: [
+    {
+      title: "一覧",
+      keys: [
+        ["Ctrl+K / ⌘K", "コマンドパレット（日付・カメラへ飛ぶ、検索、取り込み）"],
+        ["Ctrl+A / ⌘A", "いまの検索と絞り込みに一致するもの全部を選ぶ"],
+        ["Shift + クリック", "最後に押したタイルからここまでをまとめて選ぶ"],
+        ["Ctrl + クリック", "1枚を選ぶ・外す（macOSは ⌘ + クリック）"],
+        ["日付の見出しを押す", "その日を全部選ぶ（もう一度で解除）"],
+        ["Esc", "選択をやめる"],
+      ],
+    },
+    {
+      title: "写真を大きく見る",
+      keys: [
+        ["← / →", "前後の写真へ"],
+        ["P", "選ぶ（⚑ を付ける）。既定では続けて次の写真へ"],
+        ["U", "選ぶのをやめる（⚑ を外す）"],
+        ["F", "お気に入り（★）の付け外し"],
+        ["I", "撮影情報（カメラ・レンズ・絞り・ISO・GPS）"],
+        ["Space", "スライドショー。動画のときは再生／一時停止"],
+        ["1 / 0", "等倍100% ／ 画面に合わせる"],
+        ["F11", "全画面"],
+        ["Esc", "閉じる"],
+      ],
+    },
+    {
+      title: "マウス（写真を大きく見ているとき）",
+      keys: [
+        ["ダブルクリック", "等倍100% ⇔ 画面に合わせる"],
+        ["ホイール", "拡大・縮小"],
+        ["ドラッグ", "拡大中に位置を動かす"],
+        ["右クリック", "開く／他のアプリで開く／場所を表示／ゴミ箱へ"],
+        ["下の帯をクリック", "前後の写真へ飛ぶ"],
+      ],
+    },
+  ] as { title: string; keys: [string, string][] }[],
   navCameras: "カメラとメディア",
   navLibraryFolders: "ライブラリのフォルダ",
   navDrives: "ドライブ",
@@ -276,6 +316,46 @@ const en: Dict = {
   navAllPhotos: "All photos",
   navFavorites: "★ Favorites",
   navPicked: "⚑ Picked",
+  // ショートカット一覧（`?` / `F1`）
+  shortcutsTitle: "Keyboard shortcuts (?)",
+  actionShortcuts: "Show keyboard shortcuts",
+  shortcutGroups: [
+    {
+      title: "Grid",
+      keys: [
+        ["Ctrl+K / ⌘K", "Command palette (jump to a date or camera, search, import)"],
+        ["Ctrl+A / ⌘A", "Select everything the current search and filter match"],
+        ["Shift + click", "Select everything between the last tile you clicked and this one"],
+        ["Ctrl + click", "Add or remove one photo (⌘ + click on macOS)"],
+        ["Click a date heading", "Select that whole day (click again to clear)"],
+        ["Esc", "Stop selecting"],
+      ],
+    },
+    {
+      title: "Viewer",
+      keys: [
+        ["← / →", "Previous / next photo"],
+        ["P", "Pick it (⚑). By default this moves on to the next photo"],
+        ["U", "Unpick it (clear ⚑)"],
+        ["F", "Toggle favorite (★)"],
+        ["I", "Capture details (camera, lens, aperture, ISO, GPS)"],
+        ["Space", "Slideshow. On a video, play / pause"],
+        ["1 / 0", "Actual size 100% / fit to screen"],
+        ["F11", "Full screen"],
+        ["Esc", "Close"],
+      ],
+    },
+    {
+      title: "Mouse (in the viewer)",
+      keys: [
+        ["Double-click", "Actual size 100% ⇔ fit to screen"],
+        ["Wheel", "Zoom in / out"],
+        ["Drag", "Move around while zoomed in"],
+        ["Right-click", "Open / open with / show in folder / move to trash"],
+        ["Click the strip", "Jump to that photo"],
+      ],
+    },
+  ] as { title: string; keys: [string, string][] }[],
   navCameras: "Cameras & media",
   navLibraryFolders: "Library folders",
   navDrives: "Drives",
