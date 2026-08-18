@@ -398,24 +398,38 @@ const HVCC_CHROMA_OFFSET: usize = 16;
 ///
 /// **分からないときは `None`**。呼び出し側は間引かない側（4:4:4）へ倒すこと。
 ///
-/// iPhoneの主画像は `grid`（タイルの寄せ集め）で、`hvcC` は主アイテムではなく
-/// **タイル側**に付く。だから主アイテムのプロパティだけを見ても見つからない。
-/// `ipco` にある `hvcC` を全部見て、**揃っているときだけ**答える。
+/// **`ipco` にある `hvcC` を全部見てはいけない**。iPhoneのHEICは主画像のほかに
+/// **HDRゲインマップや深度**を同じファイルへ入れ、それらは**モノクロHEVC**
+/// （`chroma_format_idc = 0`）で自分の `hvcC` を持つ。実ファイルでは `hvcC` が
+/// 6個・値が `1,0,1,0,1,1` と混ざっていた。全部が揃うことを求めると、
+/// **ゲインマップ付き（iOS 14.1以降のHDR写真はほぼ全部）で常に「分からない」に
+/// 落ちる**——安全側ではあるが、速さの取り分がまるごと消える
+/// （PR #23 のゲート2 P2。**出力サイズが4:4:4の値と一致することで見つかった**）。
+///
+/// そこで**主アイテムと、それが `dimg` で参照するタイルだけ**を見る。
+/// iPhoneの主画像は `grid`（タイルの寄せ集め）で `hvcC` を自分では持たないので、
+/// タイル側まで辿る必要がある。ゲインマップは主アイテムから `dimg` では
+/// 参照されない（`auxl` で主画像を指す側）ので、これで外れる。
 pub fn stored_chroma(path: &Path) -> Option<crate::jpeg::ChromaSampling> {
     let meta = read_meta_box(path)?;
     if meta.len() < 4 {
         return None;
     }
-    let (iprp_b, iprp_e) = find_box(&meta, 4, meta.len(), b"iprp")?;
-    let (ipco_b, ipco_e) = find_box(&meta, iprp_b, iprp_e, b"ipco")?;
+    let (start, end) = (4usize, meta.len());
+    let primary = primary_item_id(&meta, start, end)?;
+
+    // 主アイテム自身（単一画像のHEIF）と、grid のタイル
+    let mut items = vec![primary];
+    items.extend(derived_from(&meta, start, end, primary));
 
     let mut found: Option<u8> = None;
-    for (kind, b, e) in boxes(&meta, ipco_b, ipco_e) {
-        if &kind != b"hvcC" || e <= b + HVCC_CHROMA_OFFSET {
+    for item in items {
+        let Some((b, e)) = property_of(&meta, start, end, item, b"hvcC") else {
             continue;
-        }
-        // 版が違えば並びも違うかもしれない。**当てずっぽうで読むより黙る**
-        if meta[b] != 1 {
+        };
+        // 版が違えば並びも違うかもしれない。切り詰められた箱も同じ
+        // ——**当てずっぽうで読むより黙る**
+        if e <= b + HVCC_CHROMA_OFFSET || meta[b] != 1 {
             return None;
         }
         let idc = meta[b + HVCC_CHROMA_OFFSET] & 0b11;
@@ -1615,27 +1629,104 @@ mod tests {
         n
     }
 
-    /// `hvcC` だけを持つ最小のHEIFを組み立てる。
+    /// `hvcC` を持つHEIFの組み立て方。
     ///
-    /// `stored_chroma` は `ipco` を舐めるだけなので、`ipma` の紐づけは要らない。
-    /// `idc` を並べて渡すと、その数だけタイルぶんの `hvcC` を置く
-    fn synth_heif_hvcc(idcs: &[u8], version: u8) -> Vec<u8> {
+    /// 実物のHEICは、主画像が `grid`（タイルの寄せ集め）で、**HDRゲインマップや
+    /// 深度が別アイテムとして同じファイルに入る**。この形を作れないと、
+    /// 「`ipco` の `hvcC` を全部見る」実装の穴（PR #23 のゲート2 P2）が再現できない
+    struct HvccSpec {
+        /// 主アイテム自身が持つ `hvcC`。`grid` のときは持たない
+        primary: Option<u8>,
+        /// 主アイテムが `dimg` で参照するタイル
+        tiles: Vec<u8>,
+        /// 主アイテムから参照されない別アイテム（ゲインマップ・深度）
+        aux: Vec<u8>,
+        /// `hvcC` の版。1以外は読まない
+        version: u8,
+        /// `chroma_format_idc` の手前で切り詰める
+        truncate: bool,
+    }
+
+    impl Default for HvccSpec {
+        fn default() -> Self {
+            Self {
+                primary: None,
+                tiles: Vec::new(),
+                aux: Vec::new(),
+                version: 1,
+                truncate: false,
+            }
+        }
+    }
+
+    fn synth_heif_hvcc(spec: HvccSpec) -> Vec<u8> {
         fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
             let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
             out.extend_from_slice(kind);
             out.extend_from_slice(body);
             out
         }
-        let mut ipco = Vec::new();
-        for idc in idcs {
+        fn add_hvcc(ipco: &mut Vec<u8>, prop: &mut u8, spec: &HvccSpec, idc: u8) -> u8 {
             let mut body = vec![0u8; HVCC_CHROMA_OFFSET + 1];
-            body[0] = version;
-            body[HVCC_CHROMA_OFFSET] = 0b1111_1100 | (idc & 0b11); // 上位6ビットは予約（全部1）
+            body[0] = spec.version;
+            // 上位6ビットは予約（全部1）
+            body[HVCC_CHROMA_OFFSET] = 0b1111_1100 | (idc & 0b11);
+            if spec.truncate {
+                body.truncate(HVCC_CHROMA_OFFSET);
+            }
             ipco.extend_from_slice(&boxed(b"hvcC", &body));
+            *prop += 1;
+            *prop
         }
-        let iprp = boxed(b"ipco", &ipco);
+
+        let mut ipco = Vec::new();
+        let mut prop = 0u8;
+        let mut assoc: Vec<(u16, u8)> = Vec::new(); // (アイテム番号, プロパティ番号)
+        if let Some(idc) = spec.primary {
+            let p = add_hvcc(&mut ipco, &mut prop, &spec, idc);
+            assoc.push((1, p));
+        }
+        let mut item = 1u16;
+        let mut tiles = Vec::new();
+        for &idc in &spec.tiles {
+            item += 1;
+            let p = add_hvcc(&mut ipco, &mut prop, &spec, idc);
+            assoc.push((item, p));
+            tiles.push(item);
+        }
+        for &idc in &spec.aux {
+            item += 1;
+            let p = add_hvcc(&mut ipco, &mut prop, &spec, idc);
+            assoc.push((item, p));
+        }
+
+        let mut ipma_body = vec![0u8; 4]; // version=0, flags=0（番号は1バイト）
+        ipma_body.extend_from_slice(&(assoc.len() as u32).to_be_bytes());
+        for (id, index) in &assoc {
+            ipma_body.extend_from_slice(&id.to_be_bytes());
+            ipma_body.push(1); // このアイテムに紐づけるプロパティは1つ
+            ipma_body.push(*index);
+        }
+
+        let mut iprp = boxed(b"ipco", &ipco);
+        iprp.extend_from_slice(&boxed(b"ipma", &ipma_body));
+
+        let mut pitm_body = vec![0u8; 4]; // version=0
+        pitm_body.extend_from_slice(&1u16.to_be_bytes());
+
         let mut meta_body = vec![0u8; 4]; // meta はフルボックス
+        meta_body.extend_from_slice(&boxed(b"pitm", &pitm_body));
         meta_body.extend_from_slice(&boxed(b"iprp", &iprp));
+        if !tiles.is_empty() {
+            let mut dimg = 1u16.to_be_bytes().to_vec(); // 参照元＝主アイテム
+            dimg.extend_from_slice(&(tiles.len() as u16).to_be_bytes());
+            for t in &tiles {
+                dimg.extend_from_slice(&t.to_be_bytes());
+            }
+            let mut iref_body = vec![0u8; 4]; // version=0（番号は2バイト）
+            iref_body.extend_from_slice(&boxed(b"dimg", &dimg));
+            meta_body.extend_from_slice(&boxed(b"iref", &iref_body));
+        }
 
         let mut file = boxed(b"ftyp", b"heic    mif1heic");
         file.extend_from_slice(&boxed(b"meta", &meta_body));
@@ -1657,9 +1748,37 @@ mod tests {
             (3, ChromaSampling::Full),   // 4:4:4
         ];
         for (idc, want) in cases {
-            let (_dir, path) = write_temp(&synth_heif_hvcc(&[idc], 1), "a.heic");
+            let file = synth_heif_hvcc(HvccSpec {
+                primary: Some(idc),
+                ..HvccSpec::default()
+            });
+            let (_dir, path) = write_temp(&file, "a.heic");
             assert_eq!(stored_chroma(&path), Some(want), "chroma_format_idc={idc}");
         }
+    }
+
+    /// **HDRゲインマップに引きずられない**。
+    ///
+    /// iPhoneのHEICは主画像が `grid` で、ゲインマップと深度が別アイテムとして
+    /// 同じファイルに入る。**それらはモノクロHEVC（idc=0）**なので、`ipco` の
+    /// `hvcC` を全部見て「揃っていること」を求めると、**HDR写真では常に
+    /// 分からない**に落ちる。実ファイルは `hvcC` 6個・値 `1,0,1,0,1,1` だった。
+    /// 主アイテムと、それが `dimg` で参照するタイルだけを見ること
+    /// （PR #23 のゲート2 P2）
+    #[test]
+    fn ゲインマップに引きずられない() {
+        let file = synth_heif_hvcc(HvccSpec {
+            primary: None, // grid は自分では hvcC を持たない
+            tiles: vec![1, 1, 1, 1],
+            aux: vec![0, 0], // ゲインマップと深度
+            ..HvccSpec::default()
+        });
+        let (_dir, path) = write_temp(&file, "hdr.heic");
+        assert_eq!(
+            stored_chroma(&path),
+            Some(crate::jpeg::ChromaSampling::Half),
+            "ゲインマップのモノクロに引きずられている"
+        );
     }
 
     /// 答えられないときは黙る（呼び出し側が間引かない側へ倒せるように）。
@@ -1667,15 +1786,32 @@ mod tests {
     /// 「たぶん4:2:0だろう」で埋めると、**間引かない形式を静かに間引く**
     #[test]
     fn 色差が分からないときは黙る() {
-        // hvcC が1つも無い（grid だけのファイル・壊れたコンテナ）
-        let (_d1, p1) = write_temp(&synth_heif_hvcc(&[], 1), "none.heic");
+        // hvcC が1つも無い（壊れたコンテナ）
+        let (_d1, p1) = write_temp(&synth_heif_hvcc(HvccSpec::default()), "none.heic");
         assert_eq!(stored_chroma(&p1), None);
         // タイルごとに違う値が書いてある
-        let (_d2, p2) = write_temp(&synth_heif_hvcc(&[1, 3], 1), "mixed.heic");
+        let file = synth_heif_hvcc(HvccSpec {
+            tiles: vec![1, 3],
+            ..HvccSpec::default()
+        });
+        let (_d2, p2) = write_temp(&file, "mixed.heic");
         assert_eq!(stored_chroma(&p2), None);
         // 知らない版＝並びが違うかもしれないので読まない
-        let (_d3, p3) = write_temp(&synth_heif_hvcc(&[1], 2), "v2.heic");
+        let file = synth_heif_hvcc(HvccSpec {
+            primary: Some(1),
+            version: 2,
+            ..HvccSpec::default()
+        });
+        let (_d3, p3) = write_temp(&file, "v2.heic");
         assert_eq!(stored_chroma(&p3), None);
+        // 切り詰められていて、読みたいバイトが入っていない
+        let file = synth_heif_hvcc(HvccSpec {
+            primary: Some(1),
+            truncate: true,
+            ..HvccSpec::default()
+        });
+        let (_d4, p4) = write_temp(&file, "short.heic");
+        assert_eq!(stored_chroma(&p4), None);
     }
 
     fn write_temp(bytes: &[u8], name: &str) -> (tempfile::TempDir, std::path::PathBuf) {

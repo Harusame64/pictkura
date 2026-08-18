@@ -358,7 +358,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
         let by_444 = pictkura_core::jpeg::encode_rgb(&rgb, QUALITY, ChromaSampling::Full);
         let moz444_d = t.elapsed();
 
-        // 候補その2: 4:2:0（カメラが書くJPEGもiPhoneのHEICもこちら）。
+        // 候補その2: 4:2:0（iPhoneのHEICはこちら。カメラのJPEGは4:2:2もある）。
         // 速さも小ささもここが最良だが、**間引きの分が混ざっている**
         let t = Instant::now();
         let by_420 = pictkura_core::jpeg::encode_rgb(&rgb, QUALITY, ChromaSampling::Half);

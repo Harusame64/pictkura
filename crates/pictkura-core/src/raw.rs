@@ -379,7 +379,8 @@ pub(crate) fn encode_jpeg(
         return Some(bytes);
     }
     // libjpeg が受け取らなかったとき（壊れた画素でのlongjmpを受け止めた場合など）は
-    // 純Rustのエンコーダへ戻す。3.6倍遅いが、**1枚も出せないよりはよい**
+    // 純Rustのエンコーダへ戻す。3.7倍遅く、しかも間引きの指定は届かない
+    // （`image` のエンコーダは常に4:4:4）が、**1枚も出せないよりはよい**
     let mut bytes = Vec::new();
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, DISPLAY_QUALITY);
     rgb.write_with_encoder(encoder).ok()?;
@@ -939,8 +940,9 @@ mod tests {
 
     /// 表示用JPEGは mozjpeg で詰める（`image` クレートのエンコーダに戻っていない）。
     ///
-    /// 同じ4:4:4で **428ms → 117ms**（`bench --heif-encode`）。黙って戻ると
-    /// HEICの詰め直しが3.6倍に伸びるが、絵は出るのでテストでしか気づけない
+    /// 同じ4:4:4で並べて3.7倍の差（内訳は `bench --heif-encode` の列）。
+    /// 黙って戻ると詰め直しが3.7倍に伸びるが、**絵は出る**のでテストでしか
+    /// 気づけない
     #[test]
     fn 表示用jpegはmozjpegで詰める() {
         let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(64, 48, |x, y| {
