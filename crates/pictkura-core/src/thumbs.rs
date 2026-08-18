@@ -397,7 +397,12 @@ pub fn raw_display_jpeg(path: &Path) -> Option<Vec<u8>> {
         return Some(bytes);
     }
     let img = image::load_from_memory(&bytes).ok()?;
-    crate::raw::encode_jpeg(apply_orientation(img, exif.orientation))
+    // 元はカメラが書いたJPEG＝すでに4:2:0。4:4:4で詰め直しても、
+    // 上げ底の色差を運んで遅くなるだけ
+    crate::raw::encode_jpeg(
+        apply_orientation(img, exif.orientation),
+        crate::jpeg::ChromaSampling::Half,
+    )
 }
 
 /// HEIFを原寸表示用のJPEGにする（第7部 段階G）。
@@ -405,7 +410,11 @@ pub fn raw_display_jpeg(path: &Path) -> Option<Vec<u8>> {
 /// `.heic` をそのまま返してもWebViewは描けないので、OSのデコーダで展開して
 /// JPEGに詰め直す。向きは [`crate::heif::decode`] が適用済み。
 pub fn heif_display_jpeg(path: &Path) -> Option<Vec<u8>> {
-    crate::raw::encode_jpeg(crate::heif::decode(path)?)
+    // HEVCの主用途が4:2:0で、iPhoneのHEICもそう。間引き直しても失うものは無い
+    crate::raw::encode_jpeg(
+        crate::heif::decode(path)?,
+        crate::jpeg::ChromaSampling::Half,
+    )
 }
 
 /// 拡張子がTIFFか。
@@ -445,7 +454,12 @@ pub fn display_jpeg(path: &Path) -> Option<Vec<u8>> {
     } else {
         img
     };
-    crate::raw::encode_jpeg(apply_orientation(img, exif.orientation))
+    // TIFFは色差を間引かない形式。スキャンした文字や線画が混ざるので、
+    // ここだけ4:4:4のまま出す（圧縮は50msほど高くつくが、通る枚数が少ない）
+    crate::raw::encode_jpeg(
+        apply_orientation(img, exif.orientation),
+        crate::jpeg::ChromaSampling::Full,
+    )
 }
 
 /// EXIF Orientation（1〜8）をデコード済み画像へ適用する。

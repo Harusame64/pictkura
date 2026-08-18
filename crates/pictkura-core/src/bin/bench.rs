@@ -273,7 +273,8 @@ fn bench_display_dir(dir: &std::path::Path) {
 /// **クラウドのみ（OneDriveのプレースホルダ）は測らない**。開いた瞬間に
 /// ダウンロードが走り、測っているのが回線速度になる。
 fn bench_heif_encode(dir: &std::path::Path) {
-    const QUALITY: u8 = 82; // raw.rs::encode_jpeg と同じ
+    // 本体が配信するのと同じ品質で測る（値がずれると比較にならない）
+    const QUALITY: u8 = pictkura_core::raw::DISPLAY_QUALITY;
 
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .into_iter()

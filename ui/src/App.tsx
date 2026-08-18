@@ -1298,21 +1298,15 @@ export default function App() {
   //   裏でOneDriveのダウンロードを走らせてはいけない
   // - **詰め直しの要る形式は隣の1枚だけ**（HEICは1枚1095ms）
 
-  // 以下の3つは**真偽値ではなくidで持つ**。送った直後の1コミットでは、
+  // 以下の印は**真偽値ではなくidで持つ**。送った直後の1コミットでは、
   // 状態を戻すeffectがまだ走っておらず、真偽値だと「前の絵が出ている」を
   // 新しい絵の判定に使ってしまう（ゲート2のP2-1）。idなら一致しないので、
   // 1コミット目から正しく閉じる
 
   /**
-   * **待つのをやめてよい**絵のid。原寸が届いたときと、届かないと分かったとき
-   * （`onError`）の両方で立つ——「読み込み中」を畳み、裏の詰め直しを始めてよい
-   * 合図であって、**絵が出たという意味ではない**
-   */
-  const [loadedId, setLoadedId] = useState<number | null>(null);
-  /**
    * 原寸が**実際に出た**絵のid（0.2 ②）。
    *
-   * [`loadedId`] と分けてあるのは、原本が消えている・取り寄せられない・
+   * 下の [`loadedId`] と分けてあるのは、原本が消えている・取り寄せられない・
    * 詰め直せないときに `onError` が走るから。あちらで下敷きを外すと、
    * **出ていたサムネイルまで消えて真っ黒になる**（ゲート1のP2）
    */
@@ -1321,6 +1315,16 @@ export default function App() {
   const [thumbShownId, setThumbShownId] = useState<number | null>(null);
   /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
   const [fullFailedId, setFullFailedId] = useState<number | null>(null);
+  /**
+   * **待つのをやめてよい**絵のid。原寸が届いたときと、届かないと分かったとき
+   * （`onError`）の両方で立つ——「読み込み中」を畳み、裏の詰め直しを始めてよい
+   * 合図であって、**絵が出たという意味ではない**。
+   *
+   * 上の2つから**導く**（別の印として持たない）。持っていたころは
+   * 「出た／出せなかった」を立てるたびにこちらも立てる必要があり、
+   * 置き忘れると「読み込み中」が消えなくなった（PR #22 のゲート2 P2-1がそれ）
+   */
+  const loadedId = fullShownId ?? fullFailedId;
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
@@ -1331,12 +1335,11 @@ export default function App() {
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
-    // 前の絵に立てた印は**6つとも**捨てる。残しておくと、A→B→Aと戻ったときに
+    // 前の絵に立てた印は**5つとも**捨てる。残しておくと、A→B→Aと戻ったときに
     // 「Aはもう出ている・落ち着いている」が最初から成立し、**まだ動いている
     // 最中なのに裏の詰め直しが始まる**（門の意味が消える）。
     // nullへ戻すのは安全な向き——古いidが新しいidと一致して門が開くことは無い
     setSlowId(null);
-    setLoadedId(null);
     setSettledId(null);
     setThumbShownId(null);
     setFullShownId(null);
@@ -2871,8 +2874,8 @@ export default function App() {
               // 新しい絵」を出たものとして扱ってしまう
               onLoad={(e) => {
                 if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id)) {
-                  setLoadedId(viewerItem.id);
-                  // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）
+                  // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）。
+                  // `loadedId` はこれから導かれるので、別に立てるものは無い
                   setFullShownId(viewerItem.id);
                   // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
                   // 来ることがあり（下のonError参照）、その後で本命の load が
@@ -2887,7 +2890,6 @@ export default function App() {
                 // （出ない絵のために「読み込み中」を出し続けないため）
                 const src = e.currentTarget.currentSrc;
                 if (!src || isSrcOf(src, viewerItem.id)) {
-                  setLoadedId(viewerItem.id);
                   setFullFailedId(viewerItem.id);
                 }
               }}

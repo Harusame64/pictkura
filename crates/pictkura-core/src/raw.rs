@@ -339,16 +339,42 @@ fn uncompressed_preview(path: &Path, exif: &exif::Exif, big_endian: bool) -> Opt
     }
 
     let image = image::RgbImage::from_raw(width, height, pixels[..needed].to_vec())?;
-    encode_jpeg(image::DynamicImage::ImageRgb8(image))
+    // 非圧縮のRGBが元なので、色差は一度も間引かれていない（4:4:4のまま出す）
+    encode_jpeg(
+        image::DynamicImage::ImageRgb8(image),
+        crate::jpeg::ChromaSampling::Full,
+    )
 }
 
+/// 表示用JPEGの品質。**配信して数秒で捨てる絵**なので、見た目が保てる下限に置く。
+pub const DISPLAY_QUALITY: u8 = 82;
+
 /// デコード済み画像をJPEGへ（プレビューの返り値はJPEGバイト列に統一する）。
-pub(crate) fn encode_jpeg(img: image::DynamicImage) -> Option<Vec<u8>> {
+///
+/// 圧縮は mozjpeg（libjpeg-turbo）に任せる。`image` クレートの純Rustエンコーダは
+/// 24.5MPで **428ms** 掛かり、HEICの詰め直し953msの半分近くがここだった。
+/// **同じ4:4:4で並べて117ms（3.6倍）**——量子化テーブルとハフマン表の作りの差で、
+/// 絵は化けていない（詰め直したJPEGを読み戻して元画素と比べ、平均差が8を超えたものは
+/// 20枚中0枚）。計測は `bench --heif-encode`。
+///
+/// `chroma` は**元の絵が既に色差を間引かれているか**で選ぶ。間引き済みのもの
+/// （カメラのJPEG・iPhoneのHEIC＝どちらも4:2:0）を4:4:4で出すのは、上げ底の色差を
+/// 運んでいるだけで遅い。間引かれていないもの（TIFF・非圧縮プレビュー）は
+/// 4:4:4のまま出す——線画や文字の載ったスキャンで色が滲むのを避けるため。
+pub(crate) fn encode_jpeg(
+    img: image::DynamicImage,
+    chroma: crate::jpeg::ChromaSampling,
+) -> Option<Vec<u8>> {
     // JPEGは透過を持てない。alphaを捨てるだけだと、SIMDの縮小を通った
     // 透明部分が黒で残る（resize::flatten_onto_white の説明を参照）
     let rgb = crate::resize::flatten_onto_white(&img);
+    if let Some(bytes) = crate::jpeg::encode_rgb(&rgb, DISPLAY_QUALITY, chroma) {
+        return Some(bytes);
+    }
+    // libjpeg が受け取らなかったとき（壊れた画素でのlongjmpを受け止めた場合など）は
+    // 純Rustのエンコーダへ戻す。3.6倍遅いが、**1枚も出せないよりはよい**
     let mut bytes = Vec::new();
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 82);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, DISPLAY_QUALITY);
     rgb.write_with_encoder(encoder).ok()?;
     Some(bytes)
 }
@@ -902,5 +928,68 @@ mod tests {
         buf.extend_from_slice(&[0u8; 512]);
         std::fs::write(&path, &buf).unwrap();
         assert!(embedded_preview(&path).is_none());
+    }
+
+    /// 表示用JPEGは mozjpeg で詰める（`image` クレートのエンコーダに戻っていない）。
+    ///
+    /// 同じ4:4:4で **428ms → 117ms**（`bench --heif-encode`）。黙って戻ると
+    /// HEICの詰め直しが3.6倍に伸びるが、絵は出るのでテストでしか気づけない
+    #[test]
+    fn 表示用jpegはmozjpegで詰める() {
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(64, 48, |x, y| {
+            image::Rgb([(x * 4) as u8, (y * 5) as u8, 200])
+        }));
+        let ours = encode_jpeg(img.clone(), crate::jpeg::ChromaSampling::Full).unwrap();
+
+        let mut theirs = Vec::new();
+        let encoder =
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut theirs, DISPLAY_QUALITY);
+        img.to_rgb8().write_with_encoder(encoder).unwrap();
+        assert_ne!(ours, theirs, "image クレートのエンコーダに戻っている");
+
+        let back = image::load_from_memory(&ours).unwrap();
+        assert_eq!((back.width(), back.height()), (64, 48));
+    }
+
+    /// 間引きの指定が本体からエンコーダまで届いている。
+    ///
+    /// 届いていないと libjpeg v6 の既定（4:2:0）で全部が出る——TIFFや非圧縮
+    /// プレビューを4:4:4で出す判断が、黙って無かったことになる
+    #[test]
+    fn 間引きの指定がエンコーダまで届く() {
+        // 輝度をほぼ一定に保つと、間引きの差が大きさに出る
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(256, 256, |x, y| {
+            image::Rgb([128, (x % 256) as u8, (y % 256) as u8])
+        }));
+        let full = encode_jpeg(img.clone(), crate::jpeg::ChromaSampling::Full)
+            .unwrap()
+            .len();
+        let half = encode_jpeg(img, crate::jpeg::ChromaSampling::Half)
+            .unwrap()
+            .len();
+        assert!(
+            half < full,
+            "間引きが効いていない: 4:4:4={full} 4:2:0={half}"
+        );
+    }
+
+    /// 透過は白へ重ねてから詰める（JPEGは透過を持てない）。
+    ///
+    /// エンコーダを替えても、ここは通り道が変わっただけで意味は同じ
+    #[test]
+    fn 透過は白へ重ねてから詰める() {
+        let img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            32,
+            32,
+            image::Rgba([0, 0, 0, 0]),
+        ));
+        let bytes = encode_jpeg(img, crate::jpeg::ChromaSampling::Half).unwrap();
+        let back = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        let p = back.get_pixel(16, 16);
+        assert!(
+            p.0.iter().all(|c| *c > 240),
+            "透明な部分が白になっていない: {:?}",
+            p.0
+        );
     }
 }
