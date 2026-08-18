@@ -450,7 +450,7 @@ fn bench_wic_scaled_decode(entries: &[std::path::PathBuf]) {
             (px, p)
         })
         .collect();
-    by_size.sort_by(|a, b| b.0.cmp(&a.0));
+    by_size.sort_by_key(|(px, _)| std::cmp::Reverse(*px));
     let sample: Vec<_> = by_size.iter().take(3).map(|(_, p)| *p).collect();
     let Some(first) = sample.first() else {
         return;
