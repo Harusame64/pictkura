@@ -14,6 +14,10 @@ use pictkura_core::{Config, Db, ReadPool, SyncStats, ThumbnailService};
 use tauri::http::{Response, StatusCode};
 use tauri::{Emitter, Manager};
 
+/// アプリの識別子。`tauri.conf.json` の `identifier` と**同じ綴り**でなければ、
+/// [`config_path_without_app`] が別の場所を指す（テストで突き合わせている）
+const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
+
 mod autoplay;
 
 /// ポイズニングされていてもロックを取得する（パニックの連鎖でアプリ全体が死ぬのを防ぐ）。
@@ -2265,6 +2269,47 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     }
 }
 
+/// 設定ファイルの置き場。`tauri::path::app_config_dir` と**同じ場所**を、
+/// アプリを組み立てる前に知るための計算。
+///
+/// Windowsでは `%APPDATA%\<identifier>`。identifier が `tauri.conf.json` と
+/// ずれないよう、下のテストで突き合わせている。
+#[cfg(windows)]
+fn config_path_without_app() -> Option<std::path::PathBuf> {
+    let appdata = std::env::var_os("APPDATA")?;
+    Some(
+        PathBuf::from(appdata)
+            .join(APP_IDENTIFIER)
+            .join("pictkura.toml"),
+    )
+}
+
+/// AutoPlayの登録を設定に合わせ直す（`--sync-autoplay`）。
+///
+/// 設定ファイルが無ければ**何もしない**。まだ一度も使っていない人の環境に、
+/// 起動前から自動再生の候補を足さないため。
+#[cfg(windows)]
+fn sync_autoplay_with_config() -> Result<(), String> {
+    let Some(path) = config_path_without_app() else {
+        return Ok(());
+    };
+    if !path.exists() {
+        return Ok(());
+    }
+    let config = Config::load(&path).map_err(|e| e.to_string())?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    if config.import.register_autoplay {
+        autoplay::register(&exe).map_err(|e| e.to_string())
+    } else {
+        autoplay::unregister().map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(not(windows))]
+fn sync_autoplay_with_config() -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // アンインストール前の明示的な解除口。AutoPlayの登録は**実行時にHKCUへ**
@@ -2276,6 +2321,24 @@ pub fn run() {
         if let Err(e) = autoplay::unregister() {
             eprintln!("AutoPlayの解除に失敗: {e}");
             std::process::exit(1);
+        }
+        return;
+    }
+
+    // AutoPlayの登録を**設定に合わせ直す**だけの入口（窓を出さない）。
+    //
+    // インストーラは「消してから入れる」ので、入れ終わった時点で登録が消えている
+    // ことがある——**更新**（古い版のアンインストーラが走る）と、**MSI版からの
+    // 乗り換え**（MSI側の掃除 `windows/autoplay-cleanup.wxs` が走る）の2つ。
+    // どちらもアプリは在るのに、次に起動するまで自動再生の候補から居なくなる。
+    // NSISの `NSIS_HOOK_POSTINSTALL` からここを呼んで揃え直す。
+    //
+    // **設定を読んでから決める**——自動再生を自分で切った人に、乗り換えを機に
+    // 勝手に名乗らせない。**設定ファイルが無ければ何もしない**（＝まだ一度も
+    // 使っていない人。起動前から候補に並べるのは越権）
+    if std::env::args().any(|a| a == "--sync-autoplay") {
+        if let Err(e) = sync_autoplay_with_config() {
+            eprintln!("AutoPlayの同期に失敗（無視）: {e}");
         }
         return;
     }
@@ -2653,7 +2716,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::import_path_from_args;
+    use super::{import_path_from_args, APP_IDENTIFIER};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -2739,5 +2802,22 @@ mod tests {
             dir.display().to_string()
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `APP_IDENTIFIER` が `tauri.conf.json` の `identifier` と一致している。
+    ///
+    /// ずれると [`config_path_without_app`] が**空のフォルダ**を指し、
+    /// `--sync-autoplay` は「設定ファイルが無い」と読んで黙って何もしなくなる
+    /// （MSIから乗り換えた人のAutoPlay登録が戻らない。PR #24 のゲート1 P2）
+    #[test]
+    fn 識別子がtauriの設定と一致する() {
+        let conf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("tauri.conf.json が読めない");
+        let value: serde_json::Value = serde_json::from_str(&conf).expect("JSONとして読めない");
+        assert_eq!(
+            value["identifier"].as_str(),
+            Some(APP_IDENTIFIER),
+            "tauri.conf.json の identifier と APP_IDENTIFIER がずれている"
+        );
     }
 }

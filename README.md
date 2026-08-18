@@ -31,9 +31,16 @@ on up-to-date Windows 10.
 
 > **Moving from the MSI to `-setup.exe` needs no manual step.** When `-setup.exe` finds an
 > existing MSI install, it **removes that first**, then installs. Removing the MSI touches the
-> whole machine, so **that step asks for administrator approval (UAC)**. The other direction
-> (installing the MSI while `-setup.exe` is installed) is not handled, so uninstall from
-> Settings → Apps first in that case.
+> whole machine, so **that step asks for administrator approval (UAC)**.
+>
+> **Take care on a shared PC.** The MSI is installed for everyone, so switching **removes
+> pictkura for the other users** (`-setup.exe` installs only for you). Each person should run
+> `-setup.exe` themselves. Also, if another user had launched pictkura at least once, **their
+> AutoPlay entry stays behind** — they can reinstall and turn off "When a USB drive or SD card
+> is inserted" in Settings, or pick a new AutoPlay default in Windows Settings.
+>
+> The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
+> uninstall from Settings → Apps first in that case.
 
 ### Windows shows warnings because the app is not signed
 
@@ -47,9 +54,13 @@ You only get **SmartScreen** ("**Windows protected your PC**" → **More info** 
 anyway**). **There is no UAC prompt**, because it installs into your own user profile rather
 than the whole machine, so no administrator approval is required.
 
-**One exception**: if an older **MSI install is present**, `-setup.exe` removes it before
-installing, and **that one step does prompt for UAC** (removing the MSI touches the whole
-machine). It will not prompt on later installs.
+**Two exceptions**, both where it does something machine-wide on your behalf:
+
+1. If an older **MSI install is present**, `-setup.exe` removes it before installing, and
+   **that one step does prompt for UAC**. It will not prompt on later installs
+2. On a PC **without the WebView2 runtime**, the installer fetches and installs it. WebView2 is
+   machine-wide, so that prompts for UAC too (Windows 11 and up-to-date Windows 10 already
+   have it, so normally this does not come up)
 
 **Installing the MSI** (this one also prompts for UAC)
 
