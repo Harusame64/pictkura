@@ -29,9 +29,11 @@ Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/rel
 Windows also needs the **WebView2 runtime**, which is already present on Windows 11 and
 on up-to-date Windows 10.
 
-> **`-setup.exe` and `.msi` are separate installs.** Uninstalling one does not remove the
-> other, so **uninstall the old one first** when you switch. Both appear as "pictkura" under
-> Settings → Apps → Installed apps.
+> **Moving from the MSI to `-setup.exe` needs no manual step.** When `-setup.exe` finds an
+> existing MSI install, it **removes that first**, then installs. Removing the MSI touches the
+> whole machine, so **that step asks for administrator approval (UAC)**. The other direction
+> (installing the MSI while `-setup.exe` is installed) is not handled, so uninstall from
+> Settings → Apps first in that case.
 
 ### Windows shows warnings because the app is not signed
 
@@ -44,6 +46,10 @@ broken, but you will see the security warnings below; just proceed and the app w
 You only get **SmartScreen** ("**Windows protected your PC**" → **More info** → **Run
 anyway**). **There is no UAC prompt**, because it installs into your own user profile rather
 than the whole machine, so no administrator approval is required.
+
+**One exception**: if an older **MSI install is present**, `-setup.exe` removes it before
+installing, and **that one step does prompt for UAC** (removing the MSI touches the whole
+machine). It will not prompt on later installs.
 
 **Installing the MSI** (this one also prompts for UAC)
 
