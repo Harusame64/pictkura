@@ -410,6 +410,10 @@ const HVCC_CHROMA_OFFSET: usize = 16;
 /// iPhoneの主画像は `grid`（タイルの寄せ集め）で `hvcC` を自分では持たないので、
 /// タイル側まで辿る必要がある。ゲインマップは主アイテムから `dimg` では
 /// 参照されない（`auxl` で主画像を指す側）ので、これで外れる。
+///
+/// **派生を辿るのは1段だけ**。`iden`（切り抜き等）を挟んで `grid` がぶら下がる
+/// 入れ子では `hvcC` に届かず「分からない」に落ちる——遅いが正しい側なので
+/// そのままにしてある（iPhoneにもCanonにもこの形は無い）。
 pub fn stored_chroma(path: &Path) -> Option<crate::jpeg::ChromaSampling> {
     let meta = read_meta_box(path)?;
     if meta.len() < 4 {
