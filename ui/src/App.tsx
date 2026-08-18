@@ -126,10 +126,16 @@ const PENDING_WATCHDOG_MS = 4000;
 const DISPLAY_MAX_EDGE = 4096;
 
 /**
- * その配信URLが、このidの原寸か。
+ * その配信URLが、このidの絵か。
  *
  * **前方一致で見ない**——`full/1` は `full/12` にも当たるので、送った直後に
- * 遅れて届いた前の絵の完了を、新しい絵のものと取り違える
+ * 遅れて届いた前の絵の完了を、新しい絵のものと取り違える。
+ *
+ * **`pathname` をそのまま比べてはいけない**。`convertFileSrc` は経路を
+ * `encodeURIComponent` で包むので、`full/8132` は
+ * `http://media.localhost/full%2F8132` として届く。素の `pathname` は
+ * `/full%2F8132` で、`/full/8132` とは**永遠に一致しない**
+ * （Rust側の `parse_media_url` も `percent_decode` してから見ている）。
  */
 function isSrcOf(
   src: string,
@@ -137,8 +143,9 @@ function isSrcOf(
   kind: "full" | "thumb" = "full",
 ): boolean {
   try {
-    return new URL(src).pathname === `/${kind}/${id}`;
+    return decodeURIComponent(new URL(src).pathname) === `/${kind}/${id}`;
   } catch {
+    // 壊れたパーセント記法は decodeURIComponent が投げる。ここも false 側へ
     return false;
   }
 }
@@ -1280,10 +1287,24 @@ export default function App() {
   // 新しい絵の判定に使ってしまう（ゲート2のP2-1）。idなら一致しないので、
   // 1コミット目から正しく閉じる
 
-  /** 原寸が届いた絵のid */
+  /**
+   * **待つのをやめてよい**絵のid。原寸が届いたときと、届かないと分かったとき
+   * （`onError`）の両方で立つ——「読み込み中」を畳み、裏の詰め直しを始めてよい
+   * 合図であって、**絵が出たという意味ではない**
+   */
   const [loadedId, setLoadedId] = useState<number | null>(null);
+  /**
+   * 原寸が**実際に出た**絵のid（0.2 ②）。
+   *
+   * [`loadedId`] と分けてあるのは、原本が消えている・取り寄せられない・
+   * 詰め直せないときに `onError` が走るから。あちらで下敷きを外すと、
+   * **出ていたサムネイルまで消えて真っ黒になる**（ゲート1のP2）
+   */
+  const [fullShownId, setFullShownId] = useState<number | null>(null);
   /** 下敷きのサムネイルが出た絵のid（0.2 ②） */
   const [thumbShownId, setThumbShownId] = useState<number | null>(null);
+  /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
+  const [fullFailedId, setFullFailedId] = useState<number | null>(null);
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
@@ -1294,7 +1315,7 @@ export default function App() {
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
-    // 前の絵に立てた印は**4つとも**捨てる。残しておくと、A→B→Aと戻ったときに
+    // 前の絵に立てた印は**6つとも**捨てる。残しておくと、A→B→Aと戻ったときに
     // 「Aはもう出ている・落ち着いている」が最初から成立し、**まだ動いている
     // 最中なのに裏の詰め直しが始まる**（門の意味が消える）。
     // nullへ戻すのは安全な向き——古いidが新しいidと一致して門が開くことは無い
@@ -1302,6 +1323,8 @@ export default function App() {
     setLoadedId(null);
     setSettledId(null);
     setThumbShownId(null);
+    setFullShownId(null);
+    setFullFailedId(null);
     if (viewerItemId === undefined) return;
     const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
@@ -2816,20 +2839,33 @@ export default function App() {
               // 完了が遅れて届くことがあり、そのまま信じると「まだ出ていない
               // 新しい絵」を出たものとして扱ってしまう
               onLoad={(e) => {
-                if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id))
+                if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id)) {
                   setLoadedId(viewerItem.id);
+                  // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）
+                  setFullShownId(viewerItem.id);
+                }
               }}
               onError={(e) => {
                 // 失敗したのが**いまの絵**のときだけ畳む。ただし `currentSrc` が
                 // 空のまま失敗することもあるので、そのときは畳む側に倒す
                 // （出ない絵のために「読み込み中」を出し続けないため）
                 const src = e.currentTarget.currentSrc;
-                if (!src || isSrcOf(src, viewerItem.id))
+                if (!src || isSrcOf(src, viewerItem.id)) {
                   setLoadedId(viewerItem.id);
+                  setFullFailedId(viewerItem.id);
+                }
               }}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 cursor: zoom > 1 ? "grab" : "zoom-in",
+                // 出せなかった絵は、**下敷きが出ているなら隠す**。壊れた画像の
+                // 枠とファイル名が絵の真ん中に浮くと、情報ではなくゴミに見える
+                // （`alt` を空にするだけでは、失敗済みの <img> の描画は変わらない）。
+                // 見せる絵が何も無いときは、今までどおり名前だけでも出す
+                ...(fullFailedId === viewerItem.id &&
+                thumbShownId === viewerItem.id
+                  ? { display: "none" }
+                  : null),
               }}
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => {
@@ -2896,12 +2932,14 @@ export default function App() {
             viewerItem.has_thumb &&
             viewerItem.width > 0 &&
             viewerItem.height > 0 &&
-            loadedId !== viewerItem.id && (
+            fullShownId !== viewerItem.id && (
               <img
                 className="viewer-thumb"
                 src={thumbSrc(viewerItem)}
-                alt=""
-                aria-hidden
+                // ふだんは原寸の下に敷くだけの飾り。**原寸が出せなかったときは
+                // これが唯一見えている絵**になるので、そのときだけ名前を名乗る
+                alt={fullFailedId === viewerItem.id ? viewerItem.file_name : ""}
+                aria-hidden={fullFailedId !== viewerItem.id}
                 draggable={false}
                 onLoad={(e) => {
                   if (
