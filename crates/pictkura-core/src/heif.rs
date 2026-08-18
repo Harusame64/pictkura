@@ -1024,6 +1024,88 @@ pub fn can_decode(path: &Path) -> bool {
     decode_thumbnail(path).is_some() || decode(path).is_some()
 }
 
+/// WICの「縮小しながら展開」への対応を調べた結果（0.2 HEICの詰め直し・計測用）。
+///
+/// JPEGなら1/8まで安く起こせる（[`crate::jpeg::decode_scaled`]）が、
+/// HEVCに同じ仕掛けがあるかは**デコーダに聞かないと分からない**。
+/// 聞き方は `IWICBitmapSourceTransform::GetClosestSize` で、
+/// 希望の寸法を渡すと「実際に出せる一番近い寸法」が返る。
+/// 原寸がそのまま返るなら、間引いた展開はできない＝縮小してもデコードは安くならない。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaledDecodeProbe {
+    /// フレームが `IWICBitmapSourceTransform` を実装しているか
+    pub has_transform: bool,
+    /// 原寸（格納されている向きのまま）
+    pub full: (u32, u32),
+    /// こちらが希望した寸法
+    pub requested: (u32, u32),
+    /// デコーダが出せると答えた寸法
+    pub closest: (u32, u32),
+    /// デコーダが出せると答えた画素形式（`GUID_WICPixelFormat*` の名前か生のGUID）
+    pub closest_format: String,
+}
+
+impl ScaledDecodeProbe {
+    /// 希望どおり縮めて起こせるか。
+    ///
+    /// **`None` は「聞けていない」**。元が既に `max_edge` に収まっていると
+    /// 希望寸法＝原寸になり、デコーダは当然そのまま返す。これを false（＝
+    /// 縮小に対応していない）と読むと、小さい素材で測っただけで
+    /// 「WICは縮小デコードできない」と断じてしまう。
+    pub fn scales(&self) -> Option<bool> {
+        if !self.has_transform {
+            return Some(false);
+        }
+        if self.requested == self.full {
+            return None;
+        }
+        Some(self.closest != self.full)
+    }
+}
+
+/// 長辺 `max_edge` で起こせるかをデコーダに聞く（Windowsのみ）。
+///
+/// **計測用**。実際に縮小デコードする経路は用意していない——
+/// [`ScaledDecodeProbe::scales`] が真になる環境が見つかってから考える。
+pub fn probe_scaled_decode(path: &Path, max_edge: u32) -> Option<ScaledDecodeProbe> {
+    #[cfg(windows)]
+    {
+        windows_wic::probe_scaled_decode(path, max_edge)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, max_edge);
+        None
+    }
+}
+
+/// 長辺 `max_edge` を目指して**縮小しながら**デコードする（Windowsのみ）。
+///
+/// **収まるとは限らない**。出せる寸法を決めるのはデコーダで、縮小に
+/// 対応していなければ原寸がそのまま返る。呼ぶ側は返った絵の寸法を見ること。
+///
+/// [`probe_scaled_decode`] が「対応あり」と答えても、デコーダが内部で
+/// 原寸まで起こしてから縮めているだけなら1msも得しない。**本当に安いかは
+/// 時間を測るまで分からない**ので、まず測るためにこれを足した
+/// （`bench --heif-encode`）。使うと決めるまで本体からは呼ばない。
+///
+/// 向きは [`decode`] と同じくコンテナの `irot`/`imir` を適用済み。
+pub fn decode_scaled(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
+    #[cfg(windows)]
+    {
+        let img = windows_wic::decode_scaled(path, max_edge)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, max_edge);
+        None
+    }
+}
+
 /// HEIFをデコードして**表示の向きに直した**画像を返す。
 ///
 /// `irot`/`imir` はここで適用済みなので、呼び出し側でEXIF Orientationを
@@ -1136,9 +1218,10 @@ mod windows_wic {
     use windows::core::{Interface, HSTRING};
     use windows::Win32::Foundation::GENERIC_READ;
     use windows::Win32::Graphics::Imaging::{
-        CLSID_WICImagingFactory, GUID_WICPixelFormat24bppBGR, IWICBitmapFrameDecode,
-        IWICBitmapSource, IWICImagingFactory, WICBitmapDitherTypeNone, WICBitmapPaletteTypeCustom,
-        WICDecodeMetadataCacheOnDemand,
+        CLSID_WICImagingFactory, GUID_WICPixelFormat24bppBGR, GUID_WICPixelFormat32bppBGR,
+        GUID_WICPixelFormat32bppBGRA, IWICBitmapFrameDecode, IWICBitmapSource,
+        IWICBitmapSourceTransform, IWICImagingFactory, WICBitmapDitherTypeNone,
+        WICBitmapPaletteTypeCustom, WICBitmapTransformRotate0, WICDecodeMetadataCacheOnDemand,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
@@ -1223,6 +1306,128 @@ mod windows_wic {
         to_image(&frame.cast::<IWICBitmapSource>().ok()?)
     }
 
+    /// 縮小デコードの可否をデコーダに聞く（[`super::probe_scaled_decode`]）。
+    ///
+    /// `GetClosestSize` は**問い合わせるだけ**で、画素は起こさない。
+    /// 対応していないデコーダは原寸をそのまま書き戻してくる。
+    pub fn probe_scaled_decode(path: &Path, max_edge: u32) -> Option<super::ScaledDecodeProbe> {
+        let frame = frame(path)?;
+        let (mut fw, mut fh) = (0u32, 0u32);
+        unsafe { frame.GetSize(&mut fw, &mut fh).ok()? };
+        if fw == 0 || fh == 0 {
+            return None;
+        }
+        let (rw, rh) = crate::resize::fit_within(fw, fh, max_edge.max(1));
+        let Ok(transform) = frame.cast::<IWICBitmapSourceTransform>() else {
+            return Some(super::ScaledDecodeProbe {
+                has_transform: false,
+                full: (fw, fh),
+                requested: (rw, rh),
+                closest: (fw, fh),
+                closest_format: "（問い合わせ先が無い）".to_string(),
+            });
+        };
+        let (mut cw, mut ch) = (rw, rh);
+        unsafe { transform.GetClosestSize(&mut cw, &mut ch).ok()? };
+        let mut format = GUID_WICPixelFormat24bppBGR;
+        let format = match unsafe { transform.GetClosestPixelFormat(&mut format) } {
+            Ok(()) => pixel_format_name(&format),
+            Err(e) => format!("聞けない（{e}）"),
+        };
+        Some(super::ScaledDecodeProbe {
+            has_transform: true,
+            full: (fw, fh),
+            requested: (rw, rh),
+            closest: (cw, ch),
+            closest_format: format,
+        })
+    }
+
+    /// よく出る画素形式に名前を付ける（それ以外は生のGUIDを見せる）。
+    fn pixel_format_name(format: &windows::core::GUID) -> String {
+        // GUIDの定数はパターンに書けない（束縛と区別が付かず、常に1つ目が当たる）
+        if *format == GUID_WICPixelFormat24bppBGR {
+            "24bppBGR".to_string()
+        } else if *format == GUID_WICPixelFormat32bppBGR {
+            "32bppBGR".to_string()
+        } else if *format == GUID_WICPixelFormat32bppBGRA {
+            "32bppBGRA".to_string()
+        } else {
+            format!("{format:?}")
+        }
+    }
+
+    /// 縮小しながらデコードする（[`super::decode_scaled`]）。
+    ///
+    /// `IWICBitmapSourceTransform::CopyPixels` は寸法を渡せる唯一の入口で、
+    /// デコーダが対応していれば展開そのものを小さく済ませられる。
+    /// 出せる寸法・画素形式はデコーダが決めるので、両方とも先に聞く。
+    pub fn decode_scaled(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
+        let frame = frame(path)?;
+        let (mut fw, mut fh) = (0u32, 0u32);
+        unsafe { frame.GetSize(&mut fw, &mut fh).ok()? };
+        if fw == 0 || fh == 0 {
+            return None;
+        }
+        let transform = frame.cast::<IWICBitmapSourceTransform>().ok()?;
+
+        let (rw, rh) = crate::resize::fit_within(fw, fh, max_edge.max(1));
+        let (mut w, mut h) = (rw, rh);
+        unsafe { transform.GetClosestSize(&mut w, &mut h).ok()? };
+        if w == 0 || h == 0 {
+            return None;
+        }
+
+        // 希望の形式が通らなければデコーダの都合に合わせる。
+        // BGRの3バイトとBGRAの4バイトだけ相手にし、他（10bitなど）は諦めて
+        // 呼び出し側を原寸の経路へ戻す
+        let mut format = GUID_WICPixelFormat24bppBGR;
+        unsafe { transform.GetClosestPixelFormat(&mut format).ok()? };
+        let bytes_per_pixel = if format == GUID_WICPixelFormat24bppBGR {
+            3usize
+        } else if format == GUID_WICPixelFormat32bppBGR || format == GUID_WICPixelFormat32bppBGRA {
+            // 4バイト形式は先頭3バイトがBGRで、4本目は未使用（BGR）か
+            // アルファ（BGRA）。どちらも捨てて詰め直す——HEIFは規格上
+            // 透過を持てる（`auxl` の補助アイテム。AVIF側の `read_alpha` が
+            // 読んでいるのがそれ）が、iPhoneのHEICは持たないし、
+            // **既存の原寸経路（`to_image`）も24bppBGRへ変換して捨てている**
+            4usize
+        } else {
+            return None;
+        };
+
+        let stride = (w as usize).checked_mul(bytes_per_pixel)?;
+        let mut buf = vec![0u8; stride.checked_mul(h as usize)?];
+        unsafe {
+            transform
+                .CopyPixels(
+                    std::ptr::null(),
+                    w,
+                    h,
+                    &format,
+                    WICBitmapTransformRotate0,
+                    u32::try_from(stride).ok()?,
+                    &mut buf,
+                )
+                .ok()?;
+        }
+
+        // WICはBGR順。imageクレートはRGB順なので入れ替える
+        // （4バイト形式は4本目を落として詰め直す）
+        if bytes_per_pixel == 3 {
+            for px in buf.chunks_exact_mut(3) {
+                px.swap(0, 2);
+            }
+        } else {
+            let mut rgb = Vec::with_capacity(w as usize * h as usize * 3);
+            for px in buf.chunks_exact(4) {
+                rgb.extend_from_slice(&[px[2], px[1], px[0]]);
+            }
+            buf = rgb;
+        }
+        image::RgbImage::from_raw(w, h, buf).map(image::DynamicImage::ImageRgb8)
+    }
+
     /// 埋め込みサムネイルをデコードする（無ければ None）。
     pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
         let frame = frame(path)?;
@@ -1234,6 +1439,41 @@ mod windows_wic {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 縮小デコードの可否は三値。**「縮小を頼んでいない」を「できない」と
+    /// 読まない**ことが要点（素材がたまたま小さいだけで、WICが縮小に
+    /// 対応していないと断じてしまう）。WICの要らない純粋な分岐なので
+    /// この環境でも回せる
+    #[test]
+    fn scaled_decode_probe_is_three_valued() {
+        let probe = |has_transform, full, requested, closest| ScaledDecodeProbe {
+            has_transform,
+            full,
+            requested,
+            closest,
+            closest_format: String::new(),
+        };
+        // 頼んで、縮んで返ってきた
+        assert_eq!(
+            probe(true, (4000, 3000), (2048, 1536), (2048, 1536)).scales(),
+            Some(true)
+        );
+        // 頼んだのに原寸が返ってきた
+        assert_eq!(
+            probe(true, (4000, 3000), (2048, 1536), (4000, 3000)).scales(),
+            Some(false)
+        );
+        // そもそも頼んでいない（元が既に小さい）＝何も言えない
+        assert_eq!(
+            probe(true, (1600, 1200), (1600, 1200), (1600, 1200)).scales(),
+            None
+        );
+        // 問い合わせ先が無いなら、頼めるかによらず「できない」
+        assert_eq!(
+            probe(false, (4000, 3000), (2048, 1536), (4000, 3000)).scales(),
+            Some(false)
+        );
+    }
 
     /// テスト用に最小限のHEIFコンテナを組み立てる。
     ///

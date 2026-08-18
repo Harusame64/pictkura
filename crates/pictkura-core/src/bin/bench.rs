@@ -10,6 +10,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use pictkura_core::jpeg::ChromaSampling;
 use pictkura_core::{Db, ScannedFile};
 use rusqlite::{params, Connection};
 
@@ -257,6 +258,298 @@ fn bench_display_dir(dir: &std::path::Path) {
             fmt_ms(warm_total / entries.len() as u32)
         );
     }
+}
+
+/// HEICの詰め直しの内訳と、JPEGエンコーダの比較を測る（0.2 HEICの詰め直し）。
+///
+/// 初見のHEICは1枚約953ms掛かり、先読みでは埋められない。内訳は
+/// 「WICで展開 428ms ＋ JPEGへ再エンコード 約525ms」で、**後半が
+/// `image` クレートの純Rustエンコーダの値段**。mozjpeg（libjpeg-turbo）は
+/// 既に依存に入っている（`jpeg.rs` の展開で使っている）ので、
+/// 差し替えれば新しい依存なしで縮む見込み——それを数字にする。
+///
+///   cargo run --release --bin bench -- --heif-encode D:\pics\heic
+///
+/// **クラウドのみ（OneDriveのプレースホルダ）は測らない**。開いた瞬間に
+/// ダウンロードが走り、測っているのが回線速度になる。
+fn bench_heif_encode(dir: &std::path::Path) {
+    const QUALITY: u8 = 82; // raw.rs::encode_jpeg と同じ
+
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| pictkura_core::heif::is_heif_path(p))
+        .collect();
+    entries.sort();
+    let total = entries.len();
+    entries.retain(|p| !pictkura_core::cloud::is_cloud_only_path(p));
+
+    println!("== pictkura HEICの詰め直し（エンコーダ比較） ==");
+    println!("対象: {}", dir.display());
+    println!(
+        "HEIC {total}件のうち {}件がローカル実体（クラウドのみの {}件は測らない）
+",
+        entries.len(),
+        total - entries.len()
+    );
+    println!(
+        "{:<24} {:>9} {:>8} {:>9} {:>9} {:>9} {:>7} {:>7} {:>7}",
+        "ファイル", "WIC展開", "平坦化", "image", "moz444", "moz420", "imgMB", "444MB", "420MB"
+    );
+
+    let mut n = 0u32;
+    let mut sum_decode = std::time::Duration::ZERO;
+    let mut sum_flatten = std::time::Duration::ZERO;
+    let mut sum_image = std::time::Duration::ZERO;
+    let mut sum_moz444 = std::time::Duration::ZERO;
+    let mut sum_moz420 = std::time::Duration::ZERO;
+    let (mut sum_image_bytes, mut sum_444_bytes, mut sum_420_bytes) = (0usize, 0usize, 0usize);
+    // 縮小デコードの計測へ渡すのは**ここを通り抜けた（実際に絵になった）もの**だけ。
+    // 壊れた1枚・コーデックの無い1枚が先頭に居るだけで、あちらの計測が
+    // まるごと落ちるのを避ける
+    let mut decodable: Vec<std::path::PathBuf> = Vec::new();
+    for path in &entries {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+
+        let t = Instant::now();
+        let Some(img) = pictkura_core::heif::decode(path) else {
+            println!("{name:<24} {:>9}  ✗ 展開できない", fmt_ms(t.elapsed()));
+            continue;
+        };
+        let decode = t.elapsed();
+
+        // 平坦化（アルファ落とし）は両者に共通の前処理。エンコーダの比較から外す
+        let t = Instant::now();
+        let rgb = pictkura_core::resize::flatten_onto_white(&img);
+        let flatten = t.elapsed();
+
+        // 現行: image クレートの純Rustエンコーダ。**色差を間引かない（4:4:4）**
+        let t = Instant::now();
+        let mut by_image = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut by_image, QUALITY);
+        let image_ok = rgb.write_with_encoder(encoder).is_ok();
+        let image_d = t.elapsed();
+
+        // 候補その1: mozjpeg を image と同じ 4:4:4 で回す。
+        // **エンコーダだけの差**を見るのはこの列
+        let t = Instant::now();
+        let by_444 = pictkura_core::jpeg::encode_rgb(&rgb, QUALITY, ChromaSampling::Full);
+        let moz444_d = t.elapsed();
+
+        // 候補その2: 4:2:0（カメラが書くJPEGもiPhoneのHEICもこちら）。
+        // 速さも小ささもここが最良だが、**間引きの分が混ざっている**
+        let t = Instant::now();
+        let by_420 = pictkura_core::jpeg::encode_rgb(&rgb, QUALITY, ChromaSampling::Half);
+        let moz420_d = t.elapsed();
+
+        let (Some(by_444), Some(by_420), true) = (by_444, by_420, image_ok) else {
+            println!("{name:<24} {:>9}  ✗ どれかが詰められない", fmt_ms(decode));
+            continue;
+        };
+
+        n += 1;
+        decodable.push(path.clone());
+        sum_decode += decode;
+        sum_flatten += flatten;
+        sum_image += image_d;
+        sum_moz444 += moz444_d;
+        sum_moz420 += moz420_d;
+        sum_image_bytes += by_image.len();
+        sum_444_bytes += by_444.len();
+        sum_420_bytes += by_420.len();
+        let mb = |b: usize| b as f64 / 1024.0 / 1024.0;
+        println!(
+            "{name:<24} {:>9} {:>8} {:>9} {:>9} {:>9} {:>7.2} {:>7.2} {:>7.2}   {}x{}",
+            fmt_ms(decode),
+            fmt_ms(flatten),
+            fmt_ms(image_d),
+            fmt_ms(moz444_d),
+            fmt_ms(moz420_d),
+            mb(by_image.len()),
+            mb(by_444.len()),
+            mb(by_420.len()),
+            rgb.width(),
+            rgb.height()
+        );
+
+        // 絵が化けていないことを目視ではなく数字で確かめる（時間の外）。
+        // 4:2:0 は色差を捨てているぶん元から離れるので、両方見る
+        for (label, bytes) in [("4:4:4", &by_444), ("4:2:0", &by_420)] {
+            if let Some(diff) = mean_abs_diff(&rgb, bytes) {
+                if diff > 8.0 {
+                    println!(
+                        "{:<24} △ mozjpeg {label} が元と離れている: 平均差 {diff:.1}",
+                        ""
+                    );
+                }
+            }
+        }
+    }
+
+    if n == 0 {
+        println!(
+            "
+測れるHEICが無かった"
+        );
+        return;
+    }
+    let avg = |d: std::time::Duration| fmt_ms(d / n);
+    let common = sum_decode + sum_flatten;
+    println!(
+        "
+{n}件の平均: WIC展開 {} ／ 平坦化 {}（どちらもエンコーダ共通）",
+        avg(sum_decode),
+        avg(sum_flatten)
+    );
+    println!(
+        "{:<22} {:>10} {:>12} {:>10} {:>10}",
+        "エンコーダ", "圧縮のみ", "display_jpeg", "対image", "出力"
+    );
+    let avg_mb = |b: usize| b as f64 / n as f64 / 1024.0 / 1024.0;
+    let base = common + sum_image;
+    for (label, enc, bytes) in [
+        ("image 4:4:4（現行）", sum_image, sum_image_bytes),
+        ("mozjpeg 4:4:4", sum_moz444, sum_444_bytes),
+        ("mozjpeg 4:2:0", sum_moz420, sum_420_bytes),
+    ] {
+        let total = common + enc;
+        println!(
+            "{label:<22} {:>10} {:>12} {:>9.0}% {:>8.2}MB",
+            avg(enc),
+            avg(total),
+            (1.0 - total.as_secs_f64() / base.as_secs_f64()) * 100.0,
+            avg_mb(bytes)
+        );
+    }
+    println!(
+        "※ image のエンコーダは色差を間引かない（4:4:4）ので、エンコーダだけの差を
+   見るなら mozjpeg 4:4:4 と比べること。4:2:0 の分は間引きの手柄が混ざっている"
+    );
+
+    bench_wic_scaled_decode(&decodable);
+}
+
+/// WICが「縮小しながら展開」できるか、聞いた上で実際に測る。
+///
+/// エンコーダを替えると、HEICの詰め直しは**展開のほうが重くなる**。
+/// JPEGの1/8展開（[`pictkura_core::jpeg::decode_scaled`]）に当たるものが
+/// HEVCにも在るなら、そこが次の的になる。
+///
+/// `GetClosestSize` が希望どおりの寸法を答えても、**内部で原寸まで起こしてから
+/// 縮めているだけ**なら1msも得しない。だから聞くだけで終わりにせず、
+/// 原寸と縮小の両方を通して時間を並べる。
+///
+/// 渡すのは**上の比較で実際に絵になったものだけ**。壊れた1枚・コーデックの
+/// 無い1枚が先頭に居るだけで、この計測がまるごと落ちる。
+fn bench_wic_scaled_decode(decodable: &[std::path::PathBuf]) {
+    const EDGES: [u32; 2] = [4096, 2048];
+
+    // コンテナの申告（0.2ms）だけで大きい順に並べる。画素は起こさない
+    let mut by_size: Vec<_> = decodable
+        .iter()
+        .filter_map(|p| pictkura_core::heif::display_dimensions(p).map(|(w, h)| (w.max(h), p)))
+        .collect();
+    by_size.sort_by_key(|(long, _)| std::cmp::Reverse(*long));
+    if by_size.is_empty() {
+        return;
+    }
+
+    println!(
+        "
+-- WICの縮小デコード --"
+    );
+    for edge in EDGES {
+        // **その辺で本当に縮小を頼める素材だけ**を測る。元が既に `edge` に
+        // 収まっている絵を混ぜると、`fit_within` が原寸を返すので
+        // 「縮小」の列に原寸デコードが紛れ込み、平均が原寸側へ寄る
+        let sample: Vec<_> = by_size
+            .iter()
+            .filter(|(long, _)| *long > edge)
+            .take(3)
+            .map(|(_, p)| *p)
+            .collect();
+        let Some(first) = sample.first() else {
+            println!("長辺{edge}: これより大きい素材が無いので測らない");
+            continue;
+        };
+
+        let Some(probe) = pictkura_core::heif::probe_scaled_decode(first, edge) else {
+            println!("長辺{edge}: 問い合わせできなかった");
+            continue;
+        };
+        let verdict = match probe.scales() {
+            Some(true) => "縮めて出せる",
+            Some(false) if probe.has_transform => "原寸しか出せない",
+            Some(false) => "IWICBitmapSourceTransform を実装していない",
+            // 素材の選び方で弾いてあるので、ここへは来ないはず
+            None => "縮小を頼んでいない",
+        };
+        println!(
+            "長辺{edge}の答え: {verdict}（原寸 {}x{} → 希望 {}x{} → 出せる {}x{}・形式 {}）",
+            probe.full.0,
+            probe.full.1,
+            probe.requested.0,
+            probe.requested.1,
+            probe.closest.0,
+            probe.closest.1,
+            probe.closest_format
+        );
+
+        // 「縮めて出せる」と答えても、値段が変わらなければ意味が無い。
+        // **同じ素材で**原寸と並べる（1枚だとファイルキャッシュの当たり外れが乗る）
+        let n = sample.len() as u32;
+        let mut full = std::time::Duration::ZERO;
+        let mut scaled = std::time::Duration::ZERO;
+        let mut size = None;
+        let mut failed = false;
+        for path in &sample {
+            let t = Instant::now();
+            let ok = pictkura_core::heif::decode(path).is_some();
+            full += t.elapsed();
+
+            let t = Instant::now();
+            let img = pictkura_core::heif::decode_scaled(path, edge);
+            scaled += t.elapsed();
+
+            match img {
+                Some(img) if ok => size = Some((img.width(), img.height())),
+                // 1枚でも落ちたら、その辺の平均は**枚数が合わない**。
+                // 前の1枚の寸法だけ残って正しく見える数字が出るのが一番まずい
+                _ => {
+                    println!("長辺{edge}: 展開できない1枚があった（この辺は測らない）");
+                    failed = true;
+                    break;
+                }
+            }
+        }
+        if failed {
+            continue;
+        }
+        let Some((w, h)) = size else { continue };
+        println!(
+            "長辺{edge}: 原寸 {} → 縮小 {}（{w}x{h}・原寸比 {:.0}%・{n}枚の平均）",
+            fmt_ms(full / n),
+            fmt_ms(scaled / n),
+            scaled.as_secs_f64() / full.as_secs_f64() * 100.0
+        );
+    }
+}
+
+/// エンコード結果を読み戻して元の画素と比べる（0〜255の平均差）。
+fn mean_abs_diff(src: &image::RgbImage, encoded: &[u8]) -> Option<f64> {
+    let back = image::load_from_memory(encoded).ok()?.to_rgb8();
+    if back.dimensions() != src.dimensions() {
+        return None;
+    }
+    let sum: f64 = back
+        .as_raw()
+        .iter()
+        .zip(src.as_raw())
+        .map(|(a, b)| a.abs_diff(*b) as f64)
+        .sum();
+    Some(sum / back.as_raw().len() as f64)
 }
 
 /// HEIC/HEIF を1枚調べる（第7部 段階G）。
@@ -1111,6 +1404,10 @@ fn main() {
             std::path::Path::new(&file),
             arg_value(&args, "--out").as_deref(),
         );
+        return;
+    }
+    if let Some(dir) = arg_value(&args, "--heif-encode") {
+        bench_heif_encode(std::path::Path::new(&dir));
         return;
     }
     if let Some(dir) = arg_value(&args, "--heic-dir") {

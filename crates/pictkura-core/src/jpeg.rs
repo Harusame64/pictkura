@@ -27,7 +27,7 @@
 use std::path::Path;
 
 use image::DynamicImage;
-use mozjpeg::{ColorSpace, Decompress};
+use mozjpeg::{ColorSpace, Compress, Decompress};
 
 /// 元ファイルが名乗ってよい画素数の上限（**間引く前**の値で見る）。
 ///
@@ -81,11 +81,63 @@ pub fn decode_scaled_mem(bytes: &[u8], max_edge: u32) -> Option<DynamicImage> {
 /// libjpeg 由来のパニックを `None` に均す。
 ///
 /// `resume_unwind` はパニックハンドラを通らないので、コンソールには何も出ない。
-/// 巻き戻しの途中で `Decompress` の Drop が走り、libjpeg 側の確保は解放される。
-fn catching(f: impl FnOnce() -> Option<DynamicImage>) -> Option<DynamicImage> {
+/// 巻き戻しの途中で `Decompress`／`Compress` の Drop が走り、
+/// libjpeg 側の確保は解放される。
+fn catching<T>(f: impl FnOnce() -> Option<T>) -> Option<T> {
     // AssertUnwindSafe: 失敗したら結果を丸ごと捨てるだけで、
     // 途中まで書いた状態を外へ持ち出さない
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()?
+}
+
+/// 色差（Cb/Cr）をどれだけ間引くか。
+///
+/// **エンコーダを比べるときは必ず揃えること**。間引きは画素数そのものを
+/// 減らすので、ここが違うと「速い」のがエンコーダの手柄なのか
+/// 間引きの手柄なのか分からなくなる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChromaSampling {
+    /// 4:4:4（間引かない）。`image` クレートのエンコーダはこれで固定
+    Full,
+    /// 4:2:0（縦横とも半分）。カメラが書くJPEGもiPhoneのHEICもこちら
+    Half,
+}
+
+/// RGB8の画素をJPEGへ詰める（libjpeg-turbo）。
+///
+/// `image` クレートの純Rustエンコーダの代わり。**展開ではなく圧縮のほうが
+/// 原寸表示の値段の大半**で、HEICの詰め直し 953ms のうち約525msがここだった。
+///
+/// mozjpeg の既定はtrellis量子化とスキャン最適化（プログレッシブ）を回して
+/// ファイルを小さくするが、その分だけ遅い。ここは**配信して数秒で捨てる絵**なので
+/// [`Compress::set_fastest_defaults`] で libjpeg v6 相当まで落とす
+/// ——速さが要るのであって、数十KBの節約に用は無い。
+///
+/// **設定の順番に意味がある**。`set_fastest_defaults` は内部で `jpeg_set_defaults`
+/// を呼び直すので、**品質は75へ戻り、間引きは色空間の既定へ戻る**
+/// （寸法はここでは触られないが、まとめて後に置くほうが間違えにくい）。
+/// だから品質と間引きは必ずその後に設定する（テストで固定した）。
+pub fn encode_rgb(rgb: &image::RgbImage, quality: u8, chroma: ChromaSampling) -> Option<Vec<u8>> {
+    let (w, h) = (rgb.width(), rgb.height());
+    if w == 0 || h == 0 {
+        return None;
+    }
+    catching(|| {
+        let mut comp = Compress::new(ColorSpace::JCS_RGB);
+        comp.set_fastest_defaults();
+        comp.set_size(w as usize, h as usize);
+        comp.set_quality(f32::from(quality));
+        // 引数は「輝度1画素あたりの色差“画素”の大きさ」。(1,1)で等倍＝4:4:4、
+        // (2,2)で縦横半分＝4:2:0。libjpeg v6 の既定は 4:2:0 だが、
+        // 既定に頼らず毎回書く——**比較の土台になる値**なので黙って変わると困る
+        let size = match chroma {
+            ChromaSampling::Full => (1, 1),
+            ChromaSampling::Half => (2, 2),
+        };
+        comp.set_chroma_sampling_pixel_sizes(size, size);
+        let mut started = comp.start_compress(Vec::new()).ok()?;
+        started.write_scanlines(rgb.as_raw()).ok()?;
+        started.finish().ok()
+    })
 }
 
 fn scaled<R: std::io::BufRead>(mut dec: Decompress<R>, max_edge: u32) -> Option<DynamicImage> {
@@ -258,6 +310,63 @@ mod tests {
         let path = dir.path().join("garbage.jpg");
         std::fs::write(&path, vec![0xFFu8; 4096]).unwrap();
         assert!(decode_scaled(&path, 512).is_none());
+    }
+
+    /// mozjpegで詰めたJPEGが、そのまま読み戻せること（寸法・色が化けていない）
+    #[test]
+    fn encodes_rgb_that_decodes_back() {
+        let rgb = image::RgbImage::from_fn(320, 240, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x ^ y) % 253) as u8])
+        });
+        let bytes = encode_rgb(&rgb, 82, ChromaSampling::Half).expect("詰められるはず");
+        assert_eq!(&bytes[..2], &[0xFF, 0xD8], "JPEGのSOIが無い");
+        let back = image::load_from_memory(&bytes).unwrap().to_rgb8();
+        assert_eq!((back.width(), back.height()), (320, 240));
+        let mean: f64 = back
+            .as_raw()
+            .iter()
+            .zip(rgb.as_raw())
+            .map(|(a, b)| a.abs_diff(*b) as f64)
+            .sum::<f64>()
+            / back.as_raw().len() as f64;
+        assert!(mean < 24.0, "元の絵と違いすぎる: 平均差 {mean}");
+    }
+
+    /// 品質を上げれば大きくなる（set_quality が効いている＝
+    /// set_fastest_defaults の後に呼べている）
+    #[test]
+    fn quality_reaches_the_encoder() {
+        let rgb = image::RgbImage::from_fn(256, 256, |x, y| {
+            image::Rgb([(x * y % 256) as u8, (x % 256) as u8, (y % 256) as u8])
+        });
+        let low = encode_rgb(&rgb, 40, ChromaSampling::Half).unwrap().len();
+        let high = encode_rgb(&rgb, 95, ChromaSampling::Half).unwrap().len();
+        assert!(high > low, "品質が効いていない: q40={low} q95={high}");
+    }
+
+    /// 色差の間引きが効いている（4:4:4 のほうが大きい）。
+    ///
+    /// `set_fastest_defaults` の**後**に設定できていないと、libjpeg v6 の既定
+    /// （4:2:0）のまま両方が同じ大きさになる——エンコーダを比べるときに、
+    /// これが黙って揃っていないと数字の意味が変わる
+    #[test]
+    fn chroma_sampling_reaches_the_encoder() {
+        // 色差だけが動く絵（輝度をほぼ一定に保つと間引きの差が出やすい）
+        let rgb = image::RgbImage::from_fn(256, 256, |x, y| {
+            image::Rgb([128, (x % 256) as u8, (y % 256) as u8])
+        });
+        let full = encode_rgb(&rgb, 82, ChromaSampling::Full).unwrap().len();
+        let half = encode_rgb(&rgb, 82, ChromaSampling::Half).unwrap().len();
+        assert!(
+            full > half,
+            "間引きが効いていない: 4:4:4={full} 4:2:0={half}"
+        );
+    }
+
+    /// 0画素は libjpeg へ渡す前に断る（渡すとlongjmpで飛んでくる）
+    #[test]
+    fn refuses_empty_images() {
+        assert!(encode_rgb(&image::RgbImage::new(0, 0), 82, ChromaSampling::Half).is_none());
     }
 
     /// 間引いた絵が、原寸から縮めた絵とだいたい一致すること（色が化けていない）
