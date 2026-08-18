@@ -131,9 +131,13 @@ const DISPLAY_MAX_EDGE = 4096;
  * **前方一致で見ない**——`full/1` は `full/12` にも当たるので、送った直後に
  * 遅れて届いた前の絵の完了を、新しい絵のものと取り違える
  */
-function isSrcOf(src: string, id: number): boolean {
+function isSrcOf(
+  src: string,
+  id: number,
+  kind: "full" | "thumb" = "full",
+): boolean {
   try {
-    return new URL(src).pathname === `/full/${id}`;
+    return new URL(src).pathname === `/${kind}/${id}`;
   } catch {
     return false;
   }
@@ -1278,6 +1282,8 @@ export default function App() {
 
   /** 原寸が届いた絵のid */
   const [loadedId, setLoadedId] = useState<number | null>(null);
+  /** 下敷きのサムネイルが出た絵のid（0.2 ②） */
+  const [thumbShownId, setThumbShownId] = useState<number | null>(null);
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
   /** 「読み込み中」を出してよい絵のid（詰め直しの要る形式だけ・300ms超） */
@@ -1288,13 +1294,14 @@ export default function App() {
     viewerItem && !viewerItem.is_video && viewerItem.needs_transcode,
   );
   useEffect(() => {
-    // 前の絵に立てた印は**3つとも**捨てる。残しておくと、A→B→Aと戻ったときに
+    // 前の絵に立てた印は**4つとも**捨てる。残しておくと、A→B→Aと戻ったときに
     // 「Aはもう出ている・落ち着いている」が最初から成立し、**まだ動いている
     // 最中なのに裏の詰め直しが始まる**（門の意味が消える）。
     // nullへ戻すのは安全な向き——古いidが新しいidと一致して門が開くことは無い
     setSlowId(null);
     setLoadedId(null);
     setSettledId(null);
+    setThumbShownId(null);
     if (viewerItemId === undefined) return;
     const settle = window.setTimeout(() => setSettledId(viewerItemId), 250);
     // 待たせないもの（JPEG/PNG/AVIF）に読み込み中は出さない。先読みが
@@ -2873,6 +2880,46 @@ export default function App() {
           ) : (
             <div className="viewer-loading">{t.loading}</div>
           )}
+          {/* 原寸が届くまで、グリッドで既に描いたサムネイルを下に敷く（0.2 ②）。
+              クリックした瞬間、その絵の512pxはブラウザにデコード済みで載っている
+              ＝**待ち時間ゼロで絵が出る**。原寸は詰め直しに約0.5秒かかる
+              （HEIC実測: WIC展開446ms＋mozjpeg 67ms）ので、その間を埋める。
+
+              詰め直しの要る形式（HEIC・RAW・TIFF）だけに敷く——JPEGは6msで
+              出るので、敷いても一瞬ぼやけた絵が見えるだけ損。
+
+              層は `z-index: -1`（CSS側）で決めているので、**DOMの並び順は
+              関係ない**。原寸の <img> はここより前にあるが、位置指定が無い分
+              こちらより前の層に描かれる */}
+          {viewerItem &&
+            viewerTranscoding &&
+            viewerItem.has_thumb &&
+            viewerItem.width > 0 &&
+            viewerItem.height > 0 &&
+            loadedId !== viewerItem.id && (
+              <img
+                className="viewer-thumb"
+                src={thumbSrc(viewerItem)}
+                alt=""
+                aria-hidden
+                draggable={false}
+                onLoad={(e) => {
+                  if (
+                    isSrcOf(e.currentTarget.currentSrc, viewerItem.id, "thumb")
+                  )
+                    setThumbShownId(viewerItem.id);
+                }}
+                // **原寸と同じ場所に同じ大きさで描く**。枠には原本の寸法を
+                // 名乗らせ、`object-fit: contain` で中に収める——こうすると
+                // 原寸の <img>（`max-width`/`max-height` で縮む）と描画結果が
+                // ぴったり一致し、差し替わるときに絵が動かない
+                style={{
+                  width: viewerItem.width,
+                  height: viewerItem.height,
+                  transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                }}
+              />
+            )}
           {/* 先読み（0.2 ①）。`display:none` でも画素は保持される（実測で
               opacity:0・画面外配置と同じ。小細工は要らない）。クリックも
               受けないので、地をクリックして閉じる操作の邪魔にならない */}
@@ -2888,11 +2935,16 @@ export default function App() {
               style={{ display: "none" }}
             />
           ))}
-          {viewerItem && slowId === viewerItem.id && loadedId !== viewerItem.id && (
-            <div className="viewer-loading viewer-loading-overlay">
-              {t.loading}
-            </div>
-          )}
+          {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
+              サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
+          {viewerItem &&
+            slowId === viewerItem.id &&
+            loadedId !== viewerItem.id &&
+            thumbShownId !== viewerItem.id && (
+              <div className="viewer-loading viewer-loading-overlay">
+                {t.loading}
+              </div>
+            )}
           {viewerItem && (
             <div
               className="viewer-caption"
