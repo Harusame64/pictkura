@@ -391,6 +391,15 @@ export default function App() {
   }, [rejectGate]);
   /** ゴミ箱へ移動している最中か（**実機の500件で約4.9秒**・2026-08-19の実測） */
   const [trashing, setTrashing] = useState(false);
+  /** 窓の×の受け口（登録は一度きり）から、移動中かどうかを見るための控え */
+  const trashingRef = useRef(false);
+  /**
+   * 移動中に×が押されたら、ここに控えて**終わってから**閉じる。
+   * 途中で窓を壊すと、ゴミ箱へ入れ終えたぶんがDBから落ちないまま残る
+   * （ゲート1の指摘）。次の起動の同期で拾い直せるとはいえ、
+   * **自分から不整合を作る道は塞ぐ**
+   */
+  const quitAfterTrashRef = useRef(false);
   /**
    * その4.9秒のあいだの進み具合（`delete-progress`）。**待たせる時間が3秒を
    * 超えたら件数を出す**——「動いている」ことを、止まっていない証拠として見せる
@@ -399,6 +408,9 @@ export default function App() {
   const [trashProgress, setTrashProgress] = useState<DeleteProgress | null>(
     null,
   );
+  useEffect(() => {
+    trashingRef.current = trashing;
+  }, [trashing]);
   /** 窓を閉じる要求など、**登録が1回きりの経路**から今の印を見るための控え */
   const rejectedRef = useRef(rejected);
   useEffect(() => {
@@ -758,12 +770,17 @@ export default function App() {
       );
       if (cancelled) exportProgress();
       else unlistenExport = exportProgress;
-      // ゴミ箱への移動の進捗。**画面には出さず控えるだけ**——関所のボタンと
-      // ステータス行が、それぞれ自分の言い方で読む
+      // ゴミ箱への移動の進捗。関所が出ているならボタンの文字が受けるので、
+      // ここでは触らない。**一覧からのまとめて削除には関所が無い**ので、
+      // そのときだけステータス行に出す（数千枚選べる以上、待つ間の手掛かりが要る）
       const deleteProgress = await listen<DeleteProgress>(
         "delete-progress",
         (ev) => {
-          if (!cancelled) setTrashProgress(ev.payload);
+          if (cancelled) return;
+          setTrashProgress(ev.payload);
+          if (!rejectGateRef.current) {
+            setStatus(t.rejectGateTrashing(ev.payload.done, ev.payload.total));
+          }
         },
       );
       if (cancelled) deleteProgress();
@@ -1598,10 +1615,14 @@ export default function App() {
   const rejectViewer = useCallback(
     (item: MediaItem) => {
       markReject(item, true);
+      // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
+      // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
+      // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
+      if (item.picked) void setMark(item, "picked", false);
       flashJudge("reject");
       if (autoAdvance) moveViewer(1);
     },
-    [markReject, flashJudge, autoAdvance, moveViewer],
+    [markReject, setMark, flashJudge, autoAdvance, moveViewer],
   );
 
   /**
@@ -2180,6 +2201,19 @@ export default function App() {
    */
   useEffect(() => {
     const un = getCurrentWindow().onCloseRequested((e) => {
+      // **移動中の1度目は通さない**。ここを通すと、ゴミ箱へ入れ終えたぶんが
+      // DBに残ったまま窓が消える。押した意思は控えておき、移動が終わった時点で
+      // 閉じる（500件で約5秒）。
+      //
+      // **2度目は通す**。ゴミ箱側が詰まって戻ってこない機械があったときに、
+      // また「閉じられない窓」を作らないため。そのとき残る不整合
+      // （実体はゴミ箱・行はDBに残る）は、次の起動の同期が拾って消す
+      if (trashingRef.current) {
+        if (quitAfterTrashRef.current) return;
+        e.preventDefault();
+        quitAfterTrashRef.current = true;
+        return;
+      }
       if (rejectedRef.current.size === 0) return;
       // **2度目の×は通す**。1度目で関所を出しているので、それでも×を押すのは
       // 「終わる」という意思表示。印はファイルを1バイトも触っていないので、
@@ -2776,7 +2810,10 @@ export default function App() {
       }
       setRejected(new Map());
       setRejectGate(null);
-      finishGate(gate);
+      // 移動中に×が押されていたなら、**その意思のとおり**ここで閉じる
+      finishGate(
+        quitAfterTrashRef.current ? { closeAfter: true, quitAfter: true } : gate,
+      );
     } catch (e) {
       // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
       // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
@@ -2788,6 +2825,9 @@ export default function App() {
     } finally {
       setTrashing(false);
       setTrashProgress(null);
+      // **失敗した回は閉じない**。何が起きたかを読める場所に残す
+      // （もう一度×を押せば、そのときは通る）
+      quitAfterTrashRef.current = false;
     }
   }, [
     rejectGate,
