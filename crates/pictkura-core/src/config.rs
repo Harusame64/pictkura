@@ -86,6 +86,13 @@ pub struct ImportConfig {
     pub verify_after_copy: bool,
     /// 取り込み対象とする拡張子（小文字で比較）。
     pub extensions: Vec<String>,
+    /// 写真と**一緒に運ぶ**サイドカーの拡張子（`.xmp` など）。
+    ///
+    /// ここに書いたものは一覧には出ず、同じ名前の写真の影として付いて回る
+    /// （取り込みでコピーされ、ゴミ箱へ入れるときも一緒に入る）。
+    /// 既定と、入れなかったものの理由は [`crate::sidecar::DEFAULT_SIDECAR_EXTENSIONS`]。
+    /// **空にすれば一切運ばない**。
+    pub sidecar_extensions: Vec<String>,
     /// USB/SDカードを挿したときに、pictkura を Windows の「自動再生」の
     /// 候補に出すか（Windows のみ。他のOSでは無視される）。既定はON。
     /// 起動のたびに HKCU へ冪等登録し、OFF にすると候補ごと消す。
@@ -98,6 +105,10 @@ impl Default for ImportConfig {
             last_source_dir: None,
             verify_after_copy: true,
             extensions: DEFAULT_EXTENSIONS
+                .iter()
+                .map(|e| (*e).to_string())
+                .collect(),
+            sidecar_extensions: crate::sidecar::DEFAULT_SIDECAR_EXTENSIONS
                 .iter()
                 .map(|e| (*e).to_string())
                 .collect(),
@@ -589,6 +600,25 @@ verify_after_copy = true
         off.update.check_on_start = false;
         let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
         assert!(!back.update.check_on_start);
+    }
+
+    /// 配ったあとに足した項目（0.2）。**古い設定ファイルには無い**ので、
+    /// 既定で補われること＝`.xmp` が運ばれる状態で始まることを固定しておく。
+    #[test]
+    fn サイドカーの設定が無くても既定で補われる() {
+        let config = Config::from_toml_str(
+            "[import]
+verify_after_copy = true
+",
+        )
+        .unwrap();
+        assert!(config.import.sidecar_extensions.iter().any(|e| e == "xmp"));
+
+        // **空にできる**（一切運ばない）ことも往復で固定する
+        let mut none = Config::default();
+        none.import.sidecar_extensions.clear();
+        let back = Config::from_toml_str(&none.to_toml_string().unwrap()).unwrap();
+        assert!(back.import.sidecar_extensions.is_empty());
     }
 
     #[test]

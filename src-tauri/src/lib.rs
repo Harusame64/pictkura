@@ -1229,20 +1229,38 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             .iter()
             .filter_map(|id| path_of(&state, *id).ok())
             .collect();
-        let (deleted, first_err) = trash_paths_with_progress(paths, |done, total| {
+        // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
+        // `.xmp` は一覧に出ないので、置いていくと**誰にも見えない迷子**になる
+        // ——写真だけ消えたフォルダに現像設定だけが残り続ける。
+        // 取り込みで一緒に運んだものを、消すときだけ置いていく道理も無い。
+        let sidecar_exts = lock_ok(&state.config).import.sidecar_extensions.clone();
+        let media: std::collections::HashSet<PathBuf> = paths.iter().cloned().collect();
+        let mut all = paths;
+        for path in &media {
+            all.extend(pictkura_core::sidecar::sidecars_of(path, &sidecar_exts));
+        }
+        let (deleted, first_err) = trash_paths_with_progress(all, |done, total| {
             let _ = app.emit("delete-progress", DeleteProgress { done, total });
         });
-        if !deleted.is_empty() {
+        // **DBから落とすのは写真のぶんだけ**。サイドカーは行を持っていない
+        let deleted_media: Vec<PathBuf> = deleted
+            .iter()
+            .filter(|p| media.contains(*p))
+            .cloned()
+            .collect();
+        if !deleted_media.is_empty() {
             lock_ok(&state.db)
-                .remove_paths(&deleted)
+                .remove_paths(&deleted_media)
                 .map_err(|e| e.to_string())?;
         }
+        // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
+        let count = deleted_media.len();
         match first_err {
-            Some(e) if deleted.is_empty() => Err(e),
+            Some(e) if count == 0 => Err(e),
             // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
             // 「何枚消えたのか」が分からない
-            Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
-            None => Ok(deleted.len()),
+            Some(e) => Err(format!("{e}（{count}枚は移動できました）")),
+            None => Ok(count),
         }
     })
     .await
@@ -1285,10 +1303,13 @@ async fn export_media(
             pictkura_core::ExportMode::Copy
         };
         let progress_app = app.clone();
+        // サイドカー（`.xmp` 等）も一緒に運ぶ（0.2）。設定で空にすれば運ばない
+        let sidecar_exts = lock_ok(&state.config).import.sidecar_extensions.clone();
         let outcome = pictkura_core::export_files(
             &paths,
             Path::new(&dest),
             mode,
+            &sidecar_exts,
             move |done, total, path| emit_export_progress(&progress_app, done, total, path),
         )
         .map_err(|e| e.to_string())?;
@@ -1307,6 +1328,11 @@ async fn export_media(
             let (trashed, _) = trash_paths(outcome.to_remove);
             stats.left_behind = asked - trashed.len();
             gone.extend(trashed);
+        }
+        // **サイドカーの元も片付ける**（別ドライブへ移したぶん）。DBに行は無いので
+        // 落とすものは無く、**件数にも数えない**——利用者が見ているのは写真の枚数
+        if !outcome.sidecars_to_remove.is_empty() {
+            let _ = trash_paths(outcome.sidecars_to_remove);
         }
         if !gone.is_empty() {
             lock_ok(&state.db)

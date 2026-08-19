@@ -50,6 +50,10 @@ pub struct ExportOutcome {
     /// **コピーは済んだが、元がまだ残っている**ファイル（別ドライブへの移動）。
     /// 呼び出し側がゴミ箱へ送り、送れたものはDBからも落とす
     pub to_remove: Vec<PathBuf>,
+    /// 上と同じだが**サイドカー**（`.xmp` 等）。ゴミ箱へは送るが、
+    /// **DBの行は無いし、件数にも数えない**——利用者が見ているのは写真の枚数で、
+    /// 影の数を足すと「3枚移したのに5件」になる
+    pub sidecars_to_remove: Vec<PathBuf>,
 }
 
 /// 書き出し先が使えない。
@@ -73,6 +77,7 @@ pub fn export_files(
     files: &[PathBuf],
     dest_dir: &Path,
     mode: ExportMode,
+    sidecar_extensions: &[String],
     on_progress: impl Fn(usize, usize, &Path),
 ) -> Result<ExportOutcome, ExportError> {
     // **取り込み先と同じ門を通す**（`set_import_destination` も同じ判定で断っている）。
@@ -89,7 +94,14 @@ pub fn export_files(
     // （連番が一周したRAW等）を「もうある」と誤判定して落とさないため
     let mut written: HashSet<PathBuf> = HashSet::new();
     for (i, path) in files.iter().enumerate() {
-        export_one(path, dest_dir, mode, &mut written, &mut out);
+        export_one(
+            path,
+            dest_dir,
+            mode,
+            sidecar_extensions,
+            &mut written,
+            &mut out,
+        );
         on_progress(i + 1, total, path);
     }
     Ok(out)
@@ -99,6 +111,7 @@ fn export_one(
     path: &Path,
     dest_dir: &Path,
     mode: ExportMode,
+    sidecar_extensions: &[String],
     written: &mut HashSet<PathBuf>,
     out: &mut ExportOutcome,
 ) {
@@ -139,8 +152,21 @@ fn export_one(
         && std::fs::rename(path, &dest_path).is_ok()
     {
         out.stats.done += 1;
+        let dest_name = dest_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         written.insert(dest_path);
         out.moved.push(path.to_path_buf());
+        carry_sidecars(
+            path,
+            dest_dir,
+            &dest_name,
+            mode,
+            sidecar_extensions,
+            written,
+            out,
+        );
         return;
     }
 
@@ -150,10 +176,71 @@ fn export_one(
         return;
     }
     out.stats.done += 1;
+    let dest_name = dest_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     written.insert(dest_path);
     if mode == ExportMode::Move {
         // **元を消すのはここではない**（モジュールの説明を参照）
         out.to_remove.push(path.to_path_buf());
+    }
+    carry_sidecars(
+        path,
+        dest_dir,
+        &dest_name,
+        mode,
+        sidecar_extensions,
+        written,
+        out,
+    );
+}
+
+/// 写真に付いているサイドカーを、写真と同じ場所へ連れていく（0.2）。
+///
+/// **移動でこれをしないと、`.xmp` だけがライブラリに取り残される**——一覧に
+/// 出ないファイルなので、誰にも見えないまま現像設定だけが残り続ける。
+/// コピーでも連れていくのは、渡した先で同じ絵を再現できるようにするため。
+///
+/// **失敗しても写真の成否は変えない**。影のために本体の結果を書き換えない。
+fn carry_sidecars(
+    source_photo: &Path,
+    dest_dir: &Path,
+    dest_photo_name: &str,
+    mode: ExportMode,
+    sidecar_extensions: &[String],
+    written: &mut HashSet<PathBuf>,
+    out: &mut ExportOutcome,
+) {
+    if sidecar_extensions.is_empty() {
+        return;
+    }
+    for sidecar in crate::sidecar::sidecars_of(source_photo, sidecar_extensions) {
+        let Ok(meta) = std::fs::metadata(&sidecar) else {
+            continue;
+        };
+        let name = crate::sidecar::sidecar_dest_name(source_photo, &sidecar, dest_photo_name);
+        let mtime_ms = filetime::FileTime::from_last_modification_time(&meta).unix_seconds() * 1000;
+        let target =
+            match resolve_dest_path_avoiding(dest_dir, &name, meta.len(), mtime_ms, written) {
+                DestResolution::CopyTo(p) => p,
+                DestResolution::AlreadyImported | DestResolution::Exhausted => continue,
+            };
+        if mode == ExportMode::Move
+            && !crate::cloud::is_cloud_only_path(&sidecar)
+            && std::fs::rename(&sidecar, &target).is_ok()
+        {
+            written.insert(target);
+            continue;
+        }
+        if std::fs::copy(&sidecar, &target).is_ok() {
+            written.insert(target);
+            if mode == ExportMode::Move {
+                out.sidecars_to_remove.push(sidecar);
+            }
+        } else {
+            let _ = std::fs::remove_file(&target);
+        }
     }
 }
 
@@ -187,6 +274,14 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// テストの既定（設定から来るのと同じ形）
+    fn exts() -> Vec<String> {
+        crate::sidecar::DEFAULT_SIDECAR_EXTENSIONS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
     fn files_in(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
             .unwrap()
@@ -194,6 +289,90 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// **移動で `.xmp` を置き去りにしない**（0.2・`dev/loadmap.md` 1.1）。
+    /// 一覧に出ないファイルなので、取り残すと誰にも見えない迷子になる。
+    #[test]
+    fn 移動ではサイドカーも一緒に動く() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("IMG_0001.jpg"), b"photo").unwrap();
+        std::fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+
+        let out = export_files(
+            &[src.join("IMG_0001.jpg")],
+            &dest,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.done, 1, "枚数は写真のぶんだけ");
+        assert_eq!(files_in(&dest), ["IMG_0001.jpg", "IMG_0001.xmp"]);
+        // 同じドライブなので rename で動く＝元は残っていない
+        assert!(
+            !src.join("IMG_0001.xmp").exists(),
+            "サイドカーが取り残された"
+        );
+        assert!(
+            out.sidecars_to_remove.is_empty(),
+            "renameで動いたぶんは後始末が要らない"
+        );
+    }
+
+    #[test]
+    fn コピーでもサイドカーは付いていくが元は残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("IMG_0001.jpg"), b"photo").unwrap();
+        std::fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+
+        export_files(
+            &[src.join("IMG_0001.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(files_in(&dest), ["IMG_0001.jpg", "IMG_0001.xmp"]);
+        assert!(src.join("IMG_0001.xmp").exists(), "コピーでは元を消さない");
+    }
+
+    /// 写真が連番になったら、サイドカーも同じ連番で付いていくこと。
+    #[test]
+    fn 連番になってもサイドカーは同じ名前で付いていく() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        // 書き出し先に、同名で中身の違うものが既にある
+        std::fs::write(dest.join("IMG_0001.jpg"), b"someone-else").unwrap();
+        std::fs::write(src.join("IMG_0001.jpg"), b"photo").unwrap();
+        std::fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+
+        export_files(
+            &[src.join("IMG_0001.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(
+            files_in(&dest),
+            ["IMG_0001-1.jpg", "IMG_0001-1.xmp", "IMG_0001.jpg"],
+            "サイドカーだけ元の名前で残ると、別の写真の設定として読まれる"
+        );
     }
 
     #[test]
@@ -209,6 +388,7 @@ mod tests {
             &[src.join("a.jpg"), src.join("b.jpg")],
             &dest,
             ExportMode::Copy,
+            &exts(),
             |_, _, _| {},
         )
         .unwrap();
@@ -230,15 +410,27 @@ mod tests {
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
         fs::write(dest.join("a.jpg"), b"aaa").unwrap();
 
-        let out =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        let out = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(out.stats.skipped, 1, "同名・同サイズは何もしない");
         assert_eq!(files_in(&dest), ["a.jpg"]);
 
         // 別内容（サイズ違い）なら連番で避ける
         fs::write(dest.join("a.jpg"), b"zzzzzzzz").unwrap();
-        let out =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        let out = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(out.stats.done, 1);
         assert_eq!(files_in(&dest), ["a-1.jpg", "a.jpg"]);
     }
@@ -261,6 +453,7 @@ mod tests {
             &[day1.join("DSC00001.ARW"), day2.join("DSC00001.ARW")],
             &dest,
             ExportMode::Copy,
+            &exts(),
             |_, _, _| {},
         )
         .unwrap();
@@ -304,6 +497,7 @@ mod tests {
             &[src.join("DSC00001.ARW")],
             &dest,
             ExportMode::Copy,
+            &exts(),
             |_, _, _| {},
         )
         .unwrap();
@@ -324,11 +518,23 @@ mod tests {
         fs::create_dir_all(&src).unwrap();
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
 
-        let first =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        let first = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(first.stats.done, 1);
-        let second =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        let second = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(second.stats.skipped, 1, "同じものは飛ばす");
         assert_eq!(files_in(&dest), ["a.jpg"]);
     }
@@ -356,8 +562,14 @@ mod tests {
         )
         .unwrap();
 
-        let out =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap();
+        let out = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
 
         assert_eq!(out.stats.skipped, 1, "1時間ちょうどのずれは同じもの");
         assert_eq!(files_in(&dest), ["a.jpg"]);
@@ -376,6 +588,7 @@ mod tests {
             &[dir.path().join("gone/a.jpg"), src.join("a.jpg")],
             &dest,
             ExportMode::Copy,
+            &exts(),
             |_, _, _| {},
         )
         .unwrap();
@@ -395,8 +608,14 @@ mod tests {
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
         let dest = dir.path().join("写真ライブラリ.photoslibrary/originals");
 
-        let err =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Copy, |_, _, _| {}).unwrap_err();
+        let err = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap_err();
 
         assert!(matches!(err, ExportError::DestIsPackage(_)), "{err:?}");
         assert!(!dest.exists(), "フォルダも作らない");
@@ -410,8 +629,14 @@ mod tests {
         fs::create_dir_all(&src).unwrap();
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
 
-        let out =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Move, |_, _, _| {}).unwrap();
+        let out = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
 
         assert_eq!(out.stats.done, 1);
         assert!(!src.join("a.jpg").exists(), "元は消える");
@@ -430,8 +655,14 @@ mod tests {
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
         fs::write(dest.join("a.jpg"), b"aaa").unwrap();
 
-        let out =
-            export_files(&[src.join("a.jpg")], &dest, ExportMode::Move, |_, _, _| {}).unwrap();
+        let out = export_files(
+            &[src.join("a.jpg")],
+            &dest,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
 
         assert_eq!(out.stats.skipped, 1);
         assert!(
@@ -455,6 +686,7 @@ mod tests {
             &[src.join("no-such.jpg"), src.join("a.jpg")],
             &dest,
             ExportMode::Copy,
+            &exts(),
             |_, _, _| seen.set(seen.get() + 1),
         )
         .unwrap();

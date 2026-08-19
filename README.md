@@ -189,6 +189,17 @@ Where a folder name carries a date, it is written **year-first in every language
 sorting by name sorts by time. If you keep the year folders yourself, point the destination
 at that year's folder and pick the preset that adds only `2026-08-16/`.
 
+> **Files that sit next to a photo travel with it.** A `.xmp` written by a raw developer
+> (develop settings, ratings, keywords) shares the photo's name, and pictkura carries it
+> along when importing, when copying or moving to a folder, and when sending the photo to
+> the recycle bin. The default list is `.xmp` `.aae` `.dop` `.pp3` `.on1`; add to it — or
+> empty it — via `[import] sidecar_extensions` in `pictkura.toml`. `.thm`, `.lrv`, `.modd`,
+> `.moff` and `.wav` are **not** carried by default (the camera can regenerate them, they
+> belong to another application, or the same name too easily means a different file).
+>
+> **If you shoot RAW+JPEG**, `IMG_0001.CR3` and `IMG_0001.JPG` always land in the same date
+> folder — one of the two sometimes carries no capture time.
+
 ### 4. Find things
 
 Use the search box, or the command palette with **Ctrl + K**.

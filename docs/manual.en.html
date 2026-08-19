@@ -45,6 +45,12 @@
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
     font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
   }
+  /* 貼って使える設定の例。**本文の幅を崩さず**、長い行は自分だけ横へ流す */
+  pre {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; margin: 16px 0;
+  }
+  pre code { background: none; padding: 0; }
   img { max-width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
   figure { margin: 20px 0; }
   figcaption { color: var(--text-muted); font-size: 0.85rem; margin-top: 8px; }
@@ -195,6 +201,58 @@ the picker that should have appeared on insert opens on the spot.
 In the Windows 11 right-click menu it lives under <strong>“Show more options”</strong>
 (or <kbd>Shift</kbd>+<kbd>F10</kbd>).
 </p>
+
+<h3>Files that sit next to a photo travel with it</h3>
+
+<p>
+A <code>.xmp</code> written by a raw developer (develop settings, ratings, keywords) sits
+next to the photo under the same name. pictkura <strong>carries those along</strong>:
+leaving one behind looks, later on, exactly like <strong>losing all your edits</strong>.
+This applies when importing, when <strong>copying or moving to a folder</strong>, and when
+<strong>sending a photo to the recycle bin</strong>.
+</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>Extension</th><th>Written by</th></tr>
+  <tr><td><code>.xmp</code></td><td>Adobe (Camera Raw / Lightroom / Bridge), darktable, digiKam, Photo Mechanic</td></tr>
+  <tr><td><code>.aae</code></td><td>Photos on iPhone / iPad</td></tr>
+  <tr><td><code>.dop</code></td><td>DxO PhotoLab</td></tr>
+  <tr><td><code>.pp3</code></td><td>RawTherapee</td></tr>
+  <tr><td><code>.on1</code></td><td>ON1 Photo RAW</td></tr>
+</table>
+</div>
+
+<p>
+Anything else — video thumbnails (<code>.thm</code>), low-resolution proxies
+(<code>.lrv</code>), PlayMemories Home bookkeeping (<code>.modd</code>,
+<code>.moff</code>), voice memos (<code>.wav</code>) — is
+<strong>not carried by default</strong>, because the camera can regenerate it or it belongs
+to another application. <strong>You can add what you need</strong> to the settings file (see “Where settings and
+data live”), or empty the list to carry nothing at all.
+</p>
+
+<p>
+Write it under <code>[import]</code> in <code>pictkura.toml</code>.
+<strong>When the line is absent the five defaults apply</strong>, so add it only if you want
+something different.
+</p>
+
+<pre><code>[import]
+# also carry voice memos (.wav)
+sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
+
+# carry nothing
+# sidecar_extensions = []</code></pre>
+
+<div class="note">
+  <p>
+    <strong>If you shoot RAW+JPEG</strong> (<code>IMG_0001.CR3</code> and
+    <code>IMG_0001.JPG</code>), the pair <strong>always lands in the same date folder</strong>.
+    One of the two sometimes carries no capture time, and without this the pair would be
+    split across folders and could no longer be matched up.
+  </p>
+</div>
 
 <h2 id="folders">3. Decide how imported photos are filed</h2>
 
@@ -539,7 +597,8 @@ With that off, pictkura never reaches the network at all — and you can still p
 
 <p>
 You can edit the settings file by hand. Anything the app has no UI for — the patterns of
-folders to exclude from scanning, for instance — can be changed there.
+folders to exclude from scanning, or <code>[import] sidecar_extensions</code> for the files
+carried along with each photo — can be changed there.
 <strong>Your photos are never stored in these places.</strong>
 Deleting the database does not delete any photo; it is simply rebuilt.
 </p>
