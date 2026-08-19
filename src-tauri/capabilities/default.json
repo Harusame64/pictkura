@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウの既定権限。`dialog:allow-message` は削除の確認ダイアログに要る（プラグインの `confirm` は内部で `message` コマンドを呼ぶ。`allow-confirm` は非推奨の別名）",
+  "description": "メインウィンドウの既定権限。`dialog:allow-message` は削除の確認ダイアログに要る（プラグインの `confirm` は内部で `message` コマンドを呼ぶ。`allow-confirm` は非推奨の別名）。`core:window:allow-destroy` は**窓を閉じるのに要る**——`onCloseRequested` を1つでも登録すると、Tauriは閉じる判断をJS側へ預けて自分では閉じなくなり、JS側の `destroy()` がこの権限を持たないと**×でもAlt+F4でも二度と閉じない窓**になる（2026-08-19に踏んだ）",
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-destroy",
     "dialog:allow-open",
     "dialog:allow-message"
   ]

@@ -96,6 +96,15 @@ export interface ImportProgress {
   path: string;
 }
 
+/**
+ * ゴミ箱へ移している最中の進み具合（delete-progressイベント）。
+ * 実機で500枚が約4.9秒かかるので、押したあと数字が動くようにしてある。
+ */
+export interface DeleteProgress {
+  done: number;
+  total: number;
+}
+
 /** 起動時同期の⚡爆速メーター（startup-scan-reportイベントのペイロード） */
 export interface StartupScanReport {
   /** 同期方式: USNジャーナル差分 / mtime枝刈り / フルスキャン */

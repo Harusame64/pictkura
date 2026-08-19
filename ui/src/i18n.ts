@@ -90,6 +90,12 @@ const ja = {
   viewerPick: "選ぶ (P)",
   viewerUnpick: "選ぶのをやめる (U)",
   viewerPicked: "選別で選んだ写真",
+  // 判定したことを**絵の上で**知らせる（2026-08-19の利用者指摘。道具の帯は
+  // 1.8秒で消えるうえ、自動送りが効いていると付けた相手はもう画面に居ない）
+  judgeFav: "お気に入り",
+  judgeUnfav: "お気に入りを外した",
+  judgePick: "選んだ",
+  judgeUnflag: "判定を取り消した",
   // ボツの候補（0.2 ③）。印を付けるだけで、ファイルは閉じるときまで動かない
   viewerReject: "ボツにする (X)",
   viewerRejected: "ボツの候補",
@@ -102,7 +108,8 @@ const ja = {
   rejectGateBack: "戻る",
   rejectGateDiscard: "入れずに閉じる",
   rejectGateConfirm: (n: number) => `${n}枚をゴミ箱へ`,
-  rejectGateTrashing: (n: number) => `移動中… (${n}件)`,
+  rejectGateTrashing: (done: number, total: number) =>
+    `移動中… (${done} / ${total})`,
   viewerSlideshow: "スライドショー (Space)",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
@@ -388,6 +395,10 @@ const en: Dict = {
   viewerPick: "Pick (P)",
   viewerUnpick: "Unpick (U)",
   viewerPicked: "Picked photo",
+  judgeFav: "Favorite",
+  judgeUnfav: "Favorite removed",
+  judgePick: "Picked",
+  judgeUnflag: "Judgement cleared",
   viewerReject: "Reject (X)",
   viewerRejected: "Rejected",
   rejectChip: (n: number) => `✕ ${n}`,
@@ -399,7 +410,8 @@ const en: Dict = {
   rejectGateBack: "Back",
   rejectGateDiscard: "Close without deleting",
   rejectGateConfirm: (n: number) => (n === 1 ? "Move 1 to trash" : `Move ${n} to trash`),
-  rejectGateTrashing: (n: number) => `Moving… (${n})`,
+  rejectGateTrashing: (done: number, total: number) =>
+    `Moving… (${done} / ${total})`,
   viewerSlideshow: "Slideshow (Space)",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",

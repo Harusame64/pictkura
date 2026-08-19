@@ -916,12 +916,17 @@ body {
 /* ===== ボツの候補（0.2 ③）===== */
 
 /* 足あと: ✕を付けた1枚は帯の中で沈める。**枠は動かさない**——
-   帯の並びが動くと、送るたびに目で追う先が落ち着かない */
-.strip-cell.rejected {
-  opacity: 0.3;
-}
+   帯の並びが動くと、送るたびに目で追う先が落ち着かない。
+   **沈めるのは絵だけで、✕は沈めない**——セルごと薄くすると足あとまで
+   薄まり、実機では印が付いているのかどうか読めなかった
+   （2026-08-19に利用者から指摘。16pxの✕を0.3で敷いていた） */
+.strip-cell.rejected,
 .strip-cell.rejected.current {
-  opacity: 0.6;
+  opacity: 1;
+}
+.strip-cell.rejected img,
+.strip-cell.rejected .strip-blank {
+  opacity: 0.25;
 }
 .strip-reject {
   position: absolute;
@@ -929,24 +934,127 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--fs-xl);
+  /* セルは56px。トークンの16pxでは小さすぎて足あとにならない */
+  font-size: 26px;
+  font-weight: 700;
   line-height: 1;
-  color: var(--danger);
-  filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.9));
+  color: var(--n-0);
+  /* 赤を薄く敷く。1枚だけ見て分かることより、**帯を流し見して
+     ✕の並びが目に入る**ことを取る */
+  background: color-mix(in oklch, var(--danger) 45%, transparent);
+  border-radius: 2px;
+  text-shadow: 0 1px 3px oklch(0 0 0 / 0.9);
   pointer-events: none;
 }
 
 /* いま見ている1枚がボツの候補であることの印。絵の左上に小さく置く */
-.viewer-reject-badge {
+/* いまの1枚に付いている印。**道具の帯とは別に、常に出しておく**——
+   帯は1.8秒で消えるので、消えたあとに見返す先が無かった（2026-08-19） */
+.viewer-badges {
   position: absolute;
   top: var(--sp-3);
   left: var(--sp-4);
+  display: flex;
+  gap: var(--sp-1);
+  pointer-events: none;
+}
+.viewer-badge {
   padding: 2px 8px;
   font-size: var(--fs-sm);
   color: #fff;
-  background: var(--danger);
   border-radius: var(--radius-full);
+  /* 白い絵の上でも読めるように、色の裏に影を1枚敷く */
+  box-shadow: 0 1px 4px oklch(0 0 0 / 0.5);
+}
+.viewer-badge.fav {
+  color: var(--n-10);
+  background: var(--fav);
+}
+.viewer-badge.pick {
+  color: var(--n-10);
+  background: var(--pick);
+}
+.viewer-badge.reject {
+  background: var(--danger);
+}
+
+/* 判定した合図。絵の真ん中で一度だけ膨らんで消える（2026-08-19）。
+   **送りの邪魔をしない**のが条件——0.7秒で消え、当たり判定も持たない */
+.judge-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 文字が枠に触ると窮屈に見える。**合図は一目で読めることが仕事** */
+  min-width: 128px;
+  padding: var(--sp-4) var(--sp-5);
+  color: #fff;
+  background: oklch(0 0 0 / 0.55);
+  border: 2px solid currentColor;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(4px);
   pointer-events: none;
+  animation: judge-flash 700ms var(--easing) forwards;
+}
+.judge-flash-mark {
+  font-size: 44px;
+  line-height: 1;
+}
+.judge-flash-word {
+  font-size: var(--fs-sm);
+  color: #fff;
+}
+.judge-flash.fav,
+.judge-flash.unfav {
+  color: var(--fav);
+}
+.judge-flash.pick {
+  color: var(--pick);
+}
+.judge-flash.reject {
+  color: var(--danger);
+}
+.judge-flash.unflag {
+  color: var(--n-4);
+}
+@keyframes judge-flash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+/* 動きを減らす設定なら、膨らませずに出して消すだけにする */
+@media (prefers-reduced-motion: reduce) {
+  .judge-flash {
+    animation: judge-flash-quiet 700ms var(--easing) forwards;
+  }
+  @keyframes judge-flash-quiet {
+    0%,
+    70% {
+      opacity: 1;
+      transform: translate(-50%, -50%);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%);
+    }
+  }
 }
 
 /* 字幕行のチップ。押すと途中確認の関所が開く */

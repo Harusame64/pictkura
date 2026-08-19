@@ -61,6 +61,7 @@ import {
   type DriveInfo,
   type ExifInfo,
   type AppConfig,
+  type DeleteProgress,
   type ExportProgress,
   type ExternalApp,
   type ImportStats,
@@ -241,6 +242,19 @@ type Row =
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
 
+/** ビューアで判定したときに一瞬出す合図の種類 */
+type JudgeFlashKind = "fav" | "unfav" | "pick" | "unflag" | "reject";
+
+/** その合図の見た目と文言（**判定ごとに1行**。増えたらここへ足す） */
+const JUDGE_FLASH: Record<JudgeFlashKind, { mark: string; word: () => string }> =
+  {
+    fav: { mark: "★", word: () => t.judgeFav },
+    unfav: { mark: "☆", word: () => t.judgeUnfav },
+    pick: { mark: "⚑", word: () => t.judgePick },
+    unflag: { mark: "⌫", word: () => t.judgeUnflag },
+    reject: { mark: "✕", word: () => t.viewerRejected },
+  };
+
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
   const sec = (r.elapsed_ms / 1000).toFixed(r.elapsed_ms < 1000 ? 2 : 1);
@@ -359,13 +373,29 @@ export default function App() {
   const [rejected, setRejected] = useState<Map<number, MediaItem>>(new Map());
   /**
    * 関所（ボツをゴミ箱へ入れる前の確認）。`closeAfter` は
-   * **閉じようとして開いた**か（true）、チップからの途中確認か（false）。
+   * **ビューアを閉じようとして開いた**か（true）、チップからの途中確認か（false）。
+   * `quitAfter` は**窓の×から開いた**——片付いたら窓ごと閉じる（利用者の元の意思は
+   * 「アプリを終わる」なので、ビューアだけ閉じて残ると×が効かないように見える）。
    */
-  const [rejectGate, setRejectGate] = useState<{ closeAfter: boolean } | null>(
+  const [rejectGate, setRejectGate] = useState<{
+    closeAfter: boolean;
+    quitAfter?: boolean;
+  } | null>(null);
+  /** 窓の×の受け口（登録は一度きり）から、いま関所が出ているかを見るための控え */
+  const rejectGateRef = useRef(rejectGate);
+  useEffect(() => {
+    rejectGateRef.current = rejectGate;
+  }, [rejectGate]);
+  /** ゴミ箱へ移動している最中か（**実機の500件で約4.9秒**・2026-08-19の実測） */
+  const [trashing, setTrashing] = useState(false);
+  /**
+   * その4.9秒のあいだの進み具合（`delete-progress`）。**待たせる時間が3秒を
+   * 超えたら件数を出す**——「動いている」ことを、止まっていない証拠として見せる
+   * （`dev/plan.0.2.rev.md` 3-3）。始まる前は `null`
+   */
+  const [trashProgress, setTrashProgress] = useState<DeleteProgress | null>(
     null,
   );
-  /** ゴミ箱へ移動している最中か（500件で約2.3秒かかる） */
-  const [trashing, setTrashing] = useState(false);
   /** 窓を閉じる要求など、**登録が1回きりの経路**から今の印を見るための控え */
   const rejectedRef = useRef(rejected);
   useEffect(() => {
@@ -708,6 +738,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     let unlistenCameras: (() => void) | undefined;
     let unlistenExport: (() => void) | undefined;
+    let unlistenDelete: (() => void) | undefined;
     (async () => {
       const f = await listen<IndexProgress>("index-progress", (ev) => {
         // 中断した場合は「終わった」と誤解させないよう表示を残す
@@ -724,6 +755,16 @@ export default function App() {
       );
       if (cancelled) exportProgress();
       else unlistenExport = exportProgress;
+      // ゴミ箱への移動の進捗。**画面には出さず控えるだけ**——関所のボタンと
+      // ステータス行が、それぞれ自分の言い方で読む
+      const deleteProgress = await listen<DeleteProgress>(
+        "delete-progress",
+        (ev) => {
+          if (!cancelled) setTrashProgress(ev.payload);
+        },
+      );
+      if (cancelled) deleteProgress();
+      else unlistenDelete = deleteProgress;
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else unlistenCameras = camerasDone;
@@ -741,6 +782,7 @@ export default function App() {
       unlisten?.();
       unlistenCameras?.();
       unlistenExport?.();
+      unlistenDelete?.();
     };
   }, [refreshCameras]);
   // 索引の構築が終わったらカメラ一覧も揃うので取り直す
@@ -1465,15 +1507,60 @@ export default function App() {
     });
   }, []);
 
+  /**
+   * 判定した合図を絵の上に一瞬出す（2026-08-19の利用者指摘）。
+   *
+   * **自動送りがONだと、押した相手はもう画面に居ない**。道具の帯の★や⚑は
+   * 1.8秒で消えるので、押したそばから「いま何をしたのか」の手掛かりが
+   * 無くなっていた。ここは*何をしたか*を短く出す係で、*いまの絵がどうなって
+   * いるか*は絵の上の常設バッジが受け持つ。
+   *
+   * `seq` を毎回変えるのは、同じ判定を連打したときに**アニメーションを
+   * 掛け直す**ため（Reactはkeyが同じだと要素を作り直さない）。
+   */
+  const [judgeFlash, setJudgeFlash] = useState<{
+    kind: JudgeFlashKind;
+    seq: number;
+  } | null>(null);
+  const flashSeq = useRef(0);
+  const flashTimer = useRef<number | undefined>(undefined);
+  const flashJudge = useCallback((kind: JudgeFlashKind) => {
+    flashSeq.current += 1;
+    setJudgeFlash({ kind, seq: flashSeq.current });
+    window.clearTimeout(flashTimer.current);
+    // CSSの表示時間より少しだけ長く置く（消え際で要素を抜くとちらつく）
+    flashTimer.current = window.setTimeout(() => setJudgeFlash(null), 900);
+  }, []);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
+
+  /** ビューアの `F`・☆ボタン。トグルなので、**どちらに転んだか**を合図に出す */
+  const favoriteViewer = useCallback(
+    (item: MediaItem) => {
+      flashJudge(item.favorite ? "unfav" : "fav");
+      toggleFavorite(item);
+    },
+    [flashJudge, toggleFavorite],
+  );
+
+  /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
+  const pickViewer = useCallback(
+    (item: MediaItem, pick: boolean) => {
+      flashJudge(pick ? "pick" : "unflag");
+      void setMark(item, "picked", pick);
+    },
+    [flashJudge, setMark],
+  );
+
   const judgeViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
       void setMark(item, "picked", pick);
       // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
       // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
       markReject(item, false);
+      flashJudge(pick ? "pick" : "unflag");
       if (autoAdvance) moveViewer(1);
     },
-    [setMark, markReject, autoAdvance, moveViewer],
+    [setMark, markReject, flashJudge, autoAdvance, moveViewer],
   );
 
   /**
@@ -1483,9 +1570,10 @@ export default function App() {
   const rejectViewer = useCallback(
     (item: MediaItem) => {
       markReject(item, true);
+      flashJudge("reject");
       if (autoAdvance) moveViewer(1);
     },
-    [markReject, autoAdvance, moveViewer],
+    [markReject, flashJudge, autoAdvance, moveViewer],
   );
 
   /**
@@ -2065,8 +2153,13 @@ export default function App() {
   useEffect(() => {
     const un = getCurrentWindow().onCloseRequested((e) => {
       if (rejectedRef.current.size === 0) return;
+      // **2度目の×は通す**。1度目で関所を出しているので、それでも×を押すのは
+      // 「終わる」という意思表示。印はファイルを1バイトも触っていないので、
+      // ここで落としても失うものは無い——**止め続ける方が危ない**
+      // （2026-08-19の利用者報告: ×で落ちず、タスクマネージャで落とすことになった）
+      if (rejectGateRef.current) return;
       e.preventDefault();
-      setRejectGate({ closeAfter: true });
+      setRejectGate({ closeAfter: true, quitAfter: true });
     });
     return () => {
       void un.then((off) => off()).catch(() => {});
@@ -2114,7 +2207,7 @@ export default function App() {
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
       else if (e.key === "f" || e.key === "F") {
-        if (viewerItem) toggleFavorite(viewerItem);
+        if (viewerItem) favoriteViewer(viewerItem);
       } else if (judging(e, "p")) {
         if (viewerItem) judgeViewer(viewerItem, true);
       } else if (judging(e, "x")) {
@@ -2150,7 +2243,7 @@ export default function App() {
     viewer,
     viewerItem,
     moveViewer,
-    toggleFavorite,
+    favoriteViewer,
     judgeViewer,
     rejectViewer,
     requestCloseViewer,
@@ -2606,6 +2699,26 @@ export default function App() {
   }, [visibleSelection, refreshSummary, clearSelection, forgetDeleted]);
 
   /**
+   * 関所が片付いたあとの行き先。**開いた理由のところまで戻す**——
+   * 窓の×から来たなら窓ごと閉じ、ビューアを閉じようとして来たならビューアだけ、
+   * チップからの途中確認なら何も閉じない。
+   *
+   * 窓は `close()` ではなく `destroy()` で閉じる。`close()` は「閉じる要求」から
+   * やり直すので、上の受け口をもう一度通る——**関所を通ったあとに、また関所の
+   * 判断をさせない**。
+   */
+  const finishGate = useCallback(
+    (gate: { closeAfter: boolean; quitAfter?: boolean }) => {
+      if (gate.quitAfter) {
+        void getCurrentWindow().destroy();
+        return;
+      }
+      if (gate.closeAfter) setViewer(null);
+    },
+    [],
+  );
+
+  /**
    * 関所で確定して、ボツの候補をまとめてゴミ箱へ（0.2 ③）。
    *
    * **待ちはここ1回だけ**。判定のたびに消す形（1件20ms〜215ms）を避けた
@@ -2617,6 +2730,7 @@ export default function App() {
     const ids = [...rejected.keys()];
     if (ids.length === 0) return;
     setTrashing(true);
+    setTrashProgress(null);
     try {
       // **実行直前に、いま出ているものだけへ絞る**（一括操作の作法・PR #18）。
       // スコープや絞り込みから外れたものはここで落ちる。`media.id` の
@@ -2634,7 +2748,7 @@ export default function App() {
       }
       setRejected(new Map());
       setRejectGate(null);
-      if (gate.closeAfter) setViewer(null);
+      finishGate(gate);
     } catch (e) {
       // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
       // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
@@ -2645,19 +2759,27 @@ export default function App() {
       setRejectGate(null);
     } finally {
       setTrashing(false);
+      setTrashProgress(null);
     }
-  }, [rejectGate, trashing, rejected, forgetDeleted, refreshSummary]);
+  }, [
+    rejectGate,
+    trashing,
+    rejected,
+    forgetDeleted,
+    refreshSummary,
+    finishGate,
+  ]);
 
   /**
    * 印を全部「戻す」と、確かめるものが無くなる。関所は畳む——
-   * 閉じようとして開いていたなら、そのまま閉じる（利用者の元の意思）
+   * 開いた理由のところまで戻す（窓の×から来ていたなら、窓ごと閉じる）
    */
   useEffect(() => {
     if (!rejectGate || rejected.size > 0 || trashing) return;
-    const { closeAfter } = rejectGate;
+    const gate = rejectGate;
     setRejectGate(null);
-    if (closeAfter) setViewer(null);
-  }, [rejectGate, rejected, trashing]);
+    finishGate(gate);
+  }, [rejectGate, rejected, trashing, finishGate]);
 
   /**
    * 選んだものを、フォルダへコピー／移動する。
@@ -3618,11 +3740,44 @@ export default function App() {
           {viewerItem && !viewerItem.is_video && loadedId !== viewerItem.id && (
             <div className="viewer-progress" aria-hidden />
           )}
-          {/* いま見ている1枚がボツの候補なら、写真の上に小さく出す（0.2 ③）。
-              ✕は下の帯にも出ているが、**見ている絵そのもの**に付いていないと
-              「どっちだったか」を帯で数え直すことになる */}
-          {viewerItem && rejected.has(viewerItem.id) && (
-            <div className="viewer-reject-badge">✕ {t.viewerRejected}</div>
+          {/* いま見ている1枚に付いている印を、写真の上に小さく出す（0.2 ③）。
+              下の帯にも出ているが、**見ている絵そのもの**に付いていないと
+              「どっちだったか」を帯で数え直すことになる。
+              ★と⚑を並べたのは2026-08-19——道具の帯は1.8秒で消えるので、
+              それまで「いまの1枚がどうなっているか」を出す場所が無かった */}
+          {viewerItem &&
+            (viewerItem.favorite ||
+              viewerItem.picked ||
+              rejected.has(viewerItem.id)) && (
+              <div className="viewer-badges">
+                {viewerItem.favorite && (
+                  <span className="viewer-badge fav">★ {t.judgeFav}</span>
+                )}
+                {viewerItem.picked && (
+                  <span className="viewer-badge pick">⚑ {t.judgePick}</span>
+                )}
+                {rejected.has(viewerItem.id) && (
+                  <span className="viewer-badge reject">
+                    ✕ {t.viewerRejected}
+                  </span>
+                )}
+              </div>
+            )}
+          {/* 判定した合図（2026-08-19）。**絵の真ん中で一度だけ膨らんで消える**。
+              印そのものは上のバッジと下の帯に残るので、ここは残らなくてよい */}
+          {judgeFlash && (
+            <div
+              key={judgeFlash.seq}
+              className={"judge-flash " + judgeFlash.kind}
+              aria-live="polite"
+            >
+              <span className="judge-flash-mark">
+                {JUDGE_FLASH[judgeFlash.kind].mark}
+              </span>
+              <span className="judge-flash-word">
+                {JUDGE_FLASH[judgeFlash.kind].word()}
+              </span>
+            </div>
           )}
           {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
               サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
@@ -3759,7 +3914,7 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite}
-                onClick={() => toggleFavorite(viewerItem)}
+                onClick={() => favoriteViewer(viewerItem)}
               >
                 {viewerItem.favorite ? "★" : "☆"}
               </button>
@@ -3768,7 +3923,7 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick}
-                onClick={() => void setMark(viewerItem, "picked", !viewerItem.picked)}
+                onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
                 ⚑
               </button>
@@ -3938,7 +4093,7 @@ export default function App() {
                   onClick={() => {
                     setRejected(new Map());
                     setRejectGate(null);
-                    setViewer(null);
+                    finishGate(rejectGate);
                   }}
                   disabled={trashing}
                 >
@@ -3951,7 +4106,10 @@ export default function App() {
                 disabled={trashing}
               >
                 {trashing
-                  ? t.rejectGateTrashing(rejected.size)
+                  ? t.rejectGateTrashing(
+                      trashProgress?.done ?? 0,
+                      trashProgress?.total ?? rejected.size,
+                    )
                   : t.rejectGateConfirm(rejected.size)}
               </button>
             </div>
