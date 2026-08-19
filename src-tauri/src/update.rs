@@ -136,8 +136,9 @@ pub fn set_check_update_on_start(
 ) -> Result<(), String> {
     update_config(&state, |c| {
         c.update.check_on_start = enabled;
-        // 入れ直したときは**その場で1回聞ける**ようにする。切っていた間の
+        // 入れ直したときは**次の起動でまず1回聞く**。切っていた間の
         // 「最後に確認した時刻」を根拠に24時間黙られると、入れた意味が見えない
+        // （その場で聞きたいときは「更新を確認」のボタンが `force` で通る）
         if enabled {
             c.update.last_check_ms = 0;
         }

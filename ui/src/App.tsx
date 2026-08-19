@@ -778,7 +778,10 @@ export default function App() {
         (ev) => {
           if (cancelled) return;
           setTrashProgress(ev.payload);
-          if (!rejectGateRef.current) {
+          // **最後の束のぶんは書かない**（ゲート2のP3）。完了の「n枚を
+          // ゴミ箱へ移動しました」より後に届くと、それを上書きして
+          // 「移動中… (n / n)」で止まって見える
+          if (!rejectGateRef.current && ev.payload.done < ev.payload.total) {
             setStatus(t.rejectGateTrashing(ev.payload.done, ev.payload.total));
           }
         },
@@ -1585,6 +1588,20 @@ export default function App() {
       toggleFavorite(item);
     },
     [flashJudge, toggleFavorite],
+  );
+
+  /**
+   * ビューアの✕ボタン。キーの `X` と違って**トグル**で、**送らない**
+   * ——マウスで押す人は、押した1枚がその場でどうなったかを見たい
+   */
+  const rejectTool = useCallback(
+    (item: MediaItem) => {
+      const on = !rejectedRef.current.has(item.id);
+      markReject(item, on);
+      if (on && item.picked) void setMark(item, "picked", false);
+      flashJudge(on ? "reject" : "unflag");
+    },
+    [markReject, setMark, flashJudge],
   );
 
   /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
@@ -2624,7 +2641,17 @@ export default function App() {
           next.delete(item.day_key);
           return next;
         });
-        setViewer((v) => (v && v.id === item.id ? null : v));
+        // **ビューアは閉じない**（ゲート2のP2）。ここで閉じると、閉じたときの
+        // 後始末が走って**✕の印が全部黙って消える**——30枚に印を付けた途中で
+        // 1枚だけ🗑を使うと、残り29枚を付け直すことになる。居なくなった1枚からは
+        // 「隣へ寄せる」効果が勝手に動くので、閉じる必要がそもそも無い。
+        // **消した1枚は候補から外す**（関所に幽霊を並べない）
+        setRejected((prev) => {
+          if (!prev.has(item.id)) return prev;
+          const next = new Map(prev);
+          next.delete(item.id);
+          return next;
+        });
         // **選択からも外す**。残すと、操作バーの枚数と次の確認文言が実際より
         // 多く出て、居ないIDに一括操作を掛けることになる
         setSelected((prev) => {
@@ -2784,7 +2811,7 @@ export default function App() {
    * 関所で確定して、ボツの候補をまとめてゴミ箱へ（0.2 ③）。
    *
    * **待ちはここ1回だけ**。判定のたびに消す形（1件20ms〜215ms）を避けた
-   * 眼目がこれで、200件917ms・500件約2.3秒を1回にまとめて払う。
+   * 眼目がこれで、200件917ms・**実機の500件で約4.9秒**を1回にまとめて払う。
    */
   const confirmTrash = useCallback(async () => {
     const gate = rejectGate;
@@ -2794,17 +2821,21 @@ export default function App() {
     setTrashing(true);
     setTrashProgress(null);
     try {
-      // **実行直前に、いま出ているものだけへ絞る**（一括操作の作法・PR #18）。
-      // スコープや絞り込みから外れたものはここで落ちる。`media.id` の
-      // 使い回し（既知のP3）への安い緩和でもある
-      const kept = await visibleMediaIds(
-        queryRef.current,
-        filterRef.current,
-        ids,
-      );
+      // **実行直前に、まだ在るものだけへ絞る**（一括操作の作法・PR #18）。
+      // `media.id` の使い回し（既知のP3）への安い緩和でもある。
+      //
+      // **ただし ★ / ⚑ の絞り込みは掛けない**（"all" を渡す。ゲート2の指摘）。
+      // 関所に並んだ顔がそのまま約束なのに、絞り込みを掛けると
+      // **自分の操作で棚から外れた1枚が黙って残る**——⚑の棚で選別しながら
+      // `X` を押すと、その場で⚑が外れて⚑の絞り込みから落ちる。検索語は残す
+      // （別の言葉で探し直したなら、それは見ていた列ではない）
+      const kept = await visibleMediaIds(queryRef.current, "all", ids);
       if (kept.length > 0) {
         const n = await deleteMedia(kept);
-        setStatus(t.deleted(n));
+        // **数が合わないときは黙らない**（ゲート2のP3）。もう無い・検索語から
+        // 外れた等でここまで来られなかったぶんを、そのまま件数で言う
+        const left = ids.length - n;
+        setStatus(left > 0 ? t.deletedSomeLeft(n, left) : t.deleted(n));
         forgetDeleted(new Set(kept));
         await refreshSummary();
       }
@@ -4006,6 +4037,20 @@ export default function App() {
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
                 ⚑
+              </button>
+            )}
+            {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
+                **この場では何も消えない**——閉じるときに関所へ集まる */}
+            {viewerItem && (
+              <button
+                className={
+                  "viewer-tool reject-tool" +
+                  (rejected.has(viewerItem.id) ? " rejecting" : "")
+                }
+                title={t.viewerReject}
+                onClick={() => rejectTool(viewerItem)}
+              >
+                ✕
               </button>
             )}
             <button

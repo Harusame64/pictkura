@@ -74,6 +74,8 @@ export default function Settings({
    */
   const [updateSay, setUpdateSay] = useState<string | null>(null);
   const [updateNewer, setUpdateNewer] = useState<UpdateCheck | null>(null);
+  /** 問い合わせ中か。**文言の一致では見ない**（言語を足すと壊れる・ゲート2） */
+  const [updateChecking, setUpdateChecking] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -454,8 +456,9 @@ export default function Settings({
               {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く */}
               <button
                 className="about-check"
-                disabled={updateSay === t.updateChecking}
+                disabled={updateChecking}
                 onClick={async () => {
+                  setUpdateChecking(true);
                   setUpdateSay(t.updateChecking);
                   setUpdateNewer(null);
                   try {
@@ -470,6 +473,8 @@ export default function Settings({
                     // 繋がらない・弾かれたの区別は利用者の用事ではない。
                     // 「確認できませんでした」の一行で足りる
                     setUpdateSay(t.updateFailed);
+                  } finally {
+                    setUpdateChecking(false);
                   }
                 }}
               >

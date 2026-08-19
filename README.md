@@ -212,7 +212,8 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | Key | Action |
 |---|---|
 | `←` `→` | previous / next |
-| `P` / `U` | pick (flag it ⚑) / unpick. By default this **moves on to the next photo**; you can turn that off in settings |
+| `P` / `U` | pick (flag it ⚑) / clear this photo's judgement (removes both ⚑ and ✕). By default this **moves on to the next photo**; you can turn that off in settings |
+| `X` | reject it (✕). **Nothing is deleted when you press it** — closing the viewer shows you the faces first, then moves them all to the recycle bin at once |
 | `Space` | slideshow (play / pause for video) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `F11` | full screen |

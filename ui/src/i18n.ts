@@ -121,7 +121,7 @@ const ja = {
   updateFailed: "確認できませんでした",
   updateOnStart: "起動時に新しい版を確認する",
   updateOnStartNote:
-    "GitHubに版の名前を聞きに行きます（1日1回）。写真もファイル名も送りません。切ると一切通信しません",
+    "GitHubに版の名前を聞きに行きます（1日1回）。写真もファイル名も送りません。切ると、上の「更新を確認」を押したとき以外は一切通信しません",
   viewerSlideshow: "スライドショー (Space)",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
@@ -246,6 +246,9 @@ const ja = {
       ? "この写真をゴミ箱へ移動しますか？"
       : `${n}枚の写真をゴミ箱へ移動しますか？`,
   deleted: (n: number) => `${n}枚をゴミ箱へ移動しました`,
+  // 関所に並べた数より少なかったとき。**黙って減らさない**（ゲート2の指摘）
+  deletedSomeLeft: (n: number, left: number) =>
+    `${n}枚をゴミ箱へ移動しました（${left}枚は見つからず残しました）`,
   // 複数選択と一括操作
   selectItem: "選択",
   selectedCount: (n: number) => `${n}枚を選択中`,
@@ -433,7 +436,7 @@ const en: Dict = {
   updateFailed: "Could not check",
   updateOnStart: "Check for updates at startup",
   updateOnStartNote:
-    "Asks GitHub for the latest version name (once a day). No photos or file names are sent. Turn it off and nothing leaves this machine.",
+    "Asks GitHub for the latest version name (once a day). No photos or file names are sent. Turn it off and nothing leaves this machine except when you press “Check for updates”.",
   viewerSlideshow: "Slideshow (Space)",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",
@@ -556,6 +559,8 @@ const en: Dict = {
       ? "Move this photo to the trash?"
       : `Move ${n} photos to the trash?`,
   deleted: (n: number) => `Moved ${n} to the trash`,
+  deletedSomeLeft: (n: number, left: number) =>
+    `Moved ${n} to the trash (${left} could not be found and were left alone)`,
   // 複数選択と一括操作
   selectItem: "Select",
   selectedCount: (n: number) => (n === 1 ? "1 selected" : `${n} selected`),

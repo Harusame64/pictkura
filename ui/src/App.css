@@ -1325,6 +1325,18 @@ body {
   background: var(--pick);
   color: var(--n-10);
 }
+/* ボツの✕。**帯の右端にある「閉じる」の✕と字が同じ**なので、
+   付いていないときから赤くしておく（押し間違いは取り返しがつく側だが、
+   選別中に閉じるつもりで✕を付けるのは邪魔） */
+.viewer-tool.reject-tool {
+  color: var(--danger);
+}
+/* ボツの候補にしている1枚。**隣の🗑と同じ色にはしない**——
+   ✕はまだ何も消しておらず、🗑はその場で消すから */
+.viewer-tool.rejecting {
+  background: var(--danger);
+  color: #fff;
+}
 /* 倍率表示（クリックで等倍⇔フィット） */
 .viewer-zoom {
   border: none;
