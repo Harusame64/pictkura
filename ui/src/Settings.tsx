@@ -3,8 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   aboutInfo,
+  checkUpdate,
   forgetEditor,
   isWindows,
+  openReleasesPage,
+  setCheckUpdateOnStart,
   listFolderPatterns,
   openBundledDoc,
   previewFolderPattern,
@@ -14,6 +17,7 @@ import {
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
+  type UpdateCheck,
   type ExternalApp,
   type FolderPattern,
 } from "./api";
@@ -63,6 +67,15 @@ export default function Settings({
    * 「効かなかった」ように見えていた。
    */
   const [langChoice, setLangChoice] = useState<string | null>(readLocaleChoice);
+  /**
+   * 「更新を確認」を押したときの返事（0.2）。`null` はまだ押していない、
+   * `"checking"` は問い合わせ中、文字列はそのまま出す一行。
+   * **押したときは必ず何か返す**——押しても何も変わらないのが一番分かりにくい。
+   */
+  const [updateSay, setUpdateSay] = useState<string | null>(null);
+  const [updateNewer, setUpdateNewer] = useState<UpdateCheck | null>(null);
+  /** 問い合わせ中か。**文言の一致では見ない**（言語を足すと壊れる・ゲート2） */
+  const [updateChecking, setUpdateChecking] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -440,7 +453,62 @@ export default function Settings({
             <div className="about-row">
               <span className="about-name">pictkura</span>
               <code className="about-version">v{about?.version ?? "?"}</code>
+              {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く */}
+              <button
+                className="about-check"
+                disabled={updateChecking}
+                onClick={async () => {
+                  setUpdateChecking(true);
+                  setUpdateSay(t.updateChecking);
+                  setUpdateNewer(null);
+                  try {
+                    const r = await checkUpdate(true);
+                    if (r.newer) {
+                      setUpdateNewer(r);
+                      setUpdateSay(t.updateFound(r.latest ?? ""));
+                    } else {
+                      setUpdateSay(t.updateUpToDate);
+                    }
+                  } catch {
+                    // 繋がらない・弾かれたの区別は利用者の用事ではない。
+                    // 「確認できませんでした」の一行で足りる
+                    setUpdateSay(t.updateFailed);
+                  } finally {
+                    setUpdateChecking(false);
+                  }
+                }}
+              >
+                {t.updateCheckNow}
+              </button>
             </div>
+            {updateSay && (
+              <p className="settings-note update-say">
+                {updateSay}
+                {updateNewer && (
+                  <button onClick={() => openReleasesPage().catch(() => {})}>
+                    {t.updateOpenPage}
+                  </button>
+                )}
+              </p>
+            )}
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                // 配ったあとに足した節なので、古い設定ファイルには無い。
+                // Rust側の既定（ON）に合わせる
+                checked={config?.update?.check_on_start ?? true}
+                onChange={async (e) => {
+                  try {
+                    await setCheckUpdateOnStart(e.target.checked);
+                  } catch (err) {
+                    onError(String(err));
+                  }
+                  onConfigChanged();
+                }}
+              />
+              {t.updateOnStart}
+            </label>
+            <p className="settings-note">{t.updateOnStartNote}</p>
             <p className="settings-note">{t.settingsAboutLicense}</p>
             <div className="about-links">
               {/*

@@ -96,6 +96,15 @@ export interface ImportProgress {
   path: string;
 }
 
+/**
+ * ゴミ箱へ移している最中の進み具合（delete-progressイベント）。
+ * 実機で500枚が約4.9秒かかるので、押したあと数字が動くようにしてある。
+ */
+export interface DeleteProgress {
+  done: number;
+  total: number;
+}
+
 /** 起動時同期の⚡爆速メーター（startup-scan-reportイベントのペイロード） */
 export interface StartupScanReport {
   /** 同期方式: USNジャーナル差分 / mtime枝刈り / フルスキャン */
@@ -121,6 +130,23 @@ export interface AppConfig {
   editors: { apps: ExternalApp[] };
   /** 全画面ビューアの操作（0.2 ②）。配ったあとに足した節なので**欠けうる** */
   viewer?: { auto_advance: boolean };
+  /** 新しい版の確認（0.2）。これも配ったあとに足した節なので**欠けうる** */
+  update?: { check_on_start: boolean; last_check_ms: number };
+}
+
+/**
+ * 新しい版が出ていないかの確認の結果（0.2）。
+ *
+ * `checked: false` は「まだ間隔（24時間）が空いていないので聞きに行かなかった」。
+ * `newer` が true のときだけ知らせを出す——版名が読めなかったときも false になる。
+ */
+export interface UpdateCheck {
+  current: string;
+  latest: string | null;
+  newer: boolean;
+  checked: boolean;
+  /** 押したときに開くページ（Rust側で固定。表示にだけ使う） */
+  url: string;
 }
 
 /** 取り込み先フォルダ構成の選択肢（今日の日付での実例つき） */
@@ -474,6 +500,20 @@ export const setFolderPattern = (pattern: string) =>
 /** 選別キー（P / U）のあと次の絵へ自動で送るかを切り替える（0.2 ②） */
 export const setAutoAdvance = (enabled: boolean) =>
   invoke<void>("set_auto_advance", { enabled });
+
+/**
+ * 新しい版が出ていないかを確認する（0.2）。**アプリで唯一の外向き通信**。
+ * `force` は「更新を確認」ボタン用——間隔も設定の入切も無視して必ず聞きに行く。
+ */
+export const checkUpdate = (force: boolean) =>
+  invoke<UpdateCheck>("check_update", { force });
+
+/** ダウンロードページを既定のブラウザで開く（開く先はRust側で固定） */
+export const openReleasesPage = () => invoke<void>("open_releases_page");
+
+/** 起動時に確認しにいくかを切り替える（0.2） */
+export const setCheckUpdateOnStart = (enabled: boolean) =>
+  invoke<void>("set_check_update_on_start", { enabled });
 
 export const setRegisterAutoplay = (enabled: boolean) =>
   invoke<void>("set_register_autoplay", { enabled });

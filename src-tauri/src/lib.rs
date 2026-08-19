@@ -23,6 +23,8 @@ use tauri::{Emitter, Manager};
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
+// 新しい版が出ていないかの確認（0.2）。外向きの通信はこのモジュールに閉じている
+mod update;
 
 /// ポイズニングされていてもロックを取得する（パニックの連鎖でアプリ全体が死ぬのを防ぐ）。
 fn lock_ok<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1142,33 +1144,65 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
 /// ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
 /// 失敗したときだけ1件ずつへ落とし、**消せたぶんだけ**返す。
 fn trash_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Option<String>) {
+    trash_paths_with_progress(paths, |_, _| {})
+}
+
+/// ひと束の大きさは**小さく始めて倍にしていく**（上限まで）。
+///
+/// 刻む理由は進捗を出すためだけで、刻めば必ず損をする——**1回のシェル呼び出しに
+/// 200〜300msの固定費**があり、500件（1MB）の実測は
+/// 1束 3675ms / 5束 4848ms / 10束 5406ms だった（2026-08-19）。
+/// 一方で「押した直後に数字が動く」ことには意味があるので、最初の束だけ小さくして
+/// 早く1回動かし、あとは束を大きくして速さを取り戻す。
+/// 500件なら 25→50→100→200→125 の**5束**で、1束のときより約1秒の損で収まる。
+/// 25件以下（選別で普通に出る量）は1束のまま＝損はゼロ。
+const TRASH_CHUNK_FIRST: usize = 25;
+const TRASH_CHUNK_MAX: usize = 200;
+
+/// [`trash_paths`] に**束ごとの進捗**を足したもの。`on_progress(done, total)` は
+/// 1束を送り終えるたびに呼ばれる。`done` は**手を付け終えた件数**で、失敗したものも
+/// 含む（進捗は必ず `total` まで進む。成否は戻り値の側で受ける）。
+/// `total` は実体のあるものだけ——もう無いファイルは待ち時間を生まないので数えない。
+fn trash_paths_with_progress(
+    paths: Vec<PathBuf>,
+    mut on_progress: impl FnMut(usize, usize),
+) -> (Vec<PathBuf>, Option<String>) {
     let (mut gone, present): (Vec<PathBuf>, Vec<PathBuf>) =
         paths.into_iter().partition(|p| !p.exists());
-    match trash::delete_all(&present) {
-        Ok(()) => {
-            gone.extend(present);
-            (gone, None)
-        }
-        Err(_) => {
-            let mut first_err: Option<String> = None;
-            for path in present {
-                // ファイルが既に無い場合も片付いた扱い（実体に合わせる）。
-                // まとめての操作が途中まで通っていたぶんも、ここで拾える
-                match trash::delete(&path) {
-                    Ok(()) => gone.push(path),
-                    Err(_) if !path.exists() => gone.push(path),
-                    Err(e) => {
-                        // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
-                        // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
-                        if first_err.is_none() {
-                            first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+    let total = present.len();
+    let mut done = 0usize;
+    let mut first_err: Option<String> = None;
+    let mut size = TRASH_CHUNK_FIRST;
+    while done < total {
+        let end = (done + size).min(total);
+        let chunk = &present[done..end];
+        match trash::delete_all(chunk) {
+            Ok(()) => gone.extend(chunk.iter().cloned()),
+            Err(_) => {
+                // **落ちるのは束の中だけ**。1件ずつへ降りるのはこの束に限り、
+                // 残りの束はまとめて渡す速さのまま進む
+                for path in chunk {
+                    // ファイルが既に無い場合も片付いた扱い（実体に合わせる）。
+                    // まとめての操作が途中まで通っていたぶんも、ここで拾える
+                    match trash::delete(path) {
+                        Ok(()) => gone.push(path.clone()),
+                        Err(_) if !path.exists() => gone.push(path.clone()),
+                        Err(e) => {
+                            // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
+                            // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
+                            if first_err.is_none() {
+                                first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+                            }
                         }
                     }
                 }
             }
-            (gone, first_err)
         }
+        done = end;
+        size = size.saturating_mul(2).min(TRASH_CHUNK_MAX);
+        on_progress(done, total);
     }
+    (gone, first_err)
 }
 
 /// ファイルを**ゴミ箱へ**移動し、DBからも取り除く。
@@ -1176,26 +1210,43 @@ fn trash_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Option<String>) {
 /// 完全削除はしない（写真は取り返しがつかないため、OSのゴミ箱経由にして
 /// 誤操作から戻せるようにする）。ゴミ箱に入れられたものだけをDBから消す。
 /// 戻り値は実際に削除できた件数。
+///
+/// **別スレッドで走らせる**（`export_media` と同じ形）。シェルのゴミ箱APIは
+/// 1件あたり中央20ms・最悪215msの固定費で、**実機の500件（2MB×500）で約4.9秒**
+/// かかった（2026-08-19の実測。`dev/plan.0.2.research.md` §2-1 の外挿2.3秒より遅い）。
+/// 同期コマンドのままだと、その間メインスレッドが塞がって
+/// **呼び出し側の「移動中…」表示ごと固まる**。
+///
+/// 4.9秒は「押して待つ」には長いので、束ごとに `delete-progress` を出して
+/// 件数が動くようにしてある（`dev/plan.0.2.rev.md` 3-3 の「3秒超なら進捗表示へ」）。
+/// 束を刻むぶんは遅くなるので、[`TRASH_CHUNK_FIRST`] のとおり小さく始めて倍にする。
 #[tauri::command]
-fn delete_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
-    // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
-    let paths: Vec<PathBuf> = ids
-        .iter()
-        .filter_map(|id| path_of(&state, *id).ok())
-        .collect();
-    let (deleted, first_err) = trash_paths(paths);
-    if !deleted.is_empty() {
-        lock_ok(&state.db)
-            .remove_paths(&deleted)
-            .map_err(|e| e.to_string())?;
-    }
-    match first_err {
-        Some(e) if deleted.is_empty() => Err(e),
-        // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
-        // 「何枚消えたのか」が分からない
-        Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
-        None => Ok(deleted.len()),
-    }
+async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
+        let paths: Vec<PathBuf> = ids
+            .iter()
+            .filter_map(|id| path_of(&state, *id).ok())
+            .collect();
+        let (deleted, first_err) = trash_paths_with_progress(paths, |done, total| {
+            let _ = app.emit("delete-progress", DeleteProgress { done, total });
+        });
+        if !deleted.is_empty() {
+            lock_ok(&state.db)
+                .remove_paths(&deleted)
+                .map_err(|e| e.to_string())?;
+        }
+        match first_err {
+            Some(e) if deleted.is_empty() => Err(e),
+            // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
+            // 「何枚消えたのか」が分からない
+            Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
+            None => Ok(deleted.len()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 書き出し（コピー／移動）の結果。
@@ -1807,6 +1858,14 @@ struct ExportProgress {
     done: usize,
     total: usize,
     name: String,
+}
+
+/// ゴミ箱へ移している最中の進み具合。**名前は載せない**——書き出しと違って、
+/// 消えていくものの名前が流れても手掛かりにならず、不安を煽るだけになる。
+#[derive(Clone, serde::Serialize)]
+struct DeleteProgress {
+    done: usize,
+    total: usize,
 }
 
 fn emit_export_progress(app: &tauri::AppHandle, done: usize, total: usize, path: &Path) {
@@ -2789,7 +2848,10 @@ pub fn run() {
             set_pickeds,
             set_auto_advance,
             set_register_autoplay,
-            take_pending_import
+            take_pending_import,
+            update::check_update,
+            update::open_releases_page,
+            update::set_check_update_on_start
         ])
         .run(tauri::generate_context!())
         .expect("Tauriアプリの起動に失敗");

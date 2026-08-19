@@ -913,6 +913,273 @@ body {
   background: var(--fav);
   color: var(--n-10);
 }
+/* ===== ボツの候補（0.2 ③）===== */
+
+/* 足あと: ✕を付けた1枚は帯の中で沈める。**枠は動かさない**——
+   帯の並びが動くと、送るたびに目で追う先が落ち着かない。
+   **沈めるのは絵だけで、✕は沈めない**——セルごと薄くすると足あとまで
+   薄まり、実機では印が付いているのかどうか読めなかった
+   （2026-08-19に利用者から指摘。16pxの✕を0.3で敷いていた） */
+.strip-cell.rejected,
+.strip-cell.rejected.current {
+  opacity: 1;
+}
+.strip-cell.rejected img,
+.strip-cell.rejected .strip-blank {
+  opacity: 0.25;
+}
+.strip-reject {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* セルは56px。トークンの16pxでは小さすぎて足あとにならない */
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--n-0);
+  /* 赤を薄く敷く。1枚だけ見て分かることより、**帯を流し見して
+     ✕の並びが目に入る**ことを取る */
+  background: color-mix(in oklch, var(--danger) 45%, transparent);
+  border-radius: 2px;
+  text-shadow: 0 1px 3px oklch(0 0 0 / 0.9);
+  pointer-events: none;
+}
+
+/* いま見ている1枚がボツの候補であることの印。絵の左上に小さく置く */
+/* いまの1枚に付いている印。**道具の帯とは別に、常に出しておく**——
+   帯は1.8秒で消えるので、消えたあとに見返す先が無かった（2026-08-19） */
+.viewer-badges {
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-4);
+  display: flex;
+  gap: var(--sp-1);
+  pointer-events: none;
+}
+.viewer-badge {
+  padding: 2px 8px;
+  font-size: var(--fs-sm);
+  color: #fff;
+  border-radius: var(--radius-full);
+  /* 白い絵の上でも読めるように、色の裏に影を1枚敷く */
+  box-shadow: 0 1px 4px oklch(0 0 0 / 0.5);
+}
+.viewer-badge.fav {
+  color: var(--n-10);
+  background: var(--fav);
+}
+.viewer-badge.pick {
+  color: var(--n-10);
+  background: var(--pick);
+}
+.viewer-badge.reject {
+  background: var(--danger);
+}
+
+/* 判定した合図。絵の真ん中で一度だけ膨らんで消える（2026-08-19）。
+   **送りの邪魔をしない**のが条件——0.7秒で消え、当たり判定も持たない */
+.judge-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 文字が枠に触ると窮屈に見える。**合図は一目で読めることが仕事** */
+  min-width: 128px;
+  padding: var(--sp-4) var(--sp-5);
+  color: #fff;
+  background: oklch(0 0 0 / 0.55);
+  border: 2px solid currentColor;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  animation: judge-flash 700ms var(--easing) forwards;
+}
+.judge-flash-mark {
+  font-size: 44px;
+  line-height: 1;
+}
+.judge-flash-word {
+  font-size: var(--fs-sm);
+  color: #fff;
+}
+.judge-flash.fav,
+.judge-flash.unfav {
+  color: var(--fav);
+}
+.judge-flash.pick {
+  color: var(--pick);
+}
+.judge-flash.reject {
+  color: var(--danger);
+}
+.judge-flash.unflag {
+  color: var(--n-4);
+}
+@keyframes judge-flash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+/* 動きを減らす設定なら、膨らませずに出して消すだけにする */
+@media (prefers-reduced-motion: reduce) {
+  .judge-flash {
+    animation: judge-flash-quiet 700ms var(--easing) forwards;
+  }
+  @keyframes judge-flash-quiet {
+    0%,
+    70% {
+      opacity: 1;
+      transform: translate(-50%, -50%);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* 字幕行のチップ。押すと途中確認の関所が開く */
+.viewer-reject-chip {
+  padding: 1px 8px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: #fff;
+  background: var(--danger);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+.viewer-reject-chip:hover {
+  filter: brightness(1.1);
+}
+
+/* 関所（確定の前に全員の顔を見せる）。ショートカット一覧と同じ流儀で、
+   ビューア(100)より前・ショートカット(400)より後ろに置く */
+.reject-gate-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 350;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+}
+.reject-gate {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+.reject-gate-head h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+.reject-gate-head p {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--n-5);
+}
+.reject-gate-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.reject-cell {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+.reject-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: var(--radius-sm);
+  opacity: 0.55;
+}
+.reject-restore {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 2px 0;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--easing);
+}
+.reject-cell:hover .reject-restore,
+.reject-restore:focus-visible {
+  opacity: 1;
+}
+.reject-gate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+.reject-gate-actions button {
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.reject-gate-actions button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.reject-gate-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 危険な側だけ色を持たせる。**ここにキーボードの近道は与えない**
+   （Enter連打で素通しさせないため。初期フォーカスは「戻る」） */
+.reject-gate-actions button.danger {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.reject-gate-actions button.danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.reject-gate-actions button.quiet {
+  color: var(--n-5);
+}
+
 /* ショートカット一覧（`?` / `F1`）。ビューアの上にも出るので、
    背景は暗い地に合わせて濃いめの膜を敷く */
 .shortcuts-backdrop {
@@ -1057,6 +1324,18 @@ body {
 .viewer-tool.picked {
   background: var(--pick);
   color: var(--n-10);
+}
+/* ボツの✕。**帯の右端にある「閉じる」の✕と字が同じ**なので、
+   付いていないときから赤くしておく（押し間違いは取り返しがつく側だが、
+   選別中に閉じるつもりで✕を付けるのは邪魔） */
+.viewer-tool.reject-tool {
+  color: var(--danger);
+}
+/* ボツの候補にしている1枚。**隣の🗑と同じ色にはしない**——
+   ✕はまだ何も消しておらず、🗑はその場で消すから */
+.viewer-tool.rejecting {
+  background: var(--danger);
+  color: #fff;
 }
 /* 倍率表示（クリックで等倍⇔フィット） */
 .viewer-zoom {
@@ -1414,6 +1693,43 @@ body {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: var(--fs-sm);
   color: var(--text-muted);
+}
+/* 「更新を確認」。版の隣に小さく置く——押す人だけが押せばいい大きさに */
+.about-check {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+.about-check:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.about-check:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* 確認の返事。1行で終わらせ、新しい版があるときだけリンクを添える */
+.settings-note.update-say {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.settings-note.update-say button {
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-sm);
 }
 .about-links {
   display: flex;
@@ -1934,6 +2250,14 @@ body {
 }
 .speed-toast.decoder-notice button:hover {
   background: color-mix(in oklch, currentColor 15%, transparent);
+}
+
+/* 新しい版の知らせ（0.2）。デコーダの知らせと**同時に出ることがある**ので、
+   段を1つ上げて重ねない。色は警告ではなく accent——直さないと困るものではない */
+.speed-toast.update-notice {
+  bottom: 168px;
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* 言語のプルダウン。ネイティブの select をトークンの色に寄せるだけに留める

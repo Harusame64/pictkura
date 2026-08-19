@@ -212,7 +212,8 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | Key | Action |
 |---|---|
 | `←` `→` | previous / next |
-| `P` / `U` | pick (flag it ⚑) / unpick. By default this **moves on to the next photo**; you can turn that off in settings |
+| `P` / `U` | pick (flag it ⚑) / clear this photo's judgement (removes both ⚑ and ✕). By default this **moves on to the next photo**; you can turn that off in settings |
+| `X` | reject it (✕). **Nothing is deleted when you press it** — closing the viewer shows you the faces first, then moves them all to the recycle bin at once |
 | `Space` | slideshow (play / pause for video) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `F11` | full screen |
@@ -274,6 +275,17 @@ so download the file and open it in a browser to read it here.
 
 > One thing is still Japanese-only: the entry pictkura adds to the Windows AutoPlay
 > choices reads「pictkura で写真を取り込む」regardless of the UI language.
+
+### 8. Update notices
+
+A few seconds after it starts, pictkura asks once a day whether a newer version exists.
+If there is one, a quiet line appears at the bottom of the window; pressing it opens the
+download page in your browser. **The app never replaces itself.**
+
+That is **the only outbound connection the app makes**. All it sends is “pictkura version X
+is asking” — no photos, no file names, no folder paths. Turn off ⚙ (Settings) →
+**About pictkura** → “Check for updates at startup” and pictkura never reaches the network
+at all (the “Check for updates” button next to it still asks, once, when you press it).
 
 ---
 

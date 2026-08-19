@@ -6,6 +6,7 @@
 //! - `[library]`     : ライブラリ（スキャン対象）の場所と除外パターン
 //! - `[performance]` : サムネイルサイズやワーカー数などの性能パラメータ
 //! - `[viewer]`      : 全画面ビューアの操作
+//! - `[update]`      : 新しい版が出ていないかの確認（唯一の外向き通信）
 
 use std::path::{Path, PathBuf};
 
@@ -34,6 +35,7 @@ pub struct Config {
     pub performance: PerformanceConfig,
     pub editors: EditorsConfig,
     pub viewer: ViewerConfig,
+    pub update: UpdateConfig,
 }
 
 /// `[editors]` 外部の編集アプリ。
@@ -284,6 +286,49 @@ impl Default for ViewerConfig {
     }
 }
 
+/// `[update]` 新しい版が出ていないかの確認（0.2）。
+///
+/// **このアプリが外へ出す唯一の通信**。写真もファイル名も送らず、GitHubの
+/// Releasesを見て版の名前を1つ受け取るだけで、結果はダウンロードページを
+/// 開くリンクとして出す（落として入れ替えるところまではやらない）。
+/// 気に入らなければ `check_on_start = false` で完全に黙る。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// 起動したときに1回だけ確認しにいくか。既定はON。
+    pub check_on_start: bool,
+    /// 最後に確認しにいった時刻（UNIXミリ秒）。**間隔を空けるためだけ**に持つ。
+    /// 1日に何度も起動する使い方でも、問い合わせは1日1回で足りる。
+    pub last_check_ms: i64,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_on_start: true,
+            last_check_ms: 0,
+        }
+    }
+}
+
+impl UpdateConfig {
+    /// 次に確認しにいくまでの間隔（24時間）。
+    pub const INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
+
+    /// `now_ms` の時点で、自動の確認をしにいってよいか。
+    ///
+    /// 未来の時刻が入っていたら（時計を戻した・別の機械の設定を持ってきた）
+    /// **確認する側に倒す**——黙り続けるより、1回多く聞く方が害が小さい。
+    pub fn due(&self, now_ms: i64) -> bool {
+        if !self.check_on_start {
+            return false;
+        }
+        self.last_check_ms <= 0
+            || now_ms < self.last_check_ms
+            || now_ms - self.last_check_ms >= Self::INTERVAL_MS
+    }
+}
+
 impl Config {
     /// TOML文字列からパースする。欠けているフィールドはデフォルト値で補完される。
     pub fn from_toml_str(s: &str) -> Result<Self, ConfigError> {
@@ -524,5 +569,45 @@ worker_threads = 4
     fn 壊れたtomlはエラーになる() {
         let result = Config::from_toml_str("this is not toml [[[");
         assert!(matches!(result, Err(ConfigError::Parse(_))));
+    }
+
+    /// 配ったあとに足した節（0.2）。**古い設定ファイルには `[update]` が無い**ので、
+    /// 既定で補われること＝確認がONで始まることを固定しておく。
+    #[test]
+    fn updateの節が無い設定でも確認はonで読める() {
+        let config = Config::from_toml_str(
+            "[import]
+verify_after_copy = true
+",
+        )
+        .unwrap();
+        assert!(config.update.check_on_start);
+        assert_eq!(config.update.last_check_ms, 0);
+
+        // 切ったら切ったまま往復する
+        let mut off = Config::default();
+        off.update.check_on_start = false;
+        let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
+        assert!(!back.update.check_on_start);
+    }
+
+    #[test]
+    fn 確認の間隔は24時間で_切っていれば来ない() {
+        let day = UpdateConfig::INTERVAL_MS;
+        let mut u = UpdateConfig::default();
+        // 一度も確認していないなら、いつでも行く
+        assert!(u.due(0));
+        assert!(u.due(day * 100));
+
+        u.last_check_ms = day * 100;
+        assert!(!u.due(day * 100 + 1), "直後には行かない");
+        assert!(!u.due(day * 101 - 1), "24時間ちょうどの手前は行かない");
+        assert!(u.due(day * 101), "24時間経ったら行く");
+
+        // **時計が戻っていたら行く**。黙り続けるより1回多く聞く方が害が小さい
+        assert!(u.due(day * 99));
+
+        u.check_on_start = false;
+        assert!(!u.due(day * 200), "切ってあれば何があっても行かない");
     }
 }

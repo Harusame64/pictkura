@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
@@ -19,8 +20,10 @@ import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
 import {
   addLibraryRoot,
+  checkUpdate,
   cloudOnlyMedia,
   deleteMedia,
+  openReleasesPage,
   fullSrc,
   isWindows,
   videoSrc,
@@ -60,7 +63,9 @@ import {
   type DriveInfo,
   type ExifInfo,
   type AppConfig,
+  type DeleteProgress,
   type ExportProgress,
+  type UpdateCheck,
   type ExternalApp,
   type ImportStats,
   type IndexProgress,
@@ -240,6 +245,19 @@ type Row =
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
 
+/** ビューアで判定したときに一瞬出す合図の種類 */
+type JudgeFlashKind = "fav" | "unfav" | "pick" | "unflag" | "reject";
+
+/** その合図の見た目と文言（**判定ごとに1行**。増えたらここへ足す） */
+const JUDGE_FLASH: Record<JudgeFlashKind, { mark: string; word: () => string }> =
+  {
+    fav: { mark: "★", word: () => t.judgeFav },
+    unfav: { mark: "☆", word: () => t.judgeUnfav },
+    pick: { mark: "⚑", word: () => t.judgePick },
+    unflag: { mark: "⌫", word: () => t.judgeUnflag },
+    reject: { mark: "✕", word: () => t.viewerRejected },
+  };
+
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
   const sec = (r.elapsed_ms / 1000).toFixed(r.elapsed_ms < 1000 ? 2 : 1);
@@ -340,6 +358,64 @@ export default function App() {
    * 変わっても、選んだ範囲を歩き切れるほうが選別の道具として正しい
    */
   const [viewerScope, setViewerScope] = useState<ScopeItem[] | null>(null);
+  /**
+   * ボツの候補（0.2 ③）。`X` で付く印で、**ファイルは1バイトも動かさない**。
+   *
+   * 判定のたびにゴミ箱へ入れる形は測って捨てた（1件あたり中央20ms・最悪215msの
+   * 固定費が判定のリズムに刺さる。`dev/plan.0.2.research.md` §2-1）。
+   * 印だけなら判定の追加コストは0で、確定するまで何も失われない。
+   *
+   * **idの集合ではなく写真そのものを持つ**。関所（確認のモーダル）で
+   * サムネイルと名前を出すのに要るが、日をまたいで印を付けたあと
+   * その日のキャッシュが間引かれると、idからは引き直せなくなる。
+   *
+   * 不変条件: **ビューアが閉じている間は常に空**（確定・破棄のどちらでも
+   * 空にしてから閉じる）。閉じたまま印だけが残ると、次に開いたときに
+   * 身に覚えのない✕が並ぶ
+   */
+  const [rejected, setRejected] = useState<Map<number, MediaItem>>(new Map());
+  /**
+   * 関所（ボツをゴミ箱へ入れる前の確認）。`closeAfter` は
+   * **ビューアを閉じようとして開いた**か（true）、チップからの途中確認か（false）。
+   * `quitAfter` は**窓の×から開いた**——片付いたら窓ごと閉じる（利用者の元の意思は
+   * 「アプリを終わる」なので、ビューアだけ閉じて残ると×が効かないように見える）。
+   */
+  const [rejectGate, setRejectGate] = useState<{
+    closeAfter: boolean;
+    quitAfter?: boolean;
+  } | null>(null);
+  /** 窓の×の受け口（登録は一度きり）から、いま関所が出ているかを見るための控え */
+  const rejectGateRef = useRef(rejectGate);
+  useEffect(() => {
+    rejectGateRef.current = rejectGate;
+  }, [rejectGate]);
+  /** ゴミ箱へ移動している最中か（**実機の500件で約4.9秒**・2026-08-19の実測） */
+  const [trashing, setTrashing] = useState(false);
+  /** 窓の×の受け口（登録は一度きり）から、移動中かどうかを見るための控え */
+  const trashingRef = useRef(false);
+  /**
+   * 移動中に×が押されたら、ここに控えて**終わってから**閉じる。
+   * 途中で窓を壊すと、ゴミ箱へ入れ終えたぶんがDBから落ちないまま残る
+   * （ゲート1の指摘）。次の起動の同期で拾い直せるとはいえ、
+   * **自分から不整合を作る道は塞ぐ**
+   */
+  const quitAfterTrashRef = useRef(false);
+  /**
+   * その4.9秒のあいだの進み具合（`delete-progress`）。**待たせる時間が3秒を
+   * 超えたら件数を出す**——「動いている」ことを、止まっていない証拠として見せる
+   * （`dev/plan.0.2.rev.md` 3-3）。始まる前は `null`
+   */
+  const [trashProgress, setTrashProgress] = useState<DeleteProgress | null>(
+    null,
+  );
+  useEffect(() => {
+    trashingRef.current = trashing;
+  }, [trashing]);
+  /** 窓を閉じる要求など、**登録が1回きりの経路**から今の印を見るための控え */
+  const rejectedRef = useRef(rejected);
+  useEffect(() => {
+    rejectedRef.current = rejected;
+  }, [rejected]);
   /** ビューアのズーム・パン・スライドショー。zoomは「画面に収めた状態」を1とする倍率 */
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -382,6 +458,11 @@ export default function App() {
   const selectEpochRef = useRef(0);
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
+  /**
+   * ゴミ箱への移動が走っているか。**一覧からの削除と1枚の削除で共有する**
+   * ——別スレッドへ出したぶん、走っている最中も画面は動く（ゲート1の指摘）
+   */
+  const deletingRef = useRef(false);
   /**
    * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
    *
@@ -677,6 +758,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     let unlistenCameras: (() => void) | undefined;
     let unlistenExport: (() => void) | undefined;
+    let unlistenDelete: (() => void) | undefined;
     (async () => {
       const f = await listen<IndexProgress>("index-progress", (ev) => {
         // 中断した場合は「終わった」と誤解させないよう表示を残す
@@ -693,6 +775,24 @@ export default function App() {
       );
       if (cancelled) exportProgress();
       else unlistenExport = exportProgress;
+      // ゴミ箱への移動の進捗。関所が出ているならボタンの文字が受けるので、
+      // ここでは触らない。**一覧からのまとめて削除には関所が無い**ので、
+      // そのときだけステータス行に出す（数千枚選べる以上、待つ間の手掛かりが要る）
+      const deleteProgress = await listen<DeleteProgress>(
+        "delete-progress",
+        (ev) => {
+          if (cancelled) return;
+          setTrashProgress(ev.payload);
+          // **最後の束のぶんは書かない**（ゲート2のP3）。完了の「n枚を
+          // ゴミ箱へ移動しました」より後に届くと、それを上書きして
+          // 「移動中… (n / n)」で止まって見える
+          if (!rejectGateRef.current && ev.payload.done < ev.payload.total) {
+            setStatus(t.rejectGateTrashing(ev.payload.done, ev.payload.total));
+          }
+        },
+      );
+      if (cancelled) deleteProgress();
+      else unlistenDelete = deleteProgress;
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else unlistenCameras = camerasDone;
@@ -710,8 +810,34 @@ export default function App() {
       unlisten?.();
       unlistenCameras?.();
       unlistenExport?.();
+      unlistenDelete?.();
     };
   }, [refreshCameras]);
+  /**
+   * 新しい版が出ていないかの知らせ（0.2）。**アプリで唯一の外向き通信**で、
+   * 設定で切れる（既定はON・24時間に1回）。
+   *
+   * 起動の瞬間には走らせない——最初の数秒は起動時同期とサムネイル生成で
+   * いちばん忙しく、体感の速さがこのアプリの看板だから。落ちた（繋がらない・
+   * 弾かれた・形が違う）ときは**黙って諦める**: 見に行けなかったことは
+   * 利用者の用事ではない。
+   */
+  const [updateFound, setUpdateFound] = useState<UpdateCheck | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      checkUpdate(false)
+        .then((r) => {
+          if (!cancelled && r.newer) setUpdateFound(r);
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   // 索引の構築が終わったらカメラ一覧も揃うので取り直す
   const wasBuilding = useRef(false);
   useEffect(() => {
@@ -1420,13 +1546,118 @@ export default function App() {
    * 連打しても付けたり外したりにならない。自動送りがONなら続けて次の絵へ。
    * 印の反映は楽観的更新なので、書き込みを待たずに送ってよい
    */
+  /**
+   * ボツの候補に入れる・戻す（0.2 ③）。**印だけでファイルは触らない**。
+   * 実際にゴミ箱へ入るのは関所で確定したときの1回だけ。
+   */
+  const markReject = useCallback((item: MediaItem, on: boolean) => {
+    setRejected((prev) => {
+      if (on === prev.has(item.id)) return prev;
+      const next = new Map(prev);
+      if (on) next.set(item.id, item);
+      else next.delete(item.id);
+      return next;
+    });
+  }, []);
+
+  /**
+   * 判定した合図を絵の上に一瞬出す（2026-08-19の利用者指摘）。
+   *
+   * **自動送りがONだと、押した相手はもう画面に居ない**。道具の帯の★や⚑は
+   * 1.8秒で消えるので、押したそばから「いま何をしたのか」の手掛かりが
+   * 無くなっていた。ここは*何をしたか*を短く出す係で、*いまの絵がどうなって
+   * いるか*は絵の上の常設バッジが受け持つ。
+   *
+   * `seq` を毎回変えるのは、同じ判定を連打したときに**アニメーションを
+   * 掛け直す**ため（Reactはkeyが同じだと要素を作り直さない）。
+   */
+  const [judgeFlash, setJudgeFlash] = useState<{
+    kind: JudgeFlashKind;
+    seq: number;
+  } | null>(null);
+  const flashSeq = useRef(0);
+  const flashTimer = useRef<number | undefined>(undefined);
+  const flashJudge = useCallback((kind: JudgeFlashKind) => {
+    flashSeq.current += 1;
+    setJudgeFlash({ kind, seq: flashSeq.current });
+    window.clearTimeout(flashTimer.current);
+    // CSSの表示時間より少しだけ長く置く（消え際で要素を抜くとちらつく）
+    flashTimer.current = window.setTimeout(() => setJudgeFlash(null), 900);
+  }, []);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
+
+  /** ビューアの `F`・☆ボタン。トグルなので、**どちらに転んだか**を合図に出す */
+  const favoriteViewer = useCallback(
+    (item: MediaItem) => {
+      flashJudge(item.favorite ? "unfav" : "fav");
+      toggleFavorite(item);
+    },
+    [flashJudge, toggleFavorite],
+  );
+
+  /**
+   * ビューアの✕ボタン。キーの `X` と違って**トグル**で、**送らない**
+   * ——マウスで押す人は、押した1枚がその場でどうなったかを見たい
+   */
+  const rejectTool = useCallback(
+    (item: MediaItem) => {
+      const on = !rejectedRef.current.has(item.id);
+      markReject(item, on);
+      if (on && item.picked) void setMark(item, "picked", false);
+      flashJudge(on ? "reject" : "unflag");
+    },
+    [markReject, setMark, flashJudge],
+  );
+
+  /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
+  const pickViewer = useCallback(
+    (item: MediaItem, pick: boolean) => {
+      flashJudge(pick ? "pick" : "unflag");
+      void setMark(item, "picked", pick);
+    },
+    [flashJudge, setMark],
+  );
+
   const judgeViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
       void setMark(item, "picked", pick);
+      // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
+      // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
+      markReject(item, false);
+      flashJudge(pick ? "pick" : "unflag");
       if (autoAdvance) moveViewer(1);
     },
-    [setMark, autoAdvance, moveViewer],
+    [setMark, markReject, flashJudge, autoAdvance, moveViewer],
   );
+
+  /**
+   * `X` の判定（0.2 ③）。`P` と同じく**押した向きに決める**ので、
+   * 連写を見ながら連打してもトグルにならない。自動送りがONなら続けて次へ。
+   */
+  const rejectViewer = useCallback(
+    (item: MediaItem) => {
+      markReject(item, true);
+      // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
+      // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
+      // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
+      if (item.picked) void setMark(item, "picked", false);
+      flashJudge("reject");
+      if (autoAdvance) moveViewer(1);
+    },
+    [markReject, setMark, flashJudge, autoAdvance, moveViewer],
+  );
+
+  /**
+   * ビューアを閉じる要求（0.2 ③）。**✕の印が残っていれば関所を出す**。
+   *
+   * 印はファイルを動かしていないので、ここを素通しすると
+   * 「ボツにしたのに何も起きていない」に見える。逆に、関所を出せずに
+   * 落ちた場合も**何も消えない側**に倒れる
+   */
+  const requestCloseViewer = useCallback(() => {
+    if (rejectedRef.current.size > 0) setRejectGate({ closeAfter: true });
+    else setViewer(null);
+  }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
 
@@ -1974,8 +2205,50 @@ export default function App() {
       // スコープは**閉じたら捨てる**。次にタイルから開いたときに、
       // 前の選択の列を歩き続けてしまわないように
       setViewerScope(null);
+      // ボツの印も捨てる（0.2 ③の不変条件）。関所を通さずに閉じる経路
+      // （その日ごと消えた等）でも、**何も消えない側**へ倒れる
+      setRejected((prev) => (prev.size === 0 ? prev : new Map()));
+      setRejectGate(null);
     }
   }, [viewer]);
+
+  /**
+   * 窓の×で閉じようとしたとき（0.2 ③）。**ボツの印が残っていれば止めて
+   * 関所を出す**——「✕を付けたのに何も消えていない」という誤解を塞ぐ。
+   *
+   * 出せずに落ちる経路（OSのシャットダウン等）が残っても、印はファイルを
+   * 触っていないので**何も消えない側**へ倒れる。
+   *
+   * 登録は一度きりなので、印は [`rejectedRef`] から見る。
+   */
+  useEffect(() => {
+    const un = getCurrentWindow().onCloseRequested((e) => {
+      // **移動中の1度目は通さない**。ここを通すと、ゴミ箱へ入れ終えたぶんが
+      // DBに残ったまま窓が消える。押した意思は控えておき、移動が終わった時点で
+      // 閉じる（500件で約5秒）。
+      //
+      // **2度目は通す**。ゴミ箱側が詰まって戻ってこない機械があったときに、
+      // また「閉じられない窓」を作らないため。そのとき残る不整合
+      // （実体はゴミ箱・行はDBに残る）は、次の起動の同期が拾って消す
+      if (trashingRef.current) {
+        if (quitAfterTrashRef.current) return;
+        e.preventDefault();
+        quitAfterTrashRef.current = true;
+        return;
+      }
+      if (rejectedRef.current.size === 0) return;
+      // **2度目の×は通す**。1度目で関所を出しているので、それでも×を押すのは
+      // 「終わる」という意思表示。印はファイルを1バイトも触っていないので、
+      // ここで落としても失うものは無い——**止め続ける方が危ない**
+      // （2026-08-19の利用者報告: ×で落ちず、タスクマネージャで落とすことになった）
+      if (rejectGateRef.current) return;
+      e.preventDefault();
+      setRejectGate({ closeAfter: true, quitAfter: true });
+    });
+    return () => {
+      void un.then((off) => off()).catch(() => {});
+    };
+  }, []);
 
   // スライドショー: 3秒ごとに次へ（末尾までいったら先頭へループ）。
   //
@@ -2008,13 +2281,21 @@ export default function App() {
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
       if (paletteOpen || shortcutsOpen || typing) return;
-      if (e.key === "Escape") setViewer(null);
+      // 関所が開いているあいだは、下のキーを一切通さない（0.2 ③）。
+      // Escapeは「関所を閉じる」＝ビューアへ戻る（印はそのまま）
+      if (rejectGate) {
+        if (e.key === "Escape" && !trashing) setRejectGate(null);
+        return;
+      }
+      if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
       else if (e.key === "f" || e.key === "F") {
-        if (viewerItem) toggleFavorite(viewerItem);
+        if (viewerItem) favoriteViewer(viewerItem);
       } else if (judging(e, "p")) {
         if (viewerItem) judgeViewer(viewerItem, true);
+      } else if (judging(e, "x")) {
+        if (viewerItem) rejectViewer(viewerItem);
       } else if (judging(e, "u")) {
         if (viewerItem) judgeViewer(viewerItem, false);
       } else if (e.key === "i" || e.key === "I") {
@@ -2046,8 +2327,12 @@ export default function App() {
     viewer,
     viewerItem,
     moveViewer,
-    toggleFavorite,
+    favoriteViewer,
     judgeViewer,
+    rejectViewer,
+    requestCloseViewer,
+    rejectGate,
+    trashing,
     paletteOpen,
     shortcutsOpen,
     toggleFullscreen,
@@ -2346,12 +2631,16 @@ export default function App() {
   /** 1枚をゴミ箱へ移動する（確認あり）。写真は取り返しがつかないのでOSのゴミ箱経由 */
   const onDelete = useCallback(
     async (item: MediaItem) => {
-      const ok = await confirmDialog(t.deleteConfirm(1), {
-        title: t.appName,
-        kind: "warning",
-      });
-      if (!ok) return;
+      // 一覧からのまとめて削除と**同じ鍵**を使う。1枚と数千枚が同時に走ると、
+      // 進捗イベントもステータスも混ざる（ゲート1の指摘）
+      if (deletingRef.current) return;
+      deletingRef.current = true;
       try {
+        const ok = await confirmDialog(t.deleteConfirm(1), {
+          title: t.appName,
+          kind: "warning",
+        });
+        if (!ok) return;
         const n = await deleteMedia([item.id]);
         setStatus(t.deleted(n));
         // 削除された日だけを捨てて取り直す（骨組みの件数も変わる）
@@ -2361,7 +2650,17 @@ export default function App() {
           next.delete(item.day_key);
           return next;
         });
-        setViewer((v) => (v && v.id === item.id ? null : v));
+        // **ビューアは閉じない**（ゲート2のP2）。ここで閉じると、閉じたときの
+        // 後始末が走って**✕の印が全部黙って消える**——30枚に印を付けた途中で
+        // 1枚だけ🗑を使うと、残り29枚を付け直すことになる。居なくなった1枚からは
+        // 「隣へ寄せる」効果が勝手に動くので、閉じる必要がそもそも無い。
+        // **消した1枚は候補から外す**（関所に幽霊を並べない）
+        setRejected((prev) => {
+          if (!prev.has(item.id)) return prev;
+          const next = new Map(prev);
+          next.delete(item.id);
+          return next;
+        });
         // **選択からも外す**。残すと、操作バーの枚数と次の確認文言が実際より
         // 多く出て、居ないIDに一括操作を掛けることになる
         setSelected((prev) => {
@@ -2375,6 +2674,8 @@ export default function App() {
         await refreshSummary();
       } catch (e) {
         setStatus(String(e));
+      } finally {
+        deletingRef.current = false;
       }
     },
     [refreshSummary],
@@ -2448,47 +2749,163 @@ export default function App() {
     [visibleSelection, reloadAll, refreshSummary, clearSelection],
   );
 
-  /** 選んだものをまとめてゴミ箱へ（確認あり） */
-  const onBulkDelete = useCallback(async () => {
-    const ids = await visibleSelection();
-    if (ids.length === 0) return;
-    // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
-    const touched = new Set(ids);
-    const ok = await confirmDialog(t.deleteConfirm(ids.length), {
-      title: t.appName,
-      kind: "warning",
+  /**
+   * 消したあとの後始末（0.2 ③で括り出した。`onBulkDelete` と関所で同じ形）。
+   *
+   * **消えた日を丸ごと捨てて取り直す**——枚数も骨組みも変わるので、
+   * 行を1つずつ抜くより取り直すほうが確か。
+   *
+   * **スコープの席は抜かない**。0.2 ②で「消えたidの席は残し、送りでは飛ばす」
+   * 形にしてあり（ゲート2のP2）、寄せ先を探すときの目印にもなっている。
+   * 抜くと、いま見ている1枚を消したときに**隣がどこか分からなくなる**
+   */
+  const forgetDeleted = useCallback((touched: Set<number>) => {
+    setDayItems((prev) => {
+      const next = new Map(prev);
+      for (const [dayKey, items] of prev) {
+        if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
+      }
+      return next;
     });
-    if (!ok) return;
+  }, []);
+
+  /**
+   * 選んだものをまとめてゴミ箱へ（確認あり）。
+   *
+   * **確認ダイアログを待つ前に鍵を掛ける**（書き出しと同じ形・ゲート1の指摘）。
+   * ゴミ箱への移動は別スレッドへ出したので、走っているあいだも画面は動く
+   * ——2回押せば2本ともダイアログまで進み、同じIDに二重の操作が掛かって
+   * 進捗とステータスが混ざる。ボタンの非活性（`busy`）は次のレンダーを待つので、
+   * **即座に効くのはrefだけ**。
+   */
+  const onBulkDelete = useCallback(async () => {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setBusy(true);
     try {
-      const n = await deleteMedia(ids);
-      setStatus(t.deleted(n));
-      // 消えた日を丸ごと捨てて取り直す（骨組みの枚数も変わる）
-      setDayItems((prev) => {
-        const next = new Map(prev);
-        for (const [dayKey, items] of prev) {
-          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
-        }
-        return next;
+      const ids = await visibleSelection();
+      if (ids.length === 0) return;
+      // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
+      const touched = new Set(ids);
+      const ok = await confirmDialog(t.deleteConfirm(ids.length), {
+        title: t.appName,
+        kind: "warning",
       });
-      setViewer((v) => (v && touched.has(v.id as number) ? null : v));
-      clearSelection();
-      await refreshSummary();
-    } catch (e) {
-      // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
-      // 落としてからエラーを返すので、画面をそのままにすると
-      // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
-      setStatus(String(e));
-      setDayItems((prev) => {
-        const next = new Map(prev);
-        for (const [dayKey, items] of prev) {
-          if (items.some((it) => touched.has(it.id))) next.delete(dayKey);
-        }
-        return next;
-      });
-      clearSelection();
-      await refreshSummary().catch(() => {});
+      if (!ok) return;
+      try {
+        const n = await deleteMedia(ids);
+        setStatus(t.deleted(n));
+        forgetDeleted(touched);
+        setViewer((v) => (v && touched.has(v.id as number) ? null : v));
+        clearSelection();
+        await refreshSummary();
+      } catch (e) {
+        // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
+        // 落としてからエラーを返すので、画面をそのままにすると
+        // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
+        setStatus(String(e));
+        forgetDeleted(touched);
+        clearSelection();
+        await refreshSummary().catch(() => {});
+      }
+    } finally {
+      deletingRef.current = false;
+      setBusy(false);
     }
-  }, [visibleSelection, refreshSummary, clearSelection]);
+  }, [visibleSelection, refreshSummary, clearSelection, forgetDeleted]);
+
+  /**
+   * 関所が片付いたあとの行き先。**開いた理由のところまで戻す**——
+   * 窓の×から来たなら窓ごと閉じ、ビューアを閉じようとして来たならビューアだけ、
+   * チップからの途中確認なら何も閉じない。
+   *
+   * 窓は `close()` ではなく `destroy()` で閉じる。`close()` は「閉じる要求」から
+   * やり直すので、上の受け口をもう一度通る——**関所を通ったあとに、また関所の
+   * 判断をさせない**。
+   */
+  const finishGate = useCallback(
+    (gate: { closeAfter: boolean; quitAfter?: boolean }) => {
+      if (gate.quitAfter) {
+        void getCurrentWindow().destroy();
+        return;
+      }
+      if (gate.closeAfter) setViewer(null);
+    },
+    [],
+  );
+
+  /**
+   * 関所で確定して、ボツの候補をまとめてゴミ箱へ（0.2 ③）。
+   *
+   * **待ちはここ1回だけ**。判定のたびに消す形（1件20ms〜215ms）を避けた
+   * 眼目がこれで、200件917ms・**実機の500件で約4.9秒**を1回にまとめて払う。
+   */
+  const confirmTrash = useCallback(async () => {
+    const gate = rejectGate;
+    if (!gate || trashing) return;
+    const ids = [...rejected.keys()];
+    if (ids.length === 0) return;
+    setTrashing(true);
+    setTrashProgress(null);
+    try {
+      // **実行直前に、まだ在るものだけへ絞る**（一括操作の作法・PR #18）。
+      // `media.id` の使い回し（既知のP3）への安い緩和でもある。
+      //
+      // **ただし ★ / ⚑ の絞り込みは掛けない**（"all" を渡す。ゲート2の指摘）。
+      // 関所に並んだ顔がそのまま約束なのに、絞り込みを掛けると
+      // **自分の操作で棚から外れた1枚が黙って残る**——⚑の棚で選別しながら
+      // `X` を押すと、その場で⚑が外れて⚑の絞り込みから落ちる。検索語は残す
+      // （別の言葉で探し直したなら、それは見ていた列ではない）
+      const kept = await visibleMediaIds(queryRef.current, "all", ids);
+      if (kept.length > 0) {
+        const n = await deleteMedia(kept);
+        // **数が合わないときは黙らない**（ゲート2のP3）。もう無い・検索語から
+        // 外れた等でここまで来られなかったぶんを、そのまま件数で言う
+        const left = ids.length - n;
+        setStatus(left > 0 ? t.deletedSomeLeft(n, left) : t.deleted(n));
+        forgetDeleted(new Set(kept));
+        await refreshSummary();
+      }
+      setRejected(new Map());
+      setRejectGate(null);
+      // 移動中に×が押されていたなら、**その意思のとおり**ここで閉じる
+      finishGate(
+        quitAfterTrashRef.current ? { closeAfter: true, quitAfter: true } : gate,
+      );
+    } catch (e) {
+      // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
+      // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
+      // ようにする。閉じようとして開いた関所でも、ここでは閉じない
+      setStatus(String(e));
+      forgetDeleted(new Set(ids));
+      await refreshSummary().catch(() => {});
+      setRejectGate(null);
+    } finally {
+      setTrashing(false);
+      setTrashProgress(null);
+      // **失敗した回は閉じない**。何が起きたかを読める場所に残す
+      // （もう一度×を押せば、そのときは通る）
+      quitAfterTrashRef.current = false;
+    }
+  }, [
+    rejectGate,
+    trashing,
+    rejected,
+    forgetDeleted,
+    refreshSummary,
+    finishGate,
+  ]);
+
+  /**
+   * 印を全部「戻す」と、確かめるものが無くなる。関所は畳む——
+   * 開いた理由のところまで戻す（窓の×から来ていたなら、窓ごと閉じる）
+   */
+  useEffect(() => {
+    if (!rejectGate || rejected.size > 0 || trashing) return;
+    const gate = rejectGate;
+    setRejectGate(null);
+    finishGate(gate);
+  }, [rejectGate, rejected, trashing, finishGate]);
 
   /**
    * 選んだものを、フォルダへコピー／移動する。
@@ -2866,6 +3283,18 @@ export default function App() {
           </button>
         </div>
       )}
+      {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
+          落として入れ替えるのはブラウザとインストーラの仕事で、ここは
+          「出ていますよ」と言うだけ */}
+      {updateFound && (
+        <div className="speed-toast index decoder-notice update-notice">
+          <span>{t.updateFound(updateFound.latest ?? "")}</span>
+          <button onClick={() => openReleasesPage().catch(() => {})}>
+            {t.updateOpenPage}
+          </button>
+          <button onClick={() => setUpdateFound(null)}>{t.updateLater}</button>
+        </div>
+      )}
       {indexProgress &&
         (indexProgress.building ? (
           <div className="speed-toast index">
@@ -3193,7 +3622,7 @@ export default function App() {
       {viewer && (
         <div
           className={"viewer" + (viewerIdle ? " idle" : "")}
-          onClick={() => setViewer(null)}
+          onClick={requestCloseViewer}
         >
           {viewerItem && viewerItem.is_video ? (
             // 動画（第9部）。`<img>` ではなく `<video>` に渡す。
@@ -3449,6 +3878,45 @@ export default function App() {
           {viewerItem && !viewerItem.is_video && loadedId !== viewerItem.id && (
             <div className="viewer-progress" aria-hidden />
           )}
+          {/* いま見ている1枚に付いている印を、写真の上に小さく出す（0.2 ③）。
+              下の帯にも出ているが、**見ている絵そのもの**に付いていないと
+              「どっちだったか」を帯で数え直すことになる。
+              ★と⚑を並べたのは2026-08-19——道具の帯は1.8秒で消えるので、
+              それまで「いまの1枚がどうなっているか」を出す場所が無かった */}
+          {viewerItem &&
+            (viewerItem.favorite ||
+              viewerItem.picked ||
+              rejected.has(viewerItem.id)) && (
+              <div className="viewer-badges">
+                {viewerItem.favorite && (
+                  <span className="viewer-badge fav">★ {t.judgeFav}</span>
+                )}
+                {viewerItem.picked && (
+                  <span className="viewer-badge pick">⚑ {t.judgePick}</span>
+                )}
+                {rejected.has(viewerItem.id) && (
+                  <span className="viewer-badge reject">
+                    ✕ {t.viewerRejected}
+                  </span>
+                )}
+              </div>
+            )}
+          {/* 判定した合図（2026-08-19）。**絵の真ん中で一度だけ膨らんで消える**。
+              印そのものは上のバッジと下の帯に残るので、ここは残らなくてよい */}
+          {judgeFlash && (
+            <div
+              key={judgeFlash.seq}
+              className={"judge-flash " + judgeFlash.kind}
+              aria-live="polite"
+            >
+              <span className="judge-flash-mark">
+                {JUDGE_FLASH[judgeFlash.kind].mark}
+              </span>
+              <span className="judge-flash-word">
+                {JUDGE_FLASH[judgeFlash.kind].word()}
+              </span>
+            </div>
+          )}
           {/* 絵が何も見えていないときだけ「読み込み中」を出す。下敷きの
               サムネイルが出ているなら、待たせている合図はもう要らない（0.2 ②） */}
           {viewerItem &&
@@ -3466,7 +3934,11 @@ export default function App() {
               {strip.map(({ item, offset }) => (
                 <button
                   key={item.id}
-                  className={"strip-cell" + (offset === 0 ? " current" : "")}
+                  className={
+                    "strip-cell" +
+                    (offset === 0 ? " current" : "") +
+                    (rejected.has(item.id) ? " rejected" : "")
+                  }
                   title={item.file_name}
                   onClick={() =>
                     setViewer({ dayKey: item.day_key, id: item.id })
@@ -3479,6 +3951,11 @@ export default function App() {
                   )}
                   {item.picked && <span className="strip-flag">⚑</span>}
                   {item.favorite && <span className="strip-fav">★</span>}
+                  {/* ✕の足あと（0.2 ③）。ここに残るので、連打で巻き添えに
+                      したときも数枚のうちに気付ける */}
+                  {rejected.has(item.id) && (
+                    <span className="strip-reject">✕</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -3495,6 +3972,17 @@ export default function App() {
               <span className="viewer-pos">
                 {viewerPos} / {viewerTotal}
               </span>
+              {/* ボツの候補の数（0.2 ③）。押すといつでも関所で顔を見られる。
+                  0件のときは出さない——選別中に面を1つも増やさないため */}
+              {rejected.size > 0 && (
+                <button
+                  className="viewer-reject-chip"
+                  title={t.rejectChipTitle}
+                  onClick={() => setRejectGate({ closeAfter: false })}
+                >
+                  {t.rejectChip(rejected.size)}
+                </button>
+              )}
             </div>
           )}
           {showExif && viewerItem && (
@@ -3564,7 +4052,7 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite}
-                onClick={() => toggleFavorite(viewerItem)}
+                onClick={() => favoriteViewer(viewerItem)}
               >
                 {viewerItem.favorite ? "★" : "☆"}
               </button>
@@ -3573,9 +4061,23 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick}
-                onClick={() => void setMark(viewerItem, "picked", !viewerItem.picked)}
+                onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
                 ⚑
+              </button>
+            )}
+            {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
+                **この場では何も消えない**——閉じるときに関所へ集まる */}
+            {viewerItem && (
+              <button
+                className={
+                  "viewer-tool reject-tool" +
+                  (rejected.has(viewerItem.id) ? " rejecting" : "")
+                }
+                title={t.viewerReject}
+                onClick={() => rejectTool(viewerItem)}
+              >
+                ✕
               </button>
             )}
             <button
@@ -3627,7 +4129,7 @@ export default function App() {
             <button
               className="viewer-tool"
               title={t.viewerClose}
-              onClick={() => setViewer(null)}
+              onClick={requestCloseViewer}
             >
               ✕
             </button>
@@ -3683,6 +4185,89 @@ export default function App() {
       />
       {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、
           いま押せるものがその場で分かるように出す */}
+      {/* 関所（0.2 ③）。**顔を見てから確定する**——文字だけの
+          「200枚をゴミ箱へ移動しますか？」では、何が消えるのか押す瞬間に
+          確かめられない。ここは自前のDOMなので、`window.confirm` が無言で
+          trueを返す罠（2026-08-16）には当たらない */}
+      {rejectGate && (
+        <div
+          className="reject-gate-backdrop"
+          onClick={() => {
+            if (!trashing) setRejectGate(null);
+          }}
+        >
+          <div
+            className="reject-gate"
+            role="dialog"
+            aria-label={t.rejectGateTitle(rejected.size)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="reject-gate-head">
+              <h2>{t.rejectGateTitle(rejected.size)}</h2>
+              {/* 逃げ道が見えていることが、不安感を消す要 */}
+              <p>{t.rejectGateNote}</p>
+            </div>
+            <div className="reject-gate-grid">
+              {[...rejected.values()].map((item) => (
+                <div className="reject-cell" key={item.id}>
+                  {item.has_thumb ? (
+                    <img
+                      src={thumbSrc(item)}
+                      alt={item.file_name}
+                      title={item.file_name}
+                      // **飾りではなく崖対策**（0.2 ①の予算）。96pxで出しても
+                      // デコードは512pxの実寸で走るので、200枚を一度に開くと
+                      // 約140MiB。見えているぶんだけに絞る
+                      loading="lazy"
+                      draggable={false}
+                    />
+                  ) : (
+                    <span className="strip-blank" />
+                  )}
+                  <button
+                    className="reject-restore"
+                    onClick={() => markReject(item, false)}
+                    disabled={trashing}
+                  >
+                    {t.rejectGateRestore}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="reject-gate-actions">
+              {/* 初期フォーカスは**安全側**。Enter連打は「戻る」に落ちる */}
+              <button autoFocus onClick={() => setRejectGate(null)} disabled={trashing}>
+                {t.rejectGateBack}
+              </button>
+              {rejectGate.closeAfter && (
+                <button
+                  className="quiet"
+                  onClick={() => {
+                    setRejected(new Map());
+                    setRejectGate(null);
+                    finishGate(rejectGate);
+                  }}
+                  disabled={trashing}
+                >
+                  {t.rejectGateDiscard}
+                </button>
+              )}
+              <button
+                className="danger"
+                onClick={() => void confirmTrash()}
+                disabled={trashing}
+              >
+                {trashing
+                  ? t.rejectGateTrashing(
+                      trashProgress?.done ?? 0,
+                      trashProgress?.total ?? rejected.size,
+                    )
+                  : t.rejectGateConfirm(rejected.size)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {shortcutsOpen && (
         <div
           className="shortcuts-backdrop"

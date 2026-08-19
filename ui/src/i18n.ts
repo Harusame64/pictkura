@@ -53,7 +53,8 @@ const ja = {
       keys: [
         ["← / →", "前後の写真へ"],
         ["P", "選ぶ（⚑ を付ける）。既定では続けて次の写真へ"],
-        ["U", "選ぶのをやめる（⚑ を外す）"],
+        ["X", "ボツの候補にする（✕）。閉じるときにまとめてゴミ箱へ"],
+        ["U", "この写真への判定を取り消す（⚑ と ✕ を外す）"],
         ["F", "お気に入り（★）の付け外し"],
         ["I", "撮影情報（カメラ・レンズ・絞り・ISO・GPS）"],
         ["Space", "スライドショー。動画のときは再生／一時停止"],
@@ -89,6 +90,38 @@ const ja = {
   viewerPick: "選ぶ (P)",
   viewerUnpick: "選ぶのをやめる (U)",
   viewerPicked: "選別で選んだ写真",
+  // 判定したことを**絵の上で**知らせる（2026-08-19の利用者指摘。道具の帯は
+  // 1.8秒で消えるうえ、自動送りが効いていると付けた相手はもう画面に居ない）
+  judgeFav: "お気に入り",
+  judgeUnfav: "お気に入りを外した",
+  judgePick: "選んだ",
+  judgeUnflag: "判定を取り消した",
+  // ボツの候補（0.2 ③）。印を付けるだけで、ファイルは閉じるときまで動かない
+  viewerReject: "ボツにする (X)",
+  viewerRejected: "ボツの候補",
+  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChipTitle: "ボツの候補を確かめる",
+  rejectGateTitle: (n: number) =>
+    n === 1 ? "1枚をゴミ箱へ移動します" : `${n}枚をゴミ箱へ移動します`,
+  rejectGateNote: "ゴミ箱から戻せます（戻すと一覧にも戻ります）",
+  rejectGateRestore: "戻す",
+  rejectGateBack: "戻る",
+  rejectGateDiscard: "入れずに閉じる",
+  rejectGateConfirm: (n: number) => `${n}枚をゴミ箱へ`,
+  rejectGateTrashing: (done: number, total: number) =>
+    `移動中… (${done} / ${total})`,
+  // 新しい版の確認（0.2）。**このアプリで唯一の外向き通信**なので、
+  // 何を送っていないかまで書く
+  updateFound: (v: string) => `新しい版 ${v} が出ています`,
+  updateOpenPage: "ダウンロードページを開く",
+  updateLater: "あとで",
+  updateCheckNow: "更新を確認",
+  updateChecking: "確認中…",
+  updateUpToDate: "最新です",
+  updateFailed: "確認できませんでした",
+  updateOnStart: "起動時に新しい版を確認する",
+  updateOnStartNote:
+    "GitHubに版の名前を聞きに行きます（1日1回）。写真もファイル名も送りません。切ると、上の「更新を確認」を押したとき以外は一切通信しません",
   viewerSlideshow: "スライドショー (Space)",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
@@ -213,6 +246,9 @@ const ja = {
       ? "この写真をゴミ箱へ移動しますか？"
       : `${n}枚の写真をゴミ箱へ移動しますか？`,
   deleted: (n: number) => `${n}枚をゴミ箱へ移動しました`,
+  // 関所に並べた数より少なかったとき。**黙って減らさない**（ゲート2の指摘）
+  deletedSomeLeft: (n: number, left: number) =>
+    `${n}枚をゴミ箱へ移動しました（${left}枚は見つからず残しました）`,
   // 複数選択と一括操作
   selectItem: "選択",
   selectedCount: (n: number) => `${n}枚を選択中`,
@@ -336,7 +372,8 @@ const en: Dict = {
       keys: [
         ["← / →", "Previous / next photo"],
         ["P", "Pick it (⚑). By default this moves on to the next photo"],
-        ["U", "Unpick it (clear ⚑)"],
+        ["X", "Reject it (✕). Rejected photos go to the trash when you close the viewer"],
+        ["U", "Undo the judgement on this photo (clear ⚑ and ✕)"],
         ["F", "Toggle favorite (★)"],
         ["I", "Capture details (camera, lens, aperture, ISO, GPS)"],
         ["Space", "Slideshow. On a video, play / pause"],
@@ -373,6 +410,33 @@ const en: Dict = {
   viewerPick: "Pick (P)",
   viewerUnpick: "Unpick (U)",
   viewerPicked: "Picked photo",
+  judgeFav: "Favorite",
+  judgeUnfav: "Favorite removed",
+  judgePick: "Picked",
+  judgeUnflag: "Judgement cleared",
+  viewerReject: "Reject (X)",
+  viewerRejected: "Rejected",
+  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChipTitle: "Review the rejected photos",
+  rejectGateTitle: (n: number) =>
+    n === 1 ? "Move 1 photo to the trash" : `Move ${n} photos to the trash`,
+  rejectGateNote: "You can restore them from the trash (they come back to the library, too).",
+  rejectGateRestore: "Keep",
+  rejectGateBack: "Back",
+  rejectGateDiscard: "Close without deleting",
+  rejectGateConfirm: (n: number) => (n === 1 ? "Move 1 to trash" : `Move ${n} to trash`),
+  rejectGateTrashing: (done: number, total: number) =>
+    `Moving… (${done} / ${total})`,
+  updateFound: (v: string) => `Version ${v} is available`,
+  updateOpenPage: "Open the download page",
+  updateLater: "Later",
+  updateCheckNow: "Check for updates",
+  updateChecking: "Checking…",
+  updateUpToDate: "You are up to date",
+  updateFailed: "Could not check",
+  updateOnStart: "Check for updates at startup",
+  updateOnStartNote:
+    "Asks GitHub for the latest version name (once a day). No photos or file names are sent. Turn it off and nothing leaves this machine except when you press “Check for updates”.",
   viewerSlideshow: "Slideshow (Space)",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",
@@ -495,6 +559,8 @@ const en: Dict = {
       ? "Move this photo to the trash?"
       : `Move ${n} photos to the trash?`,
   deleted: (n: number) => `Moved ${n} to the trash`,
+  deletedSomeLeft: (n: number, left: number) =>
+    `Moved ${n} to the trash (${left} could not be found and were left alone)`,
   // 複数選択と一括操作
   selectItem: "Select",
   selectedCount: (n: number) => (n === 1 ? "1 selected" : `${n} selected`),
