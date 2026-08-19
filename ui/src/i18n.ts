@@ -110,6 +110,18 @@ const ja = {
   rejectGateConfirm: (n: number) => `${n}枚をゴミ箱へ`,
   rejectGateTrashing: (done: number, total: number) =>
     `移動中… (${done} / ${total})`,
+  // 新しい版の確認（0.2）。**このアプリで唯一の外向き通信**なので、
+  // 何を送っていないかまで書く
+  updateFound: (v: string) => `新しい版 ${v} が出ています`,
+  updateOpenPage: "ダウンロードページを開く",
+  updateLater: "あとで",
+  updateCheckNow: "更新を確認",
+  updateChecking: "確認中…",
+  updateUpToDate: "最新です",
+  updateFailed: "確認できませんでした",
+  updateOnStart: "起動時に新しい版を確認する",
+  updateOnStartNote:
+    "GitHubに版の名前を聞きに行きます（1日1回）。写真もファイル名も送りません。切ると一切通信しません",
   viewerSlideshow: "スライドショー (Space)",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
@@ -412,6 +424,16 @@ const en: Dict = {
   rejectGateConfirm: (n: number) => (n === 1 ? "Move 1 to trash" : `Move ${n} to trash`),
   rejectGateTrashing: (done: number, total: number) =>
     `Moving… (${done} / ${total})`,
+  updateFound: (v: string) => `Version ${v} is available`,
+  updateOpenPage: "Open the download page",
+  updateLater: "Later",
+  updateCheckNow: "Check for updates",
+  updateChecking: "Checking…",
+  updateUpToDate: "You are up to date",
+  updateFailed: "Could not check",
+  updateOnStart: "Check for updates at startup",
+  updateOnStartNote:
+    "Asks GitHub for the latest version name (once a day). No photos or file names are sent. Turn it off and nothing leaves this machine.",
   viewerSlideshow: "Slideshow (Space)",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",

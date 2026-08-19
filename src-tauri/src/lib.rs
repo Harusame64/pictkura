@@ -23,6 +23,8 @@ use tauri::{Emitter, Manager};
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
+// 新しい版が出ていないかの確認（0.2）。外向きの通信はこのモジュールに閉じている
+mod update;
 
 /// ポイズニングされていてもロックを取得する（パニックの連鎖でアプリ全体が死ぬのを防ぐ）。
 fn lock_ok<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -2846,7 +2848,10 @@ pub fn run() {
             set_pickeds,
             set_auto_advance,
             set_register_autoplay,
-            take_pending_import
+            take_pending_import,
+            update::check_update,
+            update::open_releases_page,
+            update::set_check_update_on_start
         ])
         .run(tauri::generate_context!())
         .expect("Tauriアプリの起動に失敗");

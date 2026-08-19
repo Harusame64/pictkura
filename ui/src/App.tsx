@@ -20,8 +20,10 @@ import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
 import {
   addLibraryRoot,
+  checkUpdate,
   cloudOnlyMedia,
   deleteMedia,
+  openReleasesPage,
   fullSrc,
   isWindows,
   videoSrc,
@@ -63,6 +65,7 @@ import {
   type AppConfig,
   type DeleteProgress,
   type ExportProgress,
+  type UpdateCheck,
   type ExternalApp,
   type ImportStats,
   type IndexProgress,
@@ -785,6 +788,31 @@ export default function App() {
       unlistenDelete?.();
     };
   }, [refreshCameras]);
+  /**
+   * 新しい版が出ていないかの知らせ（0.2）。**アプリで唯一の外向き通信**で、
+   * 設定で切れる（既定はON・24時間に1回）。
+   *
+   * 起動の瞬間には走らせない——最初の数秒は起動時同期とサムネイル生成で
+   * いちばん忙しく、体感の速さがこのアプリの看板だから。落ちた（繋がらない・
+   * 弾かれた・形が違う）ときは**黙って諦める**: 見に行けなかったことは
+   * 利用者の用事ではない。
+   */
+  const [updateFound, setUpdateFound] = useState<UpdateCheck | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      checkUpdate(false)
+        .then((r) => {
+          if (!cancelled && r.newer) setUpdateFound(r);
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   // 索引の構築が終わったらカメラ一覧も揃うので取り直す
   const wasBuilding = useRef(false);
   useEffect(() => {
@@ -3155,6 +3183,18 @@ export default function App() {
           >
             {t.decoderNoticeDismiss}
           </button>
+        </div>
+      )}
+      {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
+          落として入れ替えるのはブラウザとインストーラの仕事で、ここは
+          「出ていますよ」と言うだけ */}
+      {updateFound && (
+        <div className="speed-toast index decoder-notice update-notice">
+          <span>{t.updateFound(updateFound.latest ?? "")}</span>
+          <button onClick={() => openReleasesPage().catch(() => {})}>
+            {t.updateOpenPage}
+          </button>
+          <button onClick={() => setUpdateFound(null)}>{t.updateLater}</button>
         </div>
       )}
       {indexProgress &&

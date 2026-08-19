@@ -28,6 +28,7 @@ pub mod shell;
 pub mod svg;
 pub mod sync;
 pub mod thumbs;
+pub mod update;
 pub mod usn;
 pub mod video;
 pub mod watch;

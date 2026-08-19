@@ -94,6 +94,7 @@
     <li><a href="#select">Select several at once</a></li>
     <li><a href="#formats">Supported file formats</a></li>
     <li><a href="#cloud">Files that only exist in the cloud</a></li>
+    <li><a href="#update">Update notices</a></li>
     <li><a href="#notes">Limitations and things it does not do</a></li>
     <li><a href="#files">Where settings and data live</a></li>
   </ol>
@@ -481,7 +482,33 @@ is a marker.
   <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
-<h2 id="notes">9. Limitations and things it does not do</h2>
+<h2 id="update">9. Update notices</h2>
+
+<p>
+A few seconds after it starts, pictkura <strong>asks once whether a newer version exists</strong>.
+If there is one, a quiet line appears at the bottom of the window — “Version v0.2.0 is available” —
+and pressing it opens the download page in your default browser.
+<strong>The app never replaces itself.</strong>
+</p>
+
+<div class="note">
+  <p>
+    <strong>This is the only outbound connection the app makes.</strong>
+    All it sends is “pictkura version X is asking”; it sends
+    <strong>no photos, no file names, and no folder paths</strong>.
+    All it receives is the name of the latest version. It asks at most once a day,
+    and if it cannot reach the network it gives up quietly.
+  </p>
+</div>
+
+<p>
+If you would rather it did not, turn off
+<strong>Settings → About pictkura → “Check for updates at startup”</strong>.
+With that off, pictkura never reaches the network at all — and you can still press
+“Check for updates” in the same place to ask once, right then.
+</p>
+
+<h2 id="notes">10. Limitations and things it does not do</h2>
 
 <div class="table-scroll">
 <table>
@@ -499,7 +526,7 @@ is a marker.
 </table>
 </div>
 
-<h2 id="files">10. Where settings and data live</h2>
+<h2 id="files">11. Where settings and data live</h2>
 
 <div class="table-scroll">
 <table>

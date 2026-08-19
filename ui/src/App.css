@@ -1682,6 +1682,43 @@ body {
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
+/* 「更新を確認」。版の隣に小さく置く——押す人だけが押せばいい大きさに */
+.about-check {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+.about-check:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.about-check:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* 確認の返事。1行で終わらせ、新しい版があるときだけリンクを添える */
+.settings-note.update-say {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.settings-note.update-say button {
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
 .about-links {
   display: flex;
   gap: var(--sp-2);
@@ -2201,6 +2238,14 @@ body {
 }
 .speed-toast.decoder-notice button:hover {
   background: color-mix(in oklch, currentColor 15%, transparent);
+}
+
+/* 新しい版の知らせ（0.2）。デコーダの知らせと**同時に出ることがある**ので、
+   段を1つ上げて重ねない。色は警告ではなく accent——直さないと困るものではない */
+.speed-toast.update-notice {
+  bottom: 168px;
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* 言語のプルダウン。ネイティブの select をトークンの色に寄せるだけに留める

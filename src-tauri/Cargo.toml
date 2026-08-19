@@ -30,6 +30,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 設定画面のプレビュー（今日の日付でフォルダ例を作る）用
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# 新しい版が出ていないかを見に行くだけのHTTP（0.2）。**アプリの唯一の外向き通信**で、
+# 起動時に1回、GitHubのReleases APIを叩く（設定で切れる）。reqwestではなくこれを選ぶのは、
+# 非同期ランタイムを持ち込まず `spawn_blocking` の中でそのまま書けるため。
+# プロキシは環境変数（HTTP(S)_PROXY）だけを見る——Windowsのシステムプロキシ設定は読まない
+ureq = "3"
 
 # ドライブ種別（リムーバブル/固定/ネットワーク/光学）の判定に GetDriveTypeW を使う。
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
