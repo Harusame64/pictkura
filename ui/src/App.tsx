@@ -459,6 +459,11 @@ export default function App() {
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
   /**
+   * ゴミ箱への移動が走っているか。**一覧からの削除と1枚の削除で共有する**
+   * ——別スレッドへ出したぶん、走っている最中も画面は動く（ゲート1の指摘）
+   */
+  const deletingRef = useRef(false);
+  /**
    * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
    *
    * 解除だけでなく**あらゆる選択操作**で進めるのが要点。3万件のライブラリで
@@ -2626,12 +2631,16 @@ export default function App() {
   /** 1枚をゴミ箱へ移動する（確認あり）。写真は取り返しがつかないのでOSのゴミ箱経由 */
   const onDelete = useCallback(
     async (item: MediaItem) => {
-      const ok = await confirmDialog(t.deleteConfirm(1), {
-        title: t.appName,
-        kind: "warning",
-      });
-      if (!ok) return;
+      // 一覧からのまとめて削除と**同じ鍵**を使う。1枚と数千枚が同時に走ると、
+      // 進捗イベントもステータスも混ざる（ゲート1の指摘）
+      if (deletingRef.current) return;
+      deletingRef.current = true;
       try {
+        const ok = await confirmDialog(t.deleteConfirm(1), {
+          title: t.appName,
+          kind: "warning",
+        });
+        if (!ok) return;
         const n = await deleteMedia([item.id]);
         setStatus(t.deleted(n));
         // 削除された日だけを捨てて取り直す（骨組みの件数も変わる）
@@ -2665,6 +2674,8 @@ export default function App() {
         await refreshSummary();
       } catch (e) {
         setStatus(String(e));
+      } finally {
+        deletingRef.current = false;
       }
     },
     [refreshSummary],
@@ -2758,32 +2769,48 @@ export default function App() {
     });
   }, []);
 
-  /** 選んだものをまとめてゴミ箱へ（確認あり） */
+  /**
+   * 選んだものをまとめてゴミ箱へ（確認あり）。
+   *
+   * **確認ダイアログを待つ前に鍵を掛ける**（書き出しと同じ形・ゲート1の指摘）。
+   * ゴミ箱への移動は別スレッドへ出したので、走っているあいだも画面は動く
+   * ——2回押せば2本ともダイアログまで進み、同じIDに二重の操作が掛かって
+   * 進捗とステータスが混ざる。ボタンの非活性（`busy`）は次のレンダーを待つので、
+   * **即座に効くのはrefだけ**。
+   */
   const onBulkDelete = useCallback(async () => {
-    const ids = await visibleSelection();
-    if (ids.length === 0) return;
-    // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
-    const touched = new Set(ids);
-    const ok = await confirmDialog(t.deleteConfirm(ids.length), {
-      title: t.appName,
-      kind: "warning",
-    });
-    if (!ok) return;
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setBusy(true);
     try {
-      const n = await deleteMedia(ids);
-      setStatus(t.deleted(n));
-      forgetDeleted(touched);
-      setViewer((v) => (v && touched.has(v.id as number) ? null : v));
-      clearSelection();
-      await refreshSummary();
-    } catch (e) {
-      // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
-      // 落としてからエラーを返すので、画面をそのままにすると
-      // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
-      setStatus(String(e));
-      forgetDeleted(touched);
-      clearSelection();
-      await refreshSummary().catch(() => {});
+      const ids = await visibleSelection();
+      if (ids.length === 0) return;
+      // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
+      const touched = new Set(ids);
+      const ok = await confirmDialog(t.deleteConfirm(ids.length), {
+        title: t.appName,
+        kind: "warning",
+      });
+      if (!ok) return;
+      try {
+        const n = await deleteMedia(ids);
+        setStatus(t.deleted(n));
+        forgetDeleted(touched);
+        setViewer((v) => (v && touched.has(v.id as number) ? null : v));
+        clearSelection();
+        await refreshSummary();
+      } catch (e) {
+        // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
+        // 落としてからエラーを返すので、画面をそのままにすると
+        // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
+        setStatus(String(e));
+        forgetDeleted(touched);
+        clearSelection();
+        await refreshSummary().catch(() => {});
+      }
+    } finally {
+      deletingRef.current = false;
+      setBusy(false);
     }
   }, [visibleSelection, refreshSummary, clearSelection, forgetDeleted]);
 
