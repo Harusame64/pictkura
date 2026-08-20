@@ -1284,11 +1284,11 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         // 失敗することがある（現像ソフトが握っている等）。写真が元の場所に残ったのに
         // その `.xmp` だけ送ってしまうと、**残った写真から現像設定が剥がれる**
         // ——一覧に出ないファイルなので、戻せるとしても気付く手立てが無い
-        let survived: std::collections::HashSet<&PathBuf> = deleted_media.iter().collect();
+        let trashed: std::collections::HashSet<&PathBuf> = deleted_media.iter().collect();
         let sidecars: Vec<PathBuf> = sidecars
             .into_iter()
             .zip(owners)
-            .filter(|(_, owners)| owners.iter().all(|o| survived.contains(o)))
+            .filter(|(_, owners)| owners.iter().all(|o| trashed.contains(o)))
             .map(|(sidecar, _)| sidecar)
             .collect();
         // **影は別に送る**。ここでの失敗で写真の結果を書き換えない——
