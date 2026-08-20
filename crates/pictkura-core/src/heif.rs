@@ -871,7 +871,8 @@ fn parse_clap(body: &[u8], stored_width: u32, stored_height: u32) -> Option<Clap
     }
     // 32バイトあることは上で確かめている。それでも取り出しを `unwrap` に
     // 頼らないのは、**上の条件を後から緩めたときに黙って落ちる**のを避けるため
-    // ——0が返れば下の `ratio` が `None` を返し、切り出しを諦めるだけで済む
+    // ——0が返っても、分母なら `ratio` が `None`、分子なら幅・高さが0になって
+    // 下の `width < 1.0` で落ちる。どちらも「切り出さない」に着く
     let num = |i: usize| -> i32 {
         body.get(i * 4..i * 4 + 4)
             .and_then(|b| <[u8; 4]>::try_from(b).ok())

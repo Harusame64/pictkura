@@ -2698,103 +2698,128 @@ pub fn run() {
             let (fts_cursor, fts_max_id) = lock_ok(&app.state::<AppState>().db)
                 .fts_build_range()
                 .unwrap_or((0, 0));
+            // 索引が落ちたときに「作成中」を畳むための控え（本体は下の閉包が持っていく）
+            let index_fail_handle = app.handle().clone();
             std::thread::spawn(move || {
-                let state = index_handle.state::<AppState>();
-                let Ok(mut db) = Db::open(&index_db_path) else {
-                    return;
-                };
-                let publish =
-                    |phase: &str, done: i64, total: i64, building: bool, incomplete: bool| {
-                        let progress = IndexProgressDto {
-                            building,
-                            incomplete,
-                            phase: phase.into(),
-                            done,
-                            total,
+                let finished =
+                    pictkura_core::panics::catching("全文索引の作成", move || {
+                        let state = index_handle.state::<AppState>();
+                        let Ok(mut db) = Db::open(&index_db_path) else {
+                            return;
                         };
-                        *lock_ok(&state.index_progress) = progress.clone();
-                        let _ = index_handle.emit("index-progress", progress);
-                    };
-                /// 一時的な失敗（他の接続との書き込み競合等）はこの回数まで待って再試行する。
-                /// 諦めた場合もカーソルは進めないので、次回起動が続きから再開する
-                const MAX_RETRY: u32 = 5;
-                let mut incomplete = false;
+                        let publish = |phase: &str,
+                                       done: i64,
+                                       total: i64,
+                                       building: bool,
+                                       incomplete: bool| {
+                            let progress = IndexProgressDto {
+                                building,
+                                incomplete,
+                                phase: phase.into(),
+                                done,
+                                total,
+                            };
+                            *lock_ok(&state.index_progress) = progress.clone();
+                            let _ = index_handle.emit("index-progress", progress);
+                        };
+                        /// 一時的な失敗（他の接続との書き込み競合等）はこの回数まで待って再試行する。
+                        /// 諦めた場合もカーソルは進めないので、次回起動が続きから再開する
+                        const MAX_RETRY: u32 = 5;
+                        let mut incomplete = false;
 
-                // 第1段: 全文索引の掃き寄せ。範囲（上限ID）は**スキャンスレッドを
-                // 起動する前に**確定させてある（あとで採ると、起動同期が入れた行が
-                // 上限より小さいIDで入り、トリガと掃き寄せの二重投入になりうる）
-                if fts_cursor < fts_max_id {
-                    publish("index", fts_cursor, fts_max_id, true, false);
-                    let mut retry = 0;
-                    loop {
-                        match db.fts_build_step(fts_max_id, 2000) {
-                            Ok((_, next)) => {
-                                retry = 0;
-                                if next >= fts_max_id {
+                        // 第1段: 全文索引の掃き寄せ。範囲（上限ID）は**スキャンスレッドを
+                        // 起動する前に**確定させてある（あとで採ると、起動同期が入れた行が
+                        // 上限より小さいIDで入り、トリガと掃き寄せの二重投入になりうる）
+                        if fts_cursor < fts_max_id {
+                            publish("index", fts_cursor, fts_max_id, true, false);
+                            let mut retry = 0;
+                            loop {
+                                match db.fts_build_step(fts_max_id, 2000) {
+                                    Ok((_, next)) => {
+                                        retry = 0;
+                                        if next >= fts_max_id {
+                                            break;
+                                        }
+                                        publish("index", next, fts_max_id, true, false);
+                                        std::thread::sleep(std::time::Duration::from_millis(20));
+                                    }
+                                    Err(_) if retry < MAX_RETRY => {
+                                        retry += 1;
+                                        std::thread::sleep(std::time::Duration::from_millis(
+                                            200 * retry as u64,
+                                        ));
+                                    }
+                                    Err(_) => {
+                                        incomplete = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 第2段: カメラの後追い補完。検索導入前に取り込んだレコードは
+                        // メタデータ抽出済みで再処理されないため、ここでEXIFヘッダだけを
+                        // 読んでカメラを埋める（画像デコードなし）
+                        let total = db.cameras_pending().unwrap_or(0);
+                        let mut done = 0i64;
+                        if total > 0 {
+                            publish("camera", 0, total, true, incomplete);
+                            let mut after_id = 0i64;
+                            while let Ok(batch) = db.cameras_to_backfill(after_id, 200) {
+                                if batch.is_empty() {
                                     break;
                                 }
-                                publish("index", next, fts_max_id, true, false);
+                                after_id = batch.last().map(|(id, _)| *id).unwrap_or(after_id);
+                                let results: Vec<(i64, Option<String>)> = batch
+                                    .into_iter()
+                                    // **開けなかったファイルは印を付けずに飛ばす**。
+                                    // 外付けドライブが未マウントの状態で起動すると、
+                                    // read_exif_info は「EXIFなし」と区別のつかない空を返す。
+                                    // それを「確認済み・カメラなし」として書くと、
+                                    // マウント後も二度と読み直されず永久に間違ったままになる
+                                    .filter(|(_, path)| path.is_file())
+                                    // **実体がクラウドにしか無いファイルも同じ扱い**（段階H）。
+                                    // ここは `width IS NOT NULL` で対象を選んでおり、段階Hで
+                                    // OSから寸法を借りるようにした結果、**クラウドのみの
+                                    // ファイルが丸ごとこの列に並ぶようになった**（実測3,165件）。
+                                    // read_exif_info はファイルを開くので、そのまま流すと
+                                    // ユーザーが何も要求していないのにライブラリ全体が
+                                    // ダウンロードされる。開ける日が来たときに読めばよい
+                                    .filter(|(_, path)| {
+                                        !pictkura_core::cloud::is_cloud_only_path(path)
+                                    })
+                                    .map(|(id, path)| {
+                                        (id, pictkura_core::thumbs::read_exif_info(&path).camera)
+                                    })
+                                    .collect();
+                                done += results.len() as i64;
+                                if !results.is_empty() && db.set_cameras(&results).is_err() {
+                                    incomplete = true;
+                                    break; // 印を付けていないので次回起動でやり直せる
+                                }
+                                publish("camera", done.min(total), total, true, incomplete);
                                 std::thread::sleep(std::time::Duration::from_millis(20));
                             }
-                            Err(_) if retry < MAX_RETRY => {
-                                retry += 1;
-                                std::thread::sleep(std::time::Duration::from_millis(
-                                    200 * retry as u64,
-                                ));
-                            }
-                            Err(_) => {
-                                incomplete = true;
-                                break;
-                            }
+                            // 埋まったカメラを左ペインへ反映させる
+                            let _ = index_handle.emit("cameras-updated", ());
                         }
-                    }
+                        publish("camera", total, total, false, incomplete);
+                    });
+                // **「作成中」を出したまま消えない**（ゲート1の指摘）。ここで落ちると
+                // `building` が真のまま残り、UIは永久に作成中の帯を出し続ける。
+                // 途中までの索引は次回起動が続きから作り直す（カーソルは進めていない）
+                if finished.is_none() {
+                    let state = index_fail_handle.state::<AppState>();
+                    let progress = IndexProgressDto {
+                        building: false,
+                        incomplete: true,
+                        phase: "index".into(),
+                        done: 0,
+                        total: 0,
+                    };
+                    *lock_ok(&state.index_progress) = progress.clone();
+                    let _ = index_fail_handle.emit("index-progress", progress);
                 }
-
-                // 第2段: カメラの後追い補完。検索導入前に取り込んだレコードは
-                // メタデータ抽出済みで再処理されないため、ここでEXIFヘッダだけを
-                // 読んでカメラを埋める（画像デコードなし）
-                let total = db.cameras_pending().unwrap_or(0);
-                let mut done = 0i64;
-                if total > 0 {
-                    publish("camera", 0, total, true, incomplete);
-                    let mut after_id = 0i64;
-                    while let Ok(batch) = db.cameras_to_backfill(after_id, 200) {
-                        if batch.is_empty() {
-                            break;
-                        }
-                        after_id = batch.last().map(|(id, _)| *id).unwrap_or(after_id);
-                        let results: Vec<(i64, Option<String>)> = batch
-                            .into_iter()
-                            // **開けなかったファイルは印を付けずに飛ばす**。
-                            // 外付けドライブが未マウントの状態で起動すると、
-                            // read_exif_info は「EXIFなし」と区別のつかない空を返す。
-                            // それを「確認済み・カメラなし」として書くと、
-                            // マウント後も二度と読み直されず永久に間違ったままになる
-                            .filter(|(_, path)| path.is_file())
-                            // **実体がクラウドにしか無いファイルも同じ扱い**（段階H）。
-                            // ここは `width IS NOT NULL` で対象を選んでおり、段階Hで
-                            // OSから寸法を借りるようにした結果、**クラウドのみの
-                            // ファイルが丸ごとこの列に並ぶようになった**（実測3,165件）。
-                            // read_exif_info はファイルを開くので、そのまま流すと
-                            // ユーザーが何も要求していないのにライブラリ全体が
-                            // ダウンロードされる。開ける日が来たときに読めばよい
-                            .filter(|(_, path)| !pictkura_core::cloud::is_cloud_only_path(path))
-                            .map(|(id, path)| {
-                                (id, pictkura_core::thumbs::read_exif_info(&path).camera)
-                            })
-                            .collect();
-                        done += results.len() as i64;
-                        if !results.is_empty() && db.set_cameras(&results).is_err() {
-                            incomplete = true;
-                            break; // 印を付けていないので次回起動でやり直せる
-                        }
-                        publish("camera", done.min(total), total, true, incomplete);
-                        std::thread::sleep(std::time::Duration::from_millis(20));
-                    }
-                    // 埋まったカメラを左ペインへ反映させる
-                    let _ = index_handle.emit("cameras-updated", ());
-                }
-                publish("camera", total, total, false, incomplete);
             });
 
             // サムネイルキャッシュのジャニター（段階B-3）: 60秒ごとに
@@ -2805,62 +2830,72 @@ pub fn run() {
             let janitor_handle = app.handle().clone();
             let janitor_db_path = db_path.clone();
             std::thread::spawn(move || {
-                let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
-                let mut db: Option<Db> = None;
-                loop {
-                    std::thread::sleep(std::time::Duration::from_secs(60));
-                    let state = janitor_handle.state::<AppState>();
-                    let touches: Vec<(i64, i64)> = lock_ok(&state.thumb_touches).drain().collect();
-                    if touches.is_empty() && cap_bytes == 0 {
-                        continue;
-                    }
-                    if db.is_none() {
-                        db = Db::open(&janitor_db_path).ok();
-                    }
-                    let Some(db) = db.as_mut() else { continue };
-                    if !touches.is_empty() {
-                        // 書き込み失敗（長時間の書き込みトランザクションとの競合等）で
-                        // タッチを失うと、直近閲覧中のサムネイルほどLRUで削除されやすく
-                        // なってしまう。失敗分はマップへ書き戻して次サイクルで再試行する
-                        if db.touch_thumbs(&touches).is_err() {
-                            let mut map = lock_ok(&state.thumb_touches);
-                            for (id, used_ms) in touches {
-                                map.entry(id)
-                                    .and_modify(|v| *v = (*v).max(used_ms))
-                                    .or_insert(used_ms);
+                // **掃除役を絶やさない**（ゲート1の指摘）。ここが死ぬとLRU削除が
+                // 永久に止まり、サムネイルが上限を超えて**ディスクを埋め続ける**
+                // ——しかも静かなので誰も気付かない。落ちたら開き直して回し直す
+                // （DBの接続は中で開き直る。60秒眠ってから始まるので暴走しない）
+                while pictkura_core::panics::catching("サムネイルの掃除", || {
+                    let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
+                    let mut db: Option<Db> = None;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(60));
+                        let state = janitor_handle.state::<AppState>();
+                        let touches: Vec<(i64, i64)> =
+                            lock_ok(&state.thumb_touches).drain().collect();
+                        if touches.is_empty() && cap_bytes == 0 {
+                            continue;
+                        }
+                        if db.is_none() {
+                            db = Db::open(&janitor_db_path).ok();
+                        }
+                        let Some(db) = db.as_mut() else { continue };
+                        if !touches.is_empty() {
+                            // 書き込み失敗（長時間の書き込みトランザクションとの競合等）で
+                            // タッチを失うと、直近閲覧中のサムネイルほどLRUで削除されやすく
+                            // なってしまう。失敗分はマップへ書き戻して次サイクルで再試行する
+                            if db.touch_thumbs(&touches).is_err() {
+                                let mut map = lock_ok(&state.thumb_touches);
+                                for (id, used_ms) in touches {
+                                    map.entry(id)
+                                        .and_modify(|v| *v = (*v).max(used_ms))
+                                        .or_insert(used_ms);
+                                }
+                            }
+                        }
+                        if cap_bytes == 0 {
+                            continue;
+                        }
+                        // 移行前（サイズ未記録）のサムネイルを少しずつ補完する。
+                        // 補完しないとキャッシュ使用量に数えられず上限管理から漏れる
+                        let _ = db.backfill_thumb_sizes(2000);
+                        let exclude = state.thumbs.active_ids();
+                        let Ok(victims) = db.evict_final_thumbs(cap_bytes, &exclude) else {
+                            continue;
+                        };
+                        for (id, path) in victims {
+                            // 削除の直前に再確認する: LRU選定（コミット済み）の後に
+                            // オンデマンド再生成が走った行のファイルを消すと、
+                            // 「state=2なのにファイルが無い」壊れた状態になり自然回復しない。
+                            // キューに入り直した/再生成済みのIDはスキップする
+                            // （スキップ分のファイルは同名パスへの再生成で上書きされる）
+                            if state.thumbs.is_active(id) {
+                                continue;
+                            }
+                            match db.get_by_id(id) {
+                                Ok(Some(rec)) if rec.thumb_state == 2 => continue,
+                                _ => {}
+                            }
+                            let _ = std::fs::remove_file(path);
+                            // フロントの古い「高品質あり」表示を正す（未ロードの日ならno-op）
+                            if let Ok(Some(rec)) = db.get_by_id(id) {
+                                let _ =
+                                    janitor_handle.emit("media-updated", MediaItemDto::from(rec));
                             }
                         }
                     }
-                    if cap_bytes == 0 {
-                        continue;
-                    }
-                    // 移行前（サイズ未記録）のサムネイルを少しずつ補完する。
-                    // 補完しないとキャッシュ使用量に数えられず上限管理から漏れる
-                    let _ = db.backfill_thumb_sizes(2000);
-                    let exclude = state.thumbs.active_ids();
-                    let Ok(victims) = db.evict_final_thumbs(cap_bytes, &exclude) else {
-                        continue;
-                    };
-                    for (id, path) in victims {
-                        // 削除の直前に再確認する: LRU選定（コミット済み）の後に
-                        // オンデマンド再生成が走った行のファイルを消すと、
-                        // 「state=2なのにファイルが無い」壊れた状態になり自然回復しない。
-                        // キューに入り直した/再生成済みのIDはスキップする
-                        // （スキップ分のファイルは同名パスへの再生成で上書きされる）
-                        if state.thumbs.is_active(id) {
-                            continue;
-                        }
-                        match db.get_by_id(id) {
-                            Ok(Some(rec)) if rec.thumb_state == 2 => continue,
-                            _ => {}
-                        }
-                        let _ = std::fs::remove_file(path);
-                        // フロントの古い「高品質あり」表示を正す（未ロードの日ならno-op）
-                        if let Ok(Some(rec)) = db.get_by_id(id) {
-                            let _ = janitor_handle.emit("media-updated", MediaItemDto::from(rec));
-                        }
-                    }
-                }
+                })
+                .is_none()
+                {}
             });
 
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
@@ -2870,32 +2905,34 @@ pub fn run() {
             // 方式（USN差分/枝刈り/フル）と所要時間は⚡爆速メーターとして別途知らせる
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                let started = std::time::Instant::now();
-                let state = handle.state::<AppState>();
-                let Ok((stats, method)) = startup_scan(&state) else {
-                    return;
-                };
-                let elapsed_ms = started.elapsed().as_millis() as u64;
-                let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
-                let (method_name, usn_records, dirty_dirs) = match method {
-                    StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
-                    StartupMethod::Pruned => ("pruned", 0, 0),
-                    StartupMethod::Full => ("full", 0, 0),
-                };
-                let report = StartupScanDto {
-                    method: method_name.into(),
-                    elapsed_ms,
-                    added: stats.added,
-                    changed: stats.changed,
-                    removed: stats.removed,
-                    usn_records,
-                    dirty_dirs,
-                    skipped_dirs: stats.skipped_dirs,
-                    total,
-                };
-                *lock_ok(&state.startup_report) = Some(report.clone());
-                let _ = handle.emit("library-updated", SyncStatsDto::from(stats));
-                let _ = handle.emit("startup-scan-report", report);
+                let _ = pictkura_core::panics::catching("起動時の同期", move || {
+                    let started = std::time::Instant::now();
+                    let state = handle.state::<AppState>();
+                    let Ok((stats, method)) = startup_scan(&state) else {
+                        return;
+                    };
+                    let elapsed_ms = started.elapsed().as_millis() as u64;
+                    let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
+                    let (method_name, usn_records, dirty_dirs) = match method {
+                        StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
+                        StartupMethod::Pruned => ("pruned", 0, 0),
+                        StartupMethod::Full => ("full", 0, 0),
+                    };
+                    let report = StartupScanDto {
+                        method: method_name.into(),
+                        elapsed_ms,
+                        added: stats.added,
+                        changed: stats.changed,
+                        removed: stats.removed,
+                        usn_records,
+                        dirty_dirs,
+                        skipped_dirs: stats.skipped_dirs,
+                        total,
+                    };
+                    *lock_ok(&state.startup_report) = Some(report.clone());
+                    let _ = handle.emit("library-updated", SyncStatsDto::from(stats));
+                    let _ = handle.emit("startup-scan-report", report);
+                });
             });
             Ok(())
         })
@@ -2923,7 +2960,19 @@ pub fn run() {
                     pictkura_core::panics::catching(&format!("media要求 {uri}"), || {
                         handle_media_request(&state, &uri, range.as_deref())
                     })
-                    .unwrap_or_else(server_error);
+                    .unwrap_or_else(|| {
+                        // **一覧のタイルには壊れた画像アイコンを出さない**
+                        // （ゲート1の指摘）。500も404と同じ絵になるので、
+                        // `blank_thumb` と同じ透明PNGへ揃える——落ちた1枚が
+                        // 空のセルになるだけで、割れた写真は並ばない
+                        match parse_media_url(&uri) {
+                            Some(MediaTarget::Library {
+                                kind: MediaKind::Thumb,
+                                ..
+                            }) => blank_thumb(),
+                            _ => server_error(),
+                        }
+                    });
                 responder.respond(response);
             });
         })

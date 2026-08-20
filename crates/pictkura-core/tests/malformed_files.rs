@@ -11,7 +11,12 @@
 //! テストが落ちたら、それは**本当にパニックした**ということ。
 
 // テストを組み立てる側（一時ファイルの書き出し等）の `unwrap()` は許す。
-// **確かめたいのは本体が落ちないこと**で、足場が落ちたらそれは足場の不備
+// **確かめたいのは本体が落ちないこと**で、足場が落ちたらそれは足場の不備。
+//
+// **この1行は消せない**。`clippy.toml` の `allow-unwrap-in-tests` が効くのは
+// `#[test]` 関数の中だけで、**同じファイルのモジュール直下の補助関数には
+// 効かない**（ゲート1が `clippy-driver` で実証）。消すとCIの
+// `clippy --all-targets -- -D warnings` が赤くなる
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::Path;
@@ -390,6 +395,40 @@ fn feed_every_reader(path: &Path) {
     }
 }
 
+/// **解読器そのもの**へ食わせる（ゲート1の指摘）。
+///
+/// 上の [`feed_every_reader`] が通るのはコンテナとEXIFの解析器までで、
+/// `panics::catching` が網を張った相手——rav1d（AVIF）・`image`
+///（PNG/GIF/TIFF）・OSのデコーダ——は一度も動かない。**網の存在理由に
+/// なっている経路が未検査**では、検査として足りない。
+///
+/// 展開は重いので、呼ぶのは切り詰めを間引いた点だけ（[`feed_decoders_at`]）。
+fn feed_decoders(path: &Path) {
+    use pictkura_core::*;
+
+    let _ = heif::decode_scaled(path, 256);
+    let _ = heif::decode_thumbnail(path);
+    let _ = heif::decode(path);
+    let _ = av1::decode_file(path, Some(256), av1::Threads::One);
+    // 詰め直しの経路（`image` とOSのデコーダを通る）
+    let _ = thumbs::display_jpeg(path);
+    let _ = thumbs::raw_display_jpeg(path);
+    let _ = thumbs::heif_display_jpeg(path);
+    // 取り込み元のプレビュー（`image` の各デコーダへ入る）
+    let _ = browse::preview(path, 256);
+}
+
+/// 展開まで含めて食わせる。`feed_decoders` が重いので拡張子は絞る。
+fn feed_decoders_at(dir: &Path, bytes: &[u8]) {
+    for ext in ["heic", "avif", "jpg", "png", "tif", "gif"] {
+        let path = dir.join(format!("展開.{ext}"));
+        if std::fs::write(&path, bytes).is_ok() {
+            feed_decoders(&path);
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 /// 切り詰めの検査で使う拡張子。**総当たりにしない**——1バイトずつ削る掛け算で
 /// 時間が伸びるだけで、判定はどれも同じ入口へ落ちる。
 /// 中身と食い違う `.jpg` / `.arw` を1つずつ混ぜて、付け替えの経路も通す。
@@ -470,7 +509,11 @@ fn 空とごみは何形式として読ませても落ちない() {
     for len in [1usize, 3, 7, 8, 9, 15, 16, 17, 63, 255, 1024] {
         let bytes = rng.bytes(len);
         feed_as_every_extension(dir.path(), &format!("乱数{len}"), &bytes);
+        feed_decoders_at(dir.path(), &bytes);
     }
+    feed_decoders_at(dir.path(), &[]);
+    feed_decoders_at(dir.path(), &[0u8; 64]);
+    feed_decoders_at(dir.path(), &[0xFFu8; 64]);
 }
 
 #[test]
@@ -482,7 +525,8 @@ fn 途中で切れた画像や動画でも落ちない() {
         ("mp4", plausible_mp4()),
         ("jpeg", plausible_jpeg()),
     ] {
-        // **1バイトずつ切り詰める**。転送が途中で止まったファイルそのもの
+        // **1バイトずつ切り詰める**。転送が途中で止まったファイルそのもの。
+        // 箱の境目はどこにでも来るので、安い読み取り口は**全部の位置**で見る
         for cut in 0..whole.len() {
             feed_as(
                 dir.path(),
@@ -490,8 +534,14 @@ fn 途中で切れた画像や動画でも落ちない() {
                 &whole[..cut],
                 CUT_EXTS,
             );
+            // 展開（rav1d・`image`・OSのデコーダ）は重いので**間引く**。
+            // 頭とお尻は箱の境目が密なので細かく、中間は16バイト刻み
+            if cut < 48 || cut + 48 > whole.len() || cut % 16 == 0 {
+                feed_decoders_at(dir.path(), &whole[..cut]);
+            }
         }
         feed_as_every_extension(dir.path(), label, &whole);
+        feed_decoders_at(dir.path(), &whole);
     }
 }
 
@@ -500,6 +550,7 @@ fn 長さの欄が嘘の箱でも落ちない() {
     let dir = tempfile::tempdir().unwrap();
     for (label, bytes) in hostile_boxes() {
         feed_as_every_extension(dir.path(), label, &bytes);
+        feed_decoders_at(dir.path(), &bytes);
         // 後ろが切れている場合も見る
         for cut in [0usize, 4, 8, 12] {
             if cut < bytes.len() {

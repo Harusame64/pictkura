@@ -372,11 +372,13 @@ impl Picture {
     /// SAFETY: `plane` は 0..3、`x`/`y` はその面の範囲内であること。
     unsafe fn sample(&self, plane: usize, x: usize, y: usize) -> u32 {
         let stride = self.raw.stride[usize::from(plane > 0)].max(0) as usize;
-        // 面がそろっていることは `new` で確かめてある。ここで落とさずに
-        // 黒を返すのは、**万一そろっていなくても絵を1枚諦めるだけで済ませる**ため
-        // （`unwrap` と同じ1回の分岐で、値段は変わらない）
+        // 面がそろっていることは `new` で確かめてある。ここで落とさないのは、
+        // **万一そろっていなくても絵を1枚諦めるだけで済ませる**ため
+        // （`unwrap` と同じ1回の分岐で、値段は変わらない）。
+        // 返す既定値は輝度なら黒(0)、色差なら**中立(128)**——色差の0は黒ではなく、
+        // 強い色被りになる（ゲート1の指摘）
         let Some(plane_ptr) = self.raw.data.get(plane).copied().flatten() else {
-            return 0;
+            return if plane > 0 { 128 } else { 0 };
         };
         let base = plane_ptr.as_ptr() as *const u8;
         let at = unsafe { base.add(y * stride + x * self.bytes) };
