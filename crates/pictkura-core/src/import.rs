@@ -14,7 +14,7 @@ use chrono::{Datelike, Local, TimeZone};
 
 use crate::config::Config;
 use crate::scanner;
-use crate::thumbs::read_exif;
+use crate::thumbs::read_exif_meta;
 
 pub use scanner::is_managed_package_path;
 
@@ -419,7 +419,7 @@ fn taken_at_of(path: &Path) -> Option<i64> {
     let from_meta = if crate::video::is_video_path(path) {
         crate::video::read_info(path).and_then(|i| i.taken_at_ms)
     } else {
-        read_exif(path).taken_at_ms
+        read_exif_meta(path).taken_at_ms
     };
     // 撮影日時を持たないファイルはファイル名に聞く（段階H-2）
     from_meta.or_else(|| crate::namedate::guess_taken_at(path))

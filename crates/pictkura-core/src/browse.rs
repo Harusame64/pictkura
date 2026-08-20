@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::scanner::has_target_extension;
-use crate::thumbs::{apply_orientation, read_exif};
+use crate::thumbs::{apply_orientation, read_exif_for_preview};
 
 /// 子フォルダの中身を数えるときに見るエントリ数の上限。
 ///
@@ -299,8 +299,10 @@ pub fn preview(path: &Path, max_edge: u32) -> Option<Preview> {
     }
 
     // RAWは現像しない。read_exifが埋め込みプレビューJPEGを拾ってくれる
-    // （CR3のようにフルサイズが入っていることもあるので、大きければ縮める）
-    let exif = read_exif(path);
+    // （CR3のようにフルサイズが入っていることもあるので、大きければ縮める）。
+    // ここは一覧のタイルなので `max_edge` に届けば十分——原寸のプレビューを
+    // 探しにファイル全体を読ませない
+    let exif = read_exif_for_preview(path, max_edge);
     if let Some(embedded) = &exif.thumbnail {
         // 一覧に出すには大きすぎる埋め込み（RAWのフルサイズプレビュー等）は縮める。
         // 回転が要るときも同じ経路（デコード→回転→再エンコード）

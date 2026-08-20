@@ -208,6 +208,115 @@ fn bench_raw_dir(dir: &std::path::Path) {
     );
 }
 
+/// RAWの**向き**が各社で正しく出るかを確かめる（0.2・`dev/loadmap.md` 1.3）。
+///
+/// [`pictkura_core::thumbs::raw_display_jpeg`] は「埋め込みプレビューは回転前の絵で
+/// 書かれている」という前提で、EXIFの向きを**自分で適用してから**返している。
+/// カメラが**回転済みのプレビュー**を書く機種があると、この前提が崩れて
+/// 二重に回り、縦位置の写真が横倒しになる。各社のRAWを並べて突き合わせる:
+///
+/// - EXIFが申告する向き（1〜8）
+/// - 埋め込みプレビューの実寸（縦長か横長か）——ここが既に縦なら回してはいけない
+/// - 詰め直した表示用JPEGの実寸
+///
+/// `--out <フォルダ>` を付けると表示用JPEGを長辺360pxへ縮めて書き出す。
+/// 表の縦横だけでは「180度ひっくり返っている」を見抜けないので、
+/// **最後は書き出した絵を目で見て確かめる**。
+fn bench_raw_orient(dir: &std::path::Path, out: Option<&std::path::Path>) {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| pictkura_core::raw::is_raw_path(p))
+        .collect();
+    entries.sort();
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir).expect("書き出し先を作れない");
+    }
+
+    println!("== pictkura RAWの向き ==");
+    println!("対象: {}", dir.display());
+    println!(
+        "{:<36} {:>4} {:>6} {:>15} {:>15}  判定",
+        "ファイル", "向き", "プ向き", "プレビュー", "表示"
+    );
+    let mut suspicious = 0usize;
+    for path in &entries {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let exif = pictkura_core::thumbs::read_exif(path);
+        let Some(preview) = exif.thumbnail.as_ref() else {
+            println!("{name:<36} {:>4} {:>6} {:>15} {:>15}  プレビューが無い", exif.orientation, "-", "-", "-");
+            continue;
+        };
+        // プレビュー自身がEXIFの向きを持っているか（持っていれば、その絵が
+        // 回転前であることをカメラが明言している）
+        let preview_orient = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(preview))
+            .ok()
+            .and_then(|e| {
+                e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                    .and_then(|f| f.value.get_uint(0))
+            })
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "無".to_string());
+        let pv = image::load_from_memory(preview).ok();
+        let pv_dims = pv
+            .as_ref()
+            .map(|i| format!("{}x{}{}", i.width(), i.height(), shape(i.width(), i.height())))
+            .unwrap_or_else(|| "デコード不可".to_string());
+        let disp = pictkura_core::thumbs::display_jpeg(path).and_then(|b| {
+            image::load_from_memory(&b)
+                .ok()
+                .map(|i| (i, b.len()))
+        });
+        let disp_dims = disp
+            .as_ref()
+            .map(|(i, _)| format!("{}x{}{}", i.width(), i.height(), shape(i.width(), i.height())))
+            .unwrap_or_else(|| "作れない".to_string());
+
+        // 90度系の回転を掛けるのに、プレビューが**既に縦長**なら二重回転を疑う
+        let rot90 = (5..=8).contains(&exif.orientation);
+        let pv_portrait = pv.as_ref().is_some_and(|i| i.height() > i.width());
+        let verdict = if rot90 && pv_portrait {
+            suspicious += 1;
+            "★二重回転の疑い（プレビューが既に縦）"
+        } else if rot90 {
+            "回す（プレビューは横）"
+        } else if pv_portrait {
+            "そのまま（元から縦）"
+        } else {
+            "そのまま"
+        };
+        println!(
+            "{name:<36} {:>4} {preview_orient:>6} {pv_dims:>15} {disp_dims:>15}  {verdict}",
+            exif.orientation
+        );
+
+        if let (Some(dir), Some((img, _))) = (out, disp.as_ref()) {
+            let small = img.thumbnail(360, 360);
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            let to = dir.join(format!("{stem}.jpg"));
+            small.to_rgb8().save(&to).expect("書き出しに失敗");
+        }
+    }
+    println!(
+        "
+{}件中 {suspicious}件が要確認。書き出した絵を必ず目で見ること",
+        entries.len()
+    );
+}
+
+/// 縦長・横長を一目で分かるようにする。
+fn shape(w: u32, h: u32) -> &'static str {
+    if h > w {
+        "(縦)"
+    } else {
+        "(横)"
+    }
+}
+
 /// 原寸表示用JPEGを作る費用を測る（0.2 ① 先読みの深さの根拠）。
 ///
 /// ビューアが `media://full/<id>` で払う値段そのもの。対象は
@@ -1448,6 +1557,14 @@ fn main() {
     }
     if let Some(dir) = arg_value(&args, "--raw-dir") {
         bench_raw_dir(std::path::Path::new(&dir));
+        return;
+    }
+    if let Some(dir) = arg_value(&args, "--raw-orient") {
+        let out = arg_value(&args, "--out");
+        bench_raw_orient(
+            std::path::Path::new(&dir),
+            out.as_deref().map(std::path::Path::new),
+        );
         return;
     }
     if let Some(dir) = arg_value(&args, "--display-dir") {
