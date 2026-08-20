@@ -247,7 +247,10 @@ fn bench_raw_orient(dir: &std::path::Path, out: Option<&std::path::Path>) {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         let exif = pictkura_core::thumbs::read_exif(path);
         let Some(preview) = exif.thumbnail.as_ref() else {
-            println!("{name:<36} {:>4} {:>6} {:>15} {:>15}  プレビューが無い", exif.orientation, "-", "-", "-");
+            println!(
+                "{name:<36} {:>4} {:>6} {:>15} {:>15}  プレビューが無い",
+                exif.orientation, "-", "-", "-"
+            );
             continue;
         };
         // プレビュー自身がEXIFの向きを持っているか（持っていれば、その絵が
@@ -264,16 +267,27 @@ fn bench_raw_orient(dir: &std::path::Path, out: Option<&std::path::Path>) {
         let pv = image::load_from_memory(preview).ok();
         let pv_dims = pv
             .as_ref()
-            .map(|i| format!("{}x{}{}", i.width(), i.height(), shape(i.width(), i.height())))
+            .map(|i| {
+                format!(
+                    "{}x{}{}",
+                    i.width(),
+                    i.height(),
+                    shape(i.width(), i.height())
+                )
+            })
             .unwrap_or_else(|| "デコード不可".to_string());
-        let disp = pictkura_core::thumbs::display_jpeg(path).and_then(|b| {
-            image::load_from_memory(&b)
-                .ok()
-                .map(|i| (i, b.len()))
-        });
+        let disp = pictkura_core::thumbs::display_jpeg(path)
+            .and_then(|b| image::load_from_memory(&b).ok().map(|i| (i, b.len())));
         let disp_dims = disp
             .as_ref()
-            .map(|(i, _)| format!("{}x{}{}", i.width(), i.height(), shape(i.width(), i.height())))
+            .map(|(i, _)| {
+                format!(
+                    "{}x{}{}",
+                    i.width(),
+                    i.height(),
+                    shape(i.width(), i.height())
+                )
+            })
             .unwrap_or_else(|| "作れない".to_string());
 
         // 90度系の回転を掛けるのに、プレビューが**既に縦長**なら二重回転を疑う

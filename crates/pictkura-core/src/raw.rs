@@ -57,28 +57,33 @@ const PATCHED_TIFF_HEAD: usize = 256 * 1024;
 ///
 /// ここに無い拡張子は「普通の画像」として `image` クレートに渡る。
 pub fn is_raw_extension(ext: &str) -> bool {
-    const RAW_EXTENSIONS: &[&str] = &[
-        "cr2", "cr3", "crw", // Canon
-        "nef", "nrw", // Nikon
-        "arw", "srf", "sr2", // Sony
-        "raf", // Fujifilm
-        "orf", // OM System / Olympus
-        "rw2", // Panasonic
-        "pef", "ptx", // Pentax
-        "srw", // Samsung
-        "dng", // Adobe / 各社共通
-        "raw", "rwl", // Leica
-        "3fr", "fff", // Hasselblad
-        "iiq", // Phase One
-        "erf", // Epson
-        "mrw", // Minolta
-        "x3f", // Sigma
-        "dcr", "kdc", // Kodak
-        "mos", // Leaf
-    ];
     let lower = ext.to_ascii_lowercase();
     RAW_EXTENSIONS.contains(&lower.as_str())
 }
+
+/// RAWとして扱う拡張子（小文字）。
+///
+/// ここに足したら [`crate::config::DEFAULT_EXTENSIONS`] にも足すこと
+/// ——走査対象に入っていないRAWは**一覧に出ない**。歯止めのテストがある。
+pub const RAW_EXTENSIONS: &[&str] = &[
+    "cr2", "cr3", "crw", // Canon
+    "nef", "nrw", // Nikon
+    "arw", "srf", "sr2", // Sony
+    "raf", // Fujifilm
+    "orf", // OM System / Olympus
+    "rw2", // Panasonic
+    "pef", "ptx", // Pentax
+    "srw", // Samsung
+    "dng", // Adobe / 各社共通
+    "raw", "rwl", // Leica
+    "3fr", "fff", // Hasselblad
+    "iiq", // Phase One
+    "erf", // Epson
+    "mrw", // Minolta
+    "x3f", // Sigma
+    "dcr", "kdc", // Kodak
+    "mos", // Leaf
+];
 
 /// JPEGらしきバイト列か（SOIマーカー）。
 fn looks_like_jpeg(bytes: &[u8]) -> bool {
@@ -436,7 +441,10 @@ pub fn embedded_preview(path: &Path) -> Option<Vec<u8>> {
 pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<u8>> {
     /// 大きい方を残す。
     fn keep(best: &mut Option<Vec<u8>>, found: Vec<u8>) {
-        if best.as_ref().is_none_or(|b| long_edge(b) < long_edge(&found)) {
+        if best
+            .as_ref()
+            .is_none_or(|b| long_edge(b) < long_edge(&found))
+        {
             *best = Some(found);
         }
     }
@@ -476,7 +484,15 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
         }
     }
 
-    // 4段目: JPEGが1枚も無い形式（Leica DNG・Epson ERF・Hasselblad 3FR・
+    // 4段目: Minoltaの `.mrw` は、埋め込みJPEGの**先頭1バイトを潰して**書く
+    if let Some(bytes) = minolta_repaired_jpeg(path) {
+        if long_edge(&bytes) >= min_long_edge {
+            return Some(bytes);
+        }
+        keep(&mut best, bytes);
+    }
+
+    // 5段目: JPEGが1枚も無い形式（Leica DNG・Epson ERF・Hasselblad 3FR・
     // Phase One IIQ・Kodak DCR）。非圧縮RGBのプレビューを組み立てる
     let uncompressed = (|| {
         let big_endian = matches!(read_window(path, 0, 2).as_deref(), Some(b"MM"));
@@ -520,6 +536,71 @@ fn declared_preview(path: &Path) -> Option<Vec<u8>> {
     None
 }
 
+/// Minoltaの `.mrw` が持つ「先頭を潰されたJPEG」を直して返す。
+///
+/// MRWは埋め込みJPEGのSOI（`FF D8`）の**先頭バイトを0で潰して**書く
+/// （`00 D8 FF` で始まる）。1バイト戻せば普通のJPEGとして読める。
+/// **`.mrw` のときだけ**試す——この3バイトの並びは生のセンサーデータにも
+/// 普通に現れるので、他形式で拾うと絵にならない塊を掴む。
+fn minolta_repaired_jpeg(path: &Path) -> Option<Vec<u8>> {
+    if !path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("mrw"))
+    {
+        return None;
+    }
+    let head = read_head(path, SCAN_LIMIT)?;
+    let mut at = 0usize;
+    let mut best: Option<Vec<u8>> = None;
+    while let Some(found) = head
+        .get(at..)?
+        .windows(3)
+        .position(|w| w == [0x00, 0xD8, 0xFF])
+    {
+        let start = at + found;
+        let mut repaired = head.get(start..)?.to_vec();
+        repaired[0] = 0xFF;
+        if let Some(span) = jpeg_span(&repaired, 0) {
+            if span.displayable {
+                repaired.truncate(span.end);
+                if best.as_ref().is_none_or(|b| b.len() < repaired.len()) {
+                    best = Some(repaired);
+                }
+            }
+        }
+        at = start + 3;
+    }
+    best
+}
+
+/// `.mrw` の中の**TIFFの塊**（`TTW` ブロック）を返す。
+///
+/// MRWは独自のブロック構造（` MRM` の下に ` PRD`・` TTW`…）で、
+/// EXIFは `TTW` の中に**TIFFのまま**入っている。ブロックを辿るだけなので
+/// 読むのは先頭側だけで済む。
+fn mrw_tiff_block(path: &Path) -> Option<Vec<u8>> {
+    let head = read_head(path, PATCHED_TIFF_HEAD)?;
+    if head.get(..4)? != b" MRM" {
+        return None;
+    }
+    // 先頭の ` MRM` は「この後ろ全部の長さ」なので、中身は8バイト目から
+    let mut at = 8usize;
+    while at + 8 <= head.len() {
+        let tag = head.get(at..at + 4)?;
+        let len = u32::from_be_bytes(head.get(at + 4..at + 8)?.try_into().ok()?) as usize;
+        if len == 0 {
+            return None;
+        }
+        if tag == b" TTW" {
+            let block = head.get(at + 8..(at + 8).saturating_add(len))?;
+            return Some(block.to_vec());
+        }
+        at = at.checked_add(8)?.checked_add(len)?;
+    }
+    None
+}
+
 /// JPEGの長辺（ヘッダだけ読む。読めなければ0）。
 fn long_edge(bytes: &[u8]) -> u32 {
     image::ImageReader::new(std::io::Cursor::new(bytes))
@@ -543,6 +624,10 @@ fn long_edge(bytes: &[u8]) -> u32 {
 /// 先を指す項目は空になるだけで、手前にある撮影日時・カメラ名・向きは読める
 /// （実測: 先頭16KBでORF・RW2とも全項目が一致）。
 pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
+    // MRWは版番号ではなく**入れ物ごと独自**で、TIFFは中の `TTW` に入っている
+    if let Some(block) = mrw_tiff_block(path) {
+        return Some(block);
+    }
     let head = read_window(path, 0, PATCHED_TIFF_HEAD)?;
     let byte_order = head.get(..2)?;
     let big_endian = match byte_order {
@@ -563,7 +648,11 @@ pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
     let len = std::fs::metadata(path).ok()?.len() as usize;
     let mut buf = vec![0u8; len.max(head.len())];
     buf.get_mut(..head.len())?.copy_from_slice(&head);
-    let patched = if big_endian { [0x00, 0x2A] } else { [0x2A, 0x00] };
+    let patched = if big_endian {
+        [0x00, 0x2A]
+    } else {
+        [0x2A, 0x00]
+    };
     buf.get_mut(2..4)?.copy_from_slice(&patched);
     Some(buf)
 }
@@ -997,7 +1086,10 @@ mod tests {
         let stamp = jpeg_bytes(160, 120);
         let full = jpeg_bytes(1600, 1200);
         let path = tiff_with_declared_preview(dir.path(), "sample.nef", &stamp);
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         file.write_all(&full).unwrap();
         drop(file);
 
@@ -1019,7 +1111,10 @@ mod tests {
         let declared = jpeg_bytes(1600, 1200);
         let bigger = jpeg_bytes(2400, 1800);
         let path = tiff_with_declared_preview(dir.path(), "sample.cr2", &declared);
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         file.write_all(&bigger).unwrap();
         drop(file);
 
@@ -1040,7 +1135,10 @@ mod tests {
         let stamp = jpeg_bytes(160, 120);
         let small = jpeg_bytes(720, 480);
         let path = tiff_with_declared_preview(dir.path(), "sample.dng", &stamp);
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         file.write_all(&small).unwrap();
         drop(file);
 

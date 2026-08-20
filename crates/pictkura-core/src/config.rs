@@ -157,9 +157,10 @@ impl Default for ImportConfig {
 pub const DEFAULT_EXTENSIONS: &[&str] = &[
     // 普通の画像
     "jpg", "jpeg", "png",
-    "webp", // RAW（カメラが書いた表示用JPEGを取り出して扱う）
-    "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf", "rw2", "pef", "srw", "dng", "rwl",
-    "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc",
+    "webp", // RAW（カメラが書いた表示用JPEGを取り出して扱う）。
+    // ここと [`crate::raw::is_raw_extension`] は歯止めのテストで突き合わせている
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "pef", "ptx",
+    "srw", "dng", "raw", "rwl", "3fr", "fff", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "mos",
     // HEIF（iPhoneの既定形式。画素はOSのデコーダで展開する）
     "heic", "heif", "hif",
     // その他のよくある形式。bmp/gif/tiff は image クレートが読み、
@@ -169,6 +170,21 @@ pub const DEFAULT_EXTENSIONS: &[&str] = &[
     // 一覧に出せることと再生できることは別で、mts/avi は再生だけ外部アプリになる
     "mp4", "m4v", "mov", "webm", "avi", "mts", "m2ts", "mkv", "3gp", "wmv", "mpg", "mpeg",
 ];
+
+/// 既定の拡張子にRAWが漏れなく入っているか。
+///
+/// `DEFAULT_EXTENSIONS` と [`crate::raw::is_raw_extension`] も別々に書いてある。
+/// 走査側に無いRAWは、コードがその形式を知っていても**一覧に出ない**
+/// （0.2 で `crw`・`srf`・`ptx`・`raw`・`fff`・`mos` の6つが漏れていた）。
+#[cfg(test)]
+fn raw_extensions_are_all_scanned() -> Result<(), String> {
+    for ext in crate::raw::RAW_EXTENSIONS {
+        if !DEFAULT_EXTENSIONS.contains(ext) {
+            return Err(format!("走査対象に入っていないRAWの拡張子: {ext}"));
+        }
+    }
+    Ok(())
+}
 
 /// 既定の拡張子に動画が漏れなく入っているか。
 ///
@@ -214,7 +230,22 @@ fn upgrade_extensions(current: &[String]) -> Option<Vec<String>> {
             "heic", "heif", "hif", "bmp", "gif", "tif", "tiff", "svg", "avif",
         ],
     ];
+    /// 0.2でRAWを6つ足す前の既定（動画まで入った版）
+    const BEFORE_RAW_GAP_FIX: &[&str] = &[
+        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
+        "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "heic",
+        "heif", "hif", "bmp", "gif", "tif", "tiff", "svg", "avif", "mp4", "m4v", "mov", "webm",
+        "avi", "mts", "m2ts", "mkv", "3gp", "wmv", "mpg", "mpeg",
+    ];
     let normalized: Vec<String> = current.iter().map(|e| e.to_ascii_lowercase()).collect();
+    if normalized == BEFORE_RAW_GAP_FIX {
+        return Some(
+            DEFAULT_EXTENSIONS
+                .iter()
+                .map(|e| (*e).to_string())
+                .collect(),
+        );
+    }
     LEGACY_DEFAULTS
         .iter()
         .any(|legacy| normalized == *legacy)
@@ -421,6 +452,12 @@ mod tests {
     #[test]
     fn 動画の拡張子はすべて走査対象に入っている() {
         super::video_extensions_are_all_scanned().unwrap();
+    }
+
+    /// RAWの拡張子が走査対象から漏れていないこと（二重管理の歯止め）
+    #[test]
+    fn rawの拡張子はすべて走査対象に入っている() {
+        super::raw_extensions_are_all_scanned().unwrap();
     }
 
     /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**

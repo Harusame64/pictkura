@@ -1318,9 +1318,9 @@ mod tests {
         buf.extend_from_slice(&version);
         buf.extend_from_slice(&8u32.to_le_bytes()); // IFD0の位置
         let entries: [(u16, u16, u32); 3] = [
-            (274, 3, 6),                    // Orientation = 90度回す
-            (513, 4, 0),                    // JPEGInterchangeFormat（後で埋める）
-            (514, 4, jpeg.len() as u32),    // その長さ
+            (274, 3, 6),                 // Orientation = 90度回す
+            (513, 4, 0),                 // JPEGInterchangeFormat（後で埋める）
+            (514, 4, jpeg.len() as u32), // その長さ
         ];
         let ifd_size = 2 + entries.len() * 12 + 4;
         let jpeg_offset = (8 + ifd_size) as u32;
@@ -1373,9 +1373,15 @@ mod tests {
         let path = dir.path().join("photo.nef");
         raw_with_preview(&path, *b"* ", &test_jpeg_bytes(1600, 1200));
 
-        assert!(read_exif_meta(&path).thumbnail.is_none(), "絵は取り出さない");
+        assert!(
+            read_exif_meta(&path).thumbnail.is_none(),
+            "絵は取り出さない"
+        );
         assert_eq!(read_exif_meta(&path).orientation, 6, "向きは読む");
-        assert!(read_exif(&path).thumbnail.is_some(), "絵が要るときは取り出す");
+        assert!(
+            read_exif(&path).thumbnail.is_some(),
+            "絵が要るときは取り出す"
+        );
     }
 
     #[test]

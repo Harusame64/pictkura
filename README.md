@@ -320,12 +320,18 @@ at all (the “Check for updates” button next to it still asks, once, when you
 pictkura does **not** develop RAW files. It pulls out the display JPEG the camera wrote
 for its own screen — a few milliseconds per file, with the camera's own colour rendering.
 
-| Format | Image | Notes |
-|---|:--:|---|
-| `cr2` `cr3` `nef` `nrw` `arw` `sr2` `raf` `orf` `rw2` `pef` `srw` `dng` `rwl` | ✅ | includes Apple ProRAW (which is DNG) |
-| `3fr` `iiq` `erf` `dcr` `kdc` `x3f` | ✅ | bodies without an embedded JPEG are assembled from the uncompressed preview |
-| `mrw` (Minolta) | ⚠️ | its thumbnail has its leading bytes overwritten by design |
-| Blackmagic CinemaDNG | ⚠️ | contains no preview at all |
+| Format | Grid | View | Notes |
+|---|:--:|:--:|---|
+| `cr2` `cr3` `nef` `nrw` `arw` `raf` `orf` `rw2` `pef` `srw` `dng` `rwl` `3fr` `x3f` `kdc` | ✅ | ✅ | the camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (which is DNG) |
+| `crw` `srf` `sr2` `mrw` `erf` `dcr` `iiq` `mos` `raw` | ✅ | ⚠️ | older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft |
+| `fff` (Hasselblad) | ⚠️ | ⚠️ | the H5D-40 file we tested carries no preview at all, so only a frame appears |
+| `ptx` (Pentax) | ? | ? | recognised, but we could not obtain a real file to check |
+| Blackmagic CinemaDNG | ⚠️ | ⚠️ | contains no preview at all |
+
+Checked on 2026-08-20 against 28 real files from 16 makers (sample images from
+[photographyblog.com](https://www.photographyblog.com/) and the CC0 samples at
+[raw.pixls.us](https://raw.pixls.us/)): the display JPEG comes out, portrait shots
+come out upright, and the shot date and camera name are read.
 
 ### Video
 

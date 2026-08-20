@@ -323,10 +323,15 @@ pictkura は一切外へ出ません（同じ場所の「更新を確認」を�
 
 | 形式 | 一覧 | 表示 | 備考 |
 |---|:--:|:--:|---|
-| `cr2` `cr3` `nef` `nrw` `arw` `sr2` `raf` `orf` `rw2` `pef` `srw` `dng` `rwl` | ✅ | ✅ | カメラが書いた表示用JPEGを取り出します（CR3 30MBで17ms） |
-| `3fr` `iiq` `erf` `dcr` `kdc` `x3f` | ✅ | ✅ | JPEGを持たない機種は、非圧縮プレビューから組み立てます |
-| `mrw`（Minolta） | ⚠️ | ⚠️ | サムネイルの先頭バイトを潰す独自仕様のため絵が出ません |
+| `cr2` `cr3` `nef` `nrw` `arw` `raf` `orf` `rw2` `pef` `srw` `dng` `rwl` `3fr` `x3f` `kdc` | ✅ | ✅ | カメラが書いた原寸級の表示用JPEGを取り出します（CR3 30MBで17ms） |
+| `crw` `srf` `sr2` `mrw` `erf` `dcr` `iiq` `mos` `raw` | ✅ | ⚠️ | 古い機種は小さいプレビューしか持ちません（確かめた実物で160×120〜640×480）。一覧には出ますが、全画面は粗くなります |
+| `fff`（Hasselblad） | ⚠️ | ⚠️ | 確かめた H5D-40 にはプレビューが入っておらず、枠だけになります |
+| `ptx`（Pentax） | ? | ? | 対象にはしていますが、実ファイルを入手できず未確認です |
 | Blackmagic CinemaDNG | ⚠️ | ⚠️ | プレビュー自体が入っていません（生データのみ） |
+
+2026-08-20に、16メーカー28枚の実ファイル（[photographyblog.com](https://www.photographyblog.com/) の
+サンプルと [raw.pixls.us](https://raw.pixls.us/) のCC0サンプル）で、
+**絵が出ること・縦位置が縦で出ること・撮影日時とカメラ名が読めること**を確かめています。
 
 Apple ProRAW（実体はDNG）にも対応しています。iPhone 12 Pro の実ファイルで、
 フル解像度 4032×3024 の表示用JPEGを 21ms で取り出せることを確認しました。

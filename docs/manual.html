@@ -495,11 +495,12 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 </p>
 <div class="table-scroll">
 <table>
-  <tr><th>形式</th><th class="center">絵が出るか</th><th>備考</th></tr>
-  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>sr2</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code></td><td class="center">✅</td><td>Apple ProRAW（DNG）を含みます</td></tr>
-  <tr><td><code>3fr</code> <code>iiq</code> <code>erf</code> <code>dcr</code> <code>kdc</code> <code>x3f</code></td><td class="center">✅</td><td>JPEGを持たない機種は非圧縮プレビューから組み立てます</td></tr>
-  <tr><td><code>mrw</code>（Minolta）</td><td class="center">⚠️</td><td>サムネイルの先頭バイトを潰す独自仕様のため絵が出ません</td></tr>
-  <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td>プレビュー自体が入っていません</td></tr>
+  <tr><th>形式</th><th class="center">一覧</th><th class="center">全画面</th><th>備考</th></tr>
+  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code> <code>3fr</code> <code>x3f</code> <code>kdc</code></td><td class="center">✅</td><td class="center">✅</td><td>カメラが書いた原寸級の表示用JPEGを使います。Apple ProRAW（DNG）を含みます</td></tr>
+  <tr><td><code>crw</code> <code>srf</code> <code>sr2</code> <code>mrw</code> <code>erf</code> <code>dcr</code> <code>iiq</code> <code>mos</code> <code>raw</code></td><td class="center">✅</td><td class="center">⚠️</td><td>古い機種は小さいプレビューしか持ちません（確かめた実物で160×120〜640×480）。一覧には出ますが、全画面は粗くなります</td></tr>
+  <tr><td><code>fff</code>（Hasselblad）</td><td class="center">⚠️</td><td class="center">⚠️</td><td>確かめた H5D-40 にはプレビューが入っておらず、枠だけになります</td></tr>
+  <tr><td><code>ptx</code>（Pentax）</td><td class="center">?</td><td class="center">?</td><td>対象にはしていますが、実ファイルを入手できず未確認です</td></tr>
+  <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td class="center">⚠️</td><td>プレビュー自体が入っていません</td></tr>
 </table>
 </div>
 
