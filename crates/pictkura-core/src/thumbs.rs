@@ -333,7 +333,7 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
     // 読める——直さないと**撮影日時もカメラ名も向きも丸ごと落ちる**
     if !had_container {
         if let Some(buf) = crate::raw::patched_tiff_metadata(path) {
-            if let Ok(exif) = exif::Reader::new().read_raw(buf) {
+            if let Some(exif) = read_raw_partial(buf) {
                 result = exif_data_from(&exif);
             }
         }
@@ -388,6 +388,20 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
         result.thumbnail = Some(preview);
     }
     result
+}
+
+/// 先頭ぶんだけを渡されたTIFFを読む。
+///
+/// [`crate::raw::patched_tiff_metadata`] はファイルの先頭しか返さないので、
+/// 画素データのように**その外を指す項目**は必ず「切れている」と言われる。
+/// そこで打ち切らず、読めた項目だけを受け取る——ORFで62項目、RW2で85項目が
+/// これで読める（撮影日時・カメラ名・向きはいずれも先頭側にある）。
+fn read_raw_partial(buf: Vec<u8>) -> Option<exif::Exif> {
+    match exif::Reader::new().continue_on_error(true).read_raw(buf) {
+        Ok(exif) => Some(exif),
+        Err(exif::Error::PartialResult(partial)) => Some(partial.into_inner().0),
+        Err(_) => None,
+    }
 }
 
 /// プレビューJPEGのEXIFで、**まだ埋まっていない項目だけ**を埋める。
@@ -1394,6 +1408,39 @@ mod tests {
             assert_eq!(data.orientation, 6, "{name}: 向きが読める");
             assert!(data.thumbnail.is_some(), "{name}: 絵も取れる");
         }
+    }
+
+    #[test]
+    fn 先頭の外を指す項目があっても向きは読める() {
+        // ORF・RW2は画素データの項目がファイルのずっと後ろを指す。渡すのは
+        // 先頭ぶんだけなので必ず「切れている」と言われる——そこで打ち切ると
+        // **向きが丸ごと落ちて縦位置が横倒しになる**（ゲート1のP1）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("far.orf");
+        let far = 1024 * 1024; // 先頭に読む256KBの、ずっと外
+
+        let mut buf: Vec<u8> = b"IIRO".to_vec(); // 版番号は独自（42ではない）
+        buf.extend_from_slice(&8u32.to_le_bytes());
+        buf.extend_from_slice(&2u16.to_le_bytes());
+        // Orientation = 6（値は項目の中に収まる）
+        buf.extend_from_slice(&274u16.to_le_bytes());
+        buf.extend_from_slice(&3u16.to_le_bytes());
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&6u16.to_le_bytes());
+        buf.extend_from_slice(&[0, 0]);
+        // Model（値は先頭の外を指す＝読めない項目）
+        buf.extend_from_slice(&272u16.to_le_bytes());
+        buf.extend_from_slice(&2u16.to_le_bytes());
+        buf.extend_from_slice(&8u32.to_le_bytes());
+        buf.extend_from_slice(&(far as u32).to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes()); // 次のIFDは無し
+        buf.resize(far + 8, 0);
+        buf[far..far + 8].copy_from_slice(b"OM-1    ");
+        std::fs::write(&path, &buf).unwrap();
+
+        let data = read_exif_meta(&path);
+        assert_eq!(data.orientation, 6, "読めた項目は使う");
+        assert!(data.camera.is_none(), "読めない項目は無いものとして扱う");
     }
 
     #[test]

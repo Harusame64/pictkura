@@ -661,15 +661,14 @@ pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
     if version == 42 || version == 43 {
         return None;
     }
-    let len = std::fs::metadata(path).ok()?.len() as usize;
-    // 嵩上げはファイルと同じ長さぶん確保する。`.raw` のように**中身が何でも
-    // ありうる拡張子**も走査対象なので、上限を付けないと数GBのファイル1つで
-    // 確保が破裂する。超えるものは諦める（メタデータが空になるだけ）
-    if len > FULL_SCAN_LIMIT {
-        return None;
-    }
-    let mut buf = vec![0u8; len.max(head.len())];
-    buf.get_mut(..head.len())?.copy_from_slice(&head);
+    // 返すのは**読んだ先頭ぶんだけ**。撮影日時も向きもカメラ名も先頭側に
+    // あるので、ファイルと同じ長さまで0で嵩上げする必要はない——それをやると
+    // サムネイルの並列ワーカーの数だけ数十MBずつ確保することになり、
+    // 上限を超える大きさのファイルは向きを丸ごと落とす（ゲート1のP1）。
+    // 読み手には [`exif::Reader::continue_on_error`] を使ってもらう:
+    // 画素データのように**この範囲の外を指す項目は飛ばして**、
+    // 先頭側に収まっている項目だけが読める
+    let mut buf = head;
     let patched = if big_endian {
         [0x00, 0x2A]
     } else {
@@ -1261,6 +1260,27 @@ mod tests {
                 "{name}: 向きが読める"
             );
         }
+    }
+
+    #[test]
+    fn 版番号を直すのにファイルと同じ大きさは確保しない() {
+        // サムネイルのワーカーは並列に走る。1枚ごとにファイル長ぶん0で
+        // 嵩上げすると、数十MBのORF・RW2が同時に何枚も乗るうえ、上限を
+        // 超える大きさのファイルは向きを丸ごと落とす（ゲート1のP1）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.orf");
+        let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], false);
+        buf[2] = b'R';
+        buf[3] = b'O';
+        buf.resize(4 * 1024 * 1024, 0); // 画素データのつもりの重し
+        std::fs::write(&path, &buf).unwrap();
+
+        let patched = patched_tiff_metadata(&path).expect("版番号を直せる");
+        assert!(
+            patched.len() <= PATCHED_TIFF_HEAD,
+            "読むのは先頭ぶんだけ: {}",
+            patched.len()
+        );
     }
 
     #[test]
