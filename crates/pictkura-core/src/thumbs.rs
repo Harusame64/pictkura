@@ -286,10 +286,15 @@ pub fn read_exif(path: &Path) -> ExifData {
     read_exif_inner(path, Some(crate::raw::USABLE_LONG_EDGE))
 }
 
-/// 撮影日時・向き・カメラ名だけを読む（**絵は取り出さない**）。
+/// 撮影日時・向き・カメラ名だけを読む（**絵は残さない**）。
 ///
 /// RAWのプレビュー抽出は、形式によってはファイル全体を読む（実測100〜350ms）。
 /// 取り込みの日付決めのように絵が要らない場面では、そこを省く。
+///
+/// ただし**撮影日時がプレビューJPEGにしか無い形式がある**（Fujifilm RAF・
+/// Sigma X3F・Kodak KDC）。そこまで省くと、取り込みがその1枚だけ
+/// ファイル名かmtimeの日付で**別の日のフォルダへ入れてしまう**ので、
+/// 日付が取れなかったときだけ先頭16MBのプレビューを見る（ゲート1のP2）。
 pub fn read_exif_meta(path: &Path) -> ExifData {
     read_exif_inner(path, None)
 }
@@ -352,6 +357,15 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
     }
 
     let Some(min_long_edge) = want_preview else {
+        // 絵は要らないが、**日付がプレビューにしか無い形式**はここで拾う。
+        // 撮影日時がもう取れているならプレビューには触らない（大多数はこちら）
+        if result.taken_at_ms.is_none() {
+            if let Some(preview) =
+                crate::raw::embedded_preview_at_least(path, crate::raw::USABLE_LONG_EDGE)
+            {
+                merge_preview_exif(&mut result, &preview);
+            }
+        }
         return result;
     };
 
@@ -361,19 +375,28 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
     if let Some(preview) = crate::raw::embedded_preview_at_least(path, min_long_edge) {
         // 撮影日時か向きが埋まっていない形式（RAF等）は、プレビューのEXIFも当たる
         if result.taken_at_ms.is_none() || result.orientation == 1 {
-            let mut cursor = std::io::Cursor::new(&preview);
-            if let Ok(exif) = exif::Reader::new().read_from_container(&mut cursor) {
-                let from_preview = exif_data_from(&exif);
-                result.taken_at_ms = result.taken_at_ms.or(from_preview.taken_at_ms);
-                result.camera = result.camera.or(from_preview.camera);
-                if result.orientation == 1 {
-                    result.orientation = from_preview.orientation;
-                }
-            }
+            merge_preview_exif(&mut result, &preview);
         }
         result.thumbnail = Some(preview);
     }
     result
+}
+
+/// プレビューJPEGのEXIFで、**まだ埋まっていない項目だけ**を埋める。
+/// カメラが書いたJPEGなので、入っている値は実体と同じもの。
+fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
+    let mut cursor = std::io::Cursor::new(preview);
+    let Ok(exif) = exif::Reader::new().read_from_container(&mut cursor) else {
+        return;
+    };
+    let from_preview = exif_data_from(&exif);
+    result.taken_at_ms = result.taken_at_ms.or(from_preview.taken_at_ms);
+    if result.camera.is_none() {
+        result.camera = from_preview.camera;
+    }
+    if result.orientation == 1 {
+        result.orientation = from_preview.orientation;
+    }
 }
 
 /// コンテナ（ファイル本体）のEXIFヘッダを読む。
@@ -1810,5 +1833,54 @@ mod tests {
         queue.record_failure(8);
         queue.enqueue(&[8]);
         assert_eq!(queue.pop(), Some((8, false)));
+    }
+
+    /// 撮影日時のEXIFを付けたJPEG（カメラが書くプレビューに相当）。
+    fn jpeg_with_taken_at(width: u32, height: u32, date: &str) -> Vec<u8> {
+        let mut tiff: Vec<u8> = b"II".to_vec();
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        // IFD0: ExifIFDへのポインタ1本だけ（26バイト目から）
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x8769u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&26u32.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        // ExifIFD: DateTimeOriginal（文字列は44バイト目から20バイト）
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x9003u16.to_le_bytes());
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&20u32.to_le_bytes());
+        tiff.extend_from_slice(&44u32.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        tiff.extend_from_slice(date.as_bytes());
+        tiff.push(0);
+
+        // SOIの直後にAPP1を挟む（APP1の長さだけはビッグエンディアン）
+        let body = test_jpeg_bytes(width, height);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif  ");
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    #[test]
+    fn 絵の中にしか日付が無いrawでも取り込みの日付が取れる() {
+        // Fujifilm RAF・Sigma X3F・Kodak KDCは、撮影日時をコンテナに持たず
+        // **埋め込みプレビューJPEGのEXIFにしか書かない**。日付だけ要る経路で
+        // ここを省くと、取り込みがその1枚だけファイル名かmtimeの日付で
+        // 別の日のフォルダへ入れる（ゲート1のP2・実物3枚で再現した）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.raf");
+        let mut buf = b"FUJIFILMCCD-RAW ".to_vec(); // TIFFではないヘッダ
+        buf.extend_from_slice(&jpeg_with_taken_at(64, 48, "2019:08:11 12:00:00"));
+        std::fs::write(&path, &buf).unwrap();
+
+        let data = read_exif_meta(&path);
+        assert!(data.taken_at_ms.is_some(), "プレビューのEXIFから日付を拾う");
+        assert!(data.thumbnail.is_none(), "それでも絵は残さない");
     }
 }

@@ -1161,8 +1161,8 @@ mod tests {
         // カメラ名も向きも丸ごと落ち、**縦位置の写真が横倒しになる**
         let dir = tempfile::tempdir().unwrap();
         for (name, big_endian, version) in [
-            ("sample.orf", false, [b'R', b'O']),
-            ("sample.orf", true, [b'O', b'R']),
+            ("sample.orf", false, *b"RO"),
+            ("sample.orf", true, *b"OR"),
             ("sample.rw2", false, [b'U', 0x00]),
         ] {
             let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], big_endian);
