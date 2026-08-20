@@ -333,6 +333,12 @@ impl Picture {
             2 => (1, 0, false),
             _ => (0, 0, false),
         };
+        // **色差の面がそろっているかを、受け取った時点で確かめる**。
+        // 1画素ずつ取り出す途中で気付いても、絵はもう半分書けている。
+        // 白黒（layout=0）は輝度だけで足りるので問わない
+        if !mono && (raw.data[1].is_none() || raw.data[2].is_none()) {
+            return Err(Box::new(raw));
+        }
         let bpc = raw.p.bpc.clamp(8, 16) as u32;
         // コンテナ（`colr`）の指定が最優先。無ければシーケンスヘッダを見る。
         // SAFETY: seq_hdr は get_picture が埋める。無ければ既定値で進む
@@ -366,7 +372,13 @@ impl Picture {
     /// SAFETY: `plane` は 0..3、`x`/`y` はその面の範囲内であること。
     unsafe fn sample(&self, plane: usize, x: usize, y: usize) -> u32 {
         let stride = self.raw.stride[usize::from(plane > 0)].max(0) as usize;
-        let base = self.raw.data[plane].unwrap().as_ptr() as *const u8;
+        // 面がそろっていることは `new` で確かめてある。ここで落とさずに
+        // 黒を返すのは、**万一そろっていなくても絵を1枚諦めるだけで済ませる**ため
+        // （`unwrap` と同じ1回の分岐で、値段は変わらない）
+        let Some(plane_ptr) = self.raw.data.get(plane).copied().flatten() else {
+            return 0;
+        };
+        let base = plane_ptr.as_ptr() as *const u8;
         let at = unsafe { base.add(y * stride + x * self.bytes) };
         if self.bytes == 1 {
             unsafe { *at as u32 }

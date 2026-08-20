@@ -18,3 +18,24 @@ license = "MIT"
 # **上流の `exclude` が直った版が出たら、ここは消してcrates.ioへ戻すこと。**
 [patch.crates-io]
 rav1d = { git = "https://github.com/memorysafety/rav1d", tag = "v1.1.0" }
+
+# **パニックの出口を塞いだままにする**（`dev/loadmap.md` 1.3）。
+#
+# 一度 `unwrap()` を撤去しても、次に書く1行でまた戻る。ここで拒否にしておけば、
+# 書いた本人がその場で気付く——壊れたファイル1枚でアプリが落ちるのは、
+# 数万枚のライブラリでは「いつか」ではなく「必ず」起きる。
+#
+# 逃がしたいときは、その行に `#[allow(...)]` と**理由**を書く。黙って通す道は残さない。
+# テストの中は素通し（`clippy.toml`）——落ちること自体が結果なので。
+#
+# `indexing_slicing`（添字の外れ）は**入れていない**。本体だけで130か所あり、
+# 一つずつ `get()` に直すと読めなくなる場所が多い。代わりに
+# `crates/pictkura-core/tests/malformed_files.rs` で**壊れたファイルを実際に食わせて**
+# 落ちないことを確かめている。網（`panics::catching`）はその外側にある。
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"

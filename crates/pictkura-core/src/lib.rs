@@ -18,6 +18,7 @@ pub mod heif;
 pub mod import;
 pub mod jpeg;
 pub mod namedate;
+pub mod panics;
 pub mod paths;
 pub mod protocol;
 pub mod raw;

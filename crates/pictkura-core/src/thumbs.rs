@@ -26,6 +26,10 @@ pub enum ThumbError {
     Image(#[from] image::ImageError),
     #[error("レコードが見つからない: id={0}")]
     NotFound(i64),
+    /// 解読器がパニックで知らせてきた（`dev/loadmap.md` 1.3）。
+    /// **1枚の失敗として数える**——ワーカーは生かしたまま次へ進む
+    #[error("読み取りの途中で落ちた（壊れたファイルの可能性）: id={0}")]
+    Panicked(i64),
 }
 
 /// EXIFから抽出したメタデータ。
@@ -658,7 +662,7 @@ fn process_video(
 
     let thumb = crate::resize::shrink_to_fit(&img, thumb_size);
     let webp_path = thumb_path_for(thumbs_dir, id, "webp");
-    std::fs::create_dir_all(webp_path.parent().unwrap())?;
+    ensure_parent(&webp_path)?;
     let rgb = crate::resize::flatten_onto_white(&thumb);
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
     std::fs::write(&webp_path, &*encoded)?;
@@ -685,6 +689,18 @@ fn process_video(
 /// すると、全件事前生成をやめた意味（CPU・ディスク節約）が失われるため、
 /// メタデータだけ書いて [`ThumbOutcome::MetadataOnly`] を返す。
 /// 高品質は可視領域の要求（優先キュー経由、want_final = true）でのみ生成する。
+/// 置き先のフォルダを作る。
+///
+/// 親が無いパス（`"a.webp"` のような相対名）はそのまま置く——`unwrap` で
+/// 落とすほどのことではないし、置き先は必ずアプリが組み立てたパスなので
+/// ここに来ることは無い。
+fn ensure_parent(path: &Path) -> std::io::Result<()> {
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir),
+        _ => Ok(()),
+    }
+}
+
 pub fn process_one(
     db: &mut Db,
     thumbs_dir: &Path,
@@ -815,7 +831,7 @@ pub fn process_one(
     if record.thumb_state == 0 && is_heif {
         if let Some(img) = crate::heif::decode_thumbnail(src) {
             let webp_path = thumb_path_for(thumbs_dir, id, "webp");
-            std::fs::create_dir_all(webp_path.parent().unwrap())?;
+            ensure_parent(&webp_path)?;
             let rgb = crate::resize::flatten_onto_white(&img);
             let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
             std::fs::write(&webp_path, &*encoded)?;
@@ -832,7 +848,7 @@ pub fn process_one(
         if let Some(bytes) = &exif_data.thumbnail {
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
-                std::fs::create_dir_all(jpg_path.parent().unwrap())?;
+                ensure_parent(&jpg_path)?;
                 if exif_data.orientation == 1 {
                     std::fs::write(&jpg_path, bytes)?;
                 } else {
@@ -879,7 +895,7 @@ pub fn process_one(
 
     // WebP(lossy)で書く: JPEG比でほぼ半分の容量（100万枚で数十GBの差になる）
     let webp_path = thumb_path_for(thumbs_dir, id, "webp");
-    std::fs::create_dir_all(webp_path.parent().unwrap())?;
+    ensure_parent(&webp_path)?;
     let rgb = crate::resize::flatten_onto_white(&apply_orientation(thumb, exif_data.orientation));
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
     std::fs::write(&webp_path, &*encoded)?;
@@ -1087,7 +1103,19 @@ impl ThumbnailService {
                     while let Some((id, want_final)) = queue.pop() {
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
-                        let result = process_one(&mut db, &thumbs_dir, thumb_size, id, want_final);
+                        //
+                        // **1枚のパニックでワーカーを死なせない**（`dev/loadmap.md` 1.3）。
+                        // 解読器（rav1d・`image`・libjpeg）は規格外のバイト列に当たると
+                        // `Err` ではなくパニックで知らせてくることがある。そのまま
+                        // 巻き戻すと**このスレッドが1本消え**、`queue.complete(id)` にも
+                        // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
+                        // ——以後そのフォルダのサムネイルが永久に出てこない。
+                        // 1枚の失敗（下で回数を数える側）へ均す
+                        let result =
+                            crate::panics::catching(&format!("サムネイル id={id}"), || {
+                                process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
+                            })
+                            .unwrap_or(Err(ThumbError::Panicked(id)));
                         queue.complete(id);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）

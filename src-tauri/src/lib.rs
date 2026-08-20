@@ -2175,7 +2175,7 @@ fn source_preview_response(state: &AppState, path: &Path) -> Response<Vec<u8>> {
         Response::builder()
             .status(StatusCode::FORBIDDEN)
             .body(Vec::new())
-            .unwrap()
+            .unwrap_or_else(|_| server_error())
     };
     let Some(parent) = path.parent() else {
         return denied();
@@ -2191,12 +2191,25 @@ fn source_preview_response(state: &AppState, path: &Path) -> Response<Vec<u8>> {
             // URLに ?v=<mtime> が付くので、内容が変わったら別URLになる
             .header("Cache-Control", "max-age=31536000, immutable")
             .body(preview.bytes)
-            .unwrap(),
+            .unwrap_or_else(|_| server_error()),
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Vec::new())
-            .unwrap(),
+            .unwrap_or_else(|_| server_error()),
     }
+}
+
+/// 応答を組み立てられなかったときに返すもの（`dev/loadmap.md` 1.3）。
+///
+/// `http` のビルダーが `Err` を返すのは、直前に置いた状態やヘッダが
+/// 壊れているときだけで、ここで渡すのはどれも定数なので通らない。
+/// それでも `unwrap` を置かないのは、**ここで落ちると WebView の要求を捌く
+/// スレッドがそのまま死ぬ**から——一覧が丸ごと白いまま、何も起きなくなる。
+/// 空の500へ均せば、その1枚が出ないだけで済む。
+fn server_error() -> Response<Vec<u8>> {
+    let mut res = Response::new(Vec::new());
+    *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+    res
 }
 
 /// 1x1の透明PNG（67バイト）。
@@ -2219,7 +2232,7 @@ fn blank_thumb() -> Response<Vec<u8>> {
         .header("Content-Type", "image/png")
         .header("Cache-Control", "no-store")
         .body(BLANK_PNG.to_vec())
-        .unwrap()
+        .unwrap_or_else(|_| server_error())
 }
 
 /// 1回の部分応答で返す最大バイト数（4MiB）。
@@ -2241,7 +2254,12 @@ const WHOLE_FILE_LIMIT: u64 = 64 * 1024 * 1024;
 fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
 
-    let fail = |status: StatusCode| Response::builder().status(status).body(Vec::new()).unwrap();
+    let fail = |status: StatusCode| {
+        Response::builder()
+            .status(status)
+            .body(Vec::new())
+            .unwrap_or_else(|_| server_error())
+    };
     // クラウドにしか実体が無いファイルは**開かない**。開いた瞬間に
     // ハイドレート（全体のダウンロード）が始まり、数GBの動画なら
     // 何分もの間このスレッドが刺さったまま、UIには黒い枠しか出ない。
@@ -2282,7 +2300,7 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
                         .header("Content-Length", bytes.len())
                         .header("Cache-Control", "max-age=31536000, immutable")
                         .body(bytes)
-                        .unwrap(),
+                        .unwrap_or_else(|_| server_error()),
                     None => fail(StatusCode::NOT_FOUND),
                 }
             }
@@ -2293,7 +2311,7 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
                     .status(StatusCode::RANGE_NOT_SATISFIABLE)
                     .header("Content-Range", format!("bytes */{len}"))
                     .body(Vec::new())
-                    .unwrap()
+                    .unwrap_or_else(|_| server_error())
             }
         };
 
@@ -2306,7 +2324,7 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
             .header("Content-Length", bytes.len())
             .header("Cache-Control", "max-age=31536000, immutable")
             .body(bytes)
-            .unwrap(),
+            .unwrap_or_else(|_| server_error()),
         None => fail(StatusCode::NOT_FOUND),
     }
 }
@@ -2363,7 +2381,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Vec::new())
-            .unwrap()
+            .unwrap_or_else(|_| server_error())
     };
 
     let target = match parse_media_url(url) {
@@ -2410,7 +2428,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             return Response::builder()
                 .status(StatusCode::UNSUPPORTED_MEDIA_TYPE)
                 .body(Vec::new())
-                .unwrap();
+                .unwrap_or_else(|_| server_error());
         }
         return video_response(&record.path, range, mime_for_path(&record.path));
     }
@@ -2422,7 +2440,10 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             Some(thumb) => thumb,
             None => return blank_thumb(),
         },
-        MediaKind::Video => unreachable!("上で返している"),
+        // 上の `if kind == MediaKind::Video` で必ず返しているので通らない。
+        // それでも `unreachable!` を置かないのは、**通ったときに落ちる**のが
+        // ここでいちばん高くつくため（要求を捌くスレッドが死ぬ）
+        MediaKind::Video => return not_found(),
         MediaKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
             None if !can_serve_original(&record) => return blank_thumb(),
@@ -2448,7 +2469,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
                 .header("Content-Type", "image/jpeg")
                 .header("Cache-Control", "max-age=31536000, immutable")
                 .body(bytes)
-                .unwrap()
+                .unwrap_or_else(|_| server_error())
         };
         if let Some(hit) = state.display_cache.get(key) {
             return served(hit.as_ref().clone());
@@ -2484,7 +2505,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             // 内容変更時は別URLになり古いキャッシュを掴み続けない
             .header("Cache-Control", "max-age=31536000, immutable")
             .body(bytes)
-            .unwrap(),
+            .unwrap_or_else(|_| server_error()),
         Err(_) => not_found(),
     }
 }
@@ -2563,7 +2584,7 @@ pub fn run() {
         return;
     }
 
-    tauri::Builder::default()
+    let run = tauri::Builder::default()
         // single-instanceは**最初のプラグイン**でなければならない（Tauriの規約）。
         // USB挿入の自動起動で2重に立ち上がっても、新しい窓を開かず動作中の
         // インスタンスへ引数（`--import <ドライブ>`）を渡してウィザードを開く
@@ -2892,7 +2913,18 @@ pub fn run() {
                 .map(str::to_owned);
             tauri::async_runtime::spawn_blocking(move || {
                 let state = app.state::<AppState>();
-                responder.respond(handle_media_request(&state, &uri, range.as_deref()));
+                // **1枚の絵で要求の捌き手を死なせない**（`dev/loadmap.md` 1.3）。
+                // ここは壊れた写真を実際に展開する場所で、解読器は規格外の
+                // バイト列にパニックで応えることがある。そのまま巻き戻すと
+                // `responder` へ何も返らず、WebView側はその `<img>` を
+                // **永久に待つ**（読み込み中のまま、タイルが1枚白く残る）。
+                // 500を返しておけば、そのセルだけが空になって次へ進める
+                let response =
+                    pictkura_core::panics::catching(&format!("media要求 {uri}"), || {
+                        handle_media_request(&state, &uri, range.as_deref())
+                    })
+                    .unwrap_or_else(server_error);
+                responder.respond(response);
             });
         })
         .invoke_handler(tauri::generate_handler![
@@ -2946,8 +2978,14 @@ pub fn run() {
             update::open_releases_page,
             update::set_check_update_on_start
         ])
-        .run(tauri::generate_context!())
-        .expect("Tauriアプリの起動に失敗");
+        .run(tauri::generate_context!());
+    // **起動できなかったときは黙って消えない**。`expect` で落とすと
+    // Windowsでは何も出ないまま終わる（コンソールが無いため）ので、
+    // 理由を書いてから終了コードで知らせる
+    if let Err(e) = run {
+        eprintln!("pictkura を起動できませんでした: {e}");
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]
