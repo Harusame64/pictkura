@@ -359,6 +359,14 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
     let Some(min_long_edge) = want_preview else {
         // 絵は要らないが、**日付がプレビューにしか無い形式**はここで拾う。
         // 撮影日時がもう取れているならプレビューには触らない（大多数はこちら）
+        //
+        // 「先頭16MBだけ」に絞ると、後ろに置いた原寸プレビューにしか日付を
+        // 書かない社（Sigma X3F）を落とす——取り込みがその1枚だけ
+        // **別の日のフォルダ**へ入れてしまう。先頭→全体の二段も測ったが、
+        // 先頭を二度読むぶん遅かった（x3f 123→152ms・mos 68→96ms）。
+        // 払うのは**コンテナに日付が無い社だけ**（x3f 123ms・fff 194ms・
+        // mos 68ms）で、大多数は0〜30msで素通りする。そもそも取り込みは
+        // このあとファイル全体を読んで写す
         if result.taken_at_ms.is_none() {
             if let Some(preview) =
                 crate::raw::embedded_preview_at_least(path, crate::raw::USABLE_LONG_EDGE)

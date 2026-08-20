@@ -110,6 +110,13 @@ fn jpeg_span(buf: &[u8], start: usize) -> Option<JpegSpan> {
     if !looks_like_jpeg(buf.get(start..)?) {
         return None;
     }
+    jpeg_span_body(buf, start)
+}
+
+/// SOI（`FF D8`）が `start` にあると分かっているときの、終端探し。
+/// **`start` の2バイトは見ない**ので、先頭を潰されたJPEG（Minolta MRW）を
+/// 直す前に、コピーせずその場で確かめられる。
+fn jpeg_span_body(buf: &[u8], start: usize) -> Option<JpegSpan> {
     let mut displayable = false;
     let mut i = start + 2;
     while i + 1 < buf.len() {
@@ -566,11 +573,13 @@ fn minolta_repaired_jpeg(path: &Path) -> Option<Vec<u8>> {
             break;
         };
         let start = at + found;
-        let mut repaired = rest[found..].to_vec();
-        repaired[0] = 0xFF;
-        if let Some(span) = jpeg_span(&repaired, 0) {
+        // **写す前に確かめる**。`00 D8 FF` は生のセンサーデータにも普通に
+        // 現れるので、外れるたびに残り（最大16MB）を丸ごと写していると、
+        // 1枚のファイルで何度も繰り返すことになる（ゲート1のP2）
+        if let Some(span) = jpeg_span_body(&head, start) {
             if span.displayable {
-                repaired.truncate(span.end);
+                let mut repaired = head[start..span.end].to_vec();
+                repaired[0] = 0xFF; // 潰された先頭を戻す
                 if best.as_ref().is_none_or(|b| b.len() < repaired.len()) {
                     best = Some(repaired);
                 }
@@ -1138,6 +1147,29 @@ mod tests {
             (1600, 1200),
             "使える大きさが申告されていたら、それで打ち切る"
         );
+    }
+
+    #[test]
+    fn 先頭を潰されたjpegを外れの候補ごしに直す() {
+        // Minoltaの `.mrw` は埋め込みJPEGのSOI（`FF D8`）の**先頭1バイトを
+        // 0で潰して**書く。この3バイトの並びは生のセンサーデータにも普通に
+        // 現れるので、外れの候補が何度も当たる。**写す前に確かめる**ように
+        // しないと、外れるたびに残り（最大16MB）を丸ごと写す（ゲート1のP2）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.mrw");
+        let mut buf = b" MRM".to_vec();
+        for _ in 0..64 {
+            buf.extend_from_slice(&[0x00, 0xD8, 0xFF]); // センサーデータ側の空似
+            buf.extend_from_slice(&[0x12; 4096]);
+        }
+        let mut jpeg = jpeg_bytes(640, 480);
+        jpeg[0] = 0x00; // 実物と同じように潰しておく
+        buf.extend_from_slice(&jpeg);
+        std::fs::write(&path, &buf).unwrap();
+
+        let preview = embedded_preview(&path).expect("直して取り出せる");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (640, 480));
     }
 
     #[test]
