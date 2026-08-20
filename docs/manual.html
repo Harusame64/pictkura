@@ -45,6 +45,12 @@
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
     font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
   }
+  /* 貼って使える設定の例。**本文の幅を崩さず**、長い行は自分だけ横へ流す */
+  pre {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; margin: 16px 0;
+  }
+  pre code { background: none; padding: 0; }
   img { max-width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
   figure { margin: 20px 0; }
   figcaption { color: var(--text-muted); font-size: 0.85rem; margin-top: 8px; }
@@ -191,6 +197,67 @@ pictkura は候補として登録されていますが、聞かれないので�
 Windows 11 の右クリックメニューでは <strong>「その他のオプションを表示」</strong>
 （または <kbd>Shift</kbd>+<kbd>F10</kbd>）の下にあります。
 </p>
+
+<h3>写真に付いているファイルも一緒に運びます</h3>
+
+<p>
+現像ソフトが書いた <code>.xmp</code>（現像設定・評価・キーワード）のように、
+<strong>写真の隣に同じ名前で置かれるファイル</strong>は、写真と一緒に運ばれます。
+置き去りにすると、あとで見たときに<strong>編集がぜんぶ消えたのと同じ</strong>に
+なるためです。取り込みだけでなく、<strong>フォルダへの移動・コピー</strong>や
+<strong>ゴミ箱へ送るとき</strong>も一緒に動きます。
+</p>
+
+<div class="table-scroll">
+<table>
+  <tr><th>拡張子</th><th>書くソフト</th></tr>
+  <tr><td><code>.xmp</code></td><td>Adobe（Camera Raw / Lightroom / Bridge）、darktable、digiKam、Photo Mechanic</td></tr>
+  <tr><td><code>.aae</code></td><td>iPhone / iPad の「写真」</td></tr>
+  <tr><td><code>.dop</code></td><td>DxO PhotoLab</td></tr>
+  <tr><td><code>.pp3</code></td><td>RawTherapee</td></tr>
+  <tr><td><code>.on1</code></td><td>ON1 Photo RAW</td></tr>
+</table>
+</div>
+
+<p>
+これ以外のもの——動画のサムネイル（<code>.thm</code>）、低解像度の控え
+（<code>.lrv</code>）、PlayMemories Home の管理ファイル（<code>.modd</code>
+<code>.moff</code>）、音声メモ（<code>.wav</code>）——は
+<strong>既定では運びません</strong>。カメラが作り直せるものや、他のアプリの都合で
+できたものだからです。<strong>要るものは設定ファイルに足せます</strong>（下の
+「設定とデータの置き場所」）。逆に、一切運びたくなければ空にしてください。
+</p>
+
+<p>
+設定ファイル（<code>pictkura.toml</code>）の <code>[import]</code> の下に、
+こう書きます。<strong>この行が無いときは既定の5つ</strong>が使われるので、
+変えたいときだけ足してください。
+</p>
+
+<pre><code>[import]
+# 音声メモ（.wav）も一緒に運びたいとき
+sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
+
+# 何も運びたくないとき
+# sidecar_extensions = []</code></pre>
+
+<div class="note">
+  <p>
+    <strong>RAW と JPEG を同時に撮っている場合</strong>（<code>IMG_0001.CR3</code> と
+    <code>IMG_0001.JPG</code>）は、<strong>片方だけ撮影日時を持たないときも
+    同じ日のフォルダへ入ります</strong>（日時を持つ側に合わせます）。そのままだと
+    組が別々の場所へ散って、あとで突き合わせられなくなるためです。
+    どちらも撮影日時を持たないときは、それぞれのファイルの更新日時によります。
+  </p>
+  <p>
+    組のうち<strong>片方だけをゴミ箱へ送った</strong>ときは、
+    <code>IMG_0001.xmp</code> のような<strong>名前だけで結び付くファイルは残ります</strong>
+    ——同じ名前の写真が残っている以上、どちらの設定なのかを決められないためです
+    （Lightroom は RAW にだけ <code>.xmp</code> を書きます）。
+    <code>IMG_0001.CR3.xmp</code> のように写真の名前を丸ごと含むものは、
+    その1枚のものと判るので一緒に動きます。
+  </p>
+</div>
 
 <h2 id="folders">3. 取り込み先のフォルダ構成を決める</h2>
 
@@ -526,7 +593,8 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
 
 <p>
 設定ファイルは手で編集できます。アプリが持っていない細かい設定
-（走査から除くフォルダのパターンなど）はここから変えられます。
+（走査から除くフォルダのパターン、写真と一緒に運ぶファイルの
+<code>[import] sidecar_extensions</code> など）はここから変えられます。
 <strong>写真そのものはここには入りません。</strong>
 データベースを消しても写真は消えません（作り直されるだけです）。
 </p>

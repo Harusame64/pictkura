@@ -1229,20 +1229,100 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             .iter()
             .filter_map(|id| path_of(&state, *id).ok())
             .collect();
-        let (deleted, first_err) = trash_paths_with_progress(paths, |done, total| {
-            let _ = app.emit("delete-progress", DeleteProgress { done, total });
+        // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
+        // `.xmp` は一覧に出ないので、置いていくと**誰にも見えない迷子**になる
+        // ——写真だけ消えたフォルダに現像設定だけが残り続ける。
+        // 取り込みで一緒に運んだものを、消すときだけ置いていく道理も無い。
+        //
+        // ただし**残る相方のものは奪わない**（`Companions`）。RAW+JPGのうち
+        // JPGだけを消すとき、`IMG_0001.xmp` はたいていRAWのものだ。
+        let sidecar_exts = lock_ok(&state.config).import.sidecar_extensions.clone();
+        let mut media: Vec<PathBuf> = Vec::with_capacity(paths.len());
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        for path in paths {
+            if seen.insert(path.clone()) {
+                media.push(path);
+            }
+        }
+        let mut companions = pictkura_core::sidecar::Companions::new(media.iter().cloned());
+        let mut sidecars: Vec<PathBuf> = Vec::new();
+        // その影が「誰のものか」。**全員をゴミ箱へ送れたときだけ**一緒に送る
+        // （下の絞り込みで使う）
+        let mut owners: Vec<Vec<PathBuf>> = Vec::new();
+        let mut where_is: std::collections::HashMap<PathBuf, usize> =
+            std::collections::HashMap::new();
+        for path in &media {
+            for sidecar in companions.sidecars_of(path, &sidecar_exts) {
+                // **同じものを2回積まない**。組を両方選ぶと共有の `.xmp` に2回
+                // 行き当たり、束での削除が「もう無い」で落ちて**1件ずつへ降りる**
+                // （1件200〜300msの固定費を払い直す）。分母も水増しされる
+                match where_is.get(&sidecar) {
+                    Some(&i) => owners[i].push(path.clone()),
+                    None if seen.insert(sidecar.clone()) => {
+                        where_is.insert(sidecar.clone(), sidecars.len());
+                        sidecars.push(sidecar);
+                        owners.push(vec![path.clone()]);
+                    }
+                    None => {}
+                }
+            }
+        }
+        // 分母は写真＋影。**進む数字が止まらない**ほうを取る
+        let shadows = sidecars.len();
+        let media_total = std::cell::Cell::new(0usize);
+        let (deleted_media, first_err) = trash_paths_with_progress(media, |done, total| {
+            media_total.set(total);
+            let _ = app.emit(
+                "delete-progress",
+                DeleteProgress {
+                    done,
+                    total: total + shadows,
+                },
+            );
         });
-        if !deleted.is_empty() {
+        // **消せなかった写真の影は置いていく**（ゲート2の指摘）。ゴミ箱への移動は
+        // 失敗することがある（現像ソフトが握っている等）。写真が元の場所に残ったのに
+        // その `.xmp` だけ送ってしまうと、**残った写真から現像設定が剥がれる**
+        // ——一覧に出ないファイルなので、戻せるとしても気付く手立てが無い
+        let trashed: std::collections::HashSet<&PathBuf> = deleted_media.iter().collect();
+        let sidecars: Vec<PathBuf> = sidecars
+            .into_iter()
+            .zip(owners)
+            .filter(|(_, owners)| owners.iter().all(|o| trashed.contains(o)))
+            .map(|(sidecar, _)| sidecar)
+            .collect();
+        // **影は別に送る**。ここでの失敗で写真の結果を書き換えない——
+        // 現像ソフトが `.xmp` を握っているだけで「削除できませんでした」を返すと、
+        // 写真が全部消えていても画面は失敗の側へ倒れ、選別の関所が閉じない
+        let base = media_total.get();
+        let (_, sidecar_err) = trash_paths_with_progress(sidecars, |done, total| {
+            let _ = app.emit(
+                "delete-progress",
+                DeleteProgress {
+                    done: base + done,
+                    total: base + total.max(shadows),
+                },
+            );
+        });
+        if let Some(e) = sidecar_err {
+            // 写真は消えているのに `.xmp` だけが残る。一覧に出ないので
+            // 気付く手立てが無い——せめて記録には残す
+            eprintln!("サイドカーをゴミ箱へ移せませんでした（無視して継続）: {e}");
+        }
+        // **DBから落とすのは写真のぶんだけ**。サイドカーは行を持っていない
+        if !deleted_media.is_empty() {
             lock_ok(&state.db)
-                .remove_paths(&deleted)
+                .remove_paths(&deleted_media)
                 .map_err(|e| e.to_string())?;
         }
+        // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
+        let count = deleted_media.len();
         match first_err {
-            Some(e) if deleted.is_empty() => Err(e),
+            Some(e) if count == 0 => Err(e),
             // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
             // 「何枚消えたのか」が分からない
-            Some(e) => Err(format!("{e}（{}枚は移動できました）", deleted.len())),
-            None => Ok(deleted.len()),
+            Some(e) => Err(format!("{e}（{count}枚は移動できました）")),
+            None => Ok(count),
         }
     })
     .await
@@ -1285,10 +1365,13 @@ async fn export_media(
             pictkura_core::ExportMode::Copy
         };
         let progress_app = app.clone();
+        // サイドカー（`.xmp` 等）も一緒に運ぶ（0.2）。設定で空にすれば運ばない
+        let sidecar_exts = lock_ok(&state.config).import.sidecar_extensions.clone();
         let outcome = pictkura_core::export_files(
             &paths,
             Path::new(&dest),
             mode,
+            &sidecar_exts,
             move |done, total, path| emit_export_progress(&progress_app, done, total, path),
         )
         .map_err(|e| e.to_string())?;
@@ -1307,6 +1390,16 @@ async fn export_media(
             let (trashed, _) = trash_paths(outcome.to_remove);
             stats.left_behind = asked - trashed.len();
             gone.extend(trashed);
+        }
+        // **サイドカーの元も片付ける**（別ドライブへ移したぶん）。DBに行は無いので
+        // 落とすものは無く、**件数にも数えない**——利用者が見ているのは写真の枚数
+        if !outcome.sidecars_to_remove.is_empty() {
+            let (_, err) = trash_paths(outcome.sidecars_to_remove);
+            if let Some(e) = err {
+                // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
+                // ファイルなので利用者からは見えない——記録には残す
+                eprintln!("移動元のサイドカーを片付けられませんでした: {e}");
+            }
         }
         if !gone.is_empty() {
             lock_ok(&state.db)

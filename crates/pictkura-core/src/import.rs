@@ -284,11 +284,15 @@ pub fn import_from(
         ..ImportStats::default()
     };
 
+    // 同じ名前の相方を探すためのフォルダの覚え書き（読むのは1フォルダ1回）
+    let mut pairs = PairIndex::default();
+
     for (i, file) in outcome.files.iter().enumerate() {
-        let result = import_one(
+        let result = import_one_with(
             &file.path,
             file.size as u64,
             file.mtime_ms,
+            taken_at_paired(&file.path, config, &mut pairs),
             dest_root,
             config,
         );
@@ -319,6 +323,10 @@ pub fn import_files(
         .ok_or(ImportError::NoDestination)?;
     let total = files.len();
     let mut stats = ImportStats::default();
+    // 組は**ディスクの中身**で決める（選んだ枚数では決めない）。片方だけ選んだ
+    // ときも相方の日付に合わせる——ウィザードの「済」バッジと行き先が同じ規則で
+    // 決まっていないと、済と出ないまま**同じ写真をもう一度コピー**することになる
+    let mut pairs = PairIndex::default();
     for (i, path) in files.iter().enumerate() {
         // ウィザードで一覧を出した後にファイルが消えている可能性があるので
         // ここで改めてstatする（読めなければ失敗として数え、他は続行する）。
@@ -332,7 +340,14 @@ pub fn import_files(
             ImportOneResult::Failed
         } else {
             match std::fs::metadata(path) {
-                Ok(meta) => import_one(path, meta.len(), mtime_ms_of(&meta), dest_root, config),
+                Ok(meta) => import_one_with(
+                    path,
+                    meta.len(),
+                    mtime_ms_of(&meta),
+                    taken_at_paired(path, config, &mut pairs),
+                    dest_root,
+                    config,
+                ),
                 Err(_) => ImportOneResult::Failed,
             }
         };
@@ -359,7 +374,8 @@ fn mtime_ms_of(meta: &std::fs::Metadata) -> i64 {
 ///
 /// ウィザードで「済」バッジを出し、**未取り込みだけを初期選択する**ために使う。
 /// 判定は取り込み本体と同じ経路（同じ日付決定＋同じ衝突回避）を通るので、
-/// 「済と出たのにもう一度コピーされた」というズレが起きない。
+/// 「済と出たのにもう一度コピーされた」というズレが起きない——組で日付を
+/// そろえる（0.2）ぶんも [`taken_at_paired`] で同じように通す。
 pub fn is_already_imported(path: &Path, config: &Config) -> bool {
     let Some(dest_root) = config.routing.destination.as_ref() else {
         return false;
@@ -368,7 +384,13 @@ pub fn is_already_imported(path: &Path, config: &Config) -> bool {
         return false;
     };
     let mtime_ms = mtime_ms_of(&meta);
-    let dest_dir = dest_dir_for(path, mtime_ms, dest_root, config);
+    let mut pairs = PairIndex::default();
+    let dest_dir = dest_dir_for(
+        taken_at_paired(path, config, &mut pairs),
+        mtime_ms,
+        dest_root,
+        config,
+    );
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
@@ -392,17 +414,98 @@ enum ImportOneResult {
 /// 撮影日時の出どころは形式で変わる。**動画はEXIFを持たない**のでコンテナ
 ///（`moov`）を読む——ここでmtimeへ落とすと、フォルダはカードからコピーした日、
 /// 一覧は撮影日になり、**同じファイルの置き場所と表示日がずれる**（第9部）。
-fn dest_dir_for(path: &Path, mtime_ms: i64, dest_root: &Path, config: &Config) -> PathBuf {
-    let taken_at_ms = if crate::video::is_video_path(path) {
+/// その1枚の撮影日時（EXIF・動画のメタ・ファイル名の順）。無ければ None。
+fn taken_at_of(path: &Path) -> Option<i64> {
+    let from_meta = if crate::video::is_video_path(path) {
         crate::video::read_info(path).and_then(|i| i.taken_at_ms)
     } else {
         read_exif(path).taken_at_ms
     };
+    // 撮影日時を持たないファイルはファイル名に聞く（段階H-2）
+    from_meta.or_else(|| crate::namedate::guess_taken_at(path))
+}
+
+/// 同じフォルダの、**同じ名前（拡張子違い）の写真**を覚えておく箱。
+///
+/// 相方を探すのにフォルダを読むが、**1つのフォルダは1回しか読まない**。
+/// 1000枚のカードで1枚ごとに読み直すと、そのぶん取り込みの頭が止まる。
+#[derive(Default)]
+struct PairIndex {
+    dirs: std::collections::HashMap<PathBuf, Vec<PathBuf>>,
+}
+
+impl PairIndex {
+    /// `path` と同じ名前の相方（自分は含まない）。**パス順**で返す。
+    ///
+    /// 相方かどうかは**ディスクの中身**で決める——選んだ枚数では決めない。
+    /// ウィザードの「済」バッジ（[`is_already_imported`]）と実際の行き先が
+    /// 同じ規則で決まっていないと、**済と出ていないのに二重コピー**になる。
+    fn mates(&mut self, path: &Path, config: &Config) -> Vec<PathBuf> {
+        let (dir, stem) = crate::sidecar::pair_key(path);
+        let listing = self.dirs.entry(dir.clone()).or_insert_with(|| {
+            let mut found: Vec<PathBuf> = std::fs::read_dir(&dir)
+                .map(|rd| {
+                    rd.flatten()
+                        .map(|e| e.path())
+                        .filter(|p| {
+                            crate::scanner::has_target_extension(p, &config.import.extensions)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            // 並びを固定する。どちらから取り込んでも同じ答えになるように
+            found.sort();
+            found
+        });
+        let myself = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        listing
+            .iter()
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default()
+                    != myself
+                    && crate::sidecar::pair_key(p).1 == stem
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// そのファイルの撮影日時。無ければ**同じ名前の相方**に聞く（0.2・`dev/loadmap.md` 1.1）。
+///
+/// `IMG_0001.CR3` と `IMG_0001.JPG` は1回の撮影の表と裏で、別々の日のフォルダへ
+/// 散ると**あとで突き合わせられなくなる**。片方だけEXIFを持たない（RAWの
+/// メーカー独自タグが読めない・JPGだけ編集して日時が消えた等）ときに起きる。
+///
+/// **自分の撮影日時が最優先**。組の日付で上書きすると、たまたま同じ名前の
+/// 無関係な2枚（2019年の `note.jpg` と 2024年の `note.png`、連番が一周した
+/// `DSC00001`）が、拡張子の並び順という**恣意的な理由**で片方の年へ引きずられる。
+/// 相方を読むのは**自分の日付が取れなかったときだけ**なので、
+/// ふつうの取り込みで読む回数は今までと変わらない。
+fn taken_at_paired(path: &Path, config: &Config, pairs: &mut PairIndex) -> Option<i64> {
+    if let Some(taken) = taken_at_of(path) {
+        return Some(taken);
+    }
+    pairs
+        .mates(path, config)
+        .iter()
+        .find_map(|mate| taken_at_of(mate))
+}
+
+/// このファイルのコピー先フォルダ（撮影日時は決まっているものを渡す）。
+fn dest_dir_for(
+    taken_at_ms: Option<i64>,
+    mtime_ms: i64,
+    dest_root: &Path,
+    config: &Config,
+) -> PathBuf {
     let date = taken_at_ms
-        // 撮影日時を持たないファイルはファイル名に聞く（段階H-2）。
-        // ここを mtime へ落とすと、コピー先フォルダが「取り込んだ日」になり、
-        // 一覧の表示日（同じ順で名前を見る）とずれる
-        .or_else(|| crate::namedate::guess_taken_at(path))
+        // 撮影日時が無いものを mtime へ落とすと、コピー先フォルダが
+        // 「取り込んだ日」になり、一覧の表示日（同じ順で名前を見る）とずれる
         .and_then(date_from_local_ms)
         .or_else(|| {
             (mtime_ms > 0)
@@ -413,14 +516,19 @@ fn dest_dir_for(path: &Path, mtime_ms: i64, dest_root: &Path, config: &Config) -
     dest_root.join(render_folder_pattern(&config.routing.folder_pattern, date))
 }
 
-fn import_one(
+/// 1枚をコピー先へ運ぶ。
+///
+/// `taken_at_ms` は**決まった撮影日時**（[`taken_at_paired`] が組まで見て出したもの）。
+/// ここでは読み直さない——同じファイルのEXIFを2回開かないため。
+fn import_one_with(
     path: &Path,
     size: u64,
     mtime_ms: i64,
+    taken_at_ms: Option<i64>,
     dest_root: &Path,
     config: &Config,
 ) -> ImportOneResult {
-    let dest_dir = dest_dir_for(path, mtime_ms, dest_root, config);
+    let dest_dir = dest_dir_for(taken_at_ms, mtime_ms, dest_root, config);
     if std::fs::create_dir_all(&dest_dir).is_err() {
         return ImportOneResult::Failed;
     }
@@ -459,9 +567,53 @@ fn import_one(
                     return ImportOneResult::Failed;
                 }
             }
+            // **写真が付いたら、その影も連れていく**（0.2・`dev/loadmap.md` 1.1）。
+            // `.xmp` には現像設定・評価・キーワードが入っていて、置き去りにすると
+            // 利用者から見れば編集がぜんぶ消えたのと同じになる。
+            //
+            // **写真の成否には影響させない**。サイドカーが運べなかったからといって
+            // 写真を「失敗」に数えると、取り込みそのものが止まったように見える
+            copy_sidecars(path, &dest_path, config);
             ImportOneResult::Copied
         }
         Err(_) => ImportOneResult::Failed,
+    }
+}
+
+/// 写真に付いているサイドカーを、写真の隣（付いた先）へコピーする。
+///
+/// 名前は**付いた先の写真に合わせる**（連番が付いたら同じ連番にする）。
+/// 現像ソフトは名前で結び付けるので、ここがずれると別の写真の設定として読まれる。
+///
+/// 既にあるものは**上書きしない**——同名衝突は写真と同じ連番の規則で避ける。
+fn copy_sidecars(source_photo: &Path, dest_photo: &Path, config: &Config) {
+    let exts = &config.import.sidecar_extensions;
+    if exts.is_empty() {
+        return;
+    }
+    let (Some(dest_dir), Some(dest_name)) = (
+        dest_photo.parent(),
+        dest_photo.file_name().and_then(|n| n.to_str()),
+    ) else {
+        return;
+    };
+    for sidecar in crate::sidecar::sidecars_of(source_photo, exts) {
+        let Ok(meta) = std::fs::metadata(&sidecar) else {
+            continue;
+        };
+        let name = crate::sidecar::sidecar_dest_name(source_photo, &sidecar, dest_name);
+        let target = match resolve_dest_path(dest_dir, &name, meta.len(), mtime_ms_of(&meta)) {
+            DestResolution::CopyTo(p) => p,
+            // 同じものが既にある／連番が尽きた。どちらも**黙って諦める**
+            // （写真は運べているので、取り込み全体を失敗にはしない）
+            DestResolution::AlreadyImported | DestResolution::Exhausted => continue,
+        };
+        if std::fs::copy(&sidecar, &target).is_ok() {
+            if let Ok(mtime) = meta.modified() {
+                let _ =
+                    filetime::set_file_mtime(&target, filetime::FileTime::from_system_time(mtime));
+            }
+        }
     }
 }
 
@@ -654,6 +806,242 @@ mod tests {
         let second = import_from(&src, &config, |_, _, _| {}).unwrap();
         assert_eq!(second.copied, 0);
         assert_eq!(second.skipped, 1);
+    }
+
+    /// **`.xmp` を置き去りにしない**（0.2・`dev/loadmap.md` 1.1）。
+    /// 置き去りにすると、利用者から見れば現像の作業がぜんぶ消えたのと同じになる。
+    #[test]
+    fn サイドカーは写真と一緒に運ばれる() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("IMG_0001.jpg"), b"photo").unwrap();
+        // 置き換え型（Adobe）と足す型（darktable）の両方
+        fs::write(src.join("IMG_0001.xmp"), b"<x>adobe</x>").unwrap();
+        fs::write(src.join("IMG_0001.jpg.xmp"), b"<x>darktable</x>").unwrap();
+
+        let config = test_config(&dest);
+        assert_eq!(import_from(&src, &config, |_, _, _| {}).unwrap().copied, 1);
+
+        let names: Vec<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"IMG_0001.jpg".to_string()), "{names:?}");
+        assert!(names.contains(&"IMG_0001.xmp".to_string()), "{names:?}");
+        assert!(names.contains(&"IMG_0001.jpg.xmp".to_string()), "{names:?}");
+        // **写真1枚に対してサイドカーは2つだけ**（綴り違いで二重に運ばない）
+        assert_eq!(names.len(), 3, "{names:?}");
+    }
+
+    /// サイドカーは**写真が付いた先の名前**に合わせる。連番が付いたのに
+    /// サイドカーだけ元の名前で置くと、別の写真の設定として読まれる。
+    #[test]
+    fn 連番が付いたらサイドカーも同じ連番になる() {
+        let dir = tempfile::tempdir().unwrap();
+        let src1 = dir.path().join("usb1");
+        let src2 = dir.path().join("usb2");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src1).unwrap();
+        fs::create_dir_all(&src2).unwrap();
+        fs::write(src1.join("DSC_0001.jpg"), b"first").unwrap();
+        fs::write(src1.join("DSC_0001.xmp"), b"<x>1</x>").unwrap();
+        fs::write(src2.join("DSC_0001.jpg"), b"second-longer").unwrap();
+        fs::write(src2.join("DSC_0001.xmp"), b"<x>2</x>").unwrap();
+
+        let config = test_config(&dest);
+        import_from(&src1, &config, |_, _, _| {}).unwrap();
+        import_from(&src2, &config, |_, _, _| {}).unwrap();
+
+        let mut names: Vec<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "DSC_0001-1.jpg",
+                "DSC_0001-1.xmp",
+                "DSC_0001.jpg",
+                "DSC_0001.xmp"
+            ],
+            "2枚目の写真とサイドカーが同じ連番で並ぶこと"
+        );
+    }
+
+    /// 設定を空にすれば**一切運ばない**（要らない人の逃げ道）。
+    #[test]
+    fn サイドカーの設定が空なら運ばない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("IMG_0001.jpg"), b"photo").unwrap();
+        fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+
+        let mut config = test_config(&dest);
+        config.import.sidecar_extensions.clear();
+        import_from(&src, &config, |_, _, _| {}).unwrap();
+
+        let names: Vec<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["IMG_0001.jpg"], "{names:?}");
+    }
+
+    /// EXIFに**撮影日時だけ**を持つ、最小のJPEG。
+    ///
+    /// 組の日付をめぐるテストには「同じ名前で、違う撮影日時」の2枚が要る。
+    /// 名前から日付を読む道（段階H-2の `namedate`）は名前が同じなら同じ答えを
+    /// 返すので、ここだけはEXIFを実際に埋める。絵は要らない——読むのは日時だけ。
+    fn jpeg_with_taken_at(date: &str) -> Vec<u8> {
+        assert_eq!(date.len(), 19, "YYYY:MM:DD HH:MM:SS の形で渡す");
+        let mut tiff: Vec<u8> = Vec::new();
+        tiff.extend_from_slice(b"II");
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        // IFD0: ExifIFDへのポインタ1本だけ（26バイト目から）
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x8769u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&26u32.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        // ExifIFD: DateTimeOriginal（文字列は44バイト目から20バイト）
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x9003u16.to_le_bytes());
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&20u32.to_le_bytes());
+        tiff.extend_from_slice(&44u32.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        tiff.extend_from_slice(date.as_bytes());
+        tiff.push(0);
+
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        // APP1の長さだけはビッグエンディアン（TIFFの中身とは別の決まり）
+        out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\0\0");
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&[0xFF, 0xD9]);
+        out
+    }
+
+    /// 上の細工が本当にEXIFとして読めることを、先に固定しておく
+    /// （読めていないのに「日付が取れなかった」経路で通ってしまうと、
+    /// 下の2つのテストが何も確かめていないことになる）。
+    #[test]
+    fn テスト用のexifが読める() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = dir.path().join("IMG_0001.jpg");
+        fs::write(&photo, jpeg_with_taken_at("2019:08:11 12:00:00")).unwrap();
+        assert!(taken_at_of(&photo).is_some(), "EXIFの日時が読めていない");
+    }
+
+    /// **自分の撮影日時は、組に上書きされない**（ゲート1のP2）。
+    ///
+    /// たまたま同じ名前の無関係な2枚（別々に保存した `note.jpg` と `note.png`）が、
+    /// 拡張子の並び順という恣意的な理由で片方の年へ引きずられてはいけない。
+    #[test]
+    fn 自分の撮影日時があるなら組より優先する() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(
+            src.join("note.jpg"),
+            jpeg_with_taken_at("2019:08:11 12:00:00"),
+        )
+        .unwrap();
+        fs::write(
+            src.join("note.png"),
+            jpeg_with_taken_at("2024:03:05 09:00:00"),
+        )
+        .unwrap();
+
+        let config = test_config(&dest);
+        import_from(&src, &config, |_, _, _| {}).unwrap();
+
+        let dirs: std::collections::HashSet<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| e.path().parent().map(|p| p.to_string_lossy().into_owned()))
+            .collect();
+        assert_eq!(
+            dirs.len(),
+            2,
+            "自分の日付を持つ2枚が同じ年へ寄せられた: {dirs:?}"
+        );
+    }
+
+    /// **「済」バッジと行き先が同じ規則で決まる**（ゲート1のP2）。
+    ///
+    /// 組の日付で入ったファイルを、判定側が自分のmtimeで探すと「未取り込み」に
+    /// 見える——そこでもう一度取り込むと、同じ写真が別の日のフォルダへ**二重に**
+    /// コピーされる。
+    #[test]
+    fn 組で日付が決まったものも取り込み済みと判る() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        // JPGだけがEXIFを持ち、RAWは日付を持たない（mtimeは別の日）
+        let jpg = src.join("IMG_0001.jpg");
+        let raw = src.join("IMG_0001.dng");
+        fs::write(&jpg, jpeg_with_taken_at("2019:08:11 12:00:00")).unwrap();
+        fs::write(&raw, b"raw").unwrap();
+        filetime::set_file_mtime(&raw, filetime::FileTime::from_unix_time(1_600_000_000, 0))
+            .unwrap();
+
+        let config = test_config(&dest);
+        assert!(!is_already_imported(&raw, &config));
+        import_from(&src, &config, |_, _, _| {}).unwrap();
+
+        assert!(
+            is_already_imported(&raw, &config),
+            "組で決めた日付のフォルダを見ていない（もう一度コピーしてしまう）"
+        );
+        // 実際に二重コピーにならないことまで見る
+        let again = import_files(std::slice::from_ref(&raw), &config, |_, _, _| {}).unwrap();
+        assert_eq!(again.copied, 0, "同じ写真をもう一度コピーした");
+        assert_eq!(again.skipped, 1);
+    }
+
+    /// **RAW+JPGの組は同じ日のフォルダへ**（0.2・`dev/loadmap.md` 1.1）。
+    /// 片方だけ撮影日時を持たないとき、組で日付をそろえないと散る。
+    #[test]
+    fn rawとjpgの組は同じフォルダへ入る() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        // 名前から日付が読める側（段階H-2の `namedate`）と、読めない側
+        let dated = src.join("2019-08-11_120000.jpg");
+        let undated = src.join("2019-08-11_120000.dng");
+        fs::write(&dated, b"jpeg").unwrap();
+        fs::write(&undated, b"raw").unwrap();
+        // RAW側のmtimeだけ**別の日**にする（そろえないと別フォルダへ行く）
+        filetime::set_file_mtime(&undated, filetime::FileTime::from_unix_time(0, 0)).unwrap();
+
+        let config = test_config(&dest);
+        import_from(&src, &config, |_, _, _| {}).unwrap();
+
+        let dirs: std::collections::HashSet<String> = walkdir::WalkDir::new(&dest)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| e.path().parent().map(|p| p.to_string_lossy().into_owned()))
+            .collect();
+        assert_eq!(dirs.len(), 1, "組がフォルダをまたいで散っている: {dirs:?}");
     }
 
     #[test]
