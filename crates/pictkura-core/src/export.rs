@@ -93,18 +93,32 @@ pub fn export_files(
     let mut carry = Carry {
         mode,
         extensions: sidecar_extensions,
-        // **移動のときだけ**「残るほうの相方」を守る。コピーは元が残るので
-        // 誰からも奪わない——同じ `.xmp` を両方の写真ぶん渡せばよい
-        companions: crate::sidecar::Companions::new(match mode {
-            ExportMode::Move => files.to_vec(),
-            ExportMode::Copy => Vec::new(),
-        }),
+        // 中身は**写真を運び終えてから**入れる（下を参照）
+        companions: crate::sidecar::Companions::new(Vec::new()),
         carried: HashSet::new(),
         written: HashSet::new(),
+        pending: Vec::new(),
     };
     for (i, path) in files.iter().enumerate() {
         export_one(path, dest_dir, &mut carry, &mut out);
         on_progress(i + 1, total, path);
+    }
+    // **影を運ぶのは、写真の成否が出そろってから**（ゲート2の指摘）。
+    // 「選んだから居なくなる」ではなく「**実際に居なくなった**」で判断する
+    // ——書き出し先に同じものが既にあってスキップされた写真、コピーに失敗した
+    // 写真は元の場所に**残る**。それを「居なくなる」に数えると、残った写真から
+    // 共有の `.xmp` を奪ってしまう（守ろうとした相方を、こちらの都合で裏切る）
+    if mode == ExportMode::Move {
+        let left: Vec<PathBuf> = out
+            .moved
+            .iter()
+            .chain(out.to_remove.iter())
+            .cloned()
+            .collect();
+        carry.companions = crate::sidecar::Companions::new(left);
+    }
+    for (photo, dest_name) in std::mem::take(&mut carry.pending) {
+        carry_sidecars(&photo, dest_dir, &dest_name, &mut carry, &mut out);
     }
     Ok(out)
 }
@@ -122,6 +136,9 @@ struct Carry<'a> {
     /// **この操作で自分が書いたパス**を覚える。名前もサイズも同じで中身が違う写真
     /// （連番が一周したRAW等）を「もうある」と誤判定して落とさないため
     written: HashSet<PathBuf>,
+    /// 影を待たせておく列（元の写真, 付いた先の名前）。写真が**全部片付いてから**
+    /// まとめて運ぶ——誰が実際に居なくなったかは、最後まで走らないと決まらない
+    pending: Vec<(PathBuf, String)>,
 }
 
 fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportOutcome) {
@@ -170,7 +187,7 @@ fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportO
             .unwrap_or_default();
         carry.written.insert(dest_path);
         out.moved.push(path.to_path_buf());
-        carry_sidecars(path, dest_dir, &dest_name, carry, out);
+        carry.pending.push((path.to_path_buf(), dest_name));
         return;
     }
 
@@ -189,7 +206,7 @@ fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportO
         // **元を消すのはここではない**（モジュールの説明を参照）
         out.to_remove.push(path.to_path_buf());
     }
-    carry_sidecars(path, dest_dir, &dest_name, carry, out);
+    carry.pending.push((path.to_path_buf(), dest_name));
 }
 
 /// 写真に付いているサイドカーを、写真と同じ場所へ連れていく（0.2）。
@@ -400,6 +417,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(files_in(&dest2), ["IMG_0001.CR3", "IMG_0001.xmp"]);
+    }
+
+    /// **P2（ゲート2）**: 「選んだから居なくなる」ではなく「**実際に居なくなった**」で
+    /// 判断すること。書き出し先に同じものが既にある写真はスキップされて元の場所に
+    /// **残る**のに、それを居なくなる側に数えると共有の `.xmp` を奪ってしまう。
+    #[test]
+    fn 移動でスキップされた相方からも奪わない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        let raw = src.join("IMG_0001.CR3");
+        let jpg = src.join("IMG_0001.JPG");
+        std::fs::write(&raw, b"raw").unwrap();
+        std::fs::write(&jpg, b"photo").unwrap();
+        std::fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+        // 書き出し先に**同じRAWが既にある**（同名・同サイズ・同じ更新時刻）
+        std::fs::write(dest.join("IMG_0001.CR3"), b"raw").unwrap();
+        let stamp = filetime::FileTime::from_unix_time(1_500_000_000, 0);
+        filetime::set_file_mtime(&raw, stamp).unwrap();
+        filetime::set_file_mtime(dest.join("IMG_0001.CR3"), stamp).unwrap();
+
+        let out = export_files(
+            &[raw.clone(), jpg.clone()],
+            &dest,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.skipped, 1, "既にあるRAWはスキップされる");
+        assert!(raw.exists(), "スキップされたRAWは元の場所に残る");
+        assert!(
+            src.join("IMG_0001.xmp").exists(),
+            "残ったRAWから現像設定を奪ってはいけない"
+        );
+        assert!(!jpg.exists(), "JPGのほうは移動できている");
     }
 
     /// **P2（ゲート1）**: 組を両方選ぶと同じ `.xmp` に2回行き当たる。

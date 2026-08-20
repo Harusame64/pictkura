@@ -17,13 +17,19 @@ use std::path::{Path, PathBuf};
 /// **入っているのは「利用者の作業そのもの」だけ**——置いていくと取り返しが
 /// つかないものに絞ってある:
 ///
-/// | 拡張子 | 書くソフト |
-/// |---|---|
-/// | `xmp` | Adobe（Camera Raw / Lightroom / Bridge）・darktable・digiKam・Photo Mechanic |
-/// | `aae` | Apple 写真（iPhone / iPad の編集） |
-/// | `dop` | DxO PhotoLab |
-/// | `pp3` | RawTherapee |
-/// | `on1` | ON1 Photo RAW |
+/// **名前の流儀は2つあり、ソフトごとに違う**（2026-08-20に各社の資料で確かめた）:
+///
+/// | 拡張子 | 書くソフト | 名前 |
+/// |---|---|---|
+/// | `xmp` | Adobe（Camera Raw / Lightroom / Bridge）・Photo Mechanic・digiKam | 置き換え型 `IMG_0001.xmp` |
+/// | `xmp` | darktable | 足す型 `IMG_0001.CR3.xmp`（Adobe形式は読むが書かない） |
+/// | `aae` | Apple 写真（iPhone / iPad の編集） | 置き換え型 `IMG_0001.AAE` |
+/// | `dop` | DxO PhotoLab | 足す型 `IMG_0001.CR3.dop` |
+/// | `pp3` | RawTherapee | 足す型 `IMG_0001.CR3.pp3` |
+/// | `on1` | ON1 Photo RAW | 置き換え型 `IMG_0001.on1` |
+///
+/// 設定で足した拡張子にも同じ2つの流儀の判定がそのまま効く（形式で決まる話で、
+/// 拡張子ごとの決め打ちはしていない）。
 ///
 /// **入れなかったもの**と、その理由:
 ///
@@ -171,7 +177,13 @@ fn folded(path: &Path) -> String {
 /// 置き換え型のサイドカーは**名前でしか写真に結び付いていない**。
 /// `IMG_0001.CR3` と `IMG_0001.JPG` が並ぶフォルダの `IMG_0001.xmp` は、
 /// 実際には**RAWのもの**であることが多い——Adobe（Camera Raw / Lightroom）は
-/// RAWにだけ `.xmp` を書き、JPEGには写真の中へ直接書き込む。
+/// RAWにだけ `.xmp` を書く（**JPEG・TIFFは写真の中に埋め込む**ので書かない。
+/// DNGも既定は中。2026-08-20に確認）。
+///
+/// **逆向きの取りこぼしは承知のうえ**。RAWだけを捨ててJPGを残すときも、
+/// 同じ名前の写真が残る以上「どちらのものか」は決められないので `.xmp` は
+/// 置いていく——迷子が1つ残るのと、残った写真から現像設定が消えるのとでは、
+/// 取り返しのつかなさが違う。
 ///
 /// ここで JPG だけをゴミ箱へ送ると、素朴に集める実装は `IMG_0001.xmp` も
 /// 道連れにする。**写真（CR3）は残るので利用者は気付かず**、次に現像ソフトを

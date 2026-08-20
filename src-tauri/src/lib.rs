@@ -1246,13 +1246,24 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         }
         let mut companions = pictkura_core::sidecar::Companions::new(media.iter().cloned());
         let mut sidecars: Vec<PathBuf> = Vec::new();
+        // その影が「誰のものか」。**全員をゴミ箱へ送れたときだけ**一緒に送る
+        // （下の絞り込みで使う）
+        let mut owners: Vec<Vec<PathBuf>> = Vec::new();
+        let mut where_is: std::collections::HashMap<PathBuf, usize> =
+            std::collections::HashMap::new();
         for path in &media {
             for sidecar in companions.sidecars_of(path, &sidecar_exts) {
                 // **同じものを2回積まない**。組を両方選ぶと共有の `.xmp` に2回
                 // 行き当たり、束での削除が「もう無い」で落ちて**1件ずつへ降りる**
                 // （1件200〜300msの固定費を払い直す）。分母も水増しされる
-                if seen.insert(sidecar.clone()) {
-                    sidecars.push(sidecar);
+                match where_is.get(&sidecar) {
+                    Some(&i) => owners[i].push(path.clone()),
+                    None if seen.insert(sidecar.clone()) => {
+                        where_is.insert(sidecar.clone(), sidecars.len());
+                        sidecars.push(sidecar);
+                        owners.push(vec![path.clone()]);
+                    }
+                    None => {}
                 }
             }
         }
@@ -1269,6 +1280,17 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
                 },
             );
         });
+        // **消せなかった写真の影は置いていく**（ゲート2の指摘）。ゴミ箱への移動は
+        // 失敗することがある（現像ソフトが握っている等）。写真が元の場所に残ったのに
+        // その `.xmp` だけ送ってしまうと、**残った写真から現像設定が剥がれる**
+        // ——一覧に出ないファイルなので、戻せるとしても気付く手立てが無い
+        let survived: std::collections::HashSet<&PathBuf> = deleted_media.iter().collect();
+        let sidecars: Vec<PathBuf> = sidecars
+            .into_iter()
+            .zip(owners)
+            .filter(|(_, owners)| owners.iter().all(|o| survived.contains(o)))
+            .map(|(sidecar, _)| sidecar)
+            .collect();
         // **影は別に送る**。ここでの失敗で写真の結果を書き換えない——
         // 現像ソフトが `.xmp` を握っているだけで「削除できませんでした」を返すと、
         // 写真が全部消えていても画面は失敗の側へ倒れ、選別の関所が閉じない

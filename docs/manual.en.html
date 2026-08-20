@@ -253,6 +253,13 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
     would be split across folders and could no longer be matched up. If neither file carries a
     capture time, each falls back to its own modification time.
   </p>
+  <p>
+    When you send <strong>only one half of the pair</strong> to the trash, a sidecar that is tied
+    to the photo <strong>by name alone</strong> (<code>IMG_0001.xmp</code>) <strong>stays
+    behind</strong>: with a same-named photo still there, which one it belongs to cannot be
+    decided (Lightroom writes <code>.xmp</code> for raw files only). A sidecar that carries the
+    full file name (<code>IMG_0001.CR3.xmp</code>) belongs to that one photo, so it moves with it.
+  </p>
 </div>
 
 <h2 id="folders">3. Decide how imported photos are filed</h2>
