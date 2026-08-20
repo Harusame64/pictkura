@@ -1,0 +1,6 @@
+# テストの中の `unwrap()` は素通しする。**落ちること自体が結果**なので、
+# `?` へ直すと失敗の理由がかえって見えにくくなる。
+# 本体側の方針は `Cargo.toml` の `[workspace.lints.clippy]` を参照。
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

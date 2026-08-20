@@ -1,3 +1,9 @@
+//! 開発用の調べ道具。**配布物には入らない**。
+//!
+//! ここは `unwrap()` を許している——条件が揃わなければその場で落ちて理由を
+//! 見せるのが正しい。本体側の方針は `Cargo.toml` の `[workspace.lints.clippy]`。
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::unreachable)]
+
 //! USNジャーナル読み取りの手動プローブ（開発用）。
 //! 管理者権限なしで FSCTL_READ_UNPRIVILEGED_USN_JOURNAL が機能するかを確認する:
 //! `cargo run -p pictkura-core --example usn_probe`

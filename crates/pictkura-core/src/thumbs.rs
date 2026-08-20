@@ -26,6 +26,10 @@ pub enum ThumbError {
     Image(#[from] image::ImageError),
     #[error("レコードが見つからない: id={0}")]
     NotFound(i64),
+    /// 解読器がパニックで知らせてきた（`dev/loadmap.md` 1.3）。
+    /// **1枚の失敗として数える**——ワーカーは生かしたまま次へ進む
+    #[error("読み取りの途中で落ちた（壊れたファイルの可能性）: id={0}")]
+    Panicked(i64),
 }
 
 /// EXIFから抽出したメタデータ。
@@ -658,7 +662,7 @@ fn process_video(
 
     let thumb = crate::resize::shrink_to_fit(&img, thumb_size);
     let webp_path = thumb_path_for(thumbs_dir, id, "webp");
-    std::fs::create_dir_all(webp_path.parent().unwrap())?;
+    ensure_parent(&webp_path)?;
     let rgb = crate::resize::flatten_onto_white(&thumb);
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
     std::fs::write(&webp_path, &*encoded)?;
@@ -672,6 +676,22 @@ fn process_video(
         }
     }
     Ok(ThumbOutcome::Final)
+}
+
+/// 置き先のフォルダを作る。
+///
+/// 親が無いパス（`"a.webp"` のような相対名）は**断る**。置き先は必ずアプリが
+/// 組み立てた絶対パスなのでここに来ることは無いが、黙って通すと
+/// **カレントディレクトリに書く**ことになる——「落とさない」は
+/// 「別の場所に置く」と同義ではない（ゲート1の指摘）。
+fn ensure_parent(path: &Path) -> std::io::Result<()> {
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("置き先に親フォルダが無い: {}", path.display()),
+        )),
+    }
 }
 
 /// 1件分のサムネイル＋メタデータ処理（2段階）。
@@ -815,7 +835,7 @@ pub fn process_one(
     if record.thumb_state == 0 && is_heif {
         if let Some(img) = crate::heif::decode_thumbnail(src) {
             let webp_path = thumb_path_for(thumbs_dir, id, "webp");
-            std::fs::create_dir_all(webp_path.parent().unwrap())?;
+            ensure_parent(&webp_path)?;
             let rgb = crate::resize::flatten_onto_white(&img);
             let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
             std::fs::write(&webp_path, &*encoded)?;
@@ -832,7 +852,7 @@ pub fn process_one(
         if let Some(bytes) = &exif_data.thumbnail {
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
-                std::fs::create_dir_all(jpg_path.parent().unwrap())?;
+                ensure_parent(&jpg_path)?;
                 if exif_data.orientation == 1 {
                     std::fs::write(&jpg_path, bytes)?;
                 } else {
@@ -879,7 +899,7 @@ pub fn process_one(
 
     // WebP(lossy)で書く: JPEG比でほぼ半分の容量（100万枚で数十GBの差になる）
     let webp_path = thumb_path_for(thumbs_dir, id, "webp");
-    std::fs::create_dir_all(webp_path.parent().unwrap())?;
+    ensure_parent(&webp_path)?;
     let rgb = crate::resize::flatten_onto_white(&apply_orientation(thumb, exif_data.orientation));
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
     std::fs::write(&webp_path, &*encoded)?;
@@ -1087,7 +1107,19 @@ impl ThumbnailService {
                     while let Some((id, want_final)) = queue.pop() {
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
-                        let result = process_one(&mut db, &thumbs_dir, thumb_size, id, want_final);
+                        //
+                        // **1枚のパニックでワーカーを死なせない**（`dev/loadmap.md` 1.3）。
+                        // 解読器（rav1d・`image`・libjpeg）は規格外のバイト列に当たると
+                        // `Err` ではなくパニックで知らせてくることがある。そのまま
+                        // 巻き戻すと**このスレッドが1本消え**、`queue.complete(id)` にも
+                        // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
+                        // ——以後そのフォルダのサムネイルが永久に出てこない。
+                        // 1枚の失敗（下で回数を数える側）へ均す
+                        let result =
+                            crate::panics::catching(&format!("サムネイル id={id}"), || {
+                                process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
+                            })
+                            .unwrap_or(Err(ThumbError::Panicked(id)));
                         queue.complete(id);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
@@ -1099,7 +1131,12 @@ impl ThumbnailService {
                         // 絵が取れなかった場合がまさにそれ）、黙っていると
                         // グリッドが既定の縦横比と古い日付のまま取り残される。
                         // 再投入は上の失敗回数が止めるので、通知が無限に続くことはない
-                        on_done(id);
+                        // **通知も網に入れる**（ゲート1の指摘）。`on_done` は
+                        // アプリ側の閉包で、共有状態を引きに行く。ここで落ちると
+                        // ワーカーが1本静かに消え、しかも「落ちない」ぶん誰も
+                        // 気付かない。詰まりを戻さないよう、`complete` は
+                        // 網の外（上）に置いたまま通知だけを包む
+                        let _ = crate::panics::catching(&format!("通知 id={id}"), || on_done(id));
                     }
                 })
             })

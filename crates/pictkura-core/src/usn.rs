@@ -176,14 +176,32 @@ mod windows_impl {
     /// （バッファ内の可変長レコードを直接ポインタキャストせず、オフセット読みで安全に扱う）
     struct RecordView<'a>(&'a [u8]);
     impl RecordView<'_> {
+        /// **足りなければ0**を返す。呼ぶ側はどれも「0なら見送る」判定を持って
+        /// いるので、短いバッファが来ても打ち切りに落ちるだけで済む
+        /// ——OSが返す長さを信じて添字を書くと、そこがそのまま落ち口になる
+        fn le_u32(&self, at: usize) -> u32 {
+            self.0
+                .get(at..at + 4)
+                .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                .map(u32::from_le_bytes)
+                .unwrap_or(0)
+        }
         fn record_length(&self) -> u32 {
-            u32::from_le_bytes(self.0[0..4].try_into().unwrap())
+            self.le_u32(0)
         }
         fn major_version(&self) -> u16 {
-            u16::from_le_bytes(self.0[4..6].try_into().unwrap())
+            self.0
+                .get(4..6)
+                .and_then(|b| <[u8; 2]>::try_from(b).ok())
+                .map(u16::from_le_bytes)
+                .unwrap_or(0)
         }
         fn parent_frn(&self) -> u64 {
-            u64::from_le_bytes(self.0[16..24].try_into().unwrap())
+            self.0
+                .get(16..24)
+                .and_then(|b| <[u8; 8]>::try_from(b).ok())
+                .map(u64::from_le_bytes)
+                .unwrap_or(0)
         }
     }
 
@@ -291,7 +309,15 @@ mod windows_impl {
                     next_usn: input.StartUsn,
                 };
             }
-            let next_usn = i64::from_le_bytes(buf[0..8].try_into().unwrap());
+            let Some(next_usn) = buf
+                .get(0..8)
+                .and_then(|b| <[u8; 8]>::try_from(b).ok())
+                .map(i64::from_le_bytes)
+            else {
+                // 8バイトあることは上で確かめているので通らない。
+                // 通ったときは差分をあきらめて全件走査へ落とす（黙って止めない）
+                return UsnOutcome::FullScanNeeded(Some(current));
+            };
             let mut offset = 8usize;
             while offset + 60 <= returned {
                 let view = RecordView(&buf[offset..]);
