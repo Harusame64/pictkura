@@ -472,8 +472,14 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
 
     // 3段目: 先頭16MBに無かった。原寸プレビューを**後ろの方に**置く形式が
     // ある（Ricoh GR IIIのDNGは720x480の後ろに6000x4000、Sigmaのx3fも同様）。
-    // ここまで来たのは「使える絵がまだ無い」ときだけなので、全体を読んで探す
-    if std::fs::metadata(path).is_ok_and(|m| m.len() as usize <= FULL_SCAN_LIMIT) {
+    //
+    // ただし**全体を読むのは原寸が要るときだけ**にする。一覧のタイル（512px）
+    // でここへ来ると、160x120しか持たない社（Minolta MRW・Sony SRF・
+    // Phase One IIQ 等）は1枚ごとにファイル全体を読み、しかもその先に
+    // 大きい絵は無い。取り込み元のSDカードを丸ごと読み直すことになる
+    if min_long_edge >= USABLE_LONG_EDGE
+        && std::fs::metadata(path).is_ok_and(|m| m.len() as usize <= FULL_SCAN_LIMIT)
+    {
         if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
             if let Some(found) = scan_largest_jpeg(&whole) {
                 if long_edge(found) >= min_long_edge {
@@ -1131,6 +1137,40 @@ mod tests {
             (decoded.width(), decoded.height()),
             (1600, 1200),
             "使える大きさが申告されていたら、それで打ち切る"
+        );
+    }
+
+    #[test]
+    fn 一覧の大きさで足りるなら全体は読まない() {
+        // 一覧のタイル（512px）は取り込み元のSDカードにも並ぶ。160x120しか
+        // 持たない社（Minolta MRW・Sony SRF・Phase One IIQ）でここから
+        // 全体走査に降りると、**1枚ごとにファイル全体を読む**うえに、
+        // その先に大きい絵は無い（ゲート1のP1）
+        let dir = tempfile::tempdir().unwrap();
+        let stamp = jpeg_bytes(160, 120);
+        let far = jpeg_bytes(1600, 1200);
+        let path = tiff_with_declared_preview(dir.path(), "sample.mrw", &stamp);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        // 先頭16MBの走査には入らない位置へ大きい絵を置く
+        file.write_all(&vec![0u8; SCAN_LIMIT]).unwrap();
+        file.write_all(&far).unwrap();
+        drop(file);
+
+        let tile = embedded_preview_at_least(&path, 512).expect("小さくても絵は返る");
+        assert_eq!(
+            image::load_from_memory(&tile).unwrap().width(),
+            160,
+            "タイルの大きさで足りる場面では、後ろまで探しに行かない"
+        );
+
+        let full = embedded_preview(&path).expect("プレビューが取れる");
+        assert_eq!(
+            image::load_from_memory(&full).unwrap().width(),
+            1600,
+            "原寸が要る場面では、今までどおり後ろまで探す"
         );
     }
 
