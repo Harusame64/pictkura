@@ -553,13 +553,14 @@ fn minolta_repaired_jpeg(path: &Path) -> Option<Vec<u8>> {
     let head = read_head(path, SCAN_LIMIT)?;
     let mut at = 0usize;
     let mut best: Option<Vec<u8>> = None;
-    while let Some(found) = head
-        .get(at..)?
-        .windows(3)
-        .position(|w| w == [0x00, 0xD8, 0xFF])
-    {
+    // ここで `?` を使って抜けないこと——末尾に達したときに、
+    // 拾ってあった絵ごと捨ててしまう
+    while let Some(rest) = head.get(at..) {
+        let Some(found) = rest.windows(3).position(|w| w == [0x00, 0xD8, 0xFF]) else {
+            break;
+        };
         let start = at + found;
-        let mut repaired = head.get(start..)?.to_vec();
+        let mut repaired = rest[found..].to_vec();
         repaired[0] = 0xFF;
         if let Some(span) = jpeg_span(&repaired, 0) {
             if span.displayable {
@@ -646,6 +647,12 @@ pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
         return None;
     }
     let len = std::fs::metadata(path).ok()?.len() as usize;
+    // 嵩上げはファイルと同じ長さぶん確保する。`.raw` のように**中身が何でも
+    // ありうる拡張子**も走査対象なので、上限を付けないと数GBのファイル1つで
+    // 確保が破裂する。超えるものは諦める（メタデータが空になるだけ）
+    if len > FULL_SCAN_LIMIT {
+        return None;
+    }
     let mut buf = vec![0u8; len.max(head.len())];
     buf.get_mut(..head.len())?.copy_from_slice(&head);
     let patched = if big_endian {
