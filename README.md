@@ -197,7 +197,7 @@ at that year's folder and pick the preset that adds only `2026-08-16/`.
 > `.moff` and `.wav` are **not** carried by default (the camera can regenerate them, they
 > belong to another application, or the same name too easily means a different file).
 >
-> **If you shoot RAW+JPEG**, `IMG_0001.CR3` and `IMG_0001.JPG` always land in the same date
+> **If you shoot RAW+JPEG**, `IMG_0001.CR3` and `IMG_0001.JPG` land in the same date
 > folder — one of the two sometimes carries no capture time.
 
 ### 4. Find things

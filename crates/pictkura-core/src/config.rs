@@ -99,6 +99,39 @@ pub struct ImportConfig {
     pub register_autoplay: bool,
 }
 
+impl ImportConfig {
+    /// サイドカーの並びから、**一覧に出る拡張子**を落とす。
+    ///
+    /// `sidecar_extensions = ["jpg"]` と書かれると、`IMG_0001.CR3` を消したときに
+    /// 隣の `IMG_0001.jpg`（ライブラリの実写真）まで影として道連れになる。
+    /// 影はDBの行を持たない前提なので**一覧には幽霊が残る**——写真として
+    /// 運びたいものは [`Self::extensions`] の側に書く。
+    ///
+    /// ついでに重複も畳む（同じファイルを2回statしないため）。
+    fn drop_photo_sidecars(&mut self) {
+        let photos: Vec<String> = self
+            .extensions
+            .iter()
+            .map(|e| e.trim().trim_start_matches('.').to_lowercase())
+            .collect();
+        let mut kept: Vec<String> = Vec::with_capacity(self.sidecar_extensions.len());
+        for ext in std::mem::take(&mut self.sidecar_extensions) {
+            let key = ext.trim().trim_start_matches('.').to_lowercase();
+            if key.is_empty() || photos.contains(&key) {
+                continue;
+            }
+            if kept
+                .iter()
+                .any(|k| k.trim().trim_start_matches('.').eq_ignore_ascii_case(&key))
+            {
+                continue;
+            }
+            kept.push(ext);
+        }
+        self.sidecar_extensions = kept;
+    }
+}
+
 impl Default for ImportConfig {
     fn default() -> Self {
         Self {
@@ -343,7 +376,9 @@ impl UpdateConfig {
 impl Config {
     /// TOML文字列からパースする。欠けているフィールドはデフォルト値で補完される。
     pub fn from_toml_str(s: &str) -> Result<Self, ConfigError> {
-        Ok(toml::from_str(s)?)
+        let mut config: Self = toml::from_str(s)?;
+        config.import.drop_photo_sidecars();
+        Ok(config)
     }
 
     /// TOML文字列にシリアライズする。
@@ -600,6 +635,20 @@ verify_after_copy = true
         off.update.check_on_start = false;
         let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
         assert!(!back.update.check_on_start);
+    }
+
+    /// 一覧に出る拡張子をサイドカーに書かれたら落とす（ゲート1のP3）。
+    /// 残すと、隣の実写真を影として道連れにしてDBに幽霊行が残る。
+    #[test]
+    fn 写真の拡張子はサイドカーから落とされる() {
+        let config = Config::from_toml_str(
+            "[import]
+extensions = [\"jpg\", \"cr3\"]
+sidecar_extensions = [\"xmp\", \".JPG\", \"xmp\", \"\"]
+",
+        )
+        .unwrap();
+        assert_eq!(config.import.sidecar_extensions, vec!["xmp".to_string()]);
     }
 
     /// 配ったあとに足した項目（0.2）。**古い設定ファイルには無い**ので、

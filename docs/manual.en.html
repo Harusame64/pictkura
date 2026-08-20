@@ -248,9 +248,10 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 <div class="note">
   <p>
     <strong>If you shoot RAW+JPEG</strong> (<code>IMG_0001.CR3</code> and
-    <code>IMG_0001.JPG</code>), the pair <strong>always lands in the same date folder</strong>.
-    One of the two sometimes carries no capture time, and without this the pair would be
-    split across folders and could no longer be matched up.
+    <code>IMG_0001.JPG</code>), the pair <strong>lands in the same date folder even when only
+    one of the two carries a capture time</strong> (the other follows it). Without this the pair
+    would be split across folders and could no longer be matched up. If neither file carries a
+    capture time, each falls back to its own modification time.
   </p>
 </div>
 

@@ -90,31 +90,42 @@ pub fn export_files(
     }
     let total = files.len();
     let mut out = ExportOutcome::default();
-    // **この操作で自分が書いたパス**を覚える。名前もサイズも同じで中身が違う写真
-    // （連番が一周したRAW等）を「もうある」と誤判定して落とさないため
-    let mut written: HashSet<PathBuf> = HashSet::new();
+    let mut carry = Carry {
+        mode,
+        extensions: sidecar_extensions,
+        // **移動のときだけ**「残るほうの相方」を守る。コピーは元が残るので
+        // 誰からも奪わない——同じ `.xmp` を両方の写真ぶん渡せばよい
+        companions: crate::sidecar::Companions::new(match mode {
+            ExportMode::Move => files.to_vec(),
+            ExportMode::Copy => Vec::new(),
+        }),
+        carried: HashSet::new(),
+        written: HashSet::new(),
+    };
     for (i, path) in files.iter().enumerate() {
-        export_one(
-            path,
-            dest_dir,
-            mode,
-            sidecar_extensions,
-            &mut written,
-            &mut out,
-        );
+        export_one(path, dest_dir, &mut carry, &mut out);
         on_progress(i + 1, total, path);
     }
     Ok(out)
 }
 
-fn export_one(
-    path: &Path,
-    dest_dir: &Path,
+/// 1回の書き出しのあいだ持ち回る状態。
+struct Carry<'a> {
     mode: ExportMode,
-    sidecar_extensions: &[String],
-    written: &mut HashSet<PathBuf>,
-    out: &mut ExportOutcome,
-) {
+    extensions: &'a [String],
+    /// 移動で「残る相方から `.xmp` を奪わない」ための門（コピーでは空）
+    companions: crate::sidecar::Companions,
+    /// **この操作でもう運んだサイドカー**（元のパス）。RAW+JPGを両方選ぶと
+    /// 同じ `IMG_0001.xmp` に2回行き当たり、素朴に運ぶと2枚目が連番へ落ちて
+    /// **どの写真とも結び付かない `IMG_0001-1.xmp`** が書き出し先に生える
+    carried: HashSet<PathBuf>,
+    /// **この操作で自分が書いたパス**を覚える。名前もサイズも同じで中身が違う写真
+    /// （連番が一周したRAW等）を「もうある」と誤判定して落とさないため
+    written: HashSet<PathBuf>,
+}
+
+fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportOutcome) {
+    let mode = carry.mode;
     // 一覧に出したあとに消えている可能性があるので、ここで改めてstatする
     let Ok(meta) = std::fs::metadata(path) else {
         out.stats.failed += 1;
@@ -126,7 +137,8 @@ fn export_one(
     };
     let mtime_ms = filetime::FileTime::from_last_modification_time(&meta).unix_seconds() * 1000;
     let dest_path =
-        match resolve_dest_path_avoiding(dest_dir, file_name, meta.len(), mtime_ms, written) {
+        match resolve_dest_path_avoiding(dest_dir, file_name, meta.len(), mtime_ms, &carry.written)
+        {
             DestResolution::CopyTo(p) => p,
             DestResolution::AlreadyImported => {
                 // **同じものが既にある。移動でも元は消さない**——消してよいかは
@@ -156,17 +168,9 @@ fn export_one(
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        written.insert(dest_path);
+        carry.written.insert(dest_path);
         out.moved.push(path.to_path_buf());
-        carry_sidecars(
-            path,
-            dest_dir,
-            &dest_name,
-            mode,
-            sidecar_extensions,
-            written,
-            out,
-        );
+        carry_sidecars(path, dest_dir, &dest_name, carry, out);
         return;
     }
 
@@ -180,20 +184,12 @@ fn export_one(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    written.insert(dest_path);
+    carry.written.insert(dest_path);
     if mode == ExportMode::Move {
         // **元を消すのはここではない**（モジュールの説明を参照）
         out.to_remove.push(path.to_path_buf());
     }
-    carry_sidecars(
-        path,
-        dest_dir,
-        &dest_name,
-        mode,
-        sidecar_extensions,
-        written,
-        out,
-    );
+    carry_sidecars(path, dest_dir, &dest_name, carry, out);
 }
 
 /// 写真に付いているサイドカーを、写真と同じ場所へ連れていく（0.2）。
@@ -207,22 +203,33 @@ fn carry_sidecars(
     source_photo: &Path,
     dest_dir: &Path,
     dest_photo_name: &str,
-    mode: ExportMode,
-    sidecar_extensions: &[String],
-    written: &mut HashSet<PathBuf>,
+    carry: &mut Carry,
     out: &mut ExportOutcome,
 ) {
-    if sidecar_extensions.is_empty() {
+    if carry.extensions.is_empty() {
         return;
     }
-    for sidecar in crate::sidecar::sidecars_of(source_photo, sidecar_extensions) {
+    let mode = carry.mode;
+    let found = match mode {
+        // 移動は元が消えるので、**残る相方のもの**は連れていかない
+        ExportMode::Move => carry.companions.sidecars_of(source_photo, carry.extensions),
+        ExportMode::Copy => crate::sidecar::sidecars_of(source_photo, carry.extensions),
+    };
+    for sidecar in found {
+        // **同じサイドカーは1回だけ**。RAW+JPGを両方選ぶと同じ `.xmp` に2回
+        // 行き当たる——2回目は名前が衝突して連番へ落ち、どの写真とも結び付かない
+        // `IMG_0001-1.xmp` が書き出し先に生える（移動では、消す元も二重に積まれる）
+        if !carry.carried.insert(sidecar.clone()) {
+            continue;
+        }
         let Ok(meta) = std::fs::metadata(&sidecar) else {
             continue;
         };
         let name = crate::sidecar::sidecar_dest_name(source_photo, &sidecar, dest_photo_name);
         let mtime_ms = filetime::FileTime::from_last_modification_time(&meta).unix_seconds() * 1000;
         let target =
-            match resolve_dest_path_avoiding(dest_dir, &name, meta.len(), mtime_ms, written) {
+            match resolve_dest_path_avoiding(dest_dir, &name, meta.len(), mtime_ms, &carry.written)
+            {
                 DestResolution::CopyTo(p) => p,
                 DestResolution::AlreadyImported | DestResolution::Exhausted => continue,
             };
@@ -230,11 +237,19 @@ fn carry_sidecars(
             && !crate::cloud::is_cloud_only_path(&sidecar)
             && std::fs::rename(&sidecar, &target).is_ok()
         {
-            written.insert(target);
+            carry.written.insert(target);
             continue;
         }
         if std::fs::copy(&sidecar, &target).is_ok() {
-            written.insert(target);
+            // **写真と同じくmtimeを引き継ぐ**（`copy_verified` と同じ理由）。
+            // Unixの `fs::copy` は保持しないので、同じUSBメモリへ2回書き出すと
+            // 写真は「もうある」で飛ばされるのに、サイドカーだけ別物と見なされて
+            // `IMG_0001-1.xmp` `-2` … と増え続ける
+            if let Ok(mtime) = meta.modified() {
+                let _ =
+                    filetime::set_file_mtime(&target, filetime::FileTime::from_system_time(mtime));
+            }
+            carry.written.insert(target);
             if mode == ExportMode::Move {
                 out.sidecars_to_remove.push(sidecar);
             }
@@ -344,6 +359,103 @@ mod tests {
 
         assert_eq!(files_in(&dest), ["IMG_0001.jpg", "IMG_0001.xmp"]);
         assert!(src.join("IMG_0001.xmp").exists(), "コピーでは元を消さない");
+    }
+
+    /// **P1（ゲート1）**: RAW+JPGのうち片方だけ移すと、共有の `IMG_0001.xmp` が
+    /// 道連れになる。写真（RAW）はライブラリに残るので**利用者は気付かない**。
+    #[test]
+    fn 移動で残る相方から現像設定を奪わない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("IMG_0001.CR3"), b"raw").unwrap();
+        std::fs::write(src.join("IMG_0001.JPG"), b"photo").unwrap();
+        std::fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+
+        // JPGだけを別フォルダへ移す
+        export_files(
+            &[src.join("IMG_0001.JPG")],
+            &dest,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(files_in(&dest), ["IMG_0001.JPG"], "`.xmp` はRAWのもの");
+        assert!(
+            src.join("IMG_0001.xmp").exists(),
+            "残るRAWから現像設定を奪ってはいけない"
+        );
+
+        // 組ごと移すなら連れていく（取り残しにしない）
+        let dest2 = dir.path().join("out2");
+        export_files(
+            &[src.join("IMG_0001.CR3")],
+            &dest2,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(files_in(&dest2), ["IMG_0001.CR3", "IMG_0001.xmp"]);
+    }
+
+    /// **P2（ゲート1）**: 組を両方選ぶと同じ `.xmp` に2回行き当たる。
+    /// 素朴に運ぶと2枚目が連番へ落ち、どの写真とも結び付かない孤児が生える。
+    #[test]
+    fn 共有のサイドカーを二重に運ばない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("IMG_0001.CR3"), b"raw").unwrap();
+        std::fs::write(src.join("IMG_0001.JPG"), b"photo").unwrap();
+        std::fs::write(src.join("IMG_0001.xmp"), b"<x/>").unwrap();
+
+        let out = export_files(
+            &[src.join("IMG_0001.CR3"), src.join("IMG_0001.JPG")],
+            &dest,
+            ExportMode::Copy,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.done, 2);
+        assert_eq!(
+            files_in(&dest),
+            ["IMG_0001.CR3", "IMG_0001.JPG", "IMG_0001.xmp"],
+            "`IMG_0001-1.xmp` はどの写真の設定でもない"
+        );
+    }
+
+    /// **P2（ゲート1）**: サイドカーだけmtimeを引き継がないと、同じUSBメモリへ
+    /// 2回書き出すたびに `-1` `-2` … と増える（Unixの `fs::copy` は保持しない）。
+    #[test]
+    fn コピーしたサイドカーのmtimeは元と同じ() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("IMG_0001.jpg"), b"photo").unwrap();
+        let sidecar = src.join("IMG_0001.xmp");
+        std::fs::write(&sidecar, b"<x/>").unwrap();
+        let old = filetime::FileTime::from_unix_time(1_500_000_000, 0);
+        filetime::set_file_mtime(src.join("IMG_0001.jpg"), old).unwrap();
+        filetime::set_file_mtime(&sidecar, old).unwrap();
+
+        let files = [src.join("IMG_0001.jpg")];
+        export_files(&files, &dest, ExportMode::Copy, &exts(), |_, _, _| {}).unwrap();
+        let copied = filetime::FileTime::from_last_modification_time(
+            &std::fs::metadata(dest.join("IMG_0001.xmp")).unwrap(),
+        );
+        assert_eq!(copied.unix_seconds(), old.unix_seconds());
+
+        // 2回目は写真もサイドカーも「もうある」で増えない
+        export_files(&files, &dest, ExportMode::Copy, &exts(), |_, _, _| {}).unwrap();
+        assert_eq!(files_in(&dest), ["IMG_0001.jpg", "IMG_0001.xmp"]);
     }
 
     /// 写真が連番になったら、サイドカーも同じ連番で付いていくこと。

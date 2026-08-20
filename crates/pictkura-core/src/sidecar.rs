@@ -9,6 +9,7 @@
 //! ここに置くのは**名前の対応づけだけ**で、コピーも削除もしない。呼ぶ側
 //! （取り込み・ゴミ箱）が実際の入出力を持つ。
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// 既定で一緒に運ぶ拡張子（2026-08-19に調べた）。
@@ -57,6 +58,22 @@ pub fn pair_key(path: &Path) -> (PathBuf, String) {
     (dir, stem)
 }
 
+/// 試す綴り。**大文字小文字を区別しないOSでは1周だけ**。
+///
+/// Windowsでは `.xmp` と綴っても `IMG_0001.XMP` が開けるので、大文字の周回は
+/// 同じファイルをもう一度statして [`std::fs::canonicalize`] で畳み直すだけの
+/// 無駄になる——写真1枚あたりの stat が倍になり、クラウド同期フォルダの
+/// ように1回が遅い場所では削除の押し始めがそのぶん止まる。
+fn cased_candidates(ext: &str) -> Vec<String> {
+    let lower = ext.to_lowercase();
+    let upper = ext.to_uppercase();
+    if cfg!(windows) || upper == lower {
+        vec![lower]
+    } else {
+        vec![lower, upper]
+    }
+}
+
 /// `path` に付いているサイドカーを、**実在するものだけ**返す。
 ///
 /// 名前の流儀が2つあるので両方見る:
@@ -81,7 +98,7 @@ pub fn sidecars_of(path: &Path, extensions: &[String]) -> Vec<PathBuf> {
         if ext.is_empty() {
             continue;
         }
-        for cased in [ext.to_lowercase(), ext.to_uppercase()] {
+        for cased in cased_candidates(ext) {
             // 置き換え型: IMG_0001.CR3 → IMG_0001.xmp
             let replaced = path.with_extension(&cased);
             // 足す型: IMG_0001.CR3 → IMG_0001.CR3.xmp
@@ -118,6 +135,150 @@ pub fn sidecars_of(path: &Path, extensions: &[String]) -> Vec<PathBuf> {
     out
 }
 
+/// そのサイドカーが**足す型**（`IMG_0001.CR3.xmp`）か。
+///
+/// 足す型は写真のフルネームを丸ごと含むので、**その1枚にしか付かない**。
+/// 置き換え型（`IMG_0001.xmp`）は名前の芯しか持たないため、同じ芯の写真が
+/// 複数あると**どれのものか決められない**——[`Companions`] がその差を使う。
+fn is_appended_form(photo: &Path, sidecar: &Path) -> bool {
+    let ext = sidecar
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name = sidecar
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let photo_name = photo
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    name.eq_ignore_ascii_case(&format!("{photo_name}.{ext}"))
+}
+
+/// 大文字小文字を畳んだパス（Windowsのみ。区別するOSでは綴りのまま）。
+fn folded(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if cfg!(windows) {
+        s.to_lowercase()
+    } else {
+        s.into_owned()
+    }
+}
+
+/// **残るほうの相方から `.xmp` を奪わない**ための門（ゴミ箱送り・移動で使う）。
+///
+/// 置き換え型のサイドカーは**名前でしか写真に結び付いていない**。
+/// `IMG_0001.CR3` と `IMG_0001.JPG` が並ぶフォルダの `IMG_0001.xmp` は、
+/// 実際には**RAWのもの**であることが多い——Adobe（Camera Raw / Lightroom）は
+/// RAWにだけ `.xmp` を書き、JPEGには写真の中へ直接書き込む。
+///
+/// ここで JPG だけをゴミ箱へ送ると、素朴に集める実装は `IMG_0001.xmp` も
+/// 道連れにする。**写真（CR3）は残るので利用者は気付かず**、次に現像ソフトを
+/// 開いたときに現像設定・評価・キーワードが消えている——置き去りを防ぐはずの
+/// 仕掛けが、逆向きに同じ事故を起こす。
+///
+/// そこで、**同じ名前の写真がフォルダに残るなら置き換え型は連れていかない**。
+/// 足す型（`IMG_0001.CR3.xmp`）はその1枚に固有なので、いつでも連れていく。
+/// 組の全員を一緒に消す／動かすときは `leaving` に入っているので、
+/// そのときは連れていく（取り残しにならない）。
+///
+/// フォルダの中身は**1回だけ読んで覚える**。500枚の削除で500回読み直すと、
+/// クラウド同期フォルダでは押した直後の待ちがそのぶん伸びる。
+pub struct Companions {
+    /// この操作で居なくなる写真（畳んだフルパス）
+    leaving: HashSet<String>,
+    /// フォルダ → その中のファイル名（読めなかったフォルダは空）
+    dirs: HashMap<PathBuf, Vec<String>>,
+}
+
+impl Companions {
+    /// `leaving` はこの操作で**一緒に居なくなる**ファイル（写真自身も含めてよい）。
+    pub fn new(leaving: impl IntoIterator<Item = PathBuf>) -> Self {
+        Self {
+            leaving: leaving.into_iter().map(|p| folded(&p)).collect(),
+            dirs: HashMap::new(),
+        }
+    }
+
+    /// 連れていってよいサイドカーだけを返す（[`sidecars_of`] の絞り込み版）。
+    pub fn sidecars_of(&mut self, photo: &Path, extensions: &[String]) -> Vec<PathBuf> {
+        let found = sidecars_of(photo, extensions);
+        if found.is_empty() {
+            return found;
+        }
+        // フォルダを読むのは**置き換え型が実際にあったときだけ**（遅延）
+        let mut stays: Option<bool> = None;
+        let mut out = Vec::with_capacity(found.len());
+        for sidecar in found {
+            if !is_appended_form(photo, &sidecar) {
+                if stays.is_none() {
+                    stays = Some(self.other_photo_stays(photo, extensions));
+                }
+                if stays == Some(true) {
+                    continue;
+                }
+            }
+            out.push(sidecar);
+        }
+        out
+    }
+
+    /// 同じ名前（拡張子違い）の別のファイルが、この操作のあとも**残る**か。
+    fn other_photo_stays(&mut self, photo: &Path, extensions: &[String]) -> bool {
+        let (dir, stem) = pair_key(photo);
+        // `leaving` と `dirs` を別々に借りる（片方の借用でもう片方が使えなくなる）
+        let Self { leaving, dirs } = self;
+        let names = dirs.entry(dir.clone()).or_insert_with(|| {
+            std::fs::read_dir(&dir)
+                .map(|rd| {
+                    rd.flatten()
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        let myself = photo
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        for name in names.iter() {
+            if name.to_lowercase() == myself {
+                continue;
+            }
+            let as_path = Path::new(name);
+            if as_path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_lowercase())
+                .unwrap_or_default()
+                != stem
+            {
+                continue;
+            }
+            // **サイドカー同士は数えない**（`IMG_0001.xmp` の隣の `IMG_0001.dop`）。
+            // 影が影を守り合うと、組の全員を消しても `.xmp` だけが残る
+            if let Some(ext) = as_path.extension() {
+                let ext = ext.to_string_lossy();
+                if extensions
+                    .iter()
+                    .any(|e| e.trim().trim_start_matches('.').eq_ignore_ascii_case(&ext))
+                {
+                    continue;
+                }
+            }
+            let full = dir.join(name);
+            // 一緒に居なくなるものは「残る」に数えない
+            if leaving.contains(&folded(&full)) {
+                continue;
+            }
+            if full.is_file() {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// コピー先での、そのサイドカーの名前を決める。
 ///
 /// **写真の付いた先の名前に合わせる**のが要点。取り込みは同名衝突を
@@ -131,15 +292,7 @@ pub fn sidecar_dest_name(source_photo: &Path, sidecar: &Path, dest_photo_name: &
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let appended = sidecar
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let source_name = source_photo
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    if appended.eq_ignore_ascii_case(&format!("{source_name}.{ext}")) {
+    if is_appended_form(source_photo, sidecar) {
         // 足す型
         format!("{dest_photo_name}.{ext}")
     } else {
@@ -215,6 +368,68 @@ mod tests {
         let x = dir.path().join("IMG_0001.xmp");
         std::fs::write(&x, b"<x/>").unwrap();
         assert!(sidecars_of(&x, &exts()).is_empty());
+    }
+
+    /// **P1（ゲート1）**: RAW+JPGのうち片方だけ消すと、素朴な実装は
+    /// 共有の `IMG_0001.xmp` を道連れにする。写真は残るので気付けない。
+    #[test]
+    fn 相方が残るなら置き換え型は連れていかない() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("IMG_0001.CR3");
+        let jpg = dir.path().join("IMG_0001.JPG");
+        let xmp = dir.path().join("IMG_0001.xmp");
+        for p in [&raw, &jpg, &xmp] {
+            std::fs::write(p, b"x").unwrap();
+        }
+
+        // JPGだけをゴミ箱へ: `.xmp` は**RAWのもの**なので置いていく
+        let mut only_jpg = Companions::new([jpg.clone()]);
+        assert!(
+            only_jpg.sidecars_of(&jpg, &exts()).is_empty(),
+            "残るRAWから現像設定を奪ってはいけない"
+        );
+
+        // 組の全員を消すなら連れていく（取り残しにしない）
+        let mut both = Companions::new([raw.clone(), jpg.clone()]);
+        assert_eq!(both.sidecars_of(&jpg, &exts()), vec![xmp.clone()]);
+        // 2枚目からも同じ答え（フォルダを読み直さない経路も同じ）
+        assert_eq!(both.sidecars_of(&raw, &exts()), vec![xmp.clone()]);
+
+        // 相方が居なければ、1枚だけでも連れていく
+        std::fs::remove_file(&jpg).unwrap();
+        let mut alone = Companions::new([raw.clone()]);
+        assert_eq!(alone.sidecars_of(&raw, &exts()), vec![xmp]);
+    }
+
+    /// 足す型（`IMG_0001.CR3.xmp`）は**その1枚にしか付かない**ので、
+    /// 相方が残っていても連れていく。
+    #[test]
+    fn 足す型は相方が残っていても連れていく() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("IMG_0001.CR3");
+        let jpg = dir.path().join("IMG_0001.JPG");
+        let appended = dir.path().join("IMG_0001.CR3.xmp");
+        for p in [&raw, &jpg, &appended] {
+            std::fs::write(p, b"x").unwrap();
+        }
+        let mut only_raw = Companions::new([raw.clone()]);
+        assert_eq!(only_raw.sidecars_of(&raw, &exts()), vec![appended]);
+    }
+
+    /// サイドカー同士は「残る相方」に数えない——数えると、組を全部消しても
+    /// `.xmp` と `.dop` がお互いを盾にして両方残る。
+    #[test]
+    fn サイドカー同士は相方に数えない() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("IMG_0001.CR3");
+        let xmp = dir.path().join("IMG_0001.xmp");
+        let dop = dir.path().join("IMG_0001.dop");
+        for p in [&raw, &xmp, &dop] {
+            std::fs::write(p, b"x").unwrap();
+        }
+        let mut only_raw = Companions::new([raw.clone()]);
+        let found = only_raw.sidecars_of(&raw, &exts());
+        assert_eq!(found.len(), 2, "両方連れていく: {found:?}");
     }
 
     #[test]
