@@ -2833,69 +2833,73 @@ pub fn run() {
                 // **掃除役を絶やさない**（ゲート1の指摘）。ここが死ぬとLRU削除が
                 // 永久に止まり、サムネイルが上限を超えて**ディスクを埋め続ける**
                 // ——しかも静かなので誰も気付かない。落ちたら開き直して回し直す
-                // （DBの接続は中で開き直る。60秒眠ってから始まるので暴走しない）
-                while pictkura_core::panics::catching("サムネイルの掃除", || {
-                    let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
-                    let mut db: Option<Db> = None;
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_secs(60));
-                        let state = janitor_handle.state::<AppState>();
-                        let touches: Vec<(i64, i64)> =
-                            lock_ok(&state.thumb_touches).drain().collect();
-                        if touches.is_empty() && cap_bytes == 0 {
-                            continue;
-                        }
-                        if db.is_none() {
-                            db = Db::open(&janitor_db_path).ok();
-                        }
-                        let Some(db) = db.as_mut() else { continue };
-                        if !touches.is_empty() {
-                            // 書き込み失敗（長時間の書き込みトランザクションとの競合等）で
-                            // タッチを失うと、直近閲覧中のサムネイルほどLRUで削除されやすく
-                            // なってしまう。失敗分はマップへ書き戻して次サイクルで再試行する
-                            if db.touch_thumbs(&touches).is_err() {
-                                let mut map = lock_ok(&state.thumb_touches);
-                                for (id, used_ms) in touches {
-                                    map.entry(id)
-                                        .and_modify(|v| *v = (*v).max(used_ms))
-                                        .or_insert(used_ms);
+                // （DBの接続は中で開き直る。60秒眠ってから始まるので暴走しない）。
+                //
+                // **外側は `loop`**（`while ... .is_none()` にしない。ゲート2の指摘）。
+                // 中の閉包に `break` や `return` を1つ書き足すだけで、正常終了と
+                // 見なされて**掃除役が静かに永久停止する**——落ちないぶん誰も気付けない
+                loop {
+                    let _ = pictkura_core::panics::catching("サムネイルの掃除", || {
+                        let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
+                        let mut db: Option<Db> = None;
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_secs(60));
+                            let state = janitor_handle.state::<AppState>();
+                            let touches: Vec<(i64, i64)> =
+                                lock_ok(&state.thumb_touches).drain().collect();
+                            if touches.is_empty() && cap_bytes == 0 {
+                                continue;
+                            }
+                            if db.is_none() {
+                                db = Db::open(&janitor_db_path).ok();
+                            }
+                            let Some(db) = db.as_mut() else { continue };
+                            if !touches.is_empty() {
+                                // 書き込み失敗（長時間の書き込みトランザクションとの競合等）で
+                                // タッチを失うと、直近閲覧中のサムネイルほどLRUで削除されやすく
+                                // なってしまう。失敗分はマップへ書き戻して次サイクルで再試行する
+                                if db.touch_thumbs(&touches).is_err() {
+                                    let mut map = lock_ok(&state.thumb_touches);
+                                    for (id, used_ms) in touches {
+                                        map.entry(id)
+                                            .and_modify(|v| *v = (*v).max(used_ms))
+                                            .or_insert(used_ms);
+                                    }
+                                }
+                            }
+                            if cap_bytes == 0 {
+                                continue;
+                            }
+                            // 移行前（サイズ未記録）のサムネイルを少しずつ補完する。
+                            // 補完しないとキャッシュ使用量に数えられず上限管理から漏れる
+                            let _ = db.backfill_thumb_sizes(2000);
+                            let exclude = state.thumbs.active_ids();
+                            let Ok(victims) = db.evict_final_thumbs(cap_bytes, &exclude) else {
+                                continue;
+                            };
+                            for (id, path) in victims {
+                                // 削除の直前に再確認する: LRU選定（コミット済み）の後に
+                                // オンデマンド再生成が走った行のファイルを消すと、
+                                // 「state=2なのにファイルが無い」壊れた状態になり自然回復しない。
+                                // キューに入り直した/再生成済みのIDはスキップする
+                                // （スキップ分のファイルは同名パスへの再生成で上書きされる）
+                                if state.thumbs.is_active(id) {
+                                    continue;
+                                }
+                                match db.get_by_id(id) {
+                                    Ok(Some(rec)) if rec.thumb_state == 2 => continue,
+                                    _ => {}
+                                }
+                                let _ = std::fs::remove_file(path);
+                                // フロントの古い「高品質あり」表示を正す（未ロードの日ならno-op）
+                                if let Ok(Some(rec)) = db.get_by_id(id) {
+                                    let _ = janitor_handle
+                                        .emit("media-updated", MediaItemDto::from(rec));
                                 }
                             }
                         }
-                        if cap_bytes == 0 {
-                            continue;
-                        }
-                        // 移行前（サイズ未記録）のサムネイルを少しずつ補完する。
-                        // 補完しないとキャッシュ使用量に数えられず上限管理から漏れる
-                        let _ = db.backfill_thumb_sizes(2000);
-                        let exclude = state.thumbs.active_ids();
-                        let Ok(victims) = db.evict_final_thumbs(cap_bytes, &exclude) else {
-                            continue;
-                        };
-                        for (id, path) in victims {
-                            // 削除の直前に再確認する: LRU選定（コミット済み）の後に
-                            // オンデマンド再生成が走った行のファイルを消すと、
-                            // 「state=2なのにファイルが無い」壊れた状態になり自然回復しない。
-                            // キューに入り直した/再生成済みのIDはスキップする
-                            // （スキップ分のファイルは同名パスへの再生成で上書きされる）
-                            if state.thumbs.is_active(id) {
-                                continue;
-                            }
-                            match db.get_by_id(id) {
-                                Ok(Some(rec)) if rec.thumb_state == 2 => continue,
-                                _ => {}
-                            }
-                            let _ = std::fs::remove_file(path);
-                            // フロントの古い「高品質あり」表示を正す（未ロードの日ならno-op）
-                            if let Ok(Some(rec)) = db.get_by_id(id) {
-                                let _ =
-                                    janitor_handle.emit("media-updated", MediaItemDto::from(rec));
-                            }
-                        }
-                    }
-                })
-                .is_none()
-                {}
+                    });
+                }
             });
 
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
