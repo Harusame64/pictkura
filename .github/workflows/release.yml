@@ -302,7 +302,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          sparse-checkout: src-tauri/tauri.conf.json
+          # 版の突き合わせに `tauri.conf.json`、本文に手書きのリリースノート
+          sparse-checkout: |
+            src-tauri/tauri.conf.json
+            docs/release-notes
           sparse-checkout-cone-mode: false
 
       - name: タグと版が一致しているか
@@ -342,7 +345,20 @@ jobs:
           fi
           printf '  %s\n' "${files[@]}"
 
-          if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes "${files[@]}"; then
+          # 本文は `docs/release-notes/<タグ>.md` があればそれを載せる。
+          # **リポジトリに置く**のが要点——GitHub側で直に書くと、利用者が最初に
+          # 読む文章だけがレビューの門を通らずに出る。無ければ従来どおり
+          # 自動生成（マージしたPRの一覧）に落とす
+          notes="docs/release-notes/$GITHUB_REF_NAME.md"
+          if [ -f "$notes" ]; then
+            echo "リリースノート: $notes"
+            notes_args=(--notes-file "$notes")
+          else
+            echo "リリースノートが無いので自動生成にする: $notes"
+            notes_args=(--generate-notes)
+          fi
+
+          if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"; then
             # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           fi
