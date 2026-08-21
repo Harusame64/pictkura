@@ -110,18 +110,18 @@ const ja = {
   rejectGateConfirm: (n: number) => `${n}枚をゴミ箱へ`,
   rejectGateTrashing: (done: number, total: number) =>
     `移動中… (${done} / ${total})`,
-  // 新しい版の確認（0.2）。**このアプリで唯一の外向き通信**なので、
+  // 新しいバージョンの確認（0.2）。**このアプリで唯一の外向き通信**なので、
   // 何を送っていないかまで書く
-  updateFound: (v: string) => `新しい版 ${v} が出ています`,
+  updateFound: (v: string) => `新しいバージョン ${v} が出ています`,
   updateOpenPage: "ダウンロードページを開く",
   updateLater: "あとで",
   updateCheckNow: "更新を確認",
   updateChecking: "確認中…",
   updateUpToDate: "最新です",
   updateFailed: "確認できませんでした",
-  updateOnStart: "起動時に新しい版を確認する",
+  updateOnStart: "起動時に新しいバージョンを確認する",
   updateOnStartNote:
-    "GitHubに版の名前を聞きに行きます（1日1回）。写真もファイル名も送りません。切ると、上の「更新を確認」を押したとき以外は一切通信しません",
+    "GitHubに最新のバージョンを聞きに行きます（1日1回）。写真もファイル名も送りません。切ると、上の「更新を確認」を押したとき以外は一切通信しません",
   viewerSlideshow: "スライドショー (Space)",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",

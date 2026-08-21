@@ -302,7 +302,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          sparse-checkout: src-tauri/tauri.conf.json
+          # 版の突き合わせに `tauri.conf.json`、本文に手書きのリリースノート
+          sparse-checkout: |
+            src-tauri/tauri.conf.json
+            docs/release-notes
           sparse-checkout-cone-mode: false
 
       - name: タグと版が一致しているか
@@ -342,7 +345,30 @@ jobs:
           fi
           printf '  %s\n' "${files[@]}"
 
-          if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes "${files[@]}"; then
-            # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）
+          # 本文は `docs/release-notes/<タグ>.md` があればそれを載せる。
+          # **リポジトリに置く**のが要点——GitHub側で直に書くと、利用者が最初に
+          # 読む文章だけがレビューの門を通らずに出る。無ければ従来どおり
+          # 自動生成（マージしたPRの一覧）に落とす
+          notes="docs/release-notes/$GITHUB_REF_NAME.md"
+          # **中身があるかまで見る**（`-f` だけだと、sparse-checkout の書き方を
+          # 間違えて空で落ちてきたときに「本文が空のRelease」が黙って出る）
+          if [ -s "$notes" ]; then
+            echo "リリースノート: $notes"
+            notes_args=(--notes-file "$notes")
+          else
+            echo "リリースノートが無いので自動生成にする: $notes"
+            notes_args=(--generate-notes)
+          fi
+
+          if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"; then
+            # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）。
+            # **本文も貼り直す**——初回が自動生成に落ちた後でノートを足して回し直した
+            # ときに、配布物だけ新しくて本文が古いRelease が残らないように
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+            # 貼り直せるのは**手書きのノートがあるときだけ**。`gh release edit` に
+            # `--generate-notes` は無い（自動生成は create でしか作れない）ので、
+            # `notes_args` をそのまま渡すと未知のフラグで落ちる
+            if [ -s "$notes" ]; then
+              gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+            fi
           fi
