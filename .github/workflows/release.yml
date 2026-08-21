@@ -350,7 +350,9 @@ jobs:
           # 読む文章だけがレビューの門を通らずに出る。無ければ従来どおり
           # 自動生成（マージしたPRの一覧）に落とす
           notes="docs/release-notes/$GITHUB_REF_NAME.md"
-          if [ -f "$notes" ]; then
+          # **中身があるかまで見る**（`-f` だけだと、sparse-checkout の書き方を
+          # 間違えて空で落ちてきたときに「本文が空のRelease」が黙って出る）
+          if [ -s "$notes" ]; then
             echo "リリースノート: $notes"
             notes_args=(--notes-file "$notes")
           else
@@ -359,6 +361,14 @@ jobs:
           fi
 
           if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"; then
-            # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）
+            # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）。
+            # **本文も貼り直す**——初回が自動生成に落ちた後でノートを足して回し直した
+            # ときに、配布物だけ新しくて本文が古いRelease が残らないように
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+            # 貼り直せるのは**手書きのノートがあるときだけ**。`gh release edit` に
+            # `--generate-notes` は無い（自動生成は create でしか作れない）ので、
+            # `notes_args` をそのまま渡すと未知のフラグで落ちる
+            if [ -s "$notes" ]; then
+              gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+            fi
           fi
