@@ -2215,7 +2215,7 @@ export default function App() {
   const fitScale = useMemo(() => {
     if (!viewerItem) return 1;
     // 分母は**配信された絵の実寸**。届く前はDBの寸法で見当を付ける
-    // （等倍は「選んだ」を [`pinActual`] で覚えているので、届いた時点で
+    // （等倍は「選んだ」を [`pinnedActualId`] で覚えているので、届いた時点で
     // 正しい倍率に取り直される）
     const [w, h] =
       servedNatural && servedNatural.id === viewerItem.id
