@@ -212,7 +212,15 @@ function servedSize(item: MediaItem): [number, number] {
  * WorkingSetは+19.5MB。discardable/GPUプロセス側にある）ので、崖を避けるには
  * 自前で数えるしかない。寸法はDBの値を使い、**ファイルには触らない**。
  */
-function decodedBytes(it: MediaItem): number {
+function decodedBytes(it: MediaItem, measured?: [number, number]): number {
+  // **一度でも実物が届いた絵は、その実寸で数える**。DBの寸法は当てにならない
+  // ことがある——RAWは埋め込みプレビューの寸法が入っており、ファイル後方に
+  // 原寸を置く形式（Ricoh GR IIIのDNG・Sigma x3f）では、一覧が掴む720x480が
+  // 記録される一方、ビューアへ配信されるのは6000x4000＝95MiB。DBの値だけで
+  // 数えると1.4MiBと見積もり、崖（実測660MiB）へ近づく（ゲート2のP3）
+  if (measured && measured[0] > 0 && measured[1] > 0) {
+    return measured[0] * measured[1] * 4;
+  }
   let w = it.width;
   let h = it.height;
   if (w <= 0 || h <= 0) return PRELOAD_UNKNOWN_PIXELS * 4;
@@ -418,6 +426,20 @@ export default function App() {
   }, [rejected]);
   /** ビューアのズーム・パン・スライドショー。zoomは「画面に収めた状態」を1とする倍率 */
   const [zoom, setZoom] = useState(1);
+  /**
+   * 等倍(100%)を選んだ写真のid。倍率そのものではなく「選んだ」を覚える。
+   *
+   * 分母（[`fitScale`]）は後から変わる——絵が届いて実寸が分かったときと、
+   * ウィンドウの大きさが変わったとき。倍率だけを覚えていると、そのたびに
+   * 100%から外れる（絵が出る前に等倍へ切り替えると、DBの寸法で決めた倍率が
+   * そのまま残る。ゲート1のP2）。
+   *
+   * **真偽値ではなくidで持つ**のが要点。写真を送ると「ズームのリセット」と
+   * 「分母が変わったので取り直す」が同じ描画で走り、後者が勝って**次の写真が
+   * 100%で開く**（ゲート2のP2）。idなら送った時点で持ち主が変わるので、
+   * 取り直しは自分の写真にしか効かない
+   */
+  const [pinnedActualId, setPinnedActualId] = useState<number | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [playing, setPlaying] = useState(false);
   /** ビューアのUI（キャプション・ツール・矢印）を隠しているか（マウス静止で自動） */
@@ -1795,6 +1817,19 @@ export default function App() {
     thumbShownId === viewerItem.id;
   /** 配信される絵の寸法（TIFFだけ長辺が丸められる） */
   const [servedW, servedH] = viewerItem ? servedSize(viewerItem) : [0, 0];
+  /**
+   * いま出ている絵の**実寸**（届いてから分かる）。等倍100%の較正に使う。
+   *
+   * DBの寸法で較正すると、配信される絵と食い違う形式で**100%が100%でなくなる**
+   * ——RAWはDBに埋め込みプレビューの寸法が入っており、ファイル後方に原寸を置く
+   * 形式（Ricoh GR IIIのDNG・Sigma x3f）では720x480と6000x4000ほど離れる。
+   * TIFFの長辺丸めも同じ形（ゲート2のP3）
+   */
+  const [servedNatural, setServedNatural] = useState<{
+    id: number;
+    w: number;
+    h: number;
+  } | null>(null);
 
   /** 先読みする隣接画像（表示順に 次1→前1→次2→…） */
   const [preload, setPreload] = useState<MediaItem[]>([]);
@@ -1817,6 +1852,20 @@ export default function App() {
   }, []);
   /** 先読みの `<img>` 実体。decodeを表示順にかけるために持つ */
   const preloadElsRef = useRef(new Map<number, HTMLImageElement>());
+  /**
+   * id → **実際に届いた絵の実寸**（`naturalWidth`/`naturalHeight`）。
+   *
+   * DBの寸法は「配信される絵の寸法」とは限らない（[`decodedBytes`] の説明）。
+   * 一度読めた絵は実寸が分かるので、先読みの予算はそちらで数える。
+   * 見た絵のぶんだけ増えるので、**溜まったらまとめて捨てる**——捨てても
+   * DBの値へ戻るだけで、次に読めばまた入る
+   */
+  const naturalRef = useRef(new Map<number, [number, number]>());
+  const rememberNatural = useCallback((id: number, w: number, h: number) => {
+    if (w <= 0 || h <= 0) return;
+    if (naturalRef.current.size >= 4096) naturalRef.current.clear();
+    naturalRef.current.set(id, [w, h]);
+  }, []);
   /**
    * 裏で作らせている詰め直し（HEIC/RAW/TIFF）の1枚。**始めたら終わるまで手放さない**。
    *
@@ -1974,14 +2023,16 @@ export default function App() {
       // 予算は**表示中の1枚と、裏で作らせている1枚**を含めて数える
       // （崖は全体の総量で来る）
       const started = pendingTranscodeRef.current;
+      /** 実物が届いたことのある絵は、その実寸で数える */
+      const bytesOf = (it: MediaItem) =>
+        decodedBytes(it, naturalRef.current.get(it.id));
       // 仕掛かりを抱えたままでは予算を割るなら、**画素のほうを手放す**。
       // 崖は全か無かなので、1枚のために先読み全部を捨てられるほうが高くつく。
       // 変換自体は取り消せないから、印は見張り時計で降ろす（それまで次の
       // 詰め直しは始めない）
       const pending =
         started !== null &&
-        decodedBytes(viewerInfo.item) + decodedBytes(started) <=
-          PRELOAD_BUDGET_BYTES
+        bytesOf(viewerInfo.item) + bytesOf(started) <= PRELOAD_BUDGET_BYTES
           ? started
           : null;
       if (started !== null && pending === null && pendingWatchdogRef.current === null) {
@@ -1991,8 +2042,7 @@ export default function App() {
           setTranscodeTick((t) => t + 1);
         }, PENDING_WATCHDOG_MS);
       }
-      let bytes =
-        decodedBytes(viewerInfo.item) + (pending ? decodedBytes(pending) : 0);
+      let bytes = bytesOf(viewerInfo.item) + (pending ? bytesOf(pending) : 0);
       let transcodes = 0;
       const out: MediaItem[] = [];
       for (const it of ordered) {
@@ -2016,7 +2066,7 @@ export default function App() {
             transcodes >= PRELOAD_MAX_TRANSCODES)
         )
           continue;
-        const b = decodedBytes(it);
+        const b = bytesOf(it);
         // 入らない1枚が出たら、そこで打ち切る（近い順に並んでいる）
         if (bytes + b > PRELOAD_BUDGET_BYTES) break;
         bytes += b;
@@ -2097,8 +2147,18 @@ export default function App() {
           if (it.needs_transcode) pendingTranscodeRef.current = it;
           el.setAttribute("src", src);
         }
+        let underEstimated = false;
         try {
           await el.decode();
+          // **届いた絵の実寸を控える**。DBの寸法で見積もった量より大きければ、
+          // その場で選び直させる——予算は崖を避けるためのものなので、
+          // 過小に数えたまま近所を抱え続けると意味が無い（ゲート2のP3）
+          const before = decodedBytes(it, naturalRef.current.get(it.id));
+          rememberNatural(it.id, el.naturalWidth, el.naturalHeight);
+          // 逆（見積もりより小さかった）では選び直さない。予算が空くだけで
+          // 崖には近づかないので、次の契機（変換の完了・送り）まで待てばよい
+          underEstimated =
+            decodedBytes(it, naturalRef.current.get(it.id)) > before;
         } catch {
           // 読めない絵（壊れている・消えた）は諦める。実際に開いたときに出る
         }
@@ -2110,13 +2170,16 @@ export default function App() {
             pendingWatchdogRef.current = null;
           }
           setTranscodeTick((t) => t + 1);
+        } else if (underEstimated) {
+          // 見積もりより大きかった。予算を数え直させる
+          setTranscodeTick((t) => t + 1);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [preload]);
+  }, [preload, rememberNatural]);
 
 
   /** いま `<video>` を出している（＝最後まで見せたい）か */
@@ -2130,6 +2193,7 @@ export default function App() {
   // 写真が切り替わったらズーム・パンをリセット。ビューアを閉じたら停止
   useEffect(() => {
     setZoom(1);
+    setPinnedActualId(null);
     setPan({ x: 0, y: 0 });
     setVideoError(false);
     setVideoInfo(null);
@@ -2149,11 +2213,19 @@ export default function App() {
    * 元画像より大きくは表示されない。zoom=1 のときの実倍率がこれ。
    */
   const fitScale = useMemo(() => {
-    if (!viewerItem || viewerItem.width <= 0 || viewerItem.height <= 0) return 1;
+    if (!viewerItem) return 1;
+    // 分母は**配信された絵の実寸**。届く前はDBの寸法で見当を付ける
+    // （等倍は「選んだ」を [`pinnedActualId`] で覚えているので、届いた時点で
+    // 正しい倍率に取り直される）
+    const [w, h] =
+      servedNatural && servedNatural.id === viewerItem.id
+        ? [servedNatural.w, servedNatural.h]
+        : servedSize(viewerItem);
+    if (w <= 0 || h <= 0) return 1;
     const maxW = windowSize.w - 120;
     const maxH = windowSize.h - 80;
-    return Math.min(1, maxW / viewerItem.width, maxH / viewerItem.height);
-  }, [viewerItem, windowSize]);
+    return Math.min(1, maxW / w, maxH / h);
+  }, [viewerItem, servedNatural, windowSize]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
   const isActualSize = Math.abs(displayScale - 1) < 0.005;
@@ -2161,8 +2233,17 @@ export default function App() {
   /** 等倍（100%）と画面に合わせる表示を切り替える */
   const toggleActualSize = useCallback(() => {
     setPan({ x: 0, y: 0 });
-    setZoom((z) => (Math.abs(fitScale * z - 1) < 0.005 ? 1 : 1 / fitScale));
-  }, [fitScale]);
+    setPinnedActualId(isActualSize ? null : (viewerItem?.id ?? null));
+    setZoom(isActualSize ? 1 : 1 / fitScale);
+  }, [fitScale, isActualSize, viewerItem?.id]);
+
+  // 等倍を選んでいるあいだは、分母が変わるたびに倍率を取り直す。
+  // 絵が届いて実寸が分かったときと、ウィンドウの大きさが変わったときに効く。
+  // **選んだ写真を見ているときだけ**（送った先へは持ち込まない）
+  useEffect(() => {
+    if (pinnedActualId === null || pinnedActualId !== viewerItem?.id) return;
+    setZoom(1 / fitScale);
+  }, [pinnedActualId, viewerItem?.id, fitScale]);
 
   // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す
   const toggleFullscreen = useCallback(() => {
@@ -2307,6 +2388,7 @@ export default function App() {
         toggleActualSize();
       } else if (e.key === "0") {
         setZoom(1);
+        setPinnedActualId(null);
         setPan({ x: 0, y: 0 });
       } else if (e.key === " ") {
         e.preventDefault();
@@ -3728,6 +3810,13 @@ export default function App() {
               // 新しい絵」を出たものとして扱ってしまう
               onLoad={(e) => {
                 if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id)) {
+                  // 届いた絵の実寸を控える（等倍100%の較正と先読みの予算）
+                  const { naturalWidth: nw, naturalHeight: nh } =
+                    e.currentTarget;
+                  if (nw > 0 && nh > 0) {
+                    setServedNatural({ id: viewerItem.id, w: nw, h: nh });
+                    rememberNatural(viewerItem.id, nw, nh);
+                  }
                   // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）。
                   // `loadedId` はこれから導かれるので、別に立てるものは無い
                   setFullShownId(viewerItem.id);
@@ -3782,6 +3871,8 @@ export default function App() {
                   Math.max(1, zoom * (e.deltaY < 0 ? 1.25 : 0.8)),
                 );
                 setZoom(next);
+                // 自分で倍率を動かしたら、等倍を選んでいた状態は解ける
+                setPinnedActualId(null);
                 if (next === 1) setPan({ x: 0, y: 0 });
               }}
               onPointerDown={(e) => {
