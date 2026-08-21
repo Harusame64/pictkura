@@ -427,14 +427,19 @@ export default function App() {
   /** ビューアのズーム・パン・スライドショー。zoomは「画面に収めた状態」を1とする倍率 */
   const [zoom, setZoom] = useState(1);
   /**
-   * 等倍(100%)を**選んだ状態**か。倍率そのものではなく「選んだ」を覚える。
+   * 等倍(100%)を選んだ写真のid。倍率そのものではなく「選んだ」を覚える。
    *
    * 分母（[`fitScale`]）は後から変わる——絵が届いて実寸が分かったときと、
    * ウィンドウの大きさが変わったとき。倍率だけを覚えていると、そのたびに
    * 100%から外れる（絵が出る前に等倍へ切り替えると、DBの寸法で決めた倍率が
-   * そのまま残る。ゲート1のP2）
+   * そのまま残る。ゲート1のP2）。
+   *
+   * **真偽値ではなくidで持つ**のが要点。写真を送ると「ズームのリセット」と
+   * 「分母が変わったので取り直す」が同じ描画で走り、後者が勝って**次の写真が
+   * 100%で開く**（ゲート2のP2）。idなら送った時点で持ち主が変わるので、
+   * 取り直しは自分の写真にしか効かない
    */
-  const [pinActual, setPinActual] = useState(false);
+  const [pinnedActualId, setPinnedActualId] = useState<number | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [playing, setPlaying] = useState(false);
   /** ビューアのUI（キャプション・ツール・矢印）を隠しているか（マウス静止で自動） */
@@ -2150,6 +2155,8 @@ export default function App() {
           // 過小に数えたまま近所を抱え続けると意味が無い（ゲート2のP3）
           const before = decodedBytes(it, naturalRef.current.get(it.id));
           rememberNatural(it.id, el.naturalWidth, el.naturalHeight);
+          // 逆（見積もりより小さかった）では選び直さない。予算が空くだけで
+          // 崖には近づかないので、次の契機（変換の完了・送り）まで待てばよい
           underEstimated =
             decodedBytes(it, naturalRef.current.get(it.id)) > before;
         } catch {
@@ -2186,7 +2193,7 @@ export default function App() {
   // 写真が切り替わったらズーム・パンをリセット。ビューアを閉じたら停止
   useEffect(() => {
     setZoom(1);
-    setPinActual(false);
+    setPinnedActualId(null);
     setPan({ x: 0, y: 0 });
     setVideoError(false);
     setVideoInfo(null);
@@ -2226,17 +2233,17 @@ export default function App() {
   /** 等倍（100%）と画面に合わせる表示を切り替える */
   const toggleActualSize = useCallback(() => {
     setPan({ x: 0, y: 0 });
-    const nowActual = Math.abs(fitScale * zoom - 1) < 0.005;
-    setPinActual(!nowActual);
-    setZoom(nowActual ? 1 : 1 / fitScale);
-  }, [fitScale, zoom]);
+    setPinnedActualId(isActualSize ? null : (viewerItem?.id ?? null));
+    setZoom(isActualSize ? 1 : 1 / fitScale);
+  }, [fitScale, isActualSize, viewerItem?.id]);
 
   // 等倍を選んでいるあいだは、分母が変わるたびに倍率を取り直す。
-  // 絵が届いて実寸が分かったときと、ウィンドウの大きさが変わったときに効く
+  // 絵が届いて実寸が分かったときと、ウィンドウの大きさが変わったときに効く。
+  // **選んだ写真を見ているときだけ**（送った先へは持ち込まない）
   useEffect(() => {
-    if (!pinActual) return;
+    if (pinnedActualId === null || pinnedActualId !== viewerItem?.id) return;
     setZoom(1 / fitScale);
-  }, [pinActual, fitScale]);
+  }, [pinnedActualId, viewerItem?.id, fitScale]);
 
   // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す
   const toggleFullscreen = useCallback(() => {
@@ -2381,7 +2388,7 @@ export default function App() {
         toggleActualSize();
       } else if (e.key === "0") {
         setZoom(1);
-        setPinActual(false);
+        setPinnedActualId(null);
         setPan({ x: 0, y: 0 });
       } else if (e.key === " ") {
         e.preventDefault();
@@ -3865,7 +3872,7 @@ export default function App() {
                 );
                 setZoom(next);
                 // 自分で倍率を動かしたら、等倍を選んでいた状態は解ける
-                setPinActual(false);
+                setPinnedActualId(null);
                 if (next === 1) setPan({ x: 0, y: 0 });
               }}
               onPointerDown={(e) => {
