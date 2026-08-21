@@ -5,18 +5,29 @@
 //! **カメラが書いた表示用JPEG**を内部に持っている（撮影時に背面液晶へ出すため）。
 //! これを取り出せば、一覧のサムネイルもビューアの表示も**デコード1回**で足りる。
 //!
-//! 取り出し方は形式で違うので、素直な順に3段構えにする:
+//! 取り出し方は形式で違うので、**安い順に手を替える**。使える大きさ
+//! （[`USABLE_LONG_EDGE`]）の絵が出た時点で打ち切る:
 //!
-//! 1. **EXIF/TIFFの申告**（CR2・NEF・ARW・DNG・ORF・PEF・RW2 など）。
+//! 1. **EXIF/TIFFの申告**（CR2・ARW・PEF・3FR など）。
 //!    TIFF系RAWは複数のIFDを持ち、それぞれがプレビューJPEGの位置と長さを申告する。
 //!    ヘッダだけ読めば場所が分かるので、ここで当たれば**ファイル全体を読まない**
-//! 2. **ブロック走査**（CR3・RAF など、TIFFではない形式）。
+//! 2. **先頭16MBのブロック走査**（CR3・RAF・NEF・ORF・RW2 など）。
 //!    CR3はISO-BMFF、RAFは独自ヘッダで、いずれもJPEGを丸ごと抱えている。
-//!    形式ごとのパーサを書く代わりに、先頭の一定量からJPEGの塊を拾う
-//! 3. **非圧縮RGBの組み立て**（Leica DNG・Epson ERF・Hasselblad 3FR・
+//!    Nikon（NEF・NRW）は**160x120の切手だけを申告して**原寸を申告の無い
+//!    SubIFDに置くので、申告を鵜呑みにせずここも見る
+//! 3. **全体の走査**（Ricoh GR IIIのDNG・Sigmaのx3f）。原寸プレビューを
+//!    ファイルの後ろ半分に置く形式がある。ここまで来るのは
+//!    「まだ使える絵が無い」ときだけなので、丸ごと読む値段を払う
+//! 4. **非圧縮RGBの組み立て**（Leica DNG・Epson ERF・Hasselblad 3FR・
 //!    Phase One IIQ・Kodak DCR）。これらは**JPEGを1枚も持たず**、プレビューを
 //!    生のRGBとしてTIFFのストリップに置いている。ストリップを繋いで絵にする
-//! 4. 見つからなければ諦める（サムネイル無しとして扱い、一覧には枠だけ出る）
+//! 5. 見つからなければ諦める（サムネイル無しとして扱い、一覧には枠だけ出る）
+//!
+//! **メタデータ**（撮影日時・カメラ名・向き）も形式で置き場所が違う。
+//! ORF・RW2はTIFFの版番号が独自でパーサに素通しされるので、
+//! [`patched_tiff_metadata`] で直してから読む。CR3は箱の中
+//! （[`bmff_metadata_blocks`]）、RAFはプレビューJPEGのEXIFから拾う。
+//! 拾い方の順番は [`crate::thumbs::read_exif`] にある。
 
 use std::path::Path;
 
@@ -26,32 +37,53 @@ use exif::{In, Tag};
 /// 全体（20〜80MB）を読まずに済ませる。CR3のPRVWもRAFのJPEGもこの範囲に入る。
 const SCAN_LIMIT: usize = 16 * 1024 * 1024;
 
+/// 走査で全体を読むときの上限。ここまで来るのは「先頭16MBに使える絵が
+/// 無かった」ときだけなので、丸ごと読む値段（実測100〜350ms）を払う。
+const FULL_SCAN_LIMIT: usize = 128 * 1024 * 1024;
+
+/// 「原寸表示に使える」と見なすプレビューの長辺。これを超えたらそこで
+/// 探すのをやめる。下回るときは、もっと大きい絵が無いか次の手を試す。
+///
+/// 1600にしたのは、下回る実物が **160x120（Nikonの切手）と720x480**
+/// （Ricoh・Sigmaの小プレビュー）で、上回る実物が **3200x2400**（OM-1）
+/// から上に固まっているため。間に候補が無く、どこで切っても同じになる。
+pub const USABLE_LONG_EDGE: u32 = 1600;
+
+/// 版番号を直して読むときに、実際にファイルから読む先頭の量。
+/// 16KBでORF・RW2とも全項目が読めたが、機種差を見込んで余裕を取る。
+const PATCHED_TIFF_HEAD: usize = 256 * 1024;
+
 /// 拡張子がRAWか（大文字小文字は無視）。
 ///
 /// ここに無い拡張子は「普通の画像」として `image` クレートに渡る。
 pub fn is_raw_extension(ext: &str) -> bool {
-    const RAW_EXTENSIONS: &[&str] = &[
-        "cr2", "cr3", "crw", // Canon
-        "nef", "nrw", // Nikon
-        "arw", "srf", "sr2", // Sony
-        "raf", // Fujifilm
-        "orf", // OM System / Olympus
-        "rw2", // Panasonic
-        "pef", "ptx", // Pentax
-        "srw", // Samsung
-        "dng", // Adobe / 各社共通
-        "raw", "rwl", // Leica
-        "3fr", "fff", // Hasselblad
-        "iiq", // Phase One
-        "erf", // Epson
-        "mrw", // Minolta
-        "x3f", // Sigma
-        "dcr", "kdc", // Kodak
-        "mos", // Leaf
-    ];
     let lower = ext.to_ascii_lowercase();
     RAW_EXTENSIONS.contains(&lower.as_str())
 }
+
+/// RAWとして扱う拡張子（小文字）。
+///
+/// ここに足したら [`crate::config::DEFAULT_EXTENSIONS`] にも足すこと
+/// ——走査対象に入っていないRAWは**一覧に出ない**。歯止めのテストがある。
+pub const RAW_EXTENSIONS: &[&str] = &[
+    "cr2", "cr3", "crw", // Canon
+    "nef", "nrw", // Nikon
+    "arw", "srf", "sr2", // Sony
+    "raf", // Fujifilm
+    "orf", // OM System / Olympus
+    "rw2", // Panasonic
+    "pef", "ptx", // Pentax
+    "srw", // Samsung
+    "dng", // Adobe / 各社共通
+    "raw", "rwl", // Leica
+    "3fr", "fff", // Hasselblad
+    "iiq", // Phase One
+    "erf", // Epson
+    "mrw", // Minolta
+    "x3f", // Sigma
+    "dcr", "kdc", // Kodak
+    "mos", // Leaf
+];
 
 /// JPEGらしきバイト列か（SOIマーカー）。
 fn looks_like_jpeg(bytes: &[u8]) -> bool {
@@ -78,6 +110,13 @@ fn jpeg_span(buf: &[u8], start: usize) -> Option<JpegSpan> {
     if !looks_like_jpeg(buf.get(start..)?) {
         return None;
     }
+    jpeg_span_body(buf, start)
+}
+
+/// SOI（`FF D8`）が `start` にあると分かっているときの、終端探し。
+/// **`start` の2バイトは見ない**ので、先頭を潰されたJPEG（Minolta MRW）を
+/// 直す前に、コピーせずその場で確かめられる。
+fn jpeg_span_body(buf: &[u8], start: usize) -> Option<JpegSpan> {
     let mut displayable = false;
     let mut i = start + 2;
     while i + 1 < buf.len() {
@@ -392,52 +431,254 @@ pub(crate) fn encode_jpeg(
 /// 返すのは**カメラが書いたJPEGそのまま**（再エンコードしない）。
 /// 向きの補正は呼び出し側が [`crate::thumbs::apply_orientation`] で行う
 /// （RAWのEXIF Orientation はプレビューJPEGにも効く）。
+///
+/// **一番大きい絵を掴むまで手を替える**のが要点。安い手から順に試し、
+/// [`USABLE_LONG_EDGE`] を超える絵が出たらそこで打ち切る。1枚目で
+/// 打ち切らないのは、Nikon（NEF・NRW）が160x120の切手をTIFFに申告しつつ、
+/// 原寸のJPEGを申告の無いSubIFDに置くため——**申告を鵜呑みにすると
+/// 全画面表示が160x120になる**（実測: `bench --tiff-fix`）。
 pub fn embedded_preview(path: &Path) -> Option<Vec<u8>> {
+    embedded_preview_at_least(path, USABLE_LONG_EDGE)
+}
+
+/// 長辺が `min_long_edge` に届く絵が出たら、そこで探すのをやめる版。
+///
+/// 一覧のタイルのように**小さい絵で足りる**場面では、原寸のプレビューを
+/// 探してファイル全体を読む（実測100〜350ms）のは払いすぎになる。
+pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<u8>> {
+    /// 大きい方を残す。
+    fn keep(best: &mut Option<Vec<u8>>, found: Vec<u8>) {
+        if best
+            .as_ref()
+            .is_none_or(|b| long_edge(b) < long_edge(&found))
+        {
+            *best = Some(found);
+        }
+    }
+
+    let mut best: Option<Vec<u8>> = None;
+
     // 1段目: TIFFの申告を読む。ヘッダだけで位置が分かるので、
     // 当たれば必要な範囲しか読まない
-    if let Ok(file) = std::fs::File::open(path) {
-        let mut reader = std::io::BufReader::new(file);
-        if let Ok(exif) = exif::Reader::new().read_from_container(&mut reader) {
-            for (offset, len) in declared_previews(&exif) {
-                if len == 0 {
-                    continue;
+    if let Some(bytes) = declared_preview(path) {
+        if long_edge(&bytes) >= min_long_edge {
+            return Some(bytes);
+        }
+        keep(&mut best, bytes);
+    }
+
+    // 2段目: 先頭を読んでJPEGの塊を拾う（CR3・RAF・NEF等）
+    if let Some(head) = read_head(path, SCAN_LIMIT) {
+        if let Some(found) = scan_largest_jpeg(&head) {
+            if long_edge(found) >= min_long_edge {
+                return Some(found.to_vec());
+            }
+            keep(&mut best, found.to_vec());
+        }
+    }
+
+    // 3段目: 先頭16MBに無かった。原寸プレビューを**後ろの方に**置く形式が
+    // ある（Ricoh GR IIIのDNGは720x480の後ろに6000x4000、Sigmaのx3fも同様）。
+    //
+    // ただし**全体を読むのは原寸が要るときだけ**にする。一覧のタイル（512px）
+    // でここへ来ると、160x120しか持たない社（Minolta MRW・Sony SRF・
+    // Phase One IIQ 等）は1枚ごとにファイル全体を読み、しかもその先に
+    // 大きい絵は無い。取り込み元のSDカードを丸ごと読み直すことになる
+    if min_long_edge >= USABLE_LONG_EDGE
+        && std::fs::metadata(path).is_ok_and(|m| m.len() as usize <= FULL_SCAN_LIMIT)
+    {
+        if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
+            if let Some(found) = scan_largest_jpeg(&whole) {
+                if long_edge(found) >= min_long_edge {
+                    return Some(found.to_vec());
                 }
-                // まずEXIFパーサが保持しているバッファから切り出せるか試す
-                // （サムネイルIFDのJPEGはここに入っている）
-                if let Some(bytes) = exif.buf().get(offset..offset.saturating_add(len)) {
-                    if is_displayable_jpeg(bytes) {
-                        return Some(bytes.to_vec());
-                    }
-                }
-                // 申告の長さが実物と合わないファイルがある（切れたJPEGになる）。
-                // 少し多めに読んで、終端はJPEG自身のセグメントから決める
-                if let Some(window) =
-                    read_window(path, offset, len.saturating_mul(2).max(64 * 1024))
-                {
-                    if let Some(span) = jpeg_span(&window, 0) {
-                        if span.displayable {
-                            return Some(window[..span.end].to_vec());
-                        }
-                    }
-                }
+                keep(&mut best, found.to_vec());
             }
         }
     }
 
-    // 2段目: 先頭を読んでJPEGの塊を拾う（CR3・RAF等）
-    if let Some(head) = read_head(path, SCAN_LIMIT) {
-        if let Some(found) = scan_largest_jpeg(&head) {
-            return Some(found.to_vec());
+    // 4段目: Minoltaの `.mrw` は、埋め込みJPEGの**先頭1バイトを潰して**書く
+    if let Some(bytes) = minolta_repaired_jpeg(path) {
+        if long_edge(&bytes) >= min_long_edge {
+            return Some(bytes);
         }
+        keep(&mut best, bytes);
     }
 
-    // 3段目: JPEGが1枚も無い形式（Leica DNG・Epson ERF・Hasselblad 3FR・
+    // 5段目: JPEGが1枚も無い形式（Leica DNG・Epson ERF・Hasselblad 3FR・
     // Phase One IIQ・Kodak DCR）。非圧縮RGBのプレビューを組み立てる
-    let big_endian = matches!(read_window(path, 0, 2).as_deref(), Some(b"MM"));
+    let uncompressed = (|| {
+        let big_endian = matches!(read_window(path, 0, 2).as_deref(), Some(b"MM"));
+        let file = std::fs::File::open(path).ok()?;
+        let mut reader = std::io::BufReader::new(file);
+        let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
+        uncompressed_preview(path, &exif, big_endian)
+    })();
+    if let Some(bytes) = uncompressed {
+        keep(&mut best, bytes);
+    }
+    best
+}
+
+/// TIFFが**申告している**プレビューのうち、表示できて一番大きいもの。
+fn declared_preview(path: &Path) -> Option<Vec<u8>> {
     let file = std::fs::File::open(path).ok()?;
     let mut reader = std::io::BufReader::new(file);
     let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    uncompressed_preview(path, &exif, big_endian)
+    for (offset, len) in declared_previews(&exif) {
+        if len == 0 {
+            continue;
+        }
+        // まずEXIFパーサが保持しているバッファから切り出せるか試す
+        // （サムネイルIFDのJPEGはここに入っている）
+        if let Some(bytes) = exif.buf().get(offset..offset.saturating_add(len)) {
+            if is_displayable_jpeg(bytes) {
+                return Some(bytes.to_vec());
+            }
+        }
+        // 申告の長さが実物と合わないファイルがある（切れたJPEGになる）。
+        // 少し多めに読んで、終端はJPEG自身のセグメントから決める
+        if let Some(window) = read_window(path, offset, len.saturating_mul(2).max(64 * 1024)) {
+            if let Some(span) = jpeg_span(&window, 0) {
+                if span.displayable {
+                    return Some(window[..span.end].to_vec());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Minoltaの `.mrw` が持つ「先頭を潰されたJPEG」を直して返す。
+///
+/// MRWは埋め込みJPEGのSOI（`FF D8`）の**先頭バイトを0で潰して**書く
+/// （`00 D8 FF` で始まる）。1バイト戻せば普通のJPEGとして読める。
+/// **`.mrw` のときだけ**試す——この3バイトの並びは生のセンサーデータにも
+/// 普通に現れるので、他形式で拾うと絵にならない塊を掴む。
+fn minolta_repaired_jpeg(path: &Path) -> Option<Vec<u8>> {
+    if !path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("mrw"))
+    {
+        return None;
+    }
+    let head = read_head(path, SCAN_LIMIT)?;
+    let mut at = 0usize;
+    let mut best: Option<Vec<u8>> = None;
+    // ここで `?` を使って抜けないこと——末尾に達したときに、
+    // 拾ってあった絵ごと捨ててしまう
+    while let Some(rest) = head.get(at..) {
+        let Some(found) = rest.windows(3).position(|w| w == [0x00, 0xD8, 0xFF]) else {
+            break;
+        };
+        let start = at + found;
+        // **写す前に確かめる**。`00 D8 FF` は生のセンサーデータにも普通に
+        // 現れるので、外れるたびに残り（最大16MB）を丸ごと写していると、
+        // 1枚のファイルで何度も繰り返すことになる（ゲート1のP2）
+        if let Some(span) = jpeg_span_body(&head, start) {
+            if span.displayable {
+                let mut repaired = head[start..span.end].to_vec();
+                repaired[0] = 0xFF; // 潰された先頭を戻す
+                if best.as_ref().is_none_or(|b| b.len() < repaired.len()) {
+                    best = Some(repaired);
+                }
+            }
+        }
+        at = start + 3;
+    }
+    best
+}
+
+/// `.mrw` の中の**TIFFの塊**（`TTW` ブロック）を返す。
+///
+/// MRWは独自のブロック構造（` MRM` の下に ` PRD`・` TTW`…）で、
+/// EXIFは `TTW` の中に**TIFFのまま**入っている。ブロックを辿るだけなので
+/// 読むのは先頭側だけで済む。
+fn mrw_tiff_block(path: &Path) -> Option<Vec<u8>> {
+    let head = read_head(path, PATCHED_TIFF_HEAD)?;
+    if head.get(..4)? != b" MRM" {
+        return None;
+    }
+    // 先頭の ` MRM` は「この後ろ全部の長さ」なので、中身は8バイト目から
+    let mut at = 8usize;
+    while at + 8 <= head.len() {
+        let tag = head.get(at..at + 4)?;
+        let len = u32::from_be_bytes(head.get(at + 4..at + 8)?.try_into().ok()?) as usize;
+        if len == 0 {
+            return None;
+        }
+        if tag == b" TTW" {
+            let block = head.get(at + 8..(at + 8).saturating_add(len))?;
+            return Some(block.to_vec());
+        }
+        at = at.checked_add(8)?.checked_add(len)?;
+    }
+    None
+}
+
+/// JPEGの長辺（ヘッダだけ読む。読めなければ0）。
+fn long_edge(bytes: &[u8]) -> u32 {
+    image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_dimensions().ok())
+        .map_or(0, |(w, h)| w.max(h))
+}
+
+/// **TIFFのふりをしていない**TIFF系RAWのメタデータを、普通のEXIFとして
+/// 読めるバイト列にして返す（`thumbs::read_exif` が使う）。
+///
+/// Olympus/OM の `.orf` は版番号（TIFFヘッダの3〜4バイト目。本来42）に
+/// `RO`/`RS`、Panasonic の `.rw2` は `U` を書く。中身の作りは標準のTIFFなので、
+/// **この2バイトを42に直すだけ**で普通のEXIFとして読める。直さないと
+/// 撮影日時・カメラ名・向きが丸ごと落ち、**縦位置の写真が横倒しになる**。
+///
+/// 全部は読まない。返すのは先頭 [`PATCHED_TIFF_HEAD`] だけで、**ファイルと
+/// 同じ長さまでゼロで嵩上げはしない**（ワーカーの数だけ数十MBを確保することに
+/// なるため。ゲート1のP1）。TIFFは値をファイル内のoffsetで指すので、画素データの
+/// ようにこの範囲の外を指す項目は「切れている」と言われる。読み手は
+/// [`exif::Reader::continue_on_error`] でそれを飛ばし、読めた項目だけを受け取る
+/// こと（`thumbs::read_raw_partial`）——撮影日時・カメラ名・向きは
+/// いずれも先頭側にあるので、これで取れる
+/// （実測: 先頭16KBでORF・RW2とも全項目が一致）。
+pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
+    // MRWは版番号ではなく**入れ物ごと独自**で、TIFFは中の `TTW` に入っている
+    if let Some(block) = mrw_tiff_block(path) {
+        return Some(block);
+    }
+    let head = read_window(path, 0, PATCHED_TIFF_HEAD)?;
+    let byte_order = head.get(..2)?;
+    let big_endian = match byte_order {
+        b"II" => false,
+        b"MM" => true,
+        _ => return None, // TIFFですらない（CR3・RAF・X3F等）
+    };
+    let version = if big_endian {
+        u16::from_be_bytes([*head.get(2)?, *head.get(3)?])
+    } else {
+        u16::from_le_bytes([*head.get(2)?, *head.get(3)?])
+    };
+    // 42（普通のTIFF）と43（BigTIFF）は直す対象ではない。前者はそもそも
+    // ここへ来ないし、後者は構造が違うので版番号を替えても読めない
+    if version == 42 || version == 43 {
+        return None;
+    }
+    // 返すのは**読んだ先頭ぶんだけ**。撮影日時も向きもカメラ名も先頭側に
+    // あるので、ファイルと同じ長さまで0で嵩上げする必要はない——それをやると
+    // サムネイルの並列ワーカーの数だけ数十MBずつ確保することになり、
+    // 上限を超える大きさのファイルは向きを丸ごと落とす（ゲート1のP1）。
+    // 読み手には [`exif::Reader::continue_on_error`] を使ってもらう:
+    // 画素データのように**この範囲の外を指す項目は飛ばして**、
+    // 先頭側に収まっている項目だけが読める
+    let mut buf = head;
+    let patched = if big_endian {
+        [0x00, 0x2A]
+    } else {
+        [0x2A, 0x00]
+    };
+    buf.get_mut(2..4)?.copy_from_slice(&patched);
+    Some(buf)
 }
 
 /// ファイルの指定位置から最大 `len` バイト読む（足りなければ読めた分だけ）。
@@ -858,6 +1099,209 @@ mod tests {
         assert_eq!(preview, jpeg, "カメラが書いたJPEGをそのまま返す");
         let decoded = image::load_from_memory(&preview).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (160, 120));
+    }
+
+    #[test]
+    fn 申告が切手でも大きい絵を探しに行く() {
+        // Nikon（NEF・NRW）の縮図: TIFFには160x120の切手だけを申告し、
+        // 原寸のJPEGは申告の無い場所（SubIFD）に置く。申告を鵜呑みにすると
+        // **全画面表示が160x120**になる（実測: Z6III・COOLPIX A1000）
+        let dir = tempfile::tempdir().unwrap();
+        let stamp = jpeg_bytes(160, 120);
+        let full = jpeg_bytes(1600, 1200);
+        let path = tiff_with_declared_preview(dir.path(), "sample.nef", &stamp);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&full).unwrap();
+        drop(file);
+
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (1600, 1200),
+            "申告の切手ではなく、後ろにある原寸を選ぶ"
+        );
+    }
+
+    #[test]
+    fn 使える大きさが取れたらそこで打ち切る() {
+        // 逆に、申告が原寸級ならファイル全体を読み直さない（CR2・ARW・PEF）。
+        // 後ろにもっと大きい絵があっても、探しに行く値段（実測100〜350ms）は
+        // 払わない
+        let dir = tempfile::tempdir().unwrap();
+        let declared = jpeg_bytes(1600, 1200);
+        let bigger = jpeg_bytes(2400, 1800);
+        let path = tiff_with_declared_preview(dir.path(), "sample.cr2", &declared);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&bigger).unwrap();
+        drop(file);
+
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (1600, 1200),
+            "使える大きさが申告されていたら、それで打ち切る"
+        );
+    }
+
+    #[test]
+    fn 先頭を潰されたjpegを外れの候補ごしに直す() {
+        // Minoltaの `.mrw` は埋め込みJPEGのSOI（`FF D8`）の**先頭1バイトを
+        // 0で潰して**書く。この3バイトの並びは生のセンサーデータにも普通に
+        // 現れるので、外れの候補が何度も当たる。**写す前に確かめる**ように
+        // しないと、外れるたびに残り（最大16MB）を丸ごと写す（ゲート1のP2）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.mrw");
+        let mut buf = b" MRM".to_vec();
+        for _ in 0..64 {
+            buf.extend_from_slice(&[0x00, 0xD8, 0xFF]); // センサーデータ側の空似
+            buf.extend_from_slice(&[0x12; 4096]);
+        }
+        let mut jpeg = jpeg_bytes(640, 480);
+        jpeg[0] = 0x00; // 実物と同じように潰しておく
+        buf.extend_from_slice(&jpeg);
+        std::fs::write(&path, &buf).unwrap();
+
+        let preview = embedded_preview(&path).expect("直して取り出せる");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (640, 480));
+    }
+
+    #[test]
+    fn 一覧の大きさで足りるなら全体は読まない() {
+        // 一覧のタイル（512px）は取り込み元のSDカードにも並ぶ。160x120しか
+        // 持たない社（Minolta MRW・Sony SRF・Phase One IIQ）でここから
+        // 全体走査に降りると、**1枚ごとにファイル全体を読む**うえに、
+        // その先に大きい絵は無い（ゲート1のP1）
+        let dir = tempfile::tempdir().unwrap();
+        let stamp = jpeg_bytes(160, 120);
+        let far = jpeg_bytes(1600, 1200);
+        let path = tiff_with_declared_preview(dir.path(), "sample.mrw", &stamp);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        // 先頭16MBの走査には入らない位置へ大きい絵を置く
+        file.write_all(&vec![0u8; SCAN_LIMIT]).unwrap();
+        file.write_all(&far).unwrap();
+        drop(file);
+
+        let tile = embedded_preview_at_least(&path, 512).expect("小さくても絵は返る");
+        assert_eq!(
+            image::load_from_memory(&tile).unwrap().width(),
+            160,
+            "タイルの大きさで足りる場面では、後ろまで探しに行かない"
+        );
+
+        let full = embedded_preview(&path).expect("プレビューが取れる");
+        assert_eq!(
+            image::load_from_memory(&full).unwrap().width(),
+            1600,
+            "原寸が要る場面では、今までどおり後ろまで探す"
+        );
+    }
+
+    #[test]
+    fn 小さい絵しか無ければ一番大きいものを返す() {
+        // どこにも原寸が無い形式もある。手を尽くしても届かないときは
+        // **一番大きかった絵**を返す（何も出さないよりよい）
+        let dir = tempfile::tempdir().unwrap();
+        let stamp = jpeg_bytes(160, 120);
+        let small = jpeg_bytes(720, 480);
+        let path = tiff_with_declared_preview(dir.path(), "sample.dng", &stamp);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&small).unwrap();
+        drop(file);
+
+        let preview = embedded_preview(&path).expect("プレビューが取れる");
+        let decoded = image::load_from_memory(&preview).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (720, 480));
+    }
+
+    #[test]
+    fn 版番号が独自のtiffも読めるように直す() {
+        // ORF（Olympus/OM）は "IIRO"、RW2（Panasonic）は "IIU " と、
+        // TIFFの版番号（本来42）に独自の値を書く。直さないと撮影日時も
+        // カメラ名も向きも丸ごと落ち、**縦位置の写真が横倒しになる**
+        let dir = tempfile::tempdir().unwrap();
+        for (name, big_endian, version) in [
+            ("sample.orf", false, *b"RO"),
+            ("sample.orf", true, *b"OR"),
+            ("sample.rw2", false, [b'U', 0x00]),
+        ] {
+            let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], big_endian);
+            buf[2] = version[0];
+            buf[3] = version[1];
+            let path = dir.path().join(name);
+            std::fs::write(&path, &buf).unwrap();
+
+            // 素のパーサは読めない（だから直す必要がある）
+            let file = std::fs::File::open(&path).unwrap();
+            assert!(
+                exif::Reader::new()
+                    .read_from_container(&mut std::io::BufReader::new(file))
+                    .is_err(),
+                "{name}: 版番号が独自のままでは読めない"
+            );
+
+            let patched = patched_tiff_metadata(&path).expect("直せる");
+            let exif = exif::Reader::new().read_raw(patched).expect("直せば読める");
+            assert_eq!(
+                exif.get_field(Tag::Orientation, In::PRIMARY)
+                    .and_then(|f| f.value.get_uint(0)),
+                Some(6),
+                "{name}: 向きが読める"
+            );
+        }
+    }
+
+    #[test]
+    fn 版番号を直すのにファイルと同じ大きさは確保しない() {
+        // サムネイルのワーカーは並列に走る。1枚ごとにファイル長ぶん0で
+        // 嵩上げすると、数十MBのORF・RW2が同時に何枚も乗るうえ、上限を
+        // 超える大きさのファイルは向きを丸ごと落とす（ゲート1のP1）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.orf");
+        let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], false);
+        buf[2] = b'R';
+        buf[3] = b'O';
+        buf.resize(4 * 1024 * 1024, 0); // 画素データのつもりの重し
+        std::fs::write(&path, &buf).unwrap();
+
+        let patched = patched_tiff_metadata(&path).expect("版番号を直せる");
+        assert!(
+            patched.len() <= PATCHED_TIFF_HEAD,
+            "読むのは先頭ぶんだけ: {}",
+            patched.len()
+        );
+    }
+
+    #[test]
+    fn 普通のtiffは直さない() {
+        // 版番号42はそのまま読めるので直す対象ではない。BigTIFF（43）は
+        // 構造が違い、版番号を替えても読めないので触らない
+        let dir = tempfile::tempdir().unwrap();
+        for version in [42u16, 43] {
+            let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], false);
+            buf[2..4].copy_from_slice(&version.to_le_bytes());
+            let path = dir.path().join("sample.dng");
+            std::fs::write(&path, &buf).unwrap();
+            assert!(patched_tiff_metadata(&path).is_none(), "版{version}");
+        }
+        // TIFFですらないファイル（CR3・RAF・X3F）も対象外
+        let path = dir.path().join("sample.cr3");
+        std::fs::write(&path, b"   ftypcrx ").unwrap();
+        assert!(patched_tiff_metadata(&path).is_none());
     }
 
     #[test]
