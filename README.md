@@ -318,7 +318,8 @@ at all (the “Check for updates” button next to it still asks, once, when you
 ### RAW (no demosaicing)
 
 pictkura does **not** develop RAW files. It pulls out the display JPEG the camera wrote
-for its own screen — a few milliseconds per file, with the camera's own colour rendering.
+for its own screen, so you get the camera's own colour rendering without the cost of
+demosaicing.
 
 | Format | Grid | View | Notes |
 |---|:--:|:--:|---|
@@ -349,7 +350,7 @@ and capture time are read from the container header — not a single pixel is de
 
 | Topic | Detail |
 |---|---|
-| **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows (duration is not available). The real file is fetched only when you actually look at it |
+| **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows (duration is not available). The real file is fetched only when you actually look at that photo — when its tile scrolls into view, or when you open it in the viewer |
 | **HEIC / HEVC need OS components** | On Windows that means "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) for the pixels. **No HEVC decoder is bundled** — patent licensing applies to shipping a decoder, so pictkura uses the one the OS already has |
 | **Video thumbnails are Windows-only** | macOS (QuickLook) and Linux (distro thumbnailers) are not wired up yet |
 | **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
