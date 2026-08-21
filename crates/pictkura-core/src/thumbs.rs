@@ -300,7 +300,8 @@ pub fn read_exif_meta(path: &Path) -> ExifData {
 }
 
 /// 長辺 `max_edge` の絵に縮めて出す場面用。RAWのプレビューは**それを満たせば
-/// 十分**で、原寸を探してファイル全体を読む必要はない（取り込み元の一覧）。
+/// 十分**で、原寸を探してファイル全体を読む必要はない
+/// （取り込み元の一覧と、ライブラリのサムネイル生成）。
 pub fn read_exif_for_preview(path: &Path, max_edge: u32) -> ExifData {
     read_exif_inner(path, Some(max_edge))
 }
@@ -374,6 +375,9 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
                 merge_preview_exif(&mut result, &preview);
             }
         }
+        // この入口は「絵は残さない」と約束している。コンテナのIFD1に切手が
+        // 入っていた場合はここまで載ったままなので、明示的に落とす（ゲート2のP3）
+        result.thumbnail = None;
         return result;
     };
 
@@ -864,7 +868,14 @@ pub fn process_one(
         return process_video(db, thumbs_dir, thumb_size, id, &record, want_final);
     }
 
-    let exif_data = read_exif(src);
+    // ここで要るのは**サムネイル1枚ぶんの絵**であって原寸ではない。
+    // [`read_exif`]（長辺1600を要求）で来ると、原寸プレビューを探して
+    // ファイル全体を読む段まで降りてしまう——小さいプレビューしか持たない社
+    // （Minolta MRW・Sony SRF・Phase One IIQ 等）はその先に大きい絵が無いので、
+    // タイル1枚ごとに最大128MBを読んで空振りする。クラウドにしか実体が無い
+    // ファイルなら**丸ごとハイドレート**にもなる（ゲート2のP2）。
+    // 原寸が要るのはビューア（[`raw_display_jpeg`]）だけ
+    let exif_data = read_exif_for_preview(src, thumb_size);
     let (width, height) = source_dimensions(src, &exif_data)?;
     // RAWは埋め込みプレビューが「表示用の絵」そのもの。即席として書き出すと
     // フルサイズJPEG（数MB）がサムネイル置き場に溜まるので、最初から縮小して作る
@@ -1509,6 +1520,54 @@ mod tests {
         );
         let (tw, th) = image::image_dimensions(&thumb_path).unwrap();
         assert!(tw <= 320 && th <= 320);
+    }
+
+    #[test]
+    fn process_oneはタイルのためにrawの全体を読まない() {
+        // ライブラリのサムネイル生成が原寸（長辺1600）を要求すると、
+        // 小さいプレビューしか持たない社ではファイル全体を読んで空振りする。
+        // クラウドにしか実体が無ければ丸ごとハイドレートになる（ゲート2のP2）
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("sample.mrw");
+
+        let jpeg_of = |w: u32, h: u32| {
+            let img = image::RgbImage::from_fn(w, h, |x, y| {
+                image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+            });
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgb8(img)
+                .write_to(&mut bytes, image::ImageFormat::Jpeg)
+                .unwrap();
+            bytes.into_inner()
+        };
+        // 先頭に小さい絵、16MBの走査範囲より後ろに大きい絵を置く
+        let mut bytes = jpeg_of(160, 120);
+        bytes.resize(bytes.len() + 16 * 1024 * 1024, 0);
+        bytes.extend(jpeg_of(1600, 1200));
+        std::fs::write(&src, &bytes).unwrap();
+
+        let db_path = dir.path().join("test.db");
+        let mut db = Db::open(&db_path).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src.clone(),
+            size: bytes.len() as i64,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+
+        process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            rec.width,
+            Some(160),
+            "タイルは手前の絵で足りる。後ろまで探しに行くと全体を読んだ証拠になる"
+        );
+
+        // ビューアの経路は今までどおり後ろの原寸を掴む
+        let full = read_exif(&src);
+        let preview = full.thumbnail.expect("原寸を要求すれば後ろの絵が出る");
+        assert_eq!(image::load_from_memory(&preview).unwrap().width(), 1600);
     }
 
     #[test]
