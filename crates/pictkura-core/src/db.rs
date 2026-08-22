@@ -182,6 +182,18 @@ fn all_ids_sql(filter: &str) -> String {
     format!("SELECT id FROM media {filter} ORDER BY day_key DESC, {SORT_TS} DESC, id DESC")
 }
 
+/// タイムライン索引（日付→枚数＋代表）のSQL。
+///
+/// **全行のGROUP BY**なので、絞り込みを足したときにここが表スキャンへ落ちると
+/// 骨組みの取得がそのまま遅くなる。実行計画に釘を打てるよう、組み立てを1か所に置く。
+fn summary_sql(filter: &str) -> String {
+    format!(
+        "SELECT day_key, COUNT(*), id, mtime_ms, thumb_state, MAX({SORT_TS})
+             FROM media {filter}
+             GROUP BY day_key ORDER BY day_key DESC"
+    )
+}
+
 /// 範囲取得の条件。**`day_key` を先頭に置く**ので索引でシークでき、
 /// 端の日の中だけを表示時刻とidで削る。
 fn between_conds() -> Vec<String> {
@@ -683,9 +695,6 @@ impl Db {
                     .to_string()
             }))
         })?;
-        // 親ディレクトリのうち**末尾3階層**だけを索引対象にする。
-        // ライブラリルートの共通部分（C:\Users\...\Pictures）は全行で同じで
-        // 検索の役に立たないうえ、行数ぶんの索引が無駄に増えるため落とす
         // パスの拡張子から種類（0=画像 / 1=RAW / 2=動画）を決める。
         // **判定の規則はRust側（[`crate::MediaKind`]）に1つだけ**置き、
         // 移行SQLとINSERTの両方からこの関数を呼ぶ——SQLに拡張子の一覧を
@@ -694,6 +703,9 @@ impl Db {
             let s: Option<String> = ctx.get(0)?;
             Ok(s.map(|s| crate::MediaKind::from_path(std::path::Path::new(&s)) as i64))
         })?;
+        // 親ディレクトリのうち**末尾3階層**だけを索引対象にする。
+        // ライブラリルートの共通部分（C:\Users\...\Pictures）は全行で同じで
+        // 検索の役に立たないうえ、行数ぶんの索引が無駄に増えるため落とす
         conn.create_scalar_function("pk_folder", 1, flags, |ctx| {
             let s: Option<String> = ctx.get(0)?;
             Ok(s.map(|s| {
@@ -1543,11 +1555,7 @@ impl Db {
         } else {
             format!("WHERE {}", conds.join(" AND "))
         };
-        let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT day_key, COUNT(*), id, mtime_ms, thumb_state, MAX({SORT_TS})
-             FROM media {filter}
-             GROUP BY day_key ORDER BY day_key DESC"
-        ))?;
+        let mut stmt = self.conn.prepare_cached(&summary_sql(&filter))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
             Ok(DaySummary {
                 day_key: r.get(0)?,
@@ -3711,6 +3719,42 @@ mod tests {
         with_term.extend(super::between_conds());
         let plan = plan_of(&db, &super::between_sql(&with_term));
         assert!(plan.contains("media_fts"), "検索語つきの範囲: {plan}");
+    }
+
+    /// 種類の絞り込みも索引でシークする。
+    ///
+    /// **サマリは全行のGROUP BY**なので、ここが表スキャンへ落ちると
+    /// 「日付→枚数」の骨組みがそのまま遅くなる。`kind` を先頭に置いた
+    /// 複合索引なら、絞ったままでも day_key の並びが索引から供給される。
+    #[test]
+    fn 種類の絞り込みは索引でシークする() {
+        let db = seed_search_db();
+        let q = crate::search::parse_query("kind:raw", crate::MediaFilter::All);
+        let (conds, _) = db.query_filter(&q).unwrap();
+        let filter = format!("WHERE {}", conds.join(" AND "));
+
+        let plan = plan_of(&db, &super::summary_sql(&filter));
+        assert!(plan.contains("idx_media_kind_day"), "サマリ: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "サマリが並べ直しになっている: {plan}"
+        );
+
+        let plan = plan_of(&db, &super::all_ids_sql(&filter));
+        assert!(plan.contains("idx_media_kind_day"), "全件: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "全件が並べ直しになっている: {plan}"
+        );
+
+        // **種類を選ばなければ従来どおり**（既存の計画を退化させていない）
+        let plan = plan_of(&db, &super::all_ids_sql(""));
+        assert!(plan.contains("idx_media_day_sort"), "指定なし: {plan}");
+        let plan = plan_of(&db, &super::summary_sql(""));
+        assert!(
+            !plan.contains("idx_media_kind_day"),
+            "指定なしのサマリ: {plan}"
+        );
     }
 
     /// 検索語つきの範囲選択・選択の確認で、FTSの2つの形のどちらが速いかを測る。

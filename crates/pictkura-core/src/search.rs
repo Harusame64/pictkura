@@ -242,7 +242,9 @@ impl MediaKind {
     /// 検索ボックスに直接打つ人のために、表示している言葉でも通るようにする。
     pub fn parse(word: &str) -> Option<Self> {
         match word.to_ascii_lowercase().as_str() {
-            "photo" | "image" | "jpeg" | "jpg" | "写真" | "画像" => Some(Self::Photo),
+            // **`jpg` は別名にしない**。そう打つ人は PNG や HEIC を外したいはずで、
+            // 「画像ぜんぶ」が返ると期待とずれる（形式ごとの絞り込みは持っていない）
+            "photo" | "image" | "写真" | "画像" => Some(Self::Photo),
             "raw" => Some(Self::Raw),
             "video" | "movie" | "動画" => Some(Self::Video),
             _ => None,
@@ -437,6 +439,7 @@ fn parse_date_range(token: &str) -> Option<(i64, i64)> {
 /// - `2019年` `2019-08` `2019年8月11日` — 撮影日で絞る
 /// - `★` / `fav:` — お気に入りのみ
 /// - `⚑` / `pick:` — 選別で選んだもののみ（0.2 ②）
+/// - `kind:raw` / `type:video` / `種類:動画` — 種類（画像・RAW・動画）で絞る
 /// - それ以外 — 自由語（ファイル名・フォルダ名・カメラ名が対象）
 pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
     let mut q = SearchQuery::filtered(filter);
