@@ -446,7 +446,10 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 @media (max-width: 760px) {
   :root { --pad: 20px; }
   body { font-size: 15px; }
-  .bar { height: 60px; gap: 12px; }
+  /* **高さを決め打たない。** ここは position:sticky なので、ナビが折り返した分だけ
+     伸ばさないと、はみ出したぶんが本文に重なる（ゲート1の指摘）。ふだんは
+     min-height で今までどおり 60px に見える */
+  .bar { height: auto; min-height: 60px; gap: 12px; padding: 8px var(--pad); }
   .bar .brand .disp { font-size: 17px; }
   .nav { gap: 16px; font-size: 13.5px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
   .nav .hide-sm, .nav .hide-xs { display: none; }
@@ -460,6 +463,9 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .hero p, body[lang="en"] .hero p { font-size: 15.5px; }
   .hero-cta { flex-direction: column; align-items: stretch; }
   .btn { width: 100%; }
+  /* 上のバーの中だけは横に広げない。全幅のボタンがナビを押し出して
+     折り返しを増やしていた */
+  .nav .btn { width: auto; }
   .metrics > div { padding: 24px 20px 26px !important; }
   .metrics .n { font-size: 28px; }
   .cards.c3, .cards.c2, .tiles { grid-template-columns: minmax(0, 1fr); }
