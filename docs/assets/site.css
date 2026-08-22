@@ -36,6 +36,8 @@
 }
 
 * { box-sizing: border-box; }
+/* display を持つ要素に hidden を付けても消えないのを塞ぐ（`download.js` の出し分け） */
+[hidden] { display: none !important; }
 
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
@@ -348,6 +350,44 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 .facts div:last-child { border-bottom: none; }
 .facts span { color: var(--text-faint); }
 
+/* ─── 配布物の一覧 ─── */
+/* 版番号・行き先・大きさは書いた時点のものを埋めてあり、`assets/download.js` が
+ * Releases を引いて最新へ差し替える。**JS が動かなくても埋めた版は落とせる**。
+ * 幅を 980px で止めるのは、説明とボタンの間が間延びしないため（読み物側の
+ * `.doc-body` を 900px で止めているのと同じ理由）。 */
+.dl-pick, .dl-rows { max-width: 980px; }
+.dl-pick {
+  display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 44px; align-items: center;
+  border: 1px solid oklch(1 0 0 / 0.18); border-radius: var(--radius);
+  background: var(--bg-raise); padding: 34px 38px 36px;
+}
+.dl-pick h2 { font-size: 24px; margin-bottom: 12px; }
+.dl-pick p { margin: 0; }
+.dl-pick .why { font-size: 14.5px; line-height: 1.95; color: var(--text-muted); }
+.dl-pick .cta { display: flex; flex-direction: column; gap: 12px; }
+.dl-pick .cta .btn { width: 100%; }
+.dl-pick .meta {
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.9;
+  color: var(--text-faint); text-align: center; word-break: break-all;
+}
+
+.dl-rows { border-top: 1px solid var(--line-strong); }
+.dl-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 40px;
+  align-items: center; padding: 26px 0 28px;
+  border-bottom: 1px solid oklch(1 0 0 / 0.07);
+}
+.dl-row h3 { font-size: 15.5px; font-weight: 500; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.dl-row p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.9; color: var(--text-muted); }
+.dl-row .file {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-faint);
+  margin-top: 10px; word-break: break-all;
+}
+.dl-row .get { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.dl-row .size { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-faint); text-align: center; }
+/* 版が変わって配布物が入れ替わったとき、`download.js` が付ける */
+.dl-gone { opacity: 0.5; }
+
 /* ─── 下のまとまり ─── */
 .foot { padding: 64px var(--pad) 56px; border-top: 1px solid var(--line); background: var(--bg-deep); }
 .foot-cols { display: grid; grid-template-columns: 320px repeat(3, minmax(0, 1fr)); gap: 48px; }
@@ -399,12 +439,17 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .doc, .doc.legal { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .doc-nav { position: static; }
   .foot-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
+  .dl-pick { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 30px 28px 32px; }
+  .dl-row { grid-template-columns: minmax(0, 1fr) 160px; gap: 28px; }
 }
 
 @media (max-width: 760px) {
   :root { --pad: 20px; }
   body { font-size: 15px; }
-  .bar { height: 60px; gap: 12px; }
+  /* **高さを決め打たない。** ここは position:sticky なので、ナビが折り返した分だけ
+     伸ばさないと、はみ出したぶんが本文に重なる（ゲート1の指摘）。ふだんは
+     min-height で今までどおり 60px に見える */
+  .bar { height: auto; min-height: 60px; gap: 12px; padding: 8px var(--pad); }
   .bar .brand .disp { font-size: 17px; }
   .nav { gap: 16px; font-size: 13.5px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
   .nav .hide-sm, .nav .hide-xs { display: none; }
@@ -418,6 +463,9 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .hero p, body[lang="en"] .hero p { font-size: 15.5px; }
   .hero-cta { flex-direction: column; align-items: stretch; }
   .btn { width: 100%; }
+  /* 上のバーの中だけは横に広げない。全幅のボタンがナビを押し出して
+     折り返しを増やしていた */
+  .nav .btn { width: auto; }
   .metrics > div { padding: 24px 20px 26px !important; }
   .metrics .n { font-size: 28px; }
   .cards.c3, .cards.c2, .tiles { grid-template-columns: minmax(0, 1fr); }
@@ -438,4 +486,5 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .foot, .foot-slim { padding: 40px var(--pad) 36px; }
   .foot-cols { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .foot-end { margin-top: 36px; }
+  .dl-row { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 22px 0 26px; }
 }
