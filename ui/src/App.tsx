@@ -2553,13 +2553,17 @@ export default function App() {
   }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
 
   // 検索条件が変わったら選択を捨てる。
-  // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
+  // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
+  // **種類（画像 / RAW / 動画）も並べる**——一覧に出るものが変わる条件は
+  // すべてここを通す必要がある。世代（`selectEpochRef`）を進めるのも要点で、
+  // 前の条件で走っていたCtrl+Aや範囲選択の返事が、切り替えた後の一覧へ
+  // 遅れて流れ込むのを止める
   useEffect(() => {
     lastRangeRef.current = null;
     selectEpochRef.current += 1;
     setSelected(new Set());
     setAnchorId(null);
-  }, [query, filter]);
+  }, [query, filter, kind]);
 
   /** 選択中かどうか。**選択が0なら選択モードではない** */
   const selecting = selected.size > 0;
