@@ -254,7 +254,7 @@ while the scan runs — rows appear as they are ready.
     <strong>The second launch is much faster.</strong>
     pictkura reads the change journal the Windows file system already keeps (the USN journal)
     and only looks at <strong>the files that changed since last time</strong>.
-    The ⚡ readout at the top right shows how much work it managed to skip.
+    The ⚡ readout at the top right shows how much processing it skipped.
   </p>
 </div>
 
@@ -306,7 +306,7 @@ The portable build is just a folder you delete, so run
 
 <p>
 <strong>If this PC already has a default action, inserting a card shows no choices at all.</strong>
-Windows silently performs whatever was decided (for example “Open folder to view files”).
+Windows performs whatever was decided (for example “Open folder to view files”) without asking.
 pictkura is registered as a candidate, but nothing ever asks.
 </p>
 
@@ -464,7 +464,7 @@ they land on the right day.
   <tr><td><code>okinawa</code></td><td>Substring match on file name, folder name and camera name. Languages that are not written with spaces match in the middle too, so 「旅行」 finds 「沖縄旅行」</td></tr>
   <tr><td><code>camera:α7</code></td><td>Narrow by camera (the same as “Cameras &amp; media” in the left pane)</td></tr>
   <tr><td><code>folder:trip</code></td><td>Narrow by folder name</td></tr>
-  <tr><td><code>2019-08</code> <code>2019/8</code> <code>2019-08-11</code></td><td>Narrow by capture date. <strong>A bare <code>2019</code> is treated as text, not a date</strong> — it cannot be told apart from a file name</td></tr>
+  <tr><td><code>2019-08</code> <code>2019/8</code> <code>2019-08-11</code></td><td>Narrow by capture date. <strong>Just typing <code>2019</code> is treated as text, not a date</strong> — it cannot be told apart from a file name</td></tr>
   <tr><td><code>year:2019</code></td><td>Narrow to a single year</td></tr>
   <tr><td><code>★</code></td><td>Favorites only</td></tr>
   <tr><td><code>⚑</code> <code>pick:</code></td><td>Picked photos only (a separate shelf from ★)</td></tr>
@@ -672,7 +672,7 @@ is a marker.
   <li><strong>They do appear in the grid.</strong> Dimensions and capture time come from what the OS already knows, so they sit on the correct date</li>
   <li><strong>The image may not appear.</strong> The real file is fetched only when you actually go and look at it</li>
   <li><strong>Video duration is missing.</strong> It cannot be known without reading the container, and that needs the real file</li>
-  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in default app”</li>
+  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would download the entire file, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
 <h2 id="update">9. Update notices</h2>
@@ -690,7 +690,7 @@ and pressing it opens the download page in your default browser.
     All it sends is “pictkura version X is asking”; it sends
     <strong>no photos, no file names, and no folder paths</strong>.
     All it receives is the name of the latest version. It asks at most once a day,
-    and if it cannot reach the network it gives up quietly.
+    and if it cannot reach the network it fails silently, without showing an error.
   </p>
 </div>
 
