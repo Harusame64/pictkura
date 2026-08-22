@@ -6,6 +6,11 @@
 取り込むことと、手元の写真を見ること。数万枚あっても待たされないことを目標に
 しています。
 
+**[紹介ページ](https://harusame64.github.io/pictkura/ja/)** ·
+[アプリ仕様](https://harusame64.github.io/pictkura/ja/spec.html) ·
+[インストール](https://harusame64.github.io/pictkura/ja/install.html) ·
+[取扱説明書](https://harusame64.github.io/pictkura/manual.html)
+
 ![一覧](docs/images/grid.jpg)
 
 ## 目標
@@ -305,8 +310,9 @@ OSの優先言語に従います。対応する言語が無い場合は英語で
 明示的に選べます（切り替えると画面を読み込み直します）。
 
 取扱説明書はアプリに同梱しており、⚙（設定）→「**取扱説明書**」から開けます。
+ブラウザでも読めます → **[harusame64.github.io/pictkura/manual.html](https://harusame64.github.io/pictkura/manual.html)**。
 このリポジトリでは `docs/manual.html` と `docs/manual.en.html` にあります
-（GitHubではHTMLのソースが表示されるので、読むにはダウンロードしてブラウザで開いてください）。
+（GitHubではHTMLのソースが表示されます）。
 
 > ひとつだけ日本語のままのものがあります。Windowsの「自動再生」に出る項目は、
 > 表示言語によらず「pictkura で写真を取り込む」です。
