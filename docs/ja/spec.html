@@ -97,7 +97,7 @@
         <div><h3>検索・絞り込み</h3><p>ファイル名・フォルダ・カメラ・撮影年月日・★・⚑。すべて AND です</p></div>
         <div><h3>ビューアと選別</h3><p>⚑ で抜き、✕ でボツ、★ でお気に入り。撮影情報（絞り・SS・ISO・GPS）も出ます</p></div>
         <div><h3>まとめて操作</h3><p>選んだぶんを ★ 付け／フォルダへコピー・移動／ごみ箱へ</p></div>
-        <div><h3>スライドショーと動画再生</h3><p>再生できない容器は、既定のプレイヤーへ渡します</p></div>
+        <div><h3>スライドショーと動画再生</h3><p>再生できないコンテナは、既定のプレイヤーへ渡します</p></div>
         <div><h3>自動再生への登録（Windows）</h3><p>カードを挿したときの候補に出ます。勝手には起動しません</p></div>
       </div>
     </section>
@@ -116,7 +116,7 @@
             <tr><td class="k">並び順の変更</td><td>撮影日の新しい順のみ。指定する手段がありません</td></tr>
             <tr><td class="k">取り込みの中断</td><td>始めたら最後まで走ります</td></tr>
             <tr><td class="k">動画のサムネイル（macOS / Linux）</td><td>Windows のみ対応。その他は未対応（未実装）です</td></tr>
-            <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が容器を扱えません。一覧には出ます</td></tr>
+            <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView がそのコンテナを扱えません。一覧には出ます</td></tr>
             <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を消すと作り直します</td></tr>
             <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
           </tbody>
@@ -172,7 +172,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から借ります（現在 Windows のみ）。長さ・寸法・撮影日時は容器の見出しから読み、1 画素も復号しません。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から借ります（現在 Windows のみ）。長さ・寸法・撮影日時はコンテナのヘッダから読み、1 画素も復号しません。</p>
     </section>
 
     <section id="network">
@@ -181,7 +181,7 @@
         <table>
           <thead><tr><th style="width:260px">項目</th><th>内容</th></tr></thead>
           <tbody>
-            <tr><td class="k">自分から出す通信</td><td>1 日 1 回の更新確認だけ。送るのは「pictkura のバージョン X が尋ねている」という情報のみです</td></tr>
+            <tr><td class="k">自分から出す通信</td><td>起動時の更新確認だけ（自動の確認は 1 日 1 回まで）。送るのは「pictkura のバージョン X が尋ねている」という情報のみです</td></tr>
             <tr><td class="k">送らないもの</td><td>写真・ファイル名・フォルダの場所・利用状況。<strong class="em">解析や計測の仕組みは入っていません</strong></td></tr>
             <tr><td class="k">通信を止める</td><td>設定 →「pictkura について」→「起動時に更新を確認する」を切ると、通信は 1 本も出ません</td></tr>
             <tr><td class="k">クラウドのファイル</td><td>実体が無いファイルを勝手に取りに行きません。実際に見たときだけ取得します</td></tr>
