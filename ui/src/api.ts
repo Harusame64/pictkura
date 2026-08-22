@@ -294,9 +294,15 @@ export type MediaKind = "all" | "photo" | "raw" | "video";
  * 一覧・サマリ・全選択・範囲選択・削除前の確認と 6 か所を通るので、
  * 引数を足すとそのすべてに同じ配線が要る。検索語なら 1 か所で済み、
  * 検索ボックスに `kind:raw` と打っても同じように効く。
+ *
+ * **前に付ける**（ゲート1のP2）。うしろに足すと、打ちかけの
+ * 閉じていない引用符（`"holiday` と入れた途中の状態）に飲み込まれて
+ * 1つの自由語になり、`kind:` の指定が消える——画面では種類を選んでいるのに
+ * 一覧は絞られていない、という食い違いが出る。先頭なら引用符より前なので
+ * 必ず指定として読まれる（条件はすべてANDなので順番は結果に効かない）。
  */
 export const withKind = (query: string, kind: MediaKind) =>
-  kind === "all" ? query : query ? `${query} kind:${kind}` : `kind:${kind}`;
+  kind === "all" ? query : query ? `kind:${kind} ${query}` : `kind:${kind}`;
 
 export const timelineSummary = (query: string, filter: MediaFilter) =>
   invoke<DaySummary[]>("timeline_summary", { query, filter });
