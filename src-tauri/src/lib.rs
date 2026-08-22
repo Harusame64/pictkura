@@ -3028,7 +3028,7 @@ pub fn run() {
             set_register_autoplay,
             take_pending_import,
             update::check_update,
-            update::open_releases_page,
+            update::open_download_page,
             update::set_check_update_on_start
         ])
         .run(tauri::generate_context!());

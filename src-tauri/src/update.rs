@@ -16,9 +16,14 @@ use crate::{update_config, AppState};
 
 /// 最新の版を聞く先。**Releases API**（下書きと事前公開は除いて返る）。
 const LATEST_API: &str = "https://api.github.com/repos/Harusame64/pictkura/releases/latest";
-/// 押したときに開くページ。APIが返す `html_url` は使わず**こちらで固定する**
-/// ——開く先を外から来た文字列に決めさせない。
-const RELEASES_PAGE: &str = "https://github.com/Harusame64/pictkura/releases/latest";
+/// 押したときに開くページ。**紹介サイトのダウンロードの頁**へ送る（2026-08-22）。
+/// GitHub の Releases は配布物がそのまま並ぶだけで、どれを落とせばよいかを読み手に
+/// 決めさせる——サイト側は見ている端末に合わせて1つに絞って出す。
+///
+/// APIが返す `html_url` は使わず**こちらで固定する**——開く先を外から来た文字列に
+/// 決めさせない。言語は同梱の説明書と同じで、表示言語に合わせて選ぶ。
+const DOWNLOAD_PAGE_JA: &str = "https://harusame64.github.io/pictkura/ja/download.html";
+const DOWNLOAD_PAGE_EN: &str = "https://harusame64.github.io/pictkura/en/download.html";
 
 /// 待つ上限。起動直後に走るので、**繋がらない回線で長く粘らない**。
 const TIMEOUT: Duration = Duration::from_secs(8);
@@ -36,8 +41,6 @@ pub struct UpdateCheckDto {
     pub newer: bool,
     /// 実際に聞きに行ったか。`false` は「まだ間隔が空いていないので見送った」
     pub checked: bool,
-    /// 押したときに開くページ
-    pub url: &'static str,
 }
 
 /// APIの応答から見るところ。**他の項目は読まない**（増えても壊れない）。
@@ -70,7 +73,6 @@ pub async fn check_update(app: tauri::AppHandle, force: bool) -> Result<UpdateCh
                 latest: None,
                 newer: false,
                 checked: false,
-                url: RELEASES_PAGE,
             });
         }
     }
@@ -88,7 +90,6 @@ pub async fn check_update(app: tauri::AppHandle, force: bool) -> Result<UpdateCh
         latest: Some(tag),
         newer,
         checked: true,
-        url: RELEASES_PAGE,
     })
 }
 
@@ -121,11 +122,16 @@ fn fetch_latest_tag(user_agent: &str) -> Result<String, String> {
 
 /// ダウンロードページを既定のブラウザで開く。
 ///
-/// **引数を取らない**のが要点。開く先を渡せる口にすると、フロント側の不具合や
-/// 細工で任意のURLを開かせられる（`open_bundled_doc` と同じ考え方）。
+/// **開く先そのものは渡させない**のが要点。URLを受け取る口にすると、フロント側の
+/// 不具合や細工で任意のURLを開かせられる（`open_bundled_doc` と同じ考え方）。
+/// 受け取るのは表示言語だけで、知らない言語は英語の頁へ送る。
 #[tauri::command]
-pub fn open_releases_page() -> Result<(), String> {
-    tauri_plugin_opener::open_url(RELEASES_PAGE, None::<&str>).map_err(|e| e.to_string())
+pub fn open_download_page(lang: Option<String>) -> Result<(), String> {
+    let url = match lang.as_deref() {
+        Some("ja") => DOWNLOAD_PAGE_JA,
+        _ => DOWNLOAD_PAGE_EN,
+    };
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
 /// 起動時の自動確認を切り替える。
@@ -160,8 +166,10 @@ mod tests {
 
     /// 開く先は**固定**（APIの返す文字列で決めない）。
     #[test]
-    fn 開く先はgithubのreleasesページに固定されている() {
-        assert!(RELEASES_PAGE.starts_with("https://github.com/Harusame64/pictkura/"));
+    fn 開く先は自前のサイトとgithubに固定されている() {
+        for url in [DOWNLOAD_PAGE_JA, DOWNLOAD_PAGE_EN] {
+            assert!(url.starts_with("https://harusame64.github.io/pictkura/"));
+        }
         assert!(LATEST_API.starts_with("https://api.github.com/repos/Harusame64/pictkura/"));
     }
 }

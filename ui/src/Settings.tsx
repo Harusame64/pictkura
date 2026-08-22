@@ -6,7 +6,7 @@ import {
   checkUpdate,
   forgetEditor,
   isWindows,
-  openReleasesPage,
+  openDownloadPage,
   setCheckUpdateOnStart,
   listFolderPatterns,
   openBundledDoc,
@@ -485,7 +485,7 @@ export default function Settings({
               <p className="settings-note update-say">
                 {updateSay}
                 {updateNewer && (
-                  <button onClick={() => openReleasesPage().catch(() => {})}>
+                  <button onClick={() => openDownloadPage().catch(() => {})}>
                     {t.updateOpenPage}
                   </button>
                 )}

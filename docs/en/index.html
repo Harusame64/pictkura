@@ -31,7 +31,7 @@
   "name": "pictkura",
   "applicationCategory": "MultimediaApplication",
   "operatingSystem": "Windows 10, Windows 11, macOS 11+",
-  "softwareVersion": "0.2.0",
+  "softwareVersion": "0.2",
   "url": "https://harusame64.github.io/pictkura/en/",
   "downloadUrl": "https://harusame64.github.io/pictkura/en/download.html",
   "license": "https://github.com/Harusame64/pictkura/blob/main/LICENSE",
@@ -67,7 +67,7 @@
 
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow" style="margin:0">Windows 10 / 11 and macOS 11+ &nbsp;—&nbsp; v<span data-ver>0.2.0</span></p>
+    <p class="eyebrow" style="margin:0">Windows 10 / 11 and macOS 11+ &nbsp;—&nbsp; v<span data-ver>0.2</span></p>
     <h1 class="disp">Tens of thousands.<br>No waiting.</h1>
     <p>Importing from a camera card, and browsing what you already have. <strong class="em">Those two things only</strong> — written in Rust, with everything we did not build spent on speed instead.</p>
     <div class="hero-cta">
@@ -78,7 +78,10 @@
          data-cta-win="Download for Windows" data-cta-mac="Download for Mac">Download — free</a>
       <a class="btn btn-ghost" href="https://github.com/Harusame64/pictkura">Read the source</a>
     </div>
-    <p class="hero-meta">Free, MIT licensed &nbsp;/&nbsp; no account &nbsp;/&nbsp; your photos never leave the machine<span class="mono" data-pick-meta style="display:block;margin-top:10px"></span><a href="download.html" style="display:inline-block;margin-top:6px">Choose another file →</a></p>
+    <!-- 押しどころのすぐ下に「選ぶ頁」への道を置く（2026-08-22）。ここが遠いと、
+         MSI や持ち歩き版を探す人が、案内の頁を経由して回り道することになる -->
+    <p class="hero-meta" style="margin-top:12px"><a href="download.html">Other downloads →</a></p>
+    <p class="hero-meta">Free, MIT licensed &nbsp;/&nbsp; no account &nbsp;/&nbsp; your photos never leave the machine<span class="mono" data-pick-meta style="display:block;margin-top:10px"></span></p>
   </div>
   <div class="hero-shot">
     <div class="frame">
@@ -289,10 +292,10 @@
 <section class="section photo" id="download">
   <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:48px">
     <div>
-      <p class="eyebrow" style="margin-bottom:16px">Download — v<span data-ver>0.2.0</span></p>
+      <p class="eyebrow" style="margin-bottom:16px">Download — v<span data-ver>0.2</span></p>
       <h2 class="disp" style="font-size:40px">Nothing to sign up for</h2>
     </div>
-    <p class="mono" style="margin:0;font-size:12px;color:var(--text-faint);line-height:2;text-align:right">Windows 10/11 (x64)<br>macOS 11+ (Apple Silicon)<br><a href="download.html" style="color:var(--text-faint)">Every file, including the MSI →</a></p>
+    <p class="mono" style="margin:0;font-size:12px;color:var(--text-faint);line-height:2;text-align:right">Windows 10/11 (x64)<br>macOS 11+ (Apple Silicon)</p>
   </div>
   <!-- 押せばそのまま落ちる。埋めてあるのは書いた時点の版で、`assets/download.js` が
        最新へ差し替える（引けなかったときは下の断りが出る） -->
@@ -313,6 +316,7 @@
       <p class="file"><span data-name>pictkura_0.2.0_arm64.zip</span> &nbsp;<span data-size>8.8 MB</span></p>
     </a>
   </div>
+  <a class="more" href="download.html">Other downloads — every file, including the MSI and the language-specific installers →</a>
   <div class="note warn" data-stale hidden style="margin-top:28px">
     <p><strong class="em">The latest version information could not be retrieved.</strong> The three files above are from <b>v0.2.0</b>, which may no longer be the newest — check <a href="download.html">the download page</a> or <a href="https://github.com/Harusame64/pictkura/releases/latest">the releases page</a>.</p>
   </div>
