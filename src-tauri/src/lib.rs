@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
-use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaKind, MediaTarget};
+use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaTarget, ServeKind};
 use pictkura_core::usn::{self, UsnOutcome, UsnPosition};
 use pictkura_core::{Config, Db, ReadPool, SyncStats, ThumbnailService};
 use tauri::http::{Response, StatusCode};
@@ -2398,7 +2398,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         _ => return not_found(),
     };
     // 高品質サムネイルの配信はLRUのタッチとして記録する（メモリ集約→定期フラッシュ）
-    if kind == MediaKind::Thumb && record.thumb_state == 2 {
+    if kind == ServeKind::Thumb && record.thumb_state == 2 {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
@@ -2420,7 +2420,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     // 動画の再生（第9部）。ここだけが原本を丸ごと相手にする経路で、
     // Rangeで刻んで返す。WebViewが扱えないコンテナ（.m2ts/.avi）は渡しても
     // 黒い枠になるだけなので、415を返してUIの「既定のアプリで開く」へ寄せる
-    if kind == MediaKind::Video {
+    if kind == ServeKind::Video {
         if !is_video {
             return not_found();
         }
@@ -2436,26 +2436,26 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     // 下の `std::fs::read` はファイルを丸ごとメモリへ載せる。
     // サムネイル（あれば）で代用し、無ければ空タイルを出す
     let path = match kind {
-        MediaKind::Thumb | MediaKind::Full if is_video => match record.thumb_path {
+        ServeKind::Thumb | ServeKind::Full if is_video => match record.thumb_path {
             Some(thumb) => thumb,
             None => return blank_thumb(),
         },
-        // 上の `if kind == MediaKind::Video` で必ず返しているので通らない。
+        // 上の `if kind == ServeKind::Video` で必ず返しているので通らない。
         // それでも `unreachable!` を置かないのは、**通ったときに落ちる**のが
         // ここでいちばん高くつくため（要求を捌くスレッドが死ぬ）
-        MediaKind::Video => return not_found(),
-        MediaKind::Thumb => match record.thumb_path {
+        ServeKind::Video => return not_found(),
+        ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,
         },
-        MediaKind::Full => record.path,
+        ServeKind::Full => record.path,
     };
 
     // WebViewが描けない形式の原寸表示: RAW（第6部 段階F）・HEIC（第7部 段階G）・
     // TIFF。いずれも原本をそのまま返しても絵にならないのでJPEGへ詰め直す。
     // AVIF・SVG・BMP・GIF はブラウザが直接描けるので、この下で原本を返す
-    if kind == MediaKind::Full && pictkura_core::thumbs::needs_display_transcode(&path) {
+    if kind == ServeKind::Full && pictkura_core::thumbs::needs_display_transcode(&path) {
         // 詰め直しは高い（実測: HEIC 0.6〜1秒 / TIFF 約300ms）ので、できた
         // バイト列をLRUに残す（0.2 ①）。ビューアの先読みが投げる要求も
         // ここを温めるので、フロントの画素キャッシュが崖で全滅しても
@@ -2971,7 +2971,7 @@ pub fn run() {
                         // 空のセルになるだけで、割れた写真は並ばない
                         match parse_media_url(&uri) {
                             Some(MediaTarget::Library {
-                                kind: MediaKind::Thumb,
+                                kind: ServeKind::Thumb,
                                 ..
                             }) => blank_thumb(),
                             _ => server_error(),
@@ -3028,7 +3028,7 @@ pub fn run() {
             set_register_autoplay,
             take_pending_import,
             update::check_update,
-            update::open_releases_page,
+            update::open_download_page,
             update::set_check_update_on_start
         ])
         .run(tauri::generate_context!());

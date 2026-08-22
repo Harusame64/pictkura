@@ -173,6 +173,11 @@ pub struct SearchQuery {
     pub favorites_only: bool,
     /// 選別で選んだもの（⚑ Pick。0.2 ②）のみ
     pub picked_only: bool,
+    /// 種類（画像・RAW・動画）の指定。`None` は指定なし。
+    ///
+    /// **空の `Some` は「何にも当たらない」**——`kind:` に知らない値が来たとき、
+    /// 条件ごと落とすと絞り込みが黙って消えて全件が出る（`year:` と同じ考え方）。
+    pub kinds: Option<Vec<MediaKind>>,
 }
 
 /// 一覧の絞り込み（画面左の「すべての画像 / ★ / ⚑」に対応する）。
@@ -189,6 +194,62 @@ pub enum MediaFilter {
     Fav,
     /// 選別で選んだもの（⚑）だけ
     Picked,
+}
+
+/// メディアの種類（画面左の「種類」に対応する）。
+///
+/// **拡張子だけで決める**。中身を読まなくても分けられるので、走査のたびに
+/// 1行ぶんの文字列比較で済む。DBには `media.kind` として数値で持たせ、
+/// 絞り込みは索引シークに落ちる（一覧のLIKEは禁止という原則を守るため）。
+///
+/// 数値はDBに書いてあるので**並びを変えないこと**。増やすときは末尾に足す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaKind {
+    /// そのまま見える画像（JPEG・PNG・HEIC・AVIF・TIFF…）
+    Photo = 0,
+    /// RAW（現像前。[`crate::raw::RAW_EXTENSIONS`]）
+    Raw = 1,
+    /// 動画（[`crate::video::VIDEO_EXTENSIONS`]）
+    Video = 2,
+}
+
+impl MediaKind {
+    /// 拡張子から決める。RAWでも動画でもなければ「そのまま見える画像」。
+    ///
+    /// **RAWを先に見る**。`.dng` のように動画側と紛れる綴りは無いが、
+    /// 判定の順番で結果が変わらないことを読んで分かるようにしておく。
+    pub fn from_extension(ext: &str) -> Self {
+        if crate::raw::is_raw_extension(ext) {
+            Self::Raw
+        } else if crate::video::is_video_extension(ext) {
+            Self::Video
+        } else {
+            Self::Photo
+        }
+    }
+
+    /// パスの拡張子から決める（拡張子が無ければ画像扱い）。
+    pub fn from_path(path: &std::path::Path) -> Self {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map_or(Self::Photo, Self::from_extension)
+    }
+
+    /// 検索語の `kind:` に書ける名前から読む。読めなければ `None`。
+    ///
+    /// 英語と日本語の両方を受ける。画面から渡すのは英語の綴りだけだが、
+    /// 検索ボックスに直接打つ人のために、表示している言葉でも通るようにする。
+    pub fn parse(word: &str) -> Option<Self> {
+        match word.to_ascii_lowercase().as_str() {
+            // **`jpg` は別名にしない**。そう打つ人は PNG や HEIC を外したいはずで、
+            // 「画像ぜんぶ」が返ると期待とずれる（形式ごとの絞り込みは持っていない）
+            "photo" | "image" | "写真" | "画像" => Some(Self::Photo),
+            "raw" => Some(Self::Raw),
+            "video" | "movie" | "動画" => Some(Self::Video),
+            _ => None,
+        }
+    }
 }
 
 impl SearchQuery {
@@ -210,6 +271,7 @@ impl SearchQuery {
             && self.day_to.is_none()
             && !self.favorites_only
             && !self.picked_only
+            && self.kinds.is_none()
     }
 
     /// FTSを引く必要があるか（自由語・フォルダのいずれかがある）。
@@ -377,6 +439,7 @@ fn parse_date_range(token: &str) -> Option<(i64, i64)> {
 /// - `2019年` `2019-08` `2019年8月11日` — 撮影日で絞る
 /// - `★` / `fav:` — お気に入りのみ
 /// - `⚑` / `pick:` — 選別で選んだもののみ（0.2 ②）
+/// - `kind:raw` / `type:video` / `種類:動画` — 種類（画像・RAW・動画）で絞る
 /// - それ以外 — 自由語（ファイル名・フォルダ名・カメラ名が対象）
 pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
     let mut q = SearchQuery::filtered(filter);
@@ -422,6 +485,19 @@ pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
                     q.picked_only = true;
                     true
                 }
+                // 種類（画像・RAW・動画）。画面左の「種類」もこの口を通る。
+                //
+                // **知らない値は何にも当たらないようにする**（`year:` と同じ）。
+                // 黙って無視すると絞ったつもりで全件が出て、一番気付きにくい
+                "kind" | "type" | "種類" => {
+                    let asked: Vec<MediaKind> = MediaKind::parse(value).into_iter().collect();
+                    // 2つめ以降はANDで重ねる（違う種類を並べれば0件になる）
+                    q.kinds = Some(match q.kinds.take() {
+                        Some(prev) => prev.into_iter().filter(|k| asked.contains(k)).collect(),
+                        None => asked,
+                    });
+                    true
+                }
                 _ => false,
             };
             if matched {
@@ -450,6 +526,51 @@ pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 種類は拡張子で決まる() {
+        use std::path::Path;
+        assert_eq!(MediaKind::from_path(Path::new("a.JPG")), MediaKind::Photo);
+        assert_eq!(MediaKind::from_path(Path::new("a.cr3")), MediaKind::Raw);
+        assert_eq!(MediaKind::from_path(Path::new("a.MOV")), MediaKind::Video);
+        // 知らない綴り・拡張子なしは「そのまま見える画像」側に寄せる
+        assert_eq!(MediaKind::from_path(Path::new("a.xyz")), MediaKind::Photo);
+        assert_eq!(MediaKind::from_path(Path::new("a")), MediaKind::Photo);
+    }
+
+    /// 画面が `kind:` を**先頭に置く**理由（`ui/src/api.ts` の `withKind`）。
+    ///
+    /// 打ちかけの引用符（`"holiday` と入れた途中の状態）があると、そのうしろに
+    /// 足した指定は自由語の一部として飲み込まれる。ここを変えるなら、
+    /// 畳み込む側も一緒に見直すこと。
+    #[test]
+    fn 閉じていない引用符はうしろの指定を飲み込む() {
+        let kinds = |s: &str| parse_query(s, MediaFilter::All).kinds;
+        assert_eq!(kinds("\"holiday kind:raw"), None, "うしろだと消える");
+        assert_eq!(
+            kinds("kind:raw \"holiday"),
+            Some(vec![MediaKind::Raw]),
+            "先頭なら引用符より前なので必ず読まれる"
+        );
+    }
+
+    #[test]
+    fn 種類の指定を読む() {
+        let kinds = |s: &str| parse_query(s, MediaFilter::All).kinds;
+        assert_eq!(kinds("kind:raw"), Some(vec![MediaKind::Raw]));
+        assert_eq!(kinds("種類:動画"), Some(vec![MediaKind::Video]));
+        assert_eq!(kinds("type:Photo"), Some(vec![MediaKind::Photo]));
+        // 指定なしは条件を置かない
+        assert_eq!(kinds("沖縄"), None);
+        // **知らない値は何にも当たらない**（黙って全件を出さない）
+        assert_eq!(kinds("kind:abc"), Some(vec![]));
+        // 違う種類を並べたらANDで重なって0件
+        assert_eq!(kinds("kind:raw kind:video"), Some(vec![]));
+        // 同じ種類を並べても変わらない
+        assert_eq!(kinds("kind:raw kind:raw"), Some(vec![MediaKind::Raw]));
+        // 種類の指定だけでも「絞り込みあり」
+        assert!(!parse_query("kind:video", MediaFilter::All).is_empty());
+    }
 
     #[test]
     fn cjkはbigramへ展開される() {

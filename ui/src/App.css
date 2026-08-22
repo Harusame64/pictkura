@@ -691,6 +691,10 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
+
+  /* 下端に敷く字幕の帯の高さ。フィルムストリップの位置決めと、動画の
+     操作バーがその帯に潜らないための余白に使う */
+  --caption-h: 44px;
 }
 .viewer-loading {
   color: var(--n-5);
@@ -740,6 +744,10 @@ body {
 .viewer-video {
   max-width: calc(100vw - 120px);
   max-height: calc(100vh - 80px);
+  /* 字幕の帯に操作バーが潜らないよう、その分だけ下を空ける（2026-08-22）。
+   * 中央寄せのflexなので、下向きの余白を足すと絵はその半分だけ上がる
+   * ——絵は縮めずに、下端を字幕の上まで押し上げられる */
+  margin-bottom: var(--caption-h);
   background: #000;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
 }
@@ -817,7 +825,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 44px;
+  bottom: var(--caption-h);
   display: flex;
   justify-content: center;
   align-items: center;

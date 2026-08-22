@@ -182,6 +182,18 @@ fn all_ids_sql(filter: &str) -> String {
     format!("SELECT id FROM media {filter} ORDER BY day_key DESC, {SORT_TS} DESC, id DESC")
 }
 
+/// タイムライン索引（日付→枚数＋代表）のSQL。
+///
+/// **全行のGROUP BY**なので、絞り込みを足したときにここが表スキャンへ落ちると
+/// 骨組みの取得がそのまま遅くなる。実行計画に釘を打てるよう、組み立てを1か所に置く。
+fn summary_sql(filter: &str) -> String {
+    format!(
+        "SELECT day_key, COUNT(*), id, mtime_ms, thumb_state, MAX({SORT_TS})
+             FROM media {filter}
+             GROUP BY day_key ORDER BY day_key DESC"
+    )
+}
+
 /// 範囲取得の条件。**`day_key` を先頭に置く**ので索引でシークでき、
 /// 端の日の中だけを表示時刻とidで削る。
 fn between_conds() -> Vec<String> {
@@ -200,7 +212,8 @@ fn between_sql(conds: &[String]) -> String {
     )
 }
 
-fn camera_placeholders(n: usize) -> String {
+/// `IN (...)` のプレースホルダ列（`?,?,?`）を作る。
+fn placeholders(n: usize) -> String {
     std::iter::repeat_n("?", n).collect::<Vec<_>>().join(",")
 }
 
@@ -416,6 +429,24 @@ impl Db {
         let _ = conn.execute("ALTER TABLE media ADD COLUMN camera_id INTEGER", []);
         // 動画の長さ（ミリ秒。第9部）。画像はNULLのまま
         let _ = conn.execute("ALTER TABLE media ADD COLUMN duration_ms INTEGER", []);
+        // 種類（0=画像 / 1=RAW / 2=動画。[`crate::MediaKind`]）。
+        //
+        // 拡張子から決まる派生値だが**列に持たせる**。サマリは全行のGROUP BYなので、
+        // 行ごとに拡張子を切り出していては「日付→枚数」が索引だけで返らなくなる。
+        // 綴りはパスと一緒に決まって以後変わらないので、入れるのは追加のときだけでよい
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN kind INTEGER", []);
+        conn.execute(
+            "UPDATE media SET kind = pk_kind(path) WHERE kind IS NULL",
+            [],
+        )?;
+        conn.execute_batch(&format!(
+            r#"
+            -- 種類での絞り込み（画像 / RAW / 動画）。サマリは日ごとの集計なので、
+            -- 種類を先頭に置いた複合索引にすると、絞ったままでも索引のスキャンで返る
+            CREATE INDEX IF NOT EXISTS idx_media_kind_day
+                ON media(kind, day_key DESC, {SORT_TS} DESC, id DESC);
+            "#
+        ))?;
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS cameras (
@@ -664,6 +695,14 @@ impl Db {
                     .to_string()
             }))
         })?;
+        // パスの拡張子から種類（0=画像 / 1=RAW / 2=動画）を決める。
+        // **判定の規則はRust側（[`crate::MediaKind`]）に1つだけ**置き、
+        // 移行SQLとINSERTの両方からこの関数を呼ぶ——SQLに拡張子の一覧を
+        // 書き写すと、対応形式を足したときに片方だけ古くなる
+        conn.create_scalar_function("pk_kind", 1, flags, |ctx| {
+            let s: Option<String> = ctx.get(0)?;
+            Ok(s.map(|s| crate::MediaKind::from_path(std::path::Path::new(&s)) as i64))
+        })?;
         // 親ディレクトリのうち**末尾3階層**だけを索引対象にする。
         // ライブラリルートの共通部分（C:\Users\...\Pictures）は全行で同じで
         // 検索の役に立たないうえ、行数ぶんの索引が無駄に増えるため落とす
@@ -689,8 +728,8 @@ impl Db {
         {
             let mut stmt = tx.prepare_cached(&format!(
                 r#"
-                INSERT INTO media (path, size, mtime_ms, day_key, parent_dir)
-                VALUES (?1, ?2, ?3, {}, {})
+                INSERT INTO media (path, size, mtime_ms, day_key, parent_dir, kind)
+                VALUES (?1, ?2, ?3, {}, {}, pk_kind(?1))
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
@@ -846,8 +885,8 @@ impl Db {
         tx.execute(
             &format!(
                 r#"
-                INSERT INTO media (path, size, mtime_ms, day_key, parent_dir)
-                SELECT s.path, s.size, s.mtime_ms, {}, {}
+                INSERT INTO media (path, size, mtime_ms, day_key, parent_dir, kind)
+                SELECT s.path, s.size, s.mtime_ms, {}, {}, pk_kind(s.path)
                 FROM scan_tmp s LEFT JOIN media m ON m.path = s.path
                 WHERE m.id IS NULL OR m.size <> s.size OR m.mtime_ms <> s.mtime_ms
                 ON CONFLICT(path) DO UPDATE SET
@@ -1447,7 +1486,7 @@ impl Db {
                 conds.push(seek.to_string());
                 continue;
             }
-            let holes = camera_placeholders(ids.len());
+            let holes = placeholders(ids.len());
             conds.push(format!("({seek} OR camera_id IN ({holes}))"));
             args.extend(ids.into_iter().map(Value::Integer));
         }
@@ -1463,7 +1502,7 @@ impl Db {
                 conds.push("0".to_string());
                 continue;
             }
-            conds.push(format!("camera_id IN ({})", camera_placeholders(ids.len())));
+            conds.push(format!("camera_id IN ({})", placeholders(ids.len())));
             args.extend(ids.into_iter().map(Value::Integer));
         }
         if query.picked_only {
@@ -1471,6 +1510,16 @@ impl Db {
         }
         if query.favorites_only {
             conds.push("favorite = 1".to_string());
+        }
+        // 種類（画像 / RAW / 動画）。`idx_media_kind_day` の先頭列なのでシークに落ちる。
+        // **空なら「何にも当たらない」**（`kind:` に知らない値が来たとき。search.rs 参照）
+        if let Some(kinds) = &query.kinds {
+            if kinds.is_empty() {
+                conds.push("0".to_string());
+            } else {
+                conds.push(format!("kind IN ({})", placeholders(kinds.len())));
+                args.extend(kinds.iter().map(|k| Value::Integer(*k as i64)));
+            }
         }
         if let Some(from) = query.day_from {
             conds.push("day_key >= ?".to_string());
@@ -1506,11 +1555,7 @@ impl Db {
         } else {
             format!("WHERE {}", conds.join(" AND "))
         };
-        let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT day_key, COUNT(*), id, mtime_ms, thumb_state, MAX({SORT_TS})
-             FROM media {filter}
-             GROUP BY day_key ORDER BY day_key DESC"
-        ))?;
+        let mut stmt = self.conn.prepare_cached(&summary_sql(&filter))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
             Ok(DaySummary {
                 day_key: r.get(0)?,
@@ -1683,7 +1728,7 @@ impl Db {
         let mut rows_out: Vec<(i64, i64, i64)> = Vec::new();
         for chunk in ids.chunks(400) {
             let mut conds = conds.clone();
-            conds.push(format!("id IN ({})", camera_placeholders(chunk.len())));
+            conds.push(format!("id IN ({})", placeholders(chunk.len())));
             let mut args = base_args.clone();
             args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
             let mut stmt = self.conn.prepare_cached(&format!(
@@ -1730,7 +1775,7 @@ impl Db {
         let mut found: std::collections::HashSet<i64> = std::collections::HashSet::new();
         for chunk in ids.chunks(400) {
             let mut conds = conds.clone();
-            conds.push(format!("id IN ({})", camera_placeholders(chunk.len())));
+            conds.push(format!("id IN ({})", placeholders(chunk.len())));
             let mut args = base_args.clone();
             args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
             let mut stmt = self.conn.prepare_cached(&format!(
@@ -2474,6 +2519,60 @@ mod tests {
             .list_day(19990101, crate::MediaFilter::All)
             .unwrap()
             .is_empty());
+    }
+
+    /// 種類（画像 / RAW / 動画）で絞れる。判定は拡張子だけで、
+    /// 追加のときに `kind` 列へ入る（既存の行は起動時の移行で埋まる）。
+    #[test]
+    fn 種類での絞り込み() {
+        use crate::MediaKind;
+        let mut db = Db::open_in_memory().unwrap();
+        let d1 = local_noon_ms(2024, 8, 11);
+        db.upsert_files(&[
+            scanned("a.jpg", 1, d1),
+            scanned("b.CR2", 1, d1 + 1000),
+            scanned("c.MOV", 1, d1 + 2000),
+            scanned("d.heic", 1, d1 + 3000),
+        ])
+        .unwrap();
+
+        let names = |kinds: Option<Vec<MediaKind>>| -> Vec<String> {
+            let query = SearchQuery {
+                kinds,
+                ..Default::default()
+            };
+            db.search_day(20240811, &query)
+                .unwrap()
+                .iter()
+                .map(|r| r.path.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(
+            names(Some(vec![MediaKind::Raw])),
+            vec!["b.CR2"],
+            "大文字の綴りも拾う"
+        );
+        assert_eq!(names(Some(vec![MediaKind::Video])), vec!["c.MOV"]);
+        assert_eq!(
+            names(Some(vec![MediaKind::Photo])),
+            vec!["d.heic", "a.jpg"],
+            "RAWでも動画でもなければ画像"
+        );
+        assert!(
+            names(Some(vec![])).is_empty(),
+            "空の指定（kind:に知らない値）は何にも当たらない"
+        );
+        assert_eq!(names(None).len(), 4, "指定なしは絞らない");
+
+        // サマリの枚数も種類で絞られる（一覧と骨組みがずれない）
+        let summary = db
+            .search_summary(&SearchQuery {
+                kinds: Some(vec![MediaKind::Photo]),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].count, 2);
     }
 
     #[test]
@@ -3620,6 +3719,48 @@ mod tests {
         with_term.extend(super::between_conds());
         let plan = plan_of(&db, &super::between_sql(&with_term));
         assert!(plan.contains("media_fts"), "検索語つきの範囲: {plan}");
+    }
+
+    /// 種類の絞り込みも索引でシークする。
+    ///
+    /// **サマリは全行のGROUP BY**なので、ここが表スキャンへ落ちると
+    /// 「日付→枚数」の骨組みがそのまま遅くなる。`kind` を先頭に置いた
+    /// 複合索引なら、絞ったままでも day_key の並びが索引から供給される。
+    #[test]
+    fn 種類の絞り込みは索引でシークする() {
+        let db = seed_search_db();
+        let q = crate::search::parse_query("kind:raw", crate::MediaFilter::All);
+        let (conds, _) = db.query_filter(&q).unwrap();
+        let filter = format!("WHERE {}", conds.join(" AND "));
+
+        let plan = plan_of(&db, &super::summary_sql(&filter));
+        assert!(plan.contains("idx_media_kind_day"), "サマリ: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "サマリが並べ直しになっている: {plan}"
+        );
+
+        let plan = plan_of(&db, &super::all_ids_sql(&filter));
+        assert!(plan.contains("idx_media_kind_day"), "全件: {plan}");
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "全件が並べ直しになっている: {plan}"
+        );
+
+        // **種類を選ばなければ従来どおり**（既存の計画を退化させていない）
+        let plan = plan_of(&db, &super::all_ids_sql(""));
+        assert!(plan.contains("idx_media_day_sort"), "指定なし: {plan}");
+        // **正の形で釘を打つ**。「kindの索引を使っていない」だけだと、
+        // 表スキャン＋並べ直しへ落ちても通ってしまう
+        let plan = plan_of(&db, &super::summary_sql(""));
+        assert!(
+            plan.contains("idx_media_day_sort"),
+            "指定なしのサマリ: {plan}"
+        );
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "指定なしのサマリが並べ直しになっている: {plan}"
+        );
     }
 
     /// 検索語つきの範囲選択・選択の確認で、FTSの2つの形のどちらが速いかを測る。

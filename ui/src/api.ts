@@ -5,6 +5,8 @@
 // タイムラインの骨組みを作り、可視範囲の日だけを listDay で取得する。
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
+import { locale } from "./i18n";
+
 export interface MediaItem {
   id: number;
   file_name: string;
@@ -145,8 +147,6 @@ export interface UpdateCheck {
   latest: string | null;
   newer: boolean;
   checked: boolean;
-  /** 押したときに開くページ（Rust側で固定。表示にだけ使う） */
-  url: string;
 }
 
 /** 取り込み先フォルダ構成の選択肢（今日の日付での実例つき） */
@@ -278,6 +278,31 @@ export const modKeyLabel = isMac ? "⌘K" : "Ctrl+K";
  * 「この連写から残す1枚」を同じ印にしないため
  */
 export type MediaFilter = "all" | "fav" | "picked";
+
+/**
+ * 種類の絞り込み（画面左の「種類」）。**★ / ⚑ とは別の軸**で、重ねて効く。
+ *
+ * 拡張子だけで決まる 3 つに割る——そのまま見える画像（JPEG・HEIC…）、
+ * 現像前の RAW、動画。`"all"` は絞らない。
+ */
+export type MediaKind = "all" | "photo" | "raw" | "video";
+
+/**
+ * 「種類」の選択を検索語に畳む。
+ *
+ * **専用の引数を増やさず、クエリ言語の `kind:` に寄せる**。絞り込みは
+ * 一覧・サマリ・全選択・範囲選択・削除前の確認と 6 か所を通るので、
+ * 引数を足すとそのすべてに同じ配線が要る。検索語なら 1 か所で済み、
+ * 検索ボックスに `kind:raw` と打っても同じように効く。
+ *
+ * **前に付ける**（ゲート1のP2）。うしろに足すと、打ちかけの
+ * 閉じていない引用符（`"holiday` と入れた途中の状態）に飲み込まれて
+ * 1つの自由語になり、`kind:` の指定が消える——画面では種類を選んでいるのに
+ * 一覧は絞られていない、という食い違いが出る。先頭なら引用符より前なので
+ * 必ず指定として読まれる（条件はすべてANDなので順番は結果に効かない）。
+ */
+export const withKind = (query: string, kind: MediaKind) =>
+  kind === "all" ? query : query ? `kind:${kind} ${query}` : `kind:${kind}`;
 
 export const timelineSummary = (query: string, filter: MediaFilter) =>
   invoke<DaySummary[]>("timeline_summary", { query, filter });
@@ -508,8 +533,10 @@ export const setAutoAdvance = (enabled: boolean) =>
 export const checkUpdate = (force: boolean) =>
   invoke<UpdateCheck>("check_update", { force });
 
-/** ダウンロードページを既定のブラウザで開く（開く先はRust側で固定） */
-export const openReleasesPage = () => invoke<void>("open_releases_page");
+/** 紹介サイトのダウンロードの頁を既定のブラウザで開く（開く先はRust側で固定。
+ * 渡すのは表示言語だけ——URLを渡せる口にしない） */
+export const openDownloadPage = () =>
+  invoke<void>("open_download_page", { lang: locale });
 
 /** 起動時に確認しにいくかを切り替える（0.2） */
 export const setCheckUpdateOnStart = (enabled: boolean) =>

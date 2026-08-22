@@ -6,9 +6,12 @@
 //!
 //! どちらの形でも同じように解釈できるよう、末尾のパスセグメントだけを見る。
 
-/// 配信する画像の種類。
+/// `media://` で**何を配信するか**。
+///
+/// ファイルそのものの種類（画像 / RAW / 動画）は別物で、そちらは
+/// [`crate::MediaKind`]（`media.kind` 列）。名前が紛れないよう分けてある。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MediaKind {
+pub enum ServeKind {
     /// オリジナルファイル
     Full,
     /// サムネイル
@@ -21,7 +24,7 @@ pub enum MediaKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaTarget {
     /// ライブラリの画像（DBのIDで引く）
-    Library { kind: MediaKind, id: i64 },
+    Library { kind: ServeKind, id: i64 },
     /// 取り込み**前**のファイル（第5部 段階E: 取り込みウィザードのプレビュー）。
     /// DBに無いのでパスで指すしかないが、パスはWindowsの `\` や `:` を含み
     /// URLのエスケープ規則とぶつかるため、**UTF-8バイト列の16進**で運ぶ。
@@ -84,15 +87,15 @@ pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
     let payload = segments.next()?;
     match segments.next()? {
         "full" => Some(MediaTarget::Library {
-            kind: MediaKind::Full,
+            kind: ServeKind::Full,
             id: payload.parse().ok()?,
         }),
         "thumb" => Some(MediaTarget::Library {
-            kind: MediaKind::Thumb,
+            kind: ServeKind::Thumb,
             id: payload.parse().ok()?,
         }),
         "video" => Some(MediaTarget::Library {
-            kind: MediaKind::Video,
+            kind: ServeKind::Video,
             id: payload.parse().ok()?,
         }),
         "src" => {
@@ -274,7 +277,7 @@ mod tests {
 
     use std::path::Path;
 
-    fn library(kind: MediaKind, id: i64) -> Option<MediaTarget> {
+    fn library(kind: ServeKind, id: i64) -> Option<MediaTarget> {
         Some(MediaTarget::Library { kind, id })
     }
 
@@ -282,11 +285,11 @@ mod tests {
     fn windows形式のurlを解釈できる() {
         assert_eq!(
             parse_media_url("http://media.localhost/full/123"),
-            library(MediaKind::Full, 123)
+            library(ServeKind::Full, 123)
         );
         assert_eq!(
             parse_media_url("http://media.localhost/thumb/45"),
-            library(MediaKind::Thumb, 45)
+            library(ServeKind::Thumb, 45)
         );
     }
 
@@ -294,7 +297,7 @@ mod tests {
     fn mac_linux形式のurlを解釈できる() {
         assert_eq!(
             parse_media_url("media://localhost/full/7"),
-            library(MediaKind::Full, 7)
+            library(ServeKind::Full, 7)
         );
     }
 
@@ -303,11 +306,11 @@ mod tests {
         // convertFileSrcはパス全体をencodeURIComponentする
         assert_eq!(
             parse_media_url("http://media.localhost/thumb%2F14"),
-            library(MediaKind::Thumb, 14)
+            library(ServeKind::Thumb, 14)
         );
         assert_eq!(
             parse_media_url("media://localhost/full%2F3"),
-            library(MediaKind::Full, 3)
+            library(ServeKind::Full, 3)
         );
     }
 
@@ -315,7 +318,7 @@ mod tests {
     fn クエリ文字列は無視される() {
         assert_eq!(
             parse_media_url("http://media.localhost/full/123?v=2"),
-            library(MediaKind::Full, 123)
+            library(ServeKind::Full, 123)
         );
     }
 
@@ -366,7 +369,7 @@ mod tests {
     fn 動画のurlを解釈できる() {
         assert_eq!(
             parse_media_url("http://media.localhost/video/9"),
-            library(MediaKind::Video, 9)
+            library(ServeKind::Video, 9)
         );
     }
 

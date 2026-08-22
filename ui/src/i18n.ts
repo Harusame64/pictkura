@@ -33,6 +33,11 @@ const ja = {
   navAllPhotos: "すべての画像",
   navFavorites: "★ お気に入り",
   navPicked: "⚑ 選別で選んだもの",
+  // 種類の絞り込み（画像・RAW・動画）。押すと絞り、もう一度押すと外れる
+  navKinds: "種類",
+  kindPhoto: "画像",
+  kindRaw: "RAW",
+  kindVideo: "動画",
   // ショートカット一覧（`?` / `F1`）
   shortcutsTitle: "ショートカット一覧 (?)",
   actionShortcuts: "ショートカット一覧を出す",
@@ -352,6 +357,10 @@ const en: Dict = {
   navAllPhotos: "All photos",
   navFavorites: "★ Favorites",
   navPicked: "⚑ Picked",
+  navKinds: "Kind",
+  kindPhoto: "Photos",
+  kindRaw: "RAW",
+  kindVideo: "Videos",
   // ショートカット一覧（`?` / `F1`）
   shortcutsTitle: "Keyboard shortcuts (?)",
   actionShortcuts: "Show keyboard shortcuts",

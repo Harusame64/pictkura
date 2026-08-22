@@ -21,9 +21,10 @@ import ImportWizard from "./ImportWizard";
 import {
   addLibraryRoot,
   checkUpdate,
+  withKind,
   cloudOnlyMedia,
   deleteMedia,
-  openReleasesPage,
+  openDownloadPage,
   fullSrc,
   isWindows,
   videoSrc,
@@ -71,6 +72,7 @@ import {
   type IndexProgress,
   type LibraryStats,
   type MediaFilter,
+  type MediaKind,
   type MediaItem,
   type Memory,
   type ScopeItem,
@@ -266,6 +268,19 @@ const JUDGE_FLASH: Record<JudgeFlashKind, { mark: string; word: () => string }> 
     reject: { mark: "✕", word: () => t.viewerRejected },
   };
 
+/**
+ * 画面左に並べる種類（[`MediaKind`] の "all" 以外）。**この順で出す**
+ * ——枚数の多い順。RAW を撮る人は動画も撮るが、逆は少ない
+ */
+const KINDS = ["photo", "raw", "video"] as const satisfies readonly MediaKind[];
+
+/** 種類の名前（辞書は読み込み時に決まるので、[`JUDGE_FLASH`] と同じく遅らせて引く） */
+const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
+  photo: () => t.kindPhoto,
+  raw: () => t.kindRaw,
+  video: () => t.kindVideo,
+};
+
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
   const sec = (r.elapsed_ms / 1000).toFixed(r.elapsed_ms < 1000 ? 2 : 1);
@@ -320,6 +335,11 @@ export default function App() {
   const [view, setView] = useState<"grid" | "calendar">("grid");
   const [filter, setFilter] = useState<MediaFilter>("all");
   /**
+   * 種類の絞り込み（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので重ねて効く。
+   * 送るときは検索語の `kind:` に畳む（[`withKind`]）
+   */
+  const [kind, setKind] = useState<MediaKind>("all");
+  /**
    * 選択中のID。**空なら選択モードではない**——モードを別の状態で持つと、
    * 「選択が0なのにモードだけ残る」というずれ方をする。
    */
@@ -330,6 +350,12 @@ export default function App() {
   const [queryInput, setQueryInput] = useState("");
   /** 実際にバックエンドへ投げている検索クエリ（入力のデバウンス後） */
   const [query, setQuery] = useState("");
+  /**
+   * 何かで絞り込んでいるか（★ / ⚑ / 種類 / 検索語のどれか）。
+   * 絞っているあいだは「N年前の今日」を出さない——絞り込みの外から
+   * 拾ってきた写真が混じって見え、いま見ている列と食い違う
+   */
+  const filtering = filter !== "all" || kind !== "all" || query !== "";
   /** カメラ別の枚数（左ペインとコマンドパレットの候補） */
   const [cameras, setCameras] = useState<Camera[]>([]);
   /** カメラ一覧を全部見せるか（既定は上位数台だけ） */
@@ -760,13 +786,17 @@ export default function App() {
   const filterInitRef = useRef(true);
   useEffect(() => {
     filterRef.current = filter;
-    queryRef.current = query;
+    // **種類は検索語に畳んで持つ**。バックエンドへ渡る経路が一本になるので、
+    // 一覧・サマリ・全選択・範囲選択・削除前の確認のどれも取りこぼさない。
+    // 「絞り込み中はサムネイル完成の差分でその日を捨て直さない」判断
+    // （`applyPatches`）も、種類で絞っているあいだは検索と同じ扱いになる
+    queryRef.current = withKind(query, kind);
     if (filterInitRef.current) {
       filterInitRef.current = false;
       return;
     }
     reloadAll().catch((e) => setStatus(String(e)));
-  }, [filter, query, reloadAll]);
+  }, [filter, query, kind, reloadAll]);
 
   useEffect(() => {
     refreshCameras();
@@ -2258,6 +2288,17 @@ export default function App() {
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
+  // ビューアを閉じたら全画面も解く（2026-08-22）。
+  //
+  // **全画面はビューアの見方であって、一覧の見方ではない**。一覧に戻ったあとも
+  // 枠が消えたままだと、そこから出る手が無い——全画面の切り替えはビューアの
+  // 道具バーとF11にしかなく、そのどちらもビューアが開いているあいだしか効かない。
+  // 地をクリックして閉じたときにここへ来る（閉じ方が増えても取りこぼさないよう、
+  // 閉じる処理ではなく「閉じている」状態を見る）
+  useEffect(() => {
+    if (viewer !== null) return;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }, [viewer]);
 
   // ビューアのUIはマウスを止めると消す（写真だけが残るのが現代の標準）。
   // スライドショー中も同じ扱いで、鑑賞の邪魔をしない
@@ -2512,13 +2553,17 @@ export default function App() {
   }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
 
   // 検索条件が変わったら選択を捨てる。
-  // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く
+  // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
+  // **種類（画像 / RAW / 動画）も並べる**——一覧に出るものが変わる条件は
+  // すべてここを通す必要がある。世代（`selectEpochRef`）を進めるのも要点で、
+  // 前の条件で走っていたCtrl+Aや範囲選択の返事が、切り替えた後の一覧へ
+  // 遅れて流れ込むのを止める
   useEffect(() => {
     lastRangeRef.current = null;
     selectEpochRef.current += 1;
     setSelected(new Set());
     setAnchorId(null);
-  }, [query, filter]);
+  }, [query, filter, kind]);
 
   /** 選択中かどうか。**選択が0なら選択モードではない** */
   const selecting = selected.size > 0;
@@ -3371,7 +3416,7 @@ export default function App() {
       {updateFound && (
         <div className="speed-toast index decoder-notice update-notice">
           <span>{t.updateFound(updateFound.latest ?? "")}</span>
-          <button onClick={() => openReleasesPage().catch(() => {})}>
+          <button onClick={() => openDownloadPage().catch(() => {})}>
             {t.updateOpenPage}
           </button>
           <button onClick={() => setUpdateFound(null)}>{t.updateLater}</button>
@@ -3427,6 +3472,20 @@ export default function App() {
               <span className="fav-count">{stats.picked}</span>
             )}
           </div>
+          {/* 種類（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので節を分ける
+              ——重ねて効くものを同じ列に並べると、片方を押したときに
+              もう片方が外れる棚に見える。カメラと同じで、押している1つを
+              もう一度押せば外れる（「すべて」の行は置かない） */}
+          <div className="nav-section">{t.navKinds}</div>
+          {KINDS.map((k) => (
+            <div
+              key={k}
+              className={"nav-item" + (kind === k ? " active" : "")}
+              onClick={() => setKind(kind === k ? "all" : k)}
+            >
+              {KIND_LABEL[k]()}
+            </div>
+          ))}
           {cameras.length > 0 && (
             <>
               <div className="nav-section">
@@ -3521,7 +3580,7 @@ export default function App() {
           {/* 検索中は隠す: 思い出は検索条件を無視して取っているため、結果と
               無関係な写真が混ざるうえ、開いてもタイムライン上に居場所がなく
               ビューアがすぐ閉じてしまう */}
-          {view === "grid" && filter === "all" && !query && memories.length > 0 && (
+          {view === "grid" && !filtering && memories.length > 0 && (
             <div className="memories">
               <span className="memories-title">
                 🎞 {t.memoriesTitle(memories[0].years_ago)}
@@ -4019,8 +4078,15 @@ export default function App() {
               </div>
             )}
           {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
-              見えていると選別が進む。クリックでそこへ飛ぶ */}
-          {viewerItem && strip.length > 1 && (
+              見えていると選別が進む。クリックでそこへ飛ぶ。
+
+              **動画には出さない**（2026-08-22）。動画の操作バーは絵の下端に
+              重なって出るので、その上に帯を敷くと音量つまみと再生位置が
+              隠れて押せない。帯の分だけ絵を持ち上げる手もあるが、縦長の動画が
+              目に見えて縮んで窮屈になる——動画は「送って選ぶ」より「見る」ものなので、
+              見ているあいだは帯を畳むほうを採った。何枚目かは字幕に出ているし、
+              送りは ‹ › とキーでできる */}
+          {viewerItem && !viewerItem.is_video && strip.length > 1 && (
             <div className="viewer-strip" onClick={(e) => e.stopPropagation()}>
               {strip.map(({ item, offset }) => (
                 <button
