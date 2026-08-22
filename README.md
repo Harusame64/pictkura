@@ -5,6 +5,11 @@
 A small, fast desktop photo manager. It does two things well: importing from a camera
 card and browsing what you already have — even when that is tens of thousands of files.
 
+**[Website](https://harusame64.github.io/pictkura/en/)** ·
+[Specification](https://harusame64.github.io/pictkura/en/spec.html) ·
+[Installing](https://harusame64.github.io/pictkura/en/install.html) ·
+[Manual](https://harusame64.github.io/pictkura/manual.en.html)
+
 ![Library](docs/images/grid.en.jpg)
 
 ## Goals
@@ -280,9 +285,10 @@ to the calendar, clears it, so a bulk action never reaches photos you cannot see
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
 overrides that; switching reloads the window.
 
-The full manual ships with the app — ⚙ (Settings) → **Manual**. In this repository it
-lives at `docs/manual.en.html` and `docs/manual.html`; GitHub shows those as HTML source,
-so download the file and open it in a browser to read it here.
+The full manual ships with the app — ⚙ (Settings) → **Manual**. It is also readable in a
+browser at **[harusame64.github.io/pictkura/manual.en.html](https://harusame64.github.io/pictkura/manual.en.html)**.
+In this repository it lives at `docs/manual.en.html` and `docs/manual.html`, which GitHub
+shows as HTML source.
 
 > One thing is still Japanese-only: the entry pictkura adds to the Windows AutoPlay
 > choices reads「pictkura で写真を取り込む」regardless of the UI language.
