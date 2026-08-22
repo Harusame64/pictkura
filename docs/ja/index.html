@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pictkura — 数万枚を、待たずに。Rust で書いた画像管理アプリ</title>
+<meta name="description" content="USB / SDカードからの取り込みと、数万枚の写真の一覧表示に絞った無料の画像管理アプリ。Rust と Tauri v2 で書かれ、RAW・HEIC・AVIF・動画に対応。Windows / macOS、MIT ライセンス。">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/ja/">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="pictkura — 数万枚を、待たずに。">
+<meta property="og:description" content="カードからの取り込みと、大量の写真の一覧表示。その二つだけに機能を絞り、Rust で書いた画像管理アプリです。">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/ja/">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "pictkura",
+  "applicationCategory": "MultimediaApplication",
+  "applicationSubCategory": "写真管理",
+  "operatingSystem": "Windows 10, Windows 11, macOS 11+",
+  "softwareVersion": "0.2.0",
+  "url": "https://harusame64.github.io/pictkura/ja/",
+  "downloadUrl": "https://github.com/Harusame64/pictkura/releases/latest",
+  "license": "https://github.com/Harusame64/pictkura/blob/main/LICENSE",
+  "inLanguage": ["ja", "en"],
+  "description": "USB / SDカードからの取り込みと、数万枚の写真の一覧表示に絞った画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドにしか実体が無いファイルを勝手にダウンロードしません。",
+  "author": { "@type": "Person", "name": "Harusame64" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
+}
+</script>
+</head>
+<body lang="ja">
+
+<a class="skip" href="#main">本文へ移動</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <span class="disp">pictkura</span>
+  </div>
+  <nav class="nav" aria-label="サイト内">
+    <a href="#speed" class="hide-sm">特長</a>
+    <a href="#formats" class="hide-sm">対応形式</a>
+    <a href="install.html" class="hide-sm">インストール</a>
+    <a href="spec.html" class="hide-xs">アプリ仕様</a>
+    <a href="../manual.html" class="hide-xs">マニュアル</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang">JA / <a href="../en/" hreflang="en">EN</a></span>
+    <a href="#download" class="btn btn-sm">ダウンロード</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow" style="margin:0">Windows 10 / 11 と macOS 11 以降　—　v0.2.0</p>
+    <h1 class="disp">数万枚を、<br>待たずに。</h1>
+    <p>やることは、カードから取り込むことと、ためこんだ写真を並べて見ること。<strong class="em">この二つだけ</strong>に絞って、Rust で書きました。作らなかったぶんは、そのまま速さに回っています。</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="https://github.com/Harusame64/pictkura/releases/latest">ダウンロード（無料）</a>
+      <a class="btn btn-ghost" href="https://github.com/Harusame64/pictkura">ソースを見る</a>
+    </div>
+    <p class="hero-meta">無料・MIT ライセンス　／　登録も、送信もありません</p>
+  </div>
+  <div class="hero-shot">
+    <div class="frame">
+      <img src="../images/grid.jpg" width="1152" height="756" alt="日付ごとに写真が並んだ pictkura の一覧画面。左に場所とカメラ、右端に年のスクラバー" fetchpriority="high" decoding="async">
+    </div>
+    <p class="fig">日付ごとに並んだ一覧。右端の縦棒をつまむと、年をまたいで一気に飛べます。</p>
+  </div>
+</section>
+
+<section class="metrics" aria-label="実測値">
+  <div>
+    <p class="n">0</p>
+    <p>起動のたびにフォルダを端から見て回る回数。Windows が持っている変更の記録を読むので、<strong class="em">前回から変わったぶん</strong>だけで済みます</p>
+  </div>
+  <div>
+    <p class="n">20<span>秒</span></p>
+    <p>クラウドにしか実体が無い 3,166 枚を読むのにかかった時間。<strong class="em">通信は一度も発生していません</strong>（実測）</p>
+  </div>
+  <div>
+    <p class="n">2.5<span>×</span></p>
+    <p>一覧のサムネイルを作る速さ。SIMD で縮め、JPEG は<strong class="em">小さくしながら展開</strong>しています</p>
+  </div>
+  <div>
+    <p class="n">FTS5</p>
+    <p>検索はいつも索引を引くだけ。日本語は 2 文字ずつに割ってあるので、<strong class="em">語の途中でも当たります</strong></p>
+  </div>
+</section>
+
+<figure class="band">
+  <img src="../images/photo/forest-canopy.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
+  <div class="band-text">
+    <p class="disp">写真は、撮っている時間より、<br>撮ったあとに眺めている時間のほうが長い。</p>
+  </div>
+  <span class="by">Photo: Wikimedia Commons, CC0</span>
+</figure>
+
+<section class="section" id="speed">
+  <div class="sec-head">
+    <span class="num mono">01</span>
+    <h2 class="disp">速いのは、削ったからです</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="cards c3">
+    <div>
+      <p class="tag">Rust + Tauri v2</p>
+      <h3>ブラウザを積まない</h3>
+      <p>画面は OS が持っている WebView に任せ、処理はネイティブで走ります。Electron のように実行環境を丸ごと抱えないので、配布物も起動も軽いままです。</p>
+    </div>
+    <div>
+      <p class="tag">media://</p>
+      <h3>base64 にしない</h3>
+      <p>画像は専用のプロトコルでそのまま流します。いったん文字列に直して 1.33 倍に膨らませる、あの工程がありません。</p>
+    </div>
+    <div>
+      <p class="tag">Virtual scroll</p>
+      <h3>画面の外は作らない</h3>
+      <p>見えているぶんだけを描きます。何万枚あっても、画面に載る要素の数は変わりません。</p>
+    </div>
+    <div>
+      <p class="tag">No layout shift</p>
+      <h3>写真が届く前に、場所が決まっている</h3>
+      <p>幅と高さをデータベースに持っているので、読み込みの途中でタイルが飛び跳ねません。</p>
+    </div>
+    <div>
+      <p class="tag">Scan &amp; serve</p>
+      <h3>調べている最中も、一覧は動く</h3>
+      <p>フォルダを調べる処理は、データベースの錠の外側で走ります。追加した直後から、見つかったところが順に並びます。</p>
+    </div>
+    <div>
+      <p class="tag">No hashing</p>
+      <h3>中身を読み直さない</h3>
+      <p>変わったかどうかは、大きさと更新時刻だけで見ます。写真の中身を毎回ハッシュに掛けたりはしません。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0" id="import">
+  <div class="sec-head">
+    <span class="num mono">02</span>
+    <h2 class="disp">カードを挿すところから</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="shots-2">
+    <figure>
+      <img src="../images/import.jpg" width="1152" height="756" alt="取り込みウィザード。左に取り込み元のツリー、右に写真の一覧" loading="lazy" decoding="async">
+      <figcaption class="fig">取り込み元を選ぶと、中の写真が並びます。</figcaption>
+    </figure>
+    <figure>
+      <img src="../images/settings.jpg" width="1152" height="756" alt="設定画面。取り込み先のフォルダ構成を選んでいるところ" loading="lazy" decoding="async">
+      <figcaption class="fig">フォルダの構成は、書いたそばから結果が見えます。</figcaption>
+    </figure>
+  </div>
+  <p class="lead" style="margin-bottom:44px">取り込み先は好きなフォルダ。撮影日ごとの構成は 9 つの雛形から選ぶか、<code class="mono">{year}/{month}</code> のように自分で書けます。書いたそばから、できあがるフォルダ名が出ます。</p>
+  <div class="cards c3">
+    <div>
+      <h3>隣にあるファイルも一緒に運ぶ</h3>
+      <p>現像ソフトが書いた <code class="mono">.xmp</code> や <code class="mono">.dop</code> は、写真と同じ名前のまま付いていきます。</p>
+    </div>
+    <div>
+      <h3>「済」の判定がずれない</h3>
+      <p>取り込み済みを隠す判定は、取り込み本体と同じ経路を通ります。見えているものと実際が食い違いません。</p>
+    </div>
+    <div>
+      <h3>コピーのあとに、大きさを比べる</h3>
+      <p>1 枚ごとに検証します。進捗・残り時間・いま入れている写真が出ます。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section deep" id="cull">
+  <div class="sec-head">
+    <span class="num mono">03</span>
+    <h2 class="disp">選ぶための、二つの棚</h2>
+    <span class="rule"></span>
+  </div>
+  <figure class="bleed">
+    <img src="../images/viewer.jpg" width="1152" height="756" alt="ビューアで写真を1枚だけ大きく表示しているところ" loading="lazy" decoding="async">
+    <figcaption class="fig">1 枚だけを大きく。操作の枠は、マウスが止まると消えます。</figcaption>
+  </figure>
+  <div class="cards c3">
+    <div>
+      <h3><span class="glyph" style="color:var(--pick)" aria-hidden="true">⚑</span><span class="key mono">P</span>連写から 1 枚だけ抜く</h3>
+      <p>⚑ は ★ お気に入りとは別の棚です。選別の残りでお気に入りが埋まりません。</p>
+    </div>
+    <div>
+      <h3><span class="glyph" style="color:var(--danger)" aria-hidden="true">✕</span><span class="key mono">X</span>ボツは、その場では消えない</h3>
+      <p>閉じるときに顔ぶれを見せてから、まとめてごみ箱へ。<strong class="em">削除は必ずごみ箱を通ります。</strong></p>
+    </div>
+    <div>
+      <h3><span class="glyph" style="color:var(--fav)" aria-hidden="true">★</span>戻ってきたい写真に</h3>
+      <p>検索窓には <code class="mono">★</code> や <code class="mono">camera:α7</code>、<code class="mono">2019-08</code> をそのまま書けます。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="formats">
+  <div class="sec-head">
+    <span class="num mono">04</span>
+    <h2 class="disp">RAW は、現像しません</h2>
+    <span class="rule"></span>
+  </div>
+  <p class="lead" style="margin-bottom:48px">カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さないぶん速く、色は<strong class="em">カメラが出したまま</strong>。16 メーカー 28 個の実ファイルで確かめました。</p>
+  <div class="tiles">
+    <div class="tile">
+      <p class="eyebrow">写真</p>
+      <p class="exts">jpg &nbsp;png &nbsp;webp &nbsp;avif<br>heic &nbsp;heif &nbsp;hif &nbsp;tif<br>bmp &nbsp;gif &nbsp;svg</p>
+      <p class="foot-note">AVIF のデコーダは同梱しています。HEIC の画素は OS の部品に任せます</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">RAW</p>
+      <p class="exts">cr2 &nbsp;cr3 &nbsp;nef &nbsp;arw<br>raf &nbsp;orf &nbsp;rw2 &nbsp;dng<br>pef &nbsp;srw &nbsp;3fr &nbsp;x3f …</p>
+      <p class="foot-note">実ファイルで確かめた拡張子は 24。Apple ProRAW（DNG）も含みます</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">動画</p>
+      <p class="exts">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm<br>avi &nbsp;mts &nbsp;m2ts &nbsp;mkv<br>3gp &nbsp;wmv &nbsp;mpg &nbsp;mpeg</p>
+      <p class="foot-note">長さと大きさは容器の見出しから読みます。中身は 1 画素も展開しません</p>
+    </div>
+  </div>
+  <a class="more" href="spec.html#formats">対応表をすべて見る（アプリ仕様） →</a>
+</section>
+
+<section class="section deep" id="privacy">
+  <div class="split aside">
+    <div>
+      <div class="sec-head" style="margin-bottom:28px">
+        <span class="num mono">05</span>
+        <h2 class="disp">外に出るのは、1 本だけ</h2>
+      </div>
+      <p style="margin:0;font-size:15.5px;line-height:2.05;color:var(--text-soft)">pictkura が自分から通信するのは「新しいバージョンがあるか」の確認だけです。送るのはバージョン番号のみ。写真も、ファイル名も、フォルダの場所も出ていきません。設定で切れば、通信は 1 本も残りません。</p>
+    </div>
+    <div class="cards c2">
+      <div>
+        <h3>アカウントは要りません</h3>
+        <p>登録も、ログインも、期限もありません</p>
+      </div>
+      <div>
+        <h3>クラウドから勝手に落とさない</h3>
+        <p>OneDrive の「オンラインのみ」も、実際にその写真を見たときだけ取りに行きます</p>
+      </div>
+      <div>
+        <h3>写真は元の場所のまま</h3>
+        <p>独自の保管庫に取り込み直したりはしません</p>
+      </div>
+      <div>
+        <h3>中を見られます</h3>
+        <p>ソースは全部公開・MIT ライセンス</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="limits">
+  <div class="sec-head">
+    <span class="num mono off">06</span>
+    <h2 class="disp" style="color:oklch(0.8 0 0)">できないことも、先に書きます</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="limits">
+    <div><b>現像はできません。</b>露出やホワイトバランスの調整はありません</div>
+    <div><b>AI 選別はありません。</b>顔やピントの自動判定は入れていません</div>
+    <div><b>並び順は 1 通り。</b>撮影日の新しい順のみです</div>
+    <div><b>動画のサムネイルは Windows のみ。</b>macOS はまだ繋いでいません</div>
+  </div>
+  <a class="more off" href="spec.html#cannot">できること・できないことの一覧 →</a>
+</section>
+
+<section class="section photo" id="download">
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:48px">
+    <div>
+      <p class="eyebrow" style="margin-bottom:16px">Download &nbsp;—&nbsp; v0.2.0</p>
+      <h2 class="disp" style="font-size:38px">登録も、支払いも要りません</h2>
+    </div>
+    <p class="mono" style="margin:0;font-size:12px;color:var(--text-faint);line-height:2;text-align:right">Windows 10/11 (x64)<br>macOS 11+ (Apple Silicon)<br><a href="install.html" style="color:var(--text-faint)">PC全体へ入れる MSI もあります →</a></p>
+  </div>
+  <div class="tiles">
+    <a class="tile pick" href="https://github.com/Harusame64/pictkura/releases/latest">
+      <h3 style="display:flex;align-items:baseline;gap:10px">Windows インストーラ <span class="badge">推奨</span></h3>
+      <p>管理者権限は不要です。自分のユーザーにだけ入ります。</p>
+      <p class="file">x64-setup.exe</p>
+    </a>
+    <a class="tile" href="https://github.com/Harusame64/pictkura/releases/latest">
+      <h3>Windows 持ち歩き版</h3>
+      <p>展開して <code class="mono">pictkura.exe</code> を起動するだけ。インストールしません。</p>
+      <p class="file">x64-portable.zip</p>
+    </a>
+    <a class="tile" href="https://github.com/Harusame64/pictkura/releases/latest">
+      <h3>macOS</h3>
+      <p>Apple Silicon 向け。初回だけ Gatekeeper の手順が要ります。</p>
+      <p class="file">arm64.zip</p>
+    </a>
+  </div>
+  <div class="note warn" style="margin-top:28px">
+    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> 壊れているわけでも、何かに感染しているわけでもありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に全部書いてあります。</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot-cols">
+    <div>
+      <div class="brand">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+        <span class="disp" style="font-size:16px">pictkura</span>
+      </div>
+      <p class="about" style="margin:0">写真を取り込んで、並べて、探して、見る。それだけの画像管理アプリです。</p>
+    </div>
+    <div>
+      <p class="eyebrow" style="margin:0 0 6px">製品</p>
+      <a href="#speed">特長</a>
+      <a href="spec.html">アプリ仕様</a>
+      <a href="spec.html#formats">対応形式</a>
+      <a href="install.html">インストール</a>
+      <a href="#download">ダウンロード</a>
+    </div>
+    <div>
+      <p class="eyebrow" style="margin:0 0 6px">資料</p>
+      <a href="../manual.html">マニュアル</a>
+      <a href="https://github.com/Harusame64/pictkura/releases">リリースノート</a>
+      <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+      <a href="https://github.com/Harusame64/pictkura/issues">不具合の報告</a>
+    </div>
+    <div>
+      <p class="eyebrow" style="margin:0 0 6px">この配布物について</p>
+      <a href="privacy.html">プライバシーポリシー</a>
+      <a href="terms.html">利用条件・免責</a>
+      <a href="https://github.com/Harusame64/pictkura/blob/main/LICENSE">ライセンス（MIT）</a>
+      <a href="https://github.com/Harusame64/pictkura/blob/main/THIRD-PARTY-LICENSES.txt">第三者ソフトウェア</a>
+    </div>
+  </div>
+  <div class="foot-end">
+    <span>© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+    <span>日本語 &nbsp;/&nbsp; <a href="../en/" hreflang="en">English</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

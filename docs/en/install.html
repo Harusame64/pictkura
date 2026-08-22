@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installing pictkura — SmartScreen, UAC and Gatekeeper, step by step</title>
+<meta name="description" content="How to install pictkura on Windows and macOS. The app is not code-signed, so this page walks through the SmartScreen 'Windows protected your PC' prompt, UAC, and the macOS Gatekeeper block, screen by screen.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/en/install.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/install.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/install.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Installing pictkura — SmartScreen, UAC and Gatekeeper">
+<meta property="og:description" content="The app is not code-signed. Every prompt you will see, and what to press.">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/en/install.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body lang="en">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" aria-label="Site">
+    <a href="./#speed" class="hide-sm">Features</a>
+    <a href="install.html" aria-current="page">Install</a>
+    <a href="spec.html">Specification</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang"><a href="../ja/install.html" hreflang="ja">JA</a> / EN</span>
+  </nav>
+</header>
+
+<div class="page-head">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Installing</p>
+  <h1 class="disp">Installing and the first launch</h1>
+  <p class="lead">pictkura has no signing certificate, so Windows and macOS both warn you the first time. Nothing is broken and nothing is infected. Here is every prompt you will see, and what to press.</p>
+  <p class="stamps">
+    <span>Version &nbsp;<b>0.2.0</b></span>
+    <span>Updated &nbsp;<b>2026-08-22</b></span>
+  </p>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="On this page">
+    <p class="eyebrow" style="margin:0 0 8px">Contents</p>
+    <a href="#files">1. Which file to take</a>
+    <a href="#windows">2. Installing on Windows</a>
+    <a href="#warn-setup" class="sub">2.1 The setup.exe prompt</a>
+    <a href="#warn-msi" class="sub">2.2 The MSI prompts</a>
+    <a href="#warn-zip" class="sub">2.3 The portable ZIP</a>
+    <a href="#sac" class="sub">2.4 Smart App Control</a>
+    <a href="#macos">3. Opening it on macOS</a>
+    <a href="#uninstall">4. Uninstalling</a>
+    <span class="hr"></span>
+    <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="https://github.com/Harusame64/pictkura/releases/latest">Get the latest build →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="files">
+      <h2 class="disp"><span class="num">1</span>Which file to take</h2>
+      <p>Everything is on <a href="https://github.com/Harusame64/pictkura/releases">the Releases page</a>. Usually you want <strong class="em"><code>-setup.exe</code> on Windows and <code>arm64.zip</code> on a Mac</strong>.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:230px">Platform</th><th style="width:250px">File</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Windows 10/11 (x64)<br><span class="badge">Recommended</span></td><td><code>pictkura_&lt;version&gt;_x64-setup.exe</code></td><td><strong class="em">No administrator rights needed.</strong> Installs for your user only (<code>%LOCALAPPDATA%\pictkura</code>). Pick Japanese or English at the start</td></tr>
+            <tr><td class="k">Windows, machine-wide<br>(for administrators)</td><td><code>pictkura_&lt;version&gt;_x64_&lt;lang&gt;.msi</code></td><td>For installing per-machine. <strong class="em">Asks for administrator rights.</strong> Japanese and English installers are separate files</td></tr>
+            <tr><td class="k">Windows, no installer</td><td><code>pictkura_&lt;version&gt;_x64-portable.zip</code></td><td>Unzip and run <code>pictkura.exe</code></td></tr>
+            <tr><td class="k">macOS 11+<br>(Apple Silicon)</td><td><code>pictkura_&lt;version&gt;_arm64.zip</code></td><td>Unzip and move <code>pictkura.app</code> wherever you like. <strong class="em">Read <a href="#macos">section 3</a> before the first launch</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">There is no Intel (x86_64) build, and no Linux build. Windows also needs the <strong class="em">WebView2 runtime</strong>, which is already present on Windows 11 and on up-to-date Windows 10; where it is missing, the installer fetches it.</p>
+    </section>
+
+    <section id="windows">
+      <h2 class="disp"><span class="num">2</span>Installing on Windows</h2>
+      <p>pictkura is <strong class="em">not code-signed on Windows</strong> — a signing certificate costs money. Nothing is broken, but you will see the warnings below; just proceed and the app works normally. <strong class="em">SmartScreen can appear for each version you download.</strong></p>
+
+      <h3 id="warn-setup">2.1 &nbsp;Installing <code>-setup.exe</code> (recommended)</h3>
+      <p>You only get <strong class="em">SmartScreen</strong>: <b>"Windows protected your PC" → More info → Run anyway</b>. <strong class="em">There is no UAC prompt</strong>, because it installs into your own user profile rather than the whole machine.</p>
+      <p><strong class="em">Two exceptions</strong>, both where it does something machine-wide on your behalf:</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">When</th><th>What happens</th></tr></thead>
+          <tbody>
+            <tr><td class="k">An older MSI install is present</td><td><code>-setup.exe</code> removes it before installing, and <strong class="em">that one step does prompt for UAC</strong>. It will not prompt on later installs</td></tr>
+            <tr><td class="k">WebView2 is missing</td><td>The installer fetches and installs it. WebView2 is machine-wide, so that prompts for UAC too</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn" style="margin-top:26px">
+        <p><strong class="em">Take care on a shared PC.</strong> The MSI is installed for everyone, so switching <strong class="em">removes pictkura for the other users</strong> — <code>-setup.exe</code> installs only for you. Each person should run <code>-setup.exe</code> themselves.</p>
+        <p>Also, if another user had launched pictkura at least once, <strong class="em">their AutoPlay entry stays behind</strong>. They can reinstall and turn off "When a USB drive or SD card is inserted" in Settings, or pick a new AutoPlay default in Windows Settings.</p>
+        <p>The other direction (installing the MSI while <code>-setup.exe</code> is installed) is not handled, so uninstall from Settings → Apps first in that case.</p>
+      </div>
+
+      <h3 id="warn-msi">2.2 &nbsp;Installing the MSI (this one also prompts for UAC)</h3>
+      <p><b>1. SmartScreen</b> — when you open the downloaded MSI, not at download time. You may see "Windows protected your PC." Click <b>More info</b>, then the <b>Run anyway</b> button that appears. SmartScreen judges <strong class="em">each downloaded file</strong>, so clearing one MSI does not cover the next release, and the same file can prompt again on another PC. Within one PC and one file, it usually stops asking after you have run it once.</p>
+      <p><b>2. User Account Control (UAC)</b> — next, Windows asks whether to allow <strong class="em">an app from an unknown publisher</strong> to make changes, and shows <b>Publisher: Unknown</b> (because it is not signed). Click <b>Yes</b>. This prompt appears <strong class="em">every time you install</strong>.</p>
+
+      <h3 id="warn-zip">2.3 &nbsp;The portable ZIP</h3>
+      <p>No install is needed, but the <strong class="em">first time you run</strong> the extracted <code>pictkura.exe</code>, the same SmartScreen prompt may appear. Click <b>More info</b> → <b>Run anyway</b>.</p>
+
+      <h3 id="sac">2.4 &nbsp;Smart App Control (all of them)</h3>
+      <p>If <strong class="em">Smart App Control</strong> is on — it can be, on a clean install of Windows 11 — it may block an unsigned app <strong class="em">outright</strong>, with no "Run anyway" to click. This applies to <strong class="em">every</strong> download here, since it judges the code, not how it reached you.</p>
+      <p>There is no way around it from the app's side: you would need a PC without SAC, or a signed build. Switching SAC off does lift the block, but it is <strong class="em">one-way</strong> — Windows cannot turn it back on without a reinstall — so we do not suggest it just to run this app.</p>
+      <div class="note" style="margin-top:26px">
+        <p>Authenticode signing would reliably replace "Publisher: Unknown" with the publisher name, and makes SmartScreen fire less often — but it does <strong class="em">not</strong> categorically remove it: a newly signed binary that has not built up reputation can still be flagged. The certificate is paid, so it is deferred.</p>
+      </div>
+    </section>
+
+    <section id="macos">
+      <h2 class="disp"><span class="num">3</span>Opening it on macOS</h2>
+      <p>The macOS build is <strong class="em">not signed with an Apple Developer ID</strong>, so Gatekeeper stops the first launch. The app is neither damaged nor infected.</p>
+      <p><strong class="em">First, move <code>pictkura.app</code> to wherever you want to keep it</strong> (<code>/Applications</code>, say). This is not just tidiness: launched from where it was unzipped, macOS copies the app into a read-only temporary location and runs it from there (App Translocation).</p>
+
+      <h3>macOS 15 (Sequoia) and later</h3>
+      <p>Double-clicking shows a dialog saying macOS <em>"could not verify pictkura is free of malware,"</em> offering only <b>Move to Trash</b> and <b>Done</b>. Nothing there lets you continue, so:</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:60px">Step</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono">1</td><td>Click <b>Done</b></td></tr>
+            <tr><td class="k mono">2</td><td>Open <b>System Settings → Privacy &amp; Security</b> and <strong class="em">scroll to the bottom</strong></td></tr>
+            <tr><td class="k mono">3</td><td>Find the line saying <code>pictkura</code> was blocked, and click <b>Open Anyway</b></td></tr>
+            <tr><td class="k mono">4</td><td>Authenticate when asked. The app starts</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">That line only appears <strong class="em">after</strong> a blocked double-click, so keep the order.</p>
+
+      <h3>macOS 11 to 14</h3>
+      <p><strong class="em">Right-click</strong> (or control-click) <code>pictkura.app</code> → <b>Open</b> → <b>Open</b> in the dialog.</p>
+      <div class="note">
+        <p><strong class="em">macOS 15 removed this bypass.</strong> Conversely, the System Settings steps above do not apply to macOS 11–12, where that pane goes by a different name. Follow the section matching your version.</p>
+      </div>
+
+      <h3>Any version (Terminal)</h3>
+      <p><code>xattr -dr com.apple.quarantine /path/to/pictkura.app</code></p>
+      <p>Only the first launch needs this; afterwards it opens by double-clicking. The same block happens whether the app ships as a <code>.zip</code> or a <code>.dmg</code> — the archive format has nothing to do with it.</p>
+    </section>
+
+    <section id="uninstall">
+      <h2 class="disp"><span class="num">4</span>Uninstalling</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:230px">How it was installed</th><th>How to remove it</th></tr></thead>
+          <tbody>
+            <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows Settings → Apps. The AutoPlay entry is removed too, but <strong class="em">only for the user doing the uninstall</strong> — that setting is per-user</td></tr>
+            <tr><td class="k">Portable ZIP</td><td>Delete the folder. <strong class="em">Run <code>pictkura.exe --unregister-autoplay</code> first</strong>, so no AutoPlay entry is left behind</td></tr>
+            <tr><td class="k">macOS</td><td>Drag <code>pictkura.app</code> to the Trash</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">Settings and the index remain. Their locations are listed under <a href="spec.html#storage">Where data lives</a>. <strong class="em">Your photos are never touched.</strong></p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">Home</a>
+    <a href="spec.html">Specification</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="terms.html">Terms &amp; disclaimer</a>
+  </span>
+</footer>
+
+</body>
+</html>

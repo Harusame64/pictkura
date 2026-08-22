@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>インストールと初回起動 — SmartScreen / UAC / Gatekeeper の進み方 | pictkura</title>
+<meta name="description" content="pictkura のインストール手順。Windows の SmartScreen「WindowsによってPCが保護されました」や UAC、macOS の Gatekeeper「開いていません」の画面を、どう進めればよいかを画面ごとに説明します。">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/ja/install.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/install.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/install.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="インストールと初回起動 | pictkura">
+<meta property="og:description" content="Windows の SmartScreen・UAC、macOS の Gatekeeper。署名していないアプリの初回起動を、画面ごとに説明します。">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/ja/install.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body lang="ja">
+
+<a class="skip" href="#main">本文へ移動</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" aria-label="サイト内">
+    <a href="./#speed" class="hide-sm">特長</a>
+    <a href="install.html" aria-current="page">インストール</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang">JA / <a href="../en/install.html" hreflang="en">EN</a></span>
+  </nav>
+</header>
+
+<div class="page-head">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; インストールと初回起動</p>
+  <h1 class="disp">インストールと初回起動</h1>
+  <p class="lead">pictkura は署名証明書を持っていないため、Windows でも macOS でも初回に警告が出ます。壊れているわけでも、何かに感染しているわけでもありません。どの画面で何を押せばよいのかを、隠さず全部書きます。</p>
+  <p class="stamps">
+    <span>バージョン &nbsp;<b>0.2.0</b></span>
+    <span>最終更新 &nbsp;<b>2026-08-22</b></span>
+  </p>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="このページの目次">
+    <p class="eyebrow" style="margin:0 0 8px">目次</p>
+    <a href="#files">1. どれを入手するか</a>
+    <a href="#windows">2. Windows で入れる</a>
+    <a href="#warn-setup" class="sub">2.1 setup.exe の警告</a>
+    <a href="#warn-msi" class="sub">2.2 MSI の警告</a>
+    <a href="#warn-zip" class="sub">2.3 持ち歩き版の警告</a>
+    <a href="#sac" class="sub">2.4 スマートアプリコントロール</a>
+    <a href="#macos">3. macOS で開く</a>
+    <a href="#uninstall">4. アンインストール</a>
+    <span class="hr"></span>
+    <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="https://github.com/Harusame64/pictkura/releases/latest">最新版を入手する →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="files">
+      <h2 class="disp"><span class="num">1</span>どれを入手するか</h2>
+      <p>ファイルは <a href="https://github.com/Harusame64/pictkura/releases">GitHub の Releases</a> に置いてあります。ふつうは <strong class="em">Windows なら <code>-setup.exe</code>、Mac なら <code>arm64.zip</code></strong> です。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:230px">対象</th><th style="width:240px">ファイル</th><th>備考</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Windows 10/11（x64）<br><span class="badge">おすすめ</span></td><td><code>pictkura_&lt;版&gt;_x64-setup.exe</code></td><td><strong class="em">管理者権限は不要です。</strong>自分のユーザーにだけ入ります（<code>%LOCALAPPDATA%\pictkura</code>）。最初に日本語か英語を選べます</td></tr>
+            <tr><td class="k">Windows・PC 全体へ<br>（管理者向け）</td><td><code>pictkura_&lt;版&gt;_x64_&lt;言語&gt;.msi</code></td><td>PC 全体にインストールする場合。<strong class="em">管理者権限を求められます。</strong>日本語版と英語版は別のファイルです</td></tr>
+            <tr><td class="k">Windows・インストール不要</td><td><code>pictkura_&lt;版&gt;_x64-portable.zip</code></td><td>展開して <code>pictkura.exe</code> を実行するだけ</td></tr>
+            <tr><td class="k">macOS 11 以降<br>（Apple Silicon）</td><td><code>pictkura_&lt;版&gt;_arm64.zip</code></td><td>展開して <code>pictkura.app</code> を好きな場所へ。<strong class="em">初回起動の前に <a href="#macos">3. macOS で開く</a>を読んでください</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">Intel（x86_64）版と Linux 版はありません。Windows では <strong class="em">WebView2 ランタイム</strong>も必要ですが、Windows 11 と更新済みの Windows 10 には最初から入っています。入っていない PC では、インストーラが取得しに行きます。</p>
+    </section>
+
+    <section id="windows">
+      <h2 class="disp"><span class="num">2</span>Windows で入れる</h2>
+      <p>pictkura は <strong class="em">Windows のコード署名を受けていません</strong>（証明書が有料のためです）。そのため下のような警告が出ます。進めれば問題なく使えます。SmartScreen の警告は、<strong class="em">新しいバージョンをダウンロードするたび</strong>にまた出ることがあります。</p>
+
+      <h3 id="warn-setup">2.1 &nbsp;<code>-setup.exe</code>（おすすめ）のとき</h3>
+      <p>出るのは <strong class="em">SmartScreen だけ</strong>です。<b>「WindowsによってPCが保護されました」→「詳細情報」→「実行」</b>と進みます。<strong class="em">UAC は出ません</strong>——PC 全体ではなく自分のユーザーにだけインストールするので、管理者の許可が要らないためです。</p>
+      <p>ただし <strong class="em">例外が 2 つ</strong>あります。どちらも「PC 全体に関わる作業を代行する」ときです。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">とき</th><th>起きること</th></tr></thead>
+          <tbody>
+            <tr><td class="k">以前の MSI 版が入っている</td><td><code>-setup.exe</code> はそれを先に削除してからインストールします。<strong class="em">その 1 回だけ UAC が出ます</strong>（次回からは出ません）</td></tr>
+            <tr><td class="k">WebView2 が入っていない</td><td>インストーラが WebView2 を取得して入れようとします。WebView2 は PC 全体に入るものなので、ここでも UAC が出ます</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn" style="margin-top:26px">
+        <p><strong class="em">1 台を複数人で使っている場合は注意してください。</strong> MSI 版は PC 全体（<code>Program Files</code>）に入っているため、削除した時点で<strong class="em">ほかの利用者も pictkura を使えなくなります</strong>。<code>-setup.exe</code> が入れる先は実行した利用者のプロファイル内で、ほかの利用者には引き継がれません。使う人それぞれが <code>-setup.exe</code> を実行してください。</p>
+        <p>また、ほかの利用者が一度でも起動していた場合、<strong class="em">その人の環境には自動再生の候補だけが残ります</strong>。入れ直して設定の「USB や SD カードを挿したとき」をオフにしてもらうか、Windows の設定で自動再生の既定を選び直してもらってください。</p>
+        <p>逆向き（<code>-setup.exe</code> を入れた状態で MSI を入れる）には対応していないので、先に「設定 → アプリ」からアンインストールしてください。</p>
+      </div>
+
+      <h3 id="warn-msi">2.2 &nbsp;MSI のとき（UAC も出ます）</h3>
+      <p><b>1. SmartScreen</b> — ダウンロードした MSI を<strong class="em">開いたとき</strong>に出ます（ダウンロードした時点では出ません）。「WindowsによってPCが保護されました」と表示されたら「詳細情報」を押し、現れた「実行」で進みます。SmartScreen は<strong class="em">ダウンロードしたファイルごと</strong>に判断するので、一度通しても次のバージョンではまた出ますし、同じファイルでも別の PC では出ます。同じ PC の同じファイルなら、たいてい次からは出ません。</p>
+      <p><b>2. ユーザーアカウント制御（UAC）</b> — 続けて「この<strong class="em">不明な発行元</strong>からのアプリがデバイスに変更を加えることを許可しますか?」と聞かれ、発行元が「不明」と出ます（署名が無いため）。「はい」で進みます。この確認は<strong class="em">インストールのたび</strong>に出ます。</p>
+
+      <h3 id="warn-zip">2.3 &nbsp;持ち歩き版（ZIP）のとき</h3>
+      <p>インストールは不要ですが、展開した <code>pictkura.exe</code> を<strong class="em">初めて実行するとき</strong>に、同じ SmartScreen が出ることがあります。「詳細情報」→「実行」で進みます。</p>
+
+      <h3 id="sac">2.4 &nbsp;スマートアプリコントロール（共通）</h3>
+      <p><strong class="em">スマートアプリコントロール</strong>が有効な場合（Windows 11 をクリーンインストールすると有効なことがあります）、署名の無いアプリは「実行」ボタンすら出ないまま<strong class="em">拒否される</strong>ことがあります。これは<strong class="em">どの入手方法でも同じ</strong>です——届き方ではなく、コード自体を見るためです。</p>
+      <p>アプリ側で回避する手立てはありません。有効になっていない PC を使うか、署名版を待つことになります。オフにすれば通るようになりますが、<strong class="em">一度オフにすると元に戻せません</strong>（Windows を入れ直すまで再有効化できません）ので、このアプリのためにオフにすることはおすすめしません。</p>
+      <div class="note" style="margin-top:26px">
+        <p>署名（Authenticode）をすれば「発行元: 不明」は発行元名に確実に変わり、SmartScreen も出にくくなります。ただし<strong class="em">必ず消えるわけではありません</strong>——署名したての、まだ評価の溜まっていないファイルは依然として警告されることがあります。証明書が有料のため、今は見送っています。</p>
+      </div>
+    </section>
+
+    <section id="macos">
+      <h2 class="disp"><span class="num">3</span>macOS で開く</h2>
+      <p>macOS 版は <strong class="em">Apple の開発者署名（Developer ID）を受けていません</strong>。そのため初回はダブルクリックしても起動せず、Gatekeeper に止められます。アプリが壊れているわけではありません。</p>
+      <p><strong class="em">まず <code>pictkura.app</code> を「アプリケーション」フォルダなど、置いておきたい場所へ移してください。</strong> これは省略できません。移さずに起動すると、macOS はアプリを読み取り専用の一時領域へコピーして実行します（App Translocation）。</p>
+
+      <h3>macOS 15（Sequoia）以降</h3>
+      <p>ダブルクリックすると「Apple は、"pictkura" にマルウェアが含まれていないことを検証できませんでした」と表示され、［ゴミ箱に入れる］と［完了］しか出ません。先へ進むボタンが無いので、次の順で開きます。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:60px">手順</th><th>やること</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono">1</td><td>［完了］を押す</td></tr>
+            <tr><td class="k mono">2</td><td><b>システム設定 →「プライバシーとセキュリティ」</b>を開き、<strong class="em">下の方までスクロール</strong>する</td></tr>
+            <tr><td class="k mono">3</td><td><code>pictkura</code> がブロックされた旨の行にある<b>「このまま開く」</b>を押す</td></tr>
+            <tr><td class="k mono">4</td><td>パスワードを求められたら入力する。アプリが起動します</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">手順 2 の行は、<strong class="em">一度ダブルクリックして弾かれたあとにしか現れません</strong>。順番どおりに進めてください。</p>
+
+      <h3>macOS 11〜14</h3>
+      <p><code>pictkura.app</code> を<strong class="em">右クリック</strong>（または control ＋ クリック）→「開く」→ 確認で「開く」。</p>
+      <div class="note">
+        <p>この抜け道は <strong class="em">macOS 15 で廃止されました</strong>。逆に、上の「システム設定」の手順は、画面の名前が違う macOS 11〜12 には当てはまりません。お使いのバージョンに合った方を見てください。</p>
+      </div>
+
+      <h3>どのバージョンでも使える方法（ターミナル）</h3>
+      <p><code>xattr -dr com.apple.quarantine /パス/pictkura.app</code></p>
+      <p>手順が要るのは初回だけです。2 回目からは普通にダブルクリックで開きます。なお<strong class="em">この表示は配布形式が <code>.zip</code> でも <code>.dmg</code> でも同じ</strong>で、形式を変えても回避できません。</p>
+    </section>
+
+    <section id="uninstall">
+      <h2 class="disp"><span class="num">4</span>アンインストール</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:230px">入れ方</th><th>消し方</th></tr></thead>
+          <tbody>
+            <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows の「設定 → アプリ」から。自動再生の登録も外れますが、<strong class="em">外れるのはアンインストールした本人のぶんだけ</strong>です（この設定は利用者ごとに持つため）</td></tr>
+            <tr><td class="k">持ち歩き版</td><td>フォルダを消すだけです。<strong class="em">消す前に <code>pictkura.exe --unregister-autoplay</code> を実行してください</strong>——自動再生の候補が残らないようにするためです</td></tr>
+            <tr><td class="k">macOS</td><td><code>pictkura.app</code> をゴミ箱へ</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">設定と索引は残ります。完全に消したい場合の場所は<a href="spec.html#storage">アプリ仕様の「データの置き場所」</a>にあります。<strong class="em">写真そのものには一切触りません。</strong></p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">紹介</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="privacy.html">プライバシーポリシー</a>
+    <a href="terms.html">利用条件・免責</a>
+  </span>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>アプリ仕様 — できること・できないこと・対応形式 | pictkura</title>
+<meta name="description" content="pictkura のアプリ仕様。動作環境、できること、できないこと、対応しているファイル形式（写真・RAW・動画）、通信の有無、設定とデータの置き場所を一覧にしています。">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/ja/spec.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/spec.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/spec.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="アプリ仕様 — できること・できないこと・対応形式 | pictkura">
+<meta property="og:description" content="動作環境、できること、できないこと、対応しているファイル形式、通信の有無、データの置き場所。">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/ja/spec.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body lang="ja">
+
+<a class="skip" href="#main">本文へ移動</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" aria-label="サイト内">
+    <a href="./#speed" class="hide-sm">特長</a>
+    <a href="install.html" class="hide-sm">インストール</a>
+    <a href="spec.html" aria-current="page">アプリ仕様</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang">JA / <a href="../en/spec.html" hreflang="en">EN</a></span>
+  </nav>
+</header>
+
+<div class="page-head">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; アプリ仕様</p>
+  <h1 class="disp">アプリ仕様</h1>
+  <p class="lead">できること、できないこと、対応しているファイル形式、動作環境、データの置き場所。導入を検討するときに要る事実だけを、実際に確かめた範囲で書いています。</p>
+  <p class="stamps">
+    <span>バージョン &nbsp;<b>0.2.0</b></span>
+    <span>最終更新 &nbsp;<b>2026-08-22</b></span>
+    <span>ライセンス &nbsp;<b>MIT</b></span>
+  </p>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="このページの目次">
+    <p class="eyebrow" style="margin:0 0 8px">目次</p>
+    <a href="#env">1. 動作環境</a>
+    <a href="#can">2. できること</a>
+    <a href="#cannot">3. できないこと</a>
+    <a href="#formats">4. 対応しているファイル形式</a>
+    <a href="#photos" class="sub">4.1 写真</a>
+    <a href="#raw" class="sub">4.2 RAW</a>
+    <a href="#video" class="sub">4.3 動画</a>
+    <a href="#network">5. 通信とプライバシー</a>
+    <a href="#storage">6. データの置き場所</a>
+    <span class="hr"></span>
+    <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="https://github.com/Harusame64/pictkura/issues">GitHub で報告する →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="env">
+      <h2 class="disp"><span class="num">1</span>動作環境</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:200px">項目</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Windows</td><td>Windows 10 / 11（x64）。<code>WebView2</code> ランタイムが要ります（Windows 11 と更新済みの 10 には既に入っています）</td></tr>
+            <tr><td class="k">macOS</td><td>macOS 11 以降（Apple Silicon）。Intel 版はありません</td></tr>
+            <tr><td class="k">Linux</td><td>ビルドは配っていません（Tauri v2 なので技術的には対象です）</td></tr>
+            <tr><td class="k">追加の部品</td><td>HEIC / HEVC の画素は OS の拡張機能を使います。Windows では「HEIF 画像拡張機能」（無償）と「HEVC ビデオ拡張機能」（有償）</td></tr>
+            <tr><td class="k">言語</td><td>日本語 / 英語。OS の言語に従い、設定で上書きできます</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="can">
+      <h2 class="disp"><span class="num">2</span>できること</h2>
+      <div class="cards c2">
+        <div><h3>USB / SD カードからの取り込み</h3><p>撮影日ごとのフォルダに仕分け。9 つの雛形か、自分で書いた並びで</p></div>
+        <div><h3>フォルダをそのまま登録</h3><p>写真を独自の保管庫へ移し替えません。元の場所のまま並べます</p></div>
+        <div><h3>撮影日ごとの一覧とカレンダー</h3><p>年のスクラバーで数万枚を一息に移動できます</p></div>
+        <div><h3>検索・絞り込み</h3><p>ファイル名・フォルダ・カメラ・撮影年月日・★・⚑。すべて AND です</p></div>
+        <div><h3>ビューアと選別</h3><p>⚑ で抜き、✕ でボツ、★ でお気に入り。撮影情報（絞り・SS・ISO・GPS）も出ます</p></div>
+        <div><h3>まとめて操作</h3><p>選んだぶんを ★ 付け／フォルダへコピー・移動／ごみ箱へ</p></div>
+        <div><h3>スライドショーと動画再生</h3><p>再生できない容器は、既定のプレイヤーへ渡します</p></div>
+        <div><h3>自動再生への登録（Windows）</h3><p>カードを挿したときの候補に出ます。勝手には起動しません</p></div>
+      </div>
+    </section>
+
+    <section id="cannot">
+      <h2 class="disp"><span class="num">3</span>できないこと</h2>
+      <p class="muted" style="font-size:14px">意図して入れていないものと、まだ手が回っていないものを分けて書きます。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">できないこと</th><th>理由・現状</th></tr></thead>
+          <tbody>
+            <tr><td class="k">RAW 現像</td><td>入れていません。カメラが埋め込んだ表示用 JPEG を使います</td></tr>
+            <tr><td class="k">写真の編集・書き出し</td><td>回転も切り抜きもありません。見るための道具です</td></tr>
+            <tr><td class="k">AI による選別・顔認識</td><td>入れていません。選ぶのは撮った本人です</td></tr>
+            <tr><td class="k">タグ・キーワード付け</td><td>ありません。★ と ⚑ の 2 つだけです</td></tr>
+            <tr><td class="k">並び順の変更</td><td>撮影日の新しい順のみ。指定する手段がありません</td></tr>
+            <tr><td class="k">取り込みの中断</td><td>始めたら最後まで走ります</td></tr>
+            <tr><td class="k">動画のサムネイル（macOS / Linux）</td><td>Windows のみ対応。ほかはまだ繋いでいません</td></tr>
+            <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が容器を扱えません。一覧には出ます</td></tr>
+            <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を消すと作り直します</td></tr>
+            <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="formats">
+      <h2 class="disp"><span class="num">4</span>対応しているファイル形式</h2>
+      <p class="legend">
+        <span><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" aria-hidden="true"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg>一覧・拡大とも可</span>
+        <span><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg>制限あり</span>
+        <span><span class="no">—</span> 非対応</span>
+      </p>
+
+      <h3 class="eyebrow" id="photos">4.1 &nbsp;写真</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:80px">拡大</th><th>備考</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono">jpg &nbsp;jpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>縮小しながら復号するので、大きな写真でも重くなりません</td></tr>
+            <tr><td class="k mono">png &nbsp;webp</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td></td></tr>
+            <tr><td class="k mono">avif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>デコーダ（rav1d）を同梱。OS の拡張機能は要りません</td></tr>
+            <tr><td class="k mono">heic &nbsp;heif &nbsp;hif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>iPhone の既定。<strong class="em">画素の復号は OS に任せます</strong></td></tr>
+            <tr><td class="k mono">bmp &nbsp;gif &nbsp;tif &nbsp;tiff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>tiff はブラウザが描けないので JPEG に包み直します</td></tr>
+            <tr><td class="k mono">svg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>原本から描くので、どこまで拡大しても崩れません</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="eyebrow" id="raw" style="margin-top:44px">4.2 &nbsp;RAW &nbsp;— 現像はしません</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:80px">拡大</th><th>備考</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono" style="line-height:2">cr2 cr3 nef nrw arw raf orf rw2 pef srw dng rwl 3fr x3f kdc</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>カメラが埋め込んだ表示用 JPEG を、ほぼ元の大きさで取り出します。Apple ProRAW（DNG）を含みます</td></tr>
+            <tr><td class="k mono" style="line-height:2">crw srf sr2 mrw erf dcr iiq mos raw</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>試したファイルでは 160×120〜640×480 の小さなプレビューしか無く、全画面では甘くなります</td></tr>
+            <tr><td class="k mono">fff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Hasselblad。試した H5D-40 のファイルはプレビューを持たず、枠だけが出ます</td></tr>
+            <tr><td class="k mono">ptx</td><td class="no">?</td><td class="no">?</td><td>Pentax。拡張子は見ますが、実ファイルを入手できず未確認です</td></tr>
+            <tr><td class="k">Blackmagic CinemaDNG</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>プレビューを持ちません</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-08-20 に、16 メーカー 28 個の実ファイル（<a href="https://www.photographyblog.com/">photographyblog.com</a> のサンプルと <a href="https://raw.pixls.us/">raw.pixls.us</a> の CC0 一覧）で確認しました：表示用 JPEG が取り出せること、縦位置が正しく立つこと、撮影日とカメラ名が読めること。</p>
+
+      <h3 class="eyebrow" id="video" style="margin-top:44px">4.3 &nbsp;動画</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:130px">アプリ内再生</th><th>備考</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>コーデックは OS のものを使います（HEVC は上記の拡張機能が要ります）</td></tr>
+            <tr><td class="k mono" style="line-height:2">avi mts m2ts mkv 3gp wmv mpg mpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td class="no" aria-label="非対応">—</td><td>サムネイル・長さ・日付は出ます。再生は既定のプレイヤーが開きます</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から借ります（現在 Windows のみ）。長さ・寸法・撮影日時は容器の見出しから読み、1 画素も復号しません。</p>
+    </section>
+
+    <section id="network">
+      <h2 class="disp"><span class="num">5</span>通信とプライバシー</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">項目</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="k">自分から出す通信</td><td>1 日 1 回の更新確認だけ。送るのは「pictkura のバージョン X が尋ねている」という情報のみです</td></tr>
+            <tr><td class="k">送らないもの</td><td>写真・ファイル名・フォルダの場所・利用状況。<strong class="em">解析や計測の仕組みは入っていません</strong></td></tr>
+            <tr><td class="k">通信を止める</td><td>設定 →「pictkura について」→「起動時に更新を確認する」を切ると、通信は 1 本も出ません</td></tr>
+            <tr><td class="k">クラウドのファイル</td><td>実体が無いファイルを勝手に取りに行きません。実際に見たときだけ取得します</td></tr>
+            <tr><td class="k">削除</td><td>必ずごみ箱を通ります。直接消すことはありません</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px"><a href="privacy.html">プライバシーポリシー</a>にも同じ内容を、文書の形で置いています。</p>
+    </section>
+
+    <section id="storage">
+      <h2 class="disp"><span class="num">6</span>データの置き場所</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">中身</th><th>場所</th></tr></thead>
+          <tbody>
+            <tr><td class="k">設定（Windows）</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
+            <tr><td class="k">設定（macOS）</td><td><code>~/Library/Application Support/dev.harusame.pictkura/</code></td></tr>
+            <tr><td class="k">索引</td><td><code>pictkura.db</code>（同じフォルダ）</td></tr>
+            <tr><td class="k">サムネイル</td><td><code>thumbs\</code>（同じフォルダ）</td></tr>
+            <tr><td class="k">写真そのもの</td><td>触りません。登録したフォルダにあるままです</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">設定ファイルは手で編集できます。画面に出していない細かい設定（走査から除くフォルダのパターン、写真と一緒に運ぶファイルの拡張子など）は、<a href="../manual.html#files">マニュアル</a>に書いてあります。</p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">紹介</a>
+    <a href="install.html">インストール</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="privacy.html">プライバシーポリシー</a>
+    <a href="terms.html">利用条件・免責</a>
+  </span>
+</footer>
+
+</body>
+</html>

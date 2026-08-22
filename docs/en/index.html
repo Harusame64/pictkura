@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pictkura — Tens of thousands. No waiting. A photo manager written in Rust</title>
+<meta name="description" content="A free photo manager for importing from a camera card and browsing tens of thousands of files. Written in Rust with Tauri v2; handles RAW, HEIC, AVIF and video. Windows and macOS, MIT licensed.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/en/">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="pictkura — Tens of thousands. No waiting.">
+<meta property="og:description" content="Importing from a camera card, and browsing what you already have. Those two things only, written in Rust.">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/en/">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "pictkura",
+  "applicationCategory": "MultimediaApplication",
+  "operatingSystem": "Windows 10, Windows 11, macOS 11+",
+  "softwareVersion": "0.2.0",
+  "url": "https://harusame64.github.io/pictkura/en/",
+  "downloadUrl": "https://github.com/Harusame64/pictkura/releases/latest",
+  "license": "https://github.com/Harusame64/pictkura/blob/main/LICENSE",
+  "inLanguage": ["en", "ja"],
+  "description": "A small, fast desktop photo manager: importing from a camera card and browsing tens of thousands of files. Handles RAW, HEIC, AVIF and video, and never downloads cloud-only files on its own.",
+  "author": { "@type": "Person", "name": "Harusame64" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+</head>
+<body lang="en">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <span class="disp">pictkura</span>
+  </div>
+  <nav class="nav" aria-label="Site">
+    <a href="#speed" class="hide-sm">Features</a>
+    <a href="#formats" class="hide-sm">Formats</a>
+    <a href="install.html" class="hide-sm">Install</a>
+    <a href="spec.html" class="hide-xs">Specification</a>
+    <a href="../manual.en.html" class="hide-xs">Manual</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang"><a href="../ja/" hreflang="ja">JA</a> / EN</span>
+    <a href="#download" class="btn btn-sm">Download</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow" style="margin:0">Windows 10 / 11 and macOS 11+ &nbsp;—&nbsp; v0.2.0</p>
+    <h1 class="disp">Tens of thousands.<br>No waiting.</h1>
+    <p>Importing from a camera card, and browsing what you already have. <strong class="em">Those two things only</strong> — written in Rust, with everything we did not build spent on speed instead.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="https://github.com/Harusame64/pictkura/releases/latest">Download — free</a>
+      <a class="btn btn-ghost" href="https://github.com/Harusame64/pictkura">Read the source</a>
+    </div>
+    <p class="hero-meta">Free, MIT licensed &nbsp;/&nbsp; no account &nbsp;/&nbsp; your photos never leave the machine</p>
+  </div>
+  <div class="hero-shot">
+    <div class="frame">
+      <img src="../images/grid.en.jpg" width="1152" height="756" alt="The pictkura library grid, photos laid out by date, with a year scrubber down the right edge" fetchpriority="high" decoding="async">
+    </div>
+    <p class="fig">The library, laid out by date. Drag the bar on the right edge to cross years at once.</p>
+  </div>
+</section>
+
+<section class="metrics" aria-label="Measured numbers">
+  <div>
+    <p class="n">0</p>
+    <p>Directories walked at startup. The NTFS change journal hands over <strong class="em">only what changed</strong> since last time</p>
+  </div>
+  <div>
+    <p class="n">20<span>s</span></p>
+    <p>For 3,166 cloud-only files, measured — and <strong class="em">zero network traffic</strong> while doing it</p>
+  </div>
+  <div>
+    <p class="n">2.5<span>×</span></p>
+    <p>Thumbnails. SIMD scaling, and JPEG <strong class="em">decoded at a reduced scale</strong> rather than in full</p>
+  </div>
+  <div>
+    <p class="n">FTS5</p>
+    <p>Every search is an index seek. CJK is expanded to bigrams, so <strong class="em">substrings match too</strong></p>
+  </div>
+</section>
+
+<figure class="band">
+  <img src="../images/photo/forest-canopy.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
+  <div class="band-text">
+    <p class="disp">A photograph is looked at<br>far longer than it took to make.</p>
+  </div>
+  <span class="by">Photo: Wikimedia Commons, CC0</span>
+</figure>
+
+<section class="section" id="speed">
+  <div class="sec-head">
+    <span class="num mono">01</span>
+    <h2 class="disp">It is fast because of what is missing</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="cards c3">
+    <div>
+      <p class="tag">Rust + Tauri v2</p>
+      <h3>No bundled browser</h3>
+      <p>The window is the OS WebView; the work is native. Nothing ships a runtime with it, so the download and the cold start both stay small.</p>
+    </div>
+    <div>
+      <p class="tag">media://</p>
+      <h3>No base64</h3>
+      <p>Image bytes stream through a custom protocol, never re-encoded into a string a third larger than the file itself.</p>
+    </div>
+    <div>
+      <p class="tag">Virtual scroll</p>
+      <h3>Nothing exists off-screen</h3>
+      <p>Only what you can see is drawn. However many photos the library holds, the number of elements on screen stays the same.</p>
+    </div>
+    <div>
+      <p class="tag">No layout shift</p>
+      <h3>Sized before the pixels arrive</h3>
+      <p>Width and height live in the database, so tiles never jump around while a screenful loads.</p>
+    </div>
+    <div>
+      <p class="tag">Scan &amp; serve</p>
+      <h3>The grid moves while it scans</h3>
+      <p>Directory scans run outside the database lock. Add a folder and the days fill in as they are found.</p>
+    </div>
+    <div>
+      <p class="tag">No hashing</p>
+      <h3>Files are never re-read</h3>
+      <p>Change detection is size and modification time only. Nothing hashes the contents of your photos on every pass.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:0" id="import">
+  <div class="sec-head">
+    <span class="num mono">02</span>
+    <h2 class="disp">Starting at the card slot</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="shots-2">
+    <figure>
+      <img src="../images/import.en.jpg" width="1152" height="756" alt="The import wizard: source tree on the left, the photos it found on the right" loading="lazy" decoding="async">
+      <figcaption class="fig">Pick a source on the left and its photos appear on the right.</figcaption>
+    </figure>
+    <figure>
+      <img src="../images/settings.en.jpg" width="1152" height="756" alt="Settings, choosing the folder pattern imported photos are filed into" loading="lazy" decoding="async">
+      <figcaption class="fig">The resulting folder name is shown as you type the pattern.</figcaption>
+    </figure>
+  </div>
+  <p class="lead" style="margin-bottom:44px">Copy to any folder you like. Files are filed by capture date using one of nine presets, or a pattern you write yourself, such as <code class="mono">{year}/{month}</code> — the resulting folder name is shown as you type.</p>
+  <div class="cards c3">
+    <div>
+      <h3>Sidecars travel with the photo</h3>
+      <p>An <code class="mono">.xmp</code> or <code class="mono">.dop</code> written by a raw developer shares the photo's name, and comes along with it.</p>
+    </div>
+    <div>
+      <h3>"Already imported" cannot drift</h3>
+      <p>Hiding what you already have uses the same check as the importer, so what you see matches what would happen.</p>
+    </div>
+    <div>
+      <h3>Sizes are verified after each copy</h3>
+      <p>Progress, time remaining and the photo currently being copied are all shown while it runs.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section deep" id="cull">
+  <div class="sec-head">
+    <span class="num mono">03</span>
+    <h2 class="disp">Two shelves for choosing</h2>
+    <span class="rule"></span>
+  </div>
+  <figure class="bleed">
+    <img src="../images/viewer.en.jpg" width="1152" height="756" alt="The viewer showing a single photo full screen" loading="lazy" decoding="async">
+    <figcaption class="fig">One photo at a time. The controls fade out when the mouse stops.</figcaption>
+  </figure>
+  <div class="cards c3">
+    <div>
+      <h3><span class="glyph" style="color:var(--pick)" aria-hidden="true">⚑</span><span class="key mono">P</span>One frame out of a burst</h3>
+      <p>⚑ is a separate shelf from ★ favourites, so the leftovers of a culling session never fill up what you love.</p>
+    </div>
+    <div>
+      <h3><span class="glyph" style="color:var(--danger)" aria-hidden="true">✕</span><span class="key mono">X</span>Rejecting deletes nothing yet</h3>
+      <p>Closing the viewer shows you the faces first, then moves them all at once. <strong class="em">Deleting always goes through the recycle bin.</strong></p>
+    </div>
+    <div>
+      <h3><span class="glyph" style="color:var(--fav)" aria-hidden="true">★</span>For photos you will come back to</h3>
+      <p>The search box takes <code class="mono">★</code>, <code class="mono">camera:α7</code> or <code class="mono">2019-08</code> as they are.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="formats">
+  <div class="sec-head">
+    <span class="num mono">04</span>
+    <h2 class="disp">RAW, without developing it</h2>
+    <span class="rule"></span>
+  </div>
+  <p class="lead" style="margin-bottom:48px">pictkura pulls out the display JPEG the camera wrote for its own screen. No demosaicing to pay for, and the colour is <strong class="em">exactly what the camera rendered</strong>. Checked against 28 real files from 16 makers.</p>
+  <div class="tiles">
+    <div class="tile">
+      <p class="eyebrow">Photos</p>
+      <p class="exts">jpg &nbsp;png &nbsp;webp &nbsp;avif<br>heic &nbsp;heif &nbsp;hif &nbsp;tif<br>bmp &nbsp;gif &nbsp;svg</p>
+      <p class="foot-note">The AVIF decoder is bundled. HEIC pixels are decoded by the OS</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">RAW</p>
+      <p class="exts">cr2 &nbsp;cr3 &nbsp;nef &nbsp;arw<br>raf &nbsp;orf &nbsp;rw2 &nbsp;dng<br>pef &nbsp;srw &nbsp;3fr &nbsp;x3f …</p>
+      <p class="foot-note">24 extensions confirmed to give up their preview. Apple ProRAW included</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">Video</p>
+      <p class="exts">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm<br>avi &nbsp;mts &nbsp;m2ts &nbsp;mkv<br>3gp &nbsp;wmv &nbsp;mpg &nbsp;mpeg</p>
+      <p class="foot-note">Duration and dimensions come from the container header — not one pixel is decoded</p>
+    </div>
+  </div>
+  <a class="more" href="spec.html#formats">The full support table (specification) →</a>
+</section>
+
+<section class="section deep" id="privacy">
+  <div class="split aside">
+    <div>
+      <div class="sec-head" style="margin-bottom:28px">
+        <span class="num mono">05</span>
+        <h2 class="disp">One outbound connection</h2>
+      </div>
+      <p style="margin:0;font-size:15.5px;line-height:1.9;color:var(--text-soft)">The only thing pictkura reaches out for is whether a newer version exists. All it sends is the version number — no photos, no file names, no folder paths. Turn it off in settings and the app never touches the network at all.</p>
+    </div>
+    <div class="cards c2">
+      <div>
+        <h3>No account, ever</h3>
+        <p>No sign-up, no login, no expiry date</p>
+      </div>
+      <div>
+        <h3>Cloud files stay in the cloud</h3>
+        <p>OneDrive "online-only" files are fetched only when you actually look at one</p>
+      </div>
+      <div>
+        <h3>Photos stay where they are</h3>
+        <p>Nothing is re-imported into a proprietary catalogue of its own</p>
+      </div>
+      <div>
+        <h3>You can read all of it</h3>
+        <p>The source is public and MIT licensed</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="limits">
+  <div class="sec-head">
+    <span class="num mono off">06</span>
+    <h2 class="disp" style="color:oklch(0.8 0 0)">What it cannot do, up front</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="limits">
+    <div><b>No RAW development.</b> There is no exposure or white balance to adjust</div>
+    <div><b>No AI culling.</b> Nothing judges faces or focus for you</div>
+    <div><b>One sort order.</b> Newest capture date first, always</div>
+    <div><b>Video thumbnails are Windows-only.</b> macOS is not wired up yet</div>
+  </div>
+  <a class="more off" href="spec.html#cannot">The full can / cannot list →</a>
+</section>
+
+<section class="section photo" id="download">
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:48px">
+    <div>
+      <p class="eyebrow" style="margin-bottom:16px">Download — v0.2.0</p>
+      <h2 class="disp" style="font-size:40px">Nothing to sign up for</h2>
+    </div>
+    <p class="mono" style="margin:0;font-size:12px;color:var(--text-faint);line-height:2;text-align:right">Windows 10/11 (x64)<br>macOS 11+ (Apple Silicon)<br><a href="install.html" style="color:var(--text-faint)">An MSI for machine-wide installs →</a></p>
+  </div>
+  <div class="tiles">
+    <a class="tile pick" href="https://github.com/Harusame64/pictkura/releases/latest">
+      <h3 style="display:flex;align-items:baseline;gap:10px">Windows installer <span class="badge">Recommended</span></h3>
+      <p>No administrator rights needed. Installs for your user only.</p>
+      <p class="file">x64-setup.exe</p>
+    </a>
+    <a class="tile" href="https://github.com/Harusame64/pictkura/releases/latest">
+      <h3>Portable ZIP</h3>
+      <p>Unzip and run <code class="mono">pictkura.exe</code>. Nothing is installed.</p>
+      <p class="file">x64-portable.zip</p>
+    </a>
+    <a class="tile" href="https://github.com/Harusame64/pictkura/releases/latest">
+      <h3>macOS</h3>
+      <p>Apple Silicon. The first launch needs a Gatekeeper step.</p>
+      <p class="file">arm64.zip</p>
+    </a>
+  </div>
+  <div class="note warn" style="margin-top:28px">
+    <p><strong class="em">The builds are not code-signed, so Windows and macOS both warn you the first time.</strong> Nothing is broken and nothing is infected — the certificate simply costs money. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="foot-cols">
+    <div>
+      <div class="brand">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+        <span class="disp" style="font-size:16px">pictkura</span>
+      </div>
+      <p class="about" style="margin:0">Import, lay out, search, look. A photo manager that does those and stops.</p>
+    </div>
+    <div>
+      <p class="eyebrow" style="margin:0 0 6px">Product</p>
+      <a href="#speed">Features</a>
+      <a href="spec.html">Specification</a>
+      <a href="spec.html#formats">Formats</a>
+      <a href="install.html">Install</a>
+    </div>
+    <div>
+      <p class="eyebrow" style="margin:0 0 6px">Documentation</p>
+      <a href="../manual.en.html">Manual</a>
+      <a href="https://github.com/Harusame64/pictkura/releases">Release notes</a>
+      <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+      <a href="https://github.com/Harusame64/pictkura/issues">Report a bug</a>
+    </div>
+    <div>
+      <p class="eyebrow" style="margin:0 0 6px">Legal</p>
+      <a href="privacy.html">Privacy policy</a>
+      <a href="terms.html">Terms &amp; disclaimer</a>
+      <a href="https://github.com/Harusame64/pictkura/blob/main/LICENSE">MIT licence</a>
+      <a href="https://github.com/Harusame64/pictkura/blob/main/THIRD-PARTY-LICENSES.txt">Third-party software</a>
+    </div>
+  </div>
+  <div class="foot-end">
+    <span>© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+    <span><a href="../ja/" hreflang="ja">日本語</a> &nbsp;/&nbsp; English</span>
+  </div>
+</footer>
+
+</body>
+</html>
