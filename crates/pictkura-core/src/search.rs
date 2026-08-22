@@ -538,6 +538,22 @@ mod tests {
         assert_eq!(MediaKind::from_path(Path::new("a")), MediaKind::Photo);
     }
 
+    /// 画面が `kind:` を**先頭に置く**理由（`ui/src/api.ts` の `withKind`）。
+    ///
+    /// 打ちかけの引用符（`"holiday` と入れた途中の状態）があると、そのうしろに
+    /// 足した指定は自由語の一部として飲み込まれる。ここを変えるなら、
+    /// 畳み込む側も一緒に見直すこと。
+    #[test]
+    fn 閉じていない引用符はうしろの指定を飲み込む() {
+        let kinds = |s: &str| parse_query(s, MediaFilter::All).kinds;
+        assert_eq!(kinds("\"holiday kind:raw"), None, "うしろだと消える");
+        assert_eq!(
+            kinds("kind:raw \"holiday"),
+            Some(vec![MediaKind::Raw]),
+            "先頭なら引用符より前なので必ず読まれる"
+        );
+    }
+
     #[test]
     fn 種類の指定を読む() {
         let kinds = |s: &str| parse_query(s, MediaFilter::All).kinds;
