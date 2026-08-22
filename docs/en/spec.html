@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Specification — what it does, what it does not, supported formats | pictkura</title>
+<meta name="description" content="The pictkura specification: system requirements, what the app can and cannot do, every supported photo, RAW and video format, what it sends over the network, and where its data lives.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/en/spec.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/spec.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/spec.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Specification — what it does, what it does not | pictkura">
+<meta property="og:description" content="System requirements, capabilities and limits, every supported format, network behaviour and where data lives.">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/en/spec.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body lang="en">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" aria-label="Site">
+    <a href="./#speed" class="hide-sm">Features</a>
+    <a href="install.html" class="hide-sm">Install</a>
+    <a href="spec.html" aria-current="page">Specification</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang"><a href="../ja/spec.html" hreflang="ja">JA</a> / EN</span>
+  </nav>
+</header>
+
+<div class="page-head">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Specification</p>
+  <h1 class="disp">Specification</h1>
+  <p class="lead">What it does, what it does not, the file formats it handles, what it needs to run, and where it keeps its data. Only facts we have actually checked.</p>
+  <p class="stamps">
+    <span>Version &nbsp;<b>0.2.0</b></span>
+    <span>Updated &nbsp;<b>2026-08-22</b></span>
+    <span>Licence &nbsp;<b>MIT</b></span>
+  </p>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="On this page">
+    <p class="eyebrow" style="margin:0 0 8px">Contents</p>
+    <a href="#env">1. Requirements</a>
+    <a href="#can">2. What it does</a>
+    <a href="#cannot">3. What it does not do</a>
+    <a href="#formats">4. Supported formats</a>
+    <a href="#photos" class="sub">4.1 Photos</a>
+    <a href="#raw" class="sub">4.2 RAW</a>
+    <a href="#video" class="sub">4.3 Video</a>
+    <a href="#network">5. Network and privacy</a>
+    <a href="#storage">6. Where data lives</a>
+    <span class="hr"></span>
+    <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="https://github.com/Harusame64/pictkura/issues">Report something →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="env">
+      <h2 class="disp"><span class="num">1</span>Requirements</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:200px">Item</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Windows</td><td>Windows 10 / 11 (x64). Needs the <code>WebView2</code> runtime, already present on Windows 11 and on up-to-date Windows 10</td></tr>
+            <tr><td class="k">macOS</td><td>macOS 11 or later (Apple Silicon). There is no Intel build</td></tr>
+            <tr><td class="k">Linux</td><td>No build is published (Tauri v2 could target it)</td></tr>
+            <tr><td class="k">OS components</td><td>HEIC / HEVC pixels are decoded by the OS. On Windows that means "HEIF Image Extensions" (free) and "HEVC Video Extensions" (paid)</td></tr>
+            <tr><td class="k">Languages</td><td>English and Japanese. Follows the OS language; can be overridden in settings</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="can">
+      <h2 class="disp"><span class="num">2</span>What it does</h2>
+      <div class="cards c2">
+        <div><h3>Import from USB / SD cards</h3><p>Sorted into folders by capture date — nine presets, or a pattern you write</p></div>
+        <div><h3>Add folders as they are</h3><p>Photos are never moved into a catalogue of its own. They stay where you keep them</p></div>
+        <div><h3>Grid by capture date, plus a calendar</h3><p>The year scrubber crosses tens of thousands of photos in one drag</p></div>
+        <div><h3>Search and filter</h3><p>File name, folder, camera, capture date, ★ and ⚑. All conditions are ANDed</p></div>
+        <div><h3>Viewer and culling</h3><p>⚑ to pick, ✕ to reject, ★ to favourite. Capture info (aperture, shutter, ISO, GPS) too</p></div>
+        <div><h3>Bulk actions</h3><p>Star a selection, copy or move it to a folder, or send all of it to the recycle bin</p></div>
+        <div><h3>Slideshow and video playback</h3><p>Containers the engine cannot play are handed to your default player</p></div>
+        <div><h3>AutoPlay entry (Windows)</h3><p>Appears as a choice when a card is inserted. It never launches on its own</p></div>
+      </div>
+    </section>
+
+    <section id="cannot">
+      <h2 class="disp"><span class="num">3</span>What it does not do</h2>
+      <p class="muted" style="font-size:14px">Features omitted by design and features not yet implemented, listed separately.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">Not available</th><th>Why / current state</th></tr></thead>
+          <tbody>
+            <tr><td class="k">RAW development</td><td>Deliberate. The camera's embedded display JPEG is used instead</td></tr>
+            <tr><td class="k">Editing or exporting photos</td><td>No rotation, no cropping. It is a tool for looking</td></tr>
+            <tr><td class="k">AI culling or face detection</td><td>Deliberate. The person who took the photo decides</td></tr>
+            <tr><td class="k">Tags and keywords</td><td>None. There are exactly two marks, ★ and ⚑</td></tr>
+            <tr><td class="k">Changing the sort order</td><td>Newest capture date first, with no way to change it</td></tr>
+            <tr><td class="k">Cancelling an import</td><td>Once started, an import runs to completion</td></tr>
+            <tr><td class="k">Video thumbnails on macOS / Linux</td><td>Windows only; the others are not yet supported</td></tr>
+            <tr><td class="k">Playing <code>.m2ts</code> / <code>.avi</code> in-app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
+            <tr><td class="k">Rebuilding the index from the UI</td><td>Delete <code>pictkura.db</code> in the settings folder and it is rebuilt</td></tr>
+            <tr><td class="k">Right-to-left layout</td><td>Not supported</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="formats">
+      <h2 class="disp"><span class="num">4</span>Supported formats</h2>
+      <p class="legend">
+        <span><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" aria-hidden="true"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg>Grid and full view</span>
+        <span><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg>Limited</span>
+        <span><span class="no">—</span> Not supported</span>
+      </p>
+
+      <h3 class="eyebrow" id="photos">4.1 &nbsp;Photos</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">Extension</th><th style="width:80px">Grid</th><th style="width:80px">View</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono">jpg &nbsp;jpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>Decoded while downscaling, so large photos stay quick</td></tr>
+            <tr><td class="k mono">png &nbsp;webp</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td></td></tr>
+            <tr><td class="k mono">avif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>Decoder bundled (rav1d); no OS extension required</td></tr>
+            <tr><td class="k mono">heic &nbsp;heif &nbsp;hif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>iPhone's default. <strong class="em">Pixels are decoded by the OS</strong></td></tr>
+            <tr><td class="k mono">bmp &nbsp;gif &nbsp;tif &nbsp;tiff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>tiff is re-wrapped as JPEG because browsers cannot draw it</td></tr>
+            <tr><td class="k mono">svg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>Drawn from the original, so it stays sharp at any zoom</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="eyebrow" id="raw" style="margin-top:44px">4.2 &nbsp;RAW &nbsp;— no demosaicing</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">Extension</th><th style="width:80px">Grid</th><th style="width:80px">View</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono" style="line-height:2">cr2 cr3 nef nrw arw raf orf rw2 pef srw dng rwl 3fr x3f kdc</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>The camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (which is DNG)</td></tr>
+            <tr><td class="k mono" style="line-height:2">crw srf sr2 mrw erf dcr iiq mos raw</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="Limited"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so a full-screen view is soft</td></tr>
+            <tr><td class="k mono">fff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="Limited"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="Limited"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Hasselblad. The H5D-40 file we tested carries no preview at all, so only a frame appears</td></tr>
+            <tr><td class="k mono">ptx</td><td class="no">?</td><td class="no">?</td><td>Pentax. Recognised, but we could not obtain a real file to check</td></tr>
+            <tr><td class="k">Blackmagic CinemaDNG</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="Limited"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="Limited"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Contains no preview at all</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Checked on 2026-08-20 against 28 real files from 16 makers (samples from <a href="https://www.photographyblog.com/">photographyblog.com</a> and the CC0 set at <a href="https://raw.pixls.us/">raw.pixls.us</a>): the display JPEG comes out, portrait shots come out upright, and the shot date and camera name are read.</p>
+
+      <h3 class="eyebrow" id="video" style="margin-top:44px">4.3 &nbsp;Video</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:280px">Extension</th><th style="width:80px">Grid</th><th style="width:130px">Plays in app</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k mono">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>Codec support comes from the OS (HEVC needs the extension above)</td></tr>
+            <tr><td class="k mono" style="line-height:2">avi mts m2ts mkv 3gp wmv mpg mpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="Supported"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td class="no" aria-label="Not supported">—</td><td>Thumbnail, duration and date still show; playback opens your default player</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Video thumbnails are borrowed from the OS (Windows only for now). Duration, dimensions and capture time are read from the container header — not a single pixel is decoded.</p>
+    </section>
+
+    <section id="network">
+      <h2 class="disp"><span class="num">5</span>Network and privacy</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">Item</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Outbound connections</td><td>One update check at startup, automatic at most once a day. All it sends is "pictkura version X is asking"</td></tr>
+            <tr><td class="k">Never sent</td><td>Photos, file names, folder paths, usage. <strong class="em">There is no analytics or telemetry of any kind</strong></td></tr>
+            <tr><td class="k">Turning it off</td><td>Settings → About pictkura → "Check for updates at startup". With it off, the app never reaches the network</td></tr>
+            <tr><td class="k">Cloud-only files</td><td>Never fetched on their own. The real file is pulled only when you actually look at that photo</td></tr>
+            <tr><td class="k">Deleting</td><td>Always through the recycle bin. pictkura never removes a file outright</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">The same ground is covered as a formal document in the <a href="privacy.html">privacy policy</a>.</p>
+    </section>
+
+    <section id="storage">
+      <h2 class="disp"><span class="num">6</span>Where data lives</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">What</th><th>Where</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Settings (Windows)</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
+            <tr><td class="k">Settings (macOS)</td><td><code>~/Library/Application Support/dev.harusame.pictkura/</code></td></tr>
+            <tr><td class="k">Index</td><td><code>pictkura.db</code>, in the same folder</td></tr>
+            <tr><td class="k">Thumbnails</td><td><code>thumbs\</code>, in the same folder</td></tr>
+            <tr><td class="k">The photos themselves</td><td>Untouched, in whatever folder you added</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">The settings file can be edited by hand. Options that have no UI — folder patterns to skip while scanning, which sidecar extensions travel with a photo — are documented in the <a href="../manual.en.html#files">manual</a>.</p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">Home</a>
+    <a href="install.html">Install</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="terms.html">Terms &amp; disclaimer</a>
+  </span>
+</footer>
+
+</body>
+</html>

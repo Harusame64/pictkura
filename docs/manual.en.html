@@ -4,85 +4,211 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pictkura Manual</title>
+<meta name="description" content="The pictkura manual: adding folders to the library, importing from a USB or SD card, folder patterns, searching, culling in the viewer, supported formats, and where settings and data live.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/manual.en.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/manual.en.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/manual.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/manual.en.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta name="twitter:card" content="summary_large_image">
+
 <style>
-  /* アプリと同じ Darkroom Neutral の考え方。ダーク既定＋OS追従 */
+  /* アプリと同じ「Darkroom Neutral」。紹介サイト（docs/assets/site.css）と同じ値を使う。
+   *
+   * **このファイルは外部を一切参照しない。** 取扱説明書は配布物に同梱され、
+   * アプリの設定から開かれる。ここで Google Fonts などを読みに行くと、
+   * README の「外に出る通信は更新確認の1本だけ」が崩れる。書体は端末内蔵のものだけ。
+   *
+   * サイト側はダーク固定だが、こちらはアプリの見た目に合わせて **OSのテーマに追従**する。
+   */
   :root {
-    --bg: #fbfbfa; --surface: #ffffff; --surface-2: #f1f0ee;
-    --text: #1b1a18; --text-muted: #6b6863; --border: #e0dedb;
-    --accent: #3b7dd8; --accent-soft: #e8f0fc; --warn-bg: #fff6e5; --warn-line: #e0a94a;
-    --radius: 10px;
+    --bg: oklch(0.985 0 0); --surface: #fff; --surface-2: oklch(0.955 0 0);
+    --text: oklch(0.24 0 0); --text-muted: oklch(0.45 0 0); --text-faint: oklch(0.58 0 0);
+    --line: oklch(0 0 0 / 0.1); --line-strong: oklch(0 0 0 / 0.18);
+    --accent: oklch(0.55 0.17 255); --accent-soft: oklch(0.55 0.17 255 / 0.1);
+    --warn-bg: oklch(0.97 0.03 85); --warn-line: oklch(0.68 0.15 60);
+    --radius: 4px;
+    color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #131312; --surface: #1b1b1a; --surface-2: #232322;
-      --text: #eceae6; --text-muted: #9a968f; --border: #302f2d;
-      --accent: #79aef5; --accent-soft: #1d2938; --warn-bg: #2a2418; --warn-line: #a37c2c;
+      --bg: oklch(0.145 0 0); --surface: oklch(0.19 0 0); --surface-2: oklch(0.235 0 0);
+      --text: oklch(0.95 0 0); --text-muted: oklch(0.7 0 0); --text-faint: oklch(0.55 0 0);
+      --line: oklch(1 0 0 / 0.09); --line-strong: oklch(1 0 0 / 0.16);
+      --accent: oklch(0.78 0.13 255); --accent-soft: oklch(0.72 0.14 255 / 0.16);
+      --warn-bg: oklch(0.21 0.03 70); --warn-line: oklch(0.68 0.15 60);
+      color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #131312; --surface: #1b1b1a; --surface-2: #232322;
-    --text: #eceae6; --text-muted: #9a968f; --border: #302f2d;
-    --accent: #79aef5; --accent-soft: #1d2938; --warn-bg: #2a2418; --warn-line: #a37c2c;
+    --bg: oklch(0.145 0 0); --surface: oklch(0.19 0 0); --surface-2: oklch(0.235 0 0);
+    --text: oklch(0.95 0 0); --text-muted: oklch(0.7 0 0); --text-faint: oklch(0.55 0 0);
+    --line: oklch(1 0 0 / 0.09); --line-strong: oklch(1 0 0 / 0.16);
+    --accent: oklch(0.78 0.13 255); --accent-soft: oklch(0.72 0.14 255 / 0.16);
+    --warn-bg: oklch(0.21 0.03 70); --warn-line: oklch(0.68 0.15 60);
+    color-scheme: dark;
   }
+
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 88px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font-family: system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
-    line-height: 1.75; font-size: 16px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, "Hiragino Sans",
+      "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+    font-size: 15.5px; line-height: 1.95;
+    -webkit-font-smoothing: antialiased; text-wrap: pretty;
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
-  header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
-  h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ── 上のバー（サイトと同じ並び） ── */
+  .site-bar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    height: 60px; padding: 0 24px; border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--bg) 88%, transparent);
+    backdrop-filter: blur(12px);
+  }
+  .site-bar .brand { display: flex; align-items: center; gap: 12px; color: var(--text); }
+  .site-bar .brand strong {
+    font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+  }
+  .site-bar .kind {
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-faint);
+    border-left: 1px solid var(--line-strong); padding-left: 12px;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  .site-bar nav { display: flex; align-items: center; gap: 22px; font-size: 13px; }
+  .site-bar nav a { color: var(--text-muted); }
+
+  /* ── 本文と、左に貼りつく目次 ── */
+  .wrap {
+    display: grid; grid-template-columns: 236px minmax(0, 1fr); column-gap: 56px;
+    max-width: 1160px; margin: 0 auto; padding: 44px 24px 96px; align-items: start;
+  }
+  .wrap > * { grid-column: 2; }
+  .wrap > header, .wrap > footer { grid-column: 1 / -1; }
+  .wrap > nav.toc {
+    grid-column: 1; grid-row: 2 / 999;
+    position: sticky; top: 88px; align-self: start;
+  }
+
+  header { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 36px; }
+  h1 { font-size: 2.2rem; margin: 0 0 10px; letter-spacing: -0.02em; line-height: 1.2; }
   h2 {
-    font-size: 1.35rem; margin: 56px 0 16px; padding-top: 24px;
-    border-top: 1px solid var(--border);
+    font-size: 1.4rem; margin: 64px 0 18px; padding-top: 26px;
+    border-top: 1px solid var(--line); letter-spacing: -0.01em; line-height: 1.3;
   }
-  h3 { font-size: 1.05rem; margin: 32px 0 8px; }
+  h3 { font-size: 1.05rem; margin: 34px 0 10px; }
   p, li { color: var(--text); }
-  .lead { color: var(--text-muted); margin: 0; }
-  a { color: var(--accent); }
+  .lead { color: var(--text-muted); margin: 0; font-size: 1.02rem; }
+
   code {
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-    font-size: 0.9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+    font-size: 0.88em; background: var(--surface-2); padding: 1px 5px; border-radius: 3px;
   }
-  /* 貼って使える設定の例。**本文の幅を崩さず**、長い行は自分だけ横へ流す */
   pre {
-    background: var(--surface-2); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 12px 14px; overflow-x: auto; margin: 16px 0;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; margin: 18px 0;
+    font-size: 0.92rem;
   }
   pre code { background: none; padding: 0; }
-  img { max-width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--border); display: block; }
-  figure { margin: 20px 0; }
-  figcaption { color: var(--text-muted); font-size: 0.85rem; margin-top: 8px; }
-  /* 表は幅の狭い画面で自分だけ横スクロールする（本文は横に伸ばさない） */
-  .table-scroll { overflow-x: auto; margin: 16px 0; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
-  td.center, th.center { text-align: center; }
-  kbd {
-    font-family: inherit; font-size: 0.85em; background: var(--surface-2);
-    border: 1px solid var(--border); border-bottom-width: 2px;
-    border-radius: 5px; padding: 1px 7px; white-space: nowrap;
+
+  img { max-width: 100%; height: auto; border-radius: var(--radius); border: 1px solid var(--line-strong); display: block; }
+  figure { margin: 24px 0; }
+  figcaption {
+    color: var(--text-faint); font-size: 0.8rem; margin-top: 10px; letter-spacing: 0.02em;
   }
+
+  .table-scroll { overflow-x: auto; margin: 18px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th {
+    text-align: left; padding: 0 14px 10px 0; border-bottom: 1px solid var(--line-strong);
+    color: var(--text-faint); font-weight: 500; font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  }
+  td {
+    text-align: left; padding: 12px 14px 12px 0; border-bottom: 1px solid var(--line);
+    vertical-align: top; color: var(--text-muted); line-height: 1.75;
+  }
+  td:first-child { color: var(--text); }
+  td.center, th.center { text-align: center; }
+
+  kbd {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.82em;
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 7px; white-space: nowrap;
+    color: var(--text);
+  }
+
   .note {
-    background: var(--surface); border: 1px solid var(--border);
-    border-left: 3px solid var(--accent); border-radius: var(--radius);
-    padding: 12px 16px; margin: 20px 0;
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 2px solid var(--accent); border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 16px 20px; margin: 24px 0; font-size: 0.95rem;
   }
   .warn { background: var(--warn-bg); border-left-color: var(--warn-line); }
   .note p { margin: 0; }
-  nav.toc {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 16px 20px; margin-bottom: 8px;
+
+  nav.toc { font-size: 0.86rem; line-height: 1.7; }
+  nav.toc ol {
+    margin: 0; padding: 0; list-style: none;
+    counter-reset: toc; border-left: 1px solid var(--line);
   }
-  nav.toc ol { margin: 0; padding-left: 1.3em; }
-  nav.toc a { text-decoration: none; }
-  nav.toc a:hover { text-decoration: underline; }
-  footer { margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.9rem; }
+  nav.toc li { counter-increment: toc; }
+  nav.toc a {
+    display: block; padding: 6px 0 6px 18px; color: var(--text-muted);
+    border-left: 1px solid transparent; margin-left: -1px;
+  }
+  nav.toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.78rem; color: var(--text-faint); margin-right: 10px;
+  }
+  nav.toc a:hover { color: var(--text); border-left-color: var(--accent); text-decoration: none; }
+
+  footer {
+    margin-top: 80px; padding-top: 26px; border-top: 1px solid var(--line);
+    color: var(--text-faint); font-size: 0.86rem; line-height: 1.85;
+  }
+  footer .site-links {
+    display: flex; flex-wrap: wrap; gap: 22px; margin-top: 20px;
+    padding-top: 18px; border-top: 1px solid var(--line); font-size: 0.84rem;
+  }
+
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); column-gap: 0; padding: 32px 20px 72px; }
+    .wrap > *, .wrap > header, .wrap > footer { grid-column: 1; }
+    .wrap > nav.toc {
+      grid-column: 1; grid-row: auto; position: static;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--radius); padding: 14px 18px; margin-bottom: 28px;
+    }
+    .site-bar { padding: 0 20px; gap: 12px; }
+    .site-bar nav { gap: 14px; font-size: 12.5px; }
+    .site-bar .kind { display: none; }
+    h1 { font-size: 1.75rem; }
+    h2 { font-size: 1.25rem; margin-top: 48px; }
+  }
 </style>
 </head>
 <body>
+
+<div class="site-bar">
+  <a class="brand" href="https://harusame64.github.io/pictkura/en/"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg><strong>pictkura</strong><span class="kind">Manual</span></a>
+  <nav>
+    <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
+    <a href="https://harusame64.github.io/pictkura/en/install.html">Install</a>
+    <a href="https://harusame64.github.io/pictkura/en/">Home</a>
+    <a href="manual.html" hreflang="ja">日本語</a>
+  </nav>
+</div>
+
 <div class="wrap">
 
 <header>
@@ -128,7 +254,7 @@ while the scan runs — rows appear as they are ready.
     <strong>The second launch is much faster.</strong>
     pictkura reads the change journal the Windows file system already keeps (the USN journal)
     and only looks at <strong>the files that changed since last time</strong>.
-    The ⚡ readout at the top right shows how much work it managed to skip.
+    The ⚡ readout at the top right shows how much processing it skipped.
   </p>
 </div>
 
@@ -180,7 +306,7 @@ The portable build is just a folder you delete, so run
 
 <p>
 <strong>If this PC already has a default action, inserting a card shows no choices at all.</strong>
-Windows silently performs whatever was decided (for example “Open folder to view files”).
+Windows performs whatever was decided (for example “Open folder to view files”) without asking.
 pictkura is registered as a candidate, but nothing ever asks.
 </p>
 
@@ -338,7 +464,7 @@ they land on the right day.
   <tr><td><code>okinawa</code></td><td>Substring match on file name, folder name and camera name. Languages that are not written with spaces match in the middle too, so 「旅行」 finds 「沖縄旅行」</td></tr>
   <tr><td><code>camera:α7</code></td><td>Narrow by camera (the same as “Cameras &amp; media” in the left pane)</td></tr>
   <tr><td><code>folder:trip</code></td><td>Narrow by folder name</td></tr>
-  <tr><td><code>2019-08</code> <code>2019/8</code> <code>2019-08-11</code></td><td>Narrow by capture date. <strong>A bare <code>2019</code> is treated as text, not a date</strong> — it cannot be told apart from a file name</td></tr>
+  <tr><td><code>2019-08</code> <code>2019/8</code> <code>2019-08-11</code></td><td>Narrow by capture date. <strong>Just typing digits, such as <code>2019</code>, is treated as text, not a date</strong> — it cannot be told apart from a file name</td></tr>
   <tr><td><code>year:2019</code></td><td>Narrow to a single year</td></tr>
   <tr><td><code>★</code></td><td>Favorites only</td></tr>
   <tr><td><code>⚑</code> <code>pick:</code></td><td>Picked photos only (a separate shelf from ★)</td></tr>
@@ -546,7 +672,7 @@ is a marker.
   <li><strong>They do appear in the grid.</strong> Dimensions and capture time come from what the OS already knows, so they sit on the correct date</li>
   <li><strong>The image may not appear.</strong> The real file is fetched only when you actually go and look at it</li>
   <li><strong>Video duration is missing.</strong> It cannot be known without reading the container, and that needs the real file</li>
-  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would pull all of it down, so pictkura explains the situation and steers you to “Open in default app”</li>
+  <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would download the entire file, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
 <h2 id="update">9. Update notices</h2>
@@ -564,7 +690,7 @@ and pressing it opens the download page in your default browser.
     All it sends is “pictkura version X is asking”; it sends
     <strong>no photos, no file names, and no folder paths</strong>.
     All it receives is the name of the latest version. It asks at most once a day,
-    and if it cannot reach the network it gives up quietly.
+    and if it cannot reach the network it fails silently, without showing an error.
   </p>
 </div>
 
@@ -617,6 +743,14 @@ Deleting the database does not delete any photo; it is simply rebuilt.
   software are collected in <code>THIRD-PARTY-LICENSES.txt</code>.<br>
   The photographs shown in the screenshots in this manual are CC0 / public-domain works from
   Wikimedia Commons.
+  <div class="site-links">
+    <a href="https://harusame64.github.io/pictkura/en/">Home</a>
+    <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
+    <a href="https://harusame64.github.io/pictkura/en/install.html">Install</a>
+    <a href="https://harusame64.github.io/pictkura/en/privacy.html">Privacy policy</a>
+    <a href="https://harusame64.github.io/pictkura/en/terms.html">Terms & disclaimer</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+  </div>
 </footer>
 
 </div>

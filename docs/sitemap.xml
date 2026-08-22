@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://harusame64.github.io/pictkura/</loc>
+    <lastmod>2026-08-22</lastmod>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/ja/</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/ja/spec.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/spec.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/spec.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/spec.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/spec.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/spec.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/ja/install.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/install.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/install.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/install.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/install.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/install.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/manual.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/manual.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/manual.en.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/manual.en.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/manual.en.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/manual.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/ja/privacy.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/privacy.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/ja/terms.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/terms.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-08-22</lastmod>
+    <priority>0.4</priority>
+  </url>
+</urlset>
