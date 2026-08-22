@@ -3750,10 +3750,16 @@ mod tests {
         // **種類を選ばなければ従来どおり**（既存の計画を退化させていない）
         let plan = plan_of(&db, &super::all_ids_sql(""));
         assert!(plan.contains("idx_media_day_sort"), "指定なし: {plan}");
+        // **正の形で釘を打つ**。「kindの索引を使っていない」だけだと、
+        // 表スキャン＋並べ直しへ落ちても通ってしまう
         let plan = plan_of(&db, &super::summary_sql(""));
         assert!(
-            !plan.contains("idx_media_kind_day"),
+            plan.contains("idx_media_day_sort"),
             "指定なしのサマリ: {plan}"
+        );
+        assert!(
+            !plan.contains("TEMP B-TREE"),
+            "指定なしのサマリが並べ直しになっている: {plan}"
         );
     }
 
