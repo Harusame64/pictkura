@@ -44,27 +44,41 @@
     if (el) el.textContent = text;
   }
 
-  // どの端末で見ているか。**iPadOS は "Macintosh" を名乗る**ので触れる点の数で分ける。
-  // 分からなければ空を返す＝ボタンは選ぶ頁のままにする
+  // どの端末で見ているか。返すのは "win" / "mac" / "mac?" / "" のどれか。
+  //
+  // **Mac は CPU まで確かめられたときだけ "mac"** にする。配っているのは
+  // Apple Silicon 版だけで、**Intel の Mac では動かない**のに、`navigator.platform`
+  // はどちらも `MacIntel` を名乗るため——確かめずに arm64 へ直結すると、
+  // 押した人に動かないものを渡すことになる（ゲート1の指摘）。CPU を読めるのは
+  // Chromium 系の `getHighEntropyValues` だけなので、Safari など読めないブラウザは
+  // "mac?" ＝ **区画は出すがボタンは選ぶ頁のまま**にしておく。区画の側に
+  // 「Intel の Mac には対応していません」と書いてあるので、そこで気付ける。
+  //
+  // **iPadOS は "Macintosh" を名乗る**ので、触れる点の数で先に分ける。
   function detect() {
     var ua = navigator.userAgent || "";
-    var plat = (navigator.userAgentData && navigator.userAgentData.platform) ||
-               navigator.platform || "";
-    if (/Android|iPhone|iPod|iPad/i.test(ua)) return "";
+    var data = navigator.userAgentData;
+    var plat = (data && data.platform) || navigator.platform || "";
+
+    if (/Android|iPhone|iPod|iPad/i.test(ua)) return Promise.resolve("");
     if (/Mac/i.test(plat) || /Mac OS X/i.test(ua)) {
-      return navigator.maxTouchPoints > 1 ? "" : "mac";
+      if (navigator.maxTouchPoints > 1) return Promise.resolve("");
+      if (!data || !data.getHighEntropyValues) return Promise.resolve("mac?");
+      return data.getHighEntropyValues(["architecture"]).then(function (v) {
+        return v && v.architecture === "arm" ? "mac" : "mac?";
+      }, function () {
+        return "mac?";
+      });
     }
-    if (/Win/i.test(plat) || /Windows/i.test(ua)) return "win";
-    return "";
+    if (/Win/i.test(plat) || /Windows/i.test(ua)) return Promise.resolve("win");
+    return Promise.resolve("");
   }
 
-  var os = detect();
-
   // 端末に合った区画へ差し替える。**JS が無いときは Windows のぶんだけが出る**
-  // （HTML 側で mac の区画に hidden を付けてある）。通信とは関係なく効かせたいので
-  // 取得を待たずにここで済ませる
-  function swap() {
-    if (os !== "mac") return;
+  // （HTML 側で mac の区画に hidden を付けてある）。CPU を読めなかった Mac にも
+  // 出すのは、Windows 版を勧めるよりは正しいため
+  function swap(os) {
+    if (os !== "mac" && os !== "mac?") return;
     var win = document.querySelector('[data-pick="win"]');
     var mac = document.querySelector('[data-pick="mac"]');
     if (win && mac) { win.hidden = true; mac.hidden = false; }
@@ -79,11 +93,11 @@
     return null;
   }
 
-  // 押した時点で実物が落ちるボタン。**端末を判定できて、実物が見つかったときだけ**
-  // 書き換える。それ以外は埋めてある行き先（選ぶ頁）のまま
-  function aim(assets) {
+  // 押した時点で実物が落ちるボタン。**渡すものが確かなときだけ**書き換える
+  // （"mac?" は含めない）。それ以外は埋めてある行き先＝選ぶ頁のまま
+  function aim(assets, os) {
     var cta = document.querySelector("[data-pick-cta]");
-    if (!cta || !os) return;
+    if (!cta || (os !== "win" && os !== "mac")) return;
     var hit = find(assets, cta.getAttribute("data-file-" + os));
     if (!hit) return;
     cta.href = hit.browser_download_url;
@@ -119,11 +133,11 @@
     if (rel.published_at) {
       each("[data-date]", function (el) { el.textContent = rel.published_at.slice(0, 10); });
     }
-
-    aim(assets);
   }
 
-  swap();
+  // 端末の判定は通信と関係ないので、待たずに始めて先に区画を差し替える
+  var seen = detect();
+  seen.then(swap);
 
   fetch(API, { headers: { Accept: "application/vnd.github+json" } })
     .then(function (res) {
@@ -133,11 +147,18 @@
     .then(function (rel) {
       // 配布物の付いていない Release を掴んだら、書き換えずに埋めた版を残す
       if (!rel || !rel.assets || !rel.assets.length) throw new Error("no assets");
-      apply(rel);
+      return rel;
     })
     .catch(function () {
       // 引けなかった（回線、GitHub の回数制限、形の変更）。**埋めた版のまま**にして、
-      // それが最新とは限らないことだけ断る
+      // それが最新とは限らないことだけ断る。**ここで受けるのは取得の失敗だけ**——
+      // 書き換えの側で転んだのを「取れなかった」と読ませないため
       each("[data-stale]", function (el) { el.hidden = false; });
+      return null;
+    })
+    .then(function (rel) {
+      if (!rel) return;
+      apply(rel);
+      return seen.then(function (os) { aim(rel.assets, os); });
     });
 })();
