@@ -47,7 +47,7 @@
 <div class="page-head">
   <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; アプリ仕様</p>
   <h1 class="disp">アプリ仕様</h1>
-  <p class="lead">できること、できないこと、対応しているファイル形式、動作環境、データの置き場所。導入を検討するときに要る事実だけを、実際に確かめた範囲で書いています。</p>
+  <p class="lead">できること、できないこと、対応しているファイル形式、動作環境、データの置き場所。導入を検討する際に必要な事実のみを、実際に確認した範囲で記載しています。</p>
   <p class="stamps">
     <span>バージョン &nbsp;<b>0.2</b></span>
     <span>最終更新 &nbsp;<b>2026-08-22</b></span>
@@ -67,6 +67,11 @@
     <a href="#video" class="sub">4.3 動画</a>
     <a href="#network">5. 通信とプライバシー</a>
     <a href="#storage">6. データの置き場所</a>
+    <a href="#bench">7. 実測値</a>
+    <a href="#bench-display" class="sub">7.1 原寸画像の生成</a>
+    <a href="#bench-index" class="sub">7.2 ライブラリの構築</a>
+    <a href="#bench-search" class="sub">7.3 検索</a>
+    <a href="#bench-bulk" class="sub">7.4 一括操作</a>
     <span class="hr"></span>
     <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="https://github.com/Harusame64/pictkura/issues">GitHub で報告する →</a>
   </nav>
@@ -79,11 +84,11 @@
         <table>
           <thead><tr><th style="width:200px">項目</th><th>内容</th></tr></thead>
           <tbody>
-            <tr><td class="k">Windows</td><td>Windows 10 / 11（x64）。<code>WebView2</code> ランタイムが要ります（Windows 11 と更新済みの 10 には既に入っています）</td></tr>
+            <tr><td class="k">Windows</td><td>Windows 10 / 11（x64）。<code>WebView2</code> ランタイムが必要です（Windows 11 および更新済みの Windows 10 には標準で導入されています）</td></tr>
             <tr><td class="k">macOS</td><td>macOS 11 以降（Apple Silicon）。Intel 版はありません</td></tr>
-            <tr><td class="k">Linux</td><td>ビルドは配っていません（Tauri v2 なので技術的には対象です）</td></tr>
-            <tr><td class="k">追加の部品</td><td>HEIC / HEVC の画素は OS の拡張機能を使います。Windows では「HEIF 画像拡張機能」（無償）と「HEVC ビデオ拡張機能」（有償）</td></tr>
-            <tr><td class="k">言語</td><td>日本語 / 英語。OS の言語に従い、設定で上書きできます</td></tr>
+            <tr><td class="k">Linux</td><td>ビルドを配布していません（Tauri v2 のため、技術的には対象です）</td></tr>
+            <tr><td class="k">追加の部品</td><td>HEIC / HEVC の復号には OS の拡張機能を使用します。Windows では「HEIF 画像拡張機能」（無償）と「HEVC ビデオ拡張機能」（有償）が必要です</td></tr>
+            <tr><td class="k">言語</td><td>日本語 / 英語。OS の言語設定に従います。設定画面で変更できます</td></tr>
           </tbody>
         </table>
       </div>
@@ -92,33 +97,33 @@
     <section id="can">
       <h2 class="disp"><span class="num">2</span>できること</h2>
       <div class="cards c2">
-        <div><h3>USB / SD カードからの取り込み</h3><p>撮影日ごとのフォルダに仕分け。9 つの雛形か、自分で書いた並びで</p></div>
-        <div><h3>フォルダをそのまま登録</h3><p>写真を独自の保管庫へ移し替えません。元の場所のまま並べます</p></div>
-        <div><h3>撮影日ごとの一覧とカレンダー</h3><p>年のスクラバーで数万枚を一息に移動できます</p></div>
-        <div><h3>検索・絞り込み</h3><p>ファイル名・フォルダ・カメラ・撮影年月日・種類（画像 / RAW / 動画）・★・⚑。すべて AND です</p></div>
-        <div><h3>ビューアと選別</h3><p>⚑ で抜き、✕ でボツ、★ でお気に入り。撮影情報（絞り・SS・ISO・GPS）も出ます</p></div>
-        <div><h3>まとめて操作</h3><p>選んだぶんを ★ 付け／フォルダへコピー・移動／ごみ箱へ</p></div>
-        <div><h3>スライドショーと動画再生</h3><p>再生できないコンテナは、既定のプレイヤーへ渡します</p></div>
-        <div><h3>自動再生への登録（Windows）</h3><p>カードを挿したときの候補に出ます。勝手には起動しません</p></div>
+        <div><h3>USB / SD カードからの取り込み</h3><p>撮影日ごとのフォルダに振り分けます。9 種類の定型、または独自に指定した構成を選択できます</p></div>
+        <div><h3>フォルダをそのまま登録</h3><p>写真を独自の保管領域へ移動しません。元の場所のまま一覧に表示します</p></div>
+        <div><h3>撮影日ごとの一覧とカレンダー</h3><p>年のスクラバーにより、数万枚の中を一度に移動できます</p></div>
+        <div><h3>検索・絞り込み</h3><p>ファイル名・フォルダ・カメラ・撮影年月日・種類（画像 / RAW / 動画）・★・⚑。条件はすべて AND で結合します</p></div>
+        <div><h3>ビューアと選別</h3><p>⚑ で選別、✕ で除外、★ でお気に入りを付けます。撮影情報（絞り・シャッター速度・ISO・GPS）も表示します</p></div>
+        <div><h3>まとめて操作</h3><p>選択した写真への ★ の付与、フォルダへのコピー・移動、ごみ箱への移動</p></div>
+        <div><h3>スライドショーと動画再生</h3><p>アプリ内で再生できないコンテナは、既定のプレイヤーで開きます</p></div>
+        <div><h3>自動再生への登録（Windows）</h3><p>カード挿入時の候補に表示されます。自動では起動しません</p></div>
       </div>
     </section>
 
     <section id="cannot">
       <h2 class="disp"><span class="num">3</span>できないこと</h2>
-      <p class="muted" style="font-size:14px">意図して入れていないものと、まだ手が回っていないものを分けて書きます。</p>
+      <p class="muted" style="font-size:14px">意図的に実装していないものと、未実装のものを区別して記載します。</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th style="width:260px">できないこと</th><th>理由・現状</th></tr></thead>
           <tbody>
-            <tr><td class="k">RAW 現像</td><td>入れていません。カメラが埋め込んだ表示用 JPEG を使います</td></tr>
-            <tr><td class="k">写真の編集・書き出し</td><td>回転も切り抜きもありません。見るための道具です</td></tr>
-            <tr><td class="k">AI による選別・顔認識</td><td>入れていません。選ぶのは撮った本人です</td></tr>
-            <tr><td class="k">タグ・キーワード付け</td><td>ありません。★ と ⚑ の 2 つだけです</td></tr>
-            <tr><td class="k">並び順の変更</td><td>撮影日の新しい順のみ。指定する手段がありません</td></tr>
-            <tr><td class="k">取り込みの中断</td><td>始めたら最後まで走ります</td></tr>
+            <tr><td class="k">RAW 現像</td><td>実装していません。カメラが埋め込んだ表示用 JPEG を使用します</td></tr>
+            <tr><td class="k">写真の編集・書き出し</td><td>回転・切り抜きを含め、実装していません。閲覧に限定した設計です</td></tr>
+            <tr><td class="k">AI による選別・顔認識</td><td>実装していません。選別は利用者が行う設計です</td></tr>
+            <tr><td class="k">タグ・キーワード付け</td><td>実装していません。印は ★ と ⚑ の 2 種類のみです</td></tr>
+            <tr><td class="k">並び順の変更</td><td>撮影日の新しい順に固定しており、変更する手段はありません</td></tr>
+            <tr><td class="k">取り込みの中断</td><td>開始後は完了まで中断できません</td></tr>
             <tr><td class="k">動画のサムネイル（macOS / Linux）</td><td>Windows のみ対応。その他は未対応（未実装）です</td></tr>
-            <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView がそのコンテナを扱えません。一覧には出ます</td></tr>
-            <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を消すと作り直します</td></tr>
+            <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が該当するコンテナに対応していません。一覧には表示されます</td></tr>
+            <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を削除すると再作成します</td></tr>
             <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
           </tbody>
         </table>
@@ -138,12 +143,12 @@
         <table>
           <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:80px">拡大</th><th>備考</th></tr></thead>
           <tbody>
-            <tr><td class="k mono">jpg &nbsp;jpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>縮小しながら復号するので、大きな写真でも重くなりません</td></tr>
+            <tr><td class="k mono">jpg &nbsp;jpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>縮小しながら復号するため、大きな写真でも負荷が増えません</td></tr>
             <tr><td class="k mono">png &nbsp;webp</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td></td></tr>
-            <tr><td class="k mono">avif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>デコーダ（rav1d）を同梱。OS の拡張機能は要りません</td></tr>
-            <tr><td class="k mono">heic &nbsp;heif &nbsp;hif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>iPhone の既定。<strong class="em">画素の復号は OS に任せます</strong></td></tr>
-            <tr><td class="k mono">bmp &nbsp;gif &nbsp;tif &nbsp;tiff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>tiff はブラウザが描けないので JPEG に包み直します</td></tr>
-            <tr><td class="k mono">svg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>原本から描くので、どこまで拡大しても崩れません</td></tr>
+            <tr><td class="k mono">avif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>デコーダ（rav1d）を同梱しており、OS の拡張機能は不要です</td></tr>
+            <tr><td class="k mono">heic &nbsp;heif &nbsp;hif</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>iPhone の既定形式です。<strong class="em">画素の復号は OS が行います</strong></td></tr>
+            <tr><td class="k mono">bmp &nbsp;gif &nbsp;tif &nbsp;tiff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>tiff は WebView が描画できないため、JPEG に変換して表示します</td></tr>
+            <tr><td class="k mono">svg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>原本から描画するため、拡大しても劣化しません</td></tr>
           </tbody>
         </table>
       </div>
@@ -153,27 +158,27 @@
         <table>
           <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:80px">拡大</th><th>備考</th></tr></thead>
           <tbody>
-            <tr><td class="k mono" style="line-height:2">cr2 cr3 nef nrw arw raf orf rw2 pef srw dng rwl 3fr x3f kdc</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>カメラが埋め込んだ表示用 JPEG を、ほぼ元の大きさで取り出します。Apple ProRAW（DNG）を含みます</td></tr>
-            <tr><td class="k mono" style="line-height:2">crw srf sr2 mrw erf dcr iiq mos raw</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>試したファイルでは 160×120〜640×480 の小さなプレビューしか無く、全画面では甘くなります</td></tr>
-            <tr><td class="k mono">fff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Hasselblad。試した H5D-40 のファイルはプレビューを持たず、枠だけが出ます</td></tr>
-            <tr><td class="k mono">ptx</td><td class="no">?</td><td class="no">?</td><td>Pentax。拡張子は見ますが、実ファイルを入手できず未確認です</td></tr>
+            <tr><td class="k mono" style="line-height:2">cr2 cr3 nef nrw arw raf orf rw2 pef srw dng rwl 3fr x3f kdc</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>カメラが埋め込んだ表示用 JPEG を、ほぼ原寸で取り出します。Apple ProRAW（DNG）を含みます</td></tr>
+            <tr><td class="k mono" style="line-height:2">crw srf sr2 mrw erf dcr iiq mos raw</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>確認したファイルでは 160×120〜640×480 の小さなプレビューのみで、全画面表示では解像感が低下します</td></tr>
+            <tr><td class="k mono">fff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Hasselblad。確認した H5D-40 のファイルはプレビューを持たないため、枠のみ表示されます</td></tr>
+            <tr><td class="k mono">ptx</td><td class="no">?</td><td class="no">?</td><td>Pentax。拡張子は認識しますが、実ファイルを入手できず未確認です</td></tr>
             <tr><td class="k">Blackmagic CinemaDNG</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>プレビューを持ちません</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-08-20 に、16 メーカー 28 個の実ファイル（<a href="https://www.photographyblog.com/">photographyblog.com</a> のサンプルと <a href="https://raw.pixls.us/">raw.pixls.us</a> の CC0 一覧）で確認しました：表示用 JPEG が取り出せること、縦位置が正しく立つこと、撮影日とカメラ名が読めること。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-08-20 に、16 メーカー 28 点の実ファイル（<a href="https://www.photographyblog.com/">photographyblog.com</a> のサンプルと <a href="https://raw.pixls.us/">raw.pixls.us</a> の CC0 一覧）で次の 3 点を確認しました。表示用 JPEG を取り出せること、縦位置が正しい向きで表示されること、撮影日時とカメラ名を読み取れること。</p>
 
       <h3 class="eyebrow" id="video" style="margin-top:44px">4.3 &nbsp;動画</h3>
       <div class="table-scroll">
         <table>
           <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:130px">アプリ内再生</th><th>備考</th></tr></thead>
           <tbody>
-            <tr><td class="k mono">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>コーデックは OS のものを使います（HEVC は上記の拡張機能が要ります）</td></tr>
-            <tr><td class="k mono" style="line-height:2">avi mts m2ts mkv 3gp wmv mpg mpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td class="no" aria-label="非対応">—</td><td>サムネイル・長さ・日付は出ます。再生は既定のプレイヤーが開きます</td></tr>
+            <tr><td class="k mono">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>コーデックは OS のものを使用します（HEVC は上記の拡張機能が必要です）</td></tr>
+            <tr><td class="k mono" style="line-height:2">avi mts m2ts mkv 3gp wmv mpg mpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td class="no" aria-label="非対応">—</td><td>サムネイル・再生時間・日付は表示します。再生は既定のプレイヤーで行います</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から借ります（現在 Windows のみ）。長さ・寸法・撮影日時はコンテナのヘッダから読み、1 画素も復号しません。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から取得します（現在は Windows のみ）。再生時間・寸法・撮影日時はコンテナのヘッダから読み取り、画素の復号は行いません。</p>
     </section>
 
     <section id="network">
@@ -182,15 +187,15 @@
         <table>
           <thead><tr><th style="width:260px">項目</th><th>内容</th></tr></thead>
           <tbody>
-            <tr><td class="k">自分から出す通信</td><td>起動時の更新確認だけ（自動の確認は 1 日 1 回まで）。送るのは「pictkura のバージョン X が尋ねている」という情報のみです</td></tr>
-            <tr><td class="k">送らないもの</td><td>写真・ファイル名・フォルダの場所・利用状況。<strong class="em">解析や計測の仕組みは入っていません</strong></td></tr>
-            <tr><td class="k">通信を止める</td><td>設定 →「pictkura について」→「起動時に更新を確認する」を切ると、通信は 1 本も出ません</td></tr>
-            <tr><td class="k">クラウドのファイル</td><td>実体が無いファイルを勝手に取りに行きません。実際に見たときだけ取得します</td></tr>
-            <tr><td class="k">削除</td><td>必ずごみ箱を通ります。直接消すことはありません</td></tr>
+            <tr><td class="k">自分から出す通信</td><td>起動時の更新確認のみです（自動確認は 1 日 1 回まで）。送信するのは pictkura のバージョン番号のみです</td></tr>
+            <tr><td class="k">送らないもの</td><td>写真・ファイル名・フォルダの場所・利用状況。<strong class="em">解析および計測の仕組みは実装していません</strong></td></tr>
+            <tr><td class="k">通信を止める</td><td>設定 →「pictkura について」→「起動時に更新を確認する」を無効にすると、通信は発生しません</td></tr>
+            <tr><td class="k">クラウドのファイル</td><td>クラウドにのみ存在するファイルを自動では取得しません。実際に表示した時点で取得します</td></tr>
+            <tr><td class="k">削除</td><td>必ずごみ箱を経由します。直接の削除は行いません</td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px"><a href="privacy.html">プライバシーポリシー</a>にも同じ内容を、文書の形で置いています。</p>
+      <p style="margin-top:20px"><a href="privacy.html">プライバシーポリシー</a>にも同じ内容を文書として掲載しています。</p>
     </section>
 
     <section id="storage">
@@ -203,11 +208,99 @@
             <tr><td class="k">設定（macOS）</td><td><code>~/Library/Application Support/dev.harusame.pictkura/</code></td></tr>
             <tr><td class="k">索引</td><td><code>pictkura.db</code>（同じフォルダ）</td></tr>
             <tr><td class="k">サムネイル</td><td><code>thumbs\</code>（同じフォルダ）</td></tr>
-            <tr><td class="k">写真そのもの</td><td>触りません。登録したフォルダにあるままです</td></tr>
+            <tr><td class="k">写真そのもの</td><td>変更しません。登録したフォルダに保存されたままです</td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px">設定ファイルは手で編集できます。画面に出していない細かい設定（走査から除くフォルダのパターン、写真と一緒に運ぶファイルの拡張子など）は、<a href="../manual.html#files">マニュアル</a>に書いてあります。</p>
+      <p style="margin-top:20px">設定ファイルは直接編集できます。画面に表示していない項目（走査から除外するフォルダのパターン、写真と併せて移動するファイルの拡張子など）は、<a href="../manual.html#files">マニュアル</a>に記載しています。</p>
+    </section>
+
+    <section id="bench">
+      <h2 class="disp"><span class="num">7</span>実測値</h2>
+      <p>以下はすべて下記の環境で計測した値です。所要時間の大きい項目も同じ表に記載しています。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">項目</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td class="k">CPU</td><td>AMD Ryzen 7 5700X（8 コア / 16 スレッド）</td></tr>
+            <tr><td class="k">メモリ</td><td>32GB</td></tr>
+            <tr><td class="k">対象ファイルの所在</td><td>NVMe SSD（KIOXIA EXCERIA G2）</td></tr>
+            <tr><td class="k">OS</td><td>Windows 11 Home</td></tr>
+            <tr><td class="k">計測方法</td><td>release ビルド。他の処理を停止した状態で、OS のファイルキャッシュが有効な 2 回目の値を採用</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="eyebrow" id="bench-display" style="margin-top:44px">7.1 &nbsp;原寸画像の生成</h3>
+      <p>ビューアで開いた際に、pictkura が原寸の画像を用意するまでの時間です。描画はその後に WebView が行います（24MP の JPEG で 130ms、先読み済みの場合は 0.0〜0.5ms）。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">形式</th><th style="width:120px">時間</th><th>中身</th></tr></thead>
+          <tbody>
+            <tr><td class="k">JPEG</td><td>6ms</td><td>再エンコードが不要なため、そのまま送出します</td></tr>
+            <tr><td class="k">RAW・横位置（Canon EOS R8・CR3・24MP）</td><td>17.1ms</td><td>現像は行いません。カメラが埋め込んだ表示用 JPEG を取り出します</td></tr>
+            <tr><td class="k">RAW・縦位置（Nikon Df・NEF・16MP）</td><td><strong class="em">218.5ms</strong></td><td>プレビューを回転させたうえで再エンコードするため、横位置の約 13 倍を要します。画素数は横位置の例より少なく、差の大半は回転と再エンコードによるものです</td></tr>
+            <tr><td class="k">AVIF（4032×3024）</td><td>40〜53ms</td><td>同梱のデコーダ（rav1d）で復号します。縮小と色変換を統合して +1〜2ms</td></tr>
+            <tr><td class="k">TIFF</td><td>約 300ms</td><td>WebView が描画できないため、JPEG に変換して送出します</td></tr>
+            <tr><td class="k">HEIC（iPhone・24.5MP）</td><td><strong class="em">0.6〜1 秒</strong></td><td>本項で最も所要時間が大きい形式です。内訳は下表のとおりです</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">RAW は、横位置に Canon EOS R8 の実ファイル、縦位置に <a href="https://raw.pixls.us/">raw.pixls.us</a> の CC0 サンプル（Nikon Df、4928×3280 のプレビューを 3280×4928 へ回転）を使用しました。縦位置は 2 点で 216.3ms / 220.7ms です。</p>
+      <p style="margin-top:24px">HEIC 1 枚あたりの内訳（20 枚の平均）:</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">段</th><th style="width:120px">時間</th><th>中身</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Windows のデコーダで復号</td><td>522ms</td><td>OS が行う処理のため、短縮できません</td></tr>
+            <tr><td class="k">透過部分を白で塗りつぶす</td><td>10ms</td><td></td></tr>
+            <tr><td class="k">JPEG へ再エンコード</td><td>79ms</td><td>純 Rust の実装では 496ms を要したため、mozjpeg に変更しました</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">再エンコードを 496ms から 79ms に短縮しても、復号が支配的なため 1 枚あたり 1 秒前後のままです。このためビューアでは、<strong class="em">先読みを隣接する 1 枚に限定し</strong>、原寸が到着するまで一覧のサムネイルを下層に表示します。</p>
+
+      <h3 class="eyebrow" id="bench-index" style="margin-top:44px">7.2 &nbsp;ライブラリの構築</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">計測項目</th><th style="width:120px">時間</th><th>中身</th></tr></thead>
+          <tbody>
+            <tr><td class="k">クラウドにのみ存在する写真 3,166 件の索引</td><td>20 秒</td><td><strong class="em">通信は発生しません</strong>。撮影日時と寸法は Windows が保持する情報を使用します</td></tr>
+            <tr><td class="k">JPEG からのサムネイル生成（19MP・40 枚の平均）</td><td>92ms → 40ms</td><td>原寸での復号をやめ、1/8 に間引いて復号する方式へ変更しました</td></tr>
+            <tr><td class="k">RAW からのプレビュー抽出</td><td>100〜350ms</td><td>形式によっては、ファイル全体の読み込みが必要です</td></tr>
+            <tr><td class="k">HEIF の寸法の読み取り</td><td>0.2ms</td><td>ヘッダのみ読み取り、画像の復号は行いません</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="eyebrow" id="bench-search" style="margin-top:44px">7.3 &nbsp;検索（3 万件・うち一致 1.5 万件）</h3>
+      <p>2026-08-17 の計測。2 通りの実装を比較し、左の方式を採用しました。</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">操作</th><th style="width:140px">採用した方式</th><th style="width:140px">採用しなかった方式</th></tr></thead>
+          <tbody>
+            <tr><td class="k">範囲選択（151 枚）</td><td>6.7ms</td><td>636.8ms</td></tr>
+            <tr><td class="k">範囲選択（全域）</td><td>9.2ms</td><td>26.1 秒</td></tr>
+            <tr><td class="k">選択の確認（500 枚）</td><td>8.4ms</td><td>529.1ms</td></tr>
+            <tr><td class="k">選択の確認（1.5 万枚）</td><td>295.5ms</td><td>26.7 秒</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">実行計画のうえでは右の方式が単純ですが、実測では桁違いに遅いため左を採用しました。再度比較できるよう、右の方式もコードに残しています。</p>
+
+      <h3 class="eyebrow" id="bench-bulk" style="margin-top:44px">7.4 &nbsp;一括操作</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">やったこと</th><th style="width:120px">時間</th><th>中身</th></tr></thead>
+          <tbody>
+            <tr><td class="k">500 枚のごみ箱への移動（1 枚 2MB）</td><td><strong class="em">約 4.9 秒</strong></td><td>Windows のごみ箱 API の呼び出しに、1 件あたり中央値 20ms、最大 215ms を要します</td></tr>
+            <tr><td class="k">同じ 500 枚を分割した場合（1 枚 1MB）</td><td>分割なし 3,675ms<br>5 分割 4,848ms<br>10 分割 5,406ms</td><td>分割するほど所要時間は増えますが、実行直後から進捗を表示できます</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">2026-08-19 の計測。事前の見積もりは 2.3 秒でしたが、実機では 4.9 秒を要しました。待機時間としては長いため、分割して進捗を表示しています。分割による増加は全体で約 1 秒であり、最初の分割のみ小さくし、以降を倍増させることで抑えています。25 枚以下は分割しません。</p>
+
+      <p style="margin-top:32px">いずれも開発中に計測した値であり、環境・対象ファイル・バージョンにより変動します。計測に使用したツールはリポジトリに含まれています（<code>cargo run --release --bin bench</code>。配布するアプリには含まれません）。</p>
     </section>
 
   </main>

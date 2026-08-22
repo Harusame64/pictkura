@@ -201,6 +201,11 @@ body[lang="en"] .band p { font-size: 30px; line-height: 1.3; }
 .metrics .n span { font-size: 18px; color: var(--text-muted); }
 .metrics p { margin: 0; font-size: 13.5px; line-height: 1.9; color: var(--text-muted); }
 body[lang="en"] .metrics p { line-height: 1.7; }
+/* 実測値の下に敷く、仕様ページの実測値一覧への一行。4列でも2列でも横いっぱいに伸ばす */
+.metrics .metrics-note {
+  grid-column: 1 / -1; margin: 0; padding: 20px var(--pad) 22px;
+  border-top: 1px solid var(--line); font-size: 13px; line-height: 1.8; color: var(--text-faint);
+}
 
 /* ─── 枠を分け合うカード ─── */
 .cards { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }

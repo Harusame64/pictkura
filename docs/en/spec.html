@@ -67,6 +67,11 @@
     <a href="#video" class="sub">4.3 Video</a>
     <a href="#network">5. Network and privacy</a>
     <a href="#storage">6. Where data lives</a>
+    <a href="#bench">7. Measured numbers</a>
+    <a href="#bench-display" class="sub">7.1 Full-size image</a>
+    <a href="#bench-index" class="sub">7.2 Building the library</a>
+    <a href="#bench-search" class="sub">7.3 Search</a>
+    <a href="#bench-bulk" class="sub">7.4 Bulk operations</a>
     <span class="hr"></span>
     <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="https://github.com/Harusame64/pictkura/issues">Report something →</a>
   </nav>
@@ -208,6 +213,94 @@
         </table>
       </div>
       <p style="margin-top:20px">The settings file can be edited by hand. Options that have no UI — folder patterns to skip while scanning, which sidecar extensions travel with a photo — are documented in the <a href="../manual.en.html#files">manual</a>.</p>
+    </section>
+
+    <section id="bench">
+      <h2 class="disp"><span class="num">7</span>Measured numbers</h2>
+      <p>All figures below were measured on the machine described here. Items that take longer are listed in the same tables.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">Item</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr><td class="k">CPU</td><td>AMD Ryzen 7 5700X (8 cores / 16 threads)</td></tr>
+            <tr><td class="k">Memory</td><td>32GB</td></tr>
+            <tr><td class="k">Location of the files</td><td>NVMe SSD (KIOXIA EXCERIA G2)</td></tr>
+            <tr><td class="k">OS</td><td>Windows 11 Home</td></tr>
+            <tr><td class="k">Method</td><td>Release build. Other processes stopped; the second run is used, with the OS file cache warm</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="eyebrow" id="bench-display" style="margin-top:44px">7.1 &nbsp;Producing the full-size image</h3>
+      <p>The time pictkura takes to produce the full-size image when one is opened in the viewer. The WebView draws it afterwards: a 24MP JPEG takes a further 130ms to decode, or 0.0&ndash;0.5ms when the prefetch already holds it.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">Format</th><th style="width:120px">Time</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">JPEG</td><td>6ms</td><td>No re-encode is required; the bytes are sent as they are</td></tr>
+            <tr><td class="k">RAW, landscape (Canon EOS R8, CR3, 24MP)</td><td>17.1ms</td><td>Not developed. The display JPEG embedded by the camera is extracted</td></tr>
+            <tr><td class="k">RAW, portrait (Nikon Df, NEF, 16MP)</td><td><strong class="em">218.5ms</strong></td><td>The preview is rotated and re-encoded, which takes about 13&times; the landscape case. The file has fewer megapixels than the landscape example, so most of the difference is the rotation and re-encode</td></tr>
+            <tr><td class="k">AVIF (4032&times;3024)</td><td>40&ndash;53ms</td><td>Decoded by the bundled decoder (rav1d). Scaling and colour conversion are combined, +1&ndash;2ms</td></tr>
+            <tr><td class="k">TIFF</td><td>about 300ms</td><td>The WebView cannot draw it, so it is converted to JPEG first</td></tr>
+            <tr><td class="k">HEIC (iPhone, 24.5MP)</td><td><strong class="em">0.6&ndash;1 second</strong></td><td>The slowest format in this table. Broken down below</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">For RAW, the landscape figure comes from a real Canon EOS R8 file and the portrait figure from a CC0 sample on <a href="https://raw.pixls.us/">raw.pixls.us</a> (Nikon Df; a 4928&times;3280 preview rotated to 3280&times;4928). The two portrait files measured 216.3ms and 220.7ms.</p>
+      <p style="margin-top:24px">Where one HEIC goes (average of 20 files):</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">Step</th><th style="width:120px">Time</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Decoded by the Windows decoder</td><td>522ms</td><td>Performed by the OS; it cannot be shortened here</td></tr>
+            <tr><td class="k">Alpha flattened to white</td><td>10ms</td><td></td></tr>
+            <tr><td class="k">Re-encoded as JPEG</td><td>79ms</td><td>The pure-Rust implementation took 496ms, so mozjpeg is used instead</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">Reducing the re-encode from 496ms to 79ms still leaves about a second per file, as the decode dominates. The viewer therefore <strong class="em">limits prefetch to the single adjacent file</strong> and shows the grid thumbnail beneath it until the full-size image arrives.</p>
+
+      <h3 class="eyebrow" id="bench-index" style="margin-top:44px">7.2 &nbsp;Building the library</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">What was measured</th><th style="width:120px">Time</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Indexing 3,166 photos that exist only in the cloud</td><td>20 seconds</td><td><strong class="em">No network traffic at all</strong>. The capture date and dimensions come from what Windows already knows</td></tr>
+            <tr><td class="k">Thumbnail from a JPEG (19MP, average of 40)</td><td>92ms &rarr; 40ms</td><td>Decoding at full size was replaced by decoding at 1/8 scale</td></tr>
+            <tr><td class="k">Pulling the preview out of a RAW file</td><td>100&ndash;350ms</td><td>Some formats require the whole file to be read</td></tr>
+            <tr><td class="k">Reading the dimensions of a HEIF</td><td>0.2ms</td><td>Header only; no image is decoded</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="eyebrow" id="bench-search" style="margin-top:44px">7.3 &nbsp;Search (30,000 rows, 15,000 matching)</h3>
+      <p>Measured 2026-08-17. Two implementations were compared; the left one shipped.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">Operation</th><th style="width:140px">Shipped</th><th style="width:140px">Not shipped</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Select a range (151 files)</td><td>6.7ms</td><td>636.8ms</td></tr>
+            <tr><td class="k">Select a range (everything)</td><td>9.2ms</td><td>26.1 seconds</td></tr>
+            <tr><td class="k">Confirm a selection (500 files)</td><td>8.4ms</td><td>529.1ms</td></tr>
+            <tr><td class="k">Confirm a selection (15,000 files)</td><td>295.5ms</td><td>26.7 seconds</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">On the query plan alone the right-hand form is the simpler of the two, but measurement put it orders of magnitude behind, so the left one shipped. The other form remains in the code so the comparison can be repeated.</p>
+
+      <h3 class="eyebrow" id="bench-bulk" style="margin-top:44px">7.4 &nbsp;Bulk operations</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:260px">What was measured</th><th style="width:120px">Time</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="k">500 photos to the recycle bin (2MB each)</td><td><strong class="em">about 4.9 seconds</strong></td><td>The Windows recycle-bin API costs a median of 20ms per file and 215ms at most</td></tr>
+            <tr><td class="k">The same 500 split into batches (1MB each)</td><td>no split 3,675ms<br>5 batches 4,848ms<br>10 batches 5,406ms</td><td>Splitting increases the total time, but allows progress to be shown from the start</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:20px">Measured 2026-08-19. The estimate beforehand was 2.3 seconds; the real machine took 4.9. That is long enough to warrant feedback, so the work is split into batches and progress is reported. The split adds about a second in total; the first batch is small and each subsequent one doubles, which keeps the overhead at that level. Selections of 25 or fewer are not split.</p>
+
+      <p style="margin-top:32px">These figures were taken during development and vary with the machine, the files and the version. The tool used to produce them is in the repository (<code>cargo run --release --bin bench</code>; it is not part of the app that ships).</p>
     </section>
 
   </main>

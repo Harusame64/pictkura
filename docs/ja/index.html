@@ -37,7 +37,7 @@
   "downloadUrl": "https://harusame64.github.io/pictkura/ja/download.html",
   "license": "https://github.com/Harusame64/pictkura/blob/main/LICENSE",
   "inLanguage": ["ja", "en"],
-  "description": "USB / SDカードからの取り込みと、数万枚の写真の一覧表示に絞った画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドにしか実体が無いファイルを勝手にダウンロードしません。",
+  "description": "USB / SDカードからの取り込みと、数万枚の写真の一覧表示に絞った画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドに置いたままのファイルを勝手にダウンロードしません。",
   "author": { "@type": "Person", "name": "Harusame64" },
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
 }
@@ -98,8 +98,8 @@
     <p>起動のたびにフォルダを端から見て回る回数。Windows が持っている変更の記録を読むので、<strong class="em">前回から変わったぶん</strong>だけで済みます</p>
   </div>
   <div>
-    <p class="n">20<span>秒</span></p>
-    <p>クラウドにしか実体が無い 3,166 枚を読むのにかかった時間。<strong class="em">通信は一度も発生していません</strong>（実測）</p>
+    <p class="n">17<span>ms</span></p>
+    <p>24MP の CR3（RAW データ）から原寸の絵を取り出すまで（横位置・実測）。JPEG をそのまま渡すのが 6ms なので、<strong class="em">RAW でもほぼ変わりません</strong>。現像せず、カメラが埋め込んだ表示用の JPEG を使うからです</p>
   </div>
   <div>
     <p class="n">2.5<span>×</span></p>
@@ -107,8 +107,9 @@
   </div>
   <div>
     <p class="n">FTS5</p>
-    <p>検索はいつも索引を引くだけ。日本語は 2 文字ずつに割ってあるので、<strong class="em">語の途中でも当たります</strong></p>
+    <p>検索はいつも索引を引くだけ。日本語は 2 文字ずつに割ってあるので、<strong class="em">ことばの途中でも当たります</strong></p>
   </div>
+  <p class="metrics-note">測った機械と、ここに載せきれなかった数字（HEIC は 1 枚 0.6〜1 秒かかります）は、<a href="spec.html#bench">アプリ仕様の「実測値」</a>にまとめてあります。</p>
 </section>
 
 <figure class="band">
