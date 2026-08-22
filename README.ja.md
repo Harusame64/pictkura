@@ -9,7 +9,8 @@
 **[紹介ページ](https://harusame64.github.io/pictkura/ja/)** ·
 [アプリ仕様](https://harusame64.github.io/pictkura/ja/spec.html) ·
 [インストール](https://harusame64.github.io/pictkura/ja/install.html) ·
-[取扱説明書](https://harusame64.github.io/pictkura/manual.html)
+[取扱説明書](https://harusame64.github.io/pictkura/manual.html) ·
+[AlternativeTo](https://alternativeto.net/software/pictkura/)
 
 ![一覧](docs/images/grid.jpg)
 

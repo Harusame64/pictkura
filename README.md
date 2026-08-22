@@ -8,7 +8,8 @@ card and browsing what you already have — even when that is tens of thousands 
 **[Website](https://harusame64.github.io/pictkura/en/)** ·
 [Specification](https://harusame64.github.io/pictkura/en/spec.html) ·
 [Installing](https://harusame64.github.io/pictkura/en/install.html) ·
-[Manual](https://harusame64.github.io/pictkura/manual.en.html)
+[Manual](https://harusame64.github.io/pictkura/manual.en.html) ·
+[AlternativeTo](https://alternativeto.net/software/pictkura/)
 
 ![Library](docs/images/grid.en.jpg)
 
