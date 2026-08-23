@@ -176,17 +176,26 @@ body[lang="en"] .hero p { font-size: 17px; line-height: 1.7; }
 }
 .band p { margin: 0; max-width: 620px; font-size: 26px; line-height: 1.75; letter-spacing: -0.01em; }
 body[lang="en"] .band p { font-size: 30px; line-height: 1.3; }
-.band .by {
-  position: absolute; right: var(--pad); bottom: 12px;
+/* 写真の権利表示。帯・見出しの面・節の中の写真で使い回す */
+.by {
+  position: absolute; right: var(--pad); bottom: 12px; z-index: 1;
   font-size: 11px; color: oklch(1 0 0 / 0.42); letter-spacing: 0.02em;
 }
 
-/* 写真を敷いた区画。読ませる面なので、幕は濃いままにする */
+/* 写真を敷いた区画。読ませる面なので、幕は濃いままにする。
+   写真は `--photo`、幕の濃さは `--veil-a`（上）と `--veil-b`（下）で差し替える。
+   幕は写真の明るさに合わせて決めた——暗い写真ほど薄くしないと、ただの黒面になる */
 .section.photo {
+  position: relative;
   background-image:
-    linear-gradient(oklch(0.115 0 0 / 0.86), oklch(0.115 0 0 / 0.78)),
-    url("../images/photo/forest-mist.jpg");
-  background-size: cover; background-position: 50% 40%;
+    linear-gradient(oklch(0.115 0 0 / var(--veil-a, 0.86)), oklch(0.115 0 0 / var(--veil-b, 0.78))),
+    var(--photo, url("../images/photo/forest-mist.jpg"));
+  background-size: cover; background-position: var(--photo-pos, 50% 40%);
+}
+/* 「外に出るのは 1 本だけ」の面。真上から見た森を、1 本だけ通る道ごと敷く */
+.section.photo.aerial {
+  --photo: url("../images/photo/forest-drone.jpg");
+  --photo-pos: 50% 46%; --veil-a: 0.8; --veil-b: 0.72;
 }
 
 /* ─── 数値の帯 ─── */
@@ -213,6 +222,8 @@ body[lang="en"] .metrics p { line-height: 1.7; }
 .cards.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .cards > div { background: var(--bg); padding: 34px 32px 38px; display: flex; flex-direction: column; gap: 12px; }
 .section.deep .cards > div { background: var(--bg-deep); }
+/* 写真の上に置くカードは、下の森が薄く透けるくらいに留める（枠線は残す） */
+.section.photo .cards > div { background: oklch(0.115 0 0 / 0.72); }
 .cards .tag { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0; color: var(--accent); }
 .cards h3 { font-size: 15.5px; font-weight: 500; }
 .cards p { margin: 0; font-size: 13.5px; line-height: 1.9; color: var(--text-muted); }
@@ -248,6 +259,21 @@ body[lang="en"] .cards p { line-height: 1.75; }
   border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong);
 }
 .bleed figcaption { padding: 14px var(--pad) 0; }
+
+/* 同じ全幅でも、写真のときは横長に切って、読み物の息継ぎにする */
+.bleed.photo { position: relative; }
+.bleed.photo img { aspect-ratio: 1152 / 306; object-position: 50% 46%; }
+
+/* ─── 法務・資料の頁に敷く細い写真 ─── */
+.strip { position: relative; margin: 0; border-bottom: 1px solid var(--line); }
+.strip img {
+  display: block; width: 100%;
+  aspect-ratio: 1152 / 132; object-fit: cover; object-position: 50% 52%;
+}
+.strip::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(oklch(0.115 0 0 / 0.5), oklch(0.115 0 0 / 0.78));
+}
 
 /* 画面を2枚並べる */
 .shots-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-bottom: 44px; }
@@ -304,6 +330,20 @@ body[lang="en"] .cards p { line-height: 1.75; }
 
 /* ─── 文書ページ（仕様・法的情報） ─── */
 .page-head { padding: 72px var(--pad) 56px; border-bottom: 1px solid var(--line); background: oklch(0.125 0 0); }
+/* 見出しの面に写真を敷く。ここも文字を読ませる面なので、幕は濃いまま */
+.page-head.photo {
+  position: relative;
+  background-image:
+    linear-gradient(oklch(0.115 0 0 / var(--veil-a, 0.9)), oklch(0.115 0 0 / var(--veil-b, 0.8))),
+    var(--photo);
+  background-size: cover; background-position: var(--photo-pos, 50% 50%);
+}
+.page-head.photo.slope  { --photo: url("../images/photo/forest-slope.jpg"); --photo-pos: 50% 58%; }
+.page-head.photo.gate   { --photo: url("../images/photo/forest-gate.jpg"); --photo-pos: 50% 62%; }
+.page-head.photo.canopy {
+  --photo: url("../images/photo/forest-canopy.jpg");
+  --photo-pos: 50% 55%; --veil-a: 0.86; --veil-b: 0.78;
+}
 .crumb { font-size: 12.5px; color: var(--text-faint); margin-bottom: 22px; }
 .crumb a { color: var(--text-faint); }
 .page-head h1 { font-size: 44px; margin-bottom: 20px; }
@@ -478,8 +518,9 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .band img { aspect-ratio: 1152 / 620; }
   .band p { font-size: 20px; }
   body[lang="en"] .band p { font-size: 22px; }
-  .band .by { right: var(--pad); }
   .bleed img { aspect-ratio: 4 / 3; }
+  .bleed.photo img { aspect-ratio: 3 / 2; }
+  .strip img { aspect-ratio: 1152 / 220; }
   .hero-shot .frame img { aspect-ratio: 1152 / 700; }
   .limits { grid-template-columns: minmax(0, 1fr); }
   .limits div { border-right: none; padding: 20px 0 !important; border-bottom: 1px solid var(--line); }

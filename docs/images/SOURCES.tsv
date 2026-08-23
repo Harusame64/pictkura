@@ -1,6 +1,13 @@
 # READMEとスクリーンショット用のデモ画像、および紹介サイトの写真。
 # すべて Wikimedia Commons の CC0 / パブリックドメイン。
-# `photo/forest-canopy.jpg` は Dark forest canopy、`photo/forest-mist.jpg` は Mist above forest。
+# photo/ に置いた紹介サイトの写真と、元になった Commons のファイル名の対応:
+#   forest-canopy.jpg  Dark forest canopy
+#   forest-mist.jpg    Mist above forest
+#   forest-rays.jpg    Sunrise breaking into the forest
+#   forest-drone.jpg   Drone Forest
+#   forest-slope.jpg   Misty coniferous forest on a slope
+#   forest-gate.jpg    Forest gateway
+# いずれも長辺 1280〜2000px に縮め、品質 74〜80 で保存し直してある（幕を重ねて敷くため）。
 ライセンス	Commonsのファイル名
 CC0	File:A black forest walk (Unsplash).jpg
 CC0	File:Aerial view of a forest (Unsplash).jpg
