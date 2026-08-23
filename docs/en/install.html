@@ -23,6 +23,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/demo.js" defer></script>
 </head>
 <body lang="en">
 
@@ -65,7 +66,8 @@
     <a href="#warn-zip" class="sub">2.3 The portable ZIP</a>
     <a href="#sac" class="sub">2.4 Smart App Control</a>
     <a href="#macos">3. Opening it on macOS</a>
-    <a href="#uninstall">4. Uninstalling</a>
+    <a href="#first">4. The first thing to do</a>
+    <a href="#uninstall">5. Uninstalling</a>
     <span class="hr"></span>
     <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="download.html">Go to the downloads →</a>
   </nav>
@@ -157,8 +159,21 @@
       <p>Only the first launch needs this; afterwards it opens by double-clicking. The same block happens whether the app ships as a <code>.zip</code> or a <code>.dmg</code> — the archive format has nothing to do with it.</p>
     </section>
 
+    <section id="first">
+      <h2 class="disp"><span class="num">4</span>The first thing to do</h2>
+      <p>Once it opens, add the folder your photos live in with <strong class="em">Browse…</strong> at the bottom left. To bring photos off a card, insert it and press <strong class="em">Import from USB</strong> at the top. The destination folder and the way shots are filed by date are both chosen on that screen.</p>
+      <!-- 実際に操作しているところ。画面は日本語のまま使い回しているので断りを添える。
+           動きを減らす設定のときは `assets/demo.js` が自動再生を外す -->
+      <figure class="demo">
+        <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
+               autoplay muted loop playsinline preload="metadata"></video>
+        <figcaption class="fig">From picking the card to 90 photos sitting in the library. Anything already imported is left out from the start. <span style="opacity:.75">The recording shows the Japanese interface; the app itself is in English as well.</span></figcaption>
+      </figure>
+      <p style="margin-top:20px">Every screen is walked through in the <a href="../manual.en.html">manual</a>, and what the app does and does not do is listed in the <a href="spec.html">specification</a>.</p>
+    </section>
+
     <section id="uninstall">
-      <h2 class="disp"><span class="num">4</span>Uninstalling</h2>
+      <h2 class="disp"><span class="num">5</span>Uninstalling</h2>
       <div class="table-scroll">
         <table>
           <thead><tr><th style="width:230px">How it was installed</th><th>How to remove it</th></tr></thead>

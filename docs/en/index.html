@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="../assets/site.css">
 <script src="../assets/download.js" defer></script>
+<script src="../assets/demo.js" defer></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -125,6 +126,13 @@
     <h2 class="disp">It is fast because of what is missing</h2>
     <span class="rule"></span>
   </div>
+  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
+       画面は日本語のまま使い回しているので、最初の1本にその断りを添える -->
+  <figure class="demo">
+    <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
+           autoplay muted loop playsinline preload="metadata"></video>
+    <figcaption class="fig">Dragging the year scrubber through six years and 30,000 photos. Wherever it lands, only the few dozen tiles on screen are drawn. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is in English as well.</span></figcaption>
+  </figure>
   <div class="cards c3">
     <div>
       <p class="tag">Rust + Tauri v2</p>
@@ -175,6 +183,11 @@
       <figcaption class="fig">The resulting folder name is shown as you type the pattern.</figcaption>
     </figure>
   </div>
+  <figure class="demo">
+    <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
+           autoplay muted loop playsinline preload="metadata"></video>
+    <figcaption class="fig">From picking the card to 90 photos sitting in the library. Anything already imported is left out from the start.</figcaption>
+  </figure>
   <p class="lead" style="margin-bottom:44px">Copy to any folder you like. Files are filed by capture date using one of nine presets, or a pattern you write yourself, such as <code class="mono">{year}/{month}</code> — the resulting folder name is shown as you type.</p>
   <div class="cards c3">
     <div>
@@ -216,6 +229,11 @@
       <p>The search box takes <code class="mono">★</code>, <code class="mono">camera:α7</code> or <code class="mono">2019-08</code> as they are.</p>
     </div>
   </div>
+  <figure class="demo" style="margin-top:44px">
+    <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
+           autoplay muted loop playsinline preload="metadata"></video>
+    <figcaption class="fig">Paging with → while marking with ⚑ and ✕ (the key pressed is drawn at the bottom left). ✕ only puts a mark on the photo — nothing moves anywhere yet.</figcaption>
+  </figure>
 </section>
 
 <section class="section" id="formats">

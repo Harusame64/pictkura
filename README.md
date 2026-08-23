@@ -11,7 +11,10 @@ card and browsing what you already have — even when that is tens of thousands 
 [Manual](https://harusame64.github.io/pictkura/manual.en.html) ·
 [AlternativeTo](https://alternativeto.net/software/pictkura/about/)
 
-![Library](docs/images/grid.en.jpg)
+![Paging through the viewer, marking picks and rejects](docs/images/a-cull.gif)
+
+*Paging with → while marking ⚑ (pick) and ✕ (reject), recorded on a 30,000-photo demo
+library. The screens are in Japanese; the app itself is in English as well.*
 
 ## Goals
 
@@ -478,4 +481,6 @@ for the third-party software it bundles and uses are collected in
 [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
 
 The photographs in the screenshots are **CC0 / public domain** works from Wikimedia
-Commons; the list is in [docs/images/SOURCES.tsv](docs/images/SOURCES.tsv).
+Commons; the list is in [docs/images/SOURCES.tsv](docs/images/SOURCES.tsv). The photos in
+the GIF at the top are CC0 works from Commons as well, taken from the demo library built
+for the recording.

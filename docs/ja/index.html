@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="../assets/site.css">
 <script src="../assets/download.js" defer></script>
+<script src="../assets/demo.js" defer></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -126,6 +127,12 @@
     <h2 class="disp">速いのは、削ったからです</h2>
     <span class="rule"></span>
   </div>
+  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く -->
+  <figure class="demo">
+    <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
+           autoplay muted loop playsinline preload="metadata"></video>
+    <figcaption class="fig">右端の縦棒をつまんで、6 年ぶん 3 万枚の中を行き来しているところ。どこへ飛んでも、描いているのは画面に載っている数十枚だけです。</figcaption>
+  </figure>
   <div class="cards c3">
     <div>
       <p class="tag">Rust + Tauri v2</p>
@@ -176,6 +183,11 @@
       <figcaption class="fig">フォルダの構成は、書いたそばから結果が見えます。</figcaption>
     </figure>
   </div>
+  <figure class="demo">
+    <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
+           autoplay muted loop playsinline preload="metadata"></video>
+    <figcaption class="fig">カードを選んでから、90 枚が一覧に並ぶまで。取り込み済みのものは、はじめから外れています。</figcaption>
+  </figure>
   <p class="lead" style="margin-bottom:44px">取り込み先は好きなフォルダ。撮影日ごとの構成は 9 つの雛形から選ぶか、<code class="mono">{year}/{month}</code> のように自分で書けます。書いたそばから、できあがるフォルダ名が出ます。</p>
   <div class="cards c3">
     <div>
@@ -217,6 +229,11 @@
       <p>検索窓には <code class="mono">★</code> や <code class="mono">camera:α7</code>、<code class="mono">2019-08</code> をそのまま書けます。</p>
     </div>
   </div>
+  <figure class="demo" style="margin-top:44px">
+    <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
+           autoplay muted loop playsinline preload="metadata"></video>
+    <figcaption class="fig">→ で送りながら、⚑ と ✕ を付けているところ（押したキーを左下に出しています）。✕ は印が付くだけで、写真はまだどこへも動きません。</figcaption>
+  </figure>
 </section>
 
 <section class="section" id="formats">

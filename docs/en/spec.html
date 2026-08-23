@@ -23,6 +23,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/demo.js" defer></script>
 </head>
 <body lang="en">
 
@@ -107,6 +108,13 @@
         <div><h3>Slideshow and video playback</h3><p>Containers the engine cannot play are handed to your default player</p></div>
         <div><h3>AutoPlay entry (Windows)</h3><p>Appears as a choice when a card is inserted. It never launches on its own</p></div>
       </div>
+      <!-- 実際に操作しているところ。画面は日本語のまま使い回しているので断りを添える。
+           動きを減らす設定のときは `assets/demo.js` が自動再生を外す -->
+      <figure class="demo">
+        <video src="../images/d-filter.mp4" poster="../images/d-filter.jpg" width="960" height="630"
+               autoplay muted loop playsinline preload="metadata"></video>
+        <figcaption class="fig">Picking a camera with <code>Ctrl</code>+<code>K</code>, then adding a year on top. Conditions stack with AND, taking 30,000 photos down to 1,200. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is in English as well.</span></figcaption>
+      </figure>
     </section>
 
     <section id="cannot">
@@ -168,6 +176,11 @@
         </table>
       </div>
       <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Checked on 2026-08-20 against 28 real files from 16 makers (samples from <a href="https://www.photographyblog.com/">photographyblog.com</a> and the CC0 set at <a href="https://raw.pixls.us/">raw.pixls.us</a>): the display JPEG comes out, portrait shots come out upright, and the shot date and camera name are read.</p>
+      <figure class="demo">
+        <video src="../images/e-raw.mp4" poster="../images/e-raw.jpg" width="960" height="630"
+               autoplay muted loop playsinline preload="metadata"></video>
+        <figcaption class="fig">Five RAW files opened one after another — Canon, Nikon, Sony, Fujifilm and Panasonic (cr3 / nef / arw / raf / rw2). Nothing is developed.</figcaption>
+      </figure>
 
       <h3 class="eyebrow" id="video" style="margin-top:44px">4.3 &nbsp;Video</h3>
       <div class="table-scroll">
