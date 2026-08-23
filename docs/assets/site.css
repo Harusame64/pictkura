@@ -286,8 +286,8 @@ body[lang="en"] .cards p { line-height: 1.75; }
 
 /* ─── 動いている画面 ─── */
 /* 実際に操作しているところ。写真が全面で入れ替わる絵は GIF に載らないので mp4 で置く。
-   音は無い（`muted` が無いと自動再生されない）。動きを減らす設定のときは
-   `assets/demo.js` が自動再生を外して、操作の枠を出す */
+   音は無い（`muted` が無いと自動再生できない）。HTML に `autoplay` は書いておらず、
+   再生を始めるのは `assets/demo.js` が「動きを減らす」設定を見たあとだけ */
 .demo { margin: 0 0 44px; }
 .demo video {
   display: block; width: 100%; height: auto;

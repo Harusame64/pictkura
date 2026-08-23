@@ -1,21 +1,40 @@
-/* 動いている画面（`figure.demo` の中の video）の面倒だけを見る。
+/* 動いている画面（`figure.demo` の中の video）を、いつ再生するか。
  *
- * OS で「動きを減らす」を選んでいる人には、**勝手に動き出さない**ようにする。
- * HTML の `autoplay` は CSS からは止められないので、ここで外して操作の枠を出す。
- * この JS が動かなくても、動画はそのまま自動再生されるだけで何も壊れない。
+ * **HTML には `autoplay` を書いていない。** 書いてしまうと、OSで「動きを減らす」を
+ * 選んでいる人の画面でも、この JS が止めるまでの一瞬だけ動いてしまう（読み込みが
+ * 速いほど確実に動く）。再生を始めるのは、この JS が設定を見たあとだけにする。
+ *
+ * つまり、こうなる:
+ *
+ *   動きを減らす設定  … 何もしない。操作の枠（controls）が出たまま止まっている
+ *   ふつう            … 枠を消し、画面に入ったら再生・出たら停止する
+ *   この JS が動かない … 操作の枠から自分で再生できる（HTML のままなので）
  */
 (function () {
   "use strict";
 
-  if (!window.matchMedia) return;
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var vs = document.querySelectorAll(".demo video[data-autoplay]");
+  if (!vs.length) return;
 
-  var vs = document.querySelectorAll(".demo video");
+  // 動きを減らす設定なら、触らない。判定できない古い環境も同じ扱いにする
+  if (!window.matchMedia || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  // 画面の外の動画は再生しない。`autoplay` 属性でも Chrome は同じことをするが、
+  // ここでは属性を使わないので自分で見る
+  if (!window.IntersectionObserver) return;
+
+  var io = new IntersectionObserver(function (entries) {
+    for (var i = 0; i < entries.length; i++) {
+      var v = entries[i].target;
+      if (!entries[i].isIntersecting) { v.pause(); continue; }
+      var p = v.play();
+      // 自動再生が拒まれたら（端末の設定や省電力）、操作の枠を戻して人に任せる
+      if (p && p.catch) p.catch(function (el) { return function () { el.controls = true; }; }(v));
+    }
+  }, { threshold: 0.25 });
+
   for (var i = 0; i < vs.length; i++) {
-    var v = vs[i];
-    v.autoplay = false;
-    v.loop = false;
-    v.controls = true;
-    v.pause();           // defer で走るので、もう再生が始まっていることがある
+    vs[i].controls = false;
+    io.observe(vs[i]);
   }
 })();

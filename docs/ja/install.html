@@ -162,10 +162,10 @@
     <section id="first">
       <h2 class="disp"><span class="num">4</span>入れたあと、最初にやること</h2>
       <p>起動したら、写真の入ったフォルダを左下の<strong class="em">「参照…」</strong>から登録します。カードから入れるときは、挿してから上の<strong class="em">「USB から取り込み」</strong>です。取り込み先のフォルダと、撮影日ごとの振り分け方は、その画面で選べます。</p>
-      <!-- 実際に操作しているところ。動きを減らす設定のときは `assets/demo.js` が自動再生を外す -->
+      <!-- 実際に操作しているところ。再生は `assets/demo.js` が受け持つ（動きを減らす設定のときは動かさない） -->
       <figure class="demo">
         <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
-               autoplay muted loop playsinline preload="metadata"></video>
+               muted loop playsinline preload="metadata" controls data-autoplay></video>
         <figcaption class="fig">カードを選んでから、90 枚が一覧に並ぶまで。取り込み済みのものは、はじめから外れています。</figcaption>
       </figure>
       <p style="margin-top:20px">画面ごとの操作は<a href="../manual.html">マニュアル</a>に、できることの範囲は<a href="spec.html">アプリ仕様</a>にまとめてあります。</p>
