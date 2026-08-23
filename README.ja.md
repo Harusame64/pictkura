@@ -12,7 +12,9 @@
 [取扱説明書](https://harusame64.github.io/pictkura/manual.html) ·
 [AlternativeTo](https://alternativeto.net/software/pictkura/about/)
 
-![一覧](docs/images/grid.jpg)
+![ビューアで送りながら、⚑と✕で選別しているところ](docs/images/a-cull.gif)
+
+*→ で送りながら、⚑（採用）と ✕（ボツ）を付けているところ。3万枚のデモ用ライブラリで撮りました。*
 
 ## 目標
 
@@ -509,4 +511,5 @@ pictkura は [MIT ライセンス](LICENSE) です。
 
 このREADMEのスクリーンショットに写っている写真は、Wikimedia Commons の
 **CC0 / パブリックドメイン**の作品です（一覧は
-[docs/images/SOURCES.tsv](docs/images/SOURCES.tsv)）。
+[docs/images/SOURCES.tsv](docs/images/SOURCES.tsv)）。冒頭のGIFに写っている
+写真も同じく Commons の CC0 作品で、こちらは撮影用に組んだデモ用ライブラリのものです。

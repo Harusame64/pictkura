@@ -284,6 +284,20 @@ body[lang="en"] .cards p { line-height: 1.75; }
 }
 .shots-2 figcaption { margin-top: 12px; }
 
+/* ─── 動いている画面 ─── */
+/* 実際に操作しているところ。写真が全面で入れ替わる絵は GIF に載らないので mp4 で置く。
+   音は無い（`muted` が無いと自動再生されない）。動きを減らす設定のときは
+   `assets/demo.js` が自動再生を外して、操作の枠を出す */
+.demo { margin: 0 0 44px; }
+.demo video {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--bg-deep);
+}
+.demo figcaption { margin-top: 12px; }
+/* 資料の頁（アプリ仕様・インストール）では、本文の段落と同じ間合いで置く */
+.doc-body .demo { margin: 28px 0 0; }
+
 /* ─── 画面と説明を並べる ─── */
 .split { display: grid; gap: 64px; align-items: center; }
 .split.shot-left { grid-template-columns: minmax(0, 1fr) 420px; }
