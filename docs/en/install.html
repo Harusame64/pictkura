@@ -163,10 +163,10 @@
       <h2 class="disp"><span class="num">4</span>The first thing to do</h2>
       <p>Once it opens, add the folder your photos live in with <strong class="em">Browse…</strong> at the bottom left. To bring photos off a card, insert it and press <strong class="em">Import from USB</strong> at the top. The destination folder and the way shots are filed by date are both chosen on that screen.</p>
       <!-- 実際に操作しているところ。画面は日本語のまま使い回しているので断りを添える。
-           動きを減らす設定のときは `assets/demo.js` が自動再生を外す -->
+           再生は `assets/demo.js` が受け持つ（動きを減らす設定のときは動かさない） -->
       <figure class="demo">
         <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
-               autoplay muted loop playsinline preload="metadata"></video>
+               muted loop playsinline preload="metadata" controls data-autoplay></video>
         <figcaption class="fig">From picking the card to 90 photos sitting in the library. Anything already imported is left out from the start. <span style="opacity:.75">The recording shows the Japanese interface; the app itself is in English as well.</span></figcaption>
       </figure>
       <p style="margin-top:20px">Every screen is walked through in the <a href="../manual.en.html">manual</a>, and what the app does and does not do is listed in the <a href="spec.html">specification</a>.</p>

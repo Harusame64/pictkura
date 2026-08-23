@@ -108,10 +108,10 @@
         <div><h3>スライドショーと動画再生</h3><p>アプリ内で再生できないコンテナは、既定のプレイヤーで開きます</p></div>
         <div><h3>自動再生への登録（Windows）</h3><p>カード挿入時の候補に表示されます。自動では起動しません</p></div>
       </div>
-      <!-- 実際に操作しているところ。動きを減らす設定のときは `assets/demo.js` が自動再生を外す -->
+      <!-- 実際に操作しているところ。再生は `assets/demo.js` が受け持つ（動きを減らす設定のときは動かさない） -->
       <figure class="demo">
         <video src="../images/d-filter.mp4" poster="../images/d-filter.jpg" width="960" height="630"
-               autoplay muted loop playsinline preload="metadata"></video>
+               muted loop playsinline preload="metadata" controls data-autoplay></video>
         <figcaption class="fig"><code>Ctrl</code>+<code>K</code> でカメラを選び、続けて年を足したところ。条件は AND で積まれ、3 万件が 1,200 件まで減ります。</figcaption>
       </figure>
     </section>
@@ -177,7 +177,7 @@
       <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-08-20 に、16 メーカー 28 点の実ファイル（<a href="https://www.photographyblog.com/">photographyblog.com</a> のサンプルと <a href="https://raw.pixls.us/">raw.pixls.us</a> の CC0 一覧）で次の 3 点を確認しました。表示用 JPEG を取り出せること、縦位置が正しい向きで表示されること、撮影日時とカメラ名を読み取れること。</p>
       <figure class="demo">
         <video src="../images/e-raw.mp4" poster="../images/e-raw.jpg" width="960" height="630"
-               autoplay muted loop playsinline preload="metadata"></video>
+               muted loop playsinline preload="metadata" controls data-autoplay></video>
         <figcaption class="fig">Canon・Nikon・Sony・富士フイルム・Panasonic の RAW を 5 枚続けて開いたところ（cr3 / nef / arw / raf / rw2）。現像は回していません。</figcaption>
       </figure>
 

@@ -127,10 +127,11 @@
     <span class="rule"></span>
   </div>
   <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
+       `autoplay` は書かない——再生は `assets/demo.js` が受け持つ。
        画面は日本語のまま使い回しているので、最初の1本にその断りを添える -->
   <figure class="demo">
     <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
-           autoplay muted loop playsinline preload="metadata"></video>
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
     <figcaption class="fig">Dragging the year scrubber through six years and 30,000 photos. Wherever it lands, only the few dozen tiles on screen are drawn. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is in English as well.</span></figcaption>
   </figure>
   <div class="cards c3">
@@ -185,7 +186,7 @@
   </div>
   <figure class="demo">
     <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
-           autoplay muted loop playsinline preload="metadata"></video>
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
     <figcaption class="fig">From picking the card to 90 photos sitting in the library. Anything already imported is left out from the start.</figcaption>
   </figure>
   <p class="lead" style="margin-bottom:44px">Copy to any folder you like. Files are filed by capture date using one of nine presets, or a pattern you write yourself, such as <code class="mono">{year}/{month}</code> — the resulting folder name is shown as you type.</p>
@@ -231,7 +232,7 @@
   </div>
   <figure class="demo" style="margin-top:44px">
     <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
-           autoplay muted loop playsinline preload="metadata"></video>
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
     <figcaption class="fig">Paging with → while marking with ⚑ and ✕ (the key pressed is drawn at the bottom left). ✕ only puts a mark on the photo — nothing moves anywhere yet.</figcaption>
   </figure>
 </section>

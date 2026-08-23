@@ -127,10 +127,12 @@
     <h2 class="disp">速いのは、削ったからです</h2>
     <span class="rule"></span>
   </div>
-  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く -->
+  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
+       `autoplay` は書かない——再生は `assets/demo.js` が受け持つ。動きを減らす設定の
+       ときに一瞬だけ動いてしまうのを避けるため -->
   <figure class="demo">
     <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
-           autoplay muted loop playsinline preload="metadata"></video>
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
     <figcaption class="fig">右端の縦棒をつまんで、6 年ぶん 3 万枚の中を行き来しているところ。どこへ飛んでも、描いているのは画面に載っている数十枚だけです。</figcaption>
   </figure>
   <div class="cards c3">
@@ -185,7 +187,7 @@
   </div>
   <figure class="demo">
     <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
-           autoplay muted loop playsinline preload="metadata"></video>
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
     <figcaption class="fig">カードを選んでから、90 枚が一覧に並ぶまで。取り込み済みのものは、はじめから外れています。</figcaption>
   </figure>
   <p class="lead" style="margin-bottom:44px">取り込み先は好きなフォルダ。撮影日ごとの構成は 9 つの雛形から選ぶか、<code class="mono">{year}/{month}</code> のように自分で書けます。書いたそばから、できあがるフォルダ名が出ます。</p>
@@ -231,7 +233,7 @@
   </div>
   <figure class="demo" style="margin-top:44px">
     <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
-           autoplay muted loop playsinline preload="metadata"></video>
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
     <figcaption class="fig">→ で送りながら、⚑ と ✕ を付けているところ（押したキーを左下に出しています）。✕ は印が付くだけで、写真はまだどこへも動きません。</figcaption>
   </figure>
 </section>
