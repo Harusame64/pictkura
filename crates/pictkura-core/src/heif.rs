@@ -431,22 +431,43 @@ pub fn stored_chroma(path: &Path) -> Option<crate::jpeg::ChromaSampling> {
         let Some((b, e)) = property_of(&meta, start, end, item, b"hvcC") else {
             continue;
         };
-        // 版が違えば並びも違うかもしれない。切り詰められた箱も同じ
-        // ——**当てずっぽうで読むより黙る**
-        if e <= b + HVCC_CHROMA_OFFSET || meta[b] != 1 {
-            return None;
-        }
-        let idc = meta[b + HVCC_CHROMA_OFFSET] & 0b11;
+        let idc = hvcc_chroma_idc(meta.get(b..e)?)?;
         if found.is_some_and(|seen| seen != idc) {
             return None; // タイルごとに違う＝一枚の絵として何とも言えない
         }
         found = Some(idc);
     }
-    // 0=モノクロ / 1=4:2:0 / 2=4:2:2 / 3=4:4:4。4:2:0以外は間引かない側へ
-    Some(match found? {
+    Some(chroma_of_idc(found?))
+}
+
+/// `hvcC` の中身から `chroma_format_idc` を読む。
+///
+/// 版が違えば並びも違うかもしれない。切り詰められた箱も同じ
+/// ——**当てずっぽうで読むより黙る**。
+fn hvcc_chroma_idc(hvcc: &[u8]) -> Option<u8> {
+    if hvcc.len() <= HVCC_CHROMA_OFFSET || hvcc.first() != Some(&1) {
+        return None;
+    }
+    Some(hvcc[HVCC_CHROMA_OFFSET] & 0b11)
+}
+
+/// 0=モノクロ / 1=4:2:0 / 2=4:2:2 / 3=4:4:4。**4:2:0以外は間引かない側へ**。
+fn chroma_of_idc(idc: u8) -> crate::jpeg::ChromaSampling {
+    match idc {
         1 => crate::jpeg::ChromaSampling::Half,
         _ => crate::jpeg::ChromaSampling::Full,
-    })
+    }
+}
+
+/// `hvcC` の中身だけを手に持っているときの [`stored_chroma`]。
+///
+/// CR3のHDR PQのプレビューは箱から `hvcC` を直接取り出すので、ファイルを
+/// 開き直さずに聞ける。**Canonのこの絵は4:2:2**（実測 `chroma_format_idc = 2`）
+/// なので、4:2:0で詰め直すと縦の色差を捨てることになる。
+///
+/// **分からないときは `None`**。呼び出し側は間引かない側（4:4:4）へ倒すこと。
+pub fn chroma_from_hvcc(hvcc: &[u8]) -> Option<crate::jpeg::ChromaSampling> {
+    hvcc_chroma_idc(hvcc).map(chroma_of_idc)
 }
 
 /// 表示上の寸法（回転を反映）。コンテナが読めなければ None。
@@ -1202,6 +1223,30 @@ pub fn decode(path: &Path) -> Option<image::DynamicImage> {
     }
 }
 
+/// **メモリ上の**HEIFをデコードする。
+///
+/// CanonのHDR PQのCR3は、プレビューをHEVCで抱えている（[`crate::raw`] の
+/// `cr3_hevc_preview`）。取り出したHEVCはその場でHEIFに包み直すので、
+/// 一時ファイルを作らずに渡せる口が要る。**サムネイル1枚ごとにディスクへ
+/// 書き戻すのは、数万枚を並べる作りと合わない**。
+///
+/// 向きの補正（`irot`/`imir`）はしない。包み直したHEIFにその情報を入れていない
+/// ——向きはRAW側のEXIFから読んで、呼び出し側で当てる。
+///
+/// **macOSは未対応**（[`decode`] と同じく将来 ImageIO）。`None` を返すので、
+/// 呼び出し側では「デコーダが無い環境」と同じ扱いになる。
+pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
+    #[cfg(windows)]
+    {
+        windows_wic::decode_mem(bytes)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = bytes;
+        None
+    }
+}
+
 /// 埋め込みサムネイル（あれば）を小さいままデコードする。
 ///
 /// iPhoneのHEICは主画像とは別に**小さいタイル集合**をサムネイルとして持っている。
@@ -1302,6 +1347,7 @@ mod windows_wic {
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
     };
+    use windows::Win32::UI::Shell::SHCreateMemStream;
 
     thread_local! {
         /// COMはスレッドごとに初期化が要る。サムネイルワーカーは複数走るので
@@ -1380,6 +1426,22 @@ mod windows_wic {
     pub fn decode(path: &Path) -> Option<image::DynamicImage> {
         let frame = frame(path)?;
         to_image(&frame.cast::<IWICBitmapSource>().ok()?)
+    }
+
+    /// メモリ上のバイト列から先頭フレームを得る（[`super::decode_mem`]）。
+    ///
+    /// `SHCreateMemStream` は**渡したバイト列を複製する**ので、この呼び出しの
+    /// あいだだけ生きていればよい。
+    pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
+        unsafe {
+            let factory = factory()?;
+            let stream = SHCreateMemStream(Some(bytes))?;
+            let decoder = factory
+                .CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
+                .ok()?;
+            let frame = decoder.GetFrame(0).ok()?;
+            to_image(&frame.cast::<IWICBitmapSource>().ok()?)
+        }
     }
 
     /// 縮小デコードの可否をデコーダに聞く（[`super::probe_scaled_decode`]）。
