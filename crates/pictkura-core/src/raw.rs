@@ -471,7 +471,9 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     //
     // 読んだ先頭は6段目でも要るが、**そのまま持ち越さない**——3段目は最大128MBを
     // 読むので、16MBを抱えたままだとワーカーの数だけピークが積み上がる。
-    // ここでHEVCの箱（数百KB）だけ取り出して、先頭は落とす
+    // ここでHEVCの箱（数百KB）だけ取り出して、先頭は落とす。
+    // **代償**: HEVCのプレビューを探せるのは先頭16MBまでになる。3段目は128MBまで
+    // 読むが、6段目が使える材料はここで決まる（実物の `PRVW` は0.15MB地点）
     let hevc_boxes: Vec<Cr3Hevc> = match read_head(path, SCAN_LIMIT) {
         Some(head) => {
             if let Some(found) = scan_largest_jpeg(&head) {
@@ -492,8 +494,13 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     // でここへ来ると、160x120しか持たない社（Minolta MRW・Sony SRF・
     // Phase One IIQ 等）は1枚ごとにファイル全体を読み、しかもその先に
     // 大きい絵は無い。取り込み元のSDカードを丸ごと読み直すことになる
+    //
+    // **2段目で読み切ったファイルは、ここへ来ない。** 先頭16MBに収まる大きさなら
+    // 2段目が既に全体を走査済みで、同じ関数に同じバイトを渡し直すだけになる
+    // （HDR PQのCR3は13.9MBなので、これが無いと必ず空振りの全走査を1回挟む）
     if min_long_edge >= USABLE_LONG_EDGE
-        && std::fs::metadata(path).is_ok_and(|m| m.len() as usize <= FULL_SCAN_LIMIT)
+        && std::fs::metadata(path)
+            .is_ok_and(|m| (SCAN_LIMIT..=FULL_SCAN_LIMIT).contains(&(m.len() as usize)))
     {
         if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
             if let Some(found) = scan_largest_jpeg(&whole) {
@@ -1972,7 +1979,8 @@ mod cr3_hevc_tests {
             nested
         };
         assert!(cr3_hevc_box(&wrap(0), b"PRVW").is_some(), "素なら見つかる");
-        assert!(cr3_hevc_box(&wrap(2), b"PRVW").is_some(), "浅いうちは届く");
+        // 境目そのものを押さえる。3重までは届き、4重で届かなくなる
+        assert!(cr3_hevc_box(&wrap(3), b"PRVW").is_some(), "3重は届くはず");
         assert!(
             cr3_hevc_box(&wrap(4), b"PRVW").is_none(),
             "深さの制限が効いていない"
@@ -2083,21 +2091,51 @@ mod cr3_hevc_sample_tests {
     fn crude_hevc(head: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         fn field(head: &[u8], tag: &[u8; 4]) -> Option<Vec<u8>> {
             let at = head.windows(4).position(|w| w == tag)?;
-            let size = u32::from_be_bytes(head.get(at - 4..at)?.try_into().ok()?) as usize;
-            head.get(at + 4..at - 4 + size).map(<[u8]>::to_vec)
+            // 箱の大きさは型の4バイト手前。**引き算を先にしない**
+            // ——`at < 4` だとデバッグビルドで桁溢れのpanicになる
+            let start = at.checked_sub(4)?;
+            let size = u32::from_be_bytes(head.get(start..at)?.try_into().ok()?) as usize;
+            head.get(at + 4..start.checked_add(size)?)
+                .map(<[u8]>::to_vec)
         }
         let hvcc = field(head, b"hvcC")?;
         let imgd = field(head, b"IMGD")?;
         Some((hvcc, imgd.get(4..)?.to_vec()))
     }
 
-    /// この環境でHEVCの静止画を起こせるか。**製品側を1行も通さずに**確かめる。
+    /// `PRVW` / `THMB` のヘッダから表示寸法を、**箱の走査を使わずに**読む。
+    fn crude_size(head: &[u8]) -> Option<(u16, u16)> {
+        for tag in [b"THMB", b"PRVW"] {
+            let Some(at) = head.windows(4).position(|w| w == tag) else {
+                continue;
+            };
+            // 型の直後が16バイトのヘッダ。版1ならオフセット6/8に寸法が入る
+            let body = head.get(at + 4..at + 4 + 16)?;
+            if body.first() != Some(&1) {
+                continue;
+            }
+            let w = u16::from_be_bytes([body[6], body[7]]);
+            let h = u16::from_be_bytes([body[8], body[9]]);
+            if w > 0 && h > 0 {
+                return Some((w, h));
+            }
+        }
+        None
+    }
+
+    /// この環境でHEVCの静止画を起こせるか。**包み直しを1行も通さずに**確かめる。
     fn codec_available(head: &[u8]) -> bool {
         let Some((hvcc, hevc)) = crude_hevc(head) else {
             return false;
         };
-        // 寸法は分からなくてよい。起きるかどうかだけ見る
-        let heif = independent_heif(&hvcc, 1620, 1080, &hevc);
+        // **寸法も独立に読む。** ここで実物と違う値を貼ると、`ispe` と符号化寸法を
+        // 突き合わせる読み手（将来のImageIO）では常に false になり、その環境で
+        // テストが恒久的に無言スキップする（ゲート2のP3）
+        let (width, height) = crude_size(head).unwrap_or((1620, 1080));
+        let heif = independent_heif(&hvcc, width, height, &hevc);
+        // **ここだけは製品側（`decode_mem`）に落ちる。** 完全な分離はできないので、
+        // 「コーデックが無い」と「`decode_mem` が壊れた」は区別できない。
+        // 包み直しの側は独立なので、2周目に潰した穴の大半はここで塞がっている
         crate::heif::decode_mem(&heif).is_some()
     }
 
@@ -2149,7 +2187,12 @@ mod cr3_hevc_sample_tests {
             let Some(head) = read_head(&path, SCAN_LIMIT) else {
                 continue;
             };
-            if head.windows(4).any(|w| w == b"hvcC") {
+            // **ISO-BMFFであることも確かめる。** 拡張子と `hvcC` の4バイトだけだと、
+            // 通常のCR3の圧縮データに偶然その並びが出たファイルが混ざる
+            // （16MBで約0.4%）。それが先頭に来ると環境の判定がゴミを掴んで
+            // 「コーデックが無い」に倒れ、本物まで無言で飛ぶ（ゲート2のP3）
+            let is_bmff = head.get(4..8) == Some(b"ftyp");
+            if is_bmff && head.windows(4).any(|w| w == b"hvcC") {
                 out.push((path, head));
             }
         }
