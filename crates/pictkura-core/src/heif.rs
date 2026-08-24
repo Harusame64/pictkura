@@ -1772,12 +1772,7 @@ mod tests {
         height: u32,
         decoy_ipma: bool,
     ) -> Vec<u8> {
-        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(body);
-            out
-        }
+        use super::boxed;
 
         // ipco: プロパティを並べる。番号は1から数える
         let mut ipco = Vec::new();
@@ -1877,12 +1872,7 @@ mod tests {
     }
 
     fn synth_heif_hvcc(spec: HvccSpec) -> Vec<u8> {
-        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(body);
-            out
-        }
+        use super::boxed;
         fn add_hvcc(ipco: &mut Vec<u8>, prop: &mut u8, spec: &HvccSpec, idc: u8) -> u8 {
             let mut body = vec![0u8; HVCC_CHROMA_OFFSET + 1];
             body[0] = spec.version;
@@ -2130,12 +2120,7 @@ mod tests {
             colr,
             icc_first,
         } = spec;
-        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(body);
-            out
-        }
+        use super::boxed;
 
         // アイテム番号: 主画像=1、gridならタイルは2以降
         let tile_ids: Vec<u16> = if grid.is_some() {
