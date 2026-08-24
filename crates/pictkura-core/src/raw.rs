@@ -495,12 +495,16 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     // Phase One IIQ 等）は1枚ごとにファイル全体を読み、しかもその先に
     // 大きい絵は無い。取り込み元のSDカードを丸ごと読み直すことになる
     //
-    // **2段目で読み切ったファイルは、ここへ来ない。** 先頭16MBに収まる大きさなら
-    // 2段目が既に全体を走査済みで、同じ関数に同じバイトを渡し直すだけになる
-    // （HDR PQのCR3は13.9MBなので、これが無いと必ず空振りの全走査を1回挟む）
+    // **2段目で読み切ったファイルは、ここへ来ない。** 先頭16MB**以内**に収まる
+    // 大きさなら2段目が既に全体を走査済みで、同じ関数に同じバイトを渡し直すだけに
+    // なる（HDR PQのCR3は13.9MBなので、これが無いと必ず空振りの全走査を1回挟む）。
+    // **ちょうど16MBも「読み切った」側**——`read_head(path, SCAN_LIMIT)` は
+    // `SCAN_LIMIT` バイトまで読むので、境目のファイルは既に全部見えている
     if min_long_edge >= USABLE_LONG_EDGE
-        && std::fs::metadata(path)
-            .is_ok_and(|m| (SCAN_LIMIT..=FULL_SCAN_LIMIT).contains(&(m.len() as usize)))
+        && std::fs::metadata(path).is_ok_and(|m| {
+            let len = m.len() as usize;
+            len > SCAN_LIMIT && len <= FULL_SCAN_LIMIT
+        })
     {
         if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
             if let Some(found) = scan_largest_jpeg(&whole) {
@@ -537,7 +541,7 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     // 10ビットのPQを積むためにプレビューをHEVCで書く（JPEGでは表現できない）。
     // ここまでの5段は全部JPEGを探しているので、そういうファイルは必ず空振りする。
     //
-    // 高いのは**デコード**（PRVWで実測0.4秒前後）なので、**ここまでの絵が
+    // 高いのは**デコード**（PRVWで実測0.25〜0.4秒）なので、**ここまでの絵が
     // 求められた大きさに届いていないときだけ**払う。「1枚も取れていないとき」で
     // 門を作ると、どこかに切手のJPEGが1枚あるだけでHEVCを丸ごと飛ばし、その切手を
     // 返してしまう——直そうとしている症状がそのまま残る（ゲート1のP1）
@@ -659,7 +663,7 @@ impl Cr3Hevc {
 ///   hvcC(176)  HEVCデコーダ設定
 ///   colr(19)   nclx: primaries=9(BT.2020) transfer=16(PQ) matrix=9
 ///   pixi(16)   3チャンネル・各10ビット
-///   IMGD(n)    先頭4Bが総長、以降は4バイト長前置のNAL
+///   IMGD(n)    先頭4Bが後続のNAL列の長さ、以降は4バイト長前置のNAL
 /// ```
 ///
 /// **版0の箱は形が違う**（通常のCR3。`PRVW` は子箱を持たずオフセット16から
@@ -737,7 +741,8 @@ fn cr3_hevc_box(head: &[u8], tag: &[u8; 4]) -> Option<Cr3Hevc> {
                 b"hvcC" => hvcc = Some(inner.to_vec()),
                 b"colr" => colr = Some(inner.to_vec()),
                 b"pixi" => pixi = Some(inner.to_vec()),
-                // 先頭4Bは総長。その後ろが長さ前置のNAL列
+                // 先頭4Bは**後続のNAL列の長さ**（箱の中身から4を引いた値。
+                // 箱そのものの長さではない）。その後ろが4バイト長前置のNAL列
                 b"IMGD" => hevc = inner.get(4..).map(<[u8]>::to_vec),
                 _ => {}
             }
@@ -800,7 +805,7 @@ fn cr3_hevc_boxes(path: &Path, head: &[u8]) -> Vec<Cr3Hevc> {
 ///
 /// 返すのは**詰め直したJPEG**で、EXIFも色空間のタグも持たない。向きは
 /// 呼び出し側がRAW側のEXIFから当てること。**絵が要らない呼び出しでここへ来ると、
-/// 0.4秒払って日付の無いJPEGを受け取る**ことになる
+/// 0.25〜0.4秒払って日付の無いJPEGを受け取る**ことになる
 /// （[`crate::thumbs::read_exif_meta`] の、日付がプレビューにしか無い形式への
 /// 救済経路。CR3は `CMT1`/`CMT2` から日付が取れるので実際には通らない）。
 ///
@@ -846,15 +851,15 @@ fn cr3_hevc_preview(boxes: Vec<Cr3Hevc>, floor: u32, min_long_edge: u32) -> Opti
 
 /// `.mrw` の中の**TIFFの塊**（`TTW` ブロック）を返す。
 ///
-/// MRWは独自のブロック構造（` MRM` の下に ` PRD`・` TTW`…）で、
+/// MRWは独自のブロック構造（`\x00MRM` の下に `\x00PRD`・`\x00TTW`…）で、
 /// EXIFは `TTW` の中に**TIFFのまま**入っている。ブロックを辿るだけなので
 /// 読むのは先頭側だけで済む。
 fn mrw_tiff_block(path: &Path) -> Option<Vec<u8>> {
     let head = read_head(path, PATCHED_TIFF_HEAD)?;
-    if head.get(..4)? != b" MRM" {
+    if head.get(..4)? != b"\x00MRM" {
         return None;
     }
-    // 先頭の ` MRM` は「この後ろ全部の長さ」なので、中身は8バイト目から
+    // 先頭の `\x00MRM` は「この後ろ全部の長さ」なので、中身は8バイト目から
     let mut at = 8usize;
     while at + 8 <= head.len() {
         let tag = head.get(at..at + 4)?;
@@ -862,7 +867,7 @@ fn mrw_tiff_block(path: &Path) -> Option<Vec<u8>> {
         if len == 0 {
             return None;
         }
-        if tag == b" TTW" {
+        if tag == b"\x00TTW" {
             let block = head.get(at + 8..(at + 8).saturating_add(len))?;
             return Some(block.to_vec());
         }
@@ -1484,7 +1489,7 @@ mod tests {
 
     #[test]
     fn 版番号が独自のtiffも読めるように直す() {
-        // ORF（Olympus/OM）は "IIRO"、RW2（Panasonic）は "IIU " と、
+        // ORF（Olympus/OM）は "IIRO"、RW2（Panasonic）は "IIU\x00" と、
         // TIFFの版番号（本来42）に独自の値を書く。直さないと撮影日時も
         // カメラ名も向きも丸ごと落ち、**縦位置の写真が横倒しになる**
         let dir = tempfile::tempdir().unwrap();
@@ -1554,7 +1559,7 @@ mod tests {
         }
         // TIFFですらないファイル（CR3・RAF・X3F）も対象外
         let path = dir.path().join("sample.cr3");
-        std::fs::write(&path, b"   ftypcrx ").unwrap();
+        std::fs::write(&path, b"\x00\x00\x00\x18ftypcrx ").unwrap();
         assert!(patched_tiff_metadata(&path).is_none());
     }
 
@@ -1592,7 +1597,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("meta.cr3");
 
-        let cmt1 = box_of(b"CMT1", b"II* metadata-here");
+        let cmt1 = box_of(b"CMT1", b"II*\x00metadata-here");
         let mut uuid_body = vec![0u8; 16]; // UUID
         uuid_body.extend_from_slice(&cmt1);
         let moov = box_of(b"moov", &box_of(b"uuid", &uuid_body));
@@ -1731,7 +1736,7 @@ mod cr3_hevc_tests {
         b.extend_from_slice(&boxed(b"hvcC", hvcc));
         b.extend_from_slice(&boxed(b"colr", b"nclx\x00\x09\x00\x10\x00\x09\x80"));
         b.extend_from_slice(&boxed(b"pixi", &[0, 0, 0, 0, 3, 10, 10, 10]));
-        // IMGDの先頭4Bは総長（実物は「中身の長さ - 4」が入る）。
+        // IMGDの先頭4Bは後続のNAL列の長さ（＝箱の中身の長さ - 4）。
         // その後ろが4バイト長前置のNAL
         let mut imgd = (hevc.len() as u32).to_be_bytes().to_vec();
         imgd.extend_from_slice(hevc);
@@ -1824,7 +1829,11 @@ mod cr3_hevc_tests {
             "版0を拾ってはいけない"
         );
 
-        // 版0の THMB は寸法の位置がずれる（幅の位置に160が来る）
+        // 版0の THMB は並びがずれていて、**幅がオフセット4（160）・高さが6（120）**。
+        // 版1として読むとオフセット6/8を見るので120と0になる。
+        // **とはいえ弾いているのは版**で、寸法は見ていない——「寸法が版1と
+        // 同じ位置でも版で落とす」を見張っているのは上の `PRVW` の側。
+        // こちらは版0の実物の並びを添えた補強
         let mut thmb = vec![0x00, 0, 0, 0, 0x00, 0xa0, 0x00, 0x78, 0x00, 0x00];
         thmb.extend_from_slice(&[0u8; 6]);
         let mut uuid_body = vec![0u8; 16];
@@ -2084,54 +2093,52 @@ mod cr3_hevc_sample_tests {
         out
     }
 
-    /// `PRVW` / `THMB` の中のHEVCを、**箱の走査を使わずに**素朴に切り出す。
+    /// プレビューの箱から、HEVCと表示寸法を**箱の走査を使わずに**素朴に切り出す。
     ///
-    /// `hvcC` と `IMGD` をバイト列で直に探すだけ。`cr3_hevc_box` が壊れても
-    /// ここは動くので、環境の判定に使える。
-    fn crude_hevc(head: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-        fn field(head: &[u8], tag: &[u8; 4]) -> Option<Vec<u8>> {
-            let at = head.windows(4).position(|w| w == tag)?;
+    /// `cr3_hevc_box` が壊れてもここは動くので、環境の判定に使える。
+    ///
+    /// **一式は必ず同じ箱から取る。** `hvcC` を位置順で、寸法をタグの優先順で
+    /// 別々に拾うと、`PRVW` のストリームに `THMB` の320x214を貼るような組み合わせが
+    /// できてしまう。`ispe` と符号化寸法を突き合わせる読み手（将来のImageIO）では
+    /// それが常に false になり、その環境でテストが飛び続ける（ゲート3のP3）。
+    /// そこで**先に見つかったプレビューの箱に絞ってから**中身を読む。
+    fn crude_preview(head: &[u8]) -> Option<(Vec<u8>, Vec<u8>, u16, u16)> {
+        /// 型の位置から、その箱の中身を切り出す。
+        fn body_at(buf: &[u8], at: usize) -> Option<&[u8]> {
             // 箱の大きさは型の4バイト手前。**引き算を先にしない**
             // ——`at < 4` だとデバッグビルドで桁溢れのpanicになる
             let start = at.checked_sub(4)?;
-            let size = u32::from_be_bytes(head.get(start..at)?.try_into().ok()?) as usize;
-            head.get(at + 4..start.checked_add(size)?)
-                .map(<[u8]>::to_vec)
+            let size = u32::from_be_bytes(buf.get(start..at)?.try_into().ok()?) as usize;
+            buf.get(at + 4..start.checked_add(size)?)
         }
-        let hvcc = field(head, b"hvcC")?;
-        let imgd = field(head, b"IMGD")?;
-        Some((hvcc, imgd.get(4..)?.to_vec()))
-    }
+        fn find(buf: &[u8], tag: &[u8; 4]) -> Option<usize> {
+            buf.windows(4).position(|w| w == tag)
+        }
 
-    /// `PRVW` / `THMB` のヘッダから表示寸法を、**箱の走査を使わずに**読む。
-    fn crude_size(head: &[u8]) -> Option<(u16, u16)> {
-        for tag in [b"THMB", b"PRVW"] {
-            let Some(at) = head.windows(4).position(|w| w == tag) else {
-                continue;
-            };
-            // 型の直後が16バイトのヘッダ。版1ならオフセット6/8に寸法が入る
-            let body = head.get(at + 4..at + 4 + 16)?;
-            if body.first() != Some(&1) {
-                continue;
-            }
-            let w = u16::from_be_bytes([body[6], body[7]]);
-            let h = u16::from_be_bytes([body[8], body[9]]);
-            if w > 0 && h > 0 {
-                return Some((w, h));
-            }
+        let at = [b"PRVW", b"THMB"]
+            .into_iter()
+            .filter_map(|tag| find(head, tag))
+            .min()?;
+        let body = body_at(head, at)?;
+        // 型の直後が16バイトのヘッダ。版1ならオフセット6/8に表示寸法が入る
+        if body.first() != Some(&1) {
+            return None;
         }
-        None
+        let width = u16::from_be_bytes([*body.get(6)?, *body.get(7)?]);
+        let height = u16::from_be_bytes([*body.get(8)?, *body.get(9)?]);
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let hvcc = body_at(body, find(body, b"hvcC")?)?.to_vec();
+        let imgd = body_at(body, find(body, b"IMGD")?)?;
+        Some((hvcc, imgd.get(4..)?.to_vec(), width, height))
     }
 
     /// この環境でHEVCの静止画を起こせるか。**包み直しを1行も通さずに**確かめる。
     fn codec_available(head: &[u8]) -> bool {
-        let Some((hvcc, hevc)) = crude_hevc(head) else {
+        let Some((hvcc, hevc, width, height)) = crude_preview(head) else {
             return false;
         };
-        // **寸法も独立に読む。** ここで実物と違う値を貼ると、`ispe` と符号化寸法を
-        // 突き合わせる読み手（将来のImageIO）では常に false になり、その環境で
-        // テストが恒久的に無言スキップする（ゲート2のP3）
-        let (width, height) = crude_size(head).unwrap_or((1620, 1080));
         let heif = independent_heif(&hvcc, width, height, &hevc);
         // **ここだけは製品側（`decode_mem`）に落ちる。** 完全な分離はできないので、
         // 「コーデックが無い」と「`decode_mem` が壊れた」は区別できない。
