@@ -718,6 +718,23 @@ fn cr3_hevc_box(head: &[u8], tag: &[u8; 4]) -> Option<Cr3Hevc> {
         None
     }
 
+    /// `IMGD` の中身からNAL列を切り出す。
+    ///
+    /// 先頭4Bの**申告どおりに切る**。後ろに詰め物が付いている個体で残り全部を
+    /// 持っていくと、そのまま `mdat` に混ざってデコーダに拒まれる（ゲート1のP2）。
+    ///
+    /// **申告が使えないときは箱の残り全部へ倒す**（0、または中身に収まらない値）。
+    /// 実物は「中身の長さ - 4」がそのまま入っているので、そこが食い違う個体は
+    /// 形が違う——捨てて枠だけにするより、読ませてみるほうが得。
+    fn imgd_nals(inner: &[u8]) -> Option<&[u8]> {
+        let rest = inner.get(4..)?;
+        let declared = u32::from_be_bytes(inner.get(..4)?.try_into().ok()?) as usize;
+        Some(match rest.get(..declared) {
+            Some(nals) if declared > 0 => nals,
+            _ => rest,
+        })
+    }
+
     /// `PRVW` / `THMB` の中身（16バイトのヘッダ＋子箱の並び）を読む。
     fn parse(body: &[u8]) -> Option<Cr3Hevc> {
         // **版を確かめる。** 版0（通常のCR3）は子箱を持たず、`PRVW` は
@@ -743,7 +760,7 @@ fn cr3_hevc_box(head: &[u8], tag: &[u8; 4]) -> Option<Cr3Hevc> {
                 b"pixi" => pixi = Some(inner.to_vec()),
                 // 先頭4Bは**後続のNAL列の長さ**（箱の中身から4を引いた値。
                 // 箱そのものの長さではない）。その後ろが4バイト長前置のNAL列
-                b"IMGD" => hevc = inner.get(4..).map(<[u8]>::to_vec),
+                b"IMGD" => hevc = imgd_nals(inner).map(<[u8]>::to_vec),
                 _ => {}
             }
         }
@@ -1853,6 +1870,44 @@ mod cr3_hevc_tests {
     }
 
     #[test]
+    fn imgdの申告どおりに切る() {
+        /// `IMGD` の中身を指定して、版1の `PRVW` を1つ持つCR3もどきを組む。
+        fn cr3_with_imgd(imgd: &[u8]) -> Vec<u8> {
+            let mut body = vec![0x01, 0, 0, 0, 0, 0x02];
+            body.extend_from_slice(&1620u16.to_be_bytes());
+            body.extend_from_slice(&1080u16.to_be_bytes());
+            body.extend_from_slice(&[0xff, 0xff]);
+            body.extend_from_slice(&0u32.to_be_bytes());
+            body.extend_from_slice(&boxed(b"hvcC", &[0x01, 0x04, 0x08]));
+            body.extend_from_slice(&boxed(b"IMGD", imgd));
+            let mut uuid_body = vec![0u8; 16];
+            uuid_body.extend_from_slice(&boxed(b"PRVW", &body));
+            boxed(b"uuid", &uuid_body)
+        }
+        let nal = one_nal();
+
+        // 後ろに詰め物が付いた個体。残り全部を持っていくと `mdat` に混ざって
+        // デコーダに拒まれる——**申告どおりに切る**
+        let mut padded = (nal.len() as u32).to_be_bytes().to_vec();
+        padded.extend_from_slice(&nal);
+        padded.extend_from_slice(&[0xaa; 16]);
+        let found = cr3_hevc_box(&cr3_with_imgd(&padded), b"PRVW").expect("取り出せる");
+        assert_eq!(found.hevc, nal, "詰め物まで持っていっている");
+
+        // 申告が中身に収まらないときは**捨てずに**箱の残り全部へ倒す
+        let mut bogus = u32::MAX.to_be_bytes().to_vec();
+        bogus.extend_from_slice(&nal);
+        let found = cr3_hevc_box(&cr3_with_imgd(&bogus), b"PRVW").expect("諦めてはいけない");
+        assert_eq!(found.hevc, nal);
+
+        // 申告が0のときも同じ（空にすると絵が丸ごと消える）
+        let mut zero = 0u32.to_be_bytes().to_vec();
+        zero.extend_from_slice(&nal);
+        let found = cr3_hevc_box(&cr3_with_imgd(&zero), b"PRVW").expect("諦めてはいけない");
+        assert_eq!(found.hevc, nal);
+    }
+
+    #[test]
     fn 色差の間引きをhvccから読む() {
         use crate::jpeg::ChromaSampling;
         // hvcC の17バイト目の下位2ビットが chroma_format_idc。
@@ -2115,23 +2170,33 @@ mod cr3_hevc_sample_tests {
             buf.windows(4).position(|w| w == tag)
         }
 
-        let at = [b"PRVW", b"THMB"]
+        /// 1つの箱から一式（`hvcC`・NAL列・表示寸法）を取る。
+        fn one(head: &[u8], at: usize) -> Option<(Vec<u8>, Vec<u8>, u16, u16)> {
+            let body = body_at(head, at)?;
+            // 型の直後が16バイトのヘッダ。版1ならオフセット6/8に表示寸法が入る
+            if body.first() != Some(&1) {
+                return None;
+            }
+            let width = u16::from_be_bytes([*body.get(6)?, *body.get(7)?]);
+            let height = u16::from_be_bytes([*body.get(8)?, *body.get(9)?]);
+            if width == 0 || height == 0 {
+                return None;
+            }
+            let hvcc = body_at(body, find(body, b"hvcC")?)?.to_vec();
+            let imgd = body_at(body, find(body, b"IMGD")?)?;
+            Some((hvcc, imgd.get(4..)?.to_vec(), width, height))
+        }
+
+        // 候補は**位置の昇順に見て、一式が揃った最初の箱**を採る。1つ目が版0でも
+        // もう一方へ落ちる——「`THMB` は版0のJPEG・`PRVW` だけ版1のHEVC」という
+        // 個体が出たときに、環境の判定が false に倒れてサンプルのテストが
+        // 無言で飛ぶのを避ける（ゲート2のP3）
+        let mut ats: Vec<usize> = [b"PRVW", b"THMB"]
             .into_iter()
             .filter_map(|tag| find(head, tag))
-            .min()?;
-        let body = body_at(head, at)?;
-        // 型の直後が16バイトのヘッダ。版1ならオフセット6/8に表示寸法が入る
-        if body.first() != Some(&1) {
-            return None;
-        }
-        let width = u16::from_be_bytes([*body.get(6)?, *body.get(7)?]);
-        let height = u16::from_be_bytes([*body.get(8)?, *body.get(9)?]);
-        if width == 0 || height == 0 {
-            return None;
-        }
-        let hvcc = body_at(body, find(body, b"hvcC")?)?.to_vec();
-        let imgd = body_at(body, find(body, b"IMGD")?)?;
-        Some((hvcc, imgd.get(4..)?.to_vec(), width, height))
+            .collect();
+        ats.sort_unstable();
+        ats.into_iter().find_map(|at| one(head, at))
     }
 
     /// この環境でHEVCの静止画を起こせるか。**包み直しを1行も通さずに**確かめる。
