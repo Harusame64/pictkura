@@ -909,6 +909,18 @@ pub enum PatchedTiff {
     Unreadable,
 }
 
+/// **中身は長さだけ出す。** `Patched` は先頭 [`PATCHED_TIFF_HEAD`] バイトを
+/// 抱えているので、素朴に導出するとテストが落ちたときに256KBが流れる。
+impl std::fmt::Debug for PatchedTiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Patched(buf) => write!(f, "Patched({}バイト)", buf.len()),
+            Self::NotApplicable => write!(f, "NotApplicable"),
+            Self::Unreadable => write!(f, "Unreadable"),
+        }
+    }
+}
+
 /// **TIFFのふりをしていない**TIFF系RAWのメタデータを、普通のEXIFとして
 /// 読めるバイト列にして返す（`thumbs::read_exif` が使う）。
 ///
@@ -949,13 +961,14 @@ pub fn patched_tiff_metadata(path: &Path) -> PatchedTiff {
         b"MM" => true,
         _ => return PatchedTiff::NotApplicable, // TIFFですらない（CR3・RAF・X3F等）
     };
-    let (Some(lo), Some(hi)) = (head.get(2).copied(), head.get(3).copied()) else {
+    // 名前は**位置**で付ける。`lo`/`hi` だと big-endian で逆になる
+    let (Some(b2), Some(b3)) = (head.get(2).copied(), head.get(3).copied()) else {
         return PatchedTiff::NotApplicable;
     };
     let version = if big_endian {
-        u16::from_be_bytes([lo, hi])
+        u16::from_be_bytes([b2, b3])
     } else {
-        u16::from_le_bytes([lo, hi])
+        u16::from_le_bytes([b2, b3])
     };
     // 42（普通のTIFF）と43（BigTIFF）は直す対象ではない。前者はそもそも
     // ここへ来ないし、後者は構造が違うので版番号を替えても読めない
@@ -975,10 +988,8 @@ pub fn patched_tiff_metadata(path: &Path) -> PatchedTiff {
     } else {
         [0x2A, 0x00]
     };
-    let Some(slot) = buf.get_mut(2..4) else {
-        return PatchedTiff::NotApplicable;
-    };
-    slot.copy_from_slice(&patched);
+    // 版番号を読めている＝4バイト以上あることは上で確定している
+    buf[2..4].copy_from_slice(&patched);
     PatchedTiff::Patched(buf)
 }
 
@@ -995,12 +1006,20 @@ fn read_window(path: &Path, offset: usize, len: usize) -> Option<Vec<u8>> {
 }
 
 /// ファイルの先頭を最大 `limit` バイト読む。
+///
+/// **1バイトも読めなければ `None`**（[`read_window`] と揃えた）。0バイトの
+/// ファイルは「開けたが中身が無い」であって「読んで確かめられた」ではない
+/// ——同期や書き戻しの途中でRAWが一時的に空になることは実際にあり、
+/// そこへ後追いが「確かめた」印を付けると二度と直らない
+/// （[`crate::thumbs::backfilled_dimensions`]・ゲート2のP2）。
+/// 絵を探す側の呼び出しは、いずれも `None` を「ここでは見つからなかった」
+/// として扱うので影響しない。
 fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
     use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
     let mut buf = Vec::new();
     file.take(limit as u64).read_to_end(&mut buf).ok()?;
-    Some(buf)
+    (!buf.is_empty()).then_some(buf)
 }
 
 /// ISO-BMFF（CR3等）から**TIFF形式のメタデータブロック**を取り出す。
@@ -1691,6 +1710,36 @@ mod tests {
         assert!(
             matches!(patched_tiff_metadata(&path), PatchedTiff::Unreadable),
             "読めないのと直す対象でないのは別"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 箱を辿れないcr3は空と区別する() {
+        // CR3はコンテナ読みも版番号の直しも素通りするので、ここが3度目の
+        // `File::open` になる。**空の `Vec` に畳むと**、前の2回が通った後に
+        // 共有ロックが掛かった1枚を「箱にメタデータが無いCR3」と取り違え、
+        // 後追いが「確かめた」印を付けて二度と直らない
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.cr3");
+        // 箱としては正しいが `CMT*` を持たない個体（＝空の `Some` が正解）
+        std::fs::write(&path, b"\x00\x00\x00\x0cftypcrx ").unwrap();
+        assert_eq!(
+            bmff_metadata_blocks(&path).expect("読める").len(),
+            0,
+            "読めて、箱が無いだけ"
+        );
+
+        // 共有を許さずに開いたまま持つ
+        let _lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(
+            bmff_metadata_blocks(&path).is_none(),
+            "読めないのと箱が無いのは別"
         );
     }
 

@@ -377,17 +377,24 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
 /// 空の [`ExifData`] を返すと、呼び出し側が「開けたが申告が無い社」と
 /// 見分けられず、**一時的に読めないだけの行に「確かめた」印**を付けてしまう。
 ///
-/// 真になるのは**実際にファイルを読み通せた**とき——コンテナ読みが最後まで
-/// 通ったか（EXIFが無くてもよい）、CR3の箱を辿れたか。開き直しが挟まる経路は
-/// **後の読みが失敗したら偽へ落とす**（開けた瞬間から共有ロックが掛かるまでの
-/// 隙間で嘘を付かないため）。
+/// 真になるのは**読み出しが1つも失敗しなかった**とき。「読み通した」ではない
+/// ——CR3・RAF・X3F・ORF・RW2 では、コンテナ読みは先頭4096バイトを見て
+/// 「知らない形式」と言うだけで、実際に中身を担保しているのは後段の
+/// `read_head`（256KB・1MB）のほう。
+///
+/// 開き直しが挟まる経路は**後の読みが失敗したら偽へ落とす**（開けた瞬間から
+/// 共有ロックが掛かるまでの隙間で嘘を付かないため）。
 fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
-    let container = read_exif_container(path);
-    let mut readable = !matches!(container, Container::Unreadable);
-    let container = match container {
+    let container = match read_exif_container(path) {
         Container::Found(data) => Some(data),
-        Container::Empty | Container::Unreadable => None,
+        Container::Empty => None,
+        // **開けないと分かった時点で降りる。** この先は開き直しが2回
+        // （`patched_tiff_metadata` と `bmff_metadata_blocks`）あり、
+        // どちらも同じ理由で落ちる。外付けが繋がっていないライブラリで
+        // 1件あたり2回の無駄な `File::open` を積まない
+        Container::Unreadable => return (ExifData::default(), false),
     };
+    let mut readable = true;
 
     // HEIFは**コンテナ自身が向きを持つ**（`irot`）。OSのデコーダはそれを適用して
     // 返すので、EXIF Orientationをそのまま流すと絵に二重に掛かって横倒しになる。
@@ -445,10 +452,11 @@ fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
     if result.taken_at_ms.is_none()
         || (result.original.is_none() && crate::raw::is_bmff_raw_path(path))
     {
-        // **箱を辿れたかどうかで読めたかを言い直す。** CR3はコンテナ読みを
-        // 素通りする（開けはするがEXIFとして解釈できない）ので、ここが
-        // 2度目の `File::open` になる。1度目が通った後に共有ロックが掛かると
-        // 箱は空で返り、そのまま進むと**読めていないのに印を付ける**
+        // **箱を辿れたかどうかで読めたかを言い直す。** CR3はコンテナ読みも
+        // 版番号の直しも素通りするので、ここが**3度目の `File::open`**
+        // （コンテナ読み → `patched_tiff_metadata` → ここ）。前の2回が通った
+        // 後に共有ロックが掛かると箱は空で返り、そのまま進むと
+        // **読めていないのに印を付ける**
         let blocks = crate::raw::bmff_metadata_blocks(path);
         readable = readable && blocks.is_some();
         for block in blocks.unwrap_or_default() {
@@ -561,9 +569,16 @@ fn read_exif_container(path: &Path) -> Container {
     let mut reader = BufReader::new(file);
     match exif::Reader::new().read_from_container(&mut reader) {
         Ok(exif) => Container::Found(exif_data_from(&exif)),
-        // **末尾に達しただけ（`UnexpectedEof`）は「読めた」に入れる。**
-        // 切れたファイルは何度読んでも同じ長さなので、読めなかった扱いにすると
-        // 後追いが毎回の起動でファイル全体を読み直すことになる
+        // 読み出しそのものが落ちたときだけ取り下げる。**形として読めなかった
+        // （`InvalidFormat` 等）は「読めた」に入れる**——CR3・ORF・RW2 は
+        // 正常な個体でも必ずここへ来るし、切れたファイルも何度読めば同じなので、
+        // 取り下げると後追いが毎回の起動でファイル全体を読み直す
+        //
+        // **`UnexpectedEof` の除外は 0.6.1 では発火しない。** 4つのコンテナ
+        // パーサ（jpeg・isobmff・png・webp）がEOFを `InvalidFormat` に畳んでから
+        // 返し、TIFF系は `read_to_end` なのでEOFを出さない——実物のソースで
+        // 確かめた。次の版で漏れてきたときに切れたファイルを読み直し続けない
+        // ための備えとして残す（`exif::Error` は `#[non_exhaustive]`）
         Err(exif::Error::Io(e)) if e.kind() != std::io::ErrorKind::UnexpectedEof => {
             Container::Unreadable
         }
@@ -2132,9 +2147,12 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn 共有ロックが掛かったrawには確かめた印を付けない() {
-        // 「一度開けたのだから読めるはず」で進むと、開いた直後にロックが
-        // 掛かった1枚に**申告なし**の印が付いて二度と直らない
-        // （PRコメント側のCodexの指摘）。読み出しの失敗をそのまま返す
+        // **見ているのは入口だけ**——ロックを先に握るので、最初の
+        // `File::open` で落ちる。「1度目は通ったのに2度目が落ちる」隙間は
+        // ここからは作れないので、そちらは下位の関数を直接見る側で見張る
+        // （`raw::箱を辿れないcr3は空と区別する` と `raw::読めないorfは…`）。
+        // それでも `is_file()` の門を通った後で読めなくなる筋は実在するので、
+        // 後追いの入口として1本置いておく
         use std::os::windows::fs::OpenOptionsExt;
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("locked.cr3");
