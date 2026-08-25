@@ -21,6 +21,12 @@ use rusqlite::{params, Connection, OpenFlags};
 use crate::scanner::ScannedFile;
 use crate::search::{index_text, SearchQuery};
 
+/// `media` を [`Db::row_to_record`] へ渡すときの列並び。**4か所のSELECTで共有する**
+/// ——別々に書くと、列を足したときに片方だけ直して添字がずれる。
+const MEDIA_COLUMNS: &str = "id, path, size, mtime_ms, width, height, taken_at_ms,
+     day_key, thumb_path, thumb_state, favorite, picked, duration_ms,
+     preview_width, preview_height";
+
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     #[error("DB操作に失敗: {0}")]
@@ -36,10 +42,21 @@ pub struct MediaRecord {
     pub size: i64,
     /// 更新日時（Unixエポックミリ秒）
     pub mtime_ms: i64,
-    /// 画像の幅（メタデータ抽出後に設定。グリッドの枠確保に使う）
+    /// **原本**の幅（メタデータ抽出後に設定。グリッドの枠確保に使う）。
+    /// RAWはセンサーの原寸で、配信する絵の寸法ではない（[`Self::preview_width`]）
     pub width: Option<i64>,
-    /// 画像の高さ
+    /// 原本の高さ
     pub height: Option<i64>,
+    /// **埋め込みプレビュー**の幅。原本と違うときだけ入る——RAWで一覧とビューアへ
+    /// 配るのはこの絵で、原本より小さいことが多い（HDR PQのCR3は 6000x4000 に
+    /// 対して 1620x1080）。同じならNULLで、読む側は `width` へ落とす。
+    ///
+    /// **ビューアが配る絵と一致する保証は無い**（一覧は長辺512、ビューアは1600で
+    /// 探すので、原寸プレビューを後ろに置く形式では後者のほうが大きい）。
+    /// 見当を付けるための値で、UIは絵が届いた時点で実寸に取り直す
+    pub preview_width: Option<i64>,
+    /// 埋め込みプレビューの高さ。入る条件は [`Self::preview_width`] と同じ
+    pub preview_height: Option<i64>,
     /// 撮影日時（EXIF DateTimeOriginal、Unixエポックミリ秒）。未抽出はNULL、表示側はmtimeへフォールバック
     pub taken_at_ms: Option<i64>,
     /// 表示日（ローカルタイムゾーンのYYYYMMDD整数）。撮影日時（なければmtime）から書き込み時に計算
@@ -55,6 +72,31 @@ pub struct MediaRecord {
     pub picked: bool,
     /// 動画の長さ（ミリ秒）。画像はNULL（第9部）
     pub duration_ms: Option<i64>,
+}
+
+/// [`Db::update_metadata`] へ渡す寸法。
+///
+/// 原本と、一覧が掴んだ埋め込みプレビューの2組。**数字を4つ並べて渡すと
+/// 取り違える**ので型にしてある（幅と高さ、原本とプレビューの4通り）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Dimensions {
+    /// 原本（RAWならセンサー）の幅。読めなければ0
+    pub width: i64,
+    /// 原本の高さ
+    pub height: i64,
+    /// 掴んだ埋め込みプレビューの幅・高さ。**原本と同じなら `None`**
+    pub preview: Option<(i64, i64)>,
+}
+
+impl Dimensions {
+    /// 原本をそのまま配る形式（RAW以外はすべてこちら）。
+    pub fn original(width: i64, height: i64) -> Self {
+        Self {
+            width,
+            height,
+            preview: None,
+        }
+    }
 }
 
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
@@ -360,6 +402,10 @@ impl Db {
             "ALTER TABLE media ADD COLUMN picked INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // 段階F-4: 一覧が掴んだ埋め込みプレビューの寸法。**原本と違うときだけ**
+        // 入る（RAWだけ）。同じならNULLで、読む側は width/height へ落とす
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN preview_width INTEGER", []);
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN preview_height INTEGER", []);
         // 段階B-3: 高品質サムネイルのLRUキャッシュ管理用
         let _ = conn.execute("ALTER TABLE media ADD COLUMN thumb_bytes INTEGER", []);
         let _ = conn.execute("ALTER TABLE media ADD COLUMN thumb_used_ms INTEGER", []);
@@ -1108,11 +1154,14 @@ impl Db {
     /// メタデータ抽出結果（幅・高さ・撮影日時・カメラ）を書き込む。
     /// 撮影日時が確定したら表示日（day_key）も撮影日時基準で更新する。
     /// カメラ名は `cameras` 表へ正規化し、`camera_id` の更新でFTS索引が張り替わる。
+    ///
+    /// `width`/`height` は**原本**の寸法、`preview_*` は**掴んだ埋め込みプレビュー**の
+    /// 寸法で、原本と同じなら `None`。`None` も毎回書き戻す——プレビューが原寸に
+    /// 変わったファイル（RAWを別のソフトで書き出し直した等）で古い値が残らないように
     pub fn update_metadata(
         &mut self,
         id: i64,
-        width: i64,
-        height: i64,
+        dims: Dimensions,
         taken_at_ms: Option<i64>,
         camera: Option<&str>,
     ) -> Result<(), DbError> {
@@ -1124,11 +1173,20 @@ impl Db {
         self.conn.execute(
             &format!(
                 "UPDATE media SET width = ?2, height = ?3, taken_at_ms = ?4,
-                        day_key = {}, camera_id = ?5
+                        day_key = {}, camera_id = ?5,
+                        preview_width = ?6, preview_height = ?7
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, mtime_ms)")
             ),
-            params![id, width, height, taken_at_ms, camera_id],
+            params![
+                id,
+                dims.width,
+                dims.height,
+                taken_at_ms,
+                camera_id,
+                dims.preview.map(|(w, _)| w),
+                dims.preview.map(|(_, h)| h)
+            ],
         )?;
         Ok(())
     }
@@ -1406,11 +1464,9 @@ impl Db {
 
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media WHERE id = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {MEDIA_COLUMNS} FROM media WHERE id = ?1"))?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
             Some(row) => Ok(Some(Self::row_to_record(row)?)),
@@ -1583,9 +1639,7 @@ impl Db {
         conds.insert(0, "day_key = ?".to_string());
         args.insert(0, rusqlite::types::Value::Integer(day_key));
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media WHERE {}
+            "SELECT {MEDIA_COLUMNS} FROM media WHERE {}
              ORDER BY {SORT_TS} DESC, id DESC",
             conds.join(" AND ")
         ))?;
@@ -1981,9 +2035,7 @@ impl Db {
 
         let mut out = Vec::new();
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media WHERE day_key = ?1
+            "SELECT {MEDIA_COLUMNS} FROM media WHERE day_key = ?1
              ORDER BY {SORT_TS} DESC, id DESC LIMIT ?2"
         ))?;
         for year in (min_year..this_year).rev() {
@@ -2024,9 +2076,7 @@ impl Db {
     /// テスト・ベンチマーク（新旧比較）用に残している。
     pub fn list_all(&self) -> Result<Vec<MediaRecord>, DbError> {
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media ORDER BY {SORT_TS} DESC, id DESC"
+            "SELECT {MEDIA_COLUMNS} FROM media ORDER BY {SORT_TS} DESC, id DESC"
         ))?;
         let rows = stmt.query_map([], Self::row_to_record)?;
         let mut out = Vec::new();
@@ -2196,6 +2246,8 @@ impl Db {
             favorite: row.get::<_, i64>(10)? != 0,
             picked: row.get::<_, i64>(11)? != 0,
             duration_ms: row.get(12)?,
+            preview_width: row.get(13)?,
+            preview_height: row.get(14)?,
         })
     }
 }
@@ -2324,7 +2376,8 @@ mod tests {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 100, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
-        db.update_metadata(id, 640, 480, Some(123), None).unwrap();
+        db.update_metadata(id, Dimensions::original(640, 480), Some(123), None)
+            .unwrap();
         db.update_thumb_path(id, Path::new("thumb/a.webp"), 2, Some(1000))
             .unwrap();
         assert_eq!(db.get_by_id(id).unwrap().unwrap().thumb_state, 2);
@@ -2408,7 +2461,7 @@ mod tests {
             .find(|r| r.path == Path::new("exif.jpg"))
             .unwrap()
             .id;
-        db.update_metadata(exif_id, 640, 480, Some(10000), None)
+        db.update_metadata(exif_id, Dimensions::original(640, 480), Some(10000), None)
             .unwrap();
 
         let names: Vec<_> = db
@@ -2472,7 +2525,7 @@ mod tests {
 
         // 撮影日時が確定したらday_keyは撮影日基準へ
         let taken = local_noon_ms(2020, 1, 5);
-        db.update_metadata(rec.id, 640, 480, Some(taken), None)
+        db.update_metadata(rec.id, Dimensions::original(640, 480), Some(taken), None)
             .unwrap();
         assert_eq!(db.get_by_id(rec.id).unwrap().unwrap().day_key, 20200105);
     }
@@ -2747,8 +2800,13 @@ mod tests {
                 } else {
                     // 消える側: ユーザーが★を付け、撮影情報も埋まっている
                     db.set_favorite(r.id, true).unwrap();
-                    db.update_metadata(r.id, 640, 480, Some(1_700_000_000_000), Some("Camera X"))
-                        .unwrap();
+                    db.update_metadata(
+                        r.id,
+                        Dimensions::original(640, 480),
+                        Some(1_700_000_000_000),
+                        Some("Camera X"),
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -2791,8 +2849,13 @@ mod tests {
             .unwrap()
             .unwrap()
             .id;
-        db.update_metadata(unchanged_id, 640, 480, Some(100), None)
-            .unwrap();
+        db.update_metadata(
+            unchanged_id,
+            Dimensions::original(640, 480),
+            Some(100),
+            None,
+        )
+        .unwrap();
         db.update_thumb_path(unchanged_id, Path::new("t/1.webp"), 2, Some(1000))
             .unwrap();
 
@@ -3396,13 +3459,13 @@ mod tests {
             |db: &Db, name: &str| db.get_meta_by_path(Path::new(name)).unwrap().unwrap().id;
         // provisional: メタデータ抽出済み・即席サムネイルあり
         let prov = by_name(&db, "provisional.jpg");
-        db.update_metadata(prov, 640, 480, Some(2000), None)
+        db.update_metadata(prov, Dimensions::original(640, 480), Some(2000), None)
             .unwrap();
         db.update_thumb_path(prov, Path::new("t/p.jpg"), 1, None)
             .unwrap();
         // evicted: メタデータ抽出済み・LRU削除でstate=0へ戻った状態
         let evicted = by_name(&db, "evicted.jpg");
-        db.update_metadata(evicted, 640, 480, Some(3000), None)
+        db.update_metadata(evicted, Dimensions::original(640, 480), Some(3000), None)
             .unwrap();
 
         let missing = db.ids_missing_metadata().unwrap();
@@ -3491,7 +3554,7 @@ mod tests {
             } else {
                 "SONY ILCE-7M3"
             };
-            db.update_metadata(id, 400, 300, None, Some(camera))
+            db.update_metadata(id, Dimensions::original(400, 300), None, Some(camera))
                 .unwrap();
         }
         db
@@ -4055,8 +4118,13 @@ mod tests {
             .id;
         assert_eq!(search_names(&db, "camera:iPhone"), ["IMG_1234.jpg"]);
 
-        db.update_metadata(id, 400, 300, None, Some("Canon EOS R5"))
-            .unwrap();
+        db.update_metadata(
+            id,
+            Dimensions::original(400, 300),
+            None,
+            Some("Canon EOS R5"),
+        )
+        .unwrap();
         assert!(
             search_names(&db, "camera:iPhone").is_empty(),
             "古いカメラ名では引けなくなる"

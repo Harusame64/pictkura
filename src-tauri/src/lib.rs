@@ -332,8 +332,18 @@ fn update_config(state: &AppState, mutate: impl FnOnce(&mut Config)) -> Result<(
 struct MediaItemDto {
     id: i64,
     file_name: String,
+    /// **原本**の寸法。グリッドの枠確保に使う（未抽出時は0）
     width: i64,
     height: i64,
+    /// **埋め込みプレビュー**の寸法。原本と違うときだけ入る——RAWで配るのは
+    /// この絵で、原本より小さいことが多い（HDR PQのCR3は 6000x4000 に対して
+    /// 1620x1080）。null なら原本と同じ。
+    ///
+    /// ビューアは下敷きの大きさ・等倍の倍率・先読みの予算をこちらで決める
+    /// （`ui/src/App.tsx` の `servedSize`）。原本で決めると、届いた絵と
+    /// 大きさが合わずに**差し替えの瞬間に絵が縮む**
+    preview_width: Option<i64>,
+    preview_height: Option<i64>,
     /// 表示・グルーピング用の日時（撮影日時、なければmtime。Unixエポックミリ秒）
     taken_at_ms: i64,
     /// 属する表示日（ローカル日付のYYYYMMDD整数）。スパースタイムラインの部分更新に使う
@@ -379,6 +389,8 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
                 .unwrap_or_default(),
             width: r.width.unwrap_or(0),
             height: r.height.unwrap_or(0),
+            preview_width: r.preview_width,
+            preview_height: r.preview_height,
             taken_at_ms: r.taken_at_ms.unwrap_or(r.mtime_ms),
             day_key: r.day_key,
             mtime_ms: r.mtime_ms,

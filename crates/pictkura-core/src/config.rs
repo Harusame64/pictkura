@@ -191,7 +191,7 @@ fn raw_extensions_are_all_scanned() -> Result<(), String> {
 /// `DEFAULT_EXTENSIONS` と [`crate::video::VIDEO_EXTENSIONS`] は別々に書いてある。
 /// 片方だけに足すとどちらの向きでも黙って壊れる:
 /// - 走査側に無い → そのファイルは**見つからない**
-/// - `video` 側に無い → 画像として扱われ、`source_dimensions` が失敗するうえ
+/// - `video` 側に無い → 画像として扱われ、`served_dimensions` が失敗するうえ
 ///   `can_serve_original` が真を返して**動画本体を丸ごと配りかねない**
 #[cfg(test)]
 fn video_extensions_are_all_scanned() -> Result<(), String> {

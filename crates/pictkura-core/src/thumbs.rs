@@ -44,6 +44,13 @@ pub struct ExifData {
     pub orientation: u8,
     /// カメラ名（メーカー＋機種）。検索とファセットのためDBへ正規化保存する
     pub camera: Option<String>,
+    /// 原本（センサー）の寸法。**RAWでEXIFが申告しているときだけ**入る
+    /// （読み方と当たる社は [`crate::raw::exif_declared_dimensions`] の表）。
+    ///
+    /// **向きは当てていない**。`orientation` と同じく、回すのは呼び出し側。
+    /// RAW以外では常に `None`——編集で縮めた写真は申告が古いまま残ることがあり、
+    /// 実物と食い違う
+    pub original: Option<(u32, u32)>,
 }
 
 impl Default for ExifData {
@@ -53,6 +60,7 @@ impl Default for ExifData {
             thumbnail: None,
             orientation: 1,
             camera: None,
+            original: None,
         }
     }
 }
@@ -320,6 +328,9 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
             // 埋め込みJPEGサムネイルは（あっても）回転前の絵なので使わない。
             // 一覧用の小さい絵は heif::decode_thumbnail から作る
             thumbnail: None,
+            // 寸法はコンテナの `ispe` から取る（[`preview_dimensions`]）。
+            // HEIFの原本は配信する絵そのものなので、申告を持ち込む意味が無い
+            original: None,
             ..container.unwrap_or_default()
         };
     }
@@ -327,6 +338,10 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
     let had_container = container.is_some();
     let mut result = container.unwrap_or_default();
     if !crate::raw::is_raw_path(path) {
+        // **申告はRAWでしか信じない。** JPEGは編集で縮めても
+        // `PixelXDimension` が古いまま残ることがあり、実物と食い違う
+        // （そもそも実ファイルのヘッダから正確な寸法が読める）
+        result.original = None;
         return result;
     }
 
@@ -343,7 +358,13 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
     // CR3等のISO-BMFFは、TIFF形式のメタデータを箱に入れて持っている。
     // 複数の箱に分かれている（機種はCMT1、撮影日時はCMT2）ので、
     // 取れた項目だけを拾って埋めていく
-    if result.taken_at_ms.is_none() {
+    //
+    // **原寸の申告も `CMT1` にある**（[`crate::raw::cr3_declared_dimensions`]）ので、
+    // 撮影日時が既に取れていてもCR3なら見に行く。TIFF系RAWを巻き込むと、
+    // 申告を持たない社のために毎回1MB読み直すことになるので、拡張子で切る
+    if result.taken_at_ms.is_none()
+        || (result.original.is_none() && crate::raw::is_bmff_raw_path(path))
+    {
         for block in crate::raw::bmff_metadata_blocks(path) {
             let Ok(exif) = exif::Reader::new().read_raw(block) else {
                 continue;
@@ -354,6 +375,11 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
             if result.orientation == 1 {
                 result.orientation = from_block.orientation;
             }
+            // CR3のIFD0は絵を持たないので、`ImageWidth` が原本の寸法になる
+            // （TIFF系RAWでこれをやるとサムネイルの寸法を掴む）
+            result.original = result
+                .original
+                .or_else(|| crate::raw::cr3_declared_dimensions(&exif));
         }
     }
 
@@ -471,6 +497,8 @@ fn exif_data_from(exif: &exif::Exif) -> ExifData {
         thumbnail,
         orientation,
         camera: camera_name(ascii_field(exif, Tag::Make), ascii_field(exif, Tag::Model)),
+        // RAW以外はこの後 [`read_exif_inner`] が落とす
+        original: crate::raw::exif_declared_dimensions(exif),
     }
 }
 
@@ -627,7 +655,22 @@ fn source_image(
 }
 
 /// 画像の寸法（回転前）。RAWは埋め込みプレビューの寸法を使う。
-fn source_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbError> {
+/// **いま手にしている絵**の寸法を、起こさずに読む。
+///
+/// RAW以外は原本そのもの。RAWだけ違って、返るのは `exif` を取ったときに掴んだ
+/// 埋め込みプレビューの寸法で、**原本より小さいことが多い**（HDR PQのCR3は
+/// 6000x4000 に対して 1620x1080）。原本の寸法は [`ExifData::original`] に別で入る。
+///
+/// ビューアはこの値で下敷きの大きさ・等倍の倍率・先読みの予算を決める
+/// （`ui/src/App.tsx` の `servedSize`）。原本のほうを渡すと、届いた絵と枠が
+/// 合わずに**差し替えの瞬間に絵が縮む**。
+///
+/// **配信される絵と一致する保証は無い。** ここへ来る `exif` は一覧のために
+/// 長辺512で探したもので、ビューアは長辺1600で探し直す——ファイル後方に
+/// 原寸プレビューを置く形式（Ricoh GR IIIのDNG・Sigma X3F）は、一覧が720x480を
+/// 掴んだ後にビューアが6000x4000を見つける。だからビューア側は絵が届いた時点で
+/// 実寸を測り直す（`servedNatural`）。
+fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbError> {
     // HEIFはコンテナの `ispe` を読むだけで分かる（デコード不要・実測0.2ms）。
     // 返すのは**回転を反映した表示上の寸法**なので、呼び出し側で入れ替えない
     // SVGはルート要素の width/height（無ければ viewBox）から読む
@@ -725,11 +768,11 @@ fn process_video(
         }
     }
 
-    // それでも寸法が読めなければ0のまま。グリッドは既定の縦横比で並べる
+    // それでも寸法が読めなければ0のまま。グリッドは既定の縦横比で並べる。
+    // 動画は原本をそのまま配るので、プレビューの寸法は持たない
     db.update_metadata(
         id,
-        i64::from(info.width),
-        i64::from(info.height),
+        crate::db::Dimensions::original(i64::from(info.width), i64::from(info.height)),
         info.taken_at_ms
             .or_else(|| crate::namedate::guess_taken_at(src))
             .or(Some(record.mtime_ms)),
@@ -876,7 +919,16 @@ pub fn process_one(
     // ファイルなら**丸ごとハイドレート**にもなる（ゲート2のP2）。
     // 原寸が要るのはビューア（[`raw_display_jpeg`]）だけ
     let exif_data = read_exif_for_preview(src, thumb_size);
-    let (width, height) = source_dimensions(src, &exif_data)?;
+    let (prev_w, prev_h) = preview_dimensions(src, &exif_data)?;
+    // **原本の寸法は別物**。RAWで配信するのは埋め込みプレビューなので、
+    // 原本（6000x4000）とプレビュー（1620x1080）の両方をDBへ書く。
+    // 申告がプレビューより小さいときは信じない——申告を読み違えたか、
+    // 原寸プレビューを持つ社（Samsung SRW）で丸め違いが出たときに、
+    // 記録が実物より小さくなるのを防ぐ
+    let (orig_w, orig_h) = exif_data
+        .original
+        .filter(|(w, h)| *w >= prev_w && *h >= prev_h)
+        .unwrap_or((prev_w, prev_h));
     // RAWは埋め込みプレビューが「表示用の絵」そのもの。即席として書き出すと
     // フルサイズJPEG（数MB）がサムネイル置き場に溜まるので、最初から縮小して作る
     let is_raw = crate::raw::is_raw_path(src);
@@ -887,15 +939,21 @@ pub fn process_one(
     // 段階B-3のオンデマンド化が効かなくなる（展開は可視要求まで待つ）
     let is_heif = crate::heif::is_heif_path(src);
     // Orientation 5〜8 は90度系の回転 → 表示上の幅・高さは入れ替わる
-    let (disp_w, disp_h) = if (5..=8).contains(&exif_data.orientation) {
-        (height, width)
-    } else {
-        (width, height)
+    let rotated = (5..=8).contains(&exif_data.orientation);
+    let upright = |w: u32, h: u32| if rotated { (h, w) } else { (w, h) };
+    let (disp_w, disp_h) = upright(orig_w, orig_h);
+    // 原本と同じなら列に入れない（＝「原本を配信する」の意味）。
+    // NULLで済ませるほうがDBが軽く、UI側も原本へ落として同じ絵になる
+    let dims = crate::db::Dimensions {
+        width: i64::from(disp_w),
+        height: i64::from(disp_h),
+        preview: (prev_w != orig_w || prev_h != orig_h)
+            .then(|| upright(prev_w, prev_h))
+            .map(|(w, h)| (i64::from(w), i64::from(h))),
     };
     db.update_metadata(
         id,
-        disp_w as i64,
-        disp_h as i64,
+        dims,
         // EXIF → OSのプロパティ → 名前 → mtime（段階H-2）。`or_else` なので
         // EXIFで決まればOSには聞きに行かない。
         //
@@ -1568,6 +1626,112 @@ mod tests {
         let full = read_exif(&src);
         let preview = full.thumbnail.expect("原寸を要求すれば後ろの絵が出る");
         assert_eq!(image::load_from_memory(&preview).unwrap().width(), 1600);
+    }
+
+    /// CR3の最小再現。`moov > uuid > CMT1` に原寸の申告を入れ、
+    /// その後ろに埋め込みプレビューのJPEGを置く。
+    fn fake_cr3(orig: Option<(u32, u32)>, preview: (u32, u32)) -> Vec<u8> {
+        fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        // ImageWidth(0x0100) / ImageLength(0x0101) だけのTIFF（リトルエンディアン）
+        let mut cmt1 = b"II* ".to_vec();
+        cmt1.extend(8u32.to_le_bytes());
+        let entries: Vec<(u16, u32)> = match orig {
+            Some((w, h)) => vec![(0x0100, w), (0x0101, h)],
+            None => Vec::new(),
+        };
+        cmt1.extend((entries.len() as u16).to_le_bytes());
+        for (tag, value) in &entries {
+            cmt1.extend(tag.to_le_bytes());
+            cmt1.extend(4u16.to_le_bytes()); // LONG
+            cmt1.extend(1u32.to_le_bytes());
+            cmt1.extend(value.to_le_bytes());
+        }
+        cmt1.extend(0u32.to_le_bytes()); // 次のIFDは無し
+
+        let mut uuid_body = vec![0u8; 16];
+        uuid_body.extend(box_of(b"CMT1", &cmt1));
+        let mut out = box_of(b"ftyp", b"crx ");
+        out.extend(box_of(b"moov", &box_of(b"uuid", &uuid_body)));
+
+        let img = image::RgbImage::from_fn(preview.0, preview.1, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        out.extend(jpeg.into_inner());
+        out
+    }
+
+    /// 1件だけ入ったDBを作り、`process_one` まで通してレコードを返す。
+    fn record_after_process(dir: &Path, name: &str, bytes: &[u8]) -> crate::MediaRecord {
+        let src = dir.join(name);
+        std::fs::write(&src, bytes).unwrap();
+        let mut db = Db::open(&dir.join(format!("{name}.db"))).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: bytes.len() as i64,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        process_one(&mut db, &dir.join("thumbs"), 320, id, true).unwrap();
+        db.get_by_id(id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn rawは原寸とプレビューの寸法を別々に記録する() {
+        // HDR PQのCR3と同じ形: 原寸6000x4000に対して、配るのは小さいプレビュー。
+        // 数字だけ小さくして同じ縦横比（3:2）にしてある
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(
+            dir.path(),
+            "declared.cr3",
+            &fake_cr3(Some((6000, 4000)), (480, 320)),
+        );
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(6000), Some(4000)),
+            "width/height は原本（CMT1の申告）"
+        );
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320)),
+            "配る絵の寸法は別の列。ビューアの下敷きと先読みの予算がこれで決まる"
+        );
+    }
+
+    #[test]
+    fn 申告が無ければプレビューの寸法を原寸として記録する() {
+        // 原寸の申告を持たない社（Nikon NEF・Olympus ORF 等）は今までどおり。
+        // 分からない値をでっち上げるより、掴んでいる絵の寸法を入れる
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(dir.path(), "plain.cr3", &fake_cr3(None, (480, 320)));
+        assert_eq!((rec.width, rec.height), (Some(480), Some(320)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "原本と同じならNULL。読む側は width/height へ落とす"
+        );
+    }
+
+    #[test]
+    fn プレビューより小さい申告は信じない() {
+        // 申告を読み違えたときに、記録が実物より小さくなるのを防ぐ門
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(
+            dir.path(),
+            "shrunk.cr3",
+            &fake_cr3(Some((160, 120)), (480, 320)),
+        );
+        assert_eq!((rec.width, rec.height), (Some(480), Some(320)));
+        assert_eq!((rec.preview_width, rec.preview_height), (None, None));
     }
 
     #[test]

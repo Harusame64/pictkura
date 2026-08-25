@@ -802,11 +802,7 @@ fn decode_order(mut boxes: Vec<Cr3Hevc>, min_long_edge: u32) -> Vec<Cr3Hevc> {
 /// 16MBを持ち越さずに済む（3段目が最大128MBを読むので、抱えたままだと
 /// ワーカーの数だけピークが積み上がる）。
 fn cr3_hevc_boxes(path: &Path, head: &[u8]) -> Vec<Cr3Hevc> {
-    if !path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("cr3"))
-    {
+    if !is_bmff_raw_path(path) {
         return Vec::new();
     }
     [b"PRVW", b"THMB"]
@@ -1031,6 +1027,66 @@ pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     walk(&head, 0, &mut out);
     out
+}
+
+/// 原本（センサー）の寸法を、EXIFの申告から読む。**絵は1枚も起こさない**。
+///
+/// `media.width/height` に入れる値がこれ。RAWで配信するのは
+/// [`embedded_preview_at_least`] が返す埋め込みプレビューで、**原本より小さいことが多い**
+/// （HDR PQのCR3は1620x1080で、原本は6000x4000）。プレビューの寸法を原本として
+/// 記録すると列の名前が嘘になるので、申告が読めるときはこちらを使う。
+///
+/// **どこに書いてあるかは社ごとに違う。** 手元のサンプル25件（raw.pixls.us のCC0）を
+/// 全部読んで確かめた結果が下の表:
+///
+/// | 読む場所 | 当たる社 | 例（プレビュー → 申告） |
+/// |---|---|---|
+/// | Exif IFDの `PixelXDimension`/`PixelYDimension`（この関数） | Canon CR2・Phase One IIQ・Sony ARW・Samsung SRW・Apple DNG | CR2(20D) 1536x1024 → 3504x2336 |
+/// | CR3の `CMT1`（[`cr3_declared_dimensions`]） | Canon CR3 | R8 1620x1080 → 6000x4000 |
+/// | どこにも無い | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR/KDC・Fujifilm RAF・Leica RWL・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW | 原寸はSubIFDの中で、このパーサからは届かない |
+///
+/// **IFD0の `ImageWidth` は使わない。** TIFF系RAWのIFD0は「そのIFDが持っている絵」の
+/// 寸法で、そこにサムネイルを置く社がある——NEF(D2H)は160x120、Leica M8のDNGは320x240。
+/// Pentax PEFは3936x2624と**実寸より大きい**（マスク領域込み）。当たる社が1つ増えるより、
+/// 別の絵の寸法を原本と言い張るほうが害が大きい。
+///
+/// **JPEGやHEIFには使わない**（呼ぶ側の [`crate::thumbs::read_exif`] が落としている）。
+/// 編集で縮めた写真は `PixelXDimension` が古いまま残ることがあり、実物と食い違う。
+/// RAWは書き換えない形式なので、その心配が無い。
+pub(crate) fn exif_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
+    declared_dimensions(exif, Tag::PixelXDimension, Tag::PixelYDimension)
+}
+
+/// CR3の `CMT1` が申告する原本の寸法。
+///
+/// CR3のIFD0（＝`CMT1`）は**絵を持たない**。Canonが撮影時の寸法をそのまま書いているので、
+/// TIFF系RAWと違ってサムネイルの寸法にはならない。手元の2機種で、`moov` の `CRAW`
+/// トラック（＝生データそのものの寸法）と一致することを確かめた: R8が6000x4000、
+/// R6が3408x2272（1.6xクロップで撮った1枚なので、3408のほうが正しい）。
+pub(crate) fn cr3_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
+    declared_dimensions(exif, Tag::ImageWidth, Tag::ImageLength)
+}
+
+/// 2つのタグを幅・高さとして読む。**両方揃って0でないときだけ**返す
+/// （片方しか入っていない申告を「幅だけ分かった」と扱わない）。
+fn declared_dimensions(exif: &exif::Exif, width: Tag, height: Tag) -> Option<(u32, u32)> {
+    let uint = |tag: Tag| -> Option<u32> {
+        exif.get_field(tag, In::PRIMARY)?
+            .value
+            .get_uint(0)
+            .filter(|v| *v > 0)
+    };
+    Some((uint(width)?, uint(height)?))
+}
+
+/// 中身がISO-BMFF（箱の入れ子）のRAWか。いまはCanonのCR3だけ。
+///
+/// [`bmff_metadata_blocks`] は箱でないファイルにも空を返すが、その前に1MB読む。
+/// **原寸の申告のためだけに読み直さない**よう、拡張子で先に切るために要る。
+pub fn is_bmff_raw_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cr3"))
 }
 
 /// パスの拡張子がRAWか。
@@ -1626,6 +1682,77 @@ mod tests {
         let blocks = bmff_metadata_blocks(&path);
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].starts_with(b"II"), "TIFFの中身がそのまま出る");
+    }
+
+    /// Exif IFD（`PixelXDimension` 等）をぶら下げたTIFFを組み立てる。
+    ///
+    /// `PixelXDimension` はIFD0に置いてもパーサが別のタグとして読む
+    /// （文脈が違う）ので、実物と同じく `ExifIFDPointer` の先へ置く。
+    fn tiff_with_exif_ifd(ifd0: &[Entry], exif_ifd: &[(u16, u32)]) -> Vec<u8> {
+        /// Exif IFDを置く場所。IFD0とその付随データより十分後ろ
+        const AT: usize = 0x400;
+
+        let mut sub: Vec<u8> = (exif_ifd.len() as u16).to_le_bytes().to_vec();
+        for (tag, value) in exif_ifd {
+            sub.extend(tag.to_le_bytes());
+            sub.extend(4u16.to_le_bytes()); // LONG
+            sub.extend(1u32.to_le_bytes()); // 値は1つ
+            sub.extend(value.to_le_bytes()); // 4バイトに収まるので直接置く
+        }
+        sub.extend(0u32.to_le_bytes()); // 次のIFDは無し
+
+        let mut entries: Vec<Entry> = Vec::new();
+        for e in ifd0 {
+            entries.push(entry(e.tag, e.kind, &e.values));
+        }
+        entries.push(entry(0x8769, 4, &[AT as u32])); // ExifIFDPointer
+        build_tiff(&entries, &[(AT, sub)], false)
+    }
+
+    #[test]
+    fn exif_ifdの申告から原寸を読む() {
+        // Canon CR2・Sony ARW・Phase One IIQ 等はここに原寸を書く。
+        // IFD0のImageWidthは埋め込みプレビューの寸法（実測: CR2 20Dで1536x1024）
+        let buf = tiff_with_exif_ifd(
+            &[entry(256, 4, &[1536]), entry(257, 4, &[1024])],
+            &[(0xA002, 3504), (0xA003, 2336)],
+        );
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), Some((3504, 2336)));
+    }
+
+    #[test]
+    fn ifd0のimagewidthは原寸として読まない() {
+        // Nikon NEFのIFD0は160x120の切手を指す。ここを原寸と信じると、
+        // 2400万画素の写真が160x120としてDBに入る
+        let buf = build_tiff(&[entry(256, 4, &[160]), entry(257, 4, &[120])], &[], false);
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), None);
+        // CR3の `CMT1` だけは別。あちらのIFD0は絵を持たない
+        assert_eq!(cr3_declared_dimensions(&exif), Some((160, 120)));
+    }
+
+    #[test]
+    fn 片方しか無い申告は使わない() {
+        let buf = tiff_with_exif_ifd(&[], &[(0xA002, 3504)]);
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), None);
+    }
+
+    #[test]
+    fn ゼロの申告は使わない() {
+        let buf = tiff_with_exif_ifd(&[], &[(0xA002, 0), (0xA003, 2336)]);
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), None);
+    }
+
+    #[test]
+    fn bmffを見に行くのはcr3だけ() {
+        // 原寸の申告のために、TIFF系RAWで1MB読み直さないための門
+        assert!(is_bmff_raw_path(Path::new("a.CR3")));
+        assert!(is_bmff_raw_path(Path::new("a.cr3")));
+        assert!(!is_bmff_raw_path(Path::new("a.cr2")));
+        assert!(!is_bmff_raw_path(Path::new("a.nef")));
     }
 
     #[test]

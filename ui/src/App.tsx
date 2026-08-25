@@ -192,19 +192,29 @@ function isSrcOf(
 const isTiffName = (name: string) => /\.tiff?$/i.test(name);
 
 /**
- * **配信される絵の寸法**（DBの寸法とは限らない）。
+ * **配信される絵の寸法**（原本の寸法とは限らない）。
  *
- * ビューアへ流す原寸は、TIFFだけ長辺 [`DISPLAY_MAX_EDGE`] へ丸められる
- * （`thumbs::display_jpeg`）。下敷きの枠にDBの寸法を名乗らせると、
- * **上限より大きな画面**では下敷きだけが大きく描かれ、差し替えで絵が縮む。
+ * 原本と違うのは2通りある:
+ *
+ * - **RAW**は配るのが埋め込みプレビューで、原本より小さいことが多い
+ *   （HDR PQのCR3は 6000x4000 に対して 1620x1080）。寸法はRust側が
+ *   `preview_width`/`preview_height` に入れてくれる。ただし**見当**で、
+ *   原寸プレビューを後ろに置く形式では届く絵のほうが大きい（下の `decodedBytes`）
+ * - **TIFF**は長辺 [`DISPLAY_MAX_EDGE`] へ丸められる（`thumbs::display_jpeg`）。
+ *   こちらは丸め方が決まっているのでここで計算する
+ *
+ * 下敷きの枠に原本の寸法を名乗らせると、**上限より大きな画面**では
+ * 下敷きだけが大きく描かれ、差し替えで絵が縮む。
  */
 function servedSize(item: MediaItem): [number, number] {
-  const long = Math.max(item.width, item.height);
+  const w = item.preview_width ?? item.width;
+  const h = item.preview_height ?? item.height;
+  const long = Math.max(w, h);
   if (!isTiffName(item.file_name) || long <= DISPLAY_MAX_EDGE) {
-    return [item.width, item.height];
+    return [w, h];
   }
   const k = DISPLAY_MAX_EDGE / long;
-  return [Math.round(item.width * k), Math.round(item.height * k)];
+  return [Math.round(w * k), Math.round(h * k)];
 }
 
 /**
@@ -216,20 +226,22 @@ function servedSize(item: MediaItem): [number, number] {
  */
 function decodedBytes(it: MediaItem, measured?: [number, number]): number {
   // **一度でも実物が届いた絵は、その実寸で数える**。DBの寸法は当てにならない
-  // ことがある——RAWは埋め込みプレビューの寸法が入っており、ファイル後方に
-  // 原寸を置く形式（Ricoh GR IIIのDNG・Sigma x3f）では、一覧が掴む720x480が
+  // ことがある——一覧が掴むのは「そのとき見つかった一番大きいプレビュー」で、
+  // ファイル後方に原寸を置く形式（Ricoh GR IIIのDNG・Sigma x3f）では720x480が
   // 記録される一方、ビューアへ配信されるのは6000x4000＝95MiB。DBの値だけで
   // 数えると1.4MiBと見積もり、崖（実測660MiB）へ近づく（ゲート2のP3）
   if (measured && measured[0] > 0 && measured[1] > 0) {
     return measured[0] * measured[1] * 4;
   }
-  let w = it.width;
-  let h = it.height;
+  // **数えるのは配信される絵**。RAWは原本（6000x4000）ではなく埋め込み
+  // プレビュー（1620x1080）が届くので、原本で数えると予算を14倍に見積もって
+  // 先読みの枚数が減る
+  let w = it.preview_width ?? it.width;
+  let h = it.preview_height ?? it.height;
   if (w <= 0 || h <= 0) return PRELOAD_UNKNOWN_PIXELS * 4;
   // 詰め直しの要る形式は**配信後の寸法**で数える。TIFFは `display_jpeg` が
   // 長辺4096へ丸めるので、24MPでも実画素は4096×2731＝44.7MiBしかない。
-  // RAWは埋め込みプレビュー（原寸のことが多い）なのでDBの寸法のまま、
-  // HEICは原寸で詰め直されるのでこれもDBの寸法のまま
+  // HEICは原寸で詰め直されるのでDBの寸法のまま
   const long = Math.max(w, h);
   if (isTiffName(it.file_name) && long > DISPLAY_MAX_EDGE) {
     const s = DISPLAY_MAX_EDGE / long;

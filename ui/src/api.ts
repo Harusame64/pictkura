@@ -10,8 +10,19 @@ import { locale } from "./i18n";
 export interface MediaItem {
   id: number;
   file_name: string;
+  /** **原本**の寸法。グリッドの枠確保に使う（未抽出は0） */
   width: number;
   height: number;
+  /**
+   * **埋め込みプレビュー**の寸法。原本と違うときだけ入る——RAWで配るのは
+   * この絵で、原本より小さいことが多い（HDR PQのCR3は 6000x4000 に対して
+   * 1620x1080）。null なら原本と同じ。
+   *
+   * 使うのは `servedSize`（下敷きの大きさ・等倍の倍率）と `decodedBytes`
+   * （先読みの予算）だけ。並びの縦横比は原本で決めてよい
+   */
+  preview_width: number | null;
+  preview_height: number | null;
   /** 表示・グルーピング用の日時（撮影日時、なければmtime。Unixエポックミリ秒） */
   taken_at_ms: number;
   /** 属する表示日（ローカル日付のYYYYMMDD整数）。部分更新の宛先解決に使う */
