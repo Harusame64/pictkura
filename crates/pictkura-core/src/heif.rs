@@ -431,22 +431,43 @@ pub fn stored_chroma(path: &Path) -> Option<crate::jpeg::ChromaSampling> {
         let Some((b, e)) = property_of(&meta, start, end, item, b"hvcC") else {
             continue;
         };
-        // 版が違えば並びも違うかもしれない。切り詰められた箱も同じ
-        // ——**当てずっぽうで読むより黙る**
-        if e <= b + HVCC_CHROMA_OFFSET || meta[b] != 1 {
-            return None;
-        }
-        let idc = meta[b + HVCC_CHROMA_OFFSET] & 0b11;
+        let idc = hvcc_chroma_idc(meta.get(b..e)?)?;
         if found.is_some_and(|seen| seen != idc) {
             return None; // タイルごとに違う＝一枚の絵として何とも言えない
         }
         found = Some(idc);
     }
-    // 0=モノクロ / 1=4:2:0 / 2=4:2:2 / 3=4:4:4。4:2:0以外は間引かない側へ
-    Some(match found? {
+    Some(chroma_of_idc(found?))
+}
+
+/// `hvcC` の中身から `chroma_format_idc` を読む。
+///
+/// 版が違えば並びも違うかもしれない。切り詰められた箱も同じ
+/// ——**当てずっぽうで読むより黙る**。
+fn hvcc_chroma_idc(hvcc: &[u8]) -> Option<u8> {
+    if hvcc.len() <= HVCC_CHROMA_OFFSET || hvcc.first() != Some(&1) {
+        return None;
+    }
+    Some(hvcc[HVCC_CHROMA_OFFSET] & 0b11)
+}
+
+/// 0=モノクロ / 1=4:2:0 / 2=4:2:2 / 3=4:4:4。**4:2:0以外は間引かない側へ**。
+fn chroma_of_idc(idc: u8) -> crate::jpeg::ChromaSampling {
+    match idc {
         1 => crate::jpeg::ChromaSampling::Half,
         _ => crate::jpeg::ChromaSampling::Full,
-    })
+    }
+}
+
+/// `hvcC` の中身だけを手に持っているときの [`stored_chroma`]。
+///
+/// CR3のHDR PQのプレビューは箱から `hvcC` を直接取り出すので、ファイルを
+/// 開き直さずに聞ける。**Canonのこの絵は4:2:2**（実測 `chroma_format_idc = 2`）
+/// なので、4:2:0で詰め直すと縦の色差を捨てることになる。
+///
+/// **分からないときは `None`**。呼び出し側は間引かない側（4:4:4）へ倒すこと。
+pub fn chroma_from_hvcc(hvcc: &[u8]) -> Option<crate::jpeg::ChromaSampling> {
+    hvcc_chroma_idc(hvcc).map(chroma_of_idc)
 }
 
 /// 表示上の寸法（回転を反映）。コンテナが読めなければ None。
@@ -1202,6 +1223,172 @@ pub fn decode(path: &Path) -> Option<image::DynamicImage> {
     }
 }
 
+/// ISO-BMFFの箱を1つ組む。
+fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+    out.extend_from_slice(kind);
+    out.extend_from_slice(body);
+    out
+}
+
+/// 版と旗を持つ箱（FullBox）を1つ組む。
+fn full_box(kind: &[u8; 4], version: u8, flags: u32, body: &[u8]) -> Vec<u8> {
+    let mut inner = vec![version];
+    inner.extend_from_slice(&flags.to_be_bytes()[1..]);
+    inner.extend_from_slice(body);
+    boxed(kind, &inner)
+}
+
+/// 裸のHEVCビットストリームを、画像1枚だけの最小のHEIFに包む。
+///
+/// CanonのHDR PQのCR3は、プレビューを「ヘッダの無いHEIF」として抱えている
+/// （[`crate::raw`] の `cr3_hevc_box` が取り出す）。OSのデコーダに渡すための
+/// 入れ物なので、要るものしか入れない。
+///
+/// - `hvcc` は HEVCDecoderConfigurationRecord の**中身**（箱ヘッダを含まない）
+/// - `colr` / `pixi` も同様に中身。**`pixi` は版と旗を既に含んでいる**ので、
+///   ここで足し直してはいけない（足すとチャンネル数が0と読まれる）
+/// - `hevc` は4バイト長前置のNAL列
+///
+/// **向きは入れない**。CR3の向きはEXIF側にあり、呼び出し側で当てる。
+pub(crate) fn wrap_hevc_as_heif(
+    hvcc: &[u8],
+    width: u16,
+    height: u16,
+    colr: Option<&[u8]>,
+    pixi: Option<&[u8]>,
+    hevc: &[u8],
+) -> Vec<u8> {
+    /// 画像アイテムの番号。1枚しか入れないので固定
+    const ITEM: u16 = 1;
+
+    // **ブランドは `heix`。** `heic` は HEVC Main / Main Still を約束するが、
+    // Canonのこの絵は Main 10・4:2:2（Range Extensions）なので範囲の外に出る。
+    // WICはブランドを見ないので `heic` でも通ったが、ブランドで選別する読み手
+    // （macOSのImageIOなど）に拒まれる余地を残す（ゲート2のP3・ゲート3のP2）
+    let ftyp = {
+        let mut b = b"heix".to_vec();
+        b.extend_from_slice(&0u32.to_be_bytes());
+        b.extend_from_slice(b"mif1heix");
+        boxed(b"ftyp", &b)
+    };
+
+    let hdlr = {
+        let mut b = 0u32.to_be_bytes().to_vec();
+        b.extend_from_slice(b"pict");
+        b.extend_from_slice(&[0u8; 12]);
+        b.push(0); // 名前は空文字列
+        full_box(b"hdlr", 0, 0, &b)
+    };
+    let pitm = full_box(b"pitm", 0, 0, &ITEM.to_be_bytes());
+    let iinf = {
+        let mut infe = ITEM.to_be_bytes().to_vec();
+        infe.extend_from_slice(&0u16.to_be_bytes()); // protection_index
+        infe.extend_from_slice(b"hvc1");
+        infe.push(0); // item_name
+        let infe = full_box(b"infe", 2, 0, &infe);
+        let mut b = 1u16.to_be_bytes().to_vec();
+        b.extend_from_slice(&infe);
+        full_box(b"iinf", 0, 0, &b)
+    };
+
+    // ipco に積んだ順がそのまま ipma の番号（1始まり）になる。
+    // hvcC は**必須**（essential）にする——読めないデコーダに絵を出させない
+    let mut ipco = Vec::new();
+    let mut assoc: Vec<u8> = Vec::new();
+    let mut count = 0u8;
+    let mut add = |ipco: &mut Vec<u8>, assoc: &mut Vec<u8>, bytes: Vec<u8>, essential: bool| {
+        ipco.extend_from_slice(&bytes);
+        count += 1;
+        assoc.push(if essential { 0x80 | count } else { count });
+    };
+    add(&mut ipco, &mut assoc, boxed(b"hvcC", hvcc), true);
+    let ispe = {
+        let mut b = u32::from(width).to_be_bytes().to_vec();
+        b.extend_from_slice(&u32::from(height).to_be_bytes());
+        full_box(b"ispe", 0, 0, &b)
+    };
+    add(&mut ipco, &mut assoc, ispe, false);
+    if let Some(colr) = colr {
+        add(&mut ipco, &mut assoc, boxed(b"colr", colr), false);
+    }
+    if let Some(pixi) = pixi {
+        // **`full_box` で包み直さない。** 取り出した中身が版と旗を既に持っている
+        add(&mut ipco, &mut assoc, boxed(b"pixi", pixi), false);
+    }
+    let iprp = {
+        let ipco = boxed(b"ipco", &ipco);
+        let mut b = 1u32.to_be_bytes().to_vec(); // entry_count
+        b.extend_from_slice(&ITEM.to_be_bytes());
+        b.push(count);
+        b.extend_from_slice(&assoc);
+        let ipma = full_box(b"ipma", 0, 0, &b);
+        let mut out = ipco;
+        out.extend_from_slice(&ipma);
+        boxed(b"iprp", &out)
+    };
+
+    // iloc は mdat の中身を**ファイル先頭からの絶対値**で指す。オフセット欄は
+    // 4バイト固定なので、`meta` の大きさは指す値によらない——一度組んで測れば、
+    // その値で組み直しても長さは変わらない
+    let build = |data_offset: u32| -> (Vec<u8>, u32) {
+        let iloc = {
+            let mut b = vec![0x44, 0x00]; // offset_size=4 length_size=4 / base_offset_size=0
+            b.extend_from_slice(&1u16.to_be_bytes()); // item_count
+            b.extend_from_slice(&ITEM.to_be_bytes());
+            b.extend_from_slice(&0u16.to_be_bytes()); // data_reference_index
+            b.extend_from_slice(&1u16.to_be_bytes()); // extent_count
+            b.extend_from_slice(&data_offset.to_be_bytes());
+            b.extend_from_slice(&(hevc.len() as u32).to_be_bytes());
+            full_box(b"iloc", 0, 0, &b)
+        };
+        let mut meta = Vec::new();
+        meta.extend_from_slice(&hdlr);
+        meta.extend_from_slice(&pitm);
+        meta.extend_from_slice(&iinf);
+        meta.extend_from_slice(&iprp);
+        meta.extend_from_slice(&iloc);
+        let meta = full_box(b"meta", 0, 0, &meta);
+        let offset = (ftyp.len() + meta.len() + 8) as u32;
+        (meta, offset)
+    };
+    let (_, offset) = build(0);
+    let (meta, again) = build(offset);
+    debug_assert_eq!(offset, again, "ilocのオフセット欄は4バイト固定のはず");
+
+    let mut out = ftyp;
+    out.extend_from_slice(&meta);
+    out.extend_from_slice(&(hevc.len() as u32 + 8).to_be_bytes());
+    out.extend_from_slice(b"mdat");
+    out.extend_from_slice(hevc);
+    debug_assert_eq!(offset as usize, out.len() - hevc.len());
+    out
+}
+
+/// **メモリ上の**HEIFをデコードする。
+///
+/// CanonのHDR PQのCR3は、プレビューをHEVCで抱えている（[`crate::raw`] の
+/// `cr3_hevc_preview`）。取り出したHEVCはその場でHEIFに包み直すので、
+/// 一時ファイルを作らずに渡せる口が要る。**サムネイル1枚ごとにディスクへ
+/// 書き戻すのは、数万枚を並べる作りと合わない**。
+///
+/// 向きの補正（`irot`/`imir`）はしない。包み直したHEIFにその情報を入れていない
+/// ——向きはRAW側のEXIFから読んで、呼び出し側で当てる。
+///
+/// **macOSは未対応**（[`decode`] と同じく将来 ImageIO）。`None` を返すので、
+/// 呼び出し側では「デコーダが無い環境」と同じ扱いになる。
+pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
+    #[cfg(windows)]
+    {
+        windows_wic::decode_mem(bytes)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = bytes;
+        None
+    }
+}
+
 /// 埋め込みサムネイル（あれば）を小さいままデコードする。
 ///
 /// iPhoneのHEICは主画像とは別に**小さいタイル集合**をサムネイルとして持っている。
@@ -1302,6 +1489,7 @@ mod windows_wic {
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
     };
+    use windows::Win32::UI::Shell::SHCreateMemStream;
 
     thread_local! {
         /// COMはスレッドごとに初期化が要る。サムネイルワーカーは複数走るので
@@ -1380,6 +1568,22 @@ mod windows_wic {
     pub fn decode(path: &Path) -> Option<image::DynamicImage> {
         let frame = frame(path)?;
         to_image(&frame.cast::<IWICBitmapSource>().ok()?)
+    }
+
+    /// メモリ上のバイト列から先頭フレームを得る（[`super::decode_mem`]）。
+    ///
+    /// `SHCreateMemStream` は**渡したバイト列を複製する**ので、この呼び出しの
+    /// あいだだけ生きていればよい。
+    pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
+        unsafe {
+            let factory = factory()?;
+            let stream = SHCreateMemStream(Some(bytes))?;
+            let decoder = factory
+                .CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
+                .ok()?;
+            let frame = decoder.GetFrame(0).ok()?;
+            to_image(&frame.cast::<IWICBitmapSource>().ok()?)
+        }
     }
 
     /// 縮小デコードの可否をデコーダに聞く（[`super::probe_scaled_decode`]）。
@@ -1568,12 +1772,7 @@ mod tests {
         height: u32,
         decoy_ipma: bool,
     ) -> Vec<u8> {
-        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(body);
-            out
-        }
+        use super::boxed;
 
         // ipco: プロパティを並べる。番号は1から数える
         let mut ipco = Vec::new();
@@ -1673,12 +1872,7 @@ mod tests {
     }
 
     fn synth_heif_hvcc(spec: HvccSpec) -> Vec<u8> {
-        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(body);
-            out
-        }
+        use super::boxed;
         fn add_hvcc(ipco: &mut Vec<u8>, prop: &mut u8, spec: &HvccSpec, idc: u8) -> u8 {
             let mut body = vec![0u8; HVCC_CHROMA_OFFSET + 1];
             body[0] = spec.version;
@@ -1926,12 +2120,7 @@ mod tests {
             colr,
             icc_first,
         } = spec;
-        fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-            out.extend_from_slice(kind);
-            out.extend_from_slice(body);
-            out
-        }
+        use super::boxed;
 
         // アイテム番号: 主画像=1、gridならタイルは2以降
         let tile_ids: Vec<u16> = if grid.is_some() {
