@@ -2833,7 +2833,8 @@ pub fn run() {
                                 break;
                             }
                             after_id = batch.last().map(|(id, ..)| *id).unwrap_or(after_id);
-                            let results: Vec<(i64, pictkura_core::db::Dimensions)> = batch
+                            type Backfilled = (i64, (i64, i64), pictkura_core::db::Dimensions);
+                            let results: Vec<Backfilled> = batch
                                 .into_iter()
                                 // 開けないファイル・クラウドにしか実体が無いファイルは
                                 // **印を付けずに飛ばす**（カメラ補完と同じ理由）。
@@ -2844,14 +2845,30 @@ pub fn run() {
                                     !pictkura_core::cloud::is_cloud_only_path(path)
                                 })
                                 .map(|(id, path, w, h)| {
-                                    (
-                                        id,
-                                        pictkura_core::thumbs::backfilled_dimensions(&path, w, h),
-                                    )
+                                    let dims =
+                                        pictkura_core::thumbs::backfilled_dimensions(&path, w, h);
+                                    (id, (w, h), dims)
                                 })
                                 .collect();
-                            if !results.is_empty() && db.set_dimensions(&results).is_err() {
-                                break; // 印を付けていないので次回起動でやり直せる
+                            // 丸ごと飛ばした束（外付けが未接続・クラウドのみ）で
+                            // 空の書き込みトランザクションを開かない
+                            if results.is_empty() {
+                                std::thread::sleep(std::time::Duration::from_millis(20));
+                                continue;
+                            }
+                            match db.set_dimensions(&results) {
+                                // **寸法が動いた行はUIへ知らせる**。並びの枠は
+                                // `width/height` から決まるので、知らせないと
+                                // 次に開き直すまで古い縦横比のまま（ゲート1のP2）
+                                Ok(moved) => {
+                                    for id in moved {
+                                        if let Ok(Some(rec)) = db.get_by_id(id) {
+                                            let _ = index_handle
+                                                .emit("media-updated", MediaItemDto::from(rec));
+                                        }
+                                    }
+                                }
+                                Err(_) => break, // 印を付けていないので次回起動でやり直せる
                             }
                             std::thread::sleep(std::time::Duration::from_millis(20));
                         }

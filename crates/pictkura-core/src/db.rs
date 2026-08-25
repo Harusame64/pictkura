@@ -2056,29 +2056,48 @@ impl Db {
     }
 
     /// 寸法の後追い補完の結果をまとめて書く（段階F-4）。
+    /// 実際に寸法が動いた行のIDを返す。
     ///
     /// 触るのは寸法の4列だけ。撮影日時・`day_key`・カメラは既に入っているので、
     /// [`Self::update_metadata`] のように書き直すと**正しい値を上書きしかねない**。
-    pub fn set_dimensions(&mut self, results: &[(i64, Dimensions)]) -> Result<(), DbError> {
+    ///
+    /// **読んだときのまま残っている行にだけ書く**（`expected` は
+    /// [`Self::dimensions_to_backfill`] が返した width/height）。この掃き寄せは
+    /// 起動同期やサムネイル生成と**同時に走る**ので、途中でファイルが差し替わると
+    /// スキャンが列を落とし、サムネイル生成が新しい寸法を入れる。素直に `id` だけで
+    /// 書くと、古い寸法で上書きしたうえ**確かめた印まで付けて**しまい、
+    /// 二度と直らない（ゲート1のP2）。
+    pub fn set_dimensions(
+        &mut self,
+        results: &[(i64, (i64, i64), Dimensions)],
+    ) -> Result<Vec<i64>, DbError> {
+        let mut moved = Vec::new();
         let tx = self.write_tx()?;
         {
             let mut stmt = tx.prepare_cached(
                 "UPDATE media SET width = ?2, height = ?3,
                         preview_width = ?4, preview_height = ?5
-                 WHERE id = ?1",
+                 WHERE id = ?1 AND preview_width IS NULL
+                   AND width = ?6 AND height = ?7",
             )?;
-            for (id, dims) in results {
-                stmt.execute(params![
+            for (id, (expect_w, expect_h), dims) in results {
+                let n = stmt.execute(params![
                     id,
                     dims.width,
                     dims.height,
                     dims.preview.map(|(w, _)| w),
-                    dims.preview.map(|(_, h)| h)
+                    dims.preview.map(|(_, h)| h),
+                    expect_w,
+                    expect_h
                 ])?;
+                // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
+                if n > 0 && (dims.width, dims.height) != (*expect_w, *expect_h) {
+                    moved.push(*id);
+                }
             }
         }
         tx.commit()?;
-        Ok(())
+        Ok(moved)
     }
 
     /// カメラ未確認の残数（補完スイープの進捗表示用）。
@@ -2482,15 +2501,20 @@ mod tests {
 
         // 確かめた行は次から抜ける（済んだ印を別に持たなくて済む）
         let a = id_of(&db, "a.cr3");
-        db.set_dimensions(&[(
-            a,
-            Dimensions {
-                width: 6000,
-                height: 4000,
-                preview: Some((640, 480)),
-            },
-        )])
-        .unwrap();
+        assert_eq!(
+            db.set_dimensions(&[(
+                a,
+                (640, 480),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap(),
+            vec![a],
+            "寸法が動いた行だけ返る"
+        );
         let rec = db.get_by_id(a).unwrap().unwrap();
         assert_eq!((rec.width, rec.height), (Some(6000), Some(4000)));
         assert_eq!(
@@ -2498,6 +2522,51 @@ mod tests {
             (Some(640), Some(480))
         );
         assert_eq!(db.dimensions_to_backfill(0, 100).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn 後追いは読んだときから動いた行に書かない() {
+        // 掃き寄せの途中でスキャンが列を落とし、サムネイル生成が新しい寸法を
+        // 入れた行。古い値で上書きすると、確かめた印まで付いて二度と直らない
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        assert_eq!(db.dimensions_to_backfill(0, 100).unwrap().len(), 1);
+
+        // ここでファイルが差し替わり、新しい寸法が入った
+        db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
+        db.update_metadata(
+            id,
+            Dimensions {
+                width: 100,
+                height: 200,
+                preview: Some((100, 200)),
+            },
+            Some(2),
+            None,
+        )
+        .unwrap();
+
+        let moved = db
+            .set_dimensions(&[(
+                id,
+                (640, 480),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap();
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(100), Some(200)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(100), Some(200))
+        );
     }
 
     #[test]
