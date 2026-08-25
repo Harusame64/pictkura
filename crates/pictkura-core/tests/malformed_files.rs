@@ -390,6 +390,11 @@ fn feed_every_reader(path: &Path) {
     let _ = namedate::guess_taken_at(path);
     let _ = thumbs::read_exif(path);
     let _ = thumbs::read_exif_info(path);
+    // 段階F-4の後追い。**ここで落ちると3段まとめて死ぬ**（索引・カメラ・寸法が
+    // 同じスレッドの `panics::catching` の中にいる）うえ、印を付けていないので
+    // その1枚が毎回の起動で同じ場所を殺す
+    let _ = thumbs::read_exif_declaration(path);
+    let _ = thumbs::backfilled_dimensions(path, 640, 480);
     let _ = thumbs::needs_display_transcode(path);
     let _ = jpeg::decode_scaled(path, 256);
 

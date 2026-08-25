@@ -320,13 +320,22 @@ pub fn read_exif_meta(path: &Path) -> ExifData {
 /// ファイル全体を読む**（kamadak-exif 0.6.1 の作り）。安いのはCR3（箱を辿るだけ）と、
 /// TIFFに見えないORF・RW2・RAF・X3Fだけで、cr2・nef・arw・dng・3fr・iiq 等は
 /// **1枚まるごと**読む。1件あたりの実測（OSのキャッシュが温まった状態・6回まわして
-/// 最小〜最大）は **0.3〜13.1ms**で、**ファイルの大きさに比例する**:
-/// CR3は27MBでも1.0〜1.1ms、Hasselblad 3FR（51MB）は11.6〜13.1ms、
-/// Apple DNG（27MB）は6.2〜9.1ms、Olympus ORF（7MB）は0.4ms。
+/// 最小〜最大）は **0.4〜13.1ms**。**CR3とORF・RW2以外は大きさに比例する**:
+/// Hasselblad 3FR（51MB）は11.6〜13.1ms、Apple DNG（27MB）は6.2〜9.1ms、
+/// Canon CR2（10MB）は2.2〜2.4ms。**CR3は27MBでも1.0〜1.1ms**（箱を辿るだけ）、
+/// Olympus ORF（7MB）は0.4ms（TIFFに見えないので先頭だけ）。
 ///
-/// つまり掃き寄せは**一度きりだが安くはない**。同じ作りのカメラ補完
-/// （[`read_exif_info`] を使う第2段）が既に同じ値段を払っているので、
-/// 新しく重い仕事が増えたわけではない。
+/// **この数字は下限**。同じファイルを6回続けて読んだ値なので、2回目以降は
+/// OSのキャッシュに乗っている（51MBを13.1msは3.9GB/s＝ディスクではなくメモリの
+/// 速さ）。掃き寄せは**一生に一度しか触らない**ので、実際には常に冷えた状態で
+/// 走り、値段はほぼ**ファイル全体の読み出し時間**になる。読むバイト数は
+/// **ライブラリのRAWの総容量**そのものなので、自分のディスクの速さで割れば出る
+/// （2万枚・平均25MBなら500GB）。
+///
+/// それでも作りを変えないのは、**1件あたりの値段が同種で前例がある**ため
+/// ——カメラ補完（[`read_exif_info`] を使う第2段）が同じ入口を通る。
+/// ただし**対象の行数は違う**（あちらは `camera_id IS NULL` で、既に回った
+/// ライブラリでは空）ので、「重い仕事が増えていない」とまでは言えない。
 pub fn read_exif_declaration(path: &Path) -> ExifData {
     read_exif_inner(path, Want::Declaration)
 }
@@ -344,7 +353,8 @@ enum Want {
     /// 撮影日時・カメラ名・向き。絵にしか日付が無い形式のためだけに、
     /// 日付が取れなかったときは絵も探す
     Meta,
-    /// 寸法の申告だけ。**絵は探さない**（段階F-4の後追い）
+    /// 寸法の申告だけ。**絵は探さない**（段階F-4の後追い）。
+    /// 向きは正方形のプレビューを起こすときにだけ使う
     Declaration,
     /// 表示に使う絵。長辺がこれ以上あるものを探す
     Image(u32),
@@ -745,34 +755,55 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
 ///
 /// 引数の `width`/`height` はDBに入っている値（＝掴んだプレビューの寸法で、
 /// 向きは適用済み）。原本の申告が読めたときだけ、原本を `width/height` へ、
-/// 今の値を `preview_*` へ移す。読めなければ**今の値をそのまま両方へ**入れる
+/// 今の値を `preview_*` へ移す。申告が無ければ**今の値をそのまま両方へ**入れる
 /// ——確かめた印になり、次の起動では拾われない。
-pub fn backfilled_dimensions(path: &Path, width: i64, height: i64) -> crate::db::Dimensions {
+///
+/// **開けなかったときは `None`。** 権限や共有ロックで一時的に読めないだけの
+/// ファイルに「確かめた」印を付けると、読める日が来ても二度と拾い直せない
+/// （ゲート1のP2）。「開けたが申告が無い」（Kodak KDC 等）とは区別する
+/// ——あちらは何度読んでも同じなので、印を付けて終わらせてよい。
+pub fn backfilled_dimensions(
+    path: &Path,
+    width: i64,
+    height: i64,
+) -> Option<crate::db::Dimensions> {
+    // 開けるかどうかだけ先に見る。[`read_exif_declaration`] は失敗を
+    // 「EXIFが空」に畳んでしまい、外から見分けられない
+    std::fs::File::open(path).ok()?;
+
     let current = (width, height);
-    // **向きはDBの値に合わせる**（Orientationを読み直さない）。
-    // `current` は [`process_one`] が向きを当てた後の値で、原本とプレビューは
-    // 同じ絵だから縦横の向きも同じ。向きの申告をコンテナに持たず
-    // **プレビューJPEGにだけ書く**形式があっても、こちらなら揃う
-    // ——後追いは絵を見ないので、Orientationを読み直す側では拾えない（ゲート2のP3）
+    let exif = read_exif_declaration(path);
+    // **向きは基本的にDBの値に合わせる**（`current` は [`process_one`] が向きを
+    // 当てた後の値で、原本とプレビューは同じ絵だから縦横の向きも同じ）。
+    //
+    // **正方形のプレビューだけは縦横から向きを推せない**ので、そこは
+    // Orientationの申告に頼る。1:1で撮ったRAWは実在し（Leica D-LUX 5・
+    // Panasonic LX7）、推すと縦位置の1枚が横枠で記録されて**印まで付く**
+    // （ゲート1とゲート2が同時に指摘）
     let upright = |(w, h): (u32, u32)| {
         let (w, h) = (i64::from(w), i64::from(h));
-        if (current.0 >= current.1) == (w >= h) {
-            (w, h)
+        let flip = if current.0 == current.1 {
+            (5..=8).contains(&exif.orientation)
         } else {
+            (current.0 > current.1) != (w > h)
+        };
+        if flip {
             (h, w)
+        } else {
+            (w, h)
         }
     };
     // 申告が今の値より小さいときは信じない（[`process_one`] と同じ門）
-    let original = read_exif_declaration(path)
+    let original = exif
         .original
         .map(upright)
         .filter(|(w, h)| *w >= current.0 && *h >= current.1)
         .unwrap_or(current);
-    crate::db::Dimensions {
+    Some(crate::db::Dimensions {
         width: original.0,
         height: original.1,
         preview: Some(current),
-    }
+    })
 }
 
 /// process_oneの結果: どの品質段階まで進んだか。
@@ -1934,7 +1965,7 @@ mod tests {
         // 後追いの経路も同じ答えを出す
         let src = dir.path().join("b.cr2");
         std::fs::write(&src, &bytes).unwrap();
-        let dims = backfilled_dimensions(&src, 480, 320);
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (3504, 2336));
         assert_eq!(dims.preview, Some((480, 320)));
     }
@@ -1966,7 +1997,7 @@ mod tests {
         let src = dir.path().join("portrait.cr3");
         std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6)).unwrap();
         // DBに入っているのは向きを当てた後の値（320x480）
-        let dims = backfilled_dimensions(&src, 320, 480);
+        let dims = backfilled_dimensions(&src, 320, 480).expect("開ける");
         assert_eq!((dims.width, dims.height), (4000, 6000));
         assert_eq!(dims.preview, Some((320, 480)));
     }
@@ -1978,7 +2009,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("old.cr3");
         std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
-        let dims = backfilled_dimensions(&src, 480, 320);
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (6000, 4000));
         assert_eq!(dims.preview, Some((480, 320)));
     }
@@ -1989,7 +2020,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("old.cr3");
         std::fs::write(&src, fake_cr3(None, (480, 320))).unwrap();
-        let dims = backfilled_dimensions(&src, 480, 320);
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (480, 320));
         assert_eq!(
             dims.preview,
@@ -1999,11 +2030,46 @@ mod tests {
     }
 
     #[test]
+    fn 後追いは向きの申告が無くてもdbの値に合わせる() {
+        // 3周目で変えたところ。Orientationを読み直す実装では拾えない形
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("noorient.cr3");
+        // 向きの申告は入れない（Orientation は 1 のまま）
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        // DBに入っているのは縦位置として記録された値
+        let dims = backfilled_dimensions(&src, 320, 480).expect("開ける");
+        assert_eq!(
+            (dims.width, dims.height),
+            (4000, 6000),
+            "申告が横長でも、DBが縦なら縦へ揃える"
+        );
+    }
+
+    #[test]
+    fn 正方形のプレビューは向きの申告で決める() {
+        // 縦横から向きを推せない唯一の形。推すと縦位置が横枠で記録され、
+        // しかも確かめた印が付いて二度と直らない
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("square.cr3");
+        std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (320, 320), 6)).unwrap();
+        let dims = backfilled_dimensions(&src, 320, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (4000, 6000));
+    }
+
+    #[test]
+    fn 開けないファイルには確かめた印を付けない() {
+        // 権限や共有ロックで一時的に読めないだけなら、読める日に拾い直す
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone.cr3");
+        assert!(backfilled_dimensions(&missing, 480, 320).is_none());
+    }
+
+    #[test]
     fn 後追いは今の値より小さい申告を信じない() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("old.cr3");
         std::fs::write(&src, fake_cr3(Some((160, 120)), (480, 320))).unwrap();
-        let dims = backfilled_dimensions(&src, 480, 320);
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (480, 320));
         assert_eq!(
             dims.preview,

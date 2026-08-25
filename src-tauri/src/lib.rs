@@ -2831,7 +2831,9 @@ pub fn run() {
                         // 動いた行は下で `media-updated` を出す。
                         //
                         // **サムネイルは作り直さない**。キューへ投げると絵まで作り直す
-                        // ことになるが、絵は既に正しい。ここで読むのはEXIFのヘッダだけ
+                        // ことになるが、絵は既に正しい。ここは絵を1枚も起こさない
+                        // （値段は `thumbs::read_exif_declaration` に書いた。
+                        // TIFF系RAWはコンテナ読みがファイル全体を読むので安くはない）
                         let mut after_id = 0i64;
                         while let Ok(batch) = db.dimensions_to_backfill(after_id, 200) {
                             if batch.is_empty() {
@@ -2849,10 +2851,13 @@ pub fn run() {
                                 .filter(|(_, path, ..)| {
                                     !pictkura_core::cloud::is_cloud_only_path(path)
                                 })
-                                .map(|(id, path, w, h)| {
+                                // **開けなかった行は印を付けずに飛ばす**。権限や
+                                // 共有ロックで一時的に読めないだけなら、読める日に
+                                // 拾い直せる（ゲート1のP2）
+                                .filter_map(|(id, path, w, h)| {
                                     let dims =
-                                        pictkura_core::thumbs::backfilled_dimensions(&path, w, h);
-                                    (id, (w, h), dims)
+                                        pictkura_core::thumbs::backfilled_dimensions(&path, w, h)?;
+                                    Some((id, (w, h), dims))
                                 })
                                 .collect();
                             // 丸ごと飛ばした束（外付けが未接続・クラウドのみ）で
