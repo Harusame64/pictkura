@@ -2816,6 +2816,45 @@ pub fn run() {
                             let _ = index_handle.emit("cameras-updated", ());
                         }
                         publish("camera", total, total, false, incomplete);
+
+                        // 第3段: 寸法の後追い補完（第6部 段階F-4）。段階F-4より前に
+                        // 取り込んだRAWは `width/height` に埋め込みプレビューの寸法が
+                        // 入ったままなので、原本の申告を読んで入れ直す。
+                        //
+                        // **帯は出さない**。画面に出ている値は1つも変わらないので
+                        // （UIは `preview_width` がNULLなら `width` へ落とす）、
+                        // 知らせるほどのことが起きない。
+                        //
+                        // **サムネイルは作り直さない**。キューへ投げると絵まで作り直す
+                        // ことになるが、絵は既に正しい。ここで読むのはEXIFのヘッダだけ
+                        let mut after_id = 0i64;
+                        while let Ok(batch) = db.dimensions_to_backfill(after_id, 200) {
+                            if batch.is_empty() {
+                                break;
+                            }
+                            after_id = batch.last().map(|(id, ..)| *id).unwrap_or(after_id);
+                            let results: Vec<(i64, pictkura_core::db::Dimensions)> = batch
+                                .into_iter()
+                                // 開けないファイル・クラウドにしか実体が無いファイルは
+                                // **印を付けずに飛ばす**（カメラ補完と同じ理由）。
+                                // ここで「確かめた」と書くと、外付けを繋いだ日が来ても
+                                // 二度と読み直されない
+                                .filter(|(_, path, ..)| path.is_file())
+                                .filter(|(_, path, ..)| {
+                                    !pictkura_core::cloud::is_cloud_only_path(path)
+                                })
+                                .map(|(id, path, w, h)| {
+                                    (
+                                        id,
+                                        pictkura_core::thumbs::backfilled_dimensions(&path, w, h),
+                                    )
+                                })
+                                .collect();
+                            if !results.is_empty() && db.set_dimensions(&results).is_err() {
+                                break; // 印を付けていないので次回起動でやり直せる
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
                     });
                 // **「作成中」を出したまま消えない**（ゲート1の指摘）。ここで落ちると
                 // `building` が真のまま残り、UIは永久に作成中の帯を出し続ける。

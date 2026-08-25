@@ -47,9 +47,13 @@ pub struct MediaRecord {
     pub width: Option<i64>,
     /// 原本の高さ
     pub height: Option<i64>,
-    /// **埋め込みプレビュー**の幅。原本と違うときだけ入る——RAWで一覧とビューアへ
-    /// 配るのはこの絵で、原本より小さいことが多い（HDR PQのCR3は 6000x4000 に
-    /// 対して 1620x1080）。同じならNULLで、読む側は `width` へ落とす。
+    /// **埋め込みプレビュー**の幅。RAWで一覧とビューアへ配るのはこの絵で、
+    /// 原本より小さいことが多い（HDR PQのCR3は 6000x4000 に対して 1620x1080）。
+    ///
+    /// **NULLは「まだ確かめていない」**。RAWなら確かめた時点で必ず入る
+    /// （原本と同じ値のこともある）ので、`NULL` のまま残る行を後追いで拾える
+    /// ——[`Db::dimensions_to_backfill`]。RAW以外は配るのが原本そのものなので、
+    /// 確かめてもNULLのまま。読む側はNULLなら `width` へ落とせばよい。
     ///
     /// **ビューアが配る絵と一致する保証は無い**（一覧は長辺512、ビューアは1600で
     /// 探すので、原寸プレビューを後ろに置く形式では後者のほうが大きい）。
@@ -84,7 +88,9 @@ pub struct Dimensions {
     pub width: i64,
     /// 原本の高さ
     pub height: i64,
-    /// 掴んだ埋め込みプレビューの幅・高さ。**原本と同じなら `None`**
+    /// 掴んだ埋め込みプレビューの幅・高さ。**原本をそのまま配るなら `None`**
+    /// （RAW以外はすべてこちら）。RAWは原本と同じ値でも入れる——`None` が
+    /// 「まだ確かめていない」を意味するため
     pub preview: Option<(i64, i64)>,
 }
 
@@ -402,8 +408,9 @@ impl Db {
             "ALTER TABLE media ADD COLUMN picked INTEGER NOT NULL DEFAULT 0",
             [],
         );
-        // 段階F-4: 一覧が掴んだ埋め込みプレビューの寸法。**原本と違うときだけ**
-        // 入る（RAWだけ）。同じならNULLで、読む側は width/height へ落とす
+        // 段階F-4: 一覧が掴んだ埋め込みプレビューの寸法。**RAWなら必ず入る**
+        // （原本と同じ値のこともある）。NULLは「まだ確かめていない」印で、
+        // 起動後の後追い（[`Db::dimensions_to_backfill`]）が拾う
         let _ = conn.execute("ALTER TABLE media ADD COLUMN preview_width INTEGER", []);
         let _ = conn.execute("ALTER TABLE media ADD COLUMN preview_height INTEGER", []);
         // 段階B-3: 高品質サムネイルのLRUキャッシュ管理用
@@ -782,6 +789,8 @@ impl Db {
                     day_key = excluded.day_key,
                     width = NULL,
                     height = NULL,
+                    preview_width = NULL,
+                    preview_height = NULL,
                     taken_at_ms = NULL,
                     thumb_path = NULL,
                     thumb_state = 0,
@@ -941,6 +950,8 @@ impl Db {
                     day_key = excluded.day_key,
                     width = NULL,
                     height = NULL,
+                    preview_width = NULL,
+                    preview_height = NULL,
                     taken_at_ms = NULL,
                     thumb_path = NULL,
                     thumb_state = 0,
@@ -1991,6 +2002,85 @@ impl Db {
         Ok(())
     }
 
+    /// 寸法を確かめ直す行を返す（段階F-4の後追い）。
+    ///
+    /// 段階F-4より前に取り込んだRAWは、`width/height` に**埋め込みプレビューの
+    /// 寸法**が入ったままで、原本の寸法（CR3なら `CMT1` の申告）を持っていない。
+    /// メタデータ抽出済みなので [`Self::ids_missing_metadata`] からは漏れる。
+    ///
+    /// **済んだ印は持たない。** 確かめた行は `preview_width` が埋まって条件から
+    /// 外れる——RAWは原本と同じ寸法でも書き込むので、**確かめた行が必ず抜ける**。
+    /// 印を先に書くと、仕事が終わる前にアプリが落ちたときに拾い直せなくなる。
+    ///
+    /// 対象を拡張子で絞るのは、RAW以外に確かめることが無いため（配るのが原本
+    /// そのものなので、確かめても `preview_width` はNULLのまま＝毎回引っ掛かる）。
+    /// `width IS NOT NULL` は、まだ一度も読んでいない行を外すため（そちらは
+    /// [`Self::ids_missing_metadata`] が拾って、抽出のついでに寸法も入れる）。
+    pub fn dimensions_to_backfill(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, PathBuf, i64, i64)>, DbError> {
+        // 拡張子はDBに正規化して持っていないので、末尾一致で見る
+        // （[`Self::count_by_extensions`] と同じやり方）。`?1` は after_id、
+        // `?2` は limit なので、拡張子は `?3` から始まる
+        let clause = (0..crate::raw::RAW_EXTENSIONS.len())
+            .map(|i| format!("LOWER(path) LIKE ?{}", i + 3))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT id, path, width, height FROM media
+             WHERE preview_width IS NULL AND width IS NOT NULL AND id > ?1
+             AND ({clause})
+             ORDER BY id LIMIT ?2"
+        ))?;
+        let mut params: Vec<rusqlite::types::Value> = vec![after_id.into(), (limit as i64).into()];
+        params.extend(
+            crate::raw::RAW_EXTENSIONS
+                .iter()
+                .map(|ext| format!("%.{ext}").into()),
+        );
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok((
+                r.get(0)?,
+                PathBuf::from(r.get::<_, String>(1)?),
+                r.get(2)?,
+                r.get(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 寸法の後追い補完の結果をまとめて書く（段階F-4）。
+    ///
+    /// 触るのは寸法の4列だけ。撮影日時・`day_key`・カメラは既に入っているので、
+    /// [`Self::update_metadata`] のように書き直すと**正しい値を上書きしかねない**。
+    pub fn set_dimensions(&mut self, results: &[(i64, Dimensions)]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "UPDATE media SET width = ?2, height = ?3,
+                        preview_width = ?4, preview_height = ?5
+                 WHERE id = ?1",
+            )?;
+            for (id, dims) in results {
+                stmt.execute(params![
+                    id,
+                    dims.width,
+                    dims.height,
+                    dims.preview.map(|(w, _)| w),
+                    dims.preview.map(|(_, h)| h)
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// カメラ未確認の残数（補完スイープの進捗表示用）。
     pub fn cameras_pending(&self) -> Result<i64, DbError> {
         Ok(self.conn.query_row(
@@ -2350,6 +2440,88 @@ mod tests {
             size,
             mtime_ms,
         }
+    }
+
+    #[test]
+    fn 寸法の後追いはrawの未確認だけを拾う() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.cr3", 100, 1000),
+            scanned("b.jpg", 100, 1000),
+            scanned("c.NEF", 100, 1000), // 拡張子は大文字でも拾う
+            scanned("d.cr2", 100, 1000), // まだ一度も読んでいない（width が空）
+        ])
+        .unwrap();
+        let id_of = |db: &Db, name: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.to_string_lossy().ends_with(name))
+                .unwrap()
+                .id
+        };
+        for name in ["a.cr3", "b.jpg", "c.NEF"] {
+            let id = id_of(&db, name);
+            db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+                .unwrap();
+        }
+
+        let picked: Vec<String> = db
+            .dimensions_to_backfill(0, 100)
+            .unwrap()
+            .into_iter()
+            .map(|(_, path, ..)| path.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            picked.len(),
+            2,
+            "RAWで、読んだのに preview_width が空の行だけ: {picked:?}"
+        );
+        assert!(picked.iter().any(|p| p.ends_with("a.cr3")));
+        assert!(picked.iter().any(|p| p.ends_with("c.NEF")));
+
+        // 確かめた行は次から抜ける（済んだ印を別に持たなくて済む）
+        let a = id_of(&db, "a.cr3");
+        db.set_dimensions(&[(
+            a,
+            Dimensions {
+                width: 6000,
+                height: 4000,
+                preview: Some((640, 480)),
+            },
+        )])
+        .unwrap();
+        let rec = db.get_by_id(a).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(6000), Some(4000)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(640), Some(480))
+        );
+        assert_eq!(db.dimensions_to_backfill(0, 100).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn 中身が変わった行はプレビューの寸法も落とす() {
+        // 落とさないと、前の中身の寸法で下敷きと先読みの予算が決まる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(
+            id,
+            Dimensions {
+                width: 6000,
+                height: 4000,
+                preview: Some((1620, 1080)),
+            },
+            Some(1),
+            None,
+        )
+        .unwrap();
+
+        db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (None, None));
+        assert_eq!((rec.preview_width, rec.preview_height), (None, None));
     }
 
     /// サムネイル利用時刻を任意の過去へ設定する（LRUテスト用。

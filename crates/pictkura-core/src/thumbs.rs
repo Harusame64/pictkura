@@ -696,6 +696,43 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
     Ok(image::image_dimensions(path)?)
 }
 
+/// 段階F-4の後追い: **寸法の列だけ**を入れ直す。
+///
+/// 段階F-4より前に取り込んだRAWは、`width/height` に埋め込みプレビューの寸法が
+/// 入ったままで、原本の寸法（CR3なら `CMT1` の申告）を持っていない。
+/// メタデータ抽出済みなので、通常のキューからは漏れる。
+///
+/// **絵には触らない。** サムネイルは既に正しく、作り直しても同じものが出る。
+/// 読むのはEXIFのヘッダだけ（CR3は `moov` の1MB）で、プレビューは探さない
+/// ——[`read_exif_meta`] は「絵は要らない」入口。
+///
+/// 引数の `width`/`height` はDBに入っている値（＝掴んだプレビューの寸法で、
+/// 向きは適用済み）。原本の申告が読めたときだけ、原本を `width/height` へ、
+/// 今の値を `preview_*` へ移す。読めなければ**今の値をそのまま両方へ**入れる
+/// ——確かめた印になり、次の起動では拾われない。
+pub fn backfilled_dimensions(path: &Path, width: i64, height: i64) -> crate::db::Dimensions {
+    let current = (width, height);
+    let exif = read_exif_meta(path);
+    let upright = |(w, h): (u32, u32)| {
+        if (5..=8).contains(&exif.orientation) {
+            (i64::from(h), i64::from(w))
+        } else {
+            (i64::from(w), i64::from(h))
+        }
+    };
+    // 申告が今の値より小さいときは信じない（[`process_one`] と同じ門）
+    let original = exif
+        .original
+        .map(upright)
+        .filter(|(w, h)| *w >= current.0 && *h >= current.1)
+        .unwrap_or(current);
+    crate::db::Dimensions {
+        width: original.0,
+        height: original.1,
+        preview: Some(current),
+    }
+}
+
 /// process_oneの結果: どの品質段階まで進んだか。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbOutcome {
@@ -944,10 +981,14 @@ pub fn process_one(
     let (disp_w, disp_h) = upright(orig_w, orig_h);
     // 原本と同じなら列に入れない（＝「原本を配信する」の意味）。
     // NULLで済ませるほうがDBが軽く、UI側も原本へ落として同じ絵になる
+    // **RAWは原本と同じ寸法でも書く。** NULLは「まだ確かめていない」印で、
+    // 段階F-4より前に取り込んだ行を後追いで拾うのに使う
+    // （[`crate::Db::dimensions_to_backfill`]）。RAW以外は配るのが原本そのもの
+    // なので、確かめてもNULLのまま
     let dims = crate::db::Dimensions {
         width: i64::from(disp_w),
         height: i64::from(disp_h),
-        preview: (prev_w != orig_w || prev_h != orig_h)
+        preview: is_raw
             .then(|| upright(prev_w, prev_h))
             .map(|(w, h)| (i64::from(w), i64::from(h))),
     };
@@ -1716,9 +1757,62 @@ mod tests {
         assert_eq!((rec.width, rec.height), (Some(480), Some(320)));
         assert_eq!(
             (rec.preview_width, rec.preview_height),
-            (None, None),
-            "原本と同じならNULL。読む側は width/height へ落とす"
+            (Some(480), Some(320)),
+            "RAWは同じ値でも書く。NULLのままだと後追いが毎回拾ってしまう"
         );
+    }
+
+    #[test]
+    fn raw以外はプレビューの寸法を持たない() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = image::RgbImage::new(40, 30);
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        let rec = record_after_process(dir.path(), "a.jpg", &jpeg.into_inner());
+        assert_eq!((rec.width, rec.height), (Some(40), Some(30)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "配るのが原本そのものなら列は空のまま"
+        );
+    }
+
+    #[test]
+    fn 後追いは申告が読めれば原寸へ入れ替える() {
+        // 段階F-4より前に取り込んだ行の想定: width/height にプレビューの寸法が
+        // 入っていて、preview_* は空
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("old.cr3");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320);
+        assert_eq!((dims.width, dims.height), (6000, 4000));
+        assert_eq!(dims.preview, Some((480, 320)));
+    }
+
+    #[test]
+    fn 後追いは申告が無ければ今の値を確かめた印にする() {
+        // 印を残さないと、申告を持たない社（NEF・ORF 等）を毎回の起動で読み直す
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("old.cr3");
+        std::fs::write(&src, fake_cr3(None, (480, 320))).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320);
+        assert_eq!((dims.width, dims.height), (480, 320));
+        assert_eq!(
+            dims.preview,
+            Some((480, 320)),
+            "確かめた印として同じ値を書く"
+        );
+    }
+
+    #[test]
+    fn 後追いは今の値より小さい申告を信じない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("old.cr3");
+        std::fs::write(&src, fake_cr3(Some((160, 120)), (480, 320))).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320);
+        assert_eq!((dims.width, dims.height), (480, 320));
     }
 
     #[test]
@@ -1731,7 +1825,11 @@ mod tests {
             &fake_cr3(Some((160, 120)), (480, 320)),
         );
         assert_eq!((rec.width, rec.height), (Some(480), Some(320)));
-        assert_eq!((rec.preview_width, rec.preview_height), (None, None));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320)),
+            "RAWなので確かめた印は残る"
+        );
     }
 
     #[test]
