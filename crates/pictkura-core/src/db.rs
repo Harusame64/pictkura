@@ -2016,19 +2016,29 @@ impl Db {
     ///
     /// - **拡張子**: RAW以外は確かめることが無い（配るのが原本そのものなので、
     ///   確かめても `preview_width` はNULLのまま＝毎回引っ掛かる）
-    /// - **`width IS NOT NULL`**: まだ一度も読んでいない行を外す。そちらは
-    ///   [`Self::ids_missing_metadata`] が拾って、抽出のついでに寸法も入れる
-    /// - **`height IS NOT NULL`**: 幅だけ入っている行を外す。[`Self::update_shell_metadata`]
+    /// - **`width > 0`**: まだ一度も読んでいない行（NULL）と、読もうとして
+    ///   読めなかった行（0。[`Self::ids_missing_metadata`] の印）を外す。
+    ///   どちらもあちらが拾って、抽出のついでに寸法も入れる。0を通すと
+    ///   `preview` に 0x0 を書いて「確かめた」印まで付けてしまう
+    /// - **`height > 0`**: 幅だけ入っている行を外す。[`Self::update_shell_metadata`]
     ///   は幅と高さを**別々に**書くので、OSが幅しか返さなかった行が作れる。
     ///   高さをNULLのまま返すと呼び出し側の `i64` への読み出しが失敗し、
     ///   掃き寄せが**そこで黙って止まって二度と先へ進まない**（ゲート2のP2）
-    /// - **`thumb_path IS NOT NULL`**: 寸法を**自分で測った行だけ**にする。
+    /// - **`thumb_path IS NOT NULL`**: 寸法を**自分で測った行**に寄せる。
     ///   クラウドにしか実体が無いファイルは [`Self::update_shell_metadata`] が
     ///   OSから借りた**センサーの寸法**を `width/height` に入れており、それを
     ///   「掴んだプレビューの寸法」として `preview_*` へ写すと嘘になる
     ///   （実際に配るのは 1620x1080 なのに 6000x4000 と名乗る。ゲート2のP2）。
     ///   サムネイルがLRUで消された行もここで外れるが、次に見えたときに
-    ///   [`crate::thumbs::process_one`] が両方の列を正しく入れ直す
+    ///   [`crate::thumbs::process_one`] が両方の列を正しく入れ直す。
+    ///
+    /// **`thumb_path` は完全な門ではない**（ゲート2のP3）。処理済みの行でも、
+    /// 撮影日時が mtime へ落ちていると [`crate::thumbs::process_one`] のShell経路が
+    /// もう一度通り、`thumb_path` を残したまま `width/height` だけOSの値に
+    /// 置き換わりうる。呼び出し側がクラウドのみのファイルを飛ばすので、
+    /// 「Shellが書いた直後に実体が落ちてきて、まだ絵を作り直していない」
+    /// 隙間に入ったときだけ成立する。踏むと `preview_*` が原寸のまま残るが、
+    /// その1枚を開けば [`crate::thumbs::process_one`] が両方の列を入れ直す
     pub fn dimensions_to_backfill(
         &self,
         after_id: i64,
@@ -2044,7 +2054,7 @@ impl Db {
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id, path, width, height FROM media
              WHERE preview_width IS NULL AND id > ?1
-             AND width IS NOT NULL AND height IS NOT NULL AND thumb_path IS NOT NULL
+             AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
              AND ({clause})
              ORDER BY id LIMIT ?2"
         ))?;
@@ -2552,8 +2562,7 @@ mod tests {
         db.update_shell_metadata(id, 6000, 4000, Some(1)).unwrap();
         assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
 
-        // 実体が落ちてきて process_one が通ると、そのときは両方の列が正しく入る
-        // ——つまりこの行が後追いの対象になることは一度も無い
+        // 実体が落ちてきて process_one が通れば、そのときは両方の列が正しく入る
         db.update_metadata(
             id,
             Dimensions {

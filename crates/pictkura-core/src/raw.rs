@@ -982,7 +982,7 @@ fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
 /// `CMT2`（Exif IFD: 撮影日時）に、**中身はTIFFのまま**入れている。
 /// このボックスの中身をそのままEXIFパーサへ渡せば、普通のJPEGと同じに読める。
 ///
-/// 箱を辿るだけなので読むのはヘッダ周辺だけ（数十KB）。
+/// 箱を辿るだけなので、読むのは先頭1MBだけ（画素データ `mdat` には触らない）。
 pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
     /// ISO-BMFFで中に箱が入っている（＝再帰して良い）コンテナ。
     /// `uuid` は先頭16バイトがUUIDで、その後ろに子の箱が続く
@@ -1042,8 +1042,9 @@ pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
 /// | 読む場所 | 当たる社 | 例（プレビュー → 申告） |
 /// |---|---|---|
 /// | Exif IFDの `PixelXDimension`/`PixelYDimension`（この関数） | Canon CR2・Phase One IIQ・Sony ARW・Samsung SRW・Apple DNG | CR2(20D) 1536x1024 → 3504x2336 |
+/// | ——（**DNGは社で割れる**。Appleは持ち、LeicaとBlackmagicは持たない） | | |
 /// | CR3の `CMT1`（[`cr3_declared_dimensions`]） | Canon CR3 | R8 1620x1080 → 6000x4000 |
-/// | **このパーサからは届かない** | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR・Fujifilm RAF・Leica RWL・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW | 原寸はSubIFDの中にある |
+/// | **このパーサからは届かない** | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR・Fujifilm RAF・Leica RWL/DNG・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW・Blackmagic DNG | 原寸はSubIFDの中にある |
 /// | 申告はあるが読めない | Kodak KDC | Exif IFDに 3088x2310 が入っているが、`read_from_container` が `Truncated field value` でファイルごと拒む |
 ///
 /// **IFD0の `ImageWidth` は使わない。** TIFF系RAWのIFD0は「そのIFDが持っている絵」の

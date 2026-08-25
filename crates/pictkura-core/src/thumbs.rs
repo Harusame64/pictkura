@@ -312,12 +312,21 @@ pub fn read_exif_meta(path: &Path) -> ExifData {
 /// [`read_exif_meta`] との違いは**絵を1枚も探さないこと**。あちらは撮影日時が
 /// 取れなかったとき、絵にしか日付を書かない社（Sigma X3F・Hasselblad FFF・
 /// Leaf MOS）のために埋め込みプレビューを探しに降り、**最大128MBを読む**
-/// （[`crate::raw::embedded_preview_at_least`] の3段目）。
+/// （[`crate::raw::embedded_preview_at_least`] の3段目）。後追いに日付は要らない
+/// ——書き換えるのは寸法の4列だけなので、その3段目へ降りる理由が無い。
 ///
-/// 後追いに日付は要らない——書き換えるのは寸法の4列だけで、拾うのは
-/// [`ExifData::original`] と [`ExifData::orientation`] だけ。申告を持たない社
-/// （NEF・ORF 等）で全体を読むと、**起動のたびに何も変わらない読み込みへ
-/// 数分**払うことになる（ゲート2のP2）。
+/// **それでも「ヘッダだけ」ではない。** 入口の [`read_exif_container`] が使う
+/// `exif::Reader::read_from_container` は、先頭4KBを見て**TIFFだと分かった時点で
+/// ファイル全体を読む**（kamadak-exif 0.6.1 の作り）。安いのはCR3（箱を辿るだけ）と、
+/// TIFFに見えないORF・RW2・RAF・X3Fだけで、cr2・nef・arw・dng・3fr・iiq 等は
+/// **1枚まるごと**読む。1件あたりの実測（OSのキャッシュが温まった状態・6回まわして
+/// 最小〜最大）は **0.3〜13.1ms**で、**ファイルの大きさに比例する**:
+/// CR3は27MBでも1.0〜1.1ms、Hasselblad 3FR（51MB）は11.6〜13.1ms、
+/// Apple DNG（27MB）は6.2〜9.1ms、Olympus ORF（7MB）は0.4ms。
+///
+/// つまり掃き寄せは**一度きりだが安くはない**。同じ作りのカメラ補完
+/// （[`read_exif_info`] を使う第2段）が既に同じ値段を払っているので、
+/// 新しく重い仕事が増えたわけではない。
 pub fn read_exif_declaration(path: &Path) -> ExifData {
     read_exif_inner(path, Want::Declaration)
 }
@@ -731,8 +740,8 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
 /// メタデータ抽出済みなので、通常のキューからは漏れる。
 ///
 /// **絵には触らない。** サムネイルは既に正しく、作り直しても同じものが出る。
-/// 読むのはEXIFのヘッダだけ（CR3は `moov` の1MB）で、プレビューは探さない
-/// ——[`read_exif_declaration`] は「絵を1枚も探さない」入口。
+/// 絵を1枚も起こさないので[`process_one`]より桁で安いが、**ヘッダだけで済むとは
+/// 限らない**——値段は [`read_exif_declaration`] に書いた。
 ///
 /// 引数の `width`/`height` はDBに入っている値（＝掴んだプレビューの寸法で、
 /// 向きは適用済み）。原本の申告が読めたときだけ、原本を `width/height` へ、
@@ -740,16 +749,21 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
 /// ——確かめた印になり、次の起動では拾われない。
 pub fn backfilled_dimensions(path: &Path, width: i64, height: i64) -> crate::db::Dimensions {
     let current = (width, height);
-    let exif = read_exif_declaration(path);
+    // **向きはDBの値に合わせる**（Orientationを読み直さない）。
+    // `current` は [`process_one`] が向きを当てた後の値で、原本とプレビューは
+    // 同じ絵だから縦横の向きも同じ。向きの申告をコンテナに持たず
+    // **プレビューJPEGにだけ書く**形式があっても、こちらなら揃う
+    // ——後追いは絵を見ないので、Orientationを読み直す側では拾えない（ゲート2のP3）
     let upright = |(w, h): (u32, u32)| {
-        if (5..=8).contains(&exif.orientation) {
-            (i64::from(h), i64::from(w))
+        let (w, h) = (i64::from(w), i64::from(h));
+        if (current.0 >= current.1) == (w >= h) {
+            (w, h)
         } else {
-            (i64::from(w), i64::from(h))
+            (h, w)
         }
     };
     // 申告が今の値より小さいときは信じない（[`process_one`] と同じ門）
-    let original = exif
+    let original = read_exif_declaration(path)
         .original
         .map(upright)
         .filter(|(w, h)| *w >= current.0 && *h >= current.1)
@@ -1714,7 +1728,7 @@ mod tests {
             out
         }
         // ImageWidth(0x0100) / ImageLength(0x0101) だけのTIFF（リトルエンディアン）
-        let mut cmt1 = b"II* ".to_vec();
+        let mut cmt1 = b"II*\x00".to_vec();
         cmt1.extend(8u32.to_le_bytes());
         let mut entries: Vec<(u16, u32)> = match orig {
             Some((w, h)) => vec![(0x0100, w), (0x0101, h)],
@@ -1864,6 +1878,65 @@ mod tests {
         out.extend_from_slice(&payload);
         out.extend_from_slice(&jpeg[2..]);
         out
+    }
+
+    /// TIFF系RAWの最小再現。Exif IFDに申告を置き、後ろにプレビューJPEGを付ける。
+    ///
+    /// CR3（`CMT1`）とは**別の経路**（`read_exif_container` → Exif IFD）を通るので、
+    /// こちらも端から端まで1本要る。
+    fn fake_cr2(declared: (u32, u32), preview: (u32, u32)) -> Vec<u8> {
+        const EXIF_AT: u32 = 0x100;
+        let le = |v: u32| v.to_le_bytes();
+        let mut tiff = b"II*".to_vec();
+        tiff.push(0);
+        tiff.extend(le(8));
+        tiff.extend(1u16.to_le_bytes()); // IFD0 は ExifIFDPointer だけ
+        tiff.extend(0x8769u16.to_le_bytes());
+        tiff.extend(4u16.to_le_bytes()); // LONG
+        tiff.extend(le(1));
+        tiff.extend(le(EXIF_AT));
+        tiff.extend(le(0));
+        tiff.resize(EXIF_AT as usize, 0);
+        tiff.extend(2u16.to_le_bytes());
+        for (tag, value) in [(0xA002u16, declared.0), (0xA003, declared.1)] {
+            tiff.extend(tag.to_le_bytes());
+            tiff.extend(4u16.to_le_bytes());
+            tiff.extend(le(1));
+            tiff.extend(le(value));
+        }
+        tiff.extend(le(0));
+
+        let img = image::RgbImage::from_fn(preview.0, preview.1, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        tiff.extend(jpeg.into_inner());
+        tiff
+    }
+
+    #[test]
+    fn コンテナに申告があるrawも原寸へ入れ替える() {
+        // CR3の `CMT1` ではなく Exif IFD の `PixelXDimension` を通る経路。
+        // `read_exif_inner` はRAW以外を落とす早期returnと `patched_tiff_metadata`
+        // による丸ごと差し替えを持つので、`original` がそこを生き延びるかを見る
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = fake_cr2((3504, 2336), (480, 320));
+        let rec = record_after_process(dir.path(), "a.cr2", &bytes);
+        assert_eq!((rec.width, rec.height), (Some(3504), Some(2336)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320))
+        );
+
+        // 後追いの経路も同じ答えを出す
+        let src = dir.path().join("b.cr2");
+        std::fs::write(&src, &bytes).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320);
+        assert_eq!((dims.width, dims.height), (3504, 2336));
+        assert_eq!(dims.preview, Some((480, 320)));
     }
 
     #[test]
