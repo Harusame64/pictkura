@@ -867,9 +867,9 @@ fn cr3_hevc_preview(boxes: Vec<Cr3Hevc>, floor: u32, min_long_edge: u32) -> Opti
 ///
 /// MRWは独自のブロック構造（`\x00MRM` の下に `\x00PRD`・`\x00TTW`…）で、
 /// EXIFは `TTW` の中に**TIFFのまま**入っている。ブロックを辿るだけなので
-/// 読むのは先頭側だけで済む。
-fn mrw_tiff_block(path: &Path) -> Option<Vec<u8>> {
-    let head = read_head(path, PATCHED_TIFF_HEAD)?;
+/// 読むのは先頭側だけで済む——`head` は呼び出し側が読んだ先頭
+/// [`PATCHED_TIFF_HEAD`] バイト。
+fn mrw_tiff_block(head: &[u8]) -> Option<Vec<u8>> {
     if head.get(..4)? != b"\x00MRM" {
         return None;
     }
@@ -899,6 +899,16 @@ fn long_edge(bytes: &[u8]) -> u32 {
         .map_or(0, |(w, h)| w.max(h))
 }
 
+/// [`patched_tiff_metadata`] の結果。
+pub enum PatchedTiff {
+    /// 版番号を直した（あるいはMRWの `TTW` を取り出した）先頭バイト列
+    Patched(Vec<u8>),
+    /// 読めたが、直す対象ではない（普通のTIFF・BigTIFF・TIFFですらない形式）
+    NotApplicable,
+    /// 読めなかった（権限・共有ロック・外付けが抜けた）
+    Unreadable,
+}
+
 /// **TIFFのふりをしていない**TIFF系RAWのメタデータを、普通のEXIFとして
 /// 読めるバイト列にして返す（`thumbs::read_exif` が使う）。
 ///
@@ -915,27 +925,42 @@ fn long_edge(bytes: &[u8]) -> u32 {
 /// こと（`thumbs::read_raw_partial`）——撮影日時・カメラ名・向きは
 /// いずれも先頭側にあるので、これで取れる
 /// （実測: 先頭16KBでORF・RW2とも全項目が一致）。
-pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
+///
+/// **読めなかった**（`Unreadable`）と**直す対象ではない**（`NotApplicable`）は
+/// 分けて返す。畳むと、一時的に読めないだけのファイルを「この形式には
+/// メタデータが無い」と取り違え、後追いが「確かめた」印を付けてしまう
+/// （[`crate::thumbs::backfilled_dimensions`]・ゲート1のP2）。
+pub fn patched_tiff_metadata(path: &Path) -> PatchedTiff {
+    // **先頭は一度だけ読む。** MRWの `TTW` 探しと版番号の直しは同じバイト列で
+    // 足りるので、開き直す理由が無い（開き直しは「1度目は通ったのに2度目が
+    // 落ちる」隙間を増やす）
+    let Some(head) = read_head(path, PATCHED_TIFF_HEAD) else {
+        return PatchedTiff::Unreadable;
+    };
     // MRWは版番号ではなく**入れ物ごと独自**で、TIFFは中の `TTW` に入っている
-    if let Some(block) = mrw_tiff_block(path) {
-        return Some(block);
+    if let Some(block) = mrw_tiff_block(&head) {
+        return PatchedTiff::Patched(block);
     }
-    let head = read_window(path, 0, PATCHED_TIFF_HEAD)?;
-    let byte_order = head.get(..2)?;
+    let Some(byte_order) = head.get(..2) else {
+        return PatchedTiff::NotApplicable;
+    };
     let big_endian = match byte_order {
         b"II" => false,
         b"MM" => true,
-        _ => return None, // TIFFですらない（CR3・RAF・X3F等）
+        _ => return PatchedTiff::NotApplicable, // TIFFですらない（CR3・RAF・X3F等）
+    };
+    let (Some(lo), Some(hi)) = (head.get(2).copied(), head.get(3).copied()) else {
+        return PatchedTiff::NotApplicable;
     };
     let version = if big_endian {
-        u16::from_be_bytes([*head.get(2)?, *head.get(3)?])
+        u16::from_be_bytes([lo, hi])
     } else {
-        u16::from_le_bytes([*head.get(2)?, *head.get(3)?])
+        u16::from_le_bytes([lo, hi])
     };
     // 42（普通のTIFF）と43（BigTIFF）は直す対象ではない。前者はそもそも
     // ここへ来ないし、後者は構造が違うので版番号を替えても読めない
     if version == 42 || version == 43 {
-        return None;
+        return PatchedTiff::NotApplicable;
     }
     // 返すのは**読んだ先頭ぶんだけ**。撮影日時も向きもカメラ名も先頭側に
     // あるので、ファイルと同じ長さまで0で嵩上げする必要はない——それをやると
@@ -950,8 +975,11 @@ pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
     } else {
         [0x2A, 0x00]
     };
-    buf.get_mut(2..4)?.copy_from_slice(&patched);
-    Some(buf)
+    let Some(slot) = buf.get_mut(2..4) else {
+        return PatchedTiff::NotApplicable;
+    };
+    slot.copy_from_slice(&patched);
+    PatchedTiff::Patched(buf)
 }
 
 /// ファイルの指定位置から最大 `len` バイト読む（足りなければ読めた分だけ）。
@@ -1601,7 +1629,9 @@ mod tests {
                 "{name}: 版番号が独自のままでは読めない"
             );
 
-            let patched = patched_tiff_metadata(&path).expect("直せる");
+            let PatchedTiff::Patched(patched) = patched_tiff_metadata(&path) else {
+                panic!("{name}: 版番号を直せる");
+            };
             let exif = exif::Reader::new().read_raw(patched).expect("直せば読める");
             assert_eq!(
                 exif.get_field(Tag::Orientation, In::PRIMARY)
@@ -1625,11 +1655,42 @@ mod tests {
         buf.resize(4 * 1024 * 1024, 0); // 画素データのつもりの重し
         std::fs::write(&path, &buf).unwrap();
 
-        let patched = patched_tiff_metadata(&path).expect("版番号を直せる");
+        let PatchedTiff::Patched(patched) = patched_tiff_metadata(&path) else {
+            panic!("版番号を直せる");
+        };
         assert!(
             patched.len() <= PATCHED_TIFF_HEAD,
             "読むのは先頭ぶんだけ: {}",
             patched.len()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 読めないorfは対象外と区別する() {
+        // 「直す対象ではない」に畳むと、一時的に読めないだけのORF・RW2に
+        // 後追いが「確かめた」印を付けて二度と直らない（ゲート1の4周目のP2）
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.orf");
+        let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], false);
+        buf[2] = b'R';
+        buf[3] = b'O';
+        std::fs::write(&path, &buf).unwrap();
+        assert!(matches!(
+            patched_tiff_metadata(&path),
+            PatchedTiff::Patched(_)
+        ));
+
+        // 共有を許さずに開いたまま持つ
+        let _lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(
+            matches!(patched_tiff_metadata(&path), PatchedTiff::Unreadable),
+            "読めないのと直す対象でないのは別"
         );
     }
 
@@ -1643,12 +1704,18 @@ mod tests {
             buf[2..4].copy_from_slice(&version.to_le_bytes());
             let path = dir.path().join("sample.dng");
             std::fs::write(&path, &buf).unwrap();
-            assert!(patched_tiff_metadata(&path).is_none(), "版{version}");
+            assert!(
+                matches!(patched_tiff_metadata(&path), PatchedTiff::NotApplicable),
+                "版{version}"
+            );
         }
         // TIFFですらないファイル（CR3・RAF・X3F）も対象外
         let path = dir.path().join("sample.cr3");
         std::fs::write(&path, b"\x00\x00\x00\x18ftypcrx ").unwrap();
-        assert!(patched_tiff_metadata(&path).is_none());
+        assert!(matches!(
+            patched_tiff_metadata(&path),
+            PatchedTiff::NotApplicable
+        ));
     }
 
     #[test]

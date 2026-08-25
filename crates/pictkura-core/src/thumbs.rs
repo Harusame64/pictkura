@@ -418,11 +418,20 @@ fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
 
     // ORF・RW2はTIFFの版番号が独自で、パーサに素通しされる。版番号だけ直せば
     // 読める——直さないと**撮影日時もカメラ名も向きも丸ごと落ちる**
+    //
+    // **ここも2度目の `File::open`**。コンテナ読みが通った直後に共有ロックが
+    // 掛かると読み直しだけが落ちるので、そのときは「読めた」を取り下げる
+    // ——取り下げないとORF・RW2が申告なしの印を付けられて二度と直らない
+    // （ゲート1の4周目のP2）
     if !had_container {
-        if let Some(buf) = crate::raw::patched_tiff_metadata(path) {
-            if let Some(exif) = read_raw_partial(buf) {
-                result = exif_data_from(&exif);
+        match crate::raw::patched_tiff_metadata(path) {
+            crate::raw::PatchedTiff::Patched(buf) => {
+                if let Some(exif) = read_raw_partial(buf) {
+                    result = exif_data_from(&exif);
+                }
             }
+            crate::raw::PatchedTiff::NotApplicable => {}
+            crate::raw::PatchedTiff::Unreadable => readable = false,
         }
     }
 
