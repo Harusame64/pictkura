@@ -983,7 +983,12 @@ fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
 /// このボックスの中身をそのままEXIFパーサへ渡せば、普通のJPEGと同じに読める。
 ///
 /// 箱を辿るだけなので、読むのは先頭1MBだけ（画素データ `mdat` には触らない）。
-pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
+///
+/// **読めなかったときは `None`**、箱でなかった・箱に入っていなかったときは
+/// 空の `Some`。呼ぶ側が「一時的に読めないだけ」と「この形式には無い」を
+/// 見分けられないと、読めない行に「確かめた」印を付けてしまう
+/// （[`crate::thumbs::backfilled_dimensions`]）。
+pub fn bmff_metadata_blocks(path: &Path) -> Option<Vec<Vec<u8>>> {
     /// ISO-BMFFで中に箱が入っている（＝再帰して良い）コンテナ。
     /// `uuid` は先頭16バイトがUUIDで、その後ろに子の箱が続く
     const CONTAINERS: &[&[u8; 4]] = &[b"moov", b"trak", b"mdia", b"minf", b"stbl", b"uuid"];
@@ -1021,12 +1026,10 @@ pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
     }
 
     // moovはCR3ではファイル先頭側にある。画素データ（mdat）まで読まない
-    let Some(head) = read_head(path, 1024 * 1024) else {
-        return Vec::new();
-    };
+    let head = read_head(path, 1024 * 1024)?;
     let mut out = Vec::new();
     walk(&head, 0, &mut out);
-    out
+    Some(out)
 }
 
 /// 原本（センサー）の寸法を、EXIFの申告から読む。**絵は1枚も起こさない**。
@@ -1690,7 +1693,7 @@ mod tests {
         file.extend_from_slice(&moov);
         std::fs::write(&path, &file).unwrap();
 
-        let blocks = bmff_metadata_blocks(&path);
+        let blocks = bmff_metadata_blocks(&path).expect("読める");
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].starts_with(b"II"), "TIFFの中身がそのまま出る");
     }
@@ -1774,7 +1777,7 @@ mod tests {
         let mut buf = 999_999u32.to_be_bytes().to_vec();
         buf.extend_from_slice(b"moov");
         std::fs::write(&path, &buf).unwrap();
-        assert!(bmff_metadata_blocks(&path).is_empty());
+        assert!(bmff_metadata_blocks(&path).expect("読める").is_empty());
     }
 
     #[test]

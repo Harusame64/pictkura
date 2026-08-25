@@ -224,7 +224,7 @@ pub fn read_exif_info(path: &Path) -> ExifInfo {
     // CR3のようにTIFFではないRAWは、箱に分かれて入っているメタデータを
     // それぞれ読んで合成する（機種はCMT1、撮影パラメータはCMT2…）
     let mut info = ExifInfo::default();
-    for block in crate::raw::bmff_metadata_blocks(path) {
+    for block in crate::raw::bmff_metadata_blocks(path).unwrap_or_default() {
         let Ok(exif) = exif::Reader::new().read_raw(block) else {
             continue;
         };
@@ -336,8 +336,14 @@ pub fn read_exif_meta(path: &Path) -> ExifData {
 /// ——カメラ補完（[`read_exif_info`] を使う第2段）が同じ入口を通る。
 /// ただし**対象の行数は違う**（あちらは `camera_id IS NULL` で、既に回った
 /// ライブラリでは空）ので、「重い仕事が増えていない」とまでは言えない。
-pub fn read_exif_declaration(path: &Path) -> ExifData {
-    read_exif_inner(path, Want::Declaration)
+///
+/// **読めなかったときは `None`。** 権限・共有ロック・途中で切れた読み出しを
+/// 「EXIFが空」に畳むと、呼び出し側が「開けたが申告を持たない社」（Kodak KDC 等）と
+/// 見分けられない。前者は読める日が来るが、後者は何度読んでも同じなので、
+/// 印を付けてよいのは後者だけ（ゲート1のP2）。
+pub fn read_exif_declaration(path: &Path) -> Option<ExifData> {
+    let (data, readable) = read_exif_checked(path, Want::Declaration);
+    readable.then_some(data)
 }
 
 /// 長辺 `max_edge` の絵に縮めて出す場面用。RAWのプレビューは**それを満たせば
@@ -362,13 +368,32 @@ enum Want {
 
 /// `want` は「絵を探すか、探すなら長辺どれだけ要るか」。
 fn read_exif_inner(path: &Path, want: Want) -> ExifData {
+    read_exif_checked(path, want).0
+}
+
+/// [`read_exif_inner`] に「**ファイルを読めたか**」を添えて返す。
+///
+/// 添える相手は後追いだけ（[`read_exif_declaration`]）。読めなかったのに
+/// 空の [`ExifData`] を返すと、呼び出し側が「開けたが申告が無い社」と
+/// 見分けられず、**一時的に読めないだけの行に「確かめた」印**を付けてしまう。
+///
+/// 真になるのは**実際にファイルを読み通せた**とき——コンテナ読みが最後まで
+/// 通ったか（EXIFが無くてもよい）、CR3の箱を辿れたか。開き直しが挟まる経路は
+/// **後の読みが失敗したら偽へ落とす**（開けた瞬間から共有ロックが掛かるまでの
+/// 隙間で嘘を付かないため）。
+fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
     let container = read_exif_container(path);
+    let mut readable = !matches!(container, Container::Unreadable);
+    let container = match container {
+        Container::Found(data) => Some(data),
+        Container::Empty | Container::Unreadable => None,
+    };
 
     // HEIFは**コンテナ自身が向きを持つ**（`irot`）。OSのデコーダはそれを適用して
     // 返すので、EXIF Orientationをそのまま流すと絵に二重に掛かって横倒しになる。
     // 撮影日時・カメラ名はEXIFのものをそのまま使う（第7部 段階G）
     if crate::heif::is_bmff_image_path(path) {
-        return ExifData {
+        let data = ExifData {
             orientation: 1,
             // 埋め込みJPEGサムネイルは（あっても）回転前の絵なので使わない。
             // 一覧用の小さい絵は heif::decode_thumbnail から作る
@@ -378,6 +403,7 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
             original: None,
             ..container.unwrap_or_default()
         };
+        return (data, readable);
     }
 
     let had_container = container.is_some();
@@ -387,7 +413,7 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
         // `PixelXDimension` が古いまま残ることがあり、実物と食い違う
         // （そもそも実ファイルのヘッダから正確な寸法が読める）
         result.original = None;
-        return result;
+        return (result, readable);
     }
 
     // ORF・RW2はTIFFの版番号が独自で、パーサに素通しされる。版番号だけ直せば
@@ -410,7 +436,13 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
     if result.taken_at_ms.is_none()
         || (result.original.is_none() && crate::raw::is_bmff_raw_path(path))
     {
-        for block in crate::raw::bmff_metadata_blocks(path) {
+        // **箱を辿れたかどうかで読めたかを言い直す。** CR3はコンテナ読みを
+        // 素通りする（開けはするがEXIFとして解釈できない）ので、ここが
+        // 2度目の `File::open` になる。1度目が通った後に共有ロックが掛かると
+        // 箱は空で返り、そのまま進むと**読めていないのに印を付ける**
+        let blocks = crate::raw::bmff_metadata_blocks(path);
+        readable = readable && blocks.is_some();
+        for block in blocks.unwrap_or_default() {
             let Ok(exif) = exif::Reader::new().read_raw(block) else {
                 continue;
             };
@@ -452,7 +484,7 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
         // この入口は「絵は残さない」と約束している。コンテナのIFD1に切手が
         // 入っていた場合はここまで載ったままなので、明示的に落とす（ゲート2のP3）
         result.thumbnail = None;
-        return result;
+        return (result, readable);
     };
 
     // サムネイルは埋め込みプレビューJPEGを使う（カメラが書いた表示用の絵）。
@@ -465,7 +497,7 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
         }
         result.thumbnail = Some(preview);
     }
-    result
+    (result, readable)
 }
 
 /// 先頭ぶんだけを渡されたTIFFを読む。
@@ -499,14 +531,35 @@ fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
     }
 }
 
+/// コンテナ読みの結果。**「ファイルを読めなかった」と「読めたがEXIFが無い」を
+/// 分ける**——RAWは前者だけ版番号を直して読み直すし、後追い
+/// （[`backfilled_dimensions`]）は前者に「確かめた」印を付けてはいけない。
+enum Container {
+    /// EXIFが取れた
+    Found(ExifData),
+    /// 最後まで読めたが、EXIFとして解釈できなかった
+    /// （CR3・ORF・RW2 のようにここを素通りする形式と、EXIFの無い写真）
+    Empty,
+    /// 開けなかった、または読んでいる途中で落ちた
+    Unreadable,
+}
+
 /// コンテナ（ファイル本体）のEXIFヘッダを読む。
-/// 読めなければ None。RAWは「読めなかった」と「EXIFが空だった」を
-/// 区別する必要がある（前者だけ版番号を直して読み直す）
-fn read_exif_container(path: &Path) -> Option<ExifData> {
-    let file = std::fs::File::open(path).ok()?;
+fn read_exif_container(path: &Path) -> Container {
+    let Ok(file) = std::fs::File::open(path) else {
+        return Container::Unreadable;
+    };
     let mut reader = BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    Some(exif_data_from(&exif))
+    match exif::Reader::new().read_from_container(&mut reader) {
+        Ok(exif) => Container::Found(exif_data_from(&exif)),
+        // **末尾に達しただけ（`UnexpectedEof`）は「読めた」に入れる。**
+        // 切れたファイルは何度読んでも同じ長さなので、読めなかった扱いにすると
+        // 後追いが毎回の起動でファイル全体を読み直すことになる
+        Err(exif::Error::Io(e)) if e.kind() != std::io::ErrorKind::UnexpectedEof => {
+            Container::Unreadable
+        }
+        Err(_) => Container::Empty,
+    }
 }
 
 /// パース済みEXIFから必要な項目を取り出す。
@@ -758,21 +811,24 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
 /// 今の値を `preview_*` へ移す。申告が無ければ**今の値をそのまま両方へ**入れる
 /// ——確かめた印になり、次の起動では拾われない。
 ///
-/// **開けなかったときは `None`。** 権限や共有ロックで一時的に読めないだけの
+/// **読めなかったときは `None`。** 権限や共有ロックで一時的に読めないだけの
 /// ファイルに「確かめた」印を付けると、読める日が来ても二度と拾い直せない
-/// （ゲート1のP2）。「開けたが申告が無い」（Kodak KDC 等）とは区別する
+/// （ゲート1のP2）。「読めたが申告が無い」（Kodak KDC 等）とは区別する
 /// ——あちらは何度読んでも同じなので、印を付けて終わらせてよい。
+///
+/// 見分けるのは**読んだ本人**（[`read_exif_declaration`]）。ここで先に
+/// `File::open` を試すやり方は3周目まで入れていたが、試し開きと本番の読み出しの
+/// 間に共有ロックが掛かると同じ穴が開く（PRコメント側のCodexの指摘）。
 pub fn backfilled_dimensions(
     path: &Path,
     width: i64,
     height: i64,
 ) -> Option<crate::db::Dimensions> {
-    // 開けるかどうかだけ先に見る。[`read_exif_declaration`] は失敗を
-    // 「EXIFが空」に畳んでしまい、外から見分けられない
-    std::fs::File::open(path).ok()?;
-
     let current = (width, height);
-    let exif = read_exif_declaration(path);
+    // **読んだ本人に聞く。** 先に `File::open` で試し開きをしても、その後の
+    // 読み出しが失敗すれば同じ穴が開く——試し開きと本番の間に共有ロックが
+    // 掛かるのが典型で、[`read_exif_declaration`] はその失敗を返してくる
+    let exif = read_exif_declaration(path)?;
     // **向きは基本的にDBの値に合わせる**（`current` は [`process_one`] が向きを
     // 当てた後の値で、原本とプレビューは同じ絵だから縦横の向きも同じ）。
     //
@@ -1616,7 +1672,7 @@ mod tests {
         buf.extend_from_slice(&(far as u32).to_le_bytes());
         buf.extend_from_slice(&0u32.to_le_bytes()); // 次のIFDは無し
         buf.resize(far + 8, 0);
-        buf[far..far + 8].copy_from_slice(b"OM-1    ");
+        buf[far..far + 8].copy_from_slice(b"OM-1\x00\x00\x00\x00");
         std::fs::write(&path, &buf).unwrap();
 
         let data = read_exif_meta(&path);
@@ -1630,7 +1686,7 @@ mod tests {
         // 形式によってはファイル全体を読む（実測100〜350ms）ので、そこは省く
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("photo.nef");
-        raw_with_preview(&path, *b"* ", &test_jpeg_bytes(1600, 1200));
+        raw_with_preview(&path, *b"*\x00", &test_jpeg_bytes(1600, 1200));
 
         assert!(
             read_exif_meta(&path).thumbnail.is_none(),
@@ -2062,6 +2118,31 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("gone.cr3");
         assert!(backfilled_dimensions(&missing, 480, 320).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 共有ロックが掛かったrawには確かめた印を付けない() {
+        // 「一度開けたのだから読めるはず」で進むと、開いた直後にロックが
+        // 掛かった1枚に**申告なし**の印が付いて二度と直らない
+        // （PRコメント側のCodexの指摘）。読み出しの失敗をそのまま返す
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("locked.cr3");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        // ロック前は読める（テストの仕込みが効いていることの確認）
+        assert!(backfilled_dimensions(&src, 480, 320).is_some());
+
+        // 共有を許さずに開いたまま持つ（他のプロセスが編集中のRAWと同じ状態）
+        let _lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&src)
+            .unwrap();
+        assert!(
+            backfilled_dimensions(&src, 480, 320).is_none(),
+            "読めないうちは印を付けない（読める日に拾い直す）"
+        );
     }
 
     #[test]
@@ -2500,7 +2581,7 @@ mod tests {
         let body = test_jpeg_bytes(width, height);
         let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
         out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
-        out.extend_from_slice(b"Exif  ");
+        out.extend_from_slice(b"Exif\x00\x00");
         out.extend_from_slice(&tiff);
         out.extend_from_slice(&body[2..]);
         out
