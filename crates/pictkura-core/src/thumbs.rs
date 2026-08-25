@@ -291,7 +291,7 @@ fn exif_dt_to_local_ms(dt: &exif::DateTime) -> Option<i64> {
 /// 4. **埋め込みプレビューJPEGのEXIF**（RAF など）。カメラが書いたJPEGなので
 ///    撮影日時・カメラ名・向きは実体と同じものが入っている
 pub fn read_exif(path: &Path) -> ExifData {
-    read_exif_inner(path, Some(crate::raw::USABLE_LONG_EDGE))
+    read_exif_inner(path, Want::Image(crate::raw::USABLE_LONG_EDGE))
 }
 
 /// 撮影日時・向き・カメラ名だけを読む（**絵は残さない**）。
@@ -304,19 +304,45 @@ pub fn read_exif(path: &Path) -> ExifData {
 /// ファイル名かmtimeの日付で**別の日のフォルダへ入れてしまう**ので、
 /// 日付が取れなかったときだけ先頭16MBのプレビューを見る（ゲート1のP2）。
 pub fn read_exif_meta(path: &Path) -> ExifData {
-    read_exif_inner(path, None)
+    read_exif_inner(path, Want::Meta)
+}
+
+/// 寸法の申告だけが要る場面（段階F-4の後追い）。
+///
+/// [`read_exif_meta`] との違いは**絵を1枚も探さないこと**。あちらは撮影日時が
+/// 取れなかったとき、絵にしか日付を書かない社（Sigma X3F・Hasselblad FFF・
+/// Leaf MOS）のために埋め込みプレビューを探しに降り、**最大128MBを読む**
+/// （[`crate::raw::embedded_preview_at_least`] の3段目）。
+///
+/// 後追いに日付は要らない——書き換えるのは寸法の4列だけで、拾うのは
+/// [`ExifData::original`] と [`ExifData::orientation`] だけ。申告を持たない社
+/// （NEF・ORF 等）で全体を読むと、**起動のたびに何も変わらない読み込みへ
+/// 数分**払うことになる（ゲート2のP2）。
+pub fn read_exif_declaration(path: &Path) -> ExifData {
+    read_exif_inner(path, Want::Declaration)
 }
 
 /// 長辺 `max_edge` の絵に縮めて出す場面用。RAWのプレビューは**それを満たせば
 /// 十分**で、原寸を探してファイル全体を読む必要はない
 /// （取り込み元の一覧と、ライブラリのサムネイル生成）。
 pub fn read_exif_for_preview(path: &Path, max_edge: u32) -> ExifData {
-    read_exif_inner(path, Some(max_edge))
+    read_exif_inner(path, Want::Image(max_edge))
 }
 
-/// `want_preview` はRAWの埋め込みプレビューを探すかどうかと、
-/// 「長辺どれだけあれば足りるか」。`None` なら探さない。
-fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
+/// EXIFを何のために読むか。**絵を探すかどうか**がここで決まる。
+#[derive(Clone, Copy)]
+enum Want {
+    /// 撮影日時・カメラ名・向き。絵にしか日付が無い形式のためだけに、
+    /// 日付が取れなかったときは絵も探す
+    Meta,
+    /// 寸法の申告だけ。**絵は探さない**（段階F-4の後追い）
+    Declaration,
+    /// 表示に使う絵。長辺がこれ以上あるものを探す
+    Image(u32),
+}
+
+/// `want` は「絵を探すか、探すなら長辺どれだけ要るか」。
+fn read_exif_inner(path: &Path, want: Want) -> ExifData {
     let container = read_exif_container(path);
 
     // HEIFは**コンテナ自身が向きを持つ**（`irot`）。OSのデコーダはそれを適用して
@@ -383,7 +409,7 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
         }
     }
 
-    let Some(min_long_edge) = want_preview else {
+    let Want::Image(min_long_edge) = want else {
         // 絵は要らないが、**日付がプレビューにしか無い形式**はここで拾う。
         // 撮影日時がもう取れているならプレビューには触らない（大多数はこちら）
         //
@@ -394,7 +420,10 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
         // 払うのは**コンテナに日付が無い社だけ**（x3f 123ms・fff 194ms・
         // mos 68ms）で、大多数は0〜30msで素通りする。そもそも取り込みは
         // このあとファイル全体を読んで写す
-        if result.taken_at_ms.is_none() {
+        //
+        // **[`Want::Declaration`] はここへ来ても降りない**。後追いが要るのは
+        // 寸法の申告と向きだけで、日付のために全体を読む理由が無い（ゲート2のP2）
+        if result.taken_at_ms.is_none() && matches!(want, Want::Meta) {
             if let Some(preview) =
                 crate::raw::embedded_preview_at_least(path, crate::raw::USABLE_LONG_EDGE)
             {
@@ -654,8 +683,7 @@ fn source_image(
     Ok(image::open(path)?)
 }
 
-/// 画像の寸法（回転前）。RAWは埋め込みプレビューの寸法を使う。
-/// **いま手にしている絵**の寸法を、起こさずに読む。
+/// **いま手にしている絵**の寸法を、起こさずに読む（向きは当てていない）。
 ///
 /// RAW以外は原本そのもの。RAWだけ違って、返るのは `exif` を取ったときに掴んだ
 /// 埋め込みプレビューの寸法で、**原本より小さいことが多い**（HDR PQのCR3は
@@ -704,7 +732,7 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
 ///
 /// **絵には触らない。** サムネイルは既に正しく、作り直しても同じものが出る。
 /// 読むのはEXIFのヘッダだけ（CR3は `moov` の1MB）で、プレビューは探さない
-/// ——[`read_exif_meta`] は「絵は要らない」入口。
+/// ——[`read_exif_declaration`] は「絵を1枚も探さない」入口。
 ///
 /// 引数の `width`/`height` はDBに入っている値（＝掴んだプレビューの寸法で、
 /// 向きは適用済み）。原本の申告が読めたときだけ、原本を `width/height` へ、
@@ -712,7 +740,7 @@ fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbE
 /// ——確かめた印になり、次の起動では拾われない。
 pub fn backfilled_dimensions(path: &Path, width: i64, height: i64) -> crate::db::Dimensions {
     let current = (width, height);
-    let exif = read_exif_meta(path);
+    let exif = read_exif_declaration(path);
     let upright = |(w, h): (u32, u32)| {
         if (5..=8).contains(&exif.orientation) {
             (i64::from(h), i64::from(w))
@@ -979,8 +1007,6 @@ pub fn process_one(
     let rotated = (5..=8).contains(&exif_data.orientation);
     let upright = |w: u32, h: u32| if rotated { (h, w) } else { (w, h) };
     let (disp_w, disp_h) = upright(orig_w, orig_h);
-    // 原本と同じなら列に入れない（＝「原本を配信する」の意味）。
-    // NULLで済ませるほうがDBが軽く、UI側も原本へ落として同じ絵になる
     // **RAWは原本と同じ寸法でも書く。** NULLは「まだ確かめていない」印で、
     // 段階F-4より前に取り込んだ行を後追いで拾うのに使う
     // （[`crate::Db::dimensions_to_backfill`]）。RAW以外は配るのが原本そのもの
@@ -1672,6 +1698,15 @@ mod tests {
     /// CR3の最小再現。`moov > uuid > CMT1` に原寸の申告を入れ、
     /// その後ろに埋め込みプレビューのJPEGを置く。
     fn fake_cr3(orig: Option<(u32, u32)>, preview: (u32, u32)) -> Vec<u8> {
+        fake_cr3_oriented(orig, preview, 1)
+    }
+
+    /// 向きを指定できる版。Orientation 6 は「90度回して表示する」＝縦位置。
+    fn fake_cr3_oriented(
+        orig: Option<(u32, u32)>,
+        preview: (u32, u32),
+        orientation: u32,
+    ) -> Vec<u8> {
         fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
             let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
             out.extend_from_slice(kind);
@@ -1681,10 +1716,13 @@ mod tests {
         // ImageWidth(0x0100) / ImageLength(0x0101) だけのTIFF（リトルエンディアン）
         let mut cmt1 = b"II* ".to_vec();
         cmt1.extend(8u32.to_le_bytes());
-        let entries: Vec<(u16, u32)> = match orig {
+        let mut entries: Vec<(u16, u32)> = match orig {
             Some((w, h)) => vec![(0x0100, w), (0x0101, h)],
             None => Vec::new(),
         };
+        if orientation != 1 {
+            entries.push((0x0112, orientation)); // Orientation
+        }
         cmt1.extend((entries.len() as u16).to_le_bytes());
         for (tag, value) in &entries {
             cmt1.extend(tag.to_le_bytes());
@@ -1763,20 +1801,101 @@ mod tests {
     }
 
     #[test]
-    fn raw以外はプレビューの寸法を持たない() {
+    fn raw以外は申告を信じずに実物の寸法を使う() {
+        // 編集で縮めた写真は `PixelXDimension` が古いまま残ることがある。
+        // 40x30 の絵に 8000x6000 と申告させて、実物のほうが勝つことを見る
         let dir = tempfile::tempdir().unwrap();
         let img = image::RgbImage::new(40, 30);
         let mut jpeg = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgb8(img)
             .write_to(&mut jpeg, image::ImageFormat::Jpeg)
             .unwrap();
-        let rec = record_after_process(dir.path(), "a.jpg", &jpeg.into_inner());
-        assert_eq!((rec.width, rec.height), (Some(40), Some(30)));
+        let bytes = jpeg_with_lying_exif(&jpeg.into_inner(), 8000, 6000);
+        // 仕込みが効いているか（効いていなければこのテストは何も見張らない）
+        let exif = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(&bytes))
+            .expect("仕込んだEXIFが読める");
+        assert_eq!(
+            crate::raw::exif_declared_dimensions(&exif),
+            Some((8000, 6000)),
+            "申告そのものは読める状態にある"
+        );
+
+        let rec = record_after_process(dir.path(), "a.jpg", &bytes);
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(40), Some(30)),
+            "RAW以外は申告を捨てて実物のヘッダを読む"
+        );
         assert_eq!(
             (rec.preview_width, rec.preview_height),
             (None, None),
             "配るのが原本そのものなら列は空のまま"
         );
+    }
+
+    /// JPEGの先頭に APP1(Exif) を挿し込み、`PixelXDimension` に嘘を書く。
+    fn jpeg_with_lying_exif(jpeg: &[u8], width: u32, height: u32) -> Vec<u8> {
+        // Exif IFD（0xA002/0xA003）を IFD0 の 0x8769 からぶら下げる
+        const EXIF_AT: u32 = 0x100;
+        let mut tiff = b"II*\x00".to_vec();
+        tiff.extend(8u32.to_le_bytes());
+        tiff.extend(1u16.to_le_bytes()); // IFD0 は1件
+        tiff.extend(0x8769u16.to_le_bytes());
+        tiff.extend(4u16.to_le_bytes()); // LONG
+        tiff.extend(1u32.to_le_bytes());
+        tiff.extend(EXIF_AT.to_le_bytes());
+        tiff.extend(0u32.to_le_bytes()); // 次のIFDは無し
+        tiff.resize(EXIF_AT as usize, 0);
+        tiff.extend(2u16.to_le_bytes()); // Exif IFD は2件
+        for (tag, value) in [(0xA002u16, width), (0xA003, height)] {
+            tiff.extend(tag.to_le_bytes());
+            tiff.extend(4u16.to_le_bytes());
+            tiff.extend(1u32.to_le_bytes());
+            tiff.extend(value.to_le_bytes());
+        }
+        tiff.extend(0u32.to_le_bytes());
+
+        let mut payload = b"Exif\x00\x00".to_vec();
+        payload.extend_from_slice(&tiff);
+        let mut out = jpeg[..2].to_vec(); // SOI
+        out.extend(0xFFE1u16.to_be_bytes()); // APP1
+        out.extend(((payload.len() + 2) as u16).to_be_bytes());
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&jpeg[2..]);
+        out
+    }
+
+    #[test]
+    fn 縦位置のrawは原本もプレビューも向きを当てて記録する() {
+        // 向きを当て忘れると、一覧の枠だけ横向きのまま縦の絵が入る
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(
+            dir.path(),
+            "portrait.cr3",
+            &fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6),
+        );
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(4000), Some(6000)),
+            "原本も入れ替わる"
+        );
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(320), Some(480)),
+            "プレビューも同じ向きで揃える（片方だけ回すと縦横比が食い違う）"
+        );
+    }
+
+    #[test]
+    fn 後追いも向きを当てる() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("portrait.cr3");
+        std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6)).unwrap();
+        // DBに入っているのは向きを当てた後の値（320x480）
+        let dims = backfilled_dimensions(&src, 320, 480);
+        assert_eq!((dims.width, dims.height), (4000, 6000));
+        assert_eq!(dims.preview, Some((320, 480)));
     }
 
     #[test]
@@ -1813,6 +1932,11 @@ mod tests {
         std::fs::write(&src, fake_cr3(Some((160, 120)), (480, 320))).unwrap();
         let dims = backfilled_dimensions(&src, 480, 320);
         assert_eq!((dims.width, dims.height), (480, 320));
+        assert_eq!(
+            dims.preview,
+            Some((480, 320)),
+            "拒んだときも確かめた印は残す（残さないと毎回読み直す）"
+        );
     }
 
     #[test]

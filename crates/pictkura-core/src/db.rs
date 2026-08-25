@@ -2012,10 +2012,23 @@ impl Db {
     /// 外れる——RAWは原本と同じ寸法でも書き込むので、**確かめた行が必ず抜ける**。
     /// 印を先に書くと、仕事が終わる前にアプリが落ちたときに拾い直せなくなる。
     ///
-    /// 対象を拡張子で絞るのは、RAW以外に確かめることが無いため（配るのが原本
-    /// そのものなので、確かめても `preview_width` はNULLのまま＝毎回引っ掛かる）。
-    /// `width IS NOT NULL` は、まだ一度も読んでいない行を外すため（そちらは
-    /// [`Self::ids_missing_metadata`] が拾って、抽出のついでに寸法も入れる）。
+    /// 絞り込みの4つは、それぞれ別の穴を塞いでいる:
+    ///
+    /// - **拡張子**: RAW以外は確かめることが無い（配るのが原本そのものなので、
+    ///   確かめても `preview_width` はNULLのまま＝毎回引っ掛かる）
+    /// - **`width IS NOT NULL`**: まだ一度も読んでいない行を外す。そちらは
+    ///   [`Self::ids_missing_metadata`] が拾って、抽出のついでに寸法も入れる
+    /// - **`height IS NOT NULL`**: 幅だけ入っている行を外す。[`Self::update_shell_metadata`]
+    ///   は幅と高さを**別々に**書くので、OSが幅しか返さなかった行が作れる。
+    ///   高さをNULLのまま返すと呼び出し側の `i64` への読み出しが失敗し、
+    ///   掃き寄せが**そこで黙って止まって二度と先へ進まない**（ゲート2のP2）
+    /// - **`thumb_path IS NOT NULL`**: 寸法を**自分で測った行だけ**にする。
+    ///   クラウドにしか実体が無いファイルは [`Self::update_shell_metadata`] が
+    ///   OSから借りた**センサーの寸法**を `width/height` に入れており、それを
+    ///   「掴んだプレビューの寸法」として `preview_*` へ写すと嘘になる
+    ///   （実際に配るのは 1620x1080 なのに 6000x4000 と名乗る。ゲート2のP2）。
+    ///   サムネイルがLRUで消された行もここで外れるが、次に見えたときに
+    ///   [`crate::thumbs::process_one`] が両方の列を正しく入れ直す
     pub fn dimensions_to_backfill(
         &self,
         after_id: i64,
@@ -2030,7 +2043,8 @@ impl Db {
             .join(" OR ");
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id, path, width, height FROM media
-             WHERE preview_width IS NULL AND width IS NOT NULL AND id > ?1
+             WHERE preview_width IS NULL AND id > ?1
+             AND width IS NOT NULL AND height IS NOT NULL AND thumb_path IS NOT NULL
              AND ({clause})
              ORDER BY id LIMIT ?2"
         ))?;
@@ -2483,6 +2497,9 @@ mod tests {
             let id = id_of(&db, name);
             db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
                 .unwrap();
+            // 寸法を**自分で測った**印。これが無い行はOSから借りた可能性がある
+            db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+                .unwrap();
         }
 
         let picked: Vec<String> = db
@@ -2525,6 +2542,50 @@ mod tests {
     }
 
     #[test]
+    fn 後追いは自分で測っていない行を拾わない() {
+        // クラウドのみのファイルはOSから**センサーの寸法**を借りて width に入れる
+        // （サムネイルは作れないので thumb_path は空のまま）。これを「掴んだ
+        // プレビューの寸法」として写すと、6000x4000 を配ると名乗ることになる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("cloud.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_shell_metadata(id, 6000, 4000, Some(1)).unwrap();
+        assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
+
+        // 実体が落ちてきて process_one が通ると、そのときは両方の列が正しく入る
+        // ——つまりこの行が後追いの対象になることは一度も無い
+        db.update_metadata(
+            id,
+            Dimensions {
+                width: 6000,
+                height: 4000,
+                preview: Some((1620, 1080)),
+            },
+            Some(1),
+            None,
+        )
+        .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn 後追いは高さが空の行を拾わない() {
+        // 拾うと呼び出し側の i64 への読み出しが失敗し、掃き寄せが黙って止まる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        // OSが幅しか返さなかった行（update_shell_metadata は別々に書く）
+        db.update_shell_metadata(id, 6000, 0, Some(1)).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(6000), None));
+        assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
+    }
+
+    #[test]
     fn 後追いは読んだときから動いた行に書かない() {
         // 掃き寄せの途中でスキャンが列を落とし、サムネイル生成が新しい寸法を
         // 入れた行。古い値で上書きすると、確かめた印まで付いて二度と直らない
@@ -2532,6 +2593,8 @@ mod tests {
         db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
         db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
             .unwrap();
         assert_eq!(db.dimensions_to_backfill(0, 100).unwrap().len(), 1);
 

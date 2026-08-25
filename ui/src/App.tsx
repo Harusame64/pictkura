@@ -4006,8 +4006,9 @@ export default function App() {
                   )
                     setThumbShownId(viewerItem.id);
                 }}
-                // **原寸と同じ場所に同じ大きさで描く**。枠には原本の寸法を
-                // 名乗らせ、`object-fit: contain` で中に収める——こうすると
+                // **原寸と同じ場所に同じ大きさで描く**。枠には配られる絵の寸法
+                // （`servedSize`）を名乗らせ、`object-fit: contain` で中に収める
+                // ——こうすると
                 // 原寸の <img>（`max-width`/`max-height` で縮む）と描画結果が
                 // ぴったり一致し、差し替わるときに絵が動かない
                 style={{

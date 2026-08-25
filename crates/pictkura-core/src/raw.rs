@@ -1036,19 +1036,25 @@ pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
 /// （HDR PQのCR3は1620x1080で、原本は6000x4000）。プレビューの寸法を原本として
 /// 記録すると列の名前が嘘になるので、申告が読めるときはこちらを使う。
 ///
-/// **どこに書いてあるかは社ごとに違う。** 手元のサンプル25件（raw.pixls.us のCC0）を
-/// 全部読んで確かめた結果が下の表:
+/// **どこに書いてあるかは社ごとに違う。** 手元のサンプル25件
+/// （raw.pixls.us のCC0が24件＋EOS R8の非圧縮RAWが1件）を全部読んで確かめた結果:
 ///
 /// | 読む場所 | 当たる社 | 例（プレビュー → 申告） |
 /// |---|---|---|
 /// | Exif IFDの `PixelXDimension`/`PixelYDimension`（この関数） | Canon CR2・Phase One IIQ・Sony ARW・Samsung SRW・Apple DNG | CR2(20D) 1536x1024 → 3504x2336 |
 /// | CR3の `CMT1`（[`cr3_declared_dimensions`]） | Canon CR3 | R8 1620x1080 → 6000x4000 |
-/// | どこにも無い | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR/KDC・Fujifilm RAF・Leica RWL・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW | 原寸はSubIFDの中で、このパーサからは届かない |
+/// | **このパーサからは届かない** | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR・Fujifilm RAF・Leica RWL・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW | 原寸はSubIFDの中にある |
+/// | 申告はあるが読めない | Kodak KDC | Exif IFDに 3088x2310 が入っているが、`read_from_container` が `Truncated field value` でファイルごと拒む |
 ///
 /// **IFD0の `ImageWidth` は使わない。** TIFF系RAWのIFD0は「そのIFDが持っている絵」の
 /// 寸法で、そこにサムネイルを置く社がある——NEF(D2H)は160x120、Leica M8のDNGは320x240。
 /// Pentax PEFは3936x2624と**実寸より大きい**（マスク領域込み）。当たる社が1つ増えるより、
 /// 別の絵の寸法を原本と言い張るほうが害が大きい。
+///
+/// KDCの行は「無い」ではなく**取りに行けていない**（2026-08-25にゲート2が指摘し、
+/// 実物で確かめた）。`patched_tiff_metadata` の側が使っている
+/// `continue_on_error` を素のコンテナ読みにも回せば届くはずだが、撮影日時と
+/// カメラ名の取り方まで変わるのでこのPRではやらない。
 ///
 /// **JPEGやHEIFには使わない**（呼ぶ側の [`crate::thumbs::read_exif`] が落としている）。
 /// 編集で縮めた写真は `PixelXDimension` が古いまま残ることがあり、実物と食い違う。
@@ -1063,6 +1069,10 @@ pub(crate) fn exif_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> 
 /// TIFF系RAWと違ってサムネイルの寸法にはならない。手元の2機種で、`moov` の `CRAW`
 /// トラック（＝生データそのものの寸法）と一致することを確かめた: R8が6000x4000、
 /// R6が3408x2272（1.6xクロップで撮った1枚なので、3408のほうが正しい）。
+///
+/// 呼ぶ側（[`crate::thumbs::read_exif`]）は `CMT1`〜`CMT4` を順に渡し、最初に
+/// 当たったものを採る。**`CMT1` が先頭に来る前提**で、他の箱は `ImageWidth` を
+/// 持たないので実際には当たらない（手元の2機種で確認）。
 pub(crate) fn cr3_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
     declared_dimensions(exif, Tag::ImageWidth, Tag::ImageLength)
 }
