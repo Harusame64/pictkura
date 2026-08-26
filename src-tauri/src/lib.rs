@@ -157,10 +157,16 @@ fn rebuild_watcher(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let roots = lock_ok(&state.config).library.roots.clone();
     let event_app = app.clone();
+    // **綴りの照合表はここで1回だけ作る。** `root_specs` はルートごとに
+    // `std::fs::canonicalize` を呼ぶので、イベントの束が来るたびに作り直すと、
+    // **オフラインのNASが1つあるだけで**その束ごとに数秒〜数十秒止まる。
+    // ルートが変わるのはこの関数が呼ばれるときだけなので、閉じ込めて持ち回る
+    // （ゲート2の指摘）
+    let specs = std::sync::Arc::new(root_specs(&roots));
     let watcher = pictkura_core::watch::watch_roots(
         &roots,
         std::time::Duration::from_millis(800),
-        move |paths| handle_fs_events(&event_app, paths),
+        move |paths| handle_fs_events(&event_app, &specs, paths),
     )
     .ok();
     *lock_ok(&state.watcher) = watcher;
@@ -184,7 +190,6 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
 
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
-/// 監視が拾った変更をDBへ反映する。
 ///
 /// **入口で綴りを設定ルートへ揃える**（USNの経路と同じ手当て）。notify が返すのは
 /// OSがくれたパスで、**設定と綴りが違うことがある**——macOSの `/var` は
@@ -196,7 +201,7 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
 ///   次の起動で `id=2 favorite=0` になった）
 /// - 下の除外の門は**設定の綴りが前提**の前方一致なので、綴りが違うと外れる
 ///   ——ルートがパッケージのとき、その中身が**監視の経路だけ**索引される
-fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
+fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::path::PathBuf>) {
     use pictkura_core::scanner::{self, ScannedFile};
     use std::time::UNIX_EPOCH;
 
@@ -219,20 +224,17 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
         })
     };
 
-    // **綴りを揃えるのはロックの外で。** `root_specs` はルートごとに
-    // `std::fs::canonicalize` を呼ぶ——**オフラインのNASが1つ混ざっていると、
-    // そのマウントが諦めるまで数秒から数十秒返らない**。`db` のロックを
-    // 握ったままこれをやると、UIを返すコマンドも全部そこで待つ（ゲート2の指摘）。
+    // 照合表は監視を張ったときに1回だけ作ってある（`rebuild_watcher`）。
+    // ここで作り直すと、束が来るたびに `canonicalize` を全ルートへ投げることになる。
     //
     // 揃えられなかったものは**そのまま通す**。notify は監視しているルートの
     // 下しか返さないので、ここへ来るのはルートが解決できない等の異常時だけ
     // ——落とすより今までどおりに扱う。ただし**黙って通すと、直したはずの
     // 「印が消える」がまた起きても気付けない**ので、記録だけは残す
-    let specs = root_specs(&config.library.roots);
     let paths: Vec<PathBuf> = paths
         .into_iter()
         .map(|p| {
-            rebase_to_root_spelling(&p, &specs).unwrap_or_else(|| {
+            rebase_to_root_spelling(&p, specs).unwrap_or_else(|| {
                 eprintln!(
                     "監視: ルート配下と照合できなかったので綴りをそのまま使う: {}",
                     p.display()
@@ -675,6 +677,12 @@ struct RootSpec {
     prefixes: Vec<String>,
 }
 
+/// 照合の的を作る。
+///
+/// `spelling` を `to_string_lossy` で作っているが、**ここは損なわれない**
+/// ——ルートは `pictkura.toml` を `read_to_string` して読んだものなので、
+/// **必ず妥当なUTF-8**（ゲート2が「非UTF-8のルートで壊れる」と見たが、
+/// TOMLを通る以上そこへは到達しない）。
 fn root_specs(roots: &[PathBuf]) -> Vec<RootSpec> {
     roots
         .iter()
@@ -683,7 +691,13 @@ fn root_specs(roots: &[PathBuf]) -> Vec<RootSpec> {
             let mut prefixes = vec![spelling.clone()];
             // **解決後の綴りも照合の的に入れる。** macOSの `/var` は
             // `/private/var` へのシンボリックリンクで、**FSEventsは解決後を返す**
-            // ——ここに入れておかないと、設定の綴りと一致せず揃えられない
+            // ——ここに入れておかないと、設定の綴りと一致せず揃えられない。
+            //
+            // **大小もここで揃う。** `std::fs::canonicalize` は `realpath(3)` を
+            // 呼ぶので、設定に `pictures` と書いてあっても実物が `Pictures` なら
+            // `Pictures` が返る（2026-08-26に実測）。ゲート2は「大小は直らない」と
+            // 見たが、それは Python の `os.path.realpath`——あちらは
+            // ファイルシステムに聞かない純粋な文字列処理で、挙動が違う
             if let Ok(real) = std::fs::canonicalize(root) {
                 let real = root_spelling_of(&strip_verbatim(&real));
                 if fold_for_compare(&real) != fold_for_compare(&spelling) {
@@ -3378,9 +3392,11 @@ pub fn run() {
 mod tests {
     #[cfg(windows)]
     use super::APP_IDENTIFIER;
-    use super::{
-        dcim_under, drive_label, import_path_from_args, rebase_to_root_spelling, root_specs,
-    };
+    use super::{dcim_under, drive_label, import_path_from_args};
+    // 綴りを揃えるテストは Unix だけ（Windowsでは未使用importが `-D warnings` で
+    // エラーになる。ゲート2が実際に再現させて見つけた）
+    #[cfg(unix)]
+    use super::{rebase_to_root_spelling, root_specs};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -3456,6 +3472,39 @@ mod tests {
             rebase_to_root_spelling(&link.with_file_name("linkX").join("d.jpg"), &specs),
             None,
             "綴りの前方一致だけで配下と決めない"
+        );
+    }
+
+    /// 大小だけ違う綴りでも揃える（大小を区別しないボリューム）。
+    ///
+    /// 設定に `pictures` と書いてあって実物が `Pictures` のとき。
+    /// `canonicalize` が `realpath(3)` 越しに**大小まで直して**返すので、
+    /// 解決後の綴りを的に入れてある時点で当たる（実測で確認）。
+    /// ゲート2が「直らない」と見たのは Python の `os.path.realpath` の挙動で、
+    /// あちらはファイルシステムに聞かない。**当たることを固定しておく**
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_root_written_with_the_wrong_case_still_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("MixedCase");
+        std::fs::create_dir(&real).unwrap();
+        let as_written = dir.path().join("mixedcase");
+        if !as_written.is_dir() {
+            // 大小を区別するボリューム（この題材が成り立たない）
+            return;
+        }
+
+        // 設定には**小文字**で書かれている
+        let specs = root_specs(std::slice::from_ref(&as_written));
+        // 監視は**解決後かつ実物の大小**で返してくる（FSEventsの実際の形）
+        let Ok(from_watcher) = std::fs::canonicalize(&real) else {
+            return;
+        };
+        let event = from_watcher.join("a.jpg");
+        assert_eq!(
+            rebase_to_root_spelling(&event, &specs),
+            Some(as_written.join("a.jpg")),
+            "大小が違っても設定の綴りへ戻す"
         );
     }
 
