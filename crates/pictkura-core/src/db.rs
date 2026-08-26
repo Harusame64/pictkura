@@ -122,6 +122,9 @@ pub struct DimensionTarget {
     /// 読んだ時点のファイルの版。寸法だけでは同じ数字に戻る差し替え
     /// （ABA）を見抜けないので一緒に見張る——[`Db::set_dimensions`]
     pub mtime_ms: i64,
+    /// 版のもう半分。スキャンは `size <> size OR mtime_ms <> mtime_ms` で
+    /// 差し替えを見ているので、**時刻を保ったコピー**は大きさでしか気づけない
+    pub size: i64,
 }
 
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
@@ -2071,7 +2074,7 @@ impl Db {
             .collect::<Vec<_>>()
             .join(" OR ");
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, width, height, mtime_ms FROM media
+            "SELECT id, path, width, height, mtime_ms, size FROM media
              WHERE preview_width IS NULL AND id > ?1
              AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
              AND ({clause})
@@ -2090,6 +2093,7 @@ impl Db {
                 width: r.get(2)?,
                 height: r.get(3)?,
                 mtime_ms: r.get(4)?,
+                size: r.get(5)?,
             })
         })?;
         let mut out = Vec::new();
@@ -2116,8 +2120,13 @@ impl Db {
     /// [`crate::thumbs::process_one`] のクラウド経路が通ると、
     /// [`Self::update_shell_metadata`] が `width/height` にOSから借りた寸法を
     /// 入れる——それが**たまたま古いファイルと同じ数字**なら、`preview_width` は
-    /// NULLのままなので寸法の突き合わせを素通りしてしまう（ABA）。`mtime_ms` も
-    /// 一緒に見れば、スキャンが差し替えを書いた時点で条件から外れる。
+    /// NULLのままなので寸法の突き合わせを素通りしてしまう（ABA）。
+    ///
+    /// 一緒に見るのは**スキャンが差し替えと見なすもの丸ごと**、つまり
+    /// `mtime_ms` と `size` の両方（[`Self::stage_scan_tmp`] の
+    /// `m.size <> s.size OR m.mtime_ms <> s.mtime_ms`）。時刻を保ったコピーは
+    /// 大きさでしか気づけず、時刻の粗いファイルシステムでも同じことが起きる
+    /// （PRコメント側のCodexのP2）。
     pub fn set_dimensions(
         &mut self,
         results: &[(DimensionTarget, Dimensions)],
@@ -2129,7 +2138,8 @@ impl Db {
                 "UPDATE media SET width = ?2, height = ?3,
                         preview_width = ?4, preview_height = ?5
                  WHERE id = ?1 AND preview_width IS NULL
-                   AND width = ?6 AND height = ?7 AND mtime_ms = ?8",
+                   AND width = ?6 AND height = ?7
+                   AND mtime_ms = ?8 AND size = ?9",
             )?;
             for (target, dims) in results {
                 let n = stmt.execute(params![
@@ -2140,7 +2150,8 @@ impl Db {
                     dims.preview.map(|(_, h)| h),
                     target.width,
                     target.height,
-                    target.mtime_ms
+                    target.mtime_ms,
+                    target.size
                 ])?;
                 // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
                 if n > 0 && (dims.width, dims.height) != (target.width, target.height) {
@@ -2718,6 +2729,44 @@ mod tests {
             (rec.preview_width, rec.preview_height),
             (None, None),
             "確かめた印が付かないので、実体が落ちてきた日に拾い直せる"
+        );
+    }
+
+    #[test]
+    fn 後追いは大きさだけ変わった差し替えにも書かない() {
+        // 時刻を保ったコピー（や時刻の粗いファイルシステム）は `mtime_ms` が
+        // 動かない。スキャンは `size` の側で差し替えに気づいて列を落とすので、
+        // 書き込みのガードも同じものを見ていないと素通りする
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        let batch = db.dimensions_to_backfill(0, 100).unwrap();
+        assert_eq!(batch.len(), 1);
+
+        // 大きさだけが変わった差し替え → 列が落ちる → 同じ寸法が戻る
+        db.upsert_files(&[scanned("a.cr3", 200, 1000)]).unwrap();
+        db.update_shell_metadata(id, 640, 480, Some(1)).unwrap();
+
+        let moved = db
+            .set_dimensions(&[(
+                batch.into_iter().next().unwrap(),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap();
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "確かめた印が付かないので拾い直せる"
         );
     }
 

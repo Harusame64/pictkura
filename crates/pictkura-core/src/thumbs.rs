@@ -353,6 +353,46 @@ pub fn read_exif_for_preview(path: &Path, max_edge: u32) -> ExifData {
     read_exif_inner(path, Want::Image(max_edge))
 }
 
+/// [`read_exif_for_preview`] に「**ファイルを読めたか**」を添えて返す。
+///
+/// 偽のときは寸法に「確かめた」印（`preview_*`）を付けてはいけない
+/// ——[`process_one`] を見よ。
+fn read_exif_for_preview_checked(path: &Path, max_edge: u32) -> (ExifData, bool) {
+    read_exif_checked(path, Want::Image(max_edge))
+}
+
+/// [`process_one`] がDBへ書く寸法を決める。**「確かめた」印を付けるかどうか**も
+/// ここ——印は `preview` が非NULLであること自体で、付けた行は後追い
+/// （[`crate::Db::dimensions_to_backfill`]）から永久に外れる。
+///
+/// - **RAWは原本と同じ寸法でも書く。** NULLは「まだ確かめていない」印で、
+///   段階F-4より前に取り込んだ行を後追いで拾うのに使う。RAW以外は配るのが
+///   原本そのものなので、確かめてもNULLのまま
+/// - **読み切れなかったファイルには印を付けない**（ゲート2のP2）。原寸の申告が
+///   コンテナのExif IFDにしか無い社（Canon CR2・Sony ARW・Apple DNG・
+///   Phase One IIQ）は、コンテナ読みが途中で落ちると `original` が空のまま——
+///   絵のほうは先頭16MBから見つかるので、印を付けると**プレビューの寸法を
+///   原寸と名乗った行が確定してしまう**。付けなければ後追いが読める日に直す
+/// - Orientation 5〜8 は90度系の回転 → 表示上の幅・高さは入れ替わる
+fn recorded_dimensions(
+    is_raw: bool,
+    readable: bool,
+    original: (u32, u32),
+    preview: (u32, u32),
+    orientation: u8,
+) -> crate::db::Dimensions {
+    let rotated = (5..=8).contains(&orientation);
+    let upright = |(w, h): (u32, u32)| if rotated { (h, w) } else { (w, h) };
+    let (disp_w, disp_h) = upright(original);
+    crate::db::Dimensions {
+        width: i64::from(disp_w),
+        height: i64::from(disp_h),
+        preview: (is_raw && readable)
+            .then(|| upright(preview))
+            .map(|(w, h)| (i64::from(w), i64::from(h))),
+    }
+}
+
 /// EXIFを何のために読むか。**絵を探すかどうか**がここで決まる。
 #[derive(Clone, Copy)]
 enum Want {
@@ -385,7 +425,14 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
 /// 開き直しが挟まる経路は**後の読みが失敗したら偽へ落とす**（開けた瞬間から
 /// 共有ロックが掛かるまでの隙間で嘘を付かないため）。
 fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
-    let (container, mut readable) = match read_exif_container(path) {
+    read_exif_from(path, read_exif_container(path), want)
+}
+
+/// [`read_exif_checked`] の本体。**コンテナ読みの結果を外から渡せる形**にして
+/// ある——読み出しが途中で落ちる筋（[`Container::ReadFailed`]）は移植性のある
+/// 形では起こせないので、テストはここへ直に渡して見張る（ゲート2のP2）。
+fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, bool) {
+    let (container, mut readable) = match container {
         Container::Found(data) => (Some(data), true),
         Container::Empty => (None, true),
         // **開けないと分かった時点で降りる。** この先は開き直しが2回
@@ -395,9 +442,12 @@ fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
         Container::Unopenable => return (ExifData::default(), false),
         // **開けたのに途中で落ちたときは先へ進む。** TIFF系RAWのコンテナ読みは
         // ファイル全体を読むので、巨大なRAWや外付けの一瞬の切断でここへ来る。
-        // 降りると絵を探す経路（`embedded_preview_at_least` は先頭16MBしか
-        // 読まない）まで諦めることになり、作れたはずのサムネイルを落とす
-        // （ゲート2のP3）。後追いには「読めた」を取り下げて伝わる
+        // 降りると絵を探す経路まで諦めることになり、作れたはずのサムネイルを
+        // 落とす（ゲート2のP3）——一覧のサムネイルが要求する長辺
+        // （[`process_one`] は `thumb_size`）なら、探索は先頭16MBで止まる。
+        //
+        // 取り下げた「読めた」は2か所へ効く: 後追い（[`read_exif_declaration`]）は
+        // 印を付けず、[`process_one`] は寸法の「確かめた」印を書かない
         Container::ReadFailed => (None, false),
     };
 
@@ -496,7 +546,12 @@ fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
         //
         // **[`Want::Declaration`] はここへ来ても降りない**。後追いが要るのは
         // 寸法の申告と向きだけで、日付のために全体を読む理由が無い（ゲート2のP2）
-        if result.taken_at_ms.is_none() && matches!(want, Want::Meta) {
+        // **読めていないファイルではここへ降りない**（ゲート2のP3）。この
+        // 探索は要求する長辺が [`crate::raw::USABLE_LONG_EDGE`] なので**16MBで
+        // 止まらず、最大128MBまで読む**。読み出しが落ちた直後のファイルに
+        // それを払う意味は無い。素通りする社（CR3・ORF・RW2・X3F）は
+        // コンテナ読みが `Empty` なので `readable` は真のまま＝従来どおり降りる
+        if result.taken_at_ms.is_none() && readable && matches!(want, Want::Meta) {
             if let Some(preview) =
                 crate::raw::embedded_preview_at_least(path, crate::raw::USABLE_LONG_EDGE)
             {
@@ -1118,7 +1173,7 @@ pub fn process_one(
     // タイル1枚ごとに最大128MBを読んで空振りする。クラウドにしか実体が無い
     // ファイルなら**丸ごとハイドレート**にもなる（ゲート2のP2）。
     // 原寸が要るのはビューア（[`raw_display_jpeg`]）だけ
-    let exif_data = read_exif_for_preview(src, thumb_size);
+    let (exif_data, readable) = read_exif_for_preview_checked(src, thumb_size);
     let (prev_w, prev_h) = preview_dimensions(src, &exif_data)?;
     // **原本の寸法は別物**。RAWで配信するのは埋め込みプレビューなので、
     // 原本（6000x4000）とプレビュー（1620x1080）の両方をDBへ書く。
@@ -1138,21 +1193,13 @@ pub fn process_one(
     // AVIFまで含めると、起動直後の背景パスで全AVIFを展開してしまい、
     // 段階B-3のオンデマンド化が効かなくなる（展開は可視要求まで待つ）
     let is_heif = crate::heif::is_heif_path(src);
-    // Orientation 5〜8 は90度系の回転 → 表示上の幅・高さは入れ替わる
-    let rotated = (5..=8).contains(&exif_data.orientation);
-    let upright = |w: u32, h: u32| if rotated { (h, w) } else { (w, h) };
-    let (disp_w, disp_h) = upright(orig_w, orig_h);
-    // **RAWは原本と同じ寸法でも書く。** NULLは「まだ確かめていない」印で、
-    // 段階F-4より前に取り込んだ行を後追いで拾うのに使う
-    // （[`crate::Db::dimensions_to_backfill`]）。RAW以外は配るのが原本そのもの
-    // なので、確かめてもNULLのまま
-    let dims = crate::db::Dimensions {
-        width: i64::from(disp_w),
-        height: i64::from(disp_h),
-        preview: is_raw
-            .then(|| upright(prev_w, prev_h))
-            .map(|(w, h)| (i64::from(w), i64::from(h))),
-    };
+    let dims = recorded_dimensions(
+        is_raw,
+        readable,
+        (orig_w, orig_h),
+        (prev_w, prev_h),
+        exif_data.orientation,
+    );
     db.update_metadata(
         id,
         dims,
@@ -2161,6 +2208,76 @@ mod tests {
         .unwrap();
         let dims = backfilled_dimensions(&upright, 320, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (4000, 6000), "縦位置へ揃える");
+    }
+
+    #[test]
+    fn 途中で落ちた読み出しでも絵は探す() {
+        // コンテナ読みは開けた後に落ちることがある（TIFF系RAWはファイル全体を
+        // 読むので、巨大なRAWや外付けの一瞬の切断）。降りてしまうと、先頭16MBに
+        // ある埋め込みプレビューから作れたはずのサムネイルまで落とす
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("halfread.cr2");
+        std::fs::write(&src, fake_cr2((3504, 2336), (480, 320))).unwrap();
+
+        let (data, readable) = read_exif_from(&src, Container::ReadFailed, Want::Image(320));
+        assert!(data.thumbnail.is_some(), "絵は先へ進んで見つける");
+        assert!(!readable, "「読めた」は取り下げたまま");
+        assert!(
+            data.original.is_none(),
+            "原寸の申告はコンテナにしか無いので取れない"
+        );
+
+        // 開けなかったほうは先を読まない（この先の開き直し2回も同じ理由で落ちる）
+        let (data, readable) = read_exif_from(&src, Container::Unopenable, Want::Image(320));
+        assert!(data.thumbnail.is_none(), "絵も探さずに降りる");
+        assert!(!readable);
+    }
+
+    #[test]
+    fn 読み出しが落ちたファイルでは日付のために全体を読まない() {
+        // 日付が絵の中にしか無い社のための探索は、要求する長辺が大きいので
+        // **16MBで止まらず最大128MBまで読む**。読み出しが落ちた直後の
+        // ファイルにそれを払う意味は無い
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.raf");
+        let mut buf = b"FUJIFILMCCD-RAW ".to_vec(); // TIFFではないヘッダ
+        buf.extend_from_slice(&jpeg_with_taken_at(64, 48, "2019:08:11 12:00:00"));
+        std::fs::write(&path, &buf).unwrap();
+
+        // 素通りする社（コンテナ読みは `Empty`）は従来どおり降りて日付を拾う
+        let (data, _) = read_exif_from(&path, Container::Empty, Want::Meta);
+        assert!(data.taken_at_ms.is_some(), "正常時は今までどおり拾う");
+
+        let (data, readable) = read_exif_from(&path, Container::ReadFailed, Want::Meta);
+        assert!(data.taken_at_ms.is_none(), "落ちた直後は降りない");
+        assert!(!readable);
+    }
+
+    #[test]
+    fn 読み切れなかったrawには確かめた印を付けない() {
+        // 上の続き: 絵が見つかっても、原寸の申告が取れていないのに印を付けると
+        // 「プレビューの寸法を原寸と名乗る行」が確定して二度と直らない
+        let readable = recorded_dimensions(true, true, (3504, 2336), (480, 320), 1);
+        assert_eq!(
+            (readable.width, readable.height, readable.preview),
+            (3504, 2336, Some((480, 320)))
+        );
+        let broken = recorded_dimensions(true, false, (480, 320), (480, 320), 1);
+        assert_eq!(
+            broken.preview, None,
+            "印が付かなければ後追いが読める日に直す"
+        );
+        // RAW以外は配るのが原本そのものなので、読めていても印は付かない
+        assert_eq!(
+            recorded_dimensions(false, true, (480, 320), (480, 320), 1).preview,
+            None
+        );
+        // 90度系の向きは原本にもプレビューにも掛かる
+        let turned = recorded_dimensions(true, true, (6000, 4000), (1620, 1080), 6);
+        assert_eq!(
+            (turned.width, turned.height, turned.preview),
+            (4000, 6000, Some((1080, 1620)))
+        );
     }
 
     #[test]
