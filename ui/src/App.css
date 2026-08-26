@@ -2399,6 +2399,10 @@ body {
   margin: 0 0 1.5rem;
   line-height: 1.7;
   text-align: left;
+  /* **この段落だけが生のパスを本文に混ぜる。** `/Volumes/写真の倉庫-2019-2024`
+     のように空白の無い長い名前は1語なので、折り返せないと箱からはみ出し、
+     名指しするために出しているパスがそのまま切れる（ゲート2の指摘） */
+  overflow-wrap: anywhere;
 }
 .empty-actions {
   display: flex;

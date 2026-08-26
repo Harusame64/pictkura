@@ -410,6 +410,14 @@ export const getEmptyLibraryReason = () =>
 
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
+/**
+ * 起動時の同期が**終わったか**（成功・失敗のどちらでも真）。
+ *
+ * `getStartupReport` では代わりにならない——走査が落ちたときは報告が
+ * 一度も出ないので、`null` が「まだ走っている」と見分けられない
+ */
+export const startupScanFinished = () =>
+  invoke<boolean>("startup_scan_finished");
 // USB挿入の自動起動（AutoPlay）で `--import <ドライブ>` 付きで冷起動したときの
 // 取り込み対象を一度だけ受け取る。2重起動は open-import-drive イベントで届く
 export const takePendingImport = () =>

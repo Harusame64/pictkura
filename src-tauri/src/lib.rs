@@ -57,6 +57,14 @@ struct AppState {
     /// リスナー登録より先にイベントが発火して取りこぼされるため、
     /// ここに保持してフロントがマウント後にコマンドで取りにも来られるようにする
     startup_report: Mutex<Option<StartupScanDto>>,
+    /// 起動時の同期が**終わったか**（成功・失敗・パニックのどれでも真）。
+    ///
+    /// `startup_report` では代わりにならない: 走査が `Err` で早く返ったときや
+    /// パニックを `panics::catching` が拾ったときは、報告が**一度も出ない**。
+    /// フロントは「走査が続いている間は空だと言わない」ので、**終わったことを
+    /// 別に知らせないと永久に無言**になる（ゲート2の指摘）。
+    /// イベントを取りこぼしたフロントが後から聞けるよう、旗としても置く
+    startup_done: std::sync::atomic::AtomicBool,
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
     index_progress: Mutex<IndexProgressDto>,
@@ -1201,9 +1209,17 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     // `.隠しフォルダ` の隣に空の `写真/` があれば、走査はその `写真/` を
     // ちゃんと開いて何も見つけていない——そこで「全部除外しています」と
     // 言うと、**除外を外せば出てくる**という嘘になる（ゲート1の指摘）。
+    //
+    // **写真.appの旗も同じ**。`~/Pictures` に写真ライブラリと `富士/` が
+    // 並んでいて `富士/` が空なら、「ここには写真.appのライブラリしか
+    // ありません」は端的に嘘で、しかも**利用者を真犯人から遠ざける**
+    // （ゲート2の指摘。UIは写真.appの文言を除外より上に出す）。
+    // 残るのは `emptyNothingHere`——具体性は落ちるが、嘘ではない
+    //
     // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
     if survivor {
         out.excluded.clear();
+        out.photo_library = false;
     }
     out
 }
@@ -1859,6 +1875,17 @@ fn list_memories(state: tauri::State<'_, AppState>) -> Result<Vec<MemoryDto>, St
 #[tauri::command]
 fn get_startup_report(state: tauri::State<'_, AppState>) -> Option<StartupScanDto> {
     lock_ok(&state.startup_report).clone()
+}
+
+/// 起動時の同期が終わったか。**イベントを取りこぼしたフロント用**。
+///
+/// [`get_startup_report`] とは別に要る——報告が出ないまま終わる道があるため
+/// （`AppState::startup_done` の説明）。
+#[tauri::command]
+fn startup_scan_finished(state: tauri::State<'_, AppState>) -> bool {
+    state
+        .startup_done
+        .load(std::sync::atomic::Ordering::Acquire)
 }
 
 /// ライブラリ全体の件数（総数・お気に入り数）を返す。
@@ -3072,6 +3099,7 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
+                startup_done: std::sync::atomic::AtomicBool::new(false),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
@@ -3382,9 +3410,10 @@ pub fn run() {
             // 方式（USN差分/枝刈り/フル）と所要時間は⚡爆速メーターとして別途知らせる
             let handle = app.handle().clone();
             std::thread::spawn(move || {
+                let inner = handle.clone();
                 let _ = pictkura_core::panics::catching("起動時の同期", move || {
                     let started = std::time::Instant::now();
-                    let state = handle.state::<AppState>();
+                    let state = inner.state::<AppState>();
                     let Ok((stats, method)) = startup_scan(&state) else {
                         return;
                     };
@@ -3407,9 +3436,19 @@ pub fn run() {
                         total,
                     };
                     *lock_ok(&state.startup_report) = Some(report.clone());
-                    let _ = handle.emit("library-updated", SyncStatsDto::from(stats));
-                    let _ = handle.emit("startup-scan-report", report);
+                    let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
+                    let _ = inner.emit("startup-scan-report", report);
                 });
+                // **どう終わってもここを通る。** 上は `startup_scan` が `Err` なら
+                // 報告を出さずに返るし、パニックは `catching` が飲む。
+                // フロントはこれが来るまで「空です」と言わないので、
+                // **黙って終わると初回起動が永久に無言になる**（ゲート2の指摘）。
+                // 旗を先に立てる: イベントを取りこぼしたフロントは後から聞きに来る
+                handle
+                    .state::<AppState>()
+                    .startup_done
+                    .store(true, std::sync::atomic::Ordering::Release);
+                let _ = handle.emit("startup-scan-finished", ());
             });
             Ok(())
         })
@@ -3459,6 +3498,7 @@ pub fn run() {
             list_memories,
             get_stats,
             get_startup_report,
+            startup_scan_finished,
             sync_now,
             add_library_root,
             remove_library_root,
@@ -3806,6 +3846,15 @@ mod tests {
         let r = empty_library_reason_of(&config);
         assert!(r.photo_library, "写真.appのライブラリだと分かる");
         assert!(r.missing.is_empty());
+
+        // **「しか無い」が嘘になる形。** 隣に除外されていない空のフォルダが
+        // あれば、走査はそこを開いて何も見つけていない（ゲート2の指摘）
+        std::fs::create_dir(root.join("富士")).unwrap();
+        assert!(
+            !empty_library_reason_of(&config).photo_library,
+            "隣に別のフォルダがあるなら「写真.appのライブラリしか無い」と言わない"
+        );
+        std::fs::remove_dir(root.join("富士")).unwrap();
 
         // 除外で全部飛んでいる（写真.app以外）
         std::fs::remove_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();

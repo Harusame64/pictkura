@@ -34,6 +34,7 @@ import {
   getDecoderStatus,
   getEmptyLibraryReason,
   getStartupReport,
+  startupScanFinished,
   getStats,
   listCameras,
   listDay,
@@ -346,7 +347,9 @@ export default function App() {
    * **初回起動では正しく `[]` が返る**——そこで理由を出すと、索引中のライブラリに
    * 「扱える画像がありません」と言うことになる（ゲート2の指摘）。
    *
-   * 報告が来ないまま終わる道もあるので、待つのは15秒まで
+   * **時間で見切らない。** 初回のNASや10万枚のフォルダは走査だけで
+   * 数十秒かかる——そこで待つのをやめると、索引の最中に「空です」と
+   * 言うことになり、この旗を足した意味が消える（同）
    */
   const [scanSettled, setScanSettled] = useState(false);
   /** 取得済みの日 → その日のレコード（可視範囲＋α だけを保持） */
@@ -760,10 +763,8 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let timer: number | undefined;
-    let giveUp: number | undefined;
     const show = (report: StartupScanReport) => {
       if (cancelled) return;
-      setScanSettled(true);
       setSpeedReport(report);
       if (timer != null) window.clearTimeout(timer);
       timer = window.setTimeout(() => setSpeedReport(null), 8000);
@@ -779,19 +780,38 @@ export default function App() {
       unlisten = f;
       const missed = await getStartupReport().catch(() => null);
       if (missed) show(missed);
-      // 報告が来ないまま終わる道もある（起動時の同期が失敗して早期に返る、
-      // あるいは panics::catching に拾われる）。そこで**永久に黙る**と、
-      // ルートを1つも設定していない人に何も言わないアプリになる。
-      // 待つのをやめる線を引いておく——遅れて来た報告は上の `show` が拾う
-      giveUp = window.setTimeout(() => {
-        if (!cancelled) setScanSettled(true);
-      }, 15000);
     })();
     return () => {
       cancelled = true;
       unlisten?.();
       if (timer != null) window.clearTimeout(timer);
-      if (giveUp != null) window.clearTimeout(giveUp);
+    };
+  }, []);
+
+  // 起動時の同期が**終わった**合図。⚡爆速メーターの報告とは別に要る——
+  // 走査が落ちれば報告は一度も出ないので、来ないことを「まだ走っている」と
+  // 読むと**永久に無言**になる（ゲート2の指摘）。バックエンドは成功でも失敗でも
+  // これを出し、取りこぼした側が後から聞けるよう旗も立てている
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const f = await listen("startup-scan-finished", () => {
+        if (!cancelled) setScanSettled(true);
+      });
+      if (cancelled) {
+        f();
+        return;
+      }
+      unlisten = f;
+      // 聞けなかったときは**待たない**側に倒す。ここで固まると、
+      // ルートを1つも設定していない人に何も言わないアプリになる
+      const done = await startupScanFinished().catch(() => true);
+      if (done && !cancelled) setScanSettled(true);
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
   }, []);
 
@@ -1121,8 +1141,6 @@ export default function App() {
   /** ウィザードからのエラー通知。毎レンダで作り直すと向こうのeffectが再実行される */
   const onWizardError = useCallback((message: string) => setStatus(message), []);
 
-  // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
-  // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
   /**
    * 「まだ写真がありません」と言ってよい状態か。
    *
@@ -1131,6 +1149,22 @@ export default function App() {
    * 古い理由が新しい一覧の上に出る
    */
   const canSayEmpty = settled && scanSettled && !filtering && summary.length === 0;
+  /**
+   * 名前の一覧を1文へ。**3件で切って、切ったことを言う**。
+   *
+   * 外付けを4台ぶらさげている人が全部外して起動すると、一番効くはずの文が
+   * パスの羅列で読めなくなる（ゲート2の指摘）。**黙って落とさない**のが条件で、
+   * 落としたぶんは「ほか2件」と数で言う
+   */
+  const nameList = useCallback(
+    (names: string[]) =>
+      names.length > 3
+        ? [...names.slice(0, 3), t.andMore(names.length - 3)].join(
+            t.listSeparator,
+          )
+        : names.join(t.listSeparator),
+    [t],
+  );
 
   // 一覧が空になったときだけ理由を聞く。空でなくなったら忘れる
   useEffect(() => {
@@ -1149,6 +1183,8 @@ export default function App() {
     };
   }, [canSayEmpty]);
 
+  // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
+  // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
   const openWizard = useCallback((startPath?: string) => {
     setWizardStart(startPath);
     setWizardNonce((n) => n + 1);
@@ -3702,11 +3738,9 @@ export default function App() {
                 {emptyReason.noRoots
                   ? t.emptyNoRoots
                   : emptyReason.missing.length > 0
-                    ? t.emptyMissing(emptyReason.missing.join(t.listSeparator))
+                    ? t.emptyMissing(nameList(emptyReason.missing))
                     : emptyReason.unreadable.length > 0
-                      ? t.emptyUnreadable(
-                          emptyReason.unreadable.join(t.listSeparator),
-                        )
+                      ? t.emptyUnreadable(nameList(emptyReason.unreadable))
                       : emptyReason.photoLibrary
                         ? t.emptyPhotoLibrary
                         : emptyReason.excluded.length > 0

@@ -239,6 +239,8 @@ const ja = {
     `次の場所を開けませんでした: ${names}。macOSなら「システム設定 → プライバシーとセキュリティ」で、pictkura にそのフォルダ（デスクトップ・書類・外付けなど）へのアクセスを許してください。`,
   /** 並べるときの区切り（言語で違う） */
   listSeparator: "、",
+  /** 名前を並べきらなかったぶん（**黙って落とさない**） */
+  andMore: (n: number) => `ほか${n}件`,
   emptyPhotoLibrary:
     "この場所には写真.appのライブラリしかありません。pictkuraは写真.appの中は扱いません（原本の多くはiCloud側にあり、手元にはありません）。カードから取り込むか、写真のあるフォルダを選んでください。",
   emptyAllExcluded: (names: string) =>
@@ -587,6 +589,7 @@ const en: Dict = {
   emptyUnreadable: (names: string) =>
     `These places could not be opened: ${names}. On macOS, grant pictkura access to that folder (Desktop, Documents, an external drive) in System Settings → Privacy & Security.`,
   listSeparator: ", ",
+  andMore: (n: number) => `and ${n} more`,
   emptyPhotoLibrary:
     "There is nothing here but the Photos app library. pictkura does not read inside Photos — most of the originals live in iCloud, not on this Mac. Import from a card, or pick a folder that has photos in it.",
   emptyAllExcluded: (names: string) =>
