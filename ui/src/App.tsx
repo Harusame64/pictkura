@@ -653,6 +653,11 @@ export default function App() {
     ]);
     if (generationRef.current !== gen) return; // リロードが割り込んだら捨てる
     setSummary(sum);
+    // **成功したら失敗の表示を下ろす。** ここは `reloadAll` と同じ骨組みを
+    // 取り直している。下ろさないと、1回転んだあと部分更新が何度成功しても
+    // 「一覧を出せませんでした」が居座る——次の `reloadAll` まで固まる
+    // （ゲート1の指摘）
+    setLoadFailed(false);
     setStats(st);
     setDayItems((prev) => {
       if (prev.size === 0) return prev;
@@ -761,18 +766,22 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
+      // **登録が転んでも下の初回取得へ進む。** ここで例外が上がると
+      // `reloadAll` に届かず、`settled` がその起動のあいだ偽のまま固まる——
+      // **データも説明も出ない完全な無言**になる（ゲート1の指摘。
+      // 隣のリスナーには入れてあるのに、こちらだけ抜けていた）
       const f = await listen("library-updated", () => {
         reloadAll().catch((e) => setStatus(String(e)));
         refreshCameras();
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
         // 実体を後から退避するので、古い「ローカルにある」を信じない
         cloudOnlyRef.current.clear();
-      });
+      }).catch(() => null);
       if (cancelled) {
-        f();
+        f?.();
         return;
       }
-      unlisten = f;
+      unlisten = f ?? undefined;
       await reloadAll().catch((e) => setStatus(String(e)));
     })();
     return () => {

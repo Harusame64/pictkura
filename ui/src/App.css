@@ -2399,7 +2399,9 @@ body {
      スクロールバーも無いまま消える。上限を与えて、中で送れるようにする
      （ゲート1の指摘。窓の最小の高さは `tauri.conf.json` に無い） */
   flex: none;
-  max-height: 100%;
+  /* `max-height` はmarginを含まないので、`100%` だと下端が margin のぶん
+     `.main` からはみ出す。上下の余白を引いておく（ゲート1の指摘） */
+  max-height: calc(100% - 2 * min(64px, 6vh));
   min-height: 0;
   overflow-y: auto;
 }

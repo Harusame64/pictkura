@@ -1153,6 +1153,63 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     .unwrap_or_default()
 }
 
+/// ルート直下の1エントリを、**空の理由**の観点で見たときの正体。
+#[derive(PartialEq, Eq, Debug)]
+enum EntryKind {
+    /// 写真.appのライブラリ（名前で分かる。中は開かない）
+    Package,
+    /// 中身になり得たが、除外の設定で飛ばした
+    Excluded,
+    /// 中身になり得た。**除外を犯人にしてはいけない証拠**
+    Candidate,
+    /// そもそも中身になり得ない（`.DS_Store`・`desktop.ini` など）
+    Ignorable,
+}
+
+/// [`empty_library_reason_of`] のエントリ1件ぶんの判断。
+///
+/// **ファイルシステムを通さずに試験できるよう切り出してある。**
+/// UTF-8にならない名前は APFS が受け付けず（実測 `EILSEQ`）、CIに Linux が
+/// 無いので、実物のファイルを作る形の試験は**どの環境でも1度も走らない**
+/// ——「試験があるのに何も見ていない」状態になっていた（ゲート1の指摘）。
+///
+/// `is_dir` が `None` なのは `file_type()` が落ちたとき。
+#[allow(clippy::ref_option)] // `is_dir` は `Option<bool>` の値渡し
+fn classify_entry(name: &std::ffi::OsStr, is_dir: Option<bool>, config: &Config) -> EntryKind {
+    // **読めない名前は「候補あり」に倒す。** 走査本体は UTF-8 にならない名前を
+    // 除外に一致させず、そのまま入って行く（`scanner.rs` の
+    // `to_str().is_some_and(..)`）。ここで黙って飛ばすと、走査が開いて何も
+    // 見つけていないフォルダが**この関数から見えなくなり**、隣の
+    // `.隠しフォルダ` が冤罪を着る（ゲート1の指摘）
+    let Some(text) = name.to_str() else {
+        return EntryKind::Candidate;
+    };
+    if pictkura_core::import::is_managed_package_path(Path::new(text)) {
+        return EntryKind::Package;
+    }
+    let could_have_been_content = match is_dir {
+        Some(true) => true,
+        Some(false) => {
+            pictkura_core::scanner::has_target_extension(Path::new(text), &config.import.extensions)
+        }
+        // 種別が取れないときも安全側（＝除外を犯人にしない側）へ
+        None => return EntryKind::Candidate,
+    };
+    if !could_have_been_content {
+        return EntryKind::Ignorable;
+    }
+    if config
+        .library
+        .exclude_patterns
+        .iter()
+        .any(|p| pictkura_core::scanner::matches_pattern(text, p))
+    {
+        EntryKind::Excluded
+    } else {
+        EntryKind::Candidate
+    }
+}
+
 /// [`empty_library_reason`] の中身（設定だけを見るのでテストできる）。
 fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     let mut out = EmptyLibraryDto {
@@ -1212,54 +1269,23 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
         // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
         for entry in entries.flatten() {
             let name = entry.file_name();
-            // **読めない名前は「候補あり」に数える。** 走査本体は UTF-8 に
-            // ならない名前を除外に一致させず、そのまま入って行く
-            // （`scanner.rs` の `to_str().is_some_and(..)`）。ここで黙って
-            // 飛ばすと、走査が開いて何も見つけていないフォルダが**この関数から
-            // 見えなくなり**、隣の `.隠しフォルダ` が冤罪を着る（ゲート1の指摘）
-            let Some(name) = name.to_str() else {
-                survivor = true;
-                continue;
-            };
-            // 写真.appのライブラリは名前で分かる（中身は開かない）
-            if pictkura_core::import::is_managed_package_path(Path::new(name)) {
-                out.photo_library = true;
-                continue;
-            }
-            // 種別が取れないときも同じく安全側（＝除外を犯人にしない側）へ
-            let could_have_been_content = match entry.file_type() {
-                Ok(t) => {
-                    t.is_dir()
-                        || pictkura_core::scanner::has_target_extension(
-                            Path::new(name),
-                            &config.import.extensions,
-                        )
+            match classify_entry(&name, entry.file_type().ok().map(|t| t.is_dir()), config) {
+                EntryKind::Package => out.photo_library = true,
+                EntryKind::Ignorable => {}
+                EntryKind::Candidate => survivor = true,
+                EntryKind::Excluded => {
+                    // `Excluded` はUTF-8として読めた名前でしか返らない
+                    let Some(name) = name.to_str() else { continue };
+                    // **数えるのは項目、畳むのは例示だけ。** 見せる側で重複を
+                    // 見ると、4件目以降は毎回数えられ、先頭3件は何ルートに在っても
+                    // 1のまま——「ほか N件」がどちらにも狂う（ゲート2の指摘）。
+                    // 名前で畳むのも違う: 2つのルートに `Lightroom Catalog/` が
+                    // あれば飛ばした項目は2つで、1と数えるのは過少（ゲート1の指摘）
+                    out.excluded_total += 1;
+                    if excluded_names.insert(name.to_string()) && out.excluded.len() < 3 {
+                        out.excluded.push(name.to_string());
+                    }
                 }
-                Err(_) => {
-                    survivor = true;
-                    continue;
-                }
-            };
-            if !could_have_been_content {
-                continue;
-            }
-            if config
-                .library
-                .exclude_patterns
-                .iter()
-                .any(|p| pictkura_core::scanner::matches_pattern(name, p))
-            {
-                // **数えるのは項目、畳むのは例示だけ。** 見せる側で重複を
-                // 見ると、4件目以降は毎回数えられ、先頭3件は何ルートに在っても
-                // 1のまま——「ほか N件」がどちらにも狂う（ゲート2の指摘）。
-                // 名前で畳むのも違う: 2つのルートに `Lightroom Catalog/` が
-                // あれば飛ばした項目は2つで、1と数えるのは過少（ゲート1の指摘）
-                out.excluded_total += 1;
-                if excluded_names.insert(name.to_string()) && out.excluded.len() < 3 {
-                    out.excluded.push(name.to_string());
-                }
-            } else {
-                survivor = true;
             }
         }
     }
@@ -3879,6 +3905,65 @@ mod tests {
         );
     }
 
+    /// エントリ1件の分類。**実物のファイルを作らない**——UTF-8にならない名前は
+    /// APFSが受け付けず（実測 `EILSEQ`）、CIに Linux が無いので、作る形の試験は
+    /// **どの環境でも1度も走らない**（ゲート1の指摘）。
+    #[test]
+    fn a_name_we_cannot_read_is_not_nothing() {
+        use super::{classify_entry, EntryKind};
+        use std::ffi::{OsStr, OsString};
+
+        let config = pictkura_core::config::Config::default();
+        let kind = |name: &OsStr, is_dir| classify_entry(name, is_dir, &config);
+
+        // UTF-8として読めない名前。走査本体はこれを除外に一致させず入って行くので、
+        // **候補として数える**——数えないと隣の `.隠しフォルダ` が冤罪を着る
+        #[cfg(unix)]
+        let unreadable = {
+            use std::os::unix::ffi::OsStrExt;
+            OsString::from(OsStr::from_bytes(b"\xff\xfe.jpg"))
+        };
+        #[cfg(windows)]
+        let unreadable = {
+            use std::os::windows::ffi::OsStringExt;
+            // 対を成さないサロゲート（"\u{D800}.jpg" に相当）
+            OsString::from_wide(&[0xD800, 0x002E, 0x006A, 0x0070, 0x0067])
+        };
+        assert!(
+            unreadable.to_str().is_none(),
+            "この名前はUTF-8として読めない"
+        );
+        assert_eq!(
+            kind(&unreadable, Some(false)),
+            EntryKind::Candidate,
+            "読めない名前は「候補あり」に数える"
+        );
+
+        // 種別が取れないとき（`file_type()` が落ちた）も安全側へ
+        assert_eq!(
+            kind(OsStr::new(".DS_Store"), None),
+            EntryKind::Candidate,
+            "種別が分からないものを「中身になり得ない」と決めない"
+        );
+
+        // 読める名前はこれまでどおり
+        assert_eq!(
+            kind(OsStr::new(".DS_Store"), Some(false)),
+            EntryKind::Ignorable,
+            "Finderの痕跡は中身になり得ない"
+        );
+        assert_eq!(
+            kind(OsStr::new(".隠しフォルダ"), Some(true)),
+            EntryKind::Excluded
+        );
+        assert_eq!(kind(OsStr::new("写真"), Some(true)), EntryKind::Candidate);
+        assert_eq!(kind(OsStr::new("a.jpg"), Some(false)), EntryKind::Candidate);
+        assert_eq!(
+            kind(OsStr::new("写真ライブラリ.photoslibrary"), Some(true)),
+            EntryKind::Package
+        );
+    }
+
     #[test]
     fn an_empty_library_says_why_it_is_empty() {
         use super::empty_library_reason_of;
@@ -3951,25 +4036,6 @@ mod tests {
         std::fs::remove_dir_all(&root2).unwrap();
         config.library.roots = vec![root.clone()];
 
-        // **UTF-8 で読めない名前を黙って飛ばさない。** 走査本体はそれを
-        // 除外に一致させずに入って行くので、「候補あり」に数えないと
-        // 隣の `.隠しフォルダ` が冤罪を着る（ゲート1の指摘）
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            let odd = root.join(std::ffi::OsStr::from_bytes(b"\xff\xfe.jpg"));
-            // APFSはUTF-8にならない名前を受け付けない（EILSEQ）。
-            // 作れた環境でだけ見る——作れないことは欠陥ではない
-            if std::fs::write(&odd, b"x").is_ok() {
-                let r = empty_library_reason_of(&config);
-                std::fs::remove_file(&odd).unwrap();
-                assert!(
-                    r.excluded.is_empty(),
-                    "読めない名前は「候補あり」に数える（除外を犯人にしない）"
-                );
-            }
-        }
-
         // **除外の隣に、除外されていない空のフォルダがある。**
         // 走査はその `写真` を開いて何も見つけていないのだから、
         // 「全部除外しています」は嘘になる（ゲート1の指摘）
@@ -3979,18 +4045,9 @@ mod tests {
             r.excluded.is_empty(),
             "除外されていない候補が1つでもあれば、除外を犯人にしない"
         );
+        assert_eq!(r.excluded_total, 0, "名前だけでなく数も落とす");
         std::fs::remove_dir(root.join("写真")).unwrap();
         std::fs::remove_dir(root.join(".隠しフォルダ")).unwrap();
-
-        // ルート自身が写真.appのライブラリ（フォルダ選択で指してしまった）
-        let picked = dir.path().join("選んだ.photoslibrary");
-        std::fs::create_dir(&picked).unwrap();
-        config.library.roots = vec![picked];
-        assert!(
-            empty_library_reason_of(&config).photo_library,
-            "ルート自身がパッケージでも見分ける"
-        );
-        config.library.roots = vec![root.clone()];
 
         // **`.DS_Store` だけでは「全部除外」と言わない**（中身になり得ない）
         std::fs::write(root.join(".DS_Store"), b"x").unwrap();
@@ -4060,7 +4117,11 @@ mod tests {
         // 本当に空（何も言うことが無い＝どの旗も立たない）
         let r = empty_library_reason_of(&config);
         assert!(!r.no_roots && r.missing.is_empty() && !r.photo_library);
+        assert!(r.unreadable.is_empty());
         assert!(r.excluded.is_empty());
+        // **数の側も見る**——`survivor` の後始末で `excluded_total` を
+        // 落とし忘れても、名前だけ見ていると気づけない（ゲート1の指摘）
+        assert_eq!(r.excluded_total, 0);
     }
 
     #[test]
