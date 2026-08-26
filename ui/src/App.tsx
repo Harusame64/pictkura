@@ -888,10 +888,14 @@ export default function App() {
         return;
       }
       unlisten = f ?? undefined;
-      // **転んだときに倒す向きは、リスナーの有無で決める。** リスナーが
-      // 生きているなら合図が来るので待ってよい——ここで一律に「終わった」と
-      // 言うと、走査の最中にパネルが出て `scanSettled` の目的が崩れる
-      const done = await startupScanFinished().catch(() => f === null);
+      // **転んだら「終わっていない」に倒す。** 一律に「終わった」と言うと
+      // 走査の最中にパネルが出て `scanSettled` の目的が崩れる。
+      // リスナーの有無で分けるのも駄目——登録とこの問い合わせは**同じ経路**
+      // なので、一度の不調で両方転ぶ。そこで「終わった」に倒すと、
+      // **下のポーリングごと飛ばして**索引中のライブラリに
+      // 「扱える画像がありません」と言う（ゲート2の指摘）。
+      // 偽なら必ず下のポーリングが拾う
+      const done = await startupScanFinished().catch(() => false);
       if (cancelled) return;
       if (done) {
         settle();
@@ -3979,7 +3983,16 @@ export default function App() {
             <div className="calendar-scroll">
               {/* パネルが出ているなら、カレンダー側の「写真がありません」は
                   出さない。**同じ画面に空の知らせが2つ並ぶ**（ゲート1の指摘） */}
-              {!showEmptyPanel && !unsureWhyEmpty && (
+              {/* **何も無い枠にしない。** カレンダーは自前で「写真が
+                  ありません」と出すので、理由を言えないあいだは止めるが、
+                  **代わりに何か置く**——止めるだけだと、起動時の走査の最中
+                  （NASなら数十秒）や絞り込みを消した直後が、**文字が1つも
+                  無い枠**になる（ゲート2の指摘）。断定しない一言を置く */}
+              {unsureWhyEmpty ? (
+                showEmptyPanel ? null : (
+                  <div className="calendar-empty">{t.calendarChecking}</div>
+                )
+              ) : (
                 <Calendar summary={summary} onOpenDay={openDay} />
               )}
             </div>

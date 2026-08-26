@@ -260,6 +260,8 @@ const ja = {
     `見つかったものは、除外の設定で全部飛ばしています（例: ${names}）。設定フォルダの pictkura.toml で変えられます。`,
   emptyNothingHere:
     "扱える画像がまだ見つかりません。カードから取り込むか、写真のあるフォルダを選んでください。",
+  /** カレンダーの空欄に置く一言。**断定しない**（確かめている最中） */
+  calendarChecking: "確認しています…",
   /** フォルダをまだ見終わっていない。**「何も無い」と言わない** */
   emptyChecking:
     "フォルダを確かめている途中です。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。",
@@ -620,6 +622,7 @@ const en: Dict = {
     `Everything found is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
   emptyNothingHere:
     "No photos that pictkura can read have turned up yet. Import from a card, or pick a folder that has photos in it.",
+  calendarChecking: "Checking…",
   emptyChecking:
     "Still looking through the folders. If one of them is on a network, make sure it is connected and press Rescan.",
   emptyLoadFailed:
