@@ -3998,6 +3998,15 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* **理由をまだ言えないあいだの一言。** 断定しない。
+              `.main`（縦のflex）の直下に1つだけ置く——グリッド側の
+              `.grid-wrap` は行方向のflexで、その中に入れると
+              `.grid-scroll` と幅を分け合って左に寄る（ゲート2の指摘）。
+              カレンダーは自前で「写真がありません」と出すので、
+              こちらが出ているあいだは `Calendar` ごと止める */}
+          {!showEmptyPanel && unsureWhyEmpty && (
+            <div className="calendar-empty">{t.calendarChecking}</div>
+          )}
           {view === "calendar" ? (
             <div className="calendar-scroll">
               {/* パネルが出ているなら、カレンダー側の「写真がありません」は
@@ -4011,20 +4020,12 @@ export default function App() {
                   理由をまだ言えないときは**代わりに何か置く**——止めるだけだと、
                   起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
-              {showEmptyPanel ? null : unsureWhyEmpty ? (
-                <div className="calendar-empty">{t.calendarChecking}</div>
-              ) : (
+              {!showEmptyPanel && !unsureWhyEmpty && (
                 <Calendar summary={summary} onOpenDay={openDay} />
               )}
             </div>
           ) : (
             <div className="grid-wrap">
-              {/* カレンダー側と揃える。**グリッドは元から一言も持たない**ので、
-                  初回のNAS走査の数十秒がまるごと無言の空白になっていた
-                  （ゲート2の指摘） */}
-              {!showEmptyPanel && unsureWhyEmpty && (
-                <div className="calendar-empty">{t.calendarChecking}</div>
-              )}
               {yearMarkers.length > 1 && (
                 <div className="scrubber">
                   {yearMarkers.map((m) => (

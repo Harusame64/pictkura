@@ -599,10 +599,6 @@ body {
   padding: var(--sp-7);
   color: var(--text-faint);
   text-align: center;
-  /* `.grid-wrap` は行方向のflexなので、`text-align` だけだと**箱そのものが
-     左端に寄る**（カレンダー側は `.calendar-scroll` の中なので中央に来る）。
-     左右で見え方を揃える（ゲート1の指摘） */
-  flex: 1;
 }
 .month-card {
   max-width: 720px;

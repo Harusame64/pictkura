@@ -1139,8 +1139,13 @@ struct EmptyLibraryDto {
     unreadable: Vec<String>,
     /// 除外で飛ばした項目の名前（先頭3件まで）
     excluded: Vec<String>,
-    /// 除外で飛ばした項目の**総数**。UIは3件で切って「ほか N件」と言うので、
-    /// 切ったぶんの数が要る——**黙って落とさない**（ゲート2の指摘）
+    /// 除外で飛ばした**名前**の数（重複を除く）。UIは3件まで挙げて
+    /// 「ほか N件」と言うので、切ったぶんの数が要る——**黙って落とさない**。
+    ///
+    /// **数えるのは項目ではなく名前。** この数は「例: `.隠しフォルダ`」という
+    /// **名前の並びの続き**として読まれる。3つのルートに同じ `.隠しフォルダ` が
+    /// あるときに「ほか2件」と出すと、`pictkura.toml` に**在りもしない2つの
+    /// 設定を探しに行かせる**——外すべきパターンは1つしか無い（ゲート2の指摘）
     excluded_total: usize,
     /// 写真.appのライブラリが直下にある
     photo_library: bool,
@@ -1386,14 +1391,15 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 EntryKind::Excluded => {
                     // `Excluded` はUTF-8として読めた名前でしか返らない
                     let Some(name) = name.to_str() else { continue };
-                    // **数えるのは項目、畳むのは例示だけ。** 見せる側で重複を
-                    // 見ると、4件目以降は毎回数えられ、先頭3件は何ルートに在っても
-                    // 1のまま——「ほか N件」がどちらにも狂う（ゲート2の指摘）。
-                    // 名前で畳むのも違う: 2つのルートに `Lightroom Catalog/` が
-                    // あれば飛ばした項目は2つで、1と数えるのは過少（ゲート1の指摘）
-                    out.excluded_total += 1;
-                    if excluded_names.insert(name.to_string()) && out.excluded.len() < 3 {
-                        out.excluded.push(name.to_string());
+                    // **見せる3件と別に数える。** 見せる側で重複を見ると、
+                    // 4件目以降は毎回数えられ、先頭3件は何ルートに在っても1のまま
+                    // ——「ほか N件」がどちらにも狂う。数える先は名前の集合
+                    // （`excluded_total` の説明を見よ）
+                    if excluded_names.insert(name.to_string()) {
+                        out.excluded_total += 1;
+                        if out.excluded.len() < 3 {
+                            out.excluded.push(name.to_string());
+                        }
                     }
                 }
             }
@@ -4166,15 +4172,18 @@ mod tests {
             std::fs::remove_dir(root.join(n)).unwrap();
         }
 
-        // **ルートをまたぐと、同じ名前でも飛ばした項目は2つ。**
-        // 例示は1つに畳むが、数は2（ゲート1の指摘）
+        // **ルートをまたいで同じ名前が並んでも、数えるのは名前。**
+        // この数は名前の並びの続きとして読まれるので（ゲート2の指摘）
         let root2 = dir.path().join("pictures2");
         std::fs::create_dir(&root2).unwrap();
         std::fs::create_dir(root2.join(".隠しフォルダ")).unwrap();
         config.library.roots = vec![root.clone(), root2.clone()];
         let r = empty_library_reason_of(&config);
         assert_eq!(r.excluded, vec![".隠しフォルダ".to_string()], "例示は畳む");
-        assert_eq!(r.excluded_total, 2, "飛ばした項目は2つ");
+        assert_eq!(
+            r.excluded_total, 1,
+            "外すべきパターンは1つ——「ほか1件」と言うと在りもしない設定を探させる"
+        );
         std::fs::remove_dir_all(&root2).unwrap();
         config.library.roots = vec![root.clone()];
 
