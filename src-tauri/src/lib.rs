@@ -689,20 +689,65 @@ fn usn_meta_key(volume: &str) -> String {
 /// 大文字小文字（ASCII）と区切り文字の揺れを無視して**最長一致**のプレフィックスを
 /// 探し、その部分を設定の綴りへ置き換える（配下の構成要素名はFS由来なので一致する）。
 fn rebase_to_root_spelling(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
-    let sep = path_separator();
-    let raw = path.to_string_lossy();
-    let path_str = if cfg!(windows) {
-        raw.replace('/', "\\")
-    } else {
-        raw.into_owned()
-    };
+    #[cfg(unix)]
+    {
+        rebase_unix(path, specs)
+    }
+    #[cfg(not(unix))]
+    {
+        rebase_windows(path, specs)
+    }
+}
+
+/// Unix側。**バイトのまま照合し、バイトのまま組み直す**。
+///
+/// `to_string_lossy()` を通さないのが要点——Unixのパスは**UTF-8とは限らない**。
+/// APFSは非UTF-8の名前を作らせない（実測で `EILSEQ`）が、**FAT32/exFATは通す**
+/// ので、外付けをライブラリのルートにすると入りうる。通すと U+FFFD に化け、
+/// その後の `is_file()` も `stat` も**存在しないパス**を見にいく（ゲート1の指摘）。
+///
+/// 畳みが要らないので、バイトの前方一致で足りる——区切りは `/` だけで、
+/// APFSは大小を区別する設定にできるから畳んではいけない。
+#[cfg(unix)]
+fn rebase_unix(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let bytes = path.as_os_str().as_bytes();
+    let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
+    for spec in specs {
+        for prefix in &spec.prefixes {
+            let p = prefix.trim_end_matches('/').as_bytes();
+            let matched = bytes == p || (bytes.starts_with(p) && bytes.get(p.len()) == Some(&b'/'));
+            if matched && best.is_none_or(|(len, _)| p.len() > len) {
+                best = Some((p.len(), &spec.spelling));
+            }
+        }
+    }
+    let (len, spelling) = best?;
+    // **綴りが同じならそのまま返す。** 組み直さなければ、非UTF-8のバイトに
+    // 触る機会そのものが無い（監視イベントの大半はこちら）
+    if spelling.as_bytes() == &bytes[..len] {
+        return Some(path.to_path_buf());
+    }
+    let mut out = spelling.as_bytes().to_vec();
+    out.extend_from_slice(&bytes[len..]);
+    Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
+}
+
+/// Windows側。区切りと大小の揺れを畳んでから照合する。
+///
+/// 畳んだ形は**バイト長を変えない**ので、畳んだ文字列上の位置で
+/// 元の文字列をそのまま切り出せる。
+#[cfg(not(unix))]
+fn rebase_windows(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
+    let path_str = path.to_string_lossy().replace('/', "\\");
     let path_norm = fold_for_compare(&path_str);
     let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
     for spec in specs {
         for prefix in &spec.prefixes {
-            let prefix_norm = fold_for_compare(prefix.trim_end_matches(sep));
+            let prefix_norm = fold_for_compare(prefix.trim_end_matches('\\'));
             let matched =
-                path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}{sep}"));
+                path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}\\"));
             if matched && best.is_none_or(|(len, _)| prefix_norm.len() > len) {
                 best = Some((prefix_norm.len(), &spec.spelling));
             }
@@ -3344,6 +3389,51 @@ mod tests {
             rebase_to_root_spelling(std::path::Path::new("/どこか/よそ/c.jpg"), &specs),
             None
         );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 名前がUTF-8として読めなくても、バイトを壊さずに揃える。
+    ///
+    /// APFSは非UTF-8の名前を作らせない（実測で `EILSEQ`）ので**ファイルは作れない**が、
+    /// **FAT32/exFATは通す**——外付けをライブラリのルートにすれば入りうる。
+    /// `to_string_lossy()` を通すと U+FFFD に化け、その後の `stat` が
+    /// **存在しないパス**を見にいく。ここはファイルを作らずに、
+    /// パスの組み立てだけを見る
+    #[cfg(unix)]
+    #[test]
+    fn a_non_utf8_name_survives_the_rebase() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        use std::path::PathBuf;
+
+        let root = std::env::temp_dir().join("pictkura_rebase_bytes");
+        std::fs::create_dir_all(&root).unwrap();
+        let Ok(real) = std::fs::canonicalize(&root) else {
+            std::fs::remove_dir_all(&root).ok();
+            return;
+        };
+        let specs = root_specs(std::slice::from_ref(&root));
+
+        // Shift_JISの「あ」＋ UTF-8として不正なバイト
+        let odd = std::ffi::OsString::from_vec(b"\x82\xa0\xff.jpg".to_vec());
+
+        // 解決後の綴りで来ても、設定の綴りへ戻り、**名前のバイトは変わらない**
+        let event = real.join(&odd);
+        let rebased = rebase_to_root_spelling(&event, &specs).expect("ルート配下だと分かること");
+        assert_eq!(
+            rebased,
+            root.join(&odd),
+            "綴りは揃え、名前のバイトは触らない"
+        );
+        assert_eq!(
+            rebased.file_name().map(|n| n.as_bytes().to_vec()),
+            Some(odd.as_bytes().to_vec()),
+            "U+FFFD に化けていないこと"
+        );
+
+        // 綴りが同じなら、そもそも組み直さない（同じ値が返る）
+        let same: PathBuf = root.join(&odd);
+        assert_eq!(rebase_to_root_spelling(&same, &specs), Some(same.clone()));
 
         std::fs::remove_dir_all(&root).ok();
     }
