@@ -1333,6 +1333,9 @@ export default function App() {
             : t.emptyUnreadableOther;
       return say(nameList(r.unreadable));
     }
+    // **ルートそのものがライブラリ**なら、そちらが先。覆らない事実で、
+    // しかも直せるのは利用者だけ（フォルダを選び直す）
+    if (r.rootIsPackage) return t.emptyRootIsPackage;
     if (r.photoLibrary) return t.emptyPhotoLibrary;
     if (r.excluded.length > 0)
       return t.emptyAllExcluded(nameList(r.excluded, r.excludedTotal));
