@@ -336,8 +336,8 @@ export interface DecoderStatus {
   heif_ok: boolean;
   /** 「入れ方を見る」の導線があるか（Windowsのみ） */
   help_available: boolean;
-
 }
+
 /**
  * このOS。**案内の文言を分ける正はこちら**——`isMac` / `isWindows` は
  * `navigator.userAgent` を見るので、WebViewのUA次第で外れうる。

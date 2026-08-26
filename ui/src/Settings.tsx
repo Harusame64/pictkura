@@ -5,6 +5,7 @@ import {
   aboutInfo,
   checkUpdate,
   forgetEditor,
+  getHostPlatform,
   isWindows,
   openDownloadPage,
   setCheckUpdateOnStart,
@@ -17,6 +18,7 @@ import {
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
+  type HostPlatform,
   type UpdateCheck,
   type ExternalApp,
   type FolderPattern,
@@ -50,6 +52,15 @@ export default function Settings({
   onConfigChanged: () => void;
   onError: (message: string) => void;
 }) {
+  /** AutoPlayを出すかの正。届くまではUAの推測で代用する */
+  const [platform, setPlatform] = useState<HostPlatform>(
+    isWindows ? "windows" : "other",
+  );
+  useEffect(() => {
+    getHostPlatform()
+      .then(setPlatform)
+      .catch(() => {});
+  }, []);
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);
@@ -346,8 +357,13 @@ export default function Settings({
           {/*
             AutoPlayはWindowsだけの機構（macOS/Linuxでは登録処理そのものが
             何もしない）。効かない設定は出さない。
+
+            **判定はバックエンドの `cfg!`**（`getHostPlatform`）。`isWindows` は
+            `navigator.userAgent` を見るので、WebViewのUA次第で外れうる
+            ——外れると**Windowsの利用者からトグルごと消える**。文言が違うより悪い
+            （ゲート2の指摘）。届くまでは推測で出しておく
           */}
-          {isWindows && (
+          {platform === "windows" && (
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
               <label className="settings-toggle">

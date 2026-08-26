@@ -3861,13 +3861,13 @@ export default function App() {
                 {videoInfo.exists &&
                   !videoInfo.cloud_only &&
                   videoInfo.plays_in_app && (
-                    <p className="fallback-note">
-                    {platform === "windows"
-                      ? t.videoCodecNote
-                      : platform === "macos"
-                        ? t.videoCodecNoteMac
-                        : t.videoCodecNoteOther}
-                  </p>
+                      <p className="fallback-note">
+                      {platform === "windows"
+                        ? t.videoCodecNote
+                        : platform === "macos"
+                          ? t.videoCodecNoteMac
+                          : t.videoCodecNoteOther}
+                    </p>
                   )}
                 <div className="fallback-actions">
                   {videoInfo.exists && (

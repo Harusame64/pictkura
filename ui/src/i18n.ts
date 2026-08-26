@@ -252,19 +252,19 @@ const ja = {
     `多すぎるため先頭${n}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
   wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
   decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
   /**
    * macOS。**買わせる話をしない**——入れるものが無いので、次にやることが無い
    * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
    */
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません`,
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
   /**
    * それ以外（Linux）。HEICもOSの部品次第なので、**理由は言うが買わせない**
    * ——動画側（`videoCodecNoteOther`）と揃える
    */
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
   decoderHeifHow: "HEIF拡張機能（無料）",
   decoderHevcHow: "HEVC拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
@@ -586,11 +586,11 @@ const en: Dict = {
     `Showing the first ${n} only. Use "Whole folder" to import everything`,
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
   decoderHeifNotice: (n: number) =>
-    `⚠ Thumbnails cannot be made for ${n.toLocaleString()} HEIC/HEIF photos here. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
+    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ Thumbnails cannot be made for ${n.toLocaleString()} HEIC/HEIF photos here`,
+    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ Thumbnails cannot be made for ${n.toLocaleString()} HEIC/HEIF photos here. Your system may not have a decoder for HEIC/HEVC`,
+    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
   decoderHeifHow: "HEIF extension (free)",
   decoderHevcHow: "HEVC extension (paid)",
   decoderNoticeDismiss: "Don't show again",
