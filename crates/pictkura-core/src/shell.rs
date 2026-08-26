@@ -67,12 +67,13 @@ pub fn thumbnail(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
 /// そこをQuickLookで拾うかは、**固まる問題を解いてから**判断する。
 #[cfg(target_os = "macos")]
 mod macos_av {
+    use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
     use objc2_av_foundation::{AVAssetImageGenerator, AVURLAsset};
     use objc2_core_foundation::CGSize;
     use objc2_core_media::CMTime;
-    use objc2_foundation::{NSString, NSURL};
+    use objc2_foundation::NSURL;
 
     pub fn thumbnail(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
         // 動画以外はAVFoundationの仕事ではない。開けない相手に問い合わせて
@@ -80,8 +81,21 @@ mod macos_av {
         if !crate::video::is_video_path(path) {
             return None;
         }
-        // macOSのファイル名はUTF-8なので、通らないパスは**黙って化けさせずに諦める**
-        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str()?));
+        // **UTF-8を前提にしない。** `NSString` 経由でURLを組むと、名前が
+        // UTF-8として読めないファイルを取りこぼす。APFSは非UTF-8の名前を
+        // 作らせない（実測: `EILSEQ`）が、**カメラのカードはFAT32/exFATで、
+        // そちらは通す**（実測: `\x82\xa0.mp4`＝Shift_JISの「あ」が作れた）。
+        // ファイルシステム表現をそのまま渡せば、綴りを解釈せずに済む。
+        //
+        // このOSのtempdirはAPFSなので、**単体テストでは再現できない**
+        // ——FAT32のボリュームをマウントしないと踏めない
+        let raw = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        let ptr = std::ptr::NonNull::new(raw.as_ptr().cast_mut())?;
+        // SAFETY: `raw` はこの関数のあいだ生きている NUL 終端のバイト列。
+        // `NSURL` は中身を複製するので、返った後に参照されない
+        let url = unsafe {
+            NSURL::fileURLWithFileSystemRepresentation_isDirectory_relativeToURL(ptr, false, None)
+        };
         // SAFETY: options に None を渡すだけ
         let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) };
         // SAFETY: 生きている asset を渡す
