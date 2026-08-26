@@ -2885,6 +2885,7 @@ name = "pictkura"
 version = "0.2.2"
 dependencies = [
  "chrono",
+ "libc",
  "pictkura-core",
  "serde",
  "serde_json",

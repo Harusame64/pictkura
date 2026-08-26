@@ -1887,16 +1887,13 @@ fn list_drives() -> Vec<DriveDto> {
             if !seen.insert(mount.clone()) {
                 return None;
             }
-            let name = d.name().to_string_lossy().into_owned();
-            let letter = mount
-                .to_string_lossy()
-                .trim_end_matches(['\\', '/'])
-                .to_string();
-            let label = if name.is_empty() {
-                letter
-            } else {
-                format!("{name} ({letter})")
-            };
+            // **OSが「利用者に見せない」と印を付けた場所は出さない。**
+            // macOSの `/System/Volumes/Data` 等がこれで、Finderも隠している。
+            // パスの形で当てずに、マウントの旗（`MNT_DONTBROWSE`）を読む
+            if !is_browsable(&mount) {
+                return None;
+            }
+            let label = drive_label(&d.name().to_string_lossy(), &mount);
             let kind = drive_kind(&mount, d.is_removable());
             Some(DriveDto {
                 label,
@@ -1908,10 +1905,70 @@ fn list_drives() -> Vec<DriveDto> {
             })
         })
         .collect();
-    // マウント位置（Windowsならドライブレター）順に並べる。OSの列挙順のままだと
+    // **`DCIM` を持つものを先頭に出す。** カメラのカードは必ず `DCIM` を持つので、
+    // 「取り外せるか」より確かな合図になる。macOSでは外付けのバックアップ用ディスクも
+    // `is_removable()` が真になり、SDカードと見分けが付かない
+    // （Windowsの `GetDriveTypeW` に当たる粒度のAPIが無い）。**消すのではなく上げる**
+    // ——判定を誤って消すと「挿したのに出ない」になり、そちらの方が困る。
+    //
+    // 同じ組の中はマウント位置（Windowsならドライブレター）順。OSの列挙順のままだと
     // C: D: E: の並びが起動ごとに入れ替わって見え、目的のドライブを探しにくい
-    drives.sort_by_key(|d| d.path.to_uppercase());
+    drives.sort_by(|a, b| {
+        b.has_dcim
+            .cmp(&a.has_dcim)
+            .then_with(|| a.path.to_uppercase().cmp(&b.path.to_uppercase()))
+    });
     drives
+}
+
+/// ドライブ一覧の見出しを組む。
+///
+/// Windowsは `C:\` → `C:`（ドライブレター）でよいが、**macOSのルートは `/` で、
+/// 末尾を削ると空になる**。実際に `Macintosh HD ()` という空の括弧が出ていた
+/// （2026-08-26に実機で確認）。削り切ったら削らない。
+fn drive_label(name: &str, mount: &Path) -> String {
+    let raw = mount.to_string_lossy();
+    let trimmed = raw.trim_end_matches(['\\', '/']);
+    let location = if trimmed.is_empty() {
+        raw.as_ref()
+    } else {
+        trimmed
+    };
+    if name.is_empty() {
+        location.to_string()
+    } else {
+        format!("{name} ({location})")
+    }
+}
+
+/// このマウントを利用者に見せてよいか。
+///
+/// macOSは「Finderに出さない」ボリュームに `MNT_DONTBROWSE` を立てる
+/// （`/System/Volumes/Data` や各種のシステム用ボリューム）。**OS自身の合図**なので、
+/// `/System/Volumes/` というパスの形で当てるより確か。
+///
+/// 他のOSでは判定材料が無いので常に真。Windowsはそもそもドライブレターしか出ない。
+fn is_browsable(mount: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(path) = std::ffi::CString::new(mount.as_os_str().as_bytes()) else {
+            return true;
+        };
+        // SAFETY: `statfs` はNUL終端のパスと出力用の構造体を取る。
+        // 構造体はゼロ初期化してから渡し、成功したときだけ読む
+        let mut buf = unsafe { std::mem::zeroed::<libc::statfs>() };
+        if unsafe { libc::statfs(path.as_ptr(), &mut buf) } != 0 {
+            // 読めないものは隠さない（消し過ぎるより出し過ぎる方が安全）
+            return true;
+        }
+        buf.f_flags & libc::MNT_DONTBROWSE as u32 == 0
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = mount;
+        true
+    }
 }
 
 /// 取り込みのコピー先ルートを設定して保存する。
@@ -3123,12 +3180,37 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::import_path_from_args;
     #[cfg(windows)]
     use super::APP_IDENTIFIER;
+    use super::{drive_label, import_path_from_args};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_drive_label_never_loses_its_location() {
+        use std::path::Path;
+
+        // Windows: 末尾の区切りを削ってドライブレターにする
+        assert_eq!(
+            drive_label("ボリューム", Path::new("C:\\")),
+            "ボリューム (C:)"
+        );
+        // **macOSのルート**。削り切ると空になるので削らない
+        // （`Macintosh HD ()` が出ていた回帰）
+        assert_eq!(
+            drive_label("Macintosh HD", Path::new("/")),
+            "Macintosh HD (/)"
+        );
+        // 普通のマウント位置はそのまま
+        assert_eq!(
+            drive_label("SDカード", Path::new("/Volumes/NO NAME")),
+            "SDカード (/Volumes/NO NAME)"
+        );
+        // 名前が無いときは場所だけ（括弧を出さない）
+        assert_eq!(drive_label("", Path::new("/")), "/");
+        assert_eq!(drive_label("", Path::new("D:\\")), "D:");
     }
 
     #[test]

@@ -47,5 +47,10 @@ windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
 ] }
 
+# マウントの旗（`MNT_DONTBROWSE`）を読むための `statfs`。sysinfo は旗を返さない。
+# Tauri が既に同じ版を引いているので、依存は増えても新しくビルドされない
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [lints]
 workspace = true

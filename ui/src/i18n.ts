@@ -17,6 +17,24 @@
  *   済んでから追加する。
  */
 
+/**
+ * 「フォルダを追加」の入力例。**OSで綴りが違う**ので辞書に決め打てない
+ * ——macOSに `D:` は無い。実測（2026-08-26）で、macOS版に
+ * `例: D:\Pictures` がそのまま出ていた。
+ *
+ * `api.ts` の `isMac` と同じ判定をしているが、**あちらを import すると循環になる**
+ * （`api.ts` はこの辞書の `locale` を使っている）。3つ目が要るときは
+ * 判定だけを別のファイルへ出すこと。
+ */
+function folderExample(prefix: string, user: string): string {
+  const data = (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData;
+  const platform = data?.platform ?? navigator.userAgent;
+  if (/mac/i.test(platform)) return `${prefix}/Users/${user}/Pictures`;
+  if (/win/i.test(platform)) return `${prefix}D:\\Pictures`;
+  return `${prefix}/home/${user}/Pictures`;
+}
+
 /** 日本語辞書。これがキーの正（他言語はこの形に合わせる） */
 const ja = {
   appName: "pictkura",
@@ -85,7 +103,7 @@ const ja = {
   navAddFolder: "フォルダを追加",
   add: "追加",
   browse: "参照…",
-  addFolderPlaceholder: "例: D:\\Pictures",
+  addFolderPlaceholder: folderExample("例: ", "ユーザー名"),
   pickLibraryFolder: "ライブラリに追加するフォルダを選択",
   showMore: (n: number) => `他${n}台`,
   collapse: "閉じる",
@@ -408,7 +426,7 @@ const en: Dict = {
   navAddFolder: "Add a folder",
   add: "Add",
   browse: "Browse…",
-  addFolderPlaceholder: "e.g. D:\\Pictures",
+  addFolderPlaceholder: folderExample("e.g. ", "you"),
   pickLibraryFolder: "Choose a folder to add to the library",
   showMore: (n: number) => `${n} more`,
   collapse: "Show less",
