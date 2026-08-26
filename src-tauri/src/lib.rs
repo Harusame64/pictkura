@@ -1150,9 +1150,28 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
     let mut survivor = false;
     for root in &config.library.roots {
-        if !root.is_dir() {
-            out.missing.push(root.display().to_string());
-            continue;
+        // **「無い」と「見せてもらえない」を取り違えない。** `is_dir()` は
+        // 内側で `stat` を呼ぶだけなので、**親フォルダに検索権が無い**と
+        // `EACCES` で偽を返す（実測: `chmod 000` の下のフォルダで確認）。
+        // それを「見つかりません、つないでから再スキャンを」と案内すると、
+        // **挿さっている外付けを挿し直させる**ことになる（ゲート1の指摘）。
+        // 本当に無いのは `NotFound` のときだけ
+        match std::fs::metadata(root) {
+            Ok(md) if md.is_dir() => {}
+            // フォルダを選ぶ画面から来る以上ほぼ起きないが、
+            // ファイルを指していれば「そこにフォルダは無い」で正しい
+            Ok(_) => {
+                out.missing.push(root.display().to_string());
+                continue;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                out.missing.push(root.display().to_string());
+                continue;
+            }
+            Err(_) => {
+                out.unreadable.push(root.display().to_string());
+                continue;
+            }
         }
         // **ルート自身がパッケージのこともある。** フォルダを選ぶ画面で
         // 写真ライブラリそのものを指してしまうのは普通に起きる。走査は
@@ -1161,9 +1180,10 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
             out.photo_library = true;
             continue;
         }
-        // **「在るのに読めない」を握り潰さない。** `is_dir()` は通るのに
+        // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
         // `read_dir` が落ちるのは、権限・macOSのTCC（`~/Desktop` や外付けへの
-        // アクセスを許していない）・切れたネットワークのとき。ここで黙ると
+        // アクセスを許していない。**TCCはこちらの形で落ちる**——`stat` は
+        // 通り、`opendir` で止まる）・切れたネットワークのとき。ここで黙ると
         // 「扱える画像がありません」と出てしまう——**1万枚あって、必要なのは
         // 許可の話**なのに（ゲート2の指摘）
         let Ok(entries) = std::fs::read_dir(root) else {
@@ -3897,6 +3917,37 @@ mod tests {
             "Finderが置いた痕跡を「除外のせい」と言わない"
         );
         std::fs::remove_file(root.join(".DS_Store")).unwrap();
+
+        // **見せてもらえないのと、無いのは違う。**
+        // `stat` は親フォルダの検索権を要るので、親が `000` だと
+        // 「見つかりません」に落ちる——挿さっている外付けを挿し直させる
+        // 案内になる（ゲート1の指摘）。
+        //
+        // **`cfg(unix)` なのはモードビットがPOSIXの概念だから**で、
+        // 検出力を落とすための除外ではない（Windowsは別のACLの話になる）
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let outer = dir.path().join("外");
+            let inner = outer.join("中");
+            std::fs::create_dir_all(&inner).unwrap();
+            std::fs::set_permissions(&outer, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // **rootで走ると権限が効かない**（CIのコンテナ等）。
+            // 仕掛けが効いているかを先に確かめ、効いていなければ飛ばす——
+            // 効かない環境で通してしまうと、試験があるのに何も見ていないことになる
+            let denied = std::fs::metadata(&inner).is_err();
+            config.library.roots = vec![inner];
+            let r = empty_library_reason_of(&config);
+            std::fs::set_permissions(&outer, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if denied {
+                assert!(
+                    r.missing.is_empty(),
+                    "読めないだけの場所を「見つかりません」と言わない"
+                );
+                assert_eq!(r.unreadable.len(), 1, "読めなかった場所として名指しする");
+            }
+            config.library.roots = vec![root.clone()];
+        }
 
         // 本当に空（何も言うことが無い＝どの旗も立たない）
         let r = empty_library_reason_of(&config);
