@@ -26,7 +26,6 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
-  isWindows,
   videoSrc,
   videoStatus,
   getConfig,
@@ -78,6 +77,7 @@ import {
   type ScopeItem,
   type StartupScanReport,
 } from "./api";
+import { usePlatform } from "./usePlatform";
 import type { VideoStatus } from "./api";
 import {
   formatDateTime,
@@ -760,6 +760,7 @@ export default function App() {
   // **黙って空欄にせず理由を伝える**。ライブラリにHEICが1枚も無ければ出さない。
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
+  const platform = usePlatform();
   // 動画（第9部）。コンテナはWebViewが扱えても、中のコーデック（HEVC）が
   // OSに無ければ再生は失敗する。しかも `canPlayType` は当てにならない
   // （実測: hvc1 に空を返しながら普通に再生した）ので、**実際に失敗してから**
@@ -784,6 +785,7 @@ export default function App() {
   useEffect(() => {
     checkDecoders();
   }, [checkDecoders]);
+
 
   // 検索ボックスの入力をデバウンスして実クエリへ落とす。
   // 打鍵のたびにIPCを撃たないが、体感で待たされない間隔にする
@@ -3401,8 +3403,17 @@ export default function App() {
       )}
       {heifMissing != null && (
         <div className="speed-toast index warn decoder-notice">
-          <span>{t.decoderHeifNotice(heifMissing)}</span>
-          {decoderHelp && (
+          <span>
+            {platform === "windows"
+              ? t.decoderHeifNotice(heifMissing)
+              : platform === "macos"
+                ? t.decoderHeifNoticeMac(heifMissing)
+                : t.decoderHeifNoticeOther(heifMissing)}
+          </span>
+          {/* **文言と同じ判定に揃える。** 片方が先に届いた瞬間に
+              「デコーダが無いのかも」と「拡張機能を買え」が同時に出うる
+              ——2つの往復に順番の保証は無い（ゲート2の指摘） */}
+          {platform === "windows" && decoderHelp && (
             <>
               <button onClick={() => openDecoderHelp("heif").catch(() => {})}>
                 {t.decoderHeifHow}
@@ -3829,10 +3840,19 @@ export default function App() {
                 {videoInfo.cloud_only && (
                   <p className="fallback-note">{t.videoCloudOnlyNote}</p>
                 )}
+                {/* 文言は3つに分ける。Windowsは拡張機能を買う話、macOSは最初から
+                    再生できる、Linuxは**デコーダがあるとは言い切れない**
+                    （ディストリ次第。HEVCは同梱しない方針＝`video.rs`） */}
                 {videoInfo.exists &&
                   !videoInfo.cloud_only &&
                   videoInfo.plays_in_app && (
-                    <p className="fallback-note">{t.videoCodecNote}</p>
+                    <p className="fallback-note">
+                      {platform === "windows"
+                        ? t.videoCodecNote
+                        : platform === "macos"
+                          ? t.videoCodecNoteMac
+                          : t.videoCodecNoteOther}
+                    </p>
                   )}
                 <div className="fallback-actions">
                   {videoInfo.exists && (
@@ -3845,7 +3865,7 @@ export default function App() {
                   {videoInfo.exists &&
                     !videoInfo.cloud_only &&
                     videoInfo.plays_in_app &&
-                    isWindows && (
+                    platform === "windows" && (
                       <button
                         onClick={() => openDecoderHelp("hevc").catch(() => {})}
                       >
