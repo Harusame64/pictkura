@@ -26,6 +26,7 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
+  isMac,
   isWindows,
   videoSrc,
   videoStatus,
@@ -3833,11 +3834,18 @@ export default function App() {
                 {videoInfo.cloud_only && (
                   <p className="fallback-note">{t.videoCloudOnlyNote}</p>
                 )}
+                {/* 文言は3つに分ける。Windowsは拡張機能を買う話、macOSは最初から
+                    再生できる、Linuxは**デコーダがあるとは言い切れない**
+                    （ディストリ次第。HEVCは同梱しない方針＝`video.rs`） */}
                 {videoInfo.exists &&
                   !videoInfo.cloud_only &&
                   videoInfo.plays_in_app && (
                       <p className="fallback-note">
-                      {isWindows ? t.videoCodecNote : t.videoCodecNoteOther}
+                      {isWindows
+                        ? t.videoCodecNote
+                        : isMac
+                          ? t.videoCodecNoteMac
+                          : t.videoCodecNoteOther}
                     </p>
                   )}
                 <div className="fallback-actions">

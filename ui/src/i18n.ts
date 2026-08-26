@@ -164,9 +164,15 @@ const ja = {
   videoOpenExternal: "既定のアプリで開く",
   videoCodecNote:
     "iPhoneなどの動画はHEVC（H.265）で記録されています。再生にはOSのデコーダが必要で、Windowsでは有料の拡張機能（数百円）になります。",
-  /** Windows以外。**買わせる話をしない**——OSがHEVCを最初から再生できる */
+  /** macOS。**買わせる話をしない**——OSがHEVCを最初から再生できる */
+  videoCodecNoteMac:
+    "この動画は表示に使っているブラウザ部品が再生できませんでした。macOSはHEVCを最初から再生できるので、対応していない記録方式である可能性が高いです。「既定のアプリで開く」から再生してください。",
+  /**
+   * それ以外（Linux）。**デコーダがあるとは言い切らない**——
+   * ディストリによってはHEVCのデコーダが入っていない（`video.rs` のとおり同梱しない）
+   */
   videoCodecNoteOther:
-    "この動画は表示に使っているブラウザ部品が再生できませんでした。OSのデコーダ自体はあるので、対応していない記録方式である可能性が高いです。「既定のアプリで開く」から再生してください。",
+    "この動画は表示に使っているブラウザ部品が再生できませんでした。この記録方式に対応するデコーダが環境に無いのかもしれません。「既定のアプリで開く」から再生してください。",
   videoCodecHelp: "HEVC拡張機能を見る（有料）",
   loading: "読み込み中…",
   exifTitle: "撮影情報",
@@ -489,8 +495,10 @@ const en: Dict = {
   videoOpenExternal: "Open in default app",
   videoCodecNote:
     "Videos from iPhones and similar cameras use HEVC (H.265). Playback needs an OS decoder; on Windows that is a paid extension (a few dollars).",
+  videoCodecNoteMac:
+    "The browser engine used for display could not play this video. macOS decodes HEVC out of the box, so the recording format is most likely one it does not handle. Open it in your default player instead.",
   videoCodecNoteOther:
-    "The browser engine used for display could not play this video. The OS decoder itself is present, so the recording format is most likely one it does not handle. Open it in your default player instead.",
+    "The browser engine used for display could not play this video. Your system may not have a decoder for this recording format. Open it in your default player instead.",
   videoCodecHelp: "Get the HEVC extension (paid)",
   loading: "Loading…",
   exifTitle: "Photo info",
