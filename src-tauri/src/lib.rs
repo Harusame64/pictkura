@@ -1138,10 +1138,19 @@ struct EmptyLibraryDto {
 /// **走査の数え上げには足さない。** 空のときにしか呼ばれないので、ここで
 /// ルートの直下を1回読むだけで足りる——速さが仕様の走査路を太らせる理由が無い。
 /// 中も開かない（名前だけ見る）。
-#[tauri::command(async)]
-fn empty_library_reason(state: tauri::State<'_, AppState>) -> EmptyLibraryDto {
-    let config = lock_ok(&state.config).clone();
-    empty_library_reason_of(&config)
+#[tauri::command]
+async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
+    // **ブロッキングプールへ逃がす。** 切れたSMB/NFSのルートでは
+    // `metadata` も `read_dir` もマウントのタイムアウトぶん（hardマウントなら
+    // 際限なく）返ってこない。非同期コマンドはtokioのワーカーを占めるので、
+    // 走らせる場所を間違えると**他のコマンドごと詰まる**（ゲート2の指摘）。
+    // `add_library_root` などが同じ理由でこうしている
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = lock_ok(&app.state::<AppState>().config).clone();
+        empty_library_reason_of(&config)
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// [`empty_library_reason`] の中身（設定だけを見るのでテストできる）。

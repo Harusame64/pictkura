@@ -854,9 +854,18 @@ export default function App() {
       if (!f) {
         poll = window.setInterval(() => {
           void startupScanFinished()
-            .catch(() => true)
+            // **転んだ1回で「終わった」と言わない。** ここで倒すと、
+            // NASの初回走査の最中に一度失敗しただけでパネルが出る
+            // ——`scanSettled` を足した目的そのもの（ゲート2の指摘）。
+            // 次の2秒後にもう一度聞けばよい
+            .catch(() => false)
             .then((ok) => {
-              if (ok && !cancelled) setScanSettled(true);
+              if (!ok || cancelled) return;
+              // **終わったら止める。** 片付けはAppのunmountでしか走らない
+              // ので、止めないとプロセスの一生ぶん2秒ごとに叩き続ける（同）
+              if (poll != null) window.clearInterval(poll);
+              poll = undefined;
+              setScanSettled(true);
             });
         }, 2000);
       }
@@ -1213,7 +1222,11 @@ export default function App() {
    */
   const showEmptyPanel =
     (canSayEmpty && emptyReason != null) ||
-    (settled && loadFailed && !filtering);
+    // **失敗の枝にも「一覧が空」が要る。** 5万枚が並んでいる最中に
+    // 取り込みの `library-updated` で走った `reloadAll` が1回転ぶと、
+    // `summary` は正しいまま残っているのに一覧を消して
+    // 「出せませんでした」に差し替えてしまう（ゲート2の指摘）
+    (settled && loadFailed && !filtering && summary.length === 0);
   /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
   const emptyMessage = () => {
     if (loadFailed) return t.emptyLoadFailed;
@@ -1246,10 +1259,16 @@ export default function App() {
    * 3件で切って持ってくるので、数だけ別に受け取る（同）
    */
   const nameList = useCallback(
-    (names: string[], total = names.length) =>
-      total > 3
-        ? [...names.slice(0, 3), t.andMore(total - 3)].join(t.listSeparator)
-        : names.join(t.listSeparator),
+    (names: string[], total = names.length) => {
+      // **引くのは「出した数」**。`3` を引くと、名前が畳まれて1件しか
+      // 来ていない（6つのルートの `Lightroom Catalog/` など）ときに
+      // 数が合わない（ゲート2の指摘）
+      const shown = names.slice(0, 3);
+      const rest = total - shown.length;
+      return rest > 0
+        ? [...shown, t.andMore(rest)].join(t.listSeparator)
+        : shown.join(t.listSeparator);
+    },
     [t],
   );
 
@@ -1260,6 +1279,22 @@ export default function App() {
       return;
     }
     let alive = true;
+    /** 旗の立っていない理由＝「まだ見つかりません」＋取り込みと参照の2つ */
+    const nothingKnown = {
+      noRoots: false,
+      missing: [],
+      unreadable: [],
+      excluded: [],
+      excludedTotal: 0,
+      photoLibrary: false,
+    };
+    // **返ってこない筋にも答えを出す。** 切れたSMB/NFSのルートでは
+    // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
+    // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
+    // ネットワークのフォルダこそ、この機能が説明したい相手（ゲート2の指摘）
+    const giveUp = window.setTimeout(() => {
+      if (alive) setEmptyReason(nothingKnown);
+    }, 5000);
     getEmptyLibraryReason()
       .then((r) => {
         if (alive) setEmptyReason(r);
@@ -1269,19 +1304,12 @@ export default function App() {
       // 逆戻りする——このPRが消そうとしている当のもの（ゲート2の指摘）。
       // 旗の立っていない理由＝「まだ見つかりません」＋取り込みと参照の2つ
       .catch(() => {
-        if (alive) {
-          setEmptyReason({
-            noRoots: false,
-            missing: [],
-            unreadable: [],
-            excluded: [],
-            excludedTotal: 0,
-            photoLibrary: false,
-          });
-        }
-      });
+        if (alive) setEmptyReason(nothingKnown);
+      })
+      .finally(() => window.clearTimeout(giveUp));
     return () => {
       alive = false;
+      window.clearTimeout(giveUp);
     };
   }, [canSayEmpty]);
 
