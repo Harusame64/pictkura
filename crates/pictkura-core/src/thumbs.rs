@@ -507,8 +507,14 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     //
     // **原寸の申告も `CMT1` にある**（[`crate::raw::cr3_declared_dimensions`]）ので、
     // 撮影日時が既に取れていてもCR3なら見に行く。TIFF系RAWを巻き込むと、
-    // 申告を持たない社のために毎回1MB読み直すことになるので、拡張子で切る
-    if result.taken_at_ms.is_none()
+    // 申告を持たない社のために毎回1MB読み直すことになるので、拡張子で切る。
+    //
+    // **後追い（[`Want::Declaration`]）は日付のために辿らない**（PRコメント側の
+    // CodexのP2）。要るのは寸法の申告と向きだけなのに「撮影日時が空だから」で
+    // 入ると、箱を持たない社（Sigma X3F・Hasselblad FFF・Leaf MOS——コンテナに
+    // 日付が無いのでここが真になる）でも1件あたり1MB読み直すことになる
+    let wants_date = !matches!(want, Want::Declaration);
+    if (wants_date && result.taken_at_ms.is_none())
         || (result.original.is_none() && crate::raw::is_bmff_raw_path(path))
     {
         // **箱を辿れたかどうかで読めたかを言い直す。** CR3はコンテナ読みも
@@ -2212,6 +2218,27 @@ mod tests {
         .unwrap();
         let dims = backfilled_dimensions(&upright, 320, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (4000, 6000), "縦位置へ揃える");
+    }
+
+    #[test]
+    fn 後追いは日付のために箱を辿らない() {
+        // 後追いに要るのは寸法の申告と向きだけ。「撮影日時が空だから」で箱を
+        // 辿ると、箱を持たない社（X3F・FFF・MOS）でも1件あたり1MB読み直す。
+        // 辿ったかどうかは**箱の中身が拾えたか**で分かるので、CR3の箱を
+        // わざと別の拡張子で置いて見る
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("boxed.x3f");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+
+        assert!(
+            read_exif_declaration(&src).unwrap().original.is_none(),
+            "後追いは箱を辿らない（CR3の拡張子でないので用も無い）"
+        );
+        assert_eq!(
+            read_exif_meta(&src).original,
+            Some((6000, 4000)),
+            "日付が要る経路は今までどおり辿る"
+        );
     }
 
     #[test]

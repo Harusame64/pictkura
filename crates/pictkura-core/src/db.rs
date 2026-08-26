@@ -2771,6 +2771,24 @@ mod tests {
             !plan.iter().any(|l| l.contains("TEMP B-TREE")),
             "索引の並び順で返るので並べ直しは要らないはず: {plan:?}"
         );
+
+        // **索引側を緩めても気づけるようにする**（ゲート2のP3）。
+        // クエリ側を崩せば `INDEXED BY` が `no query solution` で落ちるが、
+        // 索引の `WHERE` から `preview_width IS NULL` を落とすほうは
+        // プランが同じまま通ってしまう——中身が「RAW全行」になり、
+        // 掃き終えても空にならないのに、誰も気づかない
+        let sql: String = db
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                params!["idx_media_dims_pending"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("WHERE kind = 1 AND preview_width IS NULL"),
+            "索引の条件が掃き寄せの条件と揃っていない: {sql}"
+        );
     }
 
     #[test]
