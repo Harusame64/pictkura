@@ -2839,25 +2839,27 @@ pub fn run() {
                             if batch.is_empty() {
                                 break;
                             }
-                            after_id = batch.last().map(|(id, ..)| *id).unwrap_or(after_id);
-                            type Backfilled = (i64, (i64, i64), pictkura_core::db::Dimensions);
+                            after_id = batch.last().map(|t| t.id).unwrap_or(after_id);
+                            type Backfilled = (
+                                pictkura_core::db::DimensionTarget,
+                                pictkura_core::db::Dimensions,
+                            );
                             let results: Vec<Backfilled> = batch
                                 .into_iter()
                                 // 開けないファイル・クラウドにしか実体が無いファイルは
                                 // **印を付けずに飛ばす**（カメラ補完と同じ理由）。
                                 // ここで「確かめた」と書くと、外付けを繋いだ日が来ても
                                 // 二度と読み直されない
-                                .filter(|(_, path, ..)| path.is_file())
-                                .filter(|(_, path, ..)| {
-                                    !pictkura_core::cloud::is_cloud_only_path(path)
-                                })
+                                .filter(|t| t.path.is_file())
+                                .filter(|t| !pictkura_core::cloud::is_cloud_only_path(&t.path))
                                 // **開けなかった行は印を付けずに飛ばす**。権限や
                                 // 共有ロックで一時的に読めないだけなら、読める日に
                                 // 拾い直せる（ゲート1のP2）
-                                .filter_map(|(id, path, w, h)| {
-                                    let dims =
-                                        pictkura_core::thumbs::backfilled_dimensions(&path, w, h)?;
-                                    Some((id, (w, h), dims))
+                                .filter_map(|t| {
+                                    let dims = pictkura_core::thumbs::backfilled_dimensions(
+                                        &t.path, t.width, t.height,
+                                    )?;
+                                    Some((t, dims))
                                 })
                                 .collect();
                             // 丸ごと飛ばした束（外付けが未接続・クラウドのみ）で

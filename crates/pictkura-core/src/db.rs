@@ -105,6 +105,25 @@ impl Dimensions {
     }
 }
 
+/// 寸法を確かめ直す1行（[`Db::dimensions_to_backfill`] が返し、
+/// [`Db::set_dimensions`] が書き込みのガードに使う）。
+///
+/// **読んだ時点の値をそのまま持ち歩く**。掃き寄せの途中で行が動いていないかを
+/// [`Db::set_dimensions`] が突き合わせるため——数字を裸で並べて渡すと、
+/// 期待値と新しい値のどちらがどちらか分からなくなる。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DimensionTarget {
+    pub id: i64,
+    pub path: PathBuf,
+    /// 読んだ時点の `width`（＝段階F-4より前に入ったプレビューの幅）
+    pub width: i64,
+    /// 読んだ時点の `height`
+    pub height: i64,
+    /// 読んだ時点のファイルの版。寸法だけでは同じ数字に戻る差し替え
+    /// （ABA）を見抜けないので一緒に見張る——[`Db::set_dimensions`]
+    pub mtime_ms: i64,
+}
+
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredMeta {
@@ -2043,7 +2062,7 @@ impl Db {
         &self,
         after_id: i64,
         limit: usize,
-    ) -> Result<Vec<(i64, PathBuf, i64, i64)>, DbError> {
+    ) -> Result<Vec<DimensionTarget>, DbError> {
         // 拡張子はDBに正規化して持っていないので、末尾一致で見る
         // （[`Self::count_by_extensions`] と同じやり方）。`?1` は after_id、
         // `?2` は limit なので、拡張子は `?3` から始まる
@@ -2052,7 +2071,7 @@ impl Db {
             .collect::<Vec<_>>()
             .join(" OR ");
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, width, height FROM media
+            "SELECT id, path, width, height, mtime_ms FROM media
              WHERE preview_width IS NULL AND id > ?1
              AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
              AND ({clause})
@@ -2065,12 +2084,13 @@ impl Db {
                 .map(|ext| format!("%.{ext}").into()),
         );
         let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
-            Ok((
-                r.get(0)?,
-                PathBuf::from(r.get::<_, String>(1)?),
-                r.get(2)?,
-                r.get(3)?,
-            ))
+            Ok(DimensionTarget {
+                id: r.get(0)?,
+                path: PathBuf::from(r.get::<_, String>(1)?),
+                width: r.get(2)?,
+                height: r.get(3)?,
+                mtime_ms: r.get(4)?,
+            })
         })?;
         let mut out = Vec::new();
         for row in rows {
@@ -2085,15 +2105,22 @@ impl Db {
     /// 触るのは寸法の4列だけ。撮影日時・`day_key`・カメラは既に入っているので、
     /// [`Self::update_metadata`] のように書き直すと**正しい値を上書きしかねない**。
     ///
-    /// **読んだときのまま残っている行にだけ書く**（`expected` は
-    /// [`Self::dimensions_to_backfill`] が返した width/height）。この掃き寄せは
-    /// 起動同期やサムネイル生成と**同時に走る**ので、途中でファイルが差し替わると
-    /// スキャンが列を落とし、サムネイル生成が新しい寸法を入れる。素直に `id` だけで
-    /// 書くと、古い寸法で上書きしたうえ**確かめた印まで付けて**しまい、
-    /// 二度と直らない（ゲート1のP2）。
+    /// **読んだときのまま残っている行にだけ書く**（突き合わせるのは
+    /// [`Self::dimensions_to_backfill`] が返した [`DimensionTarget`]）。この
+    /// 掃き寄せは起動同期やサムネイル生成と**同時に走る**ので、途中でファイルが
+    /// 差し替わるとスキャンが列を落とし、サムネイル生成が新しい寸法を入れる。
+    /// 素直に `id` だけで書くと、古い寸法で上書きしたうえ**確かめた印まで
+    /// 付けて**しまい、二度と直らない（ゲート1のP2）。
+    ///
+    /// **見張るのは寸法だけでは足りない**（ゲート1の5周目のP2）。差し替えの後に
+    /// [`crate::thumbs::process_one`] のクラウド経路が通ると、
+    /// [`Self::update_shell_metadata`] が `width/height` にOSから借りた寸法を
+    /// 入れる——それが**たまたま古いファイルと同じ数字**なら、`preview_width` は
+    /// NULLのままなので寸法の突き合わせを素通りしてしまう（ABA）。`mtime_ms` も
+    /// 一緒に見れば、スキャンが差し替えを書いた時点で条件から外れる。
     pub fn set_dimensions(
         &mut self,
-        results: &[(i64, (i64, i64), Dimensions)],
+        results: &[(DimensionTarget, Dimensions)],
     ) -> Result<Vec<i64>, DbError> {
         let mut moved = Vec::new();
         let tx = self.write_tx()?;
@@ -2102,21 +2129,22 @@ impl Db {
                 "UPDATE media SET width = ?2, height = ?3,
                         preview_width = ?4, preview_height = ?5
                  WHERE id = ?1 AND preview_width IS NULL
-                   AND width = ?6 AND height = ?7",
+                   AND width = ?6 AND height = ?7 AND mtime_ms = ?8",
             )?;
-            for (id, (expect_w, expect_h), dims) in results {
+            for (target, dims) in results {
                 let n = stmt.execute(params![
-                    id,
+                    target.id,
                     dims.width,
                     dims.height,
                     dims.preview.map(|(w, _)| w),
                     dims.preview.map(|(_, h)| h),
-                    expect_w,
-                    expect_h
+                    target.width,
+                    target.height,
+                    target.mtime_ms
                 ])?;
                 // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
-                if n > 0 && (dims.width, dims.height) != (*expect_w, *expect_h) {
-                    moved.push(*id);
+                if n > 0 && (dims.width, dims.height) != (target.width, target.height) {
+                    moved.push(target.id);
                 }
             }
         }
@@ -2516,7 +2544,7 @@ mod tests {
             .dimensions_to_backfill(0, 100)
             .unwrap()
             .into_iter()
-            .map(|(_, path, ..)| path.to_string_lossy().into_owned())
+            .map(|t| t.path.to_string_lossy().into_owned())
             .collect();
         assert_eq!(
             picked.len(),
@@ -2528,10 +2556,15 @@ mod tests {
 
         // 確かめた行は次から抜ける（済んだ印を別に持たなくて済む）
         let a = id_of(&db, "a.cr3");
+        let target = db
+            .dimensions_to_backfill(0, 100)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == a)
+            .unwrap();
         assert_eq!(
             db.set_dimensions(&[(
-                a,
-                (640, 480),
+                target,
                 Dimensions {
                     width: 6000,
                     height: 4000,
@@ -2605,7 +2638,8 @@ mod tests {
             .unwrap();
         db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
             .unwrap();
-        assert_eq!(db.dimensions_to_backfill(0, 100).unwrap().len(), 1);
+        let batch = db.dimensions_to_backfill(0, 100).unwrap();
+        assert_eq!(batch.len(), 1);
 
         // ここでファイルが差し替わり、新しい寸法が入った
         db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
@@ -2623,8 +2657,7 @@ mod tests {
 
         let moved = db
             .set_dimensions(&[(
-                id,
-                (640, 480),
+                batch.into_iter().next().unwrap(),
                 Dimensions {
                     width: 6000,
                     height: 4000,
@@ -2638,6 +2671,53 @@ mod tests {
         assert_eq!(
             (rec.preview_width, rec.preview_height),
             (Some(100), Some(200))
+        );
+    }
+
+    #[test]
+    fn 後追いは同じ寸法に戻った差し替えにも書かない() {
+        // 寸法だけを見張ると素通りする筋（ABA）: 掃き寄せの途中でファイルが
+        // 差し替わってスキャンが列を落とし、そこへクラウド経路の
+        // update_shell_metadata が**たまたま同じ数字**を入れ直す。
+        // preview_width はNULLのままなので、寸法の突き合わせでは差し替えに
+        // 気づけない——mtime_ms も一緒に見て初めて落ちる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        let batch = db.dimensions_to_backfill(0, 100).unwrap();
+        assert_eq!(batch.len(), 1);
+
+        // 差し替え → 列が落ちる → OSから借りた寸法が同じ数字で戻る
+        db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
+        db.update_shell_metadata(id, 640, 480, Some(2)).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            (rec.width, rec.height, rec.preview_width),
+            (Some(640), Some(480), None),
+            "寸法だけでは読んだときと見分けが付かない状態"
+        );
+
+        let moved = db
+            .set_dimensions(&[(
+                batch.into_iter().next().unwrap(),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap();
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(640), Some(480)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "確かめた印が付かないので、実体が落ちてきた日に拾い直せる"
         );
     }
 
