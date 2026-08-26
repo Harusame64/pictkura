@@ -732,13 +732,35 @@ fn rebase_unix(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
     let bytes = path.as_os_str().as_bytes();
+    let under = |prefix: &str| {
+        let p = prefix.trim_end_matches('/').as_bytes();
+        (bytes == p || (bytes.starts_with(p) && bytes.get(p.len()) == Some(&b'/')))
+            .then_some(p.len())
+    };
+    // **設定の綴りに当たるなら、それを最優先で採る。**
+    //
+    // 同じ場所を指すルートが2つ設定されていると（`/photos` と、そこへの
+    // リンク `/library`）、解決後の綴りは**どちらのルートにも当たる**。
+    // 長さが同じなので先に見つけた方が勝ち、`/photos/a.jpg` のイベントが
+    // `/library/a.jpg` へ書き換わりうる——**`/photos` 側の行が更新されなくなる**
+    // （ゲート1の指摘）。既に設定どおりの綴りで来ているものは**触らない**
     let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
     for spec in specs {
-        for prefix in &spec.prefixes {
-            let p = prefix.trim_end_matches('/').as_bytes();
-            let matched = bytes == p || (bytes.starts_with(p) && bytes.get(p.len()) == Some(&b'/'));
-            if matched && best.is_none_or(|(len, _)| p.len() > len) {
-                best = Some((p.len(), &spec.spelling));
+        if let Some(len) = under(&spec.spelling) {
+            if best.is_none_or(|(best_len, _)| len > best_len) {
+                best = Some((len, &spec.spelling));
+            }
+        }
+    }
+    // 設定の綴りに当たらないときだけ、解決後の綴りから探す
+    if best.is_none() {
+        for spec in specs {
+            for prefix in spec.prefixes.iter().skip(1) {
+                if let Some(len) = under(prefix) {
+                    if best.is_none_or(|(best_len, _)| len > best_len) {
+                        best = Some((len, &spec.spelling));
+                    }
+                }
             }
         }
     }
@@ -761,14 +783,29 @@ fn rebase_unix(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
 fn rebase_windows(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
     let path_str = path.to_string_lossy().replace('/', "\\");
     let path_norm = fold_for_compare(&path_str);
+    let under = |prefix: &str| {
+        let prefix_norm = fold_for_compare(prefix.trim_end_matches('\\'));
+        (path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}\\")))
+            .then_some(prefix_norm.len())
+    };
+    // 設定の綴りに当たるなら最優先（理由は `rebase_unix` を見よ）
     let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
     for spec in specs {
-        for prefix in &spec.prefixes {
-            let prefix_norm = fold_for_compare(prefix.trim_end_matches('\\'));
-            let matched =
-                path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}\\"));
-            if matched && best.is_none_or(|(len, _)| prefix_norm.len() > len) {
-                best = Some((prefix_norm.len(), &spec.spelling));
+        if let Some(len) = under(&spec.spelling) {
+            if best.is_none_or(|(best_len, _)| len > best_len) {
+                best = Some((len, &spec.spelling));
+            }
+        }
+    }
+    // 設定の綴りに当たらないときだけ、解決後の綴りから探す
+    if best.is_none() {
+        for spec in specs {
+            for prefix in spec.prefixes.iter().skip(1) {
+                if let Some(len) = under(prefix) {
+                    if best.is_none_or(|(best_len, _)| len > best_len) {
+                        best = Some((len, &spec.spelling));
+                    }
+                }
             }
         }
     }
@@ -3419,6 +3456,39 @@ mod tests {
             rebase_to_root_spelling(&link.with_file_name("linkX").join("d.jpg"), &specs),
             None,
             "綴りの前方一致だけで配下と決めない"
+        );
+    }
+
+    /// 同じ場所を指すルートが2つあっても、**設定どおりの綴りは書き換えない**。
+    ///
+    /// `/photos` と、そこへのリンク `/library` の両方をルートにすると、
+    /// 解決後の綴りは**どちらにも当たる**。長さが同じなので順番次第で勝者が変わり、
+    /// `/photos/a.jpg` のイベントが `/library/a.jpg` へ化けると
+    /// **`/photos` 側の行が二度と更新されない**（ゲート1の指摘）
+    #[cfg(unix)]
+    #[test]
+    fn two_roots_pointing_at_the_same_place_keep_their_own_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("photos");
+        let link = dir.path().join("library");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // **リンクの方を先に**登録する（これで順番の運に頼れなくなる）
+        let specs = root_specs(&[link.clone(), real.clone()]);
+
+        // 実体の綴りで来たものは、実体の綴りのまま
+        let from_real = real.join("a.jpg");
+        assert_eq!(
+            rebase_to_root_spelling(&from_real, &specs),
+            Some(from_real.clone()),
+            "設定どおりの綴りは書き換えない"
+        );
+        // リンクの綴りで来たものも、そのまま
+        let from_link = link.join("b.jpg");
+        assert_eq!(
+            rebase_to_root_spelling(&from_link, &specs),
+            Some(from_link.clone())
         );
     }
 
