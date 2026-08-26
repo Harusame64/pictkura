@@ -363,6 +363,18 @@ export default function App() {
    */
   const gotSummaryRef = useRef(0);
   /**
+   * [`settled`] の**同じ瞬間に読める写し**。
+   *
+   * 絞り込みが変わった直後の1描画では、`filtering` はもう偽なのに
+   * `summary` は前の絞り込みのまま——`settled` の `false` はまだ描画に
+   * 反映されていないので、そこで走る効果は「空だ」と読んでしまう。
+   * 画面には出ない（`emptyReason` がまだ無い）が、**ルート直下を全部
+   * `read_dir` する問い合わせが1回無駄に飛ぶ**——ネットワークのルートなら
+   * ブロッキングのスレッドをマウントのタイムアウトぶん占める（ゲート2の指摘）。
+   * 効果は発火の瞬間にこちらを見る
+   */
+  const settledRef = useRef(false);
+  /**
    * 起動時の走査が報告を出したか。**出るまで「空です」と言わない**。
    *
    * 走査は別スレッドで走り、終わってから `library-updated` と
@@ -627,6 +639,9 @@ export default function App() {
     const gen = ++generationRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
+    // **同期で倒す。** 効果は同じ描画の中で順に走るので、状態の更新を待つと
+    // 後ろの効果が古い値を見る
+    settledRef.current = false;
     setSettled(false);
     try {
       const [sum, st, mem] = await Promise.all([
@@ -655,7 +670,10 @@ export default function App() {
       throw err;
     } finally {
       // **追い越されていたら立てない**——新しい方がまだ走っている
-      if (generationRef.current === gen) setSettled(true);
+      if (generationRef.current === gen) {
+        settledRef.current = true;
+        setSettled(true);
+      }
     }
   }, []);
 
@@ -1306,6 +1324,9 @@ export default function App() {
       setEmptyReason(null);
       return;
     }
+    // **発火の瞬間にもう一度見る。** `canSayEmpty` はこの描画の値で、
+    // 絞り込みが変わった直後は既に古い（上の `settledRef` の説明）
+    if (!settledRef.current) return;
     let alive = true;
     /** 旗の立っていない理由＝「まだ見つかりません」＋取り込みと参照の2つ */
     const nothingKnown = {

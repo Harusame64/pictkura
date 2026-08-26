@@ -65,15 +65,20 @@ struct AppState {
     /// 別に知らせないと永久に無言**になる（ゲート2の指摘）。
     /// イベントを取りこぼしたフロントが後から聞けるよう、旗としても置く
     startup_done: std::sync::atomic::AtomicBool,
-    /// [`empty_library_reason`] がいま走っているか、と**前回の答え**。
+    /// [`empty_library_reason`] の走査を**同時に1本まで**にする門。
     ///
     /// 走査はブロッキングプールで動くが、**切れたSMB/NFSのhardマウントでは
     /// `read_dir` が返ってこない**——フロントは5秒で見切るのに、スレッドは
     /// そのまま残る。一覧が空になるたびに聞き直すので、放っておくと
-    /// プールを食い尽くし、同じプールを使う `add_library_root` などが
-    /// 止まる（ゲート2の指摘）。**同時に1本まで**にして、待っている間は
-    /// 前回の答えを返す
-    empty_reason: Mutex<(bool, Option<EmptyLibraryDto>)>,
+    /// プールを食い尽くし、同じプールを使う `add_library_root` などが止まる。
+    ///
+    /// **非同期のMutexであることが要**。2本目は「前の答え」で誤魔化さず、
+    /// **順番を待って自分で見に行く**。旗と前回値で代用すると、
+    /// StrictModeの二重マウントのように2本が必ず重なる場面で**本当の理由が
+    /// 一度も出ない**し、hardマウントで刺さったあとは旗が下りず、
+    /// 共有を繋ぎ直して再スキャンしても「見つかりません」と言い続ける
+    /// （ゲート2の指摘）。待つ側はタスクが止まるだけでスレッドを食わない
+    empty_reason_gate: tauri::async_runtime::Mutex<()>,
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
     index_progress: Mutex<IndexProgressDto>,
@@ -1154,29 +1159,18 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     // 際限なく）返ってこない。非同期コマンドはtokioのワーカーを占めるので、
     // 走らせる場所を間違えると**他のコマンドごと詰まる**（ゲート2の指摘）。
     // `add_library_root` などが同じ理由でこうしている
+    // 2本目以降は順番を待つ。**待たせるだけで、嘘は返さない。**
+    // 門を持つのは `MutexGuard` なので、フロントが見切って呼び出しごと
+    // 捨てられても（開発時の再読み込みなど）`Drop` で必ず開く
     let state = app.state::<AppState>();
-    {
-        let mut slot = lock_ok(&state.empty_reason);
-        if slot.0 {
-            // まだ返ってきていない。**もう1本増やさない**——
-            // 前に取れた答えがあればそれを、無ければ旗の立たない答えを返す
-            return slot.1.clone().unwrap_or_default();
-        }
-        slot.0 = true;
-    }
-    let out = tauri::async_runtime::spawn_blocking({
-        let app = app.clone();
-        move || {
-            let config = lock_ok(&app.state::<AppState>().config).clone();
-            empty_library_reason_of(&config)
-        }
+    let _gate = state.empty_reason_gate.lock().await;
+    let inner = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = lock_ok(&inner.state::<AppState>().config).clone();
+        empty_library_reason_of(&config)
     })
     .await
-    .unwrap_or_default();
-    // **返らないときはここへ来ない**——旗も立ったまま。それが狙いで、
-    // 死んだマウントに対して増やすスレッドは1本で止まる
-    *lock_ok(&state.empty_reason) = (false, Some(out.clone()));
-    out
+    .unwrap_or_default()
 }
 
 /// ルート直下の1エントリを、**空の理由**の観点で見たときの正体。
@@ -3211,7 +3205,7 @@ pub fn run() {
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
-                empty_reason: Mutex::new((false, None)),
+                empty_reason_gate: tauri::async_runtime::Mutex::new(()),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
