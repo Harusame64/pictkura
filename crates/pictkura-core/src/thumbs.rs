@@ -385,16 +385,21 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
 /// 開き直しが挟まる経路は**後の読みが失敗したら偽へ落とす**（開けた瞬間から
 /// 共有ロックが掛かるまでの隙間で嘘を付かないため）。
 fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
-    let container = match read_exif_container(path) {
-        Container::Found(data) => Some(data),
-        Container::Empty => None,
+    let (container, mut readable) = match read_exif_container(path) {
+        Container::Found(data) => (Some(data), true),
+        Container::Empty => (None, true),
         // **開けないと分かった時点で降りる。** この先は開き直しが2回
         // （`patched_tiff_metadata` と `bmff_metadata_blocks`）あり、
         // どちらも同じ理由で落ちる。外付けが繋がっていないライブラリで
         // 1件あたり2回の無駄な `File::open` を積まない
-        Container::Unreadable => return (ExifData::default(), false),
+        Container::Unopenable => return (ExifData::default(), false),
+        // **開けたのに途中で落ちたときは先へ進む。** TIFF系RAWのコンテナ読みは
+        // ファイル全体を読むので、巨大なRAWや外付けの一瞬の切断でここへ来る。
+        // 降りると絵を探す経路（`embedded_preview_at_least` は先頭16MBしか
+        // 読まない）まで諦めることになり、作れたはずのサムネイルを落とす
+        // （ゲート2のP3）。後追いには「読めた」を取り下げて伝わる
+        Container::ReadFailed => (None, false),
     };
-    let mut readable = true;
 
     // HEIFは**コンテナ自身が向きを持つ**（`irot`）。OSのデコーダはそれを適用して
     // 返すので、EXIF Orientationをそのまま流すと絵に二重に掛かって横倒しになる。
@@ -557,14 +562,19 @@ enum Container {
     /// 最後まで読めたが、EXIFとして解釈できなかった
     /// （CR3・ORF・RW2 のようにここを素通りする形式と、EXIFの無い写真）
     Empty,
-    /// 開けなかった、または読んでいる途中で落ちた
-    Unreadable,
+    /// そもそも開けなかった（権限・外付けが未接続・消えた）。
+    /// この先の開き直しも同じ理由で落ちるので、呼び出し側はここで降りる
+    Unopenable,
+    /// **開けたが、読んでいる途中で落ちた**（巨大なRAWでの割り当て失敗や、
+    /// 外付け・ネットワークの一瞬の切断）。開き直せば通ることがあるので、
+    /// 呼び出し側は「読めた」を取り下げるだけで**先へ進む**（ゲート2のP3）
+    ReadFailed,
 }
 
 /// コンテナ（ファイル本体）のEXIFヘッダを読む。
 fn read_exif_container(path: &Path) -> Container {
     let Ok(file) = std::fs::File::open(path) else {
-        return Container::Unreadable;
+        return Container::Unopenable;
     };
     let mut reader = BufReader::new(file);
     match exif::Reader::new().read_from_container(&mut reader) {
@@ -580,7 +590,7 @@ fn read_exif_container(path: &Path) -> Container {
         // 確かめた。次の版で漏れてきたときに切れたファイルを読み直し続けない
         // ための備えとして残す（`exif::Error` は `#[non_exhaustive]`）
         Err(exif::Error::Io(e)) if e.kind() != std::io::ErrorKind::UnexpectedEof => {
-            Container::Unreadable
+            Container::ReadFailed
         }
         Err(_) => Container::Empty,
     }
@@ -2128,12 +2138,29 @@ mod tests {
     #[test]
     fn 正方形のプレビューは向きの申告で決める() {
         // 縦横から向きを推せない唯一の形。推すと縦位置が横枠で記録され、
-        // しかも確かめた印が付いて二度と直らない
+        // しかも確かめた印が付いて二度と直らない。
+        //
+        // **見張るのは横位置の側**（ゲート2の5周目のP2）。縦位置（Orientation 6）
+        // だけを試しても、正方形の枝を丸ごと消したときの答えと一致してしまう
+        // ——推す式は「DBが正方形で申告が横長」を向きが違うと読んで裏返すので、
+        // たまたま正しい (4000, 6000) を返す。差が出るのは申告が90度系でないとき
         let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("square.cr3");
-        std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (320, 320), 6)).unwrap();
-        let dims = backfilled_dimensions(&src, 320, 320).expect("開ける");
-        assert_eq!((dims.width, dims.height), (4000, 6000));
+
+        // 横位置（申告なし＝Orientation 1）。推す式なら裏返して縦にしてしまう
+        let flat = dir.path().join("square-flat.cr3");
+        std::fs::write(&flat, fake_cr3_oriented(Some((6000, 4000)), (320, 320), 1)).unwrap();
+        let dims = backfilled_dimensions(&flat, 320, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (6000, 4000), "横位置のまま");
+
+        // 縦位置（Orientation 6）
+        let upright = dir.path().join("square-upright.cr3");
+        std::fs::write(
+            &upright,
+            fake_cr3_oriented(Some((6000, 4000)), (320, 320), 6),
+        )
+        .unwrap();
+        let dims = backfilled_dimensions(&upright, 320, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (4000, 6000), "縦位置へ揃える");
     }
 
     #[test]
