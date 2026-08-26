@@ -3401,7 +3401,11 @@ export default function App() {
       )}
       {heifMissing != null && (
         <div className="speed-toast index warn decoder-notice">
-          <span>{t.decoderHeifNotice(heifMissing)}</span>
+          <span>
+            {isWindows
+              ? t.decoderHeifNotice(heifMissing)
+              : t.decoderHeifNoticeOther(heifMissing)}
+          </span>
           {decoderHelp && (
             <>
               <button onClick={() => openDecoderHelp("heif").catch(() => {})}>
@@ -3832,7 +3836,9 @@ export default function App() {
                 {videoInfo.exists &&
                   !videoInfo.cloud_only &&
                   videoInfo.plays_in_app && (
-                    <p className="fallback-note">{t.videoCodecNote}</p>
+                      <p className="fallback-note">
+                      {isWindows ? t.videoCodecNote : t.videoCodecNoteOther}
+                    </p>
                   )}
                 <div className="fallback-actions">
                   {videoInfo.exists && (

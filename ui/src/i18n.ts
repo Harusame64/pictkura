@@ -164,6 +164,9 @@ const ja = {
   videoOpenExternal: "既定のアプリで開く",
   videoCodecNote:
     "iPhoneなどの動画はHEVC（H.265）で記録されています。再生にはOSのデコーダが必要で、Windowsでは有料の拡張機能（数百円）になります。",
+  /** Windows以外。**買わせる話をしない**——OSがHEVCを最初から再生できる */
+  videoCodecNoteOther:
+    "この動画は表示に使っているブラウザ部品が再生できませんでした。OSのデコーダ自体はあるので、対応していない記録方式である可能性が高いです。「既定のアプリで開く」から再生してください。",
   videoCodecHelp: "HEVC拡張機能を見る（有料）",
   loading: "読み込み中…",
   exifTitle: "撮影情報",
@@ -241,6 +244,9 @@ const ja = {
   wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
   decoderHeifNotice: (n: number) =>
     `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境では絵を作れません。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
+  /** Windows以外。**買わせる話をしない**——macOSはImageIOが最初から読める */
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境では絵を作れませんでした`,
   decoderHeifHow: "HEIF拡張機能（無料）",
   decoderHevcHow: "HEVC拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
@@ -483,6 +489,8 @@ const en: Dict = {
   videoOpenExternal: "Open in default app",
   videoCodecNote:
     "Videos from iPhones and similar cameras use HEVC (H.265). Playback needs an OS decoder; on Windows that is a paid extension (a few dollars).",
+  videoCodecNoteOther:
+    "The browser engine used for display could not play this video. The OS decoder itself is present, so the recording format is most likely one it does not handle. Open it in your default player instead.",
   videoCodecHelp: "Get the HEVC extension (paid)",
   loading: "Loading…",
   exifTitle: "Photo info",
@@ -559,6 +567,8 @@ const en: Dict = {
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
   decoderHeifNotice: (n: number) =>
     `⚠ ${n.toLocaleString()} HEIC/HEIF photos cannot be shown here. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ ${n.toLocaleString()} HEIC/HEIF photos could not be rendered here`,
   decoderHeifHow: "HEIF extension (free)",
   decoderHevcHow: "HEVC extension (paid)",
   decoderNoticeDismiss: "Don't show again",
