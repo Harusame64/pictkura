@@ -708,8 +708,8 @@ With that off, pictkura never reaches the network at all — and you can still p
 <table>
   <tr><th>Subject</th><th>Detail</th></tr>
   <tr>
-    <td>HEIC / HEVC need OS components</td>
-    <td>On Windows you need “HEIF Image Extensions” (free) plus “HEVC Video Extensions” (paid, about a dollar) to decode the pixels. <strong>The HEVC decoder is not bundled</strong> — patent licensing makes that impractical, so pictkura uses the one the OS has. It tells you when one is missing</td>
+    <td>HEIC / HEVC need OS components on Windows</td>
+    <td><strong>The HEVC decoder is not bundled</strong> — patent licensing makes that impractical, so pictkura uses the one the OS has. On <strong>Windows</strong> that means installing “HEIF Image Extensions” (free) plus “HEVC Video Extensions” (paid, about a dollar) to decode the pixels; the app tells you when one is missing. On <strong>macOS there is nothing to install</strong> — ImageIO and the HEVC decoder ship with the system</td>
   </tr>
   <tr><td>Video thumbnails are Windows-only</td><td>macOS and Linux are not supported yet; you get empty frames</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>

@@ -361,7 +361,7 @@ and capture time are read from the container header — not a single pixel is de
 | Topic | Detail |
 |---|---|
 | **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows (duration is not available). The real file is fetched only when you actually look at that photo — when its tile scrolls into view, or when you open it in the viewer |
-| **HEIC / HEVC need OS components** | On Windows that means "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) for the pixels. **No HEVC decoder is bundled** — patent licensing applies to shipping a decoder, so pictkura uses the one the OS already has |
+| **HEIC / HEVC need OS components on Windows** | **No HEVC decoder is bundled** — patent licensing applies to shipping one, so pictkura uses whatever the OS already has. On **Windows** that means installing "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) before HEIC photos get a picture. On **macOS there is nothing to install**: ImageIO and the HEVC decoder ship with the system. **Linux** has no route yet |
 | **Video thumbnails are Windows-only** | macOS (QuickLook) and Linux (distro thumbnailers) are not wired up yet |
 | **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
 | **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date |
