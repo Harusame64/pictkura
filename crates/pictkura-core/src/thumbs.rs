@@ -393,6 +393,43 @@ fn recorded_dimensions(
     }
 }
 
+/// プレビューを作れなかったファイルにも、**読めた素性だけは**記録する。
+///
+/// 寸法は申告（`original`）があるときだけ。無ければ0で、グリッドは既定の
+/// 縦横比で枠を置く（動画で寸法が読めないときと同じ扱い）。
+///
+/// **「確かめた」印は付けない**（`preview` は `None`）。絵を掴めていない以上、
+/// 後追い（[`crate::Db::dimensions_to_backfill`]）の対象から外してはいけない。
+fn record_metadata_without_preview(
+    db: &mut Db,
+    id: i64,
+    record: &crate::MediaRecord,
+    src: &Path,
+    exif: &ExifData,
+) -> Result<(), ThumbError> {
+    let dims = recorded_dimensions(
+        crate::raw::is_raw_path(src),
+        // 掴めていないので**印を付けない**。ここに本物の `readable` を渡すと、
+        // 「読めたが絵が無い」ファイルに `preview = 0x0` を焼き付けて、
+        // 後追いから永久に外してしまう
+        false,
+        exif.original.unwrap_or((0, 0)),
+        (0, 0),
+        exif.orientation,
+    );
+    db.update_metadata(
+        id,
+        dims,
+        // 順番は絵のある道と同じ: EXIF → OSのプロパティ → 名前 → mtime
+        exif.taken_at_ms
+            .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
+            .or_else(|| crate::namedate::guess_taken_at(src))
+            .or(Some(record.mtime_ms)),
+        exif.camera.as_deref(),
+    )?;
+    Ok(())
+}
+
 /// EXIFを何のために読むか。**絵を探すかどうか**がここで決まる。
 #[derive(Clone, Copy)]
 enum Want {
@@ -1185,7 +1222,23 @@ pub fn process_one(
     // ファイルなら**丸ごとハイドレート**にもなる（ゲート2のP2）。
     // 原寸が要るのはビューア（[`raw_display_jpeg`]）だけ
     let (exif_data, readable) = read_exif_for_preview_checked(src, thumb_size);
-    let (prev_w, prev_h) = preview_dimensions(src, &exif_data)?;
+    // **絵が作れないことと、素性が分からないことは別。**
+    //
+    // ここを `?` で抜けると、読めているEXIF（撮影日時・カメラ・原寸の申告）ごと
+    // 捨てて、下の `update_metadata` に届かない。すると撮影日がNULLのまま
+    // `COALESCE(taken_at_ms, mtime_ms)` が mtime を拾い、**取り込んだ日の束に並ぶ**。
+    // カメラの絞り込みからも消える（`camera_id` のNULLは「未確認」の意味）。
+    //
+    // 踏むのはプレビューを持たないRAW（CinemaDNG等）と、HDR PQのCR3を
+    // 起こせない環境。**macOSで実物を動かして気付いたが、OS固有ではない**
+    // ——手元にプレビューの無いRAWがあればWindowsでも同じことが起きる。
+    let (prev_w, prev_h) = match preview_dimensions(src, &exif_data) {
+        Ok(size) => size,
+        Err(err) => {
+            record_metadata_without_preview(db, id, &record, src, &exif_data)?;
+            return Err(err);
+        }
+    };
     // **原本の寸法は別物**。RAWで配信するのは埋め込みプレビューなので、
     // 原本（6000x4000）とプレビュー（1620x1080）の両方をDBへ書く。
     // 申告がプレビューより小さいときは信じない——申告を読み違えたか、
@@ -1891,13 +1944,14 @@ mod tests {
     /// CR3の最小再現。`moov > uuid > CMT1` に原寸の申告を入れ、
     /// その後ろに埋め込みプレビューのJPEGを置く。
     fn fake_cr3(orig: Option<(u32, u32)>, preview: (u32, u32)) -> Vec<u8> {
-        fake_cr3_oriented(orig, preview, 1)
+        fake_cr3_oriented(orig, Some(preview), 1)
     }
 
     /// 向きを指定できる版。Orientation 6 は「90度回して表示する」＝縦位置。
+    /// `preview` が `None` なら**絵を持たない**CR3（[`fake_cr3_without_preview`]）。
     fn fake_cr3_oriented(
         orig: Option<(u32, u32)>,
-        preview: (u32, u32),
+        preview: Option<(u32, u32)>,
         orientation: u32,
     ) -> Vec<u8> {
         fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
@@ -1929,6 +1983,11 @@ mod tests {
         uuid_body.extend(box_of(b"CMT1", &cmt1));
         let mut out = box_of(b"ftyp", b"crx ");
         out.extend(box_of(b"moov", &box_of(b"uuid", &uuid_body)));
+        let Some(preview) = preview else {
+            // **プレビューを持たないCR3**。CinemaDNGや、HDR PQのCR3を
+            // 起こせない環境と同じ形（申告は読めるが絵が無い）
+            return out;
+        };
 
         let img = image::RgbImage::from_fn(preview.0, preview.1, |x, y| {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
@@ -1939,6 +1998,35 @@ mod tests {
             .unwrap();
         out.extend(jpeg.into_inner());
         out
+    }
+
+    /// プレビューを持たないCR3（申告は読めるが絵が無い）。
+    fn fake_cr3_without_preview(orig: Option<(u32, u32)>) -> Vec<u8> {
+        fake_cr3_oriented(orig, None, 1)
+    }
+
+    /// `process_one` が**失敗しても**レコードを返す版。
+    ///
+    /// 絵を作れないファイルを見るためのもので、[`record_after_process`] は
+    /// `unwrap()` するので使えない。**失敗したこと自体も返す**——
+    /// 「素性は書いたが絵は失敗」を両方確かめたいので。
+    fn record_after_failed_process(
+        dir: &Path,
+        name: &str,
+        bytes: &[u8],
+    ) -> (crate::MediaRecord, bool) {
+        let src = dir.join(name);
+        std::fs::write(&src, bytes).unwrap();
+        let mut db = Db::open(&dir.join(format!("{name}.db"))).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: bytes.len() as i64,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let failed = process_one(&mut db, &dir.join("thumbs"), 320, id, true).is_err();
+        (db.get_by_id(id).unwrap().unwrap(), failed)
     }
 
     /// 1件だけ入ったDBを作り、`process_one` まで通してレコードを返す。
@@ -1955,6 +2043,51 @@ mod tests {
         let id = db.list_all().unwrap()[0].id;
         process_one(&mut db, &dir.join("thumbs"), 320, id, true).unwrap();
         db.get_by_id(id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn a_raw_without_a_preview_still_records_what_it_knows() {
+        // **絵が作れないことと、素性が分からないことは別。**
+        // 以前はプレビューの取得に失敗した時点で関数を抜けていたので、
+        // 読めているEXIF（撮影日時・カメラ・原寸の申告）ごと捨てていた。
+        // 撮影日がNULLだと mtime の日に並び、カメラの絞り込みからも消える。
+        let dir = tempfile::tempdir().unwrap();
+        // 名前に日付を入れて、日付が**どこか**から入ることを見る
+        // （このCR3はEXIFに日時を持たないので、名前からの救済が働く）
+        let (rec, failed) = record_after_failed_process(
+            dir.path(),
+            "2024-08-20 12.34.56.cr3",
+            &fake_cr3_without_preview(Some((6000, 4000))),
+        );
+
+        assert!(failed, "絵は作れない（失敗として数えられること）");
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(6000), Some(4000)),
+            "原寸の申告は読めているので記録する"
+        );
+        assert_eq!(
+            rec.preview_width, None,
+            "絵を掴めていないので「確かめた」印は付けない（後追いの対象に残す）"
+        );
+        assert_ne!(
+            rec.taken_at_ms,
+            Some(rec.mtime_ms),
+            "撮影日は mtime へ落ちない（名前の日付を拾う）"
+        );
+        assert_eq!(rec.thumb_state, 0, "絵は無いまま");
+    }
+
+    #[test]
+    fn a_raw_with_neither_preview_nor_declaration_claims_no_size() {
+        // 申告が無ければ寸法は0のまま（グリッドは既定の縦横比で枠を置く）。
+        // ここで適当な値を入れると、後から読める日に直せなくなる
+        let dir = tempfile::tempdir().unwrap();
+        let (rec, failed) =
+            record_after_failed_process(dir.path(), "bare.cr3", &fake_cr3_without_preview(None));
+        assert!(failed);
+        assert_eq!((rec.width, rec.height), (Some(0), Some(0)));
+        assert_eq!(rec.preview_width, None);
     }
 
     #[test]
@@ -2125,7 +2258,7 @@ mod tests {
         let rec = record_after_process(
             dir.path(),
             "portrait.cr3",
-            &fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6),
+            &fake_cr3_oriented(Some((6000, 4000)), Some((480, 320)), 6),
         );
         assert_eq!(
             (rec.width, rec.height),
@@ -2143,7 +2276,11 @@ mod tests {
     fn the_backfill_applies_orientation_too() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("portrait.cr3");
-        std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6)).unwrap();
+        std::fs::write(
+            &src,
+            fake_cr3_oriented(Some((6000, 4000)), Some((480, 320)), 6),
+        )
+        .unwrap();
         // DBに入っているのは向きを当てた後の値（320x480）
         let dims = backfilled_dimensions(&src, 320, 480).expect("開ける");
         assert_eq!((dims.width, dims.height), (4000, 6000));
@@ -2206,7 +2343,11 @@ mod tests {
 
         // 横位置（申告なし＝Orientation 1）。推す式なら裏返して縦にしてしまう
         let flat = dir.path().join("square-flat.cr3");
-        std::fs::write(&flat, fake_cr3_oriented(Some((6000, 4000)), (320, 320), 1)).unwrap();
+        std::fs::write(
+            &flat,
+            fake_cr3_oriented(Some((6000, 4000)), Some((320, 320)), 1),
+        )
+        .unwrap();
         let dims = backfilled_dimensions(&flat, 320, 320).expect("開ける");
         assert_eq!((dims.width, dims.height), (6000, 4000), "横位置のまま");
 
@@ -2214,7 +2355,7 @@ mod tests {
         let upright = dir.path().join("square-upright.cr3");
         std::fs::write(
             &upright,
-            fake_cr3_oriented(Some((6000, 4000)), (320, 320), 6),
+            fake_cr3_oriented(Some((6000, 4000)), Some((320, 320)), 6),
         )
         .unwrap();
         let dims = backfilled_dimensions(&upright, 320, 320).expect("開ける");
