@@ -1259,14 +1259,6 @@ export default function App() {
   const canSayEmpty =
     settled && !loadFailed && scanSettled && !filtering && summary.length === 0;
   /**
-   * 一覧の代わりに何か言う枠を出してよいか。
-   *
-   * **失敗も黙らない**——ただし言うことが違う。空だと分かっているなら理由、
-   * 読めなかっただけなら「出せませんでした」。`0 件` だけの画面に
-   * 戻さないのがこのPRの主題なので、失敗でパネルごと消すのは筋が違う
-   * （ゲート1の指摘）
-   */
-  /**
    * 一覧が空で、しかも**なぜ空かをまだ言えない**か。
    *
    * 起動時の走査の最中、理由を聞いている最中、読み込みに失敗したとき。
@@ -1279,13 +1271,24 @@ export default function App() {
     summary.length === 0 &&
     (loadFailed ||
       (!filtering && (!settled || !scanSettled || emptyReason == null)));
+  /**
+   * 一覧の代わりに何か言う枠を出してよいか。
+   *
+   * **失敗も黙らない**——ただし言うことが違う。空だと分かっているなら理由、
+   * 読めなかっただけなら「出せませんでした」。`0 件` だけの画面に
+   * 戻さないのがこのPRの主題なので、失敗でパネルごと消すのは筋が違う
+   * （ゲート1の指摘）
+   */
   const showEmptyPanel =
     (canSayEmpty && emptyReason != null) ||
-    // **失敗の枝にも「一覧が空」が要る。** 5万枚が並んでいる最中に
-    // 取り込みの `library-updated` で走った `reloadAll` が1回転ぶと、
-    // `summary` は正しいまま残っているのに一覧を消して
-    // 「出せませんでした」に差し替えてしまう（ゲート2の指摘）
-    (settled && loadFailed && !filtering && summary.length === 0);
+    // **「一覧が空」は要る**——5万枚が並んでいる最中に取り込みの
+    // `library-updated` で走った `reloadAll` が1回転んでも、`summary` は
+    // 正しいまま残っているので、一覧を消して差し替えてはいけない。
+    // **絞り込み中かどうかは要らない**——「出せませんでした」はライブラリが
+    // 空かどうかとは別の話で、絞り込みを理由に黙る筋が無い。付けていたせいで、
+    // 絞り込み中に読み込みが転ぶと、カレンダーも消えパネルも出ない
+    // **文字が1つも無い枠**になっていた（どちらもゲート2の指摘）
+    (settled && loadFailed && summary.length === 0);
   /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
   const emptyMessage = () => {
     if (loadFailed) return t.emptyLoadFailed;
@@ -1372,6 +1375,7 @@ export default function App() {
       const giveUp = window.setTimeout(() => {
         if (alive) setEmptyReason(stillChecking);
       }, 5000);
+
       getEmptyLibraryReason()
         .then((r) => {
           if (!alive) return;
@@ -1383,8 +1387,14 @@ export default function App() {
         // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
         // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
         // 逆戻りする——このPRが消そうとしている当のもの
+        // **転んだ1回で終わらせない。** ここで聞き直しを積まないと、
+        // 健康な `~/Pictures` でも呼び出しが一度失敗しただけで
+        // 「確かめている途中です」に固まり、本当の理由が二度と出ない
+        // （ゲート2の指摘。走査の合図のポーリングと同じ扱いに揃える）
         .catch(() => {
-          if (alive) setEmptyReason(stillChecking);
+          if (!alive) return;
+          setEmptyReason(stillChecking);
+          if (left > 0) retry = window.setTimeout(() => ask(left - 1), 2000);
         })
         .finally(() => window.clearTimeout(giveUp));
     };

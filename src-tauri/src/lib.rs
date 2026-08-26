@@ -1195,6 +1195,30 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     })
 }
 
+/// ルート直下の1エントリの形。`std::fs::FileType` から起こす。
+///
+/// テストから直に組めるようにここで畳んである（`FileType` は作れない）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum EntryShape {
+    Dir,
+    File,
+    /// リンク（**リンク先は見ない**。走査もそうしている）
+    Symlink,
+    /// 種別が取れなかった
+    Unknown,
+}
+
+impl EntryShape {
+    fn of(entry: &std::fs::DirEntry) -> Self {
+        match entry.file_type() {
+            Ok(t) if t.is_symlink() => Self::Symlink,
+            Ok(t) if t.is_dir() => Self::Dir,
+            Ok(_) => Self::File,
+            Err(_) => Self::Unknown,
+        }
+    }
+}
+
 /// ルート直下の1エントリを、**空の理由**の観点で見たときの正体。
 #[derive(PartialEq, Eq, Debug)]
 enum EntryKind {
@@ -1217,7 +1241,7 @@ enum EntryKind {
 ///
 /// `is_dir` が `None` なのは `file_type()` が落ちたとき。
 #[allow(clippy::ref_option)] // `is_dir` は `Option<bool>` の値渡し
-fn classify_entry(name: &std::ffi::OsStr, is_dir: Option<bool>, config: &Config) -> EntryKind {
+fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) -> EntryKind {
     // **読めない名前は「候補あり」に倒す。** 走査本体は UTF-8 にならない名前を
     // 除外に一致させず、そのまま入って行く（`scanner.rs` の
     // `to_str().is_some_and(..)`）。ここで黙って飛ばすと、走査が開いて何も
@@ -1229,13 +1253,19 @@ fn classify_entry(name: &std::ffi::OsStr, is_dir: Option<bool>, config: &Config)
     if pictkura_core::import::is_managed_package_path(Path::new(text)) {
         return EntryKind::Package;
     }
-    let could_have_been_content = match is_dir {
-        Some(true) => true,
-        Some(false) => {
+    let could_have_been_content = match shape {
+        EntryShape::Dir => true,
+        EntryShape::File => {
             pictkura_core::scanner::has_target_extension(Path::new(text), &config.import.extensions)
         }
-        // 種別が取れないときも安全側（＝除外を犯人にしない側）へ
-        None => return EntryKind::Candidate,
+        // **リンクは走査が拾わない。** `WalkDir` は `follow_links = false` で、
+        // `file_type().is_file()` が偽のものを落とす（`scanner.rs`）。
+        // ここで候補に数えると、`latest.jpg` というリンクが1本あるだけで
+        // 「写真.appのライブラリしかありません」が消えて、当たり障りの無い
+        // 文言に落ちる——**走査が見ないものを証拠にしない**（ゲート2の指摘）
+        EntryShape::Symlink => return EntryKind::Ignorable,
+        // 種別が取れないときは安全側（＝除外を犯人にしない側）へ
+        EntryShape::Unknown => return EntryKind::Candidate,
     };
     if !could_have_been_content {
         return EntryKind::Ignorable;
@@ -1321,7 +1351,7 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 break;
             };
             let name = entry.file_name();
-            match classify_entry(&name, entry.file_type().ok().map(|t| t.is_dir()), config) {
+            match classify_entry(&name, EntryShape::of(&entry), config) {
                 EntryKind::Package => out.photo_library = true,
                 EntryKind::Ignorable => {}
                 EntryKind::Candidate => survivor = true,
@@ -3966,11 +3996,11 @@ mod tests {
     /// **どの環境でも1度も走らない**（ゲート1の指摘）。
     #[test]
     fn a_name_we_cannot_read_is_not_nothing() {
-        use super::{classify_entry, EntryKind};
+        use super::{classify_entry, EntryKind, EntryShape};
         use std::ffi::{OsStr, OsString};
 
         let config = pictkura_core::config::Config::default();
-        let kind = |name: &OsStr, is_dir| classify_entry(name, is_dir, &config);
+        let kind = |name: &OsStr, shape| classify_entry(name, shape, &config);
 
         // UTF-8として読めない名前。走査本体はこれを除外に一致させず入って行くので、
         // **候補として数える**——数えないと隣の `.隠しフォルダ` が冤罪を着る
@@ -3990,32 +4020,44 @@ mod tests {
             "この名前はUTF-8として読めない"
         );
         assert_eq!(
-            kind(&unreadable, Some(false)),
+            kind(&unreadable, EntryShape::File),
             EntryKind::Candidate,
             "読めない名前は「候補あり」に数える"
         );
 
         // 種別が取れないとき（`file_type()` が落ちた）も安全側へ
         assert_eq!(
-            kind(OsStr::new(".DS_Store"), None),
+            kind(OsStr::new(".DS_Store"), EntryShape::Unknown),
             EntryKind::Candidate,
             "種別が分からないものを「中身になり得ない」と決めない"
         );
 
         // 読める名前はこれまでどおり
         assert_eq!(
-            kind(OsStr::new(".DS_Store"), Some(false)),
+            kind(OsStr::new(".DS_Store"), EntryShape::File),
             EntryKind::Ignorable,
             "Finderの痕跡は中身になり得ない"
         );
         assert_eq!(
-            kind(OsStr::new(".隠しフォルダ"), Some(true)),
+            kind(OsStr::new(".隠しフォルダ"), EntryShape::Dir),
             EntryKind::Excluded
         );
-        assert_eq!(kind(OsStr::new("写真"), Some(true)), EntryKind::Candidate);
-        assert_eq!(kind(OsStr::new("a.jpg"), Some(false)), EntryKind::Candidate);
         assert_eq!(
-            kind(OsStr::new("写真ライブラリ.photoslibrary"), Some(true)),
+            kind(OsStr::new("写真"), EntryShape::Dir),
+            EntryKind::Candidate
+        );
+        assert_eq!(
+            kind(OsStr::new("a.jpg"), EntryShape::File),
+            EntryKind::Candidate
+        );
+        // **リンクは走査が拾わないので、候補に数えない**（ゲート2の指摘）
+        assert_eq!(
+            kind(OsStr::new("latest.jpg"), EntryShape::Symlink),
+            EntryKind::Ignorable,
+            "リンクを証拠にすると、写真.appの文言が1本のリンクで消える"
+        );
+        assert_eq!(
+            kind(OsStr::new("写真ライブラリ.photoslibrary"), EntryShape::Dir),
             EntryKind::Package
         );
     }
