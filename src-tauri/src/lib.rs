@@ -75,9 +75,14 @@ struct AppState {
     /// **非同期のMutexであることが要**。2本目は「前の答え」で誤魔化さず、
     /// **順番を待って自分で見に行く**。旗と前回値で代用すると、
     /// StrictModeの二重マウントのように2本が必ず重なる場面で**本当の理由が
-    /// 一度も出ない**し、hardマウントで刺さったあとは旗が下りず、
-    /// 共有を繋ぎ直して再スキャンしても「見つかりません」と言い続ける
-    /// （ゲート2の指摘）。待つ側はタスクが止まるだけでスレッドを食わない
+    /// 一度も出ない**（ゲート2の指摘）。待つ側はタスクが止まるだけで
+    /// スレッドを食わない。
+    ///
+    /// **ただし待つのは有限時間まで。** 刺さったhardマウントでは
+    /// `read_dir` が返らず、`spawn_blocking` の `await` も返らないので、
+    /// 門は**永久に開かない**——Tauriのコマンドは detached で走るから、
+    /// フロントが見切っても `Drop` は来ない（同）。時間で諦めたときは
+    /// 既定値で誤魔化さず、`checking` を立てて**確かめている途中だと言う**
     empty_reason_gate: tauri::async_runtime::Mutex<()>,
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
@@ -1139,6 +1144,9 @@ struct EmptyLibraryDto {
     excluded_total: usize,
     /// 写真.appのライブラリが直下にある
     photo_library: bool,
+    /// **まだ確かめ終わっていない。** 前の確認が返ってこないまま時間切れ。
+    /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
+    checking: bool,
 }
 
 /// 一覧が空のとき、**なぜ空なのか**をUIへ返す。
@@ -1163,7 +1171,18 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     // 門を持つのは `MutexGuard` なので、フロントが見切って呼び出しごと
     // 捨てられても（開発時の再読み込みなど）`Drop` で必ず開く
     let state = app.state::<AppState>();
-    let _gate = state.empty_reason_gate.lock().await;
+    // 2本目以降は順番を待つ。**待たせるだけで、嘘は返さない。**
+    // ただし**有限時間まで**——前の確認が刺さっていると門は永久に開かない。
+    // 諦めたときは「無い」ではなく「確かめている途中」と言う。
+    // フロント側の見切り（5秒）より短くする: 向こうが先に諦めると
+    // 旗の立たない答えに落ちて、こちらの正直な返事が捨てられる
+    let gate = tauri::async_runtime::Mutex::lock(&state.empty_reason_gate);
+    let Ok(_gate) = tokio::time::timeout(std::time::Duration::from_secs(3), gate).await else {
+        return EmptyLibraryDto {
+            checking: true,
+            ..Default::default()
+        };
+    };
     let inner = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let config = lock_ok(&inner.state::<AppState>().config).clone();
@@ -1287,7 +1306,17 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
         // `.DS_Store` が残る。既定の除外は `.*` を含むので、**本当に空の
         // フォルダでも「全部除外しています」と言ってしまう**（同）。
         // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
-        for entry in entries.flatten() {
+        // **列挙の途中で落ちたときも「空」と言わない。** `opendir` は通っても、
+        // 共有が途中で切れれば以降の `readdir` が落ちる。黙って抜けると
+        // 候補が1つも見つからず「扱える画像がありません」になる——
+        // 必要なのは「開けませんでした」の方（ゲート2の指摘。走査本体の
+        // `had_error` と揃える）
+        let mut torn = false;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                torn = true;
+                break;
+            };
             let name = entry.file_name();
             match classify_entry(&name, entry.file_type().ok().map(|t| t.is_dir()), config) {
                 EntryKind::Package => out.photo_library = true,
@@ -1307,6 +1336,9 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                     }
                 }
             }
+        }
+        if torn {
+            out.unreadable.push(root.display().to_string());
         }
     }
     // **除外を犯人にするのは、他に容疑者がいないときだけ。**

@@ -260,6 +260,9 @@ const ja = {
     `見つかったものは、除外の設定で全部飛ばしています（例: ${names}）。設定フォルダの pictkura.toml で変えられます。`,
   emptyNothingHere:
     "扱える画像がまだ見つかりません。カードから取り込むか、写真のあるフォルダを選んでください。",
+  /** フォルダをまだ見終わっていない。**「何も無い」と言わない** */
+  emptyChecking:
+    "フォルダを確かめている途中です。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。",
   /** 一覧そのものが取れなかった。**「空です」と言わない**——空かどうかは分かっていない */
   emptyLoadFailed:
     "一覧を読み込めませんでした。上の帯に理由が出ています。「再スキャン」を押すか、アプリを開き直してください。",
@@ -617,6 +620,8 @@ const en: Dict = {
     `Everything found is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
   emptyNothingHere:
     "No photos that pictkura can read have turned up yet. Import from a card, or pick a folder that has photos in it.",
+  emptyChecking:
+    "Still looking through the folders. If one of them is on a network, make sure it is connected and press Rescan.",
   emptyLoadFailed:
     "The list could not be loaded. The reason is in the bar above. Press Rescan, or reopen the app.",
   wizardPickFolderHint: "Pick a folder on the left to see the photos in it",

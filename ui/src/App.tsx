@@ -1278,6 +1278,9 @@ export default function App() {
     if (loadFailed) return t.emptyLoadFailed;
     if (emptyReason == null) return t.emptyNothingHere;
     const r = emptyReason;
+    // **確かめ終わっていないなら、まずそれを言う。** 旗が1つも立って
+    // いないのは「何も無い」ではなく「まだ見ていない」
+    if (r.checking) return t.emptyChecking;
     if (r.noRoots) return t.emptyNoRoots;
     if (r.missing.length > 0) return t.emptyMissing(nameList(r.missing));
     if (r.unreadable.length > 0) {
@@ -1336,6 +1339,8 @@ export default function App() {
       excluded: [],
       excludedTotal: 0,
       photoLibrary: false,
+      // こちらの見切りで出すときも「何も無い」ではない
+      checking: true,
     };
     // **返ってこない筋にも答えを出す。** 切れたSMB/NFSのルートでは
     // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない

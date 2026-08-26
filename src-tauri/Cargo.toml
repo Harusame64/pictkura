@@ -36,6 +36,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # プロキシは環境変数（HTTP(S)_PROXY）だけを見る——Windowsのシステムプロキシ設定は読まない
 ureq = "3"
 
+# 空の理由を答える確認に、**有限時間の待ち**が要る（刺さったマウントで
+# 門が永久に開かないため）。Tauri が既に同じ版を引いているので、
+# 依存は増えても新しくビルドされない
+tokio = { version = "1", default-features = false, features = ["time"] }
+
 # ドライブ種別（リムーバブル/固定/ネットワーク/光学）の判定に GetDriveTypeW を使う。
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
 # 「取り込み元」として自動走査してしまうため

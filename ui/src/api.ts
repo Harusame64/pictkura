@@ -406,6 +406,9 @@ export interface EmptyLibraryReason {
   excludedTotal: number;
   /** 写真.appのライブラリが直下にある */
   photoLibrary: boolean;
+  /** **まだ確かめ終わっていない**（前の確認が返らないまま時間切れ）。
+   *  刺さったネットワークのフォルダで起きる——「何も無い」とは言わない */
+  checking: boolean;
 }
 export const getEmptyLibraryReason = () =>
   invoke<EmptyLibraryReason>("empty_library_reason");
