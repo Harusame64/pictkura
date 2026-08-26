@@ -235,6 +235,11 @@ const ja = {
   emptyTitleFailed: "一覧を出せませんでした",
   /** まだ確かめ終わっていないときの見出し（本文と食い違わせない） */
   emptyTitleChecking: "確認しています",
+  /** **写真は在るかもしれない**——場所に届いていないだけ。
+   *  ここで「まだ写真がありません」と出すと、1万枚あって権限を許すだけの人に
+   *  向かって空だと断定することになる */
+  emptyTitleMissing: "見つからない場所があります",
+  emptyTitleUnreadable: "開けない場所があります",
   emptyNoRoots:
     "ライブラリのフォルダがまだ設定されていません。カードから取り込むか、写真のあるフォルダを選んでください。",
   emptyMissing: (names: string) =>
@@ -610,6 +615,8 @@ const en: Dict = {
   emptyTitle: "No photos yet",
   emptyTitleFailed: "The list could not be shown",
   emptyTitleChecking: "Checking",
+  emptyTitleMissing: "Some places are not there",
+  emptyTitleUnreadable: "Some places could not be opened",
   emptyNoRoots:
     "No library folder has been set up yet. Import from a card, or pick a folder that has photos in it.",
   emptyMissing: (names: string) =>

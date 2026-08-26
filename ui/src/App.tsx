@@ -1304,7 +1304,11 @@ export default function App() {
    */
   const unsureWhyEmpty =
     summary.length === 0 &&
+    // `busy` もここで見る。`canSayEmpty` が偽になる描画では `emptyReason` が
+    // まだ残っている（消すのは描画の後の効果）ので、両方偽になる1フレームだけ
+    // カレンダー自前の「写真がありません」が出てしまう（ゲート2の指摘）
     (loadFailed ||
+      busy ||
       (!filtering && (!settled || !scanSettled || emptyReason == null)));
   /**
    * 一覧の代わりに何か言う枠を出してよいか。
@@ -1324,6 +1328,24 @@ export default function App() {
     // 絞り込み中に読み込みが転ぶと、カレンダーも消えパネルも出ない
     // **文字が1つも無い枠**になっていた（どちらもゲート2の指摘）
     (settled && loadFailed && summary.length === 0);
+  /**
+   * パネルの見出し。**本文と食い違わせない。**
+   *
+   * 「まだ写真がありません」は**空だという断定**なので、
+   * 「見つからない」「開けない」——つまり**写真は在るかもしれないのに
+   * 場所に届いていない**——ときに出すと嘘になる。TCCで `~/Pictures` を
+   * 拒否されている人は、1万枚あって許可を1つ与えるだけなのに
+   * 「空です」と言われることになる（ゲート2の指摘）
+   */
+  const emptyTitle = () => {
+    if (loadFailed) return t.emptyTitleFailed;
+    const r = emptyReason;
+    if (r == null || r.checking) return t.emptyTitleChecking;
+    if (r.missing.length > 0) return t.emptyTitleMissing;
+    if (r.unreadable.length > 0) return t.emptyTitleUnreadable;
+    return t.emptyTitle;
+  };
+
   /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
   const emptyMessage = () => {
     if (loadFailed) return t.emptyLoadFailed;
@@ -1435,9 +1457,7 @@ export default function App() {
       // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
       // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
       // ネットワークのフォルダこそ、この機能が説明したい相手。
-      // 聞き直しもここから積む: 積まないと、最初の1本が永久に返らないときに
-      // 連鎖が1回で切れる（以降は門の3秒で `checking` が返るので、
-      // マウントが戻れば拾える）
+      //
       // **見切りは「文言を出す」だけ。次は投げない。**
       // 投げると、前の確認が返る前にもう1本が席を取りに行く——
       // 席は2つしか無いので、**自分の聞き直しで両方潰して**しまい、
@@ -4061,13 +4081,7 @@ export default function App() {
               {/* **見出しも本文と揃える。** 「まだ写真がありません」の下に
                   「確かめている途中です」を置くと、見出しの側だけが断定して
                   いることになる（ゲート2の指摘） */}
-              <h2>
-                {loadFailed
-                  ? t.emptyTitleFailed
-                  : emptyReason?.checking
-                    ? t.emptyTitleChecking
-                    : t.emptyTitle}
-              </h2>
+              <h2>{emptyTitle()}</h2>
               <p>{emptyMessage()}</p>
               <div className="empty-actions">
                 {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
