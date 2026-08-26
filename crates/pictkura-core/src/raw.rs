@@ -369,7 +369,9 @@ fn uncompressed_preview(path: &Path, exif: &exif::Exif, big_endian: bool) -> Opt
         let lut: Vec<u8> = (0..=255u32)
             .map(|v| ((v as f32 / 255.0).powf(1.0 / 2.2) * 255.0).round() as u8)
             .collect();
-        raw.chunks_exact(2)
+        raw.as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| lut[if big_endian { p[0] } else { p[1] } as usize])
             .collect()
     };

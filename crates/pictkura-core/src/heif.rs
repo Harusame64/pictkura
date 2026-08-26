@@ -1745,7 +1745,8 @@ mod windows_wic {
                 .CopyPixels(std::ptr::null(), stride, &mut buf)
                 .ok()?;
             // WICはBGR順。imageクレートはRGB順なので入れ替える
-            for px in buf.chunks_exact_mut(3) {
+            // （`as_chunks_mut` は長さの確認が1回で済む。端数は出ない）
+            for px in buf.as_chunks_mut::<3>().0 {
                 px.swap(0, 2);
             }
             image::RgbImage::from_raw(width, height, buf).map(image::DynamicImage::ImageRgb8)
@@ -1899,12 +1900,12 @@ mod windows_wic {
         // WICはBGR順。imageクレートはRGB順なので入れ替える
         // （4バイト形式は4本目を落として詰め直す）
         if bytes_per_pixel == 3 {
-            for px in buf.chunks_exact_mut(3) {
+            for px in buf.as_chunks_mut::<3>().0 {
                 px.swap(0, 2);
             }
         } else {
             let mut rgb = Vec::with_capacity(w as usize * h as usize * 3);
-            for px in buf.chunks_exact(4) {
+            for px in buf.as_chunks::<4>().0 {
                 rgb.extend_from_slice(&[px[2], px[1], px[0]]);
             }
             buf = rgb;
