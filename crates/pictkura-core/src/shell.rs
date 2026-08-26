@@ -384,9 +384,9 @@ mod windows_shell {
         //
         // **罠2**: `GetImage` が返すのは**alphaを掛け済み**のビットマップ。
         // 掛け直すと半透明の縁だけ二重に薄くなるので、白を足すだけにする
-        let opaque = buf.chunks_exact(4).all(|px| px[3] == 0);
+        let opaque = buf.as_chunks::<4>().0.iter().all(|px| px[3] == 0);
         let mut rgb = Vec::with_capacity((width as usize) * (height as usize) * 3);
-        for px in buf.chunks_exact(4) {
+        for px in buf.as_chunks::<4>().0 {
             if opaque {
                 rgb.extend_from_slice(&[px[2], px[1], px[0]]);
                 continue;
