@@ -892,14 +892,6 @@ struct DecoderStatusDto {
     heif_ok: bool,
     /// 「入れ方を見る」の導線があるか（Windowsだけ）
     help_available: bool,
-    /// このOS。**UIの文言を分けるための正**。
-    ///
-    /// フロントにも `navigator.userAgent` を見る判定（`api.ts` の `isMac` /
-    /// `isWindows`）があるが、あれは修飾キーの表記を選ぶためのもので、
-    /// **WebViewのUA次第で外れうる**。買わせる話をするかどうかや、
-    /// 「デコーダはある」と断言するかどうかを取り違えると実害が出るので、
-    /// **コンパイル時に分かるこちらを正とする**（ゲート2の指摘）
-    platform: &'static str,
 }
 
 /// HEICを展開できるかを実地で確かめ、UIの案内を出すかどうかを返す。
@@ -911,6 +903,27 @@ struct DecoderStatusDto {
 ///
 /// 判定は**ライブラリにHEICが1枚でもあるときだけ**行う。無い環境に
 /// 「拡張機能を入れてください」と出しても意味が無い。
+/// このOS。**UIの案内の文言を分けるための正**。
+///
+/// フロントにも `navigator.userAgent` を見る判定（`api.ts` の `isMac` /
+/// `isWindows`）があるが、あれは修飾キーの表記を選ぶためのもので、
+/// **WebViewのUA次第で外れうる**。「買わせる話をするか」「デコーダはあると
+/// 断言するか」を取り違えると実害が出るので、コンパイル時に分かるこちらを正とする。
+///
+/// **`decoder_status` に相乗りさせない。** あちらはHEICを1枚実際に展開するので
+/// 高く、しかも「今後表示しない」で丸ごと省かれる。OSの判定はそれとは無関係に
+/// 常に要る（動画の案内が使う）ので、**安くて転ばない口**として分けてある。
+#[tauri::command]
+fn host_platform() -> &'static str {
+    if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "other"
+    }
+}
+
 // ファイルを開いて実際に展開するので、主スレッドで走らせない
 // （HEIFの主画像は実測260〜480ms。ここで止めると起動直後の画面が固まる）
 #[tauri::command(async)]
@@ -935,13 +948,6 @@ fn decoder_status(state: tauri::State<'_, AppState>) -> Result<DecoderStatusDto,
         heif_total,
         heif_ok,
         help_available: cfg!(windows),
-        platform: if cfg!(windows) {
-            "windows"
-        } else if cfg!(target_os = "macos") {
-            "macos"
-        } else {
-            "other"
-        },
     })
 }
 
@@ -3176,6 +3182,7 @@ pub fn run() {
             list_cameras,
             get_exif_info,
             decoder_status,
+            host_platform,
             open_decoder_help,
             get_index_progress,
             video_status,

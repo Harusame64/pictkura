@@ -34,6 +34,7 @@ import {
   getExifInfo,
   getIndexProgress,
   getDecoderStatus,
+  getHostPlatform,
   getStartupReport,
   getStats,
   listCameras,
@@ -790,7 +791,6 @@ export default function App() {
     getDecoderStatus()
       .then((s) => {
         setDecoderHelp(s.help_available);
-        setPlatform(s.platform);
         setHeifMissing(!s.heif_ok && s.heif_total > 0 ? s.heif_total : null);
       })
       .catch(() => {});
@@ -798,6 +798,12 @@ export default function App() {
   useEffect(() => {
     checkDecoders();
   }, [checkDecoders]);
+  // OSの判定は**警告とは別に**、常に1回だけ取る（安い・転ばない）
+  useEffect(() => {
+    getHostPlatform()
+      .then(setPlatform)
+      .catch(() => {});
+  }, []);
 
   // 検索ボックスの入力をデバウンスして実クエリへ落とす。
   // 打鍵のたびにIPCを撃たないが、体感で待たされない間隔にする

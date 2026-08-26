@@ -336,13 +336,19 @@ export interface DecoderStatus {
   heif_ok: boolean;
   /** 「入れ方を見る」の導線があるか（Windowsのみ） */
   help_available: boolean;
-  /**
-   * このOS。**案内の文言を分ける正はこちら**——`isMac` / `isWindows` は
-   * `navigator.userAgent` を見るので、WebViewのUA次第で外れうる。
-   * 「買わせる」「デコーダはあると断言する」を取り違えると実害が出る
-   */
-  platform: "windows" | "macos" | "other";
+
 }
+/**
+ * このOS。**案内の文言を分ける正はこちら**——`isMac` / `isWindows` は
+ * `navigator.userAgent` を見るので、WebViewのUA次第で外れうる。
+ * 「買わせる」「デコーダはあると断言する」を取り違えると実害が出る。
+ *
+ * `getDecoderStatus` とは別口。あちらはHEICを1枚展開するので高く、
+ * 「今後表示しない」で省かれるが、OSの判定は常に要る
+ */
+export type HostPlatform = "windows" | "macos" | "other";
+export const getHostPlatform = () => invoke<HostPlatform>("host_platform");
+
 export const getDecoderStatus = () =>
   invoke<DecoderStatus>("decoder_status");
 /**
