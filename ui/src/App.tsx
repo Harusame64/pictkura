@@ -1092,10 +1092,28 @@ export default function App() {
 
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
+  /** 一度でも `reloadAll` が返ったか。**返る前は「空」と決めない** */
+  const loadedOnceRef = useRef(false);
+  useEffect(() => {
+    loadedOnceRef.current = true;
+  }, [summary]);
   // 一覧が空になったときだけ理由を聞く。空でなくなったら忘れる
   useEffect(() => {
-    if (summary.length > 0 || query !== "" || filter !== "all") {
+    // **絞り込みの結果0件と、ライブラリが空なのは別**。種類（`kind`）で
+    // 絞って0件のときに「まだ写真がありません」と出すと、動画を持っていない
+    // 人が「動画」を押しただけで壊れて見える（ゲート1の指摘）
+    if (
+      summary.length > 0 ||
+      query !== "" ||
+      filter !== "all" ||
+      kind !== "all"
+    ) {
       setEmptyReason(null);
+      return;
+    }
+    // **最初の読み込みが返る前に聞かない**。`summary` は `[]` から始まるので、
+    // 中身のあるライブラリでも起動直後に一瞬だけ空に見えうる（同）
+    if (!loadedOnceRef.current) {
       return;
     }
     let alive = true;
@@ -1107,7 +1125,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [summary.length, query, filter]);
+  }, [summary, summary.length, query, filter, kind]);
 
   const openWizard = useCallback((startPath?: string) => {
     setWizardStart(startPath);
@@ -3650,45 +3668,46 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* **無言で `0 件` を出さない。** 全部正しく動いたうえで空になることが
+              ある——macOSの `~/Pictures` は写真.appのライブラリしか持たず、
+              それは既定の除外に入っている。理由が出ないと「壊れている」と読まれる。
+              **サムネイルでもカレンダーでも出す**（片方だけだと、切り替えた
+              とたんに無言へ戻る。ゲート1の指摘） */}
+          {emptyReason && (
+            <div className="empty-library">
+              <h2>{t.emptyTitle}</h2>
+              <p>
+                {emptyReason.noRoots
+                  ? t.emptyNoRoots
+                  : emptyReason.missing.length > 0
+                    ? t.emptyMissing(emptyReason.missing.join("、"))
+                    : emptyReason.photoLibrary
+                      ? t.emptyPhotoLibrary
+                      : emptyReason.excluded.length > 0
+                        ? t.emptyAllExcluded(emptyReason.excluded.join("、"))
+                        : t.emptyNothingHere}
+              </p>
+              <div className="empty-actions">
+                {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
+                <button
+                  className="primary"
+                  onClick={() => !busy && openWizard()}
+                  disabled={busy}
+                >
+                  {t.importFromUsb}
+                </button>
+                <button onClick={onBrowseFolder} disabled={busy}>
+                  <span aria-hidden="true">📂</span> {t.browse}
+                </button>
+              </div>
+            </div>
+          )}
           {view === "calendar" ? (
             <div className="calendar-scroll">
               <Calendar summary={summary} onOpenDay={openDay} />
             </div>
           ) : (
             <div className="grid-wrap">
-              {/* **無言で `0 件` を出さない。** 全部正しく動いたうえで空になる
-                  ことがある——macOSの `~/Pictures` は写真.appのライブラリしか
-                  持たず、それは既定の除外に入っている。理由が出ないと
-                  「壊れている」と読まれる */}
-              {emptyReason && (
-                <div className="empty-library">
-                  <h2>{t.emptyTitle}</h2>
-                  <p>
-                    {emptyReason.noRoots
-                      ? t.emptyNoRoots
-                      : emptyReason.missing.length > 0
-                        ? t.emptyMissing(emptyReason.missing.join("、"))
-                        : emptyReason.photoLibrary
-                          ? t.emptyPhotoLibrary
-                          : emptyReason.excluded.length > 0
-                            ? t.emptyAllExcluded(emptyReason.excluded.join("、"))
-                            : t.emptyNothingHere}
-                  </p>
-                  <div className="empty-actions">
-                    {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
-                    <button
-                      className="primary"
-                      onClick={() => !busy && openWizard()}
-                      disabled={busy}
-                    >
-                      {t.importFromUsb}
-                    </button>
-                    <button onClick={onBrowseFolder} disabled={busy}>
-                      <span aria-hidden="true">📂</span> {t.browse}
-                    </button>
-                  </div>
-                </div>
-              )}
               {yearMarkers.length > 1 && (
                 <div className="scrubber">
                   {yearMarkers.map((m) => (

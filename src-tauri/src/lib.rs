@@ -1142,6 +1142,13 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
             out.missing.push(root.display().to_string());
             continue;
         }
+        // **ルート自身がパッケージのこともある。** フォルダを選ぶ画面で
+        // 写真ライブラリそのものを指してしまうのは普通に起きる。走査は
+        // そのルートを丸ごと飛ばすので、中を読んでも何も出ない（ゲート1の指摘）
+        if pictkura_core::import::is_managed_package_path(root) {
+            out.photo_library = true;
+            continue;
+        }
         let Ok(entries) = std::fs::read_dir(root) else {
             continue;
         };
@@ -3772,6 +3779,16 @@ mod tests {
         let r = empty_library_reason_of(&config);
         assert!(!r.photo_library);
         assert_eq!(r.excluded, vec!["Thumbs.db".to_string()], "名前を挙げる");
+
+        // ルート自身が写真.appのライブラリ（フォルダ選択で指してしまった）
+        let picked = dir.path().join("選んだ.photoslibrary");
+        std::fs::create_dir(&picked).unwrap();
+        config.library.roots = vec![picked];
+        assert!(
+            empty_library_reason_of(&config).photo_library,
+            "ルート自身がパッケージでも見分ける"
+        );
+        config.library.roots = vec![root.clone()];
 
         // 本当に空（何も言うことが無い＝どの旗も立たない）
         std::fs::remove_file(root.join("Thumbs.db")).unwrap();
