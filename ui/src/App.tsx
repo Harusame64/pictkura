@@ -26,6 +26,8 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
+  isMac,
+  isWindows,
   videoSrc,
   videoStatus,
   getConfig,
@@ -759,9 +761,17 @@ export default function App() {
   // **黙って空欄にせず理由を伝える**。ライブラリにHEICが1枚も無ければ出さない。
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
-  /** 案内の文言を分ける正（バックエンドの `cfg!`。UAの推測ではない） */
+  /**
+   * 案内の文言を分ける正。**届いたらバックエンドの `cfg!` で上書きする**が、
+   * 初期値はUAからの推測にしておく。
+   *
+   * `getDecoderStatus()` は失敗しうる（DBを触るので）。そこで `"other"` のまま
+   * だと、**Windowsの利用者から拡張機能のボタンが消える**——以前は独立した
+   * `isWindows` が見ていたので、状態の取得が転んでも導線は残っていた
+   * （ゲート1の指摘）。推測で始めて正で直す形なら、どちらも失わない
+   */
   const [platform, setPlatform] = useState<"windows" | "macos" | "other">(
-    "other",
+    isWindows ? "windows" : isMac ? "macos" : "other",
   );
   // 動画（第9部）。コンテナはWebViewが扱えても、中のコーデック（HEVC）が
   // OSに無ければ再生は失敗する。しかも `canPlayType` は当てにならない
