@@ -1306,10 +1306,12 @@ export default function App() {
     summary.length === 0 &&
     // `busy` もここで見る。`canSayEmpty` が偽になる描画では `emptyReason` が
     // まだ残っている（消すのは描画の後の効果）ので、両方偽になる1フレームだけ
-    // カレンダー自前の「写真がありません」が出てしまう（ゲート2の指摘）
+    // カレンダー自前の「写真がありません」が出てしまう（ゲート2の指摘）。
+    // **`!filtering` の内側に置く**——絞り込んで0件は正当に「写真がありません」
+    // なので、走査中でもそちらを消さない（上の規則。ゲート1の指摘）
     (loadFailed ||
-      busy ||
-      (!filtering && (!settled || !scanSettled || emptyReason == null)));
+      (!filtering &&
+        (busy || !settled || !scanSettled || emptyReason == null)));
   /**
    * 一覧の代わりに何か言う枠を出してよいか。
    *
@@ -1349,7 +1351,9 @@ export default function App() {
   /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
   const emptyMessage = () => {
     if (loadFailed) return t.emptyLoadFailed;
-    if (emptyReason == null) return t.emptyNothingHere;
+    // **見出しと揃える。** 理由がまだ無いのに「無い」と断定しない
+    // （見出しは `emptyTitleChecking` に落ちる。ゲート1の指摘）
+    if (emptyReason == null) return t.emptyChecking;
     const r = emptyReason;
     // **確かめ終わっていないなら、まずそれを言う。** 旗が1つも立って
     // いないのは「何も無い」ではなく「まだ見ていない」
