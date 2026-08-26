@@ -1057,7 +1057,7 @@ export default function App() {
                 d.path === list[i].path &&
                 d.label === list[i].label &&
                 d.kind === list[i].kind &&
-                d.has_dcim === list[i].has_dcim,
+                d.dcim_path === list[i].dcim_path,
             )
               ? prev
               : list,
@@ -3557,12 +3557,12 @@ export default function App() {
               className={"nav-item drive" + (d.removable ? " removable" : "")}
               title={t.importFrom(d.path)}
               onClick={() =>
-                !busy && openWizard(d.has_dcim ? d.path + "DCIM" : d.path)
+                !busy && openWizard(d.dcim_path ?? d.path)
               }
             >
               <span className="drive-icon">{d.removable ? "🔌" : "💾"}</span>
               {d.label}
-              {d.has_dcim && <span className="dcim-badge">DCIM</span>}
+              {d.dcim_path && <span className="dcim-badge">DCIM</span>}
             </div>
           ))}
           <div className="nav-section">{t.navAddFolder}</div>
