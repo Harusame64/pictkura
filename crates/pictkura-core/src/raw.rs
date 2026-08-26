@@ -15,8 +15,8 @@
 //!    CR3はISO-BMFF、RAFは独自ヘッダで、いずれもJPEGを丸ごと抱えている。
 //!    Nikon（NEF・NRW）は**160x120の切手だけを申告して**原寸を申告の無い
 //!    SubIFDに置くので、申告を鵜呑みにせずここも見る
-//! 3. **全体の走査**（Ricoh GR IIIのDNG・Sigmaのx3f）。原寸プレビューを
-//!    ファイルの後ろ半分に置く形式がある。ここまで来るのは
+//! 3. **全体の走査**（Ricoh GR IIIのDNG・Sigmaの sd Quattro / sd Quattro H）。
+//!    原寸プレビューをファイルの後ろ半分に置く形式がある。ここまで来るのは
 //!    「まだ使える絵が無い」ときだけなので、丸ごと読む値段を払う
 //! 4. **非圧縮RGBの組み立て**（Leica DNG・Epson ERF・Hasselblad 3FR・
 //!    Phase One IIQ・Kodak DCR）。これらは**JPEGを1枚も持たず**、プレビューを
@@ -488,7 +488,13 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     };
 
     // 3段目: 先頭16MBに無かった。原寸プレビューを**後ろの方に**置く形式が
-    // ある（Ricoh GR IIIのDNGは720x480の後ろに6000x4000、Sigmaのx3fも同様）。
+    // ある（Ricoh GR IIIのDNGは720x480の後ろ、26.8MBの位置に6000x4000）。
+    //
+    // **X3Fは社ではなく機種で割れる**（2026-08-26にCC0の7機種で確かめた）。
+    // 後ろに置くのは **sd Quattro（44MB）と sd Quattro H（48MB）だけ**で、
+    // DP1・SD14・SD1 Merrill・DP2 Merrill・DP0 Quattro は先頭に置く。
+    // 「Sigmaは後ろに置く」と丸めて書くと、DP系のために毎回全体を読む
+    // 実装になりかねない
     //
     // ただし**全体を読むのは原寸が要るときだけ**にする。一覧のタイル（512px）
     // でここへ来ると、160x120しか持たない社（Minolta MRW・Sony SRF・
