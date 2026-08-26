@@ -32,6 +32,7 @@ import {
   getExifInfo,
   getIndexProgress,
   getDecoderStatus,
+  getEmptyLibraryReason,
   getStartupReport,
   getStats,
   listCameras,
@@ -76,6 +77,7 @@ import {
   type Memory,
   type ScopeItem,
   type StartupScanReport,
+  type EmptyLibraryReason,
 } from "./api";
 import { usePlatform } from "./usePlatform";
 import type { VideoStatus } from "./api";
@@ -346,6 +348,15 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"grid" | "calendar">("grid");
   const [filter, setFilter] = useState<MediaFilter>("all");
+  /**
+   * 一覧が空のときだけ聞く「なぜ空か」。
+   *
+   * **無言で `0 件` を出さない**ための説明で、`null` は「まだ聞いていない」。
+   * 常時聞かないのは、ルートの直下を1回読むため——空でないときに払う理由が無い
+   */
+  const [emptyReason, setEmptyReason] = useState<EmptyLibraryReason | null>(
+    null,
+  );
   /**
    * 種類の絞り込み（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので重ねて効く。
    * 送るときは検索語の `kind:` に畳む（[`withKind`]）
@@ -1081,6 +1092,23 @@ export default function App() {
 
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
+  // 一覧が空になったときだけ理由を聞く。空でなくなったら忘れる
+  useEffect(() => {
+    if (summary.length > 0 || query !== "" || filter !== "all") {
+      setEmptyReason(null);
+      return;
+    }
+    let alive = true;
+    getEmptyLibraryReason()
+      .then((r) => {
+        if (alive) setEmptyReason(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [summary.length, query, filter]);
+
   const openWizard = useCallback((startPath?: string) => {
     setWizardStart(startPath);
     setWizardNonce((n) => n + 1);
@@ -3628,6 +3656,39 @@ export default function App() {
             </div>
           ) : (
             <div className="grid-wrap">
+              {/* **無言で `0 件` を出さない。** 全部正しく動いたうえで空になる
+                  ことがある——macOSの `~/Pictures` は写真.appのライブラリしか
+                  持たず、それは既定の除外に入っている。理由が出ないと
+                  「壊れている」と読まれる */}
+              {emptyReason && (
+                <div className="empty-library">
+                  <h2>{t.emptyTitle}</h2>
+                  <p>
+                    {emptyReason.noRoots
+                      ? t.emptyNoRoots
+                      : emptyReason.missing.length > 0
+                        ? t.emptyMissing(emptyReason.missing.join("、"))
+                        : emptyReason.photoLibrary
+                          ? t.emptyPhotoLibrary
+                          : emptyReason.excluded.length > 0
+                            ? t.emptyAllExcluded(emptyReason.excluded.join("、"))
+                            : t.emptyNothingHere}
+                  </p>
+                  <div className="empty-actions">
+                    {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
+                    <button
+                      className="primary"
+                      onClick={() => !busy && openWizard()}
+                      disabled={busy}
+                    >
+                      {t.importFromUsb}
+                    </button>
+                    <button onClick={onBrowseFolder} disabled={busy}>
+                      <span aria-hidden="true">📂</span> {t.browse}
+                    </button>
+                  </div>
+                </div>
+              )}
               {yearMarkers.length > 1 && (
                 <div className="scrubber">
                   {yearMarkers.map((m) => (

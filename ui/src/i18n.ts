@@ -229,6 +229,18 @@ const ja = {
   wizardRefresh: "ドライブを再検出",
   wizardRemovable: "リムーバブル",
   wizardNoDrives: "ドライブが見つかりません",
+  /* 一覧が空のときの説明（無言で `0 件` を出さない） */
+  emptyTitle: "まだ写真がありません",
+  emptyNoRoots:
+    "ライブラリのフォルダがまだ設定されていません。カードから取り込むか、写真のあるフォルダを選んでください。",
+  emptyMissing: (names: string) =>
+    `次の場所が見つかりません: ${names}。外付けなら、つないでから「再スキャン」を押してください。`,
+  emptyPhotoLibrary:
+    "この場所には写真.appのライブラリしかありません。pictkuraは写真.appの中は扱いません（原本の多くはiCloud側にあり、手元にはありません）。カードから取り込むか、写真のあるフォルダを選んでください。",
+  emptyAllExcluded: (names: string) =>
+    `この場所にあるものは、除外の設定で全部飛ばしています（例: ${names}）。設定フォルダの pictkura.toml で変えられます。`,
+  emptyNothingHere:
+    "この場所には、扱える画像がまだありません。カードから取り込むか、写真のあるフォルダを選んでください。",
   wizardPickFolderHint: "左からフォルダを選ぶと、この中の画像が並びます",
   wizardNoImages: "このフォルダに画像はありません",
   wizardUnreadable: "フォルダを読めませんでした（取り外された可能性があります）",
@@ -563,6 +575,17 @@ const en: Dict = {
   wizardRefresh: "Rescan drives",
   wizardRemovable: "Removable",
   wizardNoDrives: "No drives found",
+  emptyTitle: "No photos yet",
+  emptyNoRoots:
+    "No library folder has been set up yet. Import from a card, or pick a folder that has photos in it.",
+  emptyMissing: (names: string) =>
+    `These places are not there: ${names}. If that is an external drive, connect it and press Rescan.`,
+  emptyPhotoLibrary:
+    "There is nothing here but the Photos app library. pictkura does not read inside Photos — most of the originals live in iCloud, not on this Mac. Import from a card, or pick a folder that has photos in it.",
+  emptyAllExcluded: (names: string) =>
+    `Everything here is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
+  emptyNothingHere:
+    "There are no photos here that pictkura can read yet. Import from a card, or pick a folder that has photos in it.",
   wizardPickFolderHint: "Pick a folder on the left to see the photos in it",
   wizardNoImages: "No photos in this folder",
   wizardUnreadable: "Could not read this folder (it may have been removed)",

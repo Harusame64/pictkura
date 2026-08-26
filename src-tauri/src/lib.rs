@@ -1100,6 +1100,73 @@ fn host_platform() -> &'static str {
     }
 }
 
+/// 一覧が空の理由（[`empty_library_reason`]）。
+#[derive(serde::Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct EmptyLibraryDto {
+    /// ライブラリのルートが1つも設定されていない
+    no_roots: bool,
+    /// 設定にあるのに**そこに無い**ルート（外付けを挿し忘れた等）
+    missing: Vec<String>,
+    /// 除外で飛ばした項目の名前（先頭3件まで）
+    excluded: Vec<String>,
+    /// 写真.appのライブラリが直下にある
+    photo_library: bool,
+}
+
+/// 一覧が空のとき、**なぜ空なのか**をUIへ返す。
+///
+/// **無言で `0 件` を出さないため**の口。macOSの `~/Pictures` には
+/// 写真.appのライブラリしか無いことが普通で、それは既定の除外に入っている
+/// （2026-08-14に14,938件を掴んだ事故の後で足した）。結果、**全部正しく動いた
+/// うえで初回起動が空になる**——理由がどこにも出ないと「壊れている」と読まれる。
+/// Lightroom は取り込みダイアログを、Photo Mechanic は「フォルダを選べ」を必ず出す。
+///
+/// **走査の数え上げには足さない。** 空のときにしか呼ばれないので、ここで
+/// ルートの直下を1回読むだけで足りる——速さが仕様の走査路を太らせる理由が無い。
+/// 中も開かない（名前だけ見る）。
+#[tauri::command(async)]
+fn empty_library_reason(state: tauri::State<'_, AppState>) -> EmptyLibraryDto {
+    let config = lock_ok(&state.config).clone();
+    empty_library_reason_of(&config)
+}
+
+/// [`empty_library_reason`] の中身（設定だけを見るのでテストできる）。
+fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
+    let mut out = EmptyLibraryDto {
+        no_roots: config.library.roots.is_empty(),
+        ..Default::default()
+    };
+    for root in &config.library.roots {
+        if !root.is_dir() {
+            out.missing.push(root.display().to_string());
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            // 写真.appのライブラリは名前で分かる（中身は開かない）
+            if pictkura_core::import::is_managed_package_path(Path::new(name)) {
+                out.photo_library = true;
+            }
+            if config
+                .library
+                .exclude_patterns
+                .iter()
+                .any(|p| pictkura_core::scanner::matches_pattern(name, p))
+                && out.excluded.len() < 3
+                && !out.excluded.iter().any(|n| n == name)
+            {
+                out.excluded.push(name.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// HEICを展開できるかを実地で確かめ、UIの案内を出すかどうかを返す。
 ///
 /// **HEVCは特許の都合でデコーダを同梱していない**（プールがデコーダの配布にも
@@ -3368,6 +3435,7 @@ pub fn run() {
             get_exif_info,
             decoder_status,
             host_platform,
+            empty_library_reason,
             open_decoder_help,
             get_index_progress,
             video_status,
@@ -3669,6 +3737,47 @@ mod tests {
             rebase_to_root_spelling(Path::new("c:/EXT"), &ext),
             Some(PathBuf::from("C:\\ext")),
         );
+    }
+
+    #[test]
+    fn an_empty_library_says_why_it_is_empty() {
+        use super::empty_library_reason_of;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = pictkura_core::config::Config::default();
+
+        // ルートが無い
+        config.library.roots.clear();
+        assert!(empty_library_reason_of(&config).no_roots);
+
+        // 設定にあるのに、そこに無い（外付けを挿し忘れた等）
+        let missing = dir.path().join("gone");
+        config.library.roots = vec![missing.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(!r.no_roots);
+        assert_eq!(r.missing.len(), 1, "見つからない場所を名指しする");
+
+        // 写真.appのライブラリしか無い（macOSの `~/Pictures` の普通の姿）
+        let root = dir.path().join("pictures");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
+        config.library.roots = vec![root.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(r.photo_library, "写真.appのライブラリだと分かる");
+        assert!(r.missing.is_empty());
+
+        // 除外で全部飛んでいる（写真.app以外）
+        std::fs::remove_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
+        std::fs::write(root.join("Thumbs.db"), b"x").unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(!r.photo_library);
+        assert_eq!(r.excluded, vec!["Thumbs.db".to_string()], "名前を挙げる");
+
+        // 本当に空（何も言うことが無い＝どの旗も立たない）
+        std::fs::remove_file(root.join("Thumbs.db")).unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(!r.no_roots && r.missing.is_empty() && !r.photo_library);
+        assert!(r.excluded.is_empty());
     }
 
     #[test]

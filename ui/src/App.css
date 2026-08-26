@@ -2380,3 +2380,29 @@ body {
 .select-bar-close {
   padding: 4px 8px !important;
 }
+
+/* 一覧が空のときの説明。**無言で `0 件` を出さない**ための場所で、
+   グリッドの上に重ねず、素直に真ん中へ置く（後ろに何も無いので） */
+.empty-library {
+  max-width: 46rem;
+  margin: 4rem auto;
+  padding: 0 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.empty-library h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  color: var(--text);
+}
+.empty-library p {
+  margin: 0 0 1.5rem;
+  line-height: 1.7;
+  text-align: left;
+}
+.empty-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}

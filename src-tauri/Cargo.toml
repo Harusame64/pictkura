@@ -52,7 +52,8 @@ windows-sys = { version = "0.60", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
-# 綴りを揃えるテストで、実物のシンボリックリンクを張る
+# 実物のフォルダとシンボリックリンクを作るテストで使う
+# （綴りを揃える方と、空の理由を答える方の両方）
 [dev-dependencies]
 tempfile = "3"
 

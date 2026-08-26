@@ -387,6 +387,25 @@ export const getIndexProgress = () =>
   invoke<IndexProgress>("get_index_progress");
 export const listMemories = () => invoke<Memory[]>("list_memories");
 export const getStats = () => invoke<LibraryStats>("get_stats");
+/**
+ * 一覧が空のとき、**なぜ空なのか**。
+ *
+ * 無言で `0 件` を出さないための問い合わせ。**空のときにだけ**呼ぶ
+ * （ルートの直下を1回読むので、常時聞く類のものではない）
+ */
+export interface EmptyLibraryReason {
+  /** ライブラリのフォルダが1つも無い */
+  noRoots: boolean;
+  /** 設定にあるのに、そこに無いフォルダ（外付けを挿し忘れた等） */
+  missing: string[];
+  /** 除外の設定で飛ばした項目の名前（先頭3件まで） */
+  excluded: string[];
+  /** 写真.appのライブラリが直下にある */
+  photoLibrary: boolean;
+}
+export const getEmptyLibraryReason = () =>
+  invoke<EmptyLibraryReason>("empty_library_reason");
+
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
 // USB挿入の自動起動（AutoPlay）で `--import <ドライブ>` 付きで冷起動したときの
