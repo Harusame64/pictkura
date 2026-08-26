@@ -2703,7 +2703,7 @@ mod tests {
     }
 
     #[test]
-    fn backfill_does_not_write_a_replacement_back_to_the_same_size() {
+    fn backfill_does_not_write_when_a_replacement_lands_on_the_same_size() {
         // 寸法だけを見張ると素通りする筋（ABA）: 掃き寄せの途中でファイルが
         // 差し替わってスキャンが列を落とし、そこへクラウド経路の
         // update_shell_metadata が**たまたま同じ数字**を入れ直す。
@@ -2792,7 +2792,7 @@ mod tests {
     }
 
     #[test]
-    fn backfill_does_not_write_a_replacement_that_only_changed_size() {
+    fn backfill_does_not_write_a_replacement_that_only_changed_its_byte_size() {
         // 時刻を保ったコピー（や時刻の粗いファイルシステム）は `mtime_ms` が
         // 動かない。スキャンは `size` の側で差し替えに気づいて列を落とすので、
         // 書き込みのガードも同じものを見ていないと素通りする

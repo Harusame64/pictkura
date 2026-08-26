@@ -769,7 +769,7 @@ mod tests {
     use super::*;
 
     /// タイルの範囲が「隙間なく・重なりなく」出力を覆うことを確かめる。
-    fn checks_the_seams(tiles: &[(usize, usize)], rect: usize, step: usize, out: usize) {
+    fn check_seams(tiles: &[(usize, usize)], rect: usize, step: usize, out: usize) {
         let mut covered = vec![0u8; out];
         for &(origin, size) in tiles {
             let (from, to) = tile_output_range(origin, size, rect, step, out);
@@ -788,7 +788,7 @@ mod tests {
         // 512四方が4枚（2048px）を、1/1・1/2・1/4に落として貼る
         let tiles: Vec<(usize, usize)> = (0..4).map(|i| (i * 512, 512)).collect();
         for step in [1, 2, 4] {
-            checks_the_seams(&tiles, 0, step, 2048 / step);
+            check_seams(&tiles, 0, step, 2048 / step);
         }
     }
 
@@ -797,7 +797,7 @@ mod tests {
         // clap で 100..1700 を切り出した状態（rect が 0 でない）
         let tiles: Vec<(usize, usize)> = (0..4).map(|i| (i * 512, 512)).collect();
         for step in [1, 2, 3] {
-            checks_the_seams(&tiles, 100, step, 1600 / step);
+            check_seams(&tiles, 100, step, 1600 / step);
         }
     }
 

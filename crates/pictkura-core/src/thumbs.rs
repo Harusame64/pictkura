@@ -2326,7 +2326,7 @@ mod tests {
         // **見ているのは入口だけ**——ロックを先に握るので、最初の
         // `File::open` で落ちる。「1度目は通ったのに2度目が落ちる」隙間は
         // ここからは作れないので、そちらは下位の関数を直接見る側で見張る
-        // （`raw::a_cr3_whose_boxes_cannot_be_walked_is_told_apart_from_an_empty_one` と `raw::読めないorfは…`）。
+        // （`raw::a_cr3_whose_boxes_cannot_be_walked_is_told_apart_from_an_empty_one` と `raw::an_unreadable_orf_is_told_apart_from_a_non_applicable_one`）。
         // それでも `is_file()` の門を通った後で読めなくなる筋は実在するので、
         // 後追いの入口として1本置いておく
         use std::os::windows::fs::OpenOptionsExt;

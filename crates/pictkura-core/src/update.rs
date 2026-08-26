@@ -69,7 +69,7 @@ mod tests {
     }
 
     #[test]
-    fn what_cannot_be_read_is_not_read() {
+    fn an_unparsable_version_yields_none() {
         assert_eq!(parse_version(""), None);
         assert_eq!(parse_version("v"), None);
         assert_eq!(parse_version("latest"), None);
