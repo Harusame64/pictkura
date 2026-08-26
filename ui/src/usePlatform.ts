@@ -20,11 +20,25 @@ import { getHostPlatform, isMac, isWindows, type HostPlatform } from "./api";
 /** UAからの当て推量（届くまでの繋ぎ） */
 const guess: HostPlatform = isWindows ? "windows" : isMac ? "macos" : "other";
 
+/**
+ * 今いちばん確かな答え。**届いたら推測を捨てて置き換える**。
+ *
+ * 後から開く画面（設定ダイアログ等）が、**もう答えが出ているのに推測から
+ * 描き始める**のを防ぐ。1フレームだけ違う値で描くと、AutoPlayの節のように
+ * 出す・出さないが変わるものは**一瞬ちらつく**（ゲート2の指摘）
+ */
+let known: HostPlatform = guess;
+
 /** 起動中に1回だけ走る問い合わせ。全員がこの約束を共有する */
-const resolved: Promise<HostPlatform> = getHostPlatform().catch(() => guess);
+const resolved: Promise<HostPlatform> = getHostPlatform()
+  .then((p) => {
+    known = p;
+    return p;
+  })
+  .catch(() => guess);
 
 export function usePlatform(): HostPlatform {
-  const [platform, setPlatform] = useState<HostPlatform>(guess);
+  const [platform, setPlatform] = useState<HostPlatform>(known);
   useEffect(() => {
     let alive = true;
     resolved.then((p) => {
