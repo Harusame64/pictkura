@@ -21,6 +21,12 @@ use rusqlite::{params, Connection, OpenFlags};
 use crate::scanner::ScannedFile;
 use crate::search::{index_text, SearchQuery};
 
+/// `media` を [`Db::row_to_record`] へ渡すときの列並び。**4か所のSELECTで共有する**
+/// ——別々に書くと、列を足したときに片方だけ直して添字がずれる。
+const MEDIA_COLUMNS: &str = "id, path, size, mtime_ms, width, height, taken_at_ms,
+     day_key, thumb_path, thumb_state, favorite, picked, duration_ms,
+     preview_width, preview_height";
+
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     #[error("DB操作に失敗: {0}")]
@@ -36,10 +42,25 @@ pub struct MediaRecord {
     pub size: i64,
     /// 更新日時（Unixエポックミリ秒）
     pub mtime_ms: i64,
-    /// 画像の幅（メタデータ抽出後に設定。グリッドの枠確保に使う）
+    /// **原本**の幅（メタデータ抽出後に設定。グリッドの枠確保に使う）。
+    /// RAWはセンサーの原寸で、配信する絵の寸法ではない（[`Self::preview_width`]）
     pub width: Option<i64>,
-    /// 画像の高さ
+    /// 原本の高さ
     pub height: Option<i64>,
+    /// **埋め込みプレビュー**の幅。RAWで一覧とビューアへ配るのはこの絵で、
+    /// 原本より小さいことが多い（HDR PQのCR3は 6000x4000 に対して 1620x1080）。
+    ///
+    /// **NULLは「まだ確かめていない」**。RAWなら確かめた時点で必ず入る
+    /// （原本と同じ値のこともある）ので、`NULL` のまま残る行を後追いで拾える
+    /// ——[`Db::dimensions_to_backfill`]。RAW以外は配るのが原本そのものなので、
+    /// 確かめてもNULLのまま。読む側はNULLなら `width` へ落とせばよい。
+    ///
+    /// **ビューアが配る絵と一致する保証は無い**（一覧は長辺512、ビューアは1600で
+    /// 探すので、原寸プレビューを後ろに置く形式では後者のほうが大きい）。
+    /// 見当を付けるための値で、UIは絵が届いた時点で実寸に取り直す
+    pub preview_width: Option<i64>,
+    /// 埋め込みプレビューの高さ。入る条件は [`Self::preview_width`] と同じ
+    pub preview_height: Option<i64>,
     /// 撮影日時（EXIF DateTimeOriginal、Unixエポックミリ秒）。未抽出はNULL、表示側はmtimeへフォールバック
     pub taken_at_ms: Option<i64>,
     /// 表示日（ローカルタイムゾーンのYYYYMMDD整数）。撮影日時（なければmtime）から書き込み時に計算
@@ -55,6 +76,72 @@ pub struct MediaRecord {
     pub picked: bool,
     /// 動画の長さ（ミリ秒）。画像はNULL（第9部）
     pub duration_ms: Option<i64>,
+}
+
+/// [`Db::update_metadata`] へ渡す寸法。
+///
+/// 原本と、一覧が掴んだ埋め込みプレビューの2組。**数字を4つ並べて渡すと
+/// 取り違える**ので型にしてある（幅と高さ、原本とプレビューの4通り）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Dimensions {
+    /// 原本（RAWならセンサー）の幅。読めなければ0
+    pub width: i64,
+    /// 原本の高さ
+    pub height: i64,
+    /// 掴んだ埋め込みプレビューの幅・高さ。**原本をそのまま配るなら `None`**
+    /// （RAW以外はすべてこちら）。RAWは原本と同じ値でも入れる——`None` が
+    /// 「まだ確かめていない」を意味するため
+    pub preview: Option<(i64, i64)>,
+}
+
+impl Dimensions {
+    /// 原本をそのまま配る形式（RAW以外はすべてこちら）。
+    pub fn original(width: i64, height: i64) -> Self {
+        Self {
+            width,
+            height,
+            preview: None,
+        }
+    }
+}
+
+/// [`Db::dimensions_to_backfill`] の本体。
+///
+/// **`kind = 1 AND preview_width IS NULL` の並びは部分索引
+/// `idx_media_dims_pending` の条件と同じに保つこと。** 崩すとSQLiteが索引を
+/// 使えず、掃き終えた後も毎起動で表を端から端まで1回なぞる。
+///
+/// `INDEXED BY` で名指しするのは、**放っておくと別の索引を選ぶ**ため。
+/// 空のDBで測ると `idx_media_kind_day`（kindの先頭列）へ流れ、RAW全行を
+/// なめたうえで `ORDER BY id` のために一時B木まで作る。名指ししておけば、
+/// 条件を崩した日に**黙って遅くなるのではなく、その場でエラーになる**
+/// ——見張っているのは `後追いの絞り込みは部分索引に載る`。
+const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, size FROM media
+     INDEXED BY idx_media_dims_pending
+     WHERE kind = 1 AND preview_width IS NULL AND id > ?1
+     AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
+     ORDER BY id LIMIT ?2";
+
+/// 寸法を確かめ直す1行（[`Db::dimensions_to_backfill`] が返し、
+/// [`Db::set_dimensions`] が書き込みのガードに使う）。
+///
+/// **読んだ時点の値をそのまま持ち歩く**。掃き寄せの途中で行が動いていないかを
+/// [`Db::set_dimensions`] が突き合わせるため——数字を裸で並べて渡すと、
+/// 期待値と新しい値のどちらがどちらか分からなくなる。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DimensionTarget {
+    pub id: i64,
+    pub path: PathBuf,
+    /// 読んだ時点の `width`（＝段階F-4より前に入ったプレビューの幅）
+    pub width: i64,
+    /// 読んだ時点の `height`
+    pub height: i64,
+    /// 読んだ時点のファイルの版。寸法だけでは同じ数字に戻る差し替え
+    /// （ABA）を見抜けないので一緒に見張る——[`Db::set_dimensions`]
+    pub mtime_ms: i64,
+    /// 版のもう半分。スキャンは `size <> size OR mtime_ms <> mtime_ms` で
+    /// 差し替えを見ているので、**時刻を保ったコピー**は大きさでしか気づけない
+    pub size: i64,
 }
 
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
@@ -360,6 +447,11 @@ impl Db {
             "ALTER TABLE media ADD COLUMN picked INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // 段階F-4: 一覧が掴んだ埋め込みプレビューの寸法。**RAWなら必ず入る**
+        // （原本と同じ値のこともある）。NULLは「まだ確かめていない」印で、
+        // 起動後の後追い（[`Db::dimensions_to_backfill`]）が拾う
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN preview_width INTEGER", []);
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN preview_height INTEGER", []);
         // 段階B-3: 高品質サムネイルのLRUキャッシュ管理用
         let _ = conn.execute("ALTER TABLE media ADD COLUMN thumb_bytes INTEGER", []);
         let _ = conn.execute("ALTER TABLE media ADD COLUMN thumb_used_ms INTEGER", []);
@@ -445,6 +537,18 @@ impl Db {
             -- 種類を先頭に置いた複合索引にすると、絞ったままでも索引のスキャンで返る
             CREATE INDEX IF NOT EXISTS idx_media_kind_day
                 ON media(kind, day_key DESC, {SORT_TS} DESC, id DESC);
+            -- 寸法を確かめ直す行だけの索引（段階F-4の後追い。
+            -- [`Db::dimensions_to_backfill`]）。**掃き寄せは一生に一度で済む
+            -- 仕事**なのに、絞り込みに使える索引が無いと、終わった後も毎起動で
+            -- 表を端から端まで1回なぞることになる（PRコメント側のCodexのP2）。
+            --
+            -- 部分索引にすると**中身は「まだ確かめていないRAW」だけ**になり、
+            -- 掃き終えた後は空になる——次の起動は空の索引を覗いて終わる。
+            -- 済んだ印を別に持つ手も試したが、印を持つと
+            -- [`crate::thumbs::process_one`] が読み切れずに印なしで書いた行を
+            -- 閉じ込めてしまう（ゲート2のP2）。索引なら拾い直せる形が残る
+            CREATE INDEX IF NOT EXISTS idx_media_dims_pending
+                ON media(id) WHERE kind = 1 AND preview_width IS NULL;
             "#
         ))?;
         conn.execute_batch(
@@ -736,6 +840,8 @@ impl Db {
                     day_key = excluded.day_key,
                     width = NULL,
                     height = NULL,
+                    preview_width = NULL,
+                    preview_height = NULL,
                     taken_at_ms = NULL,
                     thumb_path = NULL,
                     thumb_state = 0,
@@ -895,6 +1001,8 @@ impl Db {
                     day_key = excluded.day_key,
                     width = NULL,
                     height = NULL,
+                    preview_width = NULL,
+                    preview_height = NULL,
                     taken_at_ms = NULL,
                     thumb_path = NULL,
                     thumb_state = 0,
@@ -1108,11 +1216,14 @@ impl Db {
     /// メタデータ抽出結果（幅・高さ・撮影日時・カメラ）を書き込む。
     /// 撮影日時が確定したら表示日（day_key）も撮影日時基準で更新する。
     /// カメラ名は `cameras` 表へ正規化し、`camera_id` の更新でFTS索引が張り替わる。
+    ///
+    /// `width`/`height` は**原本**の寸法、`preview_*` は**掴んだ埋め込みプレビュー**の
+    /// 寸法で、原本と同じなら `None`。`None` も毎回書き戻す——プレビューが原寸に
+    /// 変わったファイル（RAWを別のソフトで書き出し直した等）で古い値が残らないように
     pub fn update_metadata(
         &mut self,
         id: i64,
-        width: i64,
-        height: i64,
+        dims: Dimensions,
         taken_at_ms: Option<i64>,
         camera: Option<&str>,
     ) -> Result<(), DbError> {
@@ -1124,11 +1235,20 @@ impl Db {
         self.conn.execute(
             &format!(
                 "UPDATE media SET width = ?2, height = ?3, taken_at_ms = ?4,
-                        day_key = {}, camera_id = ?5
+                        day_key = {}, camera_id = ?5,
+                        preview_width = ?6, preview_height = ?7
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, mtime_ms)")
             ),
-            params![id, width, height, taken_at_ms, camera_id],
+            params![
+                id,
+                dims.width,
+                dims.height,
+                taken_at_ms,
+                camera_id,
+                dims.preview.map(|(w, _)| w),
+                dims.preview.map(|(_, h)| h)
+            ],
         )?;
         Ok(())
     }
@@ -1406,11 +1526,9 @@ impl Db {
 
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media WHERE id = ?1",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {MEDIA_COLUMNS} FROM media WHERE id = ?1"))?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
             Some(row) => Ok(Some(Self::row_to_record(row)?)),
@@ -1583,9 +1701,7 @@ impl Db {
         conds.insert(0, "day_key = ?".to_string());
         args.insert(0, rusqlite::types::Value::Integer(day_key));
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media WHERE {}
+            "SELECT {MEDIA_COLUMNS} FROM media WHERE {}
              ORDER BY {SORT_TS} DESC, id DESC",
             conds.join(" AND ")
         ))?;
@@ -1937,6 +2053,133 @@ impl Db {
         Ok(())
     }
 
+    /// 寸法を確かめ直す行を返す（段階F-4の後追い）。
+    ///
+    /// 段階F-4より前に取り込んだRAWは、`width/height` に**埋め込みプレビューの
+    /// 寸法**が入ったままで、原本の寸法（CR3なら `CMT1` の申告）を持っていない。
+    /// メタデータ抽出済みなので [`Self::ids_missing_metadata`] からは漏れる。
+    ///
+    /// **済んだ印は持たない。** 確かめた行は `preview_width` が埋まって条件から
+    /// 外れる——RAWは原本と同じ寸法でも書き込むので、**確かめた行が必ず抜ける**。
+    /// 印を先に書くと、仕事が終わる前にアプリが落ちたときに拾い直せなくなる。
+    ///
+    /// 絞り込みの4つは、それぞれ別の穴を塞いでいる:
+    ///
+    /// - **`kind = 1`（RAW）**: RAW以外は確かめることが無い（配るのが原本
+    ///   そのものなので、確かめても `preview_width` はNULLのまま＝毎回
+    ///   引っ掛かる）。拡張子ではなく `kind` 列で見るのは、`preview_width`
+    ///   との組で**部分索引 `idx_media_dims_pending` に載せる**ため——
+    ///   `LOWER(path) LIKE` を26本並べると索引が使えず、掃き終えた後も
+    ///   毎起動で表を1回なぞる（PRコメント側のCodexのP2）。
+    ///   綴りの判定はどちらも [`crate::MediaKind::from_extension`]
+    ///   （＝[`crate::raw::is_raw_extension`]）が源なので食い違わない
+    /// - **`width > 0`**: まだ一度も読んでいない行（NULL）と、読もうとして
+    ///   読めなかった行（0。[`Self::ids_missing_metadata`] の印）を外す。
+    ///   どちらもあちらが拾って、抽出のついでに寸法も入れる。0を通すと
+    ///   `preview` に 0x0 を書いて「確かめた」印まで付けてしまう
+    /// - **`height > 0`**: 幅だけ入っている行を外す。[`Self::update_shell_metadata`]
+    ///   は幅と高さを**別々に**書くので、OSが幅しか返さなかった行が作れる。
+    ///   高さをNULLのまま返すと呼び出し側の `i64` への読み出しが失敗し、
+    ///   掃き寄せが**そこで黙って止まって二度と先へ進まない**（ゲート2のP2）
+    /// - **`thumb_path IS NOT NULL`**: 寸法を**自分で測った行**に寄せる。
+    ///   クラウドにしか実体が無いファイルは [`Self::update_shell_metadata`] が
+    ///   OSから借りた**センサーの寸法**を `width/height` に入れており、それを
+    ///   「掴んだプレビューの寸法」として `preview_*` へ写すと嘘になる
+    ///   （実際に配るのは 1620x1080 なのに 6000x4000 と名乗る。ゲート2のP2）。
+    ///   サムネイルがLRUで消された行もここで外れるが、次に見えたときに
+    ///   [`crate::thumbs::process_one`] が両方の列を正しく入れ直す。
+    ///
+    /// **`thumb_path` は完全な門ではない**（ゲート2のP3）。処理済みの行でも、
+    /// 撮影日時が mtime へ落ちていると [`crate::thumbs::process_one`] のShell経路が
+    /// もう一度通り、`thumb_path` を残したまま `width/height` だけOSの値に
+    /// 置き換わりうる。呼び出し側がクラウドのみのファイルを飛ばすので、
+    /// 「Shellが書いた直後に実体が落ちてきて、まだ絵を作り直していない」
+    /// 隙間に入ったときだけ成立する。踏むと `preview_*` が原寸のまま残るが、
+    /// その1枚を開けば [`crate::thumbs::process_one`] が両方の列を入れ直す
+    pub fn dimensions_to_backfill(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<DimensionTarget>, DbError> {
+        let mut stmt = self.conn.prepare_cached(DIMS_TO_BACKFILL_SQL)?;
+        let params: Vec<rusqlite::types::Value> = vec![after_id.into(), (limit as i64).into()];
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok(DimensionTarget {
+                id: r.get(0)?,
+                path: PathBuf::from(r.get::<_, String>(1)?),
+                width: r.get(2)?,
+                height: r.get(3)?,
+                mtime_ms: r.get(4)?,
+                size: r.get(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 寸法の後追い補完の結果をまとめて書く（段階F-4）。
+    /// 実際に寸法が動いた行のIDを返す。
+    ///
+    /// 触るのは寸法の4列だけ。撮影日時・`day_key`・カメラは既に入っているので、
+    /// [`Self::update_metadata`] のように書き直すと**正しい値を上書きしかねない**。
+    ///
+    /// **読んだときのまま残っている行にだけ書く**（突き合わせるのは
+    /// [`Self::dimensions_to_backfill`] が返した [`DimensionTarget`]）。この
+    /// 掃き寄せは起動同期やサムネイル生成と**同時に走る**ので、途中でファイルが
+    /// 差し替わるとスキャンが列を落とし、サムネイル生成が新しい寸法を入れる。
+    /// 素直に `id` だけで書くと、古い寸法で上書きしたうえ**確かめた印まで
+    /// 付けて**しまい、二度と直らない（ゲート1のP2）。
+    ///
+    /// **見張るのは寸法だけでは足りない**（ゲート1の5周目のP2）。差し替えの後に
+    /// [`crate::thumbs::process_one`] のクラウド経路が通ると、
+    /// [`Self::update_shell_metadata`] が `width/height` にOSから借りた寸法を
+    /// 入れる——それが**たまたま古いファイルと同じ数字**なら、`preview_width` は
+    /// NULLのままなので寸法の突き合わせを素通りしてしまう（ABA）。
+    ///
+    /// 一緒に見るのは**スキャンが差し替えと見なすもの丸ごと**、つまり
+    /// `mtime_ms` と `size` の両方（[`Self::stage_scan_tmp`] の
+    /// `m.size <> s.size OR m.mtime_ms <> s.mtime_ms`）。時刻を保ったコピーは
+    /// 大きさでしか気づけず、時刻の粗いファイルシステムでも同じことが起きる
+    /// （PRコメント側のCodexのP2）。
+    pub fn set_dimensions(
+        &mut self,
+        results: &[(DimensionTarget, Dimensions)],
+    ) -> Result<Vec<i64>, DbError> {
+        let mut moved = Vec::new();
+        let tx = self.write_tx()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "UPDATE media SET width = ?2, height = ?3,
+                        preview_width = ?4, preview_height = ?5
+                 WHERE id = ?1 AND preview_width IS NULL
+                   AND width = ?6 AND height = ?7
+                   AND mtime_ms = ?8 AND size = ?9",
+            )?;
+            for (target, dims) in results {
+                let n = stmt.execute(params![
+                    target.id,
+                    dims.width,
+                    dims.height,
+                    dims.preview.map(|(w, _)| w),
+                    dims.preview.map(|(_, h)| h),
+                    target.width,
+                    target.height,
+                    target.mtime_ms,
+                    target.size
+                ])?;
+                // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
+                if n > 0 && (dims.width, dims.height) != (target.width, target.height) {
+                    moved.push(target.id);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(moved)
+    }
+
     /// カメラ未確認の残数（補完スイープの進捗表示用）。
     pub fn cameras_pending(&self) -> Result<i64, DbError> {
         Ok(self.conn.query_row(
@@ -1981,9 +2224,7 @@ impl Db {
 
         let mut out = Vec::new();
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media WHERE day_key = ?1
+            "SELECT {MEDIA_COLUMNS} FROM media WHERE day_key = ?1
              ORDER BY {SORT_TS} DESC, id DESC LIMIT ?2"
         ))?;
         for year in (min_year..this_year).rev() {
@@ -2024,9 +2265,7 @@ impl Db {
     /// テスト・ベンチマーク（新旧比較）用に残している。
     pub fn list_all(&self) -> Result<Vec<MediaRecord>, DbError> {
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, size, mtime_ms, width, height, taken_at_ms,
-                    day_key, thumb_path, thumb_state, favorite, picked, duration_ms
-             FROM media ORDER BY {SORT_TS} DESC, id DESC"
+            "SELECT {MEDIA_COLUMNS} FROM media ORDER BY {SORT_TS} DESC, id DESC"
         ))?;
         let rows = stmt.query_map([], Self::row_to_record)?;
         let mut out = Vec::new();
@@ -2196,6 +2435,8 @@ impl Db {
             favorite: row.get::<_, i64>(10)? != 0,
             picked: row.get::<_, i64>(11)? != 0,
             duration_ms: row.get(12)?,
+            preview_width: row.get(13)?,
+            preview_height: row.get(14)?,
         })
     }
 }
@@ -2300,6 +2541,318 @@ mod tests {
         }
     }
 
+    #[test]
+    fn 寸法の後追いはrawの未確認だけを拾う() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.cr3", 100, 1000),
+            scanned("b.jpg", 100, 1000),
+            scanned("c.NEF", 100, 1000), // 拡張子は大文字でも拾う
+            scanned("d.cr2", 100, 1000), // まだ一度も読んでいない（width が空）
+        ])
+        .unwrap();
+        let id_of = |db: &Db, name: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.to_string_lossy().ends_with(name))
+                .unwrap()
+                .id
+        };
+        for name in ["a.cr3", "b.jpg", "c.NEF"] {
+            let id = id_of(&db, name);
+            db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+                .unwrap();
+            // 寸法を**自分で測った**印。これが無い行はOSから借りた可能性がある
+            db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+                .unwrap();
+        }
+
+        let picked: Vec<String> = db
+            .dimensions_to_backfill(0, 100)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.path.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            picked.len(),
+            2,
+            "RAWで、読んだのに preview_width が空の行だけ: {picked:?}"
+        );
+        assert!(picked.iter().any(|p| p.ends_with("a.cr3")));
+        assert!(picked.iter().any(|p| p.ends_with("c.NEF")));
+
+        // 確かめた行は次から抜ける（済んだ印を別に持たなくて済む）
+        let a = id_of(&db, "a.cr3");
+        let target = db
+            .dimensions_to_backfill(0, 100)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == a)
+            .unwrap();
+        assert_eq!(
+            db.set_dimensions(&[(
+                target,
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap(),
+            vec![a],
+            "寸法が動いた行だけ返る"
+        );
+        let rec = db.get_by_id(a).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(6000), Some(4000)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(640), Some(480))
+        );
+        assert_eq!(db.dimensions_to_backfill(0, 100).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn 後追いは自分で測っていない行を拾わない() {
+        // クラウドのみのファイルはOSから**センサーの寸法**を借りて width に入れる
+        // （サムネイルは作れないので thumb_path は空のまま）。これを「掴んだ
+        // プレビューの寸法」として写すと、6000x4000 を配ると名乗ることになる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("cloud.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_shell_metadata(id, 6000, 4000, Some(1)).unwrap();
+        assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
+
+        // 実体が落ちてきて process_one が通れば、そのときは両方の列が正しく入る
+        db.update_metadata(
+            id,
+            Dimensions {
+                width: 6000,
+                height: 4000,
+                preview: Some((1620, 1080)),
+            },
+            Some(1),
+            None,
+        )
+        .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn 後追いは高さが空の行を拾わない() {
+        // 拾うと呼び出し側の i64 への読み出しが失敗し、掃き寄せが黙って止まる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        // OSが幅しか返さなかった行（update_shell_metadata は別々に書く）
+        db.update_shell_metadata(id, 6000, 0, Some(1)).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(6000), None));
+        assert!(db.dimensions_to_backfill(0, 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn 後追いは読んだときから動いた行に書かない() {
+        // 掃き寄せの途中でスキャンが列を落とし、サムネイル生成が新しい寸法を
+        // 入れた行。古い値で上書きすると、確かめた印まで付いて二度と直らない
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        let batch = db.dimensions_to_backfill(0, 100).unwrap();
+        assert_eq!(batch.len(), 1);
+
+        // ここでファイルが差し替わり、新しい寸法が入った
+        db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
+        db.update_metadata(
+            id,
+            Dimensions {
+                width: 100,
+                height: 200,
+                preview: Some((100, 200)),
+            },
+            Some(2),
+            None,
+        )
+        .unwrap();
+
+        let moved = db
+            .set_dimensions(&[(
+                batch.into_iter().next().unwrap(),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap();
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(100), Some(200)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(100), Some(200))
+        );
+    }
+
+    #[test]
+    fn 後追いは同じ寸法に戻った差し替えにも書かない() {
+        // 寸法だけを見張ると素通りする筋（ABA）: 掃き寄せの途中でファイルが
+        // 差し替わってスキャンが列を落とし、そこへクラウド経路の
+        // update_shell_metadata が**たまたま同じ数字**を入れ直す。
+        // preview_width はNULLのままなので、寸法の突き合わせでは差し替えに
+        // 気づけない——mtime_ms も一緒に見て初めて落ちる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        let batch = db.dimensions_to_backfill(0, 100).unwrap();
+        assert_eq!(batch.len(), 1);
+
+        // 差し替え → 列が落ちる → OSから借りた寸法が同じ数字で戻る
+        db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
+        db.update_shell_metadata(id, 640, 480, Some(2)).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            (rec.width, rec.height, rec.preview_width),
+            (Some(640), Some(480), None),
+            "寸法だけでは読んだときと見分けが付かない状態"
+        );
+
+        let moved = db
+            .set_dimensions(&[(
+                batch.into_iter().next().unwrap(),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap();
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (Some(640), Some(480)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "確かめた印が付かないので、実体が落ちてきた日に拾い直せる"
+        );
+    }
+
+    #[test]
+    fn 後追いの絞り込みは部分索引に載る() {
+        // 載らないと、掃き終えた後も毎起動で表を端から端まで1回なぞる。
+        // 1000万件を想定しているので、背景スレッドとはいえ払いたくない
+        let db = Db::open_in_memory().unwrap();
+        let mut stmt = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {DIMS_TO_BACKFILL_SQL}"))
+            .unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(params![0i64, 200i64], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            plan.iter().any(|l| l.contains("idx_media_dims_pending")),
+            "部分索引が使われていない: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|l| l.contains("TEMP B-TREE")),
+            "索引の並び順で返るので並べ直しは要らないはず: {plan:?}"
+        );
+
+        // **索引側を緩めても気づけるようにする**（ゲート2のP3）。
+        // クエリ側を崩せば `INDEXED BY` が `no query solution` で落ちるが、
+        // 索引の `WHERE` から `preview_width IS NULL` を落とすほうは
+        // プランが同じまま通ってしまう——中身が「RAW全行」になり、
+        // 掃き終えても空にならないのに、誰も気づかない
+        let sql: String = db
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                params!["idx_media_dims_pending"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("WHERE kind = 1 AND preview_width IS NULL"),
+            "索引の条件が掃き寄せの条件と揃っていない: {sql}"
+        );
+    }
+
+    #[test]
+    fn 後追いは大きさだけ変わった差し替えにも書かない() {
+        // 時刻を保ったコピー（や時刻の粗いファイルシステム）は `mtime_ms` が
+        // 動かない。スキャンは `size` の側で差し替えに気づいて列を落とすので、
+        // 書き込みのガードも同じものを見ていないと素通りする
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(id, Dimensions::original(640, 480), Some(1), None)
+            .unwrap();
+        db.update_thumb_path(id, Path::new("t/x.webp"), 2, Some(1))
+            .unwrap();
+        let batch = db.dimensions_to_backfill(0, 100).unwrap();
+        assert_eq!(batch.len(), 1);
+
+        // 大きさだけが変わった差し替え → 列が落ちる → 同じ寸法が戻る
+        db.upsert_files(&[scanned("a.cr3", 200, 1000)]).unwrap();
+        db.update_shell_metadata(id, 640, 480, Some(1)).unwrap();
+
+        let moved = db
+            .set_dimensions(&[(
+                batch.into_iter().next().unwrap(),
+                Dimensions {
+                    width: 6000,
+                    height: 4000,
+                    preview: Some((640, 480)),
+                },
+            )])
+            .unwrap();
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "確かめた印が付かないので拾い直せる"
+        );
+    }
+
+    #[test]
+    fn 中身が変わった行はプレビューの寸法も落とす() {
+        // 落とさないと、前の中身の寸法で下敷きと先読みの予算が決まる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(
+            id,
+            Dimensions {
+                width: 6000,
+                height: 4000,
+                preview: Some((1620, 1080)),
+            },
+            Some(1),
+            None,
+        )
+        .unwrap();
+
+        db.upsert_files(&[scanned("a.cr3", 200, 2000)]).unwrap();
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((rec.width, rec.height), (None, None));
+        assert_eq!((rec.preview_width, rec.preview_height), (None, None));
+    }
+
     /// サムネイル利用時刻を任意の過去へ設定する（LRUテスト用。
     /// touch_thumbsはMAXで単調増加のみのため直接更新する）。
     fn set_thumb_used(db: &Db, id: i64, used_ms: i64) {
@@ -2324,7 +2877,8 @@ mod tests {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 100, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
-        db.update_metadata(id, 640, 480, Some(123), None).unwrap();
+        db.update_metadata(id, Dimensions::original(640, 480), Some(123), None)
+            .unwrap();
         db.update_thumb_path(id, Path::new("thumb/a.webp"), 2, Some(1000))
             .unwrap();
         assert_eq!(db.get_by_id(id).unwrap().unwrap().thumb_state, 2);
@@ -2408,7 +2962,7 @@ mod tests {
             .find(|r| r.path == Path::new("exif.jpg"))
             .unwrap()
             .id;
-        db.update_metadata(exif_id, 640, 480, Some(10000), None)
+        db.update_metadata(exif_id, Dimensions::original(640, 480), Some(10000), None)
             .unwrap();
 
         let names: Vec<_> = db
@@ -2472,7 +3026,7 @@ mod tests {
 
         // 撮影日時が確定したらday_keyは撮影日基準へ
         let taken = local_noon_ms(2020, 1, 5);
-        db.update_metadata(rec.id, 640, 480, Some(taken), None)
+        db.update_metadata(rec.id, Dimensions::original(640, 480), Some(taken), None)
             .unwrap();
         assert_eq!(db.get_by_id(rec.id).unwrap().unwrap().day_key, 20200105);
     }
@@ -2747,8 +3301,13 @@ mod tests {
                 } else {
                     // 消える側: ユーザーが★を付け、撮影情報も埋まっている
                     db.set_favorite(r.id, true).unwrap();
-                    db.update_metadata(r.id, 640, 480, Some(1_700_000_000_000), Some("Camera X"))
-                        .unwrap();
+                    db.update_metadata(
+                        r.id,
+                        Dimensions::original(640, 480),
+                        Some(1_700_000_000_000),
+                        Some("Camera X"),
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -2791,8 +3350,13 @@ mod tests {
             .unwrap()
             .unwrap()
             .id;
-        db.update_metadata(unchanged_id, 640, 480, Some(100), None)
-            .unwrap();
+        db.update_metadata(
+            unchanged_id,
+            Dimensions::original(640, 480),
+            Some(100),
+            None,
+        )
+        .unwrap();
         db.update_thumb_path(unchanged_id, Path::new("t/1.webp"), 2, Some(1000))
             .unwrap();
 
@@ -3396,13 +3960,13 @@ mod tests {
             |db: &Db, name: &str| db.get_meta_by_path(Path::new(name)).unwrap().unwrap().id;
         // provisional: メタデータ抽出済み・即席サムネイルあり
         let prov = by_name(&db, "provisional.jpg");
-        db.update_metadata(prov, 640, 480, Some(2000), None)
+        db.update_metadata(prov, Dimensions::original(640, 480), Some(2000), None)
             .unwrap();
         db.update_thumb_path(prov, Path::new("t/p.jpg"), 1, None)
             .unwrap();
         // evicted: メタデータ抽出済み・LRU削除でstate=0へ戻った状態
         let evicted = by_name(&db, "evicted.jpg");
-        db.update_metadata(evicted, 640, 480, Some(3000), None)
+        db.update_metadata(evicted, Dimensions::original(640, 480), Some(3000), None)
             .unwrap();
 
         let missing = db.ids_missing_metadata().unwrap();
@@ -3491,7 +4055,7 @@ mod tests {
             } else {
                 "SONY ILCE-7M3"
             };
-            db.update_metadata(id, 400, 300, None, Some(camera))
+            db.update_metadata(id, Dimensions::original(400, 300), None, Some(camera))
                 .unwrap();
         }
         db
@@ -4055,8 +4619,13 @@ mod tests {
             .id;
         assert_eq!(search_names(&db, "camera:iPhone"), ["IMG_1234.jpg"]);
 
-        db.update_metadata(id, 400, 300, None, Some("Canon EOS R5"))
-            .unwrap();
+        db.update_metadata(
+            id,
+            Dimensions::original(400, 300),
+            None,
+            Some("Canon EOS R5"),
+        )
+        .unwrap();
         assert!(
             search_names(&db, "camera:iPhone").is_empty(),
             "古いカメラ名では引けなくなる"

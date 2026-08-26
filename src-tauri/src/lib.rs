@@ -332,8 +332,21 @@ fn update_config(state: &AppState, mutate: impl FnOnce(&mut Config)) -> Result<(
 struct MediaItemDto {
     id: i64,
     file_name: String,
+    /// **原本**の寸法。グリッドの枠確保に使う（未抽出時は0）
     width: i64,
     height: i64,
+    /// **埋め込みプレビュー**の寸法。RAWで配るのはこの絵で、原本より小さいことが
+    /// 多い（HDR PQのCR3は 6000x4000 に対して 1620x1080）。
+    ///
+    /// **null は「まだ確かめていない」**。RAW以外は配るのが原本そのものなので
+    /// 常に null、RAWは確かめた時点で必ず入る（原本と同じ値のこともある）。
+    /// どちらにせよ、**null なら `width`/`height` を使えばよい**
+    ///
+    /// ビューアは下敷きの大きさ・等倍の倍率・先読みの予算をこちらで決める
+    /// （`ui/src/App.tsx` の `servedSize`）。原本で決めると、届いた絵と
+    /// 大きさが合わずに**差し替えの瞬間に絵が縮む**
+    preview_width: Option<i64>,
+    preview_height: Option<i64>,
     /// 表示・グルーピング用の日時（撮影日時、なければmtime。Unixエポックミリ秒）
     taken_at_ms: i64,
     /// 属する表示日（ローカル日付のYYYYMMDD整数）。スパースタイムラインの部分更新に使う
@@ -379,6 +392,8 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
                 .unwrap_or_default(),
             width: r.width.unwrap_or(0),
             height: r.height.unwrap_or(0),
+            preview_width: r.preview_width,
+            preview_height: r.preview_height,
             taken_at_ms: r.taken_at_ms.unwrap_or(r.mtime_ms),
             day_key: r.day_key,
             mtime_ms: r.mtime_ms,
@@ -2804,6 +2819,71 @@ pub fn run() {
                             let _ = index_handle.emit("cameras-updated", ());
                         }
                         publish("camera", total, total, false, incomplete);
+
+                        // 第3段: 寸法の後追い補完（第6部 段階F-4）。段階F-4より前に
+                        // 取り込んだRAWは `width/height` に埋め込みプレビューの寸法が
+                        // 入ったままなので、原本の申告を読んで入れ直す。
+                        //
+                        // **帯は出さない**。直しても見た目はほぼ変わらない
+                        // （UIは `preview_width` がNULLなら `width` へ落とすので、
+                        // 配る絵の寸法は前後で同じ。動くのは一覧の枠の縦横比だけで、
+                        // 原本とプレビューは同じ絵なので比もほぼ同じ）。
+                        // 動いた行は下で `media-updated` を出す。
+                        //
+                        // **サムネイルは作り直さない**。キューへ投げると絵まで作り直す
+                        // ことになるが、絵は既に正しい。ここは絵を1枚も起こさない
+                        // （値段は `thumbs::read_exif_declaration` に書いた。
+                        // TIFF系RAWはコンテナ読みがファイル全体を読むので安くはない）
+                        let mut after_id = 0i64;
+                        while let Ok(batch) = db.dimensions_to_backfill(after_id, 200) {
+                            if batch.is_empty() {
+                                break;
+                            }
+                            after_id = batch.last().map(|t| t.id).unwrap_or(after_id);
+                            type Backfilled = (
+                                pictkura_core::db::DimensionTarget,
+                                pictkura_core::db::Dimensions,
+                            );
+                            let results: Vec<Backfilled> = batch
+                                .into_iter()
+                                // 開けないファイル・クラウドにしか実体が無いファイルは
+                                // **印を付けずに飛ばす**（カメラ補完と同じ理由）。
+                                // ここで「確かめた」と書くと、外付けを繋いだ日が来ても
+                                // 二度と読み直されない
+                                .filter(|t| t.path.is_file())
+                                .filter(|t| !pictkura_core::cloud::is_cloud_only_path(&t.path))
+                                // **開けなかった行は印を付けずに飛ばす**。権限や
+                                // 共有ロックで一時的に読めないだけなら、読める日に
+                                // 拾い直せる（ゲート1のP2）
+                                .filter_map(|t| {
+                                    let dims = pictkura_core::thumbs::backfilled_dimensions(
+                                        &t.path, t.width, t.height,
+                                    )?;
+                                    Some((t, dims))
+                                })
+                                .collect();
+                            // 丸ごと飛ばした束（外付けが未接続・クラウドのみ）で
+                            // 空の書き込みトランザクションを開かない
+                            if results.is_empty() {
+                                std::thread::sleep(std::time::Duration::from_millis(20));
+                                continue;
+                            }
+                            match db.set_dimensions(&results) {
+                                // **寸法が動いた行はUIへ知らせる**。一覧の枠は
+                                // `width/height` から決まるので、知らせないと
+                                // 次に開き直すまで古い縦横比のまま（ゲート1のP2）
+                                Ok(moved) => {
+                                    for id in moved {
+                                        if let Ok(Some(rec)) = db.get_by_id(id) {
+                                            let _ = index_handle
+                                                .emit("media-updated", MediaItemDto::from(rec));
+                                        }
+                                    }
+                                }
+                                Err(_) => break, // 印を付けていないので次回起動でやり直せる
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
                     });
                 // **「作成中」を出したまま消えない**（ゲート1の指摘）。ここで落ちると
                 // `building` が真のまま残り、UIは永久に作成中の帯を出し続ける。

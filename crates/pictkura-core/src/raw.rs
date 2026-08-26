@@ -802,11 +802,7 @@ fn decode_order(mut boxes: Vec<Cr3Hevc>, min_long_edge: u32) -> Vec<Cr3Hevc> {
 /// 16MBを持ち越さずに済む（3段目が最大128MBを読むので、抱えたままだと
 /// ワーカーの数だけピークが積み上がる）。
 fn cr3_hevc_boxes(path: &Path, head: &[u8]) -> Vec<Cr3Hevc> {
-    if !path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("cr3"))
-    {
+    if !is_bmff_raw_path(path) {
         return Vec::new();
     }
     [b"PRVW", b"THMB"]
@@ -871,9 +867,9 @@ fn cr3_hevc_preview(boxes: Vec<Cr3Hevc>, floor: u32, min_long_edge: u32) -> Opti
 ///
 /// MRWは独自のブロック構造（`\x00MRM` の下に `\x00PRD`・`\x00TTW`…）で、
 /// EXIFは `TTW` の中に**TIFFのまま**入っている。ブロックを辿るだけなので
-/// 読むのは先頭側だけで済む。
-fn mrw_tiff_block(path: &Path) -> Option<Vec<u8>> {
-    let head = read_head(path, PATCHED_TIFF_HEAD)?;
+/// 読むのは先頭側だけで済む——`head` は呼び出し側が読んだ先頭
+/// [`PATCHED_TIFF_HEAD`] バイト。
+fn mrw_tiff_block(head: &[u8]) -> Option<Vec<u8>> {
     if head.get(..4)? != b"\x00MRM" {
         return None;
     }
@@ -903,6 +899,28 @@ fn long_edge(bytes: &[u8]) -> u32 {
         .map_or(0, |(w, h)| w.max(h))
 }
 
+/// [`patched_tiff_metadata`] の結果。
+pub enum PatchedTiff {
+    /// 版番号を直した（あるいはMRWの `TTW` を取り出した）先頭バイト列
+    Patched(Vec<u8>),
+    /// 読めたが、直す対象ではない（普通のTIFF・BigTIFF・TIFFですらない形式）
+    NotApplicable,
+    /// 読めなかった（権限・共有ロック・外付けが抜けた）
+    Unreadable,
+}
+
+/// **中身は長さだけ出す。** `Patched` は先頭 [`PATCHED_TIFF_HEAD`] バイトを
+/// 抱えているので、素朴に導出するとテストが落ちたときに256KBが流れる。
+impl std::fmt::Debug for PatchedTiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Patched(buf) => write!(f, "Patched({}バイト)", buf.len()),
+            Self::NotApplicable => write!(f, "NotApplicable"),
+            Self::Unreadable => write!(f, "Unreadable"),
+        }
+    }
+}
+
 /// **TIFFのふりをしていない**TIFF系RAWのメタデータを、普通のEXIFとして
 /// 読めるバイト列にして返す（`thumbs::read_exif` が使う）。
 ///
@@ -919,27 +937,43 @@ fn long_edge(bytes: &[u8]) -> u32 {
 /// こと（`thumbs::read_raw_partial`）——撮影日時・カメラ名・向きは
 /// いずれも先頭側にあるので、これで取れる
 /// （実測: 先頭16KBでORF・RW2とも全項目が一致）。
-pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
+///
+/// **読めなかった**（`Unreadable`）と**直す対象ではない**（`NotApplicable`）は
+/// 分けて返す。畳むと、一時的に読めないだけのファイルを「この形式には
+/// メタデータが無い」と取り違え、後追いが「確かめた」印を付けてしまう
+/// （[`crate::thumbs::backfilled_dimensions`]・ゲート1のP2）。
+pub fn patched_tiff_metadata(path: &Path) -> PatchedTiff {
+    // **先頭は一度だけ読む。** MRWの `TTW` 探しと版番号の直しは同じバイト列で
+    // 足りるので、開き直す理由が無い（開き直しは「1度目は通ったのに2度目が
+    // 落ちる」隙間を増やす）
+    let Some(head) = read_head(path, PATCHED_TIFF_HEAD) else {
+        return PatchedTiff::Unreadable;
+    };
     // MRWは版番号ではなく**入れ物ごと独自**で、TIFFは中の `TTW` に入っている
-    if let Some(block) = mrw_tiff_block(path) {
-        return Some(block);
+    if let Some(block) = mrw_tiff_block(&head) {
+        return PatchedTiff::Patched(block);
     }
-    let head = read_window(path, 0, PATCHED_TIFF_HEAD)?;
-    let byte_order = head.get(..2)?;
+    let Some(byte_order) = head.get(..2) else {
+        return PatchedTiff::NotApplicable;
+    };
     let big_endian = match byte_order {
         b"II" => false,
         b"MM" => true,
-        _ => return None, // TIFFですらない（CR3・RAF・X3F等）
+        _ => return PatchedTiff::NotApplicable, // TIFFですらない（CR3・RAF・X3F等）
+    };
+    // 名前は**位置**で付ける。`lo`/`hi` だと big-endian で逆になる
+    let (Some(b2), Some(b3)) = (head.get(2).copied(), head.get(3).copied()) else {
+        return PatchedTiff::NotApplicable;
     };
     let version = if big_endian {
-        u16::from_be_bytes([*head.get(2)?, *head.get(3)?])
+        u16::from_be_bytes([b2, b3])
     } else {
-        u16::from_le_bytes([*head.get(2)?, *head.get(3)?])
+        u16::from_le_bytes([b2, b3])
     };
     // 42（普通のTIFF）と43（BigTIFF）は直す対象ではない。前者はそもそも
     // ここへ来ないし、後者は構造が違うので版番号を替えても読めない
     if version == 42 || version == 43 {
-        return None;
+        return PatchedTiff::NotApplicable;
     }
     // 返すのは**読んだ先頭ぶんだけ**。撮影日時も向きもカメラ名も先頭側に
     // あるので、ファイルと同じ長さまで0で嵩上げする必要はない——それをやると
@@ -954,8 +988,9 @@ pub fn patched_tiff_metadata(path: &Path) -> Option<Vec<u8>> {
     } else {
         [0x2A, 0x00]
     };
-    buf.get_mut(2..4)?.copy_from_slice(&patched);
-    Some(buf)
+    // 版番号を読めている＝4バイト以上あることは上で確定している
+    buf[2..4].copy_from_slice(&patched);
+    PatchedTiff::Patched(buf)
 }
 
 /// ファイルの指定位置から最大 `len` バイト読む（足りなければ読めた分だけ）。
@@ -971,12 +1006,20 @@ fn read_window(path: &Path, offset: usize, len: usize) -> Option<Vec<u8>> {
 }
 
 /// ファイルの先頭を最大 `limit` バイト読む。
+///
+/// **1バイトも読めなければ `None`**（[`read_window`] と揃えた）。0バイトの
+/// ファイルは「開けたが中身が無い」であって「読んで確かめられた」ではない
+/// ——同期や書き戻しの途中でRAWが一時的に空になることは実際にあり、
+/// そこへ後追いが「確かめた」印を付けると二度と直らない
+/// （[`crate::thumbs::backfilled_dimensions`]・ゲート2のP2）。
+/// 絵を探す側の呼び出しは、いずれも `None` を「ここでは見つからなかった」
+/// として扱うので影響しない。
 fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
     use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
     let mut buf = Vec::new();
     file.take(limit as u64).read_to_end(&mut buf).ok()?;
-    Some(buf)
+    (!buf.is_empty()).then_some(buf)
 }
 
 /// ISO-BMFF（CR3等）から**TIFF形式のメタデータブロック**を取り出す。
@@ -986,8 +1029,13 @@ fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
 /// `CMT2`（Exif IFD: 撮影日時）に、**中身はTIFFのまま**入れている。
 /// このボックスの中身をそのままEXIFパーサへ渡せば、普通のJPEGと同じに読める。
 ///
-/// 箱を辿るだけなので読むのはヘッダ周辺だけ（数十KB）。
-pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
+/// 箱を辿るだけなので、読むのは先頭1MBだけ（画素データ `mdat` には触らない）。
+///
+/// **読めなかったときは `None`**、箱でなかった・箱に入っていなかったときは
+/// 空の `Some`。呼ぶ側が「一時的に読めないだけ」と「この形式には無い」を
+/// 見分けられないと、読めない行に「確かめた」印を付けてしまう
+/// （[`crate::thumbs::backfilled_dimensions`]）。
+pub fn bmff_metadata_blocks(path: &Path) -> Option<Vec<Vec<u8>>> {
     /// ISO-BMFFで中に箱が入っている（＝再帰して良い）コンテナ。
     /// `uuid` は先頭16バイトがUUIDで、その後ろに子の箱が続く
     const CONTAINERS: &[&[u8; 4]] = &[b"moov", b"trak", b"mdia", b"minf", b"stbl", b"uuid"];
@@ -1025,12 +1073,81 @@ pub fn bmff_metadata_blocks(path: &Path) -> Vec<Vec<u8>> {
     }
 
     // moovはCR3ではファイル先頭側にある。画素データ（mdat）まで読まない
-    let Some(head) = read_head(path, 1024 * 1024) else {
-        return Vec::new();
-    };
+    let head = read_head(path, 1024 * 1024)?;
     let mut out = Vec::new();
     walk(&head, 0, &mut out);
-    out
+    Some(out)
+}
+
+/// 原本（センサー）の寸法を、EXIFの申告から読む。**絵は1枚も起こさない**。
+///
+/// `media.width/height` に入れる値がこれ。RAWで配信するのは
+/// [`embedded_preview_at_least`] が返す埋め込みプレビューで、**原本より小さいことが多い**
+/// （HDR PQのCR3は1620x1080で、原本は6000x4000）。プレビューの寸法を原本として
+/// 記録すると列の名前が嘘になるので、申告が読めるときはこちらを使う。
+///
+/// **どこに書いてあるかは社ごとに違う。** 手元のサンプル25件
+/// （raw.pixls.us のCC0が24件＋EOS R8の非圧縮RAWが1件）を全部読んで確かめた結果:
+///
+/// | 読む場所 | 当たる社 | 例（プレビュー → 申告） |
+/// |---|---|---|
+/// | Exif IFDの `PixelXDimension`/`PixelYDimension`（この関数） | Canon CR2・Phase One IIQ・Sony ARW・Samsung SRW・Apple DNG | CR2(20D) 1536x1024 → 3504x2336 |
+/// | ——（**DNGは社で割れる**。Appleは持ち、LeicaとBlackmagicは持たない） | | |
+/// | CR3の `CMT1`（[`cr3_declared_dimensions`]） | Canon CR3 | R8 1620x1080 → 6000x4000 |
+/// | **このパーサからは届かない** | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR・Fujifilm RAF・Leica RWL/DNG・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW・Blackmagic DNG | 原寸はSubIFDの中にある |
+/// | 申告はあるが読めない | Kodak KDC | Exif IFDに 3088x2310 が入っているが、`read_from_container` が `Truncated field value` でファイルごと拒む |
+///
+/// **IFD0の `ImageWidth` は使わない。** TIFF系RAWのIFD0は「そのIFDが持っている絵」の
+/// 寸法で、そこにサムネイルを置く社がある——NEF(D2H)は160x120、Leica M8のDNGは320x240。
+/// Pentax PEFは3936x2624と**実寸より大きい**（マスク領域込み）。当たる社が1つ増えるより、
+/// 別の絵の寸法を原本と言い張るほうが害が大きい。
+///
+/// KDCの行は「無い」ではなく**取りに行けていない**（2026-08-25にゲート2が指摘し、
+/// 実物で確かめた）。`patched_tiff_metadata` の側が使っている
+/// `continue_on_error` を素のコンテナ読みにも回せば届くはずだが、撮影日時と
+/// カメラ名の取り方まで変わるのでこのPRではやらない。
+///
+/// **JPEGやHEIFには使わない**（呼ぶ側の [`crate::thumbs::read_exif`] が落としている）。
+/// 編集で縮めた写真は `PixelXDimension` が古いまま残ることがあり、実物と食い違う。
+/// RAWは書き換えない形式なので、その心配が無い。
+pub(crate) fn exif_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
+    declared_dimensions(exif, Tag::PixelXDimension, Tag::PixelYDimension)
+}
+
+/// CR3の `CMT1` が申告する原本の寸法。
+///
+/// CR3のIFD0（＝`CMT1`）は**絵を持たない**。Canonが撮影時の寸法をそのまま書いているので、
+/// TIFF系RAWと違ってサムネイルの寸法にはならない。手元の2機種で、`moov` の `CRAW`
+/// トラック（＝生データそのものの寸法）と一致することを確かめた: R8が6000x4000、
+/// R6が3408x2272（1.6xクロップで撮った1枚なので、3408のほうが正しい）。
+///
+/// 呼ぶ側（[`crate::thumbs::read_exif`]）は `CMT1`〜`CMT4` を順に渡し、最初に
+/// 当たったものを採る。**`CMT1` が先頭に来る前提**で、他の箱は `ImageWidth` を
+/// 持たないので実際には当たらない（手元の2機種で確認）。
+pub(crate) fn cr3_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
+    declared_dimensions(exif, Tag::ImageWidth, Tag::ImageLength)
+}
+
+/// 2つのタグを幅・高さとして読む。**両方揃って0でないときだけ**返す
+/// （片方しか入っていない申告を「幅だけ分かった」と扱わない）。
+fn declared_dimensions(exif: &exif::Exif, width: Tag, height: Tag) -> Option<(u32, u32)> {
+    let uint = |tag: Tag| -> Option<u32> {
+        exif.get_field(tag, In::PRIMARY)?
+            .value
+            .get_uint(0)
+            .filter(|v| *v > 0)
+    };
+    Some((uint(width)?, uint(height)?))
+}
+
+/// 中身がISO-BMFF（箱の入れ子）のRAWか。いまはCanonのCR3だけ。
+///
+/// [`bmff_metadata_blocks`] は箱でないファイルにも空を返すが、その前に1MB読む。
+/// **原寸の申告のためだけに読み直さない**よう、拡張子で先に切るために要る。
+pub fn is_bmff_raw_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("cr3"))
 }
 
 /// パスの拡張子がRAWか。
@@ -1531,7 +1648,9 @@ mod tests {
                 "{name}: 版番号が独自のままでは読めない"
             );
 
-            let patched = patched_tiff_metadata(&path).expect("直せる");
+            let PatchedTiff::Patched(patched) = patched_tiff_metadata(&path) else {
+                panic!("{name}: 版番号を直せる");
+            };
             let exif = exif::Reader::new().read_raw(patched).expect("直せば読める");
             assert_eq!(
                 exif.get_field(Tag::Orientation, In::PRIMARY)
@@ -1555,11 +1674,72 @@ mod tests {
         buf.resize(4 * 1024 * 1024, 0); // 画素データのつもりの重し
         std::fs::write(&path, &buf).unwrap();
 
-        let patched = patched_tiff_metadata(&path).expect("版番号を直せる");
+        let PatchedTiff::Patched(patched) = patched_tiff_metadata(&path) else {
+            panic!("版番号を直せる");
+        };
         assert!(
             patched.len() <= PATCHED_TIFF_HEAD,
             "読むのは先頭ぶんだけ: {}",
             patched.len()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 読めないorfは対象外と区別する() {
+        // 「直す対象ではない」に畳むと、一時的に読めないだけのORF・RW2に
+        // 後追いが「確かめた」印を付けて二度と直らない（ゲート1の4周目のP2）
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.orf");
+        let mut buf = build_tiff(&[entry(274, 3, &[6])], &[], false);
+        buf[2] = b'R';
+        buf[3] = b'O';
+        std::fs::write(&path, &buf).unwrap();
+        assert!(matches!(
+            patched_tiff_metadata(&path),
+            PatchedTiff::Patched(_)
+        ));
+
+        // 共有を許さずに開いたまま持つ
+        let _lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(
+            matches!(patched_tiff_metadata(&path), PatchedTiff::Unreadable),
+            "読めないのと直す対象でないのは別"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 箱を辿れないcr3は空と区別する() {
+        // CR3はコンテナ読みも版番号の直しも素通りするので、ここが3度目の
+        // `File::open` になる。**空の `Vec` に畳むと**、前の2回が通った後に
+        // 共有ロックが掛かった1枚を「箱にメタデータが無いCR3」と取り違え、
+        // 後追いが「確かめた」印を付けて二度と直らない
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.cr3");
+        // 箱としては正しいが `CMT*` を持たない個体（＝空の `Some` が正解）
+        std::fs::write(&path, b"\x00\x00\x00\x0cftypcrx ").unwrap();
+        assert_eq!(
+            bmff_metadata_blocks(&path).expect("読める").len(),
+            0,
+            "読めて、箱が無いだけ"
+        );
+
+        // 共有を許さずに開いたまま持つ
+        let _lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(
+            bmff_metadata_blocks(&path).is_none(),
+            "読めないのと箱が無いのは別"
         );
     }
 
@@ -1573,12 +1753,18 @@ mod tests {
             buf[2..4].copy_from_slice(&version.to_le_bytes());
             let path = dir.path().join("sample.dng");
             std::fs::write(&path, &buf).unwrap();
-            assert!(patched_tiff_metadata(&path).is_none(), "版{version}");
+            assert!(
+                matches!(patched_tiff_metadata(&path), PatchedTiff::NotApplicable),
+                "版{version}"
+            );
         }
         // TIFFですらないファイル（CR3・RAF・X3F）も対象外
         let path = dir.path().join("sample.cr3");
         std::fs::write(&path, b"\x00\x00\x00\x18ftypcrx ").unwrap();
-        assert!(patched_tiff_metadata(&path).is_none());
+        assert!(matches!(
+            patched_tiff_metadata(&path),
+            PatchedTiff::NotApplicable
+        ));
     }
 
     #[test]
@@ -1623,9 +1809,80 @@ mod tests {
         file.extend_from_slice(&moov);
         std::fs::write(&path, &file).unwrap();
 
-        let blocks = bmff_metadata_blocks(&path);
+        let blocks = bmff_metadata_blocks(&path).expect("読める");
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].starts_with(b"II"), "TIFFの中身がそのまま出る");
+    }
+
+    /// Exif IFD（`PixelXDimension` 等）をぶら下げたTIFFを組み立てる。
+    ///
+    /// `PixelXDimension` はIFD0に置いてもパーサが別のタグとして読む
+    /// （文脈が違う）ので、実物と同じく `ExifIFDPointer` の先へ置く。
+    fn tiff_with_exif_ifd(ifd0: &[Entry], exif_ifd: &[(u16, u32)]) -> Vec<u8> {
+        /// Exif IFDを置く場所。IFD0とその付随データより十分後ろ
+        const AT: usize = 0x400;
+
+        let mut sub: Vec<u8> = (exif_ifd.len() as u16).to_le_bytes().to_vec();
+        for (tag, value) in exif_ifd {
+            sub.extend(tag.to_le_bytes());
+            sub.extend(4u16.to_le_bytes()); // LONG
+            sub.extend(1u32.to_le_bytes()); // 値は1つ
+            sub.extend(value.to_le_bytes()); // 4バイトに収まるので直接置く
+        }
+        sub.extend(0u32.to_le_bytes()); // 次のIFDは無し
+
+        let mut entries: Vec<Entry> = Vec::new();
+        for e in ifd0 {
+            entries.push(entry(e.tag, e.kind, &e.values));
+        }
+        entries.push(entry(0x8769, 4, &[AT as u32])); // ExifIFDPointer
+        build_tiff(&entries, &[(AT, sub)], false)
+    }
+
+    #[test]
+    fn exif_ifdの申告から原寸を読む() {
+        // Canon CR2・Sony ARW・Phase One IIQ 等はここに原寸を書く。
+        // IFD0のImageWidthは埋め込みプレビューの寸法（実測: CR2 20Dで1536x1024）
+        let buf = tiff_with_exif_ifd(
+            &[entry(256, 4, &[1536]), entry(257, 4, &[1024])],
+            &[(0xA002, 3504), (0xA003, 2336)],
+        );
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), Some((3504, 2336)));
+    }
+
+    #[test]
+    fn ifd0のimagewidthは原寸として読まない() {
+        // Nikon NEFのIFD0は160x120の切手を指す。ここを原寸と信じると、
+        // 2400万画素の写真が160x120としてDBに入る
+        let buf = build_tiff(&[entry(256, 4, &[160]), entry(257, 4, &[120])], &[], false);
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), None);
+        // CR3の `CMT1` だけは別。あちらのIFD0は絵を持たない
+        assert_eq!(cr3_declared_dimensions(&exif), Some((160, 120)));
+    }
+
+    #[test]
+    fn 片方しか無い申告は使わない() {
+        let buf = tiff_with_exif_ifd(&[], &[(0xA002, 3504)]);
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), None);
+    }
+
+    #[test]
+    fn ゼロの申告は使わない() {
+        let buf = tiff_with_exif_ifd(&[], &[(0xA002, 0), (0xA003, 2336)]);
+        let exif = exif::Reader::new().read_raw(buf).unwrap();
+        assert_eq!(exif_declared_dimensions(&exif), None);
+    }
+
+    #[test]
+    fn bmffを見に行くのはcr3だけ() {
+        // 原寸の申告のために、TIFF系RAWで1MB読み直さないための門
+        assert!(is_bmff_raw_path(Path::new("a.CR3")));
+        assert!(is_bmff_raw_path(Path::new("a.cr3")));
+        assert!(!is_bmff_raw_path(Path::new("a.cr2")));
+        assert!(!is_bmff_raw_path(Path::new("a.nef")));
     }
 
     #[test]
@@ -1636,7 +1893,7 @@ mod tests {
         let mut buf = 999_999u32.to_be_bytes().to_vec();
         buf.extend_from_slice(b"moov");
         std::fs::write(&path, &buf).unwrap();
-        assert!(bmff_metadata_blocks(&path).is_empty());
+        assert!(bmff_metadata_blocks(&path).expect("読める").is_empty());
     }
 
     #[test]

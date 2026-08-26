@@ -44,6 +44,13 @@ pub struct ExifData {
     pub orientation: u8,
     /// カメラ名（メーカー＋機種）。検索とファセットのためDBへ正規化保存する
     pub camera: Option<String>,
+    /// 原本（センサー）の寸法。**RAWでEXIFが申告しているときだけ**入る
+    /// （読み方と当たる社は [`crate::raw::exif_declared_dimensions`] の表）。
+    ///
+    /// **向きは当てていない**。`orientation` と同じく、回すのは呼び出し側。
+    /// RAW以外では常に `None`——編集で縮めた写真は申告が古いまま残ることがあり、
+    /// 実物と食い違う
+    pub original: Option<(u32, u32)>,
 }
 
 impl Default for ExifData {
@@ -53,6 +60,7 @@ impl Default for ExifData {
             thumbnail: None,
             orientation: 1,
             camera: None,
+            original: None,
         }
     }
 }
@@ -216,7 +224,7 @@ pub fn read_exif_info(path: &Path) -> ExifInfo {
     // CR3のようにTIFFではないRAWは、箱に分かれて入っているメタデータを
     // それぞれ読んで合成する（機種はCMT1、撮影パラメータはCMT2…）
     let mut info = ExifInfo::default();
-    for block in crate::raw::bmff_metadata_blocks(path) {
+    for block in crate::raw::bmff_metadata_blocks(path).unwrap_or_default() {
         let Ok(exif) = exif::Reader::new().read_raw(block) else {
             continue;
         };
@@ -283,7 +291,7 @@ fn exif_dt_to_local_ms(dt: &exif::DateTime) -> Option<i64> {
 /// 4. **埋め込みプレビューJPEGのEXIF**（RAF など）。カメラが書いたJPEGなので
 ///    撮影日時・カメラ名・向きは実体と同じものが入っている
 pub fn read_exif(path: &Path) -> ExifData {
-    read_exif_inner(path, Some(crate::raw::USABLE_LONG_EDGE))
+    read_exif_inner(path, Want::Image(crate::raw::USABLE_LONG_EDGE))
 }
 
 /// 撮影日時・向き・カメラ名だけを読む（**絵は残さない**）。
@@ -296,55 +304,228 @@ pub fn read_exif(path: &Path) -> ExifData {
 /// ファイル名かmtimeの日付で**別の日のフォルダへ入れてしまう**ので、
 /// 日付が取れなかったときだけ先頭16MBのプレビューを見る（ゲート1のP2）。
 pub fn read_exif_meta(path: &Path) -> ExifData {
-    read_exif_inner(path, None)
+    read_exif_inner(path, Want::Meta)
+}
+
+/// 寸法の申告だけが要る場面（段階F-4の後追い）。
+///
+/// [`read_exif_meta`] との違いは**絵を1枚も探さないこと**。あちらは撮影日時が
+/// 取れなかったとき、絵にしか日付を書かない社（Sigma X3F・Hasselblad FFF・
+/// Leaf MOS）のために埋め込みプレビューを探しに降り、**最大128MBを読む**
+/// （[`crate::raw::embedded_preview_at_least`] の3段目）。後追いに日付は要らない
+/// ——書き換えるのは寸法の4列だけなので、その3段目へ降りる理由が無い。
+///
+/// **それでも「ヘッダだけ」ではない。** 入口の [`read_exif_container`] が使う
+/// `exif::Reader::read_from_container` は、先頭4KBを見て**TIFFだと分かった時点で
+/// ファイル全体を読む**（kamadak-exif 0.6.1 の作り）。安いのはCR3（箱を辿るだけ）と、
+/// TIFFに見えないORF・RW2・RAF・X3Fだけで、cr2・nef・arw・dng・3fr・iiq 等は
+/// **1枚まるごと**読む。1件あたりの実測（OSのキャッシュが温まった状態・6回まわして
+/// 最小〜最大）は **0.4〜13.1ms**。**CR3とORF・RW2以外は大きさに比例する**:
+/// Hasselblad 3FR（51MB）は11.6〜13.1ms、Apple DNG（27MB）は6.2〜9.1ms、
+/// Canon CR2（10MB）は2.2〜2.4ms。**CR3は27MBでも1.0〜1.1ms**（箱を辿るだけ）、
+/// Olympus ORF（7MB）は0.4ms（TIFFに見えないので先頭だけ）。
+///
+/// **この数字は下限**。同じファイルを6回続けて読んだ値なので、2回目以降は
+/// OSのキャッシュに乗っている（51MBを13.1msは3.9GB/s＝ディスクではなくメモリの
+/// 速さ）。掃き寄せは**一生に一度しか触らない**ので、実際には常に冷えた状態で
+/// 走り、値段はほぼ**ファイル全体の読み出し時間**になる。読むバイト数は
+/// **ライブラリのRAWの総容量**そのものなので、自分のディスクの速さで割れば出る
+/// （2万枚・平均25MBなら500GB）。
+///
+/// それでも作りを変えないのは、**1件あたりの値段が同種で前例がある**ため
+/// ——カメラ補完（[`read_exif_info`] を使う第2段）が同じ入口を通る。
+/// ただし**対象の行数は違う**（あちらは `camera_id IS NULL` で、既に回った
+/// ライブラリでは空）ので、「重い仕事が増えていない」とまでは言えない。
+///
+/// **読めなかったときは `None`。** 権限・共有ロック・途中で切れた読み出しを
+/// 「EXIFが空」に畳むと、呼び出し側が「開けたが申告を持たない社」（Kodak KDC 等）と
+/// 見分けられない。前者は読める日が来るが、後者は何度読んでも同じなので、
+/// 印を付けてよいのは後者だけ（ゲート1のP2）。
+pub fn read_exif_declaration(path: &Path) -> Option<ExifData> {
+    let (data, readable) = read_exif_checked(path, Want::Declaration);
+    readable.then_some(data)
 }
 
 /// 長辺 `max_edge` の絵に縮めて出す場面用。RAWのプレビューは**それを満たせば
 /// 十分**で、原寸を探してファイル全体を読む必要はない
 /// （取り込み元の一覧と、ライブラリのサムネイル生成）。
 pub fn read_exif_for_preview(path: &Path, max_edge: u32) -> ExifData {
-    read_exif_inner(path, Some(max_edge))
+    read_exif_inner(path, Want::Image(max_edge))
 }
 
-/// `want_preview` はRAWの埋め込みプレビューを探すかどうかと、
-/// 「長辺どれだけあれば足りるか」。`None` なら探さない。
-fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
-    let container = read_exif_container(path);
+/// [`read_exif_for_preview`] に「**ファイルを読めたか**」を添えて返す。
+///
+/// 偽のときは寸法に「確かめた」印（`preview_*`）を付けてはいけない
+/// ——[`process_one`] を見よ。
+fn read_exif_for_preview_checked(path: &Path, max_edge: u32) -> (ExifData, bool) {
+    read_exif_checked(path, Want::Image(max_edge))
+}
+
+/// [`process_one`] がDBへ書く寸法を決める。**「確かめた」印を付けるかどうか**も
+/// ここ——印は `preview` が非NULLであること自体で、付けた行は後追い
+/// （[`crate::Db::dimensions_to_backfill`]）から永久に外れる。
+///
+/// - **RAWは原本と同じ寸法でも書く。** NULLは「まだ確かめていない」印で、
+///   段階F-4より前に取り込んだ行を後追いで拾うのに使う。RAW以外は配るのが
+///   原本そのものなので、確かめてもNULLのまま
+/// - **読み切れなかったファイルには印を付けない**（ゲート2のP2）。原寸の申告が
+///   コンテナのExif IFDにしか無い社（Canon CR2・Sony ARW・Apple DNG・
+///   Phase One IIQ）は、コンテナ読みが途中で落ちると `original` が空のまま——
+///   絵のほうは先頭16MBから見つかるので、印を付けると**プレビューの寸法を
+///   原寸と名乗った行が確定してしまう**。付けなければ後追いが読める日に直す
+/// - Orientation 5〜8 は90度系の回転 → 表示上の幅・高さは入れ替わる
+fn recorded_dimensions(
+    is_raw: bool,
+    readable: bool,
+    original: (u32, u32),
+    preview: (u32, u32),
+    orientation: u8,
+) -> crate::db::Dimensions {
+    let rotated = (5..=8).contains(&orientation);
+    let upright = |(w, h): (u32, u32)| if rotated { (h, w) } else { (w, h) };
+    let (disp_w, disp_h) = upright(original);
+    crate::db::Dimensions {
+        width: i64::from(disp_w),
+        height: i64::from(disp_h),
+        preview: (is_raw && readable)
+            .then(|| upright(preview))
+            .map(|(w, h)| (i64::from(w), i64::from(h))),
+    }
+}
+
+/// EXIFを何のために読むか。**絵を探すかどうか**がここで決まる。
+#[derive(Clone, Copy)]
+enum Want {
+    /// 撮影日時・カメラ名・向き。絵にしか日付が無い形式のためだけに、
+    /// 日付が取れなかったときは絵も探す
+    Meta,
+    /// 寸法の申告だけ。**絵は探さない**（段階F-4の後追い）。
+    /// 向きは正方形のプレビューを起こすときにだけ使う
+    Declaration,
+    /// 表示に使う絵。長辺がこれ以上あるものを探す
+    Image(u32),
+}
+
+/// `want` は「絵を探すか、探すなら長辺どれだけ要るか」。
+fn read_exif_inner(path: &Path, want: Want) -> ExifData {
+    read_exif_checked(path, want).0
+}
+
+/// [`read_exif_inner`] に「**ファイルを読めたか**」を添えて返す。
+///
+/// 添える相手は後追いだけ（[`read_exif_declaration`]）。読めなかったのに
+/// 空の [`ExifData`] を返すと、呼び出し側が「開けたが申告が無い社」と
+/// 見分けられず、**一時的に読めないだけの行に「確かめた」印**を付けてしまう。
+///
+/// 真になるのは**読み出しが1つも失敗しなかった**とき。「読み通した」ではない
+/// ——CR3・RAF・X3F・ORF・RW2 では、コンテナ読みは先頭4096バイトを見て
+/// 「知らない形式」と言うだけで、実際に中身を担保しているのは後段の
+/// `read_head`（256KB・1MB）のほう。
+///
+/// 開き直しが挟まる経路は**後の読みが失敗したら偽へ落とす**（開けた瞬間から
+/// 共有ロックが掛かるまでの隙間で嘘を付かないため）。
+fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
+    read_exif_from(path, read_exif_container(path), want)
+}
+
+/// [`read_exif_checked`] の本体。**コンテナ読みの結果を外から渡せる形**にして
+/// ある——読み出しが途中で落ちる筋（[`Container::ReadFailed`]）は移植性のある
+/// 形では起こせないので、テストはここへ直に渡して見張る（ゲート2のP2）。
+fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, bool) {
+    let (container, mut readable) = match container {
+        Container::Found(data) => (Some(data), true),
+        Container::Empty => (None, true),
+        // **開けないと分かった時点で降りる。** この先は開き直しが2回
+        // （`patched_tiff_metadata` と `bmff_metadata_blocks`）あり、
+        // どちらも同じ理由で落ちる。外付けが繋がっていないライブラリで
+        // 1件あたり2回の無駄な `File::open` を積まない
+        Container::Unopenable => return (ExifData::default(), false),
+        // **開けたのに途中で落ちたときは先へ進む。** TIFF系RAWのコンテナ読みは
+        // ファイル全体を読むので、巨大なRAWや外付けの一瞬の切断でここへ来る。
+        // 降りると絵を探す経路まで諦めることになり、作れたはずのサムネイルを
+        // 落とす（ゲート2のP3）——一覧のサムネイルが要求する長辺
+        // （[`process_one`] は `thumb_size`、既定512）なら、探索は先頭16MBで
+        // 止まる。**止まるかどうかは要求する長辺しだい**で、
+        // [`crate::raw::USABLE_LONG_EDGE`]（1600）以上を要求する経路——ビューア
+        // （[`raw_display_jpeg`]）と、`performance.thumbnail_size` を1600以上に
+        // した設定——では最大128MBまで読む（ゲート2のP3）。
+        //
+        // 取り下げた「読めた」は2か所へ効く: 後追い（[`read_exif_declaration`]）は
+        // 印を付けず、[`process_one`] は寸法の「確かめた」印を書かない
+        Container::ReadFailed => (None, false),
+    };
 
     // HEIFは**コンテナ自身が向きを持つ**（`irot`）。OSのデコーダはそれを適用して
     // 返すので、EXIF Orientationをそのまま流すと絵に二重に掛かって横倒しになる。
     // 撮影日時・カメラ名はEXIFのものをそのまま使う（第7部 段階G）
     if crate::heif::is_bmff_image_path(path) {
-        return ExifData {
+        let data = ExifData {
             orientation: 1,
             // 埋め込みJPEGサムネイルは（あっても）回転前の絵なので使わない。
             // 一覧用の小さい絵は heif::decode_thumbnail から作る
             thumbnail: None,
+            // 寸法はコンテナの `ispe` から取る（[`preview_dimensions`]）。
+            // HEIFの原本は配信する絵そのものなので、申告を持ち込む意味が無い
+            original: None,
             ..container.unwrap_or_default()
         };
+        return (data, readable);
     }
 
     let had_container = container.is_some();
     let mut result = container.unwrap_or_default();
     if !crate::raw::is_raw_path(path) {
-        return result;
+        // **申告はRAWでしか信じない。** JPEGは編集で縮めても
+        // `PixelXDimension` が古いまま残ることがあり、実物と食い違う
+        // （そもそも実ファイルのヘッダから正確な寸法が読める）
+        result.original = None;
+        return (result, readable);
     }
 
     // ORF・RW2はTIFFの版番号が独自で、パーサに素通しされる。版番号だけ直せば
     // 読める——直さないと**撮影日時もカメラ名も向きも丸ごと落ちる**
+    //
+    // **ここも2度目の `File::open`**。コンテナ読みが通った直後に共有ロックが
+    // 掛かると読み直しだけが落ちるので、そのときは「読めた」を取り下げる
+    // ——取り下げないとORF・RW2が申告なしの印を付けられて二度と直らない
+    // （ゲート1の4周目のP2）
     if !had_container {
-        if let Some(buf) = crate::raw::patched_tiff_metadata(path) {
-            if let Some(exif) = read_raw_partial(buf) {
-                result = exif_data_from(&exif);
+        match crate::raw::patched_tiff_metadata(path) {
+            crate::raw::PatchedTiff::Patched(buf) => {
+                if let Some(exif) = read_raw_partial(buf) {
+                    result = exif_data_from(&exif);
+                }
             }
+            crate::raw::PatchedTiff::NotApplicable => {}
+            crate::raw::PatchedTiff::Unreadable => readable = false,
         }
     }
 
     // CR3等のISO-BMFFは、TIFF形式のメタデータを箱に入れて持っている。
     // 複数の箱に分かれている（機種はCMT1、撮影日時はCMT2）ので、
     // 取れた項目だけを拾って埋めていく
-    if result.taken_at_ms.is_none() {
-        for block in crate::raw::bmff_metadata_blocks(path) {
+    //
+    // **原寸の申告も `CMT1` にある**（[`crate::raw::cr3_declared_dimensions`]）ので、
+    // 撮影日時が既に取れていてもCR3なら見に行く。TIFF系RAWを巻き込むと、
+    // 申告を持たない社のために毎回1MB読み直すことになるので、拡張子で切る。
+    //
+    // **後追い（[`Want::Declaration`]）は日付のために辿らない**（PRコメント側の
+    // CodexのP2）。要るのは寸法の申告と向きだけなのに「撮影日時が空だから」で
+    // 入ると、**箱を持たない社でも1件あたり1MB読み直す**ことになる。当たるのは
+    // コンテナに日付を持たない社——Fujifilm RAF・Sigma X3F・Kodak KDC・
+    // Hasselblad FFF・Leaf MOS。いずれも箱は無いので、読んでも空が返るだけ
+    let wants_date = !matches!(want, Want::Declaration);
+    if (wants_date && result.taken_at_ms.is_none())
+        || (result.original.is_none() && crate::raw::is_bmff_raw_path(path))
+    {
+        // **箱を辿れたかどうかで読めたかを言い直す。** CR3はコンテナ読みも
+        // 版番号の直しも素通りするので、ここが**3度目の `File::open`**
+        // （コンテナ読み → `patched_tiff_metadata` → ここ）。前の2回が通った
+        // 後に共有ロックが掛かると箱は空で返り、そのまま進むと
+        // **読めていないのに印を付ける**
+        let blocks = crate::raw::bmff_metadata_blocks(path);
+        readable = readable && blocks.is_some();
+        for block in blocks.unwrap_or_default() {
             let Ok(exif) = exif::Reader::new().read_raw(block) else {
                 continue;
             };
@@ -354,10 +535,15 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
             if result.orientation == 1 {
                 result.orientation = from_block.orientation;
             }
+            // CR3のIFD0は絵を持たないので、`ImageWidth` が原本の寸法になる
+            // （TIFF系RAWでこれをやるとサムネイルの寸法を掴む）
+            result.original = result
+                .original
+                .or_else(|| crate::raw::cr3_declared_dimensions(&exif));
         }
     }
 
-    let Some(min_long_edge) = want_preview else {
+    let Want::Image(min_long_edge) = want else {
         // 絵は要らないが、**日付がプレビューにしか無い形式**はここで拾う。
         // 撮影日時がもう取れているならプレビューには触らない（大多数はこちら）
         //
@@ -368,7 +554,15 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
         // 払うのは**コンテナに日付が無い社だけ**（x3f 123ms・fff 194ms・
         // mos 68ms）で、大多数は0〜30msで素通りする。そもそも取り込みは
         // このあとファイル全体を読んで写す
-        if result.taken_at_ms.is_none() {
+        //
+        // **[`Want::Declaration`] はここへ来ても降りない**。後追いが要るのは
+        // 寸法の申告と向きだけで、日付のために全体を読む理由が無い（ゲート2のP2）
+        // **読めていないファイルではここへ降りない**（ゲート2のP3）。この
+        // 探索は要求する長辺が [`crate::raw::USABLE_LONG_EDGE`] なので**16MBで
+        // 止まらず、最大128MBまで読む**。読み出しが落ちた直後のファイルに
+        // それを払う意味は無い。素通りする社（CR3・ORF・RW2・X3F）は
+        // コンテナ読みが `Empty` なので `readable` は真のまま＝従来どおり降りる
+        if result.taken_at_ms.is_none() && readable && matches!(want, Want::Meta) {
             if let Some(preview) =
                 crate::raw::embedded_preview_at_least(path, crate::raw::USABLE_LONG_EDGE)
             {
@@ -378,7 +572,7 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
         // この入口は「絵は残さない」と約束している。コンテナのIFD1に切手が
         // 入っていた場合はここまで載ったままなので、明示的に落とす（ゲート2のP3）
         result.thumbnail = None;
-        return result;
+        return (result, readable);
     };
 
     // サムネイルは埋め込みプレビューJPEGを使う（カメラが書いた表示用の絵）。
@@ -391,7 +585,7 @@ fn read_exif_inner(path: &Path, want_preview: Option<u32>) -> ExifData {
         }
         result.thumbnail = Some(preview);
     }
-    result
+    (result, readable)
 }
 
 /// 先頭ぶんだけを渡されたTIFFを読む。
@@ -425,14 +619,47 @@ fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
     }
 }
 
+/// コンテナ読みの結果。**「ファイルを読めなかった」と「読めたがEXIFが無い」を
+/// 分ける**——RAWは前者だけ版番号を直して読み直すし、後追い
+/// （[`backfilled_dimensions`]）は前者に「確かめた」印を付けてはいけない。
+enum Container {
+    /// EXIFが取れた
+    Found(ExifData),
+    /// 最後まで読めたが、EXIFとして解釈できなかった
+    /// （CR3・ORF・RW2 のようにここを素通りする形式と、EXIFの無い写真）
+    Empty,
+    /// そもそも開けなかった（権限・外付けが未接続・消えた）。
+    /// この先の開き直しも同じ理由で落ちるので、呼び出し側はここで降りる
+    Unopenable,
+    /// **開けたが、読んでいる途中で落ちた**（巨大なRAWでの割り当て失敗や、
+    /// 外付け・ネットワークの一瞬の切断）。開き直せば通ることがあるので、
+    /// 呼び出し側は「読めた」を取り下げるだけで**先へ進む**（ゲート2のP3）
+    ReadFailed,
+}
+
 /// コンテナ（ファイル本体）のEXIFヘッダを読む。
-/// 読めなければ None。RAWは「読めなかった」と「EXIFが空だった」を
-/// 区別する必要がある（前者だけ版番号を直して読み直す）
-fn read_exif_container(path: &Path) -> Option<ExifData> {
-    let file = std::fs::File::open(path).ok()?;
+fn read_exif_container(path: &Path) -> Container {
+    let Ok(file) = std::fs::File::open(path) else {
+        return Container::Unopenable;
+    };
     let mut reader = BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
-    Some(exif_data_from(&exif))
+    match exif::Reader::new().read_from_container(&mut reader) {
+        Ok(exif) => Container::Found(exif_data_from(&exif)),
+        // 読み出しそのものが落ちたときだけ取り下げる。**形として読めなかった
+        // （`InvalidFormat` 等）は「読めた」に入れる**——CR3・ORF・RW2 は
+        // 正常な個体でも必ずここへ来るし、切れたファイルも何度読めば同じなので、
+        // 取り下げると後追いが毎回の起動でファイル全体を読み直す
+        //
+        // **`UnexpectedEof` の除外は 0.6.1 では発火しない。** 4つのコンテナ
+        // パーサ（jpeg・isobmff・png・webp）がEOFを `InvalidFormat` に畳んでから
+        // 返し、TIFF系は `read_to_end` なのでEOFを出さない——実物のソースで
+        // 確かめた。次の版で漏れてきたときに切れたファイルを読み直し続けない
+        // ための備えとして残す（`exif::Error` は `#[non_exhaustive]`）
+        Err(exif::Error::Io(e)) if e.kind() != std::io::ErrorKind::UnexpectedEof => {
+            Container::ReadFailed
+        }
+        Err(_) => Container::Empty,
+    }
 }
 
 /// パース済みEXIFから必要な項目を取り出す。
@@ -471,6 +698,8 @@ fn exif_data_from(exif: &exif::Exif) -> ExifData {
         thumbnail,
         orientation,
         camera: camera_name(ascii_field(exif, Tag::Make), ascii_field(exif, Tag::Model)),
+        // RAW以外はこの後 [`read_exif_inner`] が落とす
+        original: crate::raw::exif_declared_dimensions(exif),
     }
 }
 
@@ -626,8 +855,22 @@ fn source_image(
     Ok(image::open(path)?)
 }
 
-/// 画像の寸法（回転前）。RAWは埋め込みプレビューの寸法を使う。
-fn source_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbError> {
+/// **いま手にしている絵**の寸法を、起こさずに読む（向きは当てていない）。
+///
+/// RAW以外は原本そのもの。RAWだけ違って、返るのは `exif` を取ったときに掴んだ
+/// 埋め込みプレビューの寸法で、**原本より小さいことが多い**（HDR PQのCR3は
+/// 6000x4000 に対して 1620x1080）。原本の寸法は [`ExifData::original`] に別で入る。
+///
+/// ビューアはこの値で下敷きの大きさ・等倍の倍率・先読みの予算を決める
+/// （`ui/src/App.tsx` の `servedSize`）。原本のほうを渡すと、届いた絵と枠が
+/// 合わずに**差し替えの瞬間に絵が縮む**。
+///
+/// **配信される絵と一致する保証は無い。** ここへ来る `exif` は一覧のために
+/// 長辺512で探したもので、ビューアは長辺1600で探し直す——ファイル後方に
+/// 原寸プレビューを置く形式（Ricoh GR IIIのDNG・Sigma X3F）は、一覧が720x480を
+/// 掴んだ後にビューアが6000x4000を見つける。だからビューア側は絵が届いた時点で
+/// 実寸を測り直す（`servedNatural`）。
+fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbError> {
     // HEIFはコンテナの `ispe` を読むだけで分かる（デコード不要・実測0.2ms）。
     // 返すのは**回転を反映した表示上の寸法**なので、呼び出し側で入れ替えない
     // SVGはルート要素の width/height（無ければ viewBox）から読む
@@ -651,6 +894,72 @@ fn source_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbEr
         return Ok(reader.into_dimensions()?);
     }
     Ok(image::image_dimensions(path)?)
+}
+
+/// 段階F-4の後追い: **寸法の列だけ**を入れ直す。
+///
+/// 段階F-4より前に取り込んだRAWは、`width/height` に埋め込みプレビューの寸法が
+/// 入ったままで、原本の寸法（CR3なら `CMT1` の申告）を持っていない。
+/// メタデータ抽出済みなので、通常のキューからは漏れる。
+///
+/// **絵には触らない。** サムネイルは既に正しく、作り直しても同じものが出る。
+/// 絵を1枚も起こさないので[`process_one`]より桁で安いが、**ヘッダだけで済むとは
+/// 限らない**——値段は [`read_exif_declaration`] に書いた。
+///
+/// 引数の `width`/`height` はDBに入っている値（＝掴んだプレビューの寸法で、
+/// 向きは適用済み）。原本の申告が読めたときだけ、原本を `width/height` へ、
+/// 今の値を `preview_*` へ移す。申告が無ければ**今の値をそのまま両方へ**入れる
+/// ——確かめた印になり、次の起動では拾われない。
+///
+/// **読めなかったときは `None`。** 権限や共有ロックで一時的に読めないだけの
+/// ファイルに「確かめた」印を付けると、読める日が来ても二度と拾い直せない
+/// （ゲート1のP2）。「読めたが申告が無い」（Kodak KDC 等）とは区別する
+/// ——あちらは何度読んでも同じなので、印を付けて終わらせてよい。
+///
+/// 見分けるのは**読んだ本人**（[`read_exif_declaration`]）。ここで先に
+/// `File::open` を試すやり方は3周目まで入れていたが、試し開きと本番の読み出しの
+/// 間に共有ロックが掛かると同じ穴が開く（PRコメント側のCodexの指摘）。
+pub fn backfilled_dimensions(
+    path: &Path,
+    width: i64,
+    height: i64,
+) -> Option<crate::db::Dimensions> {
+    let current = (width, height);
+    // **読んだ本人に聞く。** 先に `File::open` で試し開きをしても、その後の
+    // 読み出しが失敗すれば同じ穴が開く——試し開きと本番の間に共有ロックが
+    // 掛かるのが典型で、[`read_exif_declaration`] はその失敗を返してくる
+    let exif = read_exif_declaration(path)?;
+    // **向きは基本的にDBの値に合わせる**（`current` は [`process_one`] が向きを
+    // 当てた後の値で、原本とプレビューは同じ絵だから縦横の向きも同じ）。
+    //
+    // **正方形のプレビューだけは縦横から向きを推せない**ので、そこは
+    // Orientationの申告に頼る。1:1で撮ったRAWは実在し（Leica D-LUX 5・
+    // Panasonic LX7）、推すと縦位置の1枚が横枠で記録されて**印まで付く**
+    // （ゲート1とゲート2が同時に指摘）
+    let upright = |(w, h): (u32, u32)| {
+        let (w, h) = (i64::from(w), i64::from(h));
+        let flip = if current.0 == current.1 {
+            (5..=8).contains(&exif.orientation)
+        } else {
+            (current.0 > current.1) != (w > h)
+        };
+        if flip {
+            (h, w)
+        } else {
+            (w, h)
+        }
+    };
+    // 申告が今の値より小さいときは信じない（[`process_one`] と同じ門）
+    let original = exif
+        .original
+        .map(upright)
+        .filter(|(w, h)| *w >= current.0 && *h >= current.1)
+        .unwrap_or(current);
+    Some(crate::db::Dimensions {
+        width: original.0,
+        height: original.1,
+        preview: Some(current),
+    })
 }
 
 /// process_oneの結果: どの品質段階まで進んだか。
@@ -725,11 +1034,11 @@ fn process_video(
         }
     }
 
-    // それでも寸法が読めなければ0のまま。グリッドは既定の縦横比で並べる
+    // それでも寸法が読めなければ0のまま。グリッドは既定の縦横比で並べる。
+    // 動画は原本をそのまま配るので、プレビューの寸法は持たない
     db.update_metadata(
         id,
-        i64::from(info.width),
-        i64::from(info.height),
+        crate::db::Dimensions::original(i64::from(info.width), i64::from(info.height)),
         info.taken_at_ms
             .or_else(|| crate::namedate::guess_taken_at(src))
             .or(Some(record.mtime_ms)),
@@ -875,8 +1184,17 @@ pub fn process_one(
     // タイル1枚ごとに最大128MBを読んで空振りする。クラウドにしか実体が無い
     // ファイルなら**丸ごとハイドレート**にもなる（ゲート2のP2）。
     // 原寸が要るのはビューア（[`raw_display_jpeg`]）だけ
-    let exif_data = read_exif_for_preview(src, thumb_size);
-    let (width, height) = source_dimensions(src, &exif_data)?;
+    let (exif_data, readable) = read_exif_for_preview_checked(src, thumb_size);
+    let (prev_w, prev_h) = preview_dimensions(src, &exif_data)?;
+    // **原本の寸法は別物**。RAWで配信するのは埋め込みプレビューなので、
+    // 原本（6000x4000）とプレビュー（1620x1080）の両方をDBへ書く。
+    // 申告がプレビューより小さいときは信じない——申告を読み違えたか、
+    // 原寸プレビューを持つ社（Samsung SRW）で丸め違いが出たときに、
+    // 記録が実物より小さくなるのを防ぐ
+    let (orig_w, orig_h) = exif_data
+        .original
+        .filter(|(w, h)| *w >= prev_w && *h >= prev_h)
+        .unwrap_or((prev_w, prev_h));
     // RAWは埋め込みプレビューが「表示用の絵」そのもの。即席として書き出すと
     // フルサイズJPEG（数MB）がサムネイル置き場に溜まるので、最初から縮小して作る
     let is_raw = crate::raw::is_raw_path(src);
@@ -886,16 +1204,16 @@ pub fn process_one(
     // AVIFまで含めると、起動直後の背景パスで全AVIFを展開してしまい、
     // 段階B-3のオンデマンド化が効かなくなる（展開は可視要求まで待つ）
     let is_heif = crate::heif::is_heif_path(src);
-    // Orientation 5〜8 は90度系の回転 → 表示上の幅・高さは入れ替わる
-    let (disp_w, disp_h) = if (5..=8).contains(&exif_data.orientation) {
-        (height, width)
-    } else {
-        (width, height)
-    };
+    let dims = recorded_dimensions(
+        is_raw,
+        readable,
+        (orig_w, orig_h),
+        (prev_w, prev_h),
+        exif_data.orientation,
+    );
     db.update_metadata(
         id,
-        disp_w as i64,
-        disp_h as i64,
+        dims,
         // EXIF → OSのプロパティ → 名前 → mtime（段階H-2）。`or_else` なので
         // EXIFで決まればOSには聞きに行かない。
         //
@@ -1446,7 +1764,7 @@ mod tests {
         buf.extend_from_slice(&(far as u32).to_le_bytes());
         buf.extend_from_slice(&0u32.to_le_bytes()); // 次のIFDは無し
         buf.resize(far + 8, 0);
-        buf[far..far + 8].copy_from_slice(b"OM-1    ");
+        buf[far..far + 8].copy_from_slice(b"OM-1\x00\x00\x00\x00");
         std::fs::write(&path, &buf).unwrap();
 
         let data = read_exif_meta(&path);
@@ -1460,7 +1778,7 @@ mod tests {
         // 形式によってはファイル全体を読む（実測100〜350ms）ので、そこは省く
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("photo.nef");
-        raw_with_preview(&path, *b"* ", &test_jpeg_bytes(1600, 1200));
+        raw_with_preview(&path, *b"*\x00", &test_jpeg_bytes(1600, 1200));
 
         assert!(
             read_exif_meta(&path).thumbnail.is_none(),
@@ -1568,6 +1886,497 @@ mod tests {
         let full = read_exif(&src);
         let preview = full.thumbnail.expect("原寸を要求すれば後ろの絵が出る");
         assert_eq!(image::load_from_memory(&preview).unwrap().width(), 1600);
+    }
+
+    /// CR3の最小再現。`moov > uuid > CMT1` に原寸の申告を入れ、
+    /// その後ろに埋め込みプレビューのJPEGを置く。
+    fn fake_cr3(orig: Option<(u32, u32)>, preview: (u32, u32)) -> Vec<u8> {
+        fake_cr3_oriented(orig, preview, 1)
+    }
+
+    /// 向きを指定できる版。Orientation 6 は「90度回して表示する」＝縦位置。
+    fn fake_cr3_oriented(
+        orig: Option<(u32, u32)>,
+        preview: (u32, u32),
+        orientation: u32,
+    ) -> Vec<u8> {
+        fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        // ImageWidth(0x0100) / ImageLength(0x0101) だけのTIFF（リトルエンディアン）
+        let mut cmt1 = b"II*\x00".to_vec();
+        cmt1.extend(8u32.to_le_bytes());
+        let mut entries: Vec<(u16, u32)> = match orig {
+            Some((w, h)) => vec![(0x0100, w), (0x0101, h)],
+            None => Vec::new(),
+        };
+        if orientation != 1 {
+            entries.push((0x0112, orientation)); // Orientation
+        }
+        cmt1.extend((entries.len() as u16).to_le_bytes());
+        for (tag, value) in &entries {
+            cmt1.extend(tag.to_le_bytes());
+            cmt1.extend(4u16.to_le_bytes()); // LONG
+            cmt1.extend(1u32.to_le_bytes());
+            cmt1.extend(value.to_le_bytes());
+        }
+        cmt1.extend(0u32.to_le_bytes()); // 次のIFDは無し
+
+        let mut uuid_body = vec![0u8; 16];
+        uuid_body.extend(box_of(b"CMT1", &cmt1));
+        let mut out = box_of(b"ftyp", b"crx ");
+        out.extend(box_of(b"moov", &box_of(b"uuid", &uuid_body)));
+
+        let img = image::RgbImage::from_fn(preview.0, preview.1, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        out.extend(jpeg.into_inner());
+        out
+    }
+
+    /// 1件だけ入ったDBを作り、`process_one` まで通してレコードを返す。
+    fn record_after_process(dir: &Path, name: &str, bytes: &[u8]) -> crate::MediaRecord {
+        let src = dir.join(name);
+        std::fs::write(&src, bytes).unwrap();
+        let mut db = Db::open(&dir.join(format!("{name}.db"))).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: bytes.len() as i64,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        process_one(&mut db, &dir.join("thumbs"), 320, id, true).unwrap();
+        db.get_by_id(id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn rawは原寸とプレビューの寸法を別々に記録する() {
+        // HDR PQのCR3と同じ形: 原寸6000x4000に対して、配るのは小さいプレビュー。
+        // 数字だけ小さくして同じ縦横比（3:2）にしてある
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(
+            dir.path(),
+            "declared.cr3",
+            &fake_cr3(Some((6000, 4000)), (480, 320)),
+        );
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(6000), Some(4000)),
+            "width/height は原本（CMT1の申告）"
+        );
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320)),
+            "配る絵の寸法は別の列。ビューアの下敷きと先読みの予算がこれで決まる"
+        );
+    }
+
+    #[test]
+    fn 申告が無ければプレビューの寸法を原寸として記録する() {
+        // 原寸の申告を持たない社（Nikon NEF・Olympus ORF 等）は今までどおり。
+        // 分からない値をでっち上げるより、掴んでいる絵の寸法を入れる
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(dir.path(), "plain.cr3", &fake_cr3(None, (480, 320)));
+        assert_eq!((rec.width, rec.height), (Some(480), Some(320)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320)),
+            "RAWは同じ値でも書く。NULLのままだと後追いが毎回拾ってしまう"
+        );
+    }
+
+    #[test]
+    fn raw以外は申告を信じずに実物の寸法を使う() {
+        // 編集で縮めた写真は `PixelXDimension` が古いまま残ることがある。
+        // 40x30 の絵に 8000x6000 と申告させて、実物のほうが勝つことを見る
+        let dir = tempfile::tempdir().unwrap();
+        let img = image::RgbImage::new(40, 30);
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        let bytes = jpeg_with_lying_exif(&jpeg.into_inner(), 8000, 6000);
+        // 仕込みが効いているか（効いていなければこのテストは何も見張らない）
+        let exif = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(&bytes))
+            .expect("仕込んだEXIFが読める");
+        assert_eq!(
+            crate::raw::exif_declared_dimensions(&exif),
+            Some((8000, 6000)),
+            "申告そのものは読める状態にある"
+        );
+
+        let rec = record_after_process(dir.path(), "a.jpg", &bytes);
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(40), Some(30)),
+            "RAW以外は申告を捨てて実物のヘッダを読む"
+        );
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (None, None),
+            "配るのが原本そのものなら列は空のまま"
+        );
+    }
+
+    /// JPEGの先頭に APP1(Exif) を挿し込み、`PixelXDimension` に嘘を書く。
+    fn jpeg_with_lying_exif(jpeg: &[u8], width: u32, height: u32) -> Vec<u8> {
+        // Exif IFD（0xA002/0xA003）を IFD0 の 0x8769 からぶら下げる
+        const EXIF_AT: u32 = 0x100;
+        let mut tiff = b"II*\x00".to_vec();
+        tiff.extend(8u32.to_le_bytes());
+        tiff.extend(1u16.to_le_bytes()); // IFD0 は1件
+        tiff.extend(0x8769u16.to_le_bytes());
+        tiff.extend(4u16.to_le_bytes()); // LONG
+        tiff.extend(1u32.to_le_bytes());
+        tiff.extend(EXIF_AT.to_le_bytes());
+        tiff.extend(0u32.to_le_bytes()); // 次のIFDは無し
+        tiff.resize(EXIF_AT as usize, 0);
+        tiff.extend(2u16.to_le_bytes()); // Exif IFD は2件
+        for (tag, value) in [(0xA002u16, width), (0xA003, height)] {
+            tiff.extend(tag.to_le_bytes());
+            tiff.extend(4u16.to_le_bytes());
+            tiff.extend(1u32.to_le_bytes());
+            tiff.extend(value.to_le_bytes());
+        }
+        tiff.extend(0u32.to_le_bytes());
+
+        let mut payload = b"Exif\x00\x00".to_vec();
+        payload.extend_from_slice(&tiff);
+        let mut out = jpeg[..2].to_vec(); // SOI
+        out.extend(0xFFE1u16.to_be_bytes()); // APP1
+        out.extend(((payload.len() + 2) as u16).to_be_bytes());
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&jpeg[2..]);
+        out
+    }
+
+    /// TIFF系RAWの最小再現。Exif IFDに申告を置き、後ろにプレビューJPEGを付ける。
+    ///
+    /// CR3（`CMT1`）とは**別の経路**（`read_exif_container` → Exif IFD）を通るので、
+    /// こちらも端から端まで1本要る。
+    fn fake_cr2(declared: (u32, u32), preview: (u32, u32)) -> Vec<u8> {
+        const EXIF_AT: u32 = 0x100;
+        let le = |v: u32| v.to_le_bytes();
+        let mut tiff = b"II*".to_vec();
+        tiff.push(0);
+        tiff.extend(le(8));
+        tiff.extend(1u16.to_le_bytes()); // IFD0 は ExifIFDPointer だけ
+        tiff.extend(0x8769u16.to_le_bytes());
+        tiff.extend(4u16.to_le_bytes()); // LONG
+        tiff.extend(le(1));
+        tiff.extend(le(EXIF_AT));
+        tiff.extend(le(0));
+        tiff.resize(EXIF_AT as usize, 0);
+        tiff.extend(2u16.to_le_bytes());
+        for (tag, value) in [(0xA002u16, declared.0), (0xA003, declared.1)] {
+            tiff.extend(tag.to_le_bytes());
+            tiff.extend(4u16.to_le_bytes());
+            tiff.extend(le(1));
+            tiff.extend(le(value));
+        }
+        tiff.extend(le(0));
+
+        let img = image::RgbImage::from_fn(preview.0, preview.1, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 128])
+        });
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        tiff.extend(jpeg.into_inner());
+        tiff
+    }
+
+    #[test]
+    fn コンテナに申告があるrawも原寸へ入れ替える() {
+        // CR3の `CMT1` ではなく Exif IFD の `PixelXDimension` を通る経路。
+        // `read_exif_inner` はRAW以外を落とす早期returnと `patched_tiff_metadata`
+        // による丸ごと差し替えを持つので、`original` がそこを生き延びるかを見る
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = fake_cr2((3504, 2336), (480, 320));
+        let rec = record_after_process(dir.path(), "a.cr2", &bytes);
+        assert_eq!((rec.width, rec.height), (Some(3504), Some(2336)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320))
+        );
+
+        // 後追いの経路も同じ答えを出す
+        let src = dir.path().join("b.cr2");
+        std::fs::write(&src, &bytes).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (3504, 2336));
+        assert_eq!(dims.preview, Some((480, 320)));
+    }
+
+    #[test]
+    fn 縦位置のrawは原本もプレビューも向きを当てて記録する() {
+        // 向きを当て忘れると、一覧の枠だけ横向きのまま縦の絵が入る
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(
+            dir.path(),
+            "portrait.cr3",
+            &fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6),
+        );
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(4000), Some(6000)),
+            "原本も入れ替わる"
+        );
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(320), Some(480)),
+            "プレビューも同じ向きで揃える（片方だけ回すと縦横比が食い違う）"
+        );
+    }
+
+    #[test]
+    fn 後追いも向きを当てる() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("portrait.cr3");
+        std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6)).unwrap();
+        // DBに入っているのは向きを当てた後の値（320x480）
+        let dims = backfilled_dimensions(&src, 320, 480).expect("開ける");
+        assert_eq!((dims.width, dims.height), (4000, 6000));
+        assert_eq!(dims.preview, Some((320, 480)));
+    }
+
+    #[test]
+    fn 後追いは申告が読めれば原寸へ入れ替える() {
+        // 段階F-4より前に取り込んだ行の想定: width/height にプレビューの寸法が
+        // 入っていて、preview_* は空
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("old.cr3");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (6000, 4000));
+        assert_eq!(dims.preview, Some((480, 320)));
+    }
+
+    #[test]
+    fn 後追いは申告が無ければ今の値を確かめた印にする() {
+        // 印を残さないと、申告を持たない社（NEF・ORF 等）を毎回の起動で読み直す
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("old.cr3");
+        std::fs::write(&src, fake_cr3(None, (480, 320))).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (480, 320));
+        assert_eq!(
+            dims.preview,
+            Some((480, 320)),
+            "確かめた印として同じ値を書く"
+        );
+    }
+
+    #[test]
+    fn 後追いは向きの申告が無くてもdbの値に合わせる() {
+        // 3周目で変えたところ。Orientationを読み直す実装では拾えない形
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("noorient.cr3");
+        // 向きの申告は入れない（Orientation は 1 のまま）
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        // DBに入っているのは縦位置として記録された値
+        let dims = backfilled_dimensions(&src, 320, 480).expect("開ける");
+        assert_eq!(
+            (dims.width, dims.height),
+            (4000, 6000),
+            "申告が横長でも、DBが縦なら縦へ揃える"
+        );
+    }
+
+    #[test]
+    fn 正方形のプレビューは向きの申告で決める() {
+        // 縦横から向きを推せない唯一の形。推すと縦位置が横枠で記録され、
+        // しかも確かめた印が付いて二度と直らない。
+        //
+        // **見張るのは横位置の側**（ゲート2の5周目のP2）。縦位置（Orientation 6）
+        // だけを試しても、正方形の枝を丸ごと消したときの答えと一致してしまう
+        // ——推す式は「DBが正方形で申告が横長」を向きが違うと読んで裏返すので、
+        // たまたま正しい (4000, 6000) を返す。差が出るのは申告が90度系でないとき
+        let dir = tempfile::tempdir().unwrap();
+
+        // 横位置（申告なし＝Orientation 1）。推す式なら裏返して縦にしてしまう
+        let flat = dir.path().join("square-flat.cr3");
+        std::fs::write(&flat, fake_cr3_oriented(Some((6000, 4000)), (320, 320), 1)).unwrap();
+        let dims = backfilled_dimensions(&flat, 320, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (6000, 4000), "横位置のまま");
+
+        // 縦位置（Orientation 6）
+        let upright = dir.path().join("square-upright.cr3");
+        std::fs::write(
+            &upright,
+            fake_cr3_oriented(Some((6000, 4000)), (320, 320), 6),
+        )
+        .unwrap();
+        let dims = backfilled_dimensions(&upright, 320, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (4000, 6000), "縦位置へ揃える");
+    }
+
+    #[test]
+    fn 後追いは日付のために箱を辿らない() {
+        // 後追いに要るのは寸法の申告と向きだけ。「撮影日時が空だから」で箱を
+        // 辿ると、箱を持たない社（X3F・FFF・MOS）でも1件あたり1MB読み直す。
+        // 辿ったかどうかは**箱の中身が拾えたか**で分かるので、CR3の箱を
+        // わざと別の拡張子で置いて見る
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("boxed.x3f");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+
+        assert!(
+            read_exif_declaration(&src).unwrap().original.is_none(),
+            "後追いは箱を辿らない（CR3の拡張子でないので用も無い）"
+        );
+        assert_eq!(
+            read_exif_meta(&src).original,
+            Some((6000, 4000)),
+            "日付が要る経路は今までどおり辿る"
+        );
+    }
+
+    #[test]
+    fn 途中で落ちた読み出しでも絵は探す() {
+        // コンテナ読みは開けた後に落ちることがある（TIFF系RAWはファイル全体を
+        // 読むので、巨大なRAWや外付けの一瞬の切断）。降りてしまうと、先頭16MBに
+        // ある埋め込みプレビューから作れたはずのサムネイルまで落とす
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("halfread.cr2");
+        std::fs::write(&src, fake_cr2((3504, 2336), (480, 320))).unwrap();
+
+        let (data, readable) = read_exif_from(&src, Container::ReadFailed, Want::Image(320));
+        assert!(data.thumbnail.is_some(), "絵は先へ進んで見つける");
+        assert!(!readable, "「読めた」は取り下げたまま");
+        assert!(
+            data.original.is_none(),
+            "原寸の申告はコンテナにしか無いので取れない"
+        );
+
+        // 開けなかったほうは先を読まない（この先の開き直し2回も同じ理由で落ちる）
+        let (data, readable) = read_exif_from(&src, Container::Unopenable, Want::Image(320));
+        assert!(data.thumbnail.is_none(), "絵も探さずに降りる");
+        assert!(!readable);
+    }
+
+    #[test]
+    fn 読み出しが落ちたファイルでは日付のために全体を読まない() {
+        // 日付が絵の中にしか無い社のための探索は、要求する長辺が大きいので
+        // **16MBで止まらず最大128MBまで読む**。読み出しが落ちた直後の
+        // ファイルにそれを払う意味は無い
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.raf");
+        let mut buf = b"FUJIFILMCCD-RAW ".to_vec(); // TIFFではないヘッダ
+        buf.extend_from_slice(&jpeg_with_taken_at(64, 48, "2019:08:11 12:00:00"));
+        std::fs::write(&path, &buf).unwrap();
+
+        // 素通りする社（コンテナ読みは `Empty`）は従来どおり降りて日付を拾う
+        let (data, _) = read_exif_from(&path, Container::Empty, Want::Meta);
+        assert!(data.taken_at_ms.is_some(), "正常時は今までどおり拾う");
+
+        let (data, readable) = read_exif_from(&path, Container::ReadFailed, Want::Meta);
+        assert!(data.taken_at_ms.is_none(), "落ちた直後は降りない");
+        assert!(!readable);
+    }
+
+    #[test]
+    fn 読み切れなかったrawには確かめた印を付けない() {
+        // 上の続き: 絵が見つかっても、原寸の申告が取れていないのに印を付けると
+        // 「プレビューの寸法を原寸と名乗る行」が確定して二度と直らない
+        let readable = recorded_dimensions(true, true, (3504, 2336), (480, 320), 1);
+        assert_eq!(
+            (readable.width, readable.height, readable.preview),
+            (3504, 2336, Some((480, 320)))
+        );
+        let broken = recorded_dimensions(true, false, (480, 320), (480, 320), 1);
+        assert_eq!(
+            broken.preview, None,
+            "印が付かなければ後追いが読める日に直す"
+        );
+        // RAW以外は配るのが原本そのものなので、読めていても印は付かない
+        assert_eq!(
+            recorded_dimensions(false, true, (480, 320), (480, 320), 1).preview,
+            None
+        );
+        // 90度系の向きは原本にもプレビューにも掛かる
+        let turned = recorded_dimensions(true, true, (6000, 4000), (1620, 1080), 6);
+        assert_eq!(
+            (turned.width, turned.height, turned.preview),
+            (4000, 6000, Some((1080, 1620)))
+        );
+    }
+
+    #[test]
+    fn 開けないファイルには確かめた印を付けない() {
+        // 権限や共有ロックで一時的に読めないだけなら、読める日に拾い直す
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone.cr3");
+        assert!(backfilled_dimensions(&missing, 480, 320).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 共有ロックが掛かったrawには確かめた印を付けない() {
+        // **見ているのは入口だけ**——ロックを先に握るので、最初の
+        // `File::open` で落ちる。「1度目は通ったのに2度目が落ちる」隙間は
+        // ここからは作れないので、そちらは下位の関数を直接見る側で見張る
+        // （`raw::箱を辿れないcr3は空と区別する` と `raw::読めないorfは…`）。
+        // それでも `is_file()` の門を通った後で読めなくなる筋は実在するので、
+        // 後追いの入口として1本置いておく
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("locked.cr3");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        // ロック前は読める（テストの仕込みが効いていることの確認）
+        assert!(backfilled_dimensions(&src, 480, 320).is_some());
+
+        // 共有を許さずに開いたまま持つ（他のプロセスが編集中のRAWと同じ状態）
+        let _lock = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&src)
+            .unwrap();
+        assert!(
+            backfilled_dimensions(&src, 480, 320).is_none(),
+            "読めないうちは印を付けない（読める日に拾い直す）"
+        );
+    }
+
+    #[test]
+    fn 後追いは今の値より小さい申告を信じない() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("old.cr3");
+        std::fs::write(&src, fake_cr3(Some((160, 120)), (480, 320))).unwrap();
+        let dims = backfilled_dimensions(&src, 480, 320).expect("開ける");
+        assert_eq!((dims.width, dims.height), (480, 320));
+        assert_eq!(
+            dims.preview,
+            Some((480, 320)),
+            "拒んだときも確かめた印は残す（残さないと毎回読み直す）"
+        );
+    }
+
+    #[test]
+    fn プレビューより小さい申告は信じない() {
+        // 申告を読み違えたときに、記録が実物より小さくなるのを防ぐ門
+        let dir = tempfile::tempdir().unwrap();
+        let rec = record_after_process(
+            dir.path(),
+            "shrunk.cr3",
+            &fake_cr3(Some((160, 120)), (480, 320)),
+        );
+        assert_eq!((rec.width, rec.height), (Some(480), Some(320)));
+        assert_eq!(
+            (rec.preview_width, rec.preview_height),
+            (Some(480), Some(320)),
+            "RAWなので確かめた印は残る"
+        );
     }
 
     #[test]
@@ -1975,7 +2784,7 @@ mod tests {
         let body = test_jpeg_bytes(width, height);
         let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
         out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
-        out.extend_from_slice(b"Exif  ");
+        out.extend_from_slice(b"Exif\x00\x00");
         out.extend_from_slice(&tiff);
         out.extend_from_slice(&body[2..]);
         out

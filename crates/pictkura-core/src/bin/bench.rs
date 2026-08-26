@@ -114,6 +114,7 @@ fn bench_raw(path: &std::path::Path) {
     }
 
     for (i, block) in pictkura_core::raw::bmff_metadata_blocks(path)
+        .unwrap_or_default()
         .into_iter()
         .enumerate()
     {
