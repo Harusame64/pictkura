@@ -256,6 +256,9 @@ const ja = {
      ルートが複数あると数が合わない（ゲート1の指摘）。
      「扱いません」も**既定では**に緩める: `*.photoslibrary` の除外は
      利用者が設定から外せる（scanner.rs の設計どおり。同） */
+  /** ルートそのものが写真.appのライブラリ。**排他は主張しない** */
+  emptyRootIsPackage:
+    "ライブラリのフォルダに、写真.appのライブラリそのものが指定されています。pictkuraはその中を扱わないので、ここからは何も出てきません。写真のあるフォルダを選び直すか、カードから取り込んでください。",
   emptyPhotoLibrary:
     "写真.appのライブラリのほかに、扱えるものが見つかりません。pictkuraは既定では写真.appの中を扱いません（原本の多くはiCloud側にあり、手元にはありません）。カードから取り込むか、写真のあるフォルダを選んでください。",
   emptyAllExcluded: (names: string) =>
@@ -619,6 +622,8 @@ const en: Dict = {
     `These places could not be opened: ${names}. Check that you have permission to read them, then press Rescan.`,
   listSeparator: ", ",
   andMore: (n: number) => `and ${n} more`,
+  emptyRootIsPackage:
+    "One of the library folders is a Photos app library itself. pictkura does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
   emptyPhotoLibrary:
     "Nothing was found but the Photos app library. pictkura does not read inside Photos by default — most of the originals live in iCloud, not on this Mac. Import from a card, or pick a folder that has photos in it.",
   emptyAllExcluded: (names: string) =>

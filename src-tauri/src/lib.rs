@@ -80,10 +80,16 @@ struct AppState {
     ///
     /// **ただし待つのは有限時間まで。** 刺さったhardマウントでは
     /// `read_dir` が返らず、`spawn_blocking` の `await` も返らないので、
-    /// 門は**永久に開かない**——Tauriのコマンドは detached で走るから、
-    /// フロントが見切っても `Drop` は来ない（同）。時間で諦めたときは
-    /// 既定値で誤魔化さず、`checking` を立てて**確かめている途中だと言う**
-    empty_reason_gate: tauri::async_runtime::Mutex<()>,
+    /// その走査は**永久に席を返さない**——Tauriのコマンドは detached で走るから、
+    /// フロントが見切っても `Drop` は来ない。時間で諦めたときは既定値で
+    /// 誤魔化さず、`checking` を立てて**確かめている途中だと言う**。
+    ///
+    /// **席が1つだと、直したあとも直らない。** 死んだルートを外して
+    /// 健康な `~/Pictures` だけにしても、席は握られたままなので永久に
+    /// 「確認しています」になる（ゲート2の指摘）。席を2つにしておくと、
+    /// 1つ刺さっても次の確認が通る——刺さりが2つ重なったら、そこで初めて
+    /// 「確かめている途中」に落ちる。**溜まるスレッドは2本で頭打ち**
+    empty_reason_gate: tokio::sync::Semaphore,
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
     index_progress: Mutex<IndexProgressDto>,
@@ -1147,8 +1153,17 @@ struct EmptyLibraryDto {
     /// あるときに「ほか2件」と出すと、`pictkura.toml` に**在りもしない2つの
     /// 設定を探しに行かせる**——外すべきパターンは1つしか無い（ゲート2の指摘）
     excluded_total: usize,
-    /// 写真.appのライブラリが直下にある
+    /// 写真.appのライブラリが直下にあり、**ほかに扱えるものが無い**
     photo_library: bool,
+    /// **ルートそのもの**が写真.appのライブラリ。
+    ///
+    /// [`Self::photo_library`] と分けてある——あちらは「ここにはライブラリしか
+    /// 無い」という推測で、隣に候補があれば覆る。こちらは「このルートは
+    /// ライブラリそのもので、走査が丸ごと飛ばすので何も出てこない」という
+    /// **覆らない事実**。1つの旗に2つの事実を持たせると、隣に空のフォルダが
+    /// あるだけで「ライブラリのほかに見つかりません」という**排他の主張**が
+    /// 嘘になる（ゲート2の指摘）
+    root_is_package: bool,
     /// **まだ確かめ終わっていない。** 前の確認が返ってこないまま時間切れ。
     /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
     checking: bool,
@@ -1173,13 +1188,13 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     // 走らせる場所を間違えると**他のコマンドごと詰まる**（ゲート2の指摘）。
     // `add_library_root` などが同じ理由でこうしている
     let state = app.state::<AppState>();
-    // 2本目以降は順番を待つ。**待たせるだけで、嘘は返さない。**
-    // ただし**有限時間まで**——前の確認が刺さっていると門は永久に開かない。
+    // 席が空くまで待つ。**待たせるだけで、嘘は返さない。**
+    // ただし**有限時間まで**——刺さった確認は席を返さない。
     // 諦めたときは「無い」ではなく「確かめている途中」と言う。
     // フロント側の見切り（5秒）より短くする: 向こうが先に諦めると
     // 旗の立たない答えに落ちて、こちらの正直な返事が捨てられる
-    let gate = tauri::async_runtime::Mutex::lock(&state.empty_reason_gate);
-    let Ok(_gate) = tokio::time::timeout(std::time::Duration::from_secs(3), gate).await else {
+    let seat = state.empty_reason_gate.acquire();
+    let Ok(Ok(_seat)) = tokio::time::timeout(std::time::Duration::from_secs(3), seat).await else {
         return EmptyLibraryDto {
             checking: true,
             ..Default::default()
@@ -1333,8 +1348,6 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     };
     // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
     let mut survivor = false;
-    // ルート自身が写真.appのライブラリだった（`survivor` でも消えない）
-    let mut root_is_package = false;
     // 例示に挙げた名前。**同じ名前を2度並べない**ためだけのもので、
     // 数（`excluded_total`）はここを通さず素直に数える
     let mut excluded_names: HashSet<String> = HashSet::new();
@@ -1372,8 +1385,7 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
         // ライブラリしか無い」は隣に候補があれば覆るが、「このルートは
         // 写真.appのライブラリそのもので、何も出てこない」は覆らない
         if pictkura_core::import::is_managed_package_path(root) {
-            root_is_package = true;
-            out.photo_library = true;
+            out.root_is_package = true;
             continue;
         }
         // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
@@ -1442,8 +1454,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     if survivor {
         out.excluded.clear();
         out.excluded_total = 0;
-        // ルート自身がパッケージだったぶんは残す（上の説明）
-        out.photo_library = root_is_package;
+        // **推測は覆る。** `root_is_package` は覆らないので落とさない（上の説明）
+        out.photo_library = false;
     }
     out
 }
@@ -3324,7 +3336,7 @@ pub fn run() {
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
-                empty_reason_gate: tauri::async_runtime::Mutex::new(()),
+                empty_reason_gate: tokio::sync::Semaphore::new(2),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
@@ -4236,9 +4248,11 @@ mod tests {
         let picked = dir.path().join("選んだ.photoslibrary");
         std::fs::create_dir(&picked).unwrap();
         config.library.roots = vec![picked.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(r.root_is_package, "ルート自身がパッケージだと見分ける");
         assert!(
-            empty_library_reason_of(&config).photo_library,
-            "ルート自身がパッケージでも見分ける"
+            !r.photo_library,
+            "「ライブラリしか無い」とは別の事実——排他は主張しない"
         );
         // **隣に空のルートがあっても、この事実は消えない。**
         // 「ここにはライブラリしか無い」は覆るが、「このルートは
@@ -4247,9 +4261,14 @@ mod tests {
         std::fs::create_dir(&plain).unwrap();
         std::fs::create_dir(plain.join("写真")).unwrap();
         config.library.roots = vec![picked, plain.clone()];
+        let r = empty_library_reason_of(&config);
         assert!(
-            empty_library_reason_of(&config).photo_library,
+            r.root_is_package,
             "隣に候補があっても、ルート自身がパッケージという事実は残す"
+        );
+        assert!(
+            !r.photo_library,
+            "隣に候補があるなら「ライブラリのほかに無い」は嘘になる"
         );
         std::fs::remove_dir_all(&plain).unwrap();
         config.library.roots = vec![root.clone()];

@@ -43,7 +43,7 @@ ureq = "3"
 # **`time` はここで初めて付く**——`async_runtime` の `enable_all()` は
 # `enable_time()` を feature で守っているので、これが無いと
 # `tokio::time::timeout` は「no reactor running」で落ちる
-tokio = { version = "1", default-features = false, features = ["time"] }
+tokio = { version = "1", default-features = false, features = ["time", "sync"] }
 
 # ドライブ種別（リムーバブル/固定/ネットワーク/光学）の判定に GetDriveTypeW を使う。
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを

@@ -1385,6 +1385,7 @@ export default function App() {
       excluded: [],
       excludedTotal: 0,
       photoLibrary: false,
+      rootIsPackage: false,
       checking: true,
     };
     /**
