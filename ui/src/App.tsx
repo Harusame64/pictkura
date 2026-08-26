@@ -352,6 +352,17 @@ export default function App() {
    */
   const [loadFailed, setLoadFailed] = useState(false);
   /**
+   * 骨組みが**最後に取れた**のは何回目か。
+   *
+   * `reloadAll` と `refreshSummary` は同じ骨組みを取り直す別の口で、
+   * 世代（`generationRef`）は共有している——`refreshSummary` は追い越しを
+   * 起こさないよう番号を進めない。そのため「先に `refreshSummary` が成功して、
+   * あとから同じ世代の `reloadAll` が転ぶ」順があり、**取れたばかりのデータの
+   * 上に「出せませんでした」が出て居座る**（ゲート2の指摘）。
+   * 転んだ側は、自分が走り出したあとに誰かが成功していないかをこれで見る
+   */
+  const gotSummaryRef = useRef(0);
+  /**
    * 起動時の走査が報告を出したか。**出るまで「空です」と言わない**。
    *
    * 走査は別スレッドで走り、終わってから `library-updated` と
@@ -614,6 +625,7 @@ export default function App() {
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
     setSettled(false);
     try {
@@ -628,9 +640,18 @@ export default function App() {
       setStats(st);
       setMemories(mem);
       setDayItems(new Map());
-      if (generationRef.current === gen) setLoadFailed(false);
+      if (generationRef.current === gen) {
+        gotSummaryRef.current += 1;
+        setLoadFailed(false);
+      }
     } catch (err) {
-      if (generationRef.current === gen) setLoadFailed(true);
+      // **自分が走っている間に誰かが成功していたら、失敗を名乗らない**
+      if (
+        generationRef.current === gen &&
+        gotSummaryRef.current === wasGotAt
+      ) {
+        setLoadFailed(true);
+      }
       throw err;
     } finally {
       // **追い越されていたら立てない**——新しい方がまだ走っている
@@ -657,6 +678,7 @@ export default function App() {
     // 取り直している。下ろさないと、1回転んだあと部分更新が何度成功しても
     // 「一覧を出せませんでした」が居座る——次の `reloadAll` まで固まる
     // （ゲート1の指摘）
+    gotSummaryRef.current += 1;
     setLoadFailed(false);
     setStats(st);
     setDayItems((prev) => {
@@ -831,53 +853,50 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let poll: number | undefined;
+    const settle = () => {
+      if (cancelled) return;
+      if (poll != null) window.clearInterval(poll);
+      poll = undefined;
+      setScanSettled(true);
+    };
     (async () => {
       // **登録が転んでも先へ進む。** ここで例外が上がると下の問い合わせに
       // 届かず、`scanSettled` がその起動のあいだ偽のまま固まる——
-      // つまり**この機能が丸ごと出なくなる**（ゲート2の指摘）。
+      // つまり**この機能が丸ごと出なくなる**。
       // 隣の⚡爆速メーターは取りこぼしても帯が1つ出ないだけだが、こちらは違う
-      const f = await listen("startup-scan-finished", () => {
-        if (!cancelled) setScanSettled(true);
-      }).catch(() => null);
+      const f = await listen("startup-scan-finished", settle).catch(() => null);
       if (cancelled) {
         f?.();
         return;
       }
       unlisten = f ?? undefined;
-      // 聞けなかったときは**待たない**側に倒す。ここで固まると、
-      // ルートを1つも設定していない人に何も言わないアプリになる
-      // **転んだときに倒す向きは、リスナーの有無で決める。**
-      // リスナーが生きているなら合図が来るので待ってよい——ここで
-      // 一律に「終わった」と言うと、走査の最中にパネルが出て、
-      // `scanSettled` を足した目的が崩れる（ゲート1の指摘）
+      // **転んだときに倒す向きは、リスナーの有無で決める。** リスナーが
+      // 生きているなら合図が来るので待ってよい——ここで一律に「終わった」と
+      // 言うと、走査の最中にパネルが出て `scanSettled` の目的が崩れる
       const done = await startupScanFinished().catch(() => f === null);
       if (cancelled) return;
       if (done) {
-        setScanSettled(true);
+        settle();
         return;
       }
-      // **登録に失敗していて、まだ走っている。** イベントは来ないので、
-      // 来るまで自分で聞きに行く——ここで諦めると、この機能がその起動の
-      // あいだ丸ごと出ない（ゲート2の指摘）。走査中しか回らず、
-      // 見ているのは真偽値1つなので安い
-      if (!f) {
-        poll = window.setInterval(() => {
-          void startupScanFinished()
-            // **転んだ1回で「終わった」と言わない。** ここで倒すと、
-            // NASの初回走査の最中に一度失敗しただけでパネルが出る
-            // ——`scanSettled` を足した目的そのもの（ゲート2の指摘）。
-            // 次の2秒後にもう一度聞けばよい
-            .catch(() => false)
-            .then((ok) => {
-              if (!ok || cancelled) return;
-              // **終わったら止める。** 片付けはAppのunmountでしか走らない
-              // ので、止めないとプロセスの一生ぶん2秒ごとに叩き続ける（同）
-              if (poll != null) window.clearInterval(poll);
-              poll = undefined;
-              setScanSettled(true);
-            });
-        }, 2000);
-      }
+      // **まだ終わっていない。ここから先は必ず自分でも聞きに行く。**
+      // リスナーの有無で分けてはいけない——合図は**一度きり**で、
+      // 空のライブラリなら数msで出る。登録が間に合わず、しかもこの
+      // 問い合わせが転ぶと、`false` を掴んだまま二度と来ない合図を待つ
+      // ことになり、この機能が丸ごと出ない（ゲート2の指摘）。
+      // 合図が先に来れば `settle` が止めるので、二重には走らない
+      poll = window.setInterval(() => {
+        void startupScanFinished()
+          // **転んだ1回で「終わった」と言わない。** ここで倒すと、
+          // NASの初回走査の最中に一度失敗しただけでパネルが出る。
+          // 次の2秒後にもう一度聞けばよい
+          .catch(() => false)
+          .then((ok) => {
+            // **終わったら止める。** 片付けはAppのunmountでしか走らないので、
+            // 止めないとプロセスの一生ぶん2秒ごとに叩き続ける
+            if (ok) settle();
+          });
+      }, 2000);
     })();
     return () => {
       cancelled = true;
