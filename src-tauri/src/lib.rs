@@ -1333,6 +1333,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     };
     // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
     let mut survivor = false;
+    // ルート自身が写真.appのライブラリだった（`survivor` でも消えない）
+    let mut root_is_package = false;
     // 例示に挙げた名前。**同じ名前を2度並べない**ためだけのもので、
     // 数（`excluded_total`）はここを通さず素直に数える
     let mut excluded_names: HashSet<String> = HashSet::new();
@@ -1360,10 +1362,17 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 continue;
             }
         }
-        // **ルート自身がパッケージのこともある。** フォルダを選ぶ画面で
-        // 写真ライブラリそのものを指してしまうのは普通に起きる。走査は
-        // そのルートを丸ごと飛ばすので、中を読んでも何も出ない（ゲート1の指摘）
+        // **ルート自身がパッケージのこともある。** いまの `add_library_root` は
+        // それを断るので、届くのは**手で書いた `pictkura.toml`**か、断るより
+        // 前の版が書いた設定から（ゲート2の指摘。以前ここに「フォルダを選ぶ
+        // 画面で普通に起きる」と書いていたのは誤り）。走査はそのルートを
+        // 丸ごと飛ばすので、中を読んでも何も出ない。
+        //
+        // **これは `survivor` で消えない事実**。「この場所には写真.appの
+        // ライブラリしか無い」は隣に候補があれば覆るが、「このルートは
+        // 写真.appのライブラリそのもので、何も出てこない」は覆らない
         if pictkura_core::import::is_managed_package_path(root) {
+            root_is_package = true;
             out.photo_library = true;
             continue;
         }
@@ -1433,7 +1442,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     if survivor {
         out.excluded.clear();
         out.excluded_total = 0;
-        out.photo_library = false;
+        // ルート自身がパッケージだったぶんは残す（上の説明）
+        out.photo_library = root_is_package;
     }
     out
 }
@@ -4220,6 +4230,29 @@ mod tests {
         assert_eq!(r.excluded_total, 0, "名前だけでなく数も落とす");
         std::fs::remove_dir(root.join("写真")).unwrap();
         std::fs::remove_dir(root.join(".隠しフォルダ")).unwrap();
+
+        // **ルート自身が写真.appのライブラリ**（手で書いた設定・古い版の設定）。
+        // 走査はそのルートを丸ごと飛ばすので、中を読んでも何も出ない
+        let picked = dir.path().join("選んだ.photoslibrary");
+        std::fs::create_dir(&picked).unwrap();
+        config.library.roots = vec![picked.clone()];
+        assert!(
+            empty_library_reason_of(&config).photo_library,
+            "ルート自身がパッケージでも見分ける"
+        );
+        // **隣に空のルートがあっても、この事実は消えない。**
+        // 「ここにはライブラリしか無い」は覆るが、「このルートは
+        // ライブラリそのもので何も出ない」は覆らない（ゲート2の指摘）
+        let plain = dir.path().join("空っぽ");
+        std::fs::create_dir(&plain).unwrap();
+        std::fs::create_dir(plain.join("写真")).unwrap();
+        config.library.roots = vec![picked, plain.clone()];
+        assert!(
+            empty_library_reason_of(&config).photo_library,
+            "隣に候補があっても、ルート自身がパッケージという事実は残す"
+        );
+        std::fs::remove_dir_all(&plain).unwrap();
+        config.library.roots = vec![root.clone()];
 
         // **`.DS_Store` だけでは「全部除外」と言わない**（中身になり得ない）
         std::fs::write(root.join(".DS_Store"), b"x").unwrap();

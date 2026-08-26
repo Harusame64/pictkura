@@ -881,8 +881,14 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let poll: number | undefined;
+    // **もう落ち着いたか**を、ポーリングを積む側からも読めるように持つ。
+    // `poll` を見るだけでは足りない——合図が「登録の直後・問い合わせの応答前」
+    // に着くと、`settle` が走った時点で `poll` はまだ `undefined` で、
+    // その後に**止める相手のいないポーリングが据えられる**（ゲート2の指摘）
+    let done = false;
     const settle = () => {
       if (cancelled) return;
+      done = true;
       if (poll != null) window.clearInterval(poll);
       poll = undefined;
       setScanSettled(true);
@@ -905,18 +911,20 @@ export default function App() {
       // **下のポーリングごと飛ばして**索引中のライブラリに
       // 「扱える画像がありません」と言う（ゲート2の指摘）。
       // 偽なら必ず下のポーリングが拾う
-      const done = await startupScanFinished().catch(() => false);
+      const finished = await startupScanFinished().catch(() => false);
       if (cancelled) return;
-      if (done) {
+      if (finished) {
         settle();
         return;
       }
+      // 応答を待つ間に合図が着いていたら、もう据えない
+      if (done) return;
       // **まだ終わっていない。ここから先は必ず自分でも聞きに行く。**
       // リスナーの有無で分けてはいけない——合図は**一度きり**で、
       // 空のライブラリなら数msで出る。登録が間に合わず、しかもこの
       // 問い合わせが転ぶと、`false` を掴んだまま二度と来ない合図を待つ
       // ことになり、この機能が丸ごと出ない（ゲート2の指摘）。
-      // 合図が先に来れば `settle` が止めるので、二重には走らない
+      // 合図が先に来ていれば上で抜けている
       poll = window.setInterval(() => {
         void startupScanFinished()
           // **転んだ1回で「終わった」と言わない。** ここで倒すと、
@@ -1385,39 +1393,46 @@ export default function App() {
      * 永久に叩き続けないため
      */
     const ask = (left: number) => {
+      if (!alive) return;
+      // **この1回から積む聞き直しは1本まで。** 応答が5秒の見切りより後に
+      // 届くと（サムネイル生成で本流が詰まると起きる）、見切りと応答の
+      // **両方**が次を積み、`retry` は最後の1本しか覚えていないので
+      // 取りこぼした側が片付けをすり抜けて、効果を畳んだ後に1回叩く
+      // （ゲート2の指摘）
+      let continued = false;
+      const again = () => {
+        if (continued || !alive || left <= 0) return;
+        continued = true;
+        retry = window.setTimeout(() => ask(left - 1), 2000);
+      };
       // **返ってこない筋にも答えを出す。** 切れたSMB/NFSのルートでは
       // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
       // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
-      // ネットワークのフォルダこそ、この機能が説明したい相手
-      // **返ってこないときも聞き直しを積む。** 刺さったhardマウントでは
-      // 最初の1本が永久に返らないので、ここで積まないと `ask` の連鎖が
-      // 1回で切れる——以降は門の3秒で `checking` が返るようになるので、
-      // マウントが戻れば拾える（ゲート2の指摘）
+      // ネットワークのフォルダこそ、この機能が説明したい相手。
+      // 聞き直しもここから積む: 積まないと、最初の1本が永久に返らないときに
+      // 連鎖が1回で切れる（以降は門の3秒で `checking` が返るので、
+      // マウントが戻れば拾える）
       const giveUp = window.setTimeout(() => {
         if (!alive) return;
         setEmptyReason(stillChecking);
-        if (left > 0) retry = window.setTimeout(() => ask(left - 1), 2000);
+        again();
       }, 5000);
 
       getEmptyLibraryReason()
         .then((r) => {
           if (!alive) return;
           setEmptyReason(r);
-          if (r.checking && left > 0) {
-            retry = window.setTimeout(() => ask(left - 1), 2000);
-          }
+          if (r.checking) again();
         })
         // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
         // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
-        // 逆戻りする——このPRが消そうとしている当のもの
-        // **転んだ1回で終わらせない。** ここで聞き直しを積まないと、
-        // 健康な `~/Pictures` でも呼び出しが一度失敗しただけで
-        // 「確かめている途中です」に固まり、本当の理由が二度と出ない
-        // （ゲート2の指摘。走査の合図のポーリングと同じ扱いに揃える）
+        // 逆戻りする——このPRが消そうとしている当のもの。
+        // 転んだ1回で終わらせないのも同じ理由で、健康な `~/Pictures` でも
+        // 呼び出しが一度失敗しただけで「確かめている途中です」に固まる
         .catch(() => {
           if (!alive) return;
           setEmptyReason(stillChecking);
-          if (left > 0) retry = window.setTimeout(() => ask(left - 1), 2000);
+          again();
         })
         .finally(() => window.clearTimeout(giveUp));
     };
@@ -1570,9 +1585,19 @@ export default function App() {
         );
       };
       patch(next);
+      // **印を付ける失敗と、骨組みを取り直す失敗を分ける。**
+      // まとめて `catch` すると、**付いた印を戻して**しまい、しかも
+      // `reloadAll` の失敗が `loadFailed` を立てるので、
+      // 「上の帯に理由が出ています」が空の帯を指す（ゲート2の指摘）
       try {
         if (kind === "favorite") await setFavorite(item.id, next);
         else await setPicked(item.id, next);
+      } catch (e) {
+        patch(!next); // 印そのものが付かなかったので戻す
+        setStatus(String(e));
+        return;
+      }
+      {
         // その印で絞り込み中は骨組み（枚数・日の有無）が変わる
         if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
           setSelected((prev) => {
@@ -1586,10 +1611,10 @@ export default function App() {
           // 「もう画面に無いもの」を選び直し、間の写真のほうが外れる
           setAnchorId((a) => (a === item.id ? null : a));
           lastRangeRef.current = null;
-          await reloadAll();
+          // **ここで転んでも印は戻さない**——印は付いている。
+          // 取り直しに失敗しただけなので、黙らずに帯へ出す
+          await reloadAll().catch((e) => setStatus(String(e)));
         }
-      } catch {
-        patch(!next); // 失敗したら戻す
       }
     },
     [reloadAll],
