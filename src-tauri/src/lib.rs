@@ -1186,7 +1186,13 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
         empty_library_reason_of(&config)
     })
     .await
-    .unwrap_or_default()
+    // **落ちたときも「無い」と言わない。** `JoinError`（パニック・終了時の
+    // 取り消し）で既定値を返すと旗が1つも立たず、UIは「扱える画像が
+    // 見つかりません」と**断定**する——エラーから断定を作らない（ゲート2の指摘）
+    .unwrap_or(EmptyLibraryDto {
+        checking: true,
+        ..Default::default()
+    })
 }
 
 /// ルート直下の1エントリを、**空の理由**の観点で見たときの正体。

@@ -1266,6 +1266,19 @@ export default function App() {
    * 戻さないのがこのPRの主題なので、失敗でパネルごと消すのは筋が違う
    * （ゲート1の指摘）
    */
+  /**
+   * 一覧が空で、しかも**なぜ空かをまだ言えない**か。
+   *
+   * 起動時の走査の最中、理由を聞いている最中、読み込みに失敗したとき。
+   * カレンダーは自前で「写真がありません」と出すので、ここで止めないと
+   * **索引の途中のライブラリに向かって断定する**——グリッド側には同じ文言が
+   * 無いので、カレンダーだけが元の無言（に見える断定）へ戻る（ゲート2の指摘）。
+   * 絞り込んで0件は**正当に**「写真がありません」なので、そちらは残す
+   */
+  const unsureWhyEmpty =
+    summary.length === 0 &&
+    (loadFailed ||
+      (!filtering && (!settled || !scanSettled || emptyReason == null)));
   const showEmptyPanel =
     (canSayEmpty && emptyReason != null) ||
     // **失敗の枝にも「一覧が空」が要る。** 5万枚が並んでいる最中に
@@ -1331,39 +1344,54 @@ export default function App() {
     // 絞り込みが変わった直後は既に古い（上の `settledRef` の説明）
     if (!settledRef.current) return;
     let alive = true;
-    /** 旗の立っていない理由＝「まだ見つかりません」＋取り込みと参照の2つ */
-    const nothingKnown = {
+    let retry: number | undefined;
+    /** 旗が1つも立っていない＝「まだ確かめている途中」。**「無い」ではない** */
+    const stillChecking = {
       noRoots: false,
       missing: [],
       unreadable: [],
       excluded: [],
       excludedTotal: 0,
       photoLibrary: false,
-      // こちらの見切りで出すときも「何も無い」ではない
       checking: true,
     };
-    // **返ってこない筋にも答えを出す。** 切れたSMB/NFSのルートでは
-    // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
-    // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
-    // ネットワークのフォルダこそ、この機能が説明したい相手（ゲート2の指摘）
-    const giveUp = window.setTimeout(() => {
-      if (alive) setEmptyReason(nothingKnown);
-    }, 5000);
-    getEmptyLibraryReason()
-      .then((r) => {
-        if (alive) setEmptyReason(r);
-      })
-      // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
-      // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
-      // 逆戻りする——このPRが消そうとしている当のもの（ゲート2の指摘）。
-      // 旗の立っていない理由＝「まだ見つかりません」＋取り込みと参照の2つ
-      .catch(() => {
-        if (alive) setEmptyReason(nothingKnown);
-      })
-      .finally(() => window.clearTimeout(giveUp));
+    /**
+     * 理由を1回聞く。**「確かめている途中」で終わらせない。**
+     *
+     * バックエンドは門を3秒で諦めて `checking` を返すが、その返事の後ろには
+     * **待っている問い合わせが無い**ので、放っておくとその文言のまま固まる
+     * ——先に走っていた確認が1秒後に成功しても、画面は直らない（ゲート2の指摘）。
+     * 数回だけ聞き直す。回数を切るのは、本当に刺さっているときに
+     * 永久に叩き続けないため
+     */
+    const ask = (left: number) => {
+      // **返ってこない筋にも答えを出す。** 切れたSMB/NFSのルートでは
+      // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
+      // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
+      // ネットワークのフォルダこそ、この機能が説明したい相手
+      const giveUp = window.setTimeout(() => {
+        if (alive) setEmptyReason(stillChecking);
+      }, 5000);
+      getEmptyLibraryReason()
+        .then((r) => {
+          if (!alive) return;
+          setEmptyReason(r);
+          if (r.checking && left > 0) {
+            retry = window.setTimeout(() => ask(left - 1), 2000);
+          }
+        })
+        // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
+        // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
+        // 逆戻りする——このPRが消そうとしている当のもの
+        .catch(() => {
+          if (alive) setEmptyReason(stillChecking);
+        })
+        .finally(() => window.clearTimeout(giveUp));
+    };
+    ask(5);
     return () => {
       alive = false;
-      window.clearTimeout(giveUp);
+      if (retry != null) window.clearTimeout(retry);
     };
   }, [canSayEmpty]);
 
@@ -3938,7 +3966,7 @@ export default function App() {
             <div className="calendar-scroll">
               {/* パネルが出ているなら、カレンダー側の「写真がありません」は
                   出さない。**同じ画面に空の知らせが2つ並ぶ**（ゲート1の指摘） */}
-              {!showEmptyPanel && (
+              {!showEmptyPanel && !unsureWhyEmpty && (
                 <Calendar summary={summary} onOpenDay={openDay} />
               )}
             </div>
