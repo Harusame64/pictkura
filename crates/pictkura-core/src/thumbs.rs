@@ -511,8 +511,9 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     //
     // **後追い（[`Want::Declaration`]）は日付のために辿らない**（PRコメント側の
     // CodexのP2）。要るのは寸法の申告と向きだけなのに「撮影日時が空だから」で
-    // 入ると、箱を持たない社（Sigma X3F・Hasselblad FFF・Leaf MOS——コンテナに
-    // 日付が無いのでここが真になる）でも1件あたり1MB読み直すことになる
+    // 入ると、**箱を持たない社でも1件あたり1MB読み直す**ことになる。当たるのは
+    // コンテナに日付を持たない社——Fujifilm RAF・Sigma X3F・Kodak KDC・
+    // Hasselblad FFF・Leaf MOS。いずれも箱は無いので、読んでも空が返るだけ
     let wants_date = !matches!(want, Want::Declaration);
     if (wants_date && result.taken_at_ms.is_none())
         || (result.original.is_none() && crate::raw::is_bmff_raw_path(path))
