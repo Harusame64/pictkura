@@ -162,7 +162,7 @@ fn rebuild_watcher(app: &tauri::AppHandle) {
     // **オフラインのNASが1つあるだけで**その束ごとに数秒〜数十秒止まる。
     // ルートが変わるのはこの関数が呼ばれるときだけなので、閉じ込めて持ち回る
     // （ゲート2の指摘）
-    let specs = std::sync::Arc::new(root_specs(&roots));
+    let specs = root_specs(&roots);
     let watcher = pictkura_core::watch::watch_roots(
         &roots,
         std::time::Duration::from_millis(800),
@@ -668,7 +668,10 @@ fn volumes_of_roots(roots: &[PathBuf]) -> Option<Vec<String>> {
     Some(volumes)
 }
 
-/// USNのダーティディレクトリをルートへ照合するための情報。
+/// パスをルートへ照合するための情報。
+///
+/// **使うのは2か所**——ファイル監視（`handle_fs_events`）と
+/// USNの差分（`try_usn_sync`）。片方だけの話と読まないこと
 struct RootSpec {
     /// 設定ファイル上の綴り（DBのpath/parent_dir/dirsのキーはこの綴りで始まる）
     spelling: String,
@@ -713,7 +716,10 @@ fn usn_meta_key(volume: &str) -> String {
     format!("usn|{volume}")
 }
 
-/// USNが返す正規のパス綴りを、設定ルートの綴りへ揃える。ルート配下でなければNone。
+/// OSが返したパスの綴りを、設定ルートの綴りへ揃える。ルート配下でなければNone。
+///
+/// **入口は2つ**: ファイル監視（macOSのFSEventsは `/var` を `/private/var` に
+/// 解決して返す）と、USNの差分（Windows）。
 ///
 /// DBのpath/parent_dir/dirsのキーは「設定ルートの綴り＋ファイルシステムが返した
 /// 構成要素名」で保存されている。USNのFRN解決はドライブレターの大小文字や
@@ -3393,10 +3399,13 @@ mod tests {
     #[cfg(windows)]
     use super::APP_IDENTIFIER;
     use super::{dcim_under, drive_label, import_path_from_args};
-    // 綴りを揃えるテストは Unix だけ（Windowsでは未使用importが `-D warnings` で
-    // エラーになる。ゲート2が実際に再現させて見つけた）
+    // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
+    // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
     #[cfg(unix)]
     use super::{rebase_to_root_spelling, root_specs};
+    // Windows側は `RootSpec` を直に組む（実FSも `canonicalize` も要らない）
+    #[cfg(windows)]
+    use super::{rebase_to_root_spelling, Path, PathBuf, RootSpec};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -3518,8 +3527,16 @@ mod tests {
     #[test]
     fn two_roots_pointing_at_the_same_place_keep_their_own_spelling() {
         let dir = tempfile::tempdir().unwrap();
-        let real = dir.path().join("photos");
-        let link = dir.path().join("library");
+        // **土台の側がリンク越しだと、この試験は何も見ない。**
+        // macOSの `$TMPDIR` は `/var/folders/…` にあり、`/var` 自身が
+        // `/private/var` へのリンク。すると `link` の解決後は
+        // `/private/var/…/photos` になって、題材のイベントパス
+        // `/var/…/photos/a.jpg` と**そもそも当たらない**——勝者を争う場面に
+        // 入らないので、1パスへ戻しても通ってしまう（ゲート1が実測で指摘）。
+        // 先に土台を解決して、両者を同じ名前空間へ乗せる
+        let base = dir.path().canonicalize().unwrap();
+        let real = base.join("photos");
+        let link = base.join("library");
         std::fs::create_dir(&real).unwrap();
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
@@ -3580,6 +3597,65 @@ mod tests {
         // 綴りが同じなら、そもそも組み直さない（同じ値が返る）
         let same = link.join(&odd);
         assert_eq!(rebase_to_root_spelling(&same, &specs), Some(same.clone()));
+    }
+
+    /// Windows側の綴り揃え。**この差分が2パスへ書き換えた側**なのに、
+    /// 実物のリンクを張る試験は `#[cfg(unix)]` なので**1行も通っていなかった**
+    /// （ゲート1の指摘）。しかも `rebase_to_root_spelling` のそもそもの
+    /// 利用者であるUSNの差分はWindows専用で、綴りがズレると重複行＝★消えになる。
+    ///
+    /// `RootSpec` を直に組むので、実ファイルもジャンクションも要らない。
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_come_back_in_the_configured_spelling() {
+        let spec = |spelling: &str, resolved: &str| RootSpec {
+            spelling: spelling.to_string(),
+            prefixes: vec![spelling.to_string(), resolved.to_string()],
+        };
+
+        // 大小と区切りの揺れを畳んで、設定の綴りへ戻す
+        let specs = vec![spec("C:\\foto\\bar", "D:\\real")];
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:/FOTO/Bar\\a.jpg"), &specs),
+            Some(PathBuf::from("C:\\foto\\bar\\a.jpg")),
+            "大小も区切りも設定の綴りへ揃える"
+        );
+        // 解決後（ジャンクションの実体）で来たものも設定の綴りへ
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("D:\\real\\b.jpg"), &specs),
+            Some(PathBuf::from("C:\\foto\\bar\\b.jpg")),
+            "実体パスで来ても、DBのキーは設定の綴り"
+        );
+
+        // **同じ実体を指す2ルート**。設定どおりに来たものは書き換えない
+        // （2パスにした理由。1パスだともう片方の綴りへ化けうる）
+        let both = vec![
+            spec("C:\\link", "C:\\photos"),
+            spec("C:\\photos", "C:\\photos"),
+        ];
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:\\photos\\a.jpg"), &both),
+            Some(PathBuf::from("C:\\photos\\a.jpg")),
+            "設定どおりの綴りは触らない"
+        );
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:\\link\\b.jpg"), &both),
+            Some(PathBuf::from("C:\\link\\b.jpg")),
+            "もう片方も同じ"
+        );
+
+        // **隣を配下と誤らない**（`C:\ext` に対する `C:\extra`）
+        let ext = vec![spec("C:\\ext", "C:\\ext")];
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:\\extra\\a.jpg"), &ext),
+            None,
+            "名前が前方一致するだけの別フォルダを配下にしない"
+        );
+        // ルート自身は配下
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("c:/EXT"), &ext),
+            Some(PathBuf::from("C:\\ext")),
+        );
     }
 
     #[test]
