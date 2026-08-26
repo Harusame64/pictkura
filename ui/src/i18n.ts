@@ -164,15 +164,18 @@ const ja = {
   videoOpenExternal: "既定のアプリで開く",
   videoCodecNote:
     "iPhoneなどの動画はHEVC（H.265）で記録されています。再生にはOSのデコーダが必要で、Windowsでは有料の拡張機能（数百円）になります。",
-  /** macOS。**買わせる話をしない**——OSがHEVCを最初から再生できる */
+  /**
+   * macOS。**買わせる話をしない**——OSがHEVCを最初から再生できる。
+   * 見出し（`videoFailed`）と下のボタンが言っていることは繰り返さない
+   */
   videoCodecNoteMac:
-    "この動画は表示に使っているブラウザ部品が再生できませんでした。macOSはHEVCを最初から再生できるので、対応していない記録方式である可能性が高いです。「既定のアプリで開く」から再生してください。",
+    "macOSはHEVCを最初から再生できるので、対応していない記録方式なのかもしれません。",
   /**
    * それ以外（Linux）。**デコーダがあるとは言い切らない**——
    * ディストリによってはHEVCのデコーダが入っていない（`video.rs` のとおり同梱しない）
    */
   videoCodecNoteOther:
-    "この動画は表示に使っているブラウザ部品が再生できませんでした。この記録方式に対応するデコーダが環境に無いのかもしれません。「既定のアプリで開く」から再生してください。",
+    "この記録方式に対応するデコーダが、この環境に入っていないのかもしれません。",
   videoCodecHelp: "HEVC拡張機能を見る（有料）",
   loading: "読み込み中…",
   exifTitle: "撮影情報",
@@ -249,10 +252,19 @@ const ja = {
     `多すぎるため先頭${n}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
   wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
   decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境では絵を作れません。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
-  /** Windows以外。**買わせる話をしない**——macOSはImageIOが最初から読める */
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
+  /**
+   * macOS。**買わせる話をしない**——入れるものが無いので、次にやることが無い
+   * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
+   */
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません`,
+  /**
+   * それ以外（Linux）。HEICもOSの部品次第なので、**理由は言うが買わせない**
+   * ——動画側（`videoCodecNoteOther`）と揃える
+   */
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境では絵を作れませんでした`,
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
   decoderHeifHow: "HEIF拡張機能（無料）",
   decoderHevcHow: "HEVC拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
@@ -496,9 +508,9 @@ const en: Dict = {
   videoCodecNote:
     "Videos from iPhones and similar cameras use HEVC (H.265). Playback needs an OS decoder; on Windows that is a paid extension (a few dollars).",
   videoCodecNoteMac:
-    "The browser engine used for display could not play this video. macOS decodes HEVC out of the box, so the recording format is most likely one it does not handle. Open it in your default player instead.",
+    "macOS decodes HEVC out of the box, so this is most likely a recording format it does not handle.",
   videoCodecNoteOther:
-    "The browser engine used for display could not play this video. Your system may not have a decoder for this recording format. Open it in your default player instead.",
+    "Your system may not have a decoder for this recording format.",
   videoCodecHelp: "Get the HEVC extension (paid)",
   loading: "Loading…",
   exifTitle: "Photo info",
@@ -574,9 +586,11 @@ const en: Dict = {
     `Showing the first ${n} only. Use "Whole folder" to import everything`,
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${n.toLocaleString()} HEIC/HEIF photos cannot be shown here. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
+    `⚠ Thumbnails cannot be made for ${n.toLocaleString()} HEIC/HEIF photos here. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ Thumbnails cannot be made for ${n.toLocaleString()} HEIC/HEIF photos here`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${n.toLocaleString()} HEIC/HEIF photos could not be rendered here`,
+    `⚠ Thumbnails cannot be made for ${n.toLocaleString()} HEIC/HEIF photos here. Your system may not have a decoder for HEIC/HEVC`,
   decoderHeifHow: "HEIF extension (free)",
   decoderHevcHow: "HEVC extension (paid)",
   decoderNoticeDismiss: "Don't show again",

@@ -336,6 +336,12 @@ export interface DecoderStatus {
   heif_ok: boolean;
   /** 「入れ方を見る」の導線があるか（Windowsのみ） */
   help_available: boolean;
+  /**
+   * このOS。**案内の文言を分ける正はこちら**——`isMac` / `isWindows` は
+   * `navigator.userAgent` を見るので、WebViewのUA次第で外れうる。
+   * 「買わせる」「デコーダはあると断言する」を取り違えると実害が出る
+   */
+  platform: "windows" | "macos" | "other";
 }
 export const getDecoderStatus = () =>
   invoke<DecoderStatus>("decoder_status");

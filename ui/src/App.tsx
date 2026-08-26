@@ -26,8 +26,6 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
-  isMac,
-  isWindows,
   videoSrc,
   videoStatus,
   getConfig,
@@ -761,6 +759,10 @@ export default function App() {
   // **黙って空欄にせず理由を伝える**。ライブラリにHEICが1枚も無ければ出さない。
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
+  /** 案内の文言を分ける正（バックエンドの `cfg!`。UAの推測ではない） */
+  const [platform, setPlatform] = useState<"windows" | "macos" | "other">(
+    "other",
+  );
   // 動画（第9部）。コンテナはWebViewが扱えても、中のコーデック（HEVC）が
   // OSに無ければ再生は失敗する。しかも `canPlayType` は当てにならない
   // （実測: hvc1 に空を返しながら普通に再生した）ので、**実際に失敗してから**
@@ -778,6 +780,7 @@ export default function App() {
     getDecoderStatus()
       .then((s) => {
         setDecoderHelp(s.help_available);
+        setPlatform(s.platform);
         setHeifMissing(!s.heif_ok && s.heif_total > 0 ? s.heif_total : null);
       })
       .catch(() => {});
@@ -3403,9 +3406,11 @@ export default function App() {
       {heifMissing != null && (
         <div className="speed-toast index warn decoder-notice">
           <span>
-            {isWindows
+            {platform === "windows"
               ? t.decoderHeifNotice(heifMissing)
-              : t.decoderHeifNoticeOther(heifMissing)}
+              : platform === "macos"
+                ? t.decoderHeifNoticeMac(heifMissing)
+                : t.decoderHeifNoticeOther(heifMissing)}
           </span>
           {decoderHelp && (
             <>
@@ -3840,13 +3845,13 @@ export default function App() {
                 {videoInfo.exists &&
                   !videoInfo.cloud_only &&
                   videoInfo.plays_in_app && (
-                      <p className="fallback-note">
-                      {isWindows
-                        ? t.videoCodecNote
-                        : isMac
-                          ? t.videoCodecNoteMac
-                          : t.videoCodecNoteOther}
-                    </p>
+                    <p className="fallback-note">
+                    {platform === "windows"
+                      ? t.videoCodecNote
+                      : platform === "macos"
+                        ? t.videoCodecNoteMac
+                        : t.videoCodecNoteOther}
+                  </p>
                   )}
                 <div className="fallback-actions">
                   {videoInfo.exists && (
@@ -3859,7 +3864,7 @@ export default function App() {
                   {videoInfo.exists &&
                     !videoInfo.cloud_only &&
                     videoInfo.plays_in_app &&
-                    isWindows && (
+                    platform === "windows" && (
                       <button
                         onClick={() => openDecoderHelp("hevc").catch(() => {})}
                       >

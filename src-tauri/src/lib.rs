@@ -892,6 +892,14 @@ struct DecoderStatusDto {
     heif_ok: bool,
     /// 「入れ方を見る」の導線があるか（Windowsだけ）
     help_available: bool,
+    /// このOS。**UIの文言を分けるための正**。
+    ///
+    /// フロントにも `navigator.userAgent` を見る判定（`api.ts` の `isMac` /
+    /// `isWindows`）があるが、あれは修飾キーの表記を選ぶためのもので、
+    /// **WebViewのUA次第で外れうる**。買わせる話をするかどうかや、
+    /// 「デコーダはある」と断言するかどうかを取り違えると実害が出るので、
+    /// **コンパイル時に分かるこちらを正とする**（ゲート2の指摘）
+    platform: &'static str,
 }
 
 /// HEICを展開できるかを実地で確かめ、UIの案内を出すかどうかを返す。
@@ -927,6 +935,13 @@ fn decoder_status(state: tauri::State<'_, AppState>) -> Result<DecoderStatusDto,
         heif_total,
         heif_ok,
         help_available: cfg!(windows),
+        platform: if cfg!(windows) {
+            "windows"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            "other"
+        },
     })
 }
 
