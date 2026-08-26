@@ -1105,7 +1105,15 @@ pub fn decoder_available() -> bool {
     {
         windows_wic::available()
     }
-    #[cfg(not(windows))]
+    // macOSは ImageIO も HEVC のデコーダも**OS同梱**。Windowsのように
+    // 「拡張機能が別インストール」ではないので、聞く先が無い＝常に真でよい。
+    // ここが偽のままだと、UIがWindows向けの案内（有料のHEVC拡張機能）を
+    // macOSの利用者に見せ続ける
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         false
     }
@@ -1216,7 +1224,15 @@ pub fn decode(path: &Path) -> Option<image::DynamicImage> {
             None => img,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let img = macos_imageio::decode(path)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = path;
         None
@@ -1382,7 +1398,11 @@ pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
     {
         windows_wic::decode_mem(bytes)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_imageio::decode_mem(bytes)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = bytes;
         None
@@ -1474,6 +1494,137 @@ pub fn apply_transform(img: image::DynamicImage, info: &HeifInfo) -> image::Dyna
 /// **HEIF Image Extensions**（Microsoft Store・Windows 11は既定で同梱）が
 /// 入っていればHEICを読める。自前でHEVCデコーダを抱えないので、
 /// 配布物が増えずライセンスの問題も起きない。
+/// macOSの ImageIO から画素を借りる（WindowsのWICと同じ役）。
+///
+/// **CoreGraphicsのビットマップ文脈へ描く**のが要点。ImageIOが返す `CGImage` の
+/// 画素形式と色空間は素材任せ（HDR PQ の10bitもある）だが、**sRGBの文脈へ描けば
+/// 変換はCoreGraphicsがやる**。WICが `IWICFormatConverter` で 24bppBGR へ
+/// 落としているのと同じ考え方で、**出口の形をこちら側で決める**。
+///
+/// 向きは**適用しない**。`kCGImageSourceCreateThumbnailWithTransform` を
+/// 立てなければImageIOは回さないので、コンテナの `irot`/`imir` は
+/// 呼び出し側（[`super::apply_container_transform`]）が当てる。
+/// 両方が回すと二重になる。
+///
+/// Objective-Cのランタイムには触らない——ImageIOもCoreGraphicsも**純粋なC API**で、
+/// `objc2-*` crate はその宣言を持っているだけ。
+#[cfg(target_os = "macos")]
+mod macos_imageio {
+    use std::path::Path;
+
+    use objc2_core_foundation::{CFData, CFRetained, CGPoint, CGRect, CGSize, CFURL};
+    use objc2_core_graphics::{
+        kCGColorSpaceSRGB, CGBitmapContextCreate, CGBitmapContextGetData, CGColorSpace, CGContext,
+        CGImage, CGImageAlphaInfo, CGImageByteOrderInfo,
+    };
+    use objc2_image_io::CGImageSource;
+
+    /// ファイルの主画像を起こす（[`super::decode`] の macOS 側）。
+    pub fn decode(path: &Path) -> Option<image::DynamicImage> {
+        let source = source_from_path(path)?;
+        // SAFETY: options に None を渡すだけなので、辞書の型を取り違えようがない
+        let image = unsafe { source.image_at_index(0, None) }?;
+        to_image(&image)
+    }
+
+    /// メモリ上のバイト列から主画像を起こす（[`super::decode_mem`] の macOS 側）。
+    ///
+    /// CR3のHDR PQは、取り出したHEVCをその場でHEIFに包み直して渡してくる
+    /// （[`crate::raw`] の `cr3_hevc_preview`）。一時ファイルを作らない口。
+    pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
+        // SAFETY: `bytes` はこの呼び出しのあいだ生きている。
+        // `CFDataCreate` は**中身を複製する**ので、返った後は参照されない
+        let data = unsafe { CFData::new(None, bytes.as_ptr(), bytes.len() as isize) }?;
+        // SAFETY: options に None を渡すだけ
+        let source = unsafe { CGImageSource::with_data(&data, None) }?;
+        // SAFETY: 同上
+        let image = unsafe { source.image_at_index(0, None) }?;
+        to_image(&image)
+    }
+
+    /// パスから画像ソースを開く。**ファイルは開くが画素は読まない**。
+    fn source_from_path(path: &Path) -> Option<CFRetained<CGImageSource>> {
+        use std::os::unix::ffi::OsStrExt;
+        let bytes = path.as_os_str().as_bytes();
+        // SAFETY: `bytes` はこの関数のあいだ生きている。CFURL は複製を持つ。
+        // ファイルシステム表現をそのまま渡すので、UTF-8にならない名前でも壊れない
+        let url = unsafe {
+            CFURL::from_file_system_representation(
+                None,
+                bytes.as_ptr(),
+                bytes.len() as isize,
+                false,
+            )
+        }?;
+        // SAFETY: options に None を渡すだけ
+        unsafe { CGImageSource::with_url(&url, None) }
+    }
+
+    /// `CGImage` を **sRGBのRGB8** へ落とす（Windows側の `to_image` と同じ出口）。
+    ///
+    /// CoreGraphicsのビットマップ文脈は**24bppを作れない**ので、いったん
+    /// RGBX（32bpp・アルファ捨て）で受けてから3バイトへ詰め直す。
+    fn to_image(image: &CGImage) -> Option<image::DynamicImage> {
+        let width = CGImage::width(Some(image));
+        let height = CGImage::height(Some(image));
+        if width == 0 || height == 0 {
+            return None;
+        }
+        // 展開爆弾よけ。ここを抜けると width*height*4 を確保する
+        const MAX_PIXELS: usize = 512 * 1024 * 1024 / 4;
+        if width.checked_mul(height)? > MAX_PIXELS {
+            return None;
+        }
+        let stride = width.checked_mul(4)?;
+        let len = stride.checked_mul(height)?;
+        let mut rgbx = vec![0u8; len];
+
+        // SAFETY: `kCGColorSpaceSRGB` はImageIOが公開する定数の名前
+        let space = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }))?;
+        // `NoneSkipLast` + `ByteOrder32Big` で、メモリ上の並びが R,G,B,X になる。
+        // アルファは捨てる（Windows側も24bppBGRへ落としていて、出口を揃える）
+        let bitmap_info = CGImageAlphaInfo::NoneSkipLast.0 | CGImageByteOrderInfo::Order32Big.0;
+        // SAFETY: `rgbx` は width*4*height バイトで、文脈より長生きする
+        let context = unsafe {
+            CGBitmapContextCreate(
+                rgbx.as_mut_ptr().cast(),
+                width,
+                height,
+                8,
+                stride,
+                Some(&space),
+                bitmap_info,
+            )
+        }?;
+
+        let rect = CGRect::new(
+            CGPoint::new(0.0, 0.0),
+            CGSize::new(width as f64, height as f64),
+        );
+        CGContext::draw_image(Some(&context), rect, Some(image));
+
+        // 描き終わったことを確かめる。`CGBitmapContextGetData` が渡した先を
+        // 指していなければ、CoreGraphics が別の裏付けを取ったということなので信じない
+        if CGBitmapContextGetData(Some(&context)).cast::<u8>() != rgbx.as_mut_ptr() {
+            return None;
+        }
+        drop(context);
+
+        // RGBX → RGB（前へ詰める。確保し直さない）
+        let mut out = 0usize;
+        for px in 0..width * height {
+            let src = px * 4;
+            rgbx[out] = rgbx[src];
+            rgbx[out + 1] = rgbx[src + 1];
+            rgbx[out + 2] = rgbx[src + 2];
+            out += 3;
+        }
+        rgbx.truncate(out);
+        image::RgbImage::from_raw(width as u32, height as u32, rgbx)
+            .map(image::DynamicImage::ImageRgb8)
+    }
+}
+
 #[cfg(windows)]
 mod windows_wic {
     use std::path::Path;
