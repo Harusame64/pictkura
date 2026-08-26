@@ -358,7 +358,8 @@ const EXTS: &[&str] = &[
     "heic", "heif", "avif", "jpg", "jpeg", "png", "mov", "mp4", "cr3", "cr2", "arw", "nef", "dng",
     "svg", "webp", "gif", "tif",
     // 自前で解いている変わり種のRAW。版番号の直し（orf・rw2）、ブロック辿り
-    // （mrw）、後ろに置かれたプレビュー（x3f）、プレビューのEXIF（raf）は
+    // （mrw）、末尾に置かれたプレビュー（x3f。sd Quattro 等）、
+    // プレビューのEXIF（raf）は
     // いずれもここを通さないと壊れた入力を一度も食わない（ゲート2のP3）
     "orf", "rw2", "mrw", "x3f", "raf",
 ];

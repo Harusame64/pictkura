@@ -302,7 +302,10 @@ pub fn read_exif(path: &Path) -> ExifData {
 /// ただし**撮影日時がプレビューJPEGにしか無い形式がある**（Fujifilm RAF・
 /// Sigma X3F・Kodak KDC）。そこまで省くと、取り込みがその1枚だけ
 /// ファイル名かmtimeの日付で**別の日のフォルダへ入れてしまう**ので、
-/// 日付が取れなかったときだけ先頭16MBのプレビューを見る（ゲート1のP2）。
+/// 日付が取れなかったときだけプレビューを見る（ゲート1のP2）。**先頭16MBでは
+/// 止まらない**——[`crate::raw::USABLE_LONG_EDGE`] を要求するので、必要なら
+/// 最大128MBまで読む。Sigmaの sd Quattro は44MBの位置のプレビューにしか
+/// 撮影日時を持たないので、そこで止めると日付を落とす。
 pub fn read_exif_meta(path: &Path) -> ExifData {
     read_exif_inner(path, Want::Meta)
 }
@@ -548,7 +551,9 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         // 撮影日時がもう取れているならプレビューには触らない（大多数はこちら）
         //
         // 「先頭16MBだけ」に絞ると、後ろに置いた原寸プレビューにしか日付を
-        // 書かない社（Sigma X3F）を落とす——取り込みがその1枚だけ
+        // 書かない機種（Sigmaの sd Quattro・sd Quattro H。実測で撮影日時は
+        // 44MB／48MBの位置のプレビューからしか取れない）を落とす——
+        // 取り込みがその1枚だけ
         // **別の日のフォルダ**へ入れてしまう。先頭→全体の二段も測ったが、
         // 先頭を二度読むぶん遅かった（x3f 123→152ms・mos 68→96ms）。
         // 払うのは**コンテナに日付が無い社だけ**（x3f 123ms・fff 194ms・
@@ -867,7 +872,7 @@ fn source_image(
 ///
 /// **配信される絵と一致する保証は無い。** ここへ来る `exif` は一覧のために
 /// 長辺512で探したもので、ビューアは長辺1600で探し直す——ファイル後方に
-/// 原寸プレビューを置く形式（Ricoh GR IIIのDNG・Sigma X3F）は、一覧が720x480を
+/// 原寸プレビューを置く形式（Ricoh GR IIIのDNG）は、一覧が720x480を
 /// 掴んだ後にビューアが6000x4000を見つける。だからビューア側は絵が届いた時点で
 /// 実寸を測り直す（`servedNatural`）。
 fn preview_dimensions(path: &Path, exif: &ExifData) -> Result<(u32, u32), ThumbError> {

@@ -227,7 +227,7 @@ function servedSize(item: MediaItem): [number, number] {
 function decodedBytes(it: MediaItem, measured?: [number, number]): number {
   // **一度でも実物が届いた絵は、その実寸で数える**。DBの寸法は当てにならない
   // ことがある——一覧が掴むのは「そのとき見つかった一番大きいプレビュー」で、
-  // ファイル後方に原寸を置く形式（Ricoh GR IIIのDNG・Sigma x3f）では720x480が
+  // ファイル後方に原寸を置く形式（Ricoh GR IIIのDNG）では720x480が
   // 記録される一方、ビューアへ配信されるのは6000x4000＝95MiB。DBの値だけで
   // 数えると1.4MiBと見積もり、崖（実測660MiB）へ近づく（ゲート2のP3）
   if (measured && measured[0] > 0 && measured[1] > 0) {
@@ -1864,7 +1864,7 @@ export default function App() {
    *
    * DBの寸法で較正すると、配信される絵と食い違う形式で**100%が100%でなくなる**
    * ——RAWはDBに埋め込みプレビューの寸法が入っており、ファイル後方に原寸を置く
-   * 形式（Ricoh GR IIIのDNG・Sigma x3f）では720x480と6000x4000ほど離れる。
+   * 形式（Ricoh GR IIIのDNG）では720x480と6000x4000ほど離れる。
    * TIFFの長辺丸めも同じ形（ゲート2のP3）
    */
   const [servedNatural, setServedNatural] = useState<{
