@@ -184,6 +184,18 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
 
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
+/// 監視が拾った変更をDBへ反映する。
+///
+/// **入口で綴りを設定ルートへ揃える**（USNの経路と同じ手当て）。notify が返すのは
+/// OSがくれたパスで、**設定と綴りが違うことがある**——macOSの `/var` は
+/// `/private/var` へのシンボリックリンクで、FSEvents は解決後を返す。
+/// そのまま入れると害が2つ:
+///
+/// - 次の全走査が**綴りの合わない行を掃き出す**。掃き出された行は別のidで
+///   入り直すので、**★や選別の印が消える**（実測: 監視中に足した1枚に★を付け、
+///   次の起動で `id=2 favorite=0` になった）
+/// - 下の除外の門は**設定の綴りが前提**の前方一致なので、綴りが違うと外れる
+///   ——ルートがパッケージのとき、その中身が**監視の経路だけ**索引される
 fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
     use pictkura_core::scanner::{self, ScannedFile};
     use std::time::UNIX_EPOCH;
@@ -207,6 +219,29 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
         })
     };
 
+    // **綴りを揃えるのはロックの外で。** `root_specs` はルートごとに
+    // `std::fs::canonicalize` を呼ぶ——**オフラインのNASが1つ混ざっていると、
+    // そのマウントが諦めるまで数秒から数十秒返らない**。`db` のロックを
+    // 握ったままこれをやると、UIを返すコマンドも全部そこで待つ（ゲート2の指摘）。
+    //
+    // 揃えられなかったものは**そのまま通す**。notify は監視しているルートの
+    // 下しか返さないので、ここへ来るのはルートが解決できない等の異常時だけ
+    // ——落とすより今までどおりに扱う。ただし**黙って通すと、直したはずの
+    // 「印が消える」がまた起きても気付けない**ので、記録だけは残す
+    let specs = root_specs(&config.library.roots);
+    let paths: Vec<PathBuf> = paths
+        .into_iter()
+        .map(|p| {
+            rebase_to_root_spelling(&p, &specs).unwrap_or_else(|| {
+                eprintln!(
+                    "監視: ルート配下と照合できなかったので綴りをそのまま使う: {}",
+                    p.display()
+                );
+                p
+            })
+        })
+        .collect();
+
     {
         let mut db = lock_ok(&state.db);
         // 新規・変更のみをupsertする（同一内容のupsertはサムネイルを無効化してしまう）
@@ -226,23 +261,7 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
         // 判定はルートだけで決まるので**ループの外で1回**（イベントごとに
         // 全構成要素を舐め直さない）
         let package_roots = managed_package_roots(&config);
-        // **監視が返す綴りを設定ルートへ揃える**（USNの経路と同じ手当て）。
-        //
-        // notify が返すのはOSがくれたパスで、**設定と綴りが違うことがある**
-        // ——macOSの `/var` は `/private/var` へのシンボリックリンクで、
-        // FSEvents は解決後を返す。そのまま入れると害が2つ:
-        //
-        // - DBはパスを**文字列として**比較する（`ON CONFLICT(path)`）ので、
-        //   **同じ写真が2件並ぶ**（Windowsの USN 経由で32件出たのと同じ筋）
-        // - 下の除外の門は**設定の綴りが前提**の前方一致なので、
-        //   綴りが違うと外れる——`*.photoslibrary` の除外が**監視の経路だけ効かない**
-        //
-        // ルート配下と照合できなかったものは**そのまま通す**。notify は
-        // 監視しているルートの下しか返さないので、ここへ来るのは
-        // ルートが解決できない等の異常時だけ——落とすより今までどおりに扱う
-        let specs = root_specs(&config.library.roots);
         for p in paths {
-            let p = rebase_to_root_spelling(&p, &specs).unwrap_or(p);
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
                 continue;
             }
@@ -3355,34 +3374,37 @@ mod tests {
         assert_eq!(drive_label("", Path::new("D:\\")), "D:");
     }
 
+    /// 解決後の綴りで来ても、設定の綴りへ戻す。
+    ///
+    /// **リンクは自分で張る。** `temp_dir()` に頼ると、macOSでは
+    /// `/var/folders/...`（`/private/var` へのリンク）なので回帰を突けるが、
+    /// Linuxの `/tmp` はリンクではないため**CIでは素通りの経路しか通らない**
+    /// ——直したはずの穴が開いても気付けない（ゲート2の指摘）
+    #[cfg(unix)]
     #[test]
     fn a_resolved_symlink_is_rebased_to_the_configured_spelling() {
-        // **監視が返す綴りは設定と違うことがある。** macOSの `/var` は
-        // `/private/var` へのシンボリックリンクで、FSEventsは解決後を返す。
-        // そのまま入れると同じ写真が2件並び、除外の前方一致も外れる。
-        //
-        // `temp_dir()` は macOS では `/var/folders/...` なので、
-        // **この機械ではそのまま題材になる**（リンクの無いOSでは
-        // 解決後＝設定の綴りになり、素通しであることを確かめる形になる）
-        let root = std::env::temp_dir().join("pictkura_rebase_root");
-        std::fs::create_dir_all(&root).unwrap();
-        let Ok(real) = std::fs::canonicalize(&root) else {
-            std::fs::remove_dir_all(&root).ok();
-            return;
-        };
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let link = dir.path().join("link");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        let specs = root_specs(std::slice::from_ref(&root));
-        let rebased = rebase_to_root_spelling(&real.join("2020").join("a.jpg"), &specs)
+        // 設定は**リンクの綴り**。監視はリンクを解決した綴りを返す
+        let specs = root_specs(std::slice::from_ref(&link));
+        let resolved = std::fs::canonicalize(&link).unwrap();
+        assert_ne!(resolved, link, "この題材でリンクが効いていること");
+
+        let rebased = rebase_to_root_spelling(&resolved.join("2020").join("a.jpg"), &specs)
             .expect("ルート配下だと分かること");
         assert_eq!(
             rebased,
-            root.join("2020").join("a.jpg"),
+            link.join("2020").join("a.jpg"),
             "解決後の綴りで来ても、設定の綴りへ戻す"
         );
 
-        // 設定の綴りのまま来たものは、当然そのまま
-        let same = rebase_to_root_spelling(&root.join("b.jpg"), &specs).expect("同上");
-        assert_eq!(same, root.join("b.jpg"));
+        // 設定の綴りのまま来たものはそのまま
+        let same = link.join("b.jpg");
+        assert_eq!(rebase_to_root_spelling(&same, &specs), Some(same.clone()));
 
         // ルートの外は「分からない」と返す（呼び出し側が判断する）
         assert_eq!(
@@ -3390,7 +3412,14 @@ mod tests {
             None
         );
 
-        std::fs::remove_dir_all(&root).ok();
+        // **隣のルートを配下と誤らない**（`/x/EXT` と `/x/EXTRA`）
+        let sibling = dir.path().join("linkX");
+        std::os::unix::fs::symlink(&real, &sibling).unwrap();
+        assert_eq!(
+            rebase_to_root_spelling(&link.with_file_name("linkX").join("d.jpg"), &specs),
+            None,
+            "綴りの前方一致だけで配下と決めない"
+        );
     }
 
     /// 名前がUTF-8として読めなくても、バイトを壊さずに揃える。
@@ -3404,25 +3433,23 @@ mod tests {
     #[test]
     fn a_non_utf8_name_survives_the_rebase() {
         use std::os::unix::ffi::{OsStrExt, OsStringExt};
-        use std::path::PathBuf;
 
-        let root = std::env::temp_dir().join("pictkura_rebase_bytes");
-        std::fs::create_dir_all(&root).unwrap();
-        let Ok(real) = std::fs::canonicalize(&root) else {
-            std::fs::remove_dir_all(&root).ok();
-            return;
-        };
-        let specs = root_specs(std::slice::from_ref(&root));
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let link = dir.path().join("link");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let specs = root_specs(std::slice::from_ref(&link));
+        let resolved = std::fs::canonicalize(&link).unwrap();
 
         // Shift_JISの「あ」＋ UTF-8として不正なバイト
         let odd = std::ffi::OsString::from_vec(b"\x82\xa0\xff.jpg".to_vec());
 
-        // 解決後の綴りで来ても、設定の綴りへ戻り、**名前のバイトは変わらない**
-        let event = real.join(&odd);
-        let rebased = rebase_to_root_spelling(&event, &specs).expect("ルート配下だと分かること");
+        let rebased = rebase_to_root_spelling(&resolved.join(&odd), &specs)
+            .expect("ルート配下だと分かること");
         assert_eq!(
             rebased,
-            root.join(&odd),
+            link.join(&odd),
             "綴りは揃え、名前のバイトは触らない"
         );
         assert_eq!(
@@ -3432,10 +3459,8 @@ mod tests {
         );
 
         // 綴りが同じなら、そもそも組み直さない（同じ値が返る）
-        let same: PathBuf = root.join(&odd);
+        let same = link.join(&odd);
         assert_eq!(rebase_to_root_spelling(&same, &specs), Some(same.clone()));
-
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
