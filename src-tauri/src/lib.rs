@@ -1152,6 +1152,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     };
     // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
     let mut survivor = false;
+    // 除外に当たった名前（重複を除く）。**数えるのはこちら**
+    let mut excluded_names: HashSet<String> = HashSet::new();
     for root in &config.library.roots {
         // **「無い」と「見せてもらえない」を取り違えない。** `is_dir()` は
         // 内側で `stat` を呼ぶだけなので、**親フォルダに検索権が無い**と
@@ -1237,11 +1239,12 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 .iter()
                 .any(|p| pictkura_core::scanner::matches_pattern(name, p))
             {
-                if !out.excluded.iter().any(|n| n == name) {
-                    out.excluded_total += 1;
-                    if out.excluded.len() < 3 {
-                        out.excluded.push(name.to_string());
-                    }
+                // **数える集合は、見せる3件と別に持つ。** 見せる側で
+                // 重複を見ると、4件目以降は毎回数えられ（`.cache` が2つの
+                // ルートにあれば2）、先頭3件は何ルートに在っても1のまま——
+                // 「ほか N件」がどちらにも狂う（ゲート2の指摘）
+                if excluded_names.insert(name.to_string()) && out.excluded.len() < 3 {
+                    out.excluded.push(name.to_string());
                 }
             } else {
                 survivor = true;
@@ -1262,8 +1265,9 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
     if survivor {
         out.excluded.clear();
-        out.excluded_total = 0;
         out.photo_library = false;
+    } else {
+        out.excluded_total = excluded_names.len();
     }
     out
 }
@@ -3910,6 +3914,19 @@ mod tests {
             vec![".隠しフォルダ".to_string()],
             "中身になり得たものだけ名前を挙げる"
         );
+        assert_eq!(r.excluded_total, 1, "見せた3件と別に、総数を数える");
+
+        // **「ほか N件」の数が狂わないこと。** 見せるのは3件でも数は全部
+        // （ゲート2の指摘: 見せる側で重複を見ると数がどちらにも狂う）
+        for n in ["$RECYCLE.BIN", "Thumbs.db", ".二つ目", ".三つ目"] {
+            std::fs::create_dir(root.join(n)).unwrap();
+        }
+        let r = empty_library_reason_of(&config);
+        assert_eq!(r.excluded.len(), 3, "名前は3件まで");
+        assert_eq!(r.excluded_total, 5, "数は打ち切らない");
+        for n in ["$RECYCLE.BIN", "Thumbs.db", ".二つ目", ".三つ目"] {
+            std::fs::remove_dir(root.join(n)).unwrap();
+        }
 
         // **除外の隣に、除外されていない空のフォルダがある。**
         // 走査はその `写真` を開いて何も見つけていないのだから、

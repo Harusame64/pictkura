@@ -340,6 +340,18 @@ export default function App() {
    */
   const [settled, setSettled] = useState(false);
   /**
+   * 直前の `reloadAll` が**落ちた**か。
+   *
+   * `settled` を `finally` で立てるのは**仕掛けを詰まらせない**ため
+   * （立てないと、呼び出し側がリトライしないので起動中ずっと偽のまま固まる）。
+   * だがそれだけだと、**取得に失敗しただけの一覧の上に**「まだ写真がありません」が
+   * 出る——検索を消した直後に一度転べば、5万枚のライブラリに向かって
+   * 「カードから取り込んでください」と言うことになる。
+   * **2つを分ける**: `settled` は仕掛けのため、これは名乗ってよいかの判断のため。
+   * 失敗そのものは上部の帯に出たまま残るので、黙ってはいない
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+  /**
    * 起動時の走査が報告を出したか。**出るまで「空です」と言わない**。
    *
    * 走査は別スレッドで走り、終わってから `library-updated` と
@@ -597,10 +609,9 @@ export default function App() {
    *
    * **落ちても `settled` は立てる**（`finally`）。立てないと、
    * 呼び出し側は例外を `status` へ流すだけでリトライしないので、
-   * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる——
-   * 「無言で 0 件を出さない」ためのPRで、失敗経路だけ以前より無言になる
-   * （2つのゲートが独立に同じ指摘をした）。
-   * 失敗したことは上部の帯に**出たまま残る**ので、黙ってはいない */
+   * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる。
+   * ただし立てるだけだと今度は**失敗を「空」と読む**ので、
+   * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     inflightRef.current.clear();
@@ -617,6 +628,10 @@ export default function App() {
       setStats(st);
       setMemories(mem);
       setDayItems(new Map());
+      if (generationRef.current === gen) setLoadFailed(false);
+    } catch (err) {
+      if (generationRef.current === gen) setLoadFailed(true);
+      throw err;
     } finally {
       // **追い越されていたら立てない**——新しい方がまだ走っている
       if (generationRef.current === gen) setSettled(true);
@@ -806,6 +821,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    let poll: number | undefined;
     (async () => {
       // **登録が転んでも先へ進む。** ここで例外が上がると下の問い合わせに
       // 届かず、`scanSettled` がその起動のあいだ偽のまま固まる——
@@ -822,11 +838,29 @@ export default function App() {
       // 聞けなかったときは**待たない**側に倒す。ここで固まると、
       // ルートを1つも設定していない人に何も言わないアプリになる
       const done = await startupScanFinished().catch(() => true);
-      if (done && !cancelled) setScanSettled(true);
+      if (cancelled) return;
+      if (done) {
+        setScanSettled(true);
+        return;
+      }
+      // **登録に失敗していて、まだ走っている。** イベントは来ないので、
+      // 来るまで自分で聞きに行く——ここで諦めると、この機能がその起動の
+      // あいだ丸ごと出ない（ゲート2の指摘）。走査中しか回らず、
+      // 見ているのは真偽値1つなので安い
+      if (!f) {
+        poll = window.setInterval(() => {
+          void startupScanFinished()
+            .catch(() => true)
+            .then((ok) => {
+              if (ok && !cancelled) setScanSettled(true);
+            });
+        }, 2000);
+      }
     })();
     return () => {
       cancelled = true;
       unlisten?.();
+      if (poll != null) window.clearInterval(poll);
     };
   }, []);
 
@@ -1163,7 +1197,8 @@ export default function App() {
    * 判定は**ここ1か所**に置く——出す条件と聞く条件がずれると、
    * 古い理由が新しい一覧の上に出る
    */
-  const canSayEmpty = settled && scanSettled && !filtering && summary.length === 0;
+  const canSayEmpty =
+    settled && !loadFailed && scanSettled && !filtering && summary.length === 0;
   /**
    * 名前の一覧を1文へ。**3件で切って、切ったことを言う**。
    *
@@ -1193,7 +1228,22 @@ export default function App() {
       .then((r) => {
         if (alive) setEmptyReason(r);
       })
-      .catch(() => {});
+      // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
+      // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
+      // 逆戻りする——このPRが消そうとしている当のもの（ゲート2の指摘）。
+      // 旗の立っていない理由＝「まだ見つかりません」＋取り込みと参照の2つ
+      .catch(() => {
+        if (alive) {
+          setEmptyReason({
+            noRoots: false,
+            missing: [],
+            unreadable: [],
+            excluded: [],
+            excludedTotal: 0,
+            photoLibrary: false,
+          });
+        }
+      });
     return () => {
       alive = false;
     };
