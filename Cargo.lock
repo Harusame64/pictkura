@@ -2987,6 +2987,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "tempfile",
  "trash",
  "ureq",
  "windows-sys 0.60.2",

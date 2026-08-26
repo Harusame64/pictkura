@@ -157,10 +157,16 @@ fn rebuild_watcher(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let roots = lock_ok(&state.config).library.roots.clone();
     let event_app = app.clone();
+    // **綴りの照合表はここで1回だけ作る。** `root_specs` はルートごとに
+    // `std::fs::canonicalize` を呼ぶので、イベントの束が来るたびに作り直すと、
+    // **オフラインのNASが1つあるだけで**その束ごとに数秒〜数十秒止まる。
+    // ルートが変わるのはこの関数が呼ばれるときだけなので、閉じ込めて持ち回る
+    // （ゲート2の指摘）
+    let specs = root_specs(&roots);
     let watcher = pictkura_core::watch::watch_roots(
         &roots,
         std::time::Duration::from_millis(800),
-        move |paths| handle_fs_events(&event_app, paths),
+        move |paths| handle_fs_events(&event_app, &specs, paths),
     )
     .ok();
     *lock_ok(&state.watcher) = watcher;
@@ -184,7 +190,18 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
 
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
-fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
+///
+/// **入口で綴りを設定ルートへ揃える**（USNの経路と同じ手当て）。notify が返すのは
+/// OSがくれたパスで、**設定と綴りが違うことがある**——macOSの `/var` は
+/// `/private/var` へのシンボリックリンクで、FSEvents は解決後を返す。
+/// そのまま入れると害が2つ:
+///
+/// - 次の全走査が**綴りの合わない行を掃き出す**。掃き出された行は別のidで
+///   入り直すので、**★や選別の印が消える**（実測: 監視中に足した1枚に★を付け、
+///   次の起動で `id=2 favorite=0` になった）
+/// - 下の除外の門は**設定の綴りが前提**の前方一致なので、綴りが違うと外れる
+///   ——ルートがパッケージのとき、その中身が**監視の経路だけ**索引される
+fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::path::PathBuf>) {
     use pictkura_core::scanner::{self, ScannedFile};
     use std::time::UNIX_EPOCH;
 
@@ -206,6 +223,26 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
             mtime_ms,
         })
     };
+
+    // 照合表は監視を張ったときに1回だけ作ってある（`rebuild_watcher`）。
+    // ここで作り直すと、束が来るたびに `canonicalize` を全ルートへ投げることになる。
+    //
+    // 揃えられなかったものは**そのまま通す**。notify は監視しているルートの
+    // 下しか返さないので、ここへ来るのはルートが解決できない等の異常時だけ
+    // ——落とすより今までどおりに扱う。ただし**黙って通すと、直したはずの
+    // 「印が消える」がまた起きても気付けない**ので、記録だけは残す
+    let paths: Vec<PathBuf> = paths
+        .into_iter()
+        .map(|p| {
+            rebase_to_root_spelling(&p, specs).unwrap_or_else(|| {
+                eprintln!(
+                    "監視: ルート配下と照合できなかったので綴りをそのまま使う: {}",
+                    p.display()
+                );
+                p
+            })
+        })
+        .collect();
 
     {
         let mut db = lock_ok(&state.db);
@@ -575,7 +612,47 @@ struct StartupScanDto {
     total: i64,
 }
 
+/// 綴りを照合の形へ畳む。**バイト長を変えない**
+/// （畳んだ文字列上の位置で、元の文字列をそのまま切り出すため）。
+///
+/// **Windowsだけ**区切りをバックスラッシュへ寄せ、ASCIIの大小を畳む。
+/// macOS/Linuxでは**何もしない**——区切りは `/` しか無く、
+/// APFSは**大小を区別する設定にできる**ので、畳むと別のファイルを同一視する。
+fn fold_for_compare(s: &str) -> String {
+    if cfg!(windows) {
+        s.replace('/', "\\").to_ascii_lowercase()
+    } else {
+        s.to_string()
+    }
+}
+
+/// このOSのパス区切り。
+fn path_separator() -> char {
+    if cfg!(windows) {
+        '\\'
+    } else {
+        '/'
+    }
+}
+
+/// 綴りをこのOSの形へ寄せ、末尾の区切りを落とす。
+fn root_spelling_of(raw: &str) -> String {
+    let spelled = if cfg!(windows) {
+        raw.replace('/', "\\")
+    } else {
+        raw.to_string()
+    };
+    spelled.trim_end_matches(path_separator()).to_string()
+}
+
 /// `\\?\` 拡張プレフィックスを外す（fs::canonicalizeの戻り値を通常形式へ）。
+///
+/// **UNCは戻し切らない**: `\\?\UNC\server\share` は `UNC\server\share` になり、
+/// `\\server\share` には戻らない。今日は無害——そんな綴りは絶対パスに
+/// 決して前方一致しないので、`RootSpec::prefixes` に積まれても不活性な的で
+/// 終わる（Windowsの監視は設定綴りで返すので1本目で足り、USNはUNCで無効）。
+/// **ただし将来 `prefixes` をUNCのジャンクション解決に使うなら、黙って外れる**
+/// （ゲート2の指摘）。
 fn strip_verbatim(path: &Path) -> String {
     let s = path.to_string_lossy();
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
@@ -598,7 +675,10 @@ fn volumes_of_roots(roots: &[PathBuf]) -> Option<Vec<String>> {
     Some(volumes)
 }
 
-/// USNのダーティディレクトリをルートへ照合するための情報。
+/// パスをルートへ照合するための情報。
+///
+/// **使うのは2か所**——ファイル監視（`handle_fs_events`）と
+/// USNの差分（`try_usn_sync`）。片方だけの話と読まないこと
 struct RootSpec {
     /// 設定ファイル上の綴り（DBのpath/parent_dir/dirsのキーはこの綴りで始まる）
     spelling: String,
@@ -607,19 +687,36 @@ struct RootSpec {
     prefixes: Vec<String>,
 }
 
+/// 照合の的を作る。
+///
+/// `spelling` を `to_string_lossy` で作っているが、**実際には損なわれない**
+/// ——ルートは `pictkura.toml` を `read_to_string` して読んだものなので、
+/// 妥当なUTF-8である（ゲート2が「非UTF-8のルートで壊れる」と見たが、
+/// TOMLを通る以上そこへは到達しない）。
+///
+/// **例外は初回起動の1回だけ**: 設定ファイルがまだ無いときの既定は
+/// `picture_dir()` の `PathBuf` が**TOMLを経由せず**ここへ届く（ゲート2の指摘）。
+/// 仮に非UTF-8でも、化けた綴りは何のパスにも前方一致しないので
+/// `rebase_to_root_spelling` は `None` を返す——**そのまま通す**側に落ちるだけで、
+/// 綴りを取り違えることはない。
 fn root_specs(roots: &[PathBuf]) -> Vec<RootSpec> {
     roots
         .iter()
         .map(|root| {
-            let spelling = root
-                .to_string_lossy()
-                .replace('/', "\\")
-                .trim_end_matches('\\')
-                .to_string();
+            let spelling = root_spelling_of(&root.to_string_lossy());
             let mut prefixes = vec![spelling.clone()];
+            // **解決後の綴りも照合の的に入れる。** macOSの `/var` は
+            // `/private/var` へのシンボリックリンクで、**FSEventsは解決後を返す**
+            // ——ここに入れておかないと、設定の綴りと一致せず揃えられない。
+            //
+            // **大小もここで揃う。** `std::fs::canonicalize` は `realpath(3)` を
+            // 呼ぶので、設定に `pictures` と書いてあっても実物が `Pictures` なら
+            // `Pictures` が返る（2026-08-26に実測）。ゲート2は「大小は直らない」と
+            // 見たが、それは Python の `os.path.realpath`——あちらは
+            // ファイルシステムに聞かない純粋な文字列処理で、挙動が違う
             if let Ok(real) = std::fs::canonicalize(root) {
-                let real = strip_verbatim(&real).trim_end_matches('\\').to_string();
-                if !real.eq_ignore_ascii_case(&spelling) {
+                let real = root_spelling_of(&strip_verbatim(&real));
+                if fold_for_compare(&real) != fold_for_compare(&spelling) {
                     prefixes.push(real);
                 }
             }
@@ -632,7 +729,10 @@ fn usn_meta_key(volume: &str) -> String {
     format!("usn|{volume}")
 }
 
-/// USNが返す正規のパス綴りを、設定ルートの綴りへ揃える。ルート配下でなければNone。
+/// OSが返したパスの綴りを、設定ルートの綴りへ揃える。ルート配下でなければNone。
+///
+/// **入口は2つ**: ファイル監視（macOSのFSEventsは `/var` を `/private/var` に
+/// 解決して返す）と、USNの差分（Windows）。
 ///
 /// DBのpath/parent_dir/dirsのキーは「設定ルートの綴り＋ファイルシステムが返した
 /// 構成要素名」で保存されている。USNのFRN解決はドライブレターの大小文字や
@@ -641,19 +741,104 @@ fn usn_meta_key(volume: &str) -> String {
 /// 大文字小文字（ASCII）と区切り文字の揺れを無視して**最長一致**のプレフィックスを
 /// 探し、その部分を設定の綴りへ置き換える（配下の構成要素名はFS由来なので一致する）。
 fn rebase_to_root_spelling(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
-    // ASCIIのみ小文字化＋区切り統一。バイト長が変わらないため、
-    // 正規化文字列上の位置で元の文字列をそのまま切り出せる
-    let norm = |s: &str| s.replace('/', "\\").to_ascii_lowercase();
-    let path_str = path.to_string_lossy().replace('/', "\\");
-    let path_norm = norm(&path_str);
+    #[cfg(unix)]
+    {
+        rebase_unix(path, specs)
+    }
+    #[cfg(not(unix))]
+    {
+        rebase_windows(path, specs)
+    }
+}
+
+/// Unix側。**バイトのまま照合し、バイトのまま組み直す**。
+///
+/// `to_string_lossy()` を通さないのが要点——Unixのパスは**UTF-8とは限らない**。
+/// APFSは非UTF-8の名前を作らせない（実測で `EILSEQ`）が、**FAT32/exFATは通す**
+/// ので、外付けをライブラリのルートにすると入りうる。通すと U+FFFD に化け、
+/// その後の `is_file()` も `stat` も**存在しないパス**を見にいく（ゲート1の指摘）。
+///
+/// 畳みが要らないので、バイトの前方一致で足りる——区切りは `/` だけで、
+/// APFSは大小を区別する設定にできるから畳んではいけない。
+#[cfg(unix)]
+fn rebase_unix(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let bytes = path.as_os_str().as_bytes();
+    let under = |prefix: &str| {
+        let p = prefix.trim_end_matches('/').as_bytes();
+        (bytes == p || (bytes.starts_with(p) && bytes.get(p.len()) == Some(&b'/')))
+            .then_some(p.len())
+    };
+    // **設定の綴りに当たるなら、それを最優先で採る。**
+    //
+    // 同じ場所を指すルートが2つ設定されていると（`/photos` と、そこへの
+    // リンク `/library`）、解決後の綴りは**どちらのルートにも当たる**。
+    // 長さが同じなので先に見つけた方が勝ち、`/photos/a.jpg` のイベントが
+    // `/library/a.jpg` へ書き換わりうる——**`/photos` 側の行が更新されなくなる**
+    // （ゲート1の指摘）。既に設定どおりの綴りで来ているものは**触らない**
     let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
     for spec in specs {
-        for prefix in &spec.prefixes {
-            let prefix_norm = norm(prefix.trim_end_matches('\\'));
-            let matched =
-                path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}\\"));
-            if matched && best.is_none_or(|(len, _)| prefix_norm.len() > len) {
-                best = Some((prefix_norm.len(), &spec.spelling));
+        if let Some(len) = under(&spec.spelling) {
+            if best.is_none_or(|(best_len, _)| len > best_len) {
+                best = Some((len, &spec.spelling));
+            }
+        }
+    }
+    // 設定の綴りに当たらないときだけ、解決後の綴りから探す
+    if best.is_none() {
+        for spec in specs {
+            for prefix in spec.prefixes.iter().skip(1) {
+                if let Some(len) = under(prefix) {
+                    if best.is_none_or(|(best_len, _)| len > best_len) {
+                        best = Some((len, &spec.spelling));
+                    }
+                }
+            }
+        }
+    }
+    let (len, spelling) = best?;
+    // **綴りが同じならそのまま返す。** 組み直さなければ、非UTF-8のバイトに
+    // 触る機会そのものが無い（監視イベントの大半はこちら）
+    if spelling.as_bytes() == &bytes[..len] {
+        return Some(path.to_path_buf());
+    }
+    let mut out = spelling.as_bytes().to_vec();
+    out.extend_from_slice(&bytes[len..]);
+    Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
+}
+
+/// Windows側。区切りと大小の揺れを畳んでから照合する。
+///
+/// 畳んだ形は**バイト長を変えない**ので、畳んだ文字列上の位置で
+/// 元の文字列をそのまま切り出せる。
+#[cfg(not(unix))]
+fn rebase_windows(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
+    let path_str = path.to_string_lossy().replace('/', "\\");
+    let path_norm = fold_for_compare(&path_str);
+    let under = |prefix: &str| {
+        let prefix_norm = fold_for_compare(prefix.trim_end_matches('\\'));
+        (path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}\\")))
+            .then_some(prefix_norm.len())
+    };
+    // 設定の綴りに当たるなら最優先（理由は `rebase_unix` を見よ）
+    let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
+    for spec in specs {
+        if let Some(len) = under(&spec.spelling) {
+            if best.is_none_or(|(best_len, _)| len > best_len) {
+                best = Some((len, &spec.spelling));
+            }
+        }
+    }
+    // 設定の綴りに当たらないときだけ、解決後の綴りから探す
+    if best.is_none() {
+        for spec in specs {
+            for prefix in spec.prefixes.iter().skip(1) {
+                if let Some(len) = under(prefix) {
+                    if best.is_none_or(|(best_len, _)| len > best_len) {
+                        best = Some((len, &spec.spelling));
+                    }
+                }
             }
         }
     }
@@ -3227,6 +3412,13 @@ mod tests {
     #[cfg(windows)]
     use super::APP_IDENTIFIER;
     use super::{dcim_under, drive_label, import_path_from_args};
+    // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
+    // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
+    #[cfg(unix)]
+    use super::{rebase_to_root_spelling, root_specs};
+    // Windows側は `RootSpec` を直に組む（実FSも `canonicalize` も要らない）
+    #[cfg(windows)]
+    use super::{rebase_to_root_spelling, Path, PathBuf, RootSpec};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -3255,6 +3447,228 @@ mod tests {
         // 名前が無いときは場所だけ（括弧を出さない）
         assert_eq!(drive_label("", Path::new("/")), "/");
         assert_eq!(drive_label("", Path::new("D:\\")), "D:");
+    }
+
+    /// 解決後の綴りで来ても、設定の綴りへ戻す。
+    ///
+    /// **リンクは自分で張る。** `temp_dir()` に頼ると、macOSでは
+    /// `/var/folders/...`（`/private/var` へのリンク）なので回帰を突けるが、
+    /// Linuxの `/tmp` はリンクではないため**CIでは素通りの経路しか通らない**
+    /// ——直したはずの穴が開いても気付けない（ゲート2の指摘）
+    #[cfg(unix)]
+    #[test]
+    fn a_resolved_symlink_is_rebased_to_the_configured_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let link = dir.path().join("link");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // 設定は**リンクの綴り**。監視はリンクを解決した綴りを返す
+        let specs = root_specs(std::slice::from_ref(&link));
+        let resolved = std::fs::canonicalize(&link).unwrap();
+        assert_ne!(resolved, link, "この題材でリンクが効いていること");
+
+        let rebased = rebase_to_root_spelling(&resolved.join("2020").join("a.jpg"), &specs)
+            .expect("ルート配下だと分かること");
+        assert_eq!(
+            rebased,
+            link.join("2020").join("a.jpg"),
+            "解決後の綴りで来ても、設定の綴りへ戻す"
+        );
+
+        // 設定の綴りのまま来たものはそのまま
+        let same = link.join("b.jpg");
+        assert_eq!(rebase_to_root_spelling(&same, &specs), Some(same.clone()));
+
+        // ルートの外は「分からない」と返す（呼び出し側が判断する）
+        assert_eq!(
+            rebase_to_root_spelling(std::path::Path::new("/どこか/よそ/c.jpg"), &specs),
+            None
+        );
+
+        // **隣のルートを配下と誤らない**（`/x/EXT` と `/x/EXTRA`）
+        let sibling = dir.path().join("linkX");
+        std::os::unix::fs::symlink(&real, &sibling).unwrap();
+        assert_eq!(
+            rebase_to_root_spelling(&link.with_file_name("linkX").join("d.jpg"), &specs),
+            None,
+            "綴りの前方一致だけで配下と決めない"
+        );
+    }
+
+    /// 大小だけ違う綴りでも揃える（大小を区別しないボリューム）。
+    ///
+    /// 設定に `pictures` と書いてあって実物が `Pictures` のとき。
+    /// `canonicalize` が `realpath(3)` 越しに**大小まで直して**返すので、
+    /// 解決後の綴りを的に入れてある時点で当たる（実測で確認）。
+    /// ゲート2が「直らない」と見たのは Python の `os.path.realpath` の挙動で、
+    /// あちらはファイルシステムに聞かない。**当たることを固定しておく**
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_root_written_with_the_wrong_case_still_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("MixedCase");
+        std::fs::create_dir(&real).unwrap();
+        let as_written = dir.path().join("mixedcase");
+        if !as_written.is_dir() {
+            // 大小を区別するボリューム（この題材が成り立たない）
+            return;
+        }
+
+        // 設定には**小文字**で書かれている
+        let specs = root_specs(std::slice::from_ref(&as_written));
+        // 監視は**解決後かつ実物の大小**で返してくる（FSEventsの実際の形）
+        let Ok(from_watcher) = std::fs::canonicalize(&real) else {
+            return;
+        };
+        let event = from_watcher.join("a.jpg");
+        assert_eq!(
+            rebase_to_root_spelling(&event, &specs),
+            Some(as_written.join("a.jpg")),
+            "大小が違っても設定の綴りへ戻す"
+        );
+    }
+
+    /// 同じ場所を指すルートが2つあっても、**設定どおりの綴りは書き換えない**。
+    ///
+    /// `/photos` と、そこへのリンク `/library` の両方をルートにすると、
+    /// 解決後の綴りは**どちらにも当たる**。長さが同じなので順番次第で勝者が変わり、
+    /// `/photos/a.jpg` のイベントが `/library/a.jpg` へ化けると
+    /// **`/photos` 側の行が二度と更新されない**（ゲート1の指摘）
+    #[cfg(unix)]
+    #[test]
+    fn two_roots_pointing_at_the_same_place_keep_their_own_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        // **土台の側がリンク越しだと、この試験は何も見ない。**
+        // macOSの `$TMPDIR` は `/var/folders/…` にあり、`/var` 自身が
+        // `/private/var` へのリンク。すると `link` の解決後は
+        // `/private/var/…/photos` になって、題材のイベントパス
+        // `/var/…/photos/a.jpg` と**そもそも当たらない**——勝者を争う場面に
+        // 入らないので、1パスへ戻しても通ってしまう（ゲート1が実測で指摘）。
+        // 先に土台を解決して、両者を同じ名前空間へ乗せる
+        let base = dir.path().canonicalize().unwrap();
+        let real = base.join("photos");
+        let link = base.join("library");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        // **リンクの方を先に**登録する（これで順番の運に頼れなくなる）
+        let specs = root_specs(&[link.clone(), real.clone()]);
+
+        // 実体の綴りで来たものは、実体の綴りのまま
+        let from_real = real.join("a.jpg");
+        assert_eq!(
+            rebase_to_root_spelling(&from_real, &specs),
+            Some(from_real.clone()),
+            "設定どおりの綴りは書き換えない"
+        );
+        // リンクの綴りで来たものも、そのまま
+        let from_link = link.join("b.jpg");
+        assert_eq!(
+            rebase_to_root_spelling(&from_link, &specs),
+            Some(from_link.clone())
+        );
+    }
+
+    /// 名前がUTF-8として読めなくても、バイトを壊さずに揃える。
+    ///
+    /// APFSは非UTF-8の名前を作らせない（実測で `EILSEQ`）ので**ファイルは作れない**が、
+    /// **FAT32/exFATは通す**——外付けをライブラリのルートにすれば入りうる。
+    /// `to_string_lossy()` を通すと U+FFFD に化け、その後の `stat` が
+    /// **存在しないパス**を見にいく。ここはファイルを作らずに、
+    /// パスの組み立てだけを見る
+    #[cfg(unix)]
+    #[test]
+    fn a_non_utf8_name_survives_the_rebase() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let link = dir.path().join("link");
+        std::fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let specs = root_specs(std::slice::from_ref(&link));
+        let resolved = std::fs::canonicalize(&link).unwrap();
+
+        // Shift_JISの「あ」＋ UTF-8として不正なバイト
+        let odd = std::ffi::OsString::from_vec(b"\x82\xa0\xff.jpg".to_vec());
+
+        let rebased = rebase_to_root_spelling(&resolved.join(&odd), &specs)
+            .expect("ルート配下だと分かること");
+        assert_eq!(
+            rebased,
+            link.join(&odd),
+            "綴りは揃え、名前のバイトは触らない"
+        );
+        assert_eq!(
+            rebased.file_name().map(|n| n.as_bytes().to_vec()),
+            Some(odd.as_bytes().to_vec()),
+            "U+FFFD に化けていないこと"
+        );
+
+        // 綴りが同じなら、そもそも組み直さない（同じ値が返る）
+        let same = link.join(&odd);
+        assert_eq!(rebase_to_root_spelling(&same, &specs), Some(same.clone()));
+    }
+
+    /// Windows側の綴り揃え。**この差分が2パスへ書き換えた側**なのに、
+    /// 実物のリンクを張る試験は `#[cfg(unix)]` なので**1行も通っていなかった**
+    /// （ゲート1の指摘）。しかも `rebase_to_root_spelling` のそもそもの
+    /// 利用者であるUSNの差分はWindows専用で、綴りがズレると重複行＝★消えになる。
+    ///
+    /// `RootSpec` を直に組むので、実ファイルもジャンクションも要らない。
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_come_back_in_the_configured_spelling() {
+        let spec = |spelling: &str, resolved: &str| RootSpec {
+            spelling: spelling.to_string(),
+            prefixes: vec![spelling.to_string(), resolved.to_string()],
+        };
+
+        // 大小と区切りの揺れを畳んで、設定の綴りへ戻す
+        let specs = vec![spec("C:\\foto\\bar", "D:\\real")];
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:/FOTO/Bar\\a.jpg"), &specs),
+            Some(PathBuf::from("C:\\foto\\bar\\a.jpg")),
+            "大小も区切りも設定の綴りへ揃える"
+        );
+        // 解決後（ジャンクションの実体）で来たものも設定の綴りへ
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("D:\\real\\b.jpg"), &specs),
+            Some(PathBuf::from("C:\\foto\\bar\\b.jpg")),
+            "実体パスで来ても、DBのキーは設定の綴り"
+        );
+
+        // **同じ実体を指す2ルート**。設定どおりに来たものは書き換えない
+        // （2パスにした理由。1パスだともう片方の綴りへ化けうる）
+        let both = vec![
+            spec("C:\\link", "C:\\photos"),
+            spec("C:\\photos", "C:\\photos"),
+        ];
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:\\photos\\a.jpg"), &both),
+            Some(PathBuf::from("C:\\photos\\a.jpg")),
+            "設定どおりの綴りは触らない"
+        );
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:\\link\\b.jpg"), &both),
+            Some(PathBuf::from("C:\\link\\b.jpg")),
+            "もう片方も同じ"
+        );
+
+        // **隣を配下と誤らない**（`C:\ext` に対する `C:\extra`）
+        let ext = vec![spec("C:\\ext", "C:\\ext")];
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("C:\\extra\\a.jpg"), &ext),
+            None,
+            "名前が前方一致するだけの別フォルダを配下にしない"
+        );
+        // ルート自身は配下
+        assert_eq!(
+            rebase_to_root_spelling(Path::new("c:/EXT"), &ext),
+            Some(PathBuf::from("C:\\ext")),
+        );
     }
 
     #[test]
