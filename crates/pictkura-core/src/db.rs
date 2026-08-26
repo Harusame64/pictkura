@@ -105,6 +105,23 @@ impl Dimensions {
     }
 }
 
+/// [`Db::dimensions_to_backfill`] の本体。
+///
+/// **`kind = 1 AND preview_width IS NULL` の並びは部分索引
+/// `idx_media_dims_pending` の条件と同じに保つこと。** 崩すとSQLiteが索引を
+/// 使えず、掃き終えた後も毎起動で表を端から端まで1回なぞる。
+///
+/// `INDEXED BY` で名指しするのは、**放っておくと別の索引を選ぶ**ため。
+/// 空のDBで測ると `idx_media_kind_day`（kindの先頭列）へ流れ、RAW全行を
+/// なめたうえで `ORDER BY id` のために一時B木まで作る。名指ししておけば、
+/// 条件を崩した日に**黙って遅くなるのではなく、その場でエラーになる**
+/// ——見張っているのは `後追いの絞り込みは部分索引に載る`。
+const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, size FROM media
+     INDEXED BY idx_media_dims_pending
+     WHERE kind = 1 AND preview_width IS NULL AND id > ?1
+     AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
+     ORDER BY id LIMIT ?2";
+
 /// 寸法を確かめ直す1行（[`Db::dimensions_to_backfill`] が返し、
 /// [`Db::set_dimensions`] が書き込みのガードに使う）。
 ///
@@ -125,15 +142,6 @@ pub struct DimensionTarget {
     /// 版のもう半分。スキャンは `size <> size OR mtime_ms <> mtime_ms` で
     /// 差し替えを見ているので、**時刻を保ったコピー**は大きさでしか気づけない
     pub size: i64,
-}
-
-/// [`Db::set_dimensions`] の結果。
-pub struct BackfillWrite {
-    /// 寸法が動いた行（UIへ知らせる相手）
-    pub moved: Vec<i64>,
-    /// **実際に書けた行数**。渡した件数と一致しないなら、書く直前に差し替わった
-    /// 行がある——掃き寄せが終わった印を付けてはいけない
-    pub written: usize,
 }
 
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
@@ -159,11 +167,6 @@ pub struct DaySummary {
 /// 表示時刻（撮影日時、なければmtime）のSQL式。
 /// 複合インデックスと各クエリで**文字列として完全一致**させること
 /// （SQLiteの式インデックスは式のテキスト一致で適用可否を判定する）。
-/// 寸法の後追い（段階F-4）が終わったかを持つ `meta` の鍵。
-const DIMS_BACKFILL_KEY: &str = "dims_backfill";
-/// [`DIMS_BACKFILL_KEY`] に入る値。
-const DIMS_BACKFILL_DONE: &str = "done";
-
 const SORT_TS: &str = "COALESCE(taken_at_ms, mtime_ms)";
 
 /// 検索索引の初期構築で「どこまで索引化したか」を持つmetaキー。
@@ -534,6 +537,18 @@ impl Db {
             -- 種類を先頭に置いた複合索引にすると、絞ったままでも索引のスキャンで返る
             CREATE INDEX IF NOT EXISTS idx_media_kind_day
                 ON media(kind, day_key DESC, {SORT_TS} DESC, id DESC);
+            -- 寸法を確かめ直す行だけの索引（段階F-4の後追い。
+            -- [`Db::dimensions_to_backfill`]）。**掃き寄せは一生に一度で済む
+            -- 仕事**なのに、絞り込みに使える索引が無いと、終わった後も毎起動で
+            -- 表を端から端まで1回なぞることになる（PRコメント側のCodexのP2）。
+            --
+            -- 部分索引にすると**中身は「まだ確かめていないRAW」だけ**になり、
+            -- 掃き終えた後は空になる——次の起動は空の索引を覗いて終わる。
+            -- 済んだ印を別に持つ手も試したが、印を持つと
+            -- [`crate::thumbs::process_one`] が読み切れずに印なしで書いた行を
+            -- 閉じ込めてしまう（ゲート2のP2）。索引なら拾い直せる形が残る
+            CREATE INDEX IF NOT EXISTS idx_media_dims_pending
+                ON media(id) WHERE kind = 1 AND preview_width IS NULL;
             "#
         ))?;
         conn.execute_batch(
@@ -2050,8 +2065,14 @@ impl Db {
     ///
     /// 絞り込みの4つは、それぞれ別の穴を塞いでいる:
     ///
-    /// - **拡張子**: RAW以外は確かめることが無い（配るのが原本そのものなので、
-    ///   確かめても `preview_width` はNULLのまま＝毎回引っ掛かる）
+    /// - **`kind = 1`（RAW）**: RAW以外は確かめることが無い（配るのが原本
+    ///   そのものなので、確かめても `preview_width` はNULLのまま＝毎回
+    ///   引っ掛かる）。拡張子ではなく `kind` 列で見るのは、`preview_width`
+    ///   との組で**部分索引 `idx_media_dims_pending` に載せる**ため——
+    ///   `LOWER(path) LIKE` を26本並べると索引が使えず、掃き終えた後も
+    ///   毎起動で表を1回なぞる（PRコメント側のCodexのP2）。
+    ///   綴りの判定はどちらも [`crate::MediaKind::from_extension`]
+    ///   （＝[`crate::raw::is_raw_extension`]）が源なので食い違わない
     /// - **`width > 0`**: まだ一度も読んでいない行（NULL）と、読もうとして
     ///   読めなかった行（0。[`Self::ids_missing_metadata`] の印）を外す。
     ///   どちらもあちらが拾って、抽出のついでに寸法も入れる。0を通すと
@@ -2080,26 +2101,8 @@ impl Db {
         after_id: i64,
         limit: usize,
     ) -> Result<Vec<DimensionTarget>, DbError> {
-        // 拡張子はDBに正規化して持っていないので、末尾一致で見る
-        // （[`Self::count_by_extensions`] と同じやり方）。`?1` は after_id、
-        // `?2` は limit なので、拡張子は `?3` から始まる
-        let clause = (0..crate::raw::RAW_EXTENSIONS.len())
-            .map(|i| format!("LOWER(path) LIKE ?{}", i + 3))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT id, path, width, height, mtime_ms, size FROM media
-             WHERE preview_width IS NULL AND id > ?1
-             AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
-             AND ({clause})
-             ORDER BY id LIMIT ?2"
-        ))?;
-        let mut params: Vec<rusqlite::types::Value> = vec![after_id.into(), (limit as i64).into()];
-        params.extend(
-            crate::raw::RAW_EXTENSIONS
-                .iter()
-                .map(|ext| format!("%.{ext}").into()),
-        );
+        let mut stmt = self.conn.prepare_cached(DIMS_TO_BACKFILL_SQL)?;
+        let params: Vec<rusqlite::types::Value> = vec![after_id.into(), (limit as i64).into()];
         let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
             Ok(DimensionTarget {
                 id: r.get(0)?,
@@ -2144,9 +2147,8 @@ impl Db {
     pub fn set_dimensions(
         &mut self,
         results: &[(DimensionTarget, Dimensions)],
-    ) -> Result<BackfillWrite, DbError> {
+    ) -> Result<Vec<i64>, DbError> {
         let mut moved = Vec::new();
-        let mut written = 0usize;
         let tx = self.write_tx()?;
         {
             let mut stmt = tx.prepare_cached(
@@ -2168,7 +2170,6 @@ impl Db {
                     target.mtime_ms,
                     target.size
                 ])?;
-                written += n;
                 // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
                 if n > 0 && (dims.width, dims.height) != (target.width, target.height) {
                     moved.push(target.id);
@@ -2176,32 +2177,7 @@ impl Db {
             }
         }
         tx.commit()?;
-        Ok(BackfillWrite { moved, written })
-    }
-
-    /// 寸法の後追いをこの起動で回すか（段階F-4）。
-    ///
-    /// **掃き寄せは一生に一度で済む仕事**なのに、絞り込みに使える索引が無い
-    /// ——`preview_width IS NULL` はRAW以外のほぼ全行が通り、拡張子は
-    /// `LOWER(path) LIKE` の26回で見ている。印を持たないと、**終わった後も
-    /// 毎起動で表を端から端まで1回なぞる**（PRコメント側のCodexのP2）。
-    ///
-    /// 印は [`Self::mark_dimensions_backfill_done`] が付ける。付いた後に
-    /// 差し替わったファイルは、[`Self::upsert_files`] が `thumb_path` と
-    /// `thumb_state` ごと落とすので [`crate::thumbs::process_one`] が通り、
-    /// そちらが両方の列を入れ直す——掃き寄せの出番は無い。
-    pub fn needs_dimension_backfill(&self) -> Result<bool, DbError> {
-        Ok(self.get_meta(DIMS_BACKFILL_KEY)?.as_deref() != Some(DIMS_BACKFILL_DONE))
-    }
-
-    /// 寸法の後追いが**最後まで終わった**印を付ける（段階F-4）。
-    ///
-    /// 呼ぶのは、掃き寄せが空の束に届き、かつ**1行も見送らなかった**ときだけ。
-    /// 見送り（外付けが未接続・クラウドのみ・一時的に読めない・書く直前に
-    /// 差し替わった）が1件でもあれば印を付けてはいけない——次の起動で
-    /// 拾い直せなくなる。
-    pub fn mark_dimensions_backfill_done(&mut self) -> Result<(), DbError> {
-        self.set_meta(DIMS_BACKFILL_KEY, DIMS_BACKFILL_DONE)
+        Ok(moved)
     }
 
     /// カメラ未確認の残数（補完スイープの進捗表示用）。
@@ -2623,8 +2599,7 @@ mod tests {
                     preview: Some((640, 480)),
                 },
             )])
-            .unwrap()
-            .moved,
+            .unwrap(),
             vec![a],
             "寸法が動いた行だけ返る"
         );
@@ -2718,8 +2693,7 @@ mod tests {
                 },
             )])
             .unwrap();
-        assert!(moved.moved.is_empty(), "書き込みは丸ごと落ちる");
-        assert_eq!(moved.written, 0);
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!((rec.width, rec.height), (Some(100), Some(200)));
         assert_eq!(
@@ -2765,8 +2739,7 @@ mod tests {
                 },
             )])
             .unwrap();
-        assert!(moved.moved.is_empty(), "書き込みは丸ごと落ちる");
-        assert_eq!(moved.written, 0);
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!((rec.width, rec.height), (Some(640), Some(480)));
         assert_eq!(
@@ -2777,14 +2750,27 @@ mod tests {
     }
 
     #[test]
-    fn 掃き寄せが終われば次の起動から回さない() {
-        // 絞り込みに使える索引が無いので、印を持たないと**終わった後も
-        // 毎起動で表を1回なぞる**。印は「空の束に届き、かつ1行も見送らなかった」
-        // ときだけ付く
-        let mut db = Db::open_in_memory().unwrap();
-        assert!(db.needs_dimension_backfill().unwrap(), "既定は回す");
-        db.mark_dimensions_backfill_done().unwrap();
-        assert!(!db.needs_dimension_backfill().unwrap());
+    fn 後追いの絞り込みは部分索引に載る() {
+        // 載らないと、掃き終えた後も毎起動で表を端から端まで1回なぞる。
+        // 1000万件を想定しているので、背景スレッドとはいえ払いたくない
+        let db = Db::open_in_memory().unwrap();
+        let mut stmt = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {DIMS_TO_BACKFILL_SQL}"))
+            .unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(params![0i64, 200i64], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            plan.iter().any(|l| l.contains("idx_media_dims_pending")),
+            "部分索引が使われていない: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|l| l.contains("TEMP B-TREE")),
+            "索引の並び順で返るので並べ直しは要らないはず: {plan:?}"
+        );
     }
 
     #[test]
@@ -2816,8 +2802,7 @@ mod tests {
                 },
             )])
             .unwrap();
-        assert!(moved.moved.is_empty(), "書き込みは丸ごと落ちる");
-        assert_eq!(moved.written, 0);
+        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(
             (rec.preview_width, rec.preview_height),

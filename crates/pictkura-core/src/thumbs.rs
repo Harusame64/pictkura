@@ -444,7 +444,11 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         // ファイル全体を読むので、巨大なRAWや外付けの一瞬の切断でここへ来る。
         // 降りると絵を探す経路まで諦めることになり、作れたはずのサムネイルを
         // 落とす（ゲート2のP3）——一覧のサムネイルが要求する長辺
-        // （[`process_one`] は `thumb_size`）なら、探索は先頭16MBで止まる。
+        // （[`process_one`] は `thumb_size`、既定512）なら、探索は先頭16MBで
+        // 止まる。**止まるかどうかは要求する長辺しだい**で、
+        // [`crate::raw::USABLE_LONG_EDGE`]（1600）以上を要求する経路——ビューア
+        // （[`raw_display_jpeg`]）と、`performance.thumbnail_size` を1600以上に
+        // した設定——では最大128MBまで読む（ゲート2のP3）。
         //
         // 取り下げた「読めた」は2か所へ効く: 後追い（[`read_exif_declaration`]）は
         // 印を付けず、[`process_one`] は寸法の「確かめた」印を書かない
