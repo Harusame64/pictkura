@@ -233,6 +233,8 @@ const ja = {
   emptyTitle: "まだ写真がありません",
   /** 読み込みに失敗したときの見出し（「まだ写真がありません」は嘘になる） */
   emptyTitleFailed: "一覧を出せませんでした",
+  /** まだ確かめ終わっていないときの見出し（本文と食い違わせない） */
+  emptyTitleChecking: "確認しています",
   emptyNoRoots:
     "ライブラリのフォルダがまだ設定されていません。カードから取り込むか、写真のあるフォルダを選んでください。",
   emptyMissing: (names: string) =>
@@ -604,6 +606,7 @@ const en: Dict = {
   wizardNoDrives: "No drives found",
   emptyTitle: "No photos yet",
   emptyTitleFailed: "The list could not be shown",
+  emptyTitleChecking: "Checking",
   emptyNoRoots:
     "No library folder has been set up yet. Import from a card, or pick a folder that has photos in it.",
   emptyMissing: (names: string) =>

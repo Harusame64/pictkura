@@ -1195,6 +1195,31 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     })
 }
 
+/// **OSが自分のために置くフォルダ**。利用者の写真は入らない。
+///
+/// ボリュームの直下にはこれらが必ず居る。既定の除外は `.*` を含むので、
+/// 何も入っていない外付けをルートに足すと**この面々が「除外で全部飛ばして
+/// います（例: .Spotlight-V100）」の証拠になり**、`pictkura.toml` を
+/// 編集しに行かせることになる——直しても何も出てこない（ゲート2の指摘）。
+/// 利用者が自分で隠したフォルダ（`.隠し写真` など）は**候補のまま**にする:
+/// あちらは除外を外せば本当に出てくる。
+const OS_BOOKKEEPING: &[&str] = &[
+    // macOS
+    ".Spotlight-V100",
+    ".fseventsd",
+    ".Trashes",
+    ".TemporaryItems",
+    ".DocumentRevisions-V100",
+    ".apdisk",
+    ".Trash",
+    // Windows
+    "System Volume Information",
+    "$RECYCLE.BIN",
+    "RECYCLER",
+    // Linux
+    "lost+found",
+];
+
 /// ルート直下の1エントリの形。`std::fs::FileType` から起こす。
 ///
 /// テストから直に組めるようにここで畳んである（`FileType` は作れない）。
@@ -1251,6 +1276,10 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
     };
     if pictkura_core::import::is_managed_package_path(Path::new(text)) {
         return EntryKind::Package;
+    }
+    // OSの置き場は「中身になり得た」に数えない（`OS_BOOKKEEPING` を見よ）
+    if OS_BOOKKEEPING.iter().any(|n| n.eq_ignore_ascii_case(text)) {
+        return EntryKind::Ignorable;
     }
     let could_have_been_content = match shape {
         EntryShape::Dir => true,
@@ -4049,6 +4078,21 @@ mod tests {
             kind(OsStr::new("a.jpg"), EntryShape::File),
             EntryKind::Candidate
         );
+        // **OSの置き場は証拠にしない**（新品の外付けで「除外のせい」と
+        // 言わせない。ゲート2の指摘）。利用者が隠したフォルダは候補のまま
+        assert_eq!(
+            kind(OsStr::new(".Spotlight-V100"), EntryShape::Dir),
+            EntryKind::Ignorable
+        );
+        assert_eq!(
+            kind(OsStr::new("System Volume Information"), EntryShape::Dir),
+            EntryKind::Ignorable
+        );
+        assert_eq!(
+            kind(OsStr::new(".隠し写真"), EntryShape::Dir),
+            EntryKind::Excluded,
+            "利用者が隠したフォルダは、除外を外せば出てくるので候補のまま"
+        );
         // **リンクは走査が拾わないので、候補に数えない**（ゲート2の指摘）
         assert_eq!(
             kind(OsStr::new("latest.jpg"), EntryShape::Symlink),
@@ -4111,13 +4155,14 @@ mod tests {
 
         // **「ほか N件」の数が狂わないこと。** 見せるのは3件でも数は全部
         // （ゲート2の指摘: 見せる側で重複を見ると数がどちらにも狂う）
-        for n in ["$RECYCLE.BIN", "Thumbs.db", ".二つ目", ".三つ目"] {
+        // （$RECYCLE.BIN はOSの置き場なので数に入らない。上の分類の試験を見よ）
+        for n in ["Thumbs.db", ".二つ目", ".三つ目", ".四つ目"] {
             std::fs::create_dir(root.join(n)).unwrap();
         }
         let r = empty_library_reason_of(&config);
         assert_eq!(r.excluded.len(), 3, "名前は3件まで");
         assert_eq!(r.excluded_total, 5, "数は打ち切らない");
-        for n in ["$RECYCLE.BIN", "Thumbs.db", ".二つ目", ".三つ目"] {
+        for n in ["Thumbs.db", ".二つ目", ".三つ目", ".四つ目"] {
             std::fs::remove_dir(root.join(n)).unwrap();
         }
 

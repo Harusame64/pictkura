@@ -643,25 +643,35 @@ export default function App() {
     // 後ろの効果が古い値を見る
     settledRef.current = false;
     setSettled(false);
+    // **骨組みと飾りを分けて受ける。** 件数と思い出が落ちただけで
+    // `loadFailed` を立てると、**一覧は正しく取れているのに**
+    // 「一覧を読み込めませんでした」が本当の理由（写真.appのライブラリしか
+    // 無い等）を覆い隠す。`Promise.all` は最初の1つで諦めるので使わない
+    // （ゲート2の指摘）
+    let gotSummary = false;
     try {
-      const [sum, st, mem] = await Promise.all([
+      const [sumR, statsR, memR] = await Promise.allSettled([
         timelineSummary(queryRef.current, filterRef.current),
         getStats(),
         listMemories(),
       ]);
       // 応答待ちの間に次のリロード（フィルタ切替等）が始まっていたら、古い応答は捨てる
       if (generationRef.current !== gen) return;
-      setSummary(sum);
-      setStats(st);
-      setMemories(mem);
+      if (statsR.status === "fulfilled") setStats(statsR.value);
+      if (memR.status === "fulfilled") setMemories(memR.value);
+      if (sumR.status === "rejected") throw sumR.reason;
+      gotSummary = true;
+      setSummary(sumR.value);
       setDayItems(new Map());
-      if (generationRef.current === gen) {
-        gotSummaryRef.current += 1;
-        setLoadFailed(false);
-      }
+      gotSummaryRef.current += 1;
+      setLoadFailed(false);
+      // 飾りが落ちたことも黙らない。ただし**一覧は正しい**ので旗は立てない
+      if (statsR.status === "rejected") throw statsR.reason;
+      if (memR.status === "rejected") throw memR.reason;
     } catch (err) {
       // **自分が走っている間に誰かが成功していたら、失敗を名乗らない**
       if (
+        !gotSummary &&
         generationRef.current === gen &&
         gotSummaryRef.current === wasGotAt
       ) {
@@ -3962,7 +3972,16 @@ export default function App() {
               とたんに無言へ戻る。ゲート1の指摘） */}
           {showEmptyPanel && (
             <div className="empty-library">
-              <h2>{loadFailed ? t.emptyTitleFailed : t.emptyTitle}</h2>
+              {/* **見出しも本文と揃える。** 「まだ写真がありません」の下に
+                  「確かめている途中です」を置くと、見出しの側だけが断定して
+                  いることになる（ゲート2の指摘） */}
+              <h2>
+                {loadFailed
+                  ? t.emptyTitleFailed
+                  : emptyReason?.checking
+                    ? t.emptyTitleChecking
+                    : t.emptyTitle}
+              </h2>
               <p>{emptyMessage()}</p>
               <div className="empty-actions">
                 {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
@@ -4000,6 +4019,12 @@ export default function App() {
             </div>
           ) : (
             <div className="grid-wrap">
+              {/* カレンダー側と揃える。**グリッドは元から一言も持たない**ので、
+                  初回のNAS走査の数十秒がまるごと無言の空白になっていた
+                  （ゲート2の指摘） */}
+              {!showEmptyPanel && unsureWhyEmpty && (
+                <div className="calendar-empty">{t.calendarChecking}</div>
+              )}
               {yearMarkers.length > 1 && (
                 <div className="scrubber">
                   {yearMarkers.map((m) => (
