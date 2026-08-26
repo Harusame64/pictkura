@@ -395,26 +395,46 @@ fn recorded_dimensions(
 
 /// プレビューを作れなかったファイルにも、**読めた素性だけは**記録する。
 ///
-/// 寸法は申告（`original`）があるときだけ。無ければ0で、グリッドは既定の
-/// 縦横比で枠を置く（動画で寸法が読めないときと同じ扱い）。
+/// **書くのは「読めて、原寸の申告まで取れた」ときだけ。** それ以外は何もしない
+/// ——[`Db::update_metadata`] は列を**無条件に上書きする**ので、
+/// 中途半端に呼ぶと分かっていた値まで潰す:
 ///
-/// **「確かめた」印は付けない**（`preview` は `None`）。絵を掴めていない以上、
-/// 後追い（[`crate::Db::dimensions_to_backfill`]）の対象から外してはいけない。
+/// - **読めなかったとき**（外付けが未接続・共有ロック・権限）は `ExifData` が空。
+///   そこから呼ぶと `camera` が `None` → `CAMERA_NONE`（＝「確認済みだが
+///   カメラ情報なし」）が焼き付き、起動時のカメラ後追い
+///   （[`Db::cameras_to_backfill`] は `camera_id IS NULL` を見る）から**永久に外れる**。
+///   ドライブを挿し忘れた1回の起動で、そのライブラリのカメラ絞り込みが死ぬ
+/// - **原寸の申告が無いとき**は寸法に0しか書けない。申告が入るのは**RAWだけ**
+///   （[`ExifData::original`]）なので、それ以外は必ず0になり、
+///   OSから借りて入れた寸法を潰す。[`Db::update_shell_metadata`] が
+///   わざわざ「0で既存の値を消さない」形にしているのと逆をやることになる
 fn record_metadata_without_preview(
     db: &mut Db,
     id: i64,
     record: &crate::MediaRecord,
     src: &Path,
     exif: &ExifData,
+    readable: bool,
 ) -> Result<(), ThumbError> {
+    // 読めていないなら**何も知らない**。知らないことを書きに行かない
+    if !readable {
+        return Ok(());
+    }
+    // 申告が無いなら寸法を触らない（上の2つ目）
+    let Some(original) = exif.original else {
+        return Ok(());
+    };
     let dims = recorded_dimensions(
-        crate::raw::is_raw_path(src),
-        // 掴めていないので**印を付けない**。ここに本物の `readable` を渡すと、
-        // 「読めたが絵が無い」ファイルに `preview = 0x0` を焼き付けて、
-        // 後追いから永久に外してしまう
+        // 申告が入るのはRAWだけなので、ここまで来たならRAW
+        true,
+        // **掴んでいないプレビューの寸法は書かない。** `preview_*` は
+        // 「掴んだプレビューの寸法」で、0x0 を入れれば嘘になる。
+        // （後追い [`Db::dimensions_to_backfill`] は `thumb_path IS NOT NULL` を
+        //  要求するので、絵の無いこの行はそもそも対象外。以前ここに
+        //  「後追いから外れないため」と書いていたのは誤り）
         false,
-        exif.original.unwrap_or((0, 0)),
-        (0, 0),
+        original,
+        original,
         exif.orientation,
     );
     db.update_metadata(
@@ -1235,7 +1255,7 @@ pub fn process_one(
     let (prev_w, prev_h) = match preview_dimensions(src, &exif_data) {
         Ok(size) => size,
         Err(err) => {
-            record_metadata_without_preview(db, id, &record, src, &exif_data)?;
+            record_metadata_without_preview(db, id, &record, src, &exif_data, readable)?;
             return Err(err);
         }
     };
@@ -2079,15 +2099,61 @@ mod tests {
     }
 
     #[test]
-    fn a_raw_with_neither_preview_nor_declaration_claims_no_size() {
-        // 申告が無ければ寸法は0のまま（グリッドは既定の縦横比で枠を置く）。
-        // ここで適当な値を入れると、後から読める日に直せなくなる
+    fn a_raw_with_no_declaration_is_left_alone() {
+        // 申告が無ければ寸法に0しか書けない。`update_metadata` は列を**無条件に**
+        // 上書きするので、書きに行くとOSから借りて入れた寸法まで潰す。**触らない**
         let dir = tempfile::tempdir().unwrap();
         let (rec, failed) =
             record_after_failed_process(dir.path(), "bare.cr3", &fake_cr3_without_preview(None));
         assert!(failed);
-        assert_eq!((rec.width, rec.height), (Some(0), Some(0)));
-        assert_eq!(rec.preview_width, None);
+        assert_eq!(rec.width, None, "寸法は触らない");
+        assert_eq!(
+            rec.taken_at_ms, None,
+            "日付も書かない（書けば mtime が入ってしまう）"
+        );
+    }
+
+    #[test]
+    fn a_file_we_cannot_read_keeps_its_place_in_the_camera_sweep() {
+        // 読めない理由はいくらでもある——外付けが未接続・共有ロック・権限。
+        // そこへ「確認済みだがカメラ情報なし」を焼き付けると、
+        // `cameras_to_backfill` は `camera_id IS NULL` を見るので、
+        // **次に読める日が来ても二度と拾わない**（ドライブを挿し忘れた1回の
+        // 起動で、そのライブラリのカメラ絞り込みが死ぬ）
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("unplugged.cr3");
+        std::fs::write(&src, fake_cr3(Some((6000, 4000)), (480, 320))).unwrap();
+        let mut db = Db::open(&dir.path().join("sweep.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src.clone(),
+            size: 1,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        // OSから借りた寸法と日付だけが入っている状態（カメラは未確認のまま）
+        db.update_shell_metadata(id, 6000, 4000, Some(1_500_000_000_000))
+            .unwrap();
+
+        // ここでドライブが抜ける
+        std::fs::remove_file(&src).unwrap();
+        assert!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err(),
+            "読めないので絵は作れない"
+        );
+
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(rec.width, Some(6000), "OSが入れた寸法を0で潰さない");
+        assert_eq!(
+            rec.taken_at_ms,
+            Some(1_500_000_000_000),
+            "OSが入れた日付を mtime で上書きしない"
+        );
+        assert_eq!(
+            db.cameras_to_backfill(0, 10).unwrap().len(),
+            1,
+            "カメラ後追いの対象に残る（camera_id がNULLのまま）"
+        );
     }
 
     #[test]
