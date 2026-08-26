@@ -3983,15 +3983,17 @@ export default function App() {
             <div className="calendar-scroll">
               {/* パネルが出ているなら、カレンダー側の「写真がありません」は
                   出さない。**同じ画面に空の知らせが2つ並ぶ**（ゲート1の指摘） */}
-              {/* **何も無い枠にしない。** カレンダーは自前で「写真が
-                  ありません」と出すので、理由を言えないあいだは止めるが、
-                  **代わりに何か置く**——止めるだけだと、起動時の走査の最中
-                  （NASなら数十秒）や絞り込みを消した直後が、**文字が1つも
-                  無い枠**になる（ゲート2の指摘）。断定しない一言を置く */}
-              {unsureWhyEmpty ? (
-                showEmptyPanel ? null : (
-                  <div className="calendar-empty">{t.calendarChecking}</div>
-                )
+              {/* カレンダーは自前で「写真がありません」と出すので、
+                  **パネルが出ているなら黙らせる**——並べると、説明の直下に
+                  元の断定が残る（このPRの主役の画面がそれ）。
+                  **順番が要**: 理由つきでパネルが出るとき `unsureWhyEmpty` は
+                  偽なので、内側で見ていたときは一番出る筋で効いていなかった
+                  （ゲート1の指摘）。
+                  理由をまだ言えないときは**代わりに何か置く**——止めるだけだと、
+                  起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
+                  **文字が1つも無い枠**になる（ゲート2の指摘） */}
+              {showEmptyPanel ? null : unsureWhyEmpty ? (
+                <div className="calendar-empty">{t.calendarChecking}</div>
               ) : (
                 <Calendar summary={summary} onOpenDay={openDay} />
               )}
