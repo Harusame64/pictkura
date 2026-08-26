@@ -646,6 +646,13 @@ fn root_spelling_of(raw: &str) -> String {
 }
 
 /// `\\?\` 拡張プレフィックスを外す（fs::canonicalizeの戻り値を通常形式へ）。
+///
+/// **UNCは戻し切らない**: `\\?\UNC\server\share` は `UNC\server\share` になり、
+/// `\\server\share` には戻らない。今日は無害——そんな綴りは絶対パスに
+/// 決して前方一致しないので、`RootSpec::prefixes` に積まれても不活性な的で
+/// 終わる（Windowsの監視は設定綴りで返すので1本目で足り、USNはUNCで無効）。
+/// **ただし将来 `prefixes` をUNCのジャンクション解決に使うなら、黙って外れる**
+/// （ゲート2の指摘）。
 fn strip_verbatim(path: &Path) -> String {
     let s = path.to_string_lossy();
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
@@ -682,10 +689,16 @@ struct RootSpec {
 
 /// 照合の的を作る。
 ///
-/// `spelling` を `to_string_lossy` で作っているが、**ここは損なわれない**
+/// `spelling` を `to_string_lossy` で作っているが、**実際には損なわれない**
 /// ——ルートは `pictkura.toml` を `read_to_string` して読んだものなので、
-/// **必ず妥当なUTF-8**（ゲート2が「非UTF-8のルートで壊れる」と見たが、
+/// 妥当なUTF-8である（ゲート2が「非UTF-8のルートで壊れる」と見たが、
 /// TOMLを通る以上そこへは到達しない）。
+///
+/// **例外は初回起動の1回だけ**: 設定ファイルがまだ無いときの既定は
+/// `picture_dir()` の `PathBuf` が**TOMLを経由せず**ここへ届く（ゲート2の指摘）。
+/// 仮に非UTF-8でも、化けた綴りは何のパスにも前方一致しないので
+/// `rebase_to_root_spelling` は `None` を返す——**そのまま通す**側に落ちるだけで、
+/// 綴りを取り違えることはない。
 fn root_specs(roots: &[PathBuf]) -> Vec<RootSpec> {
     roots
         .iter()
