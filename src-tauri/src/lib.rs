@@ -1139,6 +1139,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
         no_roots: config.library.roots.is_empty(),
         ..Default::default()
     };
+    // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
+    let mut survivor = false;
     for root in &config.library.roots {
         if !root.is_dir() {
             out.missing.push(root.display().to_string());
@@ -1186,12 +1188,22 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 .exclude_patterns
                 .iter()
                 .any(|p| pictkura_core::scanner::matches_pattern(name, p))
-                && out.excluded.len() < 3
-                && !out.excluded.iter().any(|n| n == name)
             {
-                out.excluded.push(name.to_string());
+                if out.excluded.len() < 3 && !out.excluded.iter().any(|n| n == name) {
+                    out.excluded.push(name.to_string());
+                }
+            } else {
+                survivor = true;
             }
         }
+    }
+    // **除外を犯人にするのは、他に容疑者がいないときだけ。**
+    // `.隠しフォルダ` の隣に空の `写真/` があれば、走査はその `写真/` を
+    // ちゃんと開いて何も見つけていない——そこで「全部除外しています」と
+    // 言うと、**除外を外せば出てくる**という嘘になる（ゲート1の指摘）。
+    // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
+    if survivor {
+        out.excluded.clear();
     }
     out
 }
@@ -3805,6 +3817,17 @@ mod tests {
             vec![".隠しフォルダ".to_string()],
             "中身になり得たものだけ名前を挙げる"
         );
+
+        // **除外の隣に、除外されていない空のフォルダがある。**
+        // 走査はその `写真` を開いて何も見つけていないのだから、
+        // 「全部除外しています」は嘘になる（ゲート1の指摘）
+        std::fs::create_dir(root.join("写真")).unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(
+            r.excluded.is_empty(),
+            "除外されていない候補が1つでもあれば、除外を犯人にしない"
+        );
+        std::fs::remove_dir(root.join("写真")).unwrap();
         std::fs::remove_dir(root.join(".隠しフォルダ")).unwrap();
 
         // ルート自身が写真.appのライブラリ（フォルダ選択で指してしまった）
