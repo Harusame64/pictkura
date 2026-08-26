@@ -184,8 +184,11 @@ export interface DriveInfo {
    * ここには現れない（実体の有無は SourceFile.offline で見る）
    */
   kind: "removable" | "fixed" | "network" | "optical" | "other";
-  /** DCIMフォルダを持つ（カメラメディアの可能性が高い） */
-  has_dcim: boolean;
+  /**
+   * `DCIM` があれば**その絶対パス**（カメラメディアの可能性が高い）。
+   * **ここで組み立て直さないこと**——区切りの足し方はOSで違う
+   */
+  dcim_path: string | null;
 }
 
 /** 取り込みウィザードのツリー1ノード（第5部 段階E） */
