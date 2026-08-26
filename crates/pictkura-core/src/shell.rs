@@ -14,8 +14,8 @@
 //!   エクスプローラがOneDriveの未ダウンロードファイルのサムネイルを
 //!   出せるのはこの経路（plan.md 第7部の積み残し）
 //!
-//! Windows以外では常に `None` を返す。macOSはQuickLook、Linuxは
-//! ディストリのサムネイラという別の入口になるので、後続の課題に置く。
+//! **macOSは AVFoundation**（動画だけ。下の `macos_av`）。Linuxはディストリの
+//! サムネイラという別の入口になるので、後続の課題に置く。
 
 use std::path::Path;
 
@@ -51,10 +51,19 @@ pub fn thumbnail(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
 ///
 /// **QuickLookではなくこちらを選んだ理由**（2026-08-26に両方を実測して決めた）:
 ///
-/// - **同期で呼べる**。`copyCGImageAtTime` はその場で返るので、
-///   完了ハンドラを待つ仕掛け（block・セマフォ・タイムアウト）が要らない。
-///   呼び出し元（[`crate::thumbs`]）はブロッキングのワーカーの中に居るので、
-///   非同期を畳む側の事故——**詰まったらキュー全体が止まる**——を作らずに済む
+/// - **同期で呼べる**。`copyCGImageAtTime` はその場で返るので、完了ハンドラを
+///   待つ仕掛け（block・セマフォ・その取りこぼし）を作らずに済む。呼び出し元
+///   （[`crate::thumbs`]）はもともとブロッキングのワーカーの中に居るので、
+///   同期であること自体は構わない
+///
+///   **ただし同期は「止まらない」という意味ではない**（ゲート2の指摘。
+///   最初はそう書いていたが誤り）。`copyCGImageAtTime` は**打ち切れない**——
+///   AVFoundation自身のヘッダが「時間がかかることがある。呼び出し元のスレッドを
+///   塞ぐので、打ち切りたければ非同期版を使え」と書いている。**クラウドにしか
+///   実体が無い動画を可視要求で開くと、取り寄せの間そのワーカーが埋まる**
+///   （`process_one` は `want_final` のときクラウドの門を通さない）。
+///   これはWindowsのShell経路でも同じ挙動なので**この変更で増えた危険ではない**が、
+///   打ち切りが要るとなれば非同期版へ移るしかない
 /// - **QuickLookは実際に詰まった**。`qlmanage -t` に `.avi` を食わせると
 ///   45秒経っても返らず、強制終了するしかなかった。しかも `.avi` は
 ///   Spotlightも何も返さないので、**QuickLookで拾えるはずだった相手が
@@ -81,6 +90,17 @@ mod macos_av {
         if !crate::video::is_video_path(path) {
             return None;
         }
+        // **Objective-Cを呼ぶスレッドにはプールが要る。** サムネイルのワーカーは
+        // 素の `std::thread` で、プロセスの間ずっと回り続ける（`thumbs.rs` の
+        // `ThumbQueue::start`）ので、たまった分を落とす機会が無い。
+        //
+        // **実測では漏れなかった**（同じスレッドで600回呼んでRSSは36→39MBで平ら）。
+        // それでも張るのは、**見た漏れを直したのではなく、Objective-Cの約束を
+        // 守るため**——素材やコーデックが変われば溜め方も変わる
+        objc2::rc::autoreleasepool(|_| generate(path, max_edge))
+    }
+
+    fn generate(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
         // **UTF-8を前提にしない。** `NSString` 経由でURLを組むと、名前が
         // UTF-8として読めないファイルを取りこぼす。APFSは非UTF-8の名前を
         // 作らせない（実測: `EILSEQ`）が、**カメラのカードはFAT32/exFATで、
@@ -89,6 +109,11 @@ mod macos_av {
         //
         // このOSのtempdirはAPFSなので、**単体テストでは再現できない**
         // ——FAT32のボリュームをマウントしないと踏めない
+        // 相対パスもそのまま渡してよい。`fileURLWithFileSystemRepresentation:` は
+        // **カレントディレクトリ基準で解決する**——`relativeToURL` が `None` でも
+        // 基準の無いURLにはならない（ゲート2は「相対だと解決できない」と見たが、
+        // `bench --video ./media/x.mp4` で実測したところ、直す前から絵が取れた。
+        // **無い問題のためにコードを足さない**）
         let raw = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
         let ptr = std::ptr::NonNull::new(raw.as_ptr().cast_mut())?;
         // SAFETY: `raw` はこの関数のあいだ生きている NUL 終端のバイト列。
