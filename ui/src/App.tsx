@@ -1373,6 +1373,10 @@ export default function App() {
     if (!settledRef.current) return;
     let alive = true;
     let retry: number | undefined;
+    /** 何回目の問い合わせか。**古い応答に新しい答えを上書きさせない** */
+    let attempt = 0;
+    /** 確かな答え（`checking` でないもの）が届いた。もう聞き直さない */
+    let finished = false;
     /** 旗が1つも立っていない＝「まだ確かめている途中」。**「無い」ではない** */
     const stillChecking = {
       noRoots: false,
@@ -1393,7 +1397,10 @@ export default function App() {
      * 永久に叩き続けないため
      */
     const ask = (left: number) => {
-      if (!alive) return;
+      if (!alive || finished) return;
+      const mine = ++attempt;
+      /** この回の応答・見切りが、いまも画面に反映してよいものか */
+      const fresh = () => alive && !finished && mine === attempt;
       // **この1回から積む聞き直しは1本まで。** 応答が5秒の見切りより後に
       // 届くと（サムネイル生成で本流が詰まると起きる）、見切りと応答の
       // **両方**が次を積み、`retry` は最後の1本しか覚えていないので
@@ -1401,7 +1408,7 @@ export default function App() {
       // （ゲート2の指摘）
       let continued = false;
       const again = () => {
-        if (continued || !alive || left <= 0) return;
+        if (continued || !fresh() || left <= 0) return;
         continued = true;
         retry = window.setTimeout(() => ask(left - 1), 2000);
       };
@@ -1413,16 +1420,26 @@ export default function App() {
       // 連鎖が1回で切れる（以降は門の3秒で `checking` が返るので、
       // マウントが戻れば拾える）
       const giveUp = window.setTimeout(() => {
-        if (!alive) return;
+        if (!fresh()) return;
         setEmptyReason(stillChecking);
         again();
       }, 5000);
 
       getEmptyLibraryReason()
         .then((r) => {
-          if (!alive) return;
+          if (!fresh()) return;
           setEmptyReason(r);
-          if (r.checking) again();
+          if (r.checking) {
+            again();
+            return;
+          }
+          // **確かな答えが来たら連鎖を畳む。** 積んである聞き直しを
+          // 残すと、その5秒の見切りが**いま出したばかりの本当の理由**を
+          // 「確認しています」で塗り潰す——遅いが健康なボリュームで、
+          // 説明が出たあと消える（ゲート2の指摘）
+          finished = true;
+          if (retry != null) window.clearTimeout(retry);
+          retry = undefined;
         })
         // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
         // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
@@ -1430,7 +1447,7 @@ export default function App() {
         // 転んだ1回で終わらせないのも同じ理由で、健康な `~/Pictures` でも
         // 呼び出しが一度失敗しただけで「確かめている途中です」に固まる
         .catch(() => {
-          if (!alive) return;
+          if (!fresh()) return;
           setEmptyReason(stillChecking);
           again();
         })
