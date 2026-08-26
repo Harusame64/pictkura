@@ -1204,7 +1204,15 @@ pub fn decode_scaled(path: &Path, max_edge: u32) -> Option<image::DynamicImage> 
             None => img,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let img = macos_imageio::decode_scaled(path, max_edge)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (path, max_edge);
         None
@@ -1422,7 +1430,15 @@ pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
             None => img,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let img = macos_imageio::decode_thumbnail(path)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = path;
         None
@@ -1439,8 +1455,8 @@ pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
 /// まだ「格納された向き」のままなら、適用されていないのでこちらで直す。
 /// サムネイルのように**倍率が違っても判定できる**のが要点で、
 /// 原寸と実寸を突き合わせる方式だとサムネイルだけ二重回転する（実測で踏んだ）。
-// デコーダを持たないOSでは呼ばれないが、macOS対応を足すときにそのまま使う
-#[cfg_attr(not(windows), allow(dead_code))]
+// デコーダを持たないOSでは呼ばれない（macOSのImageIO経路もこれを通る）
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn needs_manual_transform(width: u32, height: u32, info: &HeifInfo) -> bool {
     // 180度・鏡映のみ・正方形は、寸法が変わらないので見分けられない。
     // 判定できないときは「デコーダが適用済み」に倒す（普通のデコーダの挙動）
@@ -1512,12 +1528,20 @@ pub fn apply_transform(img: image::DynamicImage, info: &HeifInfo) -> image::Dyna
 mod macos_imageio {
     use std::path::Path;
 
-    use objc2_core_foundation::{CFData, CFRetained, CGPoint, CGRect, CGSize, CFURL};
+    use std::ffi::c_void;
+
+    use objc2_core_foundation::{
+        kCFBooleanTrue, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks, CFData,
+        CFDictionary, CFNumber, CFNumberType, CFRetained, CGPoint, CGRect, CGSize, CFURL,
+    };
     use objc2_core_graphics::{
         kCGColorSpaceSRGB, CGBitmapContextCreate, CGBitmapContextGetData, CGColorSpace, CGContext,
         CGImage, CGImageAlphaInfo, CGImageByteOrderInfo,
     };
-    use objc2_image_io::CGImageSource;
+    use objc2_image_io::{
+        kCGImageSourceCreateThumbnailFromImageAlways, kCGImageSourceThumbnailMaxPixelSize,
+        CGImageSource,
+    };
 
     /// ファイルの主画像を起こす（[`super::decode`] の macOS 側）。
     pub fn decode(path: &Path) -> Option<image::DynamicImage> {
@@ -1540,6 +1564,84 @@ mod macos_imageio {
         // SAFETY: 同上
         let image = unsafe { source.image_at_index(0, None) }?;
         to_image(&image)
+    }
+
+    /// 埋め込みサムネイルだけを起こす（[`super::decode_thumbnail`] の macOS 側）。
+    ///
+    /// **選択肢の辞書を渡さないのが要点**。`kCGImageSourceCreateThumbnailFromImage*`
+    /// を立てなければ ImageIO は**主画像から作らない**——
+    /// 埋め込みが無ければ素直に `None` が返る。iPhoneのHEICは主画像とは別に
+    /// 小さいタイル集合を持っているので、ここが当たると主画像の展開を丸ごと省ける。
+    ///
+    /// 寸法は**入っているまま**。`max_edge` を指定しないので、
+    /// 呼び出し側は返った絵の寸法を見ること（Windows側と同じ約束）。
+    pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
+        let source = source_from_path(path)?;
+        // SAFETY: options に None を渡すだけ
+        let image = unsafe { source.thumbnail_at_index(0, None) }?;
+        to_image(&image)
+    }
+
+    /// 長辺 `max_edge` を目指して**縮小しながら**起こす（[`super::decode_scaled`] の macOS 側）。
+    ///
+    /// `kCGImageSourceCreateThumbnailFromImageAlways` を立てるので、
+    /// 埋め込みが無くても主画像から作る。**収まる保証は無い**——
+    /// 出せる寸法を決めるのはデコーダで、呼ぶ側は返った絵の寸法を見ること。
+    pub fn decode_scaled(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
+        let source = source_from_path(path)?;
+        let max = i64::from(max_edge.max(1));
+        // SAFETY: `NSIntegerType` に i64 のアドレスを渡す（64bitのARM/x86_64で一致）
+        let max_number = unsafe {
+            CFNumber::new(
+                None,
+                CFNumberType::NSIntegerType,
+                (&raw const max).cast::<c_void>(),
+            )
+        }?;
+        // SAFETY: 定数は ImageIO / CoreFoundation が公開しているもの
+        let always = unsafe { kCFBooleanTrue }?;
+        let dict = unsafe {
+            options(&[
+                (
+                    (kCGImageSourceCreateThumbnailFromImageAlways as *const _ as *const c_void),
+                    (always as *const _ as *const c_void),
+                ),
+                (
+                    (kCGImageSourceThumbnailMaxPixelSize as *const _ as *const c_void),
+                    (&*max_number as *const _ as *const c_void),
+                ),
+            ])
+        }?;
+        // SAFETY: 辞書の鍵はImageIOの定数、値はCFBoolean/CFNumberで型が合っている
+        let image = unsafe { source.thumbnail_at_index(0, Some(&dict)) }?;
+        to_image(&image)
+    }
+
+    /// ImageIO へ渡す選択肢の辞書を組む。
+    ///
+    /// `kCFType*CallBacks` を渡すので、辞書は鍵も値も**自分で保持する**
+    /// ——組み終わった後は呼び出し側の `CFRetained` が落ちても構わない。
+    ///
+    /// # Safety
+    ///
+    /// `pairs` の各ポインタは、この呼び出しのあいだ生きている CoreFoundation の
+    /// オブジェクトを指していること。
+    unsafe fn options(
+        pairs: &[(*const c_void, *const c_void)],
+    ) -> Option<CFRetained<CFDictionary>> {
+        let mut keys: Vec<*const c_void> = pairs.iter().map(|(k, _)| *k).collect();
+        let mut values: Vec<*const c_void> = pairs.iter().map(|(_, v)| *v).collect();
+        // SAFETY: keys と values は同じ長さで、その長さを渡している
+        unsafe {
+            CFDictionary::new(
+                None,
+                keys.as_mut_ptr(),
+                values.as_mut_ptr(),
+                pairs.len() as isize,
+                &raw const kCFTypeDictionaryKeyCallBacks,
+                &raw const kCFTypeDictionaryValueCallBacks,
+            )
+        }
     }
 
     /// パスから画像ソースを開く。**ファイルは開くが画素は読まない**。

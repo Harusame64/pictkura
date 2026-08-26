@@ -448,7 +448,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
     );
     println!(
         "{:<24} {:>9} {:>8} {:>9} {:>9} {:>9} {:>7} {:>7} {:>7}",
-        "ファイル", "WIC展開", "平坦化", "image", "moz444", "moz420", "imgMB", "444MB", "420MB"
+        "ファイル", "OS展開", "平坦化", "image", "moz444", "moz420", "imgMB", "444MB", "420MB"
     );
 
     let mut n = 0u32;
@@ -551,7 +551,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
     let common = sum_decode + sum_flatten;
     println!(
         "
-{n}件の平均: WIC展開 {} ／ 平坦化 {}（どちらもエンコーダ共通）",
+{n}件の平均: OS展開 {} ／ 平坦化 {}（どちらもエンコーダ共通）",
         avg(sum_decode),
         avg(sum_flatten)
     );
@@ -580,10 +580,10 @@ fn bench_heif_encode(dir: &std::path::Path) {
    見るなら mozjpeg 4:4:4 と比べること。4:2:0 の分は間引きの手柄が混ざっている"
     );
 
-    bench_wic_scaled_decode(&decodable);
+    bench_scaled_decode(&decodable);
 }
 
-/// WICが「縮小しながら展開」できるか、聞いた上で実際に測る。
+/// OSのデコーダが「縮小しながら展開」できるか、**実際に時間を並べて**確かめる。
 ///
 /// エンコーダを替えると、HEICの詰め直しは**展開のほうが重くなる**。
 /// JPEGの1/8展開（[`pictkura_core::jpeg::decode_scaled`]）に当たるものが
@@ -595,7 +595,7 @@ fn bench_heif_encode(dir: &std::path::Path) {
 ///
 /// 渡すのは**上の比較で実際に絵になったものだけ**。壊れた1枚・コーデックの
 /// 無い1枚が先頭に居るだけで、この計測がまるごと落ちる。
-fn bench_wic_scaled_decode(decodable: &[std::path::PathBuf]) {
+fn bench_scaled_decode(decodable: &[std::path::PathBuf]) {
     const EDGES: [u32; 2] = [4096, 2048];
 
     // コンテナの申告（0.2ms）だけで大きい順に並べる。画素は起こさない
@@ -610,7 +610,7 @@ fn bench_wic_scaled_decode(decodable: &[std::path::PathBuf]) {
 
     println!(
         "
--- WICの縮小デコード --"
+-- 縮小デコード --"
     );
     for edge in EDGES {
         // **その辺で本当に縮小を頼める素材だけ**を測る。元が既に `edge` に
@@ -627,27 +627,32 @@ fn bench_wic_scaled_decode(decodable: &[std::path::PathBuf]) {
             continue;
         };
 
-        let Some(probe) = pictkura_core::heif::probe_scaled_decode(first, edge) else {
-            println!("長辺{edge}: 問い合わせできなかった");
-            continue;
-        };
-        let verdict = match probe.scales() {
-            Some(true) => "縮めて出せる",
-            Some(false) if probe.has_transform => "原寸しか出せない",
-            Some(false) => "IWICBitmapSourceTransform を実装していない",
-            // 素材の選び方で弾いてあるので、ここへは来ないはず
-            None => "縮小を頼んでいない",
-        };
-        println!(
-            "長辺{edge}の答え: {verdict}（原寸 {}x{} → 希望 {}x{} → 出せる {}x{}・形式 {}）",
-            probe.full.0,
-            probe.full.1,
-            probe.requested.0,
-            probe.requested.1,
-            probe.closest.0,
-            probe.closest.1,
-            probe.closest_format
-        );
+        // **問い合わせは在れば使う、無くても測る。** 「縮めて出せるか」を先に聞けるのは
+        // WICだけ（`IWICBitmapSourceTransform`）で、macOSのImageIOに対応するAPIは無い。
+        // だが**知りたいのは時間**で、問い合わせはその裏取りでしかない。
+        // ここで打ち切ると、聞けないOSでは永久に測れない
+        match pictkura_core::heif::probe_scaled_decode(first, edge) {
+            Some(probe) => {
+                let verdict = match probe.scales() {
+                    Some(true) => "縮めて出せる",
+                    Some(false) if probe.has_transform => "原寸しか出せない",
+                    Some(false) => "IWICBitmapSourceTransform を実装していない",
+                    // 素材の選び方で弾いてあるので、ここへは来ないはず
+                    None => "縮小を頼んでいない",
+                };
+                println!(
+                    "長辺{edge}の答え: {verdict}（原寸 {}x{} → 希望 {}x{} → 出せる {}x{}・形式 {}）",
+                    probe.full.0,
+                    probe.full.1,
+                    probe.requested.0,
+                    probe.requested.1,
+                    probe.closest.0,
+                    probe.closest.1,
+                    probe.closest_format
+                );
+            }
+            None => println!("長辺{edge}の答え: このOSでは事前に聞けない（時間だけ測る）"),
+        }
 
         // 「縮めて出せる」と答えても、値段が変わらなければ意味が無い。
         // **同じ素材で**原寸と並べる（1枚だとファイルキャッシュの当たり外れが乗る）
