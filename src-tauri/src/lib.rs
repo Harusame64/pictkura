@@ -1240,6 +1240,20 @@ const OS_BOOKKEEPING: &[&str] = &[
     "lost+found",
 ];
 
+/// freedesktop の「ボリュームごとのごみ箱」か（`.Trash-1000` のようにuidが付く）。
+///
+/// 名前を並べただけでは当たらないので別に見る。USBメモリの直下がこれだけの
+/// とき、「除外で全部飛ばしています（例: .Trash-1000）」と言って
+/// `pictkura.toml` を編集しに行かせることになる（ゲート2の指摘）。
+///
+/// **uidが数字であることまで見る**。単なる前方一致にすると
+/// `.Trash-の写真` のような利用者のフォルダまで飲む
+/// （加えて、バイト位置で切ると多バイト文字の途中に当たって落ちる）
+fn is_volume_trash(name: &str) -> bool {
+    name.strip_prefix(".Trash-")
+        .is_some_and(|uid| !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// ルート直下の1エントリの形。`std::fs::FileType` から起こす。
 ///
 /// テストから直に組めるようにここで畳んである（`FileType` は作れない）。
@@ -1308,7 +1322,7 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
         return EntryKind::Package;
     }
     // OSの置き場は「中身になり得た」に数えない（`OS_BOOKKEEPING` を見よ）
-    if OS_BOOKKEEPING.iter().any(|n| n.eq_ignore_ascii_case(text)) {
+    if OS_BOOKKEEPING.iter().any(|n| n.eq_ignore_ascii_case(text)) || is_volume_trash(text) {
         return EntryKind::Ignorable;
     }
     let could_have_been_content = match shape {
@@ -4125,6 +4139,23 @@ mod tests {
         assert_eq!(
             kind(OsStr::new("System Volume Information"), EntryShape::Dir),
             EntryKind::Ignorable
+        );
+        // uidが付く形（freedesktop のボリュームごとのごみ箱）
+        assert_eq!(
+            kind(OsStr::new(".Trash-1000"), EntryShape::Dir),
+            EntryKind::Ignorable
+        );
+        // **拾いすぎない**——uidが数字でなければ利用者のフォルダ。
+        // （バイト位置で切る実装だと、ここで多バイト文字の途中に当たって落ちる）
+        assert_eq!(
+            kind(OsStr::new(".Trash-の写真"), EntryShape::Dir),
+            EntryKind::Excluded,
+            "`.Trash-` で始まるだけの利用者のフォルダは、除外を外せば出てくる"
+        );
+        assert_eq!(
+            kind(OsStr::new(".Trash-"), EntryShape::Dir),
+            EntryKind::Excluded,
+            "uidが無いものはOSの置き場ではない"
         );
         assert_eq!(
             kind(OsStr::new(".隠し写真"), EntryShape::Dir),

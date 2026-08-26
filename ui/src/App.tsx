@@ -1282,7 +1282,17 @@ export default function App() {
    * 古い理由が新しい一覧の上に出る
    */
   const canSayEmpty =
-    settled && !loadFailed && scanSettled && !filtering && summary.length === 0;
+    settled &&
+    !loadFailed &&
+    scanSettled &&
+    // **`busy` の間は言わない。** `scanSettled` が覆うのは**起動時の走査だけ**
+    // （旗は一度きり）。フォルダの追加・再スキャン・ルートの削除は同期で
+    // 走査するので、20万件のNASを足した人は、その数分のあいだ
+    // 「フォルダがまだ設定されていません…写真のあるフォルダを選んでください」
+    // を見続けることになる——**いま選んだところ**なのに（ゲート2の指摘）
+    !busy &&
+    !filtering &&
+    summary.length === 0;
   /**
    * 一覧が空で、しかも**なぜ空かをまだ言えない**か。
    *
@@ -1336,9 +1346,14 @@ export default function App() {
     // **ルートそのものがライブラリ**なら、そちらが先。覆らない事実で、
     // しかも直せるのは利用者だけ（フォルダを選び直す）
     if (r.rootIsPackage) return t.emptyRootIsPackage;
-    if (r.photoLibrary) return t.emptyPhotoLibrary;
+    // **除外が先。** 「写真.appのライブラリのほかに見つかりません」は
+    // **排他の主張**なので、除外で飛ばしたものがあるなら嘘になる——
+    // `~/Pictures` に写真ライブラリと `.秘密写真/`（中身はJPEG）が並ぶと、
+    // 写真は在るのに「ほかに無い」と言い、`pictkura.toml` の話にも
+    // 辿り着けない（ゲート2の指摘）。除外の文言なら名前を挙げて設定へ導ける
     if (r.excluded.length > 0)
       return t.emptyAllExcluded(nameList(r.excluded, r.excludedTotal));
+    if (r.photoLibrary) return t.emptyPhotoLibrary;
     return t.emptyNothingHere;
   };
   /**
@@ -1423,11 +1438,16 @@ export default function App() {
       // 聞き直しもここから積む: 積まないと、最初の1本が永久に返らないときに
       // 連鎖が1回で切れる（以降は門の3秒で `checking` が返るので、
       // マウントが戻れば拾える）
+      // **見切りは「文言を出す」だけ。次は投げない。**
+      // 投げると、前の確認が返る前にもう1本が席を取りに行く——
+      // 席は2つしか無いので、**自分の聞き直しで両方潰して**しまい、
+      // 死んだルートを外したあとの確認まで通らなくなる（ゲート2の指摘）
       const giveUp = window.setTimeout(() => {
         if (!fresh()) return;
         setEmptyReason(stillChecking);
-        again();
       }, 5000);
+      // 次を投げるかどうかは、**前のが返ってから**決める
+      let wantMore = false;
 
       getEmptyLibraryReason()
         .then((r) => {
@@ -1451,7 +1471,7 @@ export default function App() {
           // 「まだ確かめている途中」を塗るのは、自分の回のときだけ
           if (!fresh()) return;
           setEmptyReason(r);
-          again();
+          wantMore = true;
         })
         // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
         // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
@@ -1461,9 +1481,15 @@ export default function App() {
         .catch(() => {
           if (!fresh()) return;
           setEmptyReason(stillChecking);
-          again();
+          wantMore = true;
         })
-        .finally(() => window.clearTimeout(giveUp));
+        .finally(() => {
+          window.clearTimeout(giveUp);
+          // **返ってきてから次を投げる。** 返ってこないまま連鎖が終われば
+          // 「確認しています」で止まるが、それは正直な状態で、
+          // 「再スキャン」やルートの追加・削除で効果ごと張り直される
+          if (wantMore) again();
+        });
     };
     ask(5);
     return () => {
