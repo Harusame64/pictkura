@@ -1234,6 +1234,8 @@ enum EntryShape {
     File,
     /// リンク（**リンク先は見ない**。走査もそうしている）
     Symlink,
+    /// 普通のファイルでもフォルダでもない（FIFO・ソケット・デバイスノード）
+    Other,
     /// 種別が取れなかった
     Unknown,
 }
@@ -1243,7 +1245,11 @@ impl EntryShape {
         match entry.file_type() {
             Ok(t) if t.is_symlink() => Self::Symlink,
             Ok(t) if t.is_dir() => Self::Dir,
-            Ok(_) => Self::File,
+            Ok(t) if t.is_file() => Self::File,
+            // FIFO・ソケット・デバイスノード。**走査は `is_file()` を要求する**
+            // ので、`preview.jpg` という名前のFIFOがあっても索引されない
+            // ——リンクと同じで、走査が見ないものを証拠にしない（ゲート2の指摘）
+            Ok(_) => Self::Other,
             Err(_) => Self::Unknown,
         }
     }
@@ -1279,7 +1285,11 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
     let Some(text) = name.to_str() else {
         return EntryKind::Candidate;
     };
-    if pictkura_core::import::is_managed_package_path(Path::new(text)) {
+    // **パッケージはフォルダ。** 名前だけで見ると、`old.photoslibrary` という
+    // ただのファイル（改名した書庫の残骸など）で旗が立ち、写真.appのライブラリが
+    // 1つも無い場所に「写真.appのライブラリのほかに見つかりません」と言う。
+    // 走査もその名前は**除外されたファイル**として扱う（ゲート2の指摘）
+    if shape == EntryShape::Dir && pictkura_core::import::is_managed_package_path(Path::new(text)) {
         return EntryKind::Package;
     }
     // OSの置き場は「中身になり得た」に数えない（`OS_BOOKKEEPING` を見よ）
@@ -1296,7 +1306,7 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
         // ここで候補に数えると、`latest.jpg` というリンクが1本あるだけで
         // 「写真.appのライブラリしかありません」が消えて、当たり障りの無い
         // 文言に落ちる——**走査が見ないものを証拠にしない**（ゲート2の指摘）
-        EntryShape::Symlink => return EntryKind::Ignorable,
+        EntryShape::Symlink | EntryShape::Other => return EntryKind::Ignorable,
         // 種別が取れないときは安全側（＝除外を犯人にしない側）へ
         EntryShape::Unknown => return EntryKind::Candidate,
     };
@@ -4104,6 +4114,17 @@ mod tests {
             kind(OsStr::new("latest.jpg"), EntryShape::Symlink),
             EntryKind::Ignorable,
             "リンクを証拠にすると、写真.appの文言が1本のリンクで消える"
+        );
+        // **普通のファイルでないものも同じ**（FIFO・ソケット・デバイスノード）
+        assert_eq!(
+            kind(OsStr::new("preview.jpg"), EntryShape::Other),
+            EntryKind::Ignorable
+        );
+        // **パッケージはフォルダ。** 同じ名前のただのファイルで旗を立てない
+        assert_eq!(
+            kind(OsStr::new("古い.photoslibrary"), EntryShape::File),
+            EntryKind::Ignorable,
+            "写真.appのライブラリが無い場所で「ライブラリしかない」と言わせない"
         );
         assert_eq!(
             kind(OsStr::new("写真ライブラリ.photoslibrary"), EntryShape::Dir),

@@ -1389,8 +1389,14 @@ export default function App() {
       // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
       // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
       // ネットワークのフォルダこそ、この機能が説明したい相手
+      // **返ってこないときも聞き直しを積む。** 刺さったhardマウントでは
+      // 最初の1本が永久に返らないので、ここで積まないと `ask` の連鎖が
+      // 1回で切れる——以降は門の3秒で `checking` が返るようになるので、
+      // マウントが戻れば拾える（ゲート2の指摘）
       const giveUp = window.setTimeout(() => {
-        if (alive) setEmptyReason(stillChecking);
+        if (!alive) return;
+        setEmptyReason(stillChecking);
+        if (left > 0) retry = window.setTimeout(() => ask(left - 1), 2000);
       }, 5000);
 
       getEmptyLibraryReason()
