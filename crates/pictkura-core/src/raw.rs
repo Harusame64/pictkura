@@ -1327,7 +1327,7 @@ mod tests {
     }
 
     #[test]
-    fn 非圧縮rgbのプレビューを組み立てる() {
+    fn builds_a_preview_from_uncompressed_rgb() {
         let dir = tempfile::tempdir().unwrap();
         // 複数ストリップに分かれていても1枚に繋がる
         let path = tiff_with_uncompressed_preview(
@@ -1354,7 +1354,7 @@ mod tests {
     }
 
     #[test]
-    fn ビッグエンディアンの非圧縮プレビューも読める() {
+    fn a_big_endian_uncompressed_preview_reads_too() {
         let dir = tempfile::tempdir().unwrap();
         let path = tiff_with_uncompressed_preview(
             dir.path(),
@@ -1374,7 +1374,7 @@ mod tests {
     }
 
     #[test]
-    fn 十六ビットの非圧縮プレビューは明るさを補正して読む() {
+    fn a_sixteen_bit_uncompressed_preview_is_read_with_its_brightness_corrected() {
         let dir = tempfile::tempdir().unwrap();
         // 16ビットのプレビューはリニア（ガンマ未適用）で入っている。
         // 上位8ビットをそのまま使うと真っ暗になるので補正が要る
@@ -1397,7 +1397,7 @@ mod tests {
     }
 
     #[test]
-    fn センサーの生データはプレビューに使わない() {
+    fn raw_sensor_data_is_not_used_as_a_preview() {
         // Photometric=32803（CFA）は現像していないので絵にならない。
         // 非圧縮でも選んではいけない
         let dir = tempfile::tempdir().unwrap();
@@ -1418,7 +1418,7 @@ mod tests {
     }
 
     #[test]
-    fn 実サンプルでプレビューが取れる() {
+    fn previews_come_out_of_the_real_samples() {
         // 実物のRAWは各社バラバラなので、手元にサンプルがある人だけ走る
         // （raw.pixls.us のCC0サンプルを想定。環境変数が無ければskip）
         let Ok(dir) = std::env::var("PICTKURA_RAW_SAMPLES") else {
@@ -1474,7 +1474,7 @@ mod tests {
     }
 
     #[test]
-    fn raw拡張子を見分ける() {
+    fn recognises_raw_extensions() {
         for ext in ["CR2", "cr3", "arw", "NEF", "dng", "raf"] {
             assert!(is_raw_extension(ext), "{ext} はRAW");
         }
@@ -1484,7 +1484,7 @@ mod tests {
     }
 
     #[test]
-    fn tiffの申告からプレビューを取り出す() {
+    fn lifts_the_preview_out_of_the_tiff_declaration() {
         let dir = tempfile::tempdir().unwrap();
         let jpeg = jpeg_bytes(160, 120);
         let path = tiff_with_declared_preview(dir.path(), "sample.cr2", &jpeg);
@@ -1496,7 +1496,7 @@ mod tests {
     }
 
     #[test]
-    fn 申告が切手でも大きい絵を探しに行く() {
+    fn a_stamp_sized_declaration_still_sends_us_looking_for_a_bigger_picture() {
         // Nikon（NEF・NRW）の縮図: TIFFには160x120の切手だけを申告し、
         // 原寸のJPEGは申告の無い場所（SubIFD）に置く。申告を鵜呑みにすると
         // **全画面表示が160x120**になる（実測: Z6III・COOLPIX A1000）
@@ -1521,7 +1521,7 @@ mod tests {
     }
 
     #[test]
-    fn 使える大きさが取れたらそこで打ち切る() {
+    fn the_search_stops_once_a_usable_size_is_found() {
         // 逆に、申告が原寸級ならファイル全体を読み直さない（CR2・ARW・PEF）。
         // 後ろにもっと大きい絵があっても、探しに行く値段（実測100〜350ms）は
         // 払わない
@@ -1546,7 +1546,7 @@ mod tests {
     }
 
     #[test]
-    fn 先頭を潰されたjpegを外れの候補ごしに直す() {
+    fn a_jpeg_with_a_broken_head_is_repaired_past_the_wrong_candidates() {
         // Minoltaの `.mrw` は埋め込みJPEGのSOI（`FF D8`）の**先頭1バイトを
         // 0で潰して**書く。この3バイトの並びは生のセンサーデータにも普通に
         // 現れるので、外れの候補が何度も当たる。**写す前に確かめる**ように
@@ -1569,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    fn 一覧の大きさで足りるなら全体は読まない() {
+    fn the_whole_file_is_not_read_when_the_grid_size_suffices() {
         // 一覧のタイル（512px）は取り込み元のSDカードにも並ぶ。160x120しか
         // 持たない社（Minolta MRW・Sony SRF・Phase One IIQ）でここから
         // 全体走査に降りると、**1枚ごとにファイル全体を読む**うえに、
@@ -1603,7 +1603,7 @@ mod tests {
     }
 
     #[test]
-    fn 小さい絵しか無ければ一番大きいものを返す() {
+    fn with_only_small_pictures_the_largest_is_returned() {
         // どこにも原寸が無い形式もある。手を尽くしても届かないときは
         // **一番大きかった絵**を返す（何も出さないよりよい）
         let dir = tempfile::tempdir().unwrap();
@@ -1623,7 +1623,7 @@ mod tests {
     }
 
     #[test]
-    fn 版番号が独自のtiffも読めるように直す() {
+    fn tiff_with_its_own_version_number_is_patched_to_be_readable() {
         // ORF（Olympus/OM）は "IIRO"、RW2（Panasonic）は "IIU\x00" と、
         // TIFFの版番号（本来42）に独自の値を書く。直さないと撮影日時も
         // カメラ名も向きも丸ごと落ち、**縦位置の写真が横倒しになる**
@@ -1662,7 +1662,7 @@ mod tests {
     }
 
     #[test]
-    fn 版番号を直すのにファイルと同じ大きさは確保しない() {
+    fn patching_the_version_number_does_not_allocate_the_whole_file() {
         // サムネイルのワーカーは並列に走る。1枚ごとにファイル長ぶん0で
         // 嵩上げすると、数十MBのORF・RW2が同時に何枚も乗るうえ、上限を
         // 超える大きさのファイルは向きを丸ごと落とす（ゲート1のP1）
@@ -1686,7 +1686,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn 読めないorfは対象外と区別する() {
+    fn an_unreadable_orf_is_told_apart_from_a_non_applicable_one() {
         // 「直す対象ではない」に畳むと、一時的に読めないだけのORF・RW2に
         // 後追いが「確かめた」印を付けて二度と直らない（ゲート1の4周目のP2）
         use std::os::windows::fs::OpenOptionsExt;
@@ -1715,7 +1715,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn 箱を辿れないcr3は空と区別する() {
+    fn a_cr3_whose_boxes_cannot_be_walked_is_told_apart_from_an_empty_one() {
         // CR3はコンテナ読みも版番号の直しも素通りするので、ここが3度目の
         // `File::open` になる。**空の `Vec` に畳むと**、前の2回が通った後に
         // 共有ロックが掛かった1枚を「箱にメタデータが無いCR3」と取り違え、
@@ -1744,7 +1744,7 @@ mod tests {
     }
 
     #[test]
-    fn 普通のtiffは直さない() {
+    fn an_ordinary_tiff_is_left_alone() {
         // 版番号42はそのまま読めるので直す対象ではない。BigTIFF（43）は
         // 構造が違い、版番号を替えても読めないので触らない
         let dir = tempfile::tempdir().unwrap();
@@ -1768,7 +1768,7 @@ mod tests {
     }
 
     #[test]
-    fn 申告が無くてもjpegの塊を拾う() {
+    fn jpeg_blocks_are_found_even_without_a_declaration() {
         // CR3やRAFのように、TIFFの申告が無くJPEGを抱えているだけのファイル
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sample.cr3");
@@ -1790,7 +1790,7 @@ mod tests {
     }
 
     #[test]
-    fn bmffのメタデータ箱を取り出す() {
+    fn lifts_the_metadata_boxes_out_of_bmff() {
         // CR3の構造を最小限で再現: moov > uuid > CMT1
         fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
             let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
@@ -1840,7 +1840,7 @@ mod tests {
     }
 
     #[test]
-    fn exif_ifdの申告から原寸を読む() {
+    fn reads_the_original_size_from_the_exif_ifd_declaration() {
         // Canon CR2・Sony ARW・Phase One IIQ 等はここに原寸を書く。
         // IFD0のImageWidthは埋め込みプレビューの寸法（実測: CR2 20Dで1536x1024）
         let buf = tiff_with_exif_ifd(
@@ -1852,7 +1852,7 @@ mod tests {
     }
 
     #[test]
-    fn ifd0のimagewidthは原寸として読まない() {
+    fn imagewidth_in_ifd0_is_not_read_as_the_original_size() {
         // Nikon NEFのIFD0は160x120の切手を指す。ここを原寸と信じると、
         // 2400万画素の写真が160x120としてDBに入る
         let buf = build_tiff(&[entry(256, 4, &[160]), entry(257, 4, &[120])], &[], false);
@@ -1863,21 +1863,21 @@ mod tests {
     }
 
     #[test]
-    fn 片方しか無い申告は使わない() {
+    fn a_declaration_with_only_one_side_is_not_used() {
         let buf = tiff_with_exif_ifd(&[], &[(0xA002, 3504)]);
         let exif = exif::Reader::new().read_raw(buf).unwrap();
         assert_eq!(exif_declared_dimensions(&exif), None);
     }
 
     #[test]
-    fn ゼロの申告は使わない() {
+    fn a_declaration_of_zero_is_not_used() {
         let buf = tiff_with_exif_ifd(&[], &[(0xA002, 0), (0xA003, 2336)]);
         let exif = exif::Reader::new().read_raw(buf).unwrap();
         assert_eq!(exif_declared_dimensions(&exif), None);
     }
 
     #[test]
-    fn bmffを見に行くのはcr3だけ() {
+    fn only_cr3_sends_us_to_the_bmff_boxes() {
         // 原寸の申告のために、TIFF系RAWで1MB読み直さないための門
         assert!(is_bmff_raw_path(Path::new("a.CR3")));
         assert!(is_bmff_raw_path(Path::new("a.cr3")));
@@ -1886,7 +1886,7 @@ mod tests {
     }
 
     #[test]
-    fn 壊れたbmffでも止まる() {
+    fn a_broken_bmff_still_terminates() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("broken.cr3");
         // サイズが自分より大きい箱（壊れている）
@@ -1897,7 +1897,7 @@ mod tests {
     }
 
     #[test]
-    fn jpegを含まないファイルはnone() {
+    fn a_file_holding_no_jpeg_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("broken.arw");
         std::fs::write(&path, vec![0u8; 4096]).unwrap();
@@ -1905,7 +1905,7 @@ mod tests {
     }
 
     #[test]
-    fn 途中で切れたjpegは拾わない() {
+    fn a_jpeg_cut_off_partway_is_not_picked_up() {
         // SOIはあるがEOIが無い（壊れたRAW）。無理に返すとデコードで落ちる
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("truncated.nef");
@@ -1922,7 +1922,7 @@ mod tests {
     /// 黙って戻ると詰め直しが3.7倍に伸びるが、**絵は出る**のでテストでしか
     /// 気づけない
     #[test]
-    fn 表示用jpegはmozjpegで詰める() {
+    fn the_display_jpeg_is_packed_with_mozjpeg() {
         let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(64, 48, |x, y| {
             image::Rgb([(x * 4) as u8, (y * 5) as u8, 200])
         }));
@@ -1943,7 +1943,7 @@ mod tests {
     /// 届いていないと libjpeg v6 の既定（4:2:0）で全部が出る——TIFFや非圧縮
     /// プレビューを4:4:4で出す判断が、黙って無かったことになる
     #[test]
-    fn 間引きの指定がエンコーダまで届く() {
+    fn the_chroma_setting_reaches_the_encoder() {
         // **色差が大きく動く絵**にすると、間引きの差が大きさに出る
         let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(256, 256, |x, y| {
             image::Rgb([128, (x % 256) as u8, (y % 256) as u8])
@@ -1964,7 +1964,7 @@ mod tests {
     ///
     /// エンコーダを替えても、ここは通り道が変わっただけで意味は同じ
     #[test]
-    fn 透過は白へ重ねてから詰める() {
+    fn transparency_is_flattened_onto_white_before_packing() {
         let img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
             32,
             32,
@@ -2068,7 +2068,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn uuidの余分な欄があってもプレビューを見つける() {
+    fn the_preview_is_found_even_with_the_extra_uuid_field() {
         // THMB を収める uuid には無く、PRVW を収める uuid には8バイト入っている。
         // どちらも読めないと、HDR PQのCR3で原寸が切手に落ちる
         for extra in [0usize, 8] {
@@ -2082,14 +2082,14 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn 指定した箱だけを読む() {
+    fn only_the_named_boxes_are_read() {
         let buf = fake_cr3(b"THMB", 0, 320, 214);
         assert!(cr3_hevc_box(&buf, b"THMB").is_some());
         assert!(cr3_hevc_box(&buf, b"PRVW").is_none());
     }
 
     #[test]
-    fn 版0の箱は拾わない() {
+    fn a_version_zero_box_is_not_picked_up() {
         // 通常のCR3は**版0**で、`PRVW` は子箱を持たずオフセット16から生JPEGが
         // 始まる。寸法（1620x1080）は版1と同じ位置に入っているので、**値では
         // 見分けが付かない**——版で弾く
@@ -2117,7 +2117,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn hevcが無ければ拾わない() {
+    fn nothing_is_picked_up_without_hevc() {
         // 版1の形をしていても、`hvcC` と `IMGD` が無ければ絵にならない
         let mut body = vec![0x01, 0, 0, 0, 0, 0x02, 0x06, 0x54, 0x04, 0x38, 0xff, 0xff];
         body.extend_from_slice(&0u32.to_be_bytes());
@@ -2128,7 +2128,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn imgdの申告どおりに切る() {
+    fn the_cut_follows_the_imgd_declaration() {
         /// `IMGD` の中身を指定して、版1の `PRVW` を1つ持つCR3もどきを組む。
         fn cr3_with_imgd(imgd: &[u8]) -> Vec<u8> {
             let mut body = vec![0x01, 0, 0, 0, 0, 0x02];
@@ -2166,7 +2166,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn 色差の間引きをhvccから読む() {
+    fn chroma_sampling_is_read_from_the_hvcc() {
         use crate::jpeg::ChromaSampling;
         // hvcC の17バイト目の下位2ビットが chroma_format_idc。
         // 0=モノクロ / 1=4:2:0 / 2=4:2:2 / 3=4:4:4
@@ -2195,7 +2195,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn 足りるうち一番小さいものから起こす() {
+    fn the_smallest_one_that_suffices_is_decoded_first() {
         use super::decode_order;
         let sized = |width: u16, height: u16| super::Cr3Hevc {
             width,
@@ -2220,7 +2220,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn 包み直したheifが箱として通る() {
+    fn the_rewrapped_heif_parses_as_boxes() {
         let buf = fake_cr3(b"PRVW", 8, 1620, 1080);
         let found = cr3_hevc_box(&buf, b"PRVW").expect("見つかる");
         let hevc_len = found.hevc.len();
@@ -2284,7 +2284,7 @@ mod cr3_hevc_tests {
     }
 
     #[test]
-    fn 壊れた箱で潜り続けない() {
+    fn a_broken_box_does_not_keep_us_descending() {
         // 大きさが嘘の箱で止まること
         assert!(cr3_hevc_box(&[0xff; 64], b"PRVW").is_none());
 
@@ -2530,7 +2530,7 @@ mod cr3_hevc_sample_tests {
     }
 
     #[test]
-    fn hdr_pqのcr3から表示できる絵が出る() {
+    fn a_hdr_pq_cr3_yields_a_picture_that_can_be_shown() {
         let samples = hdr_pq_samples();
         if samples.is_empty() {
             return; // サンプルが置かれていない
@@ -2580,7 +2580,7 @@ mod cr3_hevc_sample_tests {
     }
 
     #[test]
-    fn 切手のjpegが同居していてもhevcを起こす() {
+    fn hevc_is_decoded_even_with_a_stamp_sized_jpeg_alongside() {
         let samples = hdr_pq_samples();
         if samples.is_empty() {
             return;

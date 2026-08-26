@@ -343,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn 一階層だけ読みフォルダと画像を分けて返す() {
+    fn reads_one_level_and_returns_folders_and_images_apart() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         fs::create_dir_all(root.join("DCIM/100MSDCF")).unwrap();
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn 隠しフォルダとシステム領域は出さない() {
+    fn hidden_folders_and_system_areas_are_not_listed() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         for name in [
@@ -388,7 +388,7 @@ mod tests {
     /// アプリが管理するパッケージは取り込み元でも見せない。
     /// 中身はUUID名の内部ファイルで、選んでも意味が無い
     #[test]
-    fn 写真ライブラリのパッケージは取り込み元に出さない() {
+    fn a_photo_library_package_is_not_offered_as_a_source() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         for name in [
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn 手元にあるファイルはofflineにならない() {
+    fn a_file_that_is_here_is_not_marked_offline() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("a.jpg"), b"x").unwrap();
         let listing = list_dir(dir.path(), &exts());
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn 名前順に並ぶ() {
+    fn sorted_by_name() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         for name in ["b.jpg", "A.jpg", "c.jpg"] {
@@ -427,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn 読めないフォルダはunreadableで返す() {
+    fn an_unreadable_folder_comes_back_as_unreadable() {
         let dir = tempfile::tempdir().unwrap();
         let listing = list_dir(&dir.path().join("取り外し済み"), &exts());
         assert!(listing.unreadable);
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn 枚数の上限に達したら打ち切る() {
+    fn stops_at_the_count_limit() {
         let dir = tempfile::tempdir().unwrap();
         let sub = dir.path().join("many");
         fs::create_dir_all(&sub).unwrap();
@@ -448,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn 下の階層まで集めて返す() {
+    fn gathers_the_levels_below_as_well() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         fs::create_dir_all(root.join("DCIM/100CANON")).unwrap();
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn 上限を超えたら打ち切りを申告する() {
+    fn declares_the_cut_off_when_the_limit_is_passed() {
         let dir = tempfile::tempdir().unwrap();
         for i in 0..5 {
             fs::write(dir.path().join(format!("{i}.jpg")), b"x").unwrap();
@@ -478,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn 上限に達したら走査を止める() {
+    fn the_walk_stops_at_the_limit() {
         let dir = tempfile::tempdir().unwrap();
         let deep = dir.path().join("a/b/c");
         fs::create_dir_all(&deep).unwrap();
@@ -492,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn 読めないフォルダはincompleteで申告する() {
+    fn an_unreadable_folder_is_declared_incomplete() {
         let dir = tempfile::tempdir().unwrap();
         let listing = list_tree(&dir.path().join("取り外し済み"), &exts(), 100);
         assert!(listing.incomplete, "空ではなく読めなかったと伝える");
@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn プレビューは画像でないファイルでnoneを返す() {
+    fn the_preview_returns_none_for_a_file_that_is_not_an_image() {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("broken.jpg");
         fs::write(&f, b"not an image").unwrap();
@@ -508,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn プレビューは縮小したjpegを返す() {
+    fn the_preview_returns_a_scaled_down_jpeg() {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("big.png");
         image::RgbImage::new(800, 600).save(&f).unwrap();

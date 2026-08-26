@@ -1946,7 +1946,7 @@ mod tests {
     /// は4:2:2で書かれる。4:2:0だと思い込んで詰め直すと、色の境目が目に見えて
     /// 崩れる（PR #23 のゲート1 P2）
     #[test]
-    fn 元の色差の間引きを読む() {
+    fn reads_the_original_chroma_sampling() {
         use crate::jpeg::ChromaSampling;
         let cases = [
             (0u8, ChromaSampling::Full), // モノクロ
@@ -1973,7 +1973,7 @@ mod tests {
     /// 主アイテムと、それが `dimg` で参照するタイルだけを見ること
     /// （PR #23 のゲート2 P2）
     #[test]
-    fn ゲインマップに引きずられない() {
+    fn the_gain_map_does_not_lead_us_astray() {
         let file = synth_heif_hvcc(HvccSpec {
             primary: None, // grid は自分では hvcC を持たない
             tiles: vec![1, 1, 1, 1],
@@ -1992,7 +1992,7 @@ mod tests {
     ///
     /// 「たぶん4:2:0だろう」で埋めると、**間引かない形式を静かに間引く**
     #[test]
-    fn 色差が分からないときは黙る() {
+    fn unknown_chroma_keeps_quiet() {
         // hvcC が1つも無い（壊れたコンテナ）
         let (_d1, p1) = write_temp(&synth_heif_hvcc(HvccSpec::default()), "none.heic");
         assert_eq!(stored_chroma(&p1), None);
@@ -2344,7 +2344,7 @@ mod tests {
     }
 
     #[test]
-    fn avifの主画像の実体と設定を取り出す() {
+    fn lifts_the_avif_primary_image_and_its_configuration() {
         let bytes = synth_avif(4032, 3024, b"SEQHDR", &[b"TILE-A"], None, None);
         let (_dir, path) = write_temp(&bytes, "a.avif");
         let source = read_avif_source(&path).expect("読めるはず");
@@ -2359,7 +2359,7 @@ mod tests {
     }
 
     #[test]
-    fn gridのタイルを並び順のまま集める() {
+    fn grid_tiles_are_gathered_in_their_own_order() {
         let tiles: Vec<&[u8]> = vec![b"T0", b"T1", b"T2", b"T3", b"T4", b"T5"];
         let bytes = synth_avif(4000, 3000, b"CFG", &tiles, Some((2, 3, 4000, 3000)), None);
         let (_dir, path) = write_temp(&bytes, "g.avif");
@@ -2383,7 +2383,7 @@ mod tests {
     }
 
     #[test]
-    fn タイルが足りないgridは諦める() {
+    fn a_grid_missing_tiles_is_given_up_on() {
         // 2x3 = 6枚要るのに4枚しか無い
         let tiles: Vec<&[u8]> = vec![b"T0", b"T1", b"T2", b"T3"];
         let bytes = synth_avif(4000, 3000, b"CFG", &tiles, Some((2, 3, 4000, 3000)), None);
@@ -2392,7 +2392,7 @@ mod tests {
     }
 
     #[test]
-    fn clapを画素の矩形に直す() {
+    fn clap_becomes_a_rectangle_in_pixels() {
         // 幅1000/高さ800を、中心をずらさずに 800x600 で切り出す
         let clap = [800, 1, 600, 1, 0, 1, 0, 1];
         let bytes = synth_avif(1000, 800, b"C", &[b"T"], None, Some(clap));
@@ -2410,7 +2410,7 @@ mod tests {
     }
 
     #[test]
-    fn clapは表示寸法にも効く() {
+    fn clap_applies_to_the_display_size_too() {
         // 1000x800 を 800x600 に切り出す指定。DBへ書く寸法は切り出し後でないと、
         // 実際に作るサムネイル（切り出し済み）と縦横比が食い違ってタイルが歪む
         let clap = [800, 1, 600, 1, 0, 1, 0, 1];
@@ -2423,7 +2423,7 @@ mod tests {
     }
 
     #[test]
-    fn 切り出しと九十度回転が両方効く() {
+    fn cropping_and_a_quarter_turn_both_apply() {
         // 回転が入ると、切り出し後の幅と高さが入れ替わる
         let clap = [800, 1, 600, 1, 0, 1, 0, 1];
         let bytes = synth_avif_rotated(1000, 800, clap, 1);
@@ -2433,7 +2433,7 @@ mod tests {
     }
 
     #[test]
-    fn 透過のアイテムを見つける() {
+    fn finds_the_alpha_item() {
         let bytes = synth_avif_alpha(b"ALPHA-STREAM", None);
         let (_dir, path) = write_temp(&bytes, "alpha.avif");
         let source = read_avif_source(&path).expect("読めるはず");
@@ -2445,7 +2445,7 @@ mod tests {
     }
 
     #[test]
-    fn 掛け済みの透過を見分ける() {
+    fn tells_premultiplied_alpha_apart() {
         // `prem` は**主画像からalphaへ**張られる。逆に引くと常に
         // 「掛かっていない」と判定して、半透明の部分だけ二重に薄くなる
         let bytes = synth_avif_alpha_opts(b"A", None, true);
@@ -2469,14 +2469,14 @@ mod tests {
     }
 
     #[test]
-    fn 透過が無ければnone() {
+    fn no_alpha_yields_none() {
         let bytes = synth_avif(64, 48, b"C", &[b"T"], None, None);
         let (_dir, path) = write_temp(&bytes, "noalpha.avif");
         assert!(read_avif_source(&path).unwrap().alpha.is_none());
     }
 
     #[test]
-    fn colrはシーケンスヘッダより優先される素性として読める() {
+    fn colr_reads_as_the_trait_that_outranks_the_sequence_header() {
         // BT.2020 / PQ / BT.2020非定輝度
         let bytes = synth_avif_alpha(b"A", Some([9, 16, 9]));
         let (_dir, path) = write_temp(&bytes, "colr.avif");
@@ -2491,7 +2491,7 @@ mod tests {
     }
 
     #[test]
-    fn iccのcolrが先にあってもnclxを取り落とさない() {
+    fn an_icc_colr_first_does_not_lose_the_nclx() {
         // 規格は色の種類ごとに `colr` を1つずつ許し、**libavifはICCを先に書く**。
         // 名前で1つ目を取ると、ICCを持つファイルだけ色の指定が丸ごと消える
         let bytes = synth_avif_full(AvifSpec {
@@ -2512,14 +2512,14 @@ mod tests {
     }
 
     #[test]
-    fn nclx以外のcolrは読まない() {
+    fn a_colr_other_than_nclx_is_not_read() {
         // ICCプロファイル（rICC）はカラーマネジメントが要るので手を出さない
         assert!(parse_colr(b"rICC       ").is_none());
         assert!(parse_colr(b"nclx").is_none(), "短すぎる指定は読まない");
     }
 
     #[test]
-    fn 枠からはみ出すclapは無視する() {
+    fn a_clap_reaching_outside_the_frame_is_ignored() {
         // 中心を大きくずらして枠外へ出す指定。切り出さない方がまだ絵になる
         let clap = [800, 1, 600, 1, 400, 1, 0, 1];
         let bytes = synth_avif(1000, 800, b"C", &[b"T"], None, Some(clap));
@@ -2529,7 +2529,7 @@ mod tests {
     }
 
     #[test]
-    fn 実体が無いアイテムは読めないと返す() {
+    fn an_item_with_no_data_reports_unreadable() {
         // iloc が指す先がファイルの外
         let mut bytes = synth_avif(100, 100, b"C", &[b"TILE"], None, None);
         bytes.truncate(bytes.len() - 1);
@@ -2539,7 +2539,7 @@ mod tests {
     }
 
     #[test]
-    fn 拡張子を見分ける() {
+    fn recognises_the_extensions() {
         assert!(is_heif_extension("heic"));
         assert!(is_heif_extension("HEIC"));
         assert!(is_heif_extension("hif"));
@@ -2548,7 +2548,7 @@ mod tests {
     }
 
     #[test]
-    fn 回転なしの寸法をそのまま読む() {
+    fn an_unrotated_size_is_read_as_is() {
         let (_dir, path) = write_temp(&synth_heif(None, None, 4032, 3024), "a.heic");
         let info = read_info(&path).expect("読めるはず");
         assert_eq!((info.stored_width, info.stored_height), (4032, 3024));
@@ -2557,7 +2557,7 @@ mod tests {
     }
 
     #[test]
-    fn 九十度系の回転で縦横が入れ替わる() {
+    fn a_quarter_turn_swaps_width_and_height() {
         for angle in [1u8, 3] {
             let (_dir, path) = write_temp(&synth_heif(Some(angle), None, 5712, 4284), "b.heic");
             let info = read_info(&path).expect("読めるはず");
@@ -2567,14 +2567,14 @@ mod tests {
     }
 
     #[test]
-    fn 百八十度の回転では寸法が変わらない() {
+    fn a_half_turn_leaves_the_size_alone() {
         let (_dir, path) = write_temp(&synth_heif(Some(2), None, 4032, 3024), "c.heic");
         let info = read_info(&path).expect("読めるはず");
         assert_eq!(info.display_size(), (4032, 3024));
     }
 
     #[test]
-    fn 鏡映も読む() {
+    fn mirroring_is_read_too() {
         let (_dir, path) = write_temp(&synth_heif(Some(1), Some(0), 100, 50), "d.heic");
         let info = read_info(&path).expect("読めるはず");
         assert_eq!(info.mirror, Some(0));
@@ -2584,7 +2584,7 @@ mod tests {
     }
 
     #[test]
-    fn 画素データの後ろにmetaがあっても辿れる() {
+    fn meta_placed_after_the_pixel_data_is_still_found() {
         // synth_heif は mdat を meta の前に置いている。
         // トップレベルの箱をヘッダだけで飛ばせていれば読める
         let (_dir, path) = write_temp(&synth_heif(None, None, 8, 8), "e.heic");
@@ -2596,7 +2596,7 @@ mod tests {
     /// 一度「原寸の格納寸法と実寸が入れ替わっているか」で判定して、
     /// 原寸では当たるのにサムネイルでは外れ、**サムネイルだけ二重回転**した。
     #[test]
-    fn 回転済みかの判定は倍率に依存しない() {
+    fn deciding_whether_it_is_already_rotated_does_not_depend_on_scale() {
         let info = HeifInfo {
             stored_width: 5712,
             stored_height: 4284,
@@ -2614,7 +2614,7 @@ mod tests {
     }
 
     #[test]
-    fn 寸法で見分けられないときはデコーダに任せる() {
+    fn when_the_size_cannot_tell_us_the_decoder_decides() {
         // 180度回転は縦横が変わらないので、適用済みかを寸法から判断できない
         let half = HeifInfo {
             stored_width: 4032,
@@ -2639,7 +2639,7 @@ mod tests {
     }
 
     #[test]
-    fn 回転を適用すると表示寸法になる() {
+    fn applying_the_rotation_gives_the_display_size() {
         let info = HeifInfo {
             stored_width: 40,
             stored_height: 30,
@@ -2664,7 +2664,7 @@ mod tests {
     /// `size=1` は「長さはこの後ろの64ビット」の意味。ここに `u64::MAX` 近い値を
     /// 書かれると、`位置 + 長さ` を素直に計算した時点で溢れる。
     #[test]
-    fn 巨大な箱の長さでも桁が溢れない() {
+    fn a_huge_box_length_does_not_overflow() {
         // ftyp の後ろに「64ビット長 = u64::MAX」の箱を置く
         let mut file = 16u32.to_be_bytes().to_vec();
         file.extend_from_slice(b"ftyp");
@@ -2686,7 +2686,7 @@ mod tests {
     /// 1つ目で打ち切ると `ispe` が取れず、そのファイルは寸法が読めない
     /// ＝サムネイル生成が3回失敗して以後ずっと出なくなる。
     #[test]
-    fn ipmaが複数あっても目的のアイテムを見つける() {
+    fn the_wanted_item_is_found_among_several_ipma_boxes() {
         let bytes = synth_heif_opts(Some(3), None, 4032, 3024, true);
         let (_dir, path) = write_temp(&bytes, "multi.heic");
         let info = read_info(&path).expect("2つ目のipmaから読めるはず");
@@ -2698,7 +2698,7 @@ mod tests {
     ///
     /// 90度系の回転と鏡映は交換できない。順を無視すると180度ずれる。
     #[test]
-    fn 鏡映と回転の順序が結果に反映される() {
+    fn the_order_of_mirroring_and_rotation_shows_in_the_result() {
         // 2x1 の絵。左右で色を変えて、反転したか分かるようにする
         let mut img = image::RgbImage::new(2, 1);
         img.put_pixel(0, 0, image::Rgb([255, 0, 0]));
@@ -2730,7 +2730,7 @@ mod tests {
     }
 
     #[test]
-    fn 壊れたファイルでも落ちない() {
+    fn a_broken_file_does_not_bring_us_down() {
         let (_dir, path) = write_temp(b"not a heif file at all", "f.heic");
         assert_eq!(read_info(&path), None);
 

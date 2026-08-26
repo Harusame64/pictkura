@@ -62,7 +62,7 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
-    fn ファイル追加イベントがバッチで届く() {
+    fn added_file_events_arrive_in_a_batch() {
         let dir = tempfile::tempdir().unwrap();
         let (tx, rx) = mpsc::channel();
         let watcher = watch_roots(
@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn 存在しないルートはスキップされる() {
+    fn a_root_that_does_not_exist_is_skipped() {
         let watcher = watch_roots(
             &[PathBuf::from("Z:/no/such/dir")],
             Duration::from_millis(100),

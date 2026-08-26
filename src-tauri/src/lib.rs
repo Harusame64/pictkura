@@ -3132,7 +3132,7 @@ mod tests {
     }
 
     #[test]
-    fn autoplayの引数からドライブを取り出す() {
+    fn lifts_the_drive_out_of_the_autoplay_argument() {
         // AutoPlayは `exe --import E:\` の形で渡す（argv[0]は実行ファイル）
         assert_eq!(
             import_path_from_args(&args(&["pictkura.exe", "--import", "E:\\"])),
@@ -3141,7 +3141,7 @@ mod tests {
     }
 
     #[test]
-    fn ドライブ文字だけならルートに直す() {
+    fn a_bare_drive_letter_becomes_the_root() {
         assert_eq!(
             import_path_from_args(&args(&["pictkura.exe", "--import", "E:"])),
             Some("E:\\".to_string())
@@ -3149,12 +3149,12 @@ mod tests {
     }
 
     #[test]
-    fn importが無ければnone() {
+    fn no_import_yields_none() {
         assert_eq!(import_path_from_args(&args(&["pictkura.exe"])), None);
     }
 
     #[test]
-    fn importの後ろが無ければnone() {
+    fn nothing_after_import_yields_none() {
         // 末尾に値が無い（壊れた呼び出し）ときにパニックしない
         assert_eq!(
             import_path_from_args(&args(&["pictkura.exe", "--import"])),
@@ -3163,7 +3163,7 @@ mod tests {
     }
 
     #[test]
-    fn 値が空文字ならnone() {
+    fn an_empty_value_yields_none() {
         assert_eq!(
             import_path_from_args(&args(&["pictkura.exe", "--import", "   "])),
             None
@@ -3171,7 +3171,7 @@ mod tests {
     }
 
     #[test]
-    fn 末尾のバックスラッシュで壊れた引用符を戻す() {
+    fn a_quote_broken_by_a_trailing_backslash_is_restored() {
         // レジストリの `"%L"` は `E:\` を渡すと `"E:\"` になり、`\"` が
         // エスケープと解釈されて `E:"` の形で届く。元のルートに直す
         assert_eq!(
@@ -3181,7 +3181,7 @@ mod tests {
     }
 
     #[test]
-    fn スペースを含むパスが切れずに届く() {
+    fn a_path_holding_spaces_arrives_uncut() {
         // MTPやフォルダにマウントされたボリュームだと `%L` にスペースが入る。
         // 囲んであるのでargvでは1つに収まり、末尾の引用符だけ戻せばよい
         assert_eq!(
@@ -3191,7 +3191,7 @@ mod tests {
     }
 
     #[test]
-    fn dcimがあればそこまで寄せる() {
+    fn with_a_dcim_present_we_move_up_to_it() {
         let dir = std::env::temp_dir().join("pictkura_narrow_to_dcim");
         let dcim = dir.join("DCIM");
         std::fs::create_dir_all(&dcim).unwrap();
@@ -3203,7 +3203,7 @@ mod tests {
     }
 
     #[test]
-    fn dcimが無ければそのまま() {
+    fn without_a_dcim_it_stays_as_it_is() {
         let dir = std::env::temp_dir().join("pictkura_narrow_no_dcim");
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(
@@ -3220,7 +3220,7 @@ mod tests {
     /// （MSIから乗り換えた人のAutoPlay登録が戻らない。PR #24 のゲート1 P2）
     #[cfg(windows)]
     #[test]
-    fn 識別子がtauriの設定と一致する() {
+    fn the_identifier_matches_the_tauri_config() {
         let conf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
             .expect("tauri.conf.json が読めない");
         let value: serde_json::Value = serde_json::from_str(&conf).expect("JSONとして読めない");

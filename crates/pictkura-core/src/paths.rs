@@ -68,7 +68,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn 区切り文字とドライブ文字を揃える() {
+    fn separators_and_the_drive_letter_are_evened_out() {
         assert_eq!(
             normalize_str("C:/Users/me/Pictures\\2020\\a.jpg"),
             "C:\\Users\\me\\Pictures\\2020\\a.jpg"
@@ -80,7 +80,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn uncとベリベイティムパスは壊さない() {
+    fn unc_and_verbatim_paths_are_left_intact() {
         assert_eq!(
             normalize_str("\\\\server\\share\\a.jpg"),
             "\\\\server\\share\\a.jpg"
@@ -95,7 +95,7 @@ mod tests {
     /// 綴りが揃うという性質そのものがWindowsにしか無い
     #[cfg(windows)]
     #[test]
-    fn 経路が違っても同じ綴りになる() {
+    fn different_routes_end_up_spelled_the_same() {
         // スキャン経由（ルートの綴りを引きずる）と USN 経由（全部バックスラッシュ）
         let from_scan = Path::new("C:/Users/me/Pictures").join("2020").join("a.jpg");
         let from_usn = Path::new("C:\\Users\\me\\Pictures\\2020\\a.jpg");
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn ディレクトリは末尾の区切りを落とす() {
+    fn a_directory_loses_its_trailing_separator() {
         assert_eq!(
             normalize_dir_str(Path::new("C:/photos/2020/")),
             normalize_str("C:/photos/2020")

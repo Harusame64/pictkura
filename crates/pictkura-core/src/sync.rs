@@ -82,7 +82,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn 同期の一連の流れ_追加_変更_削除() {
+    fn the_whole_sync_flow_added_changed_removed() {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("a.jpg");
         let b = dir.path().join("b.jpg");
@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn ルートが消えてもレコードは削除されない() {
+    fn a_vanished_root_does_not_delete_the_rows() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("usb");
         fs::create_dir(&root).unwrap();

@@ -115,7 +115,7 @@ impl Dimensions {
 /// 空のDBで測ると `idx_media_kind_day`（kindの先頭列）へ流れ、RAW全行を
 /// なめたうえで `ORDER BY id` のために一時B木まで作る。名指ししておけば、
 /// 条件を崩した日に**黙って遅くなるのではなく、その場でエラーになる**
-/// ——見張っているのは `後追いの絞り込みは部分索引に載る`。
+/// ——見張っているのは `backfill_query_rides_the_partial_index`。
 const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, size FROM media
      INDEXED BY idx_media_dims_pending
      WHERE kind = 1 AND preview_width IS NULL AND id > ?1
@@ -215,7 +215,7 @@ fn parent_dir_expr(path_expr: &str) -> String {
 
 /// `IN (...)` 用のプレースホルダ列（`?,?,?`）を作る。
 /// 範囲選択と選択の確認で使うFTSの形。**測って決めた**
-/// （`検索語つきの選択はどちらの形が速いか` のベンチ。2026-08-17に3万件で実測）。
+/// （`which_shape_of_selection_with_a_term_is_faster` のベンチ。2026-08-17に3万件で実測）。
 ///
 /// 実行計画だけ見ると `Probe` が良く見える——日の索引で駆動し、一時表も
 /// 並べ直しも出ない。**が、実際は桁で遅い**。FTSを行ごとに引く定数が乗るうえ、
@@ -2542,7 +2542,7 @@ mod tests {
     }
 
     #[test]
-    fn 寸法の後追いはrawの未確認だけを拾う() {
+    fn dimension_backfill_picks_only_unverified_raw() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("a.cr3", 100, 1000),
@@ -2613,7 +2613,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは自分で測っていない行を拾わない() {
+    fn backfill_skips_rows_it_did_not_measure_itself() {
         // クラウドのみのファイルはOSから**センサーの寸法**を借りて width に入れる
         // （サムネイルは作れないので thumb_path は空のまま）。これを「掴んだ
         // プレビューの寸法」として写すと、6000x4000 を配ると名乗ることになる
@@ -2641,7 +2641,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは高さが空の行を拾わない() {
+    fn backfill_skips_rows_with_no_height() {
         // 拾うと呼び出し側の i64 への読み出しが失敗し、掃き寄せが黙って止まる
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
@@ -2656,7 +2656,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは読んだときから動いた行に書かない() {
+    fn backfill_does_not_write_rows_that_moved_since_the_read() {
         // 掃き寄せの途中でスキャンが列を落とし、サムネイル生成が新しい寸法を
         // 入れた行。古い値で上書きすると、確かめた印まで付いて二度と直らない
         let mut db = Db::open_in_memory().unwrap();
@@ -2703,7 +2703,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは同じ寸法に戻った差し替えにも書かない() {
+    fn backfill_does_not_write_a_replacement_back_to_the_same_size() {
         // 寸法だけを見張ると素通りする筋（ABA）: 掃き寄せの途中でファイルが
         // 差し替わってスキャンが列を落とし、そこへクラウド経路の
         // update_shell_metadata が**たまたま同じ数字**を入れ直す。
@@ -2750,7 +2750,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いの絞り込みは部分索引に載る() {
+    fn backfill_query_rides_the_partial_index() {
         // 載らないと、掃き終えた後も毎起動で表を端から端まで1回なぞる。
         // 1000万件を想定しているので、背景スレッドとはいえ払いたくない
         let db = Db::open_in_memory().unwrap();
@@ -2792,7 +2792,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは大きさだけ変わった差し替えにも書かない() {
+    fn backfill_does_not_write_a_replacement_that_only_changed_size() {
         // 時刻を保ったコピー（や時刻の粗いファイルシステム）は `mtime_ms` が
         // 動かない。スキャンは `size` の側で差し替えに気づいて列を落とすので、
         // 書き込みのガードも同じものを見ていないと素通りする
@@ -2830,7 +2830,7 @@ mod tests {
     }
 
     #[test]
-    fn 中身が変わった行はプレビューの寸法も落とす() {
+    fn a_changed_file_also_clears_the_preview_size() {
         // 落とさないと、前の中身の寸法で下敷きと先読みの予算が決まる
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.cr3", 100, 1000)]).unwrap();
@@ -2865,7 +2865,7 @@ mod tests {
     }
 
     #[test]
-    fn upsertで新規追加できる() {
+    fn upsert_inserts_new_files() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 100, 1000), scanned("b.jpg", 200, 2000)])
             .unwrap();
@@ -2873,7 +2873,7 @@ mod tests {
     }
 
     #[test]
-    fn upsertで既存レコードが更新されメタデータが無効化される() {
+    fn upsert_updates_existing_rows_and_invalidates_metadata() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 100, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
@@ -2900,7 +2900,7 @@ mod tests {
     /// 消し忘れると、差し替えられた動画に**前のファイルの長さ**が
     /// 残り続ける（クラウドのみで保留されたままなら永久に）
     #[test]
-    fn 動画の長さもファイル更新で無効化される() {
+    fn video_duration_is_invalidated_on_file_change() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.mp4", 100, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
@@ -2916,7 +2916,7 @@ mod tests {
     }
 
     #[test]
-    fn お気に入りはファイル更新でも維持される() {
+    fn favorites_survive_a_file_change() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 100, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
@@ -2936,7 +2936,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_pathsで削除できる() {
+    fn remove_paths_deletes_rows() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 100, 1000), scanned("b.jpg", 200, 2000)])
             .unwrap();
@@ -2946,7 +2946,7 @@ mod tests {
     }
 
     #[test]
-    fn list_allは撮影日時降順でmtimeフォールバックする() {
+    fn list_all_sorts_by_capture_date_falling_back_to_mtime() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("old.jpg", 1, 1000),
@@ -2975,7 +2975,7 @@ mod tests {
     }
 
     #[test]
-    fn 拡張子で数えて見本も返す() {
+    fn counts_by_extension_and_returns_samples() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("a.HEIC", 1, 0),
@@ -3002,7 +3002,7 @@ mod tests {
     }
 
     #[test]
-    fn get_by_idは存在しなければnone() {
+    fn get_by_id_returns_none_when_missing() {
         let db = Db::open_in_memory().unwrap();
         assert!(db.get_by_id(999).unwrap().is_none());
     }
@@ -3017,7 +3017,7 @@ mod tests {
     }
 
     #[test]
-    fn day_keyは書き込み時に維持される() {
+    fn day_key_is_kept_on_write() {
         let mut db = Db::open_in_memory().unwrap();
         let ms = local_noon_ms(2024, 8, 11);
         db.upsert_files(&[scanned("a.jpg", 1, ms)]).unwrap();
@@ -3032,7 +3032,7 @@ mod tests {
     }
 
     #[test]
-    fn タイムラインサマリと日単位取得() {
+    fn timeline_summary_and_day_fetch() {
         let mut db = Db::open_in_memory().unwrap();
         let d1 = local_noon_ms(2024, 8, 11);
         let d2 = local_noon_ms(2024, 8, 12);
@@ -3078,7 +3078,7 @@ mod tests {
     /// 種類（画像 / RAW / 動画）で絞れる。判定は拡張子だけで、
     /// 追加のときに `kind` 列へ入る（既存の行は起動時の移行で埋まる）。
     #[test]
-    fn 種類での絞り込み() {
+    fn filters_by_kind() {
         use crate::MediaKind;
         let mut db = Db::open_in_memory().unwrap();
         let d1 = local_noon_ms(2024, 8, 11);
@@ -3130,7 +3130,7 @@ mod tests {
     }
 
     #[test]
-    fn お気に入りフィルタ付きのサマリと日単位取得() {
+    fn summary_and_day_fetch_with_the_favorite_filter() {
         let mut db = Db::open_in_memory().unwrap();
         let d1 = local_noon_ms(2024, 8, 11);
         db.upsert_files(&[scanned("a.jpg", 1, d1), scanned("b.jpg", 1, d1 + 1000)])
@@ -3154,7 +3154,7 @@ mod tests {
     }
 
     #[test]
-    fn 思い出は過去の同じ月日から新しい年順で返る() {
+    fn memories_return_the_same_day_in_past_years_newest_first() {
         use chrono::Datelike;
         let mut db = Db::open_in_memory().unwrap();
         let today = chrono::Local::now();
@@ -3199,7 +3199,7 @@ mod tests {
     /// 同じファイルが別行になっていた。実環境で32件の重複が出た。
     #[cfg(windows)]
     #[test]
-    fn 綴り違いで重複した行は開き直しで統合される() {
+    fn rows_duplicated_by_spelling_merge_on_reopen() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("dup.db");
 
@@ -3273,7 +3273,7 @@ mod tests {
     /// ユーザーが自分で付けた情報を移行で失わせない（レビュー指摘）。
     #[cfg(windows)]
     #[test]
-    fn 統合でお気に入りと撮影情報を引き継ぐ() {
+    fn merging_carries_over_favorites_and_capture_info() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("merge.db");
         let thumb = dir.path().join("t.webp");
@@ -3336,7 +3336,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scanの差分検知_新規_変更_削除() {
+    fn apply_scan_detects_added_changed_and_removed() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("root");
         db.upsert_files(&[
@@ -3394,7 +3394,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_走査に失敗したルート配下は削除されない() {
+    fn apply_scan_keeps_rows_under_a_root_that_failed_to_scan() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("usb");
         db.upsert_files(&[scanned("usb/photo.jpg", 10, 100)])
@@ -3409,7 +3409,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_設定から外されたルート配下は削除される() {
+    fn apply_scan_removes_rows_under_a_root_dropped_from_settings() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("old-root/photo.jpg", 10, 100)])
             .unwrap();
@@ -3428,7 +3428,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_入れ子ルートは最も深いルートの成否で判定する() {
+    fn apply_scan_judges_nested_roots_by_the_deepest_one() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("outer/inner/photo.jpg", 10, 100)])
             .unwrap();
@@ -3449,7 +3449,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_ルート未設定なら全レコードが削除される() {
+    fn apply_scan_removes_everything_when_no_root_is_set() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("old/photo.jpg", 10, 100)])
             .unwrap();
@@ -3461,7 +3461,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_区切り文字で終わるルートでも保護される() {
+    fn apply_scan_protects_roots_that_end_with_a_separator() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("D:\\photos\\a.jpg", 10, 100)])
             .unwrap();
@@ -3486,7 +3486,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_枝刈りでスキップした配下は削除されない() {
+    fn apply_scan_keeps_rows_under_a_pruned_directory() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("root");
         let sub = PathBuf::from("root/sub");
@@ -3549,7 +3549,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_枝刈り時も走査失敗ルートのdirsとメディアは保持される() {
+    fn apply_scan_keeps_dirs_and_media_of_a_failed_root_while_pruning() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("usb");
         let roots = vec![root.clone()];
@@ -3586,7 +3586,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_partial_scanは列挙範囲だけを反映する() {
+    fn apply_partial_scan_touches_only_the_listed_range() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("root");
         let (dir_a, dir_b) = (PathBuf::from("root/a"), PathBuf::from("root/b"));
@@ -3639,7 +3639,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_partial_scan_大小文字だけのリネームで新綴りの行を巻き込まない() {
+    fn apply_partial_scan_keeps_the_new_spelling_on_a_case_only_rename() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("root");
         let old_dir = PathBuf::from("root/summer");
@@ -3685,7 +3685,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_by_prefixは大小文字違いの別綴りを巻き込まない() {
+    fn remove_by_prefix_leaves_other_spellings_alone() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("root/summer/a.jpg", 1, 100),
@@ -3701,7 +3701,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_partial_scanは消えた子ディレクトリを配下ごと削除する() {
+    fn apply_partial_scan_removes_a_vanished_child_directory_with_its_contents() {
         let mut db = Db::open_in_memory().unwrap();
         let root = PathBuf::from("root");
         let sub = PathBuf::from("root/sub");
@@ -3736,7 +3736,7 @@ mod tests {
     }
 
     #[test]
-    fn metaの読み書きができる() {
+    fn meta_reads_and_writes() {
         let mut db = Db::open_in_memory().unwrap();
         assert_eq!(db.get_meta("scan_fingerprint").unwrap(), None);
         db.set_meta("scan_fingerprint", "v1|ext=jpg").unwrap();
@@ -3752,7 +3752,7 @@ mod tests {
     }
 
     #[test]
-    fn サムネイルlru削除は古い順に解放し除外集合を守る() {
+    fn thumbnail_lru_frees_oldest_first_and_honours_the_keep_set() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("a.jpg", 1, 1000),
@@ -3787,7 +3787,7 @@ mod tests {
     }
 
     #[test]
-    fn サムネイルlru削除は生成キュー内のidを避ける() {
+    fn thumbnail_lru_avoids_ids_in_the_build_queue() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 1, 1000), scanned("b.jpg", 1, 2000)])
             .unwrap();
@@ -3809,7 +3809,7 @@ mod tests {
     }
 
     #[test]
-    fn 直近利用のサムネイルはガード外で足りる限り削除されない() {
+    fn recently_used_thumbnails_survive_while_the_rest_suffice() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("old.jpg", 1, 1000), scanned("hot.jpg", 1, 2000)])
             .unwrap();
@@ -3832,7 +3832,7 @@ mod tests {
     }
 
     #[test]
-    fn ガード内だけでは上限を満たせない場合はガードを破って削除する() {
+    fn the_guard_is_broken_when_the_rest_cannot_meet_the_limit() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 1, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
@@ -3851,7 +3851,7 @@ mod tests {
     }
 
     #[test]
-    fn 複数接続から同時に書いてもロックで失敗しない() {
+    fn concurrent_writers_do_not_fail_on_the_lock() {
         // 取り込み直後に起きる実際の混み合いを再現する:
         // 「コピー先の反映スキャン」と「ファイル監視のupsert」が別接続で
         // 同時に書きに来る。書き込みトランザクションがDEFERREDだと
@@ -3890,7 +3890,7 @@ mod tests {
     }
 
     #[test]
-    fn backfillはサイズ未記録のサムネイルを補完し消失分を自己修復する() {
+    fn backfill_fills_missing_thumbnail_sizes_and_heals_lost_files() {
         let dir = tempfile::tempdir().unwrap();
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 1, 1000), scanned("b.jpg", 1, 2000)])
@@ -3926,7 +3926,7 @@ mod tests {
     }
 
     #[test]
-    fn touch_thumbsは利用時刻を単調増加で更新する() {
+    fn touch_thumbs_moves_the_use_time_forward_only() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("a.jpg", 1, 1000)]).unwrap();
         let id = db.list_all().unwrap()[0].id;
@@ -3948,7 +3948,7 @@ mod tests {
     }
 
     #[test]
-    fn メタデータ未抽出のidだけが自動投入対象になる() {
+    fn only_ids_without_metadata_are_queued() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("new.jpg", 1, 1000),
@@ -3978,7 +3978,7 @@ mod tests {
     }
 
     #[test]
-    fn 読み取りプールは書き込み後のデータを読める() {
+    fn the_read_pool_sees_data_written_before_it() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("pool.db");
         let mut db = Db::open(&db_path).unwrap();
@@ -4001,7 +4001,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_scan_ワイルドカードを含むパスで誤削除しない() {
+    fn apply_scan_does_not_delete_on_paths_holding_wildcards() {
         let mut db = Db::open_in_memory().unwrap();
         // root_x は root_a とLIKE `root_%` で誤マッチしうる名前
         db.upsert_files(&[scanned("root_x/photo.jpg", 10, 100)])
@@ -4084,7 +4084,7 @@ mod tests {
     }
 
     #[test]
-    fn 日本語は中間一致で検索できる() {
+    fn japanese_matches_in_the_middle_of_a_word() {
         let db = seed_search_db();
         // unicode61そのままでは引けない「語の途中」がbigram索引で引ける
         assert_eq!(
@@ -4122,7 +4122,7 @@ mod tests {
     }
 
     #[test]
-    fn 索引語を作れない検索語は全件を返さない() {
+    fn a_term_with_no_index_token_does_not_return_everything() {
         let db = seed_search_db();
         assert_eq!(search_names(&db, "").len(), 4, "空クエリは絞り込みなし");
         // 記号・絵文字だけの語は「一致なし」。条件が消えて全件になってはいけない
@@ -4133,7 +4133,7 @@ mod tests {
     }
 
     #[test]
-    fn ファイル名とカメラ名で検索できる() {
+    fn searches_by_file_name_and_camera() {
         let db = seed_search_db();
         assert_eq!(search_names(&db, "dsc"), ["DSC00123.JPG", "DSC00124.JPG"]);
         assert_eq!(search_names(&db, "1234"), ["IMG_1234.jpg"]);
@@ -4146,7 +4146,7 @@ mod tests {
     }
 
     #[test]
-    fn 検索条件はandで重なる() {
+    fn search_terms_stack_with_and() {
         let db = seed_search_db();
         assert_eq!(
             search_names(&db, "沖縄 camera:SONY"),
@@ -4162,7 +4162,7 @@ mod tests {
     }
 
     #[test]
-    fn search_idsは一覧と同じ並びで全件返す() {
+    fn search_ids_returns_everything_in_grid_order() {
         let db = seed_search_db();
         let q = crate::search::parse_query("", crate::MediaFilter::All);
         let ids = db.search_ids(&q).unwrap();
@@ -4186,7 +4186,7 @@ mod tests {
     }
 
     #[test]
-    fn search_ids_betweenは範囲のぶんだけ返す() {
+    fn search_ids_between_returns_just_the_range() {
         let db = seed_search_db();
         let q = crate::search::parse_query("", crate::MediaFilter::All);
         let all = db.search_ids(&q).unwrap();
@@ -4239,7 +4239,7 @@ mod tests {
     }
 
     #[test]
-    fn 選択に使う問い合わせは索引の並びで引く() {
+    fn selection_queries_read_in_index_order() {
         // **測って釘を打つ**。`ORDER BY` が索引の並びと食い違うと、
         // 1000万件では全件を並べ直すことになる（Shift+クリックのたびに数秒）
         let db = seed_search_db();
@@ -4291,7 +4291,7 @@ mod tests {
     /// 「日付→枚数」の骨組みがそのまま遅くなる。`kind` を先頭に置いた
     /// 複合索引なら、絞ったままでも day_key の並びが索引から供給される。
     #[test]
-    fn 種類の絞り込みは索引でシークする() {
+    fn the_kind_filter_seeks_on_the_index() {
         let db = seed_search_db();
         let q = crate::search::parse_query("kind:raw", crate::MediaFilter::All);
         let (conds, _) = db.query_filter(&q).unwrap();
@@ -4338,7 +4338,7 @@ mod tests {
     /// ```
     #[test]
     #[ignore]
-    fn 検索語つきの選択はどちらの形が速いか() {
+    fn which_shape_of_selection_with_a_term_is_faster() {
         use std::time::Instant;
         let mut db = Db::open_in_memory().unwrap();
         // 3万件・600日ぶん。名前は実際のカメラと同じ連番
@@ -4395,7 +4395,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_idsは並んでいるものだけを渡した順で返す() {
+    fn visible_ids_returns_only_what_is_listed_in_the_given_order() {
         let mut db = seed_search_db();
         let all = db
             .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
@@ -4437,7 +4437,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_ids_in_orderは一覧と同じ並びで日付を添えて返す() {
+    fn visible_ids_in_order_returns_grid_order_with_dates() {
         let mut db = seed_search_db();
         let all = db
             .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
@@ -4507,7 +4507,7 @@ mod tests {
     /// 選別の印は★と**別の棚**であること（0.2 ②）。片方を触っても
     /// もう片方は動かない——ここが混ざると、連写の選別で★の棚が荒れる
     #[test]
-    fn 選別の印はお気に入りとは別に付け外しできる() {
+    fn picks_toggle_separately_from_favorites() {
         let mut db = seed_search_db();
         let all = db
             .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
@@ -4537,7 +4537,7 @@ mod tests {
     }
 
     #[test]
-    fn set_favoritesはまとめて付け外しできる() {
+    fn set_favorites_toggles_in_bulk() {
         let mut db = seed_search_db();
         let all = db
             .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
@@ -4565,7 +4565,7 @@ mod tests {
     }
 
     #[test]
-    fn 検索件数とカメラ別集計が取れる() {
+    fn search_counts_and_per_camera_totals() {
         let db = seed_search_db();
         assert_eq!(
             db.search_count(&crate::search::parse_query("沖縄", crate::MediaFilter::All))
@@ -4582,7 +4582,7 @@ mod tests {
     }
 
     #[test]
-    fn 索引はレコードの追加削除に追随する() {
+    fn the_index_follows_added_and_removed_rows() {
         let mut db = seed_search_db();
         assert_eq!(search_names(&db, "運動会"), Vec::<String>::new());
 
@@ -4608,7 +4608,7 @@ mod tests {
     }
 
     #[test]
-    fn カメラの張り替えで索引も更新される() {
+    fn swapping_the_camera_updates_the_index() {
         let mut db = seed_search_db();
         let id = db
             .list_all()
@@ -4634,7 +4634,7 @@ mod tests {
     }
 
     #[test]
-    fn 既存レコードは初期構築で索引化される() {
+    fn existing_rows_are_indexed_by_the_first_build() {
         let mut db = seed_search_db();
         // 索引導入前のライブラリを再現する: 索引の中身だけを消す
         db.conn.execute("DELETE FROM media_fts", []).unwrap();
@@ -4662,7 +4662,7 @@ mod tests {
     }
 
     #[test]
-    fn 構築中に追加された行は二重投入されない() {
+    fn rows_added_during_the_build_are_not_indexed_twice() {
         let mut db = seed_search_db();
         db.conn.execute("DELETE FROM media_fts", []).unwrap();
         let (_, max_id) = db.fts_build_range().unwrap();
@@ -4679,7 +4679,7 @@ mod tests {
     }
 
     #[test]
-    fn カメラ未確認の行だけが後追い補完の対象になる() {
+    fn only_rows_with_an_unknown_camera_are_backfilled() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned(r"D:\写真\a.jpg", 1, 1000),
@@ -4734,7 +4734,7 @@ mod tests {
     }
 
     #[test]
-    fn 内容が変わったファイルはカメラ情報が無効化される() {
+    fn a_changed_file_has_its_camera_invalidated() {
         let mut db = seed_search_db();
         assert_eq!(search_names(&db, "camera:iPhone"), ["IMG_1234.jpg"]);
         // 同じパスで内容が変わる（サイズ違い）→ メタデータは再抽出待ちになる

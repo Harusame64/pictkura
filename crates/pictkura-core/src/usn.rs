@@ -372,7 +372,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn positionはmeta文字列と往復できる() {
+    fn position_round_trips_through_the_meta_string() {
         let pos = UsnPosition {
             journal_id: 0x0123_4567_89AB_CDEF,
             next_usn: 42_000_000,
@@ -388,7 +388,7 @@ mod tests {
     /// 全体が1つのファイル名になり、常に `None` になる）
     #[cfg(windows)]
     #[test]
-    fn volume_ofはドライブレターを返す() {
+    fn volume_of_returns_the_drive_letter() {
         assert_eq!(volume_of(Path::new(r"D:\photos\a")), Some("D:".into()));
         assert_eq!(volume_of(Path::new(r"c:\x")), Some("C:".into()));
         assert_eq!(volume_of(Path::new(r"\\server\share\x")), None);
@@ -399,7 +399,7 @@ mod tests {
     /// ジャーナルへアクセスできない環境では黙ってスキップする。
     #[cfg(windows)]
     #[test]
-    fn 実ジャーナルからファイル作成の差分が取れる() {
+    fn a_file_creation_shows_up_in_the_real_journal() {
         let dir = tempfile::tempdir().unwrap();
         let Some(volume) = volume_of(dir.path()) else {
             return;

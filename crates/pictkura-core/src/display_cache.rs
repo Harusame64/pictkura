@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn 入れたものが取り出せる() {
+    fn what_goes_in_comes_back_out() {
         let c = DisplayCache::new(1000);
         c.insert(key(1), blob(10));
         assert_eq!(c.get(key(1)).map(|b| b.len()), Some(10));
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn 更新日時が違えば別物として扱う() {
+    fn a_different_mtime_is_treated_as_a_different_thing() {
         let c = DisplayCache::new(1000);
         c.insert(
             Key {
@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn 上限を超えたら古いものから捨てる() {
+    fn past_the_limit_the_oldest_go_first() {
         let c = DisplayCache::new(100);
         c.insert(key(1), blob(40));
         c.insert(key(2), blob(40));
@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn 直近に使ったものは残る() {
+    fn the_most_recently_used_stay() {
         let c = DisplayCache::new(100);
         c.insert(key(1), blob(40));
         c.insert(key(2), blob(40));
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn 上限より大きいものは入れない() {
+    fn anything_larger_than_the_limit_is_not_taken_in() {
         let c = DisplayCache::new(100);
         c.insert(key(1), blob(40));
         c.insert(key(2), blob(200));
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn 同じ鍵の入れ直しで合計が二重に増えない() {
+    fn re_inserting_the_same_key_does_not_double_count_the_total() {
         let c = DisplayCache::new(1000);
         c.insert(key(1), blob(10));
         c.insert(key(1), blob(30));
