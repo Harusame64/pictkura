@@ -5,8 +5,6 @@ import {
   aboutInfo,
   checkUpdate,
   forgetEditor,
-  getHostPlatform,
-  isWindows,
   openDownloadPage,
   setCheckUpdateOnStart,
   listFolderPatterns,
@@ -18,11 +16,11 @@ import {
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
-  type HostPlatform,
   type UpdateCheck,
   type ExternalApp,
   type FolderPattern,
 } from "./api";
+import { usePlatform } from "./usePlatform";
 import {
   LOCALES,
   locale,
@@ -52,15 +50,8 @@ export default function Settings({
   onConfigChanged: () => void;
   onError: (message: string) => void;
 }) {
-  /** AutoPlayを出すかの正。届くまではUAの推測で代用する */
-  const [platform, setPlatform] = useState<HostPlatform>(
-    isWindows ? "windows" : "other",
-  );
-  useEffect(() => {
-    getHostPlatform()
-      .then(setPlatform)
-      .catch(() => {});
-  }, []);
+  // AutoPlayを出すかの正。問い合わせは `usePlatform` に1つだけ持たせてある
+  const platform = usePlatform();
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);

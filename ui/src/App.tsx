@@ -26,15 +26,12 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
-  isMac,
-  isWindows,
   videoSrc,
   videoStatus,
   getConfig,
   getExifInfo,
   getIndexProgress,
   getDecoderStatus,
-  getHostPlatform,
   getStartupReport,
   getStats,
   listCameras,
@@ -80,6 +77,7 @@ import {
   type ScopeItem,
   type StartupScanReport,
 } from "./api";
+import { usePlatform } from "./usePlatform";
 import type { VideoStatus } from "./api";
 import {
   formatDateTime,
@@ -762,18 +760,7 @@ export default function App() {
   // **黙って空欄にせず理由を伝える**。ライブラリにHEICが1枚も無ければ出さない。
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
-  /**
-   * 案内の文言を分ける正。**届いたらバックエンドの `cfg!` で上書きする**が、
-   * 初期値はUAからの推測にしておく。
-   *
-   * `getDecoderStatus()` は失敗しうる（DBを触るので）。そこで `"other"` のまま
-   * だと、**Windowsの利用者から拡張機能のボタンが消える**——以前は独立した
-   * `isWindows` が見ていたので、状態の取得が転んでも導線は残っていた
-   * （ゲート1の指摘）。推測で始めて正で直す形なら、どちらも失わない
-   */
-  const [platform, setPlatform] = useState<"windows" | "macos" | "other">(
-    isWindows ? "windows" : isMac ? "macos" : "other",
-  );
+  const platform = usePlatform();
   // 動画（第9部）。コンテナはWebViewが扱えても、中のコーデック（HEVC）が
   // OSに無ければ再生は失敗する。しかも `canPlayType` は当てにならない
   // （実測: hvc1 に空を返しながら普通に再生した）ので、**実際に失敗してから**
@@ -798,12 +785,7 @@ export default function App() {
   useEffect(() => {
     checkDecoders();
   }, [checkDecoders]);
-  // OSの判定は**警告とは別に**、常に1回だけ取る（安い・転ばない）
-  useEffect(() => {
-    getHostPlatform()
-      .then(setPlatform)
-      .catch(() => {});
-  }, []);
+
 
   // 検索ボックスの入力をデバウンスして実クエリへ落とす。
   // 打鍵のたびにIPCを撃たないが、体感で待たされない間隔にする
@@ -3428,7 +3410,10 @@ export default function App() {
                 ? t.decoderHeifNoticeMac(heifMissing)
                 : t.decoderHeifNoticeOther(heifMissing)}
           </span>
-          {decoderHelp && (
+          {/* **文言と同じ判定に揃える。** 片方が先に届いた瞬間に
+              「デコーダが無いのかも」と「拡張機能を買え」が同時に出うる
+              ——2つの往復に順番の保証は無い（ゲート2の指摘） */}
+          {platform === "windows" && decoderHelp && (
             <>
               <button onClick={() => openDecoderHelp("heif").catch(() => {})}>
                 {t.decoderHeifHow}
@@ -3861,7 +3846,7 @@ export default function App() {
                 {videoInfo.exists &&
                   !videoInfo.cloud_only &&
                   videoInfo.plays_in_app && (
-                      <p className="fallback-note">
+                    <p className="fallback-note">
                       {platform === "windows"
                         ? t.videoCodecNote
                         : platform === "macos"
