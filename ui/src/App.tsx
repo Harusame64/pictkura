@@ -1080,7 +1080,10 @@ export default function App() {
     const building = indexProgress !== null;
     if (wasBuilding.current && !building) {
       refreshCameras();
-      if (queryRef.current) reloadAll().catch(() => {});
+      // **握り潰さない。** ここだけ例外を捨てていた。この経路は絞り込み中に
+      // しか走らず、そこで転ぶと「一覧を出せませんでした／上の帯に理由が
+      // 出ています」が**空の帯**を指すことになる（ゲート1の指摘）
+      if (queryRef.current) reloadAll().catch((e) => setStatus(String(e)));
     }
     wasBuilding.current = building;
   }, [indexProgress, refreshCameras, reloadAll]);

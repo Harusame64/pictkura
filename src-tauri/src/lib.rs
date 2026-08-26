@@ -1239,8 +1239,7 @@ enum EntryKind {
 /// 無いので、実物のファイルを作る形の試験は**どの環境でも1度も走らない**
 /// ——「試験があるのに何も見ていない」状態になっていた（ゲート1の指摘）。
 ///
-/// `is_dir` が `None` なのは `file_type()` が落ちたとき。
-#[allow(clippy::ref_option)] // `is_dir` は `Option<bool>` の値渡し
+/// `shape` は `EntryShape::of` でエントリから起こす（走査と同じくリンクは辿らない）。
 fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) -> EntryKind {
     // **読めない名前は「候補あり」に倒す。** 走査本体は UTF-8 にならない名前を
     // 除外に一致させず、そのまま入って行く（`scanner.rs` の
