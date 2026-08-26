@@ -127,6 +127,15 @@ pub struct DimensionTarget {
     pub size: i64,
 }
 
+/// [`Db::set_dimensions`] の結果。
+pub struct BackfillWrite {
+    /// 寸法が動いた行（UIへ知らせる相手）
+    pub moved: Vec<i64>,
+    /// **実際に書けた行数**。渡した件数と一致しないなら、書く直前に差し替わった
+    /// 行がある——掃き寄せが終わった印を付けてはいけない
+    pub written: usize,
+}
+
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredMeta {
@@ -150,6 +159,11 @@ pub struct DaySummary {
 /// 表示時刻（撮影日時、なければmtime）のSQL式。
 /// 複合インデックスと各クエリで**文字列として完全一致**させること
 /// （SQLiteの式インデックスは式のテキスト一致で適用可否を判定する）。
+/// 寸法の後追い（段階F-4）が終わったかを持つ `meta` の鍵。
+const DIMS_BACKFILL_KEY: &str = "dims_backfill";
+/// [`DIMS_BACKFILL_KEY`] に入る値。
+const DIMS_BACKFILL_DONE: &str = "done";
+
 const SORT_TS: &str = "COALESCE(taken_at_ms, mtime_ms)";
 
 /// 検索索引の初期構築で「どこまで索引化したか」を持つmetaキー。
@@ -2130,8 +2144,9 @@ impl Db {
     pub fn set_dimensions(
         &mut self,
         results: &[(DimensionTarget, Dimensions)],
-    ) -> Result<Vec<i64>, DbError> {
+    ) -> Result<BackfillWrite, DbError> {
         let mut moved = Vec::new();
+        let mut written = 0usize;
         let tx = self.write_tx()?;
         {
             let mut stmt = tx.prepare_cached(
@@ -2153,6 +2168,7 @@ impl Db {
                     target.mtime_ms,
                     target.size
                 ])?;
+                written += n;
                 // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
                 if n > 0 && (dims.width, dims.height) != (target.width, target.height) {
                     moved.push(target.id);
@@ -2160,7 +2176,32 @@ impl Db {
             }
         }
         tx.commit()?;
-        Ok(moved)
+        Ok(BackfillWrite { moved, written })
+    }
+
+    /// 寸法の後追いをこの起動で回すか（段階F-4）。
+    ///
+    /// **掃き寄せは一生に一度で済む仕事**なのに、絞り込みに使える索引が無い
+    /// ——`preview_width IS NULL` はRAW以外のほぼ全行が通り、拡張子は
+    /// `LOWER(path) LIKE` の26回で見ている。印を持たないと、**終わった後も
+    /// 毎起動で表を端から端まで1回なぞる**（PRコメント側のCodexのP2）。
+    ///
+    /// 印は [`Self::mark_dimensions_backfill_done`] が付ける。付いた後に
+    /// 差し替わったファイルは、[`Self::upsert_files`] が `thumb_path` と
+    /// `thumb_state` ごと落とすので [`crate::thumbs::process_one`] が通り、
+    /// そちらが両方の列を入れ直す——掃き寄せの出番は無い。
+    pub fn needs_dimension_backfill(&self) -> Result<bool, DbError> {
+        Ok(self.get_meta(DIMS_BACKFILL_KEY)?.as_deref() != Some(DIMS_BACKFILL_DONE))
+    }
+
+    /// 寸法の後追いが**最後まで終わった**印を付ける（段階F-4）。
+    ///
+    /// 呼ぶのは、掃き寄せが空の束に届き、かつ**1行も見送らなかった**ときだけ。
+    /// 見送り（外付けが未接続・クラウドのみ・一時的に読めない・書く直前に
+    /// 差し替わった）が1件でもあれば印を付けてはいけない——次の起動で
+    /// 拾い直せなくなる。
+    pub fn mark_dimensions_backfill_done(&mut self) -> Result<(), DbError> {
+        self.set_meta(DIMS_BACKFILL_KEY, DIMS_BACKFILL_DONE)
     }
 
     /// カメラ未確認の残数（補完スイープの進捗表示用）。
@@ -2582,7 +2623,8 @@ mod tests {
                     preview: Some((640, 480)),
                 },
             )])
-            .unwrap(),
+            .unwrap()
+            .moved,
             vec![a],
             "寸法が動いた行だけ返る"
         );
@@ -2676,7 +2718,8 @@ mod tests {
                 },
             )])
             .unwrap();
-        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        assert!(moved.moved.is_empty(), "書き込みは丸ごと落ちる");
+        assert_eq!(moved.written, 0);
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!((rec.width, rec.height), (Some(100), Some(200)));
         assert_eq!(
@@ -2722,7 +2765,8 @@ mod tests {
                 },
             )])
             .unwrap();
-        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        assert!(moved.moved.is_empty(), "書き込みは丸ごと落ちる");
+        assert_eq!(moved.written, 0);
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!((rec.width, rec.height), (Some(640), Some(480)));
         assert_eq!(
@@ -2730,6 +2774,17 @@ mod tests {
             (None, None),
             "確かめた印が付かないので、実体が落ちてきた日に拾い直せる"
         );
+    }
+
+    #[test]
+    fn 掃き寄せが終われば次の起動から回さない() {
+        // 絞り込みに使える索引が無いので、印を持たないと**終わった後も
+        // 毎起動で表を1回なぞる**。印は「空の束に届き、かつ1行も見送らなかった」
+        // ときだけ付く
+        let mut db = Db::open_in_memory().unwrap();
+        assert!(db.needs_dimension_backfill().unwrap(), "既定は回す");
+        db.mark_dimensions_backfill_done().unwrap();
+        assert!(!db.needs_dimension_backfill().unwrap());
     }
 
     #[test]
@@ -2761,7 +2816,8 @@ mod tests {
                 },
             )])
             .unwrap();
-        assert!(moved.is_empty(), "書き込みは丸ごと落ちる");
+        assert!(moved.moved.is_empty(), "書き込みは丸ごと落ちる");
+        assert_eq!(moved.written, 0);
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(
             (rec.preview_width, rec.preview_height),
