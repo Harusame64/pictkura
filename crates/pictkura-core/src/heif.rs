@@ -1105,7 +1105,15 @@ pub fn decoder_available() -> bool {
     {
         windows_wic::available()
     }
-    #[cfg(not(windows))]
+    // macOSは ImageIO も HEVC のデコーダも**OS同梱**。Windowsのように
+    // 「拡張機能が別インストール」ではないので、聞く先が無い＝常に真でよい。
+    // ここが偽のままだと、UIがWindows向けの案内（有料のHEVC拡張機能）を
+    // macOSの利用者に見せ続ける
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         false
     }
@@ -1160,7 +1168,10 @@ impl ScaledDecodeProbe {
     }
 }
 
-/// 長辺 `max_edge` で起こせるかをデコーダに聞く（Windowsのみ）。
+/// 長辺 `max_edge` で起こせるかをデコーダに聞く（**WICにしかこの口が無い**）。
+///
+/// macOSのImageIOに対応するAPIは無いので `None` が返る。答えが無くても
+/// 時間は測れるので、`bench` は問い合わせの有無に関わらず原寸と縮小を並べる。
 ///
 /// **計測用**。実際に縮小デコードする経路は用意していない——
 /// [`ScaledDecodeProbe::scales`] が真になる環境が見つかってから考える。
@@ -1176,7 +1187,7 @@ pub fn probe_scaled_decode(path: &Path, max_edge: u32) -> Option<ScaledDecodePro
     }
 }
 
-/// 長辺 `max_edge` を目指して**縮小しながら**デコードする（Windowsのみ）。
+/// 長辺 `max_edge` を目指して**縮小しながら**デコードする。
 ///
 /// **収まるとは限らない**。出せる寸法を決めるのはデコーダで、縮小に
 /// 対応していなければ原寸がそのまま返る。呼ぶ側は返った絵の寸法を見ること。
@@ -1196,7 +1207,15 @@ pub fn decode_scaled(path: &Path, max_edge: u32) -> Option<image::DynamicImage> 
             None => img,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let img = macos_imageio::decode_scaled(path, max_edge)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (path, max_edge);
         None
@@ -1216,7 +1235,15 @@ pub fn decode(path: &Path) -> Option<image::DynamicImage> {
             None => img,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let img = macos_imageio::decode(path)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = path;
         None
@@ -1375,14 +1402,18 @@ pub(crate) fn wrap_hevc_as_heif(
 /// 向きの補正（`irot`/`imir`）はしない。包み直したHEIFにその情報を入れていない
 /// ——向きはRAW側のEXIFから読んで、呼び出し側で当てる。
 ///
-/// **macOSは未対応**（[`decode`] と同じく将来 ImageIO）。`None` を返すので、
-/// 呼び出し側では「デコーダが無い環境」と同じ扱いになる。
+/// macOSは ImageIO（`CGImageSourceCreateWithData`）。デコーダを持たないOSでは
+/// `None` が返り、呼び出し側では「デコーダが無い環境」と同じ扱いになる。
 pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
     #[cfg(windows)]
     {
         windows_wic::decode_mem(bytes)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_imageio::decode_mem(bytes)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = bytes;
         None
@@ -1402,7 +1433,15 @@ pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
             None => img,
         })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let img = macos_imageio::decode_thumbnail(path)?;
+        Some(match read_info(path) {
+            Some(info) => apply_container_transform(img, &info),
+            None => img,
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = path;
         None
@@ -1419,19 +1458,30 @@ pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
 /// まだ「格納された向き」のままなら、適用されていないのでこちらで直す。
 /// サムネイルのように**倍率が違っても判定できる**のが要点で、
 /// 原寸と実寸を突き合わせる方式だとサムネイルだけ二重回転する（実測で踏んだ）。
-// デコーダを持たないOSでは呼ばれないが、macOS対応を足すときにそのまま使う
-#[cfg_attr(not(windows), allow(dead_code))]
+// デコーダを持たないOSでは呼ばれない（macOSのImageIO経路もこれを通る）
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn needs_manual_transform(width: u32, height: u32, info: &HeifInfo) -> bool {
-    // 180度・鏡映のみ・正方形は、寸法が変わらないので見分けられない。
-    // 判定できないときは「デコーダが適用済み」に倒す（普通のデコーダの挙動）
+    // 180度・鏡映のみ・正方形は、寸法が変わらないので**見分けられない**。
+    // **どちらに倒すかはデコーダで違う**:
+    //
+    // - **WIC（Windows）は適用して返す**（実測）。倒す先は「適用済み」で、
+    //   重ねて掛けると二重回転になる
+    // - **ImageIO（macOS）は適用しない**。`kCGImageSourceCreateThumbnailWithTransform`
+    //   を立てていないので格納された向きのまま返る（2026-08-26に実測:
+    //   `irot=3` の 5712x4284 が 5712x4284 のまま返った）。ここを「適用済み」に
+    //   倒すと、**寸法が語らない変換だけが素通りする**——180度回転のHEICが
+    //   上下逆さまのまま、`imir` だけの自撮りが鏡のまま、正方形の90度が横倒しのまま並ぶ
+    //
+    // 回転も鏡映も無いときは [`apply_transform`] が恒等（確保もしない）なので、
+    // macOSで真に倒しても値段は付かない
     if info.rotation % 2 != 1 || info.stored_width == info.stored_height {
-        return false;
+        return cfg!(target_os = "macos");
     }
     (width > height) == (info.stored_width > info.stored_height)
 }
 
 /// コンテナが指示する向きへ直す（デコーダが適用済みなら何もしない）。
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn apply_container_transform(img: image::DynamicImage, info: &HeifInfo) -> image::DynamicImage {
     if !needs_manual_transform(img.width(), img.height(), info) {
         return img;
@@ -1461,6 +1511,227 @@ pub fn apply_transform(img: image::DynamicImage, info: &HeifInfo) -> image::Dyna
         rotate(mirror(img))
     } else {
         mirror(rotate(img))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// macOS: ImageIO
+// ---------------------------------------------------------------------------
+
+/// macOSの ImageIO から画素を借りる（WindowsのWICと同じ役）。
+///
+/// **CoreGraphicsのビットマップ文脈へ描く**のが要点。ImageIOが返す `CGImage` の
+/// 画素形式と色空間は素材任せ（HDR PQ の10bitもある）だが、**sRGBの文脈へ描けば
+/// 変換はCoreGraphicsがやる**。WICが `IWICFormatConverter` で 24bppBGR へ
+/// 落としているのと同じ考え方で、**出口の形をこちら側で決める**。
+///
+/// 向きは**適用しない**。`kCGImageSourceCreateThumbnailWithTransform` を
+/// 立てなければImageIOは回さないので、コンテナの `irot`/`imir` は
+/// 呼び出し側（[`super::apply_container_transform`]）が当てる。
+/// 両方が回すと二重になる。
+///
+/// Objective-Cのランタイムには触らない——ImageIOもCoreGraphicsも**純粋なC API**で、
+/// `objc2-*` crate はその宣言を持っているだけ。
+#[cfg(target_os = "macos")]
+mod macos_imageio {
+    use std::path::Path;
+
+    use std::ffi::c_void;
+
+    use objc2_core_foundation::{
+        kCFBooleanTrue, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks, CFData,
+        CFDictionary, CFNumber, CFNumberType, CFRetained, CGPoint, CGRect, CGSize, CFURL,
+    };
+    use objc2_core_graphics::{
+        kCGColorSpaceSRGB, CGBitmapContextCreate, CGBitmapContextGetData, CGColorSpace, CGContext,
+        CGImage, CGImageAlphaInfo, CGImageByteOrderInfo,
+    };
+    use objc2_image_io::{
+        kCGImageSourceCreateThumbnailFromImageAlways, kCGImageSourceThumbnailMaxPixelSize,
+        CGImageSource,
+    };
+
+    /// ファイルの主画像を起こす（[`super::decode`] の macOS 側）。
+    pub fn decode(path: &Path) -> Option<image::DynamicImage> {
+        let source = source_from_path(path)?;
+        // SAFETY: options に None を渡すだけなので、辞書の型を取り違えようがない
+        let image = unsafe { source.image_at_index(0, None) }?;
+        to_image(&image)
+    }
+
+    /// メモリ上のバイト列から主画像を起こす（[`super::decode_mem`] の macOS 側）。
+    ///
+    /// CR3のHDR PQは、取り出したHEVCをその場でHEIFに包み直して渡してくる
+    /// （[`crate::raw`] の `cr3_hevc_preview`）。一時ファイルを作らない口。
+    pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
+        // SAFETY: `bytes` はこの呼び出しのあいだ生きている。
+        // `CFDataCreate` は**中身を複製する**ので、返った後は参照されない
+        let data = unsafe { CFData::new(None, bytes.as_ptr(), bytes.len() as isize) }?;
+        // SAFETY: options に None を渡すだけ
+        let source = unsafe { CGImageSource::with_data(&data, None) }?;
+        // SAFETY: 同上
+        let image = unsafe { source.image_at_index(0, None) }?;
+        to_image(&image)
+    }
+
+    /// 埋め込みサムネイルだけを起こす（[`super::decode_thumbnail`] の macOS 側）。
+    ///
+    /// **選択肢の辞書を渡さないのが要点**。`kCGImageSourceCreateThumbnailFromImage*`
+    /// を立てなければ ImageIO は**主画像から作らない**——
+    /// 埋め込みが無ければ素直に `None` が返る。iPhoneのHEICは主画像とは別に
+    /// 小さいタイル集合を持っているので、ここが当たると主画像の展開を丸ごと省ける。
+    ///
+    /// 寸法は**入っているまま**。`max_edge` を指定しないので、
+    /// 呼び出し側は返った絵の寸法を見ること（Windows側と同じ約束）。
+    pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
+        let source = source_from_path(path)?;
+        // SAFETY: options に None を渡すだけ
+        let image = unsafe { source.thumbnail_at_index(0, None) }?;
+        to_image(&image)
+    }
+
+    /// 長辺 `max_edge` を目指して**縮小しながら**起こす（[`super::decode_scaled`] の macOS 側）。
+    ///
+    /// `kCGImageSourceCreateThumbnailFromImageAlways` を立てるので、
+    /// 埋め込みが無くても主画像から作る。**収まる保証は無い**——
+    /// 出せる寸法を決めるのはデコーダで、呼ぶ側は返った絵の寸法を見ること。
+    pub fn decode_scaled(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
+        let source = source_from_path(path)?;
+        let max = i64::from(max_edge.max(1));
+        // SAFETY: `NSIntegerType` に i64 のアドレスを渡す（64bitのARM/x86_64で一致）
+        let max_number = unsafe {
+            CFNumber::new(
+                None,
+                CFNumberType::NSIntegerType,
+                (&raw const max).cast::<c_void>(),
+            )
+        }?;
+        // SAFETY: 定数は ImageIO / CoreFoundation が公開しているもの
+        let always = unsafe { kCFBooleanTrue }?;
+        let dict = unsafe {
+            options(&[
+                (
+                    (kCGImageSourceCreateThumbnailFromImageAlways as *const _ as *const c_void),
+                    (always as *const _ as *const c_void),
+                ),
+                (
+                    (kCGImageSourceThumbnailMaxPixelSize as *const _ as *const c_void),
+                    (&*max_number as *const _ as *const c_void),
+                ),
+            ])
+        }?;
+        // SAFETY: 辞書の鍵はImageIOの定数、値はCFBoolean/CFNumberで型が合っている
+        let image = unsafe { source.thumbnail_at_index(0, Some(&dict)) }?;
+        to_image(&image)
+    }
+
+    /// ImageIO へ渡す選択肢の辞書を組む。
+    ///
+    /// `kCFType*CallBacks` を渡すので、辞書は鍵も値も**自分で保持する**
+    /// ——組み終わった後は呼び出し側の `CFRetained` が落ちても構わない。
+    ///
+    /// # Safety
+    ///
+    /// `pairs` の各ポインタは、この呼び出しのあいだ生きている CoreFoundation の
+    /// オブジェクトを指していること。
+    unsafe fn options(
+        pairs: &[(*const c_void, *const c_void)],
+    ) -> Option<CFRetained<CFDictionary>> {
+        let mut keys: Vec<*const c_void> = pairs.iter().map(|(k, _)| *k).collect();
+        let mut values: Vec<*const c_void> = pairs.iter().map(|(_, v)| *v).collect();
+        // SAFETY: keys と values は同じ長さで、その長さを渡している
+        unsafe {
+            CFDictionary::new(
+                None,
+                keys.as_mut_ptr(),
+                values.as_mut_ptr(),
+                pairs.len() as isize,
+                &raw const kCFTypeDictionaryKeyCallBacks,
+                &raw const kCFTypeDictionaryValueCallBacks,
+            )
+        }
+    }
+
+    /// パスから画像ソースを開く。**ファイルは開くが画素は読まない**。
+    fn source_from_path(path: &Path) -> Option<CFRetained<CGImageSource>> {
+        use std::os::unix::ffi::OsStrExt;
+        let bytes = path.as_os_str().as_bytes();
+        // SAFETY: `bytes` はこの関数のあいだ生きている。CFURL は複製を持つ。
+        // ファイルシステム表現をそのまま渡すので、UTF-8にならない名前でも壊れない
+        let url = unsafe {
+            CFURL::from_file_system_representation(
+                None,
+                bytes.as_ptr(),
+                bytes.len() as isize,
+                false,
+            )
+        }?;
+        // SAFETY: options に None を渡すだけ
+        unsafe { CGImageSource::with_url(&url, None) }
+    }
+
+    /// `CGImage` を **sRGBのRGB8** へ落とす（Windows側の `to_image` と同じ出口）。
+    ///
+    /// CoreGraphicsのビットマップ文脈は**24bppを作れない**ので、いったん
+    /// RGBX（32bpp・アルファ捨て）で受けてから3バイトへ詰め直す。
+    fn to_image(image: &CGImage) -> Option<image::DynamicImage> {
+        let width = CGImage::width(Some(image));
+        let height = CGImage::height(Some(image));
+        if width == 0 || height == 0 {
+            return None;
+        }
+        // 展開爆弾よけ。ここを抜けると width*height*4 を確保する
+        const MAX_PIXELS: usize = 512 * 1024 * 1024 / 4;
+        if width.checked_mul(height)? > MAX_PIXELS {
+            return None;
+        }
+        let stride = width.checked_mul(4)?;
+        let len = stride.checked_mul(height)?;
+        let mut rgbx = vec![0u8; len];
+
+        // SAFETY: `kCGColorSpaceSRGB` はImageIOが公開する定数の名前
+        let space = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }))?;
+        // `NoneSkipLast` + `ByteOrder32Big` で、メモリ上の並びが R,G,B,X になる。
+        // アルファは捨てる（Windows側も24bppBGRへ落としていて、出口を揃える）
+        let bitmap_info = CGImageAlphaInfo::NoneSkipLast.0 | CGImageByteOrderInfo::Order32Big.0;
+        // SAFETY: `rgbx` は width*4*height バイトで、文脈より長生きする
+        let context = unsafe {
+            CGBitmapContextCreate(
+                rgbx.as_mut_ptr().cast(),
+                width,
+                height,
+                8,
+                stride,
+                Some(&space),
+                bitmap_info,
+            )
+        }?;
+
+        let rect = CGRect::new(
+            CGPoint::new(0.0, 0.0),
+            CGSize::new(width as f64, height as f64),
+        );
+        CGContext::draw_image(Some(&context), rect, Some(image));
+
+        // 描き終わったことを確かめる。`CGBitmapContextGetData` が渡した先を
+        // 指していなければ、CoreGraphics が別の裏付けを取ったということなので信じない
+        if CGBitmapContextGetData(Some(&context)).cast::<u8>() != rgbx.as_mut_ptr() {
+            return None;
+        }
+        drop(context);
+
+        // RGBX → RGB（前へ詰める。確保し直さない）
+        let mut out = 0usize;
+        for px in 0..width * height {
+            let src = px * 4;
+            rgbx[out] = rgbx[src];
+            rgbx[out + 1] = rgbx[src + 1];
+            rgbx[out + 2] = rgbx[src + 2];
+            out += 3;
+        }
+        rgbx.truncate(out);
+        image::RgbImage::from_raw(width as u32, height as u32, rgbx)
+            .map(image::DynamicImage::ImageRgb8)
     }
 }
 
@@ -2615,7 +2886,10 @@ mod tests {
 
     #[test]
     fn when_the_size_cannot_tell_us_the_decoder_decides() {
-        // 180度回転は縦横が変わらないので、適用済みかを寸法から判断できない
+        // 寸法が何も語らない3つ。**どちらに倒すかはデコーダで決まる**ので、
+        // 答えはOSで変わる（WICは適用して返す／ImageIOは返さない）
+        //
+        // 180度回転は縦横が変わらない
         let half = HeifInfo {
             stored_width: 4032,
             stored_height: 3024,
@@ -2624,9 +2898,16 @@ mod tests {
             mirror_first: false,
             crop: None,
         };
-        assert!(!needs_manual_transform(4032, 3024, &half));
-
-        // 正方形も同様
+        // 鏡映だけ（自撮り）。回転が無いので寸法は手掛かりにならない
+        let mirrored = HeifInfo {
+            stored_width: 4032,
+            stored_height: 3024,
+            rotation: 0,
+            mirror: Some(0),
+            mirror_first: false,
+            crop: None,
+        };
+        // 正方形は90度回しても寸法が同じ
         let square = HeifInfo {
             stored_width: 1000,
             stored_height: 1000,
@@ -2635,7 +2916,31 @@ mod tests {
             mirror_first: false,
             crop: None,
         };
-        assert!(!needs_manual_transform(1000, 1000, &square));
+
+        #[cfg(target_os = "macos")]
+        {
+            // ImageIOは `irot`/`imir` を適用しない（2026-08-26に実測）ので、
+            // ここを偽に倒すと**上下逆さま・鏡・横倒しがそのまま並ぶ**
+            assert!(
+                needs_manual_transform(4032, 3024, &half),
+                "180度は自分で回す"
+            );
+            assert!(
+                needs_manual_transform(4032, 3024, &mirrored),
+                "鏡映は自分で当てる"
+            );
+            assert!(
+                needs_manual_transform(1000, 1000, &square),
+                "正方形の90度も自分で回す"
+            );
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // WICは適用して返す（実測）。重ねて掛けると二重になる
+            assert!(!needs_manual_transform(4032, 3024, &half));
+            assert!(!needs_manual_transform(4032, 3024, &mirrored));
+            assert!(!needs_manual_transform(1000, 1000, &square));
+        }
     }
 
     #[test]

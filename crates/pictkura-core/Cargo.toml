@@ -77,6 +77,17 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 
+# HEIC/HEIF の画素はOS任せ（第7部 段階G）。macOSは ImageIO で、
+# WindowsのWICと同じ役をする。**objc2一族はTauri/wryが既に0.3系を引いている**ので、
+# 版はそこに揃えてある。ただし**増えないわけではない**——
+# `objc2-image-io` 自身と `objc2-metal` が新しくロックへ入り、
+# `objc2-core-graphics` 等の feature も unification で増える（どれもビルド時のみ）。
+# ImageIO も CoreGraphics も**純粋なC API**なので Objective-C のランタイムには触らない
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-image-io = "0.3"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+
 [dev-dependencies]
 tempfile = "3"
 
