@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn recognises_the_extensions() {
+    fn recognises_the_svg_extensions() {
         assert!(is_svg_extension("svg"));
         assert!(is_svg_extension("SVG"));
         assert!(!is_svg_extension("png"));

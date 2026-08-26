@@ -2539,7 +2539,7 @@ mod tests {
     }
 
     #[test]
-    fn recognises_the_extensions() {
+    fn recognises_the_heif_extensions() {
         assert!(is_heif_extension("heic"));
         assert!(is_heif_extension("HEIC"));
         assert!(is_heif_extension("hif"));
