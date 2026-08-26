@@ -226,7 +226,23 @@ fn handle_fs_events(app: &tauri::AppHandle, paths: Vec<std::path::PathBuf>) {
         // 判定はルートだけで決まるので**ループの外で1回**（イベントごとに
         // 全構成要素を舐め直さない）
         let package_roots = managed_package_roots(&config);
+        // **監視が返す綴りを設定ルートへ揃える**（USNの経路と同じ手当て）。
+        //
+        // notify が返すのはOSがくれたパスで、**設定と綴りが違うことがある**
+        // ——macOSの `/var` は `/private/var` へのシンボリックリンクで、
+        // FSEvents は解決後を返す。そのまま入れると害が2つ:
+        //
+        // - DBはパスを**文字列として**比較する（`ON CONFLICT(path)`）ので、
+        //   **同じ写真が2件並ぶ**（Windowsの USN 経由で32件出たのと同じ筋）
+        // - 下の除外の門は**設定の綴りが前提**の前方一致なので、
+        //   綴りが違うと外れる——`*.photoslibrary` の除外が**監視の経路だけ効かない**
+        //
+        // ルート配下と照合できなかったものは**そのまま通す**。notify は
+        // 監視しているルートの下しか返さないので、ここへ来るのは
+        // ルートが解決できない等の異常時だけ——落とすより今までどおりに扱う
+        let specs = root_specs(&config.library.roots);
         for p in paths {
+            let p = rebase_to_root_spelling(&p, &specs).unwrap_or(p);
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
                 continue;
             }
@@ -575,6 +591,39 @@ struct StartupScanDto {
     total: i64,
 }
 
+/// 綴りを照合の形へ畳む。**バイト長を変えない**
+/// （畳んだ文字列上の位置で、元の文字列をそのまま切り出すため）。
+///
+/// **Windowsだけ**区切りをバックスラッシュへ寄せ、ASCIIの大小を畳む。
+/// macOS/Linuxでは**何もしない**——区切りは `/` しか無く、
+/// APFSは**大小を区別する設定にできる**ので、畳むと別のファイルを同一視する。
+fn fold_for_compare(s: &str) -> String {
+    if cfg!(windows) {
+        s.replace('/', "\\").to_ascii_lowercase()
+    } else {
+        s.to_string()
+    }
+}
+
+/// このOSのパス区切り。
+fn path_separator() -> char {
+    if cfg!(windows) {
+        '\\'
+    } else {
+        '/'
+    }
+}
+
+/// 綴りをこのOSの形へ寄せ、末尾の区切りを落とす。
+fn root_spelling_of(raw: &str) -> String {
+    let spelled = if cfg!(windows) {
+        raw.replace('/', "\\")
+    } else {
+        raw.to_string()
+    };
+    spelled.trim_end_matches(path_separator()).to_string()
+}
+
 /// `\\?\` 拡張プレフィックスを外す（fs::canonicalizeの戻り値を通常形式へ）。
 fn strip_verbatim(path: &Path) -> String {
     let s = path.to_string_lossy();
@@ -611,15 +660,14 @@ fn root_specs(roots: &[PathBuf]) -> Vec<RootSpec> {
     roots
         .iter()
         .map(|root| {
-            let spelling = root
-                .to_string_lossy()
-                .replace('/', "\\")
-                .trim_end_matches('\\')
-                .to_string();
+            let spelling = root_spelling_of(&root.to_string_lossy());
             let mut prefixes = vec![spelling.clone()];
+            // **解決後の綴りも照合の的に入れる。** macOSの `/var` は
+            // `/private/var` へのシンボリックリンクで、**FSEventsは解決後を返す**
+            // ——ここに入れておかないと、設定の綴りと一致せず揃えられない
             if let Ok(real) = std::fs::canonicalize(root) {
-                let real = strip_verbatim(&real).trim_end_matches('\\').to_string();
-                if !real.eq_ignore_ascii_case(&spelling) {
+                let real = root_spelling_of(&strip_verbatim(&real));
+                if fold_for_compare(&real) != fold_for_compare(&spelling) {
                     prefixes.push(real);
                 }
             }
@@ -641,17 +689,20 @@ fn usn_meta_key(volume: &str) -> String {
 /// 大文字小文字（ASCII）と区切り文字の揺れを無視して**最長一致**のプレフィックスを
 /// 探し、その部分を設定の綴りへ置き換える（配下の構成要素名はFS由来なので一致する）。
 fn rebase_to_root_spelling(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
-    // ASCIIのみ小文字化＋区切り統一。バイト長が変わらないため、
-    // 正規化文字列上の位置で元の文字列をそのまま切り出せる
-    let norm = |s: &str| s.replace('/', "\\").to_ascii_lowercase();
-    let path_str = path.to_string_lossy().replace('/', "\\");
-    let path_norm = norm(&path_str);
+    let sep = path_separator();
+    let raw = path.to_string_lossy();
+    let path_str = if cfg!(windows) {
+        raw.replace('/', "\\")
+    } else {
+        raw.into_owned()
+    };
+    let path_norm = fold_for_compare(&path_str);
     let mut best: Option<(usize, &str)> = None; // (一致プレフィックス長, 揃える綴り)
     for spec in specs {
         for prefix in &spec.prefixes {
-            let prefix_norm = norm(prefix.trim_end_matches('\\'));
+            let prefix_norm = fold_for_compare(prefix.trim_end_matches(sep));
             let matched =
-                path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}\\"));
+                path_norm == prefix_norm || path_norm.starts_with(&format!("{prefix_norm}{sep}"));
             if matched && best.is_none_or(|(len, _)| prefix_norm.len() > len) {
                 best = Some((prefix_norm.len(), &spec.spelling));
             }
@@ -3226,7 +3277,9 @@ pub fn run() {
 mod tests {
     #[cfg(windows)]
     use super::APP_IDENTIFIER;
-    use super::{dcim_under, drive_label, import_path_from_args};
+    use super::{
+        dcim_under, drive_label, import_path_from_args, rebase_to_root_spelling, root_specs,
+    };
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
@@ -3255,6 +3308,44 @@ mod tests {
         // 名前が無いときは場所だけ（括弧を出さない）
         assert_eq!(drive_label("", Path::new("/")), "/");
         assert_eq!(drive_label("", Path::new("D:\\")), "D:");
+    }
+
+    #[test]
+    fn a_resolved_symlink_is_rebased_to_the_configured_spelling() {
+        // **監視が返す綴りは設定と違うことがある。** macOSの `/var` は
+        // `/private/var` へのシンボリックリンクで、FSEventsは解決後を返す。
+        // そのまま入れると同じ写真が2件並び、除外の前方一致も外れる。
+        //
+        // `temp_dir()` は macOS では `/var/folders/...` なので、
+        // **この機械ではそのまま題材になる**（リンクの無いOSでは
+        // 解決後＝設定の綴りになり、素通しであることを確かめる形になる）
+        let root = std::env::temp_dir().join("pictkura_rebase_root");
+        std::fs::create_dir_all(&root).unwrap();
+        let Ok(real) = std::fs::canonicalize(&root) else {
+            std::fs::remove_dir_all(&root).ok();
+            return;
+        };
+
+        let specs = root_specs(std::slice::from_ref(&root));
+        let rebased = rebase_to_root_spelling(&real.join("2020").join("a.jpg"), &specs)
+            .expect("ルート配下だと分かること");
+        assert_eq!(
+            rebased,
+            root.join("2020").join("a.jpg"),
+            "解決後の綴りで来ても、設定の綴りへ戻す"
+        );
+
+        // 設定の綴りのまま来たものは、当然そのまま
+        let same = rebase_to_root_spelling(&root.join("b.jpg"), &specs).expect("同上");
+        assert_eq!(same, root.join("b.jpg"));
+
+        // ルートの外は「分からない」と返す（呼び出し側が判断する）
+        assert_eq!(
+            rebase_to_root_spelling(std::path::Path::new("/どこか/よそ/c.jpg"), &specs),
+            None
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
