@@ -2385,15 +2385,23 @@ body {
    グリッドの上に重ねず、素直に真ん中へ置く（後ろに何も無いので） */
 .empty-library {
   max-width: 46rem;
-  margin: 4rem auto;
-  padding: 0 2rem;
+  /* 窓が低いときは余白から先に諦める（下の `max-height` と対で効く） */
+  margin: min(64px, 6vh) auto;
+  padding: 0 var(--sp-7);
   text-align: center;
   color: var(--text-muted);
   /* **縮ませない。** `.main` は縦のflexで、隣は `.grid-wrap { flex: 1 }`。
      既定の `flex-shrink: 1` のままだと、窓が低いときや文が長いとき
      （読めないフォルダを3件名指しした文など）に箱が中身より低く潰され、
-     文字が一覧の側へはみ出す（ゲート2の指摘。`.memories` は既に flex:none） */
+     文字が一覧の側へはみ出す（ゲート2の指摘。`.memories` は既に flex:none）。
+     **ただし潰れない代わりに切り落とされてはいけない**——`body` は
+     `overflow: hidden` なので、低い窓では下端の［取り込み］［参照…］が
+     スクロールバーも無いまま消える。上限を与えて、中で送れるようにする
+     （ゲート1の指摘。窓の最小の高さは `tauri.conf.json` に無い） */
   flex: none;
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 .empty-library h2 {
   margin: 0 0 0.75rem;

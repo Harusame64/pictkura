@@ -1152,7 +1152,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     };
     // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
     let mut survivor = false;
-    // 除外に当たった名前（重複を除く）。**数えるのはこちら**
+    // 例示に挙げた名前。**同じ名前を2度並べない**ためだけのもので、
+    // 数（`excluded_total`）はここを通さず素直に数える
     let mut excluded_names: HashSet<String> = HashSet::new();
     for root in &config.library.roots {
         // **「無い」と「見せてもらえない」を取り違えない。** `is_dir()` は
@@ -1239,10 +1240,12 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 .iter()
                 .any(|p| pictkura_core::scanner::matches_pattern(name, p))
             {
-                // **数える集合は、見せる3件と別に持つ。** 見せる側で
-                // 重複を見ると、4件目以降は毎回数えられ（`.cache` が2つの
-                // ルートにあれば2）、先頭3件は何ルートに在っても1のまま——
-                // 「ほか N件」がどちらにも狂う（ゲート2の指摘）
+                // **数えるのは項目、畳むのは例示だけ。** 見せる側で重複を
+                // 見ると、4件目以降は毎回数えられ、先頭3件は何ルートに在っても
+                // 1のまま——「ほか N件」がどちらにも狂う（ゲート2の指摘）。
+                // 名前で畳むのも違う: 2つのルートに `Lightroom Catalog/` が
+                // あれば飛ばした項目は2つで、1と数えるのは過少（ゲート1の指摘）
+                out.excluded_total += 1;
                 if excluded_names.insert(name.to_string()) && out.excluded.len() < 3 {
                     out.excluded.push(name.to_string());
                 }
@@ -1265,9 +1268,8 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
     if survivor {
         out.excluded.clear();
+        out.excluded_total = 0;
         out.photo_library = false;
-    } else {
-        out.excluded_total = excluded_names.len();
     }
     out
 }
@@ -3926,6 +3928,37 @@ mod tests {
         assert_eq!(r.excluded_total, 5, "数は打ち切らない");
         for n in ["$RECYCLE.BIN", "Thumbs.db", ".二つ目", ".三つ目"] {
             std::fs::remove_dir(root.join(n)).unwrap();
+        }
+
+        // **ルートをまたぐと、同じ名前でも飛ばした項目は2つ。**
+        // 例示は1つに畳むが、数は2（ゲート1の指摘）
+        let root2 = dir.path().join("pictures2");
+        std::fs::create_dir(&root2).unwrap();
+        std::fs::create_dir(root2.join(".隠しフォルダ")).unwrap();
+        config.library.roots = vec![root.clone(), root2.clone()];
+        let r = empty_library_reason_of(&config);
+        assert_eq!(r.excluded, vec![".隠しフォルダ".to_string()], "例示は畳む");
+        assert_eq!(r.excluded_total, 2, "飛ばした項目は2つ");
+        std::fs::remove_dir_all(&root2).unwrap();
+        config.library.roots = vec![root.clone()];
+
+        // **UTF-8 で読めない名前を黙って飛ばさない。** 走査本体はそれを
+        // 除外に一致させずに入って行くので、「候補あり」に数えないと
+        // 隣の `.隠しフォルダ` が冤罪を着る（ゲート1の指摘）
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let odd = root.join(std::ffi::OsStr::from_bytes(b"\xff\xfe.jpg"));
+            // APFSはUTF-8にならない名前を受け付けない（EILSEQ）。
+            // 作れた環境でだけ見る——作れないことは欠陥ではない
+            if std::fs::write(&odd, b"x").is_ok() {
+                let r = empty_library_reason_of(&config);
+                std::fs::remove_file(&odd).unwrap();
+                assert!(
+                    r.excluded.is_empty(),
+                    "読めない名前は「候補あり」に数える（除外を犯人にしない）"
+                );
+            }
         }
 
         // **除外の隣に、除外されていない空のフォルダがある。**

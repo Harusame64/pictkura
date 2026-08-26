@@ -231,6 +231,8 @@ const ja = {
   wizardNoDrives: "ドライブが見つかりません",
   /* 一覧が空のときの説明（無言で `0 件` を出さない） */
   emptyTitle: "まだ写真がありません",
+  /** 読み込みに失敗したときの見出し（「まだ写真がありません」は嘘になる） */
+  emptyTitleFailed: "一覧を出せませんでした",
   emptyNoRoots:
     "ライブラリのフォルダがまだ設定されていません。カードから取り込むか、写真のあるフォルダを選んでください。",
   emptyMissing: (names: string) =>
@@ -258,6 +260,9 @@ const ja = {
     `見つかったものは、除外の設定で全部飛ばしています（例: ${names}）。設定フォルダの pictkura.toml で変えられます。`,
   emptyNothingHere:
     "扱える画像がまだ見つかりません。カードから取り込むか、写真のあるフォルダを選んでください。",
+  /** 一覧そのものが取れなかった。**「空です」と言わない**——空かどうかは分かっていない */
+  emptyLoadFailed:
+    "一覧を読み込めませんでした。上の帯に理由が出ています。「再スキャン」を押すか、アプリを開き直してください。",
   wizardPickFolderHint: "左からフォルダを選ぶと、この中の画像が並びます",
   wizardNoImages: "このフォルダに画像はありません",
   wizardUnreadable: "フォルダを読めませんでした（取り外された可能性があります）",
@@ -593,6 +598,7 @@ const en: Dict = {
   wizardRemovable: "Removable",
   wizardNoDrives: "No drives found",
   emptyTitle: "No photos yet",
+  emptyTitleFailed: "The list could not be shown",
   emptyNoRoots:
     "No library folder has been set up yet. Import from a card, or pick a folder that has photos in it.",
   emptyMissing: (names: string) =>
@@ -611,6 +617,8 @@ const en: Dict = {
     `Everything found is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
   emptyNothingHere:
     "No photos that pictkura can read have turned up yet. Import from a card, or pick a folder that has photos in it.",
+  emptyLoadFailed:
+    "The list could not be loaded. The reason is in the bar above. Press Rescan, or reopen the app.",
   wizardPickFolderHint: "Pick a folder on the left to see the photos in it",
   wizardNoImages: "No photos in this folder",
   wizardUnreadable: "Could not read this folder (it may have been removed)",

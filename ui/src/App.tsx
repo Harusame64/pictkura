@@ -837,7 +837,11 @@ export default function App() {
       unlisten = f ?? undefined;
       // 聞けなかったときは**待たない**側に倒す。ここで固まると、
       // ルートを1つも設定していない人に何も言わないアプリになる
-      const done = await startupScanFinished().catch(() => true);
+      // **転んだときに倒す向きは、リスナーの有無で決める。**
+      // リスナーが生きているなら合図が来るので待ってよい——ここで
+      // 一律に「終わった」と言うと、走査の最中にパネルが出て、
+      // `scanSettled` を足した目的が崩れる（ゲート1の指摘）
+      const done = await startupScanFinished().catch(() => f === null);
       if (cancelled) return;
       if (done) {
         setScanSettled(true);
@@ -1199,6 +1203,38 @@ export default function App() {
    */
   const canSayEmpty =
     settled && !loadFailed && scanSettled && !filtering && summary.length === 0;
+  /**
+   * 一覧の代わりに何か言う枠を出してよいか。
+   *
+   * **失敗も黙らない**——ただし言うことが違う。空だと分かっているなら理由、
+   * 読めなかっただけなら「出せませんでした」。`0 件` だけの画面に
+   * 戻さないのがこのPRの主題なので、失敗でパネルごと消すのは筋が違う
+   * （ゲート1の指摘）
+   */
+  const showEmptyPanel =
+    (canSayEmpty && emptyReason != null) ||
+    (settled && loadFailed && !filtering);
+  /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
+  const emptyMessage = () => {
+    if (loadFailed) return t.emptyLoadFailed;
+    if (emptyReason == null) return t.emptyNothingHere;
+    const r = emptyReason;
+    if (r.noRoots) return t.emptyNoRoots;
+    if (r.missing.length > 0) return t.emptyMissing(nameList(r.missing));
+    if (r.unreadable.length > 0) {
+      const say =
+        platform === "macos"
+          ? t.emptyUnreadableMac
+          : platform === "windows"
+            ? t.emptyUnreadableWin
+            : t.emptyUnreadableOther;
+      return say(nameList(r.unreadable));
+    }
+    if (r.photoLibrary) return t.emptyPhotoLibrary;
+    if (r.excluded.length > 0)
+      return t.emptyAllExcluded(nameList(r.excluded, r.excludedTotal));
+    return t.emptyNothingHere;
+  };
   /**
    * 名前の一覧を1文へ。**3件で切って、切ったことを言う**。
    *
@@ -3797,33 +3833,10 @@ export default function App() {
               それは既定の除外に入っている。理由が出ないと「壊れている」と読まれる。
               **サムネイルでもカレンダーでも出す**（片方だけだと、切り替えた
               とたんに無言へ戻る。ゲート1の指摘） */}
-          {canSayEmpty && emptyReason && (
+          {showEmptyPanel && (
             <div className="empty-library">
-              <h2>{t.emptyTitle}</h2>
-              <p>
-                {emptyReason.noRoots
-                  ? t.emptyNoRoots
-                  : emptyReason.missing.length > 0
-                    ? t.emptyMissing(nameList(emptyReason.missing))
-                    : emptyReason.unreadable.length > 0
-                      ? (platform === "macos"
-                          ? t.emptyUnreadableMac
-                          : platform === "windows"
-                            ? t.emptyUnreadableWin
-                            : t.emptyUnreadableOther)(
-                          nameList(emptyReason.unreadable),
-                        )
-                      : emptyReason.photoLibrary
-                        ? t.emptyPhotoLibrary
-                        : emptyReason.excluded.length > 0
-                          ? t.emptyAllExcluded(
-                              nameList(
-                                emptyReason.excluded,
-                                emptyReason.excludedTotal,
-                              ),
-                            )
-                          : t.emptyNothingHere}
-              </p>
+              <h2>{loadFailed ? t.emptyTitleFailed : t.emptyTitle}</h2>
+              <p>{emptyMessage()}</p>
               <div className="empty-actions">
                 {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
                 <button
@@ -3841,7 +3854,11 @@ export default function App() {
           )}
           {view === "calendar" ? (
             <div className="calendar-scroll">
-              <Calendar summary={summary} onOpenDay={openDay} />
+              {/* パネルが出ているなら、カレンダー側の「写真がありません」は
+                  出さない。**同じ画面に空の知らせが2つ並ぶ**（ゲート1の指摘） */}
+              {!showEmptyPanel && (
+                <Calendar summary={summary} onOpenDay={openDay} />
+              )}
             </div>
           ) : (
             <div className="grid-wrap">
