@@ -1168,7 +1168,10 @@ impl ScaledDecodeProbe {
     }
 }
 
-/// 長辺 `max_edge` で起こせるかをデコーダに聞く（Windowsのみ）。
+/// 長辺 `max_edge` で起こせるかをデコーダに聞く（**WICにしかこの口が無い**）。
+///
+/// macOSのImageIOに対応するAPIは無いので `None` が返る。答えが無くても
+/// 時間は測れるので、`bench` は問い合わせの有無に関わらず原寸と縮小を並べる。
 ///
 /// **計測用**。実際に縮小デコードする経路は用意していない——
 /// [`ScaledDecodeProbe::scales`] が真になる環境が見つかってから考える。
@@ -1184,7 +1187,7 @@ pub fn probe_scaled_decode(path: &Path, max_edge: u32) -> Option<ScaledDecodePro
     }
 }
 
-/// 長辺 `max_edge` を目指して**縮小しながら**デコードする（Windowsのみ）。
+/// 長辺 `max_edge` を目指して**縮小しながら**デコードする。
 ///
 /// **収まるとは限らない**。出せる寸法を決めるのはデコーダで、縮小に
 /// 対応していなければ原寸がそのまま返る。呼ぶ側は返った絵の寸法を見ること。
@@ -1399,8 +1402,8 @@ pub(crate) fn wrap_hevc_as_heif(
 /// 向きの補正（`irot`/`imir`）はしない。包み直したHEIFにその情報を入れていない
 /// ——向きはRAW側のEXIFから読んで、呼び出し側で当てる。
 ///
-/// **macOSは未対応**（[`decode`] と同じく将来 ImageIO）。`None` を返すので、
-/// 呼び出し側では「デコーダが無い環境」と同じ扱いになる。
+/// macOSは ImageIO（`CGImageSourceCreateWithData`）。デコーダを持たないOSでは
+/// `None` が返り、呼び出し側では「デコーダが無い環境」と同じ扱いになる。
 pub fn decode_mem(bytes: &[u8]) -> Option<image::DynamicImage> {
     #[cfg(windows)]
     {
@@ -1458,16 +1461,27 @@ pub fn decode_thumbnail(path: &Path) -> Option<image::DynamicImage> {
 // デコーダを持たないOSでは呼ばれない（macOSのImageIO経路もこれを通る）
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn needs_manual_transform(width: u32, height: u32, info: &HeifInfo) -> bool {
-    // 180度・鏡映のみ・正方形は、寸法が変わらないので見分けられない。
-    // 判定できないときは「デコーダが適用済み」に倒す（普通のデコーダの挙動）
+    // 180度・鏡映のみ・正方形は、寸法が変わらないので**見分けられない**。
+    // **どちらに倒すかはデコーダで違う**:
+    //
+    // - **WIC（Windows）は適用して返す**（実測）。倒す先は「適用済み」で、
+    //   重ねて掛けると二重回転になる
+    // - **ImageIO（macOS）は適用しない**。`kCGImageSourceCreateThumbnailWithTransform`
+    //   を立てていないので格納された向きのまま返る（2026-08-26に実測:
+    //   `irot=3` の 5712x4284 が 5712x4284 のまま返った）。ここを「適用済み」に
+    //   倒すと、**寸法が語らない変換だけが素通りする**——180度回転のHEICが
+    //   上下逆さまのまま、`imir` だけの自撮りが鏡のまま、正方形の90度が横倒しのまま並ぶ
+    //
+    // 回転も鏡映も無いときは [`apply_transform`] が恒等（確保もしない）なので、
+    // macOSで真に倒しても値段は付かない
     if info.rotation % 2 != 1 || info.stored_width == info.stored_height {
-        return false;
+        return cfg!(target_os = "macos");
     }
     (width > height) == (info.stored_width > info.stored_height)
 }
 
 /// コンテナが指示する向きへ直す（デコーダが適用済みなら何もしない）。
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 fn apply_container_transform(img: image::DynamicImage, info: &HeifInfo) -> image::DynamicImage {
     if !needs_manual_transform(img.width(), img.height(), info) {
         return img;
@@ -1501,15 +1515,9 @@ pub fn apply_transform(img: image::DynamicImage, info: &HeifInfo) -> image::Dyna
 }
 
 // ---------------------------------------------------------------------------
-// Windows: WIC（Windows Imaging Component）
+// macOS: ImageIO
 // ---------------------------------------------------------------------------
 
-/// Windowsの画像デコーダを直接叩く。
-///
-/// エクスプローラやフォトが使っているのと同じ経路で、
-/// **HEIF Image Extensions**（Microsoft Store・Windows 11は既定で同梱）が
-/// 入っていればHEICを読める。自前でHEVCデコーダを抱えないので、
-/// 配布物が増えずライセンスの問題も起きない。
 /// macOSの ImageIO から画素を借りる（WindowsのWICと同じ役）。
 ///
 /// **CoreGraphicsのビットマップ文脈へ描く**のが要点。ImageIOが返す `CGImage` の
@@ -1727,6 +1735,16 @@ mod macos_imageio {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Windows: WIC（Windows Imaging Component）
+// ---------------------------------------------------------------------------
+
+/// Windowsの画像デコーダを直接叩く。
+///
+/// エクスプローラやフォトが使っているのと同じ経路で、
+/// **HEIF Image Extensions**（Microsoft Store・Windows 11は既定で同梱）が
+/// 入っていればHEICを読める。自前でHEVCデコーダを抱えないので、
+/// 配布物が増えずライセンスの問題も起きない。
 #[cfg(windows)]
 mod windows_wic {
     use std::path::Path;
@@ -2868,7 +2886,10 @@ mod tests {
 
     #[test]
     fn when_the_size_cannot_tell_us_the_decoder_decides() {
-        // 180度回転は縦横が変わらないので、適用済みかを寸法から判断できない
+        // 寸法が何も語らない3つ。**どちらに倒すかはデコーダで決まる**ので、
+        // 答えはOSで変わる（WICは適用して返す／ImageIOは返さない）
+        //
+        // 180度回転は縦横が変わらない
         let half = HeifInfo {
             stored_width: 4032,
             stored_height: 3024,
@@ -2877,9 +2898,16 @@ mod tests {
             mirror_first: false,
             crop: None,
         };
-        assert!(!needs_manual_transform(4032, 3024, &half));
-
-        // 正方形も同様
+        // 鏡映だけ（自撮り）。回転が無いので寸法は手掛かりにならない
+        let mirrored = HeifInfo {
+            stored_width: 4032,
+            stored_height: 3024,
+            rotation: 0,
+            mirror: Some(0),
+            mirror_first: false,
+            crop: None,
+        };
+        // 正方形は90度回しても寸法が同じ
         let square = HeifInfo {
             stored_width: 1000,
             stored_height: 1000,
@@ -2888,7 +2916,31 @@ mod tests {
             mirror_first: false,
             crop: None,
         };
-        assert!(!needs_manual_transform(1000, 1000, &square));
+
+        #[cfg(target_os = "macos")]
+        {
+            // ImageIOは `irot`/`imir` を適用しない（2026-08-26に実測）ので、
+            // ここを偽に倒すと**上下逆さま・鏡・横倒しがそのまま並ぶ**
+            assert!(
+                needs_manual_transform(4032, 3024, &half),
+                "180度は自分で回す"
+            );
+            assert!(
+                needs_manual_transform(4032, 3024, &mirrored),
+                "鏡映は自分で当てる"
+            );
+            assert!(
+                needs_manual_transform(1000, 1000, &square),
+                "正方形の90度も自分で回す"
+            );
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // WICは適用して返す（実測）。重ねて掛けると二重になる
+            assert!(!needs_manual_transform(4032, 3024, &half));
+            assert!(!needs_manual_transform(4032, 3024, &mirrored));
+            assert!(!needs_manual_transform(1000, 1000, &square));
+        }
     }
 
     #[test]

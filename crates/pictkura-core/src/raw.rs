@@ -827,9 +827,9 @@ fn cr3_hevc_boxes(path: &Path, head: &[u8]) -> Vec<Cr3Hevc> {
 /// 付かない）で、WICはsRGBへ直して返す。直さないデコーダに同じ経路を通すと、
 /// PQのままの画素がタグの無いJPEGに入る。
 ///
-/// デコードはOS任せ（WindowsはWIC）。**macOSは未検証**——
-/// [`crate::heif::decode_mem`] がまだWindowsだけなので、macOSでは `None` が
-/// 返り、従来どおり枠だけになる。
+/// デコードはOS任せ（WindowsはWIC・macOSはImageIO）。**どちらも実測で通っている**
+/// （macOSは2026-08-26に `Canon EOS R5m2` のCRAWで338ms）。デコーダを持たないOSでは
+/// [`crate::heif::decode_mem`] が `None` を返し、従来どおり枠だけになる。
 fn cr3_hevc_preview(boxes: Vec<Cr3Hevc>, floor: u32, min_long_edge: u32) -> Option<Vec<u8>> {
     if boxes.is_empty() {
         return None;
