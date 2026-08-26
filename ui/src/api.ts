@@ -398,6 +398,8 @@ export interface EmptyLibraryReason {
   noRoots: boolean;
   /** 設定にあるのに、そこに無いフォルダ（外付けを挿し忘れた等） */
   missing: string[];
+  /** 実在するのに**読めなかった**フォルダ（権限・macOSのTCC・切れたネットワーク） */
+  unreadable: string[];
   /** 除外の設定で飛ばした項目の名前（先頭3件まで） */
   excluded: string[];
   /** 写真.appのライブラリが直下にある */

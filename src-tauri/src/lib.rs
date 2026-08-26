@@ -1108,6 +1108,8 @@ struct EmptyLibraryDto {
     no_roots: bool,
     /// 設定にあるのに**そこに無い**ルート（外付けを挿し忘れた等）
     missing: Vec<String>,
+    /// 実在するのに**読めなかった**ルート（権限・TCC・切れたネットワーク）
+    unreadable: Vec<String>,
     /// 除外で飛ばした項目の名前（先頭3件まで）
     excluded: Vec<String>,
     /// 写真.appのライブラリが直下にある
@@ -1149,15 +1151,35 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
             out.photo_library = true;
             continue;
         }
+        // **「在るのに読めない」を握り潰さない。** `is_dir()` は通るのに
+        // `read_dir` が落ちるのは、権限・macOSのTCC（`~/Desktop` や外付けへの
+        // アクセスを許していない）・切れたネットワークのとき。ここで黙ると
+        // 「扱える画像がありません」と出てしまう——**1万枚あって、必要なのは
+        // 許可の話**なのに（ゲート2の指摘）
         let Ok(entries) = std::fs::read_dir(root) else {
+            out.unreadable.push(root.display().to_string());
             continue;
         };
+        // **「1つでも除外に当たった」と「全部除外だった」は違う。**
+        // macOSは `~/Pictures` に `.localized` を置き、Finderが覗いた場所には
+        // `.DS_Store` が残る。既定の除外は `.*` を含むので、**本当に空の
+        // フォルダでも「全部除外しています」と言ってしまう**（同）。
+        // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
             // 写真.appのライブラリは名前で分かる（中身は開かない）
             if pictkura_core::import::is_managed_package_path(Path::new(name)) {
                 out.photo_library = true;
+                continue;
+            }
+            let could_have_been_content = entry.file_type().is_ok_and(|t| t.is_dir())
+                || pictkura_core::scanner::has_target_extension(
+                    Path::new(name),
+                    &config.import.extensions,
+                );
+            if !could_have_been_content {
+                continue;
             }
             if config
                 .library
@@ -3775,10 +3797,15 @@ mod tests {
 
         // 除外で全部飛んでいる（写真.app以外）
         std::fs::remove_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
-        std::fs::write(root.join("Thumbs.db"), b"x").unwrap();
+        std::fs::create_dir(root.join(".隠しフォルダ")).unwrap();
         let r = empty_library_reason_of(&config);
         assert!(!r.photo_library);
-        assert_eq!(r.excluded, vec!["Thumbs.db".to_string()], "名前を挙げる");
+        assert_eq!(
+            r.excluded,
+            vec![".隠しフォルダ".to_string()],
+            "中身になり得たものだけ名前を挙げる"
+        );
+        std::fs::remove_dir(root.join(".隠しフォルダ")).unwrap();
 
         // ルート自身が写真.appのライブラリ（フォルダ選択で指してしまった）
         let picked = dir.path().join("選んだ.photoslibrary");
@@ -3790,8 +3817,16 @@ mod tests {
         );
         config.library.roots = vec![root.clone()];
 
+        // **`.DS_Store` だけでは「全部除外」と言わない**（中身になり得ない）
+        std::fs::write(root.join(".DS_Store"), b"x").unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(
+            r.excluded.is_empty(),
+            "Finderが置いた痕跡を「除外のせい」と言わない"
+        );
+        std::fs::remove_file(root.join(".DS_Store")).unwrap();
+
         // 本当に空（何も言うことが無い＝どの旗も立たない）
-        std::fs::remove_file(root.join("Thumbs.db")).unwrap();
         let r = empty_library_reason_of(&config);
         assert!(!r.no_roots && r.missing.is_empty() && !r.photo_library);
         assert!(r.excluded.is_empty());

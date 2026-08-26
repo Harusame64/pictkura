@@ -330,6 +330,25 @@ const DECODER_NOTICE_KEY = "pictkura.decoderNotice";
 export default function App() {
   /** タイムラインの骨組み（日付→枚数、新しい日付順）。全件レコードは持たない */
   const [summary, setSummary] = useState<DaySummary[]>([]);
+  /**
+   * いまの `summary` が、いまの絞り込みに対する**確定した答え**か。
+   *
+   * `reloadAll` の入口で偽に戻す。**0件の検索を消した直後**のように、
+   * 絞り込みだけ先に変わって `summary` が古いままの瞬間があり、そこで
+   * 「まだ写真がありません」と出すと**数千枚あるライブラリの上に**出る
+   */
+  const [settled, setSettled] = useState(false);
+  /**
+   * 起動時の走査が報告を出したか。**出るまで「空です」と言わない**。
+   *
+   * 走査は別スレッドで走り、終わってから `library-updated` と
+   * `startup-scan-report` を出す。最初の `reloadAll` はそれより前にDBを読むので、
+   * **初回起動では正しく `[]` が返る**——そこで理由を出すと、索引中のライブラリに
+   * 「扱える画像がありません」と言うことになる（ゲート2の指摘）。
+   *
+   * 報告が来ないまま終わる道もあるので、待つのは15秒まで
+   */
+  const [scanSettled, setScanSettled] = useState(false);
   /** 取得済みの日 → その日のレコード（可視範囲＋α だけを保持） */
   const [dayItems, setDayItems] = useState<Map<number, MediaItem[]>>(
     () => new Map(),
@@ -575,6 +594,7 @@ export default function App() {
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     inflightRef.current.clear();
+    setSettled(false);
     const [sum, st, mem] = await Promise.all([
       timelineSummary(queryRef.current, filterRef.current),
       getStats(),
@@ -586,6 +606,7 @@ export default function App() {
     setStats(st);
     setMemories(mem);
     setDayItems(new Map());
+    setSettled(true);
   }, []);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
@@ -739,8 +760,10 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let timer: number | undefined;
+    let giveUp: number | undefined;
     const show = (report: StartupScanReport) => {
       if (cancelled) return;
+      setScanSettled(true);
       setSpeedReport(report);
       if (timer != null) window.clearTimeout(timer);
       timer = window.setTimeout(() => setSpeedReport(null), 8000);
@@ -756,11 +779,19 @@ export default function App() {
       unlisten = f;
       const missed = await getStartupReport().catch(() => null);
       if (missed) show(missed);
+      // 報告が来ないまま終わる道もある（起動時の同期が失敗して早期に返る、
+      // あるいは panics::catching に拾われる）。そこで**永久に黙る**と、
+      // ルートを1つも設定していない人に何も言わないアプリになる。
+      // 待つのをやめる線を引いておく——遅れて来た報告は上の `show` が拾う
+      giveUp = window.setTimeout(() => {
+        if (!cancelled) setScanSettled(true);
+      }, 15000);
     })();
     return () => {
       cancelled = true;
       unlisten?.();
       if (timer != null) window.clearTimeout(timer);
+      if (giveUp != null) window.clearTimeout(giveUp);
     };
   }, []);
 
@@ -1092,28 +1123,19 @@ export default function App() {
 
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
-  /** 一度でも `reloadAll` が返ったか。**返る前は「空」と決めない** */
-  const loadedOnceRef = useRef(false);
-  useEffect(() => {
-    loadedOnceRef.current = true;
-  }, [summary]);
+  /**
+   * 「まだ写真がありません」と言ってよい状態か。
+   *
+   * 絞り込みの結果0件・読み込み途中・起動時の走査の途中は**どれも違う**。
+   * 判定は**ここ1か所**に置く——出す条件と聞く条件がずれると、
+   * 古い理由が新しい一覧の上に出る
+   */
+  const canSayEmpty = settled && scanSettled && !filtering && summary.length === 0;
+
   // 一覧が空になったときだけ理由を聞く。空でなくなったら忘れる
   useEffect(() => {
-    // **絞り込みの結果0件と、ライブラリが空なのは別**。種類（`kind`）で
-    // 絞って0件のときに「まだ写真がありません」と出すと、動画を持っていない
-    // 人が「動画」を押しただけで壊れて見える（ゲート1の指摘）
-    if (
-      summary.length > 0 ||
-      query !== "" ||
-      filter !== "all" ||
-      kind !== "all"
-    ) {
+    if (!canSayEmpty) {
       setEmptyReason(null);
-      return;
-    }
-    // **最初の読み込みが返る前に聞かない**。`summary` は `[]` から始まるので、
-    // 中身のあるライブラリでも起動直後に一瞬だけ空に見えうる（同）
-    if (!loadedOnceRef.current) {
       return;
     }
     let alive = true;
@@ -1125,7 +1147,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [summary, summary.length, query, filter, kind]);
+  }, [canSayEmpty]);
 
   const openWizard = useCallback((startPath?: string) => {
     setWizardStart(startPath);
@@ -3673,19 +3695,25 @@ export default function App() {
               それは既定の除外に入っている。理由が出ないと「壊れている」と読まれる。
               **サムネイルでもカレンダーでも出す**（片方だけだと、切り替えた
               とたんに無言へ戻る。ゲート1の指摘） */}
-          {emptyReason && (
+          {canSayEmpty && emptyReason && (
             <div className="empty-library">
               <h2>{t.emptyTitle}</h2>
               <p>
                 {emptyReason.noRoots
                   ? t.emptyNoRoots
                   : emptyReason.missing.length > 0
-                    ? t.emptyMissing(emptyReason.missing.join("、"))
-                    : emptyReason.photoLibrary
-                      ? t.emptyPhotoLibrary
-                      : emptyReason.excluded.length > 0
-                        ? t.emptyAllExcluded(emptyReason.excluded.join("、"))
-                        : t.emptyNothingHere}
+                    ? t.emptyMissing(emptyReason.missing.join(t.listSeparator))
+                    : emptyReason.unreadable.length > 0
+                      ? t.emptyUnreadable(
+                          emptyReason.unreadable.join(t.listSeparator),
+                        )
+                      : emptyReason.photoLibrary
+                        ? t.emptyPhotoLibrary
+                        : emptyReason.excluded.length > 0
+                          ? t.emptyAllExcluded(
+                              emptyReason.excluded.join(t.listSeparator),
+                            )
+                          : t.emptyNothingHere}
               </p>
               <div className="empty-actions">
                 {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
