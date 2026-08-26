@@ -1427,19 +1427,27 @@ export default function App() {
 
       getEmptyLibraryReason()
         .then((r) => {
-          if (!fresh()) return;
-          setEmptyReason(r);
-          if (r.checking) {
-            again();
+          if (!alive || finished) return;
+          if (!r.checking) {
+            // **確かな答えは、古い回のものでも捨てない。**
+            // 連鎖は6回・約30秒で尽きるが、切れたSMB共有では1本目が
+            // それより後に `unreadable` を返してくる——**それが唯一の答え**
+            // なのに、回番号で切ると「確認しています」のまま固まる
+            // （ゲート1の指摘）。新しい確かな答えが先に着けば `finished` が
+            // 立っているので、上書きの向きは狂わない。
+            //
+            // **連鎖も畳む**: 積んである聞き直しを残すと、その5秒の見切りが
+            // いま出したばかりの本当の理由を塗り潰す（ゲート2の指摘）
+            setEmptyReason(r);
+            finished = true;
+            if (retry != null) window.clearTimeout(retry);
+            retry = undefined;
             return;
           }
-          // **確かな答えが来たら連鎖を畳む。** 積んである聞き直しを
-          // 残すと、その5秒の見切りが**いま出したばかりの本当の理由**を
-          // 「確認しています」で塗り潰す——遅いが健康なボリュームで、
-          // 説明が出たあと消える（ゲート2の指摘）
-          finished = true;
-          if (retry != null) window.clearTimeout(retry);
-          retry = undefined;
+          // 「まだ確かめている途中」を塗るのは、自分の回のときだけ
+          if (!fresh()) return;
+          setEmptyReason(r);
+          again();
         })
         // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
         // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
