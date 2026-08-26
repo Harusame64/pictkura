@@ -1596,7 +1596,7 @@ impl ThumbnailService {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn 分数のままの値に単位が付く() {
+    fn rational_values_get_their_unit() {
         // CR3のように文脈を跨いで拾った値（パーサが意味を知らない形）
         assert_eq!(humanize("5/1".into(), Unit::Aperture), "f/5.0");
         assert_eq!(humanize("63/10".into(), Unit::Aperture), "f/6.3");
@@ -1620,7 +1620,7 @@ mod tests {
     }
 
     #[test]
-    fn exif日時はローカル壁時計として往復できる() {
+    fn exif_timestamps_round_trip_as_local_wall_clock() {
         use chrono::{Datelike, TimeZone, Timelike};
         let dt = exif::DateTime::from_ascii(b"2024:08:11 15:30:45").unwrap();
         let ms = exif_dt_to_local_ms(&dt).unwrap();
@@ -1640,7 +1640,7 @@ mod tests {
     }
 
     #[test]
-    fn orientation適用で寸法が入れ替わる() {
+    fn applying_orientation_swaps_the_dimensions() {
         let img = image::DynamicImage::ImageRgb8(image::RgbImage::new(40, 30));
         let rotated = apply_orientation(img.clone(), 6);
         assert_eq!((rotated.width(), rotated.height()), (30, 40));
@@ -1651,7 +1651,7 @@ mod tests {
     }
 
     #[test]
-    fn カメラ名はメーカーの重複を畳む() {
+    fn the_camera_name_folds_a_repeated_maker() {
         let name = |mk: Option<&str>, md: Option<&str>| {
             camera_name(mk.map(String::from), md.map(String::from))
         };
@@ -1675,7 +1675,7 @@ mod tests {
     }
 
     #[test]
-    fn exif情報の無いファイルは空のinfoになる() {
+    fn a_file_without_exif_info_yields_an_empty_info() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("plain.jpg");
         make_test_jpeg(&path, 32, 24);
@@ -1724,7 +1724,7 @@ mod tests {
     }
 
     #[test]
-    fn 版番号が独自のrawでも向きが読める() {
+    fn orientation_is_read_even_from_raw_with_its_own_version_number() {
         // ORF（Olympus/OM）・RW2（Panasonic）はTIFFの版番号が独自で、
         // 直さないと**撮影日時もカメラ名も向きも丸ごと落ちる**。
         // 実物のOM-1で縦位置が横倒しになっていた（0.2・`dev/loadmap.md` 1.3）
@@ -1740,7 +1740,7 @@ mod tests {
     }
 
     #[test]
-    fn 先頭の外を指す項目があっても向きは読める() {
+    fn orientation_is_read_even_when_a_field_points_past_the_head() {
         // ORF・RW2は画素データの項目がファイルのずっと後ろを指す。渡すのは
         // 先頭ぶんだけなので必ず「切れている」と言われる——そこで打ち切ると
         // **向きが丸ごと落ちて縦位置が横倒しになる**（ゲート1のP1）
@@ -1773,7 +1773,7 @@ mod tests {
     }
 
     #[test]
-    fn 日付だけ要るときはrawの絵を取り出さない() {
+    fn no_raw_picture_is_extracted_when_only_the_date_is_needed() {
         // 取り込みの日付決めは全ファイルに1枚ずつ走る。RAWのプレビュー抽出は
         // 形式によってはファイル全体を読む（実測100〜350ms）ので、そこは省く
         let dir = tempfile::tempdir().unwrap();
@@ -1792,7 +1792,7 @@ mod tests {
     }
 
     #[test]
-    fn exifなしのファイルは空のexifデータ() {
+    fn a_file_without_exif_yields_empty_exif_data() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("plain.jpg");
         make_test_jpeg(&path, 64, 48);
@@ -1802,7 +1802,7 @@ mod tests {
     }
 
     #[test]
-    fn process_oneで寸法抽出とサムネイル生成ができる() {
+    fn process_one_extracts_dimensions_and_builds_a_thumbnail() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("photo.jpg");
         make_test_jpeg(&src, 800, 600);
@@ -1841,7 +1841,7 @@ mod tests {
     }
 
     #[test]
-    fn process_oneはタイルのためにrawの全体を読まない() {
+    fn process_one_does_not_read_a_whole_raw_for_one_tile() {
         // ライブラリのサムネイル生成が原寸（長辺1600）を要求すると、
         // 小さいプレビューしか持たない社ではファイル全体を読んで空振りする。
         // クラウドにしか実体が無ければ丸ごとハイドレートになる（ゲート2のP2）
@@ -1958,7 +1958,7 @@ mod tests {
     }
 
     #[test]
-    fn rawは原寸とプレビューの寸法を別々に記録する() {
+    fn raw_records_the_original_and_preview_sizes_separately() {
         // HDR PQのCR3と同じ形: 原寸6000x4000に対して、配るのは小さいプレビュー。
         // 数字だけ小さくして同じ縦横比（3:2）にしてある
         let dir = tempfile::tempdir().unwrap();
@@ -1980,7 +1980,7 @@ mod tests {
     }
 
     #[test]
-    fn 申告が無ければプレビューの寸法を原寸として記録する() {
+    fn without_a_declaration_the_preview_size_is_recorded_as_the_original() {
         // 原寸の申告を持たない社（Nikon NEF・Olympus ORF 等）は今までどおり。
         // 分からない値をでっち上げるより、掴んでいる絵の寸法を入れる
         let dir = tempfile::tempdir().unwrap();
@@ -1994,7 +1994,7 @@ mod tests {
     }
 
     #[test]
-    fn raw以外は申告を信じずに実物の寸法を使う() {
+    fn outside_raw_the_real_size_wins_over_the_declaration() {
         // 編集で縮めた写真は `PixelXDimension` が古いまま残ることがある。
         // 40x30 の絵に 8000x6000 と申告させて、実物のほうが勝つことを見る
         let dir = tempfile::tempdir().unwrap();
@@ -2097,7 +2097,7 @@ mod tests {
     }
 
     #[test]
-    fn コンテナに申告があるrawも原寸へ入れ替える() {
+    fn raw_declaring_in_the_container_also_moves_to_the_original_size() {
         // CR3の `CMT1` ではなく Exif IFD の `PixelXDimension` を通る経路。
         // `read_exif_inner` はRAW以外を落とす早期returnと `patched_tiff_metadata`
         // による丸ごと差し替えを持つので、`original` がそこを生き延びるかを見る
@@ -2119,7 +2119,7 @@ mod tests {
     }
 
     #[test]
-    fn 縦位置のrawは原本もプレビューも向きを当てて記録する() {
+    fn a_portrait_raw_records_both_sizes_the_right_way_up() {
         // 向きを当て忘れると、一覧の枠だけ横向きのまま縦の絵が入る
         let dir = tempfile::tempdir().unwrap();
         let rec = record_after_process(
@@ -2140,7 +2140,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いも向きを当てる() {
+    fn the_backfill_applies_orientation_too() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("portrait.cr3");
         std::fs::write(&src, fake_cr3_oriented(Some((6000, 4000)), (480, 320), 6)).unwrap();
@@ -2151,7 +2151,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは申告が読めれば原寸へ入れ替える() {
+    fn the_backfill_swaps_in_the_original_size_when_the_declaration_reads() {
         // 段階F-4より前に取り込んだ行の想定: width/height にプレビューの寸法が
         // 入っていて、preview_* は空
         let dir = tempfile::tempdir().unwrap();
@@ -2163,7 +2163,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは申告が無ければ今の値を確かめた印にする() {
+    fn without_a_declaration_the_backfill_marks_the_current_value_as_checked() {
         // 印を残さないと、申告を持たない社（NEF・ORF 等）を毎回の起動で読み直す
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("old.cr3");
@@ -2178,7 +2178,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは向きの申告が無くてもdbの値に合わせる() {
+    fn the_backfill_follows_the_db_even_with_no_orientation_declared() {
         // 3周目で変えたところ。Orientationを読み直す実装では拾えない形
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("noorient.cr3");
@@ -2194,7 +2194,7 @@ mod tests {
     }
 
     #[test]
-    fn 正方形のプレビューは向きの申告で決める() {
+    fn a_square_preview_is_decided_by_the_declared_orientation() {
         // 縦横から向きを推せない唯一の形。推すと縦位置が横枠で記録され、
         // しかも確かめた印が付いて二度と直らない。
         //
@@ -2222,7 +2222,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは日付のために箱を辿らない() {
+    fn the_backfill_does_not_walk_the_boxes_for_a_date() {
         // 後追いに要るのは寸法の申告と向きだけ。「撮影日時が空だから」で箱を
         // 辿ると、箱を持たない社（X3F・FFF・MOS）でも1件あたり1MB読み直す。
         // 辿ったかどうかは**箱の中身が拾えたか**で分かるので、CR3の箱を
@@ -2243,7 +2243,7 @@ mod tests {
     }
 
     #[test]
-    fn 途中で落ちた読み出しでも絵は探す() {
+    fn a_read_that_failed_midway_still_looks_for_a_picture() {
         // コンテナ読みは開けた後に落ちることがある（TIFF系RAWはファイル全体を
         // 読むので、巨大なRAWや外付けの一瞬の切断）。降りてしまうと、先頭16MBに
         // ある埋め込みプレビューから作れたはずのサムネイルまで落とす
@@ -2266,7 +2266,7 @@ mod tests {
     }
 
     #[test]
-    fn 読み出しが落ちたファイルでは日付のために全体を読まない() {
+    fn a_file_whose_read_failed_is_not_read_whole_for_a_date() {
         // 日付が絵の中にしか無い社のための探索は、要求する長辺が大きいので
         // **16MBで止まらず最大128MBまで読む**。読み出しが落ちた直後の
         // ファイルにそれを払う意味は無い
@@ -2286,7 +2286,7 @@ mod tests {
     }
 
     #[test]
-    fn 読み切れなかったrawには確かめた印を付けない() {
+    fn a_raw_that_could_not_be_read_through_is_not_marked_as_checked() {
         // 上の続き: 絵が見つかっても、原寸の申告が取れていないのに印を付けると
         // 「プレビューの寸法を原寸と名乗る行」が確定して二度と直らない
         let readable = recorded_dimensions(true, true, (3504, 2336), (480, 320), 1);
@@ -2313,7 +2313,7 @@ mod tests {
     }
 
     #[test]
-    fn 開けないファイルには確かめた印を付けない() {
+    fn a_file_that_cannot_be_opened_is_not_marked_as_checked() {
         // 権限や共有ロックで一時的に読めないだけなら、読める日に拾い直す
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("gone.cr3");
@@ -2322,11 +2322,12 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn 共有ロックが掛かったrawには確かめた印を付けない() {
+    fn a_raw_under_a_sharing_lock_is_not_marked_as_checked() {
         // **見ているのは入口だけ**——ロックを先に握るので、最初の
         // `File::open` で落ちる。「1度目は通ったのに2度目が落ちる」隙間は
         // ここからは作れないので、そちらは下位の関数を直接見る側で見張る
-        // （`raw::箱を辿れないcr3は空と区別する` と `raw::読めないorfは…`）。
+        // （`raw::a_cr3_whose_boxes_cannot_be_walked_is_told_apart_from_an_empty_one`
+        // と `raw::an_unreadable_orf_is_told_apart_from_a_non_applicable_one`）。
         // それでも `is_file()` の門を通った後で読めなくなる筋は実在するので、
         // 後追いの入口として1本置いておく
         use std::os::windows::fs::OpenOptionsExt;
@@ -2349,7 +2350,7 @@ mod tests {
     }
 
     #[test]
-    fn 後追いは今の値より小さい申告を信じない() {
+    fn the_backfill_distrusts_a_declaration_smaller_than_the_current_value() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("old.cr3");
         std::fs::write(&src, fake_cr3(Some((160, 120)), (480, 320))).unwrap();
@@ -2363,7 +2364,7 @@ mod tests {
     }
 
     #[test]
-    fn プレビューより小さい申告は信じない() {
+    fn a_declaration_smaller_than_the_preview_is_distrusted() {
         // 申告を読み違えたときに、記録が実物より小さくなるのを防ぐ門
         let dir = tempfile::tempdir().unwrap();
         let rec = record_after_process(
@@ -2380,7 +2381,7 @@ mod tests {
     }
 
     #[test]
-    fn 旧配置のサムネイルは再生成時に削除される() {
+    fn thumbnails_in_the_old_layout_are_deleted_on_rebuild() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("photo.jpg");
         make_test_jpeg(&src, 800, 600);
@@ -2409,7 +2410,7 @@ mod tests {
     }
 
     #[test]
-    fn キューは可視優先で払い出す() {
+    fn the_queue_hands_out_visible_work_first() {
         let queue = ThumbQueue::new();
         queue.enqueue(&[1, 2, 3, 4, 5]);
         queue.prioritize(&[4, 3]);
@@ -2422,7 +2423,7 @@ mod tests {
     }
 
     #[test]
-    fn キューは重複投入を無視する() {
+    fn the_queue_ignores_duplicate_pushes() {
         let queue = ThumbQueue::new();
         queue.enqueue(&[1, 2]);
         queue.enqueue(&[2, 3]);
@@ -2432,7 +2433,7 @@ mod tests {
     }
 
     #[test]
-    fn 処理中のidはcompleteまで再投入されない() {
+    fn an_id_in_flight_is_not_pushed_again_until_complete() {
         let queue = ThumbQueue::new();
         queue.enqueue(&[1]);
         assert_eq!(queue.pop(), Some((1, false))); // 1は処理中になる
@@ -2445,7 +2446,7 @@ mod tests {
     }
 
     #[test]
-    fn shutdownでpopがnoneを返す() {
+    fn pop_returns_none_after_shutdown() {
         let queue = ThumbQueue::new();
         let q2 = queue.clone();
         let handle = std::thread::spawn(move || q2.pop());
@@ -2455,7 +2456,7 @@ mod tests {
     }
 
     #[test]
-    fn サービスの自動パスはメタデータのみで高品質は作らない() {
+    fn the_service_background_path_stops_at_metadata() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("svc.db");
         let mut db = Db::open(&db_path).unwrap();
@@ -2504,7 +2505,7 @@ mod tests {
     }
 
     #[test]
-    fn 可視要求で高品質まで生成される() {
+    fn a_visible_request_builds_the_high_quality_thumbnail() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("vis.db");
         let mut db = Db::open(&db_path).unwrap();
@@ -2548,7 +2549,7 @@ mod tests {
     }
 
     #[test]
-    fn 自動パスは埋め込みなし画像をメタデータのみで止める() {
+    fn the_background_path_stops_at_metadata_for_images_with_no_embedded_preview() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("plain.jpg");
         make_test_jpeg(&src, 640, 480);
@@ -2581,7 +2582,7 @@ mod tests {
     /// メタデータだけが入る。撮影日時はmtimeへ落ちる。
     /// 一覧では既定の縦横比の枠が並び、絵の場所が空くのが期待動作
     #[test]
-    fn 動画はコンテナが読めなくてもメタデータまでは書く() {
+    fn a_video_still_writes_metadata_when_the_container_cannot_be_read() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("broken.mp4");
         std::fs::write(&src, b"not really a video").unwrap();
@@ -2619,7 +2620,7 @@ mod tests {
     /// 印が無いと `thumb_state < 2` の再投入に毎回引っかかり、
     /// スクロールのたびにファイルを開き直してDBへ書き続ける（レビュー指摘）。
     #[test]
-    fn svgはサムネイル不要の印で止まる() {
+    fn svg_stops_with_the_no_thumbnail_needed_mark() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("v.svg");
         std::fs::write(&src, br#"<svg width="800" height="600"></svg>"#).unwrap();
@@ -2645,7 +2646,7 @@ mod tests {
     }
 
     #[test]
-    fn 詰め直しが要る形式だけを見分ける() {
+    fn only_the_formats_that_need_repacking_are_singled_out() {
         // WebViewが描けない: JPEGへ詰め直す
         for name in [
             "a.cr3", "a.CR2", "a.heic", "a.HEIF", "a.hif", "a.tif", "a.TIFF",
@@ -2667,7 +2668,7 @@ mod tests {
     }
 
     #[test]
-    fn 撮影情報の数値を人が読む形に整える() {
+    fn capture_info_numbers_are_shaped_for_people_to_read() {
         // 分数のまま出る形（CR3の CMT2 など）
         assert_eq!(humanize("24/1".into(), Unit::Focal), "24 mm");
         assert_eq!(humanize("5/1".into(), Unit::Aperture), "f/5.0");
@@ -2695,7 +2696,7 @@ mod tests {
     /// `OFFLINE` 属性を立てたローカルファイルで代用する。
     #[cfg(windows)]
     #[test]
-    fn 自動パスはクラウドのみのファイルに触らない() {
+    fn the_background_path_leaves_cloud_only_files_alone() {
         use std::os::windows::ffi::OsStrExt;
 
         let dir = tempfile::tempdir().unwrap();
@@ -2739,7 +2740,7 @@ mod tests {
     }
 
     #[test]
-    fn 失敗上限を超えたidは再投入されない() {
+    fn an_id_past_the_failure_limit_is_not_pushed_again() {
         let queue = ThumbQueue::new();
         for _ in 0..3 {
             queue.record_failure(7);
@@ -2791,7 +2792,7 @@ mod tests {
     }
 
     #[test]
-    fn 絵の中にしか日付が無いrawでも取り込みの日付が取れる() {
+    fn import_finds_the_date_even_when_only_the_picture_carries_it() {
         // Fujifilm RAF・Sigma X3F・Kodak KDCは、撮影日時をコンテナに持たず
         // **埋め込みプレビューJPEGのEXIFにしか書かない**。日付だけ要る経路で
         // ここを省くと、取り込みがその1枚だけファイル名かmtimeの日付で

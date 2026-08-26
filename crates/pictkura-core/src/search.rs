@@ -528,7 +528,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 種類は拡張子で決まる() {
+    fn the_kind_is_decided_by_the_extension() {
         use std::path::Path;
         assert_eq!(MediaKind::from_path(Path::new("a.JPG")), MediaKind::Photo);
         assert_eq!(MediaKind::from_path(Path::new("a.cr3")), MediaKind::Raw);
@@ -544,7 +544,7 @@ mod tests {
     /// 足した指定は自由語の一部として飲み込まれる。ここを変えるなら、
     /// 畳み込む側も一緒に見直すこと。
     #[test]
-    fn 閉じていない引用符はうしろの指定を飲み込む() {
+    fn an_unclosed_quote_swallows_what_follows() {
         let kinds = |s: &str| parse_query(s, MediaFilter::All).kinds;
         assert_eq!(kinds("\"holiday kind:raw"), None, "うしろだと消える");
         assert_eq!(
@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn 種類の指定を読む() {
+    fn reads_the_kind_term() {
         let kinds = |s: &str| parse_query(s, MediaFilter::All).kinds;
         assert_eq!(kinds("kind:raw"), Some(vec![MediaKind::Raw]));
         assert_eq!(kinds("種類:動画"), Some(vec![MediaKind::Video]));
@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn cjkはbigramへ展開される() {
+    fn cjk_expands_into_bigrams() {
         // 索引側は末尾1文字も単独トークンにする（どの位置の1文字でも引けるように）
         assert_eq!(index_text("沖縄旅行"), " 沖縄 縄旅 旅行 行 ");
         // 1文字のCJKはその文字自身
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn 分かち書きしない言語はまとめてbigramになる() {
+    fn languages_without_word_spacing_all_become_bigrams() {
         // タイ語（สวัสดี = こんにちは）。unicode61だと1トークンで中間一致できない
         assert_eq!(expand("สวัส", false), " สว วั ัส ");
         // ハングルも対象（助詞が続けて書かれるぶん部分一致が効くようになる）
@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn 分かち書きしない言語も中間一致のmatch式になる() {
+    fn languages_without_word_spacing_also_build_a_middle_matching_expression() {
         // 語の途中（วั）が phrase の一部として引ける
         assert_eq!(term_to_match("สวัส").unwrap(), "\"สว วั ัส\"*");
         // ラテン語はトークンそのまま＋前方一致
@@ -607,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn cjk語はフレーズ_ascii語は前方一致になる() {
+    fn cjk_becomes_a_phrase_and_ascii_a_prefix() {
         assert_eq!(term_to_match("沖縄旅行").unwrap(), "\"沖縄 縄旅 旅行\"*");
         assert_eq!(term_to_match("旅行").unwrap(), "\"旅行\"*");
         assert_eq!(term_to_match("沖").unwrap(), "\"沖\"*");
@@ -620,13 +620,13 @@ mod tests {
     }
 
     #[test]
-    fn 引用符はエスケープされる() {
+    fn quotes_are_escaped() {
         let m = term_to_match("a\"b").unwrap();
         assert_eq!(m, "\"a\" \"b\"*");
     }
 
     #[test]
-    fn yearは年だけで絞れる() {
+    fn year_narrows_by_the_year_alone() {
         // `2019年` と同じ範囲になる
         let q = parse_query("year:2019", crate::MediaFilter::All);
         assert_eq!(q.day_from, Some(20190101));
@@ -665,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn 日付は単位か区切りがあるときだけ認識する() {
+    fn a_date_is_recognised_only_with_a_unit_or_a_separator() {
         assert_eq!(parse_date_range("2019年"), Some((20190101, 20191231)));
         assert_eq!(parse_date_range("2019-08"), Some((20190801, 20190831)));
         assert_eq!(parse_date_range("2019年8月"), Some((20190801, 20190831)));
@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn クエリを条件へ分解する() {
+    fn breaks_the_query_into_conditions() {
         let q = parse_query("沖縄 camera:α7 2019年8月 ★", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["沖縄"]);
         assert_eq!(q.camera, vec!["α7"]);
@@ -699,7 +699,7 @@ mod tests {
 
     /// 選別の印（⚑）は★とは**別の入口**であること（0.2 ②）
     #[test]
-    fn 選別の印はお気に入りとは別の条件になる() {
+    fn the_pick_mark_is_a_condition_of_its_own() {
         let q = parse_query("⚑", crate::MediaFilter::All);
         assert!(q.picked_only && !q.favorites_only);
         let q = parse_query("pick:1", crate::MediaFilter::All);
@@ -712,20 +712,20 @@ mod tests {
     }
 
     #[test]
-    fn 引用符で空白を含む語を指定できる() {
+    fn quotes_let_a_term_hold_spaces() {
         let q = parse_query("\"家族 写真\" folder:\"2019 夏\"", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["家族 写真"]);
         assert_eq!(q.folder, vec!["2019 夏"]);
     }
 
     #[test]
-    fn 全角スペースも区切りになる() {
+    fn a_full_width_space_separates_too() {
         let q = parse_query("沖縄　花火", crate::MediaFilter::All);
         assert_eq!(q.terms, vec!["沖縄", "花火"]);
     }
 
     #[test]
-    fn 空のクエリは絞り込みなし() {
+    fn an_empty_query_narrows_nothing() {
         let q = parse_query("   ", crate::MediaFilter::All);
         assert!(q.is_empty());
         assert!(!q.needs_fts());
@@ -737,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn 自由語とフォルダ指定はそれぞれのmatch式になる() {
+    fn a_free_term_and_a_folder_term_each_get_their_own_match_expression() {
         let q = parse_query("沖縄 dsc folder:旅行", crate::MediaFilter::All);
         assert_eq!(
             q.term_matches(),
@@ -750,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn 索引語を作れない語は落とさずnoneで返す() {
+    fn a_term_with_no_index_token_is_returned_as_none_not_dropped() {
         // 条件ごと落とすと絞り込みが消えて全件が返ってしまうため、
         // 「一致なし」としてDB側で扱えるよう語自体は残す
         let q = parse_query("!!! 沖縄", crate::MediaFilter::All);
@@ -762,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn カメラ指定はftsに含めない() {
+    fn the_camera_term_is_kept_out_of_fts() {
         // camerasテーブル＋camera_idのインデックスで解決するため、MATCH式には出ない
         let q = parse_query("camera:α7", crate::MediaFilter::All);
         assert!(q.term_matches().is_empty());
@@ -772,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn 日付範囲は狭い方へ絞り込まれる() {
+    fn date_ranges_narrow_to_the_tighter_one() {
         let q = parse_query("2019年 2019年8月", crate::MediaFilter::All);
         assert_eq!((q.day_from, q.day_to), (Some(20190801), Some(20190831)));
     }

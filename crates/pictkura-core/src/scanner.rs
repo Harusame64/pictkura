@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn パターンマッチの基本() {
+    fn pattern_matching_basics() {
         assert!(matches_pattern(".hidden", ".*"));
         assert!(matches_pattern("Thumbs.db", "thumbs.db"));
         assert!(matches_pattern("foo.tmp", "*.tmp"));
@@ -512,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn 敵対的パターンでも高速に終わる() {
+    fn even_a_hostile_pattern_finishes_fast() {
         // 旧再帰実装では指数時間になっていた形
         let name = "a".repeat(60);
         let pattern = format!("{}b", "a*".repeat(30));
@@ -522,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn 対象拡張子のファイルだけ収集する() {
+    fn only_files_with_a_wanted_extension_are_collected() {
         let dir = tempfile::tempdir().unwrap();
         write_file(dir.path(), "a.jpg", b"aaa");
         write_file(dir.path(), "b.JPG", b"bbbb");
@@ -548,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn 存在しないルートはok_rootsに入らない() {
+    fn a_root_that_does_not_exist_stays_out_of_ok_roots() {
         let missing = PathBuf::from("Z:/no/such/root");
         let outcome = scan_roots(std::slice::from_ref(&missing), &jpg_extensions(), &[]);
         assert!(outcome.files.is_empty());
@@ -556,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn 除外パターンでディレクトリごと枝刈りされる() {
+    fn an_exclude_pattern_prunes_the_whole_directory() {
         let dir = tempfile::tempdir().unwrap();
         write_file(dir.path(), "keep/a.jpg", b"a");
         write_file(dir.path(), ".git/b.jpg", b"b");
@@ -580,7 +580,7 @@ mod tests {
     /// 本番が通る `filter_entry` の枝が変わったときに緑のまま通ってしまう。
     /// **OS非依存**——Windowsでも外付けHDD経由で同じ名前のフォルダに出会う
     #[test]
-    fn 既定の除外は写真ライブラリのパッケージを弾く() {
+    fn the_default_excludes_keep_photo_library_packages_out() {
         let dir = tempfile::tempdir().unwrap();
         // パッケージの中身（日本語環境と英語環境の両方の名前）
         write_file(
@@ -620,7 +620,7 @@ mod tests {
     /// `scan_roots` には置かない（あちらに渡るのは監視が拾った移動先フォルダと
     /// 取り込み元で、どちらも設定されたルートではない）
     #[test]
-    fn パッケージはルートに指定されても索引しない() {
+    fn a_package_is_not_indexed_even_when_named_as_a_root() {
         let dir = tempfile::tempdir().unwrap();
         write_file(
             dir.path(),
@@ -666,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    fn 枝刈りなしのprunedスキャンはフルスキャンと同じファイルを返す() {
+    fn a_pruned_scan_with_nothing_to_prune_returns_what_a_full_scan_does() {
         let dir = tempfile::tempdir().unwrap();
         write_file(dir.path(), "a.jpg", b"aaa");
         write_file(dir.path(), "sub/b.jpg", b"bb");
@@ -694,7 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn mtime一致のディレクトリはファイル列挙をスキップする() {
+    fn a_directory_with_a_matching_mtime_skips_listing_its_files() {
         let dir = tempfile::tempdir().unwrap();
         write_file(dir.path(), "stable/a.jpg", b"aaa");
         write_file(dir.path(), "stable/deep/b.jpg", b"bb");
@@ -718,7 +718,7 @@ mod tests {
     }
 
     #[test]
-    fn 変更のあったディレクトリだけが再列挙される() {
+    fn only_changed_directories_are_listed_again() {
         let dir = tempfile::tempdir().unwrap();
         write_file(dir.path(), "stable/a.jpg", b"aaa");
         write_file(dir.path(), "hot/b.jpg", b"bb");
@@ -760,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn スキップ中に既知の子ディレクトリが消えていたらルート失敗扱い() {
+    fn a_known_child_gone_during_a_skip_fails_the_root() {
         let dir = tempfile::tempdir().unwrap();
         write_file(dir.path(), "keep/a.jpg", b"aaa");
         write_file(dir.path(), "gone/b.jpg", b"bb");
@@ -794,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn 存在しないルートのprunedスキャンはok_rootsに入らない() {
+    fn a_pruned_scan_of_a_missing_root_stays_out_of_ok_roots() {
         let missing = PathBuf::from("Z:/no/such/root");
         let outcome = scan_roots_pruned(
             std::slice::from_ref(&missing),

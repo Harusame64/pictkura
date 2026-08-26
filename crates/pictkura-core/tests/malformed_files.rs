@@ -464,7 +464,7 @@ fn feed_as_every_extension(dir: &Path, label: &str, bytes: &[u8]) {
 /// 検査は**解析器の中を一度も歩いていない**——落ちないのは当たり前で、
 /// 何も確かめていないことになる。
 #[test]
-fn 細工したファイルが本当に読めている() {
+fn the_crafted_files_really_do_read() {
     let dir = tempfile::tempdir().unwrap();
 
     let heic = dir.path().join("細工.heic");
@@ -508,7 +508,7 @@ fn 細工したファイルが本当に読めている() {
 }
 
 #[test]
-fn 空とごみは何形式として読ませても落ちない() {
+fn empty_and_garbage_survive_being_read_as_any_format() {
     let dir = tempfile::tempdir().unwrap();
     let mut rng = Xorshift(0x1234_5678_9abc_def0);
 
@@ -526,7 +526,7 @@ fn 空とごみは何形式として読ませても落ちない() {
 }
 
 #[test]
-fn 途中で切れた画像や動画でも落ちない() {
+fn an_image_or_video_cut_off_partway_does_not_bring_us_down() {
     let dir = tempfile::tempdir().unwrap();
     for (label, whole) in [
         ("heic", plausible_heic()),
@@ -555,7 +555,7 @@ fn 途中で切れた画像や動画でも落ちない() {
 }
 
 #[test]
-fn 長さの欄が嘘の箱でも落ちない() {
+fn a_box_lying_about_its_length_does_not_bring_us_down() {
     let dir = tempfile::tempdir().unwrap();
     for (label, bytes) in hostile_boxes() {
         feed_as_every_extension(dir.path(), label, &bytes);
@@ -570,7 +570,7 @@ fn 長さの欄が嘘の箱でも落ちない() {
 }
 
 #[test]
-fn 壊れたsvgでも落ちない() {
+fn a_broken_svg_does_not_bring_us_down() {
     let dir = tempfile::tempdir().unwrap();
     for (label, bytes) in hostile_svgs() {
         feed_as_every_extension(dir.path(), label, &bytes);
@@ -581,7 +581,7 @@ fn 壊れたsvgでも落ちない() {
 }
 
 #[test]
-fn 危ない名前でも日付の読み取りが落ちない() {
+fn a_dangerous_name_does_not_break_the_date_reading() {
     let dir = tempfile::tempdir().unwrap();
     for name in hostile_names() {
         let path = dir.path().join(name);
@@ -600,7 +600,7 @@ fn 危ない名前でも日付の読み取りが落ちない() {
 }
 
 #[test]
-fn 実在しないファイルでも落ちない() {
+fn a_file_that_does_not_exist_does_not_bring_us_down() {
     let dir = tempfile::tempdir().unwrap();
     for ext in EXTS {
         feed_every_reader(&dir.path().join(format!("居ない.{ext}")));

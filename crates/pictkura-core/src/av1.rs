@@ -769,7 +769,7 @@ mod tests {
     use super::*;
 
     /// タイルの範囲が「隙間なく・重なりなく」出力を覆うことを確かめる。
-    fn 継ぎ目を確かめる(tiles: &[(usize, usize)], rect: usize, step: usize, out: usize) {
+    fn check_seams(tiles: &[(usize, usize)], rect: usize, step: usize, out: usize) {
         let mut covered = vec![0u8; out];
         for &(origin, size) in tiles {
             let (from, to) = tile_output_range(origin, size, rect, step, out);
@@ -784,25 +784,25 @@ mod tests {
     }
 
     #[test]
-    fn タイルの範囲が隙間なく出力を覆う() {
+    fn the_tile_ranges_cover_the_output_with_no_gaps() {
         // 512四方が4枚（2048px）を、1/1・1/2・1/4に落として貼る
         let tiles: Vec<(usize, usize)> = (0..4).map(|i| (i * 512, 512)).collect();
         for step in [1, 2, 4] {
-            継ぎ目を確かめる(&tiles, 0, step, 2048 / step);
+            check_seams(&tiles, 0, step, 2048 / step);
         }
     }
 
     #[test]
-    fn 切り出しが効いていても継ぎ目がずれない() {
+    fn the_seams_hold_even_with_a_crop_applied() {
         // clap で 100..1700 を切り出した状態（rect が 0 でない）
         let tiles: Vec<(usize, usize)> = (0..4).map(|i| (i * 512, 512)).collect();
         for step in [1, 2, 3] {
-            継ぎ目を確かめる(&tiles, 100, step, 1600 / step);
+            check_seams(&tiles, 100, step, 1600 / step);
         }
     }
 
     #[test]
-    fn 端のタイルは出力の外へはみ出さない() {
+    fn an_edge_tile_does_not_reach_outside_the_output() {
         // 最後のタイルが出力より大きい（grid の切り落とし）
         let (from, to) = tile_output_range(1536, 512, 0, 1, 2000);
         assert_eq!((from, to), (1536, 2000));
@@ -811,14 +811,14 @@ mod tests {
     }
 
     #[test]
-    fn 切り出しより手前のタイルは1画素も描かない() {
+    fn a_tile_before_the_crop_draws_no_pixel_at_all() {
         // rect=1000 なのに 0..512 のタイル＝完全に切り出しの外
         let (from, to) = tile_output_range(0, 512, 1000, 1, 500);
         assert_eq!(from, to, "描く範囲が空でないと左端に別のタイルが写り込む");
     }
 
     #[test]
-    fn pqは拡散白を白として出す() {
+    fn pq_puts_out_diffuse_white_as_white() {
         // PQで203ニト（拡散白）の信号は、SDRのほぼ白になるべき。
         // ここが暗いと、HDR写真の一覧だけ全体的に眠くなる
         let signal = pq_signal(203.0);
@@ -828,7 +828,7 @@ mod tests {
     }
 
     #[test]
-    fn pqのハイライトは白飛びせずに畳まれる() {
+    fn pq_highlights_fold_in_without_blowing_out() {
         let c = Color::from_cicp(1, true, 16, 1);
         let lut = ToneLut::new(Tone::Pq);
         let white = c.to_sdr([pq_signal(203.0) * 255.0; 3], &lut)[0];
@@ -840,7 +840,7 @@ mod tests {
     }
 
     #[test]
-    fn hlgも拡散白が白になる() {
+    fn hlg_turns_diffuse_white_into_white_too() {
         // HLGは信号75%が拡散白
         let c = Color::from_cicp(1, true, 18, 1);
         let [r, ..] = c.to_sdr([0.75 * 255.0; 3], &ToneLut::new(Tone::Hlg));
@@ -848,7 +848,7 @@ mod tests {
     }
 
     #[test]
-    fn 可逆のhdrも直す() {
+    fn lossless_hdr_is_corrected_too() {
         // `avifenc --lossless` は係数を0（変換しない）にする。
         // 「変換しない」で早々に返すと、PQのまま出て眠い絵になる
         let c = Color::from_cicp(0, true, 16, 9);
@@ -861,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn 拡散白は白のすぐ手前に収まる() {
+    fn diffuse_white_lands_just_short_of_white() {
         // 畳み始めを1.0ちょうどに置くと上が全部潰れ、早すぎると白がくすむ。
         // 実際にどこへ落ちるかを固定して、次に触る人が驚かないようにする
         let c = Color::from_cicp(1, true, 16, 1);
@@ -870,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn sdrはhdrの処理を通らない() {
+    fn sdr_does_not_go_through_the_hdr_path() {
         // 伝え方がSDRなら、値がそのまま出る（余計な変換を挟まない）
         let c = Color::from_cicp(1, true, 1, 1);
         assert_eq!(c.to_rgb(128, 128, 128, None), [128, 128, 128]);
@@ -888,7 +888,7 @@ mod tests {
     }
 
     #[test]
-    fn 名乗るだけの巨大な寸法は展開しない() {
+    fn a_huge_size_that_is_merely_claimed_is_not_decoded() {
         // 小さいファイルが65535四方を名乗れる（AV1の上限）。
         // 素通しにすると確保に失敗してプロセスごと落ちる
         let source = AvifSource {
@@ -916,7 +916,7 @@ mod tests {
     }
 
     #[test]
-    fn 広色域は原色ごとに別の行列を使う() {
+    fn a_wide_gamut_uses_a_different_matrix_per_primaries() {
         // BT.2020 と Display P3 は色域が違うので、同じ行列で移すと色がずれる
         let green = [0.0, 1.0, 0.0];
         let bt2020 = convert(green, BT2020_TO_SRGB);
@@ -927,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn 原色の指定で色域を選ぶ() {
+    fn the_primaries_choose_the_gamut() {
         assert_eq!(Color::from_cicp(1, true, 16, 9).gamut, Gamut::Bt2020);
         assert_eq!(Color::from_cicp(1, true, 16, 12).gamut, Gamut::DisplayP3);
         assert_eq!(Color::from_cicp(1, true, 16, 1).gamut, Gamut::Srgb);
@@ -936,28 +936,28 @@ mod tests {
     }
 
     #[test]
-    fn 限定レンジの黒と白が振り切る() {
+    fn limited_range_black_and_white_reach_the_ends() {
         let c = Color::from_cicp(1, false, 1, 1);
         assert_eq!(c.to_rgb(16, 128, 128, None), [0, 0, 0]);
         assert_eq!(c.to_rgb(235, 128, 128, None), [255, 255, 255]);
     }
 
     #[test]
-    fn フルレンジは伸ばさない() {
+    fn full_range_is_not_stretched() {
         let c = Color::from_cicp(1, true, 1, 1);
         assert_eq!(c.to_rgb(0, 128, 128, None), [0, 0, 0]);
         assert_eq!(c.to_rgb(255, 128, 128, None), [255, 255, 255]);
     }
 
     #[test]
-    fn identityはgbrとしてそのまま読む() {
+    fn identity_is_read_as_gbr_untouched() {
         let c = Color::from_cicp(0, true, 1, 1);
         // Y=G / U=B / V=R
         assert_eq!(c.to_rgb(10, 20, 30, None), [30, 10, 20]);
     }
 
     #[test]
-    fn 未指定はbt601に倒す() {
+    fn unspecified_falls_back_to_bt601() {
         let unspecified = Color::from_cicp(2, false, 1, 1);
         let bt601 = Color::from_cicp(6, false, 1, 1);
         assert_eq!(unspecified.kr, bt601.kr);

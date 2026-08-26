@@ -264,7 +264,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 追加した形式のmimeを返す() {
+    fn returns_the_mime_of_the_formats_we_added() {
         assert_eq!(mime_for_path(std::path::Path::new("a.bmp")), "image/bmp");
         assert_eq!(mime_for_path(std::path::Path::new("a.gif")), "image/gif");
         assert_eq!(
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn windows形式のurlを解釈できる() {
+    fn parses_a_windows_style_url() {
         assert_eq!(
             parse_media_url("http://media.localhost/full/123"),
             library(ServeKind::Full, 123)
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn mac_linux形式のurlを解釈できる() {
+    fn parses_a_mac_or_linux_style_url() {
         assert_eq!(
             parse_media_url("media://localhost/full/7"),
             library(ServeKind::Full, 7)
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn パーセントエンコードされたurlを解釈できる() {
+    fn parses_a_percent_encoded_url() {
         // convertFileSrcはパス全体をencodeURIComponentする
         assert_eq!(
             parse_media_url("http://media.localhost/thumb%2F14"),
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn クエリ文字列は無視される() {
+    fn the_query_string_is_ignored() {
         assert_eq!(
             parse_media_url("http://media.localhost/full/123?v=2"),
             library(ServeKind::Full, 123)
@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn 不正なurlはnone() {
+    fn an_invalid_url_yields_none() {
         assert_eq!(parse_media_url("http://media.localhost/full/abc"), None);
         assert_eq!(parse_media_url("http://media.localhost/unknown/1"), None);
         assert_eq!(parse_media_url("http://media.localhost/"), None);
@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn 取り込み元のパスを16進から復元できる() {
+    fn the_source_path_is_restored_from_hex() {
         // "D:\DCIM\a.jpg" のUTF-8バイト列を16進にしたもの
         let hex: String = r"D:\DCIM.jpg"
             .as_bytes()
@@ -359,14 +359,14 @@ mod tests {
     }
 
     #[test]
-    fn 壊れた16進のsrcは拒否する() {
+    fn a_broken_hex_src_is_refused() {
         assert_eq!(parse_media_url("http://media.localhost/src/zz"), None);
         assert_eq!(parse_media_url("http://media.localhost/src/abc"), None);
         assert_eq!(parse_media_url("http://media.localhost/src/"), None);
     }
 
     #[test]
-    fn 動画のurlを解釈できる() {
+    fn parses_a_video_url() {
         assert_eq!(
             parse_media_url("http://media.localhost/video/9"),
             library(ServeKind::Video, 9)
@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn 動画のmimeを返す() {
+    fn returns_the_video_mime() {
         assert_eq!(mime_for_path(Path::new("a.MP4")), "video/mp4");
         assert_eq!(mime_for_path(Path::new("a.mov")), "video/quicktime");
         assert_eq!(mime_for_path(Path::new("a.m2ts")), "video/mp2t");
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn rangeヘッダを解釈する() {
+    fn parses_the_range_header() {
         assert_eq!(parse_range("bytes=0-", 1000), sat(0, 999));
         assert_eq!(parse_range("bytes=100-199", 1000), sat(100, 199));
         assert_eq!(parse_range("bytes=900-", 1000), sat(900, 999));
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn 満たせないrangeは416() {
+    fn an_unsatisfiable_range_is_416() {
         assert_eq!(
             parse_range("bytes=1000-", 1000),
             RangeRequest::Unsatisfiable
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn 読めないrangeは無視する() {
+    fn an_unreadable_range_is_ignored() {
         // RFC 9110: 理解できない Range は無視して普通に返す。416で突き返すと、
         // Rangeを付けたせいでファイルが取れなくなる
         assert_eq!(parse_range("items=0-10", 1000), RangeRequest::Ignore);
@@ -435,7 +435,7 @@ mod tests {
     const WHOLE: u64 = 64 * 1024 * 1024;
 
     #[test]
-    fn rangeが無ければ小さいファイルは丸ごと返す() {
+    fn without_a_range_a_small_file_is_returned_whole() {
         assert_eq!(plan_range(None, 1000, CHUNK, WHOLE), RangeReply::Whole);
         assert_eq!(plan_range(None, WHOLE, CHUNK, WHOLE), RangeReply::Whole);
         // 空ファイルも200（0バイト）で返す
@@ -443,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn rangeが無くても大きいファイルは先頭だけ返す() {
+    fn without_a_range_a_large_file_returns_only_its_head() {
         assert_eq!(
             plan_range(None, WHOLE + 1, CHUNK, WHOLE),
             RangeReply::Partial {
@@ -454,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn 要求が末尾までなら刻んで返す() {
+    fn a_request_reaching_the_end_is_returned_in_slices() {
         // `<video>` の最初の要求。2GBを丸ごと載せず4MiBだけ返す
         let len = 2 * 1024 * 1024 * 1024;
         assert_eq!(
@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn 短い要求はそのまま返す() {
+    fn a_short_request_is_returned_as_is() {
         // moovを探す小さな要求は刻まれない
         assert_eq!(
             plan_range(Some("bytes=0-1023"), 100_000_000, CHUNK, WHOLE),
@@ -495,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn 満たせない要求は416を返す計画になる() {
+    fn an_unsatisfiable_request_plans_a_416() {
         assert_eq!(
             plan_range(Some("bytes=200000-"), 1000, CHUNK, WHOLE),
             RangeReply::Unsatisfiable
@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn mime判定() {
+    fn mime_detection() {
         assert_eq!(mime_for_path(Path::new("a.JPG")), "image/jpeg");
         assert_eq!(mime_for_path(Path::new("a.webp")), "image/webp");
         assert_eq!(

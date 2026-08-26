@@ -450,20 +450,20 @@ impl Config {
 mod tests {
     /// 動画の拡張子が走査対象から漏れていないこと（二重管理の歯止め）
     #[test]
-    fn 動画の拡張子はすべて走査対象に入っている() {
+    fn every_video_extension_is_in_the_scan_set() {
         super::video_extensions_are_all_scanned().unwrap();
     }
 
     /// RAWの拡張子が走査対象から漏れていないこと（二重管理の歯止め）
     #[test]
-    fn rawの拡張子はすべて走査対象に入っている() {
+    fn every_raw_extension_is_in_the_scan_set() {
         super::raw_extensions_are_all_scanned().unwrap();
     }
 
     /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**
     /// ので、既定で補われること＝自動送りがONで始まることを固定しておく。
     #[test]
-    fn viewerの節が無い設定でも自動送りはonで読める() {
+    fn auto_advance_reads_as_on_even_without_a_viewer_section() {
         let config = Config::from_toml_str(
             "[import]
 verify_after_copy = true
@@ -480,7 +480,7 @@ verify_after_copy = true
     }
 
     #[test]
-    fn 旧既定の拡張子は新しい既定へ引き上げられる() {
+    fn the_old_default_extensions_are_lifted_to_the_new_default() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.toml");
         std::fs::write(
@@ -504,7 +504,7 @@ extensions = [\"jpg\", \"jpeg\", \"png\"]
 
     /// RAW対応の版から上げた人にもHEIFが届くこと（第7部 段階G）。
     #[test]
-    fn raw対応時代の既定からもheifへ引き上げられる() {
+    fn the_raw_era_default_is_lifted_to_heif_as_well() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.toml");
         let legacy = "[import]
@@ -524,7 +524,7 @@ extensions = [\"jpg\", \"jpeg\", \"png\", \"webp\", \"cr2\", \"cr3\", \"nef\", \
     }
 
     #[test]
-    fn 自分で編集した拡張子は尊重される() {
+    fn hand_edited_extensions_are_respected() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.toml");
         std::fs::write(
@@ -542,7 +542,7 @@ extensions = [\"jpg\"]
     use super::*;
 
     #[test]
-    fn デフォルト設定はラウンドトリップできる() {
+    fn the_default_settings_round_trip() {
         let config = Config::default();
         let toml = config.to_toml_string().unwrap();
         let parsed = Config::from_toml_str(&toml).unwrap();
@@ -550,13 +550,13 @@ extensions = [\"jpg\"]
     }
 
     #[test]
-    fn 空のtomlはデフォルト値になる() {
+    fn an_empty_toml_yields_the_defaults() {
         let parsed = Config::from_toml_str("").unwrap();
         assert_eq!(parsed, Config::default());
     }
 
     #[test]
-    fn 部分的なtomlは欠けたフィールドがデフォルトで補完される() {
+    fn a_partial_toml_has_its_missing_fields_filled_with_defaults() {
         let toml = r#"
 [performance]
 thumbnail_size = 512
@@ -570,7 +570,7 @@ thumbnail_size = 512
     }
 
     #[test]
-    fn 全ドメインを指定したtomlを読める() {
+    fn a_toml_naming_every_domain_reads() {
         let toml = r#"
 [import]
 last_source_dir = "E:/DCIM"
@@ -609,7 +609,7 @@ worker_threads = 4
 
     /// 監視・USN側も同じ既定で弾くこと（走査側の試験は scanner.rs にある）。
     #[test]
-    fn 既定の除外は監視側でも写真ライブラリを弾く() {
+    fn the_default_excludes_keep_photo_libraries_out_of_the_watcher_too() {
         let patterns = LibraryConfig::default().exclude_patterns;
         let excluded = |p: &str| crate::scanner::is_excluded_path(Path::new(p), &patterns);
 
@@ -623,7 +623,7 @@ worker_threads = 4
     /// 利用者が消した除外を毎回復活させてしまう（除外を編集するUIは無く、
     /// TOMLの手編集が唯一の逃げ道なので、塞ぐと直す手段が無くなる）。
     #[test]
-    fn 除外パターンは書いてあるとおりに読む() {
+    fn exclude_patterns_are_read_exactly_as_written() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.toml");
 
@@ -642,14 +642,14 @@ worker_threads = 4
     }
 
     #[test]
-    fn 存在しないファイルのloadはデフォルト設定を返す() {
+    fn loading_a_file_that_does_not_exist_returns_the_defaults() {
         let path = Path::new("Z:/definitely/does/not/exist/pictkura.toml");
         let config = Config::load(path).unwrap();
         assert_eq!(config, Config::default());
     }
 
     #[test]
-    fn 壊れたtomlはエラーになる() {
+    fn a_broken_toml_is_an_error() {
         let result = Config::from_toml_str("this is not toml [[[");
         assert!(matches!(result, Err(ConfigError::Parse(_))));
     }
@@ -657,7 +657,7 @@ worker_threads = 4
     /// 配ったあとに足した節（0.2）。**古い設定ファイルには `[update]` が無い**ので、
     /// 既定で補われること＝確認がONで始まることを固定しておく。
     #[test]
-    fn updateの節が無い設定でも確認はonで読める() {
+    fn the_update_check_reads_as_on_even_without_an_update_section() {
         let config = Config::from_toml_str(
             "[import]
 verify_after_copy = true
@@ -677,7 +677,7 @@ verify_after_copy = true
     /// 一覧に出る拡張子をサイドカーに書かれたら落とす（ゲート1のP3）。
     /// 残すと、隣の実写真を影として道連れにしてDBに幽霊行が残る。
     #[test]
-    fn 写真の拡張子はサイドカーから落とされる() {
+    fn photo_extensions_are_dropped_from_the_sidecar_list() {
         let config = Config::from_toml_str(
             "[import]
 extensions = [\"jpg\", \"cr3\"]
@@ -691,7 +691,7 @@ sidecar_extensions = [\"xmp\", \".JPG\", \"xmp\", \"\"]
     /// 配ったあとに足した項目（0.2）。**古い設定ファイルには無い**ので、
     /// 既定で補われること＝`.xmp` が運ばれる状態で始まることを固定しておく。
     #[test]
-    fn サイドカーの設定が無くても既定で補われる() {
+    fn a_missing_sidecar_setting_is_filled_from_the_default() {
         let config = Config::from_toml_str(
             "[import]
 verify_after_copy = true
@@ -708,7 +708,7 @@ verify_after_copy = true
     }
 
     #[test]
-    fn 確認の間隔は24時間で_切っていれば来ない() {
+    fn the_check_interval_is_24_hours_and_none_arrives_when_it_is_off() {
         let day = UpdateConfig::INTERVAL_MS;
         let mut u = UpdateConfig::default();
         // 一度も確認していないなら、いつでも行く

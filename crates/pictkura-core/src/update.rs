@@ -54,7 +54,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 先頭のvと桁の省略を読む() {
+    fn a_leading_v_and_omitted_digits_are_read() {
         assert_eq!(parse_version("v0.2.0"), Some((0, 2, 0)));
         assert_eq!(parse_version("0.2.0"), Some((0, 2, 0)));
         assert_eq!(parse_version("V1.0"), Some((1, 0, 0)));
@@ -63,13 +63,13 @@ mod tests {
     }
 
     #[test]
-    fn プレリリースとビルドメタは無視する() {
+    fn prerelease_and_build_metadata_are_ignored() {
         assert_eq!(parse_version("v0.2.0-rc1"), Some((0, 2, 0)));
         assert_eq!(parse_version("0.2.0+win"), Some((0, 2, 0)));
     }
 
     #[test]
-    fn 読めないものは読まない() {
+    fn an_unparsable_version_yields_none() {
         assert_eq!(parse_version(""), None);
         assert_eq!(parse_version("v"), None);
         assert_eq!(parse_version("latest"), None);
@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn 数の大小で比べる_文字列順ではなく() {
+    fn compared_by_number_not_by_string_order() {
         assert!(is_newer("0.9.9", "v0.10.0"));
         assert!(!is_newer("0.10.0", "v0.9.9"));
         assert!(is_newer("0.1.1", "v0.2.0"));
@@ -87,14 +87,14 @@ mod tests {
     }
 
     #[test]
-    fn 同じか古ければ新しくない() {
+    fn the_same_or_older_is_not_newer() {
         assert!(!is_newer("0.2.0", "v0.2.0"));
         assert!(!is_newer("0.2.0", "0.2"));
         assert!(!is_newer("0.2.0", "v0.1.9"));
     }
 
     #[test]
-    fn 読めない側があれば新しくない() {
+    fn an_unreadable_side_is_not_newer() {
         assert!(!is_newer("0.2.0", "latest"));
         assert!(!is_newer("", "v0.3.0"));
         assert!(!is_newer("nightly", "v9.9.9"));

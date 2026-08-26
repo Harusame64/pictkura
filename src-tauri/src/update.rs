@@ -157,7 +157,7 @@ mod tests {
 
     /// 応答から見るのはタグ1つだけで、**他の項目が増えても壊れない**こと。
     #[test]
-    fn 応答はタグだけ読む() {
+    fn only_the_tag_is_read_from_the_response() {
         let body =
             r#"{"tag_name":"v0.2.0","html_url":"https://example.invalid","assets":[],"body":"…"}"#;
         let release: LatestRelease = serde_json::from_str(body).unwrap();
@@ -166,7 +166,7 @@ mod tests {
 
     /// 開く先は**固定**（APIの返す文字列で決めない）。
     #[test]
-    fn 開く先は自前のサイトとgithubに固定されている() {
+    fn what_we_open_is_pinned_to_our_own_site_and_github() {
         for url in [DOWNLOAD_PAGE_JA, DOWNLOAD_PAGE_EN] {
             assert!(url.starts_with("https://harusame64.github.io/pictkura/"));
         }

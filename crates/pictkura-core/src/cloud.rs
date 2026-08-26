@@ -74,7 +74,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 普通のローカルファイルはクラウド扱いしない() {
+    fn an_ordinary_local_file_is_not_treated_as_cloud() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.jpg");
         std::fs::write(&path, b"x").unwrap();
@@ -82,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn 存在しないパスはクラウド扱いしない() {
+    fn a_path_that_does_not_exist_is_not_treated_as_cloud() {
         let dir = tempfile::tempdir().unwrap();
         assert!(!is_cloud_only_path(&dir.path().join("nope.jpg")));
     }
@@ -93,7 +93,7 @@ mod tests {
     /// `OFFLINE` 属性は普通のファイルにも立てられるので、そこで代用する。
     #[cfg(windows)]
     #[test]
-    fn オフライン属性が立っていればクラウド扱いにする() {
+    fn the_offline_attribute_marks_it_as_cloud() {
         use std::os::windows::ffi::OsStrExt;
 
         let dir = tempfile::tempdir().unwrap();

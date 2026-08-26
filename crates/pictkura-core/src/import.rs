@@ -629,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn パターン置換はゼロ埋めされる() {
+    fn pattern_substitution_is_zero_padded() {
         let date = CivilDate {
             year: 2026,
             month: 8,
@@ -643,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn 同名同サイズでも更新時刻が違えば取り込み済みとみなさない() {
+    fn same_name_and_size_with_a_different_mtime_is_not_counted_as_imported() {
         // 差分検知の原則（サイズと更新時刻だけを見る）を取り込みの重複判定にも
         // 効かせている。**別の日の同名ファイル**（連番が一周したRAW等）を
         // 「もう取り込んだ」と誤判定して落とさないため
@@ -670,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn 取り込みで日付フォルダへコピーされる() {
+    fn import_copies_into_the_date_folder() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -705,7 +705,7 @@ mod tests {
     /// 隠しても名指しで選べる。`scan_roots` はルート自身を除外判定しないため、
     /// ここで止めないと内部の派生画像を全部コピーする
     #[test]
-    fn 取り込み元そのものがパッケージなら断る() {
+    fn a_source_that_is_itself_a_package_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("写真ライブラリ.photoslibrary");
         let dest = dir.path().join("photos");
@@ -733,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn パッケージの中を指していても判る() {
+    fn pointing_inside_a_package_is_recognised_too() {
         assert!(is_managed_package_path(Path::new(
             "/x/写真ライブラリ.photoslibrary"
         )));
@@ -767,7 +767,7 @@ mod tests {
     /// ——外付けHDDに写真ライブラリがあると、内部の派生JPEGを数千枚
     /// コピー先へ書いてしまう
     #[test]
-    fn 写真ライブラリのパッケージは取り込まない() {
+    fn a_photo_library_package_is_not_imported() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -791,7 +791,7 @@ mod tests {
     }
 
     #[test]
-    fn 同名同サイズはスキップされる() {
+    fn same_name_and_size_is_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -811,7 +811,7 @@ mod tests {
     /// **`.xmp` を置き去りにしない**（0.2・`dev/loadmap.md` 1.1）。
     /// 置き去りにすると、利用者から見れば現像の作業がぜんぶ消えたのと同じになる。
     #[test]
-    fn サイドカーは写真と一緒に運ばれる() {
+    fn sidecars_travel_with_the_photo() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -840,7 +840,7 @@ mod tests {
     /// サイドカーは**写真が付いた先の名前**に合わせる。連番が付いたのに
     /// サイドカーだけ元の名前で置くと、別の写真の設定として読まれる。
     #[test]
-    fn 連番が付いたらサイドカーも同じ連番になる() {
+    fn a_numbered_copy_gives_its_sidecar_the_same_number() {
         let dir = tempfile::tempdir().unwrap();
         let src1 = dir.path().join("usb1");
         let src2 = dir.path().join("usb2");
@@ -877,7 +877,7 @@ mod tests {
 
     /// 設定を空にすれば**一切運ばない**（要らない人の逃げ道）。
     #[test]
-    fn サイドカーの設定が空なら運ばない() {
+    fn an_empty_sidecar_setting_carries_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -939,7 +939,7 @@ mod tests {
     /// （読めていないのに「日付が取れなかった」経路で通ってしまうと、
     /// 下の2つのテストが何も確かめていないことになる）。
     #[test]
-    fn テスト用のexifが読める() {
+    fn the_test_exif_reads() {
         let dir = tempfile::tempdir().unwrap();
         let photo = dir.path().join("IMG_0001.jpg");
         fs::write(&photo, jpeg_with_taken_at("2019:08:11 12:00:00")).unwrap();
@@ -951,7 +951,7 @@ mod tests {
     /// たまたま同じ名前の無関係な2枚（別々に保存した `note.jpg` と `note.png`）が、
     /// 拡張子の並び順という恣意的な理由で片方の年へ引きずられてはいけない。
     #[test]
-    fn 自分の撮影日時があるなら組より優先する() {
+    fn its_own_capture_date_outranks_the_pair() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -989,7 +989,7 @@ mod tests {
     /// 見える——そこでもう一度取り込むと、同じ写真が別の日のフォルダへ**二重に**
     /// コピーされる。
     #[test]
-    fn 組で日付が決まったものも取り込み済みと判る() {
+    fn a_file_dated_through_its_pair_is_still_seen_as_imported() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1019,7 +1019,7 @@ mod tests {
     /// **RAW+JPGの組は同じ日のフォルダへ**（0.2・`dev/loadmap.md` 1.1）。
     /// 片方だけ撮影日時を持たないとき、組で日付をそろえないと散る。
     #[test]
-    fn rawとjpgの組は同じフォルダへ入る() {
+    fn a_raw_and_jpg_pair_lands_in_the_same_folder() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1045,7 +1045,7 @@ mod tests {
     }
 
     #[test]
-    fn 同名別サイズは連番で衝突回避される() {
+    fn same_name_with_a_different_size_avoids_the_clash_by_numbering() {
         let dir = tempfile::tempdir().unwrap();
         let src1 = dir.path().join("usb1");
         let src2 = dir.path().join("usb2");
@@ -1071,7 +1071,7 @@ mod tests {
     }
 
     #[test]
-    fn mtime欠損のファイルは1970ではなく今日のフォルダへ入る() {
+    fn a_file_with_no_mtime_lands_in_today_not_1970() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1091,7 +1091,7 @@ mod tests {
     }
 
     #[test]
-    fn コピー後のmtimeはソースと一致する() {
+    fn the_copied_mtime_matches_the_source() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1114,7 +1114,7 @@ mod tests {
     }
 
     #[test]
-    fn コピー先未設定はエラー() {
+    fn no_destination_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let config = Config::default();
         let result = import_from(dir.path(), &config, |_, _, _| {});
@@ -1122,7 +1122,7 @@ mod tests {
     }
 
     #[test]
-    fn 進捗コールバックが呼ばれる() {
+    fn the_progress_callback_is_called() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1155,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn 選んだファイルだけを取り込む() {
+    fn only_the_chosen_files_are_imported() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1180,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn 消えたファイルは失敗として数え残りは続行する() {
+    fn a_vanished_file_counts_as_a_failure_and_the_rest_carry_on() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1195,7 +1195,7 @@ mod tests {
     }
 
     #[test]
-    fn 取り込み済み判定は取り込み本体と一致する() {
+    fn the_already_imported_check_agrees_with_the_import_itself() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("usb");
         let dest = dir.path().join("photos");
@@ -1214,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn コピー先未設定なら取り込み済み判定はfalse() {
+    fn with_no_destination_the_already_imported_check_is_false() {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("a.jpg");
         fs::write(&f, b"x").unwrap();
@@ -1222,7 +1222,7 @@ mod tests {
     }
 
     #[test]
-    fn プリセットは全て安全な相対パスを作る() {
+    fn every_preset_builds_a_safe_relative_path() {
         let date = CivilDate {
             year: 2026,
             month: 8,
@@ -1249,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    fn 危険なパターンは無害化される() {
+    fn a_dangerous_pattern_is_made_harmless() {
         let date = CivilDate {
             year: 2026,
             month: 8,

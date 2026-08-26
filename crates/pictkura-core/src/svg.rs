@@ -163,14 +163,14 @@ mod tests {
     }
 
     #[test]
-    fn 拡張子を見分ける() {
+    fn recognises_the_svg_extensions() {
         assert!(is_svg_extension("svg"));
         assert!(is_svg_extension("SVG"));
         assert!(!is_svg_extension("png"));
     }
 
     #[test]
-    fn widthとheightから寸法を読む() {
+    fn reads_the_size_from_width_and_height() {
         let (_d, p) = write_temp(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"></svg>"#,
         );
@@ -178,19 +178,19 @@ mod tests {
     }
 
     #[test]
-    fn 単位が付いていても数値を採る() {
+    fn the_number_is_taken_even_with_a_unit_attached() {
         let (_d, p) = write_temp(r#"<svg width="100px" height="50.5px"></svg>"#);
         assert_eq!(dimensions(&p), Some((100, 51)));
     }
 
     #[test]
-    fn widthがなければviewboxを使う() {
+    fn without_a_width_the_viewbox_is_used() {
         let (_d, p) = write_temp(r#"<svg viewBox="0 0 1024 768"></svg>"#);
         assert_eq!(dimensions(&p), Some((1024, 768)));
     }
 
     #[test]
-    fn 幅と高さで単位が違っても縦横比が壊れない() {
+    fn different_units_on_width_and_height_do_not_break_the_ratio() {
         // 単位を落として数値だけ採ると 1:10 になってしまう。
         // 10cm ≒ 378px なので、正しくは横長
         let (_d, p) = write_temp(r#"<svg width="10cm" height="100px"></svg>"#);
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn 主なcss単位を換算する() {
+    fn the_common_css_units_are_converted() {
         for (value, expected) in [
             ("96px", 96u32),
             ("1in", 96),
@@ -215,21 +215,21 @@ mod tests {
     }
 
     #[test]
-    fn フォント基準の単位はviewboxへ落ちる() {
+    fn font_relative_units_fall_back_to_the_viewbox() {
         // em/ex は font-size 次第なので寸法にできない
         let (_d, p) = write_temp(r#"<svg width="10em" height="5em" viewBox="0 0 20 10"></svg>"#);
         assert_eq!(dimensions(&p), Some((20, 10)));
     }
 
     #[test]
-    fn パーセント指定はviewboxへ落ちる() {
+    fn a_percentage_falls_back_to_the_viewbox() {
         // レスポンシブなSVGの典型。%は基準が無いので寸法にできない
         let (_d, p) = write_temp(r#"<svg width="100%" height="100%" viewBox="0 0 16 9"></svg>"#);
         assert_eq!(dimensions(&p), Some((16, 9)));
     }
 
     #[test]
-    fn 宣言やコメントが前にあっても読める() {
+    fn a_declaration_or_comment_in_front_still_reads() {
         let (_d, p) = write_temp(
             "<?xml version=\"1.0\"?>\n<!-- 作った人 -->\n<svg\n  width='40'\n  height='20'>\n</svg>",
         );
@@ -237,20 +237,20 @@ mod tests {
     }
 
     #[test]
-    fn 似た名前の属性を拾わない() {
+    fn a_similarly_named_attribute_is_not_picked_up() {
         // stroke-width の width を拾うと寸法を間違える
         let (_d, p) = write_temp(r#"<svg stroke-width="3" viewBox="0 0 10 20"></svg>"#);
         assert_eq!(dimensions(&p), Some((10, 20)));
     }
 
     #[test]
-    fn svgでないファイルはnone() {
+    fn a_file_that_is_not_svg_yields_none() {
         let (_d, p) = write_temp("<html><body>これはSVGではない</body></html>");
         assert_eq!(dimensions(&p), None);
     }
 
     #[test]
-    fn 寸法が無ければnone() {
+    fn no_size_yields_none() {
         let (_d, p) = write_temp(r#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#);
         assert_eq!(dimensions(&p), None);
     }

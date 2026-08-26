@@ -326,7 +326,7 @@ mod tests {
     /// **移動で `.xmp` を置き去りにしない**（0.2・`dev/loadmap.md` 1.1）。
     /// 一覧に出ないファイルなので、取り残すと誰にも見えない迷子になる。
     #[test]
-    fn 移動ではサイドカーも一緒に動く() {
+    fn a_move_takes_the_sidecar_along() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn コピーでもサイドカーは付いていくが元は残る() {
+    fn a_copy_takes_the_sidecar_too_and_leaves_the_original() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -381,7 +381,7 @@ mod tests {
     /// **P1（ゲート1）**: RAW+JPGのうち片方だけ移すと、共有の `IMG_0001.xmp` が
     /// 道連れになる。写真（RAW）はライブラリに残るので**利用者は気付かない**。
     #[test]
-    fn 移動で残る相方から現像設定を奪わない() {
+    fn a_move_does_not_rob_the_partner_left_behind_of_its_develop_settings() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -423,7 +423,7 @@ mod tests {
     /// 判断すること。書き出し先に同じものが既にある写真はスキップされて元の場所に
     /// **残る**のに、それを居なくなる側に数えると共有の `.xmp` を奪ってしまう。
     #[test]
-    fn 移動でスキップされた相方からも奪わない() {
+    fn nor_does_it_rob_a_partner_that_the_move_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -461,7 +461,7 @@ mod tests {
     /// **P2（ゲート1）**: 組を両方選ぶと同じ `.xmp` に2回行き当たる。
     /// 素朴に運ぶと2枚目が連番へ落ち、どの写真とも結び付かない孤児が生える。
     #[test]
-    fn 共有のサイドカーを二重に運ばない() {
+    fn a_shared_sidecar_is_not_carried_twice() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -490,7 +490,7 @@ mod tests {
     /// **P2（ゲート1）**: サイドカーだけmtimeを引き継がないと、同じUSBメモリへ
     /// 2回書き出すたびに `-1` `-2` … と増える（Unixの `fs::copy` は保持しない）。
     #[test]
-    fn コピーしたサイドカーのmtimeは元と同じ() {
+    fn a_copied_sidecar_keeps_the_original_mtime() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -516,7 +516,7 @@ mod tests {
 
     /// 写真が連番になったら、サイドカーも同じ連番で付いていくこと。
     #[test]
-    fn 連番になってもサイドカーは同じ名前で付いていく() {
+    fn a_numbered_copy_keeps_its_sidecar_on_the_same_name() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn コピーは元を残して平置きする() {
+    fn a_copy_lays_the_files_flat_and_leaves_the_originals() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib/2026-08");
         let dest = dir.path().join("out");
@@ -569,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn 同名は同サイズなら飛ばし別内容なら連番になる() {
+    fn the_same_name_is_skipped_at_the_same_size_and_numbered_when_it_differs() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -604,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn 別の日の同名同サイズでも1枚も落とさない() {
+    fn same_name_and_size_on_another_day_still_loses_nothing() {
         // カメラの連番が一周すると、別の日の `DSC00001` が同じフォルダへ落ちる。
         // 非圧縮RAWは中身が違ってもサイズが同じなので、「同名・同サイズ＝同じもの」で
         // 飛ばすと**選んだ写真が黙って1枚欠ける**
@@ -639,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn 前の書き出しと同名同サイズでも中身が違えば残す() {
+    fn same_name_and_size_as_an_earlier_export_is_kept_when_the_content_differs() {
         // 「同名・同サイズ＝同じもの」は平置きでは成り立たない。**別の操作で**書いた
         // ものとの衝突（USBメモリへ何度も足していく使い方）でも落とさないこと
         let dir = tempfile::tempdir().unwrap();
@@ -678,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn 同じものを書き出し直しても増えない() {
+    fn exporting_the_same_thing_again_adds_nothing() {
         // USBメモリへ足していく使い方。2回目は何も増えない
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn 夏時間で1時間ずれても同じものとみなす() {
+    fn an_hour_of_daylight_saving_drift_still_counts_as_the_same_thing() {
         // FAT32 は更新時刻をローカル時刻で持つので、夏時間の切り替えをまたぐと
         // 同じファイルが**ちょうど1時間**ずれて見える。ここを見落とすと
         // USBメモリ1本ぶんが丸ごと二重に書き出される
@@ -744,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn 書き出しに失敗した名前は使用済みにしない() {
+    fn a_name_whose_export_failed_is_not_marked_as_taken() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -768,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    fn アプリが管理する入れ物へは書き出さない() {
+    fn nothing_is_exported_into_a_folder_the_app_manages() {
         // ネイティブのフォルダ選択は `.photoslibrary` の中まで選べてしまう
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
@@ -790,7 +790,7 @@ mod tests {
     }
 
     #[test]
-    fn 同じドライブの移動は元が消えて後始末が要らない() {
+    fn a_move_on_the_same_drive_leaves_no_original_to_clean_up() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -814,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn 移動でも同名同サイズがあれば元を消さない() {
+    fn a_move_keeps_the_original_when_the_same_name_and_size_is_there() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");
@@ -841,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn 読めないものは1件だけ落として続ける() {
+    fn an_unreadable_one_is_dropped_alone_and_the_rest_carry_on() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("lib");
         let dest = dir.path().join("out");

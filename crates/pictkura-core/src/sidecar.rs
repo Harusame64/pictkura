@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn 組の鍵は拡張子を落として大文字小文字を畳む() {
+    fn the_pair_key_drops_the_extension_and_folds_case() {
         let a = pair_key(Path::new("D:/photo/IMG_0001.CR3"));
         let b = pair_key(Path::new("D:/photo/img_0001.jpg"));
         assert_eq!(a, b, "RAWとJPGは同じ組");
@@ -343,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn 名前の流儀2つを実在するものだけ拾う() {
+    fn both_naming_styles_are_picked_up_but_only_where_the_file_exists() {
         let dir = tempfile::tempdir().unwrap();
         let photo = dir.path().join("IMG_0001.CR3");
         std::fs::write(&photo, b"raw").unwrap();
@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn iphoneのaaeも拾う() {
+    fn the_iphone_aae_is_picked_up_too() {
         let dir = tempfile::tempdir().unwrap();
         let photo = dir.path().join("IMG_1234.HEIC");
         std::fs::write(&photo, b"heic").unwrap();
@@ -375,7 +375,7 @@ mod tests {
 
     /// `.xmp` 自身を取り込むときに、自分を自分のサイドカーとして拾わないこと。
     #[test]
-    fn 自分自身は拾わない() {
+    fn the_file_itself_is_not_picked_up() {
         let dir = tempfile::tempdir().unwrap();
         let x = dir.path().join("IMG_0001.xmp");
         std::fs::write(&x, b"<x/>").unwrap();
@@ -385,7 +385,7 @@ mod tests {
     /// **P1（ゲート1）**: RAW+JPGのうち片方だけ消すと、素朴な実装は
     /// 共有の `IMG_0001.xmp` を道連れにする。写真は残るので気付けない。
     #[test]
-    fn 相方が残るなら置き換え型は連れていかない() {
+    fn a_replacing_sidecar_stays_when_its_partner_stays() {
         let dir = tempfile::tempdir().unwrap();
         let raw = dir.path().join("IMG_0001.CR3");
         let jpg = dir.path().join("IMG_0001.JPG");
@@ -416,7 +416,7 @@ mod tests {
     /// 足す型（`IMG_0001.CR3.xmp`）は**その1枚にしか付かない**ので、
     /// 相方が残っていても連れていく。
     #[test]
-    fn 足す型は相方が残っていても連れていく() {
+    fn an_adding_sidecar_travels_even_when_its_partner_stays() {
         let dir = tempfile::tempdir().unwrap();
         let raw = dir.path().join("IMG_0001.CR3");
         let jpg = dir.path().join("IMG_0001.JPG");
@@ -431,7 +431,7 @@ mod tests {
     /// サイドカー同士は「残る相方」に数えない——数えると、組を全部消しても
     /// `.xmp` と `.dop` がお互いを盾にして両方残る。
     #[test]
-    fn サイドカー同士は相方に数えない() {
+    fn sidecars_do_not_count_as_each_other_s_partner() {
         let dir = tempfile::tempdir().unwrap();
         let raw = dir.path().join("IMG_0001.CR3");
         let xmp = dir.path().join("IMG_0001.xmp");
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn コピー先の名前は写真の付いた先に合わせる() {
+    fn the_copied_name_follows_where_the_photo_landed() {
         let photo = Path::new("E:/DCIM/IMG_0001.CR3");
         // 置き換え型: 連番が付いたら、サイドカーも同じ連番になる
         let replaced = Path::new("E:/DCIM/IMG_0001.xmp");

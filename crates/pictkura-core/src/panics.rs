@@ -58,19 +58,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn パニックは値なしに均される() {
+    fn a_panic_is_flattened_into_no_value() {
         let out = catching("テスト", || -> i32 { panic!("わざと落とす") });
         assert_eq!(out, None);
     }
 
     #[test]
-    fn 落ちなければそのまま返る() {
+    fn without_a_panic_the_value_comes_straight_back() {
         assert_eq!(catching("テスト", || 1 + 1), Some(2));
     }
 
     /// 添字外れ（壊れたファイルで実際に起きる形）も捕まること。
     #[test]
-    fn 添字外れも捕まえる() {
+    fn an_index_out_of_range_is_caught_too() {
         let empty: Vec<u8> = Vec::new();
         let out = catching("テスト", || empty[3]);
         assert_eq!(out, None);
