@@ -593,23 +593,34 @@ export default function App() {
   }, [view]);
 
   /** 骨組み（サマリ・件数・思い出）を取り直し、日キャッシュを捨てる。
-   * 可視範囲の日は placeholder になった瞬間に自動で再取得される */
+   * 可視範囲の日は placeholder になった瞬間に自動で再取得される。
+   *
+   * **落ちても `settled` は立てる**（`finally`）。立てないと、
+   * 呼び出し側は例外を `status` へ流すだけでリトライしないので、
+   * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる——
+   * 「無言で 0 件を出さない」ためのPRで、失敗経路だけ以前より無言になる
+   * （2つのゲートが独立に同じ指摘をした）。
+   * 失敗したことは上部の帯に**出たまま残る**ので、黙ってはいない */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     inflightRef.current.clear();
     setSettled(false);
-    const [sum, st, mem] = await Promise.all([
-      timelineSummary(queryRef.current, filterRef.current),
-      getStats(),
-      listMemories(),
-    ]);
-    // 応答待ちの間に次のリロード（フィルタ切替等）が始まっていたら、古い応答は捨てる
-    if (generationRef.current !== gen) return;
-    setSummary(sum);
-    setStats(st);
-    setMemories(mem);
-    setDayItems(new Map());
-    setSettled(true);
+    try {
+      const [sum, st, mem] = await Promise.all([
+        timelineSummary(queryRef.current, filterRef.current),
+        getStats(),
+        listMemories(),
+      ]);
+      // 応答待ちの間に次のリロード（フィルタ切替等）が始まっていたら、古い応答は捨てる
+      if (generationRef.current !== gen) return;
+      setSummary(sum);
+      setStats(st);
+      setMemories(mem);
+      setDayItems(new Map());
+    } finally {
+      // **追い越されていたら立てない**——新しい方がまだ走っている
+      if (generationRef.current === gen) setSettled(true);
+    }
   }, []);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
@@ -796,14 +807,18 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
+      // **登録が転んでも先へ進む。** ここで例外が上がると下の問い合わせに
+      // 届かず、`scanSettled` がその起動のあいだ偽のまま固まる——
+      // つまり**この機能が丸ごと出なくなる**（ゲート2の指摘）。
+      // 隣の⚡爆速メーターは取りこぼしても帯が1つ出ないだけだが、こちらは違う
       const f = await listen("startup-scan-finished", () => {
         if (!cancelled) setScanSettled(true);
-      });
+      }).catch(() => null);
       if (cancelled) {
-        f();
+        f?.();
         return;
       }
-      unlisten = f;
+      unlisten = f ?? undefined;
       // 聞けなかったときは**待たない**側に倒す。ここで固まると、
       // ルートを1つも設定していない人に何も言わないアプリになる
       const done = await startupScanFinished().catch(() => true);
@@ -1154,14 +1169,15 @@ export default function App() {
    *
    * 外付けを4台ぶらさげている人が全部外して起動すると、一番効くはずの文が
    * パスの羅列で読めなくなる（ゲート2の指摘）。**黙って落とさない**のが条件で、
-   * 落としたぶんは「ほか2件」と数で言う
+   * 落としたぶんは「ほか2件」と数で言う。
+   *
+   * `total` は**手元の名前より多いことがある**——除外の一覧はバックエンドが
+   * 3件で切って持ってくるので、数だけ別に受け取る（同）
    */
   const nameList = useCallback(
-    (names: string[]) =>
-      names.length > 3
-        ? [...names.slice(0, 3), t.andMore(names.length - 3)].join(
-            t.listSeparator,
-          )
+    (names: string[], total = names.length) =>
+      total > 3
+        ? [...names.slice(0, 3), t.andMore(total - 3)].join(t.listSeparator)
         : names.join(t.listSeparator),
     [t],
   );
@@ -3740,12 +3756,21 @@ export default function App() {
                   : emptyReason.missing.length > 0
                     ? t.emptyMissing(nameList(emptyReason.missing))
                     : emptyReason.unreadable.length > 0
-                      ? t.emptyUnreadable(nameList(emptyReason.unreadable))
+                      ? (platform === "macos"
+                          ? t.emptyUnreadableMac
+                          : platform === "windows"
+                            ? t.emptyUnreadableWin
+                            : t.emptyUnreadableOther)(
+                          nameList(emptyReason.unreadable),
+                        )
                       : emptyReason.photoLibrary
                         ? t.emptyPhotoLibrary
                         : emptyReason.excluded.length > 0
                           ? t.emptyAllExcluded(
-                              emptyReason.excluded.join(t.listSeparator),
+                              nameList(
+                                emptyReason.excluded,
+                                emptyReason.excludedTotal,
+                              ),
                             )
                           : t.emptyNothingHere}
               </p>

@@ -2389,6 +2389,11 @@ body {
   padding: 0 2rem;
   text-align: center;
   color: var(--text-muted);
+  /* **縮ませない。** `.main` は縦のflexで、隣は `.grid-wrap { flex: 1 }`。
+     既定の `flex-shrink: 1` のままだと、窓が低いときや文が長いとき
+     （読めないフォルダを3件名指しした文など）に箱が中身より低く潰され、
+     文字が一覧の側へはみ出す（ゲート2の指摘。`.memories` は既に flex:none） */
+  flex: none;
 }
 .empty-library h2 {
   margin: 0 0 0.75rem;

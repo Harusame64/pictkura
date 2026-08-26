@@ -1120,6 +1120,9 @@ struct EmptyLibraryDto {
     unreadable: Vec<String>,
     /// 除外で飛ばした項目の名前（先頭3件まで）
     excluded: Vec<String>,
+    /// 除外で飛ばした項目の**総数**。UIは3件で切って「ほか N件」と言うので、
+    /// 切ったぶんの数が要る——**黙って落とさない**（ゲート2の指摘）
+    excluded_total: usize,
     /// 写真.appのライブラリが直下にある
     photo_library: bool,
 }
@@ -1197,17 +1200,34 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
         // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
         for entry in entries.flatten() {
             let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
+            // **読めない名前は「候補あり」に数える。** 走査本体は UTF-8 に
+            // ならない名前を除外に一致させず、そのまま入って行く
+            // （`scanner.rs` の `to_str().is_some_and(..)`）。ここで黙って
+            // 飛ばすと、走査が開いて何も見つけていないフォルダが**この関数から
+            // 見えなくなり**、隣の `.隠しフォルダ` が冤罪を着る（ゲート1の指摘）
+            let Some(name) = name.to_str() else {
+                survivor = true;
+                continue;
+            };
             // 写真.appのライブラリは名前で分かる（中身は開かない）
             if pictkura_core::import::is_managed_package_path(Path::new(name)) {
                 out.photo_library = true;
                 continue;
             }
-            let could_have_been_content = entry.file_type().is_ok_and(|t| t.is_dir())
-                || pictkura_core::scanner::has_target_extension(
-                    Path::new(name),
-                    &config.import.extensions,
-                );
+            // 種別が取れないときも同じく安全側（＝除外を犯人にしない側）へ
+            let could_have_been_content = match entry.file_type() {
+                Ok(t) => {
+                    t.is_dir()
+                        || pictkura_core::scanner::has_target_extension(
+                            Path::new(name),
+                            &config.import.extensions,
+                        )
+                }
+                Err(_) => {
+                    survivor = true;
+                    continue;
+                }
+            };
             if !could_have_been_content {
                 continue;
             }
@@ -1217,8 +1237,11 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
                 .iter()
                 .any(|p| pictkura_core::scanner::matches_pattern(name, p))
             {
-                if out.excluded.len() < 3 && !out.excluded.iter().any(|n| n == name) {
-                    out.excluded.push(name.to_string());
+                if !out.excluded.iter().any(|n| n == name) {
+                    out.excluded_total += 1;
+                    if out.excluded.len() < 3 {
+                        out.excluded.push(name.to_string());
+                    }
                 }
             } else {
                 survivor = true;
@@ -1239,6 +1262,7 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
     if survivor {
         out.excluded.clear();
+        out.excluded_total = 0;
         out.photo_library = false;
     }
     out
@@ -3946,6 +3970,31 @@ mod tests {
                 );
                 assert_eq!(r.unreadable.len(), 1, "読めなかった場所として名指しする");
             }
+
+            // **TCCが実際に落ちる形はこちら**——`stat` は通り、`opendir` で止まる
+            // （実測: ルート自身を `000` にすると `metadata` は成功し
+            // `read_dir` だけが `EACCES`）。コメントが名指ししている枝なのに
+            // 上のケースでは一度も通っていなかった（ゲート1の指摘）
+            let locked = dir.path().join("錠");
+            std::fs::create_dir(&locked).unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let stat_ok = std::fs::metadata(&locked).is_ok();
+            let read_denied = std::fs::read_dir(&locked).is_err();
+            config.library.roots = vec![locked.clone()];
+            let r = empty_library_reason_of(&config);
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if stat_ok && read_denied {
+                assert!(
+                    r.missing.is_empty(),
+                    "在るものを「見つかりません」と言わない"
+                );
+                assert_eq!(
+                    r.unreadable.len(),
+                    1,
+                    "`stat` は通って `read_dir` で落ちる形（TCC）を拾う"
+                );
+            }
+
             config.library.roots = vec![root.clone()];
         }
 

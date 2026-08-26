@@ -402,6 +402,8 @@ export interface EmptyLibraryReason {
   unreadable: string[];
   /** 除外の設定で飛ばした項目の名前（先頭3件まで） */
   excluded: string[];
+  /** 除外で飛ばした項目の**総数**（3件で切ったぶんを数で言うため） */
+  excludedTotal: number;
   /** 写真.appのライブラリが直下にある */
   photoLibrary: boolean;
 }
