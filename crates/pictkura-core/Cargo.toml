@@ -82,9 +82,34 @@ windows = { version = "0.61", features = [
 # 版はそこに揃えてある。ただし**増えないわけではない**——
 # `objc2-image-io` 自身と `objc2-metal` が新しくロックへ入り、
 # `objc2-core-graphics` 等の feature も unification で増える（どれもビルド時のみ）。
-# ImageIO も CoreGraphics も**純粋なC API**なので Objective-C のランタイムには触らない
+# ImageIO と CoreGraphics は**純粋なC API**だが、**AVFoundation は Objective-C**
+# （下）。そちらを呼ぶ側は autorelease プールを張ること——`shell.rs` の `macos_av`
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-image-io = "0.3"
+# 動画の1コマを取り出す（第9部・macOS）。QuickLookではなくこちらを選ぶ理由は
+# `shell.rs` の `macos_av` に書いた（**同期で呼べる**のが決め手）
+#
+# **`default-features = false` が要る。** 既定は167項目でAVFoundationの全ヘッダに
+# 加えて CoreImage・MediaToolbox・QuartzCore・CoreAudio まで引く。
+# 付けずに `features` を並べても**何も絞れていない**（ゲート2の指摘）
+objc2-av-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "AVAsset",
+    "AVAssetImageGenerator",
+    "objc2-core-media",
+    "objc2-core-graphics",
+    "objc2-core-foundation",
+] }
+objc2-core-media = { version = "0.3", default-features = false, features = [
+    "std",
+    "CMTime",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSURL",
+] }
+# autorelease プール。Objective-C を呼ぶスレッドには要る（`shell.rs` の `macos_av`）
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-core-foundation = "0.3"
 objc2-core-graphics = "0.3"
 

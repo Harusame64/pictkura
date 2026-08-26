@@ -14,14 +14,17 @@
 //!   エクスプローラがOneDriveの未ダウンロードファイルのサムネイルを
 //!   出せるのはこの経路（plan.md 第7部の積み残し）
 //!
-//! Windows以外では常に `None` を返す。macOSはQuickLook、Linuxは
-//! ディストリのサムネイラという別の入口になるので、後続の課題に置く。
+//! **macOSは AVFoundation**（動画だけ。下の `macos_av`）。Linuxはディストリの
+//! サムネイラという別の入口になるので、後続の課題に置く。
 
 use std::path::Path;
 
 /// このOSでOSのサムネイル機構が使えるか。
+///
+/// **macOSは動画だけ**（AVFoundation）。Windowsのように「Shellが出せる形式は
+/// なんでも」ではないので、真でも [`thumbnail`] が `None` を返す相手はある。
 pub fn available() -> bool {
-    cfg!(windows)
+    cfg!(windows) || cfg!(target_os = "macos")
 }
 
 /// OSにサムネイルを作らせる。長辺が `max_edge` 程度の絵が返る。
@@ -33,10 +36,127 @@ pub fn thumbnail(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
     {
         windows_shell::thumbnail(path, max_edge)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_av::thumbnail(path, max_edge)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (path, max_edge);
         None
+    }
+}
+
+/// macOSの AVFoundation から動画の1コマを借りる。
+///
+/// **QuickLookではなくこちらを選んだ理由**（2026-08-26に両方を実測して決めた）:
+///
+/// - **同期で呼べる**。`copyCGImageAtTime` はその場で返るので、完了ハンドラを
+///   待つ仕掛け（block・セマフォ・その取りこぼし）を作らずに済む。呼び出し元
+///   （[`crate::thumbs`]）はもともとブロッキングのワーカーの中に居るので、
+///   同期であること自体は構わない
+///
+///   **ただし同期は「止まらない」という意味ではない**（ゲート2の指摘。
+///   最初はそう書いていたが誤り）。`copyCGImageAtTime` は**打ち切れない**——
+///   AVFoundation自身のヘッダが「時間がかかることがある。呼び出し元のスレッドを
+///   塞ぐので、打ち切りたければ非同期版を使え」と書いている。**クラウドにしか
+///   実体が無い動画を可視要求で開くと、取り寄せの間そのワーカーが埋まる**
+///   （`process_one` は `want_final` のときクラウドの門を通さない）。
+///   これはWindowsのShell経路でも同じ挙動なので**この変更で増えた危険ではない**が、
+///   打ち切りが要るとなれば非同期版へ移るしかない。
+///
+///   **どこまでが本当かは測った**（2026-08-26。ゲート2とGitHub側のCodexが
+///   そろってここを指した）:
+///
+///   - **壊れた動画では固まらない**。途中で切れた/頭だけ/中身を壊した mp4 の
+///     3通りで、4.6ms・4.6ms・85.2ms で「絵なし」を返した
+///   - **「終了時に `shutdown` が永久に待つ」は起きない**。
+///     [`crate::thumbs::ThumbnailService::shutdown`] を呼ぶのは**テストだけ**で、
+///     アプリは呼んでいない（実地で確認）
+///   - **残るのは遅い置き場（クラウドの取り寄せ・遅いネットワーク越し）**。
+///     ただしワーカーは**もともとファイルを開いて読む**（RAWの展開・HEICの展開）
+///     ので、そこで塞がるのはAVFoundationに限った話ではない
+/// - **QuickLookは実際に詰まった**。`qlmanage -t` に `.avi` を食わせると
+///   45秒経っても返らず、強制終了するしかなかった。しかも `.avi` は
+///   Spotlightも何も返さないので、**QuickLookで拾えるはずだった相手が
+///   まさに固まる相手**だった
+/// - **回転が付いてくる**。`appliesPreferredTrackTransform` を立てれば、
+///   縦位置で撮った動画がそのまま縦で返る（HEIFの `irot` で踏んだ
+///   「デコーダが回したかどうか」の見分けが、こちらでは要らない）
+///
+/// `.m2ts` / `.avi` のようにAVFoundationが開けない相手は `None`。
+/// そこをQuickLookで拾うかは、**固まる問題を解いてから**判断する。
+#[cfg(target_os = "macos")]
+mod macos_av {
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    use objc2_av_foundation::{AVAssetImageGenerator, AVURLAsset};
+    use objc2_core_foundation::CGSize;
+    use objc2_core_media::CMTime;
+    use objc2_foundation::NSURL;
+
+    pub fn thumbnail(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
+        // 動画以外はAVFoundationの仕事ではない。開けない相手に問い合わせて
+        // 待たされるより、拡張子で先に断る
+        if !crate::video::is_video_path(path) {
+            return None;
+        }
+        // **Objective-Cを呼ぶスレッドにはプールが要る。** サムネイルのワーカーは
+        // 素の `std::thread` で、プロセスの間ずっと回り続ける（`thumbs.rs` の
+        // `ThumbQueue::start`）ので、たまった分を落とす機会が無い。
+        //
+        // **実測では漏れなかった**（同じスレッドで600回呼んでRSSは36→39MBで平ら）。
+        // それでも張るのは、**見た漏れを直したのではなく、Objective-Cの約束を
+        // 守るため**——素材やコーデックが変われば溜め方も変わる
+        objc2::rc::autoreleasepool(|_| generate(path, max_edge))
+    }
+
+    fn generate(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
+        // **UTF-8を前提にしない。** `NSString` 経由でURLを組むと、名前が
+        // UTF-8として読めないファイルを取りこぼす。APFSは非UTF-8の名前を
+        // 作らせない（実測: `EILSEQ`）が、**カメラのカードはFAT32/exFATで、
+        // そちらは通す**（実測: `\x82\xa0.mp4`＝Shift_JISの「あ」が作れた）。
+        // ファイルシステム表現をそのまま渡せば、綴りを解釈せずに済む。
+        //
+        // このOSのtempdirはAPFSなので、**単体テストでは再現できない**
+        // ——FAT32のボリュームをマウントしないと踏めない
+        // 相対パスもそのまま渡してよい。`fileURLWithFileSystemRepresentation:` は
+        // **カレントディレクトリ基準で解決する**——`relativeToURL` が `None` でも
+        // 基準の無いURLにはならない（ゲート2は「相対だと解決できない」と見たが、
+        // `bench --video ./media/x.mp4` で実測したところ、直す前から絵が取れた。
+        // **無い問題のためにコードを足さない**）
+        let raw = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+        let ptr = std::ptr::NonNull::new(raw.as_ptr().cast_mut())?;
+        // SAFETY: `raw` はこの関数のあいだ生きている NUL 終端のバイト列。
+        // `NSURL` は中身を複製するので、返った後に参照されない
+        let url = unsafe {
+            NSURL::fileURLWithFileSystemRepresentation_isDirectory_relativeToURL(ptr, false, None)
+        };
+        // SAFETY: options に None を渡すだけ
+        let asset = unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) };
+        // SAFETY: 生きている asset を渡す
+        let generator = unsafe { AVAssetImageGenerator::assetImageGeneratorWithAsset(&asset) };
+        unsafe {
+            // 縦位置で撮った動画をそのまま縦で返させる
+            generator.setAppliesPreferredTrackTransform(true);
+            // 長辺の上限。原寸のフレームを起こさせない
+            let edge = f64::from(max_edge.max(1));
+            generator.setMaximumSize(CGSize::new(edge, edge));
+        }
+        // 先頭のコマ。**尺の途中を選んでいない**——黒からのフェードインだと
+        // 真っ黒が返る。改善は実物を見てから（`bench --video` で並べる）
+        // SAFETY: 秒とタイムスケールを渡すだけ（副作用のない値の組み立て）
+        let at = unsafe { CMTime::with_seconds(0.0, 600) };
+        // `copyCGImageAtTime` は非推奨（Appleは非同期版へ寄せたい）。
+        // **同期であること自体がここでの価値**なので、承知で使う。
+        // 非同期版に替えるなら、上のdocに書いた仕掛けが丸ごと要る
+        #[allow(deprecated)]
+        // SAFETY: `actual_time` は要らないのでnullを渡す（宣言が許している）
+        let image =
+            unsafe { generator.copyCGImageAtTime_actualTime_error(at, std::ptr::null_mut()) }
+                .ok()?;
+        crate::macos_cg::to_image(&image)
     }
 }
 
@@ -522,10 +642,17 @@ mod windows_shell {
 mod tests {
     use super::*;
 
-    /// Windowsでは使える、それ以外では使えないと申告する
+    /// Windows と macOS では使える、それ以外では使えないと申告する。
+    ///
+    /// **macOSは動画だけ**（AVFoundation）で、Windowsのように何でも出せる
+    /// わけではない——真でも [`thumbnail`] が `None` を返す相手はある
     #[test]
     fn reports_availability_per_os() {
-        assert_eq!(available(), cfg!(windows));
+        assert_eq!(
+            available(),
+            cfg!(windows) || cfg!(target_os = "macos"),
+            "macOSは動画のサムネイルを出せる（第9部・AVFoundation）"
+        );
     }
 
     /// 存在しないファイルでも落ちない
