@@ -65,44 +65,37 @@ struct AppState {
     /// 別に知らせないと永久に無言**になる（ゲート2の指摘）。
     /// イベントを取りこぼしたフロントが後から聞けるよう、旗としても置く
     startup_done: std::sync::atomic::AtomicBool,
-    /// [`empty_library_reason`] の走査を**同時に1本まで**にする門。
+    /// ルートごとに走っている「空の理由」の探り（[`empty_library_reason`]）。
     ///
-    /// 走査はブロッキングプールで動くが、**切れたSMB/NFSのhardマウントでは
-    /// `read_dir` が返ってこない**——フロントは5秒で見切るのに、スレッドは
-    /// そのまま残る。一覧が空になるたびに聞き直すので、放っておくと
-    /// プールを食い尽くし、同じプールを使う `add_library_root` などが止まる。
+    /// **1本ずつ独立して探る。** 走査はブロッキングプールで動くが、
+    /// **切れたSMB/NFSでは `read_dir` が返ってこない**——実測で、応答を止めた
+    /// サーバに対して120秒待っても返らなかった（`metadata` の方はキャッシュで
+    /// 即座に「在る」と答える）。フロントは5秒で見切るのに、スレッドはそのまま
+    /// 残る。**ルートをまとめて直列に見ていた頃**は、刺さった1本の後ろにある
+    /// `~/Pictures` まで巻き添えになり、一覧が空になるたびに聞き直すので
+    /// プールを食い尽くした。
     ///
-    /// **非同期のMutexであることが要**。2本目は「前の答え」で誤魔化さず、
-    /// **順番を待って自分で見に行く**。旗と前回値で代用すると、
-    /// StrictModeの二重マウントのように2本が必ず重なる場面で**本当の理由が
-    /// 一度も出ない**（ゲート2の指摘）。待つ側はタスクが止まるだけで
-    /// スレッドを食わない。
+    /// **同じルートを2度は探らない。** 走っているものがあれば、後から来た
+    /// 問い合わせは受け口を複製して**相乗りする**。StrictModeの二重マウントの
+    /// ように2本が必ず重なる場面でも、使うスレッドはルート1本につき1つ。
+    /// **旗と前回値で代用しない**——待つ側はタスクが止まるだけでスレッドを
+    /// 食わないので、2本目も**自分で本当の答えを受け取れる**（前の版で
+    /// 「前の答え」を配ると本当の理由が一度も出ない筋があった。ゲート2の指摘）。
     ///
-    /// **ただし待つのは有限時間まで。** 刺さったhardマウントでは
-    /// `read_dir` が返らず、`spawn_blocking` の `await` も返らないので、
-    /// その走査は**永久に席を返さない**——Tauriのコマンドは detached で走るから、
-    /// フロントが見切っても `Drop` は来ない。時間で諦めたときは既定値で
-    /// 誤魔化さず、`checking` を立てて**確かめている途中だと言う**。
+    /// **返ってこなかったルートには印が残る。** 探りが終われば
+    /// [`ProbeGuard`] が消すので、**消えていない＝まだ返っていない**。
+    /// 刺さったルートはここに残り続け、二度と触らない——刺さりが食う
+    /// スレッドは**そのルートにつき1本きり**で、後ろの健康なルートは毎回
+    /// ちゃんと答える。長く返らないものは「確かめている途中」ではなく
+    /// **「応答がない」と名指しする**（[`EmptyLibraryDto::stalled`]）——
+    /// 探りを諦めた以上、「途中です」は嘘になる。
     ///
-    /// **席が1つだと、直したあとも直らない。** 死んだルートを外して
-    /// 健康な `~/Pictures` だけにしても、席は握られたままなので永久に
-    /// 「確認しています」になる（ゲート2の指摘）。席を2つにしておくと、
-    /// 1つ刺さっても次の確認が通る——刺さりが2つ重なったら、そこで初めて
-    /// 「確かめている途中」に落ちる。**溜まるスレッドは2本で頭打ち**
-    ///
-    /// **残っている穴（承知のうえで積んだ）**: 席の配給はフロント側でしか
-    /// 絞れておらず（`App.tsx` の `emptyReasonInFlight`）、**ルートが変われば
-    /// 張り直す**ので、刺さったNASを残したまま📂参照…でフォルダを足すと
-    /// 2本目が同じNASへ飛んで席を使い切る。以後はそのNASを外しても
-    /// 「確かめている途中」のまま——**嘘は言わないが、直っても直らない**。
-    ///
-    /// 層が違うので、フロントの配給をいくら細かくしても消えない
-    /// （検索の打ち消し・再スキャン・フォルダ追加と、経路が出続けた）。
-    /// **本命はルートごとに独立して測り、返らなかったルートに印を付けて
-    /// 二度と触らないこと**——そうすれば刺さりが席を食うのは1回きりで、
-    /// いまのように**刺さったルートの後ろの `~/Pictures` まで巻き添え**にならない。
+    /// **積み上がる方にも蓋がいる。** 死んだ共有が何本もあれば、相乗りが
+    /// 効いていてもその数だけスレッドが減る（[`MAX_OUTSTANDING_PROBES`]）。
+    /// **外して足し直したときは印を捨てる**（[`forget_probes_for_changed_roots`]）
+    /// ——貼り直した共有を一度も見ずに「応答がありません」と言い続けないため。
     /// `plan.macos.md` の2ゲートの節に経緯がある
-    empty_reason_gate: tokio::sync::Semaphore,
+    root_probes: RootProbes,
     /// **直前の走査が開けなかった場所**（[`empty_library_reason`] が借りる）。
     ///
     /// あちらはルートの直下しか読まない（速さが仕様の走査路を太らせないため）。
@@ -482,6 +475,14 @@ fn update_config(state: &AppState, mutate: impl FnOnce(&mut Config)) -> Result<(
     updated
         .save(&state.config_path)
         .map_err(|e| e.to_string())?;
+    // **ルートを触る口はここ1つ**なので、探りの印の見直しもここでやる
+    // （[`forget_probes_for_changed_roots`]）。外して足し直した共有を
+    // 一度も見ずに「応答がありません」と言い続けないため
+    forget_probes_for_changed_roots(
+        &state.root_probes,
+        &config.library.roots,
+        &updated.library.roots,
+    );
     *config = updated;
     Ok(())
 }
@@ -1278,9 +1279,181 @@ struct EmptyLibraryDto {
     /// ルート自身のライブラリに、**現行の写真.app以外**のものが含まれる
     /// （[`Self::photo_library_legacy`] と同じ向き・同じ理由）
     root_package_legacy: bool,
-    /// **まだ確かめ終わっていない。** 前の確認が返ってこないまま時間切れ。
+    /// **まだ確かめ終わっていない。** 探りが返ってこないまま時間切れ。
     /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
     checking: bool,
+    /// **返事がないまま見切ったルート。** [`Self::checking`] と分けてある——
+    /// あちらは「まだ見ている」で、放っておけば変わる。こちらは
+    /// **探りを諦めた**あとの話で、印が残っている限り二度と探らない
+    /// （[`AppState::root_probes`]）。黙って `checking` を出し続けると、
+    /// 見てもいないのに「確かめている途中です」と言い続けることになる
+    stalled: Vec<String>,
+}
+
+/// ルートごとの探りの控え。**返ってこなかったルートの印がここに残る**
+/// （[`AppState::root_probes`] に経緯がある）。
+type RootProbes = std::sync::Arc<Mutex<ProbeRegistry>>;
+
+/// 探りが返らないまま**これだけ経ったら**、「確かめている途中」ではなく
+/// **「応答がない」**と言い切る（探りは1本きりで、待っても増えない）。
+const PROBE_STALLED_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// **同時に走らせる探りの上限。**
+///
+/// 1本につきブロッキングプールのスレッドを1つ使い、刺さったマウントでは
+/// それを永久に持っていく。ルートごとの相乗りは「同じ場所へ2本目を飛ばさない」
+/// までしか守らないので、**死んだマウントが何本もあると、その数だけ積み上がる**
+/// （ゲート1の指摘）。
+///
+/// **数えるのは「いま走っている探り」で、刺さったものだけではない。**
+/// 「10秒返っていないもの」で数えると、**1回の問い合わせの中では全部が
+/// 若い**ので上限が効かず、死んだルートが10本あれば10本とも走り出す
+/// （ゲート1の2巡目の指摘）。台帳の件数でもいけない——外して足し直すと
+/// 印は消えるのにスレッドは残るので、**枠だけが戻って積み上がる**。
+///
+/// 健康なルートは数ミリ秒で返って枠を空けるので、この数は「同時に何本の
+/// ルートを見に行くか」の上限として十分広い。溢れたぶんは探らずに
+/// **「まだ確かめていない」**と返し（見てもいないものを「応答がない」とは
+/// 言わない）、次の問い合わせで空いた枠から順に見に行く
+const MAX_OUTSTANDING_PROBES: usize = 16;
+
+/// 走っている探りの台帳。
+#[derive(Default)]
+struct ProbeRegistry {
+    running: HashMap<PathBuf, RootProbe>,
+    /// 次に配る世代番号（[`RootProbe::generation`] を見よ）
+    next_generation: u64,
+    /// **いま走っている探りの数**（[`MAX_OUTSTANDING_PROBES`]）。
+    ///
+    /// 台帳の件数とは別に数える。印を捨てても——ルートを外したときや、
+    /// 足し直して世代が変わったとき——**刺さったスレッドはそのまま残る**ので、
+    /// 台帳を数えると枠だけが戻ってしまう。減るのは [`ProbeGuard`] が
+    /// 片付いたときだけ
+    outstanding: usize,
+}
+
+/// 走っている探り1本。
+#[derive(Clone)]
+struct RootProbe {
+    /// **この探りの答えは、もう当てにしない。** ルートを外した・足し直したときに
+    /// 立てる。行ごと消さないのは、**スレッドはまだ走っている**から
+    /// ——消すと枠まで戻ってしまい、外して足し直すたびに枠を食い潰せる
+    /// （ゲート2の指摘）。走っているものが片付けば、次の問い合わせで探り直す
+    invalidated: bool,
+    /// この探りの**世代**。同じルートを外して足し直したとき、
+    /// **古い探りの後片付けが新しい探りの印を消さない**ようにするための番号
+    generation: u64,
+    /// 始めた時刻。**返らないまま長く経ったら「応答がない」と言い切る**
+    started: std::time::Instant,
+    /// 答えの受け口。複製すれば相乗りできる（`watch` は最後の値を配る）
+    answer: tokio::sync::watch::Receiver<Option<RootReason>>,
+}
+
+/// 探りの後始末——**答えを配り、印を消す**。
+///
+/// 消すのを `Drop` に置くのが要。[`root_reason_of`] がパニックしたときも
+/// 巻き戻りで走るので、**バグで落ちたルートに「応答がない」の印が残らない**。
+/// 印は「返ってこない」ことの証拠でなければならず、落ちたことの証拠にすると、
+/// 直したはずのルートを二度と探らなくなる
+struct ProbeGuard {
+    probes: RootProbes,
+    root: PathBuf,
+    /// 自分が置いた印の世代。**これと違う印は自分のものではない**
+    generation: u64,
+    answer: tokio::sync::watch::Sender<Option<RootReason>>,
+}
+
+impl ProbeGuard {
+    /// 見終わった。**待っている全員に配ってから**印を消す（`Drop`）
+    fn finish(self, reason: RootReason) {
+        let _ = self.answer.send(Some(reason));
+    }
+}
+
+impl Drop for ProbeGuard {
+    fn drop(&mut self) {
+        // **枠は必ず返す。** 印（台帳の行）は途中で捨てられることがあるが、
+        // スレッドを1本使っていたのはこの番人なので、数はここで戻す
+        // **自分の印だけ消す。** ルートを外して足し直すと、刺さったままの
+        // 古い探りの後ろで新しい探りが始まっている——世代を見ないと、
+        // 古い方が返った拍子に**新しい印を消してしまう**（ゲート1の指摘）
+        let mut registry = lock_ok(&self.probes);
+        registry.outstanding = registry.outstanding.saturating_sub(1);
+        if registry
+            .running
+            .get(&self.root)
+            .is_some_and(|probe| probe.generation == self.generation)
+        {
+            registry.running.remove(&self.root);
+        }
+    }
+}
+
+/// ルート1本の探りを**始めるか、走っているものに相乗りする**。
+///
+/// 始める中身を外から受けるのは試験のため（本物は `spawn_blocking`）。
+/// 返すのは受け口の複製なので、**呼んだ側は待つだけでスレッドを食わない**。
+fn probe_of(probes: &RootProbes, root: &Path, start: impl FnOnce(ProbeGuard)) -> Option<RootProbe> {
+    let mut registry = lock_ok(probes);
+    // **走っているものがあれば、それに乗る。** 同じルートへ2本目を飛ばしても、
+    // 刺さったマウントでは**スレッドが1本増えるだけ**で答えは増えない
+    if let Some(probe) = registry.running.get(root) {
+        // ただし**外して足し直した後の古い探りには乗らない**（当てにできない）。
+        // かといって2本目も飛ばさない——そのぶん枠とスレッドを食うだけで、
+        // 答えは古い方が返るまで来ない。ここは「まだ見ていない」と返す
+        if probe.invalidated {
+            return None;
+        }
+        return Some(probe.clone());
+    }
+    // **走っている探りが多すぎるなら、これ以上は増やさない**
+    // （[`MAX_OUTSTANDING_PROBES`]）。**枠を取ってから始める**のが要で、
+    // 「もう刺さっているもの」を数える形だと、1回の問い合わせの中では
+    // 全部が若いので上限が一度も効かない（ゲート1の指摘）
+    if registry.outstanding >= MAX_OUTSTANDING_PROBES {
+        return None;
+    }
+    let generation = registry.next_generation;
+    registry.next_generation += 1;
+    registry.outstanding += 1;
+    let (answer, receiver) = tokio::sync::watch::channel(None);
+    let probe = RootProbe {
+        invalidated: false,
+        generation,
+        started: std::time::Instant::now(),
+        answer: receiver,
+    };
+    registry.running.insert(root.to_path_buf(), probe.clone());
+    // **印を置いてから始める**（先に始めると、その隙に来た問い合わせが
+    // 2本目を飛ばす）。ロックはここで手放す——探りが即座に終わって
+    // `ProbeGuard` が印を消しに来ても、待たせない
+    drop(registry);
+    start(ProbeGuard {
+        probes: probes.clone(),
+        root: root.to_path_buf(),
+        generation,
+        answer,
+    });
+    Some(probe)
+}
+
+/// ルートの顔ぶれが変わったとき、**その場所の探りの印を捨てる**。
+///
+/// 刺さったルートの印は探りが返るまで残る——それが狙いで、二度と触らないため。
+/// ところが**外して足し直した**ときまで残ると、貼り直した共有を一度も見ずに
+/// 「応答がありません」と言い続ける（ゲート1の指摘）。捨てるのは印だけで、
+/// 返らない探り自身はそのまま——その後片付けは世代を見るので、
+/// 新しい探りの印を消すことはない。
+fn forget_probes_for_changed_roots(probes: &RootProbes, before: &[PathBuf], after: &[PathBuf]) {
+    let mut registry = lock_ok(probes);
+    for (root, probe) in registry.running.iter_mut() {
+        // 設定から外れたルートと、足し直された（この変更で新しく入った）ルート
+        let gone = !after.contains(root);
+        let added = after.contains(root) && !before.contains(root);
+        if gone || added {
+            probe.invalidated = true;
+        }
+    }
 }
 
 /// 一覧が空のとき、**なぜ空なのか**をUIへ返す。
@@ -1293,44 +1466,93 @@ struct EmptyLibraryDto {
 ///
 /// **走査の数え上げには足さない。** 空のときにしか呼ばれないので、ここで
 /// ルートの直下を1回読むだけで足りる——速さが仕様の走査路を太らせる理由が無い。
-/// 中も開かない（名前だけ見る）。
+/// 中も開かない（名前だけ見る）。奥で開けなかったフォルダは走査が控えている
+/// （[`ScanUnreadable`]）。
+///
+/// **ルートは1本ずつ独立して探る。** 直列に回していた頃は、刺さったSMBの
+/// 後ろにある `~/Pictures` まで巻き添えになった（[`AppState::root_probes`]）。
 #[tauri::command]
 async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
-    // **ブロッキングプールへ逃がす。** 切れたSMB/NFSのルートでは
-    // `metadata` も `read_dir` もマウントのタイムアウトぶん（hardマウントなら
-    // 際限なく）返ってこない。非同期コマンドはtokioのワーカーを占めるので、
-    // 走らせる場所を間違えると**他のコマンドごと詰まる**（ゲート2の指摘）。
-    // `add_library_root` などが同じ理由でこうしている
+    /// 1回の問い合わせで待つ上限。**フロントの見切り（5秒）より短くする**:
+    /// 向こうが先に諦めると、こちらの正直な返事が捨てられる
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
     let state = app.state::<AppState>();
-    // 席が空くまで待つ。**待たせるだけで、嘘は返さない。**
-    // ただし**有限時間まで**——刺さった確認は席を返さない。
-    // 諦めたときは「無い」ではなく「確かめている途中」と言う。
-    // フロント側の見切り（5秒）より短くする: 向こうが先に諦めると
-    // 旗の立たない答えに落ちて、こちらの正直な返事が捨てられる
-    let seat = state.empty_reason_gate.acquire();
-    let Ok(Ok(_seat)) = tokio::time::timeout(std::time::Duration::from_secs(3), seat).await else {
-        return EmptyLibraryDto {
-            checking: true,
-            ..Default::default()
+    let config = lock_ok(&state.config).clone();
+    let from_scan = lock_ok(&state.scan_unreadable).clone();
+    let roots = config.library.roots.clone();
+    let probes = state.root_probes.clone();
+    // **ルートごとに独立して探る**（走っているものには相乗りする）
+    let running: Vec<Option<RootProbe>> = roots
+        .iter()
+        .map(|root| {
+            // 探る側へ渡す複製（鍵に使う `root` は畳んだあとの名前にも要る）
+            let probing = root.clone();
+            let config = config.clone();
+            probe_of(&probes, root, move |guard| {
+                // **ブロッキングプールへ逃がす。** 切れたSMB/NFSのルートでは
+                // `metadata` も `read_dir` もマウントのタイムアウトぶん
+                // （hardマウントなら際限なく）返ってこない。非同期コマンドは
+                // tokioのワーカーを占めるので、走らせる場所を間違えると
+                // **他のコマンドごと詰まる**（ゲート2の指摘）。
+                // `add_library_root` などが同じ理由でこうしている
+                tauri::async_runtime::spawn_blocking(move || {
+                    guard.finish(root_reason_of(&probing, &config));
+                });
+            })
+        })
+        .collect();
+    // **待つのは有限時間まで。** 刺さったhardマウントでは `read_dir` が返らず、
+    // `spawn_blocking` の `await` も返らない——Tauriのコマンドは detached で
+    // 走るから、フロントが見切っても `Drop` は来ない
+    let until = std::time::Instant::now() + DEADLINE;
+    let mut answers = Vec::with_capacity(running.len());
+    for probe in running {
+        // **抱えきれないぶんは探っていない。** 見てもいないものを
+        // 「応答がありません」と名指ししない——言えるのは「まだ確かめていない」
+        // だけで、刺さっていた探りが1本返れば次の問い合わせで探りに行く
+        let Some(RootProbe {
+            started,
+            mut answer,
+            ..
+        }) = probe
+        else {
+            answers.push(RootAnswer::Checking);
+            continue;
         };
-    };
-    let inner = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = inner.state::<AppState>();
-        let config = lock_ok(&state.config).clone();
-        // **走査が開けなかった場所も借りる**（`AppState::scan_unreadable`）。
-        // 直下しか読まないこの関数からは、奥の権限の壁が見えない
-        let from_scan = lock_ok(&state.scan_unreadable).clone();
-        empty_library_reason_of(&config, &from_scan)
-    })
-    .await
-    // **落ちたときも「無い」と言わない。** `JoinError`（パニック・終了時の
-    // 取り消し）で既定値を返すと旗が1つも立たず、UIは「扱える画像が
-    // 見つかりません」と**断定**する——エラーから断定を作らない（ゲート2の指摘）
-    .unwrap_or(EmptyLibraryDto {
-        checking: true,
-        ..Default::default()
-    })
+        // **諦めたルートはもう待たない。** 印が付いている以上、待っても
+        // 答えは来ない——待つと**健康なルートの返事まで3秒遅れる**
+        let left = if started.elapsed() >= PROBE_STALLED_AFTER {
+            std::time::Duration::ZERO
+        } else {
+            until.saturating_duration_since(std::time::Instant::now())
+        };
+        let waited = tokio::time::timeout(left, async move {
+            loop {
+                // **見た印を付けて借りる**ので、下の `changed()` は「次の変化」を
+                // 待つ。もう入っていればここで返る
+                let current = { (*answer.borrow_and_update()).clone() };
+                if current.is_some() {
+                    return current;
+                }
+                // 送り手が落ちた（探りがパニックした）。印は `Drop` が消して
+                // いるので、次の問い合わせが探り直す
+                if answer.changed().await.is_err() {
+                    return None;
+                }
+            }
+        })
+        .await;
+        answers.push(match waited {
+            Ok(Some(reason)) => RootAnswer::Answered(reason),
+            // **落ちたときも「無い」と言わない。** 旗が1つも立たない答えを
+            // 返すと、UIは「扱える画像が見つかりません」と**断定**する
+            // ——エラーから断定を作らない（ゲート2の指摘）
+            Ok(None) => RootAnswer::Checking,
+            Err(_) if started.elapsed() >= PROBE_STALLED_AFTER => RootAnswer::Stalled,
+            Err(_) => RootAnswer::Checking,
+        });
+    }
+    merge_root_reasons(&roots, &answers, &from_scan)
 }
 
 /// **OSが自分のために置くフォルダ**。利用者の写真は入らない。
@@ -1498,121 +1720,194 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
     }
 }
 
-/// [`empty_library_reason`] の中身（設定だけを見るのでテストできる）。
-fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> EmptyLibraryDto {
+/// ルート1本を見た結果。**畳む前の素材**（[`merge_root_reasons`] が畳む）。
+///
+/// [`EmptyLibraryDto`] と分けてあるのは、**ルートごとに独立して探る**ため
+/// ——刺さった1本を待っている間も、返ってきたルートのぶんは畳める。
+/// 名前の重複を除くのと「ほか N件」を数えるのは畳む側の仕事で、
+/// ここは1本の中で見たままを持つ
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+struct RootReason {
+    /// そこに無い（外付けを挿し忘れた等）
+    missing: bool,
+    /// 在るのに読めなかった（権限・TCC・切れたネットワーク）
+    unreadable: bool,
+    /// ルートそのものが、写真を管理するアプリのライブラリ
+    root_is_package: bool,
+    /// そのライブラリが**写真.app以外**（iPhoto・Aperture）のものか
+    root_package_legacy: bool,
+    /// 直下にライブラリがあった
+    photo_library: bool,
+    /// そのライブラリに**写真.app以外**のものが含まれる
+    photo_library_legacy: bool,
+    /// 除外に当たらなかった「中身になり得たもの」を見た
+    survivor: bool,
+    /// 除外で飛ばした名前（**このルートの中では**重複を除いてある）
+    excluded: Vec<String>,
+}
+
+/// ルート1本について、いま言えること。
+enum RootAnswer {
+    /// 見終わった
+    Answered(RootReason),
+    /// まだ返ってきていない。**「無い」ではなく「まだ見ていない」**
+    Checking,
+    /// 返らないまま長く経った。**探りは諦めていて、印は残したまま**
+    /// ——ここまで来たら「確かめている途中です」は嘘になるので名指しする
+    Stalled,
+}
+
+/// ルート1本を見る。**ファイルシステムを触るのはここだけ**。
+///
+/// 刺さったマウントで返ってこないのもこの関数で、だからルートごとに
+/// 別々の探りへ入れてある（[`AppState::root_probes`]）。
+fn root_reason_of(root: &Path, config: &Config) -> RootReason {
+    let mut out = RootReason::default();
+    // **「無い」と「見せてもらえない」を取り違えない。** `is_dir()` は
+    // 内側で `stat` を呼ぶだけなので、**親フォルダに検索権が無い**と
+    // `EACCES` で偽を返す（実測: `chmod 000` の下のフォルダで確認）。
+    // それを「見つかりません、つないでから再スキャンを」と案内すると、
+    // **挿さっている外付けを挿し直させる**ことになる（ゲート1の指摘）。
+    // 本当に無いのは `NotFound` のときだけ。
+    //
+    // **切れたSMBはここを通り抜ける**——`stat` は属性キャッシュで即座に
+    // 「在る」と答え、止まるのは下の `read_dir` の方（実測: 応答を止めた
+    // サーバで120秒待っても返らなかった）
+    match std::fs::metadata(root) {
+        Ok(md) if md.is_dir() => {}
+        // フォルダを選ぶ画面から来る以上ほぼ起きないが、
+        // ファイルを指していれば「そこにフォルダは無い」で正しい
+        Ok(_) => {
+            out.missing = true;
+            return out;
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            out.missing = true;
+            return out;
+        }
+        Err(_) => {
+            out.unreadable = true;
+            return out;
+        }
+    }
+    // **ルート自身がパッケージのこともある。** いまの `add_library_root` は
+    // それを断るので、届くのは**手で書いた `pictkura.toml`**か、断るより
+    // 前の版が書いた設定から（ゲート2の指摘。以前ここに「フォルダを選ぶ
+    // 画面で普通に起きる」と書いていたのは誤り）。走査はそのルートを
+    // 丸ごと飛ばすので、中を読んでも何も出ない。
+    //
+    // **これは `survivor` で消えない事実**。「この場所には写真.appの
+    // ライブラリしか無い」は隣に候補があれば覆るが、「このルートは
+    // ライブラリそのもので、何も出てこない」は覆らない
+    if let Some(package) = pictkura_core::scanner::managed_package_name(root) {
+        out.root_is_package = true;
+        out.root_package_legacy = !pictkura_core::scanner::is_photos_app_package(package);
+        return out;
+    }
+    // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
+    // `read_dir` が落ちるのは、権限・macOSのTCC（`~/Desktop` や外付けへの
+    // アクセスを許していない。**TCCはこちらの形で落ちる**——`stat` は
+    // 通り、`opendir` で止まる）・切れたネットワークのとき。ここで黙ると
+    // 「扱える画像がありません」と出てしまう——**1万枚あって、必要なのは
+    // 許可の話**なのに（ゲート2の指摘）
+    let Ok(entries) = std::fs::read_dir(root) else {
+        out.unreadable = true;
+        return out;
+    };
+    // **「1つでも除外に当たった」と「全部除外だった」は違う。**
+    // macOSは `~/Pictures` に `.localized` を置き、Finderが覗いた場所には
+    // `.DS_Store` が残る。既定の除外は `.*` を含むので、**本当に空の
+    // フォルダでも「全部除外しています」と言ってしまう**（同）。
+    // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
+    // **列挙の途中で落ちたときも「空」と言わない。** `opendir` は通っても、
+    // 共有が途中で切れれば以降の `readdir` が落ちる。黙って抜けると
+    // 候補が1つも見つからず「扱える画像がありません」になる——
+    // 必要なのは「開けませんでした」の方（ゲート2の指摘。走査本体の
+    // `had_error` と揃える）
+    let mut seen: HashSet<String> = HashSet::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            out.unreadable = true;
+            break;
+        };
+        let name = entry.file_name();
+        match classify_entry(&name, EntryShape::of(&entry), config) {
+            EntryKind::Package { photos_app } => {
+                out.photo_library = true;
+                out.photo_library_legacy |= !photos_app;
+            }
+            EntryKind::Ignorable => {}
+            EntryKind::Candidate => out.survivor = true,
+            EntryKind::Excluded => {
+                // `Excluded` はUTF-8として読めた名前でしか返らない
+                let Some(name) = name.to_str() else { continue };
+                // 同じ名前を2度並べない（数えるのは畳む側。`excluded_total`）
+                if seen.insert(name.to_string()) {
+                    out.excluded.push(name.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// ルートごとの答えを、UIへ返す**1つの理由**へ畳む。
+///
+/// 文言はライブラリ全体に対して1つしか出ないので、ルートをまたいで見る。
+fn merge_root_reasons(
+    roots: &[PathBuf],
+    answers: &[RootAnswer],
+    from_scan: &ScanUnreadable,
+) -> EmptyLibraryDto {
     let mut out = EmptyLibraryDto {
-        no_roots: config.library.roots.is_empty(),
+        no_roots: roots.is_empty(),
         ..Default::default()
     };
     // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
     let mut survivor = false;
+    // **中身が分からないルートがある**（探っている最中・諦めた のどちらも）
+    let mut unknown = false;
     // 例示に挙げた名前。**同じ名前を2度並べない**ためだけのもので、
     // 数（`excluded_total`）はここを通さず素直に数える
     let mut excluded_names: HashSet<String> = HashSet::new();
-    for root in &config.library.roots {
-        // **「無い」と「見せてもらえない」を取り違えない。** `is_dir()` は
-        // 内側で `stat` を呼ぶだけなので、**親フォルダに検索権が無い**と
-        // `EACCES` で偽を返す（実測: `chmod 000` の下のフォルダで確認）。
-        // それを「見つかりません、つないでから再スキャンを」と案内すると、
-        // **挿さっている外付けを挿し直させる**ことになる（ゲート1の指摘）。
-        // 本当に無いのは `NotFound` のときだけ
-        match std::fs::metadata(root) {
-            Ok(md) if md.is_dir() => {}
-            // フォルダを選ぶ画面から来る以上ほぼ起きないが、
-            // ファイルを指していれば「そこにフォルダは無い」で正しい
-            Ok(_) => {
-                out.missing.push(root.display().to_string());
+    for (root, answer) in roots.iter().zip(answers) {
+        let reason = match answer {
+            RootAnswer::Answered(reason) => reason,
+            RootAnswer::Checking => {
+                out.checking = true;
+                unknown = true;
                 continue;
             }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                out.missing.push(root.display().to_string());
+            RootAnswer::Stalled => {
+                out.stalled.push(root.display().to_string());
+                unknown = true;
                 continue;
             }
-            Err(_) => {
-                out.unreadable.push(root.display().to_string());
-                continue;
-            }
-        }
-        // **ルート自身がパッケージのこともある。** いまの `add_library_root` は
-        // それを断るので、届くのは**手で書いた `pictkura.toml`**か、断るより
-        // 前の版が書いた設定から（ゲート2の指摘。以前ここに「フォルダを選ぶ
-        // 画面で普通に起きる」と書いていたのは誤り）。走査はそのルートを
-        // 丸ごと飛ばすので、中を読んでも何も出ない。
-        //
-        // **これは `survivor` で消えない事実**。「この場所には写真.appの
-        // ライブラリしか無い」は隣に候補があれば覆るが、「このルートは
-        // 写真.appのライブラリそのもので、何も出てこない」は覆らない
-        if let Some(package) = pictkura_core::scanner::managed_package_name(root) {
-            out.root_is_package = true;
-            out.root_package_legacy |= !pictkura_core::scanner::is_photos_app_package(package);
-            continue;
-        }
-        // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
-        // `read_dir` が落ちるのは、権限・macOSのTCC（`~/Desktop` や外付けへの
-        // アクセスを許していない。**TCCはこちらの形で落ちる**——`stat` は
-        // 通り、`opendir` で止まる）・切れたネットワークのとき。ここで黙ると
-        // 「扱える画像がありません」と出てしまう——**1万枚あって、必要なのは
-        // 許可の話**なのに（ゲート2の指摘）
-        let Ok(entries) = std::fs::read_dir(root) else {
-            out.unreadable.push(root.display().to_string());
-            continue;
         };
-        // **「1つでも除外に当たった」と「全部除外だった」は違う。**
-        // macOSは `~/Pictures` に `.localized` を置き、Finderが覗いた場所には
-        // `.DS_Store` が残る。既定の除外は `.*` を含むので、**本当に空の
-        // フォルダでも「全部除外しています」と言ってしまう**（同）。
-        // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
-        // **列挙の途中で落ちたときも「空」と言わない。** `opendir` は通っても、
-        // 共有が途中で切れれば以降の `readdir` が落ちる。黙って抜けると
-        // 候補が1つも見つからず「扱える画像がありません」になる——
-        // 必要なのは「開けませんでした」の方（ゲート2の指摘。走査本体の
-        // `had_error` と揃える）
-        let mut torn = false;
-        for entry in entries {
-            let Ok(entry) = entry else {
-                torn = true;
-                break;
-            };
-            let name = entry.file_name();
-            match classify_entry(&name, EntryShape::of(&entry), config) {
-                EntryKind::Package { photos_app } => {
-                    out.photo_library = true;
-                    out.photo_library_legacy |= !photos_app;
-                }
-                EntryKind::Ignorable => {}
-                EntryKind::Candidate => survivor = true,
-                EntryKind::Excluded => {
-                    // `Excluded` はUTF-8として読めた名前でしか返らない
-                    let Some(name) = name.to_str() else { continue };
-                    // **見せる3件と別に数える。** 見せる側で重複を見ると、
-                    // 4件目以降は毎回数えられ、先頭3件は何ルートに在っても1のまま
-                    // ——「ほか N件」がどちらにも狂う。数える先は名前の集合
-                    // （`excluded_total` の説明を見よ）
-                    if excluded_names.insert(name.to_string()) {
-                        out.excluded_total += 1;
-                        if out.excluded.len() < 3 {
-                            out.excluded.push(name.to_string());
-                        }
-                    }
+        if reason.missing {
+            out.missing.push(root.display().to_string());
+        }
+        if reason.unreadable {
+            out.unreadable.push(root.display().to_string());
+        }
+        out.root_is_package |= reason.root_is_package;
+        out.root_package_legacy |= reason.root_package_legacy;
+        out.photo_library |= reason.photo_library;
+        out.photo_library_legacy |= reason.photo_library_legacy;
+        survivor |= reason.survivor;
+        for name in &reason.excluded {
+            // **見せる3件と別に数える。** 見せる側で重複を見ると、
+            // 4件目以降は毎回数えられ、先頭3件は何ルートに在っても1のまま
+            // ——「ほか N件」がどちらにも狂う。数える先は名前の集合
+            // （`excluded_total` の説明を見よ）
+            if excluded_names.insert(name.clone()) {
+                out.excluded_total += 1;
+                if out.excluded.len() < 3 {
+                    out.excluded.push(name.clone());
                 }
             }
-        }
-        if torn {
-            out.unreadable.push(root.display().to_string());
         }
     }
-    // **除外を犯人にするのは、他に容疑者がいないときだけ。**
-    // `.隠しフォルダ` の隣に空の `写真/` があれば、走査はその `写真/` を
-    // ちゃんと開いて何も見つけていない——そこで「全部除外しています」と
-    // 言うと、**除外を外せば出てくる**という嘘になる（ゲート1の指摘）。
-    //
-    // **写真.appの旗も同じ**。`~/Pictures` に写真ライブラリと `富士/` が
-    // 並んでいて `富士/` が空なら、「ここには写真.appのライブラリしか
-    // ありません」は端的に嘘で、しかも**利用者を真犯人から遠ざける**
-    // （ゲート2の指摘。UIは写真.appの文言を除外より上に出す）。
-    // 残るのは `emptyNothingHere`——具体性は落ちるが、嘘ではない
-    //
-    // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
     // **走査が奥で開けなかった場所を借りる。** ここはルートの直下しか
     // 読まないので（速さが仕様の走査路を太らせないため）、`~/Pictures/2024/非公開`
     // だけ許可が無い形が見えない——走査はそこで `had_error` を立てているのに、
@@ -1633,7 +1928,22 @@ fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> Empty
     // 控えていない）ので、**大きい方を採って少なめに倒す**——
     // 「ほか N件」が在りもしない場所を指すよりは、少なく言う方がまし
     out.unreadable_total = out.unreadable.len().max(from_scan.total);
-    if survivor {
+    // **除外を犯人にするのは、他に容疑者がいないときだけ。**
+    // `.隠しフォルダ` の隣に空の `写真/` があれば、走査はその `写真/` を
+    // ちゃんと開いて何も見つけていない——そこで「全部除外しています」と
+    // 言うと、**除外を外せば出てくる**という嘘になる（ゲート1の指摘）。
+    //
+    // **写真.appの旗も同じ**。`~/Pictures` に写真ライブラリと `富士/` が
+    // 並んでいて `富士/` が空なら、「ここには写真.appのライブラリしか
+    // ありません」は端的に嘘で、しかも**利用者を真犯人から遠ざける**
+    // （ゲート2の指摘。UIは写真.appの文言を除外より上に出す）。
+    // 残るのは `emptyNothingHere`——具体性は落ちるが、嘘ではない
+    //
+    // **まだ見ていないルートがあるときも同じ**。「全部除外しています」も
+    // 「ライブラリのほかに見つかりません」も**ライブラリ全体に対する
+    // 排他の主張**なので、中身の分からない場所が1つでも残っていれば言えない
+    // ——UIの並び順に頼らず、ここで落としておく
+    if survivor || unknown {
         out.excluded.clear();
         out.excluded_total = 0;
         // **推測は覆る。** `root_is_package` は覆らないので落とさない（上の説明）
@@ -1643,6 +1953,23 @@ fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> Empty
         out.photo_library_legacy = false;
     }
     out
+}
+
+/// 設定のルートを**順に**見る（試験用の入口）。
+///
+/// 本番の [`empty_library_reason`] はルートごとに独立して探るので、この形では
+/// 呼ばない——刺さった1本が後ろを巻き添えにするのが、この順序の性質そのもの。
+/// 畳み方（名前の重複・「ほか N件」・`survivor` の後始末）をファイルシステム
+/// 込みで確かめるために残してある
+#[cfg(test)]
+fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> EmptyLibraryDto {
+    let answers: Vec<RootAnswer> = config
+        .library
+        .roots
+        .iter()
+        .map(|root| RootAnswer::Answered(root_reason_of(root, config)))
+        .collect();
+    merge_root_reasons(&config.library.roots, &answers, from_scan)
 }
 
 /// HEICを展開できるかを実地で確かめ、UIの案内を出すかどうかを返す。
@@ -3522,7 +3849,7 @@ pub fn run() {
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
                 scan_unreadable: Mutex::new(ScanUnreadable::default()),
-                empty_reason_gate: tokio::sync::Semaphore::new(2),
+                root_probes: RootProbes::default(),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
@@ -4819,6 +5146,224 @@ mod tests {
             assert_eq!(r.unreadable.len(), 4, "同じ場所を2度並べない");
             assert_eq!(r.unreadable_total, 4, "5本目を作らない");
         }
+    }
+
+    /// 走っている探りには**相乗りする**（同じルートへ2本目を飛ばさない）。
+    ///
+    /// 刺さったマウントでは `read_dir` が返らず、探りはスレッドを持ったまま
+    /// 残る。同じ状況を聞き直すたびに新しい探りを飛ばすと、**そのぶんだけ
+    /// スレッドが増える**——答えは1つも増えないのに
+    #[test]
+    fn a_second_question_about_the_same_root_joins_the_probe_already_running() {
+        use super::{probe_of, ProbeGuard, RootProbes, RootReason};
+
+        let probes = RootProbes::default();
+        let root = std::path::PathBuf::from("/nas/photos");
+        let mut started = 0;
+        // 1本目。**わざと終わらせない**（＝刺さったマウントと同じ形）
+        let mut held: Option<ProbeGuard> = None;
+        let first = probe_of(&probes, &root, |guard| {
+            started += 1;
+            held = Some(guard);
+        })
+        .expect("1本目は始まる");
+        assert_eq!(started, 1);
+
+        // 2本目は同じルート——**始めない**。受け口は同じ探りの複製
+        let second =
+            probe_of(&probes, &root, |_| started += 1).expect("走っているものに相乗りする");
+        assert_eq!(started, 1, "刺さったルートへ2本目を飛ばさない");
+        assert!(second.answer.borrow().is_none(), "まだ答えは無い");
+
+        // 1本目が答えを配ると、相乗りしている側にも同じものが届く
+        held.take().unwrap().finish(RootReason {
+            survivor: true,
+            ..Default::default()
+        });
+        assert!(first.answer.borrow().as_ref().is_some_and(|r| r.survivor));
+        assert!(
+            second.answer.borrow().as_ref().is_some_and(|r| r.survivor),
+            "待っていた側も**自分で本当の答えを受け取る**"
+        );
+
+        // 終わった探りの印は消えている——次に聞かれたら探り直す
+        let mut restarted = 0;
+        probe_of(&probes, &root, |_| restarted += 1);
+        assert_eq!(restarted, 1, "返ってきたルートは次にまた探る");
+    }
+
+    /// 探りがパニックしても、**印は残らない**。
+    ///
+    /// 印は「返ってこない」ことの証拠でなければならない。落ちたことの証拠に
+    /// してしまうと、バグで1回落ちたルートを**二度と探らなくなる**
+    #[test]
+    fn a_probe_that_panics_leaves_no_mark() {
+        use super::{probe_of, RootProbes};
+
+        let probes = RootProbes::default();
+        let root = std::path::PathBuf::from("/nas/photos");
+        // パニックの出力で試験のログを汚さない（この試験は落ちることが前提）
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let fell = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            probe_of(&probes, &root, |_guard| panic!("探りが落ちた"));
+        }));
+        std::panic::set_hook(previous);
+        assert!(fell.is_err(), "落ちること自体は試験の前提");
+
+        let mut started = 0;
+        probe_of(&probes, &root, |_| started += 1);
+        assert_eq!(started, 1, "落ちたルートは次に探り直す");
+    }
+
+    /// **外して足し直したルートは、古い探りの答えを名乗らない。**
+    ///
+    /// 刺さった印は探りが返るまで残す（それが狙い）が、貼り直した共有に
+    /// 「応答がありません」と言い続けるのは、直しても直らない案内になる
+    /// （ゲート1の指摘）。かといって行ごと消すと**スレッドは走ったままなのに
+    /// 枠だけ戻る**ので、外して足し直すたびに枠を食い潰せる（ゲート2の指摘）。
+    /// だから**当てにしない印**を付けて、走っているものが片付くまで待つ
+    #[test]
+    fn a_root_taken_out_and_put_back_does_not_reuse_the_old_answer() {
+        use super::{forget_probes_for_changed_roots, probe_of, ProbeGuard, RootProbes};
+
+        let probes = RootProbes::default();
+        let root = std::path::PathBuf::from("/nas/photos");
+        // 刺さったまま返らない探り
+        let mut stuck: Option<ProbeGuard> = None;
+        probe_of(&probes, &root, |guard| stuck = Some(guard));
+
+        // ルートを外して、足し直す
+        forget_probes_for_changed_roots(&probes, std::slice::from_ref(&root), &[]);
+        forget_probes_for_changed_roots(&probes, &[], std::slice::from_ref(&root));
+
+        // **古い答えには乗らない。かといって2本目も飛ばさない**
+        let mut started = 0;
+        let joined = probe_of(&probes, &root, |_| started += 1);
+        assert!(
+            joined.is_none() && started == 0,
+            "当てにできない探りには乗らず、スレッドも増やさない"
+        );
+
+        // 走っていたものが片付けば、次からは探り直す（枠もそこで戻る）
+        drop(stuck.take());
+        let mut restarted = 0;
+        probe_of(&probes, &root, |_| restarted += 1);
+        assert_eq!(restarted, 1, "片付いたら、貼り直した共有を見に行く");
+    }
+
+    /// **刺さったマウントの数だけスレッドを増やさない。**
+    ///
+    /// 相乗りは「同じ場所へ2本目を飛ばさない」までしか守らない。死んだ共有が
+    /// 何本もあると、その数だけブロッキングプールのスレッドが永久に減る
+    /// ——同じプールを使う `add_library_root` などが止まる（ゲート1の指摘）。
+    ///
+    /// **枠は探りを始める前に取る**。「もう刺さっているもの」を数える形だと、
+    /// 1回の問い合わせの中では全部が若いので上限が一度も効かない（同・2巡目）
+    #[test]
+    fn a_pile_of_dead_mounts_stops_taking_new_threads() {
+        use super::{
+            forget_probes_for_changed_roots, probe_of, ProbeGuard, RootProbes,
+            MAX_OUTSTANDING_PROBES,
+        };
+
+        let probes = RootProbes::default();
+        let mut held: Vec<ProbeGuard> = Vec::new();
+        // **1回の問い合わせで死んだルートが並んでいる形**（全部が若い）
+        let roots: Vec<std::path::PathBuf> = (0..MAX_OUTSTANDING_PROBES)
+            .map(|i| std::path::PathBuf::from(format!("/nas/{i}")))
+            .collect();
+        for root in &roots {
+            probe_of(&probes, root, |guard| held.push(guard));
+        }
+        assert_eq!(held.len(), MAX_OUTSTANDING_PROBES, "上限までは始める");
+
+        let mut started = 0;
+        let more = probe_of(&probes, std::path::Path::new("/nas/another"), |_| {
+            started += 1
+        });
+        assert!(more.is_none() && started == 0, "上限を超えたら手を出さない");
+
+        // **印を捨てても枠は戻らない。** ルートを外してもスレッドは残っている
+        // ——台帳の件数で数えると、外して足し直すたびに枠が戻って積み上がる
+        forget_probes_for_changed_roots(&probes, &roots, &[]);
+        let mut after_forgetting = 0;
+        let refused = probe_of(&probes, std::path::Path::new("/nas/another"), |_| {
+            after_forgetting += 1
+        });
+        assert!(
+            refused.is_none() && after_forgetting == 0,
+            "印を捨てても、走っている探りのぶんは枠を空けない"
+        );
+
+        // 1本片付けば、そのぶんだけまた探れる
+        held.pop();
+        let mut after = 0;
+        probe_of(&probes, std::path::Path::new("/nas/another"), |_| {
+            after += 1
+        });
+        assert_eq!(after, 1, "空いたぶんは探りに行く");
+    }
+
+    /// **刺さった1本が、他のルートの答えを飲み込まない。**
+    ///
+    /// 直列に見ていた頃は、刺さったSMBの後ろにある `~/Pictures` の結果まで
+    /// 出てこなかった。いまは返ってきたぶんを畳める——ただし
+    /// **「ほかに無い」という排他の主張だけは、分からない場所が残る限り言わない**
+    #[test]
+    fn one_stalled_root_does_not_speak_for_the_others() {
+        use super::{merge_root_reasons, RootAnswer, RootReason, ScanUnreadable};
+
+        let roots = vec![
+            std::path::PathBuf::from("/nas/photos"),
+            std::path::PathBuf::from("/home/me/Pictures"),
+        ];
+        // 2本目は見終わっていて、「写真.appのライブラリしか無い」形
+        let answered = RootReason {
+            photo_library: true,
+            excluded: vec![".隠しフォルダ".to_string()],
+            ..Default::default()
+        };
+        let r = merge_root_reasons(
+            &roots,
+            &[RootAnswer::Stalled, RootAnswer::Answered(answered.clone())],
+            &ScanUnreadable::default(),
+        );
+        assert_eq!(
+            r.stalled,
+            vec!["/nas/photos".to_string()],
+            "返事の無い場所を名指しする"
+        );
+        assert!(!r.checking, "諦めたことと、まだ見ている最中は別の話");
+        assert!(
+            !r.photo_library && r.excluded.is_empty() && r.excluded_total == 0,
+            "中身の分からない場所が残っているなら「ほかに無い」とは言えない"
+        );
+
+        // まだ見ている最中なら `checking`。**名指しはしない**——変わるかもしれない
+        let r = merge_root_reasons(
+            &roots,
+            &[RootAnswer::Checking, RootAnswer::Answered(answered)],
+            &ScanUnreadable::default(),
+        );
+        assert!(r.checking, "まだ見ている");
+        assert!(r.stalled.is_empty(), "見切る前に名指ししない");
+
+        // 全部見終わったなら、これまでどおり言い切る
+        let both_seen = RootReason::default();
+        let r = merge_root_reasons(
+            &roots,
+            &[
+                RootAnswer::Answered(both_seen.clone()),
+                RootAnswer::Answered(RootReason {
+                    photo_library: true,
+                    ..Default::default()
+                }),
+            ],
+            &ScanUnreadable::default(),
+        );
+        assert!(r.photo_library, "分からない場所が無いなら主張してよい");
+        assert!(!r.checking && r.stalled.is_empty());
     }
 
     #[test]
