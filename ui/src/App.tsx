@@ -387,6 +387,13 @@ export default function App() {
    * 言うことになり、この旗を足した意味が消える（同）
    */
   const [scanSettled, setScanSettled] = useState(false);
+  /** 起動時の同期が**転んで終わった**。空に見えても「まだ写真がありません」と
+   *  言えない——取り込めていないだけかもしれない */
+  const [startupFailed, setStartupFailed] = useState(false);
+  /** `library-updated` の登録に**成功したことが確かめられている**か。
+   *  偽のまま走査が終わったら、一覧を自分で取り直す（登録が転んでいると
+   *  イベントが二度と来ないため） */
+  const libraryListenerRef = useRef(false);
   /** 取得済みの日 → その日のレコード（可視範囲＋α だけを保持） */
   const [dayItems, setDayItems] = useState<Map<number, MediaItem[]>>(
     () => new Map(),
@@ -658,7 +665,15 @@ export default function App() {
       // 応答待ちの間に次のリロード（フィルタ切替等）が始まっていたら、古い応答は捨てる
       if (generationRef.current !== gen) return;
       if (statsR.status === "fulfilled") setStats(statsR.value);
-      if (memR.status === "fulfilled") setMemories(memR.value);
+      if (memR.status === "fulfilled") {
+        setMemories(memR.value);
+      } else if (sumR.status === "fulfilled" && sumR.value.length === 0) {
+        // **新しい一覧が空なら、古い思い出は捨てる。** ルートを外した直後に
+        // `listMemories` だけ転ぶと、**消したはずの写真が空のパネルの上に
+        // 並ぶ**——押せてしまうし、ライブラリの中身について嘘をつく
+        // （ゲート1の指摘）。一覧が空でないなら、古い飾りはまだ正しい
+        setMemories([]);
+      }
       if (sumR.status === "rejected") throw sumR.reason;
       gotSummary = true;
       setSummary(sumR.value);
@@ -832,6 +847,7 @@ export default function App() {
         return;
       }
       unlisten = f ?? undefined;
+      libraryListenerRef.current = f != null;
       await reloadAll().catch((e) => setStatus(String(e)));
     })();
     return () => {
@@ -886,19 +902,32 @@ export default function App() {
     // に着くと、`settle` が走った時点で `poll` はまだ `undefined` で、
     // その後に**止める相手のいないポーリングが据えられる**（ゲート2の指摘）
     let done = false;
-    const settle = () => {
+    /** 走査が**どう終わったか**まで見る。転んだなら「空です」とは言えない */
+    const settle = (failed = false) => {
       if (cancelled) return;
       done = true;
       if (poll != null) window.clearInterval(poll);
       poll = undefined;
+      if (failed) setStartupFailed(true);
       setScanSettled(true);
+      // **合図が来たのに一覧を取り直していない筋がある。**
+      // `library-updated` の登録が転んでいると、初回の `reloadAll` は走査より
+      // 前にDBを読んだきりで、**入ったばかりの写真が画面に出ない**
+      // ——空でもないのに空のパネルが出る（ゲート1の指摘）。
+      // 登録できたことが確かめられていないときだけ取り直す
+      if (!libraryListenerRef.current) {
+        reloadAll().catch((e) => setStatus(String(e)));
+      }
     };
     (async () => {
       // **登録が転んでも先へ進む。** ここで例外が上がると下の問い合わせに
       // 届かず、`scanSettled` がその起動のあいだ偽のまま固まる——
       // つまり**この機能が丸ごと出なくなる**。
       // 隣の⚡爆速メーターは取りこぼしても帯が1つ出ないだけだが、こちらは違う
-      const f = await listen("startup-scan-finished", settle).catch(() => null);
+      const f = await listen<{ failed?: boolean } | null>(
+        "startup-scan-finished",
+        (ev) => settle(ev.payload?.failed === true),
+      ).catch(() => null);
       if (cancelled) {
         f?.();
         return;
@@ -911,10 +940,10 @@ export default function App() {
       // **下のポーリングごと飛ばして**索引中のライブラリに
       // 「扱える画像がありません」と言う（ゲート2の指摘）。
       // 偽なら必ず下のポーリングが拾う
-      const finished = await startupScanFinished().catch(() => false);
+      const startup = await startupScanFinished().catch(() => null);
       if (cancelled) return;
-      if (finished) {
-        settle();
+      if (startup?.finished) {
+        settle(startup.failed);
         return;
       }
       // 応答を待つ間に合図が着いていたら、もう据えない
@@ -930,11 +959,11 @@ export default function App() {
           // **転んだ1回で「終わった」と言わない。** ここで倒すと、
           // NASの初回走査の最中に一度失敗しただけでパネルが出る。
           // 次の2秒後にもう一度聞けばよい
-          .catch(() => false)
-          .then((ok) => {
+          .catch(() => null)
+          .then((r) => {
             // **終わったら止める。** 片付けはAppのunmountでしか走らないので、
             // 止めないとプロセスの一生ぶん2秒ごとに叩き続ける
-            if (ok) settle();
+            if (r?.finished) settle(r.failed);
           });
       }, 2000);
     })();
@@ -943,7 +972,7 @@ export default function App() {
       unlisten?.();
       if (poll != null) window.clearInterval(poll);
     };
-  }, []);
+  }, [reloadAll]);
 
   // この環境で開けない形式の案内（第7部 段階G-6）。
   //
@@ -1341,6 +1370,8 @@ export default function App() {
    */
   const emptyTitle = () => {
     if (loadFailed) return t.emptyTitleFailed;
+    // **転んで終わった走査の後ろでは、空だと断定しない**（本文と揃える）
+    if (startupFailed) return t.emptyTitleStartupFailed;
     const r = emptyReason;
     if (r == null) return t.emptyTitleChecking;
     // **諦めた場所は「確かめています」より先に言う。** あちらは放っておけば
@@ -1355,6 +1386,9 @@ export default function App() {
   /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
   const emptyMessage = () => {
     if (loadFailed) return t.emptyLoadFailed;
+    // **同期が最後まで終わっていない。** 理由の旗より先に言う——
+    // 走査が落ちたなら、直下を読んだ結果が何であれ**一覧は当てにならない**
+    if (startupFailed) return t.emptyStartupFailed;
     // **見出しと揃える。** 理由がまだ無いのに「無い」と断定しない
     // （見出しは `emptyTitleChecking` に落ちる。ゲート1の指摘）
     if (emptyReason == null) return t.emptyChecking;

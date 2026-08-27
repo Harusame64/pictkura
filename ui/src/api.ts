@@ -440,8 +440,15 @@ export const getStartupReport = () =>
  * `getStartupReport` では代わりにならない——走査が落ちたときは報告が
  * 一度も出ないので、`null` が「まだ走っている」と見分けられない
  */
+/** 起動時同期の**終わり方**。「終わった」だけでは足りない——転んで終わったのに
+ *  同じ合図を出すと、取り込めていないだけのライブラリを「空」と断定する */
+export interface StartupDone {
+  finished: boolean;
+  /** 転んで終わった（`Err` かパニック） */
+  failed: boolean;
+}
 export const startupScanFinished = () =>
-  invoke<boolean>("startup_scan_finished");
+  invoke<StartupDone>("startup_scan_finished");
 // USB挿入の自動起動（AutoPlay）で `--import <ドライブ>` 付きで冷起動したときの
 // 取り込み対象を一度だけ受け取る。2重起動は open-import-drive イベントで届く
 export const takePendingImport = () =>

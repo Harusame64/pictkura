@@ -65,6 +65,15 @@ struct AppState {
     /// 別に知らせないと永久に無言**になる（ゲート2の指摘）。
     /// イベントを取りこぼしたフロントが後から聞けるよう、旗としても置く
     startup_done: std::sync::atomic::AtomicBool,
+    /// 起動時の同期が**転んで終わったか**（`Err` かパニック）。
+    ///
+    /// [`Self::startup_done`] と分けてある——あちらは「もう終わった、だから
+    /// 空だと言ってよい」の合図で、**どう終わったかを言わない**。走査が
+    /// 落ちた（DBが開けない・反映が失敗した）ときも旗は同じように立つので、
+    /// フロントは**取り込めていないだけのライブラリを「まだ写真がありません」**
+    /// と断定する。1万枚あって、必要なのは「もう一度走らせて」なのに
+    /// （ゲート1の指摘）
+    startup_failed: std::sync::atomic::AtomicBool,
     /// ルートごとに走っている「空の理由」の探り（[`empty_library_reason`]）。
     ///
     /// **1本ずつ独立して探る。** 走査はブロッキングプールで動くが、
@@ -2625,15 +2634,29 @@ fn get_startup_report(state: tauri::State<'_, AppState>) -> Option<StartupScanDt
     lock_ok(&state.startup_report).clone()
 }
 
-/// 起動時の同期が終わったか。**イベントを取りこぼしたフロント用**。
+/// 起動時の同期の**終わり方**。
+#[derive(serde::Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct StartupDoneDto {
+    /// もう終わったか（成功・失敗・パニックのどれでも真）
+    finished: bool,
+    /// **転んで終わったか。** 真なら、ライブラリが空に見えても
+    /// 「まだ写真がありません」とは言えない——取り込めていないだけかもしれない
+    failed: bool,
+}
+
+/// 起動時の同期が終わったか、そして**どう終わったか**。
+/// **イベントを取りこぼしたフロント用**。
 ///
 /// [`get_startup_report`] とは別に要る——報告が出ないまま終わる道があるため
 /// （`AppState::startup_done` の説明）。
 #[tauri::command]
-fn startup_scan_finished(state: tauri::State<'_, AppState>) -> bool {
-    state
-        .startup_done
-        .load(std::sync::atomic::Ordering::Acquire)
+fn startup_scan_finished(state: tauri::State<'_, AppState>) -> StartupDoneDto {
+    use std::sync::atomic::Ordering::Acquire;
+    StartupDoneDto {
+        finished: state.startup_done.load(Acquire),
+        failed: state.startup_failed.load(Acquire),
+    }
 }
 
 /// ライブラリ全体の件数（総数・お気に入り数）を返す。
@@ -3849,6 +3872,7 @@ pub fn run() {
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
                 scan_unreadable: Mutex::new(ScanUnreadable::default()),
+                startup_failed: std::sync::atomic::AtomicBool::new(false),
                 root_probes: RootProbes::default(),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
@@ -4161,44 +4185,64 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let inner = handle.clone();
-                let _ = pictkura_core::panics::catching("起動時の同期", move || {
-                    let started = std::time::Instant::now();
-                    let state = inner.state::<AppState>();
-                    let Ok((stats, method)) = startup_scan(&state) else {
-                        return;
-                    };
-                    let elapsed_ms = started.elapsed().as_millis() as u64;
-                    let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
-                    let (method_name, usn_records, dirty_dirs) = match method {
-                        StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
-                        StartupMethod::Pruned => ("pruned", 0, 0),
-                        StartupMethod::Full => ("full", 0, 0),
-                    };
-                    let report = StartupScanDto {
-                        method: method_name.into(),
-                        elapsed_ms,
-                        added: stats.added,
-                        changed: stats.changed,
-                        removed: stats.removed,
-                        usn_records,
-                        dirty_dirs,
-                        skipped_dirs: stats.skipped_dirs,
-                        total,
-                    };
-                    *lock_ok(&state.startup_report) = Some(report.clone());
-                    let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
-                    let _ = inner.emit("startup-scan-report", report);
-                });
+                // **どう終わったかを持ち帰る。** `catching` はパニックを
+                // `None` にして飲むので、`Err` で早く返った道と合わせて
+                // 「転んだ」を1つの値にまとめる（下で旗と合図に載せる）
+                let finished_well =
+                    pictkura_core::panics::catching("起動時の同期", move || {
+                        let started = std::time::Instant::now();
+                        let state = inner.state::<AppState>();
+                        let Ok((stats, method)) = startup_scan(&state) else {
+                            return false;
+                        };
+                        let elapsed_ms = started.elapsed().as_millis() as u64;
+                        let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
+                        let (method_name, usn_records, dirty_dirs) = match method {
+                            StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
+                            StartupMethod::Pruned => ("pruned", 0, 0),
+                            StartupMethod::Full => ("full", 0, 0),
+                        };
+                        let report = StartupScanDto {
+                            method: method_name.into(),
+                            elapsed_ms,
+                            added: stats.added,
+                            changed: stats.changed,
+                            removed: stats.removed,
+                            usn_records,
+                            dirty_dirs,
+                            skipped_dirs: stats.skipped_dirs,
+                            total,
+                        };
+                        *lock_ok(&state.startup_report) = Some(report.clone());
+                        let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
+                        let _ = inner.emit("startup-scan-report", report);
+                        true
+                    });
                 // **どう終わってもここを通る。** 上は `startup_scan` が `Err` なら
                 // 報告を出さずに返るし、パニックは `catching` が飲む。
                 // フロントはこれが来るまで「空です」と言わないので、
                 // **黙って終わると初回起動が永久に無言になる**（ゲート2の指摘）。
-                // 旗を先に立てる: イベントを取りこぼしたフロントは後から聞きに来る
-                handle
-                    .state::<AppState>()
+                // 旗を先に立てる: イベントを取りこぼしたフロントは後から聞きに来る。
+                //
+                // **「終わった」だけでは足りない。** 転んで終わったのに同じ合図を
+                // 出すと、フロントは「もう終わったのだから空だ」と断定する
+                // ——取り込めていないだけのライブラリに「まだ写真がありません」と
+                // 言うことになる（ゲート1の指摘）
+                let failed = finished_well != Some(true);
+                let state = handle.state::<AppState>();
+                state
+                    .startup_failed
+                    .store(failed, std::sync::atomic::Ordering::Release);
+                state
                     .startup_done
                     .store(true, std::sync::atomic::Ordering::Release);
-                let _ = handle.emit("startup-scan-finished", ());
+                let _ = handle.emit(
+                    "startup-scan-finished",
+                    StartupDoneDto {
+                        finished: true,
+                        failed,
+                    },
+                );
             });
             Ok(())
         })
