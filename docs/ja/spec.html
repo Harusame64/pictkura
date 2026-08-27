@@ -129,7 +129,8 @@
             <tr><td class="k">タグ・キーワード付け</td><td>実装していません。印は ★ と ⚑ の 2 種類のみです</td></tr>
             <tr><td class="k">並び順の変更</td><td>撮影日の新しい順に固定しており、変更する手段はありません</td></tr>
             <tr><td class="k">取り込みの中断</td><td>開始後は完了まで中断できません</td></tr>
-            <tr><td class="k">動画のサムネイル（<code>.avi</code> / <code>.m2ts</code>・macOS）</td><td>macOS の AVFoundation がこれらのコンテナを開けないため、枠だけの表示になります。Windows では表示します</td></tr>
+            <tr><td class="k">動画のサムネイル（macOS・<code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code> 以外）</td><td>macOS の AVFoundation はこの 4 つしか開けないため、他のコンテナは枠だけの表示になります。Windows では表示します</td></tr>
+            <tr><td class="k">長さ・寸法（macOS・<code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code> 以外）</td><td>この 4 つはコンテナのヘッダから読み取ります。他のコンテナは Windows のシェルに依存するため、macOS では長さも寸法も表示されません</td></tr>
             <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が該当するコンテナに対応していません。一覧には表示されます</td></tr>
             <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を削除すると再作成します</td></tr>
             <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
@@ -191,7 +192,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から取得します（Windows はシェル、macOS は AVFoundation）。macOS では AVFoundation が開けないコンテナ（<code>.avi</code>・<code>.m2ts</code>）が枠だけになります。再生時間・寸法・撮影日時はコンテナのヘッダから読み取り、画素の復号は行いません。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">上の表の「一覧」欄は Windows での動作です。動画のサムネイルは OS から取得しており、Windows はシェルが上のコンテナをすべて扱いますが、<b>macOS の AVFoundation は <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> のみ</b>で、他は <code>webm</code> を含めて枠だけになります。再生時間・寸法・撮影日時も、この 4 つはコンテナのヘッダから読み取り（画素の復号は行いません）、他のコンテナは Windows のシェルに依存します。</p>
     </section>
 
     <section id="network">

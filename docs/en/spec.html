@@ -130,7 +130,8 @@
             <tr><td class="k">Tags and keywords</td><td>None. There are exactly two marks, ★ and ⚑</td></tr>
             <tr><td class="k">Changing the sort order</td><td>Newest capture date first, with no way to change it</td></tr>
             <tr><td class="k">Cancelling an import</td><td>Once started, an import runs to completion</td></tr>
-            <tr><td class="k">Video thumbnails for <code>.avi</code> / <code>.m2ts</code> on macOS</td><td>AVFoundation cannot open these containers, so they stay as empty frames. Windows shows them</td></tr>
+            <tr><td class="k">Video thumbnails on macOS outside <code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code></td><td>AVFoundation opens only those four, so other containers stay as empty frames. Windows shows them</td></tr>
+            <tr><td class="k">Duration and dimensions on macOS outside <code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code></td><td>Those four are read from the container header. The rest depend on the Windows Shell, so macOS shows no duration or dimensions</td></tr>
             <tr><td class="k">Playing <code>.m2ts</code> / <code>.avi</code> in-app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
             <tr><td class="k">Rebuilding the index from the UI</td><td>Delete <code>pictkura.db</code> in the settings folder and it is rebuilt</td></tr>
             <tr><td class="k">Right-to-left layout</td><td>Not supported</td></tr>
@@ -192,7 +193,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Video thumbnails are borrowed from the OS (the Shell on Windows, AVFoundation on macOS). On macOS the containers AVFoundation cannot open (<code>.avi</code>, <code>.m2ts</code>) stay as empty frames. Duration, dimensions and capture time are read from the container header — not a single pixel is decoded.</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">The grid column above describes Windows. Video thumbnails are borrowed from the OS: the Shell handles every container listed on Windows, but <b>AVFoundation on macOS opens only <code>mp4</code>, <code>m4v</code>, <code>mov</code> and <code>3gp</code></b> — the rest, <code>webm</code> included, stay as empty frames. Duration, dimensions and capture time are read from the container header for those same four (not a single pixel is decoded); other containers depend on the Windows Shell.</p>
     </section>
 
     <section id="network">
