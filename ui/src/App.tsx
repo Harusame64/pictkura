@@ -1406,6 +1406,63 @@ export default function App() {
     [t],
   );
 
+  /**
+   * **まだ返ってきていない問い合わせ**。次の問い合わせはこれに相乗りする。
+   *
+   * バックエンドの席は2つで、**1本刺さっても次の確認が通る**ように置かれている
+   * （`lib.rs` の `empty_reason_gate`）。ところが刺さった `read_dir` は取り消せず、
+   * 走査が終わるまで席は返らない——effectのcleanupは `alive` を倒すだけで、
+   * 飛んだ `invoke` には届かない。
+   *
+   * だから**同じ状況を2度聞くと、死んだルート1本で席を2つとも潰す**。
+   * `canSayEmpty` は `!filtering && !busy` を含むので、検索語を打って消すだけで
+   * この effect は張り直され、2本目が飛ぶ——2つ目の席が守ろうとしていた
+   * 「外したあとは直る」が、そこで失われる（両ゲートの指摘）。
+   *
+   * 相乗りにすれば、**同じ状況を何度聞いても席は1つしか使わない**。
+   */
+  const emptyReasonInFlight = useRef<Promise<EmptyLibraryReason> | null>(null);
+  /** 相乗りつきの問い合わせ。飛んでいるものがあれば、それを待つ */
+  const askEmptyReason = useCallback(() => {
+    const flying = emptyReasonInFlight.current;
+    if (flying) return flying;
+    const asked = getEmptyLibraryReason();
+    emptyReasonInFlight.current = asked;
+    // **転んだときも忘れる。** ここで `finally` を継ぐと、その派生した約束が
+    // 誰にも掴まれずに転んで unhandled rejection になる
+    const forget = () => {
+      if (emptyReasonInFlight.current === asked) emptyReasonInFlight.current = null;
+    };
+    void asked.then(forget, forget);
+    return asked;
+  }, []);
+
+  /**
+   * **走査が1回走ったら、刺さったままの問い合わせを忘れる。**
+   *
+   * 相乗りだけだと、刺さった約束にぶら下がり続けて画面は「確認しています」の
+   * まま——席は空くのに、そこへ行く呼び出しが無い。**状況が変わったときだけ**
+   * 張り直せば、2つ目の席がちょうど1本ぶん使われる。
+   *
+   * 合図は `busy` の立ち下がり——ルートの追加・削除・再スキャンはどれも同期で
+   * 走査するので、**死んだルートを外した直後に**新しい問い合わせが1本飛ぶ。
+   * 起動直後の `busy=false` では張り直さない（忘れる相手がまだ居ない）。
+   *
+   * **この effect は下の問い合わせより前に置くこと。** Reactは宣言順に走るので、
+   * 同じコミットで `busy` が下りて `canSayEmpty` が立つとき、先に忘れておかないと
+   * 下の `ask` が古い約束に相乗りしてしまう。
+   */
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (busy) {
+      wasBusy.current = true;
+      return;
+    }
+    if (!wasBusy.current) return;
+    wasBusy.current = false;
+    emptyReasonInFlight.current = null;
+  }, [busy]);
+
   // 一覧が空になったときだけ理由を聞く。空でなくなったら忘れる
   useEffect(() => {
     if (!canSayEmpty) {
@@ -1473,7 +1530,7 @@ export default function App() {
       // 次を投げるかどうかは、**前のが返ってから**決める
       let wantMore = false;
 
-      getEmptyLibraryReason()
+      askEmptyReason()
         .then((r) => {
           if (!alive || finished) return;
           if (!r.checking) {
@@ -1520,7 +1577,7 @@ export default function App() {
       alive = false;
       if (retry != null) window.clearTimeout(retry);
     };
-  }, [canSayEmpty]);
+  }, [canSayEmpty, askEmptyReason]);
 
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
