@@ -286,7 +286,7 @@ const ja = {
    *  こちらは放っておいても変わらない */
   emptyTitleStalled: "応答がない場所があります",
   emptyStalled: (names: string) =>
-    `次の場所から応答がありません: ${names}。ネットワークのフォルダなら、つながっているかを確かめてください。外したままにするなら、ライブラリのフォルダから取り除くと、残りの場所の結果が出ます。`,
+    `次の場所から応答がありません: ${names}。ネットワークのフォルダなら、つながっているかを確かめて「再スキャン」を押してください。外したままにするなら、ライブラリのフォルダから取り除くと、残りの場所の結果が出ます。`,
   /** フォルダをまだ見終わっていない。**「何も無い」と言わない** */
   emptyChecking:
     "フォルダを確かめている途中です。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。",
@@ -659,7 +659,7 @@ const en: Dict = {
   calendarChecking: "Checking…",
   emptyTitleStalled: "Some places are not answering",
   emptyStalled: (names: string) =>
-    `These places are not answering: ${names}. If one of them is on a network, check that it is still connected. If it is gone for good, remove it from the library folders and the rest will report.`,
+    `These places are not answering: ${names}. If one of them is on a network, check that it is still connected and press Rescan. If it is gone for good, remove it from the library folders and the rest will report.`,
   emptyChecking:
     "Still looking through the folders. If one of them is on a network, make sure it is connected and press Rescan.",
   emptyLoadFailed:
