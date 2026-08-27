@@ -713,6 +713,14 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     remember_unreadable(state, &scan.outcome, &config.library.roots);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
+    // **通った走査は、起動時に転んだ話を打ち消す。** 旗を立てたままにすると、
+    // 「再スキャンを押してください」と言われて押した人に、押した直後の
+    // 聞き直しで**同じ案内をもう一度出す**（ゲート2の指摘）。
+    // フロント側だけで下ろすのでは足りない——旗はバックエンドにも残っていて、
+    // 取りこぼし用の問い合わせがそれを読みに来る
+    state
+        .startup_failed
+        .store(false, std::sync::atomic::Ordering::Release);
     enqueue_missing_thumbs(state);
     Ok(stats)
 }

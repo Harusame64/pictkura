@@ -390,6 +390,9 @@ export default function App() {
   /** 起動時の同期が**転んで終わった**。空に見えても「まだ写真がありません」と
    *  言えない——取り込めていないだけかもしれない */
   const [startupFailed, setStartupFailed] = useState(false);
+  /** **手で走らせた同期がもう通った**か。合図の取りこぼし用の問い合わせは
+   *  古い旗を持ってくることがあるので、通ったあとは立て直させない */
+  const syncSucceededRef = useRef(false);
   /** `library-updated` の登録に**成功したことが確かめられている**か。
    *  偽のまま走査が終わったら、一覧を自分で取り直す（登録が転んでいると
    *  イベントが二度と来ないため） */
@@ -667,11 +670,16 @@ export default function App() {
       if (statsR.status === "fulfilled") setStats(statsR.value);
       if (memR.status === "fulfilled") {
         setMemories(memR.value);
-      } else if (sumR.status === "fulfilled" && sumR.value.length === 0) {
-        // **新しい一覧が空なら、古い思い出は捨てる。** ルートを外した直後に
-        // `listMemories` だけ転ぶと、**消したはずの写真が空のパネルの上に
-        // 並ぶ**——押せてしまうし、ライブラリの中身について嘘をつく
-        // （ゲート1の指摘）。一覧が空でないなら、古い飾りはまだ正しい
+      } else {
+        // **取り直せなかった飾りは捨てる。** ルートを外した直後に
+        // `listMemories` だけ転ぶと、**消したはずの写真が並び続ける**
+        // ——押せてしまうし、ライブラリの中身について嘘をつく（ゲート1の指摘）。
+        //
+        // **「一覧が空のときだけ」では足りない**（ゲート2の指摘）: ルートが
+        // 2本あって片方を外したなら一覧は空にならないし、`sumR` は
+        // **絞り込み後**の一覧なので、検索が0件の回に一度転ぶだけで
+        // 中身のあるライブラリの思い出まで消える。転んだら消す、が一番素直
+        // ——次に取り直せたときに戻る
         setMemories([]);
       }
       if (sumR.status === "rejected") throw sumR.reason;
@@ -908,7 +916,9 @@ export default function App() {
       done = true;
       if (poll != null) window.clearInterval(poll);
       poll = undefined;
-      if (failed) setStartupFailed(true);
+      // **押せと言った操作が通ったあとは、立て直さない**（ゲート2の指摘）。
+      // 合図と旗はバックエンドにも残っていて、遅れて届くことがある
+      if (failed && !syncSucceededRef.current) setStartupFailed(true);
       setScanSettled(true);
       // **合図が来たのに一覧を取り直していない筋がある。**
       // `library-updated` の登録が転んでいると、初回の `reloadAll` は走査より
@@ -1263,6 +1273,7 @@ export default function App() {
       // 起動時の同期が転んだ話を出し続けると、**成功した再スキャンの後も
       // 同じ案内が居座り**、本当の理由（写真.appのライブラリしか無い等）に
       // 一生辿り着けない（ゲート1の指摘）
+      syncSucceededRef.current = true;
       setStartupFailed(false);
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
@@ -1721,6 +1732,7 @@ export default function App() {
       checkDecoders();
       // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
       // 起動時に転んだ話はここで終わり
+      syncSucceededRef.current = true;
       setStartupFailed(false);
       return true;
     } catch (e) {
@@ -1763,6 +1775,7 @@ export default function App() {
       await reloadAll();
       await refreshRoots();
       // 削除も全ルートを走査し直すので、起動時に転んだ話はここで終わり
+      syncSucceededRef.current = true;
       setStartupFailed(false);
     } catch (e) {
       setStatus(String(e));
