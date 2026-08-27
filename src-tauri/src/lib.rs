@@ -1207,14 +1207,20 @@ struct EmptyLibraryDto {
     excluded_total: usize,
     /// 写真を管理するアプリのライブラリが直下にあり、**ほかに扱えるものが無い**
     photo_library: bool,
-    /// 直下で見つけたライブラリに、**現行の写真.app**のもの（`*.photoslibrary`）が
-    /// 含まれる。
+    /// 直下で見つけたライブラリに、**現行の写真.app以外**のもの
+    /// （iPhotoの `*.photolibrary` / `*.migratedphotolibrary`、Aperture の
+    /// `*.aplibrary`）が含まれる。
     ///
     /// **文言がここで割れる**——「原本の多くはiCloud側にあり、手元には
-    /// ありません」は写真.appの話で、iPhoto（`*.photolibrary`）やAperture
-    /// （`*.aplibrary`）のライブラリには当たらない。あちらの中身は手元にあるので、
-    /// iCloudを持ち出すと**在りかを取り違えさせる**（ゲート1の指摘）
-    photo_library_is_photos_app: bool,
+    /// ありません」は写真.appの話で、あちらの中身は手元にある。iCloudを
+    /// 持ち出すと**在りかを取り違えさせる**（ゲート1の指摘）。
+    ///
+    /// **「1つでも写真.appだった」ではなく「1つでも写真.app以外だった」を持つ。**
+    /// 写真.appのライブラリと iPhoto のライブラリが**並んでいる**とき、前者で
+    /// 旗を立てると写真.app専用の文言が選ばれ、**隣にある手元のライブラリの話が
+    /// 消える**（ゲート1の指摘）。こちらの向きなら、混ざったときは
+    /// どちらにも当たる文言に落ちる
+    photo_library_legacy: bool,
     /// **ルートそのもの**が写真.appのライブラリ。
     ///
     /// [`Self::photo_library`] と分けてある——あちらは「ここにはライブラリしか
@@ -1224,9 +1230,9 @@ struct EmptyLibraryDto {
     /// あるだけで「ライブラリのほかに見つかりません」という**排他の主張**が
     /// 嘘になる（ゲート2の指摘）
     root_is_package: bool,
-    /// ルート自身のライブラリが**現行の写真.app**のものか
-    /// （[`Self::photo_library_is_photos_app`] と同じ理由で分けてある）
-    root_package_is_photos_app: bool,
+    /// ルート自身のライブラリに、**現行の写真.app以外**のものが含まれる
+    /// （[`Self::photo_library_legacy`] と同じ向き・同じ理由）
+    root_package_legacy: bool,
     /// **まだ確かめ終わっていない。** 前の確認が返ってこないまま時間切れ。
     /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
     checking: bool,
@@ -1493,8 +1499,7 @@ fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> Empty
         // 写真.appのライブラリそのもので、何も出てこない」は覆らない
         if let Some(package) = pictkura_core::scanner::managed_package_name(root) {
             out.root_is_package = true;
-            out.root_package_is_photos_app |=
-                pictkura_core::scanner::is_photos_app_package(package);
+            out.root_package_legacy |= !pictkura_core::scanner::is_photos_app_package(package);
             continue;
         }
         // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
@@ -1527,7 +1532,7 @@ fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> Empty
             match classify_entry(&name, EntryShape::of(&entry), config) {
                 EntryKind::Package { photos_app } => {
                     out.photo_library = true;
-                    out.photo_library_is_photos_app |= photos_app;
+                    out.photo_library_legacy |= !photos_app;
                 }
                 EntryKind::Ignorable => {}
                 EntryKind::Candidate => survivor = true,
@@ -1587,7 +1592,7 @@ fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> Empty
         out.photo_library = false;
         // 旗を1つでも残すと、UIが「どのアプリのライブラリか」だけを見ている
         // 場所で食い違う
-        out.photo_library_is_photos_app = false;
+        out.photo_library_legacy = false;
     }
     out
 }
@@ -4558,6 +4563,47 @@ mod tests {
     /// ため）ので、`~/Pictures/2024/非公開` の許可だけが無い形が見えない。
     /// 走査はそこで止まっているのに、説明側は「フォルダがある＝候補あり」と
     /// 数えて「扱える画像がありません」に落ちる——**写真はその奥に在る**
+    /// **どのアプリのライブラリかで案内が変わる**——混ざっているときも含めて。
+    ///
+    /// 「原本の多くはiCloud側にあり、手元にはありません」は写真.appの話。
+    /// iPhotoやApertureのライブラリの中身は手元にあるので、そちらに向かって
+    /// 言うと**在りかを取り違えさせる**（ゲート1の指摘）
+    #[test]
+    fn a_legacy_library_next_to_a_photos_one_does_not_get_the_icloud_wording() {
+        use super::{empty_library_reason_of, ScanUnreadable};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("pictures");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
+        let mut config = pictkura_core::config::Config::default();
+        config.library.roots = vec![root.clone()];
+        let no_scan = ScanUnreadable::default();
+
+        let r = empty_library_reason_of(&config, &no_scan);
+        assert!(
+            r.photo_library && !r.photo_library_legacy,
+            "写真.appのライブラリだけなら、iCloudの話をしてよい"
+        );
+
+        // **隣に Aperture のライブラリがある。** ここで写真.app専用の文言に
+        // 落ちると、手元に中身があるライブラリの話がまるごと消える
+        std::fs::create_dir(root.join("撮影.aplibrary")).unwrap();
+        let r = empty_library_reason_of(&config, &no_scan);
+        assert!(
+            r.photo_library && r.photo_library_legacy,
+            "混ざっているなら、どちらにも当たる文言へ落とす"
+        );
+
+        // ルート自身がライブラリのときも同じ向き
+        config.library.roots = vec![root.join("撮影.aplibrary")];
+        let r = empty_library_reason_of(&config, &no_scan);
+        assert!(r.root_is_package && r.root_package_legacy);
+        config.library.roots = vec![root.join("写真ライブラリ.photoslibrary")];
+        let r = empty_library_reason_of(&config, &no_scan);
+        assert!(r.root_is_package && !r.root_package_legacy);
+    }
+
     #[test]
     fn the_empty_reason_borrows_what_the_scan_could_not_open() {
         use super::{empty_library_reason_of, ScanUnreadable};

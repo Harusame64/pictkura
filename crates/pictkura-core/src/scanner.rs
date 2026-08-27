@@ -478,9 +478,19 @@ fn walk_pruned(
     // 欠けたまま記録すると次回から「変更なし」と誤判定され、拾えなかった
     // ファイルが手動フルスキャンまで永久に見つからなくなる（枝刈りキャッシュの汚染）
     let mut dir_error = false;
+    // **「開けなかった」と「途中で消えた」を分ける。** `dir_error` は
+    // mtimeを記録しない理由（次回また列挙させる）で、そちらは**1件でも
+    // 取りこぼしたら**立てる。こちらは利用者に見せる場所の名前になるので、
+    // **フォルダに手が届かなかったとき**にしか立てない——列挙は成功していて、
+    // ただ1枚が名前を変えただけの競合で「アクセス許可を確かめてください」と
+    // 案内してしまう（ゲート1の指摘）
+    let mut torn = false;
     for entry in entries {
         let Ok(entry) = entry else {
+            // `readdir` そのものが落ちた（共有が途中で切れた等）。これは
+            // フォルダ側の話なので名前を控える
             dir_error = true;
+            torn = true;
             continue;
         };
         if excluded(&entry.file_name()) {
@@ -521,7 +531,9 @@ fn walk_pruned(
     }
     if dir_error {
         *had_error = true;
-        note_unreadable(outcome, dir);
+        if torn {
+            note_unreadable(outcome, dir);
+        }
         // seen/enumeratedに載せない: mtime未記録なら次回また列挙される（安全側）。
         // 削除判定も「列挙したディレクトリ」に限られるため、このディレクトリ直下は
         // 誤削除されない（フルスキャンではok_rootsの保護も重なる）

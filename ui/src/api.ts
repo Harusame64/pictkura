@@ -412,15 +412,15 @@ export interface EmptyLibraryReason {
   excludedTotal: number;
   /** 写真を管理するアプリのライブラリが直下にあり、**ほかに扱えるものが無い** */
   photoLibrary: boolean;
-  /** 直下で見つけたライブラリに**現行の写真.app**のもの（`*.photoslibrary`）が
-   *  含まれるか。**iCloudの話をしてよいのはこのときだけ**——iPhotoやApertureの
-   *  ライブラリの中身は手元にある（Rust側の説明を見よ） */
-  photoLibraryIsPhotosApp: boolean;
+  /** 直下で見つけたライブラリに**写真.app以外**（iPhoto・Aperture）が含まれるか。
+   *  **iCloudの話をしてよいのはこれが偽のときだけ**——あちらの中身は手元にある。
+   *  混ざっているときも真になる（Rust側の説明を見よ） */
+  photoLibraryLegacy: boolean;
   /** **ルートそのもの**が写真.appのライブラリ（`photoLibrary` とは別の事実。
    *  あちらは隣に候補があれば覆るが、こちらは覆らない） */
   rootIsPackage: boolean;
-  /** ルート自身のライブラリが**現行の写真.app**のものか */
-  rootPackageIsPhotosApp: boolean;
+  /** ルート自身のライブラリに**写真.app以外**が含まれるか */
+  rootPackageLegacy: boolean;
   /** **まだ確かめ終わっていない**（前の確認が返らないまま時間切れ）。
    *  刺さったネットワークのフォルダで起きる——「何も無い」とは言わない */
   checking: boolean;

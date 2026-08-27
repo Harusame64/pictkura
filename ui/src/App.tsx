@@ -1376,9 +1376,9 @@ export default function App() {
     // 現行の写真.appのときだけで、iPhoto・Apertureのライブラリは中身が手元に
     // ある——持ち出すと在りかを取り違えさせる（ゲート1の指摘）
     if (r.rootIsPackage)
-      return r.rootPackageIsPhotosApp
-        ? t.emptyRootIsPackage
-        : t.emptyRootIsManagedLibrary;
+      return r.rootPackageLegacy
+        ? t.emptyRootIsManagedLibrary
+        : t.emptyRootIsPackage;
     // **除外が先。** 「写真.appのライブラリのほかに見つかりません」は
     // **排他の主張**なので、除外で飛ばしたものがあるなら嘘になる——
     // `~/Pictures` に写真ライブラリと `.秘密写真/`（中身はJPEG）が並ぶと、
@@ -1387,9 +1387,9 @@ export default function App() {
     if (r.excluded.length > 0)
       return t.emptyAllExcluded(nameList(r.excluded, r.excludedTotal));
     if (r.photoLibrary)
-      return r.photoLibraryIsPhotosApp
-        ? t.emptyPhotoLibrary
-        : t.emptyManagedLibrary;
+      return r.photoLibraryLegacy
+        ? t.emptyManagedLibrary
+        : t.emptyPhotoLibrary;
     return t.emptyNothingHere;
   };
   /**
@@ -1500,9 +1500,9 @@ export default function App() {
       excluded: [],
       excludedTotal: 0,
       photoLibrary: false,
-      photoLibraryIsPhotosApp: false,
+      photoLibraryLegacy: false,
       rootIsPackage: false,
-      rootPackageIsPhotosApp: false,
+      rootPackageLegacy: false,
       checking: true,
     };
     /**
