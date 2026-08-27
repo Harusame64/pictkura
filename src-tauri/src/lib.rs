@@ -103,6 +103,18 @@ struct AppState {
     /// いまのように**刺さったルートの後ろの `~/Pictures` まで巻き添え**にならない。
     /// `plan.macos.md` の2ゲートの節に経緯がある
     empty_reason_gate: tokio::sync::Semaphore,
+    /// **直前の走査が開けなかった場所**（[`empty_library_reason`] が借りる）。
+    ///
+    /// あちらはルートの直下しか読まない（速さが仕様の走査路を太らせないため）。
+    /// そのぶん、**奥の1フォルダだけ許可が無い**形が見えない——走査はそこへ
+    /// 降りて `had_error` を立てているのに、説明側は候補として数えて
+    /// 「扱える画像がありません」に落ちる。写真は権限の壁の向こうに在るのに、
+    /// **許可の話へ辿り着けない**（ゲート1の指摘）。
+    ///
+    /// **全ルートを走る走査だけが書き換える。** 取り込み直後の1ルートだけの
+    /// 走査（`scan_and_apply_root`）で丸ごと置き換えると、他のルートで
+    /// 分かっていたことが消える
+    scan_unreadable: Mutex<ScanUnreadable>,
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
     index_progress: Mutex<IndexProgressDto>,
@@ -124,6 +136,26 @@ struct AppState {
     /// ビューアで前後へ行き来するたびに払い直していた。バイト列は1枚3.29MBで、
     /// 同じ絵をデコード済み画素で持つ93MiBより30倍安い
     display_cache: pictkura_core::display_cache::DisplayCache,
+}
+
+/// 走査が開けなかった場所の控え（[`AppState::scan_unreadable`]）。
+#[derive(Default, Clone)]
+struct ScanUnreadable {
+    /// 見せる名前（走査が控えた先頭3件）
+    dirs: Vec<PathBuf>,
+    /// 開けなかったフォルダの総数（**見せる件数より多いことがある**）
+    total: usize,
+}
+
+/// 走査の結果から、開けなかった場所の控えを更新する。
+///
+/// **全ルートを走った走査のときだけ呼ぶこと**（`scan_and_apply_root` は
+/// 1ルートしか見ていないので、ここで置き換えると他のルートの記録が消える）。
+fn remember_unreadable(state: &AppState, outcome: &pictkura_core::PrunedScanOutcome) {
+    *lock_ok(&state.scan_unreadable) = ScanUnreadable {
+        dirs: outcome.unreadable_dirs.clone(),
+        total: outcome.unreadable_total,
+    };
 }
 
 /// 起動引数から取り込み対象のドライブ/フォルダを取り出す。
@@ -623,6 +655,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
         }
     };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
+    remember_unreadable(state, &scan.outcome);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
     enqueue_missing_thumbs(state);
@@ -1018,6 +1051,7 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
         StartupMethod::Pruned
     };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
+    remember_unreadable(state, &scan.outcome);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
     // 位置の保存は**全ルートの走査が成功したときだけ**。失敗したルートの
@@ -1154,8 +1188,13 @@ struct EmptyLibraryDto {
     no_roots: bool,
     /// 設定にあるのに**そこに無い**ルート（外付けを挿し忘れた等）
     missing: Vec<String>,
-    /// 実在するのに**読めなかった**ルート（権限・TCC・切れたネットワーク）
+    /// 実在するのに**読めなかった**場所（権限・TCC・切れたネットワーク）。
+    /// ルート自身に加えて、**走査が奥で開けなかったフォルダ**も入る
     unreadable: Vec<String>,
+    /// 開けなかった場所の数。UIは3件まで挙げて「ほか N件」と言うので、
+    /// 切ったぶんの数が要る——走査は先頭3件しか名前を控えていない
+    /// （[`ScanUnreadable`]）ので、**名前の数では足りない**
+    unreadable_total: usize,
     /// 除外で飛ばした項目の名前（先頭3件まで）
     excluded: Vec<String>,
     /// 除外で飛ばした**名前**の数（重複を除く）。UIは3件まで挙げて
@@ -1166,8 +1205,16 @@ struct EmptyLibraryDto {
     /// あるときに「ほか2件」と出すと、`pictkura.toml` に**在りもしない2つの
     /// 設定を探しに行かせる**——外すべきパターンは1つしか無い（ゲート2の指摘）
     excluded_total: usize,
-    /// 写真.appのライブラリが直下にあり、**ほかに扱えるものが無い**
+    /// 写真を管理するアプリのライブラリが直下にあり、**ほかに扱えるものが無い**
     photo_library: bool,
+    /// 直下で見つけたライブラリに、**現行の写真.app**のもの（`*.photoslibrary`）が
+    /// 含まれる。
+    ///
+    /// **文言がここで割れる**——「原本の多くはiCloud側にあり、手元には
+    /// ありません」は写真.appの話で、iPhoto（`*.photolibrary`）やAperture
+    /// （`*.aplibrary`）のライブラリには当たらない。あちらの中身は手元にあるので、
+    /// iCloudを持ち出すと**在りかを取り違えさせる**（ゲート1の指摘）
+    photo_library_is_photos_app: bool,
     /// **ルートそのもの**が写真.appのライブラリ。
     ///
     /// [`Self::photo_library`] と分けてある——あちらは「ここにはライブラリしか
@@ -1177,6 +1224,9 @@ struct EmptyLibraryDto {
     /// あるだけで「ライブラリのほかに見つかりません」という**排他の主張**が
     /// 嘘になる（ゲート2の指摘）
     root_is_package: bool,
+    /// ルート自身のライブラリが**現行の写真.app**のものか
+    /// （[`Self::photo_library_is_photos_app`] と同じ理由で分けてある）
+    root_package_is_photos_app: bool,
     /// **まだ確かめ終わっていない。** 前の確認が返ってこないまま時間切れ。
     /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
     checking: bool,
@@ -1215,8 +1265,12 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     };
     let inner = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let config = lock_ok(&inner.state::<AppState>().config).clone();
-        empty_library_reason_of(&config)
+        let state = inner.state::<AppState>();
+        let config = lock_ok(&state.config).clone();
+        // **走査が開けなかった場所も借りる**（`AppState::scan_unreadable`）。
+        // 直下しか読まないこの関数からは、奥の権限の壁が見えない
+        let from_scan = lock_ok(&state.scan_unreadable).clone();
+        empty_library_reason_of(&config, &from_scan)
     })
     .await
     // **落ちたときも「無い」と言わない。** `JoinError`（パニック・終了時の
@@ -1300,8 +1354,9 @@ impl EntryShape {
 /// ルート直下の1エントリを、**空の理由**の観点で見たときの正体。
 #[derive(PartialEq, Eq, Debug)]
 enum EntryKind {
-    /// 写真.appのライブラリ（名前で分かる。中は開かない）
-    Package,
+    /// 写真を管理するアプリのライブラリ（名前で分かる。中は開かない）。
+    /// **どのアプリのものかで案内が変わる**ので、現行の写真.appかどうかも持つ
+    Package { photos_app: bool },
     /// 中身になり得たが、除外の設定で飛ばした
     Excluded,
     /// 中身になり得た。**除外を犯人にしてはいけない証拠**
@@ -1340,8 +1395,28 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
     // ただのファイル（改名した書庫の残骸など）で旗が立ち、写真.appのライブラリが
     // 1つも無い場所に「写真.appのライブラリのほかに見つかりません」と言う。
     // 走査もその名前は**除外されたファイル**として扱う（ゲート2の指摘）
-    if shape == EntryShape::Dir && pictkura_core::import::is_managed_package_path(Path::new(text)) {
-        return EntryKind::Package;
+    if shape == EntryShape::Dir {
+        if let Some(package) = pictkura_core::scanner::managed_package_name(Path::new(text)) {
+            // **配下のパッケージは、走査も利用者の設定に従う。** 既定の
+            // `exclude_patterns` に同じ綴りが入っているだけで、消せば走査は
+            // 中へ入っていく（`scanner.rs` の `MANAGED_PACKAGE_PATTERNS` の
+            // 説明。固定なのは**ルートに名指しされたとき**だけ）。
+            // 消している人にここで旗を立てると、走査は既に中を読んで何も
+            // 見つけていないのに「写真.appのほかに見つかりません」と言い、
+            // **直しても何も出てこない**話へ送ることになる（ゲート1の指摘）
+            if config
+                .library
+                .exclude_patterns
+                .iter()
+                .any(|p| pictkura_core::scanner::matches_pattern(text, p))
+            {
+                return EntryKind::Package {
+                    photos_app: pictkura_core::scanner::is_photos_app_package(package),
+                };
+            }
+            // 除外していない＝**走査は中を見ている**。中身になり得た側に数える
+            return EntryKind::Candidate;
+        }
     }
     // OSの置き場は「中身になり得た」に数えない（`OS_BOOKKEEPING` を見よ）
     if OS_BOOKKEEPING.iter().any(|n| n.eq_ignore_ascii_case(text)) || is_volume_trash(text) {
@@ -1373,7 +1448,7 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
 }
 
 /// [`empty_library_reason`] の中身（設定だけを見るのでテストできる）。
-fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
+fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> EmptyLibraryDto {
     let mut out = EmptyLibraryDto {
         no_roots: config.library.roots.is_empty(),
         ..Default::default()
@@ -1416,8 +1491,10 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
         // **これは `survivor` で消えない事実**。「この場所には写真.appの
         // ライブラリしか無い」は隣に候補があれば覆るが、「このルートは
         // 写真.appのライブラリそのもので、何も出てこない」は覆らない
-        if pictkura_core::import::is_managed_package_path(root) {
+        if let Some(package) = pictkura_core::scanner::managed_package_name(root) {
             out.root_is_package = true;
+            out.root_package_is_photos_app |=
+                pictkura_core::scanner::is_photos_app_package(package);
             continue;
         }
         // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
@@ -1448,7 +1525,10 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
             };
             let name = entry.file_name();
             match classify_entry(&name, EntryShape::of(&entry), config) {
-                EntryKind::Package => out.photo_library = true,
+                EntryKind::Package { photos_app } => {
+                    out.photo_library = true;
+                    out.photo_library_is_photos_app |= photos_app;
+                }
                 EntryKind::Ignorable => {}
                 EntryKind::Candidate => survivor = true,
                 EntryKind::Excluded => {
@@ -1483,11 +1563,31 @@ fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
     // 残るのは `emptyNothingHere`——具体性は落ちるが、嘘ではない
     //
     // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
+    // **走査が奥で開けなかった場所を借りる。** ここはルートの直下しか
+    // 読まないので（速さが仕様の走査路を太らせないため）、`~/Pictures/2024/非公開`
+    // だけ許可が無い形が見えない——走査はそこで `had_error` を立てているのに、
+    // 説明側は「フォルダがある＝候補あり」と数えて「扱える画像がありません」に
+    // 落ちる。**写真はその奥に在る**（ゲート1の指摘）
+    for dir in &from_scan.dirs {
+        let name = dir.display().to_string();
+        // ルート自身が読めないと自分で分かっているものは二度並べない
+        // （走査も同じ壁で止まっているので、必ず重なる）
+        if !out.unreadable.contains(&name) {
+            out.unreadable.push(name);
+        }
+    }
+    // **数は名前の数では足りない。** 走査が控えるのは先頭3件だけなので、
+    // 控えられなかったぶんを足す（**黙って落とさない**）
+    out.unreadable_total =
+        out.unreadable.len() + from_scan.total.saturating_sub(from_scan.dirs.len());
     if survivor {
         out.excluded.clear();
         out.excluded_total = 0;
         // **推測は覆る。** `root_is_package` は覆らないので落とさない（上の説明）
         out.photo_library = false;
+        // 旗を1つでも残すと、UIが「どのアプリのライブラリか」だけを見ている
+        // 場所で食い違う
+        out.photo_library_is_photos_app = false;
     }
     out
 }
@@ -3368,6 +3468,7 @@ pub fn run() {
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
+                scan_unreadable: Mutex::new(ScanUnreadable::default()),
                 empty_reason_gate: tokio::sync::Semaphore::new(2),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
@@ -4214,25 +4315,64 @@ mod tests {
         );
         assert_eq!(
             kind(OsStr::new("写真ライブラリ.photoslibrary"), EntryShape::Dir),
-            EntryKind::Package
+            EntryKind::Package { photos_app: true }
+        );
+        // **写真.appだけではない。** iPhoto と Aperture のライブラリも同じ扱いだが、
+        // **iCloudの話をしてはいけない**——あちらの中身は手元にある（ゲート1の指摘）
+        for name in [
+            "古い.photolibrary",
+            "移行済み.migratedphotolibrary",
+            "撮影.aplibrary",
+        ] {
+            assert_eq!(
+                kind(OsStr::new(name), EntryShape::Dir),
+                EntryKind::Package { photos_app: false },
+                "{name} は写真.app（現行）のライブラリではない"
+            );
+        }
+
+        // **除外から外している人には、パッケージのせいだと言わない。**
+        // 走査は配下のパッケージを利用者の `exclude_patterns` でしか落とさない
+        // ので、消してあれば中へ入って何も見つけていない——そこで旗を立てると、
+        // **直しても何も出てこない**設定の話へ送ることになる（ゲート1の指摘）
+        let mut opted_out = pictkura_core::config::Config::default();
+        opted_out
+            .library
+            .exclude_patterns
+            .retain(|p| !p.ends_with("photoslibrary"));
+        assert_eq!(
+            classify_entry(
+                OsStr::new("写真ライブラリ.photoslibrary"),
+                EntryShape::Dir,
+                &opted_out
+            ),
+            EntryKind::Candidate,
+            "除外を外したなら、走査と同じく「中身になり得た」側に数える"
+        );
+        assert_eq!(
+            classify_entry(OsStr::new("撮影.aplibrary"), EntryShape::Dir, &opted_out),
+            EntryKind::Package { photos_app: false },
+            "外したのは写真.appの綴りだけ——他の系譜は既定のまま除外に当たる"
         );
     }
 
     #[test]
     fn an_empty_library_says_why_it_is_empty() {
-        use super::empty_library_reason_of;
+        use super::{empty_library_reason_of, ScanUnreadable};
 
+        // 走査の控えは**この試験では空**（借りてくる側は別の試験で見る）
+        let no_scan = ScanUnreadable::default();
         let dir = tempfile::tempdir().unwrap();
         let mut config = pictkura_core::config::Config::default();
 
         // ルートが無い
         config.library.roots.clear();
-        assert!(empty_library_reason_of(&config).no_roots);
+        assert!(empty_library_reason_of(&config, &no_scan).no_roots);
 
         // 設定にあるのに、そこに無い（外付けを挿し忘れた等）
         let missing = dir.path().join("gone");
         config.library.roots = vec![missing.clone()];
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(!r.no_roots);
         assert_eq!(r.missing.len(), 1, "見つからない場所を名指しする");
 
@@ -4241,7 +4381,7 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         std::fs::create_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
         config.library.roots = vec![root.clone()];
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(r.photo_library, "写真.appのライブラリだと分かる");
         assert!(r.missing.is_empty());
 
@@ -4249,7 +4389,7 @@ mod tests {
         // あれば、走査はそこを開いて何も見つけていない（ゲート2の指摘）
         std::fs::create_dir(root.join("富士")).unwrap();
         assert!(
-            !empty_library_reason_of(&config).photo_library,
+            !empty_library_reason_of(&config, &no_scan).photo_library,
             "隣に別のフォルダがあるなら「写真.appのライブラリしか無い」と言わない"
         );
         std::fs::remove_dir(root.join("富士")).unwrap();
@@ -4257,7 +4397,7 @@ mod tests {
         // 除外で全部飛んでいる（写真.app以外）
         std::fs::remove_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
         std::fs::create_dir(root.join(".隠しフォルダ")).unwrap();
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(!r.photo_library);
         assert_eq!(
             r.excluded,
@@ -4272,7 +4412,7 @@ mod tests {
         for n in ["Thumbs.db", ".二つ目", ".三つ目", ".四つ目"] {
             std::fs::create_dir(root.join(n)).unwrap();
         }
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert_eq!(r.excluded.len(), 3, "名前は3件まで");
         assert_eq!(r.excluded_total, 5, "数は打ち切らない");
         for n in ["Thumbs.db", ".二つ目", ".三つ目", ".四つ目"] {
@@ -4285,7 +4425,7 @@ mod tests {
         std::fs::create_dir(&root2).unwrap();
         std::fs::create_dir(root2.join(".隠しフォルダ")).unwrap();
         config.library.roots = vec![root.clone(), root2.clone()];
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert_eq!(r.excluded, vec![".隠しフォルダ".to_string()], "例示は畳む");
         assert_eq!(
             r.excluded_total, 1,
@@ -4298,7 +4438,7 @@ mod tests {
         // 走査はその `写真` を開いて何も見つけていないのだから、
         // 「全部除外しています」は嘘になる（ゲート1の指摘）
         std::fs::create_dir(root.join("写真")).unwrap();
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(
             r.excluded.is_empty(),
             "除外されていない候補が1つでもあれば、除外を犯人にしない"
@@ -4312,7 +4452,7 @@ mod tests {
         let picked = dir.path().join("選んだ.photoslibrary");
         std::fs::create_dir(&picked).unwrap();
         config.library.roots = vec![picked.clone()];
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(r.root_is_package, "ルート自身がパッケージだと見分ける");
         assert!(
             !r.photo_library,
@@ -4325,7 +4465,7 @@ mod tests {
         std::fs::create_dir(&plain).unwrap();
         std::fs::create_dir(plain.join("写真")).unwrap();
         config.library.roots = vec![picked, plain.clone()];
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(
             r.root_is_package,
             "隣に候補があっても、ルート自身がパッケージという事実は残す"
@@ -4339,7 +4479,7 @@ mod tests {
 
         // **`.DS_Store` だけでは「全部除外」と言わない**（中身になり得ない）
         std::fs::write(root.join(".DS_Store"), b"x").unwrap();
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(
             r.excluded.is_empty(),
             "Finderが置いた痕跡を「除外のせい」と言わない"
@@ -4365,7 +4505,7 @@ mod tests {
             // 効かない環境で通してしまうと、試験があるのに何も見ていないことになる
             let denied = std::fs::metadata(&inner).is_err();
             config.library.roots = vec![inner];
-            let r = empty_library_reason_of(&config);
+            let r = empty_library_reason_of(&config, &no_scan);
             std::fs::set_permissions(&outer, std::fs::Permissions::from_mode(0o755)).unwrap();
             if denied {
                 assert!(
@@ -4385,7 +4525,7 @@ mod tests {
             let stat_ok = std::fs::metadata(&locked).is_ok();
             let read_denied = std::fs::read_dir(&locked).is_err();
             config.library.roots = vec![locked.clone()];
-            let r = empty_library_reason_of(&config);
+            let r = empty_library_reason_of(&config, &no_scan);
             std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
             if stat_ok && read_denied {
                 assert!(
@@ -4403,13 +4543,82 @@ mod tests {
         }
 
         // 本当に空（何も言うことが無い＝どの旗も立たない）
-        let r = empty_library_reason_of(&config);
+        let r = empty_library_reason_of(&config, &no_scan);
         assert!(!r.no_roots && r.missing.is_empty() && !r.photo_library);
         assert!(r.unreadable.is_empty());
         assert!(r.excluded.is_empty());
         // **数の側も見る**——`survivor` の後始末で `excluded_total` を
         // 落とし忘れても、名前だけ見ていると気づけない（ゲート1の指摘）
         assert_eq!(r.excluded_total, 0);
+    }
+
+    /// 走査が奥で開けなかった場所を、空の理由が**借りてくる**。
+    ///
+    /// この関数はルートの直下しか読まない（速さが仕様の走査路を太らせない
+    /// ため）ので、`~/Pictures/2024/非公開` の許可だけが無い形が見えない。
+    /// 走査はそこで止まっているのに、説明側は「フォルダがある＝候補あり」と
+    /// 数えて「扱える画像がありません」に落ちる——**写真はその奥に在る**
+    #[test]
+    fn the_empty_reason_borrows_what_the_scan_could_not_open() {
+        use super::{empty_library_reason_of, ScanUnreadable};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("pictures");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("2024")).unwrap();
+        let mut config = pictkura_core::config::Config::default();
+        config.library.roots = vec![root.clone()];
+
+        // 走査が1件も転んでいないなら、これまでどおり何も言わない
+        let r = empty_library_reason_of(&config, &ScanUnreadable::default());
+        assert!(r.unreadable.is_empty());
+        assert_eq!(r.unreadable_total, 0);
+
+        // 転んでいたら、その場所を名指しする
+        let deep = root.join("2024").join("非公開");
+        let from_scan = ScanUnreadable {
+            dirs: vec![deep.clone()],
+            total: 1,
+        };
+        let r = empty_library_reason_of(&config, &from_scan);
+        assert_eq!(
+            r.unreadable,
+            vec![deep.display().to_string()],
+            "直下からは見えない奥の場所を名指しする"
+        );
+        assert_eq!(r.unreadable_total, 1);
+
+        // **数は控えた件数ではなく、走査が数えた総数から出す。**
+        // 「ほか N件」が狂うと、在りもしない場所を探しに行かせる
+        let from_scan = ScanUnreadable {
+            dirs: vec![root.join("a"), root.join("b"), root.join("c")],
+            total: 9,
+        };
+        let r = empty_library_reason_of(&config, &from_scan);
+        assert_eq!(r.unreadable.len(), 3, "名前は走査が控えたぶんだけ");
+        assert_eq!(r.unreadable_total, 9, "数は打ち切らない");
+
+        // **同じ場所を2度並べない。** ルート自身が読めないときは、走査も
+        // 同じ壁で止まっているので必ず重なる
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let locked = dir.path().join("錠");
+            std::fs::create_dir(&locked).unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let denied = std::fs::read_dir(&locked).is_err();
+            config.library.roots = vec![locked.clone()];
+            let from_scan = ScanUnreadable {
+                dirs: vec![locked.clone()],
+                total: 1,
+            };
+            let r = empty_library_reason_of(&config, &from_scan);
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if denied {
+                assert_eq!(r.unreadable.len(), 1, "同じ場所を2度並べない");
+                assert_eq!(r.unreadable_total, 1, "重なったぶんを二重に数えない");
+            }
+        }
     }
 
     #[test]

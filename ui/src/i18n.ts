@@ -270,6 +270,11 @@ const ja = {
     "ライブラリのフォルダに、写真.appのライブラリそのものが指定されています。pictkuraはその中を扱わないので、ここからは何も出てきません。写真のあるフォルダを選び直すか、カードから取り込んでください。",
   emptyPhotoLibrary:
     "写真.appのライブラリのほかに、扱えるものが見つかりません。pictkuraは既定では写真.appの中を扱いません（原本の多くはiCloud側にあり、手元にはありません）。カードから取り込むか、写真のあるフォルダを選んでください。",
+  /** iPhoto・Aperture のライブラリ。**iCloudの話をしない**——中身は手元にある */
+  emptyManagedLibrary:
+    "写真を管理するアプリのライブラリ（iPhotoやApertureのもの）のほかに、扱えるものが見つかりません。pictkuraはその中を扱いません（中を索引しても、あとからの変更が届かず古いままになるためです）。カードから取り込むか、写真のあるフォルダを選んでください。",
+  emptyRootIsManagedLibrary:
+    "ライブラリのフォルダに、写真を管理するアプリのライブラリ（iPhotoやApertureのもの）そのものが指定されています。pictkuraはその中を扱わないので、ここからは何も出てきません。写真のあるフォルダを選び直すか、カードから取り込んでください。",
   emptyAllExcluded: (names: string) =>
     `見つかったものは、除外の設定で全部飛ばしています（例: ${names}）。設定フォルダの pictkura.toml で変えられます。`,
   emptyNothingHere:
@@ -637,6 +642,10 @@ const en: Dict = {
     "One of the library folders is a Photos app library itself. pictkura does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
   emptyPhotoLibrary:
     "Nothing was found but the Photos app library. pictkura does not read inside Photos by default — most of the originals live in iCloud, not on this Mac. Import from a card, or pick a folder that has photos in it.",
+  emptyManagedLibrary:
+    "Nothing was found but a photo-manager library (an iPhoto or Aperture one). pictkura does not read inside one — it would index the contents once and never see them change again. Import from a card, or pick a folder that has photos in it.",
+  emptyRootIsManagedLibrary:
+    "One of the library folders is a photo-manager library itself (an iPhoto or Aperture one). pictkura does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
   emptyAllExcluded: (names: string) =>
     `Everything found is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
   emptyNothingHere:
