@@ -349,21 +349,27 @@ come out upright, and the shot date and camera name are read.
 | Format | Grid | Plays in app | Notes |
 |---|:--:|:--:|---|
 | `mp4` `m4v` `mov` `webm` | ✅ | ✅ | codec support comes from the OS (see HEVC below) |
-| `avi` `mts` `m2ts` `mkv` `3gp` `wmv` `mpg` `mpeg` | ✅ | ❌ | thumbnail, duration and date still show; playback opens your default player |
+| `avi` `mts` `m2ts` `mkv` `3gp` `wmv` `mpg` `mpeg` | ✅ | ❌ | playback opens your default player |
 
-**The ✅ in the grid column above describes Windows.** Two things behind it are narrower
-elsewhere:
+**The ✅ in the grid column above describes Windows**, and even there the picture is the
+OS's answer rather than ours. What sits behind it:
 
-- **Thumbnails** are borrowed from the OS. The Shell on **Windows** covers every container
-  listed. On **macOS** they come from AVFoundation, which is handed every one of them and
-  answers only for what it can open: `mp4` and `mov` were measured returning a real frame,
-  `.avi` measured returning nothing. **The rest are untested** — a picture there is
-  possible, not promised. **Linux has no route at all.**
+- **Thumbnails** are borrowed from the OS, so a container is covered exactly as far as the
+  OS can open it. On **Windows** that is the Shell, the same mechanism Explorer uses:
+  `.avi` and HEVC `.mov` were measured coming back with a frame, `.m2ts` has never been
+  checked, and anything the OS has no handler or codec for comes back empty — HEVC needs
+  the paid extension named below. On **macOS** it is AVFoundation, handed every container
+  listed and answering only for what it can open: `mp4` and `mov` were measured returning
+  a real frame — **with H.264 samples; HEVC, which is what an iPhone writes, has not been
+  measured there** — and `.avi` measured returning nothing. **Anything not named here is
+  untested on both**: a picture is possible, not promised. **Linux has no route at all.**
 - **Duration, dimensions and capture time** are read from the container header for
-  `mp4` `m4v` `mov` `3gp` only — not a single pixel is decoded. On **Windows** the Shell
-  supplies them for the rest; on **macOS** and **Linux** it does not, so those files show
-  no duration or dimensions and their date falls back to the file name or the file's
-  modification time.
+  `mp4` `m4v` `mov` `3gp` only — not a single pixel is decoded. Note that `webm` is not
+  among them although it sits in the first row, and `3gp` is, although it sits in the
+  second. Whatever the header did not give up is asked of the **Windows** Shell, which
+  also covers the other containers; **macOS** and **Linux** have no such fallback, so
+  those files show no duration or dimensions and their date falls back to the file name
+  or the file's modification time.
 
 ---
 
@@ -373,8 +379,8 @@ elsewhere:
 |---|---|
 | **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows (duration is not available). The real file is fetched only when you actually look at that photo — when its tile scrolls into view, or when you open it in the viewer |
 | **HEIC / HEVC need OS components on Windows** | **No HEVC decoder is bundled** — patent licensing applies to shipping one, so pictkura uses whatever the OS already has. On **Windows** that means installing "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) before HEIC photos get a picture. On **macOS there is nothing to install**: ImageIO and the HEVC decoder ship with the system. **Linux** has no route yet |
-| **Video thumbnails narrow outside Windows** | Windows uses the Shell and covers every container listed. **macOS** uses AVFoundation, which answers for what it can open — `mp4` and `mov` confirmed, `.avi` confirmed empty, the rest untested. **Linux** (distro thumbnailers) is not wired up at all |
-| **Duration and dimensions outside `mp4` `m4v` `mov` `3gp`** | Read straight from the container header for those four. Other containers rely on the **Windows** Shell; on **macOS** and **Linux** they show no duration or dimensions, and the date falls back to the file name or modification time |
+| **Video thumbnails go only as far as the OS can open the container** | On **Windows** the Shell provides them: `.avi` and HEVC `.mov` measured working, `.m2ts` never checked, and anything the OS has no handler or codec for comes back empty. On **macOS** AVFoundation provides them: `mp4` and `mov` measured working with H.264 samples, `.avi` measured empty, HEVC and every other container untested. **Linux** (distro thumbnailers) is not wired up at all |
+| **Duration and dimensions outside `mp4` `m4v` `mov` `3gp`** | Read straight from the container header for those four. Whatever the header did not give up is asked of the **Windows** Shell, which also covers the other containers; on **macOS** and **Linux** there is no such fallback, so they show no duration or dimensions and the date falls back to the file name or modification time |
 | **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
 | **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date |
 | **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too) |

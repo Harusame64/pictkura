@@ -636,15 +636,21 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 <table>
   <tr><th>形式</th><th class="center">一覧</th><th class="center">アプリ内再生</th><th>備考</th></tr>
   <tr><td><code>mp4</code> <code>m4v</code> <code>mov</code> <code>webm</code></td><td class="center">✅</td><td class="center">✅</td><td>コーデックはOS依存（HEVCは下記）</td></tr>
-  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>一覧には絵・長さ・撮影日が出ます。再生は「既定のアプリで開く」へ</td></tr>
+  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>再生は「既定のアプリで開く」へ</td></tr>
 </table>
 </div>
 <p>
 <strong>上の表の一覧欄は、Windowsでの話です。</strong>
-一覧の絵はOSから借りており、Windowsはシェルで上のコンテナを全部まかないますが、
+しかもその絵は、こちらではなく<strong>OSが出せると答えたぶん</strong>です。
+一覧の絵はOSから借りるので、そのOSがコンテナを開ける範囲までが上限になります。
+Windowsはエクスプローラと同じシェルの経路で、<code>.avi</code> とHEVCの <code>.mov</code> は
+絵が返ることを実測済み、<code>.m2ts</code> は未確認のままです。OSに対応する部品もコーデックも
+無ければ何も返りません——HEVCには下に書いた有料の拡張機能が要ります。
 <strong>macOSの AVFoundation は開けたものだけを返します</strong>
-——<code>mp4</code> と <code>mov</code> は絵が出ること、<code>.avi</code> は何も返らないことを実測しています。
-それ以外は未測定で、出る可能性はありますが約束はできません。Linuxは経路そのものがありません。
+——<code>mp4</code> と <code>mov</code> は絵が出ることを実測していますが、見本はH.264で、
+iPhoneが書くHEVCではまだ測っていません。<code>.avi</code> は何も返らないことを実測済みです。
+ここに名前の挙がっていないものは、どちらのOSでも未測定で、出る可能性はありますが
+約束はできません。Linuxは経路そのものがありません。
 </p>
 <p>
 長さ・寸法・撮影日時は <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> の4つだけ
@@ -708,7 +714,7 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
     <td>HEIC / HEVC にOSの部品が要るのはWindowsだけ</td>
     <td><strong>HEVCのデコーダは同梱しません</strong>——特許の都合で、OSが持っていれば使う方針です。そのため <strong>Windows</strong> では「HEIF Image Extensions」（無料）に加え、画素の展開に「HEVC Video Extensions」（有料・数百円）が要ります（必要なときはアプリから案内を出します）。<strong>macOSは入れるものがありません</strong>——ImageIOもHEVCのデコーダもOSに同梱されています</td>
   </tr>
-  <tr><td>動画のサムネイルはWindows以外で狭くなる</td><td>Windowsはシェルで全コンテナをまかないます。<strong>macOSは AVFoundation が開けたものだけ</strong>——<code>mp4</code>・<code>mov</code> は出る、<code>.avi</code> は出ない、を実測済みで、残りは未測定です。<strong>Linuxは経路そのものがありません</strong></td></tr>
+  <tr><td>動画のサムネイルは、OSがコンテナを開ける範囲まで</td><td>Windowsはシェルから借ります——<code>.avi</code> とHEVCの <code>.mov</code> は出ることを実測済み、<code>.m2ts</code> は未確認、OSに部品もコーデックも無いものは何も返りません。<strong>macOSは AVFoundation が開けたものだけ</strong>——<code>mp4</code>・<code>mov</code> はH.264の見本で出ることを実測済み、<code>.avi</code> は出ないことを実測済みで、HEVCと他のコンテナは未測定です。<strong>Linuxは経路そのものがありません</strong></td></tr>
   <tr><td><code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> 以外の長さ・寸法</td><td>この4つはコンテナのヘッダから直接読みます。それ以外はWindowsのシェル頼みで、macOS・Linuxでは長さも寸法も出ません（日付はファイル名か更新日時に落ちます）</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> はアプリ内で再生できない</td><td>ブラウザ側がコンテナを扱えないためです。一覧には出ます</td></tr>
   <tr><td>検索索引の再構築UIが無い</td><td>壊れた場合は設定フォルダの <code>pictkura.db</code> を消して作り直してください（サムネイルも作り直しになります）</td></tr>
