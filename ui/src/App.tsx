@@ -1342,7 +1342,11 @@ export default function App() {
   const emptyTitle = () => {
     if (loadFailed) return t.emptyTitleFailed;
     const r = emptyReason;
-    if (r == null || r.checking) return t.emptyTitleChecking;
+    if (r == null) return t.emptyTitleChecking;
+    // **諦めた場所は「確かめています」より先に言う。** あちらは放っておけば
+    // 変わるが、こちらは変わらない——利用者が動かない限り戻らない
+    if (r.stalled.length > 0) return t.emptyTitleStalled;
+    if (r.checking) return t.emptyTitleChecking;
     if (r.missing.length > 0) return t.emptyTitleMissing;
     if (r.unreadable.length > 0) return t.emptyTitleUnreadable;
     return t.emptyTitle;
@@ -1355,6 +1359,10 @@ export default function App() {
     // （見出しは `emptyTitleChecking` に落ちる。ゲート1の指摘）
     if (emptyReason == null) return t.emptyChecking;
     const r = emptyReason;
+    // **返事が来ないまま見切った場所は名指しする。** ここまで来ると
+    // バックエンドはそのフォルダをもう探らないので、「確かめている途中です」は
+    // 見てもいないことを言い続けることになる（`root_probes` を見よ）
+    if (r.stalled.length > 0) return t.emptyStalled(nameList(r.stalled));
     // **確かめ終わっていないなら、まずそれを言う。** 旗が1つも立って
     // いないのは「何も無い」ではなく「まだ見ていない」
     if (r.checking) return t.emptyChecking;
@@ -1504,6 +1512,7 @@ export default function App() {
       rootIsPackage: false,
       rootPackageLegacy: false,
       checking: true,
+      stalled: [],
     };
     /**
      * 理由を1回聞く。**「確かめている途中」で終わらせない。**
