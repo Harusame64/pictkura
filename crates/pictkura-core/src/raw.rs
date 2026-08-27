@@ -2480,6 +2480,27 @@ mod cr3_hevc_sample_tests {
         crate::heif::decode_mem(&heif).is_some()
     }
 
+    /// 切手を足す相手として**一番小さいサンプル**を選ぶ。
+    ///
+    /// 切手はコピーの**末尾**に付くので、元が [`SCAN_LIMIT`] を超えていると
+    /// 切手が走査窓の外に落ち、仕掛けの確認（[`with_trailing_jpeg`] の末尾）が
+    /// 必ず外れる。`read_dir` の順は台で変わるので `samples[0]` に任せると、
+    /// **同じサンプル一式でもWindowsでは通ってmacOSでは落ちる**——実際そうなっていた
+    /// （Windowsに置いてあったHDR PQのCR3は13.9MiBのEOS R8だけで、macOS側は
+    /// 26.3MiBのEOS R5 Mark IIだけだった）。
+    fn smallest_sample(
+        samples: &[(std::path::PathBuf, Vec<u8>)],
+    ) -> &(std::path::PathBuf, Vec<u8>) {
+        samples
+            .iter()
+            .min_by_key(|(path, _)| file_len(path))
+            .expect("呼ぶ側が空でないことを確かめている")
+    }
+
+    fn file_len(path: &std::path::Path) -> u64 {
+        std::fs::metadata(path).map_or(u64::MAX, |m| m.len())
+    }
+
     /// 小さいJPEGを1枚後ろにくっつけたコピーを作る。
     ///
     /// HDR PQのCR3に切手のJPEGが同居している場合を模す。走査（2段目）はこれを
@@ -2592,15 +2613,33 @@ mod cr3_hevc_sample_tests {
 
     #[test]
     fn hevc_is_decoded_even_with_a_stamp_sized_jpeg_alongside() {
+        /// 切手1枚ぶんの余地。64x64の単色JPEGは1KBに満たないが、
+        /// 窓の縁ぎりぎりで切られると仕掛けの確認が理由の分からない形で外れる
+        const STAMP_ROOM: u64 = 64 * 1024;
+
         let samples = hdr_pq_samples();
         if samples.is_empty() {
             return;
         }
-        if !codec_available(&samples[0].1) {
+        let (src, head) = smallest_sample(&samples);
+        if !codec_available(head) {
+            return;
+        }
+        // 一番小さいものでも窓に入らないなら、**理由を言ってから**降りる。
+        // 黙って通ると「見張っている」と「見張れていない」が区別できない
+        let len = file_len(src);
+        if len + STAMP_ROOM > SCAN_LIMIT as u64 {
+            eprintln!(
+                "{}: 一番小さいHDR PQのサンプルでも{}MiBあり、\
+                 切手が走査窓（{}MiB）の外に出るので飛ばす",
+                src.display(),
+                len / (1024 * 1024),
+                SCAN_LIMIT / (1024 * 1024)
+            );
             return;
         }
         let tmp = tempfile::tempdir().expect("一時フォルダ");
-        let stamped = with_trailing_jpeg(&samples[0].0, tmp.path());
+        let stamped = with_trailing_jpeg(src, tmp.path());
         let got = embedded_preview(&stamped).expect("切手があっても絵は返る");
         assert!(
             long_edge(&got) >= super::USABLE_LONG_EDGE,
