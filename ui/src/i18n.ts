@@ -247,8 +247,12 @@ const ja = {
   /* 読めない理由はOSで違うので、次にやることも分ける。
      `unreadable` にはWindowsからも来る（ACLの拒否・切れたSMB共有）ので、
      macOSの案内だけ置くと**Windowsの人に次の一手が1つも無い**（ゲート1の指摘） */
+  /* macOS側も**TCCだけではない**。`unreadable` は「`metadata` は通るのに
+     `read_dir` が落ちる」「`NotFound` 以外で `metadata` が落ちる」で立つので、
+     切れた `/Volumes/...` の共有や素の権限もここへ来る。許可の話だけ書くと、
+     **落ちたSMB共有の人が効かない設定画面へ送られる**（ゲート2の指摘） */
   emptyUnreadableMac: (names: string) =>
-    `次の場所を開けませんでした: ${names}。「システム設定 → プライバシーとセキュリティ」で、pictkura にそのフォルダ（デスクトップ・書類・外付けなど）へのアクセスを許してください。`,
+    `次の場所を開けませんでした: ${names}。「システム設定 → プライバシーとセキュリティ」で、pictkura にそのフォルダ（デスクトップ・書類・外付けなど）へのアクセスを許してください。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。`,
   emptyUnreadableWin: (names: string) =>
     `次の場所を開けませんでした: ${names}。フォルダのアクセス許可を確かめてください。ネットワークドライブなら、つながっているかを確かめてから「再スキャン」を押してください。`,
   emptyUnreadableOther: (names: string) =>
@@ -622,7 +626,7 @@ const en: Dict = {
   emptyMissing: (names: string) =>
     `These places are not there: ${names}. If that is an external drive, connect it and press Rescan.`,
   emptyUnreadableMac: (names: string) =>
-    `These places could not be opened: ${names}. Grant pictkura access to that folder (Desktop, Documents, an external drive) in System Settings → Privacy & Security.`,
+    `These places could not be opened: ${names}. Grant pictkura access to that folder (Desktop, Documents, an external drive) in System Settings → Privacy & Security. If it is on a network, make sure it is connected and press Rescan.`,
   emptyUnreadableWin: (names: string) =>
     `These places could not be opened: ${names}. Check the folder's permissions. If it is a network drive, make sure it is connected and press Rescan.`,
   emptyUnreadableOther: (names: string) =>
