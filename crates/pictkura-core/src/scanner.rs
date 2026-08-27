@@ -439,9 +439,19 @@ fn walk_pruned(
 ) {
     let mtime_ms = match std::fs::metadata(dir) {
         Ok(m) if m.is_dir() => mtime_of(&m),
-        _ => {
+        other => {
             *had_error = true;
-            note_unreadable(outcome, dir);
+            // **消えたものを「開けない」と言わない。** ここへは親を列挙した後の
+            // 再帰で来るので、その隙に改名・削除された子が `NotFound` で届く。
+            // 名前を控えると、**もう無い場所の権限やネットワークを確かめに
+            // 行かせる**ことになる（ゲート1の指摘）。`had_error` は立てたまま
+            // ——mtimeを記録しないことで次回また列挙させるのは、消えた側でも正しい。
+            //
+            // 控えるのは**手が届かなかったとき**だけ。`Ok(_)`（フォルダが
+            // ファイルに置き換わった）も同じで、権限の話ではない
+            if matches!(&other, Err(err) if err.kind() != std::io::ErrorKind::NotFound) {
+                note_unreadable(outcome, dir);
+            }
             return;
         }
     };
@@ -874,9 +884,11 @@ mod tests {
         );
         assert!(outcome.files.is_empty());
         assert!(outcome.ok_roots.is_empty());
-        // 無いルートも「開けなかった場所」。**名前で言えないと案内にならない**
-        assert_eq!(outcome.unreadable_dirs, vec![missing]);
-        assert_eq!(outcome.unreadable_total, 1);
+        // **無いものは「開けなかった」ではない。** 空の理由の側は
+        // `NotFound` を「見つかりません（つないでください）」として自分で
+        // 名指しするので、ここで権限の話へ混ぜない（ゲート1の指摘）
+        assert!(outcome.unreadable_dirs.is_empty());
+        assert_eq!(outcome.unreadable_total, 0);
     }
 
     /// 走査が**開けなかったフォルダを名前で控える**（一覧が空のときの説明が借りる）。
