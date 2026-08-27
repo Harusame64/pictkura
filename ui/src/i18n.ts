@@ -229,6 +229,59 @@ const ja = {
   wizardRefresh: "ドライブを再検出",
   wizardRemovable: "リムーバブル",
   wizardNoDrives: "ドライブが見つかりません",
+  /* 一覧が空のときの説明（無言で `0 件` を出さない） */
+  emptyTitle: "まだ写真がありません",
+  /** 読み込みに失敗したときの見出し（「まだ写真がありません」は嘘になる） */
+  emptyTitleFailed: "一覧を出せませんでした",
+  /** まだ確かめ終わっていないときの見出し（本文と食い違わせない） */
+  emptyTitleChecking: "確認しています",
+  /** **写真は在るかもしれない**——場所に届いていないだけ。
+   *  ここで「まだ写真がありません」と出すと、1万枚あって権限を許すだけの人に
+   *  向かって空だと断定することになる */
+  emptyTitleMissing: "見つからない場所があります",
+  emptyTitleUnreadable: "開けない場所があります",
+  emptyNoRoots:
+    "ライブラリのフォルダがまだ設定されていません。カードから取り込むか、写真のあるフォルダを選んでください。",
+  emptyMissing: (names: string) =>
+    `次の場所が見つかりません: ${names}。外付けなら、つないでから「再スキャン」を押してください。`,
+  /* 読めない理由はOSで違うので、次にやることも分ける。
+     `unreadable` にはWindowsからも来る（ACLの拒否・切れたSMB共有）ので、
+     macOSの案内だけ置くと**Windowsの人に次の一手が1つも無い**（ゲート1の指摘） */
+  /* macOS側も**TCCだけではない**。`unreadable` は「`metadata` は通るのに
+     `read_dir` が落ちる」「`NotFound` 以外で `metadata` が落ちる」で立つので、
+     切れた `/Volumes/...` の共有や素の権限もここへ来る。許可の話だけ書くと、
+     **落ちたSMB共有の人が効かない設定画面へ送られる**（ゲート2の指摘） */
+  emptyUnreadableMac: (names: string) =>
+    `次の場所を開けませんでした: ${names}。「システム設定 → プライバシーとセキュリティ」で、pictkura にそのフォルダ（デスクトップ・書類・外付けなど）へのアクセスを許してください。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。`,
+  emptyUnreadableWin: (names: string) =>
+    `次の場所を開けませんでした: ${names}。フォルダのアクセス許可を確かめてください。ネットワークドライブなら、つながっているかを確かめてから「再スキャン」を押してください。`,
+  emptyUnreadableOther: (names: string) =>
+    `次の場所を開けませんでした: ${names}。読み取りの権限があるかを確かめてから「再スキャン」を押してください。`,
+  /** 並べるときの区切り（言語で違う） */
+  listSeparator: "、",
+  /** 名前を並べきらなかったぶん（**黙って落とさない**） */
+  andMore: (n: number) => `ほか${n}件`,
+  /* **「この場所」と書かない**——写真.appの判定も除外の集計もルートをまたぐので、
+     ルートが複数あると数が合わない（ゲート1の指摘）。
+     「扱いません」も**既定では**に緩める: `*.photoslibrary` の除外は
+     利用者が設定から外せる（scanner.rs の設計どおり。同） */
+  /** ルートそのものが写真.appのライブラリ。**排他は主張しない** */
+  emptyRootIsPackage:
+    "ライブラリのフォルダに、写真.appのライブラリそのものが指定されています。pictkuraはその中を扱わないので、ここからは何も出てきません。写真のあるフォルダを選び直すか、カードから取り込んでください。",
+  emptyPhotoLibrary:
+    "写真.appのライブラリのほかに、扱えるものが見つかりません。pictkuraは既定では写真.appの中を扱いません（原本の多くはiCloud側にあり、手元にはありません）。カードから取り込むか、写真のあるフォルダを選んでください。",
+  emptyAllExcluded: (names: string) =>
+    `見つかったものは、除外の設定で全部飛ばしています（例: ${names}）。設定フォルダの pictkura.toml で変えられます。`,
+  emptyNothingHere:
+    "扱える画像がまだ見つかりません。カードから取り込むか、写真のあるフォルダを選んでください。",
+  /** カレンダーの空欄に置く一言。**断定しない**（確かめている最中） */
+  calendarChecking: "確認しています…",
+  /** フォルダをまだ見終わっていない。**「何も無い」と言わない** */
+  emptyChecking:
+    "フォルダを確かめている途中です。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。",
+  /** 一覧そのものが取れなかった。**「空です」と言わない**——空かどうかは分かっていない */
+  emptyLoadFailed:
+    "一覧を読み込めませんでした。上の帯に理由が出ています。「再スキャン」を押すか、アプリを開き直してください。",
   wizardPickFolderHint: "左からフォルダを選ぶと、この中の画像が並びます",
   wizardNoImages: "このフォルダに画像はありません",
   wizardUnreadable: "フォルダを読めませんでした（取り外された可能性があります）",
@@ -563,6 +616,36 @@ const en: Dict = {
   wizardRefresh: "Rescan drives",
   wizardRemovable: "Removable",
   wizardNoDrives: "No drives found",
+  emptyTitle: "No photos yet",
+  emptyTitleFailed: "The list could not be shown",
+  emptyTitleChecking: "Checking",
+  emptyTitleMissing: "Some places are not there",
+  emptyTitleUnreadable: "Some places could not be opened",
+  emptyNoRoots:
+    "No library folder has been set up yet. Import from a card, or pick a folder that has photos in it.",
+  emptyMissing: (names: string) =>
+    `These places are not there: ${names}. If that is an external drive, connect it and press Rescan.`,
+  emptyUnreadableMac: (names: string) =>
+    `These places could not be opened: ${names}. Grant pictkura access to that folder (Desktop, Documents, an external drive) in System Settings → Privacy & Security. If it is on a network, make sure it is connected and press Rescan.`,
+  emptyUnreadableWin: (names: string) =>
+    `These places could not be opened: ${names}. Check the folder's permissions. If it is a network drive, make sure it is connected and press Rescan.`,
+  emptyUnreadableOther: (names: string) =>
+    `These places could not be opened: ${names}. Check that you have permission to read them, then press Rescan.`,
+  listSeparator: ", ",
+  andMore: (n: number) => `and ${n} more`,
+  emptyRootIsPackage:
+    "One of the library folders is a Photos app library itself. pictkura does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
+  emptyPhotoLibrary:
+    "Nothing was found but the Photos app library. pictkura does not read inside Photos by default — most of the originals live in iCloud, not on this Mac. Import from a card, or pick a folder that has photos in it.",
+  emptyAllExcluded: (names: string) =>
+    `Everything found is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
+  emptyNothingHere:
+    "No photos that pictkura can read have turned up yet. Import from a card, or pick a folder that has photos in it.",
+  calendarChecking: "Checking…",
+  emptyChecking:
+    "Still looking through the folders. If one of them is on a network, make sure it is connected and press Rescan.",
+  emptyLoadFailed:
+    "The list could not be loaded. The reason is in the bar above. Press Rescan, or reopen the app.",
   wizardPickFolderHint: "Pick a folder on the left to see the photos in it",
   wizardNoImages: "No photos in this folder",
   wizardUnreadable: "Could not read this folder (it may have been removed)",

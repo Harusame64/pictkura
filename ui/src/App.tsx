@@ -32,7 +32,9 @@ import {
   getExifInfo,
   getIndexProgress,
   getDecoderStatus,
+  getEmptyLibraryReason,
   getStartupReport,
+  startupScanFinished,
   getStats,
   listCameras,
   listDay,
@@ -76,6 +78,7 @@ import {
   type Memory,
   type ScopeItem,
   type StartupScanReport,
+  type EmptyLibraryReason,
 } from "./api";
 import { usePlatform } from "./usePlatform";
 import type { VideoStatus } from "./api";
@@ -328,6 +331,62 @@ const DECODER_NOTICE_KEY = "pictkura.decoderNotice";
 export default function App() {
   /** タイムラインの骨組み（日付→枚数、新しい日付順）。全件レコードは持たない */
   const [summary, setSummary] = useState<DaySummary[]>([]);
+  /**
+   * いまの `summary` が、いまの絞り込みに対する**確定した答え**か。
+   *
+   * `reloadAll` の入口で偽に戻す。**0件の検索を消した直後**のように、
+   * 絞り込みだけ先に変わって `summary` が古いままの瞬間があり、そこで
+   * 「まだ写真がありません」と出すと**数千枚あるライブラリの上に**出る
+   */
+  const [settled, setSettled] = useState(false);
+  /**
+   * 直前の `reloadAll` が**落ちた**か。
+   *
+   * `settled` を `finally` で立てるのは**仕掛けを詰まらせない**ため
+   * （立てないと、呼び出し側がリトライしないので起動中ずっと偽のまま固まる）。
+   * だがそれだけだと、**取得に失敗しただけの一覧の上に**「まだ写真がありません」が
+   * 出る——検索を消した直後に一度転べば、5万枚のライブラリに向かって
+   * 「カードから取り込んでください」と言うことになる。
+   * **2つを分ける**: `settled` は仕掛けのため、これは名乗ってよいかの判断のため。
+   * 失敗そのものは上部の帯に出たまま残るので、黙ってはいない
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+  /**
+   * 骨組みが**最後に取れた**のは何回目か。
+   *
+   * `reloadAll` と `refreshSummary` は同じ骨組みを取り直す別の口で、
+   * 世代（`generationRef`）は共有している——`refreshSummary` は追い越しを
+   * 起こさないよう番号を進めない。そのため「先に `refreshSummary` が成功して、
+   * あとから同じ世代の `reloadAll` が転ぶ」順があり、**取れたばかりのデータの
+   * 上に「出せませんでした」が出て居座る**（ゲート2の指摘）。
+   * 転んだ側は、自分が走り出したあとに誰かが成功していないかをこれで見る
+   */
+  const gotSummaryRef = useRef(0);
+  /**
+   * [`settled`] の**同じ瞬間に読める写し**。
+   *
+   * 絞り込みが変わった直後の1描画では、`filtering` はもう偽なのに
+   * `summary` は前の絞り込みのまま——`settled` の `false` はまだ描画に
+   * 反映されていないので、そこで走る効果は「空だ」と読んでしまう。
+   * 画面には出ない（`emptyReason` がまだ無い）が、**ルート直下を全部
+   * `read_dir` する問い合わせが1回無駄に飛ぶ**——ネットワークのルートなら
+   * ブロッキングのスレッドをマウントのタイムアウトぶん占める（ゲート2の指摘）。
+   * 効果は発火の瞬間にこちらを見る
+   */
+  const settledRef = useRef(false);
+  /**
+   * 起動時の走査が報告を出したか。**出るまで「空です」と言わない**。
+   *
+   * 走査は別スレッドで走り、終わってから `library-updated` と
+   * `startup-scan-report` を出す。最初の `reloadAll` はそれより前にDBを読むので、
+   * **初回起動では正しく `[]` が返る**——そこで理由を出すと、索引中のライブラリに
+   * 「扱える画像がありません」と言うことになる（ゲート2の指摘）。
+   *
+   * **時間で見切らない。** 初回のNASや10万枚のフォルダは走査だけで
+   * 数十秒かかる——そこで待つのをやめると、索引の最中に「空です」と
+   * 言うことになり、この旗を足した意味が消える（同）
+   */
+  const [scanSettled, setScanSettled] = useState(false);
   /** 取得済みの日 → その日のレコード（可視範囲＋α だけを保持） */
   const [dayItems, setDayItems] = useState<Map<number, MediaItem[]>>(
     () => new Map(),
@@ -346,6 +405,15 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<"grid" | "calendar">("grid");
   const [filter, setFilter] = useState<MediaFilter>("all");
+  /**
+   * 一覧が空のときだけ聞く「なぜ空か」。
+   *
+   * **無言で `0 件` を出さない**ための説明で、`null` は「まだ聞いていない」。
+   * 常時聞かないのは、ルートの直下を1回読むため——空でないときに払う理由が無い
+   */
+  const [emptyReason, setEmptyReason] = useState<EmptyLibraryReason | null>(
+    null,
+  );
   /**
    * 種類の絞り込み（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので重ねて効く。
    * 送るときは検索語の `kind:` に畳む（[`withKind`]）
@@ -560,21 +628,63 @@ export default function App() {
   }, [view]);
 
   /** 骨組み（サマリ・件数・思い出）を取り直し、日キャッシュを捨てる。
-   * 可視範囲の日は placeholder になった瞬間に自動で再取得される */
+   * 可視範囲の日は placeholder になった瞬間に自動で再取得される。
+   *
+   * **落ちても `settled` は立てる**（`finally`）。立てないと、
+   * 呼び出し側は例外を `status` へ流すだけでリトライしないので、
+   * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる。
+   * ただし立てるだけだと今度は**失敗を「空」と読む**ので、
+   * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
-    const [sum, st, mem] = await Promise.all([
-      timelineSummary(queryRef.current, filterRef.current),
-      getStats(),
-      listMemories(),
-    ]);
-    // 応答待ちの間に次のリロード（フィルタ切替等）が始まっていたら、古い応答は捨てる
-    if (generationRef.current !== gen) return;
-    setSummary(sum);
-    setStats(st);
-    setMemories(mem);
-    setDayItems(new Map());
+    // **同期で倒す。** 効果は同じ描画の中で順に走るので、状態の更新を待つと
+    // 後ろの効果が古い値を見る
+    settledRef.current = false;
+    setSettled(false);
+    // **骨組みと飾りを分けて受ける。** 件数と思い出が落ちただけで
+    // `loadFailed` を立てると、**一覧は正しく取れているのに**
+    // 「一覧を読み込めませんでした」が本当の理由（写真.appのライブラリしか
+    // 無い等）を覆い隠す。`Promise.all` は最初の1つで諦めるので使わない
+    // （ゲート2の指摘）
+    let gotSummary = false;
+    try {
+      const [sumR, statsR, memR] = await Promise.allSettled([
+        timelineSummary(queryRef.current, filterRef.current),
+        getStats(),
+        listMemories(),
+      ]);
+      // 応答待ちの間に次のリロード（フィルタ切替等）が始まっていたら、古い応答は捨てる
+      if (generationRef.current !== gen) return;
+      if (statsR.status === "fulfilled") setStats(statsR.value);
+      if (memR.status === "fulfilled") setMemories(memR.value);
+      if (sumR.status === "rejected") throw sumR.reason;
+      gotSummary = true;
+      setSummary(sumR.value);
+      setDayItems(new Map());
+      gotSummaryRef.current += 1;
+      setLoadFailed(false);
+      // 飾りが落ちたことも黙らない。ただし**一覧は正しい**ので旗は立てない
+      if (statsR.status === "rejected") throw statsR.reason;
+      if (memR.status === "rejected") throw memR.reason;
+    } catch (err) {
+      // **自分が走っている間に誰かが成功していたら、失敗を名乗らない**
+      if (
+        !gotSummary &&
+        generationRef.current === gen &&
+        gotSummaryRef.current === wasGotAt
+      ) {
+        setLoadFailed(true);
+      }
+      throw err;
+    } finally {
+      // **追い越されていたら立てない**——新しい方がまだ走っている
+      if (generationRef.current === gen) {
+        settledRef.current = true;
+        setSettled(true);
+      }
+    }
   }, []);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
@@ -592,6 +702,12 @@ export default function App() {
     ]);
     if (generationRef.current !== gen) return; // リロードが割り込んだら捨てる
     setSummary(sum);
+    // **成功したら失敗の表示を下ろす。** ここは `reloadAll` と同じ骨組みを
+    // 取り直している。下ろさないと、1回転んだあと部分更新が何度成功しても
+    // 「一覧を出せませんでした」が居座る——次の `reloadAll` まで固まる
+    // （ゲート1の指摘）
+    gotSummaryRef.current += 1;
+    setLoadFailed(false);
     setStats(st);
     setDayItems((prev) => {
       if (prev.size === 0) return prev;
@@ -700,18 +816,22 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     (async () => {
+      // **登録が転んでも下の初回取得へ進む。** ここで例外が上がると
+      // `reloadAll` に届かず、`settled` がその起動のあいだ偽のまま固まる——
+      // **データも説明も出ない完全な無言**になる（ゲート1の指摘。
+      // 隣のリスナーには入れてあるのに、こちらだけ抜けていた）
       const f = await listen("library-updated", () => {
         reloadAll().catch((e) => setStatus(String(e)));
         refreshCameras();
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
         // 実体を後から退避するので、古い「ローカルにある」を信じない
         cloudOnlyRef.current.clear();
-      });
+      }).catch(() => null);
       if (cancelled) {
-        f();
+        f?.();
         return;
       }
-      unlisten = f;
+      unlisten = f ?? undefined;
       await reloadAll().catch((e) => setStatus(String(e)));
     })();
     return () => {
@@ -750,6 +870,78 @@ export default function App() {
       cancelled = true;
       unlisten?.();
       if (timer != null) window.clearTimeout(timer);
+    };
+  }, []);
+
+  // 起動時の同期が**終わった**合図。⚡爆速メーターの報告とは別に要る——
+  // 走査が落ちれば報告は一度も出ないので、来ないことを「まだ走っている」と
+  // 読むと**永久に無言**になる（ゲート2の指摘）。バックエンドは成功でも失敗でも
+  // これを出し、取りこぼした側が後から聞けるよう旗も立てている
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    let poll: number | undefined;
+    // **もう落ち着いたか**を、ポーリングを積む側からも読めるように持つ。
+    // `poll` を見るだけでは足りない——合図が「登録の直後・問い合わせの応答前」
+    // に着くと、`settle` が走った時点で `poll` はまだ `undefined` で、
+    // その後に**止める相手のいないポーリングが据えられる**（ゲート2の指摘）
+    let done = false;
+    const settle = () => {
+      if (cancelled) return;
+      done = true;
+      if (poll != null) window.clearInterval(poll);
+      poll = undefined;
+      setScanSettled(true);
+    };
+    (async () => {
+      // **登録が転んでも先へ進む。** ここで例外が上がると下の問い合わせに
+      // 届かず、`scanSettled` がその起動のあいだ偽のまま固まる——
+      // つまり**この機能が丸ごと出なくなる**。
+      // 隣の⚡爆速メーターは取りこぼしても帯が1つ出ないだけだが、こちらは違う
+      const f = await listen("startup-scan-finished", settle).catch(() => null);
+      if (cancelled) {
+        f?.();
+        return;
+      }
+      unlisten = f ?? undefined;
+      // **転んだら「終わっていない」に倒す。** 一律に「終わった」と言うと
+      // 走査の最中にパネルが出て `scanSettled` の目的が崩れる。
+      // リスナーの有無で分けるのも駄目——登録とこの問い合わせは**同じ経路**
+      // なので、一度の不調で両方転ぶ。そこで「終わった」に倒すと、
+      // **下のポーリングごと飛ばして**索引中のライブラリに
+      // 「扱える画像がありません」と言う（ゲート2の指摘）。
+      // 偽なら必ず下のポーリングが拾う
+      const finished = await startupScanFinished().catch(() => false);
+      if (cancelled) return;
+      if (finished) {
+        settle();
+        return;
+      }
+      // 応答を待つ間に合図が着いていたら、もう据えない
+      if (done) return;
+      // **まだ終わっていない。ここから先は必ず自分でも聞きに行く。**
+      // リスナーの有無で分けてはいけない——合図は**一度きり**で、
+      // 空のライブラリなら数msで出る。登録が間に合わず、しかもこの
+      // 問い合わせが転ぶと、`false` を掴んだまま二度と来ない合図を待つ
+      // ことになり、この機能が丸ごと出ない（ゲート2の指摘）。
+      // 合図が先に来ていれば上で抜けている
+      poll = window.setInterval(() => {
+        void startupScanFinished()
+          // **転んだ1回で「終わった」と言わない。** ここで倒すと、
+          // NASの初回走査の最中に一度失敗しただけでパネルが出る。
+          // 次の2秒後にもう一度聞けばよい
+          .catch(() => false)
+          .then((ok) => {
+            // **終わったら止める。** 片付けはAppのunmountでしか走らないので、
+            // 止めないとプロセスの一生ぶん2秒ごとに叩き続ける
+            if (ok) settle();
+          });
+      }, 2000);
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (poll != null) window.clearInterval(poll);
     };
   }, []);
 
@@ -910,7 +1102,10 @@ export default function App() {
     const building = indexProgress !== null;
     if (wasBuilding.current && !building) {
       refreshCameras();
-      if (queryRef.current) reloadAll().catch(() => {});
+      // **握り潰さない。** ここだけ例外を捨てていた。この経路は絞り込み中に
+      // しか走らず、そこで転ぶと「一覧を出せませんでした／上の帯に理由が
+      // 出ています」が**空の帯**を指すことになる（ゲート1の指摘）
+      if (queryRef.current) reloadAll().catch((e) => setStatus(String(e)));
     }
     wasBuilding.current = building;
   }, [indexProgress, refreshCameras, reloadAll]);
@@ -1079,6 +1274,314 @@ export default function App() {
   /** ウィザードからのエラー通知。毎レンダで作り直すと向こうのeffectが再実行される */
   const onWizardError = useCallback((message: string) => setStatus(message), []);
 
+  /**
+   * 「まだ写真がありません」と言ってよい状態か。
+   *
+   * 絞り込みの結果0件・読み込み途中・起動時の走査の途中は**どれも違う**。
+   * 判定は**ここ1か所**に置く——出す条件と聞く条件がずれると、
+   * 古い理由が新しい一覧の上に出る
+   */
+  const canSayEmpty =
+    settled &&
+    !loadFailed &&
+    scanSettled &&
+    // **`busy` の間は言わない。** `scanSettled` が覆うのは**起動時の走査だけ**
+    // （旗は一度きり）。フォルダの追加・再スキャン・ルートの削除は同期で
+    // 走査するので、20万件のNASを足した人は、その数分のあいだ
+    // 「フォルダがまだ設定されていません…写真のあるフォルダを選んでください」
+    // を見続けることになる——**いま選んだところ**なのに（ゲート2の指摘）
+    !busy &&
+    !filtering &&
+    summary.length === 0;
+  /**
+   * 一覧が空で、しかも**なぜ空かをまだ言えない**か。
+   *
+   * 起動時の走査の最中、理由を聞いている最中、読み込みに失敗したとき。
+   * カレンダーは自前で「写真がありません」と出すので、ここで止めないと
+   * **索引の途中のライブラリに向かって断定する**——グリッド側には同じ文言が
+   * 無いので、カレンダーだけが元の無言（に見える断定）へ戻る（ゲート2の指摘）。
+   * 絞り込んで0件は**正当に**「写真がありません」なので、そちらは残す
+   */
+  const unsureWhyEmpty =
+    summary.length === 0 &&
+    // `busy` もここで見る。`canSayEmpty` が偽になる描画では `emptyReason` が
+    // まだ残っている（消すのは描画の後の効果）ので、両方偽になる1フレームだけ
+    // カレンダー自前の「写真がありません」が出てしまう（ゲート2の指摘）。
+    // **`!filtering` の内側に置く**——絞り込んで0件は正当に「写真がありません」
+    // なので、走査中でもそちらを消さない（上の規則。ゲート1の指摘）
+    (loadFailed ||
+      (!filtering &&
+        (busy || !settled || !scanSettled || emptyReason == null)));
+  /**
+   * 一覧の代わりに何か言う枠を出してよいか。
+   *
+   * **失敗も黙らない**——ただし言うことが違う。空だと分かっているなら理由、
+   * 読めなかっただけなら「出せませんでした」。`0 件` だけの画面に
+   * 戻さないのがこのPRの主題なので、失敗でパネルごと消すのは筋が違う
+   * （ゲート1の指摘）
+   */
+  const showEmptyPanel =
+    (canSayEmpty && emptyReason != null) ||
+    // **「一覧が空」は要る**——5万枚が並んでいる最中に取り込みの
+    // `library-updated` で走った `reloadAll` が1回転んでも、`summary` は
+    // 正しいまま残っているので、一覧を消して差し替えてはいけない。
+    // **絞り込み中かどうかは要らない**——「出せませんでした」はライブラリが
+    // 空かどうかとは別の話で、絞り込みを理由に黙る筋が無い。付けていたせいで、
+    // 絞り込み中に読み込みが転ぶと、カレンダーも消えパネルも出ない
+    // **文字が1つも無い枠**になっていた（どちらもゲート2の指摘）
+    (settled && loadFailed && summary.length === 0);
+  /**
+   * パネルの見出し。**本文と食い違わせない。**
+   *
+   * 「まだ写真がありません」は**空だという断定**なので、
+   * 「見つからない」「開けない」——つまり**写真は在るかもしれないのに
+   * 場所に届いていない**——ときに出すと嘘になる。TCCで `~/Pictures` を
+   * 拒否されている人は、1万枚あって許可を1つ与えるだけなのに
+   * 「空です」と言われることになる（ゲート2の指摘）
+   */
+  const emptyTitle = () => {
+    if (loadFailed) return t.emptyTitleFailed;
+    const r = emptyReason;
+    if (r == null || r.checking) return t.emptyTitleChecking;
+    if (r.missing.length > 0) return t.emptyTitleMissing;
+    if (r.unreadable.length > 0) return t.emptyTitleUnreadable;
+    return t.emptyTitle;
+  };
+
+  /** パネルに出す本文。旗の優先順は「利用者が次に何をするか」の順 */
+  const emptyMessage = () => {
+    if (loadFailed) return t.emptyLoadFailed;
+    // **見出しと揃える。** 理由がまだ無いのに「無い」と断定しない
+    // （見出しは `emptyTitleChecking` に落ちる。ゲート1の指摘）
+    if (emptyReason == null) return t.emptyChecking;
+    const r = emptyReason;
+    // **確かめ終わっていないなら、まずそれを言う。** 旗が1つも立って
+    // いないのは「何も無い」ではなく「まだ見ていない」
+    if (r.checking) return t.emptyChecking;
+    if (r.noRoots) return t.emptyNoRoots;
+    if (r.missing.length > 0) return t.emptyMissing(nameList(r.missing));
+    if (r.unreadable.length > 0) {
+      const say =
+        platform === "macos"
+          ? t.emptyUnreadableMac
+          : platform === "windows"
+            ? t.emptyUnreadableWin
+            : t.emptyUnreadableOther;
+      return say(nameList(r.unreadable));
+    }
+    // **ルートそのものがライブラリ**なら、そちらが先。覆らない事実で、
+    // しかも直せるのは利用者だけ（フォルダを選び直す）
+    if (r.rootIsPackage) return t.emptyRootIsPackage;
+    // **除外が先。** 「写真.appのライブラリのほかに見つかりません」は
+    // **排他の主張**なので、除外で飛ばしたものがあるなら嘘になる——
+    // `~/Pictures` に写真ライブラリと `.秘密写真/`（中身はJPEG）が並ぶと、
+    // 写真は在るのに「ほかに無い」と言い、`pictkura.toml` の話にも
+    // 辿り着けない（ゲート2の指摘）。除外の文言なら名前を挙げて設定へ導ける
+    if (r.excluded.length > 0)
+      return t.emptyAllExcluded(nameList(r.excluded, r.excludedTotal));
+    if (r.photoLibrary) return t.emptyPhotoLibrary;
+    return t.emptyNothingHere;
+  };
+  /**
+   * 名前の一覧を1文へ。**3件で切って、切ったことを言う**。
+   *
+   * 外付けを4台ぶらさげている人が全部外して起動すると、一番効くはずの文が
+   * パスの羅列で読めなくなる（ゲート2の指摘）。**黙って落とさない**のが条件で、
+   * 落としたぶんは「ほか2件」と数で言う。
+   *
+   * `total` は**手元の名前より多いことがある**——除外の一覧はバックエンドが
+   * 3件で切って持ってくるので、数だけ別に受け取る（同）
+   */
+  const nameList = useCallback(
+    (names: string[], total = names.length) => {
+      // **引くのは「出した数」**。`3` を引くと、名前が畳まれて1件しか
+      // 来ていない（6つのルートの `Lightroom Catalog/` など）ときに
+      // 数が合わない（ゲート2の指摘）
+      const shown = names.slice(0, 3);
+      const rest = total - shown.length;
+      return rest > 0
+        ? [...shown, t.andMore(rest)].join(t.listSeparator)
+        : shown.join(t.listSeparator);
+    },
+    [t],
+  );
+
+  /**
+   * **まだ返ってきていない問い合わせ**。次の問い合わせはこれに相乗りする。
+   *
+   * バックエンドの席は2つで、**1本刺さっても次の確認が通る**ように置かれている
+   * （`lib.rs` の `empty_reason_gate`）。ところが刺さった `read_dir` は取り消せず、
+   * 走査が終わるまで席は返らない——effectのcleanupは `alive` を倒すだけで、
+   * 飛んだ `invoke` には届かない。
+   *
+   * だから**同じ状況を2度聞くと、死んだルート1本で席を2つとも潰す**。
+   * `canSayEmpty` は `!filtering && !busy` を含むので、検索語を打って消すだけで
+   * この effect は張り直され、2本目が飛ぶ——2つ目の席が守ろうとしていた
+   * 「外したあとは直る」が、そこで失われる（両ゲートの指摘）。
+   *
+   * 相乗りにすれば、**同じ状況を何度聞いても席は1つしか使わない**。
+   */
+  const emptyReasonInFlight = useRef<Promise<EmptyLibraryReason> | null>(null);
+  /** 相乗りつきの問い合わせ。飛んでいるものがあれば、それを待つ */
+  const askEmptyReason = useCallback(() => {
+    const flying = emptyReasonInFlight.current;
+    if (flying) return flying;
+    const asked = getEmptyLibraryReason();
+    emptyReasonInFlight.current = asked;
+    // **転んだときも忘れる。** ここで `finally` を継ぐと、その派生した約束が
+    // 誰にも掴まれずに転んで unhandled rejection になる
+    const forget = () => {
+      if (emptyReasonInFlight.current === asked) emptyReasonInFlight.current = null;
+    };
+    void asked.then(forget, forget);
+    return asked;
+  }, []);
+
+  /**
+   * **ルートの顔ぶれが変わったら、刺さったままの問い合わせを忘れる。**
+   *
+   * 相乗りだけだと、刺さった約束にぶら下がり続けて画面は「確認しています」の
+   * まま——席は空くのに、そこへ行く呼び出しが無い。**状況が変わったときだけ**
+   * 張り直せば、2つ目の席がちょうど1本ぶん使われる。
+   *
+   * **合図に「走査が1回走った」を使ってはいけない。** `emptyChecking` は
+   * 「つながっているかを確かめてから『再スキャン』を押してください」と書いてある
+   * ——言われたとおり押した人が、押すたびに新しい問い合わせを死んだルートへ
+   * 飛ばすことになり、**2回で席を使い切る**（ゲート2の指摘）。
+   *
+   * 見るのは**ルートそのものの変化**。死んだルートを外せばここが動くので、
+   * そのときちょうど1本飛ぶ。外していないなら聞き直しても答えは変わらないし、
+   * 落ちていた共有が戻ったのなら**刺さっていた `read_dir` の方が返ってくる**
+   * ——相乗りしている全員がその答えを受け取る。
+   *
+   * **この effect は下の問い合わせより前に置くこと。** Reactは宣言順に走るので、
+   * 同じコミットでルートが変わって `canSayEmpty` が立つとき、先に忘れておかないと
+   * 下の `ask` が古い約束に相乗りしてしまう。
+   */
+  const askedForRoots = useRef<string | null>(null);
+  useEffect(() => {
+    const now = roots.join("\u0000");
+    if (askedForRoots.current === now) return;
+    askedForRoots.current = now;
+    emptyReasonInFlight.current = null;
+  }, [roots]);
+
+  // 一覧が空になったときだけ理由を聞く。空でなくなったら忘れる
+  useEffect(() => {
+    if (!canSayEmpty) {
+      setEmptyReason(null);
+      return;
+    }
+    // **発火の瞬間にもう一度見る。** `canSayEmpty` はこの描画の値で、
+    // 絞り込みが変わった直後は既に古い（上の `settledRef` の説明）
+    if (!settledRef.current) return;
+    let alive = true;
+    let retry: number | undefined;
+    /** 何回目の問い合わせか。**古い応答に新しい答えを上書きさせない** */
+    let attempt = 0;
+    /** 確かな答え（`checking` でないもの）が届いた。もう聞き直さない */
+    let finished = false;
+    /** 旗が1つも立っていない＝「まだ確かめている途中」。**「無い」ではない** */
+    const stillChecking = {
+      noRoots: false,
+      missing: [],
+      unreadable: [],
+      excluded: [],
+      excludedTotal: 0,
+      photoLibrary: false,
+      rootIsPackage: false,
+      checking: true,
+    };
+    /**
+     * 理由を1回聞く。**「確かめている途中」で終わらせない。**
+     *
+     * バックエンドは門を3秒で諦めて `checking` を返すが、その返事の後ろには
+     * **待っている問い合わせが無い**ので、放っておくとその文言のまま固まる
+     * ——先に走っていた確認が1秒後に成功しても、画面は直らない（ゲート2の指摘）。
+     * 数回だけ聞き直す。回数を切るのは、本当に刺さっているときに
+     * 永久に叩き続けないため
+     */
+    const ask = (left: number) => {
+      if (!alive || finished) return;
+      const mine = ++attempt;
+      /** この回の応答・見切りが、いまも画面に反映してよいものか */
+      const fresh = () => alive && !finished && mine === attempt;
+      // **この1回から積む聞き直しは1本まで。** 応答が5秒の見切りより後に
+      // 届くと（サムネイル生成で本流が詰まると起きる）、見切りと応答の
+      // **両方**が次を積み、`retry` は最後の1本しか覚えていないので
+      // 取りこぼした側が片付けをすり抜けて、効果を畳んだ後に1回叩く
+      // （ゲート2の指摘）
+      let continued = false;
+      const again = () => {
+        if (continued || !fresh() || left <= 0) return;
+        continued = true;
+        retry = window.setTimeout(() => ask(left - 1), 2000);
+      };
+      // **返ってこない筋にも答えを出す。** 切れたSMB/NFSのルートでは
+      // `read_dir` がマウントのタイムアウトぶん返らず、`catch` は呼ばれない
+      // ——`emptyReason` が `null` のままなので、**無言の `0 件` に逆戻り**する。
+      // ネットワークのフォルダこそ、この機能が説明したい相手。
+      //
+      // **見切りは「文言を出す」だけ。次は投げない。**
+      // 投げると、前の確認が返る前にもう1本が席を取りに行く——
+      // 席は2つしか無いので、**自分の聞き直しで両方潰して**しまい、
+      // 死んだルートを外したあとの確認まで通らなくなる（ゲート2の指摘）
+      const giveUp = window.setTimeout(() => {
+        if (!fresh()) return;
+        setEmptyReason(stillChecking);
+      }, 5000);
+      // 次を投げるかどうかは、**前のが返ってから**決める
+      let wantMore = false;
+
+      askEmptyReason()
+        .then((r) => {
+          if (!alive || finished) return;
+          if (!r.checking) {
+            // **確かな答えは、古い回のものでも捨てない。**
+            // 連鎖は6回・約30秒で尽きるが、切れたSMB共有では1本目が
+            // それより後に `unreadable` を返してくる——**それが唯一の答え**
+            // なのに、回番号で切ると「確認しています」のまま固まる
+            // （ゲート1の指摘）。新しい確かな答えが先に着けば `finished` が
+            // 立っているので、上書きの向きは狂わない。
+            //
+            // **連鎖も畳む**: 積んである聞き直しを残すと、その5秒の見切りが
+            // いま出したばかりの本当の理由を塗り潰す（ゲート2の指摘）
+            setEmptyReason(r);
+            finished = true;
+            if (retry != null) window.clearTimeout(retry);
+            retry = undefined;
+            return;
+          }
+          // 「まだ確かめている途中」を塗るのは、自分の回のときだけ
+          if (!fresh()) return;
+          setEmptyReason(r);
+          wantMore = true;
+        })
+        // **聞けなくても無言に戻らない。** 表示は `emptyReason` が入って
+        // いることを条件にしているので、ここで捨てると `0 件` だけの画面へ
+        // 逆戻りする——このPRが消そうとしている当のもの。
+        // 転んだ1回で終わらせないのも同じ理由で、健康な `~/Pictures` でも
+        // 呼び出しが一度失敗しただけで「確かめている途中です」に固まる
+        .catch(() => {
+          if (!fresh()) return;
+          setEmptyReason(stillChecking);
+          wantMore = true;
+        })
+        .finally(() => {
+          window.clearTimeout(giveUp);
+          // **返ってきてから次を投げる。** 返ってこないまま連鎖が終われば
+          // 「確認しています」で止まるが、それは正直な状態で、
+          // 「再スキャン」やルートの追加・削除で効果ごと張り直される
+          if (wantMore) again();
+        });
+    };
+    ask(5);
+    return () => {
+      alive = false;
+      if (retry != null) window.clearTimeout(retry);
+    };
+  }, [canSayEmpty, askEmptyReason]);
+
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
   const openWizard = useCallback((startPath?: string) => {
@@ -1221,9 +1724,19 @@ export default function App() {
         );
       };
       patch(next);
+      // **印を付ける失敗と、骨組みを取り直す失敗を分ける。**
+      // まとめて `catch` すると、**付いた印を戻して**しまい、しかも
+      // `reloadAll` の失敗が `loadFailed` を立てるので、
+      // 「上の帯に理由が出ています」が空の帯を指す（ゲート2の指摘）
       try {
         if (kind === "favorite") await setFavorite(item.id, next);
         else await setPicked(item.id, next);
+      } catch (e) {
+        patch(!next); // 印そのものが付かなかったので戻す
+        setStatus(String(e));
+        return;
+      }
+      {
         // その印で絞り込み中は骨組み（枚数・日の有無）が変わる
         if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
           setSelected((prev) => {
@@ -1237,10 +1750,10 @@ export default function App() {
           // 「もう画面に無いもの」を選び直し、間の写真のほうが外れる
           setAnchorId((a) => (a === item.id ? null : a));
           lastRangeRef.current = null;
-          await reloadAll();
+          // **ここで転んでも印は戻さない**——印は付いている。
+          // 取り直しに失敗しただけなので、黙らずに帯へ出す
+          await reloadAll().catch((e) => setStatus(String(e)));
         }
-      } catch {
-        patch(!next); // 失敗したら戻す
       }
     },
     [reloadAll],
@@ -3622,9 +4135,58 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* **無言で `0 件` を出さない。** 全部正しく動いたうえで空になることが
+              ある——macOSの `~/Pictures` は写真.appのライブラリしか持たず、
+              それは既定の除外に入っている。理由が出ないと「壊れている」と読まれる。
+              **サムネイルでもカレンダーでも出す**（片方だけだと、切り替えた
+              とたんに無言へ戻る。ゲート1の指摘） */}
+          {showEmptyPanel && (
+            <div className="empty-library">
+              {/* **見出しも本文と揃える。** 「まだ写真がありません」の下に
+                  「確かめている途中です」を置くと、見出しの側だけが断定して
+                  いることになる（ゲート2の指摘） */}
+              <h2>{emptyTitle()}</h2>
+              <p>{emptyMessage()}</p>
+              <div className="empty-actions">
+                {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
+                <button
+                  className="primary"
+                  onClick={() => !busy && openWizard()}
+                  disabled={busy}
+                >
+                  {t.importFromUsb}
+                </button>
+                <button onClick={onBrowseFolder} disabled={busy}>
+                  <span aria-hidden="true">📂</span> {t.browse}
+                </button>
+              </div>
+            </div>
+          )}
+          {/* **理由をまだ言えないあいだの一言。** 断定しない。
+              `.main`（縦のflex）の直下に1つだけ置く——グリッド側の
+              `.grid-wrap` は行方向のflexで、その中に入れると
+              `.grid-scroll` と幅を分け合って左に寄る（ゲート2の指摘）。
+              カレンダーは自前で「写真がありません」と出すので、
+              こちらが出ているあいだは `Calendar` ごと止める */}
+          {!showEmptyPanel && unsureWhyEmpty && (
+            <div className="calendar-empty">{t.calendarChecking}</div>
+          )}
           {view === "calendar" ? (
             <div className="calendar-scroll">
-              <Calendar summary={summary} onOpenDay={openDay} />
+              {/* パネルが出ているなら、カレンダー側の「写真がありません」は
+                  出さない。**同じ画面に空の知らせが2つ並ぶ**（ゲート1の指摘） */}
+              {/* カレンダーは自前で「写真がありません」と出すので、
+                  **パネルが出ているなら黙らせる**——並べると、説明の直下に
+                  元の断定が残る（このPRの主役の画面がそれ）。
+                  **順番が要**: 理由つきでパネルが出るとき `unsureWhyEmpty` は
+                  偽なので、内側で見ていたときは一番出る筋で効いていなかった
+                  （ゲート1の指摘）。
+                  理由をまだ言えないときは**代わりに何か置く**——止めるだけだと、
+                  起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
+                  **文字が1つも無い枠**になる（ゲート2の指摘） */}
+              {!showEmptyPanel && !unsureWhyEmpty && (
+                <Calendar summary={summary} onOpenDay={openDay} />
+              )}
             </div>
           ) : (
             <div className="grid-wrap">

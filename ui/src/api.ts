@@ -387,8 +387,47 @@ export const getIndexProgress = () =>
   invoke<IndexProgress>("get_index_progress");
 export const listMemories = () => invoke<Memory[]>("list_memories");
 export const getStats = () => invoke<LibraryStats>("get_stats");
+/**
+ * 一覧が空のとき、**なぜ空なのか**。
+ *
+ * 無言で `0 件` を出さないための問い合わせ。**空のときにだけ**呼ぶ
+ * （ルートの直下を1回読むので、常時聞く類のものではない）
+ */
+export interface EmptyLibraryReason {
+  /** ライブラリのフォルダが1つも無い */
+  noRoots: boolean;
+  /** 設定にあるのに、そこに無いフォルダ（外付けを挿し忘れた等） */
+  missing: string[];
+  /** 実在するのに**読めなかった**フォルダ（権限・macOSのTCC・切れたネットワーク） */
+  unreadable: string[];
+  /** 除外の設定で飛ばした項目の名前（先頭3件まで） */
+  excluded: string[];
+  /** 除外で飛ばした**名前**の数（重複を除く。3件で切ったぶんを数で言うため）。
+   *  **項目数ではない**——この数は名前の並びの続きとして読まれるので、
+   *  同じ名前が3つのルートに在っても1（Rust側の説明を見よ） */
+  excludedTotal: number;
+  /** 写真.appのライブラリが直下にあり、**ほかに扱えるものが無い** */
+  photoLibrary: boolean;
+  /** **ルートそのもの**が写真.appのライブラリ（`photoLibrary` とは別の事実。
+   *  あちらは隣に候補があれば覆るが、こちらは覆らない） */
+  rootIsPackage: boolean;
+  /** **まだ確かめ終わっていない**（前の確認が返らないまま時間切れ）。
+   *  刺さったネットワークのフォルダで起きる——「何も無い」とは言わない */
+  checking: boolean;
+}
+export const getEmptyLibraryReason = () =>
+  invoke<EmptyLibraryReason>("empty_library_reason");
+
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
+/**
+ * 起動時の同期が**終わったか**（成功・失敗のどちらでも真）。
+ *
+ * `getStartupReport` では代わりにならない——走査が落ちたときは報告が
+ * 一度も出ないので、`null` が「まだ走っている」と見分けられない
+ */
+export const startupScanFinished = () =>
+  invoke<boolean>("startup_scan_finished");
 // USB挿入の自動起動（AutoPlay）で `--import <ドライブ>` 付きで冷起動したときの
 // 取り込み対象を一度だけ受け取る。2重起動は open-import-drive イベントで届く
 export const takePendingImport = () =>

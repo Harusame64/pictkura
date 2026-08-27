@@ -57,6 +57,52 @@ struct AppState {
     /// リスナー登録より先にイベントが発火して取りこぼされるため、
     /// ここに保持してフロントがマウント後にコマンドで取りにも来られるようにする
     startup_report: Mutex<Option<StartupScanDto>>,
+    /// 起動時の同期が**終わったか**（成功・失敗・パニックのどれでも真）。
+    ///
+    /// `startup_report` では代わりにならない: 走査が `Err` で早く返ったときや
+    /// パニックを `panics::catching` が拾ったときは、報告が**一度も出ない**。
+    /// フロントは「走査が続いている間は空だと言わない」ので、**終わったことを
+    /// 別に知らせないと永久に無言**になる（ゲート2の指摘）。
+    /// イベントを取りこぼしたフロントが後から聞けるよう、旗としても置く
+    startup_done: std::sync::atomic::AtomicBool,
+    /// [`empty_library_reason`] の走査を**同時に1本まで**にする門。
+    ///
+    /// 走査はブロッキングプールで動くが、**切れたSMB/NFSのhardマウントでは
+    /// `read_dir` が返ってこない**——フロントは5秒で見切るのに、スレッドは
+    /// そのまま残る。一覧が空になるたびに聞き直すので、放っておくと
+    /// プールを食い尽くし、同じプールを使う `add_library_root` などが止まる。
+    ///
+    /// **非同期のMutexであることが要**。2本目は「前の答え」で誤魔化さず、
+    /// **順番を待って自分で見に行く**。旗と前回値で代用すると、
+    /// StrictModeの二重マウントのように2本が必ず重なる場面で**本当の理由が
+    /// 一度も出ない**（ゲート2の指摘）。待つ側はタスクが止まるだけで
+    /// スレッドを食わない。
+    ///
+    /// **ただし待つのは有限時間まで。** 刺さったhardマウントでは
+    /// `read_dir` が返らず、`spawn_blocking` の `await` も返らないので、
+    /// その走査は**永久に席を返さない**——Tauriのコマンドは detached で走るから、
+    /// フロントが見切っても `Drop` は来ない。時間で諦めたときは既定値で
+    /// 誤魔化さず、`checking` を立てて**確かめている途中だと言う**。
+    ///
+    /// **席が1つだと、直したあとも直らない。** 死んだルートを外して
+    /// 健康な `~/Pictures` だけにしても、席は握られたままなので永久に
+    /// 「確認しています」になる（ゲート2の指摘）。席を2つにしておくと、
+    /// 1つ刺さっても次の確認が通る——刺さりが2つ重なったら、そこで初めて
+    /// 「確かめている途中」に落ちる。**溜まるスレッドは2本で頭打ち**
+    ///
+    /// **残っている穴（承知のうえで積んだ）**: 席の配給はフロント側でしか
+    /// 絞れておらず（`App.tsx` の `emptyReasonInFlight`）、**ルートが変われば
+    /// 張り直す**ので、刺さったNASを残したまま📂参照…でフォルダを足すと
+    /// 2本目が同じNASへ飛んで席を使い切る。以後はそのNASを外しても
+    /// 「確かめている途中」のまま——**嘘は言わないが、直っても直らない**。
+    ///
+    /// 層が違うので、フロントの配給をいくら細かくしても消えない
+    /// （検索の打ち消し・再スキャン・フォルダ追加と、経路が出続けた）。
+    /// **本命はルートごとに独立して測り、返らなかったルートに印を付けて
+    /// 二度と触らないこと**——そうすれば刺さりが席を食うのは1回きりで、
+    /// いまのように**刺さったルートの後ろの `~/Pictures` まで巻き添え**にならない。
+    /// `plan.macos.md` の2ゲートの節に経緯がある
+    empty_reason_gate: tokio::sync::Semaphore,
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
     index_progress: Mutex<IndexProgressDto>,
@@ -1100,6 +1146,352 @@ fn host_platform() -> &'static str {
     }
 }
 
+/// 一覧が空の理由（[`empty_library_reason`]）。
+#[derive(serde::Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct EmptyLibraryDto {
+    /// ライブラリのルートが1つも設定されていない
+    no_roots: bool,
+    /// 設定にあるのに**そこに無い**ルート（外付けを挿し忘れた等）
+    missing: Vec<String>,
+    /// 実在するのに**読めなかった**ルート（権限・TCC・切れたネットワーク）
+    unreadable: Vec<String>,
+    /// 除外で飛ばした項目の名前（先頭3件まで）
+    excluded: Vec<String>,
+    /// 除外で飛ばした**名前**の数（重複を除く）。UIは3件まで挙げて
+    /// 「ほか N件」と言うので、切ったぶんの数が要る——**黙って落とさない**。
+    ///
+    /// **数えるのは項目ではなく名前。** この数は「例: `.隠しフォルダ`」という
+    /// **名前の並びの続き**として読まれる。3つのルートに同じ `.隠しフォルダ` が
+    /// あるときに「ほか2件」と出すと、`pictkura.toml` に**在りもしない2つの
+    /// 設定を探しに行かせる**——外すべきパターンは1つしか無い（ゲート2の指摘）
+    excluded_total: usize,
+    /// 写真.appのライブラリが直下にあり、**ほかに扱えるものが無い**
+    photo_library: bool,
+    /// **ルートそのもの**が写真.appのライブラリ。
+    ///
+    /// [`Self::photo_library`] と分けてある——あちらは「ここにはライブラリしか
+    /// 無い」という推測で、隣に候補があれば覆る。こちらは「このルートは
+    /// ライブラリそのもので、走査が丸ごと飛ばすので何も出てこない」という
+    /// **覆らない事実**。1つの旗に2つの事実を持たせると、隣に空のフォルダが
+    /// あるだけで「ライブラリのほかに見つかりません」という**排他の主張**が
+    /// 嘘になる（ゲート2の指摘）
+    root_is_package: bool,
+    /// **まだ確かめ終わっていない。** 前の確認が返ってこないまま時間切れ。
+    /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
+    checking: bool,
+}
+
+/// 一覧が空のとき、**なぜ空なのか**をUIへ返す。
+///
+/// **無言で `0 件` を出さないため**の口。macOSの `~/Pictures` には
+/// 写真.appのライブラリしか無いことが普通で、それは既定の除外に入っている
+/// （2026-08-14に14,938件を掴んだ事故の後で足した）。結果、**全部正しく動いた
+/// うえで初回起動が空になる**——理由がどこにも出ないと「壊れている」と読まれる。
+/// Lightroom は取り込みダイアログを、Photo Mechanic は「フォルダを選べ」を必ず出す。
+///
+/// **走査の数え上げには足さない。** 空のときにしか呼ばれないので、ここで
+/// ルートの直下を1回読むだけで足りる——速さが仕様の走査路を太らせる理由が無い。
+/// 中も開かない（名前だけ見る）。
+#[tauri::command]
+async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
+    // **ブロッキングプールへ逃がす。** 切れたSMB/NFSのルートでは
+    // `metadata` も `read_dir` もマウントのタイムアウトぶん（hardマウントなら
+    // 際限なく）返ってこない。非同期コマンドはtokioのワーカーを占めるので、
+    // 走らせる場所を間違えると**他のコマンドごと詰まる**（ゲート2の指摘）。
+    // `add_library_root` などが同じ理由でこうしている
+    let state = app.state::<AppState>();
+    // 席が空くまで待つ。**待たせるだけで、嘘は返さない。**
+    // ただし**有限時間まで**——刺さった確認は席を返さない。
+    // 諦めたときは「無い」ではなく「確かめている途中」と言う。
+    // フロント側の見切り（5秒）より短くする: 向こうが先に諦めると
+    // 旗の立たない答えに落ちて、こちらの正直な返事が捨てられる
+    let seat = state.empty_reason_gate.acquire();
+    let Ok(Ok(_seat)) = tokio::time::timeout(std::time::Duration::from_secs(3), seat).await else {
+        return EmptyLibraryDto {
+            checking: true,
+            ..Default::default()
+        };
+    };
+    let inner = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = lock_ok(&inner.state::<AppState>().config).clone();
+        empty_library_reason_of(&config)
+    })
+    .await
+    // **落ちたときも「無い」と言わない。** `JoinError`（パニック・終了時の
+    // 取り消し）で既定値を返すと旗が1つも立たず、UIは「扱える画像が
+    // 見つかりません」と**断定**する——エラーから断定を作らない（ゲート2の指摘）
+    .unwrap_or(EmptyLibraryDto {
+        checking: true,
+        ..Default::default()
+    })
+}
+
+/// **OSが自分のために置くフォルダ**。利用者の写真は入らない。
+///
+/// ボリュームの直下にはこれらが必ず居る。既定の除外は `.*` を含むので、
+/// 何も入っていない外付けをルートに足すと**この面々が「除外で全部飛ばして
+/// います（例: .Spotlight-V100）」の証拠になり**、`pictkura.toml` を
+/// 編集しに行かせることになる——直しても何も出てこない（ゲート2の指摘）。
+/// 利用者が自分で隠したフォルダ（`.隠し写真` など）は**候補のまま**にする:
+/// あちらは除外を外せば本当に出てくる。
+const OS_BOOKKEEPING: &[&str] = &[
+    // macOS
+    ".Spotlight-V100",
+    ".fseventsd",
+    ".Trashes",
+    ".TemporaryItems",
+    ".DocumentRevisions-V100",
+    ".apdisk",
+    ".Trash",
+    // Windows
+    "System Volume Information",
+    "$RECYCLE.BIN",
+    "RECYCLER",
+    // Linux
+    "lost+found",
+];
+
+/// freedesktop の「ボリュームごとのごみ箱」か（`.Trash-1000` のようにuidが付く）。
+///
+/// 名前を並べただけでは当たらないので別に見る。USBメモリの直下がこれだけの
+/// とき、「除外で全部飛ばしています（例: .Trash-1000）」と言って
+/// `pictkura.toml` を編集しに行かせることになる（ゲート2の指摘）。
+///
+/// **uidが数字であることまで見る**。単なる前方一致にすると
+/// `.Trash-の写真` のような利用者のフォルダまで飲む
+/// （加えて、バイト位置で切ると多バイト文字の途中に当たって落ちる）
+fn is_volume_trash(name: &str) -> bool {
+    name.strip_prefix(".Trash-")
+        .is_some_and(|uid| !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// ルート直下の1エントリの形。`std::fs::FileType` から起こす。
+///
+/// テストから直に組めるようにここで畳んである（`FileType` は作れない）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum EntryShape {
+    Dir,
+    File,
+    /// リンク（**リンク先は見ない**。走査もそうしている）
+    Symlink,
+    /// 普通のファイルでもフォルダでもない（FIFO・ソケット・デバイスノード）
+    Other,
+    /// 種別が取れなかった
+    Unknown,
+}
+
+impl EntryShape {
+    fn of(entry: &std::fs::DirEntry) -> Self {
+        match entry.file_type() {
+            Ok(t) if t.is_symlink() => Self::Symlink,
+            Ok(t) if t.is_dir() => Self::Dir,
+            Ok(t) if t.is_file() => Self::File,
+            // FIFO・ソケット・デバイスノード。**走査は `is_file()` を要求する**
+            // ので、`preview.jpg` という名前のFIFOがあっても索引されない
+            // ——リンクと同じで、走査が見ないものを証拠にしない（ゲート2の指摘）
+            Ok(_) => Self::Other,
+            Err(_) => Self::Unknown,
+        }
+    }
+}
+
+/// ルート直下の1エントリを、**空の理由**の観点で見たときの正体。
+#[derive(PartialEq, Eq, Debug)]
+enum EntryKind {
+    /// 写真.appのライブラリ（名前で分かる。中は開かない）
+    Package,
+    /// 中身になり得たが、除外の設定で飛ばした
+    Excluded,
+    /// 中身になり得た。**除外を犯人にしてはいけない証拠**
+    Candidate,
+    /// そもそも中身になり得ない（`.DS_Store`・`desktop.ini` など）
+    Ignorable,
+}
+
+/// [`empty_library_reason_of`] のエントリ1件ぶんの判断。
+///
+/// **ファイルシステムを通さずに試験できるよう切り出してある。**
+/// UTF-8にならない名前は APFS が受け付けず（実測 `EILSEQ`）、CIに Linux が
+/// 無いので、実物のファイルを作る形の試験は**どの環境でも1度も走らない**
+/// ——「試験があるのに何も見ていない」状態になっていた（ゲート1の指摘）。
+///
+/// `shape` は `EntryShape::of` でエントリから起こす（走査と同じくリンクは辿らない）。
+fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) -> EntryKind {
+    // **リンクの判断は名前より先。** 走査は `follow_links = false` で
+    // `file_type().is_file()` が偽のものを落とすので、**名前が読めるかどうかは
+    // 関係なく**リンクは拾われない。下の `Symlink | Other` より後ろで
+    // 「読めない名前は候補」に倒すと、**同じリンクが名前の綴りだけで
+    // 候補にも除外にも転ぶ**——Latin-1の名前のリンクが1本あるだけで
+    // 「写真.appのライブラリしかありません」が消える（ゲート2の指摘）
+    if matches!(shape, EntryShape::Symlink | EntryShape::Other) {
+        return EntryKind::Ignorable;
+    }
+    // **読めない名前は「候補あり」に倒す。** 走査本体は UTF-8 にならない名前を
+    // 除外に一致させず、そのまま入って行く（`scanner.rs` の
+    // `to_str().is_some_and(..)`）。ここで黙って飛ばすと、走査が開いて何も
+    // 見つけていないフォルダが**この関数から見えなくなり**、隣の
+    // `.隠しフォルダ` が冤罪を着る（ゲート1の指摘）
+    let Some(text) = name.to_str() else {
+        return EntryKind::Candidate;
+    };
+    // **パッケージはフォルダ。** 名前だけで見ると、`old.photoslibrary` という
+    // ただのファイル（改名した書庫の残骸など）で旗が立ち、写真.appのライブラリが
+    // 1つも無い場所に「写真.appのライブラリのほかに見つかりません」と言う。
+    // 走査もその名前は**除外されたファイル**として扱う（ゲート2の指摘）
+    if shape == EntryShape::Dir && pictkura_core::import::is_managed_package_path(Path::new(text)) {
+        return EntryKind::Package;
+    }
+    // OSの置き場は「中身になり得た」に数えない（`OS_BOOKKEEPING` を見よ）
+    if OS_BOOKKEEPING.iter().any(|n| n.eq_ignore_ascii_case(text)) || is_volume_trash(text) {
+        return EntryKind::Ignorable;
+    }
+    let could_have_been_content = match shape {
+        EntryShape::Dir => true,
+        EntryShape::File => {
+            pictkura_core::scanner::has_target_extension(Path::new(text), &config.import.extensions)
+        }
+        // 上で先に落としてある（名前が読めなくても落とすため）
+        EntryShape::Symlink | EntryShape::Other => return EntryKind::Ignorable,
+        // 種別が取れないときは安全側（＝除外を犯人にしない側）へ
+        EntryShape::Unknown => return EntryKind::Candidate,
+    };
+    if !could_have_been_content {
+        return EntryKind::Ignorable;
+    }
+    if config
+        .library
+        .exclude_patterns
+        .iter()
+        .any(|p| pictkura_core::scanner::matches_pattern(text, p))
+    {
+        EntryKind::Excluded
+    } else {
+        EntryKind::Candidate
+    }
+}
+
+/// [`empty_library_reason`] の中身（設定だけを見るのでテストできる）。
+fn empty_library_reason_of(config: &Config) -> EmptyLibraryDto {
+    let mut out = EmptyLibraryDto {
+        no_roots: config.library.roots.is_empty(),
+        ..Default::default()
+    };
+    // 除外に当たらなかった「中身になり得たもの」を1つでも見たか
+    let mut survivor = false;
+    // 例示に挙げた名前。**同じ名前を2度並べない**ためだけのもので、
+    // 数（`excluded_total`）はここを通さず素直に数える
+    let mut excluded_names: HashSet<String> = HashSet::new();
+    for root in &config.library.roots {
+        // **「無い」と「見せてもらえない」を取り違えない。** `is_dir()` は
+        // 内側で `stat` を呼ぶだけなので、**親フォルダに検索権が無い**と
+        // `EACCES` で偽を返す（実測: `chmod 000` の下のフォルダで確認）。
+        // それを「見つかりません、つないでから再スキャンを」と案内すると、
+        // **挿さっている外付けを挿し直させる**ことになる（ゲート1の指摘）。
+        // 本当に無いのは `NotFound` のときだけ
+        match std::fs::metadata(root) {
+            Ok(md) if md.is_dir() => {}
+            // フォルダを選ぶ画面から来る以上ほぼ起きないが、
+            // ファイルを指していれば「そこにフォルダは無い」で正しい
+            Ok(_) => {
+                out.missing.push(root.display().to_string());
+                continue;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                out.missing.push(root.display().to_string());
+                continue;
+            }
+            Err(_) => {
+                out.unreadable.push(root.display().to_string());
+                continue;
+            }
+        }
+        // **ルート自身がパッケージのこともある。** いまの `add_library_root` は
+        // それを断るので、届くのは**手で書いた `pictkura.toml`**か、断るより
+        // 前の版が書いた設定から（ゲート2の指摘。以前ここに「フォルダを選ぶ
+        // 画面で普通に起きる」と書いていたのは誤り）。走査はそのルートを
+        // 丸ごと飛ばすので、中を読んでも何も出ない。
+        //
+        // **これは `survivor` で消えない事実**。「この場所には写真.appの
+        // ライブラリしか無い」は隣に候補があれば覆るが、「このルートは
+        // 写真.appのライブラリそのもので、何も出てこない」は覆らない
+        if pictkura_core::import::is_managed_package_path(root) {
+            out.root_is_package = true;
+            continue;
+        }
+        // **「在るのに読めない」を握り潰さない。** `stat` は通るのに
+        // `read_dir` が落ちるのは、権限・macOSのTCC（`~/Desktop` や外付けへの
+        // アクセスを許していない。**TCCはこちらの形で落ちる**——`stat` は
+        // 通り、`opendir` で止まる）・切れたネットワークのとき。ここで黙ると
+        // 「扱える画像がありません」と出てしまう——**1万枚あって、必要なのは
+        // 許可の話**なのに（ゲート2の指摘）
+        let Ok(entries) = std::fs::read_dir(root) else {
+            out.unreadable.push(root.display().to_string());
+            continue;
+        };
+        // **「1つでも除外に当たった」と「全部除外だった」は違う。**
+        // macOSは `~/Pictures` に `.localized` を置き、Finderが覗いた場所には
+        // `.DS_Store` が残る。既定の除外は `.*` を含むので、**本当に空の
+        // フォルダでも「全部除外しています」と言ってしまう**（同）。
+        // 中身になり得たもの——フォルダか、扱える拡張子のファイル——だけ数える
+        // **列挙の途中で落ちたときも「空」と言わない。** `opendir` は通っても、
+        // 共有が途中で切れれば以降の `readdir` が落ちる。黙って抜けると
+        // 候補が1つも見つからず「扱える画像がありません」になる——
+        // 必要なのは「開けませんでした」の方（ゲート2の指摘。走査本体の
+        // `had_error` と揃える）
+        let mut torn = false;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                torn = true;
+                break;
+            };
+            let name = entry.file_name();
+            match classify_entry(&name, EntryShape::of(&entry), config) {
+                EntryKind::Package => out.photo_library = true,
+                EntryKind::Ignorable => {}
+                EntryKind::Candidate => survivor = true,
+                EntryKind::Excluded => {
+                    // `Excluded` はUTF-8として読めた名前でしか返らない
+                    let Some(name) = name.to_str() else { continue };
+                    // **見せる3件と別に数える。** 見せる側で重複を見ると、
+                    // 4件目以降は毎回数えられ、先頭3件は何ルートに在っても1のまま
+                    // ——「ほか N件」がどちらにも狂う。数える先は名前の集合
+                    // （`excluded_total` の説明を見よ）
+                    if excluded_names.insert(name.to_string()) {
+                        out.excluded_total += 1;
+                        if out.excluded.len() < 3 {
+                            out.excluded.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if torn {
+            out.unreadable.push(root.display().to_string());
+        }
+    }
+    // **除外を犯人にするのは、他に容疑者がいないときだけ。**
+    // `.隠しフォルダ` の隣に空の `写真/` があれば、走査はその `写真/` を
+    // ちゃんと開いて何も見つけていない——そこで「全部除外しています」と
+    // 言うと、**除外を外せば出てくる**という嘘になる（ゲート1の指摘）。
+    //
+    // **写真.appの旗も同じ**。`~/Pictures` に写真ライブラリと `富士/` が
+    // 並んでいて `富士/` が空なら、「ここには写真.appのライブラリしか
+    // ありません」は端的に嘘で、しかも**利用者を真犯人から遠ざける**
+    // （ゲート2の指摘。UIは写真.appの文言を除外より上に出す）。
+    // 残るのは `emptyNothingHere`——具体性は落ちるが、嘘ではない
+    //
+    // ルートをまたいで見る: 文言はライブラリ全体に対して1つしか出ない
+    if survivor {
+        out.excluded.clear();
+        out.excluded_total = 0;
+        // **推測は覆る。** `root_is_package` は覆らないので落とさない（上の説明）
+        out.photo_library = false;
+    }
+    out
+}
+
 /// HEICを展開できるかを実地で確かめ、UIの案内を出すかどうかを返す。
 ///
 /// **HEVCは特許の都合でデコーダを同梱していない**（プールがデコーダの配布にも
@@ -1751,6 +2143,17 @@ fn list_memories(state: tauri::State<'_, AppState>) -> Result<Vec<MemoryDto>, St
 #[tauri::command]
 fn get_startup_report(state: tauri::State<'_, AppState>) -> Option<StartupScanDto> {
     lock_ok(&state.startup_report).clone()
+}
+
+/// 起動時の同期が終わったか。**イベントを取りこぼしたフロント用**。
+///
+/// [`get_startup_report`] とは別に要る——報告が出ないまま終わる道があるため
+/// （`AppState::startup_done` の説明）。
+#[tauri::command]
+fn startup_scan_finished(state: tauri::State<'_, AppState>) -> bool {
+    state
+        .startup_done
+        .load(std::sync::atomic::Ordering::Acquire)
 }
 
 /// ライブラリ全体の件数（総数・お気に入り数）を返す。
@@ -2964,6 +3367,8 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
+                startup_done: std::sync::atomic::AtomicBool::new(false),
+                empty_reason_gate: tokio::sync::Semaphore::new(2),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
@@ -3274,9 +3679,10 @@ pub fn run() {
             // 方式（USN差分/枝刈り/フル）と所要時間は⚡爆速メーターとして別途知らせる
             let handle = app.handle().clone();
             std::thread::spawn(move || {
+                let inner = handle.clone();
                 let _ = pictkura_core::panics::catching("起動時の同期", move || {
                     let started = std::time::Instant::now();
-                    let state = handle.state::<AppState>();
+                    let state = inner.state::<AppState>();
                     let Ok((stats, method)) = startup_scan(&state) else {
                         return;
                     };
@@ -3299,9 +3705,19 @@ pub fn run() {
                         total,
                     };
                     *lock_ok(&state.startup_report) = Some(report.clone());
-                    let _ = handle.emit("library-updated", SyncStatsDto::from(stats));
-                    let _ = handle.emit("startup-scan-report", report);
+                    let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
+                    let _ = inner.emit("startup-scan-report", report);
                 });
+                // **どう終わってもここを通る。** 上は `startup_scan` が `Err` なら
+                // 報告を出さずに返るし、パニックは `catching` が飲む。
+                // フロントはこれが来るまで「空です」と言わないので、
+                // **黙って終わると初回起動が永久に無言になる**（ゲート2の指摘）。
+                // 旗を先に立てる: イベントを取りこぼしたフロントは後から聞きに来る
+                handle
+                    .state::<AppState>()
+                    .startup_done
+                    .store(true, std::sync::atomic::Ordering::Release);
+                let _ = handle.emit("startup-scan-finished", ());
             });
             Ok(())
         })
@@ -3351,6 +3767,7 @@ pub fn run() {
             list_memories,
             get_stats,
             get_startup_report,
+            startup_scan_finished,
             sync_now,
             add_library_root,
             remove_library_root,
@@ -3368,6 +3785,7 @@ pub fn run() {
             get_exif_info,
             decoder_status,
             host_platform,
+            empty_library_reason,
             open_decoder_help,
             get_index_progress,
             video_status,
@@ -3669,6 +4087,329 @@ mod tests {
             rebase_to_root_spelling(Path::new("c:/EXT"), &ext),
             Some(PathBuf::from("C:\\ext")),
         );
+    }
+
+    /// エントリ1件の分類。**実物のファイルを作らない**——UTF-8にならない名前は
+    /// APFSが受け付けず（実測 `EILSEQ`）、CIに Linux が無いので、作る形の試験は
+    /// **どの環境でも1度も走らない**（ゲート1の指摘）。
+    #[test]
+    fn a_name_we_cannot_read_is_not_nothing() {
+        use super::{classify_entry, EntryKind, EntryShape};
+        use std::ffi::{OsStr, OsString};
+
+        let config = pictkura_core::config::Config::default();
+        let kind = |name: &OsStr, shape| classify_entry(name, shape, &config);
+
+        // UTF-8として読めない名前。走査本体はこれを除外に一致させず入って行くので、
+        // **候補として数える**——数えないと隣の `.隠しフォルダ` が冤罪を着る
+        #[cfg(unix)]
+        let unreadable = {
+            use std::os::unix::ffi::OsStrExt;
+            OsString::from(OsStr::from_bytes(b"\xff\xfe.jpg"))
+        };
+        #[cfg(windows)]
+        let unreadable = {
+            use std::os::windows::ffi::OsStringExt;
+            // 対を成さないサロゲート（"\u{D800}.jpg" に相当）
+            OsString::from_wide(&[0xD800, 0x002E, 0x006A, 0x0070, 0x0067])
+        };
+        assert!(
+            unreadable.to_str().is_none(),
+            "この名前はUTF-8として読めない"
+        );
+        assert_eq!(
+            kind(&unreadable, EntryShape::File),
+            EntryKind::Candidate,
+            "読めない名前は「候補あり」に数える"
+        );
+
+        // **リンクは、名前が読めても読めなくても拾われない。** 走査が
+        // `file_type().is_file()` で落とす以上、名前の綴りで判断が割れては
+        // いけない——割れると、Latin-1の名前のリンクが1本あるだけで
+        // 「写真.appのライブラリしかありません」が消える（ゲート2の指摘）
+        assert_eq!(
+            kind(&unreadable, EntryShape::Symlink),
+            EntryKind::Ignorable,
+            "読めない名前でも、リンクは走査が拾わない"
+        );
+        assert_eq!(
+            kind(&unreadable, EntryShape::Other),
+            EntryKind::Ignorable,
+            "読めない名前でも、FIFOやソケットは走査が拾わない"
+        );
+
+        // 種別が取れないとき（`file_type()` が落ちた）も安全側へ
+        assert_eq!(
+            kind(OsStr::new(".DS_Store"), EntryShape::Unknown),
+            EntryKind::Candidate,
+            "種別が分からないものを「中身になり得ない」と決めない"
+        );
+
+        // 読める名前はこれまでどおり
+        assert_eq!(
+            kind(OsStr::new(".DS_Store"), EntryShape::File),
+            EntryKind::Ignorable,
+            "Finderの痕跡は中身になり得ない"
+        );
+        assert_eq!(
+            kind(OsStr::new(".隠しフォルダ"), EntryShape::Dir),
+            EntryKind::Excluded
+        );
+        assert_eq!(
+            kind(OsStr::new("写真"), EntryShape::Dir),
+            EntryKind::Candidate
+        );
+        assert_eq!(
+            kind(OsStr::new("a.jpg"), EntryShape::File),
+            EntryKind::Candidate
+        );
+        // **OSの置き場は証拠にしない**（新品の外付けで「除外のせい」と
+        // 言わせない。ゲート2の指摘）。利用者が隠したフォルダは候補のまま
+        assert_eq!(
+            kind(OsStr::new(".Spotlight-V100"), EntryShape::Dir),
+            EntryKind::Ignorable
+        );
+        assert_eq!(
+            kind(OsStr::new("System Volume Information"), EntryShape::Dir),
+            EntryKind::Ignorable
+        );
+        // uidが付く形（freedesktop のボリュームごとのごみ箱）
+        assert_eq!(
+            kind(OsStr::new(".Trash-1000"), EntryShape::Dir),
+            EntryKind::Ignorable
+        );
+        // **拾いすぎない**——uidが数字でなければ利用者のフォルダ。
+        // （バイト位置で切る実装だと、ここで多バイト文字の途中に当たって落ちる）
+        assert_eq!(
+            kind(OsStr::new(".Trash-の写真"), EntryShape::Dir),
+            EntryKind::Excluded,
+            "`.Trash-` で始まるだけの利用者のフォルダは、除外を外せば出てくる"
+        );
+        assert_eq!(
+            kind(OsStr::new(".Trash-"), EntryShape::Dir),
+            EntryKind::Excluded,
+            "uidが無いものはOSの置き場ではない"
+        );
+        assert_eq!(
+            kind(OsStr::new(".隠し写真"), EntryShape::Dir),
+            EntryKind::Excluded,
+            "利用者が隠したフォルダは、除外を外せば出てくるので候補のまま"
+        );
+        // **リンクは走査が拾わないので、候補に数えない**（ゲート2の指摘）
+        assert_eq!(
+            kind(OsStr::new("latest.jpg"), EntryShape::Symlink),
+            EntryKind::Ignorable,
+            "リンクを証拠にすると、写真.appの文言が1本のリンクで消える"
+        );
+        // **普通のファイルでないものも同じ**（FIFO・ソケット・デバイスノード）
+        assert_eq!(
+            kind(OsStr::new("preview.jpg"), EntryShape::Other),
+            EntryKind::Ignorable
+        );
+        // **パッケージはフォルダ。** 同じ名前のただのファイルで旗を立てない
+        assert_eq!(
+            kind(OsStr::new("古い.photoslibrary"), EntryShape::File),
+            EntryKind::Ignorable,
+            "写真.appのライブラリが無い場所で「ライブラリしかない」と言わせない"
+        );
+        assert_eq!(
+            kind(OsStr::new("写真ライブラリ.photoslibrary"), EntryShape::Dir),
+            EntryKind::Package
+        );
+    }
+
+    #[test]
+    fn an_empty_library_says_why_it_is_empty() {
+        use super::empty_library_reason_of;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = pictkura_core::config::Config::default();
+
+        // ルートが無い
+        config.library.roots.clear();
+        assert!(empty_library_reason_of(&config).no_roots);
+
+        // 設定にあるのに、そこに無い（外付けを挿し忘れた等）
+        let missing = dir.path().join("gone");
+        config.library.roots = vec![missing.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(!r.no_roots);
+        assert_eq!(r.missing.len(), 1, "見つからない場所を名指しする");
+
+        // 写真.appのライブラリしか無い（macOSの `~/Pictures` の普通の姿）
+        let root = dir.path().join("pictures");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
+        config.library.roots = vec![root.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(r.photo_library, "写真.appのライブラリだと分かる");
+        assert!(r.missing.is_empty());
+
+        // **「しか無い」が嘘になる形。** 隣に除外されていない空のフォルダが
+        // あれば、走査はそこを開いて何も見つけていない（ゲート2の指摘）
+        std::fs::create_dir(root.join("富士")).unwrap();
+        assert!(
+            !empty_library_reason_of(&config).photo_library,
+            "隣に別のフォルダがあるなら「写真.appのライブラリしか無い」と言わない"
+        );
+        std::fs::remove_dir(root.join("富士")).unwrap();
+
+        // 除外で全部飛んでいる（写真.app以外）
+        std::fs::remove_dir(root.join("写真ライブラリ.photoslibrary")).unwrap();
+        std::fs::create_dir(root.join(".隠しフォルダ")).unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(!r.photo_library);
+        assert_eq!(
+            r.excluded,
+            vec![".隠しフォルダ".to_string()],
+            "中身になり得たものだけ名前を挙げる"
+        );
+        assert_eq!(r.excluded_total, 1, "見せた3件と別に、総数を数える");
+
+        // **「ほか N件」の数が狂わないこと。** 見せるのは3件でも数は全部
+        // （ゲート2の指摘: 見せる側で重複を見ると数がどちらにも狂う）
+        // （$RECYCLE.BIN はOSの置き場なので数に入らない。上の分類の試験を見よ）
+        for n in ["Thumbs.db", ".二つ目", ".三つ目", ".四つ目"] {
+            std::fs::create_dir(root.join(n)).unwrap();
+        }
+        let r = empty_library_reason_of(&config);
+        assert_eq!(r.excluded.len(), 3, "名前は3件まで");
+        assert_eq!(r.excluded_total, 5, "数は打ち切らない");
+        for n in ["Thumbs.db", ".二つ目", ".三つ目", ".四つ目"] {
+            std::fs::remove_dir(root.join(n)).unwrap();
+        }
+
+        // **ルートをまたいで同じ名前が並んでも、数えるのは名前。**
+        // この数は名前の並びの続きとして読まれるので（ゲート2の指摘）
+        let root2 = dir.path().join("pictures2");
+        std::fs::create_dir(&root2).unwrap();
+        std::fs::create_dir(root2.join(".隠しフォルダ")).unwrap();
+        config.library.roots = vec![root.clone(), root2.clone()];
+        let r = empty_library_reason_of(&config);
+        assert_eq!(r.excluded, vec![".隠しフォルダ".to_string()], "例示は畳む");
+        assert_eq!(
+            r.excluded_total, 1,
+            "外すべきパターンは1つ——「ほか1件」と言うと在りもしない設定を探させる"
+        );
+        std::fs::remove_dir_all(&root2).unwrap();
+        config.library.roots = vec![root.clone()];
+
+        // **除外の隣に、除外されていない空のフォルダがある。**
+        // 走査はその `写真` を開いて何も見つけていないのだから、
+        // 「全部除外しています」は嘘になる（ゲート1の指摘）
+        std::fs::create_dir(root.join("写真")).unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(
+            r.excluded.is_empty(),
+            "除外されていない候補が1つでもあれば、除外を犯人にしない"
+        );
+        assert_eq!(r.excluded_total, 0, "名前だけでなく数も落とす");
+        std::fs::remove_dir(root.join("写真")).unwrap();
+        std::fs::remove_dir(root.join(".隠しフォルダ")).unwrap();
+
+        // **ルート自身が写真.appのライブラリ**（手で書いた設定・古い版の設定）。
+        // 走査はそのルートを丸ごと飛ばすので、中を読んでも何も出ない
+        let picked = dir.path().join("選んだ.photoslibrary");
+        std::fs::create_dir(&picked).unwrap();
+        config.library.roots = vec![picked.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(r.root_is_package, "ルート自身がパッケージだと見分ける");
+        assert!(
+            !r.photo_library,
+            "「ライブラリしか無い」とは別の事実——排他は主張しない"
+        );
+        // **隣に空のルートがあっても、この事実は消えない。**
+        // 「ここにはライブラリしか無い」は覆るが、「このルートは
+        // ライブラリそのもので何も出ない」は覆らない（ゲート2の指摘）
+        let plain = dir.path().join("空っぽ");
+        std::fs::create_dir(&plain).unwrap();
+        std::fs::create_dir(plain.join("写真")).unwrap();
+        config.library.roots = vec![picked, plain.clone()];
+        let r = empty_library_reason_of(&config);
+        assert!(
+            r.root_is_package,
+            "隣に候補があっても、ルート自身がパッケージという事実は残す"
+        );
+        assert!(
+            !r.photo_library,
+            "隣に候補があるなら「ライブラリのほかに無い」は嘘になる"
+        );
+        std::fs::remove_dir_all(&plain).unwrap();
+        config.library.roots = vec![root.clone()];
+
+        // **`.DS_Store` だけでは「全部除外」と言わない**（中身になり得ない）
+        std::fs::write(root.join(".DS_Store"), b"x").unwrap();
+        let r = empty_library_reason_of(&config);
+        assert!(
+            r.excluded.is_empty(),
+            "Finderが置いた痕跡を「除外のせい」と言わない"
+        );
+        std::fs::remove_file(root.join(".DS_Store")).unwrap();
+
+        // **見せてもらえないのと、無いのは違う。**
+        // `stat` は親フォルダの検索権を要るので、親が `000` だと
+        // 「見つかりません」に落ちる——挿さっている外付けを挿し直させる
+        // 案内になる（ゲート1の指摘）。
+        //
+        // **`cfg(unix)` なのはモードビットがPOSIXの概念だから**で、
+        // 検出力を落とすための除外ではない（Windowsは別のACLの話になる）
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let outer = dir.path().join("外");
+            let inner = outer.join("中");
+            std::fs::create_dir_all(&inner).unwrap();
+            std::fs::set_permissions(&outer, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // **rootで走ると権限が効かない**（CIのコンテナ等）。
+            // 仕掛けが効いているかを先に確かめ、効いていなければ飛ばす——
+            // 効かない環境で通してしまうと、試験があるのに何も見ていないことになる
+            let denied = std::fs::metadata(&inner).is_err();
+            config.library.roots = vec![inner];
+            let r = empty_library_reason_of(&config);
+            std::fs::set_permissions(&outer, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if denied {
+                assert!(
+                    r.missing.is_empty(),
+                    "読めないだけの場所を「見つかりません」と言わない"
+                );
+                assert_eq!(r.unreadable.len(), 1, "読めなかった場所として名指しする");
+            }
+
+            // **TCCが実際に落ちる形はこちら**——`stat` は通り、`opendir` で止まる
+            // （実測: ルート自身を `000` にすると `metadata` は成功し
+            // `read_dir` だけが `EACCES`）。コメントが名指ししている枝なのに
+            // 上のケースでは一度も通っていなかった（ゲート1の指摘）
+            let locked = dir.path().join("錠");
+            std::fs::create_dir(&locked).unwrap();
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            let stat_ok = std::fs::metadata(&locked).is_ok();
+            let read_denied = std::fs::read_dir(&locked).is_err();
+            config.library.roots = vec![locked.clone()];
+            let r = empty_library_reason_of(&config);
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+            if stat_ok && read_denied {
+                assert!(
+                    r.missing.is_empty(),
+                    "在るものを「見つかりません」と言わない"
+                );
+                assert_eq!(
+                    r.unreadable.len(),
+                    1,
+                    "`stat` は通って `read_dir` で落ちる形（TCC）を拾う"
+                );
+            }
+
+            config.library.roots = vec![root.clone()];
+        }
+
+        // 本当に空（何も言うことが無い＝どの旗も立たない）
+        let r = empty_library_reason_of(&config);
+        assert!(!r.no_roots && r.missing.is_empty() && !r.photo_library);
+        assert!(r.unreadable.is_empty());
+        assert!(r.excluded.is_empty());
+        // **数の側も見る**——`survivor` の後始末で `excluded_total` を
+        // 落とし忘れても、名前だけ見ていると気づけない（ゲート1の指摘）
+        assert_eq!(r.excluded_total, 0);
     }
 
     #[test]

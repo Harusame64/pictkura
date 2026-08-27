@@ -36,6 +36,15 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # プロキシは環境変数（HTTP(S)_PROXY）だけを見る——Windowsのシステムプロキシ設定は読まない
 ureq = "3"
 
+# 空の理由を答える確認に、**有限時間の待ち**が要る（刺さったマウントで
+# 門が永久に開かないため）。版は Tauri が引いているものと同じなので
+# **新しいクレートは増えない**が、Tauri は `time` を有効にしていないので
+# （実測: `cargo tree -e features`）、この行のぶん一度だけビルドし直される。
+# **`time` はここで初めて付く**——`async_runtime` の `enable_all()` は
+# `enable_time()` を feature で守っているので、これが無いと
+# `tokio::time::timeout` は「no reactor running」で落ちる
+tokio = { version = "1", default-features = false, features = ["time", "sync"] }
+
 # ドライブ種別（リムーバブル/固定/ネットワーク/光学）の判定に GetDriveTypeW を使う。
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
 # 「取り込み元」として自動走査してしまうため
@@ -52,7 +61,8 @@ windows-sys = { version = "0.60", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
-# 綴りを揃えるテストで、実物のシンボリックリンクを張る
+# 実物のフォルダとシンボリックリンクを作るテストで使う
+# （綴りを揃える方と、空の理由を答える方の両方）
 [dev-dependencies]
 tempfile = "3"
 
