@@ -89,6 +89,11 @@ struct AppState {
     /// ちゃんと答える。長く返らないものは「確かめている途中」ではなく
     /// **「応答がない」と名指しする**（[`EmptyLibraryDto::stalled`]）——
     /// 探りを諦めた以上、「途中です」は嘘になる。
+    ///
+    /// **積み上がる方にも蓋がいる。** 死んだ共有が何本もあれば、相乗りが
+    /// 効いていてもその数だけスレッドが減る（[`MAX_STUCK_PROBES`]）。
+    /// **外して足し直したときは印を捨てる**（[`forget_probes_for_changed_roots`]）
+    /// ——貼り直した共有を一度も見ずに「応答がありません」と言い続けないため。
     /// `plan.macos.md` の2ゲートの節に経緯がある
     root_probes: RootProbes,
     /// **直前の走査が開けなかった場所**（[`empty_library_reason`] が借りる）。
@@ -470,6 +475,14 @@ fn update_config(state: &AppState, mutate: impl FnOnce(&mut Config)) -> Result<(
     updated
         .save(&state.config_path)
         .map_err(|e| e.to_string())?;
+    // **ルートを触る口はここ1つ**なので、探りの印の見直しもここでやる
+    // （[`forget_probes_for_changed_roots`]）。外して足し直した共有を
+    // 一度も見ずに「応答がありません」と言い続けないため
+    forget_probes_for_changed_roots(
+        &state.root_probes,
+        &config.library.roots,
+        &updated.library.roots,
+    );
     *config = updated;
     Ok(())
 }
@@ -1279,11 +1292,38 @@ struct EmptyLibraryDto {
 
 /// ルートごとの探りの控え。**返ってこなかったルートの印がここに残る**
 /// （[`AppState::root_probes`] に経緯がある）。
-type RootProbes = std::sync::Arc<Mutex<HashMap<PathBuf, RootProbe>>>;
+type RootProbes = std::sync::Arc<Mutex<ProbeRegistry>>;
+
+/// 探りが返らないまま**これだけ経ったら**、「確かめている途中」ではなく
+/// **「応答がない」**と言い切る（探りは1本きりで、待っても増えない）。
+const PROBE_STALLED_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// **返らない探りを同時に抱える上限。**
+///
+/// 1本につきブロッキングプールのスレッドを1つ、永久に持っていく。
+/// ルートごとの相乗りは「同じ場所へ2本目を飛ばさない」までしか守らないので、
+/// **死んだマウントが何本もあると、その数だけ積み上がる**（ゲート1の指摘）。
+/// ここで頭を打つと、それ以上のルートは探らずに「まだ確かめていない」と返す
+/// ——見てもいないものを「応答がない」と名指ししないため。
+///
+/// 上限を数えるのは**刺さっている探りだけ**（[`PROBE_STALLED_AFTER`] を超えたもの）。
+/// 健康なルートは数ミリ秒で返るので、10本あっても1本も数に入らない
+const MAX_STUCK_PROBES: usize = 4;
+
+/// 走っている探りの台帳。
+#[derive(Default)]
+struct ProbeRegistry {
+    running: HashMap<PathBuf, RootProbe>,
+    /// 次に配る世代番号（[`RootProbe::generation`] を見よ）
+    next_generation: u64,
+}
 
 /// 走っている探り1本。
 #[derive(Clone)]
 struct RootProbe {
+    /// この探りの**世代**。同じルートを外して足し直したとき、
+    /// **古い探りの後片付けが新しい探りの印を消さない**ようにするための番号
+    generation: u64,
     /// 始めた時刻。**返らないまま長く経ったら「応答がない」と言い切る**
     started: std::time::Instant,
     /// 答えの受け口。複製すれば相乗りできる（`watch` は最後の値を配る）
@@ -1299,6 +1339,8 @@ struct RootProbe {
 struct ProbeGuard {
     probes: RootProbes,
     root: PathBuf,
+    /// 自分が置いた印の世代。**これと違う印は自分のものではない**
+    generation: u64,
     answer: tokio::sync::watch::Sender<Option<RootReason>>,
 }
 
@@ -1311,7 +1353,17 @@ impl ProbeGuard {
 
 impl Drop for ProbeGuard {
     fn drop(&mut self) {
-        lock_ok(&self.probes).remove(&self.root);
+        // **自分の印だけ消す。** ルートを外して足し直すと、刺さったままの
+        // 古い探りの後ろで新しい探りが始まっている——世代を見ないと、
+        // 古い方が返った拍子に**新しい印を消してしまう**（ゲート1の指摘）
+        let mut registry = lock_ok(&self.probes);
+        if registry
+            .running
+            .get(&self.root)
+            .is_some_and(|probe| probe.generation == self.generation)
+        {
+            registry.running.remove(&self.root);
+        }
     }
 }
 
@@ -1319,29 +1371,66 @@ impl Drop for ProbeGuard {
 ///
 /// 始める中身を外から受けるのは試験のため（本物は `spawn_blocking`）。
 /// 返すのは受け口の複製なので、**呼んだ側は待つだけでスレッドを食わない**。
-fn probe_of(probes: &RootProbes, root: &Path, start: impl FnOnce(ProbeGuard)) -> RootProbe {
-    let mut running = lock_ok(probes);
+fn probe_of(
+    probes: &RootProbes,
+    root: &Path,
+    stalled_after: std::time::Duration,
+    start: impl FnOnce(ProbeGuard),
+) -> Option<RootProbe> {
+    let mut registry = lock_ok(probes);
     // **走っているものがあれば、それに乗る。** 同じルートへ2本目を飛ばしても、
     // 刺さったマウントでは**スレッドが1本増えるだけ**で答えは増えない
-    if let Some(probe) = running.get(root) {
-        return probe.clone();
+    if let Some(probe) = registry.running.get(root) {
+        return Some(probe.clone());
     }
+    // **刺さっている探りが多すぎるなら、これ以上は増やさない**
+    // （[`MAX_STUCK_PROBES`]）。数えるのは返らなくなったものだけで、
+    // 健康なルートは数ミリ秒で消えるので数に入らない
+    let stuck = registry
+        .running
+        .values()
+        .filter(|probe| probe.started.elapsed() >= stalled_after)
+        .count();
+    if stuck >= MAX_STUCK_PROBES {
+        return None;
+    }
+    let generation = registry.next_generation;
+    registry.next_generation += 1;
     let (answer, receiver) = tokio::sync::watch::channel(None);
     let probe = RootProbe {
+        generation,
         started: std::time::Instant::now(),
         answer: receiver,
     };
-    running.insert(root.to_path_buf(), probe.clone());
+    registry.running.insert(root.to_path_buf(), probe.clone());
     // **印を置いてから始める**（先に始めると、その隙に来た問い合わせが
     // 2本目を飛ばす）。ロックはここで手放す——探りが即座に終わって
     // `ProbeGuard` が印を消しに来ても、待たせない
-    drop(running);
+    drop(registry);
     start(ProbeGuard {
         probes: probes.clone(),
         root: root.to_path_buf(),
+        generation,
         answer,
     });
-    probe
+    Some(probe)
+}
+
+/// ルートの顔ぶれが変わったとき、**その場所の探りの印を捨てる**。
+///
+/// 刺さったルートの印は探りが返るまで残る——それが狙いで、二度と触らないため。
+/// ところが**外して足し直した**ときまで残ると、貼り直した共有を一度も見ずに
+/// 「応答がありません」と言い続ける（ゲート1の指摘）。捨てるのは印だけで、
+/// 返らない探り自身はそのまま——その後片付けは世代を見るので、
+/// 新しい探りの印を消すことはない。
+fn forget_probes_for_changed_roots(probes: &RootProbes, before: &[PathBuf], after: &[PathBuf]) {
+    let mut registry = lock_ok(probes);
+    // 設定から外れたルート
+    registry.running.retain(|root, _| after.contains(root));
+    // 足し直された（この変更で新しく入った）ルート
+    for root in after.iter().filter(|root| !before.contains(root)) {
+        registry.running.remove(root);
+    }
 }
 
 /// 一覧が空のとき、**なぜ空なのか**をUIへ返す。
@@ -1364,23 +1453,19 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     /// 1回の問い合わせで待つ上限。**フロントの見切り（5秒）より短くする**:
     /// 向こうが先に諦めると、こちらの正直な返事が捨てられる
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
-    /// これだけ返ってこないルートは「確かめている途中」ではなく
-    /// **「応答がない」**と言い切る。探りは1本きりで、待っても増えない
-    const STALLED_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
-
     let state = app.state::<AppState>();
     let config = lock_ok(&state.config).clone();
     let from_scan = lock_ok(&state.scan_unreadable).clone();
     let roots = config.library.roots.clone();
     let probes = state.root_probes.clone();
     // **ルートごとに独立して探る**（走っているものには相乗りする）
-    let running: Vec<RootProbe> = roots
+    let running: Vec<Option<RootProbe>> = roots
         .iter()
         .map(|root| {
             // 探る側へ渡す複製（鍵に使う `root` は畳んだあとの名前にも要る）
             let probing = root.clone();
             let config = config.clone();
-            probe_of(&probes, root, move |guard| {
+            probe_of(&probes, root, PROBE_STALLED_AFTER, move |guard| {
                 // **ブロッキングプールへ逃がす。** 切れたSMB/NFSのルートでは
                 // `metadata` も `read_dir` もマウントのタイムアウトぶん
                 // （hardマウントなら際限なく）返ってこない。非同期コマンドは
@@ -1398,14 +1483,22 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
     // 走るから、フロントが見切っても `Drop` は来ない
     let until = std::time::Instant::now() + DEADLINE;
     let mut answers = Vec::with_capacity(running.len());
-    for RootProbe {
-        started,
-        mut answer,
-    } in running
-    {
+    for probe in running {
+        // **抱えきれないぶんは探っていない。** 見てもいないものを
+        // 「応答がありません」と名指ししない——言えるのは「まだ確かめていない」
+        // だけで、刺さっていた探りが1本返れば次の問い合わせで探りに行く
+        let Some(RootProbe {
+            started,
+            mut answer,
+            ..
+        }) = probe
+        else {
+            answers.push(RootAnswer::Checking);
+            continue;
+        };
         // **諦めたルートはもう待たない。** 印が付いている以上、待っても
         // 答えは来ない——待つと**健康なルートの返事まで3秒遅れる**
-        let left = if started.elapsed() >= STALLED_AFTER {
+        let left = if started.elapsed() >= PROBE_STALLED_AFTER {
             std::time::Duration::ZERO
         } else {
             until.saturating_duration_since(std::time::Instant::now())
@@ -1432,7 +1525,7 @@ async fn empty_library_reason(app: tauri::AppHandle) -> EmptyLibraryDto {
             // 返すと、UIは「扱える画像が見つかりません」と**断定**する
             // ——エラーから断定を作らない（ゲート2の指摘）
             Ok(None) => RootAnswer::Checking,
-            Err(_) if started.elapsed() >= STALLED_AFTER => RootAnswer::Stalled,
+            Err(_) if started.elapsed() >= PROBE_STALLED_AFTER => RootAnswer::Stalled,
             Err(_) => RootAnswer::Checking,
         });
     }
@@ -5046,14 +5139,16 @@ mod tests {
         let mut started = 0;
         // 1本目。**わざと終わらせない**（＝刺さったマウントと同じ形）
         let mut held: Option<ProbeGuard> = None;
-        let first = probe_of(&probes, &root, |guard| {
+        let first = probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |guard| {
             started += 1;
             held = Some(guard);
-        });
+        })
+        .expect("1本目は始まる");
         assert_eq!(started, 1);
 
         // 2本目は同じルート——**始めない**。受け口は同じ探りの複製
-        let second = probe_of(&probes, &root, |_| started += 1);
+        let second = probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |_| started += 1)
+            .expect("走っているものに相乗りする");
         assert_eq!(started, 1, "刺さったルートへ2本目を飛ばさない");
         assert!(second.answer.borrow().is_none(), "まだ答えは無い");
 
@@ -5070,7 +5165,9 @@ mod tests {
 
         // 終わった探りの印は消えている——次に聞かれたら探り直す
         let mut restarted = 0;
-        probe_of(&probes, &root, |_| restarted += 1);
+        probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |_| {
+            restarted += 1
+        });
         assert_eq!(restarted, 1, "返ってきたルートは次にまた探る");
     }
 
@@ -5088,14 +5185,98 @@ mod tests {
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
         let fell = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            probe_of(&probes, &root, |_guard| panic!("探りが落ちた"));
+            probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |_guard| {
+                panic!("探りが落ちた")
+            });
         }));
         std::panic::set_hook(previous);
         assert!(fell.is_err(), "落ちること自体は試験の前提");
 
         let mut started = 0;
-        probe_of(&probes, &root, |_| started += 1);
+        probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |_| started += 1);
         assert_eq!(started, 1, "落ちたルートは次に探り直す");
+    }
+
+    /// **外して足し直したルートは、もう一度探る。**
+    ///
+    /// 刺さった印は探りが返るまで残す（それが狙い）が、貼り直した共有を
+    /// 一度も見ずに「応答がありません」と言い続けるのは、直しても直らない
+    /// 案内になる（ゲート1の指摘）
+    #[test]
+    fn a_root_taken_out_and_put_back_gets_a_fresh_probe() {
+        use super::{forget_probes_for_changed_roots, probe_of, ProbeGuard, RootProbes};
+
+        let probes = RootProbes::default();
+        let root = std::path::PathBuf::from("/nas/photos");
+        // 刺さったまま返らない探り
+        let mut stuck: Option<ProbeGuard> = None;
+        probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |guard| {
+            stuck = Some(guard)
+        });
+
+        // ルートを外す → 印を捨てる
+        forget_probes_for_changed_roots(&probes, std::slice::from_ref(&root), &[]);
+        // 足し直す → 新しい探りが始まる（古いのは返らないまま）
+        forget_probes_for_changed_roots(&probes, &[], std::slice::from_ref(&root));
+        let mut started = 0;
+        let mut fresh: Option<ProbeGuard> = None;
+        probe_of(&probes, &root, super::PROBE_STALLED_AFTER, |guard| {
+            started += 1;
+            fresh = Some(guard);
+        });
+        assert_eq!(started, 1, "貼り直した共有は、もう一度見に行く");
+
+        // **古い探りが後から片付いても、新しい印を巻き添えにしない**
+        drop(stuck.take());
+        assert!(
+            super::lock_ok(&probes).running.contains_key(&root),
+            "古い後片付けが新しい探りの印を消さない（世代で見分ける）"
+        );
+        drop(fresh.take());
+        assert!(
+            !super::lock_ok(&probes).running.contains_key(&root),
+            "自分の印は自分で消す"
+        );
+    }
+
+    /// **刺さったマウントの数だけスレッドを増やさない。**
+    ///
+    /// 相乗りは「同じ場所へ2本目を飛ばさない」までしか守らない。死んだ共有が
+    /// 何本もあると、その数だけブロッキングプールのスレッドが永久に減る
+    /// ——同じプールを使う `add_library_root` などが止まる（ゲート1の指摘）
+    #[test]
+    fn a_pile_of_dead_mounts_stops_taking_new_threads() {
+        use super::{probe_of, ProbeGuard, RootProbes, MAX_STUCK_PROBES};
+
+        let probes = RootProbes::default();
+        // **時間で待たずに「刺さっている」を作る**——上限の数え方だけを見る
+        let at_once = std::time::Duration::ZERO;
+        let mut held: Vec<ProbeGuard> = Vec::new();
+        for i in 0..MAX_STUCK_PROBES {
+            let root = std::path::PathBuf::from(format!("/nas/{i}"));
+            probe_of(&probes, &root, at_once, |guard| held.push(guard));
+        }
+        assert_eq!(held.len(), MAX_STUCK_PROBES, "上限までは始める");
+
+        let mut started = 0;
+        let more = probe_of(
+            &probes,
+            std::path::Path::new("/nas/another"),
+            at_once,
+            |_| started += 1,
+        );
+        assert!(more.is_none() && started == 0, "上限を超えたら手を出さない");
+
+        // 1本返れば、また探れる（返らないぶんだけが枠を食う）
+        held.pop();
+        let mut after = 0;
+        probe_of(
+            &probes,
+            std::path::Path::new("/nas/another"),
+            at_once,
+            |_| after += 1,
+        );
+        assert_eq!(after, 1, "空いたぶんは探りに行く");
     }
 
     /// **刺さった1本が、他のルートの答えを飲み込まない。**
