@@ -656,8 +656,10 @@ and <code>mov</code> were measured returning a real frame, <code>.avi</code> ret
 The rest are untested: a picture is possible there, not promised. Linux has no route at all.
 </p>
 <p>
-Duration, dimensions and capture time come from the container header for those same four
-formats — not a single byte of pixel data is read. Other containers rely on the Windows Shell;
+Duration, dimensions and capture time come from the container header for <code>mp4</code>,
+<code>m4v</code>, <code>mov</code> and <code>3gp</code> — not a single byte of pixel data is
+read. Note that <code>webm</code> is <em>not</em> among them, despite sitting in the first row
+above. Other containers rely on the Windows Shell;
 <strong>on macOS and Linux they show no duration or dimensions</strong>, and the date falls back
 to the file name or the modification time.
 </p>

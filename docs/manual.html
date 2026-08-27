@@ -647,8 +647,9 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 それ以外は未測定で、出る可能性はありますが約束はできません。Linuxは経路そのものがありません。
 </p>
 <p>
-長さ・寸法・撮影日時は、その <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> の4つだけ
-コンテナのヘッダから読みます（画素は1バイトも読みません）。それ以外はWindowsではシェルが埋めますが、
+長さ・寸法・撮影日時は <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> の4つだけ
+コンテナのヘッダから読みます（画素は1バイトも読みません）。<strong>上の表の1行目にある <code>webm</code> は
+この4つに入りません。</strong>それ以外はWindowsではシェルが埋めますが、
 <strong>macOS・Linuxでは長さも寸法も出ず</strong>、日付はファイル名か更新日時に落ちます。
 </p>
 
