@@ -1306,6 +1306,15 @@ enum EntryKind {
 ///
 /// `shape` は `EntryShape::of` でエントリから起こす（走査と同じくリンクは辿らない）。
 fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) -> EntryKind {
+    // **リンクの判断は名前より先。** 走査は `follow_links = false` で
+    // `file_type().is_file()` が偽のものを落とすので、**名前が読めるかどうかは
+    // 関係なく**リンクは拾われない。下の `Symlink | Other` より後ろで
+    // 「読めない名前は候補」に倒すと、**同じリンクが名前の綴りだけで
+    // 候補にも除外にも転ぶ**——Latin-1の名前のリンクが1本あるだけで
+    // 「写真.appのライブラリしかありません」が消える（ゲート2の指摘）
+    if matches!(shape, EntryShape::Symlink | EntryShape::Other) {
+        return EntryKind::Ignorable;
+    }
     // **読めない名前は「候補あり」に倒す。** 走査本体は UTF-8 にならない名前を
     // 除外に一致させず、そのまま入って行く（`scanner.rs` の
     // `to_str().is_some_and(..)`）。ここで黙って飛ばすと、走査が開いて何も
@@ -1330,11 +1339,7 @@ fn classify_entry(name: &std::ffi::OsStr, shape: EntryShape, config: &Config) ->
         EntryShape::File => {
             pictkura_core::scanner::has_target_extension(Path::new(text), &config.import.extensions)
         }
-        // **リンクは走査が拾わない。** `WalkDir` は `follow_links = false` で、
-        // `file_type().is_file()` が偽のものを落とす（`scanner.rs`）。
-        // ここで候補に数えると、`latest.jpg` というリンクが1本あるだけで
-        // 「写真.appのライブラリしかありません」が消えて、当たり障りの無い
-        // 文言に落ちる——**走査が見ないものを証拠にしない**（ゲート2の指摘）
+        // 上で先に落としてある（名前が読めなくても落とすため）
         EntryShape::Symlink | EntryShape::Other => return EntryKind::Ignorable,
         // 種別が取れないときは安全側（＝除外を犯人にしない側）へ
         EntryShape::Unknown => return EntryKind::Candidate,
@@ -4103,6 +4108,21 @@ mod tests {
             kind(&unreadable, EntryShape::File),
             EntryKind::Candidate,
             "読めない名前は「候補あり」に数える"
+        );
+
+        // **リンクは、名前が読めても読めなくても拾われない。** 走査が
+        // `file_type().is_file()` で落とす以上、名前の綴りで判断が割れては
+        // いけない——割れると、Latin-1の名前のリンクが1本あるだけで
+        // 「写真.appのライブラリしかありません」が消える（ゲート2の指摘）
+        assert_eq!(
+            kind(&unreadable, EntryShape::Symlink),
+            EntryKind::Ignorable,
+            "読めない名前でも、リンクは走査が拾わない"
+        );
+        assert_eq!(
+            kind(&unreadable, EntryShape::Other),
+            EntryKind::Ignorable,
+            "読めない名前でも、FIFOやソケットは走査が拾わない"
         );
 
         // 種別が取れないとき（`file_type()` が落ちた）も安全側へ
