@@ -91,7 +91,7 @@ struct AppState {
     /// 探りを諦めた以上、「途中です」は嘘になる。
     ///
     /// **積み上がる方にも蓋がいる。** 死んだ共有が何本もあれば、相乗りが
-    /// 効いていてもその数だけスレッドが減る（[`MAX_STUCK_PROBES`]）。
+    /// 効いていてもその数だけスレッドが減る（[`MAX_OUTSTANDING_PROBES`]）。
     /// **外して足し直したときは印を捨てる**（[`forget_probes_for_changed_roots`]）
     /// ——貼り直した共有を一度も見ずに「応答がありません」と言い続けないため。
     /// `plan.macos.md` の2ゲートの節に経緯がある
@@ -1335,6 +1335,11 @@ struct ProbeRegistry {
 /// 走っている探り1本。
 #[derive(Clone)]
 struct RootProbe {
+    /// **この探りの答えは、もう当てにしない。** ルートを外した・足し直したときに
+    /// 立てる。行ごと消さないのは、**スレッドはまだ走っている**から
+    /// ——消すと枠まで戻ってしまい、外して足し直すたびに枠を食い潰せる
+    /// （ゲート2の指摘）。走っているものが片付けば、次の問い合わせで探り直す
+    invalidated: bool,
     /// この探りの**世代**。同じルートを外して足し直したとき、
     /// **古い探りの後片付けが新しい探りの印を消さない**ようにするための番号
     generation: u64,
@@ -1393,6 +1398,12 @@ fn probe_of(probes: &RootProbes, root: &Path, start: impl FnOnce(ProbeGuard)) ->
     // **走っているものがあれば、それに乗る。** 同じルートへ2本目を飛ばしても、
     // 刺さったマウントでは**スレッドが1本増えるだけ**で答えは増えない
     if let Some(probe) = registry.running.get(root) {
+        // ただし**外して足し直した後の古い探りには乗らない**（当てにできない）。
+        // かといって2本目も飛ばさない——そのぶん枠とスレッドを食うだけで、
+        // 答えは古い方が返るまで来ない。ここは「まだ見ていない」と返す
+        if probe.invalidated {
+            return None;
+        }
         return Some(probe.clone());
     }
     // **走っている探りが多すぎるなら、これ以上は増やさない**
@@ -1407,6 +1418,7 @@ fn probe_of(probes: &RootProbes, root: &Path, start: impl FnOnce(ProbeGuard)) ->
     registry.outstanding += 1;
     let (answer, receiver) = tokio::sync::watch::channel(None);
     let probe = RootProbe {
+        invalidated: false,
         generation,
         started: std::time::Instant::now(),
         answer: receiver,
@@ -1434,11 +1446,13 @@ fn probe_of(probes: &RootProbes, root: &Path, start: impl FnOnce(ProbeGuard)) ->
 /// 新しい探りの印を消すことはない。
 fn forget_probes_for_changed_roots(probes: &RootProbes, before: &[PathBuf], after: &[PathBuf]) {
     let mut registry = lock_ok(probes);
-    // 設定から外れたルート
-    registry.running.retain(|root, _| after.contains(root));
-    // 足し直された（この変更で新しく入った）ルート
-    for root in after.iter().filter(|root| !before.contains(root)) {
-        registry.running.remove(root);
+    for (root, probe) in registry.running.iter_mut() {
+        // 設定から外れたルートと、足し直された（この変更で新しく入った）ルート
+        let gone = !after.contains(root);
+        let added = after.contains(root) && !before.contains(root);
+        if gone || added {
+            probe.invalidated = true;
+        }
     }
 }
 
@@ -5202,13 +5216,15 @@ mod tests {
         assert_eq!(started, 1, "落ちたルートは次に探り直す");
     }
 
-    /// **外して足し直したルートは、もう一度探る。**
+    /// **外して足し直したルートは、古い探りの答えを名乗らない。**
     ///
-    /// 刺さった印は探りが返るまで残す（それが狙い）が、貼り直した共有を
-    /// 一度も見ずに「応答がありません」と言い続けるのは、直しても直らない
-    /// 案内になる（ゲート1の指摘）
+    /// 刺さった印は探りが返るまで残す（それが狙い）が、貼り直した共有に
+    /// 「応答がありません」と言い続けるのは、直しても直らない案内になる
+    /// （ゲート1の指摘）。かといって行ごと消すと**スレッドは走ったままなのに
+    /// 枠だけ戻る**ので、外して足し直すたびに枠を食い潰せる（ゲート2の指摘）。
+    /// だから**当てにしない印**を付けて、走っているものが片付くまで待つ
     #[test]
-    fn a_root_taken_out_and_put_back_gets_a_fresh_probe() {
+    fn a_root_taken_out_and_put_back_does_not_reuse_the_old_answer() {
         use super::{forget_probes_for_changed_roots, probe_of, ProbeGuard, RootProbes};
 
         let probes = RootProbes::default();
@@ -5217,29 +5233,23 @@ mod tests {
         let mut stuck: Option<ProbeGuard> = None;
         probe_of(&probes, &root, |guard| stuck = Some(guard));
 
-        // ルートを外す → 印を捨てる
+        // ルートを外して、足し直す
         forget_probes_for_changed_roots(&probes, std::slice::from_ref(&root), &[]);
-        // 足し直す → 新しい探りが始まる（古いのは返らないまま）
         forget_probes_for_changed_roots(&probes, &[], std::slice::from_ref(&root));
-        let mut started = 0;
-        let mut fresh: Option<ProbeGuard> = None;
-        probe_of(&probes, &root, |guard| {
-            started += 1;
-            fresh = Some(guard);
-        });
-        assert_eq!(started, 1, "貼り直した共有は、もう一度見に行く");
 
-        // **古い探りが後から片付いても、新しい印を巻き添えにしない**
+        // **古い答えには乗らない。かといって2本目も飛ばさない**
+        let mut started = 0;
+        let joined = probe_of(&probes, &root, |_| started += 1);
+        assert!(
+            joined.is_none() && started == 0,
+            "当てにできない探りには乗らず、スレッドも増やさない"
+        );
+
+        // 走っていたものが片付けば、次からは探り直す（枠もそこで戻る）
         drop(stuck.take());
-        assert!(
-            super::lock_ok(&probes).running.contains_key(&root),
-            "古い後片付けが新しい探りの印を消さない（世代で見分ける）"
-        );
-        drop(fresh.take());
-        assert!(
-            !super::lock_ok(&probes).running.contains_key(&root),
-            "自分の印は自分で消す"
-        );
+        let mut restarted = 0;
+        probe_of(&probes, &root, |_| restarted += 1);
+        assert_eq!(restarted, 1, "片付いたら、貼り直した共有を見に行く");
     }
 
     /// **刺さったマウントの数だけスレッドを増やさない。**
