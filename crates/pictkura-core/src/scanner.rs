@@ -55,9 +55,17 @@ pub struct ScanOutcome {
 /// 事故の形は完全に同じ。**タグを打つ前でないと既定に足す意味が薄れる**
 /// （初回起動で設定が固まり、走査途中の除外は既存の環境へ届かなくなる）ため、
 /// 実物を踏んだのは写真.appだけだが、同じ系譜はまとめて入れた。
+/// **現行の写真.app**のライブラリの綴り。
+///
+/// 一覧の他のもの（iPhoto・Aperture）と分けて名前を付けてあるのは、
+/// **案内の文言がここで割れる**ため。「原本の多くはiCloud側にあり、手元には
+/// ありません」は写真.appの話で、iPhotoやApertureのライブラリには当たらない
+/// ——あちらの中身は手元にある（ゲート1の指摘）
+pub const PHOTOS_APP_PATTERN: &str = "*.photoslibrary";
+
 pub const MANAGED_PACKAGE_PATTERNS: &[&str] = &[
     // 写真.app（現行）。実測で 14,938件・サムネイル5,399枚を索引した
-    "*.photoslibrary",
+    PHOTOS_APP_PATTERN,
     // iPhoto（写真.appへ移行すると .migratedphotolibrary になる）
     "*.photolibrary",
     "*.migratedphotolibrary",
@@ -77,14 +85,33 @@ pub const MANAGED_PACKAGE_PATTERNS: &[&str] = &[
 /// 索引だけできても、監視とUSNは全構成要素を見るので更新が永久に届かず、
 /// **索引されたまま古い**という壊れた状態になる。
 pub fn is_managed_package_path(path: &Path) -> bool {
-    path.components().any(|c| match c {
-        std::path::Component::Normal(name) => name.to_str().is_some_and(|n| {
+    managed_package_name(path).is_some()
+}
+
+/// パス上で最初に見つかったパッケージの**名前**（[`is_managed_package_path`] が
+/// 真になる理由そのもの）。
+///
+/// 真偽だけでは足りない場面がある——**どのアプリのライブラリかで案内が変わる**
+/// ので、名前を返して [`is_photos_app_package`] で引けるようにしてある。
+/// 一致した構成要素を返すので、`E:\Photos Library.photoslibrary\originals` の
+/// ように中を名指しされていても、名前は `Photos Library.photoslibrary` になる
+pub fn managed_package_name(path: &Path) -> Option<&str> {
+    path.components().find_map(|c| match c {
+        std::path::Component::Normal(name) => name.to_str().filter(|n| {
             MANAGED_PACKAGE_PATTERNS
                 .iter()
                 .any(|p| matches_pattern(n, p))
         }),
-        _ => false,
+        _ => None,
     })
+}
+
+/// その名前が**現行の写真.app**のライブラリか（[`PHOTOS_APP_PATTERN`]）。
+///
+/// [`managed_package_name`] が返した名前を渡す。偽なら iPhoto か Aperture の
+/// 系譜で、**iCloudの話をしてはいけない**
+pub fn is_photos_app_package(name: &str) -> bool {
+    matches_pattern(name, PHOTOS_APP_PATTERN)
 }
 
 /// 名前が除外パターンに一致するか。
@@ -249,6 +276,34 @@ pub struct PrunedScanOutcome {
     pub skipped_dirs: usize,
     /// 1件のエラーもなく走査しきれたルート
     pub ok_roots: Vec<PathBuf>,
+    /// 走査が**開けなかったフォルダ**（先頭 [`UNREADABLE_SAMPLE`] 件）。
+    ///
+    /// [`Self::ok_roots`] は「どのルートが無傷か」しか言わないので、
+    /// **利用者に見せる場所の名前**にならない。一覧が空のときの説明
+    /// （`lib.rs` の `empty_library_reason`）はここを借りる——あちらは
+    /// ルートの直下しか読まないので、**奥の1フォルダだけ許可が無い**形が
+    /// 見えず、写真が権限の壁の向こうに在るのに「扱える画像がありません」と
+    /// 言ってしまう（ゲート1の指摘）
+    pub unreadable_dirs: Vec<PathBuf>,
+    /// 開けなかったフォルダの**総数**。見せるのは先頭数件なので、
+    /// 「ほか N件」と言うために数だけ別に持つ（**黙って落とさない**）
+    pub unreadable_total: usize,
+}
+
+/// 控えておく [`PrunedScanOutcome::unreadable_dirs`] の件数。
+/// UIが並べるのは3件までで、**残りの数は
+/// [`PrunedScanOutcome::unreadable_total`] が持つ**ので、増やしても伝わらない
+const UNREADABLE_SAMPLE: usize = 3;
+
+/// 開けなかったフォルダを控える。
+///
+/// **1フォルダにつき1回だけ呼ぶこと**（呼び出し側の3か所は排他）。
+/// 数が二重に増えると「ほか N件」が在りもしない場所を指す
+fn note_unreadable(outcome: &mut PrunedScanOutcome, dir: &Path) {
+    outcome.unreadable_total += 1;
+    if outcome.unreadable_dirs.len() < UNREADABLE_SAMPLE {
+        outcome.unreadable_dirs.push(dir.to_path_buf());
+    }
 }
 
 /// ディレクトリmtimeによる枝刈り付きスキャン（段階B-2）。
@@ -384,8 +439,19 @@ fn walk_pruned(
 ) {
     let mtime_ms = match std::fs::metadata(dir) {
         Ok(m) if m.is_dir() => mtime_of(&m),
-        _ => {
+        other => {
             *had_error = true;
+            // **消えたものを「開けない」と言わない。** ここへは親を列挙した後の
+            // 再帰で来るので、その隙に改名・削除された子が `NotFound` で届く。
+            // 名前を控えると、**もう無い場所の権限やネットワークを確かめに
+            // 行かせる**ことになる（ゲート1の指摘）。`had_error` は立てたまま
+            // ——mtimeを記録しないことで次回また列挙させるのは、消えた側でも正しい。
+            //
+            // 控えるのは**手が届かなかったとき**だけ。`Ok(_)`（フォルダが
+            // ファイルに置き換わった）も同じで、権限の話ではない
+            if matches!(&other, Err(err) if err.kind() != std::io::ErrorKind::NotFound) {
+                note_unreadable(outcome, dir);
+            }
             return;
         }
     };
@@ -412,8 +478,14 @@ fn walk_pruned(
     // mtime不一致・新規 → 実際に列挙する
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => {
+        Err(err) => {
             *had_error = true;
+            // 上の `metadata` と同じ理由で `NotFound` は控えない。
+            // **`stat` は通って `opendir` が `ENOENT` で落ちる**のも同じ競合で、
+            // 消えた場所の権限を確かめに行かせることになる（ゲート2の指摘）
+            if err.kind() != std::io::ErrorKind::NotFound {
+                note_unreadable(outcome, dir);
+            }
             return;
         }
     };
@@ -421,9 +493,19 @@ fn walk_pruned(
     // 欠けたまま記録すると次回から「変更なし」と誤判定され、拾えなかった
     // ファイルが手動フルスキャンまで永久に見つからなくなる（枝刈りキャッシュの汚染）
     let mut dir_error = false;
+    // **「開けなかった」と「途中で消えた」を分ける。** `dir_error` は
+    // mtimeを記録しない理由（次回また列挙させる）で、そちらは**1件でも
+    // 取りこぼしたら**立てる。こちらは利用者に見せる場所の名前になるので、
+    // **フォルダに手が届かなかったとき**にしか立てない——列挙は成功していて、
+    // ただ1枚が名前を変えただけの競合で「アクセス許可を確かめてください」と
+    // 案内してしまう（ゲート1の指摘）
+    let mut torn = false;
     for entry in entries {
         let Ok(entry) = entry else {
+            // `readdir` そのものが落ちた（共有が途中で切れた等）。これは
+            // フォルダ側の話なので名前を控える
             dir_error = true;
+            torn = true;
             continue;
         };
         if excluded(&entry.file_name()) {
@@ -464,6 +546,9 @@ fn walk_pruned(
     }
     if dir_error {
         *had_error = true;
+        if torn {
+            note_unreadable(outcome, dir);
+        }
         // seen/enumeratedに載せない: mtime未記録なら次回また列挙される（安全側）。
         // 削除判定も「列挙したディレクトリ」に限られるため、このディレクトリ直下は
         // 誤削除されない（フルスキャンではok_rootsの保護も重なる）
@@ -804,5 +889,51 @@ mod tests {
         );
         assert!(outcome.files.is_empty());
         assert!(outcome.ok_roots.is_empty());
+        // **無いものは「開けなかった」ではない。** 空の理由の側は
+        // `NotFound` を「見つかりません（つないでください）」として自分で
+        // 名指しするので、ここで権限の話へ混ぜない（ゲート1の指摘）
+        assert!(outcome.unreadable_dirs.is_empty());
+        assert_eq!(outcome.unreadable_total, 0);
+    }
+
+    /// 走査が**開けなかったフォルダを名前で控える**（一覧が空のときの説明が借りる）。
+    ///
+    /// `ok_roots` だけでは「このルートは無傷ではない」までしか言えず、
+    /// 利用者に見せる場所にならない。
+    ///
+    /// **`cfg(unix)` なのはモードビットがPOSIXの概念だから**で、検出力を
+    /// 落とすための除外ではない（Windowsは別のACLの話になる）
+    #[cfg(unix)]
+    #[test]
+    fn the_scan_remembers_the_folder_it_could_not_open() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("pictures");
+        let locked = root.join("非公開");
+        write_file(&locked, "a.jpg", b"x");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // **rootで走ると権限が効かない**（CIのコンテナ等）。仕掛けが効いて
+        // いなければ飛ばす——効かない環境で通すと、試験があるのに何も見ていない
+        let denied = fs::read_dir(&locked).is_err();
+        let outcome = scan_roots_pruned(
+            std::slice::from_ref(&root),
+            &jpg_extensions(),
+            &[],
+            &HashMap::new(),
+        );
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        if denied {
+            assert_eq!(
+                outcome.unreadable_dirs,
+                vec![locked],
+                "開けなかったのは奥のフォルダ——そこを名指しできること"
+            );
+            assert_eq!(outcome.unreadable_total, 1);
+            assert!(
+                !outcome.ok_roots.contains(&root),
+                "エラーの出たルートは無傷ではない（これまでどおり）"
+            );
+        }
     }
 }

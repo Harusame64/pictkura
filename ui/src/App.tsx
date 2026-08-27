@@ -1367,11 +1367,18 @@ export default function App() {
           : platform === "windows"
             ? t.emptyUnreadableWin
             : t.emptyUnreadableOther;
-      return say(nameList(r.unreadable));
+      // **切ったぶんは数で言う**（走査は先頭3件しか控えていない）
+      return say(nameList(r.unreadable, r.unreadableTotal));
     }
     // **ルートそのものがライブラリ**なら、そちらが先。覆らない事実で、
     // しかも直せるのは利用者だけ（フォルダを選び直す）
-    if (r.rootIsPackage) return t.emptyRootIsPackage;
+    // **どのアプリのライブラリかで案内が変わる。** iCloudの話が本当なのは
+    // 現行の写真.appのときだけで、iPhoto・Apertureのライブラリは中身が手元に
+    // ある——持ち出すと在りかを取り違えさせる（ゲート1の指摘）
+    if (r.rootIsPackage)
+      return r.rootPackageLegacy
+        ? t.emptyRootIsManagedLibrary
+        : t.emptyRootIsPackage;
     // **除外が先。** 「写真.appのライブラリのほかに見つかりません」は
     // **排他の主張**なので、除外で飛ばしたものがあるなら嘘になる——
     // `~/Pictures` に写真ライブラリと `.秘密写真/`（中身はJPEG）が並ぶと、
@@ -1379,7 +1386,10 @@ export default function App() {
     // 辿り着けない（ゲート2の指摘）。除外の文言なら名前を挙げて設定へ導ける
     if (r.excluded.length > 0)
       return t.emptyAllExcluded(nameList(r.excluded, r.excludedTotal));
-    if (r.photoLibrary) return t.emptyPhotoLibrary;
+    if (r.photoLibrary)
+      return r.photoLibraryLegacy
+        ? t.emptyManagedLibrary
+        : t.emptyPhotoLibrary;
     return t.emptyNothingHere;
   };
   /**
@@ -1486,10 +1496,13 @@ export default function App() {
       noRoots: false,
       missing: [],
       unreadable: [],
+      unreadableTotal: 0,
       excluded: [],
       excludedTotal: 0,
       photoLibrary: false,
+      photoLibraryLegacy: false,
       rootIsPackage: false,
+      rootPackageLegacy: false,
       checking: true,
     };
     /**
