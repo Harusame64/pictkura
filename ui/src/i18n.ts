@@ -235,6 +235,10 @@ const ja = {
   emptyTitleFailed: "一覧を出せませんでした",
   /** まだ確かめ終わっていないときの見出し（本文と食い違わせない） */
   emptyTitleChecking: "確認しています",
+  /** 起動時の同期が転んで終わった。**「空」と断定しない** */
+  emptyTitleStartupFailed: "取り込みが最後まで終わりませんでした",
+  emptyStartupFailed:
+    "起動したときの同期が最後まで終わりませんでした。写真があっても、まだ一覧に入っていないことがあります。「再スキャン」を押してください。それでも直らないときは、アプリを開き直してください。",
   /** **写真は在るかもしれない**——場所に届いていないだけ。
    *  ここで「まだ写真がありません」と出すと、1万枚あって権限を許すだけの人に
    *  向かって空だと断定することになる */
@@ -630,6 +634,9 @@ const en: Dict = {
   emptyTitle: "No photos yet",
   emptyTitleFailed: "The list could not be shown",
   emptyTitleChecking: "Checking",
+  emptyTitleStartupFailed: "The startup sync did not finish",
+  emptyStartupFailed:
+    "The sync that runs at startup did not finish. There may be photos that have not been taken in yet. Press Rescan; if that does not help, reopen the app.",
   emptyTitleMissing: "Some places are not there",
   emptyTitleUnreadable: "Some places could not be opened",
   emptyNoRoots:
