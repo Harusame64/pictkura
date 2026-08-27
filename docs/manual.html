@@ -640,7 +640,9 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 </table>
 </div>
 <p>
-一覧の絵はOSのサムネイル機構から借ります（<strong>現在はWindowsのみ</strong>）。
+一覧の絵はOSから借ります（Windowsはシェル、macOSは AVFoundation）。
+<strong>macOSでは AVFoundation が開けないコンテナ（<code>.avi</code>・<code>.m2ts</code>）が枠だけ</strong>になります
+——上の表の「一覧に絵が出る」はWindowsでの話です。
 長さ・寸法・撮影日時はコンテナのヘッダだけを読むので、画素は1バイトも読みません。
 </p>
 
@@ -699,7 +701,7 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
     <td>HEIC / HEVC にOSの部品が要るのはWindowsだけ</td>
     <td><strong>HEVCのデコーダは同梱しません</strong>——特許の都合で、OSが持っていれば使う方針です。そのため <strong>Windows</strong> では「HEIF Image Extensions」（無料）に加え、画素の展開に「HEVC Video Extensions」（有料・数百円）が要ります（必要なときはアプリから案内を出します）。<strong>macOSは入れるものがありません</strong>——ImageIOもHEVCのデコーダもOSに同梱されています</td>
   </tr>
-  <tr><td>動画のサムネイルはWindowsのみ</td><td>macOS・Linuxは未対応で、枠だけが並びます</td></tr>
+  <tr><td>動画のサムネイルはLinuxが未対応</td><td>Windowsはシェル、macOSは AVFoundation から借ります。<strong>Linuxは未対応で、枠だけが並びます</strong>。macOSでは AVFoundation が開けないコンテナ（<code>.avi</code>・<code>.m2ts</code>）も枠のままです</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> はアプリ内で再生できない</td><td>ブラウザ側がコンテナを扱えないためです。一覧には出ます</td></tr>
   <tr><td>検索索引の再構築UIが無い</td><td>壊れた場合は設定フォルダの <code>pictkura.db</code> を消して作り直してください（サムネイルも作り直しになります）</td></tr>
   <tr><td>検索結果の並び替えが無い</td><td>撮影日の新しい順で固定です</td></tr>

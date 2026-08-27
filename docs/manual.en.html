@@ -649,7 +649,9 @@ rendering.
 </table>
 </div>
 <p>
-Grid thumbnails are borrowed from the OS thumbnail service (<strong>Windows only for now</strong>).
+Grid thumbnails are borrowed from the OS (the Shell on Windows, AVFoundation on macOS).
+<strong>On macOS the containers AVFoundation cannot open (<code>.avi</code>, <code>.m2ts</code>) stay
+as empty frames</strong> — the “appears in the grid” column above describes Windows.
 Duration, dimensions and capture time come from the container header alone — not a single byte
 of pixel data is read.
 </p>
@@ -711,7 +713,7 @@ With that off, pictkura never reaches the network at all — and you can still p
     <td>HEIC / HEVC need OS components on Windows</td>
     <td><strong>The HEVC decoder is not bundled</strong> — patent licensing makes that impractical, so pictkura uses the one the OS has. On <strong>Windows</strong> that means installing “HEIF Image Extensions” (free) plus “HEVC Video Extensions” (paid, about a dollar) to decode the pixels; the app tells you when one is missing. On <strong>macOS there is nothing to install</strong> — ImageIO and the HEVC decoder ship with the system</td>
   </tr>
-  <tr><td>Video thumbnails are Windows-only</td><td>macOS and Linux are not supported yet; you get empty frames</td></tr>
+  <tr><td>Video thumbnails have no Linux route</td><td>Windows borrows from the Shell, macOS from AVFoundation. <strong>Linux is not supported yet; you get empty frames</strong>. On macOS, containers AVFoundation cannot open (<code>.avi</code>, <code>.m2ts</code>) stay empty too</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
   <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
