@@ -282,6 +282,11 @@ const ja = {
     "扱える画像がまだ見つかりません。カードから取り込むか、写真のあるフォルダを選んでください。",
   /** カレンダーの空欄に置く一言。**断定しない**（確かめている最中） */
   calendarChecking: "確認しています…",
+  /** 返事が来ないまま見切った場所。**「確かめています」とは別**——
+   *  こちらは放っておいても変わらない */
+  emptyTitleStalled: "応答がない場所があります",
+  emptyStalled: (names: string) =>
+    `次の場所から応答がありません: ${names}。ネットワークのフォルダなら、つながっているかを確かめてください。外したままにするなら、ライブラリのフォルダから取り除くと、残りの場所の結果が出ます。`,
   /** フォルダをまだ見終わっていない。**「何も無い」と言わない** */
   emptyChecking:
     "フォルダを確かめている途中です。ネットワークのフォルダなら、つながっているかを確かめてから「再スキャン」を押してください。",
@@ -652,6 +657,9 @@ const en: Dict = {
   emptyNothingHere:
     "No photos that pictkura can read have turned up yet. Import from a card, or pick a folder that has photos in it.",
   calendarChecking: "Checking…",
+  emptyTitleStalled: "Some places are not answering",
+  emptyStalled: (names: string) =>
+    `These places are not answering: ${names}. If one of them is on a network, check that it is still connected. If it is gone for good, remove it from the library folders and the rest will report.`,
   emptyChecking:
     "Still looking through the folders. If one of them is on a network, make sure it is connected and press Rescan.",
   emptyLoadFailed:
