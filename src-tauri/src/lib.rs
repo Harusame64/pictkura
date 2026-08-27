@@ -74,6 +74,10 @@ struct AppState {
     /// と断定する。1万枚あって、必要なのは「もう一度走らせて」なのに
     /// （ゲート1の指摘）
     startup_failed: std::sync::atomic::AtomicBool,
+    /// **通った走査の数**。起動時の結果は走査そのものより後で書き戻すので、
+    /// その隙に手で走らせた再スキャンが通っていることがある——数が動いていたら
+    /// **古い失敗で新しい成功を塗り潰さない**（ゲート1の指摘）
+    scan_successes: std::sync::atomic::AtomicU64,
     /// ルートごとに走っている「空の理由」の探り（[`empty_library_reason`]）。
     ///
     /// **1本ずつ独立して探る。** 走査はブロッキングプールで動くが、
@@ -717,10 +721,16 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     // 「再スキャンを押してください」と言われて押した人に、押した直後の
     // 聞き直しで**同じ案内をもう一度出す**（ゲート2の指摘）。
     // フロント側だけで下ろすのでは足りない——旗はバックエンドにも残っていて、
-    // 取りこぼし用の問い合わせがそれを読みに来る
+    // 取りこぼし用の問い合わせがそれを読みに来る。
+    //
+    // **数も進める。** 起動時の結果は走査の外側で書き戻すので、
+    // その隙にこちらが通っていたことを向こうが見分けられるように
     state
         .startup_failed
         .store(false, std::sync::atomic::Ordering::Release);
+    state
+        .scan_successes
+        .fetch_add(1, std::sync::atomic::Ordering::Release);
     enqueue_missing_thumbs(state);
     Ok(stats)
 }
@@ -3881,6 +3891,7 @@ pub fn run() {
                 startup_done: std::sync::atomic::AtomicBool::new(false),
                 scan_unreadable: Mutex::new(ScanUnreadable::default()),
                 startup_failed: std::sync::atomic::AtomicBool::new(false),
+                scan_successes: std::sync::atomic::AtomicU64::new(0),
                 root_probes: RootProbes::default(),
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
@@ -4193,6 +4204,11 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let inner = handle.clone();
+                // 走り出す前の「通った走査の数」（下で追い越されたかを見る）
+                let scans_before = handle
+                    .state::<AppState>()
+                    .scan_successes
+                    .load(std::sync::atomic::Ordering::Acquire);
                 // **どう終わったかを持ち帰る。** `catching` はパニックを
                 // `None` にして飲むので、`Err` で早く返った道と合わせて
                 // 「転んだ」を1つの値にまとめる（下で旗と合図に載せる）
@@ -4226,6 +4242,15 @@ pub fn run() {
                         let _ = inner.emit("startup-scan-report", report);
                         true
                     });
+                // **この間に手で走らせた再スキャンが通っていないか**を見る。
+                // 起動時の走査は `scan_lock` を持って走るが、結果を書き戻すのは
+                // ロックを離した後——待たされていた再スキャンがそこで通ると、
+                // **古い失敗が新しい成功を塗り潰す**（ゲート1の指摘）
+                let succeeded_since = handle
+                    .state::<AppState>()
+                    .scan_successes
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    != scans_before;
                 // **どう終わってもここを通る。** 上は `startup_scan` が `Err` なら
                 // 報告を出さずに返るし、パニックは `catching` が飲む。
                 // フロントはこれが来るまで「空です」と言わないので、
@@ -4236,7 +4261,7 @@ pub fn run() {
                 // 出すと、フロントは「もう終わったのだから空だ」と断定する
                 // ——取り込めていないだけのライブラリに「まだ写真がありません」と
                 // 言うことになる（ゲート1の指摘）
-                let failed = finished_well != Some(true);
+                let failed = finished_well != Some(true) && !succeeded_since;
                 let state = handle.state::<AppState>();
                 state
                     .startup_failed

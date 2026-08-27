@@ -1268,13 +1268,14 @@ export default function App() {
     setBusy(true);
     try {
       const stats = await syncNow();
-      await reloadAll();
-      // **押せと言った操作が通ったなら、その旗はもう嘘。**
-      // 起動時の同期が転んだ話を出し続けると、**成功した再スキャンの後も
-      // 同じ案内が居座り**、本当の理由（写真.appのライブラリしか無い等）に
-      // 一生辿り着けない（ゲート1の指摘）
+      // **走査が通った時点で下ろす。** ここより後ろに置くと、件数や思い出の
+      // 取り直しが転んだだけで（`reloadAll` はそれを投げ直す）下ろす行に
+      // 届かず、**成功した再スキャンの後も案内が居座る**（ゲート1の指摘）。
+      // 起動時の同期が転んだ話を出し続けると、本当の理由（写真.appの
+      // ライブラリしか無い等）に一生辿り着けない
       syncSucceededRef.current = true;
       setStartupFailed(false);
+      await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
       setStatus(String(e));
@@ -1727,13 +1728,14 @@ export default function App() {
     setBusy(true);
     try {
       await addLibraryRoot(path);
+      // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
+      // 起動時に転んだ話はここで終わり。**取り直しより前に下ろす**
+      // （後ろだと、飾りの取り直しが転んだだけで届かない）
+      syncSucceededRef.current = true;
+      setStartupFailed(false);
       await reloadAll();
       await refreshRoots();
       checkDecoders();
-      // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
-      // 起動時に転んだ話はここで終わり
-      syncSucceededRef.current = true;
-      setStartupFailed(false);
       return true;
     } catch (e) {
       setStatus(String(e));
@@ -1772,11 +1774,11 @@ export default function App() {
     setBusy(true);
     try {
       await removeLibraryRoot(path);
-      await reloadAll();
-      await refreshRoots();
       // 削除も全ルートを走査し直すので、起動時に転んだ話はここで終わり
       syncSucceededRef.current = true;
       setStartupFailed(false);
+      await reloadAll();
+      await refreshRoots();
     } catch (e) {
       setStatus(String(e));
     } finally {
