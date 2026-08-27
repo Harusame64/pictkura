@@ -478,9 +478,14 @@ fn walk_pruned(
     // mtime不一致・新規 → 実際に列挙する
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => {
+        Err(err) => {
             *had_error = true;
-            note_unreadable(outcome, dir);
+            // 上の `metadata` と同じ理由で `NotFound` は控えない。
+            // **`stat` は通って `opendir` が `ENOENT` で落ちる**のも同じ競合で、
+            // 消えた場所の権限を確かめに行かせることになる（ゲート2の指摘）
+            if err.kind() != std::io::ErrorKind::NotFound {
+                note_unreadable(outcome, dir);
+            }
             return;
         }
     };

@@ -151,11 +151,56 @@ struct ScanUnreadable {
 ///
 /// **全ルートを走った走査のときだけ呼ぶこと**（`scan_and_apply_root` は
 /// 1ルートしか見ていないので、ここで置き換えると他のルートの記録が消える）。
-fn remember_unreadable(state: &AppState, outcome: &pictkura_core::PrunedScanOutcome) {
-    *lock_ok(&state.scan_unreadable) = ScanUnreadable {
-        dirs: outcome.unreadable_dirs.clone(),
-        total: outcome.unreadable_total,
+fn remember_unreadable(
+    state: &AppState,
+    outcome: &pictkura_core::PrunedScanOutcome,
+    roots: &[PathBuf],
+) {
+    let mut kept = lock_ok(&state.scan_unreadable);
+    *kept = merged_unreadable(&kept, outcome, roots);
+}
+
+/// 前回の控えと今回の走査を**混ぜる**（[`remember_unreadable`] の中身）。
+///
+/// **丸ごと置き換えてはいけない。** 開けなかったフォルダは `seen_dirs` に
+/// 載らない（`scanner.rs` の `dir_error` の枝）ので、次回の枝刈り走査の
+/// `known_dirs` にも入らない。ところが**親のmtimeは変わっていない**ので、
+/// 親ごと飛ばされ、そのフォルダには**二度と足を踏み入れない**——
+/// 今回の結果は空になり、正しかった控えを空で上書きする。
+/// 結果、**2回目の起動から穴が元通り**になる（ゲート2が実測で示した）。
+///
+/// 残すのは「今回の走査が見直していない場所」だけ。見直した場所
+/// （＝親を列挙した、あるいはルートそのもの）は今回の結果で置き換える
+/// ——直した権限がいつまでも「開けません」と言われないため。
+fn merged_unreadable(
+    previous: &ScanUnreadable,
+    outcome: &pictkura_core::PrunedScanOutcome,
+    roots: &[PathBuf],
+) -> ScanUnreadable {
+    let enumerated: HashSet<&Path> = outcome
+        .enumerated_dirs
+        .iter()
+        .map(|dir| dir.as_path())
+        .collect();
+    // **今回踏み直していない控え**だけ持ち越す
+    let stale = |dir: &PathBuf| {
+        // ルートは毎回 `walk_pruned` に入るので、必ず見直されている
+        !roots.iter().any(|root| root == dir)
+            && !dir
+                .parent()
+                .is_some_and(|parent| enumerated.contains(parent))
     };
+    let mut dirs: Vec<PathBuf> = previous.dirs.iter().filter(|d| stale(d)).cloned().collect();
+    for dir in &outcome.unreadable_dirs {
+        if !dirs.contains(dir) {
+            dirs.push(dir.clone());
+        }
+    }
+    // **数は少なめに倒す。** 持ち越したぶんの「見せていない残り」は数え直せない
+    // ので、名前にできる件数と今回の総数の大きい方を採る——「ほか N件」が
+    // **在りもしない場所を指す**よりは、少なく言う方がまし
+    let total = dirs.len().max(outcome.unreadable_total);
+    ScanUnreadable { dirs, total }
 }
 
 /// 起動引数から取り込み対象のドライブ/フォルダを取り出す。
@@ -655,7 +700,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
         }
     };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
-    remember_unreadable(state, &scan.outcome);
+    remember_unreadable(state, &scan.outcome, &config.library.roots);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
     enqueue_missing_thumbs(state);
@@ -1051,7 +1096,7 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
         StartupMethod::Pruned
     };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
-    remember_unreadable(state, &scan.outcome);
+    remember_unreadable(state, &scan.outcome, &config.library.roots);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
     // 位置の保存は**全ルートの走査が成功したときだけ**。失敗したルートの
@@ -1581,10 +1626,13 @@ fn empty_library_reason_of(config: &Config, from_scan: &ScanUnreadable) -> Empty
             out.unreadable.push(name);
         }
     }
-    // **数は名前の数では足りない。** 走査が控えるのは先頭3件だけなので、
-    // 控えられなかったぶんを足す（**黙って落とさない**）
-    out.unreadable_total =
-        out.unreadable.len() + from_scan.total.saturating_sub(from_scan.dirs.len());
+    // **足し算にしない。** 走査の総数にはルート自身も入っている——こちらで
+    // 名指しした4本の外付けを、走査も4本として数えているのに、名前で重なりを
+    // 消したぶんだけ足すと**5本目の「開けない場所」を探しに行かせる**
+    // （ゲート2の指摘）。重なりの全体は数えられない（走査は3件しか名前を
+    // 控えていない）ので、**大きい方を採って少なめに倒す**——
+    // 「ほか N件」が在りもしない場所を指すよりは、少なく言う方がまし
+    out.unreadable_total = out.unreadable.len().max(from_scan.total);
     if survivor {
         out.excluded.clear();
         out.excluded_total = 0;
@@ -4664,6 +4712,112 @@ mod tests {
                 assert_eq!(r.unreadable.len(), 1, "同じ場所を2度並べない");
                 assert_eq!(r.unreadable_total, 1, "重なったぶんを二重に数えない");
             }
+        }
+    }
+
+    /// **枝刈り走査は、開けなかったフォルダを二度と見に行かない。**
+    ///
+    /// 開けなかった場所は `seen_dirs` に載らず、次回の `known_dirs` にも
+    /// 入らない。親のmtimeは変わっていないので親ごと飛ばされ、**今回の結果は
+    /// 空**になる——丸ごと置き換えると、正しかった控えを空で上書きして
+    /// **2回目の起動から穴が元通り**になる（ゲート2が実測で示した）
+    #[test]
+    fn a_pruned_scan_that_never_looked_again_does_not_erase_what_we_knew() {
+        use super::{merged_unreadable, ScanUnreadable};
+        use pictkura_core::PrunedScanOutcome;
+
+        let root = std::path::PathBuf::from("/home/me/Pictures");
+        let locked = root.join("2024").join("非公開");
+        let known = ScanUnreadable {
+            dirs: vec![locked.clone()],
+            total: 1,
+        };
+
+        // 枝刈りで親ごと飛ばした回。**見ていないのだから、控えは残す**
+        let skipped = PrunedScanOutcome {
+            enumerated_dirs: vec![root.clone()],
+            ..Default::default()
+        };
+        let after = merged_unreadable(&known, &skipped, std::slice::from_ref(&root));
+        assert_eq!(
+            after.dirs,
+            vec![locked.clone()],
+            "見ていない場所の控えは残す"
+        );
+        assert_eq!(after.total, 1);
+
+        // 親を列挙し直した回に何も出なかった＝**直った**。控えは落とす
+        let looked = PrunedScanOutcome {
+            enumerated_dirs: vec![root.clone(), root.join("2024")],
+            ..Default::default()
+        };
+        let after = merged_unreadable(&known, &looked, std::slice::from_ref(&root));
+        assert!(
+            after.dirs.is_empty() && after.total == 0,
+            "踏み直して何も出なかったなら、古い控えは捨てる"
+        );
+
+        // ルートは毎回歩くので、ルート自身の控えは今回の結果で置き換わる
+        let known_root = ScanUnreadable {
+            dirs: vec![root.clone()],
+            total: 1,
+        };
+        let after = merged_unreadable(
+            &known_root,
+            &PrunedScanOutcome::default(),
+            std::slice::from_ref(&root),
+        );
+        assert!(after.dirs.is_empty(), "ルートは毎回見直している");
+
+        // 今回の結果は足される（重複は増やさない）
+        let found_again = PrunedScanOutcome {
+            enumerated_dirs: vec![root.clone()],
+            unreadable_dirs: vec![locked.clone()],
+            unreadable_total: 1,
+            ..Default::default()
+        };
+        let after = merged_unreadable(&known, &found_again, std::slice::from_ref(&root));
+        assert_eq!(after.dirs, vec![locked], "同じ場所を2度並べない");
+        assert_eq!(after.total, 1);
+    }
+
+    /// **「ほか N件」は在りもしない場所を指してはいけない。**
+    ///
+    /// 走査の総数にはルート自身も入っている。名前で重なりを消したぶんだけ
+    /// 足すと、4本しか無いのに5本目を探しに行かせる（ゲート2の指摘）。
+    ///
+    /// **`cfg(unix)` なのはモードビットがPOSIXの概念だから**で、検出力を
+    /// 落とすための除外ではない
+    #[cfg(unix)]
+    #[test]
+    fn the_count_of_places_we_could_not_open_never_invents_one() {
+        use super::{empty_library_reason_of, ScanUnreadable};
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut roots = Vec::new();
+        for i in 1..=4 {
+            let root = dir.path().join(format!("外付け{i}"));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+            roots.push(root);
+        }
+        // **rootで走ると権限が効かない**（CIのコンテナ等）。効いていなければ飛ばす
+        let denied = std::fs::read_dir(&roots[0]).is_err();
+        let mut config = pictkura_core::config::Config::default();
+        config.library.roots = roots.clone();
+        // 走査も同じ4本で転んでいる（名前は先頭3件しか控えていない）
+        let from_scan = ScanUnreadable {
+            dirs: roots[..3].to_vec(),
+            total: 4,
+        };
+        let r = empty_library_reason_of(&config, &from_scan);
+        for root in &roots {
+            std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        if denied {
+            assert_eq!(r.unreadable.len(), 4, "同じ場所を2度並べない");
+            assert_eq!(r.unreadable_total, 4, "5本目を作らない");
         }
     }
 
