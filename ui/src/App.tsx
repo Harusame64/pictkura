@@ -1259,6 +1259,11 @@ export default function App() {
     try {
       const stats = await syncNow();
       await reloadAll();
+      // **押せと言った操作が通ったなら、その旗はもう嘘。**
+      // 起動時の同期が転んだ話を出し続けると、**成功した再スキャンの後も
+      // 同じ案内が居座り**、本当の理由（写真.appのライブラリしか無い等）に
+      // 一生辿り着けない（ゲート1の指摘）
+      setStartupFailed(false);
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
       setStatus(String(e));
@@ -1714,6 +1719,9 @@ export default function App() {
       await reloadAll();
       await refreshRoots();
       checkDecoders();
+      // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
+      // 起動時に転んだ話はここで終わり
+      setStartupFailed(false);
       return true;
     } catch (e) {
       setStatus(String(e));
@@ -1754,6 +1762,8 @@ export default function App() {
       await removeLibraryRoot(path);
       await reloadAll();
       await refreshRoots();
+      // 削除も全ルートを走査し直すので、起動時に転んだ話はここで終わり
+      setStartupFailed(false);
     } catch (e) {
       setStatus(String(e));
     } finally {
