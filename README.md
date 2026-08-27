@@ -354,11 +354,11 @@ come out upright, and the shot date and camera name are read.
 **The ✅ in the grid column above describes Windows.** Two things behind it are narrower
 elsewhere:
 
-- **Thumbnails** are borrowed from the OS: the Shell on **Windows**, which covers every
-  container listed; AVFoundation on **macOS**, which only opens the QuickTime / MPEG-4
-  family, so there a picture appears for `mp4` `m4v` `mov` `3gp` and **every other
-  container — `webm` included — stays an empty frame**. **Linux has no route at all.**
-  (Measured on macOS: `mp4` and `mov` return a real frame, `.avi` returns nothing.)
+- **Thumbnails** are borrowed from the OS. The Shell on **Windows** covers every container
+  listed. On **macOS** they come from AVFoundation, which is handed every one of them and
+  answers only for what it can open: `mp4` and `mov` were measured returning a real frame,
+  `.avi` measured returning nothing. **The rest are untested** — a picture there is
+  possible, not promised. **Linux has no route at all.**
 - **Duration, dimensions and capture time** are read from the container header for
   `mp4` `m4v` `mov` `3gp` only — not a single pixel is decoded. On **Windows** the Shell
   supplies them for the rest; on **macOS** and **Linux** it does not, so those files show
@@ -373,7 +373,7 @@ elsewhere:
 |---|---|
 | **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows (duration is not available). The real file is fetched only when you actually look at that photo — when its tile scrolls into view, or when you open it in the viewer |
 | **HEIC / HEVC need OS components on Windows** | **No HEVC decoder is bundled** — patent licensing applies to shipping one, so pictkura uses whatever the OS already has. On **Windows** that means installing "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) before HEIC photos get a picture. On **macOS there is nothing to install**: ImageIO and the HEVC decoder ship with the system. **Linux** has no route yet |
-| **Video thumbnails narrow outside Windows** | Windows uses the Shell and covers every container listed. **macOS** uses AVFoundation, which only opens `mp4` `m4v` `mov` `3gp` — everything else stays an empty frame. **Linux** (distro thumbnailers) is not wired up at all |
+| **Video thumbnails narrow outside Windows** | Windows uses the Shell and covers every container listed. **macOS** uses AVFoundation, which answers for what it can open — `mp4` and `mov` confirmed, `.avi` confirmed empty, the rest untested. **Linux** (distro thumbnailers) is not wired up at all |
 | **Duration and dimensions outside `mp4` `m4v` `mov` `3gp`** | Read straight from the container header for those four. Other containers rely on the **Windows** Shell; on **macOS** and **Linux** they show no duration or dimensions, and the date falls back to the file name or modification time |
 | **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
 | **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date |
