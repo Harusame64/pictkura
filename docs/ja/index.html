@@ -69,7 +69,7 @@
 
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow" style="margin:0">Windows 10 / 11 と macOS 11 以降　—　v<span data-ver>0.2</span></p>
+    <p class="eyebrow" style="margin:0">Windows 10 / 11 と macOS 11 以降　—　v<span data-ver>0.2.3</span></p>
     <h1 class="disp">数万枚を、<br>待たずに。</h1>
     <p>やることは、カードから取り込むことと、ためこんだ写真を並べて見ること。<strong class="em">この二つだけ</strong>に絞って、Rust で書きました。作らなかったぶんは、そのまま速さに回っています。</p>
     <div class="hero-cta">
@@ -318,33 +318,37 @@
 <section class="section photo" id="download">
   <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:48px">
     <div>
-      <p class="eyebrow" style="margin-bottom:16px">Download &nbsp;—&nbsp; v<span data-ver>0.2</span></p>
+      <p class="eyebrow" style="margin-bottom:16px">Download &nbsp;—&nbsp; v<span data-ver>0.2.3</span></p>
       <h2 class="disp" style="font-size:38px">登録も、支払いも要りません</h2>
     </div>
     <p class="mono" style="margin:0;font-size:12px;color:var(--text-faint);line-height:2;text-align:right">Windows 10/11 (x64)<br>macOS 11+ (Apple Silicon)</p>
   </div>
-  <!-- 押せばそのまま落ちる。埋めてあるのは書いた時点の版で、`assets/download.js` が
-       最新へ差し替える（引けなかったときは下の断りが出る） -->
+  <!-- 押せばそのまま落ちる。埋めてあるのは書いた時点の版で、ふだんは
+       `assets/download.js` が最新へ差し替える。差し替わらないのは下の断りの中の
+       版番号だけで、引けなかったときはこの写しがそのまま人前に出る。
+       同じ写しが4ファイルにある——`{en,ja}/index.html` と `{en,ja}/download.html`。
+       版を出したら4つとも手で更新すること（版番号・ファイル名・リンク・サイズ）。
+       0.2.1 と 0.2.2 で2回続けて忘れ、v0.2.0 を出し続けていた -->
   <div class="tiles">
-    <a class="tile pick" data-file="x64-setup.exe" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v0.2.0/pictkura_0.2.0_x64-setup.exe">
+    <a class="tile pick" data-file="x64-setup.exe" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v0.2.3/pictkura_0.2.3_x64-setup.exe">
       <h3 style="display:flex;align-items:baseline;gap:10px">Windows インストーラ <span class="badge">推奨</span></h3>
       <p>管理者権限は不要です。自分のユーザーにだけ入ります。</p>
-      <p class="file"><span data-name>pictkura_0.2.0_x64-setup.exe</span>　<span data-size>7.1 MB</span></p>
+      <p class="file"><span data-name>pictkura_0.2.3_x64-setup.exe</span>　<span data-size>7.6 MB</span></p>
     </a>
-    <a class="tile" data-file="x64-portable.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v0.2.0/pictkura_0.2.0_x64-portable.zip">
+    <a class="tile" data-file="x64-portable.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v0.2.3/pictkura_0.2.3_x64-portable.zip">
       <h3>Windows 持ち歩き版</h3>
       <p>展開して <code class="mono">pictkura.exe</code> を起動するだけ。インストールしません。</p>
-      <p class="file"><span data-name>pictkura_0.2.0_x64-portable.zip</span>　<span data-size>9.5 MB</span></p>
+      <p class="file"><span data-name>pictkura_0.2.3_x64-portable.zip</span>　<span data-size>10.1 MB</span></p>
     </a>
-    <a class="tile" data-file="arm64.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v0.2.0/pictkura_0.2.0_arm64.zip">
+    <a class="tile" data-file="arm64.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v0.2.3/pictkura_0.2.3_arm64.zip">
       <h3>macOS</h3>
       <p>Apple Silicon 向け。初回だけ Gatekeeper の手順が要ります。</p>
-      <p class="file"><span data-name>pictkura_0.2.0_arm64.zip</span>　<span data-size>8.8 MB</span></p>
+      <p class="file"><span data-name>pictkura_0.2.3_arm64.zip</span>　<span data-size>9.4 MB</span></p>
     </a>
   </div>
   <a class="more" href="download.html">その他のダウンロード（MSI・言語別インストーラを含む、すべてのファイル）→</a>
   <div class="note warn" data-stale hidden style="margin-top:28px">
-    <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>上の 3 つは <b>v0.2.0</b> のファイルで、これが最新とは限りません。<a href="download.html">ダウンロードの頁</a>か <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>で確かめてください。</p>
+    <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>上の 3 つは <b>v0.2.3</b> のファイルで、これが最新とは限りません。<a href="download.html">ダウンロードの頁</a>か <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>で確かめてください。</p>
   </div>
   <div class="note warn" style="margin-top:28px">
     <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> 壊れているわけでも、何かに感染しているわけでもありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に全部書いてあります。</p>
