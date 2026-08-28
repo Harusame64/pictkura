@@ -445,7 +445,6 @@ Only date folders are then added underneath.
 <ol>
   <li><strong>EXIF capture time</strong> — written by the camera or phone</li>
   <li><strong>What the OS already knows</strong> — available even when the file only exists in the cloud</li>
-  <li><strong>The date already recorded for that photo</strong> — used when a photo is looked at again later, so that a pass which reads nothing cannot erase a date that was read before (skipped when the recorded date is the modification time, which means nothing has been read yet)</li>
   <li><strong>A date in the file name</strong> — used when the name carries one, as in <code>2024-01-01 12.34.56.jpg</code></li>
   <li><strong>File modification time</strong> — when none of the above exist</li>
 </ol>
@@ -453,6 +452,12 @@ Only date folders are then added underneath.
 Screenshots and images saved from social apps usually carry no EXIF, and modification time
 alone files them under “the day you saved it”. When the name carries a date, that wins, so
 they land on the right day.
+</p>
+<p>
+A file pictkura can make no picture for — a RAW with no usable preview, say — is looked at
+again on every startup. For those, a date already recorded comes third in the list, ahead of
+the file name and the modification time, so a pass that reads nothing cannot erase a date
+that was read before.
 </p>
 
 <h2 id="search">4. Find</h2>
