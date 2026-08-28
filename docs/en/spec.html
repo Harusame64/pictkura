@@ -51,7 +51,7 @@
   <p class="lead">What it does, what it does not, the file formats it handles, what it needs to run, and where it keeps its data. Only facts we have actually checked.</p>
   <p class="stamps">
     <span>Version &nbsp;<b>0.2</b></span>
-    <span>Updated &nbsp;<b>2026-08-22</b></span>
+    <span>Updated &nbsp;<b>2026-08-29</b></span>
     <span>Licence &nbsp;<b>MIT</b></span>
   </p>
   <span class="by">Photo: Wikimedia Commons, CC0</span>
@@ -133,6 +133,7 @@
             <tr><td class="k">Video thumbnails (macOS, some containers)</td><td>Only what AVFoundation can open is shown: <code>mp4</code> and <code>mov</code> confirmed working with H.264 and HEVC (<code>hvc1</code>) samples, <code>.avi</code> confirmed empty, other containers untested. Windows borrows from the Shell instead, which has its own limits — <code>.m2ts</code> was never checked there, and a container the OS has no codec for comes back empty</td></tr>
             <tr><td class="k">Duration and dimensions on macOS outside <code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code></td><td>Those four are read from the container header. The rest depend on the Windows Shell, so macOS shows no duration or dimensions, and the capture date falls back to the file name or the modification time</td></tr>
             <tr><td class="k">Playing <code>.m2ts</code> / <code>.avi</code> in-app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
+            <tr><td class="k">A size for a RAW that declares none</td><td>Dimensions come from the file's own declaration, from the sensor borders in Panasonic's own RAW formats (<code>rw2</code> <code>raw</code> <code>rwl</code>), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG we tested — shows no size. On Windows a file that only exists in the cloud is the exception: the Shell supplies its dimensions without downloading it</td></tr>
             <tr><td class="k">Rebuilding the index from the UI</td><td>Delete <code>pictkura.db</code> in the settings folder and it is rebuilt</td></tr>
             <tr><td class="k">Right-to-left layout</td><td>Not supported</td></tr>
           </tbody>

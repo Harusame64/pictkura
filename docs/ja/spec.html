@@ -51,7 +51,7 @@
   <p class="lead">できること、できないこと、対応しているファイル形式、動作環境、データの置き場所。導入を検討する際に必要な事実のみを、実際に確認した範囲で記載しています。</p>
   <p class="stamps">
     <span>バージョン &nbsp;<b>0.2</b></span>
-    <span>最終更新 &nbsp;<b>2026-08-22</b></span>
+    <span>最終更新 &nbsp;<b>2026-08-29</b></span>
     <span>ライセンス &nbsp;<b>MIT</b></span>
   </p>
   <span class="by">Photo: Wikimedia Commons, CC0</span>
@@ -132,6 +132,7 @@
             <tr><td class="k">動画のサムネイル（macOS・一部のコンテナ）</td><td>macOS の AVFoundation が開けたものだけ表示します。<code>mp4</code> と <code>mov</code> は H.264 と HEVC（<code>hvc1</code>）の見本で表示、<code>.avi</code> は枠だけになることを確認済みで、他のコンテナは未検証です。Windows はシェルから借りますが、そちらにも限界はあります——<code>.m2ts</code> は未確認で、OS にコーデックが無いコンテナは枠だけになります</td></tr>
             <tr><td class="k">長さ・寸法（macOS・<code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code> 以外）</td><td>この 4 つはコンテナのヘッダから読み取ります。他のコンテナは Windows のシェルに依存するため、macOS では長さも寸法も表示されず、撮影日時はファイル名か更新日時に落ちます</td></tr>
             <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が該当するコンテナに対応していません。一覧には表示されます</td></tr>
+            <tr><td class="k">どこにも寸法を申告していないRAWの寸法</td><td>寸法は、ファイル自身の申告か、Panasonic系のRAW（<code>rw2</code> <code>raw</code> <code>rwl</code>）に入っているセンサーの縁か、埋め込みプレビューから決まります。そのどれも無いRAW（確かめたものでは Blackmagic の CinemaDNG）は寸法が出ません。例外はWindowsでクラウドにしか実体が無いファイルで、そちらは実体を落とさずにシェルが寸法を返します</td></tr>
             <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を削除すると再作成します</td></tr>
             <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
           </tbody>
