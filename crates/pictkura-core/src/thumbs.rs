@@ -436,24 +436,30 @@ fn record_metadata_without_preview(
     if !readable {
         return Ok(());
     }
-    // 順番は絵のある道と同じ: EXIF → OSのプロパティ → 名前 → mtime。
+    // 順番は EXIF → OSのプロパティ → **前に読めた値** → 名前 → mtime。
     //
-    // **最後の mtime の前に、既に入っている値を見る**（PRコメント側のCodexのP2）。
-    // ここは同じ行に何度も来る——絵を作れないファイルは `width` が埋まらないので
-    // [`Db::ids_missing_metadata`] が起動のたびに投げ直す。1周目にOSのプロパティ
-    // から正しい撮影日が入り、2周目にたまたま何も取れなかった（同期の途中で
-    // Shellが黙る等）とき、`.or(Some(record.mtime_ms))` だけだと**正しい日付を
-    // 取り込んだ日で塗り潰す**。既にある値は「前に読めたもの」なので、
-    // 何も読めなかった今回の mtime より強い。
+    // **ここは同じ行に何度も来る。** 絵を作れないファイルは `width` が埋まらないので
+    // [`Db::ids_missing_metadata`] が起動のたびに投げ直す。1周目に正しい撮影日が
+    // 入り、2周目にたまたま何も取れない（EXIFが空・同期の途中でShellが黙る）
+    // ことがある。そこで既にある値を見ずに先へ落ちると:
     //
-    // 名前より後ろに置くのは、順番を変えないため——既にある値が前回の mtime
-    // だった場合は名前が勝ってほしい（[`Db::rows_with_fallback_taken_at`] が
-    // `taken_at_ms = mtime_ms` の行を投げ直すのと同じ考え）。
+    // - `mtime` まで落ちれば、**正しい日付が取り込んだ日になる**
+    // - 名前に日付らしき文字列があれば、**そちらが正しい日付を上書きする**。
+    //   [`crate::namedate::guess_taken_at`] は最後の手段の推測であって、
+    //   EXIFやOSのプロパティより強いことは無い
+    //
+    // どちらも「読めなかった今回」が「読めていた前回」を消す形で、
+    // [`Db::update_shell_metadata`] がわざわざ避けているのと逆になる
+    // （PRコメント側のCodexのP2、2件）。
+    //
+    // **ただし `mtime` と同じ値は「まだ何も分かっていない」印**なので、
+    // そこは名前に譲る——[`Db::rows_with_fallback_taken_at`] が
+    // `taken_at_ms = mtime_ms` の行を投げ直しているのは、名前で直させるためである。
     let taken_at_ms = exif
         .taken_at_ms
         .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
+        .or(record.taken_at_ms.filter(|at| *at != record.mtime_ms))
         .or_else(|| crate::namedate::guess_taken_at(src))
-        .or(record.taken_at_ms)
         .or(Some(record.mtime_ms));
     // 申告が無いなら**寸法だけ**を諦める。読めている日付とカメラはここで書く
     let Some(original) = exif.original else {
@@ -2273,6 +2279,67 @@ mod tests {
         );
         assert_eq!(rec.day_key, 20170714, "並ぶ日も動かない");
         assert_eq!(rec.width, None, "申告が無いので寸法は触らないまま");
+    }
+
+    #[test]
+    fn a_misleading_filename_does_not_move_a_date_we_already_read() {
+        // 名前からの日付は**最後の手段の推測**で、EXIFやOSのプロパティより
+        // 強いことは無い。ところがこの行は投げ直され続けるので、
+        // 1周だけ何も読めなければ、名前の日付が正しい日付を追い出せてしまう。
+        // 実物の名前は当てにならない——コピー時に付け直された日付、
+        // 別の写真から引き継いだ連番、機種名に紛れた数字
+        let dir = tempfile::tempdir().unwrap();
+        // 名前は2024-08-20と言っているが、前に読めた日付は2017-07-14
+        let src = dir.path().join("2024-08-20 12.34.56.cr3");
+        std::fs::write(&src, fake_cr3_without_preview(None)).unwrap();
+        let mut db = Db::open(&dir.path().join("named.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: 1,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_shell_metadata(id, 0, 0, Some(1_500_000_000_000))
+            .unwrap();
+
+        assert!(process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err());
+
+        assert_eq!(
+            db.get_by_id(id).unwrap().unwrap().taken_at_ms,
+            Some(1_500_000_000_000),
+            "名前の推測が、前に読めた日付を追い出さない"
+        );
+    }
+
+    #[test]
+    fn a_row_still_sitting_on_its_mtime_can_still_be_fixed_by_its_name() {
+        // 逆側の歯止め。`taken_at_ms = mtime_ms` は「まだ何も分かっていない」印で、
+        // `rows_with_fallback_taken_at` が名前で直させるために投げ直している行。
+        // ここを「前に読めた値」として守ると、その道を塞ぐ
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("2024-08-20 12.34.56.cr3");
+        std::fs::write(&src, fake_cr3_without_preview(None)).unwrap();
+        let mut db = Db::open(&dir.path().join("stale.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src.clone(),
+            size: 1,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        // 前の周が mtime まで落ちた後の状態（＝まだ何も分かっていない行）
+        db.update_shell_metadata(id, 0, 0, Some(42)).unwrap();
+
+        assert!(process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err());
+
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            rec.taken_at_ms,
+            crate::namedate::guess_taken_at(&src),
+            "mtimeのままの行は、名前で直る"
+        );
+        assert_ne!(rec.taken_at_ms, Some(rec.mtime_ms));
     }
 
     #[test]
