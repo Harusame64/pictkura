@@ -192,7 +192,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">一覧に並ぶこと自体はどのOSでも同じで、変わるのは絵が付くかどうかです。上の表の「一覧」欄は Windows で確かめたぶんで、しかもその絵は OS が出せると答えたぶんです。動画のサムネイルは OS から取得するため、そのOSがコンテナを開ける範囲までが上限になります。Windows はシェル経由（<code>.avi</code> と HEVC の <code>.mov</code> は確認済み、<code>.m2ts</code> は未確認、OS にコーデックが無いものは枠だけ）、<b>macOS は AVFoundation が開けたものだけ</b>（<code>mp4</code>・<code>mov</code> は H.264 と HEVC の見本で表示、<code>.avi</code> は枠だけ、他は未検証）です。再生時間・寸法・撮影日時は <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> の 4 つをコンテナのヘッダから読み取り（画素の復号は行いません）、他のコンテナは Windows のシェルに依存します。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">一覧に並ぶこと自体はどのOSでも同じで、変わるのは絵が付くかどうかです。上の表の「一覧」欄は Windows で確かめたぶんで、しかもその絵は OS が出せると答えたぶんです。動画のサムネイルは OS から取得するため、そのOSがコンテナを開ける範囲までが上限になります。Windows はシェル経由（<code>.avi</code> と HEVC の <code>.mov</code> は確認済み、<code>.m2ts</code> は未確認、OS にコーデックが無いものは枠だけ）、<b>macOS は AVFoundation が開けたものだけ</b>（<code>mp4</code>・<code>mov</code> は H.264 と HEVC（<code>hvc1</code>）の見本で表示、<code>.avi</code> は枠だけ、他は未検証）です。再生時間・寸法・撮影日時は <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> の 4 つをコンテナのヘッダから読み取り（画素の復号は行いません）、他のコンテナは Windows のシェルに依存します。</p>
     </section>
 
     <section id="network">

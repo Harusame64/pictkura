@@ -352,8 +352,8 @@ come out upright, and the shot date and camera name are read.
 | `avi` `mts` `m2ts` `mkv` `3gp` `wmv` `mpg` `mpeg` | ✅ | ❌ | playback opens your default player |
 
 **Appearing in the grid is the same on every platform.** What changes is whether a picture
-comes with it — the ✅ above is what was checked on Windows, and even there the picture is
-the OS's answer rather than ours. What sits behind it:
+comes with it — the ✅ in the grid column above is what was checked on Windows, and even
+there the picture is the OS's answer rather than ours. What sits behind it:
 
 - **Thumbnails** are borrowed from the OS, so a container is covered exactly as far as the
   OS can open it. On **Windows** that is the Shell, the same mechanism Explorer uses:

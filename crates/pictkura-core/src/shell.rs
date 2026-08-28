@@ -84,8 +84,8 @@ pub fn thumbnail(path: &Path, max_edge: u32) -> Option<image::DynamicImage> {
 ///   縦位置で撮った動画がそのまま縦で返る（HEIFの `irot` で踏んだ
 ///   「デコーダが回したかどうか」の見分けが、こちらでは要らない）
 ///
-/// AVFoundationが開けない相手は `None`。`.avi` は開けないことを実測済み、
-/// `.m2ts` は**未測定**。
+/// AVFoundationが開けない相手は `None`。`.avi` は**絵が返らないことを実測済み**
+/// （開けたかどうかまでは見ていない）、`.m2ts` は**未測定**。
 /// そこをQuickLookで拾うかは、**固まる問題を解いてから**判断する。
 #[cfg(target_os = "macos")]
 mod macos_av {
