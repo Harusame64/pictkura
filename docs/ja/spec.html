@@ -129,7 +129,8 @@
             <tr><td class="k">タグ・キーワード付け</td><td>実装していません。印は ★ と ⚑ の 2 種類のみです</td></tr>
             <tr><td class="k">並び順の変更</td><td>撮影日の新しい順に固定しており、変更する手段はありません</td></tr>
             <tr><td class="k">取り込みの中断</td><td>開始後は完了まで中断できません</td></tr>
-            <tr><td class="k">動画のサムネイル（macOS / Linux）</td><td>Windows のみ対応。その他は未対応（未実装）です</td></tr>
+            <tr><td class="k">動画のサムネイル（macOS・一部のコンテナ）</td><td>macOS の AVFoundation が開けたものだけ表示します。<code>mp4</code> と <code>mov</code> は H.264 と HEVC（<code>hvc1</code>）の見本で表示、<code>.avi</code> は枠だけになることを確認済みで、他のコンテナは未検証です。Windows はシェルから借りますが、そちらにも限界はあります——<code>.m2ts</code> は未確認で、OS にコーデックが無いコンテナは枠だけになります</td></tr>
+            <tr><td class="k">長さ・寸法（macOS・<code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code> 以外）</td><td>この 4 つはコンテナのヘッダから読み取ります。他のコンテナは Windows のシェルに依存するため、macOS では長さも寸法も表示されず、撮影日時はファイル名か更新日時に落ちます</td></tr>
             <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が該当するコンテナに対応していません。一覧には表示されます</td></tr>
             <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を削除すると再作成します</td></tr>
             <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
@@ -187,11 +188,11 @@
           <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:130px">アプリ内再生</th><th>備考</th></tr></thead>
           <tbody>
             <tr><td class="k mono">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>コーデックは OS のものを使用します（HEVC は上記の拡張機能が必要です）</td></tr>
-            <tr><td class="k mono" style="line-height:2">avi mts m2ts mkv 3gp wmv mpg mpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td class="no" aria-label="非対応">—</td><td>サムネイル・再生時間・日付は表示します。再生は既定のプレイヤーで行います</td></tr>
+            <tr><td class="k mono" style="line-height:2">avi mts m2ts mkv 3gp wmv mpg mpeg</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td class="no" aria-label="非対応">—</td><td>再生は既定のプレイヤーで行います</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">動画のサムネイルは OS から取得します（現在は Windows のみ）。再生時間・寸法・撮影日時はコンテナのヘッダから読み取り、画素の復号は行いません。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">一覧に並ぶこと自体はどのOSでも同じで、変わるのは絵が付くかどうかです。上の表の「一覧」欄は Windows で確かめたぶんで、しかもその絵は OS が出せると答えたぶんです。動画のサムネイルは OS から取得するため、そのOSがコンテナを開ける範囲までが上限になります。Windows はシェル経由（<code>.avi</code> と HEVC の <code>.mov</code> は確認済み、<code>.m2ts</code> は未確認、OS にコーデックが無いものは枠だけ）、<b>macOS は AVFoundation が開けたものだけ</b>（<code>mp4</code>・<code>mov</code> は H.264 と HEVC（<code>hvc1</code>）の見本で表示、<code>.avi</code> は枠だけ、他は未検証）です。再生時間・寸法・撮影日時は <code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> の 4 つをコンテナのヘッダから読み取り（画素の復号は行いません）、他のコンテナは Windows のシェルに依存します。</p>
     </section>
 
     <section id="network">

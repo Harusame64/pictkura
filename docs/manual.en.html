@@ -645,13 +645,35 @@ rendering.
 <table>
   <tr><th>Format</th><th class="center">Grid</th><th class="center">Plays in app</th><th>Notes</th></tr>
   <tr><td><code>mp4</code> <code>m4v</code> <code>mov</code> <code>webm</code></td><td class="center">✅</td><td class="center">✅</td><td>Codecs depend on the OS (HEVC — see below)</td></tr>
-  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>Thumbnail, duration and capture date still appear in the grid. Use “Open in default app” to play</td></tr>
+  <tr><td><code>avi</code> <code>mts</code> <code>m2ts</code> <code>mkv</code> <code>3gp</code> <code>wmv</code> <code>mpg</code> <code>mpeg</code></td><td class="center">✅</td><td class="center">❌</td><td>Use “Open in default app” to play</td></tr>
 </table>
 </div>
 <p>
-Grid thumbnails are borrowed from the OS thumbnail service (<strong>Windows only for now</strong>).
-Duration, dimensions and capture time come from the container header alone — not a single byte
-of pixel data is read.
+<strong>Appearing in the grid is the same on every platform.</strong> What changes is whether a
+picture comes with it: the ✅ in the grid column above is what was checked on Windows, and
+even there the picture is the OS's answer rather than ours. Grid thumbnails are borrowed from
+the OS, so a container is
+covered exactly as far as the OS can open it. On Windows that is the Shell, the same mechanism
+Explorer uses: <code>.avi</code> and HEVC <code>.mov</code> were measured coming back with a
+frame, <code>.m2ts</code> has never been checked, and anything the OS has no handler or codec
+for comes back empty. That HEVC measurement was taken on a machine with the paid extension
+described below installed; it was never tried without it.
+<strong>AVFoundation on macOS answers only for what it can open</strong> — <code>mp4</code>
+and <code>mov</code> were measured returning a real frame, with H.264 and with HEVC
+(<code>hvc1</code>, the fourcc an iPhone writes), though those HEVC samples were re-encoded by
+macOS itself rather than written by a phone. <code>.avi</code> was
+measured returning nothing. Anything not named here is untested on both: a picture is
+possible, not promised. Linux has no route at all.
+</p>
+<p>
+Duration, dimensions and capture time come from the container header for <code>mp4</code>,
+<code>m4v</code>, <code>mov</code> and <code>3gp</code> — not a single byte of pixel data is
+read. Note that <code>webm</code> is <em>not</em> among them, despite sitting in the first row
+above. The other containers have nothing but the Windows Shell to fall back on — measured with
+a synthetic <code>.m2ts</code>, which came back with both duration and dimensions; the rest
+were never checked.
+<strong>On macOS and Linux those containers show no duration or dimensions</strong>, and the
+date falls back to the file name or the modification time.
 </p>
 
 <h2 id="cloud">8. Files that only exist in the cloud</h2>
@@ -711,7 +733,8 @@ With that off, pictkura never reaches the network at all — and you can still p
     <td>HEIC / HEVC need OS components on Windows</td>
     <td><strong>The HEVC decoder is not bundled</strong> — patent licensing makes that impractical, so pictkura uses the one the OS has. On <strong>Windows</strong> that means installing “HEIF Image Extensions” (free) plus “HEVC Video Extensions” (paid, about a dollar) to decode the pixels; the app tells you when one is missing. On <strong>macOS there is nothing to install</strong> — ImageIO and the HEVC decoder ship with the system</td>
   </tr>
-  <tr><td>Video thumbnails are Windows-only</td><td>macOS and Linux are not supported yet; you get empty frames</td></tr>
+  <tr><td>Video thumbnails go only as far as the OS can open the container</td><td>On Windows the Shell provides them — <code>.avi</code> and HEVC <code>.mov</code> measured working, <code>.m2ts</code> never checked, anything the OS has no handler or codec for comes back empty. <strong>macOS shows what AVFoundation can open</strong> — <code>mp4</code> and <code>mov</code> measured working with H.264 and HEVC (<code>hvc1</code>) samples, <code>.avi</code> measured empty, every other container untested. <strong>Linux has no route at all</strong></td></tr>
+  <tr><td>Duration and dimensions outside <code>mp4</code>, <code>m4v</code>, <code>mov</code>, <code>3gp</code></td><td>Those four are read straight from the container header. The rest rely on the Windows Shell (measured with a synthetic <code>.m2ts</code> only); on macOS and Linux they show no duration or dimensions (the date falls back to the file name or modification time)</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
   <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
