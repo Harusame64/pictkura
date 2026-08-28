@@ -2974,7 +2974,7 @@ dependencies = [
 
 [[package]]
 name = "pictkura"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "libc",
@@ -2996,7 +2996,7 @@ dependencies = [
 
 [[package]]
 name = "pictkura-core"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "chrono",
  "fast_image_resize",
