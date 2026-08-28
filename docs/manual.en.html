@@ -445,6 +445,7 @@ Only date folders are then added underneath.
 <ol>
   <li><strong>EXIF capture time</strong> — written by the camera or phone</li>
   <li><strong>What the OS already knows</strong> — available even when the file only exists in the cloud</li>
+  <li><strong>The date already recorded for that photo</strong> — used when a photo is looked at again later, so that a pass which reads nothing cannot erase a date that was read before (skipped when the recorded date is the modification time, which means nothing has been read yet)</li>
   <li><strong>A date in the file name</strong> — used when the name carries one, as in <code>2024-01-01 12.34.56.jpg</code></li>
   <li><strong>File modification time</strong> — when none of the above exist</li>
 </ol>
