@@ -436,11 +436,24 @@ fn record_metadata_without_preview(
     if !readable {
         return Ok(());
     }
-    // 順番は絵のある道と同じ: EXIF → OSのプロパティ → 名前 → mtime
+    // 順番は絵のある道と同じ: EXIF → OSのプロパティ → 名前 → mtime。
+    //
+    // **最後の mtime の前に、既に入っている値を見る**（PRコメント側のCodexのP2）。
+    // ここは同じ行に何度も来る——絵を作れないファイルは `width` が埋まらないので
+    // [`Db::ids_missing_metadata`] が起動のたびに投げ直す。1周目にOSのプロパティ
+    // から正しい撮影日が入り、2周目にたまたま何も取れなかった（同期の途中で
+    // Shellが黙る等）とき、`.or(Some(record.mtime_ms))` だけだと**正しい日付を
+    // 取り込んだ日で塗り潰す**。既にある値は「前に読めたもの」なので、
+    // 何も読めなかった今回の mtime より強い。
+    //
+    // 名前より後ろに置くのは、順番を変えないため——既にある値が前回の mtime
+    // だった場合は名前が勝ってほしい（[`Db::rows_with_fallback_taken_at`] が
+    // `taken_at_ms = mtime_ms` の行を投げ直すのと同じ考え）。
     let taken_at_ms = exif
         .taken_at_ms
         .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
         .or_else(|| crate::namedate::guess_taken_at(src))
+        .or(record.taken_at_ms)
         .or(Some(record.mtime_ms));
     // 申告が無いなら**寸法だけ**を諦める。読めている日付とカメラはここで書く
     let Some(original) = exif.original else {
@@ -2225,6 +2238,41 @@ mod tests {
         assert!(failed);
         assert_eq!(rec.width, None, "申告が無いので寸法は触らない");
         assert_eq!(rec.taken_at_ms, Some(rec.mtime_ms), "最後の手段の mtime");
+    }
+
+    #[test]
+    fn a_date_we_already_had_survives_a_pass_that_reads_nothing() {
+        // **同じ行に何度も来る。** 絵を作れないファイルは `width` が埋まらないので、
+        // `ids_missing_metadata` が起動のたびに投げ直す。1周目にOSのプロパティから
+        // 正しい撮影日が入り、2周目にたまたま何も取れなかった（同期の途中で
+        // Shellが黙る等）とき、最後の mtime へ落とすと**正しい日付を
+        // 取り込んだ日で塗り潰す**——取り込んだ日の束に並び直してしまう
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("bare.cr3");
+        std::fs::write(&src, fake_cr3_without_preview(None)).unwrap();
+        let mut db = Db::open(&dir.path().join("again.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: 1,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        // 1周目にOSのプロパティから入った日付（寸法は返らなかった）
+        db.update_shell_metadata(id, 0, 0, Some(1_500_000_000_000))
+            .unwrap();
+
+        // 2周目。EXIFも名前も何も出さない
+        assert!(process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err());
+
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            rec.taken_at_ms,
+            Some(1_500_000_000_000),
+            "前に読めた日付を mtime で塗り潰さない"
+        );
+        assert_eq!(rec.day_key, 20170714, "並ぶ日も動かない");
+        assert_eq!(rec.width, None, "申告が無いので寸法は触らないまま");
     }
 
     #[test]
