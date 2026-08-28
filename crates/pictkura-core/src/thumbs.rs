@@ -398,19 +398,32 @@ fn recorded_dimensions(
 
 /// プレビューを作れなかったファイルにも、**読めた素性だけは**記録する。
 ///
-/// **書くのは「読めて、原寸の申告まで取れた」ときだけ。** それ以外は何もしない
-/// ——[`Db::update_metadata`] は列を**無条件に上書きする**ので、
-/// 中途半端に呼ぶと分かっていた値まで潰す:
+/// **読めたときだけ書く。** 読めていないなら何もしない——外付けが未接続・
+/// 共有ロック・権限で `ExifData` が空のまま呼ぶと、`camera` が `None` →
+/// `CAMERA_NONE`（＝「確認済みだがカメラ情報なし」）が焼き付き、起動時の
+/// カメラ後追い（[`Db::cameras_to_backfill`] は `camera_id IS NULL` を見る）から
+/// **永久に外れる**。ドライブを挿し忘れた1回の起動で、
+/// そのライブラリのカメラ絞り込みが死ぬ。
 ///
-/// - **読めなかったとき**（外付けが未接続・共有ロック・権限）は `ExifData` が空。
-///   そこから呼ぶと `camera` が `None` → `CAMERA_NONE`（＝「確認済みだが
-///   カメラ情報なし」）が焼き付き、起動時のカメラ後追い
-///   （[`Db::cameras_to_backfill`] は `camera_id IS NULL` を見る）から**永久に外れる**。
-///   ドライブを挿し忘れた1回の起動で、そのライブラリのカメラ絞り込みが死ぬ
-/// - **原寸の申告が無いとき**は寸法に0しか書けない。申告が入るのは**RAWだけ**
-///   （[`ExifData::original`]）なので、それ以外は必ず0になり、
-///   OSから借りて入れた寸法を潰す。[`Db::update_shell_metadata`] が
-///   わざわざ「0で既存の値を消さない」形にしているのと逆をやることになる
+/// 読めたなら、**書ける列だけを書く**。原寸の申告
+/// （[`ExifData::original`]）が無ければ寸法には0しか書けず、
+/// [`Db::update_metadata`] は列を**無条件に上書きする**ので、
+/// OSから借りて入れた寸法を潰してしまう（[`Db::update_shell_metadata`] が
+/// わざわざ「0で既存の値を消さない」形にしているのと逆になる）。
+/// そこは寸法に触らない [`Db::update_metadata_keeping_dimensions`] へ回す。
+///
+/// **申告が無いことを理由に撮影日時とカメラまで捨てない。** 旧Panasonicの
+/// `.RAW`（DMC-LX1 / DMC-FZ8）は絵も `PixelXDimension` も持たないが、
+/// カメラ名と撮影日時は読める。以前ここで丸ごと抜けていたので、
+/// 2枚とも取り込んだ日の束に並び、カメラの絞り込みからも消えていた。
+///
+/// **`readable` だけではEXIFが解けた証拠にならない。** 申告が読めた道
+/// （[`Db::update_metadata`]）はそれ自体が証拠だが、申告が無い道には無い
+/// ——ここはRAW以外も通り（申告を信じるのはRAWだけ）、途中まで同期された
+/// HEIFのように**中身が読めなくても `readable` が真**のまま来る個体がある
+/// （`InvalidFormat` は読み出しの失敗ではない）。だから
+/// [`Db::update_metadata_keeping_dimensions`] は、カメラ名が取れなかったときは
+/// `camera_id` を**未確認のまま残す**。
 fn record_metadata_without_preview(
     db: &mut Db,
     id: i64,
@@ -423,8 +436,15 @@ fn record_metadata_without_preview(
     if !readable {
         return Ok(());
     }
-    // 申告が無いなら寸法を触らない（上の2つ目）
+    // 順番は絵のある道と同じ: EXIF → OSのプロパティ → 名前 → mtime
+    let taken_at_ms = exif
+        .taken_at_ms
+        .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
+        .or_else(|| crate::namedate::guess_taken_at(src))
+        .or(Some(record.mtime_ms));
+    // 申告が無いなら**寸法だけ**を諦める。読めている日付とカメラはここで書く
     let Some(original) = exif.original else {
+        db.update_metadata_keeping_dimensions(id, taken_at_ms, exif.camera.as_deref())?;
         return Ok(());
     };
     let dims = recorded_dimensions(
@@ -440,16 +460,7 @@ fn record_metadata_without_preview(
         original,
         exif.orientation,
     );
-    db.update_metadata(
-        id,
-        dims,
-        // 順番は絵のある道と同じ: EXIF → OSのプロパティ → 名前 → mtime
-        exif.taken_at_ms
-            .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
-            .or_else(|| crate::namedate::guess_taken_at(src))
-            .or(Some(record.mtime_ms)),
-        exif.camera.as_deref(),
-    )?;
+    db.update_metadata(id, dims, taken_at_ms, exif.camera.as_deref())?;
     Ok(())
 }
 
@@ -1979,30 +1990,77 @@ mod tests {
         preview: Option<(u32, u32)>,
         orientation: u32,
     ) -> Vec<u8> {
+        fake_cr3_full(orig, preview, orientation, None)
+    }
+
+    /// CMT1に入れるタグの値。ASCIIは4バイトに収まらなければ
+    /// IFDの後ろへ置いてオフセットで指す（TIFFの規則）。
+    enum Cmt1<'a> {
+        Long(u32),
+        Ascii(&'a str),
+    }
+
+    /// メーカー名と機種名まで指定できる版。
+    /// `camera` は `(Make, Model)`——旧Panasonicの `.RAW` と同じく、
+    /// **寸法の申告は無いがカメラ名は読める**ファイルを作るために要る。
+    fn fake_cr3_full(
+        orig: Option<(u32, u32)>,
+        preview: Option<(u32, u32)>,
+        orientation: u32,
+        camera: Option<(&str, &str)>,
+    ) -> Vec<u8> {
         fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
             let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
             out.extend_from_slice(kind);
             out.extend_from_slice(body);
             out
         }
-        // ImageWidth(0x0100) / ImageLength(0x0101) だけのTIFF（リトルエンディアン）
+        // ImageWidth(0x0100) / ImageLength(0x0101) 等を持つTIFF（リトルエンディアン）
         let mut cmt1 = b"II*\x00".to_vec();
         cmt1.extend(8u32.to_le_bytes());
-        let mut entries: Vec<(u16, u32)> = match orig {
-            Some((w, h)) => vec![(0x0100, w), (0x0101, h)],
+        let mut entries: Vec<(u16, Cmt1)> = match orig {
+            Some((w, h)) => vec![(0x0100, Cmt1::Long(w)), (0x0101, Cmt1::Long(h))],
             None => Vec::new(),
         };
-        if orientation != 1 {
-            entries.push((0x0112, orientation)); // Orientation
+        if let Some((make, model)) = camera {
+            entries.push((0x010F, Cmt1::Ascii(make)));
+            entries.push((0x0110, Cmt1::Ascii(model)));
         }
+        if orientation != 1 {
+            entries.push((0x0112, Cmt1::Long(orientation))); // Orientation
+        }
+        // TIFFのIFDはタグ番号の昇順
+        entries.sort_by_key(|(tag, _)| *tag);
+        // 4バイトに収まらない値を置く場所は、IFD（2 + 12*件数 + 4）の直後
+        let tail_start = 8 + 2 + 12 * entries.len() as u32 + 4;
+        let mut tail: Vec<u8> = Vec::new();
         cmt1.extend((entries.len() as u16).to_le_bytes());
         for (tag, value) in &entries {
             cmt1.extend(tag.to_le_bytes());
-            cmt1.extend(4u16.to_le_bytes()); // LONG
-            cmt1.extend(1u32.to_le_bytes());
-            cmt1.extend(value.to_le_bytes());
+            match value {
+                Cmt1::Long(v) => {
+                    cmt1.extend(4u16.to_le_bytes()); // LONG
+                    cmt1.extend(1u32.to_le_bytes());
+                    cmt1.extend(v.to_le_bytes());
+                }
+                Cmt1::Ascii(text) => {
+                    let mut bytes = text.as_bytes().to_vec();
+                    bytes.push(0); // NUL終端まで数える
+                    cmt1.extend(2u16.to_le_bytes()); // ASCII
+                    cmt1.extend((bytes.len() as u32).to_le_bytes());
+                    if bytes.len() <= 4 {
+                        // 収まるなら埋め込む（規則。オフセットにすると読めない）
+                        bytes.resize(4, 0);
+                        cmt1.extend(bytes);
+                    } else {
+                        cmt1.extend((tail_start + tail.len() as u32).to_le_bytes());
+                        tail.extend(bytes);
+                    }
+                }
+            }
         }
         cmt1.extend(0u32.to_le_bytes()); // 次のIFDは無し
+        cmt1.extend(tail);
 
         let mut uuid_body = vec![0u8; 16];
         uuid_body.extend(box_of(b"CMT1", &cmt1));
@@ -2104,17 +2162,107 @@ mod tests {
     }
 
     #[test]
-    fn a_raw_with_no_declaration_is_left_alone() {
-        // 申告が無ければ寸法に0しか書けない。`update_metadata` は列を**無条件に**
-        // 上書きするので、書きに行くとOSから借りて入れた寸法まで潰す。**触らない**
+    fn a_raw_with_no_declaration_keeps_its_date_and_camera() {
+        // 旧Panasonicの `.RAW`（DMC-LX1 / DMC-FZ8）と同じ形——**絵も寸法の申告も
+        // 無いが、カメラ名と撮影日時は読める**。以前はここで丸ごと抜けていたので、
+        // 2枚とも取り込んだ日の束に並び、カメラの絞り込みからも消えていた。
+        //
+        // 寸法に触らない判断そのものは正しい: 申告が無ければ0しか書けず、
+        // `update_metadata` は列を**無条件に**上書きするので、OSから借りて
+        // 入れた寸法まで潰す。諦めるのは寸法**だけ**でよい
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("2018-06-19 10.11.12.raw.cr3");
+        std::fs::write(
+            &src,
+            fake_cr3_full(None, None, 1, Some(("Panasonic", "DMC-LX1"))),
+        )
+        .unwrap();
+        let mut db = Db::open(&dir.path().join("bare.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: 1,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        // OSから寸法だけ借りている状態（申告が無いので、これが唯一の寸法）
+        db.update_shell_metadata(id, 4224, 2376, None).unwrap();
+
+        assert!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err(),
+            "絵は無いので作れない"
+        );
+
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(4224), Some(2376)),
+            "OSから借りた寸法を0で潰さない"
+        );
+        assert_eq!(
+            db.list_cameras().unwrap(),
+            vec![("Panasonic DMC-LX1".to_string(), 1)],
+            "読めているカメラ名は記録する（カメラの絞り込みに出る）"
+        );
+        assert_eq!(
+            rec.taken_at_ms,
+            crate::namedate::guess_taken_at(&rec.path),
+            "撮影日は名前から拾った日付そのもの（mtime へ落ちていない）"
+        );
+    }
+
+    #[test]
+    fn a_raw_with_nothing_readable_still_gets_a_date() {
+        // 申告もカメラ名も日付も無い個体。それでも `taken_at_ms` は
+        // 絵のある道と同じ順（EXIF → OSのプロパティ → 名前 → mtime）で
+        // 決めておく。この行は `width` がNULLのままなので、
+        // `ids_missing_metadata` が起動のたびに投げ直す
+        // （`rows_with_fallback_taken_at` のほうは、名前から mtime と違う日時を
+        //  拾える行だけに絞られるので、この個体は通らない）
         let dir = tempfile::tempdir().unwrap();
         let (rec, failed) =
             record_after_failed_process(dir.path(), "bare.cr3", &fake_cr3_without_preview(None));
         assert!(failed);
-        assert_eq!(rec.width, None, "寸法は触らない");
+        assert_eq!(rec.width, None, "申告が無いので寸法は触らない");
+        assert_eq!(rec.taken_at_ms, Some(rec.mtime_ms), "最後の手段の mtime");
+    }
+
+    #[test]
+    fn a_half_synced_file_keeps_its_place_in_the_camera_sweep() {
+        // **`readable` はEXIFが解けた証拠にならない。** 途中まで同期された
+        // ファイルは、パーサが `UnexpectedEof` を `InvalidFormat` に畳むので
+        // 「読み出しは1つも失敗していない」＝ `readable` が真のまま、
+        // `ExifData` だけが空で来る。ここで「確認済みだがカメラ情報なし」を
+        // 焼き付けると、実体が揃った後も `cameras_to_backfill`
+        // （`camera_id IS NULL AND width IS NOT NULL`）から**永久に外れる**
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("still-syncing.jpg");
+        std::fs::write(&src, b"not a jpeg yet").unwrap();
+        let mut db = Db::open(&dir.path().join("half.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src,
+            size: 14,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        // OSのプロパティからは寸法だけ返っている（カメラは未確認のまま）
+        db.update_shell_metadata(id, 4032, 3024, None).unwrap();
+
+        assert!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err(),
+            "中身が無いので絵は作れない"
+        );
+
         assert_eq!(
-            rec.taken_at_ms, None,
-            "日付も書かない（書けば mtime が入ってしまう）"
+            db.get_by_id(id).unwrap().unwrap().width,
+            Some(4032),
+            "OSが入れた寸法を潰さない"
+        );
+        assert_eq!(
+            db.cameras_to_backfill(0, 10).unwrap().len(),
+            1,
+            "カメラ後追いの対象に残る（camera_id はNULLのまま）"
         );
     }
 

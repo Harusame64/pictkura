@@ -1253,6 +1253,55 @@ impl Db {
         Ok(())
     }
 
+    /// **寸法に触らず**、撮影日時とカメラだけを書き込む。
+    ///
+    /// [`Self::update_metadata`] は `width`/`height` を**無条件に上書きする**ので、
+    /// 原寸の申告を持たないファイル——`PixelXDimension` も `ImageWidth` も無い
+    /// 旧Panasonicの `.RAW` 等——では呼べない。0を書いてOSから借りた寸法を潰す。
+    ///
+    /// かといって黙って抜けると、**読めている撮影日時とカメラまで巻き添え**になる。
+    /// 撮影日がNULLだと `COALESCE(taken_at_ms, mtime_ms)` が mtime を拾って
+    /// **取り込んだ日の束に並び**、`camera_id` がNULLのままなのでカメラの
+    /// 絞り込みからも消える（[`Self::cameras_to_backfill`] は
+    /// `width IS NOT NULL` も要求するので、後追いにも拾われない）。
+    ///
+    /// 寸法の列だけを外した口をここに置く。
+    ///
+    /// **`camera` が `None` なら `camera_id` に触らない**——ここが
+    /// [`Self::update_metadata`] と違う。あちらは `CAMERA_NONE`
+    /// （＝「確認済みだがカメラ情報なし」）を焼き付けるが、あちらへ届くのは
+    /// **原寸の申告が読めた**＝EXIFが確かに解けた行だけである。こちらには
+    /// その裏付けが無い: 呼び出し元（[`crate::thumbs`] の絵を作れなかった道）は
+    /// RAW以外も通り、途中まで同期されたHEIF等では
+    /// **EXIFが空でも「読めた」と見える**（`InvalidFormat` は読み出しの失敗
+    /// ではないので）。そこで印を焼くと、実体が揃った後でも
+    /// [`Self::cameras_to_backfill`]（`camera_id IS NULL`）から永久に外れる。
+    ///
+    /// 名前が読めたときだけ書き、読めなかったときは**未確認のまま**
+    /// カメラ後追いへ預ける。あちらは実際に読み直したうえで、
+    /// 本当に無ければ [`Self::set_cameras`] が `CAMERA_NONE` を立てる。
+    pub fn update_metadata_keeping_dimensions(
+        &mut self,
+        id: i64,
+        taken_at_ms: Option<i64>,
+        camera: Option<&str>,
+    ) -> Result<(), DbError> {
+        let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
+            Some(name) => Some(self.camera_id_of(name)?),
+            None => None,
+        };
+        self.conn.execute(
+            &format!(
+                "UPDATE media SET taken_at_ms = ?2, day_key = {},
+                        camera_id = COALESCE(?3, camera_id)
+                 WHERE id = ?1",
+                day_key_expr("COALESCE(?2, mtime_ms)")
+            ),
+            params![id, taken_at_ms, camera_id],
+        )?;
+        Ok(())
+    }
+
     /// OSのプロパティから借りた素性を書き込む（第9部 段階H）。
     ///
     /// [`Self::update_metadata`] との違いが2つある:
