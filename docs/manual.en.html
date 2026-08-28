@@ -443,9 +443,10 @@ Only date folders are then added underneath.
 <h3>Where the date comes from</h3>
 <p>
 <strong>The date that picks the destination folder</strong> during an import comes from EXIF
-(the container, for videos) and from <strong>the file name</strong> — nothing else. If
-neither has one, the file's other half of a RAW+JPG pair is asked, and failing that the
-file's modification time is used.
+(the container, for videos), then from <strong>the file name</strong>, then from the other
+half of a RAW+JPG pair, then from the file's modification time — and if even that is
+unusable, from the day of the import itself. It never asks the OS or your library: at
+import time there is no library entry for the file yet.
 </p>
 <p>
 The list below is how the date is decided <strong>once the photo is in your library</strong>,
