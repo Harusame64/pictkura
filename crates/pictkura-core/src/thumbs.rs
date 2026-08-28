@@ -554,6 +554,14 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
             crate::raw::PatchedTiff::Patched(buf) => {
                 if let Some(exif) = read_raw_partial(buf) {
                     result = exif_data_from(&exif);
+                    // **`PixelXDimension` が無い個体は、まだ諦めない。**
+                    // 旧Panasonicの `.RAW`（DMC-LX1 / DMC-FZ8）は絵も申告も
+                    // 持たないが、センサーの縁は自分のタグで書いている
+                    // （[`crate::raw::panasonic_declared_dimensions`]）。
+                    // 読み直しは無い——このEXIFに入っている
+                    if result.original.is_none() && crate::raw::is_panasonic_raw_path(path) {
+                        result.original = crate::raw::panasonic_declared_dimensions(&exif);
+                    }
                 }
             }
             crate::raw::PatchedTiff::NotApplicable => {}
@@ -2101,6 +2109,100 @@ mod tests {
             "撮影日は mtime へ落ちない（名前の日付を拾う）"
         );
         assert_eq!(rec.thumb_state, 0, "絵は無いまま");
+    }
+
+    /// Panasonicの `.rw2` / `.raw` の最小再現。版番号に `U`（0x55）を書き、
+    /// IFD0にセンサーの縁を置く——**絵を持たない**個体。
+    fn fake_panasonic_raw(borders: [u16; 6]) -> Vec<u8> {
+        fake_panasonic_raw_declaring(borders, None)
+    }
+
+    /// `PixelXDimension` を持たせられる版。手元の実物（`.raw`・`.rwl`・`.rw2`
+    /// のいずれも）は申告を持たないが、**申告が縁より優先される**という
+    /// 決めごとは、実物が出てくる前に固めておく。
+    fn fake_panasonic_raw_declaring(borders: [u16; 6], declared: Option<(u16, u16)>) -> Vec<u8> {
+        let short = |tag: u16, value: u16| -> Vec<u8> {
+            let mut e = tag.to_le_bytes().to_vec();
+            e.extend(3u16.to_le_bytes()); // SHORT
+            e.extend(1u32.to_le_bytes());
+            e.extend(value.to_le_bytes());
+            e.extend([0, 0]); // 4バイトぶんの残り
+            e
+        };
+        let count = borders.len() as u16 + u16::from(declared.is_some());
+        // Exif IFDは、IFD0（2 + 12*件数 + 4）の直後に置く
+        let exif_ifd = 8 + 2 + 12 * u32::from(count) + 4;
+
+        let mut out = b"II\x55\x00".to_vec(); // 版番号が42ではないのがPanasonic
+        out.extend(8u32.to_le_bytes());
+        out.extend(count.to_le_bytes());
+        for (i, value) in borders.iter().enumerate() {
+            out.extend(short(0x0002 + i as u16, *value));
+        }
+        if declared.is_some() {
+            let mut e = 0x8769u16.to_le_bytes().to_vec(); // ExifIFDPointer
+            e.extend(4u16.to_le_bytes()); // LONG
+            e.extend(1u32.to_le_bytes());
+            e.extend(exif_ifd.to_le_bytes());
+            out.extend(e);
+        }
+        out.extend(0u32.to_le_bytes()); // 次のIFDは無し
+        if let Some((w, h)) = declared {
+            out.extend(2u16.to_le_bytes());
+            out.extend(short(0xA002, w)); // PixelXDimension
+            out.extend(short(0xA003, h)); // PixelYDimension
+            out.extend(0u32.to_le_bytes());
+        }
+        out
+    }
+
+    #[test]
+    fn a_panasonic_raw_without_a_preview_still_records_its_size() {
+        // 絵も `PixelXDimension` も無いが、**縁は書いてある**。
+        // 埋まれば `ids_missing_metadata`（`width IS NULL OR width = 0`）から
+        // 恒久的に外れ、絵の無い枠も正しい縦横比で並ぶ
+        let dir = tempfile::tempdir().unwrap();
+        //                        センサー幅  高さ  上  左   下     右
+        let bytes = fake_panasonic_raw([3880, 2170, 4, 12, 2164, 3852]);
+        let (rec, failed) = record_after_failed_process(dir.path(), "lx1.rw2", &bytes);
+        assert!(failed, "絵は無いので作れない");
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(3840), Some(2160)),
+            "縁の内側が原本の寸法（DMC-LX1と同じ値）"
+        );
+        assert_eq!(rec.preview_width, None, "掴んでいない絵の寸法は書かない");
+    }
+
+    #[test]
+    fn only_panasonic_extensions_have_their_borders_read() {
+        // 拡張子で切っている。同じ中身でもPanasonic系でなければ見に行かない
+        // ——0x0002〜0x0007 は他社のIFD0では別の意味を持ちうる
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = fake_panasonic_raw([3880, 2170, 4, 12, 2164, 3852]);
+        let (rec, failed) = record_after_failed_process(dir.path(), "notpana.nef", &bytes);
+        assert!(failed);
+        assert_eq!(rec.width, None, "Panasonic以外では縁を寸法として読まない");
+    }
+
+    #[test]
+    fn a_declaration_still_wins_over_the_borders() {
+        // 縁を見るのは**申告が無いときだけ**。手元のPanasonic系は
+        // `.raw`・`.rwl`・`.rw2` のどれも `PixelXDimension` を持たないので、
+        // この枝を踏む実物はまだ無い——だから決めごとのほうを留めておく。
+        // 逆にすると、申告を持つ新しい機種が出た日に黙って縁が勝つ
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = fake_panasonic_raw_declaring(
+            [3880, 2170, 4, 12, 2164, 3852], // 縁は 3840x2160
+            Some((3000, 2000)),              // 申告は別の値
+        );
+        let (rec, failed) = record_after_failed_process(dir.path(), "declared.rw2", &bytes);
+        assert!(failed);
+        assert_eq!(
+            (rec.width, rec.height),
+            (Some(3000), Some(2000)),
+            "申告があるなら縁は見に行かない"
+        );
     }
 
     #[test]

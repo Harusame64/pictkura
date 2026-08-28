@@ -31,7 +31,7 @@
 
 use std::path::Path;
 
-use exif::{In, Tag};
+use exif::{Context, In, Tag};
 
 /// ブロック走査で読む上限。RAWの埋め込みプレビューはファイル先頭側にあるため、
 /// 全体（20〜80MB）を読まずに済ませる。CR3のPRVWもRAFのJPEGもこの範囲に入る。
@@ -1105,13 +1105,22 @@ pub fn bmff_metadata_blocks(path: &Path) -> Option<Vec<Vec<u8>>> {
 /// | Exif IFDの `PixelXDimension`/`PixelYDimension`（この関数） | Canon CR2・Phase One IIQ・Sony ARW・Samsung SRW・Apple DNG | CR2(20D) 1536x1024 → 3504x2336 |
 /// | ——（**DNGは社で割れる**。Appleは持ち、LeicaとBlackmagicは持たない） | | |
 /// | CR3の `CMT1`（[`cr3_declared_dimensions`]） | Canon CR3 | R8 1620x1080 → 6000x4000 |
-/// | **このパーサからは届かない** | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR・Fujifilm RAF・Leica RWL/DNG・Panasonic RW2・Sigma X3F・Olympus ORF・Minolta MRW・Blackmagic DNG | 原寸はSubIFDの中にある |
+/// | IFD0のセンサーの縁（[`panasonic_declared_dimensions`]） | Panasonic RW2/RAW・Leica RWL | LX1 縁(上4・左12・下2164・右3852) → 3840x2160 |
+/// | **このパーサからは届かない** | Nikon NEF/NRW・Epson ERF・Hasselblad 3FR・Kodak DCR・Fujifilm RAF・Leica DNG・Sigma X3F・Olympus ORF・Minolta MRW・Blackmagic DNG | 原寸はSubIFDの中にある |
 /// | 申告はあるが読めない | Kodak KDC | Exif IFDに 3088x2310 が入っているが、`read_from_container` が `Truncated field value` でファイルごと拒む |
 ///
 /// **IFD0の `ImageWidth` は使わない。** TIFF系RAWのIFD0は「そのIFDが持っている絵」の
 /// 寸法で、そこにサムネイルを置く社がある——NEF(D2H)は160x120、Leica M8のDNGは320x240。
 /// Pentax PEFは3936x2624と**実寸より大きい**（マスク領域込み）。当たる社が1つ増えるより、
 /// 別の絵の寸法を原本と言い張るほうが害が大きい。
+///
+/// **Panasonic系は1台も `PixelXDimension` を持たない。** 固定の60件にいる6台
+/// （`.raw` の DMC-LX1・DMC-FZ8、`.rwl` の D-LUX 5、`.rw2` の DMC-LX7・DC-GH7・
+/// DC-S5M2）を `patched_tiff_metadata` 経由で引いて、全台で `None` だった。
+/// この関数が空を返すのは欠陥ではなく、Panasonicが**別の場所に書いている**
+/// ——縁のほうを読むのが [`panasonic_declared_dimensions`]。
+/// 申告を持つ機種が出てきたときのために、呼ぶ側は申告を先に見る
+/// （[`crate::thumbs::read_exif`]）。
 ///
 /// KDCの行は「無い」ではなく**取りに行けていない**（2026-08-25にゲート2が指摘し、
 /// 実物で確かめた）。`patched_tiff_metadata` の側が使っている
@@ -1137,6 +1146,63 @@ pub(crate) fn exif_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> 
 /// 持たないので実際には当たらない（手元の2機種で確認）。
 pub(crate) fn cr3_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
     declared_dimensions(exif, Tag::ImageWidth, Tag::ImageLength)
+}
+
+/// Panasonicの `.rw2` / `.raw` が申告する原本の寸法。
+///
+/// **`PixelXDimension` を持たない個体がある。** 旧Panasonicの `.RAW`
+/// （DMC-LX1 / DMC-FZ8）は絵も `PixelXDimension` も持たないので、
+/// [`exif_declared_dimensions`] が空を返す。かといって寸法を知らないわけではない
+/// ——Panasonicは**センサーの縁**を自分のタグでIFD0に書いている。
+///
+/// | タグ | 中身 |
+/// |---|---|
+/// | 0x0002 / 0x0003 | センサー全体の幅・高さ |
+/// | 0x0004 / 0x0005 | 上端・左端 |
+/// | 0x0006 / 0x0007 | 下端・右端 |
+///
+/// 絵になるのは縁の内側なので `(右 - 左) × (下 - 上)`。手元の2枚で:
+///
+/// | 機種 | 縁 | 出る寸法 |
+/// |---|---|---|
+/// | DMC-LX1 | 上4・左12・下2164・右3852 | 3840x2160（16:9） |
+/// | DMC-FZ8 | 上7・左15・下2311・右3087 | 3072x2304（4:3） |
+///
+/// どちらも**その機種のカタログ画素数と一致**する（LX1は8.4MPの16:9機、
+/// FZ8は7.2MPの4:3機）。ExifTool が Panasonic RAW の `ImageWidth` を出すのと同じ計算。
+///
+/// **6タグが揃って、縁がセンサーの内側で、正の面積になるときだけ**返す。
+/// 0x0002〜0x0007 は標準のTIFFでは別の意味を持たない番号だが、
+/// 他社のIFD0に紛れ込んでいたときに寸法として使わないための歯止めである
+/// （呼ぶ側は [`is_panasonic_raw_path`] でも切っている）。
+pub(crate) fn panasonic_declared_dimensions(exif: &exif::Exif) -> Option<(u32, u32)> {
+    let uint = |tag: u16| -> Option<u32> {
+        exif.get_field(Tag(Context::Tiff, tag), In::PRIMARY)?
+            .value
+            .get_uint(0)
+    };
+    let (sensor_w, sensor_h) = (uint(0x0002)?, uint(0x0003)?);
+    let (top, left) = (uint(0x0004)?, uint(0x0005)?);
+    let (bottom, right) = (uint(0x0006)?, uint(0x0007)?);
+    // 縁がセンサーからはみ出していたら、この6つは寸法ではない
+    if right > sensor_w || bottom > sensor_h {
+        return None;
+    }
+    let (width, height) = (right.checked_sub(left)?, bottom.checked_sub(top)?);
+    (width > 0 && height > 0).then_some((width, height))
+}
+
+/// PanasonicのTIFF系RAWか（Leicaが同じ形式で出すものを含む）。
+///
+/// **`Make` では切らない。** Leica の Digilux 2 / D-LUX はPanasonic製で、
+/// 同じ作りの `.raw` / `.rwl` を `Make` だけ替えて出す。中身は同じなので、
+/// メーカー名で弾くと読めるものを読まないことになる。
+pub fn is_panasonic_raw_path(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["rw2", "raw", "rwl"]
+            .iter()
+            .any(|k| e.eq_ignore_ascii_case(k))
+    })
 }
 
 /// 2つのタグを幅・高さとして読む。**両方揃って0でないときだけ**返す
@@ -1860,6 +1926,84 @@ mod tests {
         );
         let exif = exif::Reader::new().read_raw(buf).unwrap();
         assert_eq!(exif_declared_dimensions(&exif), Some((3504, 2336)));
+    }
+
+    /// Panasonicのセンサー境界タグ（0x0002〜0x0007）だけを持つIFD0。
+    fn panasonic_borders(values: [u32; 6]) -> exif::Exif {
+        let entries: Vec<Entry> = (0..6)
+            .map(|i| entry(0x0002 + i as u16, 3, &[values[i]]))
+            .collect();
+        exif::Reader::new()
+            .read_raw(build_tiff(&entries, &[], false))
+            .unwrap()
+    }
+
+    #[test]
+    fn panasonic_declares_its_size_with_the_sensor_borders() {
+        // 手元の2枚（`dev/raw-samples.tsv` の60件のうち、`PixelXDimension` を
+        // 持たない個体）。縁の内側が絵になる: (右 - 左) x (下 - 上)
+        //           センサー幅  高さ  上  左   下     右
+        let lx1 = panasonic_borders([3880, 2170, 4, 12, 2164, 3852]);
+        assert_eq!(
+            panasonic_declared_dimensions(&lx1),
+            Some((3840, 2160)),
+            "DMC-LX1は8.4MPの16:9機。3840x2160はカタログどおり"
+        );
+        let fz8 = panasonic_borders([3130, 2319, 7, 15, 2311, 3087]);
+        assert_eq!(
+            panasonic_declared_dimensions(&fz8),
+            Some((3072, 2304)),
+            "DMC-FZ8は7.2MPの4:3機"
+        );
+        // 申告を持つ個体でも同じ値が出ることを確かめてある（DC-GH7の縁は
+        // 上8・左8・下4344・右5784 で 5776x4336 ＝ `PixelXDimension` と一致）
+        let gh7 = panasonic_borders([5792, 4352, 8, 8, 4344, 5784]);
+        assert_eq!(panasonic_declared_dimensions(&gh7), Some((5776, 4336)));
+    }
+
+    #[test]
+    fn borders_that_do_not_describe_a_picture_are_refused() {
+        // 0x0002〜0x0007 は標準のTIFFでは別の意味を持たない番号だが、
+        // 他社のIFD0に紛れ込んでいたときに寸法として使わない歯止めが要る
+        assert_eq!(
+            panasonic_declared_dimensions(&panasonic_borders([3880, 2170, 4, 12, 2164, 9999])),
+            None,
+            "右端がセンサーからはみ出している"
+        );
+        assert_eq!(
+            panasonic_declared_dimensions(&panasonic_borders([3880, 2170, 2164, 12, 4, 3852])),
+            None,
+            "上下が逆（高さが負になる）"
+        );
+        assert_eq!(
+            panasonic_declared_dimensions(&panasonic_borders([3880, 2170, 4, 3852, 2164, 3852])),
+            None,
+            "左右が同じ（幅が0）"
+        );
+        let missing = exif::Reader::new()
+            .read_raw(build_tiff(
+                &[entry(0x0002, 3, &[3880]), entry(0x0003, 3, &[2170])],
+                &[],
+                false,
+            ))
+            .unwrap();
+        assert_eq!(
+            panasonic_declared_dimensions(&missing),
+            None,
+            "縁が4つ揃っていない"
+        );
+    }
+
+    #[test]
+    fn only_panasonic_flavoured_raw_is_asked_for_borders() {
+        // Leicaの Digilux 2 / D-LUX はPanasonic製で、同じ作りの `.raw` / `.rwl` を
+        // `Make` だけ替えて出す。**メーカー名で弾かない**
+        for name in ["a.rw2", "a.RW2", "a.raw", "a.rwl"] {
+            assert!(is_panasonic_raw_path(Path::new(name)), "{name}");
+        }
+        for name in ["a.nef", "a.cr3", "a.orf", "a.dng", "a"] {
+            assert!(!is_panasonic_raw_path(Path::new(name)), "{name}");
+        }
     }
 
     #[test]
