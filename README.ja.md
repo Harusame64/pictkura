@@ -10,7 +10,8 @@
 [アプリ仕様](https://harusame64.github.io/pictkura/ja/spec.html) ·
 [インストール](https://harusame64.github.io/pictkura/ja/install.html) ·
 [取扱説明書](https://harusame64.github.io/pictkura/manual.html) ·
-[AlternativeTo](https://alternativeto.net/software/pictkura/about/)
+[AlternativeTo](https://alternativeto.net/software/pictkura/about/) ·
+[Softpedia](https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml)
 
 ![ビューアで送りながら、⚑と✕で選別しているところ](docs/images/a-cull.gif)
 

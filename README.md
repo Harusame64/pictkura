@@ -9,7 +9,8 @@ card and browsing what you already have — even when that is tens of thousands 
 [Specification](https://harusame64.github.io/pictkura/en/spec.html) ·
 [Installing](https://harusame64.github.io/pictkura/en/install.html) ·
 [Manual](https://harusame64.github.io/pictkura/manual.en.html) ·
-[AlternativeTo](https://alternativeto.net/software/pictkura/about/)
+[AlternativeTo](https://alternativeto.net/software/pictkura/about/) ·
+[Softpedia](https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml)
 
 ![Paging through the viewer, marking picks and rejects](docs/images/a-cull.gif)
 
