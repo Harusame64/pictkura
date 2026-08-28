@@ -454,10 +454,12 @@ alone files them under “the day you saved it”. When the name carries a date,
 they land on the right day.
 </p>
 <p>
-A file pictkura can make no picture for — a RAW with no usable preview, say — is looked at
-again on every startup. For those, a date already recorded comes third in the list, ahead of
-the file name and the modification time, so a pass that reads nothing cannot erase a date
-that was read before.
+When pictkura can make no picture for a file — a RAW with no usable preview, say — a date
+already recorded for it comes third in the list, ahead of the file name and the
+modification time, unless what is recorded is only that modification time, which means
+nothing has been read yet. That matters because a file that ends up with no size at all is
+looked at again on every startup, so a pass that reads nothing must not erase a date that
+was read before.
 </p>
 
 <h2 id="search">4. Find</h2>
@@ -742,6 +744,7 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Video thumbnails go only as far as the OS can open the container</td><td>On Windows the Shell provides them — <code>.avi</code> and HEVC <code>.mov</code> measured working, <code>.m2ts</code> never checked, anything the OS has no handler or codec for comes back empty. <strong>macOS shows what AVFoundation can open</strong> — <code>mp4</code> and <code>mov</code> measured working with H.264 and HEVC (<code>hvc1</code>) samples, <code>.avi</code> measured empty, every other container untested. <strong>Linux has no route at all</strong></td></tr>
   <tr><td>Duration and dimensions outside <code>mp4</code>, <code>m4v</code>, <code>mov</code>, <code>3gp</code></td><td>Those four are read straight from the container header. The rest rely on the Windows Shell (measured with a synthetic <code>.m2ts</code> only); on macOS and Linux they show no duration or dimensions (the date falls back to the file name or modification time)</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
+  <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file's own declaration, from the sensor borders on Panasonic-built bodies, or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup</td></tr>
   <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
   <tr><td>An import cannot be cancelled</td><td>Once started, it runs to the end</td></tr>
