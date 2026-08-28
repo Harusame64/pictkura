@@ -437,7 +437,14 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 </div>
 
 <h3>日付はどこから決まるのか</h3>
-<p>次の順に見て、最初に見つかったものを使います。</p>
+<p>
+<strong>取り込み先のフォルダを決める日付</strong>は、EXIF（動画はコンテナ）と
+<strong>ファイル名</strong>だけを見ます。どちらも無ければ、同じ名前の相方（RAW+JPGの組）に
+聞き、それでも無ければファイルの更新日時です。
+</p>
+<p>
+下の並びは、<strong>取り込んだ後に一覧やビューアで使う日付</strong>の決まり方です。
+次の順に見て、最初に見つかったものを使います。</p>
 <ol>
   <li><strong>EXIFの撮影日時</strong> — カメラやスマホが書いた日時</li>
   <li><strong>OSが持っている情報</strong> — 実体がクラウドにしか無い場合でもここから取れます</li>
@@ -728,7 +735,7 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
   <tr><td>動画のサムネイルは、OSがコンテナを開ける範囲まで</td><td>Windowsはシェルから借ります——<code>.avi</code> とHEVCの <code>.mov</code> は出ることを実測済み、<code>.m2ts</code> は未確認、OSに部品もコーデックも無いものは何も返りません。<strong>macOSは AVFoundation が開けたものだけ</strong>——<code>mp4</code>・<code>mov</code> はH.264とHEVC（<code>hvc1</code>）の見本で出ることを実測済み、<code>.avi</code> は出ないことを実測済みで、他のコンテナは未測定です。<strong>Linuxは経路そのものがありません</strong></td></tr>
   <tr><td><code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> 以外の長さ・寸法</td><td>この4つはコンテナのヘッダから直接読みます。それ以外はWindowsのシェル頼みで（実測は合成した <code>.m2ts</code> の1件のみ）、macOS・Linuxでは長さも寸法も出ません（日付はファイル名か更新日時に落ちます）</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> はアプリ内で再生できない</td><td>ブラウザ側がコンテナを扱えないためです。一覧には出ます</td></tr>
-  <tr><td>どこにも寸法を申告していないRAWは寸法が出ない</td><td>寸法は、ファイル自身の申告か、Panasonic系のセンサーの縁か、埋め込みプレビューから決まります。そのどれも無いRAW（実測ではBlackmagicのCinemaDNG）は一覧で寸法が空のままになり、起動のたびに聞き直されます</td></tr>
+  <tr><td>どこにも寸法を申告していないRAWは寸法が出ない</td><td>寸法は、ファイル自身の申告か、Panasonic系のRAW（<code>rw2</code>・<code>raw</code>・<code>rwl</code>。同じ作りのLeicaを含みます）に入っているセンサーの縁か、埋め込みプレビューから決まります。そのどれも無いRAW（実測ではBlackmagicのCinemaDNG）は一覧で寸法が空のままになり、起動のたびに聞き直されます</td></tr>
   <tr><td>検索索引の再構築UIが無い</td><td>壊れた場合は設定フォルダの <code>pictkura.db</code> を消して作り直してください（サムネイルも作り直しになります）</td></tr>
   <tr><td>検索結果の並び替えが無い</td><td>撮影日の新しい順で固定です</td></tr>
   <tr><td>取り込みの中断ができない</td><td>開始したら最後まで走ります</td></tr>
