@@ -53,7 +53,10 @@ body {
   -webkit-font-smoothing: antialiased;
   text-wrap: pretty;
 }
-body[lang="en"] { font-family: var(--font-en); line-height: 1.65; }
+/* 英文の面にも和字が1文字だけ出ることがある（about の `kura (蔵)`）。
+   Archivo は CJK を持たないので、和字だけが落ちる先を後ろに足しておく——
+   font-family は1文字ずつ落ちるので、ラテン字の見た目は変わらない */
+body[lang="en"] { font-family: var(--font-en), "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", sans-serif; line-height: 1.65; }
 
 a { color: var(--text); text-decoration: none; }
 a:hover { color: var(--accent-bright); }
@@ -357,6 +360,11 @@ body[lang="en"] .cards p { line-height: 1.75; }
   border-bottom: 1px solid oklch(0.82 0.12 255 / 0.4); padding-bottom: 3px;
 }
 .more.off { color: var(--text-muted); border-bottom-color: oklch(1 0 0 / 0.2); }
+/* 2本並べるとき。`.more` は inline-block なので、狭い画面で折り返した2本目が
+   前の行の字下がりを引き継いでずれる（ゲート2の指摘）。並びは flex で持ち、
+   段の余白は gap に任せる */
+.more-row { display: flex; flex-wrap: wrap; gap: 16px 32px; margin-top: 30px; }
+.more-row .more { margin-top: 0; }
 
 /* ─── 文書ページ（仕様・法的情報） ─── */
 .page-head { padding: 72px var(--pad) 56px; border-bottom: 1px solid var(--line); background: oklch(0.125 0 0); }
@@ -370,6 +378,8 @@ body[lang="en"] .cards p { line-height: 1.75; }
 }
 .page-head.photo.slope  { --photo: url("../images/photo/forest-slope.jpg"); --photo-pos: 50% 58%; }
 .page-head.photo.gate   { --photo: url("../images/photo/forest-gate.jpg"); --photo-pos: 50% 62%; }
+/* 「なぜ作ったのか」の面。朝の光が差し込む1枚を、始まりの頁に敷く */
+.page-head.photo.rays { --photo: url("../images/photo/forest-rays.jpg"); --photo-pos: 50% 62%; --veil-a: 0.88; --veil-b: 0.8; }
 .page-head.photo.canopy {
   --photo: url("../images/photo/forest-canopy.jpg");
   --photo-pos: 50% 55%; --veil-a: 0.86; --veil-b: 0.78;
@@ -420,6 +430,13 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   padding: 28px 32px 30px; background: var(--bg-raise);
 }
 .aside-card p { margin: 0; font-size: 15px; line-height: 1.95; color: var(--text-soft); }
+
+/* 話の折り返しに置く1行。記事側で `>` を使っている位置に当たる。
+   `.note` と同じ左罫の作法に合わせ、背景は敷かない——地の文の続きだから */
+.doc-body .pull {
+  margin: 30px 0; padding-left: 22px; border-left: 2px solid var(--accent);
+  font-size: 17px; line-height: 1.9; color: var(--text);
+}
 .facts { font-size: 13px; line-height: 2; color: var(--text-muted); }
 .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid oklch(1 0 0 / 0.06); }
 .facts div:last-child { border-bottom: none; }

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why I made pictkura | pictkura</title>
+<meta name="description" content="I shoot RAW and almost never develop it, and I cannot bring myself to delete it either. This is why I built a photo manager for that sort of folder, and where the name came from.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/en/about.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/about.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/about.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Why I made pictkura | pictkura">
+<meta property="og:description" content="I love photographs. Managing them is another matter. On wanting to keep RAW files without having to think about them.">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/en/about.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body lang="en">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" aria-label="Site">
+    <a href="./#speed" class="hide-sm">Features</a>
+    <a href="download.html">Download</a>
+    <a href="install.html" class="hide-sm">Install</a>
+    <a href="spec.html" class="hide-xs">Specification</a>
+    <a href="../manual.en.html" class="hide-xs">Manual</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang"><a href="../ja/about.html" hreflang="ja">JA</a> / EN</span>
+  </nav>
+</header>
+
+<div class="page-head photo rays">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Why I made pictkura</p>
+  <h1 class="disp">Why I made<br>pictkura</h1>
+  <p class="lead">I love photographs. Managing them is another matter.</p>
+  <span class="by">Photo: Wikimedia Commons, CC0</span>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="On this page">
+    <p class="eyebrow" style="margin:0 0 8px">Contents</p>
+    <a href="#open">1. I shoot RAW. I hardly ever touch it.</a>
+    <a href="#view">2. So, what am I supposed to view them with?</a>
+    <a href="#before">3. Things used to require less thought</a>
+    <a href="#build">4. Fine, I'll make one</a>
+    <a href="#name">5. pict, and a kura</a>
+    <a href="#useful">6. Useful things are usually useful</a>
+    <a href="#fast">7. It became fast because I am impatient</a>
+    <a href="#you">8. Perhaps you have the same sort of photo folder</a>
+    <a href="#thanks">9. One final thank you</a>
+    <span class="hr"></span>
+    <a href="spec.html">Specification &rarr;</a>
+    <a href="download.html">Download &rarr;</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="open">
+      <h2 class="disp"><span class="num">1</span>I shoot RAW. I hardly ever touch it.</h2>
+      <p>I am the sort of person who brings a mirrorless camera when the family goes somewhere.</p>
+      <p>I like photographs.</p>
+      <p>Photo management, rather less so.</p>
+      <p>I shoot RAW+JPEG. I keep the RAW files as well.</p>
+      <p>Written like that, it sounds as though I come home, open a proper RAW editor, and spend the evening carefully adjusting exposure one frame at a time.</p>
+      <p>I mostly do not.</p>
+      <p>If the JPEG looks fine, I look at the JPEG.</p>
+      <p>If I send a photo to the family, it is usually the JPEG.</p>
+      <p>If I come back to it several years later, it is still usually the JPEG.</p>
+      <p>So why keep the RAW files?</p>
+      <p>This is where my position becomes slightly difficult to defend.</p>
+      <p>I am afraid to delete them.</p>
+      <p>Most of the time, I do not need the RAW file at all.</p>
+      <p>If the JPEG came out fine, that is usually the end of the matter.</p>
+      <p>But every now and then there is a photograph like this.</p>
+      <p>A face lost in backlight.</p>
+      <p>A window blown completely white.</p>
+      <p>Or a photograph that seemed entirely ordinary on the day it was taken, and somehow became far more important five years later.</p>
+      <p>That one I may want to rescue.</p>
+      <p>And on that day, having the RAW file is useful.</p>
+      <p>The trouble is that this day does not occur every weekend.</p>
+      <p>I have no wish to devote my Saturdays to RAW development.</p>
+      <p>I also lack the courage to say, “I never use these,” and delete the lot.</p>
+      <p>The result is predictable:</p>
+      <p class="pull">I have years of carefully preserved RAW files that I almost never use.</p>
+      <p>Judging by my storage drives, I am a very committed RAW photographer.</p>
+      <p>The photographer himself is less convinced.</p>
+      <p>That is probably where pictkura began.</p>
+      <p>I did not particularly want to <em>work with</em> RAW files.</p>
+      <p>I wanted to <strong class="em">keep them without having to think about them</strong>.</p>
+    </section>
+
+    <section id="view">
+      <h2 class="disp"><span class="num">2</span>So, what am I supposed to view them with?</h2>
+      <p>Windows does, of course, come with ways to look at photographs.</p>
+      <p>There is File Explorer. There is Photos.</p>
+      <p>They do, technically, display photographs.</p>
+      <p>The difficulty begins when the photographs have accumulated for a decade or two.</p>
+      <p>There are JPEGs. Next to them are RAW files. There are videos. There are files from cameras I no longer own. Then smartphones joined in, bringing HEIC with them.</p>
+      <p>To me, they are all “family photos”.</p>
+      <p>The computer has developed a more nuanced view of the matter.</p>
+      <p>I may only want to look at our summer holiday from 2018, yet somehow I find myself learning about file formats.</p>
+      <p>This was not a field in which I had intended to improve myself.</p>
+      <p>At the other end of the scale, there are excellent applications such as Lightroom.</p>
+      <p>If you want to develop RAW files properly, organise a serious catalogue, rate images, edit them, and build a photographic workflow, they are excellent tools.</p>
+      <p>I do not particularly want a photographic workflow.</p>
+      <p>I want to open a photograph from ten years ago and look at it.</p>
+      <p>I eventually realised I was sitting in a rather awkward middle ground:</p>
+      <p class="pull">Windows' built-in tools were a little too basic, while a full professional photo workflow was rather more civilisation than I required.</p>
+      <p>The quantity of cameras and RAW files in my possession suggested that I ought to be more serious about all this.</p>
+      <p>I had no such plans.</p>
+    </section>
+
+    <section id="before">
+      <h2 class="disp"><span class="num">3</span>Things used to require less thought</h2>
+      <p>For quite a long time I used Sony PlayMemories Home.</p>
+      <p>For the way I used it, it was fine.</p>
+      <p>Import photographs from the camera.</p>
+      <p>See them in date order.</p>
+      <p>Open old photographs and new photographs in roughly the same way.</p>
+      <p>That was enough.</p>
+      <p>pictkura is not an attempt to recreate PlayMemories Home.</p>
+      <p>But looking back, I realised that I had liked something about that sort of software: it did not require me to think very much about photo management in order to look at my photos.</p>
+      <p>Finding that same degree of indifference elsewhere proved surprisingly difficult.</p>
+      <p>Modern photo software is generally very keen to do things for you.</p>
+      <p>Improve your pictures. Organise them. Rate them. Synchronise them. Share them.</p>
+      <p>All useful things.</p>
+      <p>I wanted, if possible, for it to do almost nothing.</p>
+      <p>Keep the files where they are.</p>
+      <p>Let me find them later.</p>
+      <p>Open them normally.</p>
+      <p>This is not an ambitious specification.</p>
+      <p>It nevertheless took some time to find nothing that quite matched it.</p>
+    </section>
+
+    <section id="build">
+      <h2 class="disp"><span class="num">4</span>Fine, I'll make one</h2>
+      <p>Eventually I began to wonder whether the small thing I wanted might simply be easier to build.</p>
+      <p>My requirements were not terribly grand.</p>
+      <p>Put photos and videos in date order.</p>
+      <p>Let RAW files appear alongside JPEGs.</p>
+      <p>Let photographs from old cameras and new cameras live in the same place.</p>
+      <p>Leave the originals where they already are.</p>
+      <p>That was about it.</p>
+      <p>I had no intention of writing a RAW developer.</p>
+      <p>More importantly, if I had written one, I probably would not have used it.</p>
+      <p>Most RAW files already contain a rendered preview produced by the camera for its own display.</p>
+      <p>For ordinary viewing, that is perfectly useful.</p>
+      <p>If I ever need to rescue one important photograph properly, I can open that one in a real RAW editor.</p>
+      <p>This sounded pleasantly simple.</p>
+      <p>The first version displayed an image from a RAW file in about half a day.</p>
+      <p>I was encouraged.</p>
+      <p>The encouragement lasted roughly half a day.</p>
+      <p>Manufacturers differ. Generations differ. RAW formats differ.</p>
+      <p>The largest JPEG inside the file may not be the one meant for display. A JPEG may contain another JPEG. Some RAW files contain no JPEG preview at all.</p>
+      <p>And sometimes one can read a specification, implement it correctly, and discover that the actual file has apparently not read the same specification.</p>
+      <p>I had started this project because I did not want to think very much about photo management.</p>
+      <p>I eventually found myself inspecting RAW files in a hex editor.</p>
+      <p>I am still not entirely sure where the route took a wrong turn.</p>
+      <p>In any case, that is how pictkura began.</p>
+    </section>
+
+    <section id="name">
+      <h2 class="disp"><span class="num">5</span>pict, and a kura</h2>
+      <p>The name came later.</p>
+      <p>Looking at what I was building, it did not seem much like a workshop for making photographs.</p>
+      <p>It was somewhere to put them, leave them alone, and retrieve them when needed.</p>
+      <p>In Japanese, a <strong class="em">kura (<span lang="ja">蔵</span>)</strong> is a traditional storehouse.</p>
+      <p>So: picture + kura = pictkura.</p>
+      <p>There is not a grander branding story hidden behind it.</p>
+      <p>In retrospect, however, a kura is not a bad place to keep photographs.</p>
+      <p>It is dark.</p>
+      <p>It does not rearrange the contents while you are away.</p>
+      <p>And when you return for something, you rather hope to find the thing you put there.</p>
+      <p>That seemed about right.</p>
+      <p>So pictkura gradually acquired the same manners: it does not insist on moving your photographs into its own private library, it does not quietly reinterpret them, and it is designed so that if you stop using pictkura, your files are still where you left them.</p>
+      <p>Naming the thing seems to have decided, almost by accident, several things I did not want it to become.</p>
+    </section>
+
+    <section id="useful">
+      <h2 class="disp"><span class="num">6</span>Useful things are usually useful</h2>
+      <p>Once you make software, there is an endless supply of features that would, unquestionably, be useful.</p>
+      <p>RAW development.</p>
+      <p>Advanced editing.</p>
+      <p>Cloud synchronisation.</p>
+      <p>AI classification.</p>
+      <p>Face recognition.</p>
+      <p>All of these are useful.</p>
+      <p>And if I keep adding useful things, sooner or later I end up with software that I no longer want to use.</p>
+      <p>This presents a small problem.</p>
+      <p>I do not want to study my photo manager before I can use my photo manager.</p>
+      <p>I do not want to log in merely to look at photographs.</p>
+      <p>And if I open a folder from ten years ago, I would prefer not to discover that some substantial administrative event must occur first.</p>
+      <p>I came to look at a photograph.</p>
+      <p>So when considering a feature, I try not to ask only:</p>
+      <p>“Would this be useful?”</p>
+      <p>I also ask:</p>
+      <p>“Would I actually use it?”</p>
+      <p>This is a considerably harsher test.</p>
+      <p>The developer is also the first user. There is little appeal process.</p>
+    </section>
+
+    <section id="fast">
+      <h2 class="disp"><span class="num">7</span>It became fast because I am impatient</h2>
+      <p>pictkura is quite fast at displaying RAW files.</p>
+      <p>This was not originally a mission to build a high-performance RAW viewer.</p>
+      <p>I simply dislike waiting.</p>
+      <p>Open one photograph.</p>
+      <p>Next.</p>
+      <p>Wait.</p>
+      <p>Next.</p>
+      <p>Wait.</p>
+      <p>Back one.</p>
+      <p>Wait again.</p>
+      <p>Do this for a few hundred photographs and I usually lose interest before the computer does.</p>
+      <p>So pictkura does not develop the RAW image from scratch for ordinary viewing. It uses the rendered image the camera has already placed inside the file.</p>
+      <p>The result is fast.</p>
+      <p>This sounds like a technical design decision.</p>
+      <p>The original requirement was that I am impatient.</p>
+      <p>Deletion is the one place where I deliberately went in the opposite direction.</p>
+      <p>Marking a photograph as unwanted does not immediately delete it.</p>
+      <p>The marks are collected, shown again for confirmation, and only then sent to the operating system's trash.</p>
+      <p>Viewing should be fast.</p>
+      <p>Irreversible mistakes do not particularly need to be.</p>
+      <p>On this matter, I have chosen not to place excessive trust in my past self.</p>
+    </section>
+
+    <section id="you">
+      <h2 class="disp"><span class="num">8</span>Perhaps you have the same sort of photo folder</h2>
+      <p>After making pictkura, I began to suspect that my situation may not be especially unusual.</p>
+      <p>You own a decent camera.</p>
+      <p>You shoot RAW.</p>
+      <p>You care about your photographs.</p>
+      <p>You do not necessarily open a RAW editor every weekend.</p>
+      <p>You still have photographs from old cameras.</p>
+      <p>Several cameras have come and gone since then.</p>
+      <p>A smartphone has joined the collection and the number of file formats has increased accordingly.</p>
+      <p>Eventually the photo folder begins to resemble geology more than organisation.</p>
+      <p>Mine certainly does.</p>
+      <p>Those photographs have not survived for more than a decade because I maintained a flawless archival system.</p>
+      <p>They survived because I did not delete them.</p>
+      <p>This turned out to be a surprisingly effective preservation strategy.</p>
+      <p>pictkura is not meant to force all of that history into a pristine new system.</p>
+      <p>I mostly wanted to look at it as it already exists.</p>
+      <p>If your photo collection also looks rather like</p>
+      <p><strong class="em">the archaeological result of changing cameras several times during the course of a life,</strong></p>
+      <p>we may be trying to solve the same problem.</p>
+    </section>
+
+    <section id="thanks">
+      <h2 class="disp"><span class="num">9</span>One final thank you</h2>
+      <p>pictkura began entirely as something I wanted for myself.</p>
+      <p>After publishing it, I genuinely did not know whether anyone else needed such a thing.</p>
+      <p>Then <a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Roberto Zamfir</a> reviewed pictkura for Softpedia.</p>
+      <p>4.0 / 5.</p>
+      <p>It was pictkura's first review.</p>
+      <p>He highlighted the clean, straightforward interface, the import workflow, and its usefulness as an alternative to the photo browsing tools built into Windows.</p>
+      <p>The score was, naturally, lovely.</p>
+      <p>But what stayed with me more was a simpler fact:</p>
+      <p class="pull">a person I did not know had downloaded it, launched it, actually tried the thing, and then written about it.</p>
+      <p>When you have only just released a piece of software, statistics do not always make it obvious whether there are actual human beings on the other side.</p>
+      <p>The review had a name on it.</p>
+      <p>Ah.</p>
+      <p>A human.</p>
+      <p>Thank you, Roberto Zamfir.</p>
+      <p>You were the first person to walk in from outside, pick the thing up, and properly have a look around.</p>
+    </section>
+
+    <div class="aside-card">
+      <p class="eyebrow" style="margin:0 0 14px">From here</p>
+      <p>What it can and cannot do, with the measurements, is in the <a href="spec.html">specification</a>. How to use it is the <a href="../manual.en.html">manual</a>, and how to get past the first-launch warnings is the <a href="install.html">install guide</a>. It is free and MIT licensed — <a href="download.html">downloading</a> needs no account and no payment. If it does not suit you, you can remove it and your photo folders stay exactly where they were.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">Home</a>
+    <a href="install.html">Install</a>
+    <a href="spec.html">Specification</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="terms.html">Terms &amp; disclaimer</a>
+  </span>
+</footer>
+
+</body>
+</html>
