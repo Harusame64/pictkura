@@ -182,18 +182,28 @@ Intel（x86_64）版と Linux 版はありません。
 - **ダイジェストは GitHub 自身が出します。** 下のコマンドで返る SHA-256 は、
   GitHub が保管しているバイト列から GitHub が計算した値で、こちらが書いた数字ではありません
 
+`v0.2.4` は例です。**落とした版のタグに読み替えてください**（ファイル名に入っています）。
+よその場所から落としたものは最新版とは限らないので、`latest` と見比べないこと。
+
+macOS:
+
 ```sh
 # GitHub が持っているダイジェストを見る
-# v0.2.4 の部分は、落とした版に読み替える（ファイル名に入っています）。
-# よその場所から落としたものは最新版とは限らないので、latest と見比べない
 curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
 
 # 落としたファイルのダイジェストを出して、上と見比べる
-# Windows (PowerShell): Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
 shasum -a 256 pictkura_*_arm64.zip
 ```
 
-GitHub は `sha256:` を付けて返し、PowerShell は大文字で返します。前置きを外し、
+Windows（PowerShell。`curl` と `grep` は使えません）:
+
+```powershell
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest
+
+Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+```
+
+GitHub は `sha256:` を付けて返し、`Get-FileHash` は大文字で返します。前置きを外し、
 大文字小文字を無視して見比べてください。
 
 これで分かるのは、**手元のファイルが配っているものと同じバイト列か**だけです。

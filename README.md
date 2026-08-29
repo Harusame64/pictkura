@@ -164,18 +164,29 @@ can check**. Here is what you can check instead.
 - **The digest is GitHub's, not ours.** The SHA-256 the command below returns is computed
   by GitHub from the bytes it stores. It is not a number we typed in
 
+`v0.2.4` is an example — **use the tag of the version you have**, which is in the
+filename. A copy from somewhere else is not necessarily the newest release, so do not
+use `latest`.
+
+macOS:
+
 ```sh
 # ask GitHub for the digests it holds
-# replace v0.2.4 with the version you have — it is in the filename. A copy from
-# somewhere else is not necessarily the newest release, so do not use `latest`
 curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
 
 # hash what you downloaded and compare
-# Windows (PowerShell): Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
 shasum -a 256 pictkura_*_arm64.zip
 ```
 
-GitHub returns the digest prefixed with `sha256:`, and PowerShell prints it in upper
+Windows (PowerShell — `curl` and `grep` are not available there):
+
+```powershell
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest
+
+Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+```
+
+GitHub returns the digest prefixed with `sha256:`, and `Get-FileHash` prints it in upper
 case. Drop the prefix and compare ignoring case.
 
 This tells you whether the file you hold is **byte for byte** what is published here.
