@@ -97,7 +97,11 @@ p { margin: 0 0 18px; }
 .bar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; justify-content: space-between;
-  gap: 24px; height: 72px; padding: 0 var(--pad);
+  /* **高さを決め打たない。** 断点をどれだけ丁寧に置いても、字体や言語や拡大率で
+     ナビの実寸は動く。入らなければ項目ごとに折り返して帯が伸びる形にしておけば、
+     どの幅でも「見えなくなる」ことだけは起きない（ゲート2が 1001〜1025px で
+     字の途中で折れるのを見つけた。断点が26px足りなかった） */
+  gap: 24px; min-height: 72px; padding: 0 var(--pad);
   border-bottom: 1px solid var(--line);
   background: oklch(0.145 0 0 / 0.9);
   backdrop-filter: blur(12px);
@@ -109,8 +113,9 @@ p { margin: 0 0 18px; }
   text-transform: uppercase; color: var(--text-faint);
   border-left: 1px solid var(--line-strong); padding-left: 14px;
 }
-.nav { display: flex; align-items: center; gap: 28px; font-size: 14px; color: var(--text-soft); }
-.nav a { color: var(--text-soft); }
+.nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 12px 28px; font-size: 14px; color: var(--text-soft); }
+/* 項目の中では折らない。折るなら項目と項目の間で折る */
+.nav a { color: var(--text-soft); white-space: nowrap; }
 .nav a[aria-current] { color: var(--text); border-bottom: 1px solid var(--accent); padding-bottom: 3px; }
 .lang {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);
@@ -511,7 +516,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
    はみ出したぶんが見えなくなっていた**（ページは横スクロールしないため。
    About を入れる前から 866px で出ていたので、元からの穴）。
    ここで落とすのは、頁内アンカー（特長・対応形式）とフッターから行ける GitHub */
-@media (max-width: 1000px) {
+@media (max-width: 1060px) {
   .nav .hide-sm { display: none; }
 }
 
@@ -526,6 +531,9 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .metrics > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .cards.c3, .cards.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shots-2 { grid-template-columns: minmax(0, 1fr); }
+  /* マニュアルはここで落とす。760px まで持たせると、日本語の帯が
+     764〜812px で2行になる（ゲート2の実測） */
+  .nav .hide-xs { display: none; }
   /* **目次は横並びに畳む。** ここで `.doc` は1段組みになるので、縦に積んだままだと
      本文の前に立ちはだかる——iPad の縦で about が 525px、spec が 678px あった。
      横に流すと 165px / 127px に縮み、目次としては使えるまま残る */
@@ -555,21 +563,16 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 @media (max-width: 760px) {
   :root { --pad: 20px; }
   body { font-size: 15px; }
-  /* **高さを決め打たない。** ここは position:sticky なので、ナビが折り返した分だけ
-     伸ばさないと、はみ出したぶんが本文に重なる（ゲート1の指摘）。ふだんは
-     min-height で今までどおり 60px に見える */
-  .bar { height: auto; min-height: 60px; gap: 12px; padding: 8px var(--pad); }
+  .bar { min-height: 60px; gap: 12px; padding: 8px var(--pad); }
   .bar .brand .disp { font-size: 17px; }
-  .nav { gap: 16px; font-size: 13.5px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
-  /* **`hide-sm` は上の 1000px の段で既に消えている。** ここでは `hide-xs` だけ。
-     以前はこの1行で両方まとめて消していて、その結果**スマホでは帯にダウンロードしか
-     残らなかった**——インストールの手引き（SmartScreen の越え方）へ辿り着けない
-     状態だった。残すのは「スクロールでは行けない行き先」だけにする */
-  .nav .hide-xs { display: none; }
+  .nav { gap: 10px 16px; font-size: 13.5px; min-width: 0; }
   .lang { padding-left: 14px; }
   /* **スマホでは目次ごと落とす。** 横並びに畳んでも about で 314px 残り、
-     本文が始まるのが 767px だった。ここまで来たら目次は道を塞いでいる */
-  .doc-nav { display: none; }
+     本文が始まるのが 767px だった。ここまで来たら目次は道を塞いでいる。
+     **ただし `.doc.legal` の柱は目次ではない**——制作者・所在・連絡先・価格の
+     `.facts` はサイト中でここにしか無いので、消すと電話から来た人が
+     「誰が配っているのか」を知る手立てを失う（ゲート2の指摘） */
+  .doc:not(.legal) .doc-nav { display: none; }
   .section { padding: 56px var(--pad) 52px; }
   .sec-head { gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
   .sec-head h2 { font-size: 24px; }
