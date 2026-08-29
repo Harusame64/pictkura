@@ -28,7 +28,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   btn.addEventListener("click", function () { setOpen(!isOpen()); });
 
-  // 項目を押したら閉じる。同じ頁の中の `#download` へ飛ぶときも畳んでおかないと、
+  // 項目を押したら閉じる。同じ頁の中の錨（`#…`）へ飛ぶときも畳んでおかないと、
   // 開いたままの札が飛んだ先の見出しに被る
   nav.addEventListener("click", function (e) {
     if (e.target.closest("a")) setOpen(false);
