@@ -608,6 +608,14 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .limits div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .doc, .doc.legal { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .doc-nav { position: static; }
+  /* 残した柱も、**本文の後ろへ回す**。縦に積むと法的ページを開いた人は
+     リンクと事実の一覧を半画面ぶん読まされてから題名にたどり着いていた
+     （iPhone で本文の始まりが 735px 目）。消さずに順番だけ入れ替える */
+  .doc.legal .doc-body { order: 1; }
+  .doc.legal .doc-nav {
+    order: 2; border-left: none; padding-left: 0;
+    border-top: 1px solid var(--line); padding-top: 32px;
+  }
   .foot-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; }
   .dl-pick { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 30px 28px 32px; }
   .dl-row { grid-template-columns: minmax(0, 1fr) 160px; gap: 28px; }
