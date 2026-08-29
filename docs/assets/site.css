@@ -357,6 +357,11 @@ body[lang="en"] .cards p { line-height: 1.75; }
   border-bottom: 1px solid oklch(0.82 0.12 255 / 0.4); padding-bottom: 3px;
 }
 .more.off { color: var(--text-muted); border-bottom-color: oklch(1 0 0 / 0.2); }
+/* 2本並べるとき。`.more` は inline-block なので、狭い画面で折り返した2本目が
+   前の行の字下がりを引き継いでずれる（ゲート2の指摘）。並びは flex で持ち、
+   段の余白は gap に任せる */
+.more-row { display: flex; flex-wrap: wrap; gap: 16px 32px; margin-top: 30px; }
+.more-row .more { margin-top: 0; }
 
 /* ─── 文書ページ（仕様・法的情報） ─── */
 .page-head { padding: 72px var(--pad) 56px; border-bottom: 1px solid var(--line); background: oklch(0.125 0 0); }

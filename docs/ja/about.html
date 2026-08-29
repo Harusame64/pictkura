@@ -38,6 +38,7 @@
     <a href="download.html">ダウンロード</a>
     <a href="install.html" class="hide-sm">インストール</a>
     <a href="spec.html" class="hide-xs">アプリ仕様</a>
+    <a href="../manual.html" class="hide-xs">マニュアル</a>
     <a href="about.html" aria-current="page">なぜ作ったのか</a>
     <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
     <span class="lang">JA / <a href="../en/about.html" hreflang="en">EN</a></span>
@@ -77,7 +78,7 @@
       <h2 class="disp"><span class="num">2</span>写真は、カメラより長く残る</h2>
       <p>長く撮っていると、カメラのほうが先に入れ替わります。一眼レフ、コンデジ、ミラーレス、そしてスマートフォン。そのたびに形式も変わります。JPEG、CR2、CR3、NEF、ARW、RAF、DNG、HEIC、それに動画。</p>
       <p>機材の履歴はばらばらでも、<strong class="em">家族の時間はひと続き</strong>です。子どもが生まれた年のフォルダと、今年のフォルダを、同じ操作で行き来したい。一覧が形式で切れてはいけない。pictkura が写真と RAW と動画を同じ並びに置くのは、そのためです。</p>
-      <p>だから対応形式は、機能の自慢としてではなく<strong class="em">前提</strong>として広げました。表示用の絵を取り出せると確かめた RAW の拡張子は 24 で、16 メーカー 28 点の実ファイルで確かめています。</p>
+      <p>だから対応形式は、機能の自慢としてではなく<strong class="em">前提</strong>として広げました。表示用の絵を取り出せると確かめた RAW の拡張子は 23 で、16 メーカー 28 点の実ファイルで確かめています。</p>
     </section>
 
     <section id="regret">
@@ -91,7 +92,7 @@
       <p>そこで採った考え方が、これです。</p>
       <p class="lead" style="margin:0 0 8px"><strong class="em">Keep RAW as insurance, not as a workflow.</strong></p>
       <p>普段は RAW を意識せず、JPEG と同じ速さで見られる。本当に必要になった 1 枚だけ、外の現像ソフトへ持っていけばいい。<strong class="em">pictkura が RAW を現像しないのは、機能が足りないからではなく、そういう置き方をしたいから</strong>です。</p>
-      <p>実際にやっていることは単純で、カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さないので、24MP の CR3 から原寸の絵が出るまで 17ms。JPEG をそのまま渡すのが 6ms なので、RAW でもほとんど変わりません。色はカメラが出したままです。</p>
+      <p>実際にやっていることは単純で、カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さないので、<strong class="em">横位置</strong>なら 24MP の CR3 から原寸の絵が出るまで 17ms。JPEG をそのまま渡すのが 6ms なので、そこはほとんど変わりません。色はカメラが出したままです。<strong class="em">縦位置は別で</strong>、プレビューを回してから再エンコードするぶん 218.5ms かかります（Nikon Df・NEF・実測。<a href="spec.html#bench-display">実測値</a>）。</p>
     </section>
 
     <section id="name">

@@ -11,11 +11,11 @@
 <link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="pictkura">
-<meta property="og:locale" content="en_US">
+<meta property="og:locale" content="en_GB">
 <meta property="og:title" content="Why pictkura exists | pictkura">
 <meta property="og:description" content="A storehouse for years of photos, not a darkroom. Where the name comes from, and why the app works the way it does.">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/en/about.html">
-<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="../assets/icon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
@@ -38,6 +38,7 @@
     <a href="download.html">Download</a>
     <a href="install.html" class="hide-sm">Install</a>
     <a href="spec.html" class="hide-xs">Specification</a>
+    <a href="../manual.en.html" class="hide-xs">Manual</a>
     <a href="about.html" aria-current="page">Why</a>
     <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
     <span class="lang"><a href="../ja/about.html" hreflang="ja">JA</a> / EN</span>
@@ -77,7 +78,7 @@
       <h2 class="disp"><span class="num">2</span>Photos outlast cameras</h2>
       <p>Shoot for long enough and the camera turns over before the photos do. A DSLR, a compact, a mirrorless body, then a phone. Each one brings its own format: JPEG, CR2, CR3, NEF, ARW, RAF, DNG, HEIC, and video alongside them.</p>
       <p>The equipment history is a patchwork, but <strong class="em">the family's years are continuous</strong>. The folder from the year a child was born and the folder from this month should be one motion apart. A library that breaks along format lines cannot do that, which is why photos, RAW and video sit in the same grid here.</p>
-      <p>So format coverage is not a feature to boast about. It is <strong class="em">the premise</strong>. Twenty-four RAW extensions are confirmed to give up a display image, checked against 28 real files from 16 manufacturers.</p>
+      <p>So format coverage is not a feature to boast about. It is <strong class="em">the premise</strong>. Twenty-three RAW extensions are confirmed to give up a display image, checked against 28 real files from 16 manufacturers.</p>
     </section>
 
     <section id="regret">
@@ -91,7 +92,7 @@
       <p>Which leads to the principle this is built on.</p>
       <p class="lead" style="margin:0 0 8px"><strong class="em">Keep RAW as insurance, not as a workflow.</strong></p>
       <p>Day to day you should never have to think about RAW; it opens as fast as a JPEG. On the rare day one frame has to be saved, you take that one file to a real RAW developer. <strong class="em">pictkura does not develop RAW because of how it wants them kept, not because the feature ran out of time.</strong></p>
-      <p>What it actually does is simple: it pulls out the JPEG the camera already embedded for its own rear screen. Nothing is demosaiced, so a full-size image out of a 24MP CR3 takes 17ms, against 6ms for handing over a JPEG directly — near enough the same. The colour is whatever the camera rendered.</p>
+      <p>What it actually does is simple: it pulls out the JPEG the camera already embedded for its own rear screen. Nothing is demosaiced, so <strong class="em">a landscape frame</strong> — a full-size image out of a 24MP CR3 — takes 17ms, against 6ms for handing over a JPEG directly. Near enough the same. The colour is whatever the camera rendered. <strong class="em">Portrait is the exception</strong>: the preview has to be rotated and re-encoded, which measured 218.5ms on a Nikon Df NEF (<a href="spec.html#bench-display">the numbers</a>).</p>
     </section>
 
     <section id="name">
@@ -130,7 +131,7 @@
 <footer class="foot-slim">
   <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
   <span class="links">
-    <a href="./">Overview</a>
+    <a href="./">Home</a>
     <a href="install.html">Install</a>
     <a href="spec.html">Specification</a>
     <a href="../manual.en.html">Manual</a>
