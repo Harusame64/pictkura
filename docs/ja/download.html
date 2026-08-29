@@ -64,7 +64,13 @@
        この写しがそのまま人前に出る。同じ写しが4ファイルにある——{en,ja}/index.html と
        {en,ja}/download.html。版を出したら4つとも手で更新すること（版番号・ファイル名・
        リンク・サイズ。公開日はこの頁にしかない）。0.2.1 と 0.2.2 で2回続けて忘れており、そのあいだ
-       この頁は制限に当たった人に v0.2.0 を出し続けていた。 -->
+       この頁は制限に当たった人に v0.2.0 を出し続けていた。
+
+       **「配布物の作られ方」の curl の中の版は、ここには含めない。** 一度 [data-ver] に
+       したが戻した（ゲート2の指摘）——あれは `releases/latest` から埋まるので、
+       **すぐ上に書いてある「latest と見比べるな」を自分で破る**。ミラーから古い版を
+       落とした人が、そのまま貼って必ず不一致になる。**古びてよい例**として置き、
+       読み替えてもらう。README（英日）の同じコマンドも同じ扱い。 -->
   <div class="note warn" data-stale hidden style="margin-bottom:36px">
     <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>回線か、GitHub 側の一時的な制限のようです。下に並んでいるのは <b>v0.2.4</b> のファイルで、これが最新とは限りません。念のため <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>でも確かめてください。</p>
   </div>
@@ -174,7 +180,7 @@
   </div>
 
   <div class="note warn" style="max-width:980px">
-    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> 壊れているわけでも、何かに感染しているわけでもありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。</p>
+    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> あの警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。自分で確かめるための材料は<a href="#build">配布物の作られ方</a>に並べました。<strong class="em">読んだうえで不安が残るなら、進めないでください。</strong></p>
     <p>Windows は「WindowsによってPCが保護されました」→「詳細情報」→「実行」。macOS は一度断られたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。</p>
   </div>
 
@@ -183,6 +189,44 @@
     <div><b>Linux 版はありません</b><br>取り込みの仕組みが Windows と macOS に寄っているためです</div>
     <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には最初から入っています。入っていない PC では、インストーラが取得しに行きます</div>
     <div><b>写真ファイル本体は変更しません</b><br>インストールしても削除しても、写真ファイルを書き換えることはありません。保存場所は<a href="spec.html#storage">アプリ仕様</a>にあります</div>
+  </div>
+
+  <div class="sec-head" id="build" style="margin:80px 0 28px;max-width:980px">
+    <span class="num mono">03</span>
+    <h2 class="disp">配布物の作られ方</h2>
+    <span class="rule"></span>
+  </div>
+
+  <p class="lead" style="max-width:980px">署名の証明書を持っていないので、<strong class="em">こちらが「安全です」と言っても、受け取る側にそれを確かめる手立てがありません</strong>。代わりに、確かめるための材料を出します。目的は安全だと主張することではなく、<strong class="em">自分で確かめられる状態にすること</strong>です。</p>
+
+  <div class="limits" style="margin-top:40px;max-width:980px">
+    <div><b>ソースは全部あります</b><br>配布物は<a href="https://github.com/Harusame64/pictkura/tags">タグごと</a>に、その時点のソースから作られます。<a href="https://github.com/Harusame64/pictkura">リポジトリ</a>は MIT ライセンスです</div>
+    <div><b>作っているのは手元の機械ではありません</b><br><a href="https://github.com/Harusame64/pictkura/blob/main/.github/workflows/release.yml">GitHub Actions のワークフロー</a>が5つのファイルを作ります。<a href="https://github.com/Harusame64/pictkura/actions/workflows/release.yml">走った記録</a>も残っています</div>
+    <div><b>ダイジェストは GitHub が出します</b><br>下のコマンドで返る SHA-256 は、<strong class="em">GitHub が保管しているファイルから GitHub 自身が計算した値</strong>です。こちらが書いた数字ではありません</div>
+    <div><b>これで分かることは1つだけ</b><br>手元のファイルが、ここで配っているものと<strong class="em">同じバイト列か</strong>だけです。<strong class="em">中身が安全であることの証明にはなりません</strong></div>
+  </div>
+
+  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">GitHub が持っているダイジェストを見る。<strong class="em">落とした版のタグを指定してください</strong>——よその場所から落としたものは最新版とは限らないので、<code class="mono">latest</code> と見比べると食い違って当然になります:</p>
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="GitHub のダイジェストを引くコマンド"># v0.2.4 は例です。落とした版のタグに読み替えてください（ファイル名に入っています）
+
+# macOS
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
+
+# Windows (PowerShell)
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest</pre>
+
+  <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">落としたファイルのダイジェストを出して、上と見比べる:</p>
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="手元のファイルのダイジェストを出すコマンド"># macOS
+cd ~/Downloads
+shasum -a 256 pictkura_*_arm64.zip
+
+# Windows (PowerShell)
+cd ~\Downloads
+Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256</pre>
+  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)"><code class="mono">Get-FileHash</code> は大文字で返します。GitHub 側の <code class="mono">sha256:</code> を外して、大文字小文字を無視して見比べてください。<strong class="em">Windows で何も表示されないときは、そのフォルダにファイルが無いという意味です</strong>——<code class="mono">Get-FileHash</code> は当たるファイルが1つも無いと、エラーを出さずに黙って終わります（PowerShell 7.6.5 で実測）。</p>
+
+  <div class="note" style="max-width:980px;margin-top:32px">
+    <p><a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a> のような<strong class="em">別の場所から落とした</strong>ときこそ、この突き合わせが効きます。値が違ったら、それは配っている本人が知らないファイルです。</p>
   </div>
 
 </main>

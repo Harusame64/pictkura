@@ -48,10 +48,10 @@
 <div class="page-head photo gate">
   <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; インストールと初回起動</p>
   <h1 class="disp">インストールと初回起動</h1>
-  <p class="lead">pictkura は署名証明書を持っていないため、Windows でも macOS でも初回に警告が出ます。壊れているわけでも、何かに感染しているわけでもありません。どの画面で何を押せばよいのかを、すべて詳しく解説します。</p>
+  <p class="lead">pictkura は署名証明書を持っていないため、Windows でも macOS でも初回に警告が出ます。あの警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばよいのかを、すべて詳しく解説します。自分で確かめるための材料は<a href="download.html#build">配布物の作られ方</a>にまとめてあります。<strong class="em">読んだうえで不安が残るなら、進めないでください。</strong></p>
   <p class="stamps">
     <span>バージョン &nbsp;<b>0.2</b></span>
-    <span>最終更新 &nbsp;<b>2026-08-22</b></span>
+    <span>最終更新 &nbsp;<b>2026-08-29</b></span>
   </p>
   <span class="by">Photo: Wikimedia Commons, CC0</span>
 </div>
@@ -130,7 +130,7 @@
 
     <section id="macos">
       <h2 class="disp"><span class="num">3</span>macOS で開く</h2>
-      <p>macOS 版は <strong class="em">Apple の開発者署名（Developer ID）を受けていません</strong>。そのため初回はダブルクリックしても起動せず、Gatekeeper に止められます。アプリが壊れているわけではありません。</p>
+      <p>macOS 版は <strong class="em">Apple の開発者署名（Developer ID）を受けていません</strong>。そのため初回はダブルクリックしても起動せず、Gatekeeper に止められます。アプリが壊れているわけではなく、Gatekeeper は「誰が署名したのか確かめられない」と言っています。</p>
       <p><strong class="em">まず <code>pictkura.app</code> を「アプリケーション」フォルダなど、置いておきたい場所へ移してください。</strong> これは省略できません。移さずに起動すると、macOS はアプリを読み取り専用の一時領域へコピーして実行します（App Translocation）。</p>
 
       <h3>macOS 15（Sequoia）以降</h3>

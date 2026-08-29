@@ -345,18 +345,91 @@ jobs:
           fi
           printf '  %s\n' "${files[@]}"
 
+          # **ダイジェストを出す。** 署名の証明書を持っていない以上、こちらから出せる
+          # 材料はこれしかない。**「安全である」ことの証明ではない**——同じ人が作った物に
+          # 同じ人が判子を押しているだけで、言えるのは「手元のファイルが、ここに載って
+          # いるものと同じバイト列か」だけである。それでも効く用途が2つある:
+          # **再配布先（Softpedia など）から落としたものを突き合わせる**のと、
+          # **後から差し替えられていないかを見る**の。
+          # 置き場（`dist/pictkura-windows/`）は受け取る側に無いので、名前だけを載せる
+          sums="$RUNNER_TEMP/SHA256SUMS.txt"
+          : > "$sums"
+          for f in "${files[@]}"; do
+            ( cd "$(dirname "$f")" && sha256sum "$(basename "$f")" ) >> "$sums"
+          done
+          cat "$sums"
+
           # 本文は `docs/release-notes/<タグ>.md` があればそれを載せる。
           # **リポジトリに置く**のが要点——GitHub側で直に書くと、利用者が最初に
           # 読む文章だけがレビューの門を通らずに出る。無ければ従来どおり
-          # 自動生成（マージしたPRの一覧）に落とす
+          # 自動生成（マージしたPRの一覧）に落とす。
+          # **ダイジェストだけは後ろに継ぐ**——ビルドが終わるまで存在しないので
+          # リポジトリ側には置けない。継ぐ文言もここに書いてあるぶんPRの門を通る。
+          # **継ぐのは手書きのノートがあるときだけ**（ゲート1のP2・据え置き）。
+          # 自動生成へ落ちる枝は、`--generate-notes` が作った本文を読み戻してから
+          # 継ぎ直さないと足せず、**リリースが出来た後に増えるAPI呼び出しと
+          # `gh release edit`** を、既に何かが狂っている枝へ足すことになる。
+          # 見返りは薄い——`SHA256SUMS.txt` は**どちらの枝でも必ず付く**し、
+          # サイトが案内しているのは GitHub 自身が持つダイジェスト
+          # （`/releases/tags/<tag>` のAPI）で、そちらは本文と無関係に引ける。
+          # 本文の節は正常な道の便宜であって、確かめる手立てそのものではない
           notes="docs/release-notes/$GITHUB_REF_NAME.md"
+          body="$RUNNER_TEMP/body.md"
           # **中身があるかまで見る**（`-f` だけだと、sparse-checkout の書き方を
           # 間違えて空で落ちてきたときに「本文が空のRelease」が黙って出る）
           if [ -s "$notes" ]; then
             echo "リリースノート: $notes"
-            notes_args=(--notes-file "$notes")
+            cp "$notes" "$body"
+            {
+              printf '\n\n---\n\n## SHA-256\n\n'
+              printf 'Digests of the five build artifacts, computed on the runner that publishes\n'
+              printf 'them. The same listing is attached as SHA256SUMS.txt. On macOS,\n'
+              printf '`shasum -a 256 --ignore-missing -c SHA256SUMS.txt` checks whichever of them\n'
+              printf 'you have in the current directory — without --ignore-missing it reports the\n'
+              printf 'ones you did not download as FAILED. On Windows nothing built in reads a sums\n'
+              printf 'file, so hash yours with `Get-FileHash <file> -Algorithm SHA256`.\n'
+              printf 'They tell you whether the file you are holding is byte for byte the one\n'
+              printf 'published here — not that it is safe. The same person who built it wrote\n'
+              printf 'these numbers.\n\n'
+              printf 'GitHub computes its own digest for every asset, from the bytes it stores, and\n'
+              printf 'that one we did not write. Ask it directly:\n\n'
+              printf '```\n'
+              printf 'curl -s https://api.github.com/repos/%s/releases/tags/%s | grep -E \x27"name"|"digest"\x27\n' \
+                "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+              printf '```\n\n'
+              printf 'このリリースの配布物5点の、**公開する機械で計算した**ダイジェストです。\n'
+              printf '同じ一覧は `SHA256SUMS.txt` としても付けてあります。macOS なら\n'
+              printf '`shasum -a 256 --ignore-missing -c SHA256SUMS.txt` で、そのフォルダに\n'
+              printf 'あるぶんだけ確かめられます（`--ignore-missing` を外すと、落として\n'
+              printf 'いないファイルが FAILED として並びます）。Windows には一覧を読む標準の\n'
+              printf '道具が無いので、`Get-FileHash <ファイル> -Algorithm SHA256` になります。\n'
+              printf '分かるのは**手元のファイルが、ここに載っているものと\n'
+              printf '同じバイト列か**だけで、安全であることの証明にはなりません（作った本人が\n'
+              printf '押した判子です）。**GitHub 自身も保管しているバイト列から独自に計算した値を\n'
+              printf '持っています**——上のコマンドで引けるほうは、こちらが書いた数字ではありません。\n\n'
+              printf '```\n'
+              cat "$sums"
+              printf '```\n'
+            } >> "$body"
           else
             echo "リリースノートが無いので自動生成にする: $notes"
+            : > "$body"
+          fi
+
+          # **ダイジェストの一覧もファイルとして付ける**（本文からのコピーで済ませない）。
+          # `shasum -a 256 --ignore-missing -c` がそのまま通る形（`<digest>  <名前>`）に
+          # しておくと、macOSの人は目で突き合わせずに済む。**`sha256sum` とは書かない**——
+          # あれはGNU coreutilsの名前で、**配っている2つのOSのどちらにも無い**
+          # （macOSは `shasum`、Windowsには一覧を読む道具そのものが無い。ゲート2の指摘）。
+          # **`--ignore-missing` も落とさない。** 5行の一覧に対して手元が1ファイルだと、
+          # 素の `-c` は `FAILED open or read` を4行出して終了1を返す（shasum 6.02 で実測）。
+          # ふつうの人は1つしか落とさないので、**それが既定の見え方になる**。
+          # 上の員数確認（5つ）を通した**後**に足す——先に足すと6つになって落ちる
+          files+=("$sums")
+
+          if [ -s "$body" ]; then
+            notes_args=(--notes-file "$body")
+          else
             notes_args=(--generate-notes)
           fi
 
@@ -368,7 +441,7 @@ jobs:
             # 貼り直せるのは**手書きのノートがあるときだけ**。`gh release edit` に
             # `--generate-notes` は無い（自動生成は create でしか作れない）ので、
             # `notes_args` をそのまま渡すと未知のフラグで落ちる
-            if [ -s "$notes" ]; then
-              gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+            if [ -s "$body" ]; then
+              gh release edit "$GITHUB_REF_NAME" --notes-file "$body"
             fi
           fi

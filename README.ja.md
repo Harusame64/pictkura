@@ -117,7 +117,7 @@ pictkura は **Windows のコード署名を受けていません**（証明書�
 
 macOS版は **Appleの開発者署名（Developer ID）を受けていません**。そのため初回は
 ダブルクリックしても起動せず、Gatekeeper に止められます。アプリが壊れているわけでは
-ありません。
+なく、Gatekeeper は「誰が署名したのか確かめられない」と言っています。
 
 **まず `pictkura.app` を「アプリケーション」フォルダなど、置いておきたい場所へ移して
 ください。** これは省略できません。移さずに起動すると、macOS はアプリを読み取り専用の
@@ -168,6 +168,52 @@ xattr -dr com.apple.quarantine /パス/pictkura.app
 なお**この表示は配布形式が `.zip` でも `.dmg` でも同じ**で、形式を変えても回避できません。
 
 Intel（x86_64）版と Linux 版はありません。
+
+### 配布物を自分で確かめる
+
+署名の証明書を持っていないので、**こちらが「安全です」と言っても、受け取る側に
+それを確かめる手立てがありません**。代わりに材料を出します。
+
+- **ソース**は全部あります。配布物は[タグごと](https://github.com/Harusame64/pictkura/tags)に、
+  その時点のソースから作られます
+- **作っているのは手元の機械ではありません。**
+  [GitHub Actions のワークフロー](.github/workflows/release.yml)が5つのファイルを作り、
+  [走った記録](https://github.com/Harusame64/pictkura/actions/workflows/release.yml)も残ります
+- **ダイジェストは GitHub 自身が出します。** 下のコマンドで返る SHA-256 は、
+  GitHub が保管しているバイト列から GitHub が計算した値で、こちらが書いた数字ではありません
+
+`v0.2.4` は例です。**落とした版のタグに読み替えてください**（ファイル名に入っています）。
+よその場所から落としたものは最新版とは限らないので、`latest` と見比べないこと。
+
+macOS:
+
+```sh
+# GitHub が持っているダイジェストを見る
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
+
+# 落としたファイルのダイジェストを出して、上と見比べる
+cd ~/Downloads
+shasum -a 256 pictkura_*_arm64.zip
+```
+
+Windows（PowerShell。`grep` が無く、Windows PowerShell 5.1 では `curl` が
+`Invoke-WebRequest` の別名なので `-s` を受け付けません）:
+
+```powershell
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest
+
+cd ~\Downloads
+Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+```
+
+GitHub は `sha256:` を付けて返し、`Get-FileHash` は大文字で返します。前置きを外し、
+大文字小文字を無視して見比べてください。**Windows で何も表示されないときは、その
+フォルダにファイルが無いという意味です** — `Get-FileHash` は当たるファイルが1つも
+無いと、エラーを出さずに黙って終わります（PowerShell 7.6.5 で実測）。
+
+これで分かるのは、**手元のファイルが配っているものと同じバイト列か**だけです。
+**中身が安全であることの証明にはなりません。** Softpedia のような別の場所から
+落としたときにこそ効きます。
 
 ---
 

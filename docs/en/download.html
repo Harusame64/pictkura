@@ -67,7 +67,15 @@
        refreshed by hand on each release: the version stamp, the file names, the
        links, the sizes, and the date, which only this page carries. They were
        missed for 0.2.1 and for 0.2.2, which left these pages offering v0.2.0 to
-       anyone who hit a rate limit. -->
+       anyone who hit a rate limit.
+
+       The tag inside the curl command under "How these files are built" is
+       deliberately NOT in that list. It was [data-ver] for one commit and was
+       reverted (gate 2): that attribute is filled from `releases/latest`, which
+       breaks the instruction printed directly above it — someone holding an
+       older build from a mirror would paste it and be told their file does not
+       match. It is meant to go stale and be read as an example. The same command
+       in the two READMEs is treated the same way. -->
   <div class="note warn" data-stale hidden style="margin-bottom:36px">
     <p><strong class="em">The latest release information could not be retrieved.</strong> This is usually the network, or a temporary limit on GitHub's side. What is listed below is <b>v0.2.4</b>, which may no longer be the newest. Check <a href="https://github.com/Harusame64/pictkura/releases/latest">the releases page</a> if you want to be sure.</p>
   </div>
@@ -177,7 +185,7 @@
   </div>
 
   <div class="note warn" style="max-width:980px">
-    <p><strong class="em">Windows and macOS both warn you the first time, as the application is not digitally signed.</strong> Nothing is broken and nothing is infected. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>.</p>
+    <p><strong class="em">Windows and macOS both warn you the first time, as the application is not digitally signed.</strong> The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>, and the material you can check for yourself is under <a href="#build">how these files are built</a>. <strong class="em">If you read it and are still uneasy, do not go ahead.</strong></p>
     <p>On Windows it is "Windows protected your PC" → "More info" → "Run anyway". On macOS it refuses once, and you then allow it under System Settings → Privacy &amp; Security → "Open Anyway".</p>
   </div>
 
@@ -186,6 +194,44 @@
     <div><b>No Linux build</b><br>Importing relies on Windows and macOS features that have no Linux counterpart here</div>
     <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it</div>
     <div><b>Photo files are never modified</b><br>Installing or removing pictkura never rewrites a photo file. Where they are kept is in the <a href="spec.html#storage">specification</a></div>
+  </div>
+
+  <div class="sec-head" id="build" style="margin:80px 0 28px;max-width:980px">
+    <span class="num mono">03</span>
+    <h2 class="disp">How these files are built</h2>
+    <span class="rule"></span>
+  </div>
+
+  <p class="lead" style="max-width:980px">There is no signing certificate, so <strong class="em">us telling you it is safe gives you nothing you can check</strong>. Here is what you can check instead. The point is not to claim it is safe — it is to leave you able to find out.</p>
+
+  <div class="limits" style="margin-top:40px;max-width:980px">
+    <div><b>The source is all there</b><br>Every build is made from the source at <a href="https://github.com/Harusame64/pictkura/tags">its tag</a>. The <a href="https://github.com/Harusame64/pictkura">repository</a> is MIT licensed</div>
+    <div><b>No local machine makes them</b><br>The five files come out of <a href="https://github.com/Harusame64/pictkura/blob/main/.github/workflows/release.yml">a GitHub Actions workflow</a>, and <a href="https://github.com/Harusame64/pictkura/actions/workflows/release.yml">every run of it</a> is on the record</div>
+    <div><b>The digest is GitHub's, not ours</b><br>The SHA-256 the command below returns is <strong class="em">computed by GitHub from the bytes it stores</strong>. It is not a number we typed in</div>
+    <div><b>It tells you one thing</b><br>Whether the file you hold is <strong class="em">byte for byte</strong> what is published here. <strong class="em">It is not evidence that the contents are safe</strong></div>
+  </div>
+
+  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">Ask GitHub for the digests it holds. <strong class="em">Name the tag you actually downloaded</strong> — a copy from somewhere else is not necessarily the newest release, and comparing it against <code class="mono">latest</code> would differ for that reason alone:</p>
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="Command to ask GitHub for its digests"># v0.2.4 is an example — use the tag of the version you have (it is in the filename)
+
+# macOS
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
+
+# Windows (PowerShell)
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest</pre>
+
+  <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">Then hash the file you downloaded and compare:</p>
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="Command to hash the file you downloaded"># macOS
+cd ~/Downloads
+shasum -a 256 pictkura_*_arm64.zip
+
+# Windows (PowerShell)
+cd ~\Downloads
+Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256</pre>
+  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)"><code class="mono">Get-FileHash</code> prints the digest in upper case. Drop GitHub's <code class="mono">sha256:</code> prefix and compare ignoring case. <strong class="em">If nothing at all is printed on Windows, the file is not in that folder</strong> — <code class="mono">Get-FileHash</code> exits silently, without an error, when the pattern matches nothing (measured on PowerShell 7.6.5).</p>
+
+  <div class="note" style="max-width:980px;margin-top:32px">
+    <p>This comparison earns its keep when the file came from <strong class="em">somewhere other than here</strong> — a mirror such as <a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a>. If the digest differs, you are holding a file the author has never seen.</p>
   </div>
 
 </main>

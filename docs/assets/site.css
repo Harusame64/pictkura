@@ -39,7 +39,8 @@
 /* display を持つ要素に hidden を付けても消えないのを塞ぐ（`download.js` の出し分け） */
 [hidden] { display: none !important; }
 
-html { scroll-behavior: smooth; }
+/* 見出しへ飛んだとき、上の帯（`.bar` は sticky で 72px）に隠れないよう逃がす */
+html { scroll-behavior: smooth; scroll-padding-top: 96px; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
 body {
@@ -325,6 +326,15 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .note p:last-child { margin-bottom: 0; }
 .note a { color: var(--accent-bright); border-bottom: 1px solid oklch(0.82 0.12 255 / 0.4); }
 
+/* 打ち込んでもらうコマンド。長いので横だけスクロールさせる——
+   折り返すと、行のどこまでが1つの引数か読めなくなる */
+.cmd {
+  margin: 0; padding: 16px 20px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: oklch(0.145 0 0);
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.9;
+  color: oklch(0.86 0 0); overflow-x: auto; white-space: pre;
+}
+
 /* できないことの一覧 */
 .limits { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); }
 .limits div {
@@ -334,6 +344,12 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .limits div:first-child { padding-left: 0; }
 .limits div:last-child { padding-right: 0; border-right: none; }
 .limits b { font-weight: 400; color: oklch(0.88 0 0); }
+/* この升の中のリンクは「読んで終わり」ではなく**押して確かめてもらう**もの
+   （配布物の作られ方の節）。地の文と同じ色だと、リンクだと気付かれない。
+   **既存の升にも効く**——ダウンロード頁の「写真ファイル本体は変更しません」に
+   ある `spec.html#storage` への1本。そこも同じ理由で見えるべきなので、
+   わざと絞っていない（ゲート2の指摘・据え置き） */
+.limits a { color: var(--accent-bright); border-bottom: 1px solid oklch(0.82 0.12 255 / 0.4); }
 
 .more {
   display: inline-block; margin-top: 30px; font-size: 13px;
