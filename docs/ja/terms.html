@@ -23,6 +23,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/nav.js"></script>
 </head>
 <body lang="ja">
 
@@ -33,13 +34,20 @@
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
     <a class="disp" href="./">pictkura</a>
   </div>
-  <nav class="nav" aria-label="サイト内">
-    <a href="./#speed" class="hide-sm">特長</a>
-    <a href="install.html" class="hide-sm">インストール</a>
+  <nav class="nav" id="site-nav" aria-label="サイト内">
+    <a href="install.html">インストール</a>
     <a href="spec.html">アプリ仕様</a>
     <a href="../manual.html">マニュアル</a>
+    <a href="about.html">About</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
     <span class="lang">JA / <a href="../en/terms.html" hreflang="en">EN</a></span>
   </nav>
+  <div class="bar-end">
+    <a href="download.html" class="btn btn-sm">ダウンロード</a>
+    <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="メニュー">
+      <svg class="i-open" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7.5h16M4 12h16M4 16.5h16"/></svg><svg class="i-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+    </button>
+  </div>
 </header>
 
 <figure class="strip">
