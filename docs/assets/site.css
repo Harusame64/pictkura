@@ -370,6 +370,8 @@ body[lang="en"] .cards p { line-height: 1.75; }
 }
 .page-head.photo.slope  { --photo: url("../images/photo/forest-slope.jpg"); --photo-pos: 50% 58%; }
 .page-head.photo.gate   { --photo: url("../images/photo/forest-gate.jpg"); --photo-pos: 50% 62%; }
+/* 「なぜ作ったのか」の面。朝の光が差し込む1枚を、始まりの頁に敷く */
+.page-head.photo.rays { --photo: url("../images/photo/forest-rays.jpg"); --photo-pos: 50% 62%; --veil-a: 0.88; --veil-b: 0.8; }
 .page-head.photo.canopy {
   --photo: url("../images/photo/forest-canopy.jpg");
   --photo-pos: 50% 55%; --veil-a: 0.86; --veil-b: 0.78;

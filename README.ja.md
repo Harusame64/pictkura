@@ -6,6 +6,10 @@
 取り込むことと、手元の写真を見ること。数万枚あっても待たされないことを目標に
 しています。
 
+`pictkura` は picture と「蔵」。写真を仕上げる工房ではなく、貯めておく場所という
+意味で名付けました。RAW を見せても現像しないのは、そのためです
+——[なぜ作ったのか](https://harusame64.github.io/pictkura/ja/about.html)。
+
 **[紹介ページ](https://harusame64.github.io/pictkura/ja/)** ·
 [アプリ仕様](https://harusame64.github.io/pictkura/ja/spec.html) ·
 [インストール](https://harusame64.github.io/pictkura/ja/install.html) ·

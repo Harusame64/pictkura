@@ -5,6 +5,11 @@
 A small, fast desktop photo manager. It does two things well: importing from a camera
 card and browsing what you already have — even when that is tens of thousands of files.
 
+The name is *picture* plus *kura*, the Japanese word for a storehouse: somewhere photos
+are kept and taken out again, rather than a workshop where they get finished. That is
+also why RAW is shown but never developed — [why pictkura
+exists](https://harusame64.github.io/pictkura/en/about.html).
+
 **[Website](https://harusame64.github.io/pictkura/en/)** ·
 [Specification](https://harusame64.github.io/pictkura/en/spec.html) ·
 [Installing](https://harusame64.github.io/pictkura/en/install.html) ·

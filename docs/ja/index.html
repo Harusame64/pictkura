@@ -71,7 +71,7 @@
   <div class="hero-copy">
     <p class="eyebrow" style="margin:0">Windows 10 / 11 と macOS 11 以降　—　v<span data-ver>0.2.4</span></p>
     <h1 class="disp">数万枚を、<br>待たずに。</h1>
-    <p>やることは、カードから取り込むことと、ためこんだ写真を並べて見ること。<strong class="em">この二つだけ</strong>に絞って、Rust で書きました。作らなかったぶんは、そのまま速さに回っています。</p>
+    <p>やることは、カードから取り込むことと、ためこんだ写真を並べて見ること。写真を現像する場所ではなく、<strong class="em">貯めておくための道具</strong>です。<strong class="em">この二つだけ</strong>に絞って Rust で書き、作らなかったぶんは、そのまま速さに回っています。</p>
     <div class="hero-cta">
       <!-- 押した時点で実物が落ちる。`assets/download.js` が端末を見て行き先と文言を差し替える。
            判定できないとき・JS が動かないときは、選ぶ頁へ送るだけにしてある -->
@@ -248,7 +248,7 @@
     <img src="../images/photo/forest-rays.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
     <span class="by">Photo: Wikimedia Commons, CC0</span>
   </figure>
-  <p class="lead" style="margin-bottom:48px">カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さないぶん速く、色は<strong class="em">カメラが出したまま</strong>。16 メーカー 28 個の実ファイルで確かめました。</p>
+  <p class="lead" style="margin-bottom:48px">普段はそのまま見る。でも、大切な 1 枚を救いたくなった日のために、RAW は残しておく。<strong class="em">pictkura は RAW を現像しません。</strong>カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さないぶん速く、色は<strong class="em">カメラが出したまま</strong>。16 メーカー 28 個の実ファイルで確かめました。</p>
   <div class="tiles">
     <div class="tile">
       <p class="eyebrow">写真</p>
@@ -306,6 +306,7 @@
     <h2 class="disp" style="color:oklch(0.8 0 0)">できないことも、先に書きます</h2>
     <span class="rule"></span>
   </div>
+  <p class="lead" style="margin-bottom:40px">全部入りの写真ソフトを目指していません。写真を仕上げる工房ではなく、<strong class="em">貯めて見返すための道具</strong>だからです。</p>
   <div class="limits">
     <div><b>現像はできません。</b>露出やホワイトバランスの調整はありません</div>
     <div><b>AI 選別はありません。</b>顔やピントの自動判定は入れていません</div>
@@ -313,6 +314,7 @@
     <div><b>macOS では一部の動画が枠だけ。</b>絵が出ると確かめたのは <code>mp4</code> と <code>mov</code> です</div>
   </div>
   <a class="more off" href="spec.html#cannot">できること・できないことの一覧 →</a>
+  <a class="more off" href="about.html" style="margin-left:32px">なぜ pictkura を作ったのか →</a>
 </section>
 
 <section class="section photo" id="download">
@@ -372,6 +374,7 @@
       <p class="eyebrow" style="margin:0 0 6px">製品</p>
       <a href="#speed">特長</a>
       <a href="spec.html">アプリ仕様</a>
+      <a href="about.html">なぜ作ったのか</a>
       <a href="spec.html#formats">対応形式</a>
       <a href="install.html">インストール</a>
       <a href="download.html">ダウンロード</a>

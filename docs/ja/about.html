@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>なぜ pictkura を作ったのか — 写真の蔵という考え方 | pictkura</title>
+<meta name="description" content="pictkura は速い RAW ビューアを作りたくて始めたものではありません。何年分もの家族写真を、カメラが変わっても普通に見返せる場所が欲しかった。名前の由来と、いまの作りに行き着くまでの理由を書いています。">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/ja/about.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/about.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/about.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="なぜ pictkura を作ったのか | pictkura">
+<meta property="og:description" content="写真を仕上げる工房ではなく、貯めておくための蔵。名前の由来と、いまの作りに行き着くまでの理由。">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/ja/about.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body lang="ja">
+
+<a class="skip" href="#main">本文へ移動</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" aria-label="サイト内">
+    <a href="./#speed" class="hide-sm">特長</a>
+    <a href="download.html">ダウンロード</a>
+    <a href="install.html" class="hide-sm">インストール</a>
+    <a href="spec.html" class="hide-xs">アプリ仕様</a>
+    <a href="about.html" aria-current="page">なぜ作ったのか</a>
+    <a href="https://github.com/Harusame64/pictkura" class="hide-sm">GitHub</a>
+    <span class="lang">JA / <a href="../en/about.html" hreflang="en">EN</a></span>
+  </nav>
+</header>
+
+<div class="page-head photo rays">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; なぜ作ったのか</p>
+  <h1 class="disp">なぜ pictkura を<br>作ったのか</h1>
+  <p class="lead">速い RAW ビューアを作りたくて始めたものではありません。何年分もの家族写真を、カメラが変わっても普通に見返せる場所が欲しかった——それだけです。ここには、いまの作りに行き着くまでの理由を書きます。<strong class="em">読まなくても使えます。</strong>何ができて何ができないかは<a href="spec.html">アプリ仕様</a>のほうにあります。</p>
+  <span class="by">Photo: Wikimedia Commons, CC0</span>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="このページの目次">
+    <p class="eyebrow" style="margin:0 0 8px">目次</p>
+    <a href="#home">1. 取り込んで、見返せる場所</a>
+    <a href="#longer">2. 写真は、カメラより長く残る</a>
+    <a href="#regret">3. JPEG だけにした日</a>
+    <a href="#insurance">4. RAW は保険であって、手順ではない</a>
+    <a href="#name">5. pict ＋ 蔵</a>
+    <a href="#therefore">6. だから、この作りになった</a>
+    <span class="hr"></span>
+    <a href="spec.html">アプリ仕様 →</a>
+    <a href="download.html">ダウンロード →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="home">
+      <h2 class="disp"><span class="num">1</span>取り込んで、見返せる場所</h2>
+      <p>欲しかったのは、Sony の PlayMemories Home のようなものでした。カメラのカードを挿すと写真が PC に入り、日付の順に並び、何年前のものでも同じように開ける。それだけの場所です。</p>
+      <p>写真管理そのものを趣味にしているわけではありません。RAW 現像を毎日したいわけでもありません。それでも、撮ったものを置いておく場所と、あとから見返す手立ては要ります。<strong class="em">撮る道具はたくさんあるのに、貯めて見返すほうの道具が手元から無くなっていた</strong>——出発点はそこでした。</p>
+    </section>
+
+    <section id="longer">
+      <h2 class="disp"><span class="num">2</span>写真は、カメラより長く残る</h2>
+      <p>長く撮っていると、カメラのほうが先に入れ替わります。一眼レフ、コンデジ、ミラーレス、そしてスマートフォン。そのたびに形式も変わります。JPEG、CR2、CR3、NEF、ARW、RAF、DNG、HEIC、それに動画。</p>
+      <p>機材の履歴はばらばらでも、<strong class="em">家族の時間はひと続き</strong>です。子どもが生まれた年のフォルダと、今年のフォルダを、同じ操作で行き来したい。一覧が形式で切れてはいけない。pictkura が写真と RAW と動画を同じ並びに置くのは、そのためです。</p>
+      <p>だから対応形式は、機能の自慢としてではなく<strong class="em">前提</strong>として広げました。表示用の絵を取り出せると確かめた RAW の拡張子は 24 で、16 メーカー 28 点の実ファイルで確かめています。</p>
+    </section>
+
+    <section id="regret">
+      <h2 class="disp"><span class="num">3</span>JPEG だけにした日</h2>
+      <p>普段は JPEG で足ります。撮ったその日に見て、その日のうちに家族へ送る。「もう JPEG だけでいいのでは」と思う日もあります。</p>
+      <p>ただ、大事な日ほど条件が厳しい。結婚式、逆光、室内と窓が同じ画面に入る場面、夜。そこで白飛びや露出の失敗が起きたとき、<strong class="em">「この 1 枚だけは救いたい」</strong>と思うことがあります。そしてその日は、たいてい撮った日ではなく、しばらく経ってからやって来ます。</p>
+    </section>
+
+    <section id="insurance">
+      <h2 class="disp"><span class="num">4</span>RAW は保険であって、手順ではない</h2>
+      <p>そこで採った考え方が、これです。</p>
+      <p class="lead" style="margin:0 0 8px"><strong class="em">Keep RAW as insurance, not as a workflow.</strong></p>
+      <p>普段は RAW を意識せず、JPEG と同じ速さで見られる。本当に必要になった 1 枚だけ、外の現像ソフトへ持っていけばいい。<strong class="em">pictkura が RAW を現像しないのは、機能が足りないからではなく、そういう置き方をしたいから</strong>です。</p>
+      <p>実際にやっていることは単純で、カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さないので、24MP の CR3 から原寸の絵が出るまで 17ms。JPEG をそのまま渡すのが 6ms なので、RAW でもほとんど変わりません。色はカメラが出したままです。</p>
+    </section>
+
+    <section id="name">
+      <h2 class="disp"><span class="num">5</span>pict ＋ 蔵</h2>
+      <p>pictkura は picture と、日本語の<strong class="em">「蔵」</strong>です。</p>
+      <p>蔵は、何かを加工して仕上げる工房ではありません。大切なものを長くしまっておき、必要になったときに取り出す場所です。壁が厚いのも、窓が小さいのも、置いたものが何十年ももつためにそうなっています。</p>
+      <p class="lead" style="margin:0 0 8px"><strong class="em">蔵は工房ではない。</strong></p>
+      <p>これは名前の説明であると同時に、機能を足すかどうかを決めるときの基準でもあります。「あると便利か」ではなく「蔵に要るか」で考える。<a href="./#limits">できないことを先に書いている</a>のは、足りないぶんを詫びているのではなく、<strong class="em">意図して工房にしていない</strong>からです。</p>
+    </section>
+
+    <section id="therefore">
+      <h2 class="disp"><span class="num">6</span>だから、この作りになった</h2>
+      <p>ここまでが、仕様のほとんどの理由です。技術的な選択が先にあって思想を後から付けたのではなく、逆でした。</p>
+      <table>
+        <thead><tr><th>そうしている理由</th><th>結果としての作り</th></tr></thead>
+        <tbody>
+          <tr><td class="k">現像する場所ではない</td><td>RAW はカメラが埋めた表示用 JPEG を取り出して見せる。デモザイクを回さない</td></tr>
+          <tr><td class="k">預けたものは、預けたまま返る</td><td>写真は元のフォルダに置いたまま。独自のカタログへ取り込まない。pictkura をやめてもフォルダはそのまま残る</td></tr>
+          <tr><td class="k">蔵の中身は蔵の中にある</td><td>local-first。アカウントも要らず、外に出る通信は更新の確認 1 本だけ。クラウドにしか実体が無いファイルを勝手に落とさない</td></tr>
+          <tr><td class="k">何年分でも、同じ棚に並ぶ</td><td>写真・RAW・動画を 1 つの一覧に。10 年前のカメラのファイルも今年のものと同じ操作で開く</td></tr>
+          <tr><td class="k">取り出すのに待たない</td><td>数万枚でも一覧が止まらないこと。速さは目標ではなく、蔵として当たり前に要る条件</td></tr>
+          <tr><td class="k">壊すのはいちばん遅く</td><td>選別の <span class="mono">✕</span> はその場では何も動かしません。印を付けるだけで、ビューアを閉じるときに並べて確認し、まとめて OS のごみ箱へ送ります</td></tr>
+        </tbody>
+      </table>
+      <p>最後の 1 行だけ、少し性質が違います。速さは表示に使い、<strong class="em">取り返しのつかない操作は遅らせる</strong>。蔵に入れたものを間違って捨てないための線引きで、ここは速くしていません。</p>
+    </section>
+
+    <div class="aside-card">
+      <p class="eyebrow" style="margin:0 0 14px">この先</p>
+      <p>何ができて何ができないかは<a href="spec.html">アプリ仕様</a>に、実測値もそこに載せています。使い方は<a href="../manual.html">取扱説明書</a>、入れ方は<a href="install.html">インストールの手引き</a>です。無料・MIT ライセンスで、<a href="download.html">ダウンロード</a>に登録も支払いも要りません。</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">紹介</a>
+    <a href="install.html">インストール</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="privacy.html">プライバシーポリシー</a>
+    <a href="terms.html">利用条件・免責</a>
+  </span>
+</footer>
+
+</body>
+</html>
