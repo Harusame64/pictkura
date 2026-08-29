@@ -107,7 +107,7 @@ we don't suggest it just to run this app.
 ### macOS: the first launch needs a few extra steps
 
 The macOS build is **not signed with an Apple Developer ID**, so Gatekeeper stops the
-first launch. The app is neither damaged nor infected.
+first launch. The app is not damaged: Gatekeeper is saying it cannot check who signed it.
 
 **First, move `pictkura.app` to wherever you want to keep it** (`/Applications`, say).
 This is not just tidiness: launched from where it was unzipped, macOS copies the app
@@ -149,6 +149,33 @@ block happens whether the app ships as a `.zip` or a `.dmg` — the archive form
 nothing to do with it.
 
 There is no Intel (x86_64) build, and no Linux build.
+
+### Checking the files yourself
+
+There is no signing certificate, so **us telling you it is safe gives you nothing you
+can check**. Here is what you can check instead.
+
+- **The source is all there.** Every build is made from the source at
+  [its tag](https://github.com/Harusame64/pictkura/tags)
+- **No local machine makes them.** The five files come out of
+  [a GitHub Actions workflow](.github/workflows/release.yml), and
+  [every run of it](https://github.com/Harusame64/pictkura/actions/workflows/release.yml)
+  is on the record
+- **The digest is GitHub's, not ours.** The SHA-256 the command below returns is computed
+  by GitHub from the bytes it stores. It is not a number we typed in
+
+```sh
+# ask GitHub for the digests it holds
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/latest | grep -E '"name"|"digest"'
+
+# hash what you downloaded and compare
+# Windows (PowerShell): Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+shasum -a 256 pictkura_*_arm64.zip
+```
+
+This tells you whether the file you hold is **byte for byte** what is published here.
+**It is not evidence that the contents are safe.** It earns its keep when the file came
+from somewhere other than here — a mirror such as Softpedia.
 
 ---
 

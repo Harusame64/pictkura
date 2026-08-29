@@ -174,8 +174,35 @@
   </div>
 
   <div class="note warn" style="max-width:980px">
-    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> 壊れているわけでも、何かに感染しているわけでもありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。</p>
+    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> あの警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。自分で確かめるための材料は<a href="#build">この配布物がどう作られているか</a>に並べました。<strong class="em">読んだうえで不安が残るなら、進めないでください。</strong></p>
     <p>Windows は「WindowsによってPCが保護されました」→「詳細情報」→「実行」。macOS は一度断られたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。</p>
+  </div>
+
+  <div class="sec-head" id="build" style="margin:80px 0 28px;max-width:980px">
+    <span class="num mono">03</span>
+    <h2 class="disp">この配布物がどう作られているか</h2>
+    <span class="rule"></span>
+  </div>
+
+  <p class="lead" style="max-width:980px">署名の証明書を持っていないので、<strong class="em">こちらが「安全です」と言っても、受け取る側にそれを確かめる手立てがありません</strong>。代わりに、確かめるための材料を出します。目的は安全だと主張することではなく、<strong class="em">自分で確かめられる状態にすること</strong>です。</p>
+
+  <div class="limits" style="margin-top:40px;max-width:980px">
+    <div><b>ソースは全部あります</b><br>配布物は<a href="https://github.com/Harusame64/pictkura/tags">タグごと</a>に、その時点のソースから作られます。<a href="https://github.com/Harusame64/pictkura">リポジトリ</a>は MIT ライセンスです</div>
+    <div><b>作っているのは手元の機械ではありません</b><br><a href="https://github.com/Harusame64/pictkura/blob/main/.github/workflows/release.yml">GitHub Actions のワークフロー</a>が5つのファイルを作ります。<a href="https://github.com/Harusame64/pictkura/actions/workflows/release.yml">走った記録</a>も残っています</div>
+    <div><b>ダイジェストは GitHub が出します</b><br>下のコマンドで返る SHA-256 は、<strong class="em">GitHub が保管しているファイルから GitHub 自身が計算した値</strong>です。こちらが書いた数字ではありません</div>
+    <div><b>これで分かることは1つだけ</b><br>手元のファイルが、ここで配っているものと<strong class="em">同じバイト列か</strong>だけです。<strong class="em">中身が安全であることの証明にはなりません</strong></div>
+  </div>
+
+  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">GitHub が持っているダイジェストを見る:</p>
+  <pre class="cmd" style="max-width:980px">curl -s https://api.github.com/repos/Harusame64/pictkura/releases/latest | grep -E '"name"|"digest"'</pre>
+
+  <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">落としたファイルのダイジェストを出して、上と見比べる:</p>
+  <pre class="cmd" style="max-width:980px">Windows (PowerShell)  Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+macOS                 shasum -a 256 pictkura_*_arm64.zip</pre>
+  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)">PowerShell は大文字で返します。<code class="mono">sha256:</code> の後ろと、大文字小文字を無視して見比べてください。</p>
+
+  <div class="note" style="max-width:980px;margin-top:32px">
+    <p><a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a> のような<strong class="em">別の場所から落とした</strong>ときこそ、この突き合わせが効きます。値が違ったら、それは配っている本人が知らないファイルです。</p>
   </div>
 
   <div class="limits" style="margin-top:56px;max-width:980px">

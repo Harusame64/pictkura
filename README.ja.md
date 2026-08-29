@@ -169,6 +169,32 @@ xattr -dr com.apple.quarantine /パス/pictkura.app
 
 Intel（x86_64）版と Linux 版はありません。
 
+### 配布物を自分で確かめる
+
+署名の証明書を持っていないので、**こちらが「安全です」と言っても、受け取る側に
+それを確かめる手立てがありません**。代わりに材料を出します。
+
+- **ソース**は全部あります。配布物は[タグごと](https://github.com/Harusame64/pictkura/tags)に、
+  その時点のソースから作られます
+- **作っているのは手元の機械ではありません。**
+  [GitHub Actions のワークフロー](.github/workflows/release.yml)が5つのファイルを作り、
+  [走った記録](https://github.com/Harusame64/pictkura/actions/workflows/release.yml)も残ります
+- **ダイジェストは GitHub 自身が出します。** 下のコマンドで返る SHA-256 は、
+  GitHub が保管しているバイト列から GitHub が計算した値で、こちらが書いた数字ではありません
+
+```sh
+# GitHub が持っているダイジェストを見る
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/latest | grep -E '"name"|"digest"'
+
+# 落としたファイルのダイジェストを出して、上と見比べる
+# Windows (PowerShell): Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+shasum -a 256 pictkura_*_arm64.zip
+```
+
+これで分かるのは、**手元のファイルが配っているものと同じバイト列か**だけです。
+**中身が安全であることの証明にはなりません。** Softpedia のような別の場所から
+落としたときにこそ効きます。
+
 ---
 
 ## 使い方

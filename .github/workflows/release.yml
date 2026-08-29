@@ -345,18 +345,68 @@ jobs:
           fi
           printf '  %s\n' "${files[@]}"
 
+          # **ダイジェストを出す。** 署名の証明書を持っていない以上、こちらから出せる
+          # 材料はこれしかない。**「安全である」ことの証明ではない**——同じ人が作った物に
+          # 同じ人が判子を押しているだけで、言えるのは「手元のファイルが、ここに載って
+          # いるものと同じバイト列か」だけである。それでも効く用途が2つある:
+          # **再配布先（Softpedia など）から落としたものを突き合わせる**のと、
+          # **後から差し替えられていないかを見る**の。
+          # 置き場（`dist/pictkura-windows/`）は受け取る側に無いので、名前だけを載せる
+          sums="$RUNNER_TEMP/SHA256SUMS.txt"
+          : > "$sums"
+          for f in "${files[@]}"; do
+            ( cd "$(dirname "$f")" && sha256sum "$(basename "$f")" ) >> "$sums"
+          done
+          cat "$sums"
+
           # 本文は `docs/release-notes/<タグ>.md` があればそれを載せる。
           # **リポジトリに置く**のが要点——GitHub側で直に書くと、利用者が最初に
           # 読む文章だけがレビューの門を通らずに出る。無ければ従来どおり
-          # 自動生成（マージしたPRの一覧）に落とす
+          # 自動生成（マージしたPRの一覧）に落とす。
+          # **ダイジェストだけは後ろに継ぐ**——ビルドが終わるまで存在しないので
+          # リポジトリ側には置けない。継ぐ文言もここに書いてあるぶんPRの門を通る
           notes="docs/release-notes/$GITHUB_REF_NAME.md"
+          body="$RUNNER_TEMP/body.md"
           # **中身があるかまで見る**（`-f` だけだと、sparse-checkout の書き方を
           # 間違えて空で落ちてきたときに「本文が空のRelease」が黙って出る）
           if [ -s "$notes" ]; then
             echo "リリースノート: $notes"
-            notes_args=(--notes-file "$notes")
+            cp "$notes" "$body"
+            {
+              printf '\n\n---\n\n## SHA-256\n\n'
+              printf 'Digests of the five files attached to this release, computed on the runner\n'
+              printf 'that built them. They tell you whether the file you are holding is byte for\n'
+              printf 'byte the one published here — not that it is safe. The same person who built\n'
+              printf 'it wrote these numbers.\n\n'
+              printf 'GitHub computes its own digest for every asset, from the bytes it stores, and\n'
+              printf 'that one we did not write. Ask it directly:\n\n'
+              printf '```\n'
+              printf 'curl -s https://api.github.com/repos/%s/releases/tags/%s | grep -E \x27"name"|"digest"\x27\n' \\
+                "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+              printf '```\n\n'
+              printf 'このリリースに付いている5つのファイルの、**ビルドした機械で計算した**\n'
+              printf 'ダイジェストです。分かるのは**手元のファイルが、ここに載っているものと\n'
+              printf '同じバイト列か**だけで、安全であることの証明にはなりません（作った本人が\n'
+              printf '押した判子です）。**GitHub 自身も保管しているバイト列から独自に計算した値を\n'
+              printf '持っています**——上のコマンドで引けるほうは、こちらが書いた数字ではありません。\n\n'
+              printf '```\n'
+              cat "$sums"
+              printf '```\n'
+            } >> "$body"
           else
             echo "リリースノートが無いので自動生成にする: $notes"
+            : > "$body"
+          fi
+
+          # **ダイジェストの一覧もファイルとして付ける**（本文からのコピーで済ませない）。
+          # `sha256sum -c SHA256SUMS.txt` がそのまま通る形にしておくと、
+          # 受け取った側が目で突き合わせずに確かめられる。
+          # 上の員数確認（5つ）を通した**後**に足す——先に足すと6つになって落ちる
+          files+=("$sums")
+
+          if [ -s "$body" ]; then
+            notes_args=(--notes-file "$body")
+          else
             notes_args=(--generate-notes)
           fi
 
@@ -368,7 +418,7 @@ jobs:
             # 貼り直せるのは**手書きのノートがあるときだけ**。`gh release edit` に
             # `--generate-notes` は無い（自動生成は create でしか作れない）ので、
             # `notes_args` をそのまま渡すと未知のフラグで落ちる
-            if [ -s "$notes" ]; then
-              gh release edit "$GITHUB_REF_NAME" --notes-file "$notes"
+            if [ -s "$body" ]; then
+              gh release edit "$GITHUB_REF_NAME" --notes-file "$body"
             fi
           fi

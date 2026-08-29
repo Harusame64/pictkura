@@ -48,7 +48,7 @@
 <div class="page-head photo gate">
   <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Installing</p>
   <h1 class="disp">Installing and the first launch</h1>
-  <p class="lead">pictkura has no signing certificate, so Windows and macOS both warn you the first time. Nothing is broken and nothing is infected. Here is every prompt you will see, and what to press.</p>
+  <p class="lead">pictkura has no signing certificate, so Windows and macOS both warn you the first time. The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Here is every prompt you will see, and what to press. The material you can check for yourself is under <a href="download.html#build">how these files are built</a>. <strong class="em">If you read it and are still uneasy, do not go ahead.</strong></p>
   <p class="stamps">
     <span>Version &nbsp;<b>0.2</b></span>
     <span>Updated &nbsp;<b>2026-08-22</b></span>
@@ -130,7 +130,7 @@
 
     <section id="macos">
       <h2 class="disp"><span class="num">3</span>Opening it on macOS</h2>
-      <p>The macOS build is <strong class="em">not signed with an Apple Developer ID</strong>, so Gatekeeper stops the first launch. The app is neither damaged nor infected.</p>
+      <p>The macOS build is <strong class="em">not signed with an Apple Developer ID</strong>, so Gatekeeper stops the first launch. The app is not damaged: Gatekeeper is saying it cannot check who signed it.</p>
       <p><strong class="em">First, move <code>pictkura.app</code> to wherever you want to keep it</strong> (<code>/Applications</code>, say). This is not just tidiness: launched from where it was unzipped, macOS copies the app into a read-only temporary location and runs it from there (App Translocation).</p>
 
       <h3>macOS 15 (Sequoia) and later</h3>
