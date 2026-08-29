@@ -70,8 +70,10 @@
   /* ── 上のバー（サイトと同じ並び） ── */
   .site-bar {
     position: sticky; top: 0; z-index: 5;
-    display: flex; align-items: center; justify-content: space-between; gap: 20px;
-    height: 60px; padding: 0 24px; border-bottom: 1px solid var(--line);
+    /* 入らなければ項目と項目の間で折る。字の途中で折れるのを防ぐため
+       高さは決め打たない（`nav a` の `white-space` と対にしてある） */
+    display: flex; align-items: center; justify-content: space-between; gap: 6px 20px;
+    flex-wrap: wrap; min-height: 60px; padding: 8px 24px; border-bottom: 1px solid var(--line);
     background: color-mix(in oklab, var(--bg) 88%, transparent);
     backdrop-filter: blur(12px);
   }
@@ -84,8 +86,8 @@
     border-left: 1px solid var(--line-strong); padding-left: 12px;
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   }
-  .site-bar nav { display: flex; align-items: center; gap: 22px; font-size: 13px; }
-  .site-bar nav a { color: var(--text-muted); }
+  .site-bar nav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; }
+  .site-bar nav a { color: var(--text-muted); white-space: nowrap; }
 
   /* ── 本文と、左に貼りつく目次 ── */
   .wrap {
@@ -189,8 +191,8 @@
       background: var(--surface); border: 1px solid var(--line);
       border-radius: var(--radius); padding: 14px 18px; margin-bottom: 28px;
     }
-    .site-bar { padding: 0 20px; gap: 12px; }
-    .site-bar nav { gap: 14px; font-size: 12.5px; }
+    .site-bar { padding: 8px 20px; gap: 6px 12px; }
+    .site-bar nav { gap: 6px 14px; font-size: 12.5px; }
     .site-bar .kind { display: none; }
     h1 { font-size: 1.75rem; }
     h2 { font-size: 1.25rem; margin-top: 48px; }
@@ -199,8 +201,8 @@
   /* 320px の画面では英語の帯（Specification / Install / Home / 日本語）が 22px はみ出して
      横スクロールになった。帯のためだけに、いちばん狭いところで一段詰める */
   @media (max-width: 360px) {
-    .site-bar { padding: 0 14px; gap: 10px; }
-    .site-bar nav { gap: 10px; font-size: 12px; }
+    .site-bar { padding: 8px 14px; gap: 6px 10px; }
+    .site-bar nav { gap: 6px 10px; font-size: 12px; }
     .site-bar .brand strong { font-size: 15.5px; }
   }
 </style>
@@ -210,8 +212,8 @@
 <div class="site-bar">
   <a class="brand" href="https://harusame64.github.io/pictkura/en/"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg><strong>pictkura</strong><span class="kind">Manual</span></a>
   <nav>
-    <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
     <a href="https://harusame64.github.io/pictkura/en/install.html">Install</a>
+    <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
     <a href="https://harusame64.github.io/pictkura/en/">Home</a>
     <a href="manual.html" hreflang="ja">日本語</a>
   </nav>
