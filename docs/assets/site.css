@@ -544,6 +544,12 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
    ここから下では帯に残るのはブランド・ダウンロード・☰ の3つだけで、原則1行に収まる。 */
 @media (max-width: 1080px) {
   .js-nav .nav-toggle { display: flex; }
+  /* **畳めないときは折り返す。** JS が無いと ☰ は出ないので、帯は3つの並びのまま。
+     `.brand` と `.bar-end` は縮まないので `.nav` だけが潰され、320px では項目が
+     ブランドの上に重なっていた（ゲート1の指摘。横スクロールは出ないので測るだけでは
+     見えず、実際に描かせて分かった）。折り返せば高さは伸びるが、これは
+     「JS が無ければ今まで通り全部出す」という元の形そのものである */
+  html:not(.js-nav) .bar { flex-wrap: wrap; row-gap: 10px; }
   /* 札は帯の中に絶対配置する。`.bar` は sticky なので位置の基準になり、
      本文を押し下げないので開いても下の文章がずれない */
   .js-nav .nav {
