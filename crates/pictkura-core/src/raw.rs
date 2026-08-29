@@ -34,6 +34,7 @@
 //! 拾い方の順番は [`crate::thumbs::read_exif`] にある。
 
 use std::path::Path;
+use std::sync::{Condvar, Mutex};
 
 use exif::{Context, In, Tag};
 
@@ -44,6 +45,52 @@ const SCAN_LIMIT: usize = 16 * 1024 * 1024;
 /// 走査で全体を読むときの上限。ここまで来るのは「先頭16MBに使える絵が
 /// 無かった」ときだけなので、丸ごと読む値段（実測100〜350ms）を払う。
 const FULL_SCAN_LIMIT: usize = 128 * 1024 * 1024;
+
+/// 最後の頼みの全体走査（7段目）を、同時に何本まで走らせるか。
+///
+/// **この段はファイル1つぶんを丸ごと抱える**（最大 [`FULL_SCAN_LIMIT`]）。
+/// サムネイルのワーカーは `available_parallelism()/2` 本走るので、開け放つと
+/// **本数ぶんピークが積み上がる**——2段目が先頭16MBを持ち越さない理由
+/// （そこのコメント）と同じ話が、8倍の大きさで起きる。
+///
+/// 実測（55.5〜62.8MiBのX3Fを8本同時・macOS・release・2026-08-30）:
+/// **門なし 765MiB・118ms / 2本 401MiB・278ms**
+/// （比較のため、この段が無かったときは 237MiB・26ms。ただし絵は0枚）。
+/// 払うのは**1ファイルにつき一度きり**
+/// （絵が出ればサムネイルが残り、出なければ [`PreviewSearch::exhausted`] の
+/// 印が残る）。
+const FULL_SCAN_LANES: usize = 2;
+
+/// [`FULL_SCAN_LANES`] を数える。`static` にしているのは、プロセス全体で
+/// 1つでないと意味が無いため（ワーカーごとに持つと数えたことにならない）。
+static FULL_SCAN_RUNNING: Mutex<usize> = Mutex::new(0);
+static FULL_SCAN_FREED: Condvar = Condvar::new();
+
+/// 全体走査の順番待ち。**落ちても数え漏らさない**よう、`Drop` で戻す。
+struct FullScanPermit;
+
+impl FullScanPermit {
+    /// 空きが出るまで待って1本ぶん取る。
+    fn acquire() -> Self {
+        // ロックが毒されていても数を守るほうが大事（中身は `usize` だけ）
+        let mut running = FULL_SCAN_RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        while *running >= FULL_SCAN_LANES {
+            running = FULL_SCAN_FREED
+                .wait(running)
+                .unwrap_or_else(|e| e.into_inner());
+        }
+        *running += 1;
+        Self
+    }
+}
+
+impl Drop for FullScanPermit {
+    fn drop(&mut self) {
+        let mut running = FULL_SCAN_RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        *running = running.saturating_sub(1);
+        FULL_SCAN_FREED.notify_one();
+    }
+}
 
 /// 「原寸表示に使える」と見なすプレビューの長辺。これを超えたらそこで
 /// 探すのをやめる。下回るときは、もっと大きい絵が無いか次の手を試す。
@@ -648,6 +695,8 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
     // `exhausted` は偽のまま（起こせなかっただけなので正しい）＝印も付かず、
     // 可視のたびに繰り返す。直す前のこの経路は先頭16MBで止まっていた
     if best.is_none() && !looked.undecoded_hevc && !looked.whole_file && scannable_whole {
+        // **抱える量が大きいので、同時に走る本数を絞る**（[`FULL_SCAN_LANES`]）
+        let _permit = FullScanPermit::acquire();
         if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
             looked.whole_file = true;
             if let Some(found) = scan_largest_jpeg(&whole) {
