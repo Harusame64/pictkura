@@ -382,11 +382,12 @@ jobs:
             cp "$notes" "$body"
             {
               printf '\n\n---\n\n## SHA-256\n\n'
-              printf 'Digests of the five build artifacts, computed on the runner that built them.\n'
-              printf 'The same listing is attached as SHA256SUMS.txt. On macOS,\n'
-              printf '`shasum -a 256 -c SHA256SUMS.txt` checks every file you have downloaded into\n'
-              printf 'one directory; on Windows there is no built-in equivalent, so hash them one at\n'
-              printf 'a time with `Get-FileHash <file> -Algorithm SHA256`.\n'
+              printf 'Digests of the five build artifacts, computed on the runner that publishes\n'
+              printf 'them. The same listing is attached as SHA256SUMS.txt. On macOS,\n'
+              printf '`shasum -a 256 --ignore-missing -c SHA256SUMS.txt` checks whichever of them\n'
+              printf 'you have in the current directory — without --ignore-missing it reports the\n'
+              printf 'ones you did not download as FAILED. On Windows nothing built in reads a sums\n'
+              printf 'file, so hash yours with `Get-FileHash <file> -Algorithm SHA256`.\n'
               printf 'They tell you whether the file you are holding is byte for byte the one\n'
               printf 'published here — not that it is safe. The same person who built it wrote\n'
               printf 'these numbers.\n\n'
@@ -396,11 +397,12 @@ jobs:
               printf 'curl -s https://api.github.com/repos/%s/releases/tags/%s | grep -E \x27"name"|"digest"\x27\n' \
                 "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
               printf '```\n\n'
-              printf 'このリリースの配布物5点の、**ビルドした機械で計算した**ダイジェストです。\n'
+              printf 'このリリースの配布物5点の、**公開する機械で計算した**ダイジェストです。\n'
               printf '同じ一覧は `SHA256SUMS.txt` としても付けてあります。macOS なら\n'
-              printf '1つのフォルダへ落としてから `shasum -a 256 -c SHA256SUMS.txt` で\n'
-              printf 'まとめて確かめられます。Windows には同じことをする標準の道具が無いので、\n'
-              printf '`Get-FileHash <ファイル> -Algorithm SHA256` で1つずつになります。\n'
+              printf '`shasum -a 256 --ignore-missing -c SHA256SUMS.txt` で、そのフォルダに\n'
+              printf 'あるぶんだけ確かめられます（`--ignore-missing` を外すと、落として\n'
+              printf 'いないファイルが FAILED として並びます）。Windows には一覧を読む標準の\n'
+              printf '道具が無いので、`Get-FileHash <ファイル> -Algorithm SHA256` になります。\n'
               printf '分かるのは**手元のファイルが、ここに載っているものと\n'
               printf '同じバイト列か**だけで、安全であることの証明にはなりません（作った本人が\n'
               printf '押した判子です）。**GitHub 自身も保管しているバイト列から独自に計算した値を\n'
@@ -415,10 +417,13 @@ jobs:
           fi
 
           # **ダイジェストの一覧もファイルとして付ける**（本文からのコピーで済ませない）。
-          # `shasum -a 256 -c` がそのまま通る形（`<digest>  <名前>`）にしておくと、
-          # macOSの人は目で突き合わせずに済む。**`sha256sum` とは書かない**——
+          # `shasum -a 256 --ignore-missing -c` がそのまま通る形（`<digest>  <名前>`）に
+          # しておくと、macOSの人は目で突き合わせずに済む。**`sha256sum` とは書かない**——
           # あれはGNU coreutilsの名前で、**配っている2つのOSのどちらにも無い**
           # （macOSは `shasum`、Windowsには一覧を読む道具そのものが無い。ゲート2の指摘）。
+          # **`--ignore-missing` も落とさない。** 5行の一覧に対して手元が1ファイルだと、
+          # 素の `-c` は `FAILED open or read` を4行出して終了1を返す（shasum 6.02 で実測）。
+          # ふつうの人は1つしか落とさないので、**それが既定の見え方になる**。
           # 上の員数確認（5つ）を通した**後**に足す——先に足すと6つになって落ちる
           files+=("$sums")
 

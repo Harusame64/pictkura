@@ -67,10 +67,15 @@
        refreshed by hand on each release: the version stamp, the file names, the
        links, the sizes, and the date, which only this page carries. They were
        missed for 0.2.1 and for 0.2.2, which left these pages offering v0.2.0 to
-       anyone who hit a rate limit. The tag inside the curl command under "How
-       these files are built" is [data-ver], so it needs no hand edit — that copy
-       only shows when the script does not run. The same command in the two
-       READMEs is not rewritten by anything, so those do. -->
+       anyone who hit a rate limit.
+
+       The tag inside the curl command under "How these files are built" is
+       deliberately NOT in that list. It was [data-ver] for one commit and was
+       reverted (gate 2): that attribute is filled from `releases/latest`, which
+       breaks the instruction printed directly above it — someone holding an
+       older build from a mirror would paste it and be told their file does not
+       match. It is meant to go stale and be read as an example. The same command
+       in the two READMEs is treated the same way. -->
   <div class="note warn" data-stale hidden style="margin-bottom:36px">
     <p><strong class="em">The latest release information could not be retrieved.</strong> This is usually the network, or a temporary limit on GitHub's side. What is listed below is <b>v0.2.4</b>, which may no longer be the newest. Check <a href="https://github.com/Harusame64/pictkura/releases/latest">the releases page</a> if you want to be sure.</p>
   </div>
@@ -207,8 +212,8 @@
   </div>
 
   <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">Ask GitHub for the digests it holds. <strong class="em">Name the tag you actually downloaded</strong> — a copy from somewhere else is not necessarily the newest release, and comparing it against <code class="mono">latest</code> would differ for that reason alone:</p>
-  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="Command to ask GitHub for its digests"># use the tag of the version you have — it is in the filename
-curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v<span data-ver>0.2.4</span> | grep -E '"name"|"digest"'</pre>
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="Command to ask GitHub for its digests"># v0.2.4 is an example. **Use the tag of the version you have** — it is in the filename
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'</pre>
 
   <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">Then hash the file you downloaded and compare:</p>
   <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="Command to hash the file you downloaded">Windows (PowerShell)  Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
