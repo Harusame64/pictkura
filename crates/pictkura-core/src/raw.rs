@@ -16,12 +16,16 @@
 //!    Nikon（NEF・NRW）は**160x120の切手だけを申告して**原寸を申告の無い
 //!    SubIFDに置くので、申告を鵜呑みにせずここも見る
 //! 3. **全体の走査**（Ricoh GR IIIのDNG・Sigmaの sd Quattro / sd Quattro H）。
-//!    原寸プレビューをファイルの後ろ半分に置く形式がある。ここまで来るのは
-//!    「まだ使える絵が無い」ときだけなので、丸ごと読む値段を払う
+//!    原寸プレビューをファイルの後ろ半分に置く形式がある。**原寸が要るときだけ**
+//!    丸ごと読む値段を払う——一覧のタイル（長辺512）はここを素通りする
 //! 4. **非圧縮RGBの組み立て**（Leica DNG・Epson ERF・Hasselblad 3FR・
 //!    Phase One IIQ・Kodak DCR）。これらは**JPEGを1枚も持たず**、プレビューを
 //!    生のRGBとしてTIFFのストリップに置いている。ストリップを繋いで絵にする
-//! 5. 見つからなければ諦める（サムネイル無しとして扱い、一覧には枠だけ出る）
+//! 5. **最後の頼みの全体走査**。3〜4段目を過ぎても**1枚も掴めていない**なら、
+//!    要求が小さくても丸ごと読む。ここが無いと、先頭16MiBにJPEGを1枚も置かない
+//!    機種（Sigma sd Quattro / sd Quattro H）が**一覧で枠だけ**になる
+//! 6. 見つからなければ諦める（サムネイル無しとして扱い、一覧には枠だけ出る）。
+//!    **最後まで見たうえでの空振り**かどうかは [`PreviewSearch::exhausted`] で返す
 //!
 //! **メタデータ**（撮影日時・カメラ名・向き）も形式で置き場所が違う。
 //! ORF・RW2はTIFFの版番号が独自でパーサに素通しされるので、
@@ -448,6 +452,47 @@ pub fn embedded_preview(path: &Path) -> Option<Vec<u8>> {
 /// 一覧のタイルのように**小さい絵で足りる**場面では、原寸のプレビューを
 /// 探してファイル全体を読む（実測100〜350ms）のは払いすぎになる。
 pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<u8>> {
+    search_embedded_preview(path, min_long_edge).preview
+}
+
+/// 埋め込みプレビューを探した結果。
+///
+/// [`embedded_preview_at_least`] との違いは、**空振りの理由を持ち帰る**こと。
+/// 呼び出し側（[`crate::thumbs::process_one`]）はこれを見て「この行に絵は無い」と
+/// 記録し、次からはファイルを開かない。`exhausted` を確かめずにその印を書くと、
+/// **一時的に読めなかっただけの行**や、**HEVCのデコーダを後から入れれば絵が出る行**まで
+/// 永久に諦めることになる。
+pub struct PreviewSearch {
+    /// 見つかった絵（カメラが書いたJPEGそのまま）
+    pub preview: Option<Vec<u8>>,
+    /// **ファイルを最後まで見たうえで**1枚も無かった。読み残しも、
+    /// 起こせなかったHEVCも無い——次に読み直しても結果は変わらない
+    pub exhausted: bool,
+}
+
+/// 探索が**どこまで見たか**。空振りが確定なのか、まだ見ていないだけなのかは、
+/// これでしか分けられない。
+#[derive(Default)]
+struct LookedAt {
+    /// ファイルを最後まで読んだ（先頭16MBに収まる大きさだったか、全体を走査した）
+    whole_file: bool,
+    /// HEVCの箱はあったのに絵にできなかった。**環境の問題**（拡張機能が
+    /// 入っていない）かもしれないので、「絵が無い」と決めつけない
+    undecoded_hevc: bool,
+}
+
+/// [`embedded_preview_at_least`] に「**どこまで探したか**」を添えて返す。
+pub fn search_embedded_preview(path: &Path, min_long_edge: u32) -> PreviewSearch {
+    let mut looked = LookedAt::default();
+    let preview = search_preview_inner(path, min_long_edge, &mut looked);
+    PreviewSearch {
+        exhausted: preview.is_none() && looked.whole_file && !looked.undecoded_hevc,
+        preview,
+    }
+}
+
+/// [`search_embedded_preview`] の本体。
+fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) -> Option<Vec<u8>> {
     /// 大きい方を残す。
     fn keep(best: &mut Option<Vec<u8>>, found: Vec<u8>) {
         if best
@@ -459,6 +504,7 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     }
 
     let mut best: Option<Vec<u8>> = None;
+    let file_len = std::fs::metadata(path).ok().map(|m| m.len() as usize);
 
     // 1段目: TIFFの申告を読む。ヘッダだけで位置が分かるので、
     // 当たれば必要な範囲しか読まない
@@ -478,6 +524,8 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     // 読むが、6段目が使える材料はここで決まる（実物の `PRVW` は0.15MB地点）
     let hevc_boxes: Vec<Cr3Hevc> = match read_head(path, SCAN_LIMIT) {
         Some(head) => {
+            // 先頭16MBに収まる大きさなら、この1回で**ファイルは全部見えている**
+            looked.whole_file = file_len.is_some_and(|len| len <= SCAN_LIMIT);
             if let Some(found) = scan_largest_jpeg(&head) {
                 if long_edge(found) >= min_long_edge {
                     return Some(found.to_vec());
@@ -511,13 +559,10 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     // なる（HDR PQのCR3は13.9MBなので、これが無いと必ず空振りの全走査を1回挟む）。
     // **ちょうど16MBも「読み切った」側**——`read_head(path, SCAN_LIMIT)` は
     // `SCAN_LIMIT` バイトまで読むので、境目のファイルは既に全部見えている
-    if min_long_edge >= USABLE_LONG_EDGE
-        && std::fs::metadata(path).is_ok_and(|m| {
-            let len = m.len() as usize;
-            len > SCAN_LIMIT && len <= FULL_SCAN_LIMIT
-        })
-    {
+    let scannable_whole = file_len.is_some_and(|len| len > SCAN_LIMIT && len <= FULL_SCAN_LIMIT);
+    if min_long_edge >= USABLE_LONG_EDGE && scannable_whole {
         if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
+            looked.whole_file = true;
             if let Some(found) = scan_largest_jpeg(&whole) {
                 if long_edge(found) >= min_long_edge {
                     return Some(found.to_vec());
@@ -557,12 +602,37 @@ pub fn embedded_preview_at_least(path: &Path, min_long_edge: u32) -> Option<Vec<
     // 求められた大きさに届いていないときだけ**払う。「1枚も取れていないとき」で
     // 門を作ると、どこかに切手のJPEGが1枚あるだけでHEVCを丸ごと飛ばし、その切手を
     // 返してしまう——直そうとしている症状がそのまま残る（ゲート1のP1）
+    looked.undecoded_hevc = !hevc_boxes.is_empty();
     if best.as_ref().is_none_or(|b| long_edge(b) < min_long_edge) {
         // 起こしても**いま持っている絵より小さい**なら、`keep` が捨てるだけ。
         // 払う前に降りる
         let floor = best.as_ref().map_or(0, |b| long_edge(b));
         if let Some(bytes) = cr3_hevc_preview(hevc_boxes, floor, min_long_edge) {
+            looked.undecoded_hevc = false;
             keep(&mut best, bytes);
+        }
+    }
+
+    // 7段目: **1枚も掴めていないなら、要求が小さくても全体を読む。**
+    //
+    // 3段目の門は「原寸が要るときだけ」なので、一覧のタイル（長辺512）は素通りする。
+    // それで足りるのは**小さくても絵を1枚は掴めている**ときで、Sigmaの
+    // sd Quattro / sd Quattro H は**先頭16MiBに `FF D8 FF` が1件も無い**
+    // ——プレビューは44.00MiB／48.45MiBの位置にしかない。素通りすると一覧は枠だけで、
+    // しかもX3Fは**撮影日時もカメラもそのプレビューのEXIFにしか無い**ので、
+    // 日付もカメラもNULLのまま取り込んだ日の束に並ぶ（`dev` の Issue #6）。
+    //
+    // **3段目の門をそのまま緩めてはいけない。** 「要求より小さい絵しか無い」と
+    // 「1枚も無い」を同じに扱うと、160x120や320x240を**見つけている**社
+    // （Minolta MRW・Hasselblad 3FR・Phase One IIQ）まで、タイル1枚ごとに
+    // ファイル全体を読むことになる。それらの絵が出るのは4段目・5段目なので、
+    // **ここまで来て空**のときにだけ払う形にした——3段目より後ろに置いたのはそのため
+    if best.is_none() && !looked.whole_file && scannable_whole {
+        if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
+            looked.whole_file = true;
+            if let Some(found) = scan_largest_jpeg(&whole) {
+                keep(&mut best, found.to_vec());
+            }
         }
     }
     best
@@ -1677,6 +1747,86 @@ mod tests {
             1600,
             "原寸が要る場面では、今までどおり後ろまで探す"
         );
+    }
+
+    #[test]
+    fn a_picture_only_beyond_the_window_still_reaches_the_grid() {
+        // Sigma の sd Quattro / sd Quattro H は**先頭16MiBに `FF D8 FF` が
+        // 1件も無い**（実物のプレビューは44.00MiB／48.45MiBの位置）。
+        // 一覧の要求（512）で3段目を素通りすると一覧は枠だけになり、しかも
+        // X3Fは撮影日時もカメラもそのプレビューのEXIFにしか無いので、
+        // **素性まで丸ごと落ちる**（`dev` の Issue #6）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sd-quattro.x3f");
+        let mut bytes = vec![0u8; SCAN_LIMIT + 1];
+        bytes.extend_from_slice(&jpeg_bytes(1600, 1200));
+        std::fs::write(&path, &bytes).unwrap();
+
+        let tile = embedded_preview_at_least(&path, 512).expect("窓の外まで探す");
+        assert_eq!(
+            image::load_from_memory(&tile).unwrap().width(),
+            1600,
+            "1枚も掴めていないなら、タイルの要求でも全体を読む"
+        );
+    }
+
+    #[test]
+    fn a_small_picture_found_early_still_stops_the_search() {
+        // 上の段を「1枚も無いとき」ではなく「要求に届かないとき」で緩めると、
+        // **非圧縮RGBの絵しか持たない社**（Hasselblad 3FR・Phase One IIQ）が
+        // タイル1枚ごとに全体を読む。それらの絵が出るのは5段目なので、
+        // 最後の走査は**その後ろ**に置いてある
+        let dir = tempfile::tempdir().unwrap();
+        let path = tiff_with_uncompressed_preview(
+            dir.path(),
+            "phase-one.iiq",
+            PreviewSpec {
+                width: 320,
+                height: 240,
+                color: [200, 100, 50],
+                strips: 1,
+                bits: 8,
+                big_endian: false,
+            },
+        );
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&vec![0u8; SCAN_LIMIT]).unwrap();
+        file.write_all(&jpeg_bytes(1600, 1200)).unwrap();
+        drop(file);
+
+        let tile = embedded_preview_at_least(&path, 512).expect("小さくても絵は返る");
+        assert_eq!(
+            image::load_from_memory(&tile).unwrap().width(),
+            320,
+            "小さくても1枚掴めているなら、後ろまで探しに行かない"
+        );
+    }
+
+    #[test]
+    fn a_miss_after_reading_the_whole_file_is_reported_as_exhausted() {
+        // 呼び出し側が「この行に絵は無い」の印を書いてよいのは、**最後まで
+        // 見たうえでの空振り**のときだけ。これが無いと、絵を持たない大きい
+        // RAWが可視になるたびに全体を読み直す
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("nothing-big.x3f");
+        std::fs::write(&big, vec![0u8; SCAN_LIMIT + 1024]).unwrap();
+        let found = search_embedded_preview(&big, 512);
+        assert!(found.preview.is_none());
+        assert!(found.exhausted, "全体を走査したうえでの空振り");
+
+        // 先頭16MiBに収まるファイルは、2段目の1回で全部見えている
+        let small = dir.path().join("nothing-small.x3f");
+        std::fs::write(&small, vec![0u8; 1024]).unwrap();
+        assert!(search_embedded_preview(&small, 512).exhausted);
+
+        // 開けないファイルは「見ていない」。確定させない
+        let missing = dir.path().join("gone.x3f");
+        let found = search_embedded_preview(&missing, 512);
+        assert!(found.preview.is_none());
+        assert!(!found.exhausted, "読めていないものを「絵が無い」と決めない");
     }
 
     #[test]
