@@ -195,6 +195,14 @@
     h1 { font-size: 1.75rem; }
     h2 { font-size: 1.25rem; margin-top: 48px; }
   }
+
+  /* 320px の画面では英語の帯（Specification / Install / Home / 日本語）が 22px はみ出して
+     横スクロールになった。帯のためだけに、いちばん狭いところで一段詰める */
+  @media (max-width: 360px) {
+    .site-bar { padding: 0 14px; gap: 10px; }
+    .site-bar nav { gap: 10px; font-size: 12px; }
+    .site-bar .brand strong { font-size: 15.5px; }
+  }
 </style>
 </head>
 <body>

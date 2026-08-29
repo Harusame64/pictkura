@@ -7,7 +7,8 @@
  *   **アプリに同梱されるマニュアル（docs/manual*.html）はここを読み込まない**——
  *   同梱物から外部への通信が発生すると、READMEの「外に出る通信は更新確認の1本だけ」が
  *   崩れるため、あちらは同じ値をインラインで持ち、書体も端末内蔵のものだけを使う。
- * - 幅は3段階（1080px / 760px）でしか折らない。凝った可変は入れない。
+ * - 幅で折るのは 1180 / 1080 / 900 / 760 / 360px の5か所だけ。凝った可変は入れない。
+ *   1080px が帯の分かれ目——ここから下はナビを ☰ の中へ畳む（`.bar` の注を見よ）。
  */
 
 :root {
@@ -94,16 +95,18 @@ p { margin: 0 0 18px; }
 .skip:focus { left: 8px; top: 8px; }
 
 /* ─── 上のバー ─── */
+/* **帯はこのサイトの目次である。** 読む人はここで「どれだけの場所があるか」を掴むので、
+   幅やページで中身が変わると地図が壊れる（利用者の指摘）。だから**何も間引かない**——
+   14ページすべて、どの幅でも同じ7項目。
+   ただし**並べ方は幅で変える**。横一列のままだと、実測で日本語の帯は 890px、英語は 813px を
+   切ったところから折り返しが始まり、電話の幅（390px）では帯そのものが 220px まで伸びていた。
+   そこで 1080px 以下では項目を ☰ の中へ畳み、帯にはブランドとダウンロードだけを残す
+   （`.nav-toggle` 以下）。畳むのは見せ方であって、行き先は 1 つも減らさない。
+   JS が動かない端末では畳まず、今まで通り折り返して全部出す。 */
 .bar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; justify-content: space-between;
-  /* **帯はこのサイトの目次である。** 読む人はここで「どれだけの場所があるか」を掴むので、
-     幅やページで中身が変わると地図が壊れる（利用者の指摘）。だから**何も間引かない**——
-     14ページすべて、どの幅でも同じ7項目。
-     そのぶん高さは決め打たない。断点をどれだけ丁寧に置いても字体・言語・拡大率で
-     実寸は動くので、入らなければ項目ごとに折り返して帯が伸びる形にしておく
-     （ゲート2が 1001〜1025px で字の途中で折れるのを見つけた。断点が26px足りなかった） */
-  gap: 24px; min-height: 72px; padding: 0 var(--pad);
+  gap: 28px; min-height: 72px; padding: 0 var(--pad);
   border-bottom: 1px solid var(--line);
   background: oklch(0.145 0 0 / 0.9);
   backdrop-filter: blur(12px);
@@ -115,10 +118,29 @@ p { margin: 0 0 18px; }
   text-transform: uppercase; color: var(--text-faint);
   border-left: 1px solid var(--line-strong); padding-left: 14px;
 }
-.nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 12px 28px; font-size: 14px; color: var(--text-soft); }
-/* 項目の中では折らない。折るなら項目と項目の間で折る */
+.nav {
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end;
+  gap: 12px 28px; font-size: 14px; color: var(--text-soft);
+  /* 余白はブランドとナビの間に置く。ナビとダウンロードは右端で隣り合わせておく */
+  margin-left: auto;
+}
+/* 項目の中では折らない。折るなら項目と項目の間で折る。
+   断点を丁寧に置いても字体・言語・拡大率で実寸は動くので、広い側にも折り返しは残しておく */
 .nav a { color: var(--text-soft); white-space: nowrap; }
 .nav a[aria-current] { color: var(--text); border-bottom: 1px solid var(--accent); padding-bottom: 3px; }
+/* 帯の右端。ダウンロードは狭くしても畳まない——ここだけは押しに来る人がいる */
+.bar-end { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.bar-end .btn[aria-current] { border-bottom-color: var(--accent); color: var(--text); }
+/* ☰ は狭いときだけ出す。JS が無ければ（`js-nav` が付かなければ）最後まで出ない */
+.nav-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: 40px; height: 40px; flex-shrink: 0;
+  border: 1px solid oklch(1 0 0 / 0.22); border-radius: var(--radius);
+  background: none; color: var(--text-soft); cursor: pointer;
+}
+.nav-toggle:hover { border-color: oklch(1 0 0 / 0.4); color: var(--text); }
+.nav-toggle .i-close, .nav-toggle[aria-expanded="true"] .i-open { display: none; }
+.nav-toggle[aria-expanded="true"] .i-close { display: block; }
 .lang {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);
   border-left: 1px solid var(--line-strong); padding-left: 20px; white-space: nowrap;
@@ -514,6 +536,48 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .doc { grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
 }
 
+/* ─── 狭い画面の帯：項目は ☰ の中へ ───
+   断点は端末名ではなく「フルのナビが素直に収まるか」で決めた。書体を読み込んだ状態の実測は
+   日本語 890px・英語 813px（14ページとも同値）。ここに 2 割ほどの余裕を足して 1080px にしてある。
+   余裕は書体が落ちたときと、ブラウザの拡大（110% で 979px 相当）のため。
+   1080px なら iPad の縦（768px）も横（1024px）も確実にこちら側に入る。
+   ここから下では帯に残るのはブランド・ダウンロード・☰ の3つだけで、原則1行に収まる。 */
+@media (max-width: 1080px) {
+  .js-nav .nav-toggle { display: flex; }
+  /* 札は帯の中に絶対配置する。`.bar` は sticky なので位置の基準になり、
+     本文を押し下げないので開いても下の文章がずれない */
+  .js-nav .nav {
+    position: absolute; top: 100%; right: var(--pad); left: auto; margin: 0;
+    display: none; flex-direction: column; align-items: stretch;
+    gap: 0; min-width: 232px; max-width: calc(100vw - var(--pad) * 2);
+    padding: 6px 0; font-size: 15px;
+    /* 帯と違ってここは透かさない。0.97 でも下の写真や見出しが薄く透けて、
+       札の字と重なって読みづらかった（`.bar` の blur は入れ子だと札には効かない） */
+    background: oklch(0.16 0 0);
+    /* 横向きの電話のように背が低いときは札の中を送る */
+    max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px);
+    overflow-y: auto; overscroll-behavior: contain;
+    border: 1px solid var(--line-strong); border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: 0 20px 44px oklch(0 0 0 / 0.5);
+  }
+  .js-nav .bar[data-nav-open] .nav { display: flex; }
+  /* 送るときに項目が潰れないように */
+  .js-nav .nav > * { flex-shrink: 0; }
+  /* 指で押せる高さ（13+22+13）を確保する */
+  .js-nav .nav a { padding: 13px 20px; }
+  .js-nav .nav a:hover { background: oklch(1 0 0 / 0.05); color: var(--text); }
+  /* 縦に積むと下線は次の項目との仕切りに見えるので、いま居る場所は左の線で示す */
+  .js-nav .nav a[aria-current] {
+    border-bottom: none; padding-bottom: 13px;
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .js-nav .nav .lang {
+    border-left: none; border-top: 1px solid var(--line);
+    margin-top: 6px; padding: 15px 20px 9px; font-size: 12px;
+  }
+}
+
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding: 64px var(--pad) 0; }
   .hero-copy { padding: 0 0 48px; }
@@ -554,6 +618,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   body { font-size: 15px; }
   .bar { min-height: 60px; gap: 12px; padding: 8px var(--pad); }
   .bar .brand .disp { font-size: 17px; }
+  /* JS が動かず畳めなかったときの詰め方。畳めていれば上の札の指定が勝つ */
   .nav { gap: 10px 16px; font-size: 13.5px; min-width: 0; }
   .lang { padding-left: 14px; }
   .section { padding: 56px var(--pad) 52px; }
@@ -567,7 +632,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .btn { width: 100%; }
   /* 上のバーの中だけは横に広げない。全幅のボタンがナビを押し出して
      折り返しを増やしていた */
-  .nav .btn { width: auto; }
+  .bar-end .btn { width: auto; }
   .metrics > div { padding: 24px 20px 26px !important; }
   .metrics .n { font-size: 28px; }
   .cards.c3, .cards.c2, .tiles { grid-template-columns: minmax(0, 1fr); }
@@ -590,4 +655,16 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .foot-cols { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .foot-end { margin-top: 36px; }
   .dl-row { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 22px 0 26px; }
+}
+
+/* ここから下はもう美観の話ではない。ブランド・ダウンロード・☰ の3つを画面の中へ
+   収めきることだけを見る。実測では 340px を切るあたりで右端が画面からはみ出したので、
+   ボタンと☰を一段小さくして逃がす（320px で 17px ほど残る） */
+@media (max-width: 360px) {
+  .bar { gap: 10px; }
+  .brand { gap: 10px; }
+  .bar .brand .disp { font-size: 16px; }
+  .bar-end { gap: 8px; }
+  .bar-end .btn { height: 36px; padding: 0 14px; font-size: 13px; }
+  .nav-toggle { width: 36px; height: 36px; }
 }
