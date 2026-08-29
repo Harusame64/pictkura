@@ -507,6 +507,14 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .doc { grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
 }
 
+/* 帯の間引きは2段。**iPad の縦（820px）で英語版のナビが 931px まで伸びて、
+   はみ出したぶんが見えなくなっていた**（ページは横スクロールしないため。
+   About を入れる前から 866px で出ていたので、元からの穴）。
+   ここで落とすのは、頁内アンカー（特長・対応形式）とフッターから行ける GitHub */
+@media (max-width: 1000px) {
+  .nav .hide-sm { display: none; }
+}
+
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding: 64px var(--pad) 0; }
   .hero-copy { padding: 0 0 48px; }
@@ -518,6 +526,15 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .metrics > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .cards.c3, .cards.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shots-2 { grid-template-columns: minmax(0, 1fr); }
+  /* **目次は横並びに畳む。** ここで `.doc` は1段組みになるので、縦に積んだままだと
+     本文の前に立ちはだかる——iPad の縦で about が 525px、spec が 678px あった。
+     横に流すと 165px / 127px に縮み、目次としては使えるまま残る */
+  .doc-nav {
+    flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
+    border-left: 0; border-bottom: 1px solid oklch(1 0 0 / 0.1); padding: 0 0 18px;
+  }
+  .doc-nav a.sub { padding-left: 0; }
+  .doc-nav .hr { display: none; }
   .band img { aspect-ratio: 1152 / 460; }
   .band p { font-size: 23px; }
   .bleed img { aspect-ratio: 1152 / 500; }
@@ -544,8 +561,15 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .bar { height: auto; min-height: 60px; gap: 12px; padding: 8px var(--pad); }
   .bar .brand .disp { font-size: 17px; }
   .nav { gap: 16px; font-size: 13.5px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
-  .nav .hide-sm, .nav .hide-xs { display: none; }
+  /* **`hide-sm` は上の 1000px の段で既に消えている。** ここでは `hide-xs` だけ。
+     以前はこの1行で両方まとめて消していて、その結果**スマホでは帯にダウンロードしか
+     残らなかった**——インストールの手引き（SmartScreen の越え方）へ辿り着けない
+     状態だった。残すのは「スクロールでは行けない行き先」だけにする */
+  .nav .hide-xs { display: none; }
   .lang { padding-left: 14px; }
+  /* **スマホでは目次ごと落とす。** 横並びに畳んでも about で 314px 残り、
+     本文が始まるのが 767px だった。ここまで来たら目次は道を塞いでいる */
+  .doc-nav { display: none; }
   .section { padding: 56px var(--pad) 52px; }
   .sec-head { gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
   .sec-head h2 { font-size: 24px; }
