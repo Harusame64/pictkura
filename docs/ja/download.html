@@ -217,11 +217,13 @@ curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | 
 
   <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">落としたファイルのダイジェストを出して、上と見比べる:</p>
   <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="手元のファイルのダイジェストを出すコマンド"># macOS
+cd ~/Downloads
 shasum -a 256 pictkura_*_arm64.zip
 
 # Windows (PowerShell)
+cd ~\Downloads
 Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256</pre>
-  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)"><code class="mono">Get-FileHash</code> は大文字で返します。GitHub 側の <code class="mono">sha256:</code> を外して、大文字小文字を無視して見比べてください。</p>
+  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)"><code class="mono">Get-FileHash</code> は大文字で返します。GitHub 側の <code class="mono">sha256:</code> を外して、大文字小文字を無視して見比べてください。<strong class="em">Windows で何も表示されないときは、そのフォルダにファイルが無いという意味です</strong>——<code class="mono">Get-FileHash</code> は当たるファイルが1つも無いと、エラーを出さずに黙って終わります（PowerShell 7.6.5 で実測）。</p>
 
   <div class="note" style="max-width:980px;margin-top:32px">
     <p><a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a> のような<strong class="em">別の場所から落とした</strong>ときこそ、この突き合わせが効きます。値が違ったら、それは配っている本人が知らないファイルです。</p>

@@ -222,11 +222,13 @@ curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | 
 
   <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">Then hash the file you downloaded and compare:</p>
   <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="Command to hash the file you downloaded"># macOS
+cd ~/Downloads
 shasum -a 256 pictkura_*_arm64.zip
 
 # Windows (PowerShell)
+cd ~\Downloads
 Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256</pre>
-  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)"><code class="mono">Get-FileHash</code> prints the digest in upper case. Drop GitHub's <code class="mono">sha256:</code> prefix and compare ignoring case.</p>
+  <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)"><code class="mono">Get-FileHash</code> prints the digest in upper case. Drop GitHub's <code class="mono">sha256:</code> prefix and compare ignoring case. <strong class="em">If nothing at all is printed on Windows, the file is not in that folder</strong> — <code class="mono">Get-FileHash</code> exits silently, without an error, when the pattern matches nothing (measured on PowerShell 7.6.5).</p>
 
   <div class="note" style="max-width:980px;margin-top:32px">
     <p>This comparison earns its keep when the file came from <strong class="em">somewhere other than here</strong> — a mirror such as <a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a>. If the digest differs, you are holding a file the author has never seen.</p>

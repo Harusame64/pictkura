@@ -175,6 +175,7 @@ macOS:
 curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
 
 # hash what you downloaded and compare
+cd ~/Downloads
 shasum -a 256 pictkura_*_arm64.zip
 ```
 
@@ -183,11 +184,14 @@ Windows (PowerShell — `curl` and `grep` are not available there):
 ```powershell
 (Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest
 
+cd ~\Downloads
 Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
 ```
 
 GitHub returns the digest prefixed with `sha256:`, and `Get-FileHash` prints it in upper
-case. Drop the prefix and compare ignoring case.
+case. Drop the prefix and compare ignoring case. **If nothing at all is printed on
+Windows, the file is not in that folder** — `Get-FileHash` exits silently, without an
+error, when the pattern matches nothing (measured on PowerShell 7.6.5).
 
 This tells you whether the file you hold is **byte for byte** what is published here.
 **It is not evidence that the contents are safe.** It earns its keep when the file came
