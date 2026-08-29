@@ -108,6 +108,13 @@ p { margin: 0 0 18px; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 28px; min-height: 72px; padding: 0 var(--pad);
   border-bottom: 1px solid var(--line);
+}
+/* 地とぼかしは擬似要素へ逃がす。`.bar` 自身に `backdrop-filter` を置くと、
+   **WebKit では絶対配置の子（＝開いた札）が帯の箱で切られる**ことがある
+   （ゲート2の指摘。iPhone も macOS の Safari も手元で確かめられなかったので、
+   確かめる代わりに、切られようのない形にした）。見た目は変わらない */
+.bar::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
   background: oklch(0.145 0 0 / 0.9);
   backdrop-filter: blur(12px);
 }
@@ -570,11 +577,13 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .js-nav .bar[data-nav-open] .nav { display: flex; }
   /* 送るときに項目が潰れないように */
   .js-nav .nav > * { flex-shrink: 0; }
-  /* 指で押せる高さ（13+22+13）を確保する */
-  .js-nav .nav a { padding: 13px 20px; }
-  .js-nav .nav a:hover { background: oklch(1 0 0 / 0.05); color: var(--text); }
+  /* 指で押せる高さ（13+22+13）を確保する。**直下の項目にだけ**効かせること——
+     `.nav a` だと `.lang` の中の JA / EN まで拾い、言語の行だけ字が 20px ずれて、
+     hover の帯が仕切り線をまたいでいた（ゲート2の指摘） */
+  .js-nav .nav > a { padding: 13px 20px; }
+  .js-nav .nav > a:hover { background: oklch(1 0 0 / 0.05); color: var(--text); }
   /* 縦に積むと下線は次の項目との仕切りに見えるので、いま居る場所は左の線で示す */
-  .js-nav .nav a[aria-current] {
+  .js-nav .nav > a[aria-current] {
     border-bottom: none; padding-bottom: 13px;
     box-shadow: inset 2px 0 0 var(--accent);
   }
@@ -599,8 +608,12 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
      （iPad の縦で about が 525px、spec が 678px）、横並びに畳む案も試したが、
      リンクの断片が一続きの文のように流れて目次として読めなかった。
      節には番号付きの見出しがあるので、狭い画面では素直に流し読みしてもらう。
+     **ただし柱の下に付いている外向きのリンクまで道連れにしない。** spec の
+     「GitHub で報告する →」は**そのページの他のどこにも無く**、狭い画面で報告先が
+     消えていた（ゲート2の指摘。帯の GitHub は資源置き場の入口で、報告先ではない）。
+     あれは柱ではなくフッターの持ち物なので、`spec.html` の `.foot-slim` へ移した。
      **`.doc.legal` の柱は目次ではないので残す**——制作者・所在・連絡先・価格の
-     `.facts` はサイト中でここにしか無い（ゲート2の指摘）。あちらは縦のまま */
+     `.facts` はサイト中でここにしか無い */
   .doc:not(.legal) .doc-nav { display: none; }
   .band img { aspect-ratio: 1152 / 460; }
   .band p { font-size: 23px; }
@@ -614,7 +627,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .limits div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .doc, .doc.legal { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .doc-nav { position: static; }
-  /* 残した柱も、**本文の後ろへ回す**。縦に積むと法的ページを開いた人は
+  /* 残した柱は、**本文の後ろへ回す**。縦に積むと法的ページを開いた人は
      リンクと事実の一覧を半画面ぶん読まされてから題名にたどり着いていた
      （iPhone で本文の始まりが 735px 目）。消さずに順番だけ入れ替える */
   .doc.legal .doc-body { order: 1; }
