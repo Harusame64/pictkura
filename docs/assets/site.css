@@ -53,7 +53,10 @@ body {
   -webkit-font-smoothing: antialiased;
   text-wrap: pretty;
 }
-body[lang="en"] { font-family: var(--font-en); line-height: 1.65; }
+/* 英文の面にも和字が1文字だけ出ることがある（about の `kura (蔵)`）。
+   Archivo は CJK を持たないので、和字だけが落ちる先を後ろに足しておく——
+   font-family は1文字ずつ落ちるので、ラテン字の見た目は変わらない */
+body[lang="en"] { font-family: var(--font-en), "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", sans-serif; line-height: 1.65; }
 
 a { color: var(--text); text-decoration: none; }
 a:hover { color: var(--accent-bright); }
