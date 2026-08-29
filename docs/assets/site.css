@@ -427,6 +427,13 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   padding: 28px 32px 30px; background: var(--bg-raise);
 }
 .aside-card p { margin: 0; font-size: 15px; line-height: 1.95; color: var(--text-soft); }
+
+/* 話の折り返しに置く1行。記事側で `>` を使っている位置に当たる。
+   `.note` と同じ左罫の作法に合わせ、背景は敷かない——地の文の続きだから */
+.doc-body .pull {
+  margin: 30px 0; padding-left: 22px; border-left: 2px solid var(--accent);
+  font-size: 17px; line-height: 1.9; color: var(--text);
+}
 .facts { font-size: 13px; line-height: 2; color: var(--text-muted); }
 .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px solid oklch(1 0 0 / 0.06); }
 .facts div:last-child { border-bottom: none; }
