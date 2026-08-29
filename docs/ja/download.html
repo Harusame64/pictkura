@@ -178,6 +178,13 @@
     <p>Windows は「WindowsによってPCが保護されました」→「詳細情報」→「実行」。macOS は一度断られたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。</p>
   </div>
 
+  <div class="limits" style="margin-top:56px;max-width:980px">
+    <div><b>Intel の Mac は対象外</b><br>Mac は Apple Silicon 専用です。Windows は 64bit（x64）のみ対応しています</div>
+    <div><b>Linux 版はありません</b><br>取り込みの仕組みが Windows と macOS に寄っているためです</div>
+    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には最初から入っています。入っていない PC では、インストーラが取得しに行きます</div>
+    <div><b>写真ファイル本体は変更しません</b><br>インストールしても削除しても、写真ファイルを書き換えることはありません。保存場所は<a href="spec.html#storage">アプリ仕様</a>にあります</div>
+  </div>
+
   <div class="sec-head" id="build" style="margin:80px 0 28px;max-width:980px">
     <span class="num mono">03</span>
     <h2 class="disp">配布物の作られ方</h2>
@@ -193,8 +200,9 @@
     <div><b>これで分かることは1つだけ</b><br>手元のファイルが、ここで配っているものと<strong class="em">同じバイト列か</strong>だけです。<strong class="em">中身が安全であることの証明にはなりません</strong></div>
   </div>
 
-  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">GitHub が持っているダイジェストを見る:</p>
-  <pre class="cmd" style="max-width:980px">curl -s https://api.github.com/repos/Harusame64/pictkura/releases/latest | grep -E '"name"|"digest"'</pre>
+  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">GitHub が持っているダイジェストを見る。<strong class="em">落とした版のタグを指定してください</strong>——よその場所から落としたものは最新版とは限らないので、<code class="mono">latest</code> と見比べると食い違って当然になります:</p>
+  <pre class="cmd" style="max-width:980px"># v0.2.4 の部分は、落とした版に読み替える（ファイル名に入っています）
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'</pre>
 
   <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">落としたファイルのダイジェストを出して、上と見比べる:</p>
   <pre class="cmd" style="max-width:980px">Windows (PowerShell)  Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
@@ -203,13 +211,6 @@ macOS                 shasum -a 256 pictkura_*_arm64.zip</pre>
 
   <div class="note" style="max-width:980px;margin-top:32px">
     <p><a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a> のような<strong class="em">別の場所から落とした</strong>ときこそ、この突き合わせが効きます。値が違ったら、それは配っている本人が知らないファイルです。</p>
-  </div>
-
-  <div class="limits" style="margin-top:56px;max-width:980px">
-    <div><b>Intel の Mac は対象外</b><br>Mac は Apple Silicon 専用です。Windows は 64bit（x64）のみ対応しています</div>
-    <div><b>Linux 版はありません</b><br>取り込みの仕組みが Windows と macOS に寄っているためです</div>
-    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には最初から入っています。入っていない PC では、インストーラが取得しに行きます</div>
-    <div><b>写真ファイル本体は変更しません</b><br>インストールしても削除しても、写真ファイルを書き換えることはありません。保存場所は<a href="spec.html#storage">アプリ仕様</a>にあります</div>
   </div>
 
 </main>

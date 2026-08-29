@@ -184,12 +184,17 @@ Intel（x86_64）版と Linux 版はありません。
 
 ```sh
 # GitHub が持っているダイジェストを見る
-curl -s https://api.github.com/repos/Harusame64/pictkura/releases/latest | grep -E '"name"|"digest"'
+# v0.2.4 の部分は、落とした版に読み替える（ファイル名に入っています）。
+# よその場所から落としたものは最新版とは限らないので、latest と見比べない
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
 
 # 落としたファイルのダイジェストを出して、上と見比べる
 # Windows (PowerShell): Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
 shasum -a 256 pictkura_*_arm64.zip
 ```
+
+GitHub は `sha256:` を付けて返し、PowerShell は大文字で返します。前置きを外し、
+大文字小文字を無視して見比べてください。
 
 これで分かるのは、**手元のファイルが配っているものと同じバイト列か**だけです。
 **中身が安全であることの証明にはなりません。** Softpedia のような別の場所から

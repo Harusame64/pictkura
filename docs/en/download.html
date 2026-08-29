@@ -181,6 +181,13 @@
     <p>On Windows it is "Windows protected your PC" → "More info" → "Run anyway". On macOS it refuses once, and you then allow it under System Settings → Privacy &amp; Security → "Open Anyway".</p>
   </div>
 
+  <div class="limits" style="margin-top:56px;max-width:980px">
+    <div><b>No Intel build</b><br>Windows is 64-bit (x64) only, and the Mac build is Apple Silicon only</div>
+    <div><b>No Linux build</b><br>Importing relies on Windows and macOS features that have no Linux counterpart here</div>
+    <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it</div>
+    <div><b>Photo files are never modified</b><br>Installing or removing pictkura never rewrites a photo file. Where they are kept is in the <a href="spec.html#storage">specification</a></div>
+  </div>
+
   <div class="sec-head" id="build" style="margin:80px 0 28px;max-width:980px">
     <span class="num mono">03</span>
     <h2 class="disp">How these files are built</h2>
@@ -196,8 +203,9 @@
     <div><b>It tells you one thing</b><br>Whether the file you hold is <strong class="em">byte for byte</strong> what is published here. <strong class="em">It is not evidence that the contents are safe</strong></div>
   </div>
 
-  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">Ask GitHub for the digests it holds:</p>
-  <pre class="cmd" style="max-width:980px">curl -s https://api.github.com/repos/Harusame64/pictkura/releases/latest | grep -E '"name"|"digest"'</pre>
+  <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">Ask GitHub for the digests it holds. <strong class="em">Name the tag you actually downloaded</strong> — a copy from somewhere else is not necessarily the newest release, and comparing it against <code class="mono">latest</code> would differ for that reason alone:</p>
+  <pre class="cmd" style="max-width:980px"># replace v0.2.4 with the version you have — it is in the filename
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'</pre>
 
   <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">Then hash the file you downloaded and compare:</p>
   <pre class="cmd" style="max-width:980px">Windows (PowerShell)  Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
@@ -206,13 +214,6 @@ macOS                 shasum -a 256 pictkura_*_arm64.zip</pre>
 
   <div class="note" style="max-width:980px;margin-top:32px">
     <p>This comparison earns its keep when the file came from <strong class="em">somewhere other than here</strong> — a mirror such as <a href="https://www.softpedia.com/get/Multimedia/Graphic/Digital-Photo-Tools/pictkura.shtml">Softpedia</a>. If the digest differs, you are holding a file the author has never seen.</p>
-  </div>
-
-  <div class="limits" style="margin-top:56px;max-width:980px">
-    <div><b>No Intel build</b><br>Windows is 64-bit (x64) only, and the Mac build is Apple Silicon only</div>
-    <div><b>No Linux build</b><br>Importing relies on Windows and macOS features that have no Linux counterpart here</div>
-    <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it</div>
-    <div><b>Photo files are never modified</b><br>Installing or removing pictkura never rewrites a photo file. Where they are kept is in the <a href="spec.html#storage">specification</a></div>
   </div>
 
 </main>

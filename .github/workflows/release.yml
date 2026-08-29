@@ -382,18 +382,22 @@ jobs:
             cp "$notes" "$body"
             {
               printf '\n\n---\n\n## SHA-256\n\n'
-              printf 'Digests of the five files attached to this release, computed on the runner\n'
-              printf 'that built them. They tell you whether the file you are holding is byte for\n'
-              printf 'byte the one published here — not that it is safe. The same person who built\n'
-              printf 'it wrote these numbers.\n\n'
+              printf 'Digests of the five build artifacts, computed on the runner that built them.\n'
+              printf 'The same listing is attached as SHA256SUMS.txt, so once you have downloaded\n'
+              printf 'them into one directory, `sha256sum -c SHA256SUMS.txt` checks them all.\n'
+              printf 'They tell you whether the file you are holding is byte for byte the one\n'
+              printf 'published here — not that it is safe. The same person who built it wrote\n'
+              printf 'these numbers.\n\n'
               printf 'GitHub computes its own digest for every asset, from the bytes it stores, and\n'
               printf 'that one we did not write. Ask it directly:\n\n'
               printf '```\n'
               printf 'curl -s https://api.github.com/repos/%s/releases/tags/%s | grep -E \x27"name"|"digest"\x27\n' \
                 "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
               printf '```\n\n'
-              printf 'このリリースに付いている5つのファイルの、**ビルドした機械で計算した**\n'
-              printf 'ダイジェストです。分かるのは**手元のファイルが、ここに載っているものと\n'
+              printf 'このリリースの配布物5点の、**ビルドした機械で計算した**ダイジェストです。\n'
+              printf '同じ一覧は `SHA256SUMS.txt` としても付けてあるので、1つのフォルダへ\n'
+              printf '落としてから `sha256sum -c SHA256SUMS.txt` を通せます。\n'
+              printf '分かるのは**手元のファイルが、ここに載っているものと\n'
               printf '同じバイト列か**だけで、安全であることの証明にはなりません（作った本人が\n'
               printf '押した判子です）。**GitHub 自身も保管しているバイト列から独自に計算した値を\n'
               printf '持っています**——上のコマンドで引けるほうは、こちらが書いた数字ではありません。\n\n'

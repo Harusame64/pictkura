@@ -39,7 +39,8 @@
 /* display を持つ要素に hidden を付けても消えないのを塞ぐ（`download.js` の出し分け） */
 [hidden] { display: none !important; }
 
-html { scroll-behavior: smooth; }
+/* 見出しへ飛んだとき、上の帯（`.bar` は sticky で 72px）に隠れないよう逃がす */
+html { scroll-behavior: smooth; scroll-padding-top: 96px; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
 body {
