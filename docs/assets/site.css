@@ -97,10 +97,12 @@ p { margin: 0 0 18px; }
 .bar {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; justify-content: space-between;
-  /* **高さを決め打たない。** 断点をどれだけ丁寧に置いても、字体や言語や拡大率で
-     ナビの実寸は動く。入らなければ項目ごとに折り返して帯が伸びる形にしておけば、
-     どの幅でも「見えなくなる」ことだけは起きない（ゲート2が 1001〜1025px で
-     字の途中で折れるのを見つけた。断点が26px足りなかった） */
+  /* **帯はこのサイトの目次である。** 読む人はここで「どれだけの場所があるか」を掴むので、
+     幅やページで中身が変わると地図が壊れる（利用者の指摘）。だから**何も間引かない**——
+     14ページすべて、どの幅でも同じ7項目。
+     そのぶん高さは決め打たない。断点をどれだけ丁寧に置いても字体・言語・拡大率で
+     実寸は動くので、入らなければ項目ごとに折り返して帯が伸びる形にしておく
+     （ゲート2が 1001〜1025px で字の途中で折れるのを見つけた。断点が26px足りなかった） */
   gap: 24px; min-height: 72px; padding: 0 var(--pad);
   border-bottom: 1px solid var(--line);
   background: oklch(0.145 0 0 / 0.9);
@@ -512,14 +514,6 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .doc { grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
 }
 
-/* 帯の間引きは2段。**iPad の縦（820px）で英語版のナビが 931px まで伸びて、
-   はみ出したぶんが見えなくなっていた**（ページは横スクロールしないため。
-   About を入れる前から 866px で出ていたので、元からの穴）。
-   ここで落とすのは、頁内アンカー（特長・対応形式）とフッターから行ける GitHub */
-@media (max-width: 1060px) {
-  .nav .hide-sm { display: none; }
-}
-
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding: 64px var(--pad) 0; }
   .hero-copy { padding: 0 0 48px; }
@@ -531,18 +525,13 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .metrics > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .cards.c3, .cards.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shots-2 { grid-template-columns: minmax(0, 1fr); }
-  /* マニュアルはここで落とす。760px まで持たせると、日本語の帯が
-     764〜812px で2行になる（ゲート2の実測） */
-  .nav .hide-xs { display: none; }
-  /* **目次は横並びに畳む。** ここで `.doc` は1段組みになるので、縦に積んだままだと
-     本文の前に立ちはだかる——iPad の縦で about が 525px、spec が 678px あった。
-     横に流すと 165px / 127px に縮み、目次としては使えるまま残る */
-  .doc-nav {
-    flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
-    border-left: 0; border-bottom: 1px solid oklch(1 0 0 / 0.1); padding: 0 0 18px;
-  }
-  .doc-nav a.sub { padding-left: 0; }
-  .doc-nav .hr { display: none; }
+  /* **1段組みになったら目次は落とす。** 縦に積んだままだと本文の前に立ちはだかり
+     （iPad の縦で about が 525px、spec が 678px）、横並びに畳む案も試したが、
+     リンクの断片が一続きの文のように流れて目次として読めなかった。
+     節には番号付きの見出しがあるので、狭い画面では素直に流し読みしてもらう。
+     **`.doc.legal` の柱は目次ではないので残す**——制作者・所在・連絡先・価格の
+     `.facts` はサイト中でここにしか無い（ゲート2の指摘）。あちらは縦のまま */
+  .doc:not(.legal) .doc-nav { display: none; }
   .band img { aspect-ratio: 1152 / 460; }
   .band p { font-size: 23px; }
   .bleed img { aspect-ratio: 1152 / 500; }
@@ -567,12 +556,6 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .bar .brand .disp { font-size: 17px; }
   .nav { gap: 10px 16px; font-size: 13.5px; min-width: 0; }
   .lang { padding-left: 14px; }
-  /* **スマホでは目次ごと落とす。** 横並びに畳んでも about で 314px 残り、
-     本文が始まるのが 767px だった。ここまで来たら目次は道を塞いでいる。
-     **ただし `.doc.legal` の柱は目次ではない**——制作者・所在・連絡先・価格の
-     `.facts` はサイト中でここにしか無いので、消すと電話から来た人が
-     「誰が配っているのか」を知る手立てを失う（ゲート2の指摘） */
-  .doc:not(.legal) .doc-nav { display: none; }
   .section { padding: 56px var(--pad) 52px; }
   .sec-head { gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
   .sec-head h2 { font-size: 24px; }
