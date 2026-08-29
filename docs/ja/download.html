@@ -63,7 +63,9 @@
        [data-stale] の中の版番号だけは差し替わらず、Releases API が引けないときは
        この写しがそのまま人前に出る。同じ写しが4ファイルにある——{en,ja}/index.html と
        {en,ja}/download.html。版を出したら4つとも手で更新すること（版番号・ファイル名・
-       リンク・サイズ。公開日はこの頁にしかない）。0.2.1 と 0.2.2 で2回続けて忘れており、そのあいだ
+       リンク・サイズ。公開日はこの頁にしかない）。**「配布物の作られ方」の curl の中の版は
+       [data-ver] なので手で直さなくてよい**——JSが動かないときだけこの写しが出る。
+       ただし README（英日）の同じコマンドは差し替わらないので、あちらは手で直す。0.2.1 と 0.2.2 で2回続けて忘れており、そのあいだ
        この頁は制限に当たった人に v0.2.0 を出し続けていた。 -->
   <div class="note warn" data-stale hidden style="margin-bottom:36px">
     <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>回線か、GitHub 側の一時的な制限のようです。下に並んでいるのは <b>v0.2.4</b> のファイルで、これが最新とは限りません。念のため <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>でも確かめてください。</p>
@@ -201,11 +203,11 @@
   </div>
 
   <p style="max-width:980px;margin:40px 0 10px;font-size:14px;color:var(--text-muted)">GitHub が持っているダイジェストを見る。<strong class="em">落とした版のタグを指定してください</strong>——よその場所から落としたものは最新版とは限らないので、<code class="mono">latest</code> と見比べると食い違って当然になります:</p>
-  <pre class="cmd" style="max-width:980px"># v0.2.4 の部分は、落とした版に読み替える（ファイル名に入っています）
-curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'</pre>
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="GitHub のダイジェストを引くコマンド"># タグは、落とした版に読み替える（ファイル名に入っています）
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v<span data-ver>0.2.4</span> | grep -E '"name"|"digest"'</pre>
 
   <p style="max-width:980px;margin:26px 0 10px;font-size:14px;color:var(--text-muted)">落としたファイルのダイジェストを出して、上と見比べる:</p>
-  <pre class="cmd" style="max-width:980px">Windows (PowerShell)  Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
+  <pre class="cmd" style="max-width:980px" tabindex="0" role="region" aria-label="手元のファイルのダイジェストを出すコマンド">Windows (PowerShell)  Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
 macOS                 shasum -a 256 pictkura_*_arm64.zip</pre>
   <p style="max-width:980px;margin-top:12px;font-size:13px;color:var(--text-faint)">PowerShell は大文字で返します。<code class="mono">sha256:</code> の後ろと、大文字小文字を無視して見比べてください。</p>
 

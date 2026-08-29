@@ -383,8 +383,10 @@ jobs:
             {
               printf '\n\n---\n\n## SHA-256\n\n'
               printf 'Digests of the five build artifacts, computed on the runner that built them.\n'
-              printf 'The same listing is attached as SHA256SUMS.txt, so once you have downloaded\n'
-              printf 'them into one directory, `sha256sum -c SHA256SUMS.txt` checks them all.\n'
+              printf 'The same listing is attached as SHA256SUMS.txt. On macOS,\n'
+              printf '`shasum -a 256 -c SHA256SUMS.txt` checks every file you have downloaded into\n'
+              printf 'one directory; on Windows there is no built-in equivalent, so hash them one at\n'
+              printf 'a time with `Get-FileHash <file> -Algorithm SHA256`.\n'
               printf 'They tell you whether the file you are holding is byte for byte the one\n'
               printf 'published here — not that it is safe. The same person who built it wrote\n'
               printf 'these numbers.\n\n'
@@ -395,8 +397,10 @@ jobs:
                 "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
               printf '```\n\n'
               printf 'このリリースの配布物5点の、**ビルドした機械で計算した**ダイジェストです。\n'
-              printf '同じ一覧は `SHA256SUMS.txt` としても付けてあるので、1つのフォルダへ\n'
-              printf '落としてから `sha256sum -c SHA256SUMS.txt` を通せます。\n'
+              printf '同じ一覧は `SHA256SUMS.txt` としても付けてあります。macOS なら\n'
+              printf '1つのフォルダへ落としてから `shasum -a 256 -c SHA256SUMS.txt` で\n'
+              printf 'まとめて確かめられます。Windows には同じことをする標準の道具が無いので、\n'
+              printf '`Get-FileHash <ファイル> -Algorithm SHA256` で1つずつになります。\n'
               printf '分かるのは**手元のファイルが、ここに載っているものと\n'
               printf '同じバイト列か**だけで、安全であることの証明にはなりません（作った本人が\n'
               printf '押した判子です）。**GitHub 自身も保管しているバイト列から独自に計算した値を\n'
@@ -411,8 +415,10 @@ jobs:
           fi
 
           # **ダイジェストの一覧もファイルとして付ける**（本文からのコピーで済ませない）。
-          # `sha256sum -c SHA256SUMS.txt` がそのまま通る形にしておくと、
-          # 受け取った側が目で突き合わせずに確かめられる。
+          # `shasum -a 256 -c` がそのまま通る形（`<digest>  <名前>`）にしておくと、
+          # macOSの人は目で突き合わせずに済む。**`sha256sum` とは書かない**——
+          # あれはGNU coreutilsの名前で、**配っている2つのOSのどちらにも無い**
+          # （macOSは `shasum`、Windowsには一覧を読む道具そのものが無い。ゲート2の指摘）。
           # 上の員数確認（5つ）を通した**後**に足す——先に足すと6つになって落ちる
           files+=("$sums")
 
