@@ -179,7 +179,8 @@ cd ~/Downloads
 shasum -a 256 pictkura_*_arm64.zip
 ```
 
-Windows (PowerShell — `curl` and `grep` are not available there):
+Windows (PowerShell — there is no `grep`, and in Windows PowerShell 5.1 `curl` is an
+alias for `Invoke-WebRequest`, which rejects `-s`):
 
 ```powershell
 (Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest

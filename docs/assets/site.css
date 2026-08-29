@@ -345,7 +345,10 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .limits div:last-child { padding-right: 0; border-right: none; }
 .limits b { font-weight: 400; color: oklch(0.88 0 0); }
 /* この升の中のリンクは「読んで終わり」ではなく**押して確かめてもらう**もの
-   （配布物の作られ方の節）。地の文と同じ色だと、リンクだと気付かれない */
+   （配布物の作られ方の節）。地の文と同じ色だと、リンクだと気付かれない。
+   **既存の升にも効く**——ダウンロード頁の「写真ファイル本体は変更しません」に
+   ある `spec.html#storage` への1本。そこも同じ理由で見えるべきなので、
+   わざと絞っていない（ゲート2の指摘・据え置き） */
 .limits a { color: var(--accent-bright); border-bottom: 1px solid oklch(0.82 0.12 255 / 0.4); }
 
 .more {
