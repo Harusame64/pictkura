@@ -28,12 +28,16 @@ document.addEventListener("DOMContentLoaded", function () {
     btn.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
+  // 札は DOM 上ボタンより**前**にある（広い画面での並びがそうだから）。開いた直後に
+  // 焦点を札へ移さないと、Tab が本文へ抜けてしまう（ゲート2の指摘）。
+  // ただし**移す先は先頭の項目ではなく札そのもの**——項目に移すと、指で開いた人にも
+  // 焦点の輪が付く（Safari 26.3.1 で確認。Chrome では出ないので実機で初めて見えた）。
+  // 札は入れ物なので輪は消してよく、次の Tab は素直に先頭の項目へ進む
+  nav.setAttribute("tabindex", "-1");
   btn.addEventListener("click", function () {
     var open = !isOpen();
     setOpen(open);
-    // 札は DOM 上ボタンより**前**にある（広い画面での並びがそうだから）。
-    // 開いた直後に先頭の項目へ焦点を移さないと、Tab が本文へ抜けてしまう（ゲート2の指摘）
-    if (open) { var first = nav.querySelector("a"); if (first) first.focus(); }
+    if (open) nav.focus();
   });
 
   // 項目を押したら閉じる。同じ頁の中の錨（`#…`）へ飛ぶときも畳んでおかないと、

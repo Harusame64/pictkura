@@ -575,6 +575,8 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
     box-shadow: 0 20px 44px oklch(0 0 0 / 0.5);
   }
   .js-nav .bar[data-nav-open] .nav { display: flex; }
+  /* 開いたときに焦点を受ける入れ物。輪は出さない（中の項目の輪は消していない） */
+  .js-nav .nav:focus { outline: none; }
   /* 送るときに項目が潰れないように */
   .js-nav .nav > * { flex-shrink: 0; }
   /* 指で押せる高さ（13+22+13）を確保する。**直下の項目にだけ**効かせること——
