@@ -479,6 +479,11 @@ struct LookedAt {
     /// HEVCの箱はあったのに絵にできなかった。**環境の問題**（拡張機能が
     /// 入っていない）かもしれないので、「絵が無い」と決めつけない
     undecoded_hevc: bool,
+    /// 途中の段で**ファイルを開き直せなかった**。各段は自分で開き直すので、
+    /// 2段目が読めた後に共有ロックやウイルス対策が挟まると、そこだけ落ちる。
+    /// これを数えないと「絵の無いファイル」と見分けが付かず、
+    /// **一瞬読めなかっただけの行に永久の印**を付ける（ゲート2のP1）
+    reopen_failed: bool,
 }
 
 /// [`embedded_preview_at_least`] に「**どこまで探したか**」を添えて返す。
@@ -486,7 +491,10 @@ pub fn search_embedded_preview(path: &Path, min_long_edge: u32) -> PreviewSearch
     let mut looked = LookedAt::default();
     let preview = search_preview_inner(path, min_long_edge, &mut looked);
     PreviewSearch {
-        exhausted: preview.is_none() && looked.whole_file && !looked.undecoded_hevc,
+        exhausted: preview.is_none()
+            && looked.whole_file
+            && !looked.undecoded_hevc
+            && !looked.reopen_failed,
         preview,
     }
 }
@@ -508,7 +516,7 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
 
     // 1段目: TIFFの申告を読む。ヘッダだけで位置が分かるので、
     // 当たれば必要な範囲しか読まない
-    if let Some(bytes) = declared_preview(path) {
+    if let Some(bytes) = declared_preview(path, looked) {
         if long_edge(&bytes) >= min_long_edge {
             return Some(bytes);
         }
@@ -573,7 +581,7 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
     }
 
     // 4段目: Minoltaの `.mrw` は、埋め込みJPEGの**先頭1バイトを潰して**書く
-    if let Some(bytes) = minolta_repaired_jpeg(path) {
+    if let Some(bytes) = minolta_repaired_jpeg(path, looked) {
         if long_edge(&bytes) >= min_long_edge {
             return Some(bytes);
         }
@@ -584,7 +592,13 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
     // Phase One IIQ・Kodak DCR）。非圧縮RGBのプレビューを組み立てる
     let uncompressed = (|| {
         let big_endian = matches!(read_window(path, 0, 2).as_deref(), Some(b"MM"));
-        let file = std::fs::File::open(path).ok()?;
+        // **開けないのは「絵が無い」ではない。** `read_from_container` の
+        // 失敗は素通りしてよい（TIFFでないRAWでは普通に起きる）が、
+        // `File::open` が落ちるのは環境の側の話
+        let Ok(file) = std::fs::File::open(path) else {
+            looked.reopen_failed = true;
+            return None;
+        };
         let mut reader = std::io::BufReader::new(file);
         let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
         uncompressed_preview(path, &exif, big_endian)
@@ -627,7 +641,13 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
     // （Minolta MRW・Hasselblad 3FR・Phase One IIQ）まで、タイル1枚ごとに
     // ファイル全体を読むことになる。それらの絵が出るのは4段目・5段目なので、
     // **ここまで来て空**のときにだけ払う形にした——3段目より後ろに置いたのはそのため
-    if best.is_none() && !looked.whole_file && scannable_whole {
+    //
+    // **HEVCの箱を持つファイルには降りない**（ゲート2のP3）。HDR PQのCR3は
+    // プレビューをHEVCで書くので、起こせなかった機械でここへ降りても、
+    // **在りもしないJPEGを探して最大128MBを読む**だけになる。しかも
+    // `exhausted` は偽のまま（起こせなかっただけなので正しい）＝印も付かず、
+    // 可視のたびに繰り返す。直す前のこの経路は先頭16MBで止まっていた
+    if best.is_none() && !looked.undecoded_hevc && !looked.whole_file && scannable_whole {
         if let Some(whole) = read_head(path, FULL_SCAN_LIMIT) {
             looked.whole_file = true;
             if let Some(found) = scan_largest_jpeg(&whole) {
@@ -639,8 +659,11 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
 }
 
 /// TIFFが**申告している**プレビューのうち、表示できて一番大きいもの。
-fn declared_preview(path: &Path) -> Option<Vec<u8>> {
-    let file = std::fs::File::open(path).ok()?;
+fn declared_preview(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
+    let Ok(file) = std::fs::File::open(path) else {
+        looked.reopen_failed = true;
+        return None;
+    };
     let mut reader = std::io::BufReader::new(file);
     let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
     for (offset, len) in declared_previews(&exif) {
@@ -656,12 +679,16 @@ fn declared_preview(path: &Path) -> Option<Vec<u8>> {
         }
         // 申告の長さが実物と合わないファイルがある（切れたJPEGになる）。
         // 少し多めに読んで、終端はJPEG自身のセグメントから決める
-        if let Some(window) = read_window(path, offset, len.saturating_mul(2).max(64 * 1024)) {
-            if let Some(span) = jpeg_span(&window, 0) {
-                if span.displayable {
-                    return Some(window[..span.end].to_vec());
+        match read_window(path, offset, len.saturating_mul(2).max(64 * 1024)) {
+            Some(window) => {
+                if let Some(span) = jpeg_span(&window, 0) {
+                    if span.displayable {
+                        return Some(window[..span.end].to_vec());
+                    }
                 }
             }
+            // 申告のある位置が読めない。**絵が無いのではなく読めていない**
+            None => looked.reopen_failed = true,
         }
     }
     None
@@ -673,7 +700,7 @@ fn declared_preview(path: &Path) -> Option<Vec<u8>> {
 /// （`00 D8 FF` で始まる）。1バイト戻せば普通のJPEGとして読める。
 /// **`.mrw` のときだけ**試す——この3バイトの並びは生のセンサーデータにも
 /// 普通に現れるので、他形式で拾うと絵にならない塊を掴む。
-fn minolta_repaired_jpeg(path: &Path) -> Option<Vec<u8>> {
+fn minolta_repaired_jpeg(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
     if !path
         .extension()
         .and_then(|e| e.to_str())
@@ -681,7 +708,10 @@ fn minolta_repaired_jpeg(path: &Path) -> Option<Vec<u8>> {
     {
         return None;
     }
-    let head = read_head(path, SCAN_LIMIT)?;
+    let Some(head) = read_head(path, SCAN_LIMIT) else {
+        looked.reopen_failed = true;
+        return None;
+    };
     let mut at = 0usize;
     let mut best: Option<Vec<u8>> = None;
     // ここで `?` を使って抜けないこと——末尾に達したときに、
@@ -1802,6 +1832,81 @@ mod tests {
             image::load_from_memory(&tile).unwrap().width(),
             320,
             "小さくても1枚掴めているなら、後ろまで探しに行かない"
+        );
+    }
+
+    #[test]
+    fn a_declaration_we_cannot_read_is_not_called_exhausted() {
+        // 半分だけ同期されたファイルや、途中で共有ロックが挟まったファイルは
+        // 「絵が無い」のではなく「読めていない」。取り違えると、呼び出し側が
+        // **二度と開かない印**をそこへ焼き付ける（ゲート2のP1）
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("truncated.dng");
+        // 申告はあるが、指している位置がファイルの外
+        let entries = [
+            entry(513, 4, &[8 * 1024 * 1024]),
+            entry(514, 4, &[64 * 1024]),
+        ];
+        std::fs::write(&path, build_tiff(&entries, &[], false)).unwrap();
+
+        let found = search_embedded_preview(&path, 512);
+        assert!(found.preview.is_none());
+        assert!(
+            !found.exhausted,
+            "申告を読めなかったファイルを「絵が無い」と決めない"
+        );
+    }
+
+    #[test]
+    fn an_undecodable_hevc_preview_does_not_send_us_reading_the_whole_file() {
+        // HDR PQのCR3はプレビューを**HEVCで**書く。起こせない機械
+        // （拡張機能が無いWindows）でJPEGを探しに全体を読んでも、
+        // **在りもしないものを探して最大128MBを読む**だけになる。
+        // しかも起こせなかっただけなので印も付かず、可視のたびに繰り返す
+        fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        // PRVW の中身: 版1・幅・高さ（16バイトのヘッダ）＋子箱
+        let mut prvw = vec![1u8, 0, 0, 0, 0, 0];
+        prvw.extend_from_slice(&1620u16.to_be_bytes());
+        prvw.extend_from_slice(&1080u16.to_be_bytes());
+        prvw.extend_from_slice(&[0u8; 6]);
+        prvw.extend_from_slice(&box_of(b"hvcC", &[0u8; 24]));
+        let mut imgd = 32u32.to_be_bytes().to_vec();
+        imgd.extend_from_slice(&[0u8; 32]); // 起こせない中身
+        prvw.extend_from_slice(&box_of(b"IMGD", &imgd));
+
+        let mut uuid_body = vec![0u8; 16];
+        uuid_body.extend_from_slice(&box_of(b"PRVW", &prvw));
+        let mut file = box_of(b"ftyp", b"crx ");
+        file.extend_from_slice(&box_of(b"moov", &box_of(b"uuid", &uuid_body)));
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hdr-pq.cr3");
+        file.resize(SCAN_LIMIT + 1, 0);
+        // 窓の外にJPEGを置く。**これを掴んだら降りてしまった証拠**
+        file.extend_from_slice(&jpeg_bytes(1600, 1200));
+        std::fs::write(&path, &file).unwrap();
+
+        // 箱が見えていること自体を先に確かめる（見えていないと無言で成功する）
+        let head = read_head(&path, SCAN_LIMIT).expect("読める");
+        assert_eq!(
+            super::cr3_hevc_boxes(&path, &head).len(),
+            1,
+            "PRVWの箱が見えていない"
+        );
+
+        let found = search_embedded_preview(&path, 512);
+        assert!(
+            found.preview.is_none(),
+            "HEVCの箱を持つファイルで、窓の外のJPEGを探しに降りている"
+        );
+        assert!(
+            !found.exhausted,
+            "起こせなかっただけなので「絵が無い」とは言わない"
         );
     }
 
