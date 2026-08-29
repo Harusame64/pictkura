@@ -381,7 +381,7 @@ jobs:
               printf 'GitHub computes its own digest for every asset, from the bytes it stores, and\n'
               printf 'that one we did not write. Ask it directly:\n\n'
               printf '```\n'
-              printf 'curl -s https://api.github.com/repos/%s/releases/tags/%s | grep -E \x27"name"|"digest"\x27\n' \\
+              printf 'curl -s https://api.github.com/repos/%s/releases/tags/%s | grep -E \x27"name"|"digest"\x27\n' \
                 "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
               printf '```\n\n'
               printf 'このリリースに付いている5つのファイルの、**ビルドした機械で計算した**\n'
