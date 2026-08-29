@@ -441,7 +441,16 @@ Only date folders are then added underneath.
 </div>
 
 <h3>Where the date comes from</h3>
-<p>The first of these that exists is used.</p>
+<p>
+<strong>The date that picks the destination folder</strong> during an import comes from EXIF
+(the container, for videos), then from <strong>the file name</strong>, then from the other
+half of a RAW+JPG pair, then from the file's modification time — and if even that is
+unusable, from the day of the import itself. It never asks the OS or your library: at
+import time there is no library entry for the file yet.
+</p>
+<p>
+The list below is how the date is decided <strong>once the photo is in your library</strong>,
+for the grid and the viewer. The first of these that exists is used.</p>
 <ol>
   <li><strong>EXIF capture time</strong> — written by the camera or phone</li>
   <li><strong>What the OS already knows</strong> — available even when the file only exists in the cloud</li>
@@ -452,6 +461,14 @@ Only date folders are then added underneath.
 Screenshots and images saved from social apps usually carry no EXIF, and modification time
 alone files them under “the day you saved it”. When the name carries a date, that wins, so
 they land on the right day.
+</p>
+<p>
+When pictkura can make no picture for a file — a RAW with no usable preview, say — a date
+already recorded for it comes third in the list, ahead of the file name and the
+modification time, unless what is recorded is only that modification time, which means
+nothing has been read yet. That matters because a file that ends up with no size at all is
+looked at again on every startup, so a pass that reads nothing must not erase a date that
+was read before.
 </p>
 
 <h2 id="search">4. Find</h2>
@@ -633,7 +650,8 @@ rendering.
 <table>
   <tr><th>Format</th><th class="center">Grid</th><th class="center">Full screen</th><th>Notes</th></tr>
   <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code> <code>3fr</code> <code>x3f</code> <code>kdc</code></td><td class="center">✅</td><td class="center">✅</td><td>Uses the camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (DNG)</td></tr>
-  <tr><td><code>crw</code> <code>srf</code> <code>sr2</code> <code>mrw</code> <code>erf</code> <code>dcr</code> <code>iiq</code> <code>mos</code> <code>raw</code></td><td class="center">✅</td><td class="center">⚠️</td><td>Older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft</td></tr>
+  <tr><td><code>crw</code> <code>srf</code> <code>sr2</code> <code>mrw</code> <code>erf</code> <code>dcr</code> <code>iiq</code> <code>mos</code></td><td class="center">✅</td><td class="center">⚠️</td><td>Older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft</td></tr>
+  <tr><td><code>raw</code></td><td class="center">⚠️</td><td class="center">⚠️</td><td>The two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter</td></tr>
   <tr><td><code>fff</code> (Hasselblad)</td><td class="center">⚠️</td><td class="center">⚠️</td><td>The H5D-40 file we tested carries no preview at all, so only a frame appears</td></tr>
   <tr><td><code>ptx</code> (Pentax)</td><td class="center">?</td><td class="center">?</td><td>Recognised, but we could not obtain a real file to check</td></tr>
   <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td class="center">⚠️</td><td>Carries no preview at all</td></tr>
@@ -736,6 +754,7 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Video thumbnails go only as far as the OS can open the container</td><td>On Windows the Shell provides them — <code>.avi</code> and HEVC <code>.mov</code> measured working, <code>.m2ts</code> never checked, anything the OS has no handler or codec for comes back empty. <strong>macOS shows what AVFoundation can open</strong> — <code>mp4</code> and <code>mov</code> measured working with H.264 and HEVC (<code>hvc1</code>) samples, <code>.avi</code> measured empty, every other container untested. <strong>Linux has no route at all</strong></td></tr>
   <tr><td>Duration and dimensions outside <code>mp4</code>, <code>m4v</code>, <code>mov</code>, <code>3gp</code></td><td>Those four are read straight from the container header. The rest rely on the Windows Shell (measured with a synthetic <code>.m2ts</code> only); on macOS and Linux they show no duration or dimensions (the date falls back to the file name or modification time)</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
+  <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file's own declaration, from the sensor borders inside Panasonic's own RAW formats (<code>rw2</code>, <code>raw</code>, <code>rwl</code> — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup. On Windows a file that only exists in the cloud is the exception — the Shell supplies its dimensions without downloading it</td></tr>
   <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
   <tr><td>An import cannot be cancelled</td><td>Once started, it runs to the end</td></tr>
