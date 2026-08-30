@@ -40,6 +40,14 @@ pub struct ExifData {
     pub taken_at_ms: Option<i64>,
     /// 埋め込みサムネイルのJPEGバイナリ
     pub thumbnail: Option<Vec<u8>>,
+    /// `thumbnail` が空のとき、**ファイルを最後まで見たうえでの空振り**か。
+    ///
+    /// これは素性ではなく `thumbnail` を探した結果の一部で、RAWでしか真にならない。
+    /// [`process_one`] がこれを見て「この行に絵は無い」の印
+    /// （[`THUMB_STATE_NO_PREVIEW`]）を書く。確かめずに印を書くと、
+    /// 読めなかっただけの行やHEVCを起こせなかっただけの行まで永久に諦める
+    /// （[`crate::raw::PreviewSearch`]）
+    pub preview_exhausted: bool,
     /// EXIF Orientation（1〜8、1=回転なし）
     pub orientation: u8,
     /// カメラ名（メーカー＋機種）。検索とファセットのためDBへ正規化保存する
@@ -58,6 +66,7 @@ impl Default for ExifData {
         Self {
             taken_at_ms: None,
             thumbnail: None,
+            preview_exhausted: false,
             orientation: 1,
             camera: None,
             original: None,
@@ -494,6 +503,14 @@ enum Want {
     Declaration,
     /// 表示に使う絵。長辺がこれ以上あるものを探す
     Image(u32),
+    /// 撮影日時・カメラ名・向き。**絵は1枚も探さない**。
+    ///
+    /// [`Want::Meta`] との違いはそこだけ。あちらは日付が取れなかったときに
+    /// 絵を探しに降りて最大128MBを読むが、[`THUMB_STATE_NO_PREVIEW`] の印が
+    /// 付いた行は**探しても無いと分かっている**ので、その値段を払わない。
+    /// 素性の直し（OSのプロパティ・名前の日付）は続けたいので、
+    /// [`Want::Declaration`] ではなくこちらを使う
+    MetaOnly,
 }
 
 /// `want` は「絵を探すか、探すなら長辺どれだけ要るか」。
@@ -534,11 +551,13 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         // ファイル全体を読むので、巨大なRAWや外付けの一瞬の切断でここへ来る。
         // 降りると絵を探す経路まで諦めることになり、作れたはずのサムネイルを
         // 落とす（ゲート2のP3）——一覧のサムネイルが要求する長辺
-        // （[`process_one`] は `thumb_size`、既定512）なら、探索は先頭16MBで
-        // 止まる。**止まるかどうかは要求する長辺しだい**で、
+        // （[`process_one`] は `thumb_size`、既定512）なら、探索は**小さくても
+        // 絵を1枚掴めたところで**先頭16MBで止まる。
         // [`crate::raw::USABLE_LONG_EDGE`]（1600）以上を要求する経路——ビューア
         // （[`raw_display_jpeg`]）と、`performance.thumbnail_size` を1600以上に
-        // した設定——では最大128MBまで読む（ゲート2のP3）。
+        // した設定——では最大128MBまで読む（ゲート2のP3）。**1枚も掴めない
+        // ときは要求の大小に関わらず最後まで読む**（`dev` の Issue #6）
+        // ——先頭16MBにJPEGを1枚も置かない機種があるため。
         //
         // 取り下げた「読めた」は2か所へ効く: 後追い（[`read_exif_declaration`]）は
         // 印を付けず、[`process_one`] は寸法の「確かめた」印を書かない
@@ -678,7 +697,9 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     // サムネイルは埋め込みプレビューJPEGを使う（カメラが書いた表示用の絵）。
     // **コンテナのIFD1に入っている切手（160x120）で上書きさせない**のが要点:
     // Nikonはそこに切手だけを申告し、原寸のJPEGは申告の無い場所に置く
-    if let Some(preview) = crate::raw::embedded_preview_at_least(path, min_long_edge) {
+    let found = crate::raw::search_embedded_preview(path, min_long_edge);
+    result.preview_exhausted = found.exhausted;
+    if let Some(preview) = found.preview {
         // 撮影日時か向きが埋まっていない形式（RAF等）は、プレビューのEXIFも当たる
         if result.taken_at_ms.is_none() || result.orientation == 1 {
             merge_preview_exif(&mut result, &preview);
@@ -796,6 +817,9 @@ fn exif_data_from(exif: &exif::Exif) -> ExifData {
     ExifData {
         taken_at_ms,
         thumbnail,
+        // ここはコンテナのIFD1を読んだだけで、**まだ何も探していない**。
+        // 決めるのは [`read_exif_from`] の最後（RAWの探索を終えたところ）
+        preview_exhausted: false,
         orientation,
         camera: camera_name(ascii_field(exif, Tag::Make), ascii_field(exif, Tag::Model)),
         // RAW以外はこの後 [`read_exif_inner`] が落とす
@@ -1073,6 +1097,9 @@ pub enum ThumbOutcome {
     Deferred,
     /// サムネイルが要らない形式（SVG）。原本をそのまま一覧へ出す
     NotNeeded,
+    /// **出せる絵が無い**RAW。ファイルを最後まで探してプレビューが1枚も
+    /// 無かったので、二度と開かない印（[`THUMB_STATE_NO_PREVIEW`]）を残した
+    NoPreview,
     /// EXIF埋め込みの即席サムネイルを書いた（高品質版の再処理が必要）
     Provisional,
     /// 高品質サムネイルまで生成完了
@@ -1284,7 +1311,18 @@ pub fn process_one(
     // タイル1枚ごとに最大128MBを読んで空振りする。クラウドにしか実体が無い
     // ファイルなら**丸ごとハイドレート**にもなる（ゲート2のP2）。
     // 原寸が要るのはビューア（[`raw_display_jpeg`]）だけ
-    let (exif_data, readable) = read_exif_for_preview_checked(src, thumb_size);
+    //
+    // **一度「絵は無い」と分かった行では、そもそも探さない。**
+    // 印（[`THUMB_STATE_NO_PREVIEW`]）が付いてもこの行が投げ直されるのは、
+    // 寸法の申告を持たないRAWだと `width` が埋まらず
+    // [`Db::ids_missing_metadata`] が起動のたびに拾うため。素通りさせると
+    // **毎回ファイル全体を読み直して空振りする**。素性の直しは続ける
+    let marked_without_preview = record.thumb_state == THUMB_STATE_NO_PREVIEW;
+    let (exif_data, readable) = if marked_without_preview {
+        read_exif_checked(src, Want::MetaOnly)
+    } else {
+        read_exif_for_preview_checked(src, thumb_size)
+    };
     // **絵が作れないことと、素性が分からないことは別。**
     //
     // ここを `?` で抜けると、読めているEXIF（撮影日時・カメラ・原寸の申告）ごと
@@ -1299,6 +1337,22 @@ pub fn process_one(
         Ok(size) => size,
         Err(err) => {
             record_metadata_without_preview(db, id, &record, src, &exif_data, readable)?;
+            // **「今回は作れなかった」と「この先も作れない」は別。**
+            //
+            // 探索がファイルを最後まで見たうえで空振りしたときだけ、
+            // 二度と開かない印を残す（[`THUMB_STATE_NO_PREVIEW`]）。読めなかった
+            // だけの行や、HEVCのデコーダを後から入れれば絵が出る行には付けない
+            // ——[`crate::raw::PreviewSearch::exhausted`] がそこを分けている。
+            //
+            // 印を付けたら `Err` では返さない。失敗として数える意味が無いうえ、
+            // 可視のたびに投げ直される行でもなくなる
+            if marked_without_preview {
+                return Ok(ThumbOutcome::NoPreview);
+            }
+            if readable && exif_data.preview_exhausted {
+                db.update_thumb_state(id, THUMB_STATE_NO_PREVIEW)?;
+                return Ok(ThumbOutcome::NoPreview);
+            }
             return Err(err);
         }
     };
@@ -1456,6 +1510,21 @@ pub fn process_one(
 /// の両方を満たす。原本をサムネイル置き場と誤認して消す事故を避けるため、
 /// `thumb_path` は書かない。
 pub const THUMB_STATE_NOT_NEEDED: i64 = 3;
+
+/// 「この行に絵は無い」印（**ファイルを最後まで探して**プレビューが1枚も
+/// 無かったRAW）。
+///
+/// [`THUMB_STATE_NOT_NEEDED`] と同じく2より大きいので、可視領域の再投入
+/// （`thumb_state < 2`）にもLRUの削除対象（`thumb_state = 2`）にも入らない。
+/// **別の値にしてあるのは意味が違うから**——あちらは「原本をそのまま一覧へ出せる」
+/// （SVG）で、こちらは**出せる絵が無い**（枠だけ出る）。
+///
+/// **印が要るのは値段のため。** この印が無いと、絵を持たない大きいRAWは
+/// スクロールで可視になるたびに [`crate::raw::search_embedded_preview`] の
+/// 最後の段へ落ち、**1枚ごとに最大128MBを読んで空振りする**。
+/// ファイルが変われば [`Db`] が `thumb_state` を0へ戻すので、
+/// 差し替えられた行はここから自然に抜ける
+pub const THUMB_STATE_NO_PREVIEW: i64 = 4;
 
 /// 同一IDの処理失敗をこの回数まで許容する（超えたら以後の投入を無視する）。
 /// 壊れた画像が可視領域にあると、UIの可視通知のたびに再投入されて
@@ -2115,11 +2184,12 @@ mod tests {
         fake_cr3_oriented(orig, None, 1)
     }
 
-    /// `process_one` が**失敗しても**レコードを返す版。
+    /// `process_one` が**絵を作れなくても**レコードを返す版。
     ///
-    /// 絵を作れないファイルを見るためのもので、[`record_after_process`] は
-    /// `unwrap()` するので使えない。**失敗したこと自体も返す**——
-    /// 「素性は書いたが絵は失敗」を両方確かめたいので。
+    /// [`record_after_process`] は `unwrap()` するので使えない
+    /// ——絵を作れないファイルは `Err` か [`ThumbOutcome::NoPreview`] で返る。
+    /// **絵が出なかったこと自体も返す**——「素性は書いたが絵は無い」を
+    /// 両方確かめたいので。
     fn record_after_failed_process(
         dir: &Path,
         name: &str,
@@ -2135,7 +2205,10 @@ mod tests {
         }])
         .unwrap();
         let id = db.list_all().unwrap()[0].id;
-        let failed = process_one(&mut db, &dir.join("thumbs"), 320, id, true).is_err();
+        let failed = !matches!(
+            process_one(&mut db, &dir.join("thumbs"), 320, id, true),
+            Ok(ThumbOutcome::Final | ThumbOutcome::Provisional)
+        );
         (db.get_by_id(id).unwrap().unwrap(), failed)
     }
 
@@ -2185,7 +2258,10 @@ mod tests {
             Some(rec.mtime_ms),
             "撮影日は mtime へ落ちない（名前の日付を拾う）"
         );
-        assert_eq!(rec.thumb_state, 0, "絵は無いまま");
+        assert_eq!(
+            rec.thumb_state, THUMB_STATE_NO_PREVIEW,
+            "最後まで探して無かったので、二度と探さない印が付く"
+        );
     }
 
     /// Panasonicの `.rw2` / `.raw` の最小再現。版番号に `U`（0x55）を書き、
@@ -2309,8 +2385,9 @@ mod tests {
         // OSから寸法だけ借りている状態（申告が無いので、これが唯一の寸法）
         db.update_shell_metadata(id, 4224, 2376, None).unwrap();
 
-        assert!(
-            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err(),
+        assert_eq!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap(),
+            ThumbOutcome::NoPreview,
             "絵は無いので作れない"
         );
 
@@ -2371,7 +2448,10 @@ mod tests {
             .unwrap();
 
         // 2周目。EXIFも名前も何も出さない
-        assert!(process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err());
+        assert_eq!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap(),
+            ThumbOutcome::NoPreview
+        );
 
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(
@@ -2405,7 +2485,10 @@ mod tests {
         db.update_shell_metadata(id, 0, 0, Some(1_500_000_000_000))
             .unwrap();
 
-        assert!(process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err());
+        assert_eq!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap(),
+            ThumbOutcome::NoPreview
+        );
 
         assert_eq!(
             db.get_by_id(id).unwrap().unwrap().taken_at_ms,
@@ -2433,7 +2516,10 @@ mod tests {
         // 前の周が mtime まで落ちた後の状態（＝まだ何も分かっていない行）
         db.update_shell_metadata(id, 0, 0, Some(42)).unwrap();
 
-        assert!(process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err());
+        assert_eq!(
+            process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap(),
+            ThumbOutcome::NoPreview
+        );
 
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(
@@ -3189,6 +3275,51 @@ mod tests {
         );
         // 状態は0のまま＝デコーダを後から入れれば次回取り直せる
         assert_eq!(db.get_by_id(id).unwrap().unwrap().thumb_state, 0);
+    }
+
+    /// **絵が1枚も無いRAWは、印を付けて二度と開かない。**
+    ///
+    /// 印（[`THUMB_STATE_NO_PREVIEW`]）が無いと、寸法の申告を持たないRAWは
+    /// `width` が埋まらないので [`Db::ids_missing_metadata`] が起動のたびに
+    /// 投げ直し、可視領域の再投入（`thumb_state < 2`）もこの行を拾う。
+    /// そのたびに [`crate::raw::search_embedded_preview`] の最後の段が
+    /// **ファイル全体を読んで空振りする**。
+    #[test]
+    fn a_raw_with_no_picture_anywhere_is_marked_and_not_reopened() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("nothing.x3f");
+        std::fs::write(&src, vec![0u8; 1024]).unwrap();
+        let mut db = Db::open(&dir.path().join("raw.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src.clone(),
+            size: 1024,
+            mtime_ms: 12_345,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let thumbs = dir.path().join("thumbs");
+
+        let outcome = process_one(&mut db, &thumbs, 320, id, false).unwrap();
+        assert_eq!(outcome, ThumbOutcome::NoPreview);
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(rec.thumb_state, THUMB_STATE_NO_PREVIEW);
+        assert_eq!(rec.taken_at_ms, Some(12_345), "絵が無くても素性は書く");
+
+        // 印が付いた後は**ファイルを開き直さない**。中身を絵のあるものへ
+        // 差し替えても結果が変わらないことで確かめる——実際に差し替わった
+        // ファイルは、スキャンが `thumb_state` を0へ戻して拾い直す
+        let mut bytes = vec![0u8; 32];
+        bytes.extend_from_slice(&test_jpeg_bytes(640, 480));
+        std::fs::write(&src, &bytes).unwrap();
+        assert_eq!(
+            process_one(&mut db, &thumbs, 320, id, true).unwrap(),
+            ThumbOutcome::NoPreview,
+            "可視要求でも絵を探し直さない"
+        );
+        assert_eq!(
+            db.get_by_id(id).unwrap().unwrap().thumb_state,
+            THUMB_STATE_NO_PREVIEW
+        );
     }
 
     /// 原本をそのまま返して良い形式か（第7部の形式追加）。
