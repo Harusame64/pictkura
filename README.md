@@ -169,7 +169,7 @@ can check**. Here is what you can check instead.
 - **The digest is GitHub's, not ours.** The SHA-256 the command below returns is computed
   by GitHub from the bytes it stores. It is not a number we typed in
 
-`v0.2.5` is an example — **use the tag of the version you have**, which is in the
+`v0.2.4` is an example — **use the tag of the version you have**, which is in the
 filename. A copy from somewhere else is not necessarily the newest release, so do not
 use `latest`.
 
@@ -177,7 +177,7 @@ macOS:
 
 ```sh
 # ask GitHub for the digests it holds
-curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.5 | grep -E '"name"|"digest"'
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
 
 # hash what you downloaded and compare
 cd ~/Downloads
@@ -188,7 +188,7 @@ Windows (PowerShell — there is no `grep`, and in Windows PowerShell 5.1 `curl`
 alias for `Invoke-WebRequest`, which rejects `-s`):
 
 ```powershell
-(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.5).assets | Select-Object name, digest
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest
 
 cd ~\Downloads
 Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
