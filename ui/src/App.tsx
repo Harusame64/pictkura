@@ -2883,9 +2883,22 @@ export default function App() {
   //   この時計はそのたびに貼り直される（＝発火しない）。送りの最中に
   //   decodeを足して、いちばん要る「次の1枚」と競わせないため
   // - ビューアを閉じると `preload` は空になるので**勝手に止まる**
+  //
+  // **窓を隠している間、この時計だけでは足りない**（ゲート1のP2）。Chromiumは
+  // 隠れたページの時計を、5分を過ぎたところで**1分に1回まで**落とす
+  // （intensive throttling・Chrome 88以降。条件は「隠れて5分」「連鎖5回以上」
+  // 「無音30秒」で、`setInterval` の繰り返しは連鎖に数えるので15秒間隔なら
+  // 75秒で条件に入る）。1分は**上で45秒から欠け始めた時計とほぼ同じ**なので、
+  // 最小化から戻った瞬間は先読みが空になっている。しかも戻っても、次の発火は
+  // 最大で1分先——**戻ってすぐ送ると、塞いだはずの穴をそのまま踏む**。
+  //
+  // だから `visibilitychange` で**見えるようになった瞬間に触り直す**。焦点
+  // （`focus`）は見ていない: 窓が見えたまま裏へ回っただけならページは
+  // 「隠れて」おらず、上の条件に入らないので、時計はそのまま15秒で回っている。
+  // https://developer.chrome.com/blog/timer-throttling-in-chrome-88
   useEffect(() => {
     if (preload.length === 0) return;
-    const timer = window.setInterval(() => {
+    const touch = () => {
       for (const it of preload) {
         const el = preloadElsRef.current.get(it.id);
         // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
@@ -2893,8 +2906,16 @@ export default function App() {
         // 読めない絵（壊れている・消えた）はここでも黙って諦める
         el.decode().catch(() => {});
       }
-    }, PRELOAD_TOUCH_MS);
-    return () => window.clearInterval(timer);
+    };
+    const timer = window.setInterval(touch, PRELOAD_TOUCH_MS);
+    const onVisible = () => {
+      if (!document.hidden) touch();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [preload]);
 
   /** いま `<video>` を出している（＝最後まで見せたい）か */
