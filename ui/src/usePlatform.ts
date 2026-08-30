@@ -29,10 +29,20 @@ const guess: HostPlatform = isWindows ? "windows" : isMac ? "macos" : "other";
  */
 let known: HostPlatform = guess;
 
+/**
+ * **バックエンドが答えた**か（推測のあいだは偽）。
+ *
+ * 推測で分岐してよいかは**外したときの代償が対称かどうか**で決まる。
+ * 修飾キーの表記なら一瞬違っても直るが、[`useConfirmedPlatform`] を使う側は
+ * そうではない
+ */
+let answered = false;
+
 /** 起動中に1回だけ走る問い合わせ。全員がこの約束を共有する */
 const resolved: Promise<HostPlatform> = getHostPlatform()
   .then((p) => {
     known = p;
+    answered = true;
     return p;
   })
   .catch(() => guess);
@@ -43,6 +53,35 @@ export function usePlatform(): HostPlatform {
     let alive = true;
     resolved.then((p) => {
       if (alive) setPlatform(p);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return platform;
+}
+
+/**
+ * **バックエンドが答えたOSだけ**を返す。届くまで（＝推測のあいだ）は `null`。
+ *
+ * [`usePlatform`] との違いは**外し方**である。あちらは「判定が落ちて機能ごと
+ * 消えるより、当たる確率の高い推測で出す」側に倒してある。こちらは逆に倒す
+ * ——**外したときの代償が非対称なところ**で使う。
+ *
+ * いまの利用者は `App.tsx` の先読みの触り直しで、**windows側へ外すとWebKitで
+ * 1ティックにつき24MP1枚ぶんが漏れる**のに対し、逆へ外しても失うのは
+ * 送り100msぶんの最適化だけ。だから**答えが来るまで動かさない**。
+ * 問い合わせ自体が転んだときも `null` のまま——安全な側に倒れる。
+ */
+export function useConfirmedPlatform(): HostPlatform | null {
+  const [platform, setPlatform] = useState<HostPlatform | null>(
+    answered ? known : null,
+  );
+  useEffect(() => {
+    let alive = true;
+    void resolved.then((p) => {
+      // `catch` で推測に落ちた回は `answered` が立たない＝ここでも出さない
+      if (alive && answered) setPlatform(p);
     });
     return () => {
       alive = false;
