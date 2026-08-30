@@ -80,7 +80,7 @@ import {
   type StartupScanReport,
   type EmptyLibraryReason,
 } from "./api";
-import { usePlatform } from "./usePlatform";
+import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import type { VideoStatus } from "./api";
 import {
   formatDateTime,
@@ -103,11 +103,25 @@ const CAMERAS_COLLAPSED = 3;
 /**
  * 原寸の先読みが抱えてよい総画素（バイト）。
  *
- * 隠し `<img>` が保持するデコード済み画素には**総量の崖**がある。実測では
- * 24MPの7枚も12MPの14枚も641MiBで生き残り、687MiBで**全部まとめて捨てられた**
- * ——境界は約660MiBで、上限は枚数ではなく総画素。**崖は全か無か**で、1枚でも
- * 超えると先読み機構がまるごと無効になる。だからぎりぎりを狙わず下で止める。
- * この値はChromium側の判断で設定できず、機械や版で動きうる
+ * 隠し `<img>` が保持するデコード済み画素には**総量の崖**がある。上限は枚数
+ * ではなく総画素で、**崖は全か無か**——1枚でも超えると先読み機構がまるごと
+ * 無効になる。だからぎりぎりを狙わず下で止める。
+ *
+ * **崖の位置は機械と版で動く。だからこの値は実測の最小値より下に置く**:
+ *
+ * | 測った日・どこで | 生存 | 全滅 |
+ * |---|---|---|
+ * | 2026-08-17 Chrome/Windows（CDP経由） | 641MiB | 687MiB |
+ * | 2026-08-30 Chrome/macOS（M1 Pro・16GB） | 1328MiB | 1373MiB |
+ * | 2026-08-30 Chrome・WebView2/Windows（Ryzen 7 5700X・32GB） | 1282MiB | 1373MiB |
+ *
+ * 8/17の約660MiBは**同じWindowsの機械でも再現しなかった**（2026-08-30は
+ * 2エンジンとも1282MiB生存）。CDP経由だったこと・Chromeの版が違うこと・
+ * 機械の空きメモリのどれが効いたのかは追っていない。**下限として8/17の値を
+ * 信じ、400MiBのまま据え置く**——上げれば刺さる機械が出うるので、動かすなら
+ * 手持ちの機械1台ではなく複数の実測が要る。
+ *
+ * 道具と生データ: `dev/cliff-tools/`（`results-2026-08-30-windows/`）
  */
 const PRELOAD_BUDGET_BYTES = 400 * 1024 * 1024;
 /** DBに寸法が無い行（メタデータ未抽出）の見積り。多めに数える側へ倒す */
@@ -121,6 +135,27 @@ const PRELOAD_MAX_ITEMS = 8;
  * （RAWは横位置なら18msだが、縦位置は詰め直しに落ちるので同じ扱いにしてある）
  */
 const PRELOAD_MAX_TRANSCODES = 1;
+/**
+ * 先読み済みの画素を触り直す間隔（0.2 ③）。
+ *
+ * デコード済み画素には**総量の崖とは別に時間の崖**がある。24MP×8枚（732MiB）を
+ * 放置すると、**60秒で8枚とも消えた**——予算の半分以下（24MP×2枚・183MiB）でも
+ * 同じで、総量とは無関係。時計は「作ってから」ではなく**「最後に使ってから」**で、
+ * `decode()` し直すと戻る。
+ *
+ * 間隔をこの値にした理由（2026-08-30・WebView2/Windowsの実測。120秒放置）:
+ *
+ * | 触り直し | 生存 |
+ * |---|---|
+ * | 15秒ごと | 8/8 |
+ * | 30秒ごと | 8/8 |
+ * | 45秒ごと | **7/8**（欠けるのは**いちばん古い1枚**） |
+ * | 触らない | 0/8 |
+ *
+ * 30秒でも保ったが、**45秒で欠け始める**ので余裕を取って15秒にする。値段は
+ * ほぼ無い——既にデコード済みの絵への `decode()` は実測0.05〜0.1msで返る。
+ */
+const PRELOAD_TOUCH_MS = 15_000;
 /** 一度にクラウド判定を聞ける件数（Rust側 `cloud_only_media` の上限と一致） */
 const CLOUD_ASK_MAX = 64;
 /**
@@ -992,6 +1027,17 @@ export default function App() {
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
   const platform = usePlatform();
+  /**
+   * 先読みの触り直し（下の [`PRELOAD_TOUCH_MS`] のeffect）を**回してよいか**。
+   *
+   * **Blinkだけ。** 時間の崖があるのはあちらだけで、WebKitでは同じ `decode()` が
+   * 漏れる（理由と実測はeffectのところ）。Tauriで載るBlinkは
+   * **WindowsのWebView2だけ**——macOSはWKWebView、LinuxはWebKitGTK。
+   *
+   * **推測では回さない**（[`useConfirmedPlatform`]）。windows側へ外したときだけ
+   * 代償が桁違いに大きいので、答えが来るまでは動かさない
+   */
+  const touchesPreload = useConfirmedPlatform() === "windows";
   // 動画（第9部）。コンテナはWebViewが扱えても、中のコーデック（HEVC）が
   // OSに無ければ再生は失敗する。しかも `canPlayType` は当てにならない
   // （実測: hvc1 に空を返しながら普通に再生した）ので、**実際に失敗してから**
@@ -2834,6 +2880,169 @@ export default function App() {
     };
   }, [preload, rememberNatural]);
 
+  // 先読みした画素を**定期的に触り直す**（0.2 ③・[`PRELOAD_TOUCH_MS`]）。
+  //
+  // 触らないと約60秒で全部捨てられ、**ビューアを開いたまま1分手を止めるだけで
+  // 次の送りが先読み無しの値段に戻る**。Chromium（Chrome・WebView2）の性質。
+  //
+  // **買えるもの**（Windows 11・Ryzen 7 5700X・WebView2 151・24MPのJPEG。
+  // 1ビルド48送り。`keydown` から Element Timing の `renderTime` まで）:
+  //
+  // | 送り | main | このeffectあり |
+  // |---|---|---|
+  // | 連続（<15秒・n=31） | p50 61.7ms | p50 **39.4ms** |
+  // | 放置後（≧65秒・n=17） | p50 172.7ms / p90 218.5ms | p50 **58.4ms** / p90 **62.3ms** |
+  //
+  // **値段はWindowsで88MB**（放置中に抱えたまま）。CPUは雑音に埋もれた。
+  //
+  // **ただしこの差は、利用者の持ち物で決まる。** 効くのは原寸のデコードなので、
+  // 放置後の再decodeは 24MP=120〜146ms / 12.4MP=23.8ms / 1MP=4.5ms /
+  // 0.1MP=0.8ms。**RAWの原寸は埋め込みプレビューの大きさ**なので、小さい
+  // プレビューしか積まないカメラでは差が雑音まで落ちる。上の+111msは**上限**。
+  //
+  // **⚠ WebKitでは走らせない**（[`touchesPreload`]）。
+  // 「WebKitには時間の崖が無いので空振りするだけ、害は無い」と最初は書いていたが、
+  // **測ったら逆だった**（2026-08-30・`dev/pr78-decide/results-2026-08-30-macos/`）:
+  //
+  // | 5分放置 | RSS | CPU |
+  // |---|---|---|
+  // | このeffectあり・ビューア開 | 1,053MB → **2,766MB**（単調増加） | 4.86s |
+  // | このeffectあり・ビューア閉（時計が止まる） | 1,031MB → 1,031MB | 1.85s |
+  // | effect無し・ビューア開 | 1,005MB → 1,005MB | 1.84s |
+  //
+  // **1ティックにつき90,163KB**——24MPのRGBA（93,750KB）ちょうど1枚ぶんが
+  // 積まれて解放されない。CPUも差引158ms/tickで、WebKitの24MP初回デコード
+  // （80〜110ms）と同じ桁。つまりWebKitの `decode()` は**デコード済みの絵でも
+  // 毎回作り直し、古いバッファを手放さない**。
+  //
+  // **Blinkは逆**（15分・5秒ごとに追跡）: 傾きは **+76KB/分**＝雑音（全体では
+  // むしろ下向き）で、15分放置した後の3枚が **0.1 / 0.1 / 0.2ms** で返る
+  // ——生きた画素を触れている。mainは70秒放置で 120 / 120 / 146ms。
+  // **0.05〜0.1msという値段はBlinkのもので、WebKitには当てはまらない。**
+  //
+  // - **触るのは `preload` に入っている分だけ**。あの列は総量の予算
+  //   （[`PRELOAD_BUDGET_BYTES`]）を守って選ばれているので、延命しても
+  //   崖には近づかない。予算から外れた絵はそのまま時計に任せて消えてよい
+  // - **手が止まっているときだけ動く**。送っていれば `preload` が入れ替わり、
+  //   この時計はそのたびに貼り直される（＝発火しない）。送りの最中に
+  //   decodeを足して、いちばん要る「次の1枚」と競わせないため
+  // - ビューアを閉じると `preload` は空になるので**勝手に止まる**
+  //
+  // **窓を隠している間は、この時計を止める**（ゲート1のP2・ゲート2）。Chromiumは
+  // 隠れたページの時計を、5分を過ぎたところで**1分に1回まで**落とす
+  // （intensive throttling・Chrome 88以降。条件は「隠れて5分」「連鎖5回以上」
+  // 「無音30秒」で、`setInterval` の繰り返しは連鎖に数えるので15秒間隔なら
+  // 75秒で条件に入る）。https://developer.chrome.com/blog/timer-throttling-in-chrome-88
+  //
+  // その1分は**上で45秒から欠け始めた時計とほぼ同じ**——つまり隠れて5分を過ぎると、
+  // 落とされた発火は毎回「もう全部消えた後」に来て、**誰にも見えない絵の
+  // decodeを8枚ぶん焼き直しては、また消される**。裏に回したまま1時間置けば
+  // それを60回。予算いっぱい（[`PRELOAD_BUDGET_BYTES`]）の画素を、
+  // OSが回収したがっている裏側で抱え直すことにもなる。**得るものが無い。**
+  //
+  // **ただしWindowsでは、この節は実測で一度も発火しない。** 窓を最小化して
+  // （`IsIconic` が真）75秒置いても `document.visibilityState` は `visible` の
+  // まま、`visibilitychange` も飛ばず、2秒の `setInterval` の最大間隔は2.003秒
+  // ＝**絞られてすらいない**（DevToolsを外して計測——繋いだままだとChromiumが
+  // 遮蔽の追跡を止める）。WebView2の `IsVisible` は載せる側が立てるもので、
+  // **Tauriは窓の最小化をそこへ繋いでいない**。
+  //
+  // つまりここは**無害だが空振り**である。**残すのは保険**——ページが実際に
+  // 隠れる道（将来Tauriが繋ぐ・`window.hide()` を使う）ができた瞬間、上の3つの
+  // 性質が黙って戻ってくるので、そのとき書き直したくない。最小化のあいだ止め
+  // たいなら、ページ側ではなくTauriの窓のイベント（`onResized`/`isMinimized()`）
+  // から駆動するしかない。**入れていない**——ビューアを開いたまま最小化している
+  // 時間が実際どれだけあるかを測っていないので、引き合うかが分からない。
+  //
+  // 代わりに `visibilitychange` で、**見えるようになった瞬間に触り直して時計を
+  // 貼り直す**。隠れている間に消えたぶんはここで読み直すが、それは
+  // **どのみち次の送りで払う値段を、送る前へ前倒ししただけ**である。
+  //
+  // - **時計は貼り直す**（`disarm` → `arm`）。触るだけだと次の発火が最大で
+  //   15秒ずれたまま残り、戻った直後の1回が空くことがある
+  // - **焦点（`focus`）は見ていない。** 窓が見えたまま裏へ回っただけならページは
+  //   「隠れて」おらず、時計はそのまま15秒で回っている。焦点で足すと、
+  //   alt-tabのたびに空振りのdecodeが増えるだけ
+  //
+  // 触り直しは**近い順に1枚ずつ待つ**。上の読み込みと同じ理由で、まとめて投げると
+  // **いちばん要る「次の1枚」が最後に仕上がる**——生きている画素なら誤差だが、
+  // 戻ってきた直後は8枚とも死んでいて、しかも**利用者がいちばん送りそうな瞬間**
+  // なので、ここだけは順番が効く
+  useEffect(() => {
+    if (!touchesPreload || preload.length === 0) return;
+    let cancelled = false;
+    /**
+     * 走っている回の世代。**隠れているあいだ止まったままの回を降ろす**ために要る。
+     *
+     * 隠れたページでは `decode()` が進まないので、隠れる瞬間に `await` していた
+     * 回は**返らないまま止まる**。戻ったときに新しい回を始めると、止まっていた
+     * 回がやがて**その先から**再開して重なり、いちばん近い1枚が2枚ぶんの
+     * decodeの後ろに回りうる（ゲート2の4巡目）。`visibilitychange` でここを
+     * 進めれば、古い回は次の `await` から戻ったところで自分で降りる。
+     *
+     * **門（`running`）ではこれができない**——門は「戻ってきたときの触り直し」
+     * ごと止めてしまう（3巡目に外した理由）。降ろすのと止めるのは別のこと
+     */
+    let generation = 0;
+    // **重なりを止める門は置かない**（ゲート2の3巡目）。隠れたページでは
+    // Chromiumが `decode()` を進めないので、**隠れる瞬間に走っていた回は
+    // 返らないまま止まる**。門を置くと、その札が隠れているあいだじゅう立ち
+    // っぱなしになり、**戻ってきたときの触り直し——このeffectがいちばん
+    // 効かせたい1回——が黙って空振りする**（しかも止まった回はその先から
+    // 再開するので、いちばん近い数枚が次の発火まで死んだまま残る）。
+    //
+    // 重なりを許すほうが安い。走り出すのは**見えている間だけ・15秒に1回**で、
+    // 1回は生きた画素なら1msに満たず、死んでいても8枚の読み直しで済む
+    // （届いていない絵は下で飛ばすので、ここで待ちが伸びることはない）。
+    // 同じ絵への `decode()` が二重に走っても、同じ絵が返るだけ。
+    // **止まったままの回は `generation` で降ろす**——門で止めるのとは別の話
+    const touch = async () => {
+      const mine = generation;
+      for (const it of preload) {
+        if (cancelled || generation !== mine || document.hidden) return;
+        const el = preloadElsRef.current.get(it.id);
+        // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
+        if (!el || !el.getAttribute("src")) continue;
+        // **まだ届いていない絵は飛ばす**（ゲート2）。`decode()` は絵が届くまで
+        // 返らないので、遅い置き場の大きな1枚をここで待つと**この回が丸ごと
+        // そこで止まる**。読み込み中の絵はそもそも時計に近くないし、
+        // 上の読み込みが既に待っている
+        if (!el.complete) continue;
+        // 読めない絵（壊れている・消えた）はここでも黙って諦める。
+        // `decode()` が無いエンジンでの同期throwも同じ扱い（上の読み込みと同じ形）
+        try {
+          await el.decode();
+        } catch {
+          /* 諦める */
+        }
+      }
+    };
+    let timer: number | null = null;
+    const arm = () => {
+      if (timer === null) timer = window.setInterval(touch, PRELOAD_TOUCH_MS);
+    };
+    const disarm = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVisibility = () => {
+      disarm();
+      if (document.hidden) return;
+      // 隠れているあいだ止まったままの回を降ろしてから、新しい回を始める
+      generation += 1;
+      void touch();
+      arm();
+    };
+    if (!document.hidden) arm();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      disarm();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [preload, touchesPreload]);
 
   /** いま `<video>` を出している（＝最後まで見せたい）か */
   const playingVideo = Boolean(
