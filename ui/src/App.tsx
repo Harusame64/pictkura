@@ -2924,8 +2924,20 @@ export default function App() {
           const el = preloadElsRef.current.get(it.id);
           // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
           if (!el || !el.getAttribute("src")) continue;
-          // 読めない絵（壊れている・消えた）はここでも黙って諦める
-          await el.decode().catch(() => {});
+          // **まだ届いていない絵は飛ばす**（ゲート2）。`decode()` は絵が届くまで
+          // 返らないので、遅い置き場の大きな1枚をここで待つと**時計そのものが
+          // 止まる**——`running` が張り付き、次の発火も戻ってきたときの触り直しも
+          // 空振りして、**先に触ったぶんが60秒の時計に取られる**。この穴は、
+          // まさにこのeffectが塞いだはずのもの。読み込み中の絵はそもそも
+          // 時計に近くないし、上の読み込みが既に待っている
+          if (!el.complete) continue;
+          // 読めない絵（壊れている・消えた）はここでも黙って諦める。
+          // `decode()` が無いエンジンでの同期throwも同じ扱い（上の読み込みと同じ形）
+          try {
+            await el.decode();
+          } catch {
+            /* 諦める */
+          }
         }
       } finally {
         running = false;
