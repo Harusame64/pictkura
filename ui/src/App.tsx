@@ -2913,34 +2913,35 @@ export default function App() {
   useEffect(() => {
     if (preload.length === 0) return;
     let cancelled = false;
-    let running = false;
+    // **重なりを止める門は置かない**（ゲート2の3巡目）。隠れたページでは
+    // Chromiumが `decode()` を進めないので、**隠れる瞬間に走っていた回は
+    // 返らないまま止まる**。門を置くと、その札が隠れているあいだじゅう立ち
+    // っぱなしになり、**戻ってきたときの触り直し——このeffectがいちばん
+    // 効かせたい1回——が黙って空振りする**（しかも止まった回はその先から
+    // 再開するので、いちばん近い数枚が次の発火まで死んだまま残る）。
+    //
+    // 重なりを許すほうが安い。走り出すのは**見えている間だけ・15秒に1回**で、
+    // 1回は生きた画素なら1msに満たず、死んでいても8枚の読み直しで済む
+    // （届いていない絵は下で飛ばすので、ここで待ちが伸びることはない）。
+    // 同じ絵への `decode()` が二重に走っても、同じ絵が返るだけ
     const touch = async () => {
-      // 前の回がまだ終わっていない（＝全部読み直している最中）なら重ねない
-      if (running) return;
-      running = true;
-      try {
-        for (const it of preload) {
-          if (cancelled || document.hidden) return;
-          const el = preloadElsRef.current.get(it.id);
-          // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
-          if (!el || !el.getAttribute("src")) continue;
-          // **まだ届いていない絵は飛ばす**（ゲート2）。`decode()` は絵が届くまで
-          // 返らないので、遅い置き場の大きな1枚をここで待つと**時計そのものが
-          // 止まる**——`running` が張り付き、次の発火も戻ってきたときの触り直しも
-          // 空振りして、**先に触ったぶんが60秒の時計に取られる**。この穴は、
-          // まさにこのeffectが塞いだはずのもの。読み込み中の絵はそもそも
-          // 時計に近くないし、上の読み込みが既に待っている
-          if (!el.complete) continue;
-          // 読めない絵（壊れている・消えた）はここでも黙って諦める。
-          // `decode()` が無いエンジンでの同期throwも同じ扱い（上の読み込みと同じ形）
-          try {
-            await el.decode();
-          } catch {
-            /* 諦める */
-          }
+      for (const it of preload) {
+        if (cancelled || document.hidden) return;
+        const el = preloadElsRef.current.get(it.id);
+        // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
+        if (!el || !el.getAttribute("src")) continue;
+        // **まだ届いていない絵は飛ばす**（ゲート2）。`decode()` は絵が届くまで
+        // 返らないので、遅い置き場の大きな1枚をここで待つと**この回が丸ごと
+        // そこで止まる**。読み込み中の絵はそもそも時計に近くないし、
+        // 上の読み込みが既に待っている
+        if (!el.complete) continue;
+        // 読めない絵（壊れている・消えた）はここでも黙って諦める。
+        // `decode()` が無いエンジンでの同期throwも同じ扱い（上の読み込みと同じ形）
+        try {
+          await el.decode();
+        } catch {
+          /* 諦める */
         }
-      } finally {
-        running = false;
       }
     };
     let timer: number | null = null;
