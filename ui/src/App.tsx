@@ -2884,37 +2884,75 @@ export default function App() {
   //   decodeを足して、いちばん要る「次の1枚」と競わせないため
   // - ビューアを閉じると `preload` は空になるので**勝手に止まる**
   //
-  // **窓を隠している間、この時計だけでは足りない**（ゲート1のP2）。Chromiumは
+  // **窓を隠している間は、この時計を止める**（ゲート1のP2・ゲート2）。Chromiumは
   // 隠れたページの時計を、5分を過ぎたところで**1分に1回まで**落とす
   // （intensive throttling・Chrome 88以降。条件は「隠れて5分」「連鎖5回以上」
   // 「無音30秒」で、`setInterval` の繰り返しは連鎖に数えるので15秒間隔なら
-  // 75秒で条件に入る）。1分は**上で45秒から欠け始めた時計とほぼ同じ**なので、
-  // 最小化から戻った瞬間は先読みが空になっている。しかも戻っても、次の発火は
-  // 最大で1分先——**戻ってすぐ送ると、塞いだはずの穴をそのまま踏む**。
+  // 75秒で条件に入る）。https://developer.chrome.com/blog/timer-throttling-in-chrome-88
   //
-  // だから `visibilitychange` で**見えるようになった瞬間に触り直す**。焦点
-  // （`focus`）は見ていない: 窓が見えたまま裏へ回っただけならページは
-  // 「隠れて」おらず、上の条件に入らないので、時計はそのまま15秒で回っている。
-  // https://developer.chrome.com/blog/timer-throttling-in-chrome-88
+  // その1分は**上で45秒から欠け始めた時計とほぼ同じ**——つまり隠れて5分を過ぎると、
+  // 落とされた発火は毎回「もう全部消えた後」に来て、**誰にも見えない絵の
+  // decodeを8枚ぶん焼き直しては、また消される**。裏に回したまま1時間置けば
+  // それを60回。予算いっぱい（[`PRELOAD_BUDGET_BYTES`]）の画素を、
+  // OSが回収したがっている裏側で抱え直すことにもなる。**得るものが無い。**
+  //
+  // 代わりに `visibilitychange` で、**見えるようになった瞬間に触り直して時計を
+  // 貼り直す**。隠れている間に消えたぶんはここで読み直すが、それは
+  // **どのみち次の送りで払う値段を、送る前へ前倒ししただけ**である。
+  //
+  // - **時計は貼り直す**（`disarm` → `arm`）。触るだけだと次の発火が最大で
+  //   15秒ずれたまま残り、戻った直後の1回が空くことがある
+  // - **焦点（`focus`）は見ていない。** 窓が見えたまま裏へ回っただけならページは
+  //   「隠れて」おらず、時計はそのまま15秒で回っている。焦点で足すと、
+  //   alt-tabのたびに空振りのdecodeが増えるだけ
+  //
+  // 触り直しは**近い順に1枚ずつ待つ**。上の読み込みと同じ理由で、まとめて投げると
+  // **いちばん要る「次の1枚」が最後に仕上がる**——生きている画素なら誤差だが、
+  // 戻ってきた直後は8枚とも死んでいて、しかも**利用者がいちばん送りそうな瞬間**
+  // なので、ここだけは順番が効く
   useEffect(() => {
     if (preload.length === 0) return;
-    const touch = () => {
-      for (const it of preload) {
-        const el = preloadElsRef.current.get(it.id);
-        // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
-        if (!el || !el.getAttribute("src")) continue;
-        // 読めない絵（壊れている・消えた）はここでも黙って諦める
-        el.decode().catch(() => {});
+    let cancelled = false;
+    let running = false;
+    const touch = async () => {
+      // 前の回がまだ終わっていない（＝全部読み直している最中）なら重ねない
+      if (running) return;
+      running = true;
+      try {
+        for (const it of preload) {
+          if (cancelled || document.hidden) return;
+          const el = preloadElsRef.current.get(it.id);
+          // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
+          if (!el || !el.getAttribute("src")) continue;
+          // 読めない絵（壊れている・消えた）はここでも黙って諦める
+          await el.decode().catch(() => {});
+        }
+      } finally {
+        running = false;
       }
     };
-    const timer = window.setInterval(touch, PRELOAD_TOUCH_MS);
-    const onVisible = () => {
-      if (!document.hidden) touch();
+    let timer: number | null = null;
+    const arm = () => {
+      if (timer === null) timer = window.setInterval(touch, PRELOAD_TOUCH_MS);
     };
-    document.addEventListener("visibilitychange", onVisible);
+    const disarm = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVisibility = () => {
+      disarm();
+      if (document.hidden) return;
+      void touch();
+      arm();
+    };
+    if (!document.hidden) arm();
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
+      cancelled = true;
+      disarm();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [preload]);
 
