@@ -186,14 +186,14 @@ Intel（x86_64）版と Linux 版はありません。
 - **ダイジェストは GitHub 自身が出します。** 下のコマンドで返る SHA-256 は、
   GitHub が保管しているバイト列から GitHub が計算した値で、こちらが書いた数字ではありません
 
-`v0.2.5` は例です。**落とした版のタグに読み替えてください**（ファイル名に入っています）。
+`v0.2.4` は例です。**落とした版のタグに読み替えてください**（ファイル名に入っています）。
 よその場所から落としたものは最新版とは限らないので、`latest` と見比べないこと。
 
 macOS:
 
 ```sh
 # GitHub が持っているダイジェストを見る
-curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.5 | grep -E '"name"|"digest"'
+curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4 | grep -E '"name"|"digest"'
 
 # 落としたファイルのダイジェストを出して、上と見比べる
 cd ~/Downloads
@@ -204,7 +204,7 @@ Windows（PowerShell。`grep` が無く、Windows PowerShell 5.1 では `curl` �
 `Invoke-WebRequest` の別名なので `-s` を受け付けません）:
 
 ```powershell
-(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.5).assets | Select-Object name, digest
+(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.4).assets | Select-Object name, digest
 
 cd ~\Downloads
 Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256
