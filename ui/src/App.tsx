@@ -2971,6 +2971,19 @@ export default function App() {
   useEffect(() => {
     if (!touchesPreload || preload.length === 0) return;
     let cancelled = false;
+    /**
+     * 走っている回の世代。**隠れているあいだ止まったままの回を降ろす**ために要る。
+     *
+     * 隠れたページでは `decode()` が進まないので、隠れる瞬間に `await` していた
+     * 回は**返らないまま止まる**。戻ったときに新しい回を始めると、止まっていた
+     * 回がやがて**その先から**再開して重なり、いちばん近い1枚が2枚ぶんの
+     * decodeの後ろに回りうる（ゲート2の4巡目）。`visibilitychange` でここを
+     * 進めれば、古い回は次の `await` から戻ったところで自分で降りる。
+     *
+     * **門（`running`）ではこれができない**——門は「戻ってきたときの触り直し」
+     * ごと止めてしまう（3巡目に外した理由）。降ろすのと止めるのは別のこと
+     */
+    let generation = 0;
     // **重なりを止める門は置かない**（ゲート2の3巡目）。隠れたページでは
     // Chromiumが `decode()` を進めないので、**隠れる瞬間に走っていた回は
     // 返らないまま止まる**。門を置くと、その札が隠れているあいだじゅう立ち
@@ -2981,10 +2994,12 @@ export default function App() {
     // 重なりを許すほうが安い。走り出すのは**見えている間だけ・15秒に1回**で、
     // 1回は生きた画素なら1msに満たず、死んでいても8枚の読み直しで済む
     // （届いていない絵は下で飛ばすので、ここで待ちが伸びることはない）。
-    // 同じ絵への `decode()` が二重に走っても、同じ絵が返るだけ
+    // 同じ絵への `decode()` が二重に走っても、同じ絵が返るだけ。
+    // **止まったままの回は `generation` で降ろす**——門で止めるのとは別の話
     const touch = async () => {
+      const mine = generation;
       for (const it of preload) {
-        if (cancelled || document.hidden) return;
+        if (cancelled || generation !== mine || document.hidden) return;
         const el = preloadElsRef.current.get(it.id);
         // `src` を入れる前の空の枠は触らない（読み込みを起こさない）
         if (!el || !el.getAttribute("src")) continue;
@@ -3015,6 +3030,8 @@ export default function App() {
     const onVisibility = () => {
       disarm();
       if (document.hidden) return;
+      // 隠れているあいだ止まったままの回を降ろしてから、新しい回を始める
+      generation += 1;
       void touch();
       arm();
     };
