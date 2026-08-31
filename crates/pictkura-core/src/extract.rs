@@ -376,6 +376,44 @@ mod tests {
         assert_eq!(std::fs::read(&link).unwrap(), before);
     }
 
+    /// **既にあるファイルの上に置ける**。保存ダイアログの「置き換えますか」に
+    /// 頷いた先がここで、通らないと上書き保存が一切できない。
+    ///
+    /// **Windowsのためにある**。ゲート1が2度「Windowsの `fs::rename` は既存の
+    /// ファイルを置き換えられない」とP1で出したが、それは事実と違う——std は
+    /// `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING)` を呼び、`ACCESS_DENIED`
+    /// （読み取り専用属性）なら `FILE_RENAME_FLAG_REPLACE_IF_EXISTS` で開き直す
+    /// （`library/std/src/sys/fs/windows.rs`）。**読んだだけで終わらせず、
+    /// CIのWindowsに見張らせる**
+    #[test]
+    fn an_existing_file_at_the_destination_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("写真.jpg");
+        let img = image::RgbImage::from_fn(16, 16, |_, _| image::Rgb([3, 4, 5]));
+        image::DynamicImage::ImageRgb8(img).save(&src).unwrap();
+        let expected = std::fs::read(&src).unwrap();
+
+        let dest = dir.path().join("取り出し.jpg");
+        std::fs::write(&dest, "ここには前に置いたものがある").unwrap();
+
+        write_to(&src, &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), expected);
+        // 作業用のファイルも残っていない
+        let mut left: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            vec![
+                std::ffi::OsString::from("写真.jpg"),
+                std::ffi::OsString::from("取り出し.jpg"),
+            ]
+        );
+    }
+
     /// 半端な `.pk-part` を置き去りにしない
     #[test]
     fn nothing_is_left_behind_when_there_is_no_picture() {
