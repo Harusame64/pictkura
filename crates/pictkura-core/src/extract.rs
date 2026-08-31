@@ -81,22 +81,54 @@ pub fn write_to(src: &Path, dest: &Path) -> std::io::Result<()> {
             "保存先が元のファイルと同じ",
         ));
     }
-    match source(src) {
-        Some(Source::Original) => {
-            std::fs::copy(src, dest)?;
+    // **行き先を直接開かない。** 隣に置いてから名前を付け替える。理由は2つ:
+    //
+    // 1. **ハードリンクを踏まない**。行き先が原本への別名だと、実体は同じでも
+    //    `canonicalize` は別の綴りを返すので上の門は通ってしまう。そのまま
+    //    `fs::copy` すると**原本の実体が空になる**。付け替えなら、消えるのは
+    //    「行き先という名前」だけで、原本の名前はそのまま実体を指し続ける
+    // 2. **途中で転んでも行き先を壊さない**。同じ名前の写真を置き換えるときに
+    //    ディスクが尽きても、そこにあった絵は無傷で残る
+    let tmp = part_file_beside(dest);
+    let built = (|| -> std::io::Result<()> {
+        match source(src) {
+            Some(Source::Original) => {
+                std::fs::copy(src, &tmp)?;
+            }
+            Some(Source::Jpeg(bytes)) => std::fs::write(&tmp, bytes)?,
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "取り出せる絵が無い",
+                ))
+            }
         }
-        Some(Source::Jpeg(bytes)) => std::fs::write(dest, bytes)?,
-        None => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "取り出せる絵が無い",
-            ))
+        if let Ok(mtime) = std::fs::metadata(src).and_then(|m| m.modified()) {
+            let _ = filetime::set_file_mtime(&tmp, filetime::FileTime::from_system_time(mtime));
         }
-    }
-    if let Ok(mtime) = std::fs::metadata(src).and_then(|m| m.modified()) {
-        let _ = filetime::set_file_mtime(dest, filetime::FileTime::from_system_time(mtime));
+        Ok(())
+    })();
+    if let Err(e) = built.and_then(|()| std::fs::rename(&tmp, dest)) {
+        // 半端なものを置き去りにしない（付け替えに失敗した場合も）
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
     Ok(())
+}
+
+/// 行き先の隣に置く作業用の名前。
+///
+/// **同じフォルダに作る**——別のドライブに作ると付け替えが `fs::rename` では
+/// 済まなくなる（跨ぐ改名は失敗する）。
+///
+/// 名前が衝突すると、同時に走った2本が互いの半端なファイルを消し合う。
+/// プロセスと通し番号を混ぜて避ける（抽出は1度に1本だが、ここで前提にしない）。
+fn part_file_beside(dest: &Path) -> std::path::PathBuf {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut name = dest.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}-{n}.pk-part", std::process::id()));
+    dest.with_file_name(name)
 }
 
 /// クリップボードへ載せる画素（RGBA8）。載せられなければ `None`。
@@ -297,6 +329,45 @@ mod tests {
             panic!("TIFFは詰め直して渡すはず");
         };
         assert_eq!(edge(&saved), over);
+    }
+
+    /// **ハードリンクの向こうにある原本も無事でいる**（ゲート1の2巡目）。
+    /// 実体が同じでも `canonicalize` は別の綴りを返すので、名前で比べる門は
+    /// 通ってしまう。守っているのは「隣に置いてから付け替える」ほうである
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_to_the_original_does_not_take_the_original_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("写真.jpg");
+        let img = image::RgbImage::from_fn(16, 16, |_, _| image::Rgb([9, 9, 9]));
+        image::DynamicImage::ImageRgb8(img).save(&src).unwrap();
+        let before = std::fs::read(&src).unwrap();
+
+        let link = dir.path().join("別名.jpg");
+        std::fs::hard_link(&src, &link).unwrap();
+        // 綴りで比べる門は通る。ここが素通りであることを固定しておく
+        assert!(!dest_is_source(&src, &link));
+
+        write_to(&src, &link).unwrap();
+        // 原本は1バイトも変わっていない
+        assert_eq!(std::fs::read(&src).unwrap(), before);
+        // 別名のほうは付け替えで新しい実体になり、中身は同じ
+        assert_eq!(std::fs::read(&link).unwrap(), before);
+    }
+
+    /// 半端な `.pk-part` を置き去りにしない
+    #[test]
+    fn nothing_is_left_behind_when_there_is_no_picture() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("枠だけ.fff");
+        std::fs::write(&src, b"not really a Hasselblad file").unwrap();
+        assert!(write_to(&src, &dir.path().join("取り出し.jpg")).is_err());
+        let left: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("枠だけ.fff")]);
     }
 
     /// 絵を持たないRAWは `None`。UIはこれを見てボタンを伏せる
