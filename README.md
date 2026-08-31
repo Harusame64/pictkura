@@ -213,7 +213,7 @@ On first launch, use **Add a folder** at the bottom of the left pane, or
 pick one of the drives. Scanning starts immediately and the grid fills in by date.
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
-> **files that changed since last time**. The ⚡ in the top right shows how much it skipped.
+> **files that changed since last time**. A ⚡ line at the bottom of the window shows how much it skipped.
 
 ### 2. Import from a card
 
@@ -408,7 +408,7 @@ come out upright, and the shot date and camera name are read.
 
 **Appearing in the grid is the same on every platform.** What changes is whether a picture
 comes with it — the ✅ in the grid column above is what was checked on Windows, and even
-there the picture is the OS's answer rather than ours. What sits behind it:
+there the picture comes from the OS, not from pictkura. What sits behind it:
 
 - **Thumbnails** are borrowed from the OS, so a container is covered exactly as far as the
   OS can open it. On **Windows** that is the Shell, the same mechanism Explorer uses:
@@ -420,7 +420,7 @@ there the picture is the OS's answer rather than ours. What sits behind it:
   frame, with H.264 and with HEVC (`hvc1`, the fourcc an iPhone writes) — **though those
   HEVC samples were re-encoded by macOS itself, not written by a phone** — and `.avi`
   measured returning nothing. **Anything not named here is untested on both**: a picture is
-  possible, not promised. **Linux has no route at all.**
+  possible, but not guaranteed. **Linux has no route at all.**
 - **Duration, dimensions and capture time** are read from the container header for
   `mp4` `m4v` `mov` `3gp` only — not a single pixel is decoded. Note that `webm` is not
   among them although it sits in the first row, and `3gp` is, although it sits in the
