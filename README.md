@@ -274,7 +274,7 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `folder:trip` | filter by folder name |
 | `2019-08` / `2019-08-11` | filter by capture date. **A bare `2019` is treated as text**, not a date — it cannot be told apart from a file name |
 | `year:2019` | filter to a single year |
-| `★` | favourites only |
+| `★` | favorites only |
 | `⚑` / `pick:` | picked photos only |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
@@ -321,8 +321,8 @@ you pick, or move all of it to the recycle bin in one go — deleting asks first
 selection and the counter shows how many you picked out. Going through a burst is then
 `P` and `→` — or just `P`, with the default move-on-to-the-next setting.
 
-⚑ is **a separate shelf from ★ favourites**: ★ is "a photo I want to come back to",
-⚑ is "the one frame I keep out of this burst". Mixing them would fill your favourites
+⚑ is **a separate shelf from ★ favorites**: ★ is "a photo I want to come back to",
+⚑ is "the one frame I keep out of this burst". Mixing them would fill your favorites
 with the leftovers of every culling session. **⚑ Picked** in the sidebar lists what you
 picked, and the search box takes `⚑` (or `pick:`) as a filter.
 
@@ -382,7 +382,7 @@ at all (the “Check for updates” button next to it still asks, once, when you
 ### RAW (no demosaicing)
 
 pictkura does **not** develop RAW files. It pulls out the display JPEG the camera wrote
-for its own screen, so you get the camera's own colour rendering without the cost of
+for its own screen, so you get the camera's own color rendering without the cost of
 demosaicing.
 
 | Format | Grid | View | Notes |
@@ -538,7 +538,7 @@ present, so a failure on one OS cannot produce a half release.
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
-### Regenerating the third-party licence list
+### Regenerating the third-party license list
 
 After adding a dependency, rebuild the bundled `THIRD-PARTY-LICENSES.txt`:
 
@@ -555,7 +555,7 @@ Codex) and the confirmed findings are fixed before merging.
 
 ## Licence
 
-pictkura is released under the [MIT licence](LICENSE). Copyright notices and licence texts
+pictkura is released under the [MIT license](LICENSE). Copyright notices and license texts
 for the third-party software it bundles and uses are collected in
 [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
 

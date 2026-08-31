@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="pictkura">
 <meta property="og:locale" content="en_GB">
 <meta property="og:title" content="Specification — what it does, what it does not | pictkura">
-<meta property="og:description" content="System requirements, capabilities and limits, every supported format, network behaviour and where data lives.">
+<meta property="og:description" content="System requirements, capabilities and limits, every supported format, network behavior and where data lives.">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/en/spec.html">
 <meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -106,10 +106,10 @@
       <h2 class="disp"><span class="num">2</span>What it does</h2>
       <div class="cards c2">
         <div><h3>Import from USB / SD cards</h3><p>Sorted into folders by capture date — nine presets, or a pattern you write</p></div>
-        <div><h3>Add folders as they are</h3><p>Photos are never moved into a catalogue of its own. They stay where you keep them</p></div>
+        <div><h3>Add folders as they are</h3><p>Photos are never moved into a catalog of its own. They stay where you keep them</p></div>
         <div><h3>Grid by capture date, plus a calendar</h3><p>The year scrubber crosses tens of thousands of photos in one drag</p></div>
         <div><h3>Search and filter</h3><p>File name, folder, camera, capture date, kind (photo / RAW / video), ★ and ⚑. All conditions are ANDed</p></div>
-        <div><h3>Viewer and culling</h3><p>⚑ to pick, ✕ to reject, ★ to favourite. Capture info (aperture, shutter, ISO, GPS) too</p></div>
+        <div><h3>Viewer and culling</h3><p>⚑ to pick, ✕ to reject, ★ to favorite. Capture info (aperture, shutter, ISO, GPS) too</p></div>
         <div><h3>Bulk actions</h3><p>Star a selection, copy or move it to a folder, or send all of it to the recycle bin</p></div>
         <div><h3>Slideshow and video playback</h3><p>Containers the engine cannot play are handed to your default player</p></div>
         <div><h3>AutoPlay entry (Windows)</h3><p>Appears as a choice when a card is inserted. It never launches on its own</p></div>
@@ -263,7 +263,7 @@
             <tr><td class="k">JPEG</td><td>6ms</td><td>No re-encode is required; the bytes are sent as they are</td></tr>
             <tr><td class="k">RAW, landscape (Canon EOS R8, CR3, 24MP)</td><td>17.1ms</td><td>Not developed. The display JPEG embedded by the camera is extracted</td></tr>
             <tr><td class="k">RAW, portrait (Nikon Df, NEF, 16MP)</td><td><strong class="em">218.5ms</strong></td><td>The preview is rotated and re-encoded, which takes about 13&times; the landscape case. The file has fewer megapixels than the landscape example, so most of the difference is the rotation and re-encode</td></tr>
-            <tr><td class="k">AVIF (4032&times;3024)</td><td>40&ndash;53ms</td><td>Decoded by the bundled decoder (rav1d). Scaling and colour conversion are combined, +1&ndash;2ms</td></tr>
+            <tr><td class="k">AVIF (4032&times;3024)</td><td>40&ndash;53ms</td><td>Decoded by the bundled decoder (rav1d). Scaling and color conversion are combined, +1&ndash;2ms</td></tr>
             <tr><td class="k">TIFF</td><td>about 300ms</td><td>The WebView cannot draw it, so it is converted to JPEG first</td></tr>
             <tr><td class="k">HEIC (iPhone, 24.5MP)</td><td><strong class="em">0.6&ndash;1 second</strong></td><td>The slowest format in this table. Broken down below</td></tr>
           </tbody>
