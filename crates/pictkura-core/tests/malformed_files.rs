@@ -422,8 +422,13 @@ fn feed_decoders(path: &Path) {
     let _ = av1::decode_file(path, Some(256), av1::Threads::One);
     // 詰め直しの経路（`image` とOSのデコーダを通る）
     let _ = thumbs::display_jpeg(path);
+    let _ = thumbs::display_jpeg_full(path);
     let _ = thumbs::raw_display_jpeg(path);
     let _ = thumbs::heif_display_jpeg(path);
+    // 抽出（Issue #13）。**丸めない側**を通るので、上の `display_jpeg` では
+    // 通らない枝がある。`rgba` はさらに、詰め直したJPEGを起こし直す
+    let _ = extract::source(path);
+    let _ = extract::rgba(path);
     // 取り込み元のプレビュー（`image` の各デコーダへ入る）
     let _ = browse::preview(path, 256);
 }

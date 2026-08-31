@@ -917,6 +917,15 @@ body {
 .viewer-tool:hover {
   background: oklch(1 0 0 / 0.22);
 }
+/* 走っている最中の道具（抽出。Issue #13）。**押せないことを見せる**——
+   HEICの詰め直しは実測0.6〜1秒あり、無反応に見えると二度押しされる */
+.viewer-tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.viewer-tool:disabled:hover {
+  background: oklch(1 0 0 / 0.1);
+}
 .viewer-tool.on {
   background: var(--fav);
   color: var(--n-10);
@@ -986,9 +995,10 @@ body {
   background: var(--danger);
 }
 
-/* 判定した合図。絵の真ん中で一度だけ膨らんで消える（2026-08-19）。
+/* 「効いた」の合図。絵の真ん中で一度だけ膨らんで消える（2026-08-19）。
+   判定（★⚑✕）と抽出（Issue #13）が同じ形を使う。
    **送りの邪魔をしない**のが条件——0.7秒で消え、当たり判定も持たない */
-.judge-flash {
+.viewer-flash {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1006,30 +1016,40 @@ body {
   border-radius: var(--radius-lg);
   backdrop-filter: blur(4px);
   pointer-events: none;
-  animation: judge-flash 700ms var(--easing) forwards;
+  animation: viewer-flash 700ms var(--easing) forwards;
 }
-.judge-flash-mark {
+.viewer-flash-mark {
   font-size: 44px;
   line-height: 1;
 }
-.judge-flash-word {
+.viewer-flash-word {
   font-size: var(--fs-sm);
   color: #fff;
 }
-.judge-flash.fav,
-.judge-flash.unfav {
+.viewer-flash.fav,
+.viewer-flash.unfav {
   color: var(--fav);
 }
-.judge-flash.pick {
+.viewer-flash.pick {
   color: var(--pick);
 }
-.judge-flash.reject {
+.viewer-flash.reject {
   color: var(--danger);
 }
-.judge-flash.unflag {
+.viewer-flash.unflag {
   color: var(--n-4);
 }
-@keyframes judge-flash {
+/* 抽出（Issue #13）。**判定の色を使い回さない**——★や⚑と同じ色で光ると、
+   絵には何も起きていないのに印を付けたように見える */
+.viewer-flash.copied,
+.viewer-flash.saved {
+  color: var(--accent);
+}
+.viewer-flash.extractFailed,
+.viewer-flash.extractSameFile {
+  color: var(--danger);
+}
+@keyframes viewer-flash {
   0% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.7);
@@ -1049,10 +1069,10 @@ body {
 }
 /* 動きを減らす設定なら、膨らませずに出して消すだけにする */
 @media (prefers-reduced-motion: reduce) {
-  .judge-flash {
-    animation: judge-flash-quiet 700ms var(--easing) forwards;
+  .viewer-flash {
+    animation: viewer-flash-quiet 700ms var(--easing) forwards;
   }
-  @keyframes judge-flash-quiet {
+  @keyframes viewer-flash-quiet {
     0%,
     70% {
       opacity: 1;

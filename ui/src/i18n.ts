@@ -78,6 +78,8 @@ const ja = {
         ["P", "選ぶ（⚑ を付ける）。既定では続けて次の写真へ"],
         ["X", "ボツの候補にする（✕）。閉じるときにまとめてゴミ箱へ"],
         ["U", "この写真への判定を取り消す（⚑ と ✕ を外す）"],
+        ["Ctrl+C / ⌘C", "いま出ている絵をクリップボードへコピー"],
+        ["Ctrl+S / ⌘S", "いま出ている絵をファイルに保存"],
         ["F", "お気に入り（★）の付け外し"],
         ["I", "撮影情報（カメラ・レンズ・絞り・ISO・GPS）"],
         ["Space", "スライドショー。動画のときは再生／一時停止"],
@@ -146,6 +148,19 @@ const ja = {
   updateOnStartNote:
     "GitHubに最新のバージョンを聞きに行きます（1日1回）。写真もファイル名も送りません。切ると、上の「更新を確認」を押したとき以外は一切通信しません",
   viewerSlideshow: "スライドショー (Space)",
+  // 抽出（Issue #13）。**「書き出し」とは別のもの**——あちらは選んだファイルを
+  // フォルダへ運ぶ機能で、こちらは1枚から「いま見えている絵」だけを取り出す。
+  // 同じ言葉を当てると、RAWを書き出したつもりでJPEGが出てくる（逆も）
+  // 鍵の表記（`⌘S` / `Ctrl+S`）は `api.ts` の `modKey` が作って渡す
+  // ——ここから import すると循環になる（このファイルの冒頭を参照）
+  extractSave: (key: string) => `この絵をファイルに保存 (${key})`,
+  extractCopy: (key: string) => `この絵をクリップボードへコピー (${key})`,
+  extractSaveTitle: "画像の保存先",
+  extractFilter: "画像",
+  extractSaved: "保存しました",
+  extractCopied: "コピーしました",
+  extractFailed: "取り出せませんでした",
+  extractSameFile: "元のファイルには上書きできません",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
   viewerClose: "閉じる (Esc)",
@@ -493,6 +508,8 @@ const en: Dict = {
         ["P", "Pick it (⚑). By default this moves on to the next photo"],
         ["X", "Reject it (✕). Rejected photos go to the trash when you close the viewer"],
         ["U", "Undo the judgement on this photo (clear ⚑ and ✕)"],
+        ["Ctrl+C / ⌘C", "Copy the picture on screen to the clipboard"],
+        ["Ctrl+S / ⌘S", "Save the picture on screen to a file"],
         ["F", "Toggle favorite (★)"],
         ["I", "Capture details (camera, lens, aperture, ISO, GPS)"],
         ["Space", "Slideshow. On a video, play / pause"],
@@ -557,6 +574,15 @@ const en: Dict = {
   updateOnStartNote:
     "Asks GitHub for the latest version name (once a day). No photos or file names are sent. Turn it off and nothing leaves this machine except when you press “Check for updates”.",
   viewerSlideshow: "Slideshow (Space)",
+  // 抽出（Issue #13）
+  extractSave: (key: string) => `Save this picture to a file (${key})`,
+  extractCopy: (key: string) => `Copy this picture to the clipboard (${key})`,
+  extractSaveTitle: "Save picture as",
+  extractFilter: "Image",
+  extractSaved: "Saved",
+  extractCopied: "Copied",
+  extractFailed: "Could not extract this picture",
+  extractSameFile: "Cannot save over the original file",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",
   viewerClose: "Close (Esc)",

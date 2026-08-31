@@ -883,27 +883,49 @@ pub fn needs_display_transcode(path: &Path) -> bool {
     crate::raw::is_raw_path(path) || crate::heif::is_heif_path(path) || is_tiff_path(path)
 }
 
+/// 配信するTIFFの長辺の上限。
+///
+/// 1億画素のスキャンTIFFのような極端なものでも、**画面で見る大きさに収める**
+/// （原寸のまま詰め直すと数百MBを抱える）。
+///
+/// **変えるときは `ui/src/App.tsx` の `DISPLAY_MAX_EDGE` も直す**。
+/// ビューアの先読みは、TIFFが配信後に丸められる寸法で画素の予算を数えている。
+///
+/// 丸めるのは**配信の都合**であって、ファイルの中身の限界ではない。抽出
+/// （[`crate::extract`]）は [`display_jpeg_full`] で上限なしを取る。
+pub const MAX_DISPLAY_EDGE: u32 = 4096;
+
 /// 原寸表示用のJPEGを作る。[`needs_display_transcode`] が真の形式に使う。
+///
+/// TIFFだけは [`MAX_DISPLAY_EDGE`] へ丸める。
 pub fn display_jpeg(path: &Path) -> Option<Vec<u8>> {
+    display_jpeg_within(path, Some(MAX_DISPLAY_EDGE))
+}
+
+/// 丸めずに作る（抽出用。[`crate::extract`]）。
+///
+/// 違いが出るのは**TIFFだけ**。RAWは埋め込みプレビューをそのまま出すので
+/// 元から丸めていないし、HEIFはOSのデコーダが返した原寸をそのまま詰め直す。
+pub fn display_jpeg_full(path: &Path) -> Option<Vec<u8>> {
+    display_jpeg_within(path, None)
+}
+
+fn display_jpeg_within(path: &Path, max_edge: Option<u32>) -> Option<Vec<u8>> {
     if crate::raw::is_raw_path(path) {
         return raw_display_jpeg(path);
     }
     if crate::heif::is_heif_path(path) {
         return heif_display_jpeg(path);
     }
-    // TIFFは image クレートが読む。向きはEXIFのOrientationに従う。
-    // 1億画素のスキャンTIFFのような極端なものでも、配信するJPEGは
-    // 画面で見る大きさに収める（原寸のまま詰め直すと数百MBを抱える）
-    // **変えるときは `ui/src/App.tsx` の `DISPLAY_MAX_EDGE` も直す**。
-    // ビューアの先読みは、TIFFが配信後に丸められる寸法で画素の予算を数えている
-    const MAX_DISPLAY_EDGE: u32 = 4096;
+    // TIFFは image クレートが読む。向きはEXIFのOrientationに従う
     let exif = read_exif(path);
     let img = image::open(path).ok()?;
-    let img = if img.width().max(img.height()) > MAX_DISPLAY_EDGE {
-        let (w, h) = crate::resize::fit_within(img.width(), img.height(), MAX_DISPLAY_EDGE);
-        crate::resize::box_filter(&img, w, h)
-    } else {
-        img
+    let img = match max_edge {
+        Some(edge) if img.width().max(img.height()) > edge => {
+            let (w, h) = crate::resize::fit_within(img.width(), img.height(), edge);
+            crate::resize::box_filter(&img, w, h)
+        }
+        _ => img,
     };
     // TIFFは色差を間引かない形式。スキャンした文字や線画が混ざるので、
     // ここだけ4:4:4のまま出す（圧縮は50msほど高くつくが、通る枚数が少ない）

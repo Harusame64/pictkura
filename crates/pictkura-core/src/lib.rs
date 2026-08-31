@@ -14,6 +14,7 @@ pub mod config;
 pub mod db;
 pub mod display_cache;
 pub mod export;
+pub mod extract;
 pub mod heif;
 pub mod import;
 pub mod jpeg;

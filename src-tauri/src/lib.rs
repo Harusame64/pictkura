@@ -136,6 +136,17 @@ struct AppState {
     /// 受け取れたフロントが `take_pending_import` で消すので、取りこぼしと
     /// 二重処理のどちらも起きない。
     pending_import: Mutex<Option<String>>,
+    /// 抽出（Issue #13）でだけ使うクリップボード。**持ち回るのはLinuxのため**。
+    ///
+    /// X11では、置いた側のプロセスが「いま持っている」と名乗り続けないと
+    /// 中身が消える。押されるたびに作って落とすと、クリップボードマネージャが
+    /// 居ない環境では**貼る前に空になる**（arboard の `Drop` は、居れば
+    /// そこへ引き渡す）。Windows/macOSでは持ち回りに意味は無いが、
+    /// 場所を分ける理由も無いので同じ形にしてある。
+    ///
+    /// **Windowsでは同時に1スレッドしか開けない**（arboardのドキュメント）。
+    /// このMutexがそれを満たしている
+    clipboard: Mutex<Option<arboard::Clipboard>>,
     /// 原寸表示用JPEG（HEIC/RAW/TIFF）のバイト列LRU（0.2 ①）。
     ///
     /// WebViewが描けない形式だけがここを通る。実測でHEICは1枚0.6〜1秒かかり、
@@ -2533,6 +2544,182 @@ async fn export_media(
     .map_err(|e| e.to_string())?
 }
 
+/// 抽出する絵が1枚も無かったときの理由（Issue #13）。
+///
+/// プレビューを持たないRAW（Hasselblad `.fff`・Blackmagic CinemaDNG・
+/// Panasonic の古い `.raw`）で起きる。**普通は届かない**——ビューアで
+/// 絵が出せなかった時点でフロントがボタンを伏せているので、ここへ来るのは
+/// 「伏せる前に押した」か「押した後にファイルが差し替わった」だけ。
+/// フロントは自前の文言を出すので、**この文字列は画面には出ない**（記録用）。
+const NO_IMAGE_TO_EXTRACT: &str = "この写真から取り出せる絵がありません";
+
+/// 保存先が原本そのものだったときの合図（Issue #13）。
+///
+/// **これだけは画面に出す**——利用者が普通に踏める（保存先の名前は原本と同じ
+/// ものを提案していて、ライブラリの既定のルートは「ピクチャ」）。だから
+/// 文章ではなく**合言葉**を返し、日英の文言はフロントが選ぶ
+/// （`ui/src/App.tsx` の `saveViewerImage`）。
+const EXTRACT_DEST_IS_SOURCE: &str = "extract:dest-is-source";
+
+/// 抽出（Issue #13）の保存ダイアログに出す**初期のパス**。
+///
+/// **綴りをRustで組む。** フロントでフォルダとファイル名を `/` で繋ぐと
+/// Windowsで壊れるし、拡張子の決め方（詰め直す形式なら `.jpg`）は
+/// [`pictkura_core::extract`] が持っている知識で、二重に持ちたくない。
+///
+/// フォルダは「前回の保存先 → ピクチャ → 決めない」の順。**覚えた場所が
+/// もう無ければ飛ばす**——外したUSBを指したままダイアログを開くと、
+/// OSによっては見当違いの場所から始まる。
+///
+/// **ブロッキングプールへ逃がす**（隣の2つと同じ）。覚えているのは利用者が
+/// 前に保存した場所で、そこがNASや共有であることは普通にある。**応答を
+/// 止めたSMB/NFSでは `is_dir` が返ってこない**（`empty_library_reason` の節に
+/// ある実測。120秒待っても返らなかった）——同期のコマンドは本体のスレッドで
+/// 走るので、素で書くと**押した瞬間に窓ごと固まる**。外したUSBはすぐ失敗を
+/// 返すので、あちらだけを見ていると気付けない
+#[tauri::command]
+async fn extract_suggested_path(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        suggested_extract_path(&app, &state, id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn suggested_extract_path(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    id: i64,
+) -> Result<String, String> {
+    use tauri::Manager as _;
+    let path = path_of(state, id)?;
+    let ext = match pictkura_core::extract::transcoded_extension(&path) {
+        Some(jpg) => std::ffi::OsString::from(jpg),
+        // 原本をそのまま渡す形式は綴りも原本のまま。拡張子の無いファイルだけ
+        // `.jpg` に倒す——名前に何も付けずに渡すと、保存できても
+        // OSがそれを画像として開けなくなる
+        None => path
+            .extension()
+            .map(|e| e.to_os_string())
+            .unwrap_or_else(|| std::ffi::OsString::from("jpg")),
+    };
+    // **`set_extension` は使わない。** あれは名前の中の**最後の点から後ろ**を
+    // 置き換えるので、点を含む名前が崩れる——`2024.05.01 undoukai.CR3` が
+    // `2024.05.jpg` になり、`photo.final.jpg` が `photo.jpg` になる
+    // （2026-08-31に実測。日付の名前や `.v2` は珍しくない）。
+    // 幹に点を足して繋ぐだけにする
+    let mut name = path.file_stem().unwrap_or_default().to_os_string();
+    name.push(".");
+    name.push(&ext);
+
+    let remembered = lock_ok(&state.config).viewer.last_extract_dir.clone();
+    let dir = remembered
+        .filter(|d| d.is_dir())
+        .or_else(|| app.path().picture_dir().ok().filter(|d| d.is_dir()));
+    let suggested = match dir {
+        Some(dir) => dir.join(&name),
+        // 置き場所を決めない。OSが最後に使った場所から始める
+        None => PathBuf::from(name),
+    };
+    Ok(suggested.to_string_lossy().into_owned())
+}
+
+/// 抽出（Issue #13）: 詳細画面に出ている絵を、ファイルとして保存する。
+///
+/// 保存先は利用者が save ダイアログで選んだ場所（`ui/src/App.tsx`）。
+/// **書き込みはここでやる**——`plugin-fs` を入れていないし、WebView の
+/// `<a download>` は当てにならない。
+///
+/// 渡すのは [`pictkura_core::extract::source`] が決める:
+/// 原本をそのまま渡せるものはコピーで済ませ（再エンコードしない＝EXIFも
+/// ICCも落ちない）、WebViewが描けない形式だけJPEGに詰め直す。
+#[tauri::command]
+async fn save_display_image(app: tauri::AppHandle, id: i64, dest: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = path_of(&state, id)?;
+        let dest = PathBuf::from(dest);
+        // **原本の上には書かせない**（[`pictkura_core::extract::dest_is_source`]）。
+        // 素通しすると `fs::copy` が原本を0バイトにしたうえで成功を返す。
+        //
+        // `write_to` の中にも同じ門がある。**二重なのは承知のうえ**——あちらは
+        // 呼ぶ側が誰でも守る門で、こちらは**理由を名指しで返す**ためにある。
+        // 利用者が普通に踏める道なので、「保存できませんでした」で済ませない
+        if pictkura_core::extract::dest_is_source(&path, &dest) {
+            return Err(EXTRACT_DEST_IS_SOURCE.to_string());
+        }
+        pictkura_core::extract::write_to(&path, &dest).map_err(|e| e.to_string())?;
+        // **書けたときだけ覚える。** 失敗した先を覚えると、次に開いた
+        // ダイアログが「書けない場所」から始まる。
+        // 設定の保存に失敗しても抽出そのものは成功しているので、握り潰す
+        // ——次に押したときに覚え直せばよく、ここで失敗を返すと
+        // 「保存できませんでした」と嘘をつくことになる
+        if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
+            let parent = parent.to_path_buf();
+            let _ = update_config(&state, |c| c.viewer.last_extract_dir = Some(parent));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 抽出（Issue #13）: 詳細画面に出ている絵をクリップボードへ載せる。
+///
+/// **フロントでは済ませられない。** `media://` を fetch するのは CSP の
+/// `connect-src` が塞いでいて、表示中の `<img>` から canvas へ描く道も
+/// `media://` にCORSヘッダが無いので `toBlob` が落ちる（`Cargo.toml` の
+/// arboard の項に書いた）。ここには既に同じバイト列がある。
+///
+/// **JPEGのバイト列をそのまま置いても貼れない。** OSのクリップボードが
+/// 画像として受け取るのはビットマップなので、画素まで起こして渡す。
+///
+/// 起こす元は、**配信が残したバイト列があればそれ**（`display_cache`）。
+#[tauri::command]
+async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let record = state
+            .read_pool
+            .with(|db| db.get_by_id(id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "レコードが見つかりません".to_string())?;
+        let path = record.path;
+        // **配信が残したバイト列を先に掴む**（0.2 ① の `display_cache`）。
+        // 画面に出ている1枚は必ずここに居るので、詰め直しをもう一度払わない
+        // ——HEICは1枚0.6〜1秒で、そのぶんまるごと待たせることになる。
+        // 鍵は配信と同じ（idとmtime）。**丸めた側のJPEG**が入っているが、
+        // クリップボードが欲しいのもそちら（`extract::rgba` の説明）
+        let cached = state.display_cache.get(pictkura_core::display_cache::Key {
+            id,
+            mtime_ms: record.mtime_ms,
+        });
+        let rgba = match cached {
+            Some(bytes) => pictkura_core::extract::rgba_from_display_jpeg(bytes.as_ref()),
+            None => pictkura_core::extract::rgba(&path),
+        }
+        .ok_or_else(|| NO_IMAGE_TO_EXTRACT.to_string())?;
+        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+        let image = arboard::ImageData {
+            width: w,
+            height: h,
+            bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+        };
+        let mut held = lock_ok(&state.clipboard);
+        // 初回だけ作る。**作れない環境がある**（クリップボードの無い
+        // ヘッドレス、X11もWaylandも掴めないセッション）ので、起動時ではなく
+        // 押されたときに作って、駄目ならその場で言う
+        let clipboard = match held.as_mut() {
+            Some(c) => c,
+            None => held.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
+        };
+        clipboard.set_image(image).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 取り込み先フォルダ構成の選択肢1つ（パターンと、今日の日付での実例）。
 #[derive(serde::Serialize)]
 struct FolderPatternDto {
@@ -3896,6 +4083,8 @@ pub fn run() {
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
+                // 抽出が初めて押されたときに作る（`AppState::clipboard`）
+                clipboard: Mutex::new(None),
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
 
@@ -4360,6 +4549,9 @@ pub fn run() {
             preview_folder_pattern,
             set_favorites,
             export_media,
+            extract_suggested_path,
+            save_display_image,
+            copy_display_image,
             list_media_ids,
             list_media_ids_between,
             visible_media_ids,

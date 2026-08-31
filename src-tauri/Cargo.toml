@@ -45,6 +45,29 @@ ureq = "3"
 # `enable_time()` を feature で守っているので、これが無いと
 # `tokio::time::timeout` は「no reactor running」で落ちる
 tokio = { version = "1", default-features = false, features = ["time", "sync"] }
+# 抽出（Issue #13）でクリップボードへ**画像として**載せる。
+#
+# フロントで済ませる道は無い。`media://` を fetch するのは CSP の
+# `connect-src`（`tauri.conf.json`）が塞いでいるし、表示中の `<img>` を canvas
+# へ描いても、`media://` にCORSヘッダが無いので**canvasが汚れて `toBlob` が
+# 落ちる**。CSPを広げてまでフロントに寄せる理由が無い——Rust側には既に
+# 同じバイト列がある。
+#
+# 要るのは画像を置く機能（`image-data`）だけ。**`wayland-data-control` も
+# 足してある**——切ると Linux は X11 だけになり、Wayland のセッションでは
+# 押しても黙って何も起きない。**Linuxの配布物は出していない**ので、これが
+# 効くのは自分で組む人にだけだが、そこで黙って何も起きないのは同じである。
+# Windows/macOS のビルドには入らない（arboard 側でターゲット別に分かれている）。
+#
+# `default-features = false` にしているが、**既定は `image-data` ひとつ**なので
+# 減らしているわけではない。ここで明示しているのは、既定が変わったときに
+# 黙って付いてこないようにするため。`image-data` は `image` /  `windows-sys` /
+# `core-graphics` を連れてくる（arboard の `[features]`）ので、それらを
+# 並べて書く必要は無い。
+arboard = { version = "3.6", default-features = false, features = [
+    "image-data",
+    "wayland-data-control",
+] }
 
 # ドライブ種別（リムーバブル/固定/ネットワーク/光学）の判定に GetDriveTypeW を使う。
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
