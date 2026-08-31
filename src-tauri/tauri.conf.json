@@ -27,7 +27,7 @@
     "copyright": "Copyright (c) 2026 Harusame64",
     "category": "Photography",
     "shortDescription": "写真の取り込みと一覧表示に特化した画像管理",
-    "longDescription": "USBやSDカードからの取り込みと、大量の写真の一覧表示に特化した画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドにしか実体が無いファイルを自動的にダウンロードすることはありません。",
+    "longDescription": "USBやSDカードからの取り込みと、大量の写真の一覧表示に特化した画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドにしか実体が無いファイルを先回りしてダウンロードすることはありません。",
     "licenseFile": "../LICENSE",
     "resources": [
       "../THIRD-PARTY-LICENSES.txt",
