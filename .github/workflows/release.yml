@@ -51,8 +51,48 @@ jobs:
       # rav1d（AVIF）と mozjpeg のアセンブリに要る。**外すと6倍遅くなる**。
       # 版を固定するのは、これが**配布バイナリの中身に直接効く入力**だから
       - name: NASM を入れる
+        # **`shell` を明示する。** Windowsランナーの既定は pwsh だが、
+        # 書いていないと actionlint が bash と思って shellcheck を掛ける
+        # （PowerShellの `$n` や `{}` が構文誤りとして並ぶ）。
+        # 何より、既定に頼らないほうが読む側に優しい
+        shell: pwsh
         run: |
-          choco install nasm -y --no-progress --version=3.2.0
+          # **瞬断だけ拾う。障害は待たない。** 2026-08-31 に Chocolatey の
+          # API（`/api/v2/`）が 503 を返し、サイト本体は 200 のまま、という
+          # 部分障害でPRが2回止まった。**あの回はこの3回では救えない**
+          # （20分以上続いた）——ここが見ているのは、数十秒で戻る類のほうである。
+          #
+          # **失敗は握り潰さない。** 3回とも駄目なら `exit 1` で step ごと落とす。
+          # NASMを欠いたまま先へ進むと、後ろのビルドが**別の顔で**転ぶか、もっと
+          # 悪くてアセンブリを落としたバイナリが黙って出来る（上の「6倍遅くなる」）。
+          #
+          # 下の1行は保険である。**既定は偽なので、今日は書かなくても動く**
+          # （PowerShell 7.6 の about_Preference_Variables で確認）。それでも
+          # 書くのは、**この繰り返しの正しさをそこに預けているから**——真に
+          # なると、GitHubのpwshが設定する `$ErrorActionPreference = 'Stop'` と
+          # 噛み合って**`choco` の非0終了がその場で例外になり**、1回目の失敗で
+          # step が死ぬ。繰り返す前に終わってしまう。
+          #
+          # `throw` ではなく `exit 1` を使うのも同じ筋で、こちらはシェルの
+          # 設定に依らず必ず落ちる。
+          #
+          # `choco install` は既に入っているとき 0 を返すので、途中まで入った
+          # 状態から試し直しても壊れない
+          $PSNativeCommandUseErrorActionPreference = $false
+          $tries = 3
+          $ok = $false
+          foreach ($n in 1..$tries) {
+            choco install nasm -y --no-progress --version=3.2.0
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            if ($n -lt $tries) {
+              Write-Host "::warning::choco が exit $LASTEXITCODE で落ちました（$n/$tries）。60秒待って試し直します"
+              Start-Sleep -Seconds 60
+            }
+          }
+          if (-not $ok) {
+            Write-Host "::error::NASM を入れられませんでした（$tries 回とも失敗）。Chocolatey 側の障害が続いているなら、復旧を確かめてから再実行してください"
+            exit 1
+          }
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
 
       - uses: Swatinem/rust-cache@v2
