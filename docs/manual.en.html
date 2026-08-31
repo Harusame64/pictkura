@@ -679,7 +679,7 @@ rendering.
 <p>
 <strong>Appearing in the grid is the same on every platform.</strong> What changes is whether a
 picture comes with it: the ✅ in the grid column above is what was checked on Windows, and
-even there the picture is the OS's answer rather than ours. Grid thumbnails are borrowed from
+even there the picture comes from the OS, not from pictkura. Grid thumbnails are borrowed from
 the OS, so a container is
 covered exactly as far as the OS can open it. On Windows that is the Shell, the same mechanism
 Explorer uses: <code>.avi</code> and HEVC <code>.mov</code> were measured coming back with a
@@ -691,7 +691,7 @@ and <code>mov</code> were measured returning a real frame, with H.264 and with H
 (<code>hvc1</code>, the fourcc an iPhone writes), though those HEVC samples were re-encoded by
 macOS itself rather than written by a phone. <code>.avi</code> was
 measured returning nothing. Anything not named here is untested on both: a picture is
-possible, not promised. Linux has no route at all.
+possible, but not guaranteed. Linux has no route at all.
 </p>
 <p>
 Duration, dimensions and capture time come from the container header for <code>mp4</code>,

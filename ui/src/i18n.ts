@@ -375,7 +375,7 @@ const ja = {
   bulkDelete: "ゴミ箱へ",
   bulkCopy: "フォルダへコピー",
   bulkMove: "フォルダへ移動",
-  bulkViewer: "選んだぶんを見る",
+  bulkViewer: "選んだ写真を見る",
   pickExportFolder: "書き出し先のフォルダを選ぶ",
   moveConfirm: (n: number) =>
     n === 1
@@ -417,7 +417,7 @@ const ja = {
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
   settingsAutoplayNote:
-    "Windowsの「自動再生」の選択肢に並びます。勝手に起動することはありません。インストーラで消す場合はアンインストール時に自動で解除しますが、持ち歩き版と、同じPCの他の利用者のぶんは残ります——その場合は、消す前にここを切ってください。",
+    "Windowsの「自動再生」の選択肢に並びます。自動的に起動することはありません。インストーラで消す場合はアンインストール時に自動で解除しますが、持ち歩き版と、同じPCの他の利用者の登録は残ります——その場合は、消す前にここを切ってください。",
   settingsAbout: "このアプリについて",
   settingsAboutLicense: "MIT ライセンスで配布しています。",
   settingsManual: "取扱説明書",
