@@ -2553,6 +2553,14 @@ async fn export_media(
 /// フロントは自前の文言を出すので、**この文字列は画面には出ない**（記録用）。
 const NO_IMAGE_TO_EXTRACT: &str = "この写真から取り出せる絵がありません";
 
+/// 保存先が原本そのものだったときの合図（Issue #13）。
+///
+/// **これだけは画面に出す**——利用者が普通に踏める（保存先の名前は原本と同じ
+/// ものを提案していて、ライブラリの既定のルートは「ピクチャ」）。だから
+/// 文章ではなく**合言葉**を返し、日英の文言はフロントが選ぶ
+/// （`ui/src/App.tsx` の `saveViewerImage`）。
+const EXTRACT_DEST_IS_SOURCE: &str = "extract:dest-is-source";
+
 /// 抽出（Issue #13）の保存ダイアログに出す**初期のパス**。
 ///
 /// **綴りをRustで組む。** フロントでフォルダとファイル名を `/` で繋ぐと
@@ -2570,7 +2578,6 @@ fn extract_suggested_path(
 ) -> Result<String, String> {
     use tauri::Manager as _;
     let path = path_of(&state, id)?;
-    let stem = path.file_stem().unwrap_or_default();
     let ext = match pictkura_core::extract::transcoded_extension(&path) {
         Some(jpg) => std::ffi::OsString::from(jpg),
         // 原本をそのまま渡す形式は綴りも原本のまま。拡張子の無いファイルだけ
@@ -2581,8 +2588,14 @@ fn extract_suggested_path(
             .map(|e| e.to_os_string())
             .unwrap_or_else(|| std::ffi::OsString::from("jpg")),
     };
-    let mut name = std::path::PathBuf::from(stem);
-    name.set_extension(ext);
+    // **`set_extension` は使わない。** あれは名前の中の**最後の点から後ろ**を
+    // 置き換えるので、点を含む名前が崩れる——`2024.05.01 undoukai.CR3` が
+    // `2024.05.jpg` になり、`photo.final.jpg` が `photo.jpg` になる
+    // （2026-08-31に実測。日付の名前や `.v2` は珍しくない）。
+    // 幹に点を足して繋ぐだけにする
+    let mut name = path.file_stem().unwrap_or_default().to_os_string();
+    name.push(".");
+    name.push(&ext);
 
     let remembered = lock_ok(&state.config).viewer.last_extract_dir.clone();
     let dir = remembered
@@ -2591,7 +2604,7 @@ fn extract_suggested_path(
     let suggested = match dir {
         Some(dir) => dir.join(&name),
         // 置き場所を決めない。OSが最後に使った場所から始める
-        None => name,
+        None => PathBuf::from(name),
     };
     Ok(suggested.to_string_lossy().into_owned())
 }
@@ -2611,15 +2624,16 @@ async fn save_display_image(app: tauri::AppHandle, id: i64, dest: String) -> Res
         let state = app.state::<AppState>();
         let path = path_of(&state, id)?;
         let dest = PathBuf::from(dest);
-        match pictkura_core::extract::source(&path) {
-            Some(pictkura_core::extract::Source::Original) => std::fs::copy(&path, &dest)
-                .map(|_| ())
-                .map_err(|e| e.to_string()),
-            Some(pictkura_core::extract::Source::Jpeg(bytes)) => {
-                std::fs::write(&dest, bytes).map_err(|e| e.to_string())
-            }
-            None => Err(NO_IMAGE_TO_EXTRACT.to_string()),
-        }?;
+        // **原本の上には書かせない**（[`pictkura_core::extract::dest_is_source`]）。
+        // 素通しすると `fs::copy` が原本を0バイトにしたうえで成功を返す。
+        //
+        // `write_to` の中にも同じ門がある。**二重なのは承知のうえ**——あちらは
+        // 呼ぶ側が誰でも守る門で、こちらは**理由を名指しで返す**ためにある。
+        // 利用者が普通に踏める道なので、「保存できませんでした」で済ませない
+        if pictkura_core::extract::dest_is_source(&path, &dest) {
+            return Err(EXTRACT_DEST_IS_SOURCE.to_string());
+        }
+        pictkura_core::extract::write_to(&path, &dest).map_err(|e| e.to_string())?;
         // **書けたときだけ覚える。** 失敗した先を覚えると、次に開いた
         // ダイアログが「書けない場所」から始まる。
         // 設定の保存に失敗しても抽出そのものは成功しているので、握り潰す

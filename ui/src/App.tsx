@@ -324,7 +324,8 @@ type ViewerFlashKind =
   | "reject"
   | "copied"
   | "saved"
-  | "extractFailed";
+  | "extractFailed"
+  | "extractSameFile";
 
 /** その合図の見た目と文言（**1つにつき1行**。増えたらここへ足す） */
 const VIEWER_FLASH: Record<ViewerFlashKind, { mark: string; word: () => string }> =
@@ -337,7 +338,15 @@ const VIEWER_FLASH: Record<ViewerFlashKind, { mark: string; word: () => string }
     copied: { mark: "📋", word: () => t.extractCopied },
     saved: { mark: "💾", word: () => t.extractSaved },
     extractFailed: { mark: "⚠", word: () => t.extractFailed },
+    extractSameFile: { mark: "⚠", word: () => t.extractSameFile },
   };
+
+/**
+ * 「保存先が原本そのものだった」の合言葉（`src-tauri/src/lib.rs` の
+ * `EXTRACT_DEST_IS_SOURCE`）。**文言はこちらで選ぶ**ので、Rustは理由だけ返す。
+ * **両方を同時に直すこと**——片方だけ変えると、静かに一般の失敗に落ちる
+ */
+const EXTRACT_DEST_IS_SOURCE = "extract:dest-is-source";
 
 /**
  * 画面左に並べる種類（[`MediaKind`] の "all" 以外）。**この順で出す**
@@ -2397,6 +2406,29 @@ export default function App() {
    * ある。二度押しでその倍を待たせない
    */
   const [extracting, setExtracting] = useState(false);
+  /**
+   * いま出ている絵のid。**待っている間に送られたかを見るためだけ**に持つ
+   * （下の `flashExtract`）。`viewerItem` はこれより後で決まるので、
+   * 中身を入れるのはあちらの隣のeffect
+   */
+  const viewerItemIdRef = useRef<number | null>(null);
+
+  /**
+   * 抽出の合図を出す。**送った先の絵の上には出さない**。
+   *
+   * 合図は絵の真ん中に出るので、押したあと隣へ送っていると
+   * 「コピーしました」が**コピーしていない写真の上**に乗る。HEICは詰め直しに
+   * 0.6〜1秒かかるので、間に合う（RAWは実測65msなので、まず起きない）。
+   *
+   * 出さないだけで**取り出しそのものは済んでいる**——クリップボードにも
+   * ファイルにも入っている。嘘の合図を出すよりは黙るほうを採る
+   */
+  const flashExtract = useCallback(
+    (item: MediaItem, kind: ViewerFlashKind) => {
+      if (viewerItemIdRef.current === item.id) flashViewer(kind);
+    },
+    [flashViewer],
+  );
 
   /**
    * 抽出（Issue #13）: いま出ている絵をファイルへ保存する。
@@ -2410,28 +2442,38 @@ export default function App() {
    */
   const saveViewerImage = useCallback(
     async (item: MediaItem) => {
-      // 綴りはRustが組む（フォルダの区切りも拡張子もあちらの知識）
-      const defaultPath = await extractSuggestedPath(item.id);
-      const dot = defaultPath.lastIndexOf(".");
-      const ext = dot > 0 ? defaultPath.slice(dot + 1) : "jpg";
-      const dest = await save({
-        title: t.extractSaveTitle,
-        defaultPath,
-        filters: [{ name: t.extractFilter, extensions: [ext] }],
-      });
-      // 選ばずに閉じた。**何も起きていないので合図も出さない**
-      if (!dest) return;
       setExtracting(true);
+      // **ダイアログを出すところまで囲う**。`extractSuggestedPath` も `save` も
+      // 転ぶことがある（行が消えている・OSがダイアログを出せない）。外に置くと
+      // `void` が握り潰して、**押しても何も起きないボタン**になる
       try {
+        // 綴りはRustが組む（フォルダの区切りも拡張子もあちらの知識）
+        const defaultPath = await extractSuggestedPath(item.id);
+        const dot = defaultPath.lastIndexOf(".");
+        const ext = dot > 0 ? defaultPath.slice(dot + 1) : "jpg";
+        const dest = await save({
+          title: t.extractSaveTitle,
+          defaultPath,
+          filters: [{ name: t.extractFilter, extensions: [ext] }],
+        });
+        // 選ばずに閉じた。**何も起きていないので合図も出さない**
+        if (!dest) return;
         await saveDisplayImage(item.id, dest);
-        flashViewer("saved");
-      } catch {
-        flashViewer("extractFailed");
+        flashExtract(item, "saved");
+      } catch (e) {
+        // 原本の上に書こうとした（Rustが名指しで返す唯一の理由）。
+        // 「保存できませんでした」では、次に何をすればよいか分からない
+        flashExtract(
+          item,
+          String(e).includes(EXTRACT_DEST_IS_SOURCE)
+            ? "extractSameFile"
+            : "extractFailed",
+        );
       } finally {
         setExtracting(false);
       }
     },
-    [flashViewer],
+    [flashExtract],
   );
 
   /** 抽出（Issue #13）: いま出ている絵をクリップボードへ載せる。 */
@@ -2440,14 +2482,14 @@ export default function App() {
       setExtracting(true);
       try {
         await copyDisplayImage(item.id);
-        flashViewer("copied");
+        flashExtract(item, "copied");
       } catch {
-        flashViewer("extractFailed");
+        flashExtract(item, "extractFailed");
       } finally {
         setExtracting(false);
       }
     },
-    [flashViewer],
+    [flashExtract],
   );
 
   /**
@@ -2463,6 +2505,10 @@ export default function App() {
   }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
+  // 抽出の合図が「送った先の絵」に乗らないように控える（`flashExtract`）
+  useEffect(() => {
+    viewerItemIdRef.current = viewerItem?.id ?? null;
+  }, [viewerItem]);
 
   // 動画を開いたら、絵を出す前に**1回だけ**状態を聞く。
   // クラウドのみのファイルは開いた瞬間にダウンロードが始まってしまうので、

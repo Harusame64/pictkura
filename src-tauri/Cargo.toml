@@ -53,15 +53,18 @@ tokio = { version = "1", default-features = false, features = ["time", "sync"] }
 # 落ちる**。CSPを広げてまでフロントに寄せる理由が無い——Rust側には既に
 # 同じバイト列がある。
 #
-# 既定の機能は切ってある: `image` は arboard と `image` クレートの相互変換で、
-# こちらは `ImageData` を直に組むので要らない。**`wayland-data-control` は
+# 要るのは画像を置く機能（`image-data`）だけ。**`wayland-data-control` は
 # 足してある**——切ると Linux は X11 だけになり、Wayland のセッションでは
 # 押しても黙って何も起きない。Windows/macOS のビルドには入らない
 # （arboard 側でターゲット別に分かれている）。
+#
+# `default-features = false` にしているが、**既定は `image-data` ひとつ**なので
+# 減らしているわけではない。ここで明示しているのは、既定が変わったときに
+# 黙って付いてこないようにするため。`image-data` は `image` /  `windows-sys` /
+# `core-graphics` を連れてくる（arboard の `[features]`）ので、それらを
+# 並べて書く必要は無い。
 arboard = { version = "3.6", default-features = false, features = [
     "image-data",
-    "windows-sys",
-    "core-graphics",
     "wayland-data-control",
 ] }
 

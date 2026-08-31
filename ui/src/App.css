@@ -1045,7 +1045,8 @@ body {
 .viewer-flash.saved {
   color: var(--accent);
 }
-.viewer-flash.extractFailed {
+.viewer-flash.extractFailed,
+.viewer-flash.extractSameFile {
   color: var(--danger);
 }
 @keyframes viewer-flash {

@@ -44,6 +44,61 @@ pub fn transcoded_extension(path: &Path) -> Option<&'static str> {
     crate::thumbs::needs_display_transcode(path).then_some("jpg")
 }
 
+/// 保存先が**原本そのもの**か。
+///
+/// **これを見ないと写真が消える。** `std::fs::copy` は行き先を先に空にするので、
+/// 両方が同じファイルを指していると `Ok(0)` を返しながら**原本が0バイトになる**
+/// （2026-08-31に実測）。詰め直す側も同じで、RAWの上にJPEGを書けば原本は消える。
+///
+/// **踏みやすい。** 保存先の名前は原本と同じものを提案していて、ライブラリの
+/// 既定のルートは「ピクチャ」——初回のダイアログが**原本そのもの**を指すことがある。
+/// OSは「置き換えますか」と聞くが、同じ写真なのだから押す人は押す。
+///
+/// 実体で比べる（`canonicalize`）——`../` や大小の違い、シンボリックリンクを
+/// 綴りで比べると素通りする。**行き先がまだ無ければ別物**（存在しない
+/// ファイルが既にある原本と同じことはない）。
+pub fn dest_is_source(src: &Path, dest: &Path) -> bool {
+    match (std::fs::canonicalize(src), std::fs::canonicalize(dest)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// 抽出した絵を `dest` へ書く。
+///
+/// 原本をそのまま渡せるものはコピーで済ませる（再エンコードしない＝EXIFも
+/// ICCも落ちない）。詰め直しの要る形式だけJPEGを作って書く。
+///
+/// **更新日時を引き継ぐ**（`crate::export::copy_verified` と同じ理由）。
+/// Unixの `fs::copy` は持って行かないので、そのままだと取り出した順に並ぶ
+/// ——30枚まとめて取り出したフォルダが撮影順にならない。詰め直したJPEGにも
+/// 引き継ぐ: カメラが埋め込んだ絵はEXIFを持たないことがあり、そのときは
+/// 更新日時が唯一の手がかりになる。
+pub fn write_to(src: &Path, dest: &Path) -> std::io::Result<()> {
+    if dest_is_source(src, dest) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "保存先が元のファイルと同じ",
+        ));
+    }
+    match source(src) {
+        Some(Source::Original) => {
+            std::fs::copy(src, dest)?;
+        }
+        Some(Source::Jpeg(bytes)) => std::fs::write(dest, bytes)?,
+        None => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "取り出せる絵が無い",
+            ))
+        }
+    }
+    if let Ok(mtime) = std::fs::metadata(src).and_then(|m| m.modified()) {
+        let _ = filetime::set_file_mtime(dest, filetime::FileTime::from_system_time(mtime));
+    }
+    Ok(())
+}
+
 /// クリップボードへ載せる画素（RGBA8）。載せられなければ `None`。
 ///
 /// **クリップボードだけは画素まで起こす**。OSのクリップボードが画像として
@@ -52,11 +107,18 @@ pub fn transcoded_extension(path: &Path) -> Option<&'static str> {
 ///
 /// ベクタ（SVG）は `None`。ラスタライザを抱えていないので画素に起こせない
 /// ——`crate::svg` の方針どおり、大きさはWebViewに描かせている。
+///
+/// **ここだけは丸めた側を使う**（[`source`] は丸めない）。理由は画素の量:
+/// 1億画素のスキャンTIFFを起こすと RGBA だけで約400MB、OSへ渡すときに
+/// もう一度写されるので、1回の 📋 で1GBに届く。**貼るための絵に原寸は要らない**
+/// ——しかも画面に出ているのは丸めた側なので、こちらが「見えているものを渡す」
+/// にもなっている。丸めているのはTIFFだけで、他の形式は元から等倍のまま
+/// （WebViewが既にその画素を展開して描いている）。
 pub fn rgba(path: &Path) -> Option<image::RgbaImage> {
     // 詰め直しの要る形式（RAW・HEIC・TIFF）は、**配信と同じ経路**で作った
-    // JPEGを起こす。向きは [`crate::thumbs::display_jpeg_full`] が適用済み
+    // JPEGを起こす。向きは [`crate::thumbs::display_jpeg`] が適用済み
     if crate::thumbs::needs_display_transcode(path) {
-        let jpeg = crate::thumbs::display_jpeg_full(path)?;
+        let jpeg = crate::thumbs::display_jpeg(path)?;
         return Some(image::load_from_memory(&jpeg).ok()?.into_rgba8());
     }
     if crate::svg::is_svg_path(path) {
@@ -155,6 +217,86 @@ mod tests {
         .unwrap();
         assert!(matches!(source(&path), Some(Source::Original)));
         assert!(rgba(&path).is_none());
+    }
+
+    /// **原本の上には書かない。** これが無いと `fs::copy` が `Ok(0)` を返しながら
+    /// 写真を0バイトにする——保存先の名前は原本と同じものを提案しているので、
+    /// 「置き換えますか」に頷いた人がそのまま踏む
+    #[test]
+    fn saving_over_the_original_is_refused_and_the_original_survives() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("写真.jpg");
+        let img = image::RgbImage::from_fn(16, 16, |_, _| image::Rgb([7, 7, 7]));
+        image::DynamicImage::ImageRgb8(img).save(&path).unwrap();
+        let before = std::fs::metadata(&path).unwrap().len();
+        assert!(before > 0);
+
+        assert!(dest_is_source(&path, &path));
+        assert!(write_to(&path, &path).is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
+
+        // 綴りが違っても実体が同じなら同じ（`./` を挟んだ形）
+        let same_by_another_spelling = dir.path().join(".").join("写真.jpg");
+        assert!(dest_is_source(&path, &same_by_another_spelling));
+
+        // まだ無い行き先は別物。ここを取り違えると保存が一切できなくなる
+        let fresh = dir.path().join("取り出し.jpg");
+        assert!(!dest_is_source(&path, &fresh));
+        write_to(&path, &fresh).unwrap();
+        assert_eq!(std::fs::metadata(&fresh).unwrap().len(), before);
+    }
+
+    /// **更新日時を引き継ぐ**（`export::copy_verified` と同じ理由）。
+    /// まとめて取り出したフォルダが、撮影順ではなく取り出し順に並ばないように
+    #[test]
+    fn what_we_write_keeps_the_time_of_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("写真.jpg");
+        let img = image::RgbImage::from_fn(16, 16, |_, _| image::Rgb([1, 2, 3]));
+        image::DynamicImage::ImageRgb8(img).save(&src).unwrap();
+        // 2020-01-02T03:04:05Z。「いま」と紛れない値にする
+        let then = filetime::FileTime::from_unix_time(1_577_934_245, 0);
+        filetime::set_file_mtime(&src, then).unwrap();
+
+        let dest = dir.path().join("取り出し.jpg");
+        write_to(&src, &dest).unwrap();
+        let got =
+            filetime::FileTime::from_last_modification_time(&std::fs::metadata(&dest).unwrap());
+        assert_eq!(got.unix_seconds(), then.unix_seconds());
+    }
+
+    /// 詰め直す側でも引き継ぐ。カメラが埋め込んだ絵はEXIFを持たないことがあり、
+    /// そのときは更新日時が唯一の手がかりになる
+    #[test]
+    fn a_transcoded_picture_keeps_the_time_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = wide_tiff(dir.path(), 64, 64);
+        let then = filetime::FileTime::from_unix_time(1_577_934_245, 0);
+        filetime::set_file_mtime(&src, then).unwrap();
+
+        let dest = dir.path().join("取り出し.jpg");
+        write_to(&src, &dest).unwrap();
+        let got =
+            filetime::FileTime::from_last_modification_time(&std::fs::metadata(&dest).unwrap());
+        assert_eq!(got.unix_seconds(), then.unix_seconds());
+    }
+
+    /// **クリップボードは丸めた側**（[`rgba`]）。1億画素のスキャンを起こすと
+    /// RGBAだけで400MBになり、OSへ渡すときにもう一度写される
+    #[test]
+    fn the_clipboard_takes_the_rounded_picture_not_the_full_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let over = crate::thumbs::MAX_DISPLAY_EDGE + 400;
+        let path = wide_tiff(dir.path(), over, 64);
+
+        let pixels = rgba(&path).unwrap();
+        assert_eq!(pixels.width(), crate::thumbs::MAX_DISPLAY_EDGE);
+
+        // 保存の側は丸めないまま（両者が別なのは意図）
+        let Some(Source::Jpeg(saved)) = source(&path) else {
+            panic!("TIFFは詰め直して渡すはず");
+        };
+        assert_eq!(edge(&saved), over);
     }
 
     /// 絵を持たないRAWは `None`。UIはこれを見てボタンを伏せる
