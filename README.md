@@ -391,7 +391,7 @@ demosaicing.
 | `crw` `srf` `sr2` `mrw` `erf` `dcr` `iiq` `mos` | ✅ | ⚠️ | older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft |
 | `raw` | ⚠️ | ⚠️ | the two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter |
 | `fff` (Hasselblad) | ⚠️ | ⚠️ | the H5D-40 file we tested carries no preview at all, so only a frame appears |
-| `ptx` (Pentax) | ? | ? | recognised, but we could not obtain a real file to check |
+| `ptx` (Pentax) | ? | ? | recognized, but we could not obtain a real file to check |
 | Blackmagic CinemaDNG | ⚠️ | ⚠️ | contains no preview at all |
 
 Checked on 2026-08-20 against 28 real files from 16 makers (sample images from
@@ -446,7 +446,7 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | **A RAW that declares its size nowhere shows none** | Dimensions come from the file's own declaration, from the sensor borders inside Panasonic's own RAW formats (`rw2`, `raw`, `rwl` — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG in the sample set — shows no size in the grid, and is asked again on every startup. The exception is a file that only exists in the cloud on Windows, where the Shell supplies dimensions without downloading it |
 | **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too) |
 | **No sort order for results** | always newest capture date first |
-| **Imports cannot be cancelled** | once started, an import runs to completion |
+| **Imports cannot be canceled** | once started, an import runs to completion |
 | **No RTL layout** | Arabic and other right-to-left languages are not supported |
 
 ---
@@ -553,7 +553,7 @@ node ui/scripts/licenses.mjs >> THIRD-PARTY-LICENSES.txt
 Every milestone goes through two independent reviews (Claude `/code-review` and OpenAI
 Codex) and the confirmed findings are fixed before merging.
 
-## Licence
+## License
 
 pictkura is released under the [MIT license](LICENSE). Copyright notices and license texts
 for the third-party software it bundles and uses are collected in
