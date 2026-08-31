@@ -44,6 +44,7 @@ import {
   openDecoderHelp,
   listDrives,
   listMemories,
+  modKey,
   modKeyLabel,
   openDefault,
   takePendingImport,
@@ -3349,6 +3350,28 @@ export default function App() {
         if (e.key === "Escape" && !trashing) setRejectGate(null);
         return;
       }
+      // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
+      // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
+      // 素の `c` として通ってしまう。
+      //
+      // **ボタンと同じ条件でしか効かない**（`canExtract` / `canCopyImage`）。
+      // 帯で伏せている1枚がキーだけ通ると、押せないはずのものが押せる
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        if (e.key === "c" || e.key === "C") {
+          if (viewerItem && canCopyImage) {
+            e.preventDefault();
+            void copyViewerImage(viewerItem);
+          }
+          return;
+        }
+        if (e.key === "s" || e.key === "S") {
+          if (viewerItem && canExtract) {
+            e.preventDefault();
+            void saveViewerImage(viewerItem);
+          }
+          return;
+        }
+      }
       if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
@@ -3400,6 +3423,10 @@ export default function App() {
     shortcutsOpen,
     toggleFullscreen,
     toggleActualSize,
+    canExtract,
+    canCopyImage,
+    copyViewerImage,
+    saveViewerImage,
   ]);
 
   // 撮影情報は**パネルを開いている間だけ**、表示中の1枚について実ファイルから読む。
@@ -5266,7 +5293,7 @@ export default function App() {
             {viewerItem && canCopyImage && (
               <button
                 className="viewer-tool"
-                title={t.extractCopy}
+                title={t.extractCopy(modKey("C"))}
                 disabled={extracting}
                 onClick={() => void copyViewerImage(viewerItem)}
               >
@@ -5276,7 +5303,7 @@ export default function App() {
             {viewerItem && canExtract && (
               <button
                 className="viewer-tool"
-                title={t.extractSave}
+                title={t.extractSave(modKey("S"))}
                 disabled={extracting}
                 onClick={() => void saveViewerImage(viewerItem)}
               >

@@ -284,8 +284,18 @@ export const isWindows = (() => {
   return /win/i.test(platform);
 })();
 
+/**
+ * 修飾キー付きショートカットの表記（`⌘C` / `Ctrl+C`）。
+ *
+ * **`i18n.ts` から呼べない**（あちらを import すると循環になる。辞書の
+ * 冒頭に書いてあるとおり）。だから鍵の要る文言は辞書側を関数にして、
+ * ここで作った表記を渡す形にしてある。
+ */
+export const modKey = (letter: string) =>
+  isMac ? `⌘${letter}` : `Ctrl+${letter}`;
+
 /** コマンドパレットのショートカット表記（⌘K / Ctrl+K） */
-export const modKeyLabel = isMac ? "⌘K" : "Ctrl+K";
+export const modKeyLabel = modKey("K");
 
 /**
  * 一覧の絞り込み（画面左の「すべての画像 / ★ / ⚑」）。
