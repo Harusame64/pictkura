@@ -3401,29 +3401,35 @@ export default function App() {
       }
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
-      // 素の `c` として通ってしまう。
-      //
-      // **ボタンと同じ条件でしか効かない**（`canExtract` / `canCopyImage`）。
-      // 帯で伏せている1枚がキーだけ通ると、押せないはずのものが押せる。
-      // **走っている間も同じ**——ボタンは伏せているのにキーだけ通ると、
-      // 二度押しで2本走る（`extracting`）
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !extracting) {
-        if (e.key === "c" || e.key === "C") {
-          // **文字を選んでいるなら譲る**。撮影情報（`I`）のカメラ名やGPSは
-          // 選んでコピーできる文字で、そこで絵を横取りすると
-          // **貼りたかった文字列の代わりに写真が貼られる**。入力欄は上の
-          // `typing` が弾いているが、選択だけなら弾からない
-          if (window.getSelection()?.isCollapsed === false) return;
-          if (viewerItem && canCopyImage) {
-            e.preventDefault();
-            void copyViewerImage(viewerItem);
-          }
-          return;
-        }
-        if (e.key === "s" || e.key === "S") {
-          if (viewerItem && canExtract) {
-            e.preventDefault();
-            void saveViewerImage(viewerItem);
+      // 素の `c` として通ってしまう
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        const saving = e.key === "s" || e.key === "S";
+        const copying = e.key === "c" || e.key === "C";
+        if (saving || copying) {
+          // **`Ctrl+S` は取り出せないときも食べる**。WebView2 はブラウザ用の
+          // ショートカットを既定で生かしていて（wry の
+          // `browser_accelerator_keys` は `true` のまま）、素通しすると
+          // **ページの保存ダイアログ**が開く——伏せているはずのボタンの
+          // 代わりに、見覚えのない保存先の選択が出てくることになる
+          if (saving) e.preventDefault();
+          // **ボタンと同じ条件でしか効かない**（`canExtract` /
+          // `canCopyImage`）。帯で伏せている1枚がキーだけ通ると、押せない
+          // はずのものが押せる。走っている間も同じ——ボタンは伏せているのに
+          // キーだけ通ると、二度押しで2本走る（`extracting`）
+          if (!extracting && viewerItem) {
+            if (saving && canExtract) void saveViewerImage(viewerItem);
+            // **文字を選んでいるなら譲る**（`Ctrl+C` を食べない）。撮影情報
+            // （`I`）のカメラ名やGPSは選んでコピーできる文字で、そこで絵を
+            // 横取りすると**貼りたかった文字列の代わりに写真が貼られる**。
+            // 入力欄は上の `typing` が弾いているが、選択だけなら弾かれない
+            if (
+              copying &&
+              canCopyImage &&
+              window.getSelection()?.isCollapsed !== false
+            ) {
+              e.preventDefault();
+              void copyViewerImage(viewerItem);
+            }
           }
           return;
         }
