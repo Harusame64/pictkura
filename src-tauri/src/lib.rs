@@ -2658,13 +2658,32 @@ async fn save_display_image(app: tauri::AppHandle, id: i64, dest: String) -> Res
 ///
 /// **JPEGのバイト列をそのまま置いても貼れない。** OSのクリップボードが
 /// 画像として受け取るのはビットマップなので、画素まで起こして渡す。
+///
+/// 起こす元は、**配信が残したバイト列があればそれ**（`display_cache`）。
 #[tauri::command]
 async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let path = path_of(&state, id)?;
-        let rgba =
-            pictkura_core::extract::rgba(&path).ok_or_else(|| NO_IMAGE_TO_EXTRACT.to_string())?;
+        let record = state
+            .read_pool
+            .with(|db| db.get_by_id(id))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "レコードが見つかりません".to_string())?;
+        let path = record.path;
+        // **配信が残したバイト列を先に掴む**（0.2 ① の `display_cache`）。
+        // 画面に出ている1枚は必ずここに居るので、詰め直しをもう一度払わない
+        // ——HEICは1枚0.6〜1秒で、そのぶんまるごと待たせることになる。
+        // 鍵は配信と同じ（idとmtime）。**丸めた側のJPEG**が入っているが、
+        // クリップボードが欲しいのもそちら（`extract::rgba` の説明）
+        let cached = state.display_cache.get(pictkura_core::display_cache::Key {
+            id,
+            mtime_ms: record.mtime_ms,
+        });
+        let rgba = match cached {
+            Some(bytes) => pictkura_core::extract::rgba_from_display_jpeg(bytes.as_ref()),
+            None => pictkura_core::extract::rgba(&path),
+        }
+        .ok_or_else(|| NO_IMAGE_TO_EXTRACT.to_string())?;
         let (w, h) = (rgba.width() as usize, rgba.height() as usize);
         let image = arboard::ImageData {
             width: w,

@@ -2450,7 +2450,10 @@ export default function App() {
         // 綴りはRustが組む（フォルダの区切りも拡張子もあちらの知識）
         const defaultPath = await extractSuggestedPath(item.id);
         const dot = defaultPath.lastIndexOf(".");
-        const ext = dot > 0 ? defaultPath.slice(dot + 1) : "jpg";
+        // **小文字にする**。GTKの絞り込みは大小を区別するので、`IMG_0001.JPG`
+        // から作った `*.JPG` を渡すと、Linuxの保存ダイアログでは `.jpg` が
+        // 並ぶフォルダが**空に見える**。書く名前のほうは原本の綴りのまま
+        const ext = (dot > 0 ? defaultPath.slice(dot + 1) : "jpg").toLowerCase();
         const dest = await save({
           title: t.extractSaveTitle,
           defaultPath,
@@ -3406,6 +3409,11 @@ export default function App() {
       // 二度押しで2本走る（`extracting`）
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !extracting) {
         if (e.key === "c" || e.key === "C") {
+          // **文字を選んでいるなら譲る**。撮影情報（`I`）のカメラ名やGPSは
+          // 選んでコピーできる文字で、そこで絵を横取りすると
+          // **貼りたかった文字列の代わりに写真が貼られる**。入力欄は上の
+          // `typing` が弾いているが、選択だけなら弾からない
+          if (window.getSelection()?.isCollapsed === false) return;
           if (viewerItem && canCopyImage) {
             e.preventDefault();
             void copyViewerImage(viewerItem);

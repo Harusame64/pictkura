@@ -140,18 +140,27 @@ fn part_file_beside(dest: &Path) -> std::path::PathBuf {
 /// ベクタ（SVG）は `None`。ラスタライザを抱えていないので画素に起こせない
 /// ——`crate::svg` の方針どおり、大きさはWebViewに描かせている。
 ///
-/// **ここだけは丸めた側を使う**（[`source`] は丸めない）。理由は画素の量:
-/// 1億画素のスキャンTIFFを起こすと RGBA だけで約400MB、OSへ渡すときに
-/// もう一度写されるので、1回の 📋 で1GBに届く。**貼るための絵に原寸は要らない**
-/// ——しかも画面に出ているのは丸めた側なので、こちらが「見えているものを渡す」
-/// にもなっている。丸めているのはTIFFだけで、他の形式は元から等倍のまま
-/// （WebViewが既にその画素を展開して描いている）。
+/// **詰め直す形式では丸めた側を使う**（[`source`] は丸めない）。画面に出ている
+/// のは丸めた側なので、「見えているものを渡す」にもなっている。
+///
+/// **画素の量に上限はあるが、それはここが掛けているものではない**（実測・
+/// 2026-08-31）:
+///
+/// - TIFF・PNG などは `image` クレートの既定の割り当て上限（512MB）が効く。
+///   11000x9500（104MP）のTIFFは `image::open` が
+///   「Memory limit exceeded」で**拒否する**——配信側も同じく出せないので、
+///   UIは抽出のボタンごと伏せる
+/// - AVIFは `crate::av1::MAX_DECODE_PIXELS`（16384x16384）
+///
+/// **その上限の内側でも安くはない。** 13000x13000（169MP）のPNGは通り、
+/// 1.5秒・RSSは1.3GBまで伸びた（`dev/plan.md`）。実在のカメラは
+/// 最大でも102MP（GFX100 II）なので**そこを削る上限は掛けていない**
+/// ——押した人が明示的に頼んだ1回の操作で、待つのは本人である。
 pub fn rgba(path: &Path) -> Option<image::RgbaImage> {
     // 詰め直しの要る形式（RAW・HEIC・TIFF）は、**配信と同じ経路**で作った
     // JPEGを起こす。向きは [`crate::thumbs::display_jpeg`] が適用済み
     if crate::thumbs::needs_display_transcode(path) {
-        let jpeg = crate::thumbs::display_jpeg(path)?;
-        return Some(image::load_from_memory(&jpeg).ok()?.into_rgba8());
+        return rgba_from_display_jpeg(&crate::thumbs::display_jpeg(path)?);
     }
     if crate::svg::is_svg_path(path) {
         return None;
@@ -170,6 +179,18 @@ pub fn rgba(path: &Path) -> Option<image::RgbaImage> {
     // 絵は要らない（向きだけ）ので `read_exif_meta` で足りる
     let orientation = crate::thumbs::read_exif_meta(path).orientation;
     Some(crate::thumbs::apply_orientation(img, orientation).into_rgba8())
+}
+
+/// **できあがっている**表示用JPEGから画素を起こす。
+///
+/// 分けてあるのは、呼ぶ側が同じバイト列を既に持っていることがあるため
+/// ——`media://` は詰め直したJPEGをLRUに残しており（`display_cache`）、
+/// 画面に出ている1枚は必ずそこに居る。**HEICは詰め直しに0.6〜1秒**かかるので、
+/// 掴めるものを掴まずに作り直すのは、そのぶんまるごと待たせることになる。
+///
+/// 向きは作った側（[`crate::thumbs::display_jpeg`]）が適用済み。
+pub fn rgba_from_display_jpeg(jpeg: &[u8]) -> Option<image::RgbaImage> {
+    Some(image::load_from_memory(jpeg).ok()?.into_rgba8())
 }
 
 #[cfg(test)]
