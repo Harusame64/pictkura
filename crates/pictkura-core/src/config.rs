@@ -353,11 +353,21 @@ pub struct ViewerConfig {
     /// 続けて次の絵へ送るか。既定はON（判定1回＝1アクションで進む）。
     /// OFFにすると★だけ変えてその絵に留まる。
     pub auto_advance: bool,
+    /// 抽出（Issue #13）で**前回保存した先のフォルダ**。次のダイアログの
+    /// 初期位置に使う（[`ImportConfig::last_source_dir`] と同じ流儀）。
+    ///
+    /// **設定画面には出さない。** 利用者が決める設定ではなく、
+    /// 同じ場所へ何枚も取り出す使い方で毎回たどり直させないための控えである。
+    /// 初回と、覚えた場所がもう無いとき（外したUSB等）は「ピクチャ」へ戻す
+    pub last_extract_dir: Option<PathBuf>,
 }
 
 impl Default for ViewerConfig {
     fn default() -> Self {
-        Self { auto_advance: true }
+        Self {
+            auto_advance: true,
+            last_extract_dir: None,
+        }
     }
 }
 

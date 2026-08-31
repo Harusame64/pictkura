@@ -12,7 +12,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
@@ -23,9 +23,12 @@ import {
   checkUpdate,
   withKind,
   cloudOnlyMedia,
+  copyDisplayImage,
+  extractSuggestedPath,
   deleteMedia,
   openDownloadPage,
   fullSrc,
+  saveDisplayImage,
   videoSrc,
   videoStatus,
   getConfig,
@@ -305,17 +308,34 @@ type Row =
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
 
-/** ビューアで判定したときに一瞬出す合図の種類 */
-type JudgeFlashKind = "fav" | "unfav" | "pick" | "unflag" | "reject";
+/**
+ * ビューアで**何かが起きた**ときに一瞬出す合図の種類。
+ *
+ * 元は判定（★⚑✕）だけだったが、抽出（Issue #13）のコピーもここに乗せた
+ * ——絵の上で一度だけ膨らんで消える形が、ビューアで「効いた」を伝える
+ * 唯一の場所である。**見た目を増やさない**ためにも入口は1つに保つ。
+ */
+type ViewerFlashKind =
+  | "fav"
+  | "unfav"
+  | "pick"
+  | "unflag"
+  | "reject"
+  | "copied"
+  | "saved"
+  | "extractFailed";
 
-/** その合図の見た目と文言（**判定ごとに1行**。増えたらここへ足す） */
-const JUDGE_FLASH: Record<JudgeFlashKind, { mark: string; word: () => string }> =
+/** その合図の見た目と文言（**1つにつき1行**。増えたらここへ足す） */
+const VIEWER_FLASH: Record<ViewerFlashKind, { mark: string; word: () => string }> =
   {
     fav: { mark: "★", word: () => t.judgeFav },
     unfav: { mark: "☆", word: () => t.judgeUnfav },
     pick: { mark: "⚑", word: () => t.judgePick },
     unflag: { mark: "⌫", word: () => t.judgeUnflag },
     reject: { mark: "✕", word: () => t.viewerRejected },
+    copied: { mark: "📋", word: () => t.extractCopied },
+    saved: { mark: "💾", word: () => t.extractSaved },
+    extractFailed: { mark: "⚠", word: () => t.extractFailed },
   };
 
 /**
@@ -324,7 +344,7 @@ const JUDGE_FLASH: Record<JudgeFlashKind, { mark: string; word: () => string }> 
  */
 const KINDS = ["photo", "raw", "video"] as const satisfies readonly MediaKind[];
 
-/** 種類の名前（辞書は読み込み時に決まるので、[`JUDGE_FLASH`] と同じく遅らせて引く） */
+/** 種類の名前（辞書は読み込み時に決まるので、[`VIEWER_FLASH`] と同じく遅らせて引く） */
 const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
   photo: () => t.kindPhoto,
   raw: () => t.kindRaw,
@@ -2292,28 +2312,28 @@ export default function App() {
    * `seq` を毎回変えるのは、同じ判定を連打したときに**アニメーションを
    * 掛け直す**ため（Reactはkeyが同じだと要素を作り直さない）。
    */
-  const [judgeFlash, setJudgeFlash] = useState<{
-    kind: JudgeFlashKind;
+  const [viewerFlash, setViewerFlash] = useState<{
+    kind: ViewerFlashKind;
     seq: number;
   } | null>(null);
   const flashSeq = useRef(0);
   const flashTimer = useRef<number | undefined>(undefined);
-  const flashJudge = useCallback((kind: JudgeFlashKind) => {
+  const flashViewer = useCallback((kind: ViewerFlashKind) => {
     flashSeq.current += 1;
-    setJudgeFlash({ kind, seq: flashSeq.current });
+    setViewerFlash({ kind, seq: flashSeq.current });
     window.clearTimeout(flashTimer.current);
     // CSSの表示時間より少しだけ長く置く（消え際で要素を抜くとちらつく）
-    flashTimer.current = window.setTimeout(() => setJudgeFlash(null), 900);
+    flashTimer.current = window.setTimeout(() => setViewerFlash(null), 900);
   }, []);
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   /** ビューアの `F`・☆ボタン。トグルなので、**どちらに転んだか**を合図に出す */
   const favoriteViewer = useCallback(
     (item: MediaItem) => {
-      flashJudge(item.favorite ? "unfav" : "fav");
+      flashViewer(item.favorite ? "unfav" : "fav");
       toggleFavorite(item);
     },
-    [flashJudge, toggleFavorite],
+    [flashViewer, toggleFavorite],
   );
 
   /**
@@ -2325,18 +2345,18 @@ export default function App() {
       const on = !rejectedRef.current.has(item.id);
       markReject(item, on);
       if (on && item.picked) void setMark(item, "picked", false);
-      flashJudge(on ? "reject" : "unflag");
+      flashViewer(on ? "reject" : "unflag");
     },
-    [markReject, setMark, flashJudge],
+    [markReject, setMark, flashViewer],
   );
 
   /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
   const pickViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
-      flashJudge(pick ? "pick" : "unflag");
+      flashViewer(pick ? "pick" : "unflag");
       void setMark(item, "picked", pick);
     },
-    [flashJudge, setMark],
+    [flashViewer, setMark],
   );
 
   const judgeViewer = useCallback(
@@ -2345,10 +2365,10 @@ export default function App() {
       // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
       // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
       markReject(item, false);
-      flashJudge(pick ? "pick" : "unflag");
+      flashViewer(pick ? "pick" : "unflag");
       if (autoAdvance) moveViewer(1);
     },
-    [setMark, markReject, flashJudge, autoAdvance, moveViewer],
+    [setMark, markReject, flashViewer, autoAdvance, moveViewer],
   );
 
   /**
@@ -2362,10 +2382,71 @@ export default function App() {
       // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
       // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
       if (item.picked) void setMark(item, "picked", false);
-      flashJudge("reject");
+      flashViewer("reject");
       if (autoAdvance) moveViewer(1);
     },
-    [markReject, setMark, flashJudge, autoAdvance, moveViewer],
+    [markReject, setMark, flashViewer, autoAdvance, moveViewer],
+  );
+
+  /**
+   * 抽出（Issue #13）が走っている最中か。
+   *
+   * **押しっぱなしを止めるために要る**。HEICは詰め直しに実測0.6〜1秒
+   * かかるので（`servedSize` の項）、押しても何も起きない時間がそれだけ
+   * ある。二度押しでその倍を待たせない
+   */
+  const [extracting, setExtracting] = useState(false);
+
+  /**
+   * 抽出（Issue #13）: いま出ている絵をファイルへ保存する。
+   *
+   * 名前の既定は**元の名前の拡張子だけ替えたもの**（`IMG_0001.CR3` →
+   * `IMG_0001.jpg`）。詰め直さない形式は綴りもそのまま——渡すのは原本の
+   * コピーなので、中身と拡張子が食い違わない。
+   *
+   * 置き場所は**前回保存した先**（無ければ「ピクチャ」）。同じ場所へ何枚も
+   * 取り出す使い方で、毎回たどり直させないため（`extract_suggested_path`）。
+   */
+  const saveViewerImage = useCallback(
+    async (item: MediaItem) => {
+      // 綴りはRustが組む（フォルダの区切りも拡張子もあちらの知識）
+      const defaultPath = await extractSuggestedPath(item.id);
+      const dot = defaultPath.lastIndexOf(".");
+      const ext = dot > 0 ? defaultPath.slice(dot + 1) : "jpg";
+      const dest = await save({
+        title: t.extractSaveTitle,
+        defaultPath,
+        filters: [{ name: t.extractFilter, extensions: [ext] }],
+      });
+      // 選ばずに閉じた。**何も起きていないので合図も出さない**
+      if (!dest) return;
+      setExtracting(true);
+      try {
+        await saveDisplayImage(item.id, dest);
+        flashViewer("saved");
+      } catch {
+        flashViewer("extractFailed");
+      } finally {
+        setExtracting(false);
+      }
+    },
+    [flashViewer],
+  );
+
+  /** 抽出（Issue #13）: いま出ている絵をクリップボードへ載せる。 */
+  const copyViewerImage = useCallback(
+    async (item: MediaItem) => {
+      setExtracting(true);
+      try {
+        await copyDisplayImage(item.id);
+        flashViewer("copied");
+      } catch {
+        flashViewer("extractFailed");
+      } finally {
+        setExtracting(false);
+      }
+    },
+    [flashViewer],
   );
 
   /**
@@ -2514,6 +2595,33 @@ export default function App() {
     viewerItem !== null &&
     fullFailedId === viewerItem.id &&
     thumbShownId === viewerItem.id;
+  /**
+   * 抽出（Issue #13）の道具を出してよいか。
+   *
+   * **出せなかった絵は取り出せない。** 抽出は配信とまったく同じ経路
+   * （`thumbs::display_jpeg`）を通るので、原寸が届かなかった1枚は抽出でも
+   * 必ず失敗する——プレビューを持たないRAW（Hasselblad の `.fff`・
+   * Blackmagic の CinemaDNG・Panasonic の古い `.raw`）と、原本が消えた行が
+   * それ。**押せるのに何も起きないボタンより、無い方がよい**。
+   *
+   * 下敷きのサムネイルが出ているだけの状態（[`fallbackToThumb`]）も同じく
+   * 伏せる。あれは**別の絵**で、「見えているものを取り出す」にならない。
+   *
+   * 動画には出さない——取り出す「1枚の絵」が無い。
+   */
+  const canExtract =
+    viewerItem !== null &&
+    !viewerItem.is_video &&
+    fullFailedId !== viewerItem.id;
+  /**
+   * クリップボードへ載せられるか。
+   *
+   * SVGだけ外す。**画素に起こすラスタライザを積んでいない**ので
+   * （`crates/pictkura-core/src/svg.rs`)、絵として貼れるものを作れない。
+   * 保存の方は原本のコピーで済むので、あちらには出したままにする
+   */
+  const canCopyImage =
+    canExtract && !/\.svg$/i.test(viewerItem?.file_name ?? "");
   /** 配信される絵の寸法（TIFFだけ長辺が丸められる） */
   const [servedW, servedH] = viewerItem ? servedSize(viewerItem) : [0, 0];
   /**
@@ -4953,17 +5061,17 @@ export default function App() {
             )}
           {/* 判定した合図（2026-08-19）。**絵の真ん中で一度だけ膨らんで消える**。
               印そのものは上のバッジと下の帯に残るので、ここは残らなくてよい */}
-          {judgeFlash && (
+          {viewerFlash && (
             <div
-              key={judgeFlash.seq}
-              className={"judge-flash " + judgeFlash.kind}
+              key={viewerFlash.seq}
+              className={"viewer-flash " + viewerFlash.kind}
               aria-live="polite"
             >
-              <span className="judge-flash-mark">
-                {JUDGE_FLASH[judgeFlash.kind].mark}
+              <span className="viewer-flash-mark">
+                {VIEWER_FLASH[viewerFlash.kind].mark}
               </span>
-              <span className="judge-flash-word">
-                {JUDGE_FLASH[judgeFlash.kind].word()}
+              <span className="viewer-flash-word">
+                {VIEWER_FLASH[viewerFlash.kind].word()}
               </span>
             </div>
           )}
@@ -5151,6 +5259,30 @@ export default function App() {
             >
               {playing ? "⏸" : "▶"}
             </button>
+            {/* 抽出（Issue #13）。**「書き出し」の隣ではなくここに置く**——
+                書き出しは選んだぶんをフォルダへ運ぶ一覧側の機能で、これは
+                「いま見えている1枚」の道具である。出るのは絵が出ているときだけ
+                （[`canExtract`]） */}
+            {viewerItem && canCopyImage && (
+              <button
+                className="viewer-tool"
+                title={t.extractCopy}
+                disabled={extracting}
+                onClick={() => void copyViewerImage(viewerItem)}
+              >
+                📋
+              </button>
+            )}
+            {viewerItem && canExtract && (
+              <button
+                className="viewer-tool"
+                title={t.extractSave}
+                disabled={extracting}
+                onClick={() => void saveViewerImage(viewerItem)}
+              >
+                💾
+              </button>
+            )}
             {viewerItem && (
               <button
                 className="viewer-tool"

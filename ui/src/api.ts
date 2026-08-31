@@ -517,6 +517,39 @@ export const listMediaIdsBetween = (
  */
 export const exportMedia = (ids: number[], dest: string, moveFiles: boolean) =>
   invoke<ExportStats>("export_media", { ids, dest, moveFiles });
+
+/**
+ * 抽出（Issue #13）の保存ダイアログに出す**初期のパス**。
+ *
+ * **フォルダとファイル名を繋ぐのはRust側**。`/` で繋ぐとWindowsで壊れるし、
+ * 拡張子の決め方（詰め直す形式なら `.jpg`）もあちらが持っている知識である。
+ * フォルダは「前回の保存先 → ピクチャ → 決めない」の順。
+ */
+export const extractSuggestedPath = (id: number) =>
+  invoke<string>("extract_suggested_path", { id });
+
+/**
+ * 抽出（Issue #13）: 詳細画面に出ている絵を `dest` へ書く。
+ *
+ * **`exportMedia` とは別物**。あちらは選んだファイルをそのまま運ぶ。こちらは
+ * 1枚から**いま見えている絵**を取り出す——RAWなら埋め込みプレビューのJPEG、
+ * 普通の写真なら原本そのもの（再エンコードしないのでEXIFも落ちない）。
+ *
+ * 書き込みをRustに任せるのは、`plugin-fs` を入れていないため。
+ * 書けたら、その**フォルダをRust側が覚える**（次の `extractSuggestedPath`）。
+ */
+export const saveDisplayImage = (id: number, dest: string) =>
+  invoke<void>("save_display_image", { id, dest });
+
+/**
+ * 抽出（Issue #13）: 詳細画面に出ている絵をクリップボードへ載せる。
+ *
+ * ここもRust側でやる。`media://` は CSP の `connect-src` に無いので fetch
+ * できず、`<img>` から canvas へ描く道もCORSヘッダが無くて汚れる
+ * （`src-tauri/Cargo.toml` の arboard の項）。
+ */
+export const copyDisplayImage = (id: number) =>
+  invoke<void>("copy_display_image", { id });
 /** ビューアの選択スコープの1件（idとその日）。位置は `(day_key, id)` で持つ */
 export interface ScopeItem {
   id: number;

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS の `.app` に足す項目。**tauri-bundler が生成する Info.plist へ混ぜ込む**
+  （`src-tauri/Info.plist` という名前を向こうが見に来る。他の項目は
+  `tauri.conf.json` / `tauri.macos.conf.json` の側で決まる）。
+
+  ここに置いてあるのは1つだけ:
+
+  **OSが出すダイアログを、利用者の言語で出させる。** 「保存先を選ぶ」
+  「フォルダを選ぶ」「削除しますか」の枠は AppKit のもので、アプリの辞書
+  （`ui/src/i18n.ts`）は届かない。どの言語で出すかは **AppKit が
+  `CFBundleLocalizations` を見て決める**——書かないと英語のみのアプリと
+  みなされ、日本語のMacでも `Save As / Where / Cancel` が英語で出る。
+  こちらが渡した表題だけが日本語で、枠が英語という混ざり方になる
+  （2026-08-31に実機で確認）。
+
+  **並びは `ui/src/i18n.ts` の辞書と揃える。** 言語を足すときは両方に足すこと
+  ——ここだけ足しても画面は英語のまま、辞書だけ足すと枠が英語のまま残る。
+
+  `CFBundleDevelopmentRegion` は tauri-bundler が入れる `English` のままにする。
+  どちらの言語でもない利用者が落ちてくる先なので、英語のほうが親切。
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>ja</string>
+    <string>en</string>
+  </array>
+</dict>
+</plist>

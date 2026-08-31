@@ -146,6 +146,16 @@ const ja = {
   updateOnStartNote:
     "GitHubに最新のバージョンを聞きに行きます（1日1回）。写真もファイル名も送りません。切ると、上の「更新を確認」を押したとき以外は一切通信しません",
   viewerSlideshow: "スライドショー (Space)",
+  // 抽出（Issue #13）。**「書き出し」とは別のもの**——あちらは選んだファイルを
+  // フォルダへ運ぶ機能で、こちらは1枚から「いま見えている絵」だけを取り出す。
+  // 同じ言葉を当てると、RAWを書き出したつもりでJPEGが出てくる（逆も）
+  extractSave: "この絵をファイルに保存",
+  extractCopy: "この絵をクリップボードへコピー",
+  extractSaveTitle: "画像の保存先",
+  extractFilter: "画像",
+  extractSaved: "保存しました",
+  extractCopied: "コピーしました",
+  extractFailed: "取り出せませんでした",
   viewerExif: "撮影情報 (I)",
   viewerFullscreen: "フルスクリーン (F11)",
   viewerClose: "閉じる (Esc)",
@@ -557,6 +567,14 @@ const en: Dict = {
   updateOnStartNote:
     "Asks GitHub for the latest version name (once a day). No photos or file names are sent. Turn it off and nothing leaves this machine except when you press “Check for updates”.",
   viewerSlideshow: "Slideshow (Space)",
+  // 抽出（Issue #13）
+  extractSave: "Save this picture to a file",
+  extractCopy: "Copy this picture to the clipboard",
+  extractSaveTitle: "Save picture as",
+  extractFilter: "Image",
+  extractSaved: "Saved",
+  extractCopied: "Copied",
+  extractFailed: "Could not extract this picture",
   viewerExif: "Photo info (I)",
   viewerFullscreen: "Full screen (F11)",
   viewerClose: "Close (Esc)",
