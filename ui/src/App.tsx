@@ -3355,8 +3355,10 @@ export default function App() {
       // 素の `c` として通ってしまう。
       //
       // **ボタンと同じ条件でしか効かない**（`canExtract` / `canCopyImage`）。
-      // 帯で伏せている1枚がキーだけ通ると、押せないはずのものが押せる
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      // 帯で伏せている1枚がキーだけ通ると、押せないはずのものが押せる。
+      // **走っている間も同じ**——ボタンは伏せているのにキーだけ通ると、
+      // 二度押しで2本走る（`extracting`）
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !extracting) {
         if (e.key === "c" || e.key === "C") {
           if (viewerItem && canCopyImage) {
             e.preventDefault();
@@ -3427,6 +3429,7 @@ export default function App() {
     canCopyImage,
     copyViewerImage,
     saveViewerImage,
+    extracting,
   ]);
 
   // 撮影情報は**パネルを開いている間だけ**、表示中の1枚について実ファイルから読む。
