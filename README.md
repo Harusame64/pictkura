@@ -461,7 +461,7 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | Fast writes | SQLite in WAL mode, batched inserts in one transaction |
 | No layout shift | width and height live in the DB, so tiles are sized before the image arrives |
 | Instant first paint | the embedded EXIF thumbnail is used as-is, without re-encoding |
-| No blank tiles when scrolling | the thumbnail queue prioritises whatever is on screen |
+| No blank tiles when scrolling | the thumbnail queue prioritizes whatever is on screen |
 | Serve while scanning | directory scans run outside the DB lock |
 | No full transfer at startup | a date→count index, fetching only the days in view |
 | Don't walk the disk at startup | the NTFS USN journal supplies only what changed |
@@ -527,7 +527,7 @@ happened to be on disk. `cargo tauri build` needs the Tauri CLI
 The macOS bundle target comes from `src-tauri/tauri.macos.conf.json`, which Tauri merges
 over `tauri.conf.json` automatically — the default `msi` target cannot be built there.
 The `.app` is **ad-hoc signed only** (that is what the linker does on arm64); there is no
-Developer ID signing or notarisation step, which is why the ZIP ships with instructions
+Developer ID signing or notarization step, which is why the ZIP ships with instructions
 for getting past Gatekeeper.
 
 Pushing a `v*` tag runs both of these in CI and attaches all five files to a GitHub
