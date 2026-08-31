@@ -11,7 +11,7 @@
 <link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="pictkura">
-<meta property="og:locale" content="en_GB">
+<meta property="og:locale" content="en_US">
 <meta property="og:title" content="Installing pictkura — SmartScreen, UAC and Gatekeeper">
 <meta property="og:description" content="The app is not code-signed. Every prompt you will see, and what to press.">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/en/install.html">
@@ -54,7 +54,7 @@
 <div class="page-head photo gate">
   <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Installing</p>
   <h1 class="disp">Installing and the first launch</h1>
-  <p class="lead">pictkura has no signing certificate, so Windows and macOS both warn you the first time. The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Here is every prompt you will see, and what to press. The material you can check for yourself is under <a href="download.html#build">how these files are built</a>. <strong class="em">If you read it and are still uneasy, do not go ahead.</strong></p>
+  <p class="lead">Installation steps for Windows and macOS, and what to do about the warnings shown on the first launch.</p>
   <p class="stamps">
     <span>Version &nbsp;<b>0.2</b></span>
     <span>Updated &nbsp;<b>2026-08-29</b></span>
@@ -65,14 +65,14 @@
 <div class="doc">
   <nav class="doc-nav" aria-label="On this page">
     <p class="eyebrow" style="margin:0 0 8px">Contents</p>
-    <a href="#files">1. Which file to take</a>
+    <a href="#files">1. Which file to download</a>
     <a href="#windows">2. Installing on Windows</a>
     <a href="#warn-setup" class="sub">2.1 The setup.exe prompt</a>
     <a href="#warn-msi" class="sub">2.2 The MSI prompts</a>
     <a href="#warn-zip" class="sub">2.3 The portable ZIP</a>
     <a href="#sac" class="sub">2.4 Smart App Control</a>
-    <a href="#macos">3. Opening it on macOS</a>
-    <a href="#first">4. The first thing to do</a>
+    <a href="#macos">3. Starting it on macOS</a>
+    <a href="#first">4. First steps after installing</a>
     <a href="#uninstall">5. Uninstalling</a>
     <span class="hr"></span>
     <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="download.html">Go to the downloads →</a>
@@ -80,8 +80,13 @@
 
   <main class="doc-body" id="main">
 
+    <div class="note">
+      <p><strong class="em">About code signing.</strong> pictkura has no signing certificate, so Windows and macOS both warn you on the first launch. The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt is covered from section 2 onwards.</p>
+      <p>The material for checking a file against the one published here is under <a href="download.html#build">how these files are built</a>. If anything still leaves you unsure after reading it, stop the installation.</p>
+    </div>
+
     <section id="files">
-      <h2 class="disp"><span class="num">1</span>Which file to take</h2>
+      <h2 class="disp"><span class="num">1</span>Which file to download</h2>
       <p>Every file is listed on <a href="download.html">the download page</a>, and older versions stay on <a href="https://github.com/Harusame64/pictkura/releases">the Releases page</a>. Usually you want <strong class="em"><code>-setup.exe</code> on Windows and <code>arm64.zip</code> on a Mac</strong>.</p>
       <div class="table-scroll">
         <table>
@@ -99,10 +104,19 @@
 
     <section id="windows">
       <h2 class="disp"><span class="num">2</span>Installing on Windows</h2>
-      <p>pictkura is <strong class="em">not code-signed on Windows</strong> — a signing certificate costs money. Nothing is broken, but you will see the warnings below; just proceed and the app works normally. <strong class="em">SmartScreen can appear for each version you download.</strong></p>
+      <p>pictkura is <strong class="em">not code-signed on Windows</strong> — a signing certificate costs money. Nothing is broken; clearing the warnings below lets the app run normally.</p>
 
       <h3 id="warn-setup">2.1 &nbsp;Installing <code>-setup.exe</code> (recommended)</h3>
-      <p>You only get <strong class="em">SmartScreen</strong>: <b>"Windows protected your PC" → More info → Run anyway</b>. <strong class="em">There is no UAC prompt</strong>, because it installs into your own user profile rather than the whole machine.</p>
+      <p><strong class="em">There is no UAC prompt</strong>, because it installs into your own user profile rather than the whole machine. Depending on your Windows settings, you will see one or two prompts:</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:300px">Prompt</th><th>How to proceed, and when it appears</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Microsoft Defender SmartScreen<br>"Windows protected your PC"</td><td><b>More info → Run anyway</b>. SmartScreen judges each downloaded file, so it appears again for a new version</td></tr>
+            <tr><td class="k">"The app you're trying to install isn't a Microsoft-verified app"</td><td>Appears when <strong class="em">"Choose where to get apps"</strong> is set to warn before installing apps from outside the Microsoft Store. Choose <b>Install anyway</b> to continue.<br>When it is set to "The Microsoft Store only (Recommended)", <strong class="em">there is no Install anyway button</strong> — the installation cannot proceed until that setting is changed. The setting lives under Settings → Apps → Advanced app settings on Windows 11, and Settings → Apps → Apps &amp; features on Windows 10</td></tr>
+          </tbody>
+        </table>
+      </div>
       <p><strong class="em">Two exceptions</strong>, both where it does something machine-wide on your behalf:</p>
       <div class="table-scroll">
         <table>
@@ -135,8 +149,8 @@
     </section>
 
     <section id="macos">
-      <h2 class="disp"><span class="num">3</span>Opening it on macOS</h2>
-      <p>The macOS build is <strong class="em">not signed with an Apple Developer ID</strong>, so Gatekeeper stops the first launch. The app is not damaged: Gatekeeper is saying it cannot check who signed it.</p>
+      <h2 class="disp"><span class="num">3</span>Starting it on macOS</h2>
+      <p>The macOS build is <strong class="em">not signed with an Apple Developer ID</strong>, so Gatekeeper stops the first launch. The app is not damaged: Gatekeeper reports that it cannot check who signed it.</p>
       <p><strong class="em">First, move <code>pictkura.app</code> to wherever you want to keep it</strong> (<code>/Applications</code>, say). This is not just tidiness: launched from where it was unzipped, macOS copies the app into a read-only temporary location and runs it from there (App Translocation).</p>
 
       <h3>macOS 15 (Sequoia) and later</h3>
@@ -166,7 +180,7 @@
     </section>
 
     <section id="first">
-      <h2 class="disp"><span class="num">4</span>The first thing to do</h2>
+      <h2 class="disp"><span class="num">4</span>First steps after installing</h2>
       <p>Once it opens, add the folder your photos live in with <strong class="em">Browse…</strong> at the bottom left. To bring photos off a card, insert it and press <strong class="em">Import from USB</strong> at the top. The destination folder and the way shots are filed by date are both chosen on that screen.</p>
       <!-- 実際に操作しているところ。画面は日本語のまま使い回しているので断りを添える。
            再生は `assets/demo.js` が受け持つ（動きを減らす設定のときは動かさない） -->

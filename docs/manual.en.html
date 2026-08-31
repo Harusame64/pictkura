@@ -264,7 +264,8 @@ while the scan runs — rows appear as they are ready.
     <strong>The second launch is much faster.</strong>
     pictkura reads the change journal the Windows file system already keeps (the USN journal)
     and only looks at <strong>the files that changed since last time</strong>.
-    The ⚡ readout at the top right shows how much processing it skipped.
+    On each launch a ⚡ line appears at the bottom of the window for about eight seconds, showing
+    which method was used and how much processing it skipped (click it to dismiss).
   </p>
 </div>
 
@@ -299,7 +300,6 @@ to verify it.
 pictkura adds itself to the Windows AutoPlay choices that appear when you insert a USB
 drive or an SD card. This is on by default, but <strong>it never starts on its own</strong> —
 the import wizard opens on that drive only when you choose it.
-Note that the entry itself is worded in Japanese.
 </p>
 
 <p>
@@ -317,7 +317,7 @@ The portable build is just a folder you delete, so run
 <p>
 <strong>If this PC already has a default action, inserting a card shows no choices at all.</strong>
 Windows performs whatever was decided (for example “Open folder to view files”) without asking.
-pictkura is registered as a candidate, but nothing ever asks.
+pictkura is registered as a choice, but nothing ever puts the question to you.
 </p>
 
 <p>
@@ -422,8 +422,8 @@ so it is worth deciding first. There are nine common layouts to choose from.
 
 <p>
 As you type, <strong>the folder name you will actually get</strong> is shown right there.
-Writing <code>{year}nen/{month}gatsu-{day}nichi</code>, for instance, gives
-<code>2026nen/08gatsu-13nichi/</code>.
+Any text outside the braces is kept as you wrote it: <code>photos-{year}/{month}-{day}</code>,
+for instance, gives <code>photos-2026/08-13/</code>.
 </p>
 
 <p>
@@ -454,7 +454,7 @@ Only date folders are then added underneath.
 <p>
 <strong>The date that picks the destination folder</strong> during an import comes from EXIF
 (the container, for videos), then from <strong>the file name</strong>, then from the other
-half of a RAW+JPG pair, then from the file's modification time — and if even that is
+half of a RAW+JPG pair, then from the file’s modification time — and if even that is
 unusable, from the day of the import itself. It never asks the OS or your library: at
 import time there is no library entry for the file yet.
 </p>
@@ -564,9 +564,9 @@ you pick, or move all of it to the Recycle Bin in one go. It asks before deletin
 <h3>⚑ Picked</h3>
 
 <p>
-The ⚑ that <kbd>P</kbd> puts on a photo is <strong>a separate shelf from ★ favourites</strong>.
+The ⚑ that <kbd>P</kbd> puts on a photo is <strong>a separate shelf from ★ favorites</strong>.
 ★ is “a photo I want to come back to”; ⚑ is “the one frame I keep out of this burst”.
-Sharing one mark would fill your favourites with the leftovers of every culling session.
+Sharing one mark would fill your favorites with the leftovers of every culling session.
 <strong>“⚑ Picked”</strong> in the sidebar lists what you picked, the search box takes
 <code>⚑</code> (or <code>pick:</code>), and the selection bar can pick or unpick a whole
 selection at once.
@@ -587,16 +587,16 @@ with candidates still marked, a <strong>confirmation screen</strong> opens. It s
 marked photo as a thumbnail: press “Keep” on the ones you want back, then
 “Move N to trash” to move the rest in one go. They go to the <strong>OS trash</strong>,
 so you can restore them later — restored files are picked up by the watcher and come back
-to the library (★ favourites and ⚑ picks have to be set again).
+to the library (★ favorites and ⚑ picks have to be set again).
 </p>
 
 <h3>View the selection</h3>
 
 <p>
 <strong>“View the selection”</strong> in the bar opens the viewer on just those photos.
-<kbd>←</kbd> <kbd>→</kbd> stay inside the selection, and the counter in the corner
+<kbd>←</kbd> <kbd>→</kbd> stay inside the selection, and the counter in the caption
 counts the photos you picked out. To choose one frame out of a burst, select the burst,
-come in here, and walk it with <kbd>P</kbd> and <kbd>U</kbd>.
+come in here, and work through it with <kbd>P</kbd> and <kbd>U</kbd>.
 </p>
 
 <h3>Copy to folder / Move to folder</h3>
@@ -612,8 +612,8 @@ same folder again adds nothing; a different file that happens to share a name ge
 <div class="note warn">
   <p>
     <strong>Moving takes those photos out of the library.</strong>
-    They leave their current place, disappear from the grid, and their ★ / ⚑ marks are not carried
-    over. pictkura asks first. Moving to another drive copies the file and then sends the
+    They are gone from their old location, gone from the grid, and their ★ / ⚑ marks do not
+    come with them. pictkura asks first. Moving to another drive copies the file and then sends the
     original to the Recycle Bin — the app still never removes a file outright.
   </p>
 </div>
@@ -653,17 +653,17 @@ same folder again adds nothing; a different file that happens to share a name ge
 <h3>RAW</h3>
 <p>
 <strong>No demosaicing.</strong> pictkura pulls out the display JPEG the camera wrote for its
-own rear screen. That takes a few milliseconds per file, and the colours are the camera’s own
+own rear screen. That takes a few milliseconds per file, and the colors are the camera’s own
 rendering.
 </p>
 <div class="table-scroll">
 <table>
   <tr><th>Format</th><th class="center">Grid</th><th class="center">Full screen</th><th>Notes</th></tr>
-  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code> <code>3fr</code> <code>x3f</code> <code>kdc</code></td><td class="center">✅</td><td class="center">✅</td><td>Uses the camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (DNG)</td></tr>
+  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>raf</code> <code>orf</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code> <code>3fr</code> <code>x3f</code> <code>kdc</code></td><td class="center">✅</td><td class="center">✅</td><td>Uses the camera’s own display JPEG, at or near full resolution. Includes Apple ProRAW (DNG)</td></tr>
   <tr><td><code>crw</code> <code>srf</code> <code>sr2</code> <code>mrw</code> <code>erf</code> <code>dcr</code> <code>iiq</code> <code>mos</code></td><td class="center">✅</td><td class="center">⚠️</td><td>Older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft</td></tr>
   <tr><td><code>raw</code></td><td class="center">⚠️</td><td class="center">⚠️</td><td>The two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter</td></tr>
   <tr><td><code>fff</code> (Hasselblad)</td><td class="center">⚠️</td><td class="center">⚠️</td><td>The H5D-40 file we tested carries no preview at all, so only a frame appears</td></tr>
-  <tr><td><code>ptx</code> (Pentax)</td><td class="center">?</td><td class="center">?</td><td>Recognised, but we could not obtain a real file to check</td></tr>
+  <tr><td><code>ptx</code> (Pentax)</td><td class="center">?</td><td class="center">?</td><td>Recognized, but we could not obtain a real file to check</td></tr>
   <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td class="center">⚠️</td><td>Carries no preview at all</td></tr>
 </table>
 </div>
@@ -679,7 +679,7 @@ rendering.
 <p>
 <strong>Appearing in the grid is the same on every platform.</strong> What changes is whether a
 picture comes with it: the ✅ in the grid column above is what was checked on Windows, and
-even there the picture is the OS's answer rather than ours. Grid thumbnails are borrowed from
+even there the picture comes from the OS, not from pictkura. Grid thumbnails are borrowed from
 the OS, so a container is
 covered exactly as far as the OS can open it. On Windows that is the Shell, the same mechanism
 Explorer uses: <code>.avi</code> and HEVC <code>.mov</code> were measured coming back with a
@@ -691,12 +691,12 @@ and <code>mov</code> were measured returning a real frame, with H.264 and with H
 (<code>hvc1</code>, the fourcc an iPhone writes), though those HEVC samples were re-encoded by
 macOS itself rather than written by a phone. <code>.avi</code> was
 measured returning nothing. Anything not named here is untested on both: a picture is
-possible, not promised. Linux has no route at all.
+possible, but not guaranteed. Linux has no route at all.
 </p>
 <p>
 Duration, dimensions and capture time come from the container header for <code>mp4</code>,
 <code>m4v</code>, <code>mov</code> and <code>3gp</code> — not a single byte of pixel data is
-read. Note that <code>webm</code> is <em>not</em> among them, despite sitting in the first row
+read. Note that <code>webm</code> is <em>not</em> among them, even though it sits in the first row
 above. The other containers have nothing but the Windows Shell to fall back on — measured with
 a synthetic <code>.m2ts</code>, which came back with both duration and dimensions; the rest
 were never checked.
@@ -764,10 +764,10 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Video thumbnails go only as far as the OS can open the container</td><td>On Windows the Shell provides them — <code>.avi</code> and HEVC <code>.mov</code> measured working, <code>.m2ts</code> never checked, anything the OS has no handler or codec for comes back empty. <strong>macOS shows what AVFoundation can open</strong> — <code>mp4</code> and <code>mov</code> measured working with H.264 and HEVC (<code>hvc1</code>) samples, <code>.avi</code> measured empty, every other container untested. <strong>Linux has no route at all</strong></td></tr>
   <tr><td>Duration and dimensions outside <code>mp4</code>, <code>m4v</code>, <code>mov</code>, <code>3gp</code></td><td>Those four are read straight from the container header. The rest rely on the Windows Shell (measured with a synthetic <code>.m2ts</code> only); on macOS and Linux they show no duration or dimensions (the date falls back to the file name or modification time)</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
-  <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file's own declaration, from the sensor borders inside Panasonic's own RAW formats (<code>rw2</code>, <code>raw</code>, <code>rwl</code> — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup. On Windows a file that only exists in the cloud is the exception — the Shell supplies its dimensions without downloading it</td></tr>
+  <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file’s own declaration, from the sensor borders inside Panasonic’s own RAW formats (<code>rw2</code>, <code>raw</code>, <code>rwl</code> — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup. On Windows a file that only exists in the cloud is the exception — the Shell supplies its dimensions without downloading it</td></tr>
   <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
-  <tr><td>An import cannot be cancelled</td><td>Once started, it runs to the end</td></tr>
+  <tr><td>An import cannot be canceled</td><td>Once started, it runs to the end</td></tr>
   <tr><td>RTL layouts</td><td>Right-to-left languages such as Arabic are not supported yet</td></tr>
 </table>
 </div>
@@ -792,7 +792,7 @@ Deleting the database does not delete any photo; it is simply rebuilt.
 </p>
 
 <footer>
-  pictkura is MIT licensed. Copyright notices and licence texts for the bundled third-party
+  pictkura is MIT licensed. Copyright notices and license texts for the bundled third-party
   software are collected in <code>THIRD-PARTY-LICENSES.txt</code>.<br>
   The photographs shown in the screenshots in this manual are CC0 / public-domain works from
   Wikimedia Commons.

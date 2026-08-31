@@ -213,7 +213,7 @@ On first launch, use **Add a folder** at the bottom of the left pane, or
 pick one of the drives. Scanning starts immediately and the grid fills in by date.
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
-> **files that changed since last time**. The ⚡ in the top right shows how much it skipped.
+> **files that changed since last time**. A ⚡ line at the bottom of the window shows how much it skipped.
 
 ### 2. Import from a card
 
@@ -274,7 +274,7 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `folder:trip` | filter by folder name |
 | `2019-08` / `2019-08-11` | filter by capture date. **A bare `2019` is treated as text**, not a date — it cannot be told apart from a file name |
 | `year:2019` | filter to a single year |
-| `★` | favourites only |
+| `★` | favorites only |
 | `⚑` / `pick:` | picked photos only |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
@@ -321,8 +321,8 @@ you pick, or move all of it to the recycle bin in one go — deleting asks first
 selection and the counter shows how many you picked out. Going through a burst is then
 `P` and `→` — or just `P`, with the default move-on-to-the-next setting.
 
-⚑ is **a separate shelf from ★ favourites**: ★ is "a photo I want to come back to",
-⚑ is "the one frame I keep out of this burst". Mixing them would fill your favourites
+⚑ is **a separate shelf from ★ favorites**: ★ is "a photo I want to come back to",
+⚑ is "the one frame I keep out of this burst". Mixing them would fill your favorites
 with the leftovers of every culling session. **⚑ Picked** in the sidebar lists what you
 picked, and the search box takes `⚑` (or `pick:`) as a filter.
 
@@ -382,7 +382,7 @@ at all (the “Check for updates” button next to it still asks, once, when you
 ### RAW (no demosaicing)
 
 pictkura does **not** develop RAW files. It pulls out the display JPEG the camera wrote
-for its own screen, so you get the camera's own colour rendering without the cost of
+for its own screen, so you get the camera's own color rendering without the cost of
 demosaicing.
 
 | Format | Grid | View | Notes |
@@ -391,7 +391,7 @@ demosaicing.
 | `crw` `srf` `sr2` `mrw` `erf` `dcr` `iiq` `mos` | ✅ | ⚠️ | older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft |
 | `raw` | ⚠️ | ⚠️ | the two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter |
 | `fff` (Hasselblad) | ⚠️ | ⚠️ | the H5D-40 file we tested carries no preview at all, so only a frame appears |
-| `ptx` (Pentax) | ? | ? | recognised, but we could not obtain a real file to check |
+| `ptx` (Pentax) | ? | ? | recognized, but we could not obtain a real file to check |
 | Blackmagic CinemaDNG | ⚠️ | ⚠️ | contains no preview at all |
 
 Checked on 2026-08-20 against 28 real files from 16 makers (sample images from
@@ -408,7 +408,7 @@ come out upright, and the shot date and camera name are read.
 
 **Appearing in the grid is the same on every platform.** What changes is whether a picture
 comes with it — the ✅ in the grid column above is what was checked on Windows, and even
-there the picture is the OS's answer rather than ours. What sits behind it:
+there the picture comes from the OS, not from pictkura. What sits behind it:
 
 - **Thumbnails** are borrowed from the OS, so a container is covered exactly as far as the
   OS can open it. On **Windows** that is the Shell, the same mechanism Explorer uses:
@@ -420,7 +420,7 @@ there the picture is the OS's answer rather than ours. What sits behind it:
   frame, with H.264 and with HEVC (`hvc1`, the fourcc an iPhone writes) — **though those
   HEVC samples were re-encoded by macOS itself, not written by a phone** — and `.avi`
   measured returning nothing. **Anything not named here is untested on both**: a picture is
-  possible, not promised. **Linux has no route at all.**
+  possible, but not guaranteed. **Linux has no route at all.**
 - **Duration, dimensions and capture time** are read from the container header for
   `mp4` `m4v` `mov` `3gp` only — not a single pixel is decoded. Note that `webm` is not
   among them although it sits in the first row, and `3gp` is, although it sits in the
@@ -446,7 +446,7 @@ there the picture is the OS's answer rather than ours. What sits behind it:
 | **A RAW that declares its size nowhere shows none** | Dimensions come from the file's own declaration, from the sensor borders inside Panasonic's own RAW formats (`rw2`, `raw`, `rwl` — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG in the sample set — shows no size in the grid, and is asked again on every startup. The exception is a file that only exists in the cloud on Windows, where the Shell supplies dimensions without downloading it |
 | **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too) |
 | **No sort order for results** | always newest capture date first |
-| **Imports cannot be cancelled** | once started, an import runs to completion |
+| **Imports cannot be canceled** | once started, an import runs to completion |
 | **No RTL layout** | Arabic and other right-to-left languages are not supported |
 
 ---
@@ -461,7 +461,7 @@ there the picture is the OS's answer rather than ours. What sits behind it:
 | Fast writes | SQLite in WAL mode, batched inserts in one transaction |
 | No layout shift | width and height live in the DB, so tiles are sized before the image arrives |
 | Instant first paint | the embedded EXIF thumbnail is used as-is, without re-encoding |
-| No blank tiles when scrolling | the thumbnail queue prioritises whatever is on screen |
+| No blank tiles when scrolling | the thumbnail queue prioritizes whatever is on screen |
 | Serve while scanning | directory scans run outside the DB lock |
 | No full transfer at startup | a date→count index, fetching only the days in view |
 | Don't walk the disk at startup | the NTFS USN journal supplies only what changed |
@@ -527,7 +527,7 @@ happened to be on disk. `cargo tauri build` needs the Tauri CLI
 The macOS bundle target comes from `src-tauri/tauri.macos.conf.json`, which Tauri merges
 over `tauri.conf.json` automatically — the default `msi` target cannot be built there.
 The `.app` is **ad-hoc signed only** (that is what the linker does on arm64); there is no
-Developer ID signing or notarisation step, which is why the ZIP ships with instructions
+Developer ID signing or notarization step, which is why the ZIP ships with instructions
 for getting past Gatekeeper.
 
 Pushing a `v*` tag runs both of these in CI and attaches all five files to a GitHub
@@ -538,7 +538,7 @@ present, so a failure on one OS cannot produce a half release.
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
-### Regenerating the third-party licence list
+### Regenerating the third-party license list
 
 After adding a dependency, rebuild the bundled `THIRD-PARTY-LICENSES.txt`:
 
@@ -553,9 +553,9 @@ node ui/scripts/licenses.mjs >> THIRD-PARTY-LICENSES.txt
 Every milestone goes through two independent reviews (Claude `/code-review` and OpenAI
 Codex) and the confirmed findings are fixed before merging.
 
-## Licence
+## License
 
-pictkura is released under the [MIT licence](LICENSE). Copyright notices and licence texts
+pictkura is released under the [MIT license](LICENSE). Copyright notices and license texts
 for the third-party software it bundles and uses are collected in
 [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).
 

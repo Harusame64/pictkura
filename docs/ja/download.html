@@ -69,8 +69,8 @@
        [data-stale] の中の版番号だけは差し替わらず、Releases API が引けないときは
        この写しがそのまま人前に出る。同じ写しが4ファイルにある——{en,ja}/index.html と
        {en,ja}/download.html。版を出したら4つとも手で更新すること（版番号・ファイル名・
-       リンク・サイズ。公開日はこの頁にしかない）。0.2.1 と 0.2.2 で2回続けて忘れており、そのあいだ
-       この頁は制限に当たった人に v0.2.0 を出し続けていた。
+       リンク・サイズ。公開日はこのページにしかない）。0.2.1 と 0.2.2 で2回続けて忘れており、そのあいだ
+       このページは制限に当たった人に v0.2.0 を出し続けていた。
 
        **「配布物の作られ方」の curl の中の版は、ここには含めない。** 一度 [data-ver] に
        したが戻した（ゲート2の指摘）——あれは `releases/latest` から埋まるので、
@@ -140,7 +140,7 @@
     <div class="dl-row" data-file="x64_ja-JP.msi">
       <div>
         <h3>Windows・PC 全体へ（日本語）</h3>
-        <p>1 台を何人かで使っていて、全てのユーザーにインストールしたい場合。<strong class="em">管理者権限を求められます。</strong>ひとりで使うなら、上のインストーラで足ります。</p>
+        <p>1 台の PC を複数人で使用し、すべてのユーザーにインストールする場合。<strong class="em">管理者権限を求められます。</strong>1 人で使用する場合は、上のインストーラで十分です。</p>
         <p class="file" data-name>pictkura_0.2.5_x64_ja-JP.msi</p>
       </div>
       <div class="get">
@@ -164,7 +164,7 @@
     <div class="dl-row" data-file="arm64.zip">
       <div>
         <h3>macOS（Apple Silicon）</h3>
-        <p>macOS 11 以降。展開して <code>pictkura.app</code> を移してから開きます。<strong class="em">初回起動時のみ、追加の手順が必要です</strong>（<a href="install.html#macos">3. macOS で開く</a>）。</p>
+        <p>macOS 11 以降。展開して <code>pictkura.app</code> を移してから開きます。<strong class="em">初回起動時のみ、追加の手順が必要です</strong>（<a href="install.html#macos">3. macOS で起動する</a>）。</p>
         <p class="file" data-name>pictkura_0.2.5_arm64.zip</p>
       </div>
       <div class="get">
@@ -186,14 +186,14 @@
   </div>
 
   <div class="note warn" style="max-width:980px">
-    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> あの警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。自分で確かめるための材料は<a href="#build">配布物の作られ方</a>に並べました。<strong class="em">読んだうえで不安が残るなら、進めないでください。</strong></p>
+    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> この警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。自分で確かめるための材料は<a href="#build">配布物の作られ方</a>に並べました。<strong class="em">内容を確認しても判断がつかない場合は、インストールを中止してください。</strong></p>
     <p>Windows は「WindowsによってPCが保護されました」→「詳細情報」→「実行」。macOS は一度断られたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。</p>
   </div>
 
   <div class="limits" style="margin-top:56px;max-width:980px">
     <div><b>Intel の Mac は対象外</b><br>Mac は Apple Silicon 専用です。Windows は 64bit（x64）のみ対応しています</div>
-    <div><b>Linux 版はありません</b><br>取り込みの仕組みが Windows と macOS に寄っているためです</div>
-    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には最初から入っています。入っていない PC では、インストーラが取得しに行きます</div>
+    <div><b>Linux 版はありません</b><br>取り込みの実装が Windows と macOS に依存しているためです</div>
+    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には最初から入っています。入っていない PC では、インストーラが取得してインストールします</div>
     <div><b>写真ファイル本体は変更しません</b><br>インストールしても削除しても、写真ファイルを書き換えることはありません。保存場所は<a href="spec.html#storage">アプリ仕様</a>にあります</div>
   </div>
 
@@ -203,12 +203,12 @@
     <span class="rule"></span>
   </div>
 
-  <p class="lead" style="max-width:980px">署名の証明書を持っていないので、<strong class="em">こちらが「安全です」と言っても、受け取る側にそれを確かめる手立てがありません</strong>。代わりに、確かめるための材料を出します。目的は安全だと主張することではなく、<strong class="em">自分で確かめられる状態にすること</strong>です。</p>
+  <p class="lead" style="max-width:980px">署名の証明書を持っていないので、<strong class="em">配布者が「安全です」と述べても、受け取る側にそれを確かめる手立てがありません</strong>。代わりに、確かめるための材料を出します。目的は安全だと主張することではなく、<strong class="em">自分で確かめられる状態にすること</strong>です。</p>
 
   <div class="limits" style="margin-top:40px;max-width:980px">
     <div><b>ソースは全部あります</b><br>配布物は<a href="https://github.com/Harusame64/pictkura/tags">タグごと</a>に、その時点のソースから作られます。<a href="https://github.com/Harusame64/pictkura">リポジトリ</a>は MIT ライセンスです</div>
     <div><b>作っているのは手元の機械ではありません</b><br><a href="https://github.com/Harusame64/pictkura/blob/main/.github/workflows/release.yml">GitHub Actions のワークフロー</a>が5つのファイルを作ります。<a href="https://github.com/Harusame64/pictkura/actions/workflows/release.yml">走った記録</a>も残っています</div>
-    <div><b>ダイジェストは GitHub が出します</b><br>下のコマンドで返る SHA-256 は、<strong class="em">GitHub が保管しているファイルから GitHub 自身が計算した値</strong>です。こちらが書いた数字ではありません</div>
+    <div><b>ダイジェストは GitHub が出します</b><br>下のコマンドで返る SHA-256 は、<strong class="em">GitHub が保管しているファイルから GitHub 自身が計算した値</strong>です。配布者が書いた数字ではありません</div>
     <div><b>これで分かることは1つだけ</b><br>手元のファイルが、ここで配っているものと<strong class="em">同じバイト列か</strong>だけです。<strong class="em">中身が安全であることの証明にはなりません</strong></div>
   </div>
 
