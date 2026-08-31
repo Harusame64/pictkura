@@ -3406,12 +3406,10 @@ export default function App() {
         const saving = e.key === "s" || e.key === "S";
         const copying = e.key === "c" || e.key === "C";
         if (saving || copying) {
-          // **`Ctrl+S` は取り出せないときも食べる**。WebView2 はブラウザ用の
-          // ショートカットを既定で生かしていて（wry の
-          // `browser_accelerator_keys` は `true` のまま）、素通しすると
-          // **ページの保存ダイアログ**が開く——伏せているはずのボタンの
-          // 代わりに、見覚えのない保存先の選択が出てくることになる
-          if (saving) e.preventDefault();
+          // **`Ctrl+S` を食べるのはここではない。** 画面に関わらず食べる
+          // 必要があるので、パレットと同じ常時のハンドラでやっている
+          // （あちらの `browser_accelerator_keys` の項）。ここは取り出すだけ。
+          //
           // **ボタンと同じ条件でしか効かない**（`canExtract` /
           // `canCopyImage`）。帯で伏せている1枚がキーだけ通ると、押せない
           // はずのものが押せる。走っている間も同じ——ボタンは伏せているのに
@@ -3526,6 +3524,19 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((p) => !p);
+        return;
+      }
+      // **`Ctrl+S` はアプリのものにする**（抽出。Issue #13）。
+      //
+      // 実際に取り出すのはビューアの担当だが、**食べるのはここ**——wry は
+      // WebView2 のブラウザ用ショートカットを既定で生かしたままなので
+      // （`browser_accelerator_keys` は `true`）、素通しすると**ページの
+      // 保存ダイアログ**が開く。「ビューアで `Ctrl+S`」を覚えた人が一覧へ
+      // 戻って同じ手癖で押すと、アプリのHTMLを保存しますかと聞かれることに
+      // なる。ここは開いている画面に関わらず走るので、穴が残らない
+      const saveKey = e.key === "s" || e.key === "S";
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && saveKey) {
+        e.preventDefault();
         return;
       }
       // 文字入力中は効かせない（検索欄に「?」と打てなくなる）

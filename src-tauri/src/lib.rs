@@ -2570,14 +2570,30 @@ const EXTRACT_DEST_IS_SOURCE: &str = "extract:dest-is-source";
 /// フォルダは「前回の保存先 → ピクチャ → 決めない」の順。**覚えた場所が
 /// もう無ければ飛ばす**——外したUSBを指したままダイアログを開くと、
 /// OSによっては見当違いの場所から始まる。
+///
+/// **ブロッキングプールへ逃がす**（隣の2つと同じ）。覚えているのは利用者が
+/// 前に保存した場所で、そこがNASや共有であることは普通にある。**応答を
+/// 止めたSMB/NFSでは `is_dir` が返ってこない**（`empty_library_reason` の節に
+/// ある実測。120秒待っても返らなかった）——同期のコマンドは本体のスレッドで
+/// 走るので、素で書くと**押した瞬間に窓ごと固まる**。外したUSBはすぐ失敗を
+/// 返すので、あちらだけを見ていると気付けない
 #[tauri::command]
-fn extract_suggested_path(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
+async fn extract_suggested_path(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        suggested_extract_path(&app, &state, id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn suggested_extract_path(
+    app: &tauri::AppHandle,
+    state: &AppState,
     id: i64,
 ) -> Result<String, String> {
     use tauri::Manager as _;
-    let path = path_of(&state, id)?;
+    let path = path_of(state, id)?;
     let ext = match pictkura_core::extract::transcoded_extension(&path) {
         Some(jpg) => std::ffi::OsString::from(jpg),
         // 原本をそのまま渡す形式は綴りも原本のまま。拡張子の無いファイルだけ
