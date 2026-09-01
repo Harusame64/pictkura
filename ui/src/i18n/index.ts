@@ -35,6 +35,7 @@ import { de } from "./de";
 import { es } from "./es";
 import { zh } from "./zh";
 import { zhHant } from "./zh-hant";
+import { num, setNumberLocale } from "./plural";
 
 export type { Dict };
 
@@ -399,5 +400,22 @@ export const formatDuration = (ms: number) => {
   return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
 };
 
-/** 件数などの数値（桁区切りをロケールに合わせる） */
-export const formatNumber = (n: number) => n.toLocaleString(formatLocale);
+/**
+ * **辞書へ書式ロケールを渡す**（2026-09-02）。
+ *
+ * `plural.ts` の `num()` がこれを使って桁区切りを付ける。**注入なのは循環を避けるため**
+ * ——`formatLocale` は `locale` の下流、`locale` は辞書の下流なので、
+ * 辞書が `index.ts` を import することはできない。理由は `plural.ts` の冒頭に書いた。
+ *
+ * **`formatLocale` を決めた直後・辞書を使う前に呼ぶこと。** 辞書が評価される時点では
+ * 関数を組み立てているだけなので、この行が後でも間に合う。
+ */
+setNumberLocale(formatLocale);
+
+/**
+ * 件数などの数値（桁区切りをロケールに合わせる）。
+ *
+ * **辞書の中からは `plural.ts` の `num()` を呼ぶ**（同じもの）。こちらは
+ * 辞書を通さずに数字だけを出す画面（件数バッジなど）のための入口。
+ */
+export const formatNumber = num;

@@ -34,11 +34,8 @@
  * `tauri.conf.json` の CSP が `connect-src` を ipc に限っている。**約束は真。**
  */
 import { folderExample } from "./folderExample";
+import { num, one } from "./plural";
 import type { Dict } from "./ja";
-
-/** **数詞1のあとは単数**（2026-09-01、遡ってのゲート2）。`1 Dateien` は目に付く */
-const one = (n: number, singular: string, plural: string) =>
-  n === 1 ? singular : plural;
 
 export const de: Dict = {
   appName: "pictkura",
@@ -111,11 +108,11 @@ export const de: Dict = {
   browse: "Durchsuchen…",
   addFolderPlaceholder: folderExample("z. B. ", "benutzer"),
   pickLibraryFolder: "Ordner wählen, der zur Bibliothek hinzugefügt wird",
-  showMore: (n: number) => `${n} weitere`,
+  showMore: (n: number) => `${num(n)} weitere`,
   collapse: "Weniger anzeigen",
-  photosCount: (n: number) => `${n}`,
+  photosCount: (n: number) => `${num(n)}`,
   memoriesTitle: (years: number) =>
-    years === 1 ? "Heute vor 1 Jahr" : `Heute vor ${years} Jahren`,
+    years === 1 ? "Heute vor 1 Jahr" : `Heute vor ${num(years)} Jahren`,
   viewerFavorite: "Favorit (F)",
   viewerPick: "Als Auswahl markieren (P)",
   viewerUnpick: "Markierung aufheben (U)",
@@ -126,21 +123,21 @@ export const de: Dict = {
   judgeUnflag: "Markierung aufgehoben",
   viewerReject: "Als abgelehnt markieren (X)",
   viewerRejected: "Abgelehnt",
-  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Abgelehnte Fotos durchsehen",
   rejectGateTitle: (n: number) =>
     n === 1
       ? "1 Foto in den Papierkorb verschieben"
-      : `${n} Fotos in den Papierkorb verschieben`,
+      : `${num(n)} Fotos in den Papierkorb verschieben`,
   rejectGateNote:
     "Du kannst sie aus dem Papierkorb wiederherstellen (dann sind sie auch wieder in der Bibliothek).",
   rejectGateRestore: "Behalten",
   rejectGateBack: "Zurück",
   rejectGateDiscard: "Schließen, ohne zu löschen",
   rejectGateConfirm: (n: number) =>
-    n === 1 ? "1 in den Papierkorb" : `${n} in den Papierkorb`,
+    n === 1 ? "1 in den Papierkorb" : `${num(n)} in den Papierkorb`,
   rejectGateTrashing: (done: number, total: number) =>
-    `Wird verschoben… (${done} / ${total})`,
+    `Wird verschoben… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `Version ${v} ist verfügbar`,
   updateOpenPage: "Download-Seite öffnen",
   updateLater: "Später",
@@ -220,14 +217,14 @@ export const de: Dict = {
   importFrom: (path: string) => `Aus ${path} importieren`,
   filterByCamera: (name: string) => `Nur Fotos zeigen, die mit ${name} aufgenommen wurden`,
   jumpToYear: (year: number) => `Zu ${year} springen`,
-  importing: (done: number, total: number) => `Wird importiert… ${done}/${total}`,
+  importing: (done: number, total: number) => `Wird importiert… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
-    `Import fertig: ${copied} kopiert, ${skipped} übersprungen`,
-  importFailed: (n: number) => `, ${n} fehlgeschlagen`,
+    `Import fertig: ${num(copied)} kopiert, ${num(skipped)} übersprungen`,
+  importFailed: (n: number) => `, ${num(n)} fehlgeschlagen`,
   importIncomplete:
     " ⚠ Einige Ordner konnten nicht gelesen werden — lösche die Karte noch nicht",
   syncDone: (added: number, changed: number, removed: number) =>
-    `${added} hinzugefügt, ${changed} geändert, ${removed} entfernt`,
+    `${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
   pickSource: "Ordner wählen, aus dem importiert wird (USB / DCIM)",
   pickDestination: "Zielordner wählen",
   wizardTitle: "Import",
@@ -262,7 +259,13 @@ export const de: Dict = {
    * **1つの語形では必ずどれかが外れる**。複数形の `weitere` はどの性でも
    * 落ち着きが悪くないほうを取っている。直すなら受ける名詞を引数で渡す話になる
    */
-  andMore: (n: number) => `und ${n} weitere`,
+  /**
+   * **1のときは名詞を書く**（2026-09-02）。省かれている名詞は `Ordner`（男性）なので
+   * 単数は `weiterer` になり、`weitere` のままだと語形が合わない。呼ぶ側の
+   * `nameList()` はフォルダ名の羅列にしか使っていないので、名詞は一意に決まる
+   * （`App.tsx` の `emptyStalled` / `emptyMissing` / `emptyUnreadable*` / `emptyAllExcluded`）。
+   */
+  andMore: (n: number) => (n === 1 ? "und 1 weiterer Ordner" : `und ${num(n)} weitere`),
   emptyRootIsPackage:
     "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
   emptyPhotoLibrary:
@@ -290,13 +293,13 @@ export const de: Dict = {
   wizardSelectAll: "Alle auswählen",
   wizardSelectNew: "Nur neue auswählen",
   wizardClearSelection: "Auswahl aufheben",
-  wizardSelected: (n: number) => `${n} ausgewählt`,
+  wizardSelected: (n: number) => `${num(n)} ausgewählt`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "Schon importiert (dieselbe Datei liegt im Zielordner)",
   wizardDestination: "Ziel",
   wizardChangeDestination: "Ändern",
   wizardStructure: "Ablage",
-  wizardImportButton: (n: number) => `${n} importieren`,
+  wizardImportButton: (n: number) => `${num(n)} importieren`,
   wizardImportAll: "Diesen ganzen Ordner importieren (samt Unterordnern)",
   wizardImportAllShort: "Ganzer Ordner",
   wizardDeep: "Unterordner einbeziehen",
@@ -304,15 +307,15 @@ export const de: Dict = {
     "Durchsucht das ganze Medium, damit du nicht wissen musst, wo die Fotos liegen",
   wizardScanning: "Das Medium wird durchgesehen…",
   wizardTruncated: (n: number) =>
-    `Es werden nur die ersten ${n} gezeigt. Nimm „Ganzer Ordner“, um alles zu importieren`,
+    `Es werden nur die ersten ${num(n)} gezeigt. Nimm „Ganzer Ordner“, um alles zu importieren`,
   wizardScanIncomplete:
     "⚠ Einige Ordner ließen sich nicht lesen (es können Fotos fehlen)",
-  decoderHeifNotice: (n: string) =>
-    `⚠ Für ${n} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht. Dafür braucht es die kostenlosen HEIF-Bilderweiterungen und zusätzlich die kostenpflichtigen HEVC-Videoerweiterungen (ein paar Euro), die die Pixel decodieren`,
-  decoderHeifNoticeMac: (n: string) =>
-    `⚠ Für ${n} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht`,
-  decoderHeifNoticeOther: (n: string) =>
-    `⚠ Für ${n} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht. Auf deinem System fehlt vermutlich ein Decoder für HEIC/HEVC`,
+  decoderHeifNotice: (n: number) =>
+    `⚠ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht. Dafür braucht es die kostenlosen HEIF-Bilderweiterungen und zusätzlich die kostenpflichtigen HEVC-Videoerweiterungen (ein paar Euro), die die Pixel decodieren`,
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht`,
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht. Auf deinem System fehlt vermutlich ein Decoder für HEIC/HEVC`,
   decoderHeifHow: "HEIF-Bilderweiterungen (kostenlos)",
   decoderHevcHow: "HEVC-Videoerweiterungen (kostenpflichtig)",
   decoderNoticeDismiss: "Nicht mehr anzeigen",
@@ -328,13 +331,13 @@ export const de: Dict = {
   wizardHiddenCount: (n: number) =>
     n === 1
       ? "1 schon importierte Datei ausgeblendet"
-      : `${n} schon importierte ausgeblendet`,
+      : `${num(n)} schon importierte ausgeblendet`,
   wizardCopying: "Wird importiert",
-  wizardEtaSeconds: (n: number) => `noch etwa ${n} s`,
-  wizardEtaMinutes: (n: number) => `noch etwa ${n} min`,
+  wizardEtaSeconds: (n: number) => `noch etwa ${num(n)} s`,
+  wizardEtaMinutes: (n: number) => `noch etwa ${num(n)} min`,
   wizardEtaCalculating: "Restzeit wird geschätzt…",
-  wizardCapped: (n: number) => `${n}+`,
-  wizardMoreFiles: (n: number) => `${n} weitere (zum Laden scrollen)`,
+  wizardCapped: (n: number) => `${num(n)}+`,
+  wizardMoreFiles: (n: number) => `${num(n)} weitere (zum Laden scrollen)`,
   menuOpen: "Öffnen",
   menuOpenWith: (name: string) => `Mit ${name} öffnen`,
   menuOpenWithOther: "Mit anderer App öffnen…",
@@ -346,13 +349,13 @@ export const de: Dict = {
   deleteConfirm: (n: number) =>
     n === 1
       ? "Dieses Foto in den Papierkorb verschieben?"
-      : `${n} Fotos in den Papierkorb verschieben?`,
-  deleted: (n: number) => `${n} in den Papierkorb verschoben`,
+      : `${num(n)} Fotos in den Papierkorb verschieben?`,
+  deleted: (n: number) => `${num(n)} in den Papierkorb verschoben`,
   deletedSomeLeft: (n: number, left: number) =>
-    `${n} in den Papierkorb verschoben (${left} ${one(left, "war", "waren")} nicht auffindbar und ${one(left, "blieb", "blieben")} unangetastet)`,
+    `${num(n)} in den Papierkorb verschoben (${num(left)} ${one(left, "war", "waren")} nicht auffindbar und ${one(left, "blieb", "blieben")} unangetastet)`,
   // 複数選択と一括操作
   selectItem: "Auswählen",
-  selectedCount: (n: number) => (n === 1 ? "1 ausgewählt" : `${n} ausgewählt`),
+  selectedCount: (n: number) => (n === 1 ? "1 ausgewählt" : `${num(n)} ausgewählt`),
   selectAll: "Alle auswählen",
   clearSelection: "Auswahl aufheben (Esc)",
   selectDay: "Diesen ganzen Tag auswählen",
@@ -366,31 +369,31 @@ export const de: Dict = {
   moveConfirm: (n: number) =>
     n === 1
       ? "Dieses Foto in einen Ordner verschieben, den du gleich wählst? Es verlässt seinen bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen)."
-      : `${n} Fotos in einen Ordner verschieben, den du gleich wählst? Sie verlassen ihren bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen).`,
+      : `${num(n)} Fotos in einen Ordner verschieben, den du gleich wählst? Sie verlassen ihren bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen).`,
   exporting: (done: number, total: number, name: string) =>
-    `Wird exportiert… ${done}/${total} ${name}`,
+    `Wird exportiert… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [done === 1 ? "1 Foto exportiert" : `${done} Fotos exportiert`];
-    if (skipped > 0) parts.push(`${skipped} ${one(skipped, "war", "waren")} schon da`);
-    if (failed > 0) parts.push(`${failed} fehlgeschlagen`);
+    const parts = [done === 1 ? "1 Foto exportiert" : `${num(done)} Fotos exportiert`];
+    if (skipped > 0) parts.push(`${num(skipped)} ${one(skipped, "war", "waren")} schon da`);
+    if (failed > 0) parts.push(`${num(failed)} fehlgeschlagen`);
     if (leftBehind > 0)
-      parts.push(`${leftBehind} ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz nicht entfernen`);
+      parts.push(`${num(leftBehind)} ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz nicht entfernen`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Als Auswahl markieren",
   bulkPickOff: "Markierung aufheben",
   bulkPickDone: (n: number) =>
-    n === 1 ? "1 Foto als Auswahl markiert" : `${n} Fotos als Auswahl markiert`,
+    n === 1 ? "1 Foto als Auswahl markiert" : `${num(n)} Fotos als Auswahl markiert`,
   bulkUnpickDone: (n: number) =>
-    n === 1 ? "Markierung von 1 Foto aufgehoben" : `Markierung von ${n} Fotos aufgehoben`,
+    n === 1 ? "Markierung von 1 Foto aufgehoben" : `Markierung von ${num(n)} Fotos aufgehoben`,
   bulkFavoriteDone: (n: number) =>
     n === 1
       ? "1 Foto zu Favoriten hinzugefügt"
-      : `${n} Fotos zu Favoriten hinzugefügt`,
+      : `${num(n)} Fotos zu Favoriten hinzugefügt`,
   bulkUnfavoriteDone: (n: number) =>
     n === 1
       ? "1 Foto aus Favoriten entfernt"
-      : `${n} Fotos aus Favoriten entfernt`,
+      : `${num(n)} Fotos aus Favoriten entfernt`,
   settings: "Einstellungen",
   close: "Schließen",
   settingsTitle: "Einstellungen",
@@ -433,12 +436,12 @@ export const de: Dict = {
   speedUsn: "USN-Journal-Differenz: ",
   speedUsnNoChange: "keine Änderungen, keine Ordner durchlaufen",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} ${one(records, "Journaleintrag", "Journaleinträge")} → nur ${dirs} Ordner neu eingelesen`,
+    `${num(records)} ${one(records, "Journaleintrag", "Journaleinträge")} → nur ${num(dirs)} Ordner neu eingelesen`,
   speedPruned: (skipped: number) =>
-    `beschnittener Durchlauf: ${skipped} Ordner übersprungen`,
+    `beschnittener Durchlauf: ${num(skipped)} Ordner übersprungen`,
   speedFull: (total: number) =>
-    `vollständiger Durchlauf (${total} ${one(total, "Datei", "Dateien")})`,
+    `vollständiger Durchlauf (${num(total)} ${one(total, "Datei", "Dateien")})`,
   speedNoDiff: " — keine Änderungen",
   speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${added} hinzugefügt, ${changed} geändert, ${removed} entfernt`,
+    ` — ${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
 };

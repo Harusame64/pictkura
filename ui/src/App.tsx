@@ -381,13 +381,10 @@ function speedLabel(r: StartupScanReport): string {
   // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
   // ここだけ英語式のまま帯に載っていた。桁区切りが付くのは1000秒を超えたときだけ。
   //
-  // **直したのは小数点だけで、この帯の件数はまだ `formatNumber` を通っていない**
-  // ——`speedFull` も `speedUsnDirty` も `speedDiff` も生の `${total}` を埋めている
-  // （2026-09-02、ゲート2の指摘。前の版のここには「同じ帯の桁区切りと流儀が割れる」と
-  // 書いてあったが、**この帯に桁区切りを通した数字は無い**）。独語で12万件なら、
-  // すぐ上のヘッダが `120.000 Fotos` なのに帯は `120000 Dateien` と出る。
-  // 辞書6つぶんの署名変更（`number` → `string`）になるので独立した1周にする、と
-  // 決めてある（plan.md「遡ってのゲート2」の先送り2件のうちの1つ）
+  // **件数の桁区切りは辞書の中で付く**（2026-09-02）——`speedFull` も `speedUsnDirty` も
+  // `speedDiff` も `num()` を通すようになったので、独語で12万件なら
+  // ヘッダの `120.000 Fotos` と帯の `120.000 Dateien` が揃う。
+  // 直前の版はここが生の `${total}` で、帯だけ `120000` と出ていた
   const sec = (r.elapsed_ms < 1000 ? secondsFmt2 : secondsFmt1).format(
     r.elapsed_ms / 1000,
   );
@@ -4458,14 +4455,14 @@ export default function App() {
       {heifMissing != null && (
         <div className="speed-toast index warn decoder-notice">
           <span>
-            {/* **桁区切りは `formatNumber` に通してから渡す。** 辞書側で
-                `toLocaleString()` を呼ぶとWebViewの既定ロケールになり、
-                同じ画面の他の件数と食い違う（ゲート2の指摘） */}
+            {/* **件数は生のまま渡す**（2026-09-02）。桁区切りは辞書の中の `num()` が
+                付ける。整形済みの文字列を渡していたときは、辞書から件数が見えず
+                独語で `Für 1 HEIC/HEIF-Fotos` と出ていた（`plural.ts` の冒頭） */}
             {platform === "windows"
-              ? t.decoderHeifNotice(formatNumber(heifMissing))
+              ? t.decoderHeifNotice(heifMissing)
               : platform === "macos"
-                ? t.decoderHeifNoticeMac(formatNumber(heifMissing))
-                : t.decoderHeifNoticeOther(formatNumber(heifMissing))}
+                ? t.decoderHeifNoticeMac(heifMissing)
+                : t.decoderHeifNoticeOther(heifMissing)}
           </span>
           {/* **文言と同じ判定に揃える。** 片方が先に届いた瞬間に
               「デコーダが無いのかも」と「拡張機能を買え」が同時に出うる

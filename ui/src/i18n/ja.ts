@@ -5,6 +5,7 @@
  * `index.ts` の冒頭にある。**言語を足す前にそちらを読むこと。**
  */
 import { folderExample } from "./folderExample";
+import { num } from "./plural";
 
 export const ja = {
   appName: "pictkura",
@@ -86,10 +87,10 @@ export const ja = {
   browse: "参照…",
   addFolderPlaceholder: folderExample("例: ", "ユーザー名"),
   pickLibraryFolder: "ライブラリに追加するフォルダを選択",
-  showMore: (n: number) => `他${n}台`,
+  showMore: (n: number) => `他${num(n)}台`,
   collapse: "閉じる",
-  photosCount: (n: number) => `${n}枚`,
-  memoriesTitle: (years: number) => `${years}年前の今日`,
+  photosCount: (n: number) => `${num(n)}枚`,
+  memoriesTitle: (years: number) => `${num(years)}年前の今日`,
   viewerFavorite: "お気に入り (F)",
   viewerPick: "選ぶ (P)",
   viewerUnpick: "選ぶのをやめる (U)",
@@ -103,17 +104,17 @@ export const ja = {
   // ボツの候補（0.2 ③）。印を付けるだけで、ファイルは閉じるときまで動かない
   viewerReject: "ボツにする (X)",
   viewerRejected: "ボツの候補",
-  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "ボツの候補を確かめる",
   rejectGateTitle: (n: number) =>
-    n === 1 ? "1枚をゴミ箱へ移動します" : `${n}枚をゴミ箱へ移動します`,
+    n === 1 ? "1枚をゴミ箱へ移動します" : `${num(n)}枚をゴミ箱へ移動します`,
   rejectGateNote: "ゴミ箱から戻せます（戻すと一覧にも戻ります）",
   rejectGateRestore: "戻す",
   rejectGateBack: "戻る",
   rejectGateDiscard: "入れずに閉じる",
-  rejectGateConfirm: (n: number) => `${n}枚をゴミ箱へ`,
+  rejectGateConfirm: (n: number) => `${num(n)}枚をゴミ箱へ`,
   rejectGateTrashing: (done: number, total: number) =>
-    `移動中… (${done} / ${total})`,
+    `移動中… (${num(done)} / ${num(total)})`,
   // 新しいバージョンの確認（0.2）。**このアプリで唯一の外向き通信**なので、
   // 何を送っていないかまで書く
   updateFound: (v: string) => `新しいバージョン ${v} が出ています`,
@@ -207,13 +208,13 @@ export const ja = {
   importFrom: (path: string) => `${path} から取り込む`,
   filterByCamera: (name: string) => `${name} で撮った写真だけを表示`,
   jumpToYear: (year: number) => `${year}年へ`,
-  importing: (done: number, total: number) => `取り込み中… ${done}/${total}`,
+  importing: (done: number, total: number) => `取り込み中… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
-    `取り込み完了: コピー${copied} スキップ${skipped}`,
-  importFailed: (n: number) => ` 失敗${n}`,
+    `取り込み完了: コピー${num(copied)} スキップ${num(skipped)}`,
+  importFailed: (n: number) => ` 失敗${num(n)}`,
   importIncomplete: " ⚠読み取れないフォルダあり（カードを消去しないでください）",
   syncDone: (added: number, changed: number, removed: number) =>
-    `追加${added} 変更${changed} 削除${removed}`,
+    `追加${num(added)} 変更${num(changed)} 削除${num(removed)}`,
   pickSource: "取り込み元フォルダ（USB/DCIM）を選択",
   pickDestination: "コピー先フォルダを選択",
   // 取り込みウィザード（第5部 段階E）
@@ -258,7 +259,7 @@ export const ja = {
   /** 並べるときの区切り（言語で違う） */
   listSeparator: "、",
   /** 名前を並べきらなかったぶん（**黙って落とさない**） */
-  andMore: (n: number) => `ほか${n}件`,
+  andMore: (n: number) => `ほか${num(n)}件`,
   /* **「この場所」と書かない**——写真.appの判定も除外の集計もルートをまたぐので、
      ルートが複数あると数が合わない（ゲート1の指摘）。
      「扱いません」も**既定では**に緩める: `*.photoslibrary` の除外は
@@ -298,43 +299,50 @@ export const ja = {
   wizardSelectAll: "すべて選択",
   wizardSelectNew: "未取り込みだけ選択",
   wizardClearSelection: "選択を解除",
-  wizardSelected: (n: number) => `${n}枚を選択中`,
+  wizardSelected: (n: number) => `${num(n)}枚を選択中`,
   wizardImportedBadge: "済",
   wizardImportedTitle: "取り込み済み（コピー先に同じファイルがあります）",
   wizardDestination: "コピー先",
   wizardChangeDestination: "変更",
   wizardStructure: "振り分け",
-  wizardImportButton: (n: number) => `${n}枚を取り込む`,
+  wizardImportButton: (n: number) => `${num(n)}枚を取り込む`,
   wizardImportAll: "このフォルダを丸ごと取り込む（下の階層も含む）",
   wizardImportAllShort: "フォルダごと",
   wizardDeep: "下の階層も含める",
   wizardDeepHint: "メディアの中を全部さらって並べます（どこに入っているか分からなくてもOK）",
   wizardScanning: "メディアの中を探しています…",
+  /**
+   * **ここに単数形は要らない**（2026-09-02、据え置きの理由）。`n` は打ち切りの上限
+   * そのもので、`lib.rs` の `TREE_LIMIT = 20_000` に達したときにしか出ない。
+   * 独西の `die ersten 1` / `las primeras 1` は機械的には出せるが、**到達しない**。
+   * 上限を人が選べるようにしたら、そのときに書く。
+   */
   wizardTruncated: (n: number) =>
-    `多すぎるため先頭${n}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
+    `多すぎるため先頭${num(n)}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
   wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
   /**
-   * **枚数は整形済みで受け取る**（`number` ではなく `string`）。
-   * 辞書から `formatLocale` は参照できない——`index.ts` を import すると循環になる
-   * （`index.ts` が辞書を読んでいる）。かといって裸の `n.toLocaleString()` にすると
-   * **WebViewの既定ロケール**で整形され、`formatNumber` が出す桁区切りと
-   * **同じ画面で食い違う**（OSが `es-MX` だと `12,345` と `12.345` が並ぶ）。
-   * 呼ぶ側で `formatNumber(n)` を通してから渡すこと。
+   * **枚数は生の `number` で受け取り、辞書の中で `num()` に通す**（2026-09-02）。
+   *
+   * ここは逆だった——整形済みの `string` を渡す規約にしていた。循環参照を避けるためで、
+   * 理屈は合っていたが、**整形済みの文字列からは件数が見えない**ので
+   * `n === 1` の場合分けができず、独語で `Für 1 HEIC/HEIF-Fotos` と出ていた。
+   * **単数形は辞書にしか書けないのに、その材料を取り上げていた。**
+   * 循環参照は `plural.ts` への注入で解いてある（そちらの冒頭に理由）。
    */
-  decoderHeifNotice: (n: string) =>
-    `⚠ HEIC/HEIF ${n}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
+  decoderHeifNotice: (n: number) =>
+    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
   /**
    * macOS。**買わせる話をしない**——入れるものが無いので、次にやることが無い
    * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
    */
-  decoderHeifNoticeMac: (n: string) =>
-    `⚠ HEIC/HEIF ${n}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
   /**
    * それ以外（Linux）。HEICもOSの部品次第なので、**理由は言うが買わせない**
    * ——動画側（`videoCodecNoteOther`）と揃える
    */
-  decoderHeifNoticeOther: (n: string) =>
-    `⚠ HEIC/HEIF ${n}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
   decoderHeifHow: "HEIF 画像拡張機能（無料）",
   decoderHevcHow: "HEVC ビデオ拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
@@ -342,13 +350,13 @@ export const ja = {
     "クラウド上のファイルです（この場では絵を出しません。取り込むとダウンロードされます）",
   wizardHideImported: "取り込み済みを隠す",
   wizardAllImported: "新しい写真はありません（このフォルダはすべて取り込み済みです）",
-  wizardHiddenCount: (n: number) => `取り込み済み${n}枚は隠しています`,
+  wizardHiddenCount: (n: number) => `取り込み済み${num(n)}枚は隠しています`,
   wizardCopying: "取り込み中",
-  wizardEtaSeconds: (n: number) => `残り約${n}秒`,
-  wizardEtaMinutes: (n: number) => `残り約${n}分`,
+  wizardEtaSeconds: (n: number) => `残り約${num(n)}秒`,
+  wizardEtaMinutes: (n: number) => `残り約${num(n)}分`,
   wizardEtaCalculating: "残り時間を見積もっています…",
-  wizardCapped: (n: number) => `${n}+枚`,
-  wizardMoreFiles: (n: number) => `ほか${n}枚（スクロールで表示）`,
+  wizardCapped: (n: number) => `${num(n)}+枚`,
+  wizardMoreFiles: (n: number) => `ほか${num(n)}枚（スクロールで表示）`,
   // ファイル操作
   menuOpen: "開く",
   menuOpenWith: (name: string) => `${name} で開く`,
@@ -361,14 +369,14 @@ export const ja = {
   deleteConfirm: (n: number) =>
     n === 1
       ? "この写真をゴミ箱へ移動しますか？"
-      : `${n}枚の写真をゴミ箱へ移動しますか？`,
-  deleted: (n: number) => `${n}枚をゴミ箱へ移動しました`,
+      : `${num(n)}枚の写真をゴミ箱へ移動しますか？`,
+  deleted: (n: number) => `${num(n)}枚をゴミ箱へ移動しました`,
   // 関所に並べた数より少なかったとき。**黙って減らさない**（ゲート2の指摘）
   deletedSomeLeft: (n: number, left: number) =>
-    `${n}枚をゴミ箱へ移動しました（${left}枚は見つからず残しました）`,
+    `${num(n)}枚をゴミ箱へ移動しました（${num(left)}枚は見つからず残しました）`,
   // 複数選択と一括操作
   selectItem: "選択",
-  selectedCount: (n: number) => `${n}枚を選択中`,
+  selectedCount: (n: number) => `${num(n)}枚を選択中`,
   selectAll: "すべて選択",
   clearSelection: "選択を解除 (Esc)",
   selectDay: "この日をまとめて選ぶ",
@@ -382,22 +390,22 @@ export const ja = {
   moveConfirm: (n: number) =>
     n === 1
       ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。"
-      : `${n}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。`,
+      : `${num(n)}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。`,
   exporting: (done: number, total: number, name: string) =>
-    `書き出し中… ${done}/${total} ${name}`,
+    `書き出し中… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [`${done}枚を書き出しました`];
-    if (skipped > 0) parts.push(`${skipped}枚は同じものが既にありました`);
-    if (failed > 0) parts.push(`${failed}枚は失敗しました`);
-    if (leftBehind > 0) parts.push(`${leftBehind}枚は元を消せませんでした`);
+    const parts = [`${num(done)}枚を書き出しました`];
+    if (skipped > 0) parts.push(`${num(skipped)}枚は同じものが既にありました`);
+    if (failed > 0) parts.push(`${num(failed)}枚は失敗しました`);
+    if (leftBehind > 0) parts.push(`${num(leftBehind)}枚は元を消せませんでした`);
     return parts.join("。");
   },
   bulkPickOn: "選ぶ",
   bulkPickOff: "選ぶのをやめる",
-  bulkPickDone: (n: number) => `${n}枚を選別で選びました`,
-  bulkUnpickDone: (n: number) => `${n}枚の選別の印を外しました`,
-  bulkFavoriteDone: (n: number) => `${n}枚をお気に入りに追加しました`,
-  bulkUnfavoriteDone: (n: number) => `${n}枚のお気に入りを外しました`,
+  bulkPickDone: (n: number) => `${num(n)}枚を選別で選びました`,
+  bulkUnpickDone: (n: number) => `${num(n)}枚の選別の印を外しました`,
+  bulkFavoriteDone: (n: number) => `${num(n)}枚をお気に入りに追加しました`,
+  bulkUnfavoriteDone: (n: number) => `${num(n)}枚のお気に入りを外しました`,
   // 設定
   settings: "設定",
   close: "閉じる",
@@ -442,12 +450,12 @@ export const ja = {
   speedUsn: "USNジャーナル差分: ",
   speedUsnNoChange: "変更ゼロ、フォルダ走査なし",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records}件のログ → ${dirs}フォルダだけ再走査`,
-  speedPruned: (skipped: number) => `枝刈りスキャン: ${skipped}フォルダをスキップ`,
-  speedFull: (total: number) => `フルスキャン（${total}件）`,
+    `${num(records)}件のログ → ${num(dirs)}フォルダだけ再走査`,
+  speedPruned: (skipped: number) => `枝刈りスキャン: ${num(skipped)}フォルダをスキップ`,
+  speedFull: (total: number) => `フルスキャン（${num(total)}件）`,
   speedNoDiff: " ／ 変更なし",
   speedDiff: (added: number, changed: number, removed: number) =>
-    ` ／ 追加${added}・変更${changed}・削除${removed}`,
+    ` ／ 追加${num(added)}・変更${num(changed)}・削除${num(removed)}`,
 };
 
 /** 辞書の形。追加言語はこの型を満たす必要がある（キーの抜けはコンパイルエラー） */
