@@ -23,10 +23,13 @@
   **綴りは辞書のコードと同じとは限らない。** ここは AppKit の言語ID
   （`.lproj` の名前）なので、中国語は書き言葉まで指定する必要がある:
 
-  | この一覧 | 辞書のコード（`ui/src/i18n/index.ts` の `DICTS`） |
-  |---|---|
-  | `zh-Hans` | `zh` |
-  | `zh-Hant` | `zh-hant` |
+      この一覧 → 辞書のコード（`ui/src/i18n/index.ts` の `DICTS`）
+      `zh-Hans` → `zh`
+      `zh-Hant` → `zh-hant`
+
+  **表は書けない。XMLのコメントに `-` を2つ並べられない**ので、
+  Markdownの区切り行（ハイフンを並べる行）を入れると**plistが壊れる**（`plutil -lint` は通すが、
+  `plistlib` も tauri-bundler のパーサも撥ねる。2026-09-01、ゲート1のP1）。
 
   `CFBundleDevelopmentRegion` は tauri-bundler が入れる `English` のままにする。
   どちらの言語でもない利用者が落ちてくる先なので、英語のほうが親切。
