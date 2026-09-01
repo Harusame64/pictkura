@@ -3082,6 +3082,7 @@ version = "0.2.6"
 dependencies = [
  "arboard",
  "chrono",
+ "core-foundation-sys",
  "libc",
  "pictkura-core",
  "serde",

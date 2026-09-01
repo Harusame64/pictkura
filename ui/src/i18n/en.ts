@@ -255,12 +255,12 @@ export const en: Dict = {
   wizardTruncated: (n: number) =>
     `Showing the first ${n} only. Use "Whole folder" to import everything`,
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
-  decoderHeifNotice: (n: number) =>
-    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. They need the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
-  decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either`,
-  decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
+  decoderHeifNotice: (n: string) =>
+    `⚠ ${n} HEIC/HEIF photos have no thumbnail here, and will not open either. They need the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
+  decoderHeifNoticeMac: (n: string) =>
+    `⚠ ${n} HEIC/HEIF photos have no thumbnail here, and will not open either`,
+  decoderHeifNoticeOther: (n: string) =>
+    `⚠ ${n} HEIC/HEIF photos have no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
   decoderHeifHow: "HEIF Image Extensions (free)",
   decoderHevcHow: "HEVC Video Extensions (paid)",
   decoderNoticeDismiss: "Don't show again",

@@ -76,6 +76,20 @@ const osLocales: string[] = (() => {
 })();
 
 /**
+ * **地域書式の設定**（数字の桁区切り・日付の並び・週の始まり）。Rustが置く。
+ *
+ * **上の言語リストとは別の設定**。表示言語と地域を食い違わせている人
+ * ——Windowsで表示は日本語のまま `Set-Culture es-MX` にした場合など——では
+ * 両者が別の値になり、**書式に要るのはこちら**。
+ * 取れないOS（Linux）や古い版では `null`。そのときは言語リストへ倒す。
+ */
+const osRegion: string | null = (() => {
+  const raw = (window as unknown as { __PICTKURA_OS_REGION__?: unknown })
+    .__PICTKURA_OS_REGION__;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+})();
+
+/**
  * 照合に使う優先リスト。**Rustが渡したものを先に見る**（地域が落ちていない）。
  * 後ろに `navigator` を繋いでおくのは、Rustが無い場面でも今までどおり動かすため。
  */
@@ -191,13 +205,18 @@ export const t: Dict = DICTS[locale] ?? en;
  * そのときは今までどおりの挙動になる。
  */
 export const formatLocale: string = (() => {
-  for (const tag of preferredLocales) {
+  // **OSのタグをそのまま使ってはいけない。** `Intl` は言語副タグを見て
+  // **月名・曜日名・数字の字形・暦**まで決める。タイ語のOSで辞書が英語に落ちた人に
+  // `th-TH` を渡すと、英語の画面に `สิงหาคม 2569`（タイ文字＋仏暦）が出る。
+  // アラビア語のOSなら `١٢٬٣٤٥`。**言葉は辞書、地域だけOS**が正しい組み合わせ。
+  for (const tag of [osRegion, ...preferredLocales]) {
+    if (!tag) continue;
     try {
-      // **綴りが壊れていないかだけ見る**。`Intl` は知らない地域でも受け付けるが、
-      // 綴りが不正だと `RangeError` を投げる。ここで例外が飛ぶとi18nを読む画面が
-      // 全部真っ白になるので、投げた候補は飛ばして次を見る
-      new Intl.DateTimeFormat(tag);
-      return tag;
+      const region = new Intl.Locale(tag).region;
+      if (!region) continue;
+      // `Intl.Locale` は綴りが不正だと `RangeError` を投げる。ここで例外が飛ぶと
+      // i18nを読む画面が全部真っ白になるので、投げた候補は飛ばして次を見る
+      return new Intl.Locale(locale, { region }).toString();
     } catch {
       // 次の候補へ
     }
@@ -237,8 +256,14 @@ export const formatMonth = (year: number, month: number) =>
  *
  * `getWeekInfo()` が新しい綴りで、`weekInfo` が古い綴り。**両方見る**——
  * WebViewの実体はWindowsがWebView2、macOSがWKWebViewで、後者はOSの版に縛られる。
- * どちらも無いときは、**いま出している言語の挙動を変えない**側へ倒す
- * （日本語と英語は日曜始まりのままにする）。
+ *
+ * **どちらも無い環境では、地域を見ていても週の始まりは直らない**（ゲート2の指摘）。
+ * 下の最後の行は言語しか見ていないので、`en-GB` は `en` で始まるぶん日曜始まりに倒れる
+ * ——Safari 17 より前の WKWebView がこれに当たる。**それでも表を手書きしない**：
+ * どの地域が日曜始まりかはCLDRのデータで、辞書に持ち込むと**`Intl` に任せるという
+ * この file の方針を崩す**うえ、手で写した時点で古びる。ここは
+ * **いま出している挙動を変えない**側へ倒したまま置く（日本語と英語は日曜始まり）。
+ * 直すなら `Intl` が使える環境かどうかではなく、**データをどこから持つか**の判断が先。
  */
 export const firstWeekday: number = (() => {
   try {

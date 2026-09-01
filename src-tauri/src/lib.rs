@@ -3962,7 +3962,88 @@ fn sync_autoplay_with_config() -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// **地域書式の設定を読む**（数字の桁区切り・日付の並び・週の始まり）。
+///
+/// `sys-locale` が返すのは**表示言語のリスト**（macOSは `CFLocaleCopyPreferredLanguages`、
+/// Windowsは `GetUserPreferredUILanguages`）で、**地域書式はそれとは別の設定**。
+/// 表示言語と地域を食い違わせている人——Windowsで表示は日本語のまま
+/// `Set-Culture es-MX` にした場合など——では両者が別の値になり、
+/// **書式に要るのはこちら**（2026-09-01、dev #18）。
+///
+/// 返すのは `ja-JP` のようなBCP-47。**取れなければ `None`** で、画面側は表示言語へ倒す。
+#[cfg(target_os = "macos")]
+fn os_region_locale() -> Option<String> {
+    use core_foundation_sys::base::{CFRelease, CFTypeRef};
+    use core_foundation_sys::locale::{CFLocaleCopyCurrent, CFLocaleGetIdentifier};
+    use core_foundation_sys::string::{
+        kCFStringEncodingUTF8, CFStringGetCString, CFStringGetLength,
+    };
+
+    // SAFETY: **Copy と Get で所有権の規則が違う**。`CFLocaleCopyCurrent` は Copy 規則で
+    // こちらが `CFRelease` する。`CFLocaleGetIdentifier` は Get 規則で**借りているだけ**
+    // なので解放しない。取り違えると二重解放かリークになる。
+    unsafe {
+        let locale = CFLocaleCopyCurrent();
+        if locale.is_null() {
+            return None;
+        }
+        let id = CFLocaleGetIdentifier(locale);
+        let out = if id.is_null() {
+            None
+        } else {
+            // UTF-8は1文字あたり最大4バイト。終端の分を足す
+            let cap = CFStringGetLength(id) * 4 + 1;
+            let mut buf = vec![0 as std::os::raw::c_char; cap as usize];
+            if CFStringGetCString(id, buf.as_mut_ptr(), cap, kCFStringEncodingUTF8) != 0 {
+                std::ffi::CStr::from_ptr(buf.as_ptr())
+                    .to_str()
+                    .ok()
+                    .map(normalize_locale_tag)
+            } else {
+                None
+            }
+        };
+        CFRelease(locale as CFTypeRef);
+        out
+    }
+}
+
+#[cfg(windows)]
+fn os_region_locale() -> Option<String> {
+    use windows_sys::Win32::Globalization::{GetUserDefaultLocaleName, LOCALE_NAME_MAX_LENGTH};
+
+    let mut buf = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
+    // SAFETY: 長さを渡し、**戻り値が示した分だけ**読む。戻り値は終端のNULを含む文字数
+    let len = unsafe { GetUserDefaultLocaleName(buf.as_mut_ptr(), buf.len() as i32) };
+    if len <= 1 {
+        // 0 は失敗、1 は終端だけ（＝空）
+        return None;
+    }
+    String::from_utf16(&buf[..(len - 1) as usize])
+        .ok()
+        .map(normalize_locale_tag)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn os_region_locale() -> Option<String> {
+    // Linux等。`LC_TIME` / `LC_NUMERIC` を読む手はあるが、綴りが `ja_JP.UTF-8` の系統で
+    // BCP-47へ直す変換が要る。**測ってから足す**（いまは表示言語へ倒す）
+    None
+}
+
+/// OSが返すロケール名をBCP-47へ寄せる。
+///
+/// macOSは `ja_JP` のように下線で、さらに `ja_JP@calendar=japanese` のような
+/// 修飾が付くことがある。**`@` から先は落とす**——BCP-47では
+/// `ja-JP-u-ca-japanese` と綴る別物で、そのまま渡すと `Intl` が受け付けない。
+fn normalize_locale_tag(raw: impl AsRef<str>) -> String {
+    raw.as_ref()
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .replace('_', "-")
+}
+
 /// **OSの言語設定を、地域つきで画面へ渡す。**
 ///
 /// WebViewの `navigator.languages` は地域を落とす。macOSは**OSが `ja-JP` を持っているのに
@@ -3981,12 +4062,16 @@ fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     // **JSは組み立てず、データだけ差し込む**。ロケール名を文字列連結で埋めると、
     // 変な値が来たときに**構文が壊れて画面が真っ白になる**。ここは起動経路なので、
     // 失敗しても「地域が分からない」に留める（`[]` を置いて画面側で従来動作へ倒す）
-    let json = serde_json::to_string(&locales).unwrap_or_else(|_| "[]".to_string());
+    let langs = serde_json::to_string(&locales).unwrap_or_else(|_| "[]".to_string());
+    let region = serde_json::to_string(&os_region_locale()).unwrap_or_else(|_| "null".to_string());
     tauri::plugin::Builder::new("os-locale")
-        .js_init_script(format!("window.__PICTKURA_OS_LOCALES__ = {json};"))
+        .js_init_script(format!(
+            "window.__PICTKURA_OS_LOCALES__ = {langs}; window.__PICTKURA_OS_REGION__ = {region};"
+        ))
         .build()
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // アンインストール前の明示的な解除口。AutoPlayの登録は**実行時にHKCUへ**
     // 書くので、アプリを消してもレジストリには残り、挿すたびに居ないpictkuraを
