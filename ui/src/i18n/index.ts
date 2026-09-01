@@ -22,11 +22,12 @@
 import { ja, type Dict } from "./ja";
 import { en } from "./en";
 import { de } from "./de";
+import { es } from "./es";
 
 export type { Dict };
 
 /** 対応言語。**ここと `LOCALES` の両方**に足すこと（片方だけだと半端になる） */
-const DICTS: Record<string, Dict> = { ja, en, de };
+const DICTS: Record<string, Dict> = { ja, en, de, es };
 
 /**
  * 選択肢に出す言語（コードと、その言語自身での呼び名）。
@@ -38,6 +39,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "ja", label: "日本語" },
   { code: "en", label: "English" },
   { code: "de", label: "Deutsch" },
+  { code: "es", label: "Español" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */

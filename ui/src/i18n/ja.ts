@@ -157,7 +157,7 @@ export const ja = {
   videoFailed: "この動画を再生できませんでした",
   videoOpenExternal: "既定のアプリで開く",
   videoCodecNote:
-    "iPhoneなどの動画はHEVC（H.265）で記録されています。再生にはOSのデコーダが必要で、Windowsでは有料の拡張機能（数百円）になります。",
+    "iPhoneなどの動画はHEVC（H.265）で記録されています。再生にはOSのデコーダが必要で、Windowsでは Microsoft Store の有料の拡張機能（数百円）になります。",
   /**
    * macOS。**買わせる話をしない**——OSがHEVCを最初から再生できる。
    * 見出し（`videoFailed`）と下のボタンが言っていることは繰り返さない
@@ -170,7 +170,7 @@ export const ja = {
    */
   videoCodecNoteOther:
     "この記録方式に対応するデコーダが、この環境に入っていないのかもしれません。",
-  videoCodecHelp: "HEVC拡張機能を見る（有料）",
+  videoCodecHelp: "HEVC ビデオ拡張機能を見る（有料）",
   loading: "読み込み中…",
   exifTitle: "撮影情報",
   exifCamera: "カメラ",
@@ -314,7 +314,7 @@ export const ja = {
     `多すぎるため先頭${n}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
   wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
   decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料のHEIF拡張機能に加え、画素の展開に有料のHEVC拡張機能（数百円）が要ります`,
+    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
   /**
    * macOS。**買わせる話をしない**——入れるものが無いので、次にやることが無い
    * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
@@ -327,8 +327,8 @@ export const ja = {
    */
   decoderHeifNoticeOther: (n: number) =>
     `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
-  decoderHeifHow: "HEIF拡張機能（無料）",
-  decoderHevcHow: "HEVC拡張機能（有料）",
+  decoderHeifHow: "HEIF 画像拡張機能（無料）",
+  decoderHevcHow: "HEVC ビデオ拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
   wizardOfflineTitle:
     "クラウド上のファイルです（この場では絵を出しません。取り込むとダウンロードされます）",
@@ -396,7 +396,7 @@ export const ja = {
   settingsTitle: "設定",
   settingsImportStructure: "取り込み先のフォルダ構成",
   settingsImportStructureNote:
-    "USBから取り込んだ写真を、撮影日でどう振り分けるか。数千枚に効くので後から変えにくい設定です。フォルダ名に日付を入れるときは、言語を問わず年月日の順にします——名前順に並べたときに時系列になるためです。",
+    "USBから取り込んだ写真を、撮影日でどう振り分けるか。数千枚に効くので、後から変えるには相当な手間がかかります。フォルダ名に日付を入れるときは、言語を問わず年月日の順にします——名前順に並べたときに時系列になるためです。",
   settingsDestination: "コピー先",
   settingsDestinationUnset: "（未設定：初回の取り込み時に選びます）",
   settingsFlatExample: "IMG_0001.JPG（振り分けない）",

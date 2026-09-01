@@ -4615,6 +4615,10 @@ export default function App() {
             <div className="add-folder-manual">
               <input
                 type="text"
+                /* **置き字と同じものを `title` にも置く**。サイドバーは220px固定で、
+                   OSの設定次第では古い形のスクロールバーが幅を食う。そのとき
+                   置き字は削られるが、**例そのものは読めなくならない**ようにする */
+                title={t.addFolderPlaceholder}
                 placeholder={t.addFolderPlaceholder}
                 value={folderInput}
                 onChange={(e) => setFolderInput(e.target.value)}

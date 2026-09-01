@@ -136,12 +136,12 @@ export const en: Dict = {
   videoFailed: "Could not play this video",
   videoOpenExternal: "Open in default app",
   videoCodecNote:
-    "Videos from iPhones and similar cameras use HEVC (H.265). Playback needs an OS decoder; on Windows that is a paid extension (a few dollars).",
+    "Videos from iPhones and similar cameras use HEVC (H.265). Playback needs an OS decoder; on Windows that is a paid extension from the Microsoft Store (a few dollars).",
   videoCodecNoteMac:
     "macOS decodes HEVC out of the box, so this is most likely a recording format it does not handle.",
   videoCodecNoteOther:
     "Your system may not have a decoder for this recording format.",
-  videoCodecHelp: "Get the HEVC extension (paid)",
+  videoCodecHelp: "Get the HEVC Video Extensions (paid)",
   loading: "Loading…",
   exifTitle: "Photo info",
   exifCamera: "Camera",
@@ -214,13 +214,13 @@ export const en: Dict = {
   listSeparator: ", ",
   andMore: (n: number) => `and ${n} more`,
   emptyRootIsPackage:
-    "One of the library folders is a Photos app library itself. pictkura does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
+    "One of the library folders is a Photos app library itself. pictkura deliberately does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
   emptyPhotoLibrary:
     "Nothing was found but the Photos app library. pictkura does not read inside Photos by default — most of the originals live in iCloud, not on this Mac. Import from a card, or pick a folder that has photos in it.",
   emptyManagedLibrary:
-    "Nothing was found but photo-manager libraries (Photos, iPhoto or Aperture). pictkura does not read inside one — it would index the contents once and never see them change again. Import from a card, or pick a folder that has photos in it.",
+    "Nothing was found but photo-manager libraries (Photos, iPhoto or Aperture). pictkura deliberately does not read inside one — it would index the contents once and never see them change again. Import from a card, or pick a folder that has photos in it.",
   emptyRootIsManagedLibrary:
-    "One of the library folders is a photo-manager library itself (a Photos, iPhoto or Aperture one). pictkura does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
+    "One of the library folders is a photo-manager library itself (a Photos, iPhoto or Aperture one). pictkura deliberately does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
   emptyAllExcluded: (names: string) =>
     `Everything found is skipped by the exclude patterns (for example ${names}). You can change them in pictkura.toml in the settings folder.`,
   emptyNothingHere:
@@ -256,13 +256,13 @@ export const en: Dict = {
     `Showing the first ${n} only. Use "Whole folder" to import everything`,
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. They need the free HEIF extension plus the paid HEVC extension (a few dollars) that decodes the pixels`,
+    `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. They need the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
   decoderHeifNoticeMac: (n: number) =>
     `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either`,
   decoderHeifNoticeOther: (n: number) =>
     `⚠ ${n.toLocaleString()} HEIC/HEIF photos have no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
-  decoderHeifHow: "HEIF extension (free)",
-  decoderHevcHow: "HEVC extension (paid)",
+  decoderHeifHow: "HEIF Image Extensions (free)",
+  decoderHevcHow: "HEVC Video Extensions (paid)",
   decoderNoticeDismiss: "Don't show again",
   wizardOfflineTitle:
     "This file lives in the cloud (no preview here; importing will download it)",
@@ -333,7 +333,7 @@ export const en: Dict = {
   settingsTitle: "Settings",
   settingsImportStructure: "Import folder structure",
   settingsImportStructureNote:
-    "How imported photos are filed by capture date. This affects thousands of files, so it is hard to change later. Where a folder name carries a date, it is written year-first in every language, so that sorting by name sorts by time.",
+    "How imported photos are filed by capture date. This affects thousands of files, and changing it later takes considerable work. Where a folder name carries a date, it is written year-first in every language, so that sorting by name sorts by time.",
   settingsDestination: "Destination",
   settingsDestinationUnset: "(not set — you'll choose it on the first import)",
   settingsFlatExample: "IMG_0001.JPG (no subfolders)",
