@@ -73,12 +73,57 @@
   --fs-md: 13px;
   --fs-lg: 14px;
   --fs-xl: 16px;
-  --font-ui:
+  /* 日本語の並び。**`:lang(ja)` から引き直すので、名前を付けて1か所に置く**
+     （下の「逆向き」の注記を見ること） */
+  --font-ui-ja:
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "Hiragino Sans",
     "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+  --font-ui: var(--font-ui-ja);
   --easing: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 120ms;
   --dur: 180ms;
+}
+
+/* **漢字は言語で字形が違う。** 上の `--font-ui` のCJKは日本語の書体しか挙げていない
+ * （`Hiragino Sans` / `Yu Gothic UI` / `Noto Sans JP`）ので、中国語の画面では
+ * **1つの単語が2つの書体で組まれる**——`图库文件夹` の `图库` は日本語の書体に無いので
+ * OSの代替（PingFang SC）へ落ち、`文件夹` は在るので日本語の書体で出る。
+ * 繁体字はもっと分かりにくく、**ほぼ全部の字が日本語の書体に在る**ため、
+ * 画面まるごと日本語の字形（`直` `者` `骨` の作りが違う）になる。
+ *
+ * `main.tsx` が `document.documentElement.lang` に辞書のコードを入れているので、
+ * **言語で上書きする**。日本語・英語・独語・西語の見え方は1ピクセルも変わらない。
+ * **`:lang(zh)` は `lang="zh-hant"` にも当たる**（前方一致）ので、繁体字の行を後に置く
+ * ——同じ詳細度なので、あとに書いたほうが勝つ。**順番を入れ替えないこと。**
+ *
+ * **`:root` に固定しない**——言語の選択肢（`Settings.tsx`）のように、
+ * 日本語の画面の中に中国語のラベルが1つだけ出る場所があり、そこは要素側の
+ * `lang` で拾う必要がある。`:root` を付けると要素には効かない。
+ * 詳細度は `:root` と同じ (0,1,0) だが、**あとに書いてあるので勝つ**。
+ * ただし**ここで値を差し替えるだけでは何も起きない**——`var(--font-ui)` を読む宣言が
+ * その要素に要る（`body` の1行は `body` でしか置換しない）。選択肢の側は
+ * `App.css` の `.settings-select option` が読んでいる。2026-09-02、ゲート2の指摘。
+ *
+ * 言語を足すときの4か所目（`ui/src/i18n/index.ts` の方針・`Info.plist` に続く）。
+ * 中国語以外の字はどれも上と同じ並びなので、ラテン文字の見え方は揃ったまま。 */
+:lang(zh) {
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+}
+:lang(zh-hant) {
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang TC",
+    "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", system-ui,
+    sans-serif;
+}
+/* **逆向きも要る**（2026-09-02、ゲート2の指摘）。上の2つは中国語へ寄せるだけなので、
+   **中国語の画面に出る日本語のラベル**——言語の選択肢の `日本語`——は中国語の並びを
+   継承したままで、`日本語` が PingFang の字形で組まれる。`简体中文` が日本語の画面で
+   割れていたのと同じことが、鏡写しに起きる。ここで日本語の並びへ引き戻す。
+   英・独・西は上の並びとラテン文字の部分が同じなので、`:lang()` を足す必要は無い。 */
+:lang(ja) {
+  --font-ui: var(--font-ui-ja);
 }
 
 /* ダークのセマンティック定義。OS追従（既定）と明示指定の両方で同じ値を使う。

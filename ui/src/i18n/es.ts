@@ -34,7 +34,10 @@
  * - **OSの用語は引いてくる**。`Papelera`（ゴミ箱）・`Ctrl`・`Mayús`（Shift）・
  *   `Espacio`・`Reproducción automática`（Windowsの自動再生）・
  *   `Ajustes del Sistema → Privacidad y seguridad`（macOS）・
- *   Microsoft Store の `Extensiones de imagen HEIF` / `Extensiones de vídeo HEVC`
+ *   Microsoft Store の `Extensiones de imagen HEIF` / `Extensiones de vídeo HEVC`。
+ *   **製品名に冠詞を付けない**（`de Microsoft Store`。`del` ではない）——
+ *   Microsoft自身の西語が「Obtener aplicaciones de Microsoft Store」と書いている
+ *   （2026-09-01、遡ってゲート1を回して見つけた）
  * - **金額は€に直す**（HEVCは実際 0,99 €）。英語辞書が `数百円` を
  *   "a few dollars" にしているのと同じ扱いで、直訳しない
  * - **引用符は « »、`100 %` は数字と%の間を空ける**（RAEの書き方）。
@@ -196,7 +199,7 @@ export const es: Dict = {
   videoFailed: "No se ha podido reproducir este vídeo",
   videoOpenExternal: "Abrir en la aplicación predeterminada",
   videoCodecNote:
-    "Los vídeos de los iPhone y de cámaras parecidas usan HEVC (H.265). Para reproducirlos, el sistema necesita un descodificador; en Windows es una extensión de pago del Microsoft Store (unos pocos euros).",
+    "Los vídeos de los iPhone y de cámaras parecidas usan HEVC (H.265). Para reproducirlos, el sistema necesita un descodificador; en Windows es una extensión de pago de Microsoft Store (unos pocos euros).",
   videoCodecNoteMac:
     "macOS descodifica HEVC de serie, así que lo más probable es que sea un formato de grabación que no sabe manejar.",
   videoCodecNoteOther:

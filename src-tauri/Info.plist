@@ -9,14 +9,27 @@
 
   **OSが出すダイアログを、利用者の言語で出させる。** 「保存先を選ぶ」
   「フォルダを選ぶ」「削除しますか」の枠は AppKit のもので、アプリの辞書
-  （`ui/src/i18n.ts`）は届かない。どの言語で出すかは **AppKit が
+  （`ui/src/i18n/`）は届かない。どの言語で出すかは **AppKit が
   `CFBundleLocalizations` を見て決める**——書かないと英語のみのアプリと
   みなされ、日本語のMacでも `Save As / Where / Cancel` が英語で出る。
   こちらが渡した表題だけが日本語で、枠が英語という混ざり方になる
   （2026-08-31に実機で確認）。
 
-  **並びは `ui/src/i18n.ts` の辞書と揃える。** 言語を足すときは両方に足すこと
+  **並びは `ui/src/i18n/` の辞書と揃える。** 言語を足すときは両方に足すこと
   ——ここだけ足しても画面は英語のまま、辞書だけ足すと枠が英語のまま残る。
+  **独語・西語の辞書（#94 / #95）はここを足し忘れていた**ので、
+  簡体字中国語と一緒に入れた（2026-09-01。繁体字はそのあと足したので、いまは6つ）。
+
+  **綴りは辞書のコードと同じとは限らない。** ここは AppKit の言語ID
+  （`.lproj` の名前）なので、中国語は書き言葉まで指定する必要がある:
+
+      この一覧 → 辞書のコード（`ui/src/i18n/index.ts` の `DICTS`）
+      `zh-Hans` → `zh`
+      `zh-Hant` → `zh-hant`
+
+  **表は書けない。XMLのコメントに `-` を2つ並べられない**ので、
+  Markdownの区切り行（ハイフンを並べる行）を入れると**plistが壊れる**（`plutil -lint` は通すが、
+  `plistlib` も tauri-bundler のパーサも撥ねる。2026-09-01、ゲート1のP1）。
 
   `CFBundleDevelopmentRegion` は tauri-bundler が入れる `English` のままにする。
   どちらの言語でもない利用者が落ちてくる先なので、英語のほうが親切。
@@ -27,6 +40,10 @@
   <array>
     <string>ja</string>
     <string>en</string>
+    <string>de</string>
+    <string>es</string>
+    <string>zh-Hans</string>
+    <string>zh-Hant</string>
   </array>
 </dict>
 </plist>

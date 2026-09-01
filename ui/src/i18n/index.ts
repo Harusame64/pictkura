@@ -14,6 +14,12 @@
  *   ja 以外なら英語版を先に探すので、`docs/manual.<言語>.html` が無くても
  *   説明書ボタンは英語版を開く（404にも死んだボタンにもならない）。
  *   置けば配布物にはグロブで入る（CIが「リポジトリにある分が全部入っているか」を見る）。
+ * - **字形が日本語と違う言語は `tokens.css` の `--font-ui` も足す**（`:lang()` で上書き）。
+ *   既定の並びは日本語の書体しか挙げていないので、中国語は**1つの単語が2書体**で組まれる。
+ * - **macOSは `src-tauri/Info.plist` にも足す**（`CFBundleLocalizations`）。
+ *   保存・フォルダ選択・削除確認の枠は AppKit のもので、この辞書は届かない。
+ *   辞書だけ足すと**枠だけ英語**のままになる。綴りは AppKit の言語IDなので
+ *   辞書のコードと同じとは限らない（`zh` → `zh-Hans`、`zh-hant` → `zh-Hant`）。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
  * - **言葉のコードと書式のコードは別**（`locale` と `formatLocale`）。辞書は
  *   地域を落として選ぶが（`es-MX` → `es`）、**その丸めを書式に持ち込まない**。
@@ -27,11 +33,13 @@ import { ja, type Dict } from "./ja";
 import { en } from "./en";
 import { de } from "./de";
 import { es } from "./es";
+import { zh } from "./zh";
+import { zhHant } from "./zh-hant";
 
 export type { Dict };
 
 /** 対応言語。**ここと `LOCALES` の両方**に足すこと（片方だけだと半端になる） */
-const DICTS: Record<string, Dict> = { ja, en, de, es };
+const DICTS: Record<string, Dict> = { ja, en, de, es, zh, "zh-hant": zhHant };
 
 /**
  * 選択肢に出す言語（コードと、その言語自身での呼び名）。
@@ -44,6 +52,8 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "en", label: "English" },
   { code: "de", label: "Deutsch" },
   { code: "es", label: "Español" },
+  { code: "zh", label: "简体中文" },
+  { code: "zh-hant", label: "繁體中文" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */
@@ -145,12 +155,58 @@ function pickLocale(): string {
   const chosen = readStored();
   if (chosen && hasDict(chosen)) return chosen;
   for (const tag of preferredLocales) {
-    // "ja-JP" → "ja" のように地域を落として照合する
-    const base = tag.toLowerCase().split("-")[0];
-    if (DICTS[tag.toLowerCase()]) return tag.toLowerCase();
-    if (DICTS[base]) return base;
+    // **後ろから1つずつ短くして探す**——`zh-Hant-TW` → `zh-hant` → `zh`、
+    // `ja-JP` → `ja`。地域を落とすだけだと**真ん中の副タグを飛ばす**ので、
+    // `zh-hant.ts` を足しても `zh-Hant-TW` の人には当たらない
+    const parts = tag.toLowerCase().split("-");
+    // **広東語は繁体字の辞書で読める**（2026-09-01、ゲート2の指摘）。macOSの表示言語を
+    // 粵語にすると `yue-Hant-HK` が来るが、`yue` の辞書は無いので**英語まで落ちていた**。
+    // 香港・マカオの書き言葉は繁体字の中国語なので、`zh` として扱えば `zh-hant` に当たる
+    // （話し言葉としては別の言語だが、**この辞書が担うのは書き言葉**）
+    // **裸の `yue` も繁体字へ**（4巡目の指摘）。`zh` に置き換えるだけだと、
+    // 地域が落ちたタグ（`navigator.languages` は地域を落とす。上の注記）で
+    // **簡体字**に着く。CLDRの既定も `yue` → `yue-Hant-HK`
+    if (parts[0] === "yue") {
+      parts[0] = "zh";
+      if (!parts.includes("hans") && !parts.includes("hant")) parts.splice(1, 0, "hant");
+    }
+    // **書き言葉を省いたタグに補う**（`zh-TW` → `zh-hant-tw`）。台湾・香港・
+    // マカオのOSは `zh-Hant` を省いて渡してくることがあり、そのままだと
+    // `zh-hant` の辞書に当たらずに `zh`（簡体字）まで落ちてしまう
+    if (parts[0] === "zh" && !parts.includes("hant") && isTraditionalChinese(parts))
+      parts.splice(1, 0, "hant");
+    for (let n = parts.length; n > 0; n--) {
+      const code = parts.slice(0, n).join("-");
+      // **繁体字を簡体字の辞書へ落とさない**（2026-09-01、両ゲートの指摘）。
+      // **いまは `zh-hant.ts` があるので、ここまで来ない**——上の補完で `hant` が
+      // 2番目に入り、`zh-hant` で当たって返る。残してあるのは
+      // **繁体字の辞書が無くなったときの受け皿**で、そのときは英語へ落ちる。
+      // 簡体字を出すよりましだから、ではない: 本文が簡体字・曜日が繁体字
+      // （`formatLocale` は `zh-Hant-TW` のまま）・OSのダイアログが英語と、
+      // **1画面が3つの書き言葉に割れる**
+      if (code === "zh" && isTraditionalChinese(parts)) break;
+      if (hasDict(code)) return code;
+    }
   }
   return "en";
+}
+
+/**
+ * その言語タグが繁体字か。
+ *
+ * **書き言葉が書いてあればそれに従い、地域は書いていないときだけ見る**
+ * （ゲート1の指摘）。順番を逆にすると **`zh-Hans-HK` / `zh-Hans-MO`**
+ * ——香港・マカオで簡体字を選んでいる人——が地域だけで繁体字と判定され、
+ * `zh` の辞書を飛ばして**英語まで落ちる**。`Hans` と書いてあるのだから、
+ * 地域から推し量る必要はない。
+ *
+ * 地域を見るのは `zh-TW` / `zh-HK` のように書き言葉が省かれたときだけ。
+ * **CLDRの表を写しているのではない**——繁体字の地域は3つで尽きていて増減しない。
+ */
+function isTraditionalChinese(parts: string[]): boolean {
+  if (parts.includes("hans")) return false;
+  if (parts.includes("hant")) return true;
+  return parts.some((p) => p === "tw" || p === "hk" || p === "mo");
 }
 
 /** 現在の言語コード（"ja" / "en" …） */
@@ -188,6 +244,22 @@ export function setLocaleChoice(code: string | null): boolean {
 export const t: Dict = DICTS[locale] ?? en;
 
 /**
+ * **書式の土台。辞書のコードに書き言葉が無いときは補う**（2026-09-01、ゲート1の指摘）。
+ *
+ * 辞書の `zh` は書き言葉を省いた綴りなので、`Intl.Locale("zh", { region: "TW" })` は
+ * **`zh-TW`** になり、`Intl` はそれを**繁体字と解釈する**。実測:
+ *
+ * ```
+ * zh-TW      → 週日   （繁体字）
+ * zh-Hans-TW → 周日   （簡体字）
+ * ```
+ *
+ * つまり**簡体字を選んでいる台湾・香港の人の画面で、曜日だけ繁体字**になっていた。
+ * `pickLocale()` が `Hans` を尊重するようにしたのと同じ穴が、書式側に残っていた。
+ */
+const formatBase = locale === "zh" ? "zh-Hans" : locale;
+
+/**
  * **書式に使うロケール。辞書のコード（`locale`）とは別物。**
  *
  * `locale` は**辞書を選ぶために地域を落とした**コード（`es-MX` → `es`）。
@@ -216,12 +288,12 @@ export const formatLocale: string = (() => {
       if (!region) continue;
       // `Intl.Locale` は綴りが不正だと `RangeError` を投げる。ここで例外が飛ぶと
       // i18nを読む画面が全部真っ白になるので、投げた候補は飛ばして次を見る
-      return new Intl.Locale(locale, { region }).toString();
+      return new Intl.Locale(formatBase, { region }).toString();
     } catch {
       // 次の候補へ
     }
   }
-  return locale;
+  return formatBase;
 })();
 
 /** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
@@ -277,7 +349,21 @@ export const firstWeekday: number = (() => {
   } catch {
     // Intl.Locale が無い・ロケール名を受け付けない。下のフォールバックへ
   }
-  return formatLocale.startsWith("ja") || formatLocale.startsWith("en") ? 0 : 1;
+  // **繁体字は日曜始まり**（2026-09-01、ゲート2の指摘を実測して確かめた）。
+  // `Intl` の `firstDay`: `zh-Hant-TW` = 7・`zh-HK` = 7（日曜）／**`zh-CN` = 1（月曜）**
+  // ——ゲート2は「中国も日曜」と書いていたが、CLDRはそうなっていない。
+  // **だから `zh` でひとまとめにしない。** 繁体字を足す前は、台湾の人は英語の辞書へ
+  // 落ちて `en-TW` になり、ここで日曜が出ていた。書き言葉を足した拍子に
+  // **月曜へ変わってしまう**のを止めるのがこの1語（この節が効くのは
+  // `getWeekInfo` を持たない古いWKWebViewだけ）。
+  // **残る食い違いは受け入れる**——簡体字の辞書のまま**香港・シンガポール・台湾**に
+  // 居る人（`zh-Hans-HK` / `zh-SG` / `zh-Hans-TW`）は `Intl` なら日曜、ここでは月曜。
+  // `en-GB` と同じ粗さで、**地域の表を持ち込まない**というこの節の方針のほうを優先する
+  // （直すなら「どの地域が日曜か」をCLDRから写すことになり、写した時点で古びる）
+  const tag = formatLocale.toLowerCase();
+  return tag.startsWith("ja") || tag.startsWith("en") || tag.startsWith("zh-hant")
+    ? 0
+    : 1;
 })();
 
 /**
