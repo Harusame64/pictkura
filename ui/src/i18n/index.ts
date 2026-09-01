@@ -1,0 +1,217 @@
+/**
+ * UI文字列の多言語対応。
+ *
+ * 方針:
+ * - ランタイムを増やさない（i18nライブラリを入れない）。辞書は素のオブジェクトで、
+ *   バンドルに乗るのは選ばれた言語ではなく全言語だが、UI文字列は数KBなので
+ *   起動時間には響かない（＝分割ロードの複雑さを買う理由がない）。
+ * - **辞書は言語ごとに1ファイル**（`ja.ts` / `en.ts` …）。言語の追加は
+ *   **ファイルを1つ足し、このファイルの `DICTS` と `LOCALES` に1行ずつ**。
+ *   キーの型は `ja.ts` から導出しているので、抜けても余ってもコンパイルエラーになる。
+ *   **`LOCALES` への追加を忘れると、OSの言語がそれだったときは出るのに
+ *   設定からは選べない**という半端な状態になる。
+ * - **取扱説明書は前提条件ではない**。`Settings.tsx` の `manualDoc` は
+ *   ja 以外なら英語版を先に探すので、`docs/manual.<言語>.html` が無くても
+ *   説明書ボタンは英語版を開く（404にも死んだボタンにもならない）。
+ *   置けば配布物にはグロブで入る（CIが「リポジトリにある分が全部入っているか」を見る）。
+ * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
+ * - 話者数の多い言語を優先。RTL（アラビア語等）はレイアウトの論理プロパティ化が
+ *   済んでから追加する。
+ */
+
+import { ja, type Dict } from "./ja";
+import { en } from "./en";
+
+export type { Dict };
+
+/** 対応言語。**ここと `LOCALES` の両方**に足すこと（片方だけだと半端になる） */
+const DICTS: Record<string, Dict> = { ja, en };
+
+/**
+ * 選択肢に出す言語（コードと、その言語自身での呼び名）。
+ *
+ * **呼び名はその言語で書く**。英語しか読めない画面になってしまった人が
+ * 日本語へ戻れるように、「日本語」は日本語のまま出す（"Japanese" にしない）。
+ */
+export const LOCALES: { code: string; label: string }[] = [
+  { code: "ja", label: "日本語" },
+  { code: "en", label: "English" },
+];
+
+/** 言語の指定を置く場所（テーマと同じくlocalStorage） */
+const LOCALE_KEY = "pictkura.locale";
+
+/**
+ * その言語コードの辞書を持っているか。
+ *
+ * **`DICTS[code]` で判定してはいけない**。`DICTS` は素のオブジェクトなので
+ * `"constructor"` や `"toString"` が真になり、辞書のつもりで**関数**を掴む。
+ * そうなると画面じゅうが `undefined` になる（localStorageを直に書き換えた場合に届く）。
+ *
+ * `Object.hasOwn` はES2022なので、この設定（ES2021）では使えない。
+ */
+const hasDict = (code: string) =>
+  Object.prototype.hasOwnProperty.call(DICTS, code);
+
+/**
+ * localStorageの読み書き。**失敗しても落とさない**。
+ *
+ * `locale` はモジュールを読んだ時点で決まるので、ここで例外が飛ぶと
+ * i18nを読み込む画面すべてが真っ白になる。言語の指定は無くても既定で動く類の
+ * 情報なので、読めない・書けないときは黙って諦める。
+ */
+function readStored(): string | null {
+  try {
+    return localStorage.getItem(LOCALE_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeStored(code: string | null): boolean {
+  try {
+    if (code === null) localStorage.removeItem(LOCALE_KEY);
+    else localStorage.setItem(LOCALE_KEY, code);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 表示に使う言語コードを決める。
+ *
+ * **設定で選んだ言語 → OSの優先言語 → 英語** の順。設定を先に見るのは、
+ * OSが日本語でも英語で使いたい人がいるため（説明書のスクリーンショットを
+ * 撮るときにも要る）。
+ */
+function pickLocale(): string {
+  const chosen = readStored();
+  if (chosen && hasDict(chosen)) return chosen;
+  for (const tag of navigator.languages ?? [navigator.language]) {
+    // "ja-JP" → "ja" のように地域を落として照合する
+    const base = tag.toLowerCase().split("-")[0];
+    if (DICTS[tag.toLowerCase()]) return tag.toLowerCase();
+    if (DICTS[base]) return base;
+  }
+  return "en";
+}
+
+/** 現在の言語コード（"ja" / "en" …） */
+export const locale = pickLocale();
+
+/** 設定で選ばれている言語（未指定なら `null` ＝ OSに合わせる） */
+export function readLocaleChoice(): string | null {
+  const chosen = readStored();
+  return chosen && hasDict(chosen) ? chosen : null;
+}
+
+/**
+ * 言語を切り替える。`null` を渡すとOSの優先言語に戻る。
+ *
+ * **画面を読み込み直す**のが要点。辞書 `t` はモジュールを読んだ時点で
+ * 決まる定数で、画面のあちこちが直接それを読んでいる。差し替えて回るより、
+ * 読み直したほうが取りこぼしが無い（ローカルのWebViewなので一瞬で、
+ * 表示中の内容はバックエンドから引き直される）。
+ *
+ * **切り替わったかを返す**。保存できなければ言語は変わらないので、
+ * 呼び出し側が「その言語になっている」と表示してしまわないようにする。
+ * 保存が効かない状態でメモリ上だけ切り替えても、読み込み直した先で
+ * 元に戻るだけで、かえって分からなくなる。
+ */
+export function setLocaleChoice(code: string | null): boolean {
+  if (code !== null && !hasDict(code)) return false;
+  if (!writeStored(code)) return false;
+  // **書いたあとで決め直す**。「OSに合わせる」を選んだ結果いまと同じ言語に
+  // なることもあるので、指定そのものではなく**結果**を見て判断する
+  if (pickLocale() !== locale) location.reload();
+  return true;
+}
+
+/** 現在の辞書。`t.searchPlaceholder` のように使う */
+export const t: Dict = DICTS[locale] ?? en;
+
+/** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
+export const formatDateTime = (ms: number) =>
+  new Date(ms).toLocaleString(locale);
+
+/** day_key（YYYYMMDD整数）を、その言語の日付表記にする */
+export const formatDayKey = (dayKey: number) => {
+  const y = Math.floor(dayKey / 10000);
+  const m = Math.floor(dayKey / 100) % 100;
+  const d = dayKey % 100;
+  return new Date(y, m - 1, d).toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+/** 「2026年8月」等の月見出し */
+export const formatMonth = (year: number, month: number) =>
+  new Date(year, month - 1, 1).toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+  });
+
+/**
+ * 週の始まり（`Date.getDay()` と同じ 0=日曜 … 6=土曜）。
+ *
+ * **辞書に持たない**——曜日名と同じく `Intl` から取る（辞書の冒頭の方針どおり）。
+ * 日曜始まりは日本・北米などの習慣で、**ヨーロッパのほとんどとISO 8601は月曜始まり**。
+ * ここを固定したままドイツ語だけ足すと、訳は正しいのに**カレンダーが外国のもの**に見える。
+ *
+ * `getWeekInfo()` が新しい綴りで、`weekInfo` が古い綴り。**両方見る**——
+ * WebViewの実体はWindowsがWebView2、macOSがWKWebViewで、後者はOSの版に縛られる。
+ * どちらも無いときは、**いま出している言語の挙動を変えない**側へ倒す
+ * （日本語と英語は日曜始まりのままにする）。
+ */
+export const firstWeekday: number = (() => {
+  try {
+    const l = new Intl.Locale(locale) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+    // ISO の 1=月曜 … 7=日曜。`% 7` で 0=日曜 … 6=土曜へ移す
+    const firstDay = (l.getWeekInfo?.() ?? l.weekInfo)?.firstDay;
+    if (typeof firstDay === "number") return firstDay % 7;
+  } catch {
+    // Intl.Locale が無い・ロケール名を受け付けない。下のフォールバックへ
+  }
+  return locale.startsWith("ja") || locale.startsWith("en") ? 0 : 1;
+})();
+
+/**
+ * 曜日の見出し7つ。**週の始まりから並べる**ので、先頭が日曜とは限らない。
+ *
+ * 基準日には**日曜だと分かっている実在の日付**（2024-01-07）を使い、
+ * 書式化も `UTC` で固定する。ローカル時刻のままだと、負のオフセットの地域で
+ * **1日ずれた曜日名が出る**。
+ */
+export const weekdayLabels: string[] = (() => {
+  const fmt = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+  // 2024-01-07 は日曜。そこから firstWeekday ぶんずらして7日ぶん
+  return Array.from({ length: 7 }, (_, i) =>
+    fmt.format(new Date(Date.UTC(2024, 0, 7 + ((firstWeekday + i) % 7)))),
+  );
+})();
+
+/**
+ * 動画の長さ（ミリ秒）を `0:12` / `1:02:03` にする（第9部）。
+ *
+ * Intlの `DurationFormat` は「1時間2分3秒」のように綴るので一覧のバッジには
+ * 長すぎる。時計表記はどの言語でも同じ形なので、辞書にも入れない。
+ */
+export const formatDuration = (ms: number) => {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+};
+
+/** 件数などの数値（桁区切りをロケールに合わせる） */
+export const formatNumber = (n: number) => n.toLocaleString(locale);
