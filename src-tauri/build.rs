@@ -62,33 +62,50 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     if target_os == "windows" && target_env == "gnu" {
-        // **The branch is the target's, but the filename is the host's.** `embed-resource`
-        // is a build-dependency, so it is compiled for the machine doing the building and
-        // its `cfg`s answer for that machine: a windows-gnu host writes `libresource.a`
-        // (`windows_not_msvc.rs:54`), a windows-msvc host writes `resource.lib`
-        // (`windows_msvc.rs:32`), and so does a macOS/Linux host cross-compiling with mingw
-        // (`non_windows.rs:31`). Looking for one spelling only would warn and do nothing on
-        // an msvc machine running `cargo test --target x86_64-pc-windows-gnu` -- the
-        // toolchain the note above tells people to prefer -- and on the cross-compile this
-        // workaround was widened to cover in the first place (gate 2). Either spelling is
-        // linkable: `embed-resource` hands the same path to `cargo:rustc-link-arg-bins=`
-        // whatever the host (`lib.rs:443`).
+        // **The branch is the target's, but the filename -- and what is inside it -- is the
+        // host's.** `embed-resource` is a build-dependency, so it is compiled for the machine
+        // doing the building and its `cfg`s answer for that machine (`lib.rs:146-151`):
+        //
+        // - windows-gnu host -> `libresource.a` (`windows_not_msvc.rs:54`), a COFF object.
+        //   This is the path measured working on Windows 11.
+        // - non-windows host cross-compiling with mingw -> `resource.lib`
+        //   (`non_windows.rs:31`), also COFF: that backend drives `windres` with
+        //   `--output-format=coff` (`lib.rs:743`). Linkable by the same GNU `ld`.
+        // - windows-msvc host -> `resource.lib` (`windows_msvc.rs:32`), but that one is
+        //   `rc.exe /fo` output, a raw `.res` blob. **GNU `ld` has no `.res` reader**, so
+        //   handing it over would turn a test that dies at 0xc0000139 into a link error.
+        //   Nothing here can save that combination -- `tauri-build`'s own
+        //   `rustc-link-arg-bins` feeds the same `.res` to the same linker -- so this warns
+        //   instead, and `rustup default stable-msvc` remains the answer (gate 2, round 2).
+        //
+        // So ask the host for the spelling. `cfg!(windows)` is the right question *here*,
+        // unlike the branch above: it is the build machine that decides.
         //
         // `OUT_DIR` as an `OsString` so the `exists()` check is right on any path (the emit
         // below is still lossy -- cargo's build-script protocol is UTF-8 lines)
-        let resource = std::env::var_os("OUT_DIR").and_then(|out| {
-            let dir = std::path::Path::new(&out).to_path_buf();
-            ["libresource.a", "resource.lib"]
-                .into_iter()
-                .map(|name| dir.join(name))
-                .find(|path| path.exists())
-        });
+        let name = if cfg!(windows) {
+            "libresource.a"
+        } else {
+            "resource.lib"
+        };
+        let resource = std::env::var_os("OUT_DIR")
+            .map(|out| std::path::Path::new(&out).join(name))
+            .filter(|path| path.exists());
         match resource {
+            // **Unscoped on purpose, for now.** `rustc-link-arg` reaches every target of
+            // this crate, so a hand-run `cargo tauri build` on a gnu-default machine also
+            // ships the duplicated icon/VERSIONINFO and the third manifest described above.
+            // `cargo:rustc-link-arg-tests` would narrow it to the harnesses and leave the
+            // exe untouched, which is the better shape -- but **the only evidence this
+            // workaround works at all is a run on the real Windows machine** (487 tests,
+            // Windows 11 26200), CI never builds a gnu target, and nothing here would catch
+            // the narrower spelling silently not applying to the lib's unit-test harness.
+            // Swap it only after checking it there (gate 2, round 2).
             Some(path) => println!("cargo:rustc-link-arg={}", path.display()),
-            // **Say it out loud rather than skip quietly.** Both spellings are
-            // tauri-build's own filenames, not a documented contract; if they are renamed
-            // or stop being written, this branch does nothing and the harness goes back to
-            // dying before `main`. Nothing else would catch that — the tests are the only check there is,
+            // **Say it out loud rather than skip quietly.** These are tauri-build's own
+            // filenames, not a documented contract; if they are renamed or stop being
+            // written, this branch does nothing and the harness goes back to dying before
+            // `main`. Nothing else would catch that — the tests are the only check there is,
             // and CI never builds for a gnu target, so it stays green while the developer in
             // front of it gets an exit code and no explanation. A warning is that
             // explanation. Panicking here is not an option (`unwrap`/`expect` are denied)
@@ -100,10 +117,11 @@ fn main() {
             // 0xc0000139 with no clue. Reading the resource to check would mean parsing it;
             // the exit code is the signal there.
             None => println!(
-                "cargo:warning=windows-gnu: tauri-build's compiled resource (libresource.a or \
-                 resource.lib in OUT_DIR) was not found, so the Common-Controls manifest is \
-                 not linked in. `cargo test -p pictkura --lib` will exit 0xc0000139 before it \
-                 runs a single test."
+                "cargo:warning=windows-gnu: tauri-build's compiled resource was not found in \
+                 OUT_DIR, so the Common-Controls manifest is not linked in. `cargo test -p \
+                 pictkura --lib` will exit 0xc0000139 before it runs a single test. On an \
+                 msvc host this is expected: its resource is a .res blob that GNU ld cannot \
+                 read. Build with an msvc target instead."
             ),
         }
     }
