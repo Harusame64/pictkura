@@ -21,6 +21,13 @@
  *   ⚑ も複数選択も `Auswahl` で、同じ画面に2つの意味が並ぶ。西語は
  *   **⚑＝`indicador` 系、複数選択＝`selección` / `seleccionadas` 系**で
  *   最後まで衝突しない。**⚑側に `selección` を使わないこと**（戻すと衝突が復活する）
+ * - **ただし ⚑ と ✕ の両方に出る文字列には `indicador` を使わない**。
+ *   `judgeUnflag` は `flashViewer(on ? "reject" : "unflag")`（`App.tsx`）から
+ *   **✕を取り消したときにも出る**ので、⚑限定の語だと「付いていない⚑を外した」と
+ *   言うことになる。ここと `U` のショートカット行は**両方を覆う `marca`** にしてある
+ *   （日英独が `判定` / `judgement` / `Markierung` と中立語なのと同じ理由）。
+ *   `indicador` を使ってよいのは ⚑ だけを指す場所——`viewerUnpick` や
+ *   `bulkPickOff` のように、⚑の釦そのものに付く文字列に限る
  * - **アプリの蔵書は `biblioteca`、写真アプリの蔵書は `fototeca`**。
  *   `fototeca` はmacOS自身の語で、独語の `Bibliothek` / `Mediathek` と同じ分け方。
  *   「ライブラリフォルダ」と「Fotosのライブラリ」が別物だと語だけで分かる
@@ -84,7 +91,7 @@ export const es: Dict = {
         ["← / →", "Foto anterior / siguiente"],
         ["P", "Marcarla con un indicador (⚑). De forma predeterminada pasa a la foto siguiente"],
         ["X", "Marcarla como rechazada (✕). Las rechazadas van a la papelera al cerrar"],
-        ["U", "Quitar el indicador de esta foto (⚑ y ✕)"],
+        ["U", "Quitar la marca de esta foto (⚑ y ✕)"],
         ["Ctrl+C / ⌘C", "Copiar al portapapeles la imagen que hay en pantalla"],
         ["Ctrl+S / ⌘S", "Guardar en un archivo la imagen que hay en pantalla"],
         ["F", "Poner o quitar favorita (★)"],
@@ -128,7 +135,7 @@ export const es: Dict = {
   judgeFav: "Favorita",
   judgeUnfav: "Favorita quitada",
   judgePick: "Con indicador",
-  judgeUnflag: "Indicador quitado",
+  judgeUnflag: "Marca quitada",
   viewerReject: "Marcar como rechazada (X)",
   viewerRejected: "Rechazada",
   rejectChip: (n: number) => `✕ ${n}`,

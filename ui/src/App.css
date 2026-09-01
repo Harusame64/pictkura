@@ -335,11 +335,15 @@ body {
   padding: 1px 6px;
 }
 
+/* 左右は `--sp-1`。ここを `--sp-2` にすると、下の手入力欄の文字領域が
+   169px まで落ちる——独語の `z. B. /Users/benutzer/Pictures` が実測 168px なので、
+   **余白が1px を切る**（2026-09-01、ゲート2の指摘で実測）。8px 戻して 177px にする。
+   「参照…」釦も入力欄も幅いっぱいなので、詰めても両者の左右は揃ったまま */
 .add-folder {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
+  padding: var(--sp-1);
 }
 /* 「参照…」を主動線にする（フォルダ選択ダイアログを開く）。手入力は下に控えとして残す */
 .add-folder .browse-folder {
