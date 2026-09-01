@@ -101,4 +101,20 @@
     <lastmod>2026-08-29</lastmod>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/ja/code-signing.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/code-signing.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/code-signing.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-09-01</lastmod>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/code-signing.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/code-signing.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/code-signing.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-09-01</lastmod>
+    <priority>0.5</priority>
+  </url>
 </urlset>

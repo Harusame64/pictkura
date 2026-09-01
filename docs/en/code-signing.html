@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing, and how to verify a download | pictkura</title>
+<meta name="description" content="Who builds the pictkura downloads and from what source, what their signing status is, and how to check that the file you have is the file that was published.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/en/code-signing.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/code-signing.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/code-signing.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Signing, and how to verify a download | pictkura">
+<meta property="og:description" content="Who builds the downloads, and how to check that the file you have is the file that was published.">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/en/code-signing.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/nav.js"></script>
+</head>
+<body lang="en">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" id="site-nav" aria-label="Site">
+    <a href="install.html">Install</a>
+    <a href="spec.html">Specification</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="about.html">About</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+    <span class="lang"><a href="../ja/code-signing.html" hreflang="ja">JA</a> / EN</span>
+  </nav>
+  <div class="bar-end">
+    <a href="download.html" class="btn btn-sm">Download</a>
+    <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">
+      <svg class="i-open" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7.5h16M4 12h16M4 16.5h16"/></svg><svg class="i-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+    </button>
+  </div>
+</header>
+
+<figure class="strip">
+  <img src="../images/photo/forest-gate.jpg" width="1440" height="810" alt="" decoding="async">
+  <span class="by">Photo: Wikimedia Commons, CC0</span>
+</figure>
+
+<div class="doc legal">
+  <nav class="doc-nav" aria-label="Legal">
+    <p class="eyebrow" style="margin:0 0 8px">Legal</p>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="terms.html">Terms &amp; disclaimer</a>
+    <a href="code-signing.html" class="here">Signing &amp; verification</a>
+    <a href="https://github.com/Harusame64/pictkura/blob/main/LICENSE">MIT license</a>
+    <a href="https://github.com/Harusame64/pictkura/blob/main/THIRD-PARTY-LICENSES.txt">Third-party notices</a>
+    <a href="https://github.com/Harusame64/pictkura/issues">Report a bug or vulnerability</a>
+    <span class="hr"></span>
+    <p class="eyebrow" style="margin:0 0 10px">About this release</p>
+    <div class="facts">
+      <div><span>Made by</span>Harusame64 (individual)</div>
+      <div><span>Based in</span>Japan</div>
+      <div><span>Contact</span><a href="https://github.com/Harusame64/pictkura/issues">GitHub Issues</a></div>
+      <div><span>Price</span>Free, MIT</div>
+    </div>
+  </nav>
+
+  <main class="doc-body" id="main" style="gap:48px">
+    <div>
+      <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Signing and verification</p>
+      <h1 class="disp" style="font-size:44px;margin-bottom:20px">Signing, and how to verify a download</h1>
+      <p class="lead" style="color:var(--text-soft)">Whether the file you downloaded is the file that was published here. <strong class="em">The pictkura downloads are not code signed.</strong> So instead: who builds them and from what, and how to check a file yourself.</p>
+      <p class="stamps" style="padding-bottom:0">
+        <span>Published &nbsp;<b>2026-09-01</b></span>
+        <span>Last revised &nbsp;<b>2026-09-01</b></span>
+      </p>
+    </div>
+
+    <section id="status">
+      <h2 class="disp"><span class="num">1</span>Current signing status</h2>
+      <p><strong class="em">The Windows downloads (.exe, .msi, portable) are not code signed.</strong> SmartScreen will therefore show "Windows protected your PC" the first time you run one. The macOS <code class="mono">.app</code> carries an ad-hoc signature only and is not notarized by Apple, so Gatekeeper will stop it.</p>
+      <p>The <a href="install.html">installation guide</a> walks through both, screen by screen. <strong class="em">The warning is the expected consequence of shipping unsigned software</strong>, not a fault. But "the warning is normal" is a bad habit to teach, so the next section gives you something to check instead.</p>
+    </section>
+
+    <section id="provenance">
+      <h2 class="disp"><span class="num">2</span>Who builds them, and from what</h2>
+      <p>Releases are <strong class="em">not uploaded from a personal machine</strong>. A tag on the public GitHub repository triggers a GitHub Actions workflow (<a href="https://github.com/Harusame64/pictkura/blob/main/.github/workflows/release.yml">release.yml</a>) that builds the artifacts and attaches them to the <a href="https://github.com/Harusame64/pictkura/releases">release</a>.</p>
+      <p>So the source and the build definition are both public, and <a href="https://github.com/Harusame64/pictkura/actions">every run is listed</a> on GitHub (<strong class="em">the logs themselves expire after 90 days by default</strong>, so for older versions only the listing remains).</p>
+    </section>
+
+    <section id="verify">
+      <h2 class="disp"><span class="num">3</span>Checking the file you have</h2>
+      <p>The check is to <strong class="em">ask GitHub for a number GitHub computed</strong>. Every release asset carries a SHA-256 that GitHub calculates from the bytes it stores. <strong class="em">It is not a number we typed in.</strong></p>
+      <p>What it catches is <strong class="em">a copy handed out by some other site, or a file altered on its way to you</strong>. pictkura is listed on download portals as well, so this matters most when <strong class="em">checking something you did not get from GitHub itself</strong>.</p>
+      <div class="note">
+        <p><b>Ask GitHub — macOS</b> (<code class="mono">v0.2.6</code> is an example — use the tag of the version you have; it is in the filename)</p>
+        <p><code class="mono">curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.6 | grep -E '"name"|"digest"'</code></p>
+        <p><b>Windows (PowerShell)</b></p>
+        <p><code class="mono">(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.6).assets | Select-Object name, digest</code></p>
+        <p><b>Hash what you downloaded and compare</b></p>
+        <p><code class="mono">Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256</code>&nbsp; (on macOS, <code class="mono">shasum -a 256 pictkura_*_arm64.zip</code>)</p>
+        <p><b>When comparing</b>&nbsp; GitHub's value carries a <code class="mono">sha256:</code> prefix and <code class="mono">Get-FileHash</code> prints <strong class="em">upper case</strong>. Drop the prefix and compare ignoring case. <strong class="em">If nothing at all is printed on Windows, the file is not in that folder</strong> — <code class="mono">Get-FileHash</code> exits silently, without an error, when the pattern matches nothing. The wildcards above are written for <code class="mono">-setup.exe</code> and <code class="mono">arm64.zip</code>; substitute the filename to check an MSI or the portable zip.</p>
+      </div>
+      <p>The <a href="download.html#build">download page</a> walks through the steps. <strong class="em">All this check tells you is that the file you hold is byte for byte the asset GitHub is serving right now.</strong> It is not evidence that the contents are safe, and it would <strong class="em">not</strong> reveal a compromise of the GitHub account itself — GitHub recomputes the digest for whatever asset is put there.</p>
+      <p>Releases also carry a <code class="mono">SHA256SUMS.txt</code> (<strong class="em">from v0.2.5 onward</strong>; earlier ones do not). It is convenient, but <strong class="em">it is a list we wrote, sitting in the same place as the files it vouches for</strong>. Where the whole distribution path could be replaced, asking GitHub is the stronger of the two.</p>
+    </section>
+
+    <section id="privacy">
+      <h2 class="disp"><span class="num">4</span>What the app sends</h2>
+      <p>Separately from signing, what the app transmits is meant to be checkable too. <strong class="em">Its only outbound connection is the update check</strong>, and all it sends is "this version of pictkura is asking". No photos, no file names, no folder paths. The check is on by default and can be switched off in the settings.</p>
+      <p>The details are in the <a href="privacy.html">privacy policy</a> and in the manual, under <a href="../manual.en.html#update">"Update notices"</a>.</p>
+    </section>
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">Home</a>
+    <a href="spec.html">Specification</a>
+    <a href="install.html">Install</a>
+    <a href="about.html">Why I made pictkura</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+  </span>
+</footer>
+
+</body>
+</html>

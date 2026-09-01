@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>署名と、配布物の確かめ方 | pictkura</title>
+<meta name="description" content="pictkura の配布物は誰がどこから作っているか、そして手元に届いたファイルが本物かをどう確かめるか。現在の署名の状態と、SHA-256 での照合手順。">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/ja/code-signing.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/code-signing.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/code-signing.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="署名と、配布物の確かめ方 | pictkura">
+<meta property="og:description" content="配布物は誰がどこから作っているか。手元のファイルが本物かを確かめる手順。">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/ja/code-signing.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/nav.js"></script>
+</head>
+<body lang="ja">
+
+<a class="skip" href="#main">本文へ移動</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" id="site-nav" aria-label="サイト内">
+    <a href="install.html">インストール</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="about.html">About</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+    <span class="lang">JA / <a href="../en/code-signing.html" hreflang="en">EN</a></span>
+  </nav>
+  <div class="bar-end">
+    <a href="download.html" class="btn btn-sm">ダウンロード</a>
+    <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="メニュー">
+      <svg class="i-open" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7.5h16M4 12h16M4 16.5h16"/></svg><svg class="i-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+    </button>
+  </div>
+</header>
+
+<figure class="strip">
+  <img src="../images/photo/forest-gate.jpg" width="1440" height="810" alt="" decoding="async">
+  <span class="by">Photo: Wikimedia Commons, CC0</span>
+</figure>
+
+<div class="doc legal">
+  <nav class="doc-nav" aria-label="法的な情報">
+    <p class="eyebrow" style="margin:0 0 8px">法的な情報</p>
+    <a href="privacy.html">プライバシーポリシー</a>
+    <a href="terms.html">利用条件・免責事項</a>
+    <a href="code-signing.html" class="here">署名と、確かめ方</a>
+    <a href="https://github.com/Harusame64/pictkura/blob/main/LICENSE">ライセンス（MIT）</a>
+    <a href="https://github.com/Harusame64/pictkura/blob/main/THIRD-PARTY-LICENSES.txt">第三者ソフトウェアの権利表示</a>
+    <a href="https://github.com/Harusame64/pictkura/issues">不具合・脆弱性の報告</a>
+    <span class="hr"></span>
+    <p class="eyebrow" style="margin:0 0 10px">この配布物について</p>
+    <div class="facts">
+      <div><span>制作</span>Harusame64（個人）</div>
+      <div><span>所在</span>日本</div>
+      <div><span>連絡</span><a href="https://github.com/Harusame64/pictkura/issues">GitHub Issues</a></div>
+      <div><span>価格</span>無償・MIT</div>
+    </div>
+  </nav>
+
+  <main class="doc-body" id="main" style="gap:48px">
+    <div>
+      <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; 署名と、配布物の確かめ方</p>
+      <h1 class="disp" style="font-size:44px;margin-bottom:20px">署名と、配布物の確かめ方</h1>
+      <p class="lead" style="color:var(--text-soft)">ダウンロードしたファイルが、ここで公開したものと同じかどうか。<strong class="em">いま pictkura の配布物には署名がありません。</strong>そのぶん、誰がどこから作っているかと、手元のファイルを自分で確かめる手順を書いておきます。</p>
+      <p class="stamps" style="padding-bottom:0">
+        <span>制定 &nbsp;<b>2026-09-01</b></span>
+        <span>最終改定 &nbsp;<b>2026-09-01</b></span>
+      </p>
+    </div>
+
+    <section id="status">
+      <h2 class="disp"><span class="num">1</span>いまの署名の状態</h2>
+      <p><strong class="em">Windows 向けの配布物（.exe / .msi / portable）はコード署名していません。</strong>そのため初回の実行で SmartScreen の「WindowsによってPCが保護されました」が出ます。macOS 向けの <code class="mono">.app</code> は ad-hoc 署名のみで、Apple の公証を受けていません。そのため Gatekeeper に止められます。</p>
+      <p>どちらも、画面の進み方は<a href="install.html">インストールの案内</a>に画面ごとに書いてあります。<strong class="em">警告が出ること自体は、このアプリが未署名であることの当然の結果</strong>で、異常ではありません。ただし「警告が出るのが普通」で片づけるのは危ないので、代わりに確かめる手段を次に置きます。</p>
+    </section>
+
+    <section id="provenance">
+      <h2 class="disp"><span class="num">2</span>誰が、どこから作っているか</h2>
+      <p>配布物は<strong class="em">手元の PC からは上げていません</strong>。GitHub の公開リポジトリに付けたタグから、GitHub Actions のワークフロー（<a href="https://github.com/Harusame64/pictkura/blob/main/.github/workflows/release.yml">release.yml</a>）が組み立て、そのまま <a href="https://github.com/Harusame64/pictkura/releases">Releases</a> へ載せています。</p>
+      <p>つまり、公開されているソースと、公開されているワークフローの定義から、何がどう作られたかを誰でも読めます。<a href="https://github.com/Harusame64/pictkura/actions">どの実行があったか</a>も GitHub に残ります（<strong class="em">ログの本文は既定で90日で消えます</strong>ので、古い版のぶんは一覧だけになります）。</p>
+    </section>
+
+    <section id="verify">
+      <h2 class="disp"><span class="num">3</span>手元のファイルを確かめる</h2>
+      <p>確かめ方は、<strong class="em">GitHub が自分で計算した値を GitHub に訊く</strong>ことです。各リリースの資産には、GitHub が保管しているバイト列から算出した SHA-256 が付いています。<strong class="em">こちらが打ち込んだ数字ではありません。</strong></p>
+      <p>これで見分けられるのは、<strong class="em">他所のサイトで配られているコピーや、通信の途中で差し替えられたファイル</strong>です。pictkura は掲載サイト経由でも配られているので、<strong class="em">GitHub 以外から手に入れたものを確かめるときに、いちばん効きます。</strong></p>
+      <div class="note">
+        <p><b>GitHub に訊く — macOS</b>（<code class="mono">v0.2.6</code> は例です。手元のファイル名にある版に置き換えてください）</p>
+        <p><code class="mono">curl -s https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.6 | grep -E '"name"|"digest"'</code></p>
+        <p><b>Windows（PowerShell）</b></p>
+        <p><code class="mono">(Invoke-RestMethod https://api.github.com/repos/Harusame64/pictkura/releases/tags/v0.2.6).assets | Select-Object name, digest</code></p>
+        <p><b>手元のファイルを計算して見比べる</b></p>
+        <p><code class="mono">Get-FileHash .\pictkura_*_x64-setup.exe -Algorithm SHA256</code>　（macOS は <code class="mono">shasum -a 256 pictkura_*_arm64.zip</code>）</p>
+        <p><b>見比べるときの注意</b>　GitHub の値には <code class="mono">sha256:</code> が付き、<code class="mono">Get-FileHash</code> は<strong class="em">大文字</strong>で出します。前置きを外し、大小を無視して比べてください。<strong class="em">Windows で何も表示されないときは、そのフォルダにファイルが無い</strong>ときです——パターンが当たらないと <code class="mono">Get-FileHash</code> はエラーも出さずに終わります。上のワイルドカードは <code class="mono">-setup.exe</code> と <code class="mono">arm64.zip</code> に合わせてあるので、MSI や portable を確かめるときはファイル名を置き換えてください。</p>
+      </div>
+      <p>手順の詳しい説明は<a href="download.html#build">ダウンロードのページ</a>にあります。<strong class="em">この確認で言えるのは「手元のファイルが、いま GitHub にある資産と1バイトも違わない」ことだけ</strong>です。中身が安全であることの証明ではありませんし、<strong class="em">GitHub のアカウントごと乗っ取られた場合は、これでは分かりません</strong>——差し替えられた資産の digest は、GitHub が計算し直すからです。</p>
+      <p>各リリースには <code class="mono">SHA256SUMS.txt</code> も添えています（<strong class="em">v0.2.5 以降</strong>。それより前には付いていません）。手軽ですが、<strong class="em">これは配布物と同じ場所に置いた、こちらが作った一覧です</strong>。配布経路ごと差し替えられる状況では、上の GitHub に訊く方法のほうが強いことは知っておいてください。</p>
+    </section>
+
+    <section id="privacy">
+      <h2 class="disp"><span class="num">4</span>アプリが外へ出す通信</h2>
+      <p>署名の有無とは別に、アプリが何を送るかも確かめられる形にしてあります。<strong class="em">外向きの通信は新しいバージョンの確認だけ</strong>で、送るのは「pictkura のこのバージョンが確認しています」という名乗りのみ。写真もファイル名もフォルダの場所も送りません。この確認は既定で有効ですが、設定で切れます。</p>
+      <p>詳しくは<a href="privacy.html">プライバシーポリシー</a>と、取扱説明書の<a href="../manual.html#update">「新しいバージョンのお知らせ」</a>に書いてあります。</p>
+    </section>
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+  <span class="links">
+    <a href="./">紹介</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="install.html">インストール</a>
+    <a href="about.html">なぜ作ったのか</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+  </span>
+</footer>
+
+</body>
+</html>
