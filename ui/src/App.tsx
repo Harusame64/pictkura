@@ -90,6 +90,7 @@ import {
   formatDateTime,
   formatDayKey,
   formatDuration,
+  formatLocale,
   formatNumber,
   t,
 } from "./i18n";
@@ -363,7 +364,13 @@ const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
 
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
-  const sec = (r.elapsed_ms / 1000).toFixed(r.elapsed_ms < 1000 ? 2 : 1);
+  // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
+  // ここだけ英語式のまま帯に載り、**同じ帯の桁区切り（`formatNumber`）と流儀が割れていた**
+  const digits = r.elapsed_ms < 1000 ? 2 : 1;
+  const sec = new Intl.NumberFormat(formatLocale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(r.elapsed_ms / 1000);
   const diff =
     r.added || r.changed || r.removed
       ? t.speedDiff(r.added, r.changed, r.removed)

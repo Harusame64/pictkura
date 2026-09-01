@@ -13,7 +13,9 @@
  *   直訳しない
  * - 釦は不定詞、見出しとナビは名詞（独語UIの慣習）。名詞は大文字で始める
  *
- * **2026-09-01、独立した2つのレビューを通した**（`updateOnStartNote` /
+ * **2026-09-01、独立した2つのレビューを通した**——**訳の読解に限った検算**で、
+ * コードの2ゲート（codex / `/code-review`）はこの辞書には掛けていない
+ * （遡って掛けたのは2026-09-01。`plan.md`）。見たのは（`updateOnStartNote` /
  * `videoCodecNote` / `settingsImportStructureNote` / `emptyManagedLibrary` 系の4つ
  * ——約束・お金・警告・「なぜ何も出ないか」を載せているキー）。直したのは3つ:
  *
@@ -33,6 +35,10 @@
  */
 import { folderExample } from "./folderExample";
 import type { Dict } from "./ja";
+
+/** **数詞1のあとは単数**（2026-09-01、遡ってのゲート2）。`1 Dateien` は目に付く */
+const one = (n: number, singular: string, plural: string) =>
+  n === 1 ? singular : plural;
 
 export const de: Dict = {
   appName: "pictkura",
@@ -168,7 +174,7 @@ export const de: Dict = {
   videoMissing: "Diese Datei fehlt (sie wurde wohl verschoben oder gelöscht)",
   videoCloudOnly: "Dieses Video liegt in der Cloud",
   videoCloudOnlyNote:
-    "Hier abgespielt startet erst ein Download, und bis er fertig ist, ist nichts zu sehen. In der Standard-App siehst du den Fortschritt.",
+    "Wenn du es hier abspielst, startet zuerst ein Download, und bis er fertig ist, ist nichts zu sehen. Öffnest du es in der Standard-App, kannst du den Fortschritt verfolgen.",
   videoFailed: "Dieses Video konnte nicht abgespielt werden",
   videoOpenExternal: "In der Standard-App öffnen",
   videoCodecNote:
@@ -235,7 +241,7 @@ export const de: Dict = {
   emptyTitleChecking: "Wird geprüft",
   emptyTitleStartupFailed: "Der Abgleich beim Start wurde nicht fertig",
   emptyStartupFailed:
-    "Der Abgleich, der beim Start läuft, wurde nicht fertig. Es kann Fotos geben, die noch nicht aufgenommen sind. Drücke „Neu einlesen“; hilft das nicht, öffne die App neu.",
+    "Der Abgleich, der beim Start läuft, wurde nicht fertig. Es kann Fotos geben, die noch nicht in die Bibliothek aufgenommen wurden. Drücke „Neu einlesen“; hilft das nicht, öffne die App neu.",
   emptyTitleMissing: "Einige Orte sind nicht da",
   emptyTitleUnreadable: "Einige Orte ließen sich nicht öffnen",
   emptyNoRoots:
@@ -413,10 +419,11 @@ export const de: Dict = {
   speedUsn: "USN-Journal-Differenz: ",
   speedUsnNoChange: "keine Änderungen, keine Ordner durchlaufen",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} Journaleinträge → nur ${dirs} Ordner neu eingelesen`,
+    `${records} ${one(records, "Journaleintrag", "Journaleinträge")} → nur ${dirs} Ordner neu eingelesen`,
   speedPruned: (skipped: number) =>
     `beschnittener Durchlauf: ${skipped} Ordner übersprungen`,
-  speedFull: (total: number) => `vollständiger Durchlauf (${total} Dateien)`,
+  speedFull: (total: number) =>
+    `vollständiger Durchlauf (${total} ${one(total, "Datei", "Dateien")})`,
   speedNoDiff: " — keine Änderungen",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${added} hinzugefügt, ${changed} geändert, ${removed} entfernt`,

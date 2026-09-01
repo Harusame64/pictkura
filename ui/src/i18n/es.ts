@@ -50,6 +50,14 @@
 import { folderExample } from "./folderExample";
 import type { Dict } from "./ja";
 
+/**
+ * **数詞1のときは単数**（2026-09-01、遡ってのゲート2）。スペイン語は分詞まで
+ * 性数が一致するので、`1 movidas` のように**1枚消すたびに文法が崩れる**。
+ * `selectedCount` などでは元から場合分けしていて、辞書が自分と食い違っていた。
+ */
+const one = (n: number, singular: string, plural: string) =>
+  n === 1 ? singular : plural;
+
 export const es: Dict = {
   appName: "pictkura",
   viewThumbnails: "Fotos",
@@ -232,12 +240,12 @@ export const es: Dict = {
   jumpToYear: (year: number) => `Ir a ${year}`,
   importing: (done: number, total: number) => `Importando… ${done}/${total}`,
   importDone: (copied: number, skipped: number) =>
-    `Importación terminada: ${copied} copiadas, ${skipped} omitidas`,
+    `Importación terminada: ${copied} ${one(copied, "copiada", "copiadas")}, ${skipped} ${one(skipped, "omitida", "omitidas")}`,
   importFailed: (n: number) => `, ${n} con error`,
   importIncomplete:
     " ⚠ No se han podido leer algunas carpetas — no borres la tarjeta todavía",
   syncDone: (added: number, changed: number, removed: number) =>
-    `${added} añadidas, ${changed} cambiadas, ${removed} quitadas`,
+    `${added} ${one(added, "añadida", "añadidas")}, ${changed} ${one(changed, "cambiada", "cambiadas")}, ${removed} ${one(removed, "quitada", "quitadas")}`,
   pickSource: "Elige la carpeta desde la que importar (USB / DCIM)",
   pickDestination: "Elige la carpeta de destino",
   wizardTitle: "Importar",
@@ -251,7 +259,7 @@ export const es: Dict = {
   emptyTitleChecking: "Comprobando",
   emptyTitleStartupFailed: "La sincronización de arranque no terminó",
   emptyStartupFailed:
-    "La sincronización que se ejecuta al arrancar no terminó. Puede que haya fotos que todavía no estén recogidas. Pulsa «Volver a explorar»; si no sirve, vuelve a abrir la aplicación.",
+    "La sincronización que se ejecuta al arrancar no terminó. Puede que haya fotos que todavía no se hayan incorporado a la biblioteca. Pulsa «Volver a explorar»; si no sirve, vuelve a abrir la aplicación.",
   emptyTitleMissing: "Algunos lugares no están",
   emptyTitleUnreadable: "Algunos lugares no se han podido abrir",
   emptyNoRoots:
@@ -294,7 +302,7 @@ export const es: Dict = {
   wizardSelectAll: "Seleccionar todo",
   wizardSelectNew: "Seleccionar solo las nuevas",
   wizardClearSelection: "Quitar la selección",
-  wizardSelected: (n: number) => `${n} seleccionadas`,
+  wizardSelected: (n: number) => `${n} ${one(n, "seleccionada", "seleccionadas")}`,
   wizardImportedBadge: "✓",
   wizardImportedTitle:
     "Ya importada (el mismo archivo está en la carpeta de destino)",
@@ -326,7 +334,8 @@ export const es: Dict = {
   wizardHideImported: "Ocultar las ya importadas",
   wizardAllImported:
     "Aquí no hay nada nuevo (todo lo de esta carpeta ya está importado)",
-  wizardHiddenCount: (n: number) => `${n} ya importadas ocultas`,
+  wizardHiddenCount: (n: number) =>
+    `${n} ya ${one(n, "importada oculta", "importadas ocultas")}`,
   wizardCopying: "Importando",
   wizardEtaSeconds: (n: number) => `quedan unos ${n} s`,
   wizardEtaMinutes: (n: number) => `quedan unos ${n} min`,
@@ -345,9 +354,10 @@ export const es: Dict = {
     n === 1
       ? "¿Mover esta foto a la papelera?"
       : `¿Mover ${n} fotos a la papelera?`,
-  deleted: (n: number) => `${n} movidas a la papelera`,
+  deleted: (n: number) =>
+    `${n} ${one(n, "movida", "movidas")} a la papelera`,
   deletedSomeLeft: (n: number, left: number) =>
-    `${n} movidas a la papelera (${left} no se han encontrado y se han quedado como estaban)`,
+    `${n} ${one(n, "movida", "movidas")} a la papelera (${left} no se ${one(left, "ha", "han")} encontrado y se ${one(left, "ha quedado", "han quedado")} como ${one(left, "estaba", "estaban")})`,
   // 複数選択と一括操作
   selectItem: "Seleccionar",
   selectedCount: (n: number) =>
@@ -370,10 +380,12 @@ export const es: Dict = {
     `Exportando… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
     const parts = [done === 1 ? "1 foto exportada" : `${done} fotos exportadas`];
-    if (skipped > 0) parts.push(`${skipped} ya estaban`);
+    if (skipped > 0) parts.push(`${skipped} ya ${one(skipped, "estaba", "estaban")}`);
     if (failed > 0) parts.push(`${failed} con error`);
     if (leftBehind > 0)
-      parts.push(`${leftBehind} no se han podido quitar de donde estaban`);
+      parts.push(
+        `${leftBehind} no se ${one(leftBehind, "ha", "han")} podido quitar de donde ${one(leftBehind, "estaba", "estaban")}`,
+      );
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Marcar con un indicador",
@@ -432,11 +444,12 @@ export const es: Dict = {
   speedUsn: "Diferencia del diario USN: ",
   speedUsnNoChange: "sin cambios, ninguna carpeta recorrida",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} entradas del diario → solo se han vuelto a explorar ${dirs} carpetas`,
+    `${records} ${one(records, "entrada", "entradas")} del diario → solo se ${one(dirs, "ha", "han")} vuelto a explorar ${dirs} ${one(dirs, "carpeta", "carpetas")}`,
   speedPruned: (skipped: number) =>
-    `recorrido podado: ${skipped} carpetas omitidas`,
-  speedFull: (total: number) => `recorrido completo (${total} archivos)`,
+    `recorrido podado: ${skipped} ${one(skipped, "carpeta omitida", "carpetas omitidas")}`,
+  speedFull: (total: number) =>
+    `recorrido completo (${total} ${one(total, "archivo", "archivos")})`,
   speedNoDiff: " — sin cambios",
   speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${added} añadidas, ${changed} cambiadas, ${removed} quitadas`,
+    ` — ${added} ${one(added, "añadida", "añadidas")}, ${changed} ${one(changed, "cambiada", "cambiadas")}, ${removed} ${one(removed, "quitada", "quitadas")}`,
 };
