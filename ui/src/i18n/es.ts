@@ -50,9 +50,9 @@
  * 4つ目の `emptyPhotoLibrary` だけは日英独とも「既定では」なので
  * `de forma predeterminada` にしてある——ここを揃えてはいけない。
  */
-import { folderExample } from "./folderExample";
-import { num, one } from "./plural";
-import type { Dict } from "./ja";
+import { folderExample } from "./folderExample.ts";
+import { num, one } from "./plural.ts";
+import type { Dict } from "./ja.ts";
 
 export const es: Dict = {
   appName: "pictkura",

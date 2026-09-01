@@ -1,7 +1,7 @@
 /** 英語辞書。キーの正は `ja.ts`——抜けや余りがあればコンパイルエラーになる。 */
-import { folderExample } from "./folderExample";
-import { num, one } from "./plural";
-import type { Dict } from "./ja";
+import { folderExample } from "./folderExample.ts";
+import { num, one } from "./plural.ts";
+import type { Dict } from "./ja.ts";
 
 export const en: Dict = {
   appName: "pictkura",

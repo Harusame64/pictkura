@@ -60,9 +60,9 @@
  * `emptyManagedLibrary` / `emptyRootIsManagedLibrary` の3つは `刻意不讀取`。
  * 4つ目の `emptyPhotoLibrary` だけ「既定では」＝`預設不讀取`（他の辞書と同じ）。
  */
-import { folderExample } from "./folderExample";
-import { num } from "./plural";
-import type { Dict } from "./ja";
+import { folderExample } from "./folderExample.ts";
+import { num } from "./plural.ts";
+import type { Dict } from "./ja.ts";
 
 export const zhHant: Dict = {
   appName: "pictkura",

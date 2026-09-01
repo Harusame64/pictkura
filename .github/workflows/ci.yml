@@ -108,6 +108,12 @@ jobs:
           npm --prefix ui ci
           npm --prefix ui run build
 
+      # 辞書の検査（桁区切り・単複・引数の落ち・訳し漏れ）。**依存は増えていない**
+      # ——Node が `.ts` をそのまま読むので、テストランナも変換器も要らない。
+      # 型が見ているのはキーの過不足だけで、中身は誰も見ていなかった
+      - name: 辞書のテスト
+        run: npm --prefix ui test
+
       - name: Rust の道具を揃える
         run: rustup component add clippy rustfmt
 

@@ -29,13 +29,13 @@
  *   済んでから追加する。
  */
 
-import { ja, type Dict } from "./ja";
-import { en } from "./en";
-import { de } from "./de";
-import { es } from "./es";
-import { zh } from "./zh";
-import { zhHant } from "./zh-hant";
-import { num, setNumberLocale } from "./plural";
+import { ja, type Dict } from "./ja.ts";
+import { en } from "./en.ts";
+import { de } from "./de.ts";
+import { es } from "./es.ts";
+import { zh } from "./zh.ts";
+import { zhHant } from "./zh-hant.ts";
+import { num, setNumberLocale } from "./plural.ts";
 
 export type { Dict };
 

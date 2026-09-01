@@ -4,8 +4,8 @@
  * 辞書全体の方針——ランタイムを増やさない・言語の足し方・`Intl` に任せるもの——は
  * `index.ts` の冒頭にある。**言語を足す前にそちらを読むこと。**
  */
-import { folderExample } from "./folderExample";
-import { num } from "./plural";
+import { folderExample } from "./folderExample.ts";
+import { num } from "./plural.ts";
 
 export const ja = {
   appName: "pictkura",

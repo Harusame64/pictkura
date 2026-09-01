@@ -9,6 +9,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noEmit": true,
+    // `src/i18n/` の中だけ相対 import に `.ts` を書いている。
+    // **辞書の検査（`scripts/i18n.test.ts`）を `node --test` で走らせるため**——
+    // Node の ESM は拡張子を補わないので、拡張子なしだと辞書を読めない。
+    // ローダのフックを足すより、書いてあるとおりに解決できる形にした
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "isolatedModules": true,
     "useDefineForClassFields": true
