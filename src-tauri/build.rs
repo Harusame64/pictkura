@@ -67,7 +67,12 @@ fn main() {
         // doing the building and its `cfg`s answer for that machine (`lib.rs:146-151`):
         //
         // - windows-gnu host -> `libresource.a` (`windows_not_msvc.rs:54`), a COFF object.
-        //   This is the path measured working on Windows 11.
+        //   This is the path measured working on Windows 11. **One target inside it is not
+        //   COFF**: `Compiler::choose` (`windows_not_msvc.rs:69-77`) picks `llvm-rc` for
+        //   `aarch64-*-gnullvm` and still writes the `.a` name, so an ARM64 gnullvm build
+        //   gets a `.res` under it. Nothing is gained by excluding it here -- `tauri-build`
+        //   hands the same file to the bin link, so the app build hits it first -- but the
+        //   claim above is not true for that one target (gate 2, round 3).
         // - non-windows host cross-compiling with mingw -> `resource.lib`
         //   (`non_windows.rs:31`), also COFF: that backend drives `windres` with
         //   `--output-format=coff` (`lib.rs:743`). Linkable by the same GNU `ld`.
@@ -116,12 +121,25 @@ fn main() {
             // the link arg still resolves, nothing warns, and the harness is back to
             // 0xc0000139 with no clue. Reading the resource to check would mean parsing it;
             // the exit code is the signal there.
+            //
+            // **The cause differs by host, and so does the remedy** (gate 2, round 3). A
+            // single message naming only the msvc case would send someone cross-compiling
+            // from macOS to "use an msvc target", when what they are missing is the mingw
+            // resource compiler (`non_windows.rs:41-56` fails to probe
+            // `<arch>-w64-mingw32-windres` and writes nothing).
+            None if cfg!(windows) => println!(
+                "cargo:warning=windows-gnu: tauri-build's compiled resource (libresource.a) \
+                 was not found in OUT_DIR, so the Common-Controls manifest is not linked in. \
+                 `cargo test -p pictkura --lib` will exit 0xc0000139 before it runs a single \
+                 test. On an msvc host this is expected -- its resource is a .res blob that \
+                 GNU ld cannot read. Build for an msvc target instead."
+            ),
             None => println!(
-                "cargo:warning=windows-gnu: tauri-build's compiled resource was not found in \
-                 OUT_DIR, so the Common-Controls manifest is not linked in. `cargo test -p \
-                 pictkura --lib` will exit 0xc0000139 before it runs a single test. On an \
-                 msvc host this is expected: its resource is a .res blob that GNU ld cannot \
-                 read. Build with an msvc target instead."
+                "cargo:warning=windows-gnu: tauri-build's compiled resource (resource.lib) \
+                 was not found in OUT_DIR, so the Common-Controls manifest is not linked in. \
+                 `cargo test -p pictkura --lib` will exit 0xc0000139 before it runs a single \
+                 test. Cross-compiling needs the mingw resource compiler \
+                 (<arch>-w64-mingw32-windres) on PATH, or RC set to one."
             ),
         }
     }
