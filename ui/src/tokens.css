@@ -93,14 +93,19 @@
  * **`:lang(zh)` は `lang="zh-hant"` にも当たる**（前方一致）ので、繁体字の行を後に置く
  * ——同じ詳細度なので、あとに書いたほうが勝つ。**順番を入れ替えないこと。**
  *
+ * **`:root` に固定しない**——言語の選択肢（`Settings.tsx`）のように、
+ * 日本語の画面の中に中国語のラベルが1つだけ出る場所があり、そこは要素側の
+ * `lang` で拾う必要がある。`:root` を付けると要素には効かない。
+ * 詳細度は `:root` と同じ (0,1,0) だが、**あとに書いてあるので勝つ**。
+ *
  * 言語を足すときの4か所目（`ui/src/i18n/index.ts` の方針・`Info.plist` に続く）。
  * 中国語以外の字はどれも上と同じ並びなので、ラテン文字の見え方は揃ったまま。 */
-:root:lang(zh) {
+:lang(zh) {
   --font-ui:
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang SC",
     "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
 }
-:root:lang(zh-hant) {
+:lang(zh-hant) {
   --font-ui:
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang TC",
     "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", system-ui,

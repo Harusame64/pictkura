@@ -163,7 +163,13 @@ function pickLocale(): string {
     // 粵語にすると `yue-Hant-HK` が来るが、`yue` の辞書は無いので**英語まで落ちていた**。
     // 香港・マカオの書き言葉は繁体字の中国語なので、`zh` として扱えば `zh-hant` に当たる
     // （話し言葉としては別の言語だが、**この辞書が担うのは書き言葉**）
-    if (parts[0] === "yue") parts[0] = "zh";
+    // **裸の `yue` も繁体字へ**（4巡目の指摘）。`zh` に置き換えるだけだと、
+    // 地域が落ちたタグ（`navigator.languages` は地域を落とす。上の注記）で
+    // **簡体字**に着く。CLDRの既定も `yue` → `yue-Hant-HK`
+    if (parts[0] === "yue") {
+      parts[0] = "zh";
+      if (!parts.includes("hans") && !parts.includes("hant")) parts.splice(1, 0, "hant");
+    }
     // **書き言葉を省いたタグに補う**（`zh-TW` → `zh-hant-tw`）。台湾・香港・
     // マカオのOSは `zh-Hant` を省いて渡してくることがあり、そのままだと
     // `zh-hant` の辞書に当たらずに `zh`（簡体字）まで落ちてしまう

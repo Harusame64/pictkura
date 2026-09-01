@@ -387,7 +387,15 @@ export default function Settings({
 
               **閉じたままの矢印キーは1段ごとに確定する**（Chromium系の作法）。
               2段先を狙うと途中で読み込み直しが挟まるが、Alt+↓ で開いてから選べば
-              確定は1回で済む。選択肢が3つなので、専用の「適用」ボタンは置かない。
+              確定は1回で済む。**言語が増えると、この寄り道も長くなる**——
+              いまは7つ（2026-09-01。中国語2つを足した時点）で、端から端まで
+              矢印で送ると読み込み直しが6回挟まる。それでも「適用」釦は置かない:
+              開いて選べば1回で済むし、釦を置くと**選んだのに反映されていない状態**を
+              新しく作ることになる。ここが辛くなったら、確定を遅らせる側で直す。
+
+              **`lang` を各選択肢に付ける**。中国語のラベル（`简体中文` / `繁體中文`）は
+              日本語の画面にも出るが、`简` は日本語の書体に無いので**1語が2書体**で
+              組まれる（`tokens.css` の `:lang()` が直したのと同じ問題）。
             */}
             <h3 id="settings-language-label">{t.settingsLanguage}</h3>
             <select
@@ -405,7 +413,7 @@ export default function Settings({
             >
               <option value="">{t.settingsLanguageSystem}</option>
               {LOCALES.map((l) => (
-                <option key={l.code} value={l.code}>
+                <option key={l.code} value={l.code} lang={l.code}>
                   {l.label}
                 </option>
               ))}
