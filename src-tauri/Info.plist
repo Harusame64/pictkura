@@ -15,8 +15,14 @@
   こちらが渡した表題だけが日本語で、枠が英語という混ざり方になる
   （2026-08-31に実機で確認）。
 
-  **並びは `ui/src/i18n.ts` の辞書と揃える。** 言語を足すときは両方に足すこと
+  **並びは `ui/src/i18n/` の辞書と揃える。** 言語を足すときは両方に足すこと
   ——ここだけ足しても画面は英語のまま、辞書だけ足すと枠が英語のまま残る。
+  **独語・西語の辞書（#94 / #95）はここを足し忘れていた**ので、
+  簡体字中国語と一緒に3つまとめて入れた（2026-09-01）。
+
+  **綴りは辞書のコードと同じとは限らない。** ここは AppKit の言語ID
+  （`.lproj` の名前）なので、中国語は書き言葉まで指定する必要があり
+  `zh-Hans` と書く。辞書側のコードは `zh`（`ui/src/i18n/index.ts` の `DICTS`）。
 
   `CFBundleDevelopmentRegion` は tauri-bundler が入れる `English` のままにする。
   どちらの言語でもない利用者が落ちてくる先なので、英語のほうが親切。
@@ -27,6 +33,9 @@
   <array>
     <string>ja</string>
     <string>en</string>
+    <string>de</string>
+    <string>es</string>
+    <string>zh-Hans</string>
   </array>
 </dict>
 </plist>
