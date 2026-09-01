@@ -28,6 +28,15 @@ export const ja = {
   kindVideo: "動画",
   // ショートカット一覧（`?` / `F1`）
   shortcutsTitle: "ショートカット一覧 (?)",
+  /**
+   * `Ctrl` の呼び名。**キーボードに印字されている綴りを出す**——
+   * ドイツ語版Windowsのキーには `Strg` とある。`api.ts` の `modKey` が
+   * `⌘C` / `Ctrl+C` を組み立てるときに読む。
+   *
+   * `shortcutGroups` の鍵の列は辞書に直接書いてあるので、**そちらと必ず揃えること**
+   * （片方だけ直すと同じ画面に `Strg` と `Ctrl` が混ざる）。
+   */
+  keyCtrl: "Ctrl",
   actionShortcuts: "ショートカット一覧を出す",
   shortcutGroups: [
     {

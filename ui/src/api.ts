@@ -5,7 +5,7 @@
 // タイムラインの骨組みを作り、可視範囲の日だけを listDay で取得する。
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
-import { locale } from "./i18n";
+import { locale, t } from "./i18n";
 
 export interface MediaItem {
   id: number;
@@ -292,7 +292,7 @@ export const isWindows = (() => {
  * ここで作った表記を渡す形にしてある。
  */
 export const modKey = (letter: string) =>
-  isMac ? `⌘${letter}` : `Ctrl+${letter}`;
+  isMac ? `⌘${letter}` : `${t.keyCtrl}+${letter}`;
 
 /** コマンドパレットのショートカット表記（⌘K / Ctrl+K） */
 export const modKeyLabel = modKey("K");
