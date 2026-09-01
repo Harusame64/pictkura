@@ -11,8 +11,9 @@ fn main() {
     // 5.82 and the process dies with STATUS_ENTRYPOINT_NOT_FOUND **before `main` runs**.
     // No test fails, because no test starts.
     //
-    // The lib harness is **not** manifest-less — rustc gives every executable one. What it
-    // lacks is the Common-Controls dependency, which lives in the resource `tauri-build`
+    // The lib harness is **not** manifest-less — the toolchain links a default one in
+    // (longPathAware + asInvoker, 599 bytes). What it lacks is the Common-Controls
+    // dependency, which lives in the resource `tauri-build`
     // compiles and then emits as `rustc-link-arg-bins`: bins get it, the lib harness does
     // not. Measured RT_MANIFEST counts on this host, before and after this file's change:
     //
@@ -25,9 +26,17 @@ fn main() {
     // Adding a file under `tests/` would not help either — a lib's own unit-test harness is
     // not a test target, so it would still be missed. The unscoped `rustc-link-arg` is the
     // only way in, and it hands every non-rlib target the **whole** resource: the bin ends
-    // up with a second copy of the manifest, and the lib harness picks up an icon and a
-    // VERSIONINFO it has no use for. The icon and VERSIONINFO do **not** double on the bin —
-    // only the manifest does. That asymmetry is measured, not reasoned about.
+    // up with a second copy of **everything** — manifest, icon, group icon and VERSIONINFO —
+    // and the lib harness picks up an icon and a VERSIONINFO it has no use for.
+    //
+    // **Count the leaves, not the names.** ld puts the duplicates at different depths: the
+    // manifests land as extra *name* entries (2 -> 3), the rest as extra *language* entries
+    // under one name. `EnumResourceNames` alone therefore reports icon and VERSIONINFO
+    // unchanged and only the manifest moving, which is wrong and cost gate 2 a round trip.
+    // Descending with `EnumResourceLanguages` shows the real picture on the bin harness:
+    // RT_ICON 1 -> 2, RT_GROUP_ICON 1 -> 2, RT_VERSION 1 -> 2, RT_MANIFEST 2 -> 3.
+    // `FindResourceEx` resolves type -> name -> language, so the second copies are
+    // unreachable dead weight rather than a behaviour change.
     //
     // A narrower fix exists: compile a manifest-only `.rc` of our own instead of relinking
     // tauri's resource. It would drop the icon/VERSIONINFO the harness does not need and cut
@@ -53,7 +62,8 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     if target_os == "windows" && target_env == "gnu" {
-        // `OUT_DIR` as an `OsString`, so a path that is not valid UTF-8 still resolves
+        // `OUT_DIR` as an `OsString` so the `exists()` check is right on any path (the emit
+        // below is still lossy -- cargo's build-script protocol is UTF-8 lines)
         let resource = std::env::var_os("OUT_DIR")
             .map(|out| std::path::Path::new(&out).join("libresource.a"))
             .filter(|path| path.exists());
@@ -67,11 +77,17 @@ fn main() {
             // front of it gets an exit code and no explanation. A warning is that
             // explanation. Panicking here is not an option (`unwrap`/`expect` are denied)
             // and would be wrong anyway: a missing workaround should not stop the build.
+            //
+            // **This only catches the file going missing.** If tauri-build keeps writing
+            // `libresource.a` but stops putting the Common-Controls dependency inside it,
+            // the link arg still resolves, nothing warns, and the harness is back to
+            // 0xc0000139 with no clue. Reading the resource to check would mean parsing it;
+            // the exit code is the signal there.
             None => println!(
-                "cargo:warning=windows-gnu: tauri-build's compiled resource was not found in \
-                 OUT_DIR, so the Common-Controls manifest is not linked into the test \
-                 binaries. `cargo test -p pictkura --lib` will exit 0xc0000139 before it runs \
-                 a single test."
+                "cargo:warning=windows-gnu: tauri-build's compiled resource (libresource.a in \
+                 OUT_DIR) was not found, so the Common-Controls manifest is not linked in. \
+                 `cargo test -p pictkura --lib` will exit 0xc0000139 before it runs a single \
+                 test."
             ),
         }
     }
