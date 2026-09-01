@@ -341,7 +341,8 @@ export const es: Dict = {
   wizardEtaMinutes: (n: number) => `quedan unos ${n} min`,
   wizardEtaCalculating: "calculando el tiempo restante…",
   wizardCapped: (n: number) => `${n}+`,
-  wizardMoreFiles: (n: number) => `${n} más (desplázate para cargarlas)`,
+  wizardMoreFiles: (n: number) =>
+    `${n} más (desplázate para ${one(n, "cargarla", "cargarlas")})`,
   menuOpen: "Abrir",
   menuOpenWith: (name: string) => `Abrir con ${name}`,
   menuOpenWithOther: "Abrir con otra aplicación…",

@@ -321,7 +321,14 @@ export const de: Dict = {
   wizardHideImported: "Schon importierte ausblenden",
   wizardAllImported:
     "Hier ist nichts Neues (alles in diesem Ordner ist schon importiert)",
-  wizardHiddenCount: (n: number) => `${n} schon importierte ausgeblendet`,
+  // **名詞を省くと単数形が決まらない**（2026-09-02、ゲート2が2巡続けて挙げた）。
+  // 省かれているのが `Datei`（女性）なら `1 schon importierte` で正しく、
+  // `Foto`（中性）なら `1 schon importiertes` になる——読む人には区別が付かない。
+  // 1のときだけ名詞を書けば、どちらの読みでも正しい。複数形は今までどおり
+  wizardHiddenCount: (n: number) =>
+    n === 1
+      ? "1 schon importierte Datei ausgeblendet"
+      : `${n} schon importierte ausgeblendet`,
   wizardCopying: "Wird importiert",
   wizardEtaSeconds: (n: number) => `noch etwa ${n} s`,
   wizardEtaMinutes: (n: number) => `noch etwa ${n} min`,
