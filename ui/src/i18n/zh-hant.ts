@@ -39,6 +39,10 @@
  * - **引用符は 「 」**（簡体字の “ ” とは別。繁体字の組版はこちら）。
  *   漢字とラテン文字・数字の間は半角スペースを空ける
  *
+ * **スライドショーもOSで割れる**——Windowsは `投影片放映`、macOSの写真.appは `幻燈片秀`。
+ * ゴミ箱と同じ理由でWindows側に寄せた。**`幻燈片播放` は簡体字（`幻灯片放映`）を
+ * 字だけ変えたもので、どちらのOSも使っていない**（ゲート2の指摘）。
+ *
  * **ゴミ箱の呼び名はOSで割れる**——Windowsは `資源回收筒`、macOSは `垃圾桶`。
  * 簡体字辞書と同じ理由で**Windows側に寄せた**（配布の主戦場がWindows、
  * macOSの利用者にも通じる）。**分けるなら8キーと2行**——`menuDelete` /
@@ -105,7 +109,7 @@ export const zhHant: Dict = {
         ["Ctrl+S / ⌘S", "把螢幕上的圖片儲存成檔案"],
         ["F", "最愛（★）的開關"],
         ["I", "拍攝資訊（相機、鏡頭、光圈、ISO、GPS）"],
-        ["空白鍵", "幻燈片播放。影片則是播放 / 暫停"],
+        ["空白鍵", "投影片放映。影片則是播放 / 暫停"],
         ["1 / 0", "實際大小 100% / 符合視窗"],
         ["F11", "全螢幕"],
         ["Esc", "關閉"],
@@ -164,7 +168,7 @@ export const zhHant: Dict = {
   updateOnStart: "啟動時檢查新版本",
   updateOnStartNote:
     "會向 GitHub 查詢最新的版本號（每天一次）。不會傳送任何照片或檔名。關閉後，除了你按上面的「檢查更新」，本程式不會有任何網路連線。",
-  viewerSlideshow: "幻燈片播放 (空白鍵)",
+  viewerSlideshow: "投影片放映 (空白鍵)",
   // 抽出（Issue #13）
   extractSave: (key: string) => `把這張圖片儲存成檔案 (${key})`,
   extractCopy: (key: string) => `把這張圖片複製到剪貼簿 (${key})`,
@@ -191,11 +195,11 @@ export const zhHant: Dict = {
   videoFailed: "無法播放這部影片",
   videoOpenExternal: "用預設的程式開啟",
   videoCodecNote:
-    "iPhone 等裝置拍的影片以 HEVC（H.265）錄製。播放需要作業系統的解碼器，在 Windows 上是 Microsoft Store 裡要付費的延伸模組（數十元）。",
+    "iPhone 等裝置拍的影片以 HEVC（H.265）錄製。播放需要作業系統的解碼器，在 Windows 上是 Microsoft Store 中需付費的延伸模組（數十元）。",
   videoCodecNoteMac:
     "macOS 本身就能播放 HEVC，所以這可能是它不支援的錄製格式。",
   videoCodecNoteOther:
-    "這台裝置上可能沒有裝支援這種錄製格式的解碼器。",
+    "這台裝置上可能沒有安裝支援這種錄製格式的解碼器。",
   videoCodecHelp: "查看 HEVC 視訊延伸模組（付費）",
   loading: "正在載入…",
   exifTitle: "拍攝資訊",
@@ -247,7 +251,7 @@ export const zhHant: Dict = {
   wizardSources: "匯入來源",
   wizardOtherFolder: "其他資料夾…",
   wizardRefresh: "重新偵測磁碟機",
-  wizardRemovable: "可卸除式",
+  wizardRemovable: "卸除式",
   wizardNoDrives: "找不到磁碟機",
   emptyTitle: "還沒有照片",
   emptyTitleFailed: "無法顯示清單",
@@ -274,7 +278,7 @@ export const zhHant: Dict = {
   emptyPhotoLibrary:
     "除了「照片」App 的圖庫以外，沒有找到能處理的內容。pictkura 預設不讀取「照片」App 的內容（大部分原始檔在 iCloud 上，並不在這台 Mac 裡）。請從記憶卡匯入，或者選擇一個存放照片的資料夾。",
   emptyManagedLibrary:
-    "除了照片管理程式的圖庫（「照片」App、iPhoto、Aperture 等）以外，沒有找到能處理的內容。pictkura 刻意不讀取它們的內容——就算建立了索引，之後的變更也傳不過來，索引會一直停在舊的狀態。請從記憶卡匯入，或者選擇一個存放照片的資料夾。",
+    "除了照片管理程式的圖庫（「照片」App、iPhoto、Aperture 等）以外，沒有找到能處理的內容。pictkura 刻意不讀取它們的內容——就算建立了索引，之後的變更也無法反映到索引，索引會一直停在舊的狀態。請從記憶卡匯入，或者選擇一個存放照片的資料夾。",
   emptyRootIsManagedLibrary:
     "圖庫資料夾裡指定的是照片管理程式的圖庫本身（「照片」App、iPhoto、Aperture 等）。pictkura 刻意不讀取它的內容，所以這裡永遠不會出現照片。請重新選擇一個存放照片的資料夾，或者從記憶卡匯入。",
   emptyAllExcluded: (names: string) =>
@@ -316,7 +320,7 @@ export const zhHant: Dict = {
   decoderHeifNoticeMac: (n: string) =>
     `⚠ 有 ${n} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）`,
   decoderHeifNoticeOther: (n: string) =>
-    `⚠ 有 ${n} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）。這台裝置上可能沒有裝支援 HEIC/HEVC 的解碼器`,
+    `⚠ 有 ${n} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）。這台裝置上可能沒有安裝支援 HEIC/HEVC 的解碼器`,
   decoderHeifHow: "HEIF 影像延伸模組（免費）",
   decoderHevcHow: "HEVC 視訊延伸模組（付費）",
   decoderNoticeDismiss: "不再顯示",
@@ -385,7 +389,7 @@ export const zhHant: Dict = {
   settingsTitle: "設定",
   settingsImportStructure: "匯入後的資料夾結構",
   settingsImportStructureNote:
-    "從 USB 匯入的照片，要依拍攝日期怎樣分類。這會影響到幾千張照片，之後要改需要相當大的工夫。資料夾名稱裡帶日期時，不論哪種語言都按年月日的順序寫——這樣依名稱排序就等於依時間排序。",
+    "從 USB 匯入的照片，要依拍攝日期如何分類。這會影響到幾千張照片，之後要改需要花費相當多的工夫。資料夾名稱裡帶日期時，不論哪種語言都一律依年月日的順序書寫——這樣依名稱排序就等於依時間排序。",
   settingsDestination: "複製到",
   settingsDestinationUnset: "（未設定：首次匯入時選擇）",
   settingsFlatExample: "IMG_0001.JPG（不分資料夾）",
@@ -396,11 +400,11 @@ export const zhHant: Dict = {
   settingsViewer: "全螢幕檢視照片時",
   settingsAutoAdvanceToggle: "用 P / U 判定之後，跳到下一張照片",
   settingsAutoAdvanceNote:
-    "全螢幕時按 P 會給照片加上 ⚑ 標記（和 ★ 最愛是兩套），按 U 取消。打開這個設定後會接著顯示下一張，挑選照片時一張只按一次鍵。關掉則停在同一張照片上。",
+    "全螢幕時按 P 會給照片加上 ⚑ 標記（和 ★ 最愛是兩套），按 U 取消。開啟這個設定後會接著顯示下一張，挑選照片時一張只按一次鍵。關閉則停在同一張照片上。",
   settingsAutoplay: "插入 USB 隨身碟或 SD 記憶卡時",
   settingsAutoplayToggle: "在「自動播放」的選項中提供 pictkura",
   settingsAutoplayNote:
-    "會把 pictkura 加到 Windows「自動播放」的選項裡。它不會自行啟動。請注意，這個選項本身的文字是日文。用安裝程式解除安裝時會自動取消註冊，但可攜版以及同一台電腦上其他使用者的註冊不在此列——那些情況下，請在刪除 pictkura 之前先關掉這裡。",
+    "會把 pictkura 加到 Windows「自動播放」的選項裡。它不會自行啟動。請注意，這個選項本身的文字是日文。用安裝程式解除安裝時會自動取消註冊，但可攜版以及同一台電腦上其他使用者的註冊不在此列——那些情況下，請在刪除 pictkura 之前先關閉這裡。",
   settingsAbout: "關於",
   settingsAboutLicense: "以 MIT 授權發布。",
   settingsManual: "使用手冊",

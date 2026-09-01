@@ -165,12 +165,12 @@ function pickLocale(): string {
     for (let n = parts.length; n > 0; n--) {
       const code = parts.slice(0, n).join("-");
       // **繁体字を簡体字の辞書へ落とさない**（2026-09-01、両ゲートの指摘）。
-      // `zh-Hant-TW` / `zh-HK` の人に `zh`（簡体字）を出すと、画面が
-      // **3つの書き言葉に割れる**——本文は簡体字、曜日は `formatLocale` が
-      // `zh-TW` になるので繁体字（週日 週一…）、OSのダイアログは
-      // `Info.plist` に `zh-Hans` しか無いので英語。**いま出している英語のまま**
-      // にしておく（`firstWeekday` と同じ倒し方）。**直すのは `zh-hant.ts` を
-      // 足す側**で、そのときはこの門を通らずに上の完全一致で当たる
+      // **いまは `zh-hant.ts` があるので、ここまで来ない**——上の補完で `hant` が
+      // 2番目に入り、`zh-hant` で当たって返る。残してあるのは
+      // **繁体字の辞書が無くなったときの受け皿**で、そのときは英語へ落ちる。
+      // 簡体字を出すよりましだから、ではない: 本文が簡体字・曜日が繁体字
+      // （`formatLocale` は `zh-Hant-TW` のまま）・OSのダイアログが英語と、
+      // **1画面が3つの書き言葉に割れる**
       if (code === "zh" && isTraditionalChinese(parts)) break;
       if (hasDict(code)) return code;
     }
@@ -320,7 +320,20 @@ export const firstWeekday: number = (() => {
   } catch {
     // Intl.Locale が無い・ロケール名を受け付けない。下のフォールバックへ
   }
-  return formatLocale.startsWith("ja") || formatLocale.startsWith("en") ? 0 : 1;
+  // **繁体字は日曜始まり**（2026-09-01、ゲート2の指摘を実測して確かめた）。
+  // `Intl` の `firstDay`: `zh-Hant-TW` = 7・`zh-HK` = 7（日曜）／**`zh-CN` = 1（月曜）**
+  // ——ゲート2は「中国も日曜」と書いていたが、CLDRはそうなっていない。
+  // **だから `zh` でひとまとめにしない。** 繁体字を足す前は、台湾の人は英語の辞書へ
+  // 落ちて `en-TW` になり、ここで日曜が出ていた。書き言葉を足した拍子に
+  // **月曜へ変わってしまう**のを止めるのがこの1語（この節が効くのは
+  // `getWeekInfo` を持たない古いWKWebViewだけ）。
+  // **残る食い違いは書かないでおく**——簡体字の辞書のまま香港に居る人（`zh-HK`）は
+  // `Intl` なら日曜、ここでは月曜。`en-GB` と同じ粗さで、**地域の表を持ち込まない**
+  // というこの節の方針のほうを優先する
+  const tag = formatLocale.toLowerCase();
+  return tag.startsWith("ja") || tag.startsWith("en") || tag.startsWith("zh-hant")
+    ? 0
+    : 1;
 })();
 
 /**

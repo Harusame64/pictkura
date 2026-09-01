@@ -272,7 +272,7 @@ export const zh: Dict = {
   emptyPhotoLibrary:
     "除了“照片”App 的图库以外，没有找到能处理的内容。pictkura 默认不读取“照片”App 的内容（大部分原图在 iCloud 上，并不在这台 Mac 里）。请从存储卡导入，或者选择一个存放照片的文件夹。",
   emptyManagedLibrary:
-    "除了照片管理应用的图库（“照片”App、iPhoto、Aperture 等）以外，没有找到能处理的内容。pictkura 有意不读取它们的内容——就算建立了索引，之后的改动也传不过来，索引会一直停在旧的状态。请从存储卡导入，或者选择一个存放照片的文件夹。",
+    "除了照片管理应用的图库（“照片”App、iPhoto、Aperture 等）以外，没有找到能处理的内容。pictkura 有意不读取它们的内容——就算建立了索引，之后的改动也无法反映到索引，索引会一直停在旧的状态。请从存储卡导入，或者选择一个存放照片的文件夹。",
   emptyRootIsManagedLibrary:
     "图库文件夹里指定的是照片管理应用的图库本身（“照片”App、iPhoto、Aperture 等）。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",
   emptyAllExcluded: (names: string) =>
