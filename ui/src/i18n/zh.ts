@@ -37,11 +37,17 @@
  * ショートカット一覧の X と右クリックの行。**`grep 回收站` で数えること**
  * ——削除のたびに出る `deleted` 系を落とすと、いちばん読まれる文字列が残る（ゲート2の指摘）。
  *
+ * **`打开` / `关掉` は繁体字と揃えない。** 繁体字では釦の語（`開啟` / `關閉`）へ寄せたが、
+ * 大陸のUIでは設定を「打开／关掉」と言うのが普通で、直すと**かえって硬くなる**。
+ * `没有装` → `没有安装` だけは両方で直した（こちらはどちらの地域でも書き言葉が上）。
+ *
  * **見出しの語がぶつからないようにする**（ゲート2の指摘）。3つが近い意味を持つ:
  *
- * - `navPlaces` = **`浏览`**。中身は「すべての画像 / ★ / ⚑」＝実体のない眺めなので、
- *   場所の語を当てない。**`位置` は使えない**——中国語の写真アプリでは
- *   **GPSの撮影地**の意味に読まれる（このアプリにも `exifLocation` がある）
+ * - `navPlaces` = **`相册`**。中身は「すべての画像 / ★ / ⚑」＝実体のない眺めで、
+ *   写真アプリのサイドバーではこれを相册と呼ぶ。**使えない語が3つある**——
+ *   `位置` はGPSの撮影地に読まれ（`exifLocation` がある）、`图库` は
+ *   `navLibraryFolders`（`图库文件夹`）と、`浏览` は `browse`（`浏览…` の釦）と
+ *   **同じサイドバーの中でぶつかる**（2巡のゲート2で1つずつ出た）
  * - `navLibraryFolders` = **`图库文件夹`**。pictkura が見ている本物のフォルダ
  * - **写真.appの蔵書も `图库`**。`资料库` ではない——macOSの簡体字版で
  *   `图库` がその語で（`资料库` はミュージック側）、`.photoslibrary` の既定名も `图库`。
@@ -68,7 +74,7 @@ export const zh: Dict = {
   rescan: "重新扫描",
   size: "大小",
   itemsSuffix: "项",
-  navPlaces: "浏览",
+  navPlaces: "相册",
   navAllPhotos: "全部照片",
   navFavorites: "★ 收藏",
   navPicked: "⚑ 已留用",
@@ -193,7 +199,7 @@ export const zh: Dict = {
   videoCodecNoteMac:
     "macOS 本身就能播放 HEVC，所以这可能是它不支持的录制格式。",
   videoCodecNoteOther:
-    "这台设备上可能没有装支持这种录制格式的解码器。",
+    "这台设备上可能没有安装支持这种录制格式的解码器。",
   videoCodecHelp: "查看 HEVC 视频扩展（付费）",
   loading: "正在加载…",
   exifTitle: "拍摄信息",
@@ -304,8 +310,8 @@ export const zh: Dict = {
   wizardImportAll: "把这个文件夹整个导入（包含下级文件夹）",
   wizardImportAllShort: "整个文件夹",
   wizardDeep: "包含下级文件夹",
-  wizardDeepHint: "会把存储卡里的照片全部找出来（不知道放在哪里也没关系）",
-  wizardScanning: "正在查找存储卡里的照片…",
+  wizardDeepHint: "会把这个来源里的照片全部找出来（不知道放在哪里也没关系）",
+  wizardScanning: "正在查找来源里的照片…",
   wizardTruncated: (n: number) =>
     `数量太多，只显示前 ${n} 张。要全部导入，请用“整个文件夹”`,
   wizardScanIncomplete: "⚠ 有文件夹无法读取（可能有遗漏）",
@@ -314,7 +320,7 @@ export const zh: Dict = {
   decoderHeifNoticeMac: (n: string) =>
     `⚠ 有 ${n} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）`,
   decoderHeifNoticeOther: (n: string) =>
-    `⚠ 有 ${n} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。这台设备上可能没有装支持 HEIC/HEVC 的解码器`,
+    `⚠ 有 ${n} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。这台设备上可能没有安装支持 HEIC/HEVC 的解码器`,
   decoderHeifHow: "HEIF 图像扩展（免费）",
   decoderHevcHow: "HEVC 视频扩展（付费）",
   decoderNoticeDismiss: "不再显示",

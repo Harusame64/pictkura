@@ -17,7 +17,7 @@
  * - **macOSは `src-tauri/Info.plist` にも足す**（`CFBundleLocalizations`）。
  *   保存・フォルダ選択・削除確認の枠は AppKit のもので、この辞書は届かない。
  *   辞書だけ足すと**枠だけ英語**のままになる。綴りは AppKit の言語IDなので
- *   辞書のコードと同じとは限らない（中国語は `zh-Hans`）。
+ *   辞書のコードと同じとは限らない（`zh` → `zh-Hans`、`zh-hant` → `zh-Hant`）。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
  * - **言葉のコードと書式のコードは別**（`locale` と `formatLocale`）。辞書は
  *   地域を落として選ぶが（`es-MX` → `es`）、**その丸めを書式に持ち込まない**。
@@ -247,6 +247,22 @@ export const t: Dict = DICTS[locale] ?? en;
  * `locale` へ落ちるのは、OSが何も渡してこなかったとき（開発中のブラウザなど）。
  * そのときは今までどおりの挙動になる。
  */
+/**
+ * **書式の土台。辞書のコードに書き言葉が無いときは補う**（2026-09-01、ゲート1の指摘）。
+ *
+ * 辞書の `zh` は書き言葉を省いた綴りなので、`Intl.Locale("zh", { region: "TW" })` は
+ * **`zh-TW`** になり、`Intl` はそれを**繁体字と解釈する**。実測:
+ *
+ * ```
+ * zh-TW      → 週日   （繁体字）
+ * zh-Hans-TW → 周日   （簡体字）
+ * ```
+ *
+ * つまり**簡体字を選んでいる台湾・香港の人の画面で、曜日だけ繁体字**になっていた。
+ * `pickLocale()` が `Hans` を尊重するようにしたのと同じ穴が、書式側に残っていた。
+ */
+const formatBase = locale === "zh" ? "zh-Hans" : locale;
+
 export const formatLocale: string = (() => {
   // **OSのタグをそのまま使ってはいけない。** `Intl` は言語副タグを見て
   // **月名・曜日名・数字の字形・暦**まで決める。タイ語のOSで辞書が英語に落ちた人に
@@ -259,12 +275,12 @@ export const formatLocale: string = (() => {
       if (!region) continue;
       // `Intl.Locale` は綴りが不正だと `RangeError` を投げる。ここで例外が飛ぶと
       // i18nを読む画面が全部真っ白になるので、投げた候補は飛ばして次を見る
-      return new Intl.Locale(locale, { region }).toString();
+      return new Intl.Locale(formatBase, { region }).toString();
     } catch {
       // 次の候補へ
     }
   }
-  return locale;
+  return formatBase;
 })();
 
 /** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
@@ -327,9 +343,10 @@ export const firstWeekday: number = (() => {
   // 落ちて `en-TW` になり、ここで日曜が出ていた。書き言葉を足した拍子に
   // **月曜へ変わってしまう**のを止めるのがこの1語（この節が効くのは
   // `getWeekInfo` を持たない古いWKWebViewだけ）。
-  // **残る食い違いは書かないでおく**——簡体字の辞書のまま香港に居る人（`zh-HK`）は
-  // `Intl` なら日曜、ここでは月曜。`en-GB` と同じ粗さで、**地域の表を持ち込まない**
-  // というこの節の方針のほうを優先する
+  // **残る食い違いは受け入れる**——簡体字の辞書のまま**香港・シンガポール・台湾**に
+  // 居る人（`zh-Hans-HK` / `zh-SG` / `zh-Hans-TW`）は `Intl` なら日曜、ここでは月曜。
+  // `en-GB` と同じ粗さで、**地域の表を持ち込まない**というこの節の方針のほうを優先する
+  // （直すなら「どの地域が日曜か」をCLDRから写すことになり、写した時点で古びる）
   const tag = formatLocale.toLowerCase();
   return tag.startsWith("ja") || tag.startsWith("en") || tag.startsWith("zh-hant")
     ? 0

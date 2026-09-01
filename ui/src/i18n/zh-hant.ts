@@ -50,8 +50,8 @@
  * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` と、
  * ショートカット一覧の X と右クリックの行（`grep 資源回收筒` で数える）。
  *
- * **見出しの語**は簡体字辞書と同じ分け方。`navPlaces` は `瀏覽`（`位置` は
- * GPSの撮影地に読まれる）、pictkura の蔵書は `圖庫資料夾`、写真.appの蔵書も
+ * **見出しの語**は簡体字辞書と同じ分け方。`navPlaces` は `相簿`（`位置` はGPSの撮影地、
+ * `圖庫` は `圖庫資料夾` と、`瀏覽` は `browse` の釦とぶつかる）、pictkura の蔵書は `圖庫資料夾`、写真.appの蔵書も
  * `圖庫` だが**必ず「照片」App 的 / 照片管理程式的 を付ける**。
  *
  * **金額は現地通貨へ。** `數十元` は台湾ドルの見当（HEVCの延伸模組はNT$30前後）。
@@ -74,7 +74,7 @@ export const zhHant: Dict = {
   rescan: "重新掃描",
   size: "大小",
   itemsSuffix: "項",
-  navPlaces: "瀏覽",
+  navPlaces: "相簿",
   navAllPhotos: "全部照片",
   navFavorites: "★ 最愛",
   navPicked: "⚑ 已留用",
@@ -310,8 +310,8 @@ export const zhHant: Dict = {
   wizardImportAll: "把這個資料夾整個匯入（包含下層資料夾）",
   wizardImportAllShort: "整個資料夾",
   wizardDeep: "包含下層資料夾",
-  wizardDeepHint: "會把記憶卡裡的照片全部找出來（不知道放在哪裡也沒關係）",
-  wizardScanning: "正在尋找記憶卡裡的照片…",
+  wizardDeepHint: "會把這個來源裡的照片全部找出來（不知道放在哪裡也沒關係）",
+  wizardScanning: "正在尋找來源裡的照片…",
   wizardTruncated: (n: number) =>
     `數量太多，只顯示前 ${n} 張。要全部匯入，請用「整個資料夾」`,
   wizardScanIncomplete: "⚠ 有資料夾無法讀取（可能有遺漏）",
