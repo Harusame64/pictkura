@@ -257,7 +257,7 @@ export const en: Dict = {
     `Showing the first ${num(n)} only. Use "Whole folder" to import everything`,
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. They need the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
+    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. ${one(n, "It needs", "They need")} the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
   decoderHeifNoticeMac: (n: number) =>
     `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either`,
   decoderHeifNoticeOther: (n: number) =>
