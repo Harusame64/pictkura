@@ -23,6 +23,10 @@ tauri-plugin-opener = "2"
 # USB挿入の自動起動（AutoPlay）で2重起動されたとき、新しい窓を開かず
 # 動作中のインスタンスへドライブパスを渡す
 tauri-plugin-single-instance = "2"
+# **OSの言語設定を、地域つきで取る**。WebViewは地域を落とす——macOSは
+# WKWebViewが `ja-JP` を `ja` にし、Windowsは言語リスト自体が裸のことがある
+# （2026-09-01 実測、dev #16）。ここだけがOSの地域を知っている経路
+sys-locale = "0.3"
 # 削除はゴミ箱へ入れる（完全削除にしない）
 trash = "5"
 sysinfo = { version = "0.33", default-features = false, features = ["disk"] }

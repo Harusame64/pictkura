@@ -3963,6 +3963,30 @@ fn sync_autoplay_with_config() -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// **OSの言語設定を、地域つきで画面へ渡す。**
+///
+/// WebViewの `navigator.languages` は地域を落とす。macOSは**OSが `ja-JP` を持っているのに
+/// WKWebViewが `ja` にする**し、Windowsは**言語リスト自体が裸**のことがある
+/// （どちらも2026-09-01の実測。経緯は dev の #16）。
+///
+/// Windowsには `Intl` の既定から地域が取れる経路もあったが、**採らない**——
+/// 表示言語と地域が食い違うと（例: 表示は日本語・地域はメキシコ）**その経路も裸に落ちる**。
+/// **地域が要るのはまさにその人たち**なので、噛み合っているときだけ効く経路は役に立たない。
+///
+/// **ページのスクリプトより先に走らせる**必要がある。辞書 `t` は
+/// `ui/src/i18n/index.ts` を読んだ時点で決まる定数で、`invoke` の非同期を待てない。
+/// `js_init_script` はそのための口（Tauriのドキュメントが挙げている用途そのもの）。
+fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    let locales: Vec<String> = sys_locale::get_locales().collect();
+    // **JSは組み立てず、データだけ差し込む**。ロケール名を文字列連結で埋めると、
+    // 変な値が来たときに**構文が壊れて画面が真っ白になる**。ここは起動経路なので、
+    // 失敗しても「地域が分からない」に留める（`[]` を置いて画面側で従来動作へ倒す）
+    let json = serde_json::to_string(&locales).unwrap_or_else(|_| "[]".to_string());
+    tauri::plugin::Builder::new("os-locale")
+        .js_init_script(format!("window.__PICTKURA_OS_LOCALES__ = {json};"))
+        .build()
+}
+
 pub fn run() {
     // アンインストール前の明示的な解除口。AutoPlayの登録は**実行時にHKCUへ**
     // 書くので、アプリを消してもレジストリには残り、挿すたびに居ないpictkuraを
@@ -4002,6 +4026,8 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             handle_second_instance(app, &argv);
         }))
+        // OSの言語（地域つき）を、画面のスクリプトより先に置く
+        .plugin(os_locale_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
