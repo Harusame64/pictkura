@@ -23,6 +23,7 @@ export const en: Dict = {
   kindVideo: "Videos",
   // ショートカット一覧（`?` / `F1`）
   shortcutsTitle: "Keyboard shortcuts (?)",
+  keyCtrl: "Ctrl",
   actionShortcuts: "Show keyboard shortcuts",
   shortcutGroups: [
     {

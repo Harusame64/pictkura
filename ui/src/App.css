@@ -354,12 +354,18 @@ body {
   background: var(--accent);
   color: var(--accent-contrast);
 }
+/* **釦の幅は言語で変わる**——「追加」は小さいが `Hinzufügen` は倍近い。
+   釦に押されて入力欄が潰れると、置き字のパスが `z. B. /Users/b` まで削られて
+   **何を入れる欄なのか分からなくなる**（2026-09-01、ドイツ語の実画面で実測）。
+   入りきらない言語では**釦を次の行へ落とす**。下の `flex-basis` が、
+   入力欄がこれ以上狭くなるくらいなら折り返す、という線 */
 .add-folder-manual {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-1);
 }
 .add-folder input {
-  flex: 1;
+  flex: 1 1 7.5rem;
   min-width: 0;
   padding: 5px var(--sp-2);
   border: 1px solid var(--border);
