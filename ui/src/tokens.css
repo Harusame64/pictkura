@@ -73,9 +73,12 @@
   --fs-md: 13px;
   --fs-lg: 14px;
   --fs-xl: 16px;
-  --font-ui:
+  /* 日本語の並び。**`:lang(ja)` から引き直すので、名前を付けて1か所に置く**
+     （下の「逆向き」の注記を見ること） */
+  --font-ui-ja:
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "Hiragino Sans",
     "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+  --font-ui: var(--font-ui-ja);
   --easing: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 120ms;
   --dur: 180ms;
@@ -113,6 +116,14 @@
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang TC",
     "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", system-ui,
     sans-serif;
+}
+/* **逆向きも要る**（2026-09-02、ゲート2の指摘）。上の2つは中国語へ寄せるだけなので、
+   **中国語の画面に出る日本語のラベル**——言語の選択肢の `日本語`——は中国語の並びを
+   継承したままで、`日本語` が PingFang の字形で組まれる。`简体中文` が日本語の画面で
+   割れていたのと同じことが、鏡写しに起きる。ここで日本語の並びへ引き戻す。
+   英・独・西は上の並びとラテン文字の部分が同じなので、`:lang()` を足す必要は無い。 */
+:lang(ja) {
+  --font-ui: var(--font-ui-ja);
 }
 
 /* ダークのセマンティック定義。OS追従（既定）と明示指定の両方で同じ値を使う。
