@@ -151,12 +151,36 @@ function pickLocale(): string {
   const chosen = readStored();
   if (chosen && hasDict(chosen)) return chosen;
   for (const tag of preferredLocales) {
-    // "ja-JP" → "ja" のように地域を落として照合する
-    const base = tag.toLowerCase().split("-")[0];
-    if (DICTS[tag.toLowerCase()]) return tag.toLowerCase();
-    if (DICTS[base]) return base;
+    // **後ろから1つずつ短くして探す**——`zh-Hant-TW` → `zh-hant` → `zh`、
+    // `ja-JP` → `ja`。地域を落とすだけだと**真ん中の副タグを飛ばす**ので、
+    // `zh-hant.ts` を足しても `zh-Hant-TW` の人には当たらない
+    const parts = tag.toLowerCase().split("-");
+    for (let n = parts.length; n > 0; n--) {
+      const code = parts.slice(0, n).join("-");
+      // **繁体字を簡体字の辞書へ落とさない**（2026-09-01、両ゲートの指摘）。
+      // `zh-Hant-TW` / `zh-HK` の人に `zh`（簡体字）を出すと、画面が
+      // **3つの書き言葉に割れる**——本文は簡体字、曜日は `formatLocale` が
+      // `zh-TW` になるので繁体字（週日 週一…）、OSのダイアログは
+      // `Info.plist` に `zh-Hans` しか無いので英語。**いま出している英語のまま**
+      // にしておく（`firstWeekday` と同じ倒し方）。**直すのは `zh-hant.ts` を
+      // 足す側**で、そのときはこの門を通らずに上の完全一致で当たる
+      if (code === "zh" && isTraditionalChinese(parts)) break;
+      if (hasDict(code)) return code;
+    }
   }
   return "en";
+}
+
+/**
+ * その言語タグが繁体字か。**簡体字の辞書へ落としてよいかの判定にだけ使う。**
+ *
+ * 見るのは書き言葉の副タグ（`hant`）と、繁体字を使う地域（台湾・香港・マカオ）。
+ * **CLDRの表を写しているのではない**——「どの地域が繁体字か」は3つで尽きていて、
+ * 増えも減りもしない。`zh-CN` / `zh-SG` / `zh-Hans-*` はここに当たらないので、
+ * 今までどおり `zh` の辞書へ落ちる。
+ */
+function isTraditionalChinese(parts: string[]): boolean {
+  return parts.some((p) => p === "hant" || p === "tw" || p === "hk" || p === "mo");
 }
 
 /** 現在の言語コード（"ja" / "en" …） */

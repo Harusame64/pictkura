@@ -5,7 +5,11 @@
  * 「どの中国語か」を決めないと書けない言語で、**この辞書が触る範囲でも割れる**——
  * `视频`（大陸）/ `影片`（台湾）、`默认` / `預設`、`文件夹` / `資料夾`、
  * `缩略图` / `縮圖`、`回收站` / `垃圾桶`。繁体字が要るようになったら
- * **`zh-TW.ts` を別に足せばよい**（辞書は言語ごとに1ファイルなので、ここは触らずに済む）。
+ * **`zh-hant.ts` を別に足せばよい**（辞書は言語ごとに1ファイルなので、ここは触らずに済む）。
+ * **綴りは小文字の `zh-hant`**——`pickLocale()` はOSのタグを小文字にして引くので、
+ * `DICTS` の鍵が `zh-TW` だと**OSからは永久に当たらない**（`LOCALES` の `code` も同じ綴りにする）。
+ * OSが渡すのは `zh-Hant-TW` のような3段のタグだが、`pickLocale()` が後ろから
+ * 1つずつ短くして探すので `zh-hant` で当たる（`index.ts`）。
  *
  * **語は発明せず、既に中国語圏で使われているものへ合わせる**（独語・西語辞書と同じ方針）:
  *
@@ -27,13 +31,22 @@
  * **ゴミ箱の呼び名はOSで割れる**——Windows と Linux は `回收站`、macOSは `废纸篓`。
  * 辞書はプラットフォーム別に持てるキー（`videoCodecNoteMac` など）以外は1つしかないので、
  * **`回收站` に寄せた**。配布の主戦場がWindowsで（MSI / NSIS、DLもそちら）、
- * macOSの利用者にも `回收站` は通じる。**分けるなら6か所**——`menuDelete` /
- * `bulkDelete` / `deleteConfirm` / `rejectGateTitle` / `rejectGateConfirm` /
- * `rejectGateNote` と、ショートカット一覧の X と右クリックの2行。
+ * macOSの利用者にも `回收站` は通じる。**分けるなら8キーと2行**——`menuDelete` /
+ * `bulkDelete` / `deleteConfirm` / **`deleted`** / **`deletedSomeLeft`** /
+ * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` と、
+ * ショートカット一覧の X と右クリックの行。**`grep 回收站` で数えること**
+ * ——削除のたびに出る `deleted` 系を落とすと、いちばん読まれる文字列が残る（ゲート2の指摘）。
  *
- * **`navPlaces` に `位置` を当てない**。中国語の写真アプリで `位置` は
- * **GPSの撮影地**の意味に読まれる（このアプリにも `exifLocation` がある）。
- * 見出しの下に並ぶのは「すべての画像 / ★ / ⚑」なので `图库` にした。
+ * **見出しの語がぶつからないようにする**（ゲート2の指摘）。3つが近い意味を持つ:
+ *
+ * - `navPlaces` = **`浏览`**。中身は「すべての画像 / ★ / ⚑」＝実体のない眺めなので、
+ *   場所の語を当てない。**`位置` は使えない**——中国語の写真アプリでは
+ *   **GPSの撮影地**の意味に読まれる（このアプリにも `exifLocation` がある）
+ * - `navLibraryFolders` = **`图库文件夹`**。pictkura が見ている本物のフォルダ
+ * - **写真.appの蔵書も `图库`**。`资料库` ではない——macOSの簡体字版で
+ *   `图库` がその語で（`资料库` はミュージック側）、`.photoslibrary` の既定名も `图库`。
+ *   **必ず「“照片”App 的」「照片管理应用的」を付けて**、pictkura の `图库文件夹` と混ぜない
+ *   （西語で `biblioteca` と `fototeca` を分けたのと同じ問題を、修飾で分けている）
  *
  * **「読めない」ではなく「読まない」**——`emptyRootIsPackage` /
  * `emptyManagedLibrary` / `emptyRootIsManagedLibrary` の3つは `有意不读取` で、
@@ -55,7 +68,7 @@ export const zh: Dict = {
   rescan: "重新扫描",
   size: "大小",
   itemsSuffix: "项",
-  navPlaces: "图库",
+  navPlaces: "浏览",
   navAllPhotos: "全部照片",
   navFavorites: "★ 收藏",
   navPicked: "⚑ 已留用",
@@ -255,13 +268,13 @@ export const zh: Dict = {
   listSeparator: "、",
   andMore: (n: number) => `另外 ${n} 项`,
   emptyRootIsPackage:
-    "图库文件夹里指定的是“照片”App 的资料库本身。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",
+    "图库文件夹里指定的是“照片”App 的图库本身。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",
   emptyPhotoLibrary:
-    "除了“照片”App 的资料库以外，没有找到能处理的内容。pictkura 默认不读取“照片”App 的内容（大部分原图在 iCloud 上，并不在这台 Mac 里）。请从存储卡导入，或者选择一个存放照片的文件夹。",
+    "除了“照片”App 的图库以外，没有找到能处理的内容。pictkura 默认不读取“照片”App 的内容（大部分原图在 iCloud 上，并不在这台 Mac 里）。请从存储卡导入，或者选择一个存放照片的文件夹。",
   emptyManagedLibrary:
-    "除了照片管理应用的资料库（“照片”App、iPhoto、Aperture 等）以外，没有找到能处理的内容。pictkura 有意不读取它们的内容——就算建立了索引，之后的改动也传不过来，索引会一直停在旧的状态。请从存储卡导入，或者选择一个存放照片的文件夹。",
+    "除了照片管理应用的图库（“照片”App、iPhoto、Aperture 等）以外，没有找到能处理的内容。pictkura 有意不读取它们的内容——就算建立了索引，之后的改动也传不过来，索引会一直停在旧的状态。请从存储卡导入，或者选择一个存放照片的文件夹。",
   emptyRootIsManagedLibrary:
-    "图库文件夹里指定的是照片管理应用的资料库本身（“照片”App、iPhoto、Aperture 等）。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",
+    "图库文件夹里指定的是照片管理应用的图库本身（“照片”App、iPhoto、Aperture 等）。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",
   emptyAllExcluded: (names: string) =>
     `找到的内容都被排除设置跳过了（例如 ${names}）。可以在设置文件夹里的 pictkura.toml 中修改。`,
   emptyNothingHere:
