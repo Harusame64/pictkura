@@ -81,6 +81,32 @@
   --dur: 180ms;
 }
 
+/* **漢字は言語で字形が違う。** 上の `--font-ui` のCJKは日本語の書体しか挙げていない
+ * （`Hiragino Sans` / `Yu Gothic UI` / `Noto Sans JP`）ので、中国語の画面では
+ * **1つの単語が2つの書体で組まれる**——`图库文件夹` の `图库` は日本語の書体に無いので
+ * OSの代替（PingFang SC）へ落ち、`文件夹` は在るので日本語の書体で出る。
+ * 繁体字はもっと分かりにくく、**ほぼ全部の字が日本語の書体に在る**ため、
+ * 画面まるごと日本語の字形（`直` `者` `骨` の作りが違う）になる。
+ *
+ * `main.tsx` が `document.documentElement.lang` に辞書のコードを入れているので、
+ * **言語で上書きする**。日本語・英語・独語・西語の見え方は1ピクセルも変わらない。
+ * **`:lang(zh)` は `lang="zh-hant"` にも当たる**（前方一致）ので、繁体字の行を後に置く
+ * ——同じ詳細度なので、あとに書いたほうが勝つ。**順番を入れ替えないこと。**
+ *
+ * 言語を足すときの4か所目（`ui/src/i18n/index.ts` の方針・`Info.plist` に続く）。
+ * 中国語以外の字はどれも上と同じ並びなので、ラテン文字の見え方は揃ったまま。 */
+:root:lang(zh) {
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+}
+:root:lang(zh-hant) {
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, "PingFang TC",
+    "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", system-ui,
+    sans-serif;
+}
+
 /* ダークのセマンティック定義。OS追従（既定）と明示指定の両方で同じ値を使う。
  * サーフェスを4段（地／キャンバス／浮上1／浮上2）持たせるのが要点で、
  * グレー1色で塗るとダークは奥行きを失う */
