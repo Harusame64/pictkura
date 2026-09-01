@@ -160,8 +160,8 @@ function pickLocale(): string {
     // **書き言葉を省いたタグに補う**（`zh-TW` → `zh-hant-tw`）。台湾・香港・
     // マカオのOSは `zh-Hant` を省いて渡してくることがあり、そのままだと
     // `zh-hant` の辞書に当たらずに `zh`（簡体字）まで落ちてしまう
-    if (parts[0] === "zh" && !parts.includes("hant") && !parts.includes("hans")
-        && isTraditionalChinese(parts)) parts.splice(1, 0, "hant");
+    if (parts[0] === "zh" && !parts.includes("hant") && isTraditionalChinese(parts))
+      parts.splice(1, 0, "hant");
     for (let n = parts.length; n > 0; n--) {
       const code = parts.slice(0, n).join("-");
       // **繁体字を簡体字の辞書へ落とさない**（2026-09-01、両ゲートの指摘）。
@@ -179,15 +179,21 @@ function pickLocale(): string {
 }
 
 /**
- * その言語タグが繁体字か。**簡体字の辞書へ落としてよいかの判定にだけ使う。**
+ * その言語タグが繁体字か。
  *
- * 見るのは書き言葉の副タグ（`hant`）と、繁体字を使う地域（台湾・香港・マカオ）。
- * **CLDRの表を写しているのではない**——「どの地域が繁体字か」は3つで尽きていて、
- * 増えも減りもしない。`zh-CN` / `zh-SG` / `zh-Hans-*` はここに当たらないので、
- * 今までどおり `zh` の辞書へ落ちる。
+ * **書き言葉が書いてあればそれに従い、地域は書いていないときだけ見る**
+ * （ゲート1の指摘）。順番を逆にすると **`zh-Hans-HK` / `zh-Hans-MO`**
+ * ——香港・マカオで簡体字を選んでいる人——が地域だけで繁体字と判定され、
+ * `zh` の辞書を飛ばして**英語まで落ちる**。`Hans` と書いてあるのだから、
+ * 地域から推し量る必要はない。
+ *
+ * 地域を見るのは `zh-TW` / `zh-HK` のように書き言葉が省かれたときだけ。
+ * **CLDRの表を写しているのではない**——繁体字の地域は3つで尽きていて増減しない。
  */
 function isTraditionalChinese(parts: string[]): boolean {
-  return parts.some((p) => p === "hant" || p === "tw" || p === "hk" || p === "mo");
+  if (parts.includes("hans")) return false;
+  if (parts.includes("hant")) return true;
+  return parts.some((p) => p === "tw" || p === "hk" || p === "mo");
 }
 
 /** 現在の言語コード（"ja" / "en" …） */
