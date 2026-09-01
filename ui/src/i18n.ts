@@ -450,7 +450,6 @@ const ja = {
   settingsEditorsNote: "「他のアプリで開く…」で選んだアプリを覚えています。",
   settingsForgetEditor: "一覧から外す",
   calendarEmpty: "写真がありません",
-  weekdays: ["日", "月", "火", "水", "木", "金", "土"],
   // ⚡爆速メーター
   speedPrefix: (sec: string) => `⚡ ${sec}秒で起動チェック — `,
   speedUsn: "USNジャーナル差分: ",
@@ -830,7 +829,6 @@ const en: Dict = {
   settingsEditorsNote: "Apps you picked in “Open with another app…”.",
   settingsForgetEditor: "Remove from the list",
   calendarEmpty: "No photos",
-  weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
   speedPrefix: (sec: string) => `⚡ Startup check in ${sec}s — `,
   speedUsn: "USN journal delta: ",
   speedUsnNoChange: "no changes, no folders walked",
@@ -971,6 +969,51 @@ export const formatMonth = (year: number, month: number) =>
     year: "numeric",
     month: "long",
   });
+
+/**
+ * 週の始まり（`Date.getDay()` と同じ 0=日曜 … 6=土曜）。
+ *
+ * **辞書に持たない**——曜日名と同じく `Intl` から取る（辞書の冒頭の方針どおり）。
+ * 日曜始まりは日本・北米などの習慣で、**ヨーロッパのほとんどとISO 8601は月曜始まり**。
+ * ここを固定したままドイツ語だけ足すと、訳は正しいのに**カレンダーが外国のもの**に見える。
+ *
+ * `getWeekInfo()` が新しい綴りで、`weekInfo` が古い綴り。**両方見る**——
+ * WebViewの実体はWindowsがWebView2、macOSがWKWebViewで、後者はOSの版に縛られる。
+ * どちらも無いときは、**いま出している言語の挙動を変えない**側へ倒す
+ * （日本語と英語は日曜始まりのままにする）。
+ */
+export const firstWeekday: number = (() => {
+  try {
+    const l = new Intl.Locale(locale) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+    // ISO の 1=月曜 … 7=日曜。`% 7` で 0=日曜 … 6=土曜へ移す
+    const firstDay = (l.getWeekInfo?.() ?? l.weekInfo)?.firstDay;
+    if (typeof firstDay === "number") return firstDay % 7;
+  } catch {
+    // Intl.Locale が無い・ロケール名を受け付けない。下のフォールバックへ
+  }
+  return locale.startsWith("ja") || locale.startsWith("en") ? 0 : 1;
+})();
+
+/**
+ * 曜日の見出し7つ。**週の始まりから並べる**ので、先頭が日曜とは限らない。
+ *
+ * 基準日には**日曜だと分かっている実在の日付**（2024-01-07）を使い、
+ * 書式化も `UTC` で固定する。ローカル時刻のままだと、負のオフセットの地域で
+ * **1日ずれた曜日名が出る**。
+ */
+export const weekdayLabels: string[] = (() => {
+  const fmt = new Intl.DateTimeFormat(locale, {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+  // 2024-01-07 は日曜。そこから firstWeekday ぶんずらして7日ぶん
+  return Array.from({ length: 7 }, (_, i) =>
+    fmt.format(new Date(Date.UTC(2024, 0, 7 + ((firstWeekday + i) % 7)))),
+  );
+})();
 
 /**
  * 動画の長さ（ミリ秒）を `0:12` / `1:02:03` にする（第9部）。
