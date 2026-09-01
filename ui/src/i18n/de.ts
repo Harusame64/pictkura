@@ -12,6 +12,24 @@
  * - **金額は€に直す**。英語辞書が `数百円` を "a few dollars" にしているのと同じ扱いで、
  *   直訳しない
  * - 釦は不定詞、見出しとナビは名詞（独語UIの慣習）。名詞は大文字で始める
+ *
+ * **2026-09-01、独立した2つのレビューを通した**（`updateOnStartNote` /
+ * `videoCodecNote` / `settingsImportStructureNote` / `emptyManagedLibrary` 系の4つ
+ * ——約束・お金・警告・「なぜ何も出ないか」を載せているキー）。直したのは3つ:
+ *
+ * - **課金する相手を名指しする**。`kostenpflichtige Erweiterung` だけだと
+ *   pictkura の課金と読む余地がある。`aus dem Microsoft Store` を足した
+ * - **警告の強さ**。`nur schwer ändern` は事実の記述に聞こえる。
+ *   `nur mit erheblichem Aufwand` にした。ただし **`Wichtig:` のような札は付けない**
+ *   ——日本語も英語も札を立てていないので、独語だけ声が大きくなる
+ * - **「読めない」と「読まない」**。`liest nicht in eine solche hinein` は
+ *   不自然なうえ、**故障と設計の区別が付かない**。`liest ... bewusst nicht ein` で
+ *   意図だと言い切る。**同じ言い回しが4か所にあるので、まとめて直すこと**
+ *
+ * `updateOnStartNote` は両者とも所見なしで**据え置き**。あわせて
+ * 「アップデート確認以外は通信しない」が本当かをコードで確かめた——
+ * `ureq::` の呼び出しは `update.rs` の1か所だけ、UIに `fetch` は無く、
+ * `tauri.conf.json` の CSP が `connect-src` を ipc に限っている。**約束は真。**
  */
 import { folderExample } from "./folderExample";
 import type { Dict } from "./ja";
@@ -154,7 +172,7 @@ export const de: Dict = {
   videoFailed: "Dieses Video konnte nicht abgespielt werden",
   videoOpenExternal: "In der Standard-App öffnen",
   videoCodecNote:
-    "Videos von iPhones und ähnlichen Kameras nutzen HEVC (H.265). Zum Abspielen braucht das System einen Decoder; unter Windows ist das eine kostenpflichtige Erweiterung (ein paar Euro).",
+    "Videos von iPhones und ähnlichen Kameras nutzen HEVC (H.265). Zum Abspielen braucht das System einen Decoder; unter Windows ist das eine kostenpflichtige Erweiterung aus dem Microsoft Store (ein paar Euro).",
   videoCodecNoteMac:
     "macOS decodiert HEVC von Haus aus, daher ist es vermutlich ein Aufnahmeformat, mit dem es nichts anfangen kann.",
   videoCodecNoteOther:
@@ -233,13 +251,13 @@ export const de: Dict = {
   listSeparator: ", ",
   andMore: (n: number) => `und ${n} weitere`,
   emptyRootIsPackage:
-    "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest nicht in eine solche hinein, es wird also nie etwas daraus kommen. Wähle einen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
+    "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
   emptyPhotoLibrary:
-    "Außer der Mediathek der Fotos-App wurde nichts gefunden. pictkura liest standardmäßig nicht in Fotos hinein — die meisten Originale liegen in iCloud, nicht auf diesem Mac. Importiere von einer Karte oder wähle einen Ordner, in dem Fotos liegen.",
+    "Außer der Mediathek der Fotos-App wurde nichts gefunden. pictkura liest die Fotos-Mediathek standardmäßig nicht ein — die meisten Originale liegen in iCloud, nicht auf diesem Mac. Importiere von einer Karte oder wähle einen gewöhnlichen Ordner, in dem Fotos liegen.",
   emptyManagedLibrary:
-    "Außer Mediatheken von Fotoverwaltungen (Fotos, iPhoto oder Aperture) wurde nichts gefunden. pictkura liest nicht in eine solche hinein — es würde den Inhalt einmal indizieren und Änderungen danach nie wieder mitbekommen. Importiere von einer Karte oder wähle einen Ordner, in dem Fotos liegen.",
+    "Außer Mediatheken von Fotoverwaltungen (Fotos, iPhoto oder Aperture) wurde nichts gefunden. pictkura liest solche Mediatheken bewusst nicht ein — es könnte ihren Inhalt zwar einmal indizieren, würde spätere Änderungen aber nie wieder mitbekommen. Importiere von einer Karte oder wähle einen gewöhnlichen Ordner, in dem Fotos liegen.",
   emptyRootIsManagedLibrary:
-    "Einer der Bibliotheksordner ist selbst die Mediathek einer Fotoverwaltung (Fotos, iPhoto oder Aperture). pictkura liest nicht in eine solche hinein, es wird also nie etwas daraus kommen. Wähle einen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
+    "Einer der Bibliotheksordner ist selbst die Mediathek einer Fotoverwaltung (Fotos, iPhoto oder Aperture). pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
   emptyAllExcluded: (names: string) =>
     `Alles Gefundene wird von den Ausschlussmustern übersprungen (zum Beispiel ${names}). Du kannst sie in der pictkura.toml im Einstellungsordner ändern.`,
   emptyNothingHere:
@@ -358,7 +376,7 @@ export const de: Dict = {
   settingsTitle: "Einstellungen",
   settingsImportStructure: "Ordnerstruktur beim Import",
   settingsImportStructureNote:
-    "Wie importierte Fotos nach Aufnahmedatum abgelegt werden. Das betrifft Tausende von Dateien und lässt sich später nur schwer ändern. Wo ein Ordnername ein Datum trägt, steht in jeder Sprache das Jahr vorn, damit die Sortierung nach Namen zugleich nach Zeit sortiert.",
+    "Wie importierte Fotos nach Aufnahmedatum abgelegt werden. Das betrifft Tausende von Dateien und lässt sich später nur mit erheblichem Aufwand ändern. Wo ein Ordnername ein Datum trägt, steht in jeder Sprache das Jahr vorn, damit die Sortierung nach Namen zugleich nach Zeit sortiert.",
   settingsDestination: "Ziel",
   settingsDestinationUnset: "(nicht gesetzt — du wählst es beim ersten Import)",
   settingsFlatExample: "IMG_0001.JPG (keine Unterordner)",
