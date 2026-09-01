@@ -24,14 +24,20 @@ fn main() {
     // goes from 2 to 3 RT_MANIFEST entries). Both the app and its test harness still build
     // and start, but the binary is no longer byte-for-byte what it was.
     //
-    // **That is why this is limited to the GNU toolchain.** A build script is compiled for
-    // the host, so `target_env` here is the toolchain doing the building. Releases and CI
-    // are msvc and never take this branch — **the binaries we ship are untouched** — while
-    // people building with `*-pc-windows-gnu` get a test suite that runs at all. Prefer
-    // matching the shipped toolchain (`rustup default stable-msvc`) if that is an option;
-    // this exists so the GNU path is not silently broken.
-    #[cfg(all(windows, target_env = "gnu"))]
-    {
+    // **That is why this is limited to the GNU toolchain.** Releases and CI build for msvc
+    // and never take this branch — **the binaries we ship are untouched** — while people
+    // building for `*-pc-windows-gnu` get a test suite that runs at all. Prefer matching the
+    // shipped toolchain (`rustup default stable-msvc`) if that is an option; this exists so
+    // the GNU path is not silently broken.
+    //
+    // **Ask about the target, not the host.** A build script is compiled and run on the
+    // machine doing the building, so `cfg!(windows)` and `cfg!(target_env = "gnu")` written
+    // here answer for *that* machine, not for the binary being produced. Cross-compiling to
+    // `*-pc-windows-gnu` would then skip the workaround and stay broken. Cargo passes the
+    // real target through the environment, so read it from there (gate 1, P2).
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os == "windows" && target_env == "gnu" {
         // Nothing to add if the variable is missing — better a link error naming the real
         // problem than a panic in the build script (`unwrap`/`expect` are denied here)
         if let Ok(out) = std::env::var("OUT_DIR") {
