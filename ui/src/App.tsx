@@ -362,15 +362,28 @@ const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
   video: () => t.kindVideo,
 };
 
+/**
+ * 秒の整形器は**モジュールで1つずつ持つ**。`speedLabel` は描画のたびに呼ばれるので、
+ * ここで `new Intl.NumberFormat` すると帯が出ている間ずっと作り直しになる
+ * （`i18n/index.ts` の `Intl` の使い方に合わせた）
+ */
+const secondsFmt2 = new Intl.NumberFormat(formatLocale, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
   // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
-  // ここだけ英語式のまま帯に載り、**同じ帯の桁区切り（`formatNumber`）と流儀が割れていた**
-  const digits = r.elapsed_ms < 1000 ? 2 : 1;
-  const sec = new Intl.NumberFormat(formatLocale, {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(r.elapsed_ms / 1000);
+  // ここだけ英語式のまま帯に載り、**同じ帯の桁区切り（`formatNumber`）と流儀が割れていた**。
+  // 桁区切りが付くのは1000秒を超えたときだけで、そのときは帯の他の数字と揃う
+  const sec = (r.elapsed_ms < 1000 ? secondsFmt2 : secondsFmt1).format(
+    r.elapsed_ms / 1000,
+  );
   const diff =
     r.added || r.changed || r.removed
       ? t.speedDiff(r.added, r.changed, r.removed)

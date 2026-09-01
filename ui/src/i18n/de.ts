@@ -255,6 +255,13 @@ export const de: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Diese Orte ließen sich nicht öffnen: ${names}. Prüfe, ob du sie lesen darfst, und drücke dann „Neu einlesen“.`,
   listSeparator: ", ",
+  /**
+   * **`weiterer` にはしない**（2026-09-01、ゲート2の指摘を検討して据え置き）。
+   * 受ける名詞が呼び出しごとに変わる——`Orte`（男性・`emptyMissing` 系）、
+   * `Kameras`（女性・`showMore`）、`Dateien`（女性）——ので、
+   * **1つの語形では必ずどれかが外れる**。複数形の `weitere` はどの性でも
+   * 落ち着きが悪くないほうを取っている。直すなら受ける名詞を引数で渡す話になる
+   */
   andMore: (n: number) => `und ${n} weitere`,
   emptyRootIsPackage:
     "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
@@ -335,7 +342,7 @@ export const de: Dict = {
       : `${n} Fotos in den Papierkorb verschieben?`,
   deleted: (n: number) => `${n} in den Papierkorb verschoben`,
   deletedSomeLeft: (n: number, left: number) =>
-    `${n} in den Papierkorb verschoben (${left} waren nicht auffindbar und blieben unangetastet)`,
+    `${n} in den Papierkorb verschoben (${left} ${one(left, "war", "waren")} nicht auffindbar und ${one(left, "blieb", "blieben")} unangetastet)`,
   // 複数選択と一括操作
   selectItem: "Auswählen",
   selectedCount: (n: number) => (n === 1 ? "1 ausgewählt" : `${n} ausgewählt`),
@@ -357,10 +364,10 @@ export const de: Dict = {
     `Wird exportiert… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
     const parts = [done === 1 ? "1 Foto exportiert" : `${done} Fotos exportiert`];
-    if (skipped > 0) parts.push(`${skipped} waren schon da`);
+    if (skipped > 0) parts.push(`${skipped} ${one(skipped, "war", "waren")} schon da`);
     if (failed > 0) parts.push(`${failed} fehlgeschlagen`);
     if (leftBehind > 0)
-      parts.push(`${leftBehind} ließen sich am bisherigen Platz nicht entfernen`);
+      parts.push(`${leftBehind} ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz nicht entfernen`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Als Auswahl markieren",
