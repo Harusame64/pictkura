@@ -62,17 +62,33 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
     if target_os == "windows" && target_env == "gnu" {
+        // **The branch is the target's, but the filename is the host's.** `embed-resource`
+        // is a build-dependency, so it is compiled for the machine doing the building and
+        // its `cfg`s answer for that machine: a windows-gnu host writes `libresource.a`
+        // (`windows_not_msvc.rs:54`), a windows-msvc host writes `resource.lib`
+        // (`windows_msvc.rs:32`), and so does a macOS/Linux host cross-compiling with mingw
+        // (`non_windows.rs:31`). Looking for one spelling only would warn and do nothing on
+        // an msvc machine running `cargo test --target x86_64-pc-windows-gnu` -- the
+        // toolchain the note above tells people to prefer -- and on the cross-compile this
+        // workaround was widened to cover in the first place (gate 2). Either spelling is
+        // linkable: `embed-resource` hands the same path to `cargo:rustc-link-arg-bins=`
+        // whatever the host (`lib.rs:443`).
+        //
         // `OUT_DIR` as an `OsString` so the `exists()` check is right on any path (the emit
         // below is still lossy -- cargo's build-script protocol is UTF-8 lines)
-        let resource = std::env::var_os("OUT_DIR")
-            .map(|out| std::path::Path::new(&out).join("libresource.a"))
-            .filter(|path| path.exists());
+        let resource = std::env::var_os("OUT_DIR").and_then(|out| {
+            let dir = std::path::Path::new(&out).to_path_buf();
+            ["libresource.a", "resource.lib"]
+                .into_iter()
+                .map(|name| dir.join(name))
+                .find(|path| path.exists())
+        });
         match resource {
             Some(path) => println!("cargo:rustc-link-arg={}", path.display()),
-            // **Say it out loud rather than skip quietly.** `libresource.a` is tauri-build's
-            // own filename, not a documented contract; if it is renamed or stops being
-            // written, this branch does nothing and the harness goes back to dying before
-            // `main`. Nothing else would catch that — the tests are the only check there is,
+            // **Say it out loud rather than skip quietly.** Both spellings are
+            // tauri-build's own filenames, not a documented contract; if they are renamed
+            // or stop being written, this branch does nothing and the harness goes back to
+            // dying before `main`. Nothing else would catch that — the tests are the only check there is,
             // and CI never builds for a gnu target, so it stays green while the developer in
             // front of it gets an exit code and no explanation. A warning is that
             // explanation. Panicking here is not an option (`unwrap`/`expect` are denied)
@@ -84,10 +100,10 @@ fn main() {
             // 0xc0000139 with no clue. Reading the resource to check would mean parsing it;
             // the exit code is the signal there.
             None => println!(
-                "cargo:warning=windows-gnu: tauri-build's compiled resource (libresource.a in \
-                 OUT_DIR) was not found, so the Common-Controls manifest is not linked in. \
-                 `cargo test -p pictkura --lib` will exit 0xc0000139 before it runs a single \
-                 test."
+                "cargo:warning=windows-gnu: tauri-build's compiled resource (libresource.a or \
+                 resource.lib in OUT_DIR) was not found, so the Common-Controls manifest is \
+                 not linked in. `cargo test -p pictkura --lib` will exit 0xc0000139 before it \
+                 runs a single test."
             ),
         }
     }
