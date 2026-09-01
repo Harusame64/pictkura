@@ -80,11 +80,15 @@ arboard = { version = "3.6", default-features = false, features = [
 # Win32_System_Registry: AutoPlayハンドラをHKCUへ登録する（autoplay.rs）
 # Win32_Globalization: 地域書式の設定を読む（`GetUserDefaultLocaleName`）。
 # 表示言語のリスト（`sys-locale`）とは別の設定
+# Win32_System_SystemServices: **`LOCALE_NAME_MAX_LENGTH` だけがここに居る**。
+# Win32のヘッダでは `GetUserDefaultLocaleName` と同じ `winnls.h` に並んでいるのに、
+# windows-sys 0.60.2 では別モジュールへ振られている（2026-09-01、#96のCIで判明）
 windows-sys = { version = "0.60", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_System_SystemServices",
 ] }
 
 # マウントの旗（`MNT_DONTBROWSE`）を読むための `statfs`。sysinfo は旗を返さない。

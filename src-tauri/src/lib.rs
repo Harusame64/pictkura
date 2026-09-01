@@ -4010,7 +4010,11 @@ fn os_region_locale() -> Option<String> {
 
 #[cfg(windows)]
 fn os_region_locale() -> Option<String> {
-    use windows_sys::Win32::Globalization::{GetUserDefaultLocaleName, LOCALE_NAME_MAX_LENGTH};
+    // **`LOCALE_NAME_MAX_LENGTH` は Globalization に無い**。Win32のヘッダでは
+    // `GetUserDefaultLocaleName` と同じ `winnls.h` に並んでいるが、windows-sys では
+    // `System::SystemServices` へ振られている（0.60.2 で確認）
+    use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+    use windows_sys::Win32::System::SystemServices::LOCALE_NAME_MAX_LENGTH;
 
     let mut buf = [0u16; LOCALE_NAME_MAX_LENGTH as usize];
     // SAFETY: 長さを渡し、**戻り値が示した分だけ**読む。戻り値は終端のNULを含む文字数
