@@ -90,6 +90,7 @@ import {
   formatDateTime,
   formatDayKey,
   formatDuration,
+  formatLocale,
   formatNumber,
   t,
 } from "./i18n";
@@ -361,9 +362,35 @@ const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
   video: () => t.kindVideo,
 };
 
+/**
+ * 秒の整形器は**モジュールで1つずつ持つ**。`speedLabel` は描画のたびに呼ばれるので、
+ * ここで `new Intl.NumberFormat` すると帯が出ている間ずっと作り直しになる
+ * （`i18n/index.ts` の `Intl` の使い方に合わせた）
+ */
+const secondsFmt2 = new Intl.NumberFormat(formatLocale, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
-  const sec = (r.elapsed_ms / 1000).toFixed(r.elapsed_ms < 1000 ? 2 : 1);
+  // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
+  // ここだけ英語式のまま帯に載っていた。桁区切りが付くのは1000秒を超えたときだけ。
+  //
+  // **直したのは小数点だけで、この帯の件数はまだ `formatNumber` を通っていない**
+  // ——`speedFull` も `speedUsnDirty` も `speedDiff` も生の `${total}` を埋めている
+  // （2026-09-02、ゲート2の指摘。前の版のここには「同じ帯の桁区切りと流儀が割れる」と
+  // 書いてあったが、**この帯に桁区切りを通した数字は無い**）。独語で12万件なら、
+  // すぐ上のヘッダが `120.000 Fotos` なのに帯は `120000 Dateien` と出る。
+  // 辞書6つぶんの署名変更（`number` → `string`）になるので独立した1周にする、と
+  // 決めてある（plan.md「遡ってのゲート2」の先送り2件のうちの1つ）
+  const sec = (r.elapsed_ms < 1000 ? secondsFmt2 : secondsFmt1).format(
+    r.elapsed_ms / 1000,
+  );
   const diff =
     r.added || r.changed || r.removed
       ? t.speedDiff(r.added, r.changed, r.removed)

@@ -13,7 +13,9 @@
  *   直訳しない
  * - 釦は不定詞、見出しとナビは名詞（独語UIの慣習）。名詞は大文字で始める
  *
- * **2026-09-01、独立した2つのレビューを通した**（`updateOnStartNote` /
+ * **2026-09-01、独立した2つのレビューを通した**——**訳の読解に限った検算**で、
+ * コードの2ゲート（codex / `/code-review`）はこの辞書には掛けていない
+ * （遡って掛けたのは2026-09-01。`plan.md`）。見たのは（`updateOnStartNote` /
  * `videoCodecNote` / `settingsImportStructureNote` / `emptyManagedLibrary` 系の4つ
  * ——約束・お金・警告・「なぜ何も出ないか」を載せているキー）。直したのは3つ:
  *
@@ -33,6 +35,10 @@
  */
 import { folderExample } from "./folderExample";
 import type { Dict } from "./ja";
+
+/** **数詞1のあとは単数**（2026-09-01、遡ってのゲート2）。`1 Dateien` は目に付く */
+const one = (n: number, singular: string, plural: string) =>
+  n === 1 ? singular : plural;
 
 export const de: Dict = {
   appName: "pictkura",
@@ -168,7 +174,7 @@ export const de: Dict = {
   videoMissing: "Diese Datei fehlt (sie wurde wohl verschoben oder gelöscht)",
   videoCloudOnly: "Dieses Video liegt in der Cloud",
   videoCloudOnlyNote:
-    "Hier abgespielt startet erst ein Download, und bis er fertig ist, ist nichts zu sehen. In der Standard-App siehst du den Fortschritt.",
+    "Wenn du es hier abspielst, startet zuerst ein Download, und bis er fertig ist, ist nichts zu sehen. Öffnest du es in der Standard-App, kannst du den Fortschritt verfolgen.",
   videoFailed: "Dieses Video konnte nicht abgespielt werden",
   videoOpenExternal: "In der Standard-App öffnen",
   videoCodecNote:
@@ -235,7 +241,7 @@ export const de: Dict = {
   emptyTitleChecking: "Wird geprüft",
   emptyTitleStartupFailed: "Der Abgleich beim Start wurde nicht fertig",
   emptyStartupFailed:
-    "Der Abgleich, der beim Start läuft, wurde nicht fertig. Es kann Fotos geben, die noch nicht aufgenommen sind. Drücke „Neu einlesen“; hilft das nicht, öffne die App neu.",
+    "Der Abgleich, der beim Start läuft, wurde nicht fertig. Es kann Fotos geben, die noch nicht in die Bibliothek aufgenommen wurden. Drücke „Neu einlesen“; hilft das nicht, öffne die App neu.",
   emptyTitleMissing: "Einige Orte sind nicht da",
   emptyTitleUnreadable: "Einige Orte ließen sich nicht öffnen",
   emptyNoRoots:
@@ -249,6 +255,13 @@ export const de: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Diese Orte ließen sich nicht öffnen: ${names}. Prüfe, ob du sie lesen darfst, und drücke dann „Neu einlesen“.`,
   listSeparator: ", ",
+  /**
+   * **`weiterer` にはしない**（2026-09-01、ゲート2の指摘を検討して据え置き）。
+   * 受ける名詞が呼び出しごとに変わる——`Orte`（男性・`emptyMissing` 系）、
+   * `Kameras`（女性・`showMore`）、`Dateien`（女性）——ので、
+   * **1つの語形では必ずどれかが外れる**。複数形の `weitere` はどの性でも
+   * 落ち着きが悪くないほうを取っている。直すなら受ける名詞を引数で渡す話になる
+   */
   andMore: (n: number) => `und ${n} weitere`,
   emptyRootIsPackage:
     "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
@@ -308,7 +321,14 @@ export const de: Dict = {
   wizardHideImported: "Schon importierte ausblenden",
   wizardAllImported:
     "Hier ist nichts Neues (alles in diesem Ordner ist schon importiert)",
-  wizardHiddenCount: (n: number) => `${n} schon importierte ausgeblendet`,
+  // **名詞を省くと単数形が決まらない**（2026-09-02、ゲート2が2巡続けて挙げた）。
+  // 省かれているのが `Datei`（女性）なら `1 schon importierte` で正しく、
+  // `Foto`（中性）なら `1 schon importiertes` になる——読む人には区別が付かない。
+  // 1のときだけ名詞を書けば、どちらの読みでも正しい。複数形は今までどおり
+  wizardHiddenCount: (n: number) =>
+    n === 1
+      ? "1 schon importierte Datei ausgeblendet"
+      : `${n} schon importierte ausgeblendet`,
   wizardCopying: "Wird importiert",
   wizardEtaSeconds: (n: number) => `noch etwa ${n} s`,
   wizardEtaMinutes: (n: number) => `noch etwa ${n} min`,
@@ -329,7 +349,7 @@ export const de: Dict = {
       : `${n} Fotos in den Papierkorb verschieben?`,
   deleted: (n: number) => `${n} in den Papierkorb verschoben`,
   deletedSomeLeft: (n: number, left: number) =>
-    `${n} in den Papierkorb verschoben (${left} waren nicht auffindbar und blieben unangetastet)`,
+    `${n} in den Papierkorb verschoben (${left} ${one(left, "war", "waren")} nicht auffindbar und ${one(left, "blieb", "blieben")} unangetastet)`,
   // 複数選択と一括操作
   selectItem: "Auswählen",
   selectedCount: (n: number) => (n === 1 ? "1 ausgewählt" : `${n} ausgewählt`),
@@ -351,10 +371,10 @@ export const de: Dict = {
     `Wird exportiert… ${done}/${total} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
     const parts = [done === 1 ? "1 Foto exportiert" : `${done} Fotos exportiert`];
-    if (skipped > 0) parts.push(`${skipped} waren schon da`);
+    if (skipped > 0) parts.push(`${skipped} ${one(skipped, "war", "waren")} schon da`);
     if (failed > 0) parts.push(`${failed} fehlgeschlagen`);
     if (leftBehind > 0)
-      parts.push(`${leftBehind} ließen sich am bisherigen Platz nicht entfernen`);
+      parts.push(`${leftBehind} ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz nicht entfernen`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Als Auswahl markieren",
@@ -413,10 +433,11 @@ export const de: Dict = {
   speedUsn: "USN-Journal-Differenz: ",
   speedUsnNoChange: "keine Änderungen, keine Ordner durchlaufen",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} Journaleinträge → nur ${dirs} Ordner neu eingelesen`,
+    `${records} ${one(records, "Journaleintrag", "Journaleinträge")} → nur ${dirs} Ordner neu eingelesen`,
   speedPruned: (skipped: number) =>
     `beschnittener Durchlauf: ${skipped} Ordner übersprungen`,
-  speedFull: (total: number) => `vollständiger Durchlauf (${total} Dateien)`,
+  speedFull: (total: number) =>
+    `vollständiger Durchlauf (${total} ${one(total, "Datei", "Dateien")})`,
   speedNoDiff: " — keine Änderungen",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${added} hinzugefügt, ${changed} geändert, ${removed} entfernt`,
