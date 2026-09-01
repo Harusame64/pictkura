@@ -2318,6 +2318,23 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
+
+/* **選択肢の書体は、ここで初めて効く。** `tokens.css` の `:lang(zh)` は
+   `option` の上で `--font-ui` を差し替えるが、**カスタムプロパティには消費者が要る**
+   ——`var(--font-ui)` を読んでいる宣言はアプリ全体で `body { font-family }` の1行だけで、
+   置換はその宣言を書いた要素（`body`）で1度だけ起きる。子孫は**計算済みの書体名**を
+   継承するので、`option` 側でトークンだけ差し替えても何も変わらない
+   （2026-09-02、ゲート2の指摘）。上の `font: inherit` も同じ理由で代わりにならない
+   ——継承した計算済みの値を固定するだけで、var を引き直さない。
+
+   **macOSでは効かない（2026-09-02、実測）。** Safari も Chrome も、開いた候補を
+   ネイティブのメニューで描いて author の `font-family` を捨てる——`option` に
+   直接 `"Courier New", monospace` を当てても等幅にならなかった。
+   Chromiumが候補を自前で描く **Windows の WebView2 側は未確認**。
+   つまりこの1行は、いま確かめられている範囲では**Windows向けの直し**。 */
+.settings-select option {
+  font-family: var(--font-ui);
+}
 .settings-select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

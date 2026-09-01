@@ -396,6 +396,11 @@ export default function Settings({
               **`lang` を各選択肢に付ける**。中国語のラベル（`简体中文` / `繁體中文`）は
               日本語の画面にも出るが、`简` は日本語の書体に無いので**1語が2書体**で
               組まれる（`tokens.css` の `:lang()` が直したのと同じ問題）。
+              **`lang` だけでは書体は変わらない**——`App.css` の
+              `.settings-select option` が `var(--font-ui)` を読んでいて初めて効く。
+              **macOSは候補をネイティブのメニューで描くので、どちらにせよ効かない**
+              （2026-09-02、Safari・Chromeで実測）。`lang` はそれでも残す——
+              読み上げと行分けが言語に沿う。
             */}
             <h3 id="settings-language-label">{t.settingsLanguage}</h3>
             <select
