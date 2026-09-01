@@ -293,9 +293,14 @@ body[lang="en"] .cards p { line-height: 1.75; }
 
 /* ─── 全面に敷く写真 ─── */
 .bleed { margin: 0 calc(var(--pad) * -1) 44px; }
+/* ビューアの図は道具立てが主役——添え書きが controls の話をしている。1152×756 の
+   うちボタンは y=13〜44 にあるので、上端から切る。48% で切っていたときは切り出しが
+   y=184 から始まり、**ツールバーが1つも帯に入っていなかった**（左右の ‹ › は y=378
+   なので、あちらは元から見えていた）。高さは 900px 以下で使っていた 500 を広い画面にも
+   そのまま広げたもの（同値になった 900px 側の指定はこれで要らなくなった） */
 .bleed img {
   display: block; width: 100%;
-  aspect-ratio: 1152 / 372; object-fit: cover; object-position: 50% 48%;
+  aspect-ratio: 1152 / 500; object-fit: cover; object-position: 50% 0%;
   border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong);
 }
 .bleed figcaption { padding: 14px var(--pad) 0; }
@@ -619,7 +624,6 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .doc:not(.legal) .doc-nav { display: none; }
   .band img { aspect-ratio: 1152 / 460; }
   .band p { font-size: 23px; }
-  .bleed img { aspect-ratio: 1152 / 500; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split.shot-left, .split.shot-right, .split.aside { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .split.shot-right .shot { order: -1; }
@@ -669,6 +673,10 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .band img { aspect-ratio: 1152 / 620; }
   .band p { font-size: 20px; }
   body[lang="en"] .band p { font-size: 22px; }
+  /* ここだけは**横に切れる**。4/3 は元画像の 1152/756（1.524）より縦長なので、
+     `cover` が幅を余らせて左右 72px ずつ落とす（幅に依らず一定）。残るのは x=72〜1080——
+     **✕（x=1106〜1136）は消え、⛶（x=1066〜1096）は半分**、左右の ‹ › も両方出ない。
+     承知のうえで置いている: 全部入れるなら 1152/756 だが、そのぶん図が小さくなる */
   .bleed img { aspect-ratio: 4 / 3; }
   .bleed.photo img { aspect-ratio: 3 / 2; }
   .strip img { aspect-ratio: 1152 / 220; }
