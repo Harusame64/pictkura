@@ -32,11 +32,12 @@ import { en } from "./en";
 import { de } from "./de";
 import { es } from "./es";
 import { zh } from "./zh";
+import { zhHant } from "./zh-hant";
 
 export type { Dict };
 
 /** 対応言語。**ここと `LOCALES` の両方**に足すこと（片方だけだと半端になる） */
-const DICTS: Record<string, Dict> = { ja, en, de, es, zh };
+const DICTS: Record<string, Dict> = { ja, en, de, es, zh, "zh-hant": zhHant };
 
 /**
  * 選択肢に出す言語（コードと、その言語自身での呼び名）。
@@ -50,6 +51,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "de", label: "Deutsch" },
   { code: "es", label: "Español" },
   { code: "zh", label: "简体中文" },
+  { code: "zh-hant", label: "繁體中文" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */
@@ -155,6 +157,11 @@ function pickLocale(): string {
     // `ja-JP` → `ja`。地域を落とすだけだと**真ん中の副タグを飛ばす**ので、
     // `zh-hant.ts` を足しても `zh-Hant-TW` の人には当たらない
     const parts = tag.toLowerCase().split("-");
+    // **書き言葉を省いたタグに補う**（`zh-TW` → `zh-hant-tw`）。台湾・香港・
+    // マカオのOSは `zh-Hant` を省いて渡してくることがあり、そのままだと
+    // `zh-hant` の辞書に当たらずに `zh`（簡体字）まで落ちてしまう
+    if (parts[0] === "zh" && !parts.includes("hant") && !parts.includes("hans")
+        && isTraditionalChinese(parts)) parts.splice(1, 0, "hant");
     for (let n = parts.length; n > 0; n--) {
       const code = parts.slice(0, n).join("-");
       // **繁体字を簡体字の辞書へ落とさない**（2026-09-01、両ゲートの指摘）。
