@@ -23,6 +23,10 @@ tauri-plugin-opener = "2"
 # USB挿入の自動起動（AutoPlay）で2重起動されたとき、新しい窓を開かず
 # 動作中のインスタンスへドライブパスを渡す
 tauri-plugin-single-instance = "2"
+# **OSの表示言語のリスト**（地域つき）。WebViewは地域を落とす——macOSは
+# WKWebViewが `ja-JP` を `ja` にし、Windowsは言語リスト自体が裸のことがある
+# （2026-09-01 実測、dev #16）。**辞書を選ぶのはこちら**
+sys-locale = "0.3"
 # 削除はゴミ箱へ入れる（完全削除にしない）
 trash = "5"
 sysinfo = { version = "0.33", default-features = false, features = ["disk"] }
@@ -74,16 +78,27 @@ arboard = { version = "3.6", default-features = false, features = [
 # 「取り込み元」として自動走査してしまうため
 [target.'cfg(windows)'.dependencies]
 # Win32_System_Registry: AutoPlayハンドラをHKCUへ登録する（autoplay.rs）
+# Win32_Globalization: 地域書式の設定を読む（`GetUserDefaultLocaleName`）。
+# 表示言語のリスト（`sys-locale`）とは別の設定
+# Win32_System_SystemServices: **`LOCALE_NAME_MAX_LENGTH` だけがここに居る**。
+# Win32のヘッダでは `GetUserDefaultLocaleName` と同じ `winnls.h` に並んでいるのに、
+# windows-sys 0.60.2 では別モジュールへ振られている（2026-09-01、#96のCIで判明）
 windows-sys = { version = "0.60", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
     "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_System_SystemServices",
 ] }
 
 # マウントの旗（`MNT_DONTBROWSE`）を読むための `statfs`。sysinfo は旗を返さない。
 # Tauri が既に同じ版を引いているので、依存は増えても新しくビルドされない
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+
+# 地域書式の設定を読む（`CFLocaleCopyCurrent`）。表示言語のリストとは別の設定。
+# Tauri が既に同じ版を引いているので、依存は増えても新しくビルドされない
+core-foundation-sys = "0.8"
 
 # 実物のフォルダとシンボリックリンクを作るテストで使う
 # （綴りを揃える方と、空の理由を答える方の両方）

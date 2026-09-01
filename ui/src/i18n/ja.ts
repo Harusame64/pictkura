@@ -313,20 +313,28 @@ export const ja = {
   wizardTruncated: (n: number) =>
     `多すぎるため先頭${n}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
   wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
-  decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
+  /**
+   * **枚数は整形済みで受け取る**（`number` ではなく `string`）。
+   * 辞書から `formatLocale` は参照できない——`index.ts` を import すると循環になる
+   * （`index.ts` が辞書を読んでいる）。かといって裸の `n.toLocaleString()` にすると
+   * **WebViewの既定ロケール**で整形され、`formatNumber` が出す桁区切りと
+   * **同じ画面で食い違う**（OSが `es-MX` だと `12,345` と `12.345` が並ぶ）。
+   * 呼ぶ側で `formatNumber(n)` を通してから渡すこと。
+   */
+  decoderHeifNotice: (n: string) =>
+    `⚠ HEIC/HEIF ${n}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
   /**
    * macOS。**買わせる話をしない**——入れるものが無いので、次にやることが無い
    * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
    */
-  decoderHeifNoticeMac: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
+  decoderHeifNoticeMac: (n: string) =>
+    `⚠ HEIC/HEIF ${n}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
   /**
    * それ以外（Linux）。HEICもOSの部品次第なので、**理由は言うが買わせない**
    * ——動画側（`videoCodecNoteOther`）と揃える
    */
-  decoderHeifNoticeOther: (n: number) =>
-    `⚠ HEIC/HEIF ${n.toLocaleString()}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
+  decoderHeifNoticeOther: (n: string) =>
+    `⚠ HEIC/HEIF ${n}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
   decoderHeifHow: "HEIF 画像拡張機能（無料）",
   decoderHevcHow: "HEVC ビデオ拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",

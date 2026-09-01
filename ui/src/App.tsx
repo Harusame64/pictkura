@@ -4431,11 +4431,14 @@ export default function App() {
       {heifMissing != null && (
         <div className="speed-toast index warn decoder-notice">
           <span>
+            {/* **桁区切りは `formatNumber` に通してから渡す。** 辞書側で
+                `toLocaleString()` を呼ぶとWebViewの既定ロケールになり、
+                同じ画面の他の件数と食い違う（ゲート2の指摘） */}
             {platform === "windows"
-              ? t.decoderHeifNotice(heifMissing)
+              ? t.decoderHeifNotice(formatNumber(heifMissing))
               : platform === "macos"
-                ? t.decoderHeifNoticeMac(heifMissing)
-                : t.decoderHeifNoticeOther(heifMissing)}
+                ? t.decoderHeifNoticeMac(formatNumber(heifMissing))
+                : t.decoderHeifNoticeOther(formatNumber(heifMissing))}
           </span>
           {/* **文言と同じ判定に揃える。** 片方が先に届いた瞬間に
               「デコーダが無いのかも」と「拡張機能を買え」が同時に出うる

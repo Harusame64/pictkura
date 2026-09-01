@@ -294,12 +294,12 @@ export const de: Dict = {
     `Es werden nur die ersten ${n} gezeigt. Nimm „Ganzer Ordner“, um alles zu importieren`,
   wizardScanIncomplete:
     "⚠ Einige Ordner ließen sich nicht lesen (es können Fotos fehlen)",
-  decoderHeifNotice: (n: number) =>
-    `⚠ Für ${n.toLocaleString()} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht. Dafür braucht es die kostenlosen HEIF-Bilderweiterungen und zusätzlich die kostenpflichtigen HEVC-Videoerweiterungen (ein paar Euro), die die Pixel decodieren`,
-  decoderHeifNoticeMac: (n: number) =>
-    `⚠ Für ${n.toLocaleString()} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht`,
-  decoderHeifNoticeOther: (n: number) =>
-    `⚠ Für ${n.toLocaleString()} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht. Auf deinem System fehlt vermutlich ein Decoder für HEIC/HEVC`,
+  decoderHeifNotice: (n: string) =>
+    `⚠ Für ${n} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht. Dafür braucht es die kostenlosen HEIF-Bilderweiterungen und zusätzlich die kostenpflichtigen HEVC-Videoerweiterungen (ein paar Euro), die die Pixel decodieren`,
+  decoderHeifNoticeMac: (n: string) =>
+    `⚠ Für ${n} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht`,
+  decoderHeifNoticeOther: (n: string) =>
+    `⚠ Für ${n} HEIC/HEIF-Fotos gibt es hier keine Vorschau, und öffnen lassen sie sich auch nicht. Auf deinem System fehlt vermutlich ein Decoder für HEIC/HEVC`,
   decoderHeifHow: "HEIF-Bilderweiterungen (kostenlos)",
   decoderHevcHow: "HEVC-Videoerweiterungen (kostenpflichtig)",
   decoderNoticeDismiss: "Nicht mehr anzeigen",

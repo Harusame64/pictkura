@@ -15,6 +15,10 @@
  *   説明書ボタンは英語版を開く（404にも死んだボタンにもならない）。
  *   置けば配布物にはグロブで入る（CIが「リポジトリにある分が全部入っているか」を見る）。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
+ * - **言葉のコードと書式のコードは別**（`locale` と `formatLocale`）。辞書は
+ *   地域を落として選ぶが（`es-MX` → `es`）、**その丸めを書式に持ち込まない**。
+ *   持ち込むとメキシコの人に本国スペインの桁区切りと月曜始まりが出る。
+ *   地域つきのタグは **Rustが起動時に渡す**（WebViewは地域を落とす）。
  * - 話者数の多い言語を優先。RTL（アラビア語等）はレイアウトの論理プロパティ化が
  *   済んでから追加する。
  */
@@ -44,6 +48,55 @@ export const LOCALES: { code: string; label: string }[] = [
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */
 const LOCALE_KEY = "pictkura.locale";
+
+/**
+ * **OSが持っている言語タグ（地域つき）。Rustが起動時にここへ置く**
+ * （`src-tauri/src/lib.rs` の `os_locale_plugin`）。
+ *
+ * **WebViewの `navigator.languages` は地域を落とす。** 同じ画面・同じ瞬間の実測
+ * （2026-09-01、macOS）:
+ *
+ * ```
+ * __PICTKURA_OS_LOCALES__ = ["ja-JP"]   ← 地域あり
+ * navigator.languages     = ["ja"]      ← 裸
+ * Intl の既定             = ja          ← 裸
+ * ```
+ *
+ * Windowsでは `Intl` の既定に地域が乗ることがあるが、**表示言語と地域が食い違うと
+ * そこも裸に落ちる**（`Set-Culture es-MX` で確認）。**地域が要るのはまさにその人たち**
+ * なので、噛み合っているときだけ効く経路は当てにしない。
+ *
+ * **無いことがある**——開発中に `vite` の画面をブラウザで開いたとき、
+ * Rustが値を置く前の版で動かしたとき。**そのときは `navigator` に落ちる**（従来動作）。
+ */
+const osLocales: string[] = (() => {
+  const raw = (window as unknown as { __PICTKURA_OS_LOCALES__?: unknown })
+    .__PICTKURA_OS_LOCALES__;
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+})();
+
+/**
+ * **地域書式の設定**（数字の桁区切り・日付の並び・週の始まり）。Rustが置く。
+ *
+ * **上の言語リストとは別の設定**。表示言語と地域を食い違わせている人
+ * ——Windowsで表示は日本語のまま `Set-Culture es-MX` にした場合など——では
+ * 両者が別の値になり、**書式に要るのはこちら**。
+ * 取れないOS（Linux）や古い版では `null`。そのときは言語リストへ倒す。
+ */
+const osRegion: string | null = (() => {
+  const raw = (window as unknown as { __PICTKURA_OS_REGION__?: unknown })
+    .__PICTKURA_OS_REGION__;
+  return typeof raw === "string" && raw.length > 0 ? raw : null;
+})();
+
+/**
+ * 照合に使う優先リスト。**Rustが渡したものを先に見る**（地域が落ちていない）。
+ * 後ろに `navigator` を繋いでおくのは、Rustが無い場面でも今までどおり動かすため。
+ */
+const preferredLocales: string[] = [
+  ...osLocales,
+  ...(navigator.languages ?? [navigator.language]),
+];
 
 /**
  * その言語コードの辞書を持っているか。
@@ -91,7 +144,7 @@ function writeStored(code: string | null): boolean {
 function pickLocale(): string {
   const chosen = readStored();
   if (chosen && hasDict(chosen)) return chosen;
-  for (const tag of navigator.languages ?? [navigator.language]) {
+  for (const tag of preferredLocales) {
     // "ja-JP" → "ja" のように地域を落として照合する
     const base = tag.toLowerCase().split("-")[0];
     if (DICTS[tag.toLowerCase()]) return tag.toLowerCase();
@@ -134,16 +187,53 @@ export function setLocaleChoice(code: string | null): boolean {
 /** 現在の辞書。`t.searchPlaceholder` のように使う */
 export const t: Dict = DICTS[locale] ?? en;
 
+/**
+ * **書式に使うロケール。辞書のコード（`locale`）とは別物。**
+ *
+ * `locale` は**辞書を選ぶために地域を落とした**コード（`es-MX` → `es`）。
+ * これを `Intl` にも渡していたので、**辞書の都合の丸めが書式まで巻き込んでいた**
+ * ——メキシコの人に本国スペインの桁区切り（`12.345,6`）と月曜始まりが出る。
+ * イギリスの人も `en` に落ちて**日曜始まり（米国式）**になっていた。
+ *
+ * 分けたので、**言葉は一番近い辞書・数字と日付は自分の地域**になる。
+ * これはWindows / macOS の流儀と同じ（表示言語と地域は別の設定）。
+ * 日本語のPCで `Español` を選ぶと、言葉はスペイン語・日付は日本のままになる。
+ * **辞書の選択に連動させないこと**——連動させると、言語を選び直した瞬間に
+ * 日付の書き方まで変わって、地域の設定が無視される。
+ *
+ * `locale` へ落ちるのは、OSが何も渡してこなかったとき（開発中のブラウザなど）。
+ * そのときは今までどおりの挙動になる。
+ */
+export const formatLocale: string = (() => {
+  // **OSのタグをそのまま使ってはいけない。** `Intl` は言語副タグを見て
+  // **月名・曜日名・数字の字形・暦**まで決める。タイ語のOSで辞書が英語に落ちた人に
+  // `th-TH` を渡すと、英語の画面に `สิงหาคม 2569`（タイ文字＋仏暦）が出る。
+  // アラビア語のOSなら `١٢٬٣٤٥`。**言葉は辞書、地域だけOS**が正しい組み合わせ。
+  for (const tag of [osRegion, ...preferredLocales]) {
+    if (!tag) continue;
+    try {
+      const region = new Intl.Locale(tag).region;
+      if (!region) continue;
+      // `Intl.Locale` は綴りが不正だと `RangeError` を投げる。ここで例外が飛ぶと
+      // i18nを読む画面が全部真っ白になるので、投げた候補は飛ばして次を見る
+      return new Intl.Locale(locale, { region }).toString();
+    } catch {
+      // 次の候補へ
+    }
+  }
+  return locale;
+})();
+
 /** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
 export const formatDateTime = (ms: number) =>
-  new Date(ms).toLocaleString(locale);
+  new Date(ms).toLocaleString(formatLocale);
 
 /** day_key（YYYYMMDD整数）を、その言語の日付表記にする */
 export const formatDayKey = (dayKey: number) => {
   const y = Math.floor(dayKey / 10000);
   const m = Math.floor(dayKey / 100) % 100;
   const d = dayKey % 100;
-  return new Date(y, m - 1, d).toLocaleDateString(locale, {
+  return new Date(y, m - 1, d).toLocaleDateString(formatLocale, {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -152,7 +242,7 @@ export const formatDayKey = (dayKey: number) => {
 
 /** 「2026年8月」等の月見出し */
 export const formatMonth = (year: number, month: number) =>
-  new Date(year, month - 1, 1).toLocaleDateString(locale, {
+  new Date(year, month - 1, 1).toLocaleDateString(formatLocale, {
     year: "numeric",
     month: "long",
   });
@@ -166,12 +256,18 @@ export const formatMonth = (year: number, month: number) =>
  *
  * `getWeekInfo()` が新しい綴りで、`weekInfo` が古い綴り。**両方見る**——
  * WebViewの実体はWindowsがWebView2、macOSがWKWebViewで、後者はOSの版に縛られる。
- * どちらも無いときは、**いま出している言語の挙動を変えない**側へ倒す
- * （日本語と英語は日曜始まりのままにする）。
+ *
+ * **どちらも無い環境では、地域を見ていても週の始まりは直らない**（ゲート2の指摘）。
+ * 下の最後の行は言語しか見ていないので、`en-GB` は `en` で始まるぶん日曜始まりに倒れる
+ * ——Safari 17 より前の WKWebView がこれに当たる。**それでも表を手書きしない**：
+ * どの地域が日曜始まりかはCLDRのデータで、辞書に持ち込むと**`Intl` に任せるという
+ * この file の方針を崩す**うえ、手で写した時点で古びる。ここは
+ * **いま出している挙動を変えない**側へ倒したまま置く（日本語と英語は日曜始まり）。
+ * 直すなら `Intl` が使える環境かどうかではなく、**データをどこから持つか**の判断が先。
  */
 export const firstWeekday: number = (() => {
   try {
-    const l = new Intl.Locale(locale) as Intl.Locale & {
+    const l = new Intl.Locale(formatLocale) as Intl.Locale & {
       getWeekInfo?: () => { firstDay: number };
       weekInfo?: { firstDay: number };
     };
@@ -181,7 +277,7 @@ export const firstWeekday: number = (() => {
   } catch {
     // Intl.Locale が無い・ロケール名を受け付けない。下のフォールバックへ
   }
-  return locale.startsWith("ja") || locale.startsWith("en") ? 0 : 1;
+  return formatLocale.startsWith("ja") || formatLocale.startsWith("en") ? 0 : 1;
 })();
 
 /**
@@ -192,7 +288,7 @@ export const firstWeekday: number = (() => {
  * **1日ずれた曜日名が出る**。
  */
 export const weekdayLabels: string[] = (() => {
-  const fmt = new Intl.DateTimeFormat(locale, {
+  const fmt = new Intl.DateTimeFormat(formatLocale, {
     weekday: "short",
     timeZone: "UTC",
   });
@@ -218,4 +314,4 @@ export const formatDuration = (ms: number) => {
 };
 
 /** 件数などの数値（桁区切りをロケールに合わせる） */
-export const formatNumber = (n: number) => n.toLocaleString(locale);
+export const formatNumber = (n: number) => n.toLocaleString(formatLocale);

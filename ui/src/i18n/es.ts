@@ -312,12 +312,12 @@ export const es: Dict = {
     `Solo se muestran las primeras ${n}. Usa «Carpeta entera» para importarlo todo`,
   wizardScanIncomplete:
     "⚠ No se han podido leer algunas carpetas (puede que falten fotos)",
-  decoderHeifNotice: (n: number) =>
-    `⚠ ${n.toLocaleString()} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de vídeo HEVC (de pago, unos pocos euros), que son las que descodifican los píxeles`,
-  decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${n.toLocaleString()} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir`,
-  decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${n.toLocaleString()} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir. Puede que a tu sistema le falte un descodificador para HEIC/HEVC`,
+  decoderHeifNotice: (n: string) =>
+    `⚠ ${n} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de vídeo HEVC (de pago, unos pocos euros), que son las que descodifican los píxeles`,
+  decoderHeifNoticeMac: (n: string) =>
+    `⚠ ${n} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir`,
+  decoderHeifNoticeOther: (n: string) =>
+    `⚠ ${n} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir. Puede que a tu sistema le falte un descodificador para HEIC/HEVC`,
   decoderHeifHow: "Extensiones de imagen HEIF (gratis)",
   decoderHevcHow: "Extensiones de vídeo HEVC (de pago)",
   decoderNoticeDismiss: "No volver a mostrar",
