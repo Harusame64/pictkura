@@ -127,11 +127,14 @@ MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate
 ```
 
-Those lines are for the **Command Prompt** (`cmd.exe`); PowerShell does not look in the
-current directory, so there you have to write `.\MpCmdRun.exe`.
+Those lines are for the **Command Prompt** (`cmd.exe`), and two things can trip them up: if
+your prompt is on another drive, `cd` will not cross to `C:` unless you write `cd /d`; and in
+PowerShell, which does not look in the current directory, the last two lines need
+`.\MpCmdRun.exe`.
 
 Updating the definitions stops the detection, but it does **not bring back a file that was
-already taken**. **Installing pictkura again puts it back** — that is the quickest way out.
+already taken**. Once the definitions are current, **installing pictkura again puts it back** — that is the
+quickest way out (reinstalling *before* that just gets the new copy taken as well).
 The quarantined copy is also still listed under **Protection history** in Windows Security.
 
 The whole account is in [issue #105](https://github.com/Harusame64/pictkura/issues/105).

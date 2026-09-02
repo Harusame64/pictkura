@@ -155,8 +155,8 @@
       <pre class="cmd" tabindex="0" role="region" aria-label="Commands to clear cached detections and update definitions">cd "c:\Program Files\Windows Defender"
 MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate</pre>
-      <p style="margin-top:14px">Those lines are for the <strong class="em">Command Prompt</strong> (<code class="mono">cmd.exe</code>). PowerShell does not look in the current directory, so there you have to write <code class="mono">.\MpCmdRun.exe</code>.</p>
-      <p style="margin-top:14px">Updating the definitions stops the detection, but it does <strong class="em">not bring back a file that was already taken</strong>. <strong class="em">Installing pictkura again puts it back</strong> — that is the quickest way out. The quarantined copy is also still listed under <b>Protection history</b> in Windows Security.</p>
+      <p style="margin-top:14px">Those lines are for the <strong class="em">Command Prompt</strong> (<code class="mono">cmd.exe</code>), and two things can trip them up: if your prompt is on another drive, <code class="mono">cd</code> will not cross to <code class="mono">C:</code> unless you write <code class="mono">cd /d</code>; and in PowerShell, which does not look in the current directory, the second and third lines need <code class="mono">.\MpCmdRun.exe</code>.</p>
+      <p style="margin-top:14px">Updating the definitions stops the detection, but it does <strong class="em">not bring back a file that was already taken</strong>. Once the definitions are current, <strong class="em">installing pictkura again puts it back</strong> — that is the quickest way out. (Reinstalling <em>before</em> that just gets the new copy taken as well.) The quarantined copy is also still listed under <b>Protection history</b> in Windows Security.</p>
       <p style="margin-top:14px">The whole account, including how to check what you downloaded, is in <a href="https://github.com/Harusame64/pictkura/issues/105">issue #105</a>.</p>
     </section>
 
