@@ -272,8 +272,13 @@ export const de: Dict = {
    * `EntryKind::Excluded` は**ファイルにも付く**（`lib.rs` の `classify_entry`。
    * `*.heic` のような除外パターンなら中身はファイル）。`Ort` は男性なので
    * `weiterer` が取れて、フォルダにもファイルにも当たる。
+   *
+   * **複数形にも名詞を書く**（ゲート2・3巡目）。片方だけ名詞が付くと、
+   * 同じ一覧が `… und 1 weiterer Ort` と `… und 2 weitere` の間を行き来する。
+   * 名詞が一意に決まるのだから、省く理由のほうが無い。
    */
-  andMore: (n: number) => (n === 1 ? "und 1 weiterer Ort" : `und ${num(n)} weitere`),
+  andMore: (n: number) =>
+    n === 1 ? "und 1 weiterer Ort" : `und ${num(n)} weitere Orte`,
   emptyRootIsPackage:
     "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
   emptyPhotoLibrary:
