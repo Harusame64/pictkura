@@ -117,6 +117,18 @@ pictkura は **Windows のコード署名を受けていません**（証明書�
 > 署名の有無にかかわらずインストールのたびに残ります）。証明書が有料のため **v0.1 では
 > 見送っています**。macOS 版も同じく署名していません（下記）。
 
+<!-- 誤検知が解決したら、この段落・README.md の同じ段落・docs/{ja,en}/install.html の
+     2.5 節と目次の行を**まとめて**消す。経緯は dev/defender-fp-20260902.md -->
+**Defender が隔離することがあります（2026-09-02）**
+
+0.2.6 の `pictkura.exe` が `Trojan:Win32/Bearfoos.A!ml` として**隔離される例を確認しました**。
+末尾の `!ml` は**機械学習による推定**で、中身を特定の脅威と照合した結果ではありません。
+署名の無い実行ファイルに出やすい判定で、同じ名前の判定は
+[OpenAI の codex](https://github.com/openai/codex/issues/3207) や [Microsoft 自身の apm](https://github.com/microsoft/apm/issues/487) でも報告されています。
+同日、Microsoft へ**誤検知として報告しました**。配布物の SHA-256 は
+[リリース](https://github.com/Harusame64/pictkura/releases)に載せている値と一致します。
+**解決したらこの段落は消します。**
+
 ### macOS は初回だけ開き方に手順が要ります
 
 macOS版は **Appleの開発者署名（Developer ID）を受けていません**。そのため初回は
