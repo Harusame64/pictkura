@@ -14,13 +14,16 @@
     // Node の ESM は拡張子を補わないので、拡張子なしだと辞書を読めない。
     // ローダのフックを足すより、書いてあるとおりに解決できる形にした
     "allowImportingTsExtensions": true,
+    // **画面の側に Node の型を見せない**（2026-09-02、ゲート2）。
+    // `@types/node` は `scripts/` のテストのために入れたが、既定のままだと
+    // **`src/` にも Node のグローバルが生える**——`process.platform` や `Buffer` を
+    // 書いても `tsc -b` が通り、WebViewでは `ReferenceError: process is not defined`
+    // ＝真っ白な画面になる。実際に `src/__probe.ts` を置いて素通りするのを見た。
+    // テスト側は `tsconfig.scripts.json` が `"types": ["node"]` で拾う
+    "types": [],
     "skipLibCheck": true,
     "isolatedModules": true,
     "useDefineForClassFields": true
   },
-  // **`scripts` も型を見る**（2026-09-02、ゲート2の指摘）。辞書を守っているのが
-  // `scripts/i18n.test.ts` なのに、そこだけ `tsc -b` の外に居た——テストの誤字が
-  // CI の実行時エラーでしか出ない状態だった。`@types/node` はそのために入れている
-  // （型だけ。バンドルには何も乗らない）
-  "include": ["src", "scripts"]
+  "include": ["src"]
 }
