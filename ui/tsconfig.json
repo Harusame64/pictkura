@@ -18,5 +18,9 @@
     "isolatedModules": true,
     "useDefineForClassFields": true
   },
-  "include": ["src"]
+  // **`scripts` も型を見る**（2026-09-02、ゲート2の指摘）。辞書を守っているのが
+  // `scripts/i18n.test.ts` なのに、そこだけ `tsc -b` の外に居た——テストの誤字が
+  // CI の実行時エラーでしか出ない状態だった。`@types/node` はそのために入れている
+  // （型だけ。バンドルには何も乗らない）
+  "include": ["src", "scripts"]
 }

@@ -95,7 +95,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # **22.18 以上**（2026-09-02、ゲート2の指摘）。辞書のテストは Node が
+          # `.ts` をそのまま読めることに乗っていて、それが既定になったのが 22.18。
+          # `22` のままだと 22.17 以下のイメージに当たった瞬間
+          # `Unknown file extension ".ts"` で落ちる。範囲で書いて床を明示する
+          node-version: "^22.18"
           cache: npm
           cache-dependency-path: ui/package-lock.json
 

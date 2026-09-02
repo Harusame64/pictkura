@@ -177,6 +177,7 @@ test("件数が桁区切りを通ること", () => {
  */
 const INFLECTS: Record<string, string[]> = {
   en: [
+    "itemsCount",
     "memoriesTitle",
     "rejectGateTitle",
     "decoderHeifNotice",
@@ -195,6 +196,7 @@ const INFLECTS: Record<string, string[]> = {
     "speedFull",
   ],
   de: [
+    "itemsCount",
     "memoriesTitle",
     "rejectGateTitle",
     "andMore",
@@ -215,6 +217,7 @@ const INFLECTS: Record<string, string[]> = {
     "speedFull",
   ],
   es: [
+    "itemsCount",
     "memoriesTitle",
     "rejectGateTitle",
     "importDone",
@@ -282,7 +285,8 @@ test("単複の無い言語が場合分けしていないこと", () => {
 });
 
 /**
- * **英語と同じ綴りでよいキー**。製品名・単位・記号・そのまま通じる語。
+ * **英語と同じ綴りでよいキー**。製品名・単位・記号・そのまま通じる語、
+ * それに**数だけを出す関数**（`3` / `✕ 3` / `3+` に訳す余地は無い）。
  *
  * ここに無いのに英語と一致していたら、**訳し漏れ**の疑いがある。
  */
@@ -295,24 +299,47 @@ const SAME_AS_EN: Record<string, string[]> = {
     "exifIso",
     "wizardTitle", // `Import` は独語の語でもある
     "listSeparator", // `, `
+    "photosCount", // 数だけ
+    "rejectChip", // `✕ 3`
+    "wizardCapped", // `3+`
   ],
-  es: ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "listSeparator", "settingsManual"],
-  zh: ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso"],
-  "zh-hant": ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso"],
+  es: [
+    "appName",
+    "kindRaw",
+    "keyCtrl",
+    "actualSizeBadge",
+    "exifIso",
+    "listSeparator",
+    "settingsManual", // `Manual` は西語の語でもある
+    "photosCount",
+    "rejectChip",
+    "wizardCapped",
+  ],
+  zh: ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
+  "zh-hant": ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
 };
 
 test("英語からの丸写しが無いこと", () => {
+  // **関数のキーも見る**（2026-09-02、ゲート2の指摘）。文字列だけを比べていたが、
+  // **桁区切りが抜けていた36キーは全部が関数**で、いちばん写されやすいのもそちら。
+  // 呼んで出力で比べれば、英語の `speedFull` をそのまま写した7つ目の辞書がここで止まる
   const e = en as Any;
+  const rendered = (d: Any, k: string): string | null => {
+    if (typeof e[k] === "string") return (e[k] as string).length > 1 ? (d[k] as string) : null;
+    if (typeof e[k] !== "function") return null;
+    return call(d, k, argsFor(k, 3, "X"));
+  };
   for (const [lang, allowed] of Object.entries(SAME_AS_EN)) {
     const d = DICTS[lang];
-    const same = KEYS.filter(
-      (k) => typeof e[k] === "string" && d[k] === e[k] && (e[k] as string).length > 1,
-    );
+    const same = KEYS.filter((k) => {
+      const mine = rendered(d, k);
+      return mine !== null && mine === rendered(e, k);
+    });
     assert.deepEqual(
       same.slice().sort(),
       allowed.slice().sort(),
       `${lang} で英語と同じ文字列の顔ぶれが変わった。訳し忘れなら訳す。` +
-        `製品名や単位でよいなら SAME_AS_EN に理由を添えて足す`,
+        `製品名・単位・数だけの関数でよいなら SAME_AS_EN に理由を添えて足す`,
     );
   }
 });
