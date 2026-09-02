@@ -21,7 +21,7 @@
   --text: oklch(0.95 0.004 70);
   --text-soft: oklch(0.78 0.005 70);
   --text-muted: oklch(0.7 0.005 70);
-  --text-faint: oklch(0.72 0.006 70);
+  --text-faint: oklch(0.6 0.006 70);
   --accent: oklch(0.72 0.14 255);
   --accent-bright: oklch(0.82 0.12 255);
   --fav: oklch(0.82 0.16 85);
@@ -285,7 +285,13 @@ body[lang="en"] .pile-to { font-size: 21px; line-height: 1.6; }
 }
 
 /* ─── 数値の帯 ─── */
-.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+/* 上下とも自分で閉じる。**帯が動いたので、上の罫線を自分で持つ必要が出た**
+   ——以前は hero の直下にあり、hero の border-bottom が上の線になっていた。
+   いまは #speed（罫線を持たない .section）の下なので、柱の縦線が宙から始まっていた */
+.metrics {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
 .metrics > div {
   padding: 44px 40px 48px; border-right: 1px solid var(--line);
   display: flex; flex-direction: column; gap: 12px;
