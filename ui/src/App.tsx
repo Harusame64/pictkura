@@ -383,7 +383,7 @@ function speedLabel(r: StartupScanReport): string {
   //
   // **件数の桁区切りは辞書の中で付く**（2026-09-02）——`speedFull` も `speedUsnDirty` も
   // `speedDiff` も `num()` を通すようになったので、独語で12万件なら
-  // ヘッダの `120.000 Fotos` と帯の `120.000 Dateien` が揃う。
+  // ヘッダの `120.000 Objekte`（`itemsCount`）と帯の `120.000 Dateien` が揃う。
   // 直前の版はここが生の `${total}` で、帯だけ `120000` と出ていた
   const sec = (r.elapsed_ms < 1000 ? secondsFmt2 : secondsFmt1).format(
     r.elapsed_ms / 1000,
