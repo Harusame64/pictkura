@@ -57,9 +57,9 @@
  * 4つ目の `emptyPhotoLibrary` だけは日英独西とも「既定では」なので
  * `默认不读取` にしてある——ここを揃えてはいけない。
  */
-import { folderExample } from "./folderExample";
-import { num } from "./plural";
-import type { Dict } from "./ja";
+import { folderExample } from "./folderExample.ts";
+import { num } from "./plural.ts";
+import type { Dict } from "./ja.ts";
 
 export const zh: Dict = {
   appName: "pictkura",

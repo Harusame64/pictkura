@@ -95,7 +95,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # **22.18 以上**（2026-09-02、ゲート2の指摘）。辞書のテストは Node が
+          # `.ts` をそのまま読めることに乗っていて、それが既定になったのが 22.18。
+          # `22` のままだと 22.17 以下のイメージに当たった瞬間
+          # `Unknown file extension ".ts"` で落ちる。範囲で書いて床を明示する
+          node-version: "^22.18"
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
@@ -107,6 +111,12 @@ jobs:
         run: |
           npm --prefix ui ci
           npm --prefix ui run build
+
+      # 辞書の検査（桁区切り・単複・引数の落ち・訳し漏れ）。**依存は増えていない**
+      # ——Node が `.ts` をそのまま読むので、テストランナも変換器も要らない。
+      # 型が見ているのはキーの過不足だけで、中身は誰も見ていなかった
+      - name: 辞書のテスト
+        run: npm --prefix ui test
 
       - name: Rust の道具を揃える
         run: rustup component add clippy rustfmt
