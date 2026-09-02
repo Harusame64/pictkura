@@ -21,7 +21,7 @@
   --text: oklch(0.95 0.004 70);
   --text-soft: oklch(0.78 0.005 70);
   --text-muted: oklch(0.7 0.005 70);
-  --text-faint: oklch(0.6 0.006 70);
+  --text-faint: oklch(0.72 0.006 70);
   --accent: oklch(0.72 0.14 255);
   --accent-bright: oklch(0.82 0.12 255);
   --fav: oklch(0.82 0.16 85);
@@ -217,6 +217,15 @@ body[lang="en"] .hero p { font-size: 17px; line-height: 1.7; }
    （`dev/site-tools/by-audit.html`）。CC0 は表示義務が無いので、位置は選べる。
    地の決まっている面へ移せば、`contrast-audit.html` が以後ずっと見張れる。 */
 
+/* 写真を敷いた面では、地が写真そのものなので `--text-faint` が AA を割る。
+   12〜12.5px の crumb / stamps / ファイル名が 3.07〜4.4:1（全 6 ページ・全幅で実測
+   2026-09-02。`dev/site-tools/photo-text-audit.html`）。要る明度は最悪 L=0.699。
+   **要素を1つずつ書き換えず、面ごと変数を持ち上げる**——そうしないと、
+   あとで同じ面に薄い文字を足した人がまた割る */
+.section.photo, .page-head.photo, .bleed.photo {
+  --text-faint: oklch(0.72 0.006 70);
+}
+
 /* 写真を敷いた区画。読ませる面なので、幕は濃いままにする。
    写真は `--photo`、幕の濃さは `--veil-a`（上）と `--veil-b`（下）で差し替える。
    幕は写真の明るさに合わせて決めた——暗い写真ほど薄くしないと、ただの黒面になる */
@@ -239,15 +248,8 @@ body[lang="en"] .hero p { font-size: 17px; line-height: 1.7; }
 .pile-to { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.9; letter-spacing: -0.01em; }
 body[lang="en"] .pile-line { max-width: 780px; font-size: 30px; line-height: 1.32; }
 body[lang="en"] .pile-to { font-size: 21px; line-height: 1.6; }
-@media (max-width: 760px) {
-  .pile-line { font-size: 20px; line-height: 1.8; margin-bottom: 26px; }
-  .pile-to { font-size: 16.5px; }
-  /* 23px だと **393px（iPhone の幅）で 2 行目の余りが 0px** になる。収まってはいるが、
-     字形が 1px でも違えば 3 行に割れる幅で、そこは狙って 2 行にしてある所（§22.5）。
-     22px で余り 15px（実測 2026-09-02・`dev/site-tools/pile-sweep.html`） */
-  body[lang="en"] .pile-line { font-size: 22px; }
-  body[lang="en"] .pile-to { font-size: 18px; }
-}
+/* 狭い幅の指定は、この下にまとめてある折り返しの枠の中に置いてある
+   ——**同じ @media を2か所に書かない**。後ろの枠が黙って勝つ形を作らない */
 
 /* 「こんな写真、ありませんか」の面。帯で使っていた森の天蓋を敷き直す。
    写真は CSS の背景ではなく <img loading="lazy"> で置く——背景にすると
@@ -257,12 +259,27 @@ body[lang="en"] .pile-to { font-size: 21px; line-height: 1.6; }
 .canopy-img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 52%; }
 /* 幕は帯と同じ横方向。文字が乗る左だけ濃くして、右は森を見せる。
    終端は 0.45——0.2 のままだと、幅の 74〜90% で霧が明るく、白文字が 3.6 まで落ちる
-   （実測 2026-09-02。0.40 で 5.17、0.45 で 5.72） */
+   （実測 2026-09-02。0.40 で 5.17、0.45 で 5.72）。
+
+   **止め位置は % ではなく px で置く。** % にすると、幕は節の幅に比例して伸びるのに
+   **文字は伸びない**（`.lead` は max-width 760px、`.pile-line` は 720px）。
+   節が狭いほど文字は幕の薄いほうへ食い込み、393px では `.lead` が **2.59:1** まで落ちた
+   ——要る明度は L=0.952 で、ほぼ白。文字色では直らない（実測 2026-09-02）。
+   px で置けば濃い所が文字と一緒に動くので、狭い幅では全面が濃くなり、
+   広い幅では**文字の右に森が残る**。§10 の「右は森を見せる」はこの形でだけ成り立つ。
+   0.66 は文字の右端（--pad + 780px）での値で、1281px の実測（α 0.578 で足りた）に
+   余裕を足したもの */
 .canopy-veil {
   background: linear-gradient(90deg,
-    oklch(0.13 0.008 70 / 0.9) 0%, oklch(0.13 0.008 70 / 0.62) 52%, oklch(0.13 0.008 70 / 0.45) 100%);
+    oklch(0.13 0.008 70 / 0.9) 0px,
+    oklch(0.13 0.008 70 / 0.78) calc(var(--pad) + 780px),
+    oklch(0.13 0.008 70 / 0.45) calc(var(--pad) + 960px));
 }
 /* 中身は写真と幕より前に出す */
+/* 共感セクションの導入。**色はここで決める（HTML のインラインで書かない）。**
+   幕の薄い側まで伸びる 17px の本文で、`--text-soft`（0.78）だと 393px で 3.06:1。
+   要る明度は L=0.897（実測 2026-09-02・`dev/site-tools/photo-text-audit.html`） */
+.section.photo.canopy .lead { color: oklch(0.91 0.005 70); }
 .section.photo.canopy > *:not(.canopy-img):not(.canopy-veil) {
   position: relative; z-index: 1;
 }
@@ -692,6 +709,14 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
      定義したら、上書きしている枠すべてに英語の行が要る（§22.5 の教訓） */
   .sub-head { font-size: 20px; margin: 40px 0 22px; }
   body[lang="en"] .sub-head { font-size: 21px; }
+  .pile-line { font-size: 20px; line-height: 1.8; margin-bottom: 26px; }
+  .pile-to { font-size: 16.5px; }
+  /* 英語は 23px だと **393px（iPhone の幅）で 2 行目の余りが 0px** になる。
+     収まってはいるが、字形が 1px でも違えば 3 行に割れる幅で、そこは狙って
+     2 行にしてある所（§22.5）。22px で余り 15px
+     （実測 2026-09-02・`dev/site-tools/pile-sweep.html`） */
+  body[lang="en"] .pile-line { font-size: 22px; }
+  body[lang="en"] .pile-to { font-size: 18px; }
   .sec-head .rule { display: none; }
   .hero h1, body[lang="en"] .hero h1 { font-size: 38px; }
   .hero-copy { gap: 22px; }
