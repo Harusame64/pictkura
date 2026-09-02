@@ -1,5 +1,6 @@
 /** 英語辞書。キーの正は `ja.ts`——抜けや余りがあればコンパイルエラーになる。 */
 import { folderExample } from "./folderExample";
+import { num, one } from "./plural";
 import type { Dict } from "./ja";
 
 export const en: Dict = {
@@ -12,7 +13,14 @@ export const en: Dict = {
   importFromUsb: "Import from USB",
   rescan: "Rescan",
   size: "Size",
-  itemsSuffix: "items",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} ${one(n, "item", "items")}`,
   navPlaces: "Places",
   navAllPhotos: "All photos",
   navFavorites: "★ Favorites",
@@ -73,11 +81,11 @@ export const en: Dict = {
   browse: "Browse…",
   addFolderPlaceholder: folderExample("e.g. ", "you"),
   pickLibraryFolder: "Choose a folder to add to the library",
-  showMore: (n: number) => `${n} more`,
+  showMore: (n: number) => `${num(n)} more`,
   collapse: "Show less",
-  photosCount: (n: number) => `${n}`,
+  photosCount: (n: number) => `${num(n)}`,
   memoriesTitle: (years: number) =>
-    years === 1 ? "1 year ago today" : `${years} years ago today`,
+    years === 1 ? "1 year ago today" : `${num(years)} years ago today`,
   viewerFavorite: "Favorite (F)",
   viewerPick: "Pick (P)",
   viewerUnpick: "Unpick (U)",
@@ -88,17 +96,17 @@ export const en: Dict = {
   judgeUnflag: "Judgement cleared",
   viewerReject: "Reject (X)",
   viewerRejected: "Rejected",
-  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Review the rejected photos",
   rejectGateTitle: (n: number) =>
-    n === 1 ? "Move 1 photo to the trash" : `Move ${n} photos to the trash`,
+    n === 1 ? "Move 1 photo to the trash" : `Move ${num(n)} photos to the trash`,
   rejectGateNote: "You can restore them from the trash (they come back to the library, too).",
   rejectGateRestore: "Keep",
   rejectGateBack: "Back",
   rejectGateDiscard: "Close without deleting",
-  rejectGateConfirm: (n: number) => (n === 1 ? "Move 1 to trash" : `Move ${n} to trash`),
+  rejectGateConfirm: (n: number) => (n === 1 ? "Move 1 to trash" : `Move ${num(n)} to trash`),
   rejectGateTrashing: (done: number, total: number) =>
-    `Moving… (${done} / ${total})`,
+    `Moving… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `Version ${v} is available`,
   updateOpenPage: "Open the download page",
   updateLater: "Later",
@@ -178,13 +186,13 @@ export const en: Dict = {
   importFrom: (path: string) => `Import from ${path}`,
   filterByCamera: (name: string) => `Show only photos taken with ${name}`,
   jumpToYear: (year: number) => `Jump to ${year}`,
-  importing: (done: number, total: number) => `Importing… ${done}/${total}`,
+  importing: (done: number, total: number) => `Importing… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
-    `Import finished: ${copied} copied, ${skipped} skipped`,
-  importFailed: (n: number) => `, ${n} failed`,
+    `Import finished: ${num(copied)} copied, ${num(skipped)} skipped`,
+  importFailed: (n: number) => `, ${num(n)} failed`,
   importIncomplete: " ⚠ Some folders could not be read — do not erase the card yet",
   syncDone: (added: number, changed: number, removed: number) =>
-    `${added} added, ${changed} changed, ${removed} removed`,
+    `${num(added)} added, ${num(changed)} changed, ${num(removed)} removed`,
   pickSource: "Choose the folder to import from (USB / DCIM)",
   pickDestination: "Choose the destination folder",
   wizardTitle: "Import",
@@ -212,7 +220,7 @@ export const en: Dict = {
   emptyUnreadableOther: (names: string) =>
     `These places could not be opened: ${names}. Check that you have permission to read them, then press Rescan.`,
   listSeparator: ", ",
-  andMore: (n: number) => `and ${n} more`,
+  andMore: (n: number) => `and ${num(n)} more`,
   emptyRootIsPackage:
     "One of the library folders is a Photos app library itself. pictkura deliberately does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",
   emptyPhotoLibrary:
@@ -240,27 +248,27 @@ export const en: Dict = {
   wizardSelectAll: "Select all",
   wizardSelectNew: "Select new only",
   wizardClearSelection: "Clear selection",
-  wizardSelected: (n: number) => `${n} selected`,
+  wizardSelected: (n: number) => `${num(n)} selected`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "Already imported (the same file exists in the destination)",
   wizardDestination: "Destination",
   wizardChangeDestination: "Change",
   wizardStructure: "Filing",
-  wizardImportButton: (n: number) => `Import ${n}`,
+  wizardImportButton: (n: number) => `Import ${num(n)}`,
   wizardImportAll: "Import this whole folder (including subfolders)",
   wizardImportAllShort: "Whole folder",
   wizardDeep: "Include subfolders",
   wizardDeepHint: "Sweeps the whole media so you do not have to know where the photos are",
   wizardScanning: "Looking through the media…",
   wizardTruncated: (n: number) =>
-    `Showing the first ${n} only. Use "Whole folder" to import everything`,
+    `Showing the first ${num(n)} only. Use "Whole folder" to import everything`,
   wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
-  decoderHeifNotice: (n: string) =>
-    `⚠ ${n} HEIC/HEIF photos have no thumbnail here, and will not open either. They need the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
-  decoderHeifNoticeMac: (n: string) =>
-    `⚠ ${n} HEIC/HEIF photos have no thumbnail here, and will not open either`,
-  decoderHeifNoticeOther: (n: string) =>
-    `⚠ ${n} HEIC/HEIF photos have no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
+  decoderHeifNotice: (n: number) =>
+    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. ${one(n, "It needs", "They need")} the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either`,
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
   decoderHeifHow: "HEIF Image Extensions (free)",
   decoderHevcHow: "HEVC Video Extensions (paid)",
   decoderNoticeDismiss: "Don't show again",
@@ -268,13 +276,12 @@ export const en: Dict = {
     "This file lives in the cloud (no preview here; importing will download it)",
   wizardHideImported: "Hide already imported",
   wizardAllImported: "Nothing new here (everything in this folder is already imported)",
-  wizardHiddenCount: (n: number) => `${n} already-imported hidden`,
-  wizardCopying: "Importing",
-  wizardEtaSeconds: (n: number) => `about ${n}s left`,
-  wizardEtaMinutes: (n: number) => `about ${n} min left`,
+  wizardHiddenCount: (n: number) => `${num(n)} already-imported hidden`,
+  wizardEtaSeconds: (n: number) => `about ${num(n)}s left`,
+  wizardEtaMinutes: (n: number) => `about ${num(n)} min left`,
   wizardEtaCalculating: "estimating time left…",
-  wizardCapped: (n: number) => `${n}+`,
-  wizardMoreFiles: (n: number) => `${n} more (scroll to load)`,
+  wizardCapped: (n: number) => `${num(n)}+`,
+  wizardMoreFiles: (n: number) => `${num(n)} more (scroll to load)`,
   menuOpen: "Open",
   menuOpenWith: (name: string) => `Open with ${name}`,
   menuOpenWithOther: "Open with another app…",
@@ -286,13 +293,13 @@ export const en: Dict = {
   deleteConfirm: (n: number) =>
     n === 1
       ? "Move this photo to the trash?"
-      : `Move ${n} photos to the trash?`,
-  deleted: (n: number) => `Moved ${n} to the trash`,
+      : `Move ${num(n)} photos to the trash?`,
+  deleted: (n: number) => `Moved ${num(n)} to the trash`,
   deletedSomeLeft: (n: number, left: number) =>
-    `Moved ${n} to the trash (${left} could not be found and were left alone)`,
+    `Moved ${num(n)} to the trash (${num(left)} ${one(left, "was", "were")} not found and ${one(left, "was", "were")} left alone)`,
   // 複数選択と一括操作
   selectItem: "Select",
-  selectedCount: (n: number) => (n === 1 ? "1 selected" : `${n} selected`),
+  selectedCount: (n: number) => (n === 1 ? "1 selected" : `${num(n)} selected`),
   selectAll: "Select all",
   clearSelection: "Clear selection (Esc)",
   selectDay: "Select this whole day",
@@ -306,28 +313,28 @@ export const en: Dict = {
   moveConfirm: (n: number) =>
     n === 1
       ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (★ and ⚑ marks are not carried over)."
-      : `Move ${n} photos to a folder you pick next? They leave their current place and leave the library (★ and ⚑ marks are not carried over).`,
+      : `Move ${num(n)} photos to a folder you pick next? They leave their current place and leave the library (★ and ⚑ marks are not carried over).`,
   exporting: (done: number, total: number, name: string) =>
-    `Exporting… ${done}/${total} ${name}`,
+    `Exporting… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [done === 1 ? "Exported 1 photo" : `Exported ${done} photos`];
-    if (skipped > 0) parts.push(`${skipped} already there`);
-    if (failed > 0) parts.push(`${failed} failed`);
-    if (leftBehind > 0) parts.push(`${leftBehind} could not be removed from the original place`);
+    const parts = [done === 1 ? "Exported 1 photo" : `Exported ${num(done)} photos`];
+    if (skipped > 0) parts.push(`${num(skipped)} already there`);
+    if (failed > 0) parts.push(`${num(failed)} failed`);
+    if (leftBehind > 0) parts.push(`${num(leftBehind)} could not be removed from the original place`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Pick",
   bulkPickOff: "Unpick",
   bulkPickDone: (n: number) =>
-    n === 1 ? "1 photo picked" : `${n} photos picked`,
+    n === 1 ? "1 photo picked" : `${num(n)} photos picked`,
   bulkUnpickDone: (n: number) =>
-    n === 1 ? "1 photo unpicked" : `${n} photos unpicked`,
+    n === 1 ? "1 photo unpicked" : `${num(n)} photos unpicked`,
   bulkFavoriteDone: (n: number) =>
-    n === 1 ? "1 photo added to favorites" : `${n} photos added to favorites`,
+    n === 1 ? "1 photo added to favorites" : `${num(n)} photos added to favorites`,
   bulkUnfavoriteDone: (n: number) =>
     n === 1
       ? "1 photo removed from favorites"
-      : `${n} photos removed from favorites`,
+      : `${num(n)} photos removed from favorites`,
   settings: "Settings",
   close: "Close",
   settingsTitle: "Settings",
@@ -370,10 +377,12 @@ export const en: Dict = {
   speedUsn: "USN journal delta: ",
   speedUsnNoChange: "no changes, no folders walked",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} journal records → rescanned only ${dirs} folders`,
-  speedPruned: (skipped: number) => `pruned scan: skipped ${skipped} folders`,
-  speedFull: (total: number) => `full scan (${total} files)`,
+    `${num(records)} journal ${one(records, "record", "records")} → rescanned only ${num(dirs)} ${one(dirs, "folder", "folders")}`,
+  speedPruned: (skipped: number) =>
+    `pruned scan: skipped ${num(skipped)} ${one(skipped, "folder", "folders")}`,
+  speedFull: (total: number) =>
+    `full scan (${num(total)} ${one(total, "file", "files")})`,
   speedNoDiff: " — no changes",
   speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${added} added, ${changed} changed, ${removed} removed`,
+    ` — ${num(added)} added, ${num(changed)} changed, ${num(removed)} removed`,
 };

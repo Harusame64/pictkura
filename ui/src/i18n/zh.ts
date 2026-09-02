@@ -58,6 +58,7 @@
  * `默认不读取` にしてある——ここを揃えてはいけない。
  */
 import { folderExample } from "./folderExample";
+import { num } from "./plural";
 import type { Dict } from "./ja";
 
 export const zh: Dict = {
@@ -70,7 +71,14 @@ export const zh: Dict = {
   importFromUsb: "从 USB 导入",
   rescan: "重新扫描",
   size: "大小",
-  itemsSuffix: "项",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} 项`,
   navPlaces: "相册",
   navAllPhotos: "全部照片",
   navFavorites: "★ 收藏",
@@ -131,10 +139,10 @@ export const zh: Dict = {
   browse: "浏览…",
   addFolderPlaceholder: folderExample("例如 ", "用户名"),
   pickLibraryFolder: "选择要添加到图库的文件夹",
-  showMore: (n: number) => `另外 ${n} 台`,
+  showMore: (n: number) => `另外 ${num(n)} 台`,
   collapse: "收起",
-  photosCount: (n: number) => `${n} 张`,
-  memoriesTitle: (years: number) => `${years} 年前的今天`,
+  photosCount: (n: number) => `${num(n)} 张`,
+  memoriesTitle: (years: number) => `${num(years)} 年前的今天`,
   viewerFavorite: "收藏 (F)",
   viewerPick: "留用 (P)",
   viewerUnpick: "取消留用 (U)",
@@ -145,16 +153,16 @@ export const zh: Dict = {
   judgeUnflag: "已取消标记",
   viewerReject: "排除 (X)",
   viewerRejected: "已排除",
-  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "查看已排除的照片",
-  rejectGateTitle: (n: number) => `将 ${n} 张照片移到回收站`,
+  rejectGateTitle: (n: number) => `将 ${num(n)} 张照片移到回收站`,
   rejectGateNote: "可以从回收站还原（还原后也会回到列表中）",
   rejectGateRestore: "保留",
   rejectGateBack: "返回",
   rejectGateDiscard: "不删除直接关闭",
-  rejectGateConfirm: (n: number) => `将 ${n} 张移到回收站`,
+  rejectGateConfirm: (n: number) => `将 ${num(n)} 张移到回收站`,
   rejectGateTrashing: (done: number, total: number) =>
-    `正在移动… (${done} / ${total})`,
+    `正在移动… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `有新版本 ${v}`,
   updateOpenPage: "打开下载页面",
   updateLater: "以后再说",
@@ -234,13 +242,13 @@ export const zh: Dict = {
   importFrom: (path: string) => `从 ${path} 导入`,
   filterByCamera: (name: string) => `只显示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳转到 ${year} 年`,
-  importing: (done: number, total: number) => `正在导入… ${done}/${total}`,
+  importing: (done: number, total: number) => `正在导入… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
-    `导入完成：复制 ${copied} 张，跳过 ${skipped} 张`,
-  importFailed: (n: number) => `，失败 ${n} 张`,
+    `导入完成：复制 ${num(copied)} 张，跳过 ${num(skipped)} 张`,
+  importFailed: (n: number) => `，失败 ${num(n)} 张`,
   importIncomplete: " ⚠ 有文件夹无法读取（请先不要清空存储卡）",
   syncDone: (added: number, changed: number, removed: number) =>
-    `新增 ${added}，变更 ${changed}，删除 ${removed}`,
+    `新增 ${num(added)}，变更 ${num(changed)}，删除 ${num(removed)}`,
   pickSource: "选择要导入的文件夹（USB / DCIM）",
   pickDestination: "选择复制到的文件夹",
   // 取り込みウィザード（第5部 段階E）
@@ -269,7 +277,7 @@ export const zh: Dict = {
   emptyUnreadableOther: (names: string) =>
     `打不开这些位置：${names}。请确认你有读取权限，然后按“重新扫描”。`,
   listSeparator: "、",
-  andMore: (n: number) => `另外 ${n} 项`,
+  andMore: (n: number) => `另外 ${num(n)} 项`,
   emptyRootIsPackage:
     "图库文件夹里指定的是“照片”App 的图库本身。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",
   emptyPhotoLibrary:
@@ -297,27 +305,27 @@ export const zh: Dict = {
   wizardSelectAll: "全选",
   wizardSelectNew: "只选未导入的",
   wizardClearSelection: "取消选择",
-  wizardSelected: (n: number) => `已选择 ${n} 张`,
+  wizardSelected: (n: number) => `已选择 ${num(n)} 张`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "已导入（复制目标里有相同的文件）",
   wizardDestination: "复制到",
   wizardChangeDestination: "更改",
   wizardStructure: "归类方式",
-  wizardImportButton: (n: number) => `导入 ${n} 张`,
+  wizardImportButton: (n: number) => `导入 ${num(n)} 张`,
   wizardImportAll: "把这个文件夹整个导入（包含下级文件夹）",
   wizardImportAllShort: "整个文件夹",
   wizardDeep: "包含下级文件夹",
   wizardDeepHint: "会把这个来源里的照片全部找出来（不知道放在哪里也没关系）",
   wizardScanning: "正在查找来源里的照片…",
   wizardTruncated: (n: number) =>
-    `数量太多，只显示前 ${n} 张。要全部导入，请用“整个文件夹”`,
+    `数量太多，只显示前 ${num(n)} 张。要全部导入，请用“整个文件夹”`,
   wizardScanIncomplete: "⚠ 有文件夹无法读取（可能有遗漏）",
-  decoderHeifNotice: (n: string) =>
-    `⚠ 有 ${n} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。除了免费的“HEIF 图像扩展”，还需要用来解码像素的付费“HEVC 视频扩展”（几元）`,
-  decoderHeifNoticeMac: (n: string) =>
-    `⚠ 有 ${n} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）`,
-  decoderHeifNoticeOther: (n: string) =>
-    `⚠ 有 ${n} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。这台设备上可能没有安装支持 HEIC/HEVC 的解码器`,
+  decoderHeifNotice: (n: number) =>
+    `⚠ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。除了免费的“HEIF 图像扩展”，还需要用来解码像素的付费“HEVC 视频扩展”（几元）`,
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）`,
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。这台设备上可能没有安装支持 HEIC/HEVC 的解码器`,
   decoderHeifHow: "HEIF 图像扩展（免费）",
   decoderHevcHow: "HEVC 视频扩展（付费）",
   decoderNoticeDismiss: "不再显示",
@@ -325,13 +333,12 @@ export const zh: Dict = {
     "这个文件在云端（这里不显示预览，导入时会下载）",
   wizardHideImported: "隐藏已导入的",
   wizardAllImported: "没有新的照片（这个文件夹里的照片都已经导入过了）",
-  wizardHiddenCount: (n: number) => `已隐藏 ${n} 张导入过的照片`,
-  wizardCopying: "正在导入",
-  wizardEtaSeconds: (n: number) => `剩余约 ${n} 秒`,
-  wizardEtaMinutes: (n: number) => `剩余约 ${n} 分钟`,
+  wizardHiddenCount: (n: number) => `已隐藏 ${num(n)} 张导入过的照片`,
+  wizardEtaSeconds: (n: number) => `剩余约 ${num(n)} 秒`,
+  wizardEtaMinutes: (n: number) => `剩余约 ${num(n)} 分钟`,
   wizardEtaCalculating: "正在估算剩余时间…",
-  wizardCapped: (n: number) => `${n}+ 张`,
-  wizardMoreFiles: (n: number) => `另外 ${n} 张（滚动可以显示）`,
+  wizardCapped: (n: number) => `${num(n)}+ 张`,
+  wizardMoreFiles: (n: number) => `另外 ${num(n)} 张（滚动可以显示）`,
   // ファイル操作
   menuOpen: "打开",
   menuOpenWith: (name: string) => `用 ${name} 打开`,
@@ -344,13 +351,13 @@ export const zh: Dict = {
   deleteConfirm: (n: number) =>
     n === 1
       ? "要把这张照片移到回收站吗？"
-      : `要把这 ${n} 张照片移到回收站吗？`,
-  deleted: (n: number) => `已把 ${n} 张移到回收站`,
+      : `要把这 ${num(n)} 张照片移到回收站吗？`,
+  deleted: (n: number) => `已把 ${num(n)} 张移到回收站`,
   deletedSomeLeft: (n: number, left: number) =>
-    `已把 ${n} 张移到回收站（有 ${left} 张没有找到，保持原样）`,
+    `已把 ${num(n)} 张移到回收站（有 ${num(left)} 张没有找到，保持原样）`,
   // 複数選択と一括操作
   selectItem: "选择",
-  selectedCount: (n: number) => `已选择 ${n} 张`,
+  selectedCount: (n: number) => `已选择 ${num(n)} 张`,
   selectAll: "全选",
   clearSelection: "取消选择 (Esc)",
   selectDay: "选中这一整天",
@@ -364,22 +371,22 @@ export const zh: Dict = {
   moveConfirm: (n: number) =>
     n === 1
       ? "要把这张照片移动到接下来选择的文件夹吗？它会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。"
-      : `要把这 ${n} 张照片移动到接下来选择的文件夹吗？它们会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。`,
+      : `要把这 ${num(n)} 张照片移动到接下来选择的文件夹吗？它们会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。`,
   exporting: (done: number, total: number, name: string) =>
-    `正在导出… ${done}/${total} ${name}`,
+    `正在导出… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [`已导出 ${done} 张`];
-    if (skipped > 0) parts.push(`有 ${skipped} 张已经存在`);
-    if (failed > 0) parts.push(`有 ${failed} 张失败`);
-    if (leftBehind > 0) parts.push(`有 ${leftBehind} 张无法从原来的位置删除`);
+    const parts = [`已导出 ${num(done)} 张`];
+    if (skipped > 0) parts.push(`有 ${num(skipped)} 张已经存在`);
+    if (failed > 0) parts.push(`有 ${num(failed)} 张失败`);
+    if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 张无法从原来的位置删除`);
     return parts.join("，") + "。";
   },
   bulkPickOn: "留用",
   bulkPickOff: "取消留用",
-  bulkPickDone: (n: number) => `已把 ${n} 张标记为留用`,
-  bulkUnpickDone: (n: number) => `已取消 ${n} 张的留用标记`,
-  bulkFavoriteDone: (n: number) => `已把 ${n} 张添加到收藏`,
-  bulkUnfavoriteDone: (n: number) => `已取消 ${n} 张的收藏`,
+  bulkPickDone: (n: number) => `已把 ${num(n)} 张标记为留用`,
+  bulkUnpickDone: (n: number) => `已取消 ${num(n)} 张的留用标记`,
+  bulkFavoriteDone: (n: number) => `已把 ${num(n)} 张添加到收藏`,
+  bulkUnfavoriteDone: (n: number) => `已取消 ${num(n)} 张的收藏`,
   // 設定
   settings: "设置",
   close: "关闭",
@@ -424,10 +431,10 @@ export const zh: Dict = {
   speedUsn: "USN 日志差分：",
   speedUsnNoChange: "没有变更，没有遍历文件夹",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} 条日志 → 只重新遍历了 ${dirs} 个文件夹`,
-  speedPruned: (skipped: number) => `剪枝扫描：跳过了 ${skipped} 个文件夹`,
-  speedFull: (total: number) => `全量扫描（${total} 个文件）`,
+    `${num(records)} 条日志 → 只重新遍历了 ${num(dirs)} 个文件夹`,
+  speedPruned: (skipped: number) => `剪枝扫描：跳过了 ${num(skipped)} 个文件夹`,
+  speedFull: (total: number) => `全量扫描（${num(total)} 个文件）`,
   speedNoDiff: " —— 没有变更",
   speedDiff: (added: number, changed: number, removed: number) =>
-    ` —— 新增 ${added}、变更 ${changed}、删除 ${removed}`,
+    ` —— 新增 ${num(added)}、变更 ${num(changed)}、删除 ${num(removed)}`,
 };

@@ -51,15 +51,8 @@
  * `de forma predeterminada` にしてある——ここを揃えてはいけない。
  */
 import { folderExample } from "./folderExample";
+import { num, one } from "./plural";
 import type { Dict } from "./ja";
-
-/**
- * **数詞1のときは単数**（2026-09-01、遡ってのゲート2）。スペイン語は分詞まで
- * 性数が一致するので、`1 movidas` のように**1枚消すたびに文法が崩れる**。
- * `selectedCount` などでは元から場合分けしていて、辞書が自分と食い違っていた。
- */
-const one = (n: number, singular: string, plural: string) =>
-  n === 1 ? singular : plural;
 
 export const es: Dict = {
   appName: "pictkura",
@@ -71,7 +64,14 @@ export const es: Dict = {
   importFromUsb: "Importar desde USB",
   rescan: "Volver a explorar",
   size: "Tamaño",
-  itemsSuffix: "elementos",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} ${one(n, "elemento", "elementos")}`,
   navPlaces: "Lugares",
   navAllPhotos: "Todas las fotos",
   navFavorites: "★ Favoritos",
@@ -132,13 +132,13 @@ export const es: Dict = {
   browse: "Examinar…",
   addFolderPlaceholder: folderExample("p. ej. ", "usuario"),
   pickLibraryFolder: "Elige la carpeta que quieres añadir a la biblioteca",
-  showMore: (n: number) => `${n} más`,
+  showMore: (n: number) => `${num(n)} más`,
   collapse: "Ver menos",
-  photosCount: (n: number) => `${n}`,
+  photosCount: (n: number) => `${num(n)}`,
   memoriesTitle: (years: number) =>
     years === 1
       ? "Un día como hoy hace 1 año"
-      : `Un día como hoy hace ${years} años`,
+      : `Un día como hoy hace ${num(years)} años`,
   viewerFavorite: "Favorita (F)",
   viewerPick: "Marcar con un indicador (P)",
   viewerUnpick: "Quitar el indicador (U)",
@@ -149,19 +149,19 @@ export const es: Dict = {
   judgeUnflag: "Marca quitada",
   viewerReject: "Marcar como rechazada (X)",
   viewerRejected: "Rechazada",
-  rejectChip: (n: number) => `✕ ${n}`,
+  rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Revisar las fotos rechazadas",
   rejectGateTitle: (n: number) =>
-    n === 1 ? "Mover 1 foto a la papelera" : `Mover ${n} fotos a la papelera`,
+    n === 1 ? "Mover 1 foto a la papelera" : `Mover ${num(n)} fotos a la papelera`,
   rejectGateNote:
     "Puedes recuperarlas desde la papelera (y vuelven también a la biblioteca).",
   rejectGateRestore: "Conservar",
   rejectGateBack: "Volver",
   rejectGateDiscard: "Cerrar sin borrar",
   rejectGateConfirm: (n: number) =>
-    n === 1 ? "Mover 1 a la papelera" : `Mover ${n} a la papelera`,
+    n === 1 ? "Mover 1 a la papelera" : `Mover ${num(n)} a la papelera`,
   rejectGateTrashing: (done: number, total: number) =>
-    `Moviendo… (${done} / ${total})`,
+    `Moviendo… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `La versión ${v} ya está disponible`,
   updateOpenPage: "Abrir la página de descarga",
   updateLater: "Más tarde",
@@ -241,14 +241,14 @@ export const es: Dict = {
   importFrom: (path: string) => `Importar desde ${path}`,
   filterByCamera: (name: string) => `Mostrar solo las fotos hechas con ${name}`,
   jumpToYear: (year: number) => `Ir a ${year}`,
-  importing: (done: number, total: number) => `Importando… ${done}/${total}`,
+  importing: (done: number, total: number) => `Importando… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
-    `Importación terminada: ${copied} ${one(copied, "copiada", "copiadas")}, ${skipped} ${one(skipped, "omitida", "omitidas")}`,
-  importFailed: (n: number) => `, ${n} con error`,
+    `Importación terminada: ${num(copied)} ${one(copied, "copiada", "copiadas")}, ${num(skipped)} ${one(skipped, "omitida", "omitidas")}`,
+  importFailed: (n: number) => `, ${num(n)} con error`,
   importIncomplete:
     " ⚠ No se han podido leer algunas carpetas — no borres la tarjeta todavía",
   syncDone: (added: number, changed: number, removed: number) =>
-    `${added} ${one(added, "añadida", "añadidas")}, ${changed} ${one(changed, "cambiada", "cambiadas")}, ${removed} ${one(removed, "quitada", "quitadas")}`,
+    `${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   pickSource: "Elige la carpeta desde la que importar (USB / DCIM)",
   pickDestination: "Elige la carpeta de destino",
   wizardTitle: "Importar",
@@ -276,7 +276,7 @@ export const es: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Estos lugares no se han podido abrir: ${names}. Comprueba que tienes permiso para leerlos y pulsa «Volver a explorar».`,
   listSeparator: ", ",
-  andMore: (n: number) => `y ${n} más`,
+  andMore: (n: number) => `y ${num(n)} más`,
   emptyRootIsPackage:
     "Una de las carpetas de la biblioteca es en sí una fototeca de Fotos. pictkura no entra a propósito en ese tipo de fototecas, así que nunca saldrá nada de ahí. Elige una carpeta que tenga fotos dentro o importa desde una tarjeta.",
   emptyPhotoLibrary:
@@ -305,14 +305,14 @@ export const es: Dict = {
   wizardSelectAll: "Seleccionar todo",
   wizardSelectNew: "Seleccionar solo las nuevas",
   wizardClearSelection: "Quitar la selección",
-  wizardSelected: (n: number) => `${n} ${one(n, "seleccionada", "seleccionadas")}`,
+  wizardSelected: (n: number) => `${num(n)} ${one(n, "seleccionada", "seleccionadas")}`,
   wizardImportedBadge: "✓",
   wizardImportedTitle:
     "Ya importada (el mismo archivo está en la carpeta de destino)",
   wizardDestination: "Destino",
   wizardChangeDestination: "Cambiar",
   wizardStructure: "Organización",
-  wizardImportButton: (n: number) => `Importar ${n}`,
+  wizardImportButton: (n: number) => `Importar ${num(n)}`,
   wizardImportAll: "Importar esta carpeta entera (incluidas las subcarpetas)",
   wizardImportAllShort: "Carpeta entera",
   wizardDeep: "Incluir las subcarpetas",
@@ -320,15 +320,15 @@ export const es: Dict = {
     "Recorre todo el dispositivo para que no tengas que saber dónde están las fotos",
   wizardScanning: "Revisando el dispositivo…",
   wizardTruncated: (n: number) =>
-    `Solo se muestran las primeras ${n}. Usa «Carpeta entera» para importarlo todo`,
+    `Solo se muestran las primeras ${num(n)}. Usa «Carpeta entera» para importarlo todo`,
   wizardScanIncomplete:
     "⚠ No se han podido leer algunas carpetas (puede que falten fotos)",
-  decoderHeifNotice: (n: string) =>
-    `⚠ ${n} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de vídeo HEVC (de pago, unos pocos euros), que son las que descodifican los píxeles`,
-  decoderHeifNoticeMac: (n: string) =>
-    `⚠ ${n} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir`,
-  decoderHeifNoticeOther: (n: string) =>
-    `⚠ ${n} fotos HEIC/HEIF no tienen miniatura aquí, y tampoco se pueden abrir. Puede que a tu sistema le falte un descodificador para HEIC/HEVC`,
+  decoderHeifNotice: (n: number) =>
+    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de vídeo HEVC (de pago, unos pocos euros), que son las que descodifican los píxeles`,
+  decoderHeifNoticeMac: (n: number) =>
+    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir`,
+  decoderHeifNoticeOther: (n: number) =>
+    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Puede que a tu sistema le falte un descodificador para HEIC/HEVC`,
   decoderHeifHow: "Extensiones de imagen HEIF (gratis)",
   decoderHevcHow: "Extensiones de vídeo HEVC (de pago)",
   decoderNoticeDismiss: "No volver a mostrar",
@@ -338,14 +338,17 @@ export const es: Dict = {
   wizardAllImported:
     "Aquí no hay nada nuevo (todo lo de esta carpeta ya está importado)",
   wizardHiddenCount: (n: number) =>
-    `${n} ya ${one(n, "importada oculta", "importadas ocultas")}`,
-  wizardCopying: "Importando",
-  wizardEtaSeconds: (n: number) => `quedan unos ${n} s`,
-  wizardEtaMinutes: (n: number) => `quedan unos ${n} min`,
+    `${num(n)} ya ${one(n, "importada oculta", "importadas ocultas")}`,
+  /**
+   * **`unos` は「およそ」なので、1のときは落とす**（2026-09-02）——
+   * `quedan unos 1 s` は数と語形の両方がずれる。動詞も単数へ。
+   */
+  wizardEtaSeconds: (n: number) => `${one(n, "queda", "quedan unos")} ${num(n)} s`,
+  wizardEtaMinutes: (n: number) => `${one(n, "queda", "quedan unos")} ${num(n)} min`,
   wizardEtaCalculating: "calculando el tiempo restante…",
-  wizardCapped: (n: number) => `${n}+`,
+  wizardCapped: (n: number) => `${num(n)}+`,
   wizardMoreFiles: (n: number) =>
-    `${n} más (desplázate para ${one(n, "cargarla", "cargarlas")})`,
+    `${num(n)} más (desplázate para ${one(n, "cargarla", "cargarlas")})`,
   menuOpen: "Abrir",
   menuOpenWith: (name: string) => `Abrir con ${name}`,
   menuOpenWithOther: "Abrir con otra aplicación…",
@@ -357,15 +360,15 @@ export const es: Dict = {
   deleteConfirm: (n: number) =>
     n === 1
       ? "¿Mover esta foto a la papelera?"
-      : `¿Mover ${n} fotos a la papelera?`,
+      : `¿Mover ${num(n)} fotos a la papelera?`,
   deleted: (n: number) =>
-    `${n} ${one(n, "movida", "movidas")} a la papelera`,
+    `${num(n)} ${one(n, "movida", "movidas")} a la papelera`,
   deletedSomeLeft: (n: number, left: number) =>
-    `${n} ${one(n, "movida", "movidas")} a la papelera (${left} no se ${one(left, "ha", "han")} encontrado y se ${one(left, "ha quedado", "han quedado")} como ${one(left, "estaba", "estaban")})`,
+    `${num(n)} ${one(n, "movida", "movidas")} a la papelera (${num(left)} no se ${one(left, "ha", "han")} encontrado y se ${one(left, "ha quedado", "han quedado")} como ${one(left, "estaba", "estaban")})`,
   // 複数選択と一括操作
   selectItem: "Seleccionar",
   selectedCount: (n: number) =>
-    n === 1 ? "1 seleccionada" : `${n} seleccionadas`,
+    n === 1 ? "1 seleccionada" : `${num(n)} seleccionadas`,
   selectAll: "Seleccionar todo",
   clearSelection: "Quitar la selección (Esc)",
   selectDay: "Seleccionar este día entero",
@@ -379,16 +382,16 @@ export const es: Dict = {
   moveConfirm: (n: number) =>
     n === 1
       ? "¿Mover esta foto a una carpeta que elegirás ahora? Sale de donde está y sale de la biblioteca (las marcas ★ y ⚑ no se llevan)."
-      : `¿Mover ${n} fotos a una carpeta que elegirás ahora? Salen de donde están y salen de la biblioteca (las marcas ★ y ⚑ no se llevan).`,
+      : `¿Mover ${num(n)} fotos a una carpeta que elegirás ahora? Salen de donde están y salen de la biblioteca (las marcas ★ y ⚑ no se llevan).`,
   exporting: (done: number, total: number, name: string) =>
-    `Exportando… ${done}/${total} ${name}`,
+    `Exportando… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [done === 1 ? "1 foto exportada" : `${done} fotos exportadas`];
-    if (skipped > 0) parts.push(`${skipped} ya ${one(skipped, "estaba", "estaban")}`);
-    if (failed > 0) parts.push(`${failed} con error`);
+    const parts = [done === 1 ? "1 foto exportada" : `${num(done)} fotos exportadas`];
+    if (skipped > 0) parts.push(`${num(skipped)} ya ${one(skipped, "estaba", "estaban")}`);
+    if (failed > 0) parts.push(`${num(failed)} con error`);
     if (leftBehind > 0)
       parts.push(
-        `${leftBehind} no se ${one(leftBehind, "ha", "han")} podido quitar de donde ${one(leftBehind, "estaba", "estaban")}`,
+        `${num(leftBehind)} no se ${one(leftBehind, "ha", "han")} podido quitar de donde ${one(leftBehind, "estaba", "estaban")}`,
       );
     return parts.join(". ") + ".";
   },
@@ -397,15 +400,15 @@ export const es: Dict = {
   bulkPickDone: (n: number) =>
     n === 1
       ? "1 foto marcada con un indicador"
-      : `${n} fotos marcadas con un indicador`,
+      : `${num(n)} fotos marcadas con un indicador`,
   bulkUnpickDone: (n: number) =>
-    n === 1 ? "Indicador quitado a 1 foto" : `Indicador quitado a ${n} fotos`,
+    n === 1 ? "Indicador quitado a 1 foto" : `Indicador quitado a ${num(n)} fotos`,
   bulkFavoriteDone: (n: number) =>
     n === 1
       ? "1 foto añadida a Favoritos"
-      : `${n} fotos añadidas a Favoritos`,
+      : `${num(n)} fotos añadidas a Favoritos`,
   bulkUnfavoriteDone: (n: number) =>
-    n === 1 ? "1 foto quitada de Favoritos" : `${n} fotos quitadas de Favoritos`,
+    n === 1 ? "1 foto quitada de Favoritos" : `${num(n)} fotos quitadas de Favoritos`,
   settings: "Ajustes",
   close: "Cerrar",
   settingsTitle: "Ajustes",
@@ -448,12 +451,12 @@ export const es: Dict = {
   speedUsn: "Diferencia del diario USN: ",
   speedUsnNoChange: "sin cambios, ninguna carpeta recorrida",
   speedUsnDirty: (records: number, dirs: number) =>
-    `${records} ${one(records, "entrada", "entradas")} del diario → solo se ${one(dirs, "ha", "han")} vuelto a explorar ${dirs} ${one(dirs, "carpeta", "carpetas")}`,
+    `${num(records)} ${one(records, "entrada", "entradas")} del diario → solo se ${one(dirs, "ha", "han")} vuelto a explorar ${num(dirs)} ${one(dirs, "carpeta", "carpetas")}`,
   speedPruned: (skipped: number) =>
-    `recorrido podado: ${skipped} ${one(skipped, "carpeta omitida", "carpetas omitidas")}`,
+    `recorrido podado: ${num(skipped)} ${one(skipped, "carpeta omitida", "carpetas omitidas")}`,
   speedFull: (total: number) =>
-    `recorrido completo (${total} ${one(total, "archivo", "archivos")})`,
+    `recorrido completo (${num(total)} ${one(total, "archivo", "archivos")})`,
   speedNoDiff: " — sin cambios",
   speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${added} ${one(added, "añadida", "añadidas")}, ${changed} ${one(changed, "cambiada", "cambiadas")}, ${removed} ${one(removed, "quitada", "quitadas")}`,
+    ` — ${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
 };

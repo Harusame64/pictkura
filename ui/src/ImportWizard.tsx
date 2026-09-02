@@ -513,7 +513,7 @@ export default function ImportWizard({
                 <div className="wiz-copying-body">
                   <div className="wiz-copying-head">
                     <span>
-                      {t.wizardCopying} {progress.done}/{progress.total}
+                      {t.importing(progress.done, progress.total)}
                     </span>
                     <span className="wiz-copying-eta">{etaLabel(progress)}</span>
                   </div>

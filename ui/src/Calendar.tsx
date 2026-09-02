@@ -4,6 +4,7 @@ import {
   firstWeekday,
   formatDayKey,
   formatMonth,
+  formatNumber,
   t,
   weekdayLabels,
 } from "./i18n";
@@ -117,7 +118,7 @@ export default function Calendar({
                         )}
                         <span className="day-number">{day}</span>
                         {data && data.count > 1 && (
-                          <span className="day-count">{data.count}</span>
+                          <span className="day-count">{formatNumber(data.count)}</span>
                         )}
                       </div>
                     );
