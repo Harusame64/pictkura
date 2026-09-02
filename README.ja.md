@@ -117,17 +117,31 @@ pictkura は **Windows のコード署名を受けていません**（証明書�
 > 署名の有無にかかわらずインストールのたびに残ります）。証明書が有料のため **v0.1 では
 > 見送っています**。macOS 版も同じく署名していません（下記）。
 
-<!-- 誤検知が解決したら、この段落・README.md の同じ段落・
+<!-- 解決済み。次の版を切るときに、この段落・README.md の同じ段落・
      docs/{ja,en}/install.html の 2.5 節と目次の行を、まとめて消すこと -->
-**Defender が隔離することがあります（2026-09-02）**
+**Defender の隔離は解決しました（2026-09-03）**
 
-0.2.6 の `pictkura.exe` が `Trojan:Win32/Bearfoos.A!ml` として**隔離される例を確認しました**。
-末尾の `!ml` は**機械学習による推定**で、中身を特定の脅威と照合した結果ではありません。
-署名の無い実行ファイルに出やすい判定で、同じ名前の判定は
-[OpenAI の codex](https://github.com/openai/codex/issues/3207) や [Microsoft 自身の apm](https://github.com/microsoft/apm/issues/487) でも報告されています。
-同日、Microsoft へ**誤検知として報告しました**。配布物の SHA-256 は
-[リリース](https://github.com/Harusame64/pictkura/releases)に載せている値と一致します。
-**解決したらこの段落は消します。**
+0.2.6 の `pictkura.exe` が `Trojan:Win32/Bearfoos.A!ml` として隔離される例がありました。
+末尾の `!ml` は**機械学習による推定**で、中身を特定の脅威と照合した結果ではなく、署名の
+無い実行ファイルに出やすい判定です。**2026-09-02** に Microsoft へ誤検知として報告し、**翌 2026-09-03 に
+検出が取り下げられました**——マルウェアの基準を満たさない、という回答です。定義が古いまま
+の機械では、まだ隔離されることがあります。その場合は**管理者として実行した**コマンド
+プロンプトで:
+
+```
+cd "c:\Program Files\Windows Defender"
+MpCmdRun.exe -removedefinitions -dynamicsignatures
+MpCmdRun.exe -SignatureUpdate
+```
+
+上は**コマンドプロンプト**（`cmd.exe`）の書き方です。PowerShell は現在のディレクトリを
+探しに行かないので、そちらでは `.\MpCmdRun.exe` と書いてください。
+
+定義を更新すれば検出は止まりますが、**すでに持っていかれたファイルは戻りません**。
+**pictkura を入れ直せば実体が戻ります**——これが一番早い方法です。隔離された分は、
+Windows セキュリティの**保護の履歴**にも残っています。
+
+経緯は [issue #105](https://github.com/Harusame64/pictkura/issues/105) にまとめてあります。
 
 ### macOS は初回だけ開き方に手順が要ります
 
