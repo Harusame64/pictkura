@@ -44,7 +44,11 @@ import { setNumberLocale } from "../src/i18n/plural.ts";
 
 type Any = Record<string, unknown>;
 
-/** `index.ts` の `DICTS` と同じ並び。**言語を足したらここにも足す** */
+/**
+ * 検査する辞書。**`index.ts` の `DICTS` と揃っていることを下のテストが見る**
+ * （2026-09-02、ゲート2・3巡目）。ここへ足し忘れた言語は
+ * **1つのテストにも掛からない**まま素通りするので、写しっぱなしにはしない。
+ */
 const DICTS: Record<string, Any> = {
   ja: ja as Any,
   en: en as Any,
@@ -75,6 +79,9 @@ const SIGNATURES: Record<string, string[]> = (() => {
   }
   return out;
 })();
+
+/** `index.ts` の原文。辞書の顔ぶれと、書式ロケールの注入を見るために読む */
+const INDEX_SRC = readFileSync(new URL("../src/i18n/index.ts", import.meta.url), "utf8");
 
 /** その言語で `n` を渡すキー（1つでも `number` を取るもの） */
 const COUNT_KEYS = KEYS.filter((k) => SIGNATURES[k]?.includes("number"));
@@ -135,6 +142,12 @@ test("引数を落とした訳が無いこと", () => {
 test("件数が桁区切りを通ること", () => {
   // **暦の年だけは通さない**——独語で `2.019` になる
   const YEARS = new Set(["jumpToYear"]);
+  // **「生の数字が無いこと」では足りない**（2026-09-02、ゲート2・3巡目）。
+  // 辞書が裸の `n.toLocaleString()` を呼ぶと、Nodeの既定ロケールで `1,234,567` になり、
+  // `1234567` を含まないので素通りする——それは `plural.ts` の冒頭が塞いだはずの穴
+  // （OSが `es-MX` なら同じ画面に `12,345` と `12.345` が並ぶ）そのもの。
+  // **de-DE が出す綴りを含んでいること**まで見る
+  const want = new Intl.NumberFormat("de-DE").format(1234567);
   setNumberLocale("de-DE");
   try {
     for (const [lang, d] of Object.entries(DICTS)) {
@@ -142,8 +155,8 @@ test("件数が桁区切りを通ること", () => {
         if (YEARS.has(key)) continue;
         const out = call(d, key, argsFor(key, 1234567, "X"));
         assert.ok(
-          !out.includes("1234567"),
-          `${lang}.${key} が生の数を埋めている（\${n} ではなく \${num(n)} を通すこと）: ${out}`,
+          out.includes(want),
+          `${lang}.${key} が \`num(n)\` を通っていない（欲しいのは ${want}）: ${out}`,
         );
       }
     }
@@ -162,7 +175,13 @@ test("件数が桁区切りを通ること", () => {
 });
 
 /**
- * **1のときに語形が変わるキー**。単複のある言語（en / de / es）だけ。
+ * **1のときに語形が変わる「キーと引数の位置」**。単複のある言語だけ。
+ *
+ * 綴りは `キー:位置`（位置は `ja.ts` の署名で数えた `number` 引数の**通し番号ではなく
+ * 引数そのものの番号**）。**位置まで持つ**のは、数を2つ以上取るキーで
+ * 片方だけ単数形が抜けるのを拾うため（2026-09-02、ゲート2・3巡目）——
+ * 全部の数に同じ値を渡していたころは `deletedSomeLeft(1, 1)` と `(2, 2)` が
+ * 同じだけ動いてしまい、**2つ目が複数形のまま固まっていても通っていた**。
  *
  * これは「正しい訳の一覧」ではなく**いまの姿の写し**で、意味は2つ:
  *
@@ -171,116 +190,197 @@ test("件数が桁区切りを通ること", () => {
  *   1度は考えることになる
  *
  * **載っていない ＝ 壊れている、ではない。** `photosCount`（数だけ）・
- * `importing`（`3/10` の分数）・`speedDiff`（`1 copied` は英独西とも正しい）のように、
- * 数のあとに名詞が続かないキーは変わらないのが正しい。到達しないものもある
- * （`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に書いた）。
+ * `importing`（`3/10` の分数）・`en.speedDiff`（`1 added` は英語として正しい）・
+ * `de.speedPruned`（`Ordner` は単複同形）のように、変わらないのが正解のものがある。
+ * 到達しないものもある（`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に）。
  */
 const INFLECTS: Record<string, string[]> = {
   en: [
-    "itemsCount",
-    "memoriesTitle",
-    "rejectGateTitle",
-    "decoderHeifNotice",
-    "decoderHeifNoticeMac",
-    "decoderHeifNoticeOther",
-    "deleteConfirm",
-    "deletedSomeLeft",
-    "moveConfirm",
-    "exportDone",
-    "bulkPickDone",
-    "bulkUnpickDone",
-    "bulkFavoriteDone",
-    "bulkUnfavoriteDone",
-    "speedUsnDirty",
-    "speedPruned",
-    "speedFull",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "rejectGateTitle:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deletedSomeLeft:1",
+    "moveConfirm:0",
+    "exportDone:0",
+    "bulkPickDone:0",
+    "bulkUnpickDone:0",
+    "bulkFavoriteDone:0",
+    "bulkUnfavoriteDone:0",
+    "speedUsnDirty:0",
+    "speedUsnDirty:1",
+    "speedPruned:0",
+    "speedFull:0",
   ],
   de: [
-    "itemsCount",
-    "memoriesTitle",
-    "rejectGateTitle",
-    "andMore",
-    "decoderHeifNotice",
-    "decoderHeifNoticeMac",
-    "decoderHeifNoticeOther",
-    "wizardHiddenCount",
-    "deleteConfirm",
-    "deletedSomeLeft",
-    "moveConfirm",
-    "exportDone",
-    "bulkPickDone",
-    "bulkUnpickDone",
-    "bulkFavoriteDone",
-    "bulkUnfavoriteDone",
-    "speedUsnDirty",
-    // **`speedPruned` はここに居なくてよい**——`Ordner` は単複同形
-    "speedFull",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "rejectGateTitle:0",
+    "andMore:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "wizardHiddenCount:0",
+    "deleteConfirm:0",
+    "deletedSomeLeft:1",
+    "moveConfirm:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "bulkPickDone:0",
+    "bulkUnpickDone:0",
+    "bulkFavoriteDone:0",
+    "bulkUnfavoriteDone:0",
+    "speedUsnDirty:0",
+    "speedFull:0",
   ],
   es: [
-    "itemsCount",
-    "memoriesTitle",
-    "rejectGateTitle",
-    "importDone",
-    "syncDone",
-    "wizardSelected",
-    "decoderHeifNotice",
-    "decoderHeifNoticeMac",
-    "decoderHeifNoticeOther",
-    "wizardHiddenCount",
-    "wizardEtaSeconds",
-    "wizardEtaMinutes",
-    "wizardMoreFiles",
-    "deleteConfirm",
-    "deleted",
-    "deletedSomeLeft",
-    "selectedCount",
-    "moveConfirm",
-    "exportDone",
-    "bulkPickDone",
-    "bulkUnpickDone",
-    "bulkFavoriteDone",
-    "bulkUnfavoriteDone",
-    "speedUsnDirty",
-    "speedPruned",
-    "speedFull",
-    "speedDiff",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "rejectGateTitle:0",
+    "importDone:0",
+    "importDone:1",
+    "syncDone:0",
+    "syncDone:1",
+    "syncDone:2",
+    "wizardSelected:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "wizardHiddenCount:0",
+    "wizardEtaSeconds:0",
+    "wizardEtaMinutes:0",
+    "wizardMoreFiles:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "selectedCount:0",
+    "moveConfirm:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "bulkPickDone:0",
+    "bulkUnpickDone:0",
+    "bulkFavoriteDone:0",
+    "bulkUnfavoriteDone:0",
+    "speedUsnDirty:0",
+    "speedUsnDirty:1",
+    "speedPruned:0",
+    "speedFull:0",
+    "speedDiff:0",
+    "speedDiff:1",
+    "speedDiff:2",
   ],
 };
 
+/**
+ * **単複を持たない言語**。`one()` を写してはいけない（英語の辞書を下敷きにすると入り込む）。
+ *
+ * `INFLECTS` と合わせて `DICTS` を覆い切る。**覆えていなければ下のテストが落ちる。**
+ */
+const NO_PLURAL = ["ja", "zh", "zh-hant"];
+
+/**
+ * 1のときだけ**言い回しを変える**キー。単複ではないので、`NO_PLURAL` の言語にもある。
+ *
+ * `deleteConfirm` / `moveConfirm` は1枚のときだけ「この写真を」と指示語に置き換えている
+ * （`2枚の写真を` に対して `1枚の写真を` とは言わない、という日本語・中国語の言い回し）。
+ * 英語も同じ形にしてある。
+ */
+const PHRASING = ["deleteConfirm", "moveConfirm"];
+
+/** 数字そのものは伏せて、**語形だけ**を比べる */
+const shape = (s: string) => s.replace(/[\d., ]+/g, "#");
+
+/** その辞書で「1にすると語形が動く」引数の位置を、`キー:位置` で並べる */
+const inflectionsOf = (d: Any): string[] => {
+  const out: string[] = [];
+  for (const key of COUNT_KEYS) {
+    const types = SIGNATURES[key] ?? [];
+    const plural = call(d, key, types.map((t) => (t === "number" ? 2 : "X")));
+    types.forEach((t, i) => {
+      if (t !== "number") return;
+      const one = types.map((u, j) => (u !== "number" ? "X" : j === i ? 1 : 2));
+      if (shape(call(d, key, one)) !== shape(plural)) out.push(`${key}:${i}`);
+    });
+  }
+  return out;
+};
+
+test("どの辞書も、単複の扱いが決められていること", () => {
+  // **足した言語が黙って検査の外へ出ない**（2026-09-02、ゲート2・3巡目）。
+  // 下の2つのテストは表を回すので、表に載っていない言語は**1度も見られない**
+  // ——`en.ts` を丸写しした7つ目の辞書が、全部通る状態になっていた
+  const classified = [...Object.keys(INFLECTS), ...NO_PLURAL].sort();
+  assert.deepEqual(
+    Object.keys(DICTS).slice().sort(),
+    classified,
+    "辞書を足したら INFLECTS か NO_PLURAL のどちらかに入れること",
+  );
+  const compared = [...Object.keys(SAME_AS_EN), "en"].sort();
+  assert.deepEqual(
+    Object.keys(DICTS).slice().sort(),
+    compared,
+    "辞書を足したら SAME_AS_EN にも入れること（英語からの丸写しを見る表）",
+  );
+});
+
+test("検査する辞書が index.ts の DICTS と揃っていること", () => {
+  // この file は `index.ts` を import しない（`window` が要る）ので、
+  // **顔ぶれだけ原文から読んで突き合わせる**。片方に足して片方を忘れると、
+  // アプリには出るのに検査はされない言語ができる
+  const decl = /const DICTS: Record<string, Dict> = \{([^}]*)\}/.exec(INDEX_SRC);
+  assert.ok(decl, "index.ts の DICTS を読めなかった（綴りが変わった？）");
+  const inIndex = decl[1]
+    .split(",")
+    .map((part) => part.split(":")[0].trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+  assert.deepEqual(
+    inIndex.slice().sort(),
+    Object.keys(DICTS).slice().sort(),
+    "index.ts の DICTS と、この file の DICTS が食い違っている",
+  );
+});
+
+test("書式ロケールが辞書へ渡されていること", () => {
+  // `num()` は渡されるまで桁区切りを付けない（`plural.ts`）。**渡す1行が消えたり
+  // `formatLocale` より前へ動いたりすると、静かに `12000 Fotos` へ戻る**
+  // ——例外も型エラーも出ないので、ここで見る（2026-09-02、ゲート2・3巡目）
+  const defined = INDEX_SRC.indexOf("export const formatLocale");
+  const injected = INDEX_SRC.indexOf("setNumberLocale(formatLocale);");
+  assert.ok(defined >= 0, "index.ts の formatLocale を読めなかった");
+  assert.ok(injected >= 0, "index.ts が setNumberLocale(formatLocale) を呼んでいない");
+  assert.ok(
+    injected > defined,
+    "setNumberLocale(formatLocale) が formatLocale の定義より前に居る（TDZで落ちる）",
+  );
+});
+
 test("単数形を持つキーの顔ぶれが変わっていないこと", () => {
-  // 数字そのものは伏せて、**語形だけ**を比べる
-  const shape = (s: string) => s.replace(/[\d., ]+/g, "#");
   for (const [lang, expected] of Object.entries(INFLECTS)) {
-    const d = DICTS[lang];
-    const actual = COUNT_KEYS.filter(
-      (k) => shape(call(d, k, argsFor(k, 1, "X"))) !== shape(call(d, k, argsFor(k, 2, "X"))),
-    );
     assert.deepEqual(
-      actual.slice().sort(),
+      inflectionsOf(DICTS[lang]).slice().sort(),
       expected.slice().sort(),
-      `${lang} で単数形を持つキーが変わった。増えたなら INFLECTS に足す。` +
+      `${lang} で単数形を持つ「キー:位置」が変わった。増えたなら INFLECTS に足す。` +
         `減ったなら one() が外れていないか見ること`,
     );
   }
 });
 
 test("単複の無い言語が場合分けしていないこと", () => {
-  // 日本語・中国語には単複が無い。**`one()` を写してはいけない**
-  // （英語の辞書を下敷きに書くと入り込む）
-  const shape = (s: string) => s.replace(/[\d., ]+/g, "#");
-  for (const lang of ["ja", "zh", "zh-hant"]) {
-    const d = DICTS[lang];
-    for (const k of COUNT_KEYS) {
-      // **`deleteConfirm` / `moveConfirm` は単複ではない**——1枚のときだけ
-      // 「この写真を」と指示語に置き換えている（`2枚の写真を` に対して `1枚の写真を`
-      // とは言わない、という日本語・中国語の言い回し）。英語も同じ形にしてある
-      if (k === "deleteConfirm" || k === "moveConfirm") continue;
-      assert.equal(
-        shape(call(d, k, argsFor(k, 1, "X"))),
-        shape(call(d, k, argsFor(k, 2, "X"))),
-        `${lang}.${k} が1のときだけ語形を変えている（この言語に単複は無い）`,
-      );
-    }
+  for (const lang of NO_PLURAL) {
+    const unexpected = inflectionsOf(DICTS[lang]).filter(
+      (pair) => !PHRASING.includes(pair.split(":")[0]),
+    );
+    assert.deepEqual(
+      unexpected,
+      [],
+      `${lang} が1のときだけ語形を変えている（この言語に単複は無い）`,
+    );
   }
 });
 
@@ -289,6 +389,7 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * それに**数だけを出す関数**（`3` / `✕ 3` / `3+` に訳す余地は無い）。
  *
  * ここに無いのに英語と一致していたら、**訳し漏れ**の疑いがある。
+ * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
   de: [
@@ -314,6 +415,13 @@ const SAME_AS_EN: Record<string, string[]> = {
     "photosCount",
     "rejectChip",
     "wizardCapped",
+  ],
+  ja: [
+    "appName",
+    "kindRaw",
+    "exifIso",
+    "keyCtrl",
+    "rejectChip",
   ],
   zh: ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
   "zh-hant": ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],

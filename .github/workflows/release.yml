@@ -44,7 +44,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # **22.18 以上**（2026-09-02）。辞書のテスト（下の検査に入っている）は
+          # Node が `.ts` をそのまま読めることに乗っていて、それが既定になったのが 22.18。
+          # `ui/package.json` の `engines` と同じ床
+          node-version: "^22.18"
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
@@ -113,10 +116,13 @@ jobs:
       # マッチしない）。ここで検査しないと、CIが赤のコミットへタグを打つだけで
       # 未検査の配布物がReleasesに載る。UIのビルドは release.ps1 が改めて行うが、
       # `tauri::generate_context!` の展開に `ui/dist` が要るのでテストの前に置く。
-      # clippy は書式・作法の門なので main 側（ci.yml）に任せ、ここでは正しさだけ見る
+      # clippy は書式・作法の門なので main 側（ci.yml）に任せ、ここでは正しさだけ見る。
+      # **辞書のテストもここに要る**（2026-09-02、ゲート2・3巡目）——ci.yml にだけ置くと、
+      # 配布物そのものは1度も辞書を見られずに出ていく
       - name: 検査（タグはci.ymlを迂回するため）
         run: |
           npm --prefix ui run build
+          npm --prefix ui test
           cargo fmt --all --check
           cargo test --workspace --locked
 
@@ -212,7 +218,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # **22.18 以上**（2026-09-02）。辞書のテスト（下の検査に入っている）は
+          # Node が `.ts` をそのまま読めることに乗っていて、それが既定になったのが 22.18。
+          # `ui/package.json` の `engines` と同じ床
+          node-version: "^22.18"
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
@@ -234,6 +243,7 @@ jobs:
       - name: 検査（タグはci.ymlを迂回するため）
         run: |
           npm --prefix ui run build
+          npm --prefix ui test
           cargo fmt --all --check
           cargo test --workspace --locked
 
