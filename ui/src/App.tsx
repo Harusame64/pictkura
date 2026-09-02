@@ -2137,16 +2137,29 @@ export default function App() {
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
   const visibleMissingIds = useMemo(() => {
     const ids: number[] = [];
+    const seen = new Set<number>();
+    // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
+    const want = (item: MediaItem) => {
+      if (item.thumb_state >= 2 || seen.has(item.id)) return;
+      seen.add(item.id);
+      ids.push(item.id);
+    };
+    // **帯は `rows` に居ない。** 「3年前の今日」は `memories` として別に描いて
+    // いるので、下の `rows` を歩くだけでは生成を頼まないまま**灰色の四角が残る**。
+    // 段階B-3 で全件の事前生成をやめてから、帯だけが誰にも頼まれていなかった。
+    // `prioritize` は引数順を保つので、画面のいちばん上にある帯を先に積む。
+    // 出す条件は描画側と揃える——出していない帯の生成を頼むと、見えない絵に
+    // キューを使う（`filtering` 中は帯そのものを隠している）
+    if (view === "grid" && !filtering) {
+      for (const m of memories) want(m.item);
+    }
     for (const vr of virtualItems) {
       const row = rows[vr.index];
       if (row?.kind !== "cells") continue;
-      for (const cell of row.cells) {
-        // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
-        if (cell.item.thumb_state < 2) ids.push(cell.item.id);
-      }
+      for (const cell of row.cells) want(cell.item);
     }
     return ids;
-  }, [virtualItems, rows]);
+  }, [virtualItems, rows, memories, view, filtering]);
   useEffect(() => {
     if (visibleMissingIds.length === 0) return;
     const t = window.setTimeout(() => {
