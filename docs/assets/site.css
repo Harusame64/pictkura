@@ -203,10 +203,17 @@ body[lang="en"] .hero p { font-size: 17px; line-height: 1.7; }
   border: 1px solid oklch(1 0 0 / 0.16); border-right: none; border-radius: var(--radius) 0 0 var(--radius);
   overflow: hidden; box-shadow: 0 40px 90px -30px oklch(0 0 0 / 0.85);
 }
-/* 3:2 のままだと縦に重い。上を残して切り、横に広い板に見せる */
+/* 3:2 のままだと縦に重い。上を残して切り、横に広い板に見せる。
+   **切る位置は左袖の部品の切れ目の真ん中に置く**。632 だった頃、`grid.{ja,en}.jpg` の
+   撮り直し（2026-09-02）で左袖に `Picked` と `Kind` が増えて下の塊が 170px 下がり、
+   「フォルダを追加」の入力欄を**字の途中で切っていた**。元画像の行は日英とも同じで、
+   欄が 617〜642、地が 643〜645、「追加」ボタンが 646〜671。645 はその地の真ん中。
+   `cover` ＋ `object-position: 50% 0` なので、**この規則が効く幅では、幅に依らず
+   0〜644 行**が見える。**760px 以下は下の `1152 / 700` が勝つ**（`.hero-shot .frame img`
+   の2つ目の宣言）。撮り直したら**両方の切れ目を測る**こと */
 .hero-shot .frame img {
   display: block; width: 100%;
-  aspect-ratio: 1152 / 632; object-fit: cover; object-position: 50% 0;
+  aspect-ratio: 1152 / 645; object-fit: cover; object-position: 50% 0;
 }
 .fig { font-size: 12.5px; line-height: 1.7; color: var(--text-faint); }
 .hero-shot .fig { margin: 14px 0 0; max-width: 560px; }
