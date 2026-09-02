@@ -47,7 +47,14 @@ export const de: Dict = {
   importFromUsb: "Von USB importieren",
   rescan: "Neu einlesen",
   size: "Größe",
-  itemsSuffix: "Objekte",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} ${one(n, "Objekt", "Objekte")}`,
   navPlaces: "Orte",
   navAllPhotos: "Alle Fotos",
   navFavorites: "★ Favoriten",
@@ -253,19 +260,20 @@ export const de: Dict = {
     `Diese Orte ließen sich nicht öffnen: ${names}. Prüfe, ob du sie lesen darfst, und drücke dann „Neu einlesen“.`,
   listSeparator: ", ",
   /**
-   * **`weiterer` にはしない**（2026-09-01、ゲート2の指摘を検討して据え置き）。
-   * 受ける名詞が呼び出しごとに変わる——`Orte`（男性・`emptyMissing` 系）、
-   * `Kameras`（女性・`showMore`）、`Dateien`（女性）——ので、
-   * **1つの語形では必ずどれかが外れる**。複数形の `weitere` はどの性でも
-   * 落ち着きが悪くないほうを取っている。直すなら受ける名詞を引数で渡す話になる
+   * **1のときは名詞を書く。名詞は `Ort`**（2026-09-02、ゲート2の指摘）。
+   *
+   * 2026-09-01 にはここを「受ける名詞が呼び出しごとに変わるから据え置く」と書いていて、
+   * その根拠に `showMore`（`Kameras`）を挙げていた。**それが間違い**——`showMore` は
+   * 別のキーで、`andMore` に来るのは `nameList()` からだけ（`App.tsx:1572`）。
+   *
+   * そして `nameList()` を呼ぶ4つの文は**すべて `Orte` と言っている**
+   * （`emptyMissing` / `emptyStalled` / `emptyUnreadable*`）。`Ordner` と書くと
+   * 文の途中で名詞が入れ替わるうえ、**嘘にもなる**——`emptyAllExcluded` の
+   * `EntryKind::Excluded` は**ファイルにも付く**（`lib.rs` の `classify_entry`。
+   * `*.heic` のような除外パターンなら中身はファイル）。`Ort` は男性なので
+   * `weiterer` が取れて、フォルダにもファイルにも当たる。
    */
-  /**
-   * **1のときは名詞を書く**（2026-09-02）。省かれている名詞は `Ordner`（男性）なので
-   * 単数は `weiterer` になり、`weitere` のままだと語形が合わない。呼ぶ側の
-   * `nameList()` はフォルダ名の羅列にしか使っていないので、名詞は一意に決まる
-   * （`App.tsx` の `emptyStalled` / `emptyMissing` / `emptyUnreadable*` / `emptyAllExcluded`）。
-   */
-  andMore: (n: number) => (n === 1 ? "und 1 weiterer Ordner" : `und ${num(n)} weitere`),
+  andMore: (n: number) => (n === 1 ? "und 1 weiterer Ort" : `und ${num(n)} weitere`),
   emptyRootIsPackage:
     "Einer der Bibliotheksordner ist selbst eine Fotos-Mediathek. pictkura liest solche Mediatheken bewusst nicht ein, es wird also nie etwas daraus kommen. Wähle einen gewöhnlichen Ordner, in dem Fotos liegen, oder importiere von einer Karte.",
   emptyPhotoLibrary:
@@ -332,7 +340,6 @@ export const de: Dict = {
     n === 1
       ? "1 schon importierte Datei ausgeblendet"
       : `${num(n)} schon importierte ausgeblendet`,
-  wizardCopying: "Wird importiert",
   wizardEtaSeconds: (n: number) => `noch etwa ${num(n)} s`,
   wizardEtaMinutes: (n: number) => `noch etwa ${num(n)} min`,
   wizardEtaCalculating: "Restzeit wird geschätzt…",

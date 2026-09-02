@@ -4444,7 +4444,7 @@ export default function App() {
         </span>
         <span className={"count" + (query ? " searching" : "")}>
           {query && "🔍 "}
-          {formatNumber(totalShown)} {t.itemsSuffix}
+          {t.itemsCount(totalShown)}
         </span>
       </header>
       {speedReport && (
@@ -4536,7 +4536,7 @@ export default function App() {
           >
             {t.navFavorites}
             {stats.favorites > 0 && (
-              <span className="fav-count">{stats.favorites}</span>
+              <span className="fav-count">{formatNumber(stats.favorites)}</span>
             )}
           </div>
           {/* 選別で選んだもの（⚑。0.2 ②）。★とは別の棚なので入口も分ける */}
@@ -4546,7 +4546,7 @@ export default function App() {
           >
             {t.navPicked}
             {stats.picked > 0 && (
-              <span className="fav-count">{stats.picked}</span>
+              <span className="fav-count">{formatNumber(stats.picked)}</span>
             )}
           </div>
           {/* 種類（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので節を分ける
@@ -4593,7 +4593,7 @@ export default function App() {
                   >
                     <span className="camera-icon">📷</span>
                     <span className="camera-name">{cam.name}</span>
-                    <span className="fav-count">{cam.count}</span>
+                    <span className="fav-count">{formatNumber(cam.count)}</span>
                   </div>
                 );
               })}
@@ -5267,7 +5267,7 @@ export default function App() {
                 {formatDateTime(viewerItem.taken_at_ms)}
               </span>
               <span className="viewer-pos">
-                {viewerPos} / {viewerTotal}
+                {formatNumber(viewerPos)} / {formatNumber(viewerTotal)}
               </span>
               {/* ボツの候補の数（0.2 ③）。押すといつでも関所で顔を見られる。
                   0件のときは出さない——選別中に面を1つも増やさないため */}

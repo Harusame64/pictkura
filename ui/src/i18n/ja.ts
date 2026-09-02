@@ -17,7 +17,14 @@ export const ja = {
   importFromUsb: "USBから取り込み",
   rescan: "再スキャン",
   size: "サイズ",
-  itemsSuffix: "件",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)}件`,
   navPlaces: "画像の場所",
   navAllPhotos: "すべての画像",
   navFavorites: "★ お気に入り",
@@ -351,7 +358,6 @@ export const ja = {
   wizardHideImported: "取り込み済みを隠す",
   wizardAllImported: "新しい写真はありません（このフォルダはすべて取り込み済みです）",
   wizardHiddenCount: (n: number) => `取り込み済み${num(n)}枚は隠しています`,
-  wizardCopying: "取り込み中",
   wizardEtaSeconds: (n: number) => `残り約${num(n)}秒`,
   wizardEtaMinutes: (n: number) => `残り約${num(n)}分`,
   wizardEtaCalculating: "残り時間を見積もっています…",

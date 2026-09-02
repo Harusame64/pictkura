@@ -74,7 +74,14 @@ export const zhHant: Dict = {
   importFromUsb: "從 USB 匯入",
   rescan: "重新掃描",
   size: "大小",
-  itemsSuffix: "項",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} 項`,
   navPlaces: "相簿",
   navAllPhotos: "全部照片",
   navFavorites: "★ 最愛",
@@ -330,7 +337,6 @@ export const zhHant: Dict = {
   wizardHideImported: "隱藏已匯入的",
   wizardAllImported: "沒有新的照片（這個資料夾裡的照片都已經匯入過了）",
   wizardHiddenCount: (n: number) => `已隱藏 ${num(n)} 張匯入過的照片`,
-  wizardCopying: "正在匯入",
   wizardEtaSeconds: (n: number) => `剩餘約 ${num(n)} 秒`,
   wizardEtaMinutes: (n: number) => `剩餘約 ${num(n)} 分鐘`,
   wizardEtaCalculating: "正在估算剩餘時間…",

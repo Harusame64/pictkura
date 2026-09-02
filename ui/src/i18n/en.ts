@@ -13,7 +13,14 @@ export const en: Dict = {
   importFromUsb: "Import from USB",
   rescan: "Rescan",
   size: "Size",
-  itemsSuffix: "items",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} ${one(n, "item", "items")}`,
   navPlaces: "Places",
   navAllPhotos: "All photos",
   navFavorites: "★ Favorites",
@@ -270,7 +277,6 @@ export const en: Dict = {
   wizardHideImported: "Hide already imported",
   wizardAllImported: "Nothing new here (everything in this folder is already imported)",
   wizardHiddenCount: (n: number) => `${num(n)} already-imported hidden`,
-  wizardCopying: "Importing",
   wizardEtaSeconds: (n: number) => `about ${num(n)}s left`,
   wizardEtaMinutes: (n: number) => `about ${num(n)} min left`,
   wizardEtaCalculating: "estimating time left…",

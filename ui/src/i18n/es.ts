@@ -64,7 +64,14 @@ export const es: Dict = {
   importFromUsb: "Importar desde USB",
   rescan: "Volver a explorar",
   size: "Tamaño",
-  itemsSuffix: "elementos",
+  /**
+   * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
+   * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、
+   * **1枚に絞ると「1 items」「1 Objekte」**と出ていた——このPRが潰しに来た
+   * `full scan (1 files)` と同じ壊れ方が、画面で一番目立つ数字に残っていた。
+   * 単位だけのキーでは、どの言語も単数形を書けない。
+   */
+  itemsCount: (n: number) => `${num(n)} ${one(n, "elemento", "elementos")}`,
   navPlaces: "Lugares",
   navAllPhotos: "Todas las fotos",
   navFavorites: "★ Favoritos",
@@ -332,7 +339,6 @@ export const es: Dict = {
     "Aquí no hay nada nuevo (todo lo de esta carpeta ya está importado)",
   wizardHiddenCount: (n: number) =>
     `${num(n)} ya ${one(n, "importada oculta", "importadas ocultas")}`,
-  wizardCopying: "Importando",
   /**
    * **`unos` は「およそ」なので、1のときは落とす**（2026-09-02）——
    * `quedan unos 1 s` は数と語形の両方がずれる。動詞も単数へ。
