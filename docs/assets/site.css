@@ -276,6 +276,11 @@ body[lang="en"] .pile-to { font-size: 21px; line-height: 1.6; }
     oklch(0.13 0.008 70 / 0.45) calc(var(--pad) + 960px));
 }
 /* 中身は写真と幕より前に出す */
+/* 見出しと本文の間は、他の節より詰める（節そのものが短いので）。
+   **インラインで書かないこと**——携帯幅の `.sec-head { margin-bottom: 28px }` を
+   潰して 4px 広いまま凍る（実測 2026-09-02・`dev/site-tools/inline-vs-media.html`）。
+   ここで定義した以上、**この余白を上書きしている枠すべてに行が要る**（§22.5 の教訓） */
+.section.photo.canopy .sec-head { margin-bottom: 32px; }
 /* 共感セクションの導入。**色はここで決める（HTML のインラインで書かない）。**
    幕の薄い側まで伸びる 17px の本文で、`--text-soft`（0.78）だと 393px で 3.06:1。
    要る明度は L=0.897（実測 2026-09-02・`dev/site-tools/photo-text-audit.html`） */
@@ -710,6 +715,8 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .lang { padding-left: 14px; }
   .section { padding: 56px var(--pad) 52px; }
   .sec-head { gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
+  /* 上で 32px を定義した以上、ここにも書かないと携帯幅で 32px のまま残る */
+  .section.photo.canopy .sec-head { margin-bottom: 28px; }
   .sec-head h2 { font-size: 24px; }
   /* h2 が 24px に落ちるので、小見出しも下げて順序を保つ。英語別の値を一度でも
      定義したら、上書きしている枠すべてに英語の行が要る（§22.5 の教訓） */
