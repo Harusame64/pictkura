@@ -57,7 +57,7 @@
   <p class="lead">Windows と macOS へのインストール手順と、初回起動時に表示される警告への対処をまとめたページです。</p>
   <p class="stamps">
     <span>バージョン &nbsp;<b>0.2</b></span>
-    <span>最終更新 &nbsp;<b>2026-08-29</b></span>
+    <span>最終更新 &nbsp;<b>2026-09-02</b></span>
   </p>
 </div>
 
@@ -70,6 +70,7 @@
     <a href="#warn-msi" class="sub">2.2 MSI の警告</a>
     <a href="#warn-zip" class="sub">2.3 持ち歩き版の警告</a>
     <a href="#sac" class="sub">2.4 スマートアプリコントロール</a>
+    <a href="#defender" class="sub">2.5 Defender の隔離</a>
     <a href="#macos">3. macOS で起動する</a>
     <a href="#first">4. インストール後の最初の操作</a>
     <a href="#uninstall">5. アンインストール</a>
@@ -145,6 +146,12 @@
       <div class="note" style="margin-top:26px">
         <p>署名（Authenticode）をすれば「発行元: 不明」は発行元名に確実に変わり、SmartScreen も出にくくなります。ただし<strong class="em">必ず消えるわけではありません</strong>——署名したての、まだ評価の溜まっていないファイルは依然として警告されることがあります。証明書が有料のため、今は見送っています。</p>
       </div>
+
+      <!-- 誤検知が解決したら、この節・目次の行・README 日英の同じ段落を、
+           まとめて消すこと -->
+      <h3 id="defender">2.5 &nbsp;Defender が隔離することがあります（2026-09-02）</h3>
+      <p>0.2.6 の <code class="mono">pictkura.exe</code> が <code class="mono">Trojan:Win32/Bearfoos.A!ml</code> として<strong class="em">隔離される例を確認しました</strong>。末尾の <code class="mono">!ml</code> は<strong class="em">機械学習による推定</strong>で、中身を特定の脅威と照合した結果ではありません。署名の無い実行ファイルに出やすい判定で、同じ名前の判定は <a href="https://github.com/openai/codex/issues/3207">OpenAI の codex</a> や <a href="https://github.com/microsoft/apm/issues/487">Microsoft 自身の apm</a> でも報告されています。</p>
+      <p>同日、Microsoft へ<strong class="em">誤検知として報告しました</strong>。配布物の SHA-256 は GitHub のリリースに載せている値と一致します。<strong class="em">解決したらこの節は消します。</strong></p>
     </section>
 
     <section id="macos">
