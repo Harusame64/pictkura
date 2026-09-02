@@ -33,9 +33,9 @@
  * `ureq::` の呼び出しは `update.rs` の1か所だけ、UIに `fetch` は無く、
  * `tauri.conf.json` の CSP が `connect-src` を ipc に限っている。**約束は真。**
  */
-import { folderExample } from "./folderExample";
-import { num, one } from "./plural";
-import type { Dict } from "./ja";
+import { folderExample } from "./folderExample.ts";
+import { num, one } from "./plural.ts";
+import type { Dict } from "./ja.ts";
 
 export const de: Dict = {
   appName: "pictkura",
