@@ -12,16 +12,16 @@
  */
 
 :root {
-  --bg: oklch(0.145 0 0);
-  --bg-deep: oklch(0.115 0 0);
-  --bg-raise: oklch(0.16 0 0);
-  --surface: oklch(0.19 0 0);
+  --bg: oklch(0.16 0.008 70);
+  --bg-deep: oklch(0.13 0.008 70);
+  --bg-raise: oklch(0.175 0.008 70);
+  --surface: oklch(0.205 0.009 70);
   --line: oklch(1 0 0 / 0.08);
   --line-strong: oklch(1 0 0 / 0.14);
-  --text: oklch(0.95 0 0);
-  --text-soft: oklch(0.78 0 0);
-  --text-muted: oklch(0.7 0 0);
-  --text-faint: oklch(0.55 0 0);
+  --text: oklch(0.95 0.004 70);
+  --text-soft: oklch(0.78 0.005 70);
+  --text-muted: oklch(0.7 0.005 70);
+  --text-faint: oklch(0.6 0.006 70);
   --accent: oklch(0.72 0.14 255);
   --accent-bright: oklch(0.82 0.12 255);
   --fav: oklch(0.82 0.16 85);
@@ -62,7 +62,7 @@ body[lang="en"] { font-family: var(--font-en), "Zen Kaku Gothic New", "Hiragino 
 a { color: var(--text); text-decoration: none; }
 a:hover { color: var(--accent-bright); }
 img { max-width: 100%; height: auto; }
-h1, h2, h3 { margin: 0; font-weight: 700; }
+h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 p { margin: 0 0 18px; }
 
 ::selection { background: oklch(0.72 0.14 255 / 0.35); }
@@ -115,7 +115,7 @@ p { margin: 0 0 18px; }
    確かめる代わりに、切られようのない形にした）。見た目は変わらない */
 .bar::before {
   content: ""; position: absolute; inset: 0; z-index: -1;
-  background: oklch(0.145 0 0 / 0.9);
+  background: oklch(0.16 0.008 70 / 0.9);
   backdrop-filter: blur(12px);
 }
 .brand { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
@@ -167,23 +167,31 @@ p { margin: 0 0 18px; }
 /* ─── 見出しのある区画 ─── */
 .section { padding: 104px var(--pad) 96px; }
 .section.deep { background: var(--bg-deep); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.section.raise { background: oklch(0.125 0 0); border-top: 1px solid var(--line); }
+.section.raise { background: oklch(0.14 0.008 70); border-top: 1px solid var(--line); }
 .sec-head { display: flex; align-items: baseline; gap: 20px; margin-bottom: 40px; }
 .sec-head .num { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; color: var(--accent); }
 .sec-head .num.off { color: var(--text-faint); }
 .sec-head h2 { font-size: 32px; }
 .sec-head .rule { flex-grow: 1; height: 1px; background: oklch(1 0 0 / 0.1); }
+/* 節の中の小見出し。h2 と本文のあいだの段で、h2 より一段小さいことが意味を持つ。
+   **インラインで書かないこと**——携帯幅で h2 が 24px に落ちるとき、インライン指定は
+   （!important 無しでは）stylesheet に上書きされないので、小見出しのほうが
+   大きいまま残って階層が逆さになる（実測 2026-09-02） */
+.sub-head { font-size: 26px; font-weight: 600; margin: 56px 0 28px; }
+body[lang="en"] .sub-head { font-size: 28px; }
 .lead { max-width: 760px; font-size: 17px; line-height: 1.95; color: var(--text-muted); }
 
 /* ─── 冒頭 ─── */
 .hero {
   display: grid; grid-template-columns: 560px minmax(0, 1fr);
   align-items: start; padding: 68px 0 0 var(--pad);
-  background: oklch(0.125 0 0); border-bottom: 1px solid var(--line);
+  background: oklch(0.14 0.008 70); border-bottom: 1px solid var(--line);
 }
 .hero-copy { display: flex; flex-direction: column; gap: 26px; padding: 0 56px 64px 0; }
 .hero h1 { font-size: 64px; line-height: 1.16; }
-body[lang="en"] .hero h1 { font-size: 66px; line-height: 1.06; }
+/* 英語の H1 は日本語より語数が多い。66px だと 560px の列で 3 行になり、
+   "for your" と "photos." が孤立するので 62px に落としてある（実測・2026-09-02） */
+body[lang="en"] .hero h1 { font-size: 62px; line-height: 1.06; }
 .hero p { margin: 0; font-size: 17px; line-height: 2; color: var(--text-soft); max-width: 480px; }
 /* 冒頭の小さい2行（機種と条件）は、本文の折り返し幅に巻き込まれないようにする */
 .hero .eyebrow, .hero .hero-meta { max-width: none; }
@@ -203,24 +211,11 @@ body[lang="en"] .hero p { font-size: 17px; line-height: 1.7; }
 .fig { font-size: 12.5px; line-height: 1.7; color: var(--text-faint); }
 .hero-shot .fig { margin: 14px 0 0; max-width: 560px; }
 
-/* ─── 写真だけの帯。文言はひとことだけ載せる ─── */
-.band { position: relative; margin: 0; border-bottom: 1px solid var(--line); }
-.band img {
-  display: block; width: 100%;
-  aspect-ratio: 1152 / 330; object-fit: cover; object-position: 50% 55%;
-}
-.band .band-text {
-  position: absolute; inset: 0; display: flex; align-items: center; padding: 0 var(--pad);
-  background: linear-gradient(90deg,
-    oklch(0.115 0 0 / 0.9) 0%, oklch(0.115 0 0 / 0.62) 52%, oklch(0.115 0 0 / 0.15) 100%);
-}
-.band p { margin: 0; max-width: 620px; font-size: 26px; line-height: 1.75; letter-spacing: -0.01em; }
-body[lang="en"] .band p { font-size: 30px; line-height: 1.3; }
-/* 写真の権利表示。帯・見出しの面・節の中の写真で使い回す */
-.by {
-  position: absolute; right: var(--pad); bottom: 12px; z-index: 1;
-  font-size: 11px; color: oklch(1 0 0 / 0.42); letter-spacing: 0.02em;
-}
+/* 写真の権利表示（.by）は 2026-09-02 に**フッタの © 行へ移した**。
+   写真の右下に置いていたが、地が写真そのものなので明るい所で AA を割っていた——
+   4 枚とも、幕の無い .bleed.photo は 320px で 1.97:1 で、**白 100% でも通らない**
+   （`dev/site-tools/by-audit.html`）。CC0 は表示義務が無いので、位置は選べる。
+   地の決まっている面へ移せば、`contrast-audit.html` が以後ずっと見張れる。 */
 
 /* 写真を敷いた区画。読ませる面なので、幕は濃いままにする。
    写真は `--photo`、幕の濃さは `--veil-a`（上）と `--veil-b`（下）で差し替える。
@@ -228,7 +223,7 @@ body[lang="en"] .band p { font-size: 30px; line-height: 1.3; }
 .section.photo {
   position: relative;
   background-image:
-    linear-gradient(oklch(0.115 0 0 / var(--veil-a, 0.86)), oklch(0.115 0 0 / var(--veil-b, 0.78))),
+    linear-gradient(oklch(0.13 0.008 70 / var(--veil-a, 0.86)), oklch(0.13 0.008 70 / var(--veil-b, 0.78))),
     var(--photo, url("../images/photo/forest-mist.jpg"));
   background-size: cover; background-position: var(--photo-pos, 50% 40%);
 }
@@ -236,6 +231,40 @@ body[lang="en"] .band p { font-size: 30px; line-height: 1.3; }
 .section.photo.aerial {
   --photo: url("../images/photo/forest-drone.jpg");
   --photo-pos: 50% 46%; --veil-a: 0.8; --veil-b: 0.72;
+}
+/* 「こんな写真、ありませんか」の中の、大きい一文と、宛先の行。
+   帯から持ってきた文なので、帯と同じく読点で改行を固定する。
+   狭い幅では字を落とす——26px のままだと 393px で語の途中から折り返す */
+.pile-line { margin: 0 0 32px; max-width: 720px; font-size: 26px; line-height: 1.75; letter-spacing: -0.01em; }
+.pile-to { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.9; letter-spacing: -0.01em; }
+body[lang="en"] .pile-line { max-width: 780px; font-size: 30px; line-height: 1.32; }
+body[lang="en"] .pile-to { font-size: 21px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .pile-line { font-size: 20px; line-height: 1.8; margin-bottom: 26px; }
+  .pile-to { font-size: 16.5px; }
+  /* 23px だと **393px（iPhone の幅）で 2 行目の余りが 0px** になる。収まってはいるが、
+     字形が 1px でも違えば 3 行に割れる幅で、そこは狙って 2 行にしてある所（§22.5）。
+     22px で余り 15px（実測 2026-09-02・`dev/site-tools/pile-sweep.html`） */
+  body[lang="en"] .pile-line { font-size: 22px; }
+  body[lang="en"] .pile-to { font-size: 18px; }
+}
+
+/* 「こんな写真、ありませんか」の面。帯で使っていた森の天蓋を敷き直す。
+   写真は CSS の背景ではなく <img loading="lazy"> で置く——背景にすると
+   画面外でも即座に 261KB を取りにいく（速さを謳うページで） */
+.section.photo.canopy { background-image: none; }
+.canopy-img, .canopy-veil { position: absolute; inset: 0; z-index: 0; }
+.canopy-img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 52%; }
+/* 幕は帯と同じ横方向。文字が乗る左だけ濃くして、右は森を見せる。
+   終端は 0.45——0.2 のままだと、幅の 74〜90% で霧が明るく、白文字が 3.6 まで落ちる
+   （実測 2026-09-02。0.40 で 5.17、0.45 で 5.72） */
+.canopy-veil {
+  background: linear-gradient(90deg,
+    oklch(0.13 0.008 70 / 0.9) 0%, oklch(0.13 0.008 70 / 0.62) 52%, oklch(0.13 0.008 70 / 0.45) 100%);
+}
+/* 中身は写真と幕より前に出す */
+.section.photo.canopy > *:not(.canopy-img):not(.canopy-veil) {
+  position: relative; z-index: 1;
 }
 
 /* ─── 数値の帯 ─── */
@@ -263,11 +292,11 @@ body[lang="en"] .metrics p { line-height: 1.7; }
 .cards > div { background: var(--bg); padding: 34px 32px 38px; display: flex; flex-direction: column; gap: 12px; }
 .section.deep .cards > div { background: var(--bg-deep); }
 /* 写真の上に置くカードは、下の森が薄く透けるくらいに留める（枠線は残す） */
-.section.photo .cards > div { background: oklch(0.115 0 0 / 0.72); }
+.section.photo .cards > div { background: oklch(0.13 0.008 70 / 0.72); }
 .cards .tag { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0; color: var(--accent); }
-.cards h3 { font-size: 15.5px; font-weight: 500; }
+.cards h3, .cards h4 { font-size: 15.5px; font-weight: 500; }
 .cards p { margin: 0; font-size: 13.5px; line-height: 1.9; color: var(--text-muted); }
-.cards h3 .glyph { font-size: 17px; margin-right: 9px; vertical-align: -1px; }
+.cards h3 .glyph, .cards h4 .glyph { font-size: 17px; margin-right: 9px; vertical-align: -1px; }
 body[lang="en"] .cards p { line-height: 1.75; }
 
 /* 独立した枠のカード */
@@ -279,7 +308,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .tile.pick { border-color: oklch(1 0 0 / 0.22); background: var(--bg-raise); }
 .tile h3 { font-size: 15.5px; font-weight: 500; }
 .tile p { margin: 0; font-size: 13.5px; line-height: 1.9; color: var(--text-muted); flex-grow: 1; }
-.tile .exts { font-family: var(--font-mono); font-size: 13.5px; line-height: 2.15; color: oklch(0.86 0 0); }
+.tile .exts { font-family: var(--font-mono); font-size: 13.5px; line-height: 2.15; color: oklch(0.86 0.004 70); }
 .tile .foot-note {
   font-size: 12.5px; line-height: 1.85; color: var(--text-faint);
   border-top: 1px solid var(--line); padding-top: 12px;
@@ -317,7 +346,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 }
 .strip::after {
   content: ""; position: absolute; inset: 0;
-  background: linear-gradient(oklch(0.115 0 0 / 0.5), oklch(0.115 0 0 / 0.78));
+  background: linear-gradient(oklch(0.13 0.008 70 / 0.5), oklch(0.13 0.008 70 / 0.78));
 }
 
 /* 画面を2枚並べる */
@@ -374,9 +403,9 @@ body[lang="en"] .cards p { line-height: 1.75; }
    折り返すと、行のどこまでが1つの引数か読めなくなる */
 .cmd {
   margin: 0; padding: 16px 20px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: oklch(0.145 0 0);
+  border-radius: var(--radius); background: oklch(0.16 0.008 70);
   font-family: var(--font-mono); font-size: 12.5px; line-height: 1.9;
-  color: oklch(0.86 0 0); overflow-x: auto; white-space: pre;
+  color: oklch(0.86 0.004 70); overflow-x: auto; white-space: pre;
 }
 
 /* できないことの一覧 */
@@ -387,7 +416,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 }
 .limits div:first-child { padding-left: 0; }
 .limits div:last-child { padding-right: 0; border-right: none; }
-.limits b { font-weight: 400; color: oklch(0.88 0 0); }
+.limits b { font-weight: 400; color: oklch(0.88 0.004 70); }
 /* この升の中のリンクは「読んで終わり」ではなく**押して確かめてもらう**もの
    （配布物の作られ方の節）。地の文と同じ色だと、リンクだと気付かれない。
    **既存の升にも効く**——ダウンロード頁の「写真ファイル本体は変更しません」に
@@ -408,12 +437,12 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .more-row .more { margin-top: 0; }
 
 /* ─── 文書ページ（仕様・法的情報） ─── */
-.page-head { padding: 72px var(--pad) 56px; border-bottom: 1px solid var(--line); background: oklch(0.125 0 0); }
+.page-head { padding: 72px var(--pad) 56px; border-bottom: 1px solid var(--line); background: oklch(0.14 0.008 70); }
 /* 見出しの面に写真を敷く。ここも文字を読ませる面なので、幕は濃いまま */
 .page-head.photo {
   position: relative;
   background-image:
-    linear-gradient(oklch(0.115 0 0 / var(--veil-a, 0.9)), oklch(0.115 0 0 / var(--veil-b, 0.8))),
+    linear-gradient(oklch(0.13 0.008 70 / var(--veil-a, 0.9)), oklch(0.13 0.008 70 / var(--veil-b, 0.8))),
     var(--photo);
   background-size: cover; background-position: var(--photo-pos, 50% 50%);
 }
@@ -430,7 +459,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .page-head h1 { font-size: 44px; margin-bottom: 20px; }
 .page-head .lead { max-width: 780px; }
 .stamps { display: flex; flex-wrap: wrap; gap: 32px; margin-top: 30px; font-size: 12.5px; color: var(--text-faint); }
-.stamps b { font-weight: 400; color: oklch(0.85 0 0); }
+.stamps b { font-weight: 400; color: oklch(0.85 0.004 70); }
 
 .doc { display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 72px; padding: 64px var(--pad) 96px; align-items: start; }
 .doc.legal { grid-template-columns: 300px minmax(0, 1fr); padding-top: 72px; }
@@ -459,7 +488,7 @@ td {
   vertical-align: top; font-size: 14px; line-height: 1.85; color: var(--text-soft);
 }
 td.k { color: var(--text); }
-td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; color: oklch(0.9 0 0); }
+td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; color: oklch(0.9 0.004 70); }
 .legend { display: flex; flex-wrap: wrap; gap: 22px; font-size: 13.5px; color: var(--text-muted); margin-bottom: 20px; }
 .legend span { display: inline-flex; align-items: center; gap: 7px; }
 .yes { color: var(--pick); }
@@ -544,7 +573,11 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 @media (max-width: 1180px) {
   :root { --pad: 40px; }
   .hero { grid-template-columns: 460px minmax(0, 1fr); }
-  .hero h1, body[lang="en"] .hero h1 { font-size: 52px; }
+  .hero h1 { font-size: 52px; }
+  /* 英語はここで列が 460px（本文 404px）まで縮む。52px のままだと
+     "for your" と "photos." が孤立して 3 行になる（実測 2026-09-02・1024px）。
+     48px で 2 行に収まる */
+  body[lang="en"] .hero h1 { font-size: 48px; }
   .doc { grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
 }
 
@@ -571,7 +604,7 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
     padding: 6px 0; font-size: 15px;
     /* 帯と違ってここは透かさない。0.97 でも下の写真や見出しが薄く透けて、
        札の字と重なって読みづらかった（`.bar` の blur は入れ子だと札には効かない） */
-    background: oklch(0.16 0 0);
+    background: oklch(0.175 0.008 70);
     /* 横向きの電話のように背が低いときは札の中を送る */
     max-height: calc(100vh - 72px); max-height: calc(100dvh - 72px);
     overflow-y: auto; overscroll-behavior: contain;
@@ -622,8 +655,6 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
      **`.doc.legal` の柱は目次ではないので残す**——制作者・所在・連絡先・価格の
      `.facts` はサイト中でここにしか無い */
   .doc:not(.legal) .doc-nav { display: none; }
-  .band img { aspect-ratio: 1152 / 460; }
-  .band p { font-size: 23px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .split.shot-left, .split.shot-right, .split.aside { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .split.shot-right .shot { order: -1; }
@@ -657,6 +688,10 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .section { padding: 56px var(--pad) 52px; }
   .sec-head { gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
   .sec-head h2 { font-size: 24px; }
+  /* h2 が 24px に落ちるので、小見出しも下げて順序を保つ。英語別の値を一度でも
+     定義したら、上書きしている枠すべてに英語の行が要る（§22.5 の教訓） */
+  .sub-head { font-size: 20px; margin: 40px 0 22px; }
+  body[lang="en"] .sub-head { font-size: 21px; }
   .sec-head .rule { display: none; }
   .hero h1, body[lang="en"] .hero h1 { font-size: 38px; }
   .hero-copy { gap: 22px; }
@@ -670,9 +705,6 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
   .metrics .n { font-size: 28px; }
   .cards.c3, .cards.c2, .tiles { grid-template-columns: minmax(0, 1fr); }
   .bleed { margin-bottom: 32px; }
-  .band img { aspect-ratio: 1152 / 620; }
-  .band p { font-size: 20px; }
-  body[lang="en"] .band p { font-size: 22px; }
   /* ここだけは**横に切れる**。4/3 は元画像の 1152/756（1.524）より縦長なので、
      `cover` が幅を余らせて左右 72px ずつ落とす（幅に依らず一定）。残るのは x=72〜1080——
      **✕（x=1106〜1136）は消え、⛶（x=1066〜1096）は半分**、左右の ‹ › も両方出ない。
@@ -698,6 +730,20 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
    収めきることだけを見る。実測では 340px を切るあたりで右端が画面からはみ出したので、
    ボタンと☰を一段小さくして逃がす（320px で 17px ほど残る） */
 @media (max-width: 360px) {
+  /* 320px（iPhone SE の幅）では本文が 280px しかなく、英語の H1 は 38px だと
+     "for your" と "photos." が割れて 3 行になる。34px で 2 行（実測 2026-09-02。上限は 35px） */
+  body[lang="en"] .hero h1 { font-size: 34px; }
+  /* 共感セクションの大きい一文も同じ理由。23px だと "A photograph is / looked at" と
+     **主語が割れて** 4 行になる。21px なら 3 行で、切れ目は
+     "A photograph is looked at / far longer than it took / to make." と語句の境目に落ちる。
+     ここは 2 行に戻すことを狙わない——320px も 360px も、2 行に収めるには 18px まで
+     落とす必要があり、それだと .pile-to（18px）と同じ大きさになって階層が潰れる。
+     **割れる位置が正しければ、行が増えるのは許す**（実測 2026-09-02・320 / 360px） */
+  body[lang="en"] .pile-line { font-size: 21px; }
+  /* 日本語も 320px では余りが 4px しか無い。1 行目が割れると
+     「写真は、撮っている時間よ／り、」と**読点の手前で切れる**——br で切れ目を
+     決めてある面なので、そこだけは自動に任せない。19px で余り 18px（実測 2026-09-02） */
+  .pile-line { font-size: 19px; }
   .bar { gap: 10px; }
   .brand { gap: 10px; }
   .bar .brand .disp { font-size: 16px; }

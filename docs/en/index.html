@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pictkura — Tens of thousands. No waiting. A photo manager written in Rust</title>
-<meta name="description" content="A free photo manager for importing from a camera card and browsing tens of thousands of files. Written in Rust with Tauri v2; handles RAW, HEIC, AVIF and video. Windows and macOS, MIT licensed.">
+<title>pictkura — The first stop for your photos. A free photo manager</title>
+<meta name="description" content="The first stop for your photos: import from a camera card and browse tens of thousands of files. Handles RAW, JPEG, HEIC and video. Free photo manager for Windows and macOS, MIT licensed.">
 <link rel="canonical" href="https://harusame64.github.io/pictkura/en/">
 <link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/">
 <link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/">
@@ -12,10 +12,10 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="pictkura">
 <meta property="og:locale" content="en_US">
-<meta property="og:title" content="pictkura — Tens of thousands. No waiting.">
-<meta property="og:description" content="Importing from a camera card, and browsing what you already have. Those two things only, written in Rust.">
+<meta property="og:title" content="pictkura — The first stop for your photos. A free photo manager">
+<meta property="og:description" content="Import from your camera card and browse large RAW collections right away. Somewhere to put the photos you just took.">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/en/">
-<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.2.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="../assets/icon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
@@ -38,7 +38,7 @@
   "downloadUrl": "https://harusame64.github.io/pictkura/en/download.html",
   "license": "https://github.com/Harusame64/pictkura/blob/main/LICENSE",
   "inLanguage": ["en", "ja"],
-  "description": "A small, fast desktop photo manager: importing from a camera card and browsing tens of thousands of files. Handles RAW, HEIC, AVIF and video, and never downloads cloud-only files on its own.",
+  "description": "The first stop for your photos: importing from a camera card and browsing tens of thousands of files. Handles RAW, JPEG, HEIC and video, and never downloads cloud-only files on its own.",
   "author": { "@type": "Person", "name": "Harusame64" },
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -74,8 +74,10 @@
 <section class="hero">
   <div class="hero-copy">
     <p class="eyebrow" style="margin:0">Windows 10 / 11 and macOS 11+ &nbsp;—&nbsp; v<span data-ver>0.2.6</span></p>
-    <h1 class="disp">Tens of thousands.<br>No waiting.</h1>
-    <p>Importing from a camera card, and browsing what you already have. Not a place to develop photos — <strong class="em">a place to keep them</strong>. Those two things only, written in Rust, with everything we did not build spent on speed instead.</p>
+    <!-- 日本語と同じく改行を固定する。br が無いと、幅によって
+         "The first stop / for your photos." と "The first stop for / your photos." に割れる -->
+    <h1 class="disp">The first stop<br>for your photos.</h1>
+    <p>Import from your camera card and <strong class="em">browse large RAW collections right away</strong>. Not a place to develop photos — <strong class="em">a place to keep them</strong>. Those two things only, written in Rust, with everything we did not build spent on speed instead.</p>
     <div class="hero-cta">
       <!-- 押した時点で実物が落ちる。`assets/download.js` が端末を見て行き先と文言を差し替える。
            判定できないとき・JS が動かないときは、選ぶ頁へ送るだけにしてある -->
@@ -87,7 +89,9 @@
     <!-- 押しどころのすぐ下に「選ぶ頁」への道を置く（2026-08-22）。ここが遠いと、
          MSI や持ち歩き版を探す人が、案内の頁を経由して回り道することになる -->
     <p class="hero-meta" style="margin-top:12px"><a href="download.html">Other downloads →</a></p>
-    <p class="hero-meta">Free, MIT licensed &nbsp;/&nbsp; no account &nbsp;/&nbsp; your photos never leave the machine<span class="mono" data-pick-meta style="display:block;margin-top:10px"></span></p>
+    <!-- Hero 直下の信頼帯。**数字は置かない**。ここに載せられる数字はどれも条件付きで、
+         但し書きの付けられないこの行に置くと過大な主張になる。数字は実測値の帯へ（計画書 §6） -->
+    <p class="hero-meta"><span style="white-space:nowrap">Free &amp; MIT</span> &nbsp;/&nbsp; <span style="white-space:nowrap">no account</span> &nbsp;/&nbsp; <span style="white-space:nowrap">local-first</span><span class="mono" data-pick-meta style="display:block;margin-top:10px"></span></p>
   </div>
   <div class="hero-shot">
     <div class="frame">
@@ -95,6 +99,139 @@
     </div>
     <p class="fig">The library, laid out by date. Drag the bar on the right edge to cross years at once.</p>
   </div>
+</section>
+
+<section class="section" id="import">
+  <div class="sec-head">
+    <span class="num mono">01</span>
+    <h2 class="disp">Starting at the card slot</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="shots-2">
+    <figure>
+      <img src="../images/import.en.jpg" width="1152" height="756" alt="The import wizard: source tree on the left, the photos it found on the right" loading="lazy" decoding="async">
+      <figcaption class="fig">Pick a source on the left and its photos appear on the right.</figcaption>
+    </figure>
+    <figure>
+      <img src="../images/settings.en.jpg" width="1152" height="756" alt="Settings, choosing the folder pattern imported photos are filed into" loading="lazy" decoding="async">
+      <figcaption class="fig">The resulting folder name is shown as you type the pattern.</figcaption>
+    </figure>
+  </div>
+  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
+       `autoplay` は書かない——再生は `assets/demo.js` が受け持つ。動きを減らす設定の
+       ときに一瞬だけ動いてしまうのを避けるため。**この節が動画の1本目**なので、
+       約束事はここに書く。画面は日本語のまま使い回しているので、
+       断りも下の figcaption に添えてある -->
+  <figure class="demo">
+    <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
+    <figcaption class="fig">From picking the card to 90 photos sitting in the library. Anything already imported is left out from the start. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is in English as well.</span></figcaption>
+  </figure>
+  <p class="lead" style="margin-bottom:44px">Copy to any folder you like. Files are filed by capture date using one of nine presets, or a pattern you write yourself, such as <code class="mono">{year}/{month}</code> — the resulting folder name is shown as you type.</p>
+  <div class="cards c3">
+    <div>
+      <h3>Sidecars travel with the photo</h3>
+      <p>An <code class="mono">.xmp</code> or <code class="mono">.dop</code> written by a raw developer shares the photo's name, and comes along with it.</p>
+    </div>
+    <div>
+      <h3>"Already imported" cannot drift</h3>
+      <p>Hiding what you already have uses the same check as the importer, so what you see matches what would happen.</p>
+    </div>
+    <div>
+      <h3>Sizes are verified after each copy</h3>
+      <p>Progress, time remaining and the photo currently being copied are all shown while it runs.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section deep" id="cull">
+  <div class="sec-head">
+    <span class="num mono">02</span>
+    <h2 class="disp">Import them. See them right away</h2>
+    <span class="rule"></span>
+  </div>
+  <figure class="demo">
+    <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
+    <figcaption class="fig">Dragging the year scrubber through six years and 30,000 photos. Wherever it lands, only the few dozen tiles on screen are drawn.</figcaption>
+  </figure>
+  <figure class="bleed">
+    <img src="../images/viewer.en.jpg" width="1152" height="756" alt="The viewer showing a single photo full screen" loading="lazy" decoding="async">
+    <figcaption class="fig">One photo at a time. The controls fade out when the mouse stops.</figcaption>
+  </figure>
+  <h3 class="disp sub-head">Two shelves for choosing</h3>
+  <div class="cards c3">
+    <div>
+      <h4><span class="glyph" style="color:var(--pick)" aria-hidden="true">⚑</span><span class="key mono">P</span>One frame out of a burst</h4>
+      <p>⚑ is a separate shelf from ★ favorites, so the leftovers of a culling session never fill up what you love.</p>
+    </div>
+    <div>
+      <h4><span class="glyph" style="color:var(--danger)" aria-hidden="true">✕</span><span class="key mono">X</span>Rejecting deletes nothing yet</h4>
+      <p>Closing the viewer shows you the faces first, then moves them all at once. <strong class="em">Deleting always goes through the recycle bin.</strong></p>
+    </div>
+    <div>
+      <h4><span class="glyph" style="color:var(--fav)" aria-hidden="true">★</span>For photos you will come back to</h4>
+      <p>The search box takes <code class="mono">★</code>, <code class="mono">camera:α7</code> or <code class="mono">2019-08</code> as they are.</p>
+    </div>
+  </div>
+  <figure class="demo" style="margin-top:44px">
+    <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
+    <figcaption class="fig">Paging with → while marking with ⚑ and ✕ (the key pressed is drawn at the bottom left). ✕ only puts a mark on the photo — nothing moves anywhere yet.</figcaption>
+  </figure>
+</section>
+
+<!-- 「こんな写真、ありませんか」。読ませる面なので番号は振らない。
+     以前ここにあった帯（.band）の一文は、この節の中で使っている -->
+<section class="section photo canopy" id="pile">
+  <!-- 写真は背景ではなく img。背景にすると画面外でも即座に 261KB を取りにいく -->
+  <img class="canopy-img" src="../images/photo/forest-canopy.jpg" alt="" loading="lazy" decoding="async">
+  <div class="canopy-veil"></div>
+  <div class="sec-head" style="margin-bottom:32px">
+    <h2 class="disp">Maybe your photo folder looks like this.</h2>
+  </div>
+  <p class="lead" style="margin-bottom:44px;color:var(--text-soft)">Photos are still on the card.<br>Years of JPEGs and RAW files are already on disk.<br>You do not need to reorganise everything. You just want to see it.</p>
+  <p class="disp pile-line">A photograph is looked at<br>far longer than it took to make.</p>
+  <p class="disp pile-to">Never organised, never deleted — this is for you.</p>
+</section>
+
+<section class="section" id="formats">
+  <div class="sec-head">
+    <span class="num mono">03</span>
+    <h2 class="disp">RAW, without developing it</h2>
+    <span class="rule"></span>
+  </div>
+  <figure class="bleed photo">
+    <img src="../images/photo/forest-rays.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
+  </figure>
+  <p class="lead" style="margin-bottom:48px">You do not look at RAW every day. You keep it for the day one frame has to be saved. <strong class="em">pictkura does not develop it</strong> — it pulls out the display JPEG the camera wrote for its own screen. No demosaicing to pay for, and the color is <strong class="em">exactly what the camera rendered</strong>. Checked against 28 real files from 16 makers.</p>
+  <div class="tiles">
+    <div class="tile">
+      <p class="eyebrow">Photos</p>
+      <p class="exts">jpg &nbsp;png &nbsp;webp &nbsp;avif<br>heic &nbsp;heif &nbsp;hif &nbsp;tif<br>bmp &nbsp;gif &nbsp;svg</p>
+      <p class="foot-note">The AVIF decoder is bundled. HEIC pixels are decoded by the OS</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">RAW</p>
+      <p class="exts">cr2 &nbsp;cr3 &nbsp;nef &nbsp;arw<br>raf &nbsp;orf &nbsp;rw2 &nbsp;dng<br>pef &nbsp;srw &nbsp;3fr &nbsp;x3f …</p>
+      <p class="foot-note">23 extensions confirmed to give up their preview. Apple ProRAW included</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">Video</p>
+      <p class="exts">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm<br>avi &nbsp;mts &nbsp;m2ts &nbsp;mkv<br>3gp &nbsp;wmv &nbsp;mpg &nbsp;mpeg</p>
+      <p class="foot-note">Duration and dimensions come from the mp4, m4v, mov and 3gp header — not one pixel is decoded</p>
+    </div>
+  </div>
+  <a class="more" href="spec.html#formats">The full support table (specification) →</a>
+</section>
+
+<section class="section" style="padding-bottom:24px" id="speed">
+  <div class="sec-head">
+    <span class="num mono">04</span>
+    <h2 class="disp" id="speed-head">Tens of thousands. No waiting.</h2>
+    <span class="rule"></span>
+  </div>
+  <p class="lead" style="margin-bottom:0">Once they are in, you want to look at them. That is why pictkura does not do anything extra.</p>
 </section>
 
 <section class="metrics" aria-label="Measured numbers">
@@ -117,28 +254,9 @@
   <p class="metrics-note">The machine these were measured on, and the numbers that did not fit here (HEIC takes 0.6&ndash;1 second per file), are collected under <a href="spec.html#bench">Measured numbers</a> in the specification.</p>
 </section>
 
-<figure class="band">
-  <img src="../images/photo/forest-canopy.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
-  <div class="band-text">
-    <p class="disp">A photograph is looked at<br>far longer than it took to make.</p>
-  </div>
-  <span class="by">Photo: Wikimedia Commons, CC0</span>
-</figure>
-
-<section class="section" id="speed">
-  <div class="sec-head">
-    <span class="num mono">01</span>
-    <h2 class="disp">It is fast because of what is missing</h2>
-    <span class="rule"></span>
-  </div>
-  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
-       `autoplay` は書かない——再生は `assets/demo.js` が受け持つ。
-       画面は日本語のまま使い回しているので、最初の1本にその断りを添える -->
-  <figure class="demo">
-    <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
-           muted loop playsinline preload="metadata" controls data-autoplay></video>
-    <figcaption class="fig">Dragging the year scrubber through six years and 30,000 photos. Wherever it lands, only the few dozen tiles on screen are drawn. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is in English as well.</span></figcaption>
-  </figure>
+<!-- 技術カードは実測値をはさんで #speed の続き。見出しを持たない節なので、
+     読み上げの見出し構造から外れないよう #speed の h2 を名前として借りる -->
+<section class="section" style="padding-top:56px" aria-labelledby="speed-head">
   <div class="cards c3">
     <div>
       <p class="tag">Rust + Tauri v2</p>
@@ -173,106 +291,6 @@
   </div>
 </section>
 
-<section class="section" style="padding-top:0" id="import">
-  <div class="sec-head">
-    <span class="num mono">02</span>
-    <h2 class="disp">Starting at the card slot</h2>
-    <span class="rule"></span>
-  </div>
-  <div class="shots-2">
-    <figure>
-      <img src="../images/import.en.jpg" width="1152" height="756" alt="The import wizard: source tree on the left, the photos it found on the right" loading="lazy" decoding="async">
-      <figcaption class="fig">Pick a source on the left and its photos appear on the right.</figcaption>
-    </figure>
-    <figure>
-      <img src="../images/settings.en.jpg" width="1152" height="756" alt="Settings, choosing the folder pattern imported photos are filed into" loading="lazy" decoding="async">
-      <figcaption class="fig">The resulting folder name is shown as you type the pattern.</figcaption>
-    </figure>
-  </div>
-  <figure class="demo">
-    <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
-           muted loop playsinline preload="metadata" controls data-autoplay></video>
-    <figcaption class="fig">From picking the card to 90 photos sitting in the library. Anything already imported is left out from the start.</figcaption>
-  </figure>
-  <p class="lead" style="margin-bottom:44px">Copy to any folder you like. Files are filed by capture date using one of nine presets, or a pattern you write yourself, such as <code class="mono">{year}/{month}</code> — the resulting folder name is shown as you type.</p>
-  <div class="cards c3">
-    <div>
-      <h3>Sidecars travel with the photo</h3>
-      <p>An <code class="mono">.xmp</code> or <code class="mono">.dop</code> written by a raw developer shares the photo's name, and comes along with it.</p>
-    </div>
-    <div>
-      <h3>"Already imported" cannot drift</h3>
-      <p>Hiding what you already have uses the same check as the importer, so what you see matches what would happen.</p>
-    </div>
-    <div>
-      <h3>Sizes are verified after each copy</h3>
-      <p>Progress, time remaining and the photo currently being copied are all shown while it runs.</p>
-    </div>
-  </div>
-</section>
-
-<section class="section deep" id="cull">
-  <div class="sec-head">
-    <span class="num mono">03</span>
-    <h2 class="disp">Two shelves for choosing</h2>
-    <span class="rule"></span>
-  </div>
-  <figure class="bleed">
-    <img src="../images/viewer.en.jpg" width="1152" height="756" alt="The viewer showing a single photo full screen" loading="lazy" decoding="async">
-    <figcaption class="fig">One photo at a time. The controls fade out when the mouse stops.</figcaption>
-  </figure>
-  <div class="cards c3">
-    <div>
-      <h3><span class="glyph" style="color:var(--pick)" aria-hidden="true">⚑</span><span class="key mono">P</span>One frame out of a burst</h3>
-      <p>⚑ is a separate shelf from ★ favorites, so the leftovers of a culling session never fill up what you love.</p>
-    </div>
-    <div>
-      <h3><span class="glyph" style="color:var(--danger)" aria-hidden="true">✕</span><span class="key mono">X</span>Rejecting deletes nothing yet</h3>
-      <p>Closing the viewer shows you the faces first, then moves them all at once. <strong class="em">Deleting always goes through the recycle bin.</strong></p>
-    </div>
-    <div>
-      <h3><span class="glyph" style="color:var(--fav)" aria-hidden="true">★</span>For photos you will come back to</h3>
-      <p>The search box takes <code class="mono">★</code>, <code class="mono">camera:α7</code> or <code class="mono">2019-08</code> as they are.</p>
-    </div>
-  </div>
-  <figure class="demo" style="margin-top:44px">
-    <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
-           muted loop playsinline preload="metadata" controls data-autoplay></video>
-    <figcaption class="fig">Paging with → while marking with ⚑ and ✕ (the key pressed is drawn at the bottom left). ✕ only puts a mark on the photo — nothing moves anywhere yet.</figcaption>
-  </figure>
-</section>
-
-<section class="section" id="formats">
-  <div class="sec-head">
-    <span class="num mono">04</span>
-    <h2 class="disp">RAW, without developing it</h2>
-    <span class="rule"></span>
-  </div>
-  <figure class="bleed photo">
-    <img src="../images/photo/forest-rays.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
-    <span class="by">Photo: Wikimedia Commons, CC0</span>
-  </figure>
-  <p class="lead" style="margin-bottom:48px">You do not look at RAW every day. You keep it for the day one frame has to be saved. <strong class="em">pictkura does not develop it</strong> — it pulls out the display JPEG the camera wrote for its own screen. No demosaicing to pay for, and the color is <strong class="em">exactly what the camera rendered</strong>. Checked against 28 real files from 16 makers.</p>
-  <div class="tiles">
-    <div class="tile">
-      <p class="eyebrow">Photos</p>
-      <p class="exts">jpg &nbsp;png &nbsp;webp &nbsp;avif<br>heic &nbsp;heif &nbsp;hif &nbsp;tif<br>bmp &nbsp;gif &nbsp;svg</p>
-      <p class="foot-note">The AVIF decoder is bundled. HEIC pixels are decoded by the OS</p>
-    </div>
-    <div class="tile">
-      <p class="eyebrow">RAW</p>
-      <p class="exts">cr2 &nbsp;cr3 &nbsp;nef &nbsp;arw<br>raf &nbsp;orf &nbsp;rw2 &nbsp;dng<br>pef &nbsp;srw &nbsp;3fr &nbsp;x3f …</p>
-      <p class="foot-note">23 extensions confirmed to give up their preview. Apple ProRAW included</p>
-    </div>
-    <div class="tile">
-      <p class="eyebrow">Video</p>
-      <p class="exts">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm<br>avi &nbsp;mts &nbsp;m2ts &nbsp;mkv<br>3gp &nbsp;wmv &nbsp;mpg &nbsp;mpeg</p>
-      <p class="foot-note">Duration and dimensions come from the mp4, m4v, mov and 3gp header — not one pixel is decoded</p>
-    </div>
-  </div>
-  <a class="more" href="spec.html#formats">The full support table (specification) →</a>
-</section>
-
 <section class="section deep photo aerial" id="privacy">
   <div class="split aside">
     <div>
@@ -301,13 +319,12 @@
       </div>
     </div>
   </div>
-  <span class="by">Photo: Wikimedia Commons, CC0</span>
 </section>
 
 <section class="section" id="limits">
   <div class="sec-head">
     <span class="num mono off">06</span>
-    <h2 class="disp" style="color:oklch(0.8 0 0)">What it cannot do, up front</h2>
+    <h2 class="disp" style="color:oklch(0.8 0.005 70)">What it cannot do, up front</h2>
     <span class="rule"></span>
   </div>
   <p class="lead" style="margin-bottom:40px">This is not trying to be an all-in-one photo application. It is somewhere to keep photos and look back at them, <strong class="em">not a darkroom to finish them in</strong>.</p>
@@ -362,7 +379,6 @@
   <div class="note warn" style="margin-top:28px">
     <p><strong class="em">The builds are not code-signed, so Windows and macOS both warn you the first time.</strong> The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>, and the material you can check for yourself is under <a href="download.html#build">how these files are built</a>.</p>
   </div>
-  <span class="by">Photo: Wikimedia Commons, CC0</span>
 </section>
 
 </main>
@@ -403,7 +419,7 @@
     </div>
   </div>
   <div class="foot-end">
-    <span>© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+    <span>© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; Photos: Wikimedia Commons, CC0</span>
     <span><a href="../ja/" hreflang="ja">日本語</a> &nbsp;/&nbsp; English</span>
   </div>
 </footer>
