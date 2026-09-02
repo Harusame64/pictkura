@@ -57,7 +57,7 @@
   <p class="lead">Installation steps for Windows and macOS, and what to do about the warnings shown on the first launch.</p>
   <p class="stamps">
     <span>Version &nbsp;<b>0.2</b></span>
-    <span>Updated &nbsp;<b>2026-09-02</b></span>
+    <span>Updated &nbsp;<b>2026-09-03</b></span>
   </p>
 </div>
 
@@ -70,7 +70,7 @@
     <a href="#warn-msi" class="sub">2.2 The MSI prompts</a>
     <a href="#warn-zip" class="sub">2.3 The portable ZIP</a>
     <a href="#sac" class="sub">2.4 Smart App Control</a>
-    <a href="#defender" class="sub">2.5 A Defender quarantine</a>
+    <a href="#defender" class="sub">2.5 The Defender quarantine (resolved)</a>
     <a href="#macos">3. Starting it on macOS</a>
     <a href="#first">4. First steps after installing</a>
     <a href="#uninstall">5. Uninstalling</a>
@@ -147,11 +147,17 @@
         <p>Authenticode signing would reliably replace "Publisher: Unknown" with the publisher name, and makes SmartScreen fire less often — but it does <strong class="em">not</strong> categorically remove it: a newly signed binary that has not built up reputation can still be flagged. The certificate is paid, so it is deferred.</p>
       </div>
 
-      <!-- 誤検知が解決したら、この節・目次の行・README 日英の同じ段落を、
+      <!-- 解決済み。次の版を切るときに、この節・目次の行・README 日英の同じ段落を
            まとめて消すこと -->
-      <h3 id="defender">2.5 &nbsp;Defender may quarantine the app (2026-09-02)</h3>
-      <p>On one machine, Defender took <code class="mono">pictkura.exe</code> from 0.2.6 as <code class="mono">Trojan:Win32/Bearfoos.A!ml</code>. The <code class="mono">!ml</code> suffix marks it as a <strong class="em">machine-learning guess</strong>, not a match against a known threat. It fires readily on unsigned executables: the same detection name has been reported against <a href="https://github.com/openai/codex/issues/3207">OpenAI's codex</a> and against <a href="https://github.com/microsoft/apm/issues/487">Microsoft's own apm</a>.</p>
-      <p>It was <strong class="em">reported to Microsoft as a false positive</strong> the same day. The SHA-256 of every file here is published with the release and matches. <strong class="em">This section goes away once it is resolved.</strong></p>
+      <h3 id="defender">2.5 &nbsp;The Defender quarantine, resolved (2026-09-03)</h3>
+      <p>On one machine, Defender took <code class="mono">pictkura.exe</code> from 0.2.6 as <code class="mono">Trojan:Win32/Bearfoos.A!ml</code>. The <code class="mono">!ml</code> suffix marks it as a <strong class="em">machine-learning guess</strong>, not a match against a known threat, and it fires readily on unsigned executables. It was reported to Microsoft as a false positive on <strong class="em">2026-09-02</strong>, and on <strong class="em">2026-09-03 Microsoft removed the detection</strong>: the file does not meet their criteria for malware.</p>
+      <p>A machine whose definitions are still old <strong class="em">can go on quarantining it</strong>. Microsoft's own advice is to drop the cached detections and fetch the current definitions, from a command prompt <strong class="em">run as administrator</strong>:</p>
+      <pre class="cmd" tabindex="0" role="region" aria-label="Commands to clear cached detections and update definitions">cd "c:\Program Files\Windows Defender"
+MpCmdRun.exe -removedefinitions -dynamicsignatures
+MpCmdRun.exe -SignatureUpdate</pre>
+      <p style="margin-top:14px">Those lines are for the <strong class="em">Command Prompt</strong> (<code class="mono">cmd.exe</code>). PowerShell does not look in the current directory, so there you have to write <code class="mono">.\MpCmdRun.exe</code>.</p>
+      <p style="margin-top:14px">Updating the definitions stops the detection, but it does <strong class="em">not bring back a file that was already taken</strong>. <strong class="em">Installing pictkura again puts it back</strong> — that is the quickest way out. The quarantined copy is also still listed under <b>Protection history</b> in Windows Security.</p>
+      <p style="margin-top:14px">The whole account, including how to check what you downloaded, is in <a href="https://github.com/Harusame64/pictkura/issues/105">issue #105</a>.</p>
     </section>
 
     <section id="macos">

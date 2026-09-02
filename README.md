@@ -110,17 +110,31 @@ we don't suggest it just to run this app.
 > itself still appears on every install either way.) The certificate is paid, so it is **deferred for
 > v0.1**. The macOS build is likewise unsigned (below).
 
-<!-- 誤検知が解決したら、この段落・README.ja.md の同じ段落・
+<!-- 解決済み。次の版を切るときに、この段落・README.ja.md の同じ段落・
      docs/{ja,en}/install.html の 2.5 節と目次の行を、まとめて消すこと -->
-**Defender may quarantine the app (2026-09-02)**
+**The Defender quarantine, resolved (2026-09-03)**
 
 On one machine, Defender took `pictkura.exe` from 0.2.6 as `Trojan:Win32/Bearfoos.A!ml`.
 The `!ml` suffix marks it as a **machine-learning guess**, not a match against a known
-threat. It fires readily on unsigned executables: the same detection name has been
-reported against [OpenAI's codex](https://github.com/openai/codex/issues/3207) and against [Microsoft's own apm](https://github.com/microsoft/apm/issues/487).
-It was **reported to Microsoft as a false positive** the same day. The SHA-256 of every
-file is published with the [release](https://github.com/Harusame64/pictkura/releases)
-and matches. **This paragraph goes away once it is resolved.**
+threat, and it fires readily on unsigned executables. It was reported to Microsoft as a
+false positive on **2026-09-02**, and on **2026-09-03 Microsoft removed the detection** —
+the file does not meet their criteria for malware. A machine whose definitions are still old
+can go on quarantining it; from a command prompt **run as administrator**:
+
+```
+cd "c:\Program Files\Windows Defender"
+MpCmdRun.exe -removedefinitions -dynamicsignatures
+MpCmdRun.exe -SignatureUpdate
+```
+
+Those lines are for the **Command Prompt** (`cmd.exe`); PowerShell does not look in the
+current directory, so there you have to write `.\MpCmdRun.exe`.
+
+Updating the definitions stops the detection, but it does **not bring back a file that was
+already taken**. **Installing pictkura again puts it back** — that is the quickest way out.
+The quarantined copy is also still listed under **Protection history** in Windows Security.
+
+The whole account is in [issue #105](https://github.com/Harusame64/pictkura/issues/105).
 
 ### macOS: the first launch needs a few extra steps
 
