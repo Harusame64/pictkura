@@ -147,8 +147,8 @@
         <p>Authenticode signing would reliably replace "Publisher: Unknown" with the publisher name, and makes SmartScreen fire less often — but it does <strong class="em">not</strong> categorically remove it: a newly signed binary that has not built up reputation can still be flagged. The certificate is paid, so it is deferred.</p>
       </div>
 
-      <!-- 誤検知が解決したら、この節・目次の行・READMEの同じ段落を**まとめて**消す。
-           経緯は dev/defender-fp-20260902.md -->
+      <!-- 誤検知が解決したら、この節・目次の行・README 日英の同じ段落を、
+           まとめて消すこと -->
       <h3 id="defender">2.5 &nbsp;Defender may quarantine the app (2026-09-02)</h3>
       <p>On one machine, Defender took <code class="mono">pictkura.exe</code> from 0.2.6 as <code class="mono">Trojan:Win32/Bearfoos.A!ml</code>. The <code class="mono">!ml</code> suffix marks it as a <strong class="em">machine-learning guess</strong>, not a match against a known threat. It fires readily on unsigned executables: the same detection name has been reported against <a href="https://github.com/openai/codex/issues/3207">OpenAI's codex</a> and against <a href="https://github.com/microsoft/apm/issues/487">Microsoft's own apm</a>.</p>
       <p>It was <strong class="em">reported to Microsoft as a false positive</strong> the same day. The SHA-256 of every file here is published with the release and matches. <strong class="em">This section goes away once it is resolved.</strong></p>

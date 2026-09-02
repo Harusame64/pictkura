@@ -110,8 +110,8 @@ we don't suggest it just to run this app.
 > itself still appears on every install either way.) The certificate is paid, so it is **deferred for
 > v0.1**. The macOS build is likewise unsigned (below).
 
-<!-- 誤検知が解決したら、この段落・README.ja.md の同じ段落・docs/{ja,en}/install.html の
-     2.5 節と目次の行を**まとめて**消す。経緯は dev/defender-fp-20260902.md -->
+<!-- 誤検知が解決したら、この段落・README.ja.md の同じ段落・
+     docs/{ja,en}/install.html の 2.5 節と目次の行を、まとめて消すこと -->
 **Defender may quarantine the app (2026-09-02)**
 
 On one machine, Defender took `pictkura.exe` from 0.2.6 as `Trojan:Win32/Bearfoos.A!ml`.
