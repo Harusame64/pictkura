@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pictkura — 数万枚を、待たずに。Rust で書いた画像管理アプリ</title>
-<meta name="description" content="USB / SDカードからの取り込みと、数万枚の写真の一覧表示に絞った無料の画像管理アプリ。Rust と Tauri v2 で書かれ、RAW・HEIC・AVIF・動画に対応。Windows / macOS、MIT ライセンス。">
+<title>pictkura — 撮った写真の、最初の行き先。無料の写真管理アプリ</title>
+<meta name="description" content="撮った写真の、最初の行き先。SDカードから取り込んで、数万枚の写真を並べて見る無料の写真ブラウザ。RAW・JPEG・HEIC・動画に対応。Windows / macOS、MIT ライセンス。">
 <link rel="canonical" href="https://harusame64.github.io/pictkura/ja/">
 <link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/">
 <link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/">
@@ -12,10 +12,10 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="pictkura">
 <meta property="og:locale" content="ja_JP">
-<meta property="og:title" content="pictkura — 数万枚を、待たずに。">
-<meta property="og:description" content="カードからの取り込みと、大量の写真の一覧表示。その二つだけに機能を絞り、Rust で書いた画像管理アプリです。">
+<meta property="og:title" content="pictkura — 撮った写真の、最初の行き先。無料の写真管理アプリ">
+<meta property="og:description" content="カードから取り込んで、大量の RAW もすぐ見渡せる。撮った写真を、まず置いておくための道具です。">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/ja/">
-<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.jpg">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.2.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="../assets/icon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
@@ -39,7 +39,7 @@
   "downloadUrl": "https://harusame64.github.io/pictkura/ja/download.html",
   "license": "https://github.com/Harusame64/pictkura/blob/main/LICENSE",
   "inLanguage": ["ja", "en"],
-  "description": "USB / SDカードからの取り込みと、数万枚の写真の一覧表示に絞った画像管理アプリ。RAW・HEIC・AVIF・動画に対応し、クラウドに置いたままのファイルを先回りしてダウンロードすることはありません。",
+  "description": "撮った写真の、最初の行き先。SDカードから取り込んで、数万枚の写真を並べて見る写真ブラウザ。RAW・JPEG・HEIC・動画に対応し、クラウドに置いたままのファイルを先回りしてダウンロードすることはありません。",
   "author": { "@type": "Person", "name": "Harusame64" },
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" }
 }
@@ -75,8 +75,10 @@
 <section class="hero">
   <div class="hero-copy">
     <p class="eyebrow" style="margin:0">Windows 10 / 11 と macOS 11 以降　—　v<span data-ver>0.2.6</span></p>
-    <h1 class="disp">数万枚を、<br>待たずに。</h1>
-    <p>やることは、カードから取り込むことと、ためこんだ写真を並べて見ること。写真を現像する場所ではなく、<strong class="em">貯めておくための道具</strong>です。<strong class="em">この二つだけ</strong>に絞って Rust で書き、作らなかった分は、そのまま速さに回っています。</p>
+    <!-- 読点で改行を固定する。br を外すと 393 / 768 / 1280px のどこでも「最初」が
+         2 行にまたいで割れる（実測・2026-09-02） -->
+    <h1 class="disp">撮った写真の、<br>最初の行き先。</h1>
+    <p>カードから取り込んで、<strong class="em">大量の RAW もすぐ見渡せる</strong>。写真を現像する場所ではなく、<strong class="em">貯めておくための道具</strong>です。<strong class="em">この二つだけ</strong>に絞って Rust で書き、作らなかった分は、そのまま速さに回っています。</p>
     <div class="hero-cta">
       <!-- 押した時点で実物が落ちる。`assets/download.js` が端末を見て行き先と文言を差し替える。
            判定できないとき・JS が動かないときは、選ぶ頁へ送るだけにしてある -->
@@ -88,7 +90,10 @@
     <!-- 押しどころのすぐ下に「選ぶ頁」への道を置く（2026-08-22）。ここが遠いと、
          MSI や持ち歩き版を探す人が、案内のページを経由して回り道することになる -->
     <p class="hero-meta" style="margin-top:12px"><a href="download.html">その他のダウンロード →</a></p>
-    <p class="hero-meta">無料・MIT ライセンス　／　登録も、送信もありません<span class="mono" data-pick-meta style="display:block;margin-top:10px"></span></p>
+    <!-- Hero 直下の信頼帯。**数字は置かない**。ここに載せられる数字はどれも
+         条件付き（17ms は横位置・かつ「原寸を用意するまで」で描画は別、HEIC は 0.6〜1 秒）で、
+         但し書きの付けられないこの行に置くと過大な主張になる。数字は実測値の帯へ（計画書 §6） -->
+    <p class="hero-meta"><span style="white-space:nowrap">無料・MIT</span>　／　<span style="white-space:nowrap">登録不要</span>　／　<span style="white-space:nowrap">ローカル完結</span><span class="mono" data-pick-meta style="display:block;margin-top:10px"></span></p>
   </div>
   <div class="hero-shot">
     <div class="frame">
@@ -96,6 +101,140 @@
     </div>
     <p class="fig">日付ごとに並んだ一覧。右端の縦棒をつまむと、年をまたいで一気に飛べます。</p>
   </div>
+</section>
+
+<section class="section" id="import">
+  <div class="sec-head">
+    <span class="num mono">01</span>
+    <h2 class="disp">カードを挿すところから</h2>
+    <span class="rule"></span>
+  </div>
+  <div class="shots-2">
+    <figure>
+      <img src="../images/import.jpg" width="1152" height="756" alt="取り込みウィザード。左に取り込み元のツリー、右に写真の一覧" loading="lazy" decoding="async">
+      <figcaption class="fig">取り込み元を選ぶと、中の写真が並びます。</figcaption>
+    </figure>
+    <figure>
+      <img src="../images/settings.jpg" width="1152" height="756" alt="設定画面。取り込み先のフォルダ構成を選んでいるところ" loading="lazy" decoding="async">
+      <figcaption class="fig">フォルダの構成は、書いたそばから結果が見えます。</figcaption>
+    </figure>
+  </div>
+  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
+       `autoplay` は書かない——再生は `assets/demo.js` が受け持つ。動きを減らす設定の
+       ときに一瞬だけ動いてしまうのを避けるため。**この節が動画の1本目**なので、
+       約束事はここに書く -->
+  <figure class="demo">
+    <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
+    <figcaption class="fig">カードを選んでから、90 枚が一覧に並ぶまで。取り込み済みのものは、はじめから外れています。</figcaption>
+  </figure>
+  <p class="lead" style="margin-bottom:44px">取り込み先は好きなフォルダ。撮影日ごとの構成は 9 つの雛形から選ぶか、<code class="mono">{year}/{month}</code> のように自分で書けます。書いたそばから、できあがるフォルダ名が出ます。</p>
+  <div class="cards c3">
+    <div>
+      <h3>隣にあるファイルも一緒に運ぶ</h3>
+      <p>現像ソフトが書いた <code class="mono">.xmp</code> や <code class="mono">.dop</code> は、写真と同じ名前のまま付いていきます。</p>
+    </div>
+    <div>
+      <h3>「済」の判定がずれない</h3>
+      <p>取り込み済みを隠す判定は、取り込み本体と同じ経路を通ります。見えているものと実際が食い違いません。</p>
+    </div>
+    <div>
+      <h3>コピーのあとに、大きさを比べる</h3>
+      <p>1 枚ごとに検証します。進捗・残り時間・いま入れている写真が出ます。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section deep" id="cull">
+  <div class="sec-head">
+    <span class="num mono">02</span>
+    <h2 class="disp">取り込んだら、すぐ見る</h2>
+    <span class="rule"></span>
+  </div>
+  <figure class="demo">
+    <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
+    <figcaption class="fig">右端の縦棒をつまんで、6 年分 3 万枚の中を行き来しているところ。どこへ飛んでも、描いているのは画面に載っている数十枚だけです。</figcaption>
+  </figure>
+  <figure class="bleed">
+    <img src="../images/viewer.jpg" width="1152" height="756" alt="ビューアで写真を1枚だけ大きく表示しているところ" loading="lazy" decoding="async">
+    <figcaption class="fig">1 枚だけを大きく。操作の枠は、マウスが止まると消えます。</figcaption>
+  </figure>
+  <h3 class="disp sub-head">選ぶための、二つの棚</h3>
+  <div class="cards c3">
+    <div>
+      <h4><span class="glyph" style="color:var(--pick)" aria-hidden="true">⚑</span><span class="key mono">P</span>連写から 1 枚だけ抜く</h4>
+      <p>⚑ は ★ お気に入りとは別の棚です。選別の残りでお気に入りが埋まりません。</p>
+    </div>
+    <div>
+      <h4><span class="glyph" style="color:var(--danger)" aria-hidden="true">✕</span><span class="key mono">X</span>ボツは、その場では消えない</h4>
+      <p>閉じるときに対象を確認してから、まとめてごみ箱へ。<strong class="em">削除は必ずごみ箱を通ります。</strong></p>
+    </div>
+    <div>
+      <h4><span class="glyph" style="color:var(--fav)" aria-hidden="true">★</span>戻ってきたい写真に</h4>
+      <p>検索窓には <code class="mono">★</code> や <code class="mono">camera:α7</code>、<code class="mono">2019-08</code> をそのまま書けます。</p>
+    </div>
+  </div>
+  <figure class="demo" style="margin-top:44px">
+    <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
+           muted loop playsinline preload="metadata" controls data-autoplay></video>
+    <figcaption class="fig">→ で送りながら、⚑ と ✕ を付けているところ（押したキーを左下に出しています）。✕ は印が付くだけで、写真はまだどこへも動きません。</figcaption>
+  </figure>
+</section>
+
+<!-- 「こんな写真、ありませんか」。ここは読ませる面なので、番号を振らない。
+     以前ここにあった帯（.band）の一文は、この節の中で使っている -->
+<section class="section photo canopy" id="pile">
+  <!-- 写真は背景ではなく img。背景にすると画面外でも即座に 261KB を取りにいく -->
+  <img class="canopy-img" src="../images/photo/forest-canopy.jpg" alt="" loading="lazy" decoding="async">
+  <div class="canopy-veil"></div>
+  <div class="sec-head">
+    <h2 class="disp">こんな写真、ありませんか。</h2>
+  </div>
+  <p class="lead" style="margin-bottom:44px">カードには前回の写真。<br>フォルダには何年分もの JPEG と RAW。<br>完璧に整理したいわけじゃない。普通に見られればいい。</p>
+  <!-- 3 行とも意味の切れ目で固定してある。br を減らすと 393px で「長い。」だけが
+       行に取り残される（実測・2026-09-02） -->
+  <p class="disp pile-line">写真は、撮っている時間より、<br>撮ったあとに眺めている<br>時間のほうが長い。</p>
+  <p class="disp pile-to">整理はしていない。でも、ぜんぶ残してある——そういう人へ。</p>
+</section>
+
+<section class="section" id="formats">
+  <div class="sec-head">
+    <span class="num mono">03</span>
+    <h2 class="disp">RAW は、現像しません</h2>
+    <span class="rule"></span>
+  </div>
+  <figure class="bleed photo">
+    <img src="../images/photo/forest-rays.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
+  </figure>
+  <p class="lead" style="margin-bottom:48px">普段はそのまま見る。でも、大切な 1 枚を救いたくなった日のために、RAW は残しておく。<strong class="em">pictkura は RAW を現像しません。</strong>カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さない分速く、色は<strong class="em">カメラが出したまま</strong>。16 メーカー 28 個の実ファイルで確かめました。</p>
+  <div class="tiles">
+    <div class="tile">
+      <p class="eyebrow">写真</p>
+      <p class="exts">jpg &nbsp;png &nbsp;webp &nbsp;avif<br>heic &nbsp;heif &nbsp;hif &nbsp;tif<br>bmp &nbsp;gif &nbsp;svg</p>
+      <p class="foot-note">AVIF のデコーダは同梱しています。HEIC の画素は OS の部品に任せます</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">RAW</p>
+      <p class="exts">cr2 &nbsp;cr3 &nbsp;nef &nbsp;arw<br>raf &nbsp;orf &nbsp;rw2 &nbsp;dng<br>pef &nbsp;srw &nbsp;3fr &nbsp;x3f …</p>
+      <p class="foot-note">表示用 JPEG を取り出せると確かめた拡張子は 23。Apple ProRAW（DNG）も含みます</p>
+    </div>
+    <div class="tile">
+      <p class="eyebrow">動画</p>
+      <p class="exts">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm<br>avi &nbsp;mts &nbsp;m2ts &nbsp;mkv<br>3gp &nbsp;wmv &nbsp;mpg &nbsp;mpeg</p>
+      <p class="foot-note">長さと大きさは mp4・m4v・mov・3gp のヘッダから読みます。中身は 1 画素も展開しません</p>
+    </div>
+  </div>
+  <a class="more" href="spec.html#formats">対応表をすべて見る（アプリ仕様） →</a>
+</section>
+
+<section class="section" style="padding-bottom:24px" id="speed">
+  <div class="sec-head">
+    <span class="num mono">04</span>
+    <h2 class="disp" id="speed-head">数万枚を、待たずに。</h2>
+    <span class="rule"></span>
+  </div>
+  <p class="lead" style="margin-bottom:0">貯めたものは、見たいときに出てこないと意味がありません。そのために、pictkura は余計なことをしません。</p>
 </section>
 
 <section class="metrics" aria-label="実測値">
@@ -118,28 +257,9 @@
   <p class="metrics-note">測った機械と、ここに載せきれなかった数字（HEIC は 1 枚 0.6〜1 秒かかります）は、<a href="spec.html#bench">アプリ仕様の「実測値」</a>にまとめてあります。</p>
 </section>
 
-<figure class="band">
-  <img src="../images/photo/forest-canopy.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
-  <div class="band-text">
-    <p class="disp">写真は、撮っている時間より、<br>撮ったあとに眺めている時間のほうが長い。</p>
-  </div>
-  <span class="by">Photo: Wikimedia Commons, CC0</span>
-</figure>
-
-<section class="section" id="speed">
-  <div class="sec-head">
-    <span class="num mono">01</span>
-    <h2 class="disp">速いのは、削ったからです</h2>
-    <span class="rule"></span>
-  </div>
-  <!-- 実際に操作しているところ。写真が全面で入れ替わるので GIF ではなく mp4 で置く。
-       `autoplay` は書かない——再生は `assets/demo.js` が受け持つ。動きを減らす設定の
-       ときに一瞬だけ動いてしまうのを避けるため -->
-  <figure class="demo">
-    <video src="../images/b-years.mp4" poster="../images/b-years.jpg" width="960" height="630"
-           muted loop playsinline preload="metadata" controls data-autoplay></video>
-    <figcaption class="fig">右端の縦棒をつまんで、6 年分 3 万枚の中を行き来しているところ。どこへ飛んでも、描いているのは画面に載っている数十枚だけです。</figcaption>
-  </figure>
+<!-- 技術カードは実測値をはさんで #speed の続き。見出しを持たない節なので、
+     読み上げの見出し構造から外れないよう #speed の h2 を名前として借りる -->
+<section class="section" style="padding-top:56px" aria-labelledby="speed-head">
   <div class="cards c3">
     <div>
       <p class="tag">Rust + Tauri v2</p>
@@ -174,106 +294,6 @@
   </div>
 </section>
 
-<section class="section" style="padding-top:0" id="import">
-  <div class="sec-head">
-    <span class="num mono">02</span>
-    <h2 class="disp">カードを挿すところから</h2>
-    <span class="rule"></span>
-  </div>
-  <div class="shots-2">
-    <figure>
-      <img src="../images/import.jpg" width="1152" height="756" alt="取り込みウィザード。左に取り込み元のツリー、右に写真の一覧" loading="lazy" decoding="async">
-      <figcaption class="fig">取り込み元を選ぶと、中の写真が並びます。</figcaption>
-    </figure>
-    <figure>
-      <img src="../images/settings.jpg" width="1152" height="756" alt="設定画面。取り込み先のフォルダ構成を選んでいるところ" loading="lazy" decoding="async">
-      <figcaption class="fig">フォルダの構成は、書いたそばから結果が見えます。</figcaption>
-    </figure>
-  </div>
-  <figure class="demo">
-    <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
-           muted loop playsinline preload="metadata" controls data-autoplay></video>
-    <figcaption class="fig">カードを選んでから、90 枚が一覧に並ぶまで。取り込み済みのものは、はじめから外れています。</figcaption>
-  </figure>
-  <p class="lead" style="margin-bottom:44px">取り込み先は好きなフォルダ。撮影日ごとの構成は 9 つの雛形から選ぶか、<code class="mono">{year}/{month}</code> のように自分で書けます。書いたそばから、できあがるフォルダ名が出ます。</p>
-  <div class="cards c3">
-    <div>
-      <h3>隣にあるファイルも一緒に運ぶ</h3>
-      <p>現像ソフトが書いた <code class="mono">.xmp</code> や <code class="mono">.dop</code> は、写真と同じ名前のまま付いていきます。</p>
-    </div>
-    <div>
-      <h3>「済」の判定がずれない</h3>
-      <p>取り込み済みを隠す判定は、取り込み本体と同じ経路を通ります。見えているものと実際が食い違いません。</p>
-    </div>
-    <div>
-      <h3>コピーのあとに、大きさを比べる</h3>
-      <p>1 枚ごとに検証します。進捗・残り時間・いま入れている写真が出ます。</p>
-    </div>
-  </div>
-</section>
-
-<section class="section deep" id="cull">
-  <div class="sec-head">
-    <span class="num mono">03</span>
-    <h2 class="disp">選ぶための、二つの棚</h2>
-    <span class="rule"></span>
-  </div>
-  <figure class="bleed">
-    <img src="../images/viewer.jpg" width="1152" height="756" alt="ビューアで写真を1枚だけ大きく表示しているところ" loading="lazy" decoding="async">
-    <figcaption class="fig">1 枚だけを大きく。操作の枠は、マウスが止まると消えます。</figcaption>
-  </figure>
-  <div class="cards c3">
-    <div>
-      <h3><span class="glyph" style="color:var(--pick)" aria-hidden="true">⚑</span><span class="key mono">P</span>連写から 1 枚だけ抜く</h3>
-      <p>⚑ は ★ お気に入りとは別の棚です。選別の残りでお気に入りが埋まりません。</p>
-    </div>
-    <div>
-      <h3><span class="glyph" style="color:var(--danger)" aria-hidden="true">✕</span><span class="key mono">X</span>ボツは、その場では消えない</h3>
-      <p>閉じるときに対象を確認してから、まとめてごみ箱へ。<strong class="em">削除は必ずごみ箱を通ります。</strong></p>
-    </div>
-    <div>
-      <h3><span class="glyph" style="color:var(--fav)" aria-hidden="true">★</span>戻ってきたい写真に</h3>
-      <p>検索窓には <code class="mono">★</code> や <code class="mono">camera:α7</code>、<code class="mono">2019-08</code> をそのまま書けます。</p>
-    </div>
-  </div>
-  <figure class="demo" style="margin-top:44px">
-    <video src="../images/a-cull.mp4" poster="../images/a-cull.jpg" width="960" height="630"
-           muted loop playsinline preload="metadata" controls data-autoplay></video>
-    <figcaption class="fig">→ で送りながら、⚑ と ✕ を付けているところ（押したキーを左下に出しています）。✕ は印が付くだけで、写真はまだどこへも動きません。</figcaption>
-  </figure>
-</section>
-
-<section class="section" id="formats">
-  <div class="sec-head">
-    <span class="num mono">04</span>
-    <h2 class="disp">RAW は、現像しません</h2>
-    <span class="rule"></span>
-  </div>
-  <figure class="bleed photo">
-    <img src="../images/photo/forest-rays.jpg" width="2000" height="1333" alt="" loading="lazy" decoding="async">
-    <span class="by">Photo: Wikimedia Commons, CC0</span>
-  </figure>
-  <p class="lead" style="margin-bottom:48px">普段はそのまま見る。でも、大切な 1 枚を救いたくなった日のために、RAW は残しておく。<strong class="em">pictkura は RAW を現像しません。</strong>カメラが背面の液晶に出すために埋めておいた JPEG を、そのまま取り出して使います。デモザイクを回さない分速く、色は<strong class="em">カメラが出したまま</strong>。16 メーカー 28 個の実ファイルで確かめました。</p>
-  <div class="tiles">
-    <div class="tile">
-      <p class="eyebrow">写真</p>
-      <p class="exts">jpg &nbsp;png &nbsp;webp &nbsp;avif<br>heic &nbsp;heif &nbsp;hif &nbsp;tif<br>bmp &nbsp;gif &nbsp;svg</p>
-      <p class="foot-note">AVIF のデコーダは同梱しています。HEIC の画素は OS の部品に任せます</p>
-    </div>
-    <div class="tile">
-      <p class="eyebrow">RAW</p>
-      <p class="exts">cr2 &nbsp;cr3 &nbsp;nef &nbsp;arw<br>raf &nbsp;orf &nbsp;rw2 &nbsp;dng<br>pef &nbsp;srw &nbsp;3fr &nbsp;x3f …</p>
-      <p class="foot-note">表示用 JPEG を取り出せると確かめた拡張子は 23。Apple ProRAW（DNG）も含みます</p>
-    </div>
-    <div class="tile">
-      <p class="eyebrow">動画</p>
-      <p class="exts">mp4 &nbsp;m4v &nbsp;mov &nbsp;webm<br>avi &nbsp;mts &nbsp;m2ts &nbsp;mkv<br>3gp &nbsp;wmv &nbsp;mpg &nbsp;mpeg</p>
-      <p class="foot-note">長さと大きさは mp4・m4v・mov・3gp のヘッダから読みます。中身は 1 画素も展開しません</p>
-    </div>
-  </div>
-  <a class="more" href="spec.html#formats">対応表をすべて見る（アプリ仕様） →</a>
-</section>
-
 <section class="section deep photo aerial" id="privacy">
   <div class="split aside">
     <div>
@@ -302,13 +322,12 @@
       </div>
     </div>
   </div>
-  <span class="by">Photo: Wikimedia Commons, CC0</span>
 </section>
 
 <section class="section" id="limits">
   <div class="sec-head">
     <span class="num mono off">06</span>
-    <h2 class="disp" style="color:oklch(0.8 0 0)">できないことも、先に書きます</h2>
+    <h2 class="disp" style="color:oklch(0.8 0.005 70)">できないことも、先に書きます</h2>
     <span class="rule"></span>
   </div>
   <p class="lead" style="margin-bottom:40px">全部入りの写真ソフトを目指していません。写真を仕上げる工房ではなく、<strong class="em">貯めて見返すための道具</strong>だからです。</p>
@@ -363,7 +382,6 @@
   <div class="note warn" style="margin-top:28px">
     <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> この警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに記載しています。確かめるための材料は<a href="download.html#build">配布物の作られ方</a>に並べました。</p>
   </div>
-  <span class="by">Photo: Wikimedia Commons, CC0</span>
 </section>
 
 </main>
@@ -379,7 +397,7 @@
     </div>
     <div>
       <p class="eyebrow" style="margin:0 0 6px">製品</p>
-      <a href="#speed">特長</a>
+      <a href="#import">特長</a>
       <a href="spec.html">アプリ仕様</a>
       <a href="about.html">なぜ作ったのか</a>
       <a href="spec.html#formats">対応形式</a>
@@ -404,7 +422,7 @@
     </div>
   </div>
   <div class="foot-end">
-    <span>© 2026 Harusame64 &nbsp;·&nbsp; MIT License</span>
+    <span>© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; 写真: Wikimedia Commons, CC0</span>
     <span>日本語 &nbsp;/&nbsp; <a href="../en/" hreflang="en">English</a></span>
   </div>
 </footer>

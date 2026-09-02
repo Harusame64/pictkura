@@ -12,7 +12,7 @@
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="pictkura">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/manual.en.html">
-<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.jpg">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.2.jpg">
 <meta name="twitter:card" content="summary_large_image">
 
 <style>
@@ -26,7 +26,10 @@
    */
   :root {
     --bg: oklch(0.985 0 0); --surface: #fff; --surface-2: oklch(0.955 0 0);
-    --text: oklch(0.24 0 0); --text-muted: oklch(0.45 0 0); --text-faint: oklch(0.58 0 0);
+    /* faint は 0.58 だと 0.985 の地の上で 4.1 しか出ず AA を割る（figcaption / th /
+       footer / .kind）。0.55 で 4.65。明るいテーマは無彩色のまま——サイト本体を
+       温色にしたのは暗い面だけで、こちらは別の面 */
+    --text: oklch(0.24 0 0); --text-muted: oklch(0.45 0 0); --text-faint: oklch(0.55 0 0);
     --line: oklch(0 0 0 / 0.1); --line-strong: oklch(0 0 0 / 0.18);
     --accent: oklch(0.55 0.17 255); --accent-soft: oklch(0.55 0.17 255 / 0.1);
     --warn-bg: oklch(0.97 0.03 85); --warn-line: oklch(0.68 0.15 60);
@@ -35,8 +38,8 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: oklch(0.145 0 0); --surface: oklch(0.19 0 0); --surface-2: oklch(0.235 0 0);
-      --text: oklch(0.95 0 0); --text-muted: oklch(0.7 0 0); --text-faint: oklch(0.55 0 0);
+      --bg: oklch(0.16 0.008 70); --surface: oklch(0.205 0.009 70); --surface-2: oklch(0.25 0.009 70);
+      --text: oklch(0.95 0.004 70); --text-muted: oklch(0.7 0.005 70); --text-faint: oklch(0.6 0.006 70);
       --line: oklch(1 0 0 / 0.09); --line-strong: oklch(1 0 0 / 0.16);
       --accent: oklch(0.78 0.13 255); --accent-soft: oklch(0.72 0.14 255 / 0.16);
       --warn-bg: oklch(0.21 0.03 70); --warn-line: oklch(0.68 0.15 60);
@@ -44,8 +47,8 @@
     }
   }
   :root[data-theme="dark"] {
-    --bg: oklch(0.145 0 0); --surface: oklch(0.19 0 0); --surface-2: oklch(0.235 0 0);
-    --text: oklch(0.95 0 0); --text-muted: oklch(0.7 0 0); --text-faint: oklch(0.55 0 0);
+    --bg: oklch(0.16 0.008 70); --surface: oklch(0.205 0.009 70); --surface-2: oklch(0.25 0.009 70);
+    --text: oklch(0.95 0.004 70); --text-muted: oklch(0.7 0.005 70); --text-faint: oklch(0.6 0.006 70);
     --line: oklch(1 0 0 / 0.09); --line-strong: oklch(1 0 0 / 0.16);
     --accent: oklch(0.78 0.13 255); --accent-soft: oklch(0.72 0.14 255 / 0.16);
     --warn-bg: oklch(0.21 0.03 70); --warn-line: oklch(0.68 0.15 60);
@@ -114,6 +117,9 @@
   code {
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
     font-size: 0.88em; background: var(--surface-2); padding: 1px 5px; border-radius: 3px;
+    /* 親から色を継がせない。figcaption や footer（--text-faint）の中に置かれると
+       surface-2 の地に対してコントラストが 4.5 を割る（明暗どちらのテーマでも） */
+    color: var(--text);
   }
   pre {
     background: var(--surface-2); border: 1px solid var(--line);

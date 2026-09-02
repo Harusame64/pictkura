@@ -2,8 +2,9 @@
 
 **English** ｜ [日本語](README.ja.md)
 
-A small, fast desktop photo manager. It does two things well: importing from a camera
-card and browsing what you already have — even when that is tens of thousands of files.
+**The first stop for your photos.** A small, fast desktop photo manager that does two
+things well: importing from a camera card and browsing what you already have — even
+when that is tens of thousands of files.
 
 The name is *picture* plus *kura*, the Japanese word for a storehouse: somewhere photos
 are kept and taken out again, rather than a workshop where they get finished. That is
