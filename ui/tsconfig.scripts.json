@@ -1,0 +1,15 @@
+{
+  // 辞書の検査（`scripts/i18n.test.ts`）だけを見るプロジェクト。
+  //
+  // **分けてあるのは、Node の型を画面へ漏らさないため**（2026-09-02、ゲート2）。
+  // 1つの設定に `src` と `scripts` を混ぜると `@types/node` が両方に効き、
+  // `src/` で `process` や `Buffer` を書いても型が通ってしまう。
+  //
+  // `npm run build` が `tsc -b` のあとにこれも走らせる。**テストも型で見る**——
+  // 辞書を守っているのがこのファイルなのに、そこだけ検査の外に居た。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["scripts"]
+}

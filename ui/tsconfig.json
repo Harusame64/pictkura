@@ -9,6 +9,18 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noEmit": true,
+    // `src/i18n/` の中だけ相対 import に `.ts` を書いている。
+    // **辞書の検査（`scripts/i18n.test.ts`）を `node --test` で走らせるため**——
+    // Node の ESM は拡張子を補わないので、拡張子なしだと辞書を読めない。
+    // ローダのフックを足すより、書いてあるとおりに解決できる形にした
+    "allowImportingTsExtensions": true,
+    // **画面の側に Node の型を見せない**（2026-09-02、ゲート2）。
+    // `@types/node` は `scripts/` のテストのために入れたが、既定のままだと
+    // **`src/` にも Node のグローバルが生える**——`process.platform` や `Buffer` を
+    // 書いても `tsc -b` が通り、WebViewでは `ReferenceError: process is not defined`
+    // ＝真っ白な画面になる。実際に `src/__probe.ts` を置いて素通りするのを見た。
+    // テスト側は `tsconfig.scripts.json` が `"types": ["node"]` で拾う
+    "types": [],
     "skipLibCheck": true,
     "isolatedModules": true,
     "useDefineForClassFields": true
