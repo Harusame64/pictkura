@@ -2225,6 +2225,22 @@ export default function App() {
     let gen = 0;
     let inFlight = false;
     let rounds = 0;
+    // **飛行中に来た焦点は、捨てずに積む**（ゲート2の指摘）。「待っている答えが
+    // ループを続けるはず」は成り立たない——**その答えこそがループを止める**回が
+    // ある（全部クラウドのみ、あるいは回数の上限）。しかもその答えは、
+    // 利用者が実体を落とす**前**に読んだ属性で出来ている。取りこぼすと、
+    // まさにこのリスナーが在る理由の場面で、帯が最後まで四角のまま残る
+    let wantRestart = false;
+    /** 答えが返った後の仕切り直し。焦点が待っていればそちらを優先する */
+    const rearm = (armed: boolean) => {
+      if (wantRestart) {
+        wantRestart = false;
+        rounds = 0;
+        ask();
+        return;
+      }
+      if (armed) timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS / 2);
+    };
     const ask = () => {
       const mine = ++gen;
       inFlight = true;
@@ -2234,8 +2250,18 @@ export default function App() {
           if (cancelled || mine !== gen) return;
           const drop = new Set(cloud);
           const local = asked.filter((id) => !drop.has(id));
+          // **古びたまま同じ答えが返ったら、作り直して再計算を起こす**（ゲート2の指摘）。
+          // 同じ顔ぶれで `prev` を返すと React は描き直さず、[`visibleMissingIds`] の
+          // memo も依存が変わらないので**寿命を読み直さない**。往復が寿命を越えた回に
+          // 画面が動いていると、**帯を外したまま固まる**——ref の時刻だけ新しくなって、
+          // 誰もそれを見ない。**古びていた回だけ**新しい集合にすればよく、
+          // 間に合っている普段は `prev` のままで揺れない
+          const wasStale =
+            Date.now() - bandAnswerAtRef.current > CLOUD_ANSWER_TTL_MS;
           bandAnswerAtRef.current = Date.now();
-          setBandAskableIds((prev) => (sameIds(prev, local) ? prev : new Set(local)));
+          setBandAskableIds((prev) =>
+            !wasStale && sameIds(prev, local) ? prev : new Set(local),
+          );
           // **聞き直すのは「ローカルにある」が残っているあいだだけ。**
           // 答えには寿命がある（ゲート1のP2）——グリッドを開いたまま置くと
           // 聞き直す機会が来ず、その間に「空き容量を増やす」が走れば、古い
@@ -2247,9 +2273,7 @@ export default function App() {
           // 帯を外したまま `set_visible_priority` を投げる——`prioritize` は
           // 渡したidで先頭を作り直すので、**帯がグリッドの後ろへ落ちて、
           // 次の答えでまた前に出る**。半分にすれば途切れない
-          if (local.length > 0 && ++rounds < BAND_CLOUD_MAX_ROUNDS) {
-            timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS / 2);
-          }
+          rearm(local.length > 0 && ++rounds < BAND_CLOUD_MAX_ROUNDS);
         })
         // 聞けなかったら**頼まない**。ここは開いて困る側なので、迷ったら触らない。
         // 何も頼んでいない状態なので、分かるまで聞き直してよい
@@ -2258,9 +2282,7 @@ export default function App() {
           if (cancelled || mine !== gen) return;
           bandAnswerAtRef.current = 0;
           setBandAskableIds((prev) => (prev.size === 0 ? prev : new Set()));
-          if (++rounds < BAND_CLOUD_MAX_ROUNDS) {
-            timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS / 2);
-          }
+          rearm(++rounds < BAND_CLOUD_MAX_ROUNDS);
         });
     };
     ask();
@@ -2274,7 +2296,10 @@ export default function App() {
       // （alt+tab、OSのダイアログが閉じた跳ね返り）。そのたびに世代を進めると
       // **どの答えも着地する前に捨てられ**、`at` が古いまま帯が要求から落ちる。
       // 待っている答えはもう返ってくるので、任せればよい
-      if (inFlight) return;
+      if (inFlight) {
+        wantRestart = true;
+        return;
+      }
       window.clearTimeout(timer);
       rounds = 0;
       ask();
