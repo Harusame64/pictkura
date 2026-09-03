@@ -3347,7 +3347,10 @@ mod tests {
             1,
             move |_| *done2.lock().unwrap() += 1,
         );
-        // 可視フロー（UIと同じ）: 高品質になるまで enqueue＋prioritize を繰り返す
+        // 可視フロー（UIと同じ）: 高品質になるまで prioritize を繰り返す。
+        // **`enqueue` と組にしない**——[`ThumbQueue::prioritize`] が投入まで
+        // 引き受ける形にしたので、組で呼ぶとここが本番の道と違う道を試すことになり、
+        // `prioritize` が投入をやめても（＝dev #22 に戻っても）この試験は緑のままになる
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let db = Db::open(&db_path).unwrap();
@@ -3360,7 +3363,6 @@ mod tests {
                 std::time::Instant::now() < deadline,
                 "高品質生成がタイムアウト"
             );
-            svc.enqueue(&ids);
             svc.prioritize(&ids);
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
