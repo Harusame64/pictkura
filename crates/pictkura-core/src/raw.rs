@@ -1739,7 +1739,8 @@ mod tests {
     /// 一覧に出ない43件のうち22件は「RAW扱いなら絵が出る」側だった。
     /// そのうち `ori` 19件と `arq` 1件だけを足し、**残りは意図して落としている**:
     ///
-    /// - `gpr`（GoPro・17件）は**足しても出ない**。DNGを名乗るが絵が取れない
+    /// - `gpr`（GoPro・17件）・`ari`（Arri Alexa Mini・1件）・`lri`（Light L16・1件）は
+    ///   **足しても出ない**。RAWの6段を通しても絵が1枚も出てこない
     /// - `cam`（Casio QV・1995〜1998）と `sti`（Sinar CaptureShop・開発終了）は
     ///   **1件ずつしか得が無いのに、拡張子が他用途と衝突する**。`cam` は
     ///   Gerber CAM のドリルジョブ・FastCAM・MSN Messenger のウェブカメラ録画、
@@ -1750,7 +1751,7 @@ mod tests {
     /// 消すときは掃引をやり直すか、この理由を否定してから消すこと。
     #[test]
     fn deliberately_excluded_extensions_stay_out() {
-        for ext in ["gpr", "cam", "sti", "mdc"] {
+        for ext in ["gpr", "ari", "lri", "cam", "sti", "mdc"] {
             assert!(!is_raw_extension(ext), "{ext} は足さないと決めた");
             assert!(
                 !crate::config::DEFAULT_EXTENSIONS.contains(&ext),
