@@ -1551,6 +1551,14 @@ pub const THUMB_STATE_NO_PREVIEW: i64 = 4;
 /// 同一IDの処理失敗をこの回数まで許容する（超えたら以後の投入を無視する）。
 /// 壊れた画像が可視領域にあると、UIの可視通知のたびに再投入されて
 /// フルデコード失敗を延々繰り返すため、セッション内で見切りをつける。
+/// PROBE(dev22): 計測専用。**このブランチは配らない。**
+pub fn probe_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
 const MAX_FAILURES: u32 = 3;
 
 /// 可視領域優先のジョブキュー。
@@ -1659,12 +1667,29 @@ impl ThumbQueue {
             // 要求で載せ直せばよい（可視である限り要求は繰り返し来る）。
             // 失敗が上限に達したIDを載せないのも [`Self::enqueue`] と同じ
             if state.blocked(id) || state.processing.contains(&id) {
+                eprintln!(
+                    "[dev22] prio-skip id={id} blocked={} processing={} fails={} t={}",
+                    state.blocked(id),
+                    state.processing.contains(&id),
+                    state.failures.get(&id).copied().unwrap_or(0),
+                    probe_ms()
+                );
                 continue;
             }
             if state.queued.insert(id) {
                 state.priority.push_front(id);
+                eprintln!("[dev22] prio-stack id={id} t={}", probe_ms());
+            } else {
+                eprintln!("[dev22] prio-dup id={id} t={}", probe_ms());
             }
         }
+        eprintln!(
+            "[dev22] prio-done pri={} pend={} proc={} t={}",
+            state.priority.len(),
+            state.pending.len(),
+            state.processing.len(),
+            probe_ms()
+        );
         drop(state);
         self.inner.cvar.notify_all();
     }
@@ -1760,6 +1785,7 @@ impl ThumbnailService {
                         return;
                     };
                     while let Some((id, want_final)) = queue.pop() {
+                        eprintln!("[dev22] pop id={id} final={want_final} t={}", probe_ms());
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
                         //
@@ -1775,6 +1801,14 @@ impl ThumbnailService {
                                 process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
                             })
                             .unwrap_or(Err(ThumbError::Panicked(id)));
+                        eprintln!(
+                            "[dev22] done id={id} final={want_final} r={} t={}",
+                            match &result {
+                                Ok(o) => format!("{o:?}"),
+                                Err(e) => format!("Err({e})"),
+                            },
+                            probe_ms()
+                        );
                         queue.complete(id);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）

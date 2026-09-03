@@ -3049,6 +3049,11 @@ struct ScopeItemDto {
 /// LRU削除済み（state=0へ戻ったもの）もここで再生成される。
 #[tauri::command]
 fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+    // PROBE(dev22): 計測専用。**このブランチは配らない**
+    eprintln!(
+        "[dev22] vis-in ids={ids:?} t={}",
+        pictkura_core::thumbs::probe_ms()
+    );
     let need: Vec<i64> = state.read_pool.with(|db| {
         ids.into_iter()
             .filter(|&id| {
@@ -3059,6 +3064,10 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
             })
             .collect()
     });
+    eprintln!(
+        "[dev22] vis-need need={need:?} t={}",
+        pictkura_core::thumbs::probe_ms()
+    );
     if !need.is_empty() {
         // **`enqueue` と組で呼ばない**（dev #22）。`enqueue` が起こした
         // ワーカーが `prioritize` より先にそのIDを自動パスとして取ってしまい、
