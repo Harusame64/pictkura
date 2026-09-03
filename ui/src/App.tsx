@@ -2190,10 +2190,17 @@ export default function App() {
     const asked = bandPendingKey.split(",").map(Number).slice(0, CLOUD_ASK_MAX);
     let cancelled = false;
     let timer = 0;
+    // **走ってよい問い合わせは常に1本**（ゲート1の指摘）。`focus` が飛行中に
+    // 来ると、時計を止めても**答えを待っている側は生きている**ので、両方が
+    // それぞれ次の時計を仕掛けて**ループが二重になる**（`timer` は片方しか
+    // 掴めないので、後片付けでも止められない）。古い答えが新しい答えを
+    // 上書きする道も同じところから来る
+    let gen = 0;
     const ask = () => {
+      const mine = ++gen;
       cloudOnlyMedia(asked)
         .then((cloud) => {
-          if (cancelled) return;
+          if (cancelled || mine !== gen) return;
           const drop = new Set(cloud);
           const local = asked.filter((id) => !drop.has(id));
           setBandAskable({ ids: new Set(local), at: Date.now() });
@@ -2210,7 +2217,7 @@ export default function App() {
         // 聞けなかったら**頼まない**。ここは開いて困る側なので、迷ったら触らない。
         // 何も頼んでいない状態なので、分かるまで聞き直してよい
         .catch(() => {
-          if (cancelled) return;
+          if (cancelled || mine !== gen) return;
           setBandAskable({ ids: new Set(), at: 0 });
           timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS);
         });
