@@ -2216,9 +2216,20 @@ export default function App() {
         });
     };
     ask();
+    // **止めたぶんは、窓に戻ってきたときに聞き直す。**
+    // 全部クラウドのみで時計を止めると、利用者がエクスプローラ側で実体を
+    // 落としてきても気づけない（実体化は更新日時も大きさも変えないので
+    // `library-updated` も出ない）。**手で落としてきた人は、必ずアプリへ戻ってくる**
+    // ——そこが自然な聞き直しの機会で、放っておくあいだの値段は0
+    const onFocus = () => {
+      window.clearTimeout(timer);
+      ask();
+    };
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
     };
   }, [bandPendingKey, view, filtering]);
 
