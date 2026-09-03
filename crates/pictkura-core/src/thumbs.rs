@@ -1625,16 +1625,43 @@ impl ThumbQueue {
         self.inner.cvar.notify_all();
     }
 
-    /// 可視領域のIDを最優先に引き上げる。キューにないIDは無視する。
+    /// 可視領域のIDを最優先で積む。**キューに無ければ、ここで入れる。**
     /// 優先キューのジョブは高品質生成まで行う（段階B-3のオンデマンド経路）。
+    ///
+    /// **投入と引き上げを分けてはいけない**（dev #22）。[`Self::enqueue`] は
+    /// 最後にロックを放してから `notify_all` するので、呼び出し側が続けて
+    /// これを呼んでも、**起きたワーカーが先にロックを取って `pending` から
+    /// そのIDを取ってしまう**。取られた側は自動パス（`want_final = false`）
+    /// なので、埋め込みサムネイルを持たないJPEG/PNGは
+    /// [`ThumbOutcome::MetadataOnly`] で絵を書かずに終わり、`thumb_state` は
+    /// 0のまま残る——可視要求は毎回同じ競争をして、**負けるあいだ絵が出ない**。
+    /// ワーカーが暇なときほど負ける（起こした相手がすぐ走れる）ので、
+    /// **1〜2枚だけ足したときに当たり、大量に足したときは当たらない**。
+    /// Windows実機で140〜355秒の停止として観測した。macOSでは同じ手順で
+    /// 出ない——どちらが先にロックを取るかはOSの寝起きの作り次第で、
+    /// **手元で出ないことは直さない理由にならない**。
+    ///
+    /// 積むのも上げるのも**1回のロックの中**で行い、`notify_all` は最後の1回だけ。
     pub fn prioritize(&self, ids: &[i64]) {
         let mut state = self.lock_state();
         let target: HashSet<i64> = ids.iter().copied().collect();
         state.pending.retain(|id| !target.contains(id));
         state.priority.retain(|id| !target.contains(id));
+        // 積み直すぶんは「キュー内」からいったん降ろす。下で載せたものだけが戻る。
+        // **降ろしたまま積まないIDを残さないこと**——`queued` に居るのに列に
+        // 居ないIDが出来ると、[`Self::enqueue`] の重複防止に永久に弾かれて、
+        // そのIDだけ二度とサムネイルが作られなくなる
+        state.queued.retain(|id| !target.contains(id));
         // 表示順（引数順）を保って先頭へ
         for &id in ids.iter().rev() {
-            if state.queued.contains(&id) {
+            // **処理中のIDは積み直さない**。同じサムネイルファイルへ2本が
+            // 書きに行く。自動パスとして走っている最中なら、それが終わった後の
+            // 要求で載せ直せばよい（可視である限り要求は繰り返し来る）。
+            // 失敗が上限に達したIDを載せないのも [`Self::enqueue`] と同じ
+            if state.blocked(id) || state.processing.contains(&id) {
+                continue;
+            }
+            if state.queued.insert(id) {
                 state.priority.push_front(id);
             }
         }
@@ -1777,6 +1804,9 @@ impl ThumbnailService {
         self.queue.enqueue(ids);
     }
 
+    /// 可視領域のIDを最優先で積む（キューに無ければ入れる）。
+    /// **[`Self::enqueue`] と組にして呼ばないこと**——理由は
+    /// [`ThumbQueue::prioritize`] に書いた（dev #22）。
     pub fn prioritize(&self, ids: &[i64]) {
         self.queue.prioritize(ids);
     }
@@ -3130,6 +3160,110 @@ mod tests {
         assert_eq!(queue.pop(), Some((1, false)));
     }
 
+    /// [`ThumbQueue::pop`] を**固まらずに**試すための包み。
+    ///
+    /// `pop` はキューが空なら返らない。ここで見張っているのは
+    /// **仕事が黙って消える**類の壊れ方（dev #22）なので、素で呼ぶと
+    /// 壊れたときに試験が落ちずに固まり、CIの時間を食い切ってしまう。
+    /// **試験は落ちて教えるものである。**
+    fn pop_within(queue: &ThumbQueue, secs: u64) -> Option<(i64, bool)> {
+        let queue = queue.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(queue.pop());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(secs))
+            .expect("キューから仕事が出てこない（消えている）")
+    }
+
+    #[test]
+    fn a_visible_id_that_was_never_queued_is_put_straight_to_the_front() {
+        // 可視になったばかりの行は、まだキューのどこにも居ない。
+        // ここで取りこぼすと、その行は自動パスの順番待ちに落ちる（dev #22）
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2]);
+        queue.prioritize(&[7]);
+        assert!(queue.is_active(7), "投入まで引き受ける");
+        assert_eq!(pop_within(&queue, 10), Some((7, true)));
+        assert_eq!(pop_within(&queue, 10), Some((1, false)));
+    }
+
+    #[test]
+    fn an_id_in_flight_is_not_put_to_the_front_either() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2]);
+        assert_eq!(queue.pop(), Some((1, false))); // 1は処理中になる
+        queue.prioritize(&[1, 2]);
+        assert_eq!(
+            pop_within(&queue, 10),
+            Some((2, true)),
+            "処理中の1は積み直されない"
+        );
+        queue.complete(1);
+        queue.prioritize(&[1]);
+        assert_eq!(
+            pop_within(&queue, 10),
+            Some((1, true)),
+            "終わっていれば載る"
+        );
+    }
+
+    #[test]
+    fn an_id_the_front_will_not_take_is_not_left_marked_as_queued() {
+        // `prioritize` は列から降ろしたIDを「キュー内」に残さない。残すと
+        // `enqueue` の重複防止（`queued.insert`）に永久に弾かれ、列にも居ないので
+        // 誰も取り出さない——**そのIDだけ二度とサムネイルが作られなくなる**
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2]);
+        for _ in 0..MAX_FAILURES {
+            queue.record_failure(1);
+        }
+        queue.prioritize(&[1, 2]);
+        assert_eq!(pop_within(&queue, 10), Some((2, true)));
+        assert!(!queue.is_active(1), "載せないIDをキュー内に残さない");
+    }
+
+    #[test]
+    fn a_visible_request_is_never_handed_out_as_background_work() {
+        // 投入と引き上げを2回のロックに分けると、間で起きたワーカーが
+        // そのIDを自動パス（want_final = false）として取っていく。取られた側は
+        // 絵を書かずに終わるので、可視要求は負け続けるあいだ実らない（dev #22）。
+        // Windows実機で140〜355秒の停止として出た。**macOSでは同じ手順で出ない**
+        // ——どちらが先にロックを取るかはOSの寝起き次第なので、ここで縛る
+        use std::sync::mpsc;
+        const ROUNDS: i64 = 200;
+        let queue = ThumbQueue::new();
+        let (tx, rx) = mpsc::channel();
+        let workers: Vec<_> = (0..4)
+            .map(|_| {
+                let queue = queue.clone();
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    while let Some((id, want_final)) = queue.pop() {
+                        queue.complete(id);
+                        if tx.send((id, want_final)).is_err() {
+                            break;
+                        }
+                    }
+                })
+            })
+            .collect();
+        drop(tx);
+        for id in 1..=ROUNDS {
+            queue.prioritize(&[id]);
+        }
+        for _ in 0..ROUNDS {
+            let (id, want_final) = rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("可視要求がキューに載っていない");
+            assert!(want_final, "可視要求のid={id}が自動パスとして配られた");
+        }
+        queue.shutdown();
+        for w in workers {
+            w.join().unwrap();
+        }
+    }
+
     #[test]
     fn pop_returns_none_after_shutdown() {
         let queue = ThumbQueue::new();
@@ -3213,7 +3347,10 @@ mod tests {
             1,
             move |_| *done2.lock().unwrap() += 1,
         );
-        // 可視フロー（UIと同じ）: 高品質になるまで enqueue＋prioritize を繰り返す
+        // 可視フロー（UIと同じ）: 高品質になるまで prioritize を繰り返す。
+        // **`enqueue` と組にしない**——[`ThumbQueue::prioritize`] が投入まで
+        // 引き受ける形にしたので、組で呼ぶとここが本番の道と違う道を試すことになり、
+        // `prioritize` が投入をやめても（＝dev #22 に戻っても）この試験は緑のままになる
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let db = Db::open(&db_path).unwrap();
@@ -3226,7 +3363,6 @@ mod tests {
                 std::time::Instant::now() < deadline,
                 "高品質生成がタイムアウト"
             );
-            svc.enqueue(&ids);
             svc.prioritize(&ids);
             std::thread::sleep(std::time::Duration::from_millis(50));
         }

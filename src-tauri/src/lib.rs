@@ -3060,7 +3060,9 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
             .collect()
     });
     if !need.is_empty() {
-        state.thumbs.enqueue(&need);
+        // **`enqueue` と組で呼ばない**（dev #22）。`enqueue` が起こした
+        // ワーカーが `prioritize` より先にそのIDを自動パスとして取ってしまい、
+        // 絵を書かずに終わる。`prioritize` が投入まで引き受ける
         state.thumbs.prioritize(&need);
     }
 }
