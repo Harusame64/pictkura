@@ -508,30 +508,43 @@ jobs:
           # そのどちらか一方しか掴まない——**古い配布物や古い本文のほうを
           # 公開しうる**。それは下の貼り直しが防ぐために書かれたものそのものである
           # （ゲート2の指摘）
-          # **公開済みには一切触らない。** `gh release view` は公開済みでも通るので、
-          # 「あれば貼り直す」だけだと、**回し直しが公開中のRelease の配布物と本文を
-          # その場で差し替える**——実機で確かめて Defender も通した**あのバイト列が、
-          # 誰にも知られずに別のビルドへ入れ替わる**（ゲート1のP2）。
-          # 差し替えたいなら版を切り直すこと。ここは落として知らせる
-          if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
-            echo "::error::$GITHUB_REF_NAME は既に公開済みです。公開済みのRelease の配布物は差し替えません（版を切り直してください）"
-            exit 1
-          fi
-
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            # 下書きが既にあるなら貼り直す。ビルドに時間がかかるので、
-            # 公開前のやり直しを許す。
-            # **本文も貼り直す**——初回が自動生成に落ちた後でノートを足して回し直した
-            # ときに、配布物だけ新しくて本文が古いRelease が残らないように
+          # **1回だけ引いて、3つに分ける。**
+          #
+          # - **公開済み … 触らない。** `gh release view` は公開済みでも通るので、
+          #   「あれば貼り直す」だけだと、**回し直しが公開中のRelease の配布物と本文を
+          #   その場で差し替える**——実機で確かめて Defender も通した**あのバイト列が、
+          #   誰にも知られずに別のビルドへ入れ替わる**（ゲート1のP2）。
+          #   差し替えたいなら版を切り直すこと
+          # - **下書きがある … 貼り直す。** ビルドに時間がかかるので、公開前の
+          #   やり直しは許す
+          # - **無い … 下書きで作る**
+          #
+          # **「引けなかった」を「無い」と読まない**（ゲート1のP2）。API の瞬断・
+          # 認証切れ・レート制限で `view` が転んだだけのときに `create` へ落ちると、
+          # **同じタグの下書きが2つ**できる——タグの重複を GitHub が拒むのは
+          # **公開済みに対してだけ**なので、下書きは何個でも通ってしまう。
+          # **本当に無いと言えたときだけ作る。** 言えなければ落として知らせる
+          view_err="$RUNNER_TEMP/release-view.err"
+          if is_draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>"$view_err"); then
+            if [ "$is_draft" != "true" ]; then
+              echo "::error::$GITHUB_REF_NAME は既に公開済みです。公開済みのRelease の配布物は差し替えません（版を切り直してください）"
+              exit 1
+            fi
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
             # 貼り直せるのは**手書きのノートがあるときだけ**。`gh release edit` に
             # `--generate-notes` は無い（自動生成は create でしか作れない）ので、
-            # `notes_args` をそのまま渡すと未知のフラグで落ちる
+            # `notes_args` をそのまま渡すと未知のフラグで落ちる。
+            # **本文も貼り直す**——初回が自動生成に落ちた後でノートを足して回し直した
+            # ときに、配布物だけ新しくて本文が古いRelease が残らないように
             if [ -s "$body" ]; then
               gh release edit "$GITHUB_REF_NAME" --notes-file "$body"
             fi
-          else
+          elif grep -qi 'not found' "$view_err"; then
             gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"
+          else
+            cat "$view_err" >&2
+            echo "::error::Release の有無を確かめられませんでした。作らずに止めます（回し直してください）"
+            exit 1
           fi
 
           # **やり残しを、人が見る場所に出す。** コメントに書いても Actions の
