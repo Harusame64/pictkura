@@ -580,14 +580,45 @@ extensions = [\"jpg\", \"jpeg\", \"png\", \"webp\", \"cr2\", \"cr3\", \"nef\", \
         );
     }
 
+    /// `LEGACY_DEFAULTS` が「これまで配った既定」として成り立っているか。
+    ///
+    /// 記録の**漏れ**は機械には見えない（コードは「1つ前に配った既定」を知らない）。
+    /// 見えるのは**誤り**のほうなので、そちらだけを見る。
+    #[test]
+    fn every_recorded_default_is_a_smaller_version_of_the_current_one() {
+        for (i, legacy) in LEGACY_DEFAULTS.iter().enumerate() {
+            for ext in legacy.iter() {
+                assert!(
+                    DEFAULT_EXTENSIONS.contains(ext),
+                    "旧既定[{i}] の {ext} が今の既定に無い。減らしたのなら、\
+                     引き上げは「昔の設定を今の既定で上書きする」ので**外した拡張子が戻る**"
+                );
+            }
+            assert!(
+                legacy.len() < DEFAULT_EXTENSIONS.len(),
+                "旧既定[{i}] が今の既定と同じ大きさ。今の既定を記録してはいけない\
+                 （手で書いた設定と見分けが付かなくなる）"
+            );
+        }
+        for (i, a) in LEGACY_DEFAULTS.iter().enumerate() {
+            for b in &LEGACY_DEFAULTS[i + 1..] {
+                assert_ne!(a, b, "旧既定[{i}] と同じものが2度記録されている");
+            }
+        }
+    }
+
     /// **既定を増やしたら、増やす前の一覧を `LEGACY_DEFAULTS` へ記録すること。**
     ///
-    /// この写しは歯止めであって仕様ではない。`DEFAULT_EXTENSIONS` を触ると必ず
-    /// ここが落ちるので、落ちたときは**まず旧一覧を `LEGACY_DEFAULTS` に足し**、
-    /// それから写しを直す。順番を逆にすると、配ったあとの利用者に新しい拡張子が
-    /// 一生届かない——2026-09-04にその穴を1つ塞いだ。
+    /// これは**強制ではなく足止め**である。「1つ前に配った既定」はコードのどこにも
+    /// 無いので、記録し忘れたことを機械が見抜くことはできない
+    /// （ゲート2の指摘・2026-09-04）。できるのは、`DEFAULT_EXTENSIONS` を触った人を
+    /// **必ずここで1度止めて、この文を読ませる**ことだけ。
+    ///
+    /// 止まったら**まず旧一覧を `LEGACY_DEFAULTS` に足し**、それから写しを直す。
+    /// 順番を逆にすると、配ったあとの利用者に新しい拡張子が一生届かない
+    /// ——2026-09-04にその穴を1つ塞いだ。
     #[test]
-    fn changing_the_default_extensions_forces_recording_the_old_one() {
+    fn changing_the_default_extensions_stops_here_first() {
         assert_eq!(
             DEFAULT_EXTENSIONS.join(" "),
             "jpg jpeg png webp cr2 cr3 crw nef nrw arw srf sr2 arq raf orf ori rw2 pef ptx srw dng raw rwl 3fr fff iiq erf mrw x3f dcr kdc mos heic heif hif bmp gif tif tiff svg avif mp4 m4v mov webm avi mts m2ts mkv 3gp wmv mpg mpeg",

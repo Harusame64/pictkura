@@ -135,8 +135,18 @@ pub const RAW_EXTENSIONS: &[&str] = &[
     "nef", "nrw", // Nikon
     "arw", "srf", "sr2", // Sony
     // `.arq` はカメラではなく PC の Imaging Edge が書く（Pixel Shift の合成結果）。
-    // 4枚から1本、16枚なら4本で、16枚版は約2GBになる——[`FULL_SCAN_LIMIT`] を
-    // 超えるので3段目には入らず、先頭16MBで決まる。手元の実物は α7R III の4枚版1件
+    // 4枚から1本、16枚なら4本。**手元の実物（α7R III の4枚版）で既に325MB**で、
+    // 16枚版は約2GBになる。[`FULL_SCAN_LIMIT`]（128MB）を超えるので
+    // `scannable_whole` が偽になり、**先頭16MBだけで決まる**。
+    //
+    // **そしてそこで外したときは、外したことが記録されない。** 全体を読んでいない
+    // ので `looked.whole_file` が立たず、`PreviewSearch::exhausted` は偽のまま
+    // ＝`thumbs` が `THUMB_STATE_NO_PREVIEW` を書かず、**可視のたびに16MBを読み直す**。
+    // これは `arq` に始まった話ではなく **128MBを超えるRAW全部の性質**で、
+    // 1870件では2件が該当した（Light L16 の383MB・Hasselblad H6D-100c の134MB。
+    // どちらも `絵なし(未確定)`）。`arq` は**その側に落ちるのが普通**の形式なので、
+    // 足すぶんだけ母数が増える。直すなら「探し尽くした」とは別に
+    // 「大きすぎて諦めた」を持たせる話になる（ゲート2・2026-09-04）
     "arq", // Sony（Pixel Shift の合成結果）
     "raf", // Fujifilm
     // `.ori` は別形式ではなく **ORF そのもの**。ハイレゾ撮影で本体が
@@ -1739,8 +1749,9 @@ mod tests {
     /// 一覧に出ない43件のうち22件は「RAW扱いなら絵が出る」側だった。
     /// そのうち `ori` 19件と `arq` 1件だけを足し、**残りは意図して落としている**:
     ///
-    /// - `gpr`（GoPro・17件）・`ari`（Arri Alexa Mini・1件）・`lri`（Light L16・1件）は
-    ///   **足しても出ない**。RAWの6段を通しても絵が1枚も出てこない
+    /// - `gpr`（GoPro・17件）・`ari`（Arri Alexa Mini・1件）・`lri`（Light L16・1件）・
+    ///   `mdc`（Minolta RD 175・1件）は**足しても出ない**。RAWの6段を通しても
+    ///   絵が1枚も出てこないので、足しても一覧に枠が1つ増えるだけになる
     /// - `cam`（Casio QV・1995〜1998）と `sti`（Sinar CaptureShop・開発終了）は
     ///   **1件ずつしか得が無いのに、拡張子が他用途と衝突する**。`cam` は
     ///   Gerber CAM のドリルジョブ・FastCAM・MSN Messenger のウェブカメラ録画、
