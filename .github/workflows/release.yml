@@ -483,7 +483,19 @@ jobs:
             notes_args=(--generate-notes)
           fi
 
-          if ! gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"; then
+          # **下書きで作る。公開は人が押す。**
+          # `docs/assets/download.js` は実行時に `releases/latest` を読んで
+          # ダウンロードのリンクを埋める（HTMLに書いてある版は、取得できなかった
+          # ときのフォールバック）。つまり**公開した瞬間、サイトは新しい版を配り始める**
+          # ——実機で全通しをやっている最中もずっとである。**下書きは
+          # `releases/latest` に出ない**ので、資産だけ先に作って、確かめてから配れる。
+          #
+          # **確かめたら、これで公開する**:
+          #
+          #     gh release edit vX.Y.Z --draft=false
+          #
+          # 押し忘れると誰にも届かない。**タグを押した日のうちに確かめること。**
+          if ! gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"; then
             # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）。
             # **本文も貼り直す**——初回が自動生成に落ちた後でノートを足して回し直した
             # ときに、配布物だけ新しくて本文が古いRelease が残らないように
