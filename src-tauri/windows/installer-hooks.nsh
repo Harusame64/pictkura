@@ -60,6 +60,35 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; **`QuietUninstallString` を自分で書く。** テンプレートが書くのは
+  ; `UninstallString`（`"$INSTDIR\uninstall.exe"`）**だけ**で、画面を出さない方は
+  ; 空のまま（tauri-bundler 2.9.4 の `installer.nsi`。同じ行で `DisplayName` や
+  ; `InstallLocation` は書いている）。
+  ;
+  ; winget は `QuietUninstallString` があればそれを使い、**無ければ
+  ; `UninstallString` をそのまま叩く**。つまり空のままだと
+  ; `winget uninstall pictkura` が**アンインストーラの窓を出す**——
+  ; 無人で消せることは winget の前提なので、ここを埋めるまで載せられない。
+  ;
+  ; **直す先がマニフェストではなくアプリ側**なのは、winget のマニフェストに
+  ; この値を書く欄が無く、**入った先のレジストリを読む**から。
+  ;
+  ; `/S` で本当に消えること自体は実機で確認済み——終了コード0・1.7秒・残骸なし
+  ; （`dev/winget/README.md` の3）。ここでやるのは、その呼び方を登録に置くだけ。
+  ;
+  ; **置き場所**: このフックはテンプレートの登録が済んだ後に走る（`installer.nsi` の
+  ; Section 末尾で、`UninstallString` を書く行より後）。同じキーへ足すだけなので
+  ; 上書きにはならない。**下の `ExecWait` より前に置く**——外部プロセスの呼び出しが
+  ; 転んでも、登録だけは正しくしておきたいため
+  !ifndef UNINSTKEY
+    ; **黙って別のキーへ書かせない。** NSIS は未定義の `${...}` を文字列として
+    ; そのまま通すので、テンプレート側で名前が変わると
+    ; `${UNINSTKEY}` という名前のキーが出来て、**誰も気づかない**。
+    ; 版を上げたときにここで止まるほうがよい
+    !error "UNINSTKEY が未定義。tauri-bundler の installer.nsi で定義名を確かめること"
+  !endif
+  WriteRegStr SHCTX "${UNINSTKEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
+
   ; **入れ終わったら設定に合わせ直す。** 役目は2つ:
   ;
   ; - **MSI版からの乗り換え**で消えた登録を戻す。NSISはMSI版を見つけると先に消すが、
