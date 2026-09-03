@@ -2239,7 +2239,17 @@ export default function App() {
         ask();
         return;
       }
-      if (armed) timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS / 2);
+      if (armed) {
+        timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS / 2);
+        return;
+      }
+      // **止めるなら、答えも捨てる**（ゲート1のP2）。持ったまま止めると、
+      // 「ローカルにある」がいつまでも残る——寿命は読むときにしか見ないので、
+      // 誰も再計算しなければ古い答えのままである。**更新し続けているあいだだけ
+      // 答えを持つ**、という形にすれば、その道は残らない。
+      // 捨てた側の代償は「帯が埋まらない」だけで、開いて困る側へは倒れない
+      bandAnswerAtRef.current = 0;
+      setBandAskableIds((prev) => (prev.size === 0 ? prev : new Set()));
     };
     const ask = () => {
       const mine = ++gen;
