@@ -95,9 +95,23 @@ impl Drop for FullScanPermit {
 /// 「原寸表示に使える」と見なすプレビューの長辺。これを超えたらそこで
 /// 探すのをやめる。下回るときは、もっと大きい絵が無いか次の手を試す。
 ///
-/// 1600にしたのは、下回る実物が **160x120（Nikonの切手）と720x480**
-/// （Ricoh GR IIIのDNGの小プレビュー）で、上回る実物が **3200x2400**（OM-1）
-/// から上に固まっているため。間に候補が無く、どこで切っても同じになる。
+/// **1600のままにしている。ただし当初の根拠は取り下げた。**
+///
+/// 60件で見ていたときは「下回る実物が160x120と720x480、上回る実物が3200x2400
+/// から上に固まっていて、間に候補が無い」と書いていた。**1870件では間が埋まる**
+/// ——閾値を下回った185件の長辺は
+/// `1536px 5 / 1472px 3 / 1440px 7 / 1378px 2 / 1344px 1 / 1295px 2 / 1280px 5 /
+/// 1181px 2 / 1168px 1 / 1088px 1 / 1024px 2 / …` と連続している
+/// （2026-09-04・`dev/plan.raw-matrix.md` 第22節）。**どこで切っても同じ、ではない。**
+///
+/// それでも動かさないのは、下げて拾えるものが小さいのに、外すものが大きいから:
+///
+/// - 1500へ下げて早く止まれるのは **1536px の5件だけ**。しかも表示される絵は
+///   変わらない（どちらでも1536pxが出る）ので、**得られるのは時間だけ**
+/// - 最大の山は **128px の40件**（CHDK製のDNG）で、**閾値では手が届かない**
+/// - 下げると、Nikon型（160x120の切手をTIFFに申告し、原寸JPEGを申告の無い
+///   SubIFDに置く）で**奥の大きい絵を取り逃がす**側に倒れる。未見の機種が
+///   1472pxを申告して奥に原寸を持っていたら、下げたぶんだけ静かに負ける
 pub const USABLE_LONG_EDGE: u32 = 1600;
 
 /// 版番号を直して読むときに、実際にファイルから読む先頭の量。
@@ -120,8 +134,16 @@ pub const RAW_EXTENSIONS: &[&str] = &[
     "cr2", "cr3", "crw", // Canon
     "nef", "nrw", // Nikon
     "arw", "srf", "sr2", // Sony
+    // `.arq` はカメラではなく PC の Imaging Edge が書く（Pixel Shift の合成結果）。
+    // 4枚から1本、16枚なら4本で、16枚版は約2GBになる——[`FULL_SCAN_LIMIT`] を
+    // 超えるので3段目には入らず、先頭16MBで決まる。手元の実物は α7R III の4枚版1件
+    "arq", // Sony（Pixel Shift の合成結果）
     "raf", // Fujifilm
-    "orf", // OM System / Olympus
+    // `.ori` は別形式ではなく **ORF そのもの**。ハイレゾ撮影で本体が
+    // `.ORF`（合成後）・`.ORI`（合成前の等倍1枚目）・`.JPG` の3本をカードに書く。
+    // ExifTool も両者を同じ "Olympus RAW Format" として扱う。**ハイレゾ1枚が
+    // タイル3枚になる**が、カードにある物を黙って隠すほうが悪い（2026-09-04・利用者）
+    "orf", "ori", // OM System / Olympus
     "rw2", // Panasonic
     "pef", "ptx", // Pentax
     "srw", // Samsung
@@ -1701,11 +1723,39 @@ mod tests {
 
     #[test]
     fn recognises_raw_extensions() {
-        for ext in ["CR2", "cr3", "arw", "NEF", "dng", "raf"] {
+        for ext in [
+            "CR2", "cr3", "arw", "NEF", "dng", "raf", "ORI", "ori", "arq",
+        ] {
             assert!(is_raw_extension(ext), "{ext} はRAW");
         }
         for ext in ["jpg", "png", "webp", "mp4", ""] {
             assert!(!is_raw_extension(ext), "{ext} はRAWではない");
+        }
+    }
+
+    /// 足さないと決めた拡張子。**理由まで含めて歯止めにする。**
+    ///
+    /// 1870件の掃引（2026-09-04・`dev/plan.raw-matrix.md` 第22節）で、
+    /// 一覧に出ない43件のうち22件は「RAW扱いなら絵が出る」側だった。
+    /// そのうち `ori` 19件と `arq` 1件だけを足し、**残りは意図して落としている**:
+    ///
+    /// - `gpr`（GoPro・17件）は**足しても出ない**。DNGを名乗るが絵が取れない
+    /// - `cam`（Casio QV・1995〜1998）と `sti`（Sinar CaptureShop・開発終了）は
+    ///   **1件ずつしか得が無いのに、拡張子が他用途と衝突する**。`cam` は
+    ///   Gerber CAM のドリルジョブ・FastCAM・MSN Messenger のウェブカメラ録画、
+    ///   `sti` は StarOffice のプレゼンテンプレートと SampleTank のプリセット。
+    ///   **`DEFAULT_EXTENSIONS` に足すことになるので、それらが写真として並ぶ**
+    ///
+    /// 「試していないから入っていない」と「試したうえで落とした」は違う。
+    /// 消すときは掃引をやり直すか、この理由を否定してから消すこと。
+    #[test]
+    fn deliberately_excluded_extensions_stay_out() {
+        for ext in ["gpr", "cam", "sti", "mdc"] {
+            assert!(!is_raw_extension(ext), "{ext} は足さないと決めた");
+            assert!(
+                !crate::config::DEFAULT_EXTENSIONS.contains(&ext),
+                "{ext} は走査対象にも入れない"
+            );
         }
     }
 

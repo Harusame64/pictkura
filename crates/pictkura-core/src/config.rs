@@ -159,8 +159,9 @@ pub const DEFAULT_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png",
     "webp", // RAW（カメラが書いた表示用JPEGを取り出して扱う）。
     // ここと [`crate::raw::is_raw_extension`] は歯止めのテストで突き合わせている
-    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "pef", "ptx",
-    "srw", "dng", "raw", "rwl", "3fr", "fff", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "mos",
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "arq", "raf", "orf", "ori", "rw2",
+    "pef", "ptx", "srw", "dng", "raw", "rwl", "3fr", "fff", "iiq", "erf", "mrw", "x3f", "dcr",
+    "kdc", "mos",
     // HEIF（iPhoneの既定形式。画素はOSのデコーダで展開する）
     "heic", "heif", "hif",
     // その他のよくある形式。bmp/gif/tiff は image クレートが読み、
