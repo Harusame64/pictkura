@@ -232,7 +232,7 @@ fn bench_raw_matrix(
     }
 
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
-                  exhausted\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms\tpanic\tverdict";
+                  exhausted\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms_min\traw_ms_max\tpanic\tverdict";
 
     // 済んだ行は飛ばす。**追記で開く**ので、途中で切れても書いた分は残る
     // **済んだ行の鍵は `local`（保存名）にする。** sha256 だと、中身が同じで
@@ -325,13 +325,34 @@ fn bench_raw_matrix(
             //    （`thumbs.rs` の `read_exif_inner`）、もう1度呼ぶと
             //    **ファイル全体の走査を2回する**。1800件ぶんのI/Oが倍になるうえ、
             //    `ms` が「2回ぶんの値段」になって回帰の比較に使えなくなる（ゲート1のP2）
+            //    **`ms` と同じ手当てをする。** 1回しか測らないと、直前に
+            //    `read_exif` を `repeat` 回まわしているので**必ずキャッシュが温まった
+            //    状態の値**になる——雑音ではなく**速い側への偏り**で、
+            //    `ms_min` と並べた人は「RAW扱いの道は安い」と読む。
+            //    C-1 の43件を足すかどうかの判断材料がそこなので、
+            //    **足す側に有利な誤読**が起きる（2026-09-03、win の指摘）。
+            //
+            //    値段は問題にならない。ここが回るのは `!is_raw` の行だけ
+            //    ——台帳では **59行・1.3GB**（c1 43 と c2 16）で、1811のRAWは通らない
             let raw_extra = (!is_raw).then(|| {
-                let t2 = Instant::now();
-                let found = pictkura_core::raw::search_embedded_preview(
-                    &path,
-                    pictkura_core::raw::USABLE_LONG_EDGE,
-                );
-                (found, t2.elapsed())
+                let mut spans = Vec::with_capacity(repeat);
+                let mut found = None;
+                for _ in 0..repeat.max(1) {
+                    let one = Instant::now();
+                    found = Some(pictkura_core::raw::search_embedded_preview(
+                        &path,
+                        pictkura_core::raw::USABLE_LONG_EDGE,
+                    ));
+                    spans.push(one.elapsed());
+                }
+                if spans.len() > 1 {
+                    spans.remove(0);
+                }
+                (
+                    found.expect("1回は測っている"),
+                    spans.iter().min().copied().unwrap_or_default(),
+                    spans.iter().max().copied().unwrap_or_default(),
+                )
             });
 
             // 3. **一覧に出る非RAW**（`tif` がこれ）は、埋め込みプレビューを探さず
@@ -379,6 +400,7 @@ fn bench_raw_matrix(
                 ms.clone(),
                 ms,
                 "-".to_string(),
+                "-".to_string(),
                 "1".to_string(),
                 "パニック".to_string(),
             ]);
@@ -387,9 +409,14 @@ fn bench_raw_matrix(
         };
         let ms_min = format!("{:.1}", app_ms.0.as_secs_f64() * 1000.0);
         let ms_max = format!("{:.1}", app_ms.1.as_secs_f64() * 1000.0);
-        let raw_ms = raw_extra.as_ref().map_or_else(
-            || "-".to_string(),
-            |(_, d)| format!("{:.1}", d.as_secs_f64() * 1000.0),
+        let (raw_ms_min, raw_ms_max) = raw_extra.as_ref().map_or_else(
+            || ("-".to_string(), "-".to_string()),
+            |(_, lo, hi)| {
+                (
+                    format!("{:.1}", lo.as_secs_f64() * 1000.0),
+                    format!("{:.1}", hi.as_secs_f64() * 1000.0),
+                )
+            },
         );
 
         let listed = match (listed_scan, pictkura_core::raw::is_raw_extension(ext)) {
@@ -410,13 +437,13 @@ fn bench_raw_matrix(
         } else {
             raw_extra
                 .as_ref()
-                .and_then(|(f, _)| f.preview.as_deref())
+                .and_then(|(f, _, _)| f.preview.as_deref())
                 .and_then(dims)
         };
         let exhausted = if is_raw {
             exif.preview_exhausted
         } else {
-            raw_extra.as_ref().is_some_and(|(f, _)| f.exhausted)
+            raw_extra.as_ref().is_some_and(|(f, _, _)| f.exhausted)
         };
         // プレビュー自身が向きを申告しているか（していれば、その絵は回転前だと
         // カメラが明言している）。二重回転を見抜く材料
@@ -426,7 +453,9 @@ fn bench_raw_matrix(
         let orient_src = if is_raw {
             exif.thumbnail.as_deref()
         } else {
-            raw_extra.as_ref().and_then(|(f, _)| f.preview.as_deref())
+            raw_extra
+                .as_ref()
+                .and_then(|(f, _, _)| f.preview.as_deref())
         };
         let pv_orient = orient_src
             .and_then(|b| {
@@ -496,7 +525,8 @@ fn bench_raw_matrix(
                 .map_or_else(|| "-".to_string(), |v| v.to_string()),
             ms_min,
             ms_max,
-            raw_ms,
+            raw_ms_min,
+            raw_ms_max,
             "0".to_string(),
             verdict.to_string(),
         ];
@@ -512,11 +542,12 @@ fn bench_raw_matrix(
     if repeat <= 1 {
         // 行の継ぎで全角の空白を置くと `-D warnings` に引っかかる（継続の後の
         // 空白として飛ばされない）。2行に分けて出す
-        println!("！ `--repeat 1` の `ms_min`/`ms_max` は同じ値で、回帰の監視には使えない");
+        println!("！ `--repeat 1` の時間の4列（ms_min/ms_max/raw_ms_min/raw_ms_max）は");
+        println!("   それぞれ同じ値で、回帰の監視には使えない");
         println!("   段階F-5 の表と比べるなら `--repeat 7`（1回目を捨てて残り6回の最小〜最大）");
     } else {
         println!(
-            "測り方: {repeat}回まわして1回目を捨て、残り{}回の最小〜最大",
+            "測り方: 時間の4列とも{repeat}回まわして1回目を捨て、残り{}回の最小〜最大",
             repeat - 1
         );
     }
