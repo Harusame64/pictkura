@@ -9,7 +9,8 @@
 # UIのビルドを先に走らせる理由もあのスクリプトのコメントに書いてある。
 #
 # 動かし方は2通り:
-#   - `v0.1.0` のようなタグを push  … Releases に配布物が付く
+#   - `v0.1.0` のようなタグを push  … Releases に**下書き**として配布物が付く
+#     （公開は人が押す: `gh release edit vX.Y.Z --draft=false`。理由は `publish` に）
 #   - 手動実行（workflow_dispatch）  … 成果物だけ作って中身を確かめる
 #
 # **公開は別ジョブ（`publish`）に切り出してある。** 各ビルドジョブが自分で
@@ -495,8 +496,21 @@ jobs:
           #     gh release edit vX.Y.Z --draft=false
           #
           # 押し忘れると誰にも届かない。**タグを押した日のうちに確かめること。**
-          if ! gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"; then
-            # 既にあるなら貼り直す（ビルドに時間がかかるので、公開だけのやり直しを許す）。
+          #
+          # **下書きの配布物は、公開のURLでは落とせない**（認証が要る。素の
+          # `curl` も、リンクを踏んだ人も404）。実機で確かめる側は
+          # `gh release download vX.Y.Z` を使うこと
+          # **「作ってみて、失敗したら貼り直す」ではなく、先に有無を見る。**
+          # タグの重複を GitHub が拒むのは**公開済みのRelease に対してだけ**で、
+          # **同じタグの下書きは何個でも作れる**（下書きはタグを握らない）。
+          # 下書きにしたこの経路で `create` に頼ると、やり直しのたびに
+          # **v0.2.7 の下書きが2つ**でき、`gh release edit --draft=false` は
+          # そのどちらか一方しか掴まない——**古い配布物や古い本文のほうを
+          # 公開しうる**。それは下の貼り直しが防ぐために書かれたものそのものである
+          # （ゲート2の指摘）
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # 既にある（下書きを含む）なら貼り直す。ビルドに時間がかかるので、
+            # 公開だけのやり直しを許す。
             # **本文も貼り直す**——初回が自動生成に落ちた後でノートを足して回し直した
             # ときに、配布物だけ新しくて本文が古いRelease が残らないように
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
@@ -506,4 +520,22 @@ jobs:
             if [ -s "$body" ]; then
               gh release edit "$GITHUB_REF_NAME" --notes-file "$body"
             fi
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"
           fi
+
+          # **やり残しを、人が見る場所に出す。** コメントに書いても Actions の
+          # 画面には出ない。ジョブは緑で終わるので、**下書きのまま忘れられると
+          # 誰にも届かない**（下書きは `releases/latest` に出ないので、サイトは
+          # 古い版を配り続ける。それ自体は安全側だが、気付けないのは別の話）
+          {
+            printf '## まだ公開していません（下書きです）\n\n'
+            printf '実機で確かめてから、これで公開します:\n\n'
+            printf '```\n'
+            printf 'gh release edit %s --draft=false\n' "$GITHUB_REF_NAME"
+            printf '```\n\n'
+            printf '**下書きの配布物は、認証なしでは落とせません**（公開の URL は404）。\n'
+            # バッククォートは `\x60` で書く。素で置くとコマンド置換のつもりと
+            # 見なされて shellcheck の SC2016 が増える（この段の `\x27` と同じ理由）
+            printf '確かめる側は \x60gh release download %s\x60 を使ってください。\n' "$GITHUB_REF_NAME"
+          } >> "$GITHUB_STEP_SUMMARY"
