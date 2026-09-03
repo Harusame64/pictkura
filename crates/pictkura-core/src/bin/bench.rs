@@ -241,7 +241,15 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
 
     for line in rows.lines().skip(1) {
         let f: Vec<&str> = line.split('\t').collect();
-        let (Some(sha), Some(make), Some(model), Some(variant), Some(ext), Some(klass), Some(local)) = (
+        let (
+            Some(sha),
+            Some(make),
+            Some(model),
+            Some(variant),
+            Some(ext),
+            Some(klass),
+            Some(local),
+        ) = (
             f.first(),
             f.get(2),
             f.get(3),
@@ -249,7 +257,8 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
             f.get(5),
             f.get(6),
             f.get(9),
-        ) else {
+        )
+        else {
             continue;
         };
         // 拡張子の判定は `is_raw_extension` も `is_raw_path` も大小を無視する。
