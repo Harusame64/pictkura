@@ -2165,23 +2165,40 @@ export default function App() {
     ids: ReadonlySet<number>;
     at: number;
   }>({ ids: new Set(), at: 0 });
+  /**
+   * 帯に、まだ絵の無い写真が残っているか。
+   *
+   * **埋まりきったら聞き直しを止める**ため（ゲート2の指摘）。答えを使うのは
+   * [`visibleMissingIds`] だけなので、全部 `thumb_state >= 2` になった後の
+   * 聞き直しは**何も決められない**。値段はあり、1回で `get_by_id` と
+   * `symlink_metadata` を24組——しかも**読み取りプールを握ったまま**走るので、
+   * ルートがNAS等だとネットワーク往復のあいだプールを1本止める
+   * （`cloud_only` を一覧のDTOに載せない理由と同じ話）
+   */
+  const bandWantsThumbs = useMemo(
+    () => memories.some((m) => m.item.thumb_state < 2),
+    [memories],
+  );
   useEffect(() => {
-    if (view !== "grid" || filtering || bandIdsKey === "") {
+    if (view !== "grid" || filtering || bandIdsKey === "" || !bandWantsThumbs) {
       setBandAskable({ ids: new Set(), at: 0 });
       return;
     }
-    const ids = bandIdsKey.split(",").map(Number);
+    // 帯は最大24枚なので上限には当たらないが、増やしたときに黙って断られない
+    // ように切る（`cloud_only_media` は上限を超えるとエラーを返す）。
+    // **聞いたぶんだけを答えに使う**（ゲート2の指摘）——切り落とした側を
+    // `ids` のまま濾すと、**聞いてもいないidが「ローカルにある」として通る**。
+    // 帯が24枚を超えた日に、いちばん開いてほしくない側へ倒れる
+    const asked = bandIdsKey.split(",").map(Number).slice(0, CLOUD_ASK_MAX);
     let cancelled = false;
     let timer = 0;
     const ask = () => {
-      // 帯は最大24枚なので上限には当たらないが、増やしたときに黙って断られない
-      // ように切る（`cloud_only_media` は上限を超えるとエラーを返す）
-      cloudOnlyMedia(ids.slice(0, CLOUD_ASK_MAX))
+      cloudOnlyMedia(asked)
         .then((cloud) => {
           if (cancelled) return;
           const drop = new Set(cloud);
           setBandAskable({
-            ids: new Set(ids.filter((id) => !drop.has(id))),
+            ids: new Set(asked.filter((id) => !drop.has(id))),
             at: Date.now(),
           });
         })
@@ -2203,7 +2220,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [bandIdsKey, view, filtering]);
+  }, [bandIdsKey, view, filtering, bandWantsThumbs]);
 
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
   const visibleMissingIds = useMemo(() => {
