@@ -540,6 +540,14 @@ jobs:
               gh release edit "$GITHUB_REF_NAME" --notes-file "$body"
             fi
           elif grep -qi 'not found' "$view_err"; then
+            # **ここが転んだら、この実行の中では直らない**（ゲート2のlow）。
+            # 以前は「`create` が失敗したら貼り直す」形だったので、Release は
+            # 出来たのに配布物の1つが上げ損ねた、という半端な失敗をその場で
+            # 拾い直せた。いまは `create` が `else` の側にあり `set -e` なので、
+            # **5点のうち2〜4点だけ付いた下書きを残してジョブが落ちる**。
+            # 直し方は**この `publish` ジョブを回し直すだけ**——上の枝が
+            # 下書きを見つけて `--clobber` で貼り直す。配布物は成果物として
+            # 残っているので作り直しは要らない
             gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" "${notes_args[@]}" "${files[@]}"
           else
             cat "$view_err" >&2
