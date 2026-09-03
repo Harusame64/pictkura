@@ -166,7 +166,7 @@ fn bench_raw(path: &std::path::Path) {
 
 /// メーカー×機種×変種の総当たりを**機械可読で**吐く（`dev/plan.raw-matrix.md`）。
 ///
-///   bench --raw-matrix <置き場> --ledger dev/raw-matrix.tsv --out <結果.tsv>
+///   bench --raw-matrix <置き場> --ledger dev/raw-matrix.tsv --out <結果.tsv> [--repeat 7]
 ///
 /// 人が読む表は [`bench_raw_dir`] のまま。**こちらは2台の結果を突き合わせるための物**で、
 /// 1行1ファイル・タブ区切りしか出さない。
@@ -181,8 +181,30 @@ fn bench_raw(path: &std::path::Path) {
 ///    受け止めて `panic` 列に印を付け、次の行へ進む。1870件は今までで最大の実物投入で、
 ///    **落ちないことの確認そのものが成果物**である
 ///
-/// 途中で止めてよい。**結果TSVに既にある `sha256` は飛ばす**ので、打ち直せば続く。
-fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::path::Path) {
+/// 途中で止めてよい。**結果TSVに既にある行は飛ばす**ので、打ち直せば続く。
+///
+/// # `ms_min` / `ms_max` を何に使えるか
+///
+/// **`--repeat 1`（既定）の値は、回帰の監視には使えない。** 1件を1回しか測っておらず、
+/// ディスクのキャッシュが冷えているか温まっているかで数倍振れる。使えるのは
+/// 「HEVCの経路を踏んだ行はどれか」の見当までで、そこは10倍の差が出るので
+/// 多少の雑音では消えない。
+///
+/// **段階F-5 の表と比べるなら `--repeat 7`**。あちらは「7回続けて実行し、
+/// **1回目（キャッシュが冷えている）を除いた6回の最小〜最大**」で測っている。
+/// ここも同じにする——`repeat` 回まわし、`repeat > 1` なら**1回目を捨てて**
+/// 残りの最小と最大を書く。1870件で7回まわしても数分で終わる。
+///
+/// **どちらにせよ、入手や他の重い仕事と同時に回した値は捨てること。**
+/// 26GBを落としている最中はディスクとネットワークを掴まれており、その `ms` は
+/// 「入手しながらの台」の値になる。台どうしを比べると「あちらは遅い」の誤報になる
+/// （2026-09-03、win の指摘）。
+fn bench_raw_matrix(
+    dir: &std::path::Path,
+    ledger: &std::path::Path,
+    out: &std::path::Path,
+    repeat: usize,
+) {
     use std::io::Write as _;
 
     /// JPEGバイト列の寸法。**展開しない**（ヘッダだけ読む）
@@ -210,7 +232,7 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
     }
 
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
-                  exhausted\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms\traw_ms\tpanic\tverdict";
+                  exhausted\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms\tpanic\tverdict";
 
     // 済んだ行は飛ばす。**追記で開く**ので、途中で切れても書いた分は残る
     // **済んだ行の鍵は `local`（保存名）にする。** sha256 だと、中身が同じで
@@ -278,10 +300,24 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
         let listed_scan = pictkura_core::config::DEFAULT_EXTENSIONS.contains(&ext.as_str());
         let t = Instant::now();
         let measured = pictkura_core::panics::catching(local, || {
-            // 1. **いまの pictkura が実際に通る道。** ここで測る `ms` は
-            //    アプリが払っている値段そのもので、回帰の監視に使う
-            let exif = pictkura_core::thumbs::read_exif(&path);
-            let app_ms = t.elapsed();
+            // 1. **いまの pictkura が実際に通る道。** ここで測る値が
+            //    アプリが払っている値段そのもので、回帰の監視に使う。
+            //    `repeat > 1` なら**1回目を捨てる**（キャッシュが冷えている）
+            let mut spans = Vec::with_capacity(repeat);
+            let mut exif = None;
+            for _ in 0..repeat.max(1) {
+                let one = Instant::now();
+                exif = Some(pictkura_core::thumbs::read_exif(&path));
+                spans.push(one.elapsed());
+            }
+            if spans.len() > 1 {
+                spans.remove(0);
+            }
+            let exif = exif.expect("1回は測っている");
+            let app_ms = (
+                spans.iter().min().copied().unwrap_or_default(),
+                spans.iter().max().copied().unwrap_or_default(),
+            );
 
             // 2. **RAWでない行だけ**、「RAWとして扱えば出るのか」を追加で測る。
             //    RAWの行で呼び直してはいけない——`read_exif` は中で
@@ -328,7 +364,6 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
 
         let Some((exif, app_ms, raw_extra, decoded)) = measured else {
             panicked += 1;
-            let ms = format!("{:.1}", t.elapsed().as_secs_f64() * 1000.0);
             let mut f = vec![
                 (*sha).to_string(),
                 (*local).to_string(),
@@ -339,11 +374,19 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
                 (*klass).to_string(),
             ];
             f.extend(std::iter::repeat_n("-".to_string(), 10));
-            f.extend([ms, "-".to_string(), "1".to_string(), "パニック".to_string()]);
+            let ms = format!("{:.1}", t.elapsed().as_secs_f64() * 1000.0);
+            f.extend([
+                ms.clone(),
+                ms,
+                "-".to_string(),
+                "1".to_string(),
+                "パニック".to_string(),
+            ]);
             writeln!(sink, "{}", row(header, &f)).unwrap();
             continue;
         };
-        let ms = format!("{:.1}", app_ms.as_secs_f64() * 1000.0);
+        let ms_min = format!("{:.1}", app_ms.0.as_secs_f64() * 1000.0);
+        let ms_max = format!("{:.1}", app_ms.1.as_secs_f64() * 1000.0);
         let raw_ms = raw_extra.as_ref().map_or_else(
             || "-".to_string(),
             |(_, d)| format!("{:.1}", d.as_secs_f64() * 1000.0),
@@ -451,7 +494,8 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
             exif.camera.clone().unwrap_or_else(|| "-".to_string()),
             exif.taken_at_ms
                 .map_or_else(|| "-".to_string(), |v| v.to_string()),
-            ms,
+            ms_min,
+            ms_max,
             raw_ms,
             "0".to_string(),
             verdict.to_string(),
@@ -465,6 +509,17 @@ fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::
     println!("今回測った: {seen} 件（絵が出た {ok} / 出ない {ng} / パニック {panicked}）");
     println!("まだ手元に無い: {absent} 件");
     println!("結果: {}", out.display());
+    if repeat <= 1 {
+        // 行の継ぎで全角の空白を置くと `-D warnings` に引っかかる（継続の後の
+        // 空白として飛ばされない）。2行に分けて出す
+        println!("！ `--repeat 1` の `ms_min`/`ms_max` は同じ値で、回帰の監視には使えない");
+        println!("   段階F-5 の表と比べるなら `--repeat 7`（1回目を捨てて残り6回の最小〜最大）");
+    } else {
+        println!(
+            "測り方: {repeat}回まわして1回目を捨て、残り{}回の最小〜最大",
+            repeat - 1
+        );
+    }
 }
 
 /// フォルダ内のRAWを片端から試し、形式ごとのカバレッジ表を出す（第6部 段階F）。
@@ -1885,10 +1940,14 @@ fn main() {
     if let Some(dir) = arg_value(&args, "--raw-matrix") {
         let ledger = arg_value(&args, "--ledger").unwrap_or_else(|| "dev/raw-matrix.tsv".into());
         let out = arg_value(&args, "--out").expect("--out に結果TSVの書き出し先を指定");
+        let repeat = arg_value(&args, "--repeat")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
         bench_raw_matrix(
             std::path::Path::new(&dir),
             std::path::Path::new(&ledger),
             std::path::Path::new(&out),
+            repeat,
         );
         return;
     }
