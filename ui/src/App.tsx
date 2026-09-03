@@ -2134,9 +2134,21 @@ export default function App() {
     for (const dayKey of wanted) loadDay(dayKey);
   }, [virtualItems, rows, loadDay]);
 
-  /** 帯の顔ぶれ。`memories` は絵が出来るたびに作り直されるので、idの並びで見る */
-  const bandIdsKey = useMemo(
-    () => memories.map((m) => m.item.id).join(","),
+  /**
+   * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
+   * 作り直されるので、配列の同一性では見られない）。
+   *
+   * **顔ぶれ全部ではなく、未生成のぶんだけを鍵にする**（PRのcodexの指摘）。
+   * クラウドのみの写真は**永久に `thumb_state` が 2 にならない**——こちらから
+   * 頼まないのだから当然で、「帯が埋まりきったら止める」では**その1枚のせいで
+   * 止まらない**。プレースホルダが3割あるライブラリでは常時それになる
+   */
+  const bandPendingKey = useMemo(
+    () =>
+      memories
+        .filter((m) => m.item.thumb_state < 2)
+        .map((m) => m.item.id)
+        .join(","),
     [memories],
   );
   /**
@@ -2165,31 +2177,17 @@ export default function App() {
     ids: ReadonlySet<number>;
     at: number;
   }>({ ids: new Set(), at: 0 });
-  /**
-   * 帯に、まだ絵の無い写真が残っているか。
-   *
-   * **埋まりきったら聞き直しを止める**ため（ゲート2の指摘）。答えを使うのは
-   * [`visibleMissingIds`] だけなので、全部 `thumb_state >= 2` になった後の
-   * 聞き直しは**何も決められない**。値段はあり、1回で `get_by_id` と
-   * `symlink_metadata` を24組——しかも**読み取りプールを握ったまま**走るので、
-   * ルートがNAS等だとネットワーク往復のあいだプールを1本止める
-   * （`cloud_only` を一覧のDTOに載せない理由と同じ話）
-   */
-  const bandWantsThumbs = useMemo(
-    () => memories.some((m) => m.item.thumb_state < 2),
-    [memories],
-  );
   useEffect(() => {
-    if (view !== "grid" || filtering || bandIdsKey === "" || !bandWantsThumbs) {
+    if (view !== "grid" || filtering || bandPendingKey === "") {
       setBandAskable({ ids: new Set(), at: 0 });
       return;
     }
     // 帯は最大24枚なので上限には当たらないが、増やしたときに黙って断られない
     // ように切る（`cloud_only_media` は上限を超えるとエラーを返す）。
     // **聞いたぶんだけを答えに使う**（ゲート2の指摘）——切り落とした側を
-    // `ids` のまま濾すと、**聞いてもいないidが「ローカルにある」として通る**。
+    // 鍵のまま濾すと、**聞いてもいないidが「ローカルにある」として通る**。
     // 帯が24枚を超えた日に、いちばん開いてほしくない側へ倒れる
-    const asked = bandIdsKey.split(",").map(Number).slice(0, CLOUD_ASK_MAX);
+    const asked = bandPendingKey.split(",").map(Number).slice(0, CLOUD_ASK_MAX);
     let cancelled = false;
     let timer = 0;
     const ask = () => {
@@ -2197,22 +2195,24 @@ export default function App() {
         .then((cloud) => {
           if (cancelled) return;
           const drop = new Set(cloud);
-          setBandAskable({
-            ids: new Set(asked.filter((id) => !drop.has(id))),
-            at: Date.now(),
-          });
+          const local = asked.filter((id) => !drop.has(id));
+          setBandAskable({ ids: new Set(local), at: Date.now() });
+          // **聞き直すのは「ローカルにある」が残っているあいだだけ。**
+          // 答えには寿命がある（ゲート1のP2）——グリッドを開いたまま置くと
+          // 聞き直す機会が来ず、その間に「空き容量を増やす」が走れば、古い
+          // 「ローカルにある」を信じてプレースホルダを開きに行く。
+          // 逆に**全部クラウドのみなら、こちらからは何も頼まない**ので、
+          // 答えが古びても倒れるのは「絵が出ない」側だけ。**そこで止める**
+          if (local.length > 0) {
+            timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS);
+          }
         })
-        // 聞けなかったら**頼まない**。ここは開いて困る側なので、迷ったら触らない
+        // 聞けなかったら**頼まない**。ここは開いて困る側なので、迷ったら触らない。
+        // 何も頼んでいない状態なので、分かるまで聞き直してよい
         .catch(() => {
-          if (!cancelled) setBandAskable({ ids: new Set(), at: 0 });
-        })
-        // **答えには寿命がある**（ゲート1のP2）。グリッドを開いたまま置くと
-        // 顔ぶれも `view` も変わらないので、聞き直す機会が来ない。その間に
-        // 「空き容量を増やす」が走れば、古い「ローカルにある」を信じて
-        // プレースホルダを開きに行く（LRUでサムネイルが消えた回に効く）。
-        // ビューアの先読みと同じ寿命で聞き直す
-        .finally(() => {
-          if (!cancelled) timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS);
+          if (cancelled) return;
+          setBandAskable({ ids: new Set(), at: 0 });
+          timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS);
         });
     };
     ask();
@@ -2220,7 +2220,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [bandIdsKey, view, filtering, bandWantsThumbs]);
+  }, [bandPendingKey, view, filtering]);
 
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
   const visibleMissingIds = useMemo(() => {
