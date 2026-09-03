@@ -173,6 +173,21 @@ const CLOUD_ASK_MAX = 64;
  */
 const CLOUD_ANSWER_TTL_MS = 20_000;
 /**
+ * 帯のクラウド判定を、**進みの無いまま聞き直してよい回数**。
+ *
+ * 聞き直しは「ローカルにある」が残っているあいだ回るが、**絵の出ない写真は
+ * いつまでも残る**。`thumbs.rs` は `MAX_FAILURES` で諦め、そのとき
+ * `thumb_state` は 0 のまま——**壊れた1枚が帯に居ると、セッション中ずっと
+ * 20秒ごとに属性読みが走る**（ゲート2の指摘）。日付が動いた行も同じ形になる
+ * （`media-updated` の patch は `day_key` が一致する行にしか当たらない）。
+ *
+ * **進みがあれば `bandPendingKey` が変わり、この effect は作り直される**。
+ * つまり**作り直されないまま N 回**は「もう何も来ない」と同義でよい。
+ * 半分の間隔で回すので、30回でおよそ5分。帯はキューの先頭に積まれ、
+ * 実測では36秒で埋まっている（`plan.md` 2026-09-03）ので、十分に長い
+ */
+const BAND_CLOUD_MAX_ROUNDS = 30;
+/**
  * 仕掛かり中の詰め直しの画素を手放したとき、印を降ろすまでの待ち。
  * 変換の終わりが観測できなくなるので、時間で見切る（詰め直しは1枚0.6〜1秒。
  * mozjpeg化の前は最大1.1秒だったので、この4秒には余裕がある）
@@ -2134,19 +2149,211 @@ export default function App() {
     for (const dayKey of wanted) loadDay(dayKey);
   }, [virtualItems, rows, loadDay]);
 
+  /**
+   * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
+   * 作り直されるので、配列の同一性では見られない）。
+   *
+   * **顔ぶれ全部ではなく、未生成のぶんだけを鍵にする**（PRのcodexの指摘）。
+   * クラウドのみの写真は**永久に `thumb_state` が 2 にならない**——こちらから
+   * 頼まないのだから当然で、「帯が埋まりきったら止める」では**その1枚のせいで
+   * 止まらない**。プレースホルダが3割あるライブラリでは常時それになる
+   */
+  const bandPendingKey = useMemo(
+    () =>
+      memories
+        .filter((m) => m.item.thumb_state < 2)
+        .map((m) => m.item.id)
+        .join(","),
+    [memories],
+  );
+  /**
+   * 帯のうち、**優先要求に載せてよいid**（実体がローカルにあるもの）。
+   *
+   * 生成の門は「自動パスではクラウドのみを開かない、**可視要求なら開く**」
+   * （`thumbs.rs` の `want_final`）。帯を可視要求に載せると、
+   * **「3年前の今日」＝いちばん実体が退避されやすい写真**を取りに行くことになる。
+   * しかも帯はグリッドを開けば**勝手に出る**もので、利用者がスクロールして
+   * 辿り着いたセルとは違う。ビューアの先読みと同じ理由で、クラウドのみは外す。
+   * 判定（`cloud_only_media`）は属性を読むだけで、ダウンロードは起こさない。
+   *
+   * **答えが返るまでは頼まない**（空集合）。分からないものを頼む側へ倒すと、
+   * 起動直後の一瞬だけ門が開く。帯を出していないときも聞かない——見えない絵の
+   * ために属性読みを撒かないためで、**グリッドへ戻るたびに聞き直す**ことにもなる。
+   * 開いたまま置かれた場合も [`CLOUD_ANSWER_TTL_MS`] で聞き直す——OneDriveの
+   * 「空き容量を増やす」は更新日時も大きさも変えないので、古い「ローカルにある」を
+   * 信じ続けると、そのままダウンロードを起こしうる。
+   *
+   * **聞き直しの最中も、古い答えは使わない**（ゲート1のP2）。答えに `at` を
+   * 添えて、**読むときに寿命を見る**（ビューアの `cloudAnswer` と同じ形）。
+   * 聞き直しのたびに空へ落とす手もあるが、それだと20秒ごとに帯のidが
+   * 出たり消えたりして、優先要求が揺れる。**古ければその場で使わない**が素直
+   */
+  const [bandAskableIds, setBandAskableIds] = useState<ReadonlySet<number>>(
+    new Set(),
+  );
+  /**
+   * 直近の答えが**返った時刻**。状態ではなく ref に置く（ゲート2の指摘）。
+   *
+   * 状態に混ぜると、**中身が同じでも聞き直すたびに新しいオブジェクトになり**、
+   * [`visibleMissingIds`] が作り直されて**可視領域の全idを送り直す**——
+   * 利用者が何もしていないのに、20秒ごとに `get_by_id` が100件超。
+   * 時刻は**読むときにしか要らない**ので、再計算を誘発しない置き場が正しい
+   */
+  const bandAnswerAtRef = useRef(0);
+  /** 同じ顔ぶれなら**同じオブジェクトを返す**（先読みの `apply()` と同じ形） */
+  const sameIds = (prev: ReadonlySet<number>, next: number[]) =>
+    prev.size === next.length && next.every((id) => prev.has(id));
+  useEffect(() => {
+    if (view !== "grid" || filtering || bandPendingKey === "") {
+      bandAnswerAtRef.current = 0;
+      setBandAskableIds((prev) => (prev.size === 0 ? prev : new Set()));
+      return;
+    }
+    // 帯は最大24枚なので上限には当たらないが、増やしたときに黙って断られない
+    // ように切る（`cloud_only_media` は上限を超えるとエラーを返す）。
+    // **聞いたぶんだけを答えに使う**（ゲート2の指摘）——切り落とした側を
+    // 鍵のまま濾すと、**聞いてもいないidが「ローカルにある」として通る**。
+    // 帯が24枚を超えた日に、いちばん開いてほしくない側へ倒れる
+    const asked = bandPendingKey.split(",").map(Number).slice(0, CLOUD_ASK_MAX);
+    let cancelled = false;
+    let timer = 0;
+    // **走ってよい問い合わせは常に1本**（ゲート1の指摘）。`focus` が飛行中に
+    // 来ると、時計を止めても**答えを待っている側は生きている**ので、両方が
+    // それぞれ次の時計を仕掛けて**ループが二重になる**（`timer` は片方しか
+    // 掴めないので、後片付けでも止められない）。古い答えが新しい答えを
+    // 上書きする道も同じところから来る
+    let gen = 0;
+    let inFlight = false;
+    let rounds = 0;
+    // **飛行中に来た焦点は、捨てずに積む**（ゲート2の指摘）。「待っている答えが
+    // ループを続けるはず」は成り立たない——**その答えこそがループを止める**回が
+    // ある（全部クラウドのみ、あるいは回数の上限）。しかもその答えは、
+    // 利用者が実体を落とす**前**に読んだ属性で出来ている。取りこぼすと、
+    // まさにこのリスナーが在る理由の場面で、帯が最後まで四角のまま残る
+    let wantRestart = false;
+    /** 答えが返った後の仕切り直し。焦点が待っていればそちらを優先する */
+    const rearm = (armed: boolean) => {
+      if (wantRestart) {
+        wantRestart = false;
+        rounds = 0;
+        ask();
+        return;
+      }
+      if (armed) {
+        timer = window.setTimeout(ask, CLOUD_ANSWER_TTL_MS / 2);
+        return;
+      }
+      // **止めるなら、答えも捨てる**（ゲート1のP2）。持ったまま止めると、
+      // 「ローカルにある」がいつまでも残る——寿命は読むときにしか見ないので、
+      // 誰も再計算しなければ古い答えのままである。**更新し続けているあいだだけ
+      // 答えを持つ**、という形にすれば、その道は残らない。
+      // 捨てた側の代償は「帯が埋まらない」だけで、開いて困る側へは倒れない
+      bandAnswerAtRef.current = 0;
+      setBandAskableIds((prev) => (prev.size === 0 ? prev : new Set()));
+    };
+    const ask = () => {
+      const mine = ++gen;
+      inFlight = true;
+      cloudOnlyMedia(asked)
+        .then((cloud) => {
+          inFlight = false;
+          if (cancelled || mine !== gen) return;
+          const drop = new Set(cloud);
+          const local = asked.filter((id) => !drop.has(id));
+          // **古びたまま同じ答えが返ったら、作り直して再計算を起こす**（ゲート2の指摘）。
+          // 同じ顔ぶれで `prev` を返すと React は描き直さず、[`visibleMissingIds`] の
+          // memo も依存が変わらないので**寿命を読み直さない**。往復が寿命を越えた回に
+          // 画面が動いていると、**帯を外したまま固まる**——ref の時刻だけ新しくなって、
+          // 誰もそれを見ない。**古びていた回だけ**新しい集合にすればよく、
+          // 間に合っている普段は `prev` のままで揺れない
+          const wasStale =
+            Date.now() - bandAnswerAtRef.current > CLOUD_ANSWER_TTL_MS;
+          bandAnswerAtRef.current = Date.now();
+          setBandAskableIds((prev) =>
+            !wasStale && sameIds(prev, local) ? prev : new Set(local),
+          );
+          // **聞き直すのは「ローカルにある」が残っているあいだだけ。**
+          // 答えには寿命がある（ゲート1のP2）——グリッドを開いたまま置くと
+          // 聞き直す機会が来ず、その間に「空き容量を増やす」が走れば、古い
+          // 「ローカルにある」を信じてプレースホルダを開きに行く。
+          // 逆に**全部クラウドのみなら、こちらからは何も頼まない**ので、
+          // 答えが古びても倒れるのは「絵が出ない」側だけ。**そこで止める**
+          // **寿命より短い間隔で聞き直す**（ゲート2の指摘）。同じ長さだと、
+          // 聞き直しの往復のあいだ必ず古い扱いになり、その隙に画面が動くと
+          // 帯を外したまま `set_visible_priority` を投げる——`prioritize` は
+          // 渡したidで先頭を作り直すので、**帯がグリッドの後ろへ落ちて、
+          // 次の答えでまた前に出る**。半分にすれば途切れない
+          rearm(local.length > 0 && ++rounds < BAND_CLOUD_MAX_ROUNDS);
+        })
+        // 聞けなかったら**頼まない**。ここは開いて困る側なので、迷ったら触らない。
+        // 何も頼んでいない状態なので、分かるまで聞き直してよい
+        .catch(() => {
+          inFlight = false;
+          if (cancelled || mine !== gen) return;
+          bandAnswerAtRef.current = 0;
+          setBandAskableIds((prev) => (prev.size === 0 ? prev : new Set()));
+          rearm(++rounds < BAND_CLOUD_MAX_ROUNDS);
+        });
+    };
+    ask();
+    // **止めたぶんは、窓に戻ってきたときに聞き直す。**
+    // 全部クラウドのみで時計を止めると、利用者がエクスプローラ側で実体を
+    // 落としてきても気づけない（実体化は更新日時も大きさも変えないので
+    // `library-updated` も出ない）。**手で落としてきた人は、必ずアプリへ戻ってくる**
+    // ——そこが自然な聞き直しの機会で、放っておくあいだの値段は0
+    const onFocus = () => {
+      // **飛行中なら何もしない**（ゲート2の指摘）。焦点は連打されうる
+      // （alt+tab、OSのダイアログが閉じた跳ね返り）。そのたびに世代を進めると
+      // **どの答えも着地する前に捨てられ**、`at` が古いまま帯が要求から落ちる。
+      // 待っている答えはもう返ってくるので、任せればよい
+      if (inFlight) {
+        wantRestart = true;
+        return;
+      }
+      window.clearTimeout(timer);
+      rounds = 0;
+      ask();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [bandPendingKey, view, filtering]);
+
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
   const visibleMissingIds = useMemo(() => {
     const ids: number[] = [];
+    const seen = new Set<number>();
+    // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
+    const want = (item: MediaItem) => {
+      if (item.thumb_state >= 2 || seen.has(item.id)) return;
+      seen.add(item.id);
+      ids.push(item.id);
+    };
+    // **帯は `rows` に居ない。** 「3年前の今日」は `memories` として別に描いて
+    // いるので、下の `rows` を歩くだけでは生成を頼まないまま**灰色の四角が残る**。
+    // 段階B-3 で全件の事前生成をやめてから、帯だけが誰にも頼まれていなかった。
+    // `prioritize` は引数順を保つので、画面のいちばん上にある帯を先に積む。
+    // 出す条件は描画側と揃える——出していない帯の生成を頼むと、見えない絵に
+    // キューを使う（`filtering` 中は帯そのものを隠している）。
+    // **クラウドにしか実体が無いものは外す**（[`bandAskableIds`]。頼めば落ちてくる）。
+    // 答えが古ければ、聞き直しが返るまで**帯には何も頼まない**
+    const bandFresh =
+      Date.now() - bandAnswerAtRef.current <= CLOUD_ANSWER_TTL_MS;
+    if (view === "grid" && !filtering && bandFresh) {
+      for (const m of memories) {
+        if (bandAskableIds.has(m.item.id)) want(m.item);
+      }
+    }
     for (const vr of virtualItems) {
       const row = rows[vr.index];
       if (row?.kind !== "cells") continue;
-      for (const cell of row.cells) {
-        // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
-        if (cell.item.thumb_state < 2) ids.push(cell.item.id);
-      }
+      for (const cell of row.cells) want(cell.item);
     }
     return ids;
-  }, [virtualItems, rows]);
+  }, [virtualItems, rows, memories, view, filtering, bandAskableIds]);
   useEffect(() => {
     if (visibleMissingIds.length === 0) return;
     const t = window.setTimeout(() => {
