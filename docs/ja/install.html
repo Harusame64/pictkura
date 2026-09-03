@@ -152,10 +152,10 @@
       <h3 id="defender">2.5 &nbsp;Defender の隔離は解決しました（2026-09-03）</h3>
       <p>0.2.6 の <code class="mono">pictkura.exe</code> が <code class="mono">Trojan:Win32/Bearfoos.A!ml</code> として隔離される例がありました。末尾の <code class="mono">!ml</code> は<strong class="em">機械学習による推定</strong>で、中身を特定の脅威と照合した結果ではなく、署名の無い実行ファイルに出やすい判定です。<strong class="em">2026-09-02</strong> に Microsoft へ誤検知として報告し、<strong class="em">翌 2026-09-03 に検出が取り下げられました</strong>——マルウェアの基準を満たさない、という回答です。</p>
       <p>ただし<strong class="em">定義が古いままの機械では、まだ隔離されることがあります</strong>。Microsoft の案内は、キャッシュされた検出を捨てて定義を取り直すことです。<strong class="em">管理者として実行した</strong>コマンドプロンプトで:</p>
-      <pre class="cmd" tabindex="0" role="region" aria-label="キャッシュされた検出を消して定義を更新するコマンド">cd "c:\Program Files\Windows Defender"
+      <pre class="cmd" tabindex="0" role="region" aria-label="キャッシュされた検出を消して定義を更新するコマンド">cd /d "c:\Program Files\Windows Defender"
 MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate</pre>
-      <p style="margin-top:14px">上は<strong class="em">コマンドプロンプト</strong>（<code class="mono">cmd.exe</code>）の書き方で、つまずきどころが2つあります。<strong class="em">別のドライブに居るときは <code class="mono">cd</code> でドライブを跨げません</strong>——<code class="mono">cd /d</code> と書いてください。PowerShell の場合は現在のディレクトリを探しに行かないので、2行目と3行目を <code class="mono">.\MpCmdRun.exe</code> と書きます。</p>
+      <p style="margin-top:14px">上は<strong class="em">コマンドプロンプト</strong>（<code class="mono">cmd.exe</code>）の書き方です。<code class="mono">/d</code> は、<strong class="em">別のドライブに居るときに <code class="mono">cd</code> が <code class="mono">C:</code> へ渡る</strong>ために要ります。<strong class="em">PowerShell では <code class="mono">/d</code> を外し</strong>、残り2行を <code class="mono">.\MpCmdRun.exe</code> と書いてください（現在のディレクトリを探しに行かないため）。</p>
       <p style="margin-top:14px">定義を更新すれば検出は止まりますが、<strong class="em">すでに持っていかれたファイルは戻りません</strong>。<strong class="em">定義を新しくしたうえで pictkura を入れ直せば、実体が戻ります</strong>——これが一番早い方法です（<em>先に</em>入れ直しても、入れ直したものがまた持っていかれます）。隔離された分は、Windows セキュリティの<b>保護の履歴</b>にも残っています。</p>
       <p style="margin-top:14px">経緯と、落としたファイルの確かめ方は <a href="https://github.com/Harusame64/pictkura/issues/105">issue #105</a> にまとめてあります。</p>
     </section>

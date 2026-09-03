@@ -129,15 +129,14 @@ pictkura は **Windows のコード署名を受けていません**（証明書�
 プロンプトで:
 
 ```
-cd "c:\Program Files\Windows Defender"
+cd /d "c:\Program Files\Windows Defender"
 MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate
 ```
 
-上は**コマンドプロンプト**（`cmd.exe`）の書き方で、つまずきどころが2つあります。
-**別のドライブに居るときは `cd` でドライブを跨げません**——`cd /d` と書いてください。
-PowerShell の場合は現在のディレクトリを探しに行かないので、2行目と3行目を
-`.\MpCmdRun.exe` と書きます。
+上は**コマンドプロンプト**（`cmd.exe`）の書き方です。`/d` は、**別のドライブに居るときに
+`cd` が `C:` へ渡る**ために要ります。**PowerShell では `/d` を外し**、残り2行を
+`.\MpCmdRun.exe` と書いてください（現在のディレクトリを探しに行かないため）。
 
 定義を更新すれば検出は止まりますが、**すでに持っていかれたファイルは戻りません**。
 **定義を新しくしたうえで pictkura を入れ直せば、実体が戻ります**——これが一番早い方法です

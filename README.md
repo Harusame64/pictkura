@@ -122,15 +122,14 @@ the file does not meet their criteria for malware. A machine whose definitions a
 can go on quarantining it; from a command prompt **run as administrator**:
 
 ```
-cd "c:\Program Files\Windows Defender"
+cd /d "c:\Program Files\Windows Defender"
 MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate
 ```
 
-Those lines are for the **Command Prompt** (`cmd.exe`), and two things can trip them up: if
-your prompt is on another drive, `cd` will not cross to `C:` unless you write `cd /d`; and in
-PowerShell, which does not look in the current directory, the last two lines need
-`.\MpCmdRun.exe`.
+The block is for the **Command Prompt** (`cmd.exe`). The `/d` is what makes `cd` cross to
+`C:` when your prompt is sitting on another drive. **In PowerShell, drop the `/d`** and write
+`.\MpCmdRun.exe` on the other two lines — PowerShell does not look in the current directory.
 
 Updating the definitions stops the detection, but it does **not bring back a file that was
 already taken**. Once the definitions are current, **installing pictkura again puts it back** — that is the
