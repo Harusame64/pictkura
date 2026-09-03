@@ -232,7 +232,7 @@ fn bench_raw_matrix(
     }
 
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
-                  exhausted\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms_min\traw_ms_max\tpanic\tverdict";
+                  exhausted\tdecodable\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms_min\traw_ms_max\tpanic\tverdict";
 
     // 済んだ行は飛ばす。**追記で開く**ので、途中で切れても書いた分は残る
     // **済んだ行の鍵は `local`（保存名）にする。** sha256 だと、中身が同じで
@@ -305,9 +305,32 @@ fn bench_raw_matrix(
             //    `repeat > 1` なら**1回目を捨てる**（キャッシュが冷えている）
             let mut spans = Vec::with_capacity(repeat);
             let mut exif = None;
+            let mut decoded = None;
             for _ in 0..repeat.max(1) {
                 let one = Instant::now();
                 exif = Some(pictkura_core::thumbs::read_exif(&path));
+                // **一覧に出る非RAW**（`tif` がこれ）は、`read_exif` だけでは画面に出ない。
+                // 埋め込みプレビューを探さず `image` が原寸を展開する道に落ちる
+                // （`thumbs::display_jpeg` のTIFFの枝）。**詰め直しまで含めて初めて
+                // アプリが払っている値段**になる——外に出しておくと、
+                // 一番高い部分（100MPのセンサーTIFFの展開）が `ms` から抜ける
+                // （PRのcodex P2）
+                if !is_raw && listed_scan {
+                    decoded = Some(if pictkura_core::thumbs::needs_display_transcode(&path) {
+                        // **`image::open` を直に呼んではいけない**——HEIFはOSのデコーダを
+                        // 通す枝が先にあり、imageクレートはHEIFを持たない。
+                        // **TIFFはここで4096へ丸められる**（それが実際に配信される寸法）
+                        pictkura_core::thumbs::display_jpeg(&path)
+                            .as_deref()
+                            .and_then(dims)
+                    } else {
+                        // 詰め直さない形式は原本がそのままブラウザへ行く。寸法だけ読む
+                        image::ImageReader::open(&path)
+                            .ok()
+                            .and_then(|r| r.with_guessed_format().ok())
+                            .and_then(|r| r.into_dimensions().ok())
+                    });
+                }
                 spans.push(one.elapsed());
             }
             if spans.len() > 1 {
@@ -355,30 +378,7 @@ fn bench_raw_matrix(
                 )
             });
 
-            // 3. **一覧に出る非RAW**（`tif` がこれ）は、埋め込みプレビューを探さず
-            //    `image` が原寸を展開する道に落ちる（`thumbs::display_jpeg` のTIFFの枝）。
-            //    そこを測らないと**C-2の答えにならない**——EXIFのサムネイルだけ見て
-            //    「絵が無い」と書くと、アプリでは開けている行を落ちた側に数える（ゲート1のP1）
-            let decoded = (!is_raw && listed_scan)
-                .then(|| {
-                    if pictkura_core::thumbs::needs_display_transcode(&path) {
-                        // 詰め直す形式（TIFF・HEIF）。**`image::open` を直に呼んではいけない**
-                        // ——HEIFはOSのデコーダを通す枝が先にあり、imageクレートは
-                        // HEIFを持たない（`Cargo.toml` の features は jpeg/png/webp/bmp/gif/tiff）。
-                        // 直打ちすると、アプリでは開けている `.hif` が「開けない」に落ちる（ゲート2）。
-                        // **TIFFはここで4096へ丸められる**——それが実際に配信される寸法
-                        pictkura_core::thumbs::display_jpeg(&path)
-                            .as_deref()
-                            .and_then(dims)
-                    } else {
-                        // 詰め直さない形式は原本がそのままブラウザへ行く。寸法だけ読む
-                        image::ImageReader::open(&path)
-                            .ok()
-                            .and_then(|r| r.with_guessed_format().ok())
-                            .and_then(|r| r.into_dimensions().ok())
-                    }
-                })
-                .flatten();
+            let decoded = decoded.flatten();
 
             (exif, app_ms, raw_extra, decoded)
         });
@@ -394,7 +394,7 @@ fn bench_raw_matrix(
                 (*ext).to_string(),
                 (*klass).to_string(),
             ];
-            f.extend(std::iter::repeat_n("-".to_string(), 10));
+            f.extend(std::iter::repeat_n("-".to_string(), 11));
             let ms = format!("{:.1}", t.elapsed().as_secs_f64() * 1000.0);
             f.extend([
                 ms.clone(),
@@ -423,6 +423,23 @@ fn bench_raw_matrix(
             (true, true) => "scan+raw",
             (true, false) => "scan",
             _ => "-",
+        };
+        // **寸法が読めることと、絵になることは別。** ヘッダだけ見ると、
+        // エントロピー符号が壊れたJPEGも「絵がある」で通る。アプリは実際に展開する
+        // （サムネイル生成も、向きが1でないときの `raw_display_jpeg` も）ので、
+        // 出せない絵を `OK` と書くことになる。既存の `--raw-dir` は
+        // `image::load_from_memory` で**展開まで確かめている**ので、
+        // こちらが弱いままだと証拠の質が落ちる（PRのcodex P2）。
+        //
+        // **繰り返しの外で1回だけ**測る（`ms` に入れない——アプリはプレビューを
+        // 出すときに展開するが、`read_exif` の値段ではない）。非RAWの行は
+        // `decoded` が既に本物の展開を通っているので、そちらを使う
+        let decodable = if is_raw {
+            exif.thumbnail
+                .as_deref()
+                .map(|b| image::load_from_memory(b).is_ok())
+        } else {
+            decoded.map(|_| true)
         };
         // **アプリが実際に画面へ出せる絵。** RAWは埋め込みプレビュー、
         // それ以外は `image` が展開した原寸
@@ -485,7 +502,10 @@ fn bench_raw_matrix(
                 (false, false) => "開けない",
             }
         } else if let Some((w, h)) = app_pv {
-            if w.max(h) < pictkura_core::raw::USABLE_LONG_EDGE {
+            if decodable == Some(false) {
+                // 寸法は読めたが展開できない。**アプリでは出ない**
+                "寸法は読めるが絵にならない"
+            } else if w.max(h) < pictkura_core::raw::USABLE_LONG_EDGE {
                 "小さい"
             } else if exif.camera.is_none() || exif.taken_at_ms.is_none() {
                 "絵は出るが素性が欠ける"
@@ -516,6 +536,7 @@ fn bench_raw_matrix(
             wh(app_pv),
             wh(raw_pv),
             u8::from(exhausted).to_string(),
+            decodable.map_or_else(|| "-".to_string(), |d| u8::from(d).to_string()),
             pv_orient,
             exif.orientation.to_string(),
             exif.original
