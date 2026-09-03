@@ -164,6 +164,300 @@ fn bench_raw(path: &std::path::Path) {
     );
 }
 
+/// メーカー×機種×変種の総当たりを**機械可読で**吐く（`dev/plan.raw-matrix.md`）。
+///
+///   bench --raw-matrix <置き場> --ledger dev/raw-matrix.tsv --out <結果.tsv>
+///
+/// 人が読む表は [`bench_raw_dir`] のまま。**こちらは2台の結果を突き合わせるための物**で、
+/// 1行1ファイル・タブ区切りしか出さない。
+///
+/// **`--raw-dir` との違いは3つ**:
+///
+/// 1. **組み合わせの名前を持つ**（メーカー・機種・変種）。ファイル名からは復元できない
+/// 2. **「いまどうなるか」と「RAWとして扱えばどうなるか」を分けて書く。**
+///    `.ori` や `.tif` は `RAW_EXTENSIONS` に無いので、いまは6段の探索を1段も通らない。
+///    両方書けば「足せば出る」のか「足しても出ない」のかが**測ってから**言える
+/// 3. **1件の失敗で掃引を止めない。** 落ちても [`pictkura_core::panics::catching`] が
+///    受け止めて `panic` 列に印を付け、次の行へ進む。1870件は今までで最大の実物投入で、
+///    **落ちないことの確認そのものが成果物**である
+///
+/// 途中で止めてよい。**結果TSVに既にある `sha256` は飛ばす**ので、打ち直せば続く。
+fn bench_raw_matrix(dir: &std::path::Path, ledger: &std::path::Path, out: &std::path::Path) {
+    use std::io::Write as _;
+
+    /// JPEGバイト列の寸法。**展開しない**（ヘッダだけ読む）
+    fn dims(bytes: &[u8]) -> Option<(u32, u32)> {
+        image::ImageReader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()
+            .and_then(|r| r.into_dimensions().ok())
+    }
+    fn wh(d: Option<(u32, u32)>) -> String {
+        d.map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}"))
+    }
+    /// 1行に組む。**見出しと列数が合わなければその場で落とす。**
+    ///
+    /// 列を足したのに見出しを直し忘れると、TSVは**黙って**ずれる。読む側
+    /// （`merge.py`）は列名で引くので、ずれたまま「そういう値だった」と通る。
+    /// 実際に19列の見出しへ20列を書いていた（ゲート1で列を1つ足した直後）
+    fn row(header: &str, fields: &[String]) -> String {
+        assert_eq!(
+            fields.len(),
+            header.split('\t').count(),
+            "列数が見出しと合わない"
+        );
+        fields.join("\t")
+    }
+
+    let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
+                  exhausted\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms\traw_ms\tpanic\tverdict";
+
+    // 済んだ行は飛ばす。**追記で開く**ので、途中で切れても書いた分は残る
+    // **済んだ行の鍵は `local`（保存名）にする。** sha256 だと、中身が同じで
+    // 名前だけ違う行（変種の付け替え）が来たときに**2行目以降が黙って落ちる**
+    // ——止めずに回した台と、途中で再開した台で行数が食い違う（ゲート2）
+    let already: std::collections::HashSet<String> = std::fs::read_to_string(out)
+        .unwrap_or_default()
+        .lines()
+        .skip(1)
+        .filter_map(|l| l.split('\t').nth(1).map(str::to_string))
+        .collect();
+    // **「行が無い」と「ファイルが無い」は違う。** 見出しを書いた直後に切られると
+    // 行は0のままで、`already.is_empty()` で判ると**見出しをもう1行足す**。
+    // `merge.py` は列名で引くので、その行は `sha256` という値のデータ行として通る
+    let fresh = std::fs::metadata(out).map_or(true, |m| m.len() == 0);
+    let mut sink = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out)
+        .expect("結果TSVを開けない");
+    if fresh {
+        writeln!(sink, "{header}").unwrap();
+    }
+
+    let rows = std::fs::read_to_string(ledger).expect("台帳を読めない");
+    let mut seen = 0usize;
+    let (mut ok, mut ng, mut absent, mut panicked) = (0usize, 0usize, 0usize, 0usize);
+
+    for line in rows.lines().skip(1) {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (Some(sha), Some(make), Some(model), Some(variant), Some(ext), Some(klass), Some(local)) = (
+            f.first(),
+            f.get(2),
+            f.get(3),
+            f.get(4),
+            f.get(5),
+            f.get(6),
+            f.get(9),
+        ) else {
+            continue;
+        };
+        // 拡張子の判定は `is_raw_extension` も `is_raw_path` も大小を無視する。
+        // ここだけ厳密一致だと、`CR2` の行が「一覧外」に落ちる（ゲート2）
+        let ext = &ext.to_ascii_lowercase();
+        let path = dir.join(local);
+        if !path.exists() {
+            absent += 1;
+            continue;
+        }
+        if already.contains(*local) {
+            continue;
+        }
+        seen += 1;
+
+        let is_raw = pictkura_core::raw::is_raw_path(&path);
+        let listed_scan = pictkura_core::config::DEFAULT_EXTENSIONS.contains(&ext.as_str());
+        let t = Instant::now();
+        let measured = pictkura_core::panics::catching(local, || {
+            // 1. **いまの pictkura が実際に通る道。** ここで測る `ms` は
+            //    アプリが払っている値段そのもので、回帰の監視に使う
+            let exif = pictkura_core::thumbs::read_exif(&path);
+            let app_ms = t.elapsed();
+
+            // 2. **RAWでない行だけ**、「RAWとして扱えば出るのか」を追加で測る。
+            //    RAWの行で呼び直してはいけない——`read_exif` は中で
+            //    `search_embedded_preview` を同じ長辺で走らせており
+            //    （`thumbs.rs` の `read_exif_inner`）、もう1度呼ぶと
+            //    **ファイル全体の走査を2回する**。1800件ぶんのI/Oが倍になるうえ、
+            //    `ms` が「2回ぶんの値段」になって回帰の比較に使えなくなる（ゲート1のP2）
+            let raw_extra = (!is_raw).then(|| {
+                let t2 = Instant::now();
+                let found = pictkura_core::raw::search_embedded_preview(
+                    &path,
+                    pictkura_core::raw::USABLE_LONG_EDGE,
+                );
+                (found, t2.elapsed())
+            });
+
+            // 3. **一覧に出る非RAW**（`tif` がこれ）は、埋め込みプレビューを探さず
+            //    `image` が原寸を展開する道に落ちる（`thumbs::display_jpeg` のTIFFの枝）。
+            //    そこを測らないと**C-2の答えにならない**——EXIFのサムネイルだけ見て
+            //    「絵が無い」と書くと、アプリでは開けている行を落ちた側に数える（ゲート1のP1）
+            let decoded = (!is_raw && listed_scan)
+                .then(|| {
+                    if pictkura_core::thumbs::needs_display_transcode(&path) {
+                        // 詰め直す形式（TIFF・HEIF）。**`image::open` を直に呼んではいけない**
+                        // ——HEIFはOSのデコーダを通す枝が先にあり、imageクレートは
+                        // HEIFを持たない（`Cargo.toml` の features は jpeg/png/webp/bmp/gif/tiff）。
+                        // 直打ちすると、アプリでは開けている `.hif` が「開けない」に落ちる（ゲート2）。
+                        // **TIFFはここで4096へ丸められる**——それが実際に配信される寸法
+                        pictkura_core::thumbs::display_jpeg(&path)
+                            .as_deref()
+                            .and_then(dims)
+                    } else {
+                        // 詰め直さない形式は原本がそのままブラウザへ行く。寸法だけ読む
+                        image::ImageReader::open(&path)
+                            .ok()
+                            .and_then(|r| r.with_guessed_format().ok())
+                            .and_then(|r| r.into_dimensions().ok())
+                    }
+                })
+                .flatten();
+
+            (exif, app_ms, raw_extra, decoded)
+        });
+
+        let Some((exif, app_ms, raw_extra, decoded)) = measured else {
+            panicked += 1;
+            let ms = format!("{:.1}", t.elapsed().as_secs_f64() * 1000.0);
+            let mut f = vec![
+                (*sha).to_string(),
+                (*local).to_string(),
+                (*make).to_string(),
+                (*model).to_string(),
+                (*variant).to_string(),
+                (*ext).to_string(),
+                (*klass).to_string(),
+            ];
+            f.extend(std::iter::repeat_n("-".to_string(), 10));
+            f.extend([ms, "-".to_string(), "1".to_string(), "パニック".to_string()]);
+            writeln!(sink, "{}", row(header, &f)).unwrap();
+            continue;
+        };
+        let ms = format!("{:.1}", app_ms.as_secs_f64() * 1000.0);
+        let raw_ms = raw_extra.as_ref().map_or_else(
+            || "-".to_string(),
+            |(_, d)| format!("{:.1}", d.as_secs_f64() * 1000.0),
+        );
+
+        let listed = match (listed_scan, pictkura_core::raw::is_raw_extension(ext)) {
+            (true, true) => "scan+raw",
+            (true, false) => "scan",
+            _ => "-",
+        };
+        // **アプリが実際に画面へ出せる絵。** RAWは埋め込みプレビュー、
+        // それ以外は `image` が展開した原寸
+        let app_pv = if is_raw {
+            exif.thumbnail.as_deref().and_then(dims)
+        } else {
+            decoded
+        };
+        // **RAWとして扱ったら出るか。** RAWの行では `app_pv` と同じ物なので測り直さない
+        let raw_pv = if is_raw {
+            exif.thumbnail.as_deref().and_then(dims)
+        } else {
+            raw_extra
+                .as_ref()
+                .and_then(|(f, _)| f.preview.as_deref())
+                .and_then(dims)
+        };
+        let exhausted = if is_raw {
+            exif.preview_exhausted
+        } else {
+            raw_extra.as_ref().is_some_and(|(f, _)| f.exhausted)
+        };
+        // プレビュー自身が向きを申告しているか（していれば、その絵は回転前だと
+        // カメラが明言している）。二重回転を見抜く材料
+        // 向きを読む相手は、**`raw_pv` が指している絵**でなければならない。
+        // 非RAWの行の `exif.thumbnail` は別物（たいてい空）で、
+        // 二重回転を見抜くための列が `-` で埋まる（ゲート2）
+        let orient_src = if is_raw {
+            exif.thumbnail.as_deref()
+        } else {
+            raw_extra.as_ref().and_then(|(f, _)| f.preview.as_deref())
+        };
+        let pv_orient = orient_src
+            .and_then(|b| {
+                exif::Reader::new()
+                    .read_from_container(&mut std::io::Cursor::new(b))
+                    .ok()
+            })
+            .and_then(|e| {
+                e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                    .and_then(|f| f.value.get_uint(0))
+            })
+            .map_or_else(|| "-".to_string(), |v| v.to_string());
+
+        let verdict = if listed == "-" {
+            // 一覧に出ない。**足せば出るのか**が、拡張子を増やす判断の材料
+            if raw_pv.is_some() {
+                "一覧外(RAW扱いなら出る)"
+            } else {
+                "一覧外(足しても出ない)"
+            }
+        } else if !is_raw {
+            // 一覧には出るがRAWの探索を通らない（`tif`）
+            match (app_pv.is_some(), raw_pv.is_some()) {
+                (true, true) => "出るがRAWの探索を通らない",
+                (true, false) => "出る(普通の画像として)",
+                (false, true) => "開けない(RAW扱いなら出る)",
+                (false, false) => "開けない",
+            }
+        } else if let Some((w, h)) = app_pv {
+            if w.max(h) < pictkura_core::raw::USABLE_LONG_EDGE {
+                "小さい"
+            } else if exif.camera.is_none() || exif.taken_at_ms.is_none() {
+                "絵は出るが素性が欠ける"
+            } else {
+                "OK"
+            }
+        } else if exhausted {
+            "絵なし(確定)"
+        } else {
+            "絵なし(未確定)"
+        };
+        if app_pv.is_some() {
+            ok += 1;
+        } else {
+            ng += 1;
+        }
+
+        let f = vec![
+            (*sha).to_string(),
+            (*local).to_string(),
+            (*make).to_string(),
+            (*model).to_string(),
+            (*variant).to_string(),
+            (*ext).to_string(),
+            (*klass).to_string(),
+            listed.to_string(),
+            u8::from(app_pv.is_some()).to_string(),
+            wh(app_pv),
+            wh(raw_pv),
+            u8::from(exhausted).to_string(),
+            pv_orient,
+            exif.orientation.to_string(),
+            exif.original
+                .map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}")),
+            exif.camera.clone().unwrap_or_else(|| "-".to_string()),
+            exif.taken_at_ms
+                .map_or_else(|| "-".to_string(), |v| v.to_string()),
+            ms,
+            raw_ms,
+            "0".to_string(),
+            verdict.to_string(),
+        ];
+        writeln!(sink, "{}", row(header, &f)).unwrap();
+    }
+
+    println!("== RAW網羅 ==");
+    println!("台帳: {}", ledger.display());
+    println!("置き場: {}", dir.display());
+    println!("今回測った: {seen} 件（絵が出た {ok} / 出ない {ng} / パニック {panicked}）");
+    println!("まだ手元に無い: {absent} 件");
+    println!("結果: {}", out.display());
+}
+
 /// フォルダ内のRAWを片端から試し、形式ごとのカバレッジ表を出す（第6部 段階F）。
 fn bench_raw_dir(dir: &std::path::Path) {
     let mut entries: Vec<_> = std::fs::read_dir(dir)
@@ -1577,6 +1871,16 @@ fn main() {
     }
     if let Some(dir) = arg_value(&args, "--raw-dir") {
         bench_raw_dir(std::path::Path::new(&dir));
+        return;
+    }
+    if let Some(dir) = arg_value(&args, "--raw-matrix") {
+        let ledger = arg_value(&args, "--ledger").unwrap_or_else(|| "dev/raw-matrix.tsv".into());
+        let out = arg_value(&args, "--out").expect("--out に結果TSVの書き出し先を指定");
+        bench_raw_matrix(
+            std::path::Path::new(&dir),
+            std::path::Path::new(&ledger),
+            std::path::Path::new(&out),
+        );
         return;
     }
     if let Some(dir) = arg_value(&args, "--raw-orient") {
