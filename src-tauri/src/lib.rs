@@ -4158,6 +4158,15 @@ pub fn run() {
                 // これからは初回に無ければ自動では足さない——設定から手で足せる
                 config.save(&config_path)?;
             }
+            // PROBE(dev22): **走っているのが本当にこの枝か**を最初の1行で言う。
+            // 名前を変えて写したexeを止め損ねると、単一インスタンスのプラグインが
+            // 後発を黙って終了させ、**古いビルドのまま測ってしまう**（実際に起きた）
+            eprintln!(
+                "[dev22] probe alive pid={} exe={:?} t={}",
+                std::process::id(),
+                std::env::current_exe().ok(),
+                pictkura_core::thumbs::probe_ms()
+            );
             let db_path = data_dir.join("pictkura.db");
             let db = Db::open(&db_path)?;
             // 読み取り接続プール（段階B-4）。本数はコア数の半分・2〜4本で十分
