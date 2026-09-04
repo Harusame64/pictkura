@@ -293,13 +293,26 @@ fn bench_raw_matrix(
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
                   exhausted\tdecodable\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms_min\traw_ms_max\tpanic\tverdict";
 
-    // 済んだ行は飛ばす（[`resume_from`]）
-    let existing = std::fs::read_to_string(out).unwrap_or_default();
+    // 済んだ行は飛ばす（[`resume_from`]）。
+    //
+    // **読めない結果を「空」と読み替えてはいけない。** 下で書き戻すので、
+    // 一時的なI/O失敗を空と読むと**1870行が見出し1行に潰れる**。無いときだけ空
+    // （ゲート1。以前は追記で開くだけだったので、読めなくても消えはしなかった）
+    let existing = std::fs::read_to_string(out)
+        .or_else(|e| {
+            (e.kind() == std::io::ErrorKind::NotFound)
+                .then(String::new)
+                .ok_or(e)
+        })
+        .expect("結果TSVを読めない");
     let (kept, already) = resume_from(&existing, header, out);
-    // **中身が変わったときだけ書き戻す。** 揃っている結果を毎回書き直すと、
-    // 1870行を丸ごと置き換える一瞬だけ「落ちたら全部消える」窓ができる
+    // **中身が変わったときだけ書き戻す。** そして**入れ替えは名前の付け替えで**やる。
+    // 直に上書きすると、1870行を置き換える一瞬だけ「落ちたら全部消える」窓ができる
+    // ——半端な行を捨てるために来ているのに、その手当てで全部落とすのでは筋が通らない
     if kept.len() != existing.len() {
-        std::fs::write(out, &kept).expect("結果TSVを書き戻せない");
+        let staged = out.with_extension("part");
+        std::fs::write(&staged, &kept).expect("結果TSVを書き戻せない");
+        std::fs::rename(&staged, out).expect("結果TSVを入れ替えられない");
     }
     let mut sink = std::fs::OpenOptions::new()
         .create(true)
