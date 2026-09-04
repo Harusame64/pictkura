@@ -296,6 +296,16 @@ fn bench_raw_matrix(
     fn wh(d: Option<(u32, u32)>) -> String {
         d.map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}"))
     }
+    /// JPEGが自分で申告している向き。**展開しない**（EXIFだけ読む）
+    fn jpeg_orientation(bytes: &[u8]) -> Option<u8> {
+        exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(bytes))
+            .ok()?
+            .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
+            .value
+            .get_uint(0)
+            .and_then(|v| u8::try_from(v).ok())
+    }
     /// 1行に組む。**見出しと列数が合わなければその場で落とす。**
     ///
     /// 列を足したのに見出しを直し忘れると、TSVは**黙って**ずれる。読む側
@@ -489,13 +499,21 @@ fn bench_raw_matrix(
                         &path,
                         pictkura_core::raw::USABLE_LONG_EDGE,
                     );
-                    let turned = (exif.orientation != 1)
-                        .then_some(f.preview.as_deref())
-                        .flatten();
+                    // **向きは「RAWとして扱ったら読める値」で決める。**
+                    // `read_exif` は非RAWのパスだと申告を信じない枝で降りるので
+                    // （`thumbs.rs` の `is_raw_path` の分岐）、`exif.orientation` には
+                    // **プレビューのEXIFが混ざっていない**。足したあとの
+                    // `raw_display_jpeg` はそこまで読んで回すので、
+                    // コンテナが1のときは**プレビュー自身の申告**を見る
+                    // ——`merge_preview_exif` が「1のときだけ上書き」する規則と同じ。
+                    // 見ないと、**コンテナに向きを書かない社の候補だけ安く出る**（ゲート1）
+                    let orient = match exif.orientation {
+                        1 => f.preview.as_deref().and_then(jpeg_orientation).unwrap_or(1),
+                        n => n,
+                    };
+                    let turned = (orient != 1).then_some(f.preview.as_deref()).flatten();
                     raw_rotated = turned
-                        .and_then(|b| {
-                            pictkura_core::thumbs::rotate_raw_preview(b, exif.orientation)
-                        })
+                        .and_then(|b| pictkura_core::thumbs::rotate_raw_preview(b, orient))
                         .is_some();
                     found = Some(f);
                     spans.push(one.elapsed());
@@ -635,15 +653,7 @@ fn bench_raw_matrix(
                 .and_then(|(f, _, _)| f.preview.as_deref())
         };
         let pv_orient = orient_src
-            .and_then(|b| {
-                exif::Reader::new()
-                    .read_from_container(&mut std::io::Cursor::new(b))
-                    .ok()
-            })
-            .and_then(|e| {
-                e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
-                    .and_then(|f| f.value.get_uint(0))
-            })
+            .and_then(jpeg_orientation)
             .map_or_else(|| "-".to_string(), |v| v.to_string());
 
         // **展開できない候補を「出る」に数えない。** 寸法は `raw_pv` 列に
