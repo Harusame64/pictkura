@@ -21,6 +21,8 @@
  *   辞書だけ足すと**枠だけ英語**のままになる。綴りは AppKit の言語IDなので
  *   辞書のコードと同じとは限らない（`zh` → `zh-Hans`、`zh-hant` → `zh-Hant`）。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
+ *   **例外は週の始まり**——これだけはタグに映らない設定なので、Rustが
+ *   OSで効いている値を渡す（`weekday.ts`）。`Intl` はそれが無いときの近似。
  * - **言葉のコードと書式のコードは別**（`locale` と `formatLocale`）。辞書は
  *   地域を落として選ぶが（`es-MX` → `es`）、**その丸めを書式に持ち込まない**。
  *   持ち込むとメキシコの人に本国スペインの桁区切りと月曜始まりが出る。
@@ -36,6 +38,7 @@ import { es } from "./es.ts";
 import { zh } from "./zh.ts";
 import { zhHant } from "./zh-hant.ts";
 import { num, setNumberLocale } from "./plural.ts";
+import { firstWeekdayFromOs } from "./weekday.ts";
 
 export type { Dict };
 
@@ -323,6 +326,15 @@ export const formatMonth = (year: number, month: number) =>
 /**
  * 週の始まり（`Date.getDay()` と同じ 0=日曜 … 6=土曜）。
  *
+ * **まずOSで効いている値を見る**（`weekday.ts`。Rustが `os_first_weekday()` で読む）。
+ * **タグからは分からない設定だから**である——Windowsで週の始まりを木曜にしても
+ * ロケール名は `ja-JP` のままで、下の `Intl` は既定の日曜を答える
+ * （2026-09-04 の実測。dev #18 残件(b)）。ここは書式の中で唯一、
+ * 地域のタグで正しくならない値である。
+ *
+ * 以下は**それが取れなかったとき**の近似（Rustの居ない開発中のブラウザ、値を置く前の版、
+ * 読めなかったOS）。**近似は既定値であって、利用者の設定ではない。**
+ *
  * **辞書に持たない**——曜日名と同じく `Intl` から取る（辞書の冒頭の方針どおり）。
  * 日曜始まりは日本・北米などの習慣で、**ヨーロッパのほとんどとISO 8601は月曜始まり**。
  * ここを固定したままドイツ語だけ足すと、訳は正しいのに**カレンダーが外国のもの**に見える。
@@ -339,6 +351,11 @@ export const formatMonth = (year: number, month: number) =>
  * 直すなら `Intl` が使える環境かどうかではなく、**データをどこから持つか**の判断が先。
  */
 export const firstWeekday: number = (() => {
+  const fromOs = firstWeekdayFromOs(
+    (window as unknown as { __PICTKURA_FIRST_WEEKDAY__?: unknown })
+      .__PICTKURA_FIRST_WEEKDAY__,
+  );
+  if (fromOs !== null) return fromOs;
   try {
     const l = new Intl.Locale(formatLocale) as Intl.Locale & {
       getWeekInfo?: () => { firstDay: number };
