@@ -512,7 +512,8 @@ body[lang="en"] .cards p { line-height: 1.75; }
 .doc-body a { color: var(--accent-bright); }
 
 /* 柱そのものにも上限を置く。**この頁以外でも、項目が増えれば同じことが起きる**。
-   **広い画面だけに掛ける**——900px 未満では `.doc.legal` の柱が静的な塊になって
+   **広い画面だけに掛ける**——900px 以下（`max-width: 900px`。ちょうど 900px も狭い側）では
+   `.doc.legal` の柱が静的な塊になって
    本文の下へ回り、そこにしか無い「制作者・所在・連絡先・価格」を入れ子の
    スクロール箱に押し込めてしまう（下の 900px の注記）。ゲート2が実測で見つけた */
 @media not all and (max-width: 900px) {
@@ -548,7 +549,7 @@ th.cnt { text-align: right; }
    下限を置けば、潰れる代わりに**横スクロールで読める** */
 table.cams { table-layout: fixed; min-width: 720px; }
 
-/* メーカーへ飛ぶ札。**柱ではなく本文に置く**——柱は 900px 未満で消え、
+/* メーカーへ飛ぶ札。**柱ではなく本文に置く**——柱は 900px 以下で消え、
    `position: sticky` に高さの上限が無いので 56社ぶんが画面外へ出る */
 .maker-index { display: flex; flex-wrap: wrap; gap: 8px 14px; }
 .maker-index a {
