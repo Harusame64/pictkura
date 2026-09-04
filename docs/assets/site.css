@@ -523,6 +523,47 @@ td {
   vertical-align: top; font-size: 14px; line-height: 1.85; color: var(--text-soft);
 }
 td.k { color: var(--text); }
+/* 件数の列。**桁を揃える**（等幅＋タブular数字＋右寄せ）——縦に読んで
+   比べる列なので、揃っていないと 1,435 と 257 のどちらが大きいか一瞬で読めない */
+td.cnt {
+  text-align: right; font-family: var(--font-mono); font-feature-settings: "tnum";
+  font-size: 13px; white-space: nowrap; color: var(--text);
+}
+th.cnt { text-align: right; }
+
+/* 対応機種一覧（cameras.html）。**989行を縦に読む表**なので、行を詰めて
+   字を落とし、状況の列だけ色で拾えるようにする */
+table.cams { table-layout: fixed; }
+table.cams td { padding: 9px 12px 9px 0; font-size: 13px; line-height: 1.6; }
+table.cams th:nth-child(1), table.cams td:nth-child(1) { width: 15%; }
+table.cams th:nth-child(2), table.cams td:nth-child(2) { width: 22%; }
+table.cams th:nth-child(3), table.cams td:nth-child(3) { width: 62px; }
+table.cams th:nth-child(4), table.cams td:nth-child(4) { width: 21%; }
+table.cams th:nth-child(6), table.cams td:nth-child(6) { width: 92px; padding-right: 0; }
+/* **機種名は折り返してよい。** メーカー名より長く、切ると引けなくなる */
+table.cams td.k { overflow-wrap: anywhere; }
+table.cams td.mono { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+table.cams td.nt { color: var(--text-muted); font-size: 12.5px; }
+table.cams a { white-space: nowrap; font-size: 12px; }
+/* **「絵が出ない」と「一覧に出ない」を同じ色にしない。** 前者は使える行
+   （枠は出て、並びにも絞り込みにも出る）で、後者は行き先が無い */
+/* **`.st` は `<td>` にも `<span>` にも付く。** 表の側で `display` を触ると
+   セルが表組みから外れて、幅も罫線も崩れる（実描画で見つけた） */
+.st { font-size: 12.5px; }
+table.cams td.st { white-space: normal; }
+.st-full { color: var(--pick); }
+.st-small, .st-split { color: var(--warn); }
+.st-none, .st-plain { color: var(--text-soft); }
+.st-soon, .st-out { color: var(--text-faint); }
+.legend-list { list-style: none; margin: 22px 0 0; padding: 0; }
+.legend-list li {
+  display: grid; grid-template-columns: 190px 1fr; gap: 14px;
+  padding: 9px 0; border-top: 1px solid oklch(1 0 0 / 0.07);
+  font-size: 13px; line-height: 1.75; color: var(--text-muted);
+}
+@media (max-width: 700px) {
+  .legend-list li { grid-template-columns: 1fr; gap: 2px; }
+}
 td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; color: oklch(0.9 0.004 70); }
 .legend { display: flex; flex-wrap: wrap; gap: 22px; font-size: 13.5px; color: var(--text-muted); margin-bottom: 20px; }
 .legend span { display: inline-flex; align-items: center; gap: 7px; }

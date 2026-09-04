@@ -414,19 +414,24 @@ pictkura does **not** develop RAW files. It pulls out the display JPEG the camer
 for its own screen, so you get the camera's own color rendering without the cost of
 demosaicing.
 
-| Format | Grid | View | Notes |
-|---|:--:|:--:|---|
-| `cr2` `cr3` `nef` `nrw` `arw` `arq` `raf` `orf` `ori` `rw2` `pef` `srw` `dng` `rwl` `3fr` `x3f` `kdc` | ✅ | ✅ | the camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (which is DNG) |
-| `crw` `srf` `sr2` `mrw` `erf` `dcr` `iiq` `mos` | ✅ | ⚠️ | older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft |
-| `raw` | ⚠️ | ⚠️ | the two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter |
-| `fff` (Hasselblad) | ⚠️ | ⚠️ | the H5D-40 file we tested carries no preview at all, so only a frame appears |
-| `ptx` (Pentax) | ? | ? | recognized, but we could not obtain a real file to check |
-| Blackmagic CinemaDNG | ⚠️ | ⚠️ | contains no preview at all |
+`cr2` `cr3` `crw` `nef` `nrw` `arw` `srf` `sr2` `arq` `raf` `orf` `ori` `rw2` `pef`
+`ptx` `srw` `dng` `raw` `rwl` `3fr` `fff` `iiq` `erf` `mrw` `x3f` `dcr` `kdc` `mos`
 
-Checked on 2026-08-20 against 28 real files from 16 makers (sample images from
-[photographyblog.com](https://www.photographyblog.com/) and the CC0 samples at
-[raw.pixls.us](https://raw.pixls.us/)): the display JPEG comes out, portrait shots
-come out upright, and the shot date and camera name are read.
+**Whether there is a display JPEG to take is the camera's decision, not ours, and bodies
+writing the same extension disagree with each other.** Of 1,831 real files with these
+extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr3` `pef`
+`srw` `rwl` `x3f` `nrw` `ori` produced a full-size preview from every single file; most
+`crw` `raw` `mrw` `dcr` files carry none at all; `dng` splits three ways.
+**[Is your camera in here?](https://harusame64.github.io/pictkura/en/cameras.html)**
+— 925 bodies from 67 makers, one row each, with the file we tested linked.
+
+One surprise worth knowing up front: **`.ori` doubles a High Res shot.** An OM System body
+writes `.ORF`, `.ORI` and `.JPG` for a single press, so one High Res shot occupies three
+tiles. That is deliberate — hiding a file that is sitting on the card would be worse.
+
+Measured on 2026-09-04 against **1,870 real files** — every CC0 sample at
+[raw.pixls.us](https://raw.pixls.us/) — 816 on macOS and 1,054 on Windows, with no
+crashes. **Every picture counted was decoded**, not measured from a JPEG header.
 
 ### Video
 
