@@ -515,7 +515,7 @@ body[lang="en"] .cards p { line-height: 1.75; }
    **広い画面だけに掛ける**——900px 未満では `.doc.legal` の柱が静的な塊になって
    本文の下へ回り、そこにしか無い「制作者・所在・連絡先・価格」を入れ子の
    スクロール箱に押し込めてしまう（下の 900px の注記）。ゲート2が実測で見つけた */
-@media (min-width: 901px) {
+@media not all and (max-width: 900px) {
   .doc-nav { max-height: calc(100vh - 120px); overflow-y: auto; }
 }
 
