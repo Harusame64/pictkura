@@ -159,8 +159,9 @@ pub const DEFAULT_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png",
     "webp", // RAW（カメラが書いた表示用JPEGを取り出して扱う）。
     // ここと [`crate::raw::is_raw_extension`] は歯止めのテストで突き合わせている
-    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "raf", "orf", "rw2", "pef", "ptx",
-    "srw", "dng", "raw", "rwl", "3fr", "fff", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "mos",
+    "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "arq", "raf", "orf", "ori", "rw2",
+    "pef", "ptx", "srw", "dng", "raw", "rwl", "3fr", "fff", "iiq", "erf", "mrw", "x3f", "dcr",
+    "kdc", "mos",
     // HEIF（iPhoneの既定形式。画素はOSのデコーダで展開する）
     "heic", "heif", "hif",
     // その他のよくある形式。bmp/gif/tiff は image クレートが読み、
@@ -203,49 +204,57 @@ fn video_extensions_are_all_scanned() -> Result<(), String> {
     Ok(())
 }
 
+/// これまで配った既定の拡張子一覧。**どれかと完全一致なら「触っていない」と判断できる。**
+///
+/// **`DEFAULT_EXTENSIONS` を増やしたら、増やす前の一覧をここへ足すこと。**
+/// 足し忘れると、上げた利用者の設定には旧一覧が残り、
+/// `RAW_EXTENSIONS` に足しただけの拡張子は**走査対象に入らないので一覧に出ない**。
+/// 歯止めは `changing_the_default_extensions_forces_recording_the_old_one`。
+const LEGACY_DEFAULTS: &[&[&str]] = &[
+    // 第6部より前（RAW対応なし）
+    &["jpg", "jpeg", "png"],
+    // 第6部（RAW対応。HEIFはまだ無い）
+    &[
+        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
+        "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc",
+    ],
+    // 第7部 段階G（HEIF対応。bmp/gif/tiff/svg/avif はまだ無い）
+    &[
+        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
+        "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "heic",
+        "heif", "hif",
+    ],
+    // 第9部より前（bmp/gif/tiff/svg/avif まで。動画はまだ無い）
+    &[
+        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
+        "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "heic",
+        "heif", "hif", "bmp", "gif", "tif", "tiff", "svg", "avif",
+    ],
+    // 0.2でRAWを6つ足す前（動画まで入った版）
+    &[
+        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
+        "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "heic",
+        "heif", "hif", "bmp", "gif", "tif", "tiff", "svg", "avif", "mp4", "m4v", "mov", "webm",
+        "avi", "mts", "m2ts", "mkv", "3gp", "wmv", "mpg", "mpeg",
+    ],
+    // 0.2.0〜0.2.7 の既定（`ori`・`arq` を足す前）。**これが抜けていた**
+    // ——0.2系を配ったあとに既定を増やしたのは今回が初めてで、上げた人の設定には
+    // 旧一覧がそのまま残る（2026-09-04・ゲート1の指摘）
+    &[
+        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2",
+        "raf", "orf", "rw2", "pef", "ptx", "srw", "dng", "raw", "rwl", "3fr", "fff", "iiq", "erf",
+        "mrw", "x3f", "dcr", "kdc", "mos", "heic", "heif", "hif", "bmp", "gif", "tif", "tiff",
+        "svg", "avif", "mp4", "m4v", "mov", "webm", "avi", "mts", "m2ts", "mkv", "3gp", "wmv",
+        "mpg", "mpeg",
+    ],
+];
+
 /// 拡張子の設定を新しい既定へ引き上げるべきか。
 ///
 /// RAW対応で既定の一覧が増えたが、**ユーザーが自分で編集した設定は尊重する**。
 /// 「旧バージョンの既定そのまま」のときだけ差し替える（判別できるのはこの形だけ）。
 fn upgrade_extensions(current: &[String]) -> Option<Vec<String>> {
-    /// これまでの既定。どれかと完全一致なら「触っていない」と判断できる
-    const LEGACY_DEFAULTS: &[&[&str]] = &[
-        // 第6部より前（RAW対応なし）
-        &["jpg", "jpeg", "png"],
-        // 第6部（RAW対応。HEIFはまだ無い）
-        &[
-            "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
-            "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc",
-        ],
-        // 第7部 段階G（HEIF対応。bmp/gif/tiff/svg/avif はまだ無い）
-        &[
-            "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
-            "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc",
-            "heic", "heif", "hif",
-        ],
-        // 第9部より前（bmp/gif/tiff/svg/avif まで。動画はまだ無い）
-        &[
-            "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
-            "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc",
-            "heic", "heif", "hif", "bmp", "gif", "tif", "tiff", "svg", "avif",
-        ],
-    ];
-    /// 0.2でRAWを6つ足す前の既定（動画まで入った版）
-    const BEFORE_RAW_GAP_FIX: &[&str] = &[
-        "jpg", "jpeg", "png", "webp", "cr2", "cr3", "nef", "nrw", "arw", "sr2", "raf", "orf",
-        "rw2", "pef", "srw", "dng", "rwl", "3fr", "iiq", "erf", "mrw", "x3f", "dcr", "kdc", "heic",
-        "heif", "hif", "bmp", "gif", "tif", "tiff", "svg", "avif", "mp4", "m4v", "mov", "webm",
-        "avi", "mts", "m2ts", "mkv", "3gp", "wmv", "mpg", "mpeg",
-    ];
     let normalized: Vec<String> = current.iter().map(|e| e.to_ascii_lowercase()).collect();
-    if normalized == BEFORE_RAW_GAP_FIX {
-        return Some(
-            DEFAULT_EXTENSIONS
-                .iter()
-                .map(|e| (*e).to_string())
-                .collect(),
-        );
-    }
     LEGACY_DEFAULTS
         .iter()
         .any(|legacy| normalized == *legacy)
@@ -530,6 +539,90 @@ extensions = [\"jpg\", \"jpeg\", \"png\", \"webp\", \"cr2\", \"cr3\", \"nef\", \
         assert!(
             config.import.extensions.iter().any(|e| e == "cr3"),
             "RAWは残る"
+        );
+    }
+
+    /// **一番新しく記録した既定**から上げた人に、新しい拡張子が届くこと。
+    ///
+    /// `LEGACY_DEFAULTS` の末尾を読むので、次に既定を増やしたときも
+    /// 「1つ前から上がるか」を試し続ける。書き換えるのは `expected` だけでよい。
+    ///
+    /// **ゲート1（codex）が拾った穴**（2026-09-04）。`RAW_EXTENSIONS` に足しても、
+    /// 設定に残っている旧一覧が走査を決めるので、上げた利用者には**何も起きない**。
+    /// 0.2系を配ったあとに既定を増やしたのは今回が初めてで、そこを踏んだ。
+    #[test]
+    fn the_newest_recorded_default_is_lifted() {
+        let legacy = LEGACY_DEFAULTS.last().expect("記録された旧既定がある");
+        let listed = legacy
+            .iter()
+            .map(|e| format!("\"{e}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.toml");
+        std::fs::write(&path, format!("[import]\nextensions = [{listed}]\n")).unwrap();
+
+        let config = Config::load(&path).unwrap();
+        let expected = ["ori", "arq"];
+        for ext in expected {
+            assert!(
+                !legacy.contains(&ext),
+                "{ext} は旧既定に無いはず（無いから引き上げが要る）"
+            );
+            assert!(
+                config.import.extensions.iter().any(|e| e == ext),
+                "1つ前の既定から上げたら {ext} が走査対象に入る"
+            );
+        }
+        assert!(
+            config.import.extensions.iter().any(|e| e == "mp4"),
+            "元から入っていたものは残る"
+        );
+    }
+
+    /// `LEGACY_DEFAULTS` が「これまで配った既定」として成り立っているか。
+    ///
+    /// 記録の**漏れ**は機械には見えない（コードは「1つ前に配った既定」を知らない）。
+    /// 見えるのは**誤り**のほうなので、そちらだけを見る。
+    #[test]
+    fn every_recorded_default_is_a_smaller_version_of_the_current_one() {
+        for (i, legacy) in LEGACY_DEFAULTS.iter().enumerate() {
+            for ext in legacy.iter() {
+                assert!(
+                    DEFAULT_EXTENSIONS.contains(ext),
+                    "旧既定[{i}] の {ext} が今の既定に無い。減らしたのなら、\
+                     引き上げは「昔の設定を今の既定で上書きする」ので**外した拡張子が戻る**"
+                );
+            }
+            assert!(
+                legacy.len() < DEFAULT_EXTENSIONS.len(),
+                "旧既定[{i}] が今の既定と同じ大きさ。今の既定を記録してはいけない\
+                 （手で書いた設定と見分けが付かなくなる）"
+            );
+        }
+        for (i, a) in LEGACY_DEFAULTS.iter().enumerate() {
+            for b in &LEGACY_DEFAULTS[i + 1..] {
+                assert_ne!(a, b, "旧既定[{i}] と同じものが2度記録されている");
+            }
+        }
+    }
+
+    /// **既定を増やしたら、増やす前の一覧を `LEGACY_DEFAULTS` へ記録すること。**
+    ///
+    /// これは**強制ではなく足止め**である。「1つ前に配った既定」はコードのどこにも
+    /// 無いので、記録し忘れたことを機械が見抜くことはできない
+    /// （ゲート2の指摘・2026-09-04）。できるのは、`DEFAULT_EXTENSIONS` を触った人を
+    /// **必ずここで1度止めて、この文を読ませる**ことだけ。
+    ///
+    /// 止まったら**まず旧一覧を `LEGACY_DEFAULTS` に足し**、それから写しを直す。
+    /// 順番を逆にすると、配ったあとの利用者に新しい拡張子が一生届かない
+    /// ——2026-09-04にその穴を1つ塞いだ。
+    #[test]
+    fn changing_the_default_extensions_stops_here_first() {
+        assert_eq!(
+            DEFAULT_EXTENSIONS.join(" "),
+            "jpg jpeg png webp cr2 cr3 crw nef nrw arw srf sr2 arq raf orf ori rw2 pef ptx srw dng raw rwl 3fr fff iiq erf mrw x3f dcr kdc mos heic heif hif bmp gif tif tiff svg avif mp4 m4v mov webm avi mts m2ts mkv 3gp wmv mpg mpeg",
+            "既定が変わった。**変える前の一覧を LEGACY_DEFAULTS に足してから**この写しを直すこと"
         );
     }
 

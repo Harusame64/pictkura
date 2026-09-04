@@ -416,7 +416,7 @@ demosaicing.
 
 | Format | Grid | View | Notes |
 |---|:--:|:--:|---|
-| `cr2` `cr3` `nef` `nrw` `arw` `raf` `orf` `rw2` `pef` `srw` `dng` `rwl` `3fr` `x3f` `kdc` | ✅ | ✅ | the camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (which is DNG) |
+| `cr2` `cr3` `nef` `nrw` `arw` `arq` `raf` `orf` `ori` `rw2` `pef` `srw` `dng` `rwl` `3fr` `x3f` `kdc` | ✅ | ✅ | the camera's own display JPEG, at or near full resolution. Includes Apple ProRAW (which is DNG) |
 | `crw` `srf` `sr2` `mrw` `erf` `dcr` `iiq` `mos` | ✅ | ⚠️ | older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft |
 | `raw` | ⚠️ | ⚠️ | the two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter |
 | `fff` (Hasselblad) | ⚠️ | ⚠️ | the H5D-40 file we tested carries no preview at all, so only a frame appears |
