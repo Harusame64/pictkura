@@ -38,6 +38,7 @@
   <nav class="nav" id="site-nav" aria-label="サイト内">
     <a href="install.html">インストール</a>
     <a href="spec.html" aria-current="page">アプリ仕様</a>
+    <a href="cameras.html">対応機種</a>
     <a href="../manual.html">マニュアル</a>
     <a href="about.html">About</a>
     <a href="https://github.com/Harusame64/pictkura">GitHub</a>
@@ -169,20 +170,43 @@
       </div>
 
       <h3 class="eyebrow" id="raw" style="margin-top:44px">4.2 &nbsp;RAW &nbsp;— 現像はしません</h3>
+      <p class="muted" style="font-size:13.5px;line-height:1.9;margin:0 0 18px">取り出せる表示用JPEGがあるかどうかを決めているのはカメラで、しかも同じ拡張子でも機種で割れます。だから記号ではなく、実物の件数を出します。<b>原寸</b>はプレビューの長辺が1600pxに届くという意味で、そこが全画面で眠く見えなくなる境目です。<b>絵なし</b>は枠だけが出るという意味ですが、寸法と撮影日時は絵とは別に読むので、日付順の並びにもカメラの絞り込みにも出ます。<b><a href="cameras.html">同じ測定を機種ごとに割った一覧はこちら</a></b>——メーカー56社・923機種です。</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th style="width:280px">拡張子</th><th style="width:80px">一覧</th><th style="width:80px">拡大</th><th>備考</th></tr></thead>
+          <thead><tr><th style="width:74px">拡張子</th><th class="cnt" style="width:56px">実物</th><th class="cnt" style="width:72px">絵が出る</th><th class="cnt" style="width:56px">原寸</th><th class="cnt" style="width:64px">小さい</th><th class="cnt" style="width:64px">絵なし</th><th>備考</th></tr></thead>
           <tbody>
-            <tr><td class="k mono" style="line-height:2">cr2 cr3 nef nrw arw arq raf orf ori rw2 pef srw dng rwl 3fr x3f kdc</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td>カメラが埋め込んだ表示用 JPEG を、ほぼ原寸で取り出します。Apple ProRAW（DNG）を含みます</td></tr>
-            <tr><td class="k mono" style="line-height:2">crw srf sr2 mrw erf dcr iiq mos</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" class="yes" role="img" aria-label="対応"><path d="M2.5 8.5l3.5 3.5 7.5-8"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>確認したファイルでは 160×120〜640×480 の小さなプレビューのみで、全画面表示では解像感が低下します</td></tr>
-            <tr><td class="k mono">raw</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>確かめた2枚（Panasonic DMC-LX1・DMC-FZ8）はプレビューを持たず、枠のみの表示になります。寸法はセンサーの縁から、撮影日時とカメラ名は EXIF から読むので、日付順の並びとカメラでの絞り込みには出ます</td></tr>
-            <tr><td class="k mono">fff</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>Hasselblad。確認した H5D-40 のファイルはプレビューを持たないため、枠のみ表示されます</td></tr>
-            <tr><td class="k mono">ptx</td><td class="no">?</td><td class="no">?</td><td>Pentax。拡張子は認識しますが、実ファイルを入手できず未確認です</td></tr>
-            <tr><td class="k">Blackmagic CinemaDNG</td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" class="part" role="img" aria-label="制限あり"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 010 12z" fill="currentColor" stroke="none"/></svg></td><td>プレビューを持ちません</td></tr>
+            <tr><td class="k mono">rw2</td><td class="cnt">363</td><td class="cnt">363</td><td class="cnt">363</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Panasonic と、同じ作りのLeica</td></tr>
+            <tr><td class="k mono">cr3</td><td class="cnt">110</td><td class="cnt">110</td><td class="cnt">110</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Canon</td></tr>
+            <tr><td class="k mono">pef</td><td class="cnt">40</td><td class="cnt">40</td><td class="cnt">40</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Pentax</td></tr>
+            <tr><td class="k mono">srw</td><td class="cnt">24</td><td class="cnt">24</td><td class="cnt">24</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Samsung</td></tr>
+            <tr><td class="k mono">rwl</td><td class="cnt">20</td><td class="cnt">20</td><td class="cnt">20</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Leica</td></tr>
+            <tr><td class="k mono">x3f</td><td class="cnt">14</td><td class="cnt">14</td><td class="cnt">14</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Sigma</td></tr>
+            <tr><td class="k mono">nrw</td><td class="cnt">8</td><td class="cnt">8</td><td class="cnt">8</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Nikon のコンパクト機</td></tr>
+            <tr><td class="k mono">ori</td><td class="cnt">19</td><td class="cnt">19</td><td class="cnt">19</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>OM System。ハイレゾ撮影が書く3本（.ORF・.ORI・.JPG）の2本目</td></tr>
+            <tr><td class="k mono">arw</td><td class="cnt">197</td><td class="cnt">197</td><td class="cnt">193</td><td class="cnt">4</td><td class="cnt">&mdash;</td><td>Sony</td></tr>
+            <tr><td class="k mono">nef</td><td class="cnt">273</td><td class="cnt">273</td><td class="cnt">264</td><td class="cnt">9</td><td class="cnt">&mdash;</td><td>Nikon</td></tr>
+            <tr><td class="k mono">raf</td><td class="cnt">143</td><td class="cnt">143</td><td class="cnt">136</td><td class="cnt">7</td><td class="cnt">&mdash;</td><td>Fujifilm</td></tr>
+            <tr><td class="k mono">orf</td><td class="cnt">85</td><td class="cnt">85</td><td class="cnt">77</td><td class="cnt">8</td><td class="cnt">&mdash;</td><td>Olympus・OM System</td></tr>
+            <tr><td class="k mono">kdc</td><td class="cnt">5</td><td class="cnt">5</td><td class="cnt">4</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td>Kodak</td></tr>
+            <tr><td class="k mono">cr2</td><td class="cnt">134</td><td class="cnt">131</td><td class="cnt">127</td><td class="cnt">4</td><td class="cnt">3</td><td>Canon</td></tr>
+            <tr><td class="k mono">3fr</td><td class="cnt">9</td><td class="cnt">9</td><td class="cnt">5</td><td class="cnt">4</td><td class="cnt">&mdash;</td><td>Hasselblad。5枚が原寸、4枚が小さい</td></tr>
+            <tr><td class="k mono">iiq</td><td class="cnt">35</td><td class="cnt">35</td><td class="cnt">2</td><td class="cnt">33</td><td class="cnt">&mdash;</td><td>Phase One。全35枚から絵は出るが、33枚が1600px未満</td></tr>
+            <tr><td class="k mono">erf</td><td class="cnt">3</td><td class="cnt">3</td><td class="cnt">&mdash;</td><td class="cnt">3</td><td class="cnt">&mdash;</td><td>Epson。3枚とも160px</td></tr>
+            <tr><td class="k mono">mos</td><td class="cnt">3</td><td class="cnt">3</td><td class="cnt">&mdash;</td><td class="cnt">3</td><td class="cnt">&mdash;</td><td>Leaf。3枚とも330px前後</td></tr>
+            <tr><td class="k mono">srf</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td>Sony の第1世代。640px</td></tr>
+            <tr><td class="k mono">sr2</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td>Sony の第2世代。640px</td></tr>
+            <tr><td class="k mono">arq</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Sony。カメラは書かない&mdash;&mdash;Imaging Edge が4枚か16枚のARWからPC上で作る</td></tr>
+            <tr><td class="k mono">dng</td><td class="cnt">257</td><td class="cnt">166</td><td class="cnt">75</td><td class="cnt">91</td><td class="cnt">91</td><td>いちばん割れている形式。Apple ProRAW は DNG で原寸が出るが、Blackmagic の CinemaDNG も DNG でプレビューを持たない。絵の出ない91枚のうち50枚はスマートフォン。<b>91枚のうち1枚は Light L16（383MB）で、こちらは「無かった」ではなく「探し尽くしていない」</b>。小さい91枚のうち38枚は Canon のコンパクト機の128pxのサムネイル</td></tr>
+            <tr><td class="k mono">fff</td><td class="cnt">11</td><td class="cnt">7</td><td class="cnt">1</td><td class="cnt">6</td><td class="cnt">4</td><td>Hasselblad。11枚中4枚から絵が出ず、残りで原寸に届くのは1枚だけ。<b>絵が出ない4枚のうち1枚（H6D-100c、134MB）は128MBを超えるので総なめの走査が先頭16MBまでで、「持っていない」とは言えない</b></td></tr>
+            <tr><td class="k mono">crw</td><td class="cnt">33</td><td class="cnt">12</td><td class="cnt">7</td><td class="cnt">5</td><td class="cnt">21</td><td>CR2 より前の Canon。33枚中21枚がプレビューを持たない</td></tr>
+            <tr><td class="k mono">mrw</td><td class="cnt">8</td><td class="cnt">2</td><td class="cnt">&mdash;</td><td class="cnt">2</td><td class="cnt">6</td><td>Minolta。8枚中6枚がプレビューを持たない</td></tr>
+            <tr><td class="k mono">raw</td><td class="cnt">29</td><td class="cnt">7</td><td class="cnt">5</td><td class="cnt">2</td><td class="cnt">22</td><td>RW2 より前の Panasonic。29枚中22枚がプレビューを持たない</td></tr>
+            <tr><td class="k mono">dcr</td><td class="cnt">5</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">1</td><td class="cnt">4</td><td>Kodak。5枚中4枚がプレビューを持たない</td></tr>
+            <tr><td class="k mono">ptx</td><td class="cnt">0</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Pentax。拡張子は認識するが、確かめる実物を入手できなかった&mdash;&mdash;CC0の一覧に無く、その外でも見つけられなかった</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-08-20 に、16 メーカー 28 点の実ファイル（<a href="https://www.photographyblog.com/">photographyblog.com</a> のサンプルと <a href="https://raw.pixls.us/">raw.pixls.us</a> の CC0 一覧）で次の 3 点を確認しました。表示用 JPEG を取り出せること、縦位置が正しい向きで表示されること、撮影日時とカメラ名を読み取れること。上の表で「プレビューを持たない」と記したものはその例外で、取り出せる表示用 JPEG が無いため枠のみの表示になります。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-09-04 に、<b>実ファイル1,870枚</b>——<a href="https://raw.pixls.us/">raw.pixls.us</a> のCC0サンプル全件——で測りました。macOSで816枚・Windowsで1,054枚、落ちた件数は0です。上の表の1,831枚は、RAWとして探索する拡張子を持つものです（残る39枚はそうではありません）。<b>数えた絵はすべて実際に展開しています</b>——JPEGのヘッダから寸法を読んだだけの数ではありません。上の <code>ori</code> と <code>arq</code> は 0.2.6 の後に足したもので、RAW扱いを強制して測った値です。</p>
       <figure class="demo">
         <video src="../images/e-raw.mp4" poster="../images/e-raw.jpg" width="960" height="630"
                muted loop playsinline preload="metadata" controls data-autoplay></video>

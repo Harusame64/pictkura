@@ -220,6 +220,7 @@
   <nav>
     <a href="https://harusame64.github.io/pictkura/en/install.html">Install</a>
     <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
+    <a href="https://harusame64.github.io/pictkura/en/cameras.html">Cameras</a>
     <a href="https://harusame64.github.io/pictkura/en/">Home</a>
     <a href="manual.html" hreflang="ja">日本語</a>
   </nav>
@@ -577,10 +578,12 @@ Saving starts in <strong>the folder you saved to last time</strong>
   </p>
   <p>
     <strong>For a RAW with no display picture inside, the buttons are not shown at all.</strong>
-    This depends on the camera, not on the format. In what we have checked here that
-    covers Blackmagic CinemaDNG, the older Panasonic <code>.raw</code>
-    (DMC-LX1 / DMC-FZ8) and some Hasselblad <code>.fff</code> files. The viewer shows
-    only an empty frame for these — there is no picture anywhere in the file to take out.
+    This depends on the camera, not on the format. <strong>151</strong> of 1,870 real files
+    fell here — mostly phones writing <code>dng</code> (HUAWEI, Samsung, LG, Xiaomi),
+    Blackmagic CinemaDNG, Canon before CR2 (<code>crw</code>) and Panasonic before RW2
+    (<code>raw</code>). The viewer shows only an empty frame for these — there is no
+    picture anywhere in the file to take out. You can look up your own body in the
+    <a href="https://harusame64.github.io/pictkura/en/cameras.html">camera list</a>.
   </p>
   <p>
     SVG can only be saved, not copied to the clipboard.
@@ -709,15 +712,25 @@ rendering.
 </p>
 <div class="table-scroll">
 <table>
-  <tr><th>Format</th><th class="center">Grid</th><th class="center">Full screen</th><th>Notes</th></tr>
-  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>arq</code> <code>raf</code> <code>orf</code> <code>ori</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code> <code>3fr</code> <code>x3f</code> <code>kdc</code></td><td class="center">✅</td><td class="center">✅</td><td>Uses the camera’s own display JPEG, at or near full resolution. Includes Apple ProRAW (DNG)</td></tr>
-  <tr><td><code>crw</code> <code>srf</code> <code>sr2</code> <code>mrw</code> <code>erf</code> <code>dcr</code> <code>iiq</code> <code>mos</code></td><td class="center">✅</td><td class="center">⚠️</td><td>Older bodies embed only a small preview (160×120 to 640×480 on the files we tested), so the grid is fine but a full-screen view is soft</td></tr>
-  <tr><td><code>raw</code></td><td class="center">⚠️</td><td class="center">⚠️</td><td>The two we tested (Panasonic DMC-LX1, DMC-FZ8) carry no preview at all, so only a frame appears. The size comes from the sensor borders and the date and camera from EXIF, so they still sort by date and show up in the camera filter</td></tr>
-  <tr><td><code>fff</code> (Hasselblad)</td><td class="center">⚠️</td><td class="center">⚠️</td><td>The H5D-40 file we tested carries no preview at all, so only a frame appears</td></tr>
-  <tr><td><code>ptx</code> (Pentax)</td><td class="center">?</td><td class="center">?</td><td>Recognized, but we could not obtain a real file to check</td></tr>
-  <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td class="center">⚠️</td><td>Carries no preview at all</td></tr>
+  <tr><th></th><th>Extensions</th><th class="center">Files</th><th class="center">A picture</th><th class="center">Full size</th><th class="center">Small</th><th class="center">None</th></tr>
+  <tr><td><strong>A full-size picture</strong></td><td><code>cr3</code> <code>rw2</code> <code>nef</code> <code>arw</code> <code>raf</code> <code>orf</code> <code>ori</code> <code>pef</code> <code>srw</code> <code>rwl</code> <code>x3f</code> <code>nrw</code> <code>kdc</code> <code>cr2</code></td><td class="center">1,435</td><td class="center">1,432</td><td class="center">1,399</td><td class="center">33</td><td class="center">3</td></tr>
+  <tr><td><strong>A picture, but small</strong></td><td><code>3fr</code> <code>iiq</code> <code>erf</code> <code>mos</code> <code>srf</code> <code>sr2</code></td><td class="center">52</td><td class="center">52</td><td class="center">7</td><td class="center">45</td><td class="center">&mdash;</td></tr>
+  <tr><td><strong>Split three ways</strong></td><td><code>dng</code></td><td class="center">257</td><td class="center">166</td><td class="center">75</td><td class="center">91</td><td class="center">91</td></tr>
+  <tr><td><strong>Most carry none</strong></td><td><code>crw</code> <code>raw</code> <code>mrw</code> <code>dcr</code></td><td class="center">75</td><td class="center">22</td><td class="center">12</td><td class="center">10</td><td class="center">53</td></tr>
+  <tr><td><strong>Splits by body</strong></td><td><code>fff</code></td><td class="center">11</td><td class="center">7</td><td class="center">1</td><td class="center">6</td><td class="center">4</td></tr>
+  <tr><td><strong>Built on a PC</strong></td><td><code>arq</code></td><td class="center">1</td><td class="center">1</td><td class="center">1</td><td class="center">&mdash;</td><td class="center">&mdash;</td></tr>
+  <tr><td><strong>No file we could obtain</strong></td><td><code>ptx</code></td><td class="center">0</td><td class="center">&mdash;</td><td class="center">&mdash;</td><td class="center">&mdash;</td><td class="center">&mdash;</td></tr>
 </table>
 </div>
+<p>
+<strong>Full size</strong> means the preview's longest edge reaches 1600px, where a full-screen view stops looking soft.
+<strong>None</strong> means only a frame appears; the file still sorts by date and still answers the camera filter,
+because the size and the EXIF are read separately from the picture.
+</p>
+<p>
+Measured on 2026-09-04 against <strong>1,870 real files</strong> (every CC0 sample at <a href="https://raw.pixls.us/">raw.pixls.us</a>),
+with no crashes. <strong><a href="https://harusame64.github.io/pictkura/en/cameras.html">923 bodies from 56 makers are listed here</a></strong> &mdash; look up your own, with the file we measured linked from each row.
+</p>
 
 <h3>Video</h3>
 <div class="table-scroll">
@@ -850,6 +863,7 @@ Deleting the database does not delete any photo; it is simply rebuilt.
   <div class="site-links">
     <a href="https://harusame64.github.io/pictkura/en/">Home</a>
     <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
+    <a href="https://harusame64.github.io/pictkura/en/cameras.html">Cameras</a>
     <a href="https://harusame64.github.io/pictkura/en/install.html">Install</a>
     <a href="https://harusame64.github.io/pictkura/en/about.html">Why I made pictkura</a>
     <a href="https://harusame64.github.io/pictkura/en/privacy.html">Privacy policy</a>
