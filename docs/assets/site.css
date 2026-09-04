@@ -533,7 +533,24 @@ th.cnt { text-align: right; }
 
 /* 対応機種一覧（cameras.html）。**989行を縦に読む表**なので、行を詰めて
    字を落とし、状況の列だけ色で拾えるようにする */
-table.cams { table-layout: fixed; }
+/* **狭い画面では横に流す。** `table-layout: fixed` の割合指定だけだと、
+   容器が 367px を割った時点で備考の列が幅0に潰れ、しかも `.table-scroll` が
+   スクロールしない（内容も容器と同じ幅になるため）——393px の実機幅で
+   備考がリファレンスの上に重なって描かれていた（ゲート2が実描画で発見）。
+   下限を置けば、潰れる代わりに**横スクロールで読める** */
+table.cams { table-layout: fixed; min-width: 720px; }
+
+/* メーカーへ飛ぶ札。**柱ではなく本文に置く**——柱は 900px 未満で消え、
+   `position: sticky` に高さの上限が無いので 56社ぶんが画面外へ出る */
+.maker-index { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.maker-index a {
+  font-size: 13px; color: var(--text-muted); white-space: nowrap;
+  padding: 3px 10px; border: 1px solid oklch(1 0 0 / 0.12); border-radius: 999px;
+}
+.maker-index a:hover { color: var(--text); border-color: oklch(1 0 0 / 0.3); }
+
+/* 柱そのものにも上限を置く。**この頁以外でも、項目が増えれば同じことが起きる** */
+.doc-nav { max-height: calc(100vh - 120px); overflow-y: auto; }
 table.cams td { padding: 9px 12px 9px 0; font-size: 13px; line-height: 1.6; }
 table.cams th:nth-child(1), table.cams td:nth-child(1) { width: 15%; }
 table.cams th:nth-child(2), table.cams td:nth-child(2) { width: 22%; }
