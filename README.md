@@ -423,11 +423,11 @@ extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr
 `srw` `rwl` `x3f` `nrw` `ori` produced a full-size preview from every single file; most
 `crw` `raw` `mrw` `dcr` files carry none at all; `dng` splits three ways.
 **[Is your camera in here?](https://harusame64.github.io/pictkura/en/cameras.html)**
-— 925 bodies from 67 makers, one row each, with the file we tested linked.
+— 924 bodies from 60 makers, one row each, with the file we tested linked.
 
-One surprise worth knowing up front: **`.ori` doubles a High Res shot.** An OM System body
-writes `.ORF`, `.ORI` and `.JPG` for a single press, so one High Res shot occupies three
-tiles. That is deliberate — hiding a file that is sitting on the card would be worse.
+One surprise worth knowing up front: **a High Res shot becomes three tiles.** An OM System
+body writes `.ORF`, `.ORI` and `.JPG` for a single press, and adding `.ori` means all three
+now appear. That is deliberate — hiding a file sitting on the card would be worse.
 
 Measured on 2026-09-04 against **1,870 real files** — every CC0 sample at
 [raw.pixls.us](https://raw.pixls.us/) — 816 on macOS and 1,054 on Windows, with no

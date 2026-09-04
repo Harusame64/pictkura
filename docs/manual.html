@@ -570,10 +570,13 @@ JPEG や PNG など、そのまま表示できる写真は<strong>原本をコ�
   </p>
   <p>
     <strong>表示用の画像を持たない RAW では、ボタンそのものが出ません。</strong>
-    これは形式ではなく<strong>機種で決まります</strong>。手元で確かめた範囲では
-    Blackmagic の CinemaDNG、Panasonic の古い <code>.raw</code>（DMC-LX1 / DMC-FZ8）、
-    一部の Hasselblad <code>.fff</code> が該当しました。これらはビューアでも枠だけが出ます
+    これは形式ではなく<strong>機種で決まります</strong>。実ファイル1,870枚のうち
+    <strong>151枚</strong>がこれに当たりました——多いのは
+    <code>dng</code> を書くスマートフォン（HUAWEI・Samsung・LG・Xiaomi）、
+    Blackmagic の CinemaDNG、CR2 より前の Canon（<code>crw</code>）、
+    RW2 より前の Panasonic（<code>raw</code>）です。これらはビューアでも枠だけが出ます
     ——取り出せる画像が、ファイルのどこにも入っていません。
+    <a href="https://harusame64.github.io/pictkura/ja/cameras.html">機種ごとの一覧</a>で引けます。
   </p>
   <p>
     SVG は保存だけできます。クリップボードへは載せられません。
@@ -698,15 +701,24 @@ JPEG や PNG など、そのまま表示できる写真は<strong>原本をコ�
 </p>
 <div class="table-scroll">
 <table>
-  <tr><th>形式</th><th class="center">一覧</th><th class="center">全画面</th><th>備考</th></tr>
-  <tr><td><code>cr2</code> <code>cr3</code> <code>nef</code> <code>nrw</code> <code>arw</code> <code>arq</code> <code>raf</code> <code>orf</code> <code>ori</code> <code>rw2</code> <code>pef</code> <code>srw</code> <code>dng</code> <code>rwl</code> <code>3fr</code> <code>x3f</code> <code>kdc</code></td><td class="center">✅</td><td class="center">✅</td><td>カメラが書いた原寸級の表示用JPEGを使います。Apple ProRAW（DNG）を含みます</td></tr>
-  <tr><td><code>crw</code> <code>srf</code> <code>sr2</code> <code>mrw</code> <code>erf</code> <code>dcr</code> <code>iiq</code> <code>mos</code></td><td class="center">✅</td><td class="center">⚠️</td><td>古い機種は小さいプレビューしか持ちません（確かめた実物で160×120〜640×480）。一覧には出ますが、全画面は粗くなります</td></tr>
-  <tr><td><code>raw</code></td><td class="center">⚠️</td><td class="center">⚠️</td><td>確かめた2枚（Panasonic DMC-LX1・DMC-FZ8）はプレビューを持たず、枠だけになります。寸法はセンサーの縁から、撮影日時とカメラ名はEXIFから読むので、日付順の並びとカメラの絞り込みには出ます</td></tr>
-  <tr><td><code>fff</code>（Hasselblad）</td><td class="center">⚠️</td><td class="center">⚠️</td><td>確かめた H5D-40 にはプレビューが入っておらず、枠だけになります</td></tr>
-  <tr><td><code>ptx</code>（Pentax）</td><td class="center">?</td><td class="center">?</td><td>対象にはしていますが、実ファイルを入手できず未確認です</td></tr>
-  <tr><td>Blackmagic CinemaDNG</td><td class="center">⚠️</td><td class="center">⚠️</td><td>プレビュー自体が入っていません</td></tr>
+  <tr><th></th><th>拡張子</th><th class="center">実物</th><th class="center">絵が出る</th><th class="center">原寸</th><th class="center">小さい</th><th class="center">絵なし</th></tr>
+  <tr><td><strong>原寸の絵が出る</strong></td><td><code>cr3</code> <code>rw2</code> <code>nef</code> <code>arw</code> <code>raf</code> <code>orf</code> <code>ori</code> <code>pef</code> <code>srw</code> <code>rwl</code> <code>x3f</code> <code>nrw</code> <code>kdc</code> <code>cr2</code></td><td class="center">1,435</td><td class="center">1,432</td><td class="center">1,399</td><td class="center">33</td><td class="center">3</td></tr>
+  <tr><td><strong>出るが、小さい</strong></td><td><code>3fr</code> <code>iiq</code> <code>erf</code> <code>mos</code> <code>srf</code> <code>sr2</code></td><td class="center">52</td><td class="center">52</td><td class="center">7</td><td class="center">45</td><td class="center">—</td></tr>
+  <tr><td><strong>三方に割れている</strong></td><td><code>dng</code></td><td class="center">257</td><td class="center">166</td><td class="center">75</td><td class="center">91</td><td class="center">91</td></tr>
+  <tr><td><strong>多くが絵を持たない</strong></td><td><code>crw</code> <code>raw</code> <code>mrw</code> <code>dcr</code> <code>fff</code></td><td class="center">86</td><td class="center">29</td><td class="center">13</td><td class="center">16</td><td class="center">57</td></tr>
+  <tr><td><strong>カメラではなくPCが作る</strong></td><td><code>arq</code></td><td class="center">1</td><td class="center">1</td><td class="center">1</td><td class="center">—</td><td class="center">—</td></tr>
+  <tr><td><strong>実物が世界に無い</strong></td><td><code>ptx</code></td><td class="center">0</td><td class="center">—</td><td class="center">—</td><td class="center">—</td><td class="center">—</td></tr>
 </table>
 </div>
+<p>
+<strong>「原寸」</strong>はプレビューの長辺が1600pxに届くという意味で、そこが全画面で眠く見えなくなる境目でした。
+<strong>「絵なし」</strong>は枠だけが出るという意味ですが、寸法と撮影日時は絵とは別に読むので、
+日付順の並びにもカメラの絞り込みにも出ます。
+</p>
+<p>
+2026-09-04 に、<strong>実ファイル1,870枚</strong>（<a href="https://raw.pixls.us/">raw.pixls.us</a> のCC0サンプル全件）で測りました。
+落ちた件数は0です。<strong><a href="https://harusame64.github.io/pictkura/ja/cameras.html">メーカー60社・924機種の一覧はこちら</a></strong>——あなたの機種で実際に何が出たかを、測った実物へのリンクつきで引けます。
+</p>
 
 <h3>動画</h3>
 <div class="table-scroll">
