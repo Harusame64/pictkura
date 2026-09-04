@@ -259,6 +259,11 @@ fn resume_from(
 /// その展開・回転・再エンコードまで含む。片方だけ含めると、含めなかったほう
 /// （縦位置のRAW、あるいは1億画素のTIFF）が**安く見える**（PRのcodex P2）。
 ///
+/// **`raw_ms_min` / `raw_ms_max` も同じ約束である。** 「その拡張子をRAWとして
+/// 足したら払う値段」なので、探索だけでなく**向きが1でないときの詰め直しまで**
+/// 含む。`disp` 列を持つ結果はどちらもこの約束で測られている
+/// ——**持たない結果とは並べない**。
+///
 /// **`--repeat 1`（既定）の値は、回帰の監視には使えない。** 1件を1回しか測っておらず、
 /// ディスクのキャッシュが冷えているか温まっているかで数倍振れる。使えるのは
 /// 「HEVCの経路を踏んだ行はどれか」の見当までで、そこは10倍の差が出るので
@@ -308,7 +313,9 @@ fn bench_raw_matrix(
     // **`disp` は「この行の `ms` に詰め直しの値段が入っているか」。**
     // 入れる前の版は、向きが1でないRAWで `read_exif` しか測っていない。
     // 列が増えたぶん**古い結果への追記は `resume_from` が止める**ので、
-    // 意味の違う行が同じ表に混ざることはない（ゲート2）
+    // 意味の違う行が同じ表に混ざることはない（ゲート2）。
+    // **`raw_ms` の約束が変わったことも、この列の有無が代表している**
+    // ——同じPRで両方動いたので、見出しを分ける必要はない
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
                   exhausted\tdecodable\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\tdisp\traw_ms_min\traw_ms_max\tpanic\tverdict";
 
@@ -466,15 +473,31 @@ fn bench_raw_matrix(
             //
             //    値段は問題にならない。ここが回るのは `!is_raw` の行だけ
             //    ——台帳では **59行・1.3GB**（c1 43 と c2 16）で、1811のRAWは通らない
+            //
+            //    **`ms` と同じ手当ては、詰め直しにも要る。** 足したあとに
+            //    アプリが通るのは `raw_display_jpeg` で、向きが1でなければ
+            //    **展開して回して詰め直す**。探索だけ測ると、**縦位置の候補が安く出る**
+            //    ——`ms` 側では直したのに、判断材料の `raw_ms` は探索だけのままだった
+            //    （PRのcodex P2、3回目）
+            let mut raw_rotated = false;
             let raw_extra = (!is_raw).then(|| {
                 let mut spans = Vec::with_capacity(repeat);
                 let mut found = None;
                 for _ in 0..repeat.max(1) {
                     let one = Instant::now();
-                    found = Some(pictkura_core::raw::search_embedded_preview(
+                    let f = pictkura_core::raw::search_embedded_preview(
                         &path,
                         pictkura_core::raw::USABLE_LONG_EDGE,
-                    ));
+                    );
+                    let turned = (exif.orientation != 1)
+                        .then_some(f.preview.as_deref())
+                        .flatten();
+                    raw_rotated = turned
+                        .and_then(|b| {
+                            pictkura_core::thumbs::rotate_raw_preview(b, exif.orientation)
+                        })
+                        .is_some();
+                    found = Some(f);
                     spans.push(one.elapsed());
                 }
                 if spans.len() > 1 {
@@ -499,10 +522,15 @@ fn bench_raw_matrix(
             // C-1 の43件は**拡張子を増やすかどうかの判断材料**そのものなので、
             // 弱いままだと**足す側に有利な誤判定**になる（PRのcodex P2、2回目）。
             // 回るのは非RAWの59行だけなので値段は問題にならない
-            let raw_decodable = raw_extra
-                .as_ref()
-                .and_then(|(f, _, _)| f.preview.as_deref())
-                .map(|b| image::load_from_memory(b).is_ok());
+            let raw_decodable = if raw_rotated {
+                // 上の計測で実際に展開して回している
+                Some(true)
+            } else {
+                raw_extra
+                    .as_ref()
+                    .and_then(|(f, _, _)| f.preview.as_deref())
+                    .map(|b| image::load_from_memory(b).is_ok())
+            };
             let decodable = if rotated {
                 // 上の計測で実際に展開して回して詰め直している。**同じ絵を2度展開しない**
                 Some(true)
@@ -656,7 +684,13 @@ fn bench_raw_matrix(
         } else {
             "絵なし(未確定)"
         };
-        if app_pv.is_some() {
+        // **「絵が出た」を寸法だけで数えない。** 展開できない絵は
+        // `寸法は読めるが絵にならない` と判定しているのに、`preview` 列と
+        // この集計だけ `app_pv` の有無で数えていた——**同じ行の中で
+        // 判定と数が食い違う**（PRのcodex P2、3回目）。`merge.py` は
+        // `preview == "0"` で相手の台へ渡す行を選ぶので、そちらにも効く
+        let shows = app_pv.is_some() && decodable != Some(false);
+        if shows {
             ok += 1;
         } else {
             ng += 1;
@@ -671,7 +705,7 @@ fn bench_raw_matrix(
             (*ext).to_string(),
             (*klass).to_string(),
             listed.to_string(),
-            u8::from(app_pv.is_some()).to_string(),
+            u8::from(shows).to_string(),
             wh(app_pv),
             wh(raw_pv),
             u8::from(exhausted).to_string(),
