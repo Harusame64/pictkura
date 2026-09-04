@@ -41,6 +41,7 @@ import { es } from "../src/i18n/es.ts";
 import { zh } from "../src/i18n/zh.ts";
 import { zhHant } from "../src/i18n/zh-hant.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
+import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
 
 type Any = Record<string, unknown>;
 
@@ -449,5 +450,32 @@ test("英語からの丸写しが無いこと", () => {
       `${lang} で英語と同じ文字列の顔ぶれが変わった。訳し忘れなら訳す。` +
         `製品名・単位・数だけの関数でよいなら SAME_AS_EN に理由を添えて足す`,
     );
+  }
+});
+
+/**
+ * **週の始まりだけは `Intl` に任せていない**ので、その受け取り口を見る。
+ *
+ * `index.ts` は `window` を読むのでここからは触れないが、`weekday.ts` は
+ * 渡された値を検めるだけなので直に呼べる（それがあのファイルを分けた理由）。
+ * 守るのは**原点**——Rustは `Date.getDay()`（0=日曜）に揃えて渡す約束で、
+ * Win32 の原点（0=月曜）が素通しで来ると、**週の始まりが1日手前へずれる**。
+ * **0〜6は7曜日ぜんぶが正しい値**なので、ここを狭めない
+ * （`ar-EG` / `fa-IR` は土曜始まり。2026-09-04、ゲート2）。
+ */
+test("OSから来た週の始まりは、範囲の内側だけ通す", () => {
+  for (let i = 0; i <= 6; i++) {
+    assert.equal(firstWeekdayFromOs(i), i, `${i} は正しい曜日`);
+  }
+  // **0 を落とさない。** `if (raw)` で書くと日曜始まりの人だけ既定へ倒れる
+  assert.equal(firstWeekdayFromOs(0), 0);
+
+  // 取れなかった／置く前の版／Rustの居ないブラウザ
+  assert.equal(firstWeekdayFromOs(undefined), null);
+  assert.equal(firstWeekdayFromOs(null), null);
+  // 範囲の外と、数でないもの。**文字列の "0" も通さない**——添字にすると
+  // `weekdayLabels` が `NaN` を数えて曜日名が消える
+  for (const bad of [-1, 7, 8, 1.5, NaN, Infinity, "0", "3", true, [3], {}]) {
+    assert.equal(firstWeekdayFromOs(bad), null, `${String(bad)} は弾く`);
   }
 });

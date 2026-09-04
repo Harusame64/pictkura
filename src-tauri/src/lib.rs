@@ -4050,6 +4050,87 @@ fn normalize_locale_tag(raw: impl AsRef<str>) -> String {
         .replace('_', "-")
 }
 
+/// **週の始まりは、タグからは分からない**（0=日曜 … 6=土曜。`Date.getDay()` と同じ原点）。
+///
+/// 桁区切りも日付の並びも地域のタグで正しくなるが、**週の始まりだけは別の設定**である。
+/// Windowsの明示設定を 0/3/6 と振っても `GetUserDefaultLocaleName` は `ja-JP` のまま動かず、
+/// `Intl` はタグだけで答える——**木曜始まりにしている人が、既定の日曜に見える**
+/// （2026-09-04、win の実測。dev #18 残件(b)）。だから**効いている値を直に読む**。
+///
+/// **返す原点は `Date.getDay()` に揃える。** 画面側で直すことにすると、
+/// OSごとに違う変換が `ui` に散る——そして下の表のとおり、どの原点も一致しない。
+#[cfg(target_os = "macos")]
+fn os_first_weekday() -> Option<u32> {
+    use core_foundation_sys::base::{CFRelease, CFTypeRef};
+    use core_foundation_sys::calendar::{CFCalendarCopyCurrent, CFCalendarGetFirstWeekday};
+
+    // SAFETY: `Copy` 規則なのでこちらが `CFRelease` する（`os_region_locale` と同じ）。
+    unsafe {
+        let cal = CFCalendarCopyCurrent();
+        if cal.is_null() {
+            return None;
+        }
+        // **この束縛は引数の型を間違えている**（core-foundation-sys 0.8.7 は
+        // `CFCalendarGetFirstWeekday(identifier: CFCalendarIdentifier)` ＝ `CFStringRef`
+        // と宣言しているが、実際の C が取るのは `CFCalendarRef`）。どちらもポインタなので
+        // ABIは同じ。**キャストは仕様に合わせるためで、型を黙らせるためではない。**
+        let first =
+            CFCalendarGetFirstWeekday(cal as core_foundation_sys::locale::CFCalendarIdentifier);
+        CFRelease(cal as CFTypeRef);
+        first_weekday_from_core_foundation(first as i64)
+    }
+}
+
+#[cfg(windows)]
+fn os_first_weekday() -> Option<u32> {
+    use windows_sys::Win32::Globalization::{
+        GetLocaleInfoEx, LOCALE_IFIRSTDAYOFWEEK, LOCALE_RETURN_NUMBER,
+    };
+
+    let mut value: u32 = 0;
+    // SAFETY: `LOCALE_RETURN_NUMBER` を付けると、バッファは文字列ではなく **DWORD 1つ**として
+    // 書かれる。`cchData` は**文字数**なので `u32` は `u16` 2つぶん。
+    //
+    // **第1引数は `LOCALE_NAME_USER_DEFAULT` ＝ NULL。** `""` を渡しても**失敗しない**
+    // ——不変ロケールとして通り、**「既定の地域が取れなかった」ではなく
+    // 「既定は月曜始まり」に見える**（win の申し送り。失敗が失敗の顔をしていない）。
+    let got = unsafe {
+        GetLocaleInfoEx(
+            std::ptr::null(),
+            LOCALE_IFIRSTDAYOFWEEK | LOCALE_RETURN_NUMBER,
+            (&mut value as *mut u32).cast::<u16>(),
+            (std::mem::size_of::<u32>() / std::mem::size_of::<u16>()) as i32,
+        )
+    };
+    if got == 0 {
+        return None;
+    }
+    first_weekday_from_win32(value)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn os_first_weekday() -> Option<u32> {
+    // Linux等。`_NL_TIME_FIRST_WEEKDAY` を読む手はあるが、glibc 固有で綴りも違う。
+    // **測ってから足す**（いまは画面側が `Intl` から近似する）
+    None
+}
+
+/// Win32 の `LOCALE_IFIRSTDAYOFWEEK`（**0=月曜 … 6=日曜**）を `Date.getDay()` の原点へ。
+///
+/// **両OSぶんの変換をここに置き、両OSでテストする。** `cfg` の中に書くと、
+/// macOSのゲートは Windows 側の式を1行もコンパイルしない
+/// （2026-09-01 に一度踏んでいる）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn first_weekday_from_win32(v: u32) -> Option<u32> {
+    (v <= 6).then(|| (v + 1) % 7)
+}
+
+/// CoreFoundation の `CFCalendarGetFirstWeekday`（**1=日曜 … 7=土曜**）を同じ原点へ。
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn first_weekday_from_core_foundation(v: i64) -> Option<u32> {
+    (1..=7).contains(&v).then(|| (v - 1) as u32)
+}
+
 /// **OSの言語設定を、地域つきで画面へ渡す。**
 ///
 /// WebViewの `navigator.languages` は地域を落とす。macOSは**OSが `ja-JP` を持っているのに
@@ -4063,6 +4144,12 @@ fn normalize_locale_tag(raw: impl AsRef<str>) -> String {
 /// **ページのスクリプトより先に走らせる**必要がある。辞書 `t` は
 /// `ui/src/i18n/index.ts` を読んだ時点で決まる定数で、`invoke` の非同期を待てない。
 /// `js_init_script` はそのための口（Tauriのドキュメントが挙げている用途そのもの）。
+///
+/// **読むのは起動時の1回だけ**（この関数はプラグインを組むときに走る）。OSの側で
+/// 表示言語・地域・週の始まりを変えても、**アプリを起動し直すまで画面は変わらない**。
+/// 言語の切り替えが `location.reload()` を挟んでいるのと同じ事情である。
+/// **確かめるときは「変えてから起動する」**——走っているアプリの脇で変えて
+/// 「効いていない」と読むと、直っているものを壊れていると判定する（win の申し送り）。
 fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let locales: Vec<String> = sys_locale::get_locales().collect();
     // **JSは組み立てず、データだけ差し込む**。ロケール名を文字列連結で埋めると、
@@ -4070,9 +4157,11 @@ fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     // 失敗しても「地域が分からない」に留める（`[]` を置いて画面側で従来動作へ倒す）
     let langs = serde_json::to_string(&locales).unwrap_or_else(|_| "[]".to_string());
     let region = serde_json::to_string(&os_region_locale()).unwrap_or_else(|_| "null".to_string());
+    let weekday = serde_json::to_string(&os_first_weekday()).unwrap_or_else(|_| "null".to_string());
     tauri::plugin::Builder::new("os-locale")
         .js_init_script(format!(
-            "window.__PICTKURA_OS_LOCALES__ = {langs}; window.__PICTKURA_OS_REGION__ = {region};"
+            "window.__PICTKURA_OS_LOCALES__ = {langs}; window.__PICTKURA_OS_REGION__ = {region}; \
+             window.__PICTKURA_FIRST_WEEKDAY__ = {weekday};"
         ))
         .build()
 }
@@ -4696,7 +4785,10 @@ pub fn run() {
 mod tests {
     #[cfg(windows)]
     use super::APP_IDENTIFIER;
-    use super::{dcim_under, drive_label, import_path_from_args};
+    use super::{
+        dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
+        import_path_from_args,
+    };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
     #[cfg(unix)]
@@ -4707,6 +4799,44 @@ mod tests {
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// **原点が3つあって、どれも一致しない。** ここで両OSぶんを1か所に並べて見る
+    /// ——`cfg` の中に書くと、片方のゲートはもう片方の式を1行も見ない。
+    ///
+    /// | | 月曜 | 日曜 |
+    /// |---|---|---|
+    /// | Win32 `LOCALE_IFIRSTDAYOFWEEK` | 0 | 6 |
+    /// | CoreFoundation | 2 | 1 |
+    /// | `Date.getDay()`（渡す形） | 1 | 0 |
+    #[test]
+    fn the_first_weekday_arrives_on_the_calendars_own_origin() {
+        // Win32 は月曜が 0。**素通しすると日曜始まりのカレンダーになる**ので、
+        // ここが 1 でなければ画面は丸一日ずれる
+        assert_eq!(first_weekday_from_win32(0), Some(1), "Win32の月曜");
+        assert_eq!(first_weekday_from_win32(6), Some(0), "Win32の日曜");
+        assert_eq!(first_weekday_from_win32(3), Some(4), "Win32の木曜");
+        // 7以上は綴りが変わったか読み違いなので、既定へ倒す側に落とす
+        assert_eq!(first_weekday_from_win32(7), None);
+        assert_eq!(first_weekday_from_win32(u32::MAX), None);
+
+        // CoreFoundation は日曜が 1
+        assert_eq!(first_weekday_from_core_foundation(1), Some(0), "CFの日曜");
+        assert_eq!(first_weekday_from_core_foundation(2), Some(1), "CFの月曜");
+        assert_eq!(first_weekday_from_core_foundation(7), Some(6), "CFの土曜");
+        // **0 は「取れなかった」側**。CFは1始まりなので、0が来たら値ではない
+        assert_eq!(first_weekday_from_core_foundation(0), None);
+        assert_eq!(first_weekday_from_core_foundation(8), None);
+        assert_eq!(first_weekday_from_core_foundation(-1), None);
+
+        // **同じ曜日は、どちらの原点から来ても同じ数になる**（変換を取り違えたら割れる）
+        for (win32, cf) in [(0, 2), (1, 3), (2, 4), (3, 5), (4, 6), (5, 7), (6, 1)] {
+            assert_eq!(
+                first_weekday_from_win32(win32),
+                first_weekday_from_core_foundation(cf),
+                "Win32 {win32} と CF {cf} は同じ曜日"
+            );
+        }
     }
 
     #[test]
