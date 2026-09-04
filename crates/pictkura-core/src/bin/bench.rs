@@ -603,8 +603,14 @@ fn bench_raw_matrix(
                     .map(|b| image::load_from_memory(b).is_ok())
             } else if transcoded {
                 // 詰め直しが要る非RAW（`tif`・HEIF）は `display_jpeg` が
-                // **本物の展開**を通っている
-                decoded.map(|_| true).or(raw_decodable)
+                // **本物の展開**を通っている。
+                //
+                // **候補の結果へ落とさない。** `display_jpeg` が失敗した行で
+                // `raw_decodable` を借りると、**同じ行が `preview=0`・判定
+                // 「開けない」なのに `decodable=1`** になる。この列は
+                // 「**この行がいま画面へ出す絵**が展開できたか」であって、
+                // 候補の絵の話ではない（PRのcodex P2、4回目）
+                decoded.map(|_| true)
             } else if listed_scan {
                 // **詰め直さない形式は、原本がそのままブラウザへ行く。**
                 // ここで読んだのは `into_dimensions` ＝**ヘッダだけ**で、
