@@ -164,6 +164,667 @@ fn bench_raw(path: &std::path::Path) {
     );
 }
 
+/// 途中まで書けている結果TSVから、**書き戻す中身**と**済んだ行の鍵**を作る。
+///
+/// **済んだ行の鍵は `local`（保存名）にする。** sha256 だと、中身が同じで名前だけ
+/// 違う行（変種の付け替え）が来たときに**2行目以降が黙って落ちる**——止めずに
+/// 回した台と、途中で再開した台で行数が食い違う（ゲート2）。
+///
+/// **半端な行を「済み」に数えない。** 書いている最中に止めると、2列目まで書けた
+/// 断片が末尾に残る。それを鍵に足すと**その行は二度と測られず**、しかも改行の
+/// 無い断片の後ろへ追記するので、**2行が1行につながって**TSVが壊れる。中断して
+/// 打ち直せることがこのモードの売りなので、ここが弱いと看板倒れになる
+/// （PRのcodex P2、2回目）。だから**揃っている行までを書き戻してから**追記する。
+///
+/// 見出しは常にこちらが積む。だから「見出しを書いた直後に切られた結果へ見出しを
+/// もう1行足す」（読む側は列名で引くので、その行は `sha256` という値のデータ行
+/// として通る）も起きない。**直す前の版が書いた2本目の見出し**は、書き直す
+/// この機会に落とす——列数は合うので、数を数えるだけの網では捕まらない。
+///
+/// **見出しが違う結果へは足さない。** 列を足す前の版が書いた物を継ぐと、
+/// 読む側は列名で引くので**ずれたまま「そういう値だった」と通る**。落とす。
+/// ただし**見出しの途中で切れている結果は別**で、あれはまだ1件も測っていない
+/// ——「別の列だ」と言って止めるのは、消しようのない誤報になる。
+fn resume_from(
+    existing: &str,
+    header: &str,
+    out: &std::path::Path,
+) -> (String, std::collections::HashSet<String>) {
+    let cols = header.split('\t').count();
+    let mut kept = String::with_capacity(existing.len().max(header.len() + 1));
+    let mut already = std::collections::HashSet::new();
+    kept.push_str(header);
+    kept.push('\n');
+    let head = existing.split_inclusive('\n').next().unwrap_or_default();
+    // **見出しの途中で切られた結果は、まだ1件も測っていない結果である。**
+    // 「別の列で書かれた物だ」と言って止めると、消しようのない誤報になる
+    // ——実際には積み直すだけでよい（ゲート2）
+    if existing.is_empty()
+        || header.starts_with(head.trim_end_matches('\n')) && !head.ends_with('\n')
+    {
+        return (kept, already);
+    }
+    assert_eq!(
+        head.trim_end_matches('\n'),
+        header,
+        "結果TSVの見出しが今の列と合わない: {}",
+        out.display()
+    );
+    for line in existing.split_inclusive('\n').skip(1) {
+        // 改行で終わっていない＝書いている途中で切られた行。ここから先は捨てる
+        let Some(record) = line.strip_suffix('\n') else {
+            break;
+        };
+        // 列が足りない行も同じ。書く側は `row` で数を確かめているので、
+        // 揃っていないなら**書き切れていない**
+        if record.split('\t').count() != cols {
+            break;
+        }
+        // **2本目の見出しはデータではない。** 列数は当然合うので上の網では
+        // 落ちず、`local` という鍵が入って `merge.py` が
+        // `sha256 == "sha256"` の行を読む。書き直すこの機会に落とす。
+        //
+        // **いま在る結果でこれを踏むものは無い**——`disp` を足す前の版が書いた
+        // 物は、1行目の見出しが違うので上の `assert` で先に止まる。
+        // 残してあるのは**次に列を足したとき**のためで、そのとき見出しは
+        // また一致し、この網だけが2本目を落とす（ゲート2の注記）
+        if record == header {
+            continue;
+        }
+        already.insert(record.split('\t').nth(1).unwrap_or_default().to_string());
+        kept.push_str(line);
+    }
+    (kept, already)
+}
+
+/// メーカー×機種×変種の総当たりを**機械可読で**吐く（`dev/plan.raw-matrix.md`）。
+///
+///   bench --raw-matrix <置き場> --ledger dev/raw-matrix.tsv --out <結果.tsv> [--repeat 7]
+///
+/// 人が読む表は [`bench_raw_dir`] のまま。**こちらは2台の結果を突き合わせるための物**で、
+/// 1行1ファイル・タブ区切りしか出さない。
+///
+/// **`--raw-dir` との違いは3つ**:
+///
+/// 1. **組み合わせの名前を持つ**（メーカー・機種・変種）。ファイル名からは復元できない
+/// 2. **「いまどうなるか」と「RAWとして扱えばどうなるか」を分けて書く。**
+///    `.ori` や `.tif` は `RAW_EXTENSIONS` に無いので、いまは6段の探索を1段も通らない。
+///    両方書けば「足せば出る」のか「足しても出ない」のかが**測ってから**言える
+/// 3. **1件の失敗で掃引を止めない。** 落ちても [`pictkura_core::panics::catching`] が
+///    受け止めて `panic` 列に印を付け、次の行へ進む。1870件は今までで最大の実物投入で、
+///    **落ちないことの確認そのものが成果物**である
+///
+/// 途中で止めてよい。**結果TSVに既にある行は飛ばす**ので、打ち直せば続く。
+///
+/// # `ms_min` / `ms_max` を何に使えるか
+///
+/// **中身は「アプリが画面に出すまでに払う値段」。** `read_exif` に加えて、
+/// 詰め直しが要る行——一覧に出る非RAW（`tif`）と、**向きが1でないRAW**——は
+/// その展開・回転・再エンコードまで含む。片方だけ含めると、含めなかったほう
+/// （縦位置のRAW、あるいは1億画素のTIFF）が**安く見える**（PRのcodex P2）。
+///
+/// **`raw_ms_min` / `raw_ms_max` は「`ms` に上乗せされる分」である。**
+/// 探索（`search_embedded_preview`）と、向きが1でないときの詰め直しを含む。
+/// **`read_exif` のコンテナ読みは入っていない**——RAWとして足したあとの
+/// `read_exif` は先に `read_exif_container` と `patched_tiff_metadata` を通るので、
+/// **`raw_ms` を本物のRAW行の `ms_min` と並べると、候補のほうが安く見える**
+/// （ゲート2）。**「足したら払う値段」ではなく「いま払っている値段への上乗せ」**
+/// として読むこと。`disp` 列を持つ結果はどちらもこの約束で測られている
+/// ——**持たない結果とは並べない**。
+///
+/// **`--repeat 1`（既定）の値は、回帰の監視には使えない。** 1件を1回しか測っておらず、
+/// ディスクのキャッシュが冷えているか温まっているかで数倍振れる。使えるのは
+/// 「HEVCの経路を踏んだ行はどれか」の見当までで、そこは10倍の差が出るので
+/// 多少の雑音では消えない。
+///
+/// **段階F-5 の表と比べるなら `--repeat 7`**。あちらは「7回続けて実行し、
+/// **1回目（キャッシュが冷えている）を除いた6回の最小〜最大**」で測っている。
+/// ここも同じにする——`repeat` 回まわし、`repeat > 1` なら**1回目を捨てて**
+/// 残りの最小と最大を書く。1870件で7回まわしても数分で終わる。
+///
+/// **どちらにせよ、入手や他の重い仕事と同時に回した値は捨てること。**
+/// 26GBを落としている最中はディスクとネットワークを掴まれており、その `ms` は
+/// 「入手しながらの台」の値になる。台どうしを比べると「あちらは遅い」の誤報になる
+/// （2026-09-03、win の指摘）。
+fn bench_raw_matrix(
+    dir: &std::path::Path,
+    ledger: &std::path::Path,
+    out: &std::path::Path,
+    repeat: usize,
+) {
+    use std::io::Write as _;
+
+    /// JPEGバイト列の寸法。**展開しない**（ヘッダだけ読む）
+    fn dims(bytes: &[u8]) -> Option<(u32, u32)> {
+        image::ImageReader::new(std::io::Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()
+            .and_then(|r| r.into_dimensions().ok())
+    }
+    fn wh(d: Option<(u32, u32)>) -> String {
+        d.map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}"))
+    }
+    /// プレビューが申告している向きの**生の値**。**展開しない**（EXIFだけ読む）。
+    ///
+    /// **文脈違いも見る。** CR3の `CMT2` は「Exif IFDの中身」だけを箱に入れて
+    /// いるので、`In::PRIMARY` だけを引くと落ちる（`thumbs.rs` の
+    /// `field_any_context` と同じ手当て）。見落とすと、**その社の候補だけ
+    /// 詰め直しが `raw_ms` から抜ける**（ゲート2）。
+    ///
+    /// **1〜8の外もそのまま返す。** `pv_orient` 列は二重回転を見抜く材料なので、
+    /// 丸めると「壊れた申告」と「タグが無い」の区別が消える
+    fn declared_orientation(bytes: &[u8]) -> Option<u32> {
+        let exif = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(bytes))
+            .ok()?;
+        let tag = exif::Tag::Orientation;
+        exif.get_field(tag, exif::In::PRIMARY)
+            .or_else(|| {
+                exif.get_field(
+                    exif::Tag(exif::Context::Tiff, tag.number()),
+                    exif::In::PRIMARY,
+                )
+            })
+            .or_else(|| {
+                exif.get_field(
+                    exif::Tag(exif::Context::Exif, tag.number()),
+                    exif::In::PRIMARY,
+                )
+            })
+            .and_then(|f| f.value.get_uint(0))
+    }
+    /// アプリが実際に使う向き。**1〜8の外は1**（`thumbs.rs` の `exif_data_from`
+    /// が同じ `filter` を掛けている）。
+    ///
+    /// 揃えないと、`Orientation = 0` を書く実物で**アプリが1度もしない詰め直しを
+    /// `raw_ms` に計上する**——`apply_orientation` は 1〜8 の外で何もしないので、
+    /// 展開と再エンコードだけが値段に乗る。**直したかった偏りの、向きが逆なだけの
+    /// 同じもの**である（ゲート2）
+    fn usable_orientation(declared: Option<u32>) -> u8 {
+        declared
+            .and_then(|v| u8::try_from(v).ok())
+            .filter(|v| (1..=8).contains(v))
+            .unwrap_or(1)
+    }
+    /// 1行に組む。**見出しと列数が合わなければその場で落とす。**
+    ///
+    /// 列を足したのに見出しを直し忘れると、TSVは**黙って**ずれる。読む側
+    /// （`merge.py`）は列名で引くので、ずれたまま「そういう値だった」と通る。
+    /// 実際に19列の見出しへ20列を書いていた（ゲート1で列を1つ足した直後）
+    fn row(header: &str, fields: &[String]) -> String {
+        assert_eq!(
+            fields.len(),
+            header.split('\t').count(),
+            "列数が見出しと合わない"
+        );
+        fields.join("\t")
+    }
+
+    // **`disp` は「この行の計測で詰め直しを**試したか**」。** 「成功したか」ではない
+    // ——展開に失敗した行も、**失敗するまでの値段は `ms` に入っている**ので、
+    // 比べてよい行かどうかの印としてはこちらが正しい（ゲート2の指摘に対して、
+    // 値ではなく言い方を直した）。入れる前の版は、向きが1でないRAWで
+    // `read_exif` しか測っていない。列が増えたぶん**古い結果への追記は
+    // `resume_from` が止める**ので、意味の違う行が同じ表に混ざることはない。
+    // **`raw_ms` の約束が変わったことも、この列の有無が代表している**
+    // ——同じPRで両方動いたので、見出しを分ける必要はない
+    let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
+                  exhausted\tdecodable\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\tdisp\traw_ms_min\traw_ms_max\tpanic\tverdict";
+
+    // 済んだ行は飛ばす（[`resume_from`]）。
+    //
+    // **読めない結果を「空」と読み替えてはいけない。** 下で書き戻すので、
+    // 一時的なI/O失敗を空と読むと**1870行が見出し1行に潰れる**。無いときだけ空
+    // （ゲート1。以前は追記で開くだけだったので、読めなくても消えはしなかった）
+    let existing = std::fs::read_to_string(out)
+        .or_else(|e| {
+            (e.kind() == std::io::ErrorKind::NotFound)
+                .then(String::new)
+                .ok_or(e)
+        })
+        .expect("結果TSVを読めない");
+    let (kept, already) = resume_from(&existing, header, out);
+    // **中身が変わったときだけ書き戻す。** そして**入れ替えは名前の付け替えで**やる。
+    // 直に上書きすると、1870行を置き換える一瞬だけ「落ちたら全部消える」窓ができる
+    // ——半端な行を捨てるために来ているのに、その手当てで全部落とすのでは筋が通らない
+    if kept.len() != existing.len() {
+        let staged = out.with_extension("part");
+        std::fs::write(&staged, &kept).expect("結果TSVを書き戻せない");
+        std::fs::rename(&staged, out).expect("結果TSVを入れ替えられない");
+    }
+    let mut sink = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out)
+        .expect("結果TSVを開けない");
+
+    let rows = std::fs::read_to_string(ledger).expect("台帳を読めない");
+    let mut seen = 0usize;
+    let (mut ok, mut ng, mut absent, mut panicked) = (0usize, 0usize, 0usize, 0usize);
+
+    for line in rows.lines().skip(1) {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (
+            Some(sha),
+            Some(make),
+            Some(model),
+            Some(variant),
+            Some(ext),
+            Some(klass),
+            Some(local),
+        ) = (
+            f.first(),
+            f.get(2),
+            f.get(3),
+            f.get(4),
+            f.get(5),
+            f.get(6),
+            f.get(9),
+        )
+        else {
+            continue;
+        };
+        // 拡張子の判定は `is_raw_extension` も `is_raw_path` も大小を無視する。
+        // ここだけ厳密一致だと、`CR2` の行が「一覧外」に落ちる（ゲート2）
+        let ext = &ext.to_ascii_lowercase();
+        let path = dir.join(local);
+        if !path.exists() {
+            absent += 1;
+            continue;
+        }
+        if already.contains(*local) {
+            continue;
+        }
+        seen += 1;
+
+        let is_raw = pictkura_core::raw::is_raw_path(&path);
+        let listed_scan = pictkura_core::config::DEFAULT_EXTENSIONS.contains(&ext.as_str());
+        let t = Instant::now();
+        let measured = pictkura_core::panics::catching(local, || {
+            // 1. **いまの pictkura が実際に通る道。** ここで測る値が
+            //    アプリが払っている値段そのもので、回帰の監視に使う。
+            //    `repeat > 1` なら**1回目を捨てる**（キャッシュが冷えている）
+            let mut spans = Vec::with_capacity(repeat);
+            let mut exif = None;
+            let mut decoded = None;
+            // 向きが1でないRAWで、展開・回転・詰め直しまで**通った**か。
+            // **`decodable` の答えでもある**（同じバイト列を2度展開しない）
+            let mut rotated = false;
+            // 詰め直しを**試した**か（`disp` 列。成功したかではない——失敗しても
+            // そこまでの値段は `ms` に入っているので、**比べてよい行かの印**として
+            // 正しいのはこちら）。**行ごとの真偽**で、版どうしを混ぜたときに効く
+            let mut transcoded = false;
+            for _ in 0..repeat.max(1) {
+                let one = Instant::now();
+                exif = Some(pictkura_core::thumbs::read_exif(&path));
+                // **一覧に出る非RAW**（`tif` がこれ）は、`read_exif` だけでは画面に出ない。
+                // 埋め込みプレビューを探さず `image` が原寸を展開する道に落ちる
+                // （`thumbs::display_jpeg` のTIFFの枝）。**詰め直しまで含めて初めて
+                // アプリが払っている値段**になる——外に出しておくと、
+                // 一番高い部分（100MPのセンサーTIFFの展開）が `ms` から抜ける
+                // （PRのcodex P2）
+                if !is_raw && listed_scan {
+                    transcoded = pictkura_core::thumbs::needs_display_transcode(&path);
+                    decoded = Some(if transcoded {
+                        // **`image::open` を直に呼んではいけない**——HEIFはOSのデコーダを
+                        // 通す枝が先にあり、imageクレートはHEIFを持たない。
+                        // **TIFFはここで4096へ丸められる**（それが実際に配信される寸法）
+                        pictkura_core::thumbs::display_jpeg(&path)
+                            .as_deref()
+                            .and_then(dims)
+                    } else {
+                        // 詰め直さない形式は原本がそのままブラウザへ行く。寸法だけ読む
+                        image::ImageReader::open(&path)
+                            .ok()
+                            .and_then(|r| r.with_guessed_format().ok())
+                            .and_then(|r| r.into_dimensions().ok())
+                    });
+                }
+                // **向きが1でないRAWは、ここから先が本番。** 原寸要求は
+                // `thumbs::display_jpeg` を通り、そのRAWの枝（`raw_display_jpeg`）は
+                // 埋め込みJPEGを**展開して回して詰め直す**。`read_exif` だけ測ると
+                // その値段が丸ごと落ちて、**縦位置のRAWだけ安く出る**——非RAWの
+                // 詰め直しは1つ上の枝で測るようにしたのに、片側だけ抜けていた
+                // （PRのcodex P2、2回目）
+                //
+                // **`raw_display_jpeg` は呼ばない。** 中で `read_exif` がもう1度走り、
+                // ファイル全体の探索が倍になる（すぐ下の注記と同じ穴）。回して
+                // 詰め直す仕事だけを `thumbs::rotate_raw_preview` として切り出してある
+                if is_raw {
+                    let e = exif.as_ref().expect("直前に測っている");
+                    let turned = (e.orientation != 1)
+                        .then_some(e.thumbnail.as_deref())
+                        .flatten();
+                    transcoded = turned.is_some();
+                    rotated = turned
+                        .and_then(|b| pictkura_core::thumbs::rotate_raw_preview(b, e.orientation))
+                        .is_some();
+                }
+                spans.push(one.elapsed());
+            }
+            if spans.len() > 1 {
+                spans.remove(0);
+            }
+            let exif = exif.expect("1回は測っている");
+            let app_ms = (
+                spans.iter().min().copied().unwrap_or_default(),
+                spans.iter().max().copied().unwrap_or_default(),
+            );
+
+            // 2. **RAWでない行だけ**、「RAWとして扱えば出るのか」を追加で測る。
+            //    RAWの行で呼び直してはいけない——`read_exif` は中で
+            //    `search_embedded_preview` を同じ長辺で走らせており
+            //    （`thumbs.rs` の `read_exif_inner`）、もう1度呼ぶと
+            //    **ファイル全体の走査を2回する**。1800件ぶんのI/Oが倍になるうえ、
+            //    `ms` が「2回ぶんの値段」になって回帰の比較に使えなくなる（ゲート1のP2）
+            //    **`ms` と同じ手当てをする。** 1回しか測らないと、直前に
+            //    `read_exif` を `repeat` 回まわしているので**必ずキャッシュが温まった
+            //    状態の値**になる——雑音ではなく**速い側への偏り**で、
+            //    `ms_min` と並べた人は「RAW扱いの道は安い」と読む。
+            //    C-1 の43件を足すかどうかの判断材料がそこなので、
+            //    **足す側に有利な誤読**が起きる（2026-09-03、win の指摘）。
+            //
+            //    値段は問題にならない。ここが回るのは `!is_raw` の行だけ
+            //    ——台帳では **59行・1.3GB**（c1 43 と c2 16）で、1811のRAWは通らない
+            //
+            //    **`ms` と同じ手当ては、詰め直しにも要る。** 足したあとに
+            //    アプリが通るのは `raw_display_jpeg` で、向きが1でなければ
+            //    **展開して回して詰め直す**。探索だけ測ると、**縦位置の候補が安く出る**
+            //    ——`ms` 側では直したのに、判断材料の `raw_ms` は探索だけのままだった
+            //    （PRのcodex P2、3回目）
+            let mut raw_rotated = false;
+            let raw_extra = (!is_raw).then(|| {
+                let mut spans = Vec::with_capacity(repeat);
+                let mut found = None;
+                for _ in 0..repeat.max(1) {
+                    let one = Instant::now();
+                    let f = pictkura_core::raw::search_embedded_preview(
+                        &path,
+                        pictkura_core::raw::USABLE_LONG_EDGE,
+                    );
+                    // **向きは「RAWとして扱ったら読める値」で決める。**
+                    // `read_exif` は非RAWのパスだと申告を信じない枝で降りるので
+                    // （`thumbs.rs` の `is_raw_path` の分岐）、`exif.orientation` には
+                    // **プレビューのEXIFが混ざっていない**。足したあとの
+                    // `raw_display_jpeg` はそこまで読んで回すので、
+                    // コンテナが1のときは**プレビュー自身の申告**を見る
+                    // ——`merge_preview_exif` が「1のときだけ上書き」する規則と同じ。
+                    // 見ないと、**コンテナに向きを書かない社の候補だけ安く出る**（ゲート1）
+                    let orient = match exif.orientation {
+                        1 => {
+                            usable_orientation(f.preview.as_deref().and_then(declared_orientation))
+                        }
+                        n => n,
+                    };
+                    let turned = (orient != 1).then_some(f.preview.as_deref()).flatten();
+                    raw_rotated = turned
+                        .and_then(|b| pictkura_core::thumbs::rotate_raw_preview(b, orient))
+                        .is_some();
+                    found = Some(f);
+                    spans.push(one.elapsed());
+                }
+                if spans.len() > 1 {
+                    spans.remove(0);
+                }
+                (
+                    found.expect("1回は測っている"),
+                    spans.iter().min().copied().unwrap_or_default(),
+                    spans.iter().max().copied().unwrap_or_default(),
+                )
+            });
+
+            let decoded = decoded.flatten();
+
+            // **展開は必ずこの中で。** `image` は壊れた入力で落ちることがあり、
+            // それを受け止めるためにこの閉包ごと `panics::catching` に包んである。
+            // 外へ出すと、**落ちた行が書かれないまま掃引ごと死ぬ**——書かれないので
+            // 再開しても `already` に入らず、打ち直すたびに同じ行で死ぬ（ゲート2）
+            //
+            // **候補のプレビューも展開まで確かめる。** 寸法だけで通すと、
+            // エントロピー符号が壊れたJPEGを「足せば出る」と書くことになる。
+            // C-1 の43件は**拡張子を増やすかどうかの判断材料**そのものなので、
+            // 弱いままだと**足す側に有利な誤判定**になる（PRのcodex P2、2回目）。
+            // 回るのは非RAWの59行だけなので値段は問題にならない
+            let raw_decodable = if raw_rotated {
+                // 上の計測で実際に展開して回している
+                Some(true)
+            } else {
+                raw_extra
+                    .as_ref()
+                    .and_then(|(f, _, _)| f.preview.as_deref())
+                    .map(|b| image::load_from_memory(b).is_ok())
+            };
+            let decodable = if rotated {
+                // 上の計測で実際に展開して回して詰め直している。**同じ絵を2度展開しない**
+                Some(true)
+            } else if is_raw {
+                exif.thumbnail
+                    .as_deref()
+                    .map(|b| image::load_from_memory(b).is_ok())
+            } else if transcoded {
+                // 詰め直しが要る非RAW（`tif`・HEIF）は `display_jpeg` が
+                // **本物の展開**を通っている。
+                //
+                // **候補の結果へ落とさない。** `display_jpeg` が失敗した行で
+                // `raw_decodable` を借りると、**同じ行が `preview=0`・判定
+                // 「開けない」なのに `decodable=1`** になる。この列は
+                // 「**この行がいま画面へ出す絵**が展開できたか」であって、
+                // 候補の絵の話ではない（PRのcodex P2、4回目）。
+                //
+                // **`-` ではなく `0` を書く。** ここへ来た行は
+                // `display_jpeg` を**実際に呼んで失敗している**ので、
+                // 答えは「無い」ではなく「否」である。`-` にすると、
+                // 下の「ヘッダしか読んでいないので答えが無い」枝と
+                // **同じ顔**になり、`decodable == 0` で失敗を拾えなくなる（ゲート2）
+                Some(decoded.is_some())
+            } else if listed_scan {
+                // **詰め直さない形式は、原本がそのままブラウザへ行く。**
+                // ここで読んだのは `into_dimensions` ＝**ヘッダだけ**で、
+                // アプリもRust側では展開しない。**こちらに答えが無い**ので `-`
+                // ——`Some(true)` と書くと、途中で切れたJPEGを
+                // 「絵になった」と数えることになる（ゲート2）
+                None
+            } else {
+                // **一覧外の行は候補のプレビューが唯一の絵**なので、そちらの結果を書く
+                raw_decodable
+            };
+
+            (
+                exif,
+                app_ms,
+                raw_extra,
+                decoded,
+                transcoded,
+                decodable,
+                raw_decodable,
+            )
+        });
+
+        let Some((exif, app_ms, raw_extra, decoded, transcoded, decodable, raw_decodable)) =
+            measured
+        else {
+            panicked += 1;
+            let mut f = vec![
+                (*sha).to_string(),
+                (*local).to_string(),
+                (*make).to_string(),
+                (*model).to_string(),
+                (*variant).to_string(),
+                (*ext).to_string(),
+                (*klass).to_string(),
+            ];
+            f.extend(std::iter::repeat_n("-".to_string(), 11));
+            let ms = format!("{:.1}", t.elapsed().as_secs_f64() * 1000.0);
+            f.extend([
+                ms.clone(),
+                ms,
+                "-".to_string(), // disp: どこまで測れたか分からない
+                "-".to_string(),
+                "-".to_string(),
+                "1".to_string(),
+                "パニック".to_string(),
+            ]);
+            writeln!(sink, "{}", row(header, &f)).unwrap();
+            continue;
+        };
+        let ms_min = format!("{:.1}", app_ms.0.as_secs_f64() * 1000.0);
+        let ms_max = format!("{:.1}", app_ms.1.as_secs_f64() * 1000.0);
+        let (raw_ms_min, raw_ms_max) = raw_extra.as_ref().map_or_else(
+            || ("-".to_string(), "-".to_string()),
+            |(_, lo, hi)| {
+                (
+                    format!("{:.1}", lo.as_secs_f64() * 1000.0),
+                    format!("{:.1}", hi.as_secs_f64() * 1000.0),
+                )
+            },
+        );
+
+        let listed = match (listed_scan, pictkura_core::raw::is_raw_extension(ext)) {
+            (true, true) => "scan+raw",
+            (true, false) => "scan",
+            _ => "-",
+        };
+        // `decodable` と `raw_decodable` は閉包の中で作ってある（展開が落ちても
+        // 掃引を殺さないため。上の注記）
+        // **アプリが実際に画面へ出せる絵。** RAWは埋め込みプレビュー、
+        // それ以外は `image` が展開した原寸
+        let app_pv = if is_raw {
+            exif.thumbnail.as_deref().and_then(dims)
+        } else {
+            decoded
+        };
+        // **RAWとして扱ったら出るか。** RAWの行では `app_pv` と同じ物なので測り直さない
+        let raw_pv = if is_raw {
+            exif.thumbnail.as_deref().and_then(dims)
+        } else {
+            raw_extra
+                .as_ref()
+                .and_then(|(f, _, _)| f.preview.as_deref())
+                .and_then(dims)
+        };
+        let exhausted = if is_raw {
+            exif.preview_exhausted
+        } else {
+            raw_extra.as_ref().is_some_and(|(f, _, _)| f.exhausted)
+        };
+        // プレビュー自身が向きを申告しているか（していれば、その絵は回転前だと
+        // カメラが明言している）。二重回転を見抜く材料
+        // 向きを読む相手は、**`raw_pv` が指している絵**でなければならない。
+        // 非RAWの行の `exif.thumbnail` は別物（たいてい空）で、
+        // 二重回転を見抜くための列が `-` で埋まる（ゲート2）
+        let orient_src = if is_raw {
+            exif.thumbnail.as_deref()
+        } else {
+            raw_extra
+                .as_ref()
+                .and_then(|(f, _, _)| f.preview.as_deref())
+        };
+        let pv_orient = orient_src
+            .and_then(declared_orientation)
+            .map_or_else(|| "-".to_string(), |v| v.to_string());
+
+        // **展開できない候補を「出る」に数えない。** 寸法は `raw_pv` 列に
+        // 残るので、「ヘッダは読めた」という事実は消えない
+        let raw_shows = raw_pv.is_some() && raw_decodable != Some(false);
+
+        let verdict = if listed == "-" {
+            // 一覧に出ない。**足せば出るのか**が、拡張子を増やす判断の材料
+            if raw_shows {
+                "一覧外(RAW扱いなら出る)"
+            } else if raw_pv.is_some() {
+                // 寸法は読めたが絵にならない。**足しても出ない側**である
+                "一覧外(寸法は読めるが絵にならない)"
+            } else {
+                "一覧外(足しても出ない)"
+            }
+        } else if !is_raw {
+            // 一覧には出るがRAWの探索を通らない（`tif`）
+            match (app_pv.is_some(), raw_shows) {
+                (true, true) => "出るがRAWの探索を通らない",
+                (true, false) => "出る(普通の画像として)",
+                (false, true) => "開けない(RAW扱いなら出る)",
+                (false, false) => "開けない",
+            }
+        } else if let Some((w, h)) = app_pv {
+            if decodable == Some(false) {
+                // 寸法は読めたが展開できない。**アプリでは出ない**
+                "寸法は読めるが絵にならない"
+            } else if w.max(h) < pictkura_core::raw::USABLE_LONG_EDGE {
+                "小さい"
+            } else if exif.camera.is_none() || exif.taken_at_ms.is_none() {
+                "絵は出るが素性が欠ける"
+            } else {
+                "OK"
+            }
+        } else if exhausted {
+            "絵なし(確定)"
+        } else {
+            "絵なし(未確定)"
+        };
+        // **「絵が出た」を寸法だけで数えない。** 展開できない絵は
+        // `寸法は読めるが絵にならない` と判定しているのに、`preview` 列と
+        // この集計だけ `app_pv` の有無で数えていた——**同じ行の中で
+        // 判定と数が食い違う**（PRのcodex P2、3回目）。`merge.py` は
+        // `preview == "0"` で相手の台へ渡す行を選ぶので、そちらにも効く
+        let shows = app_pv.is_some() && decodable != Some(false);
+        if shows {
+            ok += 1;
+        } else {
+            ng += 1;
+        }
+
+        let f = vec![
+            (*sha).to_string(),
+            (*local).to_string(),
+            (*make).to_string(),
+            (*model).to_string(),
+            (*variant).to_string(),
+            (*ext).to_string(),
+            (*klass).to_string(),
+            listed.to_string(),
+            u8::from(shows).to_string(),
+            wh(app_pv),
+            wh(raw_pv),
+            u8::from(exhausted).to_string(),
+            decodable.map_or_else(|| "-".to_string(), |d| u8::from(d).to_string()),
+            pv_orient,
+            exif.orientation.to_string(),
+            exif.original
+                .map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}")),
+            exif.camera.clone().unwrap_or_else(|| "-".to_string()),
+            exif.taken_at_ms
+                .map_or_else(|| "-".to_string(), |v| v.to_string()),
+            ms_min,
+            ms_max,
+            if transcoded { "1" } else { "0" }.to_string(),
+            raw_ms_min,
+            raw_ms_max,
+            "0".to_string(),
+            verdict.to_string(),
+        ];
+        writeln!(sink, "{}", row(header, &f)).unwrap();
+    }
+
+    println!("== RAW網羅 ==");
+    println!("台帳: {}", ledger.display());
+    println!("置き場: {}", dir.display());
+    println!("今回測った: {seen} 件（絵が出た {ok} / 出ない {ng} / パニック {panicked}）");
+    println!("まだ手元に無い: {absent} 件");
+    println!("結果: {}", out.display());
+    if repeat <= 1 {
+        // 行の継ぎで全角の空白を置くと `-D warnings` に引っかかる（継続の後の
+        // 空白として飛ばされない）。2行に分けて出す
+        println!("！ `--repeat 1` の時間の4列（ms_min/ms_max/raw_ms_min/raw_ms_max）は");
+        println!("   それぞれ同じ値で、回帰の監視には使えない");
+        println!("   段階F-5 の表と比べるなら `--repeat 7`（1回目を捨てて残り6回の最小〜最大）");
+    } else {
+        println!(
+            "測り方: 時間の4列とも{repeat}回まわして1回目を捨て、残り{}回の最小〜最大",
+            repeat - 1
+        );
+    }
+}
+
 /// フォルダ内のRAWを片端から試し、形式ごとのカバレッジ表を出す（第6部 段階F）。
 fn bench_raw_dir(dir: &std::path::Path) {
     let mut entries: Vec<_> = std::fs::read_dir(dir)
@@ -1579,6 +2240,20 @@ fn main() {
         bench_raw_dir(std::path::Path::new(&dir));
         return;
     }
+    if let Some(dir) = arg_value(&args, "--raw-matrix") {
+        let ledger = arg_value(&args, "--ledger").unwrap_or_else(|| "dev/raw-matrix.tsv".into());
+        let out = arg_value(&args, "--out").expect("--out に結果TSVの書き出し先を指定");
+        let repeat = arg_value(&args, "--repeat")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+        bench_raw_matrix(
+            std::path::Path::new(&dir),
+            std::path::Path::new(&ledger),
+            std::path::Path::new(&out),
+            repeat,
+        );
+        return;
+    }
     if let Some(dir) = arg_value(&args, "--raw-orient") {
         let out = arg_value(&args, "--out");
         bench_raw_orient(
@@ -1944,5 +2619,94 @@ fn insert_synthetic(conn: &Connection, count: u64) {
         if inserted.is_multiple_of(1_000_000) || inserted == count {
             println!("  … {inserted}/{count}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resume_from;
+
+    /// 試験用の見出し（列数だけ本物と同じにする必要はない。
+    /// [`resume_from`] は渡された見出しの列数で数える）
+    const H: &str = "sha256\tlocal\text\tverdict";
+
+    fn keys(existing: &str) -> (String, Vec<String>) {
+        let (kept, already) = resume_from(existing, H, std::path::Path::new("試験"));
+        let mut names: Vec<String> = already.into_iter().collect();
+        names.sort();
+        (kept, names)
+    }
+
+    /// まだ何も無いときは見出しだけを積む。**「ファイルが無い」と「行が無い」を
+    /// 同じ扱いにする**——どちらもここへ空文字で来る
+    #[test]
+    fn an_empty_result_starts_with_the_header() {
+        let (kept, names) = keys("");
+        assert_eq!(kept, format!("{H}\n"));
+        assert!(names.is_empty());
+    }
+
+    /// 揃っている結果はそのまま。**書き戻す中身が元と同じ長さ**になるので、
+    /// 呼ぶ側は書き直さずに済む
+    #[test]
+    fn complete_records_survive_untouched() {
+        let existing = format!("{H}\na\tone.cr2\tcr2\tOK\nb\ttwo.nef\tnef\t小さい\n");
+        let (kept, names) = keys(&existing);
+        assert_eq!(kept, existing);
+        assert_eq!(names, ["one.cr2", "two.nef"]);
+    }
+
+    /// **これが直した穴。** 書いている最中に切られた最後の行を「済み」に
+    /// 数えると、その行は二度と測られず、追記が断片の後ろへ続いて
+    /// **2行が1行につながる**
+    #[test]
+    fn a_record_cut_mid_write_is_neither_kept_nor_counted_as_done() {
+        let (kept, names) = keys(&format!("{H}\na\tone.cr2\tcr2\tOK\nb\ttwo.n"));
+        assert_eq!(kept, format!("{H}\na\tone.cr2\tcr2\tOK\n"));
+        assert_eq!(names, ["one.cr2"], "切れた行は再開の鍵にしない");
+    }
+
+    /// 改行までは書けていても**列が足りない**行があるなら、そこも書き切れていない
+    #[test]
+    fn a_short_record_is_dropped_too() {
+        let (kept, names) = keys(&format!("{H}\na\tone.cr2\tcr2\tOK\nb\ttwo.nef\n"));
+        assert_eq!(kept, format!("{H}\na\tone.cr2\tcr2\tOK\n"));
+        assert_eq!(names, ["one.cr2"]);
+    }
+
+    /// 見出しを書いた直後に切られた結果に、**見出しをもう1行足さない**。
+    /// 足すと、読む側は列名で引くので `sha256` という値のデータ行として通る
+    #[test]
+    fn a_header_cut_before_its_newline_is_not_doubled() {
+        let (kept, names) = keys(H);
+        assert_eq!(kept, format!("{H}\n"));
+        assert!(names.is_empty());
+    }
+
+    /// **列を足す前の版が書いた結果へは足さない。** 継ぐと、読む側は列名で
+    /// 引くのでずれたまま「そういう値だった」と通る
+    #[test]
+    #[should_panic(expected = "結果TSVの見出しが今の列と合わない")]
+    fn a_result_from_another_column_set_stops_the_run() {
+        keys("sha256\tlocal\text\nabc\tone.cr2\tcr2\n");
+    }
+
+    /// **見出しを書いている最中に切られた結果は、まだ何も測っていない。**
+    /// これを「別の列で書かれた物だ」と言って止めると、手で消す以外に道が無い
+    /// 誤報になる——積み直せばよいだけである
+    #[test]
+    fn a_header_torn_in_the_middle_is_just_an_empty_result() {
+        let (kept, names) = keys("sha256\tlocal\tex");
+        assert_eq!(kept, format!("{H}\n"));
+        assert!(names.is_empty());
+    }
+
+    /// **2本目の見出しはデータではない。** 列数は合うので数の網では落ちず、
+    /// 通すと `local` という鍵が入り、読む側は `sha256 == "sha256"` の行を読む
+    #[test]
+    fn a_doubled_header_left_by_an_older_binary_is_dropped() {
+        let (kept, names) = keys(&format!("{H}\n{H}\na\tone.cr2\tcr2\tOK\n"));
+        assert_eq!(kept, format!("{H}\na\tone.cr2\tcr2\tOK\n"));
+        assert_eq!(names, ["one.cr2"], "見出しは鍵にしない");
     }
 }

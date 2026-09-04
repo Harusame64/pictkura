@@ -849,12 +849,25 @@ pub fn raw_display_jpeg(path: &Path) -> Option<Vec<u8>> {
     if exif.orientation == 1 {
         return Some(bytes);
     }
+    rotate_raw_preview(&bytes, exif.orientation)
+}
+
+/// 埋め込みプレビューを**展開して回して詰め直す**（[`raw_display_jpeg`] の後半）。
+///
+/// 切り出してあるのは、**測る側に同じ仕事だけを測らせる**ため。
+/// `bench --raw-matrix` は `read_exif` を測ったあと、向きが1でない行だけ
+/// 続けてここを測る。[`raw_display_jpeg`] を呼び直すと中で `read_exif` が
+/// もう1度走り、**ファイル全体の探索が倍**になって `ms` が2回ぶんの値段になる。
+///
+/// 向きが1のときはここへ来ない（カメラが書いたJPEGをそのまま返せばよく、
+/// 再エンコードしないのが [`raw_display_jpeg`] の約束）。
+pub fn rotate_raw_preview(preview: &[u8], orientation: u8) -> Option<Vec<u8>> {
     // 元のプレビューが**すでに間引かれているときだけ**間引く。すでに4:2:0の絵を
     // 4:4:4で詰め直しても上げ底の色差を運ぶだけだが、4:2:2で書く機種もあるので
     // 決め打ちはしない。読めなければ間引かない側へ倒す
-    let chroma = crate::jpeg::chroma_of(&bytes).unwrap_or(crate::jpeg::ChromaSampling::Full);
-    let img = image::load_from_memory(&bytes).ok()?;
-    crate::raw::encode_jpeg(apply_orientation(img, exif.orientation), chroma)
+    let chroma = crate::jpeg::chroma_of(preview).unwrap_or(crate::jpeg::ChromaSampling::Full);
+    let img = image::load_from_memory(preview).ok()?;
+    crate::raw::encode_jpeg(apply_orientation(img, orientation), chroma)
 }
 
 /// HEIFを原寸表示用のJPEGにする（第7部 段階G）。
