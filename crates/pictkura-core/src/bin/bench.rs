@@ -178,10 +178,13 @@ fn bench_raw(path: &std::path::Path) {
 ///
 /// 見出しは常にこちらが積む。だから「見出しを書いた直後に切られた結果へ見出しを
 /// もう1行足す」（読む側は列名で引くので、その行は `sha256` という値のデータ行
-/// として通る）も起きない。
+/// として通る）も起きない。**直す前の版が書いた2本目の見出し**は、書き直す
+/// この機会に落とす——列数は合うので、数を数えるだけの網では捕まらない。
 ///
 /// **見出しが違う結果へは足さない。** 列を足す前の版が書いた物を継ぐと、
 /// 読む側は列名で引くので**ずれたまま「そういう値だった」と通る**。落とす。
+/// ただし**見出しの途中で切れている結果は別**で、あれはまだ1件も測っていない
+/// ——「別の列だ」と言って止めるのは、消しようのない誤報になる。
 fn resume_from(
     existing: &str,
     header: &str,
@@ -192,10 +195,15 @@ fn resume_from(
     let mut already = std::collections::HashSet::new();
     kept.push_str(header);
     kept.push('\n');
-    if existing.is_empty() {
+    let head = existing.split_inclusive('\n').next().unwrap_or_default();
+    // **見出しの途中で切られた結果は、まだ1件も測っていない結果である。**
+    // 「別の列で書かれた物だ」と言って止めると、消しようのない誤報になる
+    // ——実際には積み直すだけでよい（ゲート2）
+    if existing.is_empty()
+        || header.starts_with(head.trim_end_matches('\n')) && !head.ends_with('\n')
+    {
         return (kept, already);
     }
-    let head = existing.split_inclusive('\n').next().unwrap_or_default();
     assert_eq!(
         head.trim_end_matches('\n'),
         header,
@@ -211,6 +219,13 @@ fn resume_from(
         // 揃っていないなら**書き切れていない**
         if record.split('\t').count() != cols {
             break;
+        }
+        // **2本目の見出しはデータではない。** 列数は当然合うので上の網では
+        // 落ちず、`local` という鍵が入って `merge.py` が
+        // `sha256 == "sha256"` の行を読む。書き直すこの機会に落とす
+        // （見出しを2度書くのは直したが、**直す前の版が書いた結果**が来る。ゲート2）
+        if record == header {
+            continue;
         }
         already.insert(record.split('\t').nth(1).unwrap_or_default().to_string());
         kept.push_str(line);
@@ -290,8 +305,12 @@ fn bench_raw_matrix(
         fields.join("\t")
     }
 
+    // **`disp` は「この行の `ms` に詰め直しの値段が入っているか」。**
+    // 入れる前の版は、向きが1でないRAWで `read_exif` しか測っていない。
+    // 列が増えたぶん**古い結果への追記は `resume_from` が止める**ので、
+    // 意味の違う行が同じ表に混ざることはない（ゲート2）
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
-                  exhausted\tdecodable\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\traw_ms_min\traw_ms_max\tpanic\tverdict";
+                  exhausted\tdecodable\tpv_orient\torient\tdecl\tcamera\ttaken_at\tms_min\tms_max\tdisp\traw_ms_min\traw_ms_max\tpanic\tverdict";
 
     // 済んだ行は飛ばす（[`resume_from`]）。
     //
@@ -372,6 +391,9 @@ fn bench_raw_matrix(
             // 向きが1でないRAWで、展開・回転・詰め直しまで通ったか。
             // **`decodable` の答えでもある**（同じバイト列を2度展開しない）
             let mut rotated = false;
+            // `ms` に詰め直しの値段が入っているか（`disp` 列。**行ごとの真偽**で、
+            // 版どうしを混ぜたときに比べてよい行かが分かる）
+            let mut transcoded = false;
             for _ in 0..repeat.max(1) {
                 let one = Instant::now();
                 exif = Some(pictkura_core::thumbs::read_exif(&path));
@@ -382,7 +404,8 @@ fn bench_raw_matrix(
                 // 一番高い部分（100MPのセンサーTIFFの展開）が `ms` から抜ける
                 // （PRのcodex P2）
                 if !is_raw && listed_scan {
-                    decoded = Some(if pictkura_core::thumbs::needs_display_transcode(&path) {
+                    transcoded = pictkura_core::thumbs::needs_display_transcode(&path);
+                    decoded = Some(if transcoded {
                         // **`image::open` を直に呼んではいけない**——HEIFはOSのデコーダを
                         // 通す枝が先にあり、imageクレートはHEIFを持たない。
                         // **TIFFはここで4096へ丸められる**（それが実際に配信される寸法）
@@ -412,6 +435,7 @@ fn bench_raw_matrix(
                     let turned = (e.orientation != 1)
                         .then_some(e.thumbnail.as_deref())
                         .flatten();
+                    transcoded = turned.is_some();
                     rotated = turned
                         .and_then(|b| pictkura_core::thumbs::rotate_raw_preview(b, e.orientation))
                         .is_some();
@@ -465,10 +489,47 @@ fn bench_raw_matrix(
 
             let decoded = decoded.flatten();
 
-            (exif, app_ms, raw_extra, decoded, rotated)
+            // **展開は必ずこの中で。** `image` は壊れた入力で落ちることがあり、
+            // それを受け止めるためにこの閉包ごと `panics::catching` に包んである。
+            // 外へ出すと、**落ちた行が書かれないまま掃引ごと死ぬ**——書かれないので
+            // 再開しても `already` に入らず、打ち直すたびに同じ行で死ぬ（ゲート2）
+            //
+            // **候補のプレビューも展開まで確かめる。** 寸法だけで通すと、
+            // エントロピー符号が壊れたJPEGを「足せば出る」と書くことになる。
+            // C-1 の43件は**拡張子を増やすかどうかの判断材料**そのものなので、
+            // 弱いままだと**足す側に有利な誤判定**になる（PRのcodex P2、2回目）。
+            // 回るのは非RAWの59行だけなので値段は問題にならない
+            let raw_decodable = raw_extra
+                .as_ref()
+                .and_then(|(f, _, _)| f.preview.as_deref())
+                .map(|b| image::load_from_memory(b).is_ok());
+            let decodable = if rotated {
+                // 上の計測で実際に展開して回して詰め直している。**同じ絵を2度展開しない**
+                Some(true)
+            } else if is_raw {
+                exif.thumbnail
+                    .as_deref()
+                    .map(|b| image::load_from_memory(b).is_ok())
+            } else {
+                // 一覧に出る非RAW（`tif`）は `decoded` が本物の展開を通っている。
+                // **一覧外の行は候補のプレビューが唯一の絵**なので、そちらの結果を書く
+                decoded.map(|_| true).or(raw_decodable)
+            };
+
+            (
+                exif,
+                app_ms,
+                raw_extra,
+                decoded,
+                transcoded,
+                decodable,
+                raw_decodable,
+            )
         });
 
-        let Some((exif, app_ms, raw_extra, decoded, rotated)) = measured else {
+        let Some((exif, app_ms, raw_extra, decoded, transcoded, decodable, raw_decodable)) =
+            measured
+        else {
             panicked += 1;
             let mut f = vec![
                 (*sha).to_string(),
@@ -484,6 +545,7 @@ fn bench_raw_matrix(
             f.extend([
                 ms.clone(),
                 ms,
+                "-".to_string(), // disp: どこまで測れたか分からない
                 "-".to_string(),
                 "-".to_string(),
                 "1".to_string(),
@@ -509,40 +571,8 @@ fn bench_raw_matrix(
             (true, false) => "scan",
             _ => "-",
         };
-        // **寸法が読めることと、絵になることは別。** ヘッダだけ見ると、
-        // エントロピー符号が壊れたJPEGも「絵がある」で通る。アプリは実際に展開する
-        // （サムネイル生成も、向きが1でないときの `raw_display_jpeg` も）ので、
-        // 出せない絵を `OK` と書くことになる。既存の `--raw-dir` は
-        // `image::load_from_memory` で**展開まで確かめている**ので、
-        // こちらが弱いままだと証拠の質が落ちる（PRのcodex P2）。
-        //
-        // **繰り返しの外で1回だけ**測る（`ms` に入れない——アプリはプレビューを
-        // 出すときに展開するが、`read_exif` の値段ではない）。非RAWの行は
-        // `decoded` が既に本物の展開を通っているので、そちらを使う。
-        //
-        // **候補のプレビューも展開まで確かめる。** ここを寸法だけで通すと、
-        // エントロピー符号が壊れたJPEGを「足せば出る」と書くことになる。
-        // C-1 の43件は**拡張子を増やすかどうかの判断材料**そのものなので、
-        // 弱いままだと**足す側に有利な誤判定**になる（PRのcodex P2、2回目）。
-        // 回るのは非RAWの59行だけなので値段は問題にならない
-        let raw_decodable = raw_extra
-            .as_ref()
-            .and_then(|(f, _, _)| f.preview.as_deref())
-            .map(|b| image::load_from_memory(b).is_ok());
-        let decodable = if rotated {
-            // 上の計測で実際に展開して回して詰め直している。**同じ絵を2度展開しない**
-            Some(true)
-        } else if is_raw {
-            exif.thumbnail
-                .as_deref()
-                .map(|b| image::load_from_memory(b).is_ok())
-        } else {
-            // 一覧に出る非RAW（`tif`）は `decoded` が本物の展開を通っている。
-            // **一覧外の行は候補のプレビューが唯一の絵**なので、そちらの結果を書く
-            // ——ここが `-` のままだと、`一覧外(RAW扱いなら出る)` の根拠が
-            // 寸法だけになる（PRのcodex P2、2回目）
-            decoded.map(|_| true).or(raw_decodable)
-        };
+        // `decodable` と `raw_decodable` は閉包の中で作ってある（展開が落ちても
+        // 掃引を殺さないため。上の注記）
         // **アプリが実際に画面へ出せる絵。** RAWは埋め込みプレビュー、
         // それ以外は `image` が展開した原寸
         let app_pv = if is_raw {
@@ -655,6 +685,7 @@ fn bench_raw_matrix(
                 .map_or_else(|| "-".to_string(), |v| v.to_string()),
             ms_min,
             ms_max,
+            if transcoded { "1" } else { "0" }.to_string(),
             raw_ms_min,
             raw_ms_max,
             "0".to_string(),
@@ -2547,5 +2578,24 @@ mod tests {
     #[should_panic(expected = "結果TSVの見出しが今の列と合わない")]
     fn a_result_from_another_column_set_stops_the_run() {
         keys("sha256\tlocal\text\nabc\tone.cr2\tcr2\n");
+    }
+
+    /// **見出しを書いている最中に切られた結果は、まだ何も測っていない。**
+    /// これを「別の列で書かれた物だ」と言って止めると、手で消す以外に道が無い
+    /// 誤報になる——積み直せばよいだけである
+    #[test]
+    fn a_header_torn_in_the_middle_is_just_an_empty_result() {
+        let (kept, names) = keys("sha256\tlocal\tex");
+        assert_eq!(kept, format!("{H}\n"));
+        assert!(names.is_empty());
+    }
+
+    /// **2本目の見出しはデータではない。** 列数は合うので数の網では落ちず、
+    /// 通すと `local` という鍵が入り、読む側は `sha256 == "sha256"` の行を読む
+    #[test]
+    fn a_doubled_header_left_by_an_older_binary_is_dropped() {
+        let (kept, names) = keys(&format!("{H}\n{H}\na\tone.cr2\tcr2\tOK\n"));
+        assert_eq!(kept, format!("{H}\na\tone.cr2\tcr2\tOK\n"));
+        assert_eq!(names, ["one.cr2"], "見出しは鍵にしない");
     }
 }
