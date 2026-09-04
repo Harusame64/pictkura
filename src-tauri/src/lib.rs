@@ -4144,6 +4144,12 @@ fn first_weekday_from_core_foundation(v: i64) -> Option<u32> {
 /// **ページのスクリプトより先に走らせる**必要がある。辞書 `t` は
 /// `ui/src/i18n/index.ts` を読んだ時点で決まる定数で、`invoke` の非同期を待てない。
 /// `js_init_script` はそのための口（Tauriのドキュメントが挙げている用途そのもの）。
+///
+/// **読むのは起動時の1回だけ**（この関数はプラグインを組むときに走る）。OSの側で
+/// 表示言語・地域・週の始まりを変えても、**アプリを起動し直すまで画面は変わらない**。
+/// 言語の切り替えが `location.reload()` を挟んでいるのと同じ事情である。
+/// **確かめるときは「変えてから起動する」**——走っているアプリの脇で変えて
+/// 「効いていない」と読むと、直っているものを壊れていると判定する（win の申し送り）。
 fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let locales: Vec<String> = sys_locale::get_locales().collect();
     // **JSは組み立てず、データだけ差し込む**。ロケール名を文字列連結で埋めると、
