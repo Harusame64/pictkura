@@ -222,8 +222,12 @@ fn resume_from(
         }
         // **2本目の見出しはデータではない。** 列数は当然合うので上の網では
         // 落ちず、`local` という鍵が入って `merge.py` が
-        // `sha256 == "sha256"` の行を読む。書き直すこの機会に落とす
-        // （見出しを2度書くのは直したが、**直す前の版が書いた結果**が来る。ゲート2）
+        // `sha256 == "sha256"` の行を読む。書き直すこの機会に落とす。
+        //
+        // **いま在る結果でこれを踏むものは無い**——`disp` を足す前の版が書いた
+        // 物は、1行目の見出しが違うので上の `assert` で先に止まる。
+        // 残してあるのは**次に列を足したとき**のためで、そのとき見出しは
+        // また一致し、この網だけが2本目を落とす（ゲート2の注記）
         if record == header {
             continue;
         }
@@ -259,9 +263,13 @@ fn resume_from(
 /// その展開・回転・再エンコードまで含む。片方だけ含めると、含めなかったほう
 /// （縦位置のRAW、あるいは1億画素のTIFF）が**安く見える**（PRのcodex P2）。
 ///
-/// **`raw_ms_min` / `raw_ms_max` も同じ約束である。** 「その拡張子をRAWとして
-/// 足したら払う値段」なので、探索だけでなく**向きが1でないときの詰め直しまで**
-/// 含む。`disp` 列を持つ結果はどちらもこの約束で測られている
+/// **`raw_ms_min` / `raw_ms_max` は「`ms` に上乗せされる分」である。**
+/// 探索（`search_embedded_preview`）と、向きが1でないときの詰め直しを含む。
+/// **`read_exif` のコンテナ読みは入っていない**——RAWとして足したあとの
+/// `read_exif` は先に `read_exif_container` と `patched_tiff_metadata` を通るので、
+/// **`raw_ms` を本物のRAW行の `ms_min` と並べると、候補のほうが安く見える**
+/// （ゲート2）。**「足したら払う値段」ではなく「いま払っている値段への上乗せ」**
+/// として読むこと。`disp` 列を持つ結果はどちらもこの約束で測られている
 /// ——**持たない結果とは並べない**。
 ///
 /// **`--repeat 1`（既定）の値は、回帰の監視には使えない。** 1件を1回しか測っておらず、
@@ -296,15 +304,47 @@ fn bench_raw_matrix(
     fn wh(d: Option<(u32, u32)>) -> String {
         d.map_or_else(|| "-".to_string(), |(w, h)| format!("{w}x{h}"))
     }
-    /// JPEGが自分で申告している向き。**展開しない**（EXIFだけ読む）
-    fn jpeg_orientation(bytes: &[u8]) -> Option<u8> {
-        exif::Reader::new()
+    /// プレビューが申告している向きの**生の値**。**展開しない**（EXIFだけ読む）。
+    ///
+    /// **文脈違いも見る。** CR3の `CMT2` は「Exif IFDの中身」だけを箱に入れて
+    /// いるので、`In::PRIMARY` だけを引くと落ちる（`thumbs.rs` の
+    /// `field_any_context` と同じ手当て）。見落とすと、**その社の候補だけ
+    /// 詰め直しが `raw_ms` から抜ける**（ゲート2）。
+    ///
+    /// **1〜8の外もそのまま返す。** `pv_orient` 列は二重回転を見抜く材料なので、
+    /// 丸めると「壊れた申告」と「タグが無い」の区別が消える
+    fn declared_orientation(bytes: &[u8]) -> Option<u32> {
+        let exif = exif::Reader::new()
             .read_from_container(&mut std::io::Cursor::new(bytes))
-            .ok()?
-            .get_field(exif::Tag::Orientation, exif::In::PRIMARY)?
-            .value
-            .get_uint(0)
+            .ok()?;
+        let tag = exif::Tag::Orientation;
+        exif.get_field(tag, exif::In::PRIMARY)
+            .or_else(|| {
+                exif.get_field(
+                    exif::Tag(exif::Context::Tiff, tag.number()),
+                    exif::In::PRIMARY,
+                )
+            })
+            .or_else(|| {
+                exif.get_field(
+                    exif::Tag(exif::Context::Exif, tag.number()),
+                    exif::In::PRIMARY,
+                )
+            })
+            .and_then(|f| f.value.get_uint(0))
+    }
+    /// アプリが実際に使う向き。**1〜8の外は1**（`thumbs.rs` の `exif_data_from`
+    /// が同じ `filter` を掛けている）。
+    ///
+    /// 揃えないと、`Orientation = 0` を書く実物で**アプリが1度もしない詰め直しを
+    /// `raw_ms` に計上する**——`apply_orientation` は 1〜8 の外で何もしないので、
+    /// 展開と再エンコードだけが値段に乗る。**直したかった偏りの、向きが逆なだけの
+    /// 同じもの**である（ゲート2）
+    fn usable_orientation(declared: Option<u32>) -> u8 {
+        declared
             .and_then(|v| u8::try_from(v).ok())
+            .filter(|v| (1..=8).contains(v))
+            .unwrap_or(1)
     }
     /// 1行に組む。**見出しと列数が合わなければその場で落とす。**
     ///
@@ -320,10 +360,12 @@ fn bench_raw_matrix(
         fields.join("\t")
     }
 
-    // **`disp` は「この行の `ms` に詰め直しの値段が入っているか」。**
-    // 入れる前の版は、向きが1でないRAWで `read_exif` しか測っていない。
-    // 列が増えたぶん**古い結果への追記は `resume_from` が止める**ので、
-    // 意味の違う行が同じ表に混ざることはない（ゲート2）。
+    // **`disp` は「この行の計測で詰め直しを**試したか**」。** 「成功したか」ではない
+    // ——展開に失敗した行も、**失敗するまでの値段は `ms` に入っている**ので、
+    // 比べてよい行かどうかの印としてはこちらが正しい（ゲート2の指摘に対して、
+    // 値ではなく言い方を直した）。入れる前の版は、向きが1でないRAWで
+    // `read_exif` しか測っていない。列が増えたぶん**古い結果への追記は
+    // `resume_from` が止める**ので、意味の違う行が同じ表に混ざることはない。
     // **`raw_ms` の約束が変わったことも、この列の有無が代表している**
     // ——同じPRで両方動いたので、見出しを分ける必要はない
     let header = "sha256\tlocal\tmake\tmodel\tvariant\text\tclass\tlisted\tpreview\tpv\traw_pv\t\
@@ -405,11 +447,12 @@ fn bench_raw_matrix(
             let mut spans = Vec::with_capacity(repeat);
             let mut exif = None;
             let mut decoded = None;
-            // 向きが1でないRAWで、展開・回転・詰め直しまで通ったか。
+            // 向きが1でないRAWで、展開・回転・詰め直しまで**通った**か。
             // **`decodable` の答えでもある**（同じバイト列を2度展開しない）
             let mut rotated = false;
-            // `ms` に詰め直しの値段が入っているか（`disp` 列。**行ごとの真偽**で、
-            // 版どうしを混ぜたときに比べてよい行かが分かる）
+            // 詰め直しを**試した**か（`disp` 列。成功したかではない——失敗しても
+            // そこまでの値段は `ms` に入っているので、**比べてよい行かの印**として
+            // 正しいのはこちら）。**行ごとの真偽**で、版どうしを混ぜたときに効く
             let mut transcoded = false;
             for _ in 0..repeat.max(1) {
                 let one = Instant::now();
@@ -508,7 +551,9 @@ fn bench_raw_matrix(
                     // ——`merge_preview_exif` が「1のときだけ上書き」する規則と同じ。
                     // 見ないと、**コンテナに向きを書かない社の候補だけ安く出る**（ゲート1）
                     let orient = match exif.orientation {
-                        1 => f.preview.as_deref().and_then(jpeg_orientation).unwrap_or(1),
+                        1 => {
+                            usable_orientation(f.preview.as_deref().and_then(declared_orientation))
+                        }
                         n => n,
                     };
                     let turned = (orient != 1).then_some(f.preview.as_deref()).flatten();
@@ -556,10 +601,20 @@ fn bench_raw_matrix(
                 exif.thumbnail
                     .as_deref()
                     .map(|b| image::load_from_memory(b).is_ok())
-            } else {
-                // 一覧に出る非RAW（`tif`）は `decoded` が本物の展開を通っている。
-                // **一覧外の行は候補のプレビューが唯一の絵**なので、そちらの結果を書く
+            } else if transcoded {
+                // 詰め直しが要る非RAW（`tif`・HEIF）は `display_jpeg` が
+                // **本物の展開**を通っている
                 decoded.map(|_| true).or(raw_decodable)
+            } else if listed_scan {
+                // **詰め直さない形式は、原本がそのままブラウザへ行く。**
+                // ここで読んだのは `into_dimensions` ＝**ヘッダだけ**で、
+                // アプリもRust側では展開しない。**こちらに答えが無い**ので `-`
+                // ——`Some(true)` と書くと、途中で切れたJPEGを
+                // 「絵になった」と数えることになる（ゲート2）
+                None
+            } else {
+                // **一覧外の行は候補のプレビューが唯一の絵**なので、そちらの結果を書く
+                raw_decodable
             };
 
             (
@@ -653,7 +708,7 @@ fn bench_raw_matrix(
                 .and_then(|(f, _, _)| f.preview.as_deref())
         };
         let pv_orient = orient_src
-            .and_then(jpeg_orientation)
+            .and_then(declared_orientation)
             .map_or_else(|| "-".to_string(), |v| v.to_string());
 
         // **展開できない候補を「出る」に数えない。** 寸法は `raw_pv` 列に
