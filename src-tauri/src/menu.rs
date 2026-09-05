@@ -14,7 +14,7 @@
 //! それは「訳が下手」ではなく「**このアプリだけ違う**」に見える。
 //! 独語の `„%@“ ausblenden`（かぎ括弧つき）のような綴りは、手では出てこない。
 //!
-//! 下の表は **`dev/i18n-tools/menu-strings.py`** が
+//! 下の表は **`tools/menu-strings.py`** が
 //! `SwiftUI.framework` の `MainMenu.loctable` と `AppKit.framework` の
 //! `MenuCommands.loctable` から引いて作る。**手で直さない。**
 //!
@@ -33,7 +33,7 @@
 //! ## 言語を1つ足すときは、ここも足す
 //!
 //! `ui/src/i18n/` の辞書・`index.ts` の `DICTS` と `LOCALES`・`Info.plist` の
-//! `CFBundleLocalizations`・**この表**の4か所。`menu-strings.py` の `LOCALES` に
+//! `CFBundleLocalizations`・**この表**の4か所。`tools/menu-strings.py` の `LOCALES` に
 //! 1行足して回し直せば、この表は自動で出る。
 
 use tauri::menu::{
@@ -65,7 +65,7 @@ struct MenuText {
     help: &'static str,
 }
 
-// **ここから下は `dev/i18n-tools/menu-strings.py` が作る。手で直さない。**
+// **ここから下は `tools/menu-strings.py` が作る。手で直さない。**
 // 出どころは macOS 自身の訳（SwiftUI の MainMenu.loctable と
 // AppKit の MenuCommands.loctable）。**OSの語なので、こちらで訳さない。**
 
@@ -216,6 +216,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("zh", &ZH),
     ("zh-hant", &ZH_HANT),
 ];
+
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**
 /// （画面側が知らない言語を送ってくることは無いが、倒す先を決めておく）。
 fn text_for(code: &str) -> &'static MenuText {
@@ -409,7 +410,7 @@ mod tests {
         for code in &codes {
             assert!(
                 TEXTS.iter().any(|(c, _)| c == code),
-                "{code} の語がこの表に無い。dev/i18n-tools/menu-strings.py を回すこと"
+                "{code} の語がこの表に無い。tools/menu-strings.py を回すこと"
             );
         }
         for (code, _) in TEXTS {
