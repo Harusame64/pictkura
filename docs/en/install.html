@@ -71,7 +71,7 @@
     <a href="#warn-msi" class="sub">2.2 The MSI prompts</a>
     <a href="#warn-zip" class="sub">2.3 The portable ZIP</a>
     <a href="#sac" class="sub">2.4 Smart App Control</a>
-    <a href="#defender" class="sub">2.5 The Defender quarantine (resolved)</a>
+    <a href="#defender" class="sub">2.5 The Defender quarantine on 0.2.7 (open)</a>
     <a href="#macos">3. Starting it on macOS</a>
     <a href="#first">4. First steps after installing</a>
     <a href="#uninstall">5. Uninstalling</a>
@@ -150,15 +150,17 @@
 
       <!-- 解決済み。次の版を切るときに、この節・目次の行・README 日英の同じ段落を
            まとめて消すこと -->
-      <h3 id="defender">2.5 &nbsp;The Defender quarantine, resolved (2026-09-03)</h3>
-      <p>On one machine, Defender took <code class="mono">pictkura.exe</code> from 0.2.6 as <code class="mono">Trojan:Win32/Bearfoos.A!ml</code>. The <code class="mono">!ml</code> suffix marks it as a <strong class="em">machine-learning guess</strong>, not a match against a known threat, and it fires readily on unsigned executables. It was reported to Microsoft as a false positive on <strong class="em">2026-09-02</strong>, and on <strong class="em">2026-09-03 Microsoft removed the detection</strong>: the file does not meet their criteria for malware.</p>
+      <h3 id="defender">2.5 &nbsp;0.2.7 is being quarantined by Defender (2026-09-06, unresolved)</h3>
+      <p><strong class="em">The 0.2.7 downloads have been pulled. Use 0.2.6 for now.</strong> Installing 0.2.7 gets <code class="mono">pictkura.exe</code> taken as <code class="mono">Trojan:Win32/Bearfoos.A!ml</code> about <strong class="em">seven seconds after the installer finishes</strong>. The <code class="mono">!ml</code> suffix marks a <strong class="em">machine-learning guess</strong>, not a match against a known threat, and it fires readily on unsigned executables.</p>
+      <p>The verdict is <strong class="em">delivered from the cloud</strong>, not a static signature. <strong class="em">Neither the installer nor anything inside it shows up on a scan</strong>, which is why a release can be clean when it ships and flagged afterwards. It was <strong class="em">reported to Microsoft as a false positive on 2026-09-06</strong>. The same detection was withdrawn twice before, on <strong class="em">2026-09-03</strong> and <strong class="em">2026-09-04</strong>, both within a day.</p>
+      <p><strong class="em">If 0.2.7 was already taken from you: your photos and your library are untouched.</strong> What gets cleaned out is <code class="mono">%LOCALAPPDATA%\pictkura\</code>; the database and the settings live under <code class="mono">%APPDATA%\</code>, a different tree. <strong class="em">Installing 0.2.6 over it puts you back</strong> — measured on the machine this happened to. If the installer does complain, <code class="mono">%LOCALAPPDATA%\pictkura\uninstall.exe</code> is still there; run that first.</p>
       <p>A machine whose definitions are still old <strong class="em">can go on quarantining it</strong>. Microsoft's own advice is to drop the cached detections and fetch the current definitions, from a command prompt <strong class="em">run as administrator</strong>:</p>
       <pre class="cmd" tabindex="0" role="region" aria-label="Commands to clear cached detections and update definitions">cd /d "c:\Program Files\Windows Defender"
 MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate</pre>
       <p style="margin-top:14px">The block is for the <strong class="em">Command Prompt</strong> (<code class="mono">cmd.exe</code>). The <code class="mono">/d</code> is what makes <code class="mono">cd</code> cross to <code class="mono">C:</code> when your prompt is sitting on another drive. <strong class="em">In PowerShell, drop the <code class="mono">/d</code></strong> and write <code class="mono">.\MpCmdRun.exe</code> on the other two lines — PowerShell does not look in the current directory.</p>
       <p style="margin-top:14px">Updating the definitions stops the detection, but it does <strong class="em">not bring back a file that was already taken</strong>. Once the definitions are current, <strong class="em">installing pictkura again puts it back</strong> — that is the quickest way out. (Reinstalling <em>before</em> that just gets the new copy taken as well.) The quarantined copy is also still listed under <b>Protection history</b> in Windows Security.</p>
-      <p style="margin-top:14px">The whole account, including how to check what you downloaded, is in <a href="https://github.com/Harusame64/pictkura/issues/105">issue #105</a>.</p>
+      <p style="margin-top:14px">The whole account, including how to check what you downloaded, is in <a href="https://github.com/Harusame64/pictkura/issues/121">issue #121</a> (the 0.2.6 episode is <a href="https://github.com/Harusame64/pictkura/issues/105">#105</a>).</p>
     </section>
 
     <section id="macos">

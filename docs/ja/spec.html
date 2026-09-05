@@ -96,7 +96,7 @@
             <tr><td class="k">macOS</td><td>macOS 11 以降（Apple Silicon）。Intel 版はありません</td></tr>
             <tr><td class="k">Linux</td><td>ビルドを配布していません（Tauri v2 のため、技術的には対象です）</td></tr>
             <tr><td class="k">追加の部品</td><td>HEIC / HEVC の復号には OS の拡張機能を使用します。Windows では「HEIF 画像拡張機能」（無償）と「HEVC ビデオ拡張機能」（有償）が必要です</td></tr>
-            <tr><td class="k">言語</td><td>日本語 / 英語 / ドイツ語 / スペイン語（本国・中南米）/ 簡体字中国語 / 繁体字中国語——<b>6言語・辞書は7つ</b>です。OS の言語設定に従います。設定画面で変更できます</td></tr>
+            <tr><td class="k">言語</td><td>日本語 / 英語。OS の言語設定に従います。設定画面で変更できます</td></tr>
           </tbody>
         </table>
       </div>
@@ -206,7 +206,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-09-04 に、<b>実ファイル1,870枚</b>——<a href="https://raw.pixls.us/">raw.pixls.us</a> のCC0サンプル全件——で測りました。macOSで816枚・Windowsで1,054枚、落ちた件数は0です。上の表の1,831枚は、RAWとして探索する拡張子を持つものです（残る39枚はそうではありません）。<b>数えた絵はすべて実際に展開しています</b>——JPEGのヘッダから寸法を読んだだけの数ではありません。上の <code>ori</code> と <code>arq</code> は、RAW扱いを強制して測った値です——走査する拡張子に入ったのは 0.2.7 で、この掃引より後だからです。</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.9;margin-top:20px">2026-09-04 に、<b>実ファイル1,870枚</b>——<a href="https://raw.pixls.us/">raw.pixls.us</a> のCC0サンプル全件——で測りました。macOSで816枚・Windowsで1,054枚、落ちた件数は0です。上の表の1,831枚は、RAWとして探索する拡張子を持つものです（残る39枚はそうではありません）。<b>数えた絵はすべて実際に展開しています</b>——JPEGのヘッダから寸法を読んだだけの数ではありません。上の <code>ori</code> と <code>arq</code> は 0.2.6 の後に足したもので、RAW扱いを強制して測った値です。</p>
       <figure class="demo">
         <video src="../images/e-raw.mp4" poster="../images/e-raw.jpg" width="960" height="630"
                muted loop playsinline preload="metadata" controls data-autoplay></video>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>対応機種一覧 — 1,870枚の実物で確かめたRAWの対応状況 | pictkura</title>
-<meta name="description" content="pictkura が RAW から表示用JPEGを取り出せるかを、実ファイル1,870枚で確かめた一覧。メーカー56社・923機種。公開中の 0.2.7 の状況です。">
+<meta name="description" content="pictkura が RAW から表示用JPEGを取り出せるかを、実ファイル1,870枚で確かめた一覧。メーカー56社・923機種。公開中の 0.2.6 の状況です。">
 <link rel="canonical" href="https://harusame64.github.io/pictkura/ja/cameras.html">
 <link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/cameras.html">
 <link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/cameras.html">
@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="pictkura">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:title" content="対応機種一覧 — 1,870枚の実物で確かめたRAWの対応状況 | pictkura">
-<meta property="og:description" content="pictkura が RAW から表示用JPEGを取り出せるかを、実ファイル1,870枚で確かめた一覧。メーカー56社・923機種。公開中の 0.2.7 の状況です。">
+<meta property="og:description" content="pictkura が RAW から表示用JPEGを取り出せるかを、実ファイル1,870枚で確かめた一覧。メーカー56社・923機種。公開中の 0.2.6 の状況です。">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/ja/cameras.html">
 <meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.2.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -81,15 +81,18 @@
 <p><b>実ファイル 1,870 枚で確かめました</b>（<a href="https://raw.pixls.us/">raw.pixls.us</a> のCC0サンプル全件）。
 メーカー 56 社・923 機種。macOSで816枚・Windowsで1,054枚、落ちた件数は0です。
 <b>数えた絵はすべて実際に展開しています</b>——ヘッダから寸法を読んだだけの数ではありません。</p>
-<p class="muted" style="font-size:13px">書いてあるのは<b>公開中の 0.2.7</b> の状況です。
-測ったのは 0.2.6 の実体ですが、<b>絵を取り出す経路は 0.2.6 から1行も動いていません</b>
-——0.2.7 で変わったのは<b>走査する拡張子が2つ増えたこと</b>（<code>ori</code>・<code>arq</code>）と
-<b>サムネイルの順番待ち</b>（#110）だけなので、<b>測った結果はそのまま 0.2.7 の挙動です</b>。</p>
+<p class="muted" style="font-size:13px">書いてあるのは<b>公開中の 0.2.6</b> の状況です。
+0.2.6 のあとに入った変更は、<b>走査する拡張子を2つ足したこと</b>（<code>raw.rs</code> と
+<code>config.rs</code>、および設定の引き上げ）と、<b>サムネイルの順番待ち</b>（#110）です。
+<b>絵を取り出す経路そのものは1行も動いていません</b>。だから測った結果はそのまま 0.2.6 の挙動です。
+足した2つ（<code>ori</code>・<code>arq</code>）は <b>公開中の 0.2.6 には入っていません</b>——
+0.2.6 のタグより後の変更なので、<b>次の版（0.2.7）から</b>入ります。</p>
       <ul class="legend-list">
         <li><span class="st st-full">原寸の絵が出る</span><span>埋め込みの表示用JPEGが、長辺1600px以上で取り出せます</span></li>
         <li><span class="st st-small">小さい絵が出る</span><span>絵は出ますが、長辺が1600pxに届きません。全画面では眠くなります</span></li>
         <li><span class="st st-none">一覧には出るが、絵は出ない</span><span>プレビューが<b>見つかりません</b>。<b>一覧には出ます</b>——枠だけですが、日付順の並びにもカメラの絞り込みにも出ます。<b>探索が最後まで届かなかった行は「持っていない」とまでは言えません</b>（備考に書いてあります）。128MB を超えるファイルで先頭16MBまでになるのは<b>絵を総なめする走査だけ</b>で、申告された位置は大きさに関わらず読みます——だから200MB超でも原寸が出る行があります</span></li>
         <li><span class="st st-split">機種の中で割れている</span><span>同じ機種でも、撮影の設定によって上のどれかに割れます。内訳は備考に書いてあります</span></li>
+        <li><span class="st st-soon">0.2.6 の一覧に出ない</span><span><b>公開中の 0.2.6 では走査しません。</b>0.2.6 のタグより後に足したので、一覧に入るのは<b>次の版（0.2.7）から</b>です</span></li>
         <li><span class="st st-plain">普通の画像として出る</span><span>一覧には出ますが、RAWとしてではなく普通の画像として開きます</span></li>
         <li><span class="st st-out">対応していません</span><span>足さないと決めた拡張子です。<b>理由は備考に1行ずつ書いてあります</b>——足しても絵が出ないのか、絵は出るが拡張子が他の用途と衝突するのか</span></li>
       </ul>
@@ -717,13 +720,13 @@
 <tr><td class="k">Olympus</td><td class="k">E-M10 Mark IIIs</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M10%20Mark%20IIIs/ilhabela_202110_0082.ORF" rel="nofollow noopener">実物 16MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M10 Mark IV</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M10%20Mark%20IV/PA040002.ORF" rel="nofollow noopener">実物 17MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M1MarkII</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">4枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1MarkII/Olympus_EM1mk2_Standard_20MP_ColorChecker.ORF" rel="nofollow noopener">実物 16MB</a></td></tr>
-<tr><td class="k">Olympus</td><td class="k">E-M1MarkII</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1MarkII/Olympus_EM1mk2__HIRES_25MP.ORI" rel="nofollow noopener">実物 16MB</a></td></tr>
+<tr><td class="k">Olympus</td><td class="k">E-M1MarkII</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">2枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1MarkII/Olympus_EM1mk2__HIRES_25MP.ORI" rel="nofollow noopener">実物 16MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M1MarkIII</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">3枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1MarkIII/_3160531.ORF" rel="nofollow noopener">実物 17MB</a></td></tr>
-<tr><td class="k">Olympus</td><td class="k">E-M1MarkIII</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1MarkIII/_3160530.ORI" rel="nofollow noopener">実物 17MB</a></td></tr>
+<tr><td class="k">Olympus</td><td class="k">E-M1MarkIII</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">2枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1MarkIII/_3160530.ORI" rel="nofollow noopener">実物 17MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M1X</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M1X/P3240916.ORF" rel="nofollow noopener">実物 19MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M5</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M5/P2082705.ORF" rel="nofollow noopener">実物 14MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M5 Mark II</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M5%20Mark%20II/CB252215.ORF" rel="nofollow noopener">実物 100MB</a></td></tr>
-<tr><td class="k">Olympus</td><td class="k">E-M5 Mark II</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-M5%20Mark%20II/CB252215.ORI" rel="nofollow noopener">実物 14MB</a></td></tr>
+<tr><td class="k">Olympus</td><td class="k">E-M5 Mark II</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/Olympus/E-M5%20Mark%20II/CB252215.ORI" rel="nofollow noopener">実物 14MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-M5 Mark III</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OLYMPUS/E-M5%20Mark%20III/PB290154.ORF" rel="nofollow noopener">実物 17MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-P1</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-P1/P1080385.ORF" rel="nofollow noopener">実物 12MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">E-P2</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/E-P2/P9084305.ORF" rel="nofollow noopener">実物 14MB</a></td></tr>
@@ -756,15 +759,15 @@
 <tr><td class="k">Olympus</td><td class="k">XZ-10</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/XZ-10/P1240016.ORF" rel="nofollow noopener">実物 18MB</a></td></tr>
 <tr><td class="k">Olympus</td><td class="k">XZ-2</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/Olympus/XZ-2/p7166537.orf" rel="nofollow noopener">実物 18MB</a></td></tr>
 <tr id="m-om-system"><td class="k">OM System</td><td class="k">OM-1</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">3枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-1/OM_Systems_OM1_RAW_image_HiRes_80mpx_P1010027.ORF" rel="nofollow noopener">実物 62MB</a></td></tr>
-<tr><td class="k">OM System</td><td class="k">OM-1</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-1/OM_Systems_OM1_RAW_image_HiRes_50mpx_P1010026.ORI" rel="nofollow noopener">実物 21MB</a></td></tr>
+<tr><td class="k">OM System</td><td class="k">OM-1</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">2枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-1/OM_Systems_OM1_RAW_image_HiRes_50mpx_P1010026.ORI" rel="nofollow noopener">実物 21MB</a></td></tr>
 <tr><td class="k">OM System</td><td class="k">OM-1 Mark II</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">5枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-1%20Mark%20II/80mp-14bit-tripod.orf" rel="nofollow noopener">実物 83MB</a></td></tr>
-<tr><td class="k">OM System</td><td class="k">OM-1 Mark II</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">4枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-1%20Mark%20II/80mp-12bit-tripod.ori" rel="nofollow noopener">実物 22MB</a></td></tr>
+<tr><td class="k">OM System</td><td class="k">OM-1 Mark II</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">4枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-1%20Mark%20II/80mp-12bit-tripod.ori" rel="nofollow noopener">実物 22MB</a></td></tr>
 <tr><td class="k">OM System</td><td class="k">OM-3</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">5枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/getfile.php/7796/nice/OM%20System%20-%20OM-3%20-%2016bit%20%284%3A3%29.ORF" rel="nofollow noopener">実物 21MB</a></td></tr>
-<tr><td class="k">OM System</td><td class="k">OM-3</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">4枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/getfile.php/7802/nice/OM%20System%20-%20OM-3%20-%2016bit%20%284%3A3%29.ORI" rel="nofollow noopener">実物 21MB</a></td></tr>
+<tr><td class="k">OM System</td><td class="k">OM-3</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">4枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/getfile.php/7802/nice/OM%20System%20-%20OM-3%20-%2016bit%20%284%3A3%29.ORI" rel="nofollow noopener">実物 21MB</a></td></tr>
 <tr><td class="k">OM System</td><td class="k">OM-5</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">3枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-5/C1291097.ORF" rel="nofollow noopener">実物 40MB</a></td></tr>
-<tr><td class="k">OM System</td><td class="k">OM-5</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-5/C1291098.ORI" rel="nofollow noopener">実物 19MB</a></td></tr>
+<tr><td class="k">OM System</td><td class="k">OM-5</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">2枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/OM%20System/OM-5/C1291098.ORI" rel="nofollow noopener">実物 19MB</a></td></tr>
 <tr><td class="k">OM System</td><td class="k">OM-5 Mark II</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">3枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/getfile.php/8552/nice/OM%20System%20-%20OM-5%20Mark%20II%20-%2016bit%20%284%3A3%29.ORF" rel="nofollow noopener">実物 39MB</a></td></tr>
-<tr><td class="k">OM System</td><td class="k">OM-5 Mark II</td><td class="mono">ori</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 3,200px</td><td><a href="https://raw.pixls.us/getfile.php/8550/nice/OM%20System%20-%20OM-5%20Mark%20II%20-%2016bit%20%284%3A3%29.ORI" rel="nofollow noopener">実物 18MB</a></td></tr>
+<tr><td class="k">OM System</td><td class="k">OM-5 Mark II</td><td class="mono">ori</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">2枚、0.2.7 から入ります</td><td><a href="https://raw.pixls.us/getfile.php/8550/nice/OM%20System%20-%20OM-5%20Mark%20II%20-%2016bit%20%284%3A3%29.ORI" rel="nofollow noopener">実物 18MB</a></td></tr>
 <tr><td class="k">OM System</td><td class="k">TG-7</td><td class="mono">orf</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 3,200px</td><td><a href="https://raw.pixls.us/data/OM%20System/TG-7/UWAG0002.ORF" rel="nofollow noopener">実物 13MB</a></td></tr>
 <tr id="m-oneplus"><td class="k">OnePlus</td><td class="k">One</td><td class="mono">dng</td><td class="st st-small">小さい絵が出る</td><td class="nt">長辺 512px</td><td><a href="https://raw.pixls.us/data/OnePlus/One/IMG_20150729_201116.dng" rel="nofollow noopener">実物 16MB</a></td></tr>
 <tr><td class="k">OnePlus</td><td class="k">ONEPLUS A3003</td><td class="mono">dng</td><td class="st st-none">一覧には出るが、絵は出ない</td><td class="nt">枠だけ。日付順の並びとカメラの絞り込みには出る</td><td><a href="https://raw.pixls.us/data/OnePlus/ONEPLUS%20A3003/IMG_20170316_134557.dng" rel="nofollow noopener">実物 31MB</a></td></tr>
@@ -1096,7 +1099,7 @@
 <tr><td class="k">Sony</td><td class="k">ILCE-7M5</td><td class="mono">arw</td><td class="st st-full">原寸の絵が出る</td><td class="nt">6枚、長辺 7,008px</td><td><a href="https://raw.pixls.us/getfile.php/8847/nice/Sony%20-%20ILCE-7M5%20-%2014bit%20%283%3A2%29.ARW" rel="nofollow noopener">実物 22MB</a></td></tr>
 <tr><td class="k">Sony</td><td class="k">ILCE-7R</td><td class="mono">arw</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 1,616px</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7R/DSC06741.ARW" rel="nofollow noopener">実物 36MB</a></td></tr>
 <tr><td class="k">Sony</td><td class="k">ILCE-7RM2</td><td class="mono">arw</td><td class="st st-full">原寸の絵が出る</td><td class="nt">7枚、長辺 1,616px</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7RM2/vignetting-and-CA-correction-on.ARW" rel="nofollow noopener">実物 82MB</a></td></tr>
-<tr><td class="k">Sony</td><td class="k">ILCE-7RM3</td><td class="mono">arq</td><td class="st st-full">原寸の絵が出る</td><td class="nt">長辺 1,616px</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7RM3/Indoor_Multi-20190712-094102.ARQ" rel="nofollow noopener">実物 325MB</a></td></tr>
+<tr><td class="k">Sony</td><td class="k">ILCE-7RM3</td><td class="mono">arq</td><td class="st st-soon">0.2.6 の一覧に出ない</td><td class="nt">0.2.7 から入ります</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7RM3/Indoor_Multi-20190712-094102.ARQ" rel="nofollow noopener">実物 325MB</a></td></tr>
 <tr><td class="k">Sony</td><td class="k">ILCE-7RM3</td><td class="mono">arw</td><td class="st st-full">原寸の絵が出る</td><td class="nt">8枚、長辺 1,616px</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7RM3/DSC03792.ARW" rel="nofollow noopener">実物 82MB</a></td></tr>
 <tr><td class="k">Sony</td><td class="k">ILCE-7RM3A</td><td class="mono">arw</td><td class="st st-full">原寸の絵が出る</td><td class="nt">2枚、長辺 1,920px</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7RM3A/_DSC0360.ARW" rel="nofollow noopener">実物 82MB</a></td></tr>
 <tr><td class="k">Sony</td><td class="k">ILCE-7RM4</td><td class="mono">arw</td><td class="st st-full">原寸の絵が出る</td><td class="nt">4枚、長辺 1,616px</td><td><a href="https://raw.pixls.us/data/Sony/ILCE-7RM4/DSC00395.ARW" rel="nofollow noopener">実物 117MB</a></td></tr>
