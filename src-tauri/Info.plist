@@ -27,6 +27,9 @@
       `zh-Hans` → `zh`
       `zh-Hant` → `zh-hant`
 
+  **中南米のスペイン語は `es-419`**（国ではなく国連の地域コード）。辞書のコードと
+  同じ綴りで、ここだけ2文字の国コードではない。
+
   **表は書けない。XMLのコメントに `-` を2つ並べられない**ので、
   Markdownの区切り行（ハイフンを並べる行）を入れると**plistが壊れる**（`plutil -lint` は通すが、
   `plistlib` も tauri-bundler のパーサも撥ねる。2026-09-01、ゲート1のP1）。
@@ -42,6 +45,7 @@
     <string>en</string>
     <string>de</string>
     <string>es</string>
+    <string>es-419</string>
     <string>zh-Hans</string>
     <string>zh-Hant</string>
   </array>

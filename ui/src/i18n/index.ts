@@ -24,8 +24,9 @@
  *   **例外は週の始まり**——これだけはタグに映らない設定なので、Rustが
  *   OSで効いている値を渡す（`weekday.ts`）。`Intl` はそれが無いときの近似。
  * - **言葉のコードと書式のコードは別**（`locale` と `formatLocale`）。辞書は
- *   地域を落として選ぶが（`es-MX` → `es`）、**その丸めを書式に持ち込まない**。
- *   持ち込むとメキシコの人に本国スペインの桁区切りと月曜始まりが出る。
+ *   地域を落として選ぶが（`ja-JP` → `ja`）、**その丸めを書式に持ち込まない**。
+ *   持ち込むと**辞書の都合の丸めが日付や桁区切りまで巻き込む**。
+ *   **例外は中南米のスペイン語**——`es-MX` は地域を落とさず `es-419` へ寄る（`match.ts`）。
  *   地域つきのタグは **Rustが起動時に渡す**（WebViewは地域を落とす）。
  * - 話者数の多い言語を優先。RTL（アラビア語等）はレイアウトの論理プロパティ化が
  *   済んでから追加する。
@@ -35,15 +36,25 @@ import { ja, type Dict } from "./ja.ts";
 import { en } from "./en.ts";
 import { de } from "./de.ts";
 import { es } from "./es.ts";
+import { es419 } from "./es-419.ts";
 import { zh } from "./zh.ts";
 import { zhHant } from "./zh-hant.ts";
 import { num, setNumberLocale } from "./plural.ts";
+import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
 
 export type { Dict };
 
 /** 対応言語。**ここと `LOCALES` の両方**に足すこと（片方だけだと半端になる） */
-const DICTS: Record<string, Dict> = { ja, en, de, es, zh, "zh-hant": zhHant };
+const DICTS: Record<string, Dict> = {
+  ja,
+  en,
+  de,
+  es,
+  "es-419": es419,
+  zh,
+  "zh-hant": zhHant,
+};
 
 /**
  * 選択肢に出す言語（コードと、その言語自身での呼び名）。
@@ -55,7 +66,10 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "ja", label: "日本語" },
   { code: "en", label: "English" },
   { code: "de", label: "Deutsch" },
-  { code: "es", label: "Español" },
+  // **本国と中南米を分けたので、どちらも地域まで名乗る**。`Español` が2つ並ぶと
+  // 選べない（Appleの綴りに合わせている）
+  { code: "es", label: "Español (España)" },
+  { code: "es-419", label: "Español (Latinoamérica)" },
   { code: "zh", label: "简体中文" },
   { code: "zh-hant", label: "繁體中文" },
 ];
@@ -158,59 +172,8 @@ function writeStored(code: string | null): boolean {
 function pickLocale(): string {
   const chosen = readStored();
   if (chosen && hasDict(chosen)) return chosen;
-  for (const tag of preferredLocales) {
-    // **後ろから1つずつ短くして探す**——`zh-Hant-TW` → `zh-hant` → `zh`、
-    // `ja-JP` → `ja`。地域を落とすだけだと**真ん中の副タグを飛ばす**ので、
-    // `zh-hant.ts` を足しても `zh-Hant-TW` の人には当たらない
-    const parts = tag.toLowerCase().split("-");
-    // **広東語は繁体字の辞書で読める**（2026-09-01、ゲート2の指摘）。macOSの表示言語を
-    // 粵語にすると `yue-Hant-HK` が来るが、`yue` の辞書は無いので**英語まで落ちていた**。
-    // 香港・マカオの書き言葉は繁体字の中国語なので、`zh` として扱えば `zh-hant` に当たる
-    // （話し言葉としては別の言語だが、**この辞書が担うのは書き言葉**）
-    // **裸の `yue` も繁体字へ**（4巡目の指摘）。`zh` に置き換えるだけだと、
-    // 地域が落ちたタグ（`navigator.languages` は地域を落とす。上の注記）で
-    // **簡体字**に着く。CLDRの既定も `yue` → `yue-Hant-HK`
-    if (parts[0] === "yue") {
-      parts[0] = "zh";
-      if (!parts.includes("hans") && !parts.includes("hant")) parts.splice(1, 0, "hant");
-    }
-    // **書き言葉を省いたタグに補う**（`zh-TW` → `zh-hant-tw`）。台湾・香港・
-    // マカオのOSは `zh-Hant` を省いて渡してくることがあり、そのままだと
-    // `zh-hant` の辞書に当たらずに `zh`（簡体字）まで落ちてしまう
-    if (parts[0] === "zh" && !parts.includes("hant") && isTraditionalChinese(parts))
-      parts.splice(1, 0, "hant");
-    for (let n = parts.length; n > 0; n--) {
-      const code = parts.slice(0, n).join("-");
-      // **繁体字を簡体字の辞書へ落とさない**（2026-09-01、両ゲートの指摘）。
-      // **いまは `zh-hant.ts` があるので、ここまで来ない**——上の補完で `hant` が
-      // 2番目に入り、`zh-hant` で当たって返る。残してあるのは
-      // **繁体字の辞書が無くなったときの受け皿**で、そのときは英語へ落ちる。
-      // 簡体字を出すよりましだから、ではない: 本文が簡体字・曜日が繁体字
-      // （`formatLocale` は `zh-Hant-TW` のまま）・OSのダイアログが英語と、
-      // **1画面が3つの書き言葉に割れる**
-      if (code === "zh" && isTraditionalChinese(parts)) break;
-      if (hasDict(code)) return code;
-    }
-  }
-  return "en";
-}
-
-/**
- * その言語タグが繁体字か。
- *
- * **書き言葉が書いてあればそれに従い、地域は書いていないときだけ見る**
- * （ゲート1の指摘）。順番を逆にすると **`zh-Hans-HK` / `zh-Hans-MO`**
- * ——香港・マカオで簡体字を選んでいる人——が地域だけで繁体字と判定され、
- * `zh` の辞書を飛ばして**英語まで落ちる**。`Hans` と書いてあるのだから、
- * 地域から推し量る必要はない。
- *
- * 地域を見るのは `zh-TW` / `zh-HK` のように書き言葉が省かれたときだけ。
- * **CLDRの表を写しているのではない**——繁体字の地域は3つで尽きていて増減しない。
- */
-function isTraditionalChinese(parts: string[]): boolean {
-  if (parts.includes("hans")) return false;
-  if (parts.includes("hant")) return true;
-  return parts.some((p) => p === "tw" || p === "hk" || p === "mo");
+  // **梯子は `match.ts` にある**（`window` を触らないので、テストから直に呼べる）
+  return matchLocale(preferredLocales, hasDict) ?? "en";
 }
 
 /** 現在の言語コード（"ja" / "en" …） */
@@ -266,7 +229,8 @@ const formatBase = locale === "zh" ? "zh-Hans" : locale;
 /**
  * **書式に使うロケール。辞書のコード（`locale`）とは別物。**
  *
- * `locale` は**辞書を選ぶために地域を落とした**コード（`es-MX` → `es`）。
+ * `locale` は**辞書を選ぶために地域を落とした**コード（`ja-JP` → `ja`。
+ * スペイン語だけは `es-MX` → `es-419` と、地域の側へ寄る）。
  * これを `Intl` にも渡していたので、**辞書の都合の丸めが書式まで巻き込んでいた**
  * ——メキシコの人に本国スペインの桁区切り（`12.345,6`）と月曜始まりが出る。
  * イギリスの人も `en` に落ちて**日曜始まり（米国式）**になっていた。

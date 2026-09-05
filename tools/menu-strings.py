@@ -27,7 +27,15 @@ SWIFTUI = "/System/Library/Frameworks/SwiftUI.framework/Resources/MainMenu.locta
 APPKIT = "/System/Library/Frameworks/AppKit.framework/Resources/MenuCommands.loctable"
 
 # 辞書のコード → loctable の綴り
-LOCALES = [("en", "en"), ("ja", "ja"), ("de", "de"), ("es", "es"), ("zh", "zh_CN"), ("zh-hant", "zh_TW")]
+LOCALES = [
+    ("en", "en"),
+    ("ja", "ja"),
+    ("de", "de"),
+    ("es", "es"),
+    ("es-419", "es_419"),
+    ("zh", "zh_CN"),
+    ("zh-hant", "zh_TW"),
+]
 
 # (Rustのフィールド名, loctableのキー, どちらの表か)
 KEYS = [
