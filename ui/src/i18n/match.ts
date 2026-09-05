@@ -82,7 +82,10 @@ export function matchLocale(tags: string[], hasDict: (code: string) => boolean):
     // スペイン語の地域差は**相互に通じる**ので、そこは受け入れる（dev #17 の但し書き）。
     if (parts[0] === "es") {
       const region = regionOf(parts);
-      if (region && region !== "es" && region !== "419") parts.splice(1, 0, "419");
+      // **見るのは「もう2番目に `419` が居るか」**（ゲート1）。`region !== "419"` で
+      // 弾くと **`es-Latn-419`** が素通りする——地域は `419` なのに2番目は `latn` なので、
+      // 梯子は `es-latn-419` → `es-latn` → `es` と**本国へ着く**
+      if (region && region !== "es" && parts[1] !== "419") parts.splice(1, 0, "419");
     }
     // **書き言葉を省いたタグに補う**（`zh-TW` → `zh-hant-tw`）。台湾・香港・
     // マカオのOSは `zh-Hant` を省いて渡してくることがあり、そのままだと

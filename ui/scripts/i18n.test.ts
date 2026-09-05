@@ -622,6 +622,9 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("es-u-nu-latn"), "es");
   assert.equal(pick("es-u-hc-h23"), "es");
   assert.equal(pick("es-MX-u-nu-latn"), "es-419", "拡張の手前に地域があれば拾う");
+  // **書き言葉が挟まった `419`**（ゲート1）。梯子は前から短くするので、
+  // 2番目に `419` が無ければ挟み直さないと本国へ着く
+  assert.equal(pick("es-Latn-419"), "es-419");
 
   // **中国語は書き言葉で割れる**（#19。ここは実機でしか確かめられなかった）
   assert.equal(pick("zh-Hans-CN"), "zh");
