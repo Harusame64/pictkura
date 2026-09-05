@@ -230,22 +230,30 @@ fn text_for(code: &str) -> &'static MenuText {
 ///
 /// **これは `pickLocale()` の写しではない。** 画面が `set_menu_locale` を呼ぶまでの
 /// 数百ミリ秒を埋めるためだけの当て推量で、**食い違っても直る**。
-/// だから込み入ったことはしない——**書き言葉つきの中国語だけ見分けて、あとは前2文字**。
+/// だから込み入ったことはしない——**中国語の書き言葉だけ見分けて、あとは言語の副タグ**。
 fn provisional(os_locales: &[String]) -> &'static str {
     for tag in os_locales {
         let tag = tag.to_lowercase();
-        if tag.starts_with("zh") {
-            // `zh-Hant` / `zh-TW` / `zh-HK` / `zh-MO` は繁体字。それ以外は簡体字へ
+        // **粵語もここ。** `pickLocale()` が `yue` を書き言葉として繁体字へ寄せている
+        // （香港・マカオの書き言葉は繁体字の中国語）ので、当て推量も同じ側へ寄せる
+        // ——ここだけ英語へ落とすと、**繁体字のMacで毎回英語のメニューが一瞬見える**、
+        // というこの節が消したい形がそのまま残る（ゲート2）
+        if tag.starts_with("zh") || tag.starts_with("yue") {
+            // **`Hans` と書いてあれば地域より優先**。書いていなければ地域で見て、
+            // 粵語は既定で繁体字（CLDRの既定が `yue-Hant-HK`）
+            let hans = tag.contains("hans");
             let hant = tag.contains("hant")
+                || tag.starts_with("yue")
                 || tag.contains("-tw")
                 || tag.contains("-hk")
                 || tag.contains("-mo");
-            return if hant { "zh-hant" } else { "zh" };
+            return if hant && !hans { "zh-hant" } else { "zh" };
         }
-        if let Some((code, _)) = TEXTS
-            .iter()
-            .find(|(c, _)| !c.starts_with("zh") && tag.starts_with(*c))
-        {
+        // **前方一致では足りない**（ゲート2）。副タグの切れ目で切らないと
+        // `jam-JM`（ジャマイカ・クレオール）が `ja` に、`esu`（ユピック）が `es` に当たる
+        if let Some((code, _)) = TEXTS.iter().find(|(c, _)| {
+            !c.starts_with("zh") && (tag == **c || tag.starts_with(&format!("{c}-")))
+        }) {
             return code;
         }
     }
@@ -363,41 +371,73 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, code: &str) -> tauri::Result<()> {
 mod tests {
     use super::{provisional, text_for, TEXTS};
 
-    /// **表の顔ぶれは `ui/src/i18n/index.ts` の `DICTS` と揃っていること。**
+    /// `ui/src/i18n/index.ts` の `DICTS` に並んでいる言語コード。
+    ///
+    /// **1行だと決め打ちしない**（ゲート2）。7つ目を足せば行は折り返されるし、
+    /// **最後の要素には末尾のカンマが無い**——**言語を足したときにだけ壊れる歯止め**は、
+    /// 守りたい場面でちょうど役に立たない。だから中括弧の中を素直に読む。
+    fn dict_codes() -> Vec<String> {
+        let src = include_str!("../../ui/src/i18n/index.ts");
+        let Some(at) = src.find("const DICTS: Record<string, Dict>") else {
+            panic!("index.ts に DICTS が無い（綴りが変わった？）")
+        };
+        let rest = src.get(at..).unwrap_or_default();
+        let (Some(open), Some(close)) = (rest.find('{'), rest.find('}')) else {
+            panic!("DICTS の中括弧を読めない")
+        };
+        let inner = rest.get(open + 1..close).unwrap_or_default();
+        inner
+            .split(',')
+            .filter_map(|part| {
+                let name = part
+                    .split(':')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .trim_matches('"');
+                (!name.is_empty()).then(|| name.to_string())
+            })
+            .collect()
+    }
+
+    /// **表の顔ぶれは `DICTS` と揃っていること。**
     /// 片方だけ足すと、その言語だけメニューが英語で出る
     #[test]
     fn the_menu_knows_every_language_the_app_ships() {
-        let src = include_str!("../../ui/src/i18n/index.ts");
-        let line = src
-            .lines()
-            .find(|l| l.contains("const DICTS: Record<string, Dict>"))
-            .expect("index.ts に DICTS の行が無い（綴りが変わった？）");
-        for (code, _) in TEXTS {
-            // `zh-hant` は `"zh-hant": zhHant` の形で出る
+        let codes = dict_codes();
+        assert!(codes.len() >= 2, "DICTS を読めていない: {codes:?}");
+        for code in &codes {
             assert!(
-                line.contains(&format!(" {code},")) || line.contains(&format!("\"{code}\":")),
-                "{code} が DICTS に無い"
+                TEXTS.iter().any(|(c, _)| c == code),
+                "{code} の語がこの表に無い。dev/i18n-tools/menu-strings.py を回すこと"
             );
         }
-        // 逆向き。`{ ja, en, de, es, zh, "zh-hant": zhHant }` から名前を拾う
-        let inner = line
-            .split_once('{')
-            .and_then(|(_, r)| r.rsplit_once('}'))
-            .expect("DICTS の中括弧を読めない")
-            .0;
-        for part in inner.split(',') {
-            let name = part
-                .split(':')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .trim_matches('"');
-            if name.is_empty() {
-                continue;
-            }
+        for (code, _) in TEXTS {
             assert!(
-                TEXTS.iter().any(|(c, _)| *c == name),
-                "{name} の語がこの表に無い。dev/i18n-tools/menu-strings.py を回すこと"
+                codes.iter().any(|c| c == code),
+                "{code} が DICTS に無い（辞書を消したなら、この表からも消すこと）"
+            );
+        }
+    }
+
+    /// **`Info.plist` の `CFBundleLocalizations` も同じ顔ぶれであること。**
+    ///
+    /// **一度忘れている**——独語と西語の辞書（#94 / #95）を足したとき、あちらは
+    /// そのままだった。書き忘れると**保存パネルとフォルダ選択だけ英語**という
+    /// 混ざり方になり、画面を見ているだけでは気づきにくい。
+    /// **綴りはAppKitの言語IDなので、中国語だけ辞書のコードと違う。**
+    #[test]
+    fn the_bundle_declares_every_language_the_app_ships() {
+        let plist = include_str!("../Info.plist");
+        for code in dict_codes() {
+            let appkit = match code.as_str() {
+                "zh" => "zh-Hans",
+                "zh-hant" => "zh-Hant",
+                other => other,
+            };
+            assert!(
+                plist.contains(&format!("<string>{appkit}</string>")),
+                "{appkit} が Info.plist の CFBundleLocalizations に無い"
             );
         }
     }
@@ -415,6 +455,15 @@ mod tests {
         assert_eq!(provisional(&["zh-TW".into()]), "zh-hant");
         assert_eq!(provisional(&["zh-Hant-HK".into()]), "zh-hant");
         assert_eq!(provisional(&["zh-MO".into()]), "zh-hant");
+        // **`Hans` と書いてあれば地域より優先**（`pickLocale()` と同じ）
+        assert_eq!(provisional(&["zh-Hans-TW".into()]), "zh");
+        // **粵語も繁体字へ。** ここを英語へ落とすと、この節が消したい
+        // 「英語のメニューが一瞬見える」がそのまま起きる（ゲート2）
+        assert_eq!(provisional(&["yue-Hant-HK".into()]), "zh-hant");
+        assert_eq!(provisional(&["yue".into()]), "zh-hant");
+        // **副タグの切れ目で切る。** 前方一致だけだと `ja` / `es` に当たってしまう
+        assert_eq!(provisional(&["jam-JM".into()]), "en");
+        assert_eq!(provisional(&["esu".into()]), "en");
         // 知らない言語は飛ばして次を見る。全部知らなければ英語
         assert_eq!(provisional(&["th-TH".into(), "ja-JP".into()]), "ja");
         assert_eq!(provisional(&["th-TH".into()]), "en");
