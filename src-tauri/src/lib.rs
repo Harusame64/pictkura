@@ -23,6 +23,10 @@ use tauri::{Emitter, Manager};
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
+// メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
+// ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
+#[cfg(target_os = "macos")]
+mod menu;
 // 新しい版が出ていないかの確認（0.2）。外向きの通信はこのモジュールに閉じている
 mod update;
 
@@ -4131,6 +4135,26 @@ fn first_weekday_from_core_foundation(v: i64) -> Option<u32> {
     (1..=7).contains(&v).then(|| (v - 1) as u32)
 }
 
+/// **画面が決めた言語で、メニューバーを組み直す**（macOSだけ。Issue #14）。
+///
+/// **言語を決める規則は画面側にしかない**——localStorage の指定が最優先で、
+/// その解決は `ui/src/i18n/index.ts` の `pickLocale()` が持っている。
+/// **こちらで作り直さない。** 画面が読み込まれた時点で1回呼んでくる。
+///
+/// Windowsは窓にメニューを載せていないので**何もしない**。
+#[tauri::command]
+fn set_menu_locale(app: tauri::AppHandle, code: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        menu::apply(&app, &code).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, code);
+        Ok(())
+    }
+}
+
 /// **OSの言語設定を、地域つきで画面へ渡す。**
 ///
 /// WebViewの `navigator.languages` は地域を落とす。macOSは**OSが `ja-JP` を持っているのに
@@ -4211,6 +4235,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // **メニューバーを、まずOSの言語で当てて掛ける**（macOSだけ・Issue #14）。
+            // 画面が読み込まれたら `set_menu_locale` が正しい言語で組み直す。
+            // **当てておく理由は、当てないと日本語のMacで毎回英語のメニューが
+            // 一瞬見えるから**である。失敗しても起動は止めない——メニューの言語で
+            // アプリが立ち上がらないほうが困る
+            #[cfg(target_os = "macos")]
+            {
+                let locales: Vec<String> = sys_locale::get_locales().collect();
+                if let Err(e) = menu::install(app.handle(), &locales) {
+                    eprintln!("メニューバーを組めませんでした（英語のまま続行）: {e}");
+                }
+            }
+
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&config_dir)?;
@@ -4769,7 +4806,8 @@ pub fn run() {
             take_pending_import,
             update::check_update,
             update::open_download_page,
-            update::set_check_update_on_start
+            update::set_check_update_on_start,
+            set_menu_locale
         ])
         .run(tauri::generate_context!());
     // **起動できなかったときは黙って消えない**。`expect` で落とすと

@@ -673,6 +673,19 @@ export const openDownloadPage = () =>
 export const setCheckUpdateOnStart = (enabled: boolean) =>
   invoke<void>("set_check_update_on_start", { enabled });
 
+/**
+ * **メニューバーをこの画面と同じ言語で組み直してもらう**（macOSだけ効く。Issue #14）。
+ *
+ * **言語を決める規則はこちら側にしかない**——`localStorage` の指定が最優先で、
+ * その解決は `i18n/index.ts` の `pickLocale()` が持っている。Rustは起動の一瞬だけ
+ * OSの言語から当てて掛けており、**これが本当の答えを教える**。
+ *
+ * **失敗しても黙る。** メニューの言語のために画面を止めない——`vite` の画面を
+ * ブラウザで開いているとき（Rustが居ない）にも通る道である。
+ */
+export const syncMenuLocale = () =>
+  invoke<void>("set_menu_locale", { code: locale }).catch(() => {});
+
 export const setRegisterAutoplay = (enabled: boolean) =>
   invoke<void>("set_register_autoplay", { enabled });
 
