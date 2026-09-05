@@ -112,14 +112,21 @@ we don't suggest it just to run this app.
 
 <!-- 解決済み。次の版を切るときに、この段落・README.ja.md の同じ段落・
      docs/{ja,en}/install.html の 2.5 節と目次の行を、まとめて消すこと -->
-**The Defender quarantine, resolved (2026-09-03)**
+**0.2.7 is being quarantined by Defender (2026-09-06, unresolved)**
 
-On one machine, Defender took `pictkura.exe` from 0.2.6 as `Trojan:Win32/Bearfoos.A!ml`.
-The `!ml` suffix marks it as a **machine-learning guess**, not a match against a known
-threat, and it fires readily on unsigned executables. It was reported to Microsoft as a
-false positive on **2026-09-02**, and on **2026-09-03 Microsoft removed the detection** —
-the file does not meet their criteria for malware. A machine whose definitions are still old
-can go on quarantining it; from a command prompt **run as administrator**:
+**The 0.2.7 downloads have been pulled. Use 0.2.6 for now.** Installing 0.2.7 gets
+`pictkura.exe` taken as `Trojan:Win32/Bearfoos.A!ml` about **seven seconds after the
+installer finishes**. The `!ml` suffix marks a **machine-learning guess**, not a match
+against a known threat, and it fires readily on unsigned executables. The verdict is
+delivered from the cloud, not a static signature, so **neither the installer nor anything
+inside it shows up on a scan** — which is why a release can be clean when it ships and
+flagged afterwards. Reported to Microsoft as a false positive on **2026-09-06**; the same
+detection was withdrawn twice before, on 2026-09-03 and 2026-09-04, both within a day.
+
+**If it already happened to you: your photos and your library are untouched.** What gets
+cleaned out is `%LOCALAPPDATA%\pictkura\`; the database and settings live under
+`%APPDATA%\`. **Installing 0.2.6 over it puts you back.** If a machine with old
+definitions goes on quarantining things, from a command prompt **run as administrator**:
 
 ```
 cd /d "c:\Program Files\Windows Defender"
@@ -136,7 +143,7 @@ already taken**. Once the definitions are current, **installing pictkura again p
 quickest way out (reinstalling *before* that just gets the new copy taken as well).
 The quarantined copy is also still listed under **Protection history** in Windows Security.
 
-The whole account is in [issue #105](https://github.com/Harusame64/pictkura/issues/105).
+The whole account is in [issue #121](https://github.com/Harusame64/pictkura/issues/121) (the 0.2.6 episode is [#105](https://github.com/Harusame64/pictkura/issues/105)).
 
 ### macOS: the first launch needs a few extra steps
 

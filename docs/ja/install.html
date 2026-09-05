@@ -71,7 +71,7 @@
     <a href="#warn-msi" class="sub">2.2 MSI の警告</a>
     <a href="#warn-zip" class="sub">2.3 持ち歩き版の警告</a>
     <a href="#sac" class="sub">2.4 スマートアプリコントロール</a>
-    <a href="#defender" class="sub">2.5 Defender の隔離（解決済み）</a>
+    <a href="#defender" class="sub">2.5 0.2.7 の Defender 隔離（未解決）</a>
     <a href="#macos">3. macOS で起動する</a>
     <a href="#first">4. インストール後の最初の操作</a>
     <a href="#uninstall">5. アンインストール</a>
@@ -148,17 +148,19 @@
         <p>署名（Authenticode）をすれば「発行元: 不明」は発行元名に確実に変わり、SmartScreen も出にくくなります。ただし<strong class="em">必ず消えるわけではありません</strong>——署名したての、まだ評価の溜まっていないファイルは依然として警告されることがあります。証明書が有料のため、今は見送っています。</p>
       </div>
 
-      <!-- 解決済み。次の版を切るときに、この節・目次の行・README 日英の同じ段落を
-           まとめて消すこと -->
-      <h3 id="defender">2.5 &nbsp;Defender の隔離は解決しました（2026-09-03）</h3>
-      <p>0.2.6 の <code class="mono">pictkura.exe</code> が <code class="mono">Trojan:Win32/Bearfoos.A!ml</code> として隔離される例がありました。末尾の <code class="mono">!ml</code> は<strong class="em">機械学習による推定</strong>で、中身を特定の脅威と照合した結果ではなく、署名の無い実行ファイルに出やすい判定です。<strong class="em">2026-09-02</strong> に Microsoft へ誤検知として報告し、<strong class="em">翌 2026-09-03 に検出が取り下げられました</strong>——マルウェアの基準を満たさない、という回答です。</p>
+      <!-- 未解決。晴れたら、この節・目次の行・README 日英の同じ段落をまとめて
+           「解決済みの短い節」に差し替えること -->
+      <h3 id="defender">2.5 &nbsp;0.2.7 は Defender に隔離されます（2026-09-06・未解決）</h3>
+      <p><strong class="em">0.2.7 のダウンロードは取り下げました。当面は 0.2.6 をお使いください。</strong> 0.2.7 を導入すると、<strong class="em">インストーラが終わってから約7秒後</strong>に <code class="mono">pictkura.exe</code> が <code class="mono">Trojan:Win32/Bearfoos.A!ml</code> として隔離されます。末尾の <code class="mono">!ml</code> は<strong class="em">機械学習による推定</strong>で、中身を特定の脅威と照合した結果ではありません。署名の無い実行ファイルに出やすい判定です。</p>
+      <p>この判定は<strong class="em">クラウドから配られる</strong>もので、静的な定義ではありません。<strong class="em">インストーラも、その中身も、スキャンでは何も出ません</strong>。<strong class="em">公開した時点では白で、あとから黒くなった</strong>のはこのためです。<strong class="em">2026-09-06 に Microsoft へ誤検知として報告しました</strong>。同じ検出は過去2回（<strong class="em">2026-09-03</strong> と <strong class="em">2026-09-04</strong>）、いずれも1日以内に取り下げられています。</p>
+      <p><strong class="em">すでに 0.2.7 が隔離された方へ。写真とライブラリは無傷です。</strong> 掃除されるのは <code class="mono">%LOCALAPPDATA%\pictkura\</code> で、データベースと設定は <code class="mono">%APPDATA%\</code> の下——別の場所です。<strong class="em">0.2.6 を上から入れれば戻ります</strong>（実際に起きた機械で確かめました）。もしインストーラが文句を言う場合は、<code class="mono">%LOCALAPPDATA%\pictkura\uninstall.exe</code> が残っているので先にそれを実行してください。</p>
       <p>ただし<strong class="em">定義が古いままの機械では、まだ隔離されることがあります</strong>。Microsoft の案内は、キャッシュされた検出を捨てて定義を取り直すことです。<strong class="em">管理者として実行した</strong>コマンドプロンプトで:</p>
       <pre class="cmd" tabindex="0" role="region" aria-label="キャッシュされた検出を消して定義を更新するコマンド">cd /d "c:\Program Files\Windows Defender"
 MpCmdRun.exe -removedefinitions -dynamicsignatures
 MpCmdRun.exe -SignatureUpdate</pre>
       <p style="margin-top:14px">上は<strong class="em">コマンドプロンプト</strong>（<code class="mono">cmd.exe</code>）の書き方です。<code class="mono">/d</code> は、<strong class="em">別のドライブに居るときに <code class="mono">cd</code> が <code class="mono">C:</code> へ渡る</strong>ために要ります。<strong class="em">PowerShell では <code class="mono">/d</code> を外し</strong>、残り2行を <code class="mono">.\MpCmdRun.exe</code> と書いてください（現在のディレクトリを探しに行かないため）。</p>
       <p style="margin-top:14px">定義を更新すれば検出は止まりますが、<strong class="em">すでに持っていかれたファイルは戻りません</strong>。<strong class="em">定義を新しくしたうえで pictkura を入れ直せば、実体が戻ります</strong>——これが一番早い方法です（<em>先に</em>入れ直しても、入れ直したものがまた持っていかれます）。隔離された分は、Windows セキュリティの<b>保護の履歴</b>にも残っています。</p>
-      <p style="margin-top:14px">経緯と、落としたファイルの確かめ方は <a href="https://github.com/Harusame64/pictkura/issues/105">issue #105</a> にまとめてあります。</p>
+      <p style="margin-top:14px">経緯と、落としたファイルの確かめ方は <a href="https://github.com/Harusame64/pictkura/issues/121">issue #121</a> にまとめてあります（0.2.6 のときの一件は <a href="https://github.com/Harusame64/pictkura/issues/105">#105</a>）。</p>
     </section>
 
     <section id="macos">
