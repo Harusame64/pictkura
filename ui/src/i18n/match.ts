@@ -16,9 +16,17 @@
  * タグの地域副タグ。**2文字＝国**（`mx`）、**3桁＝国連の地域コード**（`419`）。
  *
  * 位置で決め打ちしない——`es-Latn-MX` のように**書き言葉が挟まる**ことがある。
+ *
+ * **1文字の副タグが出たらそこで止める**（ゲート1）。BCP-47 では1文字は**拡張の始まり**で、
+ * その先は言語の話ではない——`es-u-nu-latn` の `nu`、`es-u-hc-h23` の `hc` は
+ * **2文字だが地域ではない**。止めないと、地域を持たないタグが中南米へ落ちる。
  */
 export function regionOf(parts: string[]): string | null {
-  return parts.slice(1).find((p) => /^[a-z]{2}$/.test(p) || /^[0-9]{3}$/.test(p)) ?? null;
+  for (const p of parts.slice(1)) {
+    if (p.length === 1) return null;
+    if (/^[a-z]{2}$/.test(p) || /^[0-9]{3}$/.test(p)) return p;
+  }
+  return null;
 }
 
 /**

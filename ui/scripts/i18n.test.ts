@@ -589,6 +589,10 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("es-AR"), "es-419");
   assert.equal(pick("es-US"), "es-419");
   assert.equal(pick("es-Latn-MX"), "es-419", "書き言葉が挟まっても地域を見つける");
+  // **拡張は地域ではない**（ゲート1）。`-u-` の先の `nu` / `hc` は2文字だが国ではない
+  assert.equal(pick("es-u-nu-latn"), "es");
+  assert.equal(pick("es-u-hc-h23"), "es");
+  assert.equal(pick("es-MX-u-nu-latn"), "es-419", "拡張の手前に地域があれば拾う");
 
   // **中国語は書き言葉で割れる**（#19。ここは実機でしか確かめられなかった）
   assert.equal(pick("zh-Hans-CN"), "zh");

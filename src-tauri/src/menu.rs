@@ -278,9 +278,12 @@ fn provisional(os_locales: &[String]) -> &'static str {
         // **`ES` 以外の地域つき**を中南米（`es-419`）へ寄せるので、繋ぎも同じ側へ寄せる
         // ——ここだけ本国に倒すと、メキシコのMacで**一瞬だけ本国のスペイン語**が出る
         if tag == "es" || tag.starts_with("es-") {
+            // **1文字の副タグで止める**（ゲート1）。BCP-47 では1文字は拡張の始まりで、
+            // `es-u-nu-latn` の `nu` は**2文字だが地域ではない**
             let region = tag
                 .split('-')
                 .skip(1)
+                .take_while(|p| p.len() != 1)
                 .find(|p| p.len() == 2 || (p.len() == 3 && p.chars().all(|c| c.is_ascii_digit())));
             return match region {
                 None | Some("es") => "es",
@@ -511,6 +514,9 @@ mod tests {
         assert_eq!(provisional(&["es-MX".into()]), "es-419");
         assert_eq!(provisional(&["es-419".into()]), "es-419");
         assert_eq!(provisional(&["es-Latn-MX".into()]), "es-419");
+        // **拡張は地域ではない**（`-u-` の先の `nu` / `hc` は2文字だが国ではない）
+        assert_eq!(provisional(&["es-u-nu-latn".into()]), "es");
+        assert_eq!(provisional(&["es-u-hc-h23".into()]), "es");
         // 知らない言語は飛ばして次を見る。全部知らなければ英語
         assert_eq!(provisional(&["th-TH".into(), "ja-JP".into()]), "ja");
         assert_eq!(provisional(&["th-TH".into()]), "en");
