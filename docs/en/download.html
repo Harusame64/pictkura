@@ -71,7 +71,12 @@
        reached this whole copy is what people see. The same copy exists in four
        files: {en,ja}/index.html and {en,ja}/download.html. All four have to be
        refreshed by hand on each release: the version stamp, the file names, the
-       links, the sizes, and the date, which only this page carries. They were
+       links, the sizes, and the date, which only this page carries.
+       Two more pages name the shipped version and are NOT in this copy:
+       {en,ja}/cameras.html (regenerate with dev/raw-matrix-tools/cameras.py after
+       moving SHIPPED) and {en,ja}/spec.html (languages, and the note about which
+       extensions the scan list holds). They were both wrong for a day because
+       this list said four. They were
        missed for 0.2.1 and for 0.2.2, which left these pages offering v0.2.0 to
        anyone who hit a rate limit.
 

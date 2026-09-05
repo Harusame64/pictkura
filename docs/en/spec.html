@@ -96,7 +96,7 @@
             <tr><td class="k">macOS</td><td>macOS 11 or later (Apple Silicon). There is no Intel build</td></tr>
             <tr><td class="k">Linux</td><td>No build is published (Tauri v2 could target it)</td></tr>
             <tr><td class="k">OS components</td><td>HEIC / HEVC pixels are decoded by the OS. On Windows that means "HEIF Image Extensions" (free) and "HEVC Video Extensions" (paid)</td></tr>
-            <tr><td class="k">Languages</td><td>English and Japanese. Follows the OS language; can be overridden in settings</td></tr>
+            <tr><td class="k">Languages</td><td>Japanese, English, German, Spanish (Spain and Latin America), Simplified and Traditional Chinese &mdash; six languages, seven dictionaries. Follows the OS language; can be overridden in settings</td></tr>
           </tbody>
         </table>
       </div>
@@ -207,7 +207,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Measured on 2026-09-04 against <b>1,870 real files</b> &mdash; every CC0 sample at <a href="https://raw.pixls.us/">raw.pixls.us</a> &mdash; 816 on macOS and 1,054 on Windows, with no crashes. The 1,831 counted above are the ones whose extension is scanned as RAW; the other 39 are not. <b>Every picture counted here was decoded</b>, not measured from a JPEG header. Two of the extensions above, <code>ori</code> and <code>arq</code>, were added after 0.2.6 and are measured through the forced-RAW path.</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Measured on 2026-09-04 against <b>1,870 real files</b> &mdash; every CC0 sample at <a href="https://raw.pixls.us/">raw.pixls.us</a> &mdash; 816 on macOS and 1,054 on Windows, with no crashes. The 1,831 counted above are the ones whose extension is scanned as RAW; the other 39 are not. <b>Every picture counted here was decoded</b>, not measured from a JPEG header. Two of the extensions above, <code>ori</code> and <code>arq</code>, are measured through the forced-RAW path: they joined the scan list in 0.2.7, after this sweep had run.</p>
       <figure class="demo">
         <video src="../images/e-raw.mp4" poster="../images/e-raw.jpg" width="960" height="630"
                muted loop playsinline preload="metadata" controls data-autoplay></video>
