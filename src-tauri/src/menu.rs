@@ -161,6 +161,29 @@ static ES: MenuText = MenuText {
     help: "Ayuda",
 };
 
+static ES_419: MenuText = MenuText {
+    about: "Acerca de %@",
+    services: "Servicios",
+    hide: "Ocultar %@",
+    hide_others: "Ocultar otros",
+    quit: "Salir de %@",
+    file: "Archivo",
+    close_window: "Cerrar ventana",
+    edit: "Edición",
+    undo: "Deshacer",
+    redo: "Rehacer",
+    cut: "Cortar",
+    copy: "Copiar",
+    paste: "Pegar",
+    select_all: "Seleccionar todo",
+    view: "Visualización",
+    fullscreen: "Ver en pantalla completa",
+    window: "Ventana",
+    minimize: "Minimizar",
+    zoom: "Maximizar",
+    help: "Ayuda",
+};
+
 static ZH: MenuText = MenuText {
     about: "关于%@",
     services: "服务",
@@ -213,6 +236,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("ja", &JA),
     ("de", &DE),
     ("es", &ES),
+    ("es-419", &ES_419),
     ("zh", &ZH),
     ("zh-hant", &ZH_HANT),
 ];
@@ -249,6 +273,19 @@ fn provisional(os_locales: &[String]) -> &'static str {
                 || tag.contains("-hk")
                 || tag.contains("-mo");
             return if hant && !hans { "zh-hant" } else { "zh" };
+        }
+        // **スペイン語も地域で割れる**（dev #17）。`pickLocale()` は
+        // **`ES` 以外の地域つき**を中南米（`es-419`）へ寄せるので、繋ぎも同じ側へ寄せる
+        // ——ここだけ本国に倒すと、メキシコのMacで**一瞬だけ本国のスペイン語**が出る
+        if tag == "es" || tag.starts_with("es-") {
+            let region = tag
+                .split('-')
+                .skip(1)
+                .find(|p| p.len() == 2 || (p.len() == 3 && p.chars().all(|c| c.is_ascii_digit())));
+            return match region {
+                None | Some("es") => "es",
+                _ => "es-419",
+            };
         }
         // **前方一致では足りない**（ゲート2）。副タグの切れ目で切らないと
         // `jam-JM`（ジャマイカ・クレオール）が `ja` に、`esu`（ユピック）が `es` に当たる
@@ -448,7 +485,6 @@ mod tests {
     fn the_provisional_guess_splits_the_two_chinese_scripts() {
         assert_eq!(provisional(&["ja-JP".into()]), "ja");
         assert_eq!(provisional(&["de-DE".into()]), "de");
-        assert_eq!(provisional(&["es-MX".into()]), "es");
         assert_eq!(provisional(&["en-GB".into()]), "en");
         // 簡体字と繁体字
         assert_eq!(provisional(&["zh-Hans-CN".into()]), "zh");
@@ -465,6 +501,16 @@ mod tests {
         // **副タグの切れ目で切る。** 前方一致だけだと `ja` / `es` に当たってしまう
         assert_eq!(provisional(&["jam-JM".into()]), "en");
         assert_eq!(provisional(&["esu".into()]), "en");
+        // **スペイン語は地域で本国と中南米に割れる**（dev #17。`pickLocale()` と同じ規則）
+        assert_eq!(provisional(&["es-ES".into()]), "es");
+        assert_eq!(
+            provisional(&["es".into()]),
+            "es",
+            "地域が分からなければ本国側"
+        );
+        assert_eq!(provisional(&["es-MX".into()]), "es-419");
+        assert_eq!(provisional(&["es-419".into()]), "es-419");
+        assert_eq!(provisional(&["es-Latn-MX".into()]), "es-419");
         // 知らない言語は飛ばして次を見る。全部知らなければ英語
         assert_eq!(provisional(&["th-TH".into(), "ja-JP".into()]), "ja");
         assert_eq!(provisional(&["th-TH".into()]), "en");

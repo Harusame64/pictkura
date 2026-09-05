@@ -38,9 +38,11 @@ import { ja } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
 import { de } from "../src/i18n/de.ts";
 import { es } from "../src/i18n/es.ts";
+import { AMERICAS_ONLY, es419 } from "../src/i18n/es-419.ts";
 import { zh } from "../src/i18n/zh.ts";
 import { zhHant } from "../src/i18n/zh-hant.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
+import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
 
 type Any = Record<string, unknown>;
@@ -55,6 +57,7 @@ const DICTS: Record<string, Any> = {
   en: en as Any,
   de: de as Any,
   es: es as Any,
+  "es-419": es419 as Any,
   zh: zh as Any,
   "zh-hant": zhHant as Any,
 };
@@ -276,6 +279,45 @@ const INFLECTS: Record<string, string[]> = {
     "speedDiff:1",
     "speedDiff:2",
   ],
+  // **中南米版は本国と同じ活用**（差分は語彙だけで、単複の作りは変えていない）
+  "es-419": [
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "rejectGateTitle:0",
+    "importDone:0",
+    "importDone:1",
+    "syncDone:0",
+    "syncDone:1",
+    "syncDone:2",
+    "wizardSelected:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "wizardHiddenCount:0",
+    "wizardEtaSeconds:0",
+    "wizardEtaMinutes:0",
+    "wizardMoreFiles:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "selectedCount:0",
+    "moveConfirm:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "bulkPickDone:0",
+    "bulkUnpickDone:0",
+    "bulkFavoriteDone:0",
+    "bulkUnfavoriteDone:0",
+    "speedUsnDirty:0",
+    "speedUsnDirty:1",
+    "speedPruned:0",
+    "speedFull:0",
+    "speedDiff:0",
+    "speedDiff:1",
+    "speedDiff:2",
+  ],
 };
 
 /**
@@ -417,6 +459,19 @@ const SAME_AS_EN: Record<string, string[]> = {
     "rejectChip",
     "wizardCapped",
   ],
+  "es-419": [
+    "appName",
+    "kindRaw",
+    "keyCtrl",
+    "actualSizeBadge",
+    "exifIso",
+    "listSeparator",
+    "settingsManual", // `Manual` は西語の語でもある
+    "photosCount",
+    "rejectChip",
+    "wizardCapped",
+    "kindVideo", // **中南米では `Videos`**（本国は `Vídeos`）。英語と同じ綴りになる
+  ],
   ja: [
     "appName",
     "kindRaw",
@@ -478,4 +533,75 @@ test("OSから来た週の始まりは、範囲の内側だけ通す", () => {
   for (const bad of [-1, 7, 8, 1.5, NaN, Infinity, "0", "3", true, [3], {}]) {
     assert.equal(firstWeekdayFromOs(bad), null, `${String(bad)} は弾く`);
   }
+});
+
+/** 辞書の中の文字列を全部集める（入れ子の配列・オブジェクト・関数の出力まで） */
+function everyString(d: Any): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  for (const k of KEYS) {
+    const v = d[k];
+    if (typeof v === "function") out.push(call(d, k, argsFor(k, 3, "X")));
+    else walk(v);
+  }
+  return out;
+}
+
+test("中南米のスペイン語に、本国だけの語が残っていないこと", () => {
+  // **`es-419.ts` は差分だけを持つ**ので、`es.ts` 側に新しく `vídeo` と書くと
+  // 何もしなくてもこちらへ流れ込む。**そのときここが落ちる**のが、この試験の値打ち
+  const strings = everyString(es419 as Any);
+  const left = AMERICAS_ONLY.filter((w) => strings.some((s) => s.includes(w)));
+  assert.deepEqual(
+    left,
+    [],
+    "es-419 に本国だけの語が残っている。es-419.ts に差分を足すこと（es.ts は触らない）",
+  );
+  // **裏返しの確認**: 本国側にはその語がちゃんと在る（検査が生きている）
+  const inSpain = AMERICAS_ONLY.filter((w) =>
+    everyString(es as Any).some((s) => s.includes(w)),
+  );
+  assert.deepEqual(
+    inSpain.length > 0,
+    true,
+    "本国の辞書からも消えている。AMERICAS_ONLY が古い（語を変えたなら一覧も直す）",
+  );
+});
+
+test("辞書のコードの選び方（梯子）", () => {
+  // `Object.hasOwn` は ES2022。この設定（ES2021）では使えない（`index.ts` の `hasDict` と同じ事情）
+  const has = (c: string) => Object.prototype.hasOwnProperty.call(DICTS, c);
+  const pick = (tag: string) => matchLocale([tag], has);
+
+  assert.equal(pick("ja-JP"), "ja");
+  assert.equal(pick("en-GB"), "en");
+  assert.equal(pick("de-DE"), "de");
+
+  // **スペイン語は地域で本国と中南米に割れる**（dev #17）
+  assert.equal(pick("es-ES"), "es", "本国はそのまま");
+  assert.equal(pick("es"), "es", "地域が分からなければ本国側");
+  assert.equal(pick("es-419"), "es-419");
+  assert.equal(pick("es-MX"), "es-419", "包含解決。ここが無いと本国の辞書に着く");
+  assert.equal(pick("es-AR"), "es-419");
+  assert.equal(pick("es-US"), "es-419");
+  assert.equal(pick("es-Latn-MX"), "es-419", "書き言葉が挟まっても地域を見つける");
+
+  // **中国語は書き言葉で割れる**（#19。ここは実機でしか確かめられなかった）
+  assert.equal(pick("zh-Hans-CN"), "zh");
+  assert.equal(pick("zh-CN"), "zh");
+  assert.equal(pick("zh-Hant-TW"), "zh-hant");
+  assert.equal(pick("zh-TW"), "zh-hant", "書き言葉を省いたタグに補う");
+  assert.equal(pick("zh-HK"), "zh-hant");
+  assert.equal(pick("zh-Hans-HK"), "zh", "`Hans` と書いてあれば地域より優先");
+  assert.equal(pick("yue-Hant-HK"), "zh-hant", "広東語は繁体字の辞書で読める");
+  assert.equal(pick("yue"), "zh-hant", "裸の広東語も繁体字へ");
+
+  // 持っていない言語は `null`（呼び出し側が英語へ倒す）
+  assert.equal(pick("th-TH"), null);
+  assert.equal(matchLocale(["th-TH", "es-CL"], has), "es-419", "先に当たったものを採る");
+  assert.equal(matchLocale([], has), null);
 });
