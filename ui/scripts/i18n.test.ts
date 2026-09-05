@@ -38,7 +38,7 @@ import { ja } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
 import { de } from "../src/i18n/de.ts";
 import { es } from "../src/i18n/es.ts";
-import { AMERICAS_SWAPS, es419 } from "../src/i18n/es-419.ts";
+import { AMERICAS_ONLY, AMERICAS_SWAPS, es419 } from "../src/i18n/es-419.ts";
 import { zh } from "../src/i18n/zh.ts";
 import { zhHant } from "../src/i18n/zh-hant.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
@@ -562,11 +562,9 @@ test("中南米のスペイン語に、本国だけの語が残っていない�
   // 何もしなくてもこちらへ流れ込む。**そのときここが落ちる**のが、この試験の値打ち
   // **大小は無視する**（`Vídeos` も `vídeo` で拾いたい）
   const strings = everyString(es419 as Any).map((s) => s.toLowerCase());
-  const left = AMERICAS_SWAPS.filter(([spain]) =>
-    strings.some((s) => s.includes(spain.toLowerCase())),
-  );
+  const left = AMERICAS_ONLY.filter((w) => strings.some((s) => s.includes(w.toLowerCase())));
   assert.deepEqual(
-    left.map(([spain]) => spain),
+    left,
     [],
     "es-419 に本国だけの語が残っている。es-419.ts に差分を足すこと（es.ts は触らない）",
   );
@@ -574,13 +572,23 @@ test("中南米のスペイン語に、本国だけの語が残っていない�
   // 本国側で `Añadir` をやめたときに**その行だけ死んだ規則**になり、
   // 対応する差分が**意味の無い写し**になったまま気づけない
   const spainStrings = everyString(es as Any).map((s) => s.toLowerCase());
-  const missing = AMERICAS_SWAPS.filter(
-    ([spain]) => !spainStrings.some((s) => s.includes(spain.toLowerCase())),
+  const missing = AMERICAS_ONLY.filter(
+    (w) => !spainStrings.some((s) => s.includes(w.toLowerCase())),
   );
   assert.deepEqual(
-    missing.map(([spain]) => spain),
+    missing,
     [],
-    "本国の辞書からこの語が消えている。AMERICAS_SWAPS が古い（語を変えたなら一覧も直す）",
+    "本国の辞書からこの語が消えている。AMERICAS_ONLY が古い（語を変えたなら一覧も直す）",
+  );
+  // **置き換えの表も死なせない**。ショートカット一覧を作り直すのに使うので、
+  // 左の語が本国側から消えていたら、その規則はもう何も直していない
+  const deadSwaps = AMERICAS_SWAPS.filter(
+    ([spain]) => !everyString(es as Any).some((s) => s.includes(spain)),
+  );
+  assert.deepEqual(
+    deadSwaps.map(([spain]) => spain),
+    [],
+    "AMERICAS_SWAPS の左が本国の辞書に無い（大小そのままで探している）",
   );
 });
 

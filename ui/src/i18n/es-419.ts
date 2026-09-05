@@ -3,13 +3,13 @@
  *
  * ## なぜ全文を書き写さないのか
  *
- * **2つのスペイン語が食い違うのは、この辞書では17キーだけ**である。残りは1文字も違わない。
+ * **2つのスペイン語が食い違うのは、この辞書では21キーだけ**である。残りは1文字も違わない。
  * 全文を写すと、**同じ文が2か所**になり、片方を直したときにもう片方が黙って古びる
  * ——**多言語の直しが伝播しないのは、この形から起きる**。差分だけ持てば、
  * `es.ts` の文言を直したときに**共通の文はここにも自動で効く**。
  *
  * **引き換えに失うもの**: 「250キー全部を中南米の目で見た」という証拠が残らない。
- * だから**探し方のほうを残す**——下の `AMERICAS_SWAPS` が、
+ * だから**探し方のほうを残す**——下の `AMERICAS_ONLY` が、
  * **どの語で割れるかを名指しした一覧**であり、`i18n.test.ts` が
  * **その語が1つも残っていないこと**を機械で見る。
  *
@@ -46,28 +46,42 @@ import { num, one } from "./plural.ts";
 import type { Dict } from "./ja.ts";
 
 /**
- * **2つのスペイン語が割れる語**（左が本国、右が中南米）。**この一覧が規則である。**
+ * **本国のスペイン語にしか出てこない語**（語幹で書く）。`i18n.test.ts` が
+ * **大小を無視して**2方向から使う:
  *
- * `i18n.test.ts` が3方向から使う:
- *
- * 1. **左の語が `es-419` に1つも残っていないこと**——差分の書き忘れがここで落ちる
- * 2. **左の語が `es.ts` にはまだ在ること**（語ごとに見る）——本国側の文言を変えて
+ * 1. **`es-419` に1つも残っていないこと**——差分の書き忘れがここで落ちる
+ * 2. **`es.ts` にはまだ在ること**（**語ごとに**見る）——本国側の文言を変えて
  *    この一覧が古びたら落ちる。**古びた一覧は、検査していないのに検査したように見える**
- * 3. **ショートカット一覧が、この置き換えを当てただけの写しであること**
- *    ——あそこは入れ子なので丸ごと持つしかなく、**放っておくと本国側だけ育つ**（ゲート2）
- *
- * **1と2は大小を無視して見る**（`Vídeos` も `vídeo` で拾う）。**3は大小のまま当てる**
- * ——置き換える相手は文そのものなので、`Ratón` を `mouse` にしてしまっては困る。
  *
  * **2を語ごとに見るようにした途端、`ratón` が「本国側に無い規則」として落ちた**
- * ——大文字の `Ratón` しか使っていなかった。**死んだ規則は、検査したふりをする。**
+ * ——大文字の `Ratón` しか使っていなかった（ゲート2）。
+ */
+export const AMERICAS_ONLY: readonly string[] = [
+  "vídeo",
+  // **不定形ではなく語幹で見る**（ゲート1）。`añadir` だけを見ていたので
+  // `añadida` / `añadidas` / `Añade` が素通りし、**同じ画面に `Agregar` と
+  // `añadidas` が並んでいた**。
+  // **活用は語幹の置き換えでは直せない**——`añadir` は -ir、`agregar` は -ar なので、
+  // `añad`+`ida` を `agreg`+`ida` にすると `agregida` になる。**見るのは語幹、直すのは形ごと**
+  "añad",
+  "descodific",
+  "Ajustes del Sistema",
+  "euro",
+  "ratón",
+];
+
+/**
+ * **ショートカット一覧を作り直すための置き換え**（左が本国、右が中南米）。
+ *
+ * 上の一覧とは役目が違う——**あちらは「残っていないか」を大小を無視して見る網**で、
+ * **こちらは文そのものを書き換える規則**なので**大小のまま当てる**
+ * （`Ratón` を `mouse` にしては困る）。`i18n.test.ts` が
+ * **本国の一覧にこれを当てたものと、こちらの一覧が一致すること**を見る
+ * ——あそこは入れ子なので丸ごと持つしかなく、**放っておくと本国側だけ育つ**（ゲート2）。
  */
 export const AMERICAS_SWAPS: readonly (readonly [string, string])[] = [
   ["vídeo", "video"],
   ["Añadir", "Agregar"],
-  ["descodific", "decodific"],
-  ["Ajustes del Sistema", "Configuración del Sistema"],
-  ["euros", "dólares"],
   ["Ratón", "Mouse"],
 ];
 
@@ -87,12 +101,20 @@ export const es419: Dict = {
   videoCodecHelp: "Conseguir las Extensiones de video HEVC (de pago)",
   decoderHevcHow: "Extensiones de video HEVC (de pago)",
 
-  // Añadir → Agregar
+  // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
   navAddFolder: "Agregar una carpeta",
   add: "Agregar",
   pickLibraryFolder: "Elige la carpeta que quieres agregar a la biblioteca",
   menuFavoriteOn: "Agregar a Favoritos",
   bulkFavoriteOn: "Agregar a Favoritos",
+  syncDone: (added: number, changed: number, removed: number) =>
+    `${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
+  speedDiff: (added: number, changed: number, removed: number) =>
+    ` — ${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
+  bulkFavoriteDone: (n: number) =>
+    n === 1 ? "1 foto agregada a Favoritos" : `${num(n)} fotos agregadas a Favoritos`,
+  settingsAutoplayNote:
+    "Agrega pictkura a las opciones de la Reproducción automática de Windows. Nunca arranca por su cuenta. Ten en cuenta que la entrada está escrita en japonés. Al desinstalar con el instalador se quita, pero la versión portable —y las copias de otros usuarios en el mismo PC— no están cubiertas; desactiva esto antes de quitar pictkura en esos casos.",
 
   // **macOSの設定の名前が地域で違う**（`Ajustes` / `Configuración`）
   emptyUnreadableMac: (names: string) =>
