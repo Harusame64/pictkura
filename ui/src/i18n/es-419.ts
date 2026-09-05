@@ -9,7 +9,7 @@
  * `es.ts` の文言を直したときに**共通の文はここにも自動で効く**。
  *
  * **引き換えに失うもの**: 「250キー全部を中南米の目で見た」という証拠が残らない。
- * だから**探し方のほうを残す**——下の `AMERICAS_ONLY` が、
+ * だから**探し方のほうを残す**——下の `AMERICAS_SWAPS` が、
  * **どの語で割れるかを名指しした一覧**であり、`i18n.test.ts` が
  * **その語が1つも残っていないこと**を機械で見る。
  *
@@ -46,22 +46,29 @@ import { num, one } from "./plural.ts";
 import type { Dict } from "./ja.ts";
 
 /**
- * **本国のスペイン語にしか出てこない語。** `i18n.test.ts` がこの一覧で
- * `es-419` を検査する——**1つでも残っていたら落ちる**。
+ * **2つのスペイン語が割れる語**（左が本国、右が中南米）。**この一覧が規則である。**
  *
- * **`es.ts` を直すときにも効く**: 本国側へ新しく `vídeo` を書いたのに
- * こちらへ差分を足し忘れると、**その瞬間に落ちる**。
+ * `i18n.test.ts` が3方向から使う:
+ *
+ * 1. **左の語が `es-419` に1つも残っていないこと**——差分の書き忘れがここで落ちる
+ * 2. **左の語が `es.ts` にはまだ在ること**（語ごとに見る）——本国側の文言を変えて
+ *    この一覧が古びたら落ちる。**古びた一覧は、検査していないのに検査したように見える**
+ * 3. **ショートカット一覧が、この置き換えを当てただけの写しであること**
+ *    ——あそこは入れ子なので丸ごと持つしかなく、**放っておくと本国側だけ育つ**（ゲート2）
+ *
+ * **1と2は大小を無視して見る**（`Vídeos` も `vídeo` で拾う）。**3は大小のまま当てる**
+ * ——置き換える相手は文そのものなので、`Ratón` を `mouse` にしてしまっては困る。
+ *
+ * **2を語ごとに見るようにした途端、`ratón` が「本国側に無い規則」として落ちた**
+ * ——大文字の `Ratón` しか使っていなかった。**死んだ規則は、検査したふりをする。**
  */
-export const AMERICAS_ONLY: readonly string[] = [
-  "vídeo",
-  "Vídeo",
-  "Añadir",
-  "añadir",
-  "descodific",
-  "Ajustes del Sistema",
-  "euros",
-  "Ratón",
-  "ratón",
+export const AMERICAS_SWAPS: readonly (readonly [string, string])[] = [
+  ["vídeo", "video"],
+  ["Añadir", "Agregar"],
+  ["descodific", "decodific"],
+  ["Ajustes del Sistema", "Configuración del Sistema"],
+  ["euros", "dólares"],
+  ["Ratón", "Mouse"],
 ];
 
 export const es419: Dict = {
@@ -99,7 +106,8 @@ export const es419: Dict = {
 
   // **ショートカット一覧は入れ子なので、丸ごと差し替えるしかない。**
   // 変えたのは `Ratón` → `Mouse`・`Añadir` → `Agregar`・`vídeo` → `video` の3語だけで、
-  // ほかは `es.ts` と1文字も違わない（`i18n.test.ts` がそれも見る）
+  // ほかは `es.ts` と1文字も違わない。**`i18n.test.ts` が上の置き換えを当てて突き合わせる**
+  // ので、本国側に行を足してここを忘れると落ちる（ゲート2）
   shortcutGroups: [
     {
       title: "Cuadrícula",

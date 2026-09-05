@@ -38,7 +38,7 @@ import { ja } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
 import { de } from "../src/i18n/de.ts";
 import { es } from "../src/i18n/es.ts";
-import { AMERICAS_ONLY, es419 } from "../src/i18n/es-419.ts";
+import { AMERICAS_SWAPS, es419 } from "../src/i18n/es-419.ts";
 import { zh } from "../src/i18n/zh.ts";
 import { zhHant } from "../src/i18n/zh-hant.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
@@ -109,7 +109,7 @@ test("関数のキーは、ja.ts から署名を読めること", () => {
   );
 });
 
-test("6つの辞書のキーが揃っていること", () => {
+test("どの辞書もキーが揃っていること", () => {
   // 型は既にこれを見ているが、**実体でも見る**——`Dict` に `as` を当てた瞬間に
   // 型の網は抜ける（`zh.ts` などは `: Dict` を付けているので効いているが、
   // 付け忘れは目で見ないと分からない）
@@ -535,7 +535,12 @@ test("OSから来た週の始まりは、範囲の内側だけ通す", () => {
   }
 });
 
-/** 辞書の中の文字列を全部集める（入れ子の配列・オブジェクト・関数の出力まで） */
+/**
+ * 辞書の中の文字列を全部集める（入れ子の配列・オブジェクト・関数の出力まで）。
+ *
+ * **関数は単数と複数の両方で呼ぶ**（ゲート2）。`n = 3` だけだと
+ * `one(n, "vídeo", "videos")` のような**単数側にしか出ない語**を見落とす。
+ */
 function everyString(d: Any): string[] {
   const out: string[] = [];
   const walk = (v: unknown) => {
@@ -545,8 +550,9 @@ function everyString(d: Any): string[] {
   };
   for (const k of KEYS) {
     const v = d[k];
-    if (typeof v === "function") out.push(call(d, k, argsFor(k, 3, "X")));
-    else walk(v);
+    if (typeof v === "function") {
+      out.push(call(d, k, argsFor(k, 1, "X")), call(d, k, argsFor(k, 3, "X")));
+    } else walk(v);
   }
   return out;
 }
@@ -554,21 +560,44 @@ function everyString(d: Any): string[] {
 test("中南米のスペイン語に、本国だけの語が残っていないこと", () => {
   // **`es-419.ts` は差分だけを持つ**ので、`es.ts` 側に新しく `vídeo` と書くと
   // 何もしなくてもこちらへ流れ込む。**そのときここが落ちる**のが、この試験の値打ち
-  const strings = everyString(es419 as Any);
-  const left = AMERICAS_ONLY.filter((w) => strings.some((s) => s.includes(w)));
+  // **大小は無視する**（`Vídeos` も `vídeo` で拾いたい）
+  const strings = everyString(es419 as Any).map((s) => s.toLowerCase());
+  const left = AMERICAS_SWAPS.filter(([spain]) =>
+    strings.some((s) => s.includes(spain.toLowerCase())),
+  );
   assert.deepEqual(
-    left,
+    left.map(([spain]) => spain),
     [],
     "es-419 に本国だけの語が残っている。es-419.ts に差分を足すこと（es.ts は触らない）",
   );
-  // **裏返しの確認**: 本国側にはその語がちゃんと在る（検査が生きている）
-  const inSpain = AMERICAS_ONLY.filter((w) =>
-    everyString(es as Any).some((s) => s.includes(w)),
+  // **裏返しの確認は語ごとに**（ゲート2）。「1つでも在れば良し」だと、
+  // 本国側で `Añadir` をやめたときに**その行だけ死んだ規則**になり、
+  // 対応する差分が**意味の無い写し**になったまま気づけない
+  const spainStrings = everyString(es as Any).map((s) => s.toLowerCase());
+  const missing = AMERICAS_SWAPS.filter(
+    ([spain]) => !spainStrings.some((s) => s.includes(spain.toLowerCase())),
   );
   assert.deepEqual(
-    inSpain.length > 0,
-    true,
-    "本国の辞書からも消えている。AMERICAS_ONLY が古い（語を変えたなら一覧も直す）",
+    missing.map(([spain]) => spain),
+    [],
+    "本国の辞書からこの語が消えている。AMERICAS_SWAPS が古い（語を変えたなら一覧も直す）",
+  );
+});
+
+test("ショートカット一覧は、置き換えを当てただけの写しであること", () => {
+  // **入れ子なので丸ごと持つしかない**（`es-419.ts` の注記）。放っておくと
+  // **本国側だけ行が増えて、中南米の人は古い一覧を見続ける**——型もほかの試験も
+  // 何も言わない（ゲート2）
+  const swap = (s: string) =>
+    AMERICAS_SWAPS.reduce((acc, [spain, americas]) => acc.split(spain).join(americas), s);
+  const derived = (es as Any).shortcutGroups as { title: string; keys: [string, string][] }[];
+  assert.deepEqual(
+    (es419 as Any).shortcutGroups,
+    derived.map((g) => ({
+      title: swap(g.title),
+      keys: g.keys.map(([k, v]) => [swap(k), swap(v)]),
+    })),
+    "es.ts のショートカット一覧と食い違っている。行を足したなら es-419.ts にも足すこと",
   );
 });
 
