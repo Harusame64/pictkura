@@ -36,7 +36,9 @@
 //! `CFBundleLocalizations`・**この表**の4か所。`menu-strings.py` の `LOCALES` に
 //! 1行足して回し直せば、この表は自動で出る。
 
-use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem, Submenu};
+use tauri::menu::{
+    AboutMetadata, Menu, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
+};
 use tauri::{AppHandle, Runtime};
 
 /// メニュー1枚ぶんの語。**全部 macOS の訳**（上のとおり手で書かない）。
@@ -318,8 +320,14 @@ fn build<R: Runtime>(app: &AppHandle<R>, code: &str) -> tauri::Result<Menu<R>> {
                 true,
                 &[&PredefinedMenuItem::fullscreen(app, Some(t.fullscreen))?],
             )?,
-            &Submenu::with_items(
+            // **`WINDOW_SUBMENU_ID` でなければならない**（ゲート1の指摘）。
+            // Tauri はこのIDの submenu だけを `set_as_windows_menu_for_nsapp` へ渡す。
+            // 名前を訳すついでにIDを落とすと、**開いている窓の一覧も
+            // 「すべてを手前に移動」もOSが足さなくなる**——訳したせいで
+            // 標準の振る舞いが減る、といういちばん avoid したい形になる
+            &Submenu::with_id_and_items(
                 app,
+                WINDOW_SUBMENU_ID,
                 t.window,
                 true,
                 &[
@@ -332,8 +340,9 @@ fn build<R: Runtime>(app: &AppHandle<R>, code: &str) -> tauri::Result<Menu<R>> {
                 ],
             )?,
             // **中身は空のまま**（Tauriの既定と同じ）。macOSはヘルプメニューに
-            // 検索欄を自前で足すので、枠だけでも意味がある
-            &Submenu::with_items(app, t.help, true, &[])?,
+            // **検索欄を自前で足す**——ただし `HELP_SUBMENU_ID` のときだけである。
+            // 空の枠に見えて、IDを落とすと本当にただの空の枠になる
+            &Submenu::with_id_and_items(app, HELP_SUBMENU_ID, t.help, true, &[])?,
         ],
     )
 }
