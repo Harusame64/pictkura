@@ -55,8 +55,9 @@ fn main() {
     // **What we publish is untouched**: `release.yml` builds on `windows-latest`, which is
     // msvc, and an msvc target never enters this branch. That is a property of the release
     // workflow, not of the repository — nothing pins the toolchain (there is no
-    // `rust-toolchain.toml`), and `tools/release.ps1` runs a bare `cargo tauri build`, so
-    // running it by hand on a machine whose default is gnu does produce the extra manifest.
+    // `rust-toolchain.toml`), and `tools/release.ps1` passes no target either (it runs
+    // `cargo tauri build --no-bundle` and then `cargo tauri bundle`), so running it by hand
+    // on a machine whose default is gnu does produce the extra manifest.
     // Matching the shipped toolchain (`rustup default stable-msvc`) is the better answer for
     // anyone who can; this exists so the gnu path is not silently broken.
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
