@@ -140,6 +140,101 @@ fn sanitize_relative(rendered: &str) -> String {
         .join("/")
 }
 
+/// **この操作でもう使った行き先**の覚え書き。
+///
+/// **畳み方は自分で決めず、ファイルシステムに訊く。** 「同じファイルを指すか」の規則は
+/// OS とファイルシステムが持っていて、こちらで当てにいくと必ずどこかで外れる——
+/// macOS（APFS）も Windows も**大文字小文字を畳む**うえ、**APFS は Unicode の正規化
+/// （NFC と NFD）も畳む**。`Path` を素で持つと、`DSC00001.ARW` を書いたあとの
+/// `dsc00001.arw` が**覚え書きに当たらない**——当たらないと、そのあと
+/// 「同じ大きさ・同じ時刻だから取り込み済み」と読まれて、**2枚目が黙って消える**
+/// （2026-09-06・ゲート1とゲート2）。カードには大小が混ざるし、
+/// 取り込み元はカードとは限らない。
+///
+/// `canonicalize` は**OSが見ている姿**を返すので、畳むかどうかもそちらの規則に従う
+/// ——case-sensitive な Linux では畳まれず、そこでも正しい。
+///
+/// **OneDrive のクラウドのみファイルは実体化しない**（2026-09-06・win の実機で実測。
+/// 実物のクラウドのみ3本を `canonicalize` と `metadata` で触って、属性 `0x401620` が
+/// 前後で変わらず、10秒後も `0x400000` が立ったまま。`Get-Item` の属性だけで見ている
+/// ——`fsutil` は道具自体がハイドレートする）。**理屈ではなく測った値。**
+/// ただし**1回ずつなので幅は取っていない。**
+/// **`canonicalize` が通らなかったときのために、小文字に畳んだ綴りも一緒に持つ**
+/// ——素の `Path` を控えても、**綴りが違えば当たらないので控えにならない**。
+/// 畳んだほうは正規化までは面倒を見ないが、**何も無いよりはよい**
+/// （当たらなかった側の害は、写真が消えることである）。
+#[derive(Default, Debug)]
+pub(crate) struct TakenPaths {
+    /// OS が見ている姿（`canonicalize` が通ったもの）。**通っている限り、これが答え。**
+    real: HashSet<PathBuf>,
+    /// 通らなかった行き先の、**小文字に畳んだ綴り**。素の `Path` を控えても
+    /// **綴りが違えば当たらないので控えにならない**ので、畳んで持つ
+    folded: HashSet<String>,
+    /// **`canonicalize` が通らなかった行き先が1つでもあるか。**
+    ///
+    /// 立っていないときは `folded` を**見ない**——見ると、畳まないファイルシステム
+    /// （Linux）で `DSC00001.ARW` と `dsc00001.arw` を**同じ行き先と読んで、
+    /// 空いている名前があるのに連番を付ける**。
+    /// 立っているときだけ畳んだほうへ落ちる——**要らない連番1つ**と
+    /// **写真が1枚消えること**なら、前者を取る。
+    degraded: bool,
+}
+
+impl TakenPaths {
+    fn fold(path: &Path) -> String {
+        path.to_string_lossy().to_lowercase()
+    }
+
+    pub(crate) fn insert(&mut self, path: &Path) {
+        match std::fs::canonicalize(path) {
+            Ok(real) => {
+                self.real.insert(real);
+            }
+            Err(_) => self.degraded = true,
+        }
+        // **畳んだ綴りは、通ったときも控える。** 入れるときに通って、**引くときに
+        // 通らない**ことがある（書いた直後の RAW を、ウイルス対策や OneDrive が
+        // 掴んでいる）。そのとき `Err` の枝が空の控えを引いて偽を返し、
+        // **自分がいま書いたファイルを「取り込み済み」と読む**——直したはずの穴に戻る
+        self.folded.insert(Self::fold(path));
+    }
+
+    pub(crate) fn contains(&self, path: &Path) -> bool {
+        // **空なら何も測らない。** `resolve_dest_path` は常に空を渡すので、
+        // ウィザードの「済」バッジ（1行ごと）とサイドカー（1本ごと）が
+        // **結果の出ようがない `canonicalize` を1回ずつ払う**ことになる
+        if self.real.is_empty() && self.folded.is_empty() {
+            return false;
+        }
+        // **在らないパスは、書いた覚えがあるはずがない**（入れるのはコピーに成功した
+        // ときだけ）。ここで先に切ると、衝突していない大多数で `canonicalize` を呼ばない。
+        // 畳むファイルシステムでは、綴りが違っても `exists()` は当たる
+        if !path.exists() {
+            return false;
+        }
+        // **クラウドにしか実体が無いものは開かない。**
+        // `canonicalize` は**ハンドルを開く**ので、`RECALL_ON_OPEN`（`0x40000`。
+        // `cloud.rs` が見ている2つのうちの片方）が立っていると**開いた時点で取り寄せが走る**。
+        // 2026-09-06 に win の実機で「実体化しない」と測ったのは
+        // **`RECALL_ON_DATA_ACCESS`（`0x400000`）のほうだけ**で、
+        // **開くのが引き金になる側は測っていない**。**測っていないものを前提にしない。**
+        //
+        // 取り込み先が Files On-Demand の中にあると、**古い写真は寝ている**。
+        // ここで畳んだ綴りへ落とすと、正規化の違いまでは見分けられなくなるが、
+        // **寝ている写真を起こすよりはよい**（起こすと、利用者の回線と容量を黙って使う）。
+        if crate::cloud::is_cloud_only_path(path) {
+            return self.folded.contains(&Self::fold(path));
+        }
+        match std::fs::canonicalize(path) {
+            Ok(real) => {
+                self.real.contains(&real)
+                    || (self.degraded && self.folded.contains(&Self::fold(path)))
+            }
+            Err(_) => self.folded.contains(&Self::fold(path)),
+        }
+    }
+}
+
 /// コピー先パスの決定結果。
 pub(crate) enum DestResolution {
     /// このパスへコピーする
@@ -157,7 +252,13 @@ pub(crate) fn resolve_dest_path(
     src_size: u64,
     src_mtime_ms: i64,
 ) -> DestResolution {
-    resolve_dest_path_avoiding(dest_dir, file_name, src_size, src_mtime_ms, &HashSet::new())
+    resolve_dest_path_avoiding(
+        dest_dir,
+        file_name,
+        src_size,
+        src_mtime_ms,
+        &TakenPaths::default(),
+    )
 }
 
 /// 「同じもの」と見なしてよいか。**サイズと更新時刻だけで決める**
@@ -171,8 +272,16 @@ pub(crate) fn resolve_dest_path(
 /// 持つため、夏時間の切り替えをまたぐと同じファイルが1時間ずれて見える
 /// （robocopy の `/DST` と同じ話。日本では起きないが、英語でも配っている）。
 /// これを見落とすと、**カード1枚が丸ごと二重に取り込まれる**。
-/// 誤って同じとみなすのは「名前もサイズも同じで、撮影時刻がちょうど1時間違い」の
-/// 別写真だけで、取りこぼしの害のほうが大きい。
+///
+/// **ここには閉じられない穴がある。** 「名前も大きさも更新時刻も同じで、中身が別」を
+/// **この判定では見分けられない**——見分けるには両方を読むしかなく、それは
+/// **カードを挿し直すたびに全ファイルを読む**ということなので、ここでは取らない。
+/// 起きるのは**別のフォルダの同名（連番を戻した機種・繰り上がったカード・2台で使ったカード）が、
+/// 別々の周で来て、しかも撮影が2秒以内**のときで、**そのとき2枚目は取り込まれない。**
+/// 同じ周の中で来た場合は、書いた行き先を覚えているので消えない
+/// （[`resolve_dest_path_avoiding`] の `taken`）。
+/// **誤って同じとみなす害より、取りこぼしを疑わせる害のほうが小さい**という判断で、
+/// ちょうど1時間ずれ（夏時間）も同じ扱いにしてある。
 fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
     let Ok(meta) = existing.metadata() else {
         return false;
@@ -186,6 +295,140 @@ fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
     let dest_ms = filetime::FileTime::from_system_time(mtime).unix_seconds() * 1000;
     let diff = (dest_ms - src_mtime_ms).abs();
     diff <= MTIME_TOLERANCE_MS || (diff - 3_600_000).abs() <= MTIME_TOLERANCE_MS
+}
+
+/// `IMG_0001.CR3` の `i` 番目の別名（`IMG_0001-1.CR3`）。
+///
+/// **連番の付け方は1箇所に置く。** 行き先を決める側と、
+/// 「もう書いたか」を探す側で**別々に組み立てると、ずれたときに気づけない。**
+fn numbered_name(file_name: &str, i: usize) -> String {
+    let path = Path::new(file_name);
+    match (
+        path.file_stem().and_then(|s| s.to_str()),
+        path.extension().and_then(|e| e.to_str()),
+    ) {
+        (Some(stem), Some(ext)) => format!("{stem}-{i}.{ext}"),
+        _ => format!("{file_name}-{i}"),
+    }
+}
+
+/// **この周で自分が書いた行き先の中に、中身まで同じものがあるか。**
+///
+/// 素の名前だけでは足りない——**素の名前が別のファイルで埋まっていると、
+/// 1枚目自体が `-1` に付く**ので、2枚目は素の名前では当たらず `-2` へ回る。
+/// **行き先を決めるのと同じ順で辿る**（素 → `-1` → `-2` …）。
+fn already_written_same_photo(
+    dest_dir: &Path,
+    file_name: &str,
+    src: &Path,
+    src_size: u64,
+    src_mtime_ms: i64,
+    written: &TakenPaths,
+) -> bool {
+    // **範囲は行き先を決める側と同じにする**（素の名前と `-1`..`-999`）。
+    // ずれていると、`-999` に書いたものが探せず、同じ写真が増える
+    for i in 0..1000 {
+        let candidate = if i == 0 {
+            dest_dir.join(file_name)
+        } else {
+            dest_dir.join(numbered_name(file_name, i))
+        };
+        if written.contains(&candidate)
+            && looks_same(&candidate, src_size, src_mtime_ms)
+            && same_bytes(src, &candidate)
+        {
+            return true;
+        }
+        // **行き先を決める側が止まる所で、こちらも止まる**
+        // （空いている名前より先には、書いたものがあるはずがない）。
+        //
+        // 後ろの条件はいまは**必ず真**——`TakenPaths::contains` は在らないパスに
+        // `false` を返すので、`!exists()` なら `!contains()` でもある。
+        // **残してあるのは、その結び付きが変わったときに黙って壊れないため**
+        // （「名前だけ押さえて、まだ書いていない」を持てるようにしたら、
+        // ここは在るかどうかだけでは止まれなくなる）
+        if !candidate.exists() && !written.contains(&candidate) {
+            return false;
+        }
+    }
+    false
+}
+
+/// 途中まで書けたコピーを片付ける。**自分が作った物だけ消す。**
+///
+/// **素通しで消してはいけない。** 行き先が**壊れたシンボリックリンク**だと、
+/// `Path::exists()` は**リンクを辿って**「空いている」と読む（辿った先が無いので）。
+/// そのあと `fs::copy` が転ぶと、ここで消えるのは**こちらが作った物ではなく、
+/// 元から在ったリンクそのもの**になる。
+///
+/// `symlink_metadata` は**辿らない**ので、これで普通のファイルかどうかを見る。
+/// 別の処理が割り込んで同じ名前を作った場合までは防げない——防ぐには
+/// 一時名で作って付け替える形にする必要があり、それはこの直しの範囲ではない。
+fn remove_partial_copy(path: &Path) {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file()) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// 2つのファイルの中身が同じか。**呼ぶのは名前がぶつかったときだけ。**
+///
+/// **クラウドにしか実体が無いファイルは読まない**（`false` を返す）。
+/// 読むと**静かに取り寄せが走る**——同じ写真だと分かって飛ばすためだけに
+/// 数GBを落とすのは、割に合わない（`export.rs` と `thumbs.rs` も同じ線を引いている）。
+///
+/// **長さを先に見る。** 片方がもう片方の頭だけ、というときに
+/// 「同じ」と読まないため——`looks_same` の大きさは**走査した時点の値**なので、
+/// 走査から複写までの間に元が短くなっていると、そこだけでは守れない。
+///
+/// 丸ごとメモリへ載せない（RAWは1枚で数百MBになる）。読めなければ **`false`**
+/// ——「同じだと言い切れない」を「別物」に倒す。別物として連番が付くだけで、
+/// **写真は消えない**。
+///
+/// **費用の目安**: ぶつかった1組につき、両方を1回ずつ読む。ふつうのカードでは
+/// ほとんど呼ばれないが、**カードの中に自分の控えが丸ごとある**ときは**全ファイルが
+/// ぶつかる**ので、**カード1枚ぶんを読み直す**ことになる。
+/// **それでも、同じ写真が2枚に増えるよりはよい。**
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    if crate::cloud::is_cloud_only_path(a) || crate::cloud::is_cloud_only_path(b) {
+        return false;
+    }
+    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    if ma.len() != mb.len() {
+        return false;
+    }
+
+    use std::io::Read;
+    let (Ok(fa), Ok(fb)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
+        return false;
+    };
+    let mut ra = std::io::BufReader::new(fa);
+    let mut rb = std::io::BufReader::new(fb);
+    let mut ba = [0u8; 64 * 1024];
+    let mut bb = [0u8; 64 * 1024];
+    loop {
+        let Ok(na) = ra.read(&mut ba) else {
+            return false;
+        };
+        if na == 0 {
+            // **こちらが尽きただけでは足りない。** 相手も尽きていることまで見る
+            return matches!(rb.read(&mut bb), Ok(0));
+        }
+        // **同じ長さだけ読ませる。** 短く返ってきた側に合わせないと、
+        // 位置がずれて同じ中身を「違う」と読む
+        let mut nb = 0;
+        while nb < na {
+            match rb.read(&mut bb[nb..na]) {
+                Ok(0) => break,
+                Ok(n) => nb += n,
+                Err(_) => return false,
+            }
+        }
+        if na != nb || ba[..na] != bb[..nb] {
+            return false;
+        }
+    }
 }
 
 /// 更新時刻の許容差（FAT32 の2秒刻み）。
@@ -204,7 +447,7 @@ pub(crate) fn resolve_dest_path_avoiding(
     file_name: &str,
     src_size: u64,
     src_mtime_ms: i64,
-    taken: &HashSet<PathBuf>,
+    taken: &TakenPaths,
 ) -> DestResolution {
     let candidate = dest_dir.join(file_name);
     if !candidate.exists() && !taken.contains(&candidate) {
@@ -213,15 +456,8 @@ pub(crate) fn resolve_dest_path_avoiding(
     if !taken.contains(&candidate) && looks_same(&candidate, src_size, src_mtime_ms) {
         return DestResolution::AlreadyImported;
     }
-    let (stem, ext) = match (
-        Path::new(file_name).file_stem().and_then(|s| s.to_str()),
-        Path::new(file_name).extension().and_then(|e| e.to_str()),
-    ) {
-        (Some(s), Some(e)) => (s.to_string(), format!(".{e}")),
-        _ => (file_name.to_string(), String::new()),
-    };
     for i in 1..1000 {
-        let alt = dest_dir.join(format!("{stem}-{i}{ext}"));
+        let alt = dest_dir.join(numbered_name(file_name, i));
         if taken.contains(&alt) {
             continue;
         }
@@ -286,6 +522,9 @@ pub fn import_from(
 
     // 同じ名前の相方を探すためのフォルダの覚え書き（読むのは1フォルダ1回）
     let mut pairs = PairIndex::default();
+    // **この操作で自分が書いた行き先**。同じ名前・同じ大きさの2枚目を
+    // 「取り込み済み」と読ませないために持ち回る（`import_one_with` の説明）
+    let mut written = TakenPaths::default();
 
     for (i, file) in outcome.files.iter().enumerate() {
         let result = import_one_with(
@@ -295,6 +534,7 @@ pub fn import_from(
             taken_at_paired(&file.path, config, &mut pairs),
             dest_root,
             config,
+            &mut written,
         );
         match result {
             ImportOneResult::Copied => stats.copied += 1,
@@ -327,6 +567,9 @@ pub fn import_files(
     // ときも相方の日付に合わせる——ウィザードの「済」バッジと行き先が同じ規則で
     // 決まっていないと、済と出ないまま**同じ写真をもう一度コピー**することになる
     let mut pairs = PairIndex::default();
+    // 丸ごと取り込みと同じ理由で持ち回る（`import_one_with` の説明）——
+    // ウィザードで**同じ名前の2枚を両方選ぶ**のは、カードの `DCIM` が分かれていれば普通に起きる
+    let mut written = TakenPaths::default();
     for (i, path) in files.iter().enumerate() {
         // ウィザードで一覧を出した後にファイルが消えている可能性があるので
         // ここで改めてstatする（読めなければ失敗として数え、他は続行する）。
@@ -347,6 +590,7 @@ pub fn import_files(
                     taken_at_paired(path, config, &mut pairs),
                     dest_root,
                     config,
+                    &mut written,
                 ),
                 Err(_) => ImportOneResult::Failed,
             }
@@ -520,6 +764,14 @@ fn dest_dir_for(
 ///
 /// `taken_at_ms` は**決まった撮影日時**（[`taken_at_paired`] が組まで見て出したもの）。
 /// ここでは読み直さない——同じファイルのEXIFを2回開かないため。
+/// `written` は**この操作で自分が書いたばかりの行き先**。
+///
+/// **渡さないと、同じ名前・同じ大きさの2枚目が「取り込み済み」に化けて黙って消える。**
+/// 起きるのは**カードの中で `DCIM` のフォルダが分かれているとき**——連番を戻した機種、
+/// 2台のカメラで使ったカード、9999枚で繰り上がったカードでは、
+/// `100MSDCF/DSC00001.ARW` と `101MSDCF/DSC00001.ARW` が**同じ日のフォルダへ来る**。
+/// **非圧縮RAWは中身が違ってもサイズが同じ**なので、`looks_same` は「同じもの」と読む。
+/// `export.rs` は最初からこれを渡していた（[`resolve_dest_path_avoiding`] の説明）。
 fn import_one_with(
     path: &Path,
     size: u64,
@@ -527,6 +779,7 @@ fn import_one_with(
     taken_at_ms: Option<i64>,
     dest_root: &Path,
     config: &Config,
+    written: &mut TakenPaths,
 ) -> ImportOneResult {
     let dest_dir = dest_dir_for(taken_at_ms, mtime_ms, dest_root, config);
     if std::fs::create_dir_all(&dest_dir).is_err() {
@@ -536,7 +789,28 @@ fn import_one_with(
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return ImportOneResult::Failed;
     };
-    let dest_path = match resolve_dest_path(&dest_dir, file_name, size, mtime_ms) {
+    // **自分がこの周で書いた行き先とぶつかったとき、中身まで同じなら同じ写真である。**
+    //
+    // 名前と大きさと時刻だけでは、**同じ写真の写し**と**別の写真**が区別できない。
+    // 区別するには読むしかないが、**読むのはここだけでよい**——ぶつかったときにしか
+    // 来ないので、**カードを挿し直すたびに全件読む**ことにはならない
+    // （挿し直しは `written` が空のまま進むので、ここへ来ない）。
+    // これが無いと、**カードの中に控えのフォルダがある**だけで
+    // （利用者が作った backup、ディスクイメージから戻したカード）
+    // **同じ写真が2枚に増える**。
+    if already_written_same_photo(&dest_dir, file_name, path, size, mtime_ms, written) {
+        // **飛ばした側のサイドカーは運ばない。** 中身の違う `.xmp` が付いていても、である。
+        // **この工事の前からそうだった**（同じ入力で前後とも `copied=1 / skipped=1`、
+        // 残る `.xmp` は先に来たほうだけ、と実測して確かめた）ので、ここでは変えない。
+        // 運ぶとしたら連番の名前になるが、**写真は `-1` に付いていない**ので、
+        // **どの写真のものでもない `.xmp` が1本残る**——現像ソフトは名前で結び付けるので、
+        // 置き去りより始末が悪い。**変えるなら、飛ばす条件をサイドカーごと見る形に
+        // 組み替える話**で、この直しの範囲ではない。
+        return ImportOneResult::Skipped;
+    }
+
+    let dest_path = match resolve_dest_path_avoiding(&dest_dir, file_name, size, mtime_ms, written)
+    {
         DestResolution::CopyTo(p) => p,
         DestResolution::AlreadyImported => return ImportOneResult::Skipped,
         // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される
@@ -563,7 +837,7 @@ fn import_one_with(
                 let dest_len = std::fs::metadata(&dest_path).map(|m| m.len()).ok();
                 if dest_len != Some(src_now) {
                     // 検証失敗: 中途半端なファイルを残さない
-                    let _ = std::fs::remove_file(&dest_path);
+                    remove_partial_copy(&dest_path);
                     return ImportOneResult::Failed;
                 }
             }
@@ -574,9 +848,20 @@ fn import_one_with(
             // **写真の成否には影響させない**。サイドカーが運べなかったからといって
             // 写真を「失敗」に数えると、取り込みそのものが止まったように見える
             copy_sidecars(path, &dest_path, config);
+            // **書けたものだけを「使った」に数える。** 失敗した行き先を数えると、
+            // 次の1枚が要らない連番へ回される（`export.rs` の
+            // `a_name_whose_export_failed_is_not_marked_as_taken` と同じ扱い）
+            written.insert(&dest_path);
             ImportOneResult::Copied
         }
-        Err(_) => ImportOneResult::Failed,
+        Err(_) => {
+            // **中途半端なファイルを残さない**（検証に失敗した枝と同じ扱い。
+            // `export.rs` の `copy_verified` もそうしている）。残すと**連番の1枠を
+            // 永久に埋める**うえ、大きさと時刻がたまたま合えば、あとから来た写真が
+            // それを見て「取り込み済み」に化ける
+            remove_partial_copy(&dest_path);
+            ImportOneResult::Failed
+        }
     }
 }
 
