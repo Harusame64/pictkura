@@ -3590,26 +3590,32 @@ async fn contested_source_names(names: Vec<String>) -> Result<Vec<String>, Strin
 /// ウィザードで選んだファイルだけを取り込む（第5部 段階E）。
 /// 進捗・後処理は [`import_from_folder`] と同じ経路を通る。
 ///
-/// `contested` は `probe_imported` へ渡すのと**同じもの**（[`contested_source_names`] の答え）。
+/// `names` は**一覧に出ているファイル名すべて**——`probe_imported` の材料と同じもの。
 /// **選ばれたぶんだけで数え直してはいけない**: 「済」バッジがカード全体で数えている
 /// のに取り込みが選択だけで数えると、**バッジが「まだ」と出した1枚を取り込みが飛ばす**。
 ///
-/// **中身まで読むのはここ**（バッジ側は読まない）。利用者が押した1回きりで、
-/// 進捗も出る。**ウィザードを開くたびに読むわけにはいかない**ので、そちらは
-/// 「分からない」を返す（[`pictkura_core::ImportState::Unsure`]）。
+/// **数えるのはここ**（`probe_imported` のように答えを受け取らない）。
+/// あちらは100件ごとに200回呼ばれるので**一度数えて配る**が、こちらは**1回きり**で、
+/// **UI が非同期に持っている答えを待つと、待っていない間に押せてしまう**
+/// ——**押せた瞬間に材料が古いと、この工事が塞いだ穴がそのまま開く**
+/// （2026-09-06・ゲート1の P1）。**呼ぶ時点の一覧から、ここで数える。**
+///
+/// **中身まで読むのもここ**（バッジ側は読まない）。利用者が押した1回きりで、進捗も出る。
+/// **ウィザードを開くたびに読むわけにはいかない**ので、そちらは「分からない」を返す
+/// （[`pictkura_core::ImportState::Unsure`]）。
 #[tauri::command]
 async fn import_paths(
     app: tauri::AppHandle,
     paths: Vec<String>,
     source_dir: String,
-    contested: Vec<String>,
+    names: Vec<String>,
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
         let dest = config.routing.destination.clone();
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        let contested: HashSet<String> = contested.into_iter().collect();
+        let contested = pictkura_core::contested_names(names.iter().map(String::as_str));
 
         let progress_app = app.clone();
         let stats =

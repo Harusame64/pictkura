@@ -102,8 +102,6 @@ export default function ImportWizard({
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [imported, setImported] = useState<Record<string, ImportState>>({});
-  /** 一覧の中で名前がぶつかっているぶん（畳んだ綴り）。取り込みへも同じものを渡す */
-  const [contested, setContested] = useState<string[]>([]);
   const [shown, setShown] = useState(PAGE_SIZE);
   /** 取り込み済みをグリッドから隠す（既定ON: 見たいのは「まだ入っていない写真」） */
   const [hideImported, setHideImported] = useState(true);
@@ -205,7 +203,6 @@ export default function ImportWizard({
         return; // 数えられないときはバッジ無しのまま（取り込み自体は可能）
       }
       if (cancelled || gen !== probeGen.current) return;
-      setContested(names);
       for (let i = 0; i < allFiles.length; i += PROBE_CHUNK) {
         if (cancelled || gen !== probeGen.current) return;
         const chunk = allFiles.slice(i, i + PROBE_CHUNK);
@@ -367,11 +364,19 @@ export default function ImportWizard({
       importStartedAt.current = Date.now();
       const stats = whole
         ? await importFromFolder(current)
-        // **「済」バッジと同じ材料を渡す**（選んだぶんで数え直さない）。
+        // **「済」バッジと同じ材料を渡す**（選んだぶんではなく、一覧に出ている全部）。
         // 別々に数えると、バッジが「まだ入っていない」と出した1枚を
         // 取り込みが「もう入っている」と読んで飛ばす。
-        // **中身まで読むのはこちら**——利用者が押した1回きりで、進捗も出る
-        : await importPaths([...selected], current, contested);
+        //
+        // **数えた答えではなく、材料そのものを渡す。** 答えを状態で持つと、
+        // バッジの判定が返る前に押されたときに**古い材料で取り込む**
+        // ——バッジが塗られていなくても、ボタンは押せる（ゲート1の P1）。
+        // **中身まで読むのは取り込みの側**——利用者が押した1回きりで、進捗も出る
+        : await importPaths(
+            [...selected],
+            current,
+            allFiles.map((f) => f.name),
+          );
       // 結果はグリッド側（ステータス行）で伝える。ウィザードは役目を終えて閉じる
       onImported(stats);
       onClose();

@@ -624,14 +624,12 @@ export const probeImported = (paths: string[], contested: string[]) =>
 /**
  * ウィザードで選んだファイルだけを取り込む。
  *
- * `contested` は `probeImported` へ渡すのと**同じもの**を渡す（選んだぶんで数え直さない）。
- * 違う材料で数えると、**バッジと取り込みが違う答えを出す**。
+ * `names` は**一覧に出ている名前すべて**（選んだぶんではない）。**数えるのは Rust 側**
+ * ——`contestedSourceNames` の答えを待って渡す形にすると、**待っていない間に
+ * 取り込みを押せてしまい、そのとき材料が古い**。
  */
-export const importPaths = (
-  paths: string[],
-  sourceDir: string,
-  contested: string[],
-) => invoke<ImportStats>("import_paths", { paths, sourceDir, contested });
+export const importPaths = (paths: string[], sourceDir: string, names: string[]) =>
+  invoke<ImportStats>("import_paths", { paths, sourceDir, names });
 
 /** OS既定のアプリで開く */
 export const openDefault = (id: number) => invoke<void>("open_default", { id });
