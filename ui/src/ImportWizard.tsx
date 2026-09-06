@@ -180,12 +180,20 @@ export default function ImportWizard({
     probeGen.current += 1;
     const gen = probeGen.current;
     let cancelled = false;
+    // **名前のぶつかりは、一覧全体で数える**（切れ端ごとに数えると当たらない）。
+    // 同じ名前が2つあるものだけ、行き先の中身まで見てから「済」を決める——
+    // 見ないと、**まだ入っていない写真が「済」になって、既定で画面からも消える**。
+    //
+    // 材料は**いま一覧に出ているぶん**である。1階層だけ開いている（`deep` を外した）
+    // ときは、別のフォルダにいる相方が見えないので数に入らない。
+    // **見えていないものは選べもしない**ので、画面と判定はそろっている
+    const names = allFiles.map((f) => f.name);
     (async () => {
       for (let i = 0; i < allFiles.length; i += PROBE_CHUNK) {
         if (cancelled || gen !== probeGen.current) return;
         const chunk = allFiles.slice(i, i + PROBE_CHUNK);
         try {
-          const results = await probeImported(chunk.map((f) => f.path));
+          const results = await probeImported(chunk.map((f) => f.path), names);
           if (cancelled || gen !== probeGen.current) return;
           setImported((prev) => {
             const next = { ...prev };
@@ -332,7 +340,14 @@ export default function ImportWizard({
       importStartedAt.current = Date.now();
       const stats = whole
         ? await importFromFolder(current)
-        : await importPaths([...selected], current);
+        // **「済」バッジと同じ材料を渡す**（選んだぶんではなく、一覧に出ていた全部）。
+        // 別々に数えると、バッジが「まだ入っていない」と出した1枚を
+        // 取り込みが「もう入っている」と読んで飛ばす
+        : await importPaths(
+            [...selected],
+            current,
+            allFiles.map((f) => f.name),
+          );
       // 結果はグリッド側（ステータス行）で伝える。ウィザードは役目を終えて閉じる
       onImported(stats);
       onClose();

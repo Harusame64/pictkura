@@ -3536,14 +3536,24 @@ async fn list_source_tree(
 /// 一覧表示とは別コマンドにしてある: EXIF読み＋コピー先の存在確認は
 /// USBだと1件あたり数msかかるので、**サムネイルを先に出してから**
 /// 「済」バッジを後追いで塗る。一覧が出るまでの待ちを増やさないため。
+///
+/// `names` は**一覧に出ているファイル名すべて**（`paths` は100件ずつの切れ端なので、
+/// **切れ端の中だけでは名前のぶつかりを数えられない**）。同じ名前が2つあるものだけ、
+/// 行き先の中身まで読んでから答える——**読まないと、まだ入っていない写真に
+/// 「済」と出して、既定で選択から外し、既定で画面からも隠す**。
 #[tauri::command]
-async fn probe_imported(app: tauri::AppHandle, paths: Vec<String>) -> Result<Vec<bool>, String> {
+async fn probe_imported(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+    names: Vec<String>,
+) -> Result<Vec<bool>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
+        let contested = pictkura_core::contested_names(names.iter().map(String::as_str));
         paths
             .iter()
-            .map(|p| pictkura_core::is_already_imported(Path::new(p), &config))
+            .map(|p| pictkura_core::is_already_imported(Path::new(p), &config, &contested))
             .collect()
     })
     .await
@@ -3552,23 +3562,30 @@ async fn probe_imported(app: tauri::AppHandle, paths: Vec<String>) -> Result<Vec
 
 /// ウィザードで選んだファイルだけを取り込む（第5部 段階E）。
 /// 進捗・後処理は [`import_from_folder`] と同じ経路を通る。
+///
+/// `names` は**一覧に出ていたファイル名すべて**——`probe_imported` へ渡すのと同じ材料。
+/// **選ばれたぶんだけで数え直してはいけない**: 「済」バッジがカード全体で数えている
+/// のに取り込みが選択だけで数えると、**バッジが「まだ」と出した1枚を取り込みが飛ばす**。
 #[tauri::command]
 async fn import_paths(
     app: tauri::AppHandle,
     paths: Vec<String>,
     source_dir: String,
+    names: Vec<String>,
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
         let dest = config.routing.destination.clone();
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let contested = pictkura_core::contested_names(names.iter().map(String::as_str));
 
         let progress_app = app.clone();
-        let stats = pictkura_core::import_files(&files, &config, move |done, total, path| {
-            emit_import_progress(&progress_app, done, total, path);
-        })
-        .map_err(|e| e.to_string())?;
+        let stats =
+            pictkura_core::import_files(&files, &contested, &config, move |done, total, path| {
+                emit_import_progress(&progress_app, done, total, path);
+            })
+            .map_err(|e| e.to_string())?;
 
         finish_import(&app, &state, PathBuf::from(&source_dir), dest)?;
         Ok(ImportStatsDto {

@@ -19,7 +19,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::import::{resolve_dest_path_avoiding, DestResolution, TakenPaths};
+use crate::import::{resolve_dest_path_avoiding, Confirm, DestResolution, TakenPaths};
 use crate::scanner::is_managed_package_path;
 
 /// コピーか移動か。
@@ -153,21 +153,29 @@ fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportO
         return;
     };
     let mtime_ms = filetime::FileTime::from_last_modification_time(&meta).unix_seconds() * 1000;
-    let dest_path =
-        match resolve_dest_path_avoiding(dest_dir, file_name, meta.len(), mtime_ms, &carry.written)
-        {
-            DestResolution::CopyTo(p) => p,
-            DestResolution::AlreadyImported => {
-                // **同じものが既にある。移動でも元は消さない**——消してよいかは
-                // 「同名・同サイズ」だけでは決められない（中身までは見ていない）
-                out.stats.skipped += 1;
-                return;
-            }
-            DestResolution::Exhausted => {
-                out.stats.failed += 1;
-                return;
-            }
-        };
+    let dest_path = match resolve_dest_path_avoiding(
+        dest_dir,
+        file_name,
+        meta.len(),
+        mtime_ms,
+        &carry.written,
+        // **書き出しは中身まで読まない。** 読む値打ちがあるのは
+        // 「同じ名前が2つあり、行き先の1本がどちらのものか決まらない」ときで、
+        // ここは**選んだ写真を運ぶ**側——ぶつかった相手は `carry.written` が覚えている
+        Confirm::ByLooks,
+    ) {
+        DestResolution::CopyTo(p) => p,
+        DestResolution::AlreadyImported => {
+            // **同じものが既にある。移動でも元は消さない**——消してよいかは
+            // 「同名・同サイズ」だけでは決められない（中身までは見ていない）
+            out.stats.skipped += 1;
+            return;
+        }
+        DestResolution::Exhausted => {
+            out.stats.failed += 1;
+            return;
+        }
+    };
 
     // 同じドライブの移動は `rename` で終わる（メタデータの更新だけ）。
     // 別のドライブだと失敗するので、そのときはコピーへ落とす。
@@ -244,12 +252,17 @@ fn carry_sidecars(
         };
         let name = crate::sidecar::sidecar_dest_name(source_photo, &sidecar, dest_photo_name);
         let mtime_ms = filetime::FileTime::from_last_modification_time(&meta).unix_seconds() * 1000;
-        let target =
-            match resolve_dest_path_avoiding(dest_dir, &name, meta.len(), mtime_ms, &carry.written)
-            {
-                DestResolution::CopyTo(p) => p,
-                DestResolution::AlreadyImported | DestResolution::Exhausted => continue,
-            };
+        let target = match resolve_dest_path_avoiding(
+            dest_dir,
+            &name,
+            meta.len(),
+            mtime_ms,
+            &carry.written,
+            Confirm::ByLooks,
+        ) {
+            DestResolution::CopyTo(p) => p,
+            DestResolution::AlreadyImported | DestResolution::Exhausted => continue,
+        };
         if mode == ExportMode::Move
             && !crate::cloud::is_cloud_only_path(&sidecar)
             && std::fs::rename(&sidecar, &target).is_ok()

@@ -245,6 +245,30 @@ pub(crate) enum DestResolution {
     Exhausted,
 }
 
+/// **行き先に在るものを「同じ写真」と読んでよいか、どこまで確かめて決めるか。**
+///
+/// 既定は [`Confirm::ByLooks`]——名前・大きさ・更新時刻まで見て、**中身は読まない**。
+/// **カードを挿し直すたびに全ファイルを読む**のは、このリポジトリが払わないと
+/// 決めている費用である（`looks_same` に書いてある）。
+///
+/// [`Confirm::ByBytes`] は、**その費用を、払う価値のある所だけで払う**。
+/// **同じ名前がこの取り込みの中に2つ以上あるとき**だけ渡す。そこは
+/// 「行き先に在る1本が、2つのうちどちらの写真なのか」を名前と大きさでは決められない所で、
+/// 決めずに畳むと**2枚目が黙って消える**。**普通のカードでは名前が重ならないので、
+/// 挿し直しでここへは来ない。**
+#[derive(Clone, Copy)]
+pub(crate) enum Confirm<'a> {
+    /// 名前・大きさ・更新時刻まで。**中身は読まない。**
+    ByLooks,
+    /// **中身まで読んで確かめる。**
+    ///
+    /// **読めなかったときは [`Confirm::ByLooks`] と同じ答えに落ちる**——
+    /// 読めないことを「別物」に倒すと、**行き先がクラウドにしか実体を持たない
+    /// ライブラリ**（OneDrive の Files On-Demand）では、**挿し直すたびに
+    /// カード1枚ぶんが2枚に増える**。**取りこぼしより、増えるほうが害が大きい。**
+    ByBytes(&'a Path),
+}
+
 /// コピー先のフルパスを決める。同名・別内容の場合は `-1`, `-2` … で衝突回避。
 pub(crate) fn resolve_dest_path(
     dest_dir: &Path,
@@ -258,6 +282,7 @@ pub(crate) fn resolve_dest_path(
         src_size,
         src_mtime_ms,
         &TakenPaths::default(),
+        Confirm::ByLooks,
     )
 }
 
@@ -273,13 +298,21 @@ pub(crate) fn resolve_dest_path(
 /// （robocopy の `/DST` と同じ話。日本では起きないが、英語でも配っている）。
 /// これを見落とすと、**カード1枚が丸ごと二重に取り込まれる**。
 ///
-/// **ここには閉じられない穴がある。** 「名前も大きさも更新時刻も同じで、中身が別」を
-/// **この判定では見分けられない**——見分けるには両方を読むしかなく、それは
-/// **カードを挿し直すたびに全ファイルを読む**ということなので、ここでは取らない。
-/// 起きるのは**別のフォルダの同名（連番を戻した機種・繰り上がったカード・2台で使ったカード）が、
-/// 別々の周で来て、しかも撮影が2秒以内**のときで、**そのとき2枚目は取り込まれない。**
+/// **ここには、この判定だけでは閉じられない穴がある。** 「名前も大きさも更新時刻も同じで、
+/// 中身が別」を**この判定では見分けられない**——見分けるには両方を読むしかなく、
+/// それは**カードを挿し直すたびに全ファイルを読む**ということなので、ここでは取らない。
 /// 同じ周の中で来た場合は、書いた行き先を覚えているので消えない
 /// （[`resolve_dest_path_avoiding`] の `taken`）。
+///
+/// **周をまたぐぶんは、呼ぶ側が名前のぶつかりを知っているときだけ塞げる**
+/// （[`Confirm::ByBytes`]）。**同じ名前がその取り込みの中に2つ以上ある**なら、
+/// 行き先に在る1本はどちらか一方のもので、**もう一方はまだ入っていない**。
+/// 読む相手は**ぶつかった名前だけ**なので、名前が重ならない普通のカードでは1件も読まない。
+///
+/// **それでも残るのは2つ**——**2枚が別々のカードから来る場合**（`100MSDCF/DSC00001.ARW`
+/// を入れたあと、**別のカードの** `DSC00001.ARW` が同じ日のフォルダへ来て、撮影が2秒以内）と、
+/// **行き先が読めない場合**（クラウドにしか実体が無いライブラリ）。
+/// **どちらも2枚目は取り込まれない。**
 /// **誤って同じとみなす害より、取りこぼしを疑わせる害のほうが小さい**という判断で、
 /// ちょうど1時間ずれ（夏時間）も同じ扱いにしてある。
 fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
@@ -370,9 +403,25 @@ fn remove_partial_copy(path: &Path) {
     }
 }
 
+/// 中身を突き合わせた答え。**「読めなかった」を「別物」と混ぜない。**
+///
+/// 混ぜると、**どちらへ倒すかを呼ぶ側が選べなくなる**。
+/// 「読めない＝別物」でよいのは**連番が1つ増えるだけ**の所
+/// （[`already_written_same_photo`]）で、[`Confirm::ByBytes`] は逆である
+/// ——**行き先が読めないというだけで、カード1枚ぶんが2枚に増えてよい所は無い。**
+#[derive(Debug, PartialEq, Eq)]
+enum Bytes {
+    /// 最後まで一致した
+    Same,
+    /// 違うところがあった（長さの違いを含む）
+    Differ,
+    /// **読めなかった。** クラウドにしか実体が無い・開けない・途中で失敗した
+    Unknown,
+}
+
 /// 2つのファイルの中身が同じか。**呼ぶのは名前がぶつかったときだけ。**
 ///
-/// **クラウドにしか実体が無いファイルは読まない**（`false` を返す）。
+/// **クラウドにしか実体が無いファイルは読まない**（[`Bytes::Unknown`]）。
 /// 読むと**静かに取り寄せが走る**——同じ写真だと分かって飛ばすためだけに
 /// 数GBを落とすのは、割に合わない（`export.rs` と `thumbs.rs` も同じ線を引いている）。
 ///
@@ -380,28 +429,26 @@ fn remove_partial_copy(path: &Path) {
 /// 「同じ」と読まないため——`looks_same` の大きさは**走査した時点の値**なので、
 /// 走査から複写までの間に元が短くなっていると、そこだけでは守れない。
 ///
-/// 丸ごとメモリへ載せない（RAWは1枚で数百MBになる）。読めなければ **`false`**
-/// ——「同じだと言い切れない」を「別物」に倒す。別物として連番が付くだけで、
-/// **写真は消えない**。
+/// 丸ごとメモリへ載せない（RAWは1枚で数百MBになる）。
 ///
 /// **費用の目安**: ぶつかった1組につき、両方を1回ずつ読む。ふつうのカードでは
 /// ほとんど呼ばれないが、**カードの中に自分の控えが丸ごとある**ときは**全ファイルが
 /// ぶつかる**ので、**カード1枚ぶんを読み直す**ことになる。
 /// **それでも、同じ写真が2枚に増えるよりはよい。**
-fn same_bytes(a: &Path, b: &Path) -> bool {
+fn compare_bytes(a: &Path, b: &Path) -> Bytes {
     if crate::cloud::is_cloud_only_path(a) || crate::cloud::is_cloud_only_path(b) {
-        return false;
+        return Bytes::Unknown;
     }
     let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
-        return false;
+        return Bytes::Unknown;
     };
     if ma.len() != mb.len() {
-        return false;
+        return Bytes::Differ;
     }
 
     use std::io::Read;
     let (Ok(fa), Ok(fb)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
-        return false;
+        return Bytes::Unknown;
     };
     let mut ra = std::io::BufReader::new(fa);
     let mut rb = std::io::BufReader::new(fb);
@@ -409,11 +456,15 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
     let mut bb = [0u8; 64 * 1024];
     loop {
         let Ok(na) = ra.read(&mut ba) else {
-            return false;
+            return Bytes::Unknown;
         };
         if na == 0 {
             // **こちらが尽きただけでは足りない。** 相手も尽きていることまで見る
-            return matches!(rb.read(&mut bb), Ok(0));
+            return match rb.read(&mut bb) {
+                Ok(0) => Bytes::Same,
+                Ok(_) => Bytes::Differ,
+                Err(_) => Bytes::Unknown,
+            };
         }
         // **同じ長さだけ読ませる。** 短く返ってきた側に合わせないと、
         // 位置がずれて同じ中身を「違う」と読む
@@ -422,13 +473,19 @@ fn same_bytes(a: &Path, b: &Path) -> bool {
             match rb.read(&mut bb[nb..na]) {
                 Ok(0) => break,
                 Ok(n) => nb += n,
-                Err(_) => return false,
+                Err(_) => return Bytes::Unknown,
             }
         }
         if na != nb || ba[..na] != bb[..nb] {
-            return false;
+            return Bytes::Differ;
         }
     }
+}
+
+/// [`compare_bytes`] を「同じと言い切れたか」だけに畳む。
+/// **読めなかったものは「別物」に倒す**——連番が1つ増えるだけで、写真は消えない。
+fn same_bytes(a: &Path, b: &Path) -> bool {
+    compare_bytes(a, b) == Bytes::Same
 }
 
 /// 更新時刻の許容差（FAT32 の2秒刻み）。
@@ -442,18 +499,37 @@ const MTIME_TOLERANCE_MS: i64 = 2_000;
 /// ——カメラの連番が一周すると別の日の `DSC00001.ARW` が同じフォルダへ落ちるし、
 /// 非圧縮RAWは中身が違ってもサイズが同じになる。**選んだ写真が黙って1枚欠ける**ので、
 /// 自分が書いたものとの衝突は必ず連番で避ける。
+///
+/// `confirm` は**「既にある」と読んでよい根拠**（[`Confirm`]）。
+/// [`Confirm::ByBytes`] を渡すと、**名前と大きさが合っただけでは畳まず、中身まで読む**。
 pub(crate) fn resolve_dest_path_avoiding(
     dest_dir: &Path,
     file_name: &str,
     src_size: u64,
     src_mtime_ms: i64,
     taken: &TakenPaths,
+    confirm: Confirm<'_>,
 ) -> DestResolution {
+    // **在るものが「この写真」かどうか。** `looks_same` を通ったものだけ中身を読む
+    // ——読む相手を、名前も大きさも時刻も合ったものだけに絞るため
+    let is_this_photo = |existing: &Path| {
+        if !looks_same(existing, src_size, src_mtime_ms) {
+            return false;
+        }
+        match confirm {
+            Confirm::ByLooks => true,
+            // **読めなかったら畳む側へ倒す**（[`Bytes::Unknown`]）。
+            // 行き先がクラウドにしか実体を持たないとき、ここを「別物」に倒すと
+            // **挿し直すたびにライブラリが2倍になる**
+            Confirm::ByBytes(src) => compare_bytes(src, existing) != Bytes::Differ,
+        }
+    };
+
     let candidate = dest_dir.join(file_name);
     if !candidate.exists() && !taken.contains(&candidate) {
         return DestResolution::CopyTo(candidate);
     }
-    if !taken.contains(&candidate) && looks_same(&candidate, src_size, src_mtime_ms) {
+    if !taken.contains(&candidate) && is_this_photo(&candidate) {
         return DestResolution::AlreadyImported;
     }
     for i in 1..1000 {
@@ -464,11 +540,43 @@ pub(crate) fn resolve_dest_path_avoiding(
         if !alt.exists() {
             return DestResolution::CopyTo(alt);
         }
-        if looks_same(&alt, src_size, src_mtime_ms) {
+        if is_this_photo(&alt) {
             return DestResolution::AlreadyImported;
         }
     }
     DestResolution::Exhausted
+}
+
+/// **この取り込みの中で、2つ以上のファイルが名乗っている名前。**
+///
+/// ここに載っている名前だけ、行き先の「同じもの」を**中身まで確かめる**
+/// （[`Confirm::ByBytes`]）。**普通のカードでは空になる**ので、費用は0である。
+/// 中身が入るのは `DCIM` が分かれているカード（連番を戻した機種・繰り上がったカード・
+/// 2台で使ったカード）と、**控えのフォルダを抱えたカード**。
+///
+/// **大文字小文字は畳んで数える。** `DSC00001.ARW` と `dsc00001.arw` は
+/// macOS と Windows では**同じ行き先**になるので、ぶつかっているのに
+/// ぶつかっていないと読むと、2枚目が消える。Linux では実際にはぶつからないが、
+/// **中身を1回読むだけで答えは変わらない**（行き先の名前が別なので `looks_same` に来ない）。
+///
+/// **公開しているのは、「済」バッジと取り込みが同じ材料で数えるため。**
+/// [`is_already_imported`] と [`import_files`] は同じ集合を受け取る——
+/// **別々に数えると、片方が「まだ」と言い、もう片方が「もう入っている」と言う。**
+pub fn contested_names<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut twice: HashSet<String> = HashSet::new();
+    for name in names {
+        let key = name.to_lowercase();
+        if !seen.insert(key.clone()) {
+            twice.insert(key);
+        }
+    }
+    twice
+}
+
+/// その名前が [`contested_names`] に載っているか。
+fn is_contested(contested: &HashSet<String>, file_name: &str) -> bool {
+    !contested.is_empty() && contested.contains(&file_name.to_lowercase())
 }
 
 /// 取り込み元フォルダをスキャンし、設定に従ってコピーする。
@@ -525,13 +633,30 @@ pub fn import_from(
     // **この操作で自分が書いた行き先**。同じ名前・同じ大きさの2枚目を
     // 「取り込み済み」と読ませないために持ち回る（`import_one_with` の説明）
     let mut written = TakenPaths::default();
+    // **カードの中で名前がぶつかっているぶん**。ここだけ中身まで確かめる
+    // （`contested_names`）。**前の周で片方だけ入っている**と、名前と大きさでは
+    // 「もう入っている」と読めてしまい、2枚目が黙って消える
+    let contested = contested_names(
+        outcome
+            .files
+            .iter()
+            .filter_map(|f| f.path.file_name().and_then(|n| n.to_str())),
+    );
 
     for (i, file) in outcome.files.iter().enumerate() {
+        let name_contested = file
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| is_contested(&contested, n));
         let result = import_one_with(
-            &file.path,
-            file.size as u64,
-            file.mtime_ms,
-            taken_at_paired(&file.path, config, &mut pairs),
+            Incoming {
+                path: &file.path,
+                size: file.size as u64,
+                mtime_ms: file.mtime_ms,
+                taken_at_ms: taken_at_paired(&file.path, config, &mut pairs),
+                contested: name_contested,
+            },
             dest_root,
             config,
             &mut written,
@@ -551,8 +676,16 @@ pub fn import_from(
 /// [`import_from`] と違い**走査しない**。ウィザードが既に一覧を持っており、
 /// ユーザーがチェックを外した分を取り込まないことが本質なので、
 /// 渡されたパスをそのまま順に処理する。
+///
+/// `contested` は**一覧に出ていた全部**から作る（[`contested_names`]）。
+/// **選んだぶんから作ってはいけない。**「済」バッジ（[`is_already_imported`]）は
+/// カード全体で数えるので、**選ばれた1枚だけで数え直すと根拠が変わる**
+/// ——ウィザードが「まだ入っていない」と出して選ばせた写真を、
+/// **取り込みが「もう入っている」と読んで飛ばす**。
+/// **同じ答えを2度出すには、同じ材料で数えるしかない。**
 pub fn import_files(
     files: &[PathBuf],
+    contested: &HashSet<String>,
     config: &Config,
     on_progress: impl Fn(usize, usize, &Path),
 ) -> Result<ImportStats, ImportError> {
@@ -571,6 +704,10 @@ pub fn import_files(
     // ウィザードで**同じ名前の2枚を両方選ぶ**のは、カードの `DCIM` が分かれていれば普通に起きる
     let mut written = TakenPaths::default();
     for (i, path) in files.iter().enumerate() {
+        let name_contested = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| is_contested(contested, n));
         // ウィザードで一覧を出した後にファイルが消えている可能性があるので
         // ここで改めてstatする（読めなければ失敗として数え、他は続行する）。
         //
@@ -584,10 +721,13 @@ pub fn import_files(
         } else {
             match std::fs::metadata(path) {
                 Ok(meta) => import_one_with(
-                    path,
-                    meta.len(),
-                    mtime_ms_of(&meta),
-                    taken_at_paired(path, config, &mut pairs),
+                    Incoming {
+                        path,
+                        size: meta.len(),
+                        mtime_ms: mtime_ms_of(&meta),
+                        taken_at_ms: taken_at_paired(path, config, &mut pairs),
+                        contested: name_contested,
+                    },
                     dest_root,
                     config,
                     &mut written,
@@ -620,7 +760,17 @@ fn mtime_ms_of(meta: &std::fs::Metadata) -> i64 {
 /// 判定は取り込み本体と同じ経路（同じ日付決定＋同じ衝突回避）を通るので、
 /// 「済と出たのにもう一度コピーされた」というズレが起きない——組で日付を
 /// そろえる（0.2）ぶんも [`taken_at_paired`] で同じように通す。
-pub fn is_already_imported(path: &Path, config: &Config) -> bool {
+///
+/// `contested` は**カードに出ている名前全部**から作る（[`contested_names`]）。
+/// **同じ名前が2つ以上あるなら、行き先の1本はどちらか一方のもの**なので、
+/// **中身まで読んでから答える**（[`Confirm::ByBytes`]）。
+/// 読まずに畳むと、**まだ入っていない写真に「済」と出し、既定で選択から外し、
+/// 既定で画面からも隠す**——**利用者には何も起きていないように見えたまま、
+/// その写真は二度と来ない。**
+///
+/// **[`import_files`] へ渡すのと同じ集合を渡すこと。** 別々に数えると、
+/// **バッジと取り込みが違う答えを出す。**
+pub fn is_already_imported(path: &Path, config: &Config, contested: &HashSet<String>) -> bool {
     let Some(dest_root) = config.routing.destination.as_ref() else {
         return false;
     };
@@ -638,8 +788,20 @@ pub fn is_already_imported(path: &Path, config: &Config) -> bool {
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
+    let confirm = if is_contested(contested, file_name) {
+        Confirm::ByBytes(path)
+    } else {
+        Confirm::ByLooks
+    };
     matches!(
-        resolve_dest_path(&dest_dir, file_name, meta.len(), mtime_ms),
+        resolve_dest_path_avoiding(
+            &dest_dir,
+            file_name,
+            meta.len(),
+            mtime_ms,
+            &TakenPaths::default(),
+            confirm,
+        ),
         DestResolution::AlreadyImported
     )
 }
@@ -760,6 +922,18 @@ fn dest_dir_for(
     dest_root.join(render_folder_pattern(&config.routing.folder_pattern, date))
 }
 
+/// 1枚ぶんの、**もう読んである事実**。[`import_one_with`] はここから読み直さない
+/// ——同じファイルの EXIF を2回開かないため（`taken_at_ms` は [`taken_at_paired`] の答え）。
+struct Incoming<'a> {
+    path: &'a Path,
+    size: u64,
+    mtime_ms: i64,
+    /// 決まった撮影日時。行き先のフォルダはこれで決まる
+    taken_at_ms: Option<i64>,
+    /// **この取り込みの中に、同じ名前がもう1つあるか**（[`contested_names`]）
+    contested: bool,
+}
+
 /// 1枚をコピー先へ運ぶ。
 ///
 /// `taken_at_ms` は**決まった撮影日時**（[`taken_at_paired`] が組まで見て出したもの）。
@@ -772,15 +946,24 @@ fn dest_dir_for(
 /// `100MSDCF/DSC00001.ARW` と `101MSDCF/DSC00001.ARW` が**同じ日のフォルダへ来る**。
 /// **非圧縮RAWは中身が違ってもサイズが同じ**なので、`looks_same` は「同じもの」と読む。
 /// `export.rs` は最初からこれを渡していた（[`resolve_dest_path_avoiding`] の説明）。
+///
+/// `contested` は**この取り込みの中に同じ名前がもう1つある**か（[`contested_names`]）。
+/// 立っているときは、**行き先に在るものを「同じ写真」と読む前に中身まで読む**
+/// （[`Confirm::ByBytes`]）——**前の周で片方だけ入っている**カードで、
+/// 2枚目が「取り込み済み」に化けるのを止めるのはここである。
 fn import_one_with(
-    path: &Path,
-    size: u64,
-    mtime_ms: i64,
-    taken_at_ms: Option<i64>,
+    file: Incoming<'_>,
     dest_root: &Path,
     config: &Config,
     written: &mut TakenPaths,
 ) -> ImportOneResult {
+    let Incoming {
+        path,
+        size,
+        mtime_ms,
+        taken_at_ms,
+        contested,
+    } = file;
     let dest_dir = dest_dir_for(taken_at_ms, mtime_ms, dest_root, config);
     if std::fs::create_dir_all(&dest_dir).is_err() {
         return ImportOneResult::Failed;
@@ -809,13 +992,18 @@ fn import_one_with(
         return ImportOneResult::Skipped;
     }
 
-    let dest_path = match resolve_dest_path_avoiding(&dest_dir, file_name, size, mtime_ms, written)
-    {
-        DestResolution::CopyTo(p) => p,
-        DestResolution::AlreadyImported => return ImportOneResult::Skipped,
-        // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される
-        DestResolution::Exhausted => return ImportOneResult::Failed,
+    let confirm = if contested {
+        Confirm::ByBytes(path)
+    } else {
+        Confirm::ByLooks
     };
+    let dest_path =
+        match resolve_dest_path_avoiding(&dest_dir, file_name, size, mtime_ms, written, confirm) {
+            DestResolution::CopyTo(p) => p,
+            DestResolution::AlreadyImported => return ImportOneResult::Skipped,
+            // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される
+            DestResolution::Exhausted => return ImportOneResult::Failed,
+        };
 
     match std::fs::copy(path, &dest_path) {
         Ok(copied_bytes) => {
@@ -911,6 +1099,15 @@ mod tests {
         let mut config = Config::default();
         config.routing.destination = Some(dest.to_path_buf());
         config
+    }
+
+    /// **この作り物には同じ名前が2つ無い**ので、ぶつかっている名前も無い。
+    ///
+    /// `HashSet::new()` と書いても同じだが、**名前を付けて事実として書く**
+    /// ——空を渡すのは手抜きではなく、`contested_names` がこの作り物に対して
+    /// 実際に返す値である。**名前が重なる作り物では、これを渡してはいけない。**
+    fn no_repeated_names() -> HashSet<String> {
+        HashSet::new()
     }
 
     #[test]
@@ -1288,15 +1485,21 @@ mod tests {
             .unwrap();
 
         let config = test_config(&dest);
-        assert!(!is_already_imported(&raw, &config));
+        assert!(!is_already_imported(&raw, &config, &no_repeated_names()));
         import_from(&src, &config, |_, _, _| {}).unwrap();
 
         assert!(
-            is_already_imported(&raw, &config),
+            is_already_imported(&raw, &config, &no_repeated_names()),
             "組で決めた日付のフォルダを見ていない（もう一度コピーしてしまう）"
         );
         // 実際に二重コピーにならないことまで見る
-        let again = import_files(std::slice::from_ref(&raw), &config, |_, _, _| {}).unwrap();
+        let again = import_files(
+            std::slice::from_ref(&raw),
+            &no_repeated_names(),
+            &config,
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(again.copied, 0, "同じ写真をもう一度コピーした");
         assert_eq!(again.skipped, 1);
     }
@@ -1452,7 +1655,7 @@ mod tests {
         let config = test_config(&dest);
         // チェックを外した c.jpg は渡さない → コピーされない
         let picked = vec![src.join("a.jpg"), src.join("b.jpg")];
-        let stats = import_files(&picked, &config, |_, _, _| {}).unwrap();
+        let stats = import_files(&picked, &no_repeated_names(), &config, |_, _, _| {}).unwrap();
         assert_eq!(stats.copied, 2);
         let names: Vec<_> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -1474,7 +1677,7 @@ mod tests {
 
         let config = test_config(&dest);
         let picked = vec![src.join("消えた.jpg"), src.join("a.jpg")];
-        let stats = import_files(&picked, &config, |_, _, _| {}).unwrap();
+        let stats = import_files(&picked, &no_repeated_names(), &config, |_, _, _| {}).unwrap();
         assert_eq!(stats.failed, 1);
         assert_eq!(stats.copied, 1, "1件失敗しても後続は取り込む");
     }
@@ -1489,11 +1692,29 @@ mod tests {
         fs::write(&a, b"aaa").unwrap();
 
         let config = test_config(&dest);
-        assert!(!is_already_imported(&a, &config), "取り込む前は未取り込み");
-        import_files(std::slice::from_ref(&a), &config, |_, _, _| {}).unwrap();
-        assert!(is_already_imported(&a, &config), "取り込んだ後は済");
+        assert!(
+            !is_already_imported(&a, &config, &no_repeated_names()),
+            "取り込む前は未取り込み"
+        );
+        import_files(
+            std::slice::from_ref(&a),
+            &no_repeated_names(),
+            &config,
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert!(
+            is_already_imported(&a, &config, &no_repeated_names()),
+            "取り込んだ後は済"
+        );
         // 「済」と出るファイルを再度取り込んでもコピーは増えない
-        let again = import_files(std::slice::from_ref(&a), &config, |_, _, _| {}).unwrap();
+        let again = import_files(
+            std::slice::from_ref(&a),
+            &no_repeated_names(),
+            &config,
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(again.copied, 0);
         assert_eq!(again.skipped, 1);
     }
@@ -1503,7 +1724,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("a.jpg");
         fs::write(&f, b"x").unwrap();
-        assert!(!is_already_imported(&f, &Config::default()));
+        assert!(!is_already_imported(
+            &f,
+            &Config::default(),
+            &no_repeated_names()
+        ));
     }
 
     #[test]
