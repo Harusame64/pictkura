@@ -58,7 +58,7 @@
   <p class="lead">What it does, what it does not, the file formats it handles, what it needs to run, and where it keeps its data. Only facts we have actually checked.</p>
   <p class="stamps">
     <span>Version &nbsp;<b>0.2</b></span>
-    <span>Updated &nbsp;<b>2026-08-29</b></span>
+    <span>Updated &nbsp;<b>2026-09-06</b></span>
     <span>License &nbsp;<b>MIT</b></span>
   </p>
 </div>
@@ -183,7 +183,7 @@
             <tr><td class="k mono">rwl</td><td class="cnt">20</td><td class="cnt">20</td><td class="cnt">20</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Leica</td></tr>
             <tr><td class="k mono">x3f</td><td class="cnt">14</td><td class="cnt">14</td><td class="cnt">14</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Sigma</td></tr>
             <tr><td class="k mono">nrw</td><td class="cnt">8</td><td class="cnt">8</td><td class="cnt">8</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Nikon compacts</td></tr>
-            <tr><td class="k mono">ori</td><td class="cnt">19</td><td class="cnt">19</td><td class="cnt">19</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>OM System. The second of the three files a High&nbsp;Res shot writes (.ORF, .ORI, .JPG)</td></tr>
+            <tr><td class="k mono">ori</td><td class="cnt">19</td><td class="cnt">19</td><td class="cnt">19</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>OM System. The second of the three files a High&nbsp;Res shot writes (.ORF, .ORI, .JPG). <b>Not scanned by the shipped 0.2.6</b></td></tr>
             <tr><td class="k mono">arw</td><td class="cnt">197</td><td class="cnt">197</td><td class="cnt">193</td><td class="cnt">4</td><td class="cnt">&mdash;</td><td>Sony</td></tr>
             <tr><td class="k mono">nef</td><td class="cnt">273</td><td class="cnt">273</td><td class="cnt">264</td><td class="cnt">9</td><td class="cnt">&mdash;</td><td>Nikon</td></tr>
             <tr><td class="k mono">raf</td><td class="cnt">143</td><td class="cnt">143</td><td class="cnt">136</td><td class="cnt">7</td><td class="cnt">&mdash;</td><td>Fujifilm</td></tr>
@@ -196,7 +196,7 @@
             <tr><td class="k mono">mos</td><td class="cnt">3</td><td class="cnt">3</td><td class="cnt">&mdash;</td><td class="cnt">3</td><td class="cnt">&mdash;</td><td>Leaf. All three are around 330px</td></tr>
             <tr><td class="k mono">srf</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td>Sony, first generation. 640px</td></tr>
             <tr><td class="k mono">sr2</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td>Sony, second generation. 640px</td></tr>
-            <tr><td class="k mono">arq</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Sony. Not written by a camera &mdash; Imaging Edge builds it on a PC from 4 or 16 ARWs</td></tr>
+            <tr><td class="k mono">arq</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">1</td><td class="cnt">&mdash;</td><td class="cnt">&mdash;</td><td>Sony. Not written by a camera &mdash; Imaging Edge builds it on a PC from 4 or 16 ARWs. <b>Not scanned by the shipped 0.2.6</b></td></tr>
             <tr><td class="k mono">dng</td><td class="cnt">257</td><td class="cnt">166</td><td class="cnt">75</td><td class="cnt">91</td><td class="cnt">91</td><td>The most split format there is. Apple ProRAW is DNG and comes out at full size; Blackmagic CinemaDNG is DNG and carries nothing. Of the 91 that give no picture, 50 are phones; <b>one of those 91 with no picture is the 383MB Light L16, where the scan stopped short rather than finding nothing</b>; of the 91 small, 38 are 128px thumbnails from Canon compacts</td></tr>
             <tr><td class="k mono">fff</td><td class="cnt">11</td><td class="cnt">7</td><td class="cnt">1</td><td class="cnt">6</td><td class="cnt">4</td><td>Hasselblad. Four of eleven give no picture, and only one of the rest reaches full size. <b>One of those four (H6D-100c, 134MB) is past 128MB, so the brute-force scan stopped at 16MB &mdash; we cannot say it has none</b></td></tr>
             <tr><td class="k mono">crw</td><td class="cnt">33</td><td class="cnt">12</td><td class="cnt">7</td><td class="cnt">5</td><td class="cnt">21</td><td>Canon, before CR2. Twenty-one of 33 carry no preview</td></tr>
@@ -207,7 +207,7 @@
           </tbody>
         </table>
       </div>
-      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Measured on 2026-09-04 against <b>1,870 real files</b> &mdash; every CC0 sample at <a href="https://raw.pixls.us/">raw.pixls.us</a> &mdash; 816 on macOS and 1,054 on Windows, with no crashes. The 1,831 counted above are the ones whose extension is scanned as RAW; the other 39 are not. <b>Every picture counted here was decoded</b>, not measured from a JPEG header. Two of the extensions above, <code>ori</code> and <code>arq</code>, were added after 0.2.6 and are measured through the forced-RAW path.</p>
+      <p class="muted" style="font-size:12.5px;line-height:1.8;margin-top:20px">Measured on 2026-09-04 against <b>1,870 real files</b> &mdash; every CC0 sample at <a href="https://raw.pixls.us/">raw.pixls.us</a> &mdash; 816 on macOS and 1,054 on Windows, with no crashes. The table adds up to 1,831 files; the other 39 of the 1,870 have an extension that is not scanned as RAW at all. <b>Every picture counted here was decoded</b>, not measured from a JPEG header. Two of the extensions above, <code>ori</code> and <code>arq</code>, were added after the 0.2.6 tag was cut and are measured through the forced-RAW path, so <b>the shipped 0.2.6 scans 1,811 of the 1,831</b> &mdash; their 20 files are counted in the table but do not appear in 0.2.6.</p>
       <figure class="demo">
         <video src="../images/e-raw.mp4" poster="../images/e-raw.jpg" width="960" height="630"
                muted loop playsinline preload="metadata" controls data-autoplay></video>
