@@ -110,19 +110,26 @@ we don't suggest it just to run this app.
 > itself still appears on every install either way.) The certificate is paid, so it is **deferred for
 > v0.1**. The macOS build is likewise unsigned (below).
 
-<!-- 3回とも取り下げ済み。ただし**また出ることがある**ので消さない。4回目が来たら、
+<!-- 配った版の2回は取り下げ済み。ただし**また出ることがある**ので消さない。次が来たら、
      この段落・README.ja.md の同じ段落・docs/{ja,en}/install.html の 2.5 節と目次の行に
      日付と版を1行足す。**4か所そろえること** -->
-**The Defender quarantine (three times, removed every time)**
+**The Defender quarantine (both shipped builds cleared)**
 
-Defender has taken a pictkura executable as `Trojan:Win32/Bearfoos.A!ml` **three times**.
-Two of those were builds you could download: **0.2.6 on 2026-09-02** (removed the next day,
+Defender has taken a pictkura executable as `Trojan:Win32/Bearfoos.A!ml` three times so
+far. The `!ml` suffix marks it as a **machine-learning guess**, not a match against a known
+threat, and it fires readily on unsigned executables.
+
+**Two of those were builds you could download, and both detections were reported to
+Microsoft as false positives and removed** — the files do not meet their criteria for
+malware. **0.2.6 on 2026-09-02** (removed the next day,
 [#105](https://github.com/Harusame64/pictkura/issues/105)) and **0.2.7 on 2026-09-06**
-(removed the same day, [#121](https://github.com/Harusame64/pictkura/issues/121)). The
-third, on 2026-09-04, was a build being tested before release and was never published. The
-`!ml` suffix marks it as a **machine-learning guess**, not a match against a known threat,
-and it fires readily on unsigned executables. **All three were reported to Microsoft as
-false positives, and all three detections were removed.**
+(removed the same day, [#121](https://github.com/Harusame64/pictkura/issues/121)).
+
+The third was on **2026-09-03**, a 0.2.7 build being tested before release. **It was never
+published** — what people could download at the time was still 0.2.6. **The detection on
+the quarantined file itself was never removed**: what was reported and withdrawn was a
+different file out of the same build. That is how it became clear that **a removal covers
+one file at a time**.
 
 **If a copy was already taken from you: your photos and your library are untouched.** What
 gets cleaned out is `%LOCALAPPDATA%\pictkura\`; the database and the settings live under
@@ -131,8 +138,8 @@ gets cleaned out is `%LOCALAPPDATA%\pictkura\`; the database and the settings li
 **The 0.2.7 downloads were pulled on 2026-09-06 and are back, byte for byte the same
 files**; the published `SHA256SUMS.txt` has not changed since the first release. **This is
 not a promise that it will not happen again** — the verdict comes from the cloud rather
-than from a definition you can pin down, three occurrences with three removals is a pattern
-that can repeat, and a removal covers only the file that was reported. **Issue #121 stays
+than from a definition you can pin down, it has happened on two shipped builds and once in
+testing, and a removal covers only the one file that was reported. **Issue #121 stays
 open for that reason**; if it happens to you, the definition version and the time it fired
 are the useful things to put there. A machine whose definitions are still old can go on
 quarantining it; from a command prompt **run as administrator**:

@@ -88,6 +88,13 @@
        so they are easy to miss; they were wrong on 2026-09-06 for exactly that
        reason.
 
+       docs/release-notes/vX.Y.Z.md is a fourth kind: it mirrors the body of the
+       GitHub release the download buttons point at, so editing it here alone
+       makes the two disagree. As of 2026-09-06 the 0.2.7 notes still say the
+       unsigned binary is checked "before this release is published rather than
+       after", which the 09-06 quarantine falsified, and they do not mention that
+       episode at all. Changing it means changing the release body too.
+
        The tag inside the curl command under "How these files are built" is
        deliberately NOT in that list. It was [data-ver] for one commit and was
        reverted (gate 2): that attribute is filled from `releases/latest`, which
