@@ -110,23 +110,26 @@ we don't suggest it just to run this app.
 > itself still appears on every install either way.) The certificate is paid, so it is **deferred for
 > v0.1**. The macOS build is likewise unsigned (below).
 
-<!-- 解決済み。次の版を切るときに、この段落・README.ja.md の同じ段落・
-     docs/{ja,en}/install.html の 2.5 節と目次の行を、まとめて消すこと -->
-**0.2.7 is being quarantined by Defender (2026-09-06, unresolved)**
+<!-- 2回とも取り下げ済み。ただし**また出ることがある**ので消さない。3回目が来たら、
+     この段落・README.md の同じ段落・docs/{ja,en}/install.html の 2.5 節に
+     日付と版を1行足す -->
+**The Defender quarantine (twice reported, twice removed)**
 
-**The 0.2.7 downloads have been pulled. Use 0.2.6 for now.** Installing 0.2.7 gets
-`pictkura.exe` taken as `Trojan:Win32/Bearfoos.A!ml` about **seven seconds after the
-installer finishes**. The `!ml` suffix marks a **machine-learning guess**, not a match
-against a known threat, and it fires readily on unsigned executables. The verdict is
-delivered from the cloud, not a static signature, so **neither the installer nor anything
-inside it shows up on a scan** — which is why a release can be clean when it ships and
-flagged afterwards. Reported to Microsoft as a false positive on **2026-09-06**; the same
-detection was withdrawn twice before, on 2026-09-03 and 2026-09-04, both within a day.
+Defender has taken `pictkura.exe` as `Trojan:Win32/Bearfoos.A!ml` twice: **0.2.6 on
+2026-09-03** ([#105](https://github.com/Harusame64/pictkura/issues/105)) and **0.2.7 on
+2026-09-06** ([#121](https://github.com/Harusame64/pictkura/issues/121)). The `!ml` suffix
+marks it as a **machine-learning guess**, not a match against a known threat, and it fires
+readily on unsigned executables. Both were reported to Microsoft as false positives and
+**both detections were removed** — the second on the day it was reported.
 
-**If it already happened to you: your photos and your library are untouched.** What gets
-cleaned out is `%LOCALAPPDATA%\pictkura\`; the database and settings live under
-`%APPDATA%\`. **Installing 0.2.6 over it puts you back.** If a machine with old
-definitions goes on quarantining things, from a command prompt **run as administrator**:
+**The 0.2.7 downloads were pulled on 2026-09-06 and are back, byte for byte the same
+files**; the published `SHA256SUMS.txt` has not changed since the first release. **This is
+not a promise that it will not happen again** — the verdict comes from the cloud rather
+than from a definition you can pin down, it has already come back once, and a removal
+covers only the file that was reported. **Issue #121 stays open for that reason**; if it
+happens to you, the definition version and the time it fired are the useful things to put
+there. A machine whose definitions are still old can go on quarantining it; from a command
+prompt **run as administrator**:
 
 ```
 cd /d "c:\Program Files\Windows Defender"
@@ -143,7 +146,7 @@ already taken**. Once the definitions are current, **installing pictkura again p
 quickest way out (reinstalling *before* that just gets the new copy taken as well).
 The quarantined copy is also still listed under **Protection history** in Windows Security.
 
-The whole account is in [issue #121](https://github.com/Harusame64/pictkura/issues/121) (the 0.2.6 episode is [#105](https://github.com/Harusame64/pictkura/issues/105)).
+The whole account is in [issue #105](https://github.com/Harusame64/pictkura/issues/105).
 
 ### macOS: the first launch needs a few extra steps
 
@@ -426,9 +429,7 @@ demosaicing.
 
 **Whether there is a display JPEG to take is the camera's decision, not ours, and bodies
 writing the same extension disagree with each other.** Of 1,831 real files with these
-extensions, **1,680 give a picture and 1,495 of those are full size**. Two of those
-extensions, `ori` and `arq`, landed after the 0.2.6 tag was cut, so **the shipped 0.2.6
-scans 1,811 of the 1,831** — 1,660 with a picture, 1,475 of those full size. `rw2` `cr3` `pef`
+extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr3` `pef`
 `srw` `rwl` `x3f` `nrw` `ori` produced a full-size preview from every single file; most
 `crw` `raw` `mrw` `dcr` files carry none at all; `dng` splits three ways.
 **[Is your camera in here?](https://harusame64.github.io/pictkura/en/cameras.html)**
@@ -437,7 +438,6 @@ scans 1,811 of the 1,831** — 1,660 with a picture, 1,475 of those full size. `
 One surprise worth knowing up front: **a High Res shot becomes three tiles.** An OM System
 body writes `.ORF`, `.ORI` and `.JPG` for a single press, and adding `.ori` means all three
 now appear. That is deliberate — hiding a file sitting on the card would be worse.
-**The shipped 0.2.6 does not scan `.ori`**, so there the same press is still two tiles.
 
 Measured on 2026-09-04 against **1,870 real files** — every CC0 sample at
 [raw.pixls.us](https://raw.pixls.us/) — 816 on macOS and 1,054 on Windows, with no
