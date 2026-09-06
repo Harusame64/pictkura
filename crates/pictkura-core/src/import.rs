@@ -1470,6 +1470,67 @@ mod tests {
     /// 組の日付で入ったファイルを、判定側が自分のmtimeで探すと「未取り込み」に
     /// 見える——そこでもう一度取り込むと、同じ写真が別の日のフォルダへ**二重に**
     /// コピーされる。
+    /// **読めなかった行き先は「別の写真」ではない。**
+    ///
+    /// `Confirm::ByBytes` は `Bytes::Unknown` を**畳む側へ倒す**。
+    /// 「別物」に倒すと、**行き先がクラウドにしか実体を持たないライブラリ**
+    /// （OneDrive の Files On-Demand）で、名前がぶつかっているカードを
+    /// 挿し直すたびに**中身が2倍になる**。
+    ///
+    /// ここでは `Unknown` を**権限に頼らずに**作る——`ByBytes` に**在らないパス**を
+    /// 渡せば `metadata` が転ぶ。権限で作る側（`chmod 000`）は
+    /// `tests/card_import.rs` にあるが、**root では効かない**ので、
+    /// **どの uid でも必ず走るのはこちら**である。
+    #[test]
+    fn a_destination_that_cannot_be_read_is_not_a_different_photo() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest_dir = dir.path().join("2020-09-13");
+        fs::create_dir_all(&dest_dir).unwrap();
+        let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+        let mtime_ms = 1_600_000_000_000;
+        let existing = dest_dir.join("DSC00001.ARW");
+        fs::write(&existing, b"aaaa").unwrap();
+        filetime::set_file_mtime(&existing, stamp).unwrap();
+
+        // 読めない相手（在らない）→ `Unknown` → **畳む**
+        let unreadable = dir.path().join("nowhere").join("DSC00001.ARW");
+        assert!(
+            matches!(
+                resolve_dest_path_avoiding(
+                    &dest_dir,
+                    "DSC00001.ARW",
+                    4,
+                    mtime_ms,
+                    &TakenPaths::default(),
+                    Confirm::ByBytes(&unreadable),
+                ),
+                DestResolution::AlreadyImported
+            ),
+            "読めないというだけで別物に倒している（挿し直すたびに増える）"
+        );
+
+        // **対照**: 読めて、中身が違う → 連番へ回す
+        let different = dir.path().join("DSC00001.ARW");
+        fs::write(&different, b"bbbb").unwrap();
+        filetime::set_file_mtime(&different, stamp).unwrap();
+        match resolve_dest_path_avoiding(
+            &dest_dir,
+            "DSC00001.ARW",
+            4,
+            mtime_ms,
+            &TakenPaths::default(),
+            Confirm::ByBytes(&different),
+        ) {
+            DestResolution::CopyTo(p) => {
+                assert_eq!(
+                    p.file_name().and_then(|n| n.to_str()),
+                    Some("DSC00001-1.ARW")
+                )
+            }
+            _ => panic!("中身が違うのに畳んだ"),
+        }
+    }
+
     #[test]
     fn a_file_dated_through_its_pair_is_still_seen_as_imported() {
         let dir = tempfile::tempdir().unwrap();
