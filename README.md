@@ -426,7 +426,9 @@ demosaicing.
 
 **Whether there is a display JPEG to take is the camera's decision, not ours, and bodies
 writing the same extension disagree with each other.** Of 1,831 real files with these
-extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr3` `pef`
+extensions, **1,680 give a picture and 1,495 of those are full size**. Two of those
+extensions, `ori` and `arq`, landed after the 0.2.6 tag was cut, so **the shipped 0.2.6
+scans 1,811 of the 1,831** — 1,660 with a picture, 1,475 of those full size. `rw2` `cr3` `pef`
 `srw` `rwl` `x3f` `nrw` `ori` produced a full-size preview from every single file; most
 `crw` `raw` `mrw` `dcr` files carry none at all; `dng` splits three ways.
 **[Is your camera in here?](https://harusame64.github.io/pictkura/en/cameras.html)**
@@ -435,6 +437,7 @@ extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr
 One surprise worth knowing up front: **a High Res shot becomes three tiles.** An OM System
 body writes `.ORF`, `.ORI` and `.JPG` for a single press, and adding `.ori` means all three
 now appear. That is deliberate — hiding a file sitting on the card would be worse.
+**The shipped 0.2.6 does not scan `.ori`**, so there the same press is still two tiles.
 
 Measured on 2026-09-04 against **1,870 real files** — every CC0 sample at
 [raw.pixls.us](https://raw.pixls.us/) — 816 on macOS and 1,054 on Windows, with no
