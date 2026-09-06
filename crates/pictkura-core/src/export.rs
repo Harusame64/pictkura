@@ -19,7 +19,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::import::{resolve_dest_path_avoiding, DestResolution};
+use crate::import::{resolve_dest_path_avoiding, DestResolution, TakenPaths};
 use crate::scanner::is_managed_package_path;
 
 /// コピーか移動か。
@@ -96,7 +96,7 @@ pub fn export_files(
         // 中身は**写真を運び終えてから**入れる（下を参照）
         companions: crate::sidecar::Companions::new(Vec::new()),
         carried: HashSet::new(),
-        written: HashSet::new(),
+        written: TakenPaths::default(),
         pending: Vec::new(),
     };
     for (i, path) in files.iter().enumerate() {
@@ -135,7 +135,7 @@ struct Carry<'a> {
     carried: HashSet<PathBuf>,
     /// **この操作で自分が書いたパス**を覚える。名前もサイズも同じで中身が違う写真
     /// （連番が一周したRAW等）を「もうある」と誤判定して落とさないため
-    written: HashSet<PathBuf>,
+    written: TakenPaths,
     /// 影を待たせておく列（元の写真, 付いた先の名前）。写真が**全部片付いてから**
     /// まとめて運ぶ——誰が実際に居なくなったかは、最後まで走らないと決まらない
     pending: Vec<(PathBuf, String)>,
@@ -185,7 +185,7 @@ fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportO
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        carry.written.insert(dest_path);
+        carry.written.insert(&dest_path);
         out.moved.push(path.to_path_buf());
         carry.pending.push((path.to_path_buf(), dest_name));
         return;
@@ -201,7 +201,7 @@ fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportO
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    carry.written.insert(dest_path);
+    carry.written.insert(&dest_path);
     if mode == ExportMode::Move {
         // **元を消すのはここではない**（モジュールの説明を参照）
         out.to_remove.push(path.to_path_buf());
@@ -254,7 +254,7 @@ fn carry_sidecars(
             && !crate::cloud::is_cloud_only_path(&sidecar)
             && std::fs::rename(&sidecar, &target).is_ok()
         {
-            carry.written.insert(target);
+            carry.written.insert(&target);
             continue;
         }
         if std::fs::copy(&sidecar, &target).is_ok() {
@@ -266,7 +266,7 @@ fn carry_sidecars(
                 let _ =
                     filetime::set_file_mtime(&target, filetime::FileTime::from_system_time(mtime));
             }
-            carry.written.insert(target);
+            carry.written.insert(&target);
             if mode == ExportMode::Move {
                 out.sidecars_to_remove.push(sidecar);
             }
