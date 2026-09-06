@@ -123,7 +123,9 @@ threat, and it fires readily on unsigned executables.
 Microsoft as false positives and removed** — the files do not meet their criteria for
 malware. **0.2.6 on 2026-09-02** (removed the next day,
 [#105](https://github.com/Harusame64/pictkura/issues/105)) and **0.2.7 on 2026-09-06**
-(removed the same day, [#121](https://github.com/Harusame64/pictkura/issues/121)).
+(removed the same day, [#121](https://github.com/Harusame64/pictkura/issues/121)). In the
+0.2.6 episode `-setup.exe` was quarantined too, as `Bearfoos.B!ml`, but **only the
+executable was submitted** — there too, the removal reached the one file reported.
 
 The third was on **2026-09-03**, a 0.2.7 build being tested before release. **It was never
 published** — what people could download at the time was still 0.2.6. **The detection on
@@ -133,7 +135,8 @@ one file at a time**.
 
 **If a copy was already taken from you: your photos and your library are untouched.** What
 gets cleaned out is `%LOCALAPPDATA%\pictkura\`; the database and the settings live under
-`%APPDATA%\`, a different tree. Installing again puts the executable back.
+`%APPDATA%\`, a different tree. **Once the definitions are current** (commands below), installing again
+puts the executable back; reinstalling before that just gets the new copy taken as well.
 
 **The 0.2.7 downloads were pulled on 2026-09-06 and are back, byte for byte the same
 files**; the published `SHA256SUMS.txt` has not changed since the first release. **This is

@@ -71,7 +71,9 @@
        reached this whole copy is what people see. The same copy exists in four
        files: {en,ja}/index.html and {en,ja}/download.html. All four have to be
        refreshed by hand on each release: the version stamp, the file names, the
-       links, the sizes, and the date, which only this page carries.
+       links, the sizes, and the date, which only this page carries. {en,ja}/index.html
+       also carries "inLanguage" in its SoftwareApplication JSON-LD, which depends on the
+       shipped version and stayed ["en","ja"] right through the 0.2.7 release.
        Two more pages name the shipped version and are NOT in this copy:
        {en,ja}/cameras.html (regenerate with dev/raw-matrix-tools/cameras.py after
        moving SHIPPED) and {en,ja}/spec.html (languages, and the note about which
