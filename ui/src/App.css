@@ -2098,7 +2098,8 @@ body {
   color: var(--accent-contrast);
   border-color: var(--accent);
 }
-.wiz-done {
+.wiz-done,
+.wiz-unsure {
   position: absolute;
   top: 6px;
   inset-inline-end: 6px;
@@ -2107,6 +2108,15 @@ body {
   background: var(--surface);
   color: var(--text-muted);
   font-size: var(--fs-xs);
+}
+/* **「分からない」は「済」と別に見えること。** 同じ灰色にすると、
+   薄い印が2種類あるだけになり、押して確かめる気にならない。
+   絵は落とさない（`.imported img` のような減光をしない）——
+   **入っていないかもしれないものを、入っているように見せない** */
+.wiz-unsure {
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px var(--warn);
+  font-weight: 600;
 }
 .wiz-fname {
   display: block;

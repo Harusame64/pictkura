@@ -7,12 +7,14 @@ import {
   listFolderPatterns,
   listSourceDir,
   listSourceTree,
+  contestedSourceNames,
   probeImported,
   setImportDestination,
   sourceThumbSrc,
   type AppConfig,
   type DriveInfo,
   type ImportProgress,
+  type ImportState,
   type ImportStats,
   type SourceFile,
   type SourceListing,
@@ -99,7 +101,9 @@ export default function ImportWizard({
   const [deep, setDeep] = useState(true);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [imported, setImported] = useState<Record<string, boolean>>({});
+  const [imported, setImported] = useState<Record<string, ImportState>>({});
+  /** 一覧の中で名前がぶつかっているぶん（畳んだ綴り）。取り込みへも同じものを渡す */
+  const [contested, setContested] = useState<string[]>([]);
   const [shown, setShown] = useState(PAGE_SIZE);
   /** 取り込み済みをグリッドから隠す（既定ON: 見たいのは「まだ入っていない写真」） */
   const [hideImported, setHideImported] = useState(true);
@@ -133,8 +137,10 @@ export default function ImportWizard({
   const unreadable = !deep && listing?.unreadable === true;
   // グリッドと一括選択が扱うのは「見えているもの」だけにそろえる。
   // 隠れている取り込み済みが「すべて選択」で紛れ込むと事故になる
+  // **隠すのは「済」だけ。** `unsure` は**入っているとは言えていない**ので隠さない
+  // ——隠すと、まだ入っていない写真が既定で画面から消える（この工事の主眼）
   const files = hideImported
-    ? allFiles.filter((f) => !imported[f.path])
+    ? allFiles.filter((f) => imported[f.path] !== "imported")
     : allFiles;
   const hiddenCount = allFiles.length - files.length;
 
@@ -188,28 +194,44 @@ export default function ImportWizard({
     // 下まで走査する（`openFolder(startPath, true)`）ので、カード全体が材料になる。
     // **1階層だけ開いたとき**（`deep` を外して枝を辿ったとき）は、別のフォルダにいる
     // 相方が数に入らない——**そのぶんは以前のまま**、名前と大きさだけで決まる
-    const names = allFiles.map((f) => f.name);
     (async () => {
+      // **名前のぶつかりは一覧ごとに1回だけ数える**（切れ端ごとには数えられないし、
+      // 一覧は2万件まで伸びる）。数える規則は Rust 側にしか置かない——ここで
+      // 数え直すと、バッジと取り込みが**違う材料**で答えるようになる
+      let names: string[] = [];
+      try {
+        names = await contestedSourceNames(allFiles.map((f) => f.name));
+      } catch {
+        return; // 数えられないときはバッジ無しのまま（取り込み自体は可能）
+      }
+      if (cancelled || gen !== probeGen.current) return;
+      setContested(names);
       for (let i = 0; i < allFiles.length; i += PROBE_CHUNK) {
         if (cancelled || gen !== probeGen.current) return;
         const chunk = allFiles.slice(i, i + PROBE_CHUNK);
         try {
-          const results = await probeImported(chunk.map((f) => f.path), names);
+          const results = await probeImported(
+            chunk.map((f) => f.path),
+            names,
+          );
           if (cancelled || gen !== probeGen.current) return;
           setImported((prev) => {
             const next = { ...prev };
-            chunk.forEach((f, j) => (next[f.path] = results[j] ?? false));
+            chunk.forEach((f, j) => (next[f.path] = results[j] ?? "new"));
             return next;
           });
           setSelected((prev) => {
             const next = new Set(prev);
             chunk.forEach((f, j) => {
-              if (results[j]) {
+              if (results[j] === "imported") {
                 // 取り込み済みと分かったものは選択から外す。
                 // 隠している（＝画面から消える）ものが選択に残ると、
                 // ボタンの枚数だけ増えて外す手段が無くなる
                 if (autoSelect.current || hideImportedRef.current) next.delete(f.path);
               } else if (autoSelect.current) {
+                // **`unsure` も選ぶ側に入れる。** 入っていないかもしれないものを
+                // 既定で外すと、この工事の前と同じ黙り方になる。
+                // 入っていれば取り込みが中身まで見て飛ばす（増えない）
                 next.add(f.path);
               }
             });
@@ -313,7 +335,11 @@ export default function ImportWizard({
   const selectNew = () => {
     // 判定が途中でも、以後届く分は自動で足し引きされる（autoSelectを戻す）
     autoSelect.current = true;
-    setSelected(new Set(files.filter((f) => !imported[f.path]).map((f) => f.path)));
+    setSelected(
+      new Set(
+        files.filter((f) => imported[f.path] !== "imported").map((f) => f.path),
+      ),
+    );
   };
   const clearSelection = () => {
     autoSelect.current = false;
@@ -341,14 +367,11 @@ export default function ImportWizard({
       importStartedAt.current = Date.now();
       const stats = whole
         ? await importFromFolder(current)
-        // **「済」バッジと同じ材料を渡す**（選んだぶんではなく、一覧に出ていた全部）。
+        // **「済」バッジと同じ材料を渡す**（選んだぶんで数え直さない）。
         // 別々に数えると、バッジが「まだ入っていない」と出した1枚を
-        // 取り込みが「もう入っている」と読んで飛ばす
-        : await importPaths(
-            [...selected],
-            current,
-            allFiles.map((f) => f.name),
-          );
+        // 取り込みが「もう入っている」と読んで飛ばす。
+        // **中身まで読むのはこちら**——利用者が押した1回きりで、進捗も出る
+        : await importPaths([...selected], current, contested);
       // 結果はグリッド側（ステータス行）で伝える。ウィザードは役目を終えて閉じる
       onImported(stats);
       onClose();
@@ -567,7 +590,7 @@ export default function ImportWizard({
                       setSelected((prev) => {
                         const next = new Set(prev);
                         allFiles.forEach((f) => {
-                          if (imported[f.path]) next.delete(f.path);
+                          if (imported[f.path] === "imported") next.delete(f.path);
                         });
                         return next;
                       });
@@ -610,14 +633,18 @@ export default function ImportWizard({
                 <div className="wizard-grid">
                   {visible.map((f) => {
                     const isSelected = selected.has(f.path);
-                    const done = imported[f.path];
+                    const state = imported[f.path];
+                    const done = state === "imported";
+                    // **「分からない」は「済」ではない。** 隠さず、選び、印を出す
+                    const unsure = state === "unsure";
                     return (
                       <button
                         key={f.path}
                         className={
                           "wiz-tile" +
                           (isSelected ? " selected" : "") +
-                          (done ? " imported" : "")
+                          (done ? " imported" : "") +
+                          (unsure ? " unsure" : "")
                         }
                         onClick={() => toggle(f.path)}
                         title={
@@ -625,7 +652,9 @@ export default function ImportWizard({
                             ? `${f.path}\n${t.wizardOfflineTitle}`
                             : done
                               ? `${f.path}\n${t.wizardImportedTitle}`
-                              : f.path
+                              : unsure
+                                ? `${f.path}\n${t.wizardUnsureTitle}`
+                                : f.path
                         }
                       >
                         {f.offline ? (
@@ -644,6 +673,9 @@ export default function ImportWizard({
                         <span className="wiz-check">{isSelected ? "✓" : ""}</span>
                         {done && (
                           <span className="wiz-done">{t.wizardImportedBadge}</span>
+                        )}
+                        {unsure && (
+                          <span className="wiz-unsure">{t.wizardUnsureBadge}</span>
                         )}
                         <span className="wiz-fname">{f.name}</span>
                       </button>

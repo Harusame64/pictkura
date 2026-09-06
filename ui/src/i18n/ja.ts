@@ -309,6 +309,9 @@ export const ja = {
   wizardSelected: (n: number) => `${num(n)}枚を選択中`,
   wizardImportedBadge: "済",
   wizardImportedTitle: "取り込み済み（コピー先に同じファイルがあります）",
+  wizardUnsureBadge: "?",
+  wizardUnsureTitle:
+    "同じ名前がカードに2つ以上あります。コピー先にあるものがこの写真かどうかは、中身を読むまで分かりません（取り込むときに確かめます。同じものなら増えません）",
   wizardDestination: "コピー先",
   wizardChangeDestination: "変更",
   wizardStructure: "振り分け",

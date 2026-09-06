@@ -3537,23 +3537,50 @@ async fn list_source_tree(
 /// USBだと1件あたり数msかかるので、**サムネイルを先に出してから**
 /// 「済」バッジを後追いで塗る。一覧が出るまでの待ちを増やさないため。
 ///
-/// `names` は**一覧に出ているファイル名すべて**（`paths` は100件ずつの切れ端なので、
-/// **切れ端の中だけでは名前のぶつかりを数えられない**）。同じ名前が2つあるものだけ、
-/// 行き先の中身まで読んでから答える——**読まないと、まだ入っていない写真に
-/// 「済」と出して、既定で選択から外し、既定で画面からも隠す**。
+/// `contested` は[`contested_source_names`] が返した名前——**一覧に出ている名前全部から
+/// 一度だけ数えたもの**。`paths` は100件ずつの切れ端なので、**切れ端の中だけでは
+/// 名前のぶつかりを数えられない**。ぶつかっている名前を**毎回まるごと送り直さない**のは、
+/// 一覧が2万件まで伸びるため（`TREE_LIMIT`）。
+///
+/// 返すのは3つの状態（[`pictkura_core::ImportState`]）。**「分からない」を「済」に
+/// 丸めない**——丸めると、まだ入っていない写真が既定で選択から外れ、
+/// 既定で画面からも消える。
 #[tauri::command]
 async fn probe_imported(
     app: tauri::AppHandle,
     paths: Vec<String>,
-    names: Vec<String>,
-) -> Result<Vec<bool>, String> {
+    contested: Vec<String>,
+) -> Result<Vec<&'static str>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
-        let contested = pictkura_core::contested_names(names.iter().map(String::as_str));
+        let contested: HashSet<String> = contested.into_iter().collect();
         paths
             .iter()
-            .map(|p| pictkura_core::is_already_imported(Path::new(p), &config, &contested))
+            .map(
+                |p| match pictkura_core::is_already_imported(Path::new(p), &config, &contested) {
+                    pictkura_core::ImportState::Imported => "imported",
+                    pictkura_core::ImportState::NotImported => "new",
+                    pictkura_core::ImportState::Unsure => "unsure",
+                },
+            )
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// 一覧に出ている名前のうち、**2つ以上に使われているもの**を返す（第5部 段階E）。
+///
+/// **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——
+/// UI で数え直すと、**「済」バッジと取り込みが違う材料で答える**ようになり、
+/// バッジが「まだ入っていない」と出した写真を取り込みが飛ばす。
+/// 返るのは**畳んだ綴り**（`is_already_imported` / `import_paths` がそのまま受け取る）。
+#[tauri::command]
+async fn contested_source_names(names: Vec<String>) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pictkura_core::contested_names(names.iter().map(String::as_str))
+            .into_iter()
             .collect()
     })
     .await
@@ -3563,22 +3590,26 @@ async fn probe_imported(
 /// ウィザードで選んだファイルだけを取り込む（第5部 段階E）。
 /// 進捗・後処理は [`import_from_folder`] と同じ経路を通る。
 ///
-/// `names` は**一覧に出ていたファイル名すべて**——`probe_imported` へ渡すのと同じ材料。
+/// `contested` は `probe_imported` へ渡すのと**同じもの**（[`contested_source_names`] の答え）。
 /// **選ばれたぶんだけで数え直してはいけない**: 「済」バッジがカード全体で数えている
 /// のに取り込みが選択だけで数えると、**バッジが「まだ」と出した1枚を取り込みが飛ばす**。
+///
+/// **中身まで読むのはここ**（バッジ側は読まない）。利用者が押した1回きりで、
+/// 進捗も出る。**ウィザードを開くたびに読むわけにはいかない**ので、そちらは
+/// 「分からない」を返す（[`pictkura_core::ImportState::Unsure`]）。
 #[tauri::command]
 async fn import_paths(
     app: tauri::AppHandle,
     paths: Vec<String>,
     source_dir: String,
-    names: Vec<String>,
+    contested: Vec<String>,
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
         let dest = config.routing.destination.clone();
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        let contested = pictkura_core::contested_names(names.iter().map(String::as_str));
+        let contested: HashSet<String> = contested.into_iter().collect();
 
         let progress_app = app.clone();
         let stats =
@@ -4786,6 +4817,7 @@ pub fn run() {
             list_source_dir,
             list_source_tree,
             probe_imported,
+            contested_source_names,
             import_paths,
             set_favorite,
             list_cameras,

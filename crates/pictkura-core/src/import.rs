@@ -559,6 +559,16 @@ pub(crate) fn resolve_dest_path_avoiding(
 /// ぶつかっていないと読むと、2枚目が消える。Linux では実際にはぶつからないが、
 /// **中身を1回読むだけで答えは変わらない**（行き先の名前が別なので `looks_same` に来ない）。
 ///
+/// **正規化までは畳まない。** APFS は `café.jpg`（NFC）と `cafe\u{301}.jpg`（NFD）も
+/// 1本と見るが、ここは**名前しか持っていない**ので、`TakenPaths` のように
+/// **ファイルシステムへ訊く**（`canonicalize`）ことができない——**行き先はまだ無い**し、
+/// 取り込み元の2本は**別のフォルダに居る**ので、互いの綴りを試しても当たらない。
+/// **std に分解表がなく、そのために依存を1つ増やすかは別の判断**なので、
+/// **いまは畳まない**（2026-09-06・ゲート2の指摘。**退行ではない**——
+/// この工事の前から同じだった）。**効く範囲**: 綴りだけが違う双子が
+/// **別々の周で来たとき、2枚目は「済」と出る**。同じ周の中なら `TakenPaths` が
+/// 訊いてくれるので消えない（`the_same_name_in_a_different_normalisation_still_arrives`）。
+///
 /// **公開しているのは、「済」バッジと取り込みが同じ材料で数えるため。**
 /// [`is_already_imported`] と [`import_files`] は同じ集合を受け取る——
 /// **別々に数えると、片方が「まだ」と言い、もう片方が「もう入っている」と言う。**
@@ -754,6 +764,25 @@ fn mtime_ms_of(meta: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
+/// ウィザードの1行が、コピー先に対してどう見えるか（[`is_already_imported`]）。
+///
+/// **`Unsure` は「分からない」であって「入っている」ではない。**
+/// **「済」に丸めると、まだ入っていない写真が既定で選択から外れ、既定で画面からも消える**
+/// ——**利用者には何も起きていないように見えたまま、その写真は二度と来ない。**
+/// **「未取り込み」に丸めると**、控えのフォルダを抱えたカードで**入っているものが
+/// 毎回まるごと未取り込みに見える**。**どちらでもない、と言えるようにしてある。**
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportState {
+    /// 行き先に同じものがある
+    Imported,
+    /// 行き先に無い
+    NotImported,
+    /// **同じ名前がこの取り込みの中に2つ以上あり、行き先に名前も大きさも時刻も合うものがある。**
+    /// **在る1本はどちらか一方のもの**で、どちらかは**中身を読まないと分からない**
+    /// ——読むのは取り込みのとき（[`Confirm::ByBytes`]）。
+    Unsure,
+}
+
 /// そのファイルが既にコピー先へ取り込まれているか（コピーはしない）。
 ///
 /// ウィザードで「済」バッジを出し、**未取り込みだけを初期選択する**ために使う。
@@ -762,20 +791,27 @@ fn mtime_ms_of(meta: &std::fs::Metadata) -> i64 {
 /// そろえる（0.2）ぶんも [`taken_at_paired`] で同じように通す。
 ///
 /// `contested` は**カードに出ている名前全部**から作る（[`contested_names`]）。
-/// **同じ名前が2つ以上あるなら、行き先の1本はどちらか一方のもの**なので、
-/// **中身まで読んでから答える**（[`Confirm::ByBytes`]）。
-/// 読まずに畳むと、**まだ入っていない写真に「済」と出し、既定で選択から外し、
-/// 既定で画面からも隠す**——**利用者には何も起きていないように見えたまま、
-/// その写真は二度と来ない。**
+/// **同じ名前が2つ以上あるなら、行き先に在る1本はどちらか一方のもの**で、
+/// **名前と大きさではどちらかを決められない**。そこは [`ImportState::Unsure`] を返す。
 ///
-/// **[`import_files`] へ渡すのと同じ集合を渡すこと。** 別々に数えると、
-/// **バッジと取り込みが違う答えを出す。**
-pub fn is_already_imported(path: &Path, config: &Config, contested: &HashSet<String>) -> bool {
+/// **ここでは中身を読まない。** 読めば決まるが、**この関数はウィザードが開くたび・
+/// フォルダを変えるたびに、一覧の全件に対して走る**。控えのフォルダを抱えたカードでは
+/// **全部の名前がぶつかる**ので、**開くだけでカード1枚ぶんを読む**ことになる
+/// （2026-09-06・ゲート2）。**読むのは取り込みのときだけ**にして、
+/// ここでは**分からないと言う**——[`import_files`] が同じ `contested` を受け取って、
+/// そちらで中身まで確かめる。
+///
+/// **[`import_files`] へ渡すのと同じ集合を渡すこと。**
+pub fn is_already_imported(
+    path: &Path,
+    config: &Config,
+    contested: &HashSet<String>,
+) -> ImportState {
     let Some(dest_root) = config.routing.destination.as_ref() else {
-        return false;
+        return ImportState::NotImported;
     };
     let Ok(meta) = std::fs::metadata(path) else {
-        return false;
+        return ImportState::NotImported;
     };
     let mtime_ms = mtime_ms_of(&meta);
     let mut pairs = PairIndex::default();
@@ -786,24 +822,26 @@ pub fn is_already_imported(path: &Path, config: &Config, contested: &HashSet<Str
         config,
     );
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
-        return false;
+        return ImportState::NotImported;
     };
-    let confirm = if is_contested(contested, file_name) {
-        Confirm::ByBytes(path)
-    } else {
-        Confirm::ByLooks
-    };
-    matches!(
-        resolve_dest_path_avoiding(
-            &dest_dir,
-            file_name,
-            meta.len(),
-            mtime_ms,
-            &TakenPaths::default(),
-            confirm,
-        ),
-        DestResolution::AlreadyImported
-    )
+    match resolve_dest_path_avoiding(
+        &dest_dir,
+        file_name,
+        meta.len(),
+        mtime_ms,
+        &TakenPaths::default(),
+        Confirm::ByLooks,
+    ) {
+        // **名前も大きさも時刻も合った。** それが「この写真」かどうかは、
+        // 名前がぶつかっていなければ言い切ってよく、ぶつかっていれば言い切れない
+        DestResolution::AlreadyImported if is_contested(contested, file_name) => {
+            ImportState::Unsure
+        }
+        DestResolution::AlreadyImported => ImportState::Imported,
+        // `Exhausted` は連番が尽きた（1000本埋まっている）。**入っていない**ので、
+        // 選ばせて取り込みに失敗させる。ここで「済」と出すと、入っていないものが消える
+        DestResolution::CopyTo(_) | DestResolution::Exhausted => ImportState::NotImported,
+    }
 }
 
 enum ImportOneResult {
@@ -1465,11 +1503,6 @@ mod tests {
         );
     }
 
-    /// **「済」バッジと行き先が同じ規則で決まる**（ゲート1のP2）。
-    ///
-    /// 組の日付で入ったファイルを、判定側が自分のmtimeで探すと「未取り込み」に
-    /// 見える——そこでもう一度取り込むと、同じ写真が別の日のフォルダへ**二重に**
-    /// コピーされる。
     /// **読めなかった行き先は「別の写真」ではない。**
     ///
     /// `Confirm::ByBytes` は `Bytes::Unknown` を**畳む側へ倒す**。
@@ -1531,6 +1564,11 @@ mod tests {
         }
     }
 
+    /// **「済」バッジと行き先が同じ規則で決まる**（ゲート1のP2）。
+    ///
+    /// 組の日付で入ったファイルを、判定側が自分のmtimeで探すと「未取り込み」に
+    /// 見える——そこでもう一度取り込むと、同じ写真が別の日のフォルダへ**二重に**
+    /// コピーされる。
     #[test]
     fn a_file_dated_through_its_pair_is_still_seen_as_imported() {
         let dir = tempfile::tempdir().unwrap();
@@ -1546,11 +1584,15 @@ mod tests {
             .unwrap();
 
         let config = test_config(&dest);
-        assert!(!is_already_imported(&raw, &config, &no_repeated_names()));
+        assert_eq!(
+            is_already_imported(&raw, &config, &no_repeated_names()),
+            ImportState::NotImported
+        );
         import_from(&src, &config, |_, _, _| {}).unwrap();
 
-        assert!(
+        assert_eq!(
             is_already_imported(&raw, &config, &no_repeated_names()),
+            ImportState::Imported,
             "組で決めた日付のフォルダを見ていない（もう一度コピーしてしまう）"
         );
         // 実際に二重コピーにならないことまで見る
@@ -1753,8 +1795,9 @@ mod tests {
         fs::write(&a, b"aaa").unwrap();
 
         let config = test_config(&dest);
-        assert!(
-            !is_already_imported(&a, &config, &no_repeated_names()),
+        assert_eq!(
+            is_already_imported(&a, &config, &no_repeated_names()),
+            ImportState::NotImported,
             "取り込む前は未取り込み"
         );
         import_files(
@@ -1764,8 +1807,9 @@ mod tests {
             |_, _, _| {},
         )
         .unwrap();
-        assert!(
+        assert_eq!(
             is_already_imported(&a, &config, &no_repeated_names()),
+            ImportState::Imported,
             "取り込んだ後は済"
         );
         // 「済」と出るファイルを再度取り込んでもコピーは増えない
@@ -1785,11 +1829,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("a.jpg");
         fs::write(&f, b"x").unwrap();
-        assert!(!is_already_imported(
-            &f,
-            &Config::default(),
-            &no_repeated_names()
-        ));
+        assert_eq!(
+            is_already_imported(&f, &Config::default(), &no_repeated_names()),
+            ImportState::NotImported
+        );
     }
 
     #[test]

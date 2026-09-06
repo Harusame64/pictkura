@@ -17,7 +17,7 @@
 // テストを組み立てる側（一時ファイルの書き出し等）の `unwrap()` は許す。
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use pictkura_core::{contested_names, import_from, Config};
+use pictkura_core::{contested_names, import_from, Config, ImportState};
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -495,14 +495,17 @@ fn a_destination_that_cannot_be_read_is_folded_not_duplicated() {
     assert_eq!(after, 1, "連番が付いた");
 }
 
-/// **ウィザードが「まだ入っていない」と出したものは、取り込みで実際に届く。**
+/// **バッジは、入っていない写真を「済」と言わない。そして取り込みは実際に届ける。**
 ///
-/// バッジ（`is_already_imported`）と取り込み（`import_files`）は**別の関数**で、
-/// **同じ材料で数えないと違う答えを出す**。食い違ったときの見え方は、
-/// **画面に何も出ないまま写真が1枚来ない**——取り込みは成功と表示され、
-/// 「済」のバッジが付き、**既定では画面からも隠れる**。
+/// バッジ（`is_already_imported`）は**中身を読まない**ので、名前がぶつかっている行では
+/// 「済」とも「未」とも言い切れない——そこは `Unsure` を返す。
+/// **「済」に丸めたときの見え方が、この工事の主眼**である: **画面に何も出ないまま
+/// 写真が1枚来ない**（取り込みは成功と表示され、バッジが付き、**既定では画面からも隠れる**）。
+///
+/// **中身まで読むのは取り込みの側**（`import_files`）。そちらは**同じ `contested`** を
+/// 受け取り、行き先に在るのがどちらの写真かを決めて運ぶ。
 #[test]
-fn the_badge_tells_the_truth_about_a_twin_and_the_import_delivers_it() {
+fn the_badge_does_not_claim_a_twin_is_imported_and_the_import_delivers_it() {
     let dir = tempfile::tempdir().unwrap();
     let card = dir.path().join("E");
     let dest = dir.path().join("photos");
@@ -525,29 +528,40 @@ fn the_badge_tells_the_truth_about_a_twin_and_the_import_delivers_it() {
     let listed = vec![a.clone(), b.clone()];
     let contested = contested(&listed);
 
+    // **行き先が空のうちは、ぶつかっている名前でも言い切れる**
+    // ——在るものが1つも無いので、読むまでもない
+    assert_eq!(
+        pictkura_core::is_already_imported(&b, &config, &contested),
+        ImportState::NotImported,
+        "行き先が空なのに言い切れていない"
+    );
+
     // 利用者は1枚目だけを選んだ
     let first =
         pictkura_core::import_files(std::slice::from_ref(&a), &contested, &config, |_, _, _| {})
             .unwrap();
     assert_eq!(first.copied, 1);
 
-    assert!(
+    // **どちらも「分からない」。** 行き先に在る1本がどちらのものかは、中身を読まないと決まらない
+    assert_eq!(
         pictkura_core::is_already_imported(&a, &config, &contested),
-        "入れた1枚が済と出ていない"
+        ImportState::Unsure
     );
-    assert!(
-        !pictkura_core::is_already_imported(&b, &config, &contested),
+    assert_eq!(
+        pictkura_core::is_already_imported(&b, &config, &contested),
+        ImportState::Unsure,
         "まだ入っていない写真に「済」と出している（既定では画面からも消える）"
     );
 
-    // **陽性対照**: 材料を選んだぶんだけに狭めると、バッジは嘘をつく。
+    // **陽性対照**: 名前のぶつかりを渡さないと、バッジは「済」と**言い切る**。
     // **この引数が飾りでないことを、ここで押さえる**
-    assert!(
+    assert_eq!(
         pictkura_core::is_already_imported(&b, &config, &HashSet::new()),
+        ImportState::Imported,
         "名前のぶつかりを渡さなくても正しく出た（この試験が何も守っていない）"
     );
 
-    // バッジのとおりに選んで、実際に届く
+    // 「分からない」ほうを選ぶと、実際に届く
     let second =
         pictkura_core::import_files(std::slice::from_ref(&b), &contested, &config, |_, _, _| {})
             .unwrap();

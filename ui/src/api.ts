@@ -598,22 +598,40 @@ export const listSourceDir = (path: string) =>
 export const listSourceTree = (path: string) =>
   invoke<SourceTree>("list_source_tree", { path });
 /**
+ * 取り込み元の1行が、コピー先に対してどう見えるか。
+ *
+ * `"unsure"` は**「分からない」であって「済」ではない**——同じ名前がカードに2つ以上あり、
+ * 行き先に名前も大きさも時刻も合うものがある状態。**どちらのものかは中身を読まないと
+ * 決まらず、それは取り込みのときにやる**（一覧を出すたびにカードを全部読まないため）。
+ */
+export type ImportState = "imported" | "new" | "unsure";
+/**
+ * 一覧に出ている名前のうち、**2つ以上に使われているもの**（畳んだ綴り）。
+ *
+ * **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——ここで数え直すと、
+ * 「済」バッジと取り込みが**違う材料**で答えるようになる。
+ */
+export const contestedSourceNames = (names: string[]) =>
+  invoke<string[]>("contested_source_names", { names });
+/**
  * 各ファイルが既に取り込み済みかを返す（サムネイル表示の後追いで塗る）。
  *
- * `names` は**一覧に出ている名前すべて**。`paths` は100件ずつの切れ端なので、
- * **切れ端の中だけでは名前のぶつかりを数えられない**——数えそこねると、
- * まだ入っていない写真に「済」が付き、既定で選択から外れ、既定で画面からも消える。
+ * `contested` は `contestedSourceNames` の答えをそのまま渡す。`paths` は100件ずつの
+ * 切れ端なので、**切れ端の中だけでは名前のぶつかりを数えられない**。
  */
-export const probeImported = (paths: string[], names: string[]) =>
-  invoke<boolean[]>("probe_imported", { paths, names });
+export const probeImported = (paths: string[], contested: string[]) =>
+  invoke<ImportState[]>("probe_imported", { paths, contested });
 /**
  * ウィザードで選んだファイルだけを取り込む。
  *
- * `names` は `probeImported` へ渡すのと**同じ材料**を渡す（選んだぶんではなく、
- * 一覧に出ていた全部）。違う材料で数えると、**バッジと取り込みが違う答えを出す**。
+ * `contested` は `probeImported` へ渡すのと**同じもの**を渡す（選んだぶんで数え直さない）。
+ * 違う材料で数えると、**バッジと取り込みが違う答えを出す**。
  */
-export const importPaths = (paths: string[], sourceDir: string, names: string[]) =>
-  invoke<ImportStats>("import_paths", { paths, sourceDir, names });
+export const importPaths = (
+  paths: string[],
+  sourceDir: string,
+  contested: string[],
+) => invoke<ImportStats>("import_paths", { paths, sourceDir, contested });
 
 /** OS既定のアプリで開く */
 export const openDefault = (id: number) => invoke<void>("open_default", { id });

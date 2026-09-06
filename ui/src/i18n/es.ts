@@ -309,6 +309,9 @@ export const es: Dict = {
   wizardImportedBadge: "✓",
   wizardImportedTitle:
     "Ya importada (el mismo archivo está en la carpeta de destino)",
+  wizardUnsureBadge: "?",
+  wizardUnsureTitle:
+    "Este nombre aparece más de una vez en la tarjeta. Si el archivo de la carpeta de destino es esta foto no se sabe hasta leer el contenido: la importación lo lee y no hace una segunda copia de una foto que ya está",
   wizardDestination: "Destino",
   wizardChangeDestination: "Cambiar",
   wizardStructure: "Organización",
