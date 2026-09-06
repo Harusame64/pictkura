@@ -565,8 +565,20 @@ bash tools/release-macos.sh
 
 Both build the UI first and then the bundle, in that order. Building the UI first
 matters: `ui/dist` is a build artifact, so skipping it would quietly ship whatever
-happened to be on disk. `cargo tauri build` needs the Tauri CLI
-(`cargo install tauri-cli --version "^2.0"`).
+happened to be on disk. `cargo tauri build` needs the Tauri CLI, pinned to the
+version CI uses (`cargo install tauri-cli --version 2.11.4 --locked`).
+
+On Windows the script splits that into two passes and does one thing in between.
+The bundler rewrites a 27-byte marker inside the executable for each package
+format, so one build otherwise produces **three byte strings that differ by three
+bytes** — and an antivirus verdict attaches to one byte string at a time, which is
+how 0.2.7 ended up with the withdrawn build being the one nobody runs. So the
+script builds with `--no-bundle`, replaces the marker with a different 27-byte
+string, and only then bundles: the bundler cannot find it, warns, and every
+package carries the same executable. The release workflow extracts the executable
+back out of all four packages — the NSIS installer, both MSIs and the portable
+ZIP — and fails if the hashes disagree, or if it could not get the executable out
+of one of them at all.
 
 The macOS bundle target comes from `src-tauri/tauri.macos.conf.json`, which Tauri merges
 over `tauri.conf.json` automatically — the default `msi` target cannot be built there.

@@ -104,10 +104,34 @@ jobs:
       # MSIを作るのに要る。`--features cli` は不要（plan.md の引き継ぎ節）。
       # ~/.cargo/bin は上のキャッシュに乗るが、**キャッシュはrefごと**なので
       # タグからの実行では基本コールドになる（mainでの手動実行が温めた場合だけ効く）
+      # **版を固定する。** `tools/release.ps1` は「語が見つからなければ bundler は
+      # 警告して束ねる」という上流の枝に乗っている（3つの入れ物に同じバイト列を
+      # 入れるため）。**その枝は上流の実装であって、約束された仕様ではない**ので、
+      # 浮かせておくと**ある日黙って3本のバイト列に戻る**。下の「中身が1本か」で
+      # 気づけるようにはしてあるが、**まず動かないようにする。**
       - name: tauri-cli
         run: |
-          if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
-            cargo install tauri-cli --version "^2.0" --locked
+          $want = "2.11.4"
+          $have = ""
+          # **版を訊くだけで落ちないようにする。** GitHub Actions の pwsh は
+          # `$ErrorActionPreference = 'stop'` で走るので、**キャッシュから戻した
+          # `cargo-tauri` が起動できない**（別のツールチェインで作られた・DLL が無い・
+          # 復元が中途半端）と、**直すための `cargo install --force` へ辿り着く前に
+          # ステップごと落ちる**。版が読めなければ「未導入」として入れ直す。
+          if (Get-Command cargo-tauri -ErrorAction SilentlyContinue) {
+            try {
+              # **`2>&1` にしない。** `stop` の下では、native command が
+              # **stderr に1行書いただけで `NativeCommandError` が飛ぶ**——
+              # cargo の警告1本で catch に落ち、**版が合っているのに数分かけて入れ直す。**
+              $out = (cargo tauri --version 2>$null) -join " "
+              if ($out -match '(\d+\.\d+\.\d+)') { $have = $Matches[1] }
+            } catch { $have = "" }
+          }
+          if ($have -ne $want) {
+            "tauri-cli: $(if ($have) { $have } else { '未導入' }) -> $want"
+            cargo install tauri-cli --version $want --locked --force
+          } else {
+            "tauri-cli: $have（そのまま）"
           }
 
       - name: npm の依存
@@ -127,6 +151,28 @@ jobs:
           cargo fmt --all --check
           cargo test --workspace --locked
 
+      # **置き場を1回だけ決めて、以降はここを見る。**
+      # `CARGO_TARGET_DIR` が置かれると `target\release` の決め打ちは外れる。
+      # **測る段と、数える段と、上げる段が別々の場所を指すのが一番まずい**
+      # ——**測った物と配る物が違っていても気づけない。**
+      - name: 置き場を決める
+        run: |
+          # **`--locked` を付ける。** `cargo metadata` は解決をやり直して
+          # **`Cargo.lock` を黙って書き換える**——ここで書き換わると、
+          # このあと作る配布物が**手元の木と違う依存**で出来る。
+          $meta = cargo metadata --format-version 1 --no-deps --locked
+          if ($LASTEXITCODE -ne 0) { throw "cargo metadata が $LASTEXITCODE で落ちた" }
+          $targetDir = ($meta | ConvertFrom-Json).target_directory
+          if (-not $targetDir) { throw "cargo metadata から置き場を取れない" }
+          # **区切りは / に寄せる。** upload-artifact の glob は / を期待するので、
+          # \ のまま渡すと**一致しないのに if-no-files-found: error まで進む**。
+          # PowerShell 側は / でも読めるので、揃えても困らない。
+          $releaseDir = (Join-Path $targetDir "release").Replace("\", "/")
+          $bundleDir = "$releaseDir/bundle"
+          "PK_RELEASE_DIR=$releaseDir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PK_BUNDLE_DIR=$bundleDir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "  置き場: $bundleDir"
+
       # WiX は tauri-cli が必要になった時点で自分で取ってくる
       - name: 配布物を作る
         run: pwsh tools/release.ps1
@@ -137,9 +183,9 @@ jobs:
       # 探すため——並びが崩れると「同梱されていません」になる（pack-portable.ps1）
       - name: 配布物が揃っているか
         run: |
-          $msi = @(Get-ChildItem "target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue)
-          $nsis = @(Get-ChildItem "target\release\bundle\nsis\*-setup.exe" -ErrorAction SilentlyContinue)
-          $zip = @(Get-ChildItem "target\release\bundle\portable\*.zip" -ErrorAction SilentlyContinue)
+          $msi = @(Get-ChildItem "$env:PK_BUNDLE_DIR/msi/*.msi" -ErrorAction SilentlyContinue)
+          $nsis = @(Get-ChildItem "$env:PK_BUNDLE_DIR/nsis/*-setup.exe" -ErrorAction SilentlyContinue)
+          $zip = @(Get-ChildItem "$env:PK_BUNDLE_DIR/portable/*.zip" -ErrorAction SilentlyContinue)
           if ($msi.Count -ne 2) { throw "MSIが2つ（ja-JP / en-US）ではない: $($msi.Count)" }
           # NSISは**1本に日英が入る**（`displayLanguageSelector` で選ばせる）ので、MSIと違って2つにはならない
           if ($nsis.Count -ne 1) { throw "NSISのインストーラが1つではない: $($nsis.Count)" }
@@ -168,6 +214,136 @@ jobs:
 
           $msi + $nsis + $zip | ForEach-Object { "  {0,7:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
 
+      # **3つの入れ物の中身が、同じ1本のバイト列か。**
+      #
+      # `tauri-bundler` は入れ物ごとに実行ファイルを書き換えるので、**放っておくと
+      # 同じビルドから3バイト違いの兄弟が3本出る**。Defender の判定はバイト列1本ごとに
+      # 付くので、**それは「くじが3本」ということ**である。0.2.7 では、取り下げたのが
+      # **利用者が走らせない側**だった。`tools/release.ps1` はその書き換えを先回りで
+      # 止めているが、**上流が探す語の綴りを変えたら、置換は静かに空振りする。**
+      # **だからここで、作った物そのものから測る。**
+      #
+      # **3つとも測る。2つで代用しない。** NSIS とポータブルは**どちらも同じ
+      # `pictkura.exe` から来る**ので、**あの2つの一致は MSI について何も言わない**
+      # ——`patch_binary` が `..._MSI` へ書き換えるのは、まさにその MSI である。
+      # **取り出せなければ、この門は答えを出していないので落とす。**
+      - name: 中身が1本のバイト列か
+        run: |
+          # **置き場は「置き場を決める」段のものを使う。** 自分で測り直さない
+          # ——**測る段と上げる段が別の場所を指す**のが、この門が防ぎたい形そのものなので。
+          $bundleDir = $env:PK_BUNDLE_DIR
+
+          # **`-ErrorAction SilentlyContinue` を付けておく。** ここも `stop` で走るので、
+          # 付けないと**置き場が無いだけで生の例外**になり、下に書いた
+          # 「MSI が1つも無い」の枝へ**一生辿り着かない**。
+          $nsis = @(Get-ChildItem "$bundleDir/nsis/*-setup.exe" -ErrorAction SilentlyContinue)[0]
+          $zip = @(Get-ChildItem "$bundleDir/portable/*.zip" -ErrorAction SilentlyContinue)[0]
+          $msi = @(Get-ChildItem "$bundleDir/msi/*.msi" -ErrorAction SilentlyContinue)
+          # NSIS とポータブルは**この門の本体**なので、無ければここで止める
+          # （7z に空のパスを渡して分かりにくく転ぶのを避ける）
+          if (-not $nsis) { throw "NSIS のインストーラが無い" }
+          if (-not $zip) { throw "ポータブルZIPが無い" }
+
+          $work = Join-Path $env:RUNNER_TEMP "bundle-identity"
+          if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+          New-Item -ItemType Directory -Force $work | Out-Null
+
+          function Get-InnerExe([string]$dir) {
+            $found = @(Get-ChildItem -Recurse -File -Filter "pictkura.exe" $dir)
+            if ($found.Count -ne 1) { throw "$dir から pictkura.exe を1つに絞れない: $($found.Count) 件" }
+            (Get-FileHash $found[0].FullName -Algorithm SHA256).Hash
+          }
+
+          $seen = [ordered]@{}
+
+          $portableDir = Join-Path $work "portable"
+          Expand-Archive -Path $zip.FullName -DestinationPath $portableDir -Force
+          $seen["portable"] = Get-InnerExe $portableDir
+
+          # 7-Zip は windows-latest に入っていて、NSIS のインストーラを展開できる
+          # **7-Zip の 1 は「警告」で、失敗ではない。** NSIS の自己展開exeでは
+          # 「書庫の末尾の後ろにデータがある」で**普段から 1 が返る**。
+          # ここで落とすと**毎回のリリースが止まる**ので、**判定は取り出せたかどうかに任せる**
+          # （`Get-InnerExe` が 1 本に絞れなければ、そちらが落ちる）。
+          # **2 以上は本物の失敗**なので、そのときは 7z の言い分ごと出す。
+          # **7z の終了コードは、読んだらすぐ 0 に戻す。**
+          # GitHub Actions は pwsh のステップの**末尾に
+          # `if (Test-Path variable:\LASTEXITCODE) { exit $LASTEXITCODE }` を足す**ので、
+          # **1 を残したまま終わると、中身が全部一致していてもステップが赤くなる。**
+          # 上の「1 は警告」の手当てが、これを忘れると丸ごと無駄になる。
+          # **`2>&1` を使わない**（上の tauri-cli の段と同じ理由）。
+          # stderr を成功の流れへ混ぜると、`stop` の下で **`NativeCommandError` が
+          # `&` の行で飛ぶ**——そうなると下の「1 は警告」も、7z の言い分を出す行も、
+          # **一度も通らない**。標準出力だけ拾い、判断は終了コードでする。
+          $nsisDir = Join-Path $work "nsis"
+          $log = & 7z x -y "-o$nsisDir" $nsis.FullName
+          $code = $LASTEXITCODE
+          $global:LASTEXITCODE = 0
+          if ($code -gt 1) {
+            $log | ForEach-Object { "  7z: $_" }
+            throw "NSIS のインストーラを展開できない（7z が $code）"
+          }
+          # **取り出せなかったときも 7z の言い分を出す。** NSIS には MSI のような
+          # 代わりの手が無いので、ここで落ちると**リリースが止まる**。
+          # よくあるのは「7z は 0 か 1 で終わったが、中身の名前が読めていない」形で、
+          # **そのときいちばん要るのが、いま捨てようとしている一覧である。**
+          try {
+            $seen["nsis"] = Get-InnerExe $nsisDir
+          } catch {
+            $log | ForEach-Object { "  7z: $_" }
+            throw
+          }
+
+          # **MSI も必ず測る。裏取りではない。**
+          # 取り出しは administrative install（管理者権限は要らない）を先に試し、
+          # 駄目なら 7-Zip で開く。**どちらも駄目なら、この門は答えを出せていないので落とす。**
+          # **各回を try で丸ごと囲む**——`New-Item` も `Start-Process` も
+          # `$p.ExitCode` も、`stop` の下では**投げればステップごと落ちる。**
+          if ($msi.Count -eq 0) { throw "MSI が1つも無い" }
+          $msiFailed = @()
+          foreach ($m in $msi) {
+            $dir = Join-Path $work "msi-$($m.BaseName)"
+            $hash = $null
+            foreach ($how in "msiexec", "7z") {
+              try {
+                if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+                New-Item -ItemType Directory -Force $dir | Out-Null
+                if ($how -eq "msiexec") {
+                  $p = Start-Process msiexec -ArgumentList @("/a", "`"$($m.FullName)`"", "/qn", "TARGETDIR=`"$dir`"") -Wait -PassThru
+                  if ($p.ExitCode -ne 0) { throw "msiexec が $($p.ExitCode)" }
+                } else {
+                  # 7-Zip の 1 は警告（上の NSIS と同じ）。**取り出せたかで判じる。**
+                  # ここでも読んだらすぐ 0 に戻す（ステップ末尾の `exit $LASTEXITCODE` 対策）。
+                  $log = & 7z x -y "-o$dir" $m.FullName
+                  $code = $LASTEXITCODE
+                  $global:LASTEXITCODE = 0
+                  if ($code -gt 1) {
+                    $log | ForEach-Object { "  7z: $_" }
+                    throw "7z が $code"
+                  }
+                }
+                $hash = Get-InnerExe $dir
+                break
+              } catch {
+                Write-Host "::warning::MSI を $how で取り出せなかった: $($m.Name)（$_）"
+              }
+            }
+            if ($hash) { $seen["msi:$($m.Name)"] = $hash } else { $msiFailed += $m.Name }
+          }
+
+          $seen.GetEnumerator() | ForEach-Object { "  {0,-28} {1}" -f $_.Key, $_.Value }
+          if ($msiFailed.Count -gt 0) {
+            throw "MSI から中身を取り出せなかった: $($msiFailed -join ', ')。測れていない入れ物を「一致」と数えない——NSIS とポータブルはどちらも同じ実行ファイルから来るので、あの2つの一致は MSI について何も言わない"
+          }
+          $distinct = @($seen.Values | Sort-Object -Unique)
+          if ($distinct.Count -ne 1) {
+            throw "入れ物ごとに中身のバイト列が違う（$($distinct.Count) 本）。tools/release.ps1 の置換が効いていない——このまま出すと、取り下げは1本にしか効かない"
+          }
+          "  $($seen.Count) 個の入れ物すべてで一致: $($distinct[0])"
+          # **0 で終える。** 上と同じ理由——native command の残した終了コードで
+          # ステップが赤くならないように、最後に必ず畳んでおく。
+          exit 0
+
       # **配るものの素性を測る**。plan.md は `x86_64-pc-windows-gnu` を前提にしているが、
       # ここは `windows-latest` の既定＝msvc で作っている。msvc は既定でCランタイムを
       # 動的リンクするので、`vcruntime140.dll` を要求するなら素のWindowsで
@@ -182,15 +358,15 @@ jobs:
             Select-Object -First 1
           if (-not $dumpbin) { Write-Output "dumpbin が無いので測れない"; return }
           rustc -vV
-          & $dumpbin.FullName /dependents target\release\pictkura.exe
+          & $dumpbin.FullName /dependents "$env:PK_RELEASE_DIR/pictkura.exe"
 
       - uses: actions/upload-artifact@v4
         with:
           name: pictkura-windows
           path: |
-            target/release/bundle/msi/*.msi
-            target/release/bundle/nsis/*-setup.exe
-            target/release/bundle/portable/*.zip
+            ${{ env.PK_BUNDLE_DIR }}/msi/*.msi
+            ${{ env.PK_BUNDLE_DIR }}/nsis/*-setup.exe
+            ${{ env.PK_BUNDLE_DIR }}/portable/*.zip
           if-no-files-found: error
 
   # macOS（Apple Silicon）。**Developer ID の署名も公証もしていない**ので、
@@ -230,10 +406,27 @@ jobs:
       # ARM64では rav1d も libjpeg-turbo も `.S` を clang に通す。Windows側とは事情が違う
       - uses: Swatinem/rust-cache@v2
 
+      # **Windows 側と同じ版に固定する。** あちらは「3つの入れ物に同じバイト列を入れる」
+      # ために上流の実装へ乗っているので固定が要る。**こちらに同じ事情は無いが、
+      # 版を揃えておかないと README の「CIと同じ版に」が片方だけ嘘になる。**
       - name: tauri-cli
         run: |
-          if ! command -v cargo-tauri >/dev/null 2>&1; then
-            cargo install tauri-cli --version "^2.0" --locked
+          want=2.11.4
+          have=""
+          # **版を訊くだけで落ちないようにする**（Windows 側と同じ理由）。
+          # いまの既定シェルは `bash -e`（`pipefail` 無し）なので、これが無くても
+          # `head` の 0 で助かっている——**が、あとで `shell: bash` を足した誰かが
+          # `pipefail` を連れてくると、直すための `cargo install --force` へ
+          # 辿り着く前に落ちる。** その仮定に寄りかからない。
+          if command -v cargo-tauri >/dev/null 2>&1; then
+            probe="$(cargo tauri --version 2>/dev/null || true)"
+            have="$(printf '%s' "$probe" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+          fi
+          if [ "$have" != "$want" ]; then
+            echo "tauri-cli: ${have:-未導入} -> $want"
+            cargo install tauri-cli --version "$want" --locked --force
+          else
+            echo "tauri-cli: $have（そのまま）"
           fi
 
       - name: npm の依存
