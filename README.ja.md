@@ -152,7 +152,7 @@ MpCmdRun.exe -SignatureUpdate
 （*先に*入れ直しても、入れ直したものがまた持っていかれます）。隔離された分は、
 Windows セキュリティの**保護の履歴**にも残っています。
 
-経緯は [issue #105](https://github.com/Harusame64/pictkura/issues/105) にまとめてあります。
+経緯と、落としたファイルの確かめ方は [issue #121](https://github.com/Harusame64/pictkura/issues/121) にまとめてあります（0.2.6 のときの一件は [#105](https://github.com/Harusame64/pictkura/issues/105)）。
 
 ### macOS は初回だけ開き方に手順が要ります
 

@@ -146,7 +146,7 @@ already taken**. Once the definitions are current, **installing pictkura again p
 quickest way out (reinstalling *before* that just gets the new copy taken as well).
 The quarantined copy is also still listed under **Protection history** in Windows Security.
 
-The whole account is in [issue #105](https://github.com/Harusame64/pictkura/issues/105).
+The whole account, including how to check what you downloaded, is in [issue #121](https://github.com/Harusame64/pictkura/issues/121) (the 0.2.6 episode is [#105](https://github.com/Harusame64/pictkura/issues/105)).
 
 ### macOS: the first launch needs a few extra steps
 
