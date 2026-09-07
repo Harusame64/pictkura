@@ -483,7 +483,8 @@ export const de: Dict = {
   errTrashFailed: "Verschieben in den Papierkorb nicht möglich.",
   errTrashPartly: (n: number) =>
     `${num(n)} in den Papierkorb verschoben; der Rest nicht.`,
-  errAutoplayRollback: "Die Einstellung ließ sich nicht ändern.",
+  errAutoplayRollback:
+    "Die Einstellung ließ sich nicht speichern. Die AutoPlay-Registrierung bleibt vorerst geändert; der nächste Start gleicht sie wieder an.",
   errNoLogYet: "Es wurde noch nichts aufgezeichnet.",
   errNotBundled: "In diesem Build nicht enthalten.",
   errNoStoreLink: "Für dieses Betriebssystem gibt es keine Seite dazu.",

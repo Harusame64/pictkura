@@ -461,7 +461,8 @@ export const zh: Dict = {
   errFolderMissing: "找不到该文件夹。",
   errTrashFailed: "无法移到回收站。",
   errTrashPartly: (n: number) => `已将 ${num(n)} 张移到回收站，其余未能移动。`,
-  errAutoplayRollback: "无法更改该设置。",
+  errAutoplayRollback:
+    "无法保存该设置。自动播放的注册暂时保持刚才更改后的状态，下次启动时会按设置恢复。",
   errNoLogYet: "还没有任何记录。",
   errNotBundled: "此版本中没有附带。",
   errNoStoreLink: "此系统没有可以指引的页面。",

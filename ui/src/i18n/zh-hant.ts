@@ -464,7 +464,8 @@ export const zhHant: Dict = {
   errFolderMissing: "找不到該資料夾。",
   errTrashFailed: "無法移到資源回收筒。",
   errTrashPartly: (n: number) => `已將 ${num(n)} 張移到資源回收筒，其餘未能移動。`,
-  errAutoplayRollback: "無法變更該設定。",
+  errAutoplayRollback:
+    "無法儲存該設定。自動播放的註冊暫時維持剛才變更後的狀態，下次啟動時會依設定恢復。",
   errNoLogYet: "還沒有任何記錄。",
   errNotBundled: "此版本中沒有附帶。",
   errNoStoreLink: "此系統沒有可以指引的頁面。",

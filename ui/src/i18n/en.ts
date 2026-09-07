@@ -412,7 +412,8 @@ export const en: Dict = {
   errTrashFailed: "It could not be moved to the trash.",
   errTrashPartly: (n: number) =>
     `${num(n)} moved to the trash; the rest could not be.`,
-  errAutoplayRollback: "The setting could not be changed.",
+  errAutoplayRollback:
+    "The setting could not be saved. AutoPlay is left as it was just changed, and the next launch puts it back in line with the setting.",
   errNoLogYet: "Nothing has been recorded yet.",
   errNotBundled: "It is not bundled in this build.",
   errNoStoreLink: "This OS has no page to point you to.",

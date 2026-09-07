@@ -37,6 +37,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// 1本が太れる上限。超えたら `.1` へ送って書き直すので、**最大で2本ぶん**。
 ///
@@ -60,14 +61,34 @@ static FILE: OnceLock<PathBuf> = OnceLock::new();
 struct LogState {
     /// **この起動の見出しを書いたか**（`true` なら書いた）。
     wrote_header: bool,
-    /// **直前に書いた行**と、そのあと**同じ理由で黙った回数**。
-    ///
-    /// 同じ失敗が続けて出る道がある——DBが詰まっているあいだ、画面の要求が
-    /// 何度も同じ失敗で返るなど。1件1行で書くと、**上限のログが1種類で埋まり、
-    /// 本当に見たい失敗が押し出される**（ゲート2）。**続いた分は数えて、
-    /// 別の行が来たときに1行で言う。**
-    repeated: Option<(String, u64)>,
+    /// **直前に書けた行**と、そのあと畳んだ回数（[`Repeat`]）。
+    repeated: Option<Repeat>,
 }
+
+/// 続いている同じ行の控え。
+///
+/// 同じ失敗が続けて出る道がある——DBが詰まっているあいだ、画面の要求が
+/// 何度も同じ失敗で返るなど。1件1行で書くと、**上限のログが1種類で埋まり、
+/// 本当に見たい失敗が押し出される**（ゲート2）。**続いた分は数えて、
+/// 別の行が来たときに1行で言う。**
+struct Repeat {
+    /// 畳む対象の行。**書けた行だけがここに入る**——書けなかった行を入れると、
+    /// **一時的に書けなかっただけの失敗が、以後ずっと畳まれて消える**
+    /// （PRのcodex の指摘）
+    line: String,
+    /// そのあと黙った回数。
+    count: u64,
+    /// **最後に何かを書いた時刻。** これが無いと、**同じ失敗が続いたまま
+    /// アプリが終わったときに、記録が「1回だけ起きた」と嘘をつく**
+    /// ——固まったアプリを利用者が落とすのは、まさにその形である（ゲート2）
+    since: Instant,
+}
+
+/// 同じ行が続いていても、**これだけ黙ったら1行書く**。
+///
+/// **記録が黙っていられる上限**である。詰まったDBで4000回続いても1分ごとに
+/// 「まだ続いている」と言うので、**強制終了されても失われるのは最後の1分ぶん**になる。
+const FLUSH_AFTER: Duration = Duration::from_secs(60);
 
 static STATE: Mutex<LogState> = Mutex::new(LogState {
     wrote_header: false,
@@ -121,27 +142,47 @@ fn record(message: &str) {
 
     let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
 
-    // **同じ行が続いたら、書かずに数える。**
-    if let Some((prev, count)) = st.repeated.as_mut() {
-        if *prev == folded {
-            *count += 1;
+    // **同じ行が続いたら、書かずに数える**——ただし**黙りっぱなしにはしない**
+    if let Some(rep) = st.repeated.as_mut() {
+        if rep.line == folded {
+            rep.count += 1;
+            if rep.since.elapsed() < FLUSH_AFTER {
+                return;
+            }
+            // 1分ぶん黙った。**まだ続いていることを1行で言って、数え直す**
+            let said = format!(
+                "(the line above repeated {} more times, still going)",
+                rep.count
+            );
+            rep.count = 0;
+            rep.since = Instant::now();
+            write_line(&mut st, path, &now, &header, &dropped_note, &said);
             return;
         }
     }
+
     // 別の行が来た。**黙っていた分を、先に1行で言う**
-    let summary = st
-        .repeated
-        .replace((folded.clone(), 0))
-        .and_then(|(prev, count)| {
-            (count > 0).then(|| format!("(the line above repeated {count} more times): {prev}"))
-        });
-    if let Some(summary) = summary {
-        write_line(&mut st, path, &now, &header, &dropped_note, &summary);
+    if let Some(rep) = st.repeated.take() {
+        if rep.count > 0 {
+            let said = format!(
+                "(the line above repeated {} more times): {}",
+                rep.count, rep.line
+            );
+            write_line(&mut st, path, &now, &header, &dropped_note, &said);
+        }
     }
-    write_line(&mut st, path, &now, &header, &dropped_note, &folded);
+    // **書けたときだけ畳み始める。** 書けなかった行を覚えると、
+    // **書けるようになっても、同じ失敗は二度と記録されない**（PRのcodex）
+    if write_line(&mut st, path, &now, &header, &dropped_note, &folded) {
+        st.repeated = Some(Repeat {
+            line: folded,
+            count: 0,
+            since: Instant::now(),
+        });
+    }
 }
 
-/// 1行を、上限と見出しの面倒を見ながら書く（[`record`] の中身）。
+/// 1行を、上限と見出しの面倒を見ながら書く（[`record`] の中身）。**書けたら `true`。**
 ///
 /// **錠は呼ぶ側が握っている**——判断と書き込みを離さないため。
 fn write_line(
@@ -151,7 +192,7 @@ fn write_line(
     header: &str,
     dropped_note: &str,
     folded: &str,
-) {
+) -> bool {
     let line = format!("{now} {folded}");
     // **これから書く分まで見て**上限を判断する。太さだけで決めると、
     // **最後の1行が上限を越えたまま残る**（ゲート1の指摘）。
@@ -186,9 +227,11 @@ fn write_line(
     // **書けたときだけ「見出しを書いた」ことにする。** 先に印を付けると、
     // 1本目が書けなかった台で**この起動の行が、前の起動の見出しの下に並ぶ**
     // ——読む人は**前の版の記録だと読む**（PRのcodex）
-    if append(path, &text).is_ok() && with_header {
+    let wrote = append(path, &text).is_ok();
+    if wrote && with_header {
         st.wrote_header = true;
     }
+    wrote
 }
 
 /// 太った記録の片付け方（[`make_room`] の答え）。

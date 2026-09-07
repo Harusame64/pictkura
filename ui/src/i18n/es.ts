@@ -486,7 +486,8 @@ export const es: Dict = {
   errTrashFailed: "No se pudo mover a la papelera.",
   errTrashPartly: (n: number) =>
     `${num(n)} en la papelera; el resto no se pudo mover.`,
-  errAutoplayRollback: "No se pudo cambiar el ajuste.",
+  errAutoplayRollback:
+    "No se pudo guardar el ajuste. La reproducción automática queda como se acaba de cambiar; el próximo inicio la alineará con el ajuste.",
   errNoLogYet: "Todavía no hay nada registrado.",
   errNotBundled: "No se incluye en esta compilación.",
   errNoStoreLink: "Este sistema no tiene una página que indicar.",

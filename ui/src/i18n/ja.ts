@@ -493,7 +493,8 @@ export const ja = {
   errTrashFailed: "ゴミ箱へ移せませんでした。",
   errTrashPartly: (n: number) =>
     `${num(n)}枚はゴミ箱へ移しました。残りは移せませんでした。`,
-  errAutoplayRollback: "設定を切り替えられませんでした。",
+  errAutoplayRollback:
+    "設定を保存できませんでした。自動再生の登録だけが変わったまま残っていますが、次に起動したときに設定どおりへ直します。",
   errNoLogYet: "まだ記録はありません。",
   errNotBundled: "この実行環境には同梱されていません。",
   errNoStoreLink: "このOSでは案内できる入手先がありません。",
