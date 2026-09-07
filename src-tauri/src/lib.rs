@@ -4027,10 +4027,6 @@ fn config_path_without_app() -> Option<std::path::PathBuf> {
     )
 }
 
-/// AutoPlayの登録を設定に合わせ直す（`--sync-autoplay`）。
-///
-/// 設定ファイルが無ければ**何もしない**。まだ一度も使っていない人の環境に、
-/// 起動前から自動再生の候補を足さないため。
 /// 起動時（と導入直後）に、自動再生の登録をどう扱うか。
 ///
 /// **切り出してあるのは、ここが Windows でしかコンパイルされない側と接するから**。
@@ -4078,7 +4074,8 @@ mod autoplay_plan_tests {
             AutoplayPlan::Adopt,
             "使っている人の登録を引き継いでいない"
         );
-        // **解除に倒れるのは、本人が切ったときだけ**——4通りを全部見る
+        // **解除に倒れるのは、本人が切ったときだけ**——6通りを全部見る
+        // （`Option<bool>` の3通り × 登録の有無の2通り）
         for (decided, already) in [
             (None, false),
             (None, true),
@@ -4112,6 +4109,10 @@ mod autoplay_plan_tests {
     }
 }
 
+/// AutoPlayの登録を設定に合わせ直す（`--sync-autoplay`）。
+///
+/// 設定ファイルが無ければ**何もしない**。まだ一度も使っていない人の環境に、
+/// 起動前から自動再生の候補を足さないため。
 #[cfg(windows)]
 fn sync_autoplay_with_config() -> Result<(), String> {
     let Some(path) = config_path_without_app() else {
