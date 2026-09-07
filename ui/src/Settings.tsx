@@ -85,9 +85,19 @@ export default function Settings({
     listFolderPatterns()
       .then(setPatterns)
       .catch(() => {});
-    aboutInfo()
-      .then(setAbout)
-      .catch(() => {});
+    const readAbout = () => {
+      aboutInfo()
+        .then(setAbout)
+        .catch(() => {});
+    };
+    readAbout();
+    // **開いている間は、記録ができたかを見直す。** 失敗は**ダイアログを開いたまま**
+    // 起きうる（監視スレッドやサムネイル生成の失敗）ので、開いた瞬間の答えを
+    // 持ち続けると「まだ記録はありません」と**嘘をつき**、その記録を開く道が
+    // 閉じ直すまで塞がる（ゲート1の指摘）。値段は3秒に1回の `stat` 1つで、
+    // **閉じれば止まる**
+    const again = setInterval(readAbout, 3000);
+    return () => clearInterval(again);
   }, [open]);
 
   // 設定にあるパターンがプリセットのどれでもなければ、自由記述として開く。
