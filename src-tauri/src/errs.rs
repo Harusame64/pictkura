@@ -81,6 +81,21 @@ pub fn for_log(s: &str) -> String {
     s.replacen(SEP, ": ", 1)
 }
 
+/// **記録に載せる形**（`鍵: 詳細`）に開く。**ここでは書かない。**
+///
+/// 起動の途中で `?` に載せる失敗のためにある——あちらの `Display` は**日本語**で、
+/// そのまま持ち出すと**記録に日本語が混じる**（説明書は「本アプリが書く文は英語」と
+/// 約束している。PRのcodex の指摘）。**書くのは受け取った側**で、
+/// `run()` の末尾が「起動できなかった」の1行にまとめる。
+pub fn for_log_err<E: Coded>(e: E) -> String {
+    let detail = e.detail();
+    if detail.is_empty() {
+        code(e.code())
+    } else {
+        format!("{}: {}", e.code(), detail)
+    }
+}
+
 /// [`Coded`] を実装した型から、画面へ渡す1本の文字列を作る。
 pub fn from_err<E: Coded>(e: E) -> String {
     let malfunction = e.is_malfunction();

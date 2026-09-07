@@ -4674,7 +4674,9 @@ pub fn run() {
 
             let config_path = config_dir.join("pictkura.toml");
             let first_launch = !config_path.exists();
-            let mut config = Config::load(&config_path)?;
+            // **`?` は `Display` をそのまま持ち出す**——こちらの型は日本語なので、
+            // **記録に載る形（英語の鍵＋詳細）に開いてから**渡す（PRのcodex）
+            let mut config = Config::load(&config_path).map_err(errs::for_log_err)?;
             // 初回起動時のみ、OS標準の写真フォルダをデフォルトのライブラリに登録する
             // （ユーザーが後から消した場合に勝手に復活させないため、初回限定）
             if first_launch {
@@ -4692,16 +4694,16 @@ pub fn run() {
                 // `first_launch` 扱いになり、「写真フォルダが後から現れたら拾う」
                 // 再試行が暗黙に効いていた（OneDriveの移動が済んでいない初回など）。
                 // これからは初回に無ければ自動では足さない——設定から手で足せる
-                config.save(&config_path)?;
+                config.save(&config_path).map_err(errs::for_log_err)?;
             }
             let db_path = data_dir.join("pictkura.db");
-            let db = Db::open(&db_path)?;
+            let db = Db::open(&db_path).map_err(errs::for_log_err)?;
             // 読み取り接続プール（段階B-4）。本数はコア数の半分・2〜4本で十分
             // （読み取りは短時間で返り、WALによりライターと並行に動ける）
             let pool_size = std::thread::available_parallelism()
                 .map(|n| (n.get() / 2).clamp(2, 4))
                 .unwrap_or(2);
-            let read_pool = ReadPool::open(&db_path, pool_size)?;
+            let read_pool = ReadPool::open(&db_path, pool_size).map_err(errs::for_log_err)?;
 
             // サムネイルワーカーを起動。1件完了ごとに**更新後のレコードだけ**を
             // フロントへpushする（全件再取得のイベントの嵐を防ぐ）

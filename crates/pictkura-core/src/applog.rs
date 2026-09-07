@@ -150,9 +150,12 @@ fn record(message: &str) {
                 return;
             }
             // 1分ぶん黙った。**まだ続いていることを1行で言って、数え直す**
+            // **どの行だったかを書く。** 「上の行」は、退避や削除のあとには
+            // **もう上に無い**——文脈の無い要約が1分ごとに並ぶだけになる
+            // （PRのcodex）。別の行が来たときの枝と同じ形にそろえる
             let said = format!(
-                "(the line above repeated {} more times, still going)",
-                rep.count
+                "(repeated {} more times, still going): {}",
+                rep.count, rep.line
             );
             rep.count = 0;
             rep.since = Instant::now();
