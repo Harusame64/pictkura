@@ -88,6 +88,25 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
     assert_eq!(lines.len(), 2, "畳んだ数の1行と、新しい1行: {lines:?}");
     assert!(lines[0].contains("repeated 2 more times"), "{:?}", lines[0]);
     assert!(lines[1].contains("別の理由"), "{:?}", lines[1]);
+
+    // 5. **消されたら、畳まずに書き直す**（説明書が「消してよい」と言っている）。
+    //    畳んだままだと、**消した直後の同じ失敗がどこにも残らない**
+    applog::note("消したあとにも起きる失敗");
+    std::fs::remove_file(&path).unwrap();
+    applog::note("消したあとにも起きる失敗");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "見出しと本文がそろっていること: {lines:?}");
+    assert!(
+        lines[0].contains(env!("CARGO_PKG_VERSION")),
+        "{:?}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("消したあとにも起きる失敗"),
+        "{:?}",
+        lines[1]
+    );
     assert!(after[0].contains("panic ("), "{:?}", after[0]);
     assert!(
         after[1].contains("caught a panic (IMG_0101.CR3)"),

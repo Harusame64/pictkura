@@ -80,7 +80,10 @@ struct Repeat {
     count: u64,
     /// **最後に何かを書いた時刻。** これが無いと、**同じ失敗が続いたまま
     /// アプリが終わったときに、記録が「1回だけ起きた」と嘘をつく**
-    /// ——固まったアプリを利用者が落とすのは、まさにその形である（ゲート2）
+    /// ——固まったアプリを利用者が落とすのは、まさにその形である（ゲート2）。
+    ///
+    /// **畳むのは、記録が在るあいだだけ**である——利用者が消したら畳まずに書き直す
+    /// （説明書が「消してよい」と言っている。PRのcodex）
     since: Instant,
 }
 
@@ -142,9 +145,15 @@ fn record(message: &str) {
 
     let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
 
+    // **記録そのものが消えていたら、畳まない。** 説明書は「消しても構いません
+    // （また必要になれば作られます）」と約束している——畳んだままだと、
+    // **消した直後に同じ失敗が起きても、どこにも残らない**（PRのcodex）。
+    // `stat` 1回は、追記1回よりずっと安い
+    let gone = size_of(path) == Some(0);
+
     // **同じ行が続いたら、書かずに数える**——ただし**黙りっぱなしにはしない**
     if let Some(rep) = st.repeated.as_mut() {
-        if rep.line == folded {
+        if rep.line == folded && !gone {
             rep.count += 1;
             if rep.since.elapsed() < FLUSH_AFTER {
                 return;
