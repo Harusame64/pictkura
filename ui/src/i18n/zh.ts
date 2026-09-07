@@ -28,9 +28,10 @@
  * **ゴミ箱の呼び名はOSで割れる**——Windows と Linux は `回收站`、macOSは `废纸篓`。
  * 辞書はプラットフォーム別に持てるキー（`videoCodecNoteMac` など）以外は1つしかないので、
  * **`回收站` に寄せた**。配布の主戦場がWindowsで（MSI / NSIS、DLもそちら）、
- * macOSの利用者にも `回收站` は通じる。**分けるなら8キーと2行**——`menuDelete` /
+ * macOSの利用者にも `回收站` は通じる。**分けるなら10キーと2行**——`menuDelete` /
  * `bulkDelete` / `deleteConfirm` / **`deleted`** / **`deletedSomeLeft`** /
- * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` と、
+ * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
+ * **`errTrashFailed`** / **`errTrashPartly`**（失敗の文言・2026-09-07に追加）と、
  * ショートカット一覧の X と右クリックの行。**`grep 回收站` で数えること**
  * ——削除のたびに出る `deleted` 系を落とすと、いちばん読まれる文字列が残る（ゲート2の指摘）。
  *
