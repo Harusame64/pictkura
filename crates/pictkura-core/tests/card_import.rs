@@ -729,3 +729,73 @@ fn twins_that_can_be_told_apart_are_not_left_unsure() {
         );
     }
 }
+
+/// **秒の端数で、写真が1枚黙って消えないこと**（2026-09-07・PR の codex の P1）。
+///
+/// 「済」の判定（`looks_same`）は**行き先の時刻を秒へ切り捨ててから**比べる。
+/// 名前のぶつかりを数える側が**取り込み元のミリ秒そのまま**で比べていたころは、
+/// **2,100ms 離れた2枚が「ぶつかっていない」**と数えられた。ところが片方が入ったあと、
+/// **切り捨てで 1,200ms に縮んだ行き先が、もう片方に「同じ」と見える**
+/// ——**中身を読まない枝なので、その1枚は二度と来ない。**
+///
+/// ここは**本物のファイルで**通す。端数はファイルシステムが持つ（APFS も NTFS も
+/// 秒より細かい）ので、**切り捨てているのはコードのほう**である。
+#[test]
+fn a_sub_second_difference_does_not_swallow_a_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("E");
+    let dest = dir.path().join("photos");
+    for sub in ["DCIM/100MSDCF", "DCIM/101MSDCF"] {
+        fs::create_dir_all(card.join(sub)).unwrap();
+    }
+    let a = card.join("DCIM/100MSDCF/DSC00001.ARW");
+    let b = card.join("DCIM/101MSDCF/DSC00001.ARW");
+    fs::write(&a, b"aaaa").unwrap();
+    fs::write(&b, b"bbbb").unwrap();
+    // **差は 2,100ms**——許容差 2,000ms の外。だが `looks_same` の切り捨てで
+    // 1,200ms に縮み、内側へ入ってしまう
+    filetime::set_file_mtime(
+        &a,
+        filetime::FileTime::from_unix_time(1_600_000_002, 900_000_000),
+    )
+    .unwrap();
+    filetime::set_file_mtime(
+        &b,
+        filetime::FileTime::from_unix_time(1_600_000_000, 800_000_000),
+    )
+    .unwrap();
+
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+    let listed = vec![a.clone(), b.clone()];
+    let contested = contested(&listed);
+    assert!(
+        !contested.is_empty(),
+        "切り捨てで同じに見えうる2枚を「ぶつかっていない」と数えた"
+    );
+
+    // 1枚目だけ入れる
+    let first =
+        pictkura_core::import_files(std::slice::from_ref(&a), &contested, &config, |_, _, _| {})
+            .unwrap();
+    assert_eq!(first.copied, 1);
+
+    // **2枚目は「済」ではない。** ここが `Imported` に倒れると、
+    // ウィザードが隠して選択から外し、押しても飛ばされる
+    assert_ne!(
+        pictkura_core::is_already_imported(&b, &config, &contested),
+        ImportState::Imported,
+        "入っていない写真に「済」と出している"
+    );
+
+    // **そして実際に届く**
+    let second =
+        pictkura_core::import_files(std::slice::from_ref(&b), &contested, &config, |_, _, _| {})
+            .unwrap();
+    assert_eq!(second.copied, 1, "2枚目が飛ばされた");
+    assert_eq!(
+        contents(&dest),
+        BTreeSet::from(["aaaa".to_string(), "bbbb".to_string()]),
+        "中身が2つ揃っていない"
+    );
+}

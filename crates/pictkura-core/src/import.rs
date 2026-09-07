@@ -345,6 +345,31 @@ fn looks_alike(a: (u64, i64), b: (u64, i64)) -> bool {
 /// ——**決めるのは [`looks_alike`] のまま**で、探索は「どれを訊くか」しか決めない。
 const DST_SHIFT_MS: i64 = 3_600_000;
 
+/// [`looks_same`] が行き先の時刻を秒へ切り捨てるぶん（最大 999ms）。
+const MTIME_TRUNCATION_MS: i64 = 999;
+
+/// **取り込み元どうしが、あとで [`looks_same`] に同じと見られる目があるか。**
+///
+/// **[`looks_alike`] より緩い。** [`looks_same`] は**行き先の時刻を秒へ切り捨てて**
+/// から比べる（`unix_seconds() * 1000`）のに対し、こちらが持っているのは
+/// **取り込み元のミリ秒そのもの**である。**同じ厳しさで比べると、こちらのほうが厳しくなる**
+/// ——2,100ms 離れた2枚を「ぶつかっていない」と数え、そのうち片方が入ったあと、
+/// **切り捨てで 1,200ms に縮んだ行き先が、もう片方に「同じ」と見える**。
+/// **中身を読まない枝なので、その1枚は黙って消える**
+/// （2026-09-07・PR の codex の P1。**この工事が塞いだ穴を、私の絞り込みが開け直していた**）。
+///
+/// **だから切り捨てで動きうる 999ms ぶん広げる。** これで
+/// **[`looks_same`] が同じと言いうる組は必ずここに入る**——
+/// **緩いぶんに外れるのは `?` が1つ増えるだけ**で、写真は消えない。
+fn could_look_alike(a: (u64, i64), b: (u64, i64)) -> bool {
+    if a.0 != b.0 {
+        return false;
+    }
+    let slack = MTIME_TOLERANCE_MS + MTIME_TRUNCATION_MS;
+    let diff = (a.1 - b.1).abs();
+    diff <= slack || (diff - DST_SHIFT_MS).abs() <= slack
+}
+
 /// `IMG_0001.CR3` の `i` 番目の別名（`IMG_0001-1.CR3`）。
 ///
 /// **連番の付け方は1箇所に置く。** 行き先を決める側と、
@@ -625,8 +650,9 @@ pub(crate) fn resolve_dest_path_avoiding(
 /// **入っているものが毎回「分からない」に戻り**、`?` が並び、隠されず、既定で選び直され、
 /// **押すと全件ぶんの中身比べが走って `copied` は 0** になる。
 ///
-/// **絞りすぎない**ことのほうが大事なので、判定は[`looks_alike`]と同じ目にしてある
-/// （[`looks_alike`] の説明）。**名前の単位で返す**ので、同じ名前に
+/// **絞りすぎない**ことのほうが大事なので、判定は [`could_look_alike`] ——
+/// **[`looks_same`] が同じと言いうる組を必ず含む、少し緩い目**——にしてある。
+/// **名前の単位で返す**ので、同じ名前に
 /// 「似ている2枚」と「似ていない1枚」が混ざると、その1枚も巻き込んで
 /// 「分からない」になる——**安全な側へ倒れる**ぶんは受け入れる。
 ///
@@ -658,21 +684,21 @@ pub fn contested_names<'a>(entries: impl Iterator<Item = (&'a str, u64, i64)>) -
         // ここが決めるのは「どれを訊くか」だけである。
         mtimes.sort_unstable();
         let hit = mtimes.iter().enumerate().any(|(i, &a)| {
-            // **近い側は隣だけでよい。** 2秒以内の組がどこかに在るなら、
+            // **近い側は隣だけでよい。** 許容差の中の組がどこかに在るなら、
             // 並べた隣り合わせにも必ず在る
             if mtimes
                 .get(i + 1)
-                .is_some_and(|&b| looks_alike((size, a), (size, b)))
+                .is_some_and(|&b| could_look_alike((size, a), (size, b)))
             {
                 return true;
             }
             // **1時間ずれは飛んだ先に在る。** 窓の左端を二分探索して、
             // **いちばん手前の候補**だけ訊く——それが窓の外なら、後ろはもっと外である
-            let lo = a + DST_SHIFT_MS - MTIME_TOLERANCE_MS;
+            let lo = a + DST_SHIFT_MS - (MTIME_TOLERANCE_MS + MTIME_TRUNCATION_MS);
             let k = mtimes.partition_point(|&m| m < lo);
             mtimes
                 .get(k)
-                .is_some_and(|&b| looks_alike((size, a), (size, b)))
+                .is_some_and(|&b| could_look_alike((size, a), (size, b)))
         });
         if hit {
             contested.insert(name);
@@ -1782,6 +1808,45 @@ mod tests {
         );
     }
 
+    /// **`looks_same` が「同じ」と言いうる組は、必ず「ぶつかっている」に入る**
+    /// （2026-09-07・PR の codex の P1）。
+    ///
+    /// `looks_same` は**行き先の時刻を秒へ切り捨ててから**比べる。数える側が
+    /// **取り込み元のミリ秒そのまま**で比べると**そちらのほうが厳しく**なり、
+    /// **「ぶつかっていない」と数えた組が、あとで「同じ」と見られて**——
+    /// **中身を読まない枝なので、片方が黙って消える**。
+    ///
+    /// ここでは**切り捨てを手で再現して**、`looks_same` が言いうる全部を
+    /// [`could_look_alike`] が覆っていることを確かめる。**片側だけでは足りない**
+    /// ——**どちらが先に入るかは分からない**ので、両方の向きを見る。
+    #[test]
+    fn every_pair_looks_same_could_call_equal_is_counted_as_contested() {
+        // `looks_same` が行き先へする切り捨て
+        fn truncate(ms: i64) -> i64 {
+            ms.div_euclid(1000) * 1000
+        }
+        let base = 1_600_000_000_000_i64;
+        // 端数（切り捨てで動く量）と、差の候補を総当たり
+        for rem_a in [0_i64, 1, 500, 900, 999] {
+            for rem_b in [0_i64, 1, 500, 900, 999] {
+                for diff in (0..4_000).chain(3_594_000..3_606_000) {
+                    let a = base + rem_a;
+                    let b = base + diff + rem_b;
+                    // 行き先に入るのが a のとき / b のとき、両方見る
+                    let dest_a = looks_alike((4, truncate(a)), (4, b));
+                    let dest_b = looks_alike((4, truncate(b)), (4, a));
+                    if dest_a || dest_b {
+                        assert!(
+                            could_look_alike((4, a), (4, b)),
+                            "切り捨てで同じに見える組を「ぶつかっていない」と数えた \
+                             (rem_a={rem_a}, rem_b={rem_b}, diff={diff})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     /// **並べ替えと二分探索にしても、総当たりと同じ答えを出す**
     /// （2026-09-07・PR の codex の P2）。
     ///
@@ -1795,8 +1860,8 @@ mod tests {
         let base = 1_600_000_000_000_i64;
         // 境界のまわりを厚くした値。許容差2秒・夏時間1時間の**内と外**を跨がせる
         let offsets: Vec<i64> = vec![
-            0, 1_999, 2_000, 2_001, 5_000, 3_597_999, 3_598_000, 3_600_000, 3_602_000, 3_602_001,
-            7_200_000, 86_400_000,
+            0, 1_999, 2_000, 2_001, 2_999, 3_000, 3_001, 5_000, 3_596_999, 3_597_000, 3_600_000,
+            3_603_000, 3_603_001, 7_200_000, 86_400_000,
         ];
 
         // 総当たり（読むための素朴な版）
@@ -1804,7 +1869,7 @@ mod tests {
             mtimes.iter().enumerate().any(|(i, &a)| {
                 mtimes[i + 1..]
                     .iter()
-                    .any(|&b| looks_alike((size, a), (size, b)))
+                    .any(|&b| could_look_alike((size, a), (size, b)))
             })
         }
 
