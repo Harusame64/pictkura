@@ -2511,7 +2511,8 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             // 写真は消えているのに `.xmp` だけが残る。一覧に出ないので
             // 気付く手立てが無い——せめて記録には残す
             applog::note(&format!(
-                "サイドカーをゴミ箱へ移せませんでした（無視して継続）: {e}"
+                "サイドカーをゴミ箱へ移せませんでした（無視して継続）: {}",
+                errs::for_log(&e)
             ));
         }
         // **DBから落とすのは写真のぶんだけ**。サイドカーは行を持っていない
@@ -2532,7 +2533,8 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             // `pictkura.log` に在る（項目2）
             Some(e) => {
                 applog::note(&format!(
-                    "ゴミ箱へ移せないものがあった（{count}枚は移せた）: {e}"
+                    "ゴミ箱へ移せないものがあった（{count}枚は移せた）: {}",
+                    errs::for_log(&e)
                 ));
                 Err(errs::coded("errTrashPartly", count))
             }
@@ -2612,7 +2614,10 @@ async fn export_media(
             if let Some(e) = err {
                 // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
                 // ファイルなので利用者からは見えない——記録には残す
-                applog::note(&format!("移動元のサイドカーを片付けられませんでした: {e}"));
+                applog::note(&format!(
+                    "移動元のサイドカーを片付けられませんでした: {}",
+                    errs::for_log(&e)
+                ));
             }
         }
         if !gone.is_empty() {
@@ -2879,7 +2884,8 @@ fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Re
                 // **戻せなかったことは、画面より先にログへ**——利用者に要るのは
                 // 「切り替えられなかった」で、レジストリの理由は追う側の材料である
                 applog::note(&format!(
-                    "AutoPlayの設定を戻せなかった: {re}（元の失敗: {e}）"
+                    "AutoPlayの設定を戻せなかった: {re}（元の失敗: {}）",
+                    errs::for_log(&e)
                 ));
                 errs::code("errAutoplayRollback")
             }
@@ -4322,8 +4328,12 @@ fn sync_autoplay_with_config() -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
-    let config = Config::load(&path).map_err(errs::from_err)?;
-    let exe = std::env::current_exe().map_err(errs::from_err)?;
+    // **ここの失敗は画面へ出ない。** この入口は窓を出さずに返り、呼ぶ側は
+    // 記録へ回すだけなので、**鍵を付けない**（付けると記録に鍵の字が並ぶ）。
+    // `current_exe` と `autoplay::*` は `io::Error` で、そもそも鍵を持たない
+    // ——**Windowsでしかコンパイルされないので、手元の門は素通りする**（ゲート1が捕まえた）
+    let config = Config::load(&path).map_err(|e| e.to_string())?;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     // **判断は起動時と同じ関数を通す**（[`autoplay_plan`]）。別々に書くと、
     // 「導入直後だけ違う」というずれ方をする。**まだ決めていない人のぶんは書かないが、
     // 在るものは書き直す**——この入口の仕事は「更新やMSIからの乗り換えで消えた登録を
@@ -4334,9 +4344,9 @@ fn sync_autoplay_with_config() -> Result<(), String> {
     });
     match plan {
         AutoplayPlan::Register | AutoplayPlan::Adopt => {
-            autoplay::register(&exe).map_err(errs::from_err)
+            autoplay::register(&exe).map_err(|e| e.to_string())
         }
-        AutoplayPlan::Unregister => autoplay::unregister().map_err(errs::from_err),
+        AutoplayPlan::Unregister => autoplay::unregister().map_err(|e| e.to_string()),
         AutoplayPlan::LeaveAlone => Ok(()),
     }
 }
@@ -4762,7 +4772,8 @@ pub fn run() {
                             c.import.register_autoplay = Some(true);
                         }) {
                             applog::note(&format!(
-                                "AutoPlayの引き継ぎを控えられなかった（無視して継続）: {e}"
+                                "AutoPlayの引き継ぎを控えられなかった（無視して継続）: {}",
+                                errs::for_log(&e)
                             ));
                         }
                     }

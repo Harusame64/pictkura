@@ -53,6 +53,17 @@ pub trait Coded {
     fn detail(&self) -> String;
 }
 
+/// **記録（ログ）へ回すときの姿。**
+///
+/// **鍵は人の言葉ではない**ので、そのまま記録に落とすと読めない行になる。
+/// 継ぎ目を `: ` に開いて、**鍵と詳細の両方を残す**
+/// ——鍵は画面に出た文と1対1なので、**利用者が見た文と記録が突き合わせられる。**
+///
+/// 鍵の付いていない文字列は素通りする。
+pub fn for_log(s: &str) -> String {
+    s.replacen(SEP, ": ", 1)
+}
+
 /// [`Coded`] を実装した型から、画面へ渡す1本の文字列を作る。
 pub fn from_err<E: Coded>(e: E) -> String {
     let detail = e.detail();
@@ -137,6 +148,15 @@ mod tests {
     fn a_detail_rides_after_the_separator() {
         let e = ImportError::SourceUnreadable("/媒体/DCIM".into());
         assert_eq!(from_err(e), format!("errSourceUnreadable{SEP}/媒体/DCIM"));
+    }
+
+    #[test]
+    fn the_log_reads_the_key_and_the_detail_together() {
+        let e = ImportError::SourceUnreadable("/媒体/DCIM".into());
+        assert_eq!(for_log(&from_err(e)), "errSourceUnreadable: /媒体/DCIM");
+        // 鍵だけのものと、鍵の付いていないものは、そのまま
+        assert_eq!(for_log("errNoDestination"), "errNoDestination");
+        assert_eq!(for_log("よそのクレートの文言"), "よそのクレートの文言");
     }
 
     /// **日本語の文は詳細に混ぜない**——訳した文の隣に原文が並ぶのを防ぐ。
