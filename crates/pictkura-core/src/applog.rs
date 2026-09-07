@@ -55,6 +55,12 @@ const MAX_BYTES: u64 = 1024 * 1024;
 /// > 2026-09-07 に Windows 11 の実機で見たのは「**新しい Notepad はそのまま読み、
 /// > 下端に Unix (LF) と出る**」までで、**古い版は mac でも win でも確かめていない。**
 /// > 直す根拠は**その台で普通の姿にする**ことのほうである。
+///
+/// **同じ理屈は `pictkura.toml` にも当たる**（説明書が「手で編集できます」と
+/// 招いている先である）。**あちらはまだ LF のまま**——`toml::to_string_pretty` +
+/// `fs::write` で書いているので、直すなら別の判断として立てる（ゲート2）。
+/// **ここで一緒に変えない**のは、**利用者が既に持っているファイルを、
+/// 記録の話のついでに書き換えたくない**ため。
 const EOL: &str = if cfg!(windows) { "\r\n" } else { "\n" };
 
 /// 1行が伸びられる上限（バイト）。**これを越えたら切って「以下略」を付ける。**
@@ -581,7 +587,6 @@ mod tests {
     /// CI の windows-latest である（`cfg!` は書けても、実行はその台でしか起きない）。
     #[test]
     fn a_line_ends_the_way_this_platform_ends_lines() {
-        assert_eq!(EOL, if cfg!(windows) { "\r\n" } else { "\n" });
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.log");
         append(&path, "1行").unwrap();

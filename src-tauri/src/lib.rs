@@ -2548,9 +2548,14 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         match first_err {
             Some(e) if count == 0 => {
                 // **1枚も移せていない。** `errs::coded` は記録に触らないので、
-                // ここで書く——**文脈（写真のほうだ）を知っているのはここだけ**
+                // ここで書く——**文脈（写真のほうだ）を知っているのはここだけ**。
+                //
+                // **枚数を入れる。** 詳細に載るのは**転んだ1本目のパスだけ**なので、
+                // それだけだと**300枚が全滅した行が、1枚の失敗に見える**
+                // ——サイドカーの2行に「X of Y」を足したのと同じ理由である（ゲート2）
                 applog::note(&format!(
-                    "no photo could go to the recycle bin: {}",
+                    "none of {} photo(s) could go to the recycle bin: {}",
+                    media_total.get(),
                     errs::for_log(&e)
                 ));
                 Err(e)
