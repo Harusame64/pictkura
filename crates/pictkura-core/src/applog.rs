@@ -31,6 +31,11 @@ use std::sync::{Mutex, OnceLock};
 /// 原因は先頭で分かる**ので、これ以上を残す理由がない。
 const MAX_BYTES: u64 = 1024 * 1024;
 
+/// 1行が伸びられる上限（バイト）。**これを越えたら切って「以下略」を付ける。**
+///
+/// 4 KiB は、いちばん長いパスと、そこに付く説明が丸ごと入る長さである。
+const MAX_LINE: usize = 4096;
+
 /// ログの置き場。**アプリの起動時に1回だけ決まる。**
 static FILE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -79,6 +84,10 @@ fn record(message: &str) {
     // 見出しを1本ぶん余計に組む値段は、**書くのが失敗した行だけ**なので払える
     let line = format!("{} {}", stamp(), one_line(message));
     let header = header();
+    // **これから書く分まで見て**上限を判断する。太さだけで決めると、
+    // **最後の1行が上限を越えたまま残る**（ゲート1の指摘）。
+    // 見出しを付ける最悪の場合で見る——**早めに退避するのは害にならない**
+    let wanted = (header.len() + line.len() + 2) as u64;
 
     let mut wrote_header = WROTE_HEADER.lock().unwrap_or_else(|e| e.into_inner());
     let size = size_of(path);
@@ -86,7 +95,7 @@ fn record(message: &str) {
     // 「これから作り直すはず」と当てにすると、**退避が失敗し続ける台で
     // 見出しが毎行付く**（ゲート2）——ファイルは倍の速さで太り、
     // 1件ごとに版の行が挟まる
-    let rotation = make_room(path, size, MAX_BYTES);
+    let rotation = make_room(path, size, wanted, MAX_BYTES);
 
     // **見出しと最初の1行は、1回で書く。** 別々に書くと、上限のすぐ手前で
     // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
@@ -136,8 +145,10 @@ enum Rotation {
 /// そこで諦めて追記を続けると、**上限は上限でなくなる**（ゲート2の指摘）。
 /// **書いてある約束のほうを守る**——古い記録を捨てる代わりに、
 /// [`Rotation::Dropped`] を返して**捨てたと書かせる**。
-fn make_room(path: &Path, size: Option<u64>, max: u64) -> Rotation {
-    if !size.is_some_and(|n| n >= max) {
+fn make_room(path: &Path, size: Option<u64>, wanted: u64, max: u64) -> Rotation {
+    // **空のファイルは退避しない**——1行が単独で上限より長くても、
+    // 送る先に入れるものが無い（長さそのものは [`one_line`] が抑えている）
+    if !size.is_some_and(|n| n > 0 && n.saturating_add(wanted) > max) {
         return Rotation::NotNeeded;
     }
     // **`rename` は行き先が在っても置き換える**（Unix の `rename(2)` と、
@@ -265,12 +276,23 @@ fn stamp() -> String {
 /// パニックの中身は複数行のことがあり、そのまま流すと**1件が10行に見える**。
 /// 数えるときに効くので、ここで畳んでおく。
 fn one_line(message: &str) -> String {
-    message
+    let folded = message
         .split(['\n', '\r'])
         .map(str::trim_end)
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
-        .join(" / ")
+        .join(" / ");
+    if folded.len() <= MAX_LINE {
+        return folded;
+    }
+    // **1件で上限を食い潰させない。** パニックの中身は長さの当てが無く
+    // （丸ごとの文字列が payload に乗ることがある）、1行が上限を越えれば
+    // **その1件で記録が全部押し出される**
+    let mut end = MAX_LINE;
+    while !folded.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…（以下略）", &folded[..end])
 }
 
 /// 1つ前のログの名前（`pictkura.log` → `pictkura.log.1`）。
@@ -312,13 +334,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.log");
         append(&path, "むかしの行").unwrap();
-        assert_eq!(make_room(&path, size_of(&path), 8), Rotation::Moved);
+        assert_eq!(make_room(&path, size_of(&path), 1, 8), Rotation::Moved);
         append(&path, "いまの行").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "いまの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "むかしの行\n");
 
         // もう1周しても、増えるのではなく**古いほうが押し出される**
-        assert_eq!(make_room(&path, size_of(&path), 8), Rotation::Moved);
+        assert_eq!(make_room(&path, size_of(&path), 1, 8), Rotation::Moved);
         append(&path, "つぎの行").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "つぎの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "いまの行\n");
@@ -333,12 +355,12 @@ mod tests {
         let path = dir.path().join("pictkura.log");
         append(&path, "まだ細い").unwrap();
         assert_eq!(
-            make_room(&path, size_of(&path), MAX_BYTES),
+            make_room(&path, size_of(&path), 1, MAX_BYTES),
             Rotation::NotNeeded
         );
         assert!(!previous(&path).exists());
         // 太さを訊けなかったときも触らない
-        assert_eq!(make_room(&path, None, 8), Rotation::NotNeeded);
+        assert_eq!(make_room(&path, None, 1, 8), Rotation::NotNeeded);
     }
 
     /// **送れない相手でも、上限は守る。** `.1` の側を「送れない場所」に
@@ -354,7 +376,7 @@ mod tests {
         // `.1` の名前をフォルダが押さえていると、ファイルは被せられない
         fs::create_dir(previous(&path)).unwrap();
 
-        assert_eq!(make_room(&path, size_of(&path), 8), Rotation::Dropped);
+        assert_eq!(make_room(&path, size_of(&path), 1, 8), Rotation::Dropped);
         assert_eq!(size_of(&path), Some(0), "上限を越えたまま残っていないこと");
         append(&path, "あとの行").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "あとの行\n");
@@ -385,6 +407,33 @@ mod tests {
         assert!(!needs_header(true, Some(9_999_999), Rotation::Stuck));
         // **太さを訊けなかったとき**も付けない
         assert!(!needs_header(true, None, Rotation::NotNeeded));
+    }
+
+    /// **これから書く分で越えるなら、書く前に退避する**（ゲート1の指摘）。
+    /// 太さだけで決めると、最後の1行が上限を越えたまま残る。
+    #[test]
+    fn the_line_about_to_be_written_counts_towards_the_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.log");
+        append(&path, "6バイト").unwrap(); // 1 + 3*3 + 1 = 11 バイト
+        let size = size_of(&path);
+        assert_eq!(size, Some(11));
+        // まだ入る
+        assert_eq!(make_room(&path, size, 4, 16), Rotation::NotNeeded);
+        // これを書くと越える
+        assert_eq!(make_room(&path, size, 6, 16), Rotation::Moved);
+    }
+
+    /// **1件で記録を押し出させない。** 長すぎる行は切って「以下略」を付ける。
+    #[test]
+    fn a_line_too_long_is_cut_at_a_character_boundary() {
+        let long = "あ".repeat(MAX_LINE); // 3 * MAX_LINE バイト
+        let cut = one_line(&long);
+        assert!(cut.len() <= MAX_LINE + "…（以下略）".len());
+        assert!(cut.ends_with("…（以下略）"));
+        // 切った先が文字の途中でないこと（`String` である時点で保証されるが、
+        // **切り方を変えたときに気付ける**ように見ておく）
+        assert!(cut.starts_with("あああ"));
     }
 
     #[test]
