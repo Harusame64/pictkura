@@ -52,18 +52,27 @@ const MAX_LINE: usize = 4096;
 /// ログの置き場。**アプリの起動時に1回だけ決まる。**
 static FILE: OnceLock<PathBuf> = OnceLock::new();
 
-/// 書き込みの直列化と、**この起動の見出しを書いたか**（`true` なら書いた）。
+/// 書くときの決めごと。**1つの錠の中で決めて、その中で書く。**
 ///
-/// 見出しを兼ねさせているのは、**同じ錠の中で決めないと二度書ける**ため。
-static WROTE_HEADER: Mutex<bool> = Mutex::new(false);
+/// **2つに分けると順番が壊れる**（ゲート1の指摘）——畳み込みの判断だけ先に錠を取り、
+/// 書くのは別の錠、という形にしていたので、**別のスレッドが間に割り込むと
+/// 「上の行が N 回」の主張が嘘になる**。判断と書き込みを離さない。
+struct LogState {
+    /// **この起動の見出しを書いたか**（`true` なら書いた）。
+    wrote_header: bool,
+    /// **直前に書いた行**と、そのあと**同じ理由で黙った回数**。
+    ///
+    /// 同じ失敗が続けて出る道がある——DBが詰まっているあいだ、画面の要求が
+    /// 何度も同じ失敗で返るなど。1件1行で書くと、**上限のログが1種類で埋まり、
+    /// 本当に見たい失敗が押し出される**（ゲート2）。**続いた分は数えて、
+    /// 別の行が来たときに1行で言う。**
+    repeated: Option<(String, u64)>,
+}
 
-/// **直前に書いた行**と、そのあと**同じ理由で黙った回数**。
-///
-/// 同じ失敗が続けて出る道がある——DBが詰まっているあいだ、画面の要求が
-/// 何度も同じ失敗で返るなど。1件1行で書くと、**上限のログが1種類で埋まり、
-/// 本当に見たい失敗が押し出される**（ゲート2）。**続いた分は数えて、
-/// 別の行が来たときに1行で言う。**
-static REPEATED: Mutex<Option<(String, u64)>> = Mutex::new(None);
+static STATE: Mutex<LogState> = Mutex::new(LogState {
+    wrote_header: false,
+    repeated: None,
+});
 
 /// ログの置き場を決める（アプリの起動時に1回）。
 ///
@@ -98,49 +107,58 @@ pub fn note(message: &str) {
 fn record(message: &str) {
     let Some(path) = FILE.get() else { return };
 
-    // **同じ行が続いたら、書かずに数える。** 詰まったDBのような形では
-    // 同じ失敗が何度も返り、1件1行では**上限のログがその1種類で埋まる**
-    // （ゲート2）。数えた分は、**別の行が来たときに1行で言う**
+    // **文字列は錠の外で作る**。錠の中でパニックすると、[`install_panic_hook`] が
+    // **同じ錠を取りに来て自分を待つ**——`std` の `Mutex` は再入できないので、
+    // 落ちる代わりに止まる。錠の中に残すのは**失敗を `Result` で返すファイル操作**と、
+    // 数を数える `format!` だけにして、その道を塞ぐ。
+    // **時刻は1つで足りる**——畳んだ数の行と本文は、同じ瞬間に書かれる
     let folded = one_line(message);
-    let repeat = {
-        let mut last = REPEATED.lock().unwrap_or_else(|e| e.into_inner());
-        match last.as_mut() {
-            Some((prev, count)) if *prev == folded => {
-                *count += 1;
-                return;
-            }
-            _ => last.replace((folded.clone(), 0)).and_then(|(prev, count)| {
-                (count > 0).then(|| format!("(the line above repeated {count} more times): {prev}"))
-            }),
+    let now = stamp();
+    let header = header();
+    let dropped_note = format!(
+        "{now} the previous record could not be moved aside, so it was dropped to keep the cap"
+    );
+
+    let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
+
+    // **同じ行が続いたら、書かずに数える。**
+    if let Some((prev, count)) = st.repeated.as_mut() {
+        if *prev == folded {
+            *count += 1;
+            return;
         }
-    };
-    if let Some(said) = repeat {
-        write_line(path, &said);
     }
-    write_line(path, &folded);
+    // 別の行が来た。**黙っていた分を、先に1行で言う**
+    let summary = st
+        .repeated
+        .replace((folded.clone(), 0))
+        .and_then(|(prev, count)| {
+            (count > 0).then(|| format!("(the line above repeated {count} more times): {prev}"))
+        });
+    if let Some(summary) = summary {
+        write_line(&mut st, path, &now, &header, &dropped_note, &summary);
+    }
+    write_line(&mut st, path, &now, &header, &dropped_note, &folded);
 }
 
 /// 1行を、上限と見出しの面倒を見ながら書く（[`record`] の中身）。
-fn write_line(path: &Path, folded: &str) {
-    // **文字列は錠の外で作る**（見出しも、要らない周でも作る）。
-    // 錠の中でパニックすると、[`install_panic_hook`] が**同じ錠を取りに来て
-    // 自分を待つ**——`std` の `Mutex` は再入できないので、落ちる代わりに止まる。
-    // 錠の中に残すのは**失敗を `Result` で返すファイル操作だけ**にして、その道を塞ぐ。
-    // 見出しを1本ぶん余計に組む値段は、**書くのが失敗した行だけ**なので払える
-    let line = format!("{} {}", stamp(), folded);
-    let header = header();
-    let dropped_note = format!(
-        "{} the previous record could not be moved aside, so it was dropped to keep the cap",
-        stamp()
-    );
+///
+/// **錠は呼ぶ側が握っている**——判断と書き込みを離さないため。
+fn write_line(
+    st: &mut LogState,
+    path: &Path,
+    now: &str,
+    header: &str,
+    dropped_note: &str,
+    folded: &str,
+) {
+    let line = format!("{now} {folded}");
     // **これから書く分まで見て**上限を判断する。太さだけで決めると、
     // **最後の1行が上限を越えたまま残る**（ゲート1の指摘）。
     // **書きうる3行を全部数える**——見出しも、捨てたことわりも
-    // （数え漏らすとその分だけ越える・ゲート2）。
-    // 付かない周では多めに見ることになるが、**早めに退避するのは害にならない**
+    // （数え漏らすとその分だけ越える・ゲート2）
     let wanted = (header.len() + dropped_note.len() + line.len() + 3) as u64;
 
-    let mut wrote_header = WROTE_HEADER.lock().unwrap_or_else(|e| e.into_inner());
     let size = size_of(path);
     // **先に片付けてから、その結果を見て見出しを決める。** 太さから
     // 「これから作り直すはず」と当てにすると、**退避が失敗し続ける台で
@@ -152,26 +170,24 @@ fn write_line(path: &Path, folded: &str) {
     // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
     // ——新しいファイルが見出しの無い行から始まる（ゲート1の指摘）
     let mut text = String::new();
-    let with_header = needs_header(*wrote_header, size, rotation);
+    let with_header = needs_header(st.wrote_header, size, rotation);
     if with_header {
-        text.push_str(&header);
+        text.push_str(header);
         text.push('\n');
     }
     if rotation == Rotation::Dropped {
         // **捨てたことは、捨てた場所に書く。** 黙って消すと、
         // 「前の行はどこへ行った」に答えられない
-        text.push_str(&dropped_note);
+        text.push_str(dropped_note);
         text.push('\n');
     }
     text.push_str(&line);
 
     // **書けたときだけ「見出しを書いた」ことにする。** 先に印を付けると、
     // 1本目が書けなかった台で**この起動の行が、前の起動の見出しの下に並ぶ**
-    // ——読む人は**前の版の記録だと読む**（PRのcodex）。
-    // 試し続けても損は無い**——見出しと本文は1回の `append` で出るので、
-    // 「毎行ためす」ぶんの書き込みは増えない
+    // ——読む人は**前の版の記録だと読む**（PRのcodex）
     if append(path, &text).is_ok() && with_header {
-        *wrote_header = true;
+        st.wrote_header = true;
     }
 }
 
@@ -262,7 +278,6 @@ fn append(path: &Path, line: &str) -> std::io::Result<()> {
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(f, "{line}")
 }
-
 /// **捕まえていないパニックも記録に残す**（アプリの起動時に1回）。
 ///
 /// [`crate::panics::catching`] が張ってあるのは**解読器を通る道だけ**である。
