@@ -677,13 +677,6 @@ export interface AboutInfo {
   /** 英語版の取扱説明書。表示言語での出し分けはフロント側で行う */
   manual_en_path: string | null;
   licenses_path: string | null;
-  /**
-   * 失敗の記録（`pictkura.log`）。**実在するときだけ**入る。
-   *
-   * **null が普通**——書かれるのは失敗した行だけなので、null は
-   * 「まだ何も起きていない」の意味になる。
-   */
-  log_path: string | null;
 }
 
 export const aboutInfo = () => invoke<AboutInfo>("about_info");
@@ -696,6 +689,15 @@ export const aboutInfo = () => invoke<AboutInfo>("about_info");
  */
 export const openBundledDoc = (kind: "manual" | "manual-en" | "licenses") =>
   invoke<void>("open_bundled_doc", { kind });
+
+/**
+ * 失敗の記録が在るか（在ればその場所）。**null が普通**——書かれるのは
+ * 失敗した行だけなので、null は「まだ何も起きていない」の意味になる。
+ *
+ * `aboutInfo` から分けてあるのは、**設定を開いている間くり返し訊く**ため
+ * （あちらは `resource_dir()` と6回の `is_file()` を通る）。
+ */
+export const logPath = () => invoke<string | null>("log_path");
 
 /**
  * 失敗の記録をOSの既定のアプリで開く。

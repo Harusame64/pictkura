@@ -10,6 +10,7 @@ import {
   listFolderPatterns,
   openBundledDoc,
   openLog,
+  logPath,
   previewFolderPattern,
   setFolderPattern,
   setImportDestination,
@@ -63,6 +64,12 @@ export default function Settings({
   const [customPreview, setCustomPreview] = useState("");
   const [about, setAbout] = useState<AboutInfo | null>(null);
   /**
+   * 失敗の記録の在り処。**無いのが普通**（`null`）で、そのときは
+   * 「ログを開く」を押せない。**開いている間くり返し訊く**ので、
+   * `about` とは別に持つ（`about` は起動時に1回でよい静的な情報）。
+   */
+  const [log, setLog] = useState<string | null>(null);
+  /**
    * 選ばれている言語。**stateに持つのが要点**。`select` は制御された部品なので、
    * 選んでも再レンダーが起きないと React が DOM を前の値へ戻す。言語が実際には
    * 変わらない選び方（日本語OSで「OSに合わせる」→「日本語」など）では
@@ -85,18 +92,21 @@ export default function Settings({
     listFolderPatterns()
       .then(setPatterns)
       .catch(() => {});
-    const readAbout = () => {
-      aboutInfo()
-        .then(setAbout)
+    aboutInfo()
+      .then(setAbout)
+      .catch(() => {});
+    const readLog = () => {
+      logPath()
+        .then(setLog)
         .catch(() => {});
     };
-    readAbout();
+    readLog();
     // **開いている間は、記録ができたかを見直す。** 失敗は**ダイアログを開いたまま**
     // 起きうる（監視スレッドやサムネイル生成の失敗）ので、開いた瞬間の答えを
     // 持ち続けると「まだ記録はありません」と**嘘をつき**、その記録を開く道が
-    // 閉じ直すまで塞がる（ゲート1の指摘）。値段は3秒に1回の `stat` 1つで、
-    // **閉じれば止まる**
-    const again = setInterval(readAbout, 3000);
+    // 閉じ直すまで塞がる（ゲート1の指摘）。**訊くのは記録の1件だけ**で
+    // （`aboutInfo` は同梱文書まで見に行く・ゲート2の指摘）、**閉じれば止まる**
+    const again = setInterval(readLog, 3000);
     return () => clearInterval(again);
   }, [open]);
 
@@ -577,8 +587,8 @@ export default function Settings({
                 **在り処ごと分からなくなる**。下の一行がその状態を言葉で言う。
               */}
               <button
-                disabled={!about?.log_path}
-                title={about?.log_path ?? t.settingsLogNone}
+                disabled={!log}
+                title={log ?? t.settingsLogNone}
                 onClick={() => openLog().catch(() => {})}
               >
                 {t.settingsLog}
@@ -586,7 +596,7 @@ export default function Settings({
             </div>
             <p className="settings-note">
               {t.settingsLogNote}
-              {!about?.log_path && ` ${t.settingsLogNone}`}
+              {!log && ` ${t.settingsLogNone}`}
             </p>
           </section>
         </div>

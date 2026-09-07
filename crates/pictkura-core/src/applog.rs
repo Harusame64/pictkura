@@ -82,23 +82,78 @@ fn record(message: &str) {
 
     let mut wrote_header = WROTE_HEADER.lock().unwrap_or_else(|e| e.into_inner());
     let size = size_of(path);
-    // **退避してから、退避できたかを見て見出しを決める。** 太さから
+    // **先に片付けてから、その結果を見て見出しを決める。** 太さから
     // 「これから作り直すはず」と当てにすると、**退避が失敗し続ける台で
     // 見出しが毎行付く**（ゲート2）——ファイルは倍の速さで太り、
     // 1件ごとに版の行が挟まる
-    let rotated = rotate_if_full(path, size, MAX_BYTES);
+    let rotation = make_room(path, size, MAX_BYTES);
+
     // **見出しと最初の1行は、1回で書く。** 別々に書くと、上限のすぐ手前で
     // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
     // ——新しいファイルが見出しの無い行から始まる（ゲート1の指摘）
-    let text = if needs_header(*wrote_header, size, rotated) {
+    let mut text = String::new();
+    if needs_header(*wrote_header, size, rotation) {
         // 書けても書けなくても**印は付ける**。付けないと、書けない環境では
         // 1行ごとに見出しを試し続けることになる
         *wrote_header = true;
-        format!("{header}\n{line}")
-    } else {
-        line
-    };
+        text.push_str(&header);
+        text.push('\n');
+    }
+    if rotation == Rotation::Dropped {
+        // **捨てたことは、捨てた場所に書く。** 黙って消すと、
+        // 「前の行はどこへ行った」に答えられない
+        text.push_str(&format!(
+            "{} 前の記録を退避できなかったので、上限を守るために捨てた",
+            stamp()
+        ));
+        text.push('\n');
+    }
+    text.push_str(&line);
     let _ = append(path, &text);
+}
+
+/// 太った記録の片付け方（[`make_room`] の答え）。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Rotation {
+    /// まだ細い。何もしていない
+    NotNeeded,
+    /// `.1` へ送った。前の記録は読める
+    Moved,
+    /// **送れなかったので、その場で空にした。** 前の記録は失われる
+    Dropped,
+    /// **どちらもできなかった。** 上限を越えたまま書き足す
+    Stuck,
+}
+
+/// 上限に届いていたら、次の行を書く場所を空ける。
+///
+/// **送るのが第一。** 消さずに名前を替えるのは、**上限に当たった瞬間の直前が、
+/// たいてい知りたい所**だからである。
+///
+/// **送れなかったら、その場で空にする。** Windowsでは、**利用者が開いている
+/// ログは名前を替えられない**（`FILE_SHARE_DELETE` を付けない閲覧器は珍しくない）
+/// ——そして**「ログを開く」は説明書が勧めている操作**である。
+/// そこで諦めて追記を続けると、**上限は上限でなくなる**（ゲート2の指摘）。
+/// **書いてある約束のほうを守る**——古い記録を捨てる代わりに、
+/// [`Rotation::Dropped`] を返して**捨てたと書かせる**。
+fn make_room(path: &Path, size: Option<u64>, max: u64) -> Rotation {
+    if !size.is_some_and(|n| n >= max) {
+        return Rotation::NotNeeded;
+    }
+    // **`rename` は行き先が在っても置き換える**（Unix の `rename(2)` と、
+    // Windows の `MoveFileExW` に `MOVEFILE_REPLACE_EXISTING` を付けた呼び出し
+    // ——`std` の `sys/fs/windows.rs`）。**2周目で失敗して上限が効かなくなる、
+    // という道は無い**（ゲート1の P1。事実と違うので据え置いた）。
+    // **ただし、開いている相手が居れば Windows では失敗しうる**ので、
+    // 「置き換えたつもり」ではなく**置き換えた事実**を返す
+    if fs::rename(path, previous(path)).is_ok() {
+        return Rotation::Moved;
+    }
+    match OpenOptions::new().write(true).truncate(true).open(path) {
+        Ok(_) => Rotation::Dropped,
+        // 開くことすらできない台では、**書けないだけ**で終わる（下の `append` が断る）
+        Err(_) => Rotation::Stuck,
+    }
 }
 
 /// 見出しを付けるか。**この起動の1本目**と、**いま作り直したファイルの1本目**。
@@ -112,8 +167,8 @@ fn record(message: &str) {
 /// 作り直したファイルが本文から始まらないように。
 /// **`None`（太さを訊けなかった）は付けない**——分からないことを
 /// 「新しいファイルだ」と読むと、そこでも見出しが毎行付く。
-fn needs_header(wrote_header: bool, size: Option<u64>, rotated: bool) -> bool {
-    !wrote_header || rotated || size == Some(0)
+fn needs_header(wrote_header: bool, size: Option<u64>, rotation: Rotation) -> bool {
+    !wrote_header || matches!(rotation, Rotation::Moved | Rotation::Dropped) || size == Some(0)
 }
 
 /// いまの太さ。**無ければ 0、訊けなければ `None`。**
@@ -126,24 +181,6 @@ fn size_of(path: &Path) -> Option<u64> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(0),
         Err(_) => None,
     }
-}
-
-/// 太っていたら**1本だけ残して**退避する。**実際に置き換えたときだけ `true`。**
-///
-/// 消さずに名前を替えるのは、**上限に当たった瞬間の直前が、たいてい知りたい所**
-/// だからである。名前替えに失敗したらそのまま追記を続ける
-/// ——**上限を守れないほうが、記録を失うよりまし**。
-fn rotate_if_full(path: &Path, size: Option<u64>, max: u64) -> bool {
-    if !size.is_some_and(|n| n >= max) {
-        return false;
-    }
-    // **`rename` は行き先が在っても置き換える**（Unix の `rename(2)` と、
-    // Windows の `MoveFileExW` に `MOVEFILE_REPLACE_EXISTING` を付けた呼び出し
-    // ——`std` の `sys/fs/windows.rs`）。**2周目で失敗して上限が効かなくなる、
-    // という道は無い**（ゲート1の P1。事実と違うので据え置いた）。
-    // **ただし、開いている相手が居れば Windows では失敗しうる**ので、
-    // 「置き換えたつもり」ではなく**置き換えた事実**を返す
-    fs::rename(path, previous(path)).is_ok()
 }
 
 /// 追記する。**渡された文字列は改行ごと1回で書く**——見出しと最初の1行のように、
@@ -275,30 +312,52 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.log");
         append(&path, "むかしの行").unwrap();
-        assert!(rotate_if_full(&path, size_of(&path), 8));
+        assert_eq!(make_room(&path, size_of(&path), 8), Rotation::Moved);
         append(&path, "いまの行").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "いまの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "むかしの行\n");
 
         // もう1周しても、増えるのではなく**古いほうが押し出される**
-        assert!(rotate_if_full(&path, size_of(&path), 8));
+        assert_eq!(make_room(&path, size_of(&path), 8), Rotation::Moved);
         append(&path, "つぎの行").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "つぎの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "いまの行\n");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 
-    /// **まだ細いファイルは触らない**——`false` は「置き換えていない」の意味で、
+    /// **まだ細いファイルは触らない**——`NotNeeded` は「何もしていない」の意味で、
     /// 見出しを付けるかの判断がそれに乗っている。
     #[test]
     fn a_log_below_the_cap_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.log");
         append(&path, "まだ細い").unwrap();
-        assert!(!rotate_if_full(&path, size_of(&path), MAX_BYTES));
+        assert_eq!(
+            make_room(&path, size_of(&path), MAX_BYTES),
+            Rotation::NotNeeded
+        );
         assert!(!previous(&path).exists());
         // 太さを訊けなかったときも触らない
-        assert!(!rotate_if_full(&path, None, 8));
+        assert_eq!(make_room(&path, None, 8), Rotation::NotNeeded);
+    }
+
+    /// **送れない相手でも、上限は守る。** `.1` の側を「送れない場所」に
+    /// 仕立てて（同じ名前のフォルダを置く）、その場で空になることを見る。
+    ///
+    /// Windows で本当に起きるのは「利用者がログを開いている」場合だが、
+    /// **`rename` が失敗したあとの道は同じ**である。
+    #[test]
+    fn a_log_that_cannot_be_moved_aside_is_emptied_instead() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.log");
+        append(&path, "捨てられる行").unwrap();
+        // `.1` の名前をフォルダが押さえていると、ファイルは被せられない
+        fs::create_dir(previous(&path)).unwrap();
+
+        assert_eq!(make_room(&path, size_of(&path), 8), Rotation::Dropped);
+        assert_eq!(size_of(&path), Some(0), "上限を越えたまま残っていないこと");
+        append(&path, "あとの行").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "あとの行\n");
     }
 
     #[test]
@@ -314,17 +373,18 @@ mod tests {
     #[test]
     fn a_fresh_file_gets_a_header_even_mid_run() {
         // まだ何も書いていない起動
-        assert!(needs_header(false, Some(0), false));
-        assert!(needs_header(false, Some(4), false));
+        assert!(needs_header(false, Some(0), Rotation::NotNeeded));
+        assert!(needs_header(false, Some(4), Rotation::NotNeeded));
         // 書いたあとの、まだ余裕のあるファイル
-        assert!(!needs_header(true, Some(4), false));
-        // いま作り直したファイルと、消されたファイル
-        assert!(needs_header(true, Some(0), true));
-        assert!(needs_header(true, Some(0), false));
-        // **退避に失敗して太いままの台**では、見出しを毎行付けない（ゲート2）
-        assert!(!needs_header(true, Some(9_999_999), false));
+        assert!(!needs_header(true, Some(4), Rotation::NotNeeded));
+        // いま作り直したファイル（送った・その場で空にした）と、消されたファイル
+        assert!(needs_header(true, Some(0), Rotation::Moved));
+        assert!(needs_header(true, Some(9_999_999), Rotation::Dropped));
+        assert!(needs_header(true, Some(0), Rotation::NotNeeded));
+        // **どちらもできず太いままの台**では、見出しを毎行付けない（ゲート2）
+        assert!(!needs_header(true, Some(9_999_999), Rotation::Stuck));
         // **太さを訊けなかったとき**も付けない
-        assert!(!needs_header(true, None, false));
+        assert!(!needs_header(true, None, Rotation::NotNeeded));
     }
 
     #[test]

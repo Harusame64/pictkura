@@ -394,11 +394,20 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
             })
         })
         .collect();
+    // **書くのは1周に1回だけ。** 束ごとに1行でも、綴りが恒久的にずれた共有では
+    // **束が来るたびに1行**出る（この関数は 800ms の debounce で呼ばれる）。
+    // 写真を入れている間じゅう出続ければ、**上限のログがこの1種類で埋まり、
+    // 本当に見たい失敗が押し出される**（ゲート2の指摘）。
+    // 原因は同じなので、**1本目だけ残せば足りる**
+    static SAID_ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if let Some((count, first)) = unmatched {
-        applog::note(&format!(
-            "監視: ルート配下と照合できなかったので綴りをそのまま使う: {count}件（例: {}）",
-            first.display()
-        ));
+        if !SAID_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            applog::note(&format!(
+                "監視: ルート配下と照合できなかったので綴りをそのまま使う: {count}件（例: {}）\
+                 ——同じ理由の行はこれ1本だけ残す",
+                first.display()
+            ));
+        }
     }
 
     {
@@ -2103,11 +2112,6 @@ struct AboutDto {
     manual_en_path: Option<String>,
     /// 同梱したOSSライセンス一覧
     licenses_path: Option<String>,
-    /// 失敗の記録（`pictkura.log`）。**実在するときだけ**入る。
-    ///
-    /// **無いのが普通**である——書くのは失敗した行だけなので、`None` は
-    /// 「何も起きていない」の意味になる。ボタンを押せるかの正にそのまま使える
-    log_path: Option<String>,
 }
 
 /// 版と、同梱した文書の場所を返す。
@@ -2135,10 +2139,24 @@ fn about_info(app: tauri::AppHandle) -> AboutDto {
         manual_path: resolve("docs/manual.html"),
         manual_en_path: resolve("docs/manual.en.html"),
         licenses_path: resolve("THIRD-PARTY-LICENSES.txt"),
-        log_path: applog::file()
-            .filter(|p| p.is_file())
-            .map(|p| p.to_string_lossy().into_owned()),
     }
+}
+
+/// 失敗の記録が在るか（在ればその場所）。
+///
+/// **`about_info` から分けてある。** あちらは `resource_dir()` と6回の
+/// `is_file()` を通る**起動時に1回だけの問い合わせ**で、設定を開いている間
+/// **3秒ごとに呼ぶと、その `stat` が毎回 main スレッドに乗る**
+/// ——持ち歩き版をUSBやネットワーク越しに動かしている人は、**そこで画面が固まる**
+/// （ゲート2の指摘）。**変わりうるのはこの1つだけ**なので、この1つだけを訊く。
+///
+/// **無いのが普通**である——書くのは失敗した行だけなので、`None` は
+/// 「何も起きていない」の意味になる。ボタンを押せるかの正にそのまま使える。
+#[tauri::command]
+fn log_path() -> Option<String> {
+    applog::file()
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// 失敗の記録をOSの既定のアプリで開く（設定 →「pictkura について」）。
@@ -4533,6 +4551,9 @@ pub fn run() {
     // 窓を出さずに解除だけできる入口を用意する。
     if std::env::args().any(|a| a == "--unregister-autoplay") {
         set_log_path_without_app();
+        // **レジストリを歩く側で落ちたときも残す**（ゲート2の指摘）。
+        // `setup` の中で張る掛け金は、この枝には届かない
+        applog::install_panic_hook();
         if let Err(e) = autoplay::unregister() {
             applog::note(&format!("AutoPlayの解除に失敗: {e}"));
             std::process::exit(1);
@@ -4553,6 +4574,7 @@ pub fn run() {
     // 使っていない人。起動前から候補に並べるのは越権）
     if std::env::args().any(|a| a == "--sync-autoplay") {
         set_log_path_without_app();
+        applog::install_panic_hook();
         if let Err(e) = sync_autoplay_with_config() {
             applog::note(&format!("AutoPlayの同期に失敗（無視）: {e}"));
         }
@@ -5162,6 +5184,7 @@ pub fn run() {
             about_info,
             open_bundled_doc,
             open_log,
+            log_path,
             open_with,
             forget_editor,
             delete_media,

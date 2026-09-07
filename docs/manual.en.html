@@ -868,7 +868,8 @@ is nothing to open). It stays <strong>on this machine</strong> and is
 <strong>never sent anywhere</strong>. Lines can contain file names and folder paths, so read it
 before pasting it into a bug report. Deleting it is fine; it is created again if it is needed.
 It has a size cap, and when it is passed the previous record is kept as
-<code>pictkura.log.1</code>.
+<code>pictkura.log.1</code> — unless it cannot be moved aside (another program holding the
+file open, say), in which case the older half is dropped to keep the cap, and the log says so.
 </p>
 
 <p>
