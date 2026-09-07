@@ -437,7 +437,7 @@ export const de: Dict = {
   settingsDocNotBundled: "(in einem Entwicklungs-Build nicht enthalten)",
   settingsLog: "Protokoll öffnen",
   settingsLogNone: "(noch nichts aufgezeichnet)",
-  settingsLogOpenFailed: "Das Protokoll konnte nicht geöffnet werden.",
+  settingsOpenFailed: "Es ließ sich nicht öffnen.",
   settingsLogNote:
     "Eine Zeile wird nur geschrieben, wenn etwas fehlschlägt, und sie bleibt auf diesem Rechner. Es wird nichts gesendet.",
   settingsLanguage: "Sprache",
@@ -464,4 +464,30 @@ export const de: Dict = {
   speedNoDiff: " — keine Änderungen",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
+  errNotFound: "Dieses Foto steht nicht mehr im Index.",
+  errDb: "Der Index ließ sich nicht lesen oder schreiben.",
+  errConfigIo: "Die Einstellungsdatei ließ sich nicht lesen oder schreiben.",
+  errConfigFormat: "Die Einstellungsdatei war nicht lesbar.",
+  errNoDestination: "Es ist noch kein Zielordner gewählt.",
+  errRootManaged:
+    "Eine verwaltete Mediathek lässt sich nicht als Ordner hinzufügen — ihr Inhalt gehört jener App.",
+  errDestManaged:
+    "Eine verwaltete Mediathek kann kein Ziel sein — ihr Inhalt gehört jener App.",
+  errNoImageToExtract: "In dieser Datei ist kein Bild zum Herausnehmen.",
+  errSourceUnreadable: "Dieser Ordner ließ sich nicht lesen.",
+  errSourceManaged:
+    "Aus einer verwalteten Mediathek kann nicht importiert werden. Entfernen Sie die Endung (etwa .photoslibrary) aus dem Ordnernamen und wählen Sie ihn erneut.",
+  errExportDest: "Dieser Zielordner ließ sich nicht anlegen.",
+  errExportManaged: "Dorthin kann nichts geschrieben werden — das Paket verwaltet eine andere App.",
+  errFolderMissing: "Diesen Ordner gibt es nicht.",
+  errTrashFailed: "Verschieben in den Papierkorb nicht möglich.",
+  errTrashPartly: (n: number) =>
+    `${num(n)} in den Papierkorb verschoben; der Rest nicht.`,
+  errAutoplayRollback:
+    "Die Einstellung ließ sich nicht speichern. Die AutoPlay-Registrierung bleibt vorerst geändert; der nächste Start gleicht sie wieder an.",
+  errNoLogYet: "Es wurde noch nichts aufgezeichnet.",
+  errNotBundled: "In diesem Build nicht enthalten.",
+  errNoStoreLink: "Für dieses Betriebssystem gibt es keine Seite dazu.",
+  errBadKind: "Es gab nichts zu öffnen.",
+  errTooManyIds: (n: number) => `Höchstens ${num(n)} auf einmal.`,
 };

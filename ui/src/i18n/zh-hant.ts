@@ -45,9 +45,10 @@
  *
  * **ゴミ箱の呼び名はOSで割れる**——Windowsは `資源回收筒`、macOSは `垃圾桶`。
  * 簡体字辞書と同じ理由で**Windows側に寄せた**（配布の主戦場がWindows、
- * macOSの利用者にも通じる）。**分けるなら8キーと2行**——`menuDelete` /
+ * macOSの利用者にも通じる）。**分けるなら10キーと2行**——`menuDelete` /
  * `bulkDelete` / `deleteConfirm` / `deleted` / `deletedSomeLeft` /
- * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` と、
+ * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
+ * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）と、
  * ショートカット一覧の X と右クリックの行（`grep 資源回收筒` で数える）。
  *
  * **見出しの語**は簡体字辞書と同じ分け方。`navPlaces` は `相簿`（`位置` はGPSの撮影地、
@@ -422,7 +423,7 @@ export const zhHant: Dict = {
   settingsDocNotBundled: "（開發版本中沒有附帶）",
   settingsLog: "開啟記錄檔",
   settingsLogNone: "（還沒有任何記錄）",
-  settingsLogOpenFailed: "無法開啟記錄檔。",
+  settingsOpenFailed: "無法開啟。",
   settingsLogNote: "只有出錯時才會寫入一行，而且只留在這台電腦上，不會傳送。",
   settingsLanguage: "語言",
   settingsLanguageSystem: "跟隨系統",
@@ -447,4 +448,27 @@ export const zhHant: Dict = {
   speedNoDiff: " —— 沒有變更",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` —— 新增 ${num(added)}、變更 ${num(changed)}、刪除 ${num(removed)}`,
+  errNotFound: "索引裡已經沒有這張照片。",
+  errDb: "索引讀寫失敗。",
+  errConfigIo: "設定檔無法讀寫。",
+  errConfigFormat: "無法解析設定檔的內容。",
+  errNoDestination: "還沒有選擇目標資料夾。",
+  errRootManaged: "受管理的圖庫無法作為資料夾加入：裡面的內容屬於那個應用程式。",
+  errDestManaged: "受管理的圖庫不能作為目標位置：裡面的內容屬於那個應用程式。",
+  errNoImageToExtract: "這個檔案裡沒有可以取出的影像。",
+  errSourceUnreadable: "無法讀取該資料夾。",
+  errSourceManaged:
+    "無法從受管理的圖庫內部匯入。請去掉資料夾名稱中的副檔名（如 .photoslibrary）後重新選擇。",
+  errExportDest: "無法建立該目標資料夾。",
+  errExportManaged: "無法寫入該位置：這個套件由其他應用程式管理。",
+  errFolderMissing: "找不到該資料夾。",
+  errTrashFailed: "無法移到資源回收筒。",
+  errTrashPartly: (n: number) => `已將 ${num(n)} 張移到資源回收筒，其餘未能移動。`,
+  errAutoplayRollback:
+    "無法儲存該設定。自動播放的註冊暫時維持剛才變更後的狀態，下次啟動時會依設定恢復。",
+  errNoLogYet: "還沒有任何記錄。",
+  errNotBundled: "此版本中沒有附帶。",
+  errNoStoreLink: "此系統沒有可以指引的頁面。",
+  errBadKind: "沒有可以開啟的內容。",
+  errTooManyIds: (n: number) => `一次最多 ${num(n)} 項。`,
 };

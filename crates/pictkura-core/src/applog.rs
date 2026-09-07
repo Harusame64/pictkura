@@ -8,12 +8,22 @@
 //! ここは**DBの隣に追記1本**を置いて、そこだけを直す。
 //!
 //! - **書くのは失敗した行だけ。** 起動した・取り込んだ・消したは書かない。
-//!   **黙っているのが既定**で、ファイルが在ること自体が「何かあった」の印になる。
-//!   **逆は言えない**——**画面に出る失敗はここへ来ない**（サムネイルが1枚出ないのは
-//!   その場に灰色で出るし、`ThumbError` には「OSにデコーダが無い」まで混ざるので、
-//!   全部書くと**本当に見たい失敗が押し出される**。PRのcodex の指摘で文書を直した）
+//!   **黙っているのが既定**で、ファイルが在ること自体が「何かあった」の印になる
+//!   ——だから**「何か」の中身を選ぶ**:
+//!   - **機械が転んだものは書く。** 画面に出たものも含めて
+//!     （`errs::from_err` が不具合と判じたもの・2026-09-07）。**報告と突き合わせられる**
+//!   - **利用者の選び間違いは書かない。** 無いフォルダを選んだ、管理された
+//!     ライブラリを指した——**選び直せば済む**話で、これを書くと
+//!     **設定をいじっただけでファイルができる**
+//!   - **画面で分かる失敗も書かない。** サムネイルが1枚出ないのはその場に灰色で出るし、
+//!     `ThumbError` には「OSにデコーダが無い」まで混ざるので、全部書くと
+//!     **本当に見たい失敗が押し出される**
 //! - **通信はしない。** 送る仕掛けも、送る先も無い。行はその機械に残るだけで、
 //!   利用者が設定から開き、要ると思ったぶんだけ自分で貼る
+//! - **文は英語で書く**（2026-09-07・利用者の判断）。**画面は利用者の言語、
+//!   記録は報告の言語**——貼られた先（GitHub の issue）でそのまま読める。
+//!   コミットとPRを英語で書くのと同じ位置づけである。
+//!   **OSや外のクレートの文言は、そのOSの言語のまま混ざる**（訳せない）
 //! - **上限がある**（[`MAX_BYTES`]）。壊れたファイルが数万枚あるライブラリでは
 //!   1枚1行が延々と出るので、際限なく太る道は塞いでおく
 //! - **止めない。** 書けなくても失敗を返さない。**ログが書けないことを理由に
@@ -27,6 +37,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// 1本が太れる上限。超えたら `.1` へ送って書き直すので、**最大で2本ぶん**。
 ///
@@ -42,10 +53,50 @@ const MAX_LINE: usize = 4096;
 /// ログの置き場。**アプリの起動時に1回だけ決まる。**
 static FILE: OnceLock<PathBuf> = OnceLock::new();
 
-/// 書き込みの直列化と、**この起動の見出しを書いたか**（`true` なら書いた）。
+/// 書くときの決めごと。**1つの錠の中で決めて、その中で書く。**
 ///
-/// 見出しを兼ねさせているのは、**同じ錠の中で決めないと二度書ける**ため。
-static WROTE_HEADER: Mutex<bool> = Mutex::new(false);
+/// **2つに分けると順番が壊れる**（ゲート1の指摘）——畳み込みの判断だけ先に錠を取り、
+/// 書くのは別の錠、という形にしていたので、**別のスレッドが間に割り込むと
+/// 「上の行が N 回」の主張が嘘になる**。判断と書き込みを離さない。
+struct LogState {
+    /// **この起動の見出しを書いたか**（`true` なら書いた）。
+    wrote_header: bool,
+    /// **直前に書けた行**と、そのあと畳んだ回数（[`Repeat`]）。
+    repeated: Option<Repeat>,
+}
+
+/// 続いている同じ行の控え。
+///
+/// 同じ失敗が続けて出る道がある——DBが詰まっているあいだ、画面の要求が
+/// 何度も同じ失敗で返るなど。1件1行で書くと、**上限のログが1種類で埋まり、
+/// 本当に見たい失敗が押し出される**（ゲート2）。**続いた分は数えて、
+/// 別の行が来たときに1行で言う。**
+struct Repeat {
+    /// 畳む対象の行。**書けた行だけがここに入る**——書けなかった行を入れると、
+    /// **一時的に書けなかっただけの失敗が、以後ずっと畳まれて消える**
+    /// （PRのcodex の指摘）
+    line: String,
+    /// そのあと黙った回数。
+    count: u64,
+    /// **最後に何かを書いた時刻。** これが無いと、**同じ失敗が続いたまま
+    /// アプリが終わったときに、記録が「1回だけ起きた」と嘘をつく**
+    /// ——固まったアプリを利用者が落とすのは、まさにその形である（ゲート2）。
+    ///
+    /// **畳むのは、記録が在るあいだだけ**である——利用者が消したら畳まずに書き直す
+    /// （説明書が「消してよい」と言っている。PRのcodex）
+    since: Instant,
+}
+
+/// 同じ行が続いていても、**これだけ黙ったら1行書く**。
+///
+/// **記録が黙っていられる上限**である。詰まったDBで4000回続いても1分ごとに
+/// 「まだ続いている」と言うので、**強制終了されても失われるのは最後の1分ぶん**になる。
+const FLUSH_AFTER: Duration = Duration::from_secs(60);
+
+static STATE: Mutex<LogState> = Mutex::new(LogState {
+    wrote_header: false,
+    repeated: None,
+});
 
 /// ログの置き場を決める（アプリの起動時に1回）。
 ///
@@ -80,25 +131,141 @@ pub fn note(message: &str) {
 fn record(message: &str) {
     let Some(path) = FILE.get() else { return };
 
-    // **文字列は錠の外で作る**（見出しも、要らない周でも作る）。
-    // 錠の中でパニックすると、[`install_panic_hook`] が**同じ錠を取りに来て
-    // 自分を待つ**——`std` の `Mutex` は再入できないので、落ちる代わりに止まる。
-    // 錠の中に残すのは**失敗を `Result` で返すファイル操作だけ**にして、その道を塞ぐ。
-    // 見出しを1本ぶん余計に組む値段は、**書くのが失敗した行だけ**なので払える
-    let line = format!("{} {}", stamp(), one_line(message));
+    // **文字列は錠の外で作る**。錠の中でパニックすると、[`install_panic_hook`] が
+    // **同じ錠を取りに来て自分を待つ**——`std` の `Mutex` は再入できないので、
+    // 落ちる代わりに止まる。錠の中に残すのは**失敗を `Result` で返すファイル操作**と、
+    // 数を数える `format!` だけにして、その道を塞ぐ。
+    // **時刻は1つで足りる**——畳んだ数の行と本文は、同じ瞬間に書かれる
+    let folded = one_line(message);
+    let now = stamp();
     let header = header();
     let dropped_note = format!(
-        "{} 前の記録を退避できなかったので、上限を守るために捨てた",
-        stamp()
+        "{now} the previous record could not be moved aside, so it was dropped to keep the cap"
     );
+
+    let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
+
+    // **記録そのものが消えていたら、畳まない。** 説明書は「消しても構いません
+    // （また必要になれば作られます）」と約束している——畳んだままだと、
+    // **消した直後に同じ失敗が起きても、どこにも残らない**（PRのcodex）。
+    // `stat` 1回は、追記1回よりずっと安い
+    let gone = size_of(path) == Some(0);
+
+    // **同じ行が続いたら、書かずに数える**——ただし**黙りっぱなしにはしない**
+    if let Some(rep) = st.repeated.as_mut() {
+        if rep.line == folded && !gone {
+            rep.count += 1;
+            if rep.since.elapsed() < FLUSH_AFTER {
+                return;
+            }
+            // 1分ぶん黙った。**まだ続いていることを1行で言って、数え直す**
+            // **どの行だったかを書く。** 「上の行」は、退避や削除のあとには
+            // **もう上に無い**——文脈の無い要約が1分ごとに並ぶだけになる
+            // （PRのcodex）。別の行が来たときの枝と同じ形にそろえる
+            let said = format!(
+                "(repeated {} more times, still going): {}",
+                rep.count, rep.line
+            );
+            // **数え直すのは書いたあと。** `write_line` は `st` ごと要るので、
+            // ここで `rep` の借りを終える
+            let wrote = write_line(&mut st, path, &now, &header, &dropped_note, &said);
+            if let Some(rep) = st.repeated.as_mut() {
+                after_flush(rep, wrote);
+            }
+            return;
+        }
+    }
+
+    // 別の行が来た。**黙っていた分を、先に1行で言う**
+    if let Some(rep) = st.repeated.take() {
+        if rep.count > 0 {
+            let said = format!(
+                "(the line above repeated {} more times): {}",
+                rep.count, rep.line
+            );
+            write_line(&mut st, path, &now, &header, &dropped_note, &said);
+        }
+    }
+    // **書けたときだけ畳み始める。** 書けなかった行を覚えると、
+    // **書けるようになっても、同じ失敗は二度と記録されない**（PRのcodex）
+    if write_line(&mut st, path, &now, &header, &dropped_note, &folded) {
+        st.repeated = Some(Repeat {
+            line: folded,
+            count: 0,
+            since: Instant::now(),
+        });
+    }
+}
+
+/// **抱えたままの数を、いま吐き出す。**（終わるときに1回だけ呼ぶ）
+///
+/// 畳み込みは**次を待って**数を世に出す——同じ失敗がもう一度来るか、別の行が来るか。
+/// **どちらも来ないまま終わる道が在る**: 同じ失敗が60秒のうちに何千回か起きて、
+/// **そこで止まった**とき。時計を持った番人は居ないので、
+/// **その数はプロセスと一緒に消える**——記録には「1回起きた」だけが残り、
+/// **千回だったことは誰も知らない**（PRのcodex）。
+///
+/// **落とされたとき（強制終了・パニックの直後）までは救えない。**
+/// それでも**1本目の行は既に書かれている**ので、失敗そのものは残る。
+/// ここが救うのは**数のほう**である。
+pub fn flush_pending() {
+    let Some(path) = FILE.get() else { return };
+
+    let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(rep) = st.repeated.take() else {
+        return;
+    };
+    if rep.count == 0 {
+        return; // 抱えていない。**空のファイルを作らない**
+    }
+    // **文字列は錠の中で作っている**——ここは終わり際の1回きりで、
+    // `record` と違って**この道からパニックの網へ入る流れが無い**
+    let now = stamp();
+    let header = header();
+    let dropped_note = format!(
+        "{now} the previous record could not be moved aside, so it was dropped to keep the cap"
+    );
+    let said = format!(
+        "(the line above repeated {} more times): {}",
+        rep.count, rep.line
+    );
+    write_line(&mut st, path, &now, &header, &dropped_note, &said);
+}
+
+/// 周期の要約を出したあとの、畳み込みの立て直し。
+///
+/// **数え直すのは、言えたときだけ。** 先に 0 へ戻すと、**書けなかった1分ぶんが
+/// どこにも出ないまま消える**——記録は「4312回」を「1回」と言い、
+/// **続いている不具合を小さく見せる**（PRのcodex）。
+///
+/// **時計のほうは、書けても書けなくても進める。** 言えたときだけ進めると、
+/// 書けない台では**繰り返しが来るたびに開きに行く**
+/// ——「1分に1回」の約束が、**失敗の数だけの `open`** に化ける。
+fn after_flush(rep: &mut Repeat, wrote: bool) {
+    rep.since = Instant::now();
+    if wrote {
+        rep.count = 0;
+    }
+}
+
+/// 1行を、上限と見出しの面倒を見ながら書く（[`record`] の中身）。**書けたら `true`。**
+///
+/// **錠は呼ぶ側が握っている**——判断と書き込みを離さないため。
+fn write_line(
+    st: &mut LogState,
+    path: &Path,
+    now: &str,
+    header: &str,
+    dropped_note: &str,
+    folded: &str,
+) -> bool {
+    let line = format!("{now} {folded}");
     // **これから書く分まで見て**上限を判断する。太さだけで決めると、
     // **最後の1行が上限を越えたまま残る**（ゲート1の指摘）。
     // **書きうる3行を全部数える**——見出しも、捨てたことわりも
-    // （数え漏らすとその分だけ越える・ゲート2）。
-    // 付かない周では多めに見ることになるが、**早めに退避するのは害にならない**
+    // （数え漏らすとその分だけ越える・ゲート2）
     let wanted = (header.len() + dropped_note.len() + line.len() + 3) as u64;
 
-    let mut wrote_header = WROTE_HEADER.lock().unwrap_or_else(|e| e.into_inner());
     let size = size_of(path);
     // **先に片付けてから、その結果を見て見出しを決める。** 太さから
     // 「これから作り直すはず」と当てにすると、**退避が失敗し続ける台で
@@ -110,27 +277,27 @@ fn record(message: &str) {
     // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
     // ——新しいファイルが見出しの無い行から始まる（ゲート1の指摘）
     let mut text = String::new();
-    let with_header = needs_header(*wrote_header, size, rotation);
+    let with_header = needs_header(st.wrote_header, size, rotation);
     if with_header {
-        text.push_str(&header);
+        text.push_str(header);
         text.push('\n');
     }
     if rotation == Rotation::Dropped {
         // **捨てたことは、捨てた場所に書く。** 黙って消すと、
         // 「前の行はどこへ行った」に答えられない
-        text.push_str(&dropped_note);
+        text.push_str(dropped_note);
         text.push('\n');
     }
     text.push_str(&line);
 
     // **書けたときだけ「見出しを書いた」ことにする。** 先に印を付けると、
     // 1本目が書けなかった台で**この起動の行が、前の起動の見出しの下に並ぶ**
-    // ——読む人は**前の版の記録だと読む**（PRのcodex）。
-    // 試し続けても損は無い**——見出しと本文は1回の `append` で出るので、
-    // 「毎行ためす」ぶんの書き込みは増えない
-    if append(path, &text).is_ok() && with_header {
-        *wrote_header = true;
+    // ——読む人は**前の版の記録だと読む**（PRのcodex）
+    let wrote = append(path, &text).is_ok();
+    if wrote && with_header {
+        st.wrote_header = true;
     }
+    wrote
 }
 
 /// 太った記録の片付け方（[`make_room`] の答え）。
@@ -220,7 +387,6 @@ fn append(path: &Path, line: &str) -> std::io::Result<()> {
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(f, "{line}")
 }
-
 /// **捕まえていないパニックも記録に残す**（アプリの起動時に1回）。
 ///
 /// [`crate::panics::catching`] が張ってあるのは**解読器を通る道だけ**である。
@@ -239,11 +405,8 @@ pub fn install_panic_hook() {
         let at = info
             .location()
             .map(|l| format!("{}:{}", l.file(), l.line()))
-            .unwrap_or_else(|| "場所不明".to_string());
-        record(&format!(
-            "パニック（{at}）: {}",
-            describe_panic(info.payload())
-        ));
+            .unwrap_or_else(|| "unknown location".to_string());
+        record(&format!("panic ({at}): {}", describe_panic(info.payload())));
         previous(info);
     }));
 }
@@ -258,7 +421,7 @@ pub fn describe_panic(payload: &(dyn std::any::Any + Send)) -> String {
     } else if let Some(s) = payload.downcast_ref::<String>() {
         s.clone()
     } else {
-        "（内容の分からないパニック）".to_string()
+        "(a panic whose contents could not be read)".to_string()
     }
 }
 
@@ -304,7 +467,7 @@ fn one_line(message: &str) -> String {
     while !folded.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…（以下略）", &folded[..end])
+    format!("{}… (truncated)", &folded[..end])
 }
 
 /// 1つ前のログの名前（`pictkura.log` → `pictkura.log.1`）。
@@ -357,6 +520,33 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "つぎの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "いまの行\n");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    /// **言えなかった要約は、数えを持ったまま次へ回す。**
+    ///
+    /// 書けない台（ログを別のソフトが握っている・置き場が消えた）で数え直すと、
+    /// **その1分ぶんは二度と出てこない**。続いている不具合が、記録の上では
+    /// 1分ごとに「1回」ずつ起きているように見える。
+    #[test]
+    fn a_summary_that_could_not_be_written_keeps_its_count() {
+        // **起動から1分未満の台では過去を作れない**（`Instant` は起動からの単調な時計）。
+        // その台では時計の側の確認だけ飛ばす——数えの側は必ず見る
+        let long_ago = Instant::now().checked_sub(FLUSH_AFTER * 2);
+        let mut rep = Repeat {
+            line: "同じ失敗".to_string(),
+            count: 7,
+            since: long_ago.unwrap_or_else(Instant::now),
+        };
+
+        after_flush(&mut rep, false);
+        assert_eq!(rep.count, 7, "書けなかった1分ぶんを捨てないこと");
+        if long_ago.is_some() {
+            assert!(rep.since.elapsed() < FLUSH_AFTER, "次に言うのは1分後");
+        }
+
+        // 言えたら、そこで数え直す
+        after_flush(&mut rep, true);
+        assert_eq!(rep.count, 0);
     }
 
     /// **まだ細いファイルは触らない**——`NotNeeded` は「何もしていない」の意味で、
@@ -441,8 +631,8 @@ mod tests {
     fn a_line_too_long_is_cut_at_a_character_boundary() {
         let long = "あ".repeat(MAX_LINE); // 3 * MAX_LINE バイト
         let cut = one_line(&long);
-        assert!(cut.len() <= MAX_LINE + "…（以下略）".len());
-        assert!(cut.ends_with("…（以下略）"));
+        assert!(cut.len() <= MAX_LINE + "… (truncated)".len());
+        assert!(cut.ends_with("… (truncated)"));
         // 切った先が文字の途中でないこと（`String` である時点で保証されるが、
         // **切り方を変えたときに気付ける**ように見ておく）
         assert!(cut.starts_with("あああ"));
@@ -463,7 +653,10 @@ mod tests {
             describe_panic(&"持ち物の文字列".to_string()),
             "持ち物の文字列"
         );
-        assert_eq!(describe_panic(&7u8), "（内容の分からないパニック）");
+        assert_eq!(
+            describe_panic(&7u8),
+            "(a panic whose contents could not be read)"
+        );
     }
 
     #[test]

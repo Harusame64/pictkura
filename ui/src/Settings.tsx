@@ -30,6 +30,7 @@ import {
   setLocaleChoice,
   t,
 } from "./i18n";
+import { errText } from "./i18n/err.ts";
 import { applyTheme, readTheme, type ThemeChoice } from "./theme";
 
 /**
@@ -58,11 +59,11 @@ export default function Settings({
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);
   /**
-   * 記録を開けなかった理由。**ダイアログの中に出す**のが要点で、
+   * 開けなかった理由（説明書・ライセンス・記録）。**ダイアログの中に出す**のが要点で、
    * `onError` はツールバーの一行へ流れる——**開いている設定の背後**なので、
    * 出しても見えない（PRのcodex）。`destError` と同じ扱いにする。
    */
-  const [logError, setLogError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   /** 自由記述の入力欄を開いているか、その中身と、実際にできるフォルダ名 */
   const [customMode, setCustomMode] = useState(false);
@@ -128,7 +129,7 @@ export default function Settings({
       // 閉じても状態は残る（`!open` で null を返すだけ）ので、
       // 前回の拒否メッセージを次に開いたとき出さないよう消す
       setDestError(null);
-      setLogError(null);
+      setOpenError(null);
       return;
     }
     if (initialised.current || patterns.length === 0 || !config) return;
@@ -265,8 +266,8 @@ export default function Settings({
                     // **ダイアログの中に出す。** 画面下の状態バーへ流しても
                     // このダイアログが覆っているうえ32chで省略されるので、
                     // 断られた理由もパスも読めない
-                    setDestError(String(e));
-                    onError(String(e));
+                    setDestError(errText(e));
+                    onError(errText(e));
                     return;
                   }
                   setDestError(null);
@@ -363,7 +364,7 @@ export default function Settings({
                     await setAutoAdvance(e.target.checked);
                   } catch (err) {
                     // 保存できなければ下の onConfigChanged で表示が元に戻る
-                    onError(String(err));
+                    onError(errText(err));
                   }
                   onConfigChanged();
                 }}
@@ -397,7 +398,7 @@ export default function Settings({
                     } catch (err) {
                       // レジストリに書けなかった場合。設定は保存されていないので
                       // 下の onConfigChanged で表示は元の状態に戻る
-                      onError(String(err));
+                      onError(errText(err));
                     }
                     onConfigChanged();
                   }}
@@ -551,7 +552,7 @@ export default function Settings({
                   try {
                     await setCheckUpdateOnStart(e.target.checked);
                   } catch (err) {
-                    onError(String(err));
+                    onError(errText(err));
                   }
                   onConfigChanged();
                 }}
@@ -574,7 +575,10 @@ export default function Settings({
                     : about?.manual_path) ?? t.settingsDocNotBundled
                 }
                 onClick={() =>
-                  manualDoc && openBundledDoc(manualDoc).catch(() => {})
+                  manualDoc &&
+                  openBundledDoc(manualDoc)
+                    .then(() => setOpenError(null))
+                    .catch((e) => setOpenError(errText(e, t.settingsOpenFailed)))
                 }
               >
                 {t.settingsManual}
@@ -582,7 +586,11 @@ export default function Settings({
               <button
                 disabled={!about?.licenses_path}
                 title={about?.licenses_path ?? t.settingsDocNotBundled}
-                onClick={() => openBundledDoc("licenses").catch(() => {})}
+                onClick={() =>
+                  openBundledDoc("licenses")
+                    .then(() => setOpenError(null))
+                    .catch((e) => setOpenError(errText(e, t.settingsOpenFailed)))
+                }
               >
                 {t.settingsOssLicenses}
               </button>
@@ -603,12 +611,17 @@ export default function Settings({
                 // **出すのはダイアログの中**——`onError` が流れる先は
                 // ツールバーの一行で、**いま開いている設定の背後**にある
                 // （`.palette-backdrop` が `position: fixed` で覆う。PRのcodex）。
-                // **Rust側の文言は出さない**——あちらは日本語決め打ちで、
-                // 英語の画面に日本語が混じる（週の台紙の項目3）
+                //
+                // **Rust 側の文言も、いまは辞書を通る**（項目3）ので出してよい
+                // ——`errText` が鍵を引き、引けなければ下の1文に落ちる
                 onClick={() =>
                   openLog()
-                    .then(() => setLogError(null))
-                    .catch(() => setLogError(t.settingsLogOpenFailed))
+                    .then(() => setOpenError(null))
+                    // **Rust が鍵を付けている失敗は、その1文を出す**
+                    // （「まだ記録はありません」など）。鍵の無い失敗——
+                    // 関連付けが無い等、外のクレートの文言——は、
+                    // **こちらの1文に落とす**ほうが読める
+                    .catch((e) => setOpenError(errText(e, t.settingsOpenFailed)))
                 }
               >
                 {t.settingsLog}
@@ -618,7 +631,7 @@ export default function Settings({
               {t.settingsLogNote}
               {!log && ` ${t.settingsLogNone}`}
             </p>
-            {logError && <p className="settings-error">{logError}</p>}
+            {openError && <p className="settings-error">{openError}</p>}
           </section>
         </div>
       </div>

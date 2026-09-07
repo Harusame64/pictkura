@@ -35,7 +35,7 @@ pub fn catching<T>(label: &str, f: impl FnOnce() -> T) -> Option<T> {
         Ok(value) => Some(value),
         Err(payload) => {
             applog::note(&format!(
-                "パニックを捕まえた（{label}）: {}",
+                "caught a panic ({label}): {}",
                 applog::describe_panic(&*payload)
             ));
             None

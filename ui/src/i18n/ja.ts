@@ -444,7 +444,7 @@ export const ja = {
   settingsDocNotBundled: "（開発中の実行では同梱されていません）",
   settingsLog: "ログを開く",
   settingsLogNone: "（まだ記録はありません）",
-  settingsLogOpenFailed: "記録を開けませんでした。",
+  settingsOpenFailed: "開けませんでした。",
   settingsLogNote:
     "失敗したときだけ、この機械の中に1行ずつ残します。送信はしません。",
   settingsLanguage: "言語",
@@ -470,6 +470,36 @@ export const ja = {
   speedNoDiff: " ／ 変更なし",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` ／ 追加${num(added)}・変更${num(changed)}・削除${num(removed)}`,
+  // ===== Rust から届く失敗（`errs.rs` の鍵と一対一）=====
+  //
+  // **詳細（パス・OSの文言）は訳さずに後ろへ添える**（`i18n/err.ts`）。
+  // ここに無い鍵が来たら、フロントは**生のまま**出す
+  errNotFound: "その写真の記録が見つかりません。",
+  errDb: "索引の読み書きに失敗しました。",
+  errConfigIo: "設定ファイルを読み書きできませんでした。",
+  errConfigFormat: "設定ファイルの中身を読めませんでした。",
+  errNoDestination: "コピー先のフォルダが決まっていません。",
+  errRootManaged:
+    "アプリが管理しているライブラリは、フォルダとして登録できません（中身は内部ファイルです）。",
+  errDestManaged:
+    "アプリが管理しているライブラリは、コピー先にできません（中身は内部ファイルです）。",
+  errNoImageToExtract: "この写真から取り出せる絵がありません。",
+  errSourceUnreadable: "取り込み元のフォルダが読めません。",
+  errSourceManaged:
+    "アプリが管理しているライブラリの中は取り込めません。フォルダ名から拡張子（.photoslibrary など）を外してから選び直してください。",
+  errExportDest: "書き出し先のフォルダを作れません。",
+  errExportManaged: "この場所へは書き出せません（アプリが管理している入れ物です）。",
+  errFolderMissing: "フォルダが見つかりません。",
+  errTrashFailed: "ゴミ箱へ移せませんでした。",
+  errTrashPartly: (n: number) =>
+    `${num(n)}枚はゴミ箱へ移しました。残りは移せませんでした。`,
+  errAutoplayRollback:
+    "設定を保存できませんでした。自動再生の登録だけが変わったまま残っていますが、次に起動したときに設定どおりへ直します。",
+  errNoLogYet: "まだ記録はありません。",
+  errNotBundled: "この実行環境には同梱されていません。",
+  errNoStoreLink: "このOSでは案内できる入手先がありません。",
+  errBadKind: "開き方が分かりませんでした。",
+  errTooManyIds: (n: number) => `一度に扱えるのは${num(n)}件までです。`,
 };
 
 /** 辞書の形。追加言語はこの型を満たす必要がある（キーの抜けはコンパイルエラー） */

@@ -440,7 +440,7 @@ export const es: Dict = {
   settingsDocNotBundled: "(no se incluye en una compilación de desarrollo)",
   settingsLog: "Abrir el registro",
   settingsLogNone: "(todavía no hay nada registrado)",
-  settingsLogOpenFailed: "No se pudo abrir el registro.",
+  settingsOpenFailed: "No se pudo abrir.",
   settingsLogNote:
     "Solo se escribe una línea cuando algo falla, y se queda en este equipo. No se envía nada.",
   settingsLanguage: "Idioma",
@@ -467,4 +467,30 @@ export const es: Dict = {
   speedNoDiff: " — sin cambios",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
+  errNotFound: "Esa foto ya no está en el índice.",
+  errDb: "No se pudo leer ni escribir el índice.",
+  errConfigIo: "No se pudo leer ni escribir el archivo de ajustes.",
+  errConfigFormat: "No se pudo entender el archivo de ajustes.",
+  errNoDestination: "Todavía no hay carpeta de destino elegida.",
+  errRootManaged:
+    "Una fototeca gestionada no se puede añadir como carpeta: lo de dentro pertenece a esa aplicación.",
+  errDestManaged:
+    "Una fototeca gestionada no puede ser el destino: lo de dentro pertenece a esa aplicación.",
+  errNoImageToExtract: "En este archivo no hay ninguna imagen que extraer.",
+  errSourceUnreadable: "No se pudo leer esa carpeta.",
+  errSourceManaged:
+    "No se puede importar desde dentro de una fototeca gestionada. Quita la extensión (.photoslibrary y similares) del nombre de la carpeta y vuelve a elegirla.",
+  errExportDest: "No se pudo crear esa carpeta de destino.",
+  errExportManaged: "Ahí no se puede escribir: ese paquete lo gestiona otra aplicación.",
+  errFolderMissing: "Esa carpeta no está.",
+  errTrashFailed: "No se pudo mover a la papelera.",
+  errTrashPartly: (n: number) =>
+    `${num(n)} en la papelera; el resto no se pudo mover.`,
+  errAutoplayRollback:
+    "No se pudo guardar el ajuste. La reproducción automática queda como se acaba de cambiar; el próximo inicio la alineará con el ajuste.",
+  errNoLogYet: "Todavía no hay nada registrado.",
+  errNotBundled: "No se incluye en esta compilación.",
+  errNoStoreLink: "Este sistema no tiene una página que indicar.",
+  errBadKind: "No había nada que abrir.",
+  errTooManyIds: (n: number) => `Como máximo ${num(n)} a la vez.`,
 };

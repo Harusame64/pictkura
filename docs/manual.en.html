@@ -862,12 +862,18 @@ With that off, pictkura never reaches the network at all — and you can still p
 <strong>About the log.</strong>
 It records <strong>only the things that did not work</strong> — a read that fell over
 part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
-launch that failed — one line each. Successes are not written, and
-<strong>failures you can see on screen are not written either</strong>: a thumbnail that does
-not appear, or a destination that could not be changed, tells you so where it happens. So no
+launch that failed — one line each. Successes are not written. What gets written is
+<strong>the machine falling over</strong>: an index it cannot read or write, a setting it
+cannot save. <strong>That includes ones you were told about on screen</strong>, so you can
+report them afterwards. <strong>What does not get written is a choice you can simply make
+again</strong> — a folder that is not there, a library another app manages — or something
+<strong>the screen already shows you</strong>, like a thumbnail that does not appear. So no
 file means <strong>none of the failures that belong here</strong> have happened.
 Open it from Settings → “About pictkura” → “Open the log” (the button is disabled while there
-is nothing to open). It stays <strong>on this machine</strong> and is
+is nothing to open). <strong>The sentences this app writes there are English</strong> whatever language the app is
+set to, so they can go straight into a bug report; what you see on screen stays in your own
+language. <strong>Reasons handed back by Windows or macOS stay in that system's language</strong>,
+because they are not ours to translate. It stays <strong>on this machine</strong> and is
 <strong>never sent anywhere</strong>. Lines can contain file names and folder paths, so read it
 before pasting it into a bug report. Deleting it is fine; it is created again if it is needed.
 It has a size cap, and when it is passed the previous record is kept as

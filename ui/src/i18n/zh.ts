@@ -28,9 +28,10 @@
  * **ゴミ箱の呼び名はOSで割れる**——Windows と Linux は `回收站`、macOSは `废纸篓`。
  * 辞書はプラットフォーム別に持てるキー（`videoCodecNoteMac` など）以外は1つしかないので、
  * **`回收站` に寄せた**。配布の主戦場がWindowsで（MSI / NSIS、DLもそちら）、
- * macOSの利用者にも `回收站` は通じる。**分けるなら8キーと2行**——`menuDelete` /
+ * macOSの利用者にも `回收站` は通じる。**分けるなら10キーと2行**——`menuDelete` /
  * `bulkDelete` / `deleteConfirm` / **`deleted`** / **`deletedSomeLeft`** /
- * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` と、
+ * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
+ * **`errTrashFailed`** / **`errTrashPartly`**（失敗の文言・2026-09-07に追加）と、
  * ショートカット一覧の X と右クリックの行。**`grep 回收站` で数えること**
  * ——削除のたびに出る `deleted` 系を落とすと、いちばん読まれる文字列が残る（ゲート2の指摘）。
  *
@@ -419,7 +420,7 @@ export const zh: Dict = {
   settingsDocNotBundled: "（开发版本里没有附带）",
   settingsLog: "打开日志",
   settingsLogNone: "（还没有任何记录）",
-  settingsLogOpenFailed: "无法打开日志。",
+  settingsOpenFailed: "无法打开。",
   settingsLogNote: "只有出错时才会写入一行，并且只留在这台电脑上，不会发送。",
   settingsLanguage: "语言",
   settingsLanguageSystem: "跟随系统",
@@ -444,4 +445,27 @@ export const zh: Dict = {
   speedNoDiff: " —— 没有变更",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` —— 新增 ${num(added)}、变更 ${num(changed)}、删除 ${num(removed)}`,
+  errNotFound: "索引里已经没有这张照片。",
+  errDb: "索引读写失败。",
+  errConfigIo: "设置文件无法读写。",
+  errConfigFormat: "无法解析设置文件的内容。",
+  errNoDestination: "还没有选择目标文件夹。",
+  errRootManaged: "受管理的图库无法作为文件夹添加：里面的内容属于那个应用。",
+  errDestManaged: "受管理的图库不能作为目标位置：里面的内容属于那个应用。",
+  errNoImageToExtract: "这个文件里没有可以取出的图像。",
+  errSourceUnreadable: "无法读取该文件夹。",
+  errSourceManaged:
+    "无法从受管理的图库内部导入。请去掉文件夹名中的扩展名（如 .photoslibrary）后重新选择。",
+  errExportDest: "无法创建该目标文件夹。",
+  errExportManaged: "无法写入该位置：这个包由其他应用管理。",
+  errFolderMissing: "找不到该文件夹。",
+  errTrashFailed: "无法移到回收站。",
+  errTrashPartly: (n: number) => `已将 ${num(n)} 张移到回收站，其余未能移动。`,
+  errAutoplayRollback:
+    "无法保存该设置。自动播放的注册暂时保持刚才更改后的状态，下次启动时会按设置恢复。",
+  errNoLogYet: "还没有任何记录。",
+  errNotBundled: "此版本中没有附带。",
+  errNoStoreLink: "此系统没有可以指引的页面。",
+  errBadKind: "没有可以打开的内容。",
+  errTooManyIds: (n: number) => `一次最多 ${num(n)} 项。`,
 };
