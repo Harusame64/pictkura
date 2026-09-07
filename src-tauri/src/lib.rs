@@ -3537,10 +3537,15 @@ async fn list_source_tree(
 /// USBだと1件あたり数msかかるので、**サムネイルを先に出してから**
 /// 「済」バッジを後追いで塗る。一覧が出るまでの待ちを増やさないため。
 ///
-/// `contested` は[`contested_source_names`] が返した名前——**一覧に出ている名前全部から
-/// 一度だけ数えたもの**。`paths` は100件ずつの切れ端なので、**切れ端の中だけでは
-/// 名前のぶつかりを数えられない**。ぶつかっている名前を**毎回まるごと送り直さない**のは、
-/// 一覧が2万件まで伸びるため（`TREE_LIMIT`）。
+/// `contested` は**この切れ端の中で**ぶつかっている名前だけ。数えたのは
+/// [`contested_source_names`] が**一覧全体で一度だけ**で、`paths` は100件ずつの
+/// 切れ端なので、**切れ端の中だけでは名前のぶつかりを数えられない**——だから
+/// 数えた答えを持ち回る。**ただし全部は送らない**: ここが引くのは**渡したパス自身の
+/// 名前だけ**なので、切れ端に居ないぶんを送っても答えは変わらず、
+/// 一覧は2万件まで伸びる（`TREE_LIMIT`）ので**1万語 × 200 回が IPC を渡る**。
+///
+/// 畳むのは**受け取ったここ**（`contested_set`）——**呼ぶ側に畳ませない。**
+/// UI で畳むと、名前を畳む規則が Rust と TypeScript の2か所になる。
 ///
 /// 返すのは3つの状態（[`pictkura_core::ImportState`]）。**「分からない」を「済」に
 /// 丸めない**——丸めると、まだ入っていない写真が既定で選択から外れ、
@@ -3554,7 +3559,7 @@ async fn probe_imported(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
-        let contested: HashSet<String> = contested.into_iter().collect();
+        let contested = pictkura_core::contested_set(contested.iter().map(String::as_str));
         paths
             .iter()
             .map(
@@ -3570,21 +3575,21 @@ async fn probe_imported(
     .map_err(|e| e.to_string())
 }
 
-/// 一覧に出ている名前のうち、**2つ以上に使われているもの**を返す（第5部 段階E）。
+/// 一覧の各行が「同じ名前がもう1つある」側か、**渡された並びのまま**返す（第5部 段階E）。
 ///
 /// **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——
 /// UI で数え直すと、**「済」バッジと取り込みが違う材料で答える**ようになり、
 /// バッジが「まだ入っていない」と出した写真を取り込みが飛ばす。
-/// 返るのは**畳んだ綴り**（`is_already_imported` / `import_paths` がそのまま受け取る）。
+///
+/// **名前の集合ではなく行ごとの真偽を返す。** 集合を返すと、UI が自分の行と
+/// 突き合わせるために**畳み方を知る**ことになり、規則が2か所になる。
+/// 真偽なら**並びだけで突き合う**し、`probe_imported` へは
+/// **その切れ端で立っているぶんだけ**送れる。
 #[tauri::command]
-async fn contested_source_names(names: Vec<String>) -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        pictkura_core::contested_names(names.iter().map(String::as_str))
-            .into_iter()
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
+async fn contested_source_names(names: Vec<String>) -> Result<Vec<bool>, String> {
+    tauri::async_runtime::spawn_blocking(move || pictkura_core::contested_flags(&names))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// ウィザードで選んだファイルだけを取り込む（第5部 段階E）。

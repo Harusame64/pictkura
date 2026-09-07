@@ -196,9 +196,9 @@ export default function ImportWizard({
       // **名前のぶつかりは一覧ごとに1回だけ数える**（切れ端ごとには数えられないし、
       // 一覧は2万件まで伸びる）。数える規則は Rust 側にしか置かない——ここで
       // 数え直すと、バッジと取り込みが**違う材料**で答えるようになる
-      let names: string[] = [];
+      let contested: boolean[];
       try {
-        names = await contestedSourceNames(allFiles.map((f) => f.name));
+        contested = await contestedSourceNames(allFiles.map((f) => f.name));
       } catch {
         return; // 数えられないときはバッジ無しのまま（取り込み自体は可能）
       }
@@ -206,10 +206,16 @@ export default function ImportWizard({
       for (let i = 0; i < allFiles.length; i += PROBE_CHUNK) {
         if (cancelled || gen !== probeGen.current) return;
         const chunk = allFiles.slice(i, i + PROBE_CHUNK);
+        // **この切れ端に居るぶんだけ送る。** 数えたのは一覧全体だが、向こうが引くのは
+        // 渡したパス自身の名前だけなので、絞っても答えは変わらない。絞らないと
+        // 控えを抱えたカードで**1万語 × 200 回**が IPC を渡る
+        const chunkContested = chunk
+          .map((f, j) => (contested[i + j] ? f.name : null))
+          .filter((n): n is string => n !== null);
         try {
           const results = await probeImported(
             chunk.map((f) => f.path),
-            names,
+            chunkContested,
           );
           if (cancelled || gen !== probeGen.current) return;
           setImported((prev) => {

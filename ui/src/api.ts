@@ -606,18 +606,23 @@ export const listSourceTree = (path: string) =>
  */
 export type ImportState = "imported" | "new" | "unsure";
 /**
- * 一覧に出ている名前のうち、**2つ以上に使われているもの**（畳んだ綴り）。
+ * 一覧の各行に「同じ名前がもう1つある」か、**渡した並びのまま**返る。
  *
  * **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——ここで数え直すと、
  * 「済」バッジと取り込みが**違う材料**で答えるようになる。
+ *
+ * **名前ではなく行ごとの真偽が返る。** 名前で受け取ると、自分の行と突き合わせるために
+ * **こちらが畳み方を知る**ことになり、畳む規則が2か所になる。
  */
 export const contestedSourceNames = (names: string[]) =>
-  invoke<string[]>("contested_source_names", { names });
+  invoke<boolean[]>("contested_source_names", { names });
 /**
  * 各ファイルが既に取り込み済みかを返す（サムネイル表示の後追いで塗る）。
  *
- * `contested` は `contestedSourceNames` の答えをそのまま渡す。`paths` は100件ずつの
- * 切れ端なので、**切れ端の中だけでは名前のぶつかりを数えられない**。
+ * `paths` は100件ずつの切れ端で、**切れ端の中だけでは名前のぶつかりを数えられない**
+ * ので、`contestedSourceNames` が一覧全体で数えた答えを持ち回る。**渡すのは
+ * その切れ端に居るぶんだけ**——向こうが引くのは渡したパス自身の名前だけなので
+ * 答えは変わらず、一覧は2万件まで伸びる。**畳むのは受け取った Rust 側。**
  */
 export const probeImported = (paths: string[], contested: string[]) =>
   invoke<ImportState[]>("probe_imported", { paths, contested });

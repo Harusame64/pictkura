@@ -602,7 +602,7 @@ pub fn contested_names<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<Stri
     let mut seen: HashSet<String> = HashSet::new();
     let mut twice: HashSet<String> = HashSet::new();
     for name in names {
-        let key = name.to_lowercase();
+        let key = fold_name(name);
         if !seen.insert(key.clone()) {
             twice.insert(key);
         }
@@ -610,9 +610,37 @@ pub fn contested_names<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<Stri
     twice
 }
 
+/// 名前の畳み方。**ここ以外に置かない。**
+///
+/// [`contested_names`] は畳んだ綴りで数え、[`is_contested`] は畳んだ綴りで引く。
+/// **片方だけ変えると、当たらなくなったことに誰も気づけない**——
+/// バッジは「まだ入っていない」と出し続け、取り込みは中身を読まなくなる。
+fn fold_name(name: &str) -> String {
+    name.to_lowercase()
+}
+
+/// 既に「ぶつかっている」と分かっている名前から、[`is_already_imported`] が
+/// そのまま受け取れる集合を作る。
+///
+/// **数えるのは呼ぶ側ではない**——[`contested_flags`] が一覧全体で数えた答えを、
+/// **その一部だけ持ち回るため**にある。畳み方を呼ぶ側へ出さないのが目的で、
+/// **ここで数え直しはしない。**
+pub fn contested_set<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<String> {
+    names.map(fold_name).collect()
+}
+
+/// 一覧の各行が「ぶつかっている」か（[`contested_names`] と同じ数え方・同じ並び）。
+///
+/// 名前の集合をそのまま返すと、**呼ぶ側が畳み方を知らないと自分の行と突き合わせられない**
+/// ——知らせると畳む規則が2か所になる。**行ごとの真偽なら、並びだけで突き合う。**
+pub fn contested_flags(names: &[String]) -> Vec<bool> {
+    let contested = contested_names(names.iter().map(String::as_str));
+    names.iter().map(|n| is_contested(&contested, n)).collect()
+}
+
 /// その名前が [`contested_names`] に載っているか。
 fn is_contested(contested: &HashSet<String>, file_name: &str) -> bool {
-    !contested.is_empty() && contested.contains(&file_name.to_lowercase())
+    !contested.is_empty() && contested.contains(&fold_name(file_name))
 }
 
 /// 取り込み元フォルダをスキャンし、設定に従ってコピーする。
@@ -1601,6 +1629,43 @@ mod tests {
             }
             _ => panic!("中身が違うのに畳んだ"),
         }
+    }
+
+    /// **行ごとの真偽と、名前の集合は、同じことを言っている。**
+    ///
+    /// `probe_imported` へ渡すのは切れ端に居るぶんだけで、突き合わせは**並び**でやる
+    /// ——ずれると、**ぶつかっている行が「ぶつかっていない」として送られ**、
+    /// バッジが「済」と言い切ってしまう（この工事が塞いだ穴）。
+    /// **綴りが違うだけの双子も同じ扱いになること**まで見る。
+    #[test]
+    fn the_contested_flags_line_up_with_the_names() {
+        let names: Vec<String> = ["DSC00001.ARW", "dsc00001.arw", "DSC00002.ARW"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            contested_flags(&names),
+            vec![true, true, false],
+            "並びか畳み方がずれている"
+        );
+
+        // 集合の側と食い違わないこと（材料は1つ）
+        let set = contested_names(names.iter().map(String::as_str));
+        for (name, flag) in names.iter().zip(contested_flags(&names)) {
+            assert_eq!(is_contested(&set, name), flag, "{name} で食い違った");
+        }
+
+        // 受け取り直した側が、同じ答えを引けること（`contested_set`）
+        let carried = contested_set(
+            names
+                .iter()
+                .zip(contested_flags(&names))
+                .filter(|(_, f)| *f)
+                .map(|(n, _)| n.as_str()),
+        );
+        assert!(is_contested(&carried, "DSC00001.ARW"));
+        assert!(is_contested(&carried, "dsc00001.arw"));
+        assert!(!is_contested(&carried, "DSC00002.ARW"));
     }
 
     /// **取り込み元が読めないのは「取り込み済み」ではない。**
