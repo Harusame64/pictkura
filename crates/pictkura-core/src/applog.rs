@@ -107,10 +107,8 @@ fn record(message: &str) {
     // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
     // ——新しいファイルが見出しの無い行から始まる（ゲート1の指摘）
     let mut text = String::new();
-    if needs_header(*wrote_header, size, rotation) {
-        // 書けても書けなくても**印は付ける**。付けないと、書けない環境では
-        // 1行ごとに見出しを試し続けることになる
-        *wrote_header = true;
+    let with_header = needs_header(*wrote_header, size, rotation);
+    if with_header {
         text.push_str(&header);
         text.push('\n');
     }
@@ -121,7 +119,15 @@ fn record(message: &str) {
         text.push('\n');
     }
     text.push_str(&line);
-    let _ = append(path, &text);
+
+    // **書けたときだけ「見出しを書いた」ことにする。** 先に印を付けると、
+    // 1本目が書けなかった台で**この起動の行が、前の起動の見出しの下に並ぶ**
+    // ——読む人は**前の版の記録だと読む**（PRのcodex）。
+    // 試し続けても損は無い**——見出しと本文は1回の `append` で出るので、
+    // 「毎行ためす」ぶんの書き込みは増えない
+    if append(path, &text).is_ok() && with_header {
+        *wrote_header = true;
+    }
 }
 
 /// 太った記録の片付け方（[`make_room`] の答え）。
