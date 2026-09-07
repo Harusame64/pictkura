@@ -423,17 +423,23 @@ enum Bytes {
     /// **読まなかった、または行き先が読めなかった。**
     /// クラウドにしか実体が無い・開けない・途中で失敗した
     Unknown,
-    /// **取り込み元のほうが読めなかった。** 抜かれた・一時的な I/O の失敗。
-    /// **クラウドにしか実体が無い場合はここに来ない**（[`Bytes::Unknown`]）
-    /// ——あれは「読まないと決めた」であって、**コピー自体は通る**。
+    /// **取り込み元のほうが読めなかった。** 抜かれた・一時的な I/O の失敗・
+    /// クラウドにしか実体が無くて取り寄せに失敗した。
     SourceUnreadable,
 }
 
 /// 2つのファイルの中身が同じか。**呼ぶのは名前がぶつかったときだけ。**
 ///
-/// **クラウドにしか実体が無いファイルは読まない**（[`Bytes::Unknown`]）。
-/// 読むと**静かに取り寄せが走る**——同じ写真だと分かって飛ばすためだけに
-/// 数GBを落とすのは、割に合わない（`export.rs` と `thumbs.rs` も同じ線を引いている）。
+/// **クラウドにしか実体が無いなら読まない——ただし、それは行き先の側だけ**
+/// （[`Bytes::Unknown`]）。読むと**静かに取り寄せが走る**ので、同じ写真だと分かって
+/// 飛ばすためだけに数GBを落とすのは割に合わない（`export.rs` と `thumbs.rs` も同じ線）。
+///
+/// **取り込み元は免除しない**（2026-09-07・ゲート1の P1）。ウィザードは
+/// クラウドにしか実体が無い行も選ばせるので、**免除すると「読めなかった」→「同じ」と
+/// 倒れて、別の写真が黙って入らない**。そして**取り寄せは、どのみち走る**
+/// ——飛ばさない限り `fs::copy` が実体化させるので、**読まずに済むのは飛ばすときだけ**で、
+/// **その「飛ばしてよいか」を決めるために読んでいる**。払うのは
+/// **ぶつかっている名前で、行き先に見た目の合う物があるとき**だけである。
 ///
 /// **長さを先に見る。** 片方がもう片方の頭だけ、というときに
 /// 「同じ」と読まないため——`looks_same` の大きさは**走査した時点の値**なので、
@@ -446,7 +452,8 @@ enum Bytes {
 /// ぶつかる**ので、**カード1枚ぶんを読み直す**ことになる。
 /// **それでも、同じ写真が2枚に増えるよりはよい。**
 fn compare_bytes(a: &Path, b: &Path) -> Bytes {
-    if crate::cloud::is_cloud_only_path(a) || crate::cloud::is_cloud_only_path(b) {
+    // **免除されるのは行き先だけ。** 取り込み元（`a`）はここで見ない
+    if crate::cloud::is_cloud_only_path(b) {
         return Bytes::Unknown;
     }
     // **転んだ側で分ける**（[`Bytes::SourceUnreadable`]）。取り込み元の失敗を
@@ -1666,6 +1673,86 @@ mod tests {
         assert!(is_contested(&carried, "DSC00001.ARW"));
         assert!(is_contested(&carried, "dsc00001.arw"));
         assert!(!is_contested(&carried, "DSC00002.ARW"));
+    }
+
+    /// **クラウドを理由に読みを省くのは、行き先の側だけ**（ゲート1の P1・2026-09-07）。
+    ///
+    /// ウィザードは**クラウドにしか実体が無い行も選ばせる**（☁ の印を出すだけ）。
+    /// 取り込み元まで免除すると、`Bytes::Unknown` → 「同じ」と倒れて、
+    /// **名前がぶつかっている別の写真が黙って入らない**。
+    /// **取り寄せはどのみち走る**（飛ばさない限り `fs::copy` が実体化させる）ので、
+    /// **読まずに済むのは飛ばすときだけ**——その判断のために読む。
+    ///
+    /// 本物のプレースホルダは同期クライアントしか作れないので、`cloud.rs` の試験と同じく
+    /// **`OFFLINE` 属性で代用**する。**属性を立てても中身は読める**ので、
+    /// 「免除しなければ読んで正しく答える」ことがそのまま出る。**Windows のみ。**
+    #[cfg(windows)]
+    #[test]
+    fn only_the_destination_is_excused_from_reading() {
+        use std::os::windows::ffi::OsStrExt;
+
+        const FILE_ATTRIBUTE_OFFLINE: u32 = 0x0000_1000;
+        const FILE_ATTRIBUTE_NORMAL: u32 = 0x0000_0080;
+        fn set_attr(path: &Path, attr: u32) {
+            let wide: Vec<u16> = path
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let ok = unsafe {
+                windows_sys::Win32::Storage::FileSystem::SetFileAttributesW(wide.as_ptr(), attr)
+            };
+            assert_ne!(ok, 0, "属性を立てられること");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let dest_dir = dir.path().join("2020-09-13");
+        fs::create_dir_all(&dest_dir).unwrap();
+        let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+        let mtime_ms = 1_600_000_000_000;
+
+        let existing = dest_dir.join("DSC00001.ARW");
+        fs::write(&existing, b"aaaa").unwrap();
+        filetime::set_file_mtime(&existing, stamp).unwrap();
+
+        // **取り込み元がクラウドにしか無くても読む。** 中身が違うので連番へ回る
+        let src = dir.path().join("DSC00001.ARW");
+        fs::write(&src, b"bbbb").unwrap();
+        filetime::set_file_mtime(&src, stamp).unwrap();
+        set_attr(&src, FILE_ATTRIBUTE_OFFLINE);
+        match resolve_dest_path_avoiding(
+            &dest_dir,
+            "DSC00001.ARW",
+            4,
+            mtime_ms,
+            &TakenPaths::default(),
+            Confirm::ByBytes(&src),
+        ) {
+            DestResolution::CopyTo(p) => assert_eq!(
+                p.file_name().and_then(|n| n.to_str()),
+                Some("DSC00001-1.ARW")
+            ),
+            _ => panic!("クラウドの取り込み元を読まずに「取り込み済み」と答えた"),
+        }
+        set_attr(&src, FILE_ATTRIBUTE_NORMAL);
+
+        // **対照: 行き先の側は免除される。** 中身が違っても畳む
+        set_attr(&existing, FILE_ATTRIBUTE_OFFLINE);
+        assert!(
+            matches!(
+                resolve_dest_path_avoiding(
+                    &dest_dir,
+                    "DSC00001.ARW",
+                    4,
+                    mtime_ms,
+                    &TakenPaths::default(),
+                    Confirm::ByBytes(&src),
+                ),
+                DestResolution::AlreadyImported
+            ),
+            "行き先の取り寄せを走らせている（挿し直すたびに回線と容量を使う）"
+        );
+        set_attr(&existing, FILE_ATTRIBUTE_NORMAL);
     }
 
     /// **取り込み元が読めないのは「取り込み済み」ではない。**
