@@ -38,6 +38,7 @@ export const en: Dict = {
       title: "Grid",
       keys: [
         ["Ctrl+K / ⌘K", "Command palette (jump to a date or camera, search, import)"],
+        ["Ctrl+, / ⌘,", "Open Settings (the same panel the toolbar gear opens)"],
         ["Ctrl+A / ⌘A", "Select everything the current search and filter match"],
         ["Shift + click", "Select everything between the last tile you clicked and this one"],
         ["Ctrl + click", "Add or remove one photo (⌘ + click on macOS)"],

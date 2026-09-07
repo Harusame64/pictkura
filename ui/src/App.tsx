@@ -796,6 +796,13 @@ export default function App() {
   const selectedRef = useRef<ReadonlySet<number>>(new Set());
   const selectAllRef = useRef<() => Promise<void>>(async () => {});
   const clearSelectionRef = useRef<() => void>(() => {});
+  /**
+   * **2本目の道（`⌘/Ctrl + ,` と macOS のメニュー）から設定を開く**。
+   *
+   * **常時のハンドラと Rust からの環は依存を持てない**（どちらも `[]` で
+   * 張りっぱなしにする）ので、**いまの画面を見る仕事は ref 越しに渡す**。
+   */
+  const openSettingsRef = useRef<() => void>(() => {});
   const queryRef = useRef("");
   /** フィルタ切替・全体再読込のたびに増える世代番号。古い応答を捨てる */
   const generationRef = useRef(0);
@@ -3709,7 +3716,13 @@ export default function App() {
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
-      if (paletteOpen || shortcutsOpen || typing) return;
+      // **設定が開いているあいだも通さない**（2026-09-08）。この工事で
+      // **設定がビューアの上から開けるようになった**——`⌘/Ctrl + ,` と
+      // macOS のメニュー。歯車はビューアの幕の下なので、この組み合わせは
+      // **これまで作れなかった**。塞がないと、設定の上で `x` がうしろの写真に
+      // ✕ を付け、`Esc` の1押しが「設定を閉じる」と「ビューアを閉じる」を
+      // 同時に起こす。**一覧側の受け口（下）は最初からこれを見ている。**
+      if (paletteOpen || shortcutsOpen || settingsOpen || typing) return;
       // 関所が開いているあいだは、下のキーを一切通さない（0.2 ③）。
       // Escapeは「関所を閉じる」＝ビューアへ戻る（印はそのまま）
       if (rejectGate) {
@@ -3798,6 +3811,7 @@ export default function App() {
     trashing,
     paletteOpen,
     shortcutsOpen,
+    settingsOpen,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -3834,13 +3848,48 @@ export default function App() {
     if (viewer === null) setShowExif(false);
   }, [viewer]);
 
-  // コマンドパレット（Ctrl+K / ⌘K）とショートカット一覧（`?` / `F1`）。
-  // どちらもビューア表示中でも開ける
+  // メニューの「設定…」（macOS だけ）。**開くのは画面の仕事**——
+  // Rust 側は「押された」しか知らない
+  useEffect(() => {
+    const un = listen("open-settings", () => openSettingsRef.current());
+    return () => {
+      void un.then((off) => off()).catch(() => {});
+    };
+  }, []);
+
+  // コマンドパレット（Ctrl+K / ⌘K）とショートカット一覧（`?` / `F1`）と
+  // 設定（`Ctrl+,` / `⌘,`）。**どれもビューア表示中でも開ける**
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setPaletteOpen((p) => !p);
+        return;
+      }
+      // **設定への2本目の道**（2026-09-07）。
+      //
+      // 入口は**ツールバーの歯車1つだけ**だった。あれは**独語だと 1072px 未満で
+      // 押し出される**（実測。960 でも 1024 でも消える）——`.search-box` は
+      // 160px まで縮むが、**文字の入ったボタンは縮まない**ので、
+      // 溢れるぶんは必ず右端（歯車・サイズ・件数）から落ちる。
+      //
+      // **`Cmd/Ctrl + ,` は両方の台で効く。** macOS にはメニューの
+      // 「設定…」も足したが、**メニューを組むのは macOS だけ**なので、
+      // **Windows ではこれが唯一の2本目**である。
+      //
+      // **開けてよい画面かは [`openSettingsBySecondDoor`] が見る**——
+      // 関所とウィザードの手前では開かない。ここは押されたことだけを渡す。
+      //
+      // **`Alt` が混じっていたら見送る**（`Ctrl+S` の枝と同じ作法）。
+      // Windows の **AltGr は `Ctrl` + `Alt`** として届くので、
+      // **AltGr で `,` を出す配列があると、打った読点を食べたうえに設定が開く**。
+      // **見送れば、その配列でも読点はただの読点として入る。**
+      //
+      // **`Shift` は見ない**——ロシア語配列のように **`,` が Shift 側に在る**
+      // 言語があり、そこでは `Ctrl+Shift` が正しい押し方になる
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === ",") {
+        e.preventDefault();
+        openSettingsRef.current();
         return;
       }
       // **`Ctrl+S` はアプリのものにする**（抽出。Issue #13）。
@@ -4088,9 +4137,39 @@ export default function App() {
     setViewer({ dayKey: scope[0].day_key, id: scope[0].id });
   }, []);
 
+  /**
+   * **2本目の道から設定を開く**（`⌘/Ctrl + ,`・macOS のメニューの「設定…」）。
+   *
+   * **手前に「途中の仕事」があるときは開かない。**
+   *
+   * - **関所**（ごみ箱へ送る直前の確認）は `z-index: 350` で**設定より手前**なので、
+   *   開いても**見えないまま Esc の受け口だけが増える**。関所を自分のボタンで
+   *   閉じた人の前に、**押した覚えのない設定**が現れることになる
+   * - **取り込みウィザード**は同じ幕の上に重なり、**`Esc` の1押しが両方に届く**
+   *   ——設定が閉じるついでに、**途中まで作ったウィザードの状態が消える**
+   *
+   * 軽い幕（パレット・ショートカット一覧・**右クリックのメニュー**）は
+   * **畳んでから開く**。あれは押して出したものなので、**次の操作で畳むほうが素直**である。
+   * **右クリックのメニューは畳まないと危ない**——あれは `z-index: 300` で
+   * **設定より手前**、しかも `.settings` が `stopPropagation` するので
+   * **面の中を押しても消えない**。開いたままにすると、`Esc` の1押しが
+   * 「メニューを閉じる」と「設定を閉じる」の両方に届く。
+   *
+   * **開いていても閉じない**（トグルにしない）——`⌘,` を2回押して設定が
+   * 消えるのは、どのアプリの作法でもない。
+   */
+  const openSettingsBySecondDoor = () => {
+    if (rejectGate !== null || wizardOpen) return;
+    setPaletteOpen(false);
+    setShortcutsOpen(false);
+    setMenu(null);
+    setSettingsOpen(true);
+  };
+
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
   useLayoutEffect(() => {
+    openSettingsRef.current = openSettingsBySecondDoor;
     selectedRef.current = selected;
     selectAllRef.current = selectAll;
     clearSelectionRef.current = clearSelection;
@@ -5823,6 +5902,16 @@ export default function App() {
       />
       <SettingsDialog
         open={settingsOpen}
+        // **関所が立ったら畳ませる**（2026-09-08）。開けない向きは
+        // [`openSettingsBySecondDoor`] が見ているが、**逆向きがある**——
+        // **設定を開いたまま窓の × を押す**と、✕の印が残っていれば関所が立つ。
+        // 関所は `z-index: 350` で**設定より手前**なので、面は見えない場所に残り、
+        // **`Esc` の1押し目がその面に吸われて関所に届かない**（押した人には
+        // 「Esc が効かない」に見える）。
+        //
+        // **`settingsOpen` をこちらで倒さない**のは、**閉じる道が向こうに1本ある**
+        // からである（自由記述の確定がぶら下がっている）。**畳めと言うだけにする。**
+        dismiss={rejectGate !== null}
         onClose={() => setSettingsOpen(false)}
         config={config}
         onConfigChanged={refreshRoots}

@@ -137,6 +137,7 @@ export const es419: Dict = {
       title: "Cuadrícula",
       keys: [
         ["Ctrl+K / ⌘K", "Paleta de comandos (ir a una fecha o a una cámara, buscar, importar)"],
+        ["Ctrl+, / ⌘,", "Abrir los ajustes (lo mismo que el engranaje de la barra)"],
         ["Ctrl+A / ⌘A", "Seleccionar todo lo que coincide con la búsqueda y el filtro actuales"],
         ["Mayús + clic", "Seleccionar todo lo que hay entre la última foto que pulsaste y esta"],
         ["Ctrl + clic", "Agregar o quitar una foto (⌘ + clic en macOS)"],

@@ -32,6 +32,13 @@ mod errs;
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
 mod menu;
+
+/// メニューの「設定…」の id。**`menu` は macOS でしかコンパイルされない**ので、
+/// **この字はモジュールの外に置く**——受け口（`on_menu_event`）は台に依らず
+/// 組まれるから、あちらに置くと **Windows でビルドが通らない**
+/// （2026-09-08 に踏んだ。macOS の `cargo check` は素通りする）。
+/// 綴りを2か所に書かないため、作る側（`menu.rs`）もここを見る。
+const SETTINGS_MENU_ID: &str = "settings";
 // 新しい版が出ていないかの確認（0.2）。外向きの通信はこのモジュールに閉じている
 mod update;
 
@@ -4697,6 +4704,23 @@ pub fn run() {
         .plugin(os_locale_plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // **メニューの「設定…」が押されたことを、画面へ渡す**（2026-09-07）。
+        //
+        // 設定の窓は React が持っているので、**こちらで開くものが無い**。
+        // **メニューを組むのは macOS だけ**なので、他の台ではこの環は鳴らない
+        // ——Windows 側の2本目の道は、画面の `keydown`（`Ctrl+,`）である。
+        // **`cfg` で環ごと外さない**のは、連鎖の形が台ごとに変わるほうが
+        // 読みにくく、鳴らない受け口の値段が実質ゼロだからである。
+        // **その代わり id は `menu` の外に置く**（[`SETTINGS_MENU_ID`]）
+        // ——中に置くと、鳴らないはずの受け口が **Windows のビルドを落とす**
+        .on_menu_event(|app, event| {
+            if event.id() == SETTINGS_MENU_ID {
+                // **失敗しても何もしない。** 窓が閉じかけている等で届かないことは
+                // ありうるが、**メニューが開けなかったことを記録に残す価値は無い**
+                // ——利用者は歯車を押すか、もう一度選べばよい
+                let _ = app.emit("open-settings", ());
+            }
+        })
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;

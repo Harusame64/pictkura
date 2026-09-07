@@ -37,13 +37,17 @@
 //! 1行足して回し直せば、この表は自動で出る。
 
 use tauri::menu::{
-    AboutMetadata, Menu, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
+    AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
 };
 use tauri::{AppHandle, Runtime};
 
 /// メニュー1枚ぶんの語。**全部 macOS の訳**（上のとおり手で書かない）。
 struct MenuText {
     about: &'static str,
+    /// **設定への2本目の道**（2026-09-07）。画面の歯車は、独語だと
+    /// **1072px 未満でツールバーから押し出される**（実測）——設定への入口は
+    /// **あの1つだけ**なので、窓の幅に依らない道が要る。
+    settings: &'static str,
     services: &'static str,
     hide: &'static str,
     hide_others: &'static str,
@@ -71,6 +75,7 @@ struct MenuText {
 
 static EN: MenuText = MenuText {
     about: "About %@",
+    settings: "Settings…",
     services: "Services",
     hide: "Hide %@",
     hide_others: "Hide Others",
@@ -94,6 +99,7 @@ static EN: MenuText = MenuText {
 
 static JA: MenuText = MenuText {
     about: "%@について",
+    settings: "設定…",
     services: "サービス",
     hide: "%@を非表示",
     hide_others: "ほかを非表示",
@@ -117,6 +123,7 @@ static JA: MenuText = MenuText {
 
 static DE: MenuText = MenuText {
     about: "Über „%@“",
+    settings: "Einstellungen …",
     services: "Dienste",
     hide: "„%@“ ausblenden",
     hide_others: "Andere ausblenden",
@@ -140,6 +147,7 @@ static DE: MenuText = MenuText {
 
 static ES: MenuText = MenuText {
     about: "Acerca de %@",
+    settings: "Ajustes…",
     services: "Servicios",
     hide: "Ocultar %@",
     hide_others: "Ocultar otras apps",
@@ -163,6 +171,7 @@ static ES: MenuText = MenuText {
 
 static ES_419: MenuText = MenuText {
     about: "Acerca de %@",
+    settings: "Configuración…",
     services: "Servicios",
     hide: "Ocultar %@",
     hide_others: "Ocultar otros",
@@ -186,6 +195,7 @@ static ES_419: MenuText = MenuText {
 
 static ZH: MenuText = MenuText {
     about: "关于%@",
+    settings: "设置…",
     services: "服务",
     hide: "隐藏%@",
     hide_others: "隐藏其他",
@@ -209,6 +219,7 @@ static ZH: MenuText = MenuText {
 
 static ZH_HANT: MenuText = MenuText {
     about: "關於%@",
+    settings: "設定⋯",
     services: "服務",
     hide: "隱藏%@",
     hide_others: "隱藏其他",
@@ -330,6 +341,30 @@ fn build<R: Runtime>(app: &AppHandle<R>, code: &str) -> tauri::Result<Menu<R>> {
                         app,
                         Some(&with_name(t.about)),
                         Some(about_metadata),
+                    )?,
+                    &PredefinedMenuItem::separator(app)?,
+                    // **設定への2本目の道。** 画面の歯車は**独語だと 1072px 未満で
+                    // ツールバーから押し出される**（2026-09-07 実測。960 でも 1024 でも
+                    // 消える）——**設定への入口はあの1つだけ**だったので、
+                    // 窓の幅に依らない道を1本足す。
+                    //
+                    // **押されたことは画面へ渡す**（受けるのは `lib.rs` の
+                    // `on_menu_event`）。設定の窓は React が持っているので、
+                    // こちらで開くものが無い。**id は `crate` 側にある**
+                    // ——**このモジュールは macOS でしかコンパイルされない**が、
+                    // **受け口は台に依らず組まれる**ので、字をここに置くと
+                    // Windows のビルドが落ちる。
+                    //
+                    // **`Cmd+,` は macOS の作法**。Tauri の加速キーは
+                    // `CmdOrCtrl` と書けるが、**この枝は macOS でしか組まれない**
+                    // ので、ここでは `Cmd` でよい（Windows 側はショートカットが
+                    // 画面の `keydown` に入っている）
+                    &MenuItem::with_id(
+                        app,
+                        crate::SETTINGS_MENU_ID,
+                        t.settings,
+                        true,
+                        Some("Cmd+,"),
                     )?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, Some(t.services))?,
