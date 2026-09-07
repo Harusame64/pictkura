@@ -675,8 +675,7 @@ export default function ImportWizard({
                         className={
                           "wiz-tile" +
                           (isSelected ? " selected" : "") +
-                          (done ? " imported" : "") +
-                          (unsure ? " unsure" : "")
+                          (done ? " imported" : "")
                         }
                         onClick={() => toggle(f.path)}
                         title={
