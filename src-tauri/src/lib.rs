@@ -2639,9 +2639,24 @@ async fn export_media(
         let mut gone = outcome.moved;
         if !outcome.to_remove.is_empty() {
             let asked = outcome.to_remove.len();
-            let (trashed, _) = trash_paths(outcome.to_remove);
+            let (trashed, err) = trash_paths(outcome.to_remove);
             stats.left_behind = asked - trashed.len();
             gone.extend(trashed);
+            if let Some(e) = err {
+                // **理由を捨てない**（ゲート2）。8行下のサイドカーは残すのに、
+                // **写真のほうだけ捨てていた**。画面に出るのは `left_behind` の
+                // 数だけで、**どのファイルが・なぜ残ったかは、ここにしか無い**
+                // ——`trash_paths` が組んだパスとOSの文言を、そのまま落としていた。
+                //
+                // **説明書が嘘になる**のがいちばん重い: あちらは「ファイルが無いのは、
+                // ここに残す種類の失敗が起きていない」と書いてある。**移動で写真が
+                // 置き去りになったのに記録が1行も無い**なら、その約束が破れる
+                applog::note(&format!(
+                    "could not move {} of {asked} source photo(s) to the recycle bin after a move: {}",
+                    stats.left_behind,
+                    errs::for_log(&e)
+                ));
+            }
         }
         // **サイドカーの元も片付ける**（別ドライブへ移したぶん）。DBに行は無いので
         // 落とすものは無く、**件数にも数えない**——利用者が見ているのは写真の枚数

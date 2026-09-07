@@ -4702,13 +4702,21 @@ export default function App() {
       </header>
       {/* **失敗はいちばん上に出す**（`z-index: 500`）。開いている物の下に隠れない */}
       {failure !== null && (
-        <div
+        /* **`button` にする。** `div` に `onClick` を付けただけだと、
+           **キーボードだけの人が消せない**（焦点も当たらない・ゲート2）。
+           `button` なら Enter も Space も、焦点の輪も、標準で付く。
+
+           **`role="alert"` は付けない**——`button` の役割を**上書きしてしまい**、
+           読み上げが「ボタン」と言わなくなる。読み上げさせるのは
+           `aria-live` の仕事で、あちらは役割に触らない。 */
+        <button
+          type="button"
           className="failure-toast"
-          role="alert"
+          aria-live="assertive"
           onClick={dismissFailure}
         >
           {failure}
-        </div>
+        </button>
       )}
       {speedReport && (
         <div className="speed-toast" onClick={() => setSpeedReport(null)}>

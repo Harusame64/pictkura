@@ -201,7 +201,17 @@ fn record(message: &str) {
                 "(the line above repeated {} more times): {}",
                 rep.count, rep.line
             );
-            write_line(&mut st, path, &now, &header, &dropped_note, &said);
+            if !write_line(&mut st, path, &now, &header, &dropped_note, &said) {
+                // **言えなかったら、抱えたまま戻す**（ゲート2）。
+                // `take()` が先に落としてしまうので、[`after_flush`] が周期の側で
+                // 守っている不変条件——**数は、言えたときだけ手放す**——が、
+                // **こちらの枝だけ抜けていた**。4000回が「1回」になる。
+                //
+                // **新しい行も書かずに降りる。** 同じ `append` が続けて成功する
+                // 見込みは無く、試みれば**古い数を新しい行で上書きする**だけである
+                st.repeated = Some(rep);
+                return;
+            }
         }
     }
     // **書けたときだけ畳み始める。** 書けなかった行を覚えると、
