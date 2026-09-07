@@ -2638,8 +2638,10 @@ async fn export_media(
 /// Panasonic の古い `.raw`）で起きる。**普通は届かない**——ビューアで
 /// 絵が出せなかった時点でフロントがボタンを伏せているので、ここへ来るのは
 /// 「伏せる前に押した」か「押した後にファイルが差し替わった」だけ。
-/// フロントは自前の文言を出すので、**この文字列は画面には出ない**（記録用）。
-const NO_IMAGE_TO_EXTRACT: &str = "この写真から取り出せる絵がありません";
+/// **辞書の鍵で返す**（`errs.rs` の約束）。フロントが自前の文言を出す道が
+/// 先にあるが、**通り抜けても訳した文になる**——ここだけ日本語決め打ちに
+/// 戻さない（ゲート2の指摘で、同じ形が3つ見つかった）。
+const NO_IMAGE_TO_EXTRACT: &str = "errNoImageToExtract";
 
 /// 保存先が原本そのものだったときの合図（Issue #13）。
 ///
@@ -3182,9 +3184,7 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
         // ——**索引されるのに永久に古いまま**という壊れた状態になる。
         // 取り込み側と同じ理由で断る
         if pictkura_core::import::is_managed_package_path(&root) {
-            return Err(format!(
-                "アプリが管理するライブラリはフォルダとして登録できません（中身は内部ファイルです）: {path}"
-            ));
+            return Err(errs::coded("errRootManaged", path));
         }
         update_config(&state, |c| {
             if !c.library.roots.iter().any(|r| same_path(r, &root)) {
@@ -3422,9 +3422,7 @@ fn set_import_destination(state: tauri::State<'_, AppState>, path: String) -> Re
     // コピー先は取り込み後に**ライブラリのルートへ足される**（`finish_import`）ので、
     // ルート登録と同じ理由でパッケージの中は断る
     if pictkura_core::import::is_managed_package_path(&dest) {
-        return Err(format!(
-            "アプリが管理するライブラリはコピー先にできません（中身は内部ファイルです）: {path}"
-        ));
+        return Err(errs::coded("errDestManaged", path));
     }
     update_config(&state, |c| c.routing.destination = Some(dest))
 }

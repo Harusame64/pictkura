@@ -102,6 +102,8 @@ export const es419: Dict = {
   decoderHevcHow: "Extensiones de video HEVC (de pago)",
 
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
+  errRootManaged:
+    "Una fototeca gestionada no se puede agregar como carpeta: lo de dentro pertenece a esa aplicación.",
   navAddFolder: "Agregar una carpeta",
   add: "Agregar",
   pickLibraryFolder: "Elige la carpeta que quieres agregar a la biblioteca",

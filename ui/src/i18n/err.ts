@@ -12,8 +12,9 @@
  * - **詳細は訳さない。** OSの文言・パス・SQLite の理由は、こちらの言葉ではない。
  *   **訳せないものを訳したふりをしない**
  * - **知らない文字列はそのまま返す。** 鍵の付いていない道はまだ残っている
- *   （2026-09-07 時点で Rust 側に27か所。どれも外のクレートの文言で、
- *   日本語ではない）。**画面から文字を消すより、生のまま出すほうがまし**
+ *   （2026-09-07 時点で Rust 側に27か所。**どれも外のクレートやOSの文言**で、
+ *   こちらが書いた日本語は残っていない——ゲート2が3か所の見落としを見つけて
+ *   潰したあとの数である）。**画面から文字を消すより、生のまま出すほうがまし**
  */
 
 import { t } from "./index.ts";
@@ -33,7 +34,14 @@ export function errText(e: unknown): string {
   const code = cut === -1 ? raw : raw.slice(0, cut);
   const detail = cut === -1 ? "" : raw.slice(cut + 1);
 
-  const say = (t as unknown as Record<string, unknown>)[code];
+  // **自前の鍵だけを見る。** `[code]` はプロトタイプ鎖まで歩くので、
+  // `toString` や `constructor` という語が鍵の位置に来ると
+  // **`Object.prototype` の関数を呼んでしまう**（`index.ts` が `DICTS` で
+  // 同じ罠を名指ししている・ゲート2）
+  const dict = t as unknown as Record<string, unknown>;
+  const say = Object.prototype.hasOwnProperty.call(dict, code)
+    ? dict[code]
+    : undefined;
   // **数だけの詳細は数として渡す。** 辞書の側は `num()` に通して桁を区切るので
   // （`i18n.test.ts` が6言語ぶん見ている）、文字列のまま渡すと
   // **12,345 が 12345 になる**——その1点のためだけの変換である

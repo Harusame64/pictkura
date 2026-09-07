@@ -469,6 +469,11 @@ export const de: Dict = {
   errConfigIo: "Die Einstellungsdatei ließ sich nicht lesen oder schreiben.",
   errConfigFormat: "Die Einstellungsdatei war nicht lesbar.",
   errNoDestination: "Es ist noch kein Zielordner gewählt.",
+  errRootManaged:
+    "Eine verwaltete Mediathek lässt sich nicht als Ordner hinzufügen — ihr Inhalt gehört jener App.",
+  errDestManaged:
+    "Eine verwaltete Mediathek kann kein Ziel sein — ihr Inhalt gehört jener App.",
+  errNoImageToExtract: "In dieser Datei ist kein Bild zum Herausnehmen.",
   errSourceUnreadable: "Dieser Ordner ließ sich nicht lesen.",
   errSourceManaged:
     "Aus einer verwalteten Mediathek kann nicht importiert werden. Entfernen Sie die Endung (etwa .photoslibrary) aus dem Ordnernamen und wählen Sie ihn erneut.",
@@ -483,5 +488,5 @@ export const de: Dict = {
   errNotBundled: "In diesem Build nicht enthalten.",
   errNoStoreLink: "Für dieses Betriebssystem gibt es keine Seite dazu.",
   errBadKind: "Es gab nichts zu öffnen.",
-  errTooManyIds: "Zu viele Einträge auf einmal angefragt.",
+  errTooManyIds: (n: number) => `Höchstens ${num(n)} auf einmal.`,
 };

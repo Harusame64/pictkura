@@ -479,6 +479,11 @@ export const ja = {
   errConfigIo: "設定ファイルを読み書きできませんでした。",
   errConfigFormat: "設定ファイルの中身を読めませんでした。",
   errNoDestination: "コピー先のフォルダが決まっていません。",
+  errRootManaged:
+    "アプリが管理しているライブラリは、フォルダとして登録できません（中身は内部ファイルです）。",
+  errDestManaged:
+    "アプリが管理しているライブラリは、コピー先にできません（中身は内部ファイルです）。",
+  errNoImageToExtract: "この写真から取り出せる絵がありません。",
   errSourceUnreadable: "取り込み元のフォルダが読めません。",
   errSourceManaged:
     "アプリが管理しているライブラリの中は取り込めません。フォルダ名から拡張子（.photoslibrary など）を外してから選び直してください。",
@@ -493,7 +498,7 @@ export const ja = {
   errNotBundled: "この実行環境には同梱されていません。",
   errNoStoreLink: "このOSでは案内できる入手先がありません。",
   errBadKind: "開き方が分かりませんでした。",
-  errTooManyIds: "一度に扱える件数を超えました。",
+  errTooManyIds: (n: number) => `一度に扱えるのは${num(n)}件までです。`,
 };
 
 /** 辞書の形。追加言語はこの型を満たす必要がある（キーの抜けはコンパイルエラー） */

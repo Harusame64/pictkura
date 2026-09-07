@@ -472,6 +472,11 @@ export const es: Dict = {
   errConfigIo: "No se pudo leer ni escribir el archivo de ajustes.",
   errConfigFormat: "No se pudo entender el archivo de ajustes.",
   errNoDestination: "Todavía no hay carpeta de destino elegida.",
+  errRootManaged:
+    "Una fototeca gestionada no se puede añadir como carpeta: lo de dentro pertenece a esa aplicación.",
+  errDestManaged:
+    "Una fototeca gestionada no puede ser el destino: lo de dentro pertenece a esa aplicación.",
+  errNoImageToExtract: "En este archivo no hay ninguna imagen que extraer.",
   errSourceUnreadable: "No se pudo leer esa carpeta.",
   errSourceManaged:
     "No se puede importar desde dentro de una fototeca gestionada. Quita la extensión (.photoslibrary y similares) del nombre de la carpeta y vuelve a elegirla.",
@@ -486,5 +491,5 @@ export const es: Dict = {
   errNotBundled: "No se incluye en esta compilación.",
   errNoStoreLink: "Este sistema no tiene una página que indicar.",
   errBadKind: "No había nada que abrir.",
-  errTooManyIds: "Se preguntó por demasiados elementos a la vez.",
+  errTooManyIds: (n: number) => `Como máximo ${num(n)} a la vez.`,
 };

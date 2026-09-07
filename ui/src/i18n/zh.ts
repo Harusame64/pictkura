@@ -449,6 +449,9 @@ export const zh: Dict = {
   errConfigIo: "设置文件无法读写。",
   errConfigFormat: "无法解析设置文件的内容。",
   errNoDestination: "还没有选择目标文件夹。",
+  errRootManaged: "受管理的图库无法作为文件夹添加：里面的内容属于那个应用。",
+  errDestManaged: "受管理的图库不能作为目标位置：里面的内容属于那个应用。",
+  errNoImageToExtract: "这个文件里没有可以取出的图像。",
   errSourceUnreadable: "无法读取该文件夹。",
   errSourceManaged:
     "无法从受管理的图库内部导入。请去掉文件夹名中的扩展名（如 .photoslibrary）后重新选择。",
@@ -462,5 +465,5 @@ export const zh: Dict = {
   errNotBundled: "此版本中没有附带。",
   errNoStoreLink: "此系统没有可以指引的页面。",
   errBadKind: "没有可以打开的内容。",
-  errTooManyIds: "一次询问的项目太多。",
+  errTooManyIds: (n: number) => `一次最多 ${num(n)} 项。`,
 };

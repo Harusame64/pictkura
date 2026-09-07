@@ -398,6 +398,11 @@ export const en: Dict = {
   errConfigIo: "The settings file could not be read or written.",
   errConfigFormat: "The settings file could not be understood.",
   errNoDestination: "No destination folder has been chosen yet.",
+  errRootManaged:
+    "A managed library cannot be added as a folder — what is inside belongs to that app.",
+  errDestManaged:
+    "A managed library cannot be the destination — what is inside belongs to that app.",
+  errNoImageToExtract: "There is no picture in this file to take out.",
   errSourceUnreadable: "That folder could not be read.",
   errSourceManaged:
     "The inside of a managed library cannot be imported. Drop the extension (.photoslibrary and the like) from the folder name and choose it again.",
@@ -412,5 +417,5 @@ export const en: Dict = {
   errNotBundled: "It is not bundled in this build.",
   errNoStoreLink: "This OS has no page to point you to.",
   errBadKind: "There was nothing to open.",
-  errTooManyIds: "Too many items were asked about at once.",
+  errTooManyIds: (n: number) => `No more than ${num(n)} at a time.`,
 };

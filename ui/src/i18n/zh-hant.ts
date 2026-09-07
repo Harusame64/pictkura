@@ -452,6 +452,9 @@ export const zhHant: Dict = {
   errConfigIo: "設定檔無法讀寫。",
   errConfigFormat: "無法解析設定檔的內容。",
   errNoDestination: "還沒有選擇目標資料夾。",
+  errRootManaged: "受管理的圖庫無法作為資料夾加入：裡面的內容屬於那個應用程式。",
+  errDestManaged: "受管理的圖庫不能作為目標位置：裡面的內容屬於那個應用程式。",
+  errNoImageToExtract: "這個檔案裡沒有可以取出的影像。",
   errSourceUnreadable: "無法讀取該資料夾。",
   errSourceManaged:
     "無法從受管理的圖庫內部匯入。請去掉資料夾名稱中的副檔名（如 .photoslibrary）後重新選擇。",
@@ -465,5 +468,5 @@ export const zhHant: Dict = {
   errNotBundled: "此版本中沒有附帶。",
   errNoStoreLink: "此系統沒有可以指引的頁面。",
   errBadKind: "沒有可以開啟的內容。",
-  errTooManyIds: "一次詢問的項目太多。",
+  errTooManyIds: (n: number) => `一次最多 ${num(n)} 項。`,
 };
