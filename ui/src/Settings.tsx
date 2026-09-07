@@ -360,7 +360,9 @@ export default function Settings({
               <label className="settings-toggle">
                 <input
                   type="checkbox"
-                  checked={config?.import.register_autoplay ?? true}
+                  // **まだ決めていない（null）ときはOFFに見せる。**
+                  // そのとき登録は書かれていないので、これが実際の状態である
+                  checked={config?.import.register_autoplay ?? false}
                   onChange={async (e) => {
                     try {
                       await setRegisterAutoplay(e.target.checked);

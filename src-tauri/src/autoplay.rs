@@ -11,7 +11,7 @@
 //! を false にすると [`unregister`] で候補ごと消える。
 
 #[cfg(windows)]
-pub use imp::{register, unregister};
+pub use imp::{is_registered, register, unregister};
 
 // AutoPlayはWindowsだけの機構。他のOSでは何もしない（呼び出し側を分岐させない）。
 #[cfg(not(windows))]
@@ -21,6 +21,11 @@ pub fn register(_exe: &std::path::Path) -> std::io::Result<()> {
 #[cfg(not(windows))]
 pub fn unregister() -> std::io::Result<()> {
     Ok(())
+}
+/// 他のOSには自動再生が無いので、**登録も在りようがない**。
+#[cfg(not(windows))]
+pub fn is_registered() -> bool {
+    false
 }
 
 #[cfg(windows)]
@@ -219,6 +224,26 @@ mod imp {
         Ok(names)
     }
 
+    /// ハンドラの定義を置く鍵。**組み立ては1箇所に置く**——
+    /// 書く側（[`register`]）・消す側（[`unregister`]）・在るか見る側
+    /// （[`is_registered`]）が**別々に組み立てると、ずれたときに誰も気づけない**。
+    fn handler_key() -> String {
+        format!(r"{AUTOPLAY}\Handlers\{HANDLER}")
+    }
+
+    /// **この台に、いまこのアプリの登録が在るか。**
+    ///
+    /// 見るのは [`register`] が必ず書く値1つ。**読めなかったら「無い」に倒す**
+    /// ——この答えは「**まだ決めていない人の登録を引き継ぐか**」にしか使わず、
+    /// **引き継がない側に倒れても、書かないだけで害が無い**。
+    /// 逆に倒すと、**読めなかっただけの台に勝手に登録を書く**ことになる。
+    pub fn is_registered() -> bool {
+        matches!(
+            get_string(&handler_key(), Some("InvokeProgID")),
+            Ok(Some(_))
+        )
+    }
+
     pub fn register(exe: &Path) -> io::Result<()> {
         let exe = exe.display().to_string();
         // verbのコマンド。`%L` が対象のパスに置き換わる。ドライブ直下なら `E:\` で
@@ -237,7 +262,7 @@ mod imp {
         set_string(&format!(r"Software\Classes\{PROGID}"), None, ACTION)?;
 
         // ハンドラの定義。
-        let handler_key = format!(r"{AUTOPLAY}\Handlers\{HANDLER}");
+        let handler_key = handler_key();
         set_string(&handler_key, Some("Action"), ACTION)?;
         set_string(&handler_key, Some("Provider"), PROVIDER)?;
         set_string(&handler_key, Some("InvokeProgID"), PROGID)?;
@@ -323,10 +348,7 @@ mod imp {
             }
         }
 
-        for tree in [
-            format!(r"{AUTOPLAY}\Handlers\{HANDLER}"),
-            format!(r"Software\Classes\{PROGID}"),
-        ] {
+        for tree in [handler_key(), format!(r"Software\Classes\{PROGID}")] {
             let key = wide(&tree);
             check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
         }

@@ -138,7 +138,8 @@ export interface AppConfig {
   import: {
     last_source_dir: string | null;
     /** USB/SDカードを挿したときの「自動再生」の候補に出すか（Windowsのみ意味を持つ） */
-    register_autoplay: boolean;
+    /** `null` は「まだ決めていない」。そのときレジストリには触っていない */
+    register_autoplay: boolean | null;
   };
   routing: { destination: string | null; folder_pattern: string };
   library: { roots: string[] };

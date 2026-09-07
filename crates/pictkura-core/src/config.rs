@@ -94,9 +94,20 @@ pub struct ImportConfig {
     /// **空にすれば一切運ばない**。
     pub sidecar_extensions: Vec<String>,
     /// USB/SDカードを挿したときに、pictkura を Windows の「自動再生」の
-    /// 候補に出すか（Windows のみ。他のOSでは無視される）。既定はON。
-    /// 起動のたびに HKCU へ冪等登録し、OFF にすると候補ごと消す。
-    pub register_autoplay: bool,
+    /// 候補に出すか（Windows のみ。他のOSでは無視される）。
+    ///
+    /// **3つの状態がある。`None` は「まだ決めていない」**で、
+    /// **そのときはレジストリに1バイトも触らない**（2026-09-07・利用者の判断）。
+    /// **入れただけで HKCU を書き換えるアプリは嫌われる**し、
+    /// **macOS には自動再生そのものが無い**ので、**初期の挙動を両方でそろえる**。
+    ///
+    /// **`Some(true)` / `Some(false)` は本人が決めたということ。**
+    /// `Some(true)` なら起動のたびに冪等登録する（実行ファイルを移しても追従する）。
+    ///
+    /// **既に使っている人を勝手に切らないため**、`None` のときは
+    /// **レジストリに登録が在るかを見て引き継ぐ**（`src-tauri` 側）——
+    /// 在れば「既定がONだったころに書いたもの」なので `Some(true)` として控える。
+    pub register_autoplay: Option<bool>,
 }
 
 impl ImportConfig {
@@ -145,7 +156,7 @@ impl Default for ImportConfig {
                 .iter()
                 .map(|e| (*e).to_string())
                 .collect(),
-            register_autoplay: true,
+            register_autoplay: None,
         }
     }
 }
