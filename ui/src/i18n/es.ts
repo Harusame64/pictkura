@@ -438,6 +438,11 @@ export const es: Dict = {
   settingsManual: "Manual",
   settingsOssLicenses: "Software de código abierto que usamos",
   settingsDocNotBundled: "(no se incluye en una compilación de desarrollo)",
+  settingsLog: "Abrir el registro",
+  settingsLogNone: "(todavía no hay nada registrado)",
+  settingsLogOpenFailed: "No se pudo abrir el registro.",
+  settingsLogNote:
+    "Solo se escribe una línea cuando algo falla, y se queda en este equipo. No se envía nada.",
   settingsLanguage: "Idioma",
   settingsLanguageSystem: "El del sistema",
   settingsLanguageNote:

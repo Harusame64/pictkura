@@ -837,8 +837,25 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
   <tr><td>設定</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
   <tr><td>データベース</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
   <tr><td>サムネイル</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
+  <tr><td>失敗の記録</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code>（<strong>失敗したときだけ</strong>作られます）</td></tr>
 </table>
 </div>
+
+<p>
+<strong>失敗の記録（ログ）について。</strong>
+写真の読み取りが途中で落ちた（壊れたファイルなど）、写真と一緒に運ぶファイルを
+ゴミ箱へ移せなかった、起動そのものに失敗した、といった
+<strong>うまくいかなかったことだけ</strong>を1行ずつ書き足します。
+うまくいったことは書きません。
+<strong>画面で分かる失敗は、ここには書きません</strong>——サムネイルが1枚出ない、
+コピー先を変えられなかった、といったものはその場に出るためです。
+つまり<strong>ファイルが無いのは、ここに残す種類の失敗が起きていない</strong>という意味です。
+設定 →「pictkura について」→「ログを開く」で開けます（記録が無いときは押せません）。
+中身は<strong>この機械の中だけ</strong>にあり、<strong>どこにも送信しません</strong>。
+写真のファイル名やフォルダのパスが入ることがあるので、
+不具合の報告に貼るときは中身をご確認ください。消しても構いません（また必要になれば作られます）。
+大きくなりすぎないよう上限があり、超えると1つ前の記録が <code>pictkura.log.1</code> に残ります（そのファイルを別のソフトで開いたままにしているなど、退避できない場合は、上限を守るために古いほうを捨てます。捨てたことはログに書きます）。
+</p>
 
 <p>
 設定ファイルは手で編集できます。アプリが持っていない細かい設定

@@ -420,6 +420,10 @@ export const zhHant: Dict = {
   settingsManual: "使用手冊",
   settingsOssLicenses: "使用的開放原始碼軟體",
   settingsDocNotBundled: "（開發版本中沒有附帶）",
+  settingsLog: "開啟記錄檔",
+  settingsLogNone: "（還沒有任何記錄）",
+  settingsLogOpenFailed: "無法開啟記錄檔。",
+  settingsLogNote: "只有出錯時才會寫入一行，而且只留在這台電腦上，不會傳送。",
   settingsLanguage: "語言",
   settingsLanguageSystem: "跟隨系統",
   settingsLanguageNote:

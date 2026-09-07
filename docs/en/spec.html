@@ -238,6 +238,7 @@
             <tr><td class="k">Turning it off</td><td>Settings → About pictkura → "Check for updates at startup". With it off, the app never reaches the network</td></tr>
             <tr><td class="k">Cloud-only files</td><td>Never fetched on their own. The real file is pulled only when you actually look at that photo</td></tr>
             <tr><td class="k">Deleting</td><td>Always through the recycle bin. pictkura never removes a file outright</td></tr>
+            <tr><td class="k">Record of failures</td><td>Only the things that did not work are appended to <code>pictkura.log</code> (lines can contain file names and folder paths). <strong class="em">Nothing sends it anywhere</strong> — open it from Settings to read it, and delete it whenever you like</td></tr>
           </tbody>
         </table>
       </div>
@@ -254,6 +255,7 @@
             <tr><td class="k">Settings (macOS)</td><td><code>~/Library/Application Support/dev.harusame.pictkura/</code></td></tr>
             <tr><td class="k">Index</td><td><code>pictkura.db</code>, in the same folder</td></tr>
             <tr><td class="k">Thumbnails</td><td><code>thumbs\</code>, in the same folder</td></tr>
+            <tr><td class="k">Record of failures</td><td><code>pictkura.log</code>, in the same folder — written <strong>only when something fails</strong>, and never sent anywhere</td></tr>
             <tr><td class="k">The photos themselves</td><td>Untouched, in whatever folder you added</td></tr>
           </tbody>
         </table>

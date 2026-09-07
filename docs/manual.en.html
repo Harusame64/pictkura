@@ -854,8 +854,26 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Settings</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
   <tr><td>Database</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
   <tr><td>Thumbnails</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
+  <tr><td>Record of failures</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only when something fails</strong>)</td></tr>
 </table>
 </div>
+
+<p>
+<strong>About the log.</strong>
+It records <strong>only the things that did not work</strong> — a read that fell over
+part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
+launch that failed — one line each. Successes are not written, and
+<strong>failures you can see on screen are not written either</strong>: a thumbnail that does
+not appear, or a destination that could not be changed, tells you so where it happens. So no
+file means <strong>none of the failures that belong here</strong> have happened.
+Open it from Settings → “About pictkura” → “Open the log” (the button is disabled while there
+is nothing to open). It stays <strong>on this machine</strong> and is
+<strong>never sent anywhere</strong>. Lines can contain file names and folder paths, so read it
+before pasting it into a bug report. Deleting it is fine; it is created again if it is needed.
+It has a size cap, and when it is passed the previous record is kept as
+<code>pictkura.log.1</code> — unless it cannot be moved aside (another program holding the
+file open, say), in which case the older half is dropped to keep the cap, and the log says so.
+</p>
 
 <p>
 You can edit the settings file by hand. Anything the app has no UI for — the patterns of

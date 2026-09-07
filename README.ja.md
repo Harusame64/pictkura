@@ -631,6 +631,12 @@ macOSのバンドル対象は `src-tauri/tauri.macos.conf.json` で決めてい�
 `~/Library/Application Support/dev.harusame.pictkura/`（macOS）に保存されます。
 `[import]` `[routing]` `[library]` `[performance]` `[editors]` の構成です。
 
+失敗したことは、同じフォルダの `pictkura.log` に1行ずつ追記されます
+（**失敗したときだけ**作られ、送信はしません。設定 →「pictkura について」→
+「ログを開く」で開けます）。`eprintln!` は配布ビルドではどこにも届かない
+——リリースの Windows はコンソールを持たない——ので、**配った先で起きたことは
+このファイルにしか残りません**。
+
 ### OSSライセンス一覧を作り直す
 
 依存を足したときは、同梱している `THIRD-PARTY-LICENSES.txt` を作り直してください。

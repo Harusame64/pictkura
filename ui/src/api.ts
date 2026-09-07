@@ -690,6 +690,22 @@ export const aboutInfo = () => invoke<AboutInfo>("about_info");
 export const openBundledDoc = (kind: "manual" | "manual-en" | "licenses") =>
   invoke<void>("open_bundled_doc", { kind });
 
+/**
+ * 失敗の記録が在るか（在ればその場所）。**null が普通**——書かれるのは
+ * 失敗した行だけなので、null は「まだ何も起きていない」の意味になる。
+ *
+ * `aboutInfo` から分けてあるのは、**設定を開いている間くり返し訊く**ため
+ * （あちらは `resource_dir()` と6回の `is_file()` を通る）。
+ */
+export const logPath = () => invoke<string | null>("log_path");
+
+/**
+ * 失敗の記録をOSの既定のアプリで開く。
+ *
+ * **パスは渡さない**（同梱文書と同じ理由）。開く先はRust側が持っている1本だけ。
+ */
+export const openLog = () => invoke<void>("open_log");
+
 /** 自由記述のパターンが実際どんなフォルダ名になるか（無害化まで通した結果）。 */
 export const previewFolderPattern = (pattern: string) =>
   invoke<string>("preview_folder_pattern", { pattern });

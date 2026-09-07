@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use pictkura_core::applog;
 use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaTarget, ServeKind};
 use pictkura_core::usn::{self, UsnOutcome, UsnPosition};
 use pictkura_core::{Config, Db, ReadPool, SyncStats, ThumbnailService};
@@ -15,11 +16,13 @@ use tauri::http::{Response, StatusCode};
 use tauri::{Emitter, Manager};
 
 /// アプリの識別子。`tauri.conf.json` の `identifier` と**同じ綴り**でなければ、
-/// [`config_path_without_app`] が別の場所を指す（テストで突き合わせている）。
+/// [`app_dir_without_app`] が別の場所を指す（テストで突き合わせている）。
 ///
-/// **Windows専用**——使うのは AutoPlay まわりだけなので、他のOSでは
-/// 「使われていない定数」になり clippy の `dead_code` で落ちる（CIで踏んだ）
-#[cfg(windows)]
+/// **Windows と macOS だけ**——`app_data_dir()` を**アプリを組み立てる前に**
+/// 知る必要があるのがこの2つで、Linuxにはその道が要らない。
+/// 使わないOSで置くと「使われていない定数」になり clippy の `dead_code` で落ちる
+/// （CIで踏んだ）
+#[cfg(any(windows, target_os = "macos"))]
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
@@ -375,18 +378,45 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     // 下しか返さないので、ここへ来るのはルートが解決できない等の異常時だけ
     // ——落とすより今までどおりに扱う。ただし**黙って通すと、直したはずの
     // 「印が消える」がまた起きても気付けない**ので、記録だけは残す
+    //
+    // **記録は束ごとに1行**にする。照合が外れるのは1件だけとは限らず
+    // （ルートの綴りが変わった共有など）、**その束の全件で外れる**ことがある。
+    // 1件1行だと**上限のログがこの1種類で埋まり、本当に見たい失敗が押し出される**
+    // （ゲート2の指摘）
+    let mut unmatched: Option<(usize, PathBuf)> = None;
     let paths: Vec<PathBuf> = paths
         .into_iter()
         .map(|p| {
             rebase_to_root_spelling(&p, specs).unwrap_or_else(|| {
-                eprintln!(
-                    "監視: ルート配下と照合できなかったので綴りをそのまま使う: {}",
-                    p.display()
-                );
+                let seen = unmatched.get_or_insert_with(|| (0, p.clone()));
+                seen.0 += 1;
                 p
             })
         })
         .collect();
+    // **書くのは1周に1回だけ。** 束ごとに1行でも、綴りが恒久的にずれた共有では
+    // **束が来るたびに1行**出る（この関数は 800ms の debounce で呼ばれる）。
+    // 写真を入れている間じゅう出続ければ、**上限のログがこの1種類で埋まり、
+    // 本当に見たい失敗が押し出される**（ゲート2の指摘）。
+    // 原因は同じなので、**1本目だけ残せば足りる**。
+    //
+    // **その1本が伝えるのは「起きた」までで、件数は最初の束のぶんだけ**である
+    // ——あとで別のルートが恒久的に外れても、ここには何も足されない
+    // （4巡目のゲート2の指摘。**据え置いた**）。この行は**2ゲートに3度
+    // 反対向きへ動かされている**（1件1行 → 束ごと → 1周に1回）ので、
+    // **ログを埋めない側で止める**: 失敗の記録は**押し出されないこと**が先で、
+    // この診断は**在るか無いか**が分かれば追える。**時間で薄める仕掛けを足すなら、
+    // それは別の判断として立てる。**
+    static SAID_ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if let Some((count, first)) = unmatched {
+        if !SAID_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            applog::note(&format!(
+                "監視: ルート配下と照合できなかったので綴りをそのまま使う: {count}件（例: {}）\
+                 ——同じ理由の行はこれ1本だけ残す",
+                first.display()
+            ));
+        }
+    }
 
     {
         let mut db = lock_ok(&state.db);
@@ -2120,6 +2150,44 @@ fn about_info(app: tauri::AppHandle) -> AboutDto {
     }
 }
 
+/// 失敗の記録が在るか（在ればその場所）。
+///
+/// **`about_info` から分けてある。** あちらは `resource_dir()` と6回の
+/// `is_file()` を通る**起動時に1回だけの問い合わせ**で、設定を開いている間
+/// **3秒ごとに呼ぶと、その `stat` が毎回 main スレッドに乗る**
+/// ——持ち歩き版をUSBやネットワーク越しに動かしている人は、**そこで画面が固まる**
+/// （ゲート2の指摘）。**変わりうるのはこの1つだけ**なので、この1つだけを訊く。
+///
+/// **無いのが普通**である——書くのは失敗した行だけなので、`None` は
+/// **「ここに残す種類の失敗は起きていない」**の意味になる（画面に出る失敗は
+/// ここには来ない。サムネイルが1枚出ないのはその場に出る・PRのcodex）。
+/// ボタンを押せるかの正にそのまま使える。
+#[tauri::command]
+fn log_path() -> Option<String> {
+    applog::file()
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// 失敗の記録をOSの既定のアプリで開く（設定 →「pictkura について」）。
+///
+/// **パスは受け取らない。** 開くのは[置き場が決まっている1本](applog::file)だけで、
+/// フロントから来た文字列は使わない（`open_bundled_doc` と同じ理由）。
+///
+/// 開けなかったら**フォルダを開いてその行を選ぶ**ところまで落とす。
+/// `.log` の関連付けが無い機械はあり、そこで「開けません」で終わると、
+/// **在り処すら分からないまま**になる。
+#[tauri::command]
+fn open_log() -> Result<(), String> {
+    let path = applog::file()
+        .filter(|p| p.is_file())
+        .ok_or("まだ記録はありません")?;
+    match tauri_plugin_opener::open_path(path, None::<&str>) {
+        Ok(()) => Ok(()),
+        Err(e) => tauri_plugin_opener::reveal_item_in_dir(path).map_err(|_| e.to_string()),
+    }
+}
+
 /// 同梱した文書をOSの既定のアプリで開く。
 ///
 /// 引数はパスではなく**種類**にする。任意のパスを受け取る口を作ると、
@@ -2442,7 +2510,9 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         if let Some(e) = sidecar_err {
             // 写真は消えているのに `.xmp` だけが残る。一覧に出ないので
             // 気付く手立てが無い——せめて記録には残す
-            eprintln!("サイドカーをゴミ箱へ移せませんでした（無視して継続）: {e}");
+            applog::note(&format!(
+                "サイドカーをゴミ箱へ移せませんでした（無視して継続）: {e}"
+            ));
         }
         // **DBから落とすのは写真のぶんだけ**。サイドカーは行を持っていない
         if !deleted_media.is_empty() {
@@ -2533,7 +2603,7 @@ async fn export_media(
             if let Some(e) = err {
                 // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
                 // ファイルなので利用者からは見えない——記録には残す
-                eprintln!("移動元のサイドカーを片付けられませんでした: {e}");
+                applog::note(&format!("移動元のサイドカーを片付けられませんでした: {e}"));
             }
         }
         if !gone.is_empty() {
@@ -4023,12 +4093,69 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
 /// ずれないよう、下のテストで突き合わせている。
 #[cfg(windows)]
 fn config_path_without_app() -> Option<std::path::PathBuf> {
+    Some(app_dir_without_app()?.join("pictkura.toml"))
+}
+
+/// 設定とデータのフォルダを、**アプリを組み立てる前に**求める。
+///
+/// **WindowsもmacOSも、この2つは同じ場所**である
+/// （`app_config_dir` も `app_data_dir` も `%APPDATA%\<identifier>` /
+/// `~/Library/Application Support/<identifier>` を返す）ので、
+/// `pictkura.toml` も `pictkura.db` も `pictkura.log` もここに並ぶ。
+#[cfg(windows)]
+fn app_dir_without_app() -> Option<std::path::PathBuf> {
     let appdata = std::env::var_os("APPDATA")?;
+    Some(PathBuf::from(appdata).join(APP_IDENTIFIER))
+}
+
+/// macOS 版（上の説明のとおり）。
+///
+/// **Finderから起動した `.app` には端末が無い**ので、起動そのものが失敗したときに
+/// `stderr` へ出しても誰にも届かない——**窓が一瞬出て消えるだけ**になる
+/// （ゲート2の指摘）。Windowsだけの話ではない。
+#[cfg(target_os = "macos")]
+fn app_dir_without_app() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
     Some(
-        PathBuf::from(appdata)
-            .join(APP_IDENTIFIER)
-            .join("pictkura.toml"),
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join(APP_IDENTIFIER),
     )
+}
+
+/// Linuxは配っていない（`plan.macos.md`・動画の経路も無い）。**当てずっぽうで
+/// 場所を決めるより、決めないほうがよい**——`setup` が Tauri に訊いた場所を渡す。
+#[cfg(not(any(windows, target_os = "macos")))]
+fn app_dir_without_app() -> Option<std::path::PathBuf> {
+    None
+}
+
+/// **`setup` を通らない道でも、失敗の行き先を決めておく**（2ゲートの指摘）。
+///
+/// 呼ぶ場所は2つ:
+///
+/// 1. `--unregister-autoplay` と `--sync-autoplay`——**インストーラと
+///    アンインストーラから呼ばれる**。あそこには `stderr` の行き先が無く、
+///    しかも**窓を出さずに返る**ので `setup` まで進まない
+/// 2. **起動そのものが失敗したとき**——`setup` は置き場を決める前に
+///    `app_config_dir()` / `app_data_dir()` と `create_dir_all` の `?` を4本通る。
+///    そこで折り返すと `run()` の末尾へ戻る
+///
+/// **届く範囲は正直に書く。** 2 で拾えるのは**フォルダが在る台の失敗**だけである
+/// ——`Db::open` が開けない、プラグインが立たない、窓が作れない、など。
+/// **フォルダそのものを作れなかった失敗は、どうやっても書けない**
+/// （書き先がそのフォルダの中で、[`applog`] は**フォルダを作らない**
+/// ——アンインストールの途中で戻さないため）。`%APPDATA%` や `HOME` が
+/// 無い台も同じで、そのときは置き場が決まらない。
+///
+/// **画面が出る道では、これは何もしない。** `setup` が Tauri に訊いた場所を
+/// 先に `OnceLock` へ入れているので、あとから呼んでも黙って捨てられる
+/// ——**手で組んだパスが、Tauri の答えを上書きすることはない。**
+fn set_log_path_without_app() {
+    if let Some(dir) = app_dir_without_app() {
+        applog::set_file(dir.join("pictkura.log"));
+    }
 }
 
 /// 起動時（と導入直後）に、自動再生の登録をどう扱うか。
@@ -4433,8 +4560,12 @@ pub fn run() {
     // ポータブル版を消すときや、アンインストーラから呼ぶときのために
     // 窓を出さずに解除だけできる入口を用意する。
     if std::env::args().any(|a| a == "--unregister-autoplay") {
+        set_log_path_without_app();
+        // **レジストリを歩く側で落ちたときも残す**（ゲート2の指摘）。
+        // `setup` の中で張る掛け金は、この枝には届かない
+        applog::install_panic_hook();
         if let Err(e) = autoplay::unregister() {
-            eprintln!("AutoPlayの解除に失敗: {e}");
+            applog::note(&format!("AutoPlayの解除に失敗: {e}"));
             std::process::exit(1);
         }
         return;
@@ -4452,8 +4583,10 @@ pub fn run() {
     // 勝手に名乗らせない。**設定ファイルが無ければ何もしない**（＝まだ一度も
     // 使っていない人。起動前から候補に並べるのは越権）
     if std::env::args().any(|a| a == "--sync-autoplay") {
+        set_log_path_without_app();
+        applog::install_panic_hook();
         if let Err(e) = sync_autoplay_with_config() {
-            eprintln!("AutoPlayの同期に失敗（無視）: {e}");
+            applog::note(&format!("AutoPlayの同期に失敗（無視）: {e}"));
         }
         return;
     }
@@ -4470,6 +4603,23 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            let config_dir = app.path().app_config_dir()?;
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&config_dir)?;
+            std::fs::create_dir_all(&data_dir)?;
+
+            // **失敗の行き先を、他の何よりも先に決める**（完成度週間の項目2）。
+            // ここから下で失敗すると `?` で `run()` の末尾まで戻るが、
+            // **そのときにはもうログの置き場が決まっている**ので、
+            // 「起動できませんでした」の1行がファイルに残る。
+            //
+            // **DBの隣**（`pictkura.db`・`thumbs/` と同じフォルダ）。利用者の判断
+            // （2026-09-07）で、設定フォルダではなくデータフォルダのほう
+            applog::set_file(data_dir.join("pictkura.log"));
+            // 網（`panics::catching`）が張っていないスレッドで落ちた場合の受け皿。
+            // **配布ビルドでは、これが無いと黙って1本死ぬ**
+            applog::install_panic_hook();
+
             // **メニューバーを、まずOSの言語で当てて掛ける**（macOSだけ・Issue #14）。
             // 画面が読み込まれたら `set_menu_locale` が正しい言語で組み直す。
             // **当てておく理由は、当てないと日本語のMacで毎回英語のメニューが
@@ -4479,14 +4629,11 @@ pub fn run() {
             {
                 let locales: Vec<String> = sys_locale::get_locales().collect();
                 if let Err(e) = menu::install(app.handle(), &locales) {
-                    eprintln!("メニューバーを組めませんでした（英語のまま続行）: {e}");
+                    applog::note(&format!(
+                        "メニューバーを組めませんでした（英語のまま続行）: {e}"
+                    ));
                 }
             }
-
-            let config_dir = app.path().app_config_dir()?;
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&config_dir)?;
-            std::fs::create_dir_all(&data_dir)?;
 
             let config_path = config_dir.join("pictkura.toml");
             let first_launch = !config_path.exists();
@@ -4592,13 +4739,15 @@ pub fn run() {
                     AutoplayPlan::LeaveAlone => Ok(()),
                 };
                 match result {
-                    Err(e) => eprintln!("AutoPlayの登録に失敗（無視して継続）: {e}"),
+                    Err(e) => applog::note(&format!("AutoPlayの登録に失敗（無視して継続）: {e}")),
                     Ok(()) if plan == AutoplayPlan::Adopt => {
                         let state = app.state::<AppState>();
                         if let Err(e) = update_config(&state, |c| {
                             c.import.register_autoplay = Some(true);
                         }) {
-                            eprintln!("AutoPlayの引き継ぎを控えられなかった（無視して継続）: {e}");
+                            applog::note(&format!(
+                                "AutoPlayの引き継ぎを控えられなかった（無視して継続）: {e}"
+                            ));
                         }
                     }
                     Ok(()) => {}
@@ -5044,6 +5193,8 @@ pub fn run() {
             reveal_in_folder,
             about_info,
             open_bundled_doc,
+            open_log,
+            log_path,
             open_with,
             forget_editor,
             delete_media,
@@ -5074,14 +5225,17 @@ pub fn run() {
     // Windowsでは何も出ないまま終わる（コンソールが無いため）ので、
     // 理由を書いてから終了コードで知らせる
     if let Err(e) = run {
-        eprintln!("pictkura を起動できませんでした: {e}");
+        // **ここへ来る道の一部は、まだ置き場を知らない**（`setup` の頭の `?` や、
+        // プラグインの初期化で折り返した場合）。決まっていれば黙って捨てられる
+        set_log_path_without_app();
+        applog::note(&format!("pictkura を起動できませんでした: {e}"));
         std::process::exit(1);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
@@ -6292,8 +6446,9 @@ mod tests {
     ///
     /// ずれると [`config_path_without_app`] が**空のフォルダ**を指し、
     /// `--sync-autoplay` は「設定ファイルが無い」と読んで黙って何もしなくなる
-    /// （MSIから乗り換えた人のAutoPlay登録が戻らない。PR #24 のゲート1 P2）
-    #[cfg(windows)]
+    /// （MSIから乗り換えた人のAutoPlay登録が戻らない。PR #24 のゲート1 P2）。
+    /// **失敗の記録の置き場**（[`app_dir_without_app`]）も同じ綴りに乗っている。
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn the_identifier_matches_the_tauri_config() {
         let conf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))

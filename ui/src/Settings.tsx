@@ -9,6 +9,8 @@ import {
   setCheckUpdateOnStart,
   listFolderPatterns,
   openBundledDoc,
+  openLog,
+  logPath,
   previewFolderPattern,
   setFolderPattern,
   setImportDestination,
@@ -55,12 +57,24 @@ export default function Settings({
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);
+  /**
+   * 記録を開けなかった理由。**ダイアログの中に出す**のが要点で、
+   * `onError` はツールバーの一行へ流れる——**開いている設定の背後**なので、
+   * 出しても見えない（PRのcodex）。`destError` と同じ扱いにする。
+   */
+  const [logError, setLogError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   /** 自由記述の入力欄を開いているか、その中身と、実際にできるフォルダ名 */
   const [customMode, setCustomMode] = useState(false);
   const [custom, setCustom] = useState("");
   const [customPreview, setCustomPreview] = useState("");
   const [about, setAbout] = useState<AboutInfo | null>(null);
+  /**
+   * 失敗の記録の在り処。**無いのが普通**（`null`）で、そのときは
+   * 「ログを開く」を押せない。**開いている間くり返し訊く**ので、
+   * `about` とは別に持つ（`about` は起動時に1回でよい静的な情報）。
+   */
+  const [log, setLog] = useState<string | null>(null);
   /**
    * 選ばれている言語。**stateに持つのが要点**。`select` は制御された部品なので、
    * 選んでも再レンダーが起きないと React が DOM を前の値へ戻す。言語が実際には
@@ -87,6 +101,19 @@ export default function Settings({
     aboutInfo()
       .then(setAbout)
       .catch(() => {});
+    const readLog = () => {
+      logPath()
+        .then(setLog)
+        .catch(() => {});
+    };
+    readLog();
+    // **開いている間は、記録ができたかを見直す。** 失敗は**ダイアログを開いたまま**
+    // 起きうる（監視スレッドやサムネイル生成の失敗）ので、開いた瞬間の答えを
+    // 持ち続けると「まだ記録はありません」と**嘘をつき**、その記録を開く道が
+    // 閉じ直すまで塞がる（ゲート1の指摘）。**訊くのは記録の1件だけ**で
+    // （`aboutInfo` は同梱文書まで見に行く・ゲート2の指摘）、**閉じれば止まる**
+    const again = setInterval(readLog, 3000);
+    return () => clearInterval(again);
   }, [open]);
 
   // 設定にあるパターンがプリセットのどれでもなければ、自由記述として開く。
@@ -101,6 +128,7 @@ export default function Settings({
       // 閉じても状態は残る（`!open` で null を返すだけ）ので、
       // 前回の拒否メッセージを次に開いたとき出さないよう消す
       setDestError(null);
+      setLogError(null);
       return;
     }
     if (initialised.current || patterns.length === 0 || !config) return;
@@ -558,7 +586,39 @@ export default function Settings({
               >
                 {t.settingsOssLicenses}
               </button>
+              {/*
+                失敗の記録（完成度週間の項目2）。**押せないのが普通**——
+                書かれるのは失敗した行だけなので、`log_path` が null なのは
+                「まだ何も起きていない」の意味である。**ボタン自体は消さない**:
+                消すと、不具合の報告で「ログを送ってください」と頼まれた人が
+                **在り処ごと分からなくなる**。下の一行がその状態を言葉で言う。
+              */}
+              <button
+                disabled={!log}
+                title={log ?? t.settingsLogNone}
+                // **押しても何も起きない、を作らない。** 関連付けが無く、
+                // フォルダも開けなかった台では失敗しうるし、3秒の見直しと
+                // 押した瞬間の間にファイルが消えていることもある。
+                //
+                // **出すのはダイアログの中**——`onError` が流れる先は
+                // ツールバーの一行で、**いま開いている設定の背後**にある
+                // （`.palette-backdrop` が `position: fixed` で覆う。PRのcodex）。
+                // **Rust側の文言は出さない**——あちらは日本語決め打ちで、
+                // 英語の画面に日本語が混じる（週の台紙の項目3）
+                onClick={() =>
+                  openLog()
+                    .then(() => setLogError(null))
+                    .catch(() => setLogError(t.settingsLogOpenFailed))
+                }
+              >
+                {t.settingsLog}
+              </button>
             </div>
+            <p className="settings-note">
+              {t.settingsLogNote}
+              {!log && ` ${t.settingsLogNone}`}
+            </p>
+            {logError && <p className="settings-error">{logError}</p>}
           </section>
         </div>
       </div>
