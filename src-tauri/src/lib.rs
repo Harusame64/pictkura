@@ -4053,13 +4053,37 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
 /// ずれないよう、下のテストで突き合わせている。
 #[cfg(windows)]
 fn config_path_without_app() -> Option<std::path::PathBuf> {
-    let appdata = std::env::var_os("APPDATA")?;
-    Some(
-        PathBuf::from(appdata)
-            .join(APP_IDENTIFIER)
-            .join("pictkura.toml"),
-    )
+    Some(app_dir_without_app()?.join("pictkura.toml"))
 }
+
+/// 設定とデータのフォルダ。**Windowsではこの2つが同じ場所**である
+/// （`app_config_dir` も `app_data_dir` も `%APPDATA%\<identifier>` を返す）ので、
+/// `pictkura.toml` も `pictkura.db` も `pictkura.log` もここに並ぶ。
+#[cfg(windows)]
+fn app_dir_without_app() -> Option<std::path::PathBuf> {
+    let appdata = std::env::var_os("APPDATA")?;
+    Some(PathBuf::from(appdata).join(APP_IDENTIFIER))
+}
+
+/// **窓を出さない入口でも、失敗の行き先を決めておく**（ゲート1の指摘）。
+///
+/// `--unregister-autoplay` と `--sync-autoplay` は**インストーラと
+/// アンインストーラから呼ばれる**。あそこには `stderr` の行き先が無く、
+/// しかも `setup` までは進まない（窓を出さずに返る）ので、
+/// **決めておかないと、この2つの失敗だけが今までどおり消える。**
+///
+/// 呼ぶのはこの2つの枝だけ。**画面を出す道では `setup` が
+/// Tauri に訊いた場所を渡す**——手で組んだパスをそちらへ持ち込まない。
+#[cfg(windows)]
+fn set_log_path_for_headless() {
+    if let Some(dir) = app_dir_without_app() {
+        applog::set_file(dir.join("pictkura.log"));
+    }
+}
+
+/// Windows以外に、窓を出さない入口は無い（AutoPlayはWindowsだけの仕組み）。
+#[cfg(not(windows))]
+fn set_log_path_for_headless() {}
 
 /// 起動時（と導入直後）に、自動再生の登録をどう扱うか。
 ///
@@ -4463,6 +4487,7 @@ pub fn run() {
     // ポータブル版を消すときや、アンインストーラから呼ぶときのために
     // 窓を出さずに解除だけできる入口を用意する。
     if std::env::args().any(|a| a == "--unregister-autoplay") {
+        set_log_path_for_headless();
         if let Err(e) = autoplay::unregister() {
             applog::note(&format!("AutoPlayの解除に失敗: {e}"));
             std::process::exit(1);
@@ -4482,6 +4507,7 @@ pub fn run() {
     // 勝手に名乗らせない。**設定ファイルが無ければ何もしない**（＝まだ一度も
     // 使っていない人。起動前から候補に並べるのは越権）
     if std::env::args().any(|a| a == "--sync-autoplay") {
+        set_log_path_for_headless();
         if let Err(e) = sync_autoplay_with_config() {
             applog::note(&format!("AutoPlayの同期に失敗（無視）: {e}"));
         }

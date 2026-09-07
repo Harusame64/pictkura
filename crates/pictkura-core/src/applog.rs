@@ -81,13 +81,18 @@ fn record(message: &str) {
     let header = header();
 
     let mut wrote_header = WROTE_HEADER.lock().unwrap_or_else(|e| e.into_inner());
-    if !*wrote_header {
+    // **見出しと最初の1行は、1回で書く。** 別々に書くと、上限のすぐ手前で
+    // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
+    // ——新しいファイルが見出しの無い行から始まる（ゲート1の指摘）
+    let text = if *wrote_header {
+        line
+    } else {
         // 書けても書けなくても**印は付ける**。付けないと、書けない環境では
         // 1行ごとに見出しを試し続けることになる
         *wrote_header = true;
-        let _ = append_capped(path, &header, MAX_BYTES);
-    }
-    let _ = append_capped(path, &line, MAX_BYTES);
+        format!("{header}\n{line}")
+    };
+    let _ = append_capped(path, &text, MAX_BYTES);
 }
 
 /// **捕まえていないパニックも記録に残す**（アプリの起動時に1回）。
@@ -165,7 +170,10 @@ fn one_line(message: &str) -> String {
         .join(" / ")
 }
 
-/// 1行を追記する。**先に太り具合を見て、超えていたら1本だけ残して置き換える。**
+/// 追記する。**先に太り具合を見て、超えていたら1本だけ残して置き換える。**
+///
+/// 渡された文字列は**改行ごと1回で書く**——見出しと最初の1行のように、
+/// **離れては困る組**を呼ぶ側が畳んで渡せるようにするため。
 ///
 /// 消さずに名前を替えるのは、**上限に当たった瞬間の直前が、たいてい知りたい所**
 /// だからである。名前替えに失敗したらそのまま追記を続ける
@@ -175,6 +183,10 @@ fn append_capped(path: &Path, line: &str, max: u64) -> std::io::Result<()> {
         fs::create_dir_all(dir)?;
     }
     if fs::metadata(path).map(|m| m.len()).unwrap_or(0) >= max {
+        // **`rename` は行き先が在っても置き換える**（Unix の `rename(2)` と、
+        // Windows の `MoveFileExW` に `MOVEFILE_REPLACE_EXISTING` を付けた呼び出し
+        // ——`std` の `sys/fs/windows.rs`）。**2周目で失敗して上限が効かなくなる、
+        // という道は無い**（ゲート1の P1。事実と違うので据え置いた）
         let _ = fs::rename(path, previous(path));
     }
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
@@ -219,6 +231,23 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "つぎの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "いまの行\n");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    /// **離しては困る組は、1回で渡せば離れない**（見出しと最初の1行）。
+    ///
+    /// 別々に書くと、上限のすぐ手前では**見出しだけが `.1` へ送られ**、
+    /// 新しいファイルが見出しの無い行から始まる（ゲート1の指摘）。
+    #[test]
+    fn a_pair_handed_over_together_is_not_split_by_the_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.log");
+        append_capped(&path, "上限のすぐ手前まで太らせる", 8).unwrap();
+        append_capped(&path, "見出し\n最初の1行", 8).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "見出し\n最初の1行\n",
+            "見出しと本文は同じファイルに揃っていること"
+        );
     }
 
     #[test]
