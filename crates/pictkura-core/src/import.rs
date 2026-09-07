@@ -338,8 +338,12 @@ fn looks_alike(a: (u64, i64), b: (u64, i64)) -> bool {
         return false;
     }
     let diff = (a.1 - b.1).abs();
-    diff <= MTIME_TOLERANCE_MS || (diff - 3_600_000).abs() <= MTIME_TOLERANCE_MS
+    diff <= MTIME_TOLERANCE_MS || (diff - DST_SHIFT_MS).abs() <= MTIME_TOLERANCE_MS
 }
+
+/// 夏時間のずれ。**[`contested_names`] の探索がここを覗く**ので名前を付けてある
+/// ——**決めるのは [`looks_alike`] のまま**で、探索は「どれを訊くか」しか決めない。
+const DST_SHIFT_MS: i64 = 3_600_000;
 
 /// `IMG_0001.CR3` の `i` 番目の別名（`IMG_0001-1.CR3`）。
 ///
@@ -641,15 +645,36 @@ pub fn contested_names<'a>(entries: impl Iterator<Item = (&'a str, u64, i64)>) -
             .push(mtime_ms);
     }
     let mut contested: HashSet<String> = HashSet::new();
-    for ((name, size), mtimes) in buckets {
+    for ((name, size), mut mtimes) in buckets {
         if contested.contains(&name) {
             continue;
         }
-        if mtimes.iter().enumerate().any(|(i, a)| {
-            mtimes[i + 1..]
-                .iter()
-                .any(|b| looks_alike((size, *a), (size, *b)))
-        }) {
+        // **総当たりにしない**（2026-09-07・PR の codex の P2）。束の中を総当たりにすると、
+        // **同名・同サイズ・別時刻が2万件**——たとえば各フォルダに大きさの揃った
+        // `cover.jpg` が1本ずつ入った深い木——で**2億組**になり、
+        // **バッジが出る前にも、取り込みが始まる前にも、そこで止まって見える**。
+        //
+        // **並べてから、訊く相手を2つに絞る。** 決めるのは [`looks_alike`] のままで、
+        // ここが決めるのは「どれを訊くか」だけである。
+        mtimes.sort_unstable();
+        let hit = mtimes.iter().enumerate().any(|(i, &a)| {
+            // **近い側は隣だけでよい。** 2秒以内の組がどこかに在るなら、
+            // 並べた隣り合わせにも必ず在る
+            if mtimes
+                .get(i + 1)
+                .is_some_and(|&b| looks_alike((size, a), (size, b)))
+            {
+                return true;
+            }
+            // **1時間ずれは飛んだ先に在る。** 窓の左端を二分探索して、
+            // **いちばん手前の候補**だけ訊く——それが窓の外なら、後ろはもっと外である
+            let lo = a + DST_SHIFT_MS - MTIME_TOLERANCE_MS;
+            let k = mtimes.partition_point(|&m| m < lo);
+            mtimes
+                .get(k)
+                .is_some_and(|&b| looks_alike((size, a), (size, b)))
+        });
+        if hit {
             contested.insert(name);
         }
     }
@@ -1754,6 +1779,66 @@ mod tests {
             contested_flags(&entries),
             vec![false, false, false, false, true, true, true, true, true, true],
             "見分けられる組までぶつかっていると数えている（または見分けられない組を落としている）"
+        );
+    }
+
+    /// **並べ替えと二分探索にしても、総当たりと同じ答えを出す**
+    /// （2026-09-07・PR の codex の P2）。
+    ///
+    /// 束の中を総当たりにすると、**同名・同サイズ・別時刻が2万件**で2億組になる。
+    /// 絞ったぶん**取りこぼすと写真が消える**ので、**総当たりを試験の中に書いて突き合わせる**。
+    ///
+    /// **3つ組で回す。2つ組では足りない**——2本しか無ければ1時間先は必ず「並べた隣」なので、
+    /// **飛んだ先を探す枝を落としても落ちない**（2026-09-07 に実測して書き直した）。
+    #[test]
+    fn the_bounded_search_agrees_with_comparing_every_pair() {
+        let base = 1_600_000_000_000_i64;
+        // 境界のまわりを厚くした値。許容差2秒・夏時間1時間の**内と外**を跨がせる
+        let offsets: Vec<i64> = vec![
+            0, 1_999, 2_000, 2_001, 5_000, 3_597_999, 3_598_000, 3_600_000, 3_602_000, 3_602_001,
+            7_200_000, 86_400_000,
+        ];
+
+        // 総当たり（読むための素朴な版）
+        fn naive(size: u64, mtimes: &[i64]) -> bool {
+            mtimes.iter().enumerate().any(|(i, &a)| {
+                mtimes[i + 1..]
+                    .iter()
+                    .any(|&b| looks_alike((size, a), (size, b)))
+            })
+        }
+
+        let by_search = |mtimes: &[i64]| {
+            let entries: Vec<(String, u64, i64)> = mtimes
+                .iter()
+                .map(|m| ("DSC00001.ARW".to_string(), 4, *m))
+                .collect();
+            !contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m))).is_empty()
+        };
+
+        for (i, a) in offsets.iter().enumerate() {
+            for (j, b) in offsets.iter().enumerate().skip(i + 1) {
+                for c in &offsets[j + 1..] {
+                    let mtimes = vec![base + *a, base + *b, base + *c];
+                    assert_eq!(
+                        by_search(&mtimes),
+                        naive(4, &mtimes),
+                        "({a}, {b}, {c}) で食い違った"
+                    );
+                }
+            }
+        }
+
+        // **飛んだ先を探す枝そのもの**: 1時間ずれの相方が、並べても隣に居ない
+        assert!(
+            by_search(&[base, base + 1_000_000, base + DST_SHIFT_MS]),
+            "間に1本挟まった1時間ずれを見落とした"
+        );
+
+        // 遠く離れた値ばかりなら、ぶつかっていない
+        assert!(
+            !by_search(&(0..50).map(|i| base + i * 86_400_000).collect::<Vec<_>>()),
+            "離れているものをぶつかっていると数えた"
         );
     }
 
