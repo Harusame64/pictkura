@@ -2776,6 +2776,10 @@ fn set_auto_advance(state: tauri::State<'_, AppState>, enabled: bool) -> Result<
 #[tauri::command]
 fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // **触る前の状態を控える。** 戻すのはこの呼び出しが変えたぶんだけで、
+    // **元から在った登録を戻しの名目で消すと、「常にこの操作」の記録ごと失われる**
+    // （[`autoplay_rollback`]）
+    let was_registered = autoplay::is_registered();
     if enabled {
         autoplay::register(&exe).map_err(|e| e.to_string())?;
     } else {
@@ -2785,10 +2789,10 @@ fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Re
     // 元のまま・レジストリだけ変わった状態で残り、しかも次の起動で起動時の同期処理が
     // 設定に合わせて戻す——利用者から見ると「切ったのに戻っている」。
     if let Err(e) = update_config(&state, |c| c.import.register_autoplay = Some(enabled)) {
-        let rollback = if enabled {
-            autoplay::unregister()
-        } else {
-            autoplay::register(&exe)
+        let rollback = match autoplay_rollback(was_registered, enabled) {
+            AutoplayRollback::Register => autoplay::register(&exe),
+            AutoplayRollback::Unregister => autoplay::unregister(),
+            AutoplayRollback::Nothing => Ok(()),
         };
         return Err(match rollback {
             Ok(()) => e,
@@ -4093,6 +4097,24 @@ mod autoplay_plan_tests {
         }
     }
 
+    /// **戻しが、戻すつもりのないものを壊さない。**
+    ///
+    /// `unregister` は「常にこの操作」の記録まで消し、`register` は書き戻せない。
+    /// **元から在った登録を、設定の保存に失敗したからといって消してはいけない**
+    /// ——消えるのは候補だけでなく、**利用者が選んだ既定**である（2026-09-07・ゲート2）。
+    #[test]
+    fn a_rollback_only_undoes_what_this_call_changed() {
+        use super::{autoplay_rollback, AutoplayRollback};
+        // 作ったものは消す
+        assert_eq!(autoplay_rollback(false, true), AutoplayRollback::Unregister);
+        // **元から在ったものは消さない**（ここが壊れると利用者の既定が飛ぶ）
+        assert_eq!(autoplay_rollback(true, true), AutoplayRollback::Nothing);
+        // 消したものは書き戻す
+        assert_eq!(autoplay_rollback(true, false), AutoplayRollback::Register);
+        // 元から無かったものを、戻しの名目で作らない
+        assert_eq!(autoplay_rollback(false, false), AutoplayRollback::Nothing);
+    }
+
     /// **入れただけの台には、1バイトも書かない。**
     #[test]
     fn a_fresh_install_does_not_touch_the_registry() {
@@ -4109,10 +4131,46 @@ mod autoplay_plan_tests {
     }
 }
 
+/// 設定の保存に失敗したとき、レジストリをどこへ戻すか。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum AutoplayRollback {
+    /// 消したものを書き戻す
+    Register,
+    /// 作ったものを消す
+    Unregister,
+    /// **戻すものが無い**（この呼び出しでは変わっていない）
+    Nothing,
+}
+
+/// **戻すのは、この呼び出しが変えたぶんだけ。**
+///
+/// [`autoplay::unregister`] は**「常にこの操作」の記録**（`UserChosenExecuteHandlers`）まで
+/// 消すが、[`autoplay::register`] は**それを書き戻せない**——候補は作り直せても、
+/// **利用者が選んだ既定は戻らない**。
+///
+/// **だから「元から在った登録」を、戻しの名目で消してはいけない**
+/// （2026-09-07・ゲート2）。**元から無かったものを、戻しの名目で作る**のも同じく違う。
+fn autoplay_rollback(was_registered: bool, enabled: bool) -> AutoplayRollback {
+    if was_registered == enabled {
+        AutoplayRollback::Nothing
+    } else if was_registered {
+        AutoplayRollback::Register
+    } else {
+        AutoplayRollback::Unregister
+    }
+}
+
 /// AutoPlayの登録を設定に合わせ直す（`--sync-autoplay`）。
 ///
 /// 設定ファイルが無ければ**何もしない**。まだ一度も使っていない人の環境に、
 /// 起動前から自動再生の候補を足さないため。
+///
+/// **戻せるのは、設定に答えが書いてある人のぶんだけ**（`Some(true)`）。
+/// **`None` の人のぶんは戻せない**——引き継ぎの手がかりは**登録そのもの**で、
+/// MSI の掃除（`autoplay-cleanup.wxs`）は**その登録を先に消してから**ここへ来る。
+/// **`register_autoplay` は v0.1.1 から在り、設定は初回起動で必ず保存される**ので、
+/// これに当たるのは**初回起動が v0.1.0 だった人だけ**である
+/// （2026-09-07・ゲート2。**この入口の説明と実装が食い違っていたので、説明のほうを狭めた**）。
 #[cfg(windows)]
 fn sync_autoplay_with_config() -> Result<(), String> {
     let Some(path) = config_path_without_app() else {

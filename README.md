@@ -51,9 +51,10 @@ on up-to-date Windows 10.
 >
 > **Take care on a shared PC.** The MSI is installed for everyone, so switching **removes
 > pictkura for the other users** (`-setup.exe` installs only for you). Each person should run
-> `-setup.exe` themselves. Also, if another user had launched pictkura at least once, **their
-> AutoPlay entry stays behind** — they can reinstall and turn off "When a USB drive or SD card
-> is inserted" in Settings, or pick a new AutoPlay default in Windows Settings.
+> `-setup.exe` themselves. Also, another user on that PC **may still have an AutoPlay entry
+> left behind** (up to 0.2.7, merely launching pictkura registered one) — they can reinstall and
+> turn off "When a USB drive or SD card is inserted" in Settings, or pick a new AutoPlay default
+> in Windows Settings.
 >
 > The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
 > uninstall from Settings → Apps first in that case.
