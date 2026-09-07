@@ -57,6 +57,12 @@ export default function Settings({
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);
+  /**
+   * 記録を開けなかった理由。**ダイアログの中に出す**のが要点で、
+   * `onError` はツールバーの一行へ流れる——**開いている設定の背後**なので、
+   * 出しても見えない（PRのcodex）。`destError` と同じ扱いにする。
+   */
+  const [logError, setLogError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   /** 自由記述の入力欄を開いているか、その中身と、実際にできるフォルダ名 */
   const [customMode, setCustomMode] = useState(false);
@@ -122,6 +128,7 @@ export default function Settings({
       // 閉じても状態は残る（`!open` で null を返すだけ）ので、
       // 前回の拒否メッセージを次に開いたとき出さないよう消す
       setDestError(null);
+      setLogError(null);
       return;
     }
     if (initialised.current || patterns.length === 0 || !config) return;
@@ -592,10 +599,16 @@ export default function Settings({
                 // **押しても何も起きない、を作らない。** 関連付けが無く、
                 // フォルダも開けなかった台では失敗しうるし、3秒の見直しと
                 // 押した瞬間の間にファイルが消えていることもある。
+                //
+                // **出すのはダイアログの中**——`onError` が流れる先は
+                // ツールバーの一行で、**いま開いている設定の背後**にある
+                // （`.palette-backdrop` が `position: fixed` で覆う。PRのcodex）。
                 // **Rust側の文言は出さない**——あちらは日本語決め打ちで、
                 // 英語の画面に日本語が混じる（週の台紙の項目3）
                 onClick={() =>
-                  openLog().catch(() => onError(t.settingsLogOpenFailed))
+                  openLog()
+                    .then(() => setLogError(null))
+                    .catch(() => setLogError(t.settingsLogOpenFailed))
                 }
               >
                 {t.settingsLog}
@@ -605,6 +618,7 @@ export default function Settings({
               {t.settingsLogNote}
               {!log && ` ${t.settingsLogNone}`}
             </p>
+            {logError && <p className="settings-error">{logError}</p>}
           </section>
         </div>
       </div>
