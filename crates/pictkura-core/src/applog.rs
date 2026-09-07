@@ -197,6 +197,41 @@ fn record(message: &str) {
     }
 }
 
+/// **抱えたままの数を、いま吐き出す。**（終わるときに1回だけ呼ぶ）
+///
+/// 畳み込みは**次を待って**数を世に出す——同じ失敗がもう一度来るか、別の行が来るか。
+/// **どちらも来ないまま終わる道が在る**: 同じ失敗が60秒のうちに何千回か起きて、
+/// **そこで止まった**とき。時計を持った番人は居ないので、
+/// **その数はプロセスと一緒に消える**——記録には「1回起きた」だけが残り、
+/// **千回だったことは誰も知らない**（PRのcodex）。
+///
+/// **落とされたとき（強制終了・パニックの直後）までは救えない。**
+/// それでも**1本目の行は既に書かれている**ので、失敗そのものは残る。
+/// ここが救うのは**数のほう**である。
+pub fn flush_pending() {
+    let Some(path) = FILE.get() else { return };
+
+    let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(rep) = st.repeated.take() else {
+        return;
+    };
+    if rep.count == 0 {
+        return; // 抱えていない。**空のファイルを作らない**
+    }
+    // **文字列は錠の中で作っている**——ここは終わり際の1回きりで、
+    // `record` と違って**この道からパニックの網へ入る流れが無い**
+    let now = stamp();
+    let header = header();
+    let dropped_note = format!(
+        "{now} the previous record could not be moved aside, so it was dropped to keep the cap"
+    );
+    let said = format!(
+        "(the line above repeated {} more times): {}",
+        rep.count, rep.line
+    );
+    write_line(&mut st, path, &now, &header, &dropped_note, &said);
+}
+
 /// 周期の要約を出したあとの、畳み込みの立て直し。
 ///
 /// **数え直すのは、言えたときだけ。** 先に 0 へ戻すと、**書けなかった1分ぶんが

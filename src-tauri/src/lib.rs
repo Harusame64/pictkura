@@ -4340,10 +4340,20 @@ fn sync_autoplay_with_config() -> Result<(), String> {
         return Ok(());
     }
     // **ここの失敗は画面へ出ない。** この入口は窓を出さずに返り、呼ぶ側は
-    // 記録へ回すだけなので、**鍵を付けない**（付けると記録に鍵の字が並ぶ）。
-    // `current_exe` と `autoplay::*` は `io::Error` で、そもそも鍵を持たない
-    // ——**Windowsでしかコンパイルされないので、手元の門は素通りする**（ゲート1が捕まえた）
-    let config = Config::load(&path).map_err(|e| e.to_string())?;
+    // 記録へ回すだけなので、**画面用の鍵（`from_err`）は付けない**
+    // ——`\u{1}` で継いだ物が、開かれないまま記録に落ちる。
+    //
+    // **記録用の姿（[`errs::for_log_err`]）は要る。** `ConfigError` の `Display` は
+    // **日本語**なので、そのまま `{e}` に載せると
+    // `could not sync AutoPlay ... 設定ファイル...` という混じった行になる
+    // ——**この枝は窓を出さないので、その行が唯一の手がかり**であり、
+    // 説明書の「本アプリが書く文は英語」を破る（PRのcodex）。
+    //
+    // `current_exe` と `autoplay::*` は `io::Error` で、**中身はOSの言葉**
+    // ——訳せないので、そのまま載せる（説明書もそう断っている）。
+    // **Windowsでしかコンパイルされないので、手元の門は素通りする**（ゲート1が捕まえた）。
+    // **型の裏取りは `errs.rs` の試験でやる**——あちらは macOS でも走る
+    let config = Config::load(&path).map_err(errs::for_log_err)?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     // **判断は起動時と同じ関数を通す**（[`autoplay_plan`]）。別々に書くと、
     // 「導入直後だけ違う」というずれ方をする。**まだ決めていない人のぶんは書かないが、
@@ -4603,8 +4613,11 @@ pub fn run() {
         applog::install_panic_hook();
         if let Err(e) = autoplay::unregister() {
             applog::note(&format!("could not unregister AutoPlay: {e}"));
+            // **`exit` は後片付けを飛ばす。** 抱えている数は、ここで出しておく
+            applog::flush_pending();
             std::process::exit(1);
         }
+        applog::flush_pending();
         return;
     }
 
@@ -4625,6 +4638,7 @@ pub fn run() {
         if let Err(e) = sync_autoplay_with_config() {
             applog::note(&format!("could not sync AutoPlay (ignored): {e}"));
         }
+        applog::flush_pending();
         return;
     }
 
@@ -5267,8 +5281,16 @@ pub fn run() {
         // プラグインの初期化で折り返した場合）。決まっていれば黙って捨てられる
         set_log_path_without_app();
         applog::note(&format!("pictkura could not start: {e}"));
+        applog::flush_pending();
         std::process::exit(1);
     }
+    // **終わり際に、抱えている数を出す。**
+    //
+    // 畳み込みは**次を待って**数を世に出すので、**同じ失敗が60秒のうちに
+    // 何千回か起きて、そこで止まった**まま終わると、**その数は消える**
+    // ——記録には「1回起きた」だけが残る（PRのcodex）。
+    // **`.run()` はアプリが終わってから返る**ので、ここが最後の機会である。
+    applog::flush_pending();
 }
 
 #[cfg(test)]

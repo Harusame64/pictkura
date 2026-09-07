@@ -228,6 +228,27 @@ mod tests {
         assert!(!ExportError::DestIsPackage("/写真.photoslibrary".into()).is_malfunction());
     }
 
+    /// **`--sync-autoplay` の枝の型を、macOS 側で押さえる。**
+    ///
+    /// あの枝は `#[cfg(windows)]` の中に在るので、**手元では1行もコンパイルされない**
+    /// ——`Config::load(..).map_err(for_log_err)?` が通るかは、CI の Windows が
+    /// 初めて見ることになる。**同じ呼びをここで1回やっておく**と、
+    /// 型（`ConfigError: Coded` と `-> String`）だけは手元で落ちる。
+    ///
+    /// 中身のほうも見る: **`ConfigError` の `Display` は日本語**なので、
+    /// `{e}` で載せると**窓の無い枝の唯一の手がかりが混じった言葉**になる
+    /// （説明書は「本アプリが書く文は英語」と約束している。PRのcodex）。
+    #[test]
+    fn a_headless_config_failure_reads_in_english() {
+        let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access is denied");
+        let line: String = for_log_err(ConfigError::Io(io));
+        assert!(line.starts_with("errConfigIo: "), "{line}");
+        // **OSの文言はそのまま**（訳せないものを訳したふりをしない）
+        assert!(line.contains("access is denied"), "{line}");
+        // **こちらが書いた日本語は載らない**
+        assert!(!line.contains("設定ファイル"), "{line}");
+    }
+
     /// **日本語の文は詳細に混ぜない**——訳した文の隣に原文が並ぶのを防ぐ。
     #[test]
     fn the_japanese_sentence_does_not_ride_along() {
