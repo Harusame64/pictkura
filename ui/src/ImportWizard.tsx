@@ -121,6 +121,11 @@ export default function ImportWizard({
   /** 判定の到着時に「今隠しているか」を見るためのref */
   const hideImportedRef = useRef(hideImported);
   hideImportedRef.current = hideImported;
+  /** 失敗の枝で「もう済と分かっているもの」を避けるためのref。
+   *  `imported` はフォルダを開き直しても残る（捨てるのはコピー先が変わったときだけ）ので、
+   *  **隠れているものを選び直すと、画面から外す手段が無いまま枚数だけ増える** */
+  const importedRef = useRef(imported);
+  importedRef.current = imported;
   /** 親から渡るコールバックはrefで持つ。依存に入れるとeffectが再実行される */
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
@@ -214,7 +219,13 @@ export default function ImportWizard({
         // 理由は表に出す**——隠す物が無いので、利用者は自分で外せる
         onErrorRef.current(String(e));
         if (!cancelled && gen === probeGen.current && autoSelect.current) {
-          setSelected(new Set(allFiles.map((f) => f.path)));
+          setSelected(
+            new Set(
+              allFiles
+                .filter((f) => importedRef.current[f.path] !== "imported")
+                .map((f) => f.path),
+            ),
+          );
         }
         return;
       }
@@ -263,7 +274,10 @@ export default function ImportWizard({
           if (!cancelled && gen === probeGen.current && autoSelect.current) {
             setSelected((prev) => {
               const next = new Set(prev);
-              allFiles.slice(i).forEach((f) => next.add(f.path));
+              allFiles
+                .slice(i)
+                .filter((f) => importedRef.current[f.path] !== "imported")
+                .forEach((f) => next.add(f.path));
               return next;
             });
           }
