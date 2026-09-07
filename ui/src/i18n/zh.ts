@@ -298,7 +298,7 @@ export const zh: Dict = {
   emptyChecking:
     "还在查看文件夹。如果其中有网络上的文件夹，请确认连接正常之后按“重新扫描”。",
   emptyLoadFailed:
-    "无法加载列表。原因显示在上方的横条里。请按“重新扫描”，或者重新打开应用。",
+    "无法加载列表。请按“重新扫描”，或者重新打开应用。",
   wizardPickFolderHint: "在左侧选择文件夹，这里就会列出其中的照片",
   wizardNoImages: "这个文件夹里没有照片",
   wizardUnreadable: "无法读取这个文件夹（可能已经被拔出）",

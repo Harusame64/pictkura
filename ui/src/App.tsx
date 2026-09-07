@@ -457,6 +457,15 @@ export default function App() {
    */
   const [loadFailed, setLoadFailed] = useState(false);
   /**
+   * 一覧が読めなかった**理由**。**旗と同じだけ生きる**（PRのcodex）。
+   *
+   * 前はこれを `status` に流していて、パネルの本文が「上の帯に理由が出ています」と
+   * 案内していた。**面へ移した時点で、その案内は8秒で嘘になる**
+   * ——`loadFailed` はいつまでも立つのに、指し示す先が消える。
+   * **パネルの中に置けば、寿命がそろう。**
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /**
    * 骨組みが**最後に取れた**のは何回目か。
    *
    * `reloadAll` と `refreshSummary` は同じ骨組みを取り直す別の口で、
@@ -831,6 +840,7 @@ export default function App() {
       setDayItems(new Map());
       gotSummaryRef.current += 1;
       setLoadFailed(false);
+      setLoadError(null);
       // 飾りが落ちたことも黙らない。ただし**一覧は正しい**ので旗は立てない
       if (statsR.status === "rejected") throw statsR.reason;
       if (memR.status === "rejected") throw memR.reason;
@@ -842,6 +852,7 @@ export default function App() {
         gotSummaryRef.current === wasGotAt
       ) {
         setLoadFailed(true);
+        setLoadError(errText(err));
       }
       throw err;
     } finally {
@@ -874,6 +885,7 @@ export default function App() {
     // （ゲート1の指摘）
     gotSummaryRef.current += 1;
     setLoadFailed(false);
+    setLoadError(null);
     setStats(st);
     setDayItems((prev) => {
       if (prev.size === 0) return prev;
@@ -4700,21 +4712,26 @@ export default function App() {
           {t.itemsCount(totalShown)}
         </span>
       </header>
+      {/* **読み上げの区域は、いつも在る。**
+          `aria-live` の付いた要素を**中身ごと挿す**と、読み上げはたいてい黙る
+          ——あちらが約束しているのは「**登録済みの区域の中身が変わったとき**」で
+          あって、生まれたての中身ではない（PRのcodex）。**外すと、この属性が
+          向いている相手にだけ届かない面**になる。だから**空のまま置いて、
+          中身だけ差し替える**。目には見えないが、読み上げには届く。 */}
+      <div className="sr-only" aria-live="assertive">
+        {failure ?? ""}
+      </div>
       {/* **失敗はいちばん上に出す**（`z-index: 500`）。開いている物の下に隠れない */}
       {failure !== null && (
         /* **`button` にする。** `div` に `onClick` を付けただけだと、
            **キーボードだけの人が消せない**（焦点も当たらない・ゲート2）。
            `button` なら Enter も Space も、焦点の輪も、標準で付く。
 
-           **`role="alert"` は付けない**——`button` の役割を**上書きしてしまい**、
-           読み上げが「ボタン」と言わなくなる。読み上げさせるのは
-           `aria-live` の仕事で、あちらは役割に触らない。 */
-        <button
-          type="button"
-          className="failure-toast"
-          aria-live="assertive"
-          onClick={dismissFailure}
-        >
+           **`role="alert"` も `aria-live` も、ここには付けない**——前者は
+           `button` の役割を**上書きして**「ボタン」と言われなくなり、後者は
+           **上の区域と二重に読ませる**。読み上げは上の区域の仕事で、
+           ここは**押して消せること**だけを引き受ける。 */
+        <button type="button" className="failure-toast" onClick={dismissFailure}>
           {failure}
         </button>
       )}
@@ -4963,6 +4980,12 @@ export default function App() {
                   いることになる（ゲート2の指摘） */}
               <h2>{emptyTitle()}</h2>
               <p>{emptyMessage()}</p>
+              {/* **理由はここに置く。** 面（8秒で消える）に頼ると、
+                  **本文の案内が指す先が無くなる**——`loadFailed` は
+                  利用者が動くまで下りない（PRのcodex） */}
+              {loadFailed && loadError !== null && (
+                <p className="empty-reason">{loadError}</p>
+              )}
               <div className="empty-actions">
                 {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
                 <button

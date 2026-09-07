@@ -301,7 +301,7 @@ export const zhHant: Dict = {
   emptyChecking:
     "還在查看資料夾。如果其中有網路上的資料夾，請確認連線正常之後按「重新掃描」。",
   emptyLoadFailed:
-    "無法載入清單。原因顯示在上方的橫條裡。請按「重新掃描」，或者重新開啟程式。",
+    "無法載入清單。請按「重新掃描」，或者重新開啟程式。",
   wizardPickFolderHint: "在左邊選擇資料夾，這裡就會列出其中的照片",
   wizardNoImages: "這個資料夾裡沒有照片",
   wizardUnreadable: "無法讀取這個資料夾（可能已經被移除）",

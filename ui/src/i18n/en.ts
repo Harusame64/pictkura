@@ -240,7 +240,7 @@ export const en: Dict = {
   emptyChecking:
     "Still looking through the folders. If one of them is on a network, make sure it is connected and press Rescan.",
   emptyLoadFailed:
-    "The list could not be loaded. The reason is in the bar above. Press Rescan, or reopen the app.",
+    "The list could not be loaded. Press Rescan, or reopen the app.",
   wizardPickFolderHint: "Pick a folder on the left to see the photos in it",
   wizardNoImages: "No photos in this folder",
   wizardUnreadable: "Could not read this folder (it may have been removed)",

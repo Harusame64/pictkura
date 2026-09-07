@@ -296,7 +296,7 @@ export const es: Dict = {
   emptyChecking:
     "Todavía se están revisando las carpetas. Si alguna está en una red, comprueba que sigue conectada y pulsa «Volver a explorar».",
   emptyLoadFailed:
-    "No se ha podido cargar la lista. El motivo está en la barra de arriba. Pulsa «Volver a explorar» o vuelve a abrir la aplicación.",
+    "No se ha podido cargar la lista. Pulsa «Volver a explorar» o vuelve a abrir la aplicación.",
   wizardPickFolderHint:
     "Elige una carpeta a la izquierda para ver las fotos que tiene",
   wizardNoImages: "No hay fotos en esta carpeta",

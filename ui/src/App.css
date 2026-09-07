@@ -2547,3 +2547,25 @@ body {
   overflow-wrap: anywhere;
   animation: speed-toast-in 0.25s var(--easing);
 }
+
+/* 読み上げにだけ届く区域（`display: none` にすると読み上げからも消える）。
+   `.failure-toast` の中身を、**面が生まれる前から置いてある**器に流すために使う。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 一覧が読めなかった理由。**パネルの中に置く**——面は8秒で消えるが、
+   `loadFailed` は利用者が動くまで下りない（PRのcodex） */
+.empty-reason {
+  color: var(--warn);
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+}

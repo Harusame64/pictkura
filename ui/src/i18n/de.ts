@@ -298,7 +298,7 @@ export const de: Dict = {
   emptyChecking:
     "Die Ordner werden noch durchgesehen. Liegt einer davon im Netzwerk, prüfe die Verbindung und drücke „Neu einlesen“.",
   emptyLoadFailed:
-    "Die Liste konnte nicht geladen werden. Der Grund steht in der Leiste oben. Drücke „Neu einlesen“ oder öffne die App neu.",
+    "Die Liste konnte nicht geladen werden. Drücke „Neu einlesen“ oder öffne die App neu.",
   wizardPickFolderHint: "Wähle links einen Ordner, um die Fotos darin zu sehen",
   wizardNoImages: "Keine Fotos in diesem Ordner",
   wizardUnreadable: "Dieser Ordner ließ sich nicht lesen (er wurde vielleicht entfernt)",
