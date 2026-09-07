@@ -59,11 +59,11 @@ export default function Settings({
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);
   /**
-   * 記録を開けなかった理由。**ダイアログの中に出す**のが要点で、
+   * 開けなかった理由（説明書・ライセンス・記録）。**ダイアログの中に出す**のが要点で、
    * `onError` はツールバーの一行へ流れる——**開いている設定の背後**なので、
    * 出しても見えない（PRのcodex）。`destError` と同じ扱いにする。
    */
-  const [logError, setLogError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   /** 自由記述の入力欄を開いているか、その中身と、実際にできるフォルダ名 */
   const [customMode, setCustomMode] = useState(false);
@@ -129,7 +129,7 @@ export default function Settings({
       // 閉じても状態は残る（`!open` で null を返すだけ）ので、
       // 前回の拒否メッセージを次に開いたとき出さないよう消す
       setDestError(null);
-      setLogError(null);
+      setOpenError(null);
       return;
     }
     if (initialised.current || patterns.length === 0 || !config) return;
@@ -576,9 +576,9 @@ export default function Settings({
                 }
                 onClick={() =>
                   manualDoc &&
-                  openBundledDoc(manualDoc).catch((e) =>
-                    setLogError(errText(e, t.settingsDocNotBundled)),
-                  )
+                  openBundledDoc(manualDoc)
+                    .then(() => setOpenError(null))
+                    .catch((e) => setOpenError(errText(e, t.settingsOpenFailed)))
                 }
               >
                 {t.settingsManual}
@@ -587,9 +587,9 @@ export default function Settings({
                 disabled={!about?.licenses_path}
                 title={about?.licenses_path ?? t.settingsDocNotBundled}
                 onClick={() =>
-                  openBundledDoc("licenses").catch((e) =>
-                    setLogError(errText(e, t.settingsDocNotBundled)),
-                  )
+                  openBundledDoc("licenses")
+                    .then(() => setOpenError(null))
+                    .catch((e) => setOpenError(errText(e, t.settingsOpenFailed)))
                 }
               >
                 {t.settingsOssLicenses}
@@ -616,12 +616,12 @@ export default function Settings({
                 // ——`errText` が鍵を引き、引けなければ下の1文に落ちる
                 onClick={() =>
                   openLog()
-                    .then(() => setLogError(null))
+                    .then(() => setOpenError(null))
                     // **Rust が鍵を付けている失敗は、その1文を出す**
                     // （「まだ記録はありません」など）。鍵の無い失敗——
                     // 関連付けが無い等、外のクレートの文言——は、
                     // **こちらの1文に落とす**ほうが読める
-                    .catch((e) => setLogError(errText(e, t.settingsLogOpenFailed)))
+                    .catch((e) => setOpenError(errText(e, t.settingsOpenFailed)))
                 }
               >
                 {t.settingsLog}
@@ -631,7 +631,7 @@ export default function Settings({
               {t.settingsLogNote}
               {!log && ` ${t.settingsLogNone}`}
             </p>
-            {logError && <p className="settings-error">{logError}</p>}
+            {openError && <p className="settings-error">{openError}</p>}
           </section>
         </div>
       </div>

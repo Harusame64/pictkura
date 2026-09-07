@@ -366,7 +366,7 @@ export const en: Dict = {
   settingsDocNotBundled: "(not bundled in a development build)",
   settingsLog: "Open the log",
   settingsLogNone: "(nothing recorded yet)",
-  settingsLogOpenFailed: "The log could not be opened.",
+  settingsOpenFailed: "It could not be opened.",
   settingsLogNote:
     "A line is written only when something fails, and it stays on this machine. Nothing is sent.",
   settingsLanguage: "Language",

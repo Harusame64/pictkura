@@ -29,10 +29,7 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
     let header = lines.next().unwrap();
     assert!(header.contains(env!("CARGO_PKG_VERSION")), "{header}");
     let caught = lines.next().unwrap();
-    assert!(
-        caught.contains("caught a panic (IMG_0100.CR3)"),
-        "{caught}"
-    );
+    assert!(caught.contains("caught a panic (IMG_0100.CR3)"), "{caught}");
     assert!(caught.contains("壊れたハフマン表"), "{caught}");
     assert!(lines.next().is_none(), "1件で1行のはず: {text}");
 
@@ -66,6 +63,31 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
         .map(str::to_string)
         .collect();
     assert_eq!(after.len(), 2, "掛け金と網で1本ずつ: {after:?}");
+
+    // 4. **同じ行が続いたら畳む**（詰まった失敗で記録が埋まらないように）
+    let before = std::fs::read_to_string(&path).unwrap().lines().count();
+    applog::note("同じ理由で続けて落ちる");
+    applog::note("同じ理由で続けて落ちる");
+    applog::note("同じ理由で続けて落ちる");
+    let lines: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .skip(before)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines.len(), 1, "3回でも1行: {lines:?}");
+
+    // **別の行が来たときに、黙っていた分を言う**
+    applog::note("別の理由");
+    let lines: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .skip(before + 1)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines.len(), 2, "畳んだ数の1行と、新しい1行: {lines:?}");
+    assert!(lines[0].contains("repeated 2 more times"), "{:?}", lines[0]);
+    assert!(lines[1].contains("別の理由"), "{:?}", lines[1]);
     assert!(after[0].contains("panic ("), "{:?}", after[0]);
     assert!(
         after[1].contains("caught a panic (IMG_0101.CR3)"),

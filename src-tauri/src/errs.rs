@@ -39,29 +39,17 @@ pub fn code(code: &str) -> String {
     code.to_string()
 }
 
-/// 鍵＋詳細。**詳細はそのまま渡す**（訳さない）。
+/// 鍵＋詳細。**詳細はそのまま渡す**（訳さない）。**記録には残さない。**
 ///
-/// **画面に出した失敗は、記録にも1行残す**（2026-09-07・利用者の判断）。
-/// 詳細は**OSや外のクレートの文言**で、**利用者の言語とは限らない**
-/// ——だから画面には出しつつ、**不具合の報告では必ず追える**ようにしておく。
-/// 記録の姿は [`for_log`]（`鍵: 詳細`）で、**画面に出た文と1対1**である。
+/// **利用者の入力を断るとき**はこちら——見つからないフォルダを選んだ、
+/// 管理されたライブラリを指した、といった**間違いではあるが不具合ではない**もの。
+/// これを残すと、**設定を選び直しただけで `pictkura.log` ができ**、
+/// 「ファイルが在る＝何かあった」という印が意味を失う（ゲート2）。
 ///
-/// **詳細の無い鍵（[`code`]）は残さない。** あちらは「前提が揃っていない」の合図で
-/// （コピー先が未設定・記録がまだ無い・同梱されていない）、**原因が無い**。
-/// 「まだ記録はありません」を記録に書くと、**その1行のためにファイルができる**。
+/// **不具合を記録するのは、[`from_err`] か呼ぶ側の仕事**である
+/// ——「サイドカーを」「写真を」のような**文脈を知っているのは呼ぶ側だけ**なので、
+/// ここで一律に書くと**文脈の無い行が二重に**並ぶ。
 pub fn coded(code: &str, detail: impl Display) -> String {
-    let s = format!("{code}{SEP}{detail}");
-    applog::note(&for_log(&s));
-    s
-}
-
-/// [`coded`] と同じだが、**記録には残さない**。
-///
-/// **呼ぶ側が既に自分で書いたとき**に使う——いまは1か所だけで、
-/// ゴミ箱へ一部だけ移せたときの「何枚移せたか」（原因のほうは
-/// その場で `applog::note` に書いてある）。二重に残すと、
-/// **同じ1件が2行になって数えられなくなる**。
-pub fn coded_quiet(code: &str, detail: impl Display) -> String {
     format!("{code}{SEP}{detail}")
 }
 
@@ -74,6 +62,12 @@ pub trait Coded {
     fn code(&self) -> &'static str;
     /// 訳せない部分（パス・OSの文言）。無ければ空。
     fn detail(&self) -> String;
+    /// **不具合か**（＝記録に残すか）。
+    ///
+    /// **利用者の選び間違いは不具合ではない**——管理されたライブラリを指した、
+    /// コピー先をまだ決めていない、といったものは断るだけで記録しない。
+    /// **機械の側が転んだもの**（DB・設定ファイル・読めないフォルダ）は残す。
+    fn is_malfunction(&self) -> bool;
 }
 
 /// **記録（ログ）へ回すときの姿。**
@@ -89,12 +83,17 @@ pub fn for_log(s: &str) -> String {
 
 /// [`Coded`] を実装した型から、画面へ渡す1本の文字列を作る。
 pub fn from_err<E: Coded>(e: E) -> String {
+    let malfunction = e.is_malfunction();
     let detail = e.detail();
-    if detail.is_empty() {
+    let s = if detail.is_empty() {
         code(e.code())
     } else {
         coded(e.code(), detail)
+    };
+    if malfunction {
+        applog::note(&for_log(&s));
     }
+    s
 }
 
 impl Coded for DbError {
@@ -105,6 +104,10 @@ impl Coded for DbError {
         match self {
             DbError::Sqlite(e) => e.to_string(),
         }
+    }
+    /// 索引が読み書きできないのは、**いつでも不具合**である。
+    fn is_malfunction(&self) -> bool {
+        true
     }
 }
 
@@ -128,6 +131,10 @@ impl Coded for ConfigError {
             ConfigError::Serialize(e) => e.to_string(),
         }
     }
+    /// 設定が読めない・書けないのも、機械の側の話。
+    fn is_malfunction(&self) -> bool {
+        true
+    }
 }
 
 impl Coded for ExportError {
@@ -141,6 +148,10 @@ impl Coded for ExportError {
         match self {
             ExportError::DestUnusable(p) | ExportError::DestIsPackage(p) => p.display().to_string(),
         }
+    }
+    /// **書き出し先が使えないのは、選び方の話**——選び直せば済むので残さない。
+    fn is_malfunction(&self) -> bool {
+        false
     }
 }
 
@@ -159,6 +170,10 @@ impl Coded for ImportError {
                 p.display().to_string()
             }
         }
+    }
+    /// **読めないのは不具合、選び間違いは違う。**
+    fn is_malfunction(&self) -> bool {
+        matches!(self, ImportError::SourceUnreadable(_))
     }
 }
 
@@ -187,12 +202,15 @@ mod tests {
     }
 
     /// 静かな版は、字面だけ同じで記録に触らない。
+    /// **記録に残すかは、機械が転んだかで決まる**（選び間違いは残さない）。
     #[test]
-    fn the_quiet_one_makes_the_same_string() {
-        assert_eq!(
-            coded_quiet("errTrashPartly", 12),
-            coded("errTrashPartly", 12)
+    fn only_a_malfunction_is_worth_recording() {
+        assert!(!ImportError::NoDestination.is_malfunction());
+        assert!(
+            !ImportError::SourceIsManagedPackage("/写真.photoslibrary".into()).is_malfunction()
         );
+        assert!(ImportError::SourceUnreadable("/媒体/DCIM".into()).is_malfunction());
+        assert!(!ExportError::DestIsPackage("/写真.photoslibrary".into()).is_malfunction());
     }
 
     /// **日本語の文は詳細に混ぜない**——訳した文の隣に原文が並ぶのを防ぐ。

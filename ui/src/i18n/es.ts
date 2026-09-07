@@ -440,7 +440,7 @@ export const es: Dict = {
   settingsDocNotBundled: "(no se incluye en una compilación de desarrollo)",
   settingsLog: "Abrir el registro",
   settingsLogNone: "(todavía no hay nada registrado)",
-  settingsLogOpenFailed: "No se pudo abrir el registro.",
+  settingsOpenFailed: "No se pudo abrir.",
   settingsLogNote:
     "Solo se escribe una línea cuando algo falla, y se queda en este equipo. No se envía nada.",
   settingsLanguage: "Idioma",

@@ -2274,7 +2274,7 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
                 // **引けなかったら断る**。返さないidをフロントは「ローカルにある」と
                 // 読むので、DBの一時的な失敗が**先読みのダウンロード**に化ける。
                 // ここは開いて困る側なので、迷ったら答えない
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(errs::from_err(e)),
             }
         }
         Ok(cloud)
@@ -2524,7 +2524,15 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
         let count = deleted_media.len();
         match first_err {
-            Some(e) if count == 0 => Err(e),
+            Some(e) if count == 0 => {
+                // **1枚も移せていない。** `errs::coded` は記録に触らないので、
+                // ここで書く——**文脈（写真のほうだ）を知っているのはここだけ**
+                applog::note(&format!(
+                    "no photo could go to the recycle bin: {}",
+                    errs::for_log(&e)
+                ));
+                Err(e)
+            }
             // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
             // 「何枚消えたのか」が分からない。
             //
@@ -2537,7 +2545,7 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
                     errs::for_log(&e)
                 ));
                 // 原因は1行上で書いた。**同じ1件を2行にしない**
-                Err(errs::coded_quiet("errTrashPartly", count))
+                Err(errs::coded("errTrashPartly", count))
             }
             None => Ok(count),
         }
@@ -2886,10 +2894,9 @@ fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Re
             Err(re) => {
                 // **戻せなかったことは、画面より先にログへ**——利用者に要るのは
                 // 「切り替えられなかった」で、レジストリの理由は追う側の材料である
-                applog::note(&format!(
-                    "could not put the AutoPlay setting back: {re} (the original failure: {})",
-                    errs::for_log(&e)
-                ));
+                // **元の失敗は既に1行になっている**（`update_config` の中の
+                // `from_err` が書く）。ここは**戻せなかったことだけ**を足す
+                applog::note(&format!("could not put the AutoPlay setting back: {re}"));
                 errs::code("errAutoplayRollback")
             }
         });
@@ -2979,7 +2986,8 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
                 picked: db.count_picked()?,
             })
         })
-        .map_err(|e: pictkura_core::DbError| e.to_string())
+        // 型は `map_err` の側から決まらない（閉包が `?` で組み立てている）
+        .map_err(|e: pictkura_core::DbError| errs::from_err(e))
 }
 
 /// 指定ルートだけを走査して差分反映する（取り込み直後用）。
@@ -3569,7 +3577,9 @@ async fn list_source_dir(
         // 一覧から隠しても写真.appのライブラリそのものを名指しで選べてしまう。
         // 中身はUUID名の内部ファイルなので、開かずに理由を返す
         if pictkura_core::import::is_managed_package_path(&dir) {
-            return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
+            return Err(errs::from_err(
+                pictkura_core::ImportError::SourceIsManagedPackage(dir),
+            ));
         }
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::browse::list_dir(&dir, &extensions);
@@ -3604,7 +3614,9 @@ async fn list_source_tree(
         // こちらは**下の階層まで**集めるので、通すと内部の派生画像が
         // そのまま選択候補として並ぶ
         if pictkura_core::import::is_managed_package_path(&dir) {
-            return Err(pictkura_core::ImportError::SourceIsManagedPackage(dir).to_string());
+            return Err(errs::from_err(
+                pictkura_core::ImportError::SourceIsManagedPackage(dir),
+            ));
         }
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::list_tree(&dir, &extensions, TREE_LIMIT);
@@ -4770,10 +4782,9 @@ pub fn run() {
                         if let Err(e) = update_config(&state, |c| {
                             c.import.register_autoplay = Some(true);
                         }) {
-                            applog::note(&format!(
-                                "could not record the adopted AutoPlay registration (ignored): {}",
-                                errs::for_log(&e)
-                            ));
+                            // 原因の1行は `update_config` の中で既に書かれている
+                            let _ = e;
+                            applog::note("could not record the adopted AutoPlay registration");
                         }
                     }
                     Ok(()) => {}

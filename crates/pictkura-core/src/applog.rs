@@ -8,10 +8,16 @@
 //! ここは**DBの隣に追記1本**を置いて、そこだけを直す。
 //!
 //! - **書くのは失敗した行だけ。** 起動した・取り込んだ・消したは書かない。
-//!   **黙っているのが既定**で、ファイルが在ること自体が「何かあった」の印になる。
-//!   **逆は言えない**——**画面に出る失敗はここへ来ない**（サムネイルが1枚出ないのは
-//!   その場に灰色で出るし、`ThumbError` には「OSにデコーダが無い」まで混ざるので、
-//!   全部書くと**本当に見たい失敗が押し出される**。PRのcodex の指摘で文書を直した）
+//!   **黙っているのが既定**で、ファイルが在ること自体が「何かあった」の印になる
+//!   ——だから**「何か」の中身を選ぶ**:
+//!   - **機械が転んだものは書く。** 画面に出たものも含めて
+//!     （`errs::from_err` が不具合と判じたもの・2026-09-07）。**報告と突き合わせられる**
+//!   - **利用者の選び間違いは書かない。** 無いフォルダを選んだ、管理された
+//!     ライブラリを指した——**選び直せば済む**話で、これを書くと
+//!     **設定をいじっただけでファイルができる**
+//!   - **画面で分かる失敗も書かない。** サムネイルが1枚出ないのはその場に灰色で出るし、
+//!     `ThumbError` には「OSにデコーダが無い」まで混ざるので、全部書くと
+//!     **本当に見たい失敗が押し出される**
 //! - **通信はしない。** 送る仕掛けも、送る先も無い。行はその機械に残るだけで、
 //!   利用者が設定から開き、要ると思ったぶんだけ自分で貼る
 //! - **文は英語で書く**（2026-09-07・利用者の判断）。**画面は利用者の言語、
@@ -51,6 +57,14 @@ static FILE: OnceLock<PathBuf> = OnceLock::new();
 /// 見出しを兼ねさせているのは、**同じ錠の中で決めないと二度書ける**ため。
 static WROTE_HEADER: Mutex<bool> = Mutex::new(false);
 
+/// **直前に書いた行**と、そのあと**同じ理由で黙った回数**。
+///
+/// 同じ失敗が続けて出る道がある——DBが詰まっているあいだ、画面の要求が
+/// 何度も同じ失敗で返るなど。1件1行で書くと、**上限のログが1種類で埋まり、
+/// 本当に見たい失敗が押し出される**（ゲート2）。**続いた分は数えて、
+/// 別の行が来たときに1行で言う。**
+static REPEATED: Mutex<Option<(String, u64)>> = Mutex::new(None);
+
 /// ログの置き場を決める（アプリの起動時に1回）。
 ///
 /// 2回目以降は**黙って捨てる**。置き場が途中で変わると、**同じ起動の記録が
@@ -84,12 +98,36 @@ pub fn note(message: &str) {
 fn record(message: &str) {
     let Some(path) = FILE.get() else { return };
 
+    // **同じ行が続いたら、書かずに数える。** 詰まったDBのような形では
+    // 同じ失敗が何度も返り、1件1行では**上限のログがその1種類で埋まる**
+    // （ゲート2）。数えた分は、**別の行が来たときに1行で言う**
+    let folded = one_line(message);
+    let repeat = {
+        let mut last = REPEATED.lock().unwrap_or_else(|e| e.into_inner());
+        match last.as_mut() {
+            Some((prev, count)) if *prev == folded => {
+                *count += 1;
+                return;
+            }
+            _ => last.replace((folded.clone(), 0)).and_then(|(prev, count)| {
+                (count > 0).then(|| format!("(the line above repeated {count} more times): {prev}"))
+            }),
+        }
+    };
+    if let Some(said) = repeat {
+        write_line(path, &said);
+    }
+    write_line(path, &folded);
+}
+
+/// 1行を、上限と見出しの面倒を見ながら書く（[`record`] の中身）。
+fn write_line(path: &Path, folded: &str) {
     // **文字列は錠の外で作る**（見出しも、要らない周でも作る）。
     // 錠の中でパニックすると、[`install_panic_hook`] が**同じ錠を取りに来て
     // 自分を待つ**——`std` の `Mutex` は再入できないので、落ちる代わりに止まる。
     // 錠の中に残すのは**失敗を `Result` で返すファイル操作だけ**にして、その道を塞ぐ。
     // 見出しを1本ぶん余計に組む値段は、**書くのが失敗した行だけ**なので払える
-    let line = format!("{} {}", stamp(), one_line(message));
+    let line = format!("{} {}", stamp(), folded);
     let header = header();
     let dropped_note = format!(
         "{} the previous record could not be moved aside, so it was dropped to keep the cap",
@@ -464,7 +502,10 @@ mod tests {
             describe_panic(&"持ち物の文字列".to_string()),
             "持ち物の文字列"
         );
-        assert_eq!(describe_panic(&7u8), "(a panic whose contents could not be read)");
+        assert_eq!(
+            describe_panic(&7u8),
+            "(a panic whose contents could not be read)"
+        );
     }
 
     #[test]
