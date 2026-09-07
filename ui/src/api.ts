@@ -677,6 +677,13 @@ export interface AboutInfo {
   /** 英語版の取扱説明書。表示言語での出し分けはフロント側で行う */
   manual_en_path: string | null;
   licenses_path: string | null;
+  /**
+   * 失敗の記録（`pictkura.log`）。**実在するときだけ**入る。
+   *
+   * **null が普通**——書かれるのは失敗した行だけなので、null は
+   * 「まだ何も起きていない」の意味になる。
+   */
+  log_path: string | null;
 }
 
 export const aboutInfo = () => invoke<AboutInfo>("about_info");
@@ -689,6 +696,13 @@ export const aboutInfo = () => invoke<AboutInfo>("about_info");
  */
 export const openBundledDoc = (kind: "manual" | "manual-en" | "licenses") =>
   invoke<void>("open_bundled_doc", { kind });
+
+/**
+ * 失敗の記録をOSの既定のアプリで開く。
+ *
+ * **パスは渡さない**（同梱文書と同じ理由）。開く先はRust側が持っている1本だけ。
+ */
+export const openLog = () => invoke<void>("open_log");
 
 /** 自由記述のパターンが実際どんなフォルダ名になるか（無害化まで通した結果）。 */
 export const previewFolderPattern = (pattern: string) =>

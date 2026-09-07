@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use pictkura_core::applog;
 use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaTarget, ServeKind};
 use pictkura_core::usn::{self, UsnOutcome, UsnPosition};
 use pictkura_core::{Config, Db, ReadPool, SyncStats, ThumbnailService};
@@ -379,10 +380,10 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         .into_iter()
         .map(|p| {
             rebase_to_root_spelling(&p, specs).unwrap_or_else(|| {
-                eprintln!(
+                applog::note(&format!(
                     "監視: ルート配下と照合できなかったので綴りをそのまま使う: {}",
                     p.display()
-                );
+                ));
                 p
             })
         })
@@ -2090,6 +2091,11 @@ struct AboutDto {
     manual_en_path: Option<String>,
     /// 同梱したOSSライセンス一覧
     licenses_path: Option<String>,
+    /// 失敗の記録（`pictkura.log`）。**実在するときだけ**入る。
+    ///
+    /// **無いのが普通**である——書くのは失敗した行だけなので、`None` は
+    /// 「何も起きていない」の意味になる。ボタンを押せるかの正にそのまま使える
+    log_path: Option<String>,
 }
 
 /// 版と、同梱した文書の場所を返す。
@@ -2117,6 +2123,28 @@ fn about_info(app: tauri::AppHandle) -> AboutDto {
         manual_path: resolve("docs/manual.html"),
         manual_en_path: resolve("docs/manual.en.html"),
         licenses_path: resolve("THIRD-PARTY-LICENSES.txt"),
+        log_path: applog::file()
+            .filter(|p| p.is_file())
+            .map(|p| p.to_string_lossy().into_owned()),
+    }
+}
+
+/// 失敗の記録をOSの既定のアプリで開く（設定 →「pictkura について」）。
+///
+/// **パスは受け取らない。** 開くのは[置き場が決まっている1本](applog::file)だけで、
+/// フロントから来た文字列は使わない（`open_bundled_doc` と同じ理由）。
+///
+/// 開けなかったら**フォルダを開いてその行を選ぶ**ところまで落とす。
+/// `.log` の関連付けが無い機械はあり、そこで「開けません」で終わると、
+/// **在り処すら分からないまま**になる。
+#[tauri::command]
+fn open_log() -> Result<(), String> {
+    let path = applog::file()
+        .filter(|p| p.is_file())
+        .ok_or("まだ記録はありません")?;
+    match tauri_plugin_opener::open_path(path, None::<&str>) {
+        Ok(()) => Ok(()),
+        Err(e) => tauri_plugin_opener::reveal_item_in_dir(path).map_err(|_| e.to_string()),
     }
 }
 
@@ -2442,7 +2470,9 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         if let Some(e) = sidecar_err {
             // 写真は消えているのに `.xmp` だけが残る。一覧に出ないので
             // 気付く手立てが無い——せめて記録には残す
-            eprintln!("サイドカーをゴミ箱へ移せませんでした（無視して継続）: {e}");
+            applog::note(&format!(
+                "サイドカーをゴミ箱へ移せませんでした（無視して継続）: {e}"
+            ));
         }
         // **DBから落とすのは写真のぶんだけ**。サイドカーは行を持っていない
         if !deleted_media.is_empty() {
@@ -2533,7 +2563,7 @@ async fn export_media(
             if let Some(e) = err {
                 // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
                 // ファイルなので利用者からは見えない——記録には残す
-                eprintln!("移動元のサイドカーを片付けられませんでした: {e}");
+                applog::note(&format!("移動元のサイドカーを片付けられませんでした: {e}"));
             }
         }
         if !gone.is_empty() {
@@ -4434,7 +4464,7 @@ pub fn run() {
     // 窓を出さずに解除だけできる入口を用意する。
     if std::env::args().any(|a| a == "--unregister-autoplay") {
         if let Err(e) = autoplay::unregister() {
-            eprintln!("AutoPlayの解除に失敗: {e}");
+            applog::note(&format!("AutoPlayの解除に失敗: {e}"));
             std::process::exit(1);
         }
         return;
@@ -4453,7 +4483,7 @@ pub fn run() {
     // 使っていない人。起動前から候補に並べるのは越権）
     if std::env::args().any(|a| a == "--sync-autoplay") {
         if let Err(e) = sync_autoplay_with_config() {
-            eprintln!("AutoPlayの同期に失敗（無視）: {e}");
+            applog::note(&format!("AutoPlayの同期に失敗（無視）: {e}"));
         }
         return;
     }
@@ -4470,6 +4500,23 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            let config_dir = app.path().app_config_dir()?;
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&config_dir)?;
+            std::fs::create_dir_all(&data_dir)?;
+
+            // **失敗の行き先を、他の何よりも先に決める**（完成度週間の項目2）。
+            // ここから下で失敗すると `?` で `run()` の末尾まで戻るが、
+            // **そのときにはもうログの置き場が決まっている**ので、
+            // 「起動できませんでした」の1行がファイルに残る。
+            //
+            // **DBの隣**（`pictkura.db`・`thumbs/` と同じフォルダ）。利用者の判断
+            // （2026-09-07）で、設定フォルダではなくデータフォルダのほう
+            applog::set_file(data_dir.join("pictkura.log"));
+            // 網（`panics::catching`）が張っていないスレッドで落ちた場合の受け皿。
+            // **配布ビルドでは、これが無いと黙って1本死ぬ**
+            applog::install_panic_hook();
+
             // **メニューバーを、まずOSの言語で当てて掛ける**（macOSだけ・Issue #14）。
             // 画面が読み込まれたら `set_menu_locale` が正しい言語で組み直す。
             // **当てておく理由は、当てないと日本語のMacで毎回英語のメニューが
@@ -4479,14 +4526,11 @@ pub fn run() {
             {
                 let locales: Vec<String> = sys_locale::get_locales().collect();
                 if let Err(e) = menu::install(app.handle(), &locales) {
-                    eprintln!("メニューバーを組めませんでした（英語のまま続行）: {e}");
+                    applog::note(&format!(
+                        "メニューバーを組めませんでした（英語のまま続行）: {e}"
+                    ));
                 }
             }
-
-            let config_dir = app.path().app_config_dir()?;
-            let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&config_dir)?;
-            std::fs::create_dir_all(&data_dir)?;
 
             let config_path = config_dir.join("pictkura.toml");
             let first_launch = !config_path.exists();
@@ -4592,13 +4636,15 @@ pub fn run() {
                     AutoplayPlan::LeaveAlone => Ok(()),
                 };
                 match result {
-                    Err(e) => eprintln!("AutoPlayの登録に失敗（無視して継続）: {e}"),
+                    Err(e) => applog::note(&format!("AutoPlayの登録に失敗（無視して継続）: {e}")),
                     Ok(()) if plan == AutoplayPlan::Adopt => {
                         let state = app.state::<AppState>();
                         if let Err(e) = update_config(&state, |c| {
                             c.import.register_autoplay = Some(true);
                         }) {
-                            eprintln!("AutoPlayの引き継ぎを控えられなかった（無視して継続）: {e}");
+                            applog::note(&format!(
+                                "AutoPlayの引き継ぎを控えられなかった（無視して継続）: {e}"
+                            ));
                         }
                     }
                     Ok(()) => {}
@@ -5044,6 +5090,7 @@ pub fn run() {
             reveal_in_folder,
             about_info,
             open_bundled_doc,
+            open_log,
             open_with,
             forget_editor,
             delete_media,
@@ -5074,7 +5121,7 @@ pub fn run() {
     // Windowsでは何も出ないまま終わる（コンソールが無いため）ので、
     // 理由を書いてから終了コードで知らせる
     if let Err(e) = run {
-        eprintln!("pictkura を起動できませんでした: {e}");
+        applog::note(&format!("pictkura を起動できませんでした: {e}"));
         std::process::exit(1);
     }
 }

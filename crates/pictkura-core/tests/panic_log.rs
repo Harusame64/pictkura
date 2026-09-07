@@ -1,0 +1,49 @@
+//! **捕まえたパニックが、本当にファイルまで届くか**（完成度週間の項目2）。
+//!
+//! 単体試験は `applog` の中の部品を見ているだけで、**`catching` から
+//! ファイルまでの配線**は見ていない。ここが切れていると、
+//! **配布ビルドでだけ黙る**——手元では `stderr` に出るので気付けない。
+//!
+//! 置き場は**プロセスに1つ**（`OnceLock`）なので、**1本の試験に畳んである**。
+//! 順番にも意味がある——網（`catching`）を先に通し、**掛け金を張るのはそのあと**。
+//! 逆にすると同じパニックが2行になり、どちらの経路で来た行か分からなくなる。
+
+use pictkura_core::{applog, panics};
+
+#[test]
+fn a_panic_reaches_the_file_both_with_and_without_the_net() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pictkura.log");
+    applog::set_file(path.clone());
+    assert_eq!(applog::file(), Some(path.as_path()));
+
+    // 1. 網に掛かる側（サムネイル生成が壊れたファイルを踏んだとき）
+    let out = panics::catching("IMG_0100.CR3", || -> i32 {
+        panic!("壊れたハフマン表")
+    });
+    assert!(out.is_none());
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut lines = text.lines();
+    // 見出しが1本目。**版が入っていること**——届いた行に版が無いと追えない
+    let header = lines.next().unwrap();
+    assert!(header.contains(env!("CARGO_PKG_VERSION")), "{header}");
+    let caught = lines.next().unwrap();
+    assert!(
+        caught.contains("パニックを捕まえた（IMG_0100.CR3）"),
+        "{caught}"
+    );
+    assert!(caught.contains("壊れたハフマン表"), "{caught}");
+    assert!(lines.next().is_none(), "1件で1行のはず: {text}");
+
+    // 2. 網の外側（`catching` を通らないスレッドで落ちたとき）
+    applog::install_panic_hook();
+    let fell = std::panic::catch_unwind(|| panic!("網の外で落ちる"));
+    assert!(fell.is_err());
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    let hooked = text.lines().last().unwrap();
+    assert!(hooked.contains("網の外で落ちる"), "{hooked}");
+    // **どのソースの何行目か**が入る（網の側は「どのファイルで」を言う）
+    assert!(hooked.contains("tests/panic_log.rs:"), "{hooked}");
+}

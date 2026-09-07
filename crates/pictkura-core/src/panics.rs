@@ -10,18 +10,19 @@
 //! 以後そのフォルダのサムネイルが永久に出てこない。**1枚が失敗しただけ**へ
 //! 均すのがここの役目。
 //!
-//! **握りつぶすためのものではない**。捕まえたことは `stderr` に出す
+//! **握りつぶすためのものではない**。捕まえたことは [`applog::note`] へ渡す
 //! ——黙って絵が出ないのは、落ちるより追いかけにくい。
 //!
-//! **ただし配布ビルドでは、その `stderr` がどこにも届かない**（ゲート2の指摘）。
-//! Windowsの配布物はコンソールを持たない（`windows_subsystem = "windows"`）ので、
-//! 開発中にターミナルから起動したときしか読めない。捕まえたラベルを
-//! **DBの隣のログファイルへ残す**のは次の作業に置く——利用者はまだ0名で、
-//! いま要るのは「落ちないこと」の方が先だと判断した。
+//! `stderr` だけに出していたころは、**配布ビルドでその行がどこにも届かなかった**
+//! （ゲート2の指摘）。Windowsの配布物はコンソールを持たない
+//! （`windows_subsystem = "windows"`）ので、開発中にターミナルから起動した
+//! ときしか読めなかった。**いまは同じ行がDBの隣のログにも残る**
+//! （2026-09-07・完成度週間の項目2）。
 
+use crate::applog;
 use std::panic::AssertUnwindSafe;
 
-/// `f` がパニックしたら `None` にして、何が起きたかを `stderr` に残す。
+/// `f` がパニックしたら `None` にして、何が起きたかを記録に残す。
 ///
 /// `label` には**どのファイルで起きたか**を入れる（IDやパス）。これが無いと、
 /// 数万枚の中のどれが地雷なのか分からず、直しようがない。
@@ -33,23 +34,12 @@ pub fn catching<T>(label: &str, f: impl FnOnce() -> T) -> Option<T> {
     match std::panic::catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => Some(value),
         Err(payload) => {
-            eprintln!("パニックを捕まえた（{label}）: {}", describe(&payload));
+            applog::note(&format!(
+                "パニックを捕まえた（{label}）: {}",
+                applog::describe_panic(&*payload)
+            ));
             None
         }
-    }
-}
-
-/// パニックの中身を人が読める形にする。
-///
-/// `panic!("...")` の文字列は `&str` か `String` のどちらかで届く。
-/// それ以外（`panic_any`）は型が分からないので、そう書く。
-fn describe(payload: &Box<dyn std::any::Any + Send>) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        (*s).to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "（内容の分からないパニック）".to_string()
     }
 }
 

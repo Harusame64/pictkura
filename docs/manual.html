@@ -837,8 +837,21 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
   <tr><td>設定</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
   <tr><td>データベース</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
   <tr><td>サムネイル</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
+  <tr><td>失敗の記録</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code>（<strong>失敗したときだけ</strong>作られます）</td></tr>
 </table>
 </div>
+
+<p>
+<strong>失敗の記録（ログ）について。</strong>
+サムネイルが作れなかった、ファイルをゴミ箱へ移せなかった、といった
+<strong>うまくいかなかったことだけ</strong>を1行ずつ書き足します。
+うまくいったことは書きません——<strong>ファイルが無いのは、何も起きていない</strong>という意味です。
+設定 →「pictkura について」→「ログを開く」で開けます（記録が無いときは押せません）。
+中身は<strong>この機械の中だけ</strong>にあり、<strong>どこにも送信しません</strong>。
+写真のファイル名やフォルダのパスが入ることがあるので、
+不具合の報告に貼るときは中身をご確認ください。消しても構いません（また必要になれば作られます）。
+大きくなりすぎないよう上限があり、超えると1つ前の記録が <code>pictkura.log.1</code> に残ります。
+</p>
 
 <p>
 設定ファイルは手で編集できます。アプリが持っていない細かい設定

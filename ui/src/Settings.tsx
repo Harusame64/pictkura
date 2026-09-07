@@ -9,6 +9,7 @@ import {
   setCheckUpdateOnStart,
   listFolderPatterns,
   openBundledDoc,
+  openLog,
   previewFolderPattern,
   setFolderPattern,
   setImportDestination,
@@ -558,7 +559,25 @@ export default function Settings({
               >
                 {t.settingsOssLicenses}
               </button>
+              {/*
+                失敗の記録（完成度週間の項目2）。**押せないのが普通**——
+                書かれるのは失敗した行だけなので、`log_path` が null なのは
+                「まだ何も起きていない」の意味である。**ボタン自体は消さない**:
+                消すと、不具合の報告で「ログを送ってください」と頼まれた人が
+                **在り処ごと分からなくなる**。下の一行がその状態を言葉で言う。
+              */}
+              <button
+                disabled={!about?.log_path}
+                title={about?.log_path ?? t.settingsLogNone}
+                onClick={() => openLog().catch(() => {})}
+              >
+                {t.settingsLog}
+              </button>
             </div>
+            <p className="settings-note">
+              {t.settingsLogNote}
+              {!about?.log_path && ` ${t.settingsLogNone}`}
+            </p>
           </section>
         </div>
       </div>

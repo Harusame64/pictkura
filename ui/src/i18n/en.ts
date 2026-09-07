@@ -364,6 +364,10 @@ export const en: Dict = {
   settingsManual: "Manual",
   settingsOssLicenses: "Open source we use",
   settingsDocNotBundled: "(not bundled in a development build)",
+  settingsLog: "Open the log",
+  settingsLogNone: "(nothing recorded yet)",
+  settingsLogNote:
+    "A line is written only when something fails, and it stays on this machine. Nothing is sent.",
   settingsLanguage: "Language",
   settingsLanguageSystem: "Match system",
   settingsLanguageNote:

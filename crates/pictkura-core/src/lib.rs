@@ -7,6 +7,7 @@
 //! - フェーズ2: [`scanner`] / [`db`] / [`sync`] — 爆速スキャンと差分検知、SQLite管理
 //! - フェーズ3以降: カスタムプロトコル / サムネイル（順次追加）
 
+pub mod applog;
 pub mod av1;
 pub mod browse;
 pub mod cloud;

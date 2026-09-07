@@ -435,6 +435,10 @@ export const de: Dict = {
   settingsManual: "Handbuch",
   settingsOssLicenses: "Verwendete Open-Source-Software",
   settingsDocNotBundled: "(in einem Entwicklungs-Build nicht enthalten)",
+  settingsLog: "Protokoll öffnen",
+  settingsLogNone: "(noch nichts aufgezeichnet)",
+  settingsLogNote:
+    "Eine Zeile wird nur geschrieben, wenn etwas fehlschlägt, und sie bleibt auf diesem Rechner. Es wird nichts gesendet.",
   settingsLanguage: "Sprache",
   settingsLanguageSystem: "Wie das System",
   settingsLanguageNote:

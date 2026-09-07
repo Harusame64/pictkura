@@ -614,6 +614,11 @@ present, so a failure on one OS cannot produce a half release.
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
+Failures are appended, one line each, to `pictkura.log` in that same folder — created only
+when something fails, never sent anywhere, and opened from Settings → About pictkura →
+"Open the log". `eprintln!` reaches nobody in a distributed build (a release Windows binary
+has no console), so what happens on someone else's machine is recorded here or nowhere.
+
 ### Regenerating the third-party license list
 
 After adding a dependency, rebuild the bundled `THIRD-PARTY-LICENSES.txt`:
