@@ -632,7 +632,7 @@ mod tests {
         assert_eq!(size_of(&dir.path().join("まだ無い")), Some(0));
         let path = dir.path().join("pictkura.log");
         append(&path, "1行").unwrap();
-        assert_eq!(size_of(&path), Some("1行\n".len() as u64));
+        assert_eq!(size_of(&path), Some(("1行".len() + EOL.len()) as u64));
     }
 
     /// 見出しは**この起動の1本目**と、**いま作り直したファイルの1本目**に付く。
@@ -659,13 +659,16 @@ mod tests {
     fn the_line_about_to_be_written_counts_towards_the_cap() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pictkura.log");
-        append(&path, "6バイト").unwrap(); // 1 + 3*3 + 1 = 11 バイト
+        // 「6バイト」は 1 + 3*3 = 10 バイト。**改行は台で1〜2バイト**なので
+        // 数字を書き固めない（mac 11 / Windows 12。ゲート2が拾った）
+        append(&path, "6バイト").unwrap();
         let size = size_of(&path);
-        assert_eq!(size, Some(11));
-        // まだ入る
-        assert_eq!(make_room(&path, size, 4, 16), Rotation::NotNeeded);
-        // これを書くと越える
-        assert_eq!(make_room(&path, size, 6, 16), Rotation::Moved);
+        let written = (10 + EOL.len()) as u64;
+        assert_eq!(size, Some(written));
+        // まだ入る／これを書くと越える。**上限は書けた太さから引く**
+        // ——ここに 16 と書き固めると、台によって「まだ入る」の意味が変わる
+        assert_eq!(make_room(&path, size, 4, written + 5), Rotation::NotNeeded);
+        assert_eq!(make_room(&path, size, 6, written + 5), Rotation::Moved);
     }
 
     /// **1件で記録を押し出させない。** 長すぎる行は切って「以下略」を付ける。
