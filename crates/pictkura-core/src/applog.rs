@@ -45,6 +45,18 @@ use std::time::{Duration, Instant};
 /// 原因は先頭で分かる**ので、これ以上を残す理由がない。
 const MAX_BYTES: u64 = 1024 * 1024;
 
+/// 行の終わり。**Windows では `\r\n`。**
+///
+/// Rust の `writeln!` は**プラットフォームに関わらず `\n`** を出す（C のテキスト
+/// モードと違う）。それでも読める道具は多いが、**この記録は「ログを開く」で
+/// OS の既定のアプリに渡す**——**Windows に置くテキストの既定は CRLF** である。
+///
+/// > **「古い Notepad で1行に潰れる」を見たから直す、のではない。**
+/// > 2026-09-07 に Windows 11 の実機で見たのは「**新しい Notepad はそのまま読み、
+/// > 下端に Unix (LF) と出る**」までで、**古い版は mac でも win でも確かめていない。**
+/// > 直す根拠は**その台で普通の姿にする**ことのほうである。
+const EOL: &str = if cfg!(windows) { "\r\n" } else { "\n" };
+
 /// 1行が伸びられる上限（バイト）。**これを越えたら切って「以下略」を付ける。**
 ///
 /// 4 KiB は、いちばん長いパスと、そこに付く説明が丸ごと入る長さである。
@@ -264,7 +276,9 @@ fn write_line(
     // **最後の1行が上限を越えたまま残る**（ゲート1の指摘）。
     // **書きうる3行を全部数える**——見出しも、捨てたことわりも
     // （数え漏らすとその分だけ越える・ゲート2）
-    let wanted = (header.len() + dropped_note.len() + line.len() + 3) as u64;
+    // **改行のぶんも数える**（3行ぶん）。`EOL` は台によって1〜2バイトなので、
+    // **`+ 3` と書き固めると Windows で上限を越える**
+    let wanted = (header.len() + dropped_note.len() + line.len() + EOL.len() * 3) as u64;
 
     let size = size_of(path);
     // **先に片付けてから、その結果を見て見出しを決める。** 太さから
@@ -280,13 +294,13 @@ fn write_line(
     let with_header = needs_header(st.wrote_header, size, rotation);
     if with_header {
         text.push_str(header);
-        text.push('\n');
+        text.push_str(EOL);
     }
     if rotation == Rotation::Dropped {
         // **捨てたことは、捨てた場所に書く。** 黙って消すと、
         // 「前の行はどこへ行った」に答えられない
         text.push_str(dropped_note);
-        text.push('\n');
+        text.push_str(EOL);
     }
     text.push_str(&line);
 
@@ -385,7 +399,8 @@ fn append(path: &Path, line: &str) -> std::io::Result<()> {
     // **Windowsでは利用者がログを消せず**、**退避の `rename` も自分で塞ぐ**。
     // 書くのは失敗した行だけなので、この値段は払える（ゲート2の指摘・据え置き）
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(f, "{line}")
+    // **`writeln!` は使わない**——あれは台に関わらず `\n` を出す
+    write!(f, "{line}{EOL}")
 }
 /// **捕まえていないパニックも記録に残す**（アプリの起動時に1回）。
 ///
@@ -490,7 +505,10 @@ mod tests {
         let path = dir.path().join("pictkura.log");
         append(&path, "1本目").unwrap();
         append(&path, "2本目").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "1本目\n2本目\n");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            format!("1本目{EOL}2本目{EOL}")
+        );
     }
 
     /// **無いフォルダは作らない。** アンインストーラの途中で書こうとしても、
@@ -511,14 +529,20 @@ mod tests {
         append(&path, "むかしの行").unwrap();
         assert_eq!(make_room(&path, size_of(&path), 1, 8), Rotation::Moved);
         append(&path, "いまの行").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "いまの行\n");
-        assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "むかしの行\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), format!("いまの行{EOL}"));
+        assert_eq!(
+            fs::read_to_string(previous(&path)).unwrap(),
+            format!("むかしの行{EOL}")
+        );
 
         // もう1周しても、増えるのではなく**古いほうが押し出される**
         assert_eq!(make_room(&path, size_of(&path), 1, 8), Rotation::Moved);
         append(&path, "つぎの行").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "つぎの行\n");
-        assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "いまの行\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), format!("つぎの行{EOL}"));
+        assert_eq!(
+            fs::read_to_string(previous(&path)).unwrap(),
+            format!("いまの行{EOL}")
+        );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 
@@ -547,6 +571,24 @@ mod tests {
         // 言えたら、そこで数え直す
         after_flush(&mut rep, true);
         assert_eq!(rep.count, 0);
+    }
+
+    /// **行末は、その台の普通の姿にする。**
+    ///
+    /// `writeln!` は台に関わらず `\n` を出すので、**Windows に置くテキストが
+    /// LF になっていた**（2026-09-07・win が実機の `od -c` で確認）。
+    /// **この試験は mac では LF 側しか通らない**——CRLF 側を初めて走らせるのは
+    /// CI の windows-latest である（`cfg!` は書けても、実行はその台でしか起きない）。
+    #[test]
+    fn a_line_ends_the_way_this_platform_ends_lines() {
+        assert_eq!(EOL, if cfg!(windows) { "\r\n" } else { "\n" });
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pictkura.log");
+        append(&path, "1行").unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.ends_with(EOL), "{text:?}");
+        // **上限の勘定も同じ物を数えている**（`+ 3` と書き固めると Windows で越える）
+        assert_eq!(size_of(&path), Some(("1行".len() + EOL.len()) as u64));
     }
 
     /// **まだ細いファイルは触らない**——`NotNeeded` は「何もしていない」の意味で、
@@ -581,7 +623,7 @@ mod tests {
         assert_eq!(make_room(&path, size_of(&path), 1, 8), Rotation::Dropped);
         assert_eq!(size_of(&path), Some(0), "上限を越えたまま残っていないこと");
         append(&path, "あとの行").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "あとの行\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), format!("あとの行{EOL}"));
     }
 
     #[test]
