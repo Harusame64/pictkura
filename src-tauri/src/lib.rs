@@ -26,6 +26,8 @@ use tauri::{Emitter, Manager};
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
+// 画面に出す失敗に辞書の鍵を付ける（完成度週間の項目3）
+mod errs;
 // メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
@@ -530,9 +532,7 @@ fn update_config(state: &AppState, mutate: impl FnOnce(&mut Config)) -> Result<(
     let mut config = lock_ok(&state.config);
     let mut updated = config.clone();
     mutate(&mut updated);
-    updated
-        .save(&state.config_path)
-        .map_err(|e| e.to_string())?;
+    updated.save(&state.config_path).map_err(errs::from_err)?;
     // **ルートを触る口はここ1つ**なので、探りの印の見直しもここでやる
     // （[`forget_probes_for_changed_roots`]）。外して足し直した共有を
     // 一度も見ずに「応答がありません」と言い続けないため
@@ -749,7 +749,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
-    let mut db = Db::open(&state.db_path).map_err(|e| e.to_string())?;
+    let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
     let known_dirs = if full {
         HashMap::new()
     } else {
@@ -760,7 +760,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
     remember_unreadable(state, &scan.outcome, &config.library.roots);
-    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
+    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
     // **通った走査は、起動時に転んだ話を打ち消す。** 旗を立てたままにすると、
     // 「再スキャンを押してください」と言われて押した人に、押した直後の
@@ -1135,7 +1135,7 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
-    let mut db = Db::open(&state.db_path).map_err(|e| e.to_string())?;
+    let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
     let fingerprint_ok =
         db.get_meta("scan_fingerprint").ok().flatten().as_deref() == Some(fingerprint.as_str());
 
@@ -1170,7 +1170,7 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
     };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
     remember_unreadable(state, &scan.outcome, &config.library.roots);
-    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
+    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
     let _ = db.set_meta("scan_fingerprint", &fingerprint);
     // 位置の保存は**全ルートの走査が成功したときだけ**。失敗したルートの
     // オフライン変更はこのスキャンに反映されておらず、位置だけ進めると
@@ -1205,7 +1205,7 @@ fn timeline_summary(
     Ok(state
         .read_pool
         .with(|db| db.search_summary(&query))
-        .map_err(|e| e.to_string())?
+        .map_err(errs::from_err)?
         .into_iter()
         .map(|d| DaySummaryDto {
             day_key: d.day_key,
@@ -1230,7 +1230,7 @@ fn list_day(
     Ok(state
         .read_pool
         .with(|db| db.search_day(day_key, &query))
-        .map_err(|e| e.to_string())?
+        .map_err(errs::from_err)?
         .into_iter()
         .map(Into::into)
         .collect())
@@ -1242,7 +1242,7 @@ fn list_cameras(state: tauri::State<'_, AppState>) -> Result<Vec<CameraDto>, Str
     Ok(state
         .read_pool
         .with(|db| db.list_cameras())
-        .map_err(|e| e.to_string())?
+        .map_err(errs::from_err)?
         .into_iter()
         .map(|(name, count)| CameraDto { name, count })
         .collect())
@@ -1260,8 +1260,8 @@ fn get_exif_info(
     let record = state
         .read_pool
         .with(|db| db.get_by_id(id))
-        .map_err(|e| e.to_string())?
-        .ok_or("レコードが見つかりません")?;
+        .map_err(errs::from_err)?
+        .ok_or_else(|| errs::code("errNotFound"))?;
     Ok(pictkura_core::thumbs::read_exif_info(&record.path))
 }
 
@@ -2065,7 +2065,7 @@ fn decoder_status(state: tauri::State<'_, AppState>) -> Result<DecoderStatusDto,
     let (heif_total, samples) = state
         .read_pool
         .with(|db| db.count_by_extensions(&["heic", "heif", "hif"], SAMPLE_CANDIDATES))
-        .map_err(|e| e.to_string())?;
+        .map_err(errs::from_err)?;
     let mut testable = samples
         .iter()
         .filter(|p| !pictkura_core::cloud::is_cloud_only_path(p))
@@ -2095,12 +2095,12 @@ fn decoder_status(state: tauri::State<'_, AppState>) -> Result<DecoderStatusDto,
 #[tauri::command]
 fn open_decoder_help(kind: String) -> Result<(), String> {
     if !cfg!(windows) {
-        return Err("このOSには案内できる導線がありません".into());
+        return Err(errs::code("errNoStoreLink"));
     }
     let product = match kind.as_str() {
         "heif" => "9pmmsr1cgpwg",
         "hevc" => "9nmzlz57r3t7",
-        _ => return Err("案内の種類が不正です".into()),
+        _ => return Err(errs::code("errBadKind")),
     };
     tauri_plugin_opener::open_url(
         format!("ms-windows-store://pdp/?ProductId={product}"),
@@ -2181,7 +2181,7 @@ fn log_path() -> Option<String> {
 fn open_log() -> Result<(), String> {
     let path = applog::file()
         .filter(|p| p.is_file())
-        .ok_or("まだ記録はありません")?;
+        .ok_or_else(|| errs::code("errNoLogYet"))?;
     match tauri_plugin_opener::open_path(path, None::<&str>) {
         Ok(()) => Ok(()),
         Err(e) => tauri_plugin_opener::reveal_item_in_dir(path).map_err(|_| e.to_string()),
@@ -2199,9 +2199,9 @@ fn open_bundled_doc(app: tauri::AppHandle, kind: String) -> Result<(), String> {
         "manual" => info.manual_path,
         "manual-en" => info.manual_en_path,
         "licenses" => info.licenses_path,
-        _ => return Err("文書の種類が不正です".into()),
+        _ => return Err(errs::code("errBadKind")),
     }
-    .ok_or("この実行環境には同梱されていません")?;
+    .ok_or_else(|| errs::code("errNotBundled"))?;
     tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
 }
 
@@ -2251,7 +2251,7 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
     /// 切り詰めずに断る（属性読みを大量に撒くのがまさに避けたいこと）
     const MAX_IDS: usize = 64;
     if ids.len() > MAX_IDS {
-        return Err(format!("一度に聞けるのは{MAX_IDS}件までです"));
+        return Err(errs::coded("errTooManyIds", MAX_IDS));
     }
     state.read_pool.with(|db| {
         let mut cloud = Vec::new();
@@ -2286,9 +2286,9 @@ fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
     state
         .read_pool
         .with(|db| db.get_by_id(id))
-        .map_err(|e| e.to_string())?
+        .map_err(errs::from_err)?
         .map(|r| r.path)
-        .ok_or_else(|| "レコードが見つかりません".to_string())
+        .ok_or_else(|| errs::code("errNotFound"))
 }
 
 /// OS既定のアプリで開く（Windowsの「開く」相当）。
@@ -2394,7 +2394,7 @@ fn trash_paths_with_progress(
                             // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
                             // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
                             if first_err.is_none() {
-                                first_err = Some(format!("ゴミ箱へ移動できません: {e}"));
+                                first_err = Some(errs::coded("errTrashFailed", e));
                             }
                         }
                     }
@@ -2518,15 +2518,24 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         if !deleted_media.is_empty() {
             lock_ok(&state.db)
                 .remove_paths(&deleted_media)
-                .map_err(|e| e.to_string())?;
+                .map_err(errs::from_err)?;
         }
         // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
         let count = deleted_media.len();
         match first_err {
             Some(e) if count == 0 => Err(e),
             // 一部だけ失敗したことは伝える。件数を添えないと、利用者からは
-            // 「何枚消えたのか」が分からない
-            Some(e) => Err(format!("{e}（{count}枚は移動できました）")),
+            // 「何枚消えたのか」が分からない。
+            //
+            // **理由のほうはログへ回す。** 画面は1行で足りる（訳せない
+            // OSの文言を、枚数の文と並べても読めない）——追う材料は
+            // `pictkura.log` に在る（項目2）
+            Some(e) => {
+                applog::note(&format!(
+                    "ゴミ箱へ移せないものがあった（{count}枚は移せた）: {e}"
+                ));
+                Err(errs::coded("errTrashPartly", count))
+            }
             None => Ok(count),
         }
     })
@@ -2579,7 +2588,7 @@ async fn export_media(
             &sidecar_exts,
             move |done, total, path| emit_export_progress(&progress_app, done, total, path),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(errs::from_err)?;
 
         let mut stats = ExportStatsDto {
             done: outcome.stats.done,
@@ -2609,7 +2618,7 @@ async fn export_media(
         if !gone.is_empty() {
             lock_ok(&state.db)
                 .remove_paths(&gone)
-                .map_err(|e| e.to_string())?;
+                .map_err(errs::from_err)?;
             let _ = app.emit("library-updated", ());
         }
         Ok(stats)
@@ -2757,8 +2766,8 @@ async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String
         let record = state
             .read_pool
             .with(|db| db.get_by_id(id))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "レコードが見つかりません".to_string())?;
+            .map_err(errs::from_err)?
+            .ok_or_else(|| errs::code("errNotFound"))?;
         let path = record.path;
         // **配信が残したバイト列を先に掴む**（0.2 ① の `display_cache`）。
         // 画面に出ている1枚は必ずここに居るので、詰め直しをもう一度払わない
@@ -2866,7 +2875,14 @@ fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Re
         };
         return Err(match rollback {
             Ok(()) => e,
-            Err(re) => format!("{e}（レジストリを元に戻すのにも失敗: {re}）"),
+            Err(re) => {
+                // **戻せなかったことは、画面より先にログへ**——利用者に要るのは
+                // 「切り替えられなかった」で、レジストリの理由は追う側の材料である
+                applog::note(&format!(
+                    "AutoPlayの設定を戻せなかった: {re}（元の失敗: {e}）"
+                ));
+                errs::code("errAutoplayRollback")
+            }
         });
     }
     Ok(())
@@ -2902,7 +2918,7 @@ fn list_memories(state: tauri::State<'_, AppState>) -> Result<Vec<MemoryDto>, St
     Ok(state
         .read_pool
         .with(|db| db.list_memories(24))
-        .map_err(|e| e.to_string())?
+        .map_err(errs::from_err)?
         .into_iter()
         .map(|(years_ago, r)| MemoryDto {
             years_ago,
@@ -2971,8 +2987,8 @@ fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, Strin
         ),
         roots: config.library.roots.clone(),
     };
-    let mut db = Db::open(&state.db_path).map_err(|e| e.to_string())?;
-    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(|e| e.to_string())?;
+    let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
     enqueue_missing_thumbs(state);
     Ok(stats)
 }
@@ -2994,7 +3010,7 @@ async fn sync_now(app: tauri::AppHandle) -> Result<SyncStatsDto, String> {
 fn set_picked(state: tauri::State<'_, AppState>, id: i64, picked: bool) -> Result<(), String> {
     lock_ok(&state.db)
         .set_picked(id, picked)
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// 選別の印をまとめて付ける・外す（複数選択の一括操作）。
@@ -3006,7 +3022,7 @@ fn set_pickeds(
 ) -> Result<usize, String> {
     lock_ok(&state.db)
         .set_pickeds(&ids, picked)
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// お気に入り（★）を設定する。
@@ -3014,7 +3030,7 @@ fn set_pickeds(
 fn set_favorite(state: tauri::State<'_, AppState>, id: i64, favorite: bool) -> Result<(), String> {
     lock_ok(&state.db)
         .set_favorite(id, favorite)
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// お気に入りをまとめて付ける・外す（複数選択の一括操作）。
@@ -3029,7 +3045,7 @@ fn set_favorites(
 ) -> Result<usize, String> {
     lock_ok(&state.db)
         .set_favorites(&ids, favorite)
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
@@ -3050,7 +3066,7 @@ fn list_media_ids(
     state
         .read_pool
         .with(|db| db.search_ids(&query))
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// 範囲選択（Shift+クリック）で、**2点に挟まれたIDだけ**を取る。
@@ -3069,7 +3085,7 @@ fn list_media_ids_between(
     state
         .read_pool
         .with(|db| db.search_ids_between(&query, from_id, to_id))
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// 渡されたIDのうち、**いまの条件で実際に一覧に並んでいるもの**だけを返す。
@@ -3087,7 +3103,7 @@ fn visible_media_ids(
     state
         .read_pool
         .with(|db| db.visible_ids(&query, &ids))
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// 選択をビューアの**スコープ**として固定するために、
@@ -3112,7 +3128,7 @@ fn scope_media(
                 .map(|(id, day_key)| ScopeItemDto { id, day_key })
                 .collect()
         })
-        .map_err(|e| e.to_string())
+        .map_err(errs::from_err)
 }
 
 /// [`scope_media`] が返す1件。
@@ -3152,7 +3168,7 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
         let state = app.state::<AppState>();
         let root = PathBuf::from(&path);
         if !root.is_dir() {
-            return Err(format!("フォルダが見つかりません: {path}"));
+            return Err(errs::coded("errFolderMissing", path));
         }
         // 走査は `depth 0` を除外判定しないので、パッケージ（やその中）を
         // ルートに登録すると内部ファイルが索引される。しかも監視とUSNは
@@ -3395,7 +3411,7 @@ fn is_browsable(mount: &Path) -> bool {
 fn set_import_destination(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
     let dest = PathBuf::from(&path);
     if !dest.is_dir() {
-        return Err(format!("フォルダが見つかりません: {path}"));
+        return Err(errs::coded("errFolderMissing", path));
     }
     // コピー先は取り込み後に**ライブラリのルートへ足される**（`finish_import`）ので、
     // ルート登録と同じ理由でパッケージの中は断る
@@ -3517,7 +3533,7 @@ async fn import_from_folder(
         let stats = pictkura_core::import_from(&source, &config, move |done, total, path| {
             emit_import_progress(&progress_app, done, total, path);
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(errs::from_err)?;
 
         finish_import(&app, &state, source, dest)?;
 
@@ -3727,7 +3743,7 @@ async fn import_paths(
             pictkura_core::import_files(&files, &contested, &config, move |done, total, path| {
                 emit_import_progress(&progress_app, done, total, path);
             })
-            .map_err(|e| e.to_string())?;
+            .map_err(errs::from_err)?;
 
         finish_import(&app, &state, PathBuf::from(&source_dir), dest)?;
         Ok(ImportStatsDto {
@@ -4306,8 +4322,8 @@ fn sync_autoplay_with_config() -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
-    let config = Config::load(&path).map_err(|e| e.to_string())?;
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let config = Config::load(&path).map_err(errs::from_err)?;
+    let exe = std::env::current_exe().map_err(errs::from_err)?;
     // **判断は起動時と同じ関数を通す**（[`autoplay_plan`]）。別々に書くと、
     // 「導入直後だけ違う」というずれ方をする。**まだ決めていない人のぶんは書かないが、
     // 在るものは書き直す**——この入口の仕事は「更新やMSIからの乗り換えで消えた登録を
@@ -4318,9 +4334,9 @@ fn sync_autoplay_with_config() -> Result<(), String> {
     });
     match plan {
         AutoplayPlan::Register | AutoplayPlan::Adopt => {
-            autoplay::register(&exe).map_err(|e| e.to_string())
+            autoplay::register(&exe).map_err(errs::from_err)
         }
-        AutoplayPlan::Unregister => autoplay::unregister().map_err(|e| e.to_string()),
+        AutoplayPlan::Unregister => autoplay::unregister().map_err(errs::from_err),
         AutoplayPlan::LeaveAlone => Ok(()),
     }
 }

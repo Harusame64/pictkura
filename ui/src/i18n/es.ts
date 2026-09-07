@@ -467,4 +467,24 @@ export const es: Dict = {
   speedNoDiff: " — sin cambios",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
+  errNotFound: "Esa foto ya no está en el índice.",
+  errDb: "No se pudo leer ni escribir el índice.",
+  errConfigIo: "No se pudo leer ni escribir el archivo de ajustes.",
+  errConfigFormat: "No se pudo entender el archivo de ajustes.",
+  errNoDestination: "Todavía no hay carpeta de destino elegida.",
+  errSourceUnreadable: "No se pudo leer esa carpeta.",
+  errSourceManaged:
+    "No se puede importar desde dentro de una fototeca gestionada. Quita la extensión (.photoslibrary y similares) del nombre de la carpeta y vuelve a elegirla.",
+  errExportDest: "No se pudo crear esa carpeta de destino.",
+  errExportManaged: "Ahí no se puede escribir: ese paquete lo gestiona otra aplicación.",
+  errFolderMissing: "Esa carpeta no está.",
+  errTrashFailed: "No se pudo mover a la papelera.",
+  errTrashPartly: (n: number) =>
+    `${num(n)} en la papelera; el resto no se pudo mover.`,
+  errAutoplayRollback: "No se pudo cambiar el ajuste.",
+  errNoLogYet: "Todavía no hay nada registrado.",
+  errNotBundled: "No se incluye en esta compilación.",
+  errNoStoreLink: "Este sistema no tiene una página que indicar.",
+  errBadKind: "No había nada que abrir.",
+  errTooManyIds: "Se preguntó por demasiados elementos a la vez.",
 };

@@ -470,6 +470,30 @@ export const ja = {
   speedNoDiff: " ／ 変更なし",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` ／ 追加${num(added)}・変更${num(changed)}・削除${num(removed)}`,
+  // ===== Rust から届く失敗（`errs.rs` の鍵と一対一）=====
+  //
+  // **詳細（パス・OSの文言）は訳さずに後ろへ添える**（`i18n/err.ts`）。
+  // ここに無い鍵が来たら、フロントは**生のまま**出す
+  errNotFound: "その写真の記録が見つかりません。",
+  errDb: "索引の読み書きに失敗しました。",
+  errConfigIo: "設定ファイルを読み書きできませんでした。",
+  errConfigFormat: "設定ファイルの中身を読めませんでした。",
+  errNoDestination: "コピー先のフォルダが決まっていません。",
+  errSourceUnreadable: "取り込み元のフォルダが読めません。",
+  errSourceManaged:
+    "アプリが管理しているライブラリの中は取り込めません。フォルダ名から拡張子（.photoslibrary など）を外してから選び直してください。",
+  errExportDest: "書き出し先のフォルダを作れません。",
+  errExportManaged: "この場所へは書き出せません（アプリが管理している入れ物です）。",
+  errFolderMissing: "フォルダが見つかりません。",
+  errTrashFailed: "ゴミ箱へ移せませんでした。",
+  errTrashPartly: (n: number) =>
+    `${num(n)}枚はゴミ箱へ移しました。残りは移せませんでした。`,
+  errAutoplayRollback: "設定を切り替えられませんでした。",
+  errNoLogYet: "まだ記録はありません。",
+  errNotBundled: "この実行環境には同梱されていません。",
+  errNoStoreLink: "このOSでは案内できる入手先がありません。",
+  errBadKind: "開き方が分かりませんでした。",
+  errTooManyIds: "一度に扱える件数を超えました。",
 };
 
 /** 辞書の形。追加言語はこの型を満たす必要がある（キーの抜けはコンパイルエラー） */

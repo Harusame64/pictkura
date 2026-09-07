@@ -393,4 +393,24 @@ export const en: Dict = {
   speedNoDiff: " — no changes",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${num(added)} added, ${num(changed)} changed, ${num(removed)} removed`,
+  errNotFound: "That photo is no longer in the index.",
+  errDb: "The index could not be read or written.",
+  errConfigIo: "The settings file could not be read or written.",
+  errConfigFormat: "The settings file could not be understood.",
+  errNoDestination: "No destination folder has been chosen yet.",
+  errSourceUnreadable: "That folder could not be read.",
+  errSourceManaged:
+    "The inside of a managed library cannot be imported. Drop the extension (.photoslibrary and the like) from the folder name and choose it again.",
+  errExportDest: "That destination folder could not be created.",
+  errExportManaged: "Nothing can be written there — another app manages that package.",
+  errFolderMissing: "That folder is not there.",
+  errTrashFailed: "It could not be moved to the trash.",
+  errTrashPartly: (n: number) =>
+    `${num(n)} moved to the trash; the rest could not be.`,
+  errAutoplayRollback: "The setting could not be changed.",
+  errNoLogYet: "Nothing has been recorded yet.",
+  errNotBundled: "It is not bundled in this build.",
+  errNoStoreLink: "This OS has no page to point you to.",
+  errBadKind: "There was nothing to open.",
+  errTooManyIds: "Too many items were asked about at once.",
 };

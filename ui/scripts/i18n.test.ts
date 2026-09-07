@@ -109,6 +109,38 @@ test("関数のキーは、ja.ts から署名を読めること", () => {
   );
 });
 
+/**
+ * **Rust が使う鍵が、辞書に在ること。**
+ *
+ * `src-tauri/src/errs.rs` の約束で、Rust 側は**辞書のキーそのもの**を
+ * 失敗の頭に付けて返す（週の台紙の項目3）。鍵を足して辞書へ足し忘れると、
+ * **画面に `errSourceUnreadable` という字がそのまま出る**——型もコンパイルも
+ * 見ていない道なので、ここで見る。
+ *
+ * 探すのは `errs::code("...")` / `errs::coded("...", …)` と、`errs.rs` の
+ * `fn code()` が返す文字列。**Rust を読むのはこの1本だけ**で、
+ * 見つからなければ**テストごと失敗させる**（黙って0件を通さない）。
+ */
+test("Rustが使う失敗の鍵が、辞書に在ること", () => {
+  const rust = [
+    readFileSync(new URL("../../src-tauri/src/lib.rs", import.meta.url), "utf8"),
+    readFileSync(new URL("../../src-tauri/src/errs.rs", import.meta.url), "utf8"),
+  ].join("\n");
+  // **書き方で取りこぼさない。** `errs::code("…")` も `=> "…"` も
+  // `fn code() { "errDb" }` も同じ鍵なので、**`"err…"` という文字列すべて**を拾う。
+  // 拾いすぎても、要求は「辞書に在ること」なので害が無い
+  const used = new Set<string>();
+  for (const m of rust.matchAll(/"(err[A-Za-z0-9]+)"/g)) used.add(m[1]);
+  // **黙って0件を通さない。** 実際は20近く在るので、探し方が壊れたら気付ける
+  assert.ok(used.size > 10, `Rust 側の鍵が ${used.size} 件しか読めていない`);
+  for (const code of used) {
+    assert.ok(
+      KEYS.includes(code),
+      `Rust が使う鍵 ${code} が ja.ts に無い（画面に鍵の字が出る）`,
+    );
+  }
+});
+
 test("どの辞書もキーが揃っていること", () => {
   // 型は既にこれを見ているが、**実体でも見る**——`Dict` に `as` を当てた瞬間に
   // 型の網は抜ける（`zh.ts` などは `: Dict` を付けているので効いているが、

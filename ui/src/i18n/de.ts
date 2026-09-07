@@ -464,4 +464,24 @@ export const de: Dict = {
   speedNoDiff: " — keine Änderungen",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
+  errNotFound: "Dieses Foto steht nicht mehr im Index.",
+  errDb: "Der Index ließ sich nicht lesen oder schreiben.",
+  errConfigIo: "Die Einstellungsdatei ließ sich nicht lesen oder schreiben.",
+  errConfigFormat: "Die Einstellungsdatei war nicht lesbar.",
+  errNoDestination: "Es ist noch kein Zielordner gewählt.",
+  errSourceUnreadable: "Dieser Ordner ließ sich nicht lesen.",
+  errSourceManaged:
+    "Aus einer verwalteten Mediathek kann nicht importiert werden. Entfernen Sie die Endung (etwa .photoslibrary) aus dem Ordnernamen und wählen Sie ihn erneut.",
+  errExportDest: "Dieser Zielordner ließ sich nicht anlegen.",
+  errExportManaged: "Dorthin kann nichts geschrieben werden — das Paket verwaltet eine andere App.",
+  errFolderMissing: "Diesen Ordner gibt es nicht.",
+  errTrashFailed: "Verschieben in den Papierkorb nicht möglich.",
+  errTrashPartly: (n: number) =>
+    `${num(n)} in den Papierkorb verschoben; der Rest nicht.`,
+  errAutoplayRollback: "Die Einstellung ließ sich nicht ändern.",
+  errNoLogYet: "Es wurde noch nichts aufgezeichnet.",
+  errNotBundled: "In diesem Build nicht enthalten.",
+  errNoStoreLink: "Für dieses Betriebssystem gibt es keine Seite dazu.",
+  errBadKind: "Es gab nichts zu öffnen.",
+  errTooManyIds: "Zu viele Einträge auf einmal angefragt.",
 };

@@ -22,6 +22,7 @@ import {
   type SourceTree,
 } from "./api";
 import { t } from "./i18n";
+import { errText } from "./i18n/err.ts";
 
 /**
  * 取り込みウィザード（第5部 段階E）。PlayMemories Home のように
@@ -161,7 +162,7 @@ export default function ImportWizard({
     } catch (e) {
       // 握りつぶすと「0件」と見分けが付かない。断られた理由（写真.appの
       // ライブラリの中など）は出す。ツリーの展開は続けたいので投げ直さない
-      onErrorRef.current(String(e));
+      onErrorRef.current(errText(e));
       return undefined;
     }
   }, []);
@@ -178,7 +179,7 @@ export default function ImportWizard({
         // ツリーの枝は常に要る（下まで走査していてもフォルダは辿れるようにする）
         await loadDir(path);
       } catch (e) {
-        onErrorRef.current(String(e));
+        onErrorRef.current(errText(e));
       } finally {
         setLoading(false);
       }
@@ -217,7 +218,7 @@ export default function ImportWizard({
         // ただし**黙って何もしない**と、1枚も選ばれないまま
         // 「取り込む物が無い」ように見える（ゲート2）。**選ぶほうは全部にして、
         // 理由は表に出す**——隠す物が無いので、利用者は自分で外せる
-        onErrorRef.current(String(e));
+        onErrorRef.current(errText(e));
         if (!cancelled && gen === probeGen.current && autoSelect.current) {
           setSelected(
             new Set(
@@ -270,7 +271,7 @@ export default function ImportWizard({
         } catch (e) {
           // ここで止まると、**この切れ端から先は塗られない**——選択も止まる。
           // 上と同じで、**残りは選んでおいて、理由を表に出す**
-          onErrorRef.current(String(e));
+          onErrorRef.current(errText(e));
           if (!cancelled && gen === probeGen.current && autoSelect.current) {
             setSelected((prev) => {
               const next = new Set(prev);
@@ -423,7 +424,7 @@ export default function ImportWizard({
       onImported(stats);
       onClose();
     } catch (e) {
-      onError(String(e));
+      onError(errText(e));
     } finally {
       setBusy(false);
       setProgress(null);
@@ -759,7 +760,7 @@ export default function ImportWizard({
                 try {
                   await setImportDestination(dest);
                 } catch (e) {
-                  onErrorRef.current(String(e));
+                  onErrorRef.current(errText(e));
                   return;
                 }
                 onConfigChanged();

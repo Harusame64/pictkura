@@ -447,4 +447,23 @@ export const zhHant: Dict = {
   speedNoDiff: " —— 沒有變更",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` —— 新增 ${num(added)}、變更 ${num(changed)}、刪除 ${num(removed)}`,
+  errNotFound: "索引裡已經沒有這張照片。",
+  errDb: "索引讀寫失敗。",
+  errConfigIo: "設定檔無法讀寫。",
+  errConfigFormat: "無法解析設定檔的內容。",
+  errNoDestination: "還沒有選擇目標資料夾。",
+  errSourceUnreadable: "無法讀取該資料夾。",
+  errSourceManaged:
+    "無法從受管理的圖庫內部匯入。請去掉資料夾名稱中的副檔名（如 .photoslibrary）後重新選擇。",
+  errExportDest: "無法建立該目標資料夾。",
+  errExportManaged: "無法寫入該位置：這個套件由其他應用程式管理。",
+  errFolderMissing: "找不到該資料夾。",
+  errTrashFailed: "無法移到資源回收筒。",
+  errTrashPartly: (n: number) => `已將 ${num(n)} 張移到資源回收筒，其餘未能移動。`,
+  errAutoplayRollback: "無法變更該設定。",
+  errNoLogYet: "還沒有任何記錄。",
+  errNotBundled: "此版本中沒有附帶。",
+  errNoStoreLink: "此系統沒有可以指引的頁面。",
+  errBadKind: "沒有可以開啟的內容。",
+  errTooManyIds: "一次詢問的項目太多。",
 };

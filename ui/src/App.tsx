@@ -94,6 +94,7 @@ import {
   formatNumber,
   t,
 } from "./i18n";
+import { errText } from "./i18n/err.ts";
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
@@ -894,7 +895,7 @@ export default function App() {
       })
       .catch((e) => {
         inflightRef.current.delete(dayKey);
-        setStatus(String(e));
+        setStatus(errText(e));
         // 一時的な失敗（DBロック競合等）に備え、可視のままなら少し待って再試行。
         // それでも失敗が続く場合はスクロール等で可視範囲が変わったときに再試行される
         if (attempt < 2) {
@@ -948,7 +949,7 @@ export default function App() {
       // **データも説明も出ない完全な無言**になる（ゲート1の指摘。
       // 隣のリスナーには入れてあるのに、こちらだけ抜けていた）
       const f = await listen("library-updated", () => {
-        reloadAll().catch((e) => setStatus(String(e)));
+        reloadAll().catch((e) => setStatus(errText(e)));
         refreshCameras();
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
         // 実体を後から退避するので、古い「ローカルにある」を信じない
@@ -960,7 +961,7 @@ export default function App() {
       }
       unlisten = f ?? undefined;
       libraryListenerRef.current = f != null;
-      await reloadAll().catch((e) => setStatus(String(e)));
+      await reloadAll().catch((e) => setStatus(errText(e)));
     })();
     return () => {
       cancelled = true;
@@ -1030,7 +1031,7 @@ export default function App() {
       // ——空でもないのに空のパネルが出る（ゲート1の指摘）。
       // 登録できたことが確かめられていないときだけ取り直す
       if (!libraryListenerRef.current) {
-        reloadAll().catch((e) => setStatus(String(e)));
+        reloadAll().catch((e) => setStatus(errText(e)));
       }
     };
     (async () => {
@@ -1155,7 +1156,7 @@ export default function App() {
       filterInitRef.current = false;
       return;
     }
-    reloadAll().catch((e) => setStatus(String(e)));
+    reloadAll().catch((e) => setStatus(errText(e)));
   }, [filter, query, kind, reloadAll]);
 
   useEffect(() => {
@@ -1259,7 +1260,7 @@ export default function App() {
       // **握り潰さない。** ここだけ例外を捨てていた。この経路は絞り込み中に
       // しか走らず、そこで転ぶと「一覧を出せませんでした／上の帯に理由が
       // 出ています」が**空の帯**を指すことになる（ゲート1の指摘）
-      if (queryRef.current) reloadAll().catch((e) => setStatus(String(e)));
+      if (queryRef.current) reloadAll().catch((e) => setStatus(errText(e)));
     }
     wasBuilding.current = building;
   }, [indexProgress, refreshCameras, reloadAll]);
@@ -1393,7 +1394,7 @@ export default function App() {
       await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
-      setStatus(String(e));
+      setStatus(errText(e));
     } finally {
       setBusy(false);
     }
@@ -1853,7 +1854,7 @@ export default function App() {
       checkDecoders();
       return true;
     } catch (e) {
-      setStatus(String(e));
+      setStatus(errText(e));
       return false;
     } finally {
       setBusy(false);
@@ -1881,7 +1882,7 @@ export default function App() {
       if (typeof picked === "string") await addFolder(picked);
     } catch (e) {
       // 握りつぶすと「押したのに何も起きない」になる（onOpenWithOther と同じ扱い）
-      setStatus(String(e));
+      setStatus(errText(e));
     }
   };
 
@@ -1895,7 +1896,7 @@ export default function App() {
       await reloadAll();
       await refreshRoots();
     } catch (e) {
-      setStatus(String(e));
+      setStatus(errText(e));
     } finally {
       setBusy(false);
     }
@@ -1944,7 +1945,7 @@ export default function App() {
         else await setPicked(item.id, next);
       } catch (e) {
         patch(!next); // 印そのものが付かなかったので戻す
-        setStatus(String(e));
+        setStatus(errText(e));
         return;
       }
       {
@@ -1963,7 +1964,7 @@ export default function App() {
           lastRangeRef.current = null;
           // **ここで転んでも印は戻さない**——印は付いている。
           // 取り直しに失敗しただけなので、黙らずに帯へ出す
-          await reloadAll().catch((e) => setStatus(String(e)));
+          await reloadAll().catch((e) => setStatus(errText(e)));
         }
       }
     },
@@ -2699,7 +2700,7 @@ export default function App() {
         // 「保存できませんでした」では、次に何をすればよいか分からない
         flashExtract(
           item,
-          String(e).includes(EXTRACT_DEST_IS_SOURCE)
+          errText(e).includes(EXTRACT_DEST_IS_SOURCE)
             ? "extractSameFile"
             : "extractFailed",
         );
@@ -4015,7 +4016,7 @@ export default function App() {
     (item: MediaItem, dayKey: number, e: React.MouseEvent) => {
       if (e.shiftKey && anchorId !== null) {
         e.preventDefault();
-        selectRange(anchorId, item.id).catch((err) => setStatus(String(err)));
+        selectRange(anchorId, item.id).catch((err) => setStatus(errText(err)));
         return;
       }
       if (e.ctrlKey || e.metaKey || selecting) {
@@ -4072,7 +4073,7 @@ export default function App() {
         lastRangeRef.current = null;
         await refreshSummary();
       } catch (e) {
-        setStatus(String(e));
+        setStatus(errText(e));
       } finally {
         deletingRef.current = false;
       }
@@ -4126,7 +4127,7 @@ export default function App() {
           }
           return next;
         });
-        setStatus(String(e));
+        setStatus(errText(e));
         return;
       }
       setStatus(
@@ -4202,7 +4203,7 @@ export default function App() {
         // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
         // 落としてからエラーを返すので、画面をそのままにすると
         // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
-        setStatus(String(e));
+        setStatus(errText(e));
         forgetDeleted(touched);
         clearSelection();
         await refreshSummary().catch(() => {});
@@ -4275,7 +4276,7 @@ export default function App() {
       // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
       // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
       // ようにする。閉じようとして開いた関所でも、ここでは閉じない
-      setStatus(String(e));
+      setStatus(errText(e));
       forgetDeleted(new Set(ids));
       await refreshSummary().catch(() => {});
       setRejectGate(null);
@@ -4342,7 +4343,7 @@ export default function App() {
       } catch (e) {
         // **一部だけ動いていることがある**（DBへの反映で転んだ場合など）。
         // 画面をそのままにすると、もう別の場所にある写真が並んだまま残る
-        setStatus(String(e));
+        setStatus(errText(e));
         if (moveFiles) {
           clearSelection();
           await reloadAll().catch(() => {});
@@ -4368,7 +4369,7 @@ export default function App() {
         await openWith(item.id, app, true);
         await refreshRoots();
       } catch (e) {
-        setStatus(String(e));
+        setStatus(errText(e));
       }
     },
     [refreshRoots],
@@ -4515,14 +4516,14 @@ export default function App() {
           </span>
           <button
             disabled={busy}
-            onClick={() => selectAll().catch((e) => setStatus(String(e)))}
+            onClick={() => selectAll().catch((e) => setStatus(errText(e)))}
           >
             {t.selectAll}
           </button>
           <button
             disabled={busy}
             onClick={() =>
-              openSelectionInViewer().catch((e) => setStatus(String(e)))
+              openSelectionInViewer().catch((e) => setStatus(errText(e)))
             }
           >
             {t.bulkViewer}
@@ -4531,7 +4532,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("picked", true).catch((e) => setStatus(String(e)))
+              onBulkMark("picked", true).catch((e) => setStatus(errText(e)))
             }
           >
             ⚑ {t.bulkPickOn}
@@ -4539,7 +4540,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("picked", false).catch((e) => setStatus(String(e)))
+              onBulkMark("picked", false).catch((e) => setStatus(errText(e)))
             }
           >
             {t.bulkPickOff}
@@ -4547,7 +4548,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("favorite", true).catch((e) => setStatus(String(e)))
+              onBulkMark("favorite", true).catch((e) => setStatus(errText(e)))
             }
           >
             ★ {t.bulkFavoriteOn}
@@ -4555,27 +4556,27 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("favorite", false).catch((e) => setStatus(String(e)))
+              onBulkMark("favorite", false).catch((e) => setStatus(errText(e)))
             }
           >
             {t.bulkFavoriteOff}
           </button>
           <button
             disabled={busy}
-            onClick={() => onBulkExport(false).catch((e) => setStatus(String(e)))}
+            onClick={() => onBulkExport(false).catch((e) => setStatus(errText(e)))}
           >
             {t.bulkCopy}
           </button>
           <button
             disabled={busy}
-            onClick={() => onBulkExport(true).catch((e) => setStatus(String(e)))}
+            onClick={() => onBulkExport(true).catch((e) => setStatus(errText(e)))}
           >
             {t.bulkMove}
           </button>
           <button
             className="danger"
             disabled={busy}
-            onClick={() => onBulkDelete().catch((e) => setStatus(String(e)))}
+            onClick={() => onBulkDelete().catch((e) => setStatus(errText(e)))}
           >
             🗑 {t.bulkDelete}
           </button>
@@ -4992,7 +4993,7 @@ export default function App() {
                             title={t.selectDay}
                             onClick={() => {
                               const key = row.dayKey;
-                              toggleDay(key).catch((e) => setStatus(String(e)));
+                              toggleDay(key).catch((e) => setStatus(errText(e)));
                             }}
                           >
                             {row.label}
@@ -5075,7 +5076,7 @@ export default function App() {
                                   e.stopPropagation();
                                   if (e.shiftKey && anchorId !== null) {
                                     selectRange(anchorId, cell.item.id).catch(
-                                      (err) => setStatus(String(err)),
+                                      (err) => setStatus(errText(err)),
                                     );
                                     return;
                                   }

@@ -444,4 +444,23 @@ export const zh: Dict = {
   speedNoDiff: " —— 没有变更",
   speedDiff: (added: number, changed: number, removed: number) =>
     ` —— 新增 ${num(added)}、变更 ${num(changed)}、删除 ${num(removed)}`,
+  errNotFound: "索引里已经没有这张照片。",
+  errDb: "索引读写失败。",
+  errConfigIo: "设置文件无法读写。",
+  errConfigFormat: "无法解析设置文件的内容。",
+  errNoDestination: "还没有选择目标文件夹。",
+  errSourceUnreadable: "无法读取该文件夹。",
+  errSourceManaged:
+    "无法从受管理的图库内部导入。请去掉文件夹名中的扩展名（如 .photoslibrary）后重新选择。",
+  errExportDest: "无法创建该目标文件夹。",
+  errExportManaged: "无法写入该位置：这个包由其他应用管理。",
+  errFolderMissing: "找不到该文件夹。",
+  errTrashFailed: "无法移到回收站。",
+  errTrashPartly: (n: number) => `已将 ${num(n)} 张移到回收站，其余未能移动。`,
+  errAutoplayRollback: "无法更改该设置。",
+  errNoLogYet: "还没有任何记录。",
+  errNotBundled: "此版本中没有附带。",
+  errNoStoreLink: "此系统没有可以指引的页面。",
+  errBadKind: "没有可以打开的内容。",
+  errTooManyIds: "一次询问的项目太多。",
 };

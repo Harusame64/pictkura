@@ -30,6 +30,7 @@ import {
   setLocaleChoice,
   t,
 } from "./i18n";
+import { errText } from "./i18n/err.ts";
 import { applyTheme, readTheme, type ThemeChoice } from "./theme";
 
 /**
@@ -265,8 +266,8 @@ export default function Settings({
                     // **ダイアログの中に出す。** 画面下の状態バーへ流しても
                     // このダイアログが覆っているうえ32chで省略されるので、
                     // 断られた理由もパスも読めない
-                    setDestError(String(e));
-                    onError(String(e));
+                    setDestError(errText(e));
+                    onError(errText(e));
                     return;
                   }
                   setDestError(null);
@@ -363,7 +364,7 @@ export default function Settings({
                     await setAutoAdvance(e.target.checked);
                   } catch (err) {
                     // 保存できなければ下の onConfigChanged で表示が元に戻る
-                    onError(String(err));
+                    onError(errText(err));
                   }
                   onConfigChanged();
                 }}
@@ -397,7 +398,7 @@ export default function Settings({
                     } catch (err) {
                       // レジストリに書けなかった場合。設定は保存されていないので
                       // 下の onConfigChanged で表示は元の状態に戻る
-                      onError(String(err));
+                      onError(errText(err));
                     }
                     onConfigChanged();
                   }}
@@ -551,7 +552,7 @@ export default function Settings({
                   try {
                     await setCheckUpdateOnStart(e.target.checked);
                   } catch (err) {
-                    onError(String(err));
+                    onError(errText(err));
                   }
                   onConfigChanged();
                 }}
