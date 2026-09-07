@@ -122,15 +122,24 @@ test("関数のキーは、ja.ts から署名を読めること", () => {
  * 見つからなければ**テストごと失敗させる**（黙って0件を通さない）。
  */
 test("Rustが使う失敗の鍵が、辞書に在ること", () => {
-  const rust = [
-    readFileSync(new URL("../../src-tauri/src/lib.rs", import.meta.url), "utf8"),
-    readFileSync(new URL("../../src-tauri/src/errs.rs", import.meta.url), "utf8"),
-  ].join("\n");
-  // **書き方で取りこぼさない。** `errs::code("…")` も `=> "…"` も
-  // `fn code() { "errDb" }` も同じ鍵なので、**`"err…"` という文字列すべて**を拾う。
-  // 拾いすぎても、要求は「辞書に在ること」なので害が無い
+  const lib = readFileSync(
+    new URL("../../src-tauri/src/lib.rs", import.meta.url),
+    "utf8",
+  );
+  const errs = readFileSync(
+    new URL("../../src-tauri/src/errs.rs", import.meta.url),
+    "utf8",
+  );
   const used = new Set<string>();
-  for (const m of rust.matchAll(/"(err[A-Za-z0-9]+)"/g)) used.add(m[1]);
+  // **`errs.rs` は鍵しか持たない**（`Coded` の実装が並ぶだけ）ので、
+  // `"err…"` を全部拾ってよい——`fn code() { "errDb" }` のような裸の返しも取れる
+  for (const m of errs.matchAll(/"(err[A-Za-z0-9]+)"/g)) used.add(m[1]);
+  // **`lib.rs` は絞る。** あちらには鍵でない `"err…"` が入りうる
+  // （`"error"`・`"errno"` のような字。拾うとテストが**嘘の理由で落ちる**・ゲート2）。
+  // 拾うのは**鍵として使われている形だけ**——`errs::code(…)` / `errs::coded(…)` と、
+  // 定数に置いた鍵（`const X: &str = "err…"`）
+  for (const m of lib.matchAll(/errs::coded?\(\s*"(err[A-Za-z0-9]+)"/g)) used.add(m[1]);
+  for (const m of lib.matchAll(/:\s*&str\s*=\s*"(err[A-Za-z0-9]+)"/g)) used.add(m[1]);
   // **黙って0件を通さない。** 実際は20近く在るので、探し方が壊れたら気付ける
   assert.ok(used.size > 10, `Rust 側の鍵が ${used.size} 件しか読めていない`);
   for (const code of used) {

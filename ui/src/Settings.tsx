@@ -575,7 +575,10 @@ export default function Settings({
                     : about?.manual_path) ?? t.settingsDocNotBundled
                 }
                 onClick={() =>
-                  manualDoc && openBundledDoc(manualDoc).catch(() => {})
+                  manualDoc &&
+                  openBundledDoc(manualDoc).catch((e) =>
+                    setLogError(errText(e, t.settingsDocNotBundled)),
+                  )
                 }
               >
                 {t.settingsManual}
@@ -583,7 +586,11 @@ export default function Settings({
               <button
                 disabled={!about?.licenses_path}
                 title={about?.licenses_path ?? t.settingsDocNotBundled}
-                onClick={() => openBundledDoc("licenses").catch(() => {})}
+                onClick={() =>
+                  openBundledDoc("licenses").catch((e) =>
+                    setLogError(errText(e, t.settingsDocNotBundled)),
+                  )
+                }
               >
                 {t.settingsOssLicenses}
               </button>
@@ -604,12 +611,17 @@ export default function Settings({
                 // **出すのはダイアログの中**——`onError` が流れる先は
                 // ツールバーの一行で、**いま開いている設定の背後**にある
                 // （`.palette-backdrop` が `position: fixed` で覆う。PRのcodex）。
-                // **Rust側の文言は出さない**——あちらは日本語決め打ちで、
-                // 英語の画面に日本語が混じる（週の台紙の項目3）
+                //
+                // **Rust 側の文言も、いまは辞書を通る**（項目3）ので出してよい
+                // ——`errText` が鍵を引き、引けなければ下の1文に落ちる
                 onClick={() =>
                   openLog()
                     .then(() => setLogError(null))
-                    .catch(() => setLogError(t.settingsLogOpenFailed))
+                    // **Rust が鍵を付けている失敗は、その1文を出す**
+                    // （「まだ記録はありません」など）。鍵の無い失敗——
+                    // 関連付けが無い等、外のクレートの文言——は、
+                    // **こちらの1文に落とす**ほうが読める
+                    .catch((e) => setLogError(errText(e, t.settingsLogOpenFailed)))
                 }
               >
                 {t.settingsLog}

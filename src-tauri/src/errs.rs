@@ -89,9 +89,13 @@ impl Coded for ConfigError {
     fn code(&self) -> &'static str {
         match self {
             // **読めないと書けないは別の話**。読めないのは権限や壊れたファイル、
-            // 書けないのは書き込み先の問題で、利用者にできることが違う
-            ConfigError::Io(_) => "errConfigIo",
-            ConfigError::Parse(_) | ConfigError::Serialize(_) => "errConfigFormat",
+            // 書けないのは書き込み先の問題で、利用者にできることが違う。
+            //
+            // **`Serialize` は書く側**（`Config::save`）で起きるので、
+            // 「中身を読めませんでした」には入れない——**何も読んでいない**
+            // （ゲート2の指摘）。`errConfigIo` の文は読み書きの両方を言う
+            ConfigError::Io(_) | ConfigError::Serialize(_) => "errConfigIo",
+            ConfigError::Parse(_) => "errConfigFormat",
         }
     }
     fn detail(&self) -> String {

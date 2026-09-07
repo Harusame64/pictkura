@@ -34,8 +34,11 @@ const SEP = "\u0001";
  *
  * 辞書の値が関数のときは**詳細を渡して呼ぶ**（枚数のような、文に織り込む値）。
  * 文字列のときは、詳細があれば後ろへ添える。
+ *
+ * `fallback` は**鍵が引けなかったときだけ**使う。外のクレートの文言より
+ * こちらの1文のほうが読める場面（「ログを開く」が開けなかった、など）で渡す。
  */
-export function errText(e: unknown): string {
+export function errText(e: unknown, fallback?: string): string {
   const raw = String(e);
   const cut = raw.indexOf(SEP);
   const code = cut === -1 ? raw : raw.slice(0, cut);
@@ -56,6 +59,14 @@ export function errText(e: unknown): string {
     const arg = /^\d+$/.test(detail) ? Number(detail) : detail;
     return String(say(arg));
   }
-  if (typeof say !== "string") return raw;
+  if (typeof say !== "string") {
+    // **知らない鍵**（辞書に無い・別のモジュールが付けた・打ち間違い）。
+    // **生のまま返すが、継ぎ目は開く**——`U+0001` は画面に出ない字なので、
+    // そのままだと鍵と詳細が**空白も句読点も無しに溶接されて**出る（ゲート2）
+    const plain = cut === -1 ? raw : `${code} \u2014 ${detail}`;
+    // 呼ぶ側が**その場に合った文**を持っているならそちらを優先する
+    // （外のクレートの文言より、こちらの1文のほうが読める場面がある）
+    return fallback ?? plain;
+  }
   return detail ? `${say} \u2014 ${detail}` : say;
 }
