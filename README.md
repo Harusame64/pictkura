@@ -146,9 +146,9 @@ not a promise that it will not happen again** — the verdict comes from the clo
 than from a definition you can pin down, it has happened on two shipped builds and once in
 testing, and a removal covers only the one file that was reported — for 0.2.7 the
 installer's payload, not the different byte strings inside the MSIs and the portable ZIP,
-neither of which has ever been quarantined. **Issue #121 stays
-open for that reason**; if it happens to you, the definition version and the time it fired
-are the useful things to put there. A machine whose definitions are still old can go on
+neither of which has ever been quarantined. **Issue #121 is closed, but the account is kept
+there**; if it happens to you, the definition version and the time it fired are the useful
+things to add to it, and the issue gets reopened if the detection comes back. A machine whose definitions are still old can go on
 quarantining it; from a command prompt **run as administrator**:
 
 ```
