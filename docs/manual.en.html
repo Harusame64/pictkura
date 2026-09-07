@@ -860,9 +860,12 @@ With that off, pictkura never reaches the network at all — and you can still p
 
 <p>
 <strong>About the log.</strong>
-It records <strong>only the things that did not work</strong> — a thumbnail that could not be
-made, a file that could not be moved to the recycle bin — one line each. Successes are not
-written, so <strong>no file means nothing has gone wrong</strong>.
+It records <strong>only the things that did not work</strong> — a read that fell over
+part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
+launch that failed — one line each. Successes are not written, and
+<strong>failures you can see on screen are not written either</strong>: a thumbnail that does
+not appear, or a destination that could not be changed, tells you so where it happens. So no
+file means <strong>none of the failures that belong here</strong> have happened.
 Open it from Settings → “About pictkura” → “Open the log” (the button is disabled while there
 is nothing to open). It stays <strong>on this machine</strong> and is
 <strong>never sent anywhere</strong>. Lines can contain file names and folder paths, so read it
