@@ -199,8 +199,19 @@ export default function ImportWizard({
       let contested: boolean[];
       try {
         contested = await contestedSourceNames(allFiles.map((f) => f.name));
-      } catch {
-        return; // 数えられないときはバッジ無しのまま（取り込み自体は可能）
+      } catch (e) {
+        // **数えられなかったら、バッジは出さない。** 名前と大きさだけで塗ると、
+        // 双子が「済」になって既定で選択から外れ、既定で画面からも消える
+        // ——**この工事が塞いだ穴がそのまま戻る**。
+        //
+        // ただし**黙って何もしない**と、1枚も選ばれないまま
+        // 「取り込む物が無い」ように見える（ゲート2）。**選ぶほうは全部にして、
+        // 理由は表に出す**——隠す物が無いので、利用者は自分で外せる
+        onErrorRef.current(String(e));
+        if (!cancelled && gen === probeGen.current && autoSelect.current) {
+          setSelected(new Set(allFiles.map((f) => f.path)));
+        }
+        return;
       }
       if (cancelled || gen !== probeGen.current) return;
       for (let i = 0; i < allFiles.length; i += PROBE_CHUNK) {
@@ -240,8 +251,18 @@ export default function ImportWizard({
             });
             return next;
           });
-        } catch {
-          return; // 判定できないときはバッジ無しのまま（取り込み自体は可能）
+        } catch (e) {
+          // ここで止まると、**この切れ端から先は塗られない**——選択も止まる。
+          // 上と同じで、**残りは選んでおいて、理由を表に出す**
+          onErrorRef.current(String(e));
+          if (!cancelled && gen === probeGen.current && autoSelect.current) {
+            setSelected((prev) => {
+              const next = new Set(prev);
+              allFiles.slice(i).forEach((f) => next.add(f.path));
+              return next;
+            });
+          }
+          return;
         }
       }
     })();
