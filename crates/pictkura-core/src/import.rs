@@ -409,14 +409,24 @@ fn remove_partial_copy(path: &Path) {
 /// 「読めない＝別物」でよいのは**連番が1つ増えるだけ**の所
 /// （[`already_written_same_photo`]）で、[`Confirm::ByBytes`] は逆である
 /// ——**行き先が読めないというだけで、カード1枚ぶんが2枚に増えてよい所は無い。**
+///
+/// **読めなかった側で分ける。** 倒す先が逆だからである——**行き先**が読めないなら
+/// 「同じ」へ倒してよい（**倒さないと、挿し直すたびにライブラリが2倍になる**）が、
+/// **取り込み元**が読めないなら倒してはいけない。**倒すと「取り込み済み」と報告する**
+/// ことになり、**カードを抜かれた・I/O が転んだだけの1枚が、入ったことになる。**
 #[derive(Debug, PartialEq, Eq)]
 enum Bytes {
     /// 最後まで一致した
     Same,
     /// 違うところがあった（長さの違いを含む）
     Differ,
-    /// **読めなかった。** クラウドにしか実体が無い・開けない・途中で失敗した
+    /// **読まなかった、または行き先が読めなかった。**
+    /// クラウドにしか実体が無い・開けない・途中で失敗した
     Unknown,
+    /// **取り込み元のほうが読めなかった。** 抜かれた・一時的な I/O の失敗。
+    /// **クラウドにしか実体が無い場合はここに来ない**（[`Bytes::Unknown`]）
+    /// ——あれは「読まないと決めた」であって、**コピー自体は通る**。
+    SourceUnreadable,
 }
 
 /// 2つのファイルの中身が同じか。**呼ぶのは名前がぶつかったときだけ。**
@@ -439,24 +449,32 @@ fn compare_bytes(a: &Path, b: &Path) -> Bytes {
     if crate::cloud::is_cloud_only_path(a) || crate::cloud::is_cloud_only_path(b) {
         return Bytes::Unknown;
     }
-    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
-        return Bytes::Unknown;
+    // **転んだ側で分ける**（[`Bytes::SourceUnreadable`]）。取り込み元の失敗を
+    // 「読めなかった」に混ぜると、呼ぶ側が「同じ」へ倒して**入っていない1枚を
+    // 「取り込み済み」と報告する**
+    let (ma, mb) = match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(ma), Ok(mb)) => (ma, mb),
+        (Err(_), _) => return Bytes::SourceUnreadable,
+        _ => return Bytes::Unknown,
     };
     if ma.len() != mb.len() {
         return Bytes::Differ;
     }
 
     use std::io::Read;
-    let (Ok(fa), Ok(fb)) = (std::fs::File::open(a), std::fs::File::open(b)) else {
-        return Bytes::Unknown;
+    let (fa, fb) = match (std::fs::File::open(a), std::fs::File::open(b)) {
+        (Ok(fa), Ok(fb)) => (fa, fb),
+        (Err(_), _) => return Bytes::SourceUnreadable,
+        _ => return Bytes::Unknown,
     };
     let mut ra = std::io::BufReader::new(fa);
     let mut rb = std::io::BufReader::new(fb);
     let mut ba = [0u8; 64 * 1024];
     let mut bb = [0u8; 64 * 1024];
     loop {
+        // `ra` は取り込み元。**途中で転んだのも「元が読めない」である**
         let Ok(na) = ra.read(&mut ba) else {
-            return Bytes::Unknown;
+            return Bytes::SourceUnreadable;
         };
         if na == 0 {
             // **こちらが尽きただけでは足りない。** 相手も尽きていることまで見る
@@ -520,8 +538,16 @@ pub(crate) fn resolve_dest_path_avoiding(
             Confirm::ByLooks => true,
             // **読めなかったら畳む側へ倒す**（[`Bytes::Unknown`]）。
             // 行き先がクラウドにしか実体を持たないとき、ここを「別物」に倒すと
-            // **挿し直すたびにライブラリが2倍になる**
-            Confirm::ByBytes(src) => compare_bytes(src, existing) != Bytes::Differ,
+            // **挿し直すたびにライブラリが2倍になる**。
+            //
+            // **ただし、取り込み元が読めなかったぶんは倒さない**
+            // （[`Bytes::SourceUnreadable`]）——倒すと**「取り込み済み」と報告する**
+            // ことになる。倒さなければ連番へ回り、**コピーがそこで転んで
+            // `failed` に数えられる**。**入っていないものを、入ったことにしない。**
+            Confirm::ByBytes(src) => !matches!(
+                compare_bytes(src, existing),
+                Bytes::Differ | Bytes::SourceUnreadable
+            ),
         }
     };
 
@@ -1510,10 +1536,14 @@ mod tests {
     /// （OneDrive の Files On-Demand）で、名前がぶつかっているカードを
     /// 挿し直すたびに**中身が2倍になる**。
     ///
-    /// ここでは `Unknown` を**権限に頼らずに**作る——`ByBytes` に**在らないパス**を
-    /// 渡せば `metadata` が転ぶ。権限で作る側（`chmod 000`）は
-    /// `tests/card_import.rs` にあるが、**root では効かない**ので、
-    /// **どの uid でも必ず走るのはこちら**である。
+    /// ここでは `Unknown` を**権限に頼らずに**作る——**行き先をディレクトリにする**。
+    /// **クラウドにしか実体が無いファイルを真似ているのではない**。作りたいのは
+    /// 「**在って、名前も大きさも時刻も合うのに、中身が読めない**」という形で、
+    /// ディレクトリはどの OS でもそれになる（開けないか、開けても読めない）。
+    /// **在らないパスでは作れない**——それは**取り込み元**の側が読めない形で、
+    /// 畳んではいけないほう（`a_source_that_cannot_be_read_is_not_reported_as_imported`）。
+    /// 権限で作る側（`chmod 000`）は `tests/card_import.rs` にあるが、
+    /// **root では効かない**ので、**どの uid でも必ず走るのはこちら**である。
     #[test]
     fn a_destination_that_cannot_be_read_is_not_a_different_photo() {
         let dir = tempfile::tempdir().unwrap();
@@ -1525,21 +1555,30 @@ mod tests {
         fs::write(&existing, b"aaaa").unwrap();
         filetime::set_file_mtime(&existing, stamp).unwrap();
 
-        // 読めない相手（在らない）→ `Unknown` → **畳む**
-        let unreadable = dir.path().join("nowhere").join("DSC00001.ARW");
+        // 読めない行き先 → `Unknown` → **畳む**。
+        // **大きさと時刻はその場で訊く**——ディレクトリの `len()` は
+        // プラットフォームで違う（NTFS は 0、ext4 は 4096）ので、書くと外れる
+        let opaque = dest_dir.join("DSC00002.ARW");
+        fs::create_dir(&opaque).unwrap();
+        let opaque_meta = fs::metadata(&opaque).unwrap();
+        let opaque_size = opaque_meta.len();
+        let opaque_mtime_ms = mtime_ms_of(&opaque_meta);
+        // 取り込み元は**読める**（同じ大きさ）。読めないのは行き先だけ、という形にする
+        let readable_src = dir.path().join("DSC00002.ARW");
+        fs::write(&readable_src, vec![0u8; opaque_size as usize]).unwrap();
         assert!(
             matches!(
                 resolve_dest_path_avoiding(
                     &dest_dir,
-                    "DSC00001.ARW",
-                    4,
-                    mtime_ms,
+                    "DSC00002.ARW",
+                    opaque_size,
+                    opaque_mtime_ms,
                     &TakenPaths::default(),
-                    Confirm::ByBytes(&unreadable),
+                    Confirm::ByBytes(&readable_src),
                 ),
                 DestResolution::AlreadyImported
             ),
-            "読めないというだけで別物に倒している（挿し直すたびに増える）"
+            "行き先が読めないというだけで別物に倒している（挿し直すたびに増える）"
         );
 
         // **対照**: 読めて、中身が違う → 連番へ回す
@@ -1561,6 +1600,48 @@ mod tests {
                 )
             }
             _ => panic!("中身が違うのに畳んだ"),
+        }
+    }
+
+    /// **取り込み元が読めないのは「取り込み済み」ではない。**
+    ///
+    /// `Confirm::ByBytes` は読めなかったぶんを畳む。**行き先**が読めないときは
+    /// それでよい（上の試験。畳まないと挿し直すたびにライブラリが2倍になる）。
+    /// **取り込み元**が読めないとき——**カードを抜かれた・一時的な I/O の失敗**——に
+    /// 同じことをすると、**一度も入っていない1枚を「取り込み済み」と報告する**。
+    /// 畳まなければ連番へ回り、**コピーがそこで転んで `failed` に数えられる**。
+    /// **入っていないものを、入ったことにしない。**
+    ///
+    /// **`TakenPaths::insert` の doc 自身が「書いた直後の RAW をウイルス対策や
+    /// OneDrive が掴む」と書いている**ので、絵空事ではない。
+    #[test]
+    fn a_source_that_cannot_be_read_is_not_reported_as_imported() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest_dir = dir.path().join("2020-09-13");
+        fs::create_dir_all(&dest_dir).unwrap();
+        let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+        let mtime_ms = 1_600_000_000_000;
+        let existing = dest_dir.join("DSC00001.ARW");
+        fs::write(&existing, b"aaaa").unwrap();
+        filetime::set_file_mtime(&existing, stamp).unwrap();
+
+        // 取り込み元が在らない（＝抜かれた）。名前も大きさも時刻も合っているので、
+        // **`looks_same` は通る**——止めるのは中身の側だけである
+        let gone = dir.path().join("nowhere").join("DSC00001.ARW");
+        match resolve_dest_path_avoiding(
+            &dest_dir,
+            "DSC00001.ARW",
+            4,
+            mtime_ms,
+            &TakenPaths::default(),
+            Confirm::ByBytes(&gone),
+        ) {
+            DestResolution::CopyTo(p) => assert_eq!(
+                p.file_name().and_then(|n| n.to_str()),
+                Some("DSC00001-1.ARW"),
+                "連番の付け方がずれている"
+            ),
+            _ => panic!("取り込み元が読めないのに「取り込み済み」と答えた"),
         }
     }
 
