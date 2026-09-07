@@ -2492,3 +2492,80 @@ body {
   justify-content: center;
   flex-wrap: wrap;
 }
+
+/* ===== 失敗の面（2026-09-07・週の台紙 項目「失敗が利用者に届く道」）=====
+
+   **失敗を、ツールバーの一行から出した。** あそこは `max-width: 32ch` で
+   `nowrap` なうえ、`z-index` が `.palette-backdrop`（200）より下なので、
+   **設定や取り込みを開いている間は scrim の下に隠れていた**。
+   数えると `setStatus` の 35 回中 30 回が失敗で、**あれは実質エラー欄だった**。
+
+   だから面を分ける——**`status` は成功と進捗のためだけに残す。**
+
+   - **`z-index` はこのアプリでいちばん上**（`.shortcuts-backdrop` の 400 より上）。
+     **失敗は、開いている物の下に隠れてはいけない**
+   - **折り返す。** 詳細にはパスもOSの文言も入る（`errs.rs` の約束）。
+     1行に詰めると、**いちばん長い物がいちばん読めなくなる**
+   - **押せば消える。** 8秒でも消えるが、**待たせない** */
+.failure-toast {
+  position: fixed;
+  left: 50%;
+  /* **下に置かない。** `bottom: var(--sp-5)` から動かした（ゲート2）。
+     あそこは**押すための帯**である:
+
+     - `.wizard` は `height: min(720px, 88vh)` で `.palette-backdrop` の
+       `padding-top: 12vh` から始まるので、**footer の下端は viewport 底から
+       70px ほど**。面（3〜4行で 90px 前後）が**「取り込む」を覆う**
+     - `.speed-toast` は `left/bottom/transform` が**同じ値**——真上に重なって
+       速さの報告を隠し、`.speed-toast.index`（`bottom: 68px`）は索引の進み具合を隠す
+
+     **上に置く**。`.topbar` は 48px + 境界1px なので、その下に逃がす——
+     **検索欄（ツールバーの中央）を塞がない**高さである。ダイアログの頭
+     （12vh ＝ 84〜144px）とは重なりうるが、**あそこに在るのは題と × だけ**で、
+     × はダイアログの右端、面（最大 560px の中央寄せ）の外に出る。 */
+  top: 60px;
+  transform: translateX(-50%);
+  z-index: 500;
+  max-width: min(560px, calc(100vw - 2 * var(--sp-5)));
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--warn);
+  /* **`button` は書体を継がない**（UA の既定に落ちる）。`font-size` だけ
+     指定すると、**書体だけ Arial** になって周りから浮く */
+  font: inherit;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+  /* `button` の既定は中央寄せ。長い文は左から読ませる */
+  text-align: left;
+  display: block;
+  /* **パスは折り返す**——`/` や `\` の後ろで切れてよい。切れないと
+     長いパス1本で面が画面幅を越える */
+  overflow-wrap: anywhere;
+  animation: speed-toast-in 0.25s var(--easing);
+}
+
+/* 読み上げにだけ届く区域（`display: none` にすると読み上げからも消える）。
+   `.failure-toast` の中身を、**面が生まれる前から置いてある**器に流すために使う。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 一覧が読めなかった理由。**パネルの中に置く**——面は8秒で消えるが、
+   `loadFailed` は利用者が動くまで下りない（PRのcodex） */
+.empty-reason {
+  color: var(--warn);
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+}

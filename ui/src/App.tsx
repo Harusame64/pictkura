@@ -457,6 +457,15 @@ export default function App() {
    */
   const [loadFailed, setLoadFailed] = useState(false);
   /**
+   * 一覧が読めなかった**理由**。**旗と同じだけ生きる**（PRのcodex）。
+   *
+   * 前はこれを `status` に流していて、パネルの本文が「上の帯に理由が出ています」と
+   * 案内していた。**面へ移した時点で、その案内は8秒で嘘になる**
+   * ——`loadFailed` はいつまでも立つのに、指し示す先が消える。
+   * **パネルの中に置けば、寿命がそろう。**
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /**
    * 骨組みが**最後に取れた**のは何回目か。
    *
    * `reloadAll` と `refreshSummary` は同じ骨組みを取り直す別の口で、
@@ -513,7 +522,73 @@ export default function App() {
   });
   const [memories, setMemories] = useState<Memory[]>([]);
   const [cellSize, setCellSize] = useState(180);
+  /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
+  /**
+   * **失敗の一本道**（2026-09-07・週の台紙）。
+   *
+   * 前はここも `status` だった。あの一行は `max-width: 32ch` の `nowrap` で、
+   * `z-index` が scrim より下——**設定や取り込みを開いている間は隠れていた**。
+   * 数えたら `setStatus` の 35 回中 30 回が失敗で、**実質エラー欄**になっていた。
+   */
+  /**
+   * **回ごとに別物として持つ。** 文字列だけだと、**同じ失敗が続いたときに
+   * React が更新を捨てる**——描き直しも、動きも、読み上げも起きない。
+   * 「もう一度押したのに、また駄目だった」が**押しても何も起きない**に見える
+   * ——**この工事が塞いだはずの症状そのもの**である（PRのcodex）。
+   */
+  const [failure, setFailure] = useState<{ text: string; seq: number } | null>(
+    null,
+  );
+  /**
+   * 読み上げに渡す文。**面とは別に持つ。**
+   *
+   * `aria-live` が読むのは**中身が変わったとき**なので、同じ文を入れ直しても
+   * DOM は動かず、**黙る**。**いったん空にしてから入れる**ことで、
+   * 「また同じ失敗が起きた」を**変化として**渡す。
+   */
+  const [live, setLive] = useState("");
+  const failureTimer = useRef<number | null>(null);
+  const liveTimer = useRef<number | null>(null);
+  const clearFailureTimers = useCallback(() => {
+    if (failureTimer.current !== null) clearTimeout(failureTimer.current);
+    if (liveTimer.current !== null) clearTimeout(liveTimer.current);
+    failureTimer.current = null;
+    liveTimer.current = null;
+  }, []);
+  /**
+   * 失敗を、利用者に見える所へ出す。
+   *
+   * **8秒で引っ込む。** 押した物が動かなかったことが伝われば用は済むし、
+   * **不具合なら記録にも残っている**（`errs.rs` の `from_err`）ので、
+   * 消えても追う道は閉じない。**押せばすぐ消える**——待たせない。
+   */
+  const fail = useCallback(
+    (message: string) => {
+      clearFailureTimers();
+      // **同じ文でも出し直す。** `seq` が変わるので面は描き直され、
+      // `key` で組み直されて動きもやり直す
+      setFailure((prev) => ({ text: message, seq: (prev?.seq ?? 0) + 1 }));
+      // **読み上げには「変化」を渡す。** 空にしてから入れ直す
+      setLive("");
+      liveTimer.current = window.setTimeout(() => {
+        setLive(message);
+        liveTimer.current = null;
+      }, 0);
+      failureTimer.current = window.setTimeout(() => {
+        setFailure(null);
+        setLive("");
+        failureTimer.current = null;
+      }, 8000);
+    },
+    [clearFailureTimers],
+  );
+  const dismissFailure = useCallback(() => {
+    clearFailureTimers();
+    setFailure(null);
+    setLive("");
+  }, [clearFailureTimers]);
+  useEffect(() => clearFailureTimers, [clearFailureTimers]);
   const [folderInput, setFolderInput] = useState("");
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [roots, setRoots] = useState<string[]>([]);
@@ -793,6 +868,7 @@ export default function App() {
       setDayItems(new Map());
       gotSummaryRef.current += 1;
       setLoadFailed(false);
+      setLoadError(null);
       // 飾りが落ちたことも黙らない。ただし**一覧は正しい**ので旗は立てない
       if (statsR.status === "rejected") throw statsR.reason;
       if (memR.status === "rejected") throw memR.reason;
@@ -804,6 +880,7 @@ export default function App() {
         gotSummaryRef.current === wasGotAt
       ) {
         setLoadFailed(true);
+        setLoadError(errText(err));
       }
       throw err;
     } finally {
@@ -836,6 +913,7 @@ export default function App() {
     // （ゲート1の指摘）
     gotSummaryRef.current += 1;
     setLoadFailed(false);
+    setLoadError(null);
     setStats(st);
     setDayItems((prev) => {
       if (prev.size === 0) return prev;
@@ -895,7 +973,7 @@ export default function App() {
       })
       .catch((e) => {
         inflightRef.current.delete(dayKey);
-        setStatus(errText(e));
+        fail(errText(e));
         // 一時的な失敗（DBロック競合等）に備え、可視のままなら少し待って再試行。
         // それでも失敗が続く場合はスクロール等で可視範囲が変わったときに再試行される
         if (attempt < 2) {
@@ -949,7 +1027,7 @@ export default function App() {
       // **データも説明も出ない完全な無言**になる（ゲート1の指摘。
       // 隣のリスナーには入れてあるのに、こちらだけ抜けていた）
       const f = await listen("library-updated", () => {
-        reloadAll().catch((e) => setStatus(errText(e)));
+        reloadAll().catch((e) => fail(errText(e)));
         refreshCameras();
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
         // 実体を後から退避するので、古い「ローカルにある」を信じない
@@ -961,7 +1039,7 @@ export default function App() {
       }
       unlisten = f ?? undefined;
       libraryListenerRef.current = f != null;
-      await reloadAll().catch((e) => setStatus(errText(e)));
+      await reloadAll().catch((e) => fail(errText(e)));
     })();
     return () => {
       cancelled = true;
@@ -1031,7 +1109,7 @@ export default function App() {
       // ——空でもないのに空のパネルが出る（ゲート1の指摘）。
       // 登録できたことが確かめられていないときだけ取り直す
       if (!libraryListenerRef.current) {
-        reloadAll().catch((e) => setStatus(errText(e)));
+        reloadAll().catch((e) => fail(errText(e)));
       }
     };
     (async () => {
@@ -1156,7 +1234,7 @@ export default function App() {
       filterInitRef.current = false;
       return;
     }
-    reloadAll().catch((e) => setStatus(errText(e)));
+    reloadAll().catch((e) => fail(errText(e)));
   }, [filter, query, kind, reloadAll]);
 
   useEffect(() => {
@@ -1260,7 +1338,7 @@ export default function App() {
       // **握り潰さない。** ここだけ例外を捨てていた。この経路は絞り込み中に
       // しか走らず、そこで転ぶと「一覧を出せませんでした／上の帯に理由が
       // 出ています」が**空の帯**を指すことになる（ゲート1の指摘）
-      if (queryRef.current) reloadAll().catch((e) => setStatus(errText(e)));
+      if (queryRef.current) reloadAll().catch((e) => fail(errText(e)));
     }
     wasBuilding.current = building;
   }, [indexProgress, refreshCameras, reloadAll]);
@@ -1394,7 +1472,7 @@ export default function App() {
       await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
-      setStatus(errText(e));
+      fail(errText(e));
     } finally {
       setBusy(false);
     }
@@ -1434,7 +1512,9 @@ export default function App() {
   }, []);
 
   /** ウィザードからのエラー通知。毎レンダで作り直すと向こうのeffectが再実行される */
-  const onWizardError = useCallback((message: string) => setStatus(message), []);
+  // **ウィザードの失敗も同じ道へ。** 前は `status` だったので、
+  // **ウィザード自身が張る scrim の下**に出ていた——言っても届かない
+  const onWizardError = useCallback((message: string) => fail(message), [fail]);
 
   /**
    * 「まだ写真がありません」と言ってよい状態か。
@@ -1854,7 +1934,7 @@ export default function App() {
       checkDecoders();
       return true;
     } catch (e) {
-      setStatus(errText(e));
+      fail(errText(e));
       return false;
     } finally {
       setBusy(false);
@@ -1882,7 +1962,7 @@ export default function App() {
       if (typeof picked === "string") await addFolder(picked);
     } catch (e) {
       // 握りつぶすと「押したのに何も起きない」になる（onOpenWithOther と同じ扱い）
-      setStatus(errText(e));
+      fail(errText(e));
     }
   };
 
@@ -1896,7 +1976,7 @@ export default function App() {
       await reloadAll();
       await refreshRoots();
     } catch (e) {
-      setStatus(errText(e));
+      fail(errText(e));
     } finally {
       setBusy(false);
     }
@@ -1945,7 +2025,7 @@ export default function App() {
         else await setPicked(item.id, next);
       } catch (e) {
         patch(!next); // 印そのものが付かなかったので戻す
-        setStatus(errText(e));
+        fail(errText(e));
         return;
       }
       {
@@ -1964,7 +2044,7 @@ export default function App() {
           lastRangeRef.current = null;
           // **ここで転んでも印は戻さない**——印は付いている。
           // 取り直しに失敗しただけなので、黙らずに帯へ出す
-          await reloadAll().catch((e) => setStatus(errText(e)));
+          await reloadAll().catch((e) => fail(errText(e)));
         }
       }
     },
@@ -3497,14 +3577,19 @@ export default function App() {
     setZoom(1 / fitScale);
   }, [pinnedActualId, viewerItem?.id, fitScale]);
 
-  // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す
+  // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す。
+  //
+  // **これも「押しても何も起きない」だった**（台紙の12か所には数えていないが、
+  // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
+  // **こちらの言葉ではない**——それでも黙るよりはよい。
+  // **押した物が動かなかったことは、必ず伝わるようにする。**
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+      document.exitFullscreen().catch((e) => fail(errText(e)));
     } else {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch((e) => fail(errText(e)));
     }
-  }, []);
+  }, [fail]);
   useEffect(() => {
     const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
     document.addEventListener("fullscreenchange", onChange);
@@ -3813,7 +3898,7 @@ export default function App() {
         return;
       if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
-        selectAllRef.current().catch(() => {});
+        selectAllRef.current().catch((e) => fail(errText(e)));
         return;
       }
       if (e.key === "Escape" && selectedRef.current.size > 0) {
@@ -4016,7 +4101,7 @@ export default function App() {
     (item: MediaItem, dayKey: number, e: React.MouseEvent) => {
       if (e.shiftKey && anchorId !== null) {
         e.preventDefault();
-        selectRange(anchorId, item.id).catch((err) => setStatus(errText(err)));
+        selectRange(anchorId, item.id).catch((err) => fail(errText(err)));
         return;
       }
       if (e.ctrlKey || e.metaKey || selecting) {
@@ -4073,7 +4158,7 @@ export default function App() {
         lastRangeRef.current = null;
         await refreshSummary();
       } catch (e) {
-        setStatus(errText(e));
+        fail(errText(e));
       } finally {
         deletingRef.current = false;
       }
@@ -4127,7 +4212,7 @@ export default function App() {
           }
           return next;
         });
-        setStatus(errText(e));
+        fail(errText(e));
         return;
       }
       setStatus(
@@ -4203,7 +4288,7 @@ export default function App() {
         // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
         // 落としてからエラーを返すので、画面をそのままにすると
         // 「もう無い写真が並んだまま、選択にも残る」状態になる。取り直す
-        setStatus(errText(e));
+        fail(errText(e));
         forgetDeleted(touched);
         clearSelection();
         await refreshSummary().catch(() => {});
@@ -4276,7 +4361,7 @@ export default function App() {
       // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
       // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
       // ようにする。閉じようとして開いた関所でも、ここでは閉じない
-      setStatus(errText(e));
+      fail(errText(e));
       forgetDeleted(new Set(ids));
       await refreshSummary().catch(() => {});
       setRejectGate(null);
@@ -4343,7 +4428,7 @@ export default function App() {
       } catch (e) {
         // **一部だけ動いていることがある**（DBへの反映で転んだ場合など）。
         // 画面をそのままにすると、もう別の場所にある写真が並んだまま残る
-        setStatus(errText(e));
+        fail(errText(e));
         if (moveFiles) {
           clearSelection();
           await reloadAll().catch(() => {});
@@ -4369,7 +4454,7 @@ export default function App() {
         await openWith(item.id, app, true);
         await refreshRoots();
       } catch (e) {
-        setStatus(errText(e));
+        fail(errText(e));
       }
     },
     [refreshRoots],
@@ -4378,16 +4463,16 @@ export default function App() {
   /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
     (item: MediaItem): MenuItem[] => [
-      { label: t.menuOpen, run: () => openDefault(item.id).catch(() => {}) },
+      { label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
       ...editors.map((app) => ({
         label: t.menuOpenWith(app.name),
-        run: () => openWith(item.id, app.path, false).catch(() => {}),
+        run: () => openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
       })),
       { label: t.menuOpenWithOther, run: () => onOpenWithOther(item) },
       {
         label: t.menuReveal,
         separator: true,
-        run: () => revealInFolder(item.id).catch(() => {}),
+        run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
       {
         label: item.favorite ? t.menuFavoriteOff : t.menuFavoriteOn,
@@ -4516,14 +4601,14 @@ export default function App() {
           </span>
           <button
             disabled={busy}
-            onClick={() => selectAll().catch((e) => setStatus(errText(e)))}
+            onClick={() => selectAll().catch((e) => fail(errText(e)))}
           >
             {t.selectAll}
           </button>
           <button
             disabled={busy}
             onClick={() =>
-              openSelectionInViewer().catch((e) => setStatus(errText(e)))
+              openSelectionInViewer().catch((e) => fail(errText(e)))
             }
           >
             {t.bulkViewer}
@@ -4532,7 +4617,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("picked", true).catch((e) => setStatus(errText(e)))
+              onBulkMark("picked", true).catch((e) => fail(errText(e)))
             }
           >
             ⚑ {t.bulkPickOn}
@@ -4540,7 +4625,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("picked", false).catch((e) => setStatus(errText(e)))
+              onBulkMark("picked", false).catch((e) => fail(errText(e)))
             }
           >
             {t.bulkPickOff}
@@ -4548,7 +4633,7 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("favorite", true).catch((e) => setStatus(errText(e)))
+              onBulkMark("favorite", true).catch((e) => fail(errText(e)))
             }
           >
             ★ {t.bulkFavoriteOn}
@@ -4556,27 +4641,27 @@ export default function App() {
           <button
             disabled={busy}
             onClick={() =>
-              onBulkMark("favorite", false).catch((e) => setStatus(errText(e)))
+              onBulkMark("favorite", false).catch((e) => fail(errText(e)))
             }
           >
             {t.bulkFavoriteOff}
           </button>
           <button
             disabled={busy}
-            onClick={() => onBulkExport(false).catch((e) => setStatus(errText(e)))}
+            onClick={() => onBulkExport(false).catch((e) => fail(errText(e)))}
           >
             {t.bulkCopy}
           </button>
           <button
             disabled={busy}
-            onClick={() => onBulkExport(true).catch((e) => setStatus(errText(e)))}
+            onClick={() => onBulkExport(true).catch((e) => fail(errText(e)))}
           >
             {t.bulkMove}
           </button>
           <button
             className="danger"
             disabled={busy}
-            onClick={() => onBulkDelete().catch((e) => setStatus(errText(e)))}
+            onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
           >
             🗑 {t.bulkDelete}
           </button>
@@ -4655,6 +4740,36 @@ export default function App() {
           {t.itemsCount(totalShown)}
         </span>
       </header>
+      {/* **読み上げの区域は、いつも在る。**
+          `aria-live` の付いた要素を**中身ごと挿す**と、読み上げはたいてい黙る
+          ——あちらが約束しているのは「**登録済みの区域の中身が変わったとき**」で
+          あって、生まれたての中身ではない（PRのcodex）。**外すと、この属性が
+          向いている相手にだけ届かない面**になる。だから**空のまま置いて、
+          中身だけ差し替える**。目には見えないが、読み上げには届く。 */}
+      <div className="sr-only" aria-live="assertive">
+        {live}
+      </div>
+      {/* **失敗はいちばん上に出す**（`z-index: 500`）。開いている物の下に隠れない */}
+      {failure !== null && (
+        /* **`button` にする。** `div` に `onClick` を付けただけだと、
+           **キーボードだけの人が消せない**（焦点も当たらない・ゲート2）。
+           `button` なら Enter も Space も、焦点の輪も、標準で付く。
+
+           **`role="alert"` も `aria-live` も、ここには付けない**——前者は
+           `button` の役割を**上書きして**「ボタン」と言われなくなり、後者は
+           **上の区域と二重に読ませる**。読み上げは上の区域の仕事で、
+           ここは**押して消せること**だけを引き受ける。 */
+        <button
+          type="button"
+          className="failure-toast"
+          // **回ごとに組み直す。** 同じ文が続いたときに、`speed-toast-in` の
+          // 動きがもう一度走る——**見ている人にも「また起きた」が伝わる**
+          key={failure.seq}
+          onClick={dismissFailure}
+        >
+          {failure.text}
+        </button>
+      )}
       {speedReport && (
         <div className="speed-toast" onClick={() => setSpeedReport(null)}>
           {speedLabel(speedReport)}
@@ -4677,10 +4792,10 @@ export default function App() {
               ——2つの往復に順番の保証は無い（ゲート2の指摘） */}
           {platform === "windows" && decoderHelp && (
             <>
-              <button onClick={() => openDecoderHelp("heif").catch(() => {})}>
+              <button onClick={() => openDecoderHelp("heif").catch((e) => fail(errText(e)))}>
                 {t.decoderHeifHow}
               </button>
-              <button onClick={() => openDecoderHelp("hevc").catch(() => {})}>
+              <button onClick={() => openDecoderHelp("hevc").catch((e) => fail(errText(e)))}>
                 {t.decoderHevcHow}
               </button>
             </>
@@ -4701,7 +4816,7 @@ export default function App() {
       {updateFound && (
         <div className="speed-toast index decoder-notice update-notice">
           <span>{t.updateFound(updateFound.latest ?? "")}</span>
-          <button onClick={() => openDownloadPage().catch(() => {})}>
+          <button onClick={() => openDownloadPage().catch((e) => fail(errText(e)))}>
             {t.updateOpenPage}
           </button>
           <button onClick={() => setUpdateFound(null)}>{t.updateLater}</button>
@@ -4900,6 +5015,12 @@ export default function App() {
                   いることになる（ゲート2の指摘） */}
               <h2>{emptyTitle()}</h2>
               <p>{emptyMessage()}</p>
+              {/* **理由はここに置く。** 面（8秒で消える）に頼ると、
+                  **本文の案内が指す先が無くなる**——`loadFailed` は
+                  利用者が動くまで下りない（PRのcodex） */}
+              {loadFailed && loadError !== null && (
+                <p className="empty-reason">{loadError}</p>
+              )}
               <div className="empty-actions">
                 {/* 取り込みを先に置く——macOSでは**そちらが本来の入口** */}
                 <button
@@ -4993,7 +5114,7 @@ export default function App() {
                             title={t.selectDay}
                             onClick={() => {
                               const key = row.dayKey;
-                              toggleDay(key).catch((e) => setStatus(errText(e)));
+                              toggleDay(key).catch((e) => fail(errText(e)));
                             }}
                           >
                             {row.label}
@@ -5076,7 +5197,7 @@ export default function App() {
                                   e.stopPropagation();
                                   if (e.shiftKey && anchorId !== null) {
                                     selectRange(anchorId, cell.item.id).catch(
-                                      (err) => setStatus(errText(err)),
+                                      (err) => fail(errText(err)),
                                     );
                                     return;
                                   }
@@ -5172,7 +5293,7 @@ export default function App() {
                 <div className="fallback-actions">
                   {videoInfo.exists && (
                     <button
-                      onClick={() => openDefault(viewerItem.id).catch(() => {})}
+                      onClick={() => openDefault(viewerItem.id).catch((e) => fail(errText(e)))}
                     >
                       {t.videoOpenExternal}
                     </button>
@@ -5182,7 +5303,7 @@ export default function App() {
                     videoInfo.plays_in_app &&
                     platform === "windows" && (
                       <button
-                        onClick={() => openDecoderHelp("hevc").catch(() => {})}
+                        onClick={() => openDecoderHelp("hevc").catch((e) => fail(errText(e)))}
                       >
                         {t.videoCodecHelp}
                       </button>
@@ -5627,7 +5748,7 @@ export default function App() {
               <button
                 className="viewer-tool"
                 title={t.menuReveal}
-                onClick={() => revealInFolder(viewerItem.id).catch(() => {})}
+                onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
               >
                 📁
               </button>
