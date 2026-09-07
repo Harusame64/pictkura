@@ -2394,7 +2394,24 @@ fn trash_paths_with_progress(
                             // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
                             // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
                             if first_err.is_none() {
-                                first_err = Some(errs::coded("errTrashFailed", e));
+                                // **どのファイルで転んだかを、ここで載せる。**
+                                // `trash` クレートが返すのは
+                                // `Unknown { description: "Some operations were aborted" }`
+                                // だけで、**どれが・なぜ、を持っていない**
+                                // （2026-09-07・win が Windows 実機で見た）。
+                                // **パスを知っているのはここだけ**なので、ここで継ぐ
+                                // ——束の外へ出ると、残ったのがどれかは分からなくなる。
+                                //
+                                // これは記録のためだけではない。**画面にも出る**
+                                // ——利用者が見ていたのは理由の無い1行だった。
+                                //
+                                // **画面に出すぶんは、断りが要らない。** 一覧も
+                                // ビューアもパスを出しているので、**新しく見える物は
+                                // 何も無い**。説明書の「写真のファイル名やフォルダの
+                                // パスが入ることがある」は**記録についての文**で、
+                                // ここの根拠ではない（ゲート2が、根拠の取り違えを拾った）
+                                let why = format!("{}: {e}", path.display());
+                                first_err = Some(errs::coded("errTrashFailed", why));
                             }
                         }
                     }
@@ -2498,7 +2515,10 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         // 現像ソフトが `.xmp` を握っているだけで「削除できませんでした」を返すと、
         // 写真が全部消えていても画面は失敗の側へ倒れ、選別の関所が閉じない
         let base = media_total.get();
-        let (_, sidecar_err) = trash_paths_with_progress(sidecars, |done, total| {
+        // **何本頼んだかを、渡す前に控える。** 片付いた数との差が「残った数」で、
+        // **1本のうち1本**と**300本のうち1本**は、読む人にとって別の話である
+        let asked = sidecars.len();
+        let (cleared, sidecar_err) = trash_paths_with_progress(sidecars, |done, total| {
             let _ = app.emit(
                 "delete-progress",
                 DeleteProgress {
@@ -2509,9 +2529,11 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         });
         if let Some(e) = sidecar_err {
             // 写真は消えているのに `.xmp` だけが残る。一覧に出ないので
-            // 気付く手立てが無い——せめて記録には残す
+            // 気付く手立てが無い——せめて記録には残す。
+            // **数と、転んだ1本目の名前を書く**（`errTrashFailed` の詳細に入っている）
             applog::note(&format!(
-                "could not move the sidecar to the recycle bin (continuing): {}",
+                "could not move {} of {asked} sidecar(s) to the recycle bin (continuing): {}",
+                asked - cleared.len(),
                 errs::for_log(&e)
             ));
         }
@@ -2526,9 +2548,14 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         match first_err {
             Some(e) if count == 0 => {
                 // **1枚も移せていない。** `errs::coded` は記録に触らないので、
-                // ここで書く——**文脈（写真のほうだ）を知っているのはここだけ**
+                // ここで書く——**文脈（写真のほうだ）を知っているのはここだけ**。
+                //
+                // **枚数を入れる。** 詳細に載るのは**転んだ1本目のパスだけ**なので、
+                // それだけだと**300枚が全滅した行が、1枚の失敗に見える**
+                // ——サイドカーの2行に「X of Y」を足したのと同じ理由である（ゲート2）
                 applog::note(&format!(
-                    "no photo could go to the recycle bin: {}",
+                    "none of {} photo(s) could go to the recycle bin: {}",
+                    media_total.get(),
                     errs::for_log(&e)
                 ));
                 Err(e)
@@ -2619,12 +2646,14 @@ async fn export_media(
         // **サイドカーの元も片付ける**（別ドライブへ移したぶん）。DBに行は無いので
         // 落とすものは無く、**件数にも数えない**——利用者が見ているのは写真の枚数
         if !outcome.sidecars_to_remove.is_empty() {
-            let (_, err) = trash_paths(outcome.sidecars_to_remove);
+            let asked = outcome.sidecars_to_remove.len();
+            let (cleared, err) = trash_paths(outcome.sidecars_to_remove);
             if let Some(e) = err {
                 // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
                 // ファイルなので利用者からは見えない——記録には残す
                 applog::note(&format!(
-                    "could not clean up the sidecar left at the source: {}",
+                    "could not clean up {} of {asked} sidecar(s) left at the source: {}",
+                    asked - cleared.len(),
                     errs::for_log(&e)
                 ));
             }
