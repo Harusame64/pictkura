@@ -311,6 +311,9 @@ export const zhHant: Dict = {
   wizardSelected: (n: number) => `已選取 ${num(n)} 張`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "已匯入（複製的目的地裡有相同的檔案）",
+  wizardUnsureBadge: "?",
+  wizardUnsureTitle:
+    "這個檔名在記憶卡上出現不只一次。複製的目的地裡的那個檔案是不是這張照片，要讀過內容才知道——匯入時會讀，已經在裡面的照片不會再複製一份",
   wizardDestination: "複製到",
   wizardChangeDestination: "變更",
   wizardStructure: "分類方式",

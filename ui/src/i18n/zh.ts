@@ -308,6 +308,9 @@ export const zh: Dict = {
   wizardSelected: (n: number) => `已选择 ${num(n)} 张`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "已导入（复制目标里有相同的文件）",
+  wizardUnsureBadge: "?",
+  wizardUnsureTitle:
+    "这个文件名在存储卡上出现了不止一次。复制目标里的那个文件是不是这张照片，要读过内容才知道——导入时会读，已经在里面的照片不会再复制一份",
   wizardDestination: "复制到",
   wizardChangeDestination: "更改",
   wizardStructure: "归类方式",

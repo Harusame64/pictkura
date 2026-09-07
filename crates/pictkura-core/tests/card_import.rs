@@ -17,10 +17,10 @@
 // テストを組み立てる側（一時ファイルの書き出し等）の `unwrap()` は許す。
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use pictkura_core::{import_from, Config};
-use std::collections::BTreeSet;
+use pictkura_core::{contested_names, import_from, Config, ImportState};
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// カメラが実際に書く形。**拡張子は大文字**、**`DCIM` の下**、**RAW と JPG は組**。
 ///
@@ -49,6 +49,31 @@ fn lay_out_a_card(card: &Path) {
 
 /// 行き先に入ったファイルの**中身**（名前ではなく中身で見ないと、
 /// 「同じ名前の別物」が入れ替わっていても気づけない）。
+/// 呼ぶ側がやることと同じ——**一覧に出ていた名前全部**から、
+/// ぶつかっている名前を数える（`contested_names`）。
+///
+/// **選んだぶんから数えてはいけない。** ウィザードの「済」バッジはカード全体で数えるので、
+/// 取り込みが選択だけで数え直すと、**バッジが「まだ」と言った写真を取り込みが飛ばす**。
+fn contested(listed: &[PathBuf]) -> HashSet<String> {
+    // **大きさと時刻もディスクから取る。** 数える規則が名前だけではなくなったので
+    // （2026-09-07・ゲート2）、ここで作り物を渡すと本番と違う材料で数えることになる
+    let entries: Vec<(String, u64, i64)> = listed
+        .iter()
+        .filter_map(|p| {
+            let name = p.file_name().and_then(|n| n.to_str())?.to_string();
+            let meta = std::fs::metadata(p).ok()?;
+            let mtime_ms = meta
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_millis() as i64;
+            Some((name, meta.len(), mtime_ms))
+        })
+        .collect();
+    contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m)))
+}
+
 fn contents(dest: &Path) -> BTreeSet<String> {
     walkdir::WalkDir::new(dest)
         .into_iter()
@@ -278,6 +303,20 @@ fn an_identical_copy_on_the_same_card_is_folded_into_one() {
         vec!["DSC00001.ARW".to_string()],
         "連番が付いた: {names:?}"
     );
+
+    // **挿し直しても増えない。** ここは新しい経路である——名前がぶつかっているので
+    // 行き先の中身まで読む（`Confirm::ByBytes`）。**同じだと分かったら畳む**。
+    // 「読めなかった＝別物」に倒していると、**挿し直すたびに2倍になる**
+    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let after: BTreeSet<String> = walkdir::WalkDir::new(&dest)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(second.copied, 0, "挿し直しで増えた: {after:?}");
+    assert_eq!(second.skipped, 2);
+    assert_eq!(after.len(), 1, "連番が付いた: {after:?}");
 }
 
 /// **素の名前が埋まっていても、同じ中身は畳む。**
@@ -327,15 +366,18 @@ fn an_identical_copy_is_folded_even_when_the_plain_name_is_taken() {
     );
 }
 
-/// **片割れが後の周で来たときは、取り込めない——が、増えもしない。**
+/// **片割れが後の周で来ても届く——同じ名前がカードに2つ在るから。**
 ///
 /// 「名前も大きさも更新時刻も同じで、中身が別」は、**両方を読まないと見分けられない**。
-/// 読むということは**カードを挿し直すたびに全ファイルを読む**ということなので、
-/// この工程は取らない（`looks_same` の説明）。**ここで押さえるのは「増えない」ほう**
-/// ——直しかけたとき、**同じ写真が2枚になって、片割れは消えたまま**になった
+/// 読む相手を**ぶつかっている名前だけ**に絞れば、その費用は払える（`contested_names`）
+/// ——**普通のカードは名前が重ならないので、1件も読まない。**
+///
+/// **押さえるのは3つ**——片割れが届くこと、**1周目のぶんを運び直さないこと**、
+/// そして**もう一度挿しても増えないこと**。直しかけたとき、
+/// **同じ写真が2枚になって、片割れは消えたまま**になった
 /// （2026-09-06。ゲート2の助言どおりに直したら、そうなった）。
 #[test]
-fn a_twin_in_a_later_run_is_not_taken_but_nothing_is_duplicated() {
+fn a_twin_in_a_later_run_arrives_because_the_card_shows_both_names() {
     let dir = tempfile::tempdir().unwrap();
     let card = dir.path().join("E");
     let dest = dir.path().join("photos");
@@ -360,13 +402,184 @@ fn a_twin_in_a_later_run_is_not_taken_but_nothing_is_duplicated() {
     filetime::set_file_mtime(&twin, stamp).unwrap();
     let second = import_from(&card, &config, |_, _, _| {}).unwrap();
 
-    assert_eq!(second.copied, 0, "見分けられないものを運んでいる");
+    assert_eq!(second.copied, 1, "片割れが届いていない");
+    assert_eq!(second.skipped, 1, "1周目のぶんを運び直している");
+    let got: Vec<String> = contents(&dest).into_iter().collect();
+    assert_eq!(
+        got,
+        vec!["aaaa".to_string(), "bbbb".to_string()],
+        "片割れが消えている: {got:?}"
+    );
+
+    // **もう一度挿しても増えない。** 2枚目は素の名前で中身が違うと分かり、
+    // `-1` まで見に行って、そこで自分を見つける
+    let third = import_from(&card, &config, |_, _, _| {}).unwrap();
+    assert_eq!(third.copied, 0, "挿し直しで増えた");
+    assert_eq!(third.skipped, 2);
+}
+
+/// **別のカードから来た片割れは、いまも届かない。**
+///
+/// **これは残っている穴である。** 塞ぐには**ぶつかっていない名前でも行き先を読む**
+/// ことになり、それは**挿し直すたびにカード1枚ぶんを読む**という、
+/// このリポジトリが払わないと決めている費用そのものになる。
+/// **押さえるのは「増えない」ほうと、限界が動いたら気づけること。**
+#[test]
+fn a_twin_from_another_card_is_still_not_taken_but_nothing_is_duplicated() {
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("photos");
+    let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+
+    for (card_name, bytes) in [("E", &b"aaaa"[..]), ("F", &b"bbbb"[..])] {
+        let card = dir.path().join(card_name);
+        fs::create_dir_all(card.join("DCIM/100MSDCF")).unwrap();
+        let shot = card.join("DCIM/100MSDCF/DSC00001.ARW");
+        fs::write(&shot, bytes).unwrap();
+        filetime::set_file_mtime(&shot, stamp).unwrap();
+        import_from(&card, &config, |_, _, _| {}).unwrap();
+    }
+
     let got: Vec<String> = contents(&dest).into_iter().collect();
     assert_eq!(
         got,
         vec!["aaaa".to_string()],
-        "同じ写真が増えている: {got:?}"
+        "限界が動いた（動いたなら `looks_same` の説明を直すこと）: {got:?}"
     );
+}
+
+/// **行き先が読めないときは、畳む側へ倒す。**
+///
+/// 中身を読む経路（`Confirm::ByBytes`）は、**読めなかったという答え**を持つ
+/// （`Bytes::Unknown`）。それを「別物」に倒すと、**行き先がクラウドにしか実体を
+/// 持たないライブラリ**（OneDrive の Files On-Demand）では、名前がぶつかっている
+/// カードを挿し直すたびに**中身が2倍になる**。**取りこぼしより、増えるほうが害が大きい。**
+///
+/// ここでは読めない行き先を**権限で作る**（クラウドの実体はこの台に無い）。
+/// `chmod 000` は unix だけなので、この試験も unix だけ。
+#[cfg(unix)]
+#[test]
+fn a_destination_that_cannot_be_read_is_folded_not_duplicated() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("E");
+    let dest = dir.path().join("photos");
+    let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    // 名前がぶつかるカード（控えのフォルダ）。中身は同じ
+    for sub in ["DCIM/100MSDCF", "BACKUP/100MSDCF"] {
+        fs::create_dir_all(card.join(sub)).unwrap();
+        let shot = card.join(sub).join("DSC00001.ARW");
+        fs::write(&shot, b"aaaa").unwrap();
+        filetime::set_file_mtime(&shot, stamp).unwrap();
+    }
+
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+    assert_eq!(import_from(&card, &config, |_, _, _| {}).unwrap().copied, 1);
+
+    // 入った1本を読めなくする
+    let landed: Vec<PathBuf> = walkdir::WalkDir::new(&dest)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    assert_eq!(landed.len(), 1);
+    fs::set_permissions(&landed[0], fs::Permissions::from_mode(0o000)).unwrap();
+    // **root では `chmod 000` が効かない**（CI がコンテナで root のことがある）。
+    // そのときここは何も測れないので、**通したふりをせずに、測れなかったと言って降りる**。
+    // 同じ枝は `import.rs` の `a_destination_that_cannot_be_read_is_not_a_different_photo`
+    // が**権限に頼らずに**押さえているので、この試験が降りても穴は開かない
+    if fs::File::open(&landed[0]).is_ok() {
+        eprintln!("測れなかった: chmod 000 が効かない（root で走っている）");
+        return;
+    }
+
+    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    assert_eq!(second.copied, 0, "読めないというだけで写真が増えた");
+    let after = walkdir::WalkDir::new(&dest)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .count();
+    assert_eq!(after, 1, "連番が付いた");
+}
+
+/// **バッジは、入っていない写真を「済」と言わない。そして取り込みは実際に届ける。**
+///
+/// バッジ（`is_already_imported`）は**中身を読まない**ので、名前がぶつかっている行では
+/// 「済」とも「未」とも言い切れない——そこは `Unsure` を返す。
+/// **「済」に丸めたときの見え方が、この工事の主眼**である: **画面に何も出ないまま
+/// 写真が1枚来ない**（取り込みは成功と表示され、バッジが付き、**既定では画面からも隠れる**）。
+///
+/// **中身まで読むのは取り込みの側**（`import_files`）。そちらは**同じ `contested`** を
+/// 受け取り、行き先に在るのがどちらの写真かを決めて運ぶ。
+#[test]
+fn the_badge_does_not_claim_a_twin_is_imported_and_the_import_delivers_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("E");
+    let dest = dir.path().join("photos");
+    let stamp = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+    for sub in ["DCIM/100MSDCF", "DCIM/101MSDCF"] {
+        fs::create_dir_all(card.join(sub)).unwrap();
+    }
+    let a = card.join("DCIM/100MSDCF/DSC00001.ARW");
+    let b = card.join("DCIM/101MSDCF/DSC00001.ARW");
+    fs::write(&a, b"aaaa").unwrap();
+    fs::write(&b, b"bbbb").unwrap();
+    filetime::set_file_mtime(&a, stamp).unwrap();
+    filetime::set_file_mtime(&b, stamp).unwrap();
+
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+
+    // **カードに出ていた名前全部**から数える。ウィザードは一覧を持っているので、
+    // 利用者が片方しか選ばなくても、この集合は変わらない
+    let listed = vec![a.clone(), b.clone()];
+    let contested = contested(&listed);
+
+    // **行き先が空のうちは、ぶつかっている名前でも言い切れる**
+    // ——在るものが1つも無いので、読むまでもない
+    assert_eq!(
+        pictkura_core::is_already_imported(&b, &config, &contested),
+        ImportState::NotImported,
+        "行き先が空なのに言い切れていない"
+    );
+
+    // 利用者は1枚目だけを選んだ
+    let first =
+        pictkura_core::import_files(std::slice::from_ref(&a), &contested, &config, |_, _, _| {})
+            .unwrap();
+    assert_eq!(first.copied, 1);
+
+    // **どちらも「分からない」。** 行き先に在る1本がどちらのものかは、中身を読まないと決まらない
+    assert_eq!(
+        pictkura_core::is_already_imported(&a, &config, &contested),
+        ImportState::Unsure
+    );
+    assert_eq!(
+        pictkura_core::is_already_imported(&b, &config, &contested),
+        ImportState::Unsure,
+        "まだ入っていない写真に「済」と出している（既定では画面からも消える）"
+    );
+
+    // **陽性対照**: 名前のぶつかりを渡さないと、バッジは「済」と**言い切る**。
+    // **この引数が飾りでないことを、ここで押さえる**
+    assert_eq!(
+        pictkura_core::is_already_imported(&b, &config, &HashSet::new()),
+        ImportState::Imported,
+        "名前のぶつかりを渡さなくても正しく出た（この試験が何も守っていない）"
+    );
+
+    // 「分からない」ほうを選ぶと、実際に届く
+    let second =
+        pictkura_core::import_files(std::slice::from_ref(&b), &contested, &config, |_, _, _| {})
+            .unwrap();
+    assert_eq!(second.copied, 1, "済と出ていない写真が取り込まれなかった");
+    let got: Vec<String> = contents(&dest).into_iter().collect();
+    assert_eq!(got, vec!["aaaa".to_string(), "bbbb".to_string()]);
 }
 
 /// **ウィザードから選んだ場合も同じ**（`import_files`）。
@@ -388,7 +601,9 @@ fn the_wizard_path_carries_both_of_a_same_named_pair() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    let stats = pictkura_core::import::import_files(&[a, b], &config, |_, _, _| {}).unwrap();
+    let listed = vec![a, b];
+    let stats =
+        pictkura_core::import_files(&listed, &contested(&listed), &config, |_, _, _| {}).unwrap();
 
     assert_eq!(stats.copied, 2, "選んだ2枚のうち1枚が消えた");
     assert!(contents(&dest).contains("aaaa") && contents(&dest).contains("bbbb"));
@@ -459,4 +674,128 @@ fn inserting_the_same_card_twice_copies_nothing_new() {
     let second = import_from(&card, &config, |_, _, _| {}).unwrap();
     assert_eq!(second.copied, 0, "同じカードをもう一度コピーした");
     assert_eq!(second.skipped, ON_THE_CARD.len(), "「済」と見なせていない");
+}
+
+/// **同じ名前でも、見分けられる2枚なら「分からない」にはならない**（2026-09-07・ゲート2）。
+///
+/// `DCIM` は 9999 で一周するし、1枚のカードを2台で使えば同じ名前が並ぶ。
+/// 名前だけで数えていたころは、**取り込みが完全に成功したあとも全行が `Unsure` に戻った**
+/// ——`?` が並び、「取り込み済みを隠す」が何も隠さず、既定で全部が選び直され、
+/// **押すと全件ぶんの中身比べが走って `copied` は 0** になる。
+///
+/// **行き先に在る1本がどちらのものか決められないのは、2枚が同じ大きさ・同じ時刻のときだけ**
+/// である。ここは大きさも日も違うので、**決められる**。
+#[test]
+fn twins_that_can_be_told_apart_are_not_left_unsure() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("E");
+    let dest = dir.path().join("photos");
+    for sub in ["DCIM/100MSDCF", "DCIM/101MSDCF"] {
+        fs::create_dir_all(card.join(sub)).unwrap();
+    }
+    let a = card.join("DCIM/100MSDCF/DSC00001.ARW");
+    let b = card.join("DCIM/101MSDCF/DSC00001.ARW");
+    fs::write(&a, b"aaaa").unwrap();
+    fs::write(&b, b"bbbbbbbb").unwrap();
+    // **別の日に撮った**（行き先の日付フォルダも分かれる）
+    filetime::set_file_mtime(&a, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    filetime::set_file_mtime(&b, filetime::FileTime::from_unix_time(1_610_000_000, 0)).unwrap();
+
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+
+    let listed = vec![a.clone(), b.clone()];
+    let contested = contested(&listed);
+    assert!(
+        contested.is_empty(),
+        "見分けられる2枚を「ぶつかっている」と数えている: {contested:?}"
+    );
+
+    let stats = pictkura_core::import_files(&listed, &contested, &config, |_, _, _| {}).unwrap();
+    assert_eq!(stats.copied, 2, "2枚とも入っていない");
+    assert_eq!(
+        contents(&dest),
+        BTreeSet::from(["aaaa".to_string(), "bbbbbbbb".to_string()]),
+        "中身が入れ替わっているか、片方が来ていない"
+    );
+
+    // **挿し直したときに、両方とも「済」と言い切れること。**
+    // ここが `Unsure` に戻ると、既定の操作が「カード全部を取り込み直す」になる
+    for (path, which) in [(&a, "1枚目"), (&b, "2枚目")] {
+        assert_eq!(
+            pictkura_core::is_already_imported(path, &config, &contested),
+            ImportState::Imported,
+            "{which}が「分からない」に戻っている"
+        );
+    }
+}
+
+/// **秒の端数で、写真が1枚黙って消えないこと**（2026-09-07・PR の codex の P1）。
+///
+/// 「済」の判定（`looks_same`）は**行き先の時刻を秒へ切り捨ててから**比べる。
+/// 名前のぶつかりを数える側が**取り込み元のミリ秒そのまま**で比べていたころは、
+/// **2,100ms 離れた2枚が「ぶつかっていない」**と数えられた。ところが片方が入ったあと、
+/// **切り捨てで 1,200ms に縮んだ行き先が、もう片方に「同じ」と見える**
+/// ——**中身を読まない枝なので、その1枚は二度と来ない。**
+///
+/// ここは**本物のファイルで**通す。端数はファイルシステムが持つ（APFS も NTFS も
+/// 秒より細かい）ので、**切り捨てているのはコードのほう**である。
+#[test]
+fn a_sub_second_difference_does_not_swallow_a_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("E");
+    let dest = dir.path().join("photos");
+    for sub in ["DCIM/100MSDCF", "DCIM/101MSDCF"] {
+        fs::create_dir_all(card.join(sub)).unwrap();
+    }
+    let a = card.join("DCIM/100MSDCF/DSC00001.ARW");
+    let b = card.join("DCIM/101MSDCF/DSC00001.ARW");
+    fs::write(&a, b"aaaa").unwrap();
+    fs::write(&b, b"bbbb").unwrap();
+    // **差は 2,100ms**——許容差 2,000ms の外。だが `looks_same` の切り捨てで
+    // 1,200ms に縮み、内側へ入ってしまう
+    filetime::set_file_mtime(
+        &a,
+        filetime::FileTime::from_unix_time(1_600_000_002, 900_000_000),
+    )
+    .unwrap();
+    filetime::set_file_mtime(
+        &b,
+        filetime::FileTime::from_unix_time(1_600_000_000, 800_000_000),
+    )
+    .unwrap();
+
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+    let listed = vec![a.clone(), b.clone()];
+    let contested = contested(&listed);
+    assert!(
+        !contested.is_empty(),
+        "切り捨てで同じに見えうる2枚を「ぶつかっていない」と数えた"
+    );
+
+    // 1枚目だけ入れる
+    let first =
+        pictkura_core::import_files(std::slice::from_ref(&a), &contested, &config, |_, _, _| {})
+            .unwrap();
+    assert_eq!(first.copied, 1);
+
+    // **2枚目は「済」ではない。** ここが `Imported` に倒れると、
+    // ウィザードが隠して選択から外し、押しても飛ばされる
+    assert_ne!(
+        pictkura_core::is_already_imported(&b, &config, &contested),
+        ImportState::Imported,
+        "入っていない写真に「済」と出している"
+    );
+
+    // **そして実際に届く**
+    let second =
+        pictkura_core::import_files(std::slice::from_ref(&b), &contested, &config, |_, _, _| {})
+            .unwrap();
+    assert_eq!(second.copied, 1, "2枚目が飛ばされた");
+    assert_eq!(
+        contents(&dest),
+        BTreeSet::from(["aaaa".to_string(), "bbbb".to_string()]),
+        "中身が2つ揃っていない"
+    );
 }

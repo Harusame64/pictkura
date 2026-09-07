@@ -597,12 +597,59 @@ export const listSourceDir = (path: string) =>
 /** 取り込み元を下の階層まで走査して画像を集める */
 export const listSourceTree = (path: string) =>
   invoke<SourceTree>("list_source_tree", { path });
-/** 各ファイルが既に取り込み済みかを返す（サムネイル表示の後追いで塗る） */
-export const probeImported = (paths: string[]) =>
-  invoke<boolean[]>("probe_imported", { paths });
-/** ウィザードで選んだファイルだけを取り込む */
-export const importPaths = (paths: string[], sourceDir: string) =>
-  invoke<ImportStats>("import_paths", { paths, sourceDir });
+/**
+ * 取り込み元の1行が、コピー先に対してどう見えるか。
+ *
+ * `"unsure"` は**「分からない」であって「済」ではない**——同じ名前がカードに2つ以上あり、
+ * 行き先に名前も大きさも時刻も合うものがある状態。**どちらのものかは中身を読まないと
+ * 決まらず、それは取り込みのときにやる**（一覧を出すたびにカードを全部読まないため）。
+ */
+export type ImportState = "imported" | "new" | "unsure";
+/**
+ * 一覧の1行のうち、**名前のぶつかりを数えるのに要るぶんだけ**。
+ *
+ * 大きさと時刻まで渡すのは、**同じ名前でも見た目が違えばぶつかっていない**から
+ * ——`DCIM` が一周したカードでは同じ名前の別の写真が並ぶ。名前だけで数えると、
+ * **入っているものが毎回「分からない」に戻る**。
+ */
+export interface ListedFile {
+  name: string;
+  size: number;
+  mtime_ms: number;
+}
+/**
+ * 一覧の各行に「同じ名前がもう1つある」か、**渡した並びのまま**返る。
+ *
+ * **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——ここで数え直すと、
+ * 「済」バッジと取り込みが**違う材料**で答えるようになる。
+ *
+ * **名前ではなく行ごとの真偽が返る。** 名前で受け取ると、自分の行と突き合わせるために
+ * **こちらが畳み方を知る**ことになり、畳む規則が2か所になる。
+ */
+export const contestedSourceNames = (listed: ListedFile[]) =>
+  invoke<boolean[]>("contested_source_names", { listed });
+/**
+ * 各ファイルが既に取り込み済みかを返す（サムネイル表示の後追いで塗る）。
+ *
+ * `paths` は100件ずつの切れ端で、**切れ端の中だけでは名前のぶつかりを数えられない**
+ * ので、`contestedSourceNames` が一覧全体で数えた答えを持ち回る。**渡すのは
+ * その切れ端に居るぶんだけ**——向こうが引くのは渡したパス自身の名前だけなので
+ * 答えは変わらず、一覧は2万件まで伸びる。**畳むのは受け取った Rust 側。**
+ */
+export const probeImported = (paths: string[], contested: string[]) =>
+  invoke<ImportState[]>("probe_imported", { paths, contested });
+/**
+ * ウィザードで選んだファイルだけを取り込む。
+ *
+ * `listed` は**一覧に出ている行すべて**（選んだぶんではない）。**数えるのは Rust 側**
+ * ——`contestedSourceNames` の答えを待って渡す形にすると、**待っていない間に
+ * 取り込みを押せてしまい、そのとき材料が古い**。
+ */
+export const importPaths = (
+  paths: string[],
+  sourceDir: string,
+  listed: ListedFile[],
+) => invoke<ImportStats>("import_paths", { paths, sourceDir, listed });
 
 /** OS既定のアプリで開く */
 export const openDefault = (id: number) => invoke<void>("open_default", { id });

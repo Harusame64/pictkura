@@ -251,6 +251,9 @@ export const en: Dict = {
   wizardSelected: (n: number) => `${num(n)} selected`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "Already imported (the same file exists in the destination)",
+  wizardUnsureBadge: "?",
+  wizardUnsureTitle:
+    "This name is on the card more than once. Whether the file in the destination is this photo is not known until the contents are read — importing reads them, and does not make a second copy of a photo that is already there",
   wizardDestination: "Destination",
   wizardChangeDestination: "Change",
   wizardStructure: "Filing",

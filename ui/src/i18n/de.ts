@@ -309,6 +309,9 @@ export const de: Dict = {
   wizardSelected: (n: number) => `${num(n)} ausgewählt`,
   wizardImportedBadge: "✓",
   wizardImportedTitle: "Schon importiert (dieselbe Datei liegt im Zielordner)",
+  wizardUnsureBadge: "?",
+  wizardUnsureTitle:
+    "Dieser Name kommt auf der Karte mehrfach vor. Ob die Datei im Zielordner dieses Foto ist, zeigt sich erst beim Lesen des Inhalts — der Import liest ihn und legt von einem Foto, das schon da ist, keine zweite Kopie an",
   wizardDestination: "Ziel",
   wizardChangeDestination: "Ändern",
   wizardStructure: "Ablage",
