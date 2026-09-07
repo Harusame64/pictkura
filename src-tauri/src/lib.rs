@@ -413,8 +413,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     if let Some((count, first)) = unmatched {
         if !SAID_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
             applog::note(&format!(
-                "監視: ルート配下と照合できなかったので綴りをそのまま使う: {count}件（例: {}）\
-                 ——同じ理由の行はこれ1本だけ残す",
+                "watch: {count} path(s) could not be matched against a library root; \
+             using the spelling as it came (e.g. {}). Recorded once per run.",
                 first.display()
             ));
         }
@@ -2511,7 +2511,7 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             // 写真は消えているのに `.xmp` だけが残る。一覧に出ないので
             // 気付く手立てが無い——せめて記録には残す
             applog::note(&format!(
-                "サイドカーをゴミ箱へ移せませんでした（無視して継続）: {}",
+                "could not move the sidecar to the recycle bin (continuing): {}",
                 errs::for_log(&e)
             ));
         }
@@ -2533,10 +2533,11 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             // `pictkura.log` に在る（項目2）
             Some(e) => {
                 applog::note(&format!(
-                    "ゴミ箱へ移せないものがあった（{count}枚は移せた）: {}",
+                    "some photos could not go to the recycle bin ({count} did): {}",
                     errs::for_log(&e)
                 ));
-                Err(errs::coded("errTrashPartly", count))
+                // 原因は1行上で書いた。**同じ1件を2行にしない**
+                Err(errs::coded_quiet("errTrashPartly", count))
             }
             None => Ok(count),
         }
@@ -2615,7 +2616,7 @@ async fn export_media(
                 // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
                 // ファイルなので利用者からは見えない——記録には残す
                 applog::note(&format!(
-                    "移動元のサイドカーを片付けられませんでした: {}",
+                    "could not clean up the sidecar left at the source: {}",
                     errs::for_log(&e)
                 ));
             }
@@ -2886,7 +2887,7 @@ fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Re
                 // **戻せなかったことは、画面より先にログへ**——利用者に要るのは
                 // 「切り替えられなかった」で、レジストリの理由は追う側の材料である
                 applog::note(&format!(
-                    "AutoPlayの設定を戻せなかった: {re}（元の失敗: {}）",
+                    "could not put the AutoPlay setting back: {re} (the original failure: {})",
                     errs::for_log(&e)
                 ));
                 errs::code("errAutoplayRollback")
@@ -4589,7 +4590,7 @@ pub fn run() {
         // `setup` の中で張る掛け金は、この枝には届かない
         applog::install_panic_hook();
         if let Err(e) = autoplay::unregister() {
-            applog::note(&format!("AutoPlayの解除に失敗: {e}"));
+            applog::note(&format!("could not unregister AutoPlay: {e}"));
             std::process::exit(1);
         }
         return;
@@ -4610,7 +4611,7 @@ pub fn run() {
         set_log_path_without_app();
         applog::install_panic_hook();
         if let Err(e) = sync_autoplay_with_config() {
-            applog::note(&format!("AutoPlayの同期に失敗（無視）: {e}"));
+            applog::note(&format!("could not sync AutoPlay (ignored): {e}"));
         }
         return;
     }
@@ -4654,7 +4655,7 @@ pub fn run() {
                 let locales: Vec<String> = sys_locale::get_locales().collect();
                 if let Err(e) = menu::install(app.handle(), &locales) {
                     applog::note(&format!(
-                        "メニューバーを組めませんでした（英語のまま続行）: {e}"
+                        "could not build the menu bar (continuing in English): {e}"
                     ));
                 }
             }
@@ -4763,14 +4764,14 @@ pub fn run() {
                     AutoplayPlan::LeaveAlone => Ok(()),
                 };
                 match result {
-                    Err(e) => applog::note(&format!("AutoPlayの登録に失敗（無視して継続）: {e}")),
+                    Err(e) => applog::note(&format!("could not register AutoPlay (ignored): {e}")),
                     Ok(()) if plan == AutoplayPlan::Adopt => {
                         let state = app.state::<AppState>();
                         if let Err(e) = update_config(&state, |c| {
                             c.import.register_autoplay = Some(true);
                         }) {
                             applog::note(&format!(
-                                "AutoPlayの引き継ぎを控えられなかった（無視して継続）: {}",
+                                "could not record the adopted AutoPlay registration (ignored): {}",
                                 errs::for_log(&e)
                             ));
                         }
@@ -4796,7 +4797,7 @@ pub fn run() {
             let index_fail_handle = app.handle().clone();
             std::thread::spawn(move || {
                 let finished =
-                    pictkura_core::panics::catching("全文索引の作成", move || {
+                    pictkura_core::panics::catching("building the full-text index", move || {
                         let state = index_handle.state::<AppState>();
                         let Ok(mut db) = Db::open(&index_db_path) else {
                             return;
@@ -4998,7 +4999,7 @@ pub fn run() {
                 // 中の閉包に `break` や `return` を1つ書き足すだけで、正常終了と
                 // 見なされて**掃除役が静かに永久停止する**——落ちないぶん誰も気付けない
                 loop {
-                    let _ = pictkura_core::panics::catching("サムネイルの掃除", || {
+                    let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
                         let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
                         loop {
@@ -5077,36 +5078,35 @@ pub fn run() {
                 // **どう終わったかを持ち帰る。** `catching` はパニックを
                 // `None` にして飲むので、`Err` で早く返った道と合わせて
                 // 「転んだ」を1つの値にまとめる（下で旗と合図に載せる）
-                let finished_well =
-                    pictkura_core::panics::catching("起動時の同期", move || {
-                        let started = std::time::Instant::now();
-                        let state = inner.state::<AppState>();
-                        let Ok((stats, method)) = startup_scan(&state) else {
-                            return false;
-                        };
-                        let elapsed_ms = started.elapsed().as_millis() as u64;
-                        let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
-                        let (method_name, usn_records, dirty_dirs) = match method {
-                            StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
-                            StartupMethod::Pruned => ("pruned", 0, 0),
-                            StartupMethod::Full => ("full", 0, 0),
-                        };
-                        let report = StartupScanDto {
-                            method: method_name.into(),
-                            elapsed_ms,
-                            added: stats.added,
-                            changed: stats.changed,
-                            removed: stats.removed,
-                            usn_records,
-                            dirty_dirs,
-                            skipped_dirs: stats.skipped_dirs,
-                            total,
-                        };
-                        *lock_ok(&state.startup_report) = Some(report.clone());
-                        let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
-                        let _ = inner.emit("startup-scan-report", report);
-                        true
-                    });
+                let finished_well = pictkura_core::panics::catching("startup sync", move || {
+                    let started = std::time::Instant::now();
+                    let state = inner.state::<AppState>();
+                    let Ok((stats, method)) = startup_scan(&state) else {
+                        return false;
+                    };
+                    let elapsed_ms = started.elapsed().as_millis() as u64;
+                    let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
+                    let (method_name, usn_records, dirty_dirs) = match method {
+                        StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
+                        StartupMethod::Pruned => ("pruned", 0, 0),
+                        StartupMethod::Full => ("full", 0, 0),
+                    };
+                    let report = StartupScanDto {
+                        method: method_name.into(),
+                        elapsed_ms,
+                        added: stats.added,
+                        changed: stats.changed,
+                        removed: stats.removed,
+                        usn_records,
+                        dirty_dirs,
+                        skipped_dirs: stats.skipped_dirs,
+                        total,
+                    };
+                    *lock_ok(&state.startup_report) = Some(report.clone());
+                    let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
+                    let _ = inner.emit("startup-scan-report", report);
+                    true
+                });
                 // **この間に手で走らせた再スキャンが通っていないか**を見る。
                 // 起動時の走査は `scan_lock` を持って走るが、結果を書き戻すのは
                 // ロックを離した後——待たされていた再スキャンがそこで通ると、
@@ -5165,7 +5165,7 @@ pub fn run() {
                 // **永久に待つ**（読み込み中のまま、タイルが1枚白く残る）。
                 // 500を返しておけば、そのセルだけが空になって次へ進める
                 let response =
-                    pictkura_core::panics::catching(&format!("media要求 {uri}"), || {
+                    pictkura_core::panics::catching(&format!("media request {uri}"), || {
                         handle_media_request(&state, &uri, range.as_deref())
                     })
                     .unwrap_or_else(|| {
@@ -5253,7 +5253,7 @@ pub fn run() {
         // **ここへ来る道の一部は、まだ置き場を知らない**（`setup` の頭の `?` や、
         // プラグインの初期化で折り返した場合）。決まっていれば黙って捨てられる
         set_log_path_without_app();
-        applog::note(&format!("pictkura を起動できませんでした: {e}"));
+        applog::note(&format!("pictkura could not start: {e}"));
         std::process::exit(1);
     }
 }

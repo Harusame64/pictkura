@@ -30,7 +30,7 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
     assert!(header.contains(env!("CARGO_PKG_VERSION")), "{header}");
     let caught = lines.next().unwrap();
     assert!(
-        caught.contains("パニックを捕まえた（IMG_0100.CR3）"),
+        caught.contains("caught a panic (IMG_0100.CR3)"),
         "{caught}"
     );
     assert!(caught.contains("壊れたハフマン表"), "{caught}");
@@ -66,9 +66,9 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
         .map(str::to_string)
         .collect();
     assert_eq!(after.len(), 2, "掛け金と網で1本ずつ: {after:?}");
-    assert!(after[0].contains("パニック（"), "{:?}", after[0]);
+    assert!(after[0].contains("panic ("), "{:?}", after[0]);
     assert!(
-        after[1].contains("パニックを捕まえた（IMG_0101.CR3）"),
+        after[1].contains("caught a panic (IMG_0101.CR3)"),
         "{:?}",
         after[1]
     );

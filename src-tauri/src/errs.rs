@@ -18,11 +18,13 @@
 //!   **`ui/scripts/i18n.test.ts` が、この鍵が `ja.ts` に在ることを見る**
 //!   ——辞書に無い鍵を足したら、テストが落ちる
 //!
-//! **原因の細かい所はログにも残す**（項目2）。画面は一行でよく、
-//! 追いかけるための材料は `pictkura.log` にある。
+//! **画面に出した失敗は、記録にも残す**（項目2の受け皿。2026-09-07・利用者の判断）。
+//! **詳細はOSの言語で来る**ので、画面で読めなかった人も
+//! **報告のときには追える**——[`for_log`] が `鍵: 詳細` に開いて書く。
 
 use std::fmt::Display;
 
+use pictkura_core::applog;
 use pictkura_core::config::ConfigError;
 use pictkura_core::db::DbError;
 use pictkura_core::export::ExportError;
@@ -38,7 +40,28 @@ pub fn code(code: &str) -> String {
 }
 
 /// 鍵＋詳細。**詳細はそのまま渡す**（訳さない）。
+///
+/// **画面に出した失敗は、記録にも1行残す**（2026-09-07・利用者の判断）。
+/// 詳細は**OSや外のクレートの文言**で、**利用者の言語とは限らない**
+/// ——だから画面には出しつつ、**不具合の報告では必ず追える**ようにしておく。
+/// 記録の姿は [`for_log`]（`鍵: 詳細`）で、**画面に出た文と1対1**である。
+///
+/// **詳細の無い鍵（[`code`]）は残さない。** あちらは「前提が揃っていない」の合図で
+/// （コピー先が未設定・記録がまだ無い・同梱されていない）、**原因が無い**。
+/// 「まだ記録はありません」を記録に書くと、**その1行のためにファイルができる**。
 pub fn coded(code: &str, detail: impl Display) -> String {
+    let s = format!("{code}{SEP}{detail}");
+    applog::note(&for_log(&s));
+    s
+}
+
+/// [`coded`] と同じだが、**記録には残さない**。
+///
+/// **呼ぶ側が既に自分で書いたとき**に使う——いまは1か所だけで、
+/// ゴミ箱へ一部だけ移せたときの「何枚移せたか」（原因のほうは
+/// その場で `applog::note` に書いてある）。二重に残すと、
+/// **同じ1件が2行になって数えられなくなる**。
+pub fn coded_quiet(code: &str, detail: impl Display) -> String {
     format!("{code}{SEP}{detail}")
 }
 
@@ -161,6 +184,15 @@ mod tests {
         // 鍵だけのものと、鍵の付いていないものは、そのまま
         assert_eq!(for_log("errNoDestination"), "errNoDestination");
         assert_eq!(for_log("よそのクレートの文言"), "よそのクレートの文言");
+    }
+
+    /// 静かな版は、字面だけ同じで記録に触らない。
+    #[test]
+    fn the_quiet_one_makes_the_same_string() {
+        assert_eq!(
+            coded_quiet("errTrashPartly", 12),
+            coded("errTrashPartly", 12)
+        );
     }
 
     /// **日本語の文は詳細に混ぜない**——訳した文の隣に原文が並ぶのを防ぐ。

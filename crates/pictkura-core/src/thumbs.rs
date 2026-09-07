@@ -1783,11 +1783,10 @@ impl ThumbnailService {
                         // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
                         // ——以後そのフォルダのサムネイルが永久に出てこない。
                         // 1枚の失敗（下で回数を数える側）へ均す
-                        let result =
-                            crate::panics::catching(&format!("サムネイル id={id}"), || {
-                                process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
-                            })
-                            .unwrap_or(Err(ThumbError::Panicked(id)));
+                        let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
+                            process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
+                        })
+                        .unwrap_or(Err(ThumbError::Panicked(id)));
                         queue.complete(id);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
@@ -1804,7 +1803,7 @@ impl ThumbnailService {
                         // ワーカーが1本静かに消え、しかも「落ちない」ぶん誰も
                         // 気付かない。詰まりを戻さないよう、`complete` は
                         // 網の外（上）に置いたまま通知だけを包む
-                        let _ = crate::panics::catching(&format!("通知 id={id}"), || on_done(id));
+                        let _ = crate::panics::catching(&format!("notify id={id}"), || on_done(id));
                     }
                 })
             })

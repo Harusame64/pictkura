@@ -14,6 +14,10 @@
 //!   全部書くと**本当に見たい失敗が押し出される**。PRのcodex の指摘で文書を直した）
 //! - **通信はしない。** 送る仕掛けも、送る先も無い。行はその機械に残るだけで、
 //!   利用者が設定から開き、要ると思ったぶんだけ自分で貼る
+//! - **文は英語で書く**（2026-09-07・利用者の判断）。**画面は利用者の言語、
+//!   記録は報告の言語**——貼られた先（GitHub の issue）でそのまま読める。
+//!   コミットとPRを英語で書くのと同じ位置づけである。
+//!   **OSや外のクレートの文言は、そのOSの言語のまま混ざる**（訳せない）
 //! - **上限がある**（[`MAX_BYTES`]）。壊れたファイルが数万枚あるライブラリでは
 //!   1枚1行が延々と出るので、際限なく太る道は塞いでおく
 //! - **止めない。** 書けなくても失敗を返さない。**ログが書けないことを理由に
@@ -88,7 +92,7 @@ fn record(message: &str) {
     let line = format!("{} {}", stamp(), one_line(message));
     let header = header();
     let dropped_note = format!(
-        "{} 前の記録を退避できなかったので、上限を守るために捨てた",
+        "{} the previous record could not be moved aside, so it was dropped to keep the cap",
         stamp()
     );
     // **これから書く分まで見て**上限を判断する。太さだけで決めると、
@@ -239,11 +243,8 @@ pub fn install_panic_hook() {
         let at = info
             .location()
             .map(|l| format!("{}:{}", l.file(), l.line()))
-            .unwrap_or_else(|| "場所不明".to_string());
-        record(&format!(
-            "パニック（{at}）: {}",
-            describe_panic(info.payload())
-        ));
+            .unwrap_or_else(|| "unknown location".to_string());
+        record(&format!("panic ({at}): {}", describe_panic(info.payload())));
         previous(info);
     }));
 }
@@ -258,7 +259,7 @@ pub fn describe_panic(payload: &(dyn std::any::Any + Send)) -> String {
     } else if let Some(s) = payload.downcast_ref::<String>() {
         s.clone()
     } else {
-        "（内容の分からないパニック）".to_string()
+        "(a panic whose contents could not be read)".to_string()
     }
 }
 
@@ -304,7 +305,7 @@ fn one_line(message: &str) -> String {
     while !folded.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…（以下略）", &folded[..end])
+    format!("{}… (truncated)", &folded[..end])
 }
 
 /// 1つ前のログの名前（`pictkura.log` → `pictkura.log.1`）。
@@ -441,8 +442,8 @@ mod tests {
     fn a_line_too_long_is_cut_at_a_character_boundary() {
         let long = "あ".repeat(MAX_LINE); // 3 * MAX_LINE バイト
         let cut = one_line(&long);
-        assert!(cut.len() <= MAX_LINE + "…（以下略）".len());
-        assert!(cut.ends_with("…（以下略）"));
+        assert!(cut.len() <= MAX_LINE + "… (truncated)".len());
+        assert!(cut.ends_with("… (truncated)"));
         // 切った先が文字の途中でないこと（`String` である時点で保証されるが、
         // **切り方を変えたときに気付ける**ように見ておく）
         assert!(cut.starts_with("あああ"));
@@ -463,7 +464,7 @@ mod tests {
             describe_panic(&"持ち物の文字列".to_string()),
             "持ち物の文字列"
         );
-        assert_eq!(describe_panic(&7u8), "（内容の分からないパニック）");
+        assert_eq!(describe_panic(&7u8), "(a panic whose contents could not be read)");
     }
 
     #[test]
