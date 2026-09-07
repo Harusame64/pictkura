@@ -444,6 +444,7 @@ export const ja = {
   settingsDocNotBundled: "（開発中の実行では同梱されていません）",
   settingsLog: "ログを開く",
   settingsLogNone: "（まだ記録はありません）",
+  settingsLogOpenFailed: "記録を開けませんでした。",
   settingsLogNote:
     "失敗したときだけ、この機械の中に1行ずつ残します。送信はしません。",
   settingsLanguage: "言語",

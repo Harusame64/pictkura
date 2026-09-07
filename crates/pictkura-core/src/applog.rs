@@ -84,10 +84,16 @@ fn record(message: &str) {
     // 見出しを1本ぶん余計に組む値段は、**書くのが失敗した行だけ**なので払える
     let line = format!("{} {}", stamp(), one_line(message));
     let header = header();
+    let dropped_note = format!(
+        "{} 前の記録を退避できなかったので、上限を守るために捨てた",
+        stamp()
+    );
     // **これから書く分まで見て**上限を判断する。太さだけで決めると、
     // **最後の1行が上限を越えたまま残る**（ゲート1の指摘）。
-    // 見出しを付ける最悪の場合で見る——**早めに退避するのは害にならない**
-    let wanted = (header.len() + line.len() + 2) as u64;
+    // **書きうる3行を全部数える**——見出しも、捨てたことわりも
+    // （数え漏らすとその分だけ越える・ゲート2）。
+    // 付かない周では多めに見ることになるが、**早めに退避するのは害にならない**
+    let wanted = (header.len() + dropped_note.len() + line.len() + 3) as u64;
 
     let mut wrote_header = WROTE_HEADER.lock().unwrap_or_else(|e| e.into_inner());
     let size = size_of(path);
@@ -111,10 +117,7 @@ fn record(message: &str) {
     if rotation == Rotation::Dropped {
         // **捨てたことは、捨てた場所に書く。** 黙って消すと、
         // 「前の行はどこへ行った」に答えられない
-        text.push_str(&format!(
-            "{} 前の記録を退避できなかったので、上限を守るために捨てた",
-            stamp()
-        ));
+        text.push_str(&dropped_note);
         text.push('\n');
     }
     text.push_str(&line);

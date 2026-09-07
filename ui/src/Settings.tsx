@@ -589,7 +589,14 @@ export default function Settings({
               <button
                 disabled={!log}
                 title={log ?? t.settingsLogNone}
-                onClick={() => openLog().catch(() => {})}
+                // **押しても何も起きない、を作らない。** 関連付けが無く、
+                // フォルダも開けなかった台では失敗しうるし、3秒の見直しと
+                // 押した瞬間の間にファイルが消えていることもある。
+                // **Rust側の文言は出さない**——あちらは日本語決め打ちで、
+                // 英語の画面に日本語が混じる（週の台紙の項目3）
+                onClick={() =>
+                  openLog().catch(() => onError(t.settingsLogOpenFailed))
+                }
               >
                 {t.settingsLog}
               </button>

@@ -48,4 +48,28 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
     // **区切りで綴らない**——`Location::file()` は cargo が rustc へ渡した綴りを
     // そのまま返すので、**Windowsでは `tests\panic_log.rs`** になる（ゲート2の指摘）
     assert!(hooked.contains("panic_log.rs:"), "{hooked}");
+
+    // 3. **出荷時の形**（掛け金が先に張ってある）では、網に掛かった1件が**2行**になる。
+    //
+    // 上の 1 が1行で済んだのは**掛け金を張る前**だったからで、実際のアプリは
+    // `setup` で先に張る。**上限（`MAX_BYTES`）に効くのはこちらの本数**なので、
+    // 意図した2行であることを写しておく（ゲート2の指摘）
+    let before = std::fs::read_to_string(&path).unwrap().lines().count();
+    let out = panics::catching("IMG_0101.CR3", || -> i32 {
+        panic!("網の中で落ちる")
+    });
+    assert!(out.is_none());
+    let after: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .skip(before)
+        .map(str::to_string)
+        .collect();
+    assert_eq!(after.len(), 2, "掛け金と網で1本ずつ: {after:?}");
+    assert!(after[0].contains("パニック（"), "{:?}", after[0]);
+    assert!(
+        after[1].contains("パニックを捕まえた（IMG_0101.CR3）"),
+        "{:?}",
+        after[1]
+    );
 }

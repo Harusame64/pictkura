@@ -419,6 +419,7 @@ export const zh: Dict = {
   settingsDocNotBundled: "（开发版本里没有附带）",
   settingsLog: "打开日志",
   settingsLogNone: "（还没有任何记录）",
+  settingsLogOpenFailed: "无法打开日志。",
   settingsLogNote: "只有出错时才会写入一行，并且只留在这台电脑上，不会发送。",
   settingsLanguage: "语言",
   settingsLanguageSystem: "跟随系统",

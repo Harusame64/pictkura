@@ -437,6 +437,7 @@ export const de: Dict = {
   settingsDocNotBundled: "(in einem Entwicklungs-Build nicht enthalten)",
   settingsLog: "Protokoll öffnen",
   settingsLogNone: "(noch nichts aufgezeichnet)",
+  settingsLogOpenFailed: "Das Protokoll konnte nicht geöffnet werden.",
   settingsLogNote:
     "Eine Zeile wird nur geschrieben, wenn etwas fehlschlägt, und sie bleibt auf diesem Rechner. Es wird nichts gesendet.",
   settingsLanguage: "Sprache",
