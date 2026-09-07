@@ -531,8 +531,31 @@ export default function App() {
    * `z-index` が scrim より下——**設定や取り込みを開いている間は隠れていた**。
    * 数えたら `setStatus` の 35 回中 30 回が失敗で、**実質エラー欄**になっていた。
    */
-  const [failure, setFailure] = useState<string | null>(null);
+  /**
+   * **回ごとに別物として持つ。** 文字列だけだと、**同じ失敗が続いたときに
+   * React が更新を捨てる**——描き直しも、動きも、読み上げも起きない。
+   * 「もう一度押したのに、また駄目だった」が**押しても何も起きない**に見える
+   * ——**この工事が塞いだはずの症状そのもの**である（PRのcodex）。
+   */
+  const [failure, setFailure] = useState<{ text: string; seq: number } | null>(
+    null,
+  );
+  /**
+   * 読み上げに渡す文。**面とは別に持つ。**
+   *
+   * `aria-live` が読むのは**中身が変わったとき**なので、同じ文を入れ直しても
+   * DOM は動かず、**黙る**。**いったん空にしてから入れる**ことで、
+   * 「また同じ失敗が起きた」を**変化として**渡す。
+   */
+  const [live, setLive] = useState("");
   const failureTimer = useRef<number | null>(null);
+  const liveTimer = useRef<number | null>(null);
+  const clearFailureTimers = useCallback(() => {
+    if (failureTimer.current !== null) clearTimeout(failureTimer.current);
+    if (liveTimer.current !== null) clearTimeout(liveTimer.current);
+    failureTimer.current = null;
+    liveTimer.current = null;
+  }, []);
   /**
    * 失敗を、利用者に見える所へ出す。
    *
@@ -540,27 +563,32 @@ export default function App() {
    * **不具合なら記録にも残っている**（`errs.rs` の `from_err`）ので、
    * 消えても追う道は閉じない。**押せばすぐ消える**——待たせない。
    */
-  const fail = useCallback((message: string) => {
-    if (failureTimer.current !== null) clearTimeout(failureTimer.current);
-    setFailure(message);
-    // **同じ文でも出し直す。** 2回目を黙って捨てると、押しても何も起きない
-    // という**元の症状に戻る**（面が既に出ていて気付かない場合がある）
-    failureTimer.current = window.setTimeout(() => {
-      setFailure(null);
-      failureTimer.current = null;
-    }, 8000);
-  }, []);
-  const dismissFailure = useCallback(() => {
-    if (failureTimer.current !== null) clearTimeout(failureTimer.current);
-    failureTimer.current = null;
-    setFailure(null);
-  }, []);
-  useEffect(
-    () => () => {
-      if (failureTimer.current !== null) clearTimeout(failureTimer.current);
+  const fail = useCallback(
+    (message: string) => {
+      clearFailureTimers();
+      // **同じ文でも出し直す。** `seq` が変わるので面は描き直され、
+      // `key` で組み直されて動きもやり直す
+      setFailure((prev) => ({ text: message, seq: (prev?.seq ?? 0) + 1 }));
+      // **読み上げには「変化」を渡す。** 空にしてから入れ直す
+      setLive("");
+      liveTimer.current = window.setTimeout(() => {
+        setLive(message);
+        liveTimer.current = null;
+      }, 0);
+      failureTimer.current = window.setTimeout(() => {
+        setFailure(null);
+        setLive("");
+        failureTimer.current = null;
+      }, 8000);
     },
-    [],
+    [clearFailureTimers],
   );
+  const dismissFailure = useCallback(() => {
+    clearFailureTimers();
+    setFailure(null);
+    setLive("");
+  }, [clearFailureTimers]);
+  useEffect(() => clearFailureTimers, [clearFailureTimers]);
   const [folderInput, setFolderInput] = useState("");
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [roots, setRoots] = useState<string[]>([]);
@@ -4719,7 +4747,7 @@ export default function App() {
           向いている相手にだけ届かない面**になる。だから**空のまま置いて、
           中身だけ差し替える**。目には見えないが、読み上げには届く。 */}
       <div className="sr-only" aria-live="assertive">
-        {failure ?? ""}
+        {live}
       </div>
       {/* **失敗はいちばん上に出す**（`z-index: 500`）。開いている物の下に隠れない */}
       {failure !== null && (
@@ -4731,8 +4759,15 @@ export default function App() {
            `button` の役割を**上書きして**「ボタン」と言われなくなり、後者は
            **上の区域と二重に読ませる**。読み上げは上の区域の仕事で、
            ここは**押して消せること**だけを引き受ける。 */
-        <button type="button" className="failure-toast" onClick={dismissFailure}>
-          {failure}
+        <button
+          type="button"
+          className="failure-toast"
+          // **回ごとに組み直す。** 同じ文が続いたときに、`speed-toast-in` の
+          // 動きがもう一度走る——**見ている人にも「また起きた」が伝わる**
+          key={failure.seq}
+          onClick={dismissFailure}
+        >
+          {failure.text}
         </button>
       )}
       {speedReport && (
