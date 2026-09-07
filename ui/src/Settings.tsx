@@ -489,7 +489,9 @@ export default function Settings({
                   <code className="editor-path">{app.path}</code>
                   <button
                     onClick={() =>
-                      forgetEditor(app.path).then(onConfigChanged).catch(() => {})
+                      forgetEditor(app.path)
+                        .then(onConfigChanged)
+                        .catch((e) => onError(errText(e)))
                     }
                     title={t.settingsForgetEditor}
                   >
@@ -536,7 +538,7 @@ export default function Settings({
               <p className="settings-note update-say">
                 {updateSay}
                 {updateNewer && (
-                  <button onClick={() => openDownloadPage().catch(() => {})}>
+                  <button onClick={() => openDownloadPage().catch((e) => onError(errText(e)))}>
                     {t.updateOpenPage}
                   </button>
                 )}
@@ -608,9 +610,15 @@ export default function Settings({
                 // フォルダも開けなかった台では失敗しうるし、3秒の見直しと
                 // 押した瞬間の間にファイルが消えていることもある。
                 //
-                // **出すのはダイアログの中**——`onError` が流れる先は
-                // ツールバーの一行で、**いま開いている設定の背後**にある
-                // （`.palette-backdrop` が `position: fixed` で覆う。PRのcodex）。
+                // **出すのはダイアログの中**——**押したボタンの真下**である。
+                //
+                // 元の理由は「`onError` の行き先がツールバーの一行で、
+                // **開いている設定の背後**にあるから」だった。**その理由は
+                // もう無い**（失敗の面は scrim の上に出る）。**残す理由は別で**、
+                // 「ログを開く」の3つは**この一群のことを言っている**ので、
+                // **その場に出るほうが読める**。**同じ設定の中でも、離れた所で
+                // 起きた失敗は `onError` へ回す**（編集アプリを忘れる・
+                // ダウンロードページ）——真下に出せないなら、面のほうが確実。
                 //
                 // **Rust 側の文言も、いまは辞書を通る**（項目3）ので出してよい
                 // ——`errText` が鍵を引き、引けなければ下の1文に落ちる

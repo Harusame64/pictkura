@@ -2492,3 +2492,40 @@ body {
   justify-content: center;
   flex-wrap: wrap;
 }
+
+/* ===== 失敗の面（2026-09-07・週の台紙 項目「失敗が利用者に届く道」）=====
+
+   **失敗を、ツールバーの一行から出した。** あそこは `max-width: 32ch` で
+   `nowrap` なうえ、`z-index` が `.palette-backdrop`（200）より下なので、
+   **設定や取り込みを開いている間は scrim の下に隠れていた**。
+   数えると `setStatus` の 35 回中 30 回が失敗で、**あれは実質エラー欄だった**。
+
+   だから面を分ける——**`status` は成功と進捗のためだけに残す。**
+
+   - **`z-index` はこのアプリでいちばん上**（`.shortcuts-backdrop` の 400 より上）。
+     **失敗は、開いている物の下に隠れてはいけない**
+   - **折り返す。** 詳細にはパスもOSの文言も入る（`errs.rs` の約束）。
+     1行に詰めると、**いちばん長い物がいちばん読めなくなる**
+   - **押せば消える。** 8秒でも消えるが、**待たせない** */
+.failure-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--sp-5);
+  transform: translateX(-50%);
+  z-index: 500;
+  max-width: min(560px, calc(100vw - 2 * var(--sp-5)));
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--warn);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+  text-align: left;
+  /* **パスは折り返す**——`/` や `\` の後ろで切れてよい。切れないと
+     長いパス1本で面が画面幅を越える */
+  overflow-wrap: anywhere;
+  animation: speed-toast-in 0.25s var(--easing);
+}
