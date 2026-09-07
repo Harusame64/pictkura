@@ -44,6 +44,8 @@ fn a_panic_reaches_the_file_both_with_and_without_the_net() {
     let text = std::fs::read_to_string(&path).unwrap();
     let hooked = text.lines().last().unwrap();
     assert!(hooked.contains("網の外で落ちる"), "{hooked}");
-    // **どのソースの何行目か**が入る（網の側は「どのファイルで」を言う）
-    assert!(hooked.contains("tests/panic_log.rs:"), "{hooked}");
+    // **どのソースの何行目か**が入る（網の側は「どのファイルで」を言う）。
+    // **区切りで綴らない**——`Location::file()` は cargo が rustc へ渡した綴りを
+    // そのまま返すので、**Windowsでは `tests\panic_log.rs`** になる（ゲート2の指摘）
+    assert!(hooked.contains("panic_log.rs:"), "{hooked}");
 }

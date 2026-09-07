@@ -84,15 +84,29 @@ fn record(message: &str) {
     // **見出しと最初の1行は、1回で書く。** 別々に書くと、上限のすぐ手前で
     // 見出しが上限を跨がせ、**次に来た本文が、いま書いた見出しごと `.1` へ送る**
     // ——新しいファイルが見出しの無い行から始まる（ゲート1の指摘）
-    let text = if *wrote_header {
-        line
-    } else {
+    let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let text = if needs_header(*wrote_header, size, MAX_BYTES) {
         // 書けても書けなくても**印は付ける**。付けないと、書けない環境では
         // 1行ごとに見出しを試し続けることになる
         *wrote_header = true;
         format!("{header}\n{line}")
+    } else {
+        line
     };
     let _ = append_capped(path, &text, MAX_BYTES);
+}
+
+/// 見出しを付けるか。**この起動の1本目**と、**これから作り直すファイルの1本目**。
+///
+/// 「1起動に1本」だけで決めると、**上限で作り直したファイルには見出しが無くなる**
+/// ——利用者が開いて貼るのは**その新しいほう**なので、**版もOSも書いていない記録**が
+/// 報告に届く（ゲート2の指摘）。壊れたファイルが数万枚あるライブラリでは、
+/// 1回の起動で上限に届きうる。
+///
+/// `size == 0` も見出しを付ける側に入れる——**走っている最中に消された**ときに、
+/// 作り直したファイルが本文から始まらないように。
+fn needs_header(wrote_header: bool, size: u64, max: u64) -> bool {
+    !wrote_header || size == 0 || size >= max
 }
 
 /// **捕まえていないパニックも記録に残す**（アプリの起動時に1回）。
@@ -179,9 +193,10 @@ fn one_line(message: &str) -> String {
 /// だからである。名前替えに失敗したらそのまま追記を続ける
 /// ——**上限を守れないほうが、記録を失うよりまし**。
 fn append_capped(path: &Path, line: &str, max: u64) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
+    // **フォルダは作らない。** `--unregister-autoplay` は**アンインストーラが呼ぶ**
+    // ので、そこで失敗を書こうとして `%APPDATA%\<identifier>` を作り直すと、
+    // **消している最中のフォルダが残骸として戻る**（ゲート2の指摘）。
+    // 置き場が無いなら書かない——`open` がそう言って返る
     if fs::metadata(path).map(|m| m.len()).unwrap_or(0) >= max {
         // **`rename` は行き先が在っても置き換える**（Unix の `rename(2)` と、
         // Windows の `MoveFileExW` に `MOVEFILE_REPLACE_EXISTING` を付けた呼び出し
@@ -189,6 +204,9 @@ fn append_capped(path: &Path, line: &str, max: u64) -> std::io::Result<()> {
         // という道は無い**（ゲート1の P1。事実と違うので据え置いた）
         let _ = fs::rename(path, previous(path));
     }
+    // **開きっぱなしにしない**（1行ごとに開いて閉じる）。開いたまま持つと、
+    // **Windowsでは利用者がログを消せず**、**退避の `rename` も自分で塞ぐ**。
+    // 書くのは失敗した行だけなので、この値段は払える（ゲート2の指摘・据え置き）
     let mut f = OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(f, "{line}")
 }
@@ -208,12 +226,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_line_is_appended_and_the_file_is_made_on_the_way() {
+    fn lines_are_appended_in_order() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("あとから作る").join("pictkura.log");
+        let path = dir.path().join("pictkura.log");
         append_capped(&path, "1本目", MAX_BYTES).unwrap();
         append_capped(&path, "2本目", MAX_BYTES).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "1本目\n2本目\n");
+    }
+
+    /// **無いフォルダは作らない。** アンインストーラの途中で書こうとしても、
+    /// 消しているフォルダを戻さない（ゲート2の指摘）。
+    #[test]
+    fn a_missing_folder_is_not_created_on_the_way() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("もう無いフォルダ");
+        assert!(append_capped(&gone.join("pictkura.log"), "書けない", MAX_BYTES).is_err());
+        assert!(!gone.exists(), "書けなかったフォルダを作っていないこと");
+    }
+
+    /// 見出しは**この起動の1本目**と、**作り直したファイルの1本目**に付く。
+    #[test]
+    fn a_fresh_file_gets_a_header_even_mid_run() {
+        // まだ何も書いていない起動
+        assert!(needs_header(false, 0, 8));
+        assert!(needs_header(false, 4, 8));
+        // 書いたあとの、まだ余裕のあるファイル
+        assert!(!needs_header(true, 4, 8));
+        // これから作り直すファイル（上限に届いた）と、消されたファイル
+        assert!(needs_header(true, 8, 8));
+        assert!(needs_header(true, 0, 8));
     }
 
     /// 上限に当たったら**1本だけ残して**書き直す（2本より増えない）。
