@@ -304,19 +304,29 @@ to verify it.
 <h3>Offer pictkura when a card is inserted (Windows only)</h3>
 
 <p>
-pictkura adds itself to the Windows AutoPlay choices that appear when you insert a USB
-drive or an SD card. This is on by default, but <strong>it never starts on its own</strong> —
-the import wizard opens on that drive only when you choose it.
+pictkura can add itself to the Windows AutoPlay choices that appear when you insert a USB
+drive or an SD card. <strong>It does not register itself by default</strong> — nothing is
+written to the registry until you turn this on in Settings. Even then <strong>it never starts
+on its own</strong>: the import wizard opens on that drive only when you choose it.
 </p>
 
 <p>
-To turn it off, clear the “<strong>When you insert a USB drive or SD card</strong>” checkbox
-in Settings ⚙. It disappears from the choices right away.
-<strong>That is also the reliable way to remove it before uninstalling.</strong>
+To turn it on, tick “<strong>When you insert a USB drive or SD card</strong>” in Settings ⚙.
+Clearing the same checkbox removes it from the choices right away.
+</p>
+
+<p>
+<strong>Up to 0.2.7 this was on by default.</strong> Upgrading keeps the entry for anyone who
+had it, so there is nothing to do. If it is missing after an upgrade, tick the box above.
+</p>
+
+<p>
+<strong>Clearing the checkbox is the reliable way to remove it before uninstalling.</strong>
 Uninstalling with the installer removes it automatically, but only
 <strong>for the user who ran the uninstall</strong> (the setting is per user).
 The portable build is just a folder you delete, so run
-<code>pictkura.exe --unregister-autoplay</code> before deleting it.
+<code>pictkura.exe --unregister-autoplay</code> before deleting it <strong>if you had the entry
+switched on</strong>.
 </p>
 
 <h3>When inserting a card asks you nothing</h3>

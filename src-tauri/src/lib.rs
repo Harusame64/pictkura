@@ -2776,6 +2776,10 @@ fn set_auto_advance(state: tauri::State<'_, AppState>, enabled: bool) -> Result<
 #[tauri::command]
 fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // **触る前の状態を控える。** 戻すのはこの呼び出しが変えたぶんだけで、
+    // **元から在った登録を戻しの名目で消すと、「常にこの操作」の記録ごと失われる**
+    // （[`autoplay_rollback`]）
+    let was_registered = autoplay::is_registered();
     if enabled {
         autoplay::register(&exe).map_err(|e| e.to_string())?;
     } else {
@@ -2784,11 +2788,11 @@ fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Re
     // 設定の保存に失敗したら**レジストリを元へ戻す**。戻さないと、画面と設定ファイルは
     // 元のまま・レジストリだけ変わった状態で残り、しかも次の起動で起動時の同期処理が
     // 設定に合わせて戻す——利用者から見ると「切ったのに戻っている」。
-    if let Err(e) = update_config(&state, |c| c.import.register_autoplay = enabled) {
-        let rollback = if enabled {
-            autoplay::unregister()
-        } else {
-            autoplay::register(&exe)
+    if let Err(e) = update_config(&state, |c| c.import.register_autoplay = Some(enabled)) {
+        let rollback = match autoplay_rollback(was_registered, enabled) {
+            AutoplayRollback::Register => autoplay::register(&exe),
+            AutoplayRollback::Unregister => autoplay::unregister(),
+            AutoplayRollback::Nothing => Ok(()),
         };
         return Err(match rollback {
             Ok(()) => e,
@@ -4027,10 +4031,146 @@ fn config_path_without_app() -> Option<std::path::PathBuf> {
     )
 }
 
+/// 起動時（と導入直後）に、自動再生の登録をどう扱うか。
+///
+/// **切り出してあるのは、ここが Windows でしかコンパイルされない側と接するから**。
+/// 判断そのものはどのOSでも同じなので、**判断だけこちらに置いて試験する**。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum AutoplayPlan {
+    /// 登録する（本人がONにした）
+    Register,
+    /// 解除する（本人がOFFにした）
+    Unregister,
+    /// **触らない**（まだ決めていない・登録も無い）
+    LeaveAlone,
+    /// **引き継ぐ**——書き直したうえで「ONに決めた」として控える
+    Adopt,
+}
+
+/// [`AutoplayPlan`] を決める。
+///
+/// **`Unregister` を返すのは、本人が切ったときだけ**である
+/// ——**既に使っている人を、版を上げただけで切らない**（2026-09-07・利用者の指示）。
+/// 設定ファイルにこの項目が無い人（この項目より前の版から使っている人）は
+/// `decided = None` になるが、**その台に登録が在れば引き継ぐ**ので消えない。
+fn autoplay_plan(decided: Option<bool>, already_registered: bool) -> AutoplayPlan {
+    match decided {
+        Some(true) => AutoplayPlan::Register,
+        Some(false) => AutoplayPlan::Unregister,
+        None if already_registered => AutoplayPlan::Adopt,
+        None => AutoplayPlan::LeaveAlone,
+    }
+}
+
+#[cfg(test)]
+mod autoplay_plan_tests {
+    use super::{autoplay_plan, AutoplayPlan};
+
+    /// **既に使っている人を、版を上げただけで切らない。**
+    ///
+    /// この項目より前の版から使っている人は、設定ファイルに値を持たない（`None`）。
+    /// **そこで解除に倒すと、挿したときの候補が黙って消え、
+    /// 「常にこの操作」で選んでいた記録まで失われる。**
+    #[test]
+    fn an_existing_registration_is_never_removed_by_the_upgrade() {
+        assert_eq!(
+            autoplay_plan(None, true),
+            AutoplayPlan::Adopt,
+            "使っている人の登録を引き継いでいない"
+        );
+        // **解除に倒れるのは、本人が切ったときだけ**——6通りを全部見る
+        // （`Option<bool>` の3通り × 登録の有無の2通り）
+        for (decided, already) in [
+            (None, false),
+            (None, true),
+            (Some(true), false),
+            (Some(true), true),
+            (Some(false), false),
+            (Some(false), true),
+        ] {
+            let plan = autoplay_plan(decided, already);
+            assert_eq!(
+                plan == AutoplayPlan::Unregister,
+                decided == Some(false),
+                "({decided:?}, {already}) で解除の判断がずれている"
+            );
+        }
+    }
+
+    /// **戻しが、戻すつもりのないものを壊さない。**
+    ///
+    /// `unregister` は「常にこの操作」の記録まで消し、`register` は書き戻せない。
+    /// **元から在った登録を、設定の保存に失敗したからといって消してはいけない**
+    /// ——消えるのは候補だけでなく、**利用者が選んだ既定**である（2026-09-07・ゲート2）。
+    #[test]
+    fn a_rollback_only_undoes_what_this_call_changed() {
+        use super::{autoplay_rollback, AutoplayRollback};
+        // 作ったものは消す
+        assert_eq!(autoplay_rollback(false, true), AutoplayRollback::Unregister);
+        // **元から在ったものは消さない**（ここが壊れると利用者の既定が飛ぶ）
+        assert_eq!(autoplay_rollback(true, true), AutoplayRollback::Nothing);
+        // 消したものは書き戻す
+        assert_eq!(autoplay_rollback(true, false), AutoplayRollback::Register);
+        // 元から無かったものを、戻しの名目で作らない
+        assert_eq!(autoplay_rollback(false, false), AutoplayRollback::Nothing);
+    }
+
+    /// **入れただけの台には、1バイトも書かない。**
+    #[test]
+    fn a_fresh_install_does_not_touch_the_registry() {
+        assert_eq!(autoplay_plan(None, false), AutoplayPlan::LeaveAlone);
+    }
+
+    /// 本人が決めたなら、そのとおりにする（登録の有無に関わらず冪等に）。
+    #[test]
+    fn a_decision_is_followed_whatever_the_registry_says() {
+        assert_eq!(autoplay_plan(Some(true), false), AutoplayPlan::Register);
+        assert_eq!(autoplay_plan(Some(true), true), AutoplayPlan::Register);
+        assert_eq!(autoplay_plan(Some(false), true), AutoplayPlan::Unregister);
+        assert_eq!(autoplay_plan(Some(false), false), AutoplayPlan::Unregister);
+    }
+}
+
+/// 設定の保存に失敗したとき、レジストリをどこへ戻すか。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum AutoplayRollback {
+    /// 消したものを書き戻す
+    Register,
+    /// 作ったものを消す
+    Unregister,
+    /// **戻すものが無い**（この呼び出しでは変わっていない）
+    Nothing,
+}
+
+/// **戻すのは、この呼び出しが変えたぶんだけ。**
+///
+/// [`autoplay::unregister`] は**「常にこの操作」の記録**（`UserChosenExecuteHandlers`）まで
+/// 消すが、[`autoplay::register`] は**それを書き戻せない**——候補は作り直せても、
+/// **利用者が選んだ既定は戻らない**。
+///
+/// **だから「元から在った登録」を、戻しの名目で消してはいけない**
+/// （2026-09-07・ゲート2）。**元から無かったものを、戻しの名目で作る**のも同じく違う。
+fn autoplay_rollback(was_registered: bool, enabled: bool) -> AutoplayRollback {
+    if was_registered == enabled {
+        AutoplayRollback::Nothing
+    } else if was_registered {
+        AutoplayRollback::Register
+    } else {
+        AutoplayRollback::Unregister
+    }
+}
+
 /// AutoPlayの登録を設定に合わせ直す（`--sync-autoplay`）。
 ///
 /// 設定ファイルが無ければ**何もしない**。まだ一度も使っていない人の環境に、
 /// 起動前から自動再生の候補を足さないため。
+///
+/// **戻せるのは、設定に答えが書いてある人のぶんだけ**（`Some(true)`）。
+/// **`None` の人のぶんは戻せない**——引き継ぎの手がかりは**登録そのもの**で、
+/// MSI の掃除（`autoplay-cleanup.wxs`）は**その登録を先に消してから**ここへ来る。
+/// **`register_autoplay` は v0.1.1 から在り、設定は初回起動で必ず保存される**ので、
+/// これに当たるのは**初回起動が v0.1.0 だった人だけ**である
+/// （2026-09-07・ゲート2。**この入口の説明と実装が食い違っていたので、説明のほうを狭めた**）。
 #[cfg(windows)]
 fn sync_autoplay_with_config() -> Result<(), String> {
     let Some(path) = config_path_without_app() else {
@@ -4041,10 +4181,20 @@ fn sync_autoplay_with_config() -> Result<(), String> {
     }
     let config = Config::load(&path).map_err(|e| e.to_string())?;
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    if config.import.register_autoplay {
-        autoplay::register(&exe).map_err(|e| e.to_string())
-    } else {
-        autoplay::unregister().map_err(|e| e.to_string())
+    // **判断は起動時と同じ関数を通す**（[`autoplay_plan`]）。別々に書くと、
+    // 「導入直後だけ違う」というずれ方をする。**まだ決めていない人のぶんは書かないが、
+    // 在るものは書き直す**——この入口の仕事は「更新やMSIからの乗り換えで消えた登録を
+    // 戻すこと」で、**消えていないなら、それは引き継ぐべき登録**である。
+    // **ここでは控えない**（窓を出さない短命のプロセスなので、控えるのは次の起動）
+    let plan = autoplay_plan(config.import.register_autoplay, {
+        config.import.register_autoplay.is_none() && autoplay::is_registered()
+    });
+    match plan {
+        AutoplayPlan::Register | AutoplayPlan::Adopt => {
+            autoplay::register(&exe).map_err(|e| e.to_string())
+        }
+        AutoplayPlan::Unregister => autoplay::unregister().map_err(|e| e.to_string()),
+        AutoplayPlan::LeaveAlone => Ok(()),
     }
 }
 
@@ -4421,13 +4571,37 @@ pub fn run() {
             // 起動のたびに書き直し、ポータブル版を移動しても実行ファイルのパスが追従する。
             // 失敗しても起動は続ける（レジストリが書けない環境でもアプリは動くべき）
             if let Ok(exe) = std::env::current_exe() {
-                let result = if register_autoplay {
-                    autoplay::register(&exe)
-                } else {
-                    autoplay::unregister()
+                // **まだ決めていない人のレジストリには触らない**（`None`）。
+                // **入れただけで HKCU を書き換えるアプリは嫌われる**し、
+                // **macOS には自動再生そのものが無い**ので、**初期の挙動を両方でそろえる**
+                // （2026-09-07・利用者の判断）。
+                //
+                // **ただし、既に登録が在るなら引き継ぐ。** それは**既定がONだったころに
+                // 書いたもの**で、その人は使っているかもしれない——**黙って消さない**。
+                // 引き継いだら「決めた」ことにして控えるので、次からは上の枝を通り、
+                // 設定の画面にもONとして出る
+                // **登録が在るかは、決めていない人のときだけ訊く**（読むだけでも
+                // レジストリを開くので、答えを使わない周では開かない）
+                let plan = autoplay_plan(register_autoplay, {
+                    register_autoplay.is_none() && autoplay::is_registered()
+                });
+                let result = match plan {
+                    // 引き継ぐときも書き直す——実行ファイルを移していればパスが古い
+                    AutoplayPlan::Register | AutoplayPlan::Adopt => autoplay::register(&exe),
+                    AutoplayPlan::Unregister => autoplay::unregister(),
+                    AutoplayPlan::LeaveAlone => Ok(()),
                 };
-                if let Err(e) = result {
-                    eprintln!("AutoPlayの登録に失敗（無視して継続）: {e}");
+                match result {
+                    Err(e) => eprintln!("AutoPlayの登録に失敗（無視して継続）: {e}"),
+                    Ok(()) if plan == AutoplayPlan::Adopt => {
+                        let state = app.state::<AppState>();
+                        if let Err(e) = update_config(&state, |c| {
+                            c.import.register_autoplay = Some(true);
+                        }) {
+                            eprintln!("AutoPlayの引き継ぎを控えられなかった（無視して継続）: {e}");
+                        }
+                    }
+                    Ok(()) => {}
                 }
             }
 

@@ -130,7 +130,7 @@
       </div>
       <div class="note warn" style="margin-top:26px">
         <p><strong class="em">Take care on a shared PC.</strong> The MSI is installed for everyone, so switching <strong class="em">removes pictkura for the other users</strong> — <code>-setup.exe</code> installs only for you. Each person should run <code>-setup.exe</code> themselves.</p>
-        <p>Also, if another user had launched pictkura at least once, <strong class="em">their AutoPlay entry stays behind</strong>. They can reinstall and turn off "When a USB drive or SD card is inserted" in Settings, or pick a new AutoPlay default in Windows Settings.</p>
+        <p>Also, another user on that PC <strong class="em">may still have an AutoPlay entry left behind</strong> (up to 0.2.7, merely launching pictkura registered one). They can reinstall and turn off "When a USB drive or SD card is inserted" in Settings, or pick a new AutoPlay default in Windows Settings.</p>
         <p>The other direction (installing the MSI while <code>-setup.exe</code> is installed) is not handled, so uninstall from Settings → Apps first in that case.</p>
       </div>
 
@@ -219,7 +219,7 @@ MpCmdRun.exe -SignatureUpdate</pre>
           <thead><tr><th style="width:230px">How it was installed</th><th>How to remove it</th></tr></thead>
           <tbody>
             <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows Settings → Apps. The AutoPlay entry is removed too, but <strong class="em">only for the user doing the uninstall</strong> — that setting is per-user</td></tr>
-            <tr><td class="k">Portable ZIP</td><td>Delete the folder. <strong class="em">Run <code>pictkura.exe --unregister-autoplay</code> first</strong>, so no AutoPlay entry is left behind</td></tr>
+            <tr><td class="k">Portable ZIP</td><td>Delete the folder. <strong class="em">If you had the AutoPlay entry switched on, run <code>pictkura.exe --unregister-autoplay</code> first</strong>, so none is left behind</td></tr>
             <tr><td class="k">macOS</td><td>Drag <code>pictkura.app</code> to the Trash</td></tr>
           </tbody>
         </table>

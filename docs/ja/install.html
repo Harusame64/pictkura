@@ -130,7 +130,7 @@
       </div>
       <div class="note warn" style="margin-top:26px">
         <p><strong class="em">1 台を複数人で使っている場合は注意してください。</strong> MSI 版は PC 全体（<code>Program Files</code>）に入っているため、削除した時点で<strong class="em">ほかの利用者も pictkura を使えなくなります</strong>。<code>-setup.exe</code> が入れる先は実行した利用者のプロファイル内で、ほかの利用者には引き継がれません。使う人それぞれが <code>-setup.exe</code> を実行してください。</p>
-        <p>また、ほかの利用者が一度でも起動していた場合、<strong class="em">その人の環境には自動再生の候補だけが残ります</strong>。入れ直して設定の「USB や SD カードを挿したとき」をオフにしてもらうか、Windows の設定で自動再生の既定を選び直してもらってください。</p>
+        <p>また、ほかの利用者の環境に<strong class="em">自動再生の候補だけが残っていることがあります</strong>（0.2.7 までは、起動しただけで登録されていました）。入れ直して設定の「USB や SD カードを挿したとき」をオフにしてもらうか、Windows の設定で自動再生の既定を選び直してもらってください。</p>
         <p>逆向き（<code>-setup.exe</code> を入れた状態で MSI を入れる）には対応していないので、先に「設定 → アプリ」からアンインストールしてください。</p>
       </div>
 
@@ -218,7 +218,7 @@ MpCmdRun.exe -SignatureUpdate</pre>
           <thead><tr><th style="width:230px">インストール方法</th><th>削除方法</th></tr></thead>
           <tbody>
             <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows の「設定 → アプリ」から。自動再生の登録も外れますが、<strong class="em">解除されるのは、アンインストールを実行したアカウントの分のみ</strong>です（この設定はユーザーごとに保存されるためです）</td></tr>
-            <tr><td class="k">持ち歩き版</td><td>フォルダを削除します。<strong class="em">消す前に <code>pictkura.exe --unregister-autoplay</code> を実行してください</strong>——自動再生の候補が残らないようにするためです</td></tr>
+            <tr><td class="k">持ち歩き版</td><td>フォルダを削除します。<strong class="em">自動再生の候補を出していたなら、消す前に <code>pictkura.exe --unregister-autoplay</code> を実行してください</strong>——候補が残らないようにするためです</td></tr>
             <tr><td class="k">macOS</td><td><code>pictkura.app</code> をゴミ箱へ</td></tr>
           </tbody>
         </table>
