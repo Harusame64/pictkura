@@ -3575,6 +3575,25 @@ async fn probe_imported(
     .map_err(|e| e.to_string())
 }
 
+/// 一覧の1行のうち、**名前のぶつかりを数えるのに要るぶんだけ**（第5部 段階E）。
+///
+/// **3本の配列を並べて渡さない。** 長さが 食い違ったときに `zip` が黙って短いほうへ
+/// 揃えてしまい、**数え落とした名前が「ぶつかっていない」になる**——そこは中身を
+/// 読まない枝なので、**2枚目が黙って消える**。**1行を1つの値にすれば、その穴は無い。**
+#[derive(serde::Deserialize)]
+struct ListedFile {
+    name: String,
+    size: u64,
+    mtime_ms: i64,
+}
+
+impl ListedFile {
+    /// `pictkura_core` が受け取る形へ。
+    fn into_entry(self) -> (String, u64, i64) {
+        (self.name, self.size, self.mtime_ms)
+    }
+}
+
 /// 一覧の各行が「同じ名前がもう1つある」側か、**渡された並びのまま**返す（第5部 段階E）。
 ///
 /// **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——
@@ -3586,16 +3605,20 @@ async fn probe_imported(
 /// 真偽なら**並びだけで突き合う**し、`probe_imported` へは
 /// **その切れ端で立っているぶんだけ**送れる。
 #[tauri::command]
-async fn contested_source_names(names: Vec<String>) -> Result<Vec<bool>, String> {
-    tauri::async_runtime::spawn_blocking(move || pictkura_core::contested_flags(&names))
-        .await
-        .map_err(|e| e.to_string())
+async fn contested_source_names(listed: Vec<ListedFile>) -> Result<Vec<bool>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entries: Vec<(String, u64, i64)> =
+            listed.into_iter().map(ListedFile::into_entry).collect();
+        pictkura_core::contested_flags(&entries)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// ウィザードで選んだファイルだけを取り込む（第5部 段階E）。
 /// 進捗・後処理は [`import_from_folder`] と同じ経路を通る。
 ///
-/// `names` は**一覧に出ているファイル名すべて**——`probe_imported` の材料と同じもの。
+/// `listed` は**一覧に出ている行すべて**——`probe_imported` の材料と同じもの。
 /// **選ばれたぶんだけで数え直してはいけない**: 「済」バッジがカード全体で数えている
 /// のに取り込みが選択だけで数えると、**バッジが「まだ」と出した1枚を取り込みが飛ばす**。
 ///
@@ -3613,14 +3636,17 @@ async fn import_paths(
     app: tauri::AppHandle,
     paths: Vec<String>,
     source_dir: String,
-    names: Vec<String>,
+    listed: Vec<ListedFile>,
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
         let dest = config.routing.destination.clone();
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-        let contested = pictkura_core::contested_names(names.iter().map(String::as_str));
+        let entries: Vec<(String, u64, i64)> =
+            listed.into_iter().map(ListedFile::into_entry).collect();
+        let contested =
+            pictkura_core::contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m)));
 
         let progress_app = app.clone();
         let stats =

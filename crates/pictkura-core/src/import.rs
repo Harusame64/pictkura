@@ -7,7 +7,7 @@
 //! - 同名・別サイズなら `名前-1.jpg` 形式で衝突回避
 //! - コピー後にサイズ比較で検証する（`verify_after_copy`）
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Local, TimeZone};
@@ -319,14 +319,25 @@ fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
     let Ok(meta) = existing.metadata() else {
         return false;
     };
-    if meta.len() != src_size {
-        return false;
-    }
     let Ok(mtime) = meta.modified() else {
         return false;
     };
     let dest_ms = filetime::FileTime::from_system_time(mtime).unix_seconds() * 1000;
-    let diff = (dest_ms - src_mtime_ms).abs();
+    looks_alike((meta.len(), dest_ms), (src_size, src_mtime_ms))
+}
+
+/// 「大きさと更新時刻」の2つ組が、[`looks_same`] の目で同じに見えるか。
+///
+/// **[`looks_same`] と [`contested_names`] は同じ目でなければならない。**
+/// 数える側が厳しいと、**見分けられない2枚を「ぶつかっていない」と数える**
+/// ——そこは中身を読まない枝なので、**2枚目が黙って消える**。だから規則はここ1つ。
+///
+/// ちょうど1時間ずれ（夏時間）を同じ扱いにしているのは [`looks_same`] の説明のとおり。
+fn looks_alike(a: (u64, i64), b: (u64, i64)) -> bool {
+    if a.0 != b.0 {
+        return false;
+    }
+    let diff = (a.1 - b.1).abs();
     diff <= MTIME_TOLERANCE_MS || (diff - 3_600_000).abs() <= MTIME_TOLERANCE_MS
 }
 
@@ -602,19 +613,47 @@ pub(crate) fn resolve_dest_path_avoiding(
 /// **別々の周で来たとき、2枚目は「済」と出る**。同じ周の中なら `TakenPaths` が
 /// 訊いてくれるので消えない（`the_same_name_in_a_different_normalisation_still_arrives`）。
 ///
+/// **名前だけでは数えない。大きさと更新時刻まで見る**（2026-09-07・ゲート2）。
+/// ぶつかっているのは「行き先に在る1本が、どちらのものか決められない」ときだけで、
+/// **決められないのは、2枚が [`looks_alike`] のときに限る**——大きさか時刻が違えば、
+/// 行き先の1本はどちらか一方にしか似ない。名前だけで数えると、
+/// **`DCIM` が一周したカードや2台で使ったカード**（同じ名前・別の写真・別の日）で
+/// **入っているものが毎回「分からない」に戻り**、`?` が並び、隠されず、既定で選び直され、
+/// **押すと全件ぶんの中身比べが走って `copied` は 0** になる。
+///
+/// **絞りすぎない**ことのほうが大事なので、判定は[`looks_alike`]と同じ目にしてある
+/// （[`looks_alike`] の説明）。**名前の単位で返す**ので、同じ名前に
+/// 「似ている2枚」と「似ていない1枚」が混ざると、その1枚も巻き込んで
+/// 「分からない」になる——**安全な側へ倒れる**ぶんは受け入れる。
+///
 /// **公開しているのは、「済」バッジと取り込みが同じ材料で数えるため。**
 /// [`is_already_imported`] と [`import_files`] は同じ集合を受け取る——
 /// **別々に数えると、片方が「まだ」と言い、もう片方が「もう入っている」と言う。**
-pub fn contested_names<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<String> {
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut twice: HashSet<String> = HashSet::new();
-    for name in names {
-        let key = fold_name(name);
-        if !seen.insert(key.clone()) {
-            twice.insert(key);
+pub fn contested_names<'a>(entries: impl Iterator<Item = (&'a str, u64, i64)>) -> HashSet<String> {
+    // **同じ名前・同じ大きさ**の組にだけ絞ってから、時刻を突き合わせる。
+    // [`looks_alike`] は大きさが違えば必ず偽なので、**違う大きさ同士は比べる必要が無い**
+    // ——1万件が同じ名前でも、比べるのはこの中だけになる
+    let mut buckets: HashMap<(String, u64), Vec<i64>> = HashMap::new();
+    for (name, size, mtime_ms) in entries {
+        buckets
+            .entry((fold_name(name), size))
+            .or_default()
+            .push(mtime_ms);
+    }
+    let mut contested: HashSet<String> = HashSet::new();
+    for ((name, size), mtimes) in buckets {
+        if contested.contains(&name) {
+            continue;
+        }
+        if mtimes.iter().enumerate().any(|(i, a)| {
+            mtimes[i + 1..]
+                .iter()
+                .any(|b| looks_alike((size, *a), (size, *b)))
+        }) {
+            contested.insert(name);
         }
     }
-    twice
+    contested
 }
 
 /// 名前の畳み方。**ここ以外に置かない。**
@@ -640,9 +679,12 @@ pub fn contested_set<'a>(names: impl Iterator<Item = &'a str>) -> HashSet<String
 ///
 /// 名前の集合をそのまま返すと、**呼ぶ側が畳み方を知らないと自分の行と突き合わせられない**
 /// ——知らせると畳む規則が2か所になる。**行ごとの真偽なら、並びだけで突き合う。**
-pub fn contested_flags(names: &[String]) -> Vec<bool> {
-    let contested = contested_names(names.iter().map(String::as_str));
-    names.iter().map(|n| is_contested(&contested, n)).collect()
+pub fn contested_flags(entries: &[(String, u64, i64)]) -> Vec<bool> {
+    let contested = contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m)));
+    entries
+        .iter()
+        .map(|(n, _, _)| is_contested(&contested, n))
+        .collect()
 }
 
 /// その名前が [`contested_names`] に載っているか。
@@ -707,12 +749,12 @@ pub fn import_from(
     // **カードの中で名前がぶつかっているぶん**。ここだけ中身まで確かめる
     // （`contested_names`）。**前の周で片方だけ入っている**と、名前と大きさでは
     // 「もう入っている」と読めてしまい、2枚目が黙って消える
-    let contested = contested_names(
-        outcome
-            .files
-            .iter()
-            .filter_map(|f| f.path.file_name().and_then(|n| n.to_str())),
-    );
+    let contested = contested_names(outcome.files.iter().filter_map(|f| {
+        f.path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| (n, f.size as u64, f.mtime_ms))
+    }));
 
     for (i, file) in outcome.files.iter().enumerate() {
         let name_contested = file
@@ -1646,33 +1688,73 @@ mod tests {
     /// **綴りが違うだけの双子も同じ扱いになること**まで見る。
     #[test]
     fn the_contested_flags_line_up_with_the_names() {
-        let names: Vec<String> = ["DSC00001.ARW", "dsc00001.arw", "DSC00002.ARW"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        // 綴りだけが違う双子（**同じ大きさ・同じ時刻**）はぶつかっている。
+        // 3本目は名前が違うので関係ない
+        let entries: Vec<(String, u64, i64)> = vec![
+            ("DSC00001.ARW".into(), 4, 1_600_000_000_000),
+            ("dsc00001.arw".into(), 4, 1_600_000_000_000),
+            ("DSC00002.ARW".into(), 4, 1_600_000_000_000),
+        ];
         assert_eq!(
-            contested_flags(&names),
+            contested_flags(&entries),
             vec![true, true, false],
             "並びか畳み方がずれている"
         );
 
         // 集合の側と食い違わないこと（材料は1つ）
-        let set = contested_names(names.iter().map(String::as_str));
-        for (name, flag) in names.iter().zip(contested_flags(&names)) {
+        let set = contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m)));
+        for ((name, _, _), flag) in entries.iter().zip(contested_flags(&entries)) {
             assert_eq!(is_contested(&set, name), flag, "{name} で食い違った");
         }
 
         // 受け取り直した側が、同じ答えを引けること（`contested_set`）
         let carried = contested_set(
-            names
+            entries
                 .iter()
-                .zip(contested_flags(&names))
+                .zip(contested_flags(&entries))
                 .filter(|(_, f)| *f)
-                .map(|(n, _)| n.as_str()),
+                .map(|((n, _, _), _)| n.as_str()),
         );
         assert!(is_contested(&carried, "DSC00001.ARW"));
         assert!(is_contested(&carried, "dsc00001.arw"));
         assert!(!is_contested(&carried, "DSC00002.ARW"));
+    }
+
+    /// **同じ名前でも、見た目が違えばぶつかっていない**（2026-09-07・ゲート2）。
+    ///
+    /// `DCIM` が一周したカードや2台で使ったカードには、**同じ名前の別の写真**が並ぶ。
+    /// 名前だけで数えると**全部が「分からない」**になり、入っているものが毎回
+    /// `?` に戻って隠されず、既定で選び直され、**押すと全件の中身比べが走って
+    /// `copied` は 0** になる。**行き先の1本がどちらのものか決められないのは、
+    /// 2枚が [`looks_alike`] のときだけ**である。
+    ///
+    /// **緩める方向の間違いは許されない**ので、**1時間ずれ（夏時間）は
+    /// ぶつかっている側**に数えること（[`looks_same`] と同じ目）まで見る。
+    #[test]
+    fn the_same_name_with_a_different_look_is_not_contested() {
+        let base = 1_600_000_000_000;
+        let entries: Vec<(String, u64, i64)> = vec![
+            // 大きさが違う（圧縮RAW・JPEG。カードで最も普通の形）
+            ("DSC00001.ARW".into(), 4, base),
+            ("DSC00001.ARW".into(), 8, base),
+            // 大きさは同じだが日が違う（非圧縮RAWを別の日に撮った）
+            ("DSC00002.ARW".into(), 4, base),
+            ("DSC00002.ARW".into(), 4, base + 86_400_000),
+            // 大きさも時刻も同じ＝**見分けられない**
+            ("DSC00003.ARW".into(), 4, base),
+            ("DSC00003.ARW".into(), 4, base),
+            // ちょうど1時間ずれ（夏時間）は**同じに見える側**
+            ("DSC00004.ARW".into(), 4, base),
+            ("DSC00004.ARW".into(), 4, base + 3_600_000),
+            // FAT32 の2秒刻みも同じに見える側
+            ("DSC00005.ARW".into(), 4, base),
+            ("DSC00005.ARW".into(), 4, base + 1_500),
+        ];
+        assert_eq!(
+            contested_flags(&entries),
+            vec![false, false, false, false, true, true, true, true, true, true],
+            "見分けられる組までぶつかっていると数えている（または見分けられない組を落としている）"
+        );
     }
 
     /// **クラウドを理由に読みを省くのは、行き先の側だけ**（ゲート1の P1・2026-09-07）。

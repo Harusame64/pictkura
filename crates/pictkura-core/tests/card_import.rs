@@ -55,11 +55,23 @@ fn lay_out_a_card(card: &Path) {
 /// **選んだぶんから数えてはいけない。** ウィザードの「済」バッジはカード全体で数えるので、
 /// 取り込みが選択だけで数え直すと、**バッジが「まだ」と言った写真を取り込みが飛ばす**。
 fn contested(listed: &[PathBuf]) -> HashSet<String> {
-    contested_names(
-        listed
-            .iter()
-            .filter_map(|p| p.file_name().and_then(|n| n.to_str())),
-    )
+    // **大きさと時刻もディスクから取る。** 数える規則が名前だけではなくなったので
+    // （2026-09-07・ゲート2）、ここで作り物を渡すと本番と違う材料で数えることになる
+    let entries: Vec<(String, u64, i64)> = listed
+        .iter()
+        .filter_map(|p| {
+            let name = p.file_name().and_then(|n| n.to_str())?.to_string();
+            let meta = std::fs::metadata(p).ok()?;
+            let mtime_ms = meta
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?
+                .as_millis() as i64;
+            Some((name, meta.len(), mtime_ms))
+        })
+        .collect();
+    contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m)))
 }
 
 fn contents(dest: &Path) -> BTreeSet<String> {
@@ -662,4 +674,58 @@ fn inserting_the_same_card_twice_copies_nothing_new() {
     let second = import_from(&card, &config, |_, _, _| {}).unwrap();
     assert_eq!(second.copied, 0, "同じカードをもう一度コピーした");
     assert_eq!(second.skipped, ON_THE_CARD.len(), "「済」と見なせていない");
+}
+
+/// **同じ名前でも、見分けられる2枚なら「分からない」にはならない**（2026-09-07・ゲート2）。
+///
+/// `DCIM` は 9999 で一周するし、1枚のカードを2台で使えば同じ名前が並ぶ。
+/// 名前だけで数えていたころは、**取り込みが完全に成功したあとも全行が `Unsure` に戻った**
+/// ——`?` が並び、「取り込み済みを隠す」が何も隠さず、既定で全部が選び直され、
+/// **押すと全件ぶんの中身比べが走って `copied` は 0** になる。
+///
+/// **行き先に在る1本がどちらのものか決められないのは、2枚が同じ大きさ・同じ時刻のときだけ**
+/// である。ここは大きさも日も違うので、**決められる**。
+#[test]
+fn twins_that_can_be_told_apart_are_not_left_unsure() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = dir.path().join("E");
+    let dest = dir.path().join("photos");
+    for sub in ["DCIM/100MSDCF", "DCIM/101MSDCF"] {
+        fs::create_dir_all(card.join(sub)).unwrap();
+    }
+    let a = card.join("DCIM/100MSDCF/DSC00001.ARW");
+    let b = card.join("DCIM/101MSDCF/DSC00001.ARW");
+    fs::write(&a, b"aaaa").unwrap();
+    fs::write(&b, b"bbbbbbbb").unwrap();
+    // **別の日に撮った**（行き先の日付フォルダも分かれる）
+    filetime::set_file_mtime(&a, filetime::FileTime::from_unix_time(1_600_000_000, 0)).unwrap();
+    filetime::set_file_mtime(&b, filetime::FileTime::from_unix_time(1_610_000_000, 0)).unwrap();
+
+    let mut config = Config::default();
+    config.routing.destination = Some(dest.clone());
+
+    let listed = vec![a.clone(), b.clone()];
+    let contested = contested(&listed);
+    assert!(
+        contested.is_empty(),
+        "見分けられる2枚を「ぶつかっている」と数えている: {contested:?}"
+    );
+
+    let stats = pictkura_core::import_files(&listed, &contested, &config, |_, _, _| {}).unwrap();
+    assert_eq!(stats.copied, 2, "2枚とも入っていない");
+    assert_eq!(
+        contents(&dest),
+        BTreeSet::from(["aaaa".to_string(), "bbbbbbbb".to_string()]),
+        "中身が入れ替わっているか、片方が来ていない"
+    );
+
+    // **挿し直したときに、両方とも「済」と言い切れること。**
+    // ここが `Unsure` に戻ると、既定の操作が「カード全部を取り込み直す」になる
+    for (path, which) in [(&a, "1枚目"), (&b, "2枚目")] {
+        assert_eq!(
+            pictkura_core::is_already_imported(path, &config, &contested),
+            ImportState::Imported,
+            "{which}が「分からない」に戻っている"
+        );
+    }
 }

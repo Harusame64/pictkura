@@ -606,6 +606,18 @@ export const listSourceTree = (path: string) =>
  */
 export type ImportState = "imported" | "new" | "unsure";
 /**
+ * 一覧の1行のうち、**名前のぶつかりを数えるのに要るぶんだけ**。
+ *
+ * 大きさと時刻まで渡すのは、**同じ名前でも見た目が違えばぶつかっていない**から
+ * ——`DCIM` が一周したカードでは同じ名前の別の写真が並ぶ。名前だけで数えると、
+ * **入っているものが毎回「分からない」に戻る**。
+ */
+export interface ListedFile {
+  name: string;
+  size: number;
+  mtime_ms: number;
+}
+/**
  * 一覧の各行に「同じ名前がもう1つある」か、**渡した並びのまま**返る。
  *
  * **一覧ごとに1回だけ呼ぶ。** 数える規則は Rust 側にしか置かない——ここで数え直すと、
@@ -614,8 +626,8 @@ export type ImportState = "imported" | "new" | "unsure";
  * **名前ではなく行ごとの真偽が返る。** 名前で受け取ると、自分の行と突き合わせるために
  * **こちらが畳み方を知る**ことになり、畳む規則が2か所になる。
  */
-export const contestedSourceNames = (names: string[]) =>
-  invoke<boolean[]>("contested_source_names", { names });
+export const contestedSourceNames = (listed: ListedFile[]) =>
+  invoke<boolean[]>("contested_source_names", { listed });
 /**
  * 各ファイルが既に取り込み済みかを返す（サムネイル表示の後追いで塗る）。
  *
@@ -629,12 +641,15 @@ export const probeImported = (paths: string[], contested: string[]) =>
 /**
  * ウィザードで選んだファイルだけを取り込む。
  *
- * `names` は**一覧に出ている名前すべて**（選んだぶんではない）。**数えるのは Rust 側**
+ * `listed` は**一覧に出ている行すべて**（選んだぶんではない）。**数えるのは Rust 側**
  * ——`contestedSourceNames` の答えを待って渡す形にすると、**待っていない間に
  * 取り込みを押せてしまい、そのとき材料が古い**。
  */
-export const importPaths = (paths: string[], sourceDir: string, names: string[]) =>
-  invoke<ImportStats>("import_paths", { paths, sourceDir, names });
+export const importPaths = (
+  paths: string[],
+  sourceDir: string,
+  listed: ListedFile[],
+) => invoke<ImportStats>("import_paths", { paths, sourceDir, listed });
 
 /** OS既定のアプリで開く */
 export const openDefault = (id: number) => invoke<void>("open_default", { id });

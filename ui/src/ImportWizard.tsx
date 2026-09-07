@@ -16,6 +16,7 @@ import {
   type ImportProgress,
   type ImportState,
   type ImportStats,
+  type ListedFile,
   type SourceFile,
   type SourceListing,
   type SourceTree,
@@ -68,6 +69,10 @@ const driveIcon = (drive: DriveInfo) =>
 /** パスの末尾（ファイル名）だけを取り出す */
 const baseName = (path: string) =>
   path.split("\\").pop()?.split("/").pop() ?? path;
+
+/** 数える側へ渡す材料。**バッジと取り込みで同じ関数を通す**（別々に作ると材料がずれる） */
+const listedFiles = (files: SourceFile[]): ListedFile[] =>
+  files.map((f) => ({ name: f.name, size: f.size, mtime_ms: f.mtime_ms }));
 
 export default function ImportWizard({
   open: isOpen,
@@ -198,7 +203,7 @@ export default function ImportWizard({
       // 数え直すと、バッジと取り込みが**違う材料**で答えるようになる
       let contested: boolean[];
       try {
-        contested = await contestedSourceNames(allFiles.map((f) => f.name));
+        contested = await contestedSourceNames(listedFiles(allFiles));
       } catch (e) {
         // **数えられなかったら、バッジは出さない。** 名前と大きさだけで塗ると、
         // 双子が「済」になって既定で選択から外れ、既定で画面からも消える
@@ -399,11 +404,7 @@ export default function ImportWizard({
         // バッジの判定が返る前に押されたときに**古い材料で取り込む**
         // ——バッジが塗られていなくても、ボタンは押せる（ゲート1の P1）。
         // **中身まで読むのは取り込みの側**——利用者が押した1回きりで、進捗も出る
-        : await importPaths(
-            [...selected],
-            current,
-            allFiles.map((f) => f.name),
-          );
+        : await importPaths([...selected], current, listedFiles(allFiles));
       // 結果はグリッド側（ステータス行）で伝える。ウィザードは役目を終えて閉じる
       onImported(stats);
       onClose();
