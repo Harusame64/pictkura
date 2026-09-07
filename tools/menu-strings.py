@@ -40,6 +40,10 @@ LOCALES = [
 # (Rustのフィールド名, loctableのキー, どちらの表か)
 KEYS = [
     ("about", "About %@", SWIFTUI),
+    # **設定への2本目の道**（2026-09-07）。画面の歯車は**独語だと 1072px 未満で
+    # ツールバーから押し出される**ので、窓の幅に依らない入口が要る。
+    # `Settings…` は macOS 自身が訳を持っている（`設定…` / `Einstellungen …`）
+    ("settings", "Settings…", SWIFTUI),
     ("services", "Services", SWIFTUI),
     ("hide", "Hide %@", SWIFTUI),
     ("hide_others", "Hide Others", SWIFTUI),

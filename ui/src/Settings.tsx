@@ -42,12 +42,22 @@ import { applyTheme, readTheme, type ThemeChoice } from "./theme";
  */
 export default function Settings({
   open,
+  dismiss = false,
   onClose,
   config,
   onConfigChanged,
   onError,
 }: {
   open: boolean;
+  /**
+   * **外から「畳め」と言うための旗**（2026-09-08）。関所（ごみ箱の直前の確認）は
+   * この面より手前に立つので、**立った時点でこちらを畳まないと Esc が吸われる**。
+   *
+   * **`open` を false にするのでは足りない。** 閉じる道は [`closeDialog`] 1本で、
+   * そこには**自由記述の確定**がぶら下がっている（入力欄の `onBlur` は
+   * 面が消えるときに飛ばない）。**外から状態だけ倒すと、打ちかけの文字が消える。**
+   */
+  dismiss?: boolean;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
@@ -197,6 +207,12 @@ export default function Settings({
     if (open) window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, closeDialog]);
+
+  // **外から畳めと言われたら、自分の閉じる道を通る**（`dismiss` の項）。
+  // **`onClose` を直に呼ばない**のは、`commitCustom` を飛ばさないためである
+  useEffect(() => {
+    if (open && dismiss) closeDialog();
+  }, [open, dismiss, closeDialog]);
 
   if (!open) return null;
 

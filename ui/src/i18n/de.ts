@@ -72,6 +72,7 @@ export const de: Dict = {
       title: "Übersicht",
       keys: [
         ["Strg+K / ⌘K", "Befehlspalette (zu Datum oder Kamera springen, suchen, importieren)"],
+        ["Strg+, / ⌘,", "Einstellungen öffnen (dasselbe wie das Zahnrad in der Symbolleiste)"],
         ["Strg+A / ⌘A", "Alles auswählen, was Suche und Filter gerade treffen"],
         ["Umschalt + Klick", "Alles zwischen dem zuletzt geklickten Foto und diesem auswählen"],
         ["Strg + Klick", "Ein Foto hinzufügen oder entfernen (⌘ + Klick unter macOS)"],

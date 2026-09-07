@@ -12,7 +12,9 @@
       {
         "title": "pictkura",
         "width": 1280,
-        "height": 840
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 520
       }
     ],
     "security": {
