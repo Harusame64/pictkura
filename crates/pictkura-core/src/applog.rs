@@ -166,9 +166,12 @@ fn record(message: &str) {
                 "(repeated {} more times, still going): {}",
                 rep.count, rep.line
             );
-            rep.count = 0;
-            rep.since = Instant::now();
-            write_line(&mut st, path, &now, &header, &dropped_note, &said);
+            // **数え直すのは書いたあと。** `write_line` は `st` ごと要るので、
+            // ここで `rep` の借りを終える
+            let wrote = write_line(&mut st, path, &now, &header, &dropped_note, &said);
+            if let Some(rep) = st.repeated.as_mut() {
+                after_flush(rep, wrote);
+            }
             return;
         }
     }
@@ -191,6 +194,22 @@ fn record(message: &str) {
             count: 0,
             since: Instant::now(),
         });
+    }
+}
+
+/// 周期の要約を出したあとの、畳み込みの立て直し。
+///
+/// **数え直すのは、言えたときだけ。** 先に 0 へ戻すと、**書けなかった1分ぶんが
+/// どこにも出ないまま消える**——記録は「4312回」を「1回」と言い、
+/// **続いている不具合を小さく見せる**（PRのcodex）。
+///
+/// **時計のほうは、書けても書けなくても進める。** 言えたときだけ進めると、
+/// 書けない台では**繰り返しが来るたびに開きに行く**
+/// ——「1分に1回」の約束が、**失敗の数だけの `open`** に化ける。
+fn after_flush(rep: &mut Repeat, wrote: bool) {
+    rep.since = Instant::now();
+    if wrote {
+        rep.count = 0;
     }
 }
 
@@ -466,6 +485,33 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "つぎの行\n");
         assert_eq!(fs::read_to_string(previous(&path)).unwrap(), "いまの行\n");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    /// **言えなかった要約は、数えを持ったまま次へ回す。**
+    ///
+    /// 書けない台（ログを別のソフトが握っている・置き場が消えた）で数え直すと、
+    /// **その1分ぶんは二度と出てこない**。続いている不具合が、記録の上では
+    /// 1分ごとに「1回」ずつ起きているように見える。
+    #[test]
+    fn a_summary_that_could_not_be_written_keeps_its_count() {
+        // **起動から1分未満の台では過去を作れない**（`Instant` は起動からの単調な時計）。
+        // その台では時計の側の確認だけ飛ばす——数えの側は必ず見る
+        let long_ago = Instant::now().checked_sub(FLUSH_AFTER * 2);
+        let mut rep = Repeat {
+            line: "同じ失敗".to_string(),
+            count: 7,
+            since: long_ago.unwrap_or_else(Instant::now),
+        };
+
+        after_flush(&mut rep, false);
+        assert_eq!(rep.count, 7, "書けなかった1分ぶんを捨てないこと");
+        if long_ago.is_some() {
+            assert!(rep.since.elapsed() < FLUSH_AFTER, "次に言うのは1分後");
+        }
+
+        // 言えたら、そこで数え直す
+        after_flush(&mut rep, true);
+        assert_eq!(rep.count, 0);
     }
 
     /// **まだ細いファイルは触らない**——`NotNeeded` は「何もしていない」の意味で、
