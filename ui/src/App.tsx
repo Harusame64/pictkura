@@ -85,6 +85,7 @@ import {
   type EmptyLibraryReason,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
+import { answerKey } from "./useWindowEvent";
 import type { VideoStatus } from "./api";
 import {
   formatDateTime,
@@ -662,6 +663,11 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 取り込みウィザード（第5部 段階E）。startPathはドライブから開いたときの初期フォルダ
   const [wizardOpen, setWizardOpen] = useState(false);
+  /**
+   * **この面が「待たされて出た」ものか**（2026-09-08）。
+   * **`Esc` の耳栓（400ms）を、その道にだけ掛ける**ため。`ImportWizard` の項を見ること。
+   */
+  const [wizardFromPending, setWizardFromPending] = useState(false);
   const [wizardStart, setWizardStart] = useState<string | undefined>(undefined);
   const [wizardNonce, setWizardNonce] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -831,6 +837,11 @@ export default function App() {
    * ウィザードが重なるのは、少なくとも見える）。
    */
   const gateUpRef = useRef(false);
+  /**
+   * **設定が開いているか**。`curtainRef` と分けてあるのは、
+   * **ここも「待たせる」相手**だからである（下の `openWizard`）。
+   */
+  const settingsOpenRef = useRef(false);
   /**
    * **関所が閉じるまで待たせた取り込みの要求**（AutoPlay と2重起動の道）。
    *
@@ -1921,14 +1932,24 @@ export default function App() {
 
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
-  const openWizard = useCallback((startPath?: string) => {
+  const openWizard = useCallback((startPath?: string, fromPending = false) => {
     // **関所（ごみ箱の直前の確認）の裏には開かない**（2026-09-08）。
     // 関所は `z-index: 350`、ウィザードは 200 なので、**開いても見えない面が
     // 生まれ、`Esc` の1押しをそちらが食う**——押した人には「関所が閉じない」に見える。
     //
     // **要求は覚えておく。** カードを挿した人に何も起きないのは**黙る口**なので、
-    // **関所が片付いた時点で開く**（下の効果）。この道は AutoPlay と2重起動から来る
-    if (gateUpRef.current) {
+    // **関所が片付いた時点で開く**（下の効果）。この道は AutoPlay と2重起動から来る。
+    //
+    // **設定の手前でも同じく待たせる**（2026-09-08）。あちらは畳ませない
+    // （打ちかけの自由記述を確定してしまう）と決めたので、**開くと設定の下に
+    // 見えない面が生まれる**——`Esc` を2回押した人は、**見たこともないウィザードを
+    // 閉じることになる**（`Esc` の長押しは毎秒30回ほど届く）。
+    //
+    // **待たせても、それだけでは足りない**——`Esc` で設定を閉じた**その瞬間に
+    // ここが走る**ので、**2打目にはもう面が在る**。だから
+    // **繰り返しは `answerKey` が弾き**、**出たばかりの面は自分で受けない**
+    // （`ImportWizard` の 400ms）。**3つ揃って初めて塞がる。**
+    if (gateUpRef.current || settingsOpenRef.current) {
       pendingWizardRef.current = { startPath };
       return;
     }
@@ -1937,10 +1958,16 @@ export default function App() {
     // **一覧（400）やメニュー（300）が開いている最中に飛んでくる**。
     // 畳まないと**ウィザード（200）がその下に生まれ**、`Esc` の1押しで
     // **上の幕とウィザードが同時に閉じる**（＝挿したカードの用が黙って消える）。
-    // **設定は `dismiss` で畳ませる**（下の `<SettingsDialog>`）
+    //
+    // **設定は畳まない**（打ちかけの自由記述を確定してしまうため）。
+    // **代わりに上で待たせる**ので、ここへ来た時点で設定は開いていない
     setPaletteOpen(false);
     setShortcutsOpen(false);
     setMenu(null);
+    // **待たされて出た面かどうか**を渡す（`ImportWizard` の `graceOnOpen`）。
+    // **耳栓が要るのはその道だけ**——自分でボタンを押して開けた人の `Esc` は、
+    // **すぐ効かないと「効かない」**である
+    setWizardFromPending(fromPending);
     setWizardStart(startPath);
     setWizardNonce((n) => n + 1);
     setWizardOpen(true);
@@ -1962,14 +1989,14 @@ export default function App() {
     setPaletteOpen(false);
   }, [rejectGate]);
 
-  // **関所が片付いたら、待たせていた取り込みを開く**（上の `openWizard`）
+  // **関所と設定が片付いたら、待たせていた取り込みを開く**（上の `openWizard`）
   useEffect(() => {
-    if (rejectGate !== null) return;
+    if (rejectGate !== null || settingsOpen) return;
     const pending = pendingWizardRef.current;
     if (pending === null) return;
     pendingWizardRef.current = null;
-    openWizard(pending.startPath);
-  }, [rejectGate, openWizard]);
+    openWizard(pending.startPath, true);
+  }, [rejectGate, settingsOpen, openWizard]);
 
   // USB/SDカードの自動起動（AutoPlay）で「pictkuraで取り込む」が選ばれたとき、
   // そのドライブで取り込みウィザードを開く。2重起動はバックエンドが
@@ -3846,7 +3873,9 @@ export default function App() {
       // ——**あちらは `gateUp` を見て `Esc` を譲る**ので、二重に閉じない。
       // 右クリックのメニューは、関所が立った時点で畳んである（下の効果）
       if (rejectGate) {
-        if (e.key === "Escape" && !trashing) setRejectGate(null);
+        // **同じ押しに二度答えない**（`answerKey` の項）——関所の手前では
+        // 幕を畳んである（下）ので普段は競らないが、**規則は揃えておく**
+        if (e.key === "Escape" && !trashing && answerKey(e)) setRejectGate(null);
         return;
       }
       if (wizardOpen || menu !== null) return;
@@ -4311,6 +4340,7 @@ export default function App() {
       paletteOpen ||
       menu !== null;
     gateUpRef.current = rejectGate !== null;
+    settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
     selectedRef.current = selected;
     selectAllRef.current = selectAll;
@@ -6036,6 +6066,8 @@ export default function App() {
       )}
       <ImportWizard
         open={wizardOpen}
+        // **待たされて出た面だけ、出た直後の `Esc` を受けない**（あちらのキーの節）
+        graceOnOpen={wizardFromPending}
         // **`Esc` を、手前の物へ譲らせる**（あちらのキーの節）。
         //
         // 関所（350）はこの面より手前。**設定も手前である**——同じ 200 だが、

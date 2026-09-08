@@ -32,6 +32,7 @@ import {
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { applyTheme, readTheme, type ThemeChoice } from "./theme";
+import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /**
  * 設定ダイアログ。
@@ -200,13 +201,14 @@ export default function Settings({
     onClose();
   }, [commitCustom, onClose]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeDialog();
-    };
-    if (open) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, closeDialog]);
+  // **受け口は [`useWindowEvent`] 越しに張る**——**張り替えると、その1回の
+  // `Esc` が落ちる**（ビューアが休んでいるときに実際に起きていた。あちらの節に理由）
+  useWindowEvent("keydown", open, (e) => {
+    if (e.key !== "Escape") return;
+    // **同じ押しに二度答えない**（`answerKey` の項）
+    if (!answerKey(e)) return;
+    closeDialog();
+  });
 
   // **外から畳めと言われたら、自分の閉じる道を通る**（`dismiss` の項）。
   // **`onClose` を直に呼ばない**のは、`commitCustom` を飛ばさないためである

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /** 右クリックメニューの1項目。`separator` の前に区切り線を引く */
 export type MenuItem = {
@@ -42,22 +43,22 @@ export default function ContextMenu({
     setAdjusted({ x: Math.max(8, x), y: Math.max(8, y) });
   }, [pos]);
 
-  useEffect(() => {
-    if (!pos) return;
-    const close = () => onClose();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    // スクロールやリサイズで位置がずれるくらいなら閉じる
-    window.addEventListener("click", close);
-    window.addEventListener("resize", close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [pos, onClose]);
+  // **受け口は [`useWindowEvent`] 越しに張る**——**張り替えると、その1回が落ちる**
+  // （あちらの節に理由）。
+  //
+  // **クリックも同じである。** ここで閉じたいのは「次に起きた1回」ではなく
+  // **いま押されたその1回**——タイルを押すと React の受け口が先に状態を変え、
+  // その描き直しで**こちらの受け口が外れて、その押しが届かなくなる**
+  // （メニューが残り、もう1回押す羽目になる）。**リサイズも揃えておく。**
+  useWindowEvent("keydown", pos !== null, (e) => {
+    if (e.key !== "Escape") return;
+    // **同じ押しに二度答えない**（`answerKey` の項）
+    if (!answerKey(e)) return;
+    onClose();
+  });
+  useWindowEvent("click", pos !== null, () => onClose());
+  // スクロールやリサイズで位置がずれるくらいなら閉じる
+  useWindowEvent("resize", pos !== null, () => onClose());
 
   if (!pos) return null;
 
