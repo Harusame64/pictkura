@@ -110,6 +110,7 @@
         <div><h3>Grid by capture date, plus a calendar</h3><p>The year scrubber crosses tens of thousands of photos in one drag</p></div>
         <div><h3>Search and filter</h3><p>File name, folder, camera, capture date, kind (photo / RAW / video), ★ and ⚑. All conditions are ANDed</p></div>
         <div><h3>Viewer and culling</h3><p>⚑ to pick, ✕ to reject, ★ to favorite. Capture info (aperture, shutter, ISO, GPS) too</p></div>
+        <div><h3>Take out the picture you are looking at</h3><p>📋 copies it to the clipboard, 💾 saves it to a file (<code>Ctrl</code>+<code>C</code> / <code>Ctrl</code>+<code>S</code>). The <a href="../manual.en.html#viewer">manual</a> has the details</p></div>
         <div><h3>Bulk actions</h3><p>Star a selection, copy or move it to a folder, or send all of it to the recycle bin</p></div>
         <div><h3>Slideshow and video playback</h3><p>Containers the engine cannot play are handed to your default player</p></div>
         <div><h3>AutoPlay entry (Windows)</h3><p>Turn it on in Settings and it appears as a choice when a card is inserted. Off by default, and it never launches on its own</p></div>
@@ -131,7 +132,7 @@
           <thead><tr><th style="width:260px">Not available</th><th>Why / current state</th></tr></thead>
           <tbody>
             <tr><td class="k">RAW development</td><td>Deliberate. The camera's embedded display JPEG is used instead</td></tr>
-            <tr><td class="k">Editing or exporting photos</td><td>No rotation, no cropping. It is a tool for looking</td></tr>
+            <tr><td class="k">Editing photos</td><td>No rotation, cropping or raw development. It is a tool for looking and choosing (saving the picture on screen, and copying or moving files, are there)</td></tr>
             <tr><td class="k">AI culling or face detection</td><td>Deliberate. The person who took the photo decides</td></tr>
             <tr><td class="k">Tags and keywords</td><td>None. There are exactly two marks, ★ and ⚑</td></tr>
             <tr><td class="k">Changing the sort order</td><td>Newest capture date first, with no way to change it</td></tr>
@@ -235,7 +236,7 @@
           <tbody>
             <tr><td class="k">Outbound connections</td><td>One update check at startup, automatic at most once a day. All it sends is "pictkura version X is asking"</td></tr>
             <tr><td class="k">Never sent</td><td>Photos, file names, folder paths, usage. <strong class="em">There is no analytics or telemetry of any kind</strong></td></tr>
-            <tr><td class="k">Turning it off</td><td>Settings → About pictkura → "Check for updates at startup". With it off, the app never reaches the network</td></tr>
+            <tr><td class="k">Turning it off</td><td>Settings → About → "Check for updates at startup". With it off, the app never reaches the network</td></tr>
             <tr><td class="k">Cloud-only files</td><td>Never fetched on their own. The real file is pulled only when you actually look at that photo</td></tr>
             <tr><td class="k">Deleting</td><td>Always through the recycle bin. pictkura never removes a file outright</td></tr>
             <tr><td class="k">Record of failures</td><td>Only the things that did not work are appended to <code>pictkura.log</code> (lines can contain file names and folder paths). <strong class="em">Nothing sends it anywhere</strong> — open it from Settings to read it, and delete it whenever you like</td></tr>

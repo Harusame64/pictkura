@@ -88,13 +88,13 @@
     <section id="collect">
       <h2 class="disp"><span class="num">1</span>What the app collects</h2>
       <p>Nothing. Your photos, their contents, their file names, your folder structure and what you do in the app are handled entirely on your own computer and are never transmitted. There is no analytics, no usage tracking and no automatic crash reporting built into the app.</p>
-      <p>The app does keep a record of <strong class="em">the things that did not work</strong> — a read that fell over part-way, a sidecar it could not move to the recycle bin — appending one line each to a file on your own computer (<code>pictkura.log</code>, in the settings folder). Those lines can contain file names and folder paths. <strong class="em">Nothing sends them anywhere.</strong> You can read the file from Settings → “About pictkura” → “Open the log”, and delete it whenever you like.</p>
+      <p>The app does keep a record of <strong class="em">the things that did not work</strong> — a read that fell over part-way, a sidecar it could not move to the recycle bin — appending one line each to a file on your own computer (<code>pictkura.log</code>, in the settings folder). Those lines can contain file names and folder paths. <strong class="em">Nothing sends them anywhere.</strong> You can read the file from Settings → “About” → “Open the log”, and delete it whenever you like.</p>
     </section>
 
     <section id="network">
       <h2 class="disp"><span class="num">2</span>The app's only outbound connection</h2>
       <p>A few seconds after it starts, pictkura checks whether a newer version has been published. <strong class="em">That automatic check happens at most once a day</strong> (the "Check for updates" button asks immediately, each time you press it). The request carries only "pictkura version X is asking" — no photos, no file names, no folder paths, and no identifier for you or your machine.</p>
-      <p>The check reads GitHub's release information. As with any network request, your IP address is visible to the party you connect to (GitHub, Inc.). Turning off Settings → About pictkura → "Check for updates at startup" means <strong class="em">the app never reaches the network at all</strong> (the "Check for updates" button next to it still asks, once, when you press it).</p>
+      <p>The check reads GitHub's release information. As with any network request, your IP address is visible to the party you connect to (GitHub, Inc.). Turning off Settings → About → "Check for updates at startup" means <strong class="em">the app never reaches the network at all</strong> (the "Check for updates" button next to it still asks, once, when you press it).</p>
     </section>
 
     <section id="cloud">
