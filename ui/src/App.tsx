@@ -433,6 +433,25 @@ function aspectOf(item: MediaItem): number {
 /** 「今後表示しない」を覚えておく先（案内は毎回出すと邪魔になる） */
 const DECODER_NOTICE_KEY = "pictkura.decoderNotice";
 
+/**
+ * **字を打てない `<input>` の型**（2026-09-08）。
+ *
+ * キーの受け口は「入力中なら1文字ショートカットを止める」を `tagName` で見ていたが、
+ * **チェックボックスも `INPUT`** である。**押しても字は入らない**ので、
+ * ここを「入力中」に数えると、**その焦点のあいだショートカットが全部死ぬ**。
+ */
+const NON_TEXT_INPUT_TYPES = new Set([
+  "checkbox",
+  "radio",
+  "button",
+  "submit",
+  "reset",
+  "file",
+  "range",
+  "color",
+  "image",
+]);
+
 export default function App() {
   /** タイムラインの骨組み（日付→枚数、新しい日付順）。全件レコードは持たない */
   const [summary, setSummary] = useState<DaySummary[]>([]);
@@ -796,6 +815,33 @@ export default function App() {
   const selectedRef = useRef<ReadonlySet<number>>(new Set());
   const selectAllRef = useRef<() => Promise<void>>(async () => {});
   const clearSelectionRef = useRef<() => void>(() => {});
+  /**
+   * **いま「手前に幕」が在るか**（関所・ウィザード・設定・一覧・パレット・メニュー）。
+   *
+   * **常時のハンドラ（`[]` で張る）から読む**ためだけに在る。
+   * **キーで出す軽い幕（パレット・ショートカット一覧）を、この上に重ねない**
+   * ——重ねると **`Esc` の1押しを2つが食う**（片方は利用者が閉じたつもりの
+   * 無いものまで畳む）。関所（`z-index: 350`）に至っては**軽い幕のほうが
+   * 下に生まれる**ので、**見えない面に入力の焦点だけが移る**。
+   */
+  const curtainRef = useRef(false);
+  /**
+   * **関所（ごみ箱の直前の確認）が立っているか**。`curtainRef` と分けてあるのは、
+   * **待たせる相手が関所のときだけ**だからである（設定やウィザードの上に
+   * ウィザードが重なるのは、少なくとも見える）。
+   */
+  const gateUpRef = useRef(false);
+  /**
+   * **関所が閉じるまで待たせた取り込みの要求**（AutoPlay と2重起動の道）。
+   *
+   * **黙って捨てない**——カードを挿した人には、**関所を片付けたあとで
+   * ウィザードが出る**。関所の裏に開くと、**見えない面が `Esc` を食う**。
+   *
+   * **覚えるのは1つだけ**（後から来たほうが残る）。**ウィザードは1枚しか無い**ので、
+   * 関所の最中に2枚挿されたら**どちらか片方しか開けない**——
+   * **最後に挿したカードのほうが、その人の用である見込みが高い**。
+   */
+  const pendingWizardRef = useRef<{ startPath?: string } | null>(null);
   /**
    * **2本目の道（`⌘/Ctrl + ,` と macOS のメニュー）から設定を開く**。
    *
@@ -1876,10 +1922,54 @@ export default function App() {
   // ウィザードを開く。startPath指定時（ドライブクリック）はそのフォルダから始める。
   // 同じパスで開き直されても中身を読み直せるよう、要求ごとに番号を進める
   const openWizard = useCallback((startPath?: string) => {
+    // **関所（ごみ箱の直前の確認）の裏には開かない**（2026-09-08）。
+    // 関所は `z-index: 350`、ウィザードは 200 なので、**開いても見えない面が
+    // 生まれ、`Esc` の1押しをそちらが食う**——押した人には「関所が閉じない」に見える。
+    //
+    // **要求は覚えておく。** カードを挿した人に何も起きないのは**黙る口**なので、
+    // **関所が片付いた時点で開く**（下の効果）。この道は AutoPlay と2重起動から来る
+    if (gateUpRef.current) {
+      pendingWizardRef.current = { startPath };
+      return;
+    }
+    // **開く前に、軽い幕を畳む**（[`openSettingsBySecondDoor`] と同じ作法）。
+    // **この道はキーではなく出来事から来る**——AutoPlay と2重起動——ので、
+    // **一覧（400）やメニュー（300）が開いている最中に飛んでくる**。
+    // 畳まないと**ウィザード（200）がその下に生まれ**、`Esc` の1押しで
+    // **上の幕とウィザードが同時に閉じる**（＝挿したカードの用が黙って消える）。
+    // **設定は `dismiss` で畳ませる**（下の `<SettingsDialog>`）
+    setPaletteOpen(false);
+    setShortcutsOpen(false);
+    setMenu(null);
     setWizardStart(startPath);
     setWizardNonce((n) => n + 1);
     setWizardOpen(true);
   }, []);
+
+  // **関所が立ったら、関所より下の軽い幕は畳む**（2026-09-08）。
+  //
+  // 右クリックのメニュー（`z-index: 300`）とパレット（200）は**関所（350）より下**
+  // なので、開いたままだと**見えない物が `Esc` を食う**——押した人には
+  // 「関所で Esc が効かない」に見える。**どちらも覚えている物が無い**
+  // （メニューは項目だけ、パレットは打ち直せる検索語）ので、**畳んでよい**。
+  // **設定は畳まずに「畳め」と言う**（打ちかけの自由記述があるため。`dismiss` の項）。
+  //
+  // **ショートカット一覧（400）は畳まない**——**関所より手前に出る**ので、
+  // あれが `Esc` を取るのが正しい。
+  useEffect(() => {
+    if (rejectGate === null) return;
+    setMenu(null);
+    setPaletteOpen(false);
+  }, [rejectGate]);
+
+  // **関所が片付いたら、待たせていた取り込みを開く**（上の `openWizard`）
+  useEffect(() => {
+    if (rejectGate !== null) return;
+    const pending = pendingWizardRef.current;
+    if (pending === null) return;
+    pendingWizardRef.current = null;
+    openWizard(pending.startPath);
+  }, [rejectGate, openWizard]);
 
   // USB/SDカードの自動起動（AutoPlay）で「pictkuraで取り込む」が選ばれたとき、
   // そのドライブで取り込みウィザードを開く。2重起動はバックエンドが
@@ -3710,25 +3800,56 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       // 文字入力中はビューアの1文字ショートカットを効かせない。
       // パレットはビューアの上にも開けるので、"family" と打つと f で★が
-      // トグルされ i で撮影情報が開き、スペースでスライドショーが始まってしまう
+      // トグルされ i で撮影情報が開き、スペースでスライドショーが始まってしまう。
+      //
+      // **`<input>` なら何でも「入力中」ではない**（2026-09-08）。
+      // ウィザードのチェックボックスも `tagName === "INPUT"` なので、
+      // **関所がウィザードの上に立っているとき、焦点がチェックに在ると
+      // `Esc` がどこにも届かなくなっていた**——ここで「入力中」として弾かれ、
+      // ウィザードのほうは関所に譲っているため。**字を打てる口だけを数える。**
       const target = e.target as HTMLElement | null;
       const typing =
-        target?.tagName === "INPUT" ||
+        (target?.tagName === "INPUT" &&
+          !NON_TEXT_INPUT_TYPES.has((target as HTMLInputElement).type)) ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
-      // **設定が開いているあいだも通さない**（2026-09-08）。この工事で
-      // **設定がビューアの上から開けるようになった**——`⌘/Ctrl + ,` と
-      // macOS のメニュー。歯車はビューアの幕の下なので、この組み合わせは
-      // **これまで作れなかった**。塞がないと、設定の上で `x` がうしろの写真に
-      // ✕ を付け、`Esc` の1押しが「設定を閉じる」と「ビューアを閉じる」を
-      // 同時に起こす。**一覧側の受け口（下）は最初からこれを見ている。**
+      // **手前に幕が在るあいだは、1つも通さない。**
+      //
+      // **設定**（2026-09-08・#136）——`⌘/Ctrl + ,` とメニューで
+      // **ビューアの上から開けるようになった**。歯車はビューアの幕の下なので、
+      // この組み合わせは**それまで作れなかった**。
+      //
+      // **ウィザードと右クリックのメニュー**（2026-09-08・win が実機で捕まえた）——
+      // **こちらは前から在った穴**である。ビューアの上にウィザードを出す道は2つ実在する:
+      // **パレット（`Ctrl+K`）の「USBから取り込み」**と、**USB/SD を挿したときの AutoPlay**。
+      // その状態で `Esc` を1回押すと、**ウィザードは残ったままビューアだけが閉じ**、
+      // **✕の印が在れば関所がウィザードの裏に立つ**（3回とも再現）。
+      // **見えない場所に、ごみ箱の確認が立つ**——設定について塞いだのと同じ形が、
+      // こちらには残っていた。
+      //
+      // **一覧側の受け口（下）は、いまこの並びである**——ただし
+      // **最初からそうだったのではない**（`ef235f8` は3つ、`46c8e78` で
+      // ウィザードとメニュー、`40e370f` で一覧が足された）。
+      // **どれも門の指摘で1つずつ足された**もので、**ここも同じ道を通った。**
+      // **並びは `z-index` の順である**（2026-09-08）。**`Esc` は、いちばん手前の
+      // 物が取る**——ここで関所より手前の幕を先に落とし、次に関所を見て、
+      // **関所より下の幕（ウィザード・右クリックのメニュー）はそのあと**に落とす。
+      //
+      // パレット（200）と設定（200）は**関所が立つと畳まれる／開かない**ので、
+      // ここに残るのは実質**ショートカット一覧（400）**である。あれは
+      // **関所より手前に出る**ので、あの `Esc` はあれのものでよい。
       if (paletteOpen || shortcutsOpen || settingsOpen || typing) return;
       // 関所が開いているあいだは、下のキーを一切通さない（0.2 ③）。
-      // Escapeは「関所を閉じる」＝ビューアへ戻る（印はそのまま）
+      // Escapeは「関所を閉じる」＝ビューアへ戻る（印はそのまま）。
+      //
+      // **ウィザードが開いていても、ここへ来る**（関所のほうが手前だから）
+      // ——**あちらは `gateUp` を見て `Esc` を譲る**ので、二重に閉じない。
+      // 右クリックのメニューは、関所が立った時点で畳んである（下の効果）
       if (rejectGate) {
         if (e.key === "Escape" && !trashing) setRejectGate(null);
         return;
       }
+      if (wizardOpen || menu !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -3812,6 +3933,8 @@ export default function App() {
     paletteOpen,
     shortcutsOpen,
     settingsOpen,
+    wizardOpen,
+    menu,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -3863,15 +3986,22 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setPaletteOpen((p) => !p);
+        // **手前に幕が在るときは開かない**（`curtainRef` の項）。**閉じるのは通す**
+        // ——開いている物を畳む道まで塞ぐ理由は無い
+        setPaletteOpen((p) => (p ? false : !curtainRef.current));
         return;
       }
       // **設定への2本目の道**（2026-09-07）。
       //
-      // 入口は**ツールバーの歯車1つだけ**だった。あれは**独語だと 1072px 未満で
-      // 押し出される**（実測。960 でも 1024 でも消える）——`.search-box` は
-      // 160px まで縮むが、**文字の入ったボタンは縮まない**ので、
-      // 溢れるぶんは必ず右端（歯車・サイズ・件数）から落ちる。
+      // 入口は**ツールバーの歯車1つだけ**だった。`.search-box` は 160px まで
+      // 縮むが、**文字の入ったボタンは縮まない**ので、溢れれば**必ず右端
+      // （歯車・サイズ・件数）から落ちる**。
+      //
+      // **落ち始める幅は台で違う。** **macOS の独語では 1072px 未満**で歯車が
+      // 消える（2026-09-07 実測。960 でも 1024 でも消える）が、**Windows では
+      // 960 で溢れない**（2026-09-08・win が同梱の全7言語で実測。切れ始めるのは
+      // 620 付近。**差は字体と見ているが、どちらも測っていない**）。
+      // **だからこの道の理由は「幅」ではなく「入口が1つしか無いこと」**である。
       //
       // **`Cmd/Ctrl + ,` は両方の台で効く。** macOS にはメニューの
       // 「設定…」も足したが、**メニューを組むのは macOS だけ**なので、
@@ -3914,7 +4044,11 @@ export default function App() {
       if (typing) return;
       if (e.key === "?" || e.key === "F1") {
         e.preventDefault();
-        setShortcutsOpen((v) => !v);
+        // パレットと同じ——**手前に幕が在るときは開かない。閉じるのは通す**。
+        // 一覧は `z-index: 400` で**関所より手前に出る**ので見えはするが、
+        // **`Esc` の1押しをこちらとウィザード（や設定）が同時に食う**
+        // ——**畳んだつもりの無いものが畳まれる**（選びかけの取り込みが消える）
+        setShortcutsOpen((v) => (v ? false : !curtainRef.current));
       } else if (e.key === "Escape") {
         // **開いていたら閉じるだけ**。他のEsc（ビューアを閉じる・選択解除）は
         // それぞれの担当が見ているので、ここでは畳むだけにして横取りしない
@@ -4169,6 +4303,14 @@ export default function App() {
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
   useLayoutEffect(() => {
+    curtainRef.current =
+      rejectGate !== null ||
+      wizardOpen ||
+      settingsOpen ||
+      shortcutsOpen ||
+      paletteOpen ||
+      menu !== null;
+    gateUpRef.current = rejectGate !== null;
     openSettingsRef.current = openSettingsBySecondDoor;
     selectedRef.current = selected;
     selectAllRef.current = selectAll;
@@ -4390,6 +4532,9 @@ export default function App() {
   const finishGate = useCallback(
     (gate: { closeAfter: boolean; quitAfter?: boolean }) => {
       if (gate.quitAfter) {
+        // **待たせていた取り込みは捨てる**（2026-09-08）。ここは**窓を壊す道**で、
+        // 開いても**死につつある窓の上**にしか出ない
+        pendingWizardRef.current = null;
         void getCurrentWindow().destroy();
         return;
       }
@@ -5891,6 +6036,16 @@ export default function App() {
       )}
       <ImportWizard
         open={wizardOpen}
+        // **`Esc` を、手前の物へ譲らせる**（あちらのキーの節）。
+        //
+        // 関所（350）はこの面より手前。**設定も手前である**——同じ 200 だが、
+        // **描かれる順でこの面より後**なので上に乗る。
+        //
+        // **設定を畳ませるのではなく、ウィザードに譲らせる**（2026-09-08）。
+        // 畳ませると**設定の閉じる道が走り、打ちかけの自由記述が確定してしまう**
+        // ——**カードを挿しただけで、書きかけのフォルダ構成が保存される**のは
+        // 行き過ぎである（あれは数千枚の行き先を決める設定で、後から直しにくい）
+        yieldEsc={rejectGate !== null || settingsOpen}
         onClose={() => setWizardOpen(false)}
         drives={drives}
         config={config}

@@ -77,6 +77,7 @@ const listedFiles = (files: SourceFile[]): ListedFile[] =>
 
 export default function ImportWizard({
   open: isOpen,
+  yieldEsc = false,
   onClose,
   drives,
   config,
@@ -87,6 +88,11 @@ export default function ImportWizard({
   onConfigChanged,
 }: {
   open: boolean;
+  /**
+   * **この面より手前に、`Esc` を取るべき物が在るか**（2026-09-08）。
+   * **譲るためだけに要る**——理由は下のキーの節にある。
+   */
+  yieldEsc?: boolean;
   onClose: () => void;
   drives: DriveInfo[];
   config: AppConfig | null;
@@ -352,13 +358,20 @@ export default function ImportWizard({
     if (view.path) loadView(view.path, view.deep);
   }, [isOpen, loadView]);
 
+  // **`Esc` は、いちばん手前の物が取る**（2026-09-08）。
+  //
+  // **関所（ごみ箱の直前の確認）はこの面より手前に立つ**（`z-index` 350 対 200）。
+  // **設定も手前である**——同じ 200 だが、描かれる順でこちらが下になる。
+  // どちらかが在るあいだにこちらが `Esc` を食うと、**見えている面は閉じず、
+  // うしろでこの面だけが畳まれる**——押した人には「Esc が効かない」に見えるうえ、
+  // **選びかけの取り込みが消える**。**譲る**のが正しい。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy && !yieldEsc) onClose();
     };
     if (isOpen) window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isOpen, busy, onClose]);
+  }, [isOpen, busy, yieldEsc, onClose]);
 
   if (!isOpen) return null;
 
