@@ -168,7 +168,7 @@ export const es419: Dict = {
         ["Doble clic", "Tamaño real 100 % ⇔ ajustar a la ventana"],
         ["Rueda", "Acercar / alejar"],
         ["Arrastrar", "Moverse por la imagen ampliada"],
-        ["Clic derecho", "Abrir / abrir con / mostrar en la carpeta / mover a la papelera"],
+        ["Clic derecho", "Abrir / Abrir con otra aplicación… / Mostrar en la carpeta / Agregar a Favoritos / Marcar con un indicador / Borrar (mover a la papelera)"],
         ["Pulsar la tira", "Ir a esa foto"],
       ],
     },

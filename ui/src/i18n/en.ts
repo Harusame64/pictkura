@@ -69,7 +69,7 @@ export const en: Dict = {
         ["Double-click", "Actual size 100% ⇔ fit to screen"],
         ["Wheel", "Zoom in / out"],
         ["Drag", "Move around while zoomed in"],
-        ["Right-click", "Open / open with / show in folder / move to trash"],
+        ["Right-click", "Open / Open with another app… / Show in folder / Add to favorites / Pick / Delete (move to trash)"],
         ["Click the strip", "Jump to that photo"],
       ],
     },

@@ -103,7 +103,7 @@ export const de: Dict = {
         ["Doppelklick", "Originalgröße 100 % ⇔ an das Fenster anpassen"],
         ["Mausrad", "Vergrößern / verkleinern"],
         ["Ziehen", "Im vergrößerten Bild verschieben"],
-        ["Rechtsklick", "Öffnen / Öffnen mit / im Ordner zeigen / in den Papierkorb"],
+        ["Rechtsklick", "Öffnen / Mit anderer App öffnen… / Im Ordner zeigen / Zu Favoriten hinzufügen / Als Auswahl markieren / Löschen (in den Papierkorb)"],
         ["Auf den Streifen klicken", "Zu diesem Foto springen"],
       ],
     },

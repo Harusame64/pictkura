@@ -328,6 +328,10 @@ body[lang="en"] .metrics p { line-height: 1.7; }
    カードが下地で塗り返す作りなので、**空いた升はそのまま線の色の四角**として残る
    （2026-09-08、spec にカードを1枚足して踏んだ） */
 .cards.c2 > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* 3列も同じ。**余りが1枚なら横いっぱい、2枚なら最後を2列ぶん**にして升を埋める
+   （いまの3つの組は 3・3・6 なので出ないが、**1枚足した人が踏む**のはこちらも同じ） */
+.cards.c3 > div:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+.cards.c3 > div:last-child:nth-child(3n + 2) { grid-column: span 2; }
 .cards > div { background: var(--bg); padding: 34px 32px 38px; display: flex; flex-direction: column; gap: 12px; }
 .section.deep .cards > div { background: var(--bg-deep); }
 /* 写真の上に置くカードは、下の森が薄く透けるくらいに留める（枠線は残す） */
