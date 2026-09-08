@@ -3818,9 +3818,10 @@ export default function App() {
   useEffect(() => {
     if (viewer === null) return;
     /**
-     * 選別の判定キーか（0.2 ②）。**修飾キーと一緒なら見送る**——
-     * `Ctrl` + `P` はブラウザ由来の印刷で、押した人に⚑を付ける気は無い。
-     * 他の1文字キーと違い、判定は写真の状態を書き換えるので念を入れる
+     * 写真の状態を書き換える1文字キーか（0.2 ②）。**修飾キーと一緒なら見送る**——
+     * `Ctrl` + `P` はブラウザ由来の印刷、`Ctrl` + `F` は頁内検索の手癖で、
+     * **押した人に⚑や★を付ける気は無い**。他の1文字キーと違い、
+     * ここは写真の状態を書き換えるので念を入れる
      */
     const judging = (e: KeyboardEvent, key: string) =>
       e.key.toLowerCase() === key && !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -3915,7 +3916,10 @@ export default function App() {
       if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
-      else if (e.key === "f" || e.key === "F") {
+      // **`F` も判定と同じ扱いにする**（2026-09-08）。★も**写真の状態を書き換える**のに、
+      // ここだけ修飾キーを見ていなかった——**`⌘F` / `Ctrl+F`（頁内検索の手癖）で
+      // 黙って★が付く**。Windows では WebView2 の検索バーがその上に出る
+      else if (judging(e, "f")) {
         if (viewerItem) favoriteViewer(viewerItem);
       } else if (judging(e, "p")) {
         if (viewerItem) judgeViewer(viewerItem, true);
