@@ -335,6 +335,7 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `year:2019` | filter to a single year |
 | `★` | favorites only |
 | `⚑` / `pick:` | picked photos only |
+| `kind:raw` / `kind:video` | filter by kind (`image` / `raw` / `video`) |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
 
@@ -348,13 +349,18 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | `P` / `U` | pick (flag it ⚑) / clear this photo's judgement (removes both ⚑ and ✕). By default this **moves on to the next photo**; you can turn that off in settings |
 | `X` | reject it (✕). **Nothing is deleted when you press it** — closing the viewer shows you the faces first, then moves them all to the recycle bin at once |
 | `Space` | slideshow (play / pause for video) |
+| `F` | toggle favorite (★) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
+| `Ctrl` + `C` / `Ctrl` + `S` | copy the picture on screen to the clipboard / save it to a file (`⌘` on macOS) |
+| `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `F11` | full screen |
 | `Esc` | close |
-| `?` | show the keyboard shortcuts (from anywhere) |
+| `?` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
+| `Ctrl` + `,` | open Settings (`⌘` + `,` on macOS, or pictkura → Settings… in the menu) |
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
-open / open with / show in folder / move to trash. **Deleting always goes through the
+“Open”, “Open with another app…”, “Show in folder”, “Add to favorites”, “Pick” and
+“Delete (move to trash)” (editors you have used before sit just under “Open”). **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright.
 
 ### 6. Select several at once
@@ -418,7 +424,7 @@ download page in your browser. **The app never replaces itself.**
 
 That is **the only outbound connection the app makes**. All it sends is “pictkura version X
 is asking” — no photos, no file names, no folder paths. Turn off ⚙ (Settings) →
-**About pictkura** → “Check for updates at startup” and pictkura never reaches the network
+**About** → “Check for updates at startup” and pictkura never reaches the network
 at all (the “Check for updates” button next to it still asks, once, when you press it).
 
 ---
@@ -615,7 +621,7 @@ Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
 Failures are appended, one line each, to `pictkura.log` in that same folder — created only
-when something fails, never sent anywhere, and opened from Settings → About pictkura →
+when something fails, never sent anywhere, and opened from Settings → About →
 "Open the log". `eprintln!` reaches nobody in a distributed build (a release Windows binary
 has no console), so what happens on someone else's machine is recorded here or nowhere.
 

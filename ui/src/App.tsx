@@ -3818,9 +3818,22 @@ export default function App() {
   useEffect(() => {
     if (viewer === null) return;
     /**
-     * 選別の判定キーか（0.2 ②）。**修飾キーと一緒なら見送る**——
-     * `Ctrl` + `P` はブラウザ由来の印刷で、押した人に⚑を付ける気は無い。
-     * 他の1文字キーと違い、判定は写真の状態を書き換えるので念を入れる
+     * 写真の状態を書き換える1文字キーか（0.2 ②）。**修飾キーと一緒なら見送る**——
+     * `Ctrl` + `P` はブラウザ由来の印刷、`Ctrl` + `F` は頁内検索の手癖で、
+     * **押した人に⚑や★を付ける気は無い**。他の1文字キーと違い、
+     * ここは写真の状態を書き換えるので念を入れる。
+     *
+     * **見送るだけで、食べてはいない。** `Ctrl+S` は
+     * [`browser_accelerator_keys`] の既定が `true` なので**常時のハンドラで食べている**が、
+     * `Ctrl+F` と `Ctrl+P` は素通しである。**Windows で実測した**（2026-09-08・win）:
+     *
+     * - **`Ctrl+F`**: WebView2 の検索バーが窓の右上に出て、**焦点を持っていく**
+     *   ——そのあと `→` も `i` もビューアに届かない。`Esc` の1打目は検索バーを閉じるだけ
+     * - **`Ctrl+P`**: 印刷プレビューが全面に出て、**「合計: 1242 枚の用紙」**
+     *   ——**一覧ごと紙に流し込もうとする**
+     *
+     * **どちらも★も⚑も付かない**（この門は効いている）。**食べるのは別の直しにする。**
+     * **`PrintWindow` では検索バーが写らない**ので、**画で「出ていない」と読まないこと**
      */
     const judging = (e: KeyboardEvent, key: string) =>
       e.key.toLowerCase() === key && !e.ctrlKey && !e.metaKey && !e.altKey;
@@ -3915,7 +3928,10 @@ export default function App() {
       if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
-      else if (e.key === "f" || e.key === "F") {
+      // **`F` も判定と同じ扱いにする**（2026-09-08）。★も**写真の状態を書き換える**のに、
+      // ここだけ修飾キーを見ていなかった——**`⌘F` / `Ctrl+F`（頁内検索の手癖）で
+      // 黙って★が付く**。Windows では WebView2 の検索バーがその上に出る
+      else if (judging(e, "f")) {
         if (viewerItem) favoriteViewer(viewerItem);
       } else if (judging(e, "p")) {
         if (viewerItem) judgeViewer(viewerItem, true);
