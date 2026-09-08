@@ -360,7 +360,7 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 “Open”, “Open with another app…”, “Show in folder”, “Add to favorites”, “Pick” and
-“Delete (move to trash)” (editors you have used before appear above these). **Deleting always goes through the
+“Delete (move to trash)” (editors you have used before sit just under “Open”). **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright.
 
 ### 6. Select several at once

@@ -328,10 +328,9 @@ body[lang="en"] .metrics p { line-height: 1.7; }
    カードが下地で塗り返す作りなので、**空いた升はそのまま線の色の四角**として残る
    （2026-09-08、spec にカードを1枚足して踏んだ） */
 .cards.c2 > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
-/* 3列も同じ。**余りが1枚なら横いっぱい、2枚なら最後を2列ぶん**にして升を埋める
-   （いまの3つの組は 3・3・6 なので出ないが、**1枚足した人が踏む**のはこちらも同じ） */
-.cards.c3 > div:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
-.cards.c3 > div:last-child:nth-child(3n + 2) { grid-column: span 2; }
+/* 3列のときの余り埋めは、**3列である幅の枠の中**に置いてある（下の
+   `@media not all and (max-width: 900px)`）——**列数が変わると余りの数も変わる**ので、
+   ここに書くと狭い幅で逆に升を空ける */
 .cards > div { background: var(--bg); padding: 34px 32px 38px; display: flex; flex-direction: column; gap: 12px; }
 .section.deep .cards > div { background: var(--bg-deep); }
 /* 写真の上に置くカードは、下の森が薄く透けるくらいに留める（枠線は残す） */
@@ -526,6 +525,10 @@ body[lang="en"] .cards p { line-height: 1.75; }
    スクロール箱に押し込めてしまう（下の 900px の注記）。ゲート2が実測で見つけた */
 @media not all and (max-width: 900px) {
   .doc-nav { max-height: calc(100vh - 120px); overflow-y: auto; }
+  /* **3列のときの余り埋め**（`.cards` の項）。**余りが1枚なら横いっぱい、2枚なら2列ぶん**。
+     いまの3つの組は 3・3・6 なので画面は変わらない——**1枚足した人のために置いてある** */
+  .cards.c3 > div:last-child:nth-child(3n + 1) { grid-column: 1 / -1; }
+  .cards.c3 > div:last-child:nth-child(3n + 2) { grid-column: span 2; }
 }
 
 .table-scroll { overflow-x: auto; }
