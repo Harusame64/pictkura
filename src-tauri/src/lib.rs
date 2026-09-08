@@ -2176,7 +2176,7 @@ fn log_path() -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-/// 失敗の記録をOSの既定のアプリで開く（設定 →「pictkura について」）。
+/// 失敗の記録をOSの既定のアプリで開く（設定 →「このアプリについて」）。
 ///
 /// **パスは受け取らない。** 開くのは[置き場が決まっている1本](applog::file)だけで、
 /// フロントから来た文字列は使わない（`open_bundled_doc` と同じ理由）。

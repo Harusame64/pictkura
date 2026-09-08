@@ -92,7 +92,7 @@ export const de: Dict = {
         ["F", "Favorit (★) an- und abschalten"],
         ["I", "Aufnahmedaten (Kamera, Objektiv, Blende, ISO, GPS)"],
         ["Leertaste", "Diashow. Bei einem Video: abspielen / anhalten"],
-        ["1 / 0", "Originalgröße 100 % / an das Fenster anpassen"],
+        ["1 / 0", "1 wechselt zwischen Originalgröße 100 % und „an das Fenster anpassen“; 0 passt immer an"],
         ["F11", "Vollbild"],
         ["Esc", "Schließen"],
       ],

@@ -352,14 +352,14 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | `F` | toggle favorite (★) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `Ctrl` + `C` / `Ctrl` + `S` | copy the picture on screen to the clipboard / save it to a file (`⌘` on macOS) |
-| `1` / `0` | actual size 100% / fit to screen |
+| `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `F11` | full screen |
 | `Esc` | close |
 | `?` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
 | `Ctrl` + `,` | open Settings (`⌘` + `,` on macOS, or pictkura → Settings… in the menu) |
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
-open / open with / show in folder / move to trash. **Deleting always goes through the
+“Open”, “Open with another app…”, “Show in folder” and “Delete (move to trash)”. **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright.
 
 ### 6. Select several at once

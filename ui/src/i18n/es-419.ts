@@ -157,7 +157,7 @@ export const es419: Dict = {
         ["F", "Poner o quitar favorita (★)"],
         ["I", "Datos de la toma (cámara, objetivo, diafragma, ISO, GPS)"],
         ["Espacio", "Pase de diapositivas. En un video, reproducir / pausar"],
-        ["1 / 0", "Tamaño real 100 % / ajustar a la ventana"],
+        ["1 / 0", "1 alterna entre tamaño real 100 % y ajustar a la ventana; 0 siempre ajusta"],
         ["F11", "Pantalla completa"],
         ["Esc", "Cerrar"],
       ],

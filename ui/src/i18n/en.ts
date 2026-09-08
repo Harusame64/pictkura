@@ -58,7 +58,7 @@ export const en: Dict = {
         ["F", "Toggle favorite (★)"],
         ["I", "Capture details (camera, lens, aperture, ISO, GPS)"],
         ["Space", "Slideshow. On a video, play / pause"],
-        ["1 / 0", "Actual size 100% / fit to screen"],
+        ["1 / 0", "1 toggles actual size 100% ⇔ fit to screen; 0 always fits"],
         ["F11", "Full screen"],
         ["Esc", "Close"],
       ],
