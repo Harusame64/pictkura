@@ -23,6 +23,7 @@ import {
 } from "./api";
 import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /**
  * 取り込みウィザード（第5部 段階E）。PlayMemories Home のように
@@ -78,6 +79,7 @@ const listedFiles = (files: SourceFile[]): ListedFile[] =>
 export default function ImportWizard({
   open: isOpen,
   yieldEsc = false,
+  graceOnOpen = false,
   onClose,
   drives,
   config,
@@ -93,6 +95,12 @@ export default function ImportWizard({
    * **譲るためだけに要る**——理由は下のキーの節にある。
    */
   yieldEsc?: boolean;
+  /**
+   * **この面が「待たされて出た」ものか**（2026-09-08）。
+   * **真のときだけ、出た直後の `Esc` を受けない**——理由は下のキーの節にある。
+   * **自分で開けた人には掛けない**（すぐ閉じられないのは、ただの不具合に見える）。
+   */
+  graceOnOpen?: boolean;
   onClose: () => void;
   drives: DriveInfo[];
   config: AppConfig | null;
@@ -348,6 +356,22 @@ export default function ImportWizard({
     openFolder(startPath, true);
   }, [isOpen, startPath, startNonce, openFolder]);
 
+  /**
+   * **この面に「新しい用」が来た時刻**。**待たされて出た直後の `Esc` を受けない**ため
+   * （下のキーの節）。
+   *
+   * **開いた時だけでは足りない**（2026-09-08・PR側の codex）——**この面は開いたまま
+   * 使い回される**。ビューアの上にウィザードが在るとき、窓の × で**関所だけが立つ**
+   * ことがあり、そのあいだに挿されたカードは待たされる。関所を `Esc` で片付けると
+   * **開いている面へ新しい `startNonce` が流れ込む**（＝中身が入れ替わる）が、
+   * **`isOpen` は変わらない**ので、時計を開いた時だけに置くと**とっくに切れている**。
+   * **2打目が、読み込み直したばかりの取り込みを閉じる。**
+   */
+  const openedAtRef = useRef(0);
+  useEffect(() => {
+    if (isOpen) openedAtRef.current = performance.now();
+  }, [isOpen, startNonce]);
+
   // 開き直したら「済」判定と中身を読み直す（前回の取り込みで状況が変わっている）
   useEffect(() => {
     if (!isOpen) return;
@@ -365,13 +389,25 @@ export default function ImportWizard({
   // どちらかが在るあいだにこちらが `Esc` を食うと、**見えている面は閉じず、
   // うしろでこの面だけが畳まれる**——押した人には「Esc が効かない」に見えるうえ、
   // **選びかけの取り込みが消える**。**譲る**のが正しい。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy && !yieldEsc) onClose();
-    };
-    if (isOpen) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isOpen, busy, yieldEsc, onClose]);
+  //
+  // **受け口は [`useWindowEvent`] 越しに張る**——**張り替えると、その1回の
+  // `Esc` が落ちる**（ビューアが休んでいるときに実際に起きていた。あちらの節に理由）
+  useWindowEvent("keydown", isOpen, (e) => {
+    if (e.key !== "Escape" || busy || yieldEsc) return;
+    // **待たされて出た面は、その押しに答えない**（2026-09-08）。
+    //
+    // 設定を開いたままカードを挿すと、**この面は設定が閉じた瞬間に出る**
+    // ——`Esc` で設定を閉じた人の指が、**まだ次の打鍵の途中**にある。
+    // **繰り返しは `answerKey` が弾く**が、**軽く2度叩く人**は弾けない。
+    // **出て 400ms は受けない**——**挿したカードの用が、見えないまま消える**のを塞ぐ。
+    //
+    // **自分でボタンを押して開けた人には掛けない**（`graceOnOpen`）。
+    // あちらは**面を見てから押している**ので、**受けないことのほうが不具合**である
+    if (graceOnOpen && performance.now() - openedAtRef.current < 400) return;
+    // **同じ押しに二度答えない**（`answerKey` の項）。手前の幕が既に答えていたら退く
+    if (!answerKey(e)) return;
+    onClose();
+  });
 
   if (!isOpen) return null;
 
