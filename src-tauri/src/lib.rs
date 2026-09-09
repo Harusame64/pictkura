@@ -41,6 +41,8 @@ mod menu;
 const SETTINGS_MENU_ID: &str = "settings";
 // 新しい版が出ていないかの確認（0.2）。外向きの通信はこのモジュールに閉じている
 mod update;
+// 窓を、実際に載っている画面の作業領域に合わせる（残件6・7）
+mod window_fit;
 
 /// ポイズニングされていてもロックを取得する（パニックの連鎖でアプリ全体が死ぬのを防ぐ）。
 fn lock_ok<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -4738,6 +4740,10 @@ pub fn run() {
             // 網（`panics::catching`）が張っていないスレッドで落ちた場合の受け皿。
             // **配布ビルドでは、これが無いと黙って1本死ぬ**
             applog::install_panic_hook();
+
+            // **窓は設定どおりに作られたあと**（config の窓は `setup` より前に建つ）。
+            // 画面に入らない台では、ここで縮めて押し戻す
+            window_fit::fit_main_window(app.handle());
 
             // **メニューバーを、まずOSの言語で当てて掛ける**（macOSだけ・Issue #14）。
             // 画面が読み込まれたら `set_menu_locale` が正しい言語で組み直す。
