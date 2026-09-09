@@ -104,14 +104,17 @@ pub(crate) struct Fit {
     pub shrunk: bool,
 }
 
-/// 返ってきた数を信用しなくなる線（クライアント領域の論理 px）。
+/// 返ってきた矩形を信用しなくなる線（**物理 px**・枠を引いたあと）。
 ///
-/// **これより狭い作業領域を返す台は、配置ではなく値のほうを疑う。**
-/// そこまで縮めた窓を出すくらいなら、**設定どおりに出して利用者に動かしてもらう**
-/// ほうがまし——`work_area` が 0 を返す道（仮想デスクトップの取り違え、
-/// 画面が繋がっていない瞬間）が実際に在り、そこで 1 px の窓を作ると
-/// **利用者は掴む場所を失う**。
-const DISTRUST_BELOW: f64 = 320.0;
+/// **これより狭い作業領域を返す台は、配置ではなく値のほうを疑う**——`work_area` が
+/// 0 を返す道（仮想デスクトップの取り違え、画面が繋がっていない瞬間）が実際に在り、
+/// そこで 1 px の窓を作ると**利用者は掴む場所を失う**。
+///
+/// **論理 px で引いてはいけない。** 論理の寸法は倍率で割ったあとの数なので、
+/// **倍率が高いほど小さくなる**——`1366×768` を 250% で使う台は作業領域が
+/// 論理 288 しか無く、**線に掛かって工事ごと止まる**。**物理で 320 px より狭い
+/// デスクトップは実在しない**が、論理で 320 を下回るデスクトップは実在する。
+const DISTRUST_BELOW_PHYSICAL: u32 = 320;
 
 /// 作業領域と枠から、クライアント領域の論理 px を決める。
 ///
@@ -128,13 +131,22 @@ pub(crate) fn fit(
     if !scale.is_finite() || scale <= 0.0 {
         return None;
     }
-    let max = (
-        (f64::from(work.0.saturating_sub(frame.0)) / scale).floor(),
-        (f64::from(work.1.saturating_sub(frame.1)) / scale).floor(),
+    // **信用しないかどうかは、物理 px で決める。** 論理 px で線を引くと、
+    // **倍率の高い小さな画面ほど線に掛かる**——`1366×768` の作業領域 720 を 250% で
+    // 使う台は論理で 288 しか無く、**いちばんこの工事が要る配置で工事ごと止まる**
+    // （PR 側の codex）。**画面の実在を疑うなら、画面の単位で疑う。**
+    let usable = (
+        work.0.saturating_sub(frame.0),
+        work.1.saturating_sub(frame.1),
     );
-    if max.0 < DISTRUST_BELOW || max.1 < DISTRUST_BELOW {
+    if usable.0 < DISTRUST_BELOW_PHYSICAL || usable.1 < DISTRUST_BELOW_PHYSICAL {
         return None;
     }
+    // **1 論理 px を下回らせない。** 倍率が極端でも、寸法 0 の窓は頼まない。
+    let max = (
+        (f64::from(usable.0) / scale).floor().max(1.0),
+        (f64::from(usable.1) / scale).floor().max(1.0),
+    );
     let size = (want.0.min(max.0), want.1.min(max.1));
     let min = (floor.0.min(max.0), floor.1.min(max.1));
     Some(Fit {
@@ -354,6 +366,18 @@ mod tests {
         // **床はそのまま**——この配置では 960×520 が映る。
         assert_eq!(f.min, FLOOR);
         assert!(f.shrunk);
+    }
+
+    #[test]
+    fn a_small_screen_with_heavy_scaling_is_still_fitted() {
+        // `1366×768` の作業領域 720 を 250% で使う台。**論理では 265 しか無い**
+        // ——ここで止まると、**いちばんこの工事が要る配置で何もしない**（PR 側の codex）。
+        let f = fitted((1366, 720), FRAME_150, 2.5);
+        assert_eq!(f.size, (537.0, 265.0));
+        assert_eq!(f.min, (537.0, 265.0));
+        assert!(f.shrunk);
+        // 疑うのは物理のほう。**320 物理 px より狭い矩形は、値のほうを疑う。**
+        assert_eq!(fit((1366, 300), FRAME_150, 2.5, WANT, FLOOR), None);
     }
 
     #[test]
