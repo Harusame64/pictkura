@@ -186,6 +186,37 @@ fn clamp_axis(pos: i32, outer: u32, work_pos: i32, work_len: u32) -> i32 {
     clamped.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
 }
 
+/// 寸法を直したあと、窓をどこへ置くか。**`None` なら動かさない。**
+///
+/// **外形は「読んだ値」しか使わない。** 縮めた窓の外形をこちらで組み立てると、
+/// **枠の見積もりを寸法と位置で2回使う**ことになる（2026-09-16 の2ゲート目の指摘。
+/// macOS の枠は測ると `0×0`）。**`set_size` のあとで OS に訊けば、見積もりは要らない。**
+///
+/// **読めて、作業領域に収まっているなら、はみ出しているぶんだけ押し戻す**——
+/// 収まっていれば `None` で、**OS が選んだ置き場所をそのまま残す**。
+/// **これが無いと、1軸が数 px はみ出しただけの窓が、もう1軸に余白があっても
+/// 作業領域の隅へ飛ぶ**（2026-09-17、この台で実測: 作業領域 1512×884 に対して
+/// 高さだけ 6 pt 超える設定で、幅に 232 pt 余っているのに `(0, 33)` へ寄った）。
+///
+/// **読めなかったときだけ原点へ。** `set_size` がまだ効いていない台がここへ落ちる
+/// ——**外形を知らなくても「これ以上ましな置き場は無い」と言える置き方**だからである。
+///
+/// **「読めたが作業領域より大きい」に別の枝は要らない。** `clamp_axis` が既に
+/// **その軸だけ近い端へ寄せる**と決めていて、**もう1軸は余白ぶん普通に押し戻せる**——
+/// 原点へ落とすと、大きいほうの軸のために小さいほうまで動かすことになる。
+/// （最初に書いた版はその枝を持っていた。**変異で殺せなかった**——`clamp_axis` と
+/// 答えが同じだったからで、**殺せない枝は「別の規則が在る」と読む人に嘘をつく**。）
+fn landing(
+    read: Option<((i32, i32), (u32, u32))>,
+    work_pos: (i32, i32),
+    work_size: (u32, u32),
+) -> Option<(i32, i32)> {
+    match read {
+        Some((pos, outer)) => clamp_position(pos, outer, work_pos, work_size),
+        None => Some(work_pos),
+    }
+}
+
 /// 主窓を、いま載っている画面の作業領域に合わせる。**入っているなら何もしない。**
 ///
 /// **数は `tauri.conf.json` から読む**——ここに写しを置くと、
@@ -286,30 +317,31 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
 
     // **寸法が入っていても、置き場所が外なら見えない。**
     //
-    // **縮めたときは、作業領域の原点へ置く。** 縮めた窓の外形をこちらで組み立てると、
-    // **枠の見積もりが外れているとき、寸法と位置で同じ誤差を2回使う**ことになる
-    // （2ゲート目の指摘。macOS の枠は測ると `0×0`、tao を読むと題名帯ぶん違うはず）。
-    // **原点なら、外形を知らなくても「これ以上ましな置き場は無い」と言える。**
-    //
-    // **縮めていないときだけ、読んだ外形で判定する**——こちらは `set_size` を
-    // 呼んでいないので、**読んだ値がいまの値**である。
-    let moved_to = if f.shrunk {
-        Some((work.position.x, work.position.y))
-    } else {
-        window.outer_position().ok().and_then(|pos| {
-            clamp_position(
-                (pos.x, pos.y),
-                (outer.width, outer.height),
-                (work.position.x, work.position.y),
-                (work.size.width, work.size.height),
-            )
-        })
+    // **置き場所は、寸法を直した「あと」に読む。** 縮めたかどうかで読む時点を
+    // 変えないので、`set_size` を呼んだ道と呼んでいない道が同じ判定を通る。
+    let read = match (window.outer_position(), window.outer_size()) {
+        (Ok(pos), Ok(size)) => Some(((pos.x, pos.y), (size.width, size.height))),
+        _ => None,
     };
+    let moved_to = landing(
+        read,
+        (work.position.x, work.position.y),
+        (work.size.width, work.size.height),
+    );
     if let Some((x, y)) = moved_to {
-        if let Err(e) = window.set_position(PhysicalPosition::new(x, y)) {
-            applog::note(&format!(
+        // **動かしたことは書く。** 利用者から見える症状は「窓が起動時に跳んだ」で、
+        // **成功した移動こそ記録が無いと追えない**（2026-09-17 の指摘）。
+        match window.set_position(PhysicalPosition::new(x, y)) {
+            Ok(()) => applog::note(&format!(
+                "moved the window onto the work area {}: -> ({x}, {y})",
+                match read {
+                    Some(((px, py), (ow, oh))) => format!("from ({px}, {py}), outer {ow}x{oh}"),
+                    None => "without being able to read its outer rect".to_string(),
+                },
+            )),
+            Err(e) => applog::note(&format!(
                 "could not move the window onto the work area: {e}"
-            ));
+            )),
         }
     }
 }
@@ -436,6 +468,45 @@ mod tests {
         assert_eq!(
             clamp_position((-1900, 100), (800, 600), (-1920, 40), (1920, 992)),
             None
+        );
+    }
+
+    #[test]
+    fn one_axis_can_shrink_while_the_other_has_slack() {
+        // **1366×768 の 100%、ただし高さだけ足りない台**。幅は 70 px 余っている。
+        // **この形の試験が無かったので、「縮んだら隅へ飛ぶ」が見えていなかった**
+        // （2026-09-17 のレビュー）。
+        let f = fit((1366, 700), (16, 39), 1.0, (1280.0, 840.0), (960.0, 520.0)).unwrap();
+        assert!(f.shrunk);
+        assert_eq!(f.size, (1280.0, 661.0)); // 幅は要求どおり、高さだけ縮む
+    }
+
+    #[test]
+    fn a_window_that_fits_is_left_where_the_os_put_it() {
+        // **縮めた直後でも、読んだ外形が作業領域に収まっているなら動かさない。**
+        // これが `Some(work_pos)` を返していたのが 2026-09-17 の欠陥である——
+        // **この台で実測: 高さだけ 6 pt はみ出した窓が、幅に 232 pt 余っていても `(0, 33)` へ寄った。**
+        assert_eq!(landing(Some(((232, 66), (2560, 1768))), (0, 66), (3024, 1768)), None);
+    }
+
+    #[test]
+    fn a_window_that_hangs_off_is_pushed_back_only_as_far_as_needed() {
+        // 右へ 100 px はみ出している。**左端まで戻さない。**
+        assert_eq!(
+            landing(Some(((1000, 40), (1000, 600))), (0, 40), (1920, 992)),
+            Some((920, 40))
+        );
+    }
+
+    #[test]
+    fn an_unreadable_or_oversized_outer_rect_falls_back_to_the_origin() {
+        // **読めない**（`set_size` がまだ効いていない台を含む）
+        assert_eq!(landing(None, (0, 40), (1920, 992)), Some((0, 40)));
+        // **読めたが作業領域より大きい**——枠がこちらの見えない量だけ大きい台。
+        // **原点なら、外形を知らなくても「これ以上ましな置き場は無い」と言える。**
+        assert_eq!(
+            landing(Some(((10, 50), (2000, 1200))), (0, 40), (1920, 992)),
+            Some((0, 40))
         );
     }
 }
