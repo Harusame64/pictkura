@@ -57,8 +57,8 @@
 //!   何も言えない）。**なぜ食い違うかは測っていない。**
 //!
 //!   **だから、この見積もりは1回しか使わない。** 位置のほうは
-//!   **`landing` が決める**（2026-09-17 に「縮めたら原点」から変えた——1軸が数 px
-//!   はみ出しただけで隅へ飛んでいた。判定はあの関数の doc に1か所だけ置く）——**外形を組み立て直すと、
+//!   **`landing` が決める**（2026-09-17 に「縮めたら原点」から変えた。
+//!   **判定も理由もあの関数の doc に1か所だけ置く**）——**外形を組み立て直すと、
 //!   同じ誤差を寸法と位置で2回使う**（2ゲート目の指摘）。
 //!   **残る危険は寸法の側だけ**で、**`visibleFrame` が既定の 840 pt ＋ 題名帯より
 //!   低い Mac では、題名帯のぶん高い窓を頼むことになる**。
@@ -203,10 +203,18 @@ fn clamp_axis(pos: i32, outer: u32, work_pos: i32, work_len: u32) -> i32 {
 /// 待たない**（`tao-0.35.3/src/platform_impl/macos/util/async.rs:87`。隣の
 /// `set_style_mask` は `is_main_thread()` で分岐して `exec_sync` を使うので、**これは
 /// 書き分けである**）。だから直後の読みは**縮める前**を映しうる。
-/// **それでもこの規則で正しい**のは、**縮めた軸は作業領域ぴったりまで縮める**からで、
-/// 古い（大きい）値は `clamp_axis` の「作業領域より大きい軸は近い端へ」に落ち、
-/// **縮めたあとの値と同じ答えになる**——`fit_shrinks_the_overflowing_axis_to_exactly_the_usable_extent`
-/// がその前提を固定している。**縮んでいない軸だけが動かずに残る。それがこの直しの全部である。**
+/// **それでもこの規則で正しい**のは、**古い値は新しい値より小さくならない**からである
+/// ——`fit` は縮めるだけなので、縮める前の外形は縮めたあとの外形以上。
+/// **大きめの外形で押し戻すと、押し戻す量は多めになりこそすれ、足りなくなることはない**
+/// （`clamp_axis` は「作業領域より大きい軸は近い端へ」）。**つまり判定は保守側にしか外れない。**
+/// `the_shrunk_axis_never_exceeds_the_work_area` と
+/// `a_stale_rect_is_never_more_permissive_than_a_fresh_one` がその2つを固定している。
+///
+/// **ぴったりになるとは限らない**（2ゲート目の2周目）: `fit` は `floor(usable / scale)` を取るので、
+/// **倍率が usable を割り切らない台では 1〜2 px 余る**。この升の最初の版は
+/// 「縮めた軸はぴったり」と名乗っていたが、**中身は割り切れる 1 つの設定しか見ていなかった**
+/// ——**名前が一般化して、中身が例示している**形である。
+/// **縮んでいない軸だけが動かずに残る。それがこの直しの全部である。**
 ///
 /// **読めなかったときは、縮めたかどうかで割れる。** 縮めたなら原点へ——
 /// **外形を知らなくても「これ以上ましな置き場は無い」と言える置き方**で、2026-09-16 の形である。
@@ -217,8 +225,12 @@ fn clamp_axis(pos: i32, outer: u32, work_pos: i32, work_len: u32) -> i32 {
 /// **「読めたが作業領域より大きい」に別の枝は要らない。** `clamp_axis` が既に
 /// **その軸だけ近い端へ寄せる**と決めていて、**もう1軸は余白ぶん普通に押し戻せる**——
 /// 原点へ落とすと、大きいほうの軸のために小さいほうまで動かすことになる。
-/// （最初に書いた版はその枝を持っていた。**変異で殺せなかった**——`clamp_axis` と
-/// 答えが同じだったからで、**殺せない枝は「別の規則が在る」と読む人に嘘をつく**。）
+/// （最初に書いた版はその枝を持っていて、**変異で殺せなかったので消した**。
+/// **理由の読みは間違っていた**——`clamp_axis` と答えが同じだったからではなく、
+/// **升に穴が在ったから**である（2ゲート目の2周目が、枝を戻しても 17 升が全部緑のまま、
+/// **1軸だけ大きい窓がもう1軸ごと原点へ引きずられる**のを実演した）。
+/// **いま `one_oversized_axis_does_not_drag_the_other_to_the_origin` がその穴を塞いでいる。**
+/// **殺せない枝は「別の規則が在る」と読む人に嘘をつくが、殺せない理由の読み違いも同じだけ嘘をつく。**）
 fn landing(
     shrunk: bool,
     read: Option<((i32, i32), (u32, u32))>,
@@ -334,8 +346,12 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
     //
     // **置き場所は、寸法を直した「あと」に読む。** 縮めたかどうかで読む時点を
     // 変えないので、`set_size` を呼んだ道と呼んでいない道が同じ判定を通る。
+    // **位置が読めて寸法だけ読めなかったときは、冒頭で読んだ外形を使う。** 捨てて `None` に
+    // 落とすと、**位置は分かっているのに窓を原点へ運ぶ**ことになる（2ゲート目の2周目）。
+    // macOS では `set_size` がまだ効いていないので、冒頭の値はそもそも同じ物である。
     let read = match (window.outer_position(), window.outer_size()) {
         (Ok(pos), Ok(size)) => Some(((pos.x, pos.y), (size.width, size.height))),
+        (Ok(pos), Err(_)) => Some(((pos.x, pos.y), (outer.width, outer.height))),
         _ => None,
     };
     let moved_to = landing(
@@ -348,8 +364,12 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
         // **動かしたことは書く。** 利用者から見える症状は「窓が起動時に跳んだ」で、
         // **成功した移動こそ記録が無いと追えない**（2026-09-17 の指摘）。
         match window.set_position(PhysicalPosition::new(x, y)) {
+            // **「頼んだ」までしか書かない。** macOS の `set_outer_position` は
+            // `setFrameTopLeftPoint:` を主キューへ投げて `()` を返すので、`Ok(())` は
+            // **動いた証拠ではない**（2ゲート目の2周目。30行上の寸法の記録が同じ理由で
+            // 「頼んだ」と書いている）。
             Ok(()) => applog::note(&format!(
-                "moved the window onto the work area {}: -> ({x}, {y})",
+                "asked to move the window onto the work area {}: -> ({x}, {y})",
                 match read {
                     Some(((px, py), (ow, oh))) => format!("from ({px}, {py}), outer {ow}x{oh}"),
                     None => "without being able to read its outer rect".to_string(),
@@ -537,16 +557,73 @@ mod tests {
     }
 
     #[test]
-    fn fit_shrinks_the_overflowing_axis_to_exactly_the_usable_extent() {
-        // **`landing` の macOS での正しさは、この前提に乗っている。**
+    fn the_shrunk_axis_never_exceeds_the_work_area() {
+        // **`landing` の macOS での正しさが乗っている前提の片方。**
         // あちらの `set_inner_size` は `setContentSize:` を非同期に投げる（主スレッドでも待たない、
         // `tao-0.35.3/.../util/async.rs:87`）ので、直後の読みは**縮める前**を映しうる。
-        // **縮めた軸をぴったりまで縮めている限り**、古い（大きい）値も `clamp_axis` の
-        // 「大きい軸は近い端へ」に落ちて**同じ答え**になる。
-        // **ここに余白を残す変更をしたら、この升が赤くなって `landing` の doc へ連れて行く。**
-        let f = fit((3024, 1768), (0, 0), 2.0, (1280.0, 890.0), (960.0, 520.0)).unwrap();
-        assert!(f.shrunk);
-        assert_eq!(f.size.1 * 2.0, 1768.0); // 高さは作業領域ぴったり
-        assert_eq!(f.size.0, 1280.0); // 幅は要求どおり（余白は縮めない側に残る）
+        //
+        // **「ぴったりまで縮む」ではない**——`fit` は `floor(usable / scale)` を取るので、
+        // **倍率が割り切らない台では 1〜2 px 余る**。だから升は**割り切れない倍率を含む表**で、
+        // **「はみ出さない」**という弱いほうを固定する（最初の版は割り切れる1設定だけを見ていた）。
+        for (work, frame, scale, want, floor) in [
+            ((1366u32, 720u32), (22u32, 56u32), 1.5f64, (1280.0f64, 840.0f64), (960.0f64, 520.0f64)),
+            ((1920, 1032), (22, 56), 1.5, (1280.0, 840.0), (960.0, 520.0)),
+            ((1366, 720), (16, 39), 2.5, (1280.0, 840.0), (960.0, 520.0)),
+            ((3024, 1768), (0, 0), 2.0, (1280.0, 890.0), (960.0, 520.0)),
+        ] {
+            let f = fit(work, frame, scale, want, floor).unwrap();
+            let outer = (
+                (f.size.0 * scale) as u32 + frame.0,
+                (f.size.1 * scale) as u32 + frame.1,
+            );
+            assert!(
+                outer.0 <= work.0 && outer.1 <= work.1,
+                "{outer:?} does not fit {work:?} at {scale}x"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stale_rect_is_never_more_permissive_than_a_fresh_one() {
+        // **前提のもう片方。** `fit` は縮めるだけなので、**縮める前の外形は縮めたあと以上**。
+        // 大きめの外形で押し戻すと**押し戻す量は多めになりこそすれ、足りなくなることはない**
+        // ——**判定は保守側にしか外れない**。1.5x（割り切れない台）で、両方の答えが
+        // 作業領域の内側に収まることを見る。
+        let work_pos = (0, 0);
+        let work = (1366u32, 720u32);
+        let frame = (22u32, 56u32);
+        let scale = 1.5;
+        let f = fit(work, frame, scale, (1280.0, 840.0), (960.0, 520.0)).unwrap();
+        let fresh = (
+            (f.size.0 * scale) as u32 + frame.0,
+            (f.size.1 * scale) as u32 + frame.1,
+        );
+        let stale = (1280.0 * scale) as u32 + frame.0; // 縮める前の幅（もっと大きい）
+        let pos = (0, 50);
+        let with_stale = landing(true, Some((pos, (stale, fresh.1))), work_pos, work);
+        let with_fresh = landing(true, Some((pos, fresh)), work_pos, work);
+        for (label, moved) in [("stale", with_stale), ("fresh", with_fresh)] {
+            let (x, y) = moved.unwrap_or(pos);
+            assert!(
+                x >= work_pos.0 && y >= work_pos.1,
+                "{label} put the window at ({x}, {y}), outside {work_pos:?}"
+            );
+            assert!(
+                (x as i64 + i64::from(fresh.0)) <= i64::from(work.0) + i64::from(work_pos.0),
+                "{label} left the window hanging off the right"
+            );
+        }
+    }
+
+    #[test]
+    fn one_oversized_axis_does_not_drag_the_other_to_the_origin() {
+        // **消した枝が戻ってきても、この升で赤くなる。** 2ゲート目の2周目は枝を戻して 17 升を
+        // 全部緑のまま通し、**幅だけ大きい窓が高さごと原点へ引きずられる**のを実演した——
+        // `an_oversized_rect_needs_no_branch_of_its_own` は**両軸とも大きい**ので、
+        // 「矩形ごと」と「軸ごと」を割れない。
+        assert_eq!(
+            landing(true, Some(((600, 300), (2000, 600))), (0, 40), (1920, 992)),
+            Some((0, 300))
+        );
     }
 }
