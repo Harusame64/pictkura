@@ -377,6 +377,8 @@ export interface VideoStatus {
   cloud_only: boolean;
   /** 実ファイルがまだそこにあるか */
   exists: boolean;
+  /** 探した場所（見つからないときに見せる） */
+  path: string;
 }
 
 export const videoStatus = (id: number) =>

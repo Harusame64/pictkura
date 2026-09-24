@@ -789,6 +789,25 @@ body {
   line-height: 1.7;
   text-align: start;
 }
+/* 探した場所。長いパスは折り返し、選んで写せるようにする */
+.fallback-path {
+  margin-bottom: 0;
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+/* 写真の原本が見つからないとき、絵の上に重ねる（dev #23） */
+.viewer-missing-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.viewer-missing-overlay .viewer-fallback {
+  pointer-events: auto;
+}
 .fallback-actions {
   display: flex;
   gap: var(--sp-2);

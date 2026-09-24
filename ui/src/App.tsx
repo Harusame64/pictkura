@@ -2963,7 +2963,12 @@ export default function App() {
       .catch(() => {
         // 聞けなかったら今までどおり再生を試みる（黙って止めない）
         if (!cancelled)
-          setVideoInfo({ plays_in_app: true, cloud_only: false, exists: true });
+          setVideoInfo({
+            plays_in_app: true,
+            cloud_only: false,
+            exists: true,
+            path: "",
+          });
       });
     return () => {
       cancelled = true;
@@ -3070,6 +3075,34 @@ export default function App() {
       if (slow !== undefined) window.clearTimeout(slow);
     };
   }, [viewerItemId, viewerTranscoding]);
+
+  // 写真の原寸が出なかったら、**原本がそこに在るかを1回だけ訊く**（dev #23）。
+  // 配信口は「無い」も「読めない」も同じ 404 で返すので、絵の失敗だけでは
+  // 区別がつかない。**無いなら無いと名乗り、探した場所を出す**——黙って黒い面を
+  // 見せると、利用者はいちばんありふれた原因（「アプリが変」）に倒す。
+  // 訊くのは失敗したときだけ（開くたびにファイル属性を読まない）。
+  const [missingOriginal, setMissingOriginal] = useState<{
+    id: number;
+    path: string;
+  } | null>(null);
+  const failedPhotoId =
+    viewerItem && !viewerItem.is_video && fullFailedId === viewerItem.id
+      ? viewerItem.id
+      : undefined;
+  useEffect(() => {
+    if (failedPhotoId === undefined) return;
+    let cancelled = false;
+    videoStatus(failedPhotoId)
+      .then((info) => {
+        if (!cancelled && !info.exists)
+          setMissingOriginal({ id: failedPhotoId, path: info.path });
+      })
+      // 聞けなかったら今までどおり（名乗れないだけで、壊れはしない）
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [failedPhotoId]);
 
   /**
    * 原寸が出せず、下敷きのサムネイルが唯一の絵になっているか（0.2 ②）。
@@ -5540,6 +5573,9 @@ export default function App() {
                         ? t.videoFailed
                         : t.videoUnsupported}
                 </p>
+                {!videoInfo.exists && (
+                  <p className="fallback-note fallback-path">{videoInfo.path}</p>
+                )}
                 {/* 拡張機能の案内を出すのは「コンテナは扱えるのに再生できなかった」
                     ときだけ。ファイルが無い・コンテナが違う・クラウドにしか無いのを
                     コーデック不足と取り違えて、有料の拡張機能を勧めてしまわない */}
@@ -5816,6 +5852,22 @@ export default function App() {
                 {t.loading}
               </div>
             )}
+          {/* 原本が見つからない（dev #23）。**下敷きのサムネイルが出ていても出す**
+              ——あれは原本ではないので、黙って見せると「開けている」と読まれる */}
+          {viewerItem && missingOriginal?.id === viewerItem.id && (
+            <div
+              className="viewer-missing-overlay"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="viewer-fallback">
+                {/* 文言は動画と共用（写真にもそのまま当てはまる） */}
+                <p className="fallback-title">{t.videoMissing}</p>
+                <p className="fallback-note fallback-path">
+                  {missingOriginal.path}
+                </p>
+              </div>
+            </div>
+          )}
           {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
               見えていると選別が進む。クリックでそこへ飛ぶ。
 
