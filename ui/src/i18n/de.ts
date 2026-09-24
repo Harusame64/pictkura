@@ -176,7 +176,8 @@ export const de: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "Dieses Format kann in der App nicht abgespielt werden",
-  videoMissing: "Diese Datei fehlt (sie wurde wohl verschoben oder gelöscht)",
+  fileMissing: "Diese Datei fehlt (vielleicht ist ein externes Laufwerk getrennt, oder sie wurde verschoben oder gelöscht)",
+  fileUnreachable: "Diese Datei lässt sich nicht öffnen (das Laufwerk ist nicht bereit, oder der Zugriff ist nicht erlaubt)",
   videoCloudOnly: "Dieses Video liegt in der Cloud",
   videoCloudOnlyNote:
     "Wenn du es hier abspielst, startet zuerst ein Download, und bis er fertig ist, ist nichts zu sehen. Öffnest du es in der Standard-App, kannst du den Fortschritt verfolgen.",

@@ -193,7 +193,8 @@ export const es: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "Este formato no se puede reproducir en la aplicación",
-  videoMissing: "Este archivo no está (parece que se ha movido o se ha borrado)",
+  fileMissing: "Este archivo no está (puede que haya una unidad externa desconectada, o que se haya movido o borrado)",
+  fileUnreachable: "No se puede abrir este archivo (la unidad no está lista o no se permite el acceso)",
   videoCloudOnly: "Este vídeo está en la nube",
   videoCloudOnlyNote:
     "Reproducirlo aquí empieza una descarga y no se ve nada hasta que termina. Si lo abres en la aplicación predeterminada, puedes seguir el progreso de la descarga.",

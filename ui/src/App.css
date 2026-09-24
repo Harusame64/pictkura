@@ -791,22 +791,35 @@ body {
 }
 /* 探した場所。長いパスは折り返し、選んで写せるようにする */
 .fallback-path {
-  margin-bottom: 0;
   font-family: ui-monospace, monospace;
   overflow-wrap: anywhere;
   user-select: text;
 }
-/* 写真の原本が見つからないとき、絵の上に重ねる（dev #23） */
-.viewer-missing-overlay {
+/* 写真の原本が無い／開けないとき、絵の上端に敷く帯（dev #23）。
+ * **右上の道具の列の下に置く**——同じ高さに置くと、狭い窓で道具と重なる。
+ * 絵の真ん中は空けておく（右クリック・拡大・移動をそのまま効かせる） */
+.viewer-missing-band {
   position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
+  top: calc(var(--sp-3) + 44px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(640px, calc(100vw - 2 * var(--sp-6)));
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: oklch(0.2 0 0 / 0.92);
+  color: oklch(0.93 0 0);
+  box-shadow: 0 4px 24px oklch(0 0 0 / 0.5);
 }
-.viewer-missing-overlay .viewer-fallback {
-  pointer-events: auto;
+.viewer-missing-title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
+}
+.viewer-missing-band .fallback-path {
+  margin: 0;
+  color: var(--n-5);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
 }
 .fallback-actions {
   display: flex;

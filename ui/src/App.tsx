@@ -2967,6 +2967,7 @@ export default function App() {
             plays_in_app: true,
             cloud_only: false,
             exists: true,
+            presence: "present",
             path: "",
           });
       });
@@ -3084,6 +3085,7 @@ export default function App() {
   const [missingOriginal, setMissingOriginal] = useState<{
     id: number;
     path: string;
+    presence: "missing" | "unreachable";
   } | null>(null);
   const failedPhotoId =
     viewerItem && !viewerItem.is_video && fullFailedId === viewerItem.id
@@ -3101,7 +3103,9 @@ export default function App() {
       .then((info) => {
         if (!cancelled)
           setMissingOriginal(
-            info.exists ? null : { id: failedPhotoId, path: info.path },
+            info.presence === "present"
+              ? null
+              : { id: failedPhotoId, path: info.path, presence: info.presence },
           );
       })
       // 聞けなかったら今までどおり（名乗れないだけで、壊れはしない）
@@ -5572,9 +5576,11 @@ export default function App() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <p className="fallback-title">
-                  {!videoInfo.exists
-                    ? t.videoMissing
-                    : videoInfo.cloud_only
+                  {videoInfo.presence === "missing"
+                    ? t.fileMissing
+                    : videoInfo.presence === "unreachable"
+                      ? t.fileUnreachable
+                      : videoInfo.cloud_only
                       ? t.videoCloudOnly
                       : videoInfo.plays_in_app
                         ? t.videoFailed
@@ -5861,24 +5867,27 @@ export default function App() {
                 {t.loading}
               </div>
             )}
-          {/* 原本が見つからない（dev #23）。**下敷きのサムネイルが出ていても出す**
-              ——あれは原本ではないので、黙って見せると「開けている」と読まれる */}
-          {/* **原寸がいま失敗している間だけ**——戻ってきた原本が読めたら
-              `onLoad` が失敗の印を消し、この面も一緒に消える（実機で、フォルダを
+          {/* 原本が無い／開けない（dev #23）。**下敷きのサムネイルが出ていても出す**
+              ——あれは原本ではないので、黙って見せると「開けている」と読まれる。
+              **絵の上端の帯にする**（利用者の選択・2026-09-25）: 中央に置くと、
+              下敷きの絵の右クリック（削除・フォルダを開く）と拡大を塞ぐ。
+              **原寸がいま失敗している間だけ**——戻ってきた原本が読めたら
+              `onLoad` が失敗の印を消し、この帯も一緒に消える（実機で、フォルダを
               戻して開き直した NEF に面が残ったのを見てから足した条件） */}
-          {failedPhotoId !== undefined &&
-            missingOriginal?.id === failedPhotoId && (
+          {/* `missingOriginal?.id === failedPhotoId` だけにしない——両方が無いとき
+              `undefined === undefined` で真になる（tsc が止めた） */}
+          {missingOriginal !== null && missingOriginal.id === failedPhotoId && (
             <div
-              className="viewer-missing-overlay"
+              className="viewer-missing-band"
+              role="alert"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="viewer-fallback" role="alert">
-                {/* 文言は動画と共用（写真にもそのまま当てはまる） */}
-                <p className="fallback-title">{t.videoMissing}</p>
-                <p className="fallback-note fallback-path">
-                  {missingOriginal.path}
-                </p>
-              </div>
+              <p className="viewer-missing-title">
+                {missingOriginal.presence === "missing"
+                  ? t.fileMissing
+                  : t.fileUnreachable}
+              </p>
+              <p className="fallback-path">{missingOriginal.path}</p>
             </div>
           )}
           {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが

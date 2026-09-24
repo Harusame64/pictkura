@@ -195,7 +195,8 @@ export const zh: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "应用内无法播放这种格式",
-  videoMissing: "找不到这个文件（似乎已被移动或删除）",
+  fileMissing: "找不到这个文件（可能是外接驱动器未连接，或文件已被移动或删除）",
+  fileUnreachable: "无法打开这个文件（驱动器尚未就绪，或没有访问权限）",
   videoCloudOnly: "这个视频存放在云端",
   videoCloudOnlyNote:
     "在应用内播放会先开始下载，下载完成前什么也看不到。用默认应用打开，可以一边看进度一边取回。",
