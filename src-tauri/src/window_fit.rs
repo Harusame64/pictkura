@@ -769,6 +769,8 @@ mod tests {
                 for (size, floor, default) in
                     [("width", "minWidth", 800.0), ("height", "minHeight", 600.0)]
                 {
+                    // 数でない値は**この升に届かない**——tauri-build が型で先に落とす
+                    // （`invalid type: string "520", expected f64`。#144 で撃って確かめた）。
                     let size_v = match &w[size] {
                         serde_json::Value::Null => default,
                         v => v
