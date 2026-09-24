@@ -5697,6 +5697,9 @@ export default function App() {
                 ...(fallbackToThumb
                   ? { width: servedW, height: servedH, opacity: 0 }
                   : null),
+                // 原本が無い／開けないと帯が言っているとき（dev #23）も同じ手で
+                // 壊れアイコンを描かせない——理由は帯が言っている
+                ...(missingOriginal?.id === viewerItem.id ? { opacity: 0 } : null),
               }}
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => {
