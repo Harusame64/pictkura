@@ -209,9 +209,6 @@ fn clamp_axis(pos: i32, outer: u32, work_pos: i32, work_len: u32) -> i32 {
 /// （`clamp_axis` は「作業領域より大きい軸は近い端へ」）。**つまり判定は保守側にしか外れない。**
 /// `the_shrunk_axis_never_exceeds_the_work_area` と
 /// `neither_a_stale_nor_a_fresh_rect_leaves_the_window_hanging_off` がその2つを固定している。
-/// （**ここは旧名を指していた**——改名した升の旧名は、「その升は反証不能だった」と書く
-/// 注記の中にだけ残っていたので、**doc の名前で grep した読者は、保証が立っていなかった
-/// 証拠に着地していた**。dev #24。）
 ///
 /// **ぴったりになるとは限らない**（2ゲート目の2周目）: `fit` は `floor(usable / scale)` を取るので、
 /// **倍率が usable を割り切らない台では 1〜2 px 余る**。この升の最初の版は
@@ -245,30 +242,6 @@ fn landing(
         None if shrunk => Some(work_pos),
         None => None,
     }
-}
-
-/// `set_size` が**窓の寸法を本当に変える**か。**`landing` の「原点へ落とす」腕の鍵はこれ**である。
-///
-/// **`f.shrunk` では広すぎ、`f.size != want` では狭すぎる。**
-/// - `f.shrunk` は**床を下げただけの周でも真**（`min != floor`）。そのとき頼む寸法が
-///   いまの寸法と同じなら、**何も動かしていない窓を隅へ運びうる**（2ゲート目の3周目）
-/// - `f.size != want` は、**床が設定の寸法より高い窓**（`minHeight > height`）を取りこぼす。
-///   その窓は床の高さで開いているので、`set_size(want)` は**本当に縮める**——
-///   なのに `f.size == want` なので偽になり、**縮めたばかりではみ出している窓が、
-///   位置を読めなかった周にその場へ置き去りにされる**（dev #24 の2件目。変数の上の説明は
-///   「寸法を頼んだときだけ」と書いていて、**code はその性質を持っていなかった**）
-///
-/// **だから「頼む寸法」と「いまの寸法」を比べる。** 頼む寸法は `set_size` と同じ
-/// `to_physical`（`round`）で物理 px に直す——**丸めを自前で書くと、1 px ずれた周が
-/// 「変えた」と数えられる**。`before` は `set_size` の**前**に読んだ内形（物理 px）。
-fn resizes_the_window(f: &Fit, before: (u32, u32), scale: f64) -> bool {
-    use tauri::{LogicalSize, PhysicalSize};
-
-    if !f.shrunk {
-        return false;
-    }
-    let asked: PhysicalSize<u32> = LogicalSize::new(f.size.0, f.size.1).to_physical(scale);
-    (asked.width, asked.height) != before
 }
 
 /// 読めた物から、置き場所を1つ決める。**`fit_main_window` に残るのは、この関数へ値を渡す1行だけ。**
@@ -404,10 +377,19 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
     // macOS では `set_size` がまだ効いていないので、冒頭の値はそもそも同じ物である。
     let pos = window.outer_position().ok().map(|p| (p.x, p.y));
     let size = window.outer_size().ok().map(|s| (s.width, s.height));
-    // **原点へ落として良いのは、寸法が本当に変わるときだけ**（理由は `resizes_the_window`）。
-    // `inner` は `set_size` の前に読んだ値である。`scale` は画面の倍率で、
-    // `set_size` が使うのは窓の倍率——**同じ画面の上なので同じ値**（上の `current_monitor`）。
-    let resized = resizes_the_window(&f, (inner.width, inner.height), scale);
+    // **原点へ落とすのは「設定より小さい寸法を頼んだ」ときだけ。**
+    // `f.shrunk` は**床を下げただけの周でも真**になる（`min != floor`）ので、それを渡すと
+    // **何も動かしていない窓を隅へ運びうる**（2ゲート目の3周目）。
+    //
+    // **この条件は「`set_size` が窓を縮めた」より狭い。** 床が設定の寸法より高い窓
+    // （`minHeight > height`）は床の高さで開くので、`set_size(want)` は**本当に縮める**のに、
+    // `f.size == want` なのでここは偽になる——**位置を読めなかった周に、縮めた窓が
+    // 原点へ退避されない**。**「本当に縮めたか」を当てにいく判定は置かない**:
+    // 直前の内形と頼んだ寸法を比べる版は、丸め・断られた `set_size`・窓と画面の倍率の
+    // 違いで**床だけの周を「縮めた」と数え直し**、上の欠陥を連れ戻した（#144 の2ゲート目）。
+    // **その窓は、いまの設定には無い**——`the_configured_floor_is_not_above_the_configured_size`
+    // が `tauri.conf.json` で固定している。**床を寸法より上げるなら、ここを先に読むこと。**
+    let resized = f.size != want;
     let moved_to = placement(
         resized,
         pos,
@@ -587,7 +569,7 @@ mod tests {
         let outer = (f.size.0 as u32 + 16, f.size.1 as u32 + 39);
         assert_eq!(
             placement(
-                resizes_the_window(&f, (1280, 840), 1.0),
+                f.size != want,
                 Some((40, 0)),
                 Some(outer),
                 outer,
@@ -627,73 +609,6 @@ mod tests {
             placement(true, None, None, (1300, 719), (0, 40), (1920, 992)),
             Some((0, 40))
         );
-    }
-
-    #[test]
-    fn a_floor_above_the_configured_size_is_a_real_resize() {
-        // **dev #24 の筋書き。** 設定 `height: 840` / `minHeight: 900`、使える高さ 870。
-        // 窓は床の 900 で開いているので、`set_size(840)` は**本当に縮める**。
-        let want = (1280.0, 840.0);
-        let f = fit((1366, 909), FRAME_100, 1.0, want, (960.0, 900.0)).unwrap();
-        assert!(f.shrunk);
-        assert_eq!(f.min, (960.0, 870.0));
-        // **頼む寸法は設定どおり**——だから `f.size != want` はこの周を取りこぼしていた。
-        assert_eq!(f.size, want);
-        assert!(resizes_the_window(&f, (1280, 900), 1.0));
-        // 位置を読めなかった周は、**縮めたのだから原点へ**。
-        assert_eq!(
-            placement(
-                resizes_the_window(&f, (1280, 900), 1.0),
-                None,
-                None,
-                (1296, 939),
-                (0, 0),
-                (1366, 909)
-            ),
-            Some((0, 0))
-        );
-    }
-
-    #[test]
-    fn lowering_only_the_floor_is_not_a_resize() {
-        // **同じ設定で、窓が設定どおりの 840 で開いていた台。** 床は下げるが、
-        // `set_size(840)` は何も変えない——**動かしていない窓を隅へ運ばない**（2ゲート目の3周目）。
-        let f = fit((1366, 909), FRAME_100, 1.0, (1280.0, 840.0), (960.0, 900.0)).unwrap();
-        assert!(f.shrunk);
-        assert!(!resizes_the_window(&f, (1280, 840), 1.0));
-        assert_eq!(
-            placement(
-                resizes_the_window(&f, (1280, 840), 1.0),
-                None,
-                None,
-                (1296, 879),
-                (0, 0),
-                (1366, 909)
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn nothing_is_resized_when_nothing_was_shrunk() {
-        // `set_size` を呼ばない周。**いまの寸法が設定と違っていても**（利用者が前回広げた、等）、
-        // 頼んでいない寸法の変化を「変えた」と数えない。
-        let f = fitted((1920, 1032), FRAME_100, 1.0);
-        assert!(!f.shrunk);
-        assert!(!resizes_the_window(&f, (1500, 900), 1.0));
-    }
-
-    #[test]
-    fn the_asked_size_is_rounded_the_way_set_size_rounds_it() {
-        // 250% で幅 537 → 物理 1342.5。**`set_size` は `round` で 1343 を頼む**
-        // （dpi 0.1.2 の `Pixel for u32`）。切り捨てで比べると、既に 1343 の窓を
-        // 「変えた」と数え、1342 の窓を「同じ」と数える——**両方向に外れる**。
-        let f = fitted((1366, 720), FRAME_150, 2.5);
-        assert_eq!(f.size, (537.0, 265.0));
-        // 高さも 662.5 → 663。**期待値は実装と同じ式で作らない**（手で書いた数）。
-        assert!(!resizes_the_window(&f, (1343, 663), 2.5));
-        assert!(resizes_the_window(&f, (1342, 663), 2.5));
-        assert!(resizes_the_window(&f, (1343, 662), 2.5));
     }
 
     #[test]
@@ -818,6 +733,34 @@ mod tests {
                 (y as i64 + i64::from(fresh.1)) <= i64::from(work.1) + i64::from(work_pos.1),
                 "{label} left the window hanging off the bottom"
             );
+        }
+    }
+
+    #[test]
+    fn the_configured_floor_is_not_above_the_configured_size() {
+        // **`fit_main_window` の `resized` が取りこぼす窓を、設定が作らないこと。**
+        // 床が寸法より高い窓は、`set_size` が本当に縮めても `f.size == want` になり、
+        // 位置を読めなかった周に原点へ退避されない（呼び側のコメント）。
+        let conf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("tauri.conf.json が読めない");
+        let value: serde_json::Value = serde_json::from_str(&conf).expect("JSONとして読めない");
+        let windows = value["app"]["windows"]
+            .as_array()
+            .expect("app.windows が配列でない");
+        assert!(!windows.is_empty(), "窓が1つも無い——この升は何も見ていない");
+        for w in windows {
+            let label = w["label"].as_str().unwrap_or("main");
+            for (size, floor) in [("width", "minWidth"), ("height", "minHeight")] {
+                let (Some(size_v), floor_v) = (w[size].as_f64(), w[floor].as_f64()) else {
+                    panic!("{label} の {size} が読めない");
+                };
+                if let Some(floor_v) = floor_v {
+                    assert!(
+                        floor_v <= size_v,
+                        "{label}: {floor} {floor_v} > {size} {size_v}"
+                    );
+                }
+            }
         }
     }
 
