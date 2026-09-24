@@ -208,7 +208,7 @@ fn clamp_axis(pos: i32, outer: u32, work_pos: i32, work_len: u32) -> i32 {
 /// **大きめの外形で押し戻すと、押し戻す量は多めになりこそすれ、足りなくなることはない**
 /// （`clamp_axis` は「作業領域より大きい軸は近い端へ」）。**つまり判定は保守側にしか外れない。**
 /// `the_shrunk_axis_never_exceeds_the_work_area` と
-/// `a_stale_rect_is_never_more_permissive_than_a_fresh_one` がその2つを固定している。
+/// `neither_a_stale_nor_a_fresh_rect_leaves_the_window_hanging_off` がその2つを固定している。
 ///
 /// **ぴったりになるとは限らない**（2ゲート目の2周目）: `fit` は `floor(usable / scale)` を取るので、
 /// **倍率が usable を割り切らない台では 1〜2 px 余る**。この升の最初の版は
@@ -377,10 +377,16 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
     // macOS では `set_size` がまだ効いていないので、冒頭の値はそもそも同じ物である。
     let pos = window.outer_position().ok().map(|p| (p.x, p.y));
     let size = window.outer_size().ok().map(|s| (s.width, s.height));
-    // **原点へ落として良いのは「寸法を頼んだ」ときだけ。** `f.shrunk` は
-    // **床を下げただけの周でも真**になる（`min != floor`）ので、それを渡すと
-    // **何も動かしていない窓を隅へ運びうる**——いまの設定では起きないが、
-    // `minWidth > width` の窓を1つ足せば起きる（2ゲート目の3周目）。
+    // **原点へ落とすのは、寸法を削ったときだけ。**
+    //
+    // **設定の床は寸法以下である**（`the_configured_floor_is_not_above_the_configured_size`
+    // が `tauri.conf.json` と、出荷する3つの台の `tauri.<台>.conf.json` で固定している）。**その下では、この条件は `f.shrunk` と同じ集合**
+    // ——床を下げるのは `max < floor` の軸で、そこでは `floor <= want` なので寸法も削っている。
+    //
+    // **床が寸法より高い設定は、`fit` が扱えない。** 寸法を `min(want, max)` で決めるので
+    // **床より低い寸法を頼み**、tao の `set_inner_size` は床で止めない。そのうえ tao は窓を
+    // **床の高さで開く**ので、`f.size == want` でも窓は縮む——ここは偽のまま原点へ退避しない。
+    // **その設定を足すなら、この行ではなく `fit` から直すこと**（#144 の2ゲート目）。
     let resized = f.size != want;
     let moved_to = placement(
         resized,
@@ -726,6 +732,59 @@ mod tests {
                 "{label} left the window hanging off the bottom"
             );
         }
+    }
+
+    #[test]
+    fn the_configured_floor_is_not_above_the_configured_size() {
+        // **`fit` と呼び側の `resized` が乗っている前提。** 床が寸法より高い窓は、
+        // `fit` が床より低い寸法を頼み、`resized` が縮めた窓を取りこぼす（呼び側のコメント）。
+        //
+        // **読むのは台ごとの設定も**——`generate_context` は `tauri.<台>.conf.json` を
+        // JSON merge patch で重ね、**配列は丸ごと差し替わる**ので、台の側に `app.windows` を
+        // 書けば本体の値は効かない。**見るのは `fit_main_window` が触る `main` だけ**で、
+        // **寸法を省いた窓は 800×600 になる**ので、その値と比べる（tauri-utils 2.9.3 の
+        // `default_width` / `default_height`、`config.rs:2366`——**`cfg.width` はここで決まる**）。
+        // **出荷しない台（ios／android）と json5／toml の設定は読まない**——この木では使っていない。
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let mut mains = 0;
+        for name in [
+            "tauri.conf.json",
+            "tauri.macos.conf.json",
+            "tauri.windows.conf.json",
+            "tauri.linux.conf.json",
+        ] {
+            let Ok(conf) = std::fs::read_to_string(format!("{dir}/{name}")) else {
+                assert_ne!(name, "tauri.conf.json", "tauri.conf.json が読めない");
+                continue;
+            };
+            let value: serde_json::Value =
+                serde_json::from_str(&conf).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let Some(windows) = value["app"]["windows"].as_array() else {
+                continue;
+            };
+            for w in windows {
+                // tauri の `label` の既定は "main"。
+                if w["label"].as_str().unwrap_or("main") != "main" {
+                    continue;
+                }
+                mains += 1;
+                for (size, floor, default) in
+                    [("width", "minWidth", 800.0), ("height", "minHeight", 600.0)]
+                {
+                    // 数でない値は**この升に届かない**——tauri-build が型で先に落とす
+                    // （`invalid type: string "520", expected f64`。#144 で撃って確かめた）。
+                    let size_v = w[size].as_f64().unwrap_or(default);
+                    let Some(floor_v) = w[floor].as_f64() else {
+                        continue;
+                    };
+                    assert!(
+                        floor_v <= size_v,
+                        "{name}: {floor} {floor_v} > {size} {size_v}"
+                    );
+                }
+            }
+        }
+        assert!(mains > 0, "main の窓が1つも無い——この升は何も見ていない");
     }
 
     #[test]
