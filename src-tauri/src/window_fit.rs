@@ -246,6 +246,16 @@ fn landing(
 
 /// 読めた物から、置き場所を1つ決める。**`fit_main_window` に残るのは、この関数へ値を渡す1行だけ。**
 ///
+/// **原点へ落とすかどうかも、ここで `f.shrunk` から決める**——呼び側に置くと升の外に出る。
+/// **`f.shrunk` の周は、窓が本当に縮む周である。** 床を下げただけの周（`min != floor`）も例外ではない:
+/// tao は作成時の寸法を床で clamp する（`tao-0.35.3` の `WindowSizeConstraints::clamp`、
+/// macOS `platform_impl/macos/window.rs:197`・Windows `platform_impl/windows/window.rs:1209`）ので、
+/// **床が寸法より高い窓は床の高さで開いていて**、床を下げて `set_size` すれば縮む。
+/// **床が寸法以下なら、床を下げる周は必ず寸法も削っている**（`max < floor <= want`）。
+/// （この関数はかつて `f.size != want` を受け取っていて、**床が寸法より高い窓を取りこぼしていた**。
+/// そのときのコメントは「`f.shrunk` は何も動かしていない窓を隅へ運びうる」と書いていたが、
+/// **作成時の clamp を見ていなかった**。#144 の2ゲート目が tao の原本で示した。）
+///
 /// **分けたのは、呼び側に升が1本も無かったからである**（2026-09-17 の2ゲート目の3周目）。
 /// `landing` は純粋で手厚く覆われていたのに、**`resized` を決めて読みを組み立てる所**は
 /// `AppHandle` を要るので升が無く、**3つの変異——`resized` を `true` に固定する（＝2周目の欠陥）、
@@ -255,7 +265,7 @@ fn landing(
 /// 捨てて `None` にすると、**位置は分かっているのに窓を原点へ運ぶ**。その外形は
 /// `set_size` の前に読んだ物なので**縮めたあと以上**——つまり**保守側に外れる**。
 fn placement(
-    resized: bool,
+    f: &Fit,
     pos: Option<(i32, i32)>,
     size: Option<(u32, u32)>,
     outer_before: (u32, u32),
@@ -267,7 +277,7 @@ fn placement(
         (Some(pos), None) => Some((pos, outer_before)),
         (None, _) => None,
     };
-    landing(resized, read, work_pos, work_size)
+    landing(f.shrunk, read, work_pos, work_size)
 }
 
 /// 主窓を、いま載っている画面の作業領域に合わせる。**入っているなら何もしない。**
@@ -377,21 +387,8 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
     // macOS では `set_size` がまだ効いていないので、冒頭の値はそもそも同じ物である。
     let pos = window.outer_position().ok().map(|p| (p.x, p.y));
     let size = window.outer_size().ok().map(|s| (s.width, s.height));
-    // **原点へ落とすのは「設定より小さい寸法を頼んだ」ときだけ。**
-    // `f.shrunk` は**床を下げただけの周でも真**になる（`min != floor`）ので、それを渡すと
-    // **何も動かしていない窓を隅へ運びうる**（2ゲート目の3周目）。
-    //
-    // **この条件は「`set_size` が窓を縮めた」より狭い。** 床が設定の寸法より高い窓
-    // （`minHeight > height`）は床の高さで開くので、`set_size(want)` は**本当に縮める**のに、
-    // `f.size == want` なのでここは偽になる——**位置を読めなかった周に、縮めた窓が
-    // 原点へ退避されない**。**「本当に縮めたか」を当てにいく判定は置かない**:
-    // 直前の内形と頼んだ寸法を比べる版は、丸め・断られた `set_size`・窓と画面の倍率の
-    // 違いで**床だけの周を「縮めた」と数え直し**、上の欠陥を連れ戻した（#144 の2ゲート目）。
-    // **その窓は、いまの設定には無い**——`the_configured_floor_is_not_above_the_configured_size`
-    // が `tauri.conf.json` で固定している。**床を寸法より上げるなら、ここを先に読むこと。**
-    let resized = f.size != want;
     let moved_to = placement(
-        resized,
+        &f,
         pos,
         size,
         (outer.width, outer.height),
@@ -440,6 +437,15 @@ mod tests {
     /// **信用できる矩形のときだけ値が返る。** `None` は「触るな」である。
     fn fitted(work: (u32, u32), frame: (u32, u32), scale: f64) -> Fit {
         fit(work, frame, scale, WANT, FLOOR).expect("この作業領域は信用できるはず")
+    }
+
+    /// `placement` の升のための `Fit`。**寸法は見ない**（`landing` へ渡るのは `shrunk` だけ）。
+    fn shrunk(yes: bool) -> Fit {
+        Fit {
+            size: WANT,
+            min: FLOOR,
+            shrunk: yes,
+        }
     }
 
     #[test]
@@ -568,14 +574,7 @@ mod tests {
         // 幅には 70 px の余白が在るので、OS の置いた x がそのまま残る。
         let outer = (f.size.0 as u32 + 16, f.size.1 as u32 + 39);
         assert_eq!(
-            placement(
-                f.size != want,
-                Some((40, 0)),
-                Some(outer),
-                outer,
-                (0, 0),
-                (1366, 700)
-            ),
+            placement(&f, Some((40, 0)), Some(outer), outer, (0, 0), (1366, 700)),
             None
         );
     }
@@ -587,7 +586,7 @@ mod tests {
         // この腕を消す変異が1本も殺せなかった）。
         assert_eq!(
             placement(
-                true,
+                &shrunk(true),
                 Some((43, 700)),
                 None,
                 (1300, 719),
@@ -600,14 +599,37 @@ mod tests {
 
     #[test]
     fn placement_does_not_move_a_window_it_never_resized() {
-        // **`resized` を `true` に固定する変異**（＝2周目の欠陥そのもの）を、この升が殺す。
+        // **`landing` へ `true` を固定して渡す変異**（＝2周目の欠陥そのもの）を、この升が殺す。
         assert_eq!(
-            placement(false, None, None, (1300, 719), (0, 40), (1920, 992)),
+            placement(
+                &shrunk(false),
+                None,
+                None,
+                (1300, 719),
+                (0, 40),
+                (1920, 992)
+            ),
             None
         );
         assert_eq!(
-            placement(true, None, None, (1300, 719), (0, 40), (1920, 992)),
+            placement(&shrunk(true), None, None, (1300, 719), (0, 40), (1920, 992)),
             Some((0, 40))
+        );
+    }
+
+    #[test]
+    fn a_floor_above_the_configured_size_still_falls_back_to_the_origin() {
+        // 設定 `height: 840` / `minHeight: 900`、使える高さ 870。**tao は窓を床の 900 で開く**ので、
+        // 床を 870 へ下げて `set_size(840)` すれば**本当に縮む**。頼む寸法は設定どおり
+        // （`f.size == want`）——**`f.size != want` で決めていた版は、ここで原点へ退避しなかった。**
+        let want = (1280.0, 840.0);
+        let f = fit((1366, 909), FRAME_100, 1.0, want, (960.0, 900.0)).unwrap();
+        assert_eq!(f.size, want);
+        assert_eq!(f.min, (960.0, 870.0));
+        assert!(f.shrunk);
+        assert_eq!(
+            placement(&f, None, None, (1296, 939), (0, 0), (1366, 909)),
+            Some((0, 0))
         );
     }
 
@@ -733,34 +755,6 @@ mod tests {
                 (y as i64 + i64::from(fresh.1)) <= i64::from(work.1) + i64::from(work_pos.1),
                 "{label} left the window hanging off the bottom"
             );
-        }
-    }
-
-    #[test]
-    fn the_configured_floor_is_not_above_the_configured_size() {
-        // **`fit_main_window` の `resized` が取りこぼす窓を、設定が作らないこと。**
-        // 床が寸法より高い窓は、`set_size` が本当に縮めても `f.size == want` になり、
-        // 位置を読めなかった周に原点へ退避されない（呼び側のコメント）。
-        let conf = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
-            .expect("tauri.conf.json が読めない");
-        let value: serde_json::Value = serde_json::from_str(&conf).expect("JSONとして読めない");
-        let windows = value["app"]["windows"]
-            .as_array()
-            .expect("app.windows が配列でない");
-        assert!(!windows.is_empty(), "窓が1つも無い——この升は何も見ていない");
-        for w in windows {
-            let label = w["label"].as_str().unwrap_or("main");
-            for (size, floor) in [("width", "minWidth"), ("height", "minHeight")] {
-                let (Some(size_v), floor_v) = (w[size].as_f64(), w[floor].as_f64()) else {
-                    panic!("{label} の {size} が読めない");
-                };
-                if let Some(floor_v) = floor_v {
-                    assert!(
-                        floor_v <= size_v,
-                        "{label}: {floor} {floor_v} > {size} {size_v}"
-                    );
-                }
-            }
         }
     }
 
