@@ -2215,6 +2215,7 @@ fn open_bundled_doc(app: tauri::AppHandle, kind: String) -> Result<(), String> {
 }
 
 /// 動画を開く前に聞く「これは再生できるか」（第9部）。
+/// **写真の原寸が出なかったときも、`exists` と `path` を訊きに来る**（dev #23）。
 #[derive(serde::Serialize)]
 struct VideoStatusDto {
     /// アプリ内で再生できるコンテナか（.m2ts/.avi は偽）
@@ -2222,7 +2223,9 @@ struct VideoStatusDto {
     /// クラウドにしか実体が無い。再生するとダウンロードが始まる
     cloud_only: bool,
     /// 実ファイルがまだそこにあるか。無いなら「コーデックが無い」ではなく
-    /// 「ファイルが無い」と言う（有料の拡張機能を勧めてしまわないため）
+    /// 「ファイルが無い」と言う（有料の拡張機能を勧めてしまわないため）。
+    /// **偽は「無いと確かめた」ときだけ**——権限で stat が断られた原本を
+    /// 「移動または削除された」と言うと、在る写真を消えたと思わせる。
     exists: bool,
     /// 探した場所。**「見つからない」と言うときは、どこを探したかも出す**——
     /// 利用者が「外付けを挿せば戻る」のか「消えた」のかを自分で決められるように
@@ -2231,6 +2234,8 @@ struct VideoStatusDto {
 }
 
 /// 動画の再生可否を返す（第9部）。**ビューアで動画を開いた1回だけ**呼ぶ。
+/// **写真の原寸が出なかったときにも1回だけ呼ばれる**（原本が在るかを訊く。dev #23）
+/// ——**動画でない id を断る形に狭めないこと。**
 ///
 /// 一覧のDTOに載せない理由は、クラウド判定がファイル属性の読み出しだからで、
 /// 1000件の日を開くたびに1000回のsyscallを撒くのは割に合わない
@@ -2243,7 +2248,8 @@ fn video_status(state: tauri::State<'_, AppState>, id: i64) -> Result<VideoStatu
         cloud_only: pictkura_core::cloud::is_cloud_only_path(&path),
         // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
         // ここではダウンロードは起きない）
-        exists: path.exists(),
+        // `exists()` は stat の失敗を全部「無い」に倒す。**`Ok(false)` だけを無いと数える**
+        exists: !matches!(path.try_exists(), Ok(false)),
         path: path.display().to_string(),
     })
 }

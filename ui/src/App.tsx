@@ -3090,6 +3090,9 @@ export default function App() {
       ? viewerItem.id
       : undefined;
   useEffect(() => {
+    // **訊くたびに、前の答えを先に消す**——前に見た「無い」を、新しい答えが
+    // 来るまで（あるいは訊けなかったまま）出し続けない
+    setMissingOriginal(null);
     if (failedPhotoId === undefined) return;
     let cancelled = false;
     videoStatus(failedPhotoId)
@@ -5635,7 +5638,9 @@ export default function App() {
               // 代替テキストを黙らせる——絵の真ん中にファイル名が浮くと、
               // 情報ではなくゴミに見える
               alt={
-                fallbackToThumb || fullGateId !== viewerItem.id
+                fallbackToThumb ||
+                fullGateId !== viewerItem.id ||
+                missingOriginal?.id === viewerItem.id
                   ? ""
                   : viewerItem.file_name
               }
@@ -5861,14 +5866,13 @@ export default function App() {
           {/* **原寸がいま失敗している間だけ**——戻ってきた原本が読めたら
               `onLoad` が失敗の印を消し、この面も一緒に消える（実機で、フォルダを
               戻して開き直した NEF に面が残ったのを見てから足した条件） */}
-          {viewerItem &&
-            fullFailedId === viewerItem.id &&
-            missingOriginal?.id === viewerItem.id && (
+          {failedPhotoId !== undefined &&
+            missingOriginal?.id === failedPhotoId && (
             <div
               className="viewer-missing-overlay"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="viewer-fallback">
+              <div className="viewer-fallback" role="alert">
                 {/* 文言は動画と共用（写真にもそのまま当てはまる） */}
                 <p className="fallback-title">{t.videoMissing}</p>
                 <p className="fallback-note fallback-path">
