@@ -86,7 +86,7 @@ import {
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
-import type { VideoStatus } from "./api";
+import type { Presence, VideoStatus } from "./api";
 import {
   formatDateTime,
   formatDayKey,
@@ -2963,7 +2963,13 @@ export default function App() {
       .catch(() => {
         // 聞けなかったら今までどおり再生を試みる（黙って止めない）
         if (!cancelled)
-          setVideoInfo({ plays_in_app: true, cloud_only: false, exists: true });
+          setVideoInfo({
+            plays_in_app: true,
+            cloud_only: false,
+            exists: true,
+            presence: "present",
+            path: "",
+          });
       });
     return () => {
       cancelled = true;
@@ -3070,6 +3076,44 @@ export default function App() {
       if (slow !== undefined) window.clearTimeout(slow);
     };
   }, [viewerItemId, viewerTranscoding]);
+
+  // 写真の原寸が出なかったら、**原本がそこに在るかを1回だけ訊く**（dev #23）。
+  // 配信口は「無い」も「読めない」も同じ 404 で返すので、絵の失敗だけでは
+  // 区別がつかない。**無いなら無いと名乗り、探した場所を出す**——黙って黒い面を
+  // 見せると、利用者はいちばんありふれた原因（「アプリが変」）に倒す。
+  // 訊くのは失敗したときだけ（開くたびにファイル属性を読まない）。
+  const [missingOriginal, setMissingOriginal] = useState<{
+    id: number;
+    path: string;
+    presence: Exclude<Presence, "present">;
+  } | null>(null);
+  const failedPhotoId =
+    viewerItem && !viewerItem.is_video && fullFailedId === viewerItem.id
+      ? viewerItem.id
+      : undefined;
+  useEffect(() => {
+    // **訊くたびに、前の答えを先に消す**——前に見た「無い」を、新しい答えが
+    // 来るまで（あるいは訊けなかったまま）出し続けない
+    setMissingOriginal(null);
+    if (failedPhotoId === undefined) return;
+    let cancelled = false;
+    videoStatus(failedPhotoId)
+      // **在ると答えたら印を消す**——外付けを挿し直して開き直した1枚に、
+      // 前に見た「無い」を残さない（原寸が別の理由で出なかったときも同じ）
+      .then((info) => {
+        if (!cancelled)
+          setMissingOriginal(
+            info.presence === "present"
+              ? null
+              : { id: failedPhotoId, path: info.path, presence: info.presence },
+          );
+      })
+      // 聞けなかったら今までどおり（名乗れないだけで、壊れはしない）
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [failedPhotoId]);
 
   /**
    * 原寸が出せず、下敷きのサムネイルが唯一の絵になっているか（0.2 ②）。
@@ -5532,14 +5576,19 @@ export default function App() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <p className="fallback-title">
-                  {!videoInfo.exists
-                    ? t.videoMissing
-                    : videoInfo.cloud_only
+                  {videoInfo.presence === "missing"
+                    ? t.fileMissing
+                    : videoInfo.presence === "unreachable"
+                      ? t.fileUnreachable
+                      : videoInfo.cloud_only
                       ? t.videoCloudOnly
                       : videoInfo.plays_in_app
                         ? t.videoFailed
                         : t.videoUnsupported}
                 </p>
+                {!videoInfo.exists && (
+                  <p className="fallback-note fallback-path">{videoInfo.path}</p>
+                )}
                 {/* 拡張機能の案内を出すのは「コンテナは扱えるのに再生できなかった」
                     ときだけ。ファイルが無い・コンテナが違う・クラウドにしか無いのを
                     コーデック不足と取り違えて、有料の拡張機能を勧めてしまわない */}
@@ -5595,7 +5644,9 @@ export default function App() {
               // 代替テキストを黙らせる——絵の真ん中にファイル名が浮くと、
               // 情報ではなくゴミに見える
               alt={
-                fallbackToThumb || fullGateId !== viewerItem.id
+                fallbackToThumb ||
+                fullGateId !== viewerItem.id ||
+                missingOriginal?.id === viewerItem.id
                   ? ""
                   : viewerItem.file_name
               }
@@ -5646,6 +5697,9 @@ export default function App() {
                 ...(fallbackToThumb
                   ? { width: servedW, height: servedH, opacity: 0 }
                   : null),
+                // 原本が無い／開けないと帯が言っているとき（dev #23）も同じ手で
+                // 壊れアイコンを描かせない——理由は帯が言っている
+                ...(missingOriginal?.id === viewerItem.id ? { opacity: 0 } : null),
               }}
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => {
@@ -5816,6 +5870,29 @@ export default function App() {
                 {t.loading}
               </div>
             )}
+          {/* 原本が無い／開けない（dev #23）。**下敷きのサムネイルが出ていても出す**
+              ——あれは原本ではないので、黙って見せると「開けている」と読まれる。
+              **絵の上端の帯にする**（利用者の選択・2026-09-25）: 中央に置くと、
+              下敷きの絵の右クリック（削除・フォルダを開く）と拡大を塞ぐ。
+              **原寸がいま失敗している間だけ**——戻ってきた原本が読めたら
+              `onLoad` が失敗の印を消し、この帯も一緒に消える（実機で、フォルダを
+              戻して開き直した NEF に面が残ったのを見てから足した条件） */}
+          {/* `missingOriginal?.id === failedPhotoId` だけにしない——両方が無いとき
+              `undefined === undefined` で真になる（tsc が止めた） */}
+          {missingOriginal !== null && missingOriginal.id === failedPhotoId && (
+            <div
+              className="viewer-missing-band"
+              role="alert"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="viewer-missing-title">
+                {missingOriginal.presence === "missing"
+                  ? t.fileMissing
+                  : t.fileUnreachable}
+              </p>
+              <p className="fallback-path">{missingOriginal.path}</p>
+            </div>
+          )}
           {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
               見えていると選別が進む。クリックでそこへ飛ぶ。
 

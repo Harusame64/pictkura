@@ -2214,33 +2214,82 @@ fn open_bundled_doc(app: tauri::AppHandle, kind: String) -> Result<(), String> {
     tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// 原本の在否。**確かめられないことを「無い」とも「在る」とも言わない。**
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum Presence {
+    Present,
+    /// `try_exists` が `Ok(false)`。外付けが外れている・移動・削除
+    Missing,
+    /// `try_exists` が `Err`。ドライブの準備ができていない・権限が無い・共有が返事をしない
+    Unreachable,
+}
+
+impl Presence {
+    fn of(answer: std::io::Result<bool>) -> Self {
+        match answer {
+            Ok(true) => Self::Present,
+            Ok(false) => Self::Missing,
+            // 途中のフォルダがファイルに置き換わった（同期の衝突など）——パスがもう
+            // ファイルを指していない。「ドライブの準備・権限」と言うと理由を取り違える
+            Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Self::Missing,
+            Err(_) => Self::Unreachable,
+        }
+    }
+}
+
 /// 動画を開く前に聞く「これは再生できるか」（第9部）。
+/// **写真の原寸が出なかったときも、`exists` と `path` を訊きに来る**（dev #23）。
 #[derive(serde::Serialize)]
 struct VideoStatusDto {
     /// アプリ内で再生できるコンテナか（.m2ts/.avi は偽）
     plays_in_app: bool,
     /// クラウドにしか実体が無い。再生するとダウンロードが始まる
     cloud_only: bool,
-    /// 実ファイルがまだそこにあるか。無いなら「コーデックが無い」ではなく
-    /// 「ファイルが無い」と言う（有料の拡張機能を勧めてしまわないため）
+    /// 実ファイルが**在ると確かめられた**か。偽なら「コーデックが無い」ではなく
+    /// 「ファイルが無い／開けない」と言う（有料の拡張機能を勧めてしまわないため）。
+    /// **真は `presence == Present` のときだけ**。
     exists: bool,
+    /// 在る／無い／**確かめられない**。`exists` の2値では、権限で stat が断られた原本を
+    /// 「消えた」と言うか、抜いた SD（Windows の `ERROR_NOT_READY`）を「在る」と言うかの
+    /// どちらかになる（#145 の2ゲート目と codex）。**「無い」は `Ok(false)` だけ**。
+    presence: Presence,
+    /// 探した場所。**「見つからない」と言うときは、どこを探したかも出す**——
+    /// 利用者が「外付けを挿せば戻る」のか「消えた」のかを自分で決められるように
+    /// （dev #23。写真の原寸が出なかったときも、この問いで理由を訊く）。
+    path: String,
 }
 
 /// 動画の再生可否を返す（第9部）。**ビューアで動画を開いた1回だけ**呼ぶ。
+/// **写真の原寸が出なかったときにも1回だけ呼ばれる**（原本が在るかを訊く。dev #23）
+/// ——**動画でない id を断る形に狭めないこと。**
 ///
 /// 一覧のDTOに載せない理由は、クラウド判定がファイル属性の読み出しだからで、
 /// 1000件の日を開くたびに1000回のsyscallを撒くのは割に合わない
 /// （判定そのものはダウンロードを誘発しない。属性を見るだけ）。
+// **ブロッキングプールで走らせる**——写真の原寸が出なかった後にも呼ばれ、その原本は
+// 切れた SMB の上に在るかもしれない（stat がマウントのタイムアウトぶん返らない）。
+// 主スレッドでも、非同期ランタイムのワーカーでも、**他のコマンドごと詰まる**
+// （`empty_library_reason` と同じ理由。#145 の2ゲート目の2周目と3周目）。
 #[tauri::command]
-fn video_status(state: tauri::State<'_, AppState>, id: i64) -> Result<VideoStatusDto, String> {
-    let path = path_of(&state, id)?;
-    Ok(VideoStatusDto {
-        plays_in_app: pictkura_core::video::plays_in_webview(&path),
-        cloud_only: pictkura_core::cloud::is_cloud_only_path(&path),
-        // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
-        // ここではダウンロードは起きない）
-        exists: path.exists(),
+async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = path_of(&state, id)?;
+        let presence = Presence::of(path.try_exists());
+        Ok(VideoStatusDto {
+            plays_in_app: pictkura_core::video::plays_in_webview(&path),
+            // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
+            // ここではダウンロードは起きない）
+            cloud_only: pictkura_core::cloud::is_cloud_only_path(&path),
+            // `exists()` は stat の失敗を全部「無い」に倒す。**3つに分けて返す**
+            exists: presence == Presence::Present,
+            presence,
+            path: path.display().to_string(),
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// ビューアの先読み候補のうち、**実体がクラウドにしか無い**ものを返す（0.2 ①）。
@@ -5373,7 +5422,7 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args,
+        import_path_from_args, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -6593,5 +6642,59 @@ mod tests {
             Some(APP_IDENTIFIER),
             "tauri.conf.json の identifier と APP_IDENTIFIER がずれている"
         );
+    }
+
+    /// 原本の在否は3つ。**UI はこの綴りで分岐する**（`ui/src/api.ts` の `Presence`）。
+    #[test]
+    fn presence_has_three_answers_spelled_the_way_the_ui_reads_them() {
+        assert_eq!(Presence::of(Ok(true)), Presence::Present);
+        assert_eq!(Presence::of(Ok(false)), Presence::Missing);
+        assert_eq!(
+            Presence::of(Err(std::io::Error::from(
+                std::io::ErrorKind::PermissionDenied
+            ))),
+            Presence::Unreachable
+        );
+        assert_eq!(
+            Presence::of(Err(std::io::Error::from(std::io::ErrorKind::NotADirectory))),
+            Presence::Missing
+        );
+        for (p, word) in [
+            (Presence::Present, "\"present\""),
+            (Presence::Missing, "\"missing\""),
+            (Presence::Unreachable, "\"unreachable\""),
+        ] {
+            assert_eq!(serde_json::to_string(&p).unwrap(), word);
+        }
+    }
+
+    /// **本物の stat で3つの答えが出ること。** 権限で断られた原本を「無い」と言わない
+    /// ——`Path::exists()` はここで偽を返し、在る写真を「移動または削除された」と
+    /// 名乗らせていた（#145 の実機で、`exists()` に戻す変異がそれを出した）。
+    // `libc` は macOS だけの依存（`Cargo.toml`）。CI の台は macOS と Windows
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_folder_we_cannot_enter_is_unreachable_not_missing() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let locked = dir.join("locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        let photo = locked.join("a.jpg");
+        std::fs::write(&photo, b"x").unwrap();
+        assert_eq!(Presence::of(photo.try_exists()), Presence::Present);
+        assert_eq!(
+            Presence::of(dir.join("gone.jpg").try_exists()),
+            Presence::Missing
+        );
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let answer = Presence::of(photo.try_exists());
+        // 鍵は判定より先に外す（落ちても、消せないフォルダを一時領域に残さない）
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // root で走らせると権限は効かない——そのときは「在る」になる
+        let root = unsafe { libc::geteuid() } == 0;
+        if !root {
+            assert_eq!(answer, Presence::Unreachable);
+        }
     }
 }

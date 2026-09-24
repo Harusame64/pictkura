@@ -138,7 +138,8 @@ export const en: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "This format cannot be played in the app",
-  videoMissing: "This file is missing (it looks moved or deleted)",
+  fileMissing: "This file is missing (an external drive may be disconnected, or it was moved or deleted)",
+  fileUnreachable: "This file cannot be opened (the drive is not ready, or access is not allowed)",
   videoCloudOnly: "This video lives in the cloud",
   videoCloudOnlyNote:
     "Playing it here starts a download and shows nothing until it finishes. Opening it in the default app lets you watch the download progress.",

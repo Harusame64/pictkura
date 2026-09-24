@@ -375,9 +375,16 @@ export interface VideoStatus {
   plays_in_app: boolean;
   /** クラウドにしか実体が無い（再生するとダウンロードが始まる） */
   cloud_only: boolean;
-  /** 実ファイルがまだそこにあるか */
+  /** 実ファイルが**在ると確かめられた**か（`presence === "present"` と同じ） */
   exists: boolean;
+  /** 在る／無い／確かめられない（権限・ドライブの準備・共有の無応答） */
+  presence: Presence;
+  /** 探した場所（無い・開けないときに見せる） */
+  path: string;
 }
+
+/** 原本の在否。綴りは Rust の `Presence`（`serde(rename_all = "lowercase")`）と同じ */
+export type Presence = "present" | "missing" | "unreachable";
 
 export const videoStatus = (id: number) =>
   invoke<VideoStatus>("video_status", { id });

@@ -198,7 +198,8 @@ export const zhHant: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "程式內無法播放這種格式",
-  videoMissing: "找不到這個檔案（似乎已被移動或刪除）",
+  fileMissing: "找不到這個檔案（可能是外接磁碟未連接，或檔案已被移動或刪除）",
+  fileUnreachable: "無法開啟這個檔案（磁碟尚未就緒，或沒有存取權限）",
   videoCloudOnly: "這部影片存放在雲端",
   videoCloudOnlyNote:
     "在程式內播放會先開始下載，下載完成前什麼也看不到。用預設的程式開啟，可以一邊看進度一邊取回。",
