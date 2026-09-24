@@ -380,7 +380,7 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
     // **原点へ落とすのは、寸法を削ったときだけ。**
     //
     // **設定の床は寸法以下である**（`the_configured_floor_is_not_above_the_configured_size`
-    // が `tauri*.conf.json` で固定している）。**その下では、この条件は `f.shrunk` と同じ集合**
+    // が `tauri.conf.json` と、出荷する3つの台の `tauri.<台>.conf.json` で固定している）。**その下では、この条件は `f.shrunk` と同じ集合**
     // ——床を下げるのは `max < floor` の軸で、そこでは `floor <= want` なので寸法も削っている。
     //
     // **床が寸法より高い設定は、`fit` が扱えない。** 寸法を `min(want, max)` で決めるので
@@ -742,7 +742,9 @@ mod tests {
         // **読むのは台ごとの設定も**——`generate_context` は `tauri.<台>.conf.json` を
         // JSON merge patch で重ね、**配列は丸ごと差し替わる**ので、台の側に `app.windows` を
         // 書けば本体の値は効かない。**見るのは `fit_main_window` が触る `main` だけ**で、
-        // **寸法を省いた窓は tao の既定 800×600 で開く**ので、その値と比べる。
+        // **寸法を省いた窓は 800×600 になる**ので、その値と比べる（tauri-utils 2.9.3 の
+        // `default_width` / `default_height`、`config.rs:2366`——**`cfg.width` はここで決まる**）。
+        // **出荷しない台（ios／android）と json5／toml の設定は読まない**——この木では使っていない。
         let dir = env!("CARGO_MANIFEST_DIR");
         let mut mains = 0;
         for name in [
@@ -771,17 +773,9 @@ mod tests {
                 {
                     // 数でない値は**この升に届かない**——tauri-build が型で先に落とす
                     // （`invalid type: string "520", expected f64`。#144 で撃って確かめた）。
-                    let size_v = match &w[size] {
-                        serde_json::Value::Null => default,
-                        v => v
-                            .as_f64()
-                            .unwrap_or_else(|| panic!("{name}: {size} が数でない")),
-                    };
-                    let floor_v = match &w[floor] {
-                        serde_json::Value::Null => continue,
-                        v => v
-                            .as_f64()
-                            .unwrap_or_else(|| panic!("{name}: {floor} が数でない")),
+                    let size_v = w[size].as_f64().unwrap_or(default);
+                    let Some(floor_v) = w[floor].as_f64() else {
+                        continue;
                     };
                     assert!(
                         floor_v <= size_v,
