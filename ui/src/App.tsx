@@ -3093,9 +3093,13 @@ export default function App() {
     if (failedPhotoId === undefined) return;
     let cancelled = false;
     videoStatus(failedPhotoId)
+      // **在ると答えたら印を消す**——外付けを挿し直して開き直した1枚に、
+      // 前に見た「無い」を残さない（原寸が別の理由で出なかったときも同じ）
       .then((info) => {
-        if (!cancelled && !info.exists)
-          setMissingOriginal({ id: failedPhotoId, path: info.path });
+        if (!cancelled)
+          setMissingOriginal(
+            info.exists ? null : { id: failedPhotoId, path: info.path },
+          );
       })
       // 聞けなかったら今までどおり（名乗れないだけで、壊れはしない）
       .catch(() => {});
@@ -5854,7 +5858,12 @@ export default function App() {
             )}
           {/* 原本が見つからない（dev #23）。**下敷きのサムネイルが出ていても出す**
               ——あれは原本ではないので、黙って見せると「開けている」と読まれる */}
-          {viewerItem && missingOriginal?.id === viewerItem.id && (
+          {/* **原寸がいま失敗している間だけ**——戻ってきた原本が読めたら
+              `onLoad` が失敗の印を消し、この面も一緒に消える（実機で、フォルダを
+              戻して開き直した NEF に面が残ったのを見てから足した条件） */}
+          {viewerItem &&
+            fullFailedId === viewerItem.id &&
+            missingOriginal?.id === viewerItem.id && (
             <div
               className="viewer-missing-overlay"
               onClick={(e) => e.stopPropagation()}
