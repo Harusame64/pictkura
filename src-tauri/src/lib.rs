@@ -2230,6 +2230,9 @@ impl Presence {
         match answer {
             Ok(true) => Self::Present,
             Ok(false) => Self::Missing,
+            // 途中のフォルダがファイルに置き換わった（同期の衝突など）——パスがもう
+            // ファイルを指していない。「ドライブの準備・権限」と言うと理由を取り違える
+            Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Self::Missing,
             Err(_) => Self::Unreachable,
         }
     }
@@ -2264,22 +2267,29 @@ struct VideoStatusDto {
 /// 一覧のDTOに載せない理由は、クラウド判定がファイル属性の読み出しだからで、
 /// 1000件の日を開くたびに1000回のsyscallを撒くのは割に合わない
 /// （判定そのものはダウンロードを誘発しない。属性を見るだけ）。
-// **主スレッドで走らせない**——写真の原寸が出なかった後にも呼ばれ、その原本は
+// **ブロッキングプールで走らせる**——写真の原寸が出なかった後にも呼ばれ、その原本は
 // 切れた SMB の上に在るかもしれない（stat がマウントのタイムアウトぶん返らない）。
-#[tauri::command(async)]
-fn video_status(state: tauri::State<'_, AppState>, id: i64) -> Result<VideoStatusDto, String> {
-    let path = path_of(&state, id)?;
-    let presence = Presence::of(path.try_exists());
-    Ok(VideoStatusDto {
-        plays_in_app: pictkura_core::video::plays_in_webview(&path),
-        cloud_only: pictkura_core::cloud::is_cloud_only_path(&path),
-        // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
-        // ここではダウンロードは起きない）
-        // `exists()` は stat の失敗を全部「無い」に倒す。**3つに分けて返す**
-        exists: presence == Presence::Present,
-        presence,
-        path: path.display().to_string(),
+// 主スレッドでも、非同期ランタイムのワーカーでも、**他のコマンドごと詰まる**
+// （`empty_library_reason` と同じ理由。#145 の2ゲート目の2周目と3周目）。
+#[tauri::command]
+async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = path_of(&state, id)?;
+        let presence = Presence::of(path.try_exists());
+        Ok(VideoStatusDto {
+            plays_in_app: pictkura_core::video::plays_in_webview(&path),
+            // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
+            // ここではダウンロードは起きない）
+            cloud_only: pictkura_core::cloud::is_cloud_only_path(&path),
+            // `exists()` は stat の失敗を全部「無い」に倒す。**3つに分けて返す**
+            exists: presence == Presence::Present,
+            presence,
+            path: path.display().to_string(),
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// ビューアの先読み候補のうち、**実体がクラウドにしか無い**ものを返す（0.2 ①）。
@@ -6645,6 +6655,10 @@ mod tests {
             ))),
             Presence::Unreachable
         );
+        assert_eq!(
+            Presence::of(Err(std::io::Error::from(std::io::ErrorKind::NotADirectory))),
+            Presence::Missing
+        );
         for (p, word) in [
             (Presence::Present, "\"present\""),
             (Presence::Missing, "\"missing\""),
@@ -6662,7 +6676,8 @@ mod tests {
     #[test]
     fn a_folder_we_cannot_enter_is_unreachable_not_missing() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("pk-presence-{}", std::process::id()));
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let locked = dir.join("locked");
         std::fs::create_dir_all(&locked).unwrap();
         let photo = locked.join("a.jpg");
@@ -6674,9 +6689,8 @@ mod tests {
         );
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
         let answer = Presence::of(photo.try_exists());
-        // 片付けは判定より先に（落ちても一時フォルダに鍵の掛かった物を残さない）
+        // 鍵は判定より先に外す（落ちても、消せないフォルダを一時領域に残さない）
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
-        std::fs::remove_dir_all(&dir).ok();
         // root で走らせると権限は効かない——そのときは「在る」になる
         let root = unsafe { libc::geteuid() } == 0;
         if !root {

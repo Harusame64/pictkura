@@ -86,7 +86,7 @@ import {
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
-import type { VideoStatus } from "./api";
+import type { Presence, VideoStatus } from "./api";
 import {
   formatDateTime,
   formatDayKey,
@@ -3085,7 +3085,7 @@ export default function App() {
   const [missingOriginal, setMissingOriginal] = useState<{
     id: number;
     path: string;
-    presence: "missing" | "unreachable";
+    presence: Exclude<Presence, "present">;
   } | null>(null);
   const failedPhotoId =
     viewerItem && !viewerItem.is_video && fullFailedId === viewerItem.id
