@@ -2205,7 +2205,18 @@ export default function App() {
   // 入れ子は外側だけを足す。綴り（区切り・大小）をそろえてから比べる（`missingRoots.ts`）
   const missingTotalCount = missingTotal(missingShown, platform === "windows");
 
+  /** 確認ダイアログを待っているあいだ、次の「外す」を受けない（二度押しで2つ開き、2回外さない） */
+  const removingRootRef = useRef(false);
   const onRemoveRoot = async (path: string) => {
+    if (removingRootRef.current) return;
+    removingRootRef.current = true;
+    try {
+      await removeRootConfirmed(path);
+    } finally {
+      removingRootRef.current = false;
+    }
+  };
+  const removeRootConfirmed = async (path: string) => {
     // **外す前に確かめる**（利用者の選択・2026-09-25）。ファイルは消えないが、行と一緒に
     // ★ と ⚑ の印が消える——戻しても印は戻らない。知らせのボタンは「あとで」の隣にある
     const ok = await confirmDialog(t.rootRemoveConfirm(rootName(path)), {

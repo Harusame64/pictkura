@@ -6521,6 +6521,14 @@ mod tests {
         );
         assert!(r.checking, "まだ見ている");
         assert!(r.stalled.is_empty(), "見切る前に名指ししない");
+        // **画面の文言では名指ししないが、どのルートが確認中かは返す**——見つからない
+        // フォルダの知らせが、前の答えを**そのルートについてだけ**持ち越すため（dev #23）。
+        // これが空だと、隣が確認中のあいだ出ていた知らせを全部落とす（#146 の2ゲート目3周目）
+        assert_eq!(
+            r.checking_roots,
+            vec![roots[0].display().to_string()],
+            "確認中のルートだけを挙げる"
+        );
 
         // 全部見終わったなら、これまでどおり言い切る
         let both_seen = RootReason::default();
@@ -6536,7 +6544,7 @@ mod tests {
             &ScanUnreadable::default(),
         );
         assert!(r.photo_library, "分からない場所が無いなら主張してよい");
-        assert!(!r.checking && r.stalled.is_empty());
+        assert!(!r.checking && r.stalled.is_empty() && r.checking_roots.is_empty());
     }
 
     #[test]

@@ -2371,8 +2371,9 @@ impl Db {
         // TEXT の比較は BINARY（バイト順）なので、`[p/, p0)` は「`p/` で始まる」と同じで、
         // **大小文字も区別する**（`/` の次のバイトが `0`、`\` の次が `]`）
         let p = crate::paths::normalize_dir_str(prefix);
-        // `/` や `C:\` のように**区切りで終わるルート**は、そのまま前方一致の頭にする
-        // （区切りを足すと `//` になり、何も数えない）
+        // **区切りで終わる綴り**（`normalize_dir_str` が削り切らない `/`）は、そのまま
+        // 前方一致の頭にする（区切りを足すと `//` になり、何も数えない）。
+        // `C:\` は `C:` まで削られるので、下の2つの範囲の枝を通る
         let ranges: Vec<(String, String)> = if let Some(base) = p.strip_suffix('/') {
             vec![(format!("{base}/"), format!("{base}0"))]
         } else if let Some(base) = p.strip_suffix('\\') {
@@ -3822,6 +3823,20 @@ mod tests {
         .unwrap();
         assert_eq!(db.count_by_prefix(Path::new("D:/Pics")).unwrap(), 2);
         assert_eq!(db.count_by_prefix(Path::new(r"d:\Pics")).unwrap(), 2);
+    }
+
+    #[test]
+    fn count_by_prefix_counts_under_a_drive_root() {
+        // SD カードをまるごとルートにした形（`D:\`）。`normalize_dir_str` が `D:` まで削るので、
+        // 2つの範囲の枝で数える（#146 の2ゲート目3周目：コメントが別の枝を指していた）
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\a.jpg", 1, 100),
+            scanned(r"D:\DCIM\b.jpg", 1, 110),
+            scanned(r"E:\c.jpg", 1, 120),
+        ])
+        .unwrap();
+        assert_eq!(db.count_by_prefix(Path::new(r"D:\")).unwrap(), 2);
     }
 
     #[test]
