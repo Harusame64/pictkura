@@ -21,7 +21,7 @@ exists](https://harusame64.github.io/pictkura/en/about.html).
 ![Paging through the viewer, marking picks and rejects](docs/images/a-cull.gif)
 
 *Paging with → while marking ⚑ (pick) and ✕ (reject), recorded on a 30,000-photo demo
-library. The screens are in Japanese; the app itself is in English as well.*
+library. The screens are in Japanese; pictkura itself is available in 7 languages.*
 
 ## Goals
 
@@ -37,7 +37,7 @@ Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/rel
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). Pick Japanese or English at the start |
+| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
 | **Windows, machine-wide install (for administrators)** | `pictkura_<version>_x64_<lang>.msi` | For installing per-machine. **Asks for administrator rights.** Japanese and English installers are separate files |
 | **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe` |
 | **macOS 11+ (Apple Silicon)** | `pictkura_<version>_arm64.zip` | Unzip and move `pictkura.app` wherever you like. **See the note below before the first launch** |
@@ -405,8 +405,13 @@ to the calendar, clears it, so a bulk action never reaches photos you cannot see
 
 ### 7. Language
 
+The interface is available in **English, German, Spanish (Spain), Spanish (Latin America),
+Chinese (Simplified), Chinese (Traditional), and Japanese**.
+
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
-overrides that; switching reloads the window.
+overrides that; switching reloads the window. The first day of the week follows your OS
+setting. The frames of system dialogs such as Save and folder pickers come from the OS and
+use its language (on macOS, English if the macOS language is not one of the seven).
 
 The full manual ships with the app — ⚙ (Settings) → **Manual**. It is also readable in a
 browser at **[harusame64.github.io/pictkura/manual.en.html](https://harusame64.github.io/pictkura/manual.en.html)**.
