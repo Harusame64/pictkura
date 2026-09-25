@@ -1743,27 +1743,27 @@ impl ThumbQueue {
 /// 全件の `GROUP BY` が回る。だから**処理の前後で読み比べ**、動いたときだけ知らせる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraWrite {
-    /// 確認済みの値のまま動かなかった
+    /// 動かなかった（未確認のまま残ったときも）
     Unchanged,
-    /// 動いた、または**未確認（NULL）の行を処理した**。
-    /// 値は生の `camera_id`（`None`＝未確認、`Some(0)`＝カメラなし）
+    /// 動いた。値は生の `camera_id`（`None`＝未確認、`Some(0)`＝カメラなし）
     Changed { from: Option<i64>, to: Option<i64> },
     /// 前後どちらかが読めなかった。動いたかどうか分からない
     Unknown,
 }
 
 impl CameraWrite {
-    /// **未確認の行は、値が同じ（NULL→NULL）でも `Changed` にする。**
-    /// 走査は中身の変わったファイルの `camera_id` を空にする（撮影情報を読み直すため）が、
-    /// そのとき前のカメラを誰にも言わない——左ペインにはその枚数が残っている。
-    /// その行がここへ来たときが、数え直す最初の機会である。`from` が `None` でしか
-    /// 見えないので、NULL→「カメラなし」も NULL→NULL（読み直せなかった）も数え直しに回す
+    /// **未確認のまま残った行（NULL→NULL）は `Unchanged`。** クラウドにしか無いファイル・
+    /// 抜いたドライブ・名乗らない RAW は、処理しても `camera_id` が埋まらない。
+    /// それを「動いた」にすると、何も変わらないのに処理のたびに数え直す（#152 の3周目）。
+    ///
+    /// 代わりに、**走査が空にした行の前のカメラ**はここでは拾えない（`from` が `None`
+    /// でしか見えない）。それは走査の側が言うべきことで、別に立てた（dev #31）
     pub fn between(
         before: Result<Option<i64>, DbError>,
         after: Result<Option<i64>, DbError>,
     ) -> Self {
         match (before, after) {
-            (Ok(Some(from)), Ok(Some(to))) if from == to => Self::Unchanged,
+            (Ok(from), Ok(to)) if from == to => Self::Unchanged,
             (Ok(from), Ok(to)) => Self::Changed { from, to },
             _ => Self::Unknown,
         }
@@ -3513,12 +3513,16 @@ mod tests {
             CameraWrite::between(Ok(Some(0)), Ok(Some(0))),
             CameraWrite::Unchanged
         );
-        // 走査が空にした行は、読み直せなくても数え直しに回す（前のカメラが残っている）
+        // 未確認のまま残った（クラウドのみ・抜いたドライブ）。処理のたびに数え直さない
         assert_eq!(
             CameraWrite::between(Ok(None), Ok(None)),
+            CameraWrite::Unchanged
+        );
+        assert_eq!(
+            CameraWrite::between(Ok(Some(1)), Ok(Some(2))),
             CameraWrite::Changed {
-                from: None,
-                to: None
+                from: Some(1),
+                to: Some(2)
             }
         );
         assert_eq!(

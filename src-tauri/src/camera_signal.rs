@@ -19,8 +19,14 @@
 //!
 //! **「まだ出ていないカメラはすぐ」は持たない。** 一度は持ったが（#152 の初版）、
 //! 左ペインに出ているカメラを覚える集合が要り、その集合は UI の数え直しと競り、
-//! 起動直後には空で、共有のロックも要った。新しいカメラが出るまで最長でも
-//! [`QUIET`] 待つだけなので、その差のために持つ仕掛けではない。
+//! 起動直後には空で、共有のロックも要った。新しいカメラが出るまで、動きが途切れれば
+//! [`QUIET`]、取り込みのように途切れなければ最長 [`MAX_WAIT`] 待つ——
+//! サムネイルが並ぶのと同じ速さで、その差のために持つ仕掛けではない。
+//!
+//! **走査が空にした行を埋め直している間は、枚数がいったん減って見える。**
+//! 中身の変わったファイルは走査が `camera_id` を空にし、ここは埋め直した行を1枚ずつ
+//! 数える。[`MAX_WAIT`] ごとの数え直しは途中の値を出し、埋め終われば元に戻る
+//! （main では、ファイルの監視の道で減ったまま戻らない形だった。コードから読んだ）。
 //!
 //! 判断は [`CameraSignal`] に閉じ込め、時刻を引数で受ける（試験で時計を動かすため）。
 //! 状態は糸だけが持つ（ロックは無い）。糸と通り道は [`spawn`] が持つ。
@@ -59,15 +65,17 @@ impl CameraSignal {
 
     /// サムネイルの流れが1行を処理した。**いま知らせるなら真。**
     pub fn on_write(&mut self, camera: CameraWrite, now: Instant) -> bool {
+        // **期日は、この書き込みで延ばす前に見る。** 糸は期日を過ぎても溜まった知らせを
+        // 先に受け取る（`recv_timeout` は溜まっていれば時間切れを返さない）ので、
+        // ここで見ないと、眺めているだけの完了や遅れて届いた書き込みの間、
+        // 数え直しが後ろへずれる
+        let overdue = self.fire_if_due(now);
         // `Unknown` は動いたかどうか分からないので、数え直しに回す
         if camera != CameraWrite::Unchanged {
             let first = self.pending.map_or(now, |(first, _)| first);
             self.pending = Some((first, now));
         }
-        // **動かなかった行でも、期日は見る。** 糸は期日を過ぎても溜まった知らせを
-        // 先に受け取る（`recv_timeout` は溜まっていれば時間切れを返さない）ので、
-        // ここで見ないと、眺めているだけの完了が続く間は数え直しが後ろへずれる
-        self.fire_if_due(now)
+        overdue || self.fire_if_due(now)
     }
 
     /// 次に [`Self::on_tick`] を呼ぶべき時刻。溜めていなければ `None`（待つだけ）。
@@ -164,7 +172,7 @@ mod tests {
             }
             ms += 1_000;
         }
-        assert_eq!(fired_at, vec![10_000, 21_000], "書き続けても10秒に1回");
+        assert_eq!(fired_at, vec![10_000, 20_000], "書き続けても10秒に1回");
     }
 
     #[test]
@@ -186,18 +194,29 @@ mod tests {
     }
 
     #[test]
+    fn an_overdue_recount_fires_before_a_late_write_extends_it() {
+        // 期日を過ぎてから動きが届いた: まず溜まっていたぶんを出し、新しい動きは次へ
+        let t0 = Instant::now();
+        let mut s = CameraSignal::default();
+        assert!(!s.on_write(to(1), t0));
+        let late = t0 + QUIET + Duration::from_millis(1);
+        assert!(s.on_write(to(2), late));
+        assert_eq!(s.deadline(), Some(late + QUIET), "新しい動きは次の回へ");
+    }
+
+    #[test]
     fn every_kind_of_move_is_counted() {
-        // 新しいカメラ・カメラなしへ（走査が空にした行の埋め直し）・減る・読めない
+        // 新しいカメラ・カメラなしへ・別のカメラへ・減る・読めない
         for camera in [
             to(1),
             to(0),
             CameraWrite::Changed {
                 from: Some(1),
-                to: Some(0),
+                to: Some(2),
             },
             CameraWrite::Changed {
-                from: None,
-                to: None,
+                from: Some(1),
+                to: Some(0),
             },
             CameraWrite::Unknown,
         ] {
