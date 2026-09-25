@@ -1363,6 +1363,11 @@ struct EmptyLibraryDto {
     /// **まだ確かめ終わっていない。** 探りが返ってこないまま時間切れ。
     /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
     checking: bool,
+    /// **どのフォルダがまだ確かめ終わっていないか**（dev #23）。`checking` の真偽だけでは、
+    /// 見つからないフォルダの知らせが「確認中のまま前の答えを持ち越す」相手を決められない
+    /// ——差し込んで「在る」と答えたフォルダまで持ち越し、直した直後に「見つかりません」と言う
+    /// （#146 の2ゲート目）
+    checking_roots: Vec<String>,
     /// **返事がないまま見切ったルート。** [`Self::checking`] と分けてある——
     /// あちらは「まだ見ている」で、放っておけば変わる。こちらは
     /// **探りを諦めた**あとの話で、印が残っている限り二度と探らない
@@ -1956,6 +1961,7 @@ fn merge_root_reasons(
             RootAnswer::Answered(reason) => reason,
             RootAnswer::Checking => {
                 out.checking = true;
+                out.checking_roots.push(root.display().to_string());
                 unknown = true;
                 continue;
             }

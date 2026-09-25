@@ -222,6 +222,8 @@ export const ja = {
     `見つからないフォルダがあります: ${names}${count > 0 ? `（あわせて ${num(count)} 枚を開けません）` : ""}。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください。使わないフォルダは、左の一覧の ✕ でライブラリから外せます（写真のファイルは消えません）。`,
   rootRemoveFromLibrary: "ライブラリから外す",
   rootRemoveKeepsFiles: "ライブラリの一覧から外すだけです。写真のファイルは消しません",
+  rootRemoveConfirm: (name: string) =>
+    `「${name}」をライブラリから外しますか？\n写真のファイルは消えませんが、中の写真に付けた ★ と ⚑ の印は消えます。`,
   rootMissingTip: (path: string) =>
     `${path} — 見つかりません。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください`,
   importFrom: (path: string) => `${path} から取り込む`,

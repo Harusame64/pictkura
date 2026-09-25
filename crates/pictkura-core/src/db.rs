@@ -2366,13 +2366,32 @@ impl Db {
     /// 外すのは `remove_library_root` → 走査で、どのルートにも属さない行の判定は
     /// `root_case_sql` の LIKE（ASCII の大小を区別しない）に乗る。ここは数えすぎない側を取った。
     pub fn count_by_prefix(&self, prefix: &Path) -> Result<i64, DbError> {
+        // **範囲で数える**（`path` の一意索引に乗る）。`binary_prefix_sql` の LIKE は索引を
+        // 使えず、見つからないフォルダごと・訊き直しごとに表全体を読む（#146 の2ゲート目）。
+        // TEXT の比較は BINARY（バイト順）なので、`[p/, p0)` は「`p/` で始まる」と同じで、
+        // **大小文字も区別する**（`/` の次のバイトが `0`、`\` の次が `]`）
         let p = crate::paths::normalize_dir_str(prefix);
-        let (prefix_sql, prefix_params) = binary_prefix_sql("path", &p, 1);
-        Ok(self.conn.query_row(
-            &format!("SELECT COUNT(*) FROM media WHERE {prefix_sql}"),
-            rusqlite::params_from_iter(prefix_params.iter()),
-            |r| r.get(0),
-        )?)
+        // `/` や `C:\` のように**区切りで終わるルート**は、そのまま前方一致の頭にする
+        // （区切りを足すと `//` になり、何も数えない）
+        let ranges: Vec<(String, String)> = if let Some(base) = p.strip_suffix('/') {
+            vec![(format!("{base}/"), format!("{base}0"))]
+        } else if let Some(base) = p.strip_suffix('\\') {
+            vec![(format!("{base}\\"), format!("{base}]"))]
+        } else {
+            vec![
+                (format!("{p}/"), format!("{p}0")),
+                (format!("{p}\\"), format!("{p}]")),
+            ]
+        };
+        let mut total = 0i64;
+        for (head, end) in ranges {
+            total += self.conn.query_row(
+                "SELECT COUNT(*) FROM media WHERE path >= ?1 AND path < ?2",
+                rusqlite::params![head, end],
+                |r| r.get::<_, i64>(0),
+            )?;
+        }
+        Ok(total)
     }
 
     /// 消えたファイルのレコードをトランザクションでまとめて削除する。
@@ -3771,9 +3790,35 @@ mod tests {
             counted, 2,
             "配下の2件だけ。別綴り（Summer）と、名前が前方一致するだけの隣（summertime）は数えない"
         );
+        // ルートは選んだとおりの綴りで保存される（末尾の区切り付きもありうる）。
+        // 綴りをそろえずに数えると 0 になる（#146 の変異注入 R3）
+        assert_eq!(db.count_by_prefix(Path::new("root/summer/")).unwrap(), 2);
         let removed = db.remove_by_prefix(Path::new("root/summer")).unwrap();
         assert_eq!(counted as usize, removed);
         assert_eq!(db.count_by_prefix(Path::new("root/summer")).unwrap(), 0);
+    }
+
+    #[test]
+    fn count_by_prefix_counts_under_a_root_that_ends_in_a_separator() {
+        // `/` や `D:\` のルート。区切りを足して `//` にすると何も数えない（#146 の2ゲート目）
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("/a.jpg", 1, 100), scanned("/x/b.jpg", 1, 200)])
+            .unwrap();
+        assert_eq!(db.count_by_prefix(Path::new("/")).unwrap(), 2);
+    }
+
+    #[test]
+    fn count_by_prefix_counts_backslash_paths_too() {
+        // Windows の綴りは `\` 区切り。範囲の上端（`]`）が効いているかを見る
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\Pics\a.jpg", 1, 100),
+            scanned(r"D:\Pics\deep\b.jpg", 1, 110),
+            scanned(r"D:\Pics2\c.jpg", 1, 120),
+            scanned(r"D:\Pics]\d.jpg", 1, 130),
+        ])
+        .unwrap();
+        assert_eq!(db.count_by_prefix(Path::new(r"D:\Pics")).unwrap(), 2);
     }
 
     #[test]

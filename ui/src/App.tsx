@@ -2,6 +2,12 @@
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import {
+  laterKey,
+  mergeMissing,
+  missingTotal,
+  type MissingRoot,
+} from "./missingRoots";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -1545,7 +1551,6 @@ export default function App() {
       // 顔ぶれでも言い直す（戻ってまた消えたフォルダが黙ったままにならないように）
       emptyReasonInFlight.current = null;
       forgetLaterOnNextAnswer.current = true;
-      setMissingRecheck(0);
       setScanGeneration((g) => g + 1);
       await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
@@ -1829,6 +1834,7 @@ export default function App() {
       rootPackageLegacy: false,
       checking: true,
       stalled: [],
+      checkingRoots: [],
     };
     /**
      * 理由を1回聞く。**「確かめている途中」で終わらせない。**
@@ -2114,9 +2120,7 @@ export default function App() {
   //
   // 判定は空の一覧の理由と同じ `empty_library_reason`（ルートごとに独立して探り、
   // 刺さったマウントは締め切りで見切る）。数は DB だけを数える（フォルダに触らない）。
-  const [missingRoots, setMissingRoots] = useState<
-    { root: string; count: number }[]
-  >([]);
+  const [missingRoots, setMissingRoots] = useState<MissingRoot[]>([]);
   /** 「あとで」を押した時点の顔ぶれ。**顔ぶれが変わったら、また出す** */
   const [missingNoticeLaterFor, setMissingNoticeLaterFor] = useState<
     string | null
@@ -2125,9 +2129,10 @@ export default function App() {
   const [scanGeneration, setScanGeneration] = useState(0);
   /**
    * 「まだ確認中」と返ったときの訊き直しの回数。**上限を持つ**——刺さったままの
-   * マウントで永遠に訊き続けない。再スキャンを押せば 0 に戻る
+   * マウントで永遠に訊き続けない。**どの状況の回数か**を鍵で持つ——再スキャンや
+   * ルートの増減で状況が変われば 0 から数え直す（使い切ったまま次の状況へ持ち越さない）
    */
-  const [missingRecheck, setMissingRecheck] = useState(0);
+  const [missingRecheck, setMissingRecheck] = useState({ key: "", n: 0 });
   /**
    * 押した再スキャンの**答えが来てから**「あとで」を忘れる。押した瞬間に忘れると、
    * 新しい答えが来るまで古い知らせが一瞬出る——直した直後に「まだ無い」と言う
@@ -2135,6 +2140,9 @@ export default function App() {
   const forgetLaterOnNextAnswer = useRef(false);
   /** 配列が作り直されるだけ（中身は同じ）では訊き直さない */
   const rootsKey = roots.join("\u0000");
+  const recheckKey = `${scanGeneration}\u0001${rootsKey}`;
+  const rechecksUsed =
+    missingRecheck.key === recheckKey ? missingRecheck.n : 0;
   useEffect(() => {
     // 起動チェックが終わるまでは訊かない（走査の最中の「無い」は答えではない）
     if (!scanSettled) return;
@@ -2150,24 +2158,20 @@ export default function App() {
           })),
         );
         if (cancelled) return;
-        // **答えが揃わなかったルートは、前の答えを持ち越す**——「確認中」「見切った」を
-        // 「在る」と読んで、出ていた知らせを消さない
-        const stalled = new Set(r.stalled);
-        setMissingRoots((prev) => [
-          ...found,
-          ...prev.filter(
-            (m) =>
-              !found.some((f) => f.root === m.root) &&
-              (r.checking || stalled.has(m.root)),
-          ),
-        ]);
+        // **答えが揃わなかったルートだけ、前の答えを持ち越す**——「確認中」「見切った」を
+        // 「在る」と読んで、出ていた知らせを消さない。**答えたルートは持ち越さない**
+        // ——差し込んで「在る」と答えたフォルダを、隣の刺さったフォルダのせいで
+        // 「見つかりません」と言い続けない（#146 の2ゲート目。だから DTO にルートごとの
+        // `checkingRoots` を足した）
+        const unanswered = new Set([...r.checkingRoots, ...r.stalled]);
+        setMissingRoots((prev) => mergeMissing(prev, found, unanswered));
         if (forgetLaterOnNextAnswer.current) {
           forgetLaterOnNextAnswer.current = false;
           setMissingNoticeLaterFor(null);
         }
-        if (r.checking && missingRecheck < 3) {
+        if (r.checking && rechecksUsed < 3) {
           recheck = window.setTimeout(
-            () => setMissingRecheck((n) => n + 1),
+            () => setMissingRecheck({ key: recheckKey, n: rechecksUsed + 1 }),
             5000,
           );
         }
@@ -2178,32 +2182,37 @@ export default function App() {
       cancelled = true;
       if (recheck !== undefined) window.clearTimeout(recheck);
     };
-  }, [scanSettled, scanGeneration, missingRecheck, rootsKey, askEmptyReason]);
+  }, [
+    scanSettled,
+    scanGeneration,
+    rechecksUsed,
+    recheckKey,
+    rootsKey,
+    askEmptyReason,
+  ]);
   /**
    * **いまのルートに在るものだけ**を見せる——外した直後、次の答えが来るまで
    * 外したフォルダの知らせ（と、もう一度押せる「外す」）が残らないように
    */
   const missingShown = missingRoots.filter((m) => roots.includes(m.root));
-  const missingKey = missingShown.map((m) => m.root).join("\u0000");
+  /** 「あとで」の鍵。**並べ替えてから作る**——答えの届く順で並びが変わっても、同じ顔ぶれなら同じ鍵 */
+  const missingKey = laterKey(missingShown);
   const missingRootSet = new Set(missingShown.map((m) => m.root));
   /**
    * 合計の枚数。**入れ子のルートは外側に含まれている**（`count_by_prefix` は
    * 差し引かない）ので、別の見つからないルートの配下にあるものは足さない
    */
-  const missingTotal = missingShown
-    .filter(
-      (m) =>
-        !missingShown.some((o) => {
-          const base = o.root.replace(/[\\/]+$/, "");
-          return (
-            o.root !== m.root &&
-            (m.root.startsWith(base + "/") || m.root.startsWith(base + "\\"))
-          );
-        }),
-    )
-    .reduce((sum, m) => sum + m.count, 0);
+  // 入れ子は外側だけを足す。綴り（区切り・大小）をそろえてから比べる（`missingRoots.ts`）
+  const missingTotalCount = missingTotal(missingShown, platform === "windows");
 
   const onRemoveRoot = async (path: string) => {
+    // **外す前に確かめる**（利用者の選択・2026-09-25）。ファイルは消えないが、行と一緒に
+    // ★ と ⚑ の印が消える——戻しても印は戻らない。知らせのボタンは「あとで」の隣にある
+    const ok = await confirmDialog(t.rootRemoveConfirm(rootName(path)), {
+      title: t.appName,
+      kind: "warning",
+    }).catch(() => false);
+    if (!ok) return;
     setBusy(true);
     try {
       await removeLibraryRoot(path);
@@ -5239,7 +5248,10 @@ export default function App() {
       )}
       {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
           ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
-      {missingShown.length > 0 && missingKey !== missingNoticeLaterFor && (
+      {/* 空の一覧の画面が同じ理由を言っているあいだは出さない（二重に言わない） */}
+      {missingShown.length > 0 &&
+        missingKey !== missingNoticeLaterFor &&
+        !canSayEmpty && (
         <div
           className="speed-toast index warn decoder-notice root-missing-notice"
           role="status"
@@ -5252,7 +5264,7 @@ export default function App() {
                 )
               : t.rootsMissingNotice(
                   nameList(missingShown.map((m) => rootName(m.root))),
-                  missingTotal,
+                  missingTotalCount,
                 )}
           </span>
           {missingShown.length === 1 && (

@@ -229,6 +229,8 @@ export const de: Dict = {
     `Einige Ordner sind nicht da: ${names}${count > 0 ? ` (insgesamt ${num(count)} ${one(count, "Foto lässt", "Fotos lassen")} sich nicht öffnen)` : ""}. Wenn sie auf einem USB-Stick oder einer SD-Karte liegen, stecke den Datenträger ein und drücke „Neu einlesen“. Einen Ordner, den du nicht mehr brauchst, entfernst du mit ✕ in der Liste links aus der Bibliothek (die Fotodateien werden nicht gelöscht).`,
   rootRemoveFromLibrary: "Aus der Bibliothek entfernen",
   rootRemoveKeepsFiles: "Entfernt den Ordner nur aus der Bibliothek. Die Fotodateien werden nicht gelöscht",
+  rootRemoveConfirm: (name: string) =>
+    `„${name}“ aus der Bibliothek entfernen?\nDie Fotodateien werden nicht gelöscht, aber die ★- und ⚑-Markierungen an den Fotos darin gehen verloren.`,
   rootMissingTip: (path: string) =>
     `${path} — nicht da. Wenn der Ordner auf einem USB-Stick oder einer SD-Karte liegt, stecke den Datenträger ein und drücke „Neu einlesen“`,
   importFrom: (path: string) => `Aus ${path} importieren`,

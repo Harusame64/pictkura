@@ -191,6 +191,8 @@ export const en: Dict = {
     `Some folders are not there: ${names}${count > 0 ? ` (${num(count)} ${one(count, "photo", "photos")} in them cannot be opened)` : ""}. If they are on a USB stick or SD card, plug it back in and press Rescan. To stop using a folder, remove it from the library with the ✕ in the list on the left (the photo files are not deleted).`,
   rootRemoveFromLibrary: "Remove from library",
   rootRemoveKeepsFiles: "Only removes the folder from the library. The photo files are not deleted",
+  rootRemoveConfirm: (name: string) =>
+    `Remove “${name}” from the library?\nThe photo files are not deleted, but the ★ and ⚑ marks on its photos are.`,
   rootMissingTip: (path: string) =>
     `${path} — not there. If it is on a USB stick or SD card, plug it in and press Rescan`,
   importFrom: (path: string) => `Import from ${path}`,

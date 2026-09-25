@@ -446,6 +446,9 @@ export interface EmptyLibraryReason {
    *  「まだ見ている」なのに対し、こちらは**探りを諦めた**あとだから
    *  ——放っておいても変わらない（Rust側の `root_probes` を見よ） */
   stalled: string[];
+  /** まだ確かめ終わっていないフォルダ（`checking` の中身）。見つからないフォルダの
+   *  知らせが、前の答えを**どのフォルダについてだけ**持ち越すかに使う */
+  checkingRoots: string[];
 }
 export const getEmptyLibraryReason = () =>
   invoke<EmptyLibraryReason>("empty_library_reason");

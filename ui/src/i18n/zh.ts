@@ -248,6 +248,8 @@ export const zh: Dict = {
     `有些文件夹找不到：${names}${count > 0 ? `（共 ${num(count)} 张无法打开）` : ""}。如果它们在 U 盘或 SD 卡上，请插好之后按“重新扫描”。不再使用的文件夹，可以用左侧列表里的 ✕ 从图库中移除（照片文件不会被删除）。`,
   rootRemoveFromLibrary: "从图库中移除",
   rootRemoveKeepsFiles: "只是从图库中移除，照片文件不会被删除",
+  rootRemoveConfirm: (name: string) =>
+    `要把“${name}”从图库中移除吗？\n照片文件不会被删除，但里面照片的 ★ 和 ⚑ 标记会被清除。`,
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,

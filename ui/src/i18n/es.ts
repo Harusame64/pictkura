@@ -246,6 +246,8 @@ export const es: Dict = {
     `Algunas carpetas no están: ${names}${count > 0 ? ` (en total no se ${one(count, "puede", "pueden")} abrir ${num(count)} ${one(count, "foto", "fotos")})` : ""}. Si están en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar». Para dejar de usar una carpeta, quítala de la biblioteca con la ✕ de la lista de la izquierda (los archivos de las fotos no se borran).`,
   rootRemoveFromLibrary: "Quitar de la biblioteca",
   rootRemoveKeepsFiles: "Solo quita la carpeta de la biblioteca. Los archivos de las fotos no se borran",
+  rootRemoveConfirm: (name: string) =>
+    `¿Quitar «${name}» de la biblioteca?\nLos archivos de las fotos no se borran, pero sí las marcas ★ y ⚑ de sus fotos.`,
   rootMissingTip: (path: string) =>
     `${path}: no está. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar»`,
   importFrom: (path: string) => `Importar desde ${path}`,

@@ -251,6 +251,8 @@ export const zhHant: Dict = {
     `有些資料夾找不到：${names}${count > 0 ? `（共 ${num(count)} 張無法開啟）` : ""}。如果它們在隨身碟或 SD 卡上，請插好之後按「重新掃描」。不再使用的資料夾，可以用左側清單中的 ✕ 從圖庫中移除（照片檔案不會被刪除）。`,
   rootRemoveFromLibrary: "從圖庫中移除",
   rootRemoveKeepsFiles: "只是從圖庫中移除，照片檔案不會被刪除",
+  rootRemoveConfirm: (name: string) =>
+    `要把「${name}」從圖庫中移除嗎？\n照片檔案不會被刪除，但裡面照片的 ★ 和 ⚑ 標記會被清除。`,
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,

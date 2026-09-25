@@ -698,3 +698,39 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(matchLocale(["th-TH", "es-CL"], has), "es-419", "先に当たったものを採る");
   assert.equal(matchLocale([], has), null);
 });
+
+test("見つからないフォルダの知らせは、数えられなかった 0 を数字で言わないこと", () => {
+  // 画面は数えられなかった数を 0 にする（`countMediaUnder(...).catch(() => 0)`）。
+  // **「0 枚を開けません」と言わせない**——言うなら数を省く（#146 の変異注入 I7 が、
+  // `count > 0` を `>= 0` にしても何も落ちないのを見せた）
+  for (const [lang, d] of Object.entries(DICTS)) {
+    for (const key of ["rootMissingNotice", "rootsMissingNotice"]) {
+      const said = call(d, key, ["X", 0]);
+      assert.ok(!/\d/.test(said), `${lang}.${key}(0) が数字を言っている: ${said}`);
+    }
+  }
+});
+
+test("見つからないフォルダの知らせは、1枚と2枚で単複がそろうこと", () => {
+  // 1つの文に同じ数の `one()` が2つあると、片方が外れても「単数形を持つキーの顔ぶれ」は
+  // 気づかない（`キー:位置` しか見ないため。#146 の変異注入 I3 が生き残った）。
+  // **文の形そのものを見る**
+  const cases: [string[], string, [string, string][]][] = [
+    [["es", "es-419"], "rootMissingNotice", [["no se puede abrir la foto", "no se pueden abrir las 2 fotos"]]],
+    [["es", "es-419"], "rootsMissingNotice", [["no se puede abrir 1 foto", "no se pueden abrir 2 fotos"]]],
+    [["de"], "rootMissingNotice", [["1 Foto darin lässt", "2 Fotos darin lassen"]]],
+    [["de"], "rootsMissingNotice", [["1 Foto lässt", "2 Fotos lassen"]]],
+    [["en"], "rootMissingNotice", [["1 photo in it", "2 photos in it"]]],
+    [["en"], "rootsMissingNotice", [["1 photo in them", "2 photos in them"]]],
+  ];
+  for (const [langs, key, pairs] of cases) {
+    for (const lang of langs) {
+      for (const [one, two] of pairs) {
+        const s1 = call(DICTS[lang], key, ["X", 1]);
+        const s2 = call(DICTS[lang], key, ["X", 2]);
+        assert.ok(s1.includes(one), `${lang}.${key}(1): ${s1}`);
+        assert.ok(s2.includes(two), `${lang}.${key}(2): ${s2}`);
+      }
+    }
+  }
+});
