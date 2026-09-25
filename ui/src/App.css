@@ -83,6 +83,14 @@ body {
   background: var(--accent);
   filter: brightness(1.08);
 }
+/* 設定の歯車（2026-09-25 利用者「もう少し大きく」）。絵を 18px にし、横の余白を詰めて
+   行の高さを他のボタンとそろえる */
+.topbar button.settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+}
 .topbar button:disabled {
   opacity: 0.45;
   cursor: default;
