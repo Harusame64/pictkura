@@ -193,6 +193,15 @@ const CAMERA_NONE: i64 = 0;
 /// [`Db::rows_with_fallback_taken_at`] が返す行（ID・パス・mtime）。
 pub type FallbackDateRow = (i64, PathBuf, i64);
 
+/// **中身が変わった行で空にする列**（`upsert_files` と `stage_scan_tmp` の2か所で同じ）。
+/// 寸法・撮影日時・絵を空にして、サムネイルの流れの読み直し（`ids_missing_metadata` が
+/// `width IS NULL` で拾う）へ回す。**`camera_id` は入れない**——最後に分かっていたカメラを
+/// 残す（dev #31、[`Db::upsert_files`]）。以前は2か所に同じ一覧を写していて、変えるたびに
+/// 両方を直す必要があった
+const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NULL, \
+     preview_height = NULL, taken_at_ms = NULL, thumb_path = NULL, thumb_state = 0, \
+     thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL";
+
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
 /// day_keyの計算はすべてSQLite側（strftime + localtime）に統一する。
 fn day_key_expr(ms_expr: &str) -> String {
@@ -828,15 +837,25 @@ impl Db {
     /// 新規・変更ファイルをトランザクションでまとめてupsertする。
     /// 変更されたファイルは幅・高さ・撮影日時・サムネイルを無効化（NULL化）する。
     ///
-    /// **カメラ（`camera_id`）は空にしない**——**最後に分かっていたカメラ**として残す（dev #31）。
-    /// サムネイルの流れが読み直せば `update_metadata` が上書きし（別のカメラなら数え直しの
+    /// **カメラ（`camera_id`）は空にしない**——**最後に分かっていたカメラ**として残す（dev #31、
+    /// 列の一覧は [`CHANGED_ROW_RESET`]）。サムネイルの流れが EXIF を読み直せば
+    /// `update_metadata` が上書きし（カメラ名が無ければ「カメラなし」。別のカメラなら数え直しの
     /// 合図が出る、#152）、読み直せなければ前のカメラのまま。以前は空にしていたので、
     /// **読み直せない行**（クラウドにしか無い・ドライブを抜いた・カメラを名乗らない RAW・
     /// 寸法だけ借りる道）は左ペインの数と検索から黙って消えるか、数だけ古く残った。
     /// 空にしたうえで数え直す形（#155 の初版）は、処理中の行とぶつかって減ったまま戻らない
-    /// 穴をゲート2が見つけた。**間違いうるのは、同じ名前のファイルを別のカメラの写真で
-    /// 差し替え、しかも読み直せないときだけ**。
-    /// `stage_scan_tmp` の差分反映も同じ規則（2か所ある）
+    /// 穴をゲート2が見つけた。
+    ///
+    /// **引き換えに、確かめていない値が残る。** 変わった行の `camera_id` は、読み直すまで
+    /// **前の中身のカメラ**である（NULL だけが「未確認」ではなくなった）。前の中身と違う
+    /// カメラの写真に同じ名前で差し替わると、次の場合は古いカメラで数え・引かれる:
+    /// - 走査からサムネイルの流れが読み直すまでの間
+    /// - EXIF を読まない道で埋まった行——クラウドにしか無いまま OS から寸法を借りた、
+    ///   寸法を残す書き込みでカメラ名が取れなかった（どちらも前の値を消さない）。起動時の
+    ///   カメラの後追いは `camera_id IS NULL` しか見ないので、後から直らない
+    /// - 読み込みの失敗が上限に達した行
+    ///
+    /// 見分ける印を別に持つ形（未確認の印の列）は、利用者の判断で見送った（2026-09-25）
     pub fn upsert_files(&mut self, files: &[ScannedFile]) -> Result<(), DbError> {
         let tx = self.write_tx()?;
         {
@@ -848,19 +867,11 @@ impl Db {
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
                     day_key = excluded.day_key,
-                    width = NULL,
-                    height = NULL,
-                    preview_width = NULL,
-                    preview_height = NULL,
-                    taken_at_ms = NULL,
-                    thumb_path = NULL,
-                    thumb_state = 0,
-                    thumb_bytes = NULL,
-                    thumb_used_ms = NULL,
-                    duration_ms = NULL
+                    {}
                 "#,
                 day_key_expr("?3"),
-                parent_dir_expr("?1")
+                parent_dir_expr("?1"),
+                CHANGED_ROW_RESET
             ))?;
             for f in files {
                 stmt.execute(params![
@@ -1008,19 +1019,11 @@ impl Db {
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
                     day_key = excluded.day_key,
-                    width = NULL,
-                    height = NULL,
-                    preview_width = NULL,
-                    preview_height = NULL,
-                    taken_at_ms = NULL,
-                    thumb_path = NULL,
-                    thumb_state = 0,
-                    thumb_bytes = NULL,
-                    thumb_used_ms = NULL,
-                    duration_ms = NULL
+                    {}
                 "#,
                 day_key_expr("s.mtime_ms"),
-                parent_dir_expr("s.path")
+                parent_dir_expr("s.path"),
+                CHANGED_ROW_RESET
             ),
             [],
         )?;
@@ -1223,7 +1226,9 @@ impl Db {
 
     /// メタデータ抽出結果（幅・高さ・撮影日時・カメラ）を書き込む。
     /// 撮影日時が確定したら表示日（day_key）も撮影日時基準で更新する。
-    /// カメラ名は `cameras` 表へ正規化し、`camera_id` の更新でFTS索引が張り替わる。
+    /// カメラ名は `cameras` 表へ正規化する（カメラは FTS ではなく `camera_id` の索引で引く）。
+    /// **カメラ名が無ければ「カメラなし」で上書きする**——走査が残した前の中身のカメラ
+    /// （dev #31）も、ここで読み直せれば消える
     ///
     /// `width`/`height` は**原本**の寸法、`preview_*` は**掴んだ埋め込みプレビュー**の
     /// 寸法で、原本と同じなら `None`。`None` も毎回書き戻す——プレビューが原寸に
@@ -1288,6 +1293,8 @@ impl Db {
     /// 名前が読めたときだけ書き、読めなかったときは**未確認のまま**
     /// カメラ後追いへ預ける。あちらは実際に読み直したうえで、
     /// 本当に無ければ [`Self::set_cameras`] が `CAMERA_NONE` を立てる。
+    /// **ただし中身が変わった行は**前の中身のカメラが残っていて（[`Self::upsert_files`]）、
+    /// ここでは消えず、後追い（`camera_id IS NULL`）にも拾われない——既知の限界（dev #31）
     pub fn update_metadata_keeping_dimensions(
         &mut self,
         id: i64,
@@ -1316,7 +1323,8 @@ impl Db {
     ///
     /// - **`camera_id` に触らない**。Shellはカメラ名を返さないので、ここで
     ///   「確認済みだが情報なし」を立てると、後で実物を読める日が来たときに
-    ///   読み直さなくなる（`camera_id` のNULLは「未確認」の意味）
+    ///   読み直さなくなる（`camera_id` のNULLは「未確認」の意味。中身が変わった行は
+    ///   前の中身のカメラが残っていて、ここでは直らない——[`Db::upsert_files`]）
     /// - **読めなかった項目で既存の値を消さない**。Shellは項目ごとに
     ///   返ったり返らなかったりする（クラウドのみのファイルでは長さが返らない）ので、
     ///   0 や `None` は「読めなかった」として素通しする
@@ -2263,6 +2271,7 @@ impl Db {
 
     /// 1行の `camera_id`。`None` は**未確認**（NULL）か、行が無いとき。
     /// `Some(0)` は「確認済みだがカメラ情報なし」（左ペインには出ない）。
+    /// 中身が変わった行は、読み直すまで**前の中身のカメラ**を返す（[`Db::upsert_files`]）。
     pub fn camera_id_of_media(&self, id: i64) -> Result<Option<i64>, DbError> {
         Ok(self
             .conn
@@ -5017,6 +5026,33 @@ mod tests {
             Some("SONY ILCE-7M3"),
         )
         .unwrap();
+        assert!(search_names(&db, "camera:iPhone").is_empty());
+    }
+
+    /// 残した前のカメラは、読み直して**カメラ名が無かった**ときも消える（「カメラなし」で
+    /// 上書きする）。スクリーンショットで差し替えた、など（dev #31、#155 のゲート2の変異 M3）
+    #[test]
+    fn a_kept_camera_is_replaced_by_none_when_the_new_content_names_no_camera() {
+        let mut db = seed_search_db();
+        let id = db
+            .get_meta_by_path(Path::new(r"D:\写真\家族\IMG_1234.jpg"))
+            .unwrap()
+            .unwrap()
+            .id;
+        db.upsert_files(&[scanned(
+            r"D:\写真\家族\IMG_1234.jpg",
+            999,
+            1_600_000_000_000,
+        )])
+        .unwrap();
+        assert_eq!(
+            search_names(&db, "camera:iPhone"),
+            ["IMG_1234.jpg"],
+            "読み直すまでは残る"
+        );
+        db.update_metadata(id, Dimensions::original(400, 300), None, None)
+            .unwrap();
+        assert_eq!(db.camera_id_of_media(id).unwrap(), Some(CAMERA_NONE));
         assert!(search_names(&db, "camera:iPhone").is_empty());
     }
 }
