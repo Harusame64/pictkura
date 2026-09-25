@@ -390,6 +390,20 @@ export const videoStatus = (id: number) =>
   invoke<VideoStatus>("video_status", { id });
 
 /**
+ * 写真の原寸が出なかったときの理由（dev #23）。`video_status` と違い、**在るなら
+ * 開けるかまで確かめる**（読み取りを断られたファイルは `unreachable`）。
+ * クラウドにしか無いファイルは開かない
+ */
+export interface OriginalStatus {
+  presence: Presence;
+  cloud_only: boolean;
+  path: string;
+}
+
+export const originalStatus = (id: number) =>
+  invoke<OriginalStatus>("original_status", { id });
+
+/**
  * 渡したidのうち、**実体がクラウドにしか無い**ものを返す（ビューアの先読み用）。
  *
  * 先読みは利用者の意思ではないので、OneDriveのプレースホルダを裏で読んで

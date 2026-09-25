@@ -2229,7 +2229,8 @@ enum Presence {
     Present,
     /// `try_exists` が `Ok(false)`。外付けが外れている・移動・削除
     Missing,
-    /// `try_exists` が `Err`。ドライブの準備ができていない・権限が無い・共有が返事をしない
+    /// `try_exists` が `Err`。ドライブの準備ができていない・権限が無い・共有が返事をしない。
+    /// **在っても開けないファイル**もここ（[`Presence::of_file`]。写真の原寸が出なかったときだけ）
     Unreachable,
 }
 
@@ -2242,6 +2243,37 @@ impl Presence {
             // ファイルを指していない。「ドライブの準備・権限」と言うと理由を取り違える
             Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => Self::Missing,
             Err(_) => Self::Unreachable,
+        }
+    }
+
+    /// 在るかに加えて、**在るなら開けるか**（dev #23）。
+    ///
+    /// `try_exists` はフォルダの項目を読むだけなので、ファイル単体の読み取り権限が
+    /// 無くても「在る」と答える。その1枚は開けないのに、ビューアは「在るのに出ない」
+    /// として黙っていた（実機: `chmod 000` の JPEG）。**開いてみて、断られたら開けない。**
+    ///
+    /// **クラウドにしか無いファイルは開かない**——開くとその場で取り寄せが始まる。
+    fn of_file(path: &Path, cloud_only: bool) -> Self {
+        match Self::of(path.try_exists()) {
+            // 索引した写真と同じ名前の**フォルダ**に置き換わったなら、その写真はもう無い。
+            // **開く前に見る**——macOS・Linux はフォルダも開けてしまい（「在って開ける」＝
+            // 「壊れている」と言う）、Windows は拒否して「開けない」と言う（PRのcodex）
+            Self::Present if std::fs::metadata(path).is_ok_and(|m| m.is_dir()) => Self::Missing,
+            Self::Present if !cloud_only => match std::fs::File::open(path) {
+                Ok(_) => Self::Present,
+                // 確かめた後で消えた・途中がファイルに置き換わった——「開けない」と
+                // 言うと、ドライブや権限を疑わせる
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                    ) =>
+                {
+                    Self::Missing
+                }
+                Err(_) => Self::Unreachable,
+            },
+            presence => presence,
         }
     }
 }
@@ -2295,6 +2327,42 @@ async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, 
             presence,
             path: path.display().to_string(),
         })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 写真の原寸が出なかったとき、ビューアが理由を訊く（dev #23）。
+#[derive(serde::Serialize, PartialEq, Eq, Debug)]
+struct OriginalStatusDto {
+    /// 在る／無い／**開けない**。在っても開けないファイルは開けない（[`Presence::of_file`]）
+    presence: Presence,
+    /// クラウドにしか実体が無い（配信口が取り寄せを試みたのに、まだクラウドのまま）
+    cloud_only: bool,
+    /// 探した場所
+    path: String,
+}
+
+/// **開いてみるのは写真のここだけ。** 動画の [`video_status`] は再生の前に毎回訊くので、
+/// そこで開くと NAS では再生までに往復が1回増え、開けない動画から「既定のアプリで開く」も
+/// 消える（#153 のゲート2）。こちらは**原寸が出なかったときに1回**しか呼ばれない。
+fn original_status_of(path: &Path) -> OriginalStatusDto {
+    // 属性を見るだけ（ここではダウンロードは起きない）。**先に見る**——クラウドにしか
+    // 無いなら開かない
+    let cloud_only = pictkura_core::cloud::is_cloud_only_path(path);
+    OriginalStatusDto {
+        presence: Presence::of_file(path, cloud_only),
+        cloud_only,
+        path: path.display().to_string(),
+    }
+}
+
+// **主スレッドで stat しない**——刺さった共有で窓が止まる（`video_status` と同じ理由）
+#[tauri::command]
+async fn original_status(app: tauri::AppHandle, id: i64) -> Result<OriginalStatusDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        Ok(original_status_of(&path_of(&state, id)?))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -5533,6 +5601,7 @@ pub fn run() {
             open_decoder_help,
             get_index_progress,
             video_status,
+            original_status,
             count_media_under,
             is_temporary_folder,
             cloud_only_media,
@@ -6876,6 +6945,52 @@ mod tests {
         let root = unsafe { libc::geteuid() } == 0;
         if !root {
             assert_eq!(answer, Presence::Unreachable);
+        }
+    }
+
+    /// **在っても開けないファイルは「開けない」**（dev #23）。フォルダの項目は読めるので
+    /// `try_exists` は「在る」と答える——ビューアはその1枚を「在るのに出ない」として
+    /// 黙っていた（実機: `chmod 000` の JPEG）。クラウドにしか無いファイルは開かない
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_file_we_cannot_read_is_unreachable_unless_it_is_cloud_only() {
+        // この試験は macOS だけ。先頭の `use` に置くと Windows で未使用になって落ちる
+        use super::{original_status_of, OriginalStatusDto};
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = tmp.path().join("a.jpg");
+        std::fs::write(&photo, b"x").unwrap();
+        // 呼び口（`original_status`）の中身を通す——`Presence::of` に戻す変異を殺す
+        assert_eq!(
+            original_status_of(&photo),
+            OriginalStatusDto {
+                presence: Presence::Present,
+                cloud_only: false,
+                path: photo.display().to_string(),
+            }
+        );
+        assert_eq!(
+            original_status_of(&tmp.path().join("gone.jpg")).presence,
+            Presence::Missing
+        );
+        // 写真と同じ名前のフォルダに置き換わった: 開けてしまうが「無い」
+        let replaced = tmp.path().join("b.jpg");
+        std::fs::create_dir(&replaced).unwrap();
+        assert_eq!(original_status_of(&replaced).presence, Presence::Missing);
+        // 途中がファイル（同期の衝突など）: 開くと NotADirectory。「無い」
+        assert_eq!(
+            Presence::of_file(&photo.join("inner.jpg"), false),
+            Presence::Missing
+        );
+        std::fs::set_permissions(&photo, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let answer = original_status_of(&photo).presence;
+        // クラウドにしか無いと言われたら、開かずに「在る」のまま返す
+        let cloud = Presence::of_file(&photo, true);
+        std::fs::set_permissions(&photo, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let root = unsafe { libc::geteuid() } == 0;
+        if !root {
+            assert_eq!(answer, Presence::Unreachable);
+            assert_eq!(cloud, Presence::Present, "取り寄せを始めないために開かない");
         }
     }
 

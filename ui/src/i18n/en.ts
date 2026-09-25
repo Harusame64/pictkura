@@ -140,6 +140,8 @@ export const en: Dict = {
   videoUnsupported: "This format cannot be played in the app",
   fileMissing: "This file is missing (a USB stick or SD card may be unplugged, or the file may have been moved or deleted)",
   fileUnreachable: "This file cannot be opened (the drive is not ready, or access is not allowed)",
+  fileNotShown: "This file cannot be displayed (the file is damaged, or pictkura cannot read this format)",
+  fileNotDownloaded: "This file has not been downloaded yet (open it again once you are online)",
   videoCloudOnly: "This video lives in the cloud",
   videoCloudOnlyNote:
     "Playing it here starts a download and shows nothing until it finishes. Opening it in the default app lets you watch the download progress.",

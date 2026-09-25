@@ -606,12 +606,49 @@ function everyString(d: Any): string[] {
   return out;
 }
 
+/**
+ * `w` が `s` の中に**語の頭から**現れるか（大小は無視）。
+ *
+ * 部分一致だと語の中ほどでも当たる——`dañado`（壊れた）の中の `añad` を
+ * 「本国だけの `añadir`」と読んで落ちた（dev #23 の帯を足したとき）。一覧は語幹と
+ * 語句なので、前が文字でない位置だけを見る
+ */
+function hasWordStart(s: string, w: string): boolean {
+  const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<!\\p{L})${escaped}`, "iu").test(s);
+}
+
+test("本国だけの語は、語の頭から探す（語の中ほどは拾わない）", () => {
+  assert.equal(hasWordStart("el archivo está dañado", "añad"), false);
+  assert.equal(hasWordStart("Añade una carpeta", "añad"), true);
+  assert.equal(hasWordStart("fotos añadidas", "añad"), true);
+  assert.equal(hasWordStart("(añadir)", "añad"), true);
+  assert.equal(hasWordStart("Vídeos", "vídeo"), true);
+  assert.equal(hasWordStart("en Ajustes del Sistema →", "Ajustes del Sistema"), true);
+  // 前がアクセント付きの文字でも「語の中ほど」（`[a-z]` や `\b` では見分けられない）
+  assert.equal(hasWordStart("éañad", "añad"), false);
+  // 語は字として探す（正規表現として読まない）
+  assert.equal(hasWordStart("a.b", "a.b"), true);
+  assert.equal(hasWordStart("axb", "a.b"), false);
+});
+
+/** `strings` の中に残っている本国だけの語（語の頭から探す） */
+function spainOnlyIn(strings: readonly string[]): string[] {
+  return AMERICAS_ONLY.filter((w) => strings.some((s) => hasWordStart(s, w)));
+}
+
+test("本国だけの語の探索は、植えた語を見つける（正の対照）", () => {
+  // 緩めた照合（部分一致→語の頭）が、見つけるべきものまで見逃していないこと
+  assert.deepEqual(spainOnlyIn(["Añade una carpeta", "el archivo está dañado"]), ["añad"]);
+  assert.deepEqual(spainOnlyIn(["Abre los vídeos"]), ["vídeo"]);
+  assert.deepEqual(spainOnlyIn(["el archivo está dañado"]), []);
+});
+
 test("中南米のスペイン語に、本国だけの語が残っていないこと", () => {
   // **`es-419.ts` は差分だけを持つ**ので、`es.ts` 側に新しく `vídeo` と書くと
   // 何もしなくてもこちらへ流れ込む。**そのときここが落ちる**のが、この試験の値打ち
   // **大小は無視する**（`Vídeos` も `vídeo` で拾いたい）
-  const strings = everyString(es419 as Any).map((s) => s.toLowerCase());
-  const left = AMERICAS_ONLY.filter((w) => strings.some((s) => s.includes(w.toLowerCase())));
+  const left = spainOnlyIn(everyString(es419 as Any));
   assert.deepEqual(
     left,
     [],
@@ -620,9 +657,9 @@ test("中南米のスペイン語に、本国だけの語が残っていない�
   // **裏返しの確認は語ごとに**（ゲート2）。「1つでも在れば良し」だと、
   // 本国側で `Añadir` をやめたときに**その行だけ死んだ規則**になり、
   // 対応する差分が**意味の無い写し**になったまま気づけない
-  const spainStrings = everyString(es as Any).map((s) => s.toLowerCase());
+  const spainStrings = everyString(es as Any);
   const missing = AMERICAS_ONLY.filter(
-    (w) => !spainStrings.some((s) => s.includes(w.toLowerCase())),
+    (w) => !spainStrings.some((s) => hasWordStart(s, w)),
   );
   assert.deepEqual(
     missing,
