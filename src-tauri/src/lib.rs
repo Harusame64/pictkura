@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use pictkura_core::applog;
 use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaTarget, ServeKind};
@@ -26,6 +26,8 @@ use tauri::{Emitter, Manager};
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
+// サムネイルの流れがカメラを埋めたとき、左ペインへ知らせる（dev #28）
+mod camera_signal;
 // 画面に出す失敗に辞書の鍵を付ける（完成度週間の項目3）
 mod errs;
 // メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
@@ -61,6 +63,9 @@ struct AppState {
     config: Mutex<Config>,
     config_path: PathBuf,
     thumbs: ThumbnailService,
+    /// 左ペインに出ているカメラと、まだ知らせていない書き込み（dev #28）。
+    /// `list_cameras` が置き換え、サムネイルの完了が読む
+    camera_signal: Arc<Mutex<camera_signal::CameraSignal>>,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -1248,12 +1253,16 @@ fn list_day(
 /// カメラ別の枚数を多い順で返す（左ペイン「カメラとメディア」、第4部 段階D）。
 #[tauri::command]
 fn list_cameras(state: tauri::State<'_, AppState>) -> Result<Vec<CameraDto>, String> {
-    Ok(state
+    let cameras = state
         .read_pool
-        .with(|db| db.list_cameras())
-        .map_err(errs::from_err)?
+        .with(|db| db.list_cameras_with_ids())
+        .map_err(errs::from_err)?;
+    // いま左ペインに出るカメラを覚える。ここに無いカメラが埋まったら、
+    // サムネイルの流れがすぐ数え直させる（dev #28）
+    lock_ok(&state.camera_signal).set_listed(cameras.iter().map(|(id, _, _)| *id));
+    Ok(cameras
         .into_iter()
-        .map(|(name, count)| CameraDto { name, count })
+        .map(|(_, name, count)| CameraDto { name, count })
         .collect())
 }
 
@@ -4996,6 +5005,12 @@ pub fn run() {
             // サムネイルワーカーを起動。1件完了ごとに**更新後のレコードだけ**を
             // フロントへpushする（全件再取得のイベントの嵐を防ぐ）
             let thumb_handle = app.handle().clone();
+            let camera_signal = Arc::new(Mutex::new(camera_signal::CameraSignal::default()));
+            let (camera_tx, camera_rx) = std::sync::mpsc::channel::<i64>();
+            let signal_handle = app.handle().clone();
+            camera_signal::spawn(camera_signal.clone(), camera_rx, move || {
+                announce_cameras_changed(&signal_handle)
+            });
             let thumbs = ThumbnailService::start(
                 db_path.clone(),
                 data_dir.join("thumbs"),
@@ -5006,6 +5021,14 @@ pub fn run() {
                     let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
                     if let Some(record) = record {
                         let _ = thumb_handle.emit("media-updated", MediaItemDto::from(record));
+                    }
+                    // `media-updated` の DTO にカメラの欄は無いので、カメラは別に知らせる
+                    // （dev #28。間引きは `camera_signal` が持つ）
+                    let camera = state.read_pool.with(|db| db.camera_id_of_media(id));
+                    if let Ok(Some(camera_id)) = camera {
+                        if Db::is_listed_camera_id(camera_id) {
+                            let _ = camera_tx.send(camera_id);
+                        }
                     }
                 },
             );
@@ -5025,6 +5048,7 @@ pub fn run() {
                 thumbs,
                 scan_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
+                camera_signal,
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
