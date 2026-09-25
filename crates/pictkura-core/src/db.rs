@@ -827,6 +827,16 @@ impl Db {
 
     /// 新規・変更ファイルをトランザクションでまとめてupsertする。
     /// 変更されたファイルは幅・高さ・撮影日時・サムネイルを無効化（NULL化）する。
+    ///
+    /// **カメラ（`camera_id`）は空にしない**——**最後に分かっていたカメラ**として残す（dev #31）。
+    /// サムネイルの流れが読み直せば `update_metadata` が上書きし（別のカメラなら数え直しの
+    /// 合図が出る、#152）、読み直せなければ前のカメラのまま。以前は空にしていたので、
+    /// **読み直せない行**（クラウドにしか無い・ドライブを抜いた・カメラを名乗らない RAW・
+    /// 寸法だけ借りる道）は左ペインの数と検索から黙って消えるか、数だけ古く残った。
+    /// 空にしたうえで数え直す形（#155 の初版）は、処理中の行とぶつかって減ったまま戻らない
+    /// 穴をゲート2が見つけた。**間違いうるのは、同じ名前のファイルを別のカメラの写真で
+    /// 差し替え、しかも読み直せないときだけ**。
+    /// `stage_scan_tmp` の差分反映も同じ規則（2か所ある）
     pub fn upsert_files(&mut self, files: &[ScannedFile]) -> Result<(), DbError> {
         let tx = self.write_tx()?;
         {
@@ -847,7 +857,6 @@ impl Db {
                     thumb_state = 0,
                     thumb_bytes = NULL,
                     thumb_used_ms = NULL,
-                    camera_id = NULL,
                     duration_ms = NULL
                 "#,
                 day_key_expr("?3"),
@@ -1008,7 +1017,6 @@ impl Db {
                     thumb_state = 0,
                     thumb_bytes = NULL,
                     thumb_used_ms = NULL,
-                    camera_id = NULL,
                     duration_ms = NULL
                 "#,
                 day_key_expr("s.mtime_ms"),
@@ -3462,6 +3470,21 @@ mod tests {
         .unwrap();
         db.update_thumb_path(unchanged_id, Path::new("t/1.webp"), 2, Some(1000))
             .unwrap();
+        // 変わる行にも寸法とカメラを持たせておく（空にしたか・残したかを見分けるため）
+        let changed_id = db
+            .get_meta_by_path(Path::new("root/changed.jpg"))
+            .unwrap()
+            .unwrap()
+            .id;
+        db.update_metadata(
+            changed_id,
+            Dimensions::original(800, 600),
+            Some(200),
+            Some("SONY ILCE-7M3"),
+        )
+        .unwrap();
+        let camera_before = db.camera_id_of_media(changed_id).unwrap();
+        assert!(camera_before.is_some());
 
         let files = vec![
             scanned("root/unchanged.jpg", 10, 100),
@@ -3482,6 +3505,12 @@ mod tests {
             .get_meta_by_path(Path::new("root/deleted.jpg"))
             .unwrap()
             .is_none());
+
+        // 差分反映（`stage_scan_tmp`）も同じ規則: 変わった行は寸法を空にし、カメラは残す
+        // （dev #31。`upsert_files` と別の SQL なので、こちらでも見る）
+        assert_eq!(db.get_by_id(changed_id).unwrap().unwrap().width, None);
+        assert!(db.ids_missing_metadata().unwrap().contains(&changed_id));
+        assert_eq!(db.camera_id_of_media(changed_id).unwrap(), camera_before);
 
         // 変更なしの行はサムネイルが維持される
         let rec = db.get_by_id(unchanged_id).unwrap().unwrap();
@@ -4954,25 +4983,40 @@ mod tests {
         );
     }
 
+    /// **変わったファイルは、最後に分かっていたカメラを残す**（dev #31）。読み直すまでは
+    /// 前のカメラで引け、読み直したら書き換わる。寸法・撮影日時・絵は今までどおり空にする
+    /// ——`ids_missing_metadata`（`width IS NULL`）が拾って読み直しへ回す
     #[test]
-    fn a_changed_file_has_its_camera_invalidated() {
+    fn a_changed_file_keeps_its_last_known_camera_until_it_is_read_again() {
         let mut db = seed_search_db();
         assert_eq!(search_names(&db, "camera:iPhone"), ["IMG_1234.jpg"]);
-        // 同じパスで内容が変わる（サイズ違い）→ メタデータは再抽出待ちになる
+        let id = db
+            .get_meta_by_path(Path::new(r"D:\写真\家族\IMG_1234.jpg"))
+            .unwrap()
+            .unwrap()
+            .id;
+        let camera_before = db.camera_id_of_media(id).unwrap();
+        assert!(camera_before.is_some());
+        // 同じパスで内容が変わる（サイズ違い）→ 寸法は再抽出待ち、カメラは残る
         db.upsert_files(&[scanned(
             r"D:\写真\家族\IMG_1234.jpg",
             999,
             1_600_000_000_000,
         )])
         .unwrap();
-        assert!(
-            search_names(&db, "camera:iPhone").is_empty(),
-            "古いカメラ情報は索引から外れる"
-        );
-        assert_eq!(
-            search_names(&db, "1234"),
-            ["IMG_1234.jpg"],
-            "名前では引ける"
-        );
+        assert_eq!(db.camera_id_of_media(id).unwrap(), camera_before);
+        assert_eq!(search_names(&db, "camera:iPhone"), ["IMG_1234.jpg"]);
+        let rec = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(rec.width, None, "寸法は空にする（読み直しへ回る）");
+        assert!(db.ids_missing_metadata().unwrap().contains(&id));
+        // 読み直したら書き換わる
+        db.update_metadata(
+            id,
+            Dimensions::original(400, 300),
+            None,
+            Some("SONY ILCE-7M3"),
+        )
+        .unwrap();
+        assert!(search_names(&db, "camera:iPhone").is_empty());
     }
 }

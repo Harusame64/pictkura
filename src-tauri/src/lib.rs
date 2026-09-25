@@ -3219,22 +3219,20 @@ fn announce_cameras_changed(app: &tauri::AppHandle) {
     let _ = app.emit("cameras-updated", ());
 }
 
-/// 走査の結果が、いま数え直す理由になるか。**消えた行か、変わった行があるとき**。
+/// 走査の結果が、いま数え直す理由になるか。**消えた行があるときだけ**。
 ///
 /// - **足した行**は `camera_id` がまだ空（後からサムネイルの流れが埋める）ので、数え直しても変わらない
-/// - **変わった行**は走査が `camera_id` を空にする（撮影情報を読み直すため）。#148 では
-///   「その瞬間に数えると減って見え、**戻す合図も無い**」として数え直さなかった。**#152 から
-///   戻す合図が在る**——空にされた行はサムネイルの流れへ回り（`width` も空なので
-///   `ids_missing_metadata` が拾う）、埋め直されたら（未確認→カメラ／カメラなし）
-///   [`camera_signal`] が数え直させる。**数え直さないと、埋め直せなかった行**（クラウドにしか
-///   無い・ドライブを抜いた・カメラを名乗らない RAW）**の前のカメラが、左ペインに残り続けた**
-///   （dev #31）。埋め直している間はいったん減って見えるが、ファイルの監視の道
-///   （`library-updated` で数え直す）は元からこの形である
+/// - **変わった行**は、走査がカメラを**空にしない**（最後に分かっていたカメラを残す。
+///   `Db::upsert_files`、dev #31）ので、数は変わらない。読み直して別のカメラだったら、
+///   サムネイルの流れが数え直させる（[`camera_signal`]、#152）
+///
+/// #155 の初版は、空にしたうえでここで数え直した。ゲート2が、処理中の行とぶつかって
+/// 減ったまま戻らない穴と、読み直せない行が消える穴を見つけたので、空にするほうをやめた
 fn scan_changes_camera_counts(stats: &SyncStats) -> bool {
-    stats.removed > 0 || stats.changed > 0
+    stats.removed > 0
 }
 
-/// `scan_and_apply` のあと、行が消えたか変わっていたら数え直させる。外したフォルダのカメラが
+/// `scan_and_apply` のあと、行が消えていたら数え直させる。外したフォルダのカメラが
 /// 左ペインに残っていた（#146 の実機）のは、この3つのコマンドが何も言わなかったから。
 fn scan_and_announce(
     app: &tauri::AppHandle,
@@ -7065,11 +7063,10 @@ mod tests {
         }
     }
 
-    /// **数え直しの合図は、消えた行か変わった行があるとき**（#148、dev #31）。足した行は
-    /// カメラがまだ空なので数えても変わらない。変わった行は走査がカメラを空にし、埋め直せ
-    /// なかった行の前のカメラが残らないよう、その場で数える（埋め直しは #152 が数え直させる）
+    /// **数え直しの合図は、消えた行があるときだけ**（#148）。足した行はカメラがまだ空、
+    /// 変わった行はカメラを残す（dev #31）——どちらも数えても変わらない
     #[test]
-    fn removed_or_changed_rows_make_the_camera_counts_worth_recounting() {
+    fn only_removed_rows_make_the_camera_counts_worth_recounting() {
         let stats = |added, changed, removed| pictkura_core::SyncStats {
             added,
             changed,
@@ -7079,8 +7076,8 @@ mod tests {
         assert!(scan_changes_camera_counts(&stats(0, 0, 1)));
         assert!(!scan_changes_camera_counts(&stats(5, 0, 0)), "足しただけ");
         assert!(
-            scan_changes_camera_counts(&stats(0, 30, 0)),
-            "変わっただけでも（空にされた前のカメラを残さない）"
+            !scan_changes_camera_counts(&stats(0, 30, 0)),
+            "変わっただけ（カメラは残る）"
         );
         assert!(!scan_changes_camera_counts(&stats(0, 0, 0)));
     }
