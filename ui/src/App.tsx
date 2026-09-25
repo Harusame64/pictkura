@@ -1,6 +1,5 @@
 // **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
-import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import {
   laterKey,
   mergeMissing,
@@ -100,10 +99,10 @@ import {
   formatDuration,
   formatLocale,
   formatNumber,
-  osT,
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { confirmAction as confirmActionIn } from "./confirm";
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
@@ -1251,27 +1250,11 @@ export default function App() {
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
   const platform = usePlatform();
-  /**
-   * 確認ダイアログ（ゴミ箱へ・移動・フォルダを外す）。**呼び出しはここを通す**——直に
-   * `confirmDialog` を呼ぶと、既定の英語の Cancel / OK に戻る。
-   *
-   * - **OK は押すと何が起きるかを言う**（`okLabel`）
-   * - **macOS のキャンセルは OS の言語で出す**——AppKit が Esc を割り当てるのは OS の言語の
-   *   「キャンセル」か英語の `Cancel` だけで、アプリの言語を OS と変えている人に
-   *   `Abbrechen` を渡すと Esc で閉じない（2026-09-25 実機）。OS の言語の辞書が無ければ
-   *   渡さない（既定の `Cancel`）。Windows は Esc がラベルによらず効くので、アプリの言語で出す
-   * - **出せなかったら「取り消した」と同じに扱う**（ボタンを押しても何も起きない、にしない）
-   */
+  /** 確認ダイアログ（`confirm.ts`）。開けなかったら知らせて、取り消しと同じに扱う */
   const confirmAction = useCallback(
     (message: string, okLabel: string): Promise<boolean> =>
-      confirmDialog(message, {
-        title: t.appName,
-        kind: "warning",
-        okLabel,
-        cancelLabel:
-          platform === "macos" ? osT?.confirmCancel : t.confirmCancel,
-      }).catch(() => false),
-    [platform],
+      confirmActionIn(platform, message, okLabel, fail),
+    [platform, fail],
   );
   /**
    * 先読みの触り直し（下の [`PRELOAD_TOUCH_MS`] のeffect）を**回してよいか**。
