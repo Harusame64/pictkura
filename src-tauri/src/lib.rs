@@ -3491,7 +3491,17 @@ fn path_parts(p: &Path) -> Vec<String> {
 }
 
 /// `path` が `dirs` のどれか（それ自身を含む）の中か——**書かれた綴りのまま**比べる。
+///
+/// **`..` を含むパスは「中ではない」**——`/tmp/../home/x` は綴りの上では `/tmp` で始まるが、
+/// 実際には外にある。綴りだけでは `..` の先（リンクをたどった先）が分からないので、
+/// 印を付けない側に倒す（PRのcodex）。実体で見るのは [`is_inside_any`] の仕事
 fn is_under_any_by_spelling(path: &Path, dirs: &[PathBuf]) -> bool {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return false;
+    }
     let target = path_parts(path);
     dirs.iter().any(|d| {
         let d = path_parts(d);
@@ -7074,6 +7084,8 @@ mod tests {
             p("/tmpx/c"),
             p("/Users/x/Pictures"),
             p("/tmp"),
+            // 綴りは /tmp で始まるが、実際には外（PRのcodex）
+            p("/tmp/../home/user/Pictures"),
         ];
         assert_eq!(
             roots_inside_temp(&roots, &temp),
