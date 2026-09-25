@@ -3538,13 +3538,25 @@ fn roots_inside_temp(roots: &[PathBuf], temp_spellings: &[PathBuf]) -> Vec<PathB
         .collect()
 }
 
-#[tauri::command(async)]
-fn temporary_library_roots(state: tauri::State<'_, AppState>) -> Vec<String> {
-    let roots = lock_ok(&state.config).library.roots.clone();
-    roots_inside_temp(&roots, &temp_dir_spellings(&temporary_dirs()))
-        .into_iter()
-        .map(|r| r.display().to_string())
-        .collect()
+/// **一時フォルダの側の解決も、3秒で見切る**——`TMPDIR`／`TEMP` がつながらない共有を
+/// 指していれば、`canonicalize` は返らない（[`is_temporary_folder`] と同じ理由。PRのcodex）。
+/// 見切ったら `Err`——UI は前の答えのまま残す（「一時フォルダの中は無い」とは言わない）。
+#[tauri::command]
+async fn temporary_library_roots(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+    let asked = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let roots = lock_ok(&state.config).library.roots.clone();
+        roots_inside_temp(&roots, &temp_dir_spellings(&temporary_dirs()))
+            .into_iter()
+            .map(|r| r.display().to_string())
+            .collect::<Vec<_>>()
+    });
+    match tokio::time::timeout(DEADLINE, asked).await {
+        Ok(Ok(found)) => Ok(found),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("timed out".into()),
+    }
 }
 
 /// ライブラリに足そうとしているフォルダが一時フォルダの中か（dev #23）。

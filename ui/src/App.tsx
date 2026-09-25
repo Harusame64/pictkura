@@ -2243,6 +2243,11 @@ export default function App() {
   // **訊けなかったら前の答えのまま**（黙って消さない。見つからないフォルダの印と同じ）
   const [temporaryRoots, setTemporaryRoots] = useState<string[]>([]);
   useEffect(() => {
+    // フォルダが無ければ訊かない（起動直後、設定を読む前の空の一覧も）
+    if (rootsKey === "") {
+      setTemporaryRoots([]);
+      return;
+    }
     let cancelled = false;
     temporaryLibraryRoots()
       .then((found) => {
