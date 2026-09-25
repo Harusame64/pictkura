@@ -625,14 +625,30 @@ test("本国だけの語は、語の頭から探す（語の中ほどは拾わ�
   assert.equal(hasWordStart("(añadir)", "añad"), true);
   assert.equal(hasWordStart("Vídeos", "vídeo"), true);
   assert.equal(hasWordStart("en Ajustes del Sistema →", "Ajustes del Sistema"), true);
+  // 前がアクセント付きの文字でも「語の中ほど」（`[a-z]` や `\b` では見分けられない）
+  assert.equal(hasWordStart("éañad", "añad"), false);
+  // 語は字として探す（正規表現として読まない）
+  assert.equal(hasWordStart("a.b", "a.b"), true);
+  assert.equal(hasWordStart("axb", "a.b"), false);
+});
+
+/** `strings` の中に残っている本国だけの語（語の頭から探す） */
+function spainOnlyIn(strings: readonly string[]): string[] {
+  return AMERICAS_ONLY.filter((w) => strings.some((s) => hasWordStart(s, w)));
+}
+
+test("本国だけの語の探索は、植えた語を見つける（正の対照）", () => {
+  // 緩めた照合（部分一致→語の頭）が、見つけるべきものまで見逃していないこと
+  assert.deepEqual(spainOnlyIn(["Añade una carpeta", "el archivo está dañado"]), ["añad"]);
+  assert.deepEqual(spainOnlyIn(["Abre los vídeos"]), ["vídeo"]);
+  assert.deepEqual(spainOnlyIn(["el archivo está dañado"]), []);
 });
 
 test("中南米のスペイン語に、本国だけの語が残っていないこと", () => {
   // **`es-419.ts` は差分だけを持つ**ので、`es.ts` 側に新しく `vídeo` と書くと
   // 何もしなくてもこちらへ流れ込む。**そのときここが落ちる**のが、この試験の値打ち
   // **大小は無視する**（`Vídeos` も `vídeo` で拾いたい）
-  const strings = everyString(es419 as Any);
-  const left = AMERICAS_ONLY.filter((w) => strings.some((s) => hasWordStart(s, w)));
+  const left = spainOnlyIn(everyString(es419 as Any));
   assert.deepEqual(
     left,
     [],

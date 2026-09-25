@@ -179,7 +179,7 @@ export const de: Dict = {
   fileMissing: "Diese Datei fehlt (vielleicht ist ein USB-Stick oder eine SD-Karte nicht eingesteckt, oder die Datei wurde verschoben oder gelöscht)",
   fileUnreachable: "Diese Datei lässt sich nicht öffnen (das Laufwerk ist nicht bereit, oder der Zugriff ist nicht erlaubt)",
   fileNotShown: "Diese Datei lässt sich nicht anzeigen (die Datei ist beschädigt, oder pictkura kann dieses Format nicht lesen)",
-  fileNotDownloaded: "Diese Datei ist noch nicht heruntergeladen (öffne sie erneut, sobald du online bist)",
+  fileNotDownloaded: "Diese Datei wurde noch nicht heruntergeladen (öffne sie erneut, sobald du online bist)",
   videoCloudOnly: "Dieses Video liegt in der Cloud",
   videoCloudOnlyNote:
     "Wenn du es hier abspielst, startet zuerst ein Download, und bis er fertig ist, ist nichts zu sehen. Öffnest du es in der Standard-App, kannst du den Fortschritt verfolgen.",

@@ -36,6 +36,7 @@ import {
   saveDisplayImage,
   videoSrc,
   videoStatus,
+  originalStatus,
   getConfig,
   getExifInfo,
   getIndexProgress,
@@ -93,7 +94,11 @@ import {
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { VideoStatus } from "./api";
-import { originalTrouble, type OriginalTrouble } from "./originalTrouble";
+import {
+  originalTrouble,
+  TROUBLE_TEXT,
+  type OriginalTrouble,
+} from "./originalTrouble";
 import {
   formatDateTime,
   formatDayKey,
@@ -3165,6 +3170,12 @@ export default function App() {
   const [thumbShownId, setThumbShownId] = useState<number | null>(null);
   /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
   const [fullFailedId, setFullFailedId] = useState<number | null>(null);
+  /**
+   * 原寸の失敗が**いまの絵の URL を持った error** だった絵のid（dev #23）。
+   * `currentSrc` が空の error は後で本命の load が来ることがあるので、在ると分かった
+   * 原本を「表示できない」と言う根拠にしない（`originalTrouble` の注記）
+   */
+  const [failedWithSrcId, setFailedWithSrcId] = useState<number | null>(null);
   /** 送りが落ち着いた（250ms動かなかった）絵のid */
   const [settledId, setSettledId] = useState<number | null>(null);
   /**
@@ -3212,6 +3223,7 @@ export default function App() {
     setThumbShownId(null);
     setFullShownId(null);
     setFullFailedId(null);
+    setFailedWithSrcId(null);
     if (viewerItemId === undefined) {
       setFullGateId(null);
       return;
@@ -3256,29 +3268,35 @@ export default function App() {
     viewerItem && !viewerItem.is_video && fullFailedId === viewerItem.id
       ? viewerItem.id
       : undefined;
+  const failedWithSrc =
+    failedPhotoId !== undefined && failedWithSrcId === failedPhotoId;
   useEffect(() => {
     // **訊くたびに、前の答えを先に消す**——前に見た「無い」を、新しい答えが
     // 来るまで（あるいは訊けなかったまま）出し続けない
     setMissingOriginal(null);
     if (failedPhotoId === undefined) return;
     let cancelled = false;
-    videoStatus(failedPhotoId)
+    // 動画の `videoStatus` ではなく写真用の問い: **在るなら開けるかまで**見る
+    originalStatus(failedPhotoId)
       // 外付けを挿し直して開き直した1枚は、原寸が出れば `onLoad` が失敗の印ごと
       // 消すので、前に見た「無い」は残らない
       .then((info) => {
-        if (!cancelled)
-          setMissingOriginal({
-            id: failedPhotoId,
-            path: info.path,
-            reason: originalTrouble(info.presence, info.cloud_only),
-          });
+        if (cancelled) return;
+        const reason = originalTrouble(
+          info.presence,
+          info.cloud_only,
+          failedWithSrc,
+        );
+        setMissingOriginal(
+          reason === null ? null : { id: failedPhotoId, path: info.path, reason },
+        );
       })
       // 聞けなかったら今までどおり（名乗れないだけで、壊れはしない）
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [failedPhotoId]);
+  }, [failedPhotoId, failedWithSrc]);
 
   /**
    * 原寸が出せず、下敷きのサムネイルが唯一の絵になっているか（0.2 ②）。
@@ -5871,6 +5889,7 @@ export default function App() {
                   // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）。
                   // `loadedId` はこれから導かれるので、別に立てるものは無い
                   setFullShownId(viewerItem.id);
+                  setFailedWithSrcId(null);
                   // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
                   // 来ることがあり（下のonError参照）、その後で本命の load が
                   // 成功する。印を残すと「原寸は隠す・下敷きは外す」が同時に
@@ -5886,6 +5905,11 @@ export default function App() {
                 if (!src || isSrcOf(src, viewerItem.id)) {
                   setFullFailedId(viewerItem.id);
                 }
+                // 本物の失敗（いまの絵の URL を持った error）だけを印にする。
+                // 「在るのに表示できない」と言う根拠はこちら（dev #23）
+                if (src && isSrcOf(src, viewerItem.id)) {
+                  setFailedWithSrcId(viewerItem.id);
+                }
               }}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -5900,9 +5924,13 @@ export default function App() {
                 ...(fallbackToThumb
                   ? { width: servedW, height: servedH, opacity: 0 }
                   : null),
-                // 原本が無い／開けないと帯が言っているとき（dev #23）も同じ手で
-                // 壊れアイコンを描かせない——理由は帯が言っている
-                ...(missingOriginal?.id === viewerItem.id ? { opacity: 0 } : null),
+                // 原寸が出なかった理由を帯が言っているとき（dev #23: 無い・開けない・
+                // まだダウンロードされていない・表示できない）も同じ手で壊れアイコンを
+                // 描かせない——理由は帯が言っている。**帯と同じ条件で**（いま失敗している
+                // 間だけ）。load が来たら印ごと外れ、絵がすぐ見える
+                ...(missingOriginal !== null && missingOriginal.id === failedPhotoId
+                  ? { opacity: 0 }
+                  : null),
               }}
               onClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => {
@@ -6073,7 +6101,8 @@ export default function App() {
                 {t.loading}
               </div>
             )}
-          {/* 原本が無い／開けない（dev #23）。**下敷きのサムネイルが出ていても出す**
+          {/* 原寸が出なかった理由（dev #23）: 原本が無い／開けない／まだダウンロード
+              されていない／在って開けるのに表示できない。**下敷きのサムネイルが出ていても出す**
               ——あれは原本ではないので、黙って見せると「開けている」と読まれる。
               **絵の上端の帯にする**（利用者の選択・2026-09-25）: 中央に置くと、
               下敷きの絵の右クリック（削除・フォルダを開く）と拡大を塞ぐ。
@@ -6089,14 +6118,7 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
             >
               <p className="viewer-missing-title">
-                {
-                  {
-                    missing: t.fileMissing,
-                    unreachable: t.fileUnreachable,
-                    notDownloaded: t.fileNotDownloaded,
-                    notShown: t.fileNotShown,
-                  }[missingOriginal.reason]
-                }
+                {t[TROUBLE_TEXT[missingOriginal.reason]]}
               </p>
               <p className="fallback-path">{missingOriginal.path}</p>
             </div>

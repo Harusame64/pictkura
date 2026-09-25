@@ -2230,7 +2230,7 @@ enum Presence {
     /// `try_exists` が `Ok(false)`。外付けが外れている・移動・削除
     Missing,
     /// `try_exists` が `Err`。ドライブの準備ができていない・権限が無い・共有が返事をしない。
-    /// **在っても開けないファイル**もここ（[`Presence::of_file`]）
+    /// **在っても開けないファイル**もここ（[`Presence::of_file`]。写真の原寸が出なかったときだけ）
     Unreachable,
 }
 
@@ -2257,6 +2257,16 @@ impl Presence {
         match Self::of(path.try_exists()) {
             Self::Present if !cloud_only => match std::fs::File::open(path) {
                 Ok(_) => Self::Present,
+                // 確かめた後で消えた・途中がファイルに置き換わった——「開けない」と
+                // 言うと、ドライブや権限を疑わせる
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                    ) =>
+                {
+                    Self::Missing
+                }
                 Err(_) => Self::Unreachable,
             },
             presence => presence,
@@ -2302,18 +2312,53 @@ async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, 
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = path_of(&state, id)?;
-        // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
-        // ここではダウンロードは起きない）
-        let cloud_only = pictkura_core::cloud::is_cloud_only_path(&path);
-        let presence = Presence::of_file(&path, cloud_only);
+        let presence = Presence::of(path.try_exists());
         Ok(VideoStatusDto {
             plays_in_app: pictkura_core::video::plays_in_webview(&path),
-            cloud_only,
+            // クラウドのプレースホルダも「ある」と答える（属性を見るだけで、
+            // ここではダウンロードは起きない）
+            cloud_only: pictkura_core::cloud::is_cloud_only_path(&path),
             // `exists()` は stat の失敗を全部「無い」に倒す。**3つに分けて返す**
             exists: presence == Presence::Present,
             presence,
             path: path.display().to_string(),
         })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 写真の原寸が出なかったとき、ビューアが理由を訊く（dev #23）。
+#[derive(serde::Serialize, PartialEq, Eq, Debug)]
+struct OriginalStatusDto {
+    /// 在る／無い／**開けない**。在っても開けないファイルは開けない（[`Presence::of_file`]）
+    presence: Presence,
+    /// クラウドにしか実体が無い（配信口が取り寄せを試みたのに、まだクラウドのまま）
+    cloud_only: bool,
+    /// 探した場所
+    path: String,
+}
+
+/// **開いてみるのは写真のここだけ。** 動画の [`video_status`] は再生の前に毎回訊くので、
+/// そこで開くと NAS では再生までに往復が1回増え、開けない動画から「既定のアプリで開く」も
+/// 消える（#153 のゲート2）。こちらは**原寸が出なかったときに1回**しか呼ばれない。
+fn original_status_of(path: &Path) -> OriginalStatusDto {
+    // 属性を見るだけ（ここではダウンロードは起きない）。**先に見る**——クラウドにしか
+    // 無いなら開かない
+    let cloud_only = pictkura_core::cloud::is_cloud_only_path(path);
+    OriginalStatusDto {
+        presence: Presence::of_file(path, cloud_only),
+        cloud_only,
+        path: path.display().to_string(),
+    }
+}
+
+// **主スレッドで stat しない**——刺さった共有で窓が止まる（`video_status` と同じ理由）
+#[tauri::command]
+async fn original_status(app: tauri::AppHandle, id: i64) -> Result<OriginalStatusDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        Ok(original_status_of(&path_of(&state, id)?))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -5552,6 +5597,7 @@ pub fn run() {
             open_decoder_help,
             get_index_progress,
             video_status,
+            original_status,
             count_media_under,
             is_temporary_folder,
             cloud_only_media,
@@ -6904,17 +6950,32 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_file_we_cannot_read_is_unreachable_unless_it_is_cloud_only() {
+        // この試験は macOS だけ。先頭の `use` に置くと Windows で未使用になって落ちる
+        use super::{original_status_of, OriginalStatusDto};
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
         let photo = tmp.path().join("a.jpg");
         std::fs::write(&photo, b"x").unwrap();
-        assert_eq!(Presence::of_file(&photo, false), Presence::Present);
+        // 呼び口（`original_status`）の中身を通す——`Presence::of` に戻す変異を殺す
         assert_eq!(
-            Presence::of_file(&tmp.path().join("gone.jpg"), false),
+            original_status_of(&photo),
+            OriginalStatusDto {
+                presence: Presence::Present,
+                cloud_only: false,
+                path: photo.display().to_string(),
+            }
+        );
+        assert_eq!(
+            original_status_of(&tmp.path().join("gone.jpg")).presence,
+            Presence::Missing
+        );
+        // 途中がファイル（同期の衝突など）: 開くと NotADirectory。「無い」
+        assert_eq!(
+            Presence::of_file(&photo.join("inner.jpg"), false),
             Presence::Missing
         );
         std::fs::set_permissions(&photo, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let answer = Presence::of_file(&photo, false);
+        let answer = original_status_of(&photo).presence;
         // クラウドにしか無いと言われたら、開かずに「在る」のまま返す
         let cloud = Presence::of_file(&photo, true);
         std::fs::set_permissions(&photo, std::fs::Permissions::from_mode(0o644)).unwrap();
