@@ -37,7 +37,7 @@ Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/rel
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language) |
+| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
 | **Windows, machine-wide install (for administrators)** | `pictkura_<version>_x64_<lang>.msi` | For installing per-machine. **Asks for administrator rights.** Japanese and English installers are separate files |
 | **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe` |
 | **macOS 11+ (Apple Silicon)** | `pictkura_<version>_arm64.zip` | Unzip and move `pictkura.app` wherever you like. **See the note below before the first launch** |
@@ -409,9 +409,9 @@ The interface is available in **English, German, Spanish (Spain), Spanish (Latin
 Chinese (Simplified), Chinese (Traditional), and Japanese**.
 
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
-overrides that; switching reloads the window. Dates, numbers and the first day of the week
-follow your OS region settings, whatever the interface language. On macOS, the frames of
-system dialogs such as Save and folder pickers use the macOS language.
+overrides that; switching reloads the window. The first day of the week follows your OS
+setting. The frames of system dialogs such as Save and folder pickers come from the OS and
+use its language (on macOS, English if the macOS language is not one of the seven).
 
 The full manual ships with the app — ⚙ (Settings) → **Manual**. It is also readable in a
 browser at **[harusame64.github.io/pictkura/manual.en.html](https://harusame64.github.io/pictkura/manual.en.html)**.
