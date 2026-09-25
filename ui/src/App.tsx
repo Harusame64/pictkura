@@ -4789,6 +4789,16 @@ export default function App() {
           for (const d of days) next.delete(d);
           return next;
         });
+        // 選択と起点からも外す（成功のときと同じ）。消えたかもしれない id を数えたり、
+        // そこから Shift を走らせたりしない（PRのcodex）
+        setSelected((prev) => {
+          if (![...ids].some((id) => prev.has(id))) return prev;
+          const next = new Set(prev);
+          for (const id of ids) next.delete(id);
+          return next;
+        });
+        setAnchorId((a) => (a !== null && ids.has(a) ? null : a));
+        lastRangeRef.current = null;
         await refreshSummary().catch(() => {});
       } finally {
         deletingRef.current = false;
@@ -4867,8 +4877,12 @@ export default function App() {
     async (kind: MarkKind, on: boolean) => {
       const ids = await visibleSelection();
       if (ids.length === 0) return;
-      const n = await markIds(kind, on, ids);
-      if (n === null) return;
+      // 報告は見えている枚数で（重ねのタイル1枚は1枚。PRのcodex）。全部に付いたときだけ
+      // 言い換える——一部だけのときはファイルの数のほうが正確
+      const photos = countPhotos(ids, stackIndexRef.current, loadedIdsRef.current);
+      const written = await markIds(kind, on, ids);
+      if (written === null) return;
+      const n = written === ids.length && photos !== null ? photos : written;
       setStatus(
         kind === "favorite"
           ? on
