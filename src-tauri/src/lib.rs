@@ -1363,6 +1363,11 @@ struct EmptyLibraryDto {
     /// **まだ確かめ終わっていない。** 探りが返ってこないまま時間切れ。
     /// 刺さったネットワークのフォルダで起きる——**「何も無い」と言わない**
     checking: bool,
+    /// **どのフォルダがまだ確かめ終わっていないか**（dev #23）。`checking` の真偽だけでは、
+    /// 見つからないフォルダの知らせが「確認中のまま前の答えを持ち越す」相手を決められない
+    /// ——差し込んで「在る」と答えたフォルダまで持ち越し、直した直後に「見つかりません」と言う
+    /// （#146 の2ゲート目）
+    checking_roots: Vec<String>,
     /// **返事がないまま見切ったルート。** [`Self::checking`] と分けてある——
     /// あちらは「まだ見ている」で、放っておけば変わる。こちらは
     /// **探りを諦めた**あとの話で、印が残っている限り二度と探らない
@@ -1956,6 +1961,7 @@ fn merge_root_reasons(
             RootAnswer::Answered(reason) => reason,
             RootAnswer::Checking => {
                 out.checking = true;
+                out.checking_roots.push(root.display().to_string());
                 unknown = true;
                 continue;
             }
@@ -2290,6 +2296,21 @@ async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, 
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// ライブラリのフォルダ**配下**の写真・動画の数（dev #23）。
+///
+/// 見つからないフォルダについて「中の N 枚を開けません」と言うために、UI が
+/// [`empty_library_reason`] の `missing` を受けてから、そのフォルダごとに訊く。
+/// **DB だけを読む**——そのフォルダ自身には触らない（消えた・刺さった場所を stat しない）。
+// **主スレッドで数えない**——大きな蔵書の COUNT と、読み取りプールの空き待ちで窓が止まる
+// （`decoder_status` と同じ理由）
+#[tauri::command(async)]
+fn count_media_under(state: tauri::State<'_, AppState>, root: String) -> Result<i64, String> {
+    state
+        .read_pool
+        .with(|db| db.count_by_prefix(Path::new(&root)))
+        .map_err(errs::from_err)
 }
 
 /// ビューアの先読み候補のうち、**実体がクラウドにしか無い**ものを返す（0.2 ①）。
@@ -5363,6 +5384,7 @@ pub fn run() {
             open_decoder_help,
             get_index_progress,
             video_status,
+            count_media_under,
             cloud_only_media,
             open_default,
             reveal_in_folder,
@@ -6499,6 +6521,14 @@ mod tests {
         );
         assert!(r.checking, "まだ見ている");
         assert!(r.stalled.is_empty(), "見切る前に名指ししない");
+        // **画面の文言では名指ししないが、どのルートが確認中かは返す**——見つからない
+        // フォルダの知らせが、前の答えを**そのルートについてだけ**持ち越すため（dev #23）。
+        // これが空だと、隣が確認中のあいだ出ていた知らせを全部落とす（#146 の2ゲート目3周目）
+        assert_eq!(
+            r.checking_roots,
+            vec![roots[0].display().to_string()],
+            "確認中のルートだけを挙げる"
+        );
 
         // 全部見終わったなら、これまでどおり言い切る
         let both_seen = RootReason::default();
@@ -6514,7 +6544,7 @@ mod tests {
             &ScanUnreadable::default(),
         );
         assert!(r.photo_library, "分からない場所が無いなら主張してよい");
-        assert!(!r.checking && r.stalled.is_empty());
+        assert!(!r.checking && r.stalled.is_empty() && r.checking_roots.is_empty());
     }
 
     #[test]

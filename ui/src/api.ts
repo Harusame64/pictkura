@@ -446,9 +446,19 @@ export interface EmptyLibraryReason {
    *  「まだ見ている」なのに対し、こちらは**探りを諦めた**あとだから
    *  ——放っておいても変わらない（Rust側の `root_probes` を見よ） */
   stalled: string[];
+  /** まだ確かめ終わっていないフォルダ（`checking` の中身）。見つからないフォルダの
+   *  知らせが、前の答えを**どのフォルダについてだけ**持ち越すかに使う */
+  checkingRoots: string[];
 }
 export const getEmptyLibraryReason = () =>
   invoke<EmptyLibraryReason>("empty_library_reason");
+
+/**
+ * ライブラリのフォルダ配下の写真・動画の数（DB だけを読む。フォルダには触らない）。
+ * 見つからないフォルダについて「中の N 枚を開けません」と言うために使う（dev #23）
+ */
+export const countMediaUnder = (root: string) =>
+  invoke<number>("count_media_under", { root });
 
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");

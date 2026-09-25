@@ -282,6 +282,12 @@ body {
 .nav-item.root {
   cursor: default;
 }
+/* 見つからないライブラリのフォルダ（dev #23）。**消さずに薄く**——外付けを
+   つなげば戻る。✕（外す）はいつもどおり押せる */
+.nav-item.root.root-missing .root-name {
+  color: var(--warn);
+  opacity: 0.75;
+}
 .root-name,
 .camera-name {
   flex: 1;
@@ -2348,6 +2354,16 @@ body {
   bottom: 168px;
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* 見つからないライブラリのフォルダの知らせ（dev #23）。デコーダ・新しい版の
+   知らせと**同時に出ることがある**ので、さらに1段上に置く。クリックで閉じない
+   （`.index.warn` は押すと閉じる形だが、ここはボタンで選んでもらう） */
+/* `.index.warn`（押すと閉じる形で `cursor: pointer`）より詳細にする——同じ要素に付くので、
+   2つだけの組では負けて指の形が出る（#146 の2ゲート目） */
+.speed-toast.index.warn.root-missing-notice {
+  bottom: 224px;
+  cursor: default;
 }
 
 /* 言語のプルダウン。ネイティブの select をトークンの色に寄せるだけに留める

@@ -2,6 +2,12 @@
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import {
+  laterKey,
+  mergeMissing,
+  missingTotal,
+  type MissingRoot,
+} from "./missingRoots";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -36,6 +42,7 @@ import {
   getIndexProgress,
   getDecoderStatus,
   getEmptyLibraryReason,
+  countMediaUnder,
   getStartupReport,
   startupScanFinished,
   getStats,
@@ -452,6 +459,10 @@ const NON_TEXT_INPUT_TYPES = new Set([
   "color",
   "image",
 ]);
+
+/** ライブラリのフォルダの表示名（末尾の区切りを落とした最後の要素）。サイドバーと知らせで同じ名前を使う */
+const rootName = (r: string) =>
+  r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r;
 
 export default function App() {
   /** タイムラインの骨組み（日付→枚数、新しい日付順）。全件レコードは持たない */
@@ -1533,6 +1544,14 @@ export default function App() {
       // ライブラリしか無い等）に一生辿り着けない
       syncSucceededRef.current = true;
       setStartupFailed(false);
+      // 見つからないフォルダを訊き直す（USB メモリを差し込んでから押した、が典型）。
+      // **飛んでいる問い合わせには相乗りしない**——再スキャンより前に出た問いの答えは、
+      // 差し込む前の「無い」かもしれない。
+      // **「あとで」は新しい答えが来てから忘れる**——押した再スキャンの答えは、同じ
+      // 顔ぶれでも言い直す（戻ってまた消えたフォルダが黙ったままにならないように）
+      emptyReasonInFlight.current = null;
+      forgetLaterOnNextAnswer.current = true;
+      setScanGeneration((g) => g + 1);
       await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
@@ -1815,6 +1834,7 @@ export default function App() {
       rootPackageLegacy: false,
       checking: true,
       stalled: [],
+      checkingRoots: [],
     };
     /**
      * 理由を1回聞く。**「確かめている途中」で終わらせない。**
@@ -2090,7 +2110,120 @@ export default function App() {
     }
   };
 
+  // ===== 見つからないライブラリのフォルダ（dev #23）=====
+  //
+  // フォルダごと消えたルートの行は、再スキャンが**わざと残す**（外付けを抜いた
+  // だけの人の蔵書を消さない。`db.rs` の `root_case_sql`）。残すのは正しいが、
+  // **何も言わないと、一覧は出るのに開けない写真が永遠に並ぶ**。
+  // 起動チェックと再スキャンのあとに訊き、**自動では外さない**——知らせと
+  // サイドバーの印で伝え、外すかどうかは利用者が選ぶ（2026-09-25 の選択）。
+  //
+  // 判定は空の一覧の理由と同じ `empty_library_reason`（ルートごとに独立して探り、
+  // 刺さったマウントは締め切りで見切る）。数は DB だけを数える（フォルダに触らない）。
+  const [missingRoots, setMissingRoots] = useState<MissingRoot[]>([]);
+  /** 「あとで」を押した時点の顔ぶれ。**顔ぶれが変わったら、また出す** */
+  const [missingNoticeLaterFor, setMissingNoticeLaterFor] = useState<
+    string | null
+  >(null);
+  /** 再スキャンが通るたびに進む。訊き直しの合図 */
+  const [scanGeneration, setScanGeneration] = useState(0);
+  /**
+   * 「まだ確認中」と返ったときの訊き直しの回数。**上限を持つ**——刺さったままの
+   * マウントで永遠に訊き続けない。**どの状況の回数か**を鍵で持つ——再スキャンや
+   * ルートの増減で状況が変われば 0 から数え直す（使い切ったまま次の状況へ持ち越さない）
+   */
+  const [missingRecheck, setMissingRecheck] = useState({ key: "", n: 0 });
+  /**
+   * 押した再スキャンの**答えが来てから**「あとで」を忘れる。押した瞬間に忘れると、
+   * 新しい答えが来るまで古い知らせが一瞬出る——直した直後に「まだ無い」と言う
+   */
+  const forgetLaterOnNextAnswer = useRef(false);
+  /** 配列が作り直されるだけ（中身は同じ）では訊き直さない */
+  const rootsKey = roots.join("\u0000");
+  const recheckKey = `${scanGeneration}\u0001${rootsKey}`;
+  const rechecksUsed =
+    missingRecheck.key === recheckKey ? missingRecheck.n : 0;
+  useEffect(() => {
+    // 起動チェックが終わるまでは訊かない（走査の最中の「無い」は答えではない）
+    if (!scanSettled) return;
+    let cancelled = false;
+    let recheck: number | undefined;
+    askEmptyReason()
+      .then(async (r) => {
+        const found = await Promise.all(
+          r.missing.map(async (root) => ({
+            root,
+            // 数えられなかったら 0 として言う（「中の N 枚」を省くだけ）
+            count: await countMediaUnder(root).catch(() => 0),
+          })),
+        );
+        if (cancelled) return;
+        // **答えが揃わなかったルートだけ、前の答えを持ち越す**——「確認中」「見切った」を
+        // 「在る」と読んで、出ていた知らせを消さない。**答えたルートは持ち越さない**
+        // ——差し込んで「在る」と答えたフォルダを、隣の刺さったフォルダのせいで
+        // 「見つかりません」と言い続けない（#146 の2ゲート目。だから DTO にルートごとの
+        // `checkingRoots` を足した）
+        const unanswered = new Set([...r.checkingRoots, ...r.stalled]);
+        setMissingRoots((prev) => mergeMissing(prev, found, unanswered));
+        if (forgetLaterOnNextAnswer.current) {
+          forgetLaterOnNextAnswer.current = false;
+          setMissingNoticeLaterFor(null);
+        }
+        if (r.checking && rechecksUsed < 3) {
+          recheck = window.setTimeout(
+            () => setMissingRecheck({ key: recheckKey, n: rechecksUsed + 1 }),
+            5000,
+          );
+        }
+      })
+      // 訊けなかったら前の答えのまま（黙って消さない・黙って足さない）
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (recheck !== undefined) window.clearTimeout(recheck);
+    };
+  }, [
+    scanSettled,
+    scanGeneration,
+    rechecksUsed,
+    recheckKey,
+    rootsKey,
+    askEmptyReason,
+  ]);
+  /**
+   * **いまのルートに在るものだけ**を見せる——外した直後、次の答えが来るまで
+   * 外したフォルダの知らせ（と、もう一度押せる「外す」）が残らないように
+   */
+  const missingShown = missingRoots.filter((m) => roots.includes(m.root));
+  /** 「あとで」の鍵。**並べ替えてから作る**——答えの届く順で並びが変わっても、同じ顔ぶれなら同じ鍵 */
+  const missingKey = laterKey(missingShown);
+  const missingRootSet = new Set(missingShown.map((m) => m.root));
+  /**
+   * 合計の枚数。**入れ子のルートは外側に含まれている**（`count_by_prefix` は
+   * 差し引かない）ので、別の見つからないルートの配下にあるものは足さない
+   */
+  // 入れ子は外側だけを足す。綴り（区切り・大小）をそろえてから比べる（`missingRoots.ts`）
+  const missingTotalCount = missingTotal(missingShown, platform === "windows");
+
+  /** 確認ダイアログを待っているあいだ、次の「外す」を受けない（二度押しで2つ開き、2回外さない） */
+  const removingRootRef = useRef(false);
   const onRemoveRoot = async (path: string) => {
+    if (removingRootRef.current) return;
+    removingRootRef.current = true;
+    try {
+      await removeRootConfirmed(path);
+    } finally {
+      removingRootRef.current = false;
+    }
+  };
+  const removeRootConfirmed = async (path: string) => {
+    // **外す前に確かめる**（利用者の選択・2026-09-25）。ファイルは消えないが、行と一緒に
+    // ★ と ⚑ の印が消える——戻しても印は戻らない。知らせのボタンは「あとで」の隣にある
+    const ok = await confirmDialog(t.rootRemoveConfirm(rootName(path)), {
+      title: t.appName,
+      kind: "warning",
+    }).catch(() => false);
+    if (!ok) return;
     setBusy(true);
     try {
       await removeLibraryRoot(path);
@@ -5124,6 +5257,42 @@ export default function App() {
           </button>
         </div>
       )}
+      {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
+          ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
+      {/* 空の一覧の画面が同じ理由を言っているあいだは出さない（二重に言わない） */}
+      {missingShown.length > 0 &&
+        missingKey !== missingNoticeLaterFor &&
+        !canSayEmpty && (
+        <div
+          className="speed-toast index warn decoder-notice root-missing-notice"
+          role="status"
+        >
+          <span>
+            {missingShown.length === 1
+              ? t.rootMissingNotice(
+                  rootName(missingShown[0].root),
+                  missingShown[0].count,
+                )
+              : t.rootsMissingNotice(
+                  nameList(missingShown.map((m) => rootName(m.root))),
+                  missingTotalCount,
+                )}
+          </span>
+          {missingShown.length === 1 && (
+            <button
+              title={t.rootRemoveKeepsFiles}
+              disabled={busy}
+              onClick={() => onRemoveRoot(missingShown[0].root)}
+            >
+              {t.rootRemoveFromLibrary}
+            </button>
+          )}
+          {/* 文言は新しい版の知らせと共用（「あとで」） */}
+          <button onClick={() => setMissingNoticeLaterFor(missingKey)}>
+            {t.updateLater}
+          </button>
+        </div>
+      )}
       {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
           落として入れ替えるのはブラウザとインストーラの仕事で、ここは
           「出ていますよ」と言うだけ */}
@@ -5238,9 +5407,14 @@ export default function App() {
           )}
           <div className="nav-section">{t.navLibraryFolders}</div>
           {roots.map((r) => (
-            <div key={r} className="nav-item root" title={r}>
+            <div
+              key={r}
+              className={`nav-item root${missingRootSet.has(r) ? " root-missing" : ""}`}
+              title={missingRootSet.has(r) ? t.rootMissingTip(r) : r}
+            >
               <span className="root-name">
-                {r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r}
+                {missingRootSet.has(r) && "⚠ "}
+                {rootName(r)}
               </span>
               <button
                 className="root-remove"

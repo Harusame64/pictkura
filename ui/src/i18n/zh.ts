@@ -195,7 +195,7 @@ export const zh: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "应用内无法播放这种格式",
-  fileMissing: "找不到这个文件（可能是外接驱动器未连接，或文件已被移动或删除）",
+  fileMissing: "找不到这个文件（可能是 U 盘或 SD 卡已被拔出，或文件已被移动或删除）",
   fileUnreachable: "无法打开这个文件（驱动器尚未就绪，或没有访问权限）",
   videoCloudOnly: "这个视频存放在云端",
   videoCloudOnlyNote:
@@ -242,6 +242,16 @@ export const zh: Dict = {
     "⚠ 搜索索引的建立中断了，搜索结果可能不完整（下次启动时接着建立）",
   indexProgressSuffix: "% —— 完成之前搜索结果可能不完整",
   removeRoot: (path: string) => `把 ${path} 从图库中移除`,
+  rootMissingNotice: (name: string, count: number) =>
+    `找不到文件夹“${name}”${count > 0 ? `（里面的 ${num(count)} 张无法打开）` : ""}。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”。`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `有些文件夹找不到：${names}${count > 0 ? `（共 ${num(count)} 张无法打开）` : ""}。如果它们在 U 盘或 SD 卡上，请插好之后按“重新扫描”。不再使用的文件夹，可以用左侧列表里的 ✕ 从图库中移除（照片文件不会被删除）。`,
+  rootRemoveFromLibrary: "从图库中移除",
+  rootRemoveKeepsFiles: "只是从图库中移除，照片文件不会被删除",
+  rootRemoveConfirm: (name: string) =>
+    `要把“${name}”从图库中移除吗？\n照片文件不会被删除，但里面照片的 ★ 和 ⚑ 标记会被清除。`,
+  rootMissingTip: (path: string) =>
+    `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,
   filterByCamera: (name: string) => `只显示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳转到 ${year} 年`,
@@ -272,7 +282,7 @@ export const zh: Dict = {
   emptyNoRoots:
     "还没有设置图库文件夹。请从存储卡导入，或者选择一个存放照片的文件夹。",
   emptyMissing: (names: string) =>
-    `找不到这些位置：${names}。如果是外置硬盘，请连接好之后按“重新扫描”。`,
+    `找不到这些位置：${names}。如果在 U 盘或 SD 卡上，请插好之后按“重新扫描”。`,
   emptyUnreadableMac: (names: string) =>
     `打不开这些位置：${names}。请在“系统设置 → 隐私与安全性”中允许 pictkura 访问相应的文件夹（桌面、文稿、外置硬盘等）。如果是网络上的文件夹，请确认连接正常之后按“重新扫描”。`,
   emptyUnreadableWin: (names: string) =>

@@ -138,7 +138,7 @@ export const en: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "This format cannot be played in the app",
-  fileMissing: "This file is missing (an external drive may be disconnected, or it was moved or deleted)",
+  fileMissing: "This file is missing (a USB stick or SD card may be unplugged, or the file may have been moved or deleted)",
   fileUnreachable: "This file cannot be opened (the drive is not ready, or access is not allowed)",
   videoCloudOnly: "This video lives in the cloud",
   videoCloudOnlyNote:
@@ -185,6 +185,16 @@ export const en: Dict = {
     "⚠ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",
   indexProgressSuffix: "% — results may be incomplete until this finishes",
   removeRoot: (path: string) => `Remove ${path} from the library`,
+  rootMissingNotice: (name: string, count: number) =>
+    `The folder “${name}” is not there${count > 0 ? ` (${num(count)} ${one(count, "photo", "photos")} in it cannot be opened)` : ""}. If it is on a USB stick or SD card, plug it in and press Rescan.`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `Some folders are not there: ${names}${count > 0 ? ` (${num(count)} ${one(count, "photo", "photos")} in them cannot be opened)` : ""}. If they are on a USB stick or SD card, plug it back in and press Rescan. To stop using a folder, remove it from the library with the ✕ in the list on the left (the photo files are not deleted).`,
+  rootRemoveFromLibrary: "Remove from library",
+  rootRemoveKeepsFiles: "Only removes the folder from the library. The photo files are not deleted",
+  rootRemoveConfirm: (name: string) =>
+    `Remove “${name}” from the library?\nThe photo files are not deleted, but the ★ and ⚑ marks on its photos are.`,
+  rootMissingTip: (path: string) =>
+    `${path} — not there. If it is on a USB stick or SD card, plug it in and press Rescan`,
   importFrom: (path: string) => `Import from ${path}`,
   filterByCamera: (name: string) => `Show only photos taken with ${name}`,
   jumpToYear: (year: number) => `Jump to ${year}`,
@@ -214,7 +224,7 @@ export const en: Dict = {
   emptyNoRoots:
     "No library folder has been set up yet. Import from a card, or pick a folder that has photos in it.",
   emptyMissing: (names: string) =>
-    `These places are not there: ${names}. If that is an external drive, connect it and press Rescan.`,
+    `These places are not there: ${names}. If they are on a USB stick or SD card, plug it back in and press Rescan.`,
   emptyUnreadableMac: (names: string) =>
     `These places could not be opened: ${names}. Grant pictkura access to that folder (Desktop, Documents, an external drive) in System Settings → Privacy & Security. If it is on a network, make sure it is connected and press Rescan.`,
   emptyUnreadableWin: (names: string) =>

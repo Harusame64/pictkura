@@ -193,7 +193,7 @@ export const es: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "Este formato no se puede reproducir en la aplicación",
-  fileMissing: "Este archivo no está (puede que haya una unidad externa desconectada, o que se haya movido o borrado)",
+  fileMissing: "Este archivo no está (puede que una memoria USB o una tarjeta SD no esté conectada, o que el archivo se haya movido o borrado)",
   fileUnreachable: "No se puede abrir este archivo (la unidad no está lista o no se permite el acceso)",
   videoCloudOnly: "Este vídeo está en la nube",
   videoCloudOnlyNote:
@@ -240,6 +240,16 @@ export const es: Dict = {
     "⚠ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",
   indexProgressSuffix: " % — hasta que esto termine, pueden faltar resultados",
   removeRoot: (path: string) => `Quitar ${path} de la biblioteca`,
+  rootMissingNotice: (name: string, count: number) =>
+    `La carpeta «${name}» no está${count > 0 ? ` (no se ${one(count, "puede", "pueden")} abrir ${one(count, "la foto", `las ${num(count)} fotos`)} que contiene)` : ""}. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar».`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `Algunas carpetas no están: ${names}${count > 0 ? ` (en total no se ${one(count, "puede", "pueden")} abrir ${num(count)} ${one(count, "foto", "fotos")})` : ""}. Si están en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar». Para dejar de usar una carpeta, quítala de la biblioteca con la ✕ de la lista de la izquierda (los archivos de las fotos no se borran).`,
+  rootRemoveFromLibrary: "Quitar de la biblioteca",
+  rootRemoveKeepsFiles: "Solo quita la carpeta de la biblioteca. Los archivos de las fotos no se borran",
+  rootRemoveConfirm: (name: string) =>
+    `¿Quitar «${name}» de la biblioteca?\nLos archivos de las fotos no se borran, pero sí las marcas ★ y ⚑ de sus fotos.`,
+  rootMissingTip: (path: string) =>
+    `${path}: no está. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar»`,
   importFrom: (path: string) => `Importar desde ${path}`,
   filterByCamera: (name: string) => `Mostrar solo las fotos hechas con ${name}`,
   jumpToYear: (year: number) => `Ir a ${year}`,
@@ -270,7 +280,7 @@ export const es: Dict = {
   emptyNoRoots:
     "Todavía no hay ninguna carpeta de la biblioteca configurada. Importa desde una tarjeta o elige una carpeta que tenga fotos dentro.",
   emptyMissing: (names: string) =>
-    `Estos lugares no están: ${names}. Si es un disco externo, conéctalo y pulsa «Volver a explorar».`,
+    `Estos lugares no están: ${names}. Si están en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar».`,
   emptyUnreadableMac: (names: string) =>
     `Estos lugares no se han podido abrir: ${names}. Dale a pictkura acceso a esa carpeta (Escritorio, Documentos, un disco externo) en Ajustes del Sistema → Privacidad y seguridad. Si está en una red, comprueba que sigue conectada y pulsa «Volver a explorar».`,
   emptyUnreadableWin: (names: string) =>

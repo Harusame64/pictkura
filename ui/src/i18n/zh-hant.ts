@@ -198,8 +198,8 @@ export const zhHant: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "程式內無法播放這種格式",
-  fileMissing: "找不到這個檔案（可能是外接磁碟未連接，或檔案已被移動或刪除）",
-  fileUnreachable: "無法開啟這個檔案（磁碟尚未就緒，或沒有存取權限）",
+  fileMissing: "找不到這個檔案（可能是隨身碟或 SD 卡沒有插上，或檔案已被移動或刪除）",
+  fileUnreachable: "無法開啟這個檔案（磁碟機尚未就緒，或沒有存取權限）",
   videoCloudOnly: "這部影片存放在雲端",
   videoCloudOnlyNote:
     "在程式內播放會先開始下載，下載完成前什麼也看不到。用預設的程式開啟，可以一邊看進度一邊取回。",
@@ -245,6 +245,16 @@ export const zhHant: Dict = {
     "⚠ 搜尋索引的建立中斷了，搜尋結果可能不完整（下次啟動時接著建立）",
   indexProgressSuffix: "% —— 完成之前搜尋結果可能不完整",
   removeRoot: (path: string) => `把 ${path} 從圖庫中移除`,
+  rootMissingNotice: (name: string, count: number) =>
+    `找不到資料夾「${name}」${count > 0 ? `（裡面的 ${num(count)} 張無法開啟）` : ""}。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」。`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `有些資料夾找不到：${names}${count > 0 ? `（共 ${num(count)} 張無法開啟）` : ""}。如果它們在隨身碟或 SD 卡上，請插好之後按「重新掃描」。不再使用的資料夾，可以用左側清單中的 ✕ 從圖庫中移除（照片檔案不會被刪除）。`,
+  rootRemoveFromLibrary: "從圖庫中移除",
+  rootRemoveKeepsFiles: "只是從圖庫中移除，照片檔案不會被刪除",
+  rootRemoveConfirm: (name: string) =>
+    `要把「${name}」從圖庫中移除嗎？\n照片檔案不會被刪除，但裡面照片的 ★ 和 ⚑ 標記會被清除。`,
+  rootMissingTip: (path: string) =>
+    `${path}——找不到。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,
   filterByCamera: (name: string) => `只顯示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳到 ${year} 年`,
@@ -275,7 +285,7 @@ export const zhHant: Dict = {
   emptyNoRoots:
     "還沒有設定圖庫資料夾。請從記憶卡匯入，或者選擇一個存放照片的資料夾。",
   emptyMissing: (names: string) =>
-    `找不到這些位置：${names}。如果是外接硬碟，請接好之後按「重新掃描」。`,
+    `找不到這些位置：${names}。如果在隨身碟或 SD 卡上，請插好之後按「重新掃描」。`,
   emptyUnreadableMac: (names: string) =>
     `打不開這些位置：${names}。請在「系統設定 → 隱私權與安全性」中允許 pictkura 存取相應的資料夾（桌面、文件、外接硬碟等）。如果是網路上的資料夾，請確認連線正常之後按「重新掃描」。`,
   emptyUnreadableWin: (names: string) =>

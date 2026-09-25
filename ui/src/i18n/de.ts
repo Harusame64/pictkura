@@ -176,7 +176,7 @@ export const de: Dict = {
   actualSizeBadge: "1:1",
   // 動画（第9部）
   videoUnsupported: "Dieses Format kann in der App nicht abgespielt werden",
-  fileMissing: "Diese Datei fehlt (vielleicht ist ein externes Laufwerk getrennt, oder sie wurde verschoben oder gelöscht)",
+  fileMissing: "Diese Datei fehlt (vielleicht ist ein USB-Stick oder eine SD-Karte nicht eingesteckt, oder die Datei wurde verschoben oder gelöscht)",
   fileUnreachable: "Diese Datei lässt sich nicht öffnen (das Laufwerk ist nicht bereit, oder der Zugriff ist nicht erlaubt)",
   videoCloudOnly: "Dieses Video liegt in der Cloud",
   videoCloudOnlyNote:
@@ -223,6 +223,16 @@ export const de: Dict = {
     "⚠ Der Suchindex wurde unterbrochen — Treffer können unvollständig sein (es geht beim nächsten Start weiter)",
   indexProgressSuffix: " % — bis das fertig ist, können Treffer fehlen",
   removeRoot: (path: string) => `${path} aus der Bibliothek entfernen`,
+  rootMissingNotice: (name: string, count: number) =>
+    `Der Ordner „${name}“ ist nicht da${count > 0 ? ` (${num(count)} ${one(count, "Foto darin lässt", "Fotos darin lassen")} sich nicht öffnen)` : ""}. Wenn er auf einem USB-Stick oder einer SD-Karte liegt, stecke den Datenträger ein und drücke „Neu einlesen“.`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `Einige Ordner sind nicht da: ${names}${count > 0 ? ` (insgesamt ${num(count)} ${one(count, "Foto lässt", "Fotos lassen")} sich nicht öffnen)` : ""}. Wenn sie auf einem USB-Stick oder einer SD-Karte liegen, stecke den Datenträger ein und drücke „Neu einlesen“. Einen Ordner, den du nicht mehr brauchst, entfernst du mit ✕ in der Liste links aus der Bibliothek (die Fotodateien werden nicht gelöscht).`,
+  rootRemoveFromLibrary: "Aus der Bibliothek entfernen",
+  rootRemoveKeepsFiles: "Entfernt den Ordner nur aus der Bibliothek. Die Fotodateien werden nicht gelöscht",
+  rootRemoveConfirm: (name: string) =>
+    `„${name}“ aus der Bibliothek entfernen?\nDie Fotodateien werden nicht gelöscht, aber die ★- und ⚑-Markierungen an den Fotos darin gehen verloren.`,
+  rootMissingTip: (path: string) =>
+    `${path} — nicht da. Wenn der Ordner auf einem USB-Stick oder einer SD-Karte liegt, stecke den Datenträger ein und drücke „Neu einlesen“`,
   importFrom: (path: string) => `Aus ${path} importieren`,
   filterByCamera: (name: string) => `Nur Fotos zeigen, die mit ${name} aufgenommen wurden`,
   jumpToYear: (year: number) => `Zu ${year} springen`,
@@ -253,7 +263,7 @@ export const de: Dict = {
   emptyNoRoots:
     "Es ist noch kein Bibliotheksordner eingerichtet. Importiere von einer Karte oder wähle einen Ordner, in dem Fotos liegen.",
   emptyMissing: (names: string) =>
-    `Diese Orte sind nicht da: ${names}. Wenn das eine externe Festplatte ist, schließe sie an und drücke „Neu einlesen“.`,
+    `Diese Orte sind nicht da: ${names}. Wenn sie auf einem USB-Stick oder einer SD-Karte liegen, stecke den Datenträger ein und drücke „Neu einlesen“.`,
   emptyUnreadableMac: (names: string) =>
     `Diese Orte ließen sich nicht öffnen: ${names}. Erlaube pictkura in den Systemeinstellungen unter „Datenschutz & Sicherheit“ den Zugriff auf diesen Ordner (Schreibtisch, Dokumente, externes Laufwerk). Liegt er im Netzwerk, prüfe die Verbindung und drücke „Neu einlesen“.`,
   emptyUnreadableWin: (names: string) =>
