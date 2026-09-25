@@ -6923,9 +6923,13 @@ mod tests {
     /// 一時フォルダと合わずに黙って外れる
     #[test]
     fn a_path_that_does_not_exist_yet_is_judged_by_its_existing_ancestor() {
+        // 一時フォルダの側は**解決済みの綴り**で持つ（macOS なら `/private/var/…`）。
+        // 検体は**解決していない綴り**（`/var/…`）のまだ無いパス。祖先まで解決しないと外れる
+        // ——両方とも解決していない綴りで比べると、解決を消しても緑のまま（#149 で撃って確かめた）
         let tmp = tempfile::tempdir().unwrap();
+        let resolved = std::fs::canonicalize(tmp.path()).unwrap();
         let not_yet = tmp.path().join("new").join("photos");
-        assert!(is_inside_any(&not_yet, &temporary_dirs()));
+        assert!(is_inside_any(&not_yet, std::slice::from_ref(&resolved)));
     }
 
     /// **ホームを含むほど広い候補は捨てる**（`TMPDIR=$HOME` の台で、全部に警告を出さない）。
