@@ -100,6 +100,7 @@ import {
   formatDuration,
   formatLocale,
   formatNumber,
+  osT,
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
@@ -1251,6 +1252,28 @@ export default function App() {
   const [decoderHelp, setDecoderHelp] = useState(false);
   const platform = usePlatform();
   /**
+   * 確認ダイアログ（ゴミ箱へ・移動・フォルダを外す）。**呼び出しはここを通す**——直に
+   * `confirmDialog` を呼ぶと、既定の英語の Cancel / OK に戻る。
+   *
+   * - **OK は押すと何が起きるかを言う**（`okLabel`）
+   * - **macOS のキャンセルは OS の言語で出す**——AppKit が Esc を割り当てるのは OS の言語の
+   *   「キャンセル」か英語の `Cancel` だけで、アプリの言語を OS と変えている人に
+   *   `Abbrechen` を渡すと Esc で閉じない（2026-09-25 実機）。OS の言語の辞書が無ければ
+   *   渡さない（既定の `Cancel`）。Windows は Esc がラベルによらず効くので、アプリの言語で出す
+   * - **出せなかったら「取り消した」と同じに扱う**（ボタンを押しても何も起きない、にしない）
+   */
+  const confirmAction = useCallback(
+    (message: string, okLabel: string): Promise<boolean> =>
+      confirmDialog(message, {
+        title: t.appName,
+        kind: "warning",
+        okLabel,
+        cancelLabel:
+          platform === "macos" ? osT?.confirmCancel : t.confirmCancel,
+      }).catch(() => false),
+    [platform],
+  );
+  /**
    * 先読みの触り直し（下の [`PRELOAD_TOUCH_MS`] のeffect）を**回してよいか**。
    *
    * **Blinkだけ。** 時間の崖があるのはあちらだけで、WebKitでは同じ `decode()` が
@@ -2219,12 +2242,7 @@ export default function App() {
   const removeRootConfirmed = async (path: string) => {
     // **外す前に確かめる**（利用者の選択・2026-09-25）。ファイルは消えないが、行と一緒に
     // ★ と ⚑ の印が消える——戻しても印は戻らない。知らせのボタンは「あとで」の隣にある
-    const ok = await confirmDialog(t.rootRemoveConfirm(rootName(path)), {
-      title: t.appName,
-      kind: "warning",
-      okLabel: t.rootRemoveConfirmOk,
-      cancelLabel: t.confirmCancel,
-    }).catch(() => false);
+    const ok = await confirmAction(t.rootRemoveConfirm(rootName(path)), t.rootRemoveConfirmOk);
     if (!ok) return;
     setBusy(true);
     try {
@@ -4567,12 +4585,7 @@ export default function App() {
       if (deletingRef.current) return;
       deletingRef.current = true;
       try {
-        const ok = await confirmDialog(t.deleteConfirm(1), {
-          title: t.appName,
-          kind: "warning",
-          okLabel: t.deleteConfirmOk,
-          cancelLabel: t.confirmCancel,
-        });
+        const ok = await confirmAction(t.deleteConfirm(1), t.deleteConfirmOk);
         if (!ok) return;
         const n = await deleteMedia([item.id]);
         setStatus(t.deleted(n));
@@ -4611,7 +4624,7 @@ export default function App() {
         deletingRef.current = false;
       }
     },
-    [refreshSummary],
+    [refreshSummary, confirmAction],
   );
 
   /**
@@ -4720,12 +4733,7 @@ export default function App() {
       if (ids.length === 0) return;
       // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
       const touched = new Set(ids);
-      const ok = await confirmDialog(t.deleteConfirm(ids.length), {
-        title: t.appName,
-        kind: "warning",
-        okLabel: t.deleteConfirmOk,
-        cancelLabel: t.confirmCancel,
-      });
+      const ok = await confirmAction(t.deleteConfirm(ids.length), t.deleteConfirmOk);
       if (!ok) return;
       try {
         const n = await deleteMedia(ids);
@@ -4747,7 +4755,13 @@ export default function App() {
       deletingRef.current = false;
       setBusy(false);
     }
-  }, [visibleSelection, refreshSummary, clearSelection, forgetDeleted]);
+  }, [
+    visibleSelection,
+    refreshSummary,
+    clearSelection,
+    forgetDeleted,
+    confirmAction,
+  ]);
 
   /**
    * 関所が片付いたあとの行き先。**開いた理由のところまで戻す**——
@@ -4863,12 +4877,7 @@ export default function App() {
         const ids = await visibleSelection();
         if (ids.length === 0) return;
         if (moveFiles) {
-          const ok = await confirmDialog(t.moveConfirm(ids.length), {
-            title: t.appName,
-            kind: "warning",
-            okLabel: t.moveConfirmOk,
-            cancelLabel: t.confirmCancel,
-          });
+          const ok = await confirmAction(t.moveConfirm(ids.length), t.moveConfirmOk);
           if (!ok) return;
         }
         const dest = await open({ directory: true, title: t.pickExportFolder });
@@ -4893,7 +4902,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [visibleSelection, clearSelection, reloadAll],
+    [visibleSelection, clearSelection, reloadAll, confirmAction],
   );
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */

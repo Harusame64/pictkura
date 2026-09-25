@@ -45,8 +45,8 @@
  *
  * **ゴミ箱の呼び名はOSで割れる**——Windowsは `資源回收筒`、macOSは `垃圾桶`。
  * 簡体字辞書と同じ理由で**Windows側に寄せた**（配布の主戦場がWindows、
- * macOSの利用者にも通じる）。**分けるなら10キーと2行**——`menuDelete` /
- * `bulkDelete` / `deleteConfirm` / `deleted` / `deletedSomeLeft` /
+ * macOSの利用者にも通じる）。**分けるなら11キーと2行**——`menuDelete` /
+ * `bulkDelete` / `deleteConfirm` / `deleteConfirmOk`（確認の釦・2026-09-25）/ `deleted` / `deletedSomeLeft` /
  * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
  * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）と、
  * ショートカット一覧の X と右クリックの行（`grep 資源回收筒` で数える）。
