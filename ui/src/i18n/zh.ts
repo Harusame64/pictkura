@@ -253,6 +253,11 @@ export const zh: Dict = {
   rootTempConfirm: (path: string) =>
     `“${path}”位于临时文件夹中。\n系统或其他应用可能会在不提示的情况下删除其中的文件。仍要添加到图库吗？`,
   rootTempConfirmOk: "仍然添加",
+  destTempConfirm: (path: string) =>
+    `“${path}”位于临时文件夹中。\n导入到这里的照片，可能会被系统或其他应用在不提示的情况下删除。存储卡清空之后，这些照片就不会再留在任何地方。仍要把它设为复制到的文件夹吗？`,
+  destTempConfirmOk: "仍然使用",
+  destTempWarning:
+    "⚠ 复制到的文件夹位于临时文件夹中。导入的照片可能会在不提示的情况下消失。",
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,

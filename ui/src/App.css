@@ -2197,6 +2197,15 @@ body {
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
+/* 一時フォルダのコピー先（dev #30）。折り返して、コピー先の下に1行で出す。
+   **折り返すのは警告が出ているときだけ**——ふだんの1行の並びは変えない */
+.wiz-dest.wiz-dest-warned {
+  flex-wrap: wrap;
+}
+.wiz-dest-warn {
+  flex-basis: 100%;
+  color: var(--warn);
+}
 .wiz-dest code,
 .wiz-pattern code {
   color: var(--text);

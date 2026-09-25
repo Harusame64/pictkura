@@ -23,6 +23,7 @@ import {
   type FolderPattern,
 } from "./api";
 import { usePlatform } from "./usePlatform";
+import { confirmTemporaryDestination } from "./confirm";
 import {
   LOCALES,
   locale,
@@ -274,6 +275,14 @@ export default function Settings({
                     title: t.pickDestination,
                   });
                   if (typeof dest !== "string") return;
+                  // 一時フォルダなら確かめる（dev #30）。取り込みの側と同じ関数を通す
+                  if (
+                    !(await confirmTemporaryDestination(platform, dest, (m) => {
+                      setDestError(m);
+                      onError(m);
+                    }))
+                  )
+                    return;
                   // 選んだ先が消えている・ネットワークが切れている・
                   // 写真.appのライブラリの中だった等で失敗しうる。
                   // 設定は変えないまま、**理由は出す**（黙って何も起きないと

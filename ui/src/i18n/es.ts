@@ -251,6 +251,11 @@ export const es: Dict = {
   rootTempConfirm: (path: string) =>
     `«${path}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sus archivos sin avisar. ¿Añadirla a la biblioteca de todos modos?`,
   rootTempConfirmOk: "Añadir de todos modos",
+  destTempConfirm: (path: string) =>
+    `«${path}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sin avisar las fotos que importes aquí. Cuando borres la tarjeta, no quedarán en ningún otro lugar. ¿Usarla como destino de todos modos?`,
+  destTempConfirmOk: "Usar como destino",
+  destTempWarning:
+    "⚠ El destino está dentro de una carpeta temporal. Las fotos importadas pueden desaparecer sin aviso.",
   rootMissingTip: (path: string) =>
     `${path}: no está. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar»`,
   importFrom: (path: string) => `Importar desde ${path}`,
