@@ -411,10 +411,11 @@ export const de: Dict = {
   bulkMove: "In Ordner verschieben",
   bulkViewer: "Die Auswahl ansehen",
   pickExportFolder: "Ordner zum Exportieren wählen",
+  pickMoveFolder: "Zielordner zum Verschieben wählen",
   moveConfirm: (n: number) =>
     n === 1
-      ? "Dieses Foto in einen Ordner verschieben, den du gleich wählst? Es verlässt seinen bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen)."
-      : `${num(n)} Fotos in einen Ordner verschieben, den du gleich wählst? Sie verlassen ihren bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen).`,
+      ? "Dieses Foto in einen Ordner verschieben, den du gleich wählst? Es verlässt seinen bisherigen Platz und die Bibliothek. ★ und ⚑ werden nicht mitgenommen."
+      : `${num(n)} Fotos in einen Ordner verschieben, den du gleich wählst? Sie verlassen ihren bisherigen Platz und die Bibliothek. ★ und ⚑ werden nicht mitgenommen.`,
   confirmCancel: "Abbrechen",
   deleteConfirmOk: "In den Papierkorb",
   moveConfirmOk: "Ziel wählen",
@@ -427,6 +428,19 @@ export const de: Dict = {
     if (failed > 0) parts.push(`${num(failed)} fehlgeschlagen`);
     if (leftBehind > 0)
       parts.push(`${num(leftBehind)} ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz nicht entfernen`);
+    return parts.join(". ") + ".";
+  },
+  moving: (done: number, total: number, name: string) =>
+    `Wird verschoben… ${num(done)}/${num(total)} ${name}`,
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts = [moved === 1 ? "1 Foto verschoben" : `${num(moved)} Fotos verschoben`];
+    if (skipped > 0)
+      parts.push(`${num(skipped)} ${one(skipped, "war", "waren")} schon da und ${one(skipped, "bleibt", "bleiben")} am bisherigen Platz`);
+    if (failed > 0) parts.push(`${num(failed)} fehlgeschlagen`);
+    if (leftBehind > 0)
+      parts.push(
+        `${num(leftBehind)} ${one(leftBehind, "wurde", "wurden")} kopiert, ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz aber nicht entfernen`,
+      );
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Als Auswahl markieren",

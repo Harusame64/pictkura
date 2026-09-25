@@ -836,6 +836,8 @@ export default function App() {
   const selectEpochRef = useRef(0);
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
+  /** 走っているのが**移動**か。進捗の文言を「書き出し中」と「移動中」で分ける（#147 の win 実機） */
+  const movingRef = useRef(false);
   /**
    * ゴミ箱への移動が走っているか。**一覧からの削除と1枚の削除で共有する**
    * ——別スレッドへ出したぶん、走っている最中も画面は動く（ゲート1の指摘）
@@ -1366,7 +1368,11 @@ export default function App() {
         "export-progress",
         (ev) =>
           setStatus(
-            t.exporting(ev.payload.done, ev.payload.total, ev.payload.name),
+            (movingRef.current ? t.moving : t.exporting)(
+              ev.payload.done,
+              ev.payload.total,
+              ev.payload.name,
+            ),
           ),
       );
       if (cancelled) exportProgress();
@@ -5099,10 +5105,19 @@ export default function App() {
           );
           if (!ok) return;
         }
-        const dest = await open({ directory: true, title: t.pickExportFolder });
+        const dest = await open({
+          directory: true,
+          title: moveFiles ? t.pickMoveFolder : t.pickExportFolder,
+        });
         if (typeof dest !== "string") return;
+        movingRef.current = moveFiles;
         const st = await exportMedia(ids, dest, moveFiles);
-        setStatus(t.exportDone(st.done, st.skipped, st.failed, st.left_behind));
+        setStatus(
+          moveFiles
+            ? // `done` は写し終えた数で、元を消せなかった `left_behind` を含む——移動できたのは差
+              t.moveDone(st.done - st.left_behind, st.skipped, st.failed, st.left_behind)
+            : t.exportDone(st.done, st.skipped, st.failed, st.left_behind),
+        );
         if (moveFiles) {
           // 移動したぶんはライブラリから外れている。選択も画面も取り直す
           clearSelection();

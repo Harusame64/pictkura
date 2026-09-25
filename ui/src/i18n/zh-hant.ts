@@ -404,10 +404,11 @@ export const zhHant: Dict = {
   bulkMove: "移動到資料夾",
   bulkViewer: "查看選取的照片",
   pickExportFolder: "選擇匯出到的資料夾",
+  pickMoveFolder: "選擇要移動到的資料夾",
   moveConfirm: (n: number) =>
     n === 1
-      ? "要把這張照片移動到接下來選擇的資料夾嗎？它會離開原來的位置，也會從圖庫中移出（★ 和 ⚑ 的標記不會帶過去）。"
-      : `要把這 ${num(n)} 張照片移動到接下來選擇的資料夾嗎？它們會離開原來的位置，也會從圖庫中移出（★ 和 ⚑ 的標記不會帶過去）。`,
+      ? "要把這張照片移動到接下來選擇的資料夾嗎？它會離開原來的位置，也會從圖庫中移出。★ 和 ⚑ 的標記不會帶過去。"
+      : `要把這 ${num(n)} 張照片移動到接下來選擇的資料夾嗎？它們會離開原來的位置，也會從圖庫中移出。★ 和 ⚑ 的標記不會帶過去。`,
   confirmCancel: "取消",
   deleteConfirmOk: "移到資源回收筒",
   moveConfirmOk: "選擇目標資料夾",
@@ -420,6 +421,15 @@ export const zhHant: Dict = {
     if (failed > 0) parts.push(`有 ${num(failed)} 張失敗`);
     if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 張無法從原來的位置刪除`);
     return parts.join("，") + "。";
+  },
+  moving: (done: number, total: number, name: string) =>
+    `正在移動… ${num(done)}/${num(total)} ${name}`,
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts = [`已移動 ${num(moved)} 張`];
+    if (skipped > 0) parts.push(`有 ${num(skipped)} 張在目標位置已經存在，留在了原來的位置`);
+    if (failed > 0) parts.push(`有 ${num(failed)} 張失敗`);
+    if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 張已複製過去，但無法從原來的位置刪除`);
+    return parts.join("；") + "。";
   },
   bulkPickOn: "留用",
   bulkPickOff: "取消留用",
