@@ -1757,7 +1757,8 @@ impl CameraWrite {
     /// それを「動いた」にすると、何も変わらないのに処理のたびに数え直す（#152 の3周目）。
     ///
     /// 代わりに、**走査が空にした行の前のカメラ**はここでは拾えない（`from` が `None`
-    /// でしか見えない）。それは走査の側が言うべきことで、別に立てた（dev #31）
+    /// でしか見えない）。それは走査の側が言う——行を変えた走査は、その場で数え直させる
+    /// （アプリ側の `scan_changes_camera_counts`、dev #31）
     pub fn between(
         before: Result<Option<i64>, DbError>,
         after: Result<Option<i64>, DbError>,
