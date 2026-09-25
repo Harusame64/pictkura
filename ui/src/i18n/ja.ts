@@ -159,7 +159,7 @@ export const ja = {
   actualSizeBadge: "等倍",
   // 動画（第9部）
   videoUnsupported: "この形式はアプリ内で再生できません",
-  fileMissing: "このファイルが見つかりません（外付けドライブが外れているか、移動・削除されたようです）",
+  fileMissing: "このファイルが見つかりません（USBメモリやSDカードが抜けているか、移動・削除されたようです）",
   fileUnreachable: "このファイルを開けません（ドライブの準備ができていないか、アクセスが許可されていません）",
   videoCloudOnly: "この動画はクラウドにあります",
   videoCloudOnlyNote:
@@ -217,13 +217,13 @@ export const ja = {
   /* 見つからないライブラリのフォルダ（dev #23）。**自動では外さない**——外付けを
    * 抜いただけの人の蔵書を消さない。外すかどうかは利用者が選ぶ */
   rootMissingNotice: (name: string, count: number) =>
-    `フォルダ「${name}」が見つかりません${count > 0 ? `（中の ${num(count)} 枚を開けません）` : ""}。外付けなら、つないでから「再スキャン」を押してください。`,
+    `フォルダ「${name}」が見つかりません${count > 0 ? `（中の ${num(count)} 枚を開けません）` : ""}。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください。`,
   rootsMissingNotice: (names: string, count: number) =>
-    `見つからないフォルダがあります: ${names}${count > 0 ? `（あわせて ${num(count)} 枚を開けません）` : ""}。外付けなら、つないでから「再スキャン」を押してください。使わないフォルダは、左の一覧の ✕ でライブラリから外せます（写真のファイルは消えません）。`,
+    `見つからないフォルダがあります: ${names}${count > 0 ? `（あわせて ${num(count)} 枚を開けません）` : ""}。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください。使わないフォルダは、左の一覧の ✕ でライブラリから外せます（写真のファイルは消えません）。`,
   rootRemoveFromLibrary: "ライブラリから外す",
   rootRemoveKeepsFiles: "ライブラリの一覧から外すだけです。写真のファイルは消しません",
   rootMissingTip: (path: string) =>
-    `${path} — 見つかりません。外付けなら、つないでから「再スキャン」を押してください`,
+    `${path} — 見つかりません。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください`,
   importFrom: (path: string) => `${path} から取り込む`,
   filterByCamera: (name: string) => `${name} で撮った写真だけを表示`,
   jumpToYear: (year: number) => `${year}年へ`,
@@ -261,7 +261,7 @@ export const ja = {
   emptyNoRoots:
     "ライブラリのフォルダがまだ設定されていません。カードから取り込むか、写真のあるフォルダを選んでください。",
   emptyMissing: (names: string) =>
-    `次の場所が見つかりません: ${names}。外付けなら、つないでから「再スキャン」を押してください。`,
+    `次の場所が見つかりません: ${names}。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください。`,
   /* 読めない理由はOSで違うので、次にやることも分ける。
      `unreadable` にはWindowsからも来る（ACLの拒否・切れたSMB共有）ので、
      macOSの案内だけ置くと**Windowsの人に次の一手が1つも無い**（ゲート1の指摘） */
