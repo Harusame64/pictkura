@@ -2359,7 +2359,12 @@ impl Db {
     /// **バイト厳密**——大小文字だけ違う別綴りのフォルダを数えない。
     ///
     /// 見つからないライブラリのフォルダについて「中の N 枚を開けません」と言うために使う
-    /// （dev #23）。**入れ子のルートは差し引かない**——内側のルートの行も外側の数に入る。
+    /// （dev #23）。**入れ子のルートは差し引かない**——内側のルートの行も外側の数に入る
+    /// （合計するときは UI が外側だけを足す）。
+    ///
+    /// **「ライブラリから外す」で消える数とは、大小文字だけ違う綴りの行のぶんずれうる。**
+    /// 外すのは `remove_library_root` → 走査で、どのルートにも属さない行の判定は
+    /// `root_case_sql` の LIKE（ASCII の大小を区別しない）に乗る。ここは数えすぎない側を取った。
     pub fn count_by_prefix(&self, prefix: &Path) -> Result<i64, DbError> {
         let p = crate::paths::normalize_dir_str(prefix);
         let (prefix_sql, prefix_params) = binary_prefix_sql("path", &p, 1);
@@ -3749,9 +3754,10 @@ mod tests {
     }
 
     #[test]
-    fn count_by_prefix_counts_what_remove_by_prefix_would_remove() {
-        // **数えた数と、外したときに消える数を揃える**——「1,234 枚」と言って
-        // 違う数を消すと、知らせが嘘になる
+    fn count_by_prefix_uses_the_same_byte_exact_prefix_as_remove_by_prefix() {
+        // **前方一致の規則を `remove_by_prefix` と揃える**（別綴り・名前が前方一致するだけの
+        // 隣を数えない）。「ライブラリから外す」の道（走査）とは大小文字の扱いが違う——
+        // `count_by_prefix` の doc
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("root/summer/a.jpg", 1, 100),

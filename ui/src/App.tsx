@@ -1538,11 +1538,15 @@ export default function App() {
       // ライブラリしか無い等）に一生辿り着けない
       syncSucceededRef.current = true;
       setStartupFailed(false);
-      // 見つからないフォルダを訊き直す（外付けをつないでから押した、が典型）。
-      // **「あとで」も忘れる**——押した再スキャンの答えは、同じ顔ぶれでも言い直す
-      // （戻ってまた消えたフォルダが、前の「あとで」で黙ったままにならないように）
+      // 見つからないフォルダを訊き直す（USB メモリを差し込んでから押した、が典型）。
+      // **飛んでいる問い合わせには相乗りしない**——再スキャンより前に出た問いの答えは、
+      // 差し込む前の「無い」かもしれない。
+      // **「あとで」は新しい答えが来てから忘れる**——押した再スキャンの答えは、同じ
+      // 顔ぶれでも言い直す（戻ってまた消えたフォルダが黙ったままにならないように）
+      emptyReasonInFlight.current = null;
+      forgetLaterOnNextAnswer.current = true;
+      setMissingRecheck(0);
       setScanGeneration((g) => g + 1);
-      setMissingNoticeLaterFor(null);
       await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
@@ -2119,10 +2123,23 @@ export default function App() {
   >(null);
   /** 再スキャンが通るたびに進む。訊き直しの合図 */
   const [scanGeneration, setScanGeneration] = useState(0);
+  /**
+   * 「まだ確認中」と返ったときの訊き直しの回数。**上限を持つ**——刺さったままの
+   * マウントで永遠に訊き続けない。再スキャンを押せば 0 に戻る
+   */
+  const [missingRecheck, setMissingRecheck] = useState(0);
+  /**
+   * 押した再スキャンの**答えが来てから**「あとで」を忘れる。押した瞬間に忘れると、
+   * 新しい答えが来るまで古い知らせが一瞬出る——直した直後に「まだ無い」と言う
+   */
+  const forgetLaterOnNextAnswer = useRef(false);
+  /** 配列が作り直されるだけ（中身は同じ）では訊き直さない */
+  const rootsKey = roots.join("\u0000");
   useEffect(() => {
     // 起動チェックが終わるまでは訊かない（走査の最中の「無い」は答えではない）
     if (!scanSettled) return;
     let cancelled = false;
+    let recheck: number | undefined;
     askEmptyReason()
       .then(async (r) => {
         const found = await Promise.all(
@@ -2132,16 +2149,59 @@ export default function App() {
             count: await countMediaUnder(root).catch(() => 0),
           })),
         );
-        if (!cancelled) setMissingRoots(found);
+        if (cancelled) return;
+        // **答えが揃わなかったルートは、前の答えを持ち越す**——「確認中」「見切った」を
+        // 「在る」と読んで、出ていた知らせを消さない
+        const stalled = new Set(r.stalled);
+        setMissingRoots((prev) => [
+          ...found,
+          ...prev.filter(
+            (m) =>
+              !found.some((f) => f.root === m.root) &&
+              (r.checking || stalled.has(m.root)),
+          ),
+        ]);
+        if (forgetLaterOnNextAnswer.current) {
+          forgetLaterOnNextAnswer.current = false;
+          setMissingNoticeLaterFor(null);
+        }
+        if (r.checking && missingRecheck < 3) {
+          recheck = window.setTimeout(
+            () => setMissingRecheck((n) => n + 1),
+            5000,
+          );
+        }
       })
       // 訊けなかったら前の答えのまま（黙って消さない・黙って足さない）
       .catch(() => {});
     return () => {
       cancelled = true;
+      if (recheck !== undefined) window.clearTimeout(recheck);
     };
-  }, [scanSettled, scanGeneration, roots, askEmptyReason]);
-  const missingKey = missingRoots.map((m) => m.root).join("\u0000");
-  const missingRootSet = new Set(missingRoots.map((m) => m.root));
+  }, [scanSettled, scanGeneration, missingRecheck, rootsKey, askEmptyReason]);
+  /**
+   * **いまのルートに在るものだけ**を見せる——外した直後、次の答えが来るまで
+   * 外したフォルダの知らせ（と、もう一度押せる「外す」）が残らないように
+   */
+  const missingShown = missingRoots.filter((m) => roots.includes(m.root));
+  const missingKey = missingShown.map((m) => m.root).join("\u0000");
+  const missingRootSet = new Set(missingShown.map((m) => m.root));
+  /**
+   * 合計の枚数。**入れ子のルートは外側に含まれている**（`count_by_prefix` は
+   * 差し引かない）ので、別の見つからないルートの配下にあるものは足さない
+   */
+  const missingTotal = missingShown
+    .filter(
+      (m) =>
+        !missingShown.some((o) => {
+          const base = o.root.replace(/[\\/]+$/, "");
+          return (
+            o.root !== m.root &&
+            (m.root.startsWith(base + "/") || m.root.startsWith(base + "\\"))
+          );
+        }),
+    )
+    .reduce((sum, m) => sum + m.count, 0);
 
   const onRemoveRoot = async (path: string) => {
     setBusy(true);
@@ -5177,32 +5237,29 @@ export default function App() {
           </button>
         </div>
       )}
-      {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
-          落として入れ替えるのはブラウザとインストーラの仕事で、ここは
-          「出ていますよ」と言うだけ */}
       {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
           ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
-      {missingRoots.length > 0 && missingKey !== missingNoticeLaterFor && (
+      {missingShown.length > 0 && missingKey !== missingNoticeLaterFor && (
         <div
           className="speed-toast index warn decoder-notice root-missing-notice"
           role="status"
         >
           <span>
-            {missingRoots.length === 1
+            {missingShown.length === 1
               ? t.rootMissingNotice(
-                  rootName(missingRoots[0].root),
-                  missingRoots[0].count,
+                  rootName(missingShown[0].root),
+                  missingShown[0].count,
                 )
               : t.rootsMissingNotice(
-                  nameList(missingRoots.map((m) => rootName(m.root))),
-                  missingRoots.reduce((sum, m) => sum + m.count, 0),
+                  nameList(missingShown.map((m) => rootName(m.root))),
+                  missingTotal,
                 )}
           </span>
-          {missingRoots.length === 1 && (
+          {missingShown.length === 1 && (
             <button
               title={t.rootRemoveKeepsFiles}
               disabled={busy}
-              onClick={() => onRemoveRoot(missingRoots[0].root)}
+              onClick={() => onRemoveRoot(missingShown[0].root)}
             >
               {t.rootRemoveFromLibrary}
             </button>
@@ -5213,6 +5270,9 @@ export default function App() {
           </button>
         </div>
       )}
+      {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
+          落として入れ替えるのはブラウザとインストーラの仕事で、ここは
+          「出ていますよ」と言うだけ */}
       {updateFound && (
         <div className="speed-toast index decoder-notice update-notice">
           <span>{t.updateFound(updateFound.latest ?? "")}</span>

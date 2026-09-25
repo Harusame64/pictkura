@@ -2297,7 +2297,9 @@ async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, 
 /// 見つからないフォルダについて「中の N 枚を開けません」と言うために、UI が
 /// [`empty_library_reason`] の `missing` を受けてから、そのフォルダごとに訊く。
 /// **DB だけを読む**——そのフォルダ自身には触らない（消えた・刺さった場所を stat しない）。
-#[tauri::command]
+// **主スレッドで数えない**——大きな蔵書の COUNT と、読み取りプールの空き待ちで窓が止まる
+// （`decoder_status` と同じ理由）
+#[tauri::command(async)]
 fn count_media_under(state: tauri::State<'_, AppState>, root: String) -> Result<i64, String> {
     state
         .read_pool
