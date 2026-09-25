@@ -213,7 +213,12 @@ const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NU
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
 /// day_keyの計算はすべてSQLite側（strftime + localtime）に統一する。
 fn day_key_expr(ms_expr: &str) -> String {
-    format!("CAST(strftime('%Y%m%d', ({ms_expr})/1000, 'unixepoch', 'localtime') AS INTEGER)")
+    // **秒へは床で丸める**。整数の割り算は 0 の側へ切り捨てるので、1970 年より前の時刻に
+    // 秒未満が付くと（dev #32 から付く）、1969-12-31 23:59:59.5 が翌日に入る
+    format!(
+        "CAST(strftime('%Y%m%d', (({ms_expr}) - ((({ms_expr}) % 1000) + 1000) % 1000) / 1000, \
+         'unixepoch', 'localtime') AS INTEGER)"
+    )
 }
 
 /// パス文字列から親ディレクトリを取り出すSQL式（`\` と `/` の両対応）。
@@ -549,6 +554,14 @@ impl Db {
         let _ = conn.execute("ALTER TABLE media ADD COLUMN kind INTEGER", []);
         conn.execute(
             "UPDATE media SET kind = pk_kind(path) WHERE kind IS NULL",
+            [],
+        )?;
+        // 連写の材料の後追い（dev #32、[`Db::shots_to_backfill`]）だけの部分索引。
+        // **中身は「まだ読み直していない画像」だけ**なので、掃き終えた後は空——毎起動で
+        // 表を端から端までなぞらない（寸法の後追いの索引と同じ理由）
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_shots_pending ON media(id)
+             WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0",
             [],
         )?;
         conn.execute_batch(&format!(
@@ -2116,7 +2129,10 @@ impl Db {
         serial: Option<&str>,
     ) -> Result<(), DbError> {
         self.conn.execute(
-            "UPDATE media SET taken_subsec = ?2, body_serial = ?3 WHERE id = ?1",
+            // シリアルは**最後に分かっていた値を残す**（カメラの `COALESCE` と同じ）。読めた
+            // EXIF が名乗らなかっただけで消すと、同じ本体の鍵が割れる
+            "UPDATE media SET taken_subsec = ?2, body_serial = COALESCE(?3, body_serial)
+             WHERE id = ?1",
             params![
                 id,
                 i64::from(subsec),
@@ -2126,8 +2142,13 @@ impl Db {
         Ok(())
     }
 
-    /// 連写の材料がまだ無い行（dev #32 の後追い）。`id` 順に `limit` 件。
-    /// メタデータ抽出済み（`width IS NOT NULL`）の行だけ——未抽出の行はサムネイルの流れが書く
+    /// 連写の材料がまだ無い行（dev #32 の後追い）。`id` 順に `limit` 件（`after_id` より後）。
+    /// メタデータ抽出済み（`width IS NOT NULL`）の行だけ——未抽出の行はサムネイルの流れが書く。
+    ///
+    /// **画像だけ（`kind = 0`）**。RAW はファイル丸ごと読む形式が多く（`read_exif_declaration` の
+    /// 注記）、ライブラリの RAW の総量を後ろで読むことになる。動画は連写に入らない。
+    /// RAW+JPEG なら JPEG 側に秒未満が入るので連写は組める。RAW だけで撮った既存の写真は
+    /// 読み直すまで秒まで（既知の限界。新しく取り込んだ RAW はサムネイルの流れが書く）
     pub fn shots_to_backfill(
         &self,
         after_id: i64,
@@ -2135,7 +2156,7 @@ impl Db {
     ) -> Result<Vec<(i64, PathBuf)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, path FROM media
-             WHERE taken_subsec IS NULL AND width IS NOT NULL AND id > ?1
+             WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0 AND id > ?1
              ORDER BY id LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![after_id, limit as i64], |r| {
@@ -2157,13 +2178,17 @@ impl Db {
     ) -> Result<(), DbError> {
         let tx = self.write_tx()?;
         {
+            // **まだ未確認の行だけ**を書く。束を読んでいる間に中身が変わり、サムネイルの流れが
+            // 新しい値を書いていたら、古い中身の値で上書きしない（#158 のゲート2）
             let mut with_time = tx.prepare_cached(&format!(
                 "UPDATE media SET taken_at_ms = ?2, day_key = {}, taken_subsec = ?3,
-                        body_serial = ?4 WHERE id = ?1",
+                        body_serial = COALESCE(?4, body_serial)
+                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL",
                 day_key_expr("?2")
             ))?;
             let mut meta_only = tx.prepare_cached(
-                "UPDATE media SET taken_subsec = ?2, body_serial = ?3 WHERE id = ?1",
+                "UPDATE media SET taken_subsec = ?2, body_serial = COALESCE(?3, body_serial)
+                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL",
             )?;
             for (id, taken, subsec, serial) in results {
                 let serial = serial.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -2180,7 +2205,8 @@ impl Db {
     /// 連写の材料がまだ無い行の数（後追いの目安）
     pub fn shots_pending(&self) -> Result<i64, DbError> {
         Ok(self.conn.query_row(
-            "SELECT COUNT(*) FROM media WHERE taken_subsec IS NULL AND width IS NOT NULL",
+            "SELECT COUNT(*) FROM media
+             WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0",
             [],
             |r| r.get(0),
         )?)
@@ -5144,6 +5170,104 @@ mod tests {
         let a = db.get_by_id(ids[0]).unwrap().unwrap();
         assert_eq!(a.taken_subsec, None);
         assert_eq!(a.body_serial.as_deref(), Some("051022000405"));
+    }
+
+    /// 後追いの取り出しは `after_id` より**後**だけ（`>=` だと同じ束を無限に回る）、画像だけ
+    /// （RAW は丸ごと読む形式が多いので対象外）。書き込みは表示日も直し、確認済みの行は触らない
+    #[test]
+    fn shot_backfill_pages_forward_skips_raws_and_never_overwrites_a_read_row() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\a.jpg", 1, 1000),
+            scanned(r"D:\写真\b.jpg", 1, 2000),
+            scanned(r"D:\写真\c.cr3", 1, 3000),
+        ])
+        .unwrap();
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        for id in &ids {
+            db.update_metadata(*id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+        }
+        let page = |db: &Db, after: i64| -> Vec<i64> {
+            db.shots_to_backfill(after, 10)
+                .unwrap()
+                .iter()
+                .map(|(id, _)| *id)
+                .collect()
+        };
+        assert_eq!(page(&db, 0), ids[..2].to_vec(), "RAW の c は拾わない");
+        assert_eq!(
+            page(&db, ids[0]),
+            vec![ids[1]],
+            "after_id そのものは含めない"
+        );
+        assert_eq!(db.shots_pending().unwrap(), 2);
+
+        // 表示日は新しい時刻から計算し直す（1日後の時刻へ）
+        let next_day = 1_000_000 + 86_400_000 + 250;
+        db.set_shots(&[(ids[0], Some(next_day), false, Some("S1".into()))])
+            .unwrap();
+        let a = db.get_by_id(ids[0]).unwrap().unwrap();
+        assert_eq!(
+            (a.taken_at_ms, a.taken_subsec),
+            (Some(next_day), Some(false))
+        );
+        let day_of = |db: &Db, ms: i64| -> i64 {
+            db.conn
+                .query_row(
+                    &format!("SELECT {}", day_key_expr("?1")),
+                    params![ms],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(a.day_key, day_of(&db, next_day));
+        assert_ne!(a.day_key, day_of(&db, 1_000_000), "日が動いた");
+
+        // 確認済みの行（サムネイルの流れが書いた後）は、古い読みで上書きしない
+        db.set_shot_meta(ids[1], true, Some("NEW")).unwrap();
+        db.set_shots(&[(ids[1], Some(5), false, Some("OLD".into()))])
+            .unwrap();
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!(
+            (b.taken_at_ms, b.taken_subsec),
+            (Some(1_000_000), Some(true))
+        );
+        assert_eq!(b.body_serial.as_deref(), Some("NEW"));
+        // シリアルを名乗らない読みは、最後に分かっていたシリアルを消さない
+        db.set_shot_meta(ids[1], false, None).unwrap();
+        assert_eq!(
+            db.get_by_id(ids[1])
+                .unwrap()
+                .unwrap()
+                .body_serial
+                .as_deref(),
+            Some("NEW")
+        );
+    }
+
+    /// 表示日は秒へ**床で**丸める。1970 年より前の時刻に秒未満が付くと、整数の割り算
+    /// （0 の側へ切り捨て）では翌日に入る（dev #32 で秒未満が付くようになった）
+    #[test]
+    fn the_day_key_floors_sub_seconds_before_1970() {
+        use chrono::TimeZone;
+        let db = Db::open_in_memory().unwrap();
+        let last = chrono::Local
+            .with_ymd_and_hms(1969, 12, 31, 23, 59, 59)
+            .earliest()
+            .unwrap()
+            .timestamp_millis()
+            + 500;
+        let day: i64 = db
+            .conn
+            .query_row(
+                &format!("SELECT {}", day_key_expr("?1")),
+                params![last],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(day, 19691231);
     }
 
     #[test]

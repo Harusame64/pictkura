@@ -62,7 +62,10 @@ export function stacksOfDay<T extends Stackable>(
   };
   if (!opts.rawJpeg) return items.map(single);
 
-  const keyOf = (it: T) => `${it.shot_key}:${it.taken_at_ms}`;
+  // **撮影日時は秒の単位で比べる**（dev #32 の #158 から、JPEG には秒未満が付く）。CR3 と JPEG で
+  // 秒未満の有無がそろわない（CR3 を読み直していない・片方だけ OS から秒までの日時を借りた）と、
+  // ミリ秒の違いで組が割れる
+  const keyOf = (it: T) => `${it.shot_key}:${Math.floor(it.taken_at_ms / 1000)}`;
   const eligible = (it: T) => it.taken_at_known && !it.is_video;
   const groups = new Map<string, T[]>();
   for (const it of items) {

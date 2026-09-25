@@ -657,7 +657,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
                 continue;
             };
             let from_block = exif_data_from(&exif);
-            result.taken_at_ms = result.taken_at_ms.or(from_block.taken_at_ms);
+            merge_capture(&mut result, &from_block);
             result.camera = result.camera.or(from_block.camera);
             if result.orientation == 1 {
                 result.orientation = from_block.orientation;
@@ -733,6 +733,36 @@ fn read_raw_partial(buf: Vec<u8>) -> Option<exif::Exif> {
     }
 }
 
+/// 別の置き場所（CR3 の2つ目の箱・RAW の埋め込みプレビュー）から、**撮影時刻を秒未満と組で**
+/// 取り込む（dev #32、#158 のゲート2）。
+///
+/// - 時刻がまだ無い、または**あちらだけが秒未満を持つ**なら、時刻ごと差し替える。CR3 は1つ目の
+///   箱（CMT1）に秒未満の無い `DateTime`、2つ目（CMT2）に `DateTimeOriginal`＋`SubSecTimeOriginal`
+///   を持つ——先に見つけた方で止まると、秒未満もシリアルも永久に落ちた（実物の CR3 11本すべて）
+/// - **時刻と秒未満の印は必ず一緒に動かす**。時刻だけ借りると、ミリ秒が入っているのに
+///   「秒まで」と記録される（RAF の実物で起きた）
+/// - 本体シリアルは、まだ無ければ取る
+fn merge_capture(result: &mut ExifData, from: &ExifData) {
+    let take = from.taken_at_ms.is_some()
+        && (result.taken_at_ms.is_none() || (from.taken_subsec && !result.taken_subsec));
+    if take {
+        result.taken_at_ms = from.taken_at_ms;
+        result.taken_subsec = from.taken_subsec;
+    }
+    if result.body_serial.is_none() {
+        result.body_serial = from.body_serial.clone();
+    }
+}
+
+/// 撮影時刻・秒未満・本体シリアルだけを読む（dev #32 の後追い）。**絵は探さない**
+/// （[`read_exif_declaration`] と同じ読み方）。**読めなかったときは `None`**——共有ロックや
+/// 権限で開けなかった1回を「秒まで・シリアルなし」と記録すると、読める日が来ても
+/// 二度と拾い直さない
+pub fn read_exif_capture(path: &Path) -> Option<ExifData> {
+    let (data, readable) = read_exif_checked(path, Want::Declaration);
+    readable.then_some(data)
+}
+
 /// プレビューJPEGのEXIFで、**まだ埋まっていない項目だけ**を埋める。
 /// カメラが書いたJPEGなので、入っている値は実体と同じもの。
 fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
@@ -741,7 +771,7 @@ fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
         return;
     };
     let from_preview = exif_data_from(&exif);
-    result.taken_at_ms = result.taken_at_ms.or(from_preview.taken_at_ms);
+    merge_capture(result, &from_preview);
     if result.camera.is_none() {
         result.camera = from_preview.camera;
     }
@@ -1458,12 +1488,15 @@ pub fn process_one(
         exif_data.camera.as_deref(),
     )?;
     // 連写の材料（dev #32）。秒未満が真になるのは、撮影日時が EXIF から来て
-    // `SubSecTimeOriginal` を持っていたときだけ（OS・名前・mtime は秒まで）
-    db.set_shot_meta(
-        id,
-        exif_data.taken_at_ms.is_some() && exif_data.taken_subsec,
-        exif_data.body_serial.as_deref(),
-    )?;
+    // `SubSecTimeOriginal` を持っていたときだけ（OS・名前・mtime は秒まで）。
+    // **読めなかったときは書かない**——未確認（NULL）のまま、後追いが読める日に拾い直す
+    if readable {
+        db.set_shot_meta(
+            id,
+            exif_data.taken_at_ms.is_some() && exif_data.taken_subsec,
+            exif_data.body_serial.as_deref(),
+        )?;
+    }
 
     // SVGはブラウザがそのまま描けるので、サムネイルを作らない。
     // 一覧にも原本を配れば足りるうえ、拡大しても劣化しない。
@@ -3904,6 +3937,46 @@ mod tests {
         out.extend_from_slice(&tiff);
         out.extend_from_slice(&body[2..]);
         out
+    }
+
+    /// 別の置き場所から撮影時刻を**秒未満と組で**取り込む（dev #32、#158 のゲート2）
+    #[test]
+    fn capture_time_is_merged_together_with_its_sub_seconds() {
+        let at = |ms: i64, subsec: bool, serial: Option<&str>| ExifData {
+            taken_at_ms: Some(ms),
+            taken_subsec: subsec,
+            body_serial: serial.map(str::to_string),
+            ..ExifData::default()
+        };
+        // CR3: 1つ目の箱は秒未満の無い DateTime、2つ目は DateTimeOriginal＋秒未満＋シリアル
+        let mut r = ExifData::default();
+        merge_capture(&mut r, &at(1_000_000, false, None));
+        merge_capture(&mut r, &at(1_000_820, true, Some("158202001999")));
+        assert_eq!((r.taken_at_ms, r.taken_subsec), (Some(1_000_820), true));
+        assert_eq!(r.body_serial.as_deref(), Some("158202001999"));
+        // 秒未満を持つ時刻は、秒未満の無い時刻で上書きしない
+        merge_capture(&mut r, &at(2_000_000, false, Some("other")));
+        assert_eq!((r.taken_at_ms, r.taken_subsec), (Some(1_000_820), true));
+        assert_eq!(
+            r.body_serial.as_deref(),
+            Some("158202001999"),
+            "先に見つけたシリアルを残す"
+        );
+        // RAF: 時刻はプレビューにしか無い——時刻と印を一緒に借りる
+        let mut raf = ExifData::default();
+        merge_capture(&mut raf, &at(3_000_010, true, Some("33000054")));
+        assert_eq!((raf.taken_at_ms, raf.taken_subsec), (Some(3_000_010), true));
+        // 時刻の無い置き場所からはシリアルだけ
+        let mut none = ExifData::default();
+        merge_capture(
+            &mut none,
+            &ExifData {
+                body_serial: Some("s".into()),
+                ..ExifData::default()
+            },
+        );
+        assert_eq!((none.taken_at_ms, none.taken_subsec), (None, false));
+        assert_eq!(none.body_serial.as_deref(), Some("s"));
     }
 
     /// 撮影日時は秒未満まで入り、連写の材料（秒未満まで分かったか・本体シリアル）も書く（dev #32）

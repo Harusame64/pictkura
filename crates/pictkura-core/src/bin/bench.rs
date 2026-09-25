@@ -15,7 +15,7 @@
 //!   cargo run --release --bin bench -- --count 10000000 --db D:\bench\pictkura-bench.db
 //!   cargo run --release --bin bench -- --count 1000000 --legacy   # 旧APIも強制計測
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use pictkura_core::jpeg::ChromaSampling;
@@ -2175,6 +2175,10 @@ fn bench_shell_meta(target: &std::path::Path) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if let Some(dir) = arg_value(&args, "--capture") {
+        bench_capture(Path::new(&dir));
+        return;
+    }
     if let Some(target) = arg_value(&args, "--shell-dump") {
         let path = std::path::Path::new(&target);
         let props = pictkura_core::shell::dump_properties(path);
@@ -2619,6 +2623,50 @@ fn insert_synthetic(conn: &Connection, count: u64) {
         if inserted.is_multiple_of(1_000_000) || inserted == count {
             println!("  … {inserted}/{count}");
         }
+    }
+}
+
+/// 連写の材料（dev #32）を実物で読む: 撮影時刻の秒未満と本体シリアル。
+///
+/// 1行に2つの読み方を並べる——起動時の後追い（`read_exif_capture`、絵を探さない）と、
+/// サムネイルの流れ（`read_exif_for_preview`、プレビューも見る）。CR3 は2つ目の箱、
+/// RAF は埋め込みプレビューにしか秒未満を持たないので、2つが食い違ったらそこを見る
+fn bench_capture(dir: &Path) {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort();
+    println!("file\tbackfill_ms\tbackfill_subsec\tbackfill_serial\tworker_ms\tworker_subsec\tworker_serial");
+    for p in files {
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let back = pictkura_core::thumbs::read_exif_capture(&p);
+        let work = pictkura_core::thumbs::read_exif_for_preview(&p, 320);
+        let ms = |v: Option<i64>| {
+            v.map(|m| (m % 1000).to_string())
+                .unwrap_or_else(|| "-".into())
+        };
+        let (bm, bs, bser) = match &back {
+            Some(e) => (
+                ms(e.taken_at_ms),
+                e.taken_subsec.to_string(),
+                e.body_serial.clone().unwrap_or_else(|| "-".into()),
+            ),
+            None => ("UNREADABLE".into(), "-".into(), "-".into()),
+        };
+        println!(
+            "{name}\t{bm}\t{bs}\t{bser}\t{}\t{}\t{}",
+            ms(work.taken_at_ms),
+            work.taken_subsec,
+            work.body_serial.clone().unwrap_or_else(|| "-".into())
+        );
     }
 }
 

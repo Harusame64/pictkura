@@ -5447,8 +5447,9 @@ pub fn run() {
                         }
 
                         // 第4段: 連写の材料の後追い（dev #32）。この版より前に読んだ行は、
-                        // 撮影日時が秒で切り捨てられ、本体シリアルも持たない。EXIF の
-                        // ヘッダだけ読み直して、**秒未満まで**の撮影日時とシリアルを書く。
+                        // 撮影日時が秒で切り捨てられ、本体シリアルも持たない。**画像だけ**
+                        // （RAW は丸ごと読む形式が多いので対象外——`shots_to_backfill` の注記）
+                        // EXIF を読み直して、**秒未満まで**の撮影日時とシリアルを書く。
                         //
                         // **帯は出さない**（寸法の後追いと同じ）。見た目が変わるのは同じ秒の
                         // 並びだけ。終わったら**1回だけ**一覧に知らせ、連写の重ねを組み直させる
@@ -5465,10 +5466,12 @@ pub fn run() {
                                 // （カメラ・寸法の後追いと同じ理由）
                                 .filter(|(_, path)| path.is_file())
                                 .filter(|(_, path)| !pictkura_core::cloud::is_cloud_only_path(path))
-                                .map(|(id, path)| {
-                                    let exif = pictkura_core::thumbs::read_exif_meta(&path);
+                                // **読めなかった行は印を付けずに飛ばす**（共有ロック・権限）。
+                                // 「秒まで」と書くと、読める日が来ても二度と拾い直さない
+                                .filter_map(|(id, path)| {
+                                    let exif = pictkura_core::thumbs::read_exif_capture(&path)?;
                                     let subsec = exif.taken_at_ms.is_some() && exif.taken_subsec;
-                                    (id, exif.taken_at_ms, subsec, exif.body_serial)
+                                    Some((id, exif.taken_at_ms, subsec, exif.body_serial))
                                 })
                                 .collect();
                             if results.is_empty() {

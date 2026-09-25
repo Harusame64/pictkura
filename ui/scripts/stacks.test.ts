@@ -65,6 +65,15 @@ test("名前が同じでも撮影日時が違えば別の写真（カメラ2台�
   assert.deepEqual(members(stacksOfDay(day, { rawJpeg: true })), [[1], [2]]);
 });
 
+test("撮影日時は秒の単位で比べる（JPEG にだけ秒未満が付いても組は割れない）", () => {
+  // CR3 は秒まで、同じシャッターの JPEG は .82 秒——同じ秒なので組
+  const same = [f(1, 10, true, "IMG_0001.CR3", 17_000), f(2, 10, false, "IMG_0001.JPG", 17_820)];
+  assert.deepEqual(members(stacksOfDay(same, { rawJpeg: true })), [[1, 2]]);
+  // 秒が違えば別
+  const apart = [f(1, 10, true, "", 17_000), f(2, 10, false, "", 18_100)];
+  assert.deepEqual(members(stacksOfDay(apart, { rawJpeg: true })), [[1], [2]]);
+});
+
 test("撮影日時が読めていない（mtime で埋めた）ものは重ねない", () => {
   const day = [
     f(1, 10, true, "IMG_0001.CR3", 1000, { taken_at_known: false }),
