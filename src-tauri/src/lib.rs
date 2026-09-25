@@ -3145,7 +3145,18 @@ fn announce_cameras_changed(app: &tauri::AppHandle) {
     let _ = app.emit("cameras-updated", ());
 }
 
-/// `scan_and_apply` のあと、行が動いたら数え直させる。外したフォルダのカメラが
+/// 走査の結果が、いま数え直す理由になるか。**消えた行があるときだけ**。
+///
+/// - **足した行**は `camera_id` がまだ空（後からサムネイルの流れが埋める）ので、数え直しても変わらない
+/// - **変わった行**は走査が `camera_id` を一度空にする（撮影情報を読み直すため）ので、その瞬間に
+///   数え直すと**減って見え、戻す合図も無い**（#148 の2ゲート目3周目）
+///
+/// 後から埋まったカメラを拾うのは別の話（dev #28）。
+fn scan_changes_camera_counts(stats: &SyncStats) -> bool {
+    stats.removed > 0
+}
+
+/// `scan_and_apply` のあと、行が消えていたら数え直させる。外したフォルダのカメラが
 /// 左ペインに残っていた（#146 の実機）のは、この3つのコマンドが何も言わなかったから。
 fn scan_and_announce(
     app: &tauri::AppHandle,
@@ -3153,7 +3164,7 @@ fn scan_and_announce(
     full: bool,
 ) -> Result<SyncStats, String> {
     let stats = scan_and_apply(state, full)?;
-    if stats.added + stats.changed + stats.removed > 0 {
+    if scan_changes_camera_counts(&stats) {
         announce_cameras_changed(app);
     }
     Ok(stats)
@@ -5093,7 +5104,7 @@ pub fn run() {
                                 std::thread::sleep(std::time::Duration::from_millis(20));
                             }
                             // 埋まったカメラを左ペインへ反映させる
-                            let _ = index_handle.emit("cameras-updated", ());
+                            announce_cameras_changed(&index_handle);
                         }
                         publish("camera", total, total, false, incomplete);
 
@@ -5470,7 +5481,7 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, Presence,
+        import_path_from_args, scan_changes_camera_counts, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -6752,5 +6763,24 @@ mod tests {
         if !root {
             assert_eq!(answer, Presence::Unreachable);
         }
+    }
+
+    /// **数え直しの合図は、消えた行があるときだけ**（#148）。足した行はカメラがまだ空、
+    /// 変わった行は走査がカメラを一度空にする——その瞬間に数えると減って見える
+    #[test]
+    fn only_removed_rows_make_the_camera_counts_worth_recounting() {
+        let stats = |added, changed, removed| pictkura_core::SyncStats {
+            added,
+            changed,
+            removed,
+            ..Default::default()
+        };
+        assert!(scan_changes_camera_counts(&stats(0, 0, 1)));
+        assert!(!scan_changes_camera_counts(&stats(5, 0, 0)), "足しただけ");
+        assert!(
+            !scan_changes_camera_counts(&stats(0, 30, 0)),
+            "変わっただけ"
+        );
+        assert!(!scan_changes_camera_counts(&stats(0, 0, 0)));
     }
 }
