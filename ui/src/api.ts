@@ -460,6 +460,10 @@ export const getEmptyLibraryReason = () =>
 export const countMediaUnder = (root: string) =>
   invoke<number>("count_media_under", { root });
 
+/** ライブラリに足そうとしているフォルダが一時フォルダの中か（dev #23）。判定できなければ偽 */
+export const isTemporaryFolder = (path: string) =>
+  invoke<boolean>("is_temporary_folder", { path });
+
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
 /** 起動時同期の**終わり方**。「終わった」だけでは足りない——転んで終わったのに

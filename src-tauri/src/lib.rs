@@ -3338,6 +3338,60 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
     }
 }
 
+/// 一時フォルダの候補（dev #23）。**中身を OS や他のアプリが黙って消す場所**。
+///
+/// 報告の形は、Claude の作業フォルダ（macOS の `/private/tmp/claude-…`）から取り込んだ写真が、
+/// サムネイルだけ残して原本ごと消えたもの。**断らずに確かめる**——一時フォルダに写真を
+/// 置くこと自体は利用者の選択で、止める理由にはならない。
+fn temporary_dirs() -> Vec<PathBuf> {
+    let mut dirs = vec![std::env::temp_dir()];
+    #[cfg(unix)]
+    dirs.extend(["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"].map(PathBuf::from));
+    #[cfg(windows)]
+    if let Some(windir) = std::env::var_os("WINDIR") {
+        dirs.push(PathBuf::from(windir).join("Temp"));
+    }
+    dirs
+}
+
+/// `path` が `dirs` のどれか（それ自身を含む）の中か。
+///
+/// **両方を実体へ解決してから、パスの要素ごとに比べる**——macOS の `/tmp` は
+/// `/private/tmp` への別名で、`temp_dir()` も `/var/folders/…`（実体は `/private/var/…`）を返す。
+/// 文字列の前方一致にすると `/tmpx` を `/tmp` の中と数える。**Windows は大小を区別しない**。
+/// 解決できない（無い）パスは、書かれたままの綴りで比べる。
+fn is_inside_any(path: &Path, dirs: &[PathBuf]) -> bool {
+    let canon = |p: &Path| {
+        std::fs::canonicalize(p)
+            .map(|c| PathBuf::from(strip_verbatim(&c)))
+            .unwrap_or_else(|_| p.to_path_buf())
+    };
+    let parts = |p: &Path| -> Vec<String> {
+        p.components()
+            .map(|c| {
+                let s = c.as_os_str().to_string_lossy().into_owned();
+                if cfg!(windows) {
+                    s.to_lowercase()
+                } else {
+                    s
+                }
+            })
+            .collect()
+    };
+    let target = parts(&canon(path));
+    dirs.iter().any(|d| {
+        let d = parts(&canon(d));
+        !d.is_empty() && target.len() >= d.len() && target[..d.len()] == d[..]
+    })
+}
+
+/// ライブラリに足そうとしているフォルダが一時フォルダの中か（dev #23）。
+/// UI はこれが真なら、足す前に確かめる。**判定できなければ偽**（確かめずに足す＝従来どおり）。
+#[tauri::command(async)]
+fn is_temporary_folder(path: String) -> bool {
+    is_inside_any(Path::new(&path), &temporary_dirs())
+}
+
 /// ライブラリのルートフォルダを追加して保存し、即スキャンする。
 #[tauri::command]
 async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncStatsDto, String> {
@@ -5422,6 +5476,7 @@ pub fn run() {
             get_index_progress,
             video_status,
             count_media_under,
+            is_temporary_folder,
             cloud_only_media,
             open_default,
             reveal_in_folder,
@@ -5481,7 +5536,7 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, scan_changes_camera_counts, Presence,
+        import_path_from_args, is_inside_any, scan_changes_camera_counts, temporary_dirs, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -6782,5 +6837,39 @@ mod tests {
             "変わっただけ"
         );
         assert!(!scan_changes_camera_counts(&stats(0, 0, 0)));
+    }
+
+    /// 一時フォルダの中か（dev #23）。**要素ごとに比べる**——名前が前方一致するだけの隣
+    /// （`photos` と `photos2`）は中ではない。フォルダそのものは中に数える
+    #[test]
+    fn inside_means_a_path_component_prefix_not_a_string_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().join("photos");
+        let sibling = tmp.path().join("photos2");
+        let child = base.join("DCIM");
+        std::fs::create_dir_all(&child).unwrap();
+        std::fs::create_dir_all(&sibling).unwrap();
+        let dirs = vec![base.clone()];
+        assert!(is_inside_any(&child, &dirs), "配下は中");
+        assert!(is_inside_any(&base, &dirs), "そのものも中");
+        assert!(
+            !is_inside_any(&sibling, &dirs),
+            "前方一致するだけの隣は中ではない"
+        );
+    }
+
+    /// OS の一時フォルダの中のフォルダは一時フォルダと判定し、この repo は判定しない。
+    /// **macOS の `temp_dir()` は `/var/folders/…` で、実体は `/private/var/…`**——
+    /// `tempfile` はそこに作るので、実体へ解決して比べていなければ外れる
+    #[test]
+    fn a_folder_made_in_the_os_temp_dir_is_temporary_and_this_repo_is_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photos = tmp.path().join("photos");
+        std::fs::create_dir_all(&photos).unwrap();
+        assert!(is_inside_any(&photos, &temporary_dirs()));
+        assert!(!is_inside_any(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &temporary_dirs()
+        ));
     }
 }

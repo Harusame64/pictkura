@@ -224,6 +224,10 @@ export const ja = {
   rootRemoveKeepsFiles: "ライブラリの一覧から外すだけです。写真のファイルは消しません",
   rootRemoveConfirm: (name: string) =>
     `「${name}」をライブラリから外しますか？\n写真のファイルは消えませんが、中の写真に付けた ★ と ⚑ の印は消えます。`,
+  /* 一時フォルダをライブラリに足すときの確認（dev #23）。**断らない**——置き場所は利用者の選択 */
+  rootTempConfirm: (name: string) =>
+    `「${name}」は一時フォルダの中にあります。\nOSや他のアプリが、この中のファイルを知らないうちに消すことがあります。それでもライブラリに追加しますか？`,
+  rootTempConfirmOk: "追加する",
   rootMissingTip: (path: string) =>
     `${path} — 見つかりません。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください`,
   importFrom: (path: string) => `${path} から取り込む`,

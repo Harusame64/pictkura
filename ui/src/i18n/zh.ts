@@ -250,6 +250,9 @@ export const zh: Dict = {
   rootRemoveKeepsFiles: "只是从图库中移除，照片文件不会被删除",
   rootRemoveConfirm: (name: string) =>
     `要把“${name}”从图库中移除吗？\n照片文件不会被删除，但里面照片的 ★ 和 ⚑ 标记会被清除。`,
+  rootTempConfirm: (name: string) =>
+    `“${name}”位于临时文件夹中。\n系统或其他应用可能会在不提示的情况下删除其中的文件。仍要添加到图库吗？`,
+  rootTempConfirmOk: "仍然添加",
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,

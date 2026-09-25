@@ -42,6 +42,7 @@ import {
   getDecoderStatus,
   getEmptyLibraryReason,
   countMediaUnder,
+  isTemporaryFolder,
   getStartupReport,
   startupScanFinished,
   getStats,
@@ -2071,6 +2072,16 @@ export default function App() {
   // ライブラリのルート追加の本体。手入力（onAddFolder）と
   // ネイティブのフォルダ選択（onBrowseFolder）の両方から呼ぶ
   const addFolder = async (path: string) => {
+    // **一時フォルダなら、足す前に確かめる**（dev #23）。断りはしない——置き場所は利用者の
+    // 選択。報告の形は、Claude の作業フォルダから取り込んだ写真が原本ごと消えたもの。
+    // 判定できなければ確かめずに足す（従来どおり）
+    if (await isTemporaryFolder(path).catch(() => false)) {
+      const ok = await confirmAction(
+        t.rootTempConfirm(rootName(path)),
+        t.rootTempConfirmOk,
+      );
+      if (!ok) return false;
+    }
     setBusy(true);
     try {
       await addLibraryRoot(path);
