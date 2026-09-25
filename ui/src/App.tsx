@@ -2072,18 +2072,21 @@ export default function App() {
   // ライブラリのルート追加の本体。手入力（onAddFolder）と
   // ネイティブのフォルダ選択（onBrowseFolder）の両方から呼ぶ
   const addFolder = async (path: string) => {
-    // **一時フォルダなら、足す前に確かめる**（dev #23）。断りはしない——置き場所は利用者の
-    // 選択。報告の形は、Claude の作業フォルダから取り込んだ写真が原本ごと消えたもの。
-    // 判定できなければ確かめずに足す（従来どおり）
-    if (await isTemporaryFolder(path).catch(() => false)) {
-      const ok = await confirmAction(
-        t.rootTempConfirm(rootName(path)),
-        t.rootTempConfirmOk,
-      );
-      if (!ok) return false;
-    }
+    // **busy は判定より先に立てる**——判定（眠った NAS なら数十秒）と確認を待つあいだに
+    // もう一度押せると、確認が2つ開いて走査も2本走る（#149 の2ゲート目）
     setBusy(true);
     try {
+      // **一時フォルダなら、足す前に確かめる**（dev #23）。断りはしない——置き場所は利用者の
+      // 選択。報告の形は、Claude の作業フォルダから取り込んだ写真が原本ごと消えたもの。
+      // **判定できなければ確かめずに足す**（従来どおり）。**確認が開けなかったら知らせて
+      // 足さない**（`confirmAction` が取り消しと同じに扱う——黙って足すよりはよい）
+      if (await isTemporaryFolder(path).catch(() => false)) {
+        const ok = await confirmAction(
+          t.rootTempConfirm(rootName(path)),
+          t.rootTempConfirmOk,
+        );
+        if (!ok) return false;
+      }
       await addLibraryRoot(path);
       // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
       // 起動時に転んだ話はここで終わり。**取り直しより前に下ろす**

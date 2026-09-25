@@ -3351,7 +3351,22 @@ fn temporary_dirs() -> Vec<PathBuf> {
     if let Some(windir) = std::env::var_os("WINDIR") {
         dirs.push(PathBuf::from(windir).join("Temp"));
     }
-    dirs
+    let home =
+        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    usable_temp_dirs(dirs, home.as_deref())
+}
+
+/// **ホームを含むほど広い候補は捨てる**——`TMPDIR=$HOME` や `TEMP=C:\\` の台では、
+/// どのフォルダを足しても「一時フォルダの中です」と言い、利用者は読まずに押すことを覚える
+/// （#149 の2ゲート目）。ホームが分からなければ、ルートそのものだけを捨てる。
+fn usable_temp_dirs(dirs: Vec<PathBuf>, home: Option<&Path>) -> Vec<PathBuf> {
+    dirs.into_iter()
+        .filter(|d| {
+            let is_root = d.parent().is_none();
+            let holds_home = home.is_some_and(|h| is_inside_any(h, std::slice::from_ref(d)));
+            !is_root && !holds_home
+        })
+        .collect()
 }
 
 /// `path` が `dirs` のどれか（それ自身を含む）の中か。
@@ -3359,12 +3374,27 @@ fn temporary_dirs() -> Vec<PathBuf> {
 /// **両方を実体へ解決してから、パスの要素ごとに比べる**——macOS の `/tmp` は
 /// `/private/tmp` への別名で、`temp_dir()` も `/var/folders/…`（実体は `/private/var/…`）を返す。
 /// 文字列の前方一致にすると `/tmpx` を `/tmp` の中と数える。**Windows は大小を区別しない**。
-/// 解決できない（無い）パスは、書かれたままの綴りで比べる。
+/// **解決できない（まだ無い・親が読めない）パスは、解決できるいちばん近い祖先まで解決して
+/// 残りを継ぐ**——書かれたままの綴り（`/var/folders/…`）で比べると、解決済みの
+/// `/private/var/…` と合わずに黙って外れる（#149 の2ゲート目）。
 fn is_inside_any(path: &Path, dirs: &[PathBuf]) -> bool {
-    let canon = |p: &Path| {
-        std::fs::canonicalize(p)
-            .map(|c| PathBuf::from(strip_verbatim(&c)))
-            .unwrap_or_else(|_| p.to_path_buf())
+    let canon = |p: &Path| -> PathBuf {
+        let mut rest: Vec<std::ffi::OsString> = Vec::new();
+        let mut cur = p;
+        loop {
+            if let Ok(c) = std::fs::canonicalize(cur) {
+                let mut out = PathBuf::from(strip_verbatim(&c));
+                out.extend(rest.iter().rev());
+                return out;
+            }
+            match (cur.parent(), cur.file_name()) {
+                (Some(parent), Some(name)) => {
+                    rest.push(name.to_os_string());
+                    cur = parent;
+                }
+                _ => return p.to_path_buf(),
+            }
+        }
     };
     let parts = |p: &Path| -> Vec<String> {
         p.components()
@@ -5536,7 +5566,8 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, is_inside_any, scan_changes_camera_counts, temporary_dirs, Presence,
+        import_path_from_args, is_inside_any, scan_changes_camera_counts, temporary_dirs,
+        usable_temp_dirs, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -6858,18 +6889,61 @@ mod tests {
         );
     }
 
-    /// OS の一時フォルダの中のフォルダは一時フォルダと判定し、この repo は判定しない。
-    /// **macOS の `temp_dir()` は `/var/folders/…` で、実体は `/private/var/…`**——
-    /// `tempfile` はそこに作るので、実体へ解決して比べていなければ外れる
+    /// OS の一時フォルダの中に作ったフォルダは、一時フォルダの中と判定する
     #[test]
-    fn a_folder_made_in_the_os_temp_dir_is_temporary_and_this_repo_is_not() {
+    fn a_folder_made_in_the_os_temp_dir_is_temporary() {
         let tmp = tempfile::tempdir().unwrap();
         let photos = tmp.path().join("photos");
         std::fs::create_dir_all(&photos).unwrap();
         assert!(is_inside_any(&photos, &temporary_dirs()));
-        assert!(!is_inside_any(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
-            &temporary_dirs()
-        ));
+    }
+
+    /// **実体へ解決してから比べる**——別名（シンボリックリンク）越しの綴りでも中と判定する。
+    /// `tempfile` は解決せずにパスを作るので、上の升だけでは解決を消しても緑のまま（#149 の2ゲート目）
+    #[cfg(unix)]
+    #[test]
+    fn an_alias_of_the_folder_is_resolved_before_comparing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("real");
+        let child = real.join("DCIM");
+        std::fs::create_dir_all(&child).unwrap();
+        let alias = tmp.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        assert!(
+            is_inside_any(&child, std::slice::from_ref(&alias)),
+            "別名の中の実体"
+        );
+        assert!(
+            is_inside_any(&alias.join("DCIM"), &[real]),
+            "実体の中の別名"
+        );
+    }
+
+    /// **まだ無いパスも、在る祖先まで解決して比べる**——書かれた綴りのままだと、解決済みの
+    /// 一時フォルダと合わずに黙って外れる
+    #[test]
+    fn a_path_that_does_not_exist_yet_is_judged_by_its_existing_ancestor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let not_yet = tmp.path().join("new").join("photos");
+        assert!(is_inside_any(&not_yet, &temporary_dirs()));
+    }
+
+    /// **ホームを含むほど広い候補は捨てる**（`TMPDIR=$HOME` の台で、全部に警告を出さない）。
+    /// ルートそのものも捨てる
+    #[test]
+    fn a_temp_setting_that_holds_the_home_folder_is_ignored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let own_tmp = home.join("tmp");
+        std::fs::create_dir_all(&own_tmp).unwrap();
+        let kept = usable_temp_dirs(
+            vec![home.clone(), own_tmp.clone(), std::path::PathBuf::from("/")],
+            Some(&home),
+        );
+        assert_eq!(
+            kept,
+            vec![own_tmp],
+            "ホームそのものとルートは捨て、ホームの中の一時は残す"
+        );
     }
 }
