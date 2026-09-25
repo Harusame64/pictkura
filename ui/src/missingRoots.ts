@@ -70,3 +70,20 @@ export function laterKey(shown: readonly MissingRoot[]): string {
     .sort()
     .join("\u0000");
 }
+
+/**
+ * 左ペインのライブラリのフォルダに付ける印（dev #23）。**見つからないが先**——
+ * 無いフォルダについて「一時フォルダの中です」と言っても、いま効く手（差し込む・外す）に
+ * つながらない。両方に当たるフォルダは「見つからない」を名乗る。
+ */
+export type RootMark = "missing" | "temporary" | null;
+
+export function rootMark(
+  root: string,
+  missing: ReadonlySet<string>,
+  temporary: ReadonlySet<string>,
+): RootMark {
+  if (missing.has(root)) return "missing";
+  if (temporary.has(root)) return "temporary";
+  return null;
+}

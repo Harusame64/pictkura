@@ -203,6 +203,8 @@ export const en: Dict = {
   destTempConfirmOk: "Use as destination",
   destTempWarning:
     "⚠ The destination is inside a temporary folder. Imported photos may disappear without warning.",
+  rootTempTip: (path: string) =>
+    `${path} — inside a temporary folder. The system or other apps may delete files there without asking`,
   rootMissingTip: (path: string) =>
     `${path} — not there. If it is on a USB stick or SD card, plug it in and press Rescan`,
   importFrom: (path: string) => `Import from ${path}`,

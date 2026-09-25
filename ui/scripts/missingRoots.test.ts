@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { laterKey, mergeMissing, missingTotal } from "../src/missingRoots.ts";
+import { laterKey, mergeMissing, missingTotal, rootMark } from "../src/missingRoots.ts";
 
 const m = (root: string, count = 1) => ({ root, count });
 
@@ -58,4 +58,13 @@ test("区切りで終わるルート（`/`・`D:\\`）の配下も入れ子と�
 test("「あとで」の鍵は並び順によらない", () => {
   assert.equal(laterKey([m("/A"), m("/B")]), laterKey([m("/B"), m("/A")]));
   assert.notEqual(laterKey([m("/A")]), laterKey([m("/A"), m("/B")]));
+});
+
+test("左ペインの印: 見つからないが先、次に一時フォルダ、どちらでもなければ無し", () => {
+  const missing = new Set(["/a", "/both"]);
+  const temporary = new Set(["/t", "/both"]);
+  assert.equal(rootMark("/a", missing, temporary), "missing");
+  assert.equal(rootMark("/t", missing, temporary), "temporary");
+  assert.equal(rootMark("/both", missing, temporary), "missing");
+  assert.equal(rootMark("/plain", missing, temporary), null);
 });

@@ -258,6 +258,8 @@ export const es: Dict = {
   destTempConfirmOk: "Usar como destino",
   destTempWarning:
     "⚠ El destino está dentro de una carpeta temporal. Las fotos importadas pueden desaparecer sin aviso.",
+  rootTempTip: (path: string) =>
+    `${path}: está dentro de una carpeta temporal. El sistema u otras aplicaciones pueden borrar sin avisar los archivos que contiene`,
   rootMissingTip: (path: string) =>
     `${path}: no está. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar»`,
   importFrom: (path: string) => `Importar desde ${path}`,

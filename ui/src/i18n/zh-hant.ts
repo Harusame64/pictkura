@@ -262,6 +262,8 @@ export const zhHant: Dict = {
     `「${path}」位於暫存資料夾中。\n匯入到這裡的照片可能會被系統或其他應用程式隨時刪除，而且不會事先通知。清空記憶卡之後，這些照片就再也沒有其他副本了。仍要把它設為複製的目的地嗎？`,
   destTempConfirmOk: "仍設為複製的目的地",
   destTempWarning: "⚠ 複製的目的地位於暫存資料夾中。匯入的照片可能會在不知不覺中消失。",
+  rootTempTip: (path: string) =>
+    `${path}——位於暫存資料夾中。系統或其他應用程式可能會隨時刪除其中的檔案，而且不會事先通知`,
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,

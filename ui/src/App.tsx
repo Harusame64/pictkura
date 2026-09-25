@@ -4,8 +4,10 @@ import {
   laterKey,
   mergeMissing,
   missingTotal,
+  rootMark,
   type MissingRoot,
 } from "./missingRoots";
+import { useTemporaryRoots } from "./useIsTemporaryFolder";
 import {
   useCallback,
   useEffect,
@@ -2234,6 +2236,9 @@ export default function App() {
   /** 「あとで」の鍵。**並べ替えてから作る**——答えの届く順で並びが変わっても、同じ顔ぶれなら同じ鍵 */
   const missingKey = laterKey(missingShown);
   const missingRootSet = new Set(missingShown.map((m) => m.root));
+  // 前から一時フォルダの中にあるライブラリのフォルダ（dev #23）。足すときの確認（#149）は
+  // それより前に足したフォルダには効かないので、一覧でも印を付ける
+  const temporaryRootSet = useTemporaryRoots(roots);
   /**
    * 合計の枚数。**入れ子のルートは外側に含まれている**（`count_by_prefix` は
    * 差し引かない）ので、別の見つからないルートの配下にあるものは足さない
@@ -5453,26 +5458,35 @@ export default function App() {
             </>
           )}
           <div className="nav-section">{t.navLibraryFolders}</div>
-          {roots.map((r) => (
-            <div
-              key={r}
-              className={`nav-item root${missingRootSet.has(r) ? " root-missing" : ""}`}
-              title={missingRootSet.has(r) ? t.rootMissingTip(r) : r}
-            >
-              <span className="root-name">
-                {missingRootSet.has(r) && "⚠ "}
-                {rootName(r)}
-              </span>
-              <button
-                className="root-remove"
-                title={t.removeRoot(r)}
-                disabled={busy}
-                onClick={() => onRemoveRoot(r)}
+          {roots.map((r) => {
+            const mark = rootMark(r, missingRootSet, temporaryRootSet);
+            return (
+              <div
+                key={r}
+                className={`nav-item root${mark === "missing" ? " root-missing" : mark === "temporary" ? " root-temporary" : ""}`}
+                title={
+                  mark === "missing"
+                    ? t.rootMissingTip(r)
+                    : mark === "temporary"
+                      ? t.rootTempTip(r)
+                      : r
+                }
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                <span className="root-name">
+                  {mark !== null && "⚠ "}
+                  {rootName(r)}
+                </span>
+                <button
+                  className="root-remove"
+                  title={t.removeRoot(r)}
+                  disabled={busy}
+                  onClick={() => onRemoveRoot(r)}
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
           <div className="nav-section">{t.navDrives}</div>
           {drives.map((d) => (
             <div
