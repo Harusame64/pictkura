@@ -198,6 +198,28 @@ const FTS_SCHEMA_VERSION: &str = "v3";
 /// カメラ別集計（JOIN）や `camera:` 絞り込み（IN）には現れない。
 const CAMERA_NONE: i64 = 0;
 
+/// 撮影日時に添える連写の材料（dev #32）。**撮影日時を書く UPDATE と同じ1回で**書く。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Shot<'a> {
+    /// 書く撮影日時が秒未満まで分かっているか。`None` は未確認（EXIF から来た時刻では
+    /// ない・読めなかった）——後追いが EXIF を読み直す
+    pub subsec: Option<bool>,
+    /// 本体シリアル。`None` なら**最後に分かっていた値を残す**
+    pub body_serial: Option<&'a str>,
+}
+
+impl<'a> Shot<'a> {
+    /// 何も言わない（未確認・シリアルは残す）
+    pub const UNKNOWN: Shot<'static> = Shot {
+        subsec: None,
+        body_serial: None,
+    };
+
+    fn serial(&self) -> Option<&'a str> {
+        self.body_serial.map(str::trim).filter(|s| !s.is_empty())
+    }
+}
+
 /// [`Db::rows_with_fallback_taken_at`] が返す行（ID・パス・mtime）。
 pub type FallbackDateRow = (i64, PathBuf, i64);
 
@@ -557,8 +579,11 @@ impl Db {
             [],
         )?;
         // 連写の材料の後追い（dev #32、[`Db::shots_to_backfill`]）だけの部分索引。
-        // **中身は「まだ読み直していない画像」だけ**なので、掃き終えた後は空——毎起動で
-        // 表を端から端までなぞらない（寸法の後追いの索引と同じ理由）
+        // **中身は「まだ読み直していない画像」だけ**なので、毎起動で表を端から端までなぞらない
+        // （寸法の後追いの索引と同じ理由）。**掃き終えても空になるとは限らない**——開けなかった
+        // 画像（クラウドにしか無い・外付けが外れている・権限）は未確認のまま残り、起動のたびに
+        // 拾われる（クラウドにしか無いもの・消えたものは読まずに飛ばし、権限で開けないものは
+        // 開こうとする）。読めない1回を「秒まで」と記録しないための代わりの費用
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_media_shots_pending ON media(id)
              WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0",
@@ -734,6 +759,13 @@ impl Db {
                 favorite    = COALESCE((SELECT d.favorite FROM path_dup_tmp d WHERE d.keep_id = media.id), favorite),
                 picked      = COALESCE((SELECT d.picked   FROM path_dup_tmp d WHERE d.keep_id = media.id), picked),
                 taken_at_ms = COALESCE(taken_at_ms, (SELECT o.taken_at_ms FROM media o
+                                WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
+                -- 時刻を借りるなら、その時刻の「秒未満が分かったか」も一緒に借りる（dev #32）。
+                -- 右辺の taken_at_ms は更新前の値
+                taken_subsec = CASE WHEN taken_at_ms IS NULL THEN (SELECT o.taken_subsec FROM media o
+                                WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))
+                                ELSE taken_subsec END,
+                body_serial = COALESCE(body_serial, (SELECT o.body_serial FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
                 camera_id   = COALESCE(camera_id,   (SELECT o.camera_id FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
@@ -1264,6 +1296,20 @@ impl Db {
         taken_at_ms: Option<i64>,
         camera: Option<&str>,
     ) -> Result<(), DbError> {
+        self.update_metadata_shot(id, dims, taken_at_ms, camera, Shot::UNKNOWN)
+    }
+
+    /// [`Self::update_metadata`] に**連写の材料**を添えて、**撮影日時と同じ1回の UPDATE で**書く
+    /// （dev #32）。時刻と「秒未満まで分かったか」を別の書き込みにすると、片方だけ書かれた
+    /// 隙間や、時刻だけ秒止まりに書き換わった後に「秒未満あり」が残る形ができた（#158 のゲート2）
+    pub fn update_metadata_shot(
+        &mut self,
+        id: i64,
+        dims: Dimensions,
+        taken_at_ms: Option<i64>,
+        camera: Option<&str>,
+        shot: Shot<'_>,
+    ) -> Result<(), DbError> {
         let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
             Some(name) => self.camera_id_of(name)?,
             // 「確認済みだがカメラ情報なし」の印（NULLは未確認を意味する）
@@ -1273,7 +1319,8 @@ impl Db {
             &format!(
                 "UPDATE media SET width = ?2, height = ?3, taken_at_ms = ?4,
                         day_key = {}, camera_id = ?5,
-                        preview_width = ?6, preview_height = ?7
+                        preview_width = ?6, preview_height = ?7,
+                        taken_subsec = ?8, body_serial = COALESCE(?9, body_serial)
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, mtime_ms)")
             ),
@@ -1284,7 +1331,9 @@ impl Db {
                 taken_at_ms,
                 camera_id,
                 dims.preview.map(|(w, _)| w),
-                dims.preview.map(|(_, h)| h)
+                dims.preview.map(|(_, h)| h),
+                shot.subsec.map(i64::from),
+                shot.serial()
             ],
         )?;
         Ok(())
@@ -1324,6 +1373,7 @@ impl Db {
         id: i64,
         taken_at_ms: Option<i64>,
         camera: Option<&str>,
+        shot: Shot<'_>,
     ) -> Result<(), DbError> {
         let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
             Some(name) => Some(self.camera_id_of(name)?),
@@ -1332,11 +1382,18 @@ impl Db {
         self.conn.execute(
             &format!(
                 "UPDATE media SET taken_at_ms = ?2, day_key = {},
-                        camera_id = COALESCE(?3, camera_id)
+                        camera_id = COALESCE(?3, camera_id),
+                        taken_subsec = ?4, body_serial = COALESCE(?5, body_serial)
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?2, mtime_ms)")
             ),
-            params![id, taken_at_ms, camera_id],
+            params![
+                id,
+                taken_at_ms,
+                camera_id,
+                shot.subsec.map(i64::from),
+                shot.serial()
+            ],
         )?;
         Ok(())
     }
@@ -1364,6 +1421,9 @@ impl Db {
                 "UPDATE media SET width = COALESCE(NULLIF(?2, 0), width),
                         height = COALESCE(NULLIF(?3, 0), height),
                         taken_at_ms = COALESCE(?4, taken_at_ms),
+                        -- OS の日時は秒まで。時刻を書き換えたら「秒未満が分かった」は
+                        -- もう本当ではない——未確認へ戻し、後追いに EXIF を読ませる（dev #32）
+                        taken_subsec = CASE WHEN ?4 IS NOT NULL THEN NULL ELSE taken_subsec END,
                         day_key = {}
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, taken_at_ms, mtime_ms)")
@@ -2116,30 +2176,6 @@ impl Db {
             out.push(row?);
         }
         Ok(out)
-    }
-
-    /// 連写の材料を書く（dev #32）。サムネイルの流れが撮影日時を書いた直後に呼ぶ。
-    ///
-    /// `subsec` は**書いた撮影日時が秒未満まで分かっているか**（EXIF の `SubSecTimeOriginal`
-    /// から来たときだけ真）。`serial` は EXIF の本体シリアル（無ければ NULL を書く）
-    pub fn set_shot_meta(
-        &self,
-        id: i64,
-        subsec: bool,
-        serial: Option<&str>,
-    ) -> Result<(), DbError> {
-        self.conn.execute(
-            // シリアルは**最後に分かっていた値を残す**（カメラの `COALESCE` と同じ）。読めた
-            // EXIF が名乗らなかっただけで消すと、同じ本体の鍵が割れる
-            "UPDATE media SET taken_subsec = ?2, body_serial = COALESCE(?3, body_serial)
-             WHERE id = ?1",
-            params![
-                id,
-                i64::from(subsec),
-                serial.map(str::trim).filter(|s| !s.is_empty())
-            ],
-        )?;
-        Ok(())
     }
 
     /// 連写の材料がまだ無い行（dev #32 の後追い）。`id` 順に `limit` 件（`after_id` より後）。
@@ -3542,11 +3578,15 @@ mod tests {
                 } else {
                     // 消える側: ユーザーが★を付け、撮影情報も埋まっている
                     db.set_favorite(r.id, true).unwrap();
-                    db.update_metadata(
+                    db.update_metadata_shot(
                         r.id,
                         Dimensions::original(640, 480),
-                        Some(1_700_000_000_000),
+                        Some(1_700_000_000_480),
                         Some("Camera X"),
+                        Shot {
+                            subsec: Some(true),
+                            body_serial: Some("S1"),
+                        },
                     )
                     .unwrap();
                 }
@@ -3570,10 +3610,11 @@ mod tests {
         assert!(all[0].favorite, "★は消える側に付いていても残る");
         assert_eq!(all[0].width, Some(640), "寸法を引き継ぐ");
         assert_eq!(
-            all[0].taken_at_ms,
-            Some(1_700_000_000_000),
-            "撮影日時を引き継ぐ"
+            (all[0].taken_at_ms, all[0].taken_subsec),
+            (Some(1_700_000_000_480), Some(true)),
+            "撮影日時を、秒未満の印と一緒に引き継ぐ（dev #32）"
         );
+        assert_eq!(all[0].body_serial.as_deref(), Some("S1"));
     }
 
     #[test]
@@ -5226,8 +5267,21 @@ mod tests {
         assert_ne!(a.day_key, day_of(&db, 1_000_000), "日が動いた");
 
         // 確認済みの行（サムネイルの流れが書いた後）は、古い読みで上書きしない
-        db.set_shot_meta(ids[1], true, Some("NEW")).unwrap();
+        db.update_metadata_shot(
+            ids[1],
+            Dimensions::original(4, 3),
+            Some(1_000_000),
+            None,
+            Shot {
+                subsec: Some(true),
+                body_serial: Some("NEW"),
+            },
+        )
+        .unwrap();
         db.set_shots(&[(ids[1], Some(5), false, Some("OLD".into()))])
+            .unwrap();
+        // 日時の無い読み（meta_only の道）も、確認済みの行は書き換えない
+        db.set_shots(&[(ids[1], None, false, Some("OLD".into()))])
             .unwrap();
         let b = db.get_by_id(ids[1]).unwrap().unwrap();
         assert_eq!(
@@ -5235,8 +5289,18 @@ mod tests {
             (Some(1_000_000), Some(true))
         );
         assert_eq!(b.body_serial.as_deref(), Some("NEW"));
-        // シリアルを名乗らない読みは、最後に分かっていたシリアルを消さない
-        db.set_shot_meta(ids[1], false, None).unwrap();
+        // シリアルを名乗らない書き込みは、最後に分かっていたシリアルを消さない
+        db.update_metadata_shot(
+            ids[1],
+            Dimensions::original(4, 3),
+            Some(1_000_000),
+            None,
+            Shot {
+                subsec: Some(false),
+                body_serial: None,
+            },
+        )
+        .unwrap();
         assert_eq!(
             db.get_by_id(ids[1])
                 .unwrap()
@@ -5247,27 +5311,131 @@ mod tests {
         );
     }
 
+    /// 時刻を書く口はどれも、**同じ UPDATE で**「秒未満が分かったか」を書く（#158 のゲート2）。
+    /// 秒までの時刻に書き換わった後に「秒未満あり」が残ると、秒止まりの時刻どうしが間隔 0 で
+    /// 連写に鎖でつながる
+    #[test]
+    fn the_sub_second_mark_always_moves_with_the_time() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned(r"D:\写真\a.jpg", 1, 1000)])
+            .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let known = Shot {
+            subsec: Some(true),
+            body_serial: Some("S1"),
+        };
+        let mark = |db: &Db| {
+            let r = db.get_by_id(id).unwrap().unwrap();
+            (r.taken_at_ms, r.taken_subsec, r.body_serial)
+        };
+        let s1 = Some("S1".to_string());
+
+        db.update_metadata_shot(id, Dimensions::original(4, 3), Some(1_480), None, known)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
+        // 材料を言わない書き込み（`update_metadata`）は未確認へ戻す。シリアルは残す
+        db.update_metadata(id, Dimensions::original(4, 3), Some(1_000), None)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_000), None, s1.clone()));
+
+        // 寸法に触らない口も同じ
+        db.update_metadata_keeping_dimensions(id, Some(1_480), None, known)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
+        db.update_metadata_keeping_dimensions(id, Some(1_000), None, Shot::UNKNOWN)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_000), None, s1.clone()));
+
+        // OS から借りた時刻（秒まで）を書いたら未確認へ。時刻を書かなければ印も残す
+        db.update_metadata_keeping_dimensions(id, Some(1_480), None, known)
+            .unwrap();
+        db.update_shell_metadata(id, 4, 3, None).unwrap();
+        assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
+        db.update_shell_metadata(id, 4, 3, Some(2_000)).unwrap();
+        assert_eq!(mark(&db), (Some(2_000), None, s1));
+    }
+
+    /// 後追いの書き込みは**抽出済みの行だけ**（未抽出の行はサムネイルの流れが時刻ごと書く。
+    /// 先に秒未満の印を立てると、流れが書いた時刻が後追いから外れる）。シリアルを名乗らない
+    /// 読みは、最後に分かっていたシリアルを消さない
+    #[test]
+    fn shot_backfill_writes_only_extracted_rows_and_keeps_a_known_serial() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\a.jpg", 1, 1000),
+            scanned(r"D:\写真\b.jpg", 1, 2000),
+        ])
+        .unwrap();
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        // a は抽出済み（シリアルだけ前の中身から残っている形）、b は未抽出
+        db.update_metadata_shot(
+            ids[0],
+            Dimensions::original(4, 3),
+            Some(1_000_000),
+            None,
+            Shot {
+                subsec: None,
+                body_serial: Some("KNOWN"),
+            },
+        )
+        .unwrap();
+
+        db.set_shots(&[
+            (ids[0], Some(1_000_480), true, None),
+            (ids[1], Some(7_000_480), true, Some("B".into())),
+        ])
+        .unwrap();
+        let a = db.get_by_id(ids[0]).unwrap().unwrap();
+        assert_eq!(
+            (a.taken_at_ms, a.taken_subsec),
+            (Some(1_000_480), Some(true))
+        );
+        assert_eq!(
+            a.body_serial.as_deref(),
+            Some("KNOWN"),
+            "名乗らない読みは消さない"
+        );
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!(
+            (b.taken_at_ms, b.taken_subsec, b.body_serial),
+            (None, None, None),
+            "未抽出の行には書かない"
+        );
+
+        // 日時の無い読み（meta_only の道）も同じ
+        db.set_shots(&[(ids[1], None, false, Some("B".into()))])
+            .unwrap();
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!((b.taken_subsec, b.body_serial), (None, None));
+    }
+
     /// 表示日は秒へ**床で**丸める。1970 年より前の時刻に秒未満が付くと、整数の割り算
-    /// （0 の側へ切り捨て）では翌日に入る（dev #32 で秒未満が付くようになった）
+    /// （0 の側へ切り捨て）では翌日に入る（dev #32 で秒未満が付くようになった）。
+    ///
+    /// **時間帯によらず負の時刻で撃つ**: 地方時の 1969-12-31 00:00 は、UTC−12〜+14 のどこでも
+    /// エポックより前。その 0.5 秒前（12-30 23:59:59.5）が 12-31 に入れば切り捨て
     #[test]
     fn the_day_key_floors_sub_seconds_before_1970() {
         use chrono::TimeZone;
         let db = Db::open_in_memory().unwrap();
-        let last = chrono::Local
-            .with_ymd_and_hms(1969, 12, 31, 23, 59, 59)
+        let midnight = chrono::Local
+            .with_ymd_and_hms(1969, 12, 31, 0, 0, 0)
             .earliest()
             .unwrap()
-            .timestamp_millis()
-            + 500;
-        let day: i64 = db
-            .conn
-            .query_row(
-                &format!("SELECT {}", day_key_expr("?1")),
-                params![last],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(day, 19691231);
+            .timestamp_millis();
+        assert!(midnight < 0, "{midnight}");
+        let day = |ms: i64| -> i64 {
+            db.conn
+                .query_row(
+                    &format!("SELECT {}", day_key_expr("?1")),
+                    params![ms],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(day(midnight - 500), 19691230);
+        assert_eq!(day(midnight), 19691231);
     }
 
     #[test]
