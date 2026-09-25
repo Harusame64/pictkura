@@ -117,8 +117,8 @@ export const es419: Dict = {
     ` — ${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   bulkFavoriteDone: (n: number) =>
     n === 1 ? "1 foto agregada a Favoritos" : `${num(n)} fotos agregadas a Favoritos`,
-  rootTempConfirm: (name: string) =>
-    `«${name}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sus archivos sin avisar. ¿Agregarla a la biblioteca de todos modos?`,
+  rootTempConfirm: (path: string) =>
+    `«${path}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sus archivos sin avisar. ¿Agregarla a la biblioteca de todos modos?`,
   rootTempConfirmOk: "Agregar de todos modos",
   settingsAutoplayNote:
     "Agrega pictkura a las opciones de la Reproducción automática de Windows. Nunca arranca por su cuenta. Ten en cuenta que la entrada está escrita en japonés. Al desinstalar con el instalador se quita, pero la versión portable —y las copias de otros usuarios en el mismo PC— no están cubiertas; desactiva esto antes de quitar pictkura en esos casos.",

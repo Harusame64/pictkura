@@ -2082,7 +2082,9 @@ export default function App() {
       // 足さない**（`confirmAction` が取り消しと同じに扱う——黙って足すよりはよい）
       if (await isTemporaryFolder(path).catch(() => false)) {
         const ok = await confirmAction(
-          t.rootTempConfirm(rootName(path)),
+          // **名前ではなく場所を出す**——どこの一時フォルダかが分からないと、利用者は
+          // 危なさを量れずに「追加する」を押すことを覚える（#149 の2ゲート目2周目）
+          t.rootTempConfirm(path),
           t.rootTempConfirmOk,
         );
         if (!ok) return false;

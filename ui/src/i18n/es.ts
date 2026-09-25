@@ -248,8 +248,8 @@ export const es: Dict = {
   rootRemoveKeepsFiles: "Solo quita la carpeta de la biblioteca. Los archivos de las fotos no se borran",
   rootRemoveConfirm: (name: string) =>
     `¿Quitar «${name}» de la biblioteca?\nLos archivos de las fotos no se borran, pero sí las marcas ★ y ⚑ de sus fotos.`,
-  rootTempConfirm: (name: string) =>
-    `«${name}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sus archivos sin avisar. ¿Añadirla a la biblioteca de todos modos?`,
+  rootTempConfirm: (path: string) =>
+    `«${path}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sus archivos sin avisar. ¿Añadirla a la biblioteca de todos modos?`,
   rootTempConfirmOk: "Añadir de todos modos",
   rootMissingTip: (path: string) =>
     `${path}: no está. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar»`,

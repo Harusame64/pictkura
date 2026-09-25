@@ -3417,9 +3417,18 @@ fn is_inside_any(path: &Path, dirs: &[PathBuf]) -> bool {
 
 /// ライブラリに足そうとしているフォルダが一時フォルダの中か（dev #23）。
 /// UI はこれが真なら、足す前に確かめる。**判定できなければ偽**（確かめずに足す＝従来どおり）。
-#[tauri::command(async)]
-fn is_temporary_folder(path: String) -> bool {
-    is_inside_any(Path::new(&path), &temporary_dirs())
+///
+/// **ブロッキングプールで走らせ、3秒で見切る**——`canonicalize` は切れた SMB の上で
+/// マウントのタイムアウトぶん（hard マウントなら際限なく）返らない。非同期のワーカーで
+/// 待つと他のコマンドごと詰まり、画面は busy のまま戻らない（#149 の2ゲート目2周目）。
+/// 見切った問いは裏で走り続けるが、答えは誰も待たない。
+#[tauri::command]
+async fn is_temporary_folder(path: String) -> bool {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+    let asked = tauri::async_runtime::spawn_blocking(move || {
+        is_inside_any(Path::new(&path), &temporary_dirs())
+    });
+    matches!(tokio::time::timeout(DEADLINE, asked).await, Ok(Ok(true)))
 }
 
 /// ライブラリのルートフォルダを追加して保存し、即スキャンする。
