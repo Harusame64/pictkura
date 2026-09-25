@@ -2621,6 +2621,8 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             lock_ok(&state.db)
                 .remove_paths(&deleted_media)
                 .map_err(errs::from_err)?;
+            // 行が消えたので「カメラとメディア」も数え直させる（一部だけ成功した回も）
+            announce_cameras_changed(&app);
         }
         // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
         let count = deleted_media.len();
@@ -3133,13 +3135,48 @@ fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, Strin
     Ok(stats)
 }
 
+/// 「カメラとメディア」を数え直させる合図。**行を変えたのに `library-updated` を出さない
+/// コマンド**（再スキャン・フォルダの追加と外し・ゴミ箱へ）が出す。受け口は画面側にある
+/// （索引の後追いがカメラを埋めたときと同じ `cameras-updated`）。
+///
+/// 画面の取り直しに数え直しを抱き合わせる形は、絞り込みやサムネイルの度に全件の
+/// `GROUP BY` を回すことになる（#148 の2ゲート目）。**行を変えた所で1回だけ言う。**
+fn announce_cameras_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("cameras-updated", ());
+}
+
+/// 走査の結果が、いま数え直す理由になるか。**消えた行があるときだけ**。
+///
+/// - **足した行**は `camera_id` がまだ空（後からサムネイルの流れが埋める）ので、数え直しても変わらない
+/// - **変わった行**は走査が `camera_id` を一度空にする（撮影情報を読み直すため）ので、その瞬間に
+///   数え直すと**減って見え、戻す合図も無い**（#148 の2ゲート目3周目）
+///
+/// 後から埋まったカメラを拾うのは別の話（dev #28）。
+fn scan_changes_camera_counts(stats: &SyncStats) -> bool {
+    stats.removed > 0
+}
+
+/// `scan_and_apply` のあと、行が消えていたら数え直させる。外したフォルダのカメラが
+/// 左ペインに残っていた（#146 の実機）のは、この3つのコマンドが何も言わなかったから。
+fn scan_and_announce(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    full: bool,
+) -> Result<SyncStats, String> {
+    let stats = scan_and_apply(state, full)?;
+    if scan_changes_camera_counts(&stats) {
+        announce_cameras_changed(app);
+    }
+    Ok(stats)
+}
+
 /// ライブラリを再スキャンして差分をDBへ反映する。
 /// 走査はブロッキングI/Oなので専用スレッドで実行し、非同期ランタイムを塞がない。
 #[tauri::command]
 async fn sync_now(app: tauri::AppHandle) -> Result<SyncStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        scan_and_apply(&state, true).map(Into::into)
+        scan_and_announce(&app, &state, true).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -3324,7 +3361,7 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
             }
         })?;
         rebuild_watcher(&app);
-        scan_and_apply(&state, false).map(Into::into)
+        scan_and_announce(&app, &state, false).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -3341,7 +3378,7 @@ async fn remove_library_root(app: tauri::AppHandle, path: String) -> Result<Sync
         })?;
         rebuild_watcher(&app);
         // 再スキャンすると、どのルートにも属さなくなったレコードが削除される
-        scan_and_apply(&state, false).map(Into::into)
+        scan_and_announce(&app, &state, false).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -5067,7 +5104,7 @@ pub fn run() {
                                 std::thread::sleep(std::time::Duration::from_millis(20));
                             }
                             // 埋まったカメラを左ペインへ反映させる
-                            let _ = index_handle.emit("cameras-updated", ());
+                            announce_cameras_changed(&index_handle);
                         }
                         publish("camera", total, total, false, incomplete);
 
@@ -5444,7 +5481,7 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, Presence,
+        import_path_from_args, scan_changes_camera_counts, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -6726,5 +6763,24 @@ mod tests {
         if !root {
             assert_eq!(answer, Presence::Unreachable);
         }
+    }
+
+    /// **数え直しの合図は、消えた行があるときだけ**（#148）。足した行はカメラがまだ空、
+    /// 変わった行は走査がカメラを一度空にする——その瞬間に数えると減って見える
+    #[test]
+    fn only_removed_rows_make_the_camera_counts_worth_recounting() {
+        let stats = |added, changed, removed| pictkura_core::SyncStats {
+            added,
+            changed,
+            removed,
+            ..Default::default()
+        };
+        assert!(scan_changes_camera_counts(&stats(0, 0, 1)));
+        assert!(!scan_changes_camera_counts(&stats(5, 0, 0)), "足しただけ");
+        assert!(
+            !scan_changes_camera_counts(&stats(0, 30, 0)),
+            "変わっただけ"
+        );
+        assert!(!scan_changes_camera_counts(&stats(0, 0, 0)));
     }
 }
