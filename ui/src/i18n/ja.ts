@@ -238,6 +238,12 @@ export const ja = {
   destTempConfirmOk: "コピー先にする",
   destTempWarning:
     "⚠ コピー先は一時フォルダの中です。取り込んだ写真が知らないうちに消えることがあります。",
+  /* 一時フォルダの中にあるライブラリのフォルダ（dev #23）。文は追加時の確認と同じ */
+  rootTempTip: (path: string) =>
+    `${path} — 一時フォルダの中にあります。OSや他のアプリが、この中のファイルを知らないうちに消すことがあります`,
+  /* 一時フォルダの中で見つからないライブラリのフォルダ（dev #23）。「差し込んで」は的外れなので言わない */
+  rootMissingTempTip: (path: string) =>
+    `${path} — 見つかりません。一時フォルダの中にあったので、OSや他のアプリに消された可能性があります`,
   rootMissingTip: (path: string) =>
     `${path} — 見つかりません。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください`,
   importFrom: (path: string) => `${path} から取り込む`,

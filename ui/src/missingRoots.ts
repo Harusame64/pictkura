@@ -70,3 +70,37 @@ export function laterKey(shown: readonly MissingRoot[]): string {
     .sort()
     .join("\u0000");
 }
+
+/**
+ * 左ペインのライブラリのフォルダに付ける印（dev #23）。
+ *
+ * - `missing`: 見つからない。いま効く手は「差し込む・外す」
+ * - `temporary`: 一時フォルダの中にある（中の写真は今は開ける）
+ * - `missingTemporary`: **両方**。一時フォルダの中で消えたのなら、「USBメモリを差し込んで」は
+ *   的外れ——OS や他のアプリに消された見込みが高い、と言う（#154 のゲート2）
+ */
+export type RootMark = "missing" | "temporary" | "missingTemporary" | null;
+
+export function rootMark(
+  root: string,
+  missing: ReadonlySet<string>,
+  temporary: ReadonlySet<string>,
+): RootMark {
+  const gone = missing.has(root);
+  const temp = temporary.has(root);
+  if (gone && temp) return "missingTemporary";
+  if (gone) return "missing";
+  if (temp) return "temporary";
+  return null;
+}
+
+/**
+ * 印ごとの見た目。**1か所に書いて表で試す**——クラスと説明を別々の三項演算で選ぶと、
+ * 片方だけ入れ替わっても型も試験も止めない（#154 のゲート2の変異がそれを通した）。
+ * `cls` は `App.css`、`tip` は辞書の鍵（どれも `(path) => string`）
+ */
+export const ROOT_MARK_VIEW = {
+  missing: { cls: "root-missing", tip: "rootMissingTip" },
+  temporary: { cls: "root-temporary", tip: "rootTempTip" },
+  missingTemporary: { cls: "root-missing", tip: "rootMissingTempTip" },
+} as const satisfies Record<Exclude<RootMark, null>, { cls: string; tip: string }>;

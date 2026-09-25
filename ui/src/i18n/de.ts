@@ -241,6 +241,10 @@ export const de: Dict = {
   destTempConfirmOk: "Als Ziel verwenden",
   destTempWarning:
     "⚠ Der Zielordner liegt in einem temporären Ordner. Importierte Fotos können ohne Vorwarnung verschwinden.",
+  rootTempTip: (path: string) =>
+    `${path} — liegt in einem temporären Ordner. Das System oder andere Apps können Dateien dort ohne Rückfrage löschen`,
+  rootMissingTempTip: (path: string) =>
+    `${path} — nicht da. Er lag in einem temporären Ordner, vielleicht hat das System oder eine andere App ihn gelöscht`,
   rootMissingTip: (path: string) =>
     `${path} — nicht da. Wenn der Ordner auf einem USB-Stick oder einer SD-Karte liegt, stecke den Datenträger ein und drücke „Neu einlesen“`,
   importFrom: (path: string) => `Aus ${path} importieren`,

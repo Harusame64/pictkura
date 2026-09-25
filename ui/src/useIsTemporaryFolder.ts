@@ -32,3 +32,4 @@ export function useIsTemporaryFolder(
   }, [path, active]);
   return temporary;
 }
+

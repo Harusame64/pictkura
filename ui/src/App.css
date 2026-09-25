@@ -288,6 +288,12 @@ body {
   color: var(--warn);
   opacity: 0.75;
 }
+/* 一時フォルダの中にあるライブラリのフォルダ（dev #23）。**在るので薄くしない**——
+   中の写真は今は開ける。見つからないフォルダと同じ ⚠ と色で「気をつける場所」を知らせ、
+   どちらの理由かはツールチップが言う（見つからない方は薄く、下に知らせも出る） */
+.nav-item.root.root-temporary .root-name {
+  color: var(--warn);
+}
 .root-name,
 .camera-name {
   flex: 1;

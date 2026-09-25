@@ -8,7 +8,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { laterKey, mergeMissing, missingTotal } from "../src/missingRoots.ts";
+import {
+  laterKey,
+  mergeMissing,
+  missingTotal,
+  rootMark,
+  ROOT_MARK_VIEW,
+} from "../src/missingRoots.ts";
+import { ja } from "../src/i18n/ja.ts";
 
 const m = (root: string, count = 1) => ({ root, count });
 
@@ -58,4 +65,25 @@ test("区切りで終わるルート（`/`・`D:\\`）の配下も入れ子と�
 test("「あとで」の鍵は並び順によらない", () => {
   assert.equal(laterKey([m("/A"), m("/B")]), laterKey([m("/B"), m("/A")]));
   assert.notEqual(laterKey([m("/A")]), laterKey([m("/A"), m("/B")]));
+});
+
+test("左ペインの印: 両方・見つからない・一時フォルダ・どちらでもない", () => {
+  const missing = new Set(["/a", "/both"]);
+  const temporary = new Set(["/t", "/both"]);
+  assert.equal(rootMark("/a", missing, temporary), "missing");
+  assert.equal(rootMark("/t", missing, temporary), "temporary");
+  assert.equal(rootMark("/both", missing, temporary), "missingTemporary");
+  assert.equal(rootMark("/plain", missing, temporary), null);
+});
+
+test("印ごとの見た目（クラスと説明の鍵）が取り違えられていない", () => {
+  assert.deepEqual(ROOT_MARK_VIEW, {
+    missing: { cls: "root-missing", tip: "rootMissingTip" },
+    temporary: { cls: "root-temporary", tip: "rootTempTip" },
+    missingTemporary: { cls: "root-missing", tip: "rootMissingTempTip" },
+  });
+  for (const { tip } of Object.values(ROOT_MARK_VIEW)) {
+    assert.equal(typeof ja[tip], "function", tip);
+    assert.ok(ja[tip]("/p/x").includes("/p/x"), `${tip} はパスを出す`);
+  }
 });

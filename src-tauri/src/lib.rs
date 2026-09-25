@@ -3472,23 +3472,91 @@ fn is_inside_any(path: &Path, dirs: &[PathBuf]) -> bool {
             }
         }
     };
-    let parts = |p: &Path| -> Vec<String> {
-        p.components()
-            .map(|c| {
-                let s = c.as_os_str().to_string_lossy().into_owned();
-                if cfg!(windows) {
-                    s.to_lowercase()
-                } else {
-                    s
-                }
-            })
-            .collect()
-    };
-    let target = parts(&canon(path));
+    let dirs: Vec<PathBuf> = dirs.iter().map(|d| canon(d)).collect();
+    is_under_any_by_spelling(&canon(path), &dirs)
+}
+
+/// パスの要素ごとの比較（**表記だけ**。ディスクには触らない）。Windows は大小を区別しない。
+fn path_parts(p: &Path) -> Vec<String> {
+    p.components()
+        .map(|c| {
+            let s = c.as_os_str().to_string_lossy().into_owned();
+            if cfg!(windows) {
+                s.to_lowercase()
+            } else {
+                s
+            }
+        })
+        .collect()
+}
+
+/// `path` が `dirs` のどれか（それ自身を含む）の中か——**書かれた綴りのまま**比べる。
+///
+/// **`..` を含むパスは「中ではない」**——`/tmp/../home/x` は綴りの上では `/tmp` で始まるが、
+/// 実際には外にある。綴りだけでは `..` の先（リンクをたどった先）が分からないので、
+/// 印を付けない側に倒す（PRのcodex）。実体で見るのは [`is_inside_any`] の仕事
+fn is_under_any_by_spelling(path: &Path, dirs: &[PathBuf]) -> bool {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    let target = path_parts(path);
     dirs.iter().any(|d| {
-        let d = parts(&canon(d));
+        let d = path_parts(d);
         !d.is_empty() && target.len() >= d.len() && target[..d.len()] == d[..]
     })
+}
+
+/// 一時フォルダの**両方の綴り**: 書かれたまま（`/tmp`・`/var/folders/…`・Windows の短い名前
+/// `HARUSA~1`）と、実体へ解決したもの（`/private/tmp`・`/private/var/…`・長い名前）。
+/// 解決で触るのは**一時フォルダの側だけ**（手元のシステムのフォルダ）
+fn temp_dir_spellings(dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let mut out = dirs.to_vec();
+    out.extend(
+        dirs.iter()
+            .filter_map(|d| std::fs::canonicalize(d).ok())
+            .map(|c| PathBuf::from(strip_verbatim(&c))),
+    );
+    out
+}
+
+/// ライブラリのフォルダのうち、一時フォルダの中にあるもの（dev #23。左ペインの印）。
+///
+/// **フォルダそのものには触らない**——表記だけで比べる。#154 の初版はフォルダごとに
+/// [`is_temporary_folder`]（解決つき・3秒で見切る）を訊いたが、起動直後に見切られると
+/// 印が出ないまま、フォルダを1つ足すたびに全部訊き直して見切られた分の印が消え、
+/// 刺さった NAS の上では見切った問いが溜まった（ゲート2）。**足すときの確認**（#149）は
+/// 今までどおり実体で見る。こちらは**前から在るフォルダへの目印**で、綴りが別名（リンク）の
+/// フォルダは見落としうる——見落としは「印が無い」で、偽の警告は出さない側に倒れる
+fn roots_inside_temp(roots: &[PathBuf], temp_spellings: &[PathBuf]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .filter(|r| is_under_any_by_spelling(r, temp_spellings))
+        .cloned()
+        .collect()
+}
+
+/// **一時フォルダの側の解決も、3秒で見切る**——`TMPDIR`／`TEMP` がつながらない共有を
+/// 指していれば、`canonicalize` は返らない（[`is_temporary_folder`] と同じ理由。PRのcodex）。
+/// 見切ったら `Err`——UI は前の答えのまま残す（「一時フォルダの中は無い」とは言わない）。
+#[tauri::command]
+async fn temporary_library_roots(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(3);
+    let asked = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let roots = lock_ok(&state.config).library.roots.clone();
+        roots_inside_temp(&roots, &temp_dir_spellings(&temporary_dirs()))
+            .into_iter()
+            .map(|r| r.display().to_string())
+            .collect::<Vec<_>>()
+    });
+    match tokio::time::timeout(DEADLINE, asked).await {
+        Ok(Ok(found)) => Ok(found),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("timed out".into()),
+    }
 }
 
 /// ライブラリに足そうとしているフォルダが一時フォルダの中か（dev #23）。
@@ -5602,6 +5670,7 @@ pub fn run() {
             get_index_progress,
             video_status,
             original_status,
+            temporary_library_roots,
             count_media_under,
             is_temporary_folder,
             cloud_only_media,
@@ -5663,8 +5732,8 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, is_inside_any, scan_changes_camera_counts, temporary_dirs,
-        usable_temp_dirs, Presence,
+        import_path_from_args, is_inside_any, roots_inside_temp, scan_changes_camera_counts,
+        temporary_dirs, usable_temp_dirs, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -7011,6 +7080,50 @@ mod tests {
             "変わっただけ"
         );
         assert!(!scan_changes_camera_counts(&stats(0, 0, 0)));
+    }
+
+    /// 左ペインの印（dev #23）は**綴りだけ**で見る——フォルダに触らないので、無いフォルダ・
+    /// 刺さった共有でも待たずに答える。要素ごとに比べる（`/tmpx` は `/tmp` の中ではない）
+    #[test]
+    fn library_roots_are_matched_against_temp_folders_by_spelling_only() {
+        let sep = std::path::MAIN_SEPARATOR;
+        let p = |s: &str| std::path::PathBuf::from(s.replace('/', &sep.to_string()));
+        let temp = [p("/tmp"), p("/private/tmp")];
+        let roots = [
+            p("/private/tmp/a"),
+            p("/tmp/b"),
+            p("/tmp/never/created"),
+            p("/tmpx/c"),
+            p("/Users/x/Pictures"),
+            p("/tmp"),
+            // 綴りは /tmp で始まるが、実際には外（PRのcodex）
+            p("/tmp/../home/user/Pictures"),
+        ];
+        assert_eq!(
+            roots_inside_temp(&roots, &temp),
+            vec![
+                p("/private/tmp/a"),
+                p("/tmp/b"),
+                p("/tmp/never/created"),
+                p("/tmp")
+            ]
+        );
+        assert!(roots_inside_temp(&roots, &[]).is_empty());
+    }
+
+    /// 一時フォルダの側は**書かれたままと解決後の両方**を持つ——`/tmp` と書いた一時フォルダに、
+    /// `/private/tmp/…` と保存されたライブラリのフォルダも当たる（macOS の別名）
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn temp_folder_spellings_include_the_resolved_alias() {
+        use super::temp_dir_spellings;
+        let spellings = temp_dir_spellings(&[std::path::PathBuf::from("/tmp")]);
+        assert!(spellings.contains(&std::path::PathBuf::from("/tmp")));
+        assert!(spellings.contains(&std::path::PathBuf::from("/private/tmp")));
+        assert_eq!(
+            roots_inside_temp(&[std::path::PathBuf::from("/private/tmp/lib")], &spellings),
+            vec![std::path::PathBuf::from("/private/tmp/lib")]
+        );
     }
 
     /// 一時フォルダの中か（dev #23）。**要素ごとに比べる**——名前が前方一致するだけの隣
