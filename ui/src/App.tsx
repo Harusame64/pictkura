@@ -42,7 +42,6 @@ import {
   getDecoderStatus,
   getEmptyLibraryReason,
   countMediaUnder,
-  isTemporaryFolder,
   getStartupReport,
   startupScanFinished,
   getStats,
@@ -103,7 +102,7 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
-import { confirmAction as confirmActionIn } from "./confirm";
+import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
@@ -2080,15 +2079,18 @@ export default function App() {
       // 選択。報告の形は、Claude の作業フォルダから取り込んだ写真が原本ごと消えたもの。
       // **判定できなければ確かめずに足す**（従来どおり）。**確認が開けなかったら知らせて
       // 足さない**（`confirmAction` が取り消しと同じに扱う——黙って足すよりはよい）
-      if (await isTemporaryFolder(path).catch(() => false)) {
-        const ok = await confirmAction(
-          // **名前ではなく場所を出す**——どこの一時フォルダかが分からないと、利用者は
-          // 危なさを量れずに「追加する」を押すことを覚える（#149 の2ゲート目2周目）
-          t.rootTempConfirm(path),
+      // **名前ではなく場所を出す**——どこの一時フォルダかが分からないと、利用者は
+      // 危なさを量れずに「追加する」を押すことを覚える（#149 の2ゲート目2周目）
+      if (
+        !(await confirmIfTemporary(
+          platform,
+          path,
+          t.rootTempConfirm,
           t.rootTempConfirmOk,
-        );
-        if (!ok) return false;
-      }
+          fail,
+        ))
+      )
+        return false;
       await addLibraryRoot(path);
       // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
       // 起動時に転んだ話はここで終わり。**取り直しより前に下ろす**

@@ -228,6 +228,13 @@ export const ja = {
   rootTempConfirm: (path: string) =>
     `「${path}」は一時フォルダの中にあります。\nOSや他のアプリが、この中のファイルを知らないうちに消すことがあります。それでもライブラリに追加しますか？`,
   rootTempConfirmOk: "追加する",
+  /* 取り込み先が一時フォルダのとき（dev #30）。**ライブラリのフォルダより強く言う**——
+   * カードを消せば、ここにしか写真が無い */
+  destTempConfirm: (path: string) =>
+    `「${path}」は一時フォルダの中にあります。\nここに取り込むと、OSや他のアプリが写真を知らないうちに消すことがあります。カードを消去したあとは、その写真はどこにも残りません。それでもコピー先にしますか？`,
+  destTempConfirmOk: "コピー先にする",
+  destTempWarning:
+    "⚠ コピー先は一時フォルダの中です。取り込んだ写真が知らないうちに消えることがあります。",
   rootMissingTip: (path: string) =>
     `${path} — 見つかりません。USBメモリやSDカードにあるなら、差し込んでから「再スキャン」を押してください`,
   importFrom: (path: string) => `${path} から取り込む`,

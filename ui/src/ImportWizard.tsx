@@ -23,6 +23,9 @@ import {
 } from "./api";
 import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { confirmTemporaryDestination } from "./confirm";
+import { usePlatform } from "./usePlatform";
+import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /**
@@ -154,6 +157,9 @@ export default function ImportWizard({
   viewRef.current = { path: current, deep };
 
   const destination = config?.routing.destination ?? null;
+  const platform = usePlatform();
+  /** コピー先が一時フォルダの中か（dev #30）。開いているときだけ、開くたびに訊く */
+  const destIsTemporary = useIsTemporaryFolder(destination, isOpen);
   const tree = current && deep ? trees[current] : undefined;
   const listing = current ? listings[current] : undefined;
   const allFiles: SourceFile[] = (deep ? tree?.files : listing?.files) ?? [];
@@ -444,6 +450,12 @@ export default function ImportWizard({
     if (destination) return true;
     const dest = await open({ directory: true, title: t.pickDestination });
     if (!dest) return false;
+    if (
+      !(await confirmTemporaryDestination(platform, dest, (m) =>
+        onErrorRef.current(m),
+      ))
+    )
+      return false;
     await setImportDestination(dest);
     onConfigChanged();
     return true;
@@ -792,6 +804,9 @@ export default function ImportWizard({
         </div>
 
         <div className="wizard-foot">
+          {/* コピー先の1行はそのまま、警告だけをその下に置く（#150 の2ゲート目：
+              欄ごと折り返すと、ラベル・パス・ボタンが3〜4行に崩れた） */}
+          <div className="wiz-dest-col">
           <div className="wiz-dest">
             <span className="wiz-dest-label">{t.wizardDestination}</span>
             <code>{destination ?? t.settingsDestinationUnset}</code>
@@ -804,15 +819,28 @@ export default function ImportWizard({
                   title: t.pickDestination,
                 });
                 if (!dest) return;
-                // 断られうる（写真.appのライブラリの中など）。投げっぱなしにすると
-                // 未処理の拒否になり、コピー先が黙って元のまま残る
+                // **判定と確認を待つあいだは busy**——［取り込む］や二度目の［変更］を
+                // 受けると、古いコピー先へ取り込みが始まったり確認が重なったりする（#150）
+                setBusy(true);
                 try {
-                  await setImportDestination(dest);
-                } catch (e) {
-                  onErrorRef.current(errText(e));
-                  return;
+                  if (
+                    !(await confirmTemporaryDestination(platform, dest, (m) =>
+                      onErrorRef.current(m),
+                    ))
+                  )
+                    return;
+                  // 断られうる（写真.appのライブラリの中など）。投げっぱなしにすると
+                  // 未処理の拒否になり、コピー先が黙って元のまま残る
+                  try {
+                    await setImportDestination(dest);
+                  } catch (e) {
+                    onErrorRef.current(errText(e));
+                    return;
+                  }
+                  onConfigChanged();
+                } finally {
+                  setBusy(false);
                 }
-                onConfigChanged();
               }}
             >
               {t.wizardChangeDestination}
@@ -822,6 +850,13 @@ export default function ImportWizard({
                 {t.wizardStructure}: <code>{patternExample}</code>
               </span>
             )}
+          </div>
+          {/* 一時フォルダのコピー先（dev #30）。選んだときの確認と別に、**いつも出す** */}
+          {destIsTemporary && (
+            <span className="wiz-dest-warn" role="status">
+              {t.destTempWarning}
+            </span>
+          )}
           </div>
           <div className="wiz-actions">
             <button

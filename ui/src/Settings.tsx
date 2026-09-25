@@ -23,6 +23,8 @@ import {
   type FolderPattern,
 } from "./api";
 import { usePlatform } from "./usePlatform";
+import { confirmTemporaryDestination } from "./confirm";
+import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import {
   LOCALES,
   locale,
@@ -69,6 +71,8 @@ export default function Settings({
   const [patterns, setPatterns] = useState<FolderPattern[]>([]);
   /** コピー先の変更が断られた理由（ダイアログ内に出す） */
   const [destError, setDestError] = useState<string | null>(null);
+  /** コピー先を選んでいる最中（判定と確認を待つあいだ）。二度押しで確認を重ねない（#150） */
+  const [destPicking, setDestPicking] = useState(false);
   /**
    * 開けなかった理由（説明書・ライセンス・記録）。**ダイアログの中に出す**のが要点で、
    * `onError` はツールバーの一行へ流れる——**開いている設定の背後**なので、
@@ -216,6 +220,14 @@ export default function Settings({
     if (open && dismiss) closeDialog();
   }, [open, dismiss, closeDialog]);
 
+  // **フックは早期 return より前に置く**——後ろに置くと、開いた瞬間にフックの数が変わって
+  // React ごと落ち、画面が真っ白になる（#150 の実機で踏んだ）。
+  // コピー先が一時フォルダの中か（dev #30）。開いているときだけ、開くたびに訊く
+  const destIsTemporary = useIsTemporaryFolder(
+    config?.routing.destination ?? null,
+    open,
+  );
+
   if (!open) return null;
 
   /**
@@ -268,33 +280,60 @@ export default function Settings({
               <code>{destination ?? t.settingsDestinationUnset}</code>
               <button
                 className="settings-dest-change"
+                disabled={destPicking}
                 onClick={async () => {
                   const dest = await openDialog({
                     directory: true,
                     title: t.pickDestination,
                   });
                   if (typeof dest !== "string") return;
-                  // 選んだ先が消えている・ネットワークが切れている・
-                  // 写真.appのライブラリの中だった等で失敗しうる。
-                  // 設定は変えないまま、**理由は出す**（黙って何も起きないと
-                  // 押し損ねたのか断られたのか分からない）
-                  try {
-                    await setImportDestination(dest);
-                  } catch (e) {
-                    // **ダイアログの中に出す。** 画面下の状態バーへ流しても
-                    // このダイアログが覆っているうえ32chで省略されるので、
-                    // 断られた理由もパスも読めない
-                    setDestError(errText(e));
-                    onError(errText(e));
-                    return;
-                  }
+                  // 前の失敗の文言は、新しく選び直した時点で下ろす（取り消したときに
+                  // 「今回も失敗した」ように見せない）
                   setDestError(null);
-                  onConfigChanged();
+                  // 一時フォルダなら確かめる（dev #30）。取り込みの側と同じ関数を通す。
+                  // **待つあいだはボタンを押させない**
+                  // **書き込みが終わるまで下ろさない**——確認のあとで下ろすと、遅い書き込みの
+                  // あいだに二度目の［変更］が通り、後に終わったほうが勝つ（#150 の2ゲート目2周目）
+                  setDestPicking(true);
+                  try {
+                    const go = await confirmTemporaryDestination(
+                      platform,
+                      dest,
+                      (m) => {
+                        setDestError(m);
+                        onError(m);
+                      },
+                    );
+                    if (!go) return;
+                    // 選んだ先が消えている・ネットワークが切れている・
+                    // 写真.appのライブラリの中だった等で失敗しうる。
+                    // 設定は変えないまま、**理由は出す**（黙って何も起きないと
+                    // 押し損ねたのか断られたのか分からない）
+                    try {
+                      await setImportDestination(dest);
+                    } catch (e) {
+                      // **ダイアログの中に出す。** 画面下の状態バーへ流しても
+                      // このダイアログが覆っているうえ32chで省略されるので、
+                      // 断られた理由もパスも読めない
+                      setDestError(errText(e));
+                      onError(errText(e));
+                      return;
+                    }
+                    setDestError(null);
+                    onConfigChanged();
+                  } finally {
+                    setDestPicking(false);
+                  }
                 }}
               >
                 {t.wizardChangeDestination}
               </button>
             </div>
+            {destIsTemporary && (
+              <p className="settings-dest-warn" role="status">
+                {t.destTempWarning}
+              </p>
+            )}
             {destError && <p className="settings-error">{destError}</p>}
             <div className="pattern-list">
               {patterns.map((p) => (

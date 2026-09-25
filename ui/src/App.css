@@ -2197,6 +2197,23 @@ body {
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
+/* コピー先の1行と、その下の警告（dev #30）。**1行の並びは変えない**——欄ごと折り返すと
+   ラベル・パス・ボタンが3〜4行に崩れた（#150 の2ゲート目） */
+.wiz-dest-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wiz-dest-warn {
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
+.settings-dest-warn {
+  margin: var(--sp-1) 0 0;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
 .wiz-dest code,
 .wiz-pattern code {
   color: var(--text);

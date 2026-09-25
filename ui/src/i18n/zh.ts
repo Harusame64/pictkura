@@ -251,8 +251,12 @@ export const zh: Dict = {
   rootRemoveConfirm: (name: string) =>
     `要把“${name}”从图库中移除吗？\n照片文件不会被删除，但里面照片的 ★ 和 ⚑ 标记会被清除。`,
   rootTempConfirm: (path: string) =>
-    `“${path}”位于临时文件夹中。\n系统或其他应用可能会在不提示的情况下删除其中的文件。仍要添加到图库吗？`,
+    `“${path}”位于临时文件夹中。\n系统或其他应用可能会随时删除其中的文件，而且不会事先提示。仍要添加到图库吗？`,
   rootTempConfirmOk: "仍然添加",
+  destTempConfirm: (path: string) =>
+    `“${path}”位于临时文件夹中。\n导入到这里的照片可能会被系统或其他应用随时删除，而且不会事先提示。清空存储卡之后，这些照片就再也没有别的副本了。仍要把它设为复制目标吗？`,
+  destTempConfirmOk: "仍设为复制目标",
+  destTempWarning: "⚠ 复制目标位于临时文件夹中。导入的照片可能会在不知不觉中消失。",
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,
