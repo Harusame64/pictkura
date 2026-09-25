@@ -1737,6 +1737,34 @@ impl ThumbQueue {
 }
 
 /// サムネイル生成ワーカー群。
+/// 1件の処理で、その行の `camera_id` がどう動いたか（dev #28）。
+///
+/// 完了の通知は**絵を作り直しただけのとき**（可視要求の高品質版・消えた絵の作り直し・
+/// 失敗）にも来る。カメラの数え直しを「完了のたび」に掛けると、眺めているだけで
+/// 全件の `GROUP BY` が回る。だから**処理の前後で読み比べ**、動いたときだけ知らせる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CameraWrite {
+    /// 動かなかった
+    Unchanged,
+    /// 動いた。値は生の `camera_id`（`None`＝未確認、`Some(0)`＝カメラなし）
+    Changed { from: Option<i64>, to: Option<i64> },
+    /// 前後どちらかが読めなかった。動いたかどうか分からない
+    Unknown,
+}
+
+impl CameraWrite {
+    pub fn between(
+        before: Result<Option<i64>, DbError>,
+        after: Result<Option<i64>, DbError>,
+    ) -> Self {
+        match (before, after) {
+            (Ok(from), Ok(to)) if from == to => Self::Unchanged,
+            (Ok(from), Ok(to)) => Self::Changed { from, to },
+            _ => Self::Unknown,
+        }
+    }
+}
+
 pub struct ThumbnailService {
     queue: ThumbQueue,
     workers: Vec<std::thread::JoinHandle<()>>,
@@ -1744,13 +1772,14 @@ pub struct ThumbnailService {
 
 impl ThumbnailService {
     /// ワーカースレッドを起動する。各ワーカーは自前のDB接続を持つ（WALで並行動作）。
-    /// `on_done(id)` は1件完了ごとに呼ばれる（UIへの通知用）。
+    /// `on_done(id, camera)` は1件完了ごとに呼ばれる（UIへの通知用）。
+    /// `camera` はその処理で `camera_id` が動いたかどうか（[`CameraWrite`]）。
     pub fn start(
         db_path: PathBuf,
         thumbs_dir: PathBuf,
         thumb_size: u32,
         worker_count: usize,
-        on_done: impl Fn(i64) + Send + Sync + 'static,
+        on_done: impl Fn(i64, CameraWrite) + Send + Sync + 'static,
     ) -> Self {
         let queue = ThumbQueue::new();
         let on_done = Arc::new(on_done);
@@ -1783,10 +1812,12 @@ impl ThumbnailService {
                         // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
                         // ——以後そのフォルダのサムネイルが永久に出てこない。
                         // 1枚の失敗（下で回数を数える側）へ均す
+                        let camera_before = db.camera_id_of_media(id);
                         let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
                             process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
+                        let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         queue.complete(id);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
@@ -1803,7 +1834,9 @@ impl ThumbnailService {
                         // ワーカーが1本静かに消え、しかも「落ちない」ぶん誰も
                         // 気付かない。詰まりを戻さないよう、`complete` は
                         // 網の外（上）に置いたまま通知だけを包む
-                        let _ = crate::panics::catching(&format!("notify id={id}"), || on_done(id));
+                        let _ = crate::panics::catching(&format!("notify id={id}"), || {
+                            on_done(id, camera)
+                        });
                     }
                 })
             })
@@ -3312,7 +3345,7 @@ mod tests {
             dir.path().join("thumbs"),
             160,
             2,
-            move |id| done2.lock().unwrap().push(id),
+            move |id, _| done2.lock().unwrap().push(id),
         );
         svc.enqueue(&ids);
 
@@ -3357,7 +3390,7 @@ mod tests {
             dir.path().join("thumbs"),
             160,
             1,
-            move |_| *done2.lock().unwrap() += 1,
+            move |_, _| *done2.lock().unwrap() += 1,
         );
         // 可視フロー（UIと同じ）: 高品質になるまで prioritize を繰り返す。
         // **`enqueue` と組にしない**——[`ThumbQueue::prioritize`] が投入まで
@@ -3379,6 +3412,102 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         svc.shutdown();
+    }
+
+    /// 完了の通知は、絵を作り直しただけのときにも来る（dev #28）。
+    /// カメラが動いたのは最初の1回だけで、高品質版の作り直しは「動かなかった」になる
+    #[test]
+    fn the_done_callback_reports_a_camera_change_only_when_the_row_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("cam.db");
+        let mut db = Db::open(&db_path).unwrap();
+        let p = dir.path().join("img.jpg");
+        make_test_jpeg(&p, 400, 300);
+        db.upsert_files(&[ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen2 = seen.clone();
+        let svc = ThumbnailService::start(
+            db_path.clone(),
+            dir.path().join("thumbs"),
+            160,
+            1,
+            move |id, camera| seen2.lock().unwrap().push((id, camera)),
+        );
+        // 自動パス: メタデータを書く。EXIF の無い絵なので、未確認→「カメラなし」
+        svc.enqueue(&ids);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while seen.lock().unwrap().is_empty() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "自動パスがタイムアウト"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(
+            seen.lock().unwrap()[0],
+            (
+                ids[0],
+                CameraWrite::Changed {
+                    from: None,
+                    to: Some(0)
+                }
+            )
+        );
+
+        // 可視要求で高品質版を作る。カメラは同じ値で書き直されるだけ
+        loop {
+            let rec = Db::open(&db_path)
+                .unwrap()
+                .get_by_id(ids[0])
+                .unwrap()
+                .unwrap();
+            if rec.thumb_state == 2 {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "高品質生成がタイムアウト"
+            );
+            svc.prioritize(&ids);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        svc.shutdown();
+        let seen = seen.lock().unwrap();
+        assert!(seen.len() >= 2, "高品質版の完了も通知される: {seen:?}");
+        assert!(
+            seen[1..]
+                .iter()
+                .all(|(_, camera)| *camera == CameraWrite::Unchanged),
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn a_camera_write_that_cannot_be_read_is_unknown() {
+        let err = || Err(DbError::Sqlite(rusqlite::Error::InvalidQuery));
+        assert_eq!(
+            CameraWrite::between(err(), Ok(Some(3))),
+            CameraWrite::Unknown
+        );
+        assert_eq!(CameraWrite::between(Ok(None), err()), CameraWrite::Unknown);
+        assert_eq!(
+            CameraWrite::between(Ok(Some(3)), Ok(Some(3))),
+            CameraWrite::Unchanged
+        );
+        assert_eq!(
+            CameraWrite::between(Ok(Some(3)), Ok(None)),
+            CameraWrite::Changed {
+                from: Some(3),
+                to: None
+            }
+        );
     }
 
     #[test]
