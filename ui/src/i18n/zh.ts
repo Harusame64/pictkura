@@ -261,6 +261,8 @@ export const zh: Dict = {
   destTempWarning: "⚠ 复制目标位于临时文件夹中。导入的照片可能会在不知不觉中消失。",
   rootTempTip: (path: string) =>
     `${path}——位于临时文件夹中。系统或其他应用可能会随时删除其中的文件，而且不会事先提示`,
+  rootMissingTempTip: (path: string) =>
+    `${path}——找不到。它位于临时文件夹中，可能已被系统或其他应用删除`,
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,

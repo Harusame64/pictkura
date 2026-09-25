@@ -33,36 +33,3 @@ export function useIsTemporaryFolder(
   return temporary;
 }
 
-/**
- * ライブラリのフォルダのうち、一時フォルダの中にあるもの（dev #23）。左ペインの印に使う。
- *
- * #149 は**足すとき**に訊くだけで、**前から在るフォルダ**（確認が入る前に足した、
- * 設定ファイルを手で書いた）には何も言わなかった。**フォルダの一覧が変わったときだけ**
- * 訊く——一覧は滅多に変わらず、1本ずつ3秒で見切られる（`is_temporary_folder`）。
- * 前の答えは、新しい一覧の答えが揃うまで出したままにしない。判定できなければ出さない。
- */
-export function useTemporaryRoots(roots: readonly string[]): ReadonlySet<string> {
-  const [temporary, setTemporary] = useState<ReadonlySet<string>>(new Set());
-  // 配列の同一性ではなく中身で決める（取り直すたびに新しい配列が来る）
-  const key = roots.join("\n");
-  useEffect(() => {
-    setTemporary(new Set());
-    const list = key === "" ? [] : key.split("\n");
-    if (list.length === 0) return;
-    let cancelled = false;
-    Promise.all(
-      list.map((r) =>
-        isTemporaryFolder(r)
-          .then((yes) => (yes ? r : null))
-          .catch(() => null),
-      ),
-    ).then((found) => {
-      if (!cancelled)
-        setTemporary(new Set(found.filter((r): r is string => r !== null)));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [key]);
-  return temporary;
-}

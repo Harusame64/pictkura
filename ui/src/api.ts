@@ -478,6 +478,13 @@ export const countMediaUnder = (root: string) =>
 export const isTemporaryFolder = (path: string) =>
   invoke<boolean>("is_temporary_folder", { path });
 
+/**
+ * ライブラリのフォルダのうち、一時フォルダの中にあるもの（dev #23。左ペインの印）。
+ * **綴りだけで比べる**——フォルダには触らないので、待たずに答える
+ */
+export const temporaryLibraryRoots = () =>
+  invoke<string[]>("temporary_library_roots");
+
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
 /** 起動時同期の**終わり方**。「終わった」だけでは足りない——転んで終わったのに

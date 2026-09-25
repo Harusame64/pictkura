@@ -264,6 +264,8 @@ export const zhHant: Dict = {
   destTempWarning: "⚠ 複製的目的地位於暫存資料夾中。匯入的照片可能會在不知不覺中消失。",
   rootTempTip: (path: string) =>
     `${path}——位於暫存資料夾中。系統或其他應用程式可能會隨時刪除其中的檔案，而且不會事先通知`,
+  rootMissingTempTip: (path: string) =>
+    `${path}——找不到。它位於暫存資料夾中，可能已被系統或其他應用程式刪除`,
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,
