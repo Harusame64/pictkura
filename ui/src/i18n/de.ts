@@ -231,6 +231,9 @@ export const de: Dict = {
   rootRemoveKeepsFiles: "Entfernt den Ordner nur aus der Bibliothek. Die Fotodateien werden nicht gelöscht",
   rootRemoveConfirm: (name: string) =>
     `„${name}“ aus der Bibliothek entfernen?\nDie Fotodateien werden nicht gelöscht, aber die ★- und ⚑-Markierungen an den Fotos darin gehen verloren.`,
+  rootTempConfirm: (path: string) =>
+    `„${path}“ liegt in einem temporären Ordner.\nDas System oder andere Apps können Dateien dort ohne Rückfrage löschen. Trotzdem zur Bibliothek hinzufügen?`,
+  rootTempConfirmOk: "Trotzdem hinzufügen",
   rootMissingTip: (path: string) =>
     `${path} — nicht da. Wenn der Ordner auf einem USB-Stick oder einer SD-Karte liegt, stecke den Datenträger ein und drücke „Neu einlesen“`,
   importFrom: (path: string) => `Aus ${path} importieren`,

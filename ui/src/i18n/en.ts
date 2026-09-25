@@ -193,6 +193,9 @@ export const en: Dict = {
   rootRemoveKeepsFiles: "Only removes the folder from the library. The photo files are not deleted",
   rootRemoveConfirm: (name: string) =>
     `Remove “${name}” from the library?\nThe photo files are not deleted, but the ★ and ⚑ marks on its photos are.`,
+  rootTempConfirm: (path: string) =>
+    `“${path}” is inside a temporary folder.\nThe system or other apps may delete files there without asking. Add it to the library anyway?`,
+  rootTempConfirmOk: "Add anyway",
   rootMissingTip: (path: string) =>
     `${path} — not there. If it is on a USB stick or SD card, plug it in and press Rescan`,
   importFrom: (path: string) => `Import from ${path}`,

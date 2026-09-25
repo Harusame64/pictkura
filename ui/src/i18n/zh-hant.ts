@@ -253,6 +253,9 @@ export const zhHant: Dict = {
   rootRemoveKeepsFiles: "只是從圖庫中移除，照片檔案不會被刪除",
   rootRemoveConfirm: (name: string) =>
     `要把「${name}」從圖庫中移除嗎？\n照片檔案不會被刪除，但裡面照片的 ★ 和 ⚑ 標記會被清除。`,
+  rootTempConfirm: (path: string) =>
+    `「${path}」位於暫存資料夾中。\n系統或其他應用程式可能會在不提示的情況下刪除其中的檔案。仍要加入圖庫嗎？`,
+  rootTempConfirmOk: "仍然加入",
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,
