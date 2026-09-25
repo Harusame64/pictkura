@@ -38,6 +38,10 @@ pub struct ExifData {
     /// 撮影日時（Unixエポックミリ秒）。EXIFにタイムゾーンはないため、
     /// **ローカルタイムゾーンの壁時計時刻**として解釈する（表示側の `new Date()` と一致させる）
     pub taken_at_ms: Option<i64>,
+    /// `taken_at_ms` に**秒未満**（`SubSecTimeOriginal`）が入っているか（dev #32。連写を間隔で切る）
+    pub taken_subsec: bool,
+    /// 本体シリアル（EXIF `BodySerialNumber`。dev #32。同じ機種の2台を分ける）
+    pub body_serial: Option<String>,
     /// 埋め込みサムネイルのJPEGバイナリ
     pub thumbnail: Option<Vec<u8>>,
     /// `thumbnail` が空のとき、**ファイルを最後まで見たうえでの空振り**か。
@@ -65,6 +69,8 @@ impl Default for ExifData {
     fn default() -> Self {
         Self {
             taken_at_ms: None,
+            taken_subsec: false,
+            body_serial: None,
             thumbnail: None,
             preview_exhausted: false,
             orientation: 1,
@@ -471,8 +477,11 @@ fn record_metadata_without_preview(
         .or_else(|| crate::namedate::guess_taken_at(src))
         .or(Some(record.mtime_ms));
     // 申告が無いなら**寸法だけ**を諦める。読めている日付とカメラはここで書く
+    // 連写の材料（dev #32）。秒未満は、撮影日時が EXIF から来たときだけ
+    let subsec = exif.taken_at_ms.is_some() && exif.taken_subsec;
     let Some(original) = exif.original else {
         db.update_metadata_keeping_dimensions(id, taken_at_ms, exif.camera.as_deref())?;
+        db.set_shot_meta(id, subsec, exif.body_serial.as_deref())?;
         return Ok(());
     };
     let dims = recorded_dimensions(
@@ -489,6 +498,7 @@ fn record_metadata_without_preview(
         exif.orientation,
     );
     db.update_metadata(id, dims, taken_at_ms, exif.camera.as_deref())?;
+    db.set_shot_meta(id, subsec, exif.body_serial.as_deref())?;
     Ok(())
 }
 
@@ -785,14 +795,24 @@ fn read_exif_container(path: &Path) -> Container {
 
 /// パース済みEXIFから必要な項目を取り出す。
 fn exif_data_from(exif: &exif::Exif) -> ExifData {
-    let taken_at_ms = field_any_context(exif, Tag::DateTimeOriginal)
-        .or_else(|| field_any_context(exif, Tag::DateTime))
+    // 撮影日時と、**同じ時刻の秒未満**（dev #32）。`DateTimeOriginal` には
+    // `SubSecTimeOriginal`、`DateTime` には `SubSecTime` が対になる——組を取り違えると、
+    // 別の時刻の秒未満を足すことになる
+    let (dt_field, subsec_tag) = match field_any_context(exif, Tag::DateTimeOriginal) {
+        Some(f) => (Some(f), Tag::SubSecTimeOriginal),
+        None => (field_any_context(exif, Tag::DateTime), Tag::SubSecTime),
+    };
+    let base_ms = dt_field
         .and_then(|field| match &field.value {
             exif::Value::Ascii(v) => v.first().cloned(),
             _ => None,
         })
         .and_then(|ascii| exif::DateTime::from_ascii(&ascii).ok())
         .and_then(|dt| exif_dt_to_local_ms(&dt));
+    let subsec = base_ms
+        .and_then(|_| ascii_field(exif, subsec_tag))
+        .and_then(|raw| crate::burst::subsec_ms(&raw));
+    let taken_at_ms = base_ms.map(|ms| ms + subsec.unwrap_or(0));
 
     let orientation = field_any_context(exif, Tag::Orientation)
         .and_then(|f| f.value.get_uint(0))
@@ -816,6 +836,8 @@ fn exif_data_from(exif: &exif::Exif) -> ExifData {
 
     ExifData {
         taken_at_ms,
+        taken_subsec: subsec.is_some(),
+        body_serial: ascii_field(exif, Tag::BodySerialNumber),
         thumbnail,
         // ここはコンテナのIFD1を読んだだけで、**まだ何も探していない**。
         // 決めるのは [`read_exif_from`] の最後（RAWの探索を終えたところ）
@@ -1206,6 +1228,8 @@ fn process_video(
             .or(Some(record.mtime_ms)),
         None,
     )?;
+    // 動画は連写に入らない（dev #32）。後追いに拾われないよう「秒まで」と記録する
+    db.set_shot_meta(id, false, None)?;
     db.update_duration(id, info.duration_ms)?;
 
     // 自動パスはここまで。寸法が入ったので、一覧は枠を確保して並べられる
@@ -1432,6 +1456,13 @@ pub fn process_one(
             .or_else(|| crate::namedate::guess_taken_at(src))
             .or(Some(record.mtime_ms)),
         exif_data.camera.as_deref(),
+    )?;
+    // 連写の材料（dev #32）。秒未満が真になるのは、撮影日時が EXIF から来て
+    // `SubSecTimeOriginal` を持っていたときだけ（OS・名前・mtime は秒まで）
+    db.set_shot_meta(
+        id,
+        exif_data.taken_at_ms.is_some() && exif_data.taken_subsec,
+        exif_data.body_serial.as_deref(),
     )?;
 
     // SVGはブラウザがそのまま描けるので、サムネイルを作らない。
@@ -3821,6 +3852,116 @@ mod tests {
         out.extend_from_slice(&tiff);
         out.extend_from_slice(&body[2..]);
         out
+    }
+
+    /// 連写の材料（dev #32）を付けたJPEG。ExifIFD に `DateTimeOriginal`・`SubSecTimeOriginal`・
+    /// `BodySerialNumber` を**あるものだけ**タグ順に並べる。4バイトを超える値は IFD の後ろに置く
+    fn jpeg_with_shot_exif(date: &str, subsec: Option<&str>, serial: Option<&str>) -> Vec<u8> {
+        let mut entries: Vec<(u16, Vec<u8>)> = vec![(0x9003, date.as_bytes().to_vec())];
+        if let Some(v) = subsec {
+            entries.push((0x9291, v.as_bytes().to_vec()));
+        }
+        if let Some(v) = serial {
+            entries.push((0xA431, v.as_bytes().to_vec()));
+        }
+        for (_, v) in entries.iter_mut() {
+            v.push(0);
+        }
+        let mut tiff: Vec<u8> = b"II".to_vec();
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        // IFD0: ExifIFDへのポインタ1本（ExifIFD は 26 バイト目から）
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x8769u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&26u32.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        let mut data_at = 26 + 2 + 12 * entries.len() + 4;
+        let mut data: Vec<u8> = Vec::new();
+        tiff.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, value) in &entries {
+            tiff.extend_from_slice(&tag.to_le_bytes());
+            tiff.extend_from_slice(&2u16.to_le_bytes()); // ASCII
+            tiff.extend_from_slice(&(value.len() as u32).to_le_bytes());
+            if value.len() <= 4 {
+                let mut inline = value.clone();
+                inline.resize(4, 0);
+                tiff.extend_from_slice(&inline);
+            } else {
+                tiff.extend_from_slice(&(data_at as u32).to_le_bytes());
+                data.extend_from_slice(value);
+                data_at += value.len();
+            }
+        }
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        tiff.extend_from_slice(&data);
+
+        let body = test_jpeg_bytes(64, 48);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\x00\x00");
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    /// 撮影日時は秒未満まで入り、連写の材料（秒未満まで分かったか・本体シリアル）も書く（dev #32）
+    #[test]
+    fn the_worker_records_sub_second_time_and_the_body_serial() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("shot.db");
+        let mut db = Db::open(&db_path).unwrap();
+        let thumbs = dir.path().join("thumbs");
+        let with = dir.path().join("with.jpg");
+        let without = dir.path().join("without.jpg");
+        std::fs::write(
+            &with,
+            jpeg_with_shot_exif("2026:09:20 17:46:39", Some("48"), Some("051022000405")),
+        )
+        .unwrap();
+        std::fs::write(
+            &without,
+            jpeg_with_shot_exif("2026:09:20 17:46:39", None, None),
+        )
+        .unwrap();
+        db.upsert_files(&[
+            ScannedFile {
+                path: with.clone(),
+                size: 1,
+                mtime_ms: 1,
+            },
+            ScannedFile {
+                path: without.clone(),
+                size: 1,
+                mtime_ms: 1,
+            },
+        ])
+        .unwrap();
+        let id_of = |db: &Db, p: &Path| db.get_meta_by_path(p).unwrap().unwrap().id;
+        let (a, b) = (id_of(&db, &with), id_of(&db, &without));
+        process_one(&mut db, &thumbs, 160, a, false).unwrap();
+        process_one(&mut db, &thumbs, 160, b, false).unwrap();
+
+        let ra = db.get_by_id(a).unwrap().unwrap();
+        let rb = db.get_by_id(b).unwrap().unwrap();
+        assert_eq!(
+            ra.taken_at_ms.unwrap() - rb.taken_at_ms.unwrap(),
+            480,
+            "0.48 秒ぶん後"
+        );
+        assert_eq!(ra.taken_subsec, Some(true));
+        assert_eq!(ra.body_serial.as_deref(), Some("051022000405"));
+        assert_eq!(
+            rb.taken_subsec,
+            Some(false),
+            "秒までと分かった（未確認ではない）"
+        );
+        assert_eq!(rb.body_serial, None);
+        assert!(
+            db.shots_to_backfill(0, 10).unwrap().is_empty(),
+            "どちらも後追いの対象外"
+        );
     }
 
     #[test]

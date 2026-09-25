@@ -10,6 +10,7 @@
 pub mod applog;
 pub mod av1;
 pub mod browse;
+pub mod burst;
 pub mod cloud;
 pub mod config;
 pub mod db;
