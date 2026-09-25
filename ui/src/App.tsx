@@ -5434,8 +5434,27 @@ export default function App() {
         <button onClick={onSync} disabled={busy}>
           {t.rescan}
         </button>
-        <button title={t.settings} onClick={() => setSettingsOpen(true)}>
-          ⚙
+        {/* 設定。**文字の ⚙ ではなく絵にする**——字は他のボタンと同じ 13px で小さく、
+            OS とフォントで形も大きさも変わった（2026-09-25 利用者「歯車がちっちゃい」）。
+            歯は太い点線の円で描く（外から借りた図形ではない） */}
+        <button
+          className="settings-btn"
+          title={t.settings}
+          aria-label={t.settings}
+          onClick={() => setSettingsOpen(true)}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="8.4" strokeWidth="3.2" strokeDasharray="3.3 3.3" />
+            <circle cx="12" cy="12" r="6.2" strokeWidth="2" />
+            <circle cx="12" cy="12" r="2.4" strokeWidth="2" />
+          </svg>
         </button>
         <label className="slider">
           {t.size}
