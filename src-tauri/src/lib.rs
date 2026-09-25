@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pictkura_core::applog;
 use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaTarget, ServeKind};
-use pictkura_core::thumbs::CameraWrite;
 use pictkura_core::usn::{self, UsnOutcome, UsnPosition};
 use pictkura_core::{Config, Db, ReadPool, SyncStats, ThumbnailService};
 use tauri::http::{Response, StatusCode};
@@ -5036,10 +5035,9 @@ pub fn run() {
                         let _ = thumb_handle.emit("media-updated", MediaItemDto::from(record));
                     }
                     // `media-updated` の DTO にカメラの欄は無いので、カメラは別に知らせる
-                    // （dev #28。何を数え直すかは `camera_signal` が決める）
-                    if camera != CameraWrite::Unchanged {
-                        let _ = camera_tx.send(camera);
-                    }
+                    // （dev #28。`Unchanged` を捨てるのも含め、何を数え直すかは
+                    // `camera_signal` が決める——ここで選ぶと、その分岐は試験が届かない）
+                    let _ = camera_tx.send(camera);
                 },
             );
 
@@ -5610,9 +5608,10 @@ mod tests {
     use super::{
         camera_signal, cameras_for_sidebar, dcim_under, drive_label,
         first_weekday_from_core_foundation, first_weekday_from_win32, import_path_from_args,
-        is_inside_any, lock_ok, scan_changes_camera_counts, temporary_dirs, usable_temp_dirs,
-        CameraWrite, Db, Presence,
+        is_inside_any, lock_ok, scan_changes_camera_counts, temporary_dirs, usable_temp_dirs, Db,
+        Presence,
     };
+    use pictkura_core::thumbs::CameraWrite;
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
     #[cfg(unix)]
