@@ -2255,6 +2255,10 @@ impl Presence {
     /// **クラウドにしか無いファイルは開かない**——開くとその場で取り寄せが始まる。
     fn of_file(path: &Path, cloud_only: bool) -> Self {
         match Self::of(path.try_exists()) {
+            // 索引した写真と同じ名前の**フォルダ**に置き換わったなら、その写真はもう無い。
+            // **開く前に見る**——macOS・Linux はフォルダも開けてしまい（「在って開ける」＝
+            // 「壊れている」と言う）、Windows は拒否して「開けない」と言う（PRのcodex）
+            Self::Present if std::fs::metadata(path).is_ok_and(|m| m.is_dir()) => Self::Missing,
             Self::Present if !cloud_only => match std::fs::File::open(path) {
                 Ok(_) => Self::Present,
                 // 確かめた後で消えた・途中がファイルに置き換わった——「開けない」と
@@ -6969,6 +6973,10 @@ mod tests {
             original_status_of(&tmp.path().join("gone.jpg")).presence,
             Presence::Missing
         );
+        // 写真と同じ名前のフォルダに置き換わった: 開けてしまうが「無い」
+        let replaced = tmp.path().join("b.jpg");
+        std::fs::create_dir(&replaced).unwrap();
+        assert_eq!(original_status_of(&replaced).presence, Presence::Missing);
         // 途中がファイル（同期の衝突など）: 開くと NotADirectory。「無い」
         assert_eq!(
             Presence::of_file(&photo.join("inner.jpg"), false),
