@@ -197,6 +197,8 @@ export const zh: Dict = {
   videoUnsupported: "应用内无法播放这种格式",
   fileMissing: "找不到这个文件（可能是 U 盘或 SD 卡已被拔出，或文件已被移动或删除）",
   fileUnreachable: "无法打开这个文件（驱动器尚未就绪，或没有访问权限）",
+  fileNotShown: "无法显示这个文件（文件已损坏，或 pictkura 无法读取这种格式）",
+  fileNotDownloaded: "这个文件还没有下载到本机（请联网后重新打开）",
   videoCloudOnly: "这个视频存放在云端",
   videoCloudOnlyNote:
     "在应用内播放会先开始下载，下载完成前什么也看不到。用默认应用打开，可以一边看进度一边取回。",

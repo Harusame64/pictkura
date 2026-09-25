@@ -92,7 +92,8 @@ import {
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
-import type { Presence, VideoStatus } from "./api";
+import type { VideoStatus } from "./api";
+import { originalTrouble, type OriginalTrouble } from "./originalTrouble";
 import {
   formatDateTime,
   formatDayKey,
@@ -3242,10 +3243,14 @@ export default function App() {
   // 区別がつかない。**無いなら無いと名乗り、探した場所を出す**——黙って黒い面を
   // 見せると、利用者はいちばんありふれた原因（「アプリが変」）に倒す。
   // 訊くのは失敗したときだけ（開くたびにファイル属性を読まない）。
+  //
+  // **在ると答えても黙らない**（dev #23 の残り）。在って開けるのに出なかった
+  // （壊れている・読めない形式）、クラウドにしか無くて取り寄せられなかった——
+  // どちらも「開けている」と読まれないよう、理由を名乗る
   const [missingOriginal, setMissingOriginal] = useState<{
     id: number;
     path: string;
-    presence: Exclude<Presence, "present">;
+    reason: OriginalTrouble;
   } | null>(null);
   const failedPhotoId =
     viewerItem && !viewerItem.is_video && fullFailedId === viewerItem.id
@@ -3258,15 +3263,15 @@ export default function App() {
     if (failedPhotoId === undefined) return;
     let cancelled = false;
     videoStatus(failedPhotoId)
-      // **在ると答えたら印を消す**——外付けを挿し直して開き直した1枚に、
-      // 前に見た「無い」を残さない（原寸が別の理由で出なかったときも同じ）
+      // 外付けを挿し直して開き直した1枚は、原寸が出れば `onLoad` が失敗の印ごと
+      // 消すので、前に見た「無い」は残らない
       .then((info) => {
         if (!cancelled)
-          setMissingOriginal(
-            info.presence === "present"
-              ? null
-              : { id: failedPhotoId, path: info.path, presence: info.presence },
-          );
+          setMissingOriginal({
+            id: failedPhotoId,
+            path: info.path,
+            reason: originalTrouble(info.presence, info.cloud_only),
+          });
       })
       // 聞けなかったら今までどおり（名乗れないだけで、壊れはしない）
       .catch(() => {});
@@ -6084,9 +6089,14 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
             >
               <p className="viewer-missing-title">
-                {missingOriginal.presence === "missing"
-                  ? t.fileMissing
-                  : t.fileUnreachable}
+                {
+                  {
+                    missing: t.fileMissing,
+                    unreachable: t.fileUnreachable,
+                    notDownloaded: t.fileNotDownloaded,
+                    notShown: t.fileNotShown,
+                  }[missingOriginal.reason]
+                }
               </p>
               <p className="fallback-path">{missingOriginal.path}</p>
             </div>

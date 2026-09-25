@@ -195,6 +195,8 @@ export const es: Dict = {
   videoUnsupported: "Este formato no se puede reproducir en la aplicación",
   fileMissing: "Este archivo no está (puede que una memoria USB o una tarjeta SD no esté conectada, o que el archivo se haya movido o borrado)",
   fileUnreachable: "No se puede abrir este archivo (la unidad no está lista o no se permite el acceso)",
+  fileNotShown: "No se puede mostrar este archivo (el archivo está dañado o pictkura no puede leer este formato)",
+  fileNotDownloaded: "Este archivo todavía no se ha descargado (vuelve a abrirlo cuando tengas conexión)",
   videoCloudOnly: "Este vídeo está en la nube",
   videoCloudOnlyNote:
     "Reproducirlo aquí empieza una descarga y no se ve nada hasta que termina. Si lo abres en la aplicación predeterminada, puedes seguir el progreso de la descarga.",

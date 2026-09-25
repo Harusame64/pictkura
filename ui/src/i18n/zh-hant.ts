@@ -200,6 +200,8 @@ export const zhHant: Dict = {
   videoUnsupported: "程式內無法播放這種格式",
   fileMissing: "找不到這個檔案（可能是隨身碟或 SD 卡沒有插上，或檔案已被移動或刪除）",
   fileUnreachable: "無法開啟這個檔案（磁碟機尚未就緒，或沒有存取權限）",
+  fileNotShown: "無法顯示這個檔案（檔案已損毀，或 pictkura 無法讀取這種格式）",
+  fileNotDownloaded: "這個檔案還沒有下載到本機（請連上網路後重新開啟）",
   videoCloudOnly: "這部影片存放在雲端",
   videoCloudOnlyNote:
     "在程式內播放會先開始下載，下載完成前什麼也看不到。用預設的程式開啟，可以一邊看進度一邊取回。",
