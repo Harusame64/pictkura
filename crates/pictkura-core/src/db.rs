@@ -3807,6 +3807,23 @@ mod tests {
         assert_eq!(db.count_by_prefix(Path::new("/")).unwrap(), 2);
     }
 
+    /// **Windows では綴りをそろえてから数える**——ルートは選んだとおりの綴りで保存される
+    /// （`D:/Pics`・小文字のドライブ）が、行は `D:\\Pics\\…` で入る。そろえないと 0 と言う。
+    /// macOS ではこの差が出ない（#146 の変異注入 R3 は mac では同値に生き残った）ので、
+    /// **Windows の CI で殺す升**である
+    #[cfg(windows)]
+    #[test]
+    fn count_by_prefix_normalizes_a_windows_root_spelling() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\Pics\a.jpg", 1, 100),
+            scanned(r"D:\Pics\deep\b.jpg", 1, 110),
+        ])
+        .unwrap();
+        assert_eq!(db.count_by_prefix(Path::new("D:/Pics")).unwrap(), 2);
+        assert_eq!(db.count_by_prefix(Path::new(r"d:\Pics")).unwrap(), 2);
+    }
+
     #[test]
     fn count_by_prefix_counts_backslash_paths_too() {
         // Windows の綴りは `\` 区切り。範囲の上端（`]`）が効いているかを見る
