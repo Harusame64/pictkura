@@ -254,13 +254,12 @@ export const zhHant: Dict = {
   rootRemoveConfirm: (name: string) =>
     `要把「${name}」從圖庫中移除嗎？\n照片檔案不會被刪除，但裡面照片的 ★ 和 ⚑ 標記會被清除。`,
   rootTempConfirm: (path: string) =>
-    `「${path}」位於暫存資料夾中。\n系統或其他應用程式可能會在不提示的情況下刪除其中的檔案。仍要加入圖庫嗎？`,
+    `「${path}」位於暫存資料夾中。\n系統或其他應用程式可能會隨時刪除其中的檔案，而且不會事先通知。仍要加入圖庫嗎？`,
   rootTempConfirmOk: "仍然加入",
   destTempConfirm: (path: string) =>
-    `「${path}」位於暫存資料夾中。\n匯入到這裡的照片，可能會被系統或其他應用程式在不提示的情況下刪除。記憶卡清除之後，這些照片就不會再留在任何地方。仍要把它設為複製到的資料夾嗎？`,
+    `「${path}」位於暫存資料夾中。\n匯入到這裡的照片可能會被系統或其他應用程式隨時刪除，而且不會事先通知。清空記憶卡之後，這些照片就再也沒有其他副本了。仍要把它設為複製的目的地嗎？`,
   destTempConfirmOk: "仍然使用",
-  destTempWarning:
-    "⚠ 複製到的資料夾位於暫存資料夾中。匯入的照片可能會在不提示的情況下消失。",
+  destTempWarning: "⚠ 複製的目的地位於暫存資料夾中。匯入的照片可能會在不知不覺中消失。",
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在隨身碟或 SD 卡上，請插好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,
