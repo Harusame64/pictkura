@@ -240,6 +240,14 @@ export const es: Dict = {
     "⚠ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",
   indexProgressSuffix: " % — hasta que esto termine, pueden faltar resultados",
   removeRoot: (path: string) => `Quitar ${path} de la biblioteca`,
+  rootMissingNotice: (name: string, count: number) =>
+    `La carpeta «${name}» no está${count > 0 ? ` (no se ${one(count, "puede", "pueden")} abrir ${num(count)} ${one(count, "foto", "fotos")} de ella)` : ""}. Si está en un disco externo, conéctalo y pulsa «Volver a explorar».`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `Algunas carpetas no están: ${names}${count > 0 ? ` (no se ${one(count, "puede", "pueden")} abrir ${num(count)} ${one(count, "foto", "fotos")})` : ""}. Si están en un disco externo, conéctalo y pulsa «Volver a explorar». Para dejar de usar una carpeta, quítala de la biblioteca con ✕ en la lista de la izquierda (los archivos de las fotos no se borran).`,
+  rootRemoveFromLibrary: "Quitar de la biblioteca",
+  rootRemoveKeepsFiles: "Solo la quita de la biblioteca. Los archivos de las fotos no se borran",
+  rootMissingTip: (path: string) =>
+    `${path}: no está. Si está en un disco externo, conéctalo y pulsa «Volver a explorar»`,
   importFrom: (path: string) => `Importar desde ${path}`,
   filterByCamera: (name: string) => `Mostrar solo las fotos hechas con ${name}`,
   jumpToYear: (year: number) => `Ir a ${year}`,

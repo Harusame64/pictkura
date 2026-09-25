@@ -2355,6 +2355,21 @@ impl Db {
         Ok(n)
     }
 
+    /// フォルダ**配下**のレコードの数。前方一致は [`Db::remove_by_prefix`] と同じく
+    /// **バイト厳密**——大小文字だけ違う別綴りのフォルダを数えない。
+    ///
+    /// 見つからないライブラリのフォルダについて「中の N 枚を開けません」と言うために使う
+    /// （dev #23）。**入れ子のルートは差し引かない**——内側のルートの行も外側の数に入る。
+    pub fn count_by_prefix(&self, prefix: &Path) -> Result<i64, DbError> {
+        let p = crate::paths::normalize_dir_str(prefix);
+        let (prefix_sql, prefix_params) = binary_prefix_sql("path", &p, 1);
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM media WHERE {prefix_sql}"),
+            rusqlite::params_from_iter(prefix_params.iter()),
+            |r| r.get(0),
+        )?)
+    }
+
     /// 消えたファイルのレコードをトランザクションでまとめて削除する。
     pub fn remove_paths(&mut self, paths: &[PathBuf]) -> Result<(), DbError> {
         let tx = self.write_tx()?;
@@ -3731,6 +3746,28 @@ mod tests {
         let dirs = db.load_dirs().unwrap();
         assert!(dirs.contains_key(&new_dir), "新綴りのdirs記録が残る");
         assert!(!dirs.contains_key(&old_dir), "旧綴りのdirs記録は掃除される");
+    }
+
+    #[test]
+    fn count_by_prefix_counts_what_remove_by_prefix_would_remove() {
+        // **数えた数と、外したときに消える数を揃える**——「1,234 枚」と言って
+        // 違う数を消すと、知らせが嘘になる
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("root/summer/a.jpg", 1, 100),
+            scanned("root/summer/deep/b.jpg", 1, 110),
+            scanned("root/Summer/c.jpg", 1, 200),
+            scanned("root/summertime/d.jpg", 1, 300),
+        ])
+        .unwrap();
+        let counted = db.count_by_prefix(Path::new("root/summer")).unwrap();
+        assert_eq!(
+            counted, 2,
+            "配下の2件だけ。別綴り（Summer）と、名前が前方一致するだけの隣（summertime）は数えない"
+        );
+        let removed = db.remove_by_prefix(Path::new("root/summer")).unwrap();
+        assert_eq!(counted as usize, removed);
+        assert_eq!(db.count_by_prefix(Path::new("root/summer")).unwrap(), 0);
     }
 
     #[test]

@@ -185,6 +185,14 @@ export const en: Dict = {
     "⚠ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",
   indexProgressSuffix: "% — results may be incomplete until this finishes",
   removeRoot: (path: string) => `Remove ${path} from the library`,
+  rootMissingNotice: (name: string, count: number) =>
+    `The folder “${name}” is not there${count > 0 ? ` (${num(count)} ${one(count, "photo", "photos")} in it can’t be opened)` : ""}. If it is on an external drive, connect it and press Rescan.`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `Some folders are not there: ${names}${count > 0 ? ` (${num(count)} ${one(count, "photo", "photos")} can’t be opened)` : ""}. If they are on an external drive, connect it and press Rescan. To stop using a folder, remove it from the library with ✕ in the list on the left (the photo files are not deleted).`,
+  rootRemoveFromLibrary: "Remove from library",
+  rootRemoveKeepsFiles: "Only takes it out of the library. The photo files are not deleted",
+  rootMissingTip: (path: string) =>
+    `${path} — not there. If it is on an external drive, connect it and press Rescan`,
   importFrom: (path: string) => `Import from ${path}`,
   filterByCamera: (name: string) => `Show only photos taken with ${name}`,
   jumpToYear: (year: number) => `Jump to ${year}`,

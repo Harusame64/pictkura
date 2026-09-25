@@ -36,6 +36,7 @@ import {
   getIndexProgress,
   getDecoderStatus,
   getEmptyLibraryReason,
+  countMediaUnder,
   getStartupReport,
   startupScanFinished,
   getStats,
@@ -452,6 +453,10 @@ const NON_TEXT_INPUT_TYPES = new Set([
   "color",
   "image",
 ]);
+
+/** ライブラリのフォルダの表示名（末尾の区切りを落とした最後の要素）。サイドバーと知らせで同じ名前を使う */
+const rootName = (r: string) =>
+  r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r;
 
 export default function App() {
   /** タイムラインの骨組み（日付→枚数、新しい日付順）。全件レコードは持たない */
@@ -1533,6 +1538,11 @@ export default function App() {
       // ライブラリしか無い等）に一生辿り着けない
       syncSucceededRef.current = true;
       setStartupFailed(false);
+      // 見つからないフォルダを訊き直す（外付けをつないでから押した、が典型）。
+      // **「あとで」も忘れる**——押した再スキャンの答えは、同じ顔ぶれでも言い直す
+      // （戻ってまた消えたフォルダが、前の「あとで」で黙ったままにならないように）
+      setScanGeneration((g) => g + 1);
+      setMissingNoticeLaterFor(null);
       await reloadAll();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
@@ -2089,6 +2099,49 @@ export default function App() {
       fail(errText(e));
     }
   };
+
+  // ===== 見つからないライブラリのフォルダ（dev #23）=====
+  //
+  // フォルダごと消えたルートの行は、再スキャンが**わざと残す**（外付けを抜いた
+  // だけの人の蔵書を消さない。`db.rs` の `root_case_sql`）。残すのは正しいが、
+  // **何も言わないと、一覧は出るのに開けない写真が永遠に並ぶ**。
+  // 起動チェックと再スキャンのあとに訊き、**自動では外さない**——知らせと
+  // サイドバーの印で伝え、外すかどうかは利用者が選ぶ（2026-09-25 の選択）。
+  //
+  // 判定は空の一覧の理由と同じ `empty_library_reason`（ルートごとに独立して探り、
+  // 刺さったマウントは締め切りで見切る）。数は DB だけを数える（フォルダに触らない）。
+  const [missingRoots, setMissingRoots] = useState<
+    { root: string; count: number }[]
+  >([]);
+  /** 「あとで」を押した時点の顔ぶれ。**顔ぶれが変わったら、また出す** */
+  const [missingNoticeLaterFor, setMissingNoticeLaterFor] = useState<
+    string | null
+  >(null);
+  /** 再スキャンが通るたびに進む。訊き直しの合図 */
+  const [scanGeneration, setScanGeneration] = useState(0);
+  useEffect(() => {
+    // 起動チェックが終わるまでは訊かない（走査の最中の「無い」は答えではない）
+    if (!scanSettled) return;
+    let cancelled = false;
+    askEmptyReason()
+      .then(async (r) => {
+        const found = await Promise.all(
+          r.missing.map(async (root) => ({
+            root,
+            // 数えられなかったら 0 として言う（「中の N 枚」を省くだけ）
+            count: await countMediaUnder(root).catch(() => 0),
+          })),
+        );
+        if (!cancelled) setMissingRoots(found);
+      })
+      // 訊けなかったら前の答えのまま（黙って消さない・黙って足さない）
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [scanSettled, scanGeneration, roots, askEmptyReason]);
+  const missingKey = missingRoots.map((m) => m.root).join("\u0000");
+  const missingRootSet = new Set(missingRoots.map((m) => m.root));
 
   const onRemoveRoot = async (path: string) => {
     setBusy(true);
@@ -5127,6 +5180,39 @@ export default function App() {
       {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
           落として入れ替えるのはブラウザとインストーラの仕事で、ここは
           「出ていますよ」と言うだけ */}
+      {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
+          ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
+      {missingRoots.length > 0 && missingKey !== missingNoticeLaterFor && (
+        <div
+          className="speed-toast index warn decoder-notice root-missing-notice"
+          role="status"
+        >
+          <span>
+            {missingRoots.length === 1
+              ? t.rootMissingNotice(
+                  rootName(missingRoots[0].root),
+                  missingRoots[0].count,
+                )
+              : t.rootsMissingNotice(
+                  nameList(missingRoots.map((m) => rootName(m.root))),
+                  missingRoots.reduce((sum, m) => sum + m.count, 0),
+                )}
+          </span>
+          {missingRoots.length === 1 && (
+            <button
+              title={t.rootRemoveKeepsFiles}
+              disabled={busy}
+              onClick={() => onRemoveRoot(missingRoots[0].root)}
+            >
+              {t.rootRemoveFromLibrary}
+            </button>
+          )}
+          {/* 文言は新しい版の知らせと共用（「あとで」） */}
+          <button onClick={() => setMissingNoticeLaterFor(missingKey)}>
+            {t.updateLater}
+          </button>
+        </div>
+      )}
       {updateFound && (
         <div className="speed-toast index decoder-notice update-notice">
           <span>{t.updateFound(updateFound.latest ?? "")}</span>
@@ -5238,9 +5324,14 @@ export default function App() {
           )}
           <div className="nav-section">{t.navLibraryFolders}</div>
           {roots.map((r) => (
-            <div key={r} className="nav-item root" title={r}>
+            <div
+              key={r}
+              className={`nav-item root${missingRootSet.has(r) ? " root-missing" : ""}`}
+              title={missingRootSet.has(r) ? t.rootMissingTip(r) : r}
+            >
               <span className="root-name">
-                {r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r}
+                {missingRootSet.has(r) && "⚠ "}
+                {rootName(r)}
               </span>
               <button
                 className="root-remove"

@@ -242,6 +242,14 @@ export const zh: Dict = {
     "⚠ 搜索索引的建立中断了，搜索结果可能不完整（下次启动时接着建立）",
   indexProgressSuffix: "% —— 完成之前搜索结果可能不完整",
   removeRoot: (path: string) => `把 ${path} 从图库中移除`,
+  rootMissingNotice: (name: string, count: number) =>
+    `找不到文件夹“${name}”${count > 0 ? `（其中 ${num(count)} 张无法打开）` : ""}。如果是外置硬盘，请连接好之后按“重新扫描”。`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `有些文件夹找不到：${names}${count > 0 ? `（共 ${num(count)} 张无法打开）` : ""}。如果是外置硬盘，请连接好之后按“重新扫描”。不再使用的文件夹，可以用左侧列表里的 ✕ 从图库中移除（照片文件不会被删除）。`,
+  rootRemoveFromLibrary: "从图库中移除",
+  rootRemoveKeepsFiles: "只是从图库中移除，照片文件不会被删除",
+  rootMissingTip: (path: string) =>
+    `${path} — 找不到。如果是外置硬盘，请连接好之后按“重新扫描”`,
   importFrom: (path: string) => `从 ${path} 导入`,
   filterByCamera: (name: string) => `只显示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳转到 ${year} 年`,

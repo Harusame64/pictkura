@@ -223,6 +223,14 @@ export const de: Dict = {
     "⚠ Der Suchindex wurde unterbrochen — Treffer können unvollständig sein (es geht beim nächsten Start weiter)",
   indexProgressSuffix: " % — bis das fertig ist, können Treffer fehlen",
   removeRoot: (path: string) => `${path} aus der Bibliothek entfernen`,
+  rootMissingNotice: (name: string, count: number) =>
+    `Der Ordner „${name}“ ist nicht da${count > 0 ? ` (${num(count)} ${one(count, "Foto darin lässt", "Fotos darin lassen")} sich nicht öffnen)` : ""}. Wenn er auf einer externen Festplatte liegt, schließe sie an und drücke „Neu einlesen“.`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `Einige Ordner sind nicht da: ${names}${count > 0 ? ` (${num(count)} ${one(count, "Foto lässt", "Fotos lassen")} sich nicht öffnen)` : ""}. Wenn sie auf einer externen Festplatte liegen, schließe sie an und drücke „Neu einlesen“. Einen Ordner, den du nicht mehr brauchst, entfernst du mit ✕ in der Liste links aus der Bibliothek (die Fotodateien werden nicht gelöscht).`,
+  rootRemoveFromLibrary: "Aus der Bibliothek entfernen",
+  rootRemoveKeepsFiles: "Nimmt ihn nur aus der Bibliothek. Die Fotodateien werden nicht gelöscht",
+  rootMissingTip: (path: string) =>
+    `${path} — nicht da. Wenn er auf einer externen Festplatte liegt, schließe sie an und drücke „Neu einlesen“`,
   importFrom: (path: string) => `Aus ${path} importieren`,
   filterByCamera: (name: string) => `Nur Fotos zeigen, die mit ${name} aufgenommen wurden`,
   jumpToYear: (year: number) => `Zu ${year} springen`,

@@ -2292,6 +2292,19 @@ async fn video_status(app: tauri::AppHandle, id: i64) -> Result<VideoStatusDto, 
     .map_err(|e| e.to_string())?
 }
 
+/// ライブラリのフォルダ**配下**の写真・動画の数（dev #23）。
+///
+/// 見つからないフォルダについて「中の N 枚を開けません」と言うために、UI が
+/// [`empty_library_reason`] の `missing` を受けてから、そのフォルダごとに訊く。
+/// **DB だけを読む**——そのフォルダ自身には触らない（消えた・刺さった場所を stat しない）。
+#[tauri::command]
+fn count_media_under(state: tauri::State<'_, AppState>, root: String) -> Result<i64, String> {
+    state
+        .read_pool
+        .with(|db| db.count_by_prefix(Path::new(&root)))
+        .map_err(errs::from_err)
+}
+
 /// ビューアの先読み候補のうち、**実体がクラウドにしか無い**ものを返す（0.2 ①）。
 ///
 /// 先読みは**利用者の意思ではない**。OneDriveのプレースホルダを裏で読むと
@@ -5363,6 +5376,7 @@ pub fn run() {
             open_decoder_help,
             get_index_progress,
             video_status,
+            count_media_under,
             cloud_only_media,
             open_default,
             reveal_in_folder,

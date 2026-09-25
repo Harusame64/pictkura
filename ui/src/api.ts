@@ -450,6 +450,13 @@ export interface EmptyLibraryReason {
 export const getEmptyLibraryReason = () =>
   invoke<EmptyLibraryReason>("empty_library_reason");
 
+/**
+ * ライブラリのフォルダ配下の写真・動画の数（DB だけを読む。フォルダには触らない）。
+ * 見つからないフォルダについて「中の N 枚を開けません」と言うために使う（dev #23）
+ */
+export const countMediaUnder = (root: string) =>
+  invoke<number>("count_media_under", { root });
+
 export const getStartupReport = () =>
   invoke<StartupScanReport | null>("get_startup_report");
 /** 起動時同期の**終わり方**。「終わった」だけでは足りない——転んで終わったのに

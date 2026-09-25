@@ -245,6 +245,14 @@ export const zhHant: Dict = {
     "⚠ 搜尋索引的建立中斷了，搜尋結果可能不完整（下次啟動時接著建立）",
   indexProgressSuffix: "% —— 完成之前搜尋結果可能不完整",
   removeRoot: (path: string) => `把 ${path} 從圖庫中移除`,
+  rootMissingNotice: (name: string, count: number) =>
+    `找不到資料夾「${name}」${count > 0 ? `（其中 ${num(count)} 張無法開啟）` : ""}。如果是外接硬碟，請接好之後按「重新掃描」。`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `有些資料夾找不到：${names}${count > 0 ? `（共 ${num(count)} 張無法開啟）` : ""}。如果是外接硬碟，請接好之後按「重新掃描」。不再使用的資料夾，可以用左側清單中的 ✕ 從圖庫中移除（照片檔案不會被刪除）。`,
+  rootRemoveFromLibrary: "從圖庫中移除",
+  rootRemoveKeepsFiles: "只是從圖庫中移除，照片檔案不會被刪除",
+  rootMissingTip: (path: string) =>
+    `${path} — 找不到。如果是外接硬碟，請接好之後按「重新掃描」`,
   importFrom: (path: string) => `從 ${path} 匯入`,
   filterByCamera: (name: string) => `只顯示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳到 ${year} 年`,

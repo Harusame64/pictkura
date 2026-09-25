@@ -214,6 +214,16 @@ export const ja = {
     "⚠ 検索インデックスの作成を中断しました ／ 検索結果が一部欠けています（次の起動で続きから作り直します）",
   indexProgressSuffix: "％ ／ 完了までは検索結果が一部欠けます",
   removeRoot: (path: string) => `${path} をライブラリから外す`,
+  /* 見つからないライブラリのフォルダ（dev #23）。**自動では外さない**——外付けを
+   * 抜いただけの人の蔵書を消さない。外すかどうかは利用者が選ぶ */
+  rootMissingNotice: (name: string, count: number) =>
+    `フォルダ「${name}」が見つかりません${count > 0 ? `（中の ${num(count)} 枚を開けません）` : ""}。外付けなら、つないでから「再スキャン」を押してください。`,
+  rootsMissingNotice: (names: string, count: number) =>
+    `見つからないフォルダがあります: ${names}${count > 0 ? `（あわせて ${num(count)} 枚を開けません）` : ""}。外付けなら、つないでから「再スキャン」を押してください。使わないフォルダは、左の一覧の ✕ でライブラリから外せます（写真のファイルは消えません）。`,
+  rootRemoveFromLibrary: "ライブラリから外す",
+  rootRemoveKeepsFiles: "ライブラリの一覧から外すだけです。写真のファイルは消しません",
+  rootMissingTip: (path: string) =>
+    `${path} — 見つかりません。外付けなら、つないでから「再スキャン」を押してください`,
   importFrom: (path: string) => `${path} から取り込む`,
   filterByCamera: (name: string) => `${name} で撮った写真だけを表示`,
   jumpToYear: (year: number) => `${year}年へ`,
