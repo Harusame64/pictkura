@@ -615,6 +615,9 @@ struct MediaItemDto {
     /// RAW か（重ねるのは RAW を含む組だけ。Live Photos の HEIC+MOV で動画を隠さない）。
     /// 判定も Rust の1か所（[`pictkura_core::raw::is_raw_path`]）
     is_raw: bool,
+    /// `taken_at_ms` が**本物の撮影日時**か（偽なら mtime で埋めた値）。一覧は、撮影日時が
+    /// 読めた同士でしか RAW+JPEG を重ねない——mtime が偶然同じ別の写真を組にしない（PRのcodex）
+    taken_at_known: bool,
 }
 
 impl From<pictkura_core::MediaRecord> for MediaItemDto {
@@ -643,6 +646,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             needs_transcode: pictkura_core::thumbs::needs_display_transcode(&r.path),
             shot_key: pictkura_core::sidecar::shot_key(&r.path),
             is_raw: pictkura_core::raw::is_raw_path(&r.path),
+            taken_at_known: r.taken_at_ms.is_some(),
         }
     }
 }

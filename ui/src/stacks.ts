@@ -14,7 +14,9 @@
  * **名前だけでは同じ撮影と言えない**——カメラ2台で、片方は RAW だけ（`IMG_0001.CR3`）・
  * もう片方は JPEG だけ（`IMG_0001.JPG`）で撮ると、名前が同じ別の写真になる（#156 のゲート2）。
  * 組にするのは**撮影日時も同じもの**だけ。同じシャッターの RAW と JPEG は同じ日時を持つ。
- * 片方の撮影日時がまだ読めていない（mtime に落ちている）間は束ねない——束ねない側に倒す
+ * **撮影日時が読めていない**（mtime で埋めた）ものは組に入れない——mtime は粗い媒体で
+ * 偶然そろう（PRのcodex）。読めるまでは束ねない側に倒す。
+ * **動画は組に入れない**（RAW と同名の動画を隠さない。PRのcodex）
  * **一覧の描き方だけを変える**——ビューアは今までどおり1ファイルずつ歩く
  * （2026-09-08 の利用者の依頼「詳細ページは逐次でよい」）。
  */
@@ -26,6 +28,10 @@ export interface Stackable {
   is_raw: boolean;
   /** 撮影日時（無ければ mtime）。**同じシャッターの RAW と JPEG は一致する** */
   taken_at_ms: number;
+  /** `taken_at_ms` が本物の撮影日時か（偽なら mtime で埋めた値） */
+  taken_at_known: boolean;
+  /** 動画か（組に入れない——`IMG_0001.CR3` と `IMG_0001.MOV` を1枚にしない） */
+  is_video: boolean;
 }
 
 /** コマ: `lead` が一覧に出る1枚、`files` は組ぜんぶ（`lead` を含む・日の並び順） */
@@ -57,8 +63,10 @@ export function stacksOfDay<T extends Stackable>(
   if (!opts.rawJpeg) return items.map(single);
 
   const keyOf = (it: T) => `${it.shot_key}:${it.taken_at_ms}`;
+  const eligible = (it: T) => it.taken_at_known && !it.is_video;
   const groups = new Map<string, T[]>();
   for (const it of items) {
+    if (!eligible(it)) continue;
     const g = groups.get(keyOf(it));
     if (g) g.push(it);
     else groups.set(keyOf(it), [it]);
@@ -66,6 +74,10 @@ export function stacksOfDay<T extends Stackable>(
   const out: Stack<T>[] = [];
   const emitted = new Set<string>();
   for (const it of items) {
+    if (!eligible(it)) {
+      out.push(single(it));
+      continue;
+    }
     const key = keyOf(it);
     const g = groups.get(key) ?? [it];
     const stacked = g.some((f) => f.is_raw) && g.some((f) => !f.is_raw);

@@ -14,8 +14,24 @@ import {
 } from "../src/stacks.ts";
 
 /** id・組の鍵・RAW か・撮影日時。名前は読みやすさのため（関数は見ない） */
-const f = (id: number, shot_key: number, is_raw: boolean, name = "", taken_at_ms = 1000) =>
-  ({ id, shot_key, is_raw, name, taken_at_ms }) as Stackable & { name: string };
+const f = (
+  id: number,
+  shot_key: number,
+  is_raw: boolean,
+  name = "",
+  taken_at_ms = 1000,
+  extra: Partial<Stackable> = {},
+) =>
+  ({
+    id,
+    shot_key,
+    is_raw,
+    name,
+    taken_at_ms,
+    taken_at_known: true,
+    is_video: false,
+    ...extra,
+  }) as Stackable & { name: string };
 
 const leads = (stacks: ReturnType<typeof stacksOfDay>) =>
   stacks.map((s) => s.cover.lead.id);
@@ -47,6 +63,25 @@ test("名前が同じでも撮影日時が違えば別の写真（カメラ2台�
     f(2, 10, false, "IMG_0001.JPG (本体B)", 5000),
   ];
   assert.deepEqual(members(stacksOfDay(day, { rawJpeg: true })), [[1], [2]]);
+});
+
+test("撮影日時が読めていない（mtime で埋めた）ものは重ねない", () => {
+  const day = [
+    f(1, 10, true, "IMG_0001.CR3", 1000, { taken_at_known: false }),
+    f(2, 10, false, "IMG_0001.JPG", 1000, { taken_at_known: false }),
+  ];
+  assert.deepEqual(members(stacksOfDay(day, { rawJpeg: true })), [[1], [2]]);
+  // 片方だけ読めていても重ねない
+  const half = [f(1, 10, true), f(2, 10, false, "", 1000, { taken_at_known: false })];
+  assert.deepEqual(members(stacksOfDay(half, { rawJpeg: true })), [[1], [2]]);
+});
+
+test("RAW と同じ名前の動画は重ねない（IMG_0001.CR3 と IMG_0001.MOV）", () => {
+  const day = [f(1, 10, true, "IMG_0001.CR3"), f(2, 10, false, "IMG_0001.MOV", 1000, { is_video: true })];
+  assert.deepEqual(members(stacksOfDay(day, { rawJpeg: true })), [[1], [2]]);
+  // RAW+JPEG に同名の動画が混ざっても、動画は別のタイル
+  const mixed = [f(1, 10, true), f(2, 10, false), f(3, 10, false, "", 1000, { is_video: true })];
+  assert.deepEqual(members(stacksOfDay(mixed, { rawJpeg: true })), [[1, 2], [3]]);
 });
 
 test("RAW 同士（CR3 と書き出した DNG）は RAW+JPEG ではないので重ねない", () => {

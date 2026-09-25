@@ -57,6 +57,8 @@ export interface MediaItem {
   shot_key: number;
   /** RAW か（判定は Rust の `is_raw_path`。拡張子の表を TS に写さない） */
   is_raw: boolean;
+  /** `taken_at_ms` が本物の撮影日時か（偽なら mtime で埋めた値。dev #32） */
+  taken_at_known: boolean;
 }
 
 /** タイムライン索引の1日分（日付・枚数と、カレンダー用の代表サムネイル） */

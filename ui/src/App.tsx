@@ -4770,7 +4770,17 @@ export default function App() {
         lastRangeRef.current = null;
         await refreshSummary();
       } catch (e) {
+        // **一部だけ成功していることがある**（重ねのタイルで RAW は消せて JPEG は断られた等）。
+        // バックエンドは消せたぶんを DB から落としてからエラーを返すので、触った日を捨てて
+        // 取り直す——そのままだと、消えた JPEG が表紙のまま残る（PRのcodex。まとめて削除と同じ形）
         fail(errText(e));
+        const days = new Set(items.map((it) => it.day_key));
+        setDayItems((prev) => {
+          const next = new Map(prev);
+          for (const d of days) next.delete(d);
+          return next;
+        });
+        await refreshSummary().catch(() => {});
       } finally {
         deletingRef.current = false;
       }
@@ -4778,12 +4788,6 @@ export default function App() {
     [refreshSummary, confirmAction],
   );
 
-  /**
-   * 選んだものをまとめて印を付ける／外す（★も⚑も同じ道を通る）。
-   *
-   * 画面は先に書き換えて、失敗したら戻す（1枚のときと同じ流儀）。
-   * **その印で絞り込み中は骨組みが変わる**ので取り直す。
-   */
   /**
    * 渡した id ぜんぶに印を付ける・外す（`onBulkMark` と、重ねのタイルの右クリック——dev #32）。
    * 画面は先に書き換え、失敗したら触った日を取り直す。**付いた件数**を返す（失敗は `null`）。
@@ -4844,6 +4848,12 @@ export default function App() {
     },
     [reloadAll, refreshSummary],
   );
+  /**
+   * 選んだものをまとめて印を付ける／外す（★も⚑も同じ道を通る）。
+   *
+   * 画面は先に書き換えて、失敗したら戻す（1枚のときと同じ流儀）。
+   * **その印で絞り込み中は骨組みが変わる**ので取り直す。
+   */
   const onBulkMark = useCallback(
     async (kind: MarkKind, on: boolean) => {
       const ids = await visibleSelection();
