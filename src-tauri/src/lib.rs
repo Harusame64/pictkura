@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 
 use pictkura_core::applog;
 use pictkura_core::protocol::{mime_for_path, parse_media_url, MediaTarget, ServeKind};
@@ -63,9 +63,6 @@ struct AppState {
     config: Mutex<Config>,
     config_path: PathBuf,
     thumbs: ThumbnailService,
-    /// 左ペインに出ているカメラと、まだ知らせていない書き込み（dev #28）。
-    /// `list_cameras` が置き換え、サムネイルの完了が読む
-    camera_signal: Arc<Mutex<camera_signal::CameraSignal>>,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -1253,23 +1250,12 @@ fn list_day(
 /// カメラ別の枚数を多い順で返す（左ペイン「カメラとメディア」、第4部 段階D）。
 #[tauri::command]
 fn list_cameras(state: tauri::State<'_, AppState>) -> Result<Vec<CameraDto>, String> {
-    state
+    Ok(state
         .read_pool
-        .with(|db| cameras_for_sidebar(db, &state.camera_signal))
-        .map_err(errs::from_err)
-}
-
-/// カメラ別の枚数を数え、**いま左ペインに出るカメラを覚える**。ここに無いカメラが
-/// 埋まったら、サムネイルの流れがすぐ数え直させる（dev #28）。
-fn cameras_for_sidebar(
-    db: &Db,
-    signal: &Mutex<camera_signal::CameraSignal>,
-) -> Result<Vec<CameraDto>, pictkura_core::db::DbError> {
-    let cameras = db.list_cameras_with_ids()?;
-    lock_ok(signal).set_listed(cameras.iter().map(|(id, _, _)| *id));
-    Ok(cameras
+        .with(|db| db.list_cameras())
+        .map_err(errs::from_err)?
         .into_iter()
-        .map(|(_, name, count)| CameraDto { name, count })
+        .map(|(name, count)| CameraDto { name, count })
         .collect())
 }
 
@@ -3157,7 +3143,7 @@ fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, Strin
 ///   追加と外し・ゴミ箱へ）
 /// - 索引の後追いがカメラを埋めたとき
 /// - サムネイルの流れが行の `camera_id` を動かしたとき（[`camera_signal`]。
-///   まだ出ていないカメラはすぐ、枚数は動きが途切れてから）
+///   動きが途切れてから1回）
 ///
 /// 画面の取り直しに数え直しを抱き合わせる形は、絞り込みやサムネイルの度に全件の
 /// `GROUP BY` を回すことになる（#148 の2ゲート目）。**カメラが動いた所で言う。**
@@ -3172,7 +3158,8 @@ fn announce_cameras_changed(app: &tauri::AppHandle) {
 ///   数え直すと**減って見え、戻す合図も無い**（#148 の2ゲート目3周目）
 ///
 /// 後から埋まったカメラは、埋めたサムネイルの流れが知らせる（[`camera_signal`]、dev #28）。
-/// 空にされた行が埋め直されるのもそちらで拾うので、減って見えたままにはならない。
+/// 空にされた行もそちらへ回る（未確認の行を処理したら、値が同じでも数え直しに回す）ので、
+/// 前のカメラの枚数が残ったままにはならない。
 fn scan_changes_camera_counts(stats: &SyncStats) -> bool {
     stats.removed > 0
 }
@@ -5017,12 +5004,13 @@ pub fn run() {
             // サムネイルワーカーを起動。1件完了ごとに**更新後のレコードだけ**を
             // フロントへpushする（全件再取得のイベントの嵐を防ぐ）
             let thumb_handle = app.handle().clone();
-            let camera_signal = Arc::new(Mutex::new(camera_signal::CameraSignal::default()));
             let (camera_tx, camera_rx) = std::sync::mpsc::channel();
             let signal_handle = app.handle().clone();
-            camera_signal::spawn(camera_signal.clone(), camera_rx, move || {
-                announce_cameras_changed(&signal_handle)
-            });
+            camera_signal::spawn(
+                camera_signal::CameraSignal::default(),
+                camera_rx,
+                move || announce_cameras_changed(&signal_handle),
+            );
             let thumbs = ThumbnailService::start(
                 db_path.clone(),
                 data_dir.join("thumbs"),
@@ -5056,7 +5044,6 @@ pub fn run() {
                 thumbs,
                 scan_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
-                camera_signal,
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
@@ -5606,12 +5593,10 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     use super::APP_IDENTIFIER;
     use super::{
-        camera_signal, cameras_for_sidebar, dcim_under, drive_label,
-        first_weekday_from_core_foundation, first_weekday_from_win32, import_path_from_args,
-        is_inside_any, lock_ok, scan_changes_camera_counts, temporary_dirs, usable_temp_dirs, Db,
-        Presence,
+        dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
+        import_path_from_args, is_inside_any, scan_changes_camera_counts, temporary_dirs,
+        usable_temp_dirs, Presence,
     };
-    use pictkura_core::thumbs::CameraWrite;
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
     #[cfg(unix)]
@@ -6911,45 +6896,6 @@ mod tests {
             "変わっただけ"
         );
         assert!(!scan_changes_camera_counts(&stats(0, 0, 0)));
-    }
-
-    /// 左ペインの一覧を返すたび、出ているカメラを合図の側へ渡す（dev #28）。
-    /// 渡さないと、まだ出ていないカメラを「すぐ」知らせる道が開かない
-    #[test]
-    fn counting_the_sidebar_cameras_tells_the_signal_which_are_shown() {
-        use pictkura_core::db::Dimensions;
-        use pictkura_core::scanner::ScannedFile;
-        let mut db = Db::open_in_memory().unwrap();
-        db.upsert_files(&[ScannedFile {
-            path: std::path::PathBuf::from("/p/a.jpg"),
-            size: 1,
-            mtime_ms: 1,
-        }])
-        .unwrap();
-        let id = db.list_all().unwrap()[0].id;
-        db.update_metadata(id, Dimensions::original(4, 3), None, Some("SONY ILCE-7M3"))
-            .unwrap();
-        let sony = db.camera_id_of_media(id).unwrap().unwrap();
-
-        let signal = std::sync::Mutex::new(camera_signal::CameraSignal::default());
-        let shown = cameras_for_sidebar(&db, &signal).unwrap();
-        assert_eq!(shown.len(), 1);
-        assert_eq!(
-            (shown[0].name.as_str(), shown[0].count),
-            ("SONY ILCE-7M3", 1)
-        );
-
-        let now = std::time::Instant::now();
-        let to = |id| CameraWrite::Changed {
-            from: None,
-            to: Some(id),
-        };
-        let mut s = lock_ok(&signal);
-        assert!(
-            !s.on_write(to(sony), now),
-            "出ているカメラはすぐには言わない"
-        );
-        assert!(s.on_write(to(sony + 1), now), "出ていないカメラはすぐ言う");
     }
 
     /// 一時フォルダの中か（dev #23）。**要素ごとに比べる**——名前が前方一致するだけの隣

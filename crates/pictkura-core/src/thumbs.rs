@@ -1736,7 +1736,6 @@ impl ThumbQueue {
     }
 }
 
-/// サムネイル生成ワーカー群。
 /// 1件の処理で、その行の `camera_id` がどう動いたか（dev #28）。
 ///
 /// 完了の通知は**絵を作り直しただけのとき**（可視要求の高品質版・消えた絵の作り直し・
@@ -1744,27 +1743,34 @@ impl ThumbQueue {
 /// 全件の `GROUP BY` が回る。だから**処理の前後で読み比べ**、動いたときだけ知らせる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraWrite {
-    /// 動かなかった
+    /// 確認済みの値のまま動かなかった
     Unchanged,
-    /// 動いた。値は生の `camera_id`（`None`＝未確認、`Some(0)`＝カメラなし）
+    /// 動いた、または**未確認（NULL）の行を処理した**。
+    /// 値は生の `camera_id`（`None`＝未確認、`Some(0)`＝カメラなし）
     Changed { from: Option<i64>, to: Option<i64> },
     /// 前後どちらかが読めなかった。動いたかどうか分からない
     Unknown,
 }
 
 impl CameraWrite {
+    /// **未確認の行は、値が同じ（NULL→NULL）でも `Changed` にする。**
+    /// 走査は中身の変わったファイルの `camera_id` を空にする（撮影情報を読み直すため）が、
+    /// そのとき前のカメラを誰にも言わない——左ペインにはその枚数が残っている。
+    /// その行がここへ来たときが、数え直す最初の機会である。`from` が `None` でしか
+    /// 見えないので、NULL→「カメラなし」も NULL→NULL（読み直せなかった）も数え直しに回す
     pub fn between(
         before: Result<Option<i64>, DbError>,
         after: Result<Option<i64>, DbError>,
     ) -> Self {
         match (before, after) {
-            (Ok(from), Ok(to)) if from == to => Self::Unchanged,
+            (Ok(Some(from)), Ok(Some(to))) if from == to => Self::Unchanged,
             (Ok(from), Ok(to)) => Self::Changed { from, to },
             _ => Self::Unknown,
         }
     }
 }
 
+/// サムネイル生成ワーカー群。
 pub struct ThumbnailService {
     queue: ThumbQueue,
     workers: Vec<std::thread::JoinHandle<()>>,
@@ -1812,6 +1818,8 @@ impl ThumbnailService {
                         // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
                         // ——以後そのフォルダのサムネイルが永久に出てこない。
                         // 1枚の失敗（下で回数を数える側）へ均す
+                        //
+                        // カメラは処理の前後で読み比べる（[`CameraWrite`]）
                         let camera_before = db.camera_id_of_media(id);
                         let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
                             process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
@@ -3490,7 +3498,7 @@ mod tests {
     }
 
     #[test]
-    fn a_camera_write_that_cannot_be_read_is_unknown() {
+    fn a_camera_write_compares_the_two_reads() {
         let err = || Err(DbError::Sqlite(rusqlite::Error::InvalidQuery));
         assert_eq!(
             CameraWrite::between(err(), Ok(Some(3))),
@@ -3500,6 +3508,18 @@ mod tests {
         assert_eq!(
             CameraWrite::between(Ok(Some(3)), Ok(Some(3))),
             CameraWrite::Unchanged
+        );
+        assert_eq!(
+            CameraWrite::between(Ok(Some(0)), Ok(Some(0))),
+            CameraWrite::Unchanged
+        );
+        // 走査が空にした行は、読み直せなくても数え直しに回す（前のカメラが残っている）
+        assert_eq!(
+            CameraWrite::between(Ok(None), Ok(None)),
+            CameraWrite::Changed {
+                from: None,
+                to: None
+            }
         );
         assert_eq!(
             CameraWrite::between(Ok(Some(3)), Ok(None)),

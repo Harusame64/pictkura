@@ -2241,22 +2241,11 @@ impl Db {
     /// カメラ別の枚数（左ペインの「カメラとメディア」用）を多い順で返す。
     /// `camera_id` のインデックスだけで集計できる。
     pub fn list_cameras(&self) -> Result<Vec<(String, i64)>, DbError> {
-        Ok(self
-            .list_cameras_with_ids()?
-            .into_iter()
-            .map(|(_, name, n)| (name, n))
-            .collect())
-    }
-
-    /// [`Self::list_cameras`] に `cameras.id` を添えたもの。
-    /// 左ペインに**いま出ているカメラ**を覚えておき、まだ出ていないカメラが
-    /// 埋まった瞬間に数え直しを知らせるために使う。
-    pub fn list_cameras_with_ids(&self) -> Result<Vec<(i64, String, i64)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT c.id, c.name, COUNT(*) AS n FROM media m JOIN cameras c ON c.id = m.camera_id
+            "SELECT c.name, COUNT(*) AS n FROM media m JOIN cameras c ON c.id = m.camera_id
              GROUP BY m.camera_id ORDER BY n DESC, c.name",
         )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -2265,7 +2254,7 @@ impl Db {
     }
 
     /// 1行の `camera_id`。`None` は**未確認**（NULL）か、行が無いとき。
-    /// `Some(0)` は「確認済みだがカメラ情報なし」で、左ペインには出ない。
+    /// `Some(0)` は「確認済みだがカメラ情報なし」（左ペインには出ない）。
     pub fn camera_id_of_media(&self, id: i64) -> Result<Option<i64>, DbError> {
         Ok(self
             .conn
@@ -2276,11 +2265,6 @@ impl Db {
             )
             .optional()?
             .flatten())
-    }
-
-    /// 左ペインに出る（`cameras` 表を指す）`camera_id` かどうか。
-    pub fn is_listed_camera_id(camera_id: i64) -> bool {
-        camera_id != CAMERA_NONE
     }
 
     /// 「〇年前の今日」の思い出を返す（過去の各年の同じ月日をインデックスシークで探す）。
@@ -4781,7 +4765,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rows_camera_id_tells_unread_from_none_from_a_listed_camera() {
+    fn a_rows_camera_id_tells_unread_from_none_from_a_camera() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned(r"D:\写真\a.jpg", 1, 1000),
@@ -4800,21 +4784,22 @@ mod tests {
         db.update_metadata(ids[1], Dimensions::original(400, 300), None, None)
             .unwrap();
 
-        let sony = db.camera_id_of_media(ids[0]).unwrap().unwrap();
-        assert!(Db::is_listed_camera_id(sony));
-        let none = db.camera_id_of_media(ids[1]).unwrap().unwrap();
-        assert!(
-            !Db::is_listed_camera_id(none),
-            "確認済み・カメラなしは左ペインに出ない"
+        let sony: i64 = db
+            .conn
+            .query_row(
+                "SELECT id FROM cameras WHERE name = 'SONY ILCE-7M3'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(db.camera_id_of_media(ids[0]).unwrap(), Some(sony));
+        assert_eq!(
+            db.camera_id_of_media(ids[1]).unwrap(),
+            Some(CAMERA_NONE),
+            "確認済み・カメラなし"
         );
         assert_eq!(db.camera_id_of_media(ids[2]).unwrap(), None, "未確認");
         assert_eq!(db.camera_id_of_media(-1).unwrap(), None, "行が無い");
-
-        // 左ペインに出る id は、行が指している id と同じ
-        assert_eq!(
-            db.list_cameras_with_ids().unwrap(),
-            vec![(sony, "SONY ILCE-7M3".to_string(), 1)]
-        );
     }
 
     #[test]
