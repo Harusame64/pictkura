@@ -130,6 +130,21 @@ const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, si
      AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
      ORDER BY id LIMIT ?2";
 
+/// 連写の材料を後追いで読み直す行（[`Db::shots_to_backfill`]・[`Db::shots_pending`]）。
+/// 前半は部分索引 `idx_media_shots_pending` の条件そのもの。
+/// **TIFF は外す**——コンテナ読みがファイル丸ごと読む（`LIKE` は ASCII の大小を区別しない。codex の P2）
+const SHOTS_PENDING_WHERE: &str = "taken_subsec IS NULL AND width IS NOT NULL AND kind = 0
+     AND path NOT LIKE '%.tif' AND path NOT LIKE '%.tiff'";
+
+/// [`Db::shots_to_backfill`] の本体。**`INDEXED BY` で名指しする**（[`DIMS_TO_BACKFILL_SQL`] と
+/// 同じ理由）——放っておくと `idx_media_kind_day` へ流れ、**画像の全行をなめて一時B木で並べ直す**
+/// のを200件ごとに繰り返していた。見張りは `shot_backfill_query_rides_its_partial_index`
+/// （条件が [`SHOTS_PENDING_WHERE`] と同じ文字列であることも見る）
+const SHOTS_TO_BACKFILL_SQL: &str = "SELECT id, path FROM media INDEXED BY idx_media_shots_pending
+     WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0
+     AND path NOT LIKE '%.tif' AND path NOT LIKE '%.tiff' AND id > ?1
+     ORDER BY id LIMIT ?2";
+
 /// 寸法を確かめ直す1行（[`Db::dimensions_to_backfill`] が返し、
 /// [`Db::set_dimensions`] が書き込みのガードに使う）。
 ///
@@ -583,7 +598,9 @@ impl Db {
         // （寸法の後追いの索引と同じ理由）。**掃き終えても空になるとは限らない**——開けなかった
         // 画像（クラウドにしか無い・外付けが外れている・権限）は未確認のまま残り、起動のたびに
         // 拾われる（クラウドにしか無いもの・消えたものは読まずに飛ばし、権限で開けないものは
-        // 開こうとする）。読めない1回を「秒まで」と記録しないための代わりの費用
+        // 開こうとする）。読めない1回を「秒まで」と記録しないための代わりの費用。
+        // **TIFF もここに残る**が、取り出しの条件（`SHOTS_PENDING_WHERE`）が外す——索引の件数を
+        // 余分になぞるだけで、ファイルは開かない
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_media_shots_pending ON media(id)
              WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0",
@@ -2185,16 +2202,16 @@ impl Db {
     /// 注記）、ライブラリの RAW の総量を後ろで読むことになる。動画は連写に入らない。
     /// RAW+JPEG なら JPEG 側に秒未満が入るので連写は組める。RAW だけで撮った既存の写真は
     /// 読み直すまで秒まで（既知の限界。新しく取り込んだ RAW はサムネイルの流れが書く）
+    ///
+    /// **TIFF も外す**（[`SHOTS_PENDING_WHERE`]）。画像（`kind = 0`）だが、コンテナ読みは
+    /// TIFF をファイル丸ごと読む——スキャンした数百MBの TIFF を起動のたびに全部読むことになる
+    /// （codex の P2）。連写が TIFF で来ることはまず無い
     pub fn shots_to_backfill(
         &self,
         after_id: i64,
         limit: usize,
     ) -> Result<Vec<(i64, PathBuf)>, DbError> {
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT id, path FROM media
-             WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0 AND id > ?1
-             ORDER BY id LIMIT ?2",
-        )?;
+        let mut stmt = self.conn.prepare_cached(SHOTS_TO_BACKFILL_SQL)?;
         let rows = stmt.query_map(params![after_id, limit as i64], |r| {
             Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?)))
         })?;
@@ -2241,8 +2258,7 @@ impl Db {
     /// 連写の材料がまだ無い行の数（後追いの目安）
     pub fn shots_pending(&self) -> Result<i64, DbError> {
         Ok(self.conn.query_row(
-            "SELECT COUNT(*) FROM media
-             WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0",
+            &format!("SELECT COUNT(*) FROM media WHERE {SHOTS_PENDING_WHERE}"),
             [],
             |r| r.get(0),
         )?)
@@ -5211,6 +5227,74 @@ mod tests {
         let a = db.get_by_id(ids[0]).unwrap().unwrap();
         assert_eq!(a.taken_subsec, None);
         assert_eq!(a.body_serial.as_deref(), Some("051022000405"));
+    }
+
+    /// 連写の後追いも部分索引に乗る。**乗らないと種類の索引へ流れ、画像の全行をなめて並べ直す**
+    /// のを200件ごとに繰り返す——掃き終えたライブラリでも毎起動1回（`INDEXED BY` の理由）
+    #[test]
+    fn shot_backfill_query_rides_its_partial_index() {
+        assert!(
+            SHOTS_TO_BACKFILL_SQL.contains(&format!("WHERE {SHOTS_PENDING_WHERE} AND id > ?1")),
+            "取り出しと数える側で条件がずれた"
+        );
+        let db = Db::open_in_memory().unwrap();
+        let mut stmt = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {SHOTS_TO_BACKFILL_SQL}"))
+            .unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(params![0i64, 200i64], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            plan.iter().any(|l| l.contains("idx_media_shots_pending")),
+            "部分索引が使われていない: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|l| l.contains("TEMP B-TREE")),
+            "索引の並び順で返るので並べ直しは要らないはず: {plan:?}"
+        );
+        // 索引側を緩めてもプランは同じまま通る（寸法の後追いの升と同じ理由）
+        let sql: String = db
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                params!["idx_media_shots_pending"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0"),
+            "索引の条件が後追いの条件と揃っていない: {sql}"
+        );
+    }
+
+    /// TIFF は画像（`kind = 0`）でも後追いしない——コンテナ読みがファイル丸ごと読む（codex の P2）。
+    /// 拡張子の大小は問わない。**名前の途中に `.tif` があるだけの JPEG は拾う**（対照）
+    #[test]
+    fn shot_backfill_skips_tiffs_but_not_a_jpeg_named_like_one() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\scan.TIF", 1, 1000),
+            scanned(r"D:\写真\scan.tiff", 1, 2000),
+            scanned(r"D:\写真\scan.tif.jpg", 1, 3000),
+        ])
+        .unwrap();
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        for id in &ids {
+            db.update_metadata(*id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+        }
+        let pending: Vec<i64> = db
+            .shots_to_backfill(0, 10)
+            .unwrap()
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(pending, vec![ids[2]]);
+        assert_eq!(db.shots_pending().unwrap(), 1);
     }
 
     /// 後追いの取り出しは `after_id` より**後**だけ（`>=` だと同じ束を無限に回る）、画像だけ

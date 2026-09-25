@@ -723,8 +723,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     let found = crate::raw::search_embedded_preview(path, min_long_edge);
     result.preview_exhausted = found.exhausted;
     if let Some(preview) = found.preview {
-        // 撮影日時か向きが埋まっていない形式（RAF等）は、プレビューのEXIFも当たる
-        if result.taken_at_ms.is_none() || result.orientation == 1 {
+        if preview_exif_may_fill(&result) {
             merge_preview_exif(&mut result, &preview);
         }
         result.thumbnail = Some(preview);
@@ -778,6 +777,20 @@ fn merge_capture(result: &mut ExifData, from: &ExifData) {
 /// 二度と拾い直さない
 pub fn read_exif_capture(path: &Path) -> Option<ExifData> {
     read_exif_declaration(path)
+}
+
+/// 手元にある埋め込みプレビューのEXIFを当たる価値があるか。撮影日時・向きのほか、
+/// **秒未満と本体シリアル**もプレビューにしか無い社がある（dev #32）——コンテナが秒までの
+/// 時刻と縦位置の向きを持つと、以前の条件では当たらず、秒未満もシリアルも永久に落ちた（codex の P2）。
+/// プレビューは既にメモリに在るので、当たる費用はEXIFの解析1回
+///
+/// **`Want::Meta` の経路には使わない。** あちらはプレビューをファイルから読む（最大128MB）ので、
+/// 時刻が無いときだけに絞ってある
+fn preview_exif_may_fill(result: &ExifData) -> bool {
+    result.taken_at_ms.is_none()
+        || result.orientation == 1
+        || !result.taken_subsec
+        || result.body_serial.is_none()
 }
 
 /// プレビューJPEGのEXIFで、**まだ埋まっていない項目だけ**を埋める。
@@ -3991,6 +4004,57 @@ mod tests {
         );
         assert_eq!((none.taken_at_ms, none.taken_subsec), (None, false));
         assert_eq!(none.body_serial.as_deref(), Some("s"));
+    }
+
+    /// 手元のプレビューのEXIFを当たるのは、何か1つでもまだ埋まっていないとき（codex の P2）。
+    /// 縦位置で秒までの時刻を持つコンテナでも、秒未満かシリアルが無ければ当たる
+    #[test]
+    fn a_portrait_raw_still_reads_its_preview_for_sub_seconds_and_serial() {
+        let known = || ExifData {
+            taken_at_ms: Some(1_000_000),
+            taken_subsec: true,
+            body_serial: Some("s".into()),
+            orientation: 6,
+            ..ExifData::default()
+        };
+        assert!(
+            !preview_exif_may_fill(&known()),
+            "全部あればプレビューは当たらない"
+        );
+        let cases = [
+            (
+                "時刻なし",
+                ExifData {
+                    taken_at_ms: None,
+                    taken_subsec: false,
+                    ..known()
+                },
+            ),
+            (
+                "向き未確定",
+                ExifData {
+                    orientation: 1,
+                    ..known()
+                },
+            ),
+            (
+                "秒まで",
+                ExifData {
+                    taken_subsec: false,
+                    ..known()
+                },
+            ),
+            (
+                "シリアルなし",
+                ExifData {
+                    body_serial: None,
+                    ..known()
+                },
+            ),
+        ];
+        for (what, r) in &cases {
+            assert!(preview_exif_may_fill(r), "{what}");
+        }
     }
 
     /// 格は秒未満より先に「撮影した瞬間か」を見る。プレビューの `DateTime`（書き換えた時刻の
