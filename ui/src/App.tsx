@@ -4488,7 +4488,7 @@ export default function App() {
    * 重ねのタイル（dev #32）をまとめて選ぶ・外す。**全部入っているときだけ外す**
    * （半端なら足す）。重なっていないタイルでは `toggleOne` と同じ
    */
-  const toggleMany = useCallback((ids: readonly number[], anchor = ids[0]) => {
+  const toggleMany = useCallback((ids: readonly number[]) => {
     if (ids.length === 0) return;
     beginSelectOp();
     setSelected((prev) => {
@@ -4500,9 +4500,10 @@ export default function App() {
       }
       return next;
     });
-    // 起点は**見えている1枚**（表紙）。組の先頭は隠れた RAW のことが多く、そこを起点に
-    // Shift で選ぶと、見た目の範囲とずれる（#156 のゲート2）
-    setAnchorId(anchor);
+    // 起点は**組の先頭**＝タイルが描かれている位置（表紙の JPEG ではない）。表紙を起点・終点に
+    // すると、DB の並びで RAW と JPEG の間に居る別の写真が、見た目の範囲の外なのに選ばれる
+    // （PRのcodex）。範囲の端は `closeOverStacks` が組ぜんぶへ広げるので、組は割れない
+    setAnchorId(ids[0]);
     lastRangeRef.current = null;
   }, []);
 
@@ -4700,14 +4701,12 @@ export default function App() {
     ) => {
       if (e.shiftKey && anchorId !== null) {
         e.preventDefault();
-        selectRange(anchorId, item.id).catch((err) => fail(errText(err)));
+        // 終点はタイルの位置（組の先頭）。`toggleMany` の起点と同じ理由
+        selectRange(anchorId, files[0].id).catch((err) => fail(errText(err)));
         return;
       }
       if (e.ctrlKey || e.metaKey || selecting) {
-        toggleMany(
-          files.map((f) => f.id),
-          item.id,
-        );
+        toggleMany(files.map((f) => f.id));
         return;
       }
       setViewer({ dayKey, id: item.id });
@@ -5154,11 +5153,23 @@ export default function App() {
               void setMark(files[0], kind, !marked);
               return;
             }
-            void markIds(
-              kind,
-              !marked,
-              files.map((f) => f.id),
-            ).then((n) => (n === null ? undefined : reloadAfterMark(kind)));
+            const ids = files.map((f) => f.id);
+            void markIds(kind, !marked, ids).then((n) => {
+              if (n === null) return;
+              // その印で絞り込み中は、タイルが画面から消える——選択と起点も片づける
+              // （1枚の `setMark` と同じ。残すと選択の帯が残り、Shift が居ない起点から走る）
+              if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
+                setSelected((prev) => {
+                  if (!ids.some((id) => prev.has(id))) return prev;
+                  const next = new Set(prev);
+                  for (const id of ids) next.delete(id);
+                  return next;
+                });
+                setAnchorId((a) => (a !== null && ids.includes(a) ? null : a));
+                lastRangeRef.current = null;
+              }
+              return reloadAfterMark(kind);
+            });
           },
         };
       }),
@@ -5940,15 +5951,12 @@ export default function App() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (e.shiftKey && anchorId !== null) {
-                                    selectRange(anchorId, cell.item.id).catch(
+                                    selectRange(anchorId, cell.files[0].id).catch(
                                       (err) => fail(errText(err)),
                                     );
                                     return;
                                   }
-                                  toggleMany(
-                                    cell.files.map((f) => f.id),
-                                    cell.item.id,
-                                  );
+                                  toggleMany(cell.files.map((f) => f.id));
                                 }}
                               >
                                 {cellSelected ? "✓" : ""}
