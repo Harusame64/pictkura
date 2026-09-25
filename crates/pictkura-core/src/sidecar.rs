@@ -64,6 +64,20 @@ pub fn pair_key(path: &Path) -> (PathBuf, String) {
     (dir, stem)
 }
 
+/// [`pair_key`] を**一覧へ送れる数値**に畳んだもの（dev #32。一覧で RAW+JPEG を1枚に重ねる）。
+///
+/// **組の定義はここ（[`pair_key`]）の1か所だけ**にする——UI にフォルダ名と語幹の畳み方を
+/// 写すと、片方だけ変わったときに黙って組が割れる。**53 bit に畳む**のは、JS の数値が
+/// 2^53 までしか正確でないため。1日の中で違う組が同じ値になる見込みは無視できる
+/// （しかも一覧が束ねるのは RAW を含む組だけ）。
+/// `DefaultHasher::new()` は鍵が固定なので、同じ組はいつも同じ値になる
+pub fn shot_key(path: &Path) -> i64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    pair_key(path).hash(&mut h);
+    (h.finish() & ((1u64 << 53) - 1)) as i64
+}
+
 /// 試す綴り。**大文字小文字を区別しないOSでは1周だけ**。
 ///
 /// Windowsでは `.xmp` と綴っても `IMG_0001.XMP` が開けるので、大文字の周回は
@@ -340,6 +354,19 @@ mod tests {
 
         let other_name = pair_key(Path::new("D:/photo/IMG_0002.JPG"));
         assert_ne!(a, other_name);
+    }
+
+    /// 一覧へ送る組の鍵は [`pair_key`] と同じ組を作る（dev #32）
+    #[test]
+    fn the_shot_key_groups_exactly_what_pair_key_groups() {
+        let k = |p: &str| shot_key(Path::new(p));
+        assert_eq!(k("D:/photo/IMG_0001.CR3"), k("D:/photo/img_0001.jpg"));
+        assert_ne!(k("D:/photo/IMG_0001.CR3"), k("D:/別/IMG_0001.JPG"));
+        assert_ne!(k("D:/photo/IMG_0001.CR3"), k("D:/photo/IMG_0002.JPG"));
+        // JS へ正確に渡せる範囲（2^53 未満・負でない）
+        for p in ["D:/photo/IMG_0001.CR3", "/Users/x/写真/DSC_9999.NEF", ""] {
+            assert!((0..(1i64 << 53)).contains(&k(p)), "{p}");
+        }
     }
 
     #[test]

@@ -319,6 +319,10 @@ export const en: Dict = {
   menuFavoriteOn: "Add to favorites",
   menuFavoriteOff: "Remove from favorites",
   pickEditor: "Choose an app to edit with",
+  deleteConfirmFiles: (photos: number, files: number) =>
+    photos === 1
+      ? `Move this photo (${num(files)} files) to the trash?`
+      : `Move ${num(photos)} photos (${num(files)} files) to the trash?`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "Move this photo to the trash?"
@@ -381,6 +385,12 @@ export const en: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} are replaced with the date. Use / for nesting. Unusable characters and moves to a parent folder (..) are dropped automatically.",
   settingsCustomPatternResult: "Resulting folder",
+  settingsGrid: "Photo grid",
+  settingsStackRawJpegToggle: "Stack RAW+JPEG pairs into one tile",
+  settingsStackRawJpegNote:
+    "A RAW and a JPEG with the same name in the same folder show as one tile, the JPEG. ★, ⚑ and delete apply to both. Viewing a photo full screen still steps through them one by one.",
+  stackRawChipTitle: (files: number) =>
+    `RAW and JPEG stacked into one tile (${num(files)} files)`,
   settingsViewer: "When you view a photo full screen",
   settingsAutoAdvanceToggle: "Move to the next photo after P / U",
   settingsAutoAdvanceNote:

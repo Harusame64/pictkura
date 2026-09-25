@@ -387,6 +387,10 @@ export const de: Dict = {
   menuFavoriteOn: "Zu Favoriten hinzufügen",
   menuFavoriteOff: "Aus Favoriten entfernen",
   pickEditor: "App zum Bearbeiten wählen",
+  deleteConfirmFiles: (photos: number, files: number) =>
+    photos === 1
+      ? `Dieses Foto (${num(files)} Dateien) in den Papierkorb verschieben?`
+      : `${num(photos)} Fotos (${num(files)} Dateien) in den Papierkorb verschieben?`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "Dieses Foto in den Papierkorb verschieben?"
@@ -452,6 +456,12 @@ export const de: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} werden durch das Datum ersetzt. Mit / entstehen Ebenen. Unzulässige Zeichen und Sprünge in den übergeordneten Ordner (..) werden automatisch entfernt.",
   settingsCustomPatternResult: "Ergebnis",
+  settingsGrid: "Fotoübersicht",
+  settingsStackRawJpegToggle: "RAW+JPEG-Paare als ein Bild zeigen",
+  settingsStackRawJpegNote:
+    "Ein RAW und ein JPEG mit gleichem Namen im selben Ordner erscheinen als ein Bild, das JPEG. ★, ⚑ und Löschen gelten für beide. In der Großansicht blätterst du weiterhin Datei für Datei.",
+  stackRawChipTitle: (files: number) =>
+    `RAW und JPEG als ein Bild gestapelt (${num(files)} Dateien)`,
   settingsViewer: "Wenn du ein Foto groß ansiehst",
   settingsAutoAdvanceToggle: "Nach P / U zum nächsten Foto springen",
   settingsAutoAdvanceNote:

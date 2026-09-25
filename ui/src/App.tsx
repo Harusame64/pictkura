@@ -98,6 +98,14 @@ import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { VideoStatus } from "./api";
 import {
+  closeOverStacks,
+  countPhotos,
+  filesOf,
+  stackMembersIndex,
+  stacksOfDay,
+  type Stack,
+} from "./stacks";
+import {
   originalTrouble,
   TROUBLE_TEXT,
   type OriginalTrouble,
@@ -327,8 +335,12 @@ function decodedBytes(it: MediaItem, measured?: [number, number]): number {
   return w * h * 4;
 }
 
-/** justifiedレイアウト済みのセル（表示px確定済み） */
-type Cell = { item: MediaItem; w: number; h: number };
+/**
+ * justifiedレイアウト済みのセル（表示px確定済み）。
+ * `item` は一覧に出る1枚（重ねの表紙）、`files` は重ねのファイルぜんぶ（dev #32。
+ * 重なっていなければ `[item]`）。**★・⚑・削除・選択は `files` に効く**
+ */
+type Cell = { item: MediaItem; files: MediaItem[]; w: number; h: number };
 
 /**
  * 仮想スクロール用の行モデル。
@@ -674,9 +686,12 @@ export default function App() {
   /** ショートカット一覧（`?` / `F1`）。ビューアの上にも出す */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** 右クリックメニューの表示位置と対象（nullで非表示） */
-  const [menu, setMenu] = useState<{ pos: MenuPos; item: MediaItem } | null>(
-    null,
-  );
+  const [menu, setMenu] = useState<{
+    pos: MenuPos;
+    item: MediaItem;
+    /** 重ねのファイルぜんぶ（dev #32）。無ければ `[item]` */
+    files?: MediaItem[];
+  } | null>(null);
   /** 登録済みの外部編集アプリ（設定から読む） */
   const [editors, setEditors] = useState<ExternalApp[]>([]);
   /** 設定ダイアログの表示と、その中身になる設定スナップショット */
@@ -2395,6 +2410,26 @@ export default function App() {
 
   // 日付の骨組み＋取得済みの日のjustifiedレイアウトを行モデルへフラット化する。
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
+  // 一覧で RAW+JPEG を1枚に重ねるか（dev #32）。配ったあとに足した節なので既定は ON
+  const stackRawJpeg = config?.grid?.stack_raw_jpeg ?? true;
+  /**
+   * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」。範囲選択を重ねの単位へ閉じ、
+   * 選択の枚数を「見えているタイル」で数えるのに使う（dev #32、`closeOverStacks` の論証）
+   */
+  const stackIndex = useMemo(() => {
+    const index = new Map<number, number[]>();
+    for (const items of dayItems.values()) {
+      for (const [id, ids] of stackMembersIndex(
+        stacksOfDay(items, { rawJpeg: stackRawJpeg }),
+      )) {
+        index.set(id, ids);
+      }
+    }
+    return index;
+  }, [dayItems, stackRawJpeg]);
+  const stackIndexRef = useRef(stackIndex);
+  stackIndexRef.current = stackIndex;
+
   const rows = useMemo<Row[]>(() => {
     const usable = Math.max(120, viewportWidth - GRID_PADDING);
     const target = cellSize;
@@ -2423,7 +2458,9 @@ export default function App() {
       }
       // justifiedレイアウト: 行の高さはスライダー(cellSize)基準、
       // 各写真はアスペクト比どおりの幅（切り抜きなし）。行ごとに幅ピッタリへ伸縮
-      let rowItems: MediaItem[] = [];
+      // RAW+JPEG の組は1枚のタイルに重ねる（dev #32）。**並びは `dayItems` のまま**
+      // ——ビューアは今までどおり1ファイルずつ歩く
+      let rowItems: Stack<MediaItem>[] = [];
       let sumAspect = 0;
       const flushRow = (justify: boolean) => {
         if (rowItems.length === 0) return;
@@ -2431,9 +2468,10 @@ export default function App() {
         let h = justify ? (usable - gaps) / sumAspect : target;
         // 最終行や1枚パノラマ行が巨大化しないよう上限を設ける
         h = Math.min(h, target * 1.3);
-        const cells = rowItems.map((it) => ({
-          item: it,
-          w: Math.floor(aspectOf(it) * h),
+        const cells = rowItems.map((st) => ({
+          item: st.cover.lead,
+          files: filesOf(st),
+          w: Math.floor(aspectOf(st.cover.lead) * h),
           h: Math.round(h),
         }));
         out.push({
@@ -2445,9 +2483,9 @@ export default function App() {
         rowItems = [];
         sumAspect = 0;
       };
-      for (const it of items) {
-        rowItems.push(it);
-        sumAspect += aspectOf(it);
+      for (const st of stacksOfDay(items, { rawJpeg: stackRawJpeg })) {
+        rowItems.push(st);
+        sumAspect += aspectOf(st.cover.lead);
         // 基準高さで並べて幅が埋まったら、その行を幅ピッタリに伸縮して確定
         if (sumAspect * target + GAP * (rowItems.length - 1) >= usable) {
           flushRow(true);
@@ -2456,7 +2494,7 @@ export default function App() {
       flushRow(false); // 端数の最終行は基準高さのまま（右側は空ける）
     }
     return out;
-  }, [summary, dayItems, cellSize, viewportWidth]);
+  }, [summary, dayItems, cellSize, viewportWidth, stackRawJpeg]);
 
   /**
    * 各行の上端オフセットの累積（末尾は総高さ）。
@@ -4435,6 +4473,26 @@ export default function App() {
   }, []);
 
   /**
+   * 重ねのタイル（dev #32）をまとめて選ぶ・外す。**全部入っているときだけ外す**
+   * （半端なら足す）。重なっていないタイルでは `toggleOne` と同じ
+   */
+  const toggleMany = useCallback((ids: readonly number[]) => {
+    if (ids.length === 0) return;
+    beginSelectOp();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (ids.every((id) => prev.has(id))) {
+        for (const id of ids) next.delete(id);
+      } else {
+        for (const id of ids) next.add(id);
+      }
+      return next;
+    });
+    setAnchorId(ids[0]);
+    lastRangeRef.current = null;
+  }, []);
+
+  /**
    * 起点から今のものまでをまとめて選ぶ（Shift+クリック）。
    *
    * **画面に出ているものだけで決めない**。間に未読み込みの日が挟まると、
@@ -4469,7 +4527,10 @@ export default function App() {
       // **土台に範囲を足し直す**。前の範囲をIDごと引く形にすると、範囲の中に
       // たまたま入っていた「前から選んでいたもの」まで消える
       const next = new Set(base);
-      for (const id of range) next.add(id);
+      // **重ねの単位へ閉じる**（dev #32）。範囲は DB の id の並びなので、両端で RAW+JPEG の
+      // 組が割れうる——割れたまま消すと RAW が独りで残る。割れるのは両端だけで、両端は
+      // 読み込み済みの日に在る（`closeOverStacks` の論証）
+      for (const id of closeOverStacks(range, stackIndexRef.current)) next.add(id);
       setSelected(next);
       // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
     },
@@ -4617,38 +4678,55 @@ export default function App() {
 
   /** タイルを押したときの振り分け */
   const onCellClick = useCallback(
-    (item: MediaItem, dayKey: number, e: React.MouseEvent) => {
+    (
+      item: MediaItem,
+      dayKey: number,
+      e: React.MouseEvent,
+      files: readonly MediaItem[] = [item],
+    ) => {
       if (e.shiftKey && anchorId !== null) {
         e.preventDefault();
         selectRange(anchorId, item.id).catch((err) => fail(errText(err)));
         return;
       }
       if (e.ctrlKey || e.metaKey || selecting) {
-        toggleOne(item.id);
+        toggleMany(files.map((f) => f.id));
         return;
       }
       setViewer({ dayKey, id: item.id });
     },
-    [anchorId, selecting, selectRange, toggleOne],
+    [anchorId, selecting, selectRange, toggleMany],
   );
 
-  /** 1枚をゴミ箱へ移動する（確認あり）。写真は取り返しがつかないのでOSのゴミ箱経由 */
+  /**
+   * 1枚（重ねのタイルならその組ぜんぶ、dev #32）をゴミ箱へ移動する（確認あり）。
+   * 写真は取り返しがつかないのでOSのゴミ箱経由
+   */
   const onDelete = useCallback(
-    async (item: MediaItem) => {
+    async (items: readonly MediaItem[]) => {
+      if (items.length === 0) return;
+      const ids = new Set(items.map((it) => it.id));
       // 一覧からのまとめて削除と**同じ鍵**を使う。1枚と数千枚が同時に走ると、
       // 進捗イベントもステータスも混ざる（ゲート1の指摘）
       if (deletingRef.current) return;
       deletingRef.current = true;
       try {
-        const ok = await confirmAction(t.deleteConfirm(1), t.deleteConfirmOk);
+        // 重ねのタイルは1枚に見えて複数ファイル——数を言う（dev #32）
+        const ok = await confirmAction(
+          items.length === 1
+            ? t.deleteConfirm(1)
+            : t.deleteConfirmFiles(1, items.length),
+          t.deleteConfirmOk,
+        );
         if (!ok) return;
-        const n = await deleteMedia([item.id]);
+        const n = await deleteMedia([...ids]);
         setStatus(t.deleted(n));
         // 削除された日だけを捨てて取り直す（骨組みの件数も変わる）
+        const days = new Set(items.map((it) => it.day_key));
         setDayItems((prev) => {
-          if (!prev.has(item.day_key)) return prev;
+          if (![...days].some((d) => prev.has(d))) return prev;
           const next = new Map(prev);
-          next.delete(item.day_key);
+          for (const d of days) next.delete(d);
           return next;
         });
         // **ビューアは閉じない**（ゲート2のP2）。ここで閉じると、閉じたときの
@@ -4657,20 +4735,20 @@ export default function App() {
         // 「隣へ寄せる」効果が勝手に動くので、閉じる必要がそもそも無い。
         // **消した1枚は候補から外す**（関所に幽霊を並べない）
         setRejected((prev) => {
-          if (!prev.has(item.id)) return prev;
+          if (![...ids].some((id) => prev.has(id))) return prev;
           const next = new Map(prev);
-          next.delete(item.id);
+          for (const id of ids) next.delete(id);
           return next;
         });
         // **選択からも外す**。残すと、操作バーの枚数と次の確認文言が実際より
         // 多く出て、居ないIDに一括操作を掛けることになる
         setSelected((prev) => {
-          if (!prev.has(item.id)) return prev;
+          if (![...ids].some((id) => prev.has(id))) return prev;
           const next = new Set(prev);
-          next.delete(item.id);
+          for (const id of ids) next.delete(id);
           return next;
         });
-        setAnchorId((a) => (a === item.id ? null : a));
+        setAnchorId((a) => (a !== null && ids.has(a) ? null : a));
         lastRangeRef.current = null;
         await refreshSummary();
       } catch (e) {
@@ -4788,7 +4866,14 @@ export default function App() {
       if (ids.length === 0) return;
       // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
       const touched = new Set(ids);
-      const ok = await confirmAction(t.deleteConfirm(ids.length), t.deleteConfirmOk);
+      // 重ねのタイルを含むなら、見えている枚数とファイル数の両方を言う（dev #32）
+      const photos = countPhotos(ids, stackIndexRef.current);
+      const ok = await confirmAction(
+        photos < ids.length
+          ? t.deleteConfirmFiles(photos, ids.length)
+          : t.deleteConfirm(ids.length),
+        t.deleteConfirmOk,
+      );
       if (!ok) return;
       try {
         const n = await deleteMedia(ids);
@@ -4981,7 +5066,7 @@ export default function App() {
 
   /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
-    (item: MediaItem): MenuItem[] => [
+    (item: MediaItem, files: readonly MediaItem[] = [item]): MenuItem[] => [
       { label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
       ...editors.map((app) => ({
         label: t.menuOpenWith(app.name),
@@ -4993,22 +5078,30 @@ export default function App() {
         separator: true,
         run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
+      // ★・⚑・削除は**重ねの組ぜんぶ**に効く（dev #32、2026-09-08 の利用者の選択）。
+      // どれか1つに付いていれば「付いている」と見せる（タイルの ★/⚑ と同じ規則）
       {
-        label: item.favorite ? t.menuFavoriteOff : t.menuFavoriteOn,
-        run: () => toggleFavorite(item),
+        label: files.some((f) => f.favorite) ? t.menuFavoriteOff : t.menuFavoriteOn,
+        run: () => {
+          const on = !files.some((f) => f.favorite);
+          for (const f of files) void setMark(f, "favorite", on);
+        },
       },
       {
-        label: item.picked ? t.bulkPickOff : t.bulkPickOn,
-        run: () => void setMark(item, "picked", !item.picked),
+        label: files.some((f) => f.picked) ? t.bulkPickOff : t.bulkPickOn,
+        run: () => {
+          const on = !files.some((f) => f.picked);
+          for (const f of files) void setMark(f, "picked", on);
+        },
       },
       {
         label: t.menuDelete,
         danger: true,
         separator: true,
-        run: () => onDelete(item),
+        run: () => onDelete(files),
       },
     ],
-    [editors, onOpenWithOther, onDelete, toggleFavorite],
+    [editors, onOpenWithOther, onDelete, setMark],
   );
 
   const openDay = useCallback((dayKey: number) => {
@@ -5116,7 +5209,7 @@ export default function App() {
             ✕
           </button>
           <span className="select-bar-count">
-            {t.selectedCount(selected.size)}
+            {t.selectedCount(countPhotos(selected, stackIndex))}
           </span>
           <button
             disabled={busy}
@@ -5694,12 +5787,19 @@ export default function App() {
                         />
                       ) : (
                         <div className="cell-row" style={{ gap: GAP }}>
-                          {row.cells.map((cell) => (
+                          {row.cells.map((cell) => {
+                            // 重ねのタイル（dev #32）: 印も選択も**組のどれか**で見せる
+                            const stacked = cell.files.length > 1;
+                            const cellSelected = cell.files.some((f) =>
+                              selected.has(f.id),
+                            );
+                            return (
                             <div
                               key={cell.item.id}
                               className={
                                 "cell-wrap" +
-                                (selected.has(cell.item.id) ? " picked" : "")
+                                (cellSelected ? " picked" : "") +
+                                (stacked ? " stacked" : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
                             >
@@ -5708,7 +5808,11 @@ export default function App() {
                                 loading="lazy"
                                 decoding="async"
                                 src={thumbSrc(cell.item)}
-                                title={cell.item.file_name}
+                                title={
+                                  stacked
+                                    ? `${cell.item.file_name}\n${t.stackRawChipTitle(cell.files.length)}`
+                                    : cell.item.file_name
+                                }
                                 // サムネイル未生成のHEIC/RAWや、まだ手元に無い
                                 // クラウド上のファイルは配信されない（404）。
                                 // `alt` 未指定だと Chromium は title を代替テキストとして
@@ -5716,13 +5820,14 @@ export default function App() {
                                 // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
                                 alt=""
                                 onClick={(e) =>
-                                  onCellClick(cell.item, row.dayKey, e)
+                                  onCellClick(cell.item, row.dayKey, e, cell.files)
                                 }
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   setMenu({
                                     pos: { x: e.clientX, y: e.clientY },
                                     item: cell.item,
+                                    files: cell.files,
                                   });
                                 }}
                               />
@@ -5736,12 +5841,17 @@ export default function App() {
                                   )}
                                 </span>
                               )}
-                              {cell.item.favorite && (
+                              {cell.files.some((f) => f.favorite) && (
                                 <span className="cell-fav">★</span>
+                              )}
+                              {/* RAW+JPEG を重ねたタイルの印（dev #32、2026-09-08 の利用者の選択:
+                                  角の「RAW」チップ＋後ろに紙の端） */}
+                              {stacked && cell.files.some((f) => f.is_raw) && (
+                                <span className="cell-raw">RAW</span>
                               )}
                               {/* 選別の印。`cell-pick` は複数選択の丸なので
                                   名前を分ける（`cell-flag`） */}
-                              {cell.item.picked && (
+                              {cell.files.some((f) => f.picked) && (
                                 <span className="cell-flag" title={t.viewerPicked}>
                                   ⚑
                                 </span>
@@ -5756,7 +5866,7 @@ export default function App() {
                                 title={t.selectItem}
                                 // 未選択のときは中身が空なので、名前を明示する
                                 aria-label={t.selectItem}
-                                aria-pressed={selected.has(cell.item.id)}
+                                aria-pressed={cellSelected}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (e.shiftKey && anchorId !== null) {
@@ -5765,13 +5875,14 @@ export default function App() {
                                     );
                                     return;
                                   }
-                                  toggleOne(cell.item.id);
+                                  toggleMany(cell.files.map((f) => f.id));
                                 }}
                               >
-                                {selected.has(cell.item.id) ? "✓" : ""}
+                                {cellSelected ? "✓" : ""}
                               </button>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -6363,7 +6474,7 @@ export default function App() {
               <button
                 className="viewer-tool danger"
                 title={t.menuDelete}
-                onClick={() => onDelete(viewerItem)}
+                onClick={() => onDelete([viewerItem])}
               >
                 🗑
               </button>
@@ -6458,7 +6569,7 @@ export default function App() {
       />
       <ContextMenu
         pos={menu?.pos ?? null}
-        items={menu ? menuItemsFor(menu.item) : []}
+        items={menu ? menuItemsFor(menu.item, menu.files) : []}
         onClose={() => setMenu(null)}
       />
       {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、

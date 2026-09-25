@@ -609,6 +609,12 @@ struct MediaItemDto {
     /// 埋め込みプレビューを起こして回して詰め直す経路（[`pictkura_core::thumbs::raw_display_jpeg`]）
     /// に落ち、24MPの再エンコードぶん桁が変わるため。拡張子だけでは見分けられない
     needs_transcode: bool,
+    /// 同じ撮影の組（RAW+JPEG）の鍵（dev #32）。一覧はこれが同じで RAW を含む組を1枚に重ねる。
+    /// 組の定義は [`pictkura_core::sidecar::pair_key`] の1か所だけ——UI に写さない
+    shot_key: i64,
+    /// RAW か（重ねるのは RAW を含む組だけ。Live Photos の HEIC+MOV で動画を隠さない）。
+    /// 判定も Rust の1か所（[`pictkura_core::raw::is_raw_path`]）
+    is_raw: bool,
 }
 
 impl From<pictkura_core::MediaRecord> for MediaItemDto {
@@ -635,6 +641,8 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             is_video: pictkura_core::video::is_video_path(&r.path),
             plays_in_app: pictkura_core::video::plays_in_webview(&r.path),
             needs_transcode: pictkura_core::thumbs::needs_display_transcode(&r.path),
+            shot_key: pictkura_core::sidecar::shot_key(&r.path),
+            is_raw: pictkura_core::raw::is_raw_path(&r.path),
         }
     }
 }
@@ -3048,6 +3056,12 @@ fn list_folder_patterns() -> Vec<FolderPatternDto> {
 #[tauri::command]
 fn set_folder_pattern(state: tauri::State<'_, AppState>, pattern: String) -> Result<(), String> {
     update_config(&state, |c| c.routing.folder_pattern = pattern)
+}
+
+/// 一覧で RAW+JPEG の組を1枚に重ねるかを切り替える（dev #32）。
+#[tauri::command]
+fn set_stack_raw_jpeg(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    update_config(&state, |c| c.grid.stack_raw_jpeg = enabled)
 }
 
 /// ビューアの選別キー（`P` / `U`）を押したあと、次の絵へ自動で送るかを切り替える（0.2 ②）。
@@ -5698,6 +5712,7 @@ pub fn run() {
             set_picked,
             set_pickeds,
             set_auto_advance,
+            set_stack_raw_jpeg,
             set_register_autoplay,
             take_pending_import,
             update::check_update,

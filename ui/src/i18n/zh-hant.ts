@@ -380,6 +380,10 @@ export const zhHant: Dict = {
   menuFavoriteOn: "加入最愛",
   menuFavoriteOff: "從最愛移除",
   pickEditor: "選擇用來編輯的程式",
+  deleteConfirmFiles: (photos: number, files: number) =>
+    photos === 1
+      ? `要把這張照片（${num(files)} 個檔案）移到資源回收筒嗎？`
+      : `要把這 ${num(photos)} 張照片（${num(files)} 個檔案）移到資源回收筒嗎？`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "要把這張照片移到資源回收筒嗎？"
@@ -437,6 +441,12 @@ export const zhHant: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} 會換成日期。用 / 分出層級。不能使用的字元和指向上層資料夾的 .. 會自動去掉。",
   settingsCustomPatternResult: "產生的資料夾",
+  settingsGrid: "相片格狀檢視",
+  settingsStackRawJpegToggle: "將 RAW+JPEG 合併成一張顯示",
+  settingsStackRawJpegNote:
+    "同一資料夾中同名的 RAW 與 JPEG，在格狀檢視中合併為一張（顯示 JPEG）。★、⚑ 與刪除會同時套用到兩者。全螢幕檢視時仍逐張切換。",
+  stackRawChipTitle: (files: number) =>
+    `RAW 與 JPEG 已合併為一張（${num(files)} 個檔案）`,
   settingsViewer: "全螢幕檢視照片時",
   settingsAutoAdvanceToggle: "用 P / U 判定之後，跳到下一張照片",
   settingsAutoAdvanceNote:

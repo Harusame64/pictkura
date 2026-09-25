@@ -600,6 +600,32 @@ body {
 
 /* 動画のバッジ（第9部）。左下に▶と長さ。
  * 写真の上に文字を置くので、地の明るさに関係なく読めるよう影付きの黒帯にする */
+/* RAW+JPEG を1枚に重ねたタイル（dev #32、2026-09-08 の利用者の選択: 角の「RAW」チップ＋
+   後ろに紙の端）。紙の端は影で描く——**タイルの間は 4px しか無い**ので、3px だけ右上へずらし、
+   隣のタイルに届かないようにする。絵の外へは出るが、クリックの当たりは変わらない */
+.cell-wrap.stacked .cell {
+  box-shadow:
+    3px -3px 0 -1px var(--surface-2),
+    3px -3px 0 0 var(--border-strong);
+}
+/* チップは右下（左下は動画の ▶、左上は選択の丸、右上は ★・⚑） */
+.cell-raw {
+  position: absolute;
+  right: var(--sp-1);
+  bottom: var(--sp-1);
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: oklch(0 0 0 / 0.55);
+  color: oklch(0.98 0 0);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  /* 他の印と同じく当たりを持たない——チップの上を押しても絵を押したことになる。
+     説明はタイルのツールチップ（ファイル名の次の行）が言う */
+  pointer-events: none;
+}
+
 .cell-video {
   position: absolute;
   left: var(--sp-1);

@@ -409,6 +409,11 @@ export const ja = {
   menuFavoriteOn: "お気に入りに追加",
   menuFavoriteOff: "お気に入りを外す",
   pickEditor: "編集に使うアプリを選択",
+  /* 一覧で重ねたタイル（RAW+JPEG）を消すとき、見えている枚数とファイル数が違う（dev #32） */
+  deleteConfirmFiles: (photos: number, files: number) =>
+    photos === 1
+      ? `この写真（${num(files)}ファイル）をゴミ箱へ移動しますか？`
+      : `${num(photos)}枚の写真（${num(files)}ファイル）をゴミ箱へ移動しますか？`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "この写真をゴミ箱へ移動しますか？"
@@ -469,6 +474,13 @@ export const ja = {
   settingsCustomPatternNote:
     "{year} {month} {day} が日付に置き換わります。/ で階層になります。使えない文字や上の階層への移動（..）は自動で落とします。",
   settingsCustomPatternResult: "できるフォルダ",
+  /* 一覧の重ね（dev #32） */
+  settingsGrid: "一覧",
+  settingsStackRawJpegToggle: "RAW と JPEG の組を1枚に重ねる",
+  settingsStackRawJpegNote:
+    "同じフォルダにある同じ名前の RAW と JPEG を、一覧では JPEG の1枚にまとめます。★・⚑・削除は組の両方に効きます。写真を大きく見るときは1枚ずつ送ります。",
+  stackRawChipTitle: (files: number) =>
+    `RAW と JPEG を1枚に重ねています（${num(files)}ファイル）`,
   settingsViewer: "写真を大きく見るとき",
   settingsAutoAdvanceToggle: "P / U で判定したら、次の写真へ進む",
   settingsAutoAdvanceNote:

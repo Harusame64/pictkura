@@ -377,6 +377,10 @@ export const zh: Dict = {
   menuFavoriteOn: "添加到收藏",
   menuFavoriteOff: "取消收藏",
   pickEditor: "选择用来编辑的应用",
+  deleteConfirmFiles: (photos: number, files: number) =>
+    photos === 1
+      ? `要把这张照片（${num(files)} 个文件）移到回收站吗？`
+      : `要把这 ${num(photos)} 张照片（${num(files)} 个文件）移到回收站吗？`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "要把这张照片移到回收站吗？"
@@ -434,6 +438,12 @@ export const zh: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} 会替换成日期。用 / 分出层级。不能用的字符和指向上级文件夹的 .. 会自动去掉。",
   settingsCustomPatternResult: "生成的文件夹",
+  settingsGrid: "照片网格",
+  settingsStackRawJpegToggle: "把 RAW+JPEG 合并成一张显示",
+  settingsStackRawJpegNote:
+    "同一文件夹里同名的 RAW 和 JPEG，在网格中合并为一张（显示 JPEG）。★、⚑ 和删除会同时作用于两者。全屏查看时仍逐张切换。",
+  stackRawChipTitle: (files: number) =>
+    `RAW 和 JPEG 已合并为一张（${num(files)} 个文件）`,
   settingsViewer: "全屏查看照片时",
   settingsAutoAdvanceToggle: "用 P / U 判定之后，跳到下一张照片",
   settingsAutoAdvanceNote:
