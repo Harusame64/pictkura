@@ -255,7 +255,7 @@ export const zh: Dict = {
   rootTempConfirmOk: "仍然添加",
   destTempConfirm: (path: string) =>
     `“${path}”位于临时文件夹中。\n导入到这里的照片可能会被系统或其他应用随时删除，而且不会事先提示。清空存储卡之后，这些照片就再也没有别的副本了。仍要把它设为复制目标吗？`,
-  destTempConfirmOk: "仍然使用",
+  destTempConfirmOk: "仍设为复制目标",
   destTempWarning: "⚠ 复制目标位于临时文件夹中。导入的照片可能会在不知不觉中消失。",
   rootMissingTip: (path: string) =>
     `${path}——找不到。如果它在 U 盘或 SD 卡上，请插好之后按“重新扫描”`,

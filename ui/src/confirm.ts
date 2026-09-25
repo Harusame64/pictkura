@@ -36,22 +36,37 @@ export async function confirmAction(
 }
 
 /**
- * **取り込み先に選んだ場所が一時フォルダなら確かめる**（dev #30）。進めてよければ `true`。
- *
- * 取り込み先はライブラリのフォルダより危ない——カードを消去したあとは、ここにしか写真が
- * 無い。判定できなければ確かめずに進める（`is_temporary_folder` が3秒で見切る）。
- * 選ぶ口は3つ（取り込みの初回・取り込みの「変更」・設定）あるので、**ここを通す**。
+ * **選んだ場所が一時フォルダなら確かめる**。進めてよければ `true`。ライブラリのフォルダ（#149）と
+ * 取り込み先（dev #30）の両方がここを通す——判定・見切り・失敗の扱いを1か所に置く。
+ * 判定できなければ確かめずに進める（`is_temporary_folder` が3秒で見切る）。
  */
-export async function confirmTemporaryDestination(
+export async function confirmIfTemporary(
   platform: HostPlatform,
   path: string,
+  message: (path: string) => string,
+  okLabel: string,
   onError: (message: string) => void,
 ): Promise<boolean> {
   const temporary = await isTemporaryFolder(path).catch(() => false);
   if (!temporary) return true;
-  return confirmAction(
+  return confirmAction(platform, message(path), okLabel, onError);
+}
+
+/**
+ * **取り込み先に選んだ場所が一時フォルダなら確かめる**（dev #30）。
+ *
+ * 取り込み先はライブラリのフォルダより危ない——カードを消去したあとは、ここにしか写真が
+ * 無い。選ぶ口は3つ（取り込みの初回・取り込みの「変更」・設定）あるので、**ここを通す**。
+ */
+export function confirmTemporaryDestination(
+  platform: HostPlatform,
+  path: string,
+  onError: (message: string) => void,
+): Promise<boolean> {
+  return confirmIfTemporary(
     platform,
-    t.destTempConfirm(path),
+    path,
+    t.destTempConfirm,
     t.destTempConfirmOk,
     onError,
   );

@@ -164,10 +164,10 @@ export default function ImportWizard({
    */
   const [destIsTemporary, setDestIsTemporary] = useState(false);
   useEffect(() => {
-    if (!destination) {
-      setDestIsTemporary(false);
-      return;
-    }
+    // **先に下ろす**——変えた直後に、前の場所の答え（警告あり・なし）を新しい場所の隣に
+    // 出したままにしない（判定は最大3秒かかる。#150 の2ゲート目）
+    setDestIsTemporary(false);
+    if (!destination) return;
     let cancelled = false;
     isTemporaryFolder(destination)
       .then((yes) => {
@@ -824,7 +824,10 @@ export default function ImportWizard({
         </div>
 
         <div className="wizard-foot">
-          <div className={`wiz-dest${destIsTemporary ? " wiz-dest-warned" : ""}`}>
+          {/* コピー先の1行はそのまま、警告だけをその下に置く（#150 の2ゲート目：
+              欄ごと折り返すと、ラベル・パス・ボタンが3〜4行に崩れた） */}
+          <div className="wiz-dest-col">
+          <div className="wiz-dest">
             <span className="wiz-dest-label">{t.wizardDestination}</span>
             <code>{destination ?? t.settingsDestinationUnset}</code>
             <button
@@ -836,21 +839,28 @@ export default function ImportWizard({
                   title: t.pickDestination,
                 });
                 if (!dest) return;
-                if (
-                  !(await confirmTemporaryDestination(platform, dest, (m) =>
-                    onErrorRef.current(m),
-                  ))
-                )
-                  return;
-                // 断られうる（写真.appのライブラリの中など）。投げっぱなしにすると
-                // 未処理の拒否になり、コピー先が黙って元のまま残る
+                // **判定と確認を待つあいだは busy**——［取り込む］や二度目の［変更］を
+                // 受けると、古いコピー先へ取り込みが始まったり確認が重なったりする（#150）
+                setBusy(true);
                 try {
-                  await setImportDestination(dest);
-                } catch (e) {
-                  onErrorRef.current(errText(e));
-                  return;
+                  if (
+                    !(await confirmTemporaryDestination(platform, dest, (m) =>
+                      onErrorRef.current(m),
+                    ))
+                  )
+                    return;
+                  // 断られうる（写真.appのライブラリの中など）。投げっぱなしにすると
+                  // 未処理の拒否になり、コピー先が黙って元のまま残る
+                  try {
+                    await setImportDestination(dest);
+                  } catch (e) {
+                    onErrorRef.current(errText(e));
+                    return;
+                  }
+                  onConfigChanged();
+                } finally {
+                  setBusy(false);
                 }
-                onConfigChanged();
               }}
             >
               {t.wizardChangeDestination}
@@ -860,12 +870,13 @@ export default function ImportWizard({
                 {t.wizardStructure}: <code>{patternExample}</code>
               </span>
             )}
-            {/* 一時フォルダのコピー先（dev #30）。選んだときの確認と別に、**いつも出す** */}
-            {destIsTemporary && (
-              <span className="wiz-dest-warn" role="status">
-                {t.destTempWarning}
-              </span>
-            )}
+          </div>
+          {/* 一時フォルダのコピー先（dev #30）。選んだときの確認と別に、**いつも出す** */}
+          {destIsTemporary && (
+            <span className="wiz-dest-warn" role="status">
+              {t.destTempWarning}
+            </span>
+          )}
           </div>
           <div className="wiz-actions">
             <button
