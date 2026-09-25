@@ -441,10 +441,10 @@ export const zhHant: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} 會換成日期。用 / 分出層級。不能使用的字元和指向上層資料夾的 .. 會自動去掉。",
   settingsCustomPatternResult: "產生的資料夾",
-  settingsGrid: "相片格狀檢視",
+  settingsGrid: "照片網格",
   settingsStackRawJpegToggle: "將 RAW+JPEG 合併成一張顯示",
   settingsStackRawJpegNote:
-    "同一資料夾中同名的 RAW 與 JPEG，在格狀檢視中合併為一張（顯示 JPEG）。★、⚑ 與刪除會同時套用到兩者。全螢幕檢視時仍逐張切換。",
+    "同一資料夾中同名的 RAW 與 JPEG，在網格中合併為一張（顯示 JPEG）。在網格中，★、⚑、刪除與選取會同時套用到兩者。全螢幕檢視時逐個檔案切換，★、⚑ 與刪除只會套用到目前顯示的檔案。",
   stackRawChipTitle: (files: number) =>
     `RAW 與 JPEG 已合併為一張（${num(files)} 個檔案）`,
   settingsViewer: "全螢幕檢視照片時",

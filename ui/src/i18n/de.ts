@@ -459,7 +459,7 @@ export const de: Dict = {
   settingsGrid: "Fotoübersicht",
   settingsStackRawJpegToggle: "RAW+JPEG-Paare als ein Bild zeigen",
   settingsStackRawJpegNote:
-    "Ein RAW und ein JPEG mit gleichem Namen im selben Ordner erscheinen als ein Bild, das JPEG. ★, ⚑ und Löschen gelten für beide. In der Großansicht blätterst du weiterhin Datei für Datei.",
+    "Ein RAW und ein JPEG mit gleichem Namen im selben Ordner werden als ein Bild (das JPEG) angezeigt. In der Übersicht gelten ★, ⚑, Löschen und Auswahl für beide. In der Großansicht blätterst du Datei für Datei, und ★, ⚑ und Löschen gelten dort nur für die angezeigte Datei.",
   stackRawChipTitle: (files: number) =>
     `RAW und JPEG als ein Bild gestapelt (${num(files)} Dateien)`,
   settingsViewer: "Wenn du ein Foto groß ansiehst",

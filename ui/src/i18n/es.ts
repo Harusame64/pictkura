@@ -462,7 +462,7 @@ export const es: Dict = {
   settingsGrid: "Cuadrícula de fotos",
   settingsStackRawJpegToggle: "Agrupar las parejas RAW+JPEG en una sola miniatura",
   settingsStackRawJpegNote:
-    "Un RAW y un JPEG con el mismo nombre en la misma carpeta se muestran como una sola miniatura, la del JPEG. ★, ⚑ y borrar se aplican a los dos. Al ver una foto en grande se siguen pasando de una en una.",
+    "Un RAW y un JPEG con el mismo nombre en la misma carpeta se muestran como una sola miniatura, la del JPEG. En la cuadrícula, ★, ⚑, borrar y la selección se aplican a los dos. Al ver una foto en grande se sigue viendo archivo por archivo, y ★, ⚑ y borrar solo se aplican al archivo que estás viendo.",
   stackRawChipTitle: (files: number) =>
     `RAW y JPEG agrupados en una sola miniatura (${num(files)} archivos)`,
   settingsViewer: "Cuando ves una foto en grande",

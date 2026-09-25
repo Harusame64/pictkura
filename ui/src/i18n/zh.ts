@@ -441,7 +441,7 @@ export const zh: Dict = {
   settingsGrid: "照片网格",
   settingsStackRawJpegToggle: "把 RAW+JPEG 合并成一张显示",
   settingsStackRawJpegNote:
-    "同一文件夹里同名的 RAW 和 JPEG，在网格中合并为一张（显示 JPEG）。★、⚑ 和删除会同时作用于两者。全屏查看时仍逐张切换。",
+    "同一文件夹里同名的 RAW 和 JPEG，在网格中合并为一张（显示 JPEG）。在网格中，★、⚑、删除和选择会同时作用于两者。全屏查看时逐个文件切换，★、⚑ 和删除只作用于当前显示的文件。",
   stackRawChipTitle: (files: number) =>
     `RAW 和 JPEG 已合并为一张（${num(files)} 个文件）`,
   settingsViewer: "全屏查看照片时",

@@ -511,8 +511,6 @@ mod tests {
         super::raw_extensions_are_all_scanned().unwrap();
     }
 
-    /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**
-    /// ので、既定で補われること＝自動送りがONで始まることを固定しておく。
     /// 一覧の重ね（dev #32）は、`[grid]` 節の無い古い設定でも ON として読む
     #[test]
     fn stacking_reads_as_on_even_without_a_grid_section() {
@@ -523,12 +521,17 @@ verify_after_copy = true
         )
         .unwrap();
         assert!(config.grid.stack_raw_jpeg);
+        // 節だけ在って値が無い（手で書きかけた等）も既定で補う
+        let empty = Config::from_toml_str("[grid]\n").unwrap();
+        assert!(empty.grid.stack_raw_jpeg);
         let mut off = Config::default();
         off.grid.stack_raw_jpeg = false;
         let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
         assert!(!back.grid.stack_raw_jpeg);
     }
 
+    /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**
+    /// ので、既定で補われること＝自動送りがONで始まることを固定しておく。
     #[test]
     fn auto_advance_reads_as_on_even_without_a_viewer_section() {
         let config = Config::from_toml_str(

@@ -478,7 +478,7 @@ export const ja = {
   settingsGrid: "一覧",
   settingsStackRawJpegToggle: "RAW と JPEG の組を1枚に重ねる",
   settingsStackRawJpegNote:
-    "同じフォルダにある同じ名前の RAW と JPEG を、一覧では JPEG の1枚にまとめます。★・⚑・削除は組の両方に効きます。写真を大きく見るときは1枚ずつ送ります。",
+    "同じフォルダにある同じ名前の RAW と JPEG を、一覧では JPEG の1枚にまとめます。一覧での★・⚑・削除・選択は組の両方に効きます。写真を大きく見ているときは1ファイルずつ送り、★・⚑・削除もそのファイルだけに効きます。",
   stackRawChipTitle: (files: number) =>
     `RAW と JPEG を1枚に重ねています（${num(files)}ファイル）`,
   settingsViewer: "写真を大きく見るとき",

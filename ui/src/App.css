@@ -598,17 +598,34 @@ body {
   pointer-events: none;
 }
 
-/* 動画のバッジ（第9部）。左下に▶と長さ。
- * 写真の上に文字を置くので、地の明るさに関係なく読めるよう影付きの黒帯にする */
-/* RAW+JPEG を1枚に重ねたタイル（dev #32、2026-09-08 の利用者の選択: 角の「RAW」チップ＋
-   後ろに紙の端）。紙の端は影で描く——**タイルの間は 4px しか無い**ので、3px だけ右上へずらし、
-   隣のタイルに届かないようにする。絵の外へは出るが、クリックの当たりは変わらない */
-.cell-wrap.stacked .cell {
-  box-shadow:
-    3px -3px 0 -1px var(--surface-2),
-    3px -3px 0 0 var(--border-strong);
+/* 重ねたタイル（dev #32、2026-09-25 の利用者の選択: **印は言葉にし、紙を厚く**）。
+   **紙はタイルの内側に描く**——タイルの間は 4px しか無いので、外へずらすと隣に届く。
+   写真を左下へ寄せて縮め、空いた右上に紙を1枚のぞかせる（連写は次の PR で2枚）。
+   `isolation` で重なりの層を閉じ、紙（`::before`）を写真の後ろへ置く */
+.cell-wrap.stacked {
+  --stack-offset: 5px;
+  isolation: isolate;
 }
-/* チップは右下（左下は動画の ▶、左上は選択の丸、右上は ★・⚑） */
+.cell-wrap.stacked .cell {
+  width: calc(100% - var(--stack-offset));
+  height: calc(100% - var(--stack-offset));
+  margin-top: var(--stack-offset);
+}
+.cell-wrap.stacked::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: calc(100% - var(--stack-offset));
+  height: calc(100% - var(--stack-offset));
+  box-sizing: border-box;
+  border-radius: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  z-index: -1;
+}
+/* 印は右下（左下は動画の ▶、左上は選択の丸、右上は ★・⚑）。`RAW` だけだと「RAW の
+   ファイル」と読めるので、組であることを言葉で言う（`RAW+JPEG`） */
 .cell-raw {
   position: absolute;
   right: var(--sp-1);
@@ -619,13 +636,15 @@ body {
   color: oklch(0.98 0 0);
   font-size: var(--fs-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   line-height: 1.6;
-  /* 他の印と同じく当たりを持たない——チップの上を押しても絵を押したことになる。
+  /* 他の印と同じく当たりを持たない——印の上を押しても絵を押したことになる。
      説明はタイルのツールチップ（ファイル名の次の行）が言う */
   pointer-events: none;
 }
 
+/* 動画のバッジ（第9部）。左下に▶と長さ。
+ * 写真の上に文字を置くので、地の明るさに関係なく読めるよう影付きの黒帯にする */
 .cell-video {
   position: absolute;
   left: var(--sp-1);

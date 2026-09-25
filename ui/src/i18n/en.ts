@@ -388,7 +388,7 @@ export const en: Dict = {
   settingsGrid: "Photo grid",
   settingsStackRawJpegToggle: "Stack RAW+JPEG pairs into one tile",
   settingsStackRawJpegNote:
-    "A RAW and a JPEG with the same name in the same folder show as one tile, the JPEG. ★, ⚑ and delete apply to both. Viewing a photo full screen still steps through them one by one.",
+    "A RAW and a JPEG with the same name in the same folder show as one tile, the JPEG. In the grid, ★, ⚑, delete and selection apply to both. Full screen steps through the files one by one, and ★, ⚑ and delete there apply only to the file you are looking at.",
   stackRawChipTitle: (files: number) =>
     `RAW and JPEG stacked into one tile (${num(files)} files)`,
   settingsViewer: "When you view a photo full screen",

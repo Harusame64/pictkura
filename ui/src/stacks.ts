@@ -7,8 +7,14 @@
  * - **重ね（`Stack`）** = 一覧のタイル1枚。いまは常に1コマ——連写（続けて撮ったコマの並び）は
  *   次の PR でここに足す。型を先に2段にしておくのはそのため
  *
- * **束ねるのは RAW を含む組だけ**。同じ名前というだけで束ねると、iPhone の Live Photos
- * （`IMG_0001.HEIC` + `IMG_0001.MOV`）で動画が隠れる。
+ * **束ねるのは RAW と RAW 以外がそろった組だけ**。同じ名前というだけで束ねると、iPhone の
+ * Live Photos（`IMG_0001.HEIC` + `IMG_0001.MOV`）で動画が隠れる。RAW 同士（CR3 と、それを
+ * 書き出した DNG）は「RAW+JPEG」ではないので束ねない。
+ *
+ * **名前だけでは同じ撮影と言えない**——カメラ2台で、片方は RAW だけ（`IMG_0001.CR3`）・
+ * もう片方は JPEG だけ（`IMG_0001.JPG`）で撮ると、名前が同じ別の写真になる（#156 のゲート2）。
+ * 組にするのは**撮影日時も同じもの**だけ。同じシャッターの RAW と JPEG は同じ日時を持つ。
+ * 片方の撮影日時がまだ読めていない（mtime に落ちている）間は束ねない——束ねない側に倒す
  * **一覧の描き方だけを変える**——ビューアは今までどおり1ファイルずつ歩く
  * （2026-09-08 の利用者の依頼「詳細ページは逐次でよい」）。
  */
@@ -18,6 +24,8 @@ export interface Stackable {
   id: number;
   shot_key: number;
   is_raw: boolean;
+  /** 撮影日時（無ければ mtime）。**同じシャッターの RAW と JPEG は一致する** */
+  taken_at_ms: number;
 }
 
 /** コマ: `lead` が一覧に出る1枚、`files` は組ぜんぶ（`lead` を含む・日の並び順） */
@@ -48,23 +56,25 @@ export function stacksOfDay<T extends Stackable>(
   };
   if (!opts.rawJpeg) return items.map(single);
 
-  const groups = new Map<number, T[]>();
+  const keyOf = (it: T) => `${it.shot_key}:${it.taken_at_ms}`;
+  const groups = new Map<string, T[]>();
   for (const it of items) {
-    const g = groups.get(it.shot_key);
+    const g = groups.get(keyOf(it));
     if (g) g.push(it);
-    else groups.set(it.shot_key, [it]);
+    else groups.set(keyOf(it), [it]);
   }
   const out: Stack<T>[] = [];
-  const emitted = new Set<number>();
+  const emitted = new Set<string>();
   for (const it of items) {
-    const g = groups.get(it.shot_key) ?? [it];
-    const stacked = g.length > 1 && g.some((f) => f.is_raw);
+    const key = keyOf(it);
+    const g = groups.get(key) ?? [it];
+    const stacked = g.some((f) => f.is_raw) && g.some((f) => !f.is_raw);
     if (!stacked) {
       out.push(single(it));
       continue;
     }
-    if (emitted.has(it.shot_key)) continue;
-    emitted.add(it.shot_key);
+    if (emitted.has(key)) continue;
+    emitted.add(key);
     const shot = { lead: g.find((f) => !f.is_raw) ?? g[0], files: g };
     out.push({ cover: shot, shots: [shot] });
   }
@@ -114,13 +124,21 @@ export function closeOverStacks(
 
 /**
  * 選んだ id が**見えているタイル何枚ぶん**か（dev #32）。重ねの組は1枚と数える。
- * 選択中の枚数と削除の確認文に使う——1枚の重ねを選んで「2枚を選択中」と言わない
+ * 選択中の枚数と、削除・移動の確認文と報告に使う——1枚の重ねを選んで「2枚」と言わない。
+ *
+ * **読み込んでいない日の id が混ざっていたら `null`**（数えられない）。その日の組は索引に
+ * 無いので、ファイルの数を「枚数」と言ってしまい、スクロールで日が読み込まれるたびに
+ * 数が変わって見える（#156 のゲート2）。呼ぶ側は `null` ならファイルの数で言う
  */
 export function countPhotos(
   ids: Iterable<number>,
   index: ReadonlyMap<number, readonly number[]>,
-): number {
+  loaded: ReadonlySet<number>,
+): number | null {
   const seen = new Set<number>();
-  for (const id of ids) seen.add(index.get(id)?.[0] ?? id);
+  for (const id of ids) {
+    if (!loaded.has(id)) return null;
+    seen.add(index.get(id)?.[0] ?? id);
+  }
   return seen.size;
 }
