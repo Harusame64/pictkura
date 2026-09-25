@@ -1559,13 +1559,14 @@ export default function App() {
       forgetLaterOnNextAnswer.current = true;
       setScanGeneration((g) => g + 1);
       await reloadAll();
+      void refreshCameras();
       setStatus(t.syncDone(stats.added, stats.changed, stats.removed));
     } catch (e) {
       fail(errText(e));
     } finally {
       setBusy(false);
     }
-  }, [reloadAll]);
+  }, [reloadAll, refreshCameras]);
 
   // ドライブ一覧を5秒間隔でポーリング（USB挿抜をOS固有APIなしで検知）
   useEffect(() => {
@@ -2080,6 +2081,7 @@ export default function App() {
       syncSucceededRef.current = true;
       setStartupFailed(false);
       await reloadAll();
+      void refreshCameras();
       await refreshRoots();
       checkDecoders();
       return true;
@@ -2234,6 +2236,9 @@ export default function App() {
       syncSucceededRef.current = true;
       setStartupFailed(false);
       await reloadAll();
+      // **カメラ別の数も数え直す**——外したフォルダのカメラが「カメラとメディア」に
+      // 残っていた（#146 の実機。一覧は `library-updated` と索引の終わりでしか取り直さない）
+      void refreshCameras();
       await refreshRoots();
     } catch (e) {
       fail(errText(e));
@@ -4601,13 +4606,14 @@ export default function App() {
         setAnchorId((a) => (a === item.id ? null : a));
         lastRangeRef.current = null;
         await refreshSummary();
+        void refreshCameras();
       } catch (e) {
         fail(errText(e));
       } finally {
         deletingRef.current = false;
       }
     },
-    [refreshSummary, confirmAction],
+    [refreshSummary, refreshCameras, confirmAction],
   );
 
   /**
@@ -4725,6 +4731,7 @@ export default function App() {
         setViewer((v) => (v && touched.has(v.id as number) ? null : v));
         clearSelection();
         await refreshSummary();
+        void refreshCameras();
       } catch (e) {
         // **一部だけ成功していることがある**。バックエンドは消せたぶんをDBから
         // 落としてからエラーを返すので、画面をそのままにすると
@@ -4733,6 +4740,7 @@ export default function App() {
         forgetDeleted(touched);
         clearSelection();
         await refreshSummary().catch(() => {});
+        void refreshCameras();
       }
     } finally {
       deletingRef.current = false;
@@ -4741,6 +4749,7 @@ export default function App() {
   }, [
     visibleSelection,
     refreshSummary,
+    refreshCameras,
     clearSelection,
     forgetDeleted,
     confirmAction,
@@ -4800,6 +4809,7 @@ export default function App() {
         setStatus(left > 0 ? t.deletedSomeLeft(n, left) : t.deleted(n));
         forgetDeleted(new Set(kept));
         await refreshSummary();
+        void refreshCameras();
       }
       setRejected(new Map());
       setRejectGate(null);
@@ -4814,6 +4824,7 @@ export default function App() {
       fail(errText(e));
       forgetDeleted(new Set(ids));
       await refreshSummary().catch(() => {});
+      void refreshCameras();
       setRejectGate(null);
     } finally {
       setTrashing(false);
@@ -4828,6 +4839,7 @@ export default function App() {
     rejected,
     forgetDeleted,
     refreshSummary,
+    refreshCameras,
     finishGate,
   ]);
 
@@ -4871,6 +4883,7 @@ export default function App() {
           // 移動したぶんはライブラリから外れている。選択も画面も取り直す
           clearSelection();
           await reloadAll();
+          void refreshCameras();
         }
       } catch (e) {
         // **一部だけ動いていることがある**（DBへの反映で転んだ場合など）。
