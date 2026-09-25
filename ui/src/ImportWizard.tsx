@@ -9,7 +9,6 @@ import {
   listSourceTree,
   contestedSourceNames,
   probeImported,
-  isTemporaryFolder,
   setImportDestination,
   sourceThumbSrc,
   type AppConfig,
@@ -26,6 +25,7 @@ import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { confirmTemporaryDestination } from "./confirm";
 import { usePlatform } from "./usePlatform";
+import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /**
@@ -158,28 +158,8 @@ export default function ImportWizard({
 
   const destination = config?.routing.destination ?? null;
   const platform = usePlatform();
-  /**
-   * コピー先が一時フォルダの中か（dev #30）。**選んだときの確認に加えて、いつも見せる**——
-   * 前から一時フォルダを選んである人にも届くように。判定できなければ出さない
-   */
-  const [destIsTemporary, setDestIsTemporary] = useState(false);
-  useEffect(() => {
-    // **先に下ろす**——変えた直後に、前の場所の答え（警告あり・なし）を新しい場所の隣に
-    // 出したままにしない（判定は最大3秒かかる。#150 の2ゲート目）
-    setDestIsTemporary(false);
-    if (!destination) return;
-    let cancelled = false;
-    isTemporaryFolder(destination)
-      .then((yes) => {
-        if (!cancelled) setDestIsTemporary(yes);
-      })
-      .catch(() => {
-        if (!cancelled) setDestIsTemporary(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [destination]);
+  /** コピー先が一時フォルダの中か（dev #30）。開いているときだけ、開くたびに訊く */
+  const destIsTemporary = useIsTemporaryFolder(destination, isOpen);
   const tree = current && deep ? trees[current] : undefined;
   const listing = current ? listings[current] : undefined;
   const allFiles: SourceFile[] = (deep ? tree?.files : listing?.files) ?? [];

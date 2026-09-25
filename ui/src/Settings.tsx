@@ -14,7 +14,6 @@ import {
   previewFolderPattern,
   setFolderPattern,
   setImportDestination,
-  isTemporaryFolder,
   setAutoAdvance,
   setRegisterAutoplay,
   type AboutInfo,
@@ -25,6 +24,7 @@ import {
 } from "./api";
 import { usePlatform } from "./usePlatform";
 import { confirmTemporaryDestination } from "./confirm";
+import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import {
   LOCALES,
   locale,
@@ -221,26 +221,12 @@ export default function Settings({
   }, [open, dismiss, closeDialog]);
 
   // **フックは早期 return より前に置く**——後ろに置くと、開いた瞬間にフックの数が変わって
-  // React ごと落ち、画面が真っ白になる（#150 の実機で踏んだ）
-  const destinationForCheck = config?.routing.destination ?? null;
-  /**
-   * コピー先が一時フォルダの中か（dev #30）。**前から選んである人にも見せる**——
-   * コピー先を確かめに来るのはこの画面なので、取り込みのウィンドウだけでは足りない（#150）
-   */
-  const [destIsTemporary, setDestIsTemporary] = useState(false);
-  useEffect(() => {
-    setDestIsTemporary(false);
-    if (!destinationForCheck) return;
-    let cancelled = false;
-    isTemporaryFolder(destinationForCheck)
-      .then((yes) => {
-        if (!cancelled) setDestIsTemporary(yes);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [destinationForCheck]);
+  // React ごと落ち、画面が真っ白になる（#150 の実機で踏んだ）。
+  // コピー先が一時フォルダの中か（dev #30）。開いているときだけ、開くたびに訊く
+  const destIsTemporary = useIsTemporaryFolder(
+    config?.routing.destination ?? null,
+    open,
+  );
 
   if (!open) return null;
 
@@ -306,28 +292,38 @@ export default function Settings({
                   setDestError(null);
                   // 一時フォルダなら確かめる（dev #30）。取り込みの側と同じ関数を通す。
                   // **待つあいだはボタンを押させない**
+                  // **書き込みが終わるまで下ろさない**——確認のあとで下ろすと、遅い書き込みの
+                  // あいだに二度目の［変更］が通り、後に終わったほうが勝つ（#150 の2ゲート目2周目）
                   setDestPicking(true);
-                  const go = await confirmTemporaryDestination(platform, dest, (m) => {
-                    setDestError(m);
-                    onError(m);
-                  }).finally(() => setDestPicking(false));
-                  if (!go) return;
-                  // 選んだ先が消えている・ネットワークが切れている・
-                  // 写真.appのライブラリの中だった等で失敗しうる。
-                  // 設定は変えないまま、**理由は出す**（黙って何も起きないと
-                  // 押し損ねたのか断られたのか分からない）
                   try {
-                    await setImportDestination(dest);
-                  } catch (e) {
-                    // **ダイアログの中に出す。** 画面下の状態バーへ流しても
-                    // このダイアログが覆っているうえ32chで省略されるので、
-                    // 断られた理由もパスも読めない
-                    setDestError(errText(e));
-                    onError(errText(e));
-                    return;
+                    const go = await confirmTemporaryDestination(
+                      platform,
+                      dest,
+                      (m) => {
+                        setDestError(m);
+                        onError(m);
+                      },
+                    );
+                    if (!go) return;
+                    // 選んだ先が消えている・ネットワークが切れている・
+                    // 写真.appのライブラリの中だった等で失敗しうる。
+                    // 設定は変えないまま、**理由は出す**（黙って何も起きないと
+                    // 押し損ねたのか断られたのか分からない）
+                    try {
+                      await setImportDestination(dest);
+                    } catch (e) {
+                      // **ダイアログの中に出す。** 画面下の状態バーへ流しても
+                      // このダイアログが覆っているうえ32chで省略されるので、
+                      // 断られた理由もパスも読めない
+                      setDestError(errText(e));
+                      onError(errText(e));
+                      return;
+                    }
+                    setDestError(null);
+                    onConfigChanged();
+                  } finally {
+                    setDestPicking(false);
                   }
-                  setDestError(null);
-                  onConfigChanged();
                 }}
               >
                 {t.wizardChangeDestination}
