@@ -1756,8 +1756,9 @@ impl CameraWrite {
     /// 抜いたドライブ・名乗らない RAW は、処理しても `camera_id` が埋まらない。
     /// それを「動いた」にすると、何も変わらないのに処理のたびに数え直す（#152 の3周目）。
     ///
-    /// 代わりに、**走査が空にした行の前のカメラ**はここでは拾えない（`from` が `None`
-    /// でしか見えない）。それは走査の側が言うべきことで、別に立てた（dev #31）
+    /// 走査は、中身の変わったファイルのカメラを**空にしない**（`Db::upsert_files`、dev #31）。
+    /// だから読み直しは「前のカメラ→今のカメラ」として見え、同じなら `Unchanged`、
+    /// 違えば `Changed` になる。読み直せなければ前のカメラのまま（`Unchanged`）
     pub fn between(
         before: Result<Option<i64>, DbError>,
         after: Result<Option<i64>, DbError>,
