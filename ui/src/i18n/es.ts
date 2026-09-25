@@ -415,8 +415,8 @@ export const es: Dict = {
   pickMoveFolder: "Elige la carpeta a la que mover",
   moveConfirm: (n: number) =>
     n === 1
-      ? "¿Mover esta foto a una carpeta que elegirás ahora? Sale de donde está y sale de la biblioteca. Las marcas ★ y ⚑ no se llevan."
-      : `¿Mover ${num(n)} fotos a una carpeta que elegirás ahora? Salen de donde están y salen de la biblioteca. Las marcas ★ y ⚑ no se llevan.`,
+      ? "¿Mover esta foto a una carpeta que elegirás ahora?\nSale de donde está y sale de la biblioteca.\nLas marcas ★ y ⚑ no se llevan."
+      : `¿Mover ${num(n)} fotos a una carpeta que elegirás ahora?\nSalen de donde están y salen de la biblioteca.\nLas marcas ★ y ⚑ no se llevan.`,
   confirmCancel: "Cancelar",
   deleteConfirmOk: "Mover a la papelera",
   moveConfirmOk: "Elegir destino",

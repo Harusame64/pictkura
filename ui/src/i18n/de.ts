@@ -414,8 +414,8 @@ export const de: Dict = {
   pickMoveFolder: "Zielordner zum Verschieben wählen",
   moveConfirm: (n: number) =>
     n === 1
-      ? "Dieses Foto in einen Ordner verschieben, den du gleich wählst? Es verlässt seinen bisherigen Platz und die Bibliothek. ★ und ⚑ werden nicht mitgenommen."
-      : `${num(n)} Fotos in einen Ordner verschieben, den du gleich wählst? Sie verlassen ihren bisherigen Platz und die Bibliothek. ★ und ⚑ werden nicht mitgenommen.`,
+      ? "Dieses Foto in einen Ordner verschieben, den du gleich wählst?\nEs verlässt seinen bisherigen Platz und die Bibliothek.\n★ und ⚑ werden nicht mitgenommen."
+      : `${num(n)} Fotos in einen Ordner verschieben, den du gleich wählst?\nSie verlassen ihren bisherigen Platz und die Bibliothek.\n★ und ⚑ werden nicht mitgenommen.`,
   confirmCancel: "Abbrechen",
   deleteConfirmOk: "In den Papierkorb",
   moveConfirmOk: "Ziel wählen",
