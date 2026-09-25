@@ -26,6 +26,8 @@ use tauri::{Emitter, Manager};
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 
 mod autoplay;
+// サムネイルの流れがカメラを埋めたとき、左ペインへ知らせる（dev #28）
+mod camera_signal;
 // 画面に出す失敗に辞書の鍵を付ける（完成度週間の項目3）
 mod errs;
 // メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
@@ -3135,12 +3137,16 @@ fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, Strin
     Ok(stats)
 }
 
-/// 「カメラとメディア」を数え直させる合図。**行を変えたのに `library-updated` を出さない
-/// コマンド**（再スキャン・フォルダの追加と外し・ゴミ箱へ）が出す。受け口は画面側にある
-/// （索引の後追いがカメラを埋めたときと同じ `cameras-updated`）。
+/// 「カメラとメディア」を数え直させる合図。受け口は画面側にある。出す所は3つ:
+///
+/// - **行を変えたのに `library-updated` を出さないコマンド**（再スキャン・フォルダの
+///   追加と外し・ゴミ箱へ）
+/// - 索引の後追いがカメラを埋めたとき
+/// - サムネイルの流れが行の `camera_id` を動かしたとき（[`camera_signal`]。
+///   動きが途切れてから1回）
 ///
 /// 画面の取り直しに数え直しを抱き合わせる形は、絞り込みやサムネイルの度に全件の
-/// `GROUP BY` を回すことになる（#148 の2ゲート目）。**行を変えた所で1回だけ言う。**
+/// `GROUP BY` を回すことになる（#148 の2ゲート目）。**カメラが動いた所で言う。**
 fn announce_cameras_changed(app: &tauri::AppHandle) {
     let _ = app.emit("cameras-updated", ());
 }
@@ -3151,7 +3157,9 @@ fn announce_cameras_changed(app: &tauri::AppHandle) {
 /// - **変わった行**は走査が `camera_id` を一度空にする（撮影情報を読み直すため）ので、その瞬間に
 ///   数え直すと**減って見え、戻す合図も無い**（#148 の2ゲート目3周目）
 ///
-/// 後から埋まったカメラを拾うのは別の話（dev #28）。
+/// 後から埋まったカメラは、埋めたサムネイルの流れが知らせる（[`camera_signal`]、dev #28）。
+/// 空にされた行が埋め直されたときも同じ道で数え直すので、減って見えたままにはならない。
+/// ただし埋め直せなかった行（未確認のまま）の前のカメラは、この道では拾えない（dev #31）。
 fn scan_changes_camera_counts(stats: &SyncStats) -> bool {
     stats.removed > 0
 }
@@ -4996,17 +5004,28 @@ pub fn run() {
             // サムネイルワーカーを起動。1件完了ごとに**更新後のレコードだけ**を
             // フロントへpushする（全件再取得のイベントの嵐を防ぐ）
             let thumb_handle = app.handle().clone();
+            let (camera_tx, camera_rx) = std::sync::mpsc::channel();
+            let signal_handle = app.handle().clone();
+            camera_signal::spawn(
+                camera_signal::CameraSignal::default(),
+                camera_rx,
+                move || announce_cameras_changed(&signal_handle),
+            );
             let thumbs = ThumbnailService::start(
                 db_path.clone(),
                 data_dir.join("thumbs"),
                 config.performance.thumbnail_size,
                 config.performance.worker_threads,
-                move |id| {
+                move |id, camera| {
                     let state = thumb_handle.state::<AppState>();
                     let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
                     if let Some(record) = record {
                         let _ = thumb_handle.emit("media-updated", MediaItemDto::from(record));
                     }
+                    // `media-updated` の DTO にカメラの欄は無いので、カメラは別に知らせる
+                    // （dev #28。`Unchanged` を捨てるのも含め、何を数え直すかは
+                    // `camera_signal` が決める——ここで選ぶと、その分岐は試験が届かない）
+                    let _ = camera_tx.send(camera);
                 },
             );
 

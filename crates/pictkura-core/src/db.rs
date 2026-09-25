@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
 use crate::scanner::ScannedFile;
 use crate::search::{index_text, SearchQuery};
@@ -2251,6 +2251,20 @@ impl Db {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    /// 1行の `camera_id`。`None` は**未確認**（NULL）か、行が無いとき。
+    /// `Some(0)` は「確認済みだがカメラ情報なし」（左ペインには出ない）。
+    pub fn camera_id_of_media(&self, id: i64) -> Result<Option<i64>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT camera_id FROM media WHERE id = ?1",
+                params![id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     /// 「〇年前の今日」の思い出を返す（過去の各年の同じ月日をインデックスシークで探す）。
@@ -4748,6 +4762,44 @@ mod tests {
                 ("Apple iPhone 15 Pro".to_string(), 1),
             ]
         );
+    }
+
+    #[test]
+    fn a_rows_camera_id_tells_unread_from_none_from_a_camera() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\a.jpg", 1, 1000),
+            scanned(r"D:\写真\b.jpg", 1, 2000),
+            scanned(r"D:\写真\c.jpg", 1, 3000),
+        ])
+        .unwrap();
+        let ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        db.update_metadata(
+            ids[0],
+            Dimensions::original(400, 300),
+            None,
+            Some("SONY ILCE-7M3"),
+        )
+        .unwrap();
+        db.update_metadata(ids[1], Dimensions::original(400, 300), None, None)
+            .unwrap();
+
+        let sony: i64 = db
+            .conn
+            .query_row(
+                "SELECT id FROM cameras WHERE name = 'SONY ILCE-7M3'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(db.camera_id_of_media(ids[0]).unwrap(), Some(sony));
+        assert_eq!(
+            db.camera_id_of_media(ids[1]).unwrap(),
+            Some(CAMERA_NONE),
+            "確認済み・カメラなし"
+        );
+        assert_eq!(db.camera_id_of_media(ids[2]).unwrap(), None, "未確認");
+        assert_eq!(db.camera_id_of_media(-1).unwrap(), None, "行が無い");
     }
 
     #[test]

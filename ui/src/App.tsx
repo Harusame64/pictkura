@@ -1367,7 +1367,13 @@ export default function App() {
       else unlistenDelete = deleteProgress;
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
-      else unlistenCameras = camerasDone;
+      else {
+        unlistenCameras = camerasDone;
+        // 開いたときの一覧（上の effect）とこの登録の間に出た数え直しの合図は
+        // 届いていない。サムネイルの流れは同じ行を二度は言わないので、
+        // 登録できたところで一度取り直す（下の索引の進捗と同じ形。PRのcodex）
+        refreshCameras();
+      }
       if (cancelled) {
         f();
         return;
