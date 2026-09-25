@@ -329,6 +329,10 @@ export const en: Dict = {
     n === 1
       ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (★ and ⚑ marks are not carried over)."
       : `Move ${num(n)} photos to a folder you pick next? They leave their current place and leave the library (★ and ⚑ marks are not carried over).`,
+  confirmCancel: "Cancel",
+  deleteConfirmOk: "Move to trash",
+  moveConfirmOk: "Choose where to move",
+  rootRemoveConfirmOk: "Remove",
   exporting: (done: number, total: number, name: string) =>
     `Exporting… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

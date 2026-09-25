@@ -45,8 +45,8 @@
  *
  * **ゴミ箱の呼び名はOSで割れる**——Windowsは `資源回收筒`、macOSは `垃圾桶`。
  * 簡体字辞書と同じ理由で**Windows側に寄せた**（配布の主戦場がWindows、
- * macOSの利用者にも通じる）。**分けるなら10キーと2行**——`menuDelete` /
- * `bulkDelete` / `deleteConfirm` / `deleted` / `deletedSomeLeft` /
+ * macOSの利用者にも通じる）。**分けるなら11キーと2行**——`menuDelete` /
+ * `bulkDelete` / `deleteConfirm` / `deleteConfirmOk`（確認の釦・2026-09-25）/ `deleted` / `deletedSomeLeft` /
  * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
  * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）と、
  * ショートカット一覧の X と右クリックの行（`grep 資源回收筒` で数える）。
@@ -391,6 +391,10 @@ export const zhHant: Dict = {
     n === 1
       ? "要把這張照片移動到接下來選擇的資料夾嗎？它會離開原來的位置，也會從圖庫中移出（★ 和 ⚑ 的標記不會帶過去）。"
       : `要把這 ${num(n)} 張照片移動到接下來選擇的資料夾嗎？它們會離開原來的位置，也會從圖庫中移出（★ 和 ⚑ 的標記不會帶過去）。`,
+  confirmCancel: "取消",
+  deleteConfirmOk: "移到資源回收筒",
+  moveConfirmOk: "選擇目標資料夾",
+  rootRemoveConfirmOk: "移除",
   exporting: (done: number, total: number, name: string) =>
     `正在匯出… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

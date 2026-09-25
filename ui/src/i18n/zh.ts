@@ -28,8 +28,8 @@
  * **ゴミ箱の呼び名はOSで割れる**——Windows と Linux は `回收站`、macOSは `废纸篓`。
  * 辞書はプラットフォーム別に持てるキー（`videoCodecNoteMac` など）以外は1つしかないので、
  * **`回收站` に寄せた**。配布の主戦場がWindowsで（MSI / NSIS、DLもそちら）、
- * macOSの利用者にも `回收站` は通じる。**分けるなら10キーと2行**——`menuDelete` /
- * `bulkDelete` / `deleteConfirm` / **`deleted`** / **`deletedSomeLeft`** /
+ * macOSの利用者にも `回收站` は通じる。**分けるなら11キーと2行**——`menuDelete` /
+ * `bulkDelete` / `deleteConfirm` / **`deleteConfirmOk`**（確認の釦・2026-09-25）/ **`deleted`** / **`deletedSomeLeft`** /
  * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
  * **`errTrashFailed`** / **`errTrashPartly`**（失敗の文言・2026-09-07に追加）と、
  * ショートカット一覧の X と右クリックの行。**`grep 回收站` で数えること**
@@ -388,6 +388,10 @@ export const zh: Dict = {
     n === 1
       ? "要把这张照片移动到接下来选择的文件夹吗？它会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。"
       : `要把这 ${num(n)} 张照片移动到接下来选择的文件夹吗？它们会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。`,
+  confirmCancel: "取消",
+  deleteConfirmOk: "移到回收站",
+  moveConfirmOk: "选择目标文件夹",
+  rootRemoveConfirmOk: "移除",
   exporting: (done: number, total: number, name: string) =>
     `正在导出… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

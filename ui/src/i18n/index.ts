@@ -211,6 +211,19 @@ export function setLocaleChoice(code: string | null): boolean {
 export const t: Dict = DICTS[locale] ?? en;
 
 /**
+ * **OS の言語の辞書**（利用者の言語の選択を見ない）。持っていない言語なら `null`。
+ *
+ * **macOS の確認ダイアログのキャンセルに使う。** 枠は AppKit のもので、OS の言語で出る
+ * （`src-tauri/Info.plist` の `CFBundleLocalizations`）。**AppKit が Esc を割り当てるのは、
+ * 題が OS の言語の「キャンセル」か英語の `Cancel` のボタンだけ**——アプリだけドイツ語にした
+ * 日本語の Mac で `Abbrechen` を渡すと、Esc で閉じない（2026-09-25 実機、#147 の2ゲート目）。
+ */
+export const osT: Dict | null = (() => {
+  const code = matchLocale(preferredLocales, hasDict);
+  return code ? DICTS[code] : null;
+})();
+
+/**
  * **書式の土台。辞書のコードに書き言葉が無いときは補う**（2026-09-01、ゲート1の指摘）。
  *
  * 辞書の `zh` は書き言葉を省いた綴りなので、`Intl.Locale("zh", { region: "TW" })` は

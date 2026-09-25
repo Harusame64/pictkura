@@ -414,6 +414,12 @@ export const ja = {
     n === 1
       ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。"
       : `${num(n)}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。`,
+  /* 確認ダイアログのボタン。**「OK」ではなく、押すと何が起きるかを言う**（既定の Cancel／OK は
+   * macOS で英語のまま出ていた。#146 の実機） */
+  confirmCancel: "キャンセル",
+  deleteConfirmOk: "ゴミ箱へ移動",
+  moveConfirmOk: "移動先を選ぶ",
+  rootRemoveConfirmOk: "外す",
   exporting: (done: number, total: number, name: string) =>
     `書き出し中… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

@@ -397,6 +397,10 @@ export const de: Dict = {
     n === 1
       ? "Dieses Foto in einen Ordner verschieben, den du gleich wählst? Es verlässt seinen bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen)."
       : `${num(n)} Fotos in einen Ordner verschieben, den du gleich wählst? Sie verlassen ihren bisherigen Platz und die Bibliothek (★ und ⚑ werden nicht mitgenommen).`,
+  confirmCancel: "Abbrechen",
+  deleteConfirmOk: "In den Papierkorb",
+  moveConfirmOk: "Ziel wählen",
+  rootRemoveConfirmOk: "Entfernen",
   exporting: (done: number, total: number, name: string) =>
     `Wird exportiert… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

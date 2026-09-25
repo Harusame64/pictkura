@@ -1,6 +1,5 @@
 // **`window.confirm` は使えない**。TauriのWebViewでは何も出さずに true を返すので、
 // 「確認したつもり」で消えてしまう。プラグインの confirm は本物のダイアログを出す
-import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import {
   laterKey,
   mergeMissing,
@@ -103,6 +102,7 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { confirmAction as confirmActionIn } from "./confirm";
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
@@ -1250,6 +1250,12 @@ export default function App() {
   const [heifMissing, setHeifMissing] = useState<number | null>(null);
   const [decoderHelp, setDecoderHelp] = useState(false);
   const platform = usePlatform();
+  /** 確認ダイアログ（`confirm.ts`）。開けなかったら知らせて、取り消しと同じに扱う */
+  const confirmAction = useCallback(
+    (message: string, okLabel: string): Promise<boolean> =>
+      confirmActionIn(platform, message, okLabel, fail),
+    [platform, fail],
+  );
   /**
    * 先読みの触り直し（下の [`PRELOAD_TOUCH_MS`] のeffect）を**回してよいか**。
    *
@@ -2219,10 +2225,7 @@ export default function App() {
   const removeRootConfirmed = async (path: string) => {
     // **外す前に確かめる**（利用者の選択・2026-09-25）。ファイルは消えないが、行と一緒に
     // ★ と ⚑ の印が消える——戻しても印は戻らない。知らせのボタンは「あとで」の隣にある
-    const ok = await confirmDialog(t.rootRemoveConfirm(rootName(path)), {
-      title: t.appName,
-      kind: "warning",
-    }).catch(() => false);
+    const ok = await confirmAction(t.rootRemoveConfirm(rootName(path)), t.rootRemoveConfirmOk);
     if (!ok) return;
     setBusy(true);
     try {
@@ -4565,10 +4568,7 @@ export default function App() {
       if (deletingRef.current) return;
       deletingRef.current = true;
       try {
-        const ok = await confirmDialog(t.deleteConfirm(1), {
-          title: t.appName,
-          kind: "warning",
-        });
+        const ok = await confirmAction(t.deleteConfirm(1), t.deleteConfirmOk);
         if (!ok) return;
         const n = await deleteMedia([item.id]);
         setStatus(t.deleted(n));
@@ -4607,7 +4607,7 @@ export default function App() {
         deletingRef.current = false;
       }
     },
-    [refreshSummary],
+    [refreshSummary, confirmAction],
   );
 
   /**
@@ -4716,10 +4716,7 @@ export default function App() {
       if (ids.length === 0) return;
       // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
       const touched = new Set(ids);
-      const ok = await confirmDialog(t.deleteConfirm(ids.length), {
-        title: t.appName,
-        kind: "warning",
-      });
+      const ok = await confirmAction(t.deleteConfirm(ids.length), t.deleteConfirmOk);
       if (!ok) return;
       try {
         const n = await deleteMedia(ids);
@@ -4741,7 +4738,13 @@ export default function App() {
       deletingRef.current = false;
       setBusy(false);
     }
-  }, [visibleSelection, refreshSummary, clearSelection, forgetDeleted]);
+  }, [
+    visibleSelection,
+    refreshSummary,
+    clearSelection,
+    forgetDeleted,
+    confirmAction,
+  ]);
 
   /**
    * 関所が片付いたあとの行き先。**開いた理由のところまで戻す**——
@@ -4857,10 +4860,7 @@ export default function App() {
         const ids = await visibleSelection();
         if (ids.length === 0) return;
         if (moveFiles) {
-          const ok = await confirmDialog(t.moveConfirm(ids.length), {
-            title: t.appName,
-            kind: "warning",
-          });
+          const ok = await confirmAction(t.moveConfirm(ids.length), t.moveConfirmOk);
           if (!ok) return;
         }
         const dest = await open({ directory: true, title: t.pickExportFolder });
@@ -4885,7 +4885,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [visibleSelection, clearSelection, reloadAll],
+    [visibleSelection, clearSelection, reloadAll, confirmAction],
   );
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
