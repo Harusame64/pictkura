@@ -398,6 +398,10 @@ export const es: Dict = {
     n === 1
       ? "¿Mover esta foto a una carpeta que elegirás ahora? Sale de donde está y sale de la biblioteca (las marcas ★ y ⚑ no se llevan)."
       : `¿Mover ${num(n)} fotos a una carpeta que elegirás ahora? Salen de donde están y salen de la biblioteca (las marcas ★ y ⚑ no se llevan).`,
+  confirmCancel: "Cancelar",
+  deleteConfirmOk: "Mover a la papelera",
+  moveConfirmOk: "Elegir destino",
+  rootRemoveConfirmOk: "Quitar",
   exporting: (done: number, total: number, name: string) =>
     `Exportando… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {

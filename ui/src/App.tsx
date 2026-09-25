@@ -2222,6 +2222,8 @@ export default function App() {
     const ok = await confirmDialog(t.rootRemoveConfirm(rootName(path)), {
       title: t.appName,
       kind: "warning",
+      okLabel: t.rootRemoveConfirmOk,
+      cancelLabel: t.confirmCancel,
     }).catch(() => false);
     if (!ok) return;
     setBusy(true);
@@ -4568,6 +4570,8 @@ export default function App() {
         const ok = await confirmDialog(t.deleteConfirm(1), {
           title: t.appName,
           kind: "warning",
+          okLabel: t.deleteConfirmOk,
+          cancelLabel: t.confirmCancel,
         });
         if (!ok) return;
         const n = await deleteMedia([item.id]);
@@ -4719,6 +4723,8 @@ export default function App() {
       const ok = await confirmDialog(t.deleteConfirm(ids.length), {
         title: t.appName,
         kind: "warning",
+        okLabel: t.deleteConfirmOk,
+        cancelLabel: t.confirmCancel,
       });
       if (!ok) return;
       try {
@@ -4860,6 +4866,8 @@ export default function App() {
           const ok = await confirmDialog(t.moveConfirm(ids.length), {
             title: t.appName,
             kind: "warning",
+            okLabel: t.moveConfirmOk,
+            cancelLabel: t.confirmCancel,
           });
           if (!ok) return;
         }

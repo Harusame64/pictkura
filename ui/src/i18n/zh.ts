@@ -388,6 +388,10 @@ export const zh: Dict = {
     n === 1
       ? "要把这张照片移动到接下来选择的文件夹吗？它会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。"
       : `要把这 ${num(n)} 张照片移动到接下来选择的文件夹吗？它们会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。`,
+  confirmCancel: "取消",
+  deleteConfirmOk: "移到回收站",
+  moveConfirmOk: "选择目标文件夹",
+  rootRemoveConfirmOk: "移除",
   exporting: (done: number, total: number, name: string) =>
     `正在导出… ${num(done)}/${num(total)} ${name}`,
   exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
