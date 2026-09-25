@@ -2439,6 +2439,16 @@ export default function App() {
   }, [dayStacks]);
   const stackIndexRef = useRef(stackIndex);
   stackIndexRef.current = stackIndex;
+  // **組み方が変わったら、今の選択を組ぜんぶへ広げる**（PRのcodex）。重ねになる前に片方だけ
+  // 選んでいた（設定を入れた・撮影日時が読めて組ができた）と、タイルは選択中に見えるのに
+  // 操作は1ファイルにしか掛からない——消すと片方だけが消える
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const closed = closeOverStacks(prev, stackIndex);
+      return closed.size === prev.size ? prev : closed;
+    });
+  }, [stackIndex]);
   const loadedIdsRef = useRef(loadedIds);
   loadedIdsRef.current = loadedIds;
 
