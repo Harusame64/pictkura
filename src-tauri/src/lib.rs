@@ -2753,6 +2753,9 @@ struct ExportStatsDto {
     /// コピーはできたが、**元を消せなかった**件数（移動のときだけ）。
     /// 両方に残っているので、黙って「移動しました」と言ってはいけない
     left_behind: usize,
+    /// **元の場所から実際に無くなった**写真の数（移動のときだけ。コピーは0）。
+    /// `done` は写し終えた数で `left_behind` を含むので、画面はこちらで「移動しました」と言う
+    moved: usize,
 }
 
 /// 選んだものを、指定のフォルダへ**コピー／移動**する。
@@ -2796,6 +2799,7 @@ async fn export_media(
             skipped: outcome.stats.skipped,
             failed: outcome.stats.failed,
             left_behind: 0,
+            moved: 0,
         };
         // 別のドライブへ移したぶんは、コピーが済んでいて元が残っている。
         // **元はゴミ箱へ**送る——「アプリがファイルを直接消すことはない」を移動でも守る
@@ -2836,6 +2840,7 @@ async fn export_media(
                 ));
             }
         }
+        stats.moved = gone.len();
         if !gone.is_empty() {
             lock_ok(&state.db)
                 .remove_paths(&gone)

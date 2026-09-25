@@ -104,6 +104,8 @@ export interface ExportStats {
   failed: number;
   /** コピーはできたが、元を消せなかった件数（移動のときだけ） */
   left_behind: number;
+  /** 元の場所から実際に無くなった写真の数（移動のときだけ。コピーは0） */
+  moved: number;
 }
 
 export interface ExportProgress {

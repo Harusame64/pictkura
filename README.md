@@ -396,7 +396,8 @@ pick, without date subfolders — handy for handing a few photos to someone or f
 stick. A file that is already there — same name, size and
 timestamp — is left alone, so writing the same photos to the same folder again adds
 nothing; a different file that happens to share a name gets `-1`, `-2` appended. Moving asks first: those photos leave
-their current place and leave the library, and their ★ / ⚑ marks are not carried over. Moving to
+their current place and leave the library, and their ★ / ⚑ marks are not carried over. A photo
+that is already at the destination, or that fails to copy, stays where it was and in the library. Moving to
 another drive — and moving a file that only exists in the cloud — copies first and then
 sends the original to the recycle bin.
 

@@ -415,19 +415,19 @@ export const zhHant: Dict = {
   rootRemoveConfirmOk: "移除",
   exporting: (done: number, total: number, name: string) =>
     `正在匯出… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [`已匯出 ${num(done)} 張`];
     if (skipped > 0) parts.push(`有 ${num(skipped)} 張已經存在`);
     if (failed > 0) parts.push(`有 ${num(failed)} 張失敗`);
-    if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 張無法從原來的位置刪除`);
     return parts.join("，") + "。";
   },
   moving: (done: number, total: number, name: string) =>
     `正在移動… ${num(done)}/${num(total)} ${name}`,
   moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [`已移動 ${num(moved)} 張`];
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(`已移動 ${num(moved)} 張`);
     if (skipped > 0) parts.push(`有 ${num(skipped)} 張在目標位置已經存在，留在了原來的位置`);
-    if (failed > 0) parts.push(`有 ${num(failed)} 張失敗`);
+    if (failed > 0) parts.push(`有 ${num(failed)} 張無法移動，仍在原來的位置`);
     if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 張已複製過去，但無法從原來的位置刪除`);
     return parts.join("；") + "。";
   },

@@ -448,11 +448,10 @@ export const ja = {
   rootRemoveConfirmOk: "外す",
   exporting: (done: number, total: number, name: string) =>
     `書き出し中… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [`${num(done)}枚を書き出しました`];
     if (skipped > 0) parts.push(`${num(skipped)}枚は同じものが既にありました`);
     if (failed > 0) parts.push(`${num(failed)}枚は失敗しました`);
-    if (leftBehind > 0) parts.push(`${num(leftBehind)}枚は元を消せませんでした`);
     return parts.join("。");
   },
   moving: (done: number, total: number, name: string) =>
@@ -460,9 +459,11 @@ export const ja = {
   /* 移動の結果。`moved` は元が消えたものだけ（`leftBehind` は両方に在るので含めない）。
    * `skipped` は移動先に同じものが在り、**元の場所に残した**もの */
   moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [`${num(moved)}枚を移動しました`];
+    // 何も動かなかったときに「0枚を移動しました」から始めない（#159 のゲート2）
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(`${num(moved)}枚を移動しました`);
     if (skipped > 0) parts.push(`${num(skipped)}枚は移動先に同じものが既にあったので、元の場所に残しました`);
-    if (failed > 0) parts.push(`${num(failed)}枚は失敗しました`);
+    if (failed > 0) parts.push(`${num(failed)}枚は移動できず、元の場所に残っています`);
     if (leftBehind > 0) parts.push(`${num(leftBehind)}枚は移動先へ写しましたが、元を消せませんでした`);
     return parts.join("。");
   },

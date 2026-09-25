@@ -422,21 +422,20 @@ export const de: Dict = {
   rootRemoveConfirmOk: "Entfernen",
   exporting: (done: number, total: number, name: string) =>
     `Wird exportiert… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [done === 1 ? "1 Foto exportiert" : `${num(done)} Fotos exportiert`];
     if (skipped > 0) parts.push(`${num(skipped)} ${one(skipped, "war", "waren")} schon da`);
     if (failed > 0) parts.push(`${num(failed)} fehlgeschlagen`);
-    if (leftBehind > 0)
-      parts.push(`${num(leftBehind)} ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz nicht entfernen`);
     return parts.join(". ") + ".";
   },
   moving: (done: number, total: number, name: string) =>
     `Wird verschoben… ${num(done)}/${num(total)} ${name}`,
   moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
-    const parts = [moved === 1 ? "1 Foto verschoben" : `${num(moved)} Fotos verschoben`];
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(moved === 1 ? "1 Foto verschoben" : `${num(moved)} Fotos verschoben`);
     if (skipped > 0)
       parts.push(`${num(skipped)} ${one(skipped, "war", "waren")} schon da und ${one(skipped, "bleibt", "bleiben")} am bisherigen Platz`);
-    if (failed > 0) parts.push(`${num(failed)} fehlgeschlagen`);
+    if (failed > 0) parts.push(`${num(failed)} ${one(failed, "konnte", "konnten")} nicht verschoben werden und ${one(failed, "bleibt", "bleiben")} am bisherigen Platz`);
     if (leftBehind > 0)
       parts.push(
         `${num(leftBehind)} ${one(leftBehind, "wurde", "wurden")} kopiert, ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz aber nicht entfernen`,
