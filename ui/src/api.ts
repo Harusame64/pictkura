@@ -50,6 +50,15 @@ export interface MediaItem {
    * 先読みを絞り、待たせるときは読み込み中と出す（0.2 ①）
    */
   needs_transcode: boolean;
+  /**
+   * 同じ撮影の組（RAW+JPEG）の鍵（dev #32）。同じ値で RAW を含む組を一覧で1枚に重ねる。
+   * **組の定義は Rust の `pair_key` の1か所だけ**——ここでフォルダ名や語幹を畳み直さない
+   */
+  shot_key: number;
+  /** RAW か（判定は Rust の `is_raw_path`。拡張子の表を TS に写さない） */
+  is_raw: boolean;
+  /** `taken_at_ms` が本物の撮影日時か（偽なら mtime で埋めた値。dev #32） */
+  taken_at_known: boolean;
 }
 
 /** タイムライン索引の1日分（日付・枚数と、カレンダー用の代表サムネイル） */
@@ -148,6 +157,8 @@ export interface AppConfig {
   viewer?: { auto_advance: boolean };
   /** 新しい版の確認（0.2）。これも配ったあとに足した節なので**欠けうる** */
   update?: { check_on_start: boolean; last_check_ms: number };
+  /** 一覧の描き方（dev #32）。配ったあとに足した節なので**欠けうる**（既定は重ねる） */
+  grid?: { stack_raw_jpeg: boolean };
 }
 
 /**
@@ -762,6 +773,10 @@ export const setFolderPattern = (pattern: string) =>
 /** 選別キー（P / U）のあと次の絵へ自動で送るかを切り替える（0.2 ②） */
 export const setAutoAdvance = (enabled: boolean) =>
   invoke<void>("set_auto_advance", { enabled });
+
+/** 一覧で RAW+JPEG の組を1枚に重ねるかを切り替える（dev #32） */
+export const setStackRawJpeg = (enabled: boolean) =>
+  invoke<void>("set_stack_raw_jpeg", { enabled });
 
 /**
  * 新しい版が出ていないかを確認する（0.2）。**アプリで唯一の外向き通信**。

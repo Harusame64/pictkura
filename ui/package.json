@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && tsc -p tsconfig.scripts.json && vite build",
-    "test": "node --test scripts/i18n.test.ts scripts/missingRoots.test.ts scripts/confirmLabels.test.ts scripts/originalTrouble.test.ts",
+    "test": "node --test scripts/i18n.test.ts scripts/missingRoots.test.ts scripts/confirmLabels.test.ts scripts/originalTrouble.test.ts scripts/stacks.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

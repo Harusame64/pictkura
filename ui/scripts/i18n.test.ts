@@ -248,6 +248,7 @@ const INFLECTS: Record<string, string[]> = {
     "decoderHeifNoticeMac:0",
     "decoderHeifNoticeOther:0",
     "deleteConfirm:0",
+    "deleteConfirmFiles:0",
     "deletedSomeLeft:1",
     "moveConfirm:0",
     "exportDone:0",
@@ -272,6 +273,7 @@ const INFLECTS: Record<string, string[]> = {
     "decoderHeifNoticeOther:0",
     "wizardHiddenCount:0",
     "deleteConfirm:0",
+    "deleteConfirmFiles:0",
     "deletedSomeLeft:1",
     "moveConfirm:0",
     "exportDone:0",
@@ -304,6 +306,7 @@ const INFLECTS: Record<string, string[]> = {
     "wizardEtaMinutes:0",
     "wizardMoreFiles:0",
     "deleteConfirm:0",
+    "deleteConfirmFiles:0",
     "deleted:0",
     "deletedSomeLeft:0",
     "deletedSomeLeft:1",
@@ -345,6 +348,7 @@ const INFLECTS: Record<string, string[]> = {
     "wizardEtaMinutes:0",
     "wizardMoreFiles:0",
     "deleteConfirm:0",
+    "deleteConfirmFiles:0",
     "deleted:0",
     "deletedSomeLeft:0",
     "deletedSomeLeft:1",
@@ -383,7 +387,7 @@ const NO_PLURAL = ["ja", "zh", "zh-hant"];
  * （`2枚の写真を` に対して `1枚の写真を` とは言わない、という日本語・中国語の言い回し）。
  * 英語も同じ形にしてある。
  */
-const PHRASING = ["deleteConfirm", "moveConfirm"];
+const PHRASING = ["deleteConfirm", "deleteConfirmFiles", "moveConfirm"];
 
 /** 数字そのものは伏せて、**語形だけ**を比べる */
 const shape = (s: string) => s.replace(/[\d., ]+/g, "#");

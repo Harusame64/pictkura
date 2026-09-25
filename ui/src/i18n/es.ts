@@ -386,6 +386,10 @@ export const es: Dict = {
   menuFavoriteOn: "Añadir a Favoritos",
   menuFavoriteOff: "Quitar de Favoritos",
   pickEditor: "Elige una aplicación para editar",
+  deleteConfirmFiles: (photos: number, files: number) =>
+    photos === 1
+      ? `¿Mover esta foto (${num(files)} archivos) a la papelera?`
+      : `¿Mover ${num(photos)} fotos (${num(files)} archivos) a la papelera?`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "¿Mover esta foto a la papelera?"
@@ -455,6 +459,12 @@ export const es: Dict = {
   settingsCustomPatternNote:
     "{year} {month} {day} se sustituyen por la fecha. Usa / para crear niveles. Los caracteres no válidos y los saltos a la carpeta superior (..) se quitan automáticamente.",
   settingsCustomPatternResult: "Carpeta resultante",
+  settingsGrid: "Cuadrícula de fotos",
+  settingsStackRawJpegToggle: "Agrupar las parejas RAW+JPEG en una sola miniatura",
+  settingsStackRawJpegNote:
+    "Un RAW y un JPEG con el mismo nombre en la misma carpeta se muestran como una sola miniatura, la del JPEG. En la cuadrícula, ★, ⚑, borrar y la selección se aplican a los dos. Al ver una foto en grande se sigue viendo archivo por archivo, y ★, ⚑ y borrar solo se aplican al archivo que estás viendo.",
+  stackRawChipTitle: (files: number) =>
+    `RAW y JPEG agrupados en una sola miniatura (${num(files)} archivos)`,
   settingsViewer: "Cuando ves una foto en grande",
   settingsAutoAdvanceToggle: "Pasar a la foto siguiente después de P / U",
   settingsAutoAdvanceNote:

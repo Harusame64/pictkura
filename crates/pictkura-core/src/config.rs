@@ -36,6 +36,7 @@ pub struct Config {
     pub editors: EditorsConfig,
     pub viewer: ViewerConfig,
     pub update: UpdateConfig,
+    pub grid: GridConfig,
 }
 
 /// `[editors]` 外部の編集アプリ。
@@ -391,6 +392,26 @@ impl Default for ViewerConfig {
     }
 }
 
+/// `[grid]` 一覧の描き方（dev #32、`dev/adr.grid-stacks.md`）。
+///
+/// **配ったあとに足した節**なので、古い設定ファイルには無い——`serde(default)` で
+/// 既定（重ねる）として読む。UI も `?? true` で受ける
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GridConfig {
+    /// 同じフォルダ・同じ名前の RAW+JPEG を1枚に重ねるか。既定は ON——組を持たない人には
+    /// 1画素も変わらないので、切っておく理由が無い（2026-09-25 利用者も既定 ON を選んだ）
+    pub stack_raw_jpeg: bool,
+}
+
+impl Default for GridConfig {
+    fn default() -> Self {
+        Self {
+            stack_raw_jpeg: true,
+        }
+    }
+}
+
 /// `[update]` 新しい版が出ていないかの確認（0.2）。
 ///
 /// **このアプリが外へ出す唯一の通信**。写真もファイル名も送らず、GitHubの
@@ -488,6 +509,25 @@ mod tests {
     #[test]
     fn every_raw_extension_is_in_the_scan_set() {
         super::raw_extensions_are_all_scanned().unwrap();
+    }
+
+    /// 一覧の重ね（dev #32）は、`[grid]` 節の無い古い設定でも ON として読む
+    #[test]
+    fn stacking_reads_as_on_even_without_a_grid_section() {
+        let config = Config::from_toml_str(
+            "[import]
+verify_after_copy = true
+",
+        )
+        .unwrap();
+        assert!(config.grid.stack_raw_jpeg);
+        // 節だけ在って値が無い（手で書きかけた等）も既定で補う
+        let empty = Config::from_toml_str("[grid]\n").unwrap();
+        assert!(empty.grid.stack_raw_jpeg);
+        let mut off = Config::default();
+        off.grid.stack_raw_jpeg = false;
+        let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
+        assert!(!back.grid.stack_raw_jpeg);
     }
 
     /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**

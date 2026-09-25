@@ -15,6 +15,7 @@ import {
   setFolderPattern,
   setImportDestination,
   setAutoAdvance,
+  setStackRawJpeg,
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
@@ -429,6 +430,29 @@ export default function Settings({
               {t.settingsAutoAdvanceToggle}
             </label>
             <p className="settings-note">{t.settingsAutoAdvanceNote}</p>
+          </section>
+
+          {/* 一覧の重ね（dev #32、`dev/adr.grid-stacks.md`）。連写の2項目は次の PR */}
+          <section className="settings-section">
+            <h3>{t.settingsGrid}</h3>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                // 配ったあとに足した節なので、古い設定ファイルには無い。Rust側の既定（ON）に合わせる
+                checked={config?.grid?.stack_raw_jpeg ?? true}
+                onChange={async (e) => {
+                  try {
+                    await setStackRawJpeg(e.target.checked);
+                  } catch (err) {
+                    // 保存できなければ下の onConfigChanged で表示が元に戻る
+                    onError(errText(err));
+                  }
+                  onConfigChanged();
+                }}
+              />
+              {t.settingsStackRawJpegToggle}
+            </label>
+            <p className="settings-note">{t.settingsStackRawJpegNote}</p>
           </section>
 
           {/*
