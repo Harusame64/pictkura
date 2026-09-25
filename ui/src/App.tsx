@@ -900,28 +900,7 @@ export default function App() {
    * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる。
    * ただし立てるだけだと今度は**失敗を「空」と読む**ので、
    * 落ちたことは [`loadFailed`] に分けて持つ */
-  /** カメラ別の数の問い合わせの通し番号。**いちばん新しく頼んだ答えだけ**を使う */
-  const camerasSeqRef = useRef(0);
-  /**
-   * 「カメラとメディア」を数え直す。**一覧の取り直し（`reloadAll` / `refreshSummary`）の頭で
-   * 必ず呼ぶ**——数えるのは `media` の行からなので、行が消える・増える・カメラが後から
-   * 埋まる、どの道でも一覧と一緒に古くなる。呼び出しを道ごとに足す形は漏れた
-   * （外したフォルダのカメラが残った。#146 の実機、#148 の2ゲート目）。
-   * 頭で呼ぶので、後ろの取り直しが投げても数え直しは届く。
-   * **追い越しは捨てる**——先に頼んだ答え（消す前の数）が後から着いて上書きしないように。
-   */
-  const recountCameras = useCallback(async () => {
-    const seq = ++camerasSeqRef.current;
-    try {
-      const counted = await listCameras();
-      if (camerasSeqRef.current === seq) setCameras(counted);
-    } catch {
-      /* カメラ集計の失敗は無視（次の取り直しで再試行される） */
-    }
-  }, []);
-
   const reloadAll = useCallback(async () => {
-    void recountCameras();
     const gen = ++generationRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -986,7 +965,7 @@ export default function App() {
         setSettled(true);
       }
     }
-  }, [recountCameras]);
+  }, []);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
    *
@@ -996,7 +975,6 @@ export default function App() {
    * 合致するようになった」等で起きる。listDayは常にその日の全件を返すので、
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
-    void recountCameras();
     const gen = generationRef.current;
     const [sum, st] = await Promise.all([
       timelineSummary(queryRef.current, filterRef.current),
@@ -1024,7 +1002,7 @@ export default function App() {
       }
       return next ?? prev;
     });
-  }, [recountCameras]);
+  }, []);
   const summaryRefreshTimer = useRef<number | null>(null);
   // サムネイル一括生成中はパッチが大量に届くため、骨組みの再取得は2秒デバウンス
   // （最後のパッチの2秒後に必ず1回走り、最終状態には確実に追従する）
@@ -1088,7 +1066,13 @@ export default function App() {
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
-  const refreshCameras = recountCameras;
+  const refreshCameras = useCallback(async () => {
+    try {
+      setCameras(await listCameras());
+    } catch {
+      /* カメラ集計の失敗は無視（次の更新で再試行される） */
+    }
+  }, []);
 
   const refreshRoots = useCallback(async () => {
     try {

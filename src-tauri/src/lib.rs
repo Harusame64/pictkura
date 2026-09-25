@@ -2621,6 +2621,8 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
             lock_ok(&state.db)
                 .remove_paths(&deleted_media)
                 .map_err(errs::from_err)?;
+            // 行が消えたので「カメラとメディア」も数え直させる（一部だけ成功した回も）
+            announce_cameras_changed(&app);
         }
         // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
         let count = deleted_media.len();
@@ -3133,13 +3135,37 @@ fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, Strin
     Ok(stats)
 }
 
+/// 「カメラとメディア」を数え直させる合図。**行を変えたのに `library-updated` を出さない
+/// コマンド**（再スキャン・フォルダの追加と外し・ゴミ箱へ）が出す。受け口は画面側にある
+/// （索引の後追いがカメラを埋めたときと同じ `cameras-updated`）。
+///
+/// 画面の取り直しに数え直しを抱き合わせる形は、絞り込みやサムネイルの度に全件の
+/// `GROUP BY` を回すことになる（#148 の2ゲート目）。**行を変えた所で1回だけ言う。**
+fn announce_cameras_changed(app: &tauri::AppHandle) {
+    let _ = app.emit("cameras-updated", ());
+}
+
+/// `scan_and_apply` のあと、行が動いたら数え直させる。外したフォルダのカメラが
+/// 左ペインに残っていた（#146 の実機）のは、この3つのコマンドが何も言わなかったから。
+fn scan_and_announce(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    full: bool,
+) -> Result<SyncStats, String> {
+    let stats = scan_and_apply(state, full)?;
+    if stats.added + stats.changed + stats.removed > 0 {
+        announce_cameras_changed(app);
+    }
+    Ok(stats)
+}
+
 /// ライブラリを再スキャンして差分をDBへ反映する。
 /// 走査はブロッキングI/Oなので専用スレッドで実行し、非同期ランタイムを塞がない。
 #[tauri::command]
 async fn sync_now(app: tauri::AppHandle) -> Result<SyncStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        scan_and_apply(&state, true).map(Into::into)
+        scan_and_announce(&app, &state, true).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -3324,7 +3350,7 @@ async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncSta
             }
         })?;
         rebuild_watcher(&app);
-        scan_and_apply(&state, false).map(Into::into)
+        scan_and_announce(&app, &state, false).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -3341,7 +3367,7 @@ async fn remove_library_root(app: tauri::AppHandle, path: String) -> Result<Sync
         })?;
         rebuild_watcher(&app);
         // 再スキャンすると、どのルートにも属さなくなったレコードが削除される
-        scan_and_apply(&state, false).map(Into::into)
+        scan_and_announce(&app, &state, false).map(Into::into)
     })
     .await
     .map_err(|e| e.to_string())?
