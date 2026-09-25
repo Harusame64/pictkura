@@ -75,7 +75,8 @@ impl CameraSignal {
             let first = self.pending.map_or(now, |(first, _)| first);
             self.pending = Some((first, now));
         }
-        overdue || self.fire_if_due(now)
+        // 延ばした後の期日は、延ばす前に来ていなければ必ず今より後にある
+        overdue
     }
 
     /// 次に [`Self::on_tick`] を呼ぶべき時刻。溜めていなければ `None`（待つだけ）。
