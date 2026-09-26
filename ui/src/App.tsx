@@ -357,6 +357,10 @@ type Cell = {
   rawPair: boolean;
   /** 連写の最初のコマから最後のコマまで（ミリ秒。連写でなければ 0） */
   spanMs: number;
+  /**
+   * 試作（見え方 C / D）: 後ろにのぞかせる絵。組なら組のもう一方、連写なら表紙以外のコマ（2つまで）
+   */
+  backs: MediaItem[];
   w: number;
   h: number;
 };
@@ -2512,6 +2516,23 @@ export default function App() {
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
   // 一覧で RAW+JPEG を1枚に重ねるか（dev #32）。配ったあとに足した節なので既定は ON
   const stackRawJpeg = config?.grid?.stack_raw_jpeg ?? true;
+  /** 試作: 重ねの見え方（A いま / C 後ろにも写真 / D 傾けて重ねる）。利用者が見比べるためだけのもの */
+  const [stackLook, setStackLook] = useState<"A" | "C" | "D">(() => {
+    try {
+      const v = localStorage.getItem("pk.proto.stackLook");
+      return v === "A" || v === "D" ? v : "C";
+    } catch {
+      return "C";
+    }
+  });
+  const chooseStackLook = (v: "A" | "C" | "D") => {
+    setStackLook(v);
+    try {
+      localStorage.setItem("pk.proto.stackLook", v);
+    } catch {
+      /* 覚えられなくても切り替えは効く */
+    }
+  };
   // 連写も既定で重ねる。間隔は既定1秒（ADR の設定表）
   const stackBursts = config?.grid?.stack_bursts ?? true;
   const burstGapMs = burstGapOf(config);
@@ -2626,6 +2647,15 @@ export default function App() {
             ),
             // 連写の長さは束ね役が鎖に使った時刻で出したもの（ここで数え直さない。#160 のゲート2）
             spanMs: st.spanMs ?? 0,
+            backs:
+              frames > 1
+                ? st.shots
+                    .filter((sh) => sh !== st.cover)
+                    .slice(0, 2)
+                    .map((sh) => sh.lead)
+                : st.cover.files.length > 1
+                  ? [st.cover.files.find((f) => f !== st.cover.lead) ?? st.cover.lead]
+                  : [],
             w: Math.floor(aspectOf(st.cover.lead) * h),
             h: Math.round(h),
           };
@@ -6071,7 +6101,10 @@ export default function App() {
                           style={{ height: row.height - GAP }}
                         />
                       ) : (
-                        <div className="cell-row" style={{ gap: GAP }}>
+                        <div
+                          className={`cell-row look-${stackLook}`}
+                          style={{ gap: GAP }}
+                        >
                           {row.cells.map((cell) => {
                             // 重ねのタイル（dev #32）: 印も選択も**組のどれか**で見せる
                             const stacked = cell.files.length > 1;
@@ -6111,6 +6144,19 @@ export default function App() {
                                 });
                               }}
                             >
+                              {/* 試作: 見え方 C / D の後ろの絵（A では描かない） */}
+                              {stacked &&
+                                stackLook !== "A" &&
+                                cell.backs.map((b, k) => (
+                                  <img
+                                    key={b.id}
+                                    className={`cell-back b${k + 1}`}
+                                    loading="lazy"
+                                    decoding="async"
+                                    src={thumbSrc(b)}
+                                    alt=""
+                                  />
+                                ))}
                               <img
                                 className="cell"
                                 loading="lazy"
@@ -6869,6 +6915,27 @@ export default function App() {
         onConfigChanged={refreshRoots}
         onError={onWizardError}
       />
+      {/* 試作: 重ねの見え方を見比べるスイッチ（マージしない枝だけにある） */}
+      <div className="proto-look-switch" role="group" aria-label="重ねの見え方（試作）">
+        <span>重ねの見え方（試作）</span>
+        {(
+          [
+            ["A", "A いま"],
+            ["C", "C 後ろにも写真"],
+            ["D", "D 傾けて重ねる"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={stackLook === v}
+            className={stackLook === v ? "on" : ""}
+            onClick={() => chooseStackLook(v)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <ContextMenu
         pos={menu?.pos ?? null}
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}

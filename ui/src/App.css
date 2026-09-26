@@ -2725,3 +2725,94 @@ body {
   font-size: var(--fs-md);
   overflow-wrap: anywhere;
 }
+
+/* ===== 試作: 重ねの見え方 C / D（見比べるためだけの枝。マージしない） ===== */
+.look-C .cell-wrap.stacked::before,
+.look-C .cell-wrap.stacked::after,
+.look-D .cell-wrap.stacked::before,
+.look-D .cell-wrap.stacked::after {
+  display: none;
+}
+.cell-back {
+  position: absolute;
+  object-fit: cover;
+  border-radius: 3px;
+  pointer-events: none;
+  background: var(--surface-2);
+}
+/* C: 写真は左上、後ろの絵を右下へずらして暗くのぞかせる */
+.look-C .cell-wrap.stacked .cell {
+  box-shadow: 1px 1px 3px oklch(0 0 0 / 0.35);
+}
+.look-C .cell-back {
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
+  filter: brightness(0.78);
+  box-shadow: 1px 1px 2px oklch(0 0 0 / 0.35);
+}
+.look-C .cell-back.b1 {
+  right: 0;
+  bottom: 0;
+  z-index: -2;
+}
+.look-C .cell-back.b2 {
+  right: calc(var(--photo-inset) / 2);
+  bottom: calc(var(--photo-inset) / 2);
+  z-index: -1;
+}
+/* D: 写真をひと回り小さくして中央に置き、後ろの絵を傾ける */
+.look-D .cell-wrap.stacked {
+  --photo-inset: 8px;
+}
+.look-D .cell-wrap.stacked .cell {
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  margin: 6px;
+  transform: scale(0.95);
+  box-shadow: 1px 2px 4px oklch(0 0 0 / 0.4);
+}
+.look-D .cell-back {
+  top: 6px;
+  left: 6px;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  filter: brightness(0.85);
+  box-shadow: 1px 1px 3px oklch(0 0 0 / 0.35);
+}
+.look-D .cell-back.b1 {
+  transform: rotate(4deg) scale(0.93);
+  z-index: -2;
+}
+.look-D .cell-back.b2 {
+  transform: rotate(-3deg) scale(0.95);
+  z-index: -1;
+}
+.proto-look-switch {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.3);
+  font-size: var(--fs-sm);
+}
+.proto-look-switch button {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.proto-look-switch button.on {
+  background: var(--accent, #3b6fd6);
+  border-color: transparent;
+  color: #fff;
+}
