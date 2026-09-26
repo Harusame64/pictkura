@@ -52,13 +52,19 @@ filetime = "0.2"
 notify-debouncer-mini = "0.5"
 
 # USNジャーナル（段階B-1）用のWin32 API宣言
+# UI_WindowsAndMessaging / LibraryLoader / Graphics_Gdi / WindowsProgramming は、取り外しの知らせを受ける
+# メッセージ専用の窓（`watch/device.rs`、dev #35）
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_System_LibraryLoader",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 # HEIC/HEIF のデコードはOS任せ（第7部 段階G）。WICはCOMインターフェイスなので
 # 生のvtableを触るwindows-sysでは扱いにくく、ラッパのあるwindowsクレートを使う。
