@@ -105,6 +105,7 @@ import {
   countPhotos,
   filesOf,
   selectRangeOverTiles,
+  selectionTilesOf,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -2738,6 +2739,16 @@ export default function App() {
   }, [stackIndex]);
   const loadedIdsRef = useRef(loadedIds);
   loadedIdsRef.current = loadedIds;
+  /**
+   * 選んだ写真ごとの、選んだ時点のタイル（`selectionTilesOf`）。選択の枚数・削除の確認・印の報告は
+   * これで数える——選んだ日が一覧から間引かれても、組のタイル1つは1枚のまま
+   */
+  const selectionTilesRef = useRef<ReadonlyMap<number, readonly number[]>>(new Map());
+  const selectionTiles = useMemo(() => {
+    const next = selectionTilesOf(selected, stackIndex, loadedIds, selectionTilesRef.current);
+    selectionTilesRef.current = next;
+    return next;
+  }, [selected, stackIndex, loadedIds]);
 
   const rows = useMemo<Row[]>(() => {
     const usable = Math.max(120, viewportWidth - GRID_PADDING);
@@ -5234,7 +5245,7 @@ export default function App() {
       if (ids.length === 0) return;
       // 報告は見えている枚数で（重ねのタイル1枚は1枚。PRのcodex）。全部に付いたときだけ
       // 言い換える——一部だけのときはファイルの数のほうが正確
-      const photos = countPhotos(ids, stackIndexRef.current, loadedIdsRef.current);
+      const photos = countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current);
       const written = await markIds(kind, on, ids);
       if (written === null) return;
       const n = written === ids.length && photos !== null ? photos : written;
@@ -5293,7 +5304,7 @@ export default function App() {
       // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
       const touched = new Set(ids);
       // 重ねのタイルを含むなら、見えている枚数とファイル数の両方を言う（dev #32）
-      const photos = countPhotos(ids, stackIndexRef.current, loadedIdsRef.current);
+      const photos = countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current);
       const ok = await confirmAction(
         photos !== null && photos < ids.length
           ? t.deleteConfirmFiles(photos, ids.length)
@@ -5447,7 +5458,7 @@ export default function App() {
           // 見えている枚数で言う（重ねのタイルは1枚——組ぜんぶが動く。dev #32）
           const ok = await confirmAction(
             t.moveConfirm(
-              countPhotos(ids, stackIndexRef.current, loadedIdsRef.current) ??
+              countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ??
                 ids.length,
             ),
             t.moveConfirmOk,
@@ -5679,7 +5690,7 @@ export default function App() {
           </button>
           <span className="select-bar-count">
             {t.selectedCount(
-              countPhotos(selected, stackIndex, loadedIds) ?? selected.size,
+              countPhotos(selected, selectionTiles, selectionTiles) ?? selected.size,
             )}
           </span>
           <button
