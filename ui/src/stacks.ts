@@ -87,8 +87,6 @@ export function stacksOfDay<T extends Stackable>(
   // つながり、連写でない1組が「連写 2」になる（マニュアルの「切れば別々に出る」に反する）。
   // 設定が効くのは**連写にならなかった組**だけ——切っていれば、そこでファイルごとに分ける
   const shots = shotsOfDay(items, true);
-  const unpaired = (shot: Shot<T>): Stack<T>[] =>
-    opts.rawJpeg ? [single(shot)] : shot.files.map((f) => single({ lead: f, files: [f] }));
 
   const gap = opts.burstGapMs ?? 1000;
   // 機体ごとに、撮影時刻の順に並べて鎖を切る。`at` は一覧の位置（重ねを置く場所）
@@ -129,13 +127,23 @@ export function stacksOfDay<T extends Stackable>(
     }
     flush();
   }
-  const out: Stack<T>[] = [];
+  // **並べる位置は元の並びの位置**。重ねは最初のファイルの位置に置き、ばらした組の
+  // ファイルはそれぞれ自分の位置へ戻す——組のそばにまとめて出すと、同じ秒に撮った別の写真が
+  // 組の間に挟まっていたとき並びが崩れ、範囲選択が見えているタイルを飛ばす（#160 の codex）
+  const indexOf = new Map<T, number>();
+  items.forEach((it, i) => indexOf.set(it, i));
+  // 展開（`Math.min(...)`）にしない——長い連写は引数の数の上限に届く
+  const first = (files: readonly T[]) =>
+    files.reduce((m, f) => Math.min(m, indexOf.get(f) ?? 0), Infinity);
+  const placedAt: [number, Stack<T>][] = [];
   shots.forEach((shot, at) => {
     const burst = placed.get(at);
-    if (burst) out.push(burst);
-    else if (!absorbed.has(at)) out.push(...unpaired(shot));
+    if (burst) placedAt.push([first(filesOf(burst)), burst]);
+    else if (absorbed.has(at)) return;
+    else if (opts.rawJpeg || shot.files.length === 1) placedAt.push([first(shot.files), single(shot)]);
+    else for (const f of shot.files) placedAt.push([indexOf.get(f) ?? 0, single({ lead: f, files: [f] })]);
   });
-  return out;
+  return placedAt.sort((a, b) => a[0] - b[0]).map(([, st]) => st);
 }
 
 /**

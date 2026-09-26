@@ -394,8 +394,25 @@ test("連写の間隔の選択肢と既定は、Rust と UI で同じ（写し�
     list(rust, /pub const BURST_GAPS_MS: \[u32; 3\] = \[([^\]]*)\]/),
     list(api, /export const BURST_GAPS_MS = \[([^\]]*)\]/),
   );
-  const rustDefault = /burst_gap_ms: (\d+),\n\s*\}/.exec(rust);
+  // 行末は台で変わる（Windows の CI は CRLF で取り出す）ので、改行を名指ししない
+  const rustDefault = /burst_gap_ms: (\d+),\s*\}/.exec(rust);
+  // CRLF で取り出した木でも同じものを読む（Windows の CI で落ちた形）
+  assert.equal(/burst_gap_ms: (\d+),\s*\}/.exec(rust.replace(/\n/g, "\r\n"))?.[1], rustDefault?.[1]);
   const apiDefault = /export const DEFAULT_BURST_GAP_MS = (\d+);/.exec(api);
   assert.ok(rustDefault && apiDefault);
   assert.equal(rustDefault[1], apiDefault[1]);
+});
+
+test("RAW+JPEG を切ったとき、ばらした組のファイルは元の位置に戻す（間に挟まる写真の順を崩さない。#160 の codex）", () => {
+  // 同じ秒に: A.JPG, B.JPG, A.CR3, C.JPG（新しい順）。B と C は別の名前の1枚
+  const day = [
+    f(1, 1, false, "A.JPG", 1000),
+    f(2, 2, false, "B.JPG", 1000),
+    f(3, 1, true, "A.CR3", 1000),
+    f(4, 3, false, "C.JPG", 1000),
+  ];
+  const stacks = stacksOfDay(day, { ...burstsOn, rawJpeg: false });
+  assert.deepEqual(leads(stacks), [1, 2, 3, 4]);
+  // 組を重ねるなら、組は A.JPG の位置に1枚
+  assert.deepEqual(members(stacksOfDay(day, burstsOn)), [[1, 3], [2], [4]]);
 });
