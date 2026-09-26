@@ -105,8 +105,9 @@ test("重ねでなければ印は無い", () => {
 
 test("余白と間の値は App.css と同じ（幅の見積もりがずれると、入らない形を選ぶ）", () => {
   const css = readFileSync(new URL("../src/App.css", import.meta.url), "utf8");
+  // 行頭から探す（`.cell-chip {` は `.cell-chips.tight .cell-chip {` の部分文字列なので、並び順に頼らない）
   const block = (sel: string) => {
-    const i = css.indexOf(`${sel} {`);
+    const i = css.indexOf(`\n${sel} {`);
     assert.ok(i >= 0, sel);
     return css.slice(i, css.indexOf("}", i));
   };

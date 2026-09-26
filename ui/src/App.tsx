@@ -122,7 +122,7 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
-import { chooseBadges } from "./stackBadges";
+import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
 const GAP = 4;
@@ -428,32 +428,44 @@ const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
 };
 
 /**
- * 秒の整形器は**モジュールで1つずつ持つ**。`speedLabel` は描画のたびに呼ばれるので、
- * ここで `new Intl.NumberFormat` すると帯が出ている間ずっと作り直しになる
- * （`i18n/index.ts` の `Intl` の使い方に合わせた）
- */
-/**
  * 重ねの印（`.cell-chip`）の文字の幅を測る（[`chooseBadges`] に渡す）。字体は `body` の
  * 実際の値（言語で替わる `--font-ui`）、大きさと字間は `.cell-chip` と同じ（11px・600・0.02em）。
  * 測った値は覚えておく——描画のたびにタイルの数だけ呼ばれる
  */
 const chipWidthCache = new Map<string, number>();
+/**
+ * 測る canvas。**字体の指定が効いたかを確かめる**——受け付けられないと、canvas は黙って
+ * 既定（`10px sans-serif`）のままで、幅を小さく測り、入らない形を選ぶ（#167 のゲート2）。
+ * 効かなければ総称の `sans-serif` で試し、それも駄目なら測らない（`null`）
+ */
+function chipMeasurer(): CanvasRenderingContext2D | null {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return null;
+  for (const family of [getComputedStyle(document.body).fontFamily, "sans-serif"]) {
+    ctx.font = `600 11px ${family}`;
+    if (/\b11px\b/.test(ctx.font) && /\b(600|bold)\b/.test(ctx.font)) return ctx;
+  }
+  return null;
+}
 let chipCtx: CanvasRenderingContext2D | null | undefined;
 function measureChipText(text: string): number {
   const hit = chipWidthCache.get(text);
   if (hit !== undefined) return hit;
-  if (chipCtx === undefined) {
-    chipCtx = document.createElement("canvas").getContext("2d");
-    if (chipCtx) chipCtx.font = `600 11px ${getComputedStyle(document.body).fontFamily}`;
-  }
-  // 測れないとき（canvas が無い）は大きめに見積もる——入らない側に倒せば、短い形になるだけ
+  if (chipCtx === undefined) chipCtx = chipMeasurer();
+  // 測れないときは大きめに見積もる——入らない側に倒せば、短い形になるだけ。
+  // 1文字 12px は、11px の漢字（`連写`）や `▤` の全角幅より広い（#167 のゲート2: 8px では漢字で足りない）
   const w = chipCtx
     ? Math.ceil(chipCtx.measureText(text).width + 0.22 * [...text].length) + 1
-    : 8 * [...text].length;
+    : 12 * [...text].length;
   chipWidthCache.set(text, w);
   return w;
 }
 
+/**
+ * 秒の整形器は**モジュールで1つずつ持つ**。`speedLabel` は描画のたびに呼ばれるので、
+ * ここで `new Intl.NumberFormat` すると帯が出ている間ずっと作り直しになる
+ * （`i18n/index.ts` の `Intl` の使い方に合わせた）
+ */
 const secondsFmt2 = new Intl.NumberFormat(formatLocale, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -6185,7 +6197,7 @@ export default function App() {
                                         ) : p.kind === "pair-icon" ? (
                                           // 細いタイルでの組の形: 四角が2枚重なった記号（2026-09-26 の利用者の選択）
                                           <span key="pair" className="cell-chip chip-icon">
-                                            <svg width="13" height="11" viewBox="0 0 13 11" role="img" aria-label="RAW+JPEG">
+                                            <svg width={PAIR_ICON_WIDTH} height="11" viewBox="0 0 13 11" role="img" aria-label="RAW+JPEG">
                                               <rect x="0.75" y="0.75" width="8" height="6.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" />
                                               <rect x="4.25" y="3.75" width="8" height="6.5" rx="1" fill="currentColor" stroke="currentColor" strokeWidth="1.3" />
                                             </svg>
