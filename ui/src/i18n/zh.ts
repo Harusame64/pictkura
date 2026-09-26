@@ -401,22 +401,32 @@ export const zh: Dict = {
   bulkMove: "移动到文件夹",
   bulkViewer: "查看选中的照片",
   pickExportFolder: "选择导出到的文件夹",
+  pickMoveFolder: "选择要移动到的文件夹",
   moveConfirm: (n: number) =>
     n === 1
-      ? "要把这张照片移动到接下来选择的文件夹吗？它会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。"
-      : `要把这 ${num(n)} 张照片移动到接下来选择的文件夹吗？它们会离开原来的位置，也会从图库中移出（★ 和 ⚑ 的标记不会带过去）。`,
+      ? "要把这张照片移动到接下来选择的文件夹吗？\n它会离开原来的位置，也会从图库中移出。\n★ 和 ⚑ 的标记不会带过去。"
+      : `要把这 ${num(n)} 张照片移动到接下来选择的文件夹吗？\n它们会离开原来的位置，也会从图库中移出。\n★ 和 ⚑ 的标记不会带过去。`,
   confirmCancel: "取消",
   deleteConfirmOk: "移到回收站",
   moveConfirmOk: "选择目标文件夹",
   rootRemoveConfirmOk: "移除",
   exporting: (done: number, total: number, name: string) =>
     `正在导出… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [`已导出 ${num(done)} 张`];
     if (skipped > 0) parts.push(`有 ${num(skipped)} 张已经存在`);
     if (failed > 0) parts.push(`有 ${num(failed)} 张失败`);
-    if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 张无法从原来的位置删除`);
     return parts.join("，") + "。";
+  },
+  moving: (done: number, total: number, name: string) =>
+    `正在移动… ${num(done)}/${num(total)} ${name}`,
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(`已移动 ${num(moved)} 张`);
+    if (skipped > 0) parts.push(`有 ${num(skipped)} 张在目标位置已经存在，留在了原来的位置`);
+    if (failed > 0) parts.push(`有 ${num(failed)} 张无法移动，仍在原来的位置`);
+    if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 张已复制过去，但无法从原来的位置删除`);
+    return parts.join("；") + "。";
   },
   bulkPickOn: "留用",
   bulkPickOff: "取消留用",

@@ -435,10 +435,11 @@ export const ja = {
   bulkMove: "フォルダへ移動",
   bulkViewer: "選んだ写真を見る",
   pickExportFolder: "書き出し先のフォルダを選ぶ",
+  pickMoveFolder: "移動先のフォルダを選ぶ",
   moveConfirm: (n: number) =>
     n === 1
-      ? "この写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。"
-      : `${num(n)}枚の写真を、このあと選ぶフォルダへ移動しますか？ 元の場所からは無くなり、ライブラリからも外れます（★と⚑の印は引き継がれません）。`,
+      ? "この写真を、このあと選ぶフォルダへ移動しますか？\n元の場所からは無くなり、ライブラリからも外れます。\n★と⚑の印は引き継がれません。"
+      : `${num(n)}枚の写真を、このあと選ぶフォルダへ移動しますか？\n元の場所からは無くなり、ライブラリからも外れます。\n★と⚑の印は引き継がれません。`,
   /* 確認ダイアログのボタン。**「OK」ではなく、押すと何が起きるかを言う**（既定の Cancel／OK は
    * macOS で英語のまま出ていた。#146 の実機） */
   confirmCancel: "キャンセル",
@@ -447,11 +448,23 @@ export const ja = {
   rootRemoveConfirmOk: "外す",
   exporting: (done: number, total: number, name: string) =>
     `書き出し中… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [`${num(done)}枚を書き出しました`];
     if (skipped > 0) parts.push(`${num(skipped)}枚は同じものが既にありました`);
     if (failed > 0) parts.push(`${num(failed)}枚は失敗しました`);
-    if (leftBehind > 0) parts.push(`${num(leftBehind)}枚は元を消せませんでした`);
+    return parts.join("。");
+  },
+  moving: (done: number, total: number, name: string) =>
+    `移動中… ${num(done)}/${num(total)} ${name}`,
+  /* 移動の結果。`moved` は元が消えたものだけ（`leftBehind` は両方に在るので含めない）。
+   * `skipped` は移動先に同じものが在り、**元の場所に残した**もの */
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+    // 何も動かなかったときに「0枚を移動しました」から始めない（#159 のゲート2）
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(`${num(moved)}枚を移動しました`);
+    if (skipped > 0) parts.push(`${num(skipped)}枚は移動先に同じものが既にあったので、元の場所に残しました`);
+    if (failed > 0) parts.push(`${num(failed)}枚は移動できず、元の場所に残っています`);
+    if (leftBehind > 0) parts.push(`${num(leftBehind)}枚は移動先へ写しましたが、元を消せませんでした`);
     return parts.join("。");
   },
   bulkPickOn: "選ぶ",

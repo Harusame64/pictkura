@@ -343,21 +343,31 @@ export const en: Dict = {
   bulkMove: "Move to folder",
   bulkViewer: "View the selection",
   pickExportFolder: "Choose a folder to export to",
+  pickMoveFolder: "Choose a folder to move to",
   moveConfirm: (n: number) =>
     n === 1
-      ? "Move this photo to a folder you pick next? It leaves its current place and leaves the library (★ and ⚑ marks are not carried over)."
-      : `Move ${num(n)} photos to a folder you pick next? They leave their current place and leave the library (★ and ⚑ marks are not carried over).`,
+      ? "Move this photo to a folder you pick next?\nIt leaves its current place and leaves the library.\n★ and ⚑ marks are not carried over."
+      : `Move ${num(n)} photos to a folder you pick next?\nThey leave their current place and leave the library.\n★ and ⚑ marks are not carried over.`,
   confirmCancel: "Cancel",
   deleteConfirmOk: "Move to trash",
   moveConfirmOk: "Choose where to move",
   rootRemoveConfirmOk: "Remove",
   exporting: (done: number, total: number, name: string) =>
     `Exporting… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [done === 1 ? "Exported 1 photo" : `Exported ${num(done)} photos`];
     if (skipped > 0) parts.push(`${num(skipped)} already there`);
     if (failed > 0) parts.push(`${num(failed)} failed`);
-    if (leftBehind > 0) parts.push(`${num(leftBehind)} could not be removed from the original place`);
+    return parts.join(". ") + ".";
+  },
+  moving: (done: number, total: number, name: string) =>
+    `Moving… ${num(done)}/${num(total)} ${name}`,
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(moved === 1 ? "Moved 1 photo" : `Moved ${num(moved)} photos`);
+    if (skipped > 0) parts.push(`${num(skipped)} already there, left in place`);
+    if (failed > 0) parts.push(`${num(failed)} could not be moved and stayed in place`);
+    if (leftBehind > 0) parts.push(`${num(leftBehind)} copied, but could not be removed from the original place`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Pick",

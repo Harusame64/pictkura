@@ -837,6 +837,13 @@ export default function App() {
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
   /**
+   * いま走っている書き出しの種類。**`exportMedia` を待っている間だけ**値を持つ。
+   * 進捗の文言を「書き出し中」と「移動中」で分け、**終わったあとに遅れて届いた進捗が
+   * 結果の文を上書きしない**よう、`null` の間は進捗を捨てる（#159 のゲート2）。
+   * `exportingRef` は二度押しの鍵で、確認とフォルダ選択の間も立っている——寿命が違う
+   */
+  const exportKindRef = useRef<"copy" | "move" | null>(null);
+  /**
    * ゴミ箱への移動が走っているか。**一覧からの削除と1枚の削除で共有する**
    * ——別スレッドへ出したぶん、走っている最中も画面は動く（ゲート1の指摘）
    */
@@ -1364,10 +1371,17 @@ export default function App() {
       // 書き出しの進捗はステータス行に出す（枚数が多いと数分かかる）
       const exportProgress = await listen<ExportProgress>(
         "export-progress",
-        (ev) =>
+        (ev) => {
+          const kind = exportKindRef.current;
+          if (kind === null) return;
           setStatus(
-            t.exporting(ev.payload.done, ev.payload.total, ev.payload.name),
-          ),
+            (kind === "move" ? t.moving : t.exporting)(
+              ev.payload.done,
+              ev.payload.total,
+              ev.payload.name,
+            ),
+          );
+        },
       );
       if (cancelled) exportProgress();
       else unlistenExport = exportProgress;
@@ -5099,10 +5113,23 @@ export default function App() {
           );
           if (!ok) return;
         }
-        const dest = await open({ directory: true, title: t.pickExportFolder });
+        const dest = await open({
+          directory: true,
+          title: moveFiles ? t.pickMoveFolder : t.pickExportFolder,
+        });
         if (typeof dest !== "string") return;
-        const st = await exportMedia(ids, dest, moveFiles);
-        setStatus(t.exportDone(st.done, st.skipped, st.failed, st.left_behind));
+        exportKindRef.current = moveFiles ? "move" : "copy";
+        let st;
+        try {
+          st = await exportMedia(ids, dest, moveFiles);
+        } finally {
+          exportKindRef.current = null;
+        }
+        setStatus(
+          moveFiles
+            ? t.moveDone(st.moved, st.skipped, st.failed, st.left_behind)
+            : t.exportDone(st.done, st.skipped, st.failed),
+        );
         if (moveFiles) {
           // 移動したぶんはライブラリから外れている。選択も画面も取り直す
           clearSelection();

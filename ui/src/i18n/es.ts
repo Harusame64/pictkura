@@ -412,23 +412,36 @@ export const es: Dict = {
   bulkMove: "Mover a una carpeta",
   bulkViewer: "Ver las seleccionadas",
   pickExportFolder: "Elige la carpeta a la que exportar",
+  pickMoveFolder: "Elige la carpeta a la que mover",
   moveConfirm: (n: number) =>
     n === 1
-      ? "¿Mover esta foto a una carpeta que elegirás ahora? Sale de donde está y sale de la biblioteca (las marcas ★ y ⚑ no se llevan)."
-      : `¿Mover ${num(n)} fotos a una carpeta que elegirás ahora? Salen de donde están y salen de la biblioteca (las marcas ★ y ⚑ no se llevan).`,
+      ? "¿Mover esta foto a una carpeta que elegirás ahora?\nSale de donde está y sale de la biblioteca.\nLas marcas ★ y ⚑ no se llevan."
+      : `¿Mover ${num(n)} fotos a una carpeta que elegirás ahora?\nSalen de donde están y salen de la biblioteca.\nLas marcas ★ y ⚑ no se llevan.`,
   confirmCancel: "Cancelar",
   deleteConfirmOk: "Mover a la papelera",
   moveConfirmOk: "Elegir destino",
   rootRemoveConfirmOk: "Quitar",
   exporting: (done: number, total: number, name: string) =>
     `Exportando… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number, leftBehind: number) => {
+  exportDone: (done: number, skipped: number, failed: number) => {
     const parts = [done === 1 ? "1 foto exportada" : `${num(done)} fotos exportadas`];
     if (skipped > 0) parts.push(`${num(skipped)} ya ${one(skipped, "estaba", "estaban")}`);
     if (failed > 0) parts.push(`${num(failed)} con error`);
+    return parts.join(". ") + ".";
+  },
+  moving: (done: number, total: number, name: string) =>
+    `Moviendo… ${num(done)}/${num(total)} ${name}`,
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+    const parts: string[] = [];
+    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(moved === 1 ? "1 foto movida" : `${num(moved)} fotos movidas`);
+    if (skipped > 0)
+      parts.push(
+        `${num(skipped)} ya ${one(skipped, "estaba", "estaban")} en el destino y se ${one(skipped, "queda", "quedan")} donde ${one(skipped, "estaba", "estaban")}`,
+      );
+    if (failed > 0) parts.push(`${num(failed)} no se ${one(failed, "ha", "han")} podido mover y se ${one(failed, "queda", "quedan")} donde ${one(failed, "estaba", "estaban")}`);
     if (leftBehind > 0)
       parts.push(
-        `${num(leftBehind)} no se ${one(leftBehind, "ha", "han")} podido quitar de donde ${one(leftBehind, "estaba", "estaban")}`,
+        `${num(leftBehind)} se ${one(leftBehind, "ha", "han")} copiado, pero no se ${one(leftBehind, "ha", "han")} podido quitar de donde ${one(leftBehind, "estaba", "estaban")}`,
       );
     return parts.join(". ") + ".";
   },
