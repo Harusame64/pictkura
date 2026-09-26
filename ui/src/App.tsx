@@ -1692,8 +1692,11 @@ export default function App() {
               else retry.delete(p);
             }
             void onDrivesAddedRef.current(ask).then((pending) => {
-              // どのドライブが見えなかったかは分からないので、今回訊いたもの全部を訊き直す
+              // どのドライブが見えなかったかは分からないので、今回訊いたもの全部を訊き直す。
+              // **全部見えたら訊き直しをやめる**——読み直しはフォルダの更新時刻を記録しないので、
+              // 続けると同じフォルダを毎回列挙し直す（#162 の codex、3周目）
               if (pending) for (const p of added) retry.set(p, 3);
+              else for (const p of ask) retry.delete(p);
             });
           }
         }
