@@ -3321,6 +3321,18 @@ struct ReturnedRootsDto {
 fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
+    // **鍵を取ってから、いまの設定で選び直す**。鍵を待っている間に利用者がそのフォルダを
+    // ライブラリから外すと、外した走査のあとでここが古い一覧のまま読み、外した写真を
+    // 入れ直してしまう（#162 の codex、4周目）
+    let roots: Vec<PathBuf> = roots
+        .iter()
+        .filter(|r| config.library.roots.contains(r))
+        .cloned()
+        .collect();
+    if roots.is_empty() {
+        return Ok(SyncStats::default());
+    }
+    let roots = roots.as_slice();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
     let known_dirs = match db.get_meta("scan_fingerprint") {
