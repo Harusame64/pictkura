@@ -186,8 +186,9 @@ struct ScanUnreadable {
 
 /// 走査の結果から、開けなかった場所の控えを更新する。
 ///
-/// **全ルートを走った走査のときだけ呼ぶこと**（`scan_and_apply_root` は
-/// 1ルートしか見ていないので、ここで置き換えると他のルートの記録が消える）。
+/// `roots` には**その走査が実際に走ったルート**を渡す。控えは混ぜる（[`merged_unreadable`]）ので、
+/// 走らなかったルートの控えは残る——戻ってきたドライブだけを読み直す走査（[`scan_returned_roots`]）
+/// もここを通す（#162 の codex）。`scan_and_apply_root`（取り込み直後）は今も通さない
 fn remember_unreadable(
     state: &AppState,
     outcome: &pictkura_core::PrunedScanOutcome,
@@ -3291,6 +3292,165 @@ fn scan_and_announce(
     Ok(stats)
 }
 
+/// ライブラリのフォルダが、そのドライブの上に在るか（綴りだけで決める。フォルダには触らない）。
+/// 比べ方は [`is_under_any_by_spelling`]（要素ごと・Windows は大小を区別しない・`..` は中と言わない）。
+/// **ドライブが `/` だけなら何も持たない**——`/` が新しく現れることは無いが、全部を読み直す入口にしない
+fn root_is_on_drive(root: &Path, drive: &Path) -> bool {
+    path_parts(drive).len() > 1 && is_under_any_by_spelling(root, &[drive.to_path_buf()])
+}
+
+/// 差し込まれたドライブの上のライブラリのフォルダを読み直した結果（dev #36）
+#[derive(serde::Serialize, Default)]
+struct ReturnedRootsDto {
+    /// 読み直したフォルダの数（0 なら、そのドライブの上に読めるライブラリのフォルダは無かった）
+    roots: usize,
+    /// そのドライブの上にあるのに、まだ見えなかったフォルダの数（画面はしばらく後で訊き直す）
+    pending: usize,
+    added: usize,
+    changed: usize,
+}
+
+/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
+///
+/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
+/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
+/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
+/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
+/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
+/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
+/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（`full_roots`）
+/// フォルダの更新時刻が、中のファイルを足す・消すたびに動くと分かっているファイルシステムか。
+///
+/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）はこの前提に乗っている。**FAT32 と exFAT は
+/// 動かない**——Windows で、フォルダの中へ写真を足しても消しても `LastWriteTime` は作った時刻のまま
+/// だった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半がこの形式なので、枝刈りすると
+/// **抜いていた間に足した写真を見つけない**。分からない形式も信用しない側に倒す
+fn dir_mtime_is_reliable(file_system: &str) -> bool {
+    matches!(
+        file_system.to_ascii_lowercase().as_str(),
+        "ntfs"
+            | "refs"
+            | "apfs"
+            | "hfs"
+            | "hfs+"
+            | "ext2"
+            | "ext3"
+            | "ext4"
+            | "btrfs"
+            | "xfs"
+            | "zfs"
+            | "f2fs"
+    )
+}
+
+/// ルートが載っているファイルシステムの名前（いちばん深く一致するマウントポイントのもの）。
+/// 見つからなければ空（＝信用しない）
+fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
+    disks
+        .iter()
+        .filter(|d| is_under_any_by_spelling(root, &[d.mount_point().to_path_buf()]))
+        .max_by_key(|d| path_parts(d.mount_point()).len())
+        .map(|d| d.file_system().to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `full_roots` は、フォルダの更新時刻が信用できないファイルシステムの上のルート（[`dir_mtime_is_reliable`]）。
+/// その中は枝刈りせず**全部を見る**（`known_dirs` から外す）
+fn scan_returned_roots(
+    state: &AppState,
+    roots: &[PathBuf],
+    full_roots: &[PathBuf],
+) -> Result<SyncStats, String> {
+    let _scan_guard = lock_ok(&state.scan_lock);
+    let config = lock_ok(&state.config).clone();
+    // **鍵を取ってから、いまの設定で選び直す**。鍵を待っている間に利用者がそのフォルダを
+    // ライブラリから外すと、外した走査のあとでここが古い一覧のまま読み、外した写真を
+    // 入れ直してしまう（#162 の codex、4周目）
+    let roots: Vec<PathBuf> = roots
+        .iter()
+        .filter(|r| config.library.roots.contains(r))
+        .cloned()
+        .collect();
+    if roots.is_empty() {
+        return Ok(SyncStats::default());
+    }
+    let roots = roots.as_slice();
+    let fingerprint = scan_fingerprint(&config);
+    let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+    let mut known_dirs = match db.get_meta("scan_fingerprint") {
+        Ok(Some(stored)) if stored == fingerprint => db.load_dirs().unwrap_or_default(),
+        _ => HashMap::new(),
+    };
+    // FAT32・exFAT 等の上のルートは、フォルダの更新時刻が変化の合図にならない——中を全部見る
+    known_dirs.retain(|dir, _| !is_under_any_by_spelling(dir, full_roots));
+    let mut outcome = pictkura_core::scanner::scan_roots_pruned(
+        roots,
+        &config.import.extensions,
+        &config.library.exclude_patterns,
+        &known_dirs,
+    );
+    // **開けなかったフォルダの控えは先に混ぜる**（下でフォルダの記録を空にする前に）。一覧が空の
+    // ときの説明は、ルートの直下しか見ないので、奥の開けないフォルダはこの控えだけが知っている
+    // （#162 の codex、2周目）
+    remember_unreadable(state, &outcome, roots);
+    outcome.ok_roots.clear();
+    outcome.seen_dirs.clear();
+    outcome.enumerated_dirs.clear();
+    let scan = pictkura_core::LibraryScan {
+        outcome,
+        roots: config.library.roots.clone(),
+    };
+    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
+    enqueue_missing_thumbs(state);
+    Ok(stats)
+}
+
+/// **差し込まれたドライブの上のライブラリのフォルダ**を読み直す（dev #36）。
+///
+/// 監視は、戻ってきたフォルダの**それ以降の変化**しか言わない（Windows の #161。macOS も同じ）。
+/// カメラで撮ってから SD カードを差し直すと、**抜いていた間に増えた写真**は、再スキャンを
+/// 押すまで一覧に出なかった。画面はドライブの一覧を 5 秒ごとに見ているので、新しく現れた
+/// ドライブをここへ渡す（ネットワークのドライブは画面が渡さない）。そのドライブの上のフォルダは
+/// **入れ子も含めて1回の走査**にまとめる。**足す・変えるだけで、消さない**（[`scan_returned_roots`]）
+#[tauri::command]
+async fn scan_roots_on_drives(
+    app: tauri::AppHandle,
+    drives: Vec<String>,
+) -> Result<ReturnedRootsDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let roots = lock_ok(&state.config).library.roots.clone();
+        let drives: Vec<PathBuf> = drives.into_iter().map(PathBuf::from).collect();
+        let on_drive: Vec<PathBuf> = roots
+            .into_iter()
+            .filter(|r| drives.iter().any(|d| root_is_on_drive(r, d)))
+            .collect();
+        // 差し込んだ直後はまだ見えないことがある。見えないものは数だけ返し、画面が後で訊き直す
+        let (visible, hidden): (Vec<PathBuf>, Vec<PathBuf>) =
+            on_drive.into_iter().partition(|r| r.is_dir());
+        let mut out = ReturnedRootsDto {
+            pending: hidden.len(),
+            ..Default::default()
+        };
+        if visible.is_empty() {
+            return Ok(out);
+        }
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let full: Vec<PathBuf> = visible
+            .iter()
+            .filter(|r| !dir_mtime_is_reliable(&file_system_of(r, &disks)))
+            .cloned()
+            .collect();
+        let stats = scan_returned_roots(&state, &visible, &full)?;
+        out.roots = visible.len();
+        out.added = stats.added;
+        out.changed = stats.changed;
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// ライブラリを再スキャンして差分をDBへ反映する。
 /// 走査はブロッキングI/Oなので専用スレッドで実行し、非同期ランタイムを塞がない。
 #[tauri::command]
@@ -3716,7 +3876,7 @@ struct DriveDto {
 /// なお OneDrive や iCloud Drive は**ドライブではなくCドライブ上のフォルダ**なので
 /// ここでは判別できない（実体の有無はファイル属性で見る: `browse::SourceFile::offline`）。
 #[cfg(windows)]
-fn drive_kind(mount: &Path, removable: bool) -> &'static str {
+fn drive_kind(mount: &Path, removable: bool, _file_system: &str) -> &'static str {
     use std::os::windows::ffi::OsStrExt;
     const DRIVE_REMOVABLE: u32 = 2;
     const DRIVE_FIXED: u32 = 3;
@@ -3740,14 +3900,30 @@ fn drive_kind(mount: &Path, removable: bool) -> &'static str {
     }
 }
 
-/// Windows以外は種別APIが共通化されていないため、removableの申告だけを使う。
+/// Windows以外は種別APIが共通化されていないため、removableの申告と、**ファイルシステムの名前**
+/// を使う。ネットワークのマウント（SMB・NFS 等）を `fixed` と言うと、差し直しの読み直し（dev #36）や
+/// 取り込み元の一覧が、つながり直すたびにネットワーク越しに読みに行く（#162 の codex、5周目）
 #[cfg(not(windows))]
-fn drive_kind(_mount: &Path, removable: bool) -> &'static str {
-    if removable {
+fn drive_kind(_mount: &Path, removable: bool, file_system: &str) -> &'static str {
+    if is_network_file_system(file_system) {
+        "network"
+    } else if removable {
         "removable"
     } else {
         "fixed"
     }
+}
+
+/// ネットワーク越しのファイルシステムの名前か（macOS の `smbfs`・`nfs`・`afpfs`・`webdav`、
+/// Linux の `cifs`・`smb3`・`nfs4`・`fuse.sshfs` など）。大小は区別しない
+#[cfg_attr(windows, allow(dead_code))]
+fn is_network_file_system(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "smbfs" | "nfs" | "nfs4" | "afpfs" | "webdav" | "cifs" | "smb3" | "smb2" | "9p" | "ftp"
+    ) || name.starts_with("fuse.sshfs")
+        || name == "sshfs"
 }
 
 /// 接続中のドライブ一覧を返す。フロントがポーリングしてUSB挿入を検知する。
@@ -3770,7 +3946,7 @@ fn list_drives() -> Vec<DriveDto> {
                 return None;
             }
             let label = drive_label(&d.name().to_string_lossy(), &mount);
-            let kind = drive_kind(&mount, d.is_removable());
+            let kind = drive_kind(&mount, d.is_removable(), &d.file_system().to_string_lossy());
             Some(DriveDto {
                 label,
                 path: mount.to_string_lossy().into_owned(),
@@ -5792,6 +5968,7 @@ pub fn run() {
             set_auto_advance,
             set_stack_raw_jpeg,
             set_stack_bursts,
+            scan_roots_on_drives,
             set_burst_gap_ms,
             set_register_autoplay,
             take_pending_import,
@@ -5827,8 +6004,8 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, is_inside_any, roots_inside_temp, scan_changes_camera_counts,
-        temporary_dirs, usable_temp_dirs, Presence,
+        import_path_from_args, is_inside_any, root_is_on_drive, roots_inside_temp,
+        scan_changes_camera_counts, temporary_dirs, usable_temp_dirs, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -5840,6 +6017,80 @@ mod tests {
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// フォルダの更新時刻を信用してよい形式（#162 の win の実測: FAT32・exFAT は動かない）。
+    /// 分からない名前も信用しない
+    #[test]
+    fn only_file_systems_that_update_folder_times_are_trusted_for_pruning() {
+        for fs in ["NTFS", "ntfs", "apfs", "hfs", "ext4", "btrfs", "ReFS"] {
+            assert!(super::dir_mtime_is_reliable(fs), "{fs}");
+        }
+        for fs in [
+            "FAT32", "exFAT", "msdos", "vfat", "fat", "exfat", "fuseblk", "",
+        ] {
+            assert!(!super::dir_mtime_is_reliable(fs), "{fs}");
+        }
+    }
+
+    /// ネットワーク越しのファイルシステムの名前（#162 の codex、5周目）。ローカルの形式は含めない
+    #[test]
+    fn network_file_systems_are_named_as_network() {
+        for fs in [
+            "smbfs",
+            "nfs",
+            "NFS4",
+            "afpfs",
+            "webdav",
+            "cifs",
+            "smb3",
+            "fuse.sshfs",
+        ] {
+            assert!(super::is_network_file_system(fs), "{fs}");
+        }
+        for fs in [
+            "apfs",
+            "hfs",
+            "msdos",
+            "exfat",
+            "ntfs",
+            "ext4",
+            "fuse.exfat",
+            "",
+        ] {
+            assert!(!super::is_network_file_system(fs), "{fs}");
+        }
+    }
+
+    /// 差し込まれたドライブの上のフォルダか（dev #36）。要素の境目まで見る・`/` だけのドライブは何も持たない。
+    /// Windows の綴り（大小・区切り）は Windows でだけ見る（`Path` の読み方が台で違う）
+    #[test]
+    fn a_root_is_on_a_drive_only_under_its_own_path() {
+        let on = |root: &str, drive: &str| {
+            root_is_on_drive(std::path::Path::new(root), std::path::Path::new(drive))
+        };
+        #[cfg(not(windows))]
+        {
+            assert!(on("/Volumes/SD/DCIM", "/Volumes/SD"));
+            assert!(on("/Volumes/SD", "/Volumes/SD/"));
+            assert!(!on("/Volumes/SD2/DCIM", "/Volumes/SD"));
+            assert!(!on("/Volumes/sd/DCIM", "/Volumes/SD"));
+            assert!(
+                !on("/Users/me/Pictures", "/"),
+                "`/` だけのドライブは何も持たない"
+            );
+            assert!(
+                !on("/Volumes/SD/../Other", "/Volumes/SD"),
+                "`..` は中と言わない"
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert!(on(r"E:\Photos", r"E:\"));
+            assert!(on(r"e:\photos\2026", r"E:\"));
+            assert!(on(r"E:/Photos", r"E:\"));
+            assert!(!on(r"F:\Photos", r"E:\"));
+        }
     }
 
     /// **原点が3つあって、どれも一致しない。** ここで両OSぶんを1か所に並べて見る
@@ -6663,6 +6914,34 @@ mod tests {
         let after = merged_unreadable(&known, &found_again, std::slice::from_ref(&root));
         assert_eq!(after.dirs, vec![locked], "同じ場所を2度並べない");
         assert_eq!(after.total, 1);
+    }
+
+    /// 一部のルートだけを走った走査（差し直したドライブの読み直し、#162）でも、
+    /// **走らなかったルートの控えは残る**。走ったルートの控えは今回の結果で置き換わる
+    #[test]
+    fn a_scan_of_some_roots_keeps_what_we_knew_about_the_others() {
+        use super::{merged_unreadable, ScanUnreadable};
+        use pictkura_core::PrunedScanOutcome;
+
+        let card = std::path::PathBuf::from("/Volumes/SD/DCIM");
+        let other = std::path::PathBuf::from("/home/me/Pictures");
+        let locked_other = other.join("非公開");
+        let locked_card = card.join("100CANON");
+        let known = ScanUnreadable {
+            dirs: vec![locked_other.clone(), locked_card.clone()],
+            total: 2,
+        };
+        // カードだけを走り、カードの中は開けた（直った）
+        let card_only = PrunedScanOutcome {
+            enumerated_dirs: vec![card.clone()],
+            ..Default::default()
+        };
+        let after = merged_unreadable(&known, &card_only, std::slice::from_ref(&card));
+        assert_eq!(
+            after.dirs,
+            vec![locked_other],
+            "走らなかったルートの控えは残す"
+        );
     }
 
     /// **「ほか N件」は在りもしない場所を指してはいけない。**

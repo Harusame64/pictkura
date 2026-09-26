@@ -258,6 +258,8 @@ export const de: Dict = {
     " ⚠ Einige Ordner konnten nicht gelesen werden — lösche die Karte noch nicht",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
+  drivesReturnedScanned: (added: number, changed: number) =>
+    `Ordner auf dem eingesteckten Laufwerk neu eingelesen (${num(added)} hinzugefügt, ${num(changed)} geändert)`,
   pickSource: "Ordner wählen, aus dem importiert wird (USB / DCIM)",
   pickDestination: "Zielordner wählen",
   wizardTitle: "Import",

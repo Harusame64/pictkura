@@ -52,6 +52,7 @@ import {
   listDay,
   openDecoderHelp,
   listDrives,
+  scanRootsOnDrives,
   listMemories,
   modKey,
   modKeyLabel,
@@ -1631,12 +1632,77 @@ export default function App() {
     }
   }, [reloadAll]);
 
+  /**
+   * 新しく現れたドライブを受ける口（dev #36）。ポーリングの effect は1回しか張らないので、
+   * 最新の `reloadAll` などを掴むために ref 越しに呼ぶ
+   */
+  const onDrivesAddedRef = useRef<(paths: string[]) => Promise<boolean>>(
+    async () => false,
+  );
+  /** 返すのは「まだ見えないフォルダがあったか」（見張りが次の回に訊き直す） */
+  onDrivesAddedRef.current = (paths) =>
+    scanRootsOnDrives(paths)
+      .then(async (r) => {
+        if (r.roots > 0) {
+          // 手動の再スキャンと同じ後始末: 見つからないフォルダを訊き直し、一覧を取り直す
+          emptyReasonInFlight.current = null;
+          forgetLaterOnNextAnswer.current = true;
+          setScanGeneration((g) => g + 1);
+          await reloadAll();
+          // **何か変わったときだけ言う**——差すたびに「0 件」と言うと、同じ時に終わった
+          // 再スキャンや取り込みの知らせを上書きしてしまう（#162 のゲート2）
+          if (r.added + r.changed > 0)
+            setStatus(t.drivesReturnedScanned(r.added, r.changed));
+        }
+        return r.pending > 0;
+      })
+      // 読めなかったら黙る（再スキャンを押せば同じことができる）
+      .catch(() => false);
+
   // ドライブ一覧を5秒間隔でポーリング（USB挿抜をOS固有APIなしで検知）
   useEffect(() => {
     let stopped = false;
+    /**
+     * 前に見たドライブ。**最初の一覧は基準にするだけ**——起動した時に挿さっていたドライブは
+     * 起動時の走査が読むので、ここで「新しく現れた」と言わない
+     */
+    let seen: Set<string> | null = null;
+    /**
+     * 訊くドライブの待ち行列: 新しく現れたドライブ → 残りの回数。**回数に上限を持つ**（見えないまま
+     * 差さっているドライブを、ずっと訊き続けない）。**1度に1つの問いしか出さない**——FAT32・exFAT は
+     * 中を全部読むので5秒を超えることがあり、重ねて出すと同じ全走査が走査の鍵の後ろに並ぶ
+     * （#162 の codex、7周目）
+     */
+    const queue = new Map<string, number>();
+    let inFlight = false;
     const load = async () => {
       try {
         const list = await listDrives();
+        const now = new Set(list.map((d) => d.path));
+        for (const p of queue.keys()) if (!now.has(p)) queue.delete(p);
+        if (seen !== null && !stopped) {
+          // **ネットワークのドライブは渡さない**（つながり直すたびに全部を読み直さない。
+          // 取り込み元の一覧もネットワークには勝手に触らない）
+          for (const d of list)
+            if (d.kind !== "network" && !seen.has(d.path) && !queue.has(d.path))
+              queue.set(d.path, 3);
+          if (!inFlight && queue.size > 0) {
+            const ask = [...queue.keys()];
+            inFlight = true;
+            void onDrivesAddedRef.current(ask).then((pending) => {
+              inFlight = false;
+              // どのドライブが見えなかったかは分からないので、訊いたもの全部を同じに扱う。
+              // **全部見えたら行列から外す**——読み直しはフォルダの更新時刻を記録しないので、
+              // 続けると同じフォルダを毎回列挙し直す（#162 の codex、3周目）
+              for (const p of ask) {
+                const left = (queue.get(p) ?? 1) - 1;
+                if (pending && left > 0) queue.set(p, left);
+                else queue.delete(p);
+              }
+            });
+          }
+        }
+        seen = now;
         // 中身が同じなら参照を変えない。5秒ごとに新しい配列を入れると
         // アプリ全体が再描画され、取り込みウィザードの状態まで揺れる
         if (!stopped)
