@@ -784,6 +784,22 @@ export const setAutoAdvance = (enabled: boolean) =>
 export const setStackRawJpeg = (enabled: boolean) =>
   invoke<void>("set_stack_raw_jpeg", { enabled });
 
+/** 差し込まれたドライブの上のライブラリのフォルダを走査し直した結果（dev #36） */
+export interface ReturnedRoots {
+  /** 走査し直したフォルダの数（0 なら、そのドライブの上にライブラリのフォルダは無かった） */
+  roots: number;
+  added: number;
+  changed: number;
+  removed: number;
+}
+
+/**
+ * 新しく現れたドライブの上のライブラリのフォルダだけを走査し直す（dev #36）。抜いていた間に
+ * 増えた写真は、監視では入らない（監視は戻った後の変化しか言わない）
+ */
+export const scanRootsOnDrives = (drives: string[]) =>
+  invoke<ReturnedRoots>("scan_roots_on_drives", { drives });
+
 /** 一覧で連写を1枚に重ねるかを切り替える（dev #32） */
 export const setStackBursts = (enabled: boolean) =>
   invoke<void>("set_stack_bursts", { enabled });

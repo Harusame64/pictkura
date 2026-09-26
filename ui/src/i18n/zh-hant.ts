@@ -278,6 +278,8 @@ export const zhHant: Dict = {
   importIncomplete: " ⚠ 有資料夾無法讀取（請先不要清空記憶卡）",
   syncDone: (added: number, changed: number, removed: number) =>
     `新增 ${num(added)}，變更 ${num(changed)}，刪除 ${num(removed)}`,
+  drivesReturnedScanned: (added: number, changed: number, removed: number) =>
+    `已重新讀取插入的磁碟機上的資料夾（新增 ${num(added)}，變更 ${num(changed)}，刪除 ${num(removed)}）`,
   pickSource: "選擇要匯入的資料夾（USB / DCIM）",
   pickDestination: "選擇複製到的資料夾",
   // 取り込みウィザード（第5部 段階E）

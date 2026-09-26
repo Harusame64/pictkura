@@ -275,6 +275,8 @@ export const es: Dict = {
     " ⚠ No se han podido leer algunas carpetas — no borres la tarjeta todavía",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
+  drivesReturnedScanned: (added: number, changed: number, removed: number) =>
+    `Se han vuelto a leer las carpetas de la unidad conectada (${num(added)} nuevas, ${num(changed)} modificadas, ${num(removed)} eliminadas)`,
   pickSource: "Elige la carpeta desde la que importar (USB / DCIM)",
   pickDestination: "Elige la carpeta de destino",
   wizardTitle: "Importar",

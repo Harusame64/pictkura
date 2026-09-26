@@ -3291,6 +3291,85 @@ fn scan_and_announce(
     Ok(stats)
 }
 
+/// ライブラリのフォルダが、そのドライブの上に在るか（綴りだけで決める。フォルダには触らない）。
+/// Windows では区切りと大小をそろえる。ドライブが `/` のように空へ縮むものは、どのフォルダも
+/// その上とは言わない（`/` が新しく現れることは無いが、全部を走査し直す入口にしない）
+fn root_is_on_drive(root: &str, drive: &str, windows: bool) -> bool {
+    let norm = |s: &str| {
+        let s = if windows {
+            s.replace('\\', "/").to_lowercase()
+        } else {
+            s.to_string()
+        };
+        s.trim_end_matches('/').to_string()
+    };
+    let (root, drive) = (norm(root), norm(drive));
+    !drive.is_empty() && (root == drive || root.starts_with(&format!("{drive}/")))
+}
+
+/// 差し込まれたドライブの上のライブラリのフォルダを走査し直した結果（dev #36）
+#[derive(serde::Serialize, Default)]
+struct ReturnedRootsDto {
+    /// 走査し直したフォルダの数（0 なら、そのドライブの上にライブラリのフォルダは無かった）
+    roots: usize,
+    added: usize,
+    changed: usize,
+    removed: usize,
+}
+
+/// **差し込まれたドライブの上のライブラリのフォルダだけ**を走査し直す（dev #36）。
+///
+/// 監視は、戻ってきたフォルダの**それ以降の変化**しか言わない（Windows の #161。macOS も同じ）。
+/// カメラで撮ってから SD カードを差し直すと、**抜いていた間に増えた写真**は、再スキャンを
+/// 押すまで一覧に出なかった。画面はドライブの一覧を 5 秒ごとに見ているので、新しく現れた
+/// ドライブをここへ渡す。**入れ子のフォルダは外側だけ**を走査する（外側が中も数える）
+#[tauri::command]
+async fn scan_roots_on_drives(
+    app: tauri::AppHandle,
+    drives: Vec<String>,
+) -> Result<ReturnedRootsDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let roots = lock_ok(&state.config).library.roots.clone();
+        let windows = cfg!(windows);
+        let on_drive: Vec<&PathBuf> = roots
+            .iter()
+            .filter(|r| {
+                let r = r.to_string_lossy();
+                drives.iter().any(|d| root_is_on_drive(&r, d, windows))
+            })
+            .collect();
+        let outermost: Vec<&PathBuf> = on_drive
+            .iter()
+            .filter(|r| {
+                let rs = r.to_string_lossy();
+                !on_drive
+                    .iter()
+                    .any(|o| o != *r && root_is_on_drive(&rs, &o.to_string_lossy(), windows))
+            })
+            .copied()
+            .collect();
+        let mut out = ReturnedRootsDto::default();
+        for root in outermost {
+            // 差し込んだ直後はまだ見えないことがある。見えないものは飛ばす（次の差し込みか再スキャンで入る）
+            if !root.is_dir() {
+                continue;
+            }
+            let stats = scan_and_apply_root(&state, root)?;
+            if scan_changes_camera_counts(&stats) {
+                announce_cameras_changed(&app);
+            }
+            out.roots += 1;
+            out.added += stats.added;
+            out.changed += stats.changed;
+            out.removed += stats.removed;
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// ライブラリを再スキャンして差分をDBへ反映する。
 /// 走査はブロッキングI/Oなので専用スレッドで実行し、非同期ランタイムを塞がない。
 #[tauri::command]
@@ -5792,6 +5871,7 @@ pub fn run() {
             set_auto_advance,
             set_stack_raw_jpeg,
             set_stack_bursts,
+            scan_roots_on_drives,
             set_burst_gap_ms,
             set_register_autoplay,
             take_pending_import,
@@ -5827,8 +5907,8 @@ mod tests {
     use super::APP_IDENTIFIER;
     use super::{
         dcim_under, drive_label, first_weekday_from_core_foundation, first_weekday_from_win32,
-        import_path_from_args, is_inside_any, roots_inside_temp, scan_changes_camera_counts,
-        temporary_dirs, usable_temp_dirs, Presence,
+        import_path_from_args, is_inside_any, root_is_on_drive, roots_inside_temp,
+        scan_changes_camera_counts, temporary_dirs, usable_temp_dirs, Presence,
     };
     // 実物のリンクを張る試験は Unix だけ（Windowsでは未使用importが
     // `-D warnings` でエラーになる。ゲート2が実際に再現させて見つけた）
@@ -5850,6 +5930,30 @@ mod tests {
     /// | Win32 `LOCALE_IFIRSTDAYOFWEEK` | 0 | 6 |
     /// | CoreFoundation | 2 | 1 |
     /// | `Date.getDay()`（渡す形） | 1 | 0 |
+    /// 差し込まれたドライブの上のフォルダか（dev #36）。区切りの境目まで見る・Windows は大小と
+    /// 区切りをそろえる・`/` のように空へ縮むドライブは何も持たない
+    #[test]
+    fn a_root_is_on_a_drive_only_under_its_own_path() {
+        for (root, drive, windows, want) in [
+            (r"E:\Photos", r"E:\", true, true),
+            (r"e:\photos\2026", r"E:\", true, true),
+            (r"E:/Photos", r"E:\", true, true),
+            (r"F:\Photos", r"E:\", true, false),
+            (r"E:", r"E:\", true, true),
+            ("/Volumes/SD/DCIM", "/Volumes/SD", false, true),
+            ("/Volumes/SD", "/Volumes/SD/", false, true),
+            ("/Volumes/SD2/DCIM", "/Volumes/SD", false, false),
+            ("/Volumes/sd/DCIM", "/Volumes/SD", false, false),
+            ("/Users/me/Pictures", "/", false, false),
+        ] {
+            assert_eq!(
+                root_is_on_drive(root, drive, windows),
+                want,
+                "{root} on {drive}"
+            );
+        }
+    }
+
     #[test]
     fn the_first_weekday_arrives_on_the_calendars_own_origin() {
         // Win32 は月曜が 0。**素通しすると日曜始まりのカレンダーになる**ので、

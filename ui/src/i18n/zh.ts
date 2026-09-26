@@ -275,6 +275,8 @@ export const zh: Dict = {
   importIncomplete: " ⚠ 有文件夹无法读取（请先不要清空存储卡）",
   syncDone: (added: number, changed: number, removed: number) =>
     `新增 ${num(added)}，变更 ${num(changed)}，删除 ${num(removed)}`,
+  drivesReturnedScanned: (added: number, changed: number, removed: number) =>
+    `已重新读取插入的驱动器上的文件夹（新增 ${num(added)}，更改 ${num(changed)}，删除 ${num(removed)}）`,
   pickSource: "选择要导入的文件夹（USB / DCIM）",
   pickDestination: "选择复制到的文件夹",
   // 取り込みウィザード（第5部 段階E）

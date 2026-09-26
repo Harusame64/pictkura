@@ -52,6 +52,7 @@ import {
   listDay,
   openDecoderHelp,
   listDrives,
+  scanRootsOnDrives,
   listMemories,
   modKey,
   modKeyLabel,
@@ -1631,12 +1632,43 @@ export default function App() {
     }
   }, [reloadAll]);
 
+  /**
+   * 新しく現れたドライブを受ける口（dev #36）。ポーリングの effect は1回しか張らないので、
+   * 最新の `reloadAll` などを掴むために ref 越しに呼ぶ
+   */
+  const onDrivesAddedRef = useRef<(paths: string[]) => void>(() => {});
+  onDrivesAddedRef.current = (paths) => {
+    scanRootsOnDrives(paths)
+      .then(async (r) => {
+        if (r.roots === 0) return;
+        // 手動の再スキャンと同じ後始末: 見つからないフォルダを訊き直し、一覧を取り直す
+        emptyReasonInFlight.current = null;
+        forgetLaterOnNextAnswer.current = true;
+        setScanGeneration((g) => g + 1);
+        await reloadAll();
+        setStatus(t.drivesReturnedScanned(r.added, r.changed, r.removed));
+      })
+      // 走査できなかったら黙る（再スキャンを押せば同じことができる）
+      .catch(() => {});
+  };
+
   // ドライブ一覧を5秒間隔でポーリング（USB挿抜をOS固有APIなしで検知）
   useEffect(() => {
     let stopped = false;
+    /**
+     * 前に見たドライブ。**最初の一覧は基準にするだけ**——起動した時に挿さっていたドライブは
+     * 起動時の走査が読むので、ここで「新しく現れた」と言わない
+     */
+    let seen: Set<string> | null = null;
     const load = async () => {
       try {
         const list = await listDrives();
+        const now = new Set(list.map((d) => d.path));
+        if (seen !== null && !stopped) {
+          const added = [...now].filter((p) => !seen?.has(p));
+          if (added.length > 0) onDrivesAddedRef.current(added);
+        }
+        seen = now;
         // 中身が同じなら参照を変えない。5秒ごとに新しい配列を入れると
         // アプリ全体が再描画され、取り込みウィザードの状態まで揺れる
         if (!stopped)

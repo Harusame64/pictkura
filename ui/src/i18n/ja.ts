@@ -256,6 +256,9 @@ export const ja = {
   importIncomplete: " ⚠読み取れないフォルダあり（カードを消去しないでください）",
   syncDone: (added: number, changed: number, removed: number) =>
     `追加${num(added)} 変更${num(changed)} 削除${num(removed)}`,
+  /* USB メモリや SD カードを差し直したとき、その上のライブラリのフォルダを読み直した（dev #36） */
+  drivesReturnedScanned: (added: number, changed: number, removed: number) =>
+    `差し込まれたドライブのフォルダを読み直しました（追加${num(added)} 変更${num(changed)} 削除${num(removed)}）`,
   pickSource: "取り込み元フォルダ（USB/DCIM）を選択",
   pickDestination: "コピー先フォルダを選択",
   // 取り込みウィザード（第5部 段階E）
