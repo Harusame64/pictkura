@@ -11,14 +11,20 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify_debouncer_mini::notify::RecommendedWatcher;
-use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebounceEventResult, Debouncer};
+use notify_debouncer_mini::{
+    new_debouncer_opt, notify::RecursiveMode, DebounceEventResult, Debouncer,
+};
 
 #[cfg(windows)]
 mod device;
 
-/// 束を受け取る口。Windows では取り外しに合わせて監視を作り直すので、共有して持ち回る
-type OnBatch = Arc<dyn Fn(Vec<PathBuf>) + Send + Sync + 'static>;
+/// 監視器。**Windows では、落としたときにハンドルを閉じ終えるまで待つ形**（`device::AckedWatcher`）
+/// ——notify の素の監視器は停止を送るだけで、閉じるのは監視の糸の側で遅れる（#161 の codex の P1）。
+/// 取り外しを許す前に閉じ終えていないと、取り外しが時々断られる
+#[cfg(windows)]
+type PlatformWatcher = device::AckedWatcher;
+#[cfg(not(windows))]
+type PlatformWatcher = notify_debouncer_mini::notify::RecommendedWatcher;
 
 /// 監視ハンドル。dropすると監視が止まる。
 pub struct LibraryWatcher {
@@ -31,48 +37,47 @@ pub struct LibraryWatcher {
     _device: Option<device::DeviceGuard>,
 }
 
-/// いま張っている監視と、張り直すのに要るもの
+/// いま張っている監視
 struct Watching {
-    debouncer: Option<Debouncer<RecommendedWatcher>>,
-    debounce: Duration,
-    on_batch: OnBatch,
+    debouncer: Debouncer<PlatformWatcher>,
 }
 
 impl Watching {
-    /// `roots` を監視し直す。**先に今の監視を丸ごと落とす**——Windows ではルートごとにディレクトリの
-    /// ハンドルを握っていて、落とせば同期で手放す（win の spike で drop は 14〜34 µs、そのあと
-    /// 取り外しが通った）。1本だけ `unwatch` する道は、手放すのが監視の糸の側で遅れるかもしれず、
-    /// 測っていないので使わない。返すのは実際に監視できたルート
-    fn rebuild(
-        &mut self,
-        roots: &[PathBuf],
-    ) -> Result<Vec<PathBuf>, notify_debouncer_mini::notify::Error> {
-        self.debouncer = None;
-        let on_batch = Arc::clone(&self.on_batch);
-        let mut debouncer = new_debouncer(self.debounce, move |result: DebounceEventResult| {
-            if let Ok(events) = result {
-                let mut paths: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
-                paths.sort();
-                paths.dedup();
-                if !paths.is_empty() {
-                    on_batch(paths);
+    fn start(
+        debounce: Duration,
+        on_batch: impl Fn(Vec<PathBuf>) + Send + 'static,
+    ) -> Result<Self, notify_debouncer_mini::notify::Error> {
+        let config = notify_debouncer_mini::Config::default().with_timeout(debounce);
+        let debouncer =
+            new_debouncer_opt::<_, PlatformWatcher>(config, move |result: DebounceEventResult| {
+                if let Ok(events) = result {
+                    let mut paths: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
+                    paths.sort();
+                    paths.dedup();
+                    if !paths.is_empty() {
+                        on_batch(paths);
+                    }
                 }
-            }
-        })?;
-        let mut watched = Vec::new();
-        for root in roots {
-            // 存在しないルート（未接続のUSB等）は監視できないのでスキップ
-            if root.is_dir()
-                && debouncer
-                    .watcher()
-                    .watch(root, RecursiveMode::Recursive)
-                    .is_ok()
-            {
-                watched.push(root.clone());
-            }
-        }
-        self.debouncer = Some(debouncer);
-        Ok(watched)
+            })?;
+        Ok(Self { debouncer })
+    }
+
+    /// ルートを1つ監視に入れる。存在しないルート（未接続のUSB等）は監視できないので偽
+    fn watch_root(&mut self, root: &std::path::Path) -> bool {
+        root.is_dir()
+            && self
+                .debouncer
+                .watcher()
+                .watch(root, RecursiveMode::Recursive)
+                .is_ok()
+    }
+
+    /// ルートを1つ監視から外す。**ほかのルートの監視には触らない**——まるごと作り直すと、
+    /// 束ねる前のイベントが全ルートぶん捨てられる（#161 のゲート2）。Windows では
+    /// `AckedWatcher::unwatch` がハンドルを閉じ終えるまで待ってから戻る
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn unwatch_root(&mut self, root: &std::path::Path) {
+        let _ = self.debouncer.watcher().unwatch(root);
     }
 }
 
@@ -80,20 +85,21 @@ impl Watching {
 /// イベントはデバウンス（既定800ms）後に、重複除去済みのパス一覧で `on_batch` へ渡される。
 ///
 /// **Windows では、取り外せるドライブの上のルートを「安全な取り外し」の求めで手放し、
-/// 差し直されたら張り直す**（dev #35）。握ったままだと、アプリを開いている間は取り外しが
+/// 差し直されたら監視に戻す**（dev #35）。握ったままだと、アプリを開いている間は取り外しが
 /// 必ず断られた（Kernel-PnP 225 が pictkura を名指し）。起動時に無かったルートも、
-/// 差し込まれた時点で監視に入る
+/// 差し込まれた時点で監視に入る。**監視に戻すのは、それ以降の変化だけ**——離れていた間に
+/// 増えたファイルは、再スキャンで入る（今までと同じ）
 pub fn watch_roots(
     roots: &[PathBuf],
     debounce: Duration,
-    on_batch: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
+    on_batch: impl Fn(Vec<PathBuf>) + Send + 'static,
 ) -> Result<LibraryWatcher, notify_debouncer_mini::notify::Error> {
-    let mut watching = Watching {
-        debouncer: None,
-        debounce,
-        on_batch: Arc::new(on_batch),
-    };
-    let watched_roots = watching.rebuild(roots)?;
+    let mut watching = Watching::start(debounce, on_batch)?;
+    let watched_roots: Vec<PathBuf> = roots
+        .iter()
+        .filter(|root| watching.watch_root(root))
+        .cloned()
+        .collect();
     let watching = Arc::new(Mutex::new(watching));
     Ok(LibraryWatcher {
         #[cfg(windows)]
@@ -148,22 +154,21 @@ mod tests {
         drop(watcher);
     }
 
-    /// 作り直すと、外したルートのイベントは止まり、戻したルートのイベントはまた届く
-    /// （Windows の取り外しの糸が使う入口。dev #35）。対照に、外さないルートは届き続ける
+    /// ルートを1つ外すと、そのルートのイベントは止まり、戻すとまた届く（Windows の取り外しの糸が
+    /// 使う入口。dev #35）。**外さないルートは届き続け、外す直前に起きた変化も捨てない**
+    /// ——まるごと作り直していたときは、束ねる前のイベントが全ルートぶん消えた（#161 のゲート2）。
+    /// 最後の点は Windows でだけ見る（下の注記）
     #[test]
-    fn rebuild_drops_a_root_and_takes_it_back() {
+    fn unwatching_one_root_leaves_the_others_and_their_pending_events() {
         let kept = tempfile::tempdir().unwrap();
         let removable = tempfile::tempdir().unwrap();
         let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
-        let mut w = Watching {
-            debouncer: None,
-            debounce: Duration::from_millis(150),
-            on_batch: Arc::new(move |paths| {
-                let _ = tx.send(paths);
-            }),
-        };
-        let both = [kept.path().to_path_buf(), removable.path().to_path_buf()];
-        assert_eq!(w.rebuild(&both).unwrap().len(), 2);
+        let mut w = Watching::start(Duration::from_millis(400), move |paths| {
+            let _ = tx.send(paths);
+        })
+        .unwrap();
+        assert!(w.watch_root(kept.path()));
+        assert!(w.watch_root(removable.path()));
         // 一定時間ぶんの束を**全部**集める（見たい名前以外を捨てると、外した側のイベントが
         // 先に来ていたときに見逃す）
         let collect = || -> Vec<PathBuf> {
@@ -179,22 +184,27 @@ mod tests {
         };
         let has =
             |all: &[PathBuf], name: &str| all.iter().any(|p| p.to_string_lossy().contains(name));
-        let write = |dir: &tempfile::TempDir, name: &str| {
-            std::thread::sleep(Duration::from_millis(300));
-            std::fs::write(dir.path().join(name), b"x").unwrap();
-        };
+        let settle = || std::thread::sleep(Duration::from_millis(300));
 
-        // 取り外し可能な側を外す: そちらは止まり、残した側は届く
-        assert_eq!(w.rebuild(&both[..1]).unwrap(), both[..1].to_vec());
-        write(&removable, "while_away.jpg");
-        write(&kept, "kept_1.jpg");
+        // 残す側に書いた**直後**（束ねる前）に、もう片方を外す
+        settle();
+        std::fs::write(kept.path().join("pending.jpg"), b"x").unwrap();
+        w.unwatch_root(removable.path());
+        settle();
+        std::fs::write(removable.path().join("while_away.jpg"), b"x").unwrap();
+        std::fs::write(kept.path().join("kept_1.jpg"), b"x").unwrap();
         let all = collect();
+        // **これは Windows でだけ見る**。macOS の FSEvents は1本外すとストリームごと作り直すので、
+        // その間のイベントは監視器の側で消える（手元で実測）。外す道を使うのは Windows の取り外しだけ
+        #[cfg(windows)]
+        assert!(has(&all, "pending.jpg"), "外す直前の変化も届く: {all:?}");
         assert!(has(&all, "kept_1.jpg"), "残した側は届く（対照）: {all:?}");
         assert!(!has(&all, "while_away.jpg"), "外した側は届かない: {all:?}");
 
         // 戻す: また届く
-        assert_eq!(w.rebuild(&both).unwrap().len(), 2);
-        write(&removable, "back.jpg");
+        assert!(w.watch_root(removable.path()));
+        settle();
+        std::fs::write(removable.path().join("back.jpg"), b"x").unwrap();
         let all = collect();
         assert!(has(&all, "back.jpg"), "戻した側がまた届く: {all:?}");
     }

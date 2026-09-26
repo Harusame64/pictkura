@@ -9,10 +9,16 @@
 //!
 //! | 知らせ | すること |
 //! |---|---|
-//! | `QUERYREMOVE` | 監視を外し、ディレクトリのハンドルを閉じる。**届け出は残す** |
-//! | `QUERYREMOVEFAILED` | 他が断った。古い届け出を外し、開き直して届け出し直し、監視に戻す |
-//! | `REMOVEPENDING` / `REMOVECOMPLETE` | 外れた。届け出を外す（抜かれたときはハンドルも閉じる） |
+//! | `QUERYREMOVE` | そのルートだけ監視から外し、ハンドルを閉じる。**届け出は残す**。取り外し中の印を立てる |
+//! | `QUERYREMOVEFAILED` | 他が断った。古い届け出を外し、開き直して届け出し直し、監視に戻す（開けなければ下の確かめへ回す） |
+//! | `REMOVEPENDING` / `REMOVECOMPLETE` | 外れた。届け出を外す（抜かれたときはハンドルも閉じ、監視も外す） |
 //! | 差し込み（ボリュームの `ARRIVAL`） | 0.5 秒ごとに確かめ、戻ったルートを監視に入れて届け出る |
+//!
+//! **外すのも戻すのもルート1つずつ**（`Watching::unwatch_root` / `watch_root`）。まるごと作り直すと、
+//! ほかのルートの束ねる前のイベントまで捨てる（#161 のゲート2）。**取り外し中のルートは確かめで
+//! 戻さない**——ボリュームは PnP が他のアプリに訊き終えるまで見えたままなので、戻すと取り外しを断る。
+//! **ネットワークのルートは確かめない**——オフラインの NAS は `is_dir` が数秒〜数十秒止まり、
+//! この窓が取り外しの問いに答えられなくなる（ボリュームの差し込みで戻るものでもない）
 //!
 //! **`QUERYREMOVE` で届け出まで外すと、他が断ったときの `QUERYREMOVEFAILED` が届かない**
 //! ——その知らせは届け出に宛てて来るので、監視が外れたまま黙って止まる（spike の S2 で実測）。
@@ -25,31 +31,31 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
-use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{
     CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, WPARAM,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE,
+    CreateFileW, GetDriveTypeW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
+use windows_sys::Win32::System::Ioctl::GUID_DEVINTERFACE_VOLUME;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
     PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SetTimer,
-    TranslateMessage, UnregisterDeviceNotification, DEVICE_NOTIFY_WINDOW_HANDLE, HDEVNOTIFY,
+    TranslateMessage, UnregisterDeviceNotification, DBT_DEVICEARRIVAL, DBT_DEVICEQUERYREMOVE,
+    DBT_DEVICEQUERYREMOVEFAILED, DBT_DEVICEREMOVECOMPLETE, DBT_DEVICEREMOVEPENDING,
+    DBT_DEVTYP_DEVICEINTERFACE, DBT_DEVTYP_HANDLE, DEVICE_NOTIFY_WINDOW_HANDLE,
+    DEV_BROADCAST_DEVICEINTERFACE_W, DEV_BROADCAST_HANDLE, DEV_BROADCAST_HDR, HDEVNOTIFY,
     HWND_MESSAGE, MSG, WM_CLOSE, WM_DESTROY, WM_DEVICECHANGE, WM_TIMER, WNDCLASSW,
 };
 
+use notify_debouncer_mini::notify::windows::{MetaEvent, ReadDirectoryChangesWatcher};
+use notify_debouncer_mini::notify::{Config, EventHandler, RecursiveMode, Watcher, WatcherKind};
+
 use super::Watching;
 
-const DBT_DEVICEARRIVAL: usize = 0x8000;
-const DBT_DEVICEQUERYREMOVE: usize = 0x8001;
-const DBT_DEVICEQUERYREMOVEFAILED: usize = 0x8002;
-const DBT_DEVICEREMOVEPENDING: usize = 0x8003;
-const DBT_DEVICEREMOVECOMPLETE: usize = 0x8004;
-const DBT_DEVTYP_DEVICEINTERFACE: u32 = 5;
-const DBT_DEVTYP_HANDLE: u32 = 6;
 /// `WM_DEVICECHANGE` で TRUE（取り外してよい）
 const BROADCAST_QUERY_ALLOW: LRESULT = 1;
 const TIMER_REARM: usize = 1;
@@ -57,35 +63,86 @@ const TIMER_REARM: usize = 1;
 /// **止まらない見張りを作らない**——戻らないルートがあっても、ここで諦める
 const REARM_TRIES: u32 = 20;
 
-// {53F5630D-B6BF-11D0-94F2-00A0C91EFB8B}
-const GUID_DEVINTERFACE_VOLUME: GUID = GUID::from_u128(0x53f5630d_b6bf_11d0_94f2_00a0c91efb8b);
-
-#[repr(C)]
-struct DevBroadcastHdr {
-    size: u32,
-    devicetype: u32,
-    reserved: u32,
+/// 閉じ終えるまで待つ監視器（#161 の codex の P1）。
+///
+/// notify 7.0.0 の `ReadDirectoryChangesWatcher` は、落とされると停止を送って起こすだけで戻り、
+/// ハンドルを閉じる（`stop_watch`）のは監視の糸——**取り外しを許した時点でまだ握っている**ことがある。
+/// 閉じ終えるたびに `MetaEvent::SingleWatchComplete` が送られる（素の `new` はその受け口を捨てている）ので、
+/// 受け口を自分で持って作り、**落とすときは張った数ぶん届くまで待つ**（最長2秒。届かなければ諦めて戻る
+/// ——取り外しが1回断られるだけで、固まらない）
+pub struct AckedWatcher {
+    inner: Option<ReadDirectoryChangesWatcher>,
+    closed: mpsc::Receiver<MetaEvent>,
+    /// 張っていて、まだ閉じていない数
+    live: usize,
 }
 
-#[repr(C)]
-struct DevBroadcastHandle {
-    size: u32,
-    devicetype: u32,
-    reserved: u32,
-    handle: HANDLE,
-    hdevnotify: HDEVNOTIFY,
-    eventguid: GUID,
-    nameoffset: i32,
-    data: [u8; 1],
+impl AckedWatcher {
+    fn wait_closed(&self, mut n: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while n > 0 {
+            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return;
+            };
+            match self.closed.recv_timeout(left) {
+                Ok(MetaEvent::SingleWatchComplete) => n -= 1,
+                Ok(_) => {}
+                Err(_) => return,
+            }
+        }
+    }
 }
 
-#[repr(C)]
-struct DevBroadcastDeviceInterfaceW {
-    size: u32,
-    devicetype: u32,
-    reserved: u32,
-    classguid: GUID,
-    name: [u16; 1],
+impl Watcher for AckedWatcher {
+    fn new<F: EventHandler>(
+        event_handler: F,
+        _config: Config,
+    ) -> notify_debouncer_mini::notify::Result<Self> {
+        let (tx, closed) = mpsc::channel();
+        let inner = ReadDirectoryChangesWatcher::create(Arc::new(Mutex::new(event_handler)), tx)?;
+        Ok(Self {
+            inner: Some(inner),
+            closed,
+            live: 0,
+        })
+    }
+
+    fn watch(
+        &mut self,
+        path: &Path,
+        mode: RecursiveMode,
+    ) -> notify_debouncer_mini::notify::Result<()> {
+        let inner = self.inner.as_mut().expect("落とすまで在る");
+        inner.watch(path, mode)?;
+        self.live += 1;
+        Ok(())
+    }
+
+    fn unwatch(&mut self, path: &Path) -> notify_debouncer_mini::notify::Result<()> {
+        let inner = self.inner.as_mut().expect("落とすまで在る");
+        inner.unwatch(path)?;
+        self.live = self.live.saturating_sub(1);
+        self.wait_closed(1);
+        Ok(())
+    }
+
+    fn configure(&mut self, config: Config) -> notify_debouncer_mini::notify::Result<bool> {
+        self.inner
+            .as_mut()
+            .expect("落とすまで在る")
+            .configure(config)
+    }
+
+    fn kind() -> WatcherKind {
+        WatcherKind::ReadDirectoryChangesWatcher
+    }
+}
+
+impl Drop for AckedWatcher {
+    fn drop(&mut self) {
+        drop(self.inner.take());
+        self.wait_closed(self.live);
+    }
 }
 
 /// 知らせを受ける糸。drop すると窓を閉じ、糸を待ち合わせる（届け出とハンドルは糸が片付ける）
@@ -139,6 +196,10 @@ struct Entry {
     notify: HDEVNOTIFY,
     /// いま監視に入っているか
     watched: bool,
+    /// 取り外しを訊かれて手放した（外れるか断られるまで、確かめで戻さない）
+    ejecting: bool,
+    /// ネットワーク上のルート（差し込みの確かめで触らない）
+    remote: bool,
 }
 
 struct State {
@@ -178,10 +239,12 @@ fn open_and_register(hwnd: HWND, e: &mut Entry) {
     if h == INVALID_HANDLE_VALUE {
         return;
     }
-    let mut filter: DevBroadcastHandle = unsafe { std::mem::zeroed() };
-    filter.size = std::mem::size_of::<DevBroadcastHandle>() as u32;
-    filter.devicetype = DBT_DEVTYP_HANDLE;
-    filter.handle = h;
+    let filter = DEV_BROADCAST_HANDLE {
+        dbch_size: std::mem::size_of::<DEV_BROADCAST_HANDLE>() as u32,
+        dbch_devicetype: DBT_DEVTYP_HANDLE,
+        dbch_handle: h,
+        ..Default::default()
+    };
     let notify = unsafe {
         RegisterDeviceNotificationW(
             hwnd,
@@ -211,20 +274,55 @@ fn unregister(e: &mut Entry) {
     }
 }
 
-/// `watched` の立っているルートで監視を作り直し、実際に監視できたかを書き戻す
-fn rewatch(st: &mut State) {
-    let want: Vec<PathBuf> = st
-        .entries
-        .iter()
-        .filter(|e| e.watched)
-        .map(|e| e.path.clone())
-        .collect();
-    let got = match st.watching.lock() {
-        Ok(mut w) => w.rebuild(&want).unwrap_or_default(),
-        Err(_) => return,
+/// そのルートを監視に入れ、入ったら開いて届け出る（開き直す前に古い届け出とハンドルは外す）
+fn arm(st: &mut State, i: usize) {
+    unregister(&mut st.entries[i]);
+    close_dir(&mut st.entries[i]);
+    let ok = match st.watching.lock() {
+        Ok(mut w) => w.watch_root(&st.entries[i].path),
+        Err(_) => false,
     };
-    for e in &mut st.entries {
-        e.watched = got.contains(&e.path);
+    st.entries[i].watched = ok;
+    if ok {
+        let hwnd = st.hwnd;
+        open_and_register(hwnd, &mut st.entries[i]);
+    }
+}
+
+/// そのルートを監視から外す（ほかのルートには触らない）
+fn disarm_watch(st: &mut State, i: usize) {
+    if st.entries[i].watched {
+        if let Ok(mut w) = st.watching.lock() {
+            w.unwatch_root(&st.entries[i].path);
+        }
+        st.entries[i].watched = false;
+    }
+}
+
+/// 差し込みの確かめを始める（もう回っていれば回数を戻す）
+fn start_rearm(st: &mut State) {
+    st.tries_left = REARM_TRIES;
+    unsafe { SetTimer(st.hwnd, TIMER_REARM, 500, None) };
+}
+
+/// 確かめで戻してよいルートか
+fn rearmable(e: &Entry) -> bool {
+    !e.watched && !e.ejecting && !e.remote
+}
+
+/// ネットワーク上のルートか（UNC か、割り当てたネットワークドライブ）
+fn is_remote(path: &Path) -> bool {
+    let s = path.as_os_str().to_string_lossy();
+    if s.starts_with(r"\\") && !s.starts_with(r"\\?\") {
+        return true;
+    }
+    let mut chars = s.chars();
+    match (chars.next(), chars.next()) {
+        (Some(d), Some(':')) if d.is_ascii_alphabetic() => {
+            let root: Vec<u16> = format!("{d}:\\\0").encode_utf16().collect();
+            unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE }
+        }
+        _ => false,
     }
 }
 
@@ -233,89 +331,67 @@ unsafe fn entry_of(st: &mut State, lparam: LPARAM) -> Option<usize> {
     if lparam == 0 {
         return None;
     }
-    let hdr = &*(lparam as *const DevBroadcastHdr);
-    if hdr.devicetype != DBT_DEVTYP_HANDLE {
+    let hdr = &*(lparam as *const DEV_BROADCAST_HDR);
+    if hdr.dbch_devicetype != DBT_DEVTYP_HANDLE {
         return None;
     }
-    let h = &*(lparam as *const DevBroadcastHandle);
+    let h = &*(lparam as *const DEV_BROADCAST_HANDLE);
     st.entries
         .iter()
-        .position(|e| !e.notify.is_null() && e.notify == h.hdevnotify)
+        .position(|e| !e.notify.is_null() && e.notify == h.dbch_hdevnotify)
 }
 
 fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    match wparam {
+    let Ok(event) = u32::try_from(wparam) else {
+        return BROADCAST_QUERY_ALLOW;
+    };
+    match event {
         DBT_DEVICEQUERYREMOVE => {
             if let Some(i) = unsafe { entry_of(st, lparam) } {
-                // 監視を外して（作り直して）、ハンドルを閉じる。**届け出は残す**（FAILED を受けるため）
-                st.entries[i].watched = false;
-                rewatch(st);
+                // そのルートだけ監視から外し（閉じ終えるまで待つ）、ハンドルを閉じる。
+                // **届け出は残す**（FAILED を受けるため）
+                st.entries[i].ejecting = true;
+                disarm_watch(st, i);
                 close_dir(&mut st.entries[i]);
             }
-            BROADCAST_QUERY_ALLOW
         }
         DBT_DEVICEQUERYREMOVEFAILED => {
             if let Some(i) = unsafe { entry_of(st, lparam) } {
-                // 他が断った。ドライブは付いたまま——古い届け出を外し、開き直して監視へ戻す
-                unregister(&mut st.entries[i]);
-                if st.entries[i].path.is_dir() {
-                    st.entries[i].watched = true;
-                    rewatch(st);
-                    let hwnd = st.hwnd;
-                    open_and_register(hwnd, &mut st.entries[i]);
+                // 他が断った。ドライブは付いたまま——古い届け出とハンドルを外し、開き直して監視へ戻す。
+                // **ハンドルも閉じてから開き直す**: QUERYREMOVE を経ずに FAILED だけが来ることがあり、
+                // そのとき握ったまま上書きすると、届け出の無いハンドルが残って次の取り外しを断る
+                // （#161 の codex の P2）。**その場で開けなければ確かめに回す**——戻る道を失わない
+                st.entries[i].ejecting = false;
+                arm(st, i);
+                if !st.entries[i].watched && !st.entries[i].remote {
+                    start_rearm(st);
                 }
             }
-            BROADCAST_QUERY_ALLOW
         }
         DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE => {
             if let Some(i) = unsafe { entry_of(st, lparam) } {
                 // 外れた。**いきなり抜かれた**ときは QUERYREMOVE が来ないので、ここで監視も手放す
+                st.entries[i].ejecting = false;
+                disarm_watch(st, i);
                 unregister(&mut st.entries[i]);
                 close_dir(&mut st.entries[i]);
-                if st.entries[i].watched {
-                    st.entries[i].watched = false;
-                    rewatch(st);
-                }
             }
-            BROADCAST_QUERY_ALLOW
         }
-        DBT_DEVICEARRIVAL => {
-            // ボリュームがまだ見えていないことがあるので、少しずつ確かめる
-            if st.entries.iter().any(|e| !e.watched) {
-                st.tries_left = REARM_TRIES;
-                unsafe { SetTimer(st.hwnd, TIMER_REARM, 500, None) };
-            }
-            BROADCAST_QUERY_ALLOW
-        }
-        _ => BROADCAST_QUERY_ALLOW,
+        // ボリュームがまだ見えていないことがあるので、少しずつ確かめる
+        DBT_DEVICEARRIVAL if st.entries.iter().any(rearmable) => start_rearm(st),
+        _ => {}
     }
+    BROADCAST_QUERY_ALLOW
 }
 
 fn on_rearm_timer(st: &mut State) {
     st.tries_left = st.tries_left.saturating_sub(1);
-    let back: Vec<usize> = st
-        .entries
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| !e.watched && e.path.is_dir())
-        .map(|(i, _)| i)
-        .collect();
-    if !back.is_empty() {
-        for &i in &back {
-            st.entries[i].watched = true;
-        }
-        rewatch(st);
-        let hwnd = st.hwnd;
-        for &i in &back {
-            // 開き直す前に古い届け出が残っていれば外す（抜かれて REMOVECOMPLETE を取り逃した等）
-            unregister(&mut st.entries[i]);
-            close_dir(&mut st.entries[i]);
-            if st.entries[i].watched {
-                open_and_register(hwnd, &mut st.entries[i]);
-            }
+    for i in 0..st.entries.len() {
+        if rearmable(&st.entries[i]) && st.entries[i].path.is_dir() {
+            arm(st, i);
         }
     }
-    if st.tries_left == 0 || st.entries.iter().all(|e| e.watched) {
+    if st.tries_left == 0 || !st.entries.iter().any(rearmable) {
         unsafe { KillTimer(st.hwnd, TIMER_REARM) };
     }
 }
@@ -400,10 +476,12 @@ fn run(
         }
 
         // 差し込みを知るための届け出（ボリュームの種類に宛てる。ハンドルは握らない）
-        let mut filter: DevBroadcastDeviceInterfaceW = std::mem::zeroed();
-        filter.size = std::mem::size_of::<DevBroadcastDeviceInterfaceW>() as u32;
-        filter.devicetype = DBT_DEVTYP_DEVICEINTERFACE;
-        filter.classguid = GUID_DEVINTERFACE_VOLUME;
+        let filter = DEV_BROADCAST_DEVICEINTERFACE_W {
+            dbcc_size: std::mem::size_of::<DEV_BROADCAST_DEVICEINTERFACE_W>() as u32,
+            dbcc_devicetype: DBT_DEVTYP_DEVICEINTERFACE,
+            dbcc_classguid: GUID_DEVINTERFACE_VOLUME,
+            ..Default::default()
+        };
         let volume = RegisterDeviceNotificationW(
             hwnd,
             &filter as *const _ as *const _,
@@ -414,6 +492,8 @@ fn run(
             .into_iter()
             .map(|path| Entry {
                 watched: watched.contains(&path),
+                ejecting: false,
+                remote: is_remote(&path),
                 path,
                 dir: std::ptr::null_mut(),
                 notify: std::ptr::null_mut(),
