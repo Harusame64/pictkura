@@ -25,7 +25,7 @@ use crate::search::{index_text, SearchQuery};
 /// ——別々に書くと、列を足したときに片方だけ直して添字がずれる。
 const MEDIA_COLUMNS: &str = "id, path, size, mtime_ms, width, height, taken_at_ms,
      day_key, thumb_path, thumb_state, favorite, picked, duration_ms,
-     preview_width, preview_height";
+     preview_width, preview_height, camera_id, taken_subsec, body_serial";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -61,8 +61,16 @@ pub struct MediaRecord {
     pub preview_width: Option<i64>,
     /// 埋め込みプレビューの高さ。入る条件は [`Self::preview_width`] と同じ
     pub preview_height: Option<i64>,
-    /// 撮影日時（EXIF DateTimeOriginal、Unixエポックミリ秒）。未抽出はNULL、表示側はmtimeへフォールバック
+    /// 撮影日時（EXIF DateTimeOriginal、Unixエポックミリ秒）。未抽出はNULL、表示側はmtimeへフォールバック。
+    /// `SubSecTimeOriginal` があれば**秒未満まで**入る（[`Self::taken_subsec`]、dev #32）
     pub taken_at_ms: Option<i64>,
+    /// `taken_at_ms` が秒未満まで分かっているか（dev #32。連写を間隔で切るのに要る）。
+    /// `None` は未確認（まだ EXIF を読んでいない・中身が変わった）
+    pub taken_subsec: Option<bool>,
+    /// カメラ（`cameras` 表の id。0 は「確認済み・カメラなし」、NULL は未確認）
+    pub camera_id: Option<i64>,
+    /// 本体シリアル（EXIF `BodySerialNumber`。dev #32。同じ機種の2台を分ける）
+    pub body_serial: Option<String>,
     /// 表示日（ローカルタイムゾーンのYYYYMMDD整数）。撮影日時（なければmtime）から書き込み時に計算
     pub day_key: i64,
     /// 生成済みサムネイルのパス
@@ -122,6 +130,22 @@ const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, si
      AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
      ORDER BY id LIMIT ?2";
 
+/// 連写の材料を後追いで読み直す行（[`Db::shots_to_backfill`]・[`Db::shots_pending`]）。
+/// 前半は部分索引 `idx_media_shots_pending` の条件そのもの。
+/// **TIFF は外す**——コンテナ読みがファイル丸ごと読む（`LIKE` は ASCII の大小を区別しない。codex の P2）
+const SHOTS_PENDING_WHERE: &str = "taken_subsec IS NULL AND width IS NOT NULL AND kind = 0
+     AND path NOT LIKE '%.tif' AND path NOT LIKE '%.tiff'";
+
+/// [`Db::shots_to_backfill`] の本体。**`INDEXED BY` で名指しする**（[`DIMS_TO_BACKFILL_SQL`] と
+/// 同じ理由）——放っておくと `idx_media_kind_day` へ流れ、**画像の全行をなめて一時B木で並べ直す**
+/// のを200件ごとに繰り返していた。見張りは `shot_backfill_query_rides_its_partial_index`
+/// （条件が [`SHOTS_PENDING_WHERE`] と同じ文字列であることも見る）
+const SHOTS_TO_BACKFILL_SQL: &str =
+    "SELECT id, path, mtime_ms, size FROM media INDEXED BY idx_media_shots_pending
+     WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0
+     AND path NOT LIKE '%.tif' AND path NOT LIKE '%.tiff' AND id > ?1
+     ORDER BY id LIMIT ?2";
+
 /// 寸法を確かめ直す1行（[`Db::dimensions_to_backfill`] が返し、
 /// [`Db::set_dimensions`] が書き込みのガードに使う）。
 ///
@@ -141,6 +165,21 @@ pub struct DimensionTarget {
     pub mtime_ms: i64,
     /// 版のもう半分。スキャンは `size <> size OR mtime_ms <> mtime_ms` で
     /// 差し替えを見ているので、**時刻を保ったコピー**は大きさでしか気づけない
+    pub size: i64,
+}
+
+/// 連写の材料を読み直す1行（[`Db::shots_to_backfill`] が返し、[`Db::set_shots`] が
+/// 書き込みのガードに使う）。**読んだ時点のファイルの版を持ち歩く**——束を読んでいる間に
+/// 差し替えられ、サムネイルの流れが EXIF に日時の無い新しい中身を書くと、行は
+/// `taken_subsec IS NULL AND width IS NOT NULL` のまま（未確認）に戻る。版を見ないと、
+/// 古い中身から読んだ日時とシリアルで上書きし、確認済みにしてしまう（#158 の codex の P2）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShotTarget {
+    pub id: i64,
+    pub path: PathBuf,
+    /// 読んだ時点の `mtime_ms`
+    pub mtime_ms: i64,
+    /// 読んだ時点の `size`（時刻を保ったコピーは大きさでしか気づけない。[`DimensionTarget`] と同じ）
     pub size: i64,
 }
 
@@ -190,6 +229,28 @@ const FTS_SCHEMA_VERSION: &str = "v3";
 /// カメラ別集計（JOIN）や `camera:` 絞り込み（IN）には現れない。
 const CAMERA_NONE: i64 = 0;
 
+/// 撮影日時に添える連写の材料（dev #32）。**撮影日時を書く UPDATE と同じ1回で**書く。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Shot<'a> {
+    /// 書く撮影日時が秒未満まで分かっているか。`None` は未確認（EXIF から来た時刻では
+    /// ない・読めなかった）——後追いが EXIF を読み直す
+    pub subsec: Option<bool>,
+    /// 本体シリアル。`None` なら**最後に分かっていた値を残す**
+    pub body_serial: Option<&'a str>,
+}
+
+impl<'a> Shot<'a> {
+    /// 何も言わない（未確認・シリアルは残す）
+    pub const UNKNOWN: Shot<'static> = Shot {
+        subsec: None,
+        body_serial: None,
+    };
+
+    fn serial(&self) -> Option<&'a str> {
+        self.body_serial.map(str::trim).filter(|s| !s.is_empty())
+    }
+}
+
 /// [`Db::rows_with_fallback_taken_at`] が返す行（ID・パス・mtime）。
 pub type FallbackDateRow = (i64, PathBuf, i64);
 
@@ -199,13 +260,18 @@ pub type FallbackDateRow = (i64, PathBuf, i64);
 /// 残す（dev #31、[`Db::upsert_files`]）。以前は2か所に同じ一覧を写していて、変えるたびに
 /// 両方を直す必要があった
 const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NULL, \
-     preview_height = NULL, taken_at_ms = NULL, thumb_path = NULL, thumb_state = 0, \
-     thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL";
+     preview_height = NULL, taken_at_ms = NULL, taken_subsec = NULL, thumb_path = NULL, \
+     thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL";
 
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
 /// day_keyの計算はすべてSQLite側（strftime + localtime）に統一する。
 fn day_key_expr(ms_expr: &str) -> String {
-    format!("CAST(strftime('%Y%m%d', ({ms_expr})/1000, 'unixepoch', 'localtime') AS INTEGER)")
+    // **秒へは床で丸める**。整数の割り算は 0 の側へ切り捨てるので、1970 年より前の時刻に
+    // 秒未満が付くと（dev #32 から付く）、1969-12-31 23:59:59.5 が翌日に入る
+    format!(
+        "CAST(strftime('%Y%m%d', (({ms_expr}) - ((({ms_expr}) % 1000) + 1000) % 1000) / 1000, \
+         'unixepoch', 'localtime') AS INTEGER)"
+    )
 }
 
 /// パス文字列から親ディレクトリを取り出すSQL式（`\` と `/` の両対応）。
@@ -528,6 +594,9 @@ impl Db {
     fn init_search(conn: &Connection) -> Result<(), DbError> {
         Self::register_functions(conn)?;
         let _ = conn.execute("ALTER TABLE media ADD COLUMN camera_id INTEGER", []);
+        // 連写の材料（dev #32）: 撮影時刻が秒未満まで分かったか（NULL=未確認）と本体シリアル
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN taken_subsec INTEGER", []);
+        let _ = conn.execute("ALTER TABLE media ADD COLUMN body_serial TEXT", []);
         // 動画の長さ（ミリ秒。第9部）。画像はNULLのまま
         let _ = conn.execute("ALTER TABLE media ADD COLUMN duration_ms INTEGER", []);
         // 種類（0=画像 / 1=RAW / 2=動画。[`crate::MediaKind`]）。
@@ -538,6 +607,19 @@ impl Db {
         let _ = conn.execute("ALTER TABLE media ADD COLUMN kind INTEGER", []);
         conn.execute(
             "UPDATE media SET kind = pk_kind(path) WHERE kind IS NULL",
+            [],
+        )?;
+        // 連写の材料の後追い（dev #32、[`Db::shots_to_backfill`]）だけの部分索引。
+        // **中身は「まだ読み直していない画像」だけ**なので、毎起動で表を端から端までなぞらない
+        // （寸法の後追いの索引と同じ理由）。**掃き終えても空になるとは限らない**——開けなかった
+        // 画像（クラウドにしか無い・外付けが外れている・権限）は未確認のまま残り、起動のたびに
+        // 拾われる（クラウドにしか無いもの・消えたものは読まずに飛ばし、権限で開けないものは
+        // 開こうとする）。読めない1回を「秒まで」と記録しないための代わりの費用。
+        // **TIFF もここに残る**が、取り出しの条件（`SHOTS_PENDING_WHERE`）が外す——索引の件数を
+        // 余分になぞるだけで、ファイルは開かない
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_media_shots_pending ON media(id)
+             WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0",
             [],
         )?;
         conn.execute_batch(&format!(
@@ -710,6 +792,13 @@ impl Db {
                 favorite    = COALESCE((SELECT d.favorite FROM path_dup_tmp d WHERE d.keep_id = media.id), favorite),
                 picked      = COALESCE((SELECT d.picked   FROM path_dup_tmp d WHERE d.keep_id = media.id), picked),
                 taken_at_ms = COALESCE(taken_at_ms, (SELECT o.taken_at_ms FROM media o
+                                WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
+                -- 時刻を借りるなら、その時刻の「秒未満が分かったか」も一緒に借りる（dev #32）。
+                -- 右辺の taken_at_ms は更新前の値
+                taken_subsec = CASE WHEN taken_at_ms IS NULL THEN (SELECT o.taken_subsec FROM media o
+                                WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))
+                                ELSE taken_subsec END,
+                body_serial = COALESCE(body_serial, (SELECT o.body_serial FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
                 camera_id   = COALESCE(camera_id,   (SELECT o.camera_id FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
@@ -1240,6 +1329,20 @@ impl Db {
         taken_at_ms: Option<i64>,
         camera: Option<&str>,
     ) -> Result<(), DbError> {
+        self.update_metadata_shot(id, dims, taken_at_ms, camera, Shot::UNKNOWN)
+    }
+
+    /// [`Self::update_metadata`] に**連写の材料**を添えて、**撮影日時と同じ1回の UPDATE で**書く
+    /// （dev #32）。時刻と「秒未満まで分かったか」を別の書き込みにすると、片方だけ書かれた
+    /// 隙間や、時刻だけ秒止まりに書き換わった後に「秒未満あり」が残る形ができた（#158 のゲート2）
+    pub fn update_metadata_shot(
+        &mut self,
+        id: i64,
+        dims: Dimensions,
+        taken_at_ms: Option<i64>,
+        camera: Option<&str>,
+        shot: Shot<'_>,
+    ) -> Result<(), DbError> {
         let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
             Some(name) => self.camera_id_of(name)?,
             // 「確認済みだがカメラ情報なし」の印（NULLは未確認を意味する）
@@ -1249,7 +1352,8 @@ impl Db {
             &format!(
                 "UPDATE media SET width = ?2, height = ?3, taken_at_ms = ?4,
                         day_key = {}, camera_id = ?5,
-                        preview_width = ?6, preview_height = ?7
+                        preview_width = ?6, preview_height = ?7,
+                        taken_subsec = ?8, body_serial = COALESCE(?9, body_serial)
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, mtime_ms)")
             ),
@@ -1260,7 +1364,9 @@ impl Db {
                 taken_at_ms,
                 camera_id,
                 dims.preview.map(|(w, _)| w),
-                dims.preview.map(|(_, h)| h)
+                dims.preview.map(|(_, h)| h),
+                shot.subsec.map(i64::from),
+                shot.serial()
             ],
         )?;
         Ok(())
@@ -1300,6 +1406,7 @@ impl Db {
         id: i64,
         taken_at_ms: Option<i64>,
         camera: Option<&str>,
+        shot: Shot<'_>,
     ) -> Result<(), DbError> {
         let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
             Some(name) => Some(self.camera_id_of(name)?),
@@ -1308,11 +1415,18 @@ impl Db {
         self.conn.execute(
             &format!(
                 "UPDATE media SET taken_at_ms = ?2, day_key = {},
-                        camera_id = COALESCE(?3, camera_id)
+                        camera_id = COALESCE(?3, camera_id),
+                        taken_subsec = ?4, body_serial = COALESCE(?5, body_serial)
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?2, mtime_ms)")
             ),
-            params![id, taken_at_ms, camera_id],
+            params![
+                id,
+                taken_at_ms,
+                camera_id,
+                shot.subsec.map(i64::from),
+                shot.serial()
+            ],
         )?;
         Ok(())
     }
@@ -1340,6 +1454,9 @@ impl Db {
                 "UPDATE media SET width = COALESCE(NULLIF(?2, 0), width),
                         height = COALESCE(NULLIF(?3, 0), height),
                         taken_at_ms = COALESCE(?4, taken_at_ms),
+                        -- OS の日時は秒まで。時刻を書き換えたら「秒未満が分かった」は
+                        -- もう本当ではない——未確認へ戻し、後追いに EXIF を読ませる（dev #32）
+                        taken_subsec = CASE WHEN ?4 IS NOT NULL THEN NULL ELSE taken_subsec END,
                         day_key = {}
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, taken_at_ms, mtime_ms)")
@@ -2094,6 +2211,94 @@ impl Db {
         Ok(out)
     }
 
+    /// 連写の材料がまだ無い行（dev #32 の後追い）。`id` 順に `limit` 件（`after_id` より後）。
+    /// メタデータ抽出済み（`width IS NOT NULL`）の行だけ——未抽出の行はサムネイルの流れが書く。
+    ///
+    /// **画像だけ（`kind = 0`）**。RAW はファイル丸ごと読む形式が多く（`read_exif_declaration` の
+    /// 注記）、ライブラリの RAW の総量を後ろで読むことになる。動画は連写に入らない。
+    /// RAW+JPEG なら JPEG 側に秒未満が入るので連写は組める。RAW だけで撮った既存の写真は
+    /// 読み直すまで秒まで（既知の限界。新しく取り込んだ RAW はサムネイルの流れが書く）
+    ///
+    /// **TIFF も外す**（[`SHOTS_PENDING_WHERE`]）。画像（`kind = 0`）だが、コンテナ読みは
+    /// TIFF をファイル丸ごと読む——スキャンした数百MBの TIFF を起動のたびに全部読むことになる
+    /// （codex の P2）。連写が TIFF で来ることはまず無い
+    pub fn shots_to_backfill(
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<Vec<ShotTarget>, DbError> {
+        let mut stmt = self.conn.prepare_cached(SHOTS_TO_BACKFILL_SQL)?;
+        let rows = stmt.query_map(params![after_id, limit as i64], |r| {
+            Ok(ShotTarget {
+                id: r.get(0)?,
+                path: PathBuf::from(r.get::<_, String>(1)?),
+                mtime_ms: r.get(2)?,
+                size: r.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 後追いの結果をまとめて書く（dev #32）。`(id, EXIF の撮影日時, 秒未満まで分かったか, シリアル)`。
+    /// **EXIF に撮影日時があれば、それで撮影日時と表示日を書き直す**（秒未満が足される。
+    /// 無ければ撮影日時には触らず、「秒まで」と記録する）
+    pub fn set_shots(
+        &mut self,
+        results: &[(ShotTarget, Option<i64>, bool, Option<String>)],
+    ) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            // **まだ未確認の行だけ**を書く。束を読んでいる間に中身が変わり、サムネイルの流れが
+            // 新しい値を書いていたら、古い中身の値で上書きしない（#158 のゲート2）。
+            // **ファイルの版も見る**——日時の無い新しい中身は未確認のまま残るので、
+            // 印だけでは差し替えを見抜けない（[`ShotTarget`]、#158 の codex の P2）
+            let mut with_time = tx.prepare_cached(&format!(
+                "UPDATE media SET taken_at_ms = ?2, day_key = {}, taken_subsec = ?3,
+                        body_serial = COALESCE(?4, body_serial)
+                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
+                   AND mtime_ms = ?5 AND size = ?6",
+                day_key_expr("?2")
+            ))?;
+            let mut meta_only = tx.prepare_cached(
+                "UPDATE media SET taken_subsec = ?2, body_serial = COALESCE(?3, body_serial)
+                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
+                   AND mtime_ms = ?4 AND size = ?5",
+            )?;
+            for (target, taken, subsec, serial) in results {
+                let serial = serial.as_deref().map(str::trim).filter(|s| !s.is_empty());
+                let (id, mtime, size) = (target.id, target.mtime_ms, target.size);
+                match taken {
+                    Some(at) => with_time.execute(params![
+                        id,
+                        at,
+                        i64::from(*subsec),
+                        serial,
+                        mtime,
+                        size
+                    ])?,
+                    None => {
+                        meta_only.execute(params![id, i64::from(*subsec), serial, mtime, size])?
+                    }
+                };
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 連写の材料がまだ無い行の数（後追いの目安）
+    pub fn shots_pending(&self) -> Result<i64, DbError> {
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM media WHERE {SHOTS_PENDING_WHERE}"),
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
     /// カメラ補完スイープの結果をまとめて書く。
     /// `None`（EXIFにカメラ情報なし）も「確認済み」として記録し、再走査を防ぐ。
     pub fn set_cameras(&mut self, results: &[(i64, Option<String>)]) -> Result<(), DbError> {
@@ -2557,6 +2762,9 @@ impl Db {
             duration_ms: row.get(12)?,
             preview_width: row.get(13)?,
             preview_height: row.get(14)?,
+            camera_id: row.get(15)?,
+            taken_subsec: row.get::<_, Option<i64>>(16)?.map(|v| v != 0),
+            body_serial: row.get(17)?,
         })
     }
 }
@@ -2652,6 +2860,24 @@ impl ReadPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 後追いの書き込みに渡す、**いまのファイルの版**の対象（[`ShotTarget`]）
+    fn target_of(db: &Db, id: i64) -> ShotTarget {
+        db.conn
+            .query_row(
+                "SELECT path, mtime_ms, size FROM media WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(ShotTarget {
+                        id,
+                        path: PathBuf::from(r.get::<_, String>(0)?),
+                        mtime_ms: r.get(1)?,
+                        size: r.get(2)?,
+                    })
+                },
+            )
+            .unwrap()
+    }
 
     fn scanned(path: &str, size: i64, mtime_ms: i64) -> ScannedFile {
         ScannedFile {
@@ -3421,11 +3647,15 @@ mod tests {
                 } else {
                     // 消える側: ユーザーが★を付け、撮影情報も埋まっている
                     db.set_favorite(r.id, true).unwrap();
-                    db.update_metadata(
+                    db.update_metadata_shot(
                         r.id,
                         Dimensions::original(640, 480),
-                        Some(1_700_000_000_000),
+                        Some(1_700_000_000_480),
                         Some("Camera X"),
+                        Shot {
+                            subsec: Some(true),
+                            body_serial: Some("S1"),
+                        },
                     )
                     .unwrap();
                 }
@@ -3449,10 +3679,11 @@ mod tests {
         assert!(all[0].favorite, "★は消える側に付いていても残る");
         assert_eq!(all[0].width, Some(640), "寸法を引き継ぐ");
         assert_eq!(
-            all[0].taken_at_ms,
-            Some(1_700_000_000_000),
-            "撮影日時を引き継ぐ"
+            (all[0].taken_at_ms, all[0].taken_subsec),
+            (Some(1_700_000_000_480), Some(true)),
+            "撮影日時を、秒未満の印と一緒に引き継ぐ（dev #32）"
         );
+        assert_eq!(all[0].body_serial.as_deref(), Some("S1"));
     }
 
     #[test]
@@ -4995,6 +5226,424 @@ mod tests {
     /// **変わったファイルは、最後に分かっていたカメラを残す**（dev #31）。読み直すまでは
     /// 前のカメラで引け、読み直したら書き換わる。寸法・撮影日時・絵は今までどおり空にする
     /// ——`ids_missing_metadata`（`width IS NULL`）が拾って読み直しへ回す
+    /// 連写の材料の後追い（dev #32）: 未確認で抽出済みの行だけを拾い、EXIF の撮影日時が
+    /// あれば秒未満まで書き直す。**中身が変わった行は秒未満の印を空に戻し、シリアルは残す**
+    #[test]
+    fn shot_meta_is_backfilled_and_reset_when_the_file_changes() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\a.jpg", 1, 1000),
+            scanned(r"D:\写真\b.jpg", 1, 2000),
+            scanned(r"D:\写真\c.jpg", 1, 3000),
+        ])
+        .unwrap();
+        // `list_all` は新しい順に返すので、id の昇順（= a, b, c の入れた順）へ並べ直す
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        // a と b は抽出済み（連写の材料だけ未確認）、c は未抽出
+        for id in &ids[..2] {
+            db.update_metadata(*id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+        }
+        let pending: Vec<i64> = db
+            .shots_to_backfill(0, 10)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(pending, ids[..2].to_vec(), "未抽出の c は拾わない");
+        assert_eq!(db.shots_pending().unwrap(), 2);
+
+        // a は EXIF に秒未満つきの撮影日時とシリアル、b は EXIF に日時が無い
+        db.set_shots(&[
+            (
+                target_of(&db, ids[0]),
+                Some(1_000_480),
+                true,
+                Some("051022000405".into()),
+            ),
+            (target_of(&db, ids[1]), None, false, None),
+        ])
+        .unwrap();
+        let a = db.get_by_id(ids[0]).unwrap().unwrap();
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!(
+            (a.taken_at_ms, a.taken_subsec),
+            (Some(1_000_480), Some(true))
+        );
+        assert_eq!(a.body_serial.as_deref(), Some("051022000405"));
+        assert_eq!(
+            (b.taken_at_ms, b.taken_subsec),
+            (Some(1_000_000), Some(false)),
+            "日時には触らない"
+        );
+        assert!(db.shots_to_backfill(0, 10).unwrap().is_empty());
+
+        // 中身が変わった: 秒未満の印は未確認へ、シリアルは最後に分かっていた値のまま
+        db.upsert_files(&[scanned(r"D:\写真\a.jpg", 2, 1000)])
+            .unwrap();
+        let a = db.get_by_id(ids[0]).unwrap().unwrap();
+        assert_eq!(a.taken_subsec, None);
+        assert_eq!(a.body_serial.as_deref(), Some("051022000405"));
+    }
+
+    /// 連写の後追いも部分索引に乗る。**乗らないと種類の索引へ流れ、画像の全行をなめて並べ直す**
+    /// のを200件ごとに繰り返す——掃き終えたライブラリでも毎起動1回（`INDEXED BY` の理由）
+    #[test]
+    fn shot_backfill_query_rides_its_partial_index() {
+        assert!(
+            SHOTS_TO_BACKFILL_SQL.contains(&format!("WHERE {SHOTS_PENDING_WHERE} AND id > ?1")),
+            "取り出しと数える側で条件がずれた"
+        );
+        let db = Db::open_in_memory().unwrap();
+        let mut stmt = db
+            .conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {SHOTS_TO_BACKFILL_SQL}"))
+            .unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(params![0i64, 200i64], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(
+            plan.iter().any(|l| l.contains("idx_media_shots_pending")),
+            "部分索引が使われていない: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|l| l.contains("TEMP B-TREE")),
+            "索引の並び順で返るので並べ直しは要らないはず: {plan:?}"
+        );
+        // 索引側を緩めてもプランは同じまま通る（寸法の後追いの升と同じ理由）
+        let sql: String = db
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                params!["idx_media_shots_pending"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0"),
+            "索引の条件が後追いの条件と揃っていない: {sql}"
+        );
+    }
+
+    /// 束を読んだあとに差し替えられ、サムネイルの流れが**日時の無い新しい中身**を書いた行は、
+    /// 未確認のまま（`taken_subsec IS NULL`）に戻る。古い中身から読んだ値で上書きしない
+    /// ——ファイルの版で見分ける（#158 の codex の P2）。版が合えば書く（対照）
+    #[test]
+    fn a_shot_backfill_read_of_a_replaced_file_is_not_written() {
+        // 差し替えの形は3つ: 大きさも時刻も変わる／時刻を保ったコピー／同じ大きさで時刻だけ
+        for (what, size, mtime) in [
+            ("both", 2, 2000),
+            ("size only", 2, 1000),
+            ("mtime only", 1, 2000),
+        ] {
+            let mut db = Db::open_in_memory().unwrap();
+            db.upsert_files(&[scanned(r"D:\写真\a.jpg", 1, 1000)])
+                .unwrap();
+            let id = db.list_all().unwrap()[0].id;
+            db.update_metadata(id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+            let stale = db.shots_to_backfill(0, 10).unwrap().remove(0);
+
+            // 読んでいる間に差し替え → サムネイルの流れが日時の無い中身を書く（印は未確認のまま）
+            db.upsert_files(&[scanned(r"D:\写真\a.jpg", size, mtime)])
+                .unwrap();
+            db.update_metadata(id, Dimensions::original(4, 3), Some(2_000_000), None)
+                .unwrap();
+            // 日時のある読みと無い読みで、書き込みの文は別（両方とも見張る）
+            db.set_shots(&[(stale.clone(), Some(1_000_480), true, Some("OLD".into()))])
+                .unwrap();
+            db.set_shots(&[(stale, None, false, Some("OLD".into()))])
+                .unwrap();
+            let r = db.get_by_id(id).unwrap().unwrap();
+            assert_eq!(
+                (r.taken_at_ms, r.taken_subsec, r.body_serial.as_deref()),
+                (Some(2_000_000), None, None),
+                "{what}"
+            );
+            assert_eq!(db.shots_pending().unwrap(), 1, "{what}: 読み直しを待つ");
+
+            // 対照: いまの版で読んだ結果は書く
+            db.set_shots(&[(
+                target_of(&db, id),
+                Some(2_000_480),
+                true,
+                Some("NEW".into()),
+            )])
+            .unwrap();
+            let r = db.get_by_id(id).unwrap().unwrap();
+            assert_eq!(
+                (r.taken_at_ms, r.taken_subsec, r.body_serial.as_deref()),
+                (Some(2_000_480), Some(true), Some("NEW")),
+                "{what}"
+            );
+        }
+    }
+
+    /// TIFF は画像（`kind = 0`）でも後追いしない——コンテナ読みがファイル丸ごと読む（codex の P2）。
+    /// 拡張子の大小は問わない。**名前の途中に `.tif` があるだけの JPEG は拾う**（対照）
+    #[test]
+    fn shot_backfill_skips_tiffs_but_not_a_jpeg_named_like_one() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\scan.TIF", 1, 1000),
+            scanned(r"D:\写真\scan.tiff", 1, 2000),
+            scanned(r"D:\写真\scan.tif.jpg", 1, 3000),
+        ])
+        .unwrap();
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        for id in &ids {
+            db.update_metadata(*id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+        }
+        let pending: Vec<i64> = db
+            .shots_to_backfill(0, 10)
+            .unwrap()
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(pending, vec![ids[2]]);
+        assert_eq!(db.shots_pending().unwrap(), 1);
+    }
+
+    /// 後追いの取り出しは `after_id` より**後**だけ（`>=` だと同じ束を無限に回る）、画像だけ
+    /// （RAW は丸ごと読む形式が多いので対象外）。書き込みは表示日も直し、確認済みの行は触らない
+    #[test]
+    fn shot_backfill_pages_forward_skips_raws_and_never_overwrites_a_read_row() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\a.jpg", 1, 1000),
+            scanned(r"D:\写真\b.jpg", 1, 2000),
+            scanned(r"D:\写真\c.cr3", 1, 3000),
+        ])
+        .unwrap();
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        for id in &ids {
+            db.update_metadata(*id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+        }
+        let page = |db: &Db, after: i64| -> Vec<i64> {
+            db.shots_to_backfill(after, 10)
+                .unwrap()
+                .iter()
+                .map(|t| t.id)
+                .collect()
+        };
+        assert_eq!(page(&db, 0), ids[..2].to_vec(), "RAW の c は拾わない");
+        assert_eq!(
+            page(&db, ids[0]),
+            vec![ids[1]],
+            "after_id そのものは含めない"
+        );
+        assert_eq!(db.shots_pending().unwrap(), 2);
+
+        // 表示日は新しい時刻から計算し直す（1日後の時刻へ）
+        let next_day = 1_000_000 + 86_400_000 + 250;
+        db.set_shots(&[(
+            target_of(&db, ids[0]),
+            Some(next_day),
+            false,
+            Some("S1".into()),
+        )])
+        .unwrap();
+        let a = db.get_by_id(ids[0]).unwrap().unwrap();
+        assert_eq!(
+            (a.taken_at_ms, a.taken_subsec),
+            (Some(next_day), Some(false))
+        );
+        let day_of = |db: &Db, ms: i64| -> i64 {
+            db.conn
+                .query_row(
+                    &format!("SELECT {}", day_key_expr("?1")),
+                    params![ms],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(a.day_key, day_of(&db, next_day));
+        assert_ne!(a.day_key, day_of(&db, 1_000_000), "日が動いた");
+
+        // 確認済みの行（サムネイルの流れが書いた後）は、古い読みで上書きしない
+        db.update_metadata_shot(
+            ids[1],
+            Dimensions::original(4, 3),
+            Some(1_000_000),
+            None,
+            Shot {
+                subsec: Some(true),
+                body_serial: Some("NEW"),
+            },
+        )
+        .unwrap();
+        db.set_shots(&[(target_of(&db, ids[1]), Some(5), false, Some("OLD".into()))])
+            .unwrap();
+        // 日時の無い読み（meta_only の道）も、確認済みの行は書き換えない
+        db.set_shots(&[(target_of(&db, ids[1]), None, false, Some("OLD".into()))])
+            .unwrap();
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!(
+            (b.taken_at_ms, b.taken_subsec),
+            (Some(1_000_000), Some(true))
+        );
+        assert_eq!(b.body_serial.as_deref(), Some("NEW"));
+        // シリアルを名乗らない書き込みは、最後に分かっていたシリアルを消さない
+        db.update_metadata_shot(
+            ids[1],
+            Dimensions::original(4, 3),
+            Some(1_000_000),
+            None,
+            Shot {
+                subsec: Some(false),
+                body_serial: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            db.get_by_id(ids[1])
+                .unwrap()
+                .unwrap()
+                .body_serial
+                .as_deref(),
+            Some("NEW")
+        );
+    }
+
+    /// 時刻を書く口はどれも、**同じ UPDATE で**「秒未満が分かったか」を書く（#158 のゲート2）。
+    /// 秒までの時刻に書き換わった後に「秒未満あり」が残ると、秒止まりの時刻どうしが間隔 0 で
+    /// 連写に鎖でつながる
+    #[test]
+    fn the_sub_second_mark_always_moves_with_the_time() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned(r"D:\写真\a.jpg", 1, 1000)])
+            .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let known = Shot {
+            subsec: Some(true),
+            body_serial: Some("S1"),
+        };
+        let mark = |db: &Db| {
+            let r = db.get_by_id(id).unwrap().unwrap();
+            (r.taken_at_ms, r.taken_subsec, r.body_serial)
+        };
+        let s1 = Some("S1".to_string());
+
+        db.update_metadata_shot(id, Dimensions::original(4, 3), Some(1_480), None, known)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
+        // 材料を言わない書き込み（`update_metadata`）は未確認へ戻す。シリアルは残す
+        db.update_metadata(id, Dimensions::original(4, 3), Some(1_000), None)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_000), None, s1.clone()));
+
+        // 寸法に触らない口も同じ
+        db.update_metadata_keeping_dimensions(id, Some(1_480), None, known)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
+        db.update_metadata_keeping_dimensions(id, Some(1_000), None, Shot::UNKNOWN)
+            .unwrap();
+        assert_eq!(mark(&db), (Some(1_000), None, s1.clone()));
+
+        // OS から借りた時刻（秒まで）を書いたら未確認へ。時刻を書かなければ印も残す
+        db.update_metadata_keeping_dimensions(id, Some(1_480), None, known)
+            .unwrap();
+        db.update_shell_metadata(id, 4, 3, None).unwrap();
+        assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
+        db.update_shell_metadata(id, 4, 3, Some(2_000)).unwrap();
+        assert_eq!(mark(&db), (Some(2_000), None, s1));
+    }
+
+    /// 後追いの書き込みは**抽出済みの行だけ**（未抽出の行はサムネイルの流れが時刻ごと書く。
+    /// 先に秒未満の印を立てると、流れが書いた時刻が後追いから外れる）。シリアルを名乗らない
+    /// 読みは、最後に分かっていたシリアルを消さない
+    #[test]
+    fn shot_backfill_writes_only_extracted_rows_and_keeps_a_known_serial() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned(r"D:\写真\a.jpg", 1, 1000),
+            scanned(r"D:\写真\b.jpg", 1, 2000),
+        ])
+        .unwrap();
+        let mut ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        ids.sort();
+        // a は抽出済み（シリアルだけ前の中身から残っている形）、b は未抽出
+        db.update_metadata_shot(
+            ids[0],
+            Dimensions::original(4, 3),
+            Some(1_000_000),
+            None,
+            Shot {
+                subsec: None,
+                body_serial: Some("KNOWN"),
+            },
+        )
+        .unwrap();
+
+        db.set_shots(&[
+            (target_of(&db, ids[0]), Some(1_000_480), true, None),
+            (
+                target_of(&db, ids[1]),
+                Some(7_000_480),
+                true,
+                Some("B".into()),
+            ),
+        ])
+        .unwrap();
+        let a = db.get_by_id(ids[0]).unwrap().unwrap();
+        assert_eq!(
+            (a.taken_at_ms, a.taken_subsec),
+            (Some(1_000_480), Some(true))
+        );
+        assert_eq!(
+            a.body_serial.as_deref(),
+            Some("KNOWN"),
+            "名乗らない読みは消さない"
+        );
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!(
+            (b.taken_at_ms, b.taken_subsec, b.body_serial),
+            (None, None, None),
+            "未抽出の行には書かない"
+        );
+
+        // 日時の無い読み（meta_only の道）も同じ
+        db.set_shots(&[(target_of(&db, ids[1]), None, false, Some("B".into()))])
+            .unwrap();
+        let b = db.get_by_id(ids[1]).unwrap().unwrap();
+        assert_eq!((b.taken_subsec, b.body_serial), (None, None));
+    }
+
+    /// 表示日は秒へ**床で**丸める。1970 年より前の時刻に秒未満が付くと、整数の割り算
+    /// （0 の側へ切り捨て）では翌日に入る（dev #32 で秒未満が付くようになった）。
+    ///
+    /// **時間帯によらず負の時刻で撃つ**: 地方時の 1969-12-31 00:00 は、UTC−12〜+14 のどこでも
+    /// エポックより前。その 0.5 秒前（12-30 23:59:59.5）が 12-31 に入れば切り捨て
+    #[test]
+    fn the_day_key_floors_sub_seconds_before_1970() {
+        use chrono::TimeZone;
+        let db = Db::open_in_memory().unwrap();
+        let midnight = chrono::Local
+            .with_ymd_and_hms(1969, 12, 31, 0, 0, 0)
+            .earliest()
+            .unwrap()
+            .timestamp_millis();
+        assert!(midnight < 0, "{midnight}");
+        let day = |ms: i64| -> i64 {
+            db.conn
+                .query_row(
+                    &format!("SELECT {}", day_key_expr("?1")),
+                    params![ms],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(day(midnight - 500), 19691230);
+        assert_eq!(day(midnight), 19691231);
+    }
+
     #[test]
     fn a_changed_file_keeps_its_last_known_camera_until_it_is_read_again() {
         let mut db = seed_search_db();

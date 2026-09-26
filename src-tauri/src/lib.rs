@@ -618,6 +618,11 @@ struct MediaItemDto {
     /// `taken_at_ms` が**本物の撮影日時**か（偽なら mtime で埋めた値）。一覧は、撮影日時が
     /// 読めた同士でしか RAW+JPEG を重ねない——mtime が偶然同じ別の写真を組にしない（PRのcodex）
     taken_at_known: bool,
+    /// `taken_at_ms` が秒未満まで分かっているか（dev #32。連写は間隔で切るので、
+    /// 秒までしか分からない写真は束ねない）
+    taken_subsec: bool,
+    /// 機体の鍵（機種＋本体シリアル。0 は分からない。dev #32、[`pictkura_core::burst::body_key`]）
+    body_key: i64,
 }
 
 impl From<pictkura_core::MediaRecord> for MediaItemDto {
@@ -647,6 +652,8 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             shot_key: pictkura_core::sidecar::shot_key(&r.path),
             is_raw: pictkura_core::raw::is_raw_path(&r.path),
             taken_at_known: r.taken_at_ms.is_some(),
+            taken_subsec: r.taken_subsec == Some(true),
+            body_key: pictkura_core::burst::body_key(r.camera_id, r.body_serial.as_deref()),
         }
     }
 }
@@ -5442,6 +5449,53 @@ pub fn run() {
                                 Err(_) => break, // 印を付けていないので次回起動でやり直せる
                             }
                             std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
+
+                        // 第4段: 連写の材料の後追い（dev #32）。この版より前に読んだ行は、
+                        // 撮影日時が秒で切り捨てられ、本体シリアルも持たない。**画像だけ**
+                        // （RAW と TIFF は丸ごと読むので対象外——`shots_to_backfill` の注記）
+                        // EXIF を読み直して、**秒未満まで**の撮影日時とシリアルを書く。
+                        //
+                        // **帯は出さない**（寸法の後追いと同じ）。見た目が変わるのは同じ秒の
+                        // 並びだけ。終わったら**1回だけ**一覧に知らせ、連写の重ねを組み直させる
+                        let mut after_id = 0i64;
+                        let mut wrote = false;
+                        while let Ok(batch) = db.shots_to_backfill(after_id, 200) {
+                            if batch.is_empty() {
+                                break;
+                            }
+                            after_id = batch.last().map(|t| t.id).unwrap_or(after_id);
+                            let results: Vec<(
+                                pictkura_core::db::ShotTarget,
+                                Option<i64>,
+                                bool,
+                                Option<String>,
+                            )> = batch
+                                .into_iter()
+                                // 開けない・クラウドにしか無いファイルは**印を付けずに飛ばす**
+                                // （カメラ・寸法の後追いと同じ理由）
+                                .filter(|t| t.path.is_file())
+                                .filter(|t| !pictkura_core::cloud::is_cloud_only_path(&t.path))
+                                // **読めなかった行は印を付けずに飛ばす**（共有ロック・権限）。
+                                // 「秒まで」と書くと、読める日が来ても二度と拾い直さない
+                                .filter_map(|t| {
+                                    let exif = pictkura_core::thumbs::read_exif_capture(&t.path)?;
+                                    let subsec = exif.taken_at_ms.is_some() && exif.taken_subsec;
+                                    Some((t, exif.taken_at_ms, subsec, exif.body_serial))
+                                })
+                                .collect();
+                            if results.is_empty() {
+                                std::thread::sleep(std::time::Duration::from_millis(20));
+                                continue;
+                            }
+                            if db.set_shots(&results).is_err() {
+                                break; // 印を付けていないので次回起動でやり直せる
+                            }
+                            wrote = true;
+                            std::thread::sleep(std::time::Duration::from_millis(20));
+                        }
+                        if wrote {
+                            let _ = index_handle.emit("library-updated", ());
                         }
                     });
                 // **「作成中」を出したまま消えない**（ゲート1の指摘）。ここで落ちると
