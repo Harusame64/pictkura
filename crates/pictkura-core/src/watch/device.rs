@@ -68,7 +68,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     DEVICE_NOTIFY_WINDOW_HANDLE, DEV_BROADCAST_DEVICEINTERFACE_W, DEV_BROADCAST_HANDLE,
     DEV_BROADCAST_HDR, GUID_IO_VOLUME_DISMOUNT, GUID_IO_VOLUME_DISMOUNT_FAILED,
     GUID_IO_VOLUME_LOCK, GUID_IO_VOLUME_LOCK_FAILED, GUID_IO_VOLUME_MOUNT, GUID_IO_VOLUME_UNLOCK,
-    HDEVNOTIFY, HWND_MESSAGE, MSG, WM_CLOSE, WM_DESTROY, WM_DEVICECHANGE, WM_TIMER, WNDCLASSW,
+    HDEVNOTIFY, HWND_MESSAGE, MSG, WM_APP, WM_CLOSE, WM_DESTROY, WM_DEVICECHANGE, WM_TIMER,
+    WNDCLASSW,
 };
 
 use notify_debouncer_mini::notify::windows::{MetaEvent, ReadDirectoryChangesWatcher};
@@ -197,6 +198,17 @@ impl DeviceGuard {
                 None
             }
         }
+    }
+}
+
+/// 「確かめを始めよ」の合図（[`DeviceGuard::rearm`]）。窓の糸だけが状態に触れるので、外からは合図を送る
+const WM_APP_REARM: u32 = WM_APP + 1;
+
+impl DeviceGuard {
+    /// あとから差し込まれたドライブの上のルートを、確かめに回させる（`LibraryWatcher::watch_returned`）。
+    /// 確かめは監視に入れるのと一緒に、取り外しの知らせの届け出もする
+    pub(crate) fn rearm(&self) {
+        unsafe { PostMessageW(self.hwnd as HWND, WM_APP_REARM, 0, 0) };
     }
 }
 
@@ -530,6 +542,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             STATE.with(|s| {
                 if let Some(st) = s.borrow_mut().as_mut() {
                     on_rearm_timer(st);
+                }
+            });
+            0
+        }
+        WM_APP_REARM => {
+            STATE.with(|s| {
+                if let Some(st) = s.borrow_mut().as_mut() {
+                    if st.entries.iter().any(rearmable) {
+                        start_rearm(st, REARM_TRIES);
+                    }
                 }
             });
             0

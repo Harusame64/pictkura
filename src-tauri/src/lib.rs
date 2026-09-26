@@ -3442,6 +3442,11 @@ async fn scan_roots_on_drives(
             .cloned()
             .collect();
         let stats = scan_returned_roots(&state, &visible, &full)?;
+        // **監視にも入れる**——起動時に無かったルートは監視していない（カードリーダーの SD は差しても
+        // 知らせが来ない。dev #38 の U7）。読み直しは差す前の分、監視は差したあとの分
+        if let Some(watcher) = lock_ok(&state.watcher).as_ref() {
+            watcher.watch_returned(&visible);
+        }
         out.roots = visible.len();
         out.added = stats.added;
         out.changed = stats.changed;
