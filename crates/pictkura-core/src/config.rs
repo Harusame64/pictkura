@@ -417,11 +417,15 @@ pub enum PairView {
 /// 設定ファイルごと読めなくなると、ライブラリの場所まで失う（ビューアの歩き方1つのために）
 impl<'de> Deserialize<'de> for PairView {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Ok(match String::deserialize(d)?.as_str() {
-            "raw" => Self::Raw,
-            "both" => Self::Both,
-            _ => Self::Jpeg,
-        })
+        // まず何の値でも受け取る——文字列でない値（`true`・`1`）でも設定ごと落ちない。大小は区別しない
+        let value = toml::Value::deserialize(d)?;
+        Ok(
+            match value.as_str().map(str::to_ascii_lowercase).as_deref() {
+                Some("raw") => Self::Raw,
+                Some("both") => Self::Both,
+                _ => Self::Jpeg,
+            },
+        )
     }
 }
 
@@ -624,6 +628,19 @@ verify_after_copy = true
             !odd.viewer.auto_advance,
             "the rest of the section still reads"
         );
+        // 文字列でない値・大文字でも、設定ごと落ちない（#168 のゲート2）
+        for (text, want) in [
+            ("pair_view = true", PairView::Jpeg),
+            ("pair_view = 1", PairView::Jpeg),
+            ("pair_view = [\"raw\"]", PairView::Jpeg),
+            ("pair_view = \"RAW\"", PairView::Raw),
+            ("pair_view = \"Both\"", PairView::Both),
+        ] {
+            let c = Config::from_toml_str(&format!("[viewer]\n{text}\nauto_advance = false\n"))
+                .unwrap_or_else(|e| panic!("{text}: {e}"));
+            assert_eq!(c.viewer.pair_view, want, "{text}");
+            assert!(!c.viewer.auto_advance, "{text}");
+        }
     }
 
     /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**

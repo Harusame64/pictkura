@@ -2622,16 +2622,34 @@ export default function App() {
     [pairView, pairOf],
   );
   /**
+   * 重ねの印をまとめて書く道（`markStack`）。**あちらは後ろで作る**（`markIds` の隣）ので、
+   * 前に居るビューアの判定からは ref で呼ぶ
+   */
+  const markStackRef = useRef<(files: readonly MediaItem[], kind: MarkKind, on: boolean) => void>(
+    () => {},
+  );
+  /**
    * ビューアの RAW / JPEG ボタン。**設定を書き換える**（次に開いたときも同じ側で見られる）。
    * 先に手元の設定を替えて絵を寄せ、保存に失敗したら設定を読み直して戻す
    */
-  const choosePairView = useCallback((view: PairView) => {
-    setConfig((c) => (c ? { ...c, viewer: { auto_advance: true, ...c.viewer, pair_view: view } } : c));
-    setPairView(view).catch((e) => {
-      fail(errText(e));
-      void refreshRoots();
-    });
-  }, [fail, refreshRoots]);
+  const pairViewSaves = useRef<Promise<unknown>>(Promise.resolve());
+  const choosePairView = useCallback(
+    (view: PairView) => {
+      setConfig((c) => (c ? { ...c, viewer: { auto_advance: true, ...c.viewer, pair_view: view } } : c));
+      // **保存は押した順に1つずつ**。続けて押した2つが並んで走ると、後で押した側が先に
+      // 書き終わり、画面と保存された設定が食い違うことがある（#168 のゲート2）
+      pairViewSaves.current = pairViewSaves.current.then(() =>
+        setPairView(view).catch((e) => {
+          fail(errText(e));
+          // 保存できなかった——画面の値を、保存されている値へ戻す
+          return getConfig()
+            .then(setConfig)
+            .catch(() => {});
+        }),
+      );
+    },
+    [fail],
+  );
   /**
    * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」と、読み込み済みの id。
    * 範囲選択を重ねの単位へ閉じ、選択の枚数を「見えているタイル」で数えるのに使う
@@ -2704,7 +2722,7 @@ export default function App() {
       // justifiedレイアウト: 行の高さはスライダー(cellSize)基準、
       // 各写真はアスペクト比どおりの幅（切り抜きなし）。行ごとに幅ピッタリへ伸縮
       // RAW+JPEG の組は1枚のタイルに重ねる（dev #32）。**並びは `dayItems` のまま**
-      // ——ビューアは今までどおり1ファイルずつ歩く
+      // ——ビューアの歩き方は別に組む（`viewerWalk`。組の片方だけ・RAW→JPEG）
       let rowItems: Stack<MediaItem>[] = [];
       let sumAspect = 0;
       const flushRow = (justify: boolean) => {
@@ -3262,10 +3280,9 @@ export default function App() {
     (item: MediaItem) => {
       flashViewer(item.favorite ? "unfav" : "fav");
       // 組の両方を**見ている側の向き**にそろえる（片方ずつトグルすると、ずれた組が逆向きにずれる）
-      const next = !item.favorite;
-      for (const f of viewerTargets(item)) void setMark(f, "favorite", next);
+      markStackRef.current(viewerTargets(item), "favorite", !item.favorite);
     },
-    [flashViewer, setMark, viewerTargets],
+    [flashViewer, viewerTargets],
   );
 
   /**
@@ -3275,36 +3292,35 @@ export default function App() {
   const rejectTool = useCallback(
     (item: MediaItem) => {
       const on = !rejectedRef.current.has(item.id);
-      for (const f of viewerTargets(item)) {
-        markReject(f, on);
-        if (on && f.picked) void setMark(f, "picked", false);
-      }
+      const targets = viewerTargets(item);
+      for (const f of targets) markReject(f, on);
+      const picked = targets.filter((f) => f.picked);
+      if (on && picked.length > 0) markStackRef.current(picked, "picked", false);
       flashViewer(on ? "reject" : "unflag");
     },
-    [markReject, setMark, flashViewer, viewerTargets],
+    [markReject, flashViewer, viewerTargets],
   );
 
   /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
   const pickViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
       flashViewer(pick ? "pick" : "unflag");
-      for (const f of viewerTargets(item)) void setMark(f, "picked", pick);
+      markStackRef.current(viewerTargets(item), "picked", pick);
     },
-    [flashViewer, setMark, viewerTargets],
+    [flashViewer, viewerTargets],
   );
 
   const judgeViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
-      for (const f of viewerTargets(item)) {
-        void setMark(f, "picked", pick);
-        // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
-        // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
-        markReject(f, false);
-      }
+      const targets = viewerTargets(item);
+      markStackRef.current(targets, "picked", pick);
+      // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
+      // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
+      for (const f of targets) markReject(f, false);
       flashViewer(pick ? "pick" : "unflag");
       if (autoAdvance) moveViewer(1);
     },
-    [setMark, markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
+    [markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
   );
 
   /**
@@ -3313,17 +3329,17 @@ export default function App() {
    */
   const rejectViewer = useCallback(
     (item: MediaItem) => {
-      for (const f of viewerTargets(item)) {
-        markReject(f, true);
-        // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
-        // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
-        // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
-        if (f.picked) void setMark(f, "picked", false);
-      }
+      const targets = viewerTargets(item);
+      for (const f of targets) markReject(f, true);
+      // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
+      // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
+      // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
+      const picked = targets.filter((f) => f.picked);
+      if (picked.length > 0) markStackRef.current(picked, "picked", false);
       flashViewer("reject");
       if (autoAdvance) moveViewer(1);
     },
-    [markReject, setMark, flashViewer, autoAdvance, moveViewer, viewerTargets],
+    [markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
   );
 
   /**
@@ -4206,7 +4222,9 @@ export default function App() {
     setPan({ x: 0, y: 0 });
     setVideoError(false);
     setVideoInfo(null);
-  }, [viewer?.dayKey, viewer?.id]);
+    // `viewerItem?.id` も見る——RAW / JPEG のボタンは `viewer.id` を変えずに見せるファイルを替える
+    // （前のファイルの拡大と位置を引きずらない。#168 のゲート2）
+  }, [viewer?.dayKey, viewer?.id, viewerItem?.id]);
 
   // ウィンドウサイズを追う（表示倍率の分母になる）
   useEffect(() => {
@@ -5118,6 +5136,38 @@ export default function App() {
     [reloadAll, refreshSummary],
   );
   /**
+   * 重ね（組・連写の表紙）の印を**1回の書き込みで**付ける・外す（#156 から一覧の右クリックが通る道）。
+   * 1ファイルずつ書くと、片方だけ失敗したときに組がずれる。全画面で片方だけ見せている間の
+   * 印もここを通す（#168 のゲート2）
+   */
+  const markStack = useCallback(
+    (files: readonly MediaItem[], kind: MarkKind, on: boolean) => {
+      if (files.length === 1) {
+        void setMark(files[0], kind, on);
+        return;
+      }
+      const ids = files.map((f) => f.id);
+      void markIds(kind, on, ids).then((n) => {
+        if (n === null) return;
+        // その印で絞り込み中は、タイルが画面から消える——選択と起点も片づける
+        // （1枚の `setMark` と同じ。残すと選択の帯が残り、Shift が居ない起点から走る）
+        if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
+          setSelected((prev) => {
+            if (!ids.some((id) => prev.has(id))) return prev;
+            const next = new Set(prev);
+            for (const id of ids) next.delete(id);
+            return next;
+          });
+          setAnchorId((a) => (a !== null && ids.includes(a) ? null : a));
+          lastRangeRef.current = null;
+        }
+        return reloadAfterMark(kind);
+      });
+    },
+    [setMark, markIds, reloadAfterMark],
+  );
+  markStackRef.current = markStack;
+  /**
    * 選んだものをまとめて印を付ける／外す（★も⚑も同じ道を通る）。
    *
    * 画面は先に書き換えて、失敗したら戻す（1枚のときと同じ流儀）。
@@ -5440,29 +5490,7 @@ export default function App() {
               : marked
                 ? t.bulkPickOff
                 : t.bulkPickOn,
-          run: () => {
-            if (markFiles.length === 1) {
-              void setMark(markFiles[0], kind, !marked);
-              return;
-            }
-            const ids = markFiles.map((f) => f.id);
-            void markIds(kind, !marked, ids).then((n) => {
-              if (n === null) return;
-              // その印で絞り込み中は、タイルが画面から消える——選択と起点も片づける
-              // （1枚の `setMark` と同じ。残すと選択の帯が残り、Shift が居ない起点から走る）
-              if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
-                setSelected((prev) => {
-                  if (!ids.some((id) => prev.has(id))) return prev;
-                  const next = new Set(prev);
-                  for (const id of ids) next.delete(id);
-                  return next;
-                });
-                setAnchorId((a) => (a !== null && ids.includes(a) ? null : a));
-                lastRangeRef.current = null;
-              }
-              return reloadAfterMark(kind);
-            });
-          },
+          run: () => markStack(markFiles, kind, !marked),
         };
       }),
       {
@@ -5558,15 +5586,20 @@ export default function App() {
           viewerInfo.dayIdx === summary.length - 1 &&
           viewerInfo.itemIdx === viewerInfo.dayLength - 1
         );
+  const viewerFileIdx = (() => {
+    if (!viewerInfo || pairView === null || pairView === "both") return viewerInfo?.itemIdx ?? 0;
+    const at = dayItems.get(summary[viewerInfo.dayIdx].day_key)?.indexOf(viewerInfo.item) ?? -1;
+    return at >= 0 ? at : viewerInfo.itemIdx;
+  })();
   const viewerPos =
     scopeIdx !== undefined
       ? scopeIdx + 1
       : viewerInfo !== null
-        ? // **ファイルの通し番号で数える**（分母の `totalShown` がファイルの数なので）。組の片方だけを
-          // 歩いているとき、歩く列の位置で数えると分母と食い違う——隠れた側のぶん飛ぶほうを採る
-          prefixCounts[viewerInfo.dayIdx] +
-          (dayItems.get(summary[viewerInfo.dayIdx].day_key)?.indexOf(viewerInfo.item) ?? viewerInfo.itemIdx) +
-          1
+        ? // 分母の `totalShown` は**ファイルの数**。組の片方だけを歩いているときは、歩く列の位置で
+          // 数えると分母と食い違うので**ファイルの通し番号**で数える（隠れた側のぶん飛ぶ）。
+          // 両方を歩くとき（と、組を重ねていないとき）は列＝全ファイルなので列の位置——
+          // RAW→JPEG へ並べ替えた列でファイルの番号を使うと、進んだのに数が戻る（#168 のゲート2）
+          prefixCounts[viewerInfo.dayIdx] + viewerFileIdx + 1
         : 0;
   /** カウンターの分母。スコープで開いていれば選んだ枚数 */
   const viewerTotal =
