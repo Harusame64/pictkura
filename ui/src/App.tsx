@@ -6137,14 +6137,22 @@ export default function App() {
                               {/* 重ねたタイルの印（dev #32）。2026-09-26 の利用者の選択「E」で、これが重ねの唯一の目印（紙は描かない）。
                                   `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので
                                   両方出ることがある（連写の印は、組の印と並ぶときだけ短く `▤ 12`） */}
+                              {/* 細いタイルでは、切らずに読める形へ替える（App.css の `@container`）:
+                                  連写は短い形（`▤ 12`）、組と連写が並ぶなら連写だけ、組だけなら
+                                  `RAW+` と `JPEG` の2行（`<wbr>` で折る） */}
                               {(cell.rawPair || burst) && (
-                                <span className="cell-chips">
-                                  {cell.rawPair && <span className="cell-chip">RAW+JPEG</span>}
+                                <span className={"cell-chips" + (cell.rawPair && burst ? " both" : "")}>
+                                  {cell.rawPair && (
+                                    <span className="cell-chip chip-pair">
+                                      RAW+<wbr />JPEG
+                                    </span>
+                                  )}
+                                  {burst && !cell.rawPair && (
+                                    <span className="cell-chip chip-long">{t.burstChip(cell.frames)}</span>
+                                  )}
                                   {burst && (
-                                    <span className="cell-chip">
-                                      {cell.rawPair
-                                        ? t.burstChipShort(cell.frames)
-                                        : t.burstChip(cell.frames)}
+                                    <span className={"cell-chip" + (cell.rawPair ? "" : " chip-narrow")}>
+                                      {t.burstChipShort(cell.frames)}
                                     </span>
                                   )}
                                 </span>
