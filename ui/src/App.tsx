@@ -2638,25 +2638,30 @@ export default function App() {
       const first = pairOf.get(id)?.[0]?.id;
       // **その日がまだ読めていなければ、組が分からない**（選択を開いた直後など）。読めたときに
       // 組の先頭へ寄せ直すよう控えておく（下の effect。#168 の codex）
-      if (first === undefined) pendingOpenIdRef.current = id;
+      if (first === undefined) pendingOpenIdRef.current = { id, dir: 1 };
       return first ?? id;
     },
     [pairView, pairOf],
   );
-  /** 開いたときに組が分からなかった id（`openIdOf`）。その日が読めたら組の先頭へ寄せ直す */
-  const pendingOpenIdRef = useRef<number | null>(null);
+  /**
+   * 組が分からないまま着いた id と、来た向き。「両方」で、まだ読めていない日の写真へ
+   * 開いた（`openIdOf`）・選択の列を送った（`moveViewer`）とき。その日が読めたら、
+   * 前へ来たなら組の先頭（RAW）へ、後ろへ来たなら組の最後へ寄せ直す（#168 の codex）
+   */
+  const pendingOpenIdRef = useRef<{ id: number; dir: 1 | -1 } | null>(null);
   useEffect(() => {
-    const id = pendingOpenIdRef.current;
-    if (id === null) return;
-    // 送ったあと・閉じたあと・側を替えたあとは寄せない——開いた1枚をまだ見ているときだけ
-    if (!viewer || viewer.id !== id || pairView !== "both") {
+    const pending = pendingOpenIdRef.current;
+    if (pending === null) return;
+    // 送ったあと・閉じたあと・側を替えたあとは寄せない——着いた1枚をまだ見ているときだけ
+    if (!viewer || viewer.id !== pending.id || pairView !== "both") {
       pendingOpenIdRef.current = null;
       return;
     }
-    const first = pairOf.get(id)?.[0];
-    if (!first) return; // まだ読めていない（組でなければ、読めても入らない——次の送りで外れる）
+    const pair = pairOf.get(pending.id);
+    if (!pair) return; // まだ読めていない（組でなければ、読めても入らない——次の送りで外れる）
     pendingOpenIdRef.current = null;
-    if (first.id !== id) setViewer({ dayKey: first.day_key, id: first.id });
+    const to = pending.dir === 1 ? pair[0] : pair[pair.length - 1];
+    if (to.id !== pending.id) setViewer({ dayKey: to.day_key, id: to.id });
   }, [viewer, pairView, pairOf]);
   /**
    * 重ねの印をまとめて書く道（`markStack`）。**あちらは後ろで作る**（`markIds` の隣）ので、
@@ -3233,6 +3238,8 @@ export default function App() {
           const at = viewerScope[k];
           const dayList = viewerDayItems.get(at.day_key);
           if (dayList && !dayList.some((x) => x.id === at.id)) continue;
+          // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
+          if (!dayList && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
           setViewer({ dayKey: at.day_key, id: at.id });
           return;
         }
@@ -3260,7 +3267,7 @@ export default function App() {
         setViewer({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
