@@ -81,6 +81,45 @@ impl Watching {
     }
 }
 
+/// ルートの置き場所の形（Windows の取り外しの糸が、ネットワークのルートを確かめから外すのに使う）
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, PartialEq, Eq)]
+enum RootLocation {
+    /// `\\server\share`（`\\?\UNC\server\share` も）
+    Unc,
+    /// ドライブ文字（`Z:\` も `\\?\Z:\` も）。ネットワークかどうかは OS に訊く
+    Drive(char),
+    Other,
+}
+
+/// パスの綴りだけからルートの置き場所の形を読む。**長いパスの書き方**（`\\?\`）を先に剥がす
+/// ——剥がさないと `\\?\UNC\…` も `\\?\Z:\…` も「ネットワークではない」と読んでいた
+/// （#161 の codex、2周目の P2）。先頭の4バイトに多バイト文字が来ても切らない
+#[cfg_attr(not(windows), allow(dead_code))]
+fn root_location(path: &str) -> RootLocation {
+    let s = match path.strip_prefix(r"\\?\") {
+        Some(rest)
+            if rest
+                .get(..4)
+                .is_some_and(|p| p.eq_ignore_ascii_case(r"UNC\")) =>
+        {
+            return RootLocation::Unc
+        }
+        Some(rest) => rest,
+        None => path,
+    };
+    if s.starts_with(r"\\") {
+        return RootLocation::Unc;
+    }
+    let mut chars = s.chars();
+    match (chars.next(), chars.next()) {
+        (Some(d), Some(':')) if d.is_ascii_alphabetic() => {
+            RootLocation::Drive(d.to_ascii_uppercase())
+        }
+        _ => RootLocation::Other,
+    }
+}
+
 /// ルート群の再帰監視を開始する。
 /// イベントはデバウンス（既定800ms）後に、重複除去済みのパス一覧で `on_batch` へ渡される。
 ///
@@ -207,6 +246,25 @@ mod tests {
         std::fs::write(removable.path().join("back.jpg"), b"x").unwrap();
         let all = collect();
         assert!(has(&all, "back.jpg"), "戻した側がまた届く: {all:?}");
+    }
+
+    /// ネットワークのルートを見分ける綴りの形（長いパスの書き方を含む。#161 の codex、2周目）
+    #[test]
+    fn root_location_reads_unc_and_drive_letters_in_both_spellings() {
+        use RootLocation::*;
+        for (path, want) in [
+            (r"\\nas\photos", Unc),
+            (r"\\?\UNC\nas\photos", Unc),
+            (r"\\?\unc\nas\photos", Unc),
+            (r"Z:\photos", Drive('Z')),
+            (r"z:\photos", Drive('Z')),
+            (r"\\?\Z:\photos", Drive('Z')),
+            (r"\\?\写真\x", Other),
+            ("/Users/me/Pictures", Other),
+            ("", Other),
+        ] {
+            assert_eq!(root_location(path), want, "{path}");
+        }
     }
 
     #[test]

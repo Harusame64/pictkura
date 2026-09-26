@@ -274,8 +274,13 @@ fn unregister(e: &mut Entry) {
     }
 }
 
-/// そのルートを監視に入れ、入ったら開いて届け出る（開き直す前に古い届け出とハンドルは外す）
+/// そのルートを監視に入れ、入ったら開いて届け出る（開き直す前に古い届け出とハンドルは外す）。
+///
+/// **監視中なら先に外す**: notify 7.0.0 の `add_watch` は同じパスの監視を止めずに表を上書きし、
+/// 古いディレクトリのハンドルは誰も閉じられなくなる——取り外しがアプリを閉じるまで断られる
+/// （QUERYREMOVE を経ずに FAILED が来たとき。#161 の codex、2周目の P1）
 fn arm(st: &mut State, i: usize) {
+    disarm_watch(st, i);
     unregister(&mut st.entries[i]);
     close_dir(&mut st.entries[i]);
     let ok = match st.watching.lock() {
@@ -310,19 +315,16 @@ fn rearmable(e: &Entry) -> bool {
     !e.watched && !e.ejecting && !e.remote
 }
 
-/// ネットワーク上のルートか（UNC か、割り当てたネットワークドライブ）
+/// ネットワーク上のルートか（UNC か、割り当てたネットワークドライブ）。形の読み分けは
+/// `super::root_location`（長いパスの書き方も読む）
 fn is_remote(path: &Path) -> bool {
-    let s = path.as_os_str().to_string_lossy();
-    if s.starts_with(r"\\") && !s.starts_with(r"\\?\") {
-        return true;
-    }
-    let mut chars = s.chars();
-    match (chars.next(), chars.next()) {
-        (Some(d), Some(':')) if d.is_ascii_alphabetic() => {
+    match super::root_location(&path.as_os_str().to_string_lossy()) {
+        super::RootLocation::Unc => true,
+        super::RootLocation::Drive(d) => {
             let root: Vec<u16> = format!("{d}:\\\0").encode_utf16().collect();
             unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE }
         }
-        _ => false,
+        super::RootLocation::Other => false,
     }
 }
 
