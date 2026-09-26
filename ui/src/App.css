@@ -569,8 +569,6 @@ body {
 .cell-wrap {
   position: relative;
   flex: none;
-  /* 重ねの印を、タイルの幅で読める形へ替えるため（`.cell-chips` の `@container`） */
-  container-type: inline-size;
   /* 押す口はタイル全体（写真の上に重ねた印の上も押せる。dev #32） */
   cursor: pointer;
 }
@@ -621,13 +619,8 @@ body {
   position: absolute;
   right: var(--sp-1);
   bottom: var(--sp-1);
-  /* **タイルの外へはみ出させない**。紙をやめてからは、この印だけが重ねの目印なので、
-     細いタイル（縦長の写真・いちばん小さいサイズ）で隣のタイルへかかると、隣が重ねに見える。
-     まず下の `@container` で読める短い形へ替え、それでも入らない分だけ左から切る
-     （右端の連写のコマ数を残す。PR の codex の P2: 切っただけでは `RAW+JPEG` が数文字になる） */
-  left: var(--sp-1);
-  justify-content: flex-end;
-  overflow: hidden;
+  /* 形はタイルの幅に入るものを App.tsx が選ぶ（`stackBadges.ts`）。ここでは切らない——
+     切ると `RAW+JPEG` が数文字に、`▤ 1,234` が `234` に見える（#167 のゲート2） */
   display: flex;
   gap: 3px;
   pointer-events: none;
@@ -648,56 +641,22 @@ body {
   pointer-events: none;
 }
 
-/* 細いタイルの印。幅は `RAW+JPEG`（約68px）・`▤ 12`（約34px）・各言語の `▤ 連写 12`（ドイツ語・
-   スペイン語で約85px）から決めた。連写の長い形は短い形に（96px 以下）。組は四角2枚の記号に
-   （組だけなら 84px 以下、組と連写が並ぶなら 120px 以下）。2行に折った `RAW+`/`JPEG` は小さくて
-   読めない、記号にしてほしい（2026-09-26 の利用者。試作で3案×範囲を見比べて「記号・細いタイルだけ」）。
-   縦横比 1:3 ほどの 33px のタイルでは、それでも少し切れる——そこは左から切る保険に任せる */
-.cell-chip.chip-narrow,
-.pair-icon {
-  display: none;
+/* 詰めた形（細いタイル。余白の値は `stackBadges.ts` の PAD・GAP と合わせる） */
+.cell-chips.tight {
+  gap: 2px;
 }
-.pair-icon {
-  margin: 2px 0;
+.cell-chips.tight .cell-chip {
+  padding: 0 3px;
 }
-.cell-chip.chip-pair {
+/* 組の記号（細いタイルの組の形。2026-09-26 の利用者の選択） */
+.cell-chip.chip-icon {
   display: inline-flex;
   align-items: center;
+  /* 文字の印と同じ高さ（11px × 行高 1.6） */
+  min-height: calc(var(--fs-xs) * 1.6);
 }
-@container (max-width: 96px) {
-  .cell-chip.chip-long {
-    display: none;
-  }
-  .cell-chip.chip-narrow {
-    display: inline;
-  }
-}
-/* 記号のときは印の左右の余白を詰める。84px 以下では連写の印も詰める
-   （65px の縦長のタイルで `記号 ▤ 12` が入るように） */
-@container (max-width: 120px) {
-  .cell-chips.both .pair-full {
-    display: none;
-  }
-  .cell-chips.both .pair-icon {
-    display: block;
-  }
-  .cell-chips.both .chip-pair {
-    padding: 0 3px;
-  }
-}
-@container (max-width: 84px) {
-  .pair-full {
-    display: none;
-  }
-  .pair-icon {
-    display: block;
-  }
-  .cell-chip {
-    padding: 0 3px;
-  }
-  .cell-chips {
-    gap: 2px;
-  }
+.cell-chip.chip-icon svg {
+  display: block;
 }
 
 /* 動画のバッジ（第9部）。左下に▶と長さ。
