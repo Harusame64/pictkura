@@ -246,7 +246,8 @@ export function closeOverStacks(
  * （`A1, B, A2, C` はタイル `A, B, C`。B〜C を選ぶと DB は `B, A2, C` を返し、A が入る）。
  *
  * `tilePos` は**読み込み済みの日**の「id → 一覧でのタイルの通し番号」。両端のタイルの間に
- * 置かれたタイルだけを、中身ぜんぶで入れる。**読み込んでいない日の id はそのまま入れる**
+ * 置かれたタイルを、中身ぜんぶで入れる（同じタイルの id は同じ番号）。**読み込んでいない日の id は
+ * DB の範囲からそのまま入れる**
  * ——そこは両端の間に挟まる日で、日ごと丸ごと範囲に入る（重ねは日ごとに組むので日をまたがない）。
  * 両端のどちらかが読み込み済みでなければ、ファイルの並びの閉包に落とす
  */
@@ -263,16 +264,12 @@ export function selectRangeOverTiles(
   const lo = Math.min(a, b);
   const hi = Math.max(a, b);
   const out = new Set<number>();
-  for (const id of range) {
-    const p = tilePos.get(id);
-    if (p === undefined) {
-      out.add(id);
-      continue;
-    }
-    if (p < lo || p > hi) continue;
-    out.add(id);
-    for (const m of index.get(id) ?? []) out.add(m);
-  }
+  // **読み込み済みの日は、タイルの位置で数え上げる**（DB の範囲を絞るのではなく）。起点が
+  // 重ね方の変わる前に選ばれていると、起点は連写の途中のコマになりうる——DB の範囲はそのファイルの
+  // 位置から始まるので、見えている間のタイルが範囲に入らない（#160 の codex、3周目）
+  for (const [id, p] of tilePos) if (p >= lo && p <= hi) out.add(id);
+  // 読み込んでいない日（両端の間に挟まる日）だけを DB の範囲で補う
+  for (const id of range) if (!tilePos.has(id)) out.add(id);
   return out;
 }
 

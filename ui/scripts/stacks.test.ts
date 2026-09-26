@@ -416,3 +416,14 @@ test("RAW+JPEG を切ったとき、ばらした組のファイルは元の位�
   // 組を重ねるなら、組は A.JPG の位置に1枚
   assert.deepEqual(members(stacksOfDay(day, burstsOn)), [[1, 3], [2], [4]]);
 });
+
+test("範囲選択: 起点が連写の途中のコマでも、見えている間のタイルを落とさない（#160 の codex、3周目）", () => {
+  // 一覧: A2 B A1 C。起点 A1 は連写を入れる前に選んだ——いまは A のタイルの中
+  const day = newestFirst([frame(4, 600, 7), frame(3, 500, 8), frame(2, 300, 7), frame(1, -5_000, 8)]);
+  assert.deepEqual(day.map((x) => x.id), [4, 3, 2, 1], "ファイルの並びは A2 B A1 C");
+  const stacks = stacksOfDay(day, burstsOn);
+  assert.deepEqual(members(stacks), [[4, 2], [3], [1]]);
+  const { pos, index } = tilesOf([stacks]);
+  // A1(2) から C(1) まで。DB の範囲は A1, C だけ（B はファイルの並びでは A1 より前）
+  assert.deepEqual([...selectRangeOverTiles([2, 1], 2, 1, pos, index)].sort(), [1, 2, 3, 4]);
+});
