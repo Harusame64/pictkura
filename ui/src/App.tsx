@@ -2633,9 +2633,31 @@ export default function App() {
    * 送りの途中では使わない（JPEG へ進んだのに RAW へ引き戻される）
    */
   const openIdOf = useCallback(
-    (id: number) => (pairView === "both" ? (pairOf.get(id)?.[0]?.id ?? id) : id),
+    (id: number) => {
+      if (pairView !== "both") return id;
+      const first = pairOf.get(id)?.[0]?.id;
+      // **その日がまだ読めていなければ、組が分からない**（選択を開いた直後など）。読めたときに
+      // 組の先頭へ寄せ直すよう控えておく（下の effect。#168 の codex）
+      if (first === undefined) pendingOpenIdRef.current = id;
+      return first ?? id;
+    },
     [pairView, pairOf],
   );
+  /** 開いたときに組が分からなかった id（`openIdOf`）。その日が読めたら組の先頭へ寄せ直す */
+  const pendingOpenIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    const id = pendingOpenIdRef.current;
+    if (id === null) return;
+    // 送ったあと・閉じたあと・側を替えたあとは寄せない——開いた1枚をまだ見ているときだけ
+    if (!viewer || viewer.id !== id || pairView !== "both") {
+      pendingOpenIdRef.current = null;
+      return;
+    }
+    const first = pairOf.get(id)?.[0];
+    if (!first) return; // まだ読めていない（組でなければ、読めても入らない——次の送りで外れる）
+    pendingOpenIdRef.current = null;
+    if (first.id !== id) setViewer({ dayKey: first.day_key, id: first.id });
+  }, [viewer, pairView, pairOf]);
   /**
    * 重ねの印をまとめて書く道（`markStack`）。**あちらは後ろで作る**（`markIds` の隣）ので、
    * 前に居るビューアの判定からは ref で呼ぶ
