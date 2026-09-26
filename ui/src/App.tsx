@@ -4431,11 +4431,23 @@ export default function App() {
   // スペースは動画の再生/一時停止に取られているので止める手も無くなる。
   // 代わりに動画が終わったら次へ進む（`onEnded`）。再生できない動画
   // （コンテナ違い・クラウド）は絵が出ないので、今までどおり3秒で送る
+  //
+  // **3秒は写真が替わるたびに数え直す**（いまの写真に替わった時点から3秒。絵の読み込みは待たない
+  // ——今までと同じ）。`moveViewer` の作り直しで張り直すと、裏でサムネイルや RAW の読み直しが
+  // 走っている間は `media-updated` のたびに `dayItems` が書き換わって作り直され、3秒が数え直しに
+  // なり続けて次へ進まない（Windows の実機で 19.3 秒。2026-09-26）。送る関数は ref で最新のものを呼ぶ。
+  // `slideTick` は、送っても同じ写真に戻ったとき（1枚だけの列）にも張り直すため
+  const moveViewerRef = useRef(moveViewer);
+  moveViewerRef.current = moveViewer;
+  const [slideTick, setSlideTick] = useState(0);
   useEffect(() => {
-    if (!playing || playingVideo) return;
-    const t = window.setInterval(() => moveViewer(1, true), 3000);
-    return () => window.clearInterval(t);
-  }, [playing, playingVideo, moveViewer]);
+    if (!playing || playingVideo || viewerItemId === undefined) return;
+    const t = window.setTimeout(() => {
+      moveViewerRef.current(1, true);
+      setSlideTick((n) => n + 1);
+    }, 3000);
+    return () => window.clearTimeout(t);
+  }, [playing, playingVideo, viewerItemId, slideTick]);
 
   useEffect(() => {
     if (viewer === null) return;
