@@ -29,17 +29,47 @@ type PlatformWatcher = notify_debouncer_mini::notify::RecommendedWatcher;
 /// 監視ハンドル。dropすると監視が止まる。
 pub struct LibraryWatcher {
     /// 監視の本体。**Windows では取り外しの知らせを受ける糸と共有する**（`device`）
-    _watching: Arc<Mutex<Watching>>,
+    watching: Arc<Mutex<Watching>>,
     /// 始めたときに監視できたルート（存在しないルートはスキップされる）
     pub watched_roots: Vec<PathBuf>,
     /// Windows: 取り外せるドライブ上のルートを、取り外しの求めに合わせて手放す（dev #35）
     #[cfg(windows)]
-    _device: Option<device::DeviceGuard>,
+    device: Option<device::DeviceGuard>,
+}
+
+impl LibraryWatcher {
+    /// **あとから差し込まれたドライブの上のルートを監視に入れる**（dev #38 の U7）。
+    ///
+    /// 起動時に無かったルートは監視していない。USB メモリなら Windows がボリュームの到着を知らせて
+    /// くるが、**カードリーダーの SD はそれが来ない**（カードを差してもデバイスは前から在る）うえ、
+    /// 起動時にカードが無ければハンドルの届け出も無いので、差し込みの知らせを受ける手が無かった
+    /// ——差したあとの変化を一つも拾わない。macOS も起動時に無かったルートは監視していなかった。
+    /// 画面はドライブの出現を 5 秒ごとに見ているので（#162）、そこから呼ぶ。
+    ///
+    /// Windows では取り外しの糸に「確かめ」を始めさせる（監視に入れるのと一緒に、取り外しの知らせの
+    /// 届け出もする）。ほかの台では、まだ監視していないルートをそのまま監視に入れる
+    pub fn watch_returned(&self, roots: &[PathBuf]) {
+        #[cfg(windows)]
+        if let Some(device) = &self.device {
+            device.rearm();
+            return;
+        }
+        if let Ok(mut w) = self.watching.lock() {
+            for root in roots {
+                // **張り直す**（外してから張る）——前に監視していたルートは、ドライブが外れても
+                // 覚えたままなので、そのままだと「もう張っている」と飛ばしてしまう（#164 のゲート2）
+                w.unwatch_root(root);
+                w.watch_root(root);
+            }
+        }
+    }
 }
 
 /// いま張っている監視
 struct Watching {
     debouncer: Debouncer<PlatformWatcher>,
+    /// いま監視しているルート（同じルートを二重に張らない。[`LibraryWatcher::watch_returned`]）
+    watched: std::collections::HashSet<PathBuf>,
 }
 
 impl Watching {
@@ -59,17 +89,27 @@ impl Watching {
                     }
                 }
             })?;
-        Ok(Self { debouncer })
+        Ok(Self {
+            debouncer,
+            watched: std::collections::HashSet::new(),
+        })
     }
 
     /// ルートを1つ監視に入れる。存在しないルート（未接続のUSB等）は監視できないので偽
     fn watch_root(&mut self, root: &std::path::Path) -> bool {
-        root.is_dir()
+        if self.watched.contains(root) {
+            return true;
+        }
+        let ok = root.is_dir()
             && self
                 .debouncer
                 .watcher()
                 .watch(root, RecursiveMode::Recursive)
-                .is_ok()
+                .is_ok();
+        if ok {
+            self.watched.insert(root.to_path_buf());
+        }
+        ok
     }
 
     /// ルートを1つ監視から外す。**ほかのルートの監視には触らない**——まるごと作り直すと、
@@ -77,6 +117,7 @@ impl Watching {
     /// `AckedWatcher::unwatch` がハンドルを閉じ終えるまで待ってから戻る
     #[cfg_attr(not(windows), allow(dead_code))]
     fn unwatch_root(&mut self, root: &std::path::Path) {
+        self.watched.remove(root);
         let _ = self.debouncer.watcher().unwatch(root);
     }
 }
@@ -142,8 +183,8 @@ pub fn watch_roots(
     let watching = Arc::new(Mutex::new(watching));
     Ok(LibraryWatcher {
         #[cfg(windows)]
-        _device: device::DeviceGuard::start(Arc::clone(&watching), roots.to_vec(), &watched_roots),
-        _watching: watching,
+        device: device::DeviceGuard::start(Arc::clone(&watching), roots.to_vec(), &watched_roots),
+        watching,
         watched_roots,
     })
 }
@@ -265,6 +306,47 @@ mod tests {
         ] {
             assert_eq!(root_location(path), want, "{path}");
         }
+    }
+
+    /// 起動時に無かったルートは監視していない。**あとから現れたら `watch_returned` で監視に入る**
+    /// （dev #38 の U7）。同じルートを2回渡しても、イベントは届き続ける（張り直す）
+    #[test]
+    fn a_root_that_appears_after_start_is_watched_once_returned() {
+        let base = tempfile::tempdir().unwrap();
+        let late = base.path().join("card");
+        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        let watcher = watch_roots(
+            std::slice::from_ref(&late),
+            Duration::from_millis(150),
+            move |p| {
+                let _ = tx.send(p);
+            },
+        )
+        .unwrap();
+        assert!(watcher.watched_roots.is_empty(), "起動時には無い");
+        std::fs::create_dir_all(&late).unwrap();
+        let saw = |name: &str| -> bool {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+                match rx.recv_timeout(left) {
+                    Ok(batch) if batch.iter().any(|p| p.to_string_lossy().contains(name)) => {
+                        return true
+                    }
+                    Ok(_) => continue,
+                    Err(_) => return false,
+                }
+            }
+            false
+        };
+        // 渡す前は監視していない（対照）
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::write(late.join("before.jpg"), b"x").unwrap();
+        assert!(!saw("before.jpg"), "watch_returned の前は届かない");
+        watcher.watch_returned(std::slice::from_ref(&late));
+        watcher.watch_returned(std::slice::from_ref(&late));
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::write(late.join("after.jpg"), b"x").unwrap();
+        assert!(saw("after.jpg"), "watch_returned のあとは届く");
     }
 
     #[test]
