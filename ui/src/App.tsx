@@ -93,6 +93,7 @@ import {
   type StartupScanReport,
   type EmptyLibraryReason,
   temporaryLibraryRoots,
+  burstGapOf,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
@@ -101,6 +102,7 @@ import {
   closeOverStacks,
   countPhotos,
   filesOf,
+  selectRangeOverTiles,
   stackMembersIndex,
   stacksOfDay,
   type Stack,
@@ -2446,7 +2448,7 @@ export default function App() {
   const stackRawJpeg = config?.grid?.stack_raw_jpeg ?? true;
   // 連写も既定で重ねる。間隔は既定1秒（ADR の設定表）
   const stackBursts = config?.grid?.stack_bursts ?? true;
-  const burstGapMs = config?.grid?.burst_gap_ms ?? 1000;
+  const burstGapMs = burstGapOf(config);
   /**
    * 読み込み済みの日ごとの重ね（dev #32）。**日と設定が変わったときだけ**組む——
    * 一覧の行（窓の幅・サイズのつまみで組み直る）と索引の両方がこれを使う
@@ -2470,15 +2472,29 @@ export default function App() {
    * 範囲選択を重ねの単位へ閉じ、選択の枚数を「見えているタイル」で数えるのに使う
    * （dev #32、`closeOverStacks` と `countPhotos` の論証）
    */
-  const { stackIndex, loadedIds } = useMemo(() => {
+  const { stackIndex, loadedIds, tilePos } = useMemo(() => {
     const index = new Map<number, number[]>();
     const loaded = new Set<number>();
-    for (const stacks of dayStacks.values()) {
+    // 一覧でのタイルの通し番号（範囲選択をタイルの並びで切る。`selectRangeOverTiles`）。
+    // **日の並びは見出しの順**（`summary`）——`dayStacks` の挿入順は読み込んだ順
+    const pos = new Map<number, number>();
+    let tile = 0;
+    for (const day of summary) {
+      const stacks = dayStacks.get(day.day_key);
+      if (!stacks) continue;
       for (const [id, ids] of stackMembersIndex(stacks)) index.set(id, ids);
-      for (const st of stacks) for (const f of filesOf(st)) loaded.add(f.id);
+      for (const st of stacks) {
+        for (const f of filesOf(st)) {
+          loaded.add(f.id);
+          pos.set(f.id, tile);
+        }
+        tile++;
+      }
     }
-    return { stackIndex: index, loadedIds: loaded };
-  }, [dayStacks]);
+    return { stackIndex: index, loadedIds: loaded, tilePos: pos };
+  }, [dayStacks, summary]);
+  const tilePosRef = useRef(tilePos);
+  tilePosRef.current = tilePos;
   const stackIndexRef = useRef(stackIndex);
   stackIndexRef.current = stackIndex;
   // **組み方が変わったら、今の選択を組ぜんぶへ広げる**（PRのcodex）。重ねになる前に片方だけ
@@ -2534,7 +2550,6 @@ export default function App() {
         h = Math.min(h, target * 1.3);
         const cells = rowItems.map((st): Cell => {
           const frames = st.shots.length;
-          const times = st.shots.map((sh) => sh.lead.taken_at_ms);
           return {
             item: st.cover.lead,
             files: filesOf(st),
@@ -2543,7 +2558,8 @@ export default function App() {
             rawPair: st.shots.some(
               (sh) => sh.files.length > 1 && sh.files.some((f) => f.is_raw),
             ),
-            spanMs: frames > 1 ? Math.max(...times) - Math.min(...times) : 0,
+            // 連写の長さは束ね役が鎖に使った時刻で出したもの（ここで数え直さない。#160 のゲート2）
+            spanMs: st.spanMs ?? 0,
             w: Math.floor(aspectOf(st.cover.lead) * h),
             h: Math.round(h),
           };
@@ -4607,7 +4623,16 @@ export default function App() {
       // **重ねの単位へ閉じる**（dev #32）。範囲は DB の id の並びなので、両端で RAW+JPEG の
       // 組が割れうる——割れたまま消すと RAW が独りで残る。割れるのは両端だけで、両端は
       // 読み込み済みの日に在る（`closeOverStacks` の論証）
-      for (const id of closeOverStacks(range, stackIndexRef.current)) next.add(id);
+      // **タイルの並びで切ってから**閉じる——連写は一覧で飛び飛びに並ぶので、ファイルの並びの
+      // 範囲には、範囲の外に置かれたタイルのコマが混ざる（#160 の codex の P2）
+      for (const id of selectRangeOverTiles(
+        range,
+        fromId,
+        toId,
+        tilePosRef.current,
+        stackIndexRef.current,
+      ))
+        next.add(id);
       setSelected(next);
       // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
     },
@@ -6054,7 +6079,7 @@ export default function App() {
                                   {burst && (
                                     <span className="cell-chip">
                                       {cell.rawPair
-                                        ? `▤ ${cell.frames}`
+                                        ? t.burstChipShort(cell.frames)
                                         : t.burstChip(cell.frames)}
                                     </span>
                                   )}

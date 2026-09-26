@@ -19,6 +19,7 @@ import {
   setStackBursts,
   setBurstGapMs,
   BURST_GAPS_MS,
+  burstGapOf,
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
@@ -478,7 +479,7 @@ export default function Settings({
               <select
                 className="settings-select"
                 disabled={!(config?.grid?.stack_bursts ?? true)}
-                value={config?.grid?.burst_gap_ms ?? 1000}
+                value={burstGapOf(config)}
                 onChange={async (e) => {
                   try {
                     await setBurstGapMs(Number(e.target.value));

@@ -407,6 +407,7 @@ export const en: Dict = {
   settingsBurstGap: "Longest gap within a burst",
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Burst ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `Burst of ${num(frames)} shots over ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} files)`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>

@@ -793,6 +793,17 @@ export const setStackBursts = (enabled: boolean) =>
  * あちらの `set_burst_gap_ms` はこれ以外を断る
  */
 export const BURST_GAPS_MS = [500, 1000, 2000] as const;
+/** 連写とみなす間隔の既定（Rust の `GridConfig::default` と同じ） */
+export const DEFAULT_BURST_GAP_MS = 1000;
+
+/**
+ * 設定の間隔を読む。**選択肢の外は既定として読む**——手で書いた設定（`1500` 等）をそのまま
+ * 束ねに使うと、設定の画面はどの選択肢も指せず、見えている値と挙動が食い違う（#160 のゲート2）
+ */
+export const burstGapOf = (config: AppConfig | null | undefined): number => {
+  const v = config?.grid?.burst_gap_ms;
+  return (BURST_GAPS_MS as readonly number[]).includes(v ?? NaN) ? (v as number) : DEFAULT_BURST_GAP_MS;
+};
 
 /** 連写とみなす間隔（ミリ秒。500・1000・2000 のどれか。dev #32） */
 export const setBurstGapMs = (ms: number) => invoke<void>("set_burst_gap_ms", { ms });

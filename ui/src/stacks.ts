@@ -51,8 +51,11 @@ export interface Stackable {
 
 /** コマ: `lead` が一覧に出る1枚、`files` は組ぜんぶ（`lead` を含む・日の並び順） */
 export type Shot<T> = { lead: T; files: T[] };
-/** 重ね: 一覧のタイル1枚。`cover` が表紙のコマ */
-export type Stack<T> = { cover: Shot<T>; shots: Shot<T>[] };
+/**
+ * 重ね: 一覧のタイル1枚。`cover` が表紙のコマ。`spanMs` は連写の最初のコマから最後のコマまで
+ * （鎖に使った秒未満の時刻で。連写でなければ無い）
+ */
+export type Stack<T> = { cover: Shot<T>; shots: Shot<T>[]; spanMs?: number };
 
 export interface StackOptions {
   /** RAW+JPEG を1コマに重ねるか（設定 `[grid] stack_raw_jpeg`） */
@@ -76,9 +79,16 @@ export function stacksOfDay<T extends Stackable>(
   items: readonly T[],
   opts: StackOptions,
 ): Stack<T>[] {
-  const shots = shotsOfDay(items, opts.rawJpeg);
   const single = (shot: Shot<T>): Stack<T> => ({ cover: shot, shots: [shot] });
-  if (!opts.bursts) return shots.map(single);
+  if (!opts.bursts) return shotsOfDay(items, opts.rawJpeg).map(single);
+
+  // **連写の中のコマは、RAW+JPEG の重ねの設定によらず組で数える**（#160 のゲート2）。
+  // 設定を切ったときに組をばらばらのコマにすると、同じシャッターの RAW と JPEG が間隔0で
+  // つながり、連写でない1組が「連写 2」になる（マニュアルの「切れば別々に出る」に反する）。
+  // 設定が効くのは**連写にならなかった組**だけ——切っていれば、そこでファイルごとに分ける
+  const shots = shotsOfDay(items, true);
+  const unpaired = (shot: Shot<T>): Stack<T>[] =>
+    opts.rawJpeg ? [single(shot)] : shot.files.map((f) => single({ lead: f, files: [f] }));
 
   const gap = opts.burstGapMs ?? 1000;
   // 機体ごとに、撮影時刻の順に並べて鎖を切る。`at` は一覧の位置（重ねを置く場所）
@@ -102,7 +112,11 @@ export function stacksOfDay<T extends Stackable>(
         const byPlace = [...run].sort((a, b) => a.at - b.at);
         // 表紙: ⚑ のコマ（撮り始めに近いもの）、無ければ撮り始め。`run` は撮影時刻の順
         const cover = (run.find((e) => e.shot.files.some((f) => f.picked)) ?? run[0]).shot;
-        placed.set(byPlace[0].at, { cover, shots: byPlace.map((e) => e.shot) });
+        placed.set(byPlace[0].at, {
+          cover,
+          shots: byPlace.map((e) => e.shot),
+          spanMs: run[run.length - 1].ms - run[0].ms,
+        });
         for (const e of byPlace) absorbed.add(e.at);
       }
     };
@@ -119,7 +133,7 @@ export function stacksOfDay<T extends Stackable>(
   shots.forEach((shot, at) => {
     const burst = placed.get(at);
     if (burst) out.push(burst);
-    else if (!absorbed.has(at)) out.push(single(shot));
+    else if (!absorbed.has(at)) out.push(...unpaired(shot));
   });
   return out;
 }
@@ -209,6 +223,45 @@ export function closeOverStacks(
 ): Set<number> {
   const out = new Set<number>();
   for (const id of ids) {
+    out.add(id);
+    for (const m of index.get(id) ?? []) out.add(m);
+  }
+  return out;
+}
+
+/**
+ * 範囲選択（Shift）を**タイルの並び**で切る（dev #32、#160 の codex の P2）。
+ *
+ * DB が返す範囲は**ファイルの並び**なので、連写のように**一覧で飛び飛びに並ぶ重ね**
+ * （別の機体の写真が間に挟まる）では、範囲の外に置かれたタイルのコマが範囲の中に居る——
+ * それを `closeOverStacks` で閉じると、**選んでいないタイルが丸ごと入る**
+ * （`A1, B, A2, C` はタイル `A, B, C`。B〜C を選ぶと DB は `B, A2, C` を返し、A が入る）。
+ *
+ * `tilePos` は**読み込み済みの日**の「id → 一覧でのタイルの通し番号」。両端のタイルの間に
+ * 置かれたタイルだけを、中身ぜんぶで入れる。**読み込んでいない日の id はそのまま入れる**
+ * ——そこは両端の間に挟まる日で、日ごと丸ごと範囲に入る（重ねは日ごとに組むので日をまたがない）。
+ * 両端のどちらかが読み込み済みでなければ、ファイルの並びの閉包に落とす
+ */
+export function selectRangeOverTiles(
+  range: Iterable<number>,
+  fromId: number,
+  toId: number,
+  tilePos: ReadonlyMap<number, number>,
+  index: ReadonlyMap<number, readonly number[]>,
+): Set<number> {
+  const a = tilePos.get(fromId);
+  const b = tilePos.get(toId);
+  if (a === undefined || b === undefined) return closeOverStacks(range, index);
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  const out = new Set<number>();
+  for (const id of range) {
+    const p = tilePos.get(id);
+    if (p === undefined) {
+      out.add(id);
+      continue;
+    }
+    if (p < lo || p > hi) continue;
     out.add(id);
     for (const m of index.get(id) ?? []) out.add(m);
   }

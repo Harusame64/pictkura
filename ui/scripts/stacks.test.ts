@@ -3,11 +3,13 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   closeOverStacks,
   countPhotos,
   filesOf,
+  selectRangeOverTiles,
   stackMembersIndex,
   stacksOfDay,
   type Stackable,
@@ -175,6 +177,7 @@ test("同じ機体で1秒以内に続くコマは1枚に。位置は一覧で最
   assert.deepEqual(frames(stacks), [3]);
   assert.deepEqual(leads(stacks), [1], "表紙は撮り始め（一覧では最後に並ぶコマ）");
   assert.deepEqual(members(stacks), [[3, 2, 1]], "コマは一覧の順");
+  assert.equal(stacks[0].spanMs, 900);
 });
 
 test("間隔は「以下」でつなぐ（ちょうど設定値はつながり、1ミリ秒超えると割れる）", () => {
@@ -262,24 +265,27 @@ test("連写の設定を切ると、コマのまま（RAW+JPEG の重ねは残�
   assert.deepEqual(frames(stacksOfDay(day, { rawJpeg: true })), [1, 1], "省いたら重ねない");
 });
 
-test("RAW+JPEG を切って連写だけ: RAW と JPEG は別のコマ。秒未満がそろえば間隔0でつながる", () => {
-  // ADR の未決「それで良いかを升で固定する」。両方が秒未満を持てば1束・コマは2倍。
-  // RAW が秒までなら、RAW は束の外に1枚ずつ残る（下の2つ目）
-  const both = newestFirst([
+test("RAW+JPEG を切って連写だけ: 連写でない組はファイルごとに分け、連写の中は組で数える（#160 のゲート2）", () => {
+  const off = { ...burstsOn, rawJpeg: false };
+  // 連写でない1組（両方が秒未満を持つ）: 間隔0で「連写 2」にしない。RAW と JPEG の2枚に分ける
+  const lone = newestFirst([
     f(1, 1, true, "A.CR3", 100, { taken_subsec: true, body_key: 7 }),
     f(2, 1, false, "A.JPG", 100, { taken_subsec: true, body_key: 7 }),
-    f(3, 2, true, "B.CR3", 400, { taken_subsec: true, body_key: 7 }),
-    f(4, 2, false, "B.JPG", 400, { taken_subsec: true, body_key: 7 }),
   ]);
-  const off = { ...burstsOn, rawJpeg: false };
-  assert.deepEqual(frames(stacksOfDay(both, off)), [4]);
-  const rawSecondsOnly = newestFirst([
-    f(1, 1, true, "A.CR3", 0, { body_key: 7 }),
-    f(2, 1, false, "A.JPG", 100, { taken_subsec: true, body_key: 7 }),
-    f(3, 2, true, "B.CR3", 0, { body_key: 7 }),
-    f(4, 2, false, "B.JPG", 400, { taken_subsec: true, body_key: 7 }),
+  assert.deepEqual(frames(stacksOfDay(lone, off)), [1, 1]);
+  // 連写の中は組のまま: 3コマ・6ファイル。秒までしか無い CR3 も、組の JPEG と一緒に入る
+  const pairs = newestFirst([
+    f(10, 1, true, "A.CR3", 0, { body_key: 7 }),
+    f(11, 1, false, "A.JPG", 100, { taken_subsec: true, body_key: 7 }),
+    f(20, 2, true, "B.CR3", 0, { body_key: 7 }),
+    f(21, 2, false, "B.JPG", 400, { taken_subsec: true, body_key: 7 }),
+    f(30, 3, true, "C.CR3", 0, { body_key: 7 }),
+    f(31, 3, false, "C.JPG", 700, { taken_subsec: true, body_key: 7 }),
   ]);
-  assert.deepEqual(frames(stacksOfDay(rawSecondsOnly, off)).sort(), [1, 1, 2]);
+  const stacks = stacksOfDay(pairs, off);
+  assert.deepEqual(frames(stacks), [3]);
+  assert.equal(filesOf(stacks[0]).length, 6);
+  assert.equal(stacks[0].spanMs, 600, "長さは鎖に使った秒未満の時刻で");
 });
 
 /**
@@ -326,4 +332,70 @@ test("連写の閉包と数え方: 連写のどれか1つを選べば連写ぜ�
   const index = stackMembersIndex(stacks);
   assert.deepEqual([...closeOverStacks([1], index)].sort(), [1, 2]);
   assert.equal(countPhotos([1, 2, 3], index, new Set([1, 2, 3])), 2);
+});
+
+/** 読み込み済みの日（新しい順に並べた1日ずつ）から、範囲選択の材料を作る（App と同じ組み方） */
+const tilesOf = (days: ReturnType<typeof stacksOfDay>[]) => {
+  const pos = new Map<number, number>();
+  let tile = 0;
+  for (const stacks of days)
+    for (const st of stacks) {
+      for (const x of filesOf(st)) pos.set(x.id, tile);
+      tile++;
+    }
+  return { pos, index: stackMembersIndex(days.flat()) };
+};
+
+test("範囲選択はタイルの並びで切る: 飛び飛びの連写を、範囲の外から引き込まない（#160 の codex）", () => {
+  // 一覧（新しい順）: A2(機体7) B(機体8) A1(機体7) C(機体8、離れている) → タイル A, B, C
+  const a2 = frame(4, 600, 7);
+  const b = frame(3, 500, 8);
+  const a1 = frame(2, 300, 7);
+  const c = frame(1, -5_000, 8);
+  const day = newestFirst([a1, a2, b, c]);
+  const stacks = stacksOfDay(day, burstsOn);
+  assert.deepEqual(members(stacks), [[4, 2], [3], [1]]);
+  const { pos, index } = tilesOf([stacks]);
+  // B〜C を選ぶ。DB の範囲（ファイルの並び）は B, A1, C——A1 は A のコマだが、A は範囲の外
+  assert.deepEqual([...selectRangeOverTiles([3, 2, 1], 3, 1, pos, index)].sort(), [1, 3]);
+  // 古い閉じ方なら A ぜんぶが入っていた（この升が見ている差）
+  assert.deepEqual([...closeOverStacks([3, 2, 1], index)].sort(), [1, 2, 3, 4]);
+  // A〜B（A のタイルは一覧で最初のコマ A2 の位置）: A ぜんぶと B
+  assert.deepEqual([...selectRangeOverTiles([4, 3], 4, 3, pos, index)].sort(), [2, 3, 4]);
+  // 逆向きに押しても同じ
+  assert.deepEqual([...selectRangeOverTiles([3, 2, 1], 1, 3, pos, index)].sort(), [1, 3]);
+});
+
+test("範囲選択: 間に挟まる読み込んでいない日の id はそのまま入れ、端が読めていなければファイルの並びで閉じる", () => {
+  const day1 = stacksOfDay(newestFirst([frame(10, 900), frame(11, 1200)]), burstsOn); // 連写 {11,10}
+  const day3 = stacksOfDay([f(30, 30, false)], burstsOn);
+  const { pos, index } = tilesOf([day1, day3]);
+  // 10 から 30 まで。20・21 は読み込んでいない日（間に挟まる）
+  assert.deepEqual(
+    [...selectRangeOverTiles([10, 20, 21, 30], 10, 30, pos, index)].sort((x, y) => x - y),
+    [10, 11, 20, 21, 30],
+  );
+  // 端（99）が読めていない: ファイルの並びの閉包に落とす
+  assert.deepEqual(
+    [...selectRangeOverTiles([10, 99], 10, 99, pos, index)].sort((x, y) => x - y),
+    [10, 11, 99],
+  );
+});
+
+test("連写の間隔の選択肢と既定は、Rust と UI で同じ（写しが食い違うと、UI が出す値を Rust が断る）", () => {
+  const rust = readFileSync(new URL("../../crates/pictkura-core/src/config.rs", import.meta.url), "utf8");
+  const api = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  const list = (src: string, re: RegExp) => {
+    const m = re.exec(src);
+    assert.ok(m, `見つからない: ${re}`);
+    return m[1].split(",").map((x) => Number(x.trim()));
+  };
+  assert.deepEqual(
+    list(rust, /pub const BURST_GAPS_MS: \[u32; 3\] = \[([^\]]*)\]/),
+    list(api, /export const BURST_GAPS_MS = \[([^\]]*)\]/),
+  );
+  const rustDefault = /burst_gap_ms: (\d+),\n\s*\}/.exec(rust);
+  const apiDefault = /export const DEFAULT_BURST_GAP_MS = (\d+);/.exec(api);
+  assert.ok(rustDefault && apiDefault);
+  assert.equal(rustDefault[1], apiDefault[1]);
 });

@@ -463,6 +463,7 @@ export const zhHant: Dict = {
   settingsBurstGap: "連拍中相鄰兩張的最大間隔",
   burstGapOption: (seconds: number) => `${num(seconds)} 秒`,
   burstChip: (frames: number) => `▤ 連拍 ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `連拍 ${num(frames)} 張，歷時 ${num(Math.round(spanMs / 100) / 10)} 秒（${num(files)} 個檔案）`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>

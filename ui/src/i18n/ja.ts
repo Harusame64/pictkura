@@ -500,6 +500,8 @@ export const ja = {
   settingsBurstGap: "連写とみなす間隔",
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
   burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
+  /* 組の印（`RAW+JPEG`）と並ぶときの短い形 */
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
   /* 連写のタイルのツールチップ（ADR の UX 3）。秒は小数1桁 */
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `連写 ${num(frames)}コマ・${num(Math.round(spanMs / 100) / 10)}秒間（${num(files)}ファイル）`,

@@ -481,6 +481,7 @@ export const de: Dict = {
   settingsBurstGap: "Längster Abstand innerhalb einer Serie",
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Serie ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `Serie mit ${num(frames)} Aufnahmen in ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} Dateien)`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
