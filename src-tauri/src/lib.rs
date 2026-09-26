@@ -830,7 +830,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
-    let known_dirs = if full {
+    let mut known_dirs = if full {
         HashMap::new()
     } else {
         match db.get_meta("scan_fingerprint") {
@@ -838,6 +838,8 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
             _ => HashMap::new(), // 設定が変わった・初回 → フルスキャン
         }
     };
+    // FAT32・exFAT の上のルートは枝刈りしない（dev #37）
+    drop_untrusted_known_dirs(&mut known_dirs, &config.library.roots);
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
     remember_unreadable(state, &scan.outcome, &config.library.roots);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
@@ -1238,11 +1240,13 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
             }
         }
     }
-    let known_dirs = if fingerprint_ok {
+    let mut known_dirs = if fingerprint_ok {
         db.load_dirs().unwrap_or_default()
     } else {
         HashMap::new() // 初回・設定変更後は枝刈りせず全列挙
     };
+    // FAT32・exFAT の上のルートは枝刈りしない（dev #37）
+    drop_untrusted_known_dirs(&mut known_dirs, &config.library.roots);
     let method = if known_dirs.is_empty() {
         StartupMethod::Full
     } else {
@@ -3359,41 +3363,10 @@ struct ReturnedRootsDto {
     changed: usize,
 }
 
-/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
-///
-/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
-/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
-/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
-/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
-/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
-/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
-/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（`full_roots`）
-/// フォルダの更新時刻が、中のファイルを足す・消すたびに動くと分かっているファイルシステムか。
-///
-/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）はこの前提に乗っている。**FAT32 と exFAT は
-/// 動かない**——Windows で、フォルダの中へ写真を足しても消しても `LastWriteTime` は作った時刻のまま
-/// だった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半がこの形式なので、枝刈りすると
-/// **抜いていた間に足した写真を見つけない**。分からない形式も信用しない側に倒す
-fn dir_mtime_is_reliable(file_system: &str) -> bool {
-    matches!(
-        file_system.to_ascii_lowercase().as_str(),
-        "ntfs"
-            | "refs"
-            | "apfs"
-            | "hfs"
-            | "hfs+"
-            | "ext2"
-            | "ext3"
-            | "ext4"
-            | "btrfs"
-            | "xfs"
-            | "zfs"
-            | "f2fs"
-    )
-}
-
 /// ルートが載っているファイルシステムの名前（いちばん深く一致するマウントポイントのもの）。
-/// 見つからなければ空（＝信用しない）
+/// 見つからなければ空——[`pruning_is_safe_on`] は空を**信用する**（Windows のネットワークドライブが
+/// ここに当たる）。**綴りで照らすだけ**なので、ジャンクションや `subst` 越しの root は、指す先ではなく
+/// 置き場所のドライブで判断する（既知の限界）
 fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
     disks
         .iter()
@@ -3403,13 +3376,77 @@ fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
         .unwrap_or_default()
 }
 
-/// `full_roots` は、フォルダの更新時刻が信用できないファイルシステムの上のルート（[`dir_mtime_is_reliable`]）。
-/// その中は枝刈りせず**全部を見る**（`known_dirs` から外す）
-fn scan_returned_roots(
-    state: &AppState,
-    roots: &[PathBuf],
-    full_roots: &[PathBuf],
-) -> Result<SyncStats, String> {
+/// 枝刈りしてよいファイルシステムか。**FAT の系統（FAT12/16/32・vfat・msdos・exFAT）と分かったときだけ否**。
+///
+/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）は「フォルダの時刻は中身を足し引きすると動く」に
+/// 乗っている。**FAT32 と exFAT は動かない**——Windows で、フォルダの中へ写真を足しても消しても
+/// `LastWriteTime` は作った時刻のままだった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半が
+/// この形式なので、枝刈りすると抜いていた間・閉じていた間に足した写真を見つけない。macOS の msdos は
+/// 動くが（Mac の FAT32 イメージで実測）、同じ系統として扱う
+///
+/// **分からない名前は信用する側**に倒す。Windows のネットワークドライブ（割り当て・UNC）は sysinfo の
+/// 一覧に出ない（0.33 は DRIVE_FIXED と DRIVE_REMOVABLE しか数えない）ので名前が空になり、信用しない側に
+/// 倒すと、NAS のルートを起動のたびに全部読むことになっていた（#165 の codex）
+fn pruning_is_safe_on(file_system: &str) -> bool {
+    !matches!(
+        file_system.to_ascii_lowercase().as_str(),
+        "fat" | "fat12" | "fat16" | "fat32" | "vfat" | "msdos" | "exfat"
+    )
+}
+
+/// 枝刈りの記録（`known_dirs`）から、**枝刈りしてはいけないルートの中のフォルダ**を外す（dev #37）。
+/// 外したフォルダは中を全部読む。FAT32・exFAT（USB メモリ・SD カードの大半）では、Windows で
+/// ファイルを足しても消してもフォルダの更新時刻が動かず、起動時の同期が新しい写真を見落としていた
+/// （win の実測、#162 で読み直しの側だけ先に直した）
+fn drop_untrusted_known_dirs(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[PathBuf]) {
+    if known_dirs.is_empty() {
+        return;
+    }
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let untrusted: Vec<PathBuf> = roots
+        .iter()
+        .filter(|r| !pruning_is_safe_on(&file_system_of(r, &disks)))
+        .cloned()
+        .collect();
+    retain_known_dirs_outside(known_dirs, &untrusted);
+}
+
+/// `known_dirs` から、`roots` のどれかの中（それ自身を含む）のフォルダを外す。**比べ方は
+/// [`is_under_any_by_spelling`] と同じ**（要素ごと・Windows は大小を区別しない・`..` は中と言わない）。
+/// ルートの要素は先に1回だけ作る——フォルダが 20 万あっても、ルートを毎回分け直さない
+fn retain_known_dirs_outside(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[PathBuf]) {
+    let roots: Vec<Vec<String>> = roots
+        .iter()
+        .map(|r| path_parts(r))
+        .filter(|r| !r.is_empty())
+        .collect();
+    if roots.is_empty() {
+        return;
+    }
+    known_dirs.retain(|dir, _| {
+        if dir
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return true;
+        }
+        let parts = path_parts(dir);
+        !roots
+            .iter()
+            .any(|r| parts.len() >= r.len() && parts[..r.len()] == r[..])
+    });
+}
+
+/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
+///
+/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
+/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
+/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
+/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
+/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
+/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
+/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（[`drop_untrusted_known_dirs`]）
+fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
     // **鍵を取ってから、いまの設定で選び直す**。鍵を待っている間に利用者がそのフォルダを
@@ -3431,7 +3468,7 @@ fn scan_returned_roots(
         _ => HashMap::new(),
     };
     // FAT32・exFAT 等の上のルートは、フォルダの更新時刻が変化の合図にならない——中を全部見る
-    known_dirs.retain(|dir, _| !is_under_any_by_spelling(dir, full_roots));
+    drop_untrusted_known_dirs(&mut known_dirs, roots);
     let mut outcome = pictkura_core::scanner::scan_roots_pruned(
         roots,
         &config.import.extensions,
@@ -3484,13 +3521,7 @@ async fn scan_roots_on_drives(
         if visible.is_empty() {
             return Ok(out);
         }
-        let disks = sysinfo::Disks::new_with_refreshed_list();
-        let full: Vec<PathBuf> = visible
-            .iter()
-            .filter(|r| !dir_mtime_is_reliable(&file_system_of(r, &disks)))
-            .cloned()
-            .collect();
-        let stats = scan_returned_roots(&state, &visible, &full)?;
+        let stats = scan_returned_roots(&state, &visible)?;
         out.roots = visible.len();
         out.added = stats.added;
         out.changed = stats.changed;
@@ -6068,17 +6099,49 @@ mod tests {
         parts.iter().map(|s| s.to_string()).collect()
     }
 
-    /// フォルダの更新時刻を信用してよい形式（#162 の win の実測: FAT32・exFAT は動かない）。
-    /// 分からない名前も信用しない
+    /// 枝刈りの記録から外すのは、指定したルートの中（それ自身を含む）のフォルダだけ。名前が前方一致するだけの
+    /// 隣と、ほかのルートの記録は残す（dev #37）
     #[test]
-    fn only_file_systems_that_update_folder_times_are_trusted_for_pruning() {
-        for fs in ["NTFS", "ntfs", "apfs", "hfs", "ext4", "btrfs", "ReFS"] {
-            assert!(super::dir_mtime_is_reliable(fs), "{fs}");
+    fn known_dirs_are_dropped_only_under_the_given_roots() {
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+        let mut known: HashMap<PathBuf, i64> = [
+            "/Volumes/SD",
+            "/Volumes/SD/DCIM",
+            "/Volumes/SD/DCIM/100CANON",
+            "/Volumes/SD2/DCIM",
+            "/Users/me/Pictures",
+            "/Users/me/Pictures/2024",
+        ]
+        .into_iter()
+        .map(|p| (PathBuf::from(p), 1))
+        .collect();
+        super::retain_known_dirs_outside(&mut known, &[PathBuf::from("/Volumes/SD")]);
+        let mut left: Vec<String> = known.keys().map(|p| p.display().to_string()).collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "/Users/me/Pictures",
+                "/Users/me/Pictures/2024",
+                "/Volumes/SD2/DCIM"
+            ]
+        );
+        // ルートが無ければ何も外さない
+        let before = known.len();
+        super::retain_known_dirs_outside(&mut known, &[]);
+        assert_eq!(known.len(), before);
+    }
+
+    /// 枝刈りしないのは FAT の系統と分かったときだけ（dev #37）。**分からない名前（空）は信用する**——
+    /// Windows のネットワークドライブは sysinfo に出ず名前が空になる。NAS を起動のたびに全部読まない（#165 の codex）
+    #[test]
+    fn pruning_is_skipped_only_on_the_fat_family() {
+        for fs in ["NTFS", "apfs", "ext4", "smbfs", "nfs", "cifs", ""] {
+            assert!(super::pruning_is_safe_on(fs), "{fs:?}");
         }
-        for fs in [
-            "FAT32", "exFAT", "msdos", "vfat", "fat", "exfat", "fuseblk", "",
-        ] {
-            assert!(!super::dir_mtime_is_reliable(fs), "{fs}");
+        for fs in ["FAT32", "FAT", "exFAT", "msdos", "vfat", "fat16"] {
+            assert!(!super::pruning_is_safe_on(fs), "{fs}");
         }
     }
 
