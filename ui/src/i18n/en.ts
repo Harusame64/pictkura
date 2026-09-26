@@ -400,12 +400,12 @@ export const en: Dict = {
   settingsGrid: "Photo grid",
   settingsStackRawJpegToggle: "Stack RAW+JPEG pairs into one tile",
   settingsStackRawJpegNote:
-    "A RAW and a JPEG with the same name in the same folder show as one tile, the JPEG. In the grid, ★, ⚑, delete and selection apply to both. Full screen steps through the files one by one, and ★, ⚑ and delete there apply only to the file you are looking at.",
+    "A RAW and a JPEG with the same name in the same folder show as one tile, the JPEG. In the grid, ★, ⚑, delete and selection apply to both. Which file full screen shows is set under \"When you view a photo full screen\".",
   stackRawChipTitle: (files: number) =>
     `RAW and JPEG stacked into one tile (${num(files)} files)`,
   settingsStackBurstsToggle: "Stack bursts into one tile",
   settingsStackBurstsNote:
-    "Photos taken in quick succession with the same camera show as one tile. Only photos whose capture time is recorded to a fraction of a second are stacked (some cameras do not record it). In the grid, ★ and ⚑ from the right-click menu apply to the cover photo only; delete and selection apply to the whole burst. Full screen steps through the files one by one.",
+    "Photos taken in quick succession with the same camera show as one tile. Only photos whose capture time is recorded to a fraction of a second are stacked (some cameras do not record it). In the grid, ★ and ⚑ from the right-click menu apply to the cover photo only; delete and selection apply to the whole burst. Full screen does not collapse bursts; it steps through every shot.",
   settingsBurstGap: "Longest gap within a burst",
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Burst ${num(frames)}`,
@@ -418,6 +418,13 @@ export const en: Dict = {
   settingsAutoAdvanceToggle: "Move to the next photo after P / U",
   settingsAutoAdvanceNote:
     "In full screen, P flags the photo with ⚑ (a separate shelf from ★ favorites) and U clears it. With this on, the next photo follows right away, so picking takes one key per photo. With it off, you stay on the same photo.",
+  settingsPairView: "Show from a RAW+JPEG pair",
+  pairViewJpeg: "JPEG only",
+  pairViewRaw: "RAW only",
+  pairViewBoth: "Both (RAW, then JPEG)",
+  settingsPairViewNote:
+    "How full screen steps through a pair shown as one tile in the grid. With one side shown, ★, ⚑, ✕ and delete in full screen apply to both files of the pair. With both shown, they apply only to the file you are looking at. The RAW / JPEG buttons in full screen switch it too. If pairs are not stacked in the grid, both files show.",
+  viewerPairSide: "Which file of the pair to show (also saved in settings)",
   settingsAutoplay: "When you insert a USB drive or SD card",
   settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
   settingsAutoplayNote:

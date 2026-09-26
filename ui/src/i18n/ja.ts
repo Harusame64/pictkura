@@ -495,12 +495,12 @@ export const ja = {
   settingsGrid: "一覧",
   settingsStackRawJpegToggle: "RAW と JPEG の組を1枚に重ねる",
   settingsStackRawJpegNote:
-    "同じフォルダにある同じ名前の RAW と JPEG を、一覧では JPEG の1枚にまとめます。一覧での★・⚑・削除・選択は組の両方に効きます。写真を大きく見ているときは1ファイルずつ送り、★・⚑・削除もそのファイルだけに効きます。",
+    "同じフォルダにある同じ名前の RAW と JPEG を、一覧では JPEG の1枚にまとめます。一覧での★・⚑・削除・選択は組の両方に効きます。写真を大きく見ているときにどちらを見せるかは、「写真を大きく見るとき」の設定で選べます。",
   stackRawChipTitle: (files: number) =>
     `RAW と JPEG を1枚に重ねています（${num(files)}ファイル）`,
   settingsStackBurstsToggle: "連写を1枚に重ねる",
   settingsStackBurstsNote:
-    "同じカメラで続けて撮った写真を、一覧では1枚にまとめます。撮影時刻が秒より細かく記録されている写真だけが対象です（記録しないカメラもあります）。一覧の右クリックで付ける★・⚑は表紙の1枚だけに付き、削除と選択は連写ぜんぶに効きます。写真を大きく見ているときは1ファイルずつ送ります。",
+    "同じカメラで続けて撮った写真を、一覧では1枚にまとめます。撮影時刻が秒より細かく記録されている写真だけが対象です（記録しないカメラもあります）。一覧の右クリックで付ける★・⚑は表紙の1枚だけに付き、削除と選択は連写ぜんぶに効きます。写真を大きく見ているときは、連写もまとめずに1枚ずつ送ります。",
   settingsBurstGap: "連写とみなす間隔",
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
   burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
@@ -516,6 +516,13 @@ export const ja = {
   settingsAutoAdvanceToggle: "P / U で判定したら、次の写真へ進む",
   settingsAutoAdvanceNote:
     "全画面表示で P を押すと ⚑ の印が付き（★ お気に入りとは別の棚です）、U で外れます。この設定を入れておくと、続けて次の写真が出ます（選ぶ作業が1枚1操作で進みます）。切ると、その写真に留まります。",
+  settingsPairView: "RAW+JPEG の組で見せるもの",
+  pairViewJpeg: "JPEG だけ",
+  pairViewRaw: "RAW だけ",
+  pairViewBoth: "両方（RAW → JPEG の順）",
+  settingsPairViewNote:
+    "一覧で1枚にまとめた組を、大きく見ているときにどう送るかです。片方だけ見せているときは、そこで付けた★・⚑・✕と削除が組の両方に効きます。両方のときは、見ているファイルだけに効きます。大きく見ている画面の RAW / JPEG のボタンでも切り替えられます。一覧で組をまとめていないときは、2つとも出ます。",
+  viewerPairSide: "組のどちらを見るか（設定にも残ります）",
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
   settingsAutoplayNote:

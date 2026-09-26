@@ -477,12 +477,12 @@ export const es: Dict = {
   settingsGrid: "Cuadrícula de fotos",
   settingsStackRawJpegToggle: "Agrupar las parejas RAW+JPEG en una sola miniatura",
   settingsStackRawJpegNote:
-    "Un RAW y un JPEG con el mismo nombre en la misma carpeta se muestran como una sola miniatura, la del JPEG. En la cuadrícula, ★, ⚑, borrar y la selección se aplican a los dos. Al ver una foto en grande se sigue viendo archivo por archivo, y ★, ⚑ y borrar solo se aplican al archivo que estás viendo.",
+    "Un RAW y un JPEG con el mismo nombre en la misma carpeta se muestran como una sola miniatura, la del JPEG. En la cuadrícula, ★, ⚑, borrar y la selección se aplican a los dos. Qué archivo se ve en grande se elige en «Cuando ves una foto en grande».",
   stackRawChipTitle: (files: number) =>
     `RAW y JPEG agrupados en una sola miniatura (${num(files)} archivos)`,
   settingsStackBurstsToggle: "Agrupar las ráfagas en una sola miniatura",
   settingsStackBurstsNote:
-    "Las fotos tomadas seguidas con la misma cámara se muestran como una sola miniatura. Solo se agrupan las fotos cuya hora de captura se guarda con fracciones de segundo (algunas cámaras no la guardan). En la cuadrícula, ★ y ⚑ del menú contextual solo se aplican a la foto de portada; borrar y la selección se aplican a toda la ráfaga. Al ver una foto en grande se sigue viendo archivo por archivo.",
+    "Las fotos tomadas seguidas con la misma cámara se muestran como una sola miniatura. Solo se agrupan las fotos cuya hora de captura se guarda con fracciones de segundo (algunas cámaras no la guardan). En la cuadrícula, ★ y ⚑ del menú contextual solo se aplican a la foto de portada; borrar y la selección se aplican a toda la ráfaga. Al ver una foto en grande, la ráfaga no se agrupa: se pasa foto por foto.",
   settingsBurstGap: "Separación máxima dentro de una ráfaga",
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Ráfaga ${num(frames)}`,
@@ -495,6 +495,13 @@ export const es: Dict = {
   settingsAutoAdvanceToggle: "Pasar a la foto siguiente después de P / U",
   settingsAutoAdvanceNote:
     "En la vista grande, P marca la foto con ⚑ (una lista aparte de ★ Favoritos) y U le quita la marca. Con esto activado, la foto siguiente llega enseguida, así que ir marcando cuesta una tecla por foto. Con esto desactivado, te quedas en la misma foto.",
+  settingsPairView: "Qué mostrar de una pareja RAW+JPEG",
+  pairViewJpeg: "Solo el JPEG",
+  pairViewRaw: "Solo el RAW",
+  pairViewBoth: "Los dos (primero el RAW, luego el JPEG)",
+  settingsPairViewNote:
+    "Cómo se recorre en grande una pareja que en la cuadrícula es una sola miniatura. Si se muestra solo uno, ★, ⚑, ✕ y borrar en la vista grande se aplican a los dos archivos de la pareja. Si se muestran los dos, solo al archivo que estás viendo. También puedes cambiarlo con los botones RAW / JPEG de la vista grande. Si las parejas no están agrupadas en la cuadrícula, se ven los dos archivos.",
+  viewerPairSide: "Qué archivo de la pareja ver (también queda en los ajustes)",
   settingsAutoplay: "Cuando conectas una unidad USB o una tarjeta SD",
   settingsAutoplayToggle: "Ofrecer pictkura en la Reproducción automática",
   settingsAutoplayNote:

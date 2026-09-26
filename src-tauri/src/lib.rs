@@ -3155,6 +3155,16 @@ fn set_auto_advance(state: tauri::State<'_, AppState>, enabled: bool) -> Result<
     update_config(&state, |c| c.viewer.auto_advance = enabled)
 }
 
+/// ビューアでの RAW+JPEG の組の歩き方を変える（JPEG だけ・RAW だけ・両方）。
+/// ビューアの切り替えボタンもここを書く——次に開いたときも同じ側で見られるように
+#[tauri::command]
+fn set_pair_view(
+    state: tauri::State<'_, AppState>,
+    view: pictkura_core::config::PairView,
+) -> Result<(), String> {
+    update_config(&state, |c| c.viewer.pair_view = view)
+}
+
 /// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
 ///
 /// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
@@ -6053,6 +6063,7 @@ pub fn run() {
             set_picked,
             set_pickeds,
             set_auto_advance,
+            set_pair_view,
             set_stack_raw_jpeg,
             set_stack_bursts,
             scan_roots_on_drives,

@@ -474,12 +474,12 @@ export const de: Dict = {
   settingsGrid: "Fotoübersicht",
   settingsStackRawJpegToggle: "RAW+JPEG-Paare als ein Bild zeigen",
   settingsStackRawJpegNote:
-    "Ein RAW und ein JPEG mit gleichem Namen im selben Ordner werden als ein Bild (das JPEG) angezeigt. In der Übersicht gelten ★, ⚑, Löschen und Auswahl für beide. In der Großansicht blätterst du Datei für Datei, und ★, ⚑ und Löschen gelten dort nur für die angezeigte Datei.",
+    "Ein RAW und ein JPEG mit gleichem Namen im selben Ordner werden als ein Bild (das JPEG) angezeigt. In der Übersicht gelten ★, ⚑, Löschen und Auswahl für beide. Welche Datei die Großansicht zeigt, stellst du unter „Wenn du ein Foto groß ansiehst“ ein.",
   stackRawChipTitle: (files: number) =>
     `RAW und JPEG als ein Bild gestapelt (${num(files)} Dateien)`,
   settingsStackBurstsToggle: "Serienaufnahmen als ein Bild zeigen",
   settingsStackBurstsNote:
-    "Fotos, die mit derselben Kamera kurz hintereinander aufgenommen wurden, werden als ein Bild angezeigt. Das gilt nur für Fotos, deren Aufnahmezeit auf Bruchteile einer Sekunde genau gespeichert ist (manche Kameras speichern sie nicht). In der Übersicht gelten ★ und ⚑ aus dem Kontextmenü nur für das Titelbild; Löschen und Auswahl gelten für die ganze Serie. In der Großansicht blätterst du Datei für Datei.",
+    "Fotos, die mit derselben Kamera kurz hintereinander aufgenommen wurden, werden als ein Bild angezeigt. Das gilt nur für Fotos, deren Aufnahmezeit auf Bruchteile einer Sekunde genau gespeichert ist (manche Kameras speichern sie nicht). In der Übersicht gelten ★ und ⚑ aus dem Kontextmenü nur für das Titelbild; Löschen und Auswahl gelten für die ganze Serie. In der Großansicht wird eine Serie nicht zusammengefasst; du blätterst Bild für Bild.",
   settingsBurstGap: "Längster Abstand innerhalb einer Serie",
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Serie ${num(frames)}`,
@@ -492,6 +492,13 @@ export const de: Dict = {
   settingsAutoAdvanceToggle: "Nach P / U zum nächsten Foto springen",
   settingsAutoAdvanceNote:
     "In der großen Ansicht markiert P das Foto mit ⚑ (ein anderes Fach als ★ Favoriten), U hebt die Markierung auf. Ist das an, kommt sofort das nächste Foto — dann kostet das Aussortieren eine Taste pro Foto. Ist es aus, bleibst du beim selben Foto.",
+  settingsPairView: "Bei RAW+JPEG-Paaren zeigen",
+  pairViewJpeg: "Nur JPEG",
+  pairViewRaw: "Nur RAW",
+  pairViewBoth: "Beide (erst RAW, dann JPEG)",
+  settingsPairViewNote:
+    "Wie die Großansicht ein Paar durchgeht, das in der Übersicht als ein Bild erscheint. Wird nur eine Seite gezeigt, gelten ★, ⚑, ✕ und Löschen in der Großansicht für beide Dateien des Paars. Werden beide gezeigt, nur für die angezeigte Datei. Umschalten geht auch mit den Schaltflächen RAW / JPEG in der Großansicht. Sind Paare in der Übersicht nicht zusammengefasst, erscheinen beide Dateien.",
+  viewerPairSide: "Welche Datei des Paars angezeigt wird (bleibt auch in den Einstellungen)",
   settingsAutoplay: "Wenn du ein USB-Laufwerk oder eine SD-Karte einsteckst",
   settingsAutoplayToggle: "pictkura in der automatischen Wiedergabe anbieten",
   settingsAutoplayNote:

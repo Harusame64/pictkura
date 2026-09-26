@@ -26,8 +26,9 @@
  * **撮影日時が読めていない**（mtime で埋めた）ものは組に入れない——mtime は粗い媒体で
  * 偶然そろう（PRのcodex）。読めるまでは束ねない側に倒す。
  * **動画は組に入れない**（RAW と同名の動画を隠さない。PRのcodex）
- * **一覧の描き方だけを変える**——ビューアは今までどおり1ファイルずつ歩く
- * （2026-09-08 の利用者の依頼「詳細ページは逐次でよい」）。
+ * **ビューアの歩き方は `viewerWalk` が別に組む**。2026-09-08 は「詳細ページは逐次でよい」
+ * （1ファイルずつ）だったが、2026-09-26 に組の片方だけ（既定は JPEG）・RAW→JPEG を選べるようにした
+ * ——**組の条件（`shotsOfDay`）を変えると、全画面で隠れるファイルと印の効き先も変わる**。
  */
 
 /** 重ねを組むのに要る欄だけ（`MediaItem` の部分集合。試験で小さく作れるように） */
@@ -192,6 +193,74 @@ function shotsOfDay<T extends Stackable>(items: readonly T[], rawJpeg: boolean):
     if (emitted.has(key)) continue;
     emitted.add(key);
     out.push({ lead: g.find((f) => !f.is_raw) ?? g[0], files: g });
+  }
+  return out;
+}
+
+/** ビューアでの RAW+JPEG の組の歩き方（設定 `[viewer] pair_view`、2026-09-26 の利用者の選択） */
+export type PairView = "jpeg" | "raw" | "both";
+
+/**
+ * ビューアが1日の中で歩く列（`walk`）と、組の相手（`pairOf`）。
+ *
+ * - `jpeg` / `raw`: 組は**片方だけ**を列に入れる（一覧のタイル1枚につき絵1枚）
+ * - `both`: 組を **RAW → JPEG の順**に並べる（`list_day` の順では id しだいで前後した）
+ * - 組の位置は、一覧と同じく**組の最初の1件が居た位置**（[`stacksOfDay`] と同じ組み方）
+ * - 組にならないファイル（組の条件は [`stacksOfDay`] の説明）は、そのまま自分の位置に居る
+ *
+ * `pairOf` は組のファイル id → 組ぜんぶ（RAW が先）。**列に居ない側の id も引ける**——
+ * 一覧のタイルから開くと表紙の JPEG の id が来るので、`raw` のときはそこから RAW へ寄せる。
+ * 片方だけ見せている間の ★・⚑・✕・削除も、これで組の両方に効かせる
+ */
+export function viewerWalk<T extends Stackable>(
+  items: readonly T[],
+  view: PairView,
+): { walk: T[]; pairOf: Map<number, T[]> } {
+  const walk: T[] = [];
+  const pairOf = new Map<number, T[]>();
+  for (const shot of shotsOfDay(items, true)) {
+    if (shot.files.length === 1) {
+      walk.push(shot.files[0]);
+      continue;
+    }
+    const raws = shot.files.filter((f) => f.is_raw);
+    const others = shot.files.filter((f) => !f.is_raw);
+    const ordered = [...raws, ...others];
+    for (const f of ordered) pairOf.set(f.id, ordered);
+    if (view === "both") walk.push(...ordered);
+    // 組は RAW と RAW 以外が必ずそろう（`shotsOfDay`）。同じ側が2つ以上あれば（CR3 と
+    // それを書き出した DNG 等）**その側は全部**見せる——隠すのは選ばなかった側だけ
+    else walk.push(...(view === "raw" ? raws : others));
+  }
+  return { walk, pairOf };
+}
+
+/**
+ * 選んだ写真だけを歩く列（ビューアの選択スコープ）を、組の歩き方にそろえる（#168 の codex）。
+ *
+ * 選択の列はファイルの並び（`list_day` の順）なので、そのままだと `both` でも JPEG が先に来たり、
+ * 片方だけのときに隠れた側の席が残って、端の判定・隣の先読みが途切れたりする。
+ * 組は**その組の最初の1件が居た席**に、見せる側だけを RAW が先の順で置く。
+ * `pairOf` に無い id（組でない・その日をまだ読んでいない）はそのまま
+ */
+export function pairAwareScope<E extends { id: number }>(
+  scope: readonly E[],
+  pairOf: ReadonlyMap<number, readonly { id: number; is_raw: boolean }[]>,
+  view: PairView,
+): E[] {
+  const shown = (f: { is_raw: boolean }) => view === "both" || (view === "raw") === f.is_raw;
+  const out: E[] = [];
+  const seen = new Set<number>();
+  for (const e of scope) {
+    if (seen.has(e.id)) continue;
+    const pair = pairOf.get(e.id);
+    if (!pair) {
+      seen.add(e.id);
+      out.push(e);
+      continue;
+    }
+    for (const f of pair) seen.add(f.id);
+    for (const f of pair) if (shown(f)) out.push({ ...e, id: f.id });
   }
   return out;
 }

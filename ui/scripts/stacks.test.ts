@@ -11,7 +11,9 @@ import {
   filesOf,
   selectRangeOverTiles,
   stackMembersIndex,
+  pairAwareScope,
   stacksOfDay,
+  viewerWalk,
   type Stackable,
 } from "../src/stacks.ts";
 
@@ -426,4 +428,71 @@ test("範囲選択: 起点が連写の途中のコマでも、見えている間
   const { pos, index } = tilesOf([stacks]);
   // A1(2) から C(1) まで。DB の範囲は A1, C だけ（B はファイルの並びでは A1 より前）
   assert.deepEqual([...selectRangeOverTiles([2, 1], 2, 1, pos, index)].sort(), [1, 2, 3, 4]);
+});
+
+// ---- ビューアの歩く列（2026-09-26: 組は JPEG だけ／RAW だけ／RAW→JPEG） ----
+
+test("ビューア: 組は選んだ側だけを歩き、組でないファイルはそのまま", () => {
+  // 並び（list_day の順）: JPG 1、別の写真 2、CR3 3（1 と組）、動画でない1枚 4
+  const items = [f(1, 7, false, "A.JPG"), f(2, 8, false, "B.JPG"), f(3, 7, true, "A.CR3"), f(4, 9, true, "C.CR3")];
+  const ids = (view: "jpeg" | "raw" | "both") => viewerWalk(items, view).walk.map((x) => x.id);
+  assert.deepEqual(ids("jpeg"), [1, 2, 4]);
+  // 組の位置は組の最初の1件（1）が居た位置。RAW だけのファイル（4）は組ではないので残る
+  assert.deepEqual(ids("raw"), [3, 2, 4]);
+  // 両方: RAW が先（list_day では JPG が先だった）
+  assert.deepEqual(ids("both"), [3, 1, 2, 4]);
+});
+
+test("ビューア: 組の相手は、列に居ない側の id からも引ける（RAW が先）", () => {
+  const items = [f(1, 7, false, "A.JPG"), f(3, 7, true, "A.CR3"), f(2, 8, false, "B.JPG")];
+  const { walk, pairOf } = viewerWalk(items, "raw");
+  assert.deepEqual(walk.map((x) => x.id), [3, 2]);
+  // 一覧のタイルは表紙の JPEG（1）で開く——そこから RAW（3）へ寄せられる
+  assert.deepEqual(pairOf.get(1)?.map((x) => x.id), [3, 1]);
+  assert.deepEqual(pairOf.get(3)?.map((x) => x.id), [3, 1]);
+  assert.equal(pairOf.get(2), undefined);
+});
+
+test("ビューア: 同じ側が2つある組（CR3 と書き出した DNG）は、選んだ側を全部歩く", () => {
+  const items = [f(1, 7, false, "A.JPG"), f(2, 7, true, "A.CR3"), f(3, 7, true, "A.DNG")];
+  assert.deepEqual(viewerWalk(items, "raw").walk.map((x) => x.id), [2, 3]);
+  assert.deepEqual(viewerWalk(items, "jpeg").walk.map((x) => x.id), [1]);
+  assert.deepEqual(viewerWalk(items, "both").walk.map((x) => x.id), [2, 3, 1]);
+});
+
+test("ビューア: 組にならないもの（撮影日時が違う同名・日時が読めない・動画）は両方歩く", () => {
+  const items = [
+    f(1, 7, false, "A.JPG", 1000),
+    f(2, 7, true, "A.CR3", 99_000), // 日時が違う: 別の写真
+    f(3, 8, false, "B.JPG", 1000, { taken_at_known: false }),
+    f(4, 8, true, "B.CR3", 1000, { taken_at_known: false }),
+    f(5, 9, true, "C.CR3", 1000),
+    f(6, 9, false, "C.MOV", 1000, { is_video: true }),
+  ];
+  for (const view of ["jpeg", "raw", "both"] as const) {
+    const { walk, pairOf } = viewerWalk(items, view);
+    assert.deepEqual(walk.map((x) => x.id), [1, 2, 3, 4, 5, 6], view);
+    assert.equal(pairOf.size, 0, view);
+  }
+});
+
+test("選んだ列: 組は最初の席に、見せる側だけを RAW が先で置く（#168 の codex）", () => {
+  // 1 と 3 が組（JPG・CR3）。選択の列はファイルの並び: JPG 1、別の 2、CR3 3
+  const items = [f(1, 7, false, "A.JPG"), f(2, 8, false, "B.JPG"), f(3, 7, true, "A.CR3")];
+  const scope = [1, 2, 3].map((id) => ({ id, day_key: 20260926 }));
+  const ids = (view: "jpeg" | "raw" | "both") =>
+    pairAwareScope(scope, viewerWalk(items, view).pairOf, view).map((e) => e.id);
+  assert.deepEqual(ids("jpeg"), [1, 2]);
+  assert.deepEqual(ids("raw"), [3, 2]);
+  assert.deepEqual(ids("both"), [3, 1, 2]);
+  // 日は元の席のものを引き継ぐ
+  assert.deepEqual(
+    pairAwareScope(scope, viewerWalk(items, "raw").pairOf, "raw").map((e) => e.day_key),
+    [20260926, 20260926],
+  );
+});
+
+test("選んだ列: 組が分かっていない id（未読の日・組でない）はそのまま、同じ id は2度出さない", () => {
+  const scope = [{ id: 9, day_key: 1 }, { id: 9, day_key: 1 }, { id: 4, day_key: 2 }];
+  assert.deepEqual(pairAwareScope(scope, new Map(), "jpeg").map((e) => e.id), [9, 4]);
 });

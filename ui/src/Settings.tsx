@@ -15,6 +15,7 @@ import {
   setFolderPattern,
   setImportDestination,
   setAutoAdvance,
+  setPairView,
   setStackRawJpeg,
   setStackBursts,
   setBurstGapMs,
@@ -434,6 +435,31 @@ export default function Settings({
               {t.settingsAutoAdvanceToggle}
             </label>
             <p className="settings-note">{t.settingsAutoAdvanceNote}</p>
+            {/* RAW+JPEG の組の歩き方（2026-09-26 の利用者の選択。既定は JPEG だけ）。
+                一覧で組を重ねていない間は効かない——2つとも出る */}
+            <label className="settings-toggle">
+              {t.settingsPairView}
+              <select
+                className="settings-select"
+                disabled={!(config?.grid?.stack_raw_jpeg ?? true)}
+                value={config?.viewer?.pair_view ?? "jpeg"}
+                onChange={async (e) => {
+                  try {
+                    await setPairView(e.target.value as "jpeg" | "raw" | "both");
+                  } catch (err) {
+                    onError(errText(err));
+                  }
+                  onConfigChanged();
+                }}
+              >
+                {(["jpeg", "raw", "both"] as const).map((v) => (
+                  <option key={v} value={v}>
+                    {v === "jpeg" ? t.pairViewJpeg : v === "raw" ? t.pairViewRaw : t.pairViewBoth}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="settings-note">{t.settingsPairViewNote}</p>
           </section>
 
           {/* 一覧の重ね（dev #32、`dev/adr.grid-stacks.md`）。RAW+JPEG と連写は独立に切れる */}

@@ -456,12 +456,12 @@ export const zhHant: Dict = {
   settingsGrid: "照片網格",
   settingsStackRawJpegToggle: "將 RAW+JPEG 合併成一張顯示",
   settingsStackRawJpegNote:
-    "同一資料夾中同名的 RAW 與 JPEG，在網格中合併為一張（顯示 JPEG）。在網格中，★、⚑、刪除與選取會同時套用到兩者。全螢幕檢視時逐個檔案切換，★、⚑ 與刪除只會套用到目前顯示的檔案。",
+    "同一資料夾中同名的 RAW 與 JPEG，在網格中合併為一張（顯示 JPEG）。在網格中，★、⚑、刪除與選取會同時套用到兩者。全螢幕時顯示哪一個，可以在「全螢幕檢視照片時」中選擇。",
   stackRawChipTitle: (files: number) =>
     `RAW 與 JPEG 已合併為一張（${num(files)} 個檔案）`,
   settingsStackBurstsToggle: "將連拍合併成一張顯示",
   settingsStackBurstsNote:
-    "同一台相機連續拍攝的照片，在網格中合併為一張。只合併拍攝時間記錄到不足一秒精度的照片（有些相機不記錄）。在網格中用右鍵選單加上的 ★ 與 ⚑ 只會套用到封面那一張；刪除與選取會套用到整組連拍。全螢幕檢視時逐個檔案切換。",
+    "同一台相機連續拍攝的照片，在網格中合併為一張。只合併拍攝時間記錄到不足一秒精度的照片（有些相機不記錄）。在網格中用右鍵選單加上的 ★ 與 ⚑ 只會套用到封面那一張；刪除與選取會套用到整組連拍。全螢幕檢視時不合併連拍，逐張切換。",
   settingsBurstGap: "連拍中相鄰兩張的最大間隔",
   burstGapOption: (seconds: number) => `${num(seconds)} 秒`,
   burstChip: (frames: number) => `▤ 連拍 ${num(frames)}`,
@@ -474,6 +474,13 @@ export const zhHant: Dict = {
   settingsAutoAdvanceToggle: "用 P / U 判定之後，跳到下一張照片",
   settingsAutoAdvanceNote:
     "全螢幕時按 P 會給照片加上 ⚑ 標記（和 ★ 最愛是兩套），按 U 取消。開啟這個設定後會接著顯示下一張，挑選照片時一張只按一次鍵。關閉則停在同一張照片上。",
+  settingsPairView: "RAW+JPEG 組合顯示",
+  pairViewJpeg: "只顯示 JPEG",
+  pairViewRaw: "只顯示 RAW",
+  pairViewBoth: "兩者（先 RAW 後 JPEG）",
+  settingsPairViewNote:
+    "在網格中合併為一張的組合，全螢幕時如何切換。只顯示其中一個時，全螢幕中的 ★、⚑、✕ 與刪除會同時套用到組合中的兩個檔案；顯示兩者時，只會套用到目前顯示的檔案。也可以用全螢幕畫面中的 RAW / JPEG 按鈕切換。如果網格中沒有合併組合，兩個檔案都會顯示。",
+  viewerPairSide: "顯示組合中的哪一個（也會儲存到設定）",
   settingsAutoplay: "插入 USB 隨身碟或 SD 記憶卡時",
   settingsAutoplayToggle: "在「自動播放」的選項中提供 pictkura",
   settingsAutoplayNote:
