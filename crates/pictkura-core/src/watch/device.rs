@@ -420,7 +420,11 @@ fn on_volume_event(st: &mut State, i: usize, guid: &GUID) {
     } else if is(&GUID_IO_VOLUME_LOCK_FAILED) || is(&GUID_IO_VOLUME_DISMOUNT_FAILED) {
         if st.entries[i].locked {
             st.entries[i].locked = false;
-            restore_after_refusal(st, i);
+            // **取り外し（QUERYREMOVE）の答えを待っている間は戻さない**——その印は別に持っている
+            // （#164 の codex、3周目）
+            if !st.entries[i].ejecting {
+                restore_after_refusal(st, i);
+            }
         }
     } else if is(&GUID_IO_VOLUME_UNLOCK) {
         // その場では戻さない（取り出しが通ったあとにも 70 ms ほどで来る）。短い確かめに回す——取り出した
@@ -464,7 +468,10 @@ fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             // そのとき握ったまま上書きすると、届け出の無いハンドルが残って次の取り外しを断る
             // （#161 の codex の P2）。**その場で開けなければ確かめに回す**——戻る道を失わない
             st.entries[i].ejecting = false;
-            restore_after_refusal(st, i);
+            // ボリュームのロックの答えを待っている間は戻さない（逆向きも同じ）
+            if !st.entries[i].locked {
+                restore_after_refusal(st, i);
+            }
         }
         (DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE, Some(i)) => {
             // 外れた。**いきなり抜かれた**ときは QUERYREMOVE が来ないので、ここで監視も手放す
