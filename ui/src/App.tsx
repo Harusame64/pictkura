@@ -106,8 +106,6 @@ import {
   filesOf,
   selectRangeOverTiles,
   stackMembersIndex,
-  newStackMemory,
-  rememberStacks,
   pairAwareScope,
   stacksOfDay,
   viewerWalk,
@@ -2699,12 +2697,13 @@ export default function App() {
     [fail],
   );
   /**
-   * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」と、タイルの通し番号。
-   * 範囲選択を重ねの単位へ閉じるのに使う（dev #32、`closeOverStacks` の論証）。
-   * 選択の枚数は、間引かれた日も覚えている `stackMemory` で数える
+   * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」と、読み込み済みの id。
+   * 範囲選択を重ねの単位へ閉じ、選択の枚数を「見えているタイル」で数えるのに使う
+   * （dev #32、`closeOverStacks` と `countPhotos` の論証）
    */
-  const { stackIndex, tilePos } = useMemo(() => {
+  const { stackIndex, loadedIds, tilePos } = useMemo(() => {
     const index = new Map<number, number[]>();
+    const loaded = new Set<number>();
     // 一覧でのタイルの通し番号（範囲選択をタイルの並びで切る。`selectRangeOverTiles`）。
     // **日の並びは見出しの順**（`summary`）——`dayStacks` の挿入順は読み込んだ順
     const pos = new Map<number, number>();
@@ -2714,11 +2713,14 @@ export default function App() {
       if (!stacks) continue;
       for (const [id, ids] of stackMembersIndex(stacks)) index.set(id, ids);
       for (const st of stacks) {
-        for (const f of filesOf(st)) pos.set(f.id, tile);
+        for (const f of filesOf(st)) {
+          loaded.add(f.id);
+          pos.set(f.id, tile);
+        }
         tile++;
       }
     }
-    return { stackIndex: index, tilePos: pos };
+    return { stackIndex: index, loadedIds: loaded, tilePos: pos };
   }, [dayStacks, summary]);
   const tilePosRef = useRef(tilePos);
   tilePosRef.current = tilePos;
@@ -2734,22 +2736,8 @@ export default function App() {
       return closed.size === prev.size ? prev : closed;
     });
   }, [stackIndex]);
-  /**
-   * 選択の枚数を数える索引（`rememberStacks`）。**間引かれた日の組も覚えている**——読み込み済みの
-   * 日だけで数えると、組のタイルを1つ選んで遠くへスクロールしただけで「1枚」が「2枚」になった。
-   * 重ね方の設定・絞り込み・検索が変わったら作り直す（並ぶファイルと組み方が変わる）
-   */
-  const stackMemoryRef = useRef({ key: "", mem: newStackMemory() });
-  const stackMemory = useMemo(() => {
-    const key = JSON.stringify([stackRawJpeg, stackBursts, burstGapMs, filter, query]);
-    const r = stackMemoryRef.current;
-    if (r.key !== key) {
-      r.key = key;
-      r.mem = newStackMemory();
-    }
-    rememberStacks(r.mem, dayStacks);
-    return r.mem;
-  }, [dayStacks, stackRawJpeg, stackBursts, burstGapMs, filter, query]);
+  const loadedIdsRef = useRef(loadedIds);
+  loadedIdsRef.current = loadedIds;
 
   const rows = useMemo<Row[]>(() => {
     const usable = Math.max(120, viewportWidth - GRID_PADDING);
@@ -5246,7 +5234,7 @@ export default function App() {
       if (ids.length === 0) return;
       // 報告は見えている枚数で（重ねのタイル1枚は1枚。PRのcodex）。全部に付いたときだけ
       // 言い換える——一部だけのときはファイルの数のほうが正確
-      const photos = countPhotos(ids, stackMemoryRef.current.mem.members, stackMemoryRef.current.mem.members);
+      const photos = countPhotos(ids, stackIndexRef.current, loadedIdsRef.current);
       const written = await markIds(kind, on, ids);
       if (written === null) return;
       const n = written === ids.length && photos !== null ? photos : written;
@@ -5305,7 +5293,7 @@ export default function App() {
       // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
       const touched = new Set(ids);
       // 重ねのタイルを含むなら、見えている枚数とファイル数の両方を言う（dev #32）
-      const photos = countPhotos(ids, stackMemoryRef.current.mem.members, stackMemoryRef.current.mem.members);
+      const photos = countPhotos(ids, stackIndexRef.current, loadedIdsRef.current);
       const ok = await confirmAction(
         photos !== null && photos < ids.length
           ? t.deleteConfirmFiles(photos, ids.length)
@@ -5459,7 +5447,7 @@ export default function App() {
           // 見えている枚数で言う（重ねのタイルは1枚——組ぜんぶが動く。dev #32）
           const ok = await confirmAction(
             t.moveConfirm(
-              countPhotos(ids, stackMemoryRef.current.mem.members, stackMemoryRef.current.mem.members) ??
+              countPhotos(ids, stackIndexRef.current, loadedIdsRef.current) ??
                 ids.length,
             ),
             t.moveConfirmOk,
@@ -5691,7 +5679,7 @@ export default function App() {
           </button>
           <span className="select-bar-count">
             {t.selectedCount(
-              countPhotos(selected, stackMemory.members, stackMemory.members) ?? selected.size,
+              countPhotos(selected, stackIndex, loadedIds) ?? selected.size,
             )}
           </span>
           <button
