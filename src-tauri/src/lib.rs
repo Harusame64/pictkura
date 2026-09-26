@@ -3317,8 +3317,50 @@ struct ReturnedRootsDto {
 /// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
 /// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
 /// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
-/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）
-fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
+/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
+/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（`full_roots`）
+/// フォルダの更新時刻が、中のファイルを足す・消すたびに動くと分かっているファイルシステムか。
+///
+/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）はこの前提に乗っている。**FAT32 と exFAT は
+/// 動かない**——Windows で、フォルダの中へ写真を足しても消しても `LastWriteTime` は作った時刻のまま
+/// だった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半がこの形式なので、枝刈りすると
+/// **抜いていた間に足した写真を見つけない**。分からない形式も信用しない側に倒す
+fn dir_mtime_is_reliable(file_system: &str) -> bool {
+    matches!(
+        file_system.to_ascii_lowercase().as_str(),
+        "ntfs"
+            | "refs"
+            | "apfs"
+            | "hfs"
+            | "hfs+"
+            | "ext2"
+            | "ext3"
+            | "ext4"
+            | "btrfs"
+            | "xfs"
+            | "zfs"
+            | "f2fs"
+    )
+}
+
+/// ルートが載っているファイルシステムの名前（いちばん深く一致するマウントポイントのもの）。
+/// 見つからなければ空（＝信用しない）
+fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
+    disks
+        .iter()
+        .filter(|d| is_under_any_by_spelling(root, &[d.mount_point().to_path_buf()]))
+        .max_by_key(|d| path_parts(d.mount_point()).len())
+        .map(|d| d.file_system().to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `full_roots` は、フォルダの更新時刻が信用できないファイルシステムの上のルート（[`dir_mtime_is_reliable`]）。
+/// その中は枝刈りせず**全部を見る**（`known_dirs` から外す）
+fn scan_returned_roots(
+    state: &AppState,
+    roots: &[PathBuf],
+    full_roots: &[PathBuf],
+) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
     // **鍵を取ってから、いまの設定で選び直す**。鍵を待っている間に利用者がそのフォルダを
@@ -3335,10 +3377,12 @@ fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats,
     let roots = roots.as_slice();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
-    let known_dirs = match db.get_meta("scan_fingerprint") {
+    let mut known_dirs = match db.get_meta("scan_fingerprint") {
         Ok(Some(stored)) if stored == fingerprint => db.load_dirs().unwrap_or_default(),
         _ => HashMap::new(),
     };
+    // FAT32・exFAT 等の上のルートは、フォルダの更新時刻が変化の合図にならない——中を全部見る
+    known_dirs.retain(|dir, _| !is_under_any_by_spelling(dir, full_roots));
     let mut outcome = pictkura_core::scanner::scan_roots_pruned(
         roots,
         &config.import.extensions,
@@ -3391,7 +3435,13 @@ async fn scan_roots_on_drives(
         if visible.is_empty() {
             return Ok(out);
         }
-        let stats = scan_returned_roots(&state, &visible)?;
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let full: Vec<PathBuf> = visible
+            .iter()
+            .filter(|r| !dir_mtime_is_reliable(&file_system_of(r, &disks)))
+            .cloned()
+            .collect();
+        let stats = scan_returned_roots(&state, &visible, &full)?;
         out.roots = visible.len();
         out.added = stats.added;
         out.changed = stats.changed;
@@ -5967,6 +6017,20 @@ mod tests {
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// フォルダの更新時刻を信用してよい形式（#162 の win の実測: FAT32・exFAT は動かない）。
+    /// 分からない名前も信用しない
+    #[test]
+    fn only_file_systems_that_update_folder_times_are_trusted_for_pruning() {
+        for fs in ["NTFS", "ntfs", "apfs", "hfs", "ext4", "btrfs", "ReFS"] {
+            assert!(super::dir_mtime_is_reliable(fs), "{fs}");
+        }
+        for fs in [
+            "FAT32", "exFAT", "msdos", "vfat", "fat", "exfat", "fuseblk", "",
+        ] {
+            assert!(!super::dir_mtime_is_reliable(fs), "{fs}");
+        }
     }
 
     /// ネットワーク越しのファイルシステムの名前（#162 の codex、5周目）。ローカルの形式は含めない
