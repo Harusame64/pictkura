@@ -6138,13 +6138,17 @@ export default function App() {
                                   `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので
                                   両方出ることがある（連写の印は、組の印と並ぶときだけ短く `▤ 12`） */}
                               {/* 細いタイルでは、切らずに読める形へ替える（App.css の `@container`）:
-                                  連写は短い形（`▤ 12`）、組と連写が並ぶなら連写だけ、組だけなら
-                                  `RAW+` と `JPEG` の2行（`<wbr>` で折る） */}
+                                  連写は短い形（`▤ 12`）、組は四角2枚の記号 */}
                               {(cell.rawPair || burst) && (
                                 <span className={"cell-chips" + (cell.rawPair && burst ? " both" : "")}>
                                   {cell.rawPair && (
                                     <span className="cell-chip chip-pair">
-                                      RAW+<wbr />JPEG
+                                      <span className="pair-full">RAW+JPEG</span>
+                                      {/* 細いタイルでの短い形: 四角が2枚重なった記号（2026-09-26 の利用者の選択） */}
+                                      <svg className="pair-icon" width="13" height="11" viewBox="0 0 13 11" role="img" aria-label="RAW+JPEG">
+                                        <rect x="0.75" y="0.75" width="8" height="6.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                                        <rect x="4.25" y="3.75" width="8" height="6.5" rx="1" fill="currentColor" stroke="currentColor" strokeWidth="1.3" />
+                                      </svg>
                                     </span>
                                   )}
                                   {burst && !cell.rawPair && (
