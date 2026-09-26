@@ -621,16 +621,16 @@ body {
   isolation: isolate;
 }
 .cell-wrap.stacked .cell {
-  width: calc(100% - var(--stack-offset));
-  height: calc(100% - var(--stack-offset));
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
 }
 .cell-wrap.stacked::before {
   content: "";
   position: absolute;
   bottom: 0;
   right: 0;
-  width: calc(100% - var(--stack-offset));
-  height: calc(100% - var(--stack-offset));
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
   box-sizing: border-box;
   border-radius: 3px;
   background: var(--surface-2);
@@ -643,16 +643,9 @@ body {
   --stack-offset: 4px;
   --photo-inset: calc(2 * var(--stack-offset));
 }
-.cell-wrap.burst .cell {
-  width: calc(100% - 2 * var(--stack-offset));
-  height: calc(100% - 2 * var(--stack-offset));
-}
-.cell-wrap.burst::before,
 .cell-wrap.burst::after {
-  width: calc(100% - 2 * var(--stack-offset));
-  height: calc(100% - 2 * var(--stack-offset));
-}
-.cell-wrap.burst::after {
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
   content: "";
   position: absolute;
   bottom: var(--stack-offset);
@@ -694,7 +687,8 @@ body {
 .cell-video {
   position: absolute;
   left: var(--sp-1);
-  bottom: var(--sp-1);
+  /* 下の印はどれも写真の下端に合わせる（重ねのタイルでは紙の上に乗せない） */
+  bottom: calc(var(--sp-1) + var(--photo-inset, 0px));
   display: flex;
   align-items: center;
   gap: 4px;
