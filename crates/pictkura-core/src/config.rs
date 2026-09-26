@@ -402,12 +402,22 @@ pub struct GridConfig {
     /// 同じフォルダ・同じ名前の RAW+JPEG を1枚に重ねるか。既定は ON——組を持たない人には
     /// 1画素も変わらないので、切っておく理由が無い（2026-09-25 利用者も既定 ON を選んだ）
     pub stack_raw_jpeg: bool,
+    /// 同じ機体で続けて撮ったコマ（連写）を1枚に重ねるか。既定は ON（2026-09-25 の利用者）
+    pub stack_bursts: bool,
+    /// 連写とみなす、同じ機体の直前のコマとの間隔の上限（ミリ秒）。**[`BURST_GAPS_MS`] のどれか**
+    /// ——3択にしたのは、それぞれを見本の実測で升にできるから（ADR）。既定は 1000
+    pub burst_gap_ms: u32,
 }
+
+/// 連写とみなす間隔の選択肢（ミリ秒）。設定の画面もこの3つだけを出す
+pub const BURST_GAPS_MS: [u32; 3] = [500, 1000, 2000];
 
 impl Default for GridConfig {
     fn default() -> Self {
         Self {
             stack_raw_jpeg: true,
+            stack_bursts: true,
+            burst_gap_ms: 1000,
         }
     }
 }
@@ -528,6 +538,26 @@ verify_after_copy = true
         off.grid.stack_raw_jpeg = false;
         let back = Config::from_toml_str(&off.to_toml_string().unwrap()).unwrap();
         assert!(!back.grid.stack_raw_jpeg);
+    }
+
+    /// 連写の2項目は #159 のあとに足した——**RAW+JPEG の項目だけを持つ設定**（前の版が書いたもの）でも
+    /// 既定（重ねる・1秒）で読む。書いた値は読み戻せる
+    #[test]
+    fn burst_stacking_reads_as_on_at_one_second_in_an_older_grid_section() {
+        let older = Config::from_toml_str("[grid]\nstack_raw_jpeg = false\n").unwrap();
+        assert!(!older.grid.stack_raw_jpeg);
+        assert!(older.grid.stack_bursts);
+        assert_eq!(older.grid.burst_gap_ms, 1000);
+        assert!(BURST_GAPS_MS.contains(&GridConfig::default().burst_gap_ms));
+
+        let mut set = Config::default();
+        set.grid.stack_bursts = false;
+        set.grid.burst_gap_ms = 2000;
+        let back = Config::from_toml_str(&set.to_toml_string().unwrap()).unwrap();
+        assert_eq!(
+            (back.grid.stack_bursts, back.grid.burst_gap_ms),
+            (false, 2000)
+        );
     }
 
     /// 配ったあとに足した節（0.2 ②）。**古い設定ファイルには `[viewer]` が無い**

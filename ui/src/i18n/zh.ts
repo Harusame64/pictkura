@@ -454,6 +454,17 @@ export const zh: Dict = {
     "同一文件夹里同名的 RAW 和 JPEG，在网格中合并为一张（显示 JPEG）。在网格中，★、⚑、删除和选择会同时作用于两者。全屏查看时逐个文件切换，★、⚑ 和删除只作用于当前显示的文件。",
   stackRawChipTitle: (files: number) =>
     `RAW 和 JPEG 已合并为一张（${num(files)} 个文件）`,
+  settingsStackBurstsToggle: "把连拍合并成一张显示",
+  settingsStackBurstsNote:
+    "同一台相机连续拍摄的照片，在网格中合并为一张。只合并拍摄时间记录到不足一秒精度的照片（有些相机不记录）。在网格中用右键菜单添加的 ★ 和 ⚑ 只作用于封面那一张；删除和选择会作用于整组连拍。全屏查看时逐个文件切换。",
+  settingsBurstGap: "连拍中相邻两张的最大间隔",
+  burstGapOption: (seconds: number) => `${num(seconds)} 秒`,
+  burstChip: (frames: number) => `▤ 连拍 ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  burstTitle: (frames: number, spanMs: number, files: number) =>
+    `连拍 ${num(frames)} 张，历时 ${num(Math.round(spanMs / 100) / 10)} 秒（${num(files)} 个文件）`,
+  burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
+    `连拍 ${num(frames)} 张，历时 ${num(Math.round(spanMs / 100) / 10)} 秒，RAW+JPEG（${num(files)} 个文件）`,
   settingsViewer: "全屏查看照片时",
   settingsAutoAdvanceToggle: "用 P / U 判定之后，跳到下一张照片",
   settingsAutoAdvanceNote:

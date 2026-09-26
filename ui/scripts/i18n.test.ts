@@ -499,6 +499,8 @@ test("単複の無い言語が場合分けしていないこと", () => {
  */
 const SAME_AS_EN: Record<string, string[]> = {
   de: [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "burstGapOption", // `0,5 s` など数と単位だけ
     "appName",
     "kindRaw",
     "kindVideo", // 独語でも `Videos`
@@ -511,6 +513,8 @@ const SAME_AS_EN: Record<string, string[]> = {
     "wizardCapped", // `3+`
   ],
   es: [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "burstGapOption", // `0,5 s` など数と単位だけ
     "appName",
     "kindRaw",
     "keyCtrl",
@@ -523,6 +527,8 @@ const SAME_AS_EN: Record<string, string[]> = {
     "wizardCapped",
   ],
   "es-419": [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "burstGapOption", // `0,5 s` など数と単位だけ
     "appName",
     "kindRaw",
     "keyCtrl",
@@ -536,14 +542,15 @@ const SAME_AS_EN: Record<string, string[]> = {
     "kindVideo", // **中南米では `Videos`**（本国は `Vídeos`）。英語と同じ綴りになる
   ],
   ja: [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
     "appName",
     "kindRaw",
     "exifIso",
     "keyCtrl",
     "rejectChip",
   ],
-  zh: ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
-  "zh-hant": ["appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
+  zh: ["burstChipShort", "appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
+  "zh-hant": ["burstChipShort", "appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
 };
 
 test("英語からの丸写しが無いこと", () => {

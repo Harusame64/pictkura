@@ -401,6 +401,17 @@ export const en: Dict = {
     "A RAW and a JPEG with the same name in the same folder show as one tile, the JPEG. In the grid, ★, ⚑, delete and selection apply to both. Full screen steps through the files one by one, and ★, ⚑ and delete there apply only to the file you are looking at.",
   stackRawChipTitle: (files: number) =>
     `RAW and JPEG stacked into one tile (${num(files)} files)`,
+  settingsStackBurstsToggle: "Stack bursts into one tile",
+  settingsStackBurstsNote:
+    "Photos taken in quick succession with the same camera show as one tile. Only photos whose capture time is recorded to a fraction of a second are stacked (some cameras do not record it). In the grid, ★ and ⚑ from the right-click menu apply to the cover photo only; delete and selection apply to the whole burst. Full screen steps through the files one by one.",
+  settingsBurstGap: "Longest gap within a burst",
+  burstGapOption: (seconds: number) => `${num(seconds)} s`,
+  burstChip: (frames: number) => `▤ Burst ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  burstTitle: (frames: number, spanMs: number, files: number) =>
+    `Burst of ${num(frames)} shots over ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} files)`,
+  burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
+    `Burst of ${num(frames)} shots over ${num(Math.round(spanMs / 100) / 10)} s, RAW+JPEG (${num(files)} files)`,
   settingsViewer: "When you view a photo full screen",
   settingsAutoAdvanceToggle: "Move to the next photo after P / U",
   settingsAutoAdvanceNote:

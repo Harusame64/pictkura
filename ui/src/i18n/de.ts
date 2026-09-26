@@ -475,6 +475,17 @@ export const de: Dict = {
     "Ein RAW und ein JPEG mit gleichem Namen im selben Ordner werden als ein Bild (das JPEG) angezeigt. In der Übersicht gelten ★, ⚑, Löschen und Auswahl für beide. In der Großansicht blätterst du Datei für Datei, und ★, ⚑ und Löschen gelten dort nur für die angezeigte Datei.",
   stackRawChipTitle: (files: number) =>
     `RAW und JPEG als ein Bild gestapelt (${num(files)} Dateien)`,
+  settingsStackBurstsToggle: "Serienaufnahmen als ein Bild zeigen",
+  settingsStackBurstsNote:
+    "Fotos, die mit derselben Kamera kurz hintereinander aufgenommen wurden, werden als ein Bild angezeigt. Das gilt nur für Fotos, deren Aufnahmezeit auf Bruchteile einer Sekunde genau gespeichert ist (manche Kameras speichern sie nicht). In der Übersicht gelten ★ und ⚑ aus dem Kontextmenü nur für das Titelbild; Löschen und Auswahl gelten für die ganze Serie. In der Großansicht blätterst du Datei für Datei.",
+  settingsBurstGap: "Längster Abstand innerhalb einer Serie",
+  burstGapOption: (seconds: number) => `${num(seconds)} s`,
+  burstChip: (frames: number) => `▤ Serie ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  burstTitle: (frames: number, spanMs: number, files: number) =>
+    `Serie mit ${num(frames)} Aufnahmen in ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} Dateien)`,
+  burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
+    `Serie mit ${num(frames)} Aufnahmen in ${num(Math.round(spanMs / 100) / 10)} s, RAW+JPEG (${num(files)} Dateien)`,
   settingsViewer: "Wenn du ein Foto groß ansiehst",
   settingsAutoAdvanceToggle: "Nach P / U zum nächsten Foto springen",
   settingsAutoAdvanceNote:

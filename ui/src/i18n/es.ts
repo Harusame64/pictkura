@@ -478,6 +478,17 @@ export const es: Dict = {
     "Un RAW y un JPEG con el mismo nombre en la misma carpeta se muestran como una sola miniatura, la del JPEG. En la cuadrícula, ★, ⚑, borrar y la selección se aplican a los dos. Al ver una foto en grande se sigue viendo archivo por archivo, y ★, ⚑ y borrar solo se aplican al archivo que estás viendo.",
   stackRawChipTitle: (files: number) =>
     `RAW y JPEG agrupados en una sola miniatura (${num(files)} archivos)`,
+  settingsStackBurstsToggle: "Agrupar las ráfagas en una sola miniatura",
+  settingsStackBurstsNote:
+    "Las fotos tomadas seguidas con la misma cámara se muestran como una sola miniatura. Solo se agrupan las fotos cuya hora de captura se guarda con fracciones de segundo (algunas cámaras no la guardan). En la cuadrícula, ★ y ⚑ del menú contextual solo se aplican a la foto de portada; borrar y la selección se aplican a toda la ráfaga. Al ver una foto en grande se sigue viendo archivo por archivo.",
+  settingsBurstGap: "Separación máxima dentro de una ráfaga",
+  burstGapOption: (seconds: number) => `${num(seconds)} s`,
+  burstChip: (frames: number) => `▤ Ráfaga ${num(frames)}`,
+  burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  burstTitle: (frames: number, spanMs: number, files: number) =>
+    `Ráfaga de ${num(frames)} fotos en ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} archivos)`,
+  burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
+    `Ráfaga de ${num(frames)} fotos en ${num(Math.round(spanMs / 100) / 10)} s, RAW+JPEG (${num(files)} archivos)`,
   settingsViewer: "Cuando ves una foto en grande",
   settingsAutoAdvanceToggle: "Pasar a la foto siguiente después de P / U",
   settingsAutoAdvanceNote:
