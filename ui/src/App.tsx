@@ -2633,15 +2633,19 @@ export default function App() {
    * 先に手元の設定を替えて絵を寄せ、保存に失敗したら設定を読み直して戻す
    */
   const pairViewSaves = useRef<Promise<unknown>>(Promise.resolve());
+  const pairViewLatest = useRef(0);
   const choosePairView = useCallback(
     (view: PairView) => {
       setConfig((c) => (c ? { ...c, viewer: { auto_advance: true, ...c.viewer, pair_view: view } } : c));
+      const seq = ++pairViewLatest.current;
       // **保存は押した順に1つずつ**。続けて押した2つが並んで走ると、後で押した側が先に
       // 書き終わり、画面と保存された設定が食い違うことがある（#168 のゲート2）
       pairViewSaves.current = pairViewSaves.current.then(() =>
         setPairView(view).catch((e) => {
           fail(errText(e));
-          // 保存できなかった——画面の値を、保存されている値へ戻す
+          // 保存できなかった——**これが最後に押したものなら**、画面の値を保存されている値へ戻す。
+          // 後から押したものが控えていれば、そちらが画面の値を保存する（戻すと後の選択を消す。#168 の codex）
+          if (seq !== pairViewLatest.current) return;
           return getConfig()
             .then(setConfig)
             .catch(() => {});
@@ -5588,8 +5592,14 @@ export default function App() {
         );
   const viewerFileIdx = (() => {
     if (!viewerInfo || pairView === null || pairView === "both") return viewerInfo?.itemIdx ?? 0;
-    const at = dayItems.get(summary[viewerInfo.dayIdx].day_key)?.indexOf(viewerInfo.item) ?? -1;
-    return at >= 0 ? at : viewerInfo.itemIdx;
+    const files = dayItems.get(summary[viewerInfo.dayIdx].day_key);
+    if (!files) return viewerInfo.itemIdx;
+    // **組の席**（組の最初のファイルの番号）で数える。列は組を最初の席に置くので、送るほど必ず増える
+    // ——見せている側のファイル自身の番号だと、後ろに居た RAW で数が戻る（#168 の codex）
+    const seat = (pairOf.get(viewerInfo.item.id) ?? [viewerInfo.item])
+      .map((f) => files.indexOf(f))
+      .filter((i) => i >= 0);
+    return seat.length > 0 ? Math.min(...seat) : viewerInfo.itemIdx;
   })();
   const viewerPos =
     scopeIdx !== undefined
