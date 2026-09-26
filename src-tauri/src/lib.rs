@@ -451,6 +451,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         // 判定はルートだけで決まるので**ループの外で1回**（イベントごとに
         // 全構成要素を舐め直さない）
         let package_roots = managed_package_roots(&config);
+        // ルートが確かに在るか（消えたパスの判断に使う。束の中で同じルートを何度も訊かない）
+        let mut root_present: HashMap<PathBuf, bool> = HashMap::new();
         for p in paths {
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
                 continue;
@@ -475,7 +477,20 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
                     changed |= upsert_if_changed(&mut db, f);
                 }
             } else {
-                // パスが消えた: そのパス＋配下のレコードを削除
+                // パスが消えた: そのパス＋配下のレコードを削除。**ただし「確かに無い」ときだけ**——抜いた直後は
+                // 読み出しが EIO で落ち、それを「無い」と読むと消してしまう。**ドライブが外れただけなら
+                // 消さない**（[`vanished_path_is_a_deletion`]）。ルートが在るかは束の中で1回だけ訊く
+                if !matches!(p.try_exists(), Ok(false)) {
+                    continue;
+                }
+                let is_deletion = vanished_path_is_a_deletion(&p, &config.library.roots, |r| {
+                    *root_present
+                        .entry(r.to_path_buf())
+                        .or_insert_with(|| matches!(r.try_exists(), Ok(true)))
+                });
+                if !is_deletion {
+                    continue;
+                }
                 if let Ok(n) = db.remove_by_prefix(&p) {
                     if n > 0 {
                         changed = true;
@@ -488,6 +503,40 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     if changed {
         enqueue_missing_thumbs(&state);
         let _ = app.emit("library-updated", ());
+    }
+}
+
+/// 監視が「消えた」と言ったパスを、**本当に消えた**と読んでよいか。
+///
+/// **ルートごと見えなくなったなら、ドライブが外れただけ**——消さない。root がボリュームそのもの
+/// （`/Volumes/SD`・`G:\\`）だと、取り出したときに監視が root 自身の消失を報せ、`remove_by_prefix` が
+/// そのルートの行を ★・⚑ ごと全部消していた（v0.1 から。2026-09-26 に Mac の実機の SD で見つけ、
+/// ディスクイメージで再現: root がボリュームなら消え、中のフォルダなら残った）。走査も、見えない
+/// ルートの行は残す（`db.rs` の `root_case_sql`）ので、それとそろえる。
+///
+/// 判断は**そのパスを含むいちばん深いルート**で決める（`root_case_sql` と同じ。入れ子の内側の
+/// ルートが、外側のルートでの本当の削除を止めないように——#163 のゲート2）:
+/// - ルートの中のパスなら、**そのルートが確かに在るときだけ**消す
+/// - ルートそのものなら、消さない（ドライブが外れたのと見分けられない。フォルダを消したのなら、
+///   左の一覧に「見つかりません」と出て、そこから外せる——走査と同じ扱い）
+/// - どのルートの中でもないパスは、どれかのルートの**上**（マウントポイント等）なら消さず、
+///   そうでなければ今までどおり消す
+///
+/// 比べ方は [`is_under_any_by_spelling`]（要素ごと・Windows は大小を区別しない）
+fn vanished_path_is_a_deletion(
+    path: &Path,
+    roots: &[PathBuf],
+    mut root_is_present: impl FnMut(&Path) -> bool,
+) -> bool {
+    let under = |p: &Path, dir: &Path| is_under_any_by_spelling(p, &[dir.to_path_buf()]);
+    let deepest = roots
+        .iter()
+        .filter(|r| under(path, r))
+        .max_by_key(|r| path_parts(r).len());
+    match deepest {
+        Some(root) if path_parts(root) == path_parts(path) => false,
+        Some(root) => root_is_present(root),
+        None => !roots.iter().any(|r| under(r, path)),
     }
 }
 
@@ -781,7 +830,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
-    let known_dirs = if full {
+    let mut known_dirs = if full {
         HashMap::new()
     } else {
         match db.get_meta("scan_fingerprint") {
@@ -789,6 +838,8 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
             _ => HashMap::new(), // 設定が変わった・初回 → フルスキャン
         }
     };
+    // FAT32・exFAT の上のルートは枝刈りしない（dev #37）
+    drop_untrusted_known_dirs(&mut known_dirs, &config.library.roots);
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
     remember_unreadable(state, &scan.outcome, &config.library.roots);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
@@ -1189,11 +1240,13 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
             }
         }
     }
-    let known_dirs = if fingerprint_ok {
+    let mut known_dirs = if fingerprint_ok {
         db.load_dirs().unwrap_or_default()
     } else {
         HashMap::new() // 初回・設定変更後は枝刈りせず全列挙
     };
+    // FAT32・exFAT の上のルートは枝刈りしない（dev #37）
+    drop_untrusted_known_dirs(&mut known_dirs, &config.library.roots);
     let method = if known_dirs.is_empty() {
         StartupMethod::Full
     } else {
@@ -3310,41 +3363,10 @@ struct ReturnedRootsDto {
     changed: usize,
 }
 
-/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
-///
-/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
-/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
-/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
-/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
-/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
-/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
-/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（`full_roots`）
-/// フォルダの更新時刻が、中のファイルを足す・消すたびに動くと分かっているファイルシステムか。
-///
-/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）はこの前提に乗っている。**FAT32 と exFAT は
-/// 動かない**——Windows で、フォルダの中へ写真を足しても消しても `LastWriteTime` は作った時刻のまま
-/// だった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半がこの形式なので、枝刈りすると
-/// **抜いていた間に足した写真を見つけない**。分からない形式も信用しない側に倒す
-fn dir_mtime_is_reliable(file_system: &str) -> bool {
-    matches!(
-        file_system.to_ascii_lowercase().as_str(),
-        "ntfs"
-            | "refs"
-            | "apfs"
-            | "hfs"
-            | "hfs+"
-            | "ext2"
-            | "ext3"
-            | "ext4"
-            | "btrfs"
-            | "xfs"
-            | "zfs"
-            | "f2fs"
-    )
-}
-
 /// ルートが載っているファイルシステムの名前（いちばん深く一致するマウントポイントのもの）。
-/// 見つからなければ空（＝信用しない）
+/// 見つからなければ空——[`pruning_is_safe_on`] は空を**信用する**（Windows のネットワークドライブが
+/// ここに当たる）。**綴りで照らすだけ**なので、ジャンクションや `subst` 越しの root は、指す先ではなく
+/// 置き場所のドライブで判断する（既知の限界）
 fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
     disks
         .iter()
@@ -3354,13 +3376,77 @@ fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
         .unwrap_or_default()
 }
 
-/// `full_roots` は、フォルダの更新時刻が信用できないファイルシステムの上のルート（[`dir_mtime_is_reliable`]）。
-/// その中は枝刈りせず**全部を見る**（`known_dirs` から外す）
-fn scan_returned_roots(
-    state: &AppState,
-    roots: &[PathBuf],
-    full_roots: &[PathBuf],
-) -> Result<SyncStats, String> {
+/// 枝刈りしてよいファイルシステムか。**FAT の系統（FAT12/16/32・vfat・msdos・exFAT）と分かったときだけ否**。
+///
+/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）は「フォルダの時刻は中身を足し引きすると動く」に
+/// 乗っている。**FAT32 と exFAT は動かない**——Windows で、フォルダの中へ写真を足しても消しても
+/// `LastWriteTime` は作った時刻のままだった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半が
+/// この形式なので、枝刈りすると抜いていた間・閉じていた間に足した写真を見つけない。macOS の msdos は
+/// 動くが（Mac の FAT32 イメージで実測）、同じ系統として扱う
+///
+/// **分からない名前は信用する側**に倒す。Windows のネットワークドライブ（割り当て・UNC）は sysinfo の
+/// 一覧に出ない（0.33 は DRIVE_FIXED と DRIVE_REMOVABLE しか数えない）ので名前が空になり、信用しない側に
+/// 倒すと、NAS のルートを起動のたびに全部読むことになっていた（#165 の codex）
+fn pruning_is_safe_on(file_system: &str) -> bool {
+    !matches!(
+        file_system.to_ascii_lowercase().as_str(),
+        "fat" | "fat12" | "fat16" | "fat32" | "vfat" | "msdos" | "exfat"
+    )
+}
+
+/// 枝刈りの記録（`known_dirs`）から、**枝刈りしてはいけないルートの中のフォルダ**を外す（dev #37）。
+/// 外したフォルダは中を全部読む。FAT32・exFAT（USB メモリ・SD カードの大半）では、Windows で
+/// ファイルを足しても消してもフォルダの更新時刻が動かず、起動時の同期が新しい写真を見落としていた
+/// （win の実測、#162 で読み直しの側だけ先に直した）
+fn drop_untrusted_known_dirs(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[PathBuf]) {
+    if known_dirs.is_empty() {
+        return;
+    }
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let untrusted: Vec<PathBuf> = roots
+        .iter()
+        .filter(|r| !pruning_is_safe_on(&file_system_of(r, &disks)))
+        .cloned()
+        .collect();
+    retain_known_dirs_outside(known_dirs, &untrusted);
+}
+
+/// `known_dirs` から、`roots` のどれかの中（それ自身を含む）のフォルダを外す。**比べ方は
+/// [`is_under_any_by_spelling`] と同じ**（要素ごと・Windows は大小を区別しない・`..` は中と言わない）。
+/// ルートの要素は先に1回だけ作る——フォルダが 20 万あっても、ルートを毎回分け直さない
+fn retain_known_dirs_outside(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[PathBuf]) {
+    let roots: Vec<Vec<String>> = roots
+        .iter()
+        .map(|r| path_parts(r))
+        .filter(|r| !r.is_empty())
+        .collect();
+    if roots.is_empty() {
+        return;
+    }
+    known_dirs.retain(|dir, _| {
+        if dir
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return true;
+        }
+        let parts = path_parts(dir);
+        !roots
+            .iter()
+            .any(|r| parts.len() >= r.len() && parts[..r.len()] == r[..])
+    });
+}
+
+/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
+///
+/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
+/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
+/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
+/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
+/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
+/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
+/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（[`drop_untrusted_known_dirs`]）
+fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
     // **鍵を取ってから、いまの設定で選び直す**。鍵を待っている間に利用者がそのフォルダを
@@ -3382,7 +3468,7 @@ fn scan_returned_roots(
         _ => HashMap::new(),
     };
     // FAT32・exFAT 等の上のルートは、フォルダの更新時刻が変化の合図にならない——中を全部見る
-    known_dirs.retain(|dir, _| !is_under_any_by_spelling(dir, full_roots));
+    drop_untrusted_known_dirs(&mut known_dirs, roots);
     let mut outcome = pictkura_core::scanner::scan_roots_pruned(
         roots,
         &config.import.extensions,
@@ -3435,20 +3521,14 @@ async fn scan_roots_on_drives(
         if visible.is_empty() {
             return Ok(out);
         }
-        let disks = sysinfo::Disks::new_with_refreshed_list();
-        let full: Vec<PathBuf> = visible
-            .iter()
-            .filter(|r| !dir_mtime_is_reliable(&file_system_of(r, &disks)))
-            .cloned()
-            .collect();
         // **監視にも入れる**——起動時に無かったルートは監視していない（カードリーダーの SD は差しても
         // 知らせが来ない。dev #38 の U7）。**読み直しの前に**張る——後にすると、読み直しが済んだフォルダに
         // 読み直しの最中に足されたものを、読み直しも監視も拾わない（#164 の codex）。Windows では
-        // 取り外しの糸が 0.5 秒後に張るので、FAT を全部読む長い読み直しの間に監視が立つ
+        // 取り外しの糸が張り終えるまで待ってから戻る（`DeviceGuard::rearm`）
         if let Some(watcher) = lock_ok(&state.watcher).as_ref() {
             watcher.watch_returned(&visible);
         }
-        let stats = scan_returned_roots(&state, &visible, &full)?;
+        let stats = scan_returned_roots(&state, &visible)?;
         out.roots = visible.len();
         out.added = stats.added;
         out.changed = stats.changed;
@@ -6026,17 +6106,49 @@ mod tests {
         parts.iter().map(|s| s.to_string()).collect()
     }
 
-    /// フォルダの更新時刻を信用してよい形式（#162 の win の実測: FAT32・exFAT は動かない）。
-    /// 分からない名前も信用しない
+    /// 枝刈りの記録から外すのは、指定したルートの中（それ自身を含む）のフォルダだけ。名前が前方一致するだけの
+    /// 隣と、ほかのルートの記録は残す（dev #37）
     #[test]
-    fn only_file_systems_that_update_folder_times_are_trusted_for_pruning() {
-        for fs in ["NTFS", "ntfs", "apfs", "hfs", "ext4", "btrfs", "ReFS"] {
-            assert!(super::dir_mtime_is_reliable(fs), "{fs}");
+    fn known_dirs_are_dropped_only_under_the_given_roots() {
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+        let mut known: HashMap<PathBuf, i64> = [
+            "/Volumes/SD",
+            "/Volumes/SD/DCIM",
+            "/Volumes/SD/DCIM/100CANON",
+            "/Volumes/SD2/DCIM",
+            "/Users/me/Pictures",
+            "/Users/me/Pictures/2024",
+        ]
+        .into_iter()
+        .map(|p| (PathBuf::from(p), 1))
+        .collect();
+        super::retain_known_dirs_outside(&mut known, &[PathBuf::from("/Volumes/SD")]);
+        let mut left: Vec<String> = known.keys().map(|p| p.display().to_string()).collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "/Users/me/Pictures",
+                "/Users/me/Pictures/2024",
+                "/Volumes/SD2/DCIM"
+            ]
+        );
+        // ルートが無ければ何も外さない
+        let before = known.len();
+        super::retain_known_dirs_outside(&mut known, &[]);
+        assert_eq!(known.len(), before);
+    }
+
+    /// 枝刈りしないのは FAT の系統と分かったときだけ（dev #37）。**分からない名前（空）は信用する**——
+    /// Windows のネットワークドライブは sysinfo に出ず名前が空になる。NAS を起動のたびに全部読まない（#165 の codex）
+    #[test]
+    fn pruning_is_skipped_only_on_the_fat_family() {
+        for fs in ["NTFS", "apfs", "ext4", "smbfs", "nfs", "cifs", ""] {
+            assert!(super::pruning_is_safe_on(fs), "{fs:?}");
         }
-        for fs in [
-            "FAT32", "exFAT", "msdos", "vfat", "fat", "exfat", "fuseblk", "",
-        ] {
-            assert!(!super::dir_mtime_is_reliable(fs), "{fs}");
+        for fs in ["FAT32", "FAT", "exFAT", "msdos", "vfat", "fat16"] {
+            assert!(!super::pruning_is_safe_on(fs), "{fs}");
         }
     }
 
@@ -6098,6 +6210,38 @@ mod tests {
             assert!(on(r"E:/Photos", r"E:\"));
             assert!(!on(r"F:\Photos", r"E:\"));
         }
+    }
+
+    /// 監視の「消えた」を削除と読むか。**ルートごと見えないならドライブが外れただけ**（消さない）。
+    /// 在るかを訊く相手は**そのルート**（消えたパスではない）——見えるかの答えをルートごとに変えて見る
+    #[test]
+    fn a_vanished_root_or_its_drive_is_not_a_deletion() {
+        use std::path::{Path, PathBuf};
+        let roots = [
+            PathBuf::from("/Volumes/SD"),
+            PathBuf::from("/Volumes/USB/DCIM"),
+            PathBuf::from("/Photos"),
+            PathBuf::from("/Photos/2024/Trip"),
+            // 外側のルートの中にマウントされたカード（内側のルート）
+            PathBuf::from("/Photos/Card"),
+        ];
+        // 外れているのは SD と、/Photos の中のカード。ほかは見える
+        let present = |r: &Path| r != Path::new("/Volumes/SD") && r != Path::new("/Photos/Card");
+        let del = |p: &str| super::vanished_path_is_a_deletion(Path::new(p), &roots, present);
+        // ルートそのもの・その上（マウントポイント）の消失は、削除ではない
+        assert!(!del("/Volumes/SD"));
+        assert!(!del("/Volumes/USB"));
+        assert!(!del("/Volumes/USB/DCIM"));
+        // ルートの中: そのルートが外れていれば消さない、見えていれば本当に消えた
+        assert!(!del("/Volumes/SD/DCIM/100CANON"));
+        assert!(del("/Volumes/USB/DCIM/IMG_1.JPG"));
+        // 入れ子: 外側の中で内側の上のフォルダを消したのは、外側での本当の削除（内側に止めさせない）
+        assert!(del("/Photos/2024"));
+        assert!(del("/Photos/2024/Trip/a.jpg"));
+        // 入れ子: 判断するのは**いちばん深い**ルート。外側が見えていても、内側のカードが外れていれば消さない
+        assert!(!del("/Photos/Card/DCIM/a.jpg"));
+        // 名前が前方一致するだけの隣は、そのルートの中ではない（要素ごとに比べる）
+        assert!(del("/Volumes/SD2/x.jpg"));
     }
 
     /// **原点が3つあって、どれも一致しない。** ここで両OSぶんを1か所に並べて見る

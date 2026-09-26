@@ -590,7 +590,7 @@ body {
 .cell-fav {
   position: absolute;
   top: var(--sp-1);
-  right: 6px;
+  right: calc(6px + var(--photo-inset, 0px));
   color: var(--fav);
   filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
   font-size: var(--fs-lg);
@@ -601,7 +601,7 @@ body {
 .cell-flag {
   position: absolute;
   top: var(--sp-1);
-  right: 26px;
+  right: calc(26px + var(--photo-inset, 0px));
   color: var(--pick);
   filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
   font-size: var(--fs-lg);
@@ -610,24 +610,27 @@ body {
 
 /* 重ねたタイル（dev #32、2026-09-25 の利用者の選択: **印は言葉にし、紙を厚く**）。
    **紙はタイルの内側に描く**——タイルの間は 4px しか無いので、外へずらすと隣に届く。
-   写真を左下へ寄せて縮め、空いた右上に紙を1枚のぞかせる。**連写は2枚**（`.burst`）。
-   `isolation` で重なりの層を閉じ、紙（`::before`）を写真の後ろへ置く */
+   写真を**左上**へ寄せて縮め、空いた**右下**に紙を1枚のぞかせる。**連写は2枚**（`.burst`）。
+   右上に広げていたときは、同じ行で写真の上端がそろわず高さが違って見えた——右下なら上端がそろう
+   （2026-09-26 の利用者の要望。連写も RAW+JPEG も右下）。
+   `isolation` で重なりの層を閉じ、紙（`::before`）を写真の後ろへ置く。
+   `--photo-inset` は写真の右と下の空き（紙の見えている幅）。右の印と ★・⚑ はその分だけ内へ寄せる */
 .cell-wrap.stacked {
   --stack-offset: 5px;
+  --photo-inset: var(--stack-offset);
   isolation: isolate;
 }
 .cell-wrap.stacked .cell {
-  width: calc(100% - var(--stack-offset));
-  height: calc(100% - var(--stack-offset));
-  margin-top: var(--stack-offset);
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
 }
 .cell-wrap.stacked::before {
   content: "";
   position: absolute;
-  top: 0;
+  bottom: 0;
   right: 0;
-  width: calc(100% - var(--stack-offset));
-  height: calc(100% - var(--stack-offset));
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
   box-sizing: border-box;
   border-radius: 3px;
   background: var(--surface-2);
@@ -635,24 +638,17 @@ body {
   z-index: -1;
 }
 /* 連写は紙を2枚（ADR のタイル表: 組は1枚・連写は2枚）。ずらしを小さくして写真の縮みを抑え、
-   奥の紙（`::before`）を右上の角に、手前の紙（`::after`）をその半分の位置に置く */
+   奥の紙（`::before`）を右下の角に、手前の紙（`::after`）をその半分の位置に置く */
 .cell-wrap.burst {
   --stack-offset: 4px;
-}
-.cell-wrap.burst .cell {
-  width: calc(100% - 2 * var(--stack-offset));
-  height: calc(100% - 2 * var(--stack-offset));
-  margin-top: calc(2 * var(--stack-offset));
-}
-.cell-wrap.burst::before,
-.cell-wrap.burst::after {
-  width: calc(100% - 2 * var(--stack-offset));
-  height: calc(100% - 2 * var(--stack-offset));
+  --photo-inset: calc(2 * var(--stack-offset));
 }
 .cell-wrap.burst::after {
+  width: calc(100% - var(--photo-inset));
+  height: calc(100% - var(--photo-inset));
   content: "";
   position: absolute;
-  top: var(--stack-offset);
+  bottom: var(--stack-offset);
   right: var(--stack-offset);
   box-sizing: border-box;
   border-radius: 3px;
@@ -665,8 +661,9 @@ body {
    並ぶことがあるので、右下に横へ並べる */
 .cell-chips {
   position: absolute;
-  right: var(--sp-1);
-  bottom: var(--sp-1);
+  /* 重ねのタイルでは写真の右下の角に合わせる（紙の上に乗せない） */
+  right: calc(var(--sp-1) + var(--photo-inset, 0px));
+  bottom: calc(var(--sp-1) + var(--photo-inset, 0px));
   display: flex;
   gap: 3px;
   pointer-events: none;
@@ -690,7 +687,8 @@ body {
 .cell-video {
   position: absolute;
   left: var(--sp-1);
-  bottom: var(--sp-1);
+  /* 下の印はどれも写真の下端に合わせる（重ねのタイルでは紙の上に乗せない） */
+  bottom: calc(var(--sp-1) + var(--photo-inset, 0px));
   display: flex;
   align-items: center;
   gap: 4px;
