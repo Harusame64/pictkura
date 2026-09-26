@@ -13,10 +13,14 @@
 //! | `QUERYREMOVEFAILED` | 他が断った。古い届け出を外し、開き直して届け出し直し、監視に戻す（開けなければ下の確かめへ回す） |
 //! | `REMOVEPENDING` / `REMOVECOMPLETE` | 外れた。届け出を外す（抜かれたときはハンドルも閉じ、監視も外す） |
 //! | 差し込み（ボリュームの `ARRIVAL`） | 0.5 秒ごとに確かめ、戻ったルートを監視に入れて届け出る |
-//! | `CUSTOMEVENT` の `VOLUME_LOCK` / `VOLUME_DISMOUNT` | `QUERYREMOVE` と同じ（手放す・届け出は残す） |
-//! | `CUSTOMEVENT` の `VOLUME_LOCK_FAILED` / `VOLUME_DISMOUNT_FAILED` | `QUERYREMOVEFAILED` と同じ（戻す） |
-//! | `CUSTOMEVENT` の `VOLUME_UNLOCK` | 取り外し中の印を下ろし、**確かめに回す**（その場では戻さない） |
-//! | `CUSTOMEVENT` の `VOLUME_MOUNT` | 確かめに回す（カードを差し直したとき、`ARRIVAL` は来ない） |
+//! | `CUSTOMEVENT` の `VOLUME_LOCK` / `VOLUME_DISMOUNT` | **リムーバブルのドライブだけ**: `QUERYREMOVE` と同じく手放す（届け出は残す）。ロック中の印を立てる |
+//! | `CUSTOMEVENT` の `VOLUME_LOCK_FAILED` / `VOLUME_DISMOUNT_FAILED` | ロック中なら、`QUERYREMOVEFAILED` と同じく戻す |
+//! | `CUSTOMEVENT` の `VOLUME_UNLOCK` | ロック中の印を下ろし、**短い確かめに回す**（その場では戻さない。2回・1秒まで） |
+//! | `CUSTOMEVENT` の `VOLUME_MOUNT` | ロック中の印を下ろし、**監視中でも張り直す**（カードを差し直したとき、`ARRIVAL` は来ない） |
+//!
+//! **ロック中の印は、取り外し中の印（`QUERYREMOVE`）と別に持つ**。`UNLOCK` や `MOUNT` が USB の取り外しの
+//! 途中に来ても、取り外し中のルートを確かめに戻さない（#164 のゲート2）。固定ドライブのロック（バックアップや
+//! 点検のツール）では手放さない——戻るまでの変化を取りこぼすだけで、取り出しは起きないから
 //!
 //! **カードリーダーの SD は `QUERYREMOVE` を通らない**（dev #38）。取り出しは「メディアの取り出し」で、
 //! デバイスは残る——ボリュームのロック（`FSCTL_LOCK_VOLUME`）が開いたハンドルで失敗し、「使用中」の
@@ -51,9 +55,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, GetDriveTypeW, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
+use windows_sys::Win32::System::Diagnostics::Debug::{SetThreadErrorMode, SEM_FAILCRITICALERRORS};
 use windows_sys::Win32::System::Ioctl::GUID_DEVINTERFACE_VOLUME;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
+use windows_sys::Win32::System::WindowsProgramming::{DRIVE_REMOTE, DRIVE_REMOVABLE};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
     PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SetTimer,
@@ -206,6 +211,10 @@ impl Drop for DeviceGuard {
 
 /// ルート1つぶんの状態
 struct Entry {
+    /// リムーバブルのドライブの上か（カードリーダーの SD・USB メモリ）。ボリュームのロックで手放すのはこちらだけ
+    removable: bool,
+    /// ボリュームのロックで手放した（`UNLOCK` / `LOCK_FAILED` / `MOUNT` まで、確かめで戻さない）
+    locked: bool,
     path: PathBuf,
     /// 届け出のために開いたディレクトリのハンドル（閉じていれば null）
     dir: HANDLE,
@@ -321,15 +330,30 @@ fn disarm_watch(st: &mut State, i: usize) {
     }
 }
 
-/// 差し込みの確かめを始める（もう回っていれば回数を戻す）
-fn start_rearm(st: &mut State) {
-    st.tries_left = REARM_TRIES;
+/// 差し込みの確かめを始める（もう回っていれば、多いほうの回数にそろえる）
+fn start_rearm(st: &mut State, tries: u32) {
+    st.tries_left = st.tries_left.max(tries);
     unsafe { SetTimer(st.hwnd, TIMER_REARM, 500, None) };
 }
 
 /// 確かめで戻してよいルートか
 fn rearmable(e: &Entry) -> bool {
-    !e.watched && !e.ejecting && !e.remote
+    !e.watched && !e.ejecting && !e.locked && !e.remote
+}
+
+/// 取り外し（`QUERYREMOVE`）かボリュームのロックの求めで、そのルートを手放す。**届け出は残す**
+/// （断られたときの知らせを受けるため）
+fn release_for_removal(st: &mut State, i: usize) {
+    disarm_watch(st, i);
+    close_dir(&mut st.entries[i]);
+}
+
+/// 他が断った（取り外しは起きなかった）。開き直して監視へ戻す。その場で開けなければ確かめに回す
+fn restore_after_refusal(st: &mut State, i: usize) {
+    arm(st, i);
+    if !st.entries[i].watched && !st.entries[i].remote {
+        start_rearm(st, REARM_TRIES);
+    }
 }
 
 /// ネットワーク上のルートか（UNC か、割り当てたネットワークドライブ）。形の読み分けは
@@ -345,8 +369,19 @@ fn is_remote(path: &Path) -> bool {
     }
 }
 
-/// 知らせの届け出に当たるルート（同じドライブに複数のルートがあれば、届け出ごとに別々に来る）
-unsafe fn entry_of(st: &mut State, lparam: LPARAM) -> Option<usize> {
+/// リムーバブルのドライブの上のルートか（ドライブ文字で OS に訊く。長いパスの書き方も読む）
+fn is_removable(path: &Path) -> bool {
+    match super::root_location(&path.as_os_str().to_string_lossy()) {
+        super::RootLocation::Drive(d) => {
+            let root: Vec<u16> = format!("{d}:\\\0").encode_utf16().collect();
+            unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_REMOVABLE }
+        }
+        _ => false,
+    }
+}
+
+/// 知らせの中身がハンドルの届け出なら、それを返す（型が違えば `None`）
+unsafe fn broadcast_handle<'a>(lparam: LPARAM) -> Option<&'a DEV_BROADCAST_HANDLE> {
     if lparam == 0 {
         return None;
     }
@@ -354,7 +389,11 @@ unsafe fn entry_of(st: &mut State, lparam: LPARAM) -> Option<usize> {
     if hdr.dbch_devicetype != DBT_DEVTYP_HANDLE {
         return None;
     }
-    let h = &*(lparam as *const DEV_BROADCAST_HANDLE);
+    Some(&*(lparam as *const DEV_BROADCAST_HANDLE))
+}
+
+/// 知らせの届け出に当たるルート（同じドライブに複数のルートがあれば、届け出ごとに別々に来る）
+fn entry_of(st: &State, h: &DEV_BROADCAST_HANDLE) -> Option<usize> {
     st.entries
         .iter()
         .position(|e| !e.notify.is_null() && e.notify == h.dbch_hdevnotify)
@@ -365,39 +404,37 @@ fn same_guid(a: &GUID, b: &GUID) -> bool {
     a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
 }
 
-/// `DBT_CUSTOMEVENT` の知らせの種類（ハンドルの届け出に来るもの）
-unsafe fn event_guid(lparam: LPARAM) -> Option<GUID> {
-    if lparam == 0 {
-        return None;
-    }
-    let hdr = &*(lparam as *const DEV_BROADCAST_HDR);
-    if hdr.dbch_devicetype != DBT_DEVTYP_HANDLE {
-        return None;
-    }
-    Some((*(lparam as *const DEV_BROADCAST_HANDLE)).dbch_eventguid)
-}
-
 /// ボリュームのロックの知らせ（カードリーダーの SD の取り出し、dev #38）
 fn on_volume_event(st: &mut State, i: usize, guid: &GUID) {
-    if same_guid(guid, &GUID_IO_VOLUME_LOCK) || same_guid(guid, &GUID_IO_VOLUME_DISMOUNT) {
-        // QUERYREMOVE と同じ: そのルートだけ監視から外し、ハンドルを閉じる。届け出は残す
-        st.entries[i].ejecting = true;
-        disarm_watch(st, i);
-        close_dir(&mut st.entries[i]);
-    } else if same_guid(guid, &GUID_IO_VOLUME_LOCK_FAILED)
-        || same_guid(guid, &GUID_IO_VOLUME_DISMOUNT_FAILED)
-    {
-        // 他が断った（取り出しは起きなかった）: QUERYREMOVEFAILED と同じく戻す
-        st.entries[i].ejecting = false;
-        arm(st, i);
-        if !st.entries[i].watched && !st.entries[i].remote {
-            start_rearm(st);
+    let is = |g: &GUID| same_guid(guid, g);
+    if is(&GUID_IO_VOLUME_LOCK) || is(&GUID_IO_VOLUME_DISMOUNT) {
+        // 固定ドライブのロックでは手放さない（取り出しは起きない。戻るまでの変化を取りこぼすだけ）
+        if st.entries[i].removable {
+            st.entries[i].locked = true;
+            release_for_removal(st, i);
         }
-    } else if same_guid(guid, &GUID_IO_VOLUME_UNLOCK) || same_guid(guid, &GUID_IO_VOLUME_MOUNT) {
-        // その場では戻さない（UNLOCK は取り出しが通ったあとにも来る）。確かめに回す
-        st.entries[i].ejecting = false;
-        if rearmable(&st.entries[i]) {
-            start_rearm(st);
+    } else if is(&GUID_IO_VOLUME_LOCK_FAILED) || is(&GUID_IO_VOLUME_DISMOUNT_FAILED) {
+        if st.entries[i].locked {
+            st.entries[i].locked = false;
+            restore_after_refusal(st, i);
+        }
+    } else if is(&GUID_IO_VOLUME_UNLOCK) {
+        // その場では戻さない（取り出しが通ったあとにも 70 ms ほどで来る）。短い確かめに回す——取り出した
+        // あとは空のカードリーダーを長く叩かない（2回・1秒まで）
+        if st.entries[i].locked {
+            st.entries[i].locked = false;
+            if rearmable(&st.entries[i]) {
+                start_rearm(st, 2);
+            }
+        }
+    } else if is(&GUID_IO_VOLUME_MOUNT) {
+        // カードが差し直された。**監視中でも張り直す**——取り出さずに抜いたカードは LOCK が来ないので
+        // 監視中のまま古いボリュームを指している（#164 のゲート2）。`arm` は先に外してから張る
+        st.entries[i].locked = false;
+        if st.entries[i].watched {
+            arm(st, i);
+        } else if rearmable(&st.entries[i]) {
+            start_rearm(st, REARM_TRIES);
         }
     }
 }
@@ -406,45 +443,39 @@ fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let Ok(event) = u32::try_from(wparam) else {
         return BROADCAST_QUERY_ALLOW;
     };
-    match event {
-        DBT_DEVICEQUERYREMOVE => {
-            if let Some(i) = unsafe { entry_of(st, lparam) } {
-                // そのルートだけ監視から外し（閉じ終えるまで待つ）、ハンドルを閉じる。
-                // **届け出は残す**（FAILED を受けるため）
-                st.entries[i].ejecting = true;
-                disarm_watch(st, i);
-                close_dir(&mut st.entries[i]);
-            }
+    let handle = unsafe { broadcast_handle(lparam) };
+    let entry = handle.and_then(|h| entry_of(st, h));
+    match (event, entry) {
+        (DBT_DEVICEQUERYREMOVE, Some(i)) => {
+            // そのルートだけ監視から外し（閉じ終えるまで待つ）、ハンドルを閉じる。
+            // **届け出は残す**（FAILED を受けるため）
+            st.entries[i].ejecting = true;
+            release_for_removal(st, i);
         }
-        DBT_DEVICEQUERYREMOVEFAILED => {
-            if let Some(i) = unsafe { entry_of(st, lparam) } {
-                // 他が断った。ドライブは付いたまま——古い届け出とハンドルを外し、開き直して監視へ戻す。
-                // **ハンドルも閉じてから開き直す**: QUERYREMOVE を経ずに FAILED だけが来ることがあり、
-                // そのとき握ったまま上書きすると、届け出の無いハンドルが残って次の取り外しを断る
-                // （#161 の codex の P2）。**その場で開けなければ確かめに回す**——戻る道を失わない
-                st.entries[i].ejecting = false;
-                arm(st, i);
-                if !st.entries[i].watched && !st.entries[i].remote {
-                    start_rearm(st);
-                }
-            }
+        (DBT_DEVICEQUERYREMOVEFAILED, Some(i)) => {
+            // 他が断った。ドライブは付いたまま——古い届け出とハンドルを外し、開き直して監視へ戻す。
+            // **ハンドルも閉じてから開き直す**: QUERYREMOVE を経ずに FAILED だけが来ることがあり、
+            // そのとき握ったまま上書きすると、届け出の無いハンドルが残って次の取り外しを断る
+            // （#161 の codex の P2）。**その場で開けなければ確かめに回す**——戻る道を失わない
+            st.entries[i].ejecting = false;
+            restore_after_refusal(st, i);
         }
-        DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE => {
-            if let Some(i) = unsafe { entry_of(st, lparam) } {
-                // 外れた。**いきなり抜かれた**ときは QUERYREMOVE が来ないので、ここで監視も手放す
-                st.entries[i].ejecting = false;
-                disarm_watch(st, i);
-                unregister(&mut st.entries[i]);
-                close_dir(&mut st.entries[i]);
-            }
+        (DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE, Some(i)) => {
+            // 外れた。**いきなり抜かれた**ときは QUERYREMOVE が来ないので、ここで監視も手放す
+            st.entries[i].ejecting = false;
+            st.entries[i].locked = false;
+            disarm_watch(st, i);
+            unregister(&mut st.entries[i]);
+            close_dir(&mut st.entries[i]);
         }
-        DBT_CUSTOMEVENT => {
-            if let (Some(i), Some(guid)) = unsafe { (entry_of(st, lparam), event_guid(lparam)) } {
+        (DBT_CUSTOMEVENT, Some(i)) => {
+            if let Some(h) = handle {
+                let guid = h.dbch_eventguid;
                 on_volume_event(st, i, &guid);
             }
         }
         // ボリュームがまだ見えていないことがあるので、少しずつ確かめる
-        DBT_DEVICEARRIVAL if st.entries.iter().any(rearmable) => start_rearm(st),
+        (DBT_DEVICEARRIVAL, _) if st.entries.iter().any(rearmable) => start_rearm(st, REARM_TRIES),
         _ => {}
     }
     BROADCAST_QUERY_ALLOW
@@ -512,6 +543,9 @@ fn run(
     ready: mpsc::Sender<usize>,
 ) {
     unsafe {
+        // この糸はカードリーダーの空のドライブを確かめる（`is_dir`）ことがある。古いドライバで
+        // 「ドライブにディスクがありません」の画面を出させない（#164 のゲート2）
+        SetThreadErrorMode(SEM_FAILCRITICALERRORS, std::ptr::null_mut());
         let hinst = GetModuleHandleW(std::ptr::null());
         let class: Vec<u16> = "PictkuraDeviceWatch\0".encode_utf16().collect();
         let wc = WNDCLASSW {
@@ -557,6 +591,8 @@ fn run(
         let mut entries: Vec<Entry> = roots
             .into_iter()
             .map(|path| Entry {
+                removable: is_removable(&path),
+                locked: false,
                 watched: watched.contains(&path),
                 ejecting: false,
                 remote: is_remote(&path),
