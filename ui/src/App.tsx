@@ -1636,21 +1636,28 @@ export default function App() {
    * 新しく現れたドライブを受ける口（dev #36）。ポーリングの effect は1回しか張らないので、
    * 最新の `reloadAll` などを掴むために ref 越しに呼ぶ
    */
-  const onDrivesAddedRef = useRef<(paths: string[]) => void>(() => {});
-  onDrivesAddedRef.current = (paths) => {
+  const onDrivesAddedRef = useRef<(paths: string[]) => Promise<boolean>>(
+    async () => false,
+  );
+  /** 返すのは「まだ見えないフォルダがあったか」（見張りが次の回に訊き直す） */
+  onDrivesAddedRef.current = (paths) =>
     scanRootsOnDrives(paths)
       .then(async (r) => {
-        if (r.roots === 0) return;
-        // 手動の再スキャンと同じ後始末: 見つからないフォルダを訊き直し、一覧を取り直す
-        emptyReasonInFlight.current = null;
-        forgetLaterOnNextAnswer.current = true;
-        setScanGeneration((g) => g + 1);
-        await reloadAll();
-        setStatus(t.drivesReturnedScanned(r.added, r.changed, r.removed));
+        if (r.roots > 0) {
+          // 手動の再スキャンと同じ後始末: 見つからないフォルダを訊き直し、一覧を取り直す
+          emptyReasonInFlight.current = null;
+          forgetLaterOnNextAnswer.current = true;
+          setScanGeneration((g) => g + 1);
+          await reloadAll();
+          // **何か変わったときだけ言う**——差すたびに「0 件」と言うと、同じ時に終わった
+          // 再スキャンや取り込みの知らせを上書きしてしまう（#162 のゲート2）
+          if (r.added + r.changed > 0)
+            setStatus(t.drivesReturnedScanned(r.added, r.changed));
+        }
+        return r.pending > 0;
       })
-      // 走査できなかったら黙る（再スキャンを押せば同じことができる）
-      .catch(() => {});
-  };
+      // 読めなかったら黙る（再スキャンを押せば同じことができる）
+      .catch(() => false);
 
   // ドライブ一覧を5秒間隔でポーリング（USB挿抜をOS固有APIなしで検知）
   useEffect(() => {
@@ -1660,13 +1667,35 @@ export default function App() {
      * 起動時の走査が読むので、ここで「新しく現れた」と言わない
      */
     let seen: Set<string> | null = null;
+    /**
+     * 差し込んだ直後で、上のフォルダがまだ見えなかったドライブ → 残りの訊き直しの回数。
+     * **回数に上限を持つ**（見えないまま差さっているドライブを、ずっと訊き続けない）
+     */
+    const retry = new Map<string, number>();
     const load = async () => {
       try {
         const list = await listDrives();
         const now = new Set(list.map((d) => d.path));
+        for (const p of retry.keys()) if (!now.has(p)) retry.delete(p);
         if (seen !== null && !stopped) {
-          const added = [...now].filter((p) => !seen?.has(p));
-          if (added.length > 0) onDrivesAddedRef.current(added);
+          // **ネットワークのドライブは渡さない**（つながり直すたびに全部を読み直さない。
+          // 取り込み元の一覧もネットワークには勝手に触らない）
+          const added = list
+            .filter((d) => d.kind !== "network" && !seen?.has(d.path))
+            .map((d) => d.path);
+          const again = [...retry.keys()];
+          const ask = [...new Set([...added, ...again])];
+          if (ask.length > 0) {
+            for (const p of again) {
+              const left = (retry.get(p) ?? 1) - 1;
+              if (left > 0) retry.set(p, left);
+              else retry.delete(p);
+            }
+            void onDrivesAddedRef.current(ask).then((pending) => {
+              // どのドライブが見えなかったかは分からないので、今回訊いたもの全部を訊き直す
+              if (pending) for (const p of added) retry.set(p, 3);
+            });
+          }
         }
         seen = now;
         // 中身が同じなら参照を変えない。5秒ごとに新しい配列を入れると

@@ -114,6 +114,8 @@ export const es419: Dict = {
   bulkFavoriteOn: "Agregar a Favoritos",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
+  drivesReturnedScanned: (added: number, changed: number) =>
+    `Se han vuelto a leer las carpetas de la unidad conectada (${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")})`,
   speedDiff: (added: number, changed: number, removed: number) =>
     ` — ${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   bulkFavoriteDone: (n: number) =>

@@ -3292,37 +3292,65 @@ fn scan_and_announce(
 }
 
 /// ライブラリのフォルダが、そのドライブの上に在るか（綴りだけで決める。フォルダには触らない）。
-/// Windows では区切りと大小をそろえる。ドライブが `/` のように空へ縮むものは、どのフォルダも
-/// その上とは言わない（`/` が新しく現れることは無いが、全部を走査し直す入口にしない）
-fn root_is_on_drive(root: &str, drive: &str, windows: bool) -> bool {
-    let norm = |s: &str| {
-        let s = if windows {
-            s.replace('\\', "/").to_lowercase()
-        } else {
-            s.to_string()
-        };
-        s.trim_end_matches('/').to_string()
-    };
-    let (root, drive) = (norm(root), norm(drive));
-    !drive.is_empty() && (root == drive || root.starts_with(&format!("{drive}/")))
+/// 比べ方は [`is_under_any_by_spelling`]（要素ごと・Windows は大小を区別しない・`..` は中と言わない）。
+/// **ドライブが `/` だけなら何も持たない**——`/` が新しく現れることは無いが、全部を読み直す入口にしない
+fn root_is_on_drive(root: &Path, drive: &Path) -> bool {
+    path_parts(drive).len() > 1 && is_under_any_by_spelling(root, &[drive.to_path_buf()])
 }
 
-/// 差し込まれたドライブの上のライブラリのフォルダを走査し直した結果（dev #36）
+/// 差し込まれたドライブの上のライブラリのフォルダを読み直した結果（dev #36）
 #[derive(serde::Serialize, Default)]
 struct ReturnedRootsDto {
-    /// 走査し直したフォルダの数（0 なら、そのドライブの上にライブラリのフォルダは無かった）
+    /// 読み直したフォルダの数（0 なら、そのドライブの上に読めるライブラリのフォルダは無かった）
     roots: usize,
+    /// そのドライブの上にあるのに、まだ見えなかったフォルダの数（画面はしばらく後で訊き直す）
+    pending: usize,
     added: usize,
     changed: usize,
-    removed: usize,
 }
 
-/// **差し込まれたドライブの上のライブラリのフォルダだけ**を走査し直す（dev #36）。
+/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
+///
+/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
+/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
+/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
+/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
+/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
+/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）
+fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
+    let _scan_guard = lock_ok(&state.scan_lock);
+    let config = lock_ok(&state.config).clone();
+    let fingerprint = scan_fingerprint(&config);
+    let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+    let known_dirs = match db.get_meta("scan_fingerprint") {
+        Ok(Some(stored)) if stored == fingerprint => db.load_dirs().unwrap_or_default(),
+        _ => HashMap::new(),
+    };
+    let mut outcome = pictkura_core::scanner::scan_roots_pruned(
+        roots,
+        &config.import.extensions,
+        &config.library.exclude_patterns,
+        &known_dirs,
+    );
+    outcome.ok_roots.clear();
+    outcome.seen_dirs.clear();
+    outcome.enumerated_dirs.clear();
+    let scan = pictkura_core::LibraryScan {
+        outcome,
+        roots: config.library.roots.clone(),
+    };
+    let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
+    enqueue_missing_thumbs(state);
+    Ok(stats)
+}
+
+/// **差し込まれたドライブの上のライブラリのフォルダ**を読み直す（dev #36）。
 ///
 /// 監視は、戻ってきたフォルダの**それ以降の変化**しか言わない（Windows の #161。macOS も同じ）。
 /// カメラで撮ってから SD カードを差し直すと、**抜いていた間に増えた写真**は、再スキャンを
 /// 押すまで一覧に出なかった。画面はドライブの一覧を 5 秒ごとに見ているので、新しく現れた
-/// ドライブをここへ渡す。**入れ子のフォルダは外側だけ**を走査する（外側が中も数える）
+/// ドライブをここへ渡す（ネットワークのドライブは画面が渡さない）。そのドライブの上のフォルダは
+/// **入れ子も含めて1回の走査**にまとめる。**足す・変えるだけで、消さない**（[`scan_returned_roots`]）
 #[tauri::command]
 async fn scan_roots_on_drives(
     app: tauri::AppHandle,
@@ -3331,39 +3359,25 @@ async fn scan_roots_on_drives(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let roots = lock_ok(&state.config).library.roots.clone();
-        let windows = cfg!(windows);
-        let on_drive: Vec<&PathBuf> = roots
-            .iter()
-            .filter(|r| {
-                let r = r.to_string_lossy();
-                drives.iter().any(|d| root_is_on_drive(&r, d, windows))
-            })
+        let drives: Vec<PathBuf> = drives.into_iter().map(PathBuf::from).collect();
+        let on_drive: Vec<PathBuf> = roots
+            .into_iter()
+            .filter(|r| drives.iter().any(|d| root_is_on_drive(r, d)))
             .collect();
-        let outermost: Vec<&PathBuf> = on_drive
-            .iter()
-            .filter(|r| {
-                let rs = r.to_string_lossy();
-                !on_drive
-                    .iter()
-                    .any(|o| o != *r && root_is_on_drive(&rs, &o.to_string_lossy(), windows))
-            })
-            .copied()
-            .collect();
-        let mut out = ReturnedRootsDto::default();
-        for root in outermost {
-            // 差し込んだ直後はまだ見えないことがある。見えないものは飛ばす（次の差し込みか再スキャンで入る）
-            if !root.is_dir() {
-                continue;
-            }
-            let stats = scan_and_apply_root(&state, root)?;
-            if scan_changes_camera_counts(&stats) {
-                announce_cameras_changed(&app);
-            }
-            out.roots += 1;
-            out.added += stats.added;
-            out.changed += stats.changed;
-            out.removed += stats.removed;
+        // 差し込んだ直後はまだ見えないことがある。見えないものは数だけ返し、画面が後で訊き直す
+        let (visible, hidden): (Vec<PathBuf>, Vec<PathBuf>) =
+            on_drive.into_iter().partition(|r| r.is_dir());
+        let mut out = ReturnedRootsDto {
+            pending: hidden.len(),
+            ..Default::default()
+        };
+        if visible.is_empty() {
+            return Ok(out);
         }
+        let stats = scan_returned_roots(&state, &visible)?;
+        out.roots = visible.len();
+        out.added = stats.added;
+        out.changed = stats.changed;
         Ok(out)
     })
     .await
@@ -5922,6 +5936,37 @@ mod tests {
         parts.iter().map(|s| s.to_string()).collect()
     }
 
+    /// 差し込まれたドライブの上のフォルダか（dev #36）。要素の境目まで見る・`/` だけのドライブは何も持たない。
+    /// Windows の綴り（大小・区切り）は Windows でだけ見る（`Path` の読み方が台で違う）
+    #[test]
+    fn a_root_is_on_a_drive_only_under_its_own_path() {
+        let on = |root: &str, drive: &str| {
+            root_is_on_drive(std::path::Path::new(root), std::path::Path::new(drive))
+        };
+        #[cfg(not(windows))]
+        {
+            assert!(on("/Volumes/SD/DCIM", "/Volumes/SD"));
+            assert!(on("/Volumes/SD", "/Volumes/SD/"));
+            assert!(!on("/Volumes/SD2/DCIM", "/Volumes/SD"));
+            assert!(!on("/Volumes/sd/DCIM", "/Volumes/SD"));
+            assert!(
+                !on("/Users/me/Pictures", "/"),
+                "`/` だけのドライブは何も持たない"
+            );
+            assert!(
+                !on("/Volumes/SD/../Other", "/Volumes/SD"),
+                "`..` は中と言わない"
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert!(on(r"E:\Photos", r"E:\"));
+            assert!(on(r"e:\photos\2026", r"E:\"));
+            assert!(on(r"E:/Photos", r"E:\"));
+            assert!(!on(r"F:\Photos", r"E:\"));
+        }
+    }
+
     /// **原点が3つあって、どれも一致しない。** ここで両OSぶんを1か所に並べて見る
     /// ——`cfg` の中に書くと、片方のゲートはもう片方の式を1行も見ない。
     ///
@@ -5930,30 +5975,6 @@ mod tests {
     /// | Win32 `LOCALE_IFIRSTDAYOFWEEK` | 0 | 6 |
     /// | CoreFoundation | 2 | 1 |
     /// | `Date.getDay()`（渡す形） | 1 | 0 |
-    /// 差し込まれたドライブの上のフォルダか（dev #36）。区切りの境目まで見る・Windows は大小と
-    /// 区切りをそろえる・`/` のように空へ縮むドライブは何も持たない
-    #[test]
-    fn a_root_is_on_a_drive_only_under_its_own_path() {
-        for (root, drive, windows, want) in [
-            (r"E:\Photos", r"E:\", true, true),
-            (r"e:\photos\2026", r"E:\", true, true),
-            (r"E:/Photos", r"E:\", true, true),
-            (r"F:\Photos", r"E:\", true, false),
-            (r"E:", r"E:\", true, true),
-            ("/Volumes/SD/DCIM", "/Volumes/SD", false, true),
-            ("/Volumes/SD", "/Volumes/SD/", false, true),
-            ("/Volumes/SD2/DCIM", "/Volumes/SD", false, false),
-            ("/Volumes/sd/DCIM", "/Volumes/SD", false, false),
-            ("/Users/me/Pictures", "/", false, false),
-        ] {
-            assert_eq!(
-                root_is_on_drive(root, drive, windows),
-                want,
-                "{root} on {drive}"
-            );
-        }
-    }
-
     #[test]
     fn the_first_weekday_arrives_on_the_calendars_own_origin() {
         // Win32 は月曜が 0。**素通しすると日曜始まりのカレンダーになる**ので、

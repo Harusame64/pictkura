@@ -219,8 +219,8 @@ export const en: Dict = {
   importIncomplete: " ⚠ Some folders could not be read — do not erase the card yet",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} added, ${num(changed)} changed, ${num(removed)} removed`,
-  drivesReturnedScanned: (added: number, changed: number, removed: number) =>
-    `Read the folders on the inserted drive again (${num(added)} added, ${num(changed)} changed, ${num(removed)} removed)`,
+  drivesReturnedScanned: (added: number, changed: number) =>
+    `Read the folders on the inserted drive again (${num(added)} added, ${num(changed)} changed)`,
   pickSource: "Choose the folder to import from (USB / DCIM)",
   pickDestination: "Choose the destination folder",
   wizardTitle: "Import",

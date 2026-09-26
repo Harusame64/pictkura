@@ -786,16 +786,18 @@ export const setStackRawJpeg = (enabled: boolean) =>
 
 /** 差し込まれたドライブの上のライブラリのフォルダを走査し直した結果（dev #36） */
 export interface ReturnedRoots {
-  /** 走査し直したフォルダの数（0 なら、そのドライブの上にライブラリのフォルダは無かった） */
+  /** 読み直したフォルダの数（0 なら、そのドライブの上に読めるライブラリのフォルダは無かった） */
   roots: number;
+  /** そのドライブの上にあるのに、まだ見えなかったフォルダの数（しばらく後で訊き直す） */
+  pending: number;
   added: number;
+  /** 自動の読み直しは消さない（別のカードかもしれない）。消えた写真は再スキャンで片付く */
   changed: number;
-  removed: number;
 }
 
 /**
- * 新しく現れたドライブの上のライブラリのフォルダだけを走査し直す（dev #36）。抜いていた間に
- * 増えた写真は、監視では入らない（監視は戻った後の変化しか言わない）
+ * 新しく現れたドライブの上のライブラリのフォルダを読み直す（dev #36）。抜いていた間に
+ * 増えた写真は、監視では入らない（監視は戻った後の変化しか言わない）。**足す・変えるだけで消さない**
  */
 export const scanRootsOnDrives = (drives: string[]) =>
   invoke<ReturnedRoots>("scan_roots_on_drives", { drives });
