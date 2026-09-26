@@ -106,6 +106,7 @@ import {
   filesOf,
   selectRangeOverTiles,
   stackMembersIndex,
+  pairAwareScope,
   stacksOfDay,
   viewerWalk,
   type PairView,
@@ -780,7 +781,7 @@ export default function App() {
    * （`scopeMedia`）。**あとから作り直さない**——見ている最中に一覧が
    * 変わっても、選んだ範囲を歩き切れるほうが選別の道具として正しい
    */
-  const [viewerScope, setViewerScope] = useState<ScopeItem[] | null>(null);
+  const [viewerScopeFiles, setViewerScope] = useState<ScopeItem[] | null>(null);
   /**
    * ボツの候補（0.2 ③）。`X` で付く印で、**ファイルは1バイトも動かさない**。
    *
@@ -2590,6 +2591,17 @@ export default function App() {
    * ——一覧のタイルは表紙の JPEG の id で開くので、RAW だけのときはそこから RAW へ寄せる。
    * 切り替えボタンで側を替えたときも、いま見ている組の反対側へ寄る
    */
+  /**
+   * 選択スコープを組の歩き方にそろえたもの（`pairAwareScope`）。**ビューアはこちらを歩く**——
+   * 送り・端・分母・隣の先読みがみな同じ列を見るように、ここで1回だけ作る
+   */
+  const viewerScope = useMemo(
+    () =>
+      viewerScopeFiles && pairView !== null
+        ? pairAwareScope(viewerScopeFiles, pairOf, pairView)
+        : viewerScopeFiles,
+    [viewerScopeFiles, pairOf, pairView],
+  );
   const walkIndexOf = useCallback(
     (items: readonly MediaItem[], id: number) => {
       const at = items.findIndex((it) => it.id === id);
@@ -6502,9 +6514,13 @@ export default function App() {
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                // 片方だけ見せている間は、右クリックの ★・⚑・削除も組の両方に（道具の帯と同じ。#168 の codex）
+                const targets = viewerTargets(viewerItem);
                 setMenu({
                   pos: { x: e.clientX, y: e.clientY },
                   item: viewerItem,
+                  files: targets,
+                  markFiles: targets,
                 });
               }}
               onDoubleClick={(e) => {

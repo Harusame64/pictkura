@@ -11,6 +11,7 @@ import {
   filesOf,
   selectRangeOverTiles,
   stackMembersIndex,
+  pairAwareScope,
   stacksOfDay,
   viewerWalk,
   type Stackable,
@@ -473,4 +474,25 @@ test("ビューア: 組にならないもの（撮影日時が違う同名・日
     assert.deepEqual(walk.map((x) => x.id), [1, 2, 3, 4, 5, 6], view);
     assert.equal(pairOf.size, 0, view);
   }
+});
+
+test("選んだ列: 組は最初の席に、見せる側だけを RAW が先で置く（#168 の codex）", () => {
+  // 1 と 3 が組（JPG・CR3）。選択の列はファイルの並び: JPG 1、別の 2、CR3 3
+  const items = [f(1, 7, false, "A.JPG"), f(2, 8, false, "B.JPG"), f(3, 7, true, "A.CR3")];
+  const scope = [1, 2, 3].map((id) => ({ id, day_key: 20260926 }));
+  const ids = (view: "jpeg" | "raw" | "both") =>
+    pairAwareScope(scope, viewerWalk(items, view).pairOf, view).map((e) => e.id);
+  assert.deepEqual(ids("jpeg"), [1, 2]);
+  assert.deepEqual(ids("raw"), [3, 2]);
+  assert.deepEqual(ids("both"), [3, 1, 2]);
+  // 日は元の席のものを引き継ぐ
+  assert.deepEqual(
+    pairAwareScope(scope, viewerWalk(items, "raw").pairOf, "raw").map((e) => e.day_key),
+    [20260926, 20260926],
+  );
+});
+
+test("選んだ列: 組が分かっていない id（未読の日・組でない）はそのまま、同じ id は2度出さない", () => {
+  const scope = [{ id: 9, day_key: 1 }, { id: 9, day_key: 1 }, { id: 4, day_key: 2 }];
+  assert.deepEqual(pairAwareScope(scope, new Map(), "jpeg").map((e) => e.id), [9, 4]);
 });

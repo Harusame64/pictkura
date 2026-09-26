@@ -234,6 +234,36 @@ export function viewerWalk<T extends Stackable>(
   return { walk, pairOf };
 }
 
+/**
+ * 選んだ写真だけを歩く列（ビューアの選択スコープ）を、組の歩き方にそろえる（#168 の codex）。
+ *
+ * 選択の列はファイルの並び（`list_day` の順）なので、そのままだと `both` でも JPEG が先に来たり、
+ * 片方だけのときに隠れた側の席が残って、端の判定・隣の先読みが途切れたりする。
+ * 組は**その組の最初の1件が居た席**に、見せる側だけを RAW が先の順で置く。
+ * `pairOf` に無い id（組でない・その日をまだ読んでいない）はそのまま
+ */
+export function pairAwareScope<E extends { id: number }>(
+  scope: readonly E[],
+  pairOf: ReadonlyMap<number, readonly { id: number; is_raw: boolean }[]>,
+  view: PairView,
+): E[] {
+  const shown = (f: { is_raw: boolean }) => view === "both" || (view === "raw") === f.is_raw;
+  const out: E[] = [];
+  const seen = new Set<number>();
+  for (const e of scope) {
+    if (seen.has(e.id)) continue;
+    const pair = pairOf.get(e.id);
+    if (!pair) {
+      seen.add(e.id);
+      out.push(e);
+      continue;
+    }
+    for (const f of pair) seen.add(f.id);
+    for (const f of pair) if (shown(f)) out.push({ ...e, id: f.id });
+  }
+  return out;
+}
+
 /** 重ねに含まれるファイルぜんぶ（★・⚑・削除・選択は**組ぜんぶに効く**——2026-09-08 の利用者の選択） */
 export function filesOf<T>(stack: Stack<T>): T[] {
   return stack.shots.flatMap((s) => s.files);
