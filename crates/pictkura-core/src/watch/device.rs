@@ -315,6 +315,10 @@ fn arm(st: &mut State, i: usize) {
     };
     st.entries[i].watched = ok;
     if ok {
+        // **張れた時点でリムーバブルかを訊き直す**——起動時にドライブが無かったルートは
+        // `GetDriveTypeW` が「ルートが無い」と答えて偽のまま残り、ロックの知らせを無視していた
+        // （#164 の codex、2周目）
+        st.entries[i].removable = is_removable(&st.entries[i].path);
         let hwnd = st.hwnd;
         open_and_register(hwnd, &mut st.entries[i]);
     }
@@ -433,7 +437,9 @@ fn on_volume_event(st: &mut State, i: usize, guid: &GUID) {
         st.entries[i].locked = false;
         if st.entries[i].watched {
             arm(st, i);
-        } else if rearmable(&st.entries[i]) {
+        }
+        // その場で張れなければ確かめに回す（差し直しでは ARRIVAL が来ないので、ここで諦めると戻らない）
+        if rearmable(&st.entries[i]) {
             start_rearm(st, REARM_TRIES);
         }
     }
@@ -489,6 +495,8 @@ fn on_rearm_timer(st: &mut State) {
         }
     }
     if st.tries_left == 0 || !st.entries.iter().any(rearmable) {
+        // **残りの回数も捨てる**——残すと、次の UNLOCK の短い確かめ（2回）が `max` で前の回数を継ぐ
+        st.tries_left = 0;
         unsafe { KillTimer(st.hwnd, TIMER_REARM) };
     }
 }
