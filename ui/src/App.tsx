@@ -105,6 +105,7 @@ import {
   countPhotos,
   filesOf,
   selectRangeOverTiles,
+  selectedDaysIn,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -136,6 +137,7 @@ const GRID_PADDING = 16;
 /** 日キャッシュの上限（超えたら可視範囲外の古い日から間引く） */
 const DAY_CACHE_MAX = 150;
 const DAY_CACHE_TRIM_TO = 120;
+
 /** 左ペインに常時見せるカメラの台数（多い人は畳んでおく） */
 const CAMERAS_COLLAPSED = 3;
 
@@ -1123,12 +1125,14 @@ export default function App() {
           // キャッシュ上限を超えたら、可視範囲外の古い日から間引く（挿入順=FIFO）。
           // ビューアの表示日はスライドショー中に消えないよう保護する
           if (next.size > DAY_CACHE_MAX) {
+            const kept = selectedDaysIn(next, selectedRef.current, DAY_CACHE_MAX);
             for (const key of next.keys()) {
               if (next.size <= DAY_CACHE_TRIM_TO) break;
               if (
                 key !== dayKey &&
                 key !== viewerDayRef.current &&
-                !visibleDaysRef.current.has(key)
+                !visibleDaysRef.current.has(key) &&
+                !kept.has(key)
               ) {
                 next.delete(key);
               }

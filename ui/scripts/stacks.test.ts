@@ -10,6 +10,7 @@ import {
   countPhotos,
   filesOf,
   selectRangeOverTiles,
+  selectedDaysIn,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -495,4 +496,20 @@ test("選んだ列: 組は最初の席に、見せる側だけを RAW が先で�
 test("選んだ列: 組が分かっていない id（未読の日・組でない）はそのまま、同じ id は2度出さない", () => {
   const scope = [{ id: 9, day_key: 1 }, { id: 9, day_key: 1 }, { id: 4, day_key: 2 }];
   assert.deepEqual(pairAwareScope(scope, new Map(), "jpeg").map((e) => e.id), [9, 4]);
+});
+
+test("間引かない日: 選んだ写真が居る日だけ、上限を超えたら守らない", () => {
+  const days = new Map([
+    [1, [{ id: 10 }, { id: 11 }]],
+    [2, [{ id: 20 }]],
+    [3, [{ id: 30 }]],
+  ]);
+  assert.deepEqual([...selectedDaysIn(days, new Set([11]), 5)], [1]);
+  assert.deepEqual([...selectedDaysIn(days, new Set([11, 30]), 5)], [1, 3]);
+  assert.deepEqual([...selectedDaysIn(days, new Set(), 5)], []);
+  // 読み込んでいない日の id だけなら守る日は無い
+  assert.deepEqual([...selectedDaysIn(days, new Set([99]), 5)], []);
+  // 上限（1日）を超えた: 全選択のまま端までスクロールした形——守らない
+  assert.deepEqual([...selectedDaysIn(days, new Set([10, 20]), 1)], []);
+  assert.deepEqual([...selectedDaysIn(days, new Set([10]), 1)], [1]);
 });

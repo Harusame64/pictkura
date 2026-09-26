@@ -362,3 +362,26 @@ export function countPhotos(
   }
   return seen.size;
 }
+
+/**
+ * 間引かない日: **選んだ写真が居る日**。選択の枚数は、選んだ写真の日が読み込まれている間だけ
+ * タイルで数えられる（`countPhotos`）。組のタイルを1つ選んで遠くへスクロールし、その日が間引かれると、
+ * 帯の「1枚を選択中」がファイルの数の「2枚」に変わった（Windows の実機。2026-09-26）。
+ * 削除の確認文も同じ数え方を使う。
+ *
+ * **守るのは `cap` 日まで**（一覧の日のキャッシュの上限）。全選択のまま端から端までスクロールすると、守る日が
+ * 際限なく増えてキャッシュの上限が効かなくなる——超えたら守らない（今までどおりファイルの数に落ちる）
+ */
+export function selectedDaysIn(
+  days: ReadonlyMap<number, readonly { id: number }[]>,
+  selected: ReadonlySet<number>,
+  cap: number,
+): Set<number> {
+  const out = new Set<number>();
+  if (selected.size === 0) return out;
+  for (const [key, items] of days) {
+    if (items.some((it) => selected.has(it.id))) out.add(key);
+    if (out.size > cap) return new Set();
+  }
+  return out;
+}
