@@ -3245,6 +3245,9 @@ export default function App() {
         }
         if (wrap && viewerScope.length > 0) {
           const at = viewerScope[0];
+          // 先頭へ戻る（スライドショーの一周）ときも、その日が読めていなければ組の先頭へ寄せ直す（#168 の codex）
+          if (!viewerDayItems.has(at.day_key) && pairView === "both")
+            pendingOpenIdRef.current = { id: at.id, dir: 1 };
           setViewer({ dayKey: at.day_key, id: at.id });
         }
         return;
