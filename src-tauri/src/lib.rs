@@ -475,7 +475,11 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
                     changed |= upsert_if_changed(&mut db, f);
                 }
             } else {
-                // パスが消えた: そのパス＋配下のレコードを削除
+                // パスが消えた: そのパス＋配下のレコードを削除。**ただしドライブが外れただけなら消さない**
+                // （[`vanished_path_is_a_deletion`]）
+                if !vanished_path_is_a_deletion(&p, &config.library.roots, |r| r.is_dir()) {
+                    continue;
+                }
                 if let Ok(n) = db.remove_by_prefix(&p) {
                     if n > 0 {
                         changed = true;
@@ -489,6 +493,33 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         enqueue_missing_thumbs(&state);
         let _ = app.emit("library-updated", ());
     }
+}
+
+/// 監視が「消えた」と言ったパスを、**本当に消えた**と読んでよいか。
+///
+/// **ルートごと見えなくなったなら、ドライブが外れただけ**——消さない。root がボリュームそのもの
+/// （`/Volumes/SD`・`G:\`）だと、取り出したときに監視が root 自身の消失を報せ、`remove_by_prefix` が
+/// そのルートの行を ★・⚑ ごと全部消していた（v0.1 から。2026-09-26 に Mac の実機の SD で見つけ、
+/// ディスクイメージで再現: root がボリュームなら消え、中のフォルダなら残った）。走査も、見えない
+/// ルートの行は残す（`db.rs` の `root_case_sql`）ので、それとそろえる。
+///
+/// - 消えたパスが**ルートかその上**（マウントポイント等）なら、消さない
+/// - ルートの中のパスなら、**そのルートが見えるときだけ**消す（見えなければドライブが外れた）
+/// - どのルートとも関係の無いパスは、今までどおり消してよい（行が在るとすれば古い残り）
+fn vanished_path_is_a_deletion(
+    path: &Path,
+    roots: &[PathBuf],
+    root_is_present: impl Fn(&Path) -> bool,
+) -> bool {
+    for root in roots {
+        if root.starts_with(path) {
+            return false;
+        }
+        if path.starts_with(root) && !root_is_present(root) {
+            return false;
+        }
+    }
+    true
 }
 
 /// 同期後にメタデータ未抽出分（＋即席サムネイル生成）をワーカーへ投入する。
@@ -6101,6 +6132,30 @@ mod tests {
     /// | Win32 `LOCALE_IFIRSTDAYOFWEEK` | 0 | 6 |
     /// | CoreFoundation | 2 | 1 |
     /// | `Date.getDay()`（渡す形） | 1 | 0 |
+    /// 監視の「消えた」を削除と読むか。**ルートごと見えないならドライブが外れただけ**（消さない）
+    #[test]
+    fn a_vanished_root_or_its_drive_is_not_a_deletion() {
+        use std::path::PathBuf;
+        let roots = [
+            PathBuf::from("/Volumes/SD"),
+            PathBuf::from("/Volumes/USB/DCIM"),
+        ];
+        let gone = |_: &std::path::Path| false;
+        let there = |_: &std::path::Path| true;
+        let del = |p: &str, present: &dyn Fn(&std::path::Path) -> bool| {
+            super::vanished_path_is_a_deletion(std::path::Path::new(p), &roots, present)
+        };
+        // ルートそのもの・その上（マウントポイント）の消失は、削除ではない
+        assert!(!del("/Volumes/SD", &there));
+        assert!(!del("/Volumes/USB", &there));
+        // ルートの中: ルートが見えなければ外れただけ、見えるなら本当に消えた
+        assert!(!del("/Volumes/SD/DCIM/100CANON", &gone));
+        assert!(del("/Volumes/SD/DCIM/100CANON", &there));
+        assert!(del("/Volumes/USB/DCIM/IMG_1.JPG", &there));
+        // 名前が前方一致するだけの隣は別のルート扱いにしない（要素ごとに比べる）
+        assert!(del("/Volumes/SD2/x.jpg", &gone));
+    }
+
     #[test]
     fn the_first_weekday_arrives_on_the_calendars_own_origin() {
         // Win32 は月曜が 0。**素通しすると日曜始まりのカレンダーになる**ので、
