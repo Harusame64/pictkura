@@ -3080,6 +3080,21 @@ fn set_stack_raw_jpeg(state: tauri::State<'_, AppState>, enabled: bool) -> Resul
     update_config(&state, |c| c.grid.stack_raw_jpeg = enabled)
 }
 
+/// 一覧で連写を1枚に重ねるかを切り替える（dev #32）。
+#[tauri::command]
+fn set_stack_bursts(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    update_config(&state, |c| c.grid.stack_bursts = enabled)
+}
+
+/// 連写とみなす間隔を変える（dev #32）。**選択肢の外は断る**（画面は3つしか出さない）
+#[tauri::command]
+fn set_burst_gap_ms(state: tauri::State<'_, AppState>, ms: u32) -> Result<(), String> {
+    if !pictkura_core::config::BURST_GAPS_MS.contains(&ms) {
+        return Err(format!("unsupported burst gap: {ms} ms"));
+    }
+    update_config(&state, |c| c.grid.burst_gap_ms = ms)
+}
+
 /// ビューアの選別キー（`P` / `U`）を押したあと、次の絵へ自動で送るかを切り替える（0.2 ②）。
 #[tauri::command]
 fn set_auto_advance(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
@@ -5776,6 +5791,8 @@ pub fn run() {
             set_pickeds,
             set_auto_advance,
             set_stack_raw_jpeg,
+            set_stack_bursts,
+            set_burst_gap_ms,
             set_register_autoplay,
             take_pending_import,
             update::check_update,

@@ -494,6 +494,18 @@ export const ja = {
     "同じフォルダにある同じ名前の RAW と JPEG を、一覧では JPEG の1枚にまとめます。一覧での★・⚑・削除・選択は組の両方に効きます。写真を大きく見ているときは1ファイルずつ送り、★・⚑・削除もそのファイルだけに効きます。",
   stackRawChipTitle: (files: number) =>
     `RAW と JPEG を1枚に重ねています（${num(files)}ファイル）`,
+  settingsStackBurstsToggle: "連写を1枚に重ねる",
+  settingsStackBurstsNote:
+    "同じカメラで続けて撮った写真を、一覧では1枚にまとめます。撮影時刻が秒より細かく記録されている写真だけが対象です（記録しないカメラもあります）。一覧の右クリックで付ける★・⚑は表紙の1枚だけに付き、削除と選択は連写ぜんぶに効きます。写真を大きく見ているときは1ファイルずつ送ります。",
+  settingsBurstGap: "連写とみなす間隔",
+  burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
+  burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
+  /* 連写のタイルのツールチップ（ADR の UX 3）。秒は小数1桁 */
+  burstTitle: (frames: number, spanMs: number, files: number) =>
+    `連写 ${num(frames)}コマ・${num(Math.round(spanMs / 100) / 10)}秒間（${num(files)}ファイル）`,
+  /* 連写のコマが RAW+JPEG のとき。真偽の引数にしない——辞書の検査は引数を1つずつ動かして見る */
+  burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
+    `連写 ${num(frames)}コマ・${num(Math.round(spanMs / 100) / 10)}秒間・RAW+JPEG（${num(files)}ファイル）`,
   settingsViewer: "写真を大きく見るとき",
   settingsAutoAdvanceToggle: "P / U で判定したら、次の写真へ進む",
   settingsAutoAdvanceNote:

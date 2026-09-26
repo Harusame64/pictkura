@@ -16,6 +16,9 @@ import {
   setImportDestination,
   setAutoAdvance,
   setStackRawJpeg,
+  setStackBursts,
+  setBurstGapMs,
+  BURST_GAPS_MS,
   setRegisterAutoplay,
   type AboutInfo,
   type AppConfig,
@@ -432,7 +435,7 @@ export default function Settings({
             <p className="settings-note">{t.settingsAutoAdvanceNote}</p>
           </section>
 
-          {/* 一覧の重ね（dev #32、`dev/adr.grid-stacks.md`）。連写の2項目は次の PR */}
+          {/* 一覧の重ね（dev #32、`dev/adr.grid-stacks.md`）。RAW+JPEG と連写は独立に切れる */}
           <section className="settings-section">
             <h3>{t.settingsGrid}</h3>
             <label className="settings-toggle">
@@ -453,6 +456,45 @@ export default function Settings({
               {t.settingsStackRawJpegToggle}
             </label>
             <p className="settings-note">{t.settingsStackRawJpegNote}</p>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={config?.grid?.stack_bursts ?? true}
+                onChange={async (e) => {
+                  try {
+                    await setStackBursts(e.target.checked);
+                  } catch (err) {
+                    onError(errText(err));
+                  }
+                  onConfigChanged();
+                }}
+              />
+              {t.settingsStackBurstsToggle}
+            </label>
+            <p className="settings-note">{t.settingsStackBurstsNote}</p>
+            {/* 間隔は3択（ADR: それぞれを見本の実測で升にできるから）。連写を切っている間は効かない */}
+            <label className="settings-toggle">
+              {t.settingsBurstGap}
+              <select
+                className="settings-select"
+                disabled={!(config?.grid?.stack_bursts ?? true)}
+                value={config?.grid?.burst_gap_ms ?? 1000}
+                onChange={async (e) => {
+                  try {
+                    await setBurstGapMs(Number(e.target.value));
+                  } catch (err) {
+                    onError(errText(err));
+                  }
+                  onConfigChanged();
+                }}
+              >
+                {BURST_GAPS_MS.map((ms) => (
+                  <option key={ms} value={ms}>
+                    {t.burstGapOption(ms / 1000)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </section>
 
           {/*

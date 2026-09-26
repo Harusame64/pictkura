@@ -4,8 +4,17 @@
  * 形は2層:
  * - **コマ（`Shot`）** = 同じ撮影の組。同じフォルダ・同じ名前の RAW+JPEG（Rust の `pair_key`）。
  *   組でなければ1ファイル
- * - **重ね（`Stack`）** = 一覧のタイル1枚。いまは常に1コマ——連写（続けて撮ったコマの並び）は
- *   次の PR でここに足す。型を先に2段にしておくのはそのため
+ * - **重ね（`Stack`）** = 一覧のタイル1枚。1コマか、**連写**（同じ機体で続けて撮ったコマの並び）。
+ *   2つは独立していて、RAW+JPEG で連写すれば「連写 12 コマ、各コマ RAW+JPEG」になる
+ *
+ * **連写の規則（ADR の「A」、2026-09-25 の利用者の選択）**: 次の全部を満たすコマを鎖でつなぐ。
+ * 1. 同じ機体（`body_key`＝機種＋本体シリアル。0＝分からないものは束ねない）
+ * 2. 秒未満の撮影時刻がある（`taken_subsec`。秒までしか分からないコマは束ねない——
+ *    誤って束ねるより、束ねない）
+ * 3. **同じ機体の直前のコマ**との間隔が設定値以下（既定1秒）
+ *
+ * 「直前」は**機体ごとの撮影時刻の順**で見る——一覧の隣ではない。2台で同じ時間帯に撮ると、
+ * 一覧ではコマが交互に並ぶが、それぞれの機体の連写は割れない。束は日ごとに組む（日をまたぐと分かれる）
  *
  * **束ねるのは RAW と RAW 以外がそろった組だけ**。同じ名前というだけで束ねると、iPhone の
  * Live Photos（`IMG_0001.HEIC` + `IMG_0001.MOV`）で動画が隠れる。RAW 同士（CR3 と、それを
@@ -32,6 +41,12 @@ export interface Stackable {
   taken_at_known: boolean;
   /** 動画か（組に入れない——`IMG_0001.CR3` と `IMG_0001.MOV` を1枚にしない） */
   is_video: boolean;
+  /** `taken_at_ms` が秒未満まで分かっているか（連写の条件） */
+  taken_subsec: boolean;
+  /** 機体の鍵（機種＋本体シリアル。0 は分からない） */
+  body_key: number;
+  /** 選別の印（⚑）。連写の表紙は ⚑ のコマ */
+  picked: boolean;
 }
 
 /** コマ: `lead` が一覧に出る1枚、`files` は組ぜんぶ（`lead` を含む・日の並び順） */
@@ -42,25 +57,89 @@ export type Stack<T> = { cover: Shot<T>; shots: Shot<T>[] };
 export interface StackOptions {
   /** RAW+JPEG を1コマに重ねるか（設定 `[grid] stack_raw_jpeg`） */
   rawJpeg: boolean;
+  /** 連写を1枚に重ねるか（設定 `[grid] stack_bursts`）。省くと重ねない */
+  bursts?: boolean;
+  /** 連写とみなす間隔の上限（ミリ秒。設定 `[grid] burst_gap_ms`）。省くと 1000 */
+  burstGapMs?: number;
 }
 
 /**
  * 1日ぶんの並び（`list_day` の順）を重ねに組む。
  *
  * - 重ねの位置は、**組の最初の1件が居た位置**（並び順を崩さない）
- * - 表紙は **RAW でない1枚**（JPEG。サムネイルが既に在るので速い——2026-09-08 の利用者の選択）。
+ * - コマの表紙は **RAW でない1枚**（JPEG。サムネイルが既に在るので速い——2026-09-08 の利用者の選択）。
  *   無ければ先頭
+ * - 連写の表紙は **⚑ のコマ**（いくつもあれば撮り始めに近いもの）。無ければ**撮り始めのコマ**
  * - `list_day` は**その日の全件**を返すので、組がページの境目で割れることは無い
  */
 export function stacksOfDay<T extends Stackable>(
   items: readonly T[],
   opts: StackOptions,
 ): Stack<T>[] {
-  const single = (it: T): Stack<T> => {
-    const shot = { lead: it, files: [it] };
-    return { cover: shot, shots: [shot] };
-  };
-  if (!opts.rawJpeg) return items.map(single);
+  const shots = shotsOfDay(items, opts.rawJpeg);
+  const single = (shot: Shot<T>): Stack<T> => ({ cover: shot, shots: [shot] });
+  if (!opts.bursts) return shots.map(single);
+
+  const gap = opts.burstGapMs ?? 1000;
+  // 機体ごとに、撮影時刻の順に並べて鎖を切る。`at` は一覧の位置（重ねを置く場所）
+  const byBody = new Map<number, { shot: Shot<T>; at: number; ms: number }[]>();
+  shots.forEach((shot, at) => {
+    const timed = burstTime(shot);
+    if (timed === null) return;
+    const list = byBody.get(timed.body);
+    const entry = { shot, at, ms: timed.ms };
+    if (list) list.push(entry);
+    else byBody.set(timed.body, [entry]);
+  });
+  /** 一覧の位置 → そこに置く連写（連写の最初の1コマの位置だけ）。他のコマの位置は空ける */
+  const placed = new Map<number, Stack<T>>();
+  const absorbed = new Set<number>();
+  for (const list of byBody.values()) {
+    list.sort((a, b) => a.ms - b.ms || a.at - b.at);
+    let run = [list[0]];
+    const flush = () => {
+      if (run.length >= 2) {
+        const byPlace = [...run].sort((a, b) => a.at - b.at);
+        // 表紙: ⚑ のコマ（撮り始めに近いもの）、無ければ撮り始め。`run` は撮影時刻の順
+        const cover = (run.find((e) => e.shot.files.some((f) => f.picked)) ?? run[0]).shot;
+        placed.set(byPlace[0].at, { cover, shots: byPlace.map((e) => e.shot) });
+        for (const e of byPlace) absorbed.add(e.at);
+      }
+    };
+    for (let k = 1; k < list.length; k++) {
+      if (list[k].ms - list[k - 1].ms <= gap) run.push(list[k]);
+      else {
+        flush();
+        run = [list[k]];
+      }
+    }
+    flush();
+  }
+  const out: Stack<T>[] = [];
+  shots.forEach((shot, at) => {
+    const burst = placed.get(at);
+    if (burst) out.push(burst);
+    else if (!absorbed.has(at)) out.push(single(shot));
+  });
+  return out;
+}
+
+/**
+ * 連写の鎖に入れる時刻と機体。**入れないコマは `null`**: 機体が分からない・秒未満が無い・
+ * 撮影日時が読めていない・動画。RAW+JPEG のコマは、秒未満を持つ方の時刻を使う
+ * （JPEG は秒未満を持ち、読み直していない RAW は秒までのことがある——#158）
+ */
+function burstTime<T extends Stackable>(shot: Shot<T>): { body: number; ms: number } | null {
+  const f = shot.files.find(
+    (x) => x.body_key !== 0 && x.taken_subsec && x.taken_at_known && !x.is_video,
+  );
+  return f ? { body: f.body_key, ms: f.taken_at_ms } : null;
+}
+
+/** 1日ぶんの並びをコマに組む（一覧の順。コマの位置は組の最初の1件が居た位置） */
+function shotsOfDay<T extends Stackable>(items: readonly T[], rawJpeg: boolean): Shot<T>[] {
+  const single = (it: T): Shot<T> => ({ lead: it, files: [it] });
+  if (!rawJpeg) return items.map(single);
 
   // **撮影日時は秒の単位で比べる**（dev #32 の #158 から、JPEG には秒未満が付く）。CR3 と JPEG で
   // 秒未満の有無がそろわない（CR3 を読み直していない・片方だけ OS から秒までの日時を借りた）と、
@@ -74,7 +153,7 @@ export function stacksOfDay<T extends Stackable>(
     if (g) g.push(it);
     else groups.set(keyOf(it), [it]);
   }
-  const out: Stack<T>[] = [];
+  const out: Shot<T>[] = [];
   const emitted = new Set<string>();
   for (const it of items) {
     if (!eligible(it)) {
@@ -90,8 +169,7 @@ export function stacksOfDay<T extends Stackable>(
     }
     if (emitted.has(key)) continue;
     emitted.add(key);
-    const shot = { lead: g.find((f) => !f.is_raw) ?? g[0], files: g };
-    out.push({ cover: shot, shots: [shot] });
+    out.push({ lead: g.find((f) => !f.is_raw) ?? g[0], files: g });
   }
   return out;
 }

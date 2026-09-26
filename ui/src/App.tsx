@@ -340,7 +340,23 @@ function decodedBytes(it: MediaItem, measured?: [number, number]): number {
  * `item` は一覧に出る1枚（重ねの表紙）、`files` は重ねのファイルぜんぶ（dev #32。
  * 重なっていなければ `[item]`）。**★・⚑・削除・選択は `files` に効く**
  */
-type Cell = { item: MediaItem; files: MediaItem[]; w: number; h: number };
+type Cell = {
+  item: MediaItem;
+  files: MediaItem[];
+  /**
+   * 一覧の右クリックで ★・⚑ が効くファイル。**連写では表紙のコマだけ**（他のコマはビューアで。
+   * 2026-09-25 の利用者の選択——連写は別々の写真から1枚を選ぶためのもの）。それ以外は `files`
+   */
+  markFiles: MediaItem[];
+  /** 連写のコマ数（連写でなければ 1） */
+  frames: number;
+  /** RAW+JPEG のコマを含むか（`RAW+JPEG` の印） */
+  rawPair: boolean;
+  /** 連写の最初のコマから最後のコマまで（ミリ秒。連写でなければ 0） */
+  spanMs: number;
+  w: number;
+  h: number;
+};
 
 /**
  * 仮想スクロール用の行モデル。
@@ -691,6 +707,8 @@ export default function App() {
     item: MediaItem;
     /** 重ねのファイルぜんぶ（dev #32）。無ければ `[item]` */
     files?: MediaItem[];
+    /** ★・⚑ が効くファイル（連写では表紙のコマだけ。`Cell.markFiles`）。無ければ `files` */
+    markFiles?: MediaItem[];
   } | null>(null);
   /** 登録済みの外部編集アプリ（設定から読む） */
   const [editors, setEditors] = useState<ExternalApp[]>([]);
@@ -2426,6 +2444,9 @@ export default function App() {
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
   // 一覧で RAW+JPEG を1枚に重ねるか（dev #32）。配ったあとに足した節なので既定は ON
   const stackRawJpeg = config?.grid?.stack_raw_jpeg ?? true;
+  // 連写も既定で重ねる。間隔は既定1秒（ADR の設定表）
+  const stackBursts = config?.grid?.stack_bursts ?? true;
+  const burstGapMs = config?.grid?.burst_gap_ms ?? 1000;
   /**
    * 読み込み済みの日ごとの重ね（dev #32）。**日と設定が変わったときだけ**組む——
    * 一覧の行（窓の幅・サイズのつまみで組み直る）と索引の両方がこれを使う
@@ -2433,10 +2454,17 @@ export default function App() {
   const dayStacks = useMemo(() => {
     const out = new Map<number, Stack<MediaItem>[]>();
     for (const [dayKey, items] of dayItems) {
-      out.set(dayKey, stacksOfDay(items, { rawJpeg: stackRawJpeg }));
+      out.set(
+        dayKey,
+        stacksOfDay(items, {
+          rawJpeg: stackRawJpeg,
+          bursts: stackBursts,
+          burstGapMs,
+        }),
+      );
     }
     return out;
-  }, [dayItems, stackRawJpeg]);
+  }, [dayItems, stackRawJpeg, stackBursts, burstGapMs]);
   /**
    * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」と、読み込み済みの id。
    * 範囲選択を重ねの単位へ閉じ、選択の枚数を「見えているタイル」で数えるのに使う
@@ -2504,12 +2532,22 @@ export default function App() {
         let h = justify ? (usable - gaps) / sumAspect : target;
         // 最終行や1枚パノラマ行が巨大化しないよう上限を設ける
         h = Math.min(h, target * 1.3);
-        const cells = rowItems.map((st) => ({
-          item: st.cover.lead,
-          files: filesOf(st),
-          w: Math.floor(aspectOf(st.cover.lead) * h),
-          h: Math.round(h),
-        }));
+        const cells = rowItems.map((st): Cell => {
+          const frames = st.shots.length;
+          const times = st.shots.map((sh) => sh.lead.taken_at_ms);
+          return {
+            item: st.cover.lead,
+            files: filesOf(st),
+            markFiles: frames > 1 ? st.cover.files : filesOf(st),
+            frames,
+            rawPair: st.shots.some(
+              (sh) => sh.files.length > 1 && sh.files.some((f) => f.is_raw),
+            ),
+            spanMs: frames > 1 ? Math.max(...times) - Math.min(...times) : 0,
+            w: Math.floor(aspectOf(st.cover.lead) * h),
+            h: Math.round(h),
+          };
+        });
         out.push({
           kind: "cells",
           dayKey: day.day_key,
@@ -5172,7 +5210,11 @@ export default function App() {
 
   /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
-    (item: MediaItem, files: readonly MediaItem[] = [item]): MenuItem[] => [
+    (
+      item: MediaItem,
+      files: readonly MediaItem[] = [item],
+      markFiles: readonly MediaItem[] = files,
+    ): MenuItem[] => [
       { label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
       ...editors.map((app) => ({
         label: t.menuOpenWith(app.name),
@@ -5184,12 +5226,13 @@ export default function App() {
         separator: true,
         run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
-      // ★・⚑・削除は**重ねの組ぜんぶ**に効く（dev #32、2026-09-08 の利用者の選択）。
+      // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
+      // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
       // どれか1つに付いていれば「付いている」と見せる（タイルの ★/⚑ と同じ規則）
       // 重ねのタイルは**まとめて1回で**書く（1ファイルずつ投げると、絞り込み中は取り直しが
       // 並んで競り、片方だけ失敗すると組の印が割れる——#156 のゲート2）。1枚は今までどおり
       ...(["favorite", "picked"] as const).map((kind) => {
-        const marked = files.some((f) => f[kind]);
+        const marked = markFiles.some((f) => f[kind]);
         return {
           label:
             kind === "favorite"
@@ -5200,11 +5243,11 @@ export default function App() {
                 ? t.bulkPickOff
                 : t.bulkPickOn,
           run: () => {
-            if (files.length === 1) {
-              void setMark(files[0], kind, !marked);
+            if (markFiles.length === 1) {
+              void setMark(markFiles[0], kind, !marked);
               return;
             }
-            const ids = files.map((f) => f.id);
+            const ids = markFiles.map((f) => f.id);
             void markIds(kind, !marked, ids).then((n) => {
               if (n === null) return;
               // その印で絞り込み中は、タイルが画面から消える——選択と起点も片づける
@@ -5941,6 +5984,7 @@ export default function App() {
                           {row.cells.map((cell) => {
                             // 重ねのタイル（dev #32）: 印も選択も**組のどれか**で見せる
                             const stacked = cell.files.length > 1;
+                            const burst = cell.frames > 1;
                             const cellSelected = cell.files.some((f) =>
                               selected.has(f.id),
                             );
@@ -5950,37 +5994,43 @@ export default function App() {
                               className={
                                 "cell-wrap" +
                                 (cellSelected ? " picked" : "") +
-                                (stacked ? " stacked" : "")
+                                (stacked ? " stacked" : "") +
+                                (burst ? " burst" : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
+                              title={
+                                burst
+                                  ? `${cell.item.file_name}\n${(cell.rawPair ? t.burstTitleRawJpeg : t.burstTitle)(cell.frames, cell.spanMs, cell.files.length)}`
+                                  : stacked
+                                    ? `${cell.item.file_name}\n${t.stackRawChipTitle(cell.files.length)}`
+                                    : cell.item.file_name
+                              }
+                              // **押す口はタイル全体**（写真ではなく）。重ねのタイルは写真を寄せて
+                              // 後ろの紙を見せるので、写真だけに付けると紙の上が押せない（#156 の codex の P3）
+                              onClick={(e) =>
+                                onCellClick(cell.item, row.dayKey, e, cell.files)
+                              }
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                setMenu({
+                                  pos: { x: e.clientX, y: e.clientY },
+                                  item: cell.item,
+                                  files: cell.files,
+                                  markFiles: cell.markFiles,
+                                });
+                              }}
                             >
                               <img
                                 className="cell"
                                 loading="lazy"
                                 decoding="async"
                                 src={thumbSrc(cell.item)}
-                                title={
-                                  stacked
-                                    ? `${cell.item.file_name}\n${t.stackRawChipTitle(cell.files.length)}`
-                                    : cell.item.file_name
-                                }
                                 // サムネイル未生成のHEIC/RAWや、まだ手元に無い
                                 // クラウド上のファイルは配信されない（404）。
                                 // `alt` 未指定だと Chromium は title を代替テキストとして
                                 // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
                                 // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
                                 alt=""
-                                onClick={(e) =>
-                                  onCellClick(cell.item, row.dayKey, e, cell.files)
-                                }
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  setMenu({
-                                    pos: { x: e.clientX, y: e.clientY },
-                                    item: cell.item,
-                                    files: cell.files,
-                                  });
-                                }}
                               />
                               {cell.item.is_video && (
                                 <span className="cell-video">
@@ -5995,10 +6045,20 @@ export default function App() {
                               {cell.files.some((f) => f.favorite) && (
                                 <span className="cell-fav">★</span>
                               )}
-                              {/* RAW+JPEG を重ねたタイルの印（dev #32、2026-09-25 の利用者の選択:
-                                  言葉の印＋後ろに紙）。`RAW` だけだと RAW のファイルと読める */}
-                              {stacked && cell.files.some((f) => f.is_raw) && (
-                                <span className="cell-raw">RAW+JPEG</span>
+                              {/* 重ねたタイルの印（dev #32、2026-09-25 の利用者の選択: 言葉の印＋後ろに紙）。
+                                  `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので
+                                  両方出ることがある（連写の印は、組の印と並ぶときだけ短く `▤ 12`） */}
+                              {(cell.rawPair || burst) && (
+                                <span className="cell-chips">
+                                  {cell.rawPair && <span className="cell-chip">RAW+JPEG</span>}
+                                  {burst && (
+                                    <span className="cell-chip">
+                                      {cell.rawPair
+                                        ? `▤ ${cell.frames}`
+                                        : t.burstChip(cell.frames)}
+                                    </span>
+                                  )}
+                                </span>
                               )}
                               {/* 選別の印。`cell-pick` は複数選択の丸なので
                                   名前を分ける（`cell-flag`） */}
@@ -6720,7 +6780,7 @@ export default function App() {
       />
       <ContextMenu
         pos={menu?.pos ?? null}
-        items={menu ? menuItemsFor(menu.item, menu.files) : []}
+        items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
         onClose={() => setMenu(null)}
       />
       {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、

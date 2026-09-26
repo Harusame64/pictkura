@@ -569,6 +569,8 @@ body {
 .cell-wrap {
   position: relative;
   flex: none;
+  /* 押す口はタイル全体（重ねの紙の上も押せる。dev #32） */
+  cursor: pointer;
 }
 .cell {
   width: 100%;
@@ -608,7 +610,7 @@ body {
 
 /* 重ねたタイル（dev #32、2026-09-25 の利用者の選択: **印は言葉にし、紙を厚く**）。
    **紙はタイルの内側に描く**——タイルの間は 4px しか無いので、外へずらすと隣に届く。
-   写真を左下へ寄せて縮め、空いた右上に紙を1枚のぞかせる（連写は次の PR で2枚）。
+   写真を左下へ寄せて縮め、空いた右上に紙を1枚のぞかせる。**連写は2枚**（`.burst`）。
    `isolation` で重なりの層を閉じ、紙（`::before`）を写真の後ろへ置く */
 .cell-wrap.stacked {
   --stack-offset: 5px;
@@ -632,12 +634,44 @@ body {
   border: 1px solid var(--border-strong);
   z-index: -1;
 }
+/* 連写は紙を2枚（ADR のタイル表: 組は1枚・連写は2枚）。ずらしを小さくして写真の縮みを抑え、
+   奥の紙（`::before`）を右上の角に、手前の紙（`::after`）をその半分の位置に置く */
+.cell-wrap.burst {
+  --stack-offset: 4px;
+}
+.cell-wrap.burst .cell {
+  width: calc(100% - 2 * var(--stack-offset));
+  height: calc(100% - 2 * var(--stack-offset));
+  margin-top: calc(2 * var(--stack-offset));
+}
+.cell-wrap.burst::before,
+.cell-wrap.burst::after {
+  width: calc(100% - 2 * var(--stack-offset));
+  height: calc(100% - 2 * var(--stack-offset));
+}
+.cell-wrap.burst::after {
+  content: "";
+  position: absolute;
+  top: var(--stack-offset);
+  right: var(--stack-offset);
+  box-sizing: border-box;
+  border-radius: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  z-index: -1;
+}
 /* 印は右下（左下は動画の ▶、左上は選択の丸、右上は ★・⚑）。`RAW` だけだと「RAW の
-   ファイル」と読めるので、組であることを言葉で言う（`RAW+JPEG`） */
-.cell-raw {
+   ファイル」と読めるので、組であることを言葉で言う（`RAW+JPEG`）。連写の印（`▤ 連写 12`）と
+   並ぶことがあるので、右下に横へ並べる */
+.cell-chips {
   position: absolute;
   right: var(--sp-1);
   bottom: var(--sp-1);
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+.cell-chip {
   padding: 0 5px;
   border-radius: var(--radius-sm);
   background: oklch(0 0 0 / 0.55);
