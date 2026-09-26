@@ -346,14 +346,15 @@ export function selectRangeOverTiles(
  * 選んだ id が**見えているタイル何枚ぶん**か（dev #32）。重ねの組は1枚と数える。
  * 選択中の枚数と、削除・移動の確認文と報告に使う——1枚の重ねを選んで「2枚」と言わない。
  *
- * **読み込んでいない日の id が混ざっていたら `null`**（数えられない）。その日の組は索引に
- * 無いので、ファイルの数を「枚数」と言ってしまい、スクロールで日が読み込まれるたびに
- * 数が変わって見える（#156 のゲート2）。呼ぶ側は `null` ならファイルの数で言う
+ * **索引に無い id が混ざっていたら `null`**（数えられない）。組が分からないのに数えると、
+ * ファイルの数を「枚数」と言ってしまい、スクロールで日が読み込まれるたびに数が変わって見える
+ * （#156 のゲート2）。呼ぶ側は `null` ならファイルの数で言う。
+ * 選択を数えるときの索引は `selectionTilesOf`（選んだ時点のタイル。日が間引かれても残る）
  */
 export function countPhotos(
   ids: Iterable<number>,
   index: ReadonlyMap<number, readonly number[]>,
-  loaded: ReadonlySet<number>,
+  loaded: { has(id: number): boolean },
 ): number | null {
   const seen = new Set<number>();
   for (const id of ids) {
@@ -361,4 +362,33 @@ export function countPhotos(
     seen.add(index.get(id)?.[0] ?? id);
   }
   return seen.size;
+}
+
+/**
+ * 選んだ写真ごとに、**選んだ時点で分かっていたタイル**を覚えておく（`countPhotos` の索引として渡す）。
+ *
+ * 選択の枚数は、写真の日が読み込まれている間しかタイルで数えられない。組のタイルを1つ選んで
+ * 遠くへスクロールすると、一覧がその日を間引き、「1枚を選択中」が「2枚」に変わった（Windows の
+ * 実機。2026-09-26）。日を間引かせない形（キャッシュを留める）は、間引く道がほかにも在るので
+ * 閉じなかった（#169 のゲート2）。覚える量は**選んだ枚数だけ**で、選択を外せば一緒に消える。
+ *
+ * - 日が読み込まれている id は、いまの索引で覚え直す（組み方が変わったら追う）
+ * - 読み込まれていない id は、前に覚えたものを持ち越す。一度も知らない id は入れない（数えられない）
+ * - 値はタイルの代表の id だけの配列（`countPhotos` は `index.get(id)?.[0]` を代表として見る）
+ */
+export function selectionTilesOf(
+  selected: Iterable<number>,
+  index: ReadonlyMap<number, readonly number[]>,
+  loaded: { has(id: number): boolean },
+  prev: ReadonlyMap<number, readonly number[]>,
+): Map<number, readonly number[]> {
+  const out = new Map<number, readonly number[]>();
+  for (const id of selected) {
+    if (loaded.has(id)) out.set(id, [index.get(id)?.[0] ?? id]);
+    else {
+      const known = prev.get(id);
+      if (known) out.set(id, known);
+    }
+  }
+  return out;
 }

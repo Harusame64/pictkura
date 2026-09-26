@@ -10,6 +10,7 @@ import {
   countPhotos,
   filesOf,
   selectRangeOverTiles,
+  selectionTilesOf,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -495,4 +496,33 @@ test("選んだ列: 組は最初の席に、見せる側だけを RAW が先で�
 test("選んだ列: 組が分かっていない id（未読の日・組でない）はそのまま、同じ id は2度出さない", () => {
   const scope = [{ id: 9, day_key: 1 }, { id: 9, day_key: 1 }, { id: 4, day_key: 2 }];
   assert.deepEqual(pairAwareScope(scope, new Map(), "jpeg").map((e) => e.id), [9, 4]);
+});
+
+test("選んだ時点のタイル: 日が間引かれても組のタイル1つは1枚（1枚→2枚にならない）", () => {
+  // 組 1+2（代表 1）と、組でない 3
+  const index = new Map([[1, [1, 2]], [2, [1, 2]]]);
+  const loaded = new Set([1, 2, 3]);
+  let tiles = selectionTilesOf([1, 2], index, loaded, new Map());
+  assert.equal(countPhotos([1, 2], tiles, tiles), 1);
+  // 遠くへスクロールして、その日が間引かれた（索引にも読み込み済みにも居ない）
+  tiles = selectionTilesOf([1, 2], new Map(), new Set(), tiles);
+  assert.equal(countPhotos([1, 2], tiles, tiles), 1, "間引かれても1枚");
+  // 比べ: 選んだ時点を覚えていないと数えられない（直す前の「2枚」の源）
+  assert.equal(countPhotos([1, 2], new Map(), new Set()), null);
+});
+
+test("選んだ時点のタイル: 読めている日は今の組み方で覚え直し、知らない id は数えない", () => {
+  const tiles0 = selectionTilesOf([1, 2], new Map([[1, [1, 2]], [2, [1, 2]]]), new Set([1, 2]), new Map());
+  // 重ねを切って読み直した: 2枚は別のタイル
+  const tiles1 = selectionTilesOf([1, 2], new Map(), new Set([1, 2]), tiles0);
+  assert.equal(countPhotos([1, 2], tiles1, tiles1), 2);
+  // 一度も読んだことのない id（全選択で未読の日を含む）: 今までどおり数えられない
+  const tiles2 = selectionTilesOf([1, 2, 99], new Map(), new Set(), tiles1);
+  assert.equal(countPhotos([1, 2, 99], tiles2, tiles2), null);
+  // 選択から外した id は覚えない（選択と一緒に消える）
+  const tiles3 = selectionTilesOf([1], new Map(), new Set(), tiles1);
+  assert.deepEqual([...tiles3.keys()], [1]);
+  // 重ね方の設定が変わったら、呼ぶ側が前の記憶を捨てて渡す（空の prev）: 間引かれた日は数えない
+  const tiles4 = selectionTilesOf([1, 2], new Map(), new Set(), new Map());
+  assert.equal(countPhotos([1, 2], tiles4, tiles4), null);
 });
