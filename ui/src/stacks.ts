@@ -353,7 +353,7 @@ export function selectRangeOverTiles(
 export function countPhotos(
   ids: Iterable<number>,
   index: ReadonlyMap<number, readonly number[]>,
-  loaded: ReadonlySet<number>,
+  loaded: { has(id: number): boolean },
 ): number | null {
   const seen = new Set<number>();
   for (const id of ids) {
@@ -361,4 +361,51 @@ export function countPhotos(
     seen.add(index.get(id)?.[0] ?? id);
   }
   return seen.size;
+}
+
+/**
+ * 一度読み込んだ日の「どのファイルが同じ重ねか」を、**id だけ**覚えておく（`countPhotos` の索引）。
+ *
+ * 一覧は遠くの日をキャッシュから間引くので、読み込み済みの日だけの索引で数えると、
+ * 組のタイルを1つ選んで遠くへスクロールしただけで「1枚を選択中」が「2枚」に変わった
+ * （`countPhotos` が数えられずにファイルの数へ落ちる。2026-09-26 に Windows の実機で確認）。
+ * 写真の中身は持たないので、間引きの目的（メモリ）は崩さない。
+ *
+ * - `members`: id → その重ねのファイルの id ぜんぶ（重ねでなければ自分だけ）。`countPhotos` の
+ *   索引と「数えられる id」の両方に使う
+ * - その日を読み直すと（重ね方が変わった・消した）、前に覚えたその日の id を捨てて覚え直す
+ * - 間引かれた日は、そのまま覚えている。**重ね方の設定が変わったら、呼ぶ側が作り直す**
+ */
+export interface StackMemory {
+  members: Map<number, number[]>;
+  /** 日 → その日に覚えた id（読み直したときに捨てる分） */
+  dayIds: Map<number, number[]>;
+  /** 覚え済みの日の重ねの配列（同じ配列なら覚え直さない。弱参照なので間引きを妨げない） */
+  seen: WeakSet<object>;
+}
+
+export const newStackMemory = (): StackMemory => ({
+  members: new Map(),
+  dayIds: new Map(),
+  seen: new WeakSet(),
+});
+
+export function rememberStacks<T extends { id: number }>(
+  mem: StackMemory,
+  dayStacks: ReadonlyMap<number, readonly Stack<T>[]>,
+): void {
+  for (const [day, stacks] of dayStacks) {
+    if (mem.seen.has(stacks)) continue;
+    mem.seen.add(stacks);
+    for (const id of mem.dayIds.get(day) ?? []) mem.members.delete(id);
+    const ids: number[] = [];
+    for (const st of stacks) {
+      const files = filesOf(st).map((f) => f.id);
+      for (const id of files) {
+        mem.members.set(id, files);
+        ids.push(id);
+      }
+    }
+    mem.dayIds.set(day, ids);
+  }
 }

@@ -11,7 +11,9 @@ import {
   filesOf,
   selectRangeOverTiles,
   stackMembersIndex,
+  newStackMemory,
   pairAwareScope,
+  rememberStacks,
   stacksOfDay,
   viewerWalk,
   type Stackable,
@@ -495,4 +497,40 @@ test("選んだ列: 組は最初の席に、見せる側だけを RAW が先で�
 test("選んだ列: 組が分かっていない id（未読の日・組でない）はそのまま、同じ id は2度出さない", () => {
   const scope = [{ id: 9, day_key: 1 }, { id: 9, day_key: 1 }, { id: 4, day_key: 2 }];
   assert.deepEqual(pairAwareScope(scope, new Map(), "jpeg").map((e) => e.id), [9, 4]);
+});
+
+test("重ねの記憶: 間引かれた日の組も1枚と数え続ける（1枚→2枚にならない）", () => {
+  const day1 = stacksOfDay([f(1, 7, false, "A.JPG"), f(2, 7, true, "A.CR3")], { rawJpeg: true });
+  const day2 = stacksOfDay([f(3, 8, false, "B.JPG")], { rawJpeg: true });
+  const mem = newStackMemory();
+  rememberStacks(mem, new Map([[20260921, day1], [20250602, day2]]));
+  assert.equal(countPhotos([1, 2], mem.members, mem.members), 1);
+  // 遠くへスクロールして 9/21 が間引かれ、代わりに新しい日（1/1）を読み込んだ
+  const day3 = stacksOfDay([f(4, 9, false, "C.JPG")], { rawJpeg: true });
+  rememberStacks(mem, new Map([[20250602, day2], [20240101, day3]]));
+  assert.equal(countPhotos([1, 2], mem.members, mem.members), 1, "間引かれても1枚");
+  assert.equal(countPhotos([1, 2, 4], mem.members, mem.members), 2);
+  // 比べ: 読み込み済みの日だけの索引では数えられない（これが直す前の「2枚」の源）
+  const onlyLoaded = new Set([3]);
+  assert.equal(countPhotos([1, 2], new Map([[3, [3]]]), onlyLoaded), null);
+  // 一度も読んでいない日の id は、今までどおり数えられない
+  assert.equal(countPhotos([1, 2, 99], mem.members, mem.members), null);
+});
+
+test("重ねの記憶: その日を読み直したら、覚え直す（組が割れた・消えた id を残さない）", () => {
+  const mem = newStackMemory();
+  rememberStacks(mem, new Map([[1, stacksOfDay([f(1, 7, false, "A.JPG"), f(2, 7, true, "A.CR3")], { rawJpeg: true })]]));
+  assert.equal(countPhotos([1, 2], mem.members, mem.members), 1);
+  // 重ねを切って読み直した: 2枚は別のタイル
+  rememberStacks(mem, new Map([[1, stacksOfDay([f(1, 7, false, "A.JPG"), f(2, 7, true, "A.CR3")], { rawJpeg: false })]]));
+  assert.equal(countPhotos([1, 2], mem.members, mem.members), 2);
+  // CR3 を消して読み直した: 2 はもう居ない
+  rememberStacks(mem, new Map([[1, stacksOfDay([f(1, 7, false, "A.JPG")], { rawJpeg: true })]]));
+  assert.equal(mem.members.has(2), false);
+  // 同じ配列をもう一度渡しても覚え直さない（中身は変わらない）
+  const same = stacksOfDay([f(5, 9, false, "C.JPG")], { rawJpeg: true });
+  rememberStacks(mem, new Map([[2, same]]));
+  mem.members.delete(5);
+  rememberStacks(mem, new Map([[2, same]]));
+  assert.equal(mem.members.has(5), false, "同じ配列は読み飛ばす");
 });
