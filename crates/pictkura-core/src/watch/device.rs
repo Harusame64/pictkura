@@ -13,6 +13,18 @@
 //! | `QUERYREMOVEFAILED` | 他が断った。古い届け出を外し、開き直して届け出し直し、監視に戻す（開けなければ下の確かめへ回す） |
 //! | `REMOVEPENDING` / `REMOVECOMPLETE` | 外れた。届け出を外す（抜かれたときはハンドルも閉じ、監視も外す） |
 //! | 差し込み（ボリュームの `ARRIVAL`） | 0.5 秒ごとに確かめ、戻ったルートを監視に入れて届け出る |
+//! | `CUSTOMEVENT` の `VOLUME_LOCK` / `VOLUME_DISMOUNT` | `QUERYREMOVE` と同じ（手放す・届け出は残す） |
+//! | `CUSTOMEVENT` の `VOLUME_LOCK_FAILED` / `VOLUME_DISMOUNT_FAILED` | `QUERYREMOVEFAILED` と同じ（戻す） |
+//! | `CUSTOMEVENT` の `VOLUME_UNLOCK` | 取り外し中の印を下ろし、**確かめに回す**（その場では戻さない） |
+//! | `CUSTOMEVENT` の `VOLUME_MOUNT` | 確かめに回す（カードを差し直したとき、`ARRIVAL` は来ない） |
+//!
+//! **カードリーダーの SD は `QUERYREMOVE` を通らない**（dev #38）。取り出しは「メディアの取り出し」で、
+//! デバイスは残る——ボリュームのロック（`FSCTL_LOCK_VOLUME`）が開いたハンドルで失敗し、「使用中」の
+//! 画面になっていた。ロックの知らせは、ディレクトリのハンドルの届け出に `DBT_CUSTOMEVENT` で届く
+//! （win の spike: `dev/spikes/usb-eject/results-38.md`）。**`UNLOCK` は取り出しが通ったあとにも**
+//! 70 ms ほど遅れて来るので、そこで張り直すと手放したハンドルをまた握る。確かめ（0.5 秒後に
+//! ルートが見えるか）に回せば、取り出したあとはボリュームが消えていて張り直さず、別の理由の
+//! ロック（点検など）なら見えたままなので戻る
 //!
 //! **外すのも戻すのもルート1つずつ**（`Watching::unwatch_root` / `watch_root`）。まるごと作り直すと、
 //! ほかのルートの束ねる前のイベントまで捨てる（#161 のゲート2）。**取り外し中のルートは確かめで
@@ -31,6 +43,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
+use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::{
     CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, LPARAM, LRESULT, WPARAM,
 };
@@ -44,11 +57,13 @@ use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
     PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SetTimer,
-    TranslateMessage, UnregisterDeviceNotification, DBT_DEVICEARRIVAL, DBT_DEVICEQUERYREMOVE,
-    DBT_DEVICEQUERYREMOVEFAILED, DBT_DEVICEREMOVECOMPLETE, DBT_DEVICEREMOVEPENDING,
-    DBT_DEVTYP_DEVICEINTERFACE, DBT_DEVTYP_HANDLE, DEVICE_NOTIFY_WINDOW_HANDLE,
-    DEV_BROADCAST_DEVICEINTERFACE_W, DEV_BROADCAST_HANDLE, DEV_BROADCAST_HDR, HDEVNOTIFY,
-    HWND_MESSAGE, MSG, WM_CLOSE, WM_DESTROY, WM_DEVICECHANGE, WM_TIMER, WNDCLASSW,
+    TranslateMessage, UnregisterDeviceNotification, DBT_CUSTOMEVENT, DBT_DEVICEARRIVAL,
+    DBT_DEVICEQUERYREMOVE, DBT_DEVICEQUERYREMOVEFAILED, DBT_DEVICEREMOVECOMPLETE,
+    DBT_DEVICEREMOVEPENDING, DBT_DEVTYP_DEVICEINTERFACE, DBT_DEVTYP_HANDLE,
+    DEVICE_NOTIFY_WINDOW_HANDLE, DEV_BROADCAST_DEVICEINTERFACE_W, DEV_BROADCAST_HANDLE,
+    DEV_BROADCAST_HDR, GUID_IO_VOLUME_DISMOUNT, GUID_IO_VOLUME_DISMOUNT_FAILED,
+    GUID_IO_VOLUME_LOCK, GUID_IO_VOLUME_LOCK_FAILED, GUID_IO_VOLUME_MOUNT, GUID_IO_VOLUME_UNLOCK,
+    HDEVNOTIFY, HWND_MESSAGE, MSG, WM_CLOSE, WM_DESTROY, WM_DEVICECHANGE, WM_TIMER, WNDCLASSW,
 };
 
 use notify_debouncer_mini::notify::windows::{MetaEvent, ReadDirectoryChangesWatcher};
@@ -345,6 +360,48 @@ unsafe fn entry_of(st: &mut State, lparam: LPARAM) -> Option<usize> {
         .position(|e| !e.notify.is_null() && e.notify == h.dbch_hdevnotify)
 }
 
+/// GUID が同じか（windows-sys の `GUID` は `PartialEq` を持たない）
+fn same_guid(a: &GUID, b: &GUID) -> bool {
+    a.data1 == b.data1 && a.data2 == b.data2 && a.data3 == b.data3 && a.data4 == b.data4
+}
+
+/// `DBT_CUSTOMEVENT` の知らせの種類（ハンドルの届け出に来るもの）
+unsafe fn event_guid(lparam: LPARAM) -> Option<GUID> {
+    if lparam == 0 {
+        return None;
+    }
+    let hdr = &*(lparam as *const DEV_BROADCAST_HDR);
+    if hdr.dbch_devicetype != DBT_DEVTYP_HANDLE {
+        return None;
+    }
+    Some((*(lparam as *const DEV_BROADCAST_HANDLE)).dbch_eventguid)
+}
+
+/// ボリュームのロックの知らせ（カードリーダーの SD の取り出し、dev #38）
+fn on_volume_event(st: &mut State, i: usize, guid: &GUID) {
+    if same_guid(guid, &GUID_IO_VOLUME_LOCK) || same_guid(guid, &GUID_IO_VOLUME_DISMOUNT) {
+        // QUERYREMOVE と同じ: そのルートだけ監視から外し、ハンドルを閉じる。届け出は残す
+        st.entries[i].ejecting = true;
+        disarm_watch(st, i);
+        close_dir(&mut st.entries[i]);
+    } else if same_guid(guid, &GUID_IO_VOLUME_LOCK_FAILED)
+        || same_guid(guid, &GUID_IO_VOLUME_DISMOUNT_FAILED)
+    {
+        // 他が断った（取り出しは起きなかった）: QUERYREMOVEFAILED と同じく戻す
+        st.entries[i].ejecting = false;
+        arm(st, i);
+        if !st.entries[i].watched && !st.entries[i].remote {
+            start_rearm(st);
+        }
+    } else if same_guid(guid, &GUID_IO_VOLUME_UNLOCK) || same_guid(guid, &GUID_IO_VOLUME_MOUNT) {
+        // その場では戻さない（UNLOCK は取り出しが通ったあとにも来る）。確かめに回す
+        st.entries[i].ejecting = false;
+        if rearmable(&st.entries[i]) {
+            start_rearm(st);
+        }
+    }
+}
+
 fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let Ok(event) = u32::try_from(wparam) else {
         return BROADCAST_QUERY_ALLOW;
@@ -379,6 +436,11 @@ fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 disarm_watch(st, i);
                 unregister(&mut st.entries[i]);
                 close_dir(&mut st.entries[i]);
+            }
+        }
+        DBT_CUSTOMEVENT => {
+            if let (Some(i), Some(guid)) = unsafe { (entry_of(st, lparam), event_guid(lparam)) } {
+                on_volume_event(st, i, &guid);
             }
         }
         // ボリュームがまだ見えていないことがあるので、少しずつ確かめる
