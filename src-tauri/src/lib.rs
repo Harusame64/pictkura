@@ -186,8 +186,9 @@ struct ScanUnreadable {
 
 /// 走査の結果から、開けなかった場所の控えを更新する。
 ///
-/// **全ルートを走った走査のときだけ呼ぶこと**（`scan_and_apply_root` は
-/// 1ルートしか見ていないので、ここで置き換えると他のルートの記録が消える）。
+/// `roots` には**その走査が実際に走ったルート**を渡す。控えは混ぜる（[`merged_unreadable`]）ので、
+/// 走らなかったルートの控えは残る——戻ってきたドライブだけを読み直す走査（[`scan_returned_roots`]）
+/// もここを通す（#162 の codex）。`scan_and_apply_root`（取り込み直後）は今も通さない
 fn remember_unreadable(
     state: &AppState,
     outcome: &pictkura_core::PrunedScanOutcome,
@@ -3332,6 +3333,10 @@ fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats,
         &config.library.exclude_patterns,
         &known_dirs,
     );
+    // **開けなかったフォルダの控えは先に混ぜる**（下でフォルダの記録を空にする前に）。一覧が空の
+    // ときの説明は、ルートの直下しか見ないので、奥の開けないフォルダはこの控えだけが知っている
+    // （#162 の codex、2周目）
+    remember_unreadable(state, &outcome, roots);
     outcome.ok_roots.clear();
     outcome.seen_dirs.clear();
     outcome.enumerated_dirs.clear();
@@ -6788,6 +6793,34 @@ mod tests {
         let after = merged_unreadable(&known, &found_again, std::slice::from_ref(&root));
         assert_eq!(after.dirs, vec![locked], "同じ場所を2度並べない");
         assert_eq!(after.total, 1);
+    }
+
+    /// 一部のルートだけを走った走査（差し直したドライブの読み直し、#162）でも、
+    /// **走らなかったルートの控えは残る**。走ったルートの控えは今回の結果で置き換わる
+    #[test]
+    fn a_scan_of_some_roots_keeps_what_we_knew_about_the_others() {
+        use super::{merged_unreadable, ScanUnreadable};
+        use pictkura_core::PrunedScanOutcome;
+
+        let card = std::path::PathBuf::from("/Volumes/SD/DCIM");
+        let other = std::path::PathBuf::from("/home/me/Pictures");
+        let locked_other = other.join("非公開");
+        let locked_card = card.join("100CANON");
+        let known = ScanUnreadable {
+            dirs: vec![locked_other.clone(), locked_card.clone()],
+            total: 2,
+        };
+        // カードだけを走り、カードの中は開けた（直った）
+        let card_only = PrunedScanOutcome {
+            enumerated_dirs: vec![card.clone()],
+            ..Default::default()
+        };
+        let after = merged_unreadable(&known, &card_only, std::slice::from_ref(&card));
+        assert_eq!(
+            after.dirs,
+            vec![locked_other],
+            "走らなかったルートの控えは残す"
+        );
     }
 
     /// **「ほか N件」は在りもしない場所を指してはいけない。**
