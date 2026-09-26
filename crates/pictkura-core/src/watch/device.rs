@@ -78,6 +78,13 @@ pub struct AckedWatcher {
 }
 
 impl AckedWatcher {
+    /// 落とすまでは必ず在る。無ければ（落とした後に呼ばれた）失敗として返す
+    fn inner(&mut self) -> notify_debouncer_mini::notify::Result<&mut ReadDirectoryChangesWatcher> {
+        self.inner
+            .as_mut()
+            .ok_or_else(|| notify_debouncer_mini::notify::Error::generic("watcher already dropped"))
+    }
+
     fn wait_closed(&self, mut n: usize) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while n > 0 {
@@ -112,25 +119,20 @@ impl Watcher for AckedWatcher {
         path: &Path,
         mode: RecursiveMode,
     ) -> notify_debouncer_mini::notify::Result<()> {
-        let inner = self.inner.as_mut().expect("落とすまで在る");
-        inner.watch(path, mode)?;
+        self.inner()?.watch(path, mode)?;
         self.live += 1;
         Ok(())
     }
 
     fn unwatch(&mut self, path: &Path) -> notify_debouncer_mini::notify::Result<()> {
-        let inner = self.inner.as_mut().expect("落とすまで在る");
-        inner.unwatch(path)?;
+        self.inner()?.unwatch(path)?;
         self.live = self.live.saturating_sub(1);
         self.wait_closed(1);
         Ok(())
     }
 
     fn configure(&mut self, config: Config) -> notify_debouncer_mini::notify::Result<bool> {
-        self.inner
-            .as_mut()
-            .expect("落とすまで在る")
-            .configure(config)
+        self.inner()?.configure(config)
     }
 
     fn kind() -> WatcherKind {
