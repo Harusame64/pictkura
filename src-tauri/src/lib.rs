@@ -3826,7 +3826,7 @@ struct DriveDto {
 /// なお OneDrive や iCloud Drive は**ドライブではなくCドライブ上のフォルダ**なので
 /// ここでは判別できない（実体の有無はファイル属性で見る: `browse::SourceFile::offline`）。
 #[cfg(windows)]
-fn drive_kind(mount: &Path, removable: bool) -> &'static str {
+fn drive_kind(mount: &Path, removable: bool, _file_system: &str) -> &'static str {
     use std::os::windows::ffi::OsStrExt;
     const DRIVE_REMOVABLE: u32 = 2;
     const DRIVE_FIXED: u32 = 3;
@@ -3850,14 +3850,30 @@ fn drive_kind(mount: &Path, removable: bool) -> &'static str {
     }
 }
 
-/// Windows以外は種別APIが共通化されていないため、removableの申告だけを使う。
+/// Windows以外は種別APIが共通化されていないため、removableの申告と、**ファイルシステムの名前**
+/// を使う。ネットワークのマウント（SMB・NFS 等）を `fixed` と言うと、差し直しの読み直し（dev #36）や
+/// 取り込み元の一覧が、つながり直すたびにネットワーク越しに読みに行く（#162 の codex、5周目）
 #[cfg(not(windows))]
-fn drive_kind(_mount: &Path, removable: bool) -> &'static str {
-    if removable {
+fn drive_kind(_mount: &Path, removable: bool, file_system: &str) -> &'static str {
+    if is_network_file_system(file_system) {
+        "network"
+    } else if removable {
         "removable"
     } else {
         "fixed"
     }
+}
+
+/// ネットワーク越しのファイルシステムの名前か（macOS の `smbfs`・`nfs`・`afpfs`・`webdav`、
+/// Linux の `cifs`・`smb3`・`nfs4`・`fuse.sshfs` など）。大小は区別しない
+#[cfg_attr(windows, allow(dead_code))]
+fn is_network_file_system(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "smbfs" | "nfs" | "nfs4" | "afpfs" | "webdav" | "cifs" | "smb3" | "smb2" | "9p" | "ftp"
+    ) || name.starts_with("fuse.sshfs")
+        || name == "sshfs"
 }
 
 /// 接続中のドライブ一覧を返す。フロントがポーリングしてUSB挿入を検知する。
@@ -3880,7 +3896,7 @@ fn list_drives() -> Vec<DriveDto> {
                 return None;
             }
             let label = drive_label(&d.name().to_string_lossy(), &mount);
-            let kind = drive_kind(&mount, d.is_removable());
+            let kind = drive_kind(&mount, d.is_removable(), &d.file_system().to_string_lossy());
             Some(DriveDto {
                 label,
                 path: mount.to_string_lossy().into_owned(),
@@ -5951,6 +5967,35 @@ mod tests {
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// ネットワーク越しのファイルシステムの名前（#162 の codex、5周目）。ローカルの形式は含めない
+    #[test]
+    fn network_file_systems_are_named_as_network() {
+        for fs in [
+            "smbfs",
+            "nfs",
+            "NFS4",
+            "afpfs",
+            "webdav",
+            "cifs",
+            "smb3",
+            "fuse.sshfs",
+        ] {
+            assert!(super::is_network_file_system(fs), "{fs}");
+        }
+        for fs in [
+            "apfs",
+            "hfs",
+            "msdos",
+            "exfat",
+            "ntfs",
+            "ext4",
+            "fuse.exfat",
+            "",
+        ] {
+            assert!(!super::is_network_file_system(fs), "{fs}");
+        }
     }
 
     /// 差し込まれたドライブの上のフォルダか（dev #36）。要素の境目まで見る・`/` だけのドライブは何も持たない。
