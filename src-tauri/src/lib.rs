@@ -3323,30 +3323,6 @@ struct ReturnedRootsDto {
 /// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
 /// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
 /// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（[`drop_untrusted_known_dirs`]）
-/// フォルダの更新時刻が、中のファイルを足す・消すたびに動くと分かっているファイルシステムか。
-///
-/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）はこの前提に乗っている。**FAT32 と exFAT は
-/// 動かない**——Windows で、フォルダの中へ写真を足しても消しても `LastWriteTime` は作った時刻のまま
-/// だった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半がこの形式なので、枝刈りすると
-/// **抜いていた間に足した写真を見つけない**。分からない形式も信用しない側に倒す
-fn dir_mtime_is_reliable(file_system: &str) -> bool {
-    matches!(
-        file_system.to_ascii_lowercase().as_str(),
-        "ntfs"
-            | "refs"
-            | "apfs"
-            | "hfs"
-            | "hfs+"
-            | "ext2"
-            | "ext3"
-            | "ext4"
-            | "btrfs"
-            | "xfs"
-            | "zfs"
-            | "f2fs"
-    )
-}
-
 /// ルートが載っているファイルシステムの名前（いちばん深く一致するマウントポイントのもの）。
 /// 見つからなければ空（＝信用しない）
 fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
@@ -3358,11 +3334,22 @@ fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
         .unwrap_or_default()
 }
 
-/// 枝刈りしてよいファイルシステムか。フォルダの更新時刻が信用できる形式（[`dir_mtime_is_reliable`]）か、
-/// **ネットワークの共有**（時刻はサーバ側のファイルシステムが持つ——NAS の多くは NTFS・ext4・btrfs・ZFS）。
-/// 共有を外すと、NAS のルートを起動のたびに全部読むことになる
+/// 枝刈りしてよいファイルシステムか。**FAT の系統（FAT12/16/32・vfat・msdos・exFAT）と分かったときだけ否**。
+///
+/// 枝刈り（前の走査と同じ更新時刻のフォルダは中を見ない）は「フォルダの時刻は中身を足し引きすると動く」に
+/// 乗っている。**FAT32 と exFAT は動かない**——Windows で、フォルダの中へ写真を足しても消しても
+/// `LastWriteTime` は作った時刻のままだった（win の実測、dev `9e9f44e`）。USB メモリと SD カードの大半が
+/// この形式なので、枝刈りすると抜いていた間・閉じていた間に足した写真を見つけない。macOS の msdos は
+/// 動くが（Mac の FAT32 イメージで実測）、同じ系統として扱う
+///
+/// **分からない名前は信用する側**に倒す。Windows のネットワークドライブ（割り当て・UNC）は sysinfo の
+/// 一覧に出ない（0.33 は DRIVE_FIXED と DRIVE_REMOVABLE しか数えない）ので名前が空になり、信用しない側に
+/// 倒すと、NAS のルートを起動のたびに全部読むことになっていた（#165 の codex）
 fn pruning_is_safe_on(file_system: &str) -> bool {
-    dir_mtime_is_reliable(file_system) || is_network_file_system(file_system)
+    !matches!(
+        file_system.to_ascii_lowercase().as_str(),
+        "fat" | "fat12" | "fat16" | "fat32" | "vfat" | "msdos" | "exfat"
+    )
 }
 
 /// 枝刈りの記録（`known_dirs`）から、**枝刈りしてはいけないルートの中のフォルダ**を外す（dev #37）。
@@ -6037,29 +6024,15 @@ mod tests {
         parts.iter().map(|s| s.to_string()).collect()
     }
 
-    /// 枝刈りしてよい形式: 時刻が動く形式と、ネットワークの共有（NAS を起動のたびに全部読まない）。
-    /// FAT・exFAT・分からない名前はしない（dev #37）
+    /// 枝刈りしないのは FAT の系統と分かったときだけ（dev #37）。**分からない名前（空）は信用する**——
+    /// Windows のネットワークドライブは sysinfo に出ず名前が空になる。NAS を起動のたびに全部読まない（#165 の codex）
     #[test]
-    fn pruning_is_safe_on_trusted_and_network_file_systems_only() {
-        for fs in ["NTFS", "apfs", "ext4", "smbfs", "nfs", "cifs"] {
-            assert!(super::pruning_is_safe_on(fs), "{fs}");
+    fn pruning_is_skipped_only_on_the_fat_family() {
+        for fs in ["NTFS", "apfs", "ext4", "smbfs", "nfs", "cifs", ""] {
+            assert!(super::pruning_is_safe_on(fs), "{fs:?}");
         }
-        for fs in ["FAT32", "exFAT", "msdos", "vfat", ""] {
+        for fs in ["FAT32", "FAT", "exFAT", "msdos", "vfat", "fat16"] {
             assert!(!super::pruning_is_safe_on(fs), "{fs}");
-        }
-    }
-
-    /// フォルダの更新時刻を信用してよい形式（#162 の win の実測: FAT32・exFAT は動かない）。
-    /// 分からない名前も信用しない
-    #[test]
-    fn only_file_systems_that_update_folder_times_are_trusted_for_pruning() {
-        for fs in ["NTFS", "ntfs", "apfs", "hfs", "ext4", "btrfs", "ReFS"] {
-            assert!(super::dir_mtime_is_reliable(fs), "{fs}");
-        }
-        for fs in [
-            "FAT32", "exFAT", "msdos", "vfat", "fat", "exfat", "fuseblk", "",
-        ] {
-            assert!(!super::dir_mtime_is_reliable(fs), "{fs}");
         }
     }
 
