@@ -1668,35 +1668,37 @@ export default function App() {
      */
     let seen: Set<string> | null = null;
     /**
-     * 差し込んだ直後で、上のフォルダがまだ見えなかったドライブ → 残りの訊き直しの回数。
-     * **回数に上限を持つ**（見えないまま差さっているドライブを、ずっと訊き続けない）
+     * 訊くドライブの待ち行列: 新しく現れたドライブ → 残りの回数。**回数に上限を持つ**（見えないまま
+     * 差さっているドライブを、ずっと訊き続けない）。**1度に1つの問いしか出さない**——FAT32・exFAT は
+     * 中を全部読むので5秒を超えることがあり、重ねて出すと同じ全走査が走査の鍵の後ろに並ぶ
+     * （#162 の codex、7周目）
      */
-    const retry = new Map<string, number>();
+    const queue = new Map<string, number>();
+    let inFlight = false;
     const load = async () => {
       try {
         const list = await listDrives();
         const now = new Set(list.map((d) => d.path));
-        for (const p of retry.keys()) if (!now.has(p)) retry.delete(p);
+        for (const p of queue.keys()) if (!now.has(p)) queue.delete(p);
         if (seen !== null && !stopped) {
           // **ネットワークのドライブは渡さない**（つながり直すたびに全部を読み直さない。
           // 取り込み元の一覧もネットワークには勝手に触らない）
-          const added = list
-            .filter((d) => d.kind !== "network" && !seen?.has(d.path))
-            .map((d) => d.path);
-          const again = [...retry.keys()];
-          const ask = [...new Set([...added, ...again])];
-          if (ask.length > 0) {
-            for (const p of again) {
-              const left = (retry.get(p) ?? 1) - 1;
-              if (left > 0) retry.set(p, left);
-              else retry.delete(p);
-            }
+          for (const d of list)
+            if (d.kind !== "network" && !seen.has(d.path) && !queue.has(d.path))
+              queue.set(d.path, 3);
+          if (!inFlight && queue.size > 0) {
+            const ask = [...queue.keys()];
+            inFlight = true;
             void onDrivesAddedRef.current(ask).then((pending) => {
-              // どのドライブが見えなかったかは分からないので、今回訊いたもの全部を訊き直す。
-              // **全部見えたら訊き直しをやめる**——読み直しはフォルダの更新時刻を記録しないので、
+              inFlight = false;
+              // どのドライブが見えなかったかは分からないので、訊いたもの全部を同じに扱う。
+              // **全部見えたら行列から外す**——読み直しはフォルダの更新時刻を記録しないので、
               // 続けると同じフォルダを毎回列挙し直す（#162 の codex、3周目）
-              if (pending) for (const p of added) retry.set(p, 3);
-              else for (const p of ask) retry.delete(p);
+              for (const p of ask) {
+                const left = (queue.get(p) ?? 1) - 1;
+                if (pending && left > 0) queue.set(p, left);
+                else queue.delete(p);
+              }
             });
           }
         }
