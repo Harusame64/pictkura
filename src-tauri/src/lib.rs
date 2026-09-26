@@ -451,6 +451,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         // 判定はルートだけで決まるので**ループの外で1回**（イベントごとに
         // 全構成要素を舐め直さない）
         let package_roots = managed_package_roots(&config);
+        // ルートが確かに在るか（消えたパスの判断に使う。束の中で同じルートを何度も訊かない）
+        let mut root_present: HashMap<PathBuf, bool> = HashMap::new();
         for p in paths {
             if scanner::is_excluded_path(&p, &config.library.exclude_patterns) {
                 continue;
@@ -475,9 +477,18 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
                     changed |= upsert_if_changed(&mut db, f);
                 }
             } else {
-                // パスが消えた: そのパス＋配下のレコードを削除。**ただしドライブが外れただけなら消さない**
-                // （[`vanished_path_is_a_deletion`]）
-                if !vanished_path_is_a_deletion(&p, &config.library.roots, |r| r.is_dir()) {
+                // パスが消えた: そのパス＋配下のレコードを削除。**ただし「確かに無い」ときだけ**——抜いた直後は
+                // 読み出しが EIO で落ち、それを「無い」と読むと消してしまう。**ドライブが外れただけなら
+                // 消さない**（[`vanished_path_is_a_deletion`]）。ルートが在るかは束の中で1回だけ訊く
+                if !matches!(p.try_exists(), Ok(false)) {
+                    continue;
+                }
+                let is_deletion = vanished_path_is_a_deletion(&p, &config.library.roots, |r| {
+                    *root_present
+                        .entry(r.to_path_buf())
+                        .or_insert_with(|| matches!(r.try_exists(), Ok(true)))
+                });
+                if !is_deletion {
                     continue;
                 }
                 if let Ok(n) = db.remove_by_prefix(&p) {
@@ -498,28 +509,35 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
 /// 監視が「消えた」と言ったパスを、**本当に消えた**と読んでよいか。
 ///
 /// **ルートごと見えなくなったなら、ドライブが外れただけ**——消さない。root がボリュームそのもの
-/// （`/Volumes/SD`・`G:\`）だと、取り出したときに監視が root 自身の消失を報せ、`remove_by_prefix` が
+/// （`/Volumes/SD`・`G:\\`）だと、取り出したときに監視が root 自身の消失を報せ、`remove_by_prefix` が
 /// そのルートの行を ★・⚑ ごと全部消していた（v0.1 から。2026-09-26 に Mac の実機の SD で見つけ、
 /// ディスクイメージで再現: root がボリュームなら消え、中のフォルダなら残った）。走査も、見えない
 /// ルートの行は残す（`db.rs` の `root_case_sql`）ので、それとそろえる。
 ///
-/// - 消えたパスが**ルートかその上**（マウントポイント等）なら、消さない
-/// - ルートの中のパスなら、**そのルートが見えるときだけ**消す（見えなければドライブが外れた）
-/// - どのルートとも関係の無いパスは、今までどおり消してよい（行が在るとすれば古い残り）
+/// 判断は**そのパスを含むいちばん深いルート**で決める（`root_case_sql` と同じ。入れ子の内側の
+/// ルートが、外側のルートでの本当の削除を止めないように——#163 のゲート2）:
+/// - ルートの中のパスなら、**そのルートが確かに在るときだけ**消す
+/// - ルートそのものなら、消さない（ドライブが外れたのと見分けられない。フォルダを消したのなら、
+///   左の一覧に「見つかりません」と出て、そこから外せる——走査と同じ扱い）
+/// - どのルートの中でもないパスは、どれかのルートの**上**（マウントポイント等）なら消さず、
+///   そうでなければ今までどおり消す
+///
+/// 比べ方は [`is_under_any_by_spelling`]（要素ごと・Windows は大小を区別しない）
 fn vanished_path_is_a_deletion(
     path: &Path,
     roots: &[PathBuf],
-    root_is_present: impl Fn(&Path) -> bool,
+    mut root_is_present: impl FnMut(&Path) -> bool,
 ) -> bool {
-    for root in roots {
-        if root.starts_with(path) {
-            return false;
-        }
-        if path.starts_with(root) && !root_is_present(root) {
-            return false;
-        }
+    let under = |p: &Path, dir: &Path| is_under_any_by_spelling(p, &[dir.to_path_buf()]);
+    let deepest = roots
+        .iter()
+        .filter(|r| under(path, r))
+        .max_by_key(|r| path_parts(r).len());
+    match deepest {
+        Some(root) if path_parts(root) == path_parts(path) => false,
+        Some(root) => root_is_present(root),
+        None => !roots.iter().any(|r| under(r, path)),
     }
-    true
 }
 
 /// 同期後にメタデータ未抽出分（＋即席サムネイル生成）をワーカーへ投入する。
@@ -6124,6 +6142,38 @@ mod tests {
         }
     }
 
+    /// 監視の「消えた」を削除と読むか。**ルートごと見えないならドライブが外れただけ**（消さない）。
+    /// 在るかを訊く相手は**そのルート**（消えたパスではない）——見えるかの答えをルートごとに変えて見る
+    #[test]
+    fn a_vanished_root_or_its_drive_is_not_a_deletion() {
+        use std::path::{Path, PathBuf};
+        let roots = [
+            PathBuf::from("/Volumes/SD"),
+            PathBuf::from("/Volumes/USB/DCIM"),
+            PathBuf::from("/Photos"),
+            PathBuf::from("/Photos/2024/Trip"),
+            // 外側のルートの中にマウントされたカード（内側のルート）
+            PathBuf::from("/Photos/Card"),
+        ];
+        // 外れているのは SD と、/Photos の中のカード。ほかは見える
+        let present = |r: &Path| r != Path::new("/Volumes/SD") && r != Path::new("/Photos/Card");
+        let del = |p: &str| super::vanished_path_is_a_deletion(Path::new(p), &roots, present);
+        // ルートそのもの・その上（マウントポイント）の消失は、削除ではない
+        assert!(!del("/Volumes/SD"));
+        assert!(!del("/Volumes/USB"));
+        assert!(!del("/Volumes/USB/DCIM"));
+        // ルートの中: そのルートが外れていれば消さない、見えていれば本当に消えた
+        assert!(!del("/Volumes/SD/DCIM/100CANON"));
+        assert!(del("/Volumes/USB/DCIM/IMG_1.JPG"));
+        // 入れ子: 外側の中で内側の上のフォルダを消したのは、外側での本当の削除（内側に止めさせない）
+        assert!(del("/Photos/2024"));
+        assert!(del("/Photos/2024/Trip/a.jpg"));
+        // 入れ子: 判断するのは**いちばん深い**ルート。外側が見えていても、内側のカードが外れていれば消さない
+        assert!(!del("/Photos/Card/DCIM/a.jpg"));
+        // 名前が前方一致するだけの隣は、そのルートの中ではない（要素ごとに比べる）
+        assert!(del("/Volumes/SD2/x.jpg"));
+    }
+
     /// **原点が3つあって、どれも一致しない。** ここで両OSぶんを1か所に並べて見る
     /// ——`cfg` の中に書くと、片方のゲートはもう片方の式を1行も見ない。
     ///
@@ -6132,30 +6182,6 @@ mod tests {
     /// | Win32 `LOCALE_IFIRSTDAYOFWEEK` | 0 | 6 |
     /// | CoreFoundation | 2 | 1 |
     /// | `Date.getDay()`（渡す形） | 1 | 0 |
-    /// 監視の「消えた」を削除と読むか。**ルートごと見えないならドライブが外れただけ**（消さない）
-    #[test]
-    fn a_vanished_root_or_its_drive_is_not_a_deletion() {
-        use std::path::PathBuf;
-        let roots = [
-            PathBuf::from("/Volumes/SD"),
-            PathBuf::from("/Volumes/USB/DCIM"),
-        ];
-        let gone = |_: &std::path::Path| false;
-        let there = |_: &std::path::Path| true;
-        let del = |p: &str, present: &dyn Fn(&std::path::Path) -> bool| {
-            super::vanished_path_is_a_deletion(std::path::Path::new(p), &roots, present)
-        };
-        // ルートそのもの・その上（マウントポイント）の消失は、削除ではない
-        assert!(!del("/Volumes/SD", &there));
-        assert!(!del("/Volumes/USB", &there));
-        // ルートの中: ルートが見えなければ外れただけ、見えるなら本当に消えた
-        assert!(!del("/Volumes/SD/DCIM/100CANON", &gone));
-        assert!(del("/Volumes/SD/DCIM/100CANON", &there));
-        assert!(del("/Volumes/USB/DCIM/IMG_1.JPG", &there));
-        // 名前が前方一致するだけの隣は別のルート扱いにしない（要素ごとに比べる）
-        assert!(del("/Volumes/SD2/x.jpg", &gone));
-    }
-
     #[test]
     fn the_first_weekday_arrives_on_the_calendars_own_origin() {
         // Win32 は月曜が 0。**素通しすると日曜始まりのカレンダーになる**ので、
