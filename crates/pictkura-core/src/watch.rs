@@ -56,6 +56,9 @@ impl LibraryWatcher {
         }
         if let Ok(mut w) = self.watching.lock() {
             for root in roots {
+                // **張り直す**（外してから張る）——前に監視していたルートは、ドライブが外れても
+                // 覚えたままなので、そのままだと「もう張っている」と飛ばしてしまう（#164 のゲート2）
+                w.unwatch_root(root);
                 w.watch_root(root);
             }
         }
@@ -303,6 +306,47 @@ mod tests {
         ] {
             assert_eq!(root_location(path), want, "{path}");
         }
+    }
+
+    /// 起動時に無かったルートは監視していない。**あとから現れたら `watch_returned` で監視に入る**
+    /// （dev #38 の U7）。同じルートを2回渡しても、イベントは届き続ける（張り直す）
+    #[test]
+    fn a_root_that_appears_after_start_is_watched_once_returned() {
+        let base = tempfile::tempdir().unwrap();
+        let late = base.path().join("card");
+        let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+        let watcher = watch_roots(
+            std::slice::from_ref(&late),
+            Duration::from_millis(150),
+            move |p| {
+                let _ = tx.send(p);
+            },
+        )
+        .unwrap();
+        assert!(watcher.watched_roots.is_empty(), "起動時には無い");
+        std::fs::create_dir_all(&late).unwrap();
+        let saw = |name: &str| -> bool {
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+                match rx.recv_timeout(left) {
+                    Ok(batch) if batch.iter().any(|p| p.to_string_lossy().contains(name)) => {
+                        return true
+                    }
+                    Ok(_) => continue,
+                    Err(_) => return false,
+                }
+            }
+            false
+        };
+        // 渡す前は監視していない（対照）
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::write(late.join("before.jpg"), b"x").unwrap();
+        assert!(!saw("before.jpg"), "watch_returned の前は届かない");
+        watcher.watch_returned(std::slice::from_ref(&late));
+        watcher.watch_returned(std::slice::from_ref(&late));
+        std::thread::sleep(Duration::from_millis(300));
+        std::fs::write(late.join("after.jpg"), b"x").unwrap();
+        assert!(saw("after.jpg"), "watch_returned のあとは届く");
     }
 
     #[test]

@@ -423,10 +423,17 @@ fn same_guid(a: &GUID, b: &GUID) -> bool {
 /// ボリュームのロックの知らせ（カードリーダーの SD の取り出し、dev #38）
 fn on_volume_event(st: &mut State, i: usize, guid: &GUID) {
     let is = |g: &GUID| same_guid(guid, g);
-    if is(&GUID_IO_VOLUME_LOCK) || is(&GUID_IO_VOLUME_DISMOUNT) {
+    if is(&GUID_IO_VOLUME_LOCK) {
         // 固定ドライブのロックでは手放さない（取り出しは起きない。戻るまでの変化を取りこぼすだけ）
         if st.entries[i].removable {
             st.entries[i].locked = true;
+            release_for_removal(st, i);
+        }
+    } else if is(&GUID_IO_VOLUME_DISMOUNT) {
+        // 手放すが、**ロック中の印は立てない**——ロック無しで来る取り外し（`fsutil volume dismount` 等）
+        // では、印を下ろす UNLOCK が来ず、印が立ったまま戻らなくなる（#164 のゲート2）。取り出しの
+        // 途中なら、先に来た LOCK が印を立てている
+        if st.entries[i].removable {
             release_for_removal(st, i);
         }
     } else if is(&GUID_IO_VOLUME_LOCK_FAILED) || is(&GUID_IO_VOLUME_DISMOUNT_FAILED) {
@@ -466,15 +473,15 @@ fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         return BROADCAST_QUERY_ALLOW;
     };
     let handle = unsafe { broadcast_handle(lparam) };
-    let entry = handle.and_then(|h| entry_of(st, h));
+    let entry = handle.and_then(|h| entry_of(st, h).map(|i| (i, h.dbch_eventguid)));
     match (event, entry) {
-        (DBT_DEVICEQUERYREMOVE, Some(i)) => {
+        (DBT_DEVICEQUERYREMOVE, Some((i, _))) => {
             // そのルートだけ監視から外し（閉じ終えるまで待つ）、ハンドルを閉じる。
             // **届け出は残す**（FAILED を受けるため）
             st.entries[i].ejecting = true;
             release_for_removal(st, i);
         }
-        (DBT_DEVICEQUERYREMOVEFAILED, Some(i)) => {
+        (DBT_DEVICEQUERYREMOVEFAILED, Some((i, _))) => {
             // 他が断った。ドライブは付いたまま——古い届け出とハンドルを外し、開き直して監視へ戻す。
             // **ハンドルも閉じてから開き直す**: QUERYREMOVE を経ずに FAILED だけが来ることがあり、
             // そのとき握ったまま上書きすると、届け出の無いハンドルが残って次の取り外しを断る
@@ -485,7 +492,7 @@ fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
                 restore_after_refusal(st, i);
             }
         }
-        (DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE, Some(i)) => {
+        (DBT_DEVICEREMOVEPENDING | DBT_DEVICEREMOVECOMPLETE, Some((i, _))) => {
             // 外れた。**いきなり抜かれた**ときは QUERYREMOVE が来ないので、ここで監視も手放す
             st.entries[i].ejecting = false;
             st.entries[i].locked = false;
@@ -493,12 +500,7 @@ fn on_device_change(st: &mut State, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
             unregister(&mut st.entries[i]);
             close_dir(&mut st.entries[i]);
         }
-        (DBT_CUSTOMEVENT, Some(i)) => {
-            if let Some(h) = handle {
-                let guid = h.dbch_eventguid;
-                on_volume_event(st, i, &guid);
-            }
-        }
+        (DBT_CUSTOMEVENT, Some((i, guid))) => on_volume_event(st, i, &guid),
         // ボリュームがまだ見えていないことがあるので、少しずつ確かめる
         (DBT_DEVICEARRIVAL, _) if st.entries.iter().any(rearmable) => start_rearm(st, REARM_TRIES),
         _ => {}
@@ -549,6 +551,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         WM_APP_REARM => {
             STATE.with(|s| {
                 if let Some(st) = s.borrow_mut().as_mut() {
+                    // ドライブが現れた。**リムーバブルの上で監視中のルートも張り直す**——取り出さずに
+                    // 差し替えたカードは、監視中のまま古いボリュームを指していることがある（#164 の
+                    // ゲート2）。取り外し中・ロック中のものには触らない
+                    for i in 0..st.entries.len() {
+                        let e = &st.entries[i];
+                        if e.watched && e.removable && !e.ejecting && !e.locked && e.path.is_dir() {
+                            arm(st, i);
+                        }
+                    }
                     if st.entries.iter().any(rearmable) {
                         start_rearm(st, REARM_TRIES);
                     }
