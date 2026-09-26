@@ -4431,11 +4431,19 @@ export default function App() {
   // スペースは動画の再生/一時停止に取られているので止める手も無くなる。
   // 代わりに動画が終わったら次へ進む（`onEnded`）。再生できない動画
   // （コンテナ違い・クラウド）は絵が出ないので、今までどおり3秒で送る
+  //
+  // **3秒は「いまの写真が出てから」数える**（表示している写真が替わるたびに張り直す）。
+  // `moveViewer` の作り直しで張り直すと、裏でサムネイルや RAW の読み直しが走っている間は
+  // `media-updated` のたびに `dayItems` が書き換わって作り直され、3秒が数え直しになり続けて
+  // 次へ進まない（実機で1コマ目に 18.7 秒。2026-09-26）。送る関数は ref で最新のものを呼ぶ
+  const moveViewerRef = useRef(moveViewer);
+  moveViewerRef.current = moveViewer;
+  const shownId = viewerItem?.id;
   useEffect(() => {
-    if (!playing || playingVideo) return;
-    const t = window.setInterval(() => moveViewer(1, true), 3000);
-    return () => window.clearInterval(t);
-  }, [playing, playingVideo, moveViewer]);
+    if (!playing || playingVideo || shownId === undefined) return;
+    const t = window.setTimeout(() => moveViewerRef.current(1, true), 3000);
+    return () => window.clearTimeout(t);
+  }, [playing, playingVideo, shownId]);
 
   useEffect(() => {
     if (viewer === null) return;
