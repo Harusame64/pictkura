@@ -61,8 +61,8 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::WindowsProgramming::{DRIVE_REMOTE, DRIVE_REMOVABLE};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
-    PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SetTimer,
-    TranslateMessage, UnregisterDeviceNotification, DBT_CUSTOMEVENT, DBT_DEVICEARRIVAL,
+    PostMessageW, PostQuitMessage, RegisterClassW, RegisterDeviceNotificationW, SendMessageW,
+    SetTimer, TranslateMessage, UnregisterDeviceNotification, DBT_CUSTOMEVENT, DBT_DEVICEARRIVAL,
     DBT_DEVICEQUERYREMOVE, DBT_DEVICEQUERYREMOVEFAILED, DBT_DEVICEREMOVECOMPLETE,
     DBT_DEVICEREMOVEPENDING, DBT_DEVTYP_DEVICEINTERFACE, DBT_DEVTYP_HANDLE,
     DEVICE_NOTIFY_WINDOW_HANDLE, DEV_BROADCAST_DEVICEINTERFACE_W, DEV_BROADCAST_HANDLE,
@@ -205,10 +205,13 @@ impl DeviceGuard {
 const WM_APP_REARM: u32 = WM_APP + 1;
 
 impl DeviceGuard {
-    /// あとから差し込まれたドライブの上のルートを、確かめに回させる（`LibraryWatcher::watch_returned`）。
-    /// 確かめは監視に入れるのと一緒に、取り外しの知らせの届け出もする
+    /// あとから差し込まれたドライブの上のルートを、監視に入れさせる（`LibraryWatcher::watch_returned`）。
+    /// 監視に入れるのと一緒に、取り外しの知らせの届け出もする。**窓が処理し終えるまで待つ**
+    /// （`SendMessageW`）——呼んだ側はこのあと読み直すので、監視が立つ前に読み直しが進むと、
+    /// 読み終えたフォルダにその間に足されたものを誰も拾わない（#164 の codex）。窓の糸は呼び手の
+    /// 鍵（`AppState::watcher`）を取らないので、待っても行き詰まらない
     pub(crate) fn rearm(&self) {
-        unsafe { PostMessageW(self.hwnd as HWND, WM_APP_REARM, 0, 0) };
+        unsafe { SendMessageW(self.hwnd as HWND, WM_APP_REARM, 0, 0) };
     }
 }
 
@@ -554,9 +557,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     // ドライブが現れた。**リムーバブルの上で監視中のルートも張り直す**——取り出さずに
                     // 差し替えたカードは、監視中のまま古いボリュームを指していることがある（#164 の
                     // ゲート2）。取り外し中・ロック中のものには触らない
+                    // **見えているものは、その場で張る**（呼び手は処理し終えるのを待っている）。
+                    // まだ見えないものだけを確かめに回す
                     for i in 0..st.entries.len() {
                         let e = &st.entries[i];
-                        if e.watched && e.removable && !e.ejecting && !e.locked && e.path.is_dir() {
+                        let stale = e.watched && e.removable && !e.ejecting && !e.locked;
+                        if (stale || rearmable(e)) && e.path.is_dir() {
                             arm(st, i);
                         }
                     }
