@@ -437,13 +437,13 @@ fn on_volume_event(st: &mut State, i: usize, guid: &GUID) {
             release_for_removal(st, i);
         }
     } else if is(&GUID_IO_VOLUME_LOCK_FAILED) || is(&GUID_IO_VOLUME_DISMOUNT_FAILED) {
-        if st.entries[i].locked {
-            st.entries[i].locked = false;
-            // **取り外し（QUERYREMOVE）の答えを待っている間は戻さない**——その印は別に持っている
-            // （#164 の codex、3周目）
-            if !st.entries[i].ejecting {
-                restore_after_refusal(st, i);
-            }
+        // ロックで手放したもの**と、ロック無しの DISMOUNT で手放したもの**（印は立てていない）を戻す
+        // （#164 の codex、最終 head）。**取り外し（QUERYREMOVE）の答えを待っている間は戻さない**
+        // ——その印は別に持っている（#164 の codex、3周目）
+        let released = st.entries[i].locked || !st.entries[i].watched;
+        st.entries[i].locked = false;
+        if released && !st.entries[i].ejecting {
+            restore_after_refusal(st, i);
         }
     } else if is(&GUID_IO_VOLUME_UNLOCK) {
         // その場では戻さない（取り出しが通ったあとにも 70 ms ほどで来る）。短い確かめに回す——取り出した
