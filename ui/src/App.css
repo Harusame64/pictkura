@@ -2720,3 +2720,91 @@ body {
   font-size: var(--fs-md);
   overflow-wrap: anywhere;
 }
+.proto-look-switch {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 4px 16px oklch(0 0 0 / 0.3);
+  font-size: var(--fs-sm);
+}
+.proto-look-switch button {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.proto-look-switch button.on {
+  background: var(--accent, #3b6fd6);
+  border-color: transparent;
+  color: #fff;
+}
+/* 試作 B: 後ろの紙を白いプリントの色にし、写真と紙に小さな影を付ける */
+.look-B .cell-wrap.stacked::before,
+.look-B .cell-wrap.stacked::after {
+  background: #fbfbf8;
+  border: none;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.45);
+}
+.look-B .cell-wrap.stacked .cell {
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.45);
+}
+/* 試作 E: 紙を描かず、写真はタイルいっぱい。右下の印だけで伝える */
+.look-E .cell-wrap.stacked {
+  --photo-inset: 0px;
+}
+.look-E .cell-wrap.stacked::before,
+.look-E .cell-wrap.stacked::after {
+  display: none;
+}
+.proto-look-switch .sep {
+  margin-left: 8px;
+}
+/* 試作: RAW+JPEG の短い形。`text` は本番（7e10d18）と同じ振る舞い */
+.pair-short {
+  display: none;
+  align-items: center;
+}
+.pair-short svg {
+  display: block;
+  margin: 2px 0;
+}
+.pairscope-all:not(.pair-text) .pair-full {
+  display: none;
+}
+.pairscope-all:not(.pair-text) .pair-short {
+  display: inline-flex;
+}
+@container (max-width: 120px) {
+  .cell-row:not(.pair-text) .cell-chips.both .chip-pair {
+    display: inline-flex;
+  }
+  .cell-row:not(.pair-text) .cell-chips.both .pair-full {
+    display: none;
+  }
+  .cell-row:not(.pair-text) .cell-chips.both .pair-short {
+    display: inline-flex;
+  }
+}
+@container (max-width: 84px) {
+  .cell-row:not(.pair-text) .pair-full {
+    display: none;
+  }
+  .cell-row:not(.pair-text) .pair-short {
+    display: inline-flex;
+  }
+  .cell-row:not(.pair-text) .cell-chip.chip-pair {
+    flex: none;
+    white-space: nowrap;
+  }
+}

@@ -2512,6 +2512,30 @@ export default function App() {
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
   // 一覧で RAW+JPEG を1枚に重ねるか（dev #32）。配ったあとに足した節なので既定は ON
   const stackRawJpeg = config?.grid?.stack_raw_jpeg ?? true;
+  /** 試作: RAW+JPEG の印の短い形（文字の2行 / R+J / 重ねの記号）と、短くする範囲（細いタイルだけ / 全部） */
+  type PairIcon = "text" | "rj" | "svg";
+  type PairScope = "narrow" | "all";
+  const readProto = <V extends string>(key: string, ok: readonly V[], dflt: V): V => {
+    try {
+      const v = localStorage.getItem(key);
+      return ok.includes(v as V) ? (v as V) : dflt;
+    } catch {
+      return dflt;
+    }
+  };
+  const [pairIcon, setPairIcon] = useState<PairIcon>(() =>
+    readProto("pk.proto.pairIcon", ["text", "rj", "svg"] as const, "svg"),
+  );
+  const [pairScope, setPairScope] = useState<PairScope>(() =>
+    readProto("pk.proto.pairScope", ["narrow", "all"] as const, "narrow"),
+  );
+  const saveProto = (key: string, v: string) => {
+    try {
+      localStorage.setItem(key, v);
+    } catch {
+      /* 覚えられなくても切り替えは効く */
+    }
+  };
   // 連写も既定で重ねる。間隔は既定1秒（ADR の設定表）
   const stackBursts = config?.grid?.stack_bursts ?? true;
   const burstGapMs = burstGapOf(config);
@@ -6071,7 +6095,7 @@ export default function App() {
                           style={{ height: row.height - GAP }}
                         />
                       ) : (
-                        <div className="cell-row" style={{ gap: GAP }}>
+                        <div className={`cell-row pair-${pairIcon} pairscope-${pairScope}`} style={{ gap: GAP }}>
                           {row.cells.map((cell) => {
                             // 重ねのタイル（dev #32）: 印も選択も**組のどれか**で見せる
                             const stacked = cell.files.length > 1;
@@ -6144,7 +6168,19 @@ export default function App() {
                                 <span className={"cell-chips" + (cell.rawPair && burst ? " both" : "")}>
                                   {cell.rawPair && (
                                     <span className="cell-chip chip-pair">
-                                      RAW+<wbr />JPEG
+                                      <span className="pair-full">
+                                        RAW+<wbr />JPEG
+                                      </span>
+                                      <span className="pair-short">
+                                        {pairIcon === "rj" ? (
+                                          "R+J"
+                                        ) : (
+                                          <svg width="13" height="11" viewBox="0 0 13 11" aria-hidden="true">
+                                            <rect x="0.75" y="0.75" width="8" height="6.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                                            <rect x="4.25" y="3.75" width="8" height="6.5" rx="1" fill="currentColor" stroke="currentColor" strokeWidth="1.3" />
+                                          </svg>
+                                        )}
+                                      </span>
                                     </span>
                                   )}
                                   {burst && !cell.rawPair && (
@@ -6875,6 +6911,50 @@ export default function App() {
         onConfigChanged={refreshRoots}
         onError={onWizardError}
       />
+      {/* 試作: RAW+JPEG の印の短い形を見比べるスイッチ（マージしない枝だけにある） */}
+      <div className="proto-look-switch" role="group" aria-label="RAW+JPEG の印（試作）">
+        <span>RAW+JPEG の印（試作）</span>
+        {(
+          [
+            ["text", "2行の文字"],
+            ["rj", "R+J"],
+            ["svg", "重ねの記号"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={pairIcon === v}
+            className={pairIcon === v ? "on" : ""}
+            onClick={() => {
+              setPairIcon(v);
+              saveProto("pk.proto.pairIcon", v);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="sep">範囲</span>
+        {(
+          [
+            ["narrow", "細いタイルだけ"],
+            ["all", "全部"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={pairScope === v}
+            className={pairScope === v ? "on" : ""}
+            onClick={() => {
+              setPairScope(v);
+              saveProto("pk.proto.pairScope", v);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <ContextMenu
         pos={menu?.pos ?? null}
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
