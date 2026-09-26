@@ -6084,9 +6084,7 @@ export default function App() {
                               key={cell.item.id}
                               className={
                                 "cell-wrap" +
-                                (cellSelected ? " picked" : "") +
-                                (stacked ? " stacked" : "") +
-                                (burst ? " burst" : "")
+                                (cellSelected ? " picked" : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
                               title={
