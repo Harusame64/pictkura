@@ -2816,3 +2816,21 @@ body {
   border-color: transparent;
   color: #fff;
 }
+/* 試作 B: 後ろの紙を白いプリントの色にし、写真と紙に小さな影を付ける */
+.look-B .cell-wrap.stacked::before,
+.look-B .cell-wrap.stacked::after {
+  background: #fbfbf8;
+  border: none;
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.45);
+}
+.look-B .cell-wrap.stacked .cell {
+  box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.45);
+}
+/* 試作 E: 紙を描かず、写真はタイルいっぱい。右下の印だけで伝える */
+.look-E .cell-wrap.stacked {
+  --photo-inset: 0px;
+}
+.look-E .cell-wrap.stacked::before,
+.look-E .cell-wrap.stacked::after {
+  display: none;
+}

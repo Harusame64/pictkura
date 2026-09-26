@@ -2516,16 +2516,16 @@ export default function App() {
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
   // 一覧で RAW+JPEG を1枚に重ねるか（dev #32）。配ったあとに足した節なので既定は ON
   const stackRawJpeg = config?.grid?.stack_raw_jpeg ?? true;
-  /** 試作: 重ねの見え方（A いま / C 後ろにも写真 / D 傾けて重ねる）。利用者が見比べるためだけのもの */
-  const [stackLook, setStackLook] = useState<"A" | "C" | "D">(() => {
+  /** 試作: 重ねの見え方（A いま / B 明るい紙 / C 後ろにも写真 / D 傾けて重ねる / E 紙なし）。利用者が見比べるためだけのもの */
+  const [stackLook, setStackLook] = useState<"A" | "B" | "C" | "D" | "E">(() => {
     try {
       const v = localStorage.getItem("pk.proto.stackLook");
-      return v === "A" || v === "D" ? v : "C";
+      return v === "A" || v === "B" || v === "D" || v === "E" ? v : "C";
     } catch {
       return "C";
     }
   });
-  const chooseStackLook = (v: "A" | "C" | "D") => {
+  const chooseStackLook = (v: "A" | "B" | "C" | "D" | "E") => {
     setStackLook(v);
     try {
       localStorage.setItem("pk.proto.stackLook", v);
@@ -6144,9 +6144,9 @@ export default function App() {
                                 });
                               }}
                             >
-                              {/* 試作: 見え方 C / D の後ろの絵（A では描かない） */}
+                              {/* 試作: 見え方 C / D の後ろの絵（A・B・E では描かない） */}
                               {stacked &&
-                                stackLook !== "A" &&
+                                (stackLook === "C" || stackLook === "D") &&
                                 cell.backs.map((b, k) => (
                                   <img
                                     key={b.id}
@@ -6921,8 +6921,10 @@ export default function App() {
         {(
           [
             ["A", "A いま"],
+            ["B", "B 明るい紙"],
             ["C", "C 後ろにも写真"],
             ["D", "D 傾けて重ねる"],
+            ["E", "E 紙なし"],
           ] as const
         ).map(([v, label]) => (
           <button
