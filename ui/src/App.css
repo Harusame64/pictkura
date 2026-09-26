@@ -1505,6 +1505,28 @@ body {
 .viewer-zoom:hover {
   background: oklch(1 0 0 / 0.22);
 }
+/* RAW+JPEG の組のどちらを見るか（2026-09-26）。倍率のボタンと同じ文字の丸ボタンを2つ並べ、
+   いま見ている側を倍率の「等倍」と同じ色で示す（★の黄色は ★ の状態と紛れるので使わない） */
+.viewer-pair-side {
+  display: flex;
+  gap: 2px;
+}
+.viewer-pair-side .viewer-tool {
+  width: auto;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.viewer-pair-side .viewer-tool:first-child {
+  border-radius: var(--radius-full) 0 0 var(--radius-full);
+}
+.viewer-pair-side .viewer-tool:last-child {
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+}
+.viewer-pair-side .viewer-tool.on {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
 .viewer-zoom.actual {
   background: var(--accent);
   color: var(--accent-contrast);

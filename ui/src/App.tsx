@@ -36,6 +36,7 @@ import {
   openDownloadPage,
   fullSrc,
   saveDisplayImage,
+  setPairView,
   videoSrc,
   videoStatus,
   originalStatus,
@@ -106,6 +107,8 @@ import {
   selectRangeOverTiles,
   stackMembersIndex,
   stacksOfDay,
+  viewerWalk,
+  type PairView,
   type Stack,
 } from "./stacks";
 import {
@@ -2516,12 +2519,6 @@ export default function App() {
     [reloadAll],
   );
 
-  /** お気に入り（★）のトグル */
-  const toggleFavorite = useCallback(
-    (item: MediaItem) => setMark(item, "favorite", !item.favorite),
-    [setMark],
-  );
-
   /** 現在のフィルタでの総枚数（ヘッダ表示用） */
   const totalShown = useMemo(
     () => summary.reduce((n, d) => n + d.count, 0),
@@ -2568,6 +2565,61 @@ export default function App() {
     }
     return out;
   }, [dayItems, stackRawJpeg, stackBursts, burstGapMs]);
+  /**
+   * ビューアでの RAW+JPEG の組の歩き方（2026-09-26 の利用者の選択。既定は JPEG だけ）。
+   * **一覧で組を重ねていないときは効かない**（`null`）——一覧で2枚に見えているものは2枚とも歩く
+   */
+  const pairView: PairView | null = stackRawJpeg ? (config?.viewer?.pair_view ?? "jpeg") : null;
+  /**
+   * ビューアが歩く日ごとの列と、組の相手（`viewerWalk`）。`pairView` が `null` なら
+   * 一覧の並び（`list_day` の順）そのまま。**ビューアの送り・先読み・帯・端の判定はこれを歩く**
+   */
+  const { viewerDayItems, pairOf } = useMemo(() => {
+    const pairs = new Map<number, MediaItem[]>();
+    if (pairView === null) return { viewerDayItems: dayItems, pairOf: pairs };
+    const out = new Map<number, MediaItem[]>();
+    for (const [dayKey, items] of dayItems) {
+      const { walk, pairOf: p } = viewerWalk(items, pairView);
+      out.set(dayKey, walk);
+      for (const [id, files] of p) pairs.set(id, files);
+    }
+    return { viewerDayItems: out, pairOf: pairs };
+  }, [dayItems, pairView]);
+  /**
+   * 列の中で `id` が居る位置。**列に居ない組の片方なら、列に居る相手の位置**
+   * ——一覧のタイルは表紙の JPEG の id で開くので、RAW だけのときはそこから RAW へ寄せる。
+   * 切り替えボタンで側を替えたときも、いま見ている組の反対側へ寄る
+   */
+  const walkIndexOf = useCallback(
+    (items: readonly MediaItem[], id: number) => {
+      const at = items.findIndex((it) => it.id === id);
+      if (at >= 0) return at;
+      const pair = pairOf.get(id);
+      return pair ? items.findIndex((it) => pair.includes(it)) : -1;
+    },
+    [pairOf],
+  );
+  /**
+   * ビューアの ★・⚑・✕・削除が効くファイル。**片方だけ見せている間は組の両方**
+   * （隠れた側だけ印が付かずに残らないように。2026-09-26 の利用者の選択）。
+   * 両方を歩いているときは、見ているファイルだけ（今までどおり）
+   */
+  const viewerTargets = useCallback(
+    (item: MediaItem): MediaItem[] =>
+      pairView === "jpeg" || pairView === "raw" ? (pairOf.get(item.id) ?? [item]) : [item],
+    [pairView, pairOf],
+  );
+  /**
+   * ビューアの RAW / JPEG ボタン。**設定を書き換える**（次に開いたときも同じ側で見られる）。
+   * 先に手元の設定を替えて絵を寄せ、保存に失敗したら設定を読み直して戻す
+   */
+  const choosePairView = useCallback((view: PairView) => {
+    setConfig((c) => (c ? { ...c, viewer: { auto_advance: true, ...c.viewer, pair_view: view } } : c));
+    setPairView(view).catch((e) => {
+      fail(errText(e));
+      void refreshRoots();
+    });
+  }, [fail, refreshRoots]);
   /**
    * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」と、読み込み済みの id。
    * 範囲選択を重ねの単位へ閉じ、選択の枚数を「見えているタイル」で数えるのに使う
@@ -2992,17 +3044,17 @@ export default function App() {
     if (!viewer) return null;
     const dayIdx = dayIdxByKey.get(viewer.dayKey);
     if (dayIdx === undefined) return null;
-    const items = dayItems.get(viewer.dayKey);
+    const items = viewerDayItems.get(viewer.dayKey);
     if (!items || items.length === 0) return null;
     const itemIdx =
       viewer.id === "first"
         ? 0
         : viewer.id === "last"
           ? items.length - 1
-          : items.findIndex((it) => it.id === viewer.id);
+          : walkIndexOf(items, viewer.id);
     if (itemIdx < 0) return null;
     return { item: items[itemIdx], dayIdx, itemIdx, dayLength: items.length };
-  }, [viewer, dayItems, dayIdxByKey]);
+  }, [viewer, viewerDayItems, dayIdxByKey, walkIndexOf]);
 
   /** スコープのid → 列の中での位置。送りのたびに端から探さないため */
   const scopeIndexById = useMemo(() => {
@@ -3058,12 +3110,12 @@ export default function App() {
   // 操作不能で固まるのは防ぐ、という元の目的はそのまま）
   useEffect(() => {
     if (!viewer) return;
-    const items = dayItems.get(viewer.dayKey);
+    const items = viewerDayItems.get(viewer.dayKey);
     if (!items) return; // 未取得: ロード完了待ち（スタックではない）
     const resolvable =
       viewer.id === "first" || viewer.id === "last"
         ? items.length > 0
-        : items.some((it) => it.id === viewer.id);
+        : walkIndexOf(items, viewer.id) >= 0;
     if (resolvable && dayIdxByKey.has(viewer.dayKey)) return;
 
     // スコープで開いているなら、列の**次**（無ければ前）で、いま一覧に
@@ -3074,7 +3126,7 @@ export default function App() {
         for (const dir of [1, -1] as const) {
           for (let k = idx + dir; k >= 0 && k < viewerScope.length; k += dir) {
             const at = viewerScope[k];
-            const dayList = dayItems.get(at.day_key);
+            const dayList = viewerDayItems.get(at.day_key);
             // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
             if (dayList && !dayList.some((x) => x.id === at.id)) continue;
             setViewer({ dayKey: at.day_key, id: at.id });
@@ -3090,7 +3142,7 @@ export default function App() {
       return;
     }
     setViewer(null); // その日ごと消えた
-  }, [viewer, dayItems, dayIdxByKey, viewerScope, scopeIndexById]);
+  }, [viewer, viewerDayItems, dayIdxByKey, viewerScope, scopeIndexById, walkIndexOf]);
 
   /** ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ（スライドショー用） */
   const moveViewer = useCallback(
@@ -3108,7 +3160,7 @@ export default function App() {
           k += dir
         ) {
           const at = viewerScope[k];
-          const dayList = dayItems.get(at.day_key);
+          const dayList = viewerDayItems.get(at.day_key);
           if (dayList && !dayList.some((x) => x.id === at.id)) continue;
           setViewer({ dayKey: at.day_key, id: at.id });
           return;
@@ -3120,7 +3172,7 @@ export default function App() {
         return;
       }
       const { dayIdx, itemIdx } = viewerInfo;
-      const items = dayItems.get(summary[dayIdx].day_key);
+      const items = viewerDayItems.get(summary[dayIdx].day_key);
       if (!items) return;
       const ni = itemIdx + dir;
       if (ni >= 0 && ni < items.length) {
@@ -3137,7 +3189,7 @@ export default function App() {
         setViewer({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, dayItems, summary, viewerScope, scopeIdx],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -3197,9 +3249,11 @@ export default function App() {
   const favoriteViewer = useCallback(
     (item: MediaItem) => {
       flashViewer(item.favorite ? "unfav" : "fav");
-      toggleFavorite(item);
+      // 組の両方を**見ている側の向き**にそろえる（片方ずつトグルすると、ずれた組が逆向きにずれる）
+      const next = !item.favorite;
+      for (const f of viewerTargets(item)) void setMark(f, "favorite", next);
     },
-    [flashViewer, toggleFavorite],
+    [flashViewer, setMark, viewerTargets],
   );
 
   /**
@@ -3209,32 +3263,36 @@ export default function App() {
   const rejectTool = useCallback(
     (item: MediaItem) => {
       const on = !rejectedRef.current.has(item.id);
-      markReject(item, on);
-      if (on && item.picked) void setMark(item, "picked", false);
+      for (const f of viewerTargets(item)) {
+        markReject(f, on);
+        if (on && f.picked) void setMark(f, "picked", false);
+      }
       flashViewer(on ? "reject" : "unflag");
     },
-    [markReject, setMark, flashViewer],
+    [markReject, setMark, flashViewer, viewerTargets],
   );
 
   /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
   const pickViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
       flashViewer(pick ? "pick" : "unflag");
-      void setMark(item, "picked", pick);
+      for (const f of viewerTargets(item)) void setMark(f, "picked", pick);
     },
-    [flashViewer, setMark],
+    [flashViewer, setMark, viewerTargets],
   );
 
   const judgeViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
-      void setMark(item, "picked", pick);
-      // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
-      // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
-      markReject(item, false);
+      for (const f of viewerTargets(item)) {
+        void setMark(f, "picked", pick);
+        // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
+        // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
+        markReject(f, false);
+      }
       flashViewer(pick ? "pick" : "unflag");
       if (autoAdvance) moveViewer(1);
     },
-    [setMark, markReject, flashViewer, autoAdvance, moveViewer],
+    [setMark, markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
   );
 
   /**
@@ -3243,15 +3301,17 @@ export default function App() {
    */
   const rejectViewer = useCallback(
     (item: MediaItem) => {
-      markReject(item, true);
-      // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
-      // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
-      // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
-      if (item.picked) void setMark(item, "picked", false);
+      for (const f of viewerTargets(item)) {
+        markReject(f, true);
+        // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
+        // あとで✕にしたとき、⚑が残っていると「入れずに閉じる」で戻ったあとに
+        // **最後の判定と逆の印だけが残る**（ゲート1の指摘）
+        if (f.picked) void setMark(f, "picked", false);
+      }
       flashViewer("reject");
       if (autoAdvance) moveViewer(1);
     },
-    [markReject, setMark, flashViewer, autoAdvance, moveViewer],
+    [markReject, setMark, flashViewer, autoAdvance, moveViewer, viewerTargets],
   );
 
   /**
@@ -3684,19 +3744,19 @@ export default function App() {
       pos: { d: number; i: number },
       dir: 1 | -1,
     ): { d: number; i: number } | null => {
-      const items = dayItems.get(summary[pos.d]?.day_key);
+      const items = viewerDayItems.get(summary[pos.d]?.day_key);
       if (!items) return null;
       const ni = pos.i + dir;
       if (ni >= 0 && ni < items.length) return { d: pos.d, i: ni };
       const nd = pos.d + dir;
       const next =
         nd >= 0 && nd < summary.length
-          ? dayItems.get(summary[nd].day_key)
+          ? viewerDayItems.get(summary[nd].day_key)
           : undefined;
       if (!next || next.length === 0) return null;
       return { d: nd, i: dir === 1 ? 0 : next.length - 1 };
     },
-    [dayItems, summary],
+    [viewerDayItems, summary],
   );
 
   /**
@@ -3710,7 +3770,7 @@ export default function App() {
       if (viewerScope && scopeIdx !== undefined) {
         const at = viewerScope[scopeIdx + k];
         if (!at) return null;
-        return dayItems.get(at.day_key)?.find((x) => x.id === at.id) ?? null;
+        return viewerDayItems.get(at.day_key)?.find((x) => x.id === at.id) ?? null;
       }
       const dir: 1 | -1 = k > 0 ? 1 : -1;
       let cur: { d: number; i: number } | null = {
@@ -3721,9 +3781,9 @@ export default function App() {
         cur = stepPos(cur, dir);
         if (!cur) return null;
       }
-      return dayItems.get(summary[cur.d].day_key)?.[cur.i] ?? null;
+      return viewerDayItems.get(summary[cur.d].day_key)?.[cur.i] ?? null;
     },
-    [viewerInfo, viewerScope, scopeIdx, dayItems, summary, stepPos],
+    [viewerInfo, viewerScope, scopeIdx, viewerDayItems, summary, stepPos],
   );
 
   /**
@@ -3761,7 +3821,7 @@ export default function App() {
         for (let k = 1; k <= PRELOAD_MAX_ITEMS; k++) {
           const at = viewerScope[scopeIdx + dir * k];
           if (!at) break;
-          const it = dayItems.get(at.day_key)?.find((x) => x.id === at.id);
+          const it = viewerDayItems.get(at.day_key)?.find((x) => x.id === at.id);
           // 未取得の日は諦める（送って行けば取りに行く。届けば再実行される）
           if (!it) break;
           out.push(it);
@@ -3773,7 +3833,7 @@ export default function App() {
         const next = step(cur, dir);
         if (!next) break;
         cur = next;
-        const it = dayItems.get(summary[cur.d].day_key)?.[cur.i];
+        const it = viewerDayItems.get(summary[cur.d].day_key)?.[cur.i];
         if (!it) break;
         out.push(it);
       }
@@ -3892,7 +3952,7 @@ export default function App() {
     };
   }, [
     viewerInfo,
-    dayItems,
+    viewerDayItems,
     summary,
     settledId,
     loadedId,
@@ -5490,7 +5550,11 @@ export default function App() {
     scopeIdx !== undefined
       ? scopeIdx + 1
       : viewerInfo !== null
-        ? prefixCounts[viewerInfo.dayIdx] + viewerInfo.itemIdx + 1
+        ? // **ファイルの通し番号で数える**（分母の `totalShown` がファイルの数なので）。組の片方だけを
+          // 歩いているとき、歩く列の位置で数えると分母と食い違う——隠れた側のぶん飛ぶほうを採る
+          prefixCounts[viewerInfo.dayIdx] +
+          (dayItems.get(summary[viewerInfo.dayIdx].day_key)?.indexOf(viewerInfo.item) ?? viewerInfo.itemIdx) +
+          1
         : 0;
   /** カウンターの分母。スコープで開いていれば選んだ枚数 */
   const viewerTotal =
@@ -6739,6 +6803,22 @@ export default function App() {
             </div>
           )}
           <div className="viewer-tools" onClick={(e) => e.stopPropagation()}>
+            {/* RAW+JPEG の組のどちらを見るか（2026-09-26 の利用者の要望）。片方だけ見せている
+                ときの、組の写真にだけ出す。押すと設定も替わる（次に開いたときも同じ側） */}
+            {viewerItem && (pairView === "jpeg" || pairView === "raw") && pairOf.has(viewerItem.id) && (
+              <span className="viewer-pair-side" role="group" title={t.viewerPairSide}>
+                {(["raw", "jpeg"] as const).map((v) => (
+                  <button
+                    key={v}
+                    className={"viewer-tool" + (pairView === v ? " on" : "")}
+                    aria-pressed={pairView === v}
+                    onClick={() => choosePairView(v)}
+                  >
+                    {v === "raw" ? "RAW" : "JPEG"}
+                  </button>
+                ))}
+              </span>
+            )}
             {viewerItem && (
               <button
                 className={"viewer-zoom" + (isActualSize ? " actual" : "")}
@@ -6836,7 +6916,7 @@ export default function App() {
               <button
                 className="viewer-tool danger"
                 title={t.menuDelete}
-                onClick={() => onDelete([viewerItem])}
+                onClick={() => onDelete(viewerTargets(viewerItem))}
               >
                 🗑
               </button>

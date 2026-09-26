@@ -196,6 +196,44 @@ function shotsOfDay<T extends Stackable>(items: readonly T[], rawJpeg: boolean):
   return out;
 }
 
+/** ビューアでの RAW+JPEG の組の歩き方（設定 `[viewer] pair_view`、2026-09-26 の利用者の選択） */
+export type PairView = "jpeg" | "raw" | "both";
+
+/**
+ * ビューアが1日の中で歩く列（`walk`）と、組の相手（`pairOf`）。
+ *
+ * - `jpeg` / `raw`: 組は**片方だけ**を列に入れる（一覧のタイル1枚につき絵1枚）
+ * - `both`: 組を **RAW → JPEG の順**に並べる（`list_day` の順では id しだいで前後した）
+ * - 組の位置は、一覧と同じく**組の最初の1件が居た位置**（[`stacksOfDay`] と同じ組み方）
+ * - 組にならないファイル（組の条件は [`stacksOfDay`] の説明）は、そのまま自分の位置に居る
+ *
+ * `pairOf` は組のファイル id → 組ぜんぶ（RAW が先）。**列に居ない側の id も引ける**——
+ * 一覧のタイルから開くと表紙の JPEG の id が来るので、`raw` のときはそこから RAW へ寄せる。
+ * 片方だけ見せている間の ★・⚑・✕・削除も、これで組の両方に効かせる
+ */
+export function viewerWalk<T extends Stackable>(
+  items: readonly T[],
+  view: PairView,
+): { walk: T[]; pairOf: Map<number, T[]> } {
+  const walk: T[] = [];
+  const pairOf = new Map<number, T[]>();
+  for (const shot of shotsOfDay(items, true)) {
+    if (shot.files.length === 1) {
+      walk.push(shot.files[0]);
+      continue;
+    }
+    const raws = shot.files.filter((f) => f.is_raw);
+    const others = shot.files.filter((f) => !f.is_raw);
+    const ordered = [...raws, ...others];
+    for (const f of ordered) pairOf.set(f.id, ordered);
+    if (view === "both") walk.push(...ordered);
+    // 組は RAW と RAW 以外が必ずそろう（`shotsOfDay`）。同じ側が2つ以上あれば（CR3 と
+    // それを書き出した DNG 等）**その側は全部**見せる——隠すのは選ばなかった側だけ
+    else walk.push(...(view === "raw" ? raws : others));
+  }
+  return { walk, pairOf };
+}
+
 /** 重ねに含まれるファイルぜんぶ（★・⚑・削除・選択は**組ぜんぶに効く**——2026-09-08 の利用者の選択） */
 export function filesOf<T>(stack: Stack<T>): T[] {
   return stack.shots.flatMap((s) => s.files);

@@ -381,6 +381,9 @@ pub struct ViewerConfig {
     /// 同じ場所へ何枚も取り出す使い方で毎回たどり直させないための控えである。
     /// 初回と、覚えた場所がもう無いとき（外したUSB等）は「ピクチャ」へ戻す
     pub last_extract_dir: Option<PathBuf>,
+    /// 一覧で重ねた RAW+JPEG の組を、ビューアでどう歩くか（2026-09-26 の利用者の選択）。
+    /// 一覧で組を重ねていないとき（`[grid] stack_raw_jpeg = false`）は効かない——2枚とも歩く
+    pub pair_view: PairView,
 }
 
 impl Default for ViewerConfig {
@@ -388,7 +391,37 @@ impl Default for ViewerConfig {
         Self {
             auto_advance: true,
             last_extract_dir: None,
+            pair_view: PairView::default(),
         }
+    }
+}
+
+/// ビューアでの RAW+JPEG の組の歩き方（[`ViewerConfig::pair_view`]）。
+///
+/// **既定は JPEG だけ**（2026-09-26 の利用者）。RAW で撮る人が Google フォトへ上げるとき
+/// JPEG で見たい、という動機。片方だけ見せている間は、ビューアの ★・⚑・✕・削除は
+/// **組の両方**に効く（隠れた側だけ印が付かずに残らないように。同日の利用者の選択）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PairView {
+    /// JPEG だけを歩く
+    #[default]
+    Jpeg,
+    /// RAW だけを歩く
+    Raw,
+    /// 両方を RAW → JPEG の順に歩く（印は見ているファイルだけ）
+    Both,
+}
+
+/// **知らない値は既定（JPEG だけ）として読む。** 手で書き間違えた・新しい版が書いた値で
+/// 設定ファイルごと読めなくなると、ライブラリの場所まで失う（ビューアの歩き方1つのために）
+impl<'de> Deserialize<'de> for PairView {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match String::deserialize(d)?.as_str() {
+            "raw" => Self::Raw,
+            "both" => Self::Both,
+            _ => Self::Jpeg,
+        })
     }
 }
 
@@ -557,6 +590,39 @@ verify_after_copy = true
         assert_eq!(
             (back.grid.stack_bursts, back.grid.burst_gap_ms),
             (false, 2000)
+        );
+    }
+
+    /// 組の歩き方（2026-09-26）は `[viewer]` に後から足した——無ければ JPEG だけ。
+    /// 書いた値は小文字で読み戻せ、知らない値でも設定ごと落ちずに既定で読む
+    #[test]
+    fn pair_view_defaults_to_jpeg_and_survives_unknown_values() {
+        let older = Config::from_toml_str("[viewer]\nauto_advance = false\n").unwrap();
+        assert_eq!(older.viewer.pair_view, PairView::Jpeg);
+        assert!(!older.viewer.auto_advance);
+        for view in [PairView::Jpeg, PairView::Raw, PairView::Both] {
+            let mut set = Config::default();
+            set.viewer.pair_view = view;
+            let text = set.to_toml_string().unwrap();
+            assert_eq!(
+                Config::from_toml_str(&text).unwrap().viewer.pair_view,
+                view,
+                "{text}"
+            );
+        }
+        let mut raw = Config::default();
+        raw.viewer.pair_view = PairView::Raw;
+        assert!(raw
+            .to_toml_string()
+            .unwrap()
+            .contains("pair_view = \"raw\""));
+        let odd =
+            Config::from_toml_str("[viewer]\npair_view = \"sideways\"\nauto_advance = false\n")
+                .unwrap();
+        assert_eq!(odd.viewer.pair_view, PairView::Jpeg);
+        assert!(
+            !odd.viewer.auto_advance,
+            "the rest of the section still reads"
         );
     }
 
