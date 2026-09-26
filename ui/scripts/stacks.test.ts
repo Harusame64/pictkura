@@ -522,4 +522,7 @@ test("選んだ時点のタイル: 読めている日は今の組み方で覚え
   // 選択から外した id は覚えない（選択と一緒に消える）
   const tiles3 = selectionTilesOf([1], new Map(), new Set(), tiles1);
   assert.deepEqual([...tiles3.keys()], [1]);
+  // 重ね方の設定が変わったら、呼ぶ側が前の記憶を捨てて渡す（空の prev）: 間引かれた日は数えない
+  const tiles4 = selectionTilesOf([1, 2], new Map(), new Set(), new Map());
+  assert.equal(countPhotos([1, 2], tiles4, tiles4), null);
 });

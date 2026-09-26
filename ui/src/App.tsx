@@ -2737,18 +2737,22 @@ export default function App() {
       return closed.size === prev.size ? prev : closed;
     });
   }, [stackIndex]);
-  const loadedIdsRef = useRef(loadedIds);
-  loadedIdsRef.current = loadedIds;
   /**
    * 選んだ写真ごとの、選んだ時点のタイル（`selectionTilesOf`）。選択の枚数・削除の確認・印の報告は
    * これで数える——選んだ日が一覧から間引かれても、組のタイル1つは1枚のまま
    */
   const selectionTilesRef = useRef<ReadonlyMap<number, readonly number[]>>(new Map());
+  // **重ね方の設定が変わったら、覚えたタイルを捨てる**。間引かれた日の写真は新しい組み方を
+  // 知らないので、古い組のまま「1枚」と数え続ける——知らない（ファイルの数で言う）ほうが正しい（#169 のゲート2）
+  const tilesGroupingRef = useRef("");
   const selectionTiles = useMemo(() => {
-    const next = selectionTilesOf(selected, stackIndex, loadedIds, selectionTilesRef.current);
+    const grouping = JSON.stringify([stackRawJpeg, stackBursts, burstGapMs]);
+    const prev = tilesGroupingRef.current === grouping ? selectionTilesRef.current : new Map();
+    tilesGroupingRef.current = grouping;
+    const next = selectionTilesOf(selected, stackIndex, loadedIds, prev);
     selectionTilesRef.current = next;
     return next;
-  }, [selected, stackIndex, loadedIds]);
+  }, [selected, stackIndex, loadedIds, stackRawJpeg, stackBursts, burstGapMs]);
 
   const rows = useMemo<Row[]>(() => {
     const usable = Math.max(120, viewportWidth - GRID_PADDING);
