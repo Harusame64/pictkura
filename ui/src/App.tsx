@@ -2587,11 +2587,6 @@ export default function App() {
     return { viewerDayItems: out, pairOf: pairs };
   }, [dayItems, pairView]);
   /**
-   * 列の中で `id` が居る位置。**列に居ない組の片方なら、列に居る相手の位置**
-   * ——一覧のタイルは表紙の JPEG の id で開くので、RAW だけのときはそこから RAW へ寄せる。
-   * 切り替えボタンで側を替えたときも、いま見ている組の反対側へ寄る
-   */
-  /**
    * 選択スコープを組の歩き方にそろえたもの（`pairAwareScope`）。**ビューアはこちらを歩く**——
    * 送り・端・分母・隣の先読みがみな同じ列を見るように、ここで1回だけ作る
    */
@@ -2602,6 +2597,11 @@ export default function App() {
         : viewerScopeFiles,
     [viewerScopeFiles, pairOf, pairView],
   );
+  /**
+   * 列の中で `id` が居る位置。**列に居ない組の片方なら、列に居る相手の位置**
+   * ——一覧のタイルは表紙の JPEG の id で開くので、RAW だけのときはそこから RAW へ寄せる。
+   * 切り替えボタンで側を替えたときも、いま見ている組の反対側へ寄る
+   */
   const walkIndexOf = useCallback(
     (items: readonly MediaItem[], id: number) => {
       const at = items.findIndex((it) => it.id === id);
@@ -2617,8 +2617,23 @@ export default function App() {
    * 両方を歩いているときは、見ているファイルだけ（今までどおり）
    */
   const viewerTargets = useCallback(
-    (item: MediaItem): MediaItem[] =>
-      pairView === "jpeg" || pairView === "raw" ? (pairOf.get(item.id) ?? [item]) : [item],
+    (item: MediaItem): MediaItem[] => {
+      if (pairView !== "jpeg" && pairView !== "raw") return [item];
+      const pair = pairOf.get(item.id);
+      if (!pair) return [item];
+      // **見ているファイルと、隠れた側だけ**。同じ側にもう1つあれば（CR3 と書き出した DNG）、
+      // それは列に別の写真として出ている——まだ見ていないものに ✕・削除を効かせない（#168 のゲート2）
+      return [item, ...pair.filter((f) => f.is_raw !== (pairView === "raw"))];
+    },
+    [pairView, pairOf],
+  );
+  /**
+   * 一覧のタイル・選択から**開く**ときの id。「両方」のときは組の先頭（RAW）から始める
+   * ——タイルは表紙の JPEG の id で開くので、そのままだと RAW を飛ばして2つ目から始まる（#168 のゲート2）。
+   * 送りの途中では使わない（JPEG へ進んだのに RAW へ引き戻される）
+   */
+  const openIdOf = useCallback(
+    (id: number) => (pairView === "both" ? (pairOf.get(id)?.[0]?.id ?? id) : id),
     [pairView, pairOf],
   );
   /**
@@ -4923,8 +4938,8 @@ export default function App() {
     if (selectEpochRef.current !== epoch) return;
     if (scope.length === 0) return;
     setViewerScope(scope);
-    setViewer({ dayKey: scope[0].day_key, id: scope[0].id });
-  }, []);
+    setViewer({ dayKey: scope[0].day_key, id: openIdOf(scope[0].id) });
+  }, [openIdOf]);
 
   /**
    * **2本目の道から設定を開く**（`⌘/Ctrl + ,`・macOS のメニューの「設定…」）。
@@ -4991,9 +5006,9 @@ export default function App() {
         toggleMany(files.map((f) => f.id));
         return;
       }
-      setViewer({ dayKey, id: item.id });
+      setViewer({ dayKey, id: openIdOf(item.id) });
     },
-    [anchorId, selecting, selectRange, toggleMany],
+    [anchorId, selecting, selectRange, toggleMany, openIdOf],
   );
 
   /**
@@ -5145,7 +5160,11 @@ export default function App() {
    * 印もここを通す（#168 のゲート2）
    */
   const markStack = useCallback(
-    (files: readonly MediaItem[], kind: MarkKind, on: boolean) => {
+    (all: readonly MediaItem[], kind: MarkKind, on: boolean) => {
+      // 既にその向きのファイルは書かない（1枚の `setMark` と同じ。全画面で P を連打する選別で、
+      // 付いている組に毎回書き込みと取り直しを走らせない。#168 のゲート2）
+      const files = all.filter((f) => f[kind] !== on);
+      if (files.length === 0) return;
       if (files.length === 1) {
         void setMark(files[0], kind, on);
         return;
@@ -5504,7 +5523,7 @@ export default function App() {
         run: () => onDelete(files),
       },
     ],
-    [editors, onOpenWithOther, onDelete, setMark, markIds, reloadAfterMark],
+    [editors, onOpenWithOther, onDelete, markStack],
   );
 
   const openDay = useCallback((dayKey: number) => {
