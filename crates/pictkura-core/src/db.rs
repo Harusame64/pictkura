@@ -140,7 +140,8 @@ const SHOTS_PENDING_WHERE: &str = "taken_subsec IS NULL AND width IS NOT NULL AN
 /// 同じ理由）——放っておくと `idx_media_kind_day` へ流れ、**画像の全行をなめて一時B木で並べ直す**
 /// のを200件ごとに繰り返していた。見張りは `shot_backfill_query_rides_its_partial_index`
 /// （条件が [`SHOTS_PENDING_WHERE`] と同じ文字列であることも見る）
-const SHOTS_TO_BACKFILL_SQL: &str = "SELECT id, path FROM media INDEXED BY idx_media_shots_pending
+const SHOTS_TO_BACKFILL_SQL: &str =
+    "SELECT id, path, mtime_ms, size FROM media INDEXED BY idx_media_shots_pending
      WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0
      AND path NOT LIKE '%.tif' AND path NOT LIKE '%.tiff' AND id > ?1
      ORDER BY id LIMIT ?2";
@@ -164,6 +165,21 @@ pub struct DimensionTarget {
     pub mtime_ms: i64,
     /// 版のもう半分。スキャンは `size <> size OR mtime_ms <> mtime_ms` で
     /// 差し替えを見ているので、**時刻を保ったコピー**は大きさでしか気づけない
+    pub size: i64,
+}
+
+/// 連写の材料を読み直す1行（[`Db::shots_to_backfill`] が返し、[`Db::set_shots`] が
+/// 書き込みのガードに使う）。**読んだ時点のファイルの版を持ち歩く**——束を読んでいる間に
+/// 差し替えられ、サムネイルの流れが EXIF に日時の無い新しい中身を書くと、行は
+/// `taken_subsec IS NULL AND width IS NOT NULL` のまま（未確認）に戻る。版を見ないと、
+/// 古い中身から読んだ日時とシリアルで上書きし、確認済みにしてしまう（#158 の codex の P2）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShotTarget {
+    pub id: i64,
+    pub path: PathBuf,
+    /// 読んだ時点の `mtime_ms`
+    pub mtime_ms: i64,
+    /// 読んだ時点の `size`（時刻を保ったコピーは大きさでしか気づけない。[`DimensionTarget`] と同じ）
     pub size: i64,
 }
 
@@ -2210,10 +2226,15 @@ impl Db {
         &self,
         after_id: i64,
         limit: usize,
-    ) -> Result<Vec<(i64, PathBuf)>, DbError> {
+    ) -> Result<Vec<ShotTarget>, DbError> {
         let mut stmt = self.conn.prepare_cached(SHOTS_TO_BACKFILL_SQL)?;
         let rows = stmt.query_map(params![after_id, limit as i64], |r| {
-            Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+            Ok(ShotTarget {
+                id: r.get(0)?,
+                path: PathBuf::from(r.get::<_, String>(1)?),
+                mtime_ms: r.get(2)?,
+                size: r.get(3)?,
+            })
         })?;
         let mut out = Vec::new();
         for row in rows {
@@ -2227,27 +2248,41 @@ impl Db {
     /// 無ければ撮影日時には触らず、「秒まで」と記録する）
     pub fn set_shots(
         &mut self,
-        results: &[(i64, Option<i64>, bool, Option<String>)],
+        results: &[(ShotTarget, Option<i64>, bool, Option<String>)],
     ) -> Result<(), DbError> {
         let tx = self.write_tx()?;
         {
             // **まだ未確認の行だけ**を書く。束を読んでいる間に中身が変わり、サムネイルの流れが
-            // 新しい値を書いていたら、古い中身の値で上書きしない（#158 のゲート2）
+            // 新しい値を書いていたら、古い中身の値で上書きしない（#158 のゲート2）。
+            // **ファイルの版も見る**——日時の無い新しい中身は未確認のまま残るので、
+            // 印だけでは差し替えを見抜けない（[`ShotTarget`]、#158 の codex の P2）
             let mut with_time = tx.prepare_cached(&format!(
                 "UPDATE media SET taken_at_ms = ?2, day_key = {}, taken_subsec = ?3,
                         body_serial = COALESCE(?4, body_serial)
-                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL",
+                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
+                   AND mtime_ms = ?5 AND size = ?6",
                 day_key_expr("?2")
             ))?;
             let mut meta_only = tx.prepare_cached(
                 "UPDATE media SET taken_subsec = ?2, body_serial = COALESCE(?3, body_serial)
-                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL",
+                 WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
+                   AND mtime_ms = ?4 AND size = ?5",
             )?;
-            for (id, taken, subsec, serial) in results {
+            for (target, taken, subsec, serial) in results {
                 let serial = serial.as_deref().map(str::trim).filter(|s| !s.is_empty());
+                let (id, mtime, size) = (target.id, target.mtime_ms, target.size);
                 match taken {
-                    Some(at) => with_time.execute(params![id, at, i64::from(*subsec), serial])?,
-                    None => meta_only.execute(params![id, i64::from(*subsec), serial])?,
+                    Some(at) => with_time.execute(params![
+                        id,
+                        at,
+                        i64::from(*subsec),
+                        serial,
+                        mtime,
+                        size
+                    ])?,
+                    None => {
+                        meta_only.execute(params![id, i64::from(*subsec), serial, mtime, size])?
+                    }
                 };
             }
         }
@@ -2825,6 +2860,24 @@ impl ReadPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 後追いの書き込みに渡す、**いまのファイルの版**の対象（[`ShotTarget`]）
+    fn target_of(db: &Db, id: i64) -> ShotTarget {
+        db.conn
+            .query_row(
+                "SELECT path, mtime_ms, size FROM media WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(ShotTarget {
+                        id,
+                        path: PathBuf::from(r.get::<_, String>(0)?),
+                        mtime_ms: r.get(1)?,
+                        size: r.get(2)?,
+                    })
+                },
+            )
+            .unwrap()
+    }
 
     fn scanned(path: &str, size: i64, mtime_ms: i64) -> ScannedFile {
         ScannedFile {
@@ -5196,15 +5249,20 @@ mod tests {
             .shots_to_backfill(0, 10)
             .unwrap()
             .iter()
-            .map(|(id, _)| *id)
+            .map(|t| t.id)
             .collect();
         assert_eq!(pending, ids[..2].to_vec(), "未抽出の c は拾わない");
         assert_eq!(db.shots_pending().unwrap(), 2);
 
         // a は EXIF に秒未満つきの撮影日時とシリアル、b は EXIF に日時が無い
         db.set_shots(&[
-            (ids[0], Some(1_000_480), true, Some("051022000405".into())),
-            (ids[1], None, false, None),
+            (
+                target_of(&db, ids[0]),
+                Some(1_000_480),
+                true,
+                Some("051022000405".into()),
+            ),
+            (target_of(&db, ids[1]), None, false, None),
         ])
         .unwrap();
         let a = db.get_by_id(ids[0]).unwrap().unwrap();
@@ -5270,6 +5328,60 @@ mod tests {
         );
     }
 
+    /// 束を読んだあとに差し替えられ、サムネイルの流れが**日時の無い新しい中身**を書いた行は、
+    /// 未確認のまま（`taken_subsec IS NULL`）に戻る。古い中身から読んだ値で上書きしない
+    /// ——ファイルの版で見分ける（#158 の codex の P2）。版が合えば書く（対照）
+    #[test]
+    fn a_shot_backfill_read_of_a_replaced_file_is_not_written() {
+        // 差し替えの形は3つ: 大きさも時刻も変わる／時刻を保ったコピー／同じ大きさで時刻だけ
+        for (what, size, mtime) in [
+            ("both", 2, 2000),
+            ("size only", 2, 1000),
+            ("mtime only", 1, 2000),
+        ] {
+            let mut db = Db::open_in_memory().unwrap();
+            db.upsert_files(&[scanned(r"D:\写真\a.jpg", 1, 1000)])
+                .unwrap();
+            let id = db.list_all().unwrap()[0].id;
+            db.update_metadata(id, Dimensions::original(4, 3), Some(1_000_000), None)
+                .unwrap();
+            let stale = db.shots_to_backfill(0, 10).unwrap().remove(0);
+
+            // 読んでいる間に差し替え → サムネイルの流れが日時の無い中身を書く（印は未確認のまま）
+            db.upsert_files(&[scanned(r"D:\写真\a.jpg", size, mtime)])
+                .unwrap();
+            db.update_metadata(id, Dimensions::original(4, 3), Some(2_000_000), None)
+                .unwrap();
+            // 日時のある読みと無い読みで、書き込みの文は別（両方とも見張る）
+            db.set_shots(&[(stale.clone(), Some(1_000_480), true, Some("OLD".into()))])
+                .unwrap();
+            db.set_shots(&[(stale, None, false, Some("OLD".into()))])
+                .unwrap();
+            let r = db.get_by_id(id).unwrap().unwrap();
+            assert_eq!(
+                (r.taken_at_ms, r.taken_subsec, r.body_serial.as_deref()),
+                (Some(2_000_000), None, None),
+                "{what}"
+            );
+            assert_eq!(db.shots_pending().unwrap(), 1, "{what}: 読み直しを待つ");
+
+            // 対照: いまの版で読んだ結果は書く
+            db.set_shots(&[(
+                target_of(&db, id),
+                Some(2_000_480),
+                true,
+                Some("NEW".into()),
+            )])
+            .unwrap();
+            let r = db.get_by_id(id).unwrap().unwrap();
+            assert_eq!(
+                (r.taken_at_ms, r.taken_subsec, r.body_serial.as_deref()),
+                (Some(2_000_480), Some(true), Some("NEW")),
+                "{what}"
+            );
+        }
+    }
+
     /// TIFF は画像（`kind = 0`）でも後追いしない——コンテナ読みがファイル丸ごと読む（codex の P2）。
     /// 拡張子の大小は問わない。**名前の途中に `.tif` があるだけの JPEG は拾う**（対照）
     #[test]
@@ -5291,7 +5403,7 @@ mod tests {
             .shots_to_backfill(0, 10)
             .unwrap()
             .iter()
-            .map(|(id, _)| *id)
+            .map(|t| t.id)
             .collect();
         assert_eq!(pending, vec![ids[2]]);
         assert_eq!(db.shots_pending().unwrap(), 1);
@@ -5318,7 +5430,7 @@ mod tests {
             db.shots_to_backfill(after, 10)
                 .unwrap()
                 .iter()
-                .map(|(id, _)| *id)
+                .map(|t| t.id)
                 .collect()
         };
         assert_eq!(page(&db, 0), ids[..2].to_vec(), "RAW の c は拾わない");
@@ -5331,8 +5443,13 @@ mod tests {
 
         // 表示日は新しい時刻から計算し直す（1日後の時刻へ）
         let next_day = 1_000_000 + 86_400_000 + 250;
-        db.set_shots(&[(ids[0], Some(next_day), false, Some("S1".into()))])
-            .unwrap();
+        db.set_shots(&[(
+            target_of(&db, ids[0]),
+            Some(next_day),
+            false,
+            Some("S1".into()),
+        )])
+        .unwrap();
         let a = db.get_by_id(ids[0]).unwrap().unwrap();
         assert_eq!(
             (a.taken_at_ms, a.taken_subsec),
@@ -5362,10 +5479,10 @@ mod tests {
             },
         )
         .unwrap();
-        db.set_shots(&[(ids[1], Some(5), false, Some("OLD".into()))])
+        db.set_shots(&[(target_of(&db, ids[1]), Some(5), false, Some("OLD".into()))])
             .unwrap();
         // 日時の無い読み（meta_only の道）も、確認済みの行は書き換えない
-        db.set_shots(&[(ids[1], None, false, Some("OLD".into()))])
+        db.set_shots(&[(target_of(&db, ids[1]), None, false, Some("OLD".into()))])
             .unwrap();
         let b = db.get_by_id(ids[1]).unwrap().unwrap();
         assert_eq!(
@@ -5466,8 +5583,13 @@ mod tests {
         .unwrap();
 
         db.set_shots(&[
-            (ids[0], Some(1_000_480), true, None),
-            (ids[1], Some(7_000_480), true, Some("B".into())),
+            (target_of(&db, ids[0]), Some(1_000_480), true, None),
+            (
+                target_of(&db, ids[1]),
+                Some(7_000_480),
+                true,
+                Some("B".into()),
+            ),
         ])
         .unwrap();
         let a = db.get_by_id(ids[0]).unwrap().unwrap();
@@ -5488,7 +5610,7 @@ mod tests {
         );
 
         // 日時の無い読み（meta_only の道）も同じ
-        db.set_shots(&[(ids[1], None, false, Some("B".into()))])
+        db.set_shots(&[(target_of(&db, ids[1]), None, false, Some("B".into()))])
             .unwrap();
         let b = db.get_by_id(ids[1]).unwrap().unwrap();
         assert_eq!((b.taken_subsec, b.body_serial), (None, None));

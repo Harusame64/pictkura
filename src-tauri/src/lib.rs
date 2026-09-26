@@ -5459,19 +5459,24 @@ pub fn run() {
                             if batch.is_empty() {
                                 break;
                             }
-                            after_id = batch.last().map(|(id, _)| *id).unwrap_or(after_id);
-                            let results: Vec<(i64, Option<i64>, bool, Option<String>)> = batch
+                            after_id = batch.last().map(|t| t.id).unwrap_or(after_id);
+                            let results: Vec<(
+                                pictkura_core::db::ShotTarget,
+                                Option<i64>,
+                                bool,
+                                Option<String>,
+                            )> = batch
                                 .into_iter()
                                 // 開けない・クラウドにしか無いファイルは**印を付けずに飛ばす**
                                 // （カメラ・寸法の後追いと同じ理由）
-                                .filter(|(_, path)| path.is_file())
-                                .filter(|(_, path)| !pictkura_core::cloud::is_cloud_only_path(path))
+                                .filter(|t| t.path.is_file())
+                                .filter(|t| !pictkura_core::cloud::is_cloud_only_path(&t.path))
                                 // **読めなかった行は印を付けずに飛ばす**（共有ロック・権限）。
                                 // 「秒まで」と書くと、読める日が来ても二度と拾い直さない
-                                .filter_map(|(id, path)| {
-                                    let exif = pictkura_core::thumbs::read_exif_capture(&path)?;
+                                .filter_map(|t| {
+                                    let exif = pictkura_core::thumbs::read_exif_capture(&t.path)?;
                                     let subsec = exif.taken_at_ms.is_some() && exif.taken_subsec;
-                                    Some((id, exif.taken_at_ms, subsec, exif.body_serial))
+                                    Some((t, exif.taken_at_ms, subsec, exif.body_serial))
                                 })
                                 .collect();
                             if results.is_empty() {
