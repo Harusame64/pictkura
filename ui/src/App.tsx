@@ -6094,8 +6094,8 @@ export default function App() {
                                     ? `${cell.item.file_name}\n${t.stackRawChipTitle(cell.files.length)}`
                                     : cell.item.file_name
                               }
-                              // **押す口はタイル全体**（写真ではなく）。重ねのタイルは写真を寄せて
-                              // 後ろの紙を見せるので、写真だけに付けると紙の上が押せない（#156 の codex の P3）
+                              // **押す口はタイル全体**（写真ではなく）。タイルの上には印（★・⚑・▶・重ねの印）が
+                              // 重なるので、写真だけに付けると印の縁で押し損ねる（#156 の codex の P3 から）
                               onClick={(e) =>
                                 onCellClick(cell.item, row.dayKey, e, cell.files)
                               }
@@ -6134,7 +6134,7 @@ export default function App() {
                               {cell.files.some((f) => f.favorite) && (
                                 <span className="cell-fav">★</span>
                               )}
-                              {/* 重ねたタイルの印（dev #32、2026-09-25 の利用者の選択: 言葉の印＋後ろに紙）。
+                              {/* 重ねたタイルの印（dev #32）。2026-09-26 の利用者の選択「E」で、これが重ねの唯一の目印（紙は描かない）。
                                   `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので
                                   両方出ることがある（連写の印は、組の印と並ぶときだけ短く `▤ 12`） */}
                               {(cell.rawPair || burst) && (

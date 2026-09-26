@@ -569,7 +569,7 @@ body {
 .cell-wrap {
   position: relative;
   flex: none;
-  /* 押す口はタイル全体（重ねの紙の上も押せる。dev #32） */
+  /* 押す口はタイル全体（写真の上に重ねた印の上も押せる。dev #32） */
   cursor: pointer;
 }
 .cell {
@@ -619,11 +619,19 @@ body {
   position: absolute;
   right: var(--sp-1);
   bottom: var(--sp-1);
+  /* **タイルの外へはみ出させない**。紙をやめてからは、この印だけが重ねの目印なので、
+     細いタイル（縦長の写真・いちばん小さいサイズ）で隣のタイルへかかると、隣が重ねに見える。
+     左端で止めて、あふれた分は左から切る（右端の連写のコマ数を残す） */
+  left: var(--sp-1);
+  justify-content: flex-end;
+  overflow: hidden;
   display: flex;
   gap: 3px;
   pointer-events: none;
 }
 .cell-chip {
+  flex: none;
+  white-space: nowrap;
   padding: 0 5px;
   border-radius: var(--radius-sm);
   background: oklch(0 0 0 / 0.55);
