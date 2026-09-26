@@ -122,6 +122,7 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
 const GAP = 4;
@@ -425,6 +426,40 @@ const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
   raw: () => t.kindRaw,
   video: () => t.kindVideo,
 };
+
+/**
+ * 重ねの印（`.cell-chip`）の文字の幅を測る（[`chooseBadges`] に渡す）。字体は `body` の
+ * 実際の値（言語で替わる `--font-ui`）、大きさと字間は `.cell-chip` と同じ（11px・600・0.02em）。
+ * 測った値は覚えておく——描画のたびにタイルの数だけ呼ばれる
+ */
+const chipWidthCache = new Map<string, number>();
+/**
+ * 測る canvas。**字体の指定が効いたかを確かめる**——受け付けられないと、canvas は黙って
+ * 既定（`10px sans-serif`）のままで、幅を小さく測り、入らない形を選ぶ（#167 のゲート2）。
+ * 効かなければ総称の `sans-serif` で試し、それも駄目なら測らない（`null`）
+ */
+function chipMeasurer(): CanvasRenderingContext2D | null {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return null;
+  for (const family of [getComputedStyle(document.body).fontFamily, "sans-serif"]) {
+    ctx.font = `600 11px ${family}`;
+    if (/\b11px\b/.test(ctx.font) && /\b(600|bold)\b/.test(ctx.font)) return ctx;
+  }
+  return null;
+}
+let chipCtx: CanvasRenderingContext2D | null | undefined;
+function measureChipText(text: string): number {
+  const hit = chipWidthCache.get(text);
+  if (hit !== undefined) return hit;
+  if (chipCtx === undefined) chipCtx = chipMeasurer();
+  // 測れないときは大きめに見積もる——入らない側に倒せば、短い形になるだけ。
+  // 1文字 12px は、11px の漢字（`連写`）や `▤` の全角幅より広い（#167 のゲート2: 8px では漢字で足りない）
+  const w = chipCtx
+    ? Math.ceil(chipCtx.measureText(text).width + 0.22 * [...text].length) + 1
+    : 12 * [...text].length;
+  chipWidthCache.set(text, w);
+  return w;
+}
 
 /**
  * 秒の整形器は**モジュールで1つずつ持つ**。`speedLabel` は描画のたびに呼ばれるので、
@@ -6084,9 +6119,7 @@ export default function App() {
                               key={cell.item.id}
                               className={
                                 "cell-wrap" +
-                                (cellSelected ? " picked" : "") +
-                                (stacked ? " stacked" : "") +
-                                (burst ? " burst" : "")
+                                (cellSelected ? " picked" : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
                               title={
@@ -6096,8 +6129,8 @@ export default function App() {
                                     ? `${cell.item.file_name}\n${t.stackRawChipTitle(cell.files.length)}`
                                     : cell.item.file_name
                               }
-                              // **押す口はタイル全体**（写真ではなく）。重ねのタイルは写真を寄せて
-                              // 後ろの紙を見せるので、写真だけに付けると紙の上が押せない（#156 の codex の P3）
+                              // **押す口はタイル全体**（写真ではなく）。タイルの上には印（★・⚑・▶・重ねの印）が
+                              // 重なるので、写真だけに付けると印の縁で押し損ねる（#156 の codex の P3 から）
                               onClick={(e) =>
                                 onCellClick(cell.item, row.dayKey, e, cell.files)
                               }
@@ -6136,21 +6169,48 @@ export default function App() {
                               {cell.files.some((f) => f.favorite) && (
                                 <span className="cell-fav">★</span>
                               )}
-                              {/* 重ねたタイルの印（dev #32、2026-09-25 の利用者の選択: 言葉の印＋後ろに紙）。
-                                  `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので
-                                  両方出ることがある（連写の印は、組の印と並ぶときだけ短く `▤ 12`） */}
-                              {(cell.rawPair || burst) && (
-                                <span className="cell-chips">
-                                  {cell.rawPair && <span className="cell-chip">RAW+JPEG</span>}
-                                  {burst && (
-                                    <span className="cell-chip">
-                                      {cell.rawPair
-                                        ? t.burstChipShort(cell.frames)
-                                        : t.burstChip(cell.frames)}
+                              {/* 重ねたタイルの印（dev #32）。2026-09-26 の利用者の選択「E」で、これが重ねの唯一の目印（紙は描かない）。
+                                  `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので両方出ることがある。
+                                  **形はタイルの幅に入るものを選ぶ**（`stackBadges.ts`。切って見せない） */}
+                              {(cell.rawPair || burst) &&
+                                (() => {
+                                  const badges = chooseBadges(
+                                    cell.w - 8,
+                                    {
+                                      pair: cell.rawPair,
+                                      burst: burst
+                                        ? {
+                                            long: t.burstChip(cell.frames),
+                                            short: t.burstChipShort(cell.frames),
+                                          }
+                                        : undefined,
+                                    },
+                                    measureChipText,
+                                  );
+                                  return (
+                                    <span className={"cell-chips" + (badges.tight ? " tight" : "")}>
+                                      {badges.parts.map((p) =>
+                                        p.kind === "pair-text" ? (
+                                          <span key="pair" className="cell-chip">
+                                            RAW+JPEG
+                                          </span>
+                                        ) : p.kind === "pair-icon" ? (
+                                          // 細いタイルでの組の形: 四角が2枚重なった記号（2026-09-26 の利用者の選択）
+                                          <span key="pair" className="cell-chip chip-icon">
+                                            <svg width={PAIR_ICON_WIDTH} height="11" viewBox="0 0 13 11" role="img" aria-label="RAW+JPEG">
+                                              <rect x="0.75" y="0.75" width="8" height="6.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                                              <rect x="4.25" y="3.75" width="8" height="6.5" rx="1" fill="currentColor" stroke="currentColor" strokeWidth="1.3" />
+                                            </svg>
+                                          </span>
+                                        ) : (
+                                          <span key="burst" className="cell-chip">
+                                            {p.text}
+                                          </span>
+                                        ),
+                                      )}
                                     </span>
-                                  )}
-                                </span>
-                              )}
+                                  );
+                                })()}
                               {/* 選別の印。`cell-pick` は複数選択の丸なので
                                   名前を分ける（`cell-flag`） */}
                               {cell.files.some((f) => f.picked) && (

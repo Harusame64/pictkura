@@ -569,7 +569,7 @@ body {
 .cell-wrap {
   position: relative;
   flex: none;
-  /* 押す口はタイル全体（重ねの紙の上も押せる。dev #32） */
+  /* 押す口はタイル全体（写真の上に重ねた印の上も押せる。dev #32） */
   cursor: pointer;
 }
 .cell {
@@ -590,7 +590,7 @@ body {
 .cell-fav {
   position: absolute;
   top: var(--sp-1);
-  right: calc(6px + var(--photo-inset, 0px));
+  right: 6px;
   color: var(--fav);
   filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
   font-size: var(--fs-lg);
@@ -601,74 +601,33 @@ body {
 .cell-flag {
   position: absolute;
   top: var(--sp-1);
-  right: calc(26px + var(--photo-inset, 0px));
+  right: 26px;
   color: var(--pick);
   filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
   font-size: var(--fs-lg);
   pointer-events: none;
 }
 
-/* 重ねたタイル（dev #32、2026-09-25 の利用者の選択: **印は言葉にし、紙を厚く**）。
-   **紙はタイルの内側に描く**——タイルの間は 4px しか無いので、外へずらすと隣に届く。
-   写真を**左上**へ寄せて縮め、空いた**右下**に紙を1枚のぞかせる。**連写は2枚**（`.burst`）。
-   右上に広げていたときは、同じ行で写真の上端がそろわず高さが違って見えた——右下なら上端がそろう
-   （2026-09-26 の利用者の要望。連写も RAW+JPEG も右下）。
-   `isolation` で重なりの層を閉じ、紙（`::before`）を写真の後ろへ置く。
-   `--photo-inset` は写真の右と下の空き（紙の見えている幅）。右の印と ★・⚑ はその分だけ内へ寄せる */
-.cell-wrap.stacked {
-  --stack-offset: 5px;
-  --photo-inset: var(--stack-offset);
-  isolation: isolate;
-}
-.cell-wrap.stacked .cell {
-  width: calc(100% - var(--photo-inset));
-  height: calc(100% - var(--photo-inset));
-}
-.cell-wrap.stacked::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: calc(100% - var(--photo-inset));
-  height: calc(100% - var(--photo-inset));
-  box-sizing: border-box;
-  border-radius: 3px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  z-index: -1;
-}
-/* 連写は紙を2枚（ADR のタイル表: 組は1枚・連写は2枚）。ずらしを小さくして写真の縮みを抑え、
-   奥の紙（`::before`）を右下の角に、手前の紙（`::after`）をその半分の位置に置く */
-.cell-wrap.burst {
-  --stack-offset: 4px;
-  --photo-inset: calc(2 * var(--stack-offset));
-}
-.cell-wrap.burst::after {
-  width: calc(100% - var(--photo-inset));
-  height: calc(100% - var(--photo-inset));
-  content: "";
-  position: absolute;
-  bottom: var(--stack-offset);
-  right: var(--stack-offset);
-  box-sizing: border-box;
-  border-radius: 3px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  z-index: -1;
-}
+/* 重ねたタイル（dev #32）は**紙を描かない**。写真はタイルいっぱいに出し、重ねていることは
+   右下の印（`RAW+JPEG`・`▤ 連写 12`）だけで言う（2026-09-26 の利用者の選択「E」）。
+   後ろに紙や別のコマをのぞかせる形も実物で見比べたが、同じ絵が少しずれて重なると
+   像がぶれて見え、かえって見づらかった */
 /* 印は右下（左下は動画の ▶、左上は選択の丸、右上は ★・⚑）。`RAW` だけだと「RAW の
    ファイル」と読めるので、組であることを言葉で言う（`RAW+JPEG`）。連写の印（`▤ 連写 12`）と
    並ぶことがあるので、右下に横へ並べる */
 .cell-chips {
   position: absolute;
-  /* 重ねのタイルでは写真の右下の角に合わせる（紙の上に乗せない） */
-  right: calc(var(--sp-1) + var(--photo-inset, 0px));
-  bottom: calc(var(--sp-1) + var(--photo-inset, 0px));
+  right: var(--sp-1);
+  bottom: var(--sp-1);
+  /* 形はタイルの幅に入るものを App.tsx が選ぶ（`stackBadges.ts`）。ここでは切らない——
+     切ると `RAW+JPEG` が数文字に、`▤ 1,234` が `234` に見える（#167 のゲート2） */
   display: flex;
   gap: 3px;
   pointer-events: none;
 }
 .cell-chip {
+  flex: none;
+  white-space: nowrap;
   padding: 0 5px;
   border-radius: var(--radius-sm);
   background: oklch(0 0 0 / 0.55);
@@ -682,13 +641,30 @@ body {
   pointer-events: none;
 }
 
+/* 詰めた形（細いタイル。余白の値は `stackBadges.ts` の PAD・GAP と合わせる） */
+.cell-chips.tight {
+  gap: 2px;
+}
+.cell-chips.tight .cell-chip {
+  padding: 0 3px;
+}
+/* 組の記号（細いタイルの組の形。2026-09-26 の利用者の選択） */
+.cell-chip.chip-icon {
+  display: inline-flex;
+  align-items: center;
+  /* 文字の印と同じ高さ（11px × 行高 1.6） */
+  min-height: calc(var(--fs-xs) * 1.6);
+}
+.cell-chip.chip-icon svg {
+  display: block;
+}
+
 /* 動画のバッジ（第9部）。左下に▶と長さ。
  * 写真の上に文字を置くので、地の明るさに関係なく読めるよう影付きの黒帯にする */
 .cell-video {
   position: absolute;
   left: var(--sp-1);
-  /* 下の印はどれも写真の下端に合わせる（重ねのタイルでは紙の上に乗せない） */
-  bottom: calc(var(--sp-1) + var(--photo-inset, 0px));
+  bottom: var(--sp-1);
   display: flex;
   align-items: center;
   gap: 4px;
