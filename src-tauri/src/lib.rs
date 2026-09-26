@@ -3441,12 +3441,14 @@ async fn scan_roots_on_drives(
             .filter(|r| !dir_mtime_is_reliable(&file_system_of(r, &disks)))
             .cloned()
             .collect();
-        let stats = scan_returned_roots(&state, &visible, &full)?;
         // **監視にも入れる**——起動時に無かったルートは監視していない（カードリーダーの SD は差しても
-        // 知らせが来ない。dev #38 の U7）。読み直しは差す前の分、監視は差したあとの分
+        // 知らせが来ない。dev #38 の U7）。**読み直しの前に**張る——後にすると、読み直しが済んだフォルダに
+        // 読み直しの最中に足されたものを、読み直しも監視も拾わない（#164 の codex）。Windows では
+        // 取り外しの糸が 0.5 秒後に張るので、FAT を全部読む長い読み直しの間に監視が立つ
         if let Some(watcher) = lock_ok(&state.watcher).as_ref() {
             watcher.watch_returned(&visible);
         }
+        let stats = scan_returned_roots(&state, &visible, &full)?;
         out.roots = visible.len();
         out.added = stats.added;
         out.changed = stats.changed;
