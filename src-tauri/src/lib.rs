@@ -3314,17 +3314,10 @@ struct ReturnedRootsDto {
     changed: usize,
 }
 
-/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
-///
-/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
-/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
-/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
-/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
-/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
-/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
-/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（[`drop_untrusted_known_dirs`]）
 /// ルートが載っているファイルシステムの名前（いちばん深く一致するマウントポイントのもの）。
-/// 見つからなければ空（＝信用しない）
+/// 見つからなければ空——[`pruning_is_safe_on`] は空を**信用する**（Windows のネットワークドライブが
+/// ここに当たる）。**綴りで照らすだけ**なので、ジャンクションや `subst` 越しの root は、指す先ではなく
+/// 置き場所のドライブで判断する（既知の限界）
 fn file_system_of(root: &Path, disks: &sysinfo::Disks) -> String {
     disks
         .iter()
@@ -3366,11 +3359,44 @@ fn drop_untrusted_known_dirs(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[Pa
         .filter(|r| !pruning_is_safe_on(&file_system_of(r, &disks)))
         .cloned()
         .collect();
-    if !untrusted.is_empty() {
-        known_dirs.retain(|dir, _| !is_under_any_by_spelling(dir, &untrusted));
-    }
+    retain_known_dirs_outside(known_dirs, &untrusted);
 }
 
+/// `known_dirs` から、`roots` のどれかの中（それ自身を含む）のフォルダを外す。**比べ方は
+/// [`is_under_any_by_spelling`] と同じ**（要素ごと・Windows は大小を区別しない・`..` は中と言わない）。
+/// ルートの要素は先に1回だけ作る——フォルダが 20 万あっても、ルートを毎回分け直さない
+fn retain_known_dirs_outside(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[PathBuf]) {
+    let roots: Vec<Vec<String>> = roots
+        .iter()
+        .map(|r| path_parts(r))
+        .filter(|r| !r.is_empty())
+        .collect();
+    if roots.is_empty() {
+        return;
+    }
+    known_dirs.retain(|dir, _| {
+        if dir
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return true;
+        }
+        let parts = path_parts(dir);
+        !roots
+            .iter()
+            .any(|r| parts.len() >= r.len() && parts[..r.len()] == r[..])
+    });
+}
+
+/// 戻ってきたドライブの上のルートを**足す・変えるだけ**で読み直す（dev #36。**消さない**）。
+///
+/// **消さないのは、別のカードかもしれないから**（#162 のゲート2）。同じドライブ文字・同じボリューム名で
+/// 別の SD カードが付くと、そのカードを元のルートとして読み、元のカードの行を ★・⚑ ごと消してしまう
+/// ——それを利用者が押してもいない走査でやらない。消えた写真の片付けは、押す再スキャンと起動時の走査の仕事。
+/// そのために**フォルダの更新時刻も記録しない**（`seen_dirs` を空にする）——記録すると、次の起動時の
+/// 走査がそのフォルダを「変わっていない」と飛ばし、消えた写真が残り続ける。
+/// 読むのは起動時と同じく**変わっていないフォルダを飛ばす**形（戻るたびにドライブ全体を舐めない）。
+/// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（[`drop_untrusted_known_dirs`]）
 fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
@@ -6022,6 +6048,40 @@ mod tests {
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// 枝刈りの記録から外すのは、指定したルートの中（それ自身を含む）のフォルダだけ。名前が前方一致するだけの
+    /// 隣と、ほかのルートの記録は残す（dev #37）
+    #[test]
+    fn known_dirs_are_dropped_only_under_the_given_roots() {
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+        let mut known: HashMap<PathBuf, i64> = [
+            "/Volumes/SD",
+            "/Volumes/SD/DCIM",
+            "/Volumes/SD/DCIM/100CANON",
+            "/Volumes/SD2/DCIM",
+            "/Users/me/Pictures",
+            "/Users/me/Pictures/2024",
+        ]
+        .into_iter()
+        .map(|p| (PathBuf::from(p), 1))
+        .collect();
+        super::retain_known_dirs_outside(&mut known, &[PathBuf::from("/Volumes/SD")]);
+        let mut left: Vec<String> = known.keys().map(|p| p.display().to_string()).collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "/Users/me/Pictures",
+                "/Users/me/Pictures/2024",
+                "/Volumes/SD2/DCIM"
+            ]
+        );
+        // ルートが無ければ何も外さない
+        let before = known.len();
+        super::retain_known_dirs_outside(&mut known, &[]);
+        assert_eq!(known.len(), before);
     }
 
     /// 枝刈りしないのは FAT の系統と分かったときだけ（dev #37）。**分からない名前（空）は信用する**——
