@@ -19,6 +19,7 @@ import {
   setSlideshowTransition,
   setViewerTransition,
   type ViewerTransition,
+  TRANSITION_DEFAULTS,
   setStackRawJpeg,
   setStackBursts,
   setBurstGapMs,
@@ -464,18 +465,18 @@ export default function Settings({
             </label>
             <p className="settings-note">{t.settingsPairViewNote}</p>
             {/* 送りの動き（2026-09-27 の利用者の選択）。手の送りとスライドショーは別に選ぶ。
-                既定は Rust 側と同じ（手はスライド・ショーはフェード） */}
+                既定は `TRANSITION_DEFAULTS`（Rust 側と同じ） */}
             {(
               [
-                ["transition", "slide", t.settingsTransition, setViewerTransition],
-                ["slideshow_transition", "fade", t.settingsSlideshowTransition, setSlideshowTransition],
+                ["transition", t.settingsTransition, setViewerTransition],
+                ["slideshow_transition", t.settingsSlideshowTransition, setSlideshowTransition],
               ] as const
-            ).map(([key, fallback, label, save]) => (
+            ).map(([key, label, save]) => (
               <label key={key} className="settings-toggle">
                 {label}
                 <select
                   className="settings-select"
-                  value={config?.viewer?.[key] ?? fallback}
+                  value={config?.viewer?.[key] ?? TRANSITION_DEFAULTS[key]}
                   onChange={async (e) => {
                     try {
                       await save(e.target.value as ViewerTransition);

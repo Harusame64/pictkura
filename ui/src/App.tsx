@@ -80,6 +80,7 @@ import {
   type DriveInfo,
   type ExifInfo,
   type AppConfig,
+  TRANSITION_DEFAULTS,
   type DeleteProgress,
   type ExportProgress,
   type UpdateCheck,
@@ -3278,6 +3279,7 @@ export default function App() {
   const markNav = useCallback((dir: 1 | -1, slideshow: boolean) => {
     const shown = visibleRef.current;
     if (!shown) return;
+    // 動画は残像を作らない（台だけが入ってくる）
     const el =
       shown.which === "full"
         ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-image")
@@ -3785,20 +3787,22 @@ export default function App() {
   // 描き上がった状態だけを控える（描画の途中で書くと、捨てられた描画の値が残りうる）
   useLayoutEffect(() => {
     visibleRef.current =
-      viewerItem === null || viewerItem.is_video
+      viewerItem === null
         ? null
         : {
             id: viewerItem.id,
-            which:
-              fullShownId === viewerItem.id && !fallbackToThumb
+            which: viewerItem.is_video
+              ? null
+              : fullShownId === viewerItem.id && !fallbackToThumb
                 ? "full"
                 : thumbShownId === viewerItem.id
                   ? "thumb"
                   : null,
           };
-  });
-  const handTransition = config?.viewer?.transition ?? "slide";
-  const showTransition = config?.viewer?.slideshow_transition ?? "fade";
+  }, [viewerItem, fullShownId, thumbShownId, fallbackToThumb]);
+  const handTransition = config?.viewer?.transition ?? TRANSITION_DEFAULTS.transition;
+  const showTransition =
+    config?.viewer?.slideshow_transition ?? TRANSITION_DEFAULTS.slideshow_transition;
   /** 送り出す残像。`seq` は掛け直しのたび変える（同じ絵へ戻っても動かし直す） */
   const [ghost, setGhost] = useState<{
     seq: number;
@@ -3831,7 +3835,13 @@ export default function App() {
    */
   const [stageKey, setStageKey] = useState(0);
   useLayoutEffect(() => {
-    if (viewerItemId === undefined) return; // まだ解けていない（別の日の「先頭」へ送った直後）
+    if (viewerItemId === undefined) {
+      // まだ解けていない（読めていない日へ送った直後）。台はもう「読み込み中」で前の絵は消えている
+      // ——読めてから前の絵を残像で出し直すと、消えた絵がもう一度現れて流れていく（ゲート2）。
+      // 名乗りは残し（次の絵は入ってくる）、残像だけ捨てる
+      if (navIntentRef.current) navIntentRef.current.ghost = null;
+      return;
+    }
     const intent = navIntentRef.current;
     navIntentRef.current = null;
     // 名乗らない差し替え（組の側への寄せ直し・消した後の寄せ直し）は、動いている最中の動きに
@@ -3841,7 +3851,12 @@ export default function App() {
     const kind = intent.slideshow ? showTransition : handTransition;
     // **動いている最中（次の絵を待っている間も）にまた送られたら、動きを畳んでその場で差し替える**
     // （押しっぱなし・連打）。掛け直すと、途中まで流れた台が毎回端から出直して、絵がぶれて見える
-    const busy = now < quietUntilRef.current;
+    // 時刻だけでは足りない——次の絵を待って止まっている間は、動きの長さを過ぎても続いている（codex）
+    const busy =
+      now < quietUntilRef.current ||
+      transitionAnimsRef.current.some(
+        (a) => a.playState === "running" || a.playState === "paused",
+      );
     for (const a of transitionAnimsRef.current) a.cancel();
     transitionAnimsRef.current = [];
     if (busy) quietUntilRef.current = now + TRANSITION_MS.hand.slide;
@@ -4791,6 +4806,10 @@ export default function App() {
           return;
         }
       }
+      // 押しっぱなし（OS の繰り返し）は動かさない。最初の繰り返しは OS の待ち（Windows 既定で
+      // 約0.5秒）の後に来るので、動きの長さだけ見ていると1回だけ動いてしまう（ゲート2）
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.repeat)
+        quietUntilRef.current = Date.now() + TRANSITION_MS.hand.slide;
       if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);

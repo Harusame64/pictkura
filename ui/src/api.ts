@@ -794,6 +794,14 @@ export const setPairView = (view: "jpeg" | "raw" | "both") =>
 
 /** ビューアで次の絵へ送るときの動き */
 export type ViewerTransition = "none" | "slide" | "fade";
+/**
+ * 設定ファイルに欄が無いときの既定（Rust の `ViewerConfig::default` と同じ。2026-09-27 の利用者の選択）。
+ * ビューアと設定画面の両方がここを読む——片方だけ変えると、画面の表示と実際の動きが食い違う
+ */
+export const TRANSITION_DEFAULTS = {
+  transition: "slide",
+  slideshow_transition: "fade",
+} as const satisfies Record<string, ViewerTransition>;
 
 /** 手で送るときの動きを変える */
 export const setViewerTransition = (transition: ViewerTransition) =>
