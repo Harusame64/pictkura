@@ -248,38 +248,27 @@ const DISPLAY_MAX_EDGE = 4096;
  */
 const FAST_FLIP_MS = 400;
 /**
- * 一覧のタイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
+ * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
- * 勢いよくスクロールすると、絵の届く前のタイルが灰色の四角で一瞬並んで見えた（win の実測: 30,000px 飛ぶと
- * 127〜191ms）。タイル（`.cell-wrap`）は `data-shown` が付くまで透明にしておき、絵が**描ける**ようになったら浮かべる。
- * 灰色の背景は「サムネイルが無いタイル」の見た目でもあるので消さない——透明な1x1が届いた時点で、今までどおり灰色で出る。
+ * 勢いよくスクロールすると、絵の届く前のタイルが灰色の四角で並んで見えた（win の実測: 30,000px 飛ぶと 127〜191ms）。
+ * **タイルは隠さない**——地に近い色（`--cell-pending`）の四角として置いておき、`<img>` だけを届くまで透明にする。
+ * 届いたら浮かべる。サムネイルが無いタイル（透明な1x1）は、そこで今までどおりの灰色になる。
  *
- * - 印は**タイル全体**に付ける。写真だけ隠すと、★・⚑・重ねの印・選択の丸が地の上に浮き、選択の枠は消えて見えた（ゲート2）
- * - 印は React の外の `data-*` 属性。クラスに足すと、`picked` の付け外しで React が `className` を書き直して消す（ゲート2）。
- *   state にすると、タイルごとに再描画が走る
- * - `load` の後に `decode()` を待つ——`decoding="async"` だと、`load` の時点ではまだ描けないことがある（ゲート2）
+ * タイルごと隠す形は捨てた（ゲート2）: 画質の差し替え（1→2）で出ていた絵が消える、1x1 は `no-store` なので
+ * 組み直しのたびに消えて出直す、止まった要求が穴になる、押せる透明なタイルが残る。
+ *
+ * 印は React の外の `data-shown`。`src` だけが替わる（画質の差し替え）ときは同じ要素のまま印が残るので、
+ * ブラウザが新しい絵を描けるまで前の絵を出し続ける（今までと同じ）
  */
-function revealCell(img: HTMLImageElement, decode = true) {
-  const show = () => img.closest(".cell-wrap")?.setAttribute("data-shown", "");
-  if (!decode) {
-    show();
-    return;
-  }
-  Promise.resolve()
-    .then(() => img.decode())
-    .catch(() => {})
-    .then(show);
+function revealThumb(e: { currentTarget: HTMLImageElement }) {
+  e.currentTarget.setAttribute("data-shown", "");
 }
 /**
- * 作り直したタイルの絵が**もう手元に在る**なら、フェードせずにそのまま出す。行の組み直し（日を読み込んだ・
- * 窓の幅を変えた・大きさを変えた）やスクロールで戻ったときに、出ていた絵が消えて浮かび直さないように（ゲート2）。
- * まだ無いなら印を外す——同じタイルのまま絵が替わった（サムネイルが出来た）ときも、浮かべ直す
+ * 作り直した `<img>` の絵が**もう描ける**なら、浮かべずにそのまま出す——行の組み直し（日を読み込んだ・窓の幅・
+ * 大きさ）やスクロールで戻ったとき、出ていた絵が消えて浮かび直さないように（ゲート2）
  */
-function revealWhenCached(img: HTMLImageElement | null) {
-  if (!img) return;
-  const wrap = img.closest(".cell-wrap");
-  if (img.complete && img.naturalWidth > 0) wrap?.setAttribute("data-shown", "");
-  else wrap?.removeAttribute("data-shown");
+function revealIfPainted(img: HTMLImageElement | null) {
+  if (img && img.complete && img.naturalWidth > 0) img.setAttribute("data-shown", "");
 }
 /**
  * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
@@ -6665,17 +6654,15 @@ export default function App() {
                               }}
                             >
                               <img
-                                // 絵が替わったら要素ごと作り直す——同じ要素のまま `src` だけ替わると、
-                                // 作り直した印（下の ref）が走らず、灰色から絵へポンと替わる
-                                key={thumbSrc(cell.item)}
-                                ref={revealWhenCached}
+                                ref={revealIfPainted}
                                 className="cell"
                                 loading="lazy"
                                 decoding="async"
                                 src={thumbSrc(cell.item)}
-                                // **届くまで透明にしておき、届いたら浮かべる**（2026-09-27 の利用者の要望、`revealCell`）
-                                onLoad={(e) => revealCell(e.currentTarget)}
-                                onError={(e) => revealCell(e.currentTarget, false)}
+                                // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
+                                // 「サムネイルが無い」の見た目なので、隠したままにしない
+                                onLoad={revealThumb}
+                                onError={revealThumb}
                                 // サムネイル未生成のHEIC/RAWや、まだ手元に無い
                                 // クラウド上のファイルは配信されない（404）。
                                 // `alt` 未指定だと Chromium は title を代替テキストとして
