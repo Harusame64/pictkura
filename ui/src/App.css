@@ -585,13 +585,18 @@ body {
   display: block;
   cursor: pointer;
   /* transform ではなく filter で強調する: justifiedレイアウトで隣とぶつからず、
-     合成レイヤーも増えないのでスクロールが濁らない */
+     合成レイヤーも増えないのでスクロールが濁らない。
+     opacity の移り変わり（届いた絵を浮かべる 120ms）だけは合成レイヤーを作る——浮かべている間だけで、
+     届いた後は残らない。勢いよくスクロールした直後に一度に数十枚ぶん立つのは承知のうえ（利用者の要望、2026-09-27） */
   transition:
     filter var(--dur-fast) var(--easing),
     opacity var(--dur-fast) var(--easing);
   opacity: 0;
 }
-.cell[data-shown] {
+.cell[data-shown],
+/* 選んだタイルは届く前でも出す——選択の輪（下の `.picked .cell`）が絵の側に付いているので、
+ * 隠すと選んだことが見えなくなる（ゲート2） */
+.cell-wrap.picked .cell {
   opacity: 1;
 }
 .cell:hover {
