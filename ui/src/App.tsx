@@ -6196,7 +6196,9 @@ export default function App() {
       {/* 画面下の知らせは**1つの箱に積む**（2026-09-27、win の実機）。前は1つずつ `bottom` の高さを
           決め打ちしていたので、文が折り返して背が伸びると上の段にかぶり、しかも幅が画面の半分までしか
           取れず細い列に押し込まれた（見つからないフォルダと HEIC の知らせが同じ場所に重なった）。
-          上から: 見つからないフォルダ → 新しい版 → HEIC/HEIF → 索引の進み具合 */}
+          上から: 索引の進み具合 → 見つからないフォルダ → 新しい版 → HEIC/HEIF。**出たり消えたりする索引の
+          帯をいちばん上に置く**——下に置くと、出入りのたびにボタンを持つ知らせが1段ずれて、押そうとした手が
+          別の知らせのボタンに当たる（ゲート2） */}
       <div className="notice-stack">
         {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
             ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
@@ -6283,7 +6285,7 @@ export default function App() {
         )}
         {indexProgress &&
           (indexProgress.building ? (
-            <div className="speed-toast index">
+            <div className="speed-toast index index-progress">
               {indexProgress.phase === "camera"
                 ? t.cameraScanning
                 : t.indexBuilding}
@@ -6297,7 +6299,7 @@ export default function App() {
             </div>
           ) : (
             <div
-              className="speed-toast index warn"
+              className="speed-toast index warn index-progress"
               onClick={() => setIndexProgress(null)}
             >
               {t.indexIncompleteWarning}

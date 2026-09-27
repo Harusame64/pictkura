@@ -2158,10 +2158,12 @@ fn decoder_status(state: tauri::State<'_, AppState>) -> Result<DecoderStatusDto,
         .map_err(errs::from_err)?;
     let mut testable = samples
         .iter()
-        // **手元に無いものも試さない**（2026-09-27、win の実機）。フォルダごと見つからないときに、
-        // 開けなかったのを「デコーダが無い」と読んで、描ける台に「HEVC（有料）が要る」と出していた
-        .filter(|p| p.is_file())
         .filter(|p| !pictkura_core::cloud::is_cloud_only_path(p))
+        // **手元に無いものも試さない**（2026-09-27、win の実機）。フォルダごと見つからないときに、
+        // 開けなかったのを「デコーダが無い」と読んで、描ける台に「HEVC（有料）が要る」と出していた。
+        // **クラウドの判定より後に置く**——`is_file` はリンクをたどるので、プレースホルダの取り寄せを
+        // 起こしうる（ゲート2）。クラウドのみは上で先に外れている
+        .filter(|p| p.is_file())
         .peekable();
     // 試せる見本が1枚も無いときは「分からない」であって「駄目」ではない。
     // ここを偽に倒すと、クラウドだけのライブラリで**嘘の警告**が出る
