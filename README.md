@@ -268,9 +268,9 @@ from somewhere other than here — a mirror such as Softpedia.
 
 ### 1. Add a folder to the library
 
-On first launch your **Pictures** folder is added automatically (the ✕ beside it removes
-it; no photos are deleted). For other folders, use **Add a folder** at the bottom of the left
-pane, or pick a drive. Scanning starts immediately and the grid fills in by date.
+On first launch your **Pictures** folder, if there is one, is added automatically (the ✕
+beside it removes it; no photos are deleted). For other folders, or if nothing was added, use
+**Add a folder** at the bottom of the left pane, or pick a drive. Scanning starts immediately and the grid fills in by date.
 
 > On Windows, Pictures is often on OneDrive: online-only photos download as you scroll to
 > them ([details](#caveats-and-known-gaps)).
