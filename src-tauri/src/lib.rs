@@ -5632,13 +5632,18 @@ pub fn run() {
                         let total = db.cameras_pending().unwrap_or(0);
                         let mut done = 0i64;
                         if total > 0 {
-                            publish("camera", 0, total, true, incomplete);
+                            // **帯は、読める行が出てから出す。** 残りが開けない・クラウドにしか
+                            // 無い行だけなら、起動のたびに同じ行を数えて飛ばすだけで何も
+                            // 読まない——そこで「読み取り中… 0%」を出すと、何もしていない
+                            // 作業を毎回1秒見せることになる（win の実機: クラウドのみ1,879件）
+                            let mut announced = false;
                             let mut after_id = 0i64;
                             while let Ok(batch) = db.cameras_to_backfill(after_id, 200) {
                                 if batch.is_empty() {
                                     break;
                                 }
                                 after_id = batch.last().map(|(id, _)| *id).unwrap_or(after_id);
+                                let batch_len = batch.len() as i64;
                                 let results: Vec<(i64, Option<String>)> = batch
                                     .into_iter()
                                     // **開けなかったファイルは印を付けずに飛ばす**。
@@ -5661,12 +5666,20 @@ pub fn run() {
                                         (id, pictkura_core::thumbs::read_exif_info(&path).camera)
                                     })
                                     .collect();
-                                done += results.len() as i64;
+                                if !results.is_empty() && !announced {
+                                    announced = true;
+                                    publish("camera", done.min(total), total, true, incomplete);
+                                }
+                                // 飛ばした行も「見た」として数える——数えないと、飛ばす行が
+                                // 多いほど帯が途中で止まったまま終わる
+                                done += batch_len;
                                 if !results.is_empty() && db.set_cameras(&results).is_err() {
                                     incomplete = true;
                                     break; // 印を付けていないので次回起動でやり直せる
                                 }
-                                publish("camera", done.min(total), total, true, incomplete);
+                                if announced {
+                                    publish("camera", done.min(total), total, true, incomplete);
+                                }
                                 std::thread::sleep(std::time::Duration::from_millis(20));
                             }
                             // 埋まったカメラを左ペインへ反映させる
