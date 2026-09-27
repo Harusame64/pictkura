@@ -271,6 +271,8 @@ while the scan runs — rows appear as they are ready.
     <strong>The second launch is much faster.</strong>
     pictkura reads the change journal the Windows file system already keeps (the USN journal)
     and only looks at <strong>the files that changed since last time</strong>.
+    Folders on a USB drive or SD card (FAT32 or exFAT) are the exception: they are walked in full on every launch,
+    and while the library has one, the journal is not used and the other folders are checked folder by folder.
     On each launch a ⚡ line appears at the bottom of the window for about eight seconds, showing
     which method was used and how much processing it skipped (click it to dismiss).
   </p>
@@ -552,7 +554,7 @@ An editing app you pick once is remembered and appears in the menu from then on.
 </p>
 
 <p>
-When you step to the previous or next photo, it slides in from the side you stepped toward.
+When you step to the previous or next photo, it slides in from the side you stepped toward. Holding a key down to step does not animate.
 Settings → “When you view a photo full screen” switches this to None or Fade.
 The slideshow transition is chosen separately and fades by default.
 If your system is set to reduce motion, photos change without moving whatever you choose.
@@ -601,7 +603,8 @@ Saving starts in <strong>the folder you saved to last time</strong>
     This depends on the camera, not on the format. <strong>151</strong> of 1,870 real files
     fell here — mostly phones writing <code>dng</code> (HUAWEI, Samsung, LG, Xiaomi),
     Blackmagic CinemaDNG, Canon before CR2 (<code>crw</code>) and Panasonic before RW2
-    (<code>raw</code>). The viewer shows only an empty frame for these — there is no
+    (<code>raw</code>). The viewer shows no picture for these, only the line “This file cannot be
+    displayed (the file is damaged, or pictkura cannot read this format)” — there is no
     picture anywhere in the file to take out. You can look up your own body in the
     <a href="https://harusame64.github.io/pictkura/en/cameras.html">camera list</a>.
   </p>
@@ -689,7 +692,9 @@ same folder again adds nothing; a different file that happens to share a name ge
     They are gone from their old location, gone from the grid, and their ★ / ⚑ marks do not
     come with them. pictkura asks first. A photo that is already at the destination, or that
     fails to copy, stays where it was and in the library. Moving to another drive copies the file and then sends the
-    original to the Recycle Bin — the app still never removes a file outright.
+    original to the Recycle Bin — the app still never removes a file outright. A photo that was copied
+    but whose original could not be sent to the Recycle Bin ends up in both places and stays in the
+    library (“copied, but could not be removed from the original place”).
   </p>
 </div>
 
@@ -734,12 +739,12 @@ rendering.
 <div class="note">
   <p>
     <strong>If you shoot RAW+JPEG, the grid stacks each pair into one tile.</strong>
-    A RAW and a JPEG with the same name in the same folder (<code>IMG_0001.CR3</code> and
-    <code>IMG_0001.JPG</code>) show as the JPEG, with a <code>RAW+JPEG</code> badge in the corner
+    A RAW and a non-RAW image with the same name in the same folder and the same capture time (to the second),
+    such as <code>IMG_0001.CR3</code> and <code>IMG_0001.JPG</code> (a HEIF <code>.HIF</code> pairs too; videos never do), show as the non-RAW image (usually the JPEG), with a <code>RAW+JPEG</code> badge in the corner
     (on narrow tiles, a mark of two overlapping squares).
-    In the grid, ★, ⚑, delete and selection apply to both. Full screen shows only the JPEG by default,
+    In the grid, ★, ⚑, delete and selection apply to both. Full screen shows only the non-RAW file (usually the JPEG) by default,
     and ★, ⚑, ✕ and delete there apply to both files too. You can switch to RAW only, or to both
-    (RAW, then JPEG), under Settings → “When you view a photo full screen” or with the RAW / JPEG
+    (RAW first), under Settings → “When you view a photo full screen” or with the RAW / JPEG
     buttons in full screen. With both, they apply only to the file you are looking at.
     The count next to each date is a file count, so it runs higher than the tiles you see.
     To see them separately, turn it off under Settings → Photo grid.
@@ -752,7 +757,9 @@ rendering.
     Shots join a burst when they come from the same camera (its model, and its body serial number when
     recorded), their capture time is recorded to a fraction of a second, and each is within the set gap
     of the one before (1 second by default). Photos from cameras that record whole seconds only are not
-    stacked. The cover is a shot marked ⚑, or else the first shot.
+    stacked. For photos imported before 0.2.9, the fraction of a second is read again afterwards for
+    images such as JPEG and HEIC only, not for RAW or TIFF (those files are heavy), so an existing burst
+    shot in RAW only does not stack (shot as RAW+JPEG, it stacks through the JPEGs). The cover is a shot marked ⚑, or else the first shot.
     In the grid, ★ and ⚑ from the right-click menu go on the cover only; delete and selection apply to
     the whole burst. Inside a burst, a RAW and its JPEG count as one shot even with RAW+JPEG stacking off. Turn bursts off, or change the gap (0.5, 1 or 2 seconds), under Settings → Photo grid.
   </p>

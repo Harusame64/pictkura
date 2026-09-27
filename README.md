@@ -53,7 +53,7 @@ on up-to-date Windows 10.
 > pictkura for the other users** (`-setup.exe` installs only for you). Each person should run
 > `-setup.exe` themselves. Also, another user on that PC **may still have an AutoPlay entry
 > left behind** (up to 0.2.7, merely launching pictkura registered one) — they can reinstall and
-> turn off "When a USB drive or SD card is inserted" in Settings, or pick a new AutoPlay default
+> turn off "When you insert a USB drive or SD card" in Settings, or pick a new AutoPlay default
 > in Windows Settings.
 >
 > The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
@@ -273,6 +273,8 @@ pick one of the drives. Scanning starts immediately and the grid fills in by dat
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
 > **files that changed since last time**. A ⚡ line at the bottom of the window shows how much it skipped.
+> Folders on a USB drive or SD card (FAT32 or exFAT) are walked in full on every launch, and while the
+> library has one, the other folders are checked without the journal too.
 
 ### 2. Import from a card
 
@@ -284,7 +286,7 @@ photos appear on the right.
 - **Include subfolders** — picks things up even when DCIM has per-date folders inside
 - **Hide already imported** — uses the same check as the importer, so what you see matches
 - **Destination** — **Change** at the bottom takes any folder you like
-- **Sorting** — files are filed by capture date using the folder pattern you chose
+- **Filing** — files are filed by capture date using the folder pattern you chose
 
 Progress, time remaining, and **the photo currently being copied** are shown while it runs.
 File sizes are verified after each copy.
@@ -399,7 +401,9 @@ nothing; a different file that happens to share a name gets `-1`, `-2` appended.
 their current place and leave the library, and their ★ / ⚑ marks are not carried over. A photo
 that is already at the destination, or that fails to copy, stays where it was and in the library. Moving to
 another drive — and moving a file that only exists in the cloud — copies first and then
-sends the original to the recycle bin.
+sends the original to the recycle bin. A photo that was copied but whose original could not be sent
+to the recycle bin ends up in both places and stays in the library ("copied, but could not be
+removed from the original place").
 
 The selection follows what is on screen. Changing the search or the ★ / ⚑ filter, or switching
 to the calendar, clears it, so a bulk action never reaches photos you cannot see.
@@ -467,9 +471,13 @@ extensions, **1,680 give a picture and 1,495 of those are full size**. `rw2` `cr
 **[Is your camera in here?](https://harusame64.github.io/pictkura/en/cameras.html)**
 — 923 bodies from 56 makers, with the exact file we measured linked from every row.
 
-One surprise worth knowing up front: **a High Res shot becomes three tiles.** An OM System
+One surprise worth knowing up front: **a High Res shot is three files.** An OM System
 body writes `.ORF`, `.ORI` and `.JPG` for a single press, and adding `.ori` means all three
-now appear. That is deliberate — hiding a file sitting on the card would be worse.
+are now imported and listed. That is deliberate — hiding a file sitting on the card would be worse.
+The grid does stack a RAW and a JPEG with the same name in the same folder and the same capture
+second into one tile (on by default), so if all three carry the same second they show as **one tile,
+the JPG** (a file whose second differs gets its own tile). Turn stacking off under Settings → Photo
+grid to see all three.
 
 Measured on 2026-09-04 against **1,870 real files** — every CC0 sample at
 [raw.pixls.us](https://raw.pixls.us/) — 816 on macOS and 1,054 on Windows, with no
@@ -540,7 +548,7 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | No blank tiles when scrolling | the thumbnail queue prioritizes whatever is on screen |
 | Serve while scanning | directory scans run outside the DB lock |
 | No full transfer at startup | a date→count index, fetching only the days in view |
-| Don't walk the disk at startup | the NTFS USN journal supplies only what changed |
+| Don't walk the disk at startup | the NTFS USN journal supplies only what changed (folders on FAT32/exFAT USB drives and SD cards are still walked in full on every launch) |
 | Every search is an index seek | FTS5, with CJK expanded to bigrams for substring matching |
 | Don't develop RAW | use the display JPEG the camera embedded |
 | SIMD for thumbnails | `fast_image_resize` for scaling, JPEG decoded at a reduced scale (2.5× overall) |
