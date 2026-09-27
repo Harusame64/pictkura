@@ -2078,8 +2078,49 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
-.speed-toast.index {
+/* 画面下の知らせの箱（App.tsx の注記）。中の知らせは箱の流れに並べ、1つずつの高さは決め打ちしない
+ * ——背が伸びても下から積まれるだけで、互いにかぶらない */
+.notice-stack {
+  position: fixed;
+  left: var(--sp-4);
+  right: var(--sp-4);
   bottom: 68px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 箱そのものは押せない（下の一覧を押せるように）。知らせだけが押せる */
+  pointer-events: none;
+  /* 低い窓で上へはみ出さない——はみ出すと、いちばん上の知らせの「あとで」が押せなくなる（ゲート2）。
+   * 溢れた分は箱の中でスクロールする（知らせの上でホイールを回せば箱が動く） */
+  max-height: calc(100vh - 68px - 56px);
+  overflow-y: auto;
+}
+.notice-stack > .speed-toast {
+  position: static;
+  transform: none;
+  pointer-events: auto;
+  max-width: min(720px, 100%);
+  /* 幅に収まらない文は折り返す（`.speed-toast` の既定は 1行のまま） */
+  white-space: normal;
+  animation-name: notice-in;
+}
+/* 出たり消えたりする索引の帯は、箱のいちばん上（App.tsx の注記） */
+.notice-stack > .index-progress {
+  order: -1;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.speed-toast.index {
   cursor: default;
   color: var(--text-muted);
 }
@@ -2450,18 +2491,14 @@ body {
   color: var(--warn);
 }
 
-/* デコーダが無いときの案内。文言とボタンを1行に並べる。
-   索引進捗のトーストと同じ位置（bottom:68px）に固定されているので、
-   同時に出たときに重ならないよう1段上へ置く */
+/* デコーダが無いときの案内。文言とボタンを1行に並べる（置き場は `.notice-stack`） */
 .speed-toast.decoder-notice {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  bottom: 112px;
   cursor: default;
-  /* 長い文言が狭い窓で画面外へ出ないように、折り返しを許して幅を抑える */
+  /* 長い文言は折り返す（幅の上限は `.notice-stack` の側） */
   white-space: normal;
-  max-width: min(720px, 92vw);
 }
 .speed-toast.decoder-notice button {
   border: 1px solid currentColor;
@@ -2477,21 +2514,17 @@ body {
   background: color-mix(in oklch, currentColor 15%, transparent);
 }
 
-/* 新しい版の知らせ（0.2）。デコーダの知らせと**同時に出ることがある**ので、
-   段を1つ上げて重ねない。色は警告ではなく accent——直さないと困るものではない */
+/* 新しい版の知らせ（0.2）。色は警告ではなく accent——直さないと困るものではない */
 .speed-toast.update-notice {
-  bottom: 168px;
   color: var(--accent);
   border-color: var(--accent);
 }
 
-/* 見つからないライブラリのフォルダの知らせ（dev #23）。デコーダ・新しい版の
-   知らせと**同時に出ることがある**ので、さらに1段上に置く。クリックで閉じない
+/* 見つからないライブラリのフォルダの知らせ（dev #23）。クリックで閉じない
    （`.index.warn` は押すと閉じる形だが、ここはボタンで選んでもらう） */
 /* `.index.warn`（押すと閉じる形で `cursor: pointer`）より詳細にする——同じ要素に付くので、
-   2つだけの組では負けて指の形が出る（#146 の2ゲート目） */
-.speed-toast.index.warn.root-missing-notice {
-  bottom: 224px;
+   2つだけの組では負けて指の形が出る（#146 の2ゲート目）。HEIC/HEIF の知らせも同じ組なので一緒に */
+.speed-toast.index.warn.decoder-notice {
   cursor: default;
 }
 
