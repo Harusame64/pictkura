@@ -6706,19 +6706,16 @@ export default function App() {
       {viewer && (
         <div
           className={"viewer" + (viewerIdle ? " idle" : "")}
-          onClick={requestCloseViewer}
+          // **動いている間は、地のクリックで閉じない。** 見えている写真（残像）は当たり判定を
+          // 持たず、台は画面の外から入ってくる途中か透明なので、写真を押した手は地に落ちる
+          // （ゲート2・codex）。残像で受け止める形は、フェードでは上に居る台に先を取られた
+          onClick={() => {
+            if (!transitioning) requestCloseViewer();
+          }}
         >
           {/* 送り出す残像（送りの動き）。台より前に置く——フェードでは新しい絵が上に浮かぶ */}
           {ghost?.img && (
-            <div
-              className="viewer-ghost"
-              aria-hidden
-              // 動いている間に写真を押しても閉じない。台は画面の外から入ってくる途中なので、
-              // 見えている写真（残像）を押した手は地に落ち、地のクリックは「閉じる」になる（ゲート2）
-              onClick={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onContextMenu={(e) => e.preventDefault()}
-            >
+            <div className="viewer-ghost" aria-hidden>
               <img
                 key={ghost.seq}
                 ref={ghostRef}

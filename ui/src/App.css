@@ -802,10 +802,10 @@ body {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  /* 動いている間の押下は受け止める（地まで落ちると閉じる）。残像そのものは当たらない */
+  /* 当たり判定は持たない。動いている間に地で閉じないのは `.viewer` の onClick の側 */
+  pointer-events: none;
 }
 .viewer-ghost img {
-  pointer-events: none;
   position: absolute;
   object-fit: contain;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
