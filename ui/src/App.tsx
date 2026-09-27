@@ -3269,9 +3269,17 @@ export default function App() {
     fromId: number;
     dir: 1 | -1;
     slideshow: boolean;
+    /** OS のキーの繰り返し（押しっぱなし）で送ったか */
+    repeat: boolean;
     at: number;
     ghost: { src: string; rect: DOMRect } | null;
   } | null>(null);
+  /**
+   * いま処理しているキーが OS の繰り返しか。キーの受け口がその場で立て、同じ処理の中で
+   * 呼ばれた送りだけが読む（処理が終わると下ろす）——クリックの送りや、送らないキーの
+   * 押しっぱなしには効かない（ゲート2）
+   */
+  const keyRepeatRef = useRef(false);
   /** 絵を載せる台（送りの動きで動かす箱）。原寸・下敷き・動画・逃げ道がこの中に居る */
   const stageRef = useRef<HTMLDivElement>(null);
   /** いま見えているのが原寸か下敷きか（描画のたびに下で書く。`markNav` が読む） */
@@ -3291,6 +3299,7 @@ export default function App() {
       fromId: shown.id,
       dir,
       slideshow,
+      repeat: keyRepeatRef.current,
       at: Date.now(),
       ghost: el && src ? { src, rect: el.getBoundingClientRect() } : null,
     };
@@ -3831,12 +3840,8 @@ export default function App() {
       fullDecodedId === viewerItem.id ||
       fullFailedId === viewerItem.id ||
       thumbShownId === viewerItem.id);
-  /**
-   * ここまでは送っても動かさない時刻。動き出した送りは動きの長さだけ、動きを畳んだ送りは
-   * [`TRANSITION_MS`] の手のスライドの長さだけ延ばす——**押しっぱなしの間はずっと動かさない**
-   * （畳んだ直後の1回だけ見て判断すると、動く・動かないが1枚ごとに交互になる。ゲート2）
-   */
-  const quietUntilRef = useRef(0);
+  /** 残像の通し番号（動きごとに1つ。`finished` の返事がどの動きのものかを見分ける） */
+  const ghostSeqRef = useRef(0);
   /**
    * 原寸の `<img>` を作り直す印。**動かす送りのときだけ**進める——`src` の差し替えだと、新しい絵の
    * 最初のフレームが出るまで前の絵が描かれ続け、それが流れ込んでくる。動かさない差し替え
@@ -3854,24 +3859,23 @@ export default function App() {
     const intent = navIntentRef.current;
     navIntentRef.current = null;
     // 名乗らない差し替え（組の側への寄せ直し・消した後の寄せ直し）は、動いている最中の動きに
-    // 触らない——台の中身だけが替わり、動きはそのまま終わる（ゲート2）
-    if (!intent || intent.fromId === viewerItemId) return;
-    const now = Date.now();
+    // 触らない——台の中身だけが替わり、動きはそのまま終わる（ゲート2）。ただし絵は作り直す
+    // （`src` の差し替えだと前の絵のフレームが台に残ったまま流れる）
+    if (!intent || intent.fromId === viewerItemId) {
+      if (!intent && transitioning) setStageKey((k) => k + 1);
+      return;
+    }
     const kind = intent.slideshow ? showTransition : handTransition;
     // **動いている最中（次の絵を待っている間も）にまた送られたら、動きを畳んでその場で差し替える**
-    // （押しっぱなし・連打）。掛け直すと、途中まで流れた台が毎回端から出直して、絵がぶれて見える
-    // 時刻だけでは足りない——次の絵を待って止まっている間は、動きの長さを過ぎても続いている（codex）
-    const busy =
-      now < quietUntilRef.current ||
-      transitionAnimsRef.current.some(
-        (a) => a.playState === "running" || a.playState === "paused",
-      );
+    // （連打）。掛け直すと、途中まで流れた台が毎回端から出直して、絵がぶれて見える。
+    // **押しっぱなし（OS の繰り返し）で送ったときも動かさない**——最初の1枚だけ動く
+    const busy = transitioning;
     for (const a of transitionAnimsRef.current) a.cancel();
     transitionAnimsRef.current = [];
-    if (busy) quietUntilRef.current = now + TRANSITION_MS.hand.slide;
     if (
       busy ||
-      now - intent.at > NAV_INTENT_MS ||
+      intent.repeat ||
+      Date.now() - intent.at > NAV_INTENT_MS ||
       kind === "none" ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
@@ -3879,15 +3883,15 @@ export default function App() {
       return;
     }
     const ms = TRANSITION_MS[intent.slideshow ? "slideshow" : "hand"][kind];
-    quietUntilRef.current = now + ms;
     setStageKey((k) => k + 1);
-    setGhost((g) => ({
-      seq: (g?.seq ?? 0) + 1,
+    ghostSeqRef.current += 1;
+    setGhost({
+      seq: ghostSeqRef.current,
       kind,
       dir: intent.dir,
       ms,
       img: intent.ghost,
-    }));
+    });
     // 設定は送った瞬間のものを使う（動いている途中で設定が変わっても掛け直さない）
   }, [viewerItemId]);
   // 送ったのに同じ絵に留まった（1枚だけの列のスライドショー）ときの名乗りは、ここで捨てる。
@@ -4750,8 +4754,11 @@ export default function App() {
         target?.isContentEditable === true;
       // 押しっぱなし（OS の繰り返し）で送るときは動かさない——矢印も、自動送りの付いた
       // P・U・X も。最初の繰り返しは OS の待ち（Windows 既定で約0.5秒）の後に来るので、
-      // 動きの長さだけ見ていると1回だけ動いてしまう（ゲート2）
-      if (e.repeat) quietUntilRef.current = Date.now() + TRANSITION_MS.hand.slide;
+      // 動きの最中かどうかでは捕まらない。繰り返しかどうかをそのまま送りに渡す（ゲート2）
+      keyRepeatRef.current = e.repeat;
+      queueMicrotask(() => {
+        keyRepeatRef.current = false;
+      });
       // **手前に幕が在るあいだは、1つも通さない。**
       //
       // **設定**（2026-09-08・#136）——`⌘/Ctrl + ,` とメニューで
@@ -6873,7 +6880,9 @@ export default function App() {
                   // （A→B→A と戻ったとき、1回目の A の返事が2回目の A を待たずに動かす）
                   const decodedId = viewerItem.id;
                   const el = e.currentTarget;
-                  el.decode()
+                  // decode が同期で投げても onLoad の残り（失敗の印を消す）は必ず走らせる
+                  Promise.resolve()
+                    .then(() => el.decode())
                     .catch(() => {})
                     .then(() => {
                       if (el.isConnected && isSrcOf(el.currentSrc, decodedId))
