@@ -3642,6 +3642,11 @@ export default function App() {
    * **出ていたサムネイルまで消えて真っ黒になる**（ゲート1のP2）
    */
   const [fullShownId, setFullShownId] = useState<number | null>(null);
+  /**
+   * 原寸の**デコードまで済んだ**絵のid（送りの動きが待つ印）。`load` は画素を描ける前に来る
+   * ——24MP の JPEG では load から約0.1秒、台が空のまま流れた（win の実機、#171）
+   */
+  const [fullDecodedId, setFullDecodedId] = useState<number | null>(null);
   /** 下敷きのサムネイルが出た絵のid（0.2 ②） */
   const [thumbShownId, setThumbShownId] = useState<number | null>(null);
   /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
@@ -3698,6 +3703,7 @@ export default function App() {
     setSettledId(null);
     setThumbShownId(null);
     setFullShownId(null);
+    setFullDecodedId(null);
     setFullFailedId(null);
     setFailedWithSrcId(null);
     if (viewerItemId === undefined) {
@@ -3814,13 +3820,14 @@ export default function App() {
   const ghostRef = useRef<HTMLImageElement>(null);
   const transitionAnimsRef = useRef<Animation[]>([]);
   /**
-   * 次の絵が**出せる**か——原寸が出た（か出せないと分かった）、または下敷きが出た。
+   * 次の絵が**描ける**か——原寸のデコードが済んだ（か出せないと分かった）、または下敷きが出た。
    * 動画は枠がすぐ出るので待たない
    */
   const incomingReady =
     viewerItem !== null &&
     (viewerItem.is_video ||
-      loadedId === viewerItem.id ||
+      fullDecodedId === viewerItem.id ||
+      fullFailedId === viewerItem.id ||
       thumbShownId === viewerItem.id);
   /**
    * ここまでは送っても動かさない時刻。動き出した送りは動きの長さだけ、動きを畳んだ送りは
@@ -3900,7 +3907,9 @@ export default function App() {
       stage.animate(
         slide
           ? [{ transform: `translateX(${ghost.dir * w}px)` }, { transform: "none" }]
-          : [{ opacity: 0 }, { opacity: 1 }],
+          : // 新しい絵は前半で不透明になりきる。前の絵は後半だけ薄れる——同時に薄めると、
+            // 地が透けて途中で暗く沈む（ゲート2、win の実機で中央の明るさが約9%下がった）
+            [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }],
         timing,
       ),
     ];
@@ -3909,8 +3918,8 @@ export default function App() {
         ghostRef.current.animate(
           slide
             ? [{ transform: "none" }, { transform: `translateX(${-ghost.dir * w}px)` }]
-            : // 前の絵は後半だけ薄れる。両方を同時に薄めると、半ばで暗い地が透けて一瞬暗くなる
-              // （ゲート2）。前半は新しい絵が不透明な前の絵の上に浮かぶ
+            : // 前半は不透明のまま新しい絵の下に居て、後半で薄れる（新しい絵と形が違うとき、
+              // はみ出した縁だけがここで消える）
               [{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }],
           { ...timing, fill: "forwards" },
         ),
@@ -6847,6 +6856,13 @@ export default function App() {
                   // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）。
                   // `loadedId` はこれから導かれるので、別に立てるものは無い
                   setFullShownId(viewerItem.id);
+                  // 送りの動きは画素が描けるまで待つ（`fullDecodedId`）。デコードに失敗しても
+                  // 待たせ続けない
+                  const decodedId = viewerItem.id;
+                  e.currentTarget
+                    .decode()
+                    .catch(() => {})
+                    .then(() => setFullDecodedId(decodedId));
                   setFailedWithSrcId(null);
                   // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
                   // 来ることがあり（下のonError参照）、その後で本命の load が
