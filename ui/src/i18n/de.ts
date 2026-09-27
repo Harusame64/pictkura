@@ -499,6 +499,13 @@ export const de: Dict = {
   settingsPairViewNote:
     "Wie die Großansicht ein Paar durchgeht, das in der Übersicht als ein Bild erscheint. Wird nur eine Seite gezeigt, gelten ★, ⚑, ✕ und Löschen in der Großansicht für beide Dateien des Paars. Werden beide gezeigt, nur für die angezeigte Datei. Umschalten geht auch mit den Schaltflächen RAW / JPEG in der Großansicht. Sind Paare in der Übersicht nicht zusammengefasst, erscheinen beide Dateien.",
   viewerPairSide: "Welche Datei des Paars angezeigt wird (bleibt auch in den Einstellungen)",
+  settingsTransition: "Beim Weiterblättern zum nächsten Foto",
+  settingsSlideshowTransition: "Übergang in der Diashow",
+  transitionNone: "Keiner",
+  transitionSlide: "Schieben",
+  transitionFade: "Überblenden",
+  settingsTransitionNote:
+    "Wie die Großansicht zum nächsten Foto wechselt, wenn du blätterst (Pfeiltasten, Schaltflächen, der Streifen unten oder das Weitergehen nach einer Bewertung), und wenn eine Diashow weitergeht. Schieben folgt der Richtung, in die du blätterst. Ist im System „Bewegung reduzieren“ eingestellt, wechseln die Fotos ohne Bewegung, egal was du hier wählst.",
   settingsAutoplay: "Wenn du ein USB-Laufwerk oder eine SD-Karte einsteckst",
   settingsAutoplayToggle: "pictkura in der automatischen Wiedergabe anbieten",
   settingsAutoplayNote:

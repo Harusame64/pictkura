@@ -3165,6 +3165,24 @@ fn set_pair_view(
     update_config(&state, |c| c.viewer.pair_view = view)
 }
 
+/// 手で送るときの動きを変える（なし・スライド・フェード）
+#[tauri::command]
+fn set_viewer_transition(
+    state: tauri::State<'_, AppState>,
+    transition: pictkura_core::config::ViewerTransition,
+) -> Result<(), String> {
+    update_config(&state, |c| c.viewer.transition = transition)
+}
+
+/// スライドショーが送るときの動きを変える。手の送りとは別の設定
+#[tauri::command]
+fn set_slideshow_transition(
+    state: tauri::State<'_, AppState>,
+    transition: pictkura_core::config::ViewerTransition,
+) -> Result<(), String> {
+    update_config(&state, |c| c.viewer.slideshow_transition = transition)
+}
+
 /// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
 ///
 /// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
@@ -6101,6 +6119,8 @@ pub fn run() {
             set_pickeds,
             set_auto_advance,
             set_pair_view,
+            set_viewer_transition,
+            set_slideshow_transition,
             set_stack_raw_jpeg,
             set_stack_bursts,
             scan_roots_on_drives,

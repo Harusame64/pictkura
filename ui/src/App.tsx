@@ -80,6 +80,7 @@ import {
   type DriveInfo,
   type ExifInfo,
   type AppConfig,
+  TRANSITION_DEFAULTS,
   type DeleteProgress,
   type ExportProgress,
   type UpdateCheck,
@@ -246,6 +247,25 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
+/**
+ * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
+ * 見ていくときに、動きが待ち時間にならないように。スライドショーは眺める速さで
+ */
+const TRANSITION_MS = {
+  hand: { slide: 250, fade: 200 },
+  slideshow: { slide: 500, fade: 600 },
+} as const;
+/**
+ * 送ったと名乗ってから、次の絵が決まるまで待つ上限。まだ読めていない日へ送ったときは、
+ * 日を取り寄せる間だけ遅れて決まる。これを過ぎたら動かさずに差し替える
+ * ——長く待たされた後で流れ込むと、押した操作との結び付きが切れて見える
+ */
+const NAV_INTENT_MS = 1500;
+/**
+ * 送った先の絵が出せるようになるまで、動きを止めて待つ上限。先読みの効いた絵は
+ * 数msで出るので待たない。冷えた JPEG（下敷きを敷かない形式）はここで待つ
+ */
+const TRANSITION_WAIT_MS = 400;
 /**
  * ビューア下部のフィルムストリップに出す**片側の枚数**（0.2 ②）。
  *
@@ -3259,10 +3279,67 @@ export default function App() {
     setViewer(null); // その日ごと消えた
   }, [viewer, viewerDayItems, dayIdxByKey, viewerScope, scopeIndexById, walkIndexOf]);
 
-  /** ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ（スライドショー用） */
+  /**
+   * 送りの動き（2026-09-27 の利用者の選択: なし／スライド／フェード、既定はスライド。
+   * スライドショーは別に選び、既定はフェード）。
+   *
+   * **動かすのは、送った側が「送った」と名乗ったときだけ**——`moveViewer` と下の帯。
+   * 開いた直後・消えた絵の寄せ直し・組の先頭への寄せ直しは名乗らないので、その場で差し替わる。
+   * 名乗るときに**いま見えている絵**（原寸か下敷き）の URL と位置を控え、次の絵が出た描画で
+   * それを残像として送り出す。**控えるのは送る直前**——次の絵へ移ったあとでは、原寸の
+   * `<img>` はもう新しい絵を指している
+   */
+  const navIntentRef = useRef<{
+    fromId: number;
+    dir: 1 | -1;
+    slideshow: boolean;
+    /** OS のキーの繰り返し（押しっぱなし）で送ったか */
+    repeat: boolean;
+    at: number;
+    ghost: { src: string; rect: DOMRect } | null;
+  } | null>(null);
+  /**
+   * いま処理しているキーが OS の繰り返しか。キーの受け口がその場で立て、同じ処理の中で
+   * 呼ばれた送りだけが読む（処理が終わると下ろす）——クリックの送りや、送らないキーの
+   * 押しっぱなしには効かない（ゲート2）
+   */
+  const keyRepeatRef = useRef(false);
+  /** 絵を載せる台（送りの動きで動かす箱）。原寸・下敷き・動画・逃げ道がこの中に居る */
+  const stageRef = useRef<HTMLDivElement>(null);
+  /** いま見えているのが原寸か下敷きか（描画のたびに下で書く。`markNav` が読む） */
+  const visibleRef = useRef<{ id: number; which: "full" | "thumb" | null } | null>(null);
+  const markNav = useCallback((dir: 1 | -1, slideshow: boolean) => {
+    const shown = visibleRef.current;
+    if (!shown) return;
+    // 動画は残像を作らない（台だけが入ってくる）
+    const el =
+      shown.which === "full"
+        ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-image")
+        : shown.which === "thumb"
+          ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-thumb")
+          : null;
+    const src = el?.currentSrc;
+    navIntentRef.current = {
+      fromId: shown.id,
+      dir,
+      slideshow,
+      repeat: keyRepeatRef.current,
+      at: Date.now(),
+      ghost: el && src ? { src, rect: el.getBoundingClientRect() } : null,
+    };
+  }, []);
+  /**
+   * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
+   * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
+   */
   const moveViewer = useCallback(
-    (dir: 1 | -1, wrap = false) => {
+    (dir: 1 | -1, wrap = false, slideshow = false) => {
       if (!viewerInfo) return;
+      // 送るときは向きを名乗る（送りの動き）。端で送れなかったときは名乗らない
+      const go = (to: ViewerPos) => {
+        markNav(dir, slideshow);
+        setViewer(to);
+      };
       // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
       // 日をまたいでも列の順に進む——選んだ範囲が一覧の並びで固定してある
       if (viewerScope && scopeIdx !== undefined) {
@@ -3279,7 +3356,7 @@ export default function App() {
           if (dayList && !dayList.some((x) => x.id === at.id)) continue;
           // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
           if (!dayList && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
-          setViewer({ dayKey: at.day_key, id: at.id });
+          go({ dayKey: at.day_key, id: at.id });
           return;
         }
         if (wrap && viewerScope.length > 0) {
@@ -3287,7 +3364,7 @@ export default function App() {
           // 先頭へ戻る（スライドショーの一周）ときも、その日が読めていなければ組の先頭へ寄せ直す（#168 の codex）
           if (!viewerDayItems.has(at.day_key) && pairView === "both")
             pendingOpenIdRef.current = { id: at.id, dir: 1 };
-          setViewer({ dayKey: at.day_key, id: at.id });
+          go({ dayKey: at.day_key, id: at.id });
         }
         return;
       }
@@ -3296,20 +3373,20 @@ export default function App() {
       if (!items) return;
       const ni = itemIdx + dir;
       if (ni >= 0 && ni < items.length) {
-        setViewer({ dayKey: summary[dayIdx].day_key, id: items[ni].id });
+        go({ dayKey: summary[dayIdx].day_key, id: items[ni].id });
         return;
       }
       const nd = dayIdx + dir;
       if (nd >= 0 && nd < summary.length) {
-        setViewer({
+        go({
           dayKey: summary[nd].day_key,
           id: dir === 1 ? "first" : "last",
         });
       } else if (wrap && summary.length > 0) {
-        setViewer({ dayKey: summary[0].day_key, id: "first" });
+        go({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -3598,6 +3675,11 @@ export default function App() {
    * **出ていたサムネイルまで消えて真っ黒になる**（ゲート1のP2）
    */
   const [fullShownId, setFullShownId] = useState<number | null>(null);
+  /**
+   * 原寸の**デコードまで済んだ**絵のid（送りの動きが待つ印）。`load` は画素を描ける前に来る
+   * ——24MP の JPEG では load から約0.1秒、台が空のまま流れた（win の実機、#171）
+   */
+  const [fullDecodedId, setFullDecodedId] = useState<number | null>(null);
   /** 下敷きのサムネイルが出た絵のid（0.2 ②） */
   const [thumbShownId, setThumbShownId] = useState<number | null>(null);
   /** 原寸が**出せなかった**絵のid（0.2 ②）。壊れた <img> の見せ方を変えるため */
@@ -3654,6 +3736,7 @@ export default function App() {
     setSettledId(null);
     setThumbShownId(null);
     setFullShownId(null);
+    setFullDecodedId(null);
     setFullFailedId(null);
     setFailedWithSrcId(null);
     if (viewerItemId === undefined) {
@@ -3740,6 +3823,176 @@ export default function App() {
     viewerItem !== null &&
     fullFailedId === viewerItem.id &&
     thumbShownId === viewerItem.id;
+  // 描き上がった状態だけを控える（描画の途中で書くと、捨てられた描画の値が残りうる）
+  useLayoutEffect(() => {
+    visibleRef.current =
+      viewerItem === null
+        ? null
+        : {
+            id: viewerItem.id,
+            which: viewerItem.is_video
+              ? null
+              : fullShownId === viewerItem.id && !fallbackToThumb
+                ? "full"
+                : thumbShownId === viewerItem.id
+                  ? "thumb"
+                  : null,
+          };
+  }, [viewerItem, fullShownId, thumbShownId, fallbackToThumb]);
+  const handTransition = config?.viewer?.transition ?? TRANSITION_DEFAULTS.transition;
+  const showTransition =
+    config?.viewer?.slideshow_transition ?? TRANSITION_DEFAULTS.slideshow_transition;
+  /** 送り出す残像。`seq` は掛け直しのたび変える（同じ絵へ戻っても動かし直す） */
+  const [ghost, setGhost] = useState<{
+    seq: number;
+    kind: "slide" | "fade";
+    dir: 1 | -1;
+    ms: number;
+    img: { src: string; rect: DOMRect } | null;
+  } | null>(null);
+  const ghostRef = useRef<HTMLImageElement>(null);
+  /** 送りの動きの最中か（次の絵を待っている間も含む）。スライドショーの3秒はこの後から数える */
+  const transitioning = ghost !== null;
+  /** 動きを最後まで飛ばす。残像は `finished` の返事で片付く */
+  const settleTransition = useCallback(() => {
+    for (const a of transitionAnimsRef.current) a.finish();
+  }, []);
+  /** 動きを終わらせた押下の、後に来るクリックを1回だけ受け止める印 */
+  const swallowClickRef = useRef(false);
+  const transitionAnimsRef = useRef<Animation[]>([]);
+  /**
+   * 次の絵が**描ける**か——原寸のデコードが済んだ（か出せないと分かった）、または下敷きが出た。
+   * 動画は枠がすぐ出るので待たない
+   */
+  const incomingReady =
+    viewerItem !== null &&
+    (viewerItem.is_video ||
+      fullDecodedId === viewerItem.id ||
+      fullFailedId === viewerItem.id ||
+      thumbShownId === viewerItem.id);
+  /** 残像の通し番号（動きごとに1つ。`finished` の返事がどの動きのものかを見分ける） */
+  const ghostSeqRef = useRef(0);
+  /**
+   * 原寸の `<img>` を作り直す印。**動かす送りのときだけ**進める——`src` の差し替えだと、新しい絵の
+   * 最初のフレームが出るまで前の絵が描かれ続け、それが流れ込んでくる。動かさない差し替え
+   * （開く・消した後の寄せ直し・動きを減らす設定）は、今までどおり同じ要素のまま
+   */
+  const [stageKey, setStageKey] = useState(0);
+  useLayoutEffect(() => {
+    if (viewerItemId === undefined) {
+      // まだ解けていない（読めていない日へ送った直後）。台はもう「読み込み中」で前の絵は消えている
+      // ——読めてから前の絵を残像で出し直すと、消えた絵がもう一度現れて流れていく（ゲート2）。
+      // 名乗りは残し（次の絵は入ってくる）、残像だけ捨てる
+      if (navIntentRef.current) navIntentRef.current.ghost = null;
+      return;
+    }
+    const intent = navIntentRef.current;
+    navIntentRef.current = null;
+    // 名乗らない差し替え（組の側への寄せ直し・消した後の寄せ直し）は、動いている最中の動きに
+    // 触らない——台の中身だけが替わり、動きはそのまま終わる（ゲート2）。ただし絵は作り直す
+    // （`src` の差し替えだと前の絵のフレームが台に残ったまま流れる）
+    if (!intent || intent.fromId === viewerItemId) {
+      if (!intent && transitioning) setStageKey((k) => k + 1);
+      return;
+    }
+    const kind = intent.slideshow ? showTransition : handTransition;
+    // **動いている最中（次の絵を待っている間も）にまた送られたら、動きを畳んでその場で差し替える**
+    // （連打）。掛け直すと、途中まで流れた台が毎回端から出直して、絵がぶれて見える。
+    // **押しっぱなし（OS の繰り返し）で送ったときも動かさない**——最初の1枚だけ動く
+    const busy = transitioning;
+    for (const a of transitionAnimsRef.current) a.cancel();
+    transitionAnimsRef.current = [];
+    if (
+      busy ||
+      intent.repeat ||
+      Date.now() - intent.at > NAV_INTENT_MS ||
+      kind === "none" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setGhost(null);
+      return;
+    }
+    const ms = TRANSITION_MS[intent.slideshow ? "slideshow" : "hand"][kind];
+    setStageKey((k) => k + 1);
+    ghostSeqRef.current += 1;
+    setGhost({
+      seq: ghostSeqRef.current,
+      kind,
+      dir: intent.dir,
+      ms,
+      img: intent.ghost,
+    });
+    // 設定は送った瞬間のものを使う（動いている途中で設定が変わっても掛け直さない）
+  }, [viewerItemId]);
+  // 送ったのに同じ絵に留まった（1枚だけの列のスライドショー）ときの名乗りは、ここで捨てる。
+  // 残すと、後の関係ない差し替え（組の RAW / JPEG・消した後）が動いてしまう（ゲート2）。
+  // 絵が替わった送りは、上の layout effect が先に（描く前に）受け取っている
+  useEffect(() => {
+    if (viewerItemId !== undefined) navIntentRef.current = null;
+  }, [viewer, viewerItemId]);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!ghost || !stage) return;
+    const w = window.innerWidth;
+    const slide = ghost.kind === "slide";
+    const timing: KeyframeAnimationOptions = {
+      duration: ghost.ms,
+      easing: slide ? "cubic-bezier(0.2, 0, 0, 1)" : "ease-in-out",
+    };
+    const anims = [
+      stage.animate(
+        slide
+          ? [{ transform: `translateX(${ghost.dir * w}px)` }, { transform: "none" }]
+          : // 新しい絵は前半で不透明になりきる。前の絵は後半だけ薄れる——同時に薄めると、
+            // 地が透けて途中で暗く沈む（ゲート2、win の実機で中央の明るさが約9%下がった）
+            [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }],
+        timing,
+      ),
+    ];
+    if (ghostRef.current)
+      anims.push(
+        ghostRef.current.animate(
+          slide
+            ? [{ transform: "none" }, { transform: `translateX(${-ghost.dir * w}px)` }]
+            : // 前半は不透明のまま新しい絵の下に居て、後半で薄れる（新しい絵と形が違うとき、
+              // はみ出した縁だけがここで消える）
+              [{ opacity: 1 }, { opacity: 1, offset: 0.5 }, { opacity: 0 }],
+          { ...timing, fill: "forwards" },
+        ),
+      );
+    // 次の絵が**まだ出せない**なら、最初の形のまま止めて待つ（下の effect が動かす）。
+    // 空の台を流し込むと、残像が消えたあとで絵がポンと出る——選んだ動きにならない
+    if (!incomingReady) for (const a of anims) a.pause();
+    transitionAnimsRef.current = anims;
+    const seq = ghost.seq;
+    anims[0].finished.then(
+      () => setGhost((g) => (g?.seq === seq ? null : g)),
+      () => {}, // 畳まれた（次の送り・閉じた）。残像は畳んだ側が片付ける
+    );
+    // 待つかどうかは残像を出した瞬間に決める（出せるようになったら下の effect が動かす）
+  }, [ghost]);
+  useEffect(() => {
+    if (!ghost) return;
+    const play = () => {
+      for (const a of transitionAnimsRef.current)
+        if (a.playState === "paused") a.play();
+    };
+    if (incomingReady) {
+      play();
+      return;
+    }
+    // 届かない絵のために残像を出し続けない。待ちきれなければ、空のまま動かす
+    const t = window.setTimeout(play, TRANSITION_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [ghost, incomingReady]);
+  useEffect(() => {
+    if (viewer !== null) return;
+    // 閉じたら残像も名乗りも捨てる——次に開いたとき、前の残像が一瞬出ないように
+    for (const a of transitionAnimsRef.current) a.cancel();
+    transitionAnimsRef.current = [];
+    navIntentRef.current = null;
+    setGhost(null);
+  }, [viewer]);
   /**
    * 抽出（Issue #13）の道具を出してよいか。
    *
@@ -4475,18 +4728,21 @@ export default function App() {
   // ——今までと同じ）。`moveViewer` の作り直しで張り直すと、裏でサムネイルや RAW の読み直しが
   // 走っている間は `media-updated` のたびに `dayItems` が書き換わって作り直され、3秒が数え直しに
   // なり続けて次へ進まない（Windows の実機で 19.3 秒。2026-09-26）。送る関数は ref で最新のものを呼ぶ。
-  // `slideTick` は、送っても同じ写真に戻ったとき（1枚だけの列）にも張り直すため
+  // `slideTick` は、送っても同じ写真に戻ったとき（1枚だけの列）にも張り直すため。
+  //
+  // **切り替えの動き（#171）が済むまでは数え始めない。** フェードの 0.6 秒と、冷えた絵を待つ
+  // 最大 0.4 秒を3秒から差し引くと、見えている時間が形式によって 2〜3 秒にばらつく
   const moveViewerRef = useRef(moveViewer);
   moveViewerRef.current = moveViewer;
   const [slideTick, setSlideTick] = useState(0);
   useEffect(() => {
-    if (!playing || playingVideo || viewerItemId === undefined) return;
+    if (!playing || playingVideo || viewerItemId === undefined || transitioning) return;
     const t = window.setTimeout(() => {
-      moveViewerRef.current(1, true);
+      moveViewerRef.current(1, true, true);
       setSlideTick((n) => n + 1);
     }, 3000);
     return () => window.clearTimeout(t);
-  }, [playing, playingVideo, viewerItemId, slideTick]);
+  }, [playing, playingVideo, viewerItemId, slideTick, transitioning]);
 
   useEffect(() => {
     if (viewer === null) return;
@@ -4526,6 +4782,15 @@ export default function App() {
           !NON_TEXT_INPUT_TYPES.has((target as HTMLInputElement).type)) ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
+      // 押しっぱなし（OS の繰り返し）で送るときは動かさない——矢印も、自動送りの付いた
+      // P・U・X も。最初の繰り返しは OS の待ち（Windows 既定で約0.5秒）の後に来るので、
+      // 動きの最中かどうかでは捕まらない。繰り返しかどうかをそのまま送りに渡す（ゲート2）
+      keyRepeatRef.current = e.repeat;
+      // 送り以外のキー（判定・★・コピー・削除…）は、動きを終わらせてから効かせる（利用者の選択）
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") settleTransition();
+      queueMicrotask(() => {
+        keyRepeatRef.current = false;
+      });
       // **手前に幕が在るあいだは、1つも通さない。**
       //
       // **設定**（2026-09-08・#136）——`⌘/Ctrl + ,` とメニューで
@@ -6480,8 +6745,48 @@ export default function App() {
       {viewer && (
         <div
           className={"viewer" + (viewerIdle ? " idle" : "")}
-          onClick={requestCloseViewer}
+          // **動いている間は、地のクリックで閉じない。** 見えている写真（残像）は当たり判定を
+          // 持たず、台は画面の外から入ってくる途中か透明なので、写真を押した手は地に落ちる
+          // （ゲート2・codex）。残像で受け止める形は、フェードでは上に居る台に先を取られた
+          onClick={() => {
+            if (swallowClickRef.current) {
+              swallowClickRef.current = false;
+              return;
+            }
+            if (!transitioning) requestCloseViewer();
+          }}
+          // **動いている最中に押したら、動きを即座に終わらせてから効かせる**（2026-09-27 の
+          // 利用者の選択）。見えている写真と、★・⚑・削除・右クリックが効く写真を必ず一致させる。
+          // 終わらせたクリックそのものは地に落ちても閉じない——押した手は前の写真を狙っていた
+          onPointerDownCapture={() => {
+            swallowClickRef.current = transitioning;
+            if (transitioning) settleTransition();
+          }}
+          onWheelCapture={() => {
+            if (transitioning) settleTransition();
+          }}
         >
+          {/* 送り出す残像（送りの動き）。台より前に置く——フェードでは新しい絵が上に浮かぶ */}
+          {ghost?.img && (
+            <div className="viewer-ghost" aria-hidden>
+              <img
+                key={ghost.seq}
+                ref={ghostRef}
+                src={ghost.img.src}
+                alt=""
+                draggable={false}
+                style={{
+                  left: ghost.img.rect.left,
+                  top: ghost.img.rect.top,
+                  width: ghost.img.rect.width,
+                  height: ghost.img.rect.height,
+                }}
+              />
+            </div>
+          )}
+          {/* 絵を載せる台。送りの動きではこの箱ごと動かす——原寸の <img> の transform は
+              拡大・移動が使っているので、そこには掛けない */}
+          <div className="viewer-stage" ref={stageRef}>
           {viewerItem && viewerItem.is_video ? (
             // 動画（第9部）。`<img>` ではなく `<video>` に渡す。
             // 実体は `media://video/<id>` から**Rangeで刻んで**届くので、
@@ -6509,7 +6814,7 @@ export default function App() {
                 }}
                 // スライドショー中は最後まで見せてから次へ送る
                 onEnded={() => {
-                  if (playing) moveViewer(1, true);
+                  if (playing) moveViewer(1, true, true);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
@@ -6576,6 +6881,8 @@ export default function App() {
             )
           ) : viewerItem ? (
             <img
+              // 送りを動かすときだけ作り直す（`stageKey` の注記）
+              key={stageKey}
               className="viewer-image"
               // 門が開くまで `src` を置かない＝要求そのものを出さない。
               // 置いてから消しても、Rust側で走り出した変換は取り消せない
@@ -6612,6 +6919,24 @@ export default function App() {
                   // 下敷きを外してよいのは**ここだけ**（onErrorでは外さない）。
                   // `loadedId` はこれから導かれるので、別に立てるものは無い
                   setFullShownId(viewerItem.id);
+                  // 送りの動きは画素が描けるまで待つ（`fullDecodedId`）。デコードに失敗しても
+                  // 待たせ続けない
+                  // **返事はこの要素がまだこの絵を出しているときだけ受ける**——作り直された
+                  // 要素や、別の絵へ移った後に遅れて来た返事で「済んだ」を立てない
+                  // （A→B→A と戻ったとき、1回目の A の返事が2回目の A を待たずに動かす）
+                  const decodedId = viewerItem.id;
+                  const el = e.currentTarget;
+                  // 待っている動きが無ければデコードを急かさない（24MP で約 96MB を余計に起こす）。
+                  // decode が同期で投げても onLoad の残り（失敗の印を消す）は必ず走らせる
+                  if (transitioning) {
+                    Promise.resolve()
+                      .then(() => el.decode())
+                      .catch(() => {})
+                      .then(() => {
+                        if (el.isConnected && isSrcOf(el.currentSrc, decodedId))
+                          setFullDecodedId(decodedId);
+                      });
+                  }
                   setFailedWithSrcId(null);
                   // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
                   // 来ることがあり（下のonError参照）、その後で本命の load が
@@ -6756,6 +7081,7 @@ export default function App() {
                 }}
               />
             )}
+          </div>
           {/* 先読み（0.2 ①）。`display:none` でも画素は保持される（実測で
               opacity:0・画面外配置と同じ。小細工は要らない）。クリックも
               受けないので、地をクリックして閉じる操作の邪魔にならない */}
@@ -6870,9 +7196,11 @@ export default function App() {
                     (rejected.has(item.id) ? " rejected" : "")
                   }
                   title={item.file_name}
-                  onClick={() =>
-                    setViewer({ dayKey: item.day_key, id: item.id })
-                  }
+                  onClick={() => {
+                    // 帯で選んだ絵も、押した側から流れてくる（今の絵を押したときは名乗らない）
+                    if (offset !== 0) markNav(offset > 0 ? 1 : -1, false);
+                    setViewer({ dayKey: item.day_key, id: item.id });
+                  }}
                 >
                   {item.has_thumb ? (
                     <img src={thumbSrc(item)} alt="" draggable={false} />

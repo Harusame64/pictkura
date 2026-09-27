@@ -502,6 +502,13 @@ export const es: Dict = {
   settingsPairViewNote:
     "Cómo se recorre en grande una pareja que en la cuadrícula es una sola miniatura. Si se muestra solo uno, ★, ⚑, ✕ y borrar en la vista grande se aplican a los dos archivos de la pareja. Si se muestran los dos, solo al archivo que estás viendo. También puedes cambiarlo con los botones RAW / JPEG de la vista grande. Si las parejas no están agrupadas en la cuadrícula, se ven los dos archivos.",
   viewerPairSide: "Qué archivo de la pareja ver (también queda en los ajustes)",
+  settingsTransition: "Al pasar a la siguiente foto",
+  settingsSlideshowTransition: "Transición del pase de diapositivas",
+  transitionNone: "Ninguna",
+  transitionSlide: "Deslizar",
+  transitionFade: "Fundido",
+  settingsTransitionNote:
+    "Cómo cambia la vista grande a la siguiente foto cuando avanzas (flechas, botones, la tira de abajo o el avance tras una valoración), y cuando avanza un pase de diapositivas. Deslizar sigue la dirección en la que avanzas. Si el sistema está configurado para reducir el movimiento, las fotos cambian sin moverse, elijas lo que elijas.",
   settingsAutoplay: "Cuando conectas una unidad USB o una tarjeta SD",
   settingsAutoplayToggle: "Ofrecer pictkura en la Reproducción automática",
   settingsAutoplayNote:

@@ -425,6 +425,13 @@ export const en: Dict = {
   settingsPairViewNote:
     "How full screen steps through a pair shown as one tile in the grid. With one side shown, ★, ⚑, ✕ and delete in full screen apply to both files of the pair. With both shown, they apply only to the file you are looking at. The RAW / JPEG buttons in full screen switch it too. If pairs are not stacked in the grid, both files show.",
   viewerPairSide: "Which file of the pair to show (also saved in settings)",
+  settingsTransition: "When stepping to the next photo",
+  settingsSlideshowTransition: "Slideshow transition",
+  transitionNone: "None",
+  transitionSlide: "Slide",
+  transitionFade: "Fade",
+  settingsTransitionNote:
+    "How full screen moves to the next photo when you step (arrow keys, buttons, the strip at the bottom, or moving on after a judgement), and when a slideshow moves on. Slide follows the direction you step in. If your system is set to reduce motion, photos change without moving whatever you choose here.",
   settingsAutoplay: "When you insert a USB drive or SD card",
   settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
   settingsAutoplayNote:

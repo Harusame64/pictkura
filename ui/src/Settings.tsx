@@ -16,6 +16,10 @@ import {
   setImportDestination,
   setAutoAdvance,
   setPairView,
+  setSlideshowTransition,
+  setViewerTransition,
+  type ViewerTransition,
+  TRANSITION_DEFAULTS,
   setStackRawJpeg,
   setStackBursts,
   setBurstGapMs,
@@ -460,6 +464,43 @@ export default function Settings({
               </select>
             </label>
             <p className="settings-note">{t.settingsPairViewNote}</p>
+            {/* 送りの動き（2026-09-27 の利用者の選択）。手の送りとスライドショーは別に選ぶ。
+                既定は `TRANSITION_DEFAULTS`（Rust 側と同じ） */}
+            {(
+              [
+                ["transition", t.settingsTransition, setViewerTransition],
+                ["slideshow_transition", t.settingsSlideshowTransition, setSlideshowTransition],
+              ] as const
+            ).map(([key, label, save]) => (
+              <label key={key} className="settings-toggle">
+                {label}
+                <select
+                  className="settings-select"
+                  value={config?.viewer?.[key] ?? TRANSITION_DEFAULTS[key]}
+                  onChange={async (e) => {
+                    try {
+                      await save(e.target.value as ViewerTransition);
+                    } catch (err) {
+                      onError(errText(err));
+                    }
+                    onConfigChanged();
+                  }}
+                >
+                  {(
+                    [
+                      ["none", t.transitionNone],
+                      ["slide", t.transitionSlide],
+                      ["fade", t.transitionFade],
+                    ] as const satisfies readonly (readonly [ViewerTransition, string])[]
+                  ).map(([v, name]) => (
+                    <option key={v} value={v}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <p className="settings-note">{t.settingsTransitionNote}</p>
           </section>
 
           {/* 一覧の重ね（dev #32、`dev/adr.grid-stacks.md`）。RAW+JPEG と連写は独立に切れる */}

@@ -523,6 +523,13 @@ export const ja = {
   settingsPairViewNote:
     "一覧で1枚にまとめた組を、大きく見ているときにどう送るかです。片方だけ見せているときは、そこで付けた★・⚑・✕と削除が組の両方に効きます。両方のときは、見ているファイルだけに効きます。大きく見ている画面の RAW / JPEG のボタンでも切り替えられます。一覧で組をまとめていないときは、2つとも出ます。",
   viewerPairSide: "組のどちらを見るか（設定にも残ります）",
+  settingsTransition: "次の写真へ送るときの動き",
+  settingsSlideshowTransition: "スライドショーの切り替え",
+  transitionNone: "なし",
+  transitionSlide: "スライド",
+  transitionFade: "フェード",
+  settingsTransitionNote:
+    "大きく見ている画面で次の写真へ進むとき（矢印キー・送りボタン・下の帯・判定のあとの自動送り）と、スライドショーが次へ進むときの動きです。スライドは押した向きへ流れます。OS の設定でアニメーションを減らしているときは、どれを選んでいても動きません。",
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
   settingsAutoplayNote:

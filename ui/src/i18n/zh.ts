@@ -478,6 +478,13 @@ export const zh: Dict = {
   settingsPairViewNote:
     "在网格中合并为一张的组合，全屏时如何切换。只显示其中一个时，全屏中的 ★、⚑、✕ 和删除会同时作用于组合中的两个文件；显示两者时，只作用于当前显示的文件。也可以用全屏画面中的 RAW / JPEG 按钮切换。如果网格中没有合并组合，两个文件都会显示。",
   viewerPairSide: "显示组合中的哪一个（也会保存到设置）",
+  settingsTransition: "切换到下一张照片时",
+  settingsSlideshowTransition: "幻灯片放映的切换效果",
+  transitionNone: "无",
+  transitionSlide: "滑动",
+  transitionFade: "淡入淡出",
+  settingsTransitionNote:
+    "全屏时切换到下一张照片（方向键、按钮、底部的缩略图条，或判定后的自动前进），以及幻灯片放映切换时的效果。滑动会朝你切换的方向移动。如果系统设置了减少动态效果，无论这里选什么，照片都会直接切换。",
   settingsAutoplay: "插入 U 盘或 SD 卡时",
   settingsAutoplayToggle: "在“自动播放”的选项里提供 pictkura",
   settingsAutoplayNote:
