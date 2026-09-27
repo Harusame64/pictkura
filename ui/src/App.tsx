@@ -6635,6 +6635,13 @@ export default function App() {
                                 loading="lazy"
                                 decoding="async"
                                 src={thumbSrc(cell.item)}
+                                // **届くまで透明にしておき、届いたら浮かべる**（2026-09-27 の利用者の要望）。
+                                // 勢いよくスクロールすると、絵の届く前のセルが灰色の四角で一瞬並んで見えた。
+                                // 灰色の背景は「サムネイルが無いタイル」の見た目でもあるので消さない——
+                                // 透明な1x1が届いた時点（＝絵が無いと分かった時点）で、今までどおり灰色で出る。
+                                // 印は state ではなくクラスで付ける（セルごとの再描画を起こさない）
+                                onLoad={(e) => e.currentTarget.classList.add("shown")}
+                                onError={(e) => e.currentTarget.classList.add("shown")}
                                 // サムネイル未生成のHEIC/RAWや、まだ手元に無い
                                 // クラウド上のファイルは配信されない（404）。
                                 // `alt` 未指定だと Chromium は title を代替テキストとして
