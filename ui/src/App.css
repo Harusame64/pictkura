@@ -2078,8 +2078,39 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
-.speed-toast.index {
+/* 画面下の知らせの箱（App.tsx の注記）。中の知らせは箱の流れに並べ、1つずつの高さは決め打ちしない
+ * ——背が伸びても下から積まれるだけで、互いにかぶらない */
+.notice-stack {
+  position: fixed;
+  left: var(--sp-4);
+  right: var(--sp-4);
   bottom: 68px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  /* 箱そのものは押せない（下の一覧を押せるように）。知らせだけが押せる */
+  pointer-events: none;
+}
+.notice-stack > .speed-toast {
+  position: static;
+  transform: none;
+  pointer-events: auto;
+  max-width: min(720px, 100%);
+  animation-name: notice-in;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.speed-toast.index {
   cursor: default;
   color: var(--text-muted);
 }
@@ -2457,7 +2488,6 @@ body {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  bottom: 112px;
   cursor: default;
   /* 長い文言が狭い窓で画面外へ出ないように、折り返しを許して幅を抑える */
   white-space: normal;
@@ -2477,21 +2507,17 @@ body {
   background: color-mix(in oklch, currentColor 15%, transparent);
 }
 
-/* 新しい版の知らせ（0.2）。デコーダの知らせと**同時に出ることがある**ので、
-   段を1つ上げて重ねない。色は警告ではなく accent——直さないと困るものではない */
+/* 新しい版の知らせ（0.2）。色は警告ではなく accent——直さないと困るものではない */
 .speed-toast.update-notice {
-  bottom: 168px;
   color: var(--accent);
   border-color: var(--accent);
 }
 
-/* 見つからないライブラリのフォルダの知らせ（dev #23）。デコーダ・新しい版の
-   知らせと**同時に出ることがある**ので、さらに1段上に置く。クリックで閉じない
+/* 見つからないライブラリのフォルダの知らせ（dev #23）。クリックで閉じない
    （`.index.warn` は押すと閉じる形だが、ここはボタンで選んでもらう） */
 /* `.index.warn`（押すと閉じる形で `cursor: pointer`）より詳細にする——同じ要素に付くので、
    2つだけの組では負けて指の形が出る（#146 の2ゲート目） */
 .speed-toast.index.warn.root-missing-notice {
-  bottom: 224px;
   cursor: default;
 }
 

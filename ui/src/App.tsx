@@ -6193,111 +6193,117 @@ export default function App() {
           {speedLabel(speedReport)}
         </div>
       )}
-      {heifMissing != null && (
-        <div className="speed-toast index warn decoder-notice">
-          <span>
-            {/* **件数は生のまま渡す**（2026-09-02）。桁区切りは辞書の中の `num()` が
-                付ける。整形済みの文字列を渡していたときは、辞書から件数が見えず
-                独語で `Für 1 HEIC/HEIF-Fotos` と出ていた（`plural.ts` の冒頭） */}
-            {platform === "windows"
-              ? t.decoderHeifNotice(heifMissing)
-              : platform === "macos"
-                ? t.decoderHeifNoticeMac(heifMissing)
-                : t.decoderHeifNoticeOther(heifMissing)}
-          </span>
-          {/* **文言と同じ判定に揃える。** 片方が先に届いた瞬間に
-              「デコーダが無いのかも」と「拡張機能を買え」が同時に出うる
-              ——2つの往復に順番の保証は無い（ゲート2の指摘） */}
-          {platform === "windows" && decoderHelp && (
-            <>
-              <button onClick={() => openDecoderHelp("heif").catch((e) => fail(errText(e)))}>
-                {t.decoderHeifHow}
-              </button>
-              <button onClick={() => openDecoderHelp("hevc").catch((e) => fail(errText(e)))}>
-                {t.decoderHevcHow}
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => {
-              localStorage.setItem(DECODER_NOTICE_KEY, "off");
-              setHeifMissing(null);
-            }}
-          >
-            {t.decoderNoticeDismiss}
-          </button>
-        </div>
-      )}
-      {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
-          ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
-      {/* 空の一覧の画面が同じ理由を言っているあいだは出さない（二重に言わない） */}
-      {missingShown.length > 0 &&
-        missingKey !== missingNoticeLaterFor &&
-        !canSayEmpty && (
-        <div
-          className="speed-toast index warn decoder-notice root-missing-notice"
-          role="status"
-        >
-          <span>
-            {missingShown.length === 1
-              ? t.rootMissingNotice(
-                  rootName(missingShown[0].root),
-                  missingShown[0].count,
-                )
-              : t.rootsMissingNotice(
-                  nameList(missingShown.map((m) => rootName(m.root))),
-                  missingTotalCount,
-                )}
-          </span>
-          {missingShown.length === 1 && (
-            <button
-              title={t.rootRemoveKeepsFiles}
-              disabled={busy}
-              onClick={() => onRemoveRoot(missingShown[0].root)}
-            >
-              {t.rootRemoveFromLibrary}
-            </button>
-          )}
-          {/* 文言は新しい版の知らせと共用（「あとで」） */}
-          <button onClick={() => setMissingNoticeLaterFor(missingKey)}>
-            {t.updateLater}
-          </button>
-        </div>
-      )}
-      {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
-          落として入れ替えるのはブラウザとインストーラの仕事で、ここは
-          「出ていますよ」と言うだけ */}
-      {updateFound && (
-        <div className="speed-toast index decoder-notice update-notice">
-          <span>{t.updateFound(updateFound.latest ?? "")}</span>
-          <button onClick={() => openDownloadPage().catch((e) => fail(errText(e)))}>
-            {t.updateOpenPage}
-          </button>
-          <button onClick={() => setUpdateFound(null)}>{t.updateLater}</button>
-        </div>
-      )}
-      {indexProgress &&
-        (indexProgress.building ? (
-          <div className="speed-toast index">
-            {indexProgress.phase === "camera"
-              ? t.cameraScanning
-              : t.indexBuilding}
-            {Math.min(
-              99,
-              Math.floor(
-                (indexProgress.done / (indexProgress.total || 1)) * 100,
-              ),
-            )}
-            {t.indexProgressSuffix}
-          </div>
-        ) : (
+      {/* 画面下の知らせは**1つの箱に積む**（2026-09-27、win の実機）。前は1つずつ `bottom` の高さを
+          決め打ちしていたので、文が折り返して背が伸びると上の段にかぶり、しかも幅が画面の半分までしか
+          取れず細い列に押し込まれた（見つからないフォルダと HEIC の知らせが同じ場所に重なった）。
+          上から: 見つからないフォルダ → 新しい版 → HEIC/HEIF → 索引の進み具合 */}
+      <div className="notice-stack">
+        {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
+            ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
+        {/* 空の一覧の画面が同じ理由を言っているあいだは出さない（二重に言わない） */}
+        {missingShown.length > 0 &&
+          missingKey !== missingNoticeLaterFor &&
+          !canSayEmpty && (
           <div
-            className="speed-toast index warn"
-            onClick={() => setIndexProgress(null)}
+            className="speed-toast index warn decoder-notice root-missing-notice"
+            role="status"
           >
-            {t.indexIncompleteWarning}
+            <span>
+              {missingShown.length === 1
+                ? t.rootMissingNotice(
+                    rootName(missingShown[0].root),
+                    missingShown[0].count,
+                  )
+                : t.rootsMissingNotice(
+                    nameList(missingShown.map((m) => rootName(m.root))),
+                    missingTotalCount,
+                  )}
+            </span>
+            {missingShown.length === 1 && (
+              <button
+                title={t.rootRemoveKeepsFiles}
+                disabled={busy}
+                onClick={() => onRemoveRoot(missingShown[0].root)}
+              >
+                {t.rootRemoveFromLibrary}
+              </button>
+            )}
+            {/* 文言は新しい版の知らせと共用（「あとで」） */}
+            <button onClick={() => setMissingNoticeLaterFor(missingKey)}>
+              {t.updateLater}
+            </button>
           </div>
-        ))}
+        )}
+        {/* 新しい版の知らせ（0.2）。**押さなければ何も起きない**——
+            落として入れ替えるのはブラウザとインストーラの仕事で、ここは
+            「出ていますよ」と言うだけ */}
+        {updateFound && (
+          <div className="speed-toast index decoder-notice update-notice">
+            <span>{t.updateFound(updateFound.latest ?? "")}</span>
+            <button onClick={() => openDownloadPage().catch((e) => fail(errText(e)))}>
+              {t.updateOpenPage}
+            </button>
+            <button onClick={() => setUpdateFound(null)}>{t.updateLater}</button>
+          </div>
+        )}
+        {heifMissing != null && (
+          <div className="speed-toast index warn decoder-notice">
+            <span>
+              {/* **件数は生のまま渡す**（2026-09-02）。桁区切りは辞書の中の `num()` が
+                  付ける。整形済みの文字列を渡していたときは、辞書から件数が見えず
+                  独語で `Für 1 HEIC/HEIF-Fotos` と出ていた（`plural.ts` の冒頭） */}
+              {platform === "windows"
+                ? t.decoderHeifNotice(heifMissing)
+                : platform === "macos"
+                  ? t.decoderHeifNoticeMac(heifMissing)
+                  : t.decoderHeifNoticeOther(heifMissing)}
+            </span>
+            {/* **文言と同じ判定に揃える。** 片方が先に届いた瞬間に
+                「デコーダが無いのかも」と「拡張機能を買え」が同時に出うる
+                ——2つの往復に順番の保証は無い（ゲート2の指摘） */}
+            {platform === "windows" && decoderHelp && (
+              <>
+                <button onClick={() => openDecoderHelp("heif").catch((e) => fail(errText(e)))}>
+                  {t.decoderHeifHow}
+                </button>
+                <button onClick={() => openDecoderHelp("hevc").catch((e) => fail(errText(e)))}>
+                  {t.decoderHevcHow}
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                localStorage.setItem(DECODER_NOTICE_KEY, "off");
+                setHeifMissing(null);
+              }}
+            >
+              {t.decoderNoticeDismiss}
+            </button>
+          </div>
+        )}
+        {indexProgress &&
+          (indexProgress.building ? (
+            <div className="speed-toast index">
+              {indexProgress.phase === "camera"
+                ? t.cameraScanning
+                : t.indexBuilding}
+              {Math.min(
+                99,
+                Math.floor(
+                  (indexProgress.done / (indexProgress.total || 1)) * 100,
+                ),
+              )}
+              {t.indexProgressSuffix}
+            </div>
+          ) : (
+            <div
+              className="speed-toast index warn"
+              onClick={() => setIndexProgress(null)}
+            >
+              {t.indexIncompleteWarning}
+            </div>
+          ))}
+      </div>
       <div className="body">
         <nav className="sidebar">
           <div className="nav-section">{t.navPlaces}</div>
