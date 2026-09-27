@@ -268,8 +268,12 @@ from somewhere other than here — a mirror such as Softpedia.
 
 ### 1. Add a folder to the library
 
-On first launch, use **Add a folder** at the bottom of the left pane, or
-pick one of the drives. Scanning starts immediately and the grid fills in by date.
+On first launch your **Pictures** folder, if there is one, is added automatically (the ✕
+beside it removes it; no photos are deleted). For other folders, or if nothing was added, use
+**Add a folder** at the bottom of the left pane, or pick a drive. Scanning starts immediately and the grid fills in by date.
+
+> On Windows, Pictures is often on OneDrive: online-only photos download as you scroll to
+> them ([details](#caveats-and-known-gaps)).
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
 > **files that changed since last time**. A ⚡ line at the bottom of the window shows how much it skipped.
