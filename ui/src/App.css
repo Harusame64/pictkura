@@ -566,9 +566,16 @@ body {
     background-position: -200% 0;
   }
 }
+.cell-wrap[data-shown] {
+  opacity: 1;
+}
 .cell-wrap {
   position: relative;
   flex: none;
+  /* 絵が描けるまでは地を見せ、描けたら印ごと浮かべる（App.tsx の `revealCell`）。
+   * 勢いよくスクロールしたとき、灰色の四角が並んで見えないように */
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--easing);
   /* 押す口はタイル全体（写真の上に重ねた印の上も押せる。dev #32） */
   cursor: pointer;
 }
@@ -582,15 +589,7 @@ body {
   cursor: pointer;
   /* transform ではなく filter で強調する: justifiedレイアウトで隣とぶつからず、
      合成レイヤーも増えないのでスクロールが濁らない */
-  transition:
-    filter var(--dur-fast) var(--easing),
-    opacity 120ms ease-out;
-  /* 絵が届くまでは地を見せる（勢いよくスクロールしたとき、灰色の四角が並んで見えないように）。
-   * `load`／`error` で `.shown` が付くと浮かぶ（App.tsx の注記） */
-  opacity: 0;
-}
-.cell.shown {
-  opacity: 1;
+  transition: filter var(--dur-fast) var(--easing);
 }
 .cell:hover {
   filter: brightness(1.08);
@@ -1495,9 +1494,9 @@ body {
 }
 /* 動きを減らす設定では、流さずに置いておくだけにする（合図は残す） */
 @media (prefers-reduced-motion: reduce) {
-  /* 浮かべずに、届いたらそのまま出す */
-  .cell {
-    transition: filter var(--dur-fast) var(--easing);
+  /* 浮かべずに、描けたらそのまま出す */
+  .cell-wrap {
+    transition: none;
   }
   .viewer-progress::after {
     animation: none;
