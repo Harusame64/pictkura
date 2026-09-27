@@ -486,13 +486,15 @@ export default function Settings({
                     onConfigChanged();
                   }}
                 >
-                  {(["none", "slide", "fade"] as const).map((v) => (
+                  {(
+                    [
+                      ["none", t.transitionNone],
+                      ["slide", t.transitionSlide],
+                      ["fade", t.transitionFade],
+                    ] as const satisfies readonly (readonly [ViewerTransition, string])[]
+                  ).map(([v, name]) => (
                     <option key={v} value={v}>
-                      {v === "none"
-                        ? t.transitionNone
-                        : v === "slide"
-                          ? t.transitionSlide
-                          : t.transitionFade}
+                      {name}
                     </option>
                   ))}
                 </select>

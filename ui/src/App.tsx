@@ -256,9 +256,9 @@ const TRANSITION_MS = {
   slideshow: { slide: 500, fade: 600 },
 } as const;
 /**
- * 送ったと名乗ってから、次の絵が出るまで待つ上限。まだ読めていない日の先頭へ
- * 送ったときは、日を取り寄せる間だけ遅れて出る。これを過ぎたら動かさずに差し替える
- * （末尾で送れなかった名乗りが、後の関係ない差し替えを動かさないように）
+ * 送ったと名乗ってから、次の絵が決まるまで待つ上限。まだ読めていない日へ送ったときは、
+ * 日を取り寄せる間だけ遅れて決まる。これを過ぎたら動かさずに差し替える
+ * ——長く待たされた後で流れ込むと、押した操作との結び付きが切れて見える
  */
 const NAV_INTENT_MS = 1500;
 /**
@@ -3818,6 +3818,8 @@ export default function App() {
     img: { src: string; rect: DOMRect } | null;
   } | null>(null);
   const ghostRef = useRef<HTMLImageElement>(null);
+  /** 送りの動きの最中か（次の絵を待っている間も含む）。スライドショーの3秒はこの後から数える */
+  const transitioning = ghost !== null;
   const transitionAnimsRef = useRef<Animation[]>([]);
   /**
    * 次の絵が**描ける**か——原寸のデコードが済んだ（か出せないと分かった）、または下敷きが出た。
@@ -4692,18 +4694,21 @@ export default function App() {
   // ——今までと同じ）。`moveViewer` の作り直しで張り直すと、裏でサムネイルや RAW の読み直しが
   // 走っている間は `media-updated` のたびに `dayItems` が書き換わって作り直され、3秒が数え直しに
   // なり続けて次へ進まない（Windows の実機で 19.3 秒。2026-09-26）。送る関数は ref で最新のものを呼ぶ。
-  // `slideTick` は、送っても同じ写真に戻ったとき（1枚だけの列）にも張り直すため
+  // `slideTick` は、送っても同じ写真に戻ったとき（1枚だけの列）にも張り直すため。
+  //
+  // **切り替えの動き（#171）が済むまでは数え始めない。** フェードの 0.6 秒と、冷えた絵を待つ
+  // 最大 0.4 秒を3秒から差し引くと、見えている時間が形式によって 2〜3 秒にばらつく
   const moveViewerRef = useRef(moveViewer);
   moveViewerRef.current = moveViewer;
   const [slideTick, setSlideTick] = useState(0);
   useEffect(() => {
-    if (!playing || playingVideo || viewerItemId === undefined) return;
+    if (!playing || playingVideo || viewerItemId === undefined || transitioning) return;
     const t = window.setTimeout(() => {
       moveViewerRef.current(1, true, true);
       setSlideTick((n) => n + 1);
     }, 3000);
     return () => window.clearTimeout(t);
-  }, [playing, playingVideo, viewerItemId, slideTick]);
+  }, [playing, playingVideo, viewerItemId, slideTick, transitioning]);
 
   useEffect(() => {
     if (viewer === null) return;
@@ -4743,6 +4748,10 @@ export default function App() {
           !NON_TEXT_INPUT_TYPES.has((target as HTMLInputElement).type)) ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable === true;
+      // 押しっぱなし（OS の繰り返し）で送るときは動かさない——矢印も、自動送りの付いた
+      // P・U・X も。最初の繰り返しは OS の待ち（Windows 既定で約0.5秒）の後に来るので、
+      // 動きの長さだけ見ていると1回だけ動いてしまう（ゲート2）
+      if (e.repeat) quietUntilRef.current = Date.now() + TRANSITION_MS.hand.slide;
       // **手前に幕が在るあいだは、1つも通さない。**
       //
       // **設定**（2026-09-08・#136）——`⌘/Ctrl + ,` とメニューで
@@ -4815,10 +4824,6 @@ export default function App() {
           return;
         }
       }
-      // 押しっぱなし（OS の繰り返し）は動かさない。最初の繰り返しは OS の待ち（Windows 既定で
-      // 約0.5秒）の後に来るので、動きの長さだけ見ていると1回だけ動いてしまう（ゲート2）
-      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && e.repeat)
-        quietUntilRef.current = Date.now() + TRANSITION_MS.hand.slide;
       if (e.key === "Escape") requestCloseViewer();
       else if (e.key === "ArrowLeft") moveViewer(-1);
       else if (e.key === "ArrowRight") moveViewer(1);
@@ -6705,7 +6710,15 @@ export default function App() {
         >
           {/* 送り出す残像（送りの動き）。台より前に置く——フェードでは新しい絵が上に浮かぶ */}
           {ghost?.img && (
-            <div className="viewer-ghost" aria-hidden>
+            <div
+              className="viewer-ghost"
+              aria-hidden
+              // 動いている間に写真を押しても閉じない。台は画面の外から入ってくる途中なので、
+              // 見えている写真（残像）を押した手は地に落ち、地のクリックは「閉じる」になる（ゲート2）
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
               <img
                 key={ghost.seq}
                 ref={ghostRef}
@@ -6858,11 +6871,17 @@ export default function App() {
                   setFullShownId(viewerItem.id);
                   // 送りの動きは画素が描けるまで待つ（`fullDecodedId`）。デコードに失敗しても
                   // 待たせ続けない
+                  // **返事はこの要素がまだこの絵を出しているときだけ受ける**——作り直された
+                  // 要素や、別の絵へ移った後に遅れて来た返事で「済んだ」を立てない
+                  // （A→B→A と戻ったとき、1回目の A の返事が2回目の A を待たずに動かす）
                   const decodedId = viewerItem.id;
-                  e.currentTarget
-                    .decode()
+                  const el = e.currentTarget;
+                  el.decode()
                     .catch(() => {})
-                    .then(() => setFullDecodedId(decodedId));
+                    .then(() => {
+                      if (el.isConnected && isSrcOf(el.currentSrc, decodedId))
+                        setFullDecodedId(decodedId);
+                    });
                   setFailedWithSrcId(null);
                   // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
                   // 来ることがあり（下のonError参照）、その後で本命の load が
