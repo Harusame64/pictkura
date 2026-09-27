@@ -546,14 +546,16 @@ body {
   display: flex;
   align-items: flex-start;
 }
-/* 未取得の日の見積もりブロック（取得完了で実セルに置き換わる） */
+/* 未取得の日の見積もりブロック（取得完了で実セルに置き換わる）。
+ * **地はタイルの届く前の四角と同じ色**（`--cell-pending`）——`--surface-2` のままだと、勢いよく
+ * スクロールしたとき画面いっぱいに灰色の塊が出た（win の実測、#173）。きらめきの明るい側も1段だけ */
 .placeholder-row {
   border-radius: 3px;
   background: linear-gradient(
       90deg,
-      var(--surface-2) 0 60%,
+      var(--cell-pending) 0 60%,
       var(--surface) 80%,
-      var(--surface-2) 100%
+      var(--cell-pending) 100%
     )
     0 0 / 200% 100%;
   animation: placeholder-shimmer 1.4s linear infinite;
