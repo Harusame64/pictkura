@@ -529,7 +529,7 @@ export const ja = {
   transitionSlide: "スライド",
   transitionFade: "フェード",
   settingsTransitionNote:
-    "大きく見ている画面で、矢印キーや送りボタンで次の写真へ進むときと、スライドショーが次へ進むときの動きです。スライドは押した向きへ流れます。OS の設定でアニメーションを減らしているときは、どれを選んでいても動きません。",
+    "大きく見ている画面で次の写真へ進むとき（矢印キー・送りボタン・下の帯・判定のあとの自動送り）と、スライドショーが次へ進むときの動きです。スライドは押した向きへ流れます。OS の設定でアニメーションを減らしているときは、どれを選んでいても動きません。",
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
   settingsAutoplayNote:

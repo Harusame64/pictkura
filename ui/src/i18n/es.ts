@@ -508,7 +508,7 @@ export const es: Dict = {
   transitionSlide: "Deslizar",
   transitionFade: "Fundido",
   settingsTransitionNote:
-    "Cómo cambia la vista grande a la siguiente foto cuando avanzas con las flechas o los botones, y cuando avanza un pase de diapositivas. Deslizar sigue la dirección en la que avanzas. Si el sistema está configurado para reducir el movimiento, las fotos cambian sin moverse, elijas lo que elijas.",
+    "Cómo cambia la vista grande a la siguiente foto cuando avanzas (flechas, botones, la tira de abajo o el avance tras una valoración), y cuando avanza un pase de diapositivas. Deslizar sigue la dirección en la que avanzas. Si el sistema está configurado para reducir el movimiento, las fotos cambian sin moverse, elijas lo que elijas.",
   settingsAutoplay: "Cuando conectas una unidad USB o una tarjeta SD",
   settingsAutoplayToggle: "Ofrecer pictkura en la Reproducción automática",
   settingsAutoplayNote:

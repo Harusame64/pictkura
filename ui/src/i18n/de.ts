@@ -505,7 +505,7 @@ export const de: Dict = {
   transitionSlide: "Schieben",
   transitionFade: "Überblenden",
   settingsTransitionNote:
-    "Wie die Großansicht zum nächsten Foto wechselt, wenn du mit den Pfeiltasten oder Schaltflächen blätterst, und wenn eine Diashow weitergeht. Schieben folgt der Richtung, in die du blätterst. Ist im System „Bewegung reduzieren“ eingestellt, wechseln die Fotos ohne Bewegung, egal was du hier wählst.",
+    "Wie die Großansicht zum nächsten Foto wechselt, wenn du blätterst (Pfeiltasten, Schaltflächen, der Streifen unten oder das Weitergehen nach einer Bewertung), und wenn eine Diashow weitergeht. Schieben folgt der Richtung, in die du blätterst. Ist im System „Bewegung reduzieren“ eingestellt, wechseln die Fotos ohne Bewegung, egal was du hier wählst.",
   settingsAutoplay: "Wenn du ein USB-Laufwerk oder eine SD-Karte einsteckst",
   settingsAutoplayToggle: "pictkura in der automatischen Wiedergabe anbieten",
   settingsAutoplayNote:

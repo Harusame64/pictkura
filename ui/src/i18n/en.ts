@@ -431,7 +431,7 @@ export const en: Dict = {
   transitionSlide: "Slide",
   transitionFade: "Fade",
   settingsTransitionNote:
-    "How full screen moves to the next photo when you use the arrow keys or buttons, and when a slideshow moves on. Slide follows the direction you step in. If your system is set to reduce motion, photos change without moving whatever you choose here.",
+    "How full screen moves to the next photo when you step (arrow keys, buttons, the strip at the bottom, or moving on after a judgement), and when a slideshow moves on. Slide follows the direction you step in. If your system is set to reduce motion, photos change without moving whatever you choose here.",
   settingsAutoplay: "When you insert a USB drive or SD card",
   settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
   settingsAutoplayNote:

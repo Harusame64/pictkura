@@ -421,20 +421,25 @@ pub enum ViewerTransition {
     Fade,
 }
 
+/// 選択肢の設定を読む土台（[`PairView`]・[`ViewerTransition`]）。**何の値でも受け取る**——
+/// 文字列でない値（`true`・`1`）でも設定ごと落ちない。文字列なら小文字にして返し、それ以外は `None`
+fn lenient_word<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(toml::Value::deserialize(d)?
+        .as_str()
+        .map(str::to_ascii_lowercase))
+}
+
 /// 設定ファイルの値を読む。知らない値・文字列でない値は `fallback`。大小は区別しない
 fn transition_or<'de, D: serde::Deserializer<'de>>(
     d: D,
     fallback: ViewerTransition,
 ) -> Result<ViewerTransition, D::Error> {
-    let value = toml::Value::deserialize(d)?;
-    Ok(
-        match value.as_str().map(str::to_ascii_lowercase).as_deref() {
-            Some("none") => ViewerTransition::None,
-            Some("slide") => ViewerTransition::Slide,
-            Some("fade") => ViewerTransition::Fade,
-            _ => fallback,
-        },
-    )
+    Ok(match lenient_word(d)?.as_deref() {
+        Some("none") => ViewerTransition::None,
+        Some("slide") => ViewerTransition::Slide,
+        Some("fade") => ViewerTransition::Fade,
+        _ => fallback,
+    })
 }
 
 fn transition_or_slide<'de, D: serde::Deserializer<'de>>(
@@ -470,15 +475,11 @@ pub enum PairView {
 /// 設定ファイルごと読めなくなると、ライブラリの場所まで失う（ビューアの歩き方1つのために）
 impl<'de> Deserialize<'de> for PairView {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        // まず何の値でも受け取る——文字列でない値（`true`・`1`）でも設定ごと落ちない。大小は区別しない
-        let value = toml::Value::deserialize(d)?;
-        Ok(
-            match value.as_str().map(str::to_ascii_lowercase).as_deref() {
-                Some("raw") => Self::Raw,
-                Some("both") => Self::Both,
-                _ => Self::Jpeg,
-            },
-        )
+        Ok(match lenient_word(d)?.as_deref() {
+            Some("raw") => Self::Raw,
+            Some("both") => Self::Both,
+            _ => Self::Jpeg,
+        })
     }
 }
 

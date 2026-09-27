@@ -487,7 +487,7 @@ export const zhHant: Dict = {
   transitionSlide: "滑動",
   transitionFade: "淡入淡出",
   settingsTransitionNote:
-    "全螢幕時用方向鍵或按鈕切換到下一張照片，以及投影片放映切換時的效果。滑動會朝你切換的方向移動。如果系統設定了減少動態效果，無論這裡選什麼，照片都會直接切換。",
+    "全螢幕時切換到下一張照片（方向鍵、按鈕、底部的縮圖列，或判定後的自動前進），以及投影片放映切換時的效果。滑動會朝你切換的方向移動。如果系統設定了減少動態效果，無論這裡選什麼，照片都會直接切換。",
   settingsAutoplay: "插入 USB 隨身碟或 SD 記憶卡時",
   settingsAutoplayToggle: "在「自動播放」的選項中提供 pictkura",
   settingsAutoplayNote:
