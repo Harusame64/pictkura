@@ -1158,9 +1158,13 @@ export default function App() {
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
+  /** 最後に訊いたカメラ一覧の番号。先に訊いた返事が後から着いて、新しい一覧を上書きしないように */
+  const camerasAskRef = useRef(0);
   const refreshCameras = useCallback(async () => {
+    const asked = ++camerasAskRef.current;
     try {
-      setCameras(await listCameras());
+      const list = await listCameras();
+      if (asked === camerasAskRef.current) setCameras(list);
     } catch {
       /* カメラ集計の失敗は無視（次の更新で再試行される） */
     }

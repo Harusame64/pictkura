@@ -5624,6 +5624,9 @@ pub fn run() {
                                     }
                                 }
                             }
+                            // 索引の段が済んだことを言う。次の段（カメラ）は読める行が無ければ
+                            // 名乗らないので、ここで言わないと索引の帯が途中の数のまま残る
+                            publish("index", fts_max_id, fts_max_id, false, incomplete);
                         }
 
                         // 第2段: カメラの後追い補完。検索導入前に取り込んだレコードは
@@ -5644,7 +5647,7 @@ pub fn run() {
                                 }
                                 after_id = batch.last().map(|(id, _)| *id).unwrap_or(after_id);
                                 let batch_len = batch.len() as i64;
-                                let results: Vec<(i64, Option<String>)> = batch
+                                let readable: Vec<(i64, std::path::PathBuf)> = batch
                                     .into_iter()
                                     // **開けなかったファイルは印を付けずに飛ばす**。
                                     // 外付けドライブが未マウントの状態で起動すると、
@@ -5662,14 +5665,24 @@ pub fn run() {
                                     .filter(|(_, path)| {
                                         !pictkura_core::cloud::is_cloud_only_path(path)
                                     })
+                                    .collect();
+                                // 読む**前に**名乗る——遅いドライブでは読むところがいちばん長い
+                                if !readable.is_empty() && !announced {
+                                    announced = true;
+                                    publish(
+                                        "camera",
+                                        done.min(total),
+                                        total.max(done),
+                                        true,
+                                        incomplete,
+                                    );
+                                }
+                                let results: Vec<(i64, Option<String>)> = readable
+                                    .into_iter()
                                     .map(|(id, path)| {
                                         (id, pictkura_core::thumbs::read_exif_info(&path).camera)
                                     })
                                     .collect();
-                                if !results.is_empty() && !announced {
-                                    announced = true;
-                                    publish("camera", done.min(total), total, true, incomplete);
-                                }
                                 // 飛ばした行も「見た」として数える——数えないと、飛ばす行が
                                 // 多いほど帯が途中で止まったまま終わる
                                 done += batch_len;
@@ -5677,15 +5690,26 @@ pub fn run() {
                                     incomplete = true;
                                     break; // 印を付けていないので次回起動でやり直せる
                                 }
+                                // 数え始めの後に寸法が入った行（起動同期と並んで走る）も列に並ぶので、
+                                // 分母は伸ばす——`min` で押さえると、読んでいる間ずっと 99% に見える
                                 if announced {
-                                    publish("camera", done.min(total), total, true, incomplete);
+                                    publish("camera", done, total.max(done), true, incomplete);
                                 }
                                 std::thread::sleep(std::time::Duration::from_millis(20));
                             }
-                            // 埋まったカメラを左ペインへ反映させる
-                            announce_cameras_changed(&index_handle);
+                            // 埋まったカメラを左ペインへ反映させる（1行も読まなかったなら、
+                            // 変わったものは無い——起動のたびに左ペインを数え直させない）
+                            if announced {
+                                announce_cameras_changed(&index_handle);
+                            }
                         }
-                        publish("camera", total, total, false, incomplete);
+                        publish(
+                            "camera",
+                            total.max(done),
+                            total.max(done),
+                            false,
+                            incomplete,
+                        );
 
                         // 第3段: 寸法の後追い補完（第6部 段階F-4）。段階F-4より前に
                         // 取り込んだRAWは `width/height` に埋め込みプレビューの寸法が
