@@ -1158,9 +1158,21 @@ export default function App() {
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
+  /**
+   * カメラ一覧の問い合わせの番号（訊いた数と、画面に載せた返事の番号）。先に訊いた返事が
+   * 後から着いて、新しい一覧を上書きしないように。**載せた番号より新しければ載せる**——
+   * 「最後に訊いたものだけ」にすると、最後の問い合わせが失敗したときに先の成功まで捨てる（PRのcodex）
+   */
+  const camerasAskRef = useRef(0);
+  const camerasShownRef = useRef(0);
   const refreshCameras = useCallback(async () => {
+    const asked = ++camerasAskRef.current;
     try {
-      setCameras(await listCameras());
+      const list = await listCameras();
+      if (asked > camerasShownRef.current) {
+        camerasShownRef.current = asked;
+        setCameras(list);
+      }
     } catch {
       /* カメラ集計の失敗は無視（次の更新で再試行される） */
     }
@@ -1423,8 +1435,11 @@ export default function App() {
     let unlistenCameras: (() => void) | undefined;
     let unlistenExport: (() => void) | undefined;
     let unlistenDelete: (() => void) | undefined;
+    /** 届いた進捗の知らせの数。下の取り直しの返事が、それより新しい知らせを上書きしないように */
+    let progressEvents = 0;
     (async () => {
       const f = await listen<IndexProgress>("index-progress", (ev) => {
+        progressEvents += 1;
         // 中断した場合は「終わった」と誤解させないよう表示を残す
         const p = ev.payload;
         if (!cancelled) setIndexProgress(p.building || p.incomplete ? p : null);
@@ -1478,9 +1493,18 @@ export default function App() {
         return;
       }
       unlisten = f;
-      // 構築が速すぎてリスナー登録前に終わる／始まる場合に備えて一度取りに行く
+      // 構築が速すぎてリスナー登録前に終わる／始まる場合に備えて一度取りに行く。
+      // **訊いている間に知らせが届いたら、返事は捨てる**——返事は訊いた時点の状態で、
+      // 後から届いた「終わった」より古いことがある。上書きすると、終わったのに
+      // 「読み取り中… 0%」が消えなくなる（win の実機で3回中2回。2026-09-27）
+      const asked = progressEvents;
       const now = await getIndexProgress().catch(() => null);
-      if ((now?.building || now?.incomplete) && !cancelled) setIndexProgress(now);
+      if (
+        (now?.building || now?.incomplete) &&
+        !cancelled &&
+        progressEvents === asked
+      )
+        setIndexProgress(now);
     })();
     return () => {
       cancelled = true;
