@@ -38,6 +38,7 @@
   --bg-canvas: var(--n-0); /* グリッド背景（写真の後ろ） */
   --surface: var(--n-0); /* パレット・カード */
   --surface-2: var(--n-2); /* ホバー面・入力地 */
+  --cell-pending: var(--n-1); /* 一覧のタイルの、絵が届く前の四角（地と --surface-2 の間） */
   --border: oklch(0 0 0 / 0.1);
   --border-strong: oklch(0 0 0 / 0.18);
   --text: var(--n-8);
@@ -136,6 +137,7 @@
     --bg-canvas: var(--n-10); /* グリッドは一段暗く＝写真が最前面に浮く */
     --surface: var(--n-8);
     --surface-2: var(--n-7);
+    --cell-pending: var(--n-9);
     --border: oklch(1 0 0 / 0.09);
     --border-strong: oklch(1 0 0 / 0.16);
     --text: oklch(0.93 0 0);
@@ -157,6 +159,7 @@ html[data-theme="dark"] {
   --bg-canvas: var(--n-10);
   --surface: var(--n-8);
   --surface-2: var(--n-7);
+  --cell-pending: var(--n-9);
   --border: oklch(1 0 0 / 0.09);
   --border-strong: oklch(1 0 0 / 0.16);
   --text: oklch(0.93 0 0);

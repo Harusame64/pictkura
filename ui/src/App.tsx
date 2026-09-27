@@ -248,6 +248,29 @@ const DISPLAY_MAX_EDGE = 4096;
  */
 const FAST_FLIP_MS = 400;
 /**
+ * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
+ *
+ * 勢いよくスクロールすると、絵の届く前のタイルが灰色の四角で並んで見えた（win の実測: 30,000px 飛ぶと 127〜191ms）。
+ * **タイルは隠さない**——地に近い色（`--cell-pending`）の四角として置いておき、`<img>` だけを届くまで透明にする。
+ * 届いたら浮かべる。サムネイルが無いタイル（透明な1x1）は、そこで今までどおりの灰色になる。
+ *
+ * タイルごと隠す形は捨てた（ゲート2）: 画質の差し替え（1→2）で出ていた絵が消える、1x1 は `no-store` なので
+ * 組み直しのたびに消えて出直す、止まった要求が穴になる、押せる透明なタイルが残る。
+ *
+ * 印は React の外の `data-shown`。`src` だけが替わる（画質の差し替え）ときは同じ要素のまま印が残るので、
+ * ブラウザが新しい絵を描けるまで前の絵を出し続ける（今までと同じ）
+ */
+function revealThumb(e: { currentTarget: HTMLImageElement }) {
+  e.currentTarget.setAttribute("data-shown", "");
+}
+/**
+ * 作り直した `<img>` の絵が**もう描ける**なら、浮かべずにそのまま出す——行の組み直し（日を読み込んだ・窓の幅・
+ * 大きさ）やスクロールで戻ったとき、出ていた絵が消えて浮かび直さないように（ゲート2）
+ */
+function revealIfPainted(img: HTMLImageElement | null) {
+  if (img && img.complete && img.naturalWidth > 0) img.setAttribute("data-shown", "");
+}
+/**
  * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
  * 見ていくときに、動きが待ち時間にならないように。スライドショーは眺める速さで
  */
@@ -6639,10 +6662,15 @@ export default function App() {
                               }}
                             >
                               <img
+                                ref={revealIfPainted}
                                 className="cell"
                                 loading="lazy"
                                 decoding="async"
                                 src={thumbSrc(cell.item)}
+                                // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
+                                // 「サムネイルが無い」の見た目なので、隠したままにしない
+                                onLoad={revealThumb}
+                                onError={revealThumb}
                                 // サムネイル未生成のHEIC/RAWや、まだ手元に無い
                                 // クラウド上のファイルは配信されない（404）。
                                 // `alt` 未指定だと Chromium は title を代替テキストとして

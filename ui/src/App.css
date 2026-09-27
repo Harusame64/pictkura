@@ -546,14 +546,16 @@ body {
   display: flex;
   align-items: flex-start;
 }
-/* 未取得の日の見積もりブロック（取得完了で実セルに置き換わる） */
+/* 未取得の日の見積もりブロック（取得完了で実セルに置き換わる）。
+ * **地はタイルの届く前の四角と同じ色**（`--cell-pending`）——`--surface-2` のままだと、勢いよく
+ * スクロールしたとき画面いっぱいに灰色の塊が出た（win の実測、#173）。きらめきの明るい側も1段だけ */
 .placeholder-row {
   border-radius: 3px;
   background: linear-gradient(
       90deg,
-      var(--surface-2) 0 60%,
+      var(--cell-pending) 0 60%,
       var(--surface) 80%,
-      var(--surface-2) 100%
+      var(--cell-pending) 100%
     )
     0 0 / 200% 100%;
   animation: placeholder-shimmer 1.4s linear infinite;
@@ -569,6 +571,10 @@ body {
 .cell-wrap {
   position: relative;
   flex: none;
+  /* 絵が届くまでの四角。地に近い色にして、勢いよくスクロールしたときに灰色の四角が並んで見えないように
+   * （絵は届いたら上に浮かぶ。App.tsx の `revealThumb`） */
+  background: var(--cell-pending);
+  border-radius: 3px;
   /* 押す口はタイル全体（写真の上に重ねた印の上も押せる。dev #32） */
   cursor: pointer;
 }
@@ -581,8 +587,19 @@ body {
   display: block;
   cursor: pointer;
   /* transform ではなく filter で強調する: justifiedレイアウトで隣とぶつからず、
-     合成レイヤーも増えないのでスクロールが濁らない */
-  transition: filter var(--dur-fast) var(--easing);
+     合成レイヤーも増えないのでスクロールが濁らない。
+     opacity の移り変わり（届いた絵を浮かべる 120ms）だけは合成レイヤーを作る——浮かべている間だけで、
+     届いた後は残らない。勢いよくスクロールした直後に一度に数十枚ぶん立つのは承知のうえ（利用者の要望、2026-09-27） */
+  transition:
+    filter var(--dur-fast) var(--easing),
+    opacity var(--dur-fast) var(--easing);
+  opacity: 0;
+}
+.cell[data-shown],
+/* 選んだタイルは届く前でも出す——選択の輪（下の `.picked .cell`）が絵の側に付いているので、
+ * 隠すと選んだことが見えなくなる（ゲート2） */
+.cell-wrap.picked .cell {
+  opacity: 1;
 }
 .cell:hover {
   filter: brightness(1.08);
@@ -1487,6 +1504,10 @@ body {
 }
 /* 動きを減らす設定では、流さずに置いておくだけにする（合図は残す） */
 @media (prefers-reduced-motion: reduce) {
+  /* 浮かべずに、届いたらそのまま出す */
+  .cell {
+    transition-property: filter;
+  }
   .viewer-progress::after {
     animation: none;
     width: 100%;
