@@ -268,15 +268,12 @@ from somewhere other than here — a mirror such as Softpedia.
 
 ### 1. Add a folder to the library
 
-On first launch, pictkura adds your **Pictures** folder to the library by itself (once
-only, and only if the folder exists; the ✕ next to it in the left pane takes it out again,
-without deleting any photos). For other folders, use **Add a folder** at the bottom of the
-left pane, or pick one of the drives. Scanning starts immediately and the grid fills in by date.
+On first launch your **Pictures** folder is added automatically (the ✕ beside it removes
+it; no photos are deleted). For other folders, use **Add a folder** at the bottom of the left
+pane, or pick a drive. Scanning starts immediately and the grid fills in by date.
 
-> **On Windows, Pictures is often backed up to OneDrive.** Photos there that are
-> online-only are downloaded by OneDrive when their tile scrolls into view or you open
-> them — pictkura does not fetch ahead of that, but scrolling through a large folder does
-> pull files down. See [Files that only exist in the cloud](#caveats-and-known-gaps).
+> On Windows, Pictures is often on OneDrive: online-only photos download as you scroll to
+> them ([details](#caveats-and-known-gaps)).
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
 > **files that changed since last time**. A ⚡ line at the bottom of the window shows how much it skipped.
