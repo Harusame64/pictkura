@@ -3829,6 +3829,12 @@ export default function App() {
   const ghostRef = useRef<HTMLImageElement>(null);
   /** 送りの動きの最中か（次の絵を待っている間も含む）。スライドショーの3秒はこの後から数える */
   const transitioning = ghost !== null;
+  /** 動きを最後まで飛ばす。残像は `finished` の返事で片付く */
+  const settleTransition = useCallback(() => {
+    for (const a of transitionAnimsRef.current) a.finish();
+  }, []);
+  /** 動きを終わらせた押下の、後に来るクリックを1回だけ受け止める印 */
+  const swallowClickRef = useRef(false);
   const transitionAnimsRef = useRef<Animation[]>([]);
   /**
    * 次の絵が**描ける**か——原寸のデコードが済んだ（か出せないと分かった）、または下敷きが出た。
@@ -4756,6 +4762,8 @@ export default function App() {
       // P・U・X も。最初の繰り返しは OS の待ち（Windows 既定で約0.5秒）の後に来るので、
       // 動きの最中かどうかでは捕まらない。繰り返しかどうかをそのまま送りに渡す（ゲート2）
       keyRepeatRef.current = e.repeat;
+      // 送り以外のキー（判定・★・コピー・削除…）は、動きを終わらせてから効かせる（利用者の選択）
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") settleTransition();
       queueMicrotask(() => {
         keyRepeatRef.current = false;
       });
@@ -6717,7 +6725,21 @@ export default function App() {
           // 持たず、台は画面の外から入ってくる途中か透明なので、写真を押した手は地に落ちる
           // （ゲート2・codex）。残像で受け止める形は、フェードでは上に居る台に先を取られた
           onClick={() => {
+            if (swallowClickRef.current) {
+              swallowClickRef.current = false;
+              return;
+            }
             if (!transitioning) requestCloseViewer();
+          }}
+          // **動いている最中に押したら、動きを即座に終わらせてから効かせる**（2026-09-27 の
+          // 利用者の選択）。見えている写真と、★・⚑・削除・右クリックが効く写真を必ず一致させる。
+          // 終わらせたクリックそのものは地に落ちても閉じない——押した手は前の写真を狙っていた
+          onPointerDownCapture={() => {
+            swallowClickRef.current = transitioning;
+            if (transitioning) settleTransition();
+          }}
+          onWheelCapture={() => {
+            if (transitioning) settleTransition();
           }}
         >
           {/* 送り出す残像（送りの動き）。台より前に置く——フェードでは新しい絵が上に浮かぶ */}
@@ -6880,14 +6902,17 @@ export default function App() {
                   // （A→B→A と戻ったとき、1回目の A の返事が2回目の A を待たずに動かす）
                   const decodedId = viewerItem.id;
                   const el = e.currentTarget;
+                  // 待っている動きが無ければデコードを急かさない（24MP で約 96MB を余計に起こす）。
                   // decode が同期で投げても onLoad の残り（失敗の印を消す）は必ず走らせる
-                  Promise.resolve()
-                    .then(() => el.decode())
-                    .catch(() => {})
-                    .then(() => {
-                      if (el.isConnected && isSrcOf(el.currentSrc, decodedId))
-                        setFullDecodedId(decodedId);
-                    });
+                  if (transitioning) {
+                    Promise.resolve()
+                      .then(() => el.decode())
+                      .catch(() => {})
+                      .then(() => {
+                        if (el.isConnected && isSrcOf(el.currentSrc, decodedId))
+                          setFullDecodedId(decodedId);
+                      });
+                  }
                   setFailedWithSrcId(null);
                   // **失敗の印は必ず消す**。`currentSrc` が空のまま error が
                   // 来ることがあり（下のonError参照）、その後で本命の load が

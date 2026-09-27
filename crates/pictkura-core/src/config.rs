@@ -413,8 +413,9 @@ impl Default for ViewerConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ViewerTransition {
-    /// 動かさない（その場で差し替わる）
-    None,
+    /// 動かさない（その場で差し替わる）。**名前は `Off`**——`None` だと `Option::None` と取り違える
+    #[serde(rename = "none")]
+    Off,
     /// 押した向きへ、前の絵が出ていき次の絵が入ってくる
     Slide,
     /// 前の絵が薄れながら次の絵が浮かぶ
@@ -435,7 +436,7 @@ fn transition_or<'de, D: serde::Deserializer<'de>>(
     fallback: ViewerTransition,
 ) -> Result<ViewerTransition, D::Error> {
     Ok(match lenient_word(d)?.as_deref() {
-        Some("none") => ViewerTransition::None,
+        Some("none") => ViewerTransition::Off,
         Some("slide") => ViewerTransition::Slide,
         Some("fade") => ViewerTransition::Fade,
         _ => fallback,
@@ -701,13 +702,13 @@ verify_after_copy = true
     /// 知らない値は**その欄の**既定へ倒す（2つの欄で既定が違うので、取り違えると入れ替わる）
     #[test]
     fn transitions_default_per_field_and_survive_unknown_values() {
-        use ViewerTransition::{Fade, None, Slide};
+        use ViewerTransition::{Fade, Off, Slide};
         let older = Config::from_toml_str("[viewer]\nauto_advance = false\n").unwrap();
         assert_eq!(
             (older.viewer.transition, older.viewer.slideshow_transition),
             (Slide, Fade)
         );
-        for (hand, show) in [(None, None), (Fade, Slide), (Slide, None)] {
+        for (hand, show) in [(Off, Off), (Fade, Slide), (Slide, Off)] {
             let mut set = Config::default();
             set.viewer.transition = hand;
             set.viewer.slideshow_transition = show;
@@ -720,7 +721,7 @@ verify_after_copy = true
             );
         }
         let mut none = Config::default();
-        none.viewer.transition = None;
+        none.viewer.transition = Off;
         assert!(none
             .to_toml_string()
             .unwrap()
@@ -737,7 +738,7 @@ verify_after_copy = true
             ),
             (
                 "transition = \"None\"\nslideshow_transition = \"none\"",
-                (None, None),
+                (Off, Off),
             ),
         ] {
             let c = Config::from_toml_str(&format!("[viewer]\n{text}\nauto_advance = false\n"))
