@@ -787,6 +787,28 @@ body {
      操作バーがその帯に潜らないための余白に使う */
   --caption-h: 44px;
 }
+/* 絵を載せる台（送りの動き）。`.viewer` と同じ面・同じ中央寄せにして、中の絵の置かれ方は
+ * 台が無かったころと変えない。下敷き（`.viewer-thumb`）の絶対配置もこの台が基準になる。
+ * 地のクリックはこの台から `.viewer` へ上がる（閉じる操作はそのまま） */
+.viewer-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 送り出す前の絵の残像。控えた位置に同じ大きさで置き、画面の外へ流す／薄れさせる */
+.viewer-ghost {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.viewer-ghost img {
+  position: absolute;
+  object-fit: contain;
+  box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
+}
 .viewer-loading {
   color: var(--n-5);
   font-size: var(--fs-lg);

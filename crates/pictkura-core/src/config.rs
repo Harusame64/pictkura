@@ -384,6 +384,14 @@ pub struct ViewerConfig {
     /// 一覧で重ねた RAW+JPEG の組を、ビューアでどう歩くか（2026-09-26 の利用者の選択）。
     /// 一覧で組を重ねていないとき（`[grid] stack_raw_jpeg = false`）は効かない——2枚とも歩く
     pub pair_view: PairView,
+    /// 手で送る（矢印・送りボタン・下の帯・判定のあとの自動送り）ときの動き。
+    /// **既定はスライド**（2026-09-27 の利用者の選択）
+    #[serde(deserialize_with = "transition_or_slide")]
+    pub transition: ViewerTransition,
+    /// スライドショーが次へ送るときの動き。手の送りとは**別に選ぶ**（同日の利用者の選択）。
+    /// 既定はフェード
+    #[serde(deserialize_with = "transition_or_fade")]
+    pub slideshow_transition: ViewerTransition,
 }
 
 impl Default for ViewerConfig {
@@ -392,8 +400,53 @@ impl Default for ViewerConfig {
             auto_advance: true,
             last_extract_dir: None,
             pair_view: PairView::default(),
+            transition: ViewerTransition::Slide,
+            slideshow_transition: ViewerTransition::Fade,
         }
     }
+}
+
+/// ビューアで次の絵へ送るときの動き（[`ViewerConfig::transition`]・[`ViewerConfig::slideshow_transition`]）。
+///
+/// 画面から書くとき（Tauri のコマンド）は3つのどれかしか受けない。設定ファイルから読むときは
+/// 欄ごとの既定へ倒す（[`PairView`] と同じ理由——動き1つのために設定ファイルごと読めなくしない）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewerTransition {
+    /// 動かさない（その場で差し替わる）
+    None,
+    /// 押した向きへ、前の絵が出ていき次の絵が入ってくる
+    Slide,
+    /// 前の絵が薄れながら次の絵が浮かぶ
+    Fade,
+}
+
+/// 設定ファイルの値を読む。知らない値・文字列でない値は `fallback`。大小は区別しない
+fn transition_or<'de, D: serde::Deserializer<'de>>(
+    d: D,
+    fallback: ViewerTransition,
+) -> Result<ViewerTransition, D::Error> {
+    let value = toml::Value::deserialize(d)?;
+    Ok(
+        match value.as_str().map(str::to_ascii_lowercase).as_deref() {
+            Some("none") => ViewerTransition::None,
+            Some("slide") => ViewerTransition::Slide,
+            Some("fade") => ViewerTransition::Fade,
+            _ => fallback,
+        },
+    )
+}
+
+fn transition_or_slide<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<ViewerTransition, D::Error> {
+    transition_or(d, ViewerTransition::Slide)
+}
+
+fn transition_or_fade<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<ViewerTransition, D::Error> {
+    transition_or(d, ViewerTransition::Fade)
 }
 
 /// ビューアでの RAW+JPEG の組の歩き方（[`ViewerConfig::pair_view`]）。
@@ -639,6 +692,60 @@ verify_after_copy = true
             let c = Config::from_toml_str(&format!("[viewer]\n{text}\nauto_advance = false\n"))
                 .unwrap_or_else(|e| panic!("{text}: {e}"));
             assert_eq!(c.viewer.pair_view, want, "{text}");
+            assert!(!c.viewer.auto_advance, "{text}");
+        }
+    }
+
+    /// 送りの動き（2026-09-27）も `[viewer]` に後から足した——無ければ手はスライド・ショーはフェード。
+    /// 知らない値は**その欄の**既定へ倒す（2つの欄で既定が違うので、取り違えると入れ替わる）
+    #[test]
+    fn transitions_default_per_field_and_survive_unknown_values() {
+        use ViewerTransition::{Fade, None, Slide};
+        let older = Config::from_toml_str("[viewer]\nauto_advance = false\n").unwrap();
+        assert_eq!(
+            (older.viewer.transition, older.viewer.slideshow_transition),
+            (Slide, Fade)
+        );
+        for (hand, show) in [(None, None), (Fade, Slide), (Slide, None)] {
+            let mut set = Config::default();
+            set.viewer.transition = hand;
+            set.viewer.slideshow_transition = show;
+            let text = set.to_toml_string().unwrap();
+            let back = Config::from_toml_str(&text).unwrap();
+            assert_eq!(
+                (back.viewer.transition, back.viewer.slideshow_transition),
+                (hand, show),
+                "{text}"
+            );
+        }
+        let mut none = Config::default();
+        none.viewer.transition = None;
+        assert!(none
+            .to_toml_string()
+            .unwrap()
+            .contains("transition = \"none\""));
+        for (text, want) in [
+            (
+                "transition = \"sideways\"\nslideshow_transition = \"sideways\"",
+                (Slide, Fade),
+            ),
+            ("transition = 1\nslideshow_transition = true", (Slide, Fade)),
+            (
+                "transition = \"FADE\"\nslideshow_transition = \"Slide\"",
+                (Fade, Slide),
+            ),
+            (
+                "transition = \"None\"\nslideshow_transition = \"none\"",
+                (None, None),
+            ),
+        ] {
+            let c = Config::from_toml_str(&format!("[viewer]\n{text}\nauto_advance = false\n"))
+                .unwrap_or_else(|e| panic!("{text}: {e}"));
+            assert_eq!(
+                (c.viewer.transition, c.viewer.slideshow_transition),
+                want,
+                "{text}"
+            );
             assert!(!c.viewer.auto_advance, "{text}");
         }
     }

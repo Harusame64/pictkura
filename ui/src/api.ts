@@ -164,6 +164,10 @@ export interface AppConfig {
     auto_advance: boolean;
     /** 重ねた RAW+JPEG の組をビューアでどう歩くか（2026-09-26 に足した。古い版の Rust は返さない） */
     pair_view?: "jpeg" | "raw" | "both";
+    /** 手で送るときの動き（2026-09-27 に足した。無ければスライド） */
+    transition?: ViewerTransition;
+    /** スライドショーが送るときの動き（同上。無ければフェード） */
+    slideshow_transition?: ViewerTransition;
   };
   /** 新しい版の確認（0.2）。これも配ったあとに足した節なので**欠けうる** */
   update?: { check_on_start: boolean; last_check_ms: number };
@@ -787,6 +791,17 @@ export const setAutoAdvance = (enabled: boolean) =>
 /** ビューアでの RAW+JPEG の組の歩き方を変える（設定の3択と、ビューアの切り替えボタン） */
 export const setPairView = (view: "jpeg" | "raw" | "both") =>
   invoke<void>("set_pair_view", { view });
+
+/** ビューアで次の絵へ送るときの動き */
+export type ViewerTransition = "none" | "slide" | "fade";
+
+/** 手で送るときの動きを変える */
+export const setViewerTransition = (transition: ViewerTransition) =>
+  invoke<void>("set_viewer_transition", { transition });
+
+/** スライドショーが送るときの動きを変える（手の送りとは別の設定） */
+export const setSlideshowTransition = (transition: ViewerTransition) =>
+  invoke<void>("set_slideshow_transition", { transition });
 
 /** 一覧で RAW+JPEG の組を1枚に重ねるかを切り替える（dev #32） */
 export const setStackRawJpeg = (enabled: boolean) =>

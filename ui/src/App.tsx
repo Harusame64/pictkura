@@ -247,6 +247,20 @@ const DISPLAY_MAX_EDGE = 4096;
  */
 const FAST_FLIP_MS = 400;
 /**
+ * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
+ * 見ていくときに、動きが待ち時間にならないように。スライドショーは眺める速さで
+ */
+const TRANSITION_MS = {
+  hand: { slide: 250, fade: 200 },
+  slideshow: { slide: 500, fade: 600 },
+} as const;
+/**
+ * 送ったと名乗ってから、次の絵が出るまで待つ上限。まだ読めていない日の先頭へ
+ * 送ったときは、日を取り寄せる間だけ遅れて出る。これを過ぎたら動かさずに差し替える
+ * （末尾で送れなかった名乗りが、後の関係ない差し替えを動かさないように）
+ */
+const NAV_INTENT_MS = 1500;
+/**
  * ビューア下部のフィルムストリップに出す**片側の枚数**（0.2 ②）。
  *
  * 出しているのは一覧と同じWebPサムネイル（長辺512px）なので、
@@ -3236,9 +3250,54 @@ export default function App() {
   }, [viewer, viewerDayItems, dayIdxByKey, viewerScope, scopeIndexById, walkIndexOf]);
 
   /** ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ（スライドショー用） */
+  /**
+   * 送りの動き（2026-09-27 の利用者の選択: なし／スライド／フェード、既定はスライド。
+   * スライドショーは別に選び、既定はフェード）。
+   *
+   * **動かすのは、送った側が「送った」と名乗ったときだけ**——`moveViewer` と下の帯。
+   * 開いた直後・消えた絵の寄せ直し・組の先頭への寄せ直しは名乗らないので、その場で差し替わる。
+   * 名乗るときに**いま見えている絵**（原寸か下敷き）の URL と位置を控え、次の絵が出た描画で
+   * それを残像として送り出す。**控えるのは送る直前**——次の絵へ移ったあとでは、原寸の
+   * `<img>` はもう新しい絵を指している
+   */
+  const navIntentRef = useRef<{
+    fromId: number;
+    dir: 1 | -1;
+    slideshow: boolean;
+    at: number;
+    ghost: { src: string; rect: DOMRect } | null;
+  } | null>(null);
+  /** 絵を載せる台（送りの動きで動かす箱）。原寸・下敷き・動画・逃げ道がこの中に居る */
+  const stageRef = useRef<HTMLDivElement>(null);
+  /** いま見えているのが原寸か下敷きか（描画のたびに下で書く。`markNav` が読む） */
+  const visibleRef = useRef<{ id: number; which: "full" | "thumb" | null } | null>(null);
+  const markNav = useCallback((dir: 1 | -1, slideshow: boolean) => {
+    const shown = visibleRef.current;
+    if (!shown) return;
+    const el =
+      shown.which === "full"
+        ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-image")
+        : shown.which === "thumb"
+          ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-thumb")
+          : null;
+    const src = el?.currentSrc;
+    navIntentRef.current = {
+      fromId: shown.id,
+      dir,
+      slideshow,
+      at: Date.now(),
+      ghost: el && src ? { src, rect: el.getBoundingClientRect() } : null,
+    };
+  }, []);
   const moveViewer = useCallback(
     (dir: 1 | -1, wrap = false) => {
       if (!viewerInfo) return;
+      // 送るときは向きを名乗る（送りの動き）。`wrap` を渡すのはスライドショーだけ
+      // （タイマーと動画の終わり）。端で送れなかったときは名乗らない
+      const go = (to: ViewerPos) => {
+        markNav(dir, wrap);
+        setViewer(to);
+      };
       // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
       // 日をまたいでも列の順に進む——選んだ範囲が一覧の並びで固定してある
       if (viewerScope && scopeIdx !== undefined) {
@@ -3255,7 +3314,7 @@ export default function App() {
           if (dayList && !dayList.some((x) => x.id === at.id)) continue;
           // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
           if (!dayList && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
-          setViewer({ dayKey: at.day_key, id: at.id });
+          go({ dayKey: at.day_key, id: at.id });
           return;
         }
         if (wrap && viewerScope.length > 0) {
@@ -3263,7 +3322,7 @@ export default function App() {
           // 先頭へ戻る（スライドショーの一周）ときも、その日が読めていなければ組の先頭へ寄せ直す（#168 の codex）
           if (!viewerDayItems.has(at.day_key) && pairView === "both")
             pendingOpenIdRef.current = { id: at.id, dir: 1 };
-          setViewer({ dayKey: at.day_key, id: at.id });
+          go({ dayKey: at.day_key, id: at.id });
         }
         return;
       }
@@ -3272,20 +3331,20 @@ export default function App() {
       if (!items) return;
       const ni = itemIdx + dir;
       if (ni >= 0 && ni < items.length) {
-        setViewer({ dayKey: summary[dayIdx].day_key, id: items[ni].id });
+        go({ dayKey: summary[dayIdx].day_key, id: items[ni].id });
         return;
       }
       const nd = dayIdx + dir;
       if (nd >= 0 && nd < summary.length) {
-        setViewer({
+        go({
           dayKey: summary[nd].day_key,
           id: dir === 1 ? "first" : "last",
         });
       } else if (wrap && summary.length > 0) {
-        setViewer({ dayKey: summary[0].day_key, id: "first" });
+        go({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -3716,6 +3775,105 @@ export default function App() {
     viewerItem !== null &&
     fullFailedId === viewerItem.id &&
     thumbShownId === viewerItem.id;
+  visibleRef.current =
+    viewerItem === null || viewerItem.is_video
+      ? null
+      : {
+          id: viewerItem.id,
+          which:
+            fullShownId === viewerItem.id && !fallbackToThumb
+              ? "full"
+              : thumbShownId === viewerItem.id
+                ? "thumb"
+                : null,
+        };
+  const handTransition = config?.viewer?.transition ?? "slide";
+  const showTransition = config?.viewer?.slideshow_transition ?? "fade";
+  /** 送り出す残像。`seq` は掛け直しのたび変える（同じ絵へ戻っても動かし直す） */
+  const [ghost, setGhost] = useState<{
+    seq: number;
+    kind: "slide" | "fade";
+    dir: 1 | -1;
+    ms: number;
+    img: { src: string; rect: DOMRect } | null;
+  } | null>(null);
+  const ghostRef = useRef<HTMLImageElement>(null);
+  const transitionAnimsRef = useRef<Animation[]>([]);
+  useLayoutEffect(() => {
+    if (viewerItemId === undefined) return; // まだ解けていない（別の日の「先頭」へ送った直後）
+    const intent = navIntentRef.current;
+    navIntentRef.current = null;
+    // **動いている最中にまた送られたら、動きを畳んでその場で差し替える**（押しっぱなし・連打）。
+    // 掛け直すと、途中まで流れた台が毎回端から出直して、絵がぶれて見える
+    const busy = transitionAnimsRef.current.some((a) => a.playState === "running");
+    for (const a of transitionAnimsRef.current) a.cancel();
+    transitionAnimsRef.current = [];
+    const kind = intent
+      ? intent.slideshow
+        ? showTransition
+        : handTransition
+      : "none";
+    if (
+      !intent ||
+      intent.fromId === viewerItemId ||
+      Date.now() - intent.at > NAV_INTENT_MS ||
+      kind === "none" ||
+      busy ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setGhost(null);
+      return;
+    }
+    setGhost((g) => ({
+      seq: (g?.seq ?? 0) + 1,
+      kind,
+      dir: intent.dir,
+      ms: TRANSITION_MS[intent.slideshow ? "slideshow" : "hand"][kind],
+      img: intent.ghost,
+    }));
+    // 設定は送った瞬間のものを使う（動いている途中で設定が変わっても掛け直さない）
+  }, [viewerItemId]);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!ghost || !stage) return;
+    const w = window.innerWidth;
+    const slide = ghost.kind === "slide";
+    const timing: KeyframeAnimationOptions = {
+      duration: ghost.ms,
+      easing: slide ? "cubic-bezier(0.2, 0, 0, 1)" : "ease-in-out",
+    };
+    const anims = [
+      stage.animate(
+        slide
+          ? [{ transform: `translateX(${ghost.dir * w}px)` }, { transform: "none" }]
+          : [{ opacity: 0 }, { opacity: 1 }],
+        timing,
+      ),
+    ];
+    if (ghostRef.current)
+      anims.push(
+        ghostRef.current.animate(
+          slide
+            ? [{ transform: "none" }, { transform: `translateX(${-ghost.dir * w}px)` }]
+            : [{ opacity: 1 }, { opacity: 0 }],
+          { ...timing, fill: "forwards" },
+        ),
+      );
+    transitionAnimsRef.current = anims;
+    const seq = ghost.seq;
+    anims[0].finished.then(
+      () => setGhost((g) => (g?.seq === seq ? null : g)),
+      () => {}, // 畳まれた（次の送り・閉じた）。残像は畳んだ側が片付ける
+    );
+  }, [ghost]);
+  useEffect(() => {
+    if (viewer !== null) return;
+    // 閉じたら残像も名乗りも捨てる——次に開いたとき、前の残像が一瞬出ないように
+    for (const a of transitionAnimsRef.current) a.cancel();
+    transitionAnimsRef.current = [];
+    navIntentRef.current = null;
+    setGhost(null);
+  }, [viewer]);
   /**
    * 抽出（Issue #13）の道具を出してよいか。
    *
@@ -6458,6 +6616,27 @@ export default function App() {
           className={"viewer" + (viewerIdle ? " idle" : "")}
           onClick={requestCloseViewer}
         >
+          {/* 送り出す残像（送りの動き）。台より前に置く——フェードでは新しい絵が上に浮かぶ */}
+          {ghost?.img && (
+            <div className="viewer-ghost" aria-hidden>
+              <img
+                key={ghost.seq}
+                ref={ghostRef}
+                src={ghost.img.src}
+                alt=""
+                draggable={false}
+                style={{
+                  left: ghost.img.rect.left,
+                  top: ghost.img.rect.top,
+                  width: ghost.img.rect.width,
+                  height: ghost.img.rect.height,
+                }}
+              />
+            </div>
+          )}
+          {/* 絵を載せる台。送りの動きではこの箱ごと動かす——原寸の <img> の transform は
+              拡大・移動が使っているので、そこには掛けない */}
+          <div className="viewer-stage" ref={stageRef}>
           {viewerItem && viewerItem.is_video ? (
             // 動画（第9部）。`<img>` ではなく `<video>` に渡す。
             // 実体は `media://video/<id>` から**Rangeで刻んで**届くので、
@@ -6552,6 +6731,9 @@ export default function App() {
             )
           ) : viewerItem ? (
             <img
+              // 送りを動かすときは絵ごとに作り直す。`src` の差し替えだと、新しい絵の最初の
+              // フレームが出るまで**前の絵**が描かれ続け、それが流れ込んでくる
+              key={handTransition !== "none" || showTransition !== "none" ? viewerItem.id : undefined}
               className="viewer-image"
               // 門が開くまで `src` を置かない＝要求そのものを出さない。
               // 置いてから消しても、Rust側で走り出した変換は取り消せない
@@ -6732,6 +6914,7 @@ export default function App() {
                 }}
               />
             )}
+          </div>
           {/* 先読み（0.2 ①）。`display:none` でも画素は保持される（実測で
               opacity:0・画面外配置と同じ。小細工は要らない）。クリックも
               受けないので、地をクリックして閉じる操作の邪魔にならない */}
@@ -6846,9 +7029,11 @@ export default function App() {
                     (rejected.has(item.id) ? " rejected" : "")
                   }
                   title={item.file_name}
-                  onClick={() =>
-                    setViewer({ dayKey: item.day_key, id: item.id })
-                  }
+                  onClick={() => {
+                    // 帯で選んだ絵も、押した側から流れてくる（今の絵を押したときは名乗らない）
+                    if (offset !== 0) markNav(offset > 0 ? 1 : -1, false);
+                    setViewer({ dayKey: item.day_key, id: item.id });
+                  }}
                 >
                   {item.has_thumb ? (
                     <img src={thumbSrc(item)} alt="" draggable={false} />

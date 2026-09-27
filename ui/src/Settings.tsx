@@ -16,6 +16,9 @@ import {
   setImportDestination,
   setAutoAdvance,
   setPairView,
+  setSlideshowTransition,
+  setViewerTransition,
+  type ViewerTransition,
   setStackRawJpeg,
   setStackBursts,
   setBurstGapMs,
@@ -460,6 +463,41 @@ export default function Settings({
               </select>
             </label>
             <p className="settings-note">{t.settingsPairViewNote}</p>
+            {/* 送りの動き（2026-09-27 の利用者の選択）。手の送りとスライドショーは別に選ぶ。
+                既定は Rust 側と同じ（手はスライド・ショーはフェード） */}
+            {(
+              [
+                ["transition", "slide", t.settingsTransition, setViewerTransition],
+                ["slideshow_transition", "fade", t.settingsSlideshowTransition, setSlideshowTransition],
+              ] as const
+            ).map(([key, fallback, label, save]) => (
+              <label key={key} className="settings-toggle">
+                {label}
+                <select
+                  className="settings-select"
+                  value={config?.viewer?.[key] ?? fallback}
+                  onChange={async (e) => {
+                    try {
+                      await save(e.target.value as ViewerTransition);
+                    } catch (err) {
+                      onError(errText(err));
+                    }
+                    onConfigChanged();
+                  }}
+                >
+                  {(["none", "slide", "fade"] as const).map((v) => (
+                    <option key={v} value={v}>
+                      {v === "none"
+                        ? t.transitionNone
+                        : v === "slide"
+                          ? t.transitionSlide
+                          : t.transitionFade}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <p className="settings-note">{t.settingsTransitionNote}</p>
           </section>
 
           {/* 一覧の重ね（dev #32、`dev/adr.grid-stacks.md`）。RAW+JPEG と連写は独立に切れる */}
