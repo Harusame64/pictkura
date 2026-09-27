@@ -1158,13 +1158,21 @@ export default function App() {
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
-  /** 最後に訊いたカメラ一覧の番号。先に訊いた返事が後から着いて、新しい一覧を上書きしないように */
+  /**
+   * カメラ一覧の問い合わせの番号（訊いた数と、画面に載せた返事の番号）。先に訊いた返事が
+   * 後から着いて、新しい一覧を上書きしないように。**載せた番号より新しければ載せる**——
+   * 「最後に訊いたものだけ」にすると、最後の問い合わせが失敗したときに先の成功まで捨てる（PRのcodex）
+   */
   const camerasAskRef = useRef(0);
+  const camerasShownRef = useRef(0);
   const refreshCameras = useCallback(async () => {
     const asked = ++camerasAskRef.current;
     try {
       const list = await listCameras();
-      if (asked === camerasAskRef.current) setCameras(list);
+      if (asked > camerasShownRef.current) {
+        camerasShownRef.current = asked;
+        setCameras(list);
+      }
     } catch {
       /* カメラ集計の失敗は無視（次の更新で再試行される） */
     }
