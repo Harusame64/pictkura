@@ -179,11 +179,14 @@ fn strip_root(path: &Path, root: &Path) -> Option<PathBuf> {
 /// 名前の比べ方。大文字小文字を区別しない台（Windows・macOS の既定）では小文字に畳む。
 /// 区別する macOS のボリュームでは、違う2つを同じと見ることがある——窓口では
 /// 「置かない・外す」側へ倒れるだけなので、それでよい。
-fn fold(s: &std::ffi::OsStr) -> String {
+///
+/// **区別する台ではバイト列のまま**比べる。Linux の名前は UTF-8 とは限らず、文字列へ
+/// 写すと別の名前が置換文字で1つに潰れる（PR の codex）。
+fn fold(s: &std::ffi::OsStr) -> std::ffi::OsString {
     if cfg!(any(windows, target_os = "macos")) {
-        s.to_string_lossy().to_lowercase()
+        s.to_string_lossy().to_lowercase().into()
     } else {
-        s.to_string_lossy().into_owned()
+        s.to_os_string()
     }
 }
 
@@ -224,24 +227,40 @@ pub fn staging_dir(mirror: &Path) -> PathBuf {
     mirror.with_file_name(format!(".{name}-staging"))
 }
 
-/// 同期を始めてよい窓口か。**利用者のフォルダを窓口と取り違えると、写真を消しに行く**
-/// ので、中身があって作業場が無い（＝pictkura が作ったものではない）フォルダは拒む。
+/// 同期を始めてよい窓口か。**利用者のフォルダを窓口と取り違えると、写真を消しに行く**。
 ///
-/// `known` は呼び出し側の記録（設定）でこの窓口が pictkura のものだと分かっていること。
-/// 作業場は Windows では隠れないので、空のフォルダとして消されることがある
-/// ——印がそれだけだと、消された日から窓口は二度と揃わない（ゲート2）。
-pub fn check_ownership(mirror: &Path, known: bool) -> Result<(), MirrorError> {
-    if known {
+/// 作業場（pictkura の印）が在ればよい。無いとき（Windows では見えるので、空のフォルダ
+/// として消されることがある。ゲート2）は、**中にそこにしか実体の無いファイルが1つでも
+/// あれば拒む**——ほかに名前を持つリンクだけなら、外しても何も失われない。
+///
+/// 呼び出し側の記録（設定）を信じて通す道は**作らない**。記録した窓口が消され、同じ
+/// 名前の普通のフォルダが後から作られると、それを窓口として掃いてしまう（PR の codex）。
+pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
+    if staging_dir(mirror).is_dir() {
         return Ok(());
     }
-    // OS が置くもの（開いただけで書かれる `.DS_Store` 等）は中身に数えない（ゲート2）
-    let has_entries = match std::fs::read_dir(mirror) {
-        Ok(rd) => rd.flatten().any(|e| !is_os_litter(&e.file_name())),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => false,
-        Err(e) => return Err(MirrorError::Io(e)),
-    };
-    if has_entries && !staging_dir(mirror).is_dir() {
-        return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+    for entry in walkdir::WalkDir::new(mirror)
+        .follow_links(false)
+        .min_depth(1)
+    {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e)
+                if e.io_error()
+                    .is_some_and(|io| io.kind() == io::ErrorKind::NotFound) =>
+            {
+                return Ok(())
+            }
+            Err(e) => return Err(MirrorError::Io(e.into())),
+        };
+        // OS が置くもの（開いただけで書かれる `.DS_Store` 等）は中身に数えない（ゲート2）
+        if entry.file_type().is_dir() || is_os_litter(entry.file_name()) {
+            continue;
+        }
+        let ours = entry.file_type().is_file() && file_id(entry.path())?.links >= 2;
+        if !ours {
+            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+        }
     }
     Ok(())
 }
@@ -359,7 +378,6 @@ pub enum MirrorError {
 /// win の実機で測り、重ければ歩くときの属性を使い回す（ゲート2の指摘を据え置いた）。
 pub fn sync(
     mirror: &Path,
-    known: bool,
     roots: &[PathBuf],
     placements: &[Placement],
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
@@ -368,7 +386,7 @@ pub fn sync(
     if mirror.file_name().is_none() {
         return Err(MirrorError::NoName(mirror.to_path_buf()));
     }
-    check_ownership(mirror, known)?;
+    check_ownership(mirror)?;
     // 記録した窓口でも毎回見る——あとからルートを足すと窓口がルートの中に入り、
     // 窓口のリンクがライブラリに載って、窓口がさらに深く入れ子になっていく（ゲート2）
     check_location(mirror, roots)?;
@@ -1026,13 +1044,13 @@ mod tests {
         put(&f.lib.join("d/a.jpg"), b"photo");
         let ps = [placement(&f.lib, "d/a.jpg")];
 
-        let first = sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap();
+        let first = sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
         assert_eq!(first.linked, 1);
         let dest = f.mirror.join("lib/d/a.jpg");
         assert!(same_file(&f.lib.join("d/a.jpg"), &dest).unwrap());
         assert_eq!(file_id(&dest).unwrap().links, 2);
 
-        let second = sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap();
+        let second = sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
         assert_eq!(second, SyncReport::default());
     }
 
@@ -1043,14 +1061,13 @@ mod tests {
         put(&src, b"photo");
         sync(
             &f.mirror,
-            false,
             &[],
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
         )
         .unwrap();
 
-        let r = sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        let r = sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(r.removed, 1);
         assert_eq!(std::fs::read(&src).unwrap(), b"photo");
         // 空になったフォルダは畳む。窓口そのものは残す
@@ -1065,7 +1082,6 @@ mod tests {
         put(&src, b"photo");
         sync(
             &f.mirror,
-            false,
             &[],
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
@@ -1075,7 +1091,7 @@ mod tests {
         std::fs::remove_file(&src).unwrap();
 
         let bin = f.lib.join("bin");
-        let r = sync(&f.mirror, false, &[], &[], &mut move_into(&bin)).unwrap();
+        let r = sync(&f.mirror, &[], &[], &mut move_into(&bin)).unwrap();
         assert_eq!((r.removed, r.discarded), (0, 1));
         assert!(!f.mirror.join("lib/d/a.jpg").exists());
         assert_eq!(std::fs::read(bin.join("a.jpg")).unwrap(), b"photo");
@@ -1087,13 +1103,13 @@ mod tests {
         let src = f.lib.join("d/a.jpg");
         put(&src, b"v1");
         let ps = [placement(&f.lib, "d/a.jpg")];
-        sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
         // 原本の実体が替わった＝窓口の v1 はそこにしか無い
         let tmp = f.lib.join("d/a.tmp");
         put(&tmp, b"v2");
         std::fs::rename(&tmp, &src).unwrap();
 
-        let r = sync(&f.mirror, false, &[], &ps, &mut |_: &Path| Ok(())).unwrap();
+        let r = sync(&f.mirror, &[], &ps, &mut |_: &Path| Ok(())).unwrap();
         assert_eq!((r.replaced, r.failed.len()), (0, 1));
         assert_eq!(std::fs::read(f.mirror.join("lib/d/a.jpg")).unwrap(), b"v1");
     }
@@ -1104,7 +1120,7 @@ mod tests {
         let src = f.lib.join("d/a.jpg");
         put(&src, b"v1");
         let ps = [placement(&f.lib, "d/a.jpg")];
-        sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
 
         // 編集アプリが「別名で書いて改名」で保存した＝原本の実体が替わった
         let tmp = f.lib.join("d/a.tmp");
@@ -1112,7 +1128,7 @@ mod tests {
         std::fs::rename(&tmp, &src).unwrap();
 
         let bin = f.lib.join("bin");
-        let r = sync(&f.mirror, false, &[], &ps, &mut move_into(&bin)).unwrap();
+        let r = sync(&f.mirror, &[], &ps, &mut move_into(&bin)).unwrap();
         assert_eq!(r.replaced, 1);
         let dest = f.mirror.join("lib/d/a.jpg");
         assert_eq!(std::fs::read(&dest).unwrap(), b"v2");
@@ -1130,7 +1146,7 @@ mod tests {
     fn a_folder_with_someone_elses_files_is_refused() {
         let f = fixture();
         put(&f.mirror.join("mine.jpg"), b"not pictkura's");
-        let err = sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap_err();
+        let err = sync(&f.mirror, &[], &[], &mut no_discard()).unwrap_err();
         assert!(matches!(err, MirrorError::NotOurs(_)));
         assert!(f.mirror.join("mine.jpg").exists());
     }
@@ -1138,7 +1154,7 @@ mod tests {
     #[test]
     fn links_inside_the_mirror_are_not_followed() {
         let f = fixture();
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         let outside = f.lib.join("d");
         put(&outside.join("keep.jpg"), b"keep");
         #[cfg(unix)]
@@ -1147,7 +1163,7 @@ mod tests {
         if std::os::windows::fs::symlink_dir(&outside, f.mirror.join("link")).is_err() {
             return; // 権限が無ければ作れない（spike の S4）
         }
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert!(outside.join("keep.jpg").exists());
     }
 
@@ -1155,7 +1171,7 @@ mod tests {
     fn a_link_inside_the_mirror_does_not_carry_new_files_outside() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         let outside = f.lib.join("elsewhere");
         std::fs::create_dir_all(&outside).unwrap();
         #[cfg(unix)]
@@ -1166,7 +1182,6 @@ mod tests {
         }
         let r = sync(
             &f.mirror,
-            false,
             &[],
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
@@ -1254,7 +1269,6 @@ mod tests {
         };
         sync(
             &f.mirror,
-            false,
             &[],
             std::slice::from_ref(&old),
             &mut no_discard(),
@@ -1266,11 +1280,11 @@ mod tests {
         };
         let ps = [renamed];
         assert_eq!(
-            sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap(),
+            sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
         );
         assert_eq!(
-            sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap(),
+            sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
         );
     }
@@ -1280,10 +1294,10 @@ mod tests {
         let f = fixture();
         let src = f.lib.join("d/a.jpg");
         put(&src, b"photo");
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         // 前の回が改名の手前で落ちた
         std::fs::hard_link(&src, staging_dir(&f.mirror).join("1-0-a.jpg")).unwrap();
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(
             std::fs::read_dir(staging_dir(&f.mirror)).unwrap().count(),
             0
@@ -1297,7 +1311,7 @@ mod tests {
         // 同じ名前のフォルダが先に在り、中に他人のファイルがある
         let staging = staging_dir(&f.mirror);
         put(&staging.join("notes.txt"), b"keep");
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert!(staging.join("notes.txt").exists());
 
         // 作業場がライブラリを指すリンクなら、始めない
@@ -1310,7 +1324,7 @@ mod tests {
             return;
         }
         assert!(matches!(
-            sync(&g.mirror, false, &[], &[], &mut no_discard()),
+            sync(&g.mirror, &[], &[], &mut no_discard()),
             Err(MirrorError::LinkInTheWay(_))
         ));
         assert!(g.lib.join("d/1-0-x.jpg").exists());
@@ -1319,11 +1333,11 @@ mod tests {
     #[test]
     fn os_litter_in_the_mirror_is_left_where_it_is() {
         let f = fixture();
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         put(&f.mirror.join(".DS_Store"), b"finder");
         put(&f.mirror.join("lib/._a.jpg"), b"appledouble");
         // no_discard: 窓口にしか無いファイルとして渡されたら落ちる
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert!(f.mirror.join(".DS_Store").exists());
     }
 
@@ -1332,26 +1346,36 @@ mod tests {
         let f = fixture();
         let dotdot = f.mirror.join("..");
         assert!(matches!(
-            sync(&dotdot, false, &[], &[], &mut no_discard()),
+            sync(&dotdot, &[], &[], &mut no_discard()),
             Err(MirrorError::NoName(_))
         ));
     }
 
     #[test]
-    fn a_known_mirror_survives_losing_its_staging_dir() {
+    fn a_mirror_that_lost_its_staging_dir_still_syncs_while_it_holds_only_links() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
         let ps = [placement(&f.lib, "d/a.jpg")];
-        sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
         std::fs::remove_dir(staging_dir(&f.mirror)).unwrap();
-        assert!(matches!(
-            sync(&f.mirror, false, &[], &ps, &mut no_discard()),
-            Err(MirrorError::NotOurs(_))
-        ));
         assert_eq!(
-            sync(&f.mirror, true, &[], &ps, &mut no_discard()).unwrap(),
+            sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
         );
+    }
+
+    #[test]
+    fn a_folder_reusing_a_mirrors_name_is_not_swept() {
+        let f = fixture();
+        // 前の窓口は消され、同じ名前の普通のフォルダが作られた
+        put(&f.mirror.join("trip/IMG_1.jpg"), b"someone's only copy");
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        std::fs::hard_link(f.lib.join("d/a.jpg"), f.mirror.join("linked.jpg")).unwrap();
+        assert!(matches!(
+            sync(&f.mirror, &[], &[], &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
+        assert!(f.mirror.join("trip/IMG_1.jpg").exists());
     }
 
     #[test]
@@ -1395,14 +1419,14 @@ mod tests {
         let src = f.lib.join("d/a.jpg");
         put(&src, b"v1");
         let ps = [placement(&f.lib, "d/a.jpg")];
-        sync(&f.mirror, false, &[], &ps, &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
         let tmp = f.lib.join("d/a.tmp");
         put(&tmp, b"v2");
         std::fs::rename(&tmp, &src).unwrap();
         // 置き換えが使う名前に、渡せなかった残骸がいる
         let stuck = staging_dir(&f.mirror).join(staging_name(&f.mirror.join("lib/d/a.jpg"), 0));
         put(&stuck, b"last copy");
-        let r = sync(&f.mirror, false, &[], &ps, &mut |_: &Path| {
+        let r = sync(&f.mirror, &[], &ps, &mut |_: &Path| {
             Err(io::Error::other("trash is unavailable"))
         })
         .unwrap();
@@ -1435,10 +1459,10 @@ mod tests {
     #[test]
     fn sync_refuses_a_recorded_mirror_that_a_new_root_now_contains() {
         let f = fixture();
-        sync(&f.mirror, true, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         let wider = [f.mirror.parent().unwrap().to_path_buf()];
         assert!(matches!(
-            sync(&f.mirror, true, &wider, &[], &mut no_discard()),
+            sync(&f.mirror, &wider, &[], &mut no_discard()),
             Err(MirrorError::OverlapsRoot(_))
         ));
     }
@@ -1448,7 +1472,7 @@ mod tests {
         let f = fixture();
         put(&f.mirror.join(".DS_Store"), b"finder");
         put(&f.mirror.join("desktop.ini"), b"explorer");
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
     }
 
     #[test]
@@ -1457,14 +1481,13 @@ mod tests {
         put(&f.lib.join("d/a.jpg"), b"photo");
         sync(
             &f.mirror,
-            false,
             &[],
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
         )
         .unwrap();
         put(&f.mirror.join("lib/d/.DS_Store"), b"finder");
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert!(!f.mirror.join("lib").exists());
         assert!(f.lib.join("d/a.jpg").exists());
     }
@@ -1487,12 +1510,12 @@ mod tests {
         let f = fixture();
         let src = f.lib.join("d/a.jpg");
         put(&src, b"photo");
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         // 試しの名前に、原本へのリンクが先に居る
         let pid = std::process::id();
         let squatter = staging_dir(&f.mirror).join(format!("{pid}-0-probe-a"));
         std::fs::hard_link(&src, &squatter).unwrap();
-        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(std::fs::read(&src).unwrap(), b"photo");
     }
 
@@ -1501,7 +1524,7 @@ mod tests {
         let f = fixture();
         let roots = [staging_dir(&f.mirror)];
         assert!(matches!(
-            sync(&f.mirror, false, &roots, &[], &mut no_discard()),
+            sync(&f.mirror, &roots, &[], &mut no_discard()),
             Err(MirrorError::OverlapsRoot(_))
         ));
     }
