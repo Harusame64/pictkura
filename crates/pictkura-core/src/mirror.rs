@@ -58,7 +58,7 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
         .map(|i| MediaKind::from_path(&i.path))
         .collect();
     // 組の相方になれる「写真」の鍵。RAW だけのカットかどうかはこれで決まる
-    let photo_keys: HashSet<(PathBuf, String)> = items
+    let photo_keys: HashSet<(PathBuf, std::ffi::OsString)> = items
         .iter()
         .zip(&kinds)
         .filter(|(_, k)| **k == MediaKind::Photo)
@@ -101,9 +101,17 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
 /// 組の鍵。[`crate::sidecar::pair_key`] に**フォルダの大文字小文字の畳み**を足したもの
 /// ——USN 経由で同じフォルダが別の綴りで DB に入ると、組の RAW が「RAW だけ」に見えて
 /// 上がってしまう（ゲート2）。
-fn shot_key(path: &Path) -> (PathBuf, String) {
-    let (dir, stem) = crate::sidecar::pair_key(path);
-    (fold_path(&dir), stem)
+///
+/// 語幹は `pair_key` と同じく小文字に畳むが、**UTF-8 として読めない語幹はバイト列のまま**
+/// 持つ（Linux。文字列へ写すと別の語幹が置換文字で1つに潰れ、RAW が組に見える。PR の codex）。
+fn shot_key(path: &Path) -> (PathBuf, std::ffi::OsString) {
+    let dir = fold_path(path.parent().unwrap_or(Path::new("")));
+    let stem = path.file_stem().unwrap_or_default();
+    let stem = match stem.to_str() {
+        Some(s) => s.to_lowercase().into(),
+        None => stem.to_os_string(),
+    };
+    (dir, stem)
 }
 
 /// ルートごとの、窓口の中での名前。**フォルダ名が重なったら番号を足す**
@@ -300,11 +308,16 @@ fn write_marker(staging: &Path, tag: &str) -> io::Result<()> {
 /// 作業場に置く、窓口フォルダの名札のファイル名。
 const MARKER: &str = "mirror-id";
 
-/// 窓口フォルダの名札。フォルダが無ければ `None`。
+/// 窓口フォルダの名札。フォルダが無いか、作成時刻が取れなければ `None`（＝名札では通さない）。
+///
+/// **ファイル番号だけでは足りない**——消してすぐ作り直したフォルダは同じ番号を
+/// もらうことがある（PR の codex が実際に再現した）。作成時刻（APFS・NTFS ともに
+/// 100ns 以下の刻み）を足し、作り直しを別物にする。
 fn mirror_tag(mirror: &Path) -> Option<String> {
-    file_id(mirror)
-        .ok()
-        .map(|id| format!("{}:{}", id.volume, id.index))
+    let id = file_id(mirror).ok()?;
+    let born = std::fs::symlink_metadata(mirror).ok()?.created().ok()?;
+    let nanos = born.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some(format!("{}:{}:{nanos}", id.volume, id.index))
 }
 
 /// 窓口の場所として使ってよいか。ルートの中・ルートを含む場所は、ライブラリに
@@ -1646,5 +1659,28 @@ mod tests {
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
         assert!(!is_link(&marker));
+    }
+
+    #[test]
+    fn a_recreated_folder_gets_a_different_tag_even_if_its_number_is_reused() {
+        let f = fixture();
+        std::fs::create_dir_all(&f.mirror).unwrap();
+        let first = mirror_tag(&f.mirror).unwrap();
+        std::fs::remove_dir(&f.mirror).unwrap();
+        std::fs::create_dir(&f.mirror).unwrap();
+        let second = mirror_tag(&f.mirror).unwrap();
+        assert_ne!(first, second);
+        // 番号が使い回されても、作成時刻の欄が違う
+        let created = |t: &str| t.rsplit(':').next().unwrap().to_string();
+        assert_ne!(created(&first), created(&second));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn non_utf8_stems_keep_distinct_pair_keys() {
+        use std::os::unix::ffi::OsStrExt;
+        let a = Path::new("/d").join(std::ffi::OsStr::from_bytes(b"\xff.ARW"));
+        let b = Path::new("/d").join(std::ffi::OsStr::from_bytes(b"\xfe.JPG"));
+        assert_ne!(shot_key(&a), shot_key(&b));
     }
 }
