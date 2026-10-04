@@ -270,6 +270,33 @@ pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
     Ok(())
 }
 
+/// 作業場が、名札と OS の置き物のほかに何も持たないか（無ければ `true`）。
+fn holds_nothing_but_marker(staging: &Path) -> io::Result<bool> {
+    match std::fs::read_dir(staging) {
+        Ok(rd) => Ok(rd.flatten().all(|e| {
+            let n = e.file_name();
+            n == MARKER || is_os_litter(&n)
+        })),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(e),
+    }
+}
+
+/// 名札を書く。**在る名前へ直接書かない**——そこがリンクなら外のファイルを上書きする
+/// （PR の codex）。別名で新しく作り、改名で差し替える（改名はリンクを辿らず名前ごと置き換える）。
+fn write_marker(staging: &Path, tag: &str) -> io::Result<()> {
+    use std::io::Write;
+    let tmp = staging.join(format!("{MARKER}.{}.new", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)?;
+    f.write_all(tag.as_bytes())?;
+    drop(f);
+    std::fs::rename(&tmp, staging.join(MARKER))
+}
+
 /// 作業場に置く、窓口フォルダの名札のファイル名。
 const MARKER: &str = "mirror-id";
 
@@ -413,13 +440,23 @@ pub fn sync(
             return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
         }
     }
+    // 作業場が pictkura のものか。名札が今の窓口と合うか、名札と OS の置き物のほかに
+    // 何も無いこと。**名前の形では決めない**——先に在ったフォルダの `2024-01-photo.jpg` は
+    // 残骸の形をしている（PR の codex）
+    let marker_matches = || {
+        let m = std::fs::read_to_string(staging.join(MARKER)).ok();
+        m.is_some() && m == mirror_tag(mirror)
+    };
+    if !marker_matches() && !holds_nothing_but_marker(&staging)? {
+        return Err(MirrorError::NotOurs(staging));
+    }
     std::fs::create_dir_all(mirror)?;
     std::fs::create_dir_all(&staging)?;
     // ハードリンクを張れないボリューム（exFAT・FAT）なら、1件ずつ失敗を積む前に止める（ゲート2）
     probe_hard_links(&staging)?;
     // 名札を書く（いまの窓口フォルダに結びつける）
     if let Some(tag) = mirror_tag(mirror) {
-        std::fs::write(staging.join(MARKER), tag)?;
+        write_marker(&staging, &tag)?;
     }
 
     let mut report = SyncReport::default();
@@ -1333,8 +1370,13 @@ mod tests {
         // 同じ名前のフォルダが先に在り、中に他人のファイルがある
         let staging = staging_dir(&f.mirror);
         put(&staging.join("notes.txt"), b"keep");
-        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        put(&staging.join("2024-01-photo.jpg"), b"looks like a leftover");
+        assert!(matches!(
+            sync(&f.mirror, &[], &[], &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
         assert!(staging.join("notes.txt").exists());
+        assert!(staging.join("2024-01-photo.jpg").exists());
 
         // 作業場がライブラリを指すリンクなら、始めない
         let g = fixture();
@@ -1585,5 +1627,24 @@ mod tests {
             Err(MirrorError::NotOurs(_))
         ));
         assert!(f.mirror.join("IMG_1.jpg").exists());
+    }
+
+    #[test]
+    fn a_link_at_the_marker_name_is_replaced_not_written_through() {
+        let f = fixture();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        let outside = f.lib.join("d/notes.txt");
+        put(&outside, b"keep");
+        let marker = staging_dir(&f.mirror).join(MARKER);
+        std::fs::remove_file(&marker).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &marker).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_file(&outside, &marker).is_err() {
+            return;
+        }
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
+        assert!(!is_link(&marker));
     }
 }
