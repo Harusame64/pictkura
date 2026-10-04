@@ -47,6 +47,13 @@ pub fn normalize_str(path: &str) -> String {
     }
 }
 
+/// ホームフォルダ（Windows は `USERPROFILE`、それ以外は `HOME`）。空なら `None`。
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
 /// ディレクトリのパスを揃え、末尾の区切り文字を落とす。
 ///
 /// `dirs` テーブルの値と `media.parent_dir`（SQL側で切り出す）を

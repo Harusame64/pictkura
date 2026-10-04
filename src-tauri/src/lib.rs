@@ -3752,8 +3752,7 @@ fn temporary_dirs() -> Vec<PathBuf> {
     if let Some(windir) = std::env::var_os("WINDIR") {
         dirs.push(PathBuf::from(windir).join("Temp"));
     }
-    let home =
-        std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let home = pictkura_core::paths::home_dir();
     usable_temp_dirs(dirs, home.as_deref())
 }
 

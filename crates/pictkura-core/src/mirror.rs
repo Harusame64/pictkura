@@ -53,21 +53,26 @@ pub struct Placement {
 /// 返す順は `items` の順。同じ `rel` が2つ出ることは無い（ルートのラベルを分けるため）。
 pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<Placement> {
     let labels = root_labels(roots);
+    let kinds: Vec<MediaKind> = items
+        .iter()
+        .map(|i| MediaKind::from_path(&i.path))
+        .collect();
     // 組の相方になれる「写真」の鍵。RAW だけのカットかどうかはこれで決まる
     let photo_keys: HashSet<(PathBuf, String)> = items
         .iter()
-        .filter(|i| MediaKind::from_path(&i.path) == MediaKind::Photo)
-        .map(|i| crate::sidecar::pair_key(&i.path))
+        .zip(&kinds)
+        .filter(|(_, k)| **k == MediaKind::Photo)
+        .map(|(i, _)| shot_key(&i.path))
         .collect();
 
     let mut out = Vec::new();
-    for item in items {
-        let wanted = match MediaKind::from_path(&item.path) {
+    for (item, kind) in items.iter().zip(kinds) {
+        let wanted = match kind {
             MediaKind::Photo => true,
             MediaKind::Video => !cfg.exclude_video,
             MediaKind::Raw if !cfg.exclude_raw => true,
             MediaKind::Raw => {
-                let paired = photo_keys.contains(&crate::sidecar::pair_key(&item.path));
+                let paired = photo_keys.contains(&shot_key(&item.path));
                 !paired
                     && match cfg.raw_only {
                         RawOnly::None => false,
@@ -91,6 +96,14 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
         }
     }
     out
+}
+
+/// 組の鍵。[`crate::sidecar::pair_key`] に**フォルダの大文字小文字の畳み**を足したもの
+/// ——USN 経由で同じフォルダが別の綴りで DB に入ると、組の RAW が「RAW だけ」に見えて
+/// 上がってしまう（ゲート2）。
+fn shot_key(path: &Path) -> (PathBuf, String) {
+    let (dir, stem) = crate::sidecar::pair_key(path);
+    (fold_path(&dir), stem)
 }
 
 /// ルートごとの、窓口の中での名前。**フォルダ名が重なったら番号を足す**
@@ -213,7 +226,14 @@ pub fn staging_dir(mirror: &Path) -> PathBuf {
 
 /// 同期を始めてよい窓口か。**利用者のフォルダを窓口と取り違えると、写真を消しに行く**
 /// ので、中身があって作業場が無い（＝pictkura が作ったものではない）フォルダは拒む。
-pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
+///
+/// `known` は呼び出し側の記録（設定）でこの窓口が pictkura のものだと分かっていること。
+/// 作業場は Windows では隠れないので、空のフォルダとして消されることがある
+/// ——印がそれだけだと、消された日から窓口は二度と揃わない（ゲート2）。
+pub fn check_ownership(mirror: &Path, known: bool) -> Result<(), MirrorError> {
+    if known {
+        return Ok(());
+    }
     let has_entries = match std::fs::read_dir(mirror) {
         Ok(mut rd) => rd.next().is_some(),
         Err(e) if e.kind() == io::ErrorKind::NotFound => false,
@@ -234,7 +254,11 @@ pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
 pub fn check_location(mirror: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
     let m = disk_key(mirror)?;
     for root in roots {
-        let r = disk_key(root)?;
+        // 解決できないルート（外れたドライブ）は、いまは重なりようが無い。1つのせいで
+        // 全部の窓口を止めない（ゲート2）。戻ってきたら次の確認で見る
+        let Ok(r) = disk_key(root) else {
+            continue;
+        };
         if m.starts_with(&r) || r.starts_with(&m) {
             return Err(MirrorError::OverlapsRoot(root.clone()));
         }
@@ -291,9 +315,7 @@ fn sync_client_folders() -> Vec<PathBuf> {
         .collect()
 }
 
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
-}
+use crate::paths::home_dir;
 
 /// 窓口の同期で起きる、続けられない誤り。
 #[derive(Debug, thiserror::Error)]
@@ -304,6 +326,8 @@ pub enum MirrorError {
     OverlapsRoot(PathBuf),
     #[error("窓口フォルダが同期フォルダ {0} の中にある")]
     InsideSyncFolder(PathBuf),
+    #[error("窓口フォルダ {0} はフォルダの名前を持たない（ドライブそのもの等）")]
+    NoName(PathBuf),
     #[error("窓口フォルダ {0} がリンクになっている")]
     LinkInTheWay(PathBuf),
     #[error(transparent)]
@@ -327,14 +351,21 @@ pub enum MirrorError {
 /// win の実機で測り、重ければ歩くときの属性を使い回す（ゲート2の指摘を据え置いた）。
 pub fn sync(
     mirror: &Path,
+    known: bool,
     placements: &[Placement],
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> Result<SyncReport, MirrorError> {
-    check_ownership(mirror)?;
-    if is_link(mirror) {
-        return Err(MirrorError::LinkInTheWay(mirror.to_path_buf()));
+    // 名前の無い場所（`E:\`・`..` で終わる綴り）は、作業場が窓口の中に落ちる（ゲート2）
+    if mirror.file_name().is_none() {
+        return Err(MirrorError::NoName(mirror.to_path_buf()));
     }
+    check_ownership(mirror, known)?;
     let staging = staging_dir(mirror);
+    for dir in [mirror, staging.as_path()] {
+        if is_link(dir) {
+            return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
+        }
+    }
     std::fs::create_dir_all(mirror)?;
     std::fs::create_dir_all(&staging)?;
 
@@ -342,8 +373,10 @@ pub fn sync(
 
     // 0. 前の回が途中で落ちて作業場に残したリンクを片付ける。残すと原本の
     //    「名前の数」を1つ多く見せ、窓口にしか無い実体を見落とす（ゲート2）
+    //    **自分の名付けた形だけ**を触る——同じ名前のフォルダがたまたま在っても、
+    //    中の他人のファイルには手を出さない（ゲート1）
     for entry in std::fs::read_dir(&staging)?.flatten() {
-        if entry.file_type().is_ok_and(|t| t.is_file()) {
+        if entry.file_type().is_ok_and(|t| t.is_file()) && is_staging_name(&entry.file_name()) {
             if let Err(e) = remove_or_discard(&entry.path(), discard) {
                 report.failed.push((entry.path(), e.to_string()));
             }
@@ -361,6 +394,7 @@ pub fn sync(
 
     // 1–2. 今ある集合と、外すもの（畳んだ名前 → ディスクの綴り）
     let mut present: HashMap<PathBuf, PathBuf> = HashMap::new();
+    let mut dirs: Vec<PathBuf> = Vec::new();
     for entry in walkdir::WalkDir::new(mirror)
         .follow_links(false)
         .min_depth(1)
@@ -368,11 +402,18 @@ pub fn sync(
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                report.failed.push((PathBuf::new(), e.to_string()));
+                let at = e.path().map(Path::to_path_buf).unwrap_or_default();
+                report.failed.push((at, e.to_string()));
                 continue;
             }
         };
-        if !entry.file_type().is_file() {
+        if entry.file_type().is_dir() {
+            dirs.push(entry.into_path());
+            continue;
+        }
+        // OS が勝手に置くもの（Finder の `.DS_Store` 等）は放っておく。窓口にしか無い
+        // ファイルとしてゴミ箱へ送ると、開くたびに書かれてゴミ箱が埋まる（ゲート2）
+        if !entry.file_type().is_file() || is_os_litter(entry.file_name()) {
             continue;
         }
         let Ok(rel) = entry.path().strip_prefix(mirror) else {
@@ -429,21 +470,46 @@ pub fn sync(
         }
     }
 
-    // 4. 空のフォルダを畳む（深いほうから）
-    let mut dirs: Vec<PathBuf> = walkdir::WalkDir::new(mirror)
-        .follow_links(false)
-        .min_depth(1)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_dir())
-        .map(|e| e.into_path())
-        .collect();
+    // 4. 空になったフォルダを畳む（深いほうから）。3 で作ったフォルダは中身があるので、
+    //    1 で歩いた分だけ見ればよい
     dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     for d in dirs {
         // 中身があれば失敗する＝それで正しい
         let _ = std::fs::remove_dir(&d);
     }
     Ok(report)
+}
+
+/// OS が利用者の知らないうちに置くファイルか。
+fn is_os_litter(name: &std::ffi::OsStr) -> bool {
+    let n = name.to_string_lossy();
+    n.starts_with("._")
+        || [".DS_Store", "desktop.ini", "Thumbs.db"]
+            .iter()
+            .any(|l| n.eq_ignore_ascii_case(l))
+}
+
+/// 作業場のリンクの名前か（`<pid>-<n>-<元の名前>`。[`staging_name`] が付ける）。
+fn is_staging_name(name: &std::ffi::OsStr) -> bool {
+    let Some(n) = name.to_str() else {
+        return false;
+    };
+    let digits = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+    let mut parts = n.splitn(3, '-');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(a), Some(b), Some(rest)) if digits(a) && digits(b) && !rest.is_empty()
+    )
+}
+
+/// 作業場のリンクに付ける名前。**元の名前を残す**——落ちた回の残骸が窓口にしか無い
+/// 1枚なら、ゴミ箱でそれと分かる名前で渡したい（ゲート2）。
+fn staging_name(dest: &Path, n: usize) -> String {
+    let base = dest
+        .file_name()
+        .map(|b| b.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    format!("{}-{n}-{base}", std::process::id())
 }
 
 /// `rel` の親フォルダを窓口の中に作る。**途中にリンク・ジャンクションがあれば止める**
@@ -520,7 +586,7 @@ fn replace_link(
     n: usize,
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> io::Result<()> {
-    let tmp = staging.join(format!("{}-{n}.link", std::process::id()));
+    let tmp = staging.join(staging_name(dest, n));
     let _ = std::fs::remove_file(&tmp);
     std::fs::hard_link(source, &tmp)?;
     let result = (|| {
@@ -841,13 +907,13 @@ mod tests {
         put(&f.lib.join("d/a.jpg"), b"photo");
         let ps = [placement(&f.lib, "d/a.jpg")];
 
-        let first = sync(&f.mirror, &ps, &mut no_discard()).unwrap();
+        let first = sync(&f.mirror, false, &ps, &mut no_discard()).unwrap();
         assert_eq!(first.linked, 1);
         let dest = f.mirror.join("lib/d/a.jpg");
         assert!(same_file(&f.lib.join("d/a.jpg"), &dest).unwrap());
         assert_eq!(file_id(&dest).unwrap().links, 2);
 
-        let second = sync(&f.mirror, &ps, &mut no_discard()).unwrap();
+        let second = sync(&f.mirror, false, &ps, &mut no_discard()).unwrap();
         assert_eq!(second, SyncReport::default());
     }
 
@@ -858,12 +924,13 @@ mod tests {
         put(&src, b"photo");
         sync(
             &f.mirror,
+            false,
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
         )
         .unwrap();
 
-        let r = sync(&f.mirror, &[], &mut no_discard()).unwrap();
+        let r = sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
         assert_eq!(r.removed, 1);
         assert_eq!(std::fs::read(&src).unwrap(), b"photo");
         // 空になったフォルダは畳む。窓口そのものは残す
@@ -878,6 +945,7 @@ mod tests {
         put(&src, b"photo");
         sync(
             &f.mirror,
+            false,
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
         )
@@ -886,7 +954,7 @@ mod tests {
         std::fs::remove_file(&src).unwrap();
 
         let bin = f.lib.join("bin");
-        let r = sync(&f.mirror, &[], &mut move_into(&bin)).unwrap();
+        let r = sync(&f.mirror, false, &[], &mut move_into(&bin)).unwrap();
         assert_eq!((r.removed, r.discarded), (0, 1));
         assert!(!f.mirror.join("lib/d/a.jpg").exists());
         assert_eq!(std::fs::read(bin.join("a.jpg")).unwrap(), b"photo");
@@ -898,13 +966,13 @@ mod tests {
         let src = f.lib.join("d/a.jpg");
         put(&src, b"v1");
         let ps = [placement(&f.lib, "d/a.jpg")];
-        sync(&f.mirror, &ps, &mut no_discard()).unwrap();
+        sync(&f.mirror, false, &ps, &mut no_discard()).unwrap();
         // 原本の実体が替わった＝窓口の v1 はそこにしか無い
         let tmp = f.lib.join("d/a.tmp");
         put(&tmp, b"v2");
         std::fs::rename(&tmp, &src).unwrap();
 
-        let r = sync(&f.mirror, &ps, &mut |_: &Path| Ok(())).unwrap();
+        let r = sync(&f.mirror, false, &ps, &mut |_: &Path| Ok(())).unwrap();
         assert_eq!((r.replaced, r.failed.len()), (0, 1));
         assert_eq!(std::fs::read(f.mirror.join("lib/d/a.jpg")).unwrap(), b"v1");
     }
@@ -915,7 +983,7 @@ mod tests {
         let src = f.lib.join("d/a.jpg");
         put(&src, b"v1");
         let ps = [placement(&f.lib, "d/a.jpg")];
-        sync(&f.mirror, &ps, &mut no_discard()).unwrap();
+        sync(&f.mirror, false, &ps, &mut no_discard()).unwrap();
 
         // 編集アプリが「別名で書いて改名」で保存した＝原本の実体が替わった
         let tmp = f.lib.join("d/a.tmp");
@@ -923,7 +991,7 @@ mod tests {
         std::fs::rename(&tmp, &src).unwrap();
 
         let bin = f.lib.join("bin");
-        let r = sync(&f.mirror, &ps, &mut move_into(&bin)).unwrap();
+        let r = sync(&f.mirror, false, &ps, &mut move_into(&bin)).unwrap();
         assert_eq!(r.replaced, 1);
         let dest = f.mirror.join("lib/d/a.jpg");
         assert_eq!(std::fs::read(&dest).unwrap(), b"v2");
@@ -941,7 +1009,7 @@ mod tests {
     fn a_folder_with_someone_elses_files_is_refused() {
         let f = fixture();
         put(&f.mirror.join("mine.jpg"), b"not pictkura's");
-        let err = sync(&f.mirror, &[], &mut no_discard()).unwrap_err();
+        let err = sync(&f.mirror, false, &[], &mut no_discard()).unwrap_err();
         assert!(matches!(err, MirrorError::NotOurs(_)));
         assert!(f.mirror.join("mine.jpg").exists());
     }
@@ -949,7 +1017,7 @@ mod tests {
     #[test]
     fn links_inside_the_mirror_are_not_followed() {
         let f = fixture();
-        sync(&f.mirror, &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
         let outside = f.lib.join("d");
         put(&outside.join("keep.jpg"), b"keep");
         #[cfg(unix)]
@@ -958,7 +1026,7 @@ mod tests {
         if std::os::windows::fs::symlink_dir(&outside, f.mirror.join("link")).is_err() {
             return; // 権限が無ければ作れない（spike の S4）
         }
-        sync(&f.mirror, &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
         assert!(outside.join("keep.jpg").exists());
     }
 
@@ -966,7 +1034,7 @@ mod tests {
     fn a_link_inside_the_mirror_does_not_carry_new_files_outside() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
-        sync(&f.mirror, &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
         let outside = f.lib.join("elsewhere");
         std::fs::create_dir_all(&outside).unwrap();
         #[cfg(unix)]
@@ -977,6 +1045,7 @@ mod tests {
         }
         let r = sync(
             &f.mirror,
+            false,
             &[placement(&f.lib, "d/a.jpg")],
             &mut no_discard(),
         )
@@ -1061,18 +1130,24 @@ mod tests {
             source: f.lib.join("d/a.jpg"),
             rel: PathBuf::from("lib/Trip/a.jpg"),
         };
-        sync(&f.mirror, std::slice::from_ref(&old), &mut no_discard()).unwrap();
+        sync(
+            &f.mirror,
+            false,
+            std::slice::from_ref(&old),
+            &mut no_discard(),
+        )
+        .unwrap();
         let renamed = Placement {
             rel: PathBuf::from("lib/trip/a.jpg"),
             ..old
         };
         let ps = [renamed];
         assert_eq!(
-            sync(&f.mirror, &ps, &mut no_discard()).unwrap(),
+            sync(&f.mirror, false, &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
         );
         assert_eq!(
-            sync(&f.mirror, &ps, &mut no_discard()).unwrap(),
+            sync(&f.mirror, false, &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
         );
     }
@@ -1082,14 +1157,112 @@ mod tests {
         let f = fixture();
         let src = f.lib.join("d/a.jpg");
         put(&src, b"photo");
-        sync(&f.mirror, &[], &mut no_discard()).unwrap();
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
         // 前の回が改名の手前で落ちた
-        std::fs::hard_link(&src, staging_dir(&f.mirror).join("1-0.link")).unwrap();
-        sync(&f.mirror, &[], &mut no_discard()).unwrap();
+        std::fs::hard_link(&src, staging_dir(&f.mirror).join("1-0-a.jpg")).unwrap();
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
         assert_eq!(
             std::fs::read_dir(staging_dir(&f.mirror)).unwrap().count(),
             0
         );
         assert!(src.exists());
+    }
+
+    #[test]
+    fn a_staging_dir_that_is_not_ours_is_left_alone() {
+        let f = fixture();
+        // 同じ名前のフォルダが先に在り、中に他人のファイルがある
+        let staging = staging_dir(&f.mirror);
+        put(&staging.join("notes.txt"), b"keep");
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
+        assert!(staging.join("notes.txt").exists());
+
+        // 作業場がライブラリを指すリンクなら、始めない
+        let g = fixture();
+        put(&g.lib.join("d/1-0-x.jpg"), b"looks like ours");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(g.lib.join("d"), staging_dir(&g.mirror)).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(g.lib.join("d"), staging_dir(&g.mirror)).is_err() {
+            return;
+        }
+        assert!(matches!(
+            sync(&g.mirror, false, &[], &mut no_discard()),
+            Err(MirrorError::LinkInTheWay(_))
+        ));
+        assert!(g.lib.join("d/1-0-x.jpg").exists());
+    }
+
+    #[test]
+    fn os_litter_in_the_mirror_is_left_where_it_is() {
+        let f = fixture();
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
+        put(&f.mirror.join(".DS_Store"), b"finder");
+        put(&f.mirror.join("lib/._a.jpg"), b"appledouble");
+        // no_discard: 窓口にしか無いファイルとして渡されたら落ちる
+        sync(&f.mirror, false, &[], &mut no_discard()).unwrap();
+        assert!(f.mirror.join(".DS_Store").exists());
+    }
+
+    #[test]
+    fn a_mirror_without_a_folder_name_is_refused() {
+        let f = fixture();
+        let dotdot = f.mirror.join("..");
+        assert!(matches!(
+            sync(&dotdot, false, &[], &mut no_discard()),
+            Err(MirrorError::NoName(_))
+        ));
+    }
+
+    #[test]
+    fn a_known_mirror_survives_losing_its_staging_dir() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let ps = [placement(&f.lib, "d/a.jpg")];
+        sync(&f.mirror, false, &ps, &mut no_discard()).unwrap();
+        std::fs::remove_dir(staging_dir(&f.mirror)).unwrap();
+        assert!(matches!(
+            sync(&f.mirror, false, &ps, &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
+        assert_eq!(
+            sync(&f.mirror, true, &ps, &mut no_discard()).unwrap(),
+            SyncReport::default()
+        );
+    }
+
+    #[test]
+    fn an_unplugged_root_does_not_block_the_others() {
+        let f = fixture();
+        let roots = [f.lib.clone(), PathBuf::from("/no/such/volume/Photos")];
+        if cfg!(windows) {
+            // Windows では外れたドライブの祖先が1つも無い
+            let roots = [f.lib.clone(), PathBuf::from("Q:\\Photos")];
+            assert!(check_location(&f.mirror, &roots).is_ok());
+        }
+        assert!(check_location(&f.mirror, &roots).is_ok());
+    }
+
+    #[test]
+    fn a_pair_split_by_folder_case_is_still_a_pair() {
+        if !cfg!(any(windows, target_os = "macos")) {
+            return;
+        }
+        let items = [
+            item("/lib/Photos/Trip/A.ARW", true),
+            item("/lib/Photos/trip/A.JPG", false),
+        ];
+        let got = plan(&items, &[ROOT.into()], &cfg(RawOnly::All));
+        assert_eq!(rels(&got), ["Photos/trip/A.JPG"]);
+    }
+
+    #[test]
+    fn staging_names_keep_the_original_name_and_are_recognised() {
+        let name = staging_name(Path::new("lib/d/DSC001.JPG"), 7);
+        assert!(name.ends_with("-7-DSC001.JPG"));
+        assert!(is_staging_name(std::ffi::OsStr::new(&name)));
+        assert!(!is_staging_name(std::ffi::OsStr::new("notes.txt")));
+        assert!(!is_staging_name(std::ffi::OsStr::new("12-x-a.jpg")));
+        assert!(!is_staging_name(std::ffi::OsStr::new("12-3-")));
     }
 }
