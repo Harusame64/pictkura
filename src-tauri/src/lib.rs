@@ -4885,10 +4885,9 @@ fn app_dir_without_app() -> Option<std::path::PathBuf> {
 /// （ゲート2の指摘）。Windowsだけの話ではない。
 #[cfg(target_os = "macos")]
 fn app_dir_without_app() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")?;
+    let home = pictkura_core::paths::home_dir()?;
     Some(
-        PathBuf::from(home)
-            .join("Library")
+        home.join("Library")
             .join("Application Support")
             .join(APP_IDENTIFIER),
     )
