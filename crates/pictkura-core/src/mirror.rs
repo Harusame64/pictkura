@@ -358,7 +358,12 @@ fn mirror_tag(mirror: &Path) -> Option<String> {
     let born = std::fs::symlink_metadata(mirror).ok()?.created().ok()?;
     let nanos = born.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
     // **ボリュームの番号は入れない**——macOS は外付けを挿し直すたびに `st_dev` を
-    // 振り直すので、外付けの窓口が毎回締め出される（ゲート2）
+    // 振り直すので、外付けの窓口が毎回締め出される（ゲート2）。
+    //
+    // 2つの欄は台ごとに片方ずつ効く。NTFS は同じ名前を15秒以内に作り直すと作成時刻を
+    // 元へ戻す（トンネリング。CI で実測）が、ファイル番号の上位16ビットが MFT の
+    // 通し番号なので、作り直しは番号で別物になる。APFS は番号を使い回さない。
+    // 番号を使い回す ext4 では作成時刻が効く
     Some(format!("{}:{nanos}", id.index))
 }
 
@@ -1837,10 +1842,9 @@ mod tests {
         std::fs::remove_dir(&f.mirror).unwrap();
         std::fs::create_dir(&f.mirror).unwrap();
         let second = mirror_tag(&f.mirror).unwrap();
+        // どちらの欄が効くかは台による。Windows は作成時刻を「トンネリング」で戻すが
+        // （CI で同じ値だった）、番号の上位に通し番号を持つ。APFS は番号を使い回さない
         assert_ne!(first, second);
-        // 番号が使い回されても、作成時刻の欄が違う
-        let created = |t: &str| t.rsplit(':').next().unwrap().to_string();
-        assert_ne!(created(&first), created(&second));
     }
 
     #[cfg(target_os = "linux")]
