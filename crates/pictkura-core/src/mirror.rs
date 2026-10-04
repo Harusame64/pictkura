@@ -62,7 +62,7 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
         .iter()
         .zip(&kinds)
         .filter(|(_, k)| **k == MediaKind::Photo)
-        .map(|(i, _)| shot_key(&i.path))
+        .map(|(i, _)| pair_key_folded(&i.path))
         .collect();
 
     let mut out = Vec::new();
@@ -72,7 +72,7 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
             MediaKind::Video => !cfg.exclude_video,
             MediaKind::Raw if !cfg.exclude_raw => true,
             MediaKind::Raw => {
-                let paired = photo_keys.contains(&shot_key(&item.path));
+                let paired = photo_keys.contains(&pair_key_folded(&item.path));
                 !paired
                     && match cfg.raw_only {
                         RawOnly::None => false,
@@ -104,7 +104,7 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
 ///
 /// 語幹は `pair_key` と同じく小文字に畳むが、**UTF-8 として読めない語幹はバイト列のまま**
 /// 持つ（Linux。文字列へ写すと別の語幹が置換文字で1つに潰れ、RAW が組に見える。PR の codex）。
-fn shot_key(path: &Path) -> (PathBuf, std::ffi::OsString) {
+fn pair_key_folded(path: &Path) -> (PathBuf, std::ffi::OsString) {
     let dir = fold_path(path.parent().unwrap_or(Path::new("")));
     let stem = path.file_stem().unwrap_or_default();
     let stem = match stem.to_str() {
@@ -237,45 +237,50 @@ pub fn staging_dir(mirror: &Path) -> PathBuf {
 
 /// 同期を始めてよい窓口か。**利用者のフォルダを窓口と取り違えると、写真を消しに行く**。
 ///
-/// 作業場に**この窓口フォルダの名札**（ボリュームとファイル番号、[`MARKER`]）があればよい。
-/// 作業場が在るだけでは足りない——窓口だけ消して同じ名前の普通のフォルダを作ると、
-/// 残った作業場がそれを窓口と言ってしまう（PR の codex）。作り直したフォルダは名札が違う。
+/// 通すのは2つだけ:
 ///
-/// 名札が合わないとき（作業場は Windows では見えるので、消されることもある。ゲート2）は、
-/// **中にそこにしか実体の無いファイルが1つでもあれば拒む**——ほかに名前を持つリンク
-/// だけなら、外しても何も失われない。
+/// - 作業場に**この窓口フォルダの名札**（[`MARKER`]・[`mirror_tag`]）がある
+/// - 窓口がまだ無いか、OS の置き物のほかに何も無い（これから作る）
 ///
-/// 呼び出し側の記録（設定）を信じて通す道は**作らない**。記録した窓口が消され、同じ
-/// 名前の普通のフォルダが後から作られると、それを窓口として掃いてしまう（PR の codex）。
+/// **中身から持ち主を推し量らない。** 作業場が在るだけ（窓口を消して作り直された）、
+/// 全部がリンク（バックアップのスナップショットもそうである）——どれも PR の codex と
+/// ゲート2が「他人のフォルダを窓口と見て掃く」道を見つけた。名札を失った窓口を
+/// 取り戻すのは、利用者が確かめたうえでの [`adopt`] だけ。
 pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
-    let marker = std::fs::read_to_string(staging_dir(mirror).join(MARKER)).ok();
-    if marker.is_some() && marker == mirror_tag(mirror) {
-        return Ok(());
+    if marker_matches(mirror) || is_empty_or_missing(mirror)? {
+        Ok(())
+    } else {
+        Err(MirrorError::NotOurs(mirror.to_path_buf()))
     }
-    for entry in walkdir::WalkDir::new(mirror)
-        .follow_links(false)
-        .min_depth(1)
-    {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e)
-                if e.io_error()
-                    .is_some_and(|io| io.kind() == io::ErrorKind::NotFound) =>
-            {
-                return Ok(())
-            }
-            Err(e) => return Err(MirrorError::Io(e.into())),
-        };
-        // OS が置くもの（開いただけで書かれる `.DS_Store` 等）は中身に数えない（ゲート2）
-        if entry.file_type().is_dir() || is_os_litter(entry.file_name()) {
-            continue;
-        }
-        let ours = entry.file_type().is_file() && file_id(entry.path())?.links >= 2;
-        if !ours {
-            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+}
+
+/// 名札を失った窓口を、**利用者が確かめたうえで**引き取る（設定画面の確認から呼ぶ）。
+/// 以後は名札で通る。中身を見て決める道はここにも作らない。
+pub fn adopt(mirror: &Path) -> Result<(), MirrorError> {
+    let staging = staging_dir(mirror);
+    for dir in [mirror, staging.as_path()] {
+        if is_link(dir) {
+            return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
         }
     }
+    std::fs::create_dir_all(&staging)?;
+    let tag = mirror_tag(mirror).ok_or_else(|| io::Error::other("窓口フォルダの名札が取れない"))?;
+    write_marker(&staging, &tag)?;
     Ok(())
+}
+
+fn marker_matches(mirror: &Path) -> bool {
+    let m = std::fs::read_to_string(staging_dir(mirror).join(MARKER)).ok();
+    m.is_some() && m == mirror_tag(mirror)
+}
+
+/// フォルダが無いか、OS の置き物のほかに何も無いか。
+fn is_empty_or_missing(dir: &Path) -> io::Result<bool> {
+    match std::fs::read_dir(dir) {
+        Ok(rd) => Ok(rd.flatten().all(|e| is_os_litter(&e.file_name()))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(e),
+    }
 }
 
 /// 作業場が、名札と OS の置き物のほかに何も持たないか（無ければ `true`）。
@@ -283,7 +288,7 @@ fn holds_nothing_but_marker(staging: &Path) -> io::Result<bool> {
     match std::fs::read_dir(staging) {
         Ok(rd) => Ok(rd.flatten().all(|e| {
             let n = e.file_name();
-            n == MARKER || is_os_litter(&n)
+            n == MARKER || is_marker_scratch(&n) || is_os_litter(&n)
         })),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
         Err(e) => Err(e),
@@ -303,6 +308,12 @@ fn write_marker(staging: &Path, tag: &str) -> io::Result<()> {
     f.write_all(tag.as_bytes())?;
     drop(f);
     std::fs::rename(&tmp, staging.join(MARKER))
+}
+
+/// 名札を書きかけて落ちた回の残り（[`write_marker`] の別名）。
+fn is_marker_scratch(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|n| n.starts_with(&format!("{MARKER}.")) && n.ends_with(".new"))
 }
 
 /// 作業場に置く、窓口フォルダの名札のファイル名。
@@ -384,6 +395,13 @@ fn sync_client_folders() -> Vec<PathBuf> {
                 // パソコン版 Google ドライブのミラーの既定と、Windows の Dropbox
                 h.join("My Drive"),
                 h.join("Dropbox"),
+                // iCloud Drive。「デスクトップと書類」を入れていると、その2つも同期される
+                // ——入っているかは外から分からないので、macOS では両方とも拒む（ゲート2）
+                h.join("Library").join("Mobile Documents"),
+                #[cfg(target_os = "macos")]
+                h.join("Desktop"),
+                #[cfg(target_os = "macos")]
+                h.join("Documents"),
             ]
         })
         .unwrap_or_default();
@@ -408,6 +426,10 @@ pub enum MirrorError {
     NoHardLinks(PathBuf, io::Error),
     #[error("ライブラリのフォルダ {0} はドライブ丸ごとなので、同じドライブに窓口を置く場所が無い")]
     RootIsWholeVolume(PathBuf),
+    #[error(
+        "窓口フォルダ {0} と隣の作業場が別のボリュームにある（ボリュームの入口を窓口にした等）"
+    )]
+    SplitVolume(PathBuf),
     #[error("窓口フォルダ {0} はフォルダの名前を持たない（ドライブそのもの等）")]
     NoName(PathBuf),
     #[error("窓口フォルダ {0} がリンクになっている")]
@@ -441,7 +463,6 @@ pub fn sync(
     if mirror.file_name().is_none() {
         return Err(MirrorError::NoName(mirror.to_path_buf()));
     }
-    check_ownership(mirror)?;
     // 記録した窓口でも毎回見る——あとからルートを足すと窓口がルートの中に入り、
     // 窓口のリンクがライブラリに載って、窓口がさらに深く入れ子になっていく（ゲート2）
     check_location(mirror, roots)?;
@@ -453,23 +474,32 @@ pub fn sync(
             return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
         }
     }
-    // 作業場が pictkura のものか。名札が今の窓口と合うか、名札と OS の置き物のほかに
-    // 何も無いこと。**名前の形では決めない**——先に在ったフォルダの `2024-01-photo.jpg` は
-    // 残骸の形をしている（PR の codex）
-    let marker_matches = || {
-        let m = std::fs::read_to_string(staging.join(MARKER)).ok();
-        m.is_some() && m == mirror_tag(mirror)
-    };
-    if !marker_matches() && !holds_nothing_but_marker(&staging)? {
-        return Err(MirrorError::NotOurs(staging));
+    // 持ち主の判定（[`check_ownership`]）。名札が合わないなら、窓口も作業場も
+    // 空でなければ始めない。作業場の中身を名前の形で自分のものと決めない
+    // ——先に在ったフォルダの `2024-01-photo.jpg` は残骸の形をしている（PR の codex）
+    let owned = marker_matches(mirror);
+    if !owned {
+        if !is_empty_or_missing(mirror)? {
+            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+        }
+        if !holds_nothing_but_marker(&staging)? {
+            return Err(MirrorError::NotOurs(staging));
+        }
     }
     std::fs::create_dir_all(mirror)?;
     std::fs::create_dir_all(&staging)?;
+    // 窓口がボリュームの入口（`/Volumes/USB`）だと、隣の作業場は別のボリュームに落ち、
+    // 置き換えのリンクが永久に張れない（ゲート2）
+    if !same_volume(mirror, &staging)? {
+        return Err(MirrorError::SplitVolume(mirror.to_path_buf()));
+    }
     // ハードリンクを張れないボリューム（exFAT・FAT）なら、1件ずつ失敗を積む前に止める（ゲート2）
     probe_hard_links(&staging)?;
-    // 名札を書く（いまの窓口フォルダに結びつける）
-    if let Some(tag) = mirror_tag(mirror) {
-        write_marker(&staging, &tag)?;
+    // 名札を書く（いまの窓口フォルダに結びつける）。合っていれば書き直さない
+    if !owned {
+        if let Some(tag) = mirror_tag(mirror) {
+            write_marker(&staging, &tag)?;
+        }
     }
 
     let mut report = SyncReport::default();
@@ -478,11 +508,27 @@ pub fn sync(
     //    「名前の数」を1つ多く見せ、窓口にしか無い実体を見落とす（ゲート2）
     //    **自分の名付けた形だけ**を触る——同じ名前のフォルダがたまたま在っても、
     //    中の他人のファイルには手を出さない（ゲート1）
+    //    作業場が自分のものだと名札で分かっている回だけ（そうでない回は空だった）
     for entry in std::fs::read_dir(&staging)?.flatten() {
-        if entry.file_type().is_ok_and(|t| t.is_file()) && is_staging_name(&entry.file_name()) {
-            if let Err(e) = remove_or_discard(&entry.path(), discard) {
-                report.failed.push((entry.path(), e.to_string()));
-            }
+        let name = entry.file_name();
+        if !owned || !entry.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let result = if is_marker_scratch(&name) {
+            std::fs::remove_file(entry.path()).map(|()| report.removed += 1)
+        } else if is_staging_name(&name) {
+            remove_or_discard(&entry.path(), discard).map(|handed| {
+                if handed {
+                    report.discarded += 1;
+                } else {
+                    report.removed += 1;
+                }
+            })
+        } else {
+            Ok(())
+        };
+        if let Err(e) = result {
+            report.failed.push((entry.path(), e.to_string()));
         }
     }
 
@@ -911,7 +957,23 @@ fn volume_top(path: &Path) -> io::Result<PathBuf> {
             _ => break,
         }
     }
-    Ok(top)
+    Ok(without_verbatim(top))
+}
+
+/// Windows の `canonicalize` が付ける `\\?\` を外す。利用者に見せ、設定に書き、
+/// Google フォトのフォルダ選択で選んでもらう場所なので、ふだんの綴りに戻す（ゲート2）。
+fn without_verbatim(p: PathBuf) -> PathBuf {
+    if !cfg!(windows) {
+        return p;
+    }
+    let s = p.to_string_lossy();
+    if let Some(unc) = s.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{unc}"))
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        p
+    }
 }
 
 #[cfg(test)]
@@ -1429,16 +1491,75 @@ mod tests {
     }
 
     #[test]
-    fn a_mirror_that_lost_its_staging_dir_still_syncs_while_it_holds_only_links() {
+    fn a_mirror_that_lost_its_marker_waits_for_adopt() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
         let ps = [placement(&f.lib, "d/a.jpg")];
         sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
         std::fs::remove_dir_all(staging_dir(&f.mirror)).unwrap();
+        // 中身から推し量らない。全部リンクでも通さない
+        assert!(matches!(
+            sync(&f.mirror, &[], &ps, &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
+        adopt(&f.mirror).unwrap();
         assert_eq!(
             sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
         );
+    }
+
+    #[test]
+    fn a_folder_of_someone_elses_hard_links_is_not_a_mirror() {
+        let f = fixture();
+        // バックアップのスナップショット: 中身は全部、別の場所の実体へのリンク
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        std::fs::create_dir_all(f.mirror.join("2026-10-01")).unwrap();
+        std::fs::hard_link(f.lib.join("d/a.jpg"), f.mirror.join("2026-10-01/a.jpg")).unwrap();
+        assert!(matches!(
+            sync(&f.mirror, &[], &[], &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
+        assert!(f.mirror.join("2026-10-01/a.jpg").exists());
+    }
+
+    #[test]
+    fn os_litter_alone_does_not_make_a_folder_someone_elses() {
+        let f = fixture();
+        put(&f.mirror.join(".DS_Store"), b"finder");
+        assert!(check_ownership(&f.mirror).is_ok());
+        put(&f.mirror.join("x.jpg"), b"theirs");
+        assert!(check_ownership(&f.mirror).is_err());
+    }
+
+    #[test]
+    fn leftovers_handed_over_are_counted() {
+        let f = fixture();
+        let src = f.lib.join("d/a.jpg");
+        put(&src, b"photo");
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        let stuck = staging_dir(&f.mirror).join("1-0-a.jpg");
+        std::fs::hard_link(&src, &stuck).unwrap();
+        std::fs::remove_file(&src).unwrap(); // 残骸が最後の1枚になった
+        let bin = f.lib.join("bin");
+        let r = sync(&f.mirror, &[], &[], &mut move_into(&bin)).unwrap();
+        assert_eq!(r.discarded, 1);
+        assert!(bin.join("1-0-a.jpg").exists());
+    }
+
+    #[test]
+    fn the_verbatim_prefix_is_dropped_on_windows() {
+        let p = PathBuf::from(r"\\?\D:\pictkura-google");
+        let q = PathBuf::from(r"\\?\UNC\nas\share\pictkura-google");
+        if cfg!(windows) {
+            assert_eq!(without_verbatim(p), PathBuf::from(r"D:\pictkura-google"));
+            assert_eq!(
+                without_verbatim(q),
+                PathBuf::from(r"\\nas\share\pictkura-google")
+            );
+        } else {
+            assert_eq!(without_verbatim(p.clone()), p);
+        }
     }
 
     #[test]
@@ -1681,6 +1802,6 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         let a = Path::new("/d").join(std::ffi::OsStr::from_bytes(b"\xff.ARW"));
         let b = Path::new("/d").join(std::ffi::OsStr::from_bytes(b"\xfe.JPG"));
-        assert_ne!(shot_key(&a), shot_key(&b));
+        assert_ne!(pair_key_folded(&a), pair_key_folded(&b));
     }
 }
