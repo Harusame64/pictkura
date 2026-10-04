@@ -373,6 +373,8 @@ pub fn sync(
     // 窓口のリンクがライブラリに載って、窓口がさらに深く入れ子になっていく（ゲート2）
     check_location(mirror, roots)?;
     let staging = staging_dir(mirror);
+    // 作業場も触るので同じく見る。ルートの中なら、片付けが原本を残骸と取り違える（ゲート1）
+    check_location(&staging, roots)?;
     for dir in [mirror, staging.as_path()] {
         if is_link(dir) {
             return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
@@ -506,14 +508,39 @@ pub fn sync(
 }
 
 /// 作業場でハードリンクを1本張って消す。張れなければ [`MirrorError::NoHardLinks`]。
+///
+/// **自分で作れたものだけを消す**。同じ名前が先に在れば別の番号を試す——在るものへ
+/// 書くと、それがリンクなら外の原本を空にしてしまう（ゲート1）。
 fn probe_hard_links(staging: &Path) -> Result<(), MirrorError> {
-    let a = staging.join(format!("{}-0-probe", std::process::id()));
-    let b = staging.join(format!("{}-1-probe", std::process::id()));
-    std::fs::write(&a, b"")?;
-    let linked = std::fs::hard_link(&a, &b);
-    let _ = std::fs::remove_file(&b);
-    let _ = std::fs::remove_file(&a);
-    linked.map_err(|e| MirrorError::NoHardLinks(staging.to_path_buf(), e))
+    let pid = std::process::id();
+    for n in 0..16 {
+        let a = staging.join(format!("{pid}-{n}-probe-a"));
+        let b = staging.join(format!("{pid}-{n}-probe-b"));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&a)
+        {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+        let linked = std::fs::hard_link(&a, &b);
+        let _ = std::fs::remove_file(&a);
+        return match linked {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&b);
+                Ok(())
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            Err(e) => Err(MirrorError::NoHardLinks(staging.to_path_buf(), e)),
+        };
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "作業場に試しの名前が空いていない",
+    )
+    .into())
 }
 
 /// OS が利用者の知らないうちに置くファイルか。
@@ -540,12 +567,25 @@ fn is_staging_name(name: &std::ffi::OsStr) -> bool {
 
 /// 作業場のリンクに付ける名前。**元の名前を残す**——落ちた回の残骸が窓口にしか無い
 /// 1枚なら、ゴミ箱でそれと分かる名前で渡したい（ゲート2）。
+///
+/// 元の名前は**短く切る**（拡張子は残す）。名前の長さの上限ぎりぎりの写真に番号を足すと
+/// 作業場で作れず、置き換えが永久に失敗する（ゲート1）。番号が衝突を防ぐ
 fn staging_name(dest: &Path, n: usize) -> String {
-    let base = dest
-        .file_name()
-        .map(|b| b.to_string_lossy().into_owned())
+    const KEEP: usize = 64;
+    let stem: String = dest
+        .file_stem()
+        .map(|b| b.to_string_lossy().chars().take(KEEP).collect())
         .unwrap_or_default();
-    format!("{}-{n}-{base}", std::process::id())
+    let ext: String = dest
+        .extension()
+        .map(|e| {
+            format!(
+                ".{}",
+                e.to_string_lossy().chars().take(16).collect::<String>()
+            )
+        })
+        .unwrap_or_default();
+    format!("{}-{n}-{stem}{ext}", std::process::id())
 }
 
 /// `rel` の親フォルダを窓口の中に作る。**途中にリンク・ジャンクションがあれば止める**
@@ -1437,5 +1477,38 @@ mod tests {
             location_for_root(&root, &[], std::slice::from_ref(&root)),
             Err(MirrorError::RootIsWholeVolume(_))
         ));
+    }
+
+    #[test]
+    fn the_probe_never_writes_into_a_name_it_did_not_create() {
+        let f = fixture();
+        let src = f.lib.join("d/a.jpg");
+        put(&src, b"photo");
+        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        // 試しの名前に、原本へのリンクが先に居る
+        let pid = std::process::id();
+        let squatter = staging_dir(&f.mirror).join(format!("{pid}-0-probe-a"));
+        std::fs::hard_link(&src, &squatter).unwrap();
+        sync(&f.mirror, false, &[], &[], &mut no_discard()).unwrap();
+        assert_eq!(std::fs::read(&src).unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_staging_dir_inside_a_root_is_refused() {
+        let f = fixture();
+        let roots = [staging_dir(&f.mirror)];
+        assert!(matches!(
+            sync(&f.mirror, false, &roots, &[], &mut no_discard()),
+            Err(MirrorError::OverlapsRoot(_))
+        ));
+    }
+
+    #[test]
+    fn a_long_name_still_fits_in_the_staging_dir() {
+        let long = format!("{}.JPG", "x".repeat(250));
+        let name = staging_name(&Path::new("lib").join(long), 12);
+        assert!(name.len() < 120, "{}", name.len());
+        assert!(name.ends_with(".JPG"));
+        assert!(is_staging_name(std::ffi::OsStr::new(&name)));
     }
 }
