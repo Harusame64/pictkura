@@ -301,15 +301,18 @@ pub fn adopt(mirror: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
     if foreign {
         return Err(MirrorError::NotOurs(staging));
     }
-    let tag = prepare(mirror, &staging)?;
-    write_marker(&staging, &tag)?;
+    prepare(mirror, &staging, false)?;
     Ok(())
 }
 
-/// 窓口と作業場を作り、`sync` が始める前に見る門を通して名札の中身を返す。
+/// 窓口と作業場を作り、`sync` が始める前に見る門を通して、名札を確かめるか書く。
 /// `adopt` も同じものを通る——`adopt` だけ緩いと、`sync` が永久に断る場所へ
 /// 名札を書いてしまう（ゲート2）。
-fn prepare(mirror: &Path, staging: &Path) -> Result<String, MirrorError> {
+///
+/// **名札は作業場に何かを書く前に書く**（試しのリンクより前）。そうすれば作業場に
+/// 生まれる pictkura の名前のファイルは、いつも名札のある作業場の中にある——名札の
+/// 無い作業場の中身を名前で自分のものと見なす例外が要らない（PR の codex）。
+fn prepare(mirror: &Path, staging: &Path, owned: bool) -> Result<(), MirrorError> {
     std::fs::create_dir_all(mirror)?;
     std::fs::create_dir_all(staging)?;
     // 名札が取れない場所（作成時刻を持たないファイルシステム）では、置いた次の回に
@@ -322,9 +325,19 @@ fn prepare(mirror: &Path, staging: &Path) -> Result<String, MirrorError> {
     if !same_volume(mirror, staging)? {
         return Err(MirrorError::SplitVolume(mirror.to_path_buf()));
     }
+    if owned {
+        // 確かめてからここまでの間に窓口が差し替わっていたら、1件も触らずに止める。
+        // `owned` は確かめた時点のフォルダの話でしかない（PR の codex）
+        let stored = std::fs::read_to_string(staging.join(MARKER)).ok();
+        if stored.as_deref() != Some(tag.as_str()) {
+            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+        }
+    } else {
+        write_marker(staging, &tag)?;
+    }
     // ハードリンクを張れないボリューム（exFAT・FAT）なら、1件ずつ失敗を積む前に止める（ゲート2）
     probe_hard_links(staging)?;
-    Ok(tag)
+    Ok(())
 }
 
 fn marker_matches(mirror: &Path) -> bool {
@@ -355,13 +368,14 @@ fn is_litter_file(e: &std::fs::DirEntry) -> bool {
 
 /// 作業場が、名札と OS の置き物のほかに何も持たないか（無ければ `true`）。
 ///
-/// 試しのリンクの残り（初回の同期が名札を書く前に落ちた）も pictkura のものとして数える
-/// ——数えないと、その日から窓口が締め出される（ゲート2）。
+/// **名前の形で例外を作らない**（PR の codex）。試しのリンクは名札のあとに作るので、
+/// 名札の無い作業場に pictkura の残りが居ることは無い。名札を書きかけて落ちた残り
+/// （`mirror-id.*.new`）は締め出し側へ倒れ、`adopt` で戻せる。
 fn holds_nothing_but_marker(staging: &Path) -> io::Result<bool> {
     Ok(entries(staging)?.iter().all(|e| {
         let n = e.file_name();
         let file = e.file_type().is_ok_and(|t| t.is_file());
-        file && (n == MARKER || is_marker_scratch(&n) || is_probe_name(&n)) || is_litter_file(e)
+        file && n == MARKER || is_litter_file(e)
     }))
 }
 
@@ -566,18 +580,9 @@ pub fn sync(
     // 空でなければ始めない。作業場の中身を名前の形で自分のものと決めない
     // ——先に在ったフォルダの `2024-01-photo.jpg` は残骸の形をしている（PR の codex）
     let owned = check_ownership(mirror)?;
-    let tag = prepare(mirror, &staging)?;
-    // 名札を書く（いまの窓口フォルダに結びつける）。合っていれば書き直さない
-    if owned {
-        // 確かめてからここまでの間に窓口が差し替わっていたら、1件も触らずに止める。
-        // `owned` は確かめた時点のフォルダの話でしかない（PR の codex）
-        let stored = std::fs::read_to_string(staging.join(MARKER)).ok();
-        if stored.as_deref() != Some(tag.as_str()) {
-            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
-        }
-    } else {
-        write_marker(&staging, &tag)?;
-    }
+    prepare(mirror, &staging, owned)?;
+    // 名札を書いたか確かめたので、ここからの作業場は pictkura のもの
+    let owned = true;
 
     let mut report = SyncReport::default();
 
@@ -2044,14 +2049,26 @@ mod tests {
     }
 
     #[test]
-    fn a_leftover_probe_from_a_first_run_does_not_lock_the_mirror_out() {
+    fn probe_named_files_in_an_unmarked_staging_dir_are_not_taken_for_ours() {
         let f = fixture();
+        let foreign = staging_dir(&f.mirror).join(format!("{PROBE_PREFIX}notes"));
+        put(&foreign, b"someone's file");
+        assert!(matches!(
+            sync(&f.mirror, &[], &[], &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
+        assert!(foreign.exists());
+    }
+
+    #[test]
+    fn the_marker_is_written_before_anything_else_in_staging() {
+        let f = fixture();
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        // 名札のある作業場に残った試しの残りは、次の回に片付く
         put(
             &staging_dir(&f.mirror).join(format!("{PROBE_PREFIX}1-0-a")),
             b"",
         );
-        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
-        // 片付けは名札で自分の作業場と分かった回から（次の回）
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(staging_leftovers(&f.mirror), 0);
     }
