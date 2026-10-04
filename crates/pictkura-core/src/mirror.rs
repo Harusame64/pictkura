@@ -246,16 +246,31 @@ pub fn staging_dir(mirror: &Path) -> PathBuf {
 /// 全部がリンク（バックアップのスナップショットもそうである）——どれも PR の codex と
 /// ゲート2が「他人のフォルダを窓口と見て掃く」道を見つけた。名札を失った窓口を
 /// 取り戻すのは、利用者が確かめたうえでの [`adopt`] だけ。
-pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
-    if marker_matches(mirror) || is_empty_or_missing(mirror)? {
-        Ok(())
-    } else {
-        Err(MirrorError::NotOurs(mirror.to_path_buf()))
+///
+/// 作業場も同じ規則で見る（名札が合わないなら、名札・OS の置き物のほかに何も無いこと）。
+/// 名札で通ったら `true`。設定画面も [`sync`] も**この1つ**を呼ぶ（ゲート2: 2か所に
+/// 写すと片方だけ緩む）。
+pub fn check_ownership(mirror: &Path) -> Result<bool, MirrorError> {
+    if marker_matches(mirror) {
+        return Ok(true);
     }
+    if !is_empty_or_missing(mirror)? {
+        return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+    }
+    let staging = staging_dir(mirror);
+    if !holds_nothing_but_marker(&staging)? {
+        return Err(MirrorError::NotOurs(staging));
+    }
+    Ok(false)
 }
 
 /// 名札を失った窓口を、**利用者が確かめたうえで**引き取る（設定画面の確認から呼ぶ）。
 /// 以後は名札で通る。中身を見て決める道はここにも作らない。
+///
+/// 利用者が確かめたのは窓口であって作業場ではない。だから**作業場に pictkura の
+/// 名前の形でないファイルがあれば断る**——引き取ったあとの片付けが、それを残骸と
+/// 取り違えないように（ゲート2）。窓口のフォルダが無ければ作る（消してやり直したい
+/// とき、作業場に残骸が残っていても引き取れるように）。
 pub fn adopt(mirror: &Path) -> Result<(), MirrorError> {
     let staging = staging_dir(mirror);
     for dir in [mirror, staging.as_path()] {
@@ -263,6 +278,20 @@ pub fn adopt(mirror: &Path) -> Result<(), MirrorError> {
             return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
         }
     }
+    if let Ok(rd) = std::fs::read_dir(&staging) {
+        let foreign = rd.flatten().any(|e| {
+            let n = e.file_name();
+            !(n == MARKER
+                || is_marker_scratch(&n)
+                || is_os_litter(&n)
+                || is_staging_name(&n)
+                || is_probe_name(&n))
+        });
+        if foreign {
+            return Err(MirrorError::NotOurs(staging));
+        }
+    }
+    std::fs::create_dir_all(mirror)?;
     std::fs::create_dir_all(&staging)?;
     let tag = mirror_tag(mirror).ok_or_else(|| io::Error::other("窓口フォルダの名札が取れない"))?;
     write_marker(&staging, &tag)?;
@@ -328,7 +357,9 @@ fn mirror_tag(mirror: &Path) -> Option<String> {
     let id = file_id(mirror).ok()?;
     let born = std::fs::symlink_metadata(mirror).ok()?.created().ok()?;
     let nanos = born.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
-    Some(format!("{}:{}:{nanos}", id.volume, id.index))
+    // **ボリュームの番号は入れない**——macOS は外付けを挿し直すたびに `st_dev` を
+    // 振り直すので、外付けの窓口が毎回締め出される（ゲート2）
+    Some(format!("{}:{nanos}", id.index))
 }
 
 /// 窓口の場所として使ってよいか。ルートの中・ルートを含む場所は、ライブラリに
@@ -430,6 +461,8 @@ pub enum MirrorError {
         "窓口フォルダ {0} と隣の作業場が別のボリュームにある（ボリュームの入口を窓口にした等）"
     )]
     SplitVolume(PathBuf),
+    #[error("窓口フォルダ {0} の名札が作れない（作成時刻を持たないファイルシステム）")]
+    NoTag(PathBuf),
     #[error("窓口フォルダ {0} はフォルダの名前を持たない（ドライブそのもの等）")]
     NoName(PathBuf),
     #[error("窓口フォルダ {0} がリンクになっている")]
@@ -477,17 +510,14 @@ pub fn sync(
     // 持ち主の判定（[`check_ownership`]）。名札が合わないなら、窓口も作業場も
     // 空でなければ始めない。作業場の中身を名前の形で自分のものと決めない
     // ——先に在ったフォルダの `2024-01-photo.jpg` は残骸の形をしている（PR の codex）
-    let owned = marker_matches(mirror);
-    if !owned {
-        if !is_empty_or_missing(mirror)? {
-            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
-        }
-        if !holds_nothing_but_marker(&staging)? {
-            return Err(MirrorError::NotOurs(staging));
-        }
-    }
+    let owned = check_ownership(mirror)?;
     std::fs::create_dir_all(mirror)?;
     std::fs::create_dir_all(&staging)?;
+    // 名札が取れない場所（作成時刻を持たないファイルシステム）では、置いた次の回に
+    // 自分で締め出される。1件も置く前に止める（ゲート2）
+    let Some(tag) = mirror_tag(mirror) else {
+        return Err(MirrorError::NoTag(mirror.to_path_buf()));
+    };
     // 窓口がボリュームの入口（`/Volumes/USB`）だと、隣の作業場は別のボリュームに落ち、
     // 置き換えのリンクが永久に張れない（ゲート2）
     if !same_volume(mirror, &staging)? {
@@ -497,9 +527,7 @@ pub fn sync(
     probe_hard_links(&staging)?;
     // 名札を書く（いまの窓口フォルダに結びつける）。合っていれば書き直さない
     if !owned {
-        if let Some(tag) = mirror_tag(mirror) {
-            write_marker(&staging, &tag)?;
-        }
+        write_marker(&staging, &tag)?;
     }
 
     let mut report = SyncReport::default();
@@ -514,7 +542,7 @@ pub fn sync(
         if !owned || !entry.file_type().is_ok_and(|t| t.is_file()) {
             continue;
         }
-        let result = if is_marker_scratch(&name) {
+        let result = if is_marker_scratch(&name) || is_probe_name(&name) {
             std::fs::remove_file(entry.path()).map(|()| report.removed += 1)
         } else if is_staging_name(&name) {
             remove_or_discard(&entry.path(), discard).map(|handed| {
@@ -588,7 +616,11 @@ pub fn sync(
         }
         let on_disk = present.get(&key);
         let dest = mirror.join(on_disk.unwrap_or(&p.rel));
-        let result = if crate::cloud::is_cloud_only_path(&p.source) {
+        let result = if is_link(&p.source) {
+            // 原本がリンクだと、リンクそのものに張る台と先に張る台があり、どちらでも
+            // 次の回に「別物」と見て貼り直し続ける（ゲート2）。置かない
+            Err(io::Error::other("原本がシンボリックリンク"))
+        } else if crate::cloud::is_cloud_only_path(&p.source) {
             // 置かない。既に置いてあれば（前は手元にあった）外す。外せたときだけ数える
             if on_disk.is_some() {
                 remove_or_discard(&dest, discard).map(|handed| {
@@ -647,8 +679,8 @@ pub fn sync(
 fn probe_hard_links(staging: &Path) -> Result<(), MirrorError> {
     let pid = std::process::id();
     for n in 0..16 {
-        let a = staging.join(format!("{pid}-{n}-probe-a"));
-        let b = staging.join(format!("{pid}-{n}-probe-b"));
+        let a = staging.join(format!("{PROBE_PREFIX}{pid}-{n}-a"));
+        let b = staging.join(format!("{PROBE_PREFIX}{pid}-{n}-b"));
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -665,7 +697,8 @@ fn probe_hard_links(staging: &Path) -> Result<(), MirrorError> {
                 let _ = std::fs::remove_file(&b);
                 Ok(())
             }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            // 落ちた回の残りが居た。張れたかは分からないので、次の番号で試し直す（ゲート2）
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => Err(MirrorError::NoHardLinks(staging.to_path_buf(), e)),
         };
     }
@@ -685,9 +718,19 @@ fn is_os_litter(name: &std::ffi::OsStr) -> bool {
             .any(|l| n.eq_ignore_ascii_case(l))
 }
 
-/// 作業場のリンクの名前か（`<pid>-<n>-<元の名前>`。[`staging_name`] が付ける）。
+/// 作業場で pictkura が付ける名前の頭。**ふつうの写真の名前と紛れない形にする**
+/// ——`2024-01-trip.jpg` は「数字-数字-残り」の形をしている（ゲート2）。
+const STAGING_PREFIX: &str = "pictkura-tmp-";
+/// ハードリンクが張れるかの試しに付ける名前の頭。
+const PROBE_PREFIX: &str = "pictkura-probe-";
+
+fn is_probe_name(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|n| n.starts_with(PROBE_PREFIX))
+}
+
+/// 作業場のリンクの名前か（`pictkura-tmp-<pid>-<n>-<元の名前>`。[`staging_name`] が付ける）。
 fn is_staging_name(name: &std::ffi::OsStr) -> bool {
-    let Some(n) = name.to_str() else {
+    let Some(n) = name.to_str().and_then(|n| n.strip_prefix(STAGING_PREFIX)) else {
         return false;
     };
     let digits = |p: &str| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
@@ -721,7 +764,7 @@ fn staging_name(dest: &Path, n: usize) -> String {
         .extension()
         .map(|e| format!(".{}", cut(e.to_string_lossy(), 16)))
         .unwrap_or_default();
-    format!("{}-{n}-{stem}{ext}", std::process::id())
+    format!("{STAGING_PREFIX}{}-{n}-{stem}{ext}", std::process::id())
 }
 
 /// `rel` の親フォルダを窓口の中に作る。**途中にリンク・ジャンクションがあれば止める**
@@ -929,7 +972,9 @@ pub fn location_for_root(
     // ドライブ丸ごとのルート（SD カードの `E:\` 等）は、同じドライブのどこに置いても
     // ルートの中に入り、別のドライブではリンクが張れない（ゲート2）
     if volume_top(root).is_ok_and(|top| {
-        std::fs::canonicalize(root).is_ok_and(|r| fold_path(&r) == fold_path(&top))
+        // 両側とも `\\?\` を外して比べる（`volume_top` は外して返す。ゲート2）
+        std::fs::canonicalize(root)
+            .is_ok_and(|r| fold_path(&without_verbatim(r)) == fold_path(&top))
     }) {
         return Err(MirrorError::RootIsWholeVolume(root.to_path_buf()));
     }
@@ -1433,7 +1478,7 @@ mod tests {
         put(&src, b"photo");
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         // 前の回が改名の手前で落ちた
-        std::fs::hard_link(&src, staging_dir(&f.mirror).join("1-0-a.jpg")).unwrap();
+        std::fs::hard_link(&src, staging_dir(&f.mirror).join("pictkura-tmp-1-0-a.jpg")).unwrap();
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(staging_leftovers(&f.mirror), 0);
         assert!(src.exists());
@@ -1538,13 +1583,13 @@ mod tests {
         let src = f.lib.join("d/a.jpg");
         put(&src, b"photo");
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
-        let stuck = staging_dir(&f.mirror).join("1-0-a.jpg");
+        let stuck = staging_dir(&f.mirror).join("pictkura-tmp-1-0-a.jpg");
         std::fs::hard_link(&src, &stuck).unwrap();
         std::fs::remove_file(&src).unwrap(); // 残骸が最後の1枚になった
         let bin = f.lib.join("bin");
         let r = sync(&f.mirror, &[], &[], &mut move_into(&bin)).unwrap();
         assert_eq!(r.discarded, 1);
-        assert!(bin.join("1-0-a.jpg").exists());
+        assert!(bin.join("pictkura-tmp-1-0-a.jpg").exists());
     }
 
     #[test]
@@ -1608,6 +1653,8 @@ mod tests {
         assert!(is_staging_name(std::ffi::OsStr::new(&name)));
         assert!(!is_staging_name(std::ffi::OsStr::new("notes.txt")));
         assert!(!is_staging_name(std::ffi::OsStr::new("12-x-a.jpg")));
+        // ふつうの写真の名前は、数字-数字-残りの形でも残骸ではない
+        assert!(!is_staging_name(std::ffi::OsStr::new("2024-01-trip.jpg")));
         assert!(!is_staging_name(std::ffi::OsStr::new("12-3-")));
     }
 
@@ -1711,7 +1758,7 @@ mod tests {
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         // 試しの名前に、原本へのリンクが先に居る
         let pid = std::process::id();
-        let squatter = staging_dir(&f.mirror).join(format!("{pid}-0-probe-a"));
+        let squatter = staging_dir(&f.mirror).join(format!("{PROBE_PREFIX}{pid}-0-a"));
         std::fs::hard_link(&src, &squatter).unwrap();
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
         assert_eq!(std::fs::read(&src).unwrap(), b"photo");
@@ -1803,5 +1850,56 @@ mod tests {
         let a = Path::new("/d").join(std::ffi::OsStr::from_bytes(b"\xff.ARW"));
         let b = Path::new("/d").join(std::ffi::OsStr::from_bytes(b"\xfe.JPG"));
         assert_ne!(pair_key_folded(&a), pair_key_folded(&b));
+    }
+
+    #[test]
+    fn adopt_refuses_a_staging_dir_with_files_that_are_not_ours() {
+        let f = fixture();
+        put(&f.mirror.join("a.jpg"), b"x");
+        put(&staging_dir(&f.mirror).join("2024-01-trip.jpg"), b"theirs");
+        assert!(matches!(adopt(&f.mirror), Err(MirrorError::NotOurs(_))));
+        assert!(staging_dir(&f.mirror).join("2024-01-trip.jpg").exists());
+    }
+
+    #[test]
+    fn adopt_recreates_a_deleted_mirror_next_to_stuck_leftovers() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        put(
+            &staging_dir(&f.mirror).join("pictkura-tmp-1-0-a.jpg"),
+            b"last copy",
+        );
+        std::fs::remove_dir_all(&f.mirror).unwrap();
+        assert!(sync(&f.mirror, &[], &[], &mut no_discard()).is_err());
+        adopt(&f.mirror).unwrap();
+        let bin = f.lib.join("bin");
+        let r = sync(&f.mirror, &[], &[], &mut move_into(&bin)).unwrap();
+        assert_eq!(r.discarded, 1);
+    }
+
+    #[test]
+    fn a_symlinked_source_is_not_placed() {
+        let f = fixture();
+        put(&f.lib.join("d/real.jpg"), b"photo");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(f.lib.join("d/real.jpg"), f.lib.join("d/a.jpg")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_file(f.lib.join("d/real.jpg"), f.lib.join("d/a.jpg"))
+            .is_err()
+        {
+            return;
+        }
+        let ps = [placement(&f.lib, "d/a.jpg")];
+        let r = sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
+        assert_eq!((r.linked, r.failed.len()), (0, 1));
+    }
+
+    #[test]
+    fn the_tag_does_not_carry_the_volume_number() {
+        let f = fixture();
+        std::fs::create_dir_all(&f.mirror).unwrap();
+        let tag = mirror_tag(&f.mirror).unwrap();
+        assert_eq!(tag.split(':').count(), 2, "{tag}");
     }
 }
