@@ -229,14 +229,19 @@ pub fn staging_dir(mirror: &Path) -> PathBuf {
 
 /// 同期を始めてよい窓口か。**利用者のフォルダを窓口と取り違えると、写真を消しに行く**。
 ///
-/// 作業場（pictkura の印）が在ればよい。無いとき（Windows では見えるので、空のフォルダ
-/// として消されることがある。ゲート2）は、**中にそこにしか実体の無いファイルが1つでも
-/// あれば拒む**——ほかに名前を持つリンクだけなら、外しても何も失われない。
+/// 作業場に**この窓口フォルダの名札**（ボリュームとファイル番号、[`MARKER`]）があればよい。
+/// 作業場が在るだけでは足りない——窓口だけ消して同じ名前の普通のフォルダを作ると、
+/// 残った作業場がそれを窓口と言ってしまう（PR の codex）。作り直したフォルダは名札が違う。
+///
+/// 名札が合わないとき（作業場は Windows では見えるので、消されることもある。ゲート2）は、
+/// **中にそこにしか実体の無いファイルが1つでもあれば拒む**——ほかに名前を持つリンク
+/// だけなら、外しても何も失われない。
 ///
 /// 呼び出し側の記録（設定）を信じて通す道は**作らない**。記録した窓口が消され、同じ
 /// 名前の普通のフォルダが後から作られると、それを窓口として掃いてしまう（PR の codex）。
 pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
-    if staging_dir(mirror).is_dir() {
+    let marker = std::fs::read_to_string(staging_dir(mirror).join(MARKER)).ok();
+    if marker.is_some() && marker == mirror_tag(mirror) {
         return Ok(());
     }
     for entry in walkdir::WalkDir::new(mirror)
@@ -263,6 +268,16 @@ pub fn check_ownership(mirror: &Path) -> Result<(), MirrorError> {
         }
     }
     Ok(())
+}
+
+/// 作業場に置く、窓口フォルダの名札のファイル名。
+const MARKER: &str = "mirror-id";
+
+/// 窓口フォルダの名札。フォルダが無ければ `None`。
+fn mirror_tag(mirror: &Path) -> Option<String> {
+    file_id(mirror)
+        .ok()
+        .map(|id| format!("{}:{}", id.volume, id.index))
 }
 
 /// 窓口の場所として使ってよいか。ルートの中・ルートを含む場所は、ライブラリに
@@ -402,6 +417,10 @@ pub fn sync(
     std::fs::create_dir_all(&staging)?;
     // ハードリンクを張れないボリューム（exFAT・FAT）なら、1件ずつ失敗を積む前に止める（ゲート2）
     probe_hard_links(&staging)?;
+    // 名札を書く（いまの窓口フォルダに結びつける）
+    if let Some(tag) = mirror_tag(mirror) {
+        std::fs::write(staging.join(MARKER), tag)?;
+    }
 
     let mut report = SyncReport::default();
 
@@ -1034,6 +1053,15 @@ mod tests {
         }
     }
 
+    /// 作業場に残っているもの（名札は数えない）
+    fn staging_leftovers(mirror: &Path) -> usize {
+        std::fs::read_dir(staging_dir(mirror))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name() != MARKER)
+            .count()
+    }
+
     fn no_discard() -> impl FnMut(&Path) -> io::Result<()> {
         |p: &Path| panic!("discard was not expected: {}", p.display())
     }
@@ -1136,10 +1164,7 @@ mod tests {
         // 古い版は窓口にしか無かったので、上書きの前に渡した
         assert_eq!(std::fs::read(bin.join("a.jpg")).unwrap(), b"v1");
         // 作業場に残骸を残さない
-        assert_eq!(
-            std::fs::read_dir(staging_dir(&f.mirror)).unwrap().count(),
-            0
-        );
+        assert_eq!(staging_leftovers(&f.mirror), 0);
     }
 
     #[test]
@@ -1298,10 +1323,7 @@ mod tests {
         // 前の回が改名の手前で落ちた
         std::fs::hard_link(&src, staging_dir(&f.mirror).join("1-0-a.jpg")).unwrap();
         sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
-        assert_eq!(
-            std::fs::read_dir(staging_dir(&f.mirror)).unwrap().count(),
-            0
-        );
+        assert_eq!(staging_leftovers(&f.mirror), 0);
         assert!(src.exists());
     }
 
@@ -1357,7 +1379,7 @@ mod tests {
         put(&f.lib.join("d/a.jpg"), b"photo");
         let ps = [placement(&f.lib, "d/a.jpg")];
         sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
-        std::fs::remove_dir(staging_dir(&f.mirror)).unwrap();
+        std::fs::remove_dir_all(staging_dir(&f.mirror)).unwrap();
         assert_eq!(
             sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap(),
             SyncReport::default()
@@ -1541,5 +1563,27 @@ mod tests {
         let name = staging_name(&Path::new("lib").join(emoji), 12);
         assert!(name.len() < 120, "{}", name.len());
         assert!(name.ends_with(".JPG"));
+    }
+
+    #[test]
+    fn a_leftover_staging_dir_does_not_vouch_for_a_recreated_folder() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        sync(
+            &f.mirror,
+            &[],
+            &[placement(&f.lib, "d/a.jpg")],
+            &mut no_discard(),
+        )
+        .unwrap();
+        // 窓口だけ消され、同じ名前の普通のフォルダが作られた（作業場は残っている）
+        std::fs::remove_dir_all(&f.mirror).unwrap();
+        put(&f.mirror.join("IMG_1.jpg"), b"someone's only copy");
+        assert!(staging_dir(&f.mirror).is_dir());
+        assert!(matches!(
+            sync(&f.mirror, &[], &[], &mut no_discard()),
+            Err(MirrorError::NotOurs(_))
+        ));
+        assert!(f.mirror.join("IMG_1.jpg").exists());
     }
 }
