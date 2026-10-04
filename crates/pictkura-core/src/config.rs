@@ -37,6 +37,7 @@ pub struct Config {
     pub viewer: ViewerConfig,
     pub update: UpdateConfig,
     pub grid: GridConfig,
+    pub google_mirror: GoogleMirrorConfig,
 }
 
 /// `[editors]` 外部の編集アプリ。
@@ -514,6 +515,65 @@ impl Default for GridConfig {
     }
 }
 
+/// `[google_mirror]` Google フォト用の窓口フォルダ（`dev/plan.google-photos-mirror.md`）。
+///
+/// **配ったあとに足した節**なので、古い設定ファイルには無い——`serde(default)` で
+/// 既定（切）として読む。窓口の中身は [`crate::mirror`]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GoogleMirrorConfig {
+    /// 窓口を保つか。既定は切——入れると利用者のドライブにフォルダが出来るので、
+    /// 本人が入れるまで何もしない
+    pub enabled: bool,
+    /// RAW を窓口に置かないか。既定は入（窓口を作る理由そのもの）
+    pub exclude_raw: bool,
+    /// 動画を窓口に置かないか。既定は切
+    pub exclude_video: bool,
+    /// RAW だけのカット（同じフォルダ・同じ名前の写真が無い RAW）をどうするか。
+    /// `exclude_raw` が入のときだけ効く（2026-10-04 利用者: 3択）
+    pub raw_only: RawOnly,
+    /// 利用者が選んだ窓口の場所（ボリュームごとに1つ）。無いボリュームは既定の場所
+    /// （[`crate::mirror::location_for_root`]）
+    pub locations: Vec<PathBuf>,
+}
+
+impl Default for GoogleMirrorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            exclude_raw: true,
+            exclude_video: false,
+            raw_only: RawOnly::None,
+            locations: Vec::new(),
+        }
+    }
+}
+
+/// RAW だけのカットの扱い。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RawOnly {
+    /// 送らない
+    #[default]
+    None,
+    /// ★（お気に入り）を付けたものだけ
+    Starred,
+    /// 全部
+    All,
+}
+
+/// **知らない値は既定（送らない）として読む**（[`PairView`] と同じ理由——窓口を使って
+/// いない人まで、この1欄の書き間違いや新しい版の値で設定ごと読めなくしない。PR の codex）
+impl<'de> Deserialize<'de> for RawOnly {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match lenient_word(d)?.as_deref() {
+            Some("starred") => Self::Starred,
+            Some("all") => Self::All,
+            _ => Self::None,
+        })
+    }
+}
+
 /// `[update]` 新しい版が出ていないかの確認（0.2）。
 ///
 /// **このアプリが外へ出す唯一の通信**。写真もファイル名も送らず、GitHubの
@@ -696,6 +756,27 @@ verify_after_copy = true
             assert_eq!(c.viewer.pair_view, want, "{text}");
             assert!(!c.viewer.auto_advance, "{text}");
         }
+    }
+
+    #[test]
+    fn an_unknown_raw_only_value_falls_back_instead_of_failing_the_file() {
+        for (text, want) in [
+            ("starred", RawOnly::Starred),
+            ("ALL", RawOnly::All),
+            ("none", RawOnly::None),
+            ("everything", RawOnly::None),
+        ] {
+            let c: Config =
+                toml::from_str(&format!("[google_mirror]\nraw_only = \"{text}\"\n")).unwrap();
+            assert_eq!(c.google_mirror.raw_only, want, "{text}");
+        }
+        let c: Config = toml::from_str("[google_mirror]\nraw_only = 3\n").unwrap();
+        assert_eq!(c.google_mirror.raw_only, RawOnly::None);
+        // 書いたものは読み戻せる
+        let mut c = Config::default();
+        c.google_mirror.raw_only = RawOnly::Starred;
+        let back: Config = toml::from_str(&toml::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.google_mirror.raw_only, RawOnly::Starred);
     }
 
     /// 送りの動き（2026-09-27）も `[viewer]` に後から足した——無ければ手はスライド・ショーはフェード。
