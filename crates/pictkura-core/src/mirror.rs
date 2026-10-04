@@ -253,6 +253,11 @@ pub fn staging_dir(mirror: &Path) -> PathBuf {
 /// 名札で通ったら `true`。設定画面も [`sync`] も**この1つ**を呼ぶ（ゲート2: 2か所に
 /// 写すと片方だけ緩む）。
 pub fn check_ownership(mirror: &Path) -> Result<bool, MirrorError> {
+    for dir in [mirror.to_path_buf(), staging_dir(mirror)] {
+        if is_link(&dir) {
+            return Err(MirrorError::LinkInTheWay(dir));
+        }
+    }
     if marker_matches(mirror) {
         return Ok(true);
     }
@@ -371,6 +376,9 @@ fn write_marker(staging: &Path, tag: &str) -> io::Result<()> {
         .create_new(true)
         .open(&tmp)?;
     f.write_all(tag.as_bytes())?;
+    // 中身をディスクへ書き切ってから改名する。改名だけが先に残ると、電源断のあと
+    // 空の名札が残り、窓口が締め出される（ゲート2）
+    f.sync_all()?;
     drop(f);
     std::fs::rename(&tmp, staging.join(MARKER))
 }
@@ -560,7 +568,14 @@ pub fn sync(
     let owned = check_ownership(mirror)?;
     let tag = prepare(mirror, &staging)?;
     // 名札を書く（いまの窓口フォルダに結びつける）。合っていれば書き直さない
-    if !owned {
+    if owned {
+        // 確かめてからここまでの間に窓口が差し替わっていたら、1件も触らずに止める。
+        // `owned` は確かめた時点のフォルダの話でしかない（PR の codex）
+        let stored = std::fs::read_to_string(staging.join(MARKER)).ok();
+        if stored.as_deref() != Some(tag.as_str()) {
+            return Err(MirrorError::NotOurs(mirror.to_path_buf()));
+        }
+    } else {
         write_marker(&staging, &tag)?;
     }
 
@@ -598,11 +613,19 @@ pub fn sync(
     // 窓口の中の名前は**畳んで**突き合わせる。大文字小文字だけ違う改名
     // （`Trip` → `trip`）を別物と見ると、毎回フォルダごと外して貼り直す（ゲート2）。
     // 置いてあれば、ディスクの綴りのまま使い続ける
-    let wanted: HashMap<PathBuf, &Placement> = placements
-        .iter()
-        .filter(|p| is_plain_relative(&p.rel))
-        .map(|p| (fold_path(&p.rel), p))
-        .collect();
+    let mut wanted: HashMap<PathBuf, &Placement> = HashMap::new();
+    for p in placements.iter().filter(|p| is_plain_relative(&p.rel)) {
+        // 畳むと同じ名前になる2枚（区別する台の `IMG_1.JPG` と `img_1.jpg`）は1つしか
+        // 置けない。黙って落とさず、落ちた側を失敗として返す（ゲート2）
+        if let Some(first) = wanted.get(&fold_path(&p.rel)) {
+            report.failed.push((
+                p.rel.clone(),
+                format!("{} と同じ名前になるので置けない", first.rel.display()),
+            ));
+            continue;
+        }
+        wanted.insert(fold_path(&p.rel), p);
+    }
 
     // 1–2. 今ある集合と、外すもの（畳んだ名前 → ディスクの綴り）
     let mut present: HashMap<PathBuf, PathBuf> = HashMap::new();
@@ -625,6 +648,22 @@ pub fn sync(
         }
         // OS が勝手に置くもの（Finder の `.DS_Store` 等）は放っておく。窓口にしか無い
         // ファイルとしてゴミ箱へ送ると、開くたびに書かれてゴミ箱が埋まる（ゲート2）
+        if entry.file_type().is_symlink() {
+            // 置きたい名前をふさぐリンク（復元の道具が残した等）は外す。リンクを消しても
+            // 先は消えない。ふさいでいなければ触らない（ゲート2）
+            let blocks = entry
+                .path()
+                .strip_prefix(mirror)
+                .is_ok_and(|rel| wanted.contains_key(&fold_path(rel)));
+            if blocks {
+                if let Err(e) = std::fs::remove_file(entry.path()) {
+                    report
+                        .failed
+                        .push((entry.path().to_path_buf(), e.to_string()));
+                }
+            }
+            continue;
+        }
         if !entry.file_type().is_file() || is_os_litter(entry.file_name()) {
             continue;
         }
@@ -1028,7 +1067,8 @@ pub fn location_for_root(
     let loc = match chosen {
         Some(loc) => loc.clone(),
         None => match home_dir() {
-            Some(home) if same_volume(root, &home)? => home.join(MIRROR_DIR_NAME),
+            // ホームが読めない（移動プロファイルがまだ来ていない等）なら、ボリュームの頭へ
+            Some(home) if same_volume(root, &home).unwrap_or(false) => home.join(MIRROR_DIR_NAME),
             _ => volume_top(root)?.join(MIRROR_DIR_NAME),
         },
     };
@@ -2038,5 +2078,71 @@ mod tests {
         ];
         let got = plan(&items, &[ROOT.into()], &GoogleMirrorConfig::default());
         assert_eq!(rels(&got), ["Photos/d/IMG_1.JPG"]);
+    }
+
+    #[test]
+    fn names_that_fold_together_are_reported_not_dropped() {
+        let f = fixture();
+        put(&f.lib.join("d/IMG_1.JPG"), b"one");
+        put(&f.lib.join("d/img_2.jpg"), b"two");
+        let ps = [
+            Placement {
+                source: f.lib.join("d/IMG_1.JPG"),
+                rel: PathBuf::from("lib/d/IMG_1.JPG"),
+            },
+            Placement {
+                source: f.lib.join("d/img_2.jpg"),
+                rel: PathBuf::from(if cfg!(any(windows, target_os = "macos")) {
+                    "lib/d/img_1.jpg"
+                } else {
+                    "lib/d/IMG_1.JPG"
+                }),
+            },
+        ];
+        let r = sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
+        assert_eq!((r.linked, r.failed.len()), (1, 1));
+    }
+
+    #[test]
+    fn a_stray_link_blocking_a_placement_is_cleared() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        put(&f.lib.join("d/other.jpg"), b"other");
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        std::fs::create_dir_all(f.mirror.join("lib/d")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(f.lib.join("d/other.jpg"), f.mirror.join("lib/d/a.jpg"))
+            .unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_file(
+            f.lib.join("d/other.jpg"),
+            f.mirror.join("lib/d/a.jpg"),
+        )
+        .is_err()
+        {
+            return;
+        }
+        let ps = [placement(&f.lib, "d/a.jpg")];
+        let r = sync(&f.mirror, &[], &ps, &mut no_discard()).unwrap();
+        assert_eq!(r.linked, 1);
+        assert!(same_file(&f.lib.join("d/a.jpg"), &f.mirror.join("lib/d/a.jpg")).unwrap());
+        assert_eq!(std::fs::read(f.lib.join("d/other.jpg")).unwrap(), b"other");
+    }
+
+    #[test]
+    fn check_ownership_refuses_a_linked_mirror_like_sync_does() {
+        let f = fixture();
+        let empty = f.lib.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&empty, &f.mirror).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&empty, &f.mirror).is_err() {
+            return;
+        }
+        assert!(matches!(
+            check_ownership(&f.mirror),
+            Err(MirrorError::LinkInTheWay(_))
+        ));
     }
 }

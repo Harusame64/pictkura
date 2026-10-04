@@ -550,7 +550,7 @@ impl Default for GoogleMirrorConfig {
 }
 
 /// RAW だけのカットの扱い。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RawOnly {
     /// 送らない
@@ -560,6 +560,18 @@ pub enum RawOnly {
     Starred,
     /// 全部
     All,
+}
+
+/// **知らない値は既定（送らない）として読む**（[`PairView`] と同じ理由——窓口を使って
+/// いない人まで、この1欄の書き間違いや新しい版の値で設定ごと読めなくしない。PR の codex）
+impl<'de> Deserialize<'de> for RawOnly {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match lenient_word(d)?.as_deref() {
+            Some("starred") => Self::Starred,
+            Some("all") => Self::All,
+            _ => Self::None,
+        })
+    }
 }
 
 /// `[update]` 新しい版が出ていないかの確認（0.2）。
@@ -744,6 +756,27 @@ verify_after_copy = true
             assert_eq!(c.viewer.pair_view, want, "{text}");
             assert!(!c.viewer.auto_advance, "{text}");
         }
+    }
+
+    #[test]
+    fn an_unknown_raw_only_value_falls_back_instead_of_failing_the_file() {
+        for (text, want) in [
+            ("starred", RawOnly::Starred),
+            ("ALL", RawOnly::All),
+            ("none", RawOnly::None),
+            ("everything", RawOnly::None),
+        ] {
+            let c: Config =
+                toml::from_str(&format!("[google_mirror]\nraw_only = \"{text}\"\n")).unwrap();
+            assert_eq!(c.google_mirror.raw_only, want, "{text}");
+        }
+        let c: Config = toml::from_str("[google_mirror]\nraw_only = 3\n").unwrap();
+        assert_eq!(c.google_mirror.raw_only, RawOnly::None);
+        // 書いたものは読み戻せる
+        let mut c = Config::default();
+        c.google_mirror.raw_only = RawOnly::Starred;
+        let back: Config = toml::from_str(&toml::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.google_mirror.raw_only, RawOnly::Starred);
     }
 
     /// 送りの動き（2026-09-27）も `[viewer]` に後から足した——無ければ手はスライド・ショーはフェード。
