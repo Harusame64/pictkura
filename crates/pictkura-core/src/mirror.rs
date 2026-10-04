@@ -571,19 +571,22 @@ fn is_staging_name(name: &std::ffi::OsStr) -> bool {
 /// 元の名前は**短く切る**（拡張子は残す）。名前の長さの上限ぎりぎりの写真に番号を足すと
 /// 作業場で作れず、置き換えが永久に失敗する（ゲート1）。番号が衝突を防ぐ
 fn staging_name(dest: &Path, n: usize) -> String {
-    const KEEP: usize = 64;
-    let stem: String = dest
+    // **バイトで**切る。上限は Linux で 255 バイト、Windows で UTF-16 の 255 単位で、
+    // UTF-8 のバイト数はどちらの数も下回らない。文字で切ると絵文字の名前が溢れる（ゲート1）
+    let cut = |s: std::borrow::Cow<'_, str>, budget: usize| -> String {
+        let mut end = s.len().min(budget);
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s[..end].to_string()
+    };
+    let stem = dest
         .file_stem()
-        .map(|b| b.to_string_lossy().chars().take(KEEP).collect())
+        .map(|b| cut(b.to_string_lossy(), 64))
         .unwrap_or_default();
-    let ext: String = dest
+    let ext = dest
         .extension()
-        .map(|e| {
-            format!(
-                ".{}",
-                e.to_string_lossy().chars().take(16).collect::<String>()
-            )
-        })
+        .map(|e| format!(".{}", cut(e.to_string_lossy(), 16)))
         .unwrap_or_default();
     format!("{}-{n}-{stem}{ext}", std::process::id())
 }
@@ -1510,5 +1513,10 @@ mod tests {
         assert!(name.len() < 120, "{}", name.len());
         assert!(name.ends_with(".JPG"));
         assert!(is_staging_name(std::ffi::OsStr::new(&name)));
+        // 4バイト文字ばかりの名前でも、バイトで収まる
+        let emoji = format!("{}.JPG", "📷".repeat(62));
+        let name = staging_name(&Path::new("lib").join(emoji), 12);
+        assert!(name.len() < 120, "{}", name.len());
+        assert!(name.ends_with(".JPG"));
     }
 }
