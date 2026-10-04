@@ -23,6 +23,7 @@ pub mod jpeg;
 /// macOSのCoreGraphics共通部分（`CGImage` の詰め直し）
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_cg;
+pub mod mirror;
 pub mod namedate;
 pub mod panics;
 pub mod paths;
