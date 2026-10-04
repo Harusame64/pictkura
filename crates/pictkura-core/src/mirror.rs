@@ -81,7 +81,9 @@ pub fn plan(items: &[Item], roots: &[PathBuf], cfg: &GoogleMirrorConfig) -> Vec<
                     }
             }
         };
-        if !wanted {
+        // OS の置き物の名前（`._IMG_1.JPG` は AppleDouble で写真ではない）は置かない。
+        // 窓口を歩くときに飛ばす名前なので、置くと置いても置いても消える（ゲート2）
+        if !wanted || item.path.file_name().is_some_and(is_os_litter) {
             continue;
         }
         let Some((label, rest)) = owning_root(&item.path, roots, &labels) else {
@@ -285,24 +287,39 @@ pub fn adopt(mirror: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
             return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
         }
     }
-    if let Ok(rd) = std::fs::read_dir(&staging) {
-        let foreign = rd.flatten().any(|e| {
-            let n = e.file_name();
-            !(n == MARKER
-                || is_marker_scratch(&n)
-                || is_os_litter(&n)
-                || is_staging_name(&n)
-                || is_probe_name(&n))
-        });
-        if foreign {
-            return Err(MirrorError::NotOurs(staging));
-        }
+    // 名前だけでなく**ファイルであること**も見る（`check_ownership` と同じ規則。ゲート2）
+    let foreign = entries(&staging)?.iter().any(|e| {
+        let n = e.file_name();
+        let ours = n == MARKER || is_marker_scratch(&n) || is_staging_name(&n) || is_probe_name(&n);
+        !(e.file_type().is_ok_and(|t| t.is_file()) && ours || is_litter_file(e))
+    });
+    if foreign {
+        return Err(MirrorError::NotOurs(staging));
     }
-    std::fs::create_dir_all(mirror)?;
-    std::fs::create_dir_all(&staging)?;
-    let tag = mirror_tag(mirror).ok_or_else(|| io::Error::other("窓口フォルダの名札が取れない"))?;
+    let tag = prepare(mirror, &staging)?;
     write_marker(&staging, &tag)?;
     Ok(())
+}
+
+/// 窓口と作業場を作り、`sync` が始める前に見る門を通して名札の中身を返す。
+/// `adopt` も同じものを通る——`adopt` だけ緩いと、`sync` が永久に断る場所へ
+/// 名札を書いてしまう（ゲート2）。
+fn prepare(mirror: &Path, staging: &Path) -> Result<String, MirrorError> {
+    std::fs::create_dir_all(mirror)?;
+    std::fs::create_dir_all(staging)?;
+    // 名札が取れない場所（作成時刻を持たないファイルシステム）では、置いた次の回に
+    // 自分で締め出される。1件も置く前に止める（ゲート2）
+    let Some(tag) = mirror_tag(mirror) else {
+        return Err(MirrorError::NoTag(mirror.to_path_buf()));
+    };
+    // 窓口がボリュームの入口（`/Volumes/USB`）だと、隣の作業場は別のボリュームに落ち、
+    // 置き換えのリンクが永久に張れない（ゲート2）
+    if !same_volume(mirror, staging)? {
+        return Err(MirrorError::SplitVolume(mirror.to_path_buf()));
+    }
+    // ハードリンクを張れないボリューム（exFAT・FAT）なら、1件ずつ失敗を積む前に止める（ゲート2）
+    probe_hard_links(staging)?;
+    Ok(tag)
 }
 
 fn marker_matches(mirror: &Path) -> bool {
@@ -312,9 +329,15 @@ fn marker_matches(mirror: &Path) -> bool {
 
 /// フォルダが無いか、OS の置き物のほかに何も無いか。
 fn is_empty_or_missing(dir: &Path) -> io::Result<bool> {
+    Ok(entries(dir)?.iter().all(is_litter_file))
+}
+
+/// フォルダの中身。無ければ空。**1項目でも読めなければ誤り**——持ち主の判定は
+/// 迷ったら断る側へ倒す。読めない項目を飛ばすと「空」に見えて引き取ってしまう（ゲート2）。
+fn entries(dir: &Path) -> io::Result<Vec<std::fs::DirEntry>> {
     match std::fs::read_dir(dir) {
-        Ok(rd) => Ok(rd.flatten().all(|e| is_litter_file(&e))),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+        Ok(rd) => rd.collect(),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(e),
     }
 }
@@ -326,16 +349,15 @@ fn is_litter_file(e: &std::fs::DirEntry) -> bool {
 }
 
 /// 作業場が、名札と OS の置き物のほかに何も持たないか（無ければ `true`）。
+///
+/// 試しのリンクの残り（初回の同期が名札を書く前に落ちた）も pictkura のものとして数える
+/// ——数えないと、その日から窓口が締め出される（ゲート2）。
 fn holds_nothing_but_marker(staging: &Path) -> io::Result<bool> {
-    match std::fs::read_dir(staging) {
-        Ok(rd) => Ok(rd.flatten().all(|e| {
-            let n = e.file_name();
-            let file = e.file_type().is_ok_and(|t| t.is_file());
-            file && (n == MARKER || is_marker_scratch(&n)) || is_litter_file(&e)
-        })),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
-        Err(e) => Err(e),
-    }
+    Ok(entries(staging)?.iter().all(|e| {
+        let n = e.file_name();
+        let file = e.file_type().is_ok_and(|t| t.is_file());
+        file && (n == MARKER || is_marker_scratch(&n) || is_probe_name(&n)) || is_litter_file(e)
+    }))
 }
 
 /// 名札を書く。**在る名前へ直接書かない**——そこがリンクなら外のファイルを上書きする
@@ -448,6 +470,9 @@ fn sync_client_folders() -> Vec<PathBuf> {
                 // iCloud Drive。「デスクトップと書類」を入れていると、その2つも同期される
                 // ——入っているかは外から分からないので、macOS では両方とも拒む（ゲート2）
                 h.join("Library").join("Mobile Documents"),
+                // iCloud for Windows
+                h.join("iCloudDrive"),
+                h.join("Pictures").join("iCloud Photos"),
                 #[cfg(target_os = "macos")]
                 h.join("Desktop"),
                 #[cfg(target_os = "macos")]
@@ -502,6 +527,9 @@ pub enum MirrorError {
 /// 1件ずつの失敗は [`SyncReport::failed`] に積んで続ける。全件の差を取るので、
 /// 取りこぼしても次の同期で揃う。
 ///
+/// **同じ窓口に対して同時に2本走らせないこと**（呼び出し側が1本ずつ回す）。作業場の
+/// 片付けは前の回の残りを消すので、走っている最中のもう1本の途中のファイルも消す（ゲート2）。
+///
 /// **費用は窓口の件数に比例する**（置いてある1件ごとに属性を2回引く。Windows では
 /// ハンドルを2回開く）。10万件で何秒かかるかは**まだ測っていない**——配線する PR で
 /// win の実機で測り、重ければ歩くときの属性を使い回す（ゲート2の指摘を据え置いた）。
@@ -530,20 +558,7 @@ pub fn sync(
     // 空でなければ始めない。作業場の中身を名前の形で自分のものと決めない
     // ——先に在ったフォルダの `2024-01-photo.jpg` は残骸の形をしている（PR の codex）
     let owned = check_ownership(mirror)?;
-    std::fs::create_dir_all(mirror)?;
-    std::fs::create_dir_all(&staging)?;
-    // 名札が取れない場所（作成時刻を持たないファイルシステム）では、置いた次の回に
-    // 自分で締め出される。1件も置く前に止める（ゲート2）
-    let Some(tag) = mirror_tag(mirror) else {
-        return Err(MirrorError::NoTag(mirror.to_path_buf()));
-    };
-    // 窓口がボリュームの入口（`/Volumes/USB`）だと、隣の作業場は別のボリュームに落ち、
-    // 置き換えのリンクが永久に張れない（ゲート2）
-    if !same_volume(mirror, &staging)? {
-        return Err(MirrorError::SplitVolume(mirror.to_path_buf()));
-    }
-    // ハードリンクを張れないボリューム（exFAT・FAT）なら、1件ずつ失敗を積む前に止める（ゲート2）
-    probe_hard_links(&staging)?;
+    let tag = prepare(mirror, &staging)?;
     // 名札を書く（いまの窓口フォルダに結びつける）。合っていれば書き直さない
     if !owned {
         write_marker(&staging, &tag)?;
@@ -1986,5 +2001,42 @@ mod tests {
             adopt(&f.mirror.join(".."), &[]),
             Err(MirrorError::NoName(_))
         ));
+    }
+
+    #[test]
+    fn a_leftover_probe_from_a_first_run_does_not_lock_the_mirror_out() {
+        let f = fixture();
+        put(
+            &staging_dir(&f.mirror).join(format!("{PROBE_PREFIX}1-0-a")),
+            b"",
+        );
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        // 片付けは名札で自分の作業場と分かった回から（次の回）
+        sync(&f.mirror, &[], &[], &mut no_discard()).unwrap();
+        assert_eq!(staging_leftovers(&f.mirror), 0);
+    }
+
+    #[test]
+    fn adopt_refuses_a_litter_named_folder_in_staging() {
+        let f = fixture();
+        put(&f.mirror.join("a.jpg"), b"x");
+        put(
+            &staging_dir(&f.mirror).join("._archive/photo.jpg"),
+            b"theirs",
+        );
+        assert!(matches!(
+            adopt(&f.mirror, &[]),
+            Err(MirrorError::NotOurs(_))
+        ));
+    }
+
+    #[test]
+    fn litter_names_are_never_planned() {
+        let items = [
+            item("/lib/Photos/d/._IMG_1.JPG", false),
+            item("/lib/Photos/d/IMG_1.JPG", false),
+        ];
+        let got = plan(&items, &[ROOT.into()], &GoogleMirrorConfig::default());
+        assert_eq!(rels(&got), ["Photos/d/IMG_1.JPG"]);
     }
 }
