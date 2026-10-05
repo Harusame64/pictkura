@@ -558,15 +558,13 @@ impl Db {
             -- `media.id` は行を消すと番号が使い回されうる（別の写真のリンクを外してしまう）
             -- `file_index` は置いたリンクの実体の番号（[`crate::mirror::Placed::index`]）。外すときに
             -- 照合し、同じ名前に後から来た他人のファイルを消さない
-            -- `source_key` は原本を引く鍵（[`crate::mirror::source_key`]。大文字小文字を畳む）
             CREATE TABLE IF NOT EXISTS google_placed (
                 link_path   TEXT PRIMARY KEY,
                 source_path TEXT NOT NULL,
-                source_key  TEXT NOT NULL,
                 dir         TEXT NOT NULL,
                 file_index  INTEGER NOT NULL
             ) WITHOUT ROWID;
-            CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_key);
+            CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
             "#,
         )?;
         // タイムライン索引: サマリはこのインデックスのスキャンだけで、
@@ -2673,15 +2671,14 @@ impl Db {
         let link = crate::paths::normalize(&placed.link);
         let link = link.to_string_lossy();
         let source = crate::paths::normalize(&placed.source);
-        let key = crate::mirror::source_key(&placed.source);
+        let source = source.to_string_lossy();
         let n = self.conn.execute(
-            "INSERT INTO google_placed (link_path, source_path, source_key, dir, file_index)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO google_placed (link_path, source_path, dir, file_index)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(link_path) DO NOTHING",
             params![
                 link,
-                source.to_string_lossy(),
-                key,
+                source,
                 crate::paths::normalize(dir).to_string_lossy(),
                 placed.index as i64,
             ],
@@ -2690,11 +2687,11 @@ impl Db {
             return Ok(Claim::New);
         }
         let held: String = self.conn.query_row(
-            "SELECT source_key FROM google_placed WHERE link_path = ?1",
+            "SELECT source_path FROM google_placed WHERE link_path = ?1",
             params![link],
             |r| r.get(0),
         )?;
-        Ok(if held == key {
+        Ok(if held == source {
             Claim::Ours
         } else {
             Claim::Other
@@ -2729,38 +2726,35 @@ impl Db {
     /// 原本ごとの、記録にあるリンクと、それを置いた Google 用フォルダ（[`crate::mirror::unplace`]
     /// へ渡す組）。原本をゴミ箱へ入れるとき・走査が消滅を見つけたときに引く。
     ///
-    /// 畳んだ鍵（[`crate::mirror::source_key`]）で引くが、**綴りまで同じ行が在ればそれだけを
-    /// 返す**——大文字小文字を区別するボリュームでは `A.jpg` と `a.jpg` が別の写真で、
-    /// 畳んだ鍵だけで引くと片方を消したときにもう片方のリンクまで外す（ゲート2）。
-    /// 綴りの同じ行が無いときだけ、USN の別の綴りとして畳んだ一致を使う。
+    /// **綴りが同じ行だけを返す。** 大文字小文字を畳んで引くと、区別するボリュームでは
+    /// `A.jpg` と `a.jpg` が別の写真なので、片方を消したときにもう片方のリンクを外す
+    /// （ゲートが3周続けてこの行を反対向きに動かした）。綴りが割れて引けなかったときは
+    /// リンクが残ってディスクが空かないだけ——取り返しのつかない側には倒さない。
+    /// 別の綴りも引きたいときは、呼び出し側が両方を渡す。
     pub fn google_placed_for_sources(
         &self,
         sources: &[PathBuf],
     ) -> Result<Vec<(PathBuf, crate::mirror::Recorded)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT dir, link_path, file_index, source_path FROM google_placed
-             WHERE source_key = ?1",
+            "SELECT dir, link_path, file_index FROM google_placed WHERE source_path = ?1",
         )?;
         let mut out = Vec::new();
         for src in sources {
-            let exact = crate::paths::normalize(src).to_string_lossy().into_owned();
-            let rows = stmt.query_map(params![crate::mirror::source_key(src)], |r| {
-                Ok((
-                    PathBuf::from(r.get::<_, String>(0)?),
-                    crate::mirror::Recorded {
-                        link: PathBuf::from(r.get::<_, String>(1)?),
-                        index: r.get::<_, i64>(2)? as u64,
-                    },
-                    r.get::<_, String>(3)? == exact,
-                ))
-            })?;
-            let rows: Vec<_> = rows.collect::<Result<_, _>>()?;
-            let any_exact = rows.iter().any(|(_, _, same)| *same);
-            out.extend(
-                rows.into_iter()
-                    .filter(|(_, _, same)| *same || !any_exact)
-                    .map(|(dir, rec, _)| (dir, rec)),
-            );
+            let rows = stmt.query_map(
+                params![crate::paths::normalize(src).to_string_lossy()],
+                |r| {
+                    Ok((
+                        PathBuf::from(r.get::<_, String>(0)?),
+                        crate::mirror::Recorded {
+                            link: PathBuf::from(r.get::<_, String>(1)?),
+                            index: r.get::<_, i64>(2)? as u64,
+                        },
+                    ))
+                },
+            )?;
+            for row in rows {
+                out.push(row?);
+            }
         }
         Ok(out)
     }
@@ -3443,17 +3437,7 @@ mod tests {
                 .unwrap(),
             rec(7)
         );
-        // 大文字小文字を区別しない台では、別の綴りでも引ける
-        let upper = PathBuf::from("/LIB/D/A.JPG");
-        let found = db
-            .google_placed_for_sources(std::slice::from_ref(&upper))
-            .unwrap();
-        assert_eq!(
-            found.len(),
-            usize::from(cfg!(any(windows, target_os = "macos")))
-        );
-        // 綴りの違う別の原本（区別するボリュームの `A.JPG`）の行が並んでも、綴りの同じ行が
-        // 在ればそれだけを返す
+        // 綴りの違う原本では引かない（区別するボリュームでは別の写真かもしれない）
         let sibling = Placed {
             source: PathBuf::from("/lib/d/A.JPG"),
             link: PathBuf::from("/g/d/A.JPG"),
@@ -3465,6 +3449,11 @@ mod tests {
                 .unwrap(),
             rec(7)
         );
+        let unrecorded = PathBuf::from("/lib/d/a.JPG");
+        assert!(db
+            .google_placed_for_sources(std::slice::from_ref(&unrecorded))
+            .unwrap()
+            .is_empty());
         db.google_place_forget(&[placed.link.clone(), sibling.link])
             .unwrap();
         assert!(db.google_placed_for_sources(&[src]).unwrap().is_empty());

@@ -247,15 +247,6 @@ fn fold_path(p: &Path) -> PathBuf {
     p.components().map(|c| fold(c.as_os_str())).collect()
 }
 
-/// 記録で原本を引く鍵（DB の `google_placed.source_key`）。大文字小文字を区別しない台では
-/// 畳む——USN 経由で同じ原本が別の綴りで DB に入ると、綴りのままでは記録が引けず、
-/// リンクが残ってディスクが空かない（ゲート2）。
-pub fn source_key(path: &Path) -> String {
-    fold_path(&crate::paths::normalize(path))
-        .to_string_lossy()
-        .into_owned()
-}
-
 /// フォルダの外を指さない相対パスか（`..`・絶対・ドライブ付きを拒む）。
 /// **Google 用フォルダの外を決して触らない**ための門で、ここを通ったものだけを `dir.join` する。
 fn is_plain_relative(rel: &Path) -> bool {
