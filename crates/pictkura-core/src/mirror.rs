@@ -2707,7 +2707,11 @@ mod tests {
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         std::fs::set_permissions(&raw, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert_eq!((r.placed, r.failed.len()), (0, 1));
-        assert_eq!(r.retry, [raw.clone()], "読めなかっただけなら保留に残す");
+        assert_eq!(
+            r.retry,
+            std::slice::from_ref(&raw),
+            "読めなかっただけなら保留に残す"
+        );
         // 読めるようになれば置ける
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         assert_eq!(r.placed, 1, "{:?}", r.failed);
