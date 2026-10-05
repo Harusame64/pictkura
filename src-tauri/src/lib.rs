@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, MutexGuard};
 
 use pictkura_core::applog;
@@ -67,6 +68,9 @@ struct AppState {
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
     scan_lock: Mutex<()>,
+    /// Google 用フォルダの操作（置く・外す・置き直す）を1本ずつにする鍵。走査の鍵とは分ける
+    /// ——ゴミ箱へ入れたあとのリンク外しが、長い走査の終わりを待たないように（ゲート2）
+    google_lock: Mutex<()>,
     /// ライブラリルートのファイルシステム監視（アプリ外の追加・削除に追従）。
     /// ルート構成が変わったら張り直す。
     watcher: Mutex<Option<pictkura_core::watch::LibraryWatcher>>,
@@ -369,6 +373,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     let state = app.state::<AppState>();
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
+    // 行が消えたか（Google 用フォルダの突き合わせを回すかどうか）
+    let mut removed_rows = false;
 
     let stat_file = |p: &Path| -> Option<ScannedFile> {
         let meta = std::fs::metadata(p).ok()?;
@@ -494,6 +500,7 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
                 if let Ok(n) = db.remove_by_prefix(&p) {
                     if n > 0 {
                         changed = true;
+                        removed_rows = true;
                     }
                 }
             }
@@ -503,6 +510,10 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     if changed {
         enqueue_missing_thumbs(&state);
         let _ = app.emit("library-updated", ());
+    }
+    // 行が消えた束のときだけ（追加だけの束で表を見直さない。ゲート2）
+    if removed_rows {
+        sweep_google_orphans(&state, false);
     }
 }
 
@@ -2771,6 +2782,8 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
                 .map_err(errs::from_err)?;
             // 行が消えたので「カメラとメディア」も数え直させる（一部だけ成功した回も）
             announce_cameras_changed(&app);
+            // Google 用フォルダのリンクも外す（原本はゴミ箱の中に残るので、名前を消すだけ）
+            unplace_trashed(&state, &deleted_media);
         }
         // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
         let count = deleted_media.len();
@@ -2912,6 +2925,10 @@ async fn export_media(
                 .remove_paths(&gone)
                 .map_err(errs::from_err)?;
             let _ = app.emit("library-updated", ());
+            // Google 用フォルダのリンクは外さない——移しただけで実体は生きている（設計書 §4）。
+            // 記録からは外す（追い続けると、別のドライブへ移した原本が OS のゴミ箱を経て消えたとき、
+            // 残ったリンクを最後の1枚と見てゴミ箱へ渡してしまう。ゲート2）
+            forget_moved_out(&state, &gone);
         }
         Ok(stats)
     })
@@ -3374,6 +3391,9 @@ fn scan_and_announce(
     let stats = scan_and_apply(state, full)?;
     if scan_changes_camera_counts(&stats) {
         announce_cameras_changed(app);
+    }
+    if stats.removed > 0 {
+        sweep_google_orphans(state, true);
     }
     Ok(stats)
 }
@@ -4303,16 +4323,128 @@ fn note_google_retry(
     }
 }
 
-/// 起動時の走査のあとに、保留（一時的に置けなかったもの）を置き直す。走査と同じ鍵で回す。
-fn retry_google_pending(state: &AppState) {
-    let _scan_guard = lock_ok(&state.scan_lock);
+/// Google 用フォルダの記録（DB）を開き、専用の鍵の中で `f` を回す。開けなければ記録に残す
+/// （一度だけ）。`wait` が偽なら、鍵がふさがっていれば待たずに見送る——監視の束が、
+/// 長い取り込みの置き終わりを待って止まらないように（ゲート2。次のきっかけでまた回る）。
+fn with_google_db(
+    state: &AppState,
+    wait: bool,
+    said: &AtomicBool,
+    f: impl FnOnce(&mut Db, &Config),
+) {
+    let _google_guard = if wait {
+        lock_ok(&state.google_lock)
+    } else {
+        match state.google_lock.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        }
+    };
     let config = lock_ok(&state.config).clone();
-    if !pictkura_core::mirror::is_on(&config) {
-        return;
-    }
     match Db::open(&state.db_path) {
-        Ok(mut db) => note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db)),
-        Err(e) => applog::note(&format!("Google 用フォルダ: 保留を開けなかった: {e}")),
+        Ok(mut db) => f(&mut db, &config),
+        Err(e) => note_once(said, &format!("Google 用フォルダ: 記録を開けなかった: {e}")),
+    }
+}
+
+/// この起動のあいだに一度だけ書く。突き合わせは監視の束ごとに回るので、同じ失敗で記録が埋まる。
+fn note_once(said: &AtomicBool, line: &str) {
+    if !said.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        applog::note(line);
+    }
+}
+
+/// 外で消し切られた原本の突き合わせの失敗を書いたか。
+static SWEEP_FAILURE_SAID: AtomicBool = AtomicBool::new(false);
+/// ゴミ箱へ入れた原本のリンク外しの失敗を書いたか（突き合わせとは別に数える）。
+static UNPLACE_FAILURE_SAID: AtomicBool = AtomicBool::new(false);
+
+/// 起動時の走査のあとに、外で消し切られた原本のリンクを外し（PR4）、保留（一時的に置けなかった
+/// もの）を置き直す。
+fn retry_google_pending(state: &AppState) {
+    with_google_db(state, true, &SWEEP_FAILURE_SAID, |db, config| {
+        // 切っていても回す——前に置いたリンクを、原本を消したあとまで残さない
+        note_google_sweep(
+            pictkura_core::mirror::sweep_orphans(db, &mut trash_one),
+            &SWEEP_FAILURE_SAID,
+        );
+        if pictkura_core::mirror::is_on(config) {
+            note_google_retry(pictkura_core::mirror::retry_pending(config, db));
+        }
+    });
+}
+
+/// 原本が外で消し切られ、Google 用フォルダのリンクが最後の1枚になったものをゴミ箱へ（PR4）。
+/// 監視・再スキャンが行を消したあとに呼ぶ。原本が移っただけ（名前の数 2 以上）なら触らない。
+fn sweep_google_orphans(state: &AppState, wait: bool) {
+    with_google_db(state, wait, &SWEEP_FAILURE_SAID, |db, _| {
+        note_google_sweep(
+            pictkura_core::mirror::sweep_orphans(db, &mut trash_one),
+            &SWEEP_FAILURE_SAID,
+        );
+    });
+}
+
+/// pictkura でゴミ箱へ入れた原本のリンクを外す（PR4）。原本はゴミ箱の中に残るので名前を消すだけ。
+fn unplace_trashed(state: &AppState, sources: &[PathBuf]) {
+    with_google_db(state, true, &UNPLACE_FAILURE_SAID, |db, _| {
+        note_google_sweep(
+            pictkura_core::mirror::unplace_sources(db, sources, &mut trash_one),
+            &UNPLACE_FAILURE_SAID,
+        );
+    });
+}
+
+/// 書き出しで移した原本の記録を消す（リンクは残す。設計書 §4）。
+fn forget_moved_out(state: &AppState, sources: &[PathBuf]) {
+    with_google_db(state, true, &UNPLACE_FAILURE_SAID, |db, _| {
+        if let Err(e) = pictkura_core::mirror::forget_moved(db, sources) {
+            note_once(
+                &UNPLACE_FAILURE_SAID,
+                &format!("Google 用フォルダ: 移した原本の記録を消せなかった: {e}"),
+            );
+        }
+    });
+}
+
+/// Google 用フォルダの最後の1枚をゴミ箱へ（[`pictkura_core::mirror::unplace`] の `discard`）。
+fn trash_one(path: &Path) -> std::io::Result<()> {
+    trash::delete(path).map_err(std::io::Error::other)
+}
+
+fn note_google_sweep(
+    result: Result<pictkura_core::mirror::UnplaceReport, pictkura_core::mirror::MirrorError>,
+    said: &AtomicBool,
+) {
+    match result {
+        // 外したものがあれば毎回書く（ゴミ箱へ渡した先を残す）。外せなかっただけの回は一度だけ
+        Ok(r) if r.removed + r.discarded > 0 => applog::note(&format!(
+            "Google 用フォルダ: リンクを {} 件外した・{} 件ゴミ箱へ・{} 件外せなかった{}",
+            r.removed,
+            r.discarded,
+            r.failed.len(),
+            r.failed
+                .first()
+                .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                .unwrap_or_default()
+        )),
+        Ok(r) => {
+            if let Some((path, why)) = r.failed.first() {
+                note_once(
+                    said,
+                    &format!(
+                        "Google 用フォルダ: リンクを {} 件外せなかった（最初: {}: {why}）",
+                        r.failed.len(),
+                        path.display()
+                    ),
+                );
+            }
+        }
+        Err(e) => note_once(
+            said,
+            &format!("Google 用フォルダ: リンクを外せなかった: {e}"),
+        ),
     }
 }
 
@@ -4324,9 +4456,9 @@ fn place_google_links(
     dest: &Path,
     copied: &[PathBuf],
 ) -> Option<GooglePlacedDto> {
-    let _scan_guard = lock_ok(&state.scan_lock);
-    // **鍵を取ってから読む**（ほかの scan_lock の使い手と同じ）。走査の終わりを待つ間に
-    // 取り込み先を外した・切った・場所を変えた設定を、古い写しで上書きしない（ゲート2）。
+    let _google_guard = lock_ok(&state.google_lock);
+    // **鍵を取ってから読む**。鍵を待つ間に取り込み先を外した・切った・場所を変えた設定を、
+    // 古い写しで上書きしない（ゲート2）。
     let config = lock_ok(&state.config).clone();
     if !pictkura_core::mirror::is_on(&config) {
         return None;
@@ -4334,6 +4466,11 @@ fn place_google_links(
     let result = Db::open(&state.db_path)
         .map_err(|e| e.to_string())
         .and_then(|mut db| {
+            // 原本が外で消し切られたリンクを外す（PR4）
+            note_google_sweep(
+                pictkura_core::mirror::sweep_orphans(&mut db, &mut trash_one),
+                &SWEEP_FAILURE_SAID,
+            );
             // 前の回に一時的に置けなかったもの（保留）を**先に**置き直す（2026-10-05 利用者決定）。
             // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
             note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
@@ -5633,6 +5770,7 @@ pub fn run() {
                 config_path,
                 thumbs,
                 scan_lock: Mutex::new(()),
+                google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
                 thumb_touches: Mutex::new(HashMap::new()),
                 startup_report: Mutex::new(None),

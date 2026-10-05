@@ -568,12 +568,32 @@ impl Db {
             -- Google 用フォルダへ**まだ置けていない**原本（[`crate::mirror::place_imported`]）。
             -- 置く前に書き、置けたもの・何度やっても同じものは消す。一時的な失敗だけが残り、
             -- 次の取り込み・起動で置き直す（2026-10-05 利用者決定）。`dest` は取り込み先のルート
+            -- `indexed` は、その原本が一度でもライブラリ（media）に載ったか。載ったことの無い原本は
+            -- 「走査が消した」と読めないので、保留から外さない（#182 で据え置いた隙間）
             CREATE TABLE IF NOT EXISTS google_pending (
                 source_path TEXT PRIMARY KEY,
-                dest        TEXT NOT NULL
+                dest        TEXT NOT NULL,
+                indexed     INTEGER NOT NULL DEFAULT 0
             ) WITHOUT ROWID;
             "#,
         )?;
+        // #182 のあとに足した列（その版の DB には無い）。**無いときだけ**、足すのと前から在る行を
+        // 「載った」と読むのを1つのトランザクションで行う——#182 は走査のあとに保留を書いていたので、
+        // 載っていなかった行は無い。分けると、足せたあとで落ちたときに埋め直しが二度と走らない。
+        // 誤りを「もう在る」と読み替えることもしない（ゲート2）
+        let has_indexed: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('google_pending') WHERE name = 'indexed'")?
+            .exists([])?;
+        if !has_indexed {
+            // 途中で落ちれば `tx` を落としたときに巻き戻る
+            let tx = conn.unchecked_transaction()?;
+            tx.execute(
+                "ALTER TABLE google_pending ADD COLUMN indexed INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+            tx.execute("UPDATE google_pending SET indexed = 1", [])?;
+            tx.commit()?;
+        }
         // タイムライン索引: サマリはこのインデックスのスキャンだけで、
         // 日単位取得はシーク＋整列済み読み出しだけで返る
         conn.execute_batch(&format!(
@@ -2723,9 +2743,12 @@ impl Db {
     pub fn google_pending_add(&mut self, sources: &[PathBuf], dest: &Path) -> Result<(), DbError> {
         let tx = self.write_tx()?;
         {
+            // 載っているかはその場で media を引いて決める。在る行は、載った印だけ足す
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO google_pending (source_path, dest) VALUES (?1, ?2)
-                 ON CONFLICT(source_path) DO NOTHING",
+                "INSERT INTO google_pending (source_path, dest, indexed)
+                 VALUES (?1, ?2, EXISTS (SELECT 1 FROM media WHERE path = ?1))
+                 ON CONFLICT(source_path) DO UPDATE SET
+                     indexed = max(indexed, excluded.indexed)",
             )?;
             let dest = crate::paths::normalize(dest);
             for src in sources {
@@ -2773,6 +2796,50 @@ impl Db {
             }
         }
         Ok(out)
+    }
+
+    /// 保留の原本が、一度でもライブラリに載ったか。いま載っていれば印を付けて `true`。
+    pub fn google_pending_was_indexed(&mut self, source: &Path) -> Result<bool, DbError> {
+        let src = crate::paths::normalize(source);
+        let src = src.to_string_lossy();
+        self.conn.execute(
+            "UPDATE google_pending SET indexed = 1
+             WHERE source_path = ?1 AND EXISTS (SELECT 1 FROM media WHERE path = ?1)",
+            params![src],
+        )?;
+        let indexed: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT indexed FROM google_pending WHERE source_path = ?1",
+                params![src],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(indexed == Some(1))
+    }
+
+    /// 記録にあるのに、**原本の行がライブラリに無い**リンク（置いたフォルダ・記録・原本）。
+    /// 原本をゴミ箱へ入れた・走査が消滅を見つけた・書き出しで移したときに残るもの
+    /// （[`crate::mirror::sweep_orphans`]）。
+    pub fn google_placed_orphans(
+        &self,
+    ) -> Result<Vec<(PathBuf, crate::mirror::Recorded, PathBuf)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT g.dir, g.link_path, g.file_index, g.source_path FROM google_placed g
+             WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.path = g.source_path)
+             ORDER BY g.dir, g.link_path",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                PathBuf::from(r.get::<_, String>(0)?),
+                crate::mirror::Recorded {
+                    link: PathBuf::from(r.get::<_, String>(1)?),
+                    index: r.get::<_, i64>(2)? as u64,
+                },
+                PathBuf::from(r.get::<_, String>(3)?),
+            ))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// 記録からリンクを消す（外し終えたもの・置けなかったもの）。
@@ -3556,6 +3623,34 @@ mod tests {
             db.google_pending_all().unwrap(),
             [(a, vec![PathBuf::from("/a/2.jpg")])]
         );
+    }
+
+    #[test]
+    fn pending_rows_from_before_the_indexed_column_are_read_as_indexed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            // #182 の形の表と、その頃の1行
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE google_pending (
+                     source_path TEXT PRIMARY KEY,
+                     dest        TEXT NOT NULL
+                 ) WITHOUT ROWID;
+                 INSERT INTO google_pending VALUES ('/lib/a.jpg', '/lib');",
+            )
+            .unwrap();
+        }
+        let mut db = Db::open(&path).unwrap();
+        assert!(db
+            .google_pending_was_indexed(Path::new("/lib/a.jpg"))
+            .unwrap());
+        // 2回目に開いても壊れない
+        drop(db);
+        let mut db = Db::open(&path).unwrap();
+        assert!(db
+            .google_pending_was_indexed(Path::new("/lib/a.jpg"))
+            .unwrap());
     }
 
     #[test]
