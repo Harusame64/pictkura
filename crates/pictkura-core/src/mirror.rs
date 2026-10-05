@@ -93,7 +93,10 @@ fn plan_with(
         .filter(|(_, k)| **k == MediaKind::Photo)
         .map(|(i, _)| pair_key_folded(&i.path))
         .collect();
-    let onedrive: Vec<PathBuf> = onedrive.iter().filter_map(|d| disk_key(d).ok()).collect();
+    // 解決した場所と、綴りのままの場所の両方で比べる。**解決できない OneDrive を黙って
+    // 落とさない**——落とすと判定ごと素通りして、既定で守るものを失う（ゲート2）
+    let resolved: Vec<PathBuf> = onedrive.iter().filter_map(|d| disk_key(d).ok()).collect();
+    let spelled: Vec<PathBuf> = onedrive.iter().map(|d| fold_path(d)).collect();
     // フォルダごとに1回だけ解決する（取り込みの1回は同じ日のフォルダに何百枚も来る。ゲート2）。
     // **解決できなければ OneDrive の中と見なす**——置く側へ倒すと、既定で守るはずの
     // 「オンラインのみにできる」を黙って失う（ゲート2）
@@ -103,7 +106,7 @@ fn plan_with(
         *parents
             .entry(parent)
             .or_insert_with_key(|parent| match disk_key(parent) {
-                Ok(k) => onedrive.iter().any(|d| k.starts_with(d)),
+                Ok(k) => resolved.iter().any(|d| k.starts_with(d)),
                 Err(_) => true,
             })
     };
@@ -133,7 +136,10 @@ fn plan_with(
         let Some(rel) = owning_root(&item.path, roots) else {
             continue;
         };
-        if !onedrive.is_empty() && in_onedrive(&item.path) {
+        if !onedrive.is_empty()
+            && (spelled.iter().any(|d| fold_path(&item.path).starts_with(d))
+                || in_onedrive(&item.path))
+        {
             continue;
         }
         if is_plain_relative(&rel) {
@@ -205,7 +211,8 @@ fn pair_key_folded(path: &Path) -> (PathBuf, std::ffi::OsString) {
     (dir, stem)
 }
 
-/// `path` を持つルートからの残り。入れ子なら**いちばん深い**ルート。
+/// `path` を持つルートからの残り。入れ子なら**いちばん外側**のルート——内側を選ぶと、
+/// 外側のルートの直下の `IMG_0001.JPG` と内側の `IMG_0001.JPG` が同じ名前になる（ゲート2）。
 ///
 /// フォルダの形は取り込み先と同じにする（`D:\photos\2026年\…` → `D:\pictkura-google\2026年\…`）。
 /// 同じドライブの別のルートから同じ相対パスが来たら、2本目は [`place`] で
@@ -215,7 +222,7 @@ fn owning_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
         .iter()
         .filter_map(|root| strip_root(path, root).map(|rest| (root, rest)))
         .filter(|(_, rest)| !rest.as_os_str().is_empty())
-        .max_by_key(|(root, _)| root.components().count())
+        .min_by_key(|(root, _)| root.components().count())
         .map(|(_, rest)| rest)
 }
 
@@ -273,8 +280,8 @@ pub struct Placed {
 pub enum Claim {
     /// 新しく書いた
     New,
-    /// 同じリンク・同じ原本の行が既に在った（前の回に置いたもの）
-    Ours,
+    /// 同じリンク・同じ原本の行が既に在った（前の回に置いたもの）。`index` は記録の番号
+    Ours { index: u64 },
     /// 同じリンクの行が**別の原本で**在った——置かない。置くと、新しいリンクが古い原本の
     /// 行のまま残り、古い原本を消したときに外され、新しい原本からは外せなくなる（ゲート1）
     Other,
@@ -332,8 +339,8 @@ pub fn place(
 
     let dir_volume = volume_of(dir)?;
     let mut report = PlaceReport::default();
-    // 置けなかった1件のために作ったフォルダ。最後に空なら畳む——Google が見ているフォルダに
-    // 空のアルバムを残さない（ゲート2）
+    // 置けなかった1件のために**この回に作った**フォルダ。最後に空なら畳む——Google が
+    // 見ているフォルダに空のアルバムを残さない（ゲート2）
     let mut emptied: Vec<PathBuf> = Vec::new();
     for p in placements {
         let fail = |report: &mut PlaceReport, why: String| {
@@ -382,11 +389,11 @@ pub fn place(
             link: dir.join(&p.rel),
             index,
         };
-        if let Err(e) = make_parent_dirs(dir, &p.rel) {
+        let mut created = Vec::new();
+        let made = make_parent_dirs(dir, &p.rel, &mut created);
+        if let Err(e) = made {
             fail(&mut report, e.to_string());
-            if let Some(parent) = placed.link.parent() {
-                emptied.push(parent.to_path_buf());
-            }
+            emptied.extend(created);
             continue;
         }
         let claim = match ledger.claim(&placed) {
@@ -401,9 +408,7 @@ pub fn place(
             Ok(claim) => claim,
             Err(why) => {
                 fail(&mut report, why);
-                if let Some(parent) = placed.link.parent() {
-                    emptied.push(parent.to_path_buf());
-                }
+                emptied.extend(created);
                 continue;
             }
         };
@@ -420,17 +425,21 @@ pub fn place(
             Err(e) => Err(e.to_string()),
         };
         let linked = match linked {
-            Ok(created) if claim == Claim::Ours => match ledger.renumber(&placed) {
-                Ok(()) => Ok(created),
-                Err(e) => {
-                    // 古い番号の記録のまま残すと二度と外せないので、リンクを外す。原本が在るので
-                    // 名前の数は2以上——消しても実体は残る
-                    match std::fs::remove_file(&placed.link) {
-                        Ok(()) => Err(format!("記録を書き直せない: {e}")),
-                        Err(u) => Err(format!("記録を書き直せず、リンクも外せない: {e} / {u}")),
+            // 番号が記録と同じなら書かない。一時的に書けないだけで、正しい記録のリンクを
+            // 外すことになる（ゲート2）
+            Ok(created) if matches!(claim, Claim::Ours { index } if index != placed.index) => {
+                match ledger.renumber(&placed) {
+                    Ok(()) => Ok(created),
+                    Err(e) => {
+                        // 古い番号の記録のまま残すと二度と外せないので、リンクを外す。原本が在るので
+                        // 名前の数は2以上——消しても実体は残る
+                        match std::fs::remove_file(&placed.link) {
+                            Ok(()) => Err(format!("記録を書き直せない: {e}")),
+                            Err(u) => Err(format!("記録を書き直せず、リンクも外せない: {e} / {u}")),
+                        }
                     }
                 }
-            },
+            }
             other => other,
         };
         match linked {
@@ -441,13 +450,16 @@ pub fn place(
                     ledger.release(&placed);
                 }
                 fail(&mut report, why);
-                if let Some(parent) = placed.link.parent() {
-                    emptied.push(parent.to_path_buf());
-                }
+                emptied.extend(created);
             }
         }
     }
-    fold_empty_dirs(dir, emptied);
+    // 深いほうから、作ったものだけを畳む（ほかの1件が中に置いたなら空ではないので残る）
+    emptied.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    emptied.dedup();
+    for d in &emptied {
+        fold_one(dir, d);
+    }
     Ok(report)
 }
 
@@ -591,26 +603,31 @@ fn fold_empty_dirs(dir: &Path, starts: Vec<PathBuf>) {
     }
     todo.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     for d in todo {
-        // **`dir` から `d` までのどこにもリンクが無いこと**。`d` だけ見ると、途中のリンクを
-        // 辿って `dir` の外の空のアルバムを畳む（ゲート1: 置けなかった1件の後片付けが踏んだ）
-        if d.strip_prefix(dir)
-            .map_or(true, |rel| link_on_the_way(dir, &rel.join("_")).is_some())
-            || is_link(&d)
-        {
-            continue;
-        }
-        let only_litter = std::fs::read_dir(&d).is_ok_and(|rd| {
-            rd.flatten()
-                .all(|e| e.file_type().is_ok_and(|t| t.is_file()) && is_os_litter(&e.file_name()))
-        });
-        if only_litter {
-            for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
-                let _ = std::fs::remove_file(e.path());
-            }
-        }
-        // 中身があれば失敗する＝それで正しい
-        let _ = std::fs::remove_dir(&d);
+        fold_one(dir, &d);
     }
+}
+
+/// `d` が空か OS の置き物しか持たなければ畳む。
+fn fold_one(dir: &Path, d: &Path) {
+    // **`dir` から `d` までのどこにもリンクが無いこと**。`d` だけ見ると、途中のリンクを
+    // 辿って `dir` の外の空のアルバムを畳む（ゲート1: 置けなかった1件の後片付けが踏んだ）
+    if d.strip_prefix(dir)
+        .map_or(true, |rel| link_on_the_way(dir, &rel.join("_")).is_some())
+        || is_link(d)
+    {
+        return;
+    }
+    let only_litter = std::fs::read_dir(d).is_ok_and(|rd| {
+        rd.flatten()
+            .all(|e| e.file_type().is_ok_and(|t| t.is_file()) && is_os_litter(&e.file_name()))
+    });
+    if only_litter {
+        for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    // 中身があれば失敗する＝それで正しい
+    let _ = std::fs::remove_dir(d);
 }
 
 /// Google 用フォルダとして使ってよいか（[`place`] が毎回見る門）。
@@ -713,7 +730,8 @@ fn onedrive_env_folders() -> impl Iterator<Item = PathBuf> {
         .map(PathBuf::from)
 }
 
-/// OneDrive の同期フォルダ（Windows は環境変数、macOS は `~/Library/CloudStorage/OneDrive-*`）。
+/// OneDrive の同期フォルダ（Windows は環境変数、macOS は `~/Library/CloudStorage/OneDrive-*`
+/// と、古い版の `~/OneDrive`）。
 fn onedrive_folders() -> Vec<PathBuf> {
     let mac = home_dir()
         .map(|h| h.join("Library").join("CloudStorage"))
@@ -727,8 +745,13 @@ fn onedrive_folders() -> Vec<PathBuf> {
                 .and_then(|n| n.to_str())
                 .is_some_and(|n| n.starts_with("OneDrive"))
         });
+    let old_mac = home_dir()
+        .filter(|_| cfg!(target_os = "macos"))
+        .map(|h| h.join("OneDrive"))
+        .filter(|d| d.is_dir());
     onedrive_env_folders()
         .chain(mac)
+        .chain(old_mac)
         .filter(|d| !d.as_os_str().is_empty())
         .collect()
 }
@@ -804,7 +827,11 @@ fn is_os_litter(name: &std::ffi::OsStr) -> bool {
 /// `rel` の親フォルダを `dir` の中に作る。**途中にリンク・ジャンクションがあれば止める**
 /// ——`create_dir_all` と `hard_link` はそれを辿るので、中に外を指すリンクが
 /// 1つあるだけで `dir` の外へ書いてしまう。
-fn make_parent_dirs(dir: &Path, rel: &Path) -> io::Result<()> {
+///
+/// 作ったフォルダを `created` に積む（浅いほうから）。置けなかったときに、**この回に作った
+/// ものだけ**を畳むため——利用者が置いた空のフォルダや `desktop.ini` だけのフォルダは
+/// 触らない（ゲート2）。
+fn make_parent_dirs(dir: &Path, rel: &Path, created: &mut Vec<PathBuf>) -> io::Result<()> {
     let mut at = dir.to_path_buf();
     let Some(parent) = rel.parent() else {
         return Ok(());
@@ -819,7 +846,10 @@ fn make_parent_dirs(dir: &Path, rel: &Path) -> io::Result<()> {
                     format!("フォルダの場所にリンクかファイルがある: {}", at.display()),
                 ))
             }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => std::fs::create_dir(&at)?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                std::fs::create_dir(&at)?;
+                created.push(at.clone());
+            }
             Err(e) => return Err(e),
         }
     }
@@ -1130,7 +1160,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_belongs_to_the_deepest_root_and_strays_are_skipped() {
+    fn a_file_belongs_to_the_outermost_root_and_strays_are_skipped() {
         let roots = [PathBuf::from("/lib"), PathBuf::from("/lib/Photos")];
         let items = [
             item("/lib/Photos/1.jpg", false),
@@ -1138,7 +1168,7 @@ mod tests {
             item("/elsewhere/2.jpg", false),
         ];
         let got = plan_of(&items, &roots, &GoogleMirrorConfig::default());
-        assert_eq!(rels(&got), ["1.jpg", "x.jpg"]);
+        assert_eq!(rels(&got), ["Photos/1.jpg", "x.jpg"]);
     }
 
     #[test]
@@ -1328,7 +1358,7 @@ mod tests {
     impl Ledger for Book {
         fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
             match self.0.iter().find(|r| r.link == p.link) {
-                Some(r) if r.source == p.source => Ok(Claim::Ours),
+                Some(r) if r.source == p.source => Ok(Claim::Ours { index: r.index }),
                 Some(_) => Ok(Claim::Other),
                 None => {
                     self.0.push(p.clone());
@@ -1516,6 +1546,53 @@ mod tests {
         // 古い番号の記録が指す名前に、新しい実体を残さない
         assert!(!f.google.join("d/a.jpg").exists());
         assert!(f.lib.join("d/a.jpg").exists());
+    }
+
+    #[test]
+    fn an_unchanged_record_is_not_rewritten_so_a_busy_database_cannot_cost_a_link() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let mut book = Book::default();
+        book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        struct Busy(Book);
+        impl Ledger for Busy {
+            fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
+                self.0.claim(p)
+            }
+            fn release(&mut self, p: &Placed) {
+                self.0.release(p)
+            }
+            fn renumber(&mut self, _: &Placed) -> io::Result<()> {
+                Err(io::Error::other("database is locked"))
+            }
+        }
+        let r = place(
+            &f.google,
+            std::slice::from_ref(&f.lib),
+            &[placement(&f.lib, "d/a.jpg")],
+            &mut Busy(book),
+        )
+        .unwrap();
+        assert_eq!((r.already, r.failed.len()), (1, 0));
+        assert!(f.google.join("d/a.jpg").exists());
+    }
+
+    #[test]
+    fn a_failed_placement_leaves_folders_it_did_not_make() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        // 利用者が置いた、アイコンの設定だけのフォルダ
+        put(&f.google.join("d/desktop.ini"), b"[.ShellClassInfo]");
+        // その中の名前は別の原本で記録済み（置けない）
+        let mut book = Book::default();
+        book.0.push(Placed {
+            source: f.lib.join("old/a.jpg"),
+            link: f.google.join("d/a.jpg"),
+            index: 0,
+        });
+        let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        assert_eq!(r.failed.len(), 1);
+        assert!(f.google.join("d/desktop.ini").exists());
     }
 
     #[test]

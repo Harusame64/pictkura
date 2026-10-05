@@ -2657,7 +2657,7 @@ impl Db {
     }
 
     /// Google 用フォルダに置くリンクを、**張る前に**記録する（[`crate::mirror::Ledger::claim`]）。
-    /// 同じリンクの行が既に在れば何も変えず、原本が同じなら [`Claim::Ours`]、違えば
+    /// 同じリンクの行が既に在れば何も変えず、原本が同じなら [`Claim::Ours`]（記録の番号つき）、違えば
     /// [`Claim::Other`] を返す——前から在る行は前に置いたリンクのものなので、上書きしない。
     ///
     /// [`Claim::Ours`]: crate::mirror::Claim::Ours
@@ -2686,13 +2686,15 @@ impl Db {
         if n == 1 {
             return Ok(Claim::New);
         }
-        let held: String = self.conn.query_row(
-            "SELECT source_path FROM google_placed WHERE link_path = ?1",
+        let (held, index): (String, i64) = self.conn.query_row(
+            "SELECT source_path, file_index FROM google_placed WHERE link_path = ?1",
             params![link],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         Ok(if held == source {
-            Claim::Ours
+            Claim::Ours {
+                index: index as u64,
+            }
         } else {
             Claim::Other
         })
@@ -3408,7 +3410,12 @@ mod tests {
             index: u64::MAX - 1,
         };
         assert_eq!(db.google_place_claim(&placed, &dir).unwrap(), Claim::New);
-        assert_eq!(db.google_place_claim(&placed, &dir).unwrap(), Claim::Ours);
+        assert_eq!(
+            db.google_place_claim(&placed, &dir).unwrap(),
+            Claim::Ours {
+                index: u64::MAX - 1
+            }
+        );
         // 同じリンクを別の原本で取ろうとしても、前の行を残す
         let other = Placed {
             source: PathBuf::from("/lib/other.jpg"),
