@@ -453,13 +453,25 @@ pub fn place(
         let linked = match std::fs::hard_link(&p.source, &placed.link) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                if !is_link(&placed.link) && same_file(&p.source, &placed.link).unwrap_or(false) {
-                    Ok(false)
-                } else {
+                let taken = || {
                     Err((
                         format!("同じ名前が既にある: {}", placed.link.display()),
                         false,
                     ))
+                };
+                if is_link(&placed.link) {
+                    taken()
+                } else {
+                    match same_file(&p.source, &placed.link) {
+                        Ok(true) => Ok(false),
+                        Ok(false) => taken(),
+                        // 確かめられなかった（一瞬の拒否・その間に消えた等）。名前の衝突と
+                        // 決めつけると保留から外れる——次の回にもう一度見る（PR の codex）
+                        Err(e) => Err((
+                            format!("在る名前を確かめられない: {}: {e}", placed.link.display()),
+                            true,
+                        )),
+                    }
                 }
             }
             // 張れないドライブ（exFAT 等）・別のボリュームは何度やっても同じ。拒否（置き場の
