@@ -531,7 +531,7 @@ pub struct GoogleMirrorConfig {
     /// 動画を窓口に置かないか。既定は切
     pub exclude_video: bool,
     /// RAW だけのカット（同じフォルダ・同じ名前の写真が無い RAW）をどうするか。
-    /// `exclude_raw` が入のときだけ効く（2026-10-04 利用者: 3択）
+    /// `exclude_raw` が入のときだけ効く（2026-10-05 利用者: 2択。[`RawOnly`]）
     pub raw_only: RawOnly,
     /// 利用者が選んだ窓口の場所（ボリュームごとに1つ）。無いボリュームは既定の場所
     /// （[`crate::mirror::location_for_root`]）

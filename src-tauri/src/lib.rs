@@ -4289,11 +4289,13 @@ fn place_google_links(
     dest: &Path,
     copied: &[PathBuf],
 ) -> Option<GooglePlacedDto> {
+    let _scan_guard = lock_ok(&state.scan_lock);
+    // **鍵を取ってから読む**（ほかの scan_lock の使い手と同じ）。走査の終わりを待つ間に
+    // 取り込み先を外した・切った・場所を変えた設定を、古い写しで上書きしない（ゲート2）。
     let config = lock_ok(&state.config).clone();
-    if !config.google_mirror.enabled {
+    if !pictkura_core::mirror::is_on(&config) {
         return None;
     }
-    let _scan_guard = lock_ok(&state.scan_lock);
     let result = Db::open(&state.db_path)
         .map_err(|e| e.to_string())
         .and_then(|mut db| {

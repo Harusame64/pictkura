@@ -113,14 +113,14 @@ fn plan_with(
             MediaKind::Photo => Some(false),
             MediaKind::Video => (!cfg.exclude_video).then_some(false),
             MediaKind::Raw if !cfg.exclude_raw => Some(false),
-            MediaKind::Raw => {
-                let paired = photo_keys.contains(&pair_key_folded(path)) || photo_on_disk(path);
-                match cfg.raw_only {
-                    _ if paired => None,
-                    RawOnly::None => None,
-                    RawOnly::EmbeddedJpeg => Some(true),
+            // 組を探すのは要るときだけ（既定の「上げない」ではフォルダを読まない。ゲート2）
+            MediaKind::Raw => match cfg.raw_only {
+                RawOnly::None => None,
+                RawOnly::EmbeddedJpeg => {
+                    let paired = photo_keys.contains(&pair_key_folded(path)) || photo_on_disk(path);
+                    (!paired).then_some(true)
                 }
-            }
+            },
         };
         // OS の置き物の名前（`._IMG_1.JPG` は AppleDouble で写真ではない）は置かない
         let Some(embedded) = wanted.filter(|_| !path.file_name().is_some_and(is_os_litter)) else {
@@ -499,9 +499,18 @@ impl Ledger for DbLedger<'_> {
     }
 }
 
+/// 取り込みのあとに置くか。**判定はここだけ**——呼び出し側が DB を開く前に聞くのにも使う。
+pub fn is_on(config: &crate::Config) -> bool {
+    config.google_mirror.enabled
+}
+
 /// 取り込みでコピーしたものを Google 用フォルダへ置く（取り込みの最後に1回呼ぶ）。
 ///
-/// - 設定で切っていれば何もしない（`None`）
+/// - 設定で切っていれば何もしない（`None`。[`is_on`]）
+/// - ライブラリの除外パターン（[`crate::config::LibraryConfig::exclude_patterns`]）に当たるものは
+///   置かない——一覧に出ないので、pictkura から外す手段が無くなる（ゲート2）
+/// - 埋め込み JPEG で置くと決めたものは数えるだけ（取り出しは設計書の PR5）。それしか無い回は
+///   場所も決めず、フォルダも作らない（ゲート2）
 /// - 置く先は取り込み先のドライブの Google 用フォルダ（[`location_for_root`]）
 /// - `config` は**取り込み先をルートに足したあと**のもの（相対パスはルートから取る）
 ///
@@ -513,25 +522,42 @@ pub fn place_imported(
     db: &mut crate::db::Db,
 ) -> Result<Option<PlaceReport>, MirrorError> {
     let g = &config.google_mirror;
-    if !g.enabled {
+    if !is_on(config) {
         return Ok(None);
     }
     let roots = &config.library.roots;
-    let placements = plan(
-        copied,
+    let patterns = &config.library.exclude_patterns;
+    let copied: Vec<PathBuf> = copied
+        .iter()
+        .filter(|p| {
+            // 取り込み先からの残りだけで見る（取り込み先より上の `.` で始まるフォルダに当てない）
+            let rel = p.strip_prefix(dest).unwrap_or(p);
+            !crate::scanner::is_excluded_path(rel, patterns)
+        })
+        .cloned()
+        .collect();
+    let (embedded, placements): (Vec<Placement>, Vec<Placement>) = plan(
+        &copied,
         roots,
         g,
         &mut photos_on_disk(&config.import.extensions),
-    );
+    )
+    .into_iter()
+    .partition(|p| p.embedded);
     if placements.is_empty() {
-        return Ok(Some(PlaceReport::default()));
+        return Ok(Some(PlaceReport {
+            later: embedded.len(),
+            ..PlaceReport::default()
+        }));
     }
     let dir = location_for_root(dest, &g.locations, roots)?;
     let mut ledger = DbLedger {
         db,
         dir: dir.clone(),
     };
-    place(&dir, roots, &placements, &mut ledger).map(Some)
+    let mut report = place(&dir, roots, &placements, &mut ledger)?;
+    report.later += embedded.len();
+    Ok(Some(report))
 }
 
 /// [`unplace`] の結果。
@@ -1915,6 +1941,54 @@ mod tests {
         // 記録どおりに外せる
         let u = unplace(&f.google, &[rows[0].1.clone()], &mut no_discard());
         assert_eq!(u.removed, 1);
+    }
+
+    #[test]
+    fn imported_files_under_an_exclude_pattern_are_not_placed() {
+        let f = fixture();
+        put(&f.lib.join("private/a.jpg"), b"photo");
+        let mut config = crate::Config::default();
+        config.library.roots = vec![f.lib.clone()];
+        config.library.exclude_patterns = vec!["private".into()];
+        config.google_mirror.enabled = true;
+        config.google_mirror.locations = vec![f.google.clone()];
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let r = place_imported(&[f.lib.join("private/a.jpg")], &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r, PlaceReport::default());
+        assert!(!f.google.exists());
+    }
+
+    #[test]
+    fn a_run_of_only_embedded_placements_makes_no_folder() {
+        let f = fixture();
+        put(&f.lib.join("d/B.ARW"), b"raw");
+        let mut config = crate::Config::default();
+        config.library.roots = vec![f.lib.clone()];
+        config.google_mirror.enabled = true;
+        config.google_mirror.raw_only = RawOnly::EmbeddedJpeg;
+        config.google_mirror.locations = vec![f.google.clone()];
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let r = place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.later, r.placed), (1, 0));
+        assert!(!f.google.exists());
+    }
+
+    #[test]
+    fn the_default_never_reads_folders_for_raw_partners() {
+        let items = [item("/lib/Photos/d/B.ARW")];
+        let mut asked = |_: &Path| -> bool { panic!("read a folder for nothing") };
+        let got = plan_with(
+            &items,
+            &[ROOT.into()],
+            &GoogleMirrorConfig::default(),
+            &mut asked,
+            &[],
+        );
+        assert!(got.is_empty());
     }
 
     #[test]
