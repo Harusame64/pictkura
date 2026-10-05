@@ -1205,14 +1205,27 @@ mod tests {
         let f = fixture();
         // /dev は別のボリューム（devfs・devtmpfs）
         let src = PathBuf::from("/dev/null");
-        let mut book = Book::default();
         let p = Placement {
             source: src,
             rel: PathBuf::from("d/null"),
         };
-        let r = book.place(&f, &[p]);
+        /// 記録に手を付けたら落ちる
+        struct Untouched;
+        impl Ledger for Untouched {
+            fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
+                panic!("claimed {}", p.link.display())
+            }
+            fn release(&mut self, _: &Placed) {}
+            fn renumber(&mut self, _: &Placed) {}
+        }
+        let r = place(
+            &f.google,
+            std::slice::from_ref(&f.lib),
+            &[p],
+            &mut Untouched,
+        )
+        .unwrap();
         assert_eq!((r.placed, r.failed.len()), (0, 1));
-        assert!(book.0.is_empty());
         assert!(!f.google.join("d").exists());
     }
 
