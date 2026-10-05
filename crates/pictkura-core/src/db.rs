@@ -565,6 +565,13 @@ impl Db {
                 file_index  INTEGER NOT NULL
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
+            -- Google 用フォルダへ**まだ置けていない**原本（[`crate::mirror::place_imported`]）。
+            -- 置く前に書き、置けたもの・何度やっても同じものは消す。一時的な失敗だけが残り、
+            -- 次の取り込み・起動で置き直す（2026-10-05 利用者決定）。`dest` は取り込み先のルート
+            CREATE TABLE IF NOT EXISTS google_pending (
+                source_path TEXT PRIMARY KEY,
+                dest        TEXT NOT NULL
+            ) WITHOUT ROWID;
             "#,
         )?;
         // タイムライン索引: サマリはこのインデックスのスキャンだけで、
@@ -2712,6 +2719,62 @@ impl Db {
         Ok(())
     }
 
+    /// 置く前の原本を保留に書く（在れば何もしない）。
+    pub fn google_pending_add(&mut self, sources: &[PathBuf], dest: &Path) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO google_pending (source_path, dest) VALUES (?1, ?2)
+                 ON CONFLICT(source_path) DO NOTHING",
+            )?;
+            let dest = crate::paths::normalize(dest);
+            for src in sources {
+                stmt.execute(params![
+                    crate::paths::normalize(src).to_string_lossy(),
+                    dest.to_string_lossy(),
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 保留から外す（置けた・何度やっても同じ・原本がもう無い）。
+    pub fn google_pending_remove(&mut self, sources: &[PathBuf]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt =
+                tx.prepare_cached("DELETE FROM google_pending WHERE source_path = ?1")?;
+            for src in sources {
+                stmt.execute(params![crate::paths::normalize(src).to_string_lossy()])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 保留の全部を、取り込み先ごとにまとめて返す（並びは取り込み先・原本の順）。
+    pub fn google_pending_all(&self) -> Result<Vec<(PathBuf, Vec<PathBuf>)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT dest, source_path FROM google_pending ORDER BY dest, source_path",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                PathBuf::from(r.get::<_, String>(0)?),
+                PathBuf::from(r.get::<_, String>(1)?),
+            ))
+        })?;
+        let mut out: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+        for row in rows {
+            let (dest, src) = row?;
+            match out.last_mut() {
+                Some((d, list)) if *d == dest => list.push(src),
+                _ => out.push((dest, vec![src])),
+            }
+        }
+        Ok(out)
+    }
+
     /// 記録からリンクを消す（外し終えたもの・置けなかったもの）。
     pub fn google_place_forget(&mut self, links: &[PathBuf]) -> Result<(), DbError> {
         let tx = self.write_tx()?;
@@ -3464,6 +3527,35 @@ mod tests {
         db.google_place_forget(&[placed.link.clone(), sibling.link])
             .unwrap();
         assert!(db.google_placed_for_sources(&[src]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn google_pending_groups_by_destination_and_forgets_what_is_removed() {
+        let mut db = Db::open_in_memory().unwrap();
+        let (a, b) = (PathBuf::from("/a"), PathBuf::from("/b"));
+        db.google_pending_add(&[PathBuf::from("/a/2.jpg"), PathBuf::from("/a/1.jpg")], &a)
+            .unwrap();
+        db.google_pending_add(&[PathBuf::from("/b/1.jpg")], &b)
+            .unwrap();
+        // 2回目は何も変えない
+        db.google_pending_add(&[PathBuf::from("/a/1.jpg")], &a)
+            .unwrap();
+        assert_eq!(
+            db.google_pending_all().unwrap(),
+            [
+                (
+                    a.clone(),
+                    vec![PathBuf::from("/a/1.jpg"), PathBuf::from("/a/2.jpg")]
+                ),
+                (b.clone(), vec![PathBuf::from("/b/1.jpg")]),
+            ]
+        );
+        db.google_pending_remove(&[PathBuf::from("/a/1.jpg"), PathBuf::from("/b/1.jpg")])
+            .unwrap();
+        assert_eq!(
+            db.google_pending_all().unwrap(),
+            [(a, vec![PathBuf::from("/a/2.jpg")])]
+        );
     }
 
     #[test]

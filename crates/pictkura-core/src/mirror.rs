@@ -305,8 +305,12 @@ pub struct PlaceReport {
     pub cloud_only: usize,
     /// 埋め込み JPEG で置くと決めたが、取り出しがまだ無いので置かなかったもの（設計書の PR5）
     pub later: usize,
-    /// 失敗（原本と理由）
+    /// 失敗（原本と理由）。一時的なものも恒久的なものも入る
     pub failed: Vec<(PathBuf, String)>,
+    /// **あとで置き直すもの**（一時的な失敗とクラウドのみ）。原本の並び。
+    /// 同じ名前が在る・別のドライブ・別の原本で記録済みのように、何度やっても同じものは入らない
+    /// （2026-10-05 利用者決定。[`place_imported`] が保留として DB に残す）
+    pub retry: Vec<PathBuf>,
 }
 
 /// `placements` を `dir`（Google 用フォルダ）へハードリンクで置く。
@@ -339,8 +343,12 @@ pub fn place(
     // 見ているフォルダに空のアルバムを残さない（ゲート2）
     let mut emptied: Vec<PathBuf> = Vec::new();
     for p in placements {
-        let fail = |report: &mut PlaceReport, why: String| {
+        // `retry`: 一時的な失敗か（あとで置き直す）
+        let fail = |report: &mut PlaceReport, why: String, retry: bool| {
             report.failed.push((p.source.clone(), why));
+            if retry {
+                report.retry.push(p.source.clone());
+            }
         };
         if p.embedded {
             report.later += 1;
@@ -350,22 +358,25 @@ pub fn place(
             fail(
                 &mut report,
                 format!("フォルダの外を指す: {}", p.rel.display()),
+                false,
             );
             continue;
         }
         if is_link(&p.source) {
             // リンクそのものに張る台と先に張る台があり、どちらにしても Google は辿らない
-            fail(&mut report, "原本がシンボリックリンク".into());
+            fail(&mut report, "原本がシンボリックリンク".into(), false);
             continue;
         }
         if crate::cloud::is_cloud_only_path(&p.source) {
+            // 手元へ来れば置ける
             report.cloud_only += 1;
+            report.retry.push(p.source.clone());
             continue;
         }
         let index = match file_id(&p.source) {
             Ok(id) => id.index,
             Err(e) => {
-                fail(&mut report, e.to_string());
+                fail(&mut report, e.to_string(), true);
                 continue;
             }
         };
@@ -376,11 +387,12 @@ pub fn place(
                 fail(
                     &mut report,
                     "原本が Google 用フォルダと別のドライブにある".into(),
+                    false,
                 );
                 continue;
             }
             Err(e) => {
-                fail(&mut report, e.to_string());
+                fail(&mut report, e.to_string(), true);
                 continue;
             }
         }
@@ -392,37 +404,44 @@ pub fn place(
         let mut created = Vec::new();
         let made = make_parent_dirs(dir, &p.rel, &mut created);
         if let Err(e) = made {
-            fail(&mut report, e.to_string());
+            // 途中にリンクかファイルが居座っている（`AlreadyExists`）のは、どかすまで同じ
+            let retry = e.kind() != io::ErrorKind::AlreadyExists;
+            fail(&mut report, e.to_string(), retry);
             emptied.extend(created);
             continue;
         }
+        // `Err((理由, 一時的か))`
         let claim = match ledger.claim(&placed) {
-            Ok(Claim::Other) => Err(format!(
-                "同じ名前が別の原本で記録済み: {}",
-                placed.link.display()
+            Ok(Claim::Other) => Err((
+                format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                false,
             )),
             Ok(claim) => Ok(claim),
-            Err(e) => Err(format!("記録できない: {e}")),
+            Err(e) => Err((format!("記録できない: {e}"), true)),
         };
         let claim = match claim {
             Ok(claim) => claim,
-            Err(why) => {
-                fail(&mut report, why);
+            Err((why, retry)) => {
+                fail(&mut report, why, retry);
                 emptied.extend(created);
                 continue;
             }
         };
-        // `Ok(true)` = この回に張った、`Ok(false)` = 同じ実体が既に在った
+        // `Ok(true)` = この回に張った、`Ok(false)` = 同じ実体が既に在った、
+        // `Err((理由, 一時的か))`
         let linked = match std::fs::hard_link(&p.source, &placed.link) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 if !is_link(&placed.link) && same_file(&p.source, &placed.link).unwrap_or(false) {
                     Ok(false)
                 } else {
-                    Err(format!("同じ名前が既にある: {}", placed.link.display()))
+                    Err((
+                        format!("同じ名前が既にある: {}", placed.link.display()),
+                        false,
+                    ))
                 }
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err((e.to_string(), true)),
         };
         let linked = match linked {
             // 番号が記録と同じなら書かない。一時的に書けないだけで、正しい記録のリンクを
@@ -434,8 +453,11 @@ pub fn place(
                         // 古い番号の記録のまま残すと二度と外せないので、リンクを外す。原本が在るので
                         // 名前の数は2以上——消しても実体は残る
                         match std::fs::remove_file(&placed.link) {
-                            Ok(()) => Err(format!("記録を書き直せない: {e}")),
-                            Err(u) => Err(format!("記録を書き直せず、リンクも外せない: {e} / {u}")),
+                            Ok(()) => Err((format!("記録を書き直せない: {e}"), true)),
+                            Err(u) => Err((
+                                format!("記録を書き直せず、リンクも外せない: {e} / {u}"),
+                                true,
+                            )),
                         }
                     }
                 }
@@ -445,11 +467,11 @@ pub fn place(
         match linked {
             Ok(true) => report.placed += 1,
             Ok(false) => report.already += 1,
-            Err(why) => {
+            Err((why, retry)) => {
                 if claim == Claim::New {
                     ledger.release(&placed);
                 }
-                fail(&mut report, why);
+                fail(&mut report, why, retry);
                 emptied.extend(created);
             }
         }
@@ -507,6 +529,10 @@ pub fn is_on(config: &crate::Config) -> bool {
 /// 取り込みでコピーしたものを Google 用フォルダへ置く（取り込みの最後に1回呼ぶ）。
 ///
 /// - 設定で切っていれば何もしない（`None`。[`is_on`]）
+/// - **置く前に `copied` を保留に書く**（DB の `google_pending`）。置けたもの・何度やっても同じもの・
+///   置かないと決めたものは保留から外し、**一時的な失敗だけを残す**（[`PlaceReport::retry`]）。
+///   途中で落ちても保留が残るので、次の [`retry_pending`] が拾う（2026-10-05 利用者決定）。
+///   フォルダごと置けない誤り（場所が見えない等）のときは、全部を保留のまま返す
 /// - ライブラリの除外パターン（[`crate::config::LibraryConfig::exclude_patterns`]）に当たるものは
 ///   置かない——一覧に出ないので、pictkura から外す手段が無くなる（ゲート2）
 /// - 埋め込み JPEG で置くと決めたものは数えるだけ（取り出しは設計書の PR5）。それしか無い回は
@@ -521,10 +547,74 @@ pub fn place_imported(
     config: &crate::Config,
     db: &mut crate::db::Db,
 ) -> Result<Option<PlaceReport>, MirrorError> {
-    let g = &config.google_mirror;
+    if !is_on(config) || copied.is_empty() {
+        return Ok(if is_on(config) {
+            Some(PlaceReport::default())
+        } else {
+            None
+        });
+    }
+    db.google_pending_add(copied, dest)
+        .map_err(io::Error::other)?;
+    let report = place_now(copied, dest, config, db)?;
+    // 一時的な失敗のほかは保留から外す
+    let keep: HashSet<&PathBuf> = report.retry.iter().collect();
+    let done: Vec<PathBuf> = copied
+        .iter()
+        .filter(|p| !keep.contains(p))
+        .cloned()
+        .collect();
+    db.google_pending_remove(&done).map_err(io::Error::other)?;
+    Ok(Some(report))
+}
+
+/// 保留を置き直す（次の取り込みの前・起動のあとに呼ぶ）。設定で切っていれば何もしない。
+/// 原本がもう無いものは保留から外す。取り込み先ごとに [`place_imported`] を通し、
+/// フォルダごと置けない取り込み先は保留のまま次へ進む（最初の誤りだけを返す）。
+pub fn retry_pending(
+    config: &crate::Config,
+    db: &mut crate::db::Db,
+) -> Result<Option<PlaceReport>, MirrorError> {
     if !is_on(config) {
         return Ok(None);
     }
+    let pending = db.google_pending_all().map_err(io::Error::other)?;
+    let mut total = PlaceReport::default();
+    let mut first_err = None;
+    for (dest, sources) in pending {
+        let (here, gone): (Vec<PathBuf>, Vec<PathBuf>) = sources
+            .into_iter()
+            .partition(|p| std::fs::symlink_metadata(p).is_ok());
+        db.google_pending_remove(&gone).map_err(io::Error::other)?;
+        match place_imported(&here, &dest, config, db) {
+            Ok(Some(r)) => {
+                total.placed += r.placed;
+                total.already += r.already;
+                total.cloud_only += r.cloud_only;
+                total.later += r.later;
+                total.failed.extend(r.failed);
+                total.retry.extend(r.retry);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    match first_err {
+        Some(e) => Err(e),
+        None => Ok(Some(total)),
+    }
+}
+
+/// [`place_imported`] の中身（保留の出し入れを除く）。
+fn place_now(
+    copied: &[PathBuf],
+    dest: &Path,
+    config: &crate::Config,
+    db: &mut crate::db::Db,
+) -> Result<PlaceReport, MirrorError> {
+    let g = &config.google_mirror;
     let roots = &config.library.roots;
     let patterns = &config.library.exclude_patterns;
     let copied: Vec<PathBuf> = copied
@@ -545,10 +635,10 @@ pub fn place_imported(
     .into_iter()
     .partition(|p| p.embedded);
     if placements.is_empty() {
-        return Ok(Some(PlaceReport {
+        return Ok(PlaceReport {
             later: embedded.len(),
             ..PlaceReport::default()
-        }));
+        });
     }
     let dir = location_for_root(dest, &g.locations, roots)?;
     let mut ledger = DbLedger {
@@ -557,7 +647,7 @@ pub fn place_imported(
     };
     let mut report = place(&dir, roots, &placements, &mut ledger)?;
     report.later += embedded.len();
-    Ok(Some(report))
+    Ok(report)
 }
 
 /// [`unplace`] の結果。
@@ -1941,6 +2031,125 @@ mod tests {
         // 記録どおりに外せる
         let u = unplace(&f.google, &[rows[0].1.clone()], &mut no_discard());
         assert_eq!(u.removed, 1);
+    }
+
+    fn on(f: &Fixture) -> crate::Config {
+        let mut config = crate::Config::default();
+        config.library.roots = vec![f.lib.clone()];
+        config.google_mirror.enabled = true;
+        config.google_mirror.locations = vec![f.google.clone()];
+        config
+    }
+
+    #[test]
+    fn a_folder_out_of_reach_keeps_everything_pending_until_the_next_try() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // Google 用フォルダの場所をリンクがふさいでいる（フォルダごと置けない）
+        let elsewhere = f.lib.parent().unwrap().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&elsewhere, &f.google).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&elsewhere, &f.google).is_err() {
+            return;
+        }
+        let copied = [f.lib.join("d/a.jpg")];
+        assert!(place_imported(&copied, &f.lib, &config, &mut db).is_err());
+        assert_eq!(db.google_pending_all().unwrap().len(), 1);
+        // どかしたら、次の試みで置ける
+        std::fs::remove_file(&f.google).unwrap();
+        let r = retry_pending(&config, &mut db).unwrap().unwrap();
+        assert_eq!(r.placed, 1);
+        assert!(db.google_pending_all().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_transient_failure_stays_pending_and_the_rest_leave() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // 1枚は読めない（コピーのあとで外された外付け等）＝一時的な失敗
+        let copied = [f.lib.join("d/a.jpg"), f.lib.join("d/unreadable.jpg")];
+        let r = place_imported(&copied, &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.placed, r.retry.len()), (1, 1));
+        assert_eq!(
+            db.google_pending_all().unwrap(),
+            [(f.lib.clone(), vec![f.lib.join("d/unreadable.jpg")])]
+        );
+    }
+
+    #[test]
+    fn a_permanent_failure_is_reported_but_not_kept_pending() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        put(&f.google.join("d/a.jpg"), b"someone else's");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let r = place_imported(&[f.lib.join("d/a.jpg")], &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.failed.len(), r.retry.len()), (1, 0));
+        assert!(db.google_pending_all().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_run_that_died_midway_is_finished_by_the_next_try() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        put(&f.lib.join("d/gone.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // 保留を書いたところで落ちた
+        db.google_pending_add(&[f.lib.join("d/a.jpg"), f.lib.join("d/gone.jpg")], &f.lib)
+            .unwrap();
+        // その間に1枚は消された
+        std::fs::remove_file(f.lib.join("d/gone.jpg")).unwrap();
+        let r = retry_pending(&config, &mut db).unwrap().unwrap();
+        assert_eq!((r.placed, r.failed.len()), (1, 0));
+        assert!(db.google_pending_all().unwrap().is_empty());
+        // 切っているあいだは何もしない（保留も触らない）
+        db.google_pending_add(&[f.lib.join("d/a.jpg")], &f.lib)
+            .unwrap();
+        let mut off = config.clone();
+        off.google_mirror.enabled = false;
+        assert_eq!(retry_pending(&off, &mut db).unwrap(), None);
+        assert_eq!(db.google_pending_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_record_that_cannot_be_written_is_retried_but_a_taken_name_is_not() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        put(&f.lib.join("d/b.jpg"), b"photo");
+        struct Flaky;
+        impl Ledger for Flaky {
+            fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
+                if p.link.ends_with("a.jpg") {
+                    Err(io::Error::other("database is locked"))
+                } else {
+                    Ok(Claim::Other)
+                }
+            }
+            fn release(&mut self, _: &Placed) {}
+            fn renumber(&mut self, _: &Placed) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let r = place(
+            &f.google,
+            std::slice::from_ref(&f.lib),
+            &[placement(&f.lib, "d/a.jpg"), placement(&f.lib, "d/b.jpg")],
+            &mut Flaky,
+        )
+        .unwrap();
+        assert_eq!(r.failed.len(), 2);
+        assert_eq!(r.retry, [f.lib.join("d/a.jpg")]);
     }
 
     #[test]
