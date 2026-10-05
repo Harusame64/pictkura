@@ -40,6 +40,9 @@ pub fn for_google(raw: &Path) -> Result<Vec<u8>, Missing> {
     };
     // 切手ほどの絵（IFD1 の 160x120 等）を写真として送らない。大きいプレビューを探し損ねた
     // ときにも、これが残っていることがある（ゲート2）
+    // 据え置き（ゲート2）: 大きいプレビューを読み損ねて小さいものしか残らなかったのか、元から小さいのかは
+    // ここでは分からない——`preview_exhausted` は「1枚も無かった」ときにしか立たない。保留に残し続けると
+    // 小さいプレビューしか持たない機種を取り込みのたびに読み直すので、何度やっても同じ側へ倒す
     if preview_long_edge(&preview) < MIN_LONG_EDGE {
         return Err(Missing::NoPreview);
     }
@@ -49,7 +52,8 @@ pub fn for_google(raw: &Path) -> Result<Vec<u8>, Missing> {
         // 絵として読めないプレビューは、何度読んでも同じ
         crate::thumbs::rotate_raw_preview(&preview, exif.orientation).ok_or(Missing::NoPreview)?
     };
-    if has_exif(&jpeg) {
+    // カメラが撮影日時まで書いていれば触らない。EXIF はあっても日時の無いプレビューもある（ゲート2）
+    if has_capture_time(&jpeg) {
         return Ok(jpeg);
     }
     Ok(match exif.taken_at_ms.and_then(exif_datetime) {
@@ -101,6 +105,18 @@ fn app_segments(jpeg: &[u8]) -> Vec<(u8, usize, usize)> {
         at = end;
     }
     out
+}
+
+/// EXIF の `DateTimeOriginal` を持つか。持たなければ [`with_capture_time`] が自分の EXIF を
+/// **先頭に**入れる——読み手は最初の EXIF を使うので、カメラの EXIF より前に置く
+fn has_capture_time(jpeg: &[u8]) -> bool {
+    has_exif(jpeg)
+        && exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(jpeg))
+            .is_ok_and(|e| {
+                e.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
+                    .is_some()
+            })
 }
 
 /// EXIF の区切り（`APP1` で `Exif\0\0` から始まるもの）を持つか。
@@ -204,6 +220,27 @@ mod tests {
         let segs = app_segments(&stamped);
         assert_eq!(segs[0].0, 0xE0);
         assert_eq!(segs[1].0, 0xE1);
+    }
+
+    #[test]
+    fn an_exif_without_a_capture_time_does_not_count_as_dated() {
+        // ExifIFD を持たない EXIF（向きだけ等の代わりに、IFD0 が空のもの）
+        let mut tiff: Vec<u8> = b"II".to_vec();
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        tiff.extend_from_slice(&0u16.to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        let plain = tiny_jpeg();
+        let mut bare = plain[..2].to_vec();
+        bare.extend_from_slice(&[0xFF, 0xE1]);
+        bare.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        bare.extend_from_slice(b"Exif\0\0");
+        bare.extend_from_slice(&tiff);
+        bare.extend_from_slice(&plain[2..]);
+        assert!(has_exif(&bare) && !has_capture_time(&bare));
+        let stamped = with_capture_time(&bare, "2026:10:05 09:30:15").unwrap();
+        assert!(has_capture_time(&stamped));
+        assert_eq!(read_dto(&stamped).as_deref(), Some("2026:10:05 09:30:15"));
     }
 
     #[test]

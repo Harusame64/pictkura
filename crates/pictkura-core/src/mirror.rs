@@ -572,7 +572,10 @@ fn give_way(dir: &Path, p: &Placement, ledger: &mut dyn Ledger) -> io::Result<()
     }
     let spot = dir.join(p.rel.with_extension("jpg"));
     for (link, raw, index, extracted) in ledger.holders_folded(&spot)? {
-        if !extracted || raw == p.source || pair_key_folded(&raw) != pair_key_folded(&p.source) {
+        if !extracted
+            || raw == crate::paths::normalize(&p.source)
+            || pair_key_folded(&raw) != pair_key_folded(&p.source)
+        {
             continue;
         }
         // 途中にリンクを挟んでいれば、辿った先は Google 用フォルダの外——触らない（[`unplace`] と同じ門。
@@ -584,8 +587,13 @@ fn give_way(dir: &Path, p: &Placement, ledger: &mut dyn Ledger) -> io::Result<()
             continue;
         }
         // 記録の番号の実体だけを消す。違えば pictkura の置いたものではないので触らない（記録だけ消す）
-        if file_id(&link).is_ok_and(|id| id.index == index) && !is_link(&link) {
-            std::fs::remove_file(&link)?;
+        // 記録を忘れるのは、消せたか・もう無い・別物と確かめられたときだけ。確かめられなければ
+        // 記録を残して誤りを返す——忘れると、残ったファイルを二度と外せない（ゲート2）
+        match file_id(&link) {
+            Ok(id) if id.index == index && !is_link(&link) => std::fs::remove_file(&link)?,
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
         }
         ledger.forget(&link)?;
     }
@@ -710,7 +718,10 @@ fn place_extracted(
     // 前の回に置いたものがそのまま在れば、RAW を読む前に済ませる（読むのは高い。ゲート2）
     let link = dir.join(&rel);
     if let Ok(Some((src, index, true))) = ledger.holder(&link) {
-        if src == p.source && file_id(&link).is_ok_and(|id| id.index == index) {
+        // 記録の綴りは揃えてある（`paths::normalize`）ので、こちらも揃えて比べる（ゲート2）
+        if src == crate::paths::normalize(&p.source)
+            && file_id(&link).is_ok_and(|id| id.index == index)
+        {
             return Ok(false);
         }
     }
