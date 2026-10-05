@@ -582,7 +582,12 @@ fn fold_empty_dirs(dir: &Path, starts: Vec<PathBuf>) {
     }
     todo.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     for d in todo {
-        if is_link(&d) {
+        // **`dir` から `d` までのどこにもリンクが無いこと**。`d` だけ見ると、途中のリンクを
+        // 辿って `dir` の外の空のアルバムを畳む（ゲート1: 置けなかった1件の後片付けが踏んだ）
+        if d.strip_prefix(dir)
+            .map_or(true, |rel| link_on_the_way(dir, &rel.join("_")).is_some())
+            || is_link(&d)
+        {
             continue;
         }
         let only_litter = std::fs::read_dir(&d).is_ok_and(|rd| {
@@ -1499,6 +1504,29 @@ mod tests {
         assert_eq!((r.placed, r.failed.len()), (0, 1));
         assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
         assert!(book.0.is_empty());
+    }
+
+    #[test]
+    fn a_failed_placement_behind_a_link_does_not_fold_outside() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let outside = f.lib.parent().unwrap().join("elsewhere");
+        std::fs::create_dir_all(outside.join("album")).unwrap();
+        put(&outside.join("album/.DS_Store"), b"finder");
+        std::fs::create_dir_all(&f.google).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, f.google.join("alias")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&outside, f.google.join("alias")).is_err() {
+            return;
+        }
+        let p = Placement {
+            source: f.lib.join("d/a.jpg"),
+            rel: PathBuf::from("alias/album/a.jpg"),
+        };
+        let r = Book::default().place(&f, &[p]);
+        assert_eq!(r.failed.len(), 1);
+        assert!(outside.join("album/.DS_Store").exists());
     }
 
     #[test]
