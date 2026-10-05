@@ -2777,13 +2777,15 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
         }
         // **DBから落とすのは写真のぶんだけ**。サイドカーは行を持っていない
         if !deleted_media.is_empty() {
+            // Google 用フォルダのリンクを**先に**外す（原本はゴミ箱の中に残るので、名前を消すだけ）。
+            // 行を消すのが失敗して早く返っても、外すと決まった印は残る——あとの突き合わせは
+            // ゴミ箱の中で名前を持つ原本を「移っただけ」と見るので、印が無いと二度と外れない（ゲート1）
+            unplace_trashed(&state, &deleted_media);
             lock_ok(&state.db)
                 .remove_paths(&deleted_media)
                 .map_err(errs::from_err)?;
             // 行が消えたので「カメラとメディア」も数え直させる（一部だけ成功した回も）
             announce_cameras_changed(&app);
-            // Google 用フォルダのリンクも外す（原本はゴミ箱の中に残るので、名前を消すだけ）
-            unplace_trashed(&state, &deleted_media);
         }
         // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
         let count = deleted_media.len();

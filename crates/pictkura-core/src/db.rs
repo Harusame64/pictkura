@@ -584,6 +584,13 @@ impl Db {
         // 「載った」と読むのを1つのトランザクションで行う——#182 は走査のあとに保留を書いていたので、
         // 載っていなかった行は無い。分けると、足せたあとで落ちたときに埋め直しが二度と走らない。
         // 誤りを「もう在る」と読み替えることもしない（ゲート2）
+        // 保留の原本がライブラリに載ったら、その時点で「載った」印を付ける。あとで行が消えても
+        // 印は残る——保留を見直す回にだけ見ると、その間に載って消えた原本を取りこぼす（ゲート1）
+        conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS google_pending_indexed AFTER INSERT ON media BEGIN
+                 UPDATE google_pending SET indexed = 1 WHERE source_path = new.path;
+             END;",
+        )?;
         // #182 の版の表に `doomed` が無ければ足す（その版では外すと決まった行はまだ無い）
         let has_doomed: bool = conn
             .prepare("SELECT 1 FROM pragma_table_info('google_placed') WHERE name = 'doomed'")?
@@ -3698,6 +3705,18 @@ mod tests {
         assert!(db
             .google_pending_was_indexed(Path::new("/lib/a.jpg"))
             .unwrap());
+    }
+
+    #[test]
+    fn a_pending_source_indexed_and_dropped_between_retries_keeps_its_mark() {
+        let mut db = Db::open_in_memory().unwrap();
+        // 保留を書いた時点では、まだライブラリに載っていない
+        db.google_pending_add(&[PathBuf::from("a.jpg")], Path::new("/lib"))
+            .unwrap();
+        // そのあと走査が載せ、次の見直しの前に消した
+        db.upsert_files(&[scanned("a.jpg", 1, 1)]).unwrap();
+        db.remove_paths(&[PathBuf::from("a.jpg")]).unwrap();
+        assert!(db.google_pending_was_indexed(Path::new("a.jpg")).unwrap());
     }
 
     #[test]
