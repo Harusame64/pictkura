@@ -615,24 +615,25 @@ pub fn retry_pending(
         if !dest.is_dir() {
             continue;
         }
-        // 消えたと言えるのは、**原本の入っていたフォルダは在るのに**原本だけが `NotFound` のとき
-        // だけ。取り込み先が見えるだけでは足りない——Unix ではボリュームを外すと、マウント先の
-        // フォルダが空のまま残る（PR の codex）。外れていれば日付のフォルダも見えないので残る。
-        // フォルダごと消された原本は保留に残り続けるが、置き直しのたびに小さく空振りするだけ。
+        // 消えたと言えるのは、ファイルが `NotFound` で、**ライブラリの走査もその行を消した**ときだけ。
+        // 見え方（フォルダが在るか）では決めない——Unix ではボリュームを外すとマウント先が残り、
+        // その下に同じ並びが在ることもある（PR の codex が3周続けて別の形で指摘した）。
+        // 走査は、走査できたルートの中でしか行を消さないので、外れたボリュームの原本は行が残る。
+        // マウント先の下の並びが見えてルートが走査できた場合は、pictkura 自身がその原本を
+        // 消えたと扱う（一覧からも消える）ので、判断が食い違わない。
         // 読めない（権限・入出力）ものは保留のまま、この回は飛ばす
         let mut here = Vec::new();
         let mut gone = Vec::new();
         for p in sources {
             match std::fs::symlink_metadata(&p) {
                 Ok(_) => here.push(p),
-                // 親が取り込み先そのもの（振り分けの「フォルダを作らない」）なら区別がつかない
-                // ——外れたマウント先も「在る」に見える。消えたとは見なさない（PR の codex）
-                Err(e)
-                    if e.kind() == io::ErrorKind::NotFound
-                        && p.parent().is_some_and(|d| d != dest && d.is_dir()) =>
-                {
-                    gone.push(p)
-                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => match db.get_meta_by_path(&p) {
+                    Ok(None) => gone.push(p),
+                    Ok(Some(_)) => {}
+                    Err(e) => {
+                        first_err.get_or_insert(MirrorError::Io(io::Error::other(e)));
+                    }
+                },
                 Err(_) => {}
             }
         }
@@ -2214,22 +2215,30 @@ mod tests {
     }
 
     #[test]
-    fn pending_under_an_emptied_mount_point_is_kept() {
+    fn pending_under_an_unmounted_volume_is_kept_until_the_library_drops_it() {
         let f = fixture();
         let config = on(&f);
         let mut db = crate::db::Db::open_in_memory().unwrap();
-        // ボリュームを外したあと: 取り込み先（マウント先）のフォルダは空のまま在る
+        // ボリュームを外したあと: マウント先のフォルダは残り、その下に同じ並びまで在る。
+        // ライブラリの走査はそのルートを走査できていないので、原本の行は残っている
         let mount = f.lib.parent().unwrap().join("mnt");
-        std::fs::create_dir_all(&mount).unwrap();
-        db.google_pending_add(&[mount.join("2026/2026-10-05/a.jpg")], &mount)
-            .unwrap();
-        retry_pending(&config, &mut db).unwrap();
-        assert_eq!(db.google_pending_all().unwrap().len(), 1);
-        // 振り分けなし（原本がマウント先の直下）でも残る
-        db.google_pending_add(&[mount.join("b.jpg")], &mount)
+        std::fs::create_dir_all(mount.join("2026/2026-10-05")).unwrap();
+        let a = mount.join("2026/2026-10-05/a.jpg");
+        let b = mount.join("b.jpg");
+        let row = |p: &Path| crate::scanner::ScannedFile {
+            path: p.to_path_buf(),
+            size: 1,
+            mtime_ms: 1,
+        };
+        db.upsert_files(&[row(&a), row(&b)]).unwrap();
+        db.google_pending_add(&[a.clone(), b.clone()], &mount)
             .unwrap();
         retry_pending(&config, &mut db).unwrap();
         assert_eq!(db.google_pending_all().unwrap()[0].1.len(), 2);
+        // 走査が行を消したら（pictkura も消えたと扱う）、保留からも外す
+        db.remove_paths(&[a]).unwrap();
+        retry_pending(&config, &mut db).unwrap();
+        assert_eq!(db.google_pending_all().unwrap()[0].1, [b]);
     }
 
     #[test]
