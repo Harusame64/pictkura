@@ -3992,8 +3992,6 @@ struct ImportStatsDto {
 struct GooglePlacedDto {
     placed: usize,
     already: usize,
-    /// 埋め込み JPEG で置くと決めたが、取り出しがまだ無いもの
-    later: usize,
     cloud_only: usize,
     failed: usize,
     /// 1件も置けなかった理由（場所が決まらない等）。1件ずつの失敗は `failed` に数える
@@ -4400,6 +4398,16 @@ fn set_google_include_video(
     update_config(&state, |c| c.google_mirror.exclude_video = !include)
 }
 
+/// RAW だけのカット（同じ名前の写真が無い RAW）を、上げないか、埋め込み JPEG を取り出して置くか
+/// （2026-10-05 利用者決定の2択。設計書 §2）
+#[tauri::command]
+fn set_google_raw_only(
+    state: tauri::State<'_, AppState>,
+    raw_only: pictkura_core::config::RawOnly,
+) -> Result<(), String> {
+    update_config(&state, |c| c.google_mirror.raw_only = raw_only)
+}
+
 /// OneDrive の中の原本も置くか（既定は置かない。置くと OneDrive で空き容量を増やせなくなる）
 #[tauri::command]
 fn set_google_include_onedrive(
@@ -4690,7 +4698,6 @@ fn place_google_links(
             GooglePlacedDto {
                 placed: r.placed,
                 already: r.already,
-                later: r.later,
                 cloud_only: r.cloud_only,
                 // 次の取り込み・起動で置き直すもの（保留）は数えない——利用者にできることが無い
                 // （2026-10-06 利用者。ゲート2）
@@ -6601,6 +6608,7 @@ pub fn run() {
             set_google_enabled,
             set_google_location,
             set_google_include_video,
+            set_google_raw_only,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

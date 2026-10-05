@@ -15,6 +15,7 @@ pub mod cloud;
 pub mod config;
 pub mod db;
 pub mod display_cache;
+pub mod embedded_jpeg;
 pub mod export;
 pub mod extract;
 pub mod heif;

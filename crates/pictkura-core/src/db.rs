@@ -560,12 +560,15 @@ impl Db {
             -- 照合し、同じ名前に後から来た他人のファイルを消さない
             -- `doomed` は pictkura がゴミ箱へ入れた原本のリンク＝**外すと決まった**印。外すのに一時的に
             -- 失敗しても、次の突き合わせで名前の数に関係なく外す（PR4 のゲート1）
+            -- `extracted` は原本へのリンクではなく**取り出した埋め込み JPEG**（別の実体）の行。
+            -- 外し方が違う（[`crate::mirror::Placed::extracted`]。PR5）
             CREATE TABLE IF NOT EXISTS google_placed (
                 link_path   TEXT PRIMARY KEY,
                 source_path TEXT NOT NULL,
                 dir         TEXT NOT NULL,
                 file_index  INTEGER NOT NULL,
-                doomed      INTEGER NOT NULL DEFAULT 0
+                doomed      INTEGER NOT NULL DEFAULT 0,
+                extracted   INTEGER NOT NULL DEFAULT 0
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
             -- Google 用フォルダへ**まだ置けていない**原本（[`crate::mirror::place_imported`]）。
@@ -598,6 +601,16 @@ impl Db {
         if !has_doomed {
             conn.execute(
                 "ALTER TABLE google_placed ADD COLUMN doomed INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        // PR5 の前の表に `extracted` が無ければ足す（その版では取り出した行はまだ無い）
+        let has_extracted: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('google_placed') WHERE name = 'extracted'")?
+            .exists([])?;
+        if !has_extracted {
+            conn.execute(
+                "ALTER TABLE google_placed ADD COLUMN extracted INTEGER NOT NULL DEFAULT 0",
                 [],
             )?;
         }
@@ -2720,14 +2733,15 @@ impl Db {
         let source = crate::paths::normalize(&placed.source);
         let source = source.to_string_lossy();
         let n = self.conn.execute(
-            "INSERT INTO google_placed (link_path, source_path, dir, file_index)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO google_placed (link_path, source_path, dir, file_index, extracted)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(link_path) DO NOTHING",
             params![
                 link,
                 source,
                 crate::paths::normalize(dir).to_string_lossy(),
                 placed.index as i64,
+                placed.extracted,
             ],
         )?;
         if n == 1 {
@@ -2846,7 +2860,8 @@ impl Db {
         &self,
     ) -> Result<Vec<(PathBuf, crate::mirror::Recorded, PathBuf, bool)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT g.dir, g.link_path, g.file_index, g.source_path, g.doomed FROM google_placed g
+            "SELECT g.dir, g.link_path, g.file_index, g.source_path, g.doomed, g.extracted
+             FROM google_placed g
              WHERE g.doomed = 1
                 OR NOT EXISTS (SELECT 1 FROM media m WHERE m.path = g.source_path)
              ORDER BY g.dir, g.link_path",
@@ -2857,6 +2872,7 @@ impl Db {
                 crate::mirror::Recorded {
                     link: PathBuf::from(r.get::<_, String>(1)?),
                     index: r.get::<_, i64>(2)? as u64,
+                    extracted: r.get::<_, i64>(5)? == 1,
                 },
                 PathBuf::from(r.get::<_, String>(3)?),
                 r.get::<_, i64>(4)? == 1,
@@ -2905,7 +2921,7 @@ impl Db {
         sources: &[PathBuf],
     ) -> Result<Vec<(PathBuf, crate::mirror::Recorded)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT dir, link_path, file_index FROM google_placed WHERE source_path = ?1",
+            "SELECT dir, link_path, file_index, extracted FROM google_placed WHERE source_path = ?1",
         )?;
         let mut out = Vec::new();
         for src in sources {
@@ -2917,6 +2933,7 @@ impl Db {
                         crate::mirror::Recorded {
                             link: PathBuf::from(r.get::<_, String>(1)?),
                             index: r.get::<_, i64>(2)? as u64,
+                            extracted: r.get::<_, i64>(3)? == 1,
                         },
                     ))
                 },
@@ -3575,6 +3592,8 @@ mod tests {
             link: PathBuf::from("/g/d/a.jpg"),
             // 64 ビット全部を使う番号（Windows のファイル番号）も往復する
             index: u64::MAX - 1,
+            // 取り出しの印も往復する（PR5）
+            extracted: true,
         };
         assert_eq!(db.google_place_claim(&placed, &dir).unwrap(), Claim::New);
         assert_eq!(
@@ -3596,6 +3615,7 @@ mod tests {
                 Recorded {
                     link: PathBuf::from("/g/d/a.jpg"),
                     index,
+                    extracted: true,
                 },
             )]
         };
@@ -3616,6 +3636,7 @@ mod tests {
             source: PathBuf::from("/lib/d/A.JPG"),
             link: PathBuf::from("/g/d/A.JPG"),
             index: 9,
+            extracted: false,
         };
         assert_eq!(db.google_place_claim(&sibling, &dir).unwrap(), Claim::New);
         assert_eq!(
@@ -3695,7 +3716,8 @@ mod tests {
         assert!(db
             .google_pending_was_indexed(Path::new("/lib/a.jpg"))
             .unwrap());
-        // 記録の表にも「外すと決まった」印の列が足される（無ければここで落ちる）
+        // 記録の表にも「外すと決まった」印と「取り出し」の印の列が足される（無ければここで落ちる。
+        // 突き合わせは両方の列を読む）
         db.google_place_doom(&[PathBuf::from("/lib/a.jpg")])
             .unwrap();
         assert!(db.google_placed_orphans().unwrap().is_empty());

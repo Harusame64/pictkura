@@ -107,7 +107,7 @@ export const es419: Dict = {
 
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
   settingsGoogleNote:
-    "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG; las tomas que solo están en RAW se quedan fuera.",
+    "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
   errRootManaged:
     "Una fototeca gestionada no se puede agregar como carpeta: lo de dentro pertenece a esa aplicación.",
   navAddFolder: "Agregar una carpeta",
