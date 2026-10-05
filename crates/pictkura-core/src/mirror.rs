@@ -615,14 +615,22 @@ pub fn retry_pending(
         if !dest.is_dir() {
             continue;
         }
-        // 消えたと言えるのは、取り込み先が見えていて原本だけが `NotFound` のときだけ。
+        // 消えたと言えるのは、**原本の入っていたフォルダは在るのに**原本だけが `NotFound` のとき
+        // だけ。取り込み先が見えるだけでは足りない——Unix ではボリュームを外すと、マウント先の
+        // フォルダが空のまま残る（PR の codex）。外れていれば日付のフォルダも見えないので残る。
+        // フォルダごと消された原本は保留に残り続けるが、置き直しのたびに小さく空振りするだけ。
         // 読めない（権限・入出力）ものは保留のまま、この回は飛ばす
         let mut here = Vec::new();
         let mut gone = Vec::new();
         for p in sources {
             match std::fs::symlink_metadata(&p) {
                 Ok(_) => here.push(p),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => gone.push(p),
+                Err(e)
+                    if e.kind() == io::ErrorKind::NotFound
+                        && p.parent().is_some_and(|d| d.is_dir()) =>
+                {
+                    gone.push(p)
+                }
                 Err(_) => {}
             }
         }
@@ -2140,8 +2148,11 @@ mod tests {
         let copied = [f.lib.join("d/a.jpg")];
         assert!(place_imported(&copied, &f.lib, &config, &mut db).is_err());
         assert_eq!(db.google_pending_all().unwrap().len(), 1);
-        // どかしたら、次の試みで置ける
+        // どかしたら、次の試みで置ける（Windows のフォルダのリンクは `remove_dir` で消す）
+        #[cfg(unix)]
         std::fs::remove_file(&f.google).unwrap();
+        #[cfg(windows)]
+        std::fs::remove_dir(&f.google).unwrap();
         let r = retry_pending(&config, &mut db).unwrap().unwrap();
         assert_eq!(r.placed, 1);
         assert!(db.google_pending_all().unwrap().is_empty());
@@ -2198,6 +2209,20 @@ mod tests {
         assert_eq!(r.placed, 1);
         // 置けたものは入らない（計画に入ったものまで残すと、置けても保留が消えない）
         assert_eq!(r.retry, [lost]);
+    }
+
+    #[test]
+    fn pending_under_an_emptied_mount_point_is_kept() {
+        let f = fixture();
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // ボリュームを外したあと: 取り込み先（マウント先）のフォルダは空のまま在る
+        let mount = f.lib.parent().unwrap().join("mnt");
+        std::fs::create_dir_all(&mount).unwrap();
+        db.google_pending_add(&[mount.join("2026/2026-10-05/a.jpg")], &mount)
+            .unwrap();
+        retry_pending(&config, &mut db).unwrap();
+        assert_eq!(db.google_pending_all().unwrap().len(), 1);
     }
 
     #[test]
