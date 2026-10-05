@@ -298,6 +298,10 @@ pub trait Ledger {
     fn holder(&mut self, link: &Path) -> io::Result<Option<(PathBuf, u64, bool)>>;
     /// `link` の記録を消す（取り出した JPEG を本物の JPEG に譲ったとき）
     fn forget(&mut self, link: &Path) -> io::Result<()>;
+    /// `link` と**大文字小文字だけ違う**記録も含めて返す（記録のリンク・原本・番号・取り出しか）。
+    /// 区別しない台（Windows・macOS）でだけ畳む。[`give_way`] が、`b.JPG` の前に `B.jpg` の
+    /// 取り出しを見つけるために使う（ゲート1）
+    fn holders_folded(&mut self, link: &Path) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>>;
 }
 
 /// [`place`] の結果。
@@ -567,17 +571,25 @@ fn give_way(dir: &Path, p: &Placement, ledger: &mut dyn Ledger) -> io::Result<()
         return Ok(());
     }
     let spot = dir.join(p.rel.with_extension("jpg"));
-    let Some((raw, index, true)) = ledger.holder(&spot)? else {
-        return Ok(());
-    };
-    if raw == p.source || pair_key_folded(&raw) != pair_key_folded(&p.source) {
-        return Ok(());
+    for (link, raw, index, extracted) in ledger.holders_folded(&spot)? {
+        if !extracted || raw == p.source || pair_key_folded(&raw) != pair_key_folded(&p.source) {
+            continue;
+        }
+        // 途中にリンクを挟んでいれば、辿った先は Google 用フォルダの外——触らない（[`unplace`] と同じ門。
+        // ゲート1）。そのときは記録も残し、本物の写真は名前がぶつかって置けないまま
+        let inside = link
+            .strip_prefix(dir)
+            .is_ok_and(|rel| is_plain_relative(rel) && link_on_the_way(dir, rel).is_none());
+        if !inside {
+            continue;
+        }
+        // 記録の番号の実体だけを消す。違えば pictkura の置いたものではないので触らない（記録だけ消す）
+        if file_id(&link).is_ok_and(|id| id.index == index) && !is_link(&link) {
+            std::fs::remove_file(&link)?;
+        }
+        ledger.forget(&link)?;
     }
-    // 記録の番号の実体だけを消す。違えば pictkura の置いたものではないので触らない（記録だけ消す）
-    if file_id(&spot).is_ok_and(|id| id.index == index) && !is_link(&spot) {
-        std::fs::remove_file(&spot)?;
-    }
-    ledger.forget(&spot)
+    Ok(())
 }
 
 /// [`place_extracted`] が置かなかった理由。
@@ -845,6 +857,12 @@ impl Ledger for DbLedger<'_> {
     fn forget(&mut self, link: &Path) -> io::Result<()> {
         self.db
             .google_place_forget(&[link.to_path_buf()])
+            .map_err(io::Error::other)
+    }
+
+    fn holders_folded(&mut self, link: &Path) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+        self.db
+            .google_place_holders_folded(link, cfg!(any(windows, target_os = "macos")))
             .map_err(io::Error::other)
     }
 }
@@ -1997,6 +2015,12 @@ mod tests {
             fn forget(&mut self, _: &Path) -> io::Result<()> {
                 Ok(())
             }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
+            }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 panic!("claimed {}", p.link.display())
             }
@@ -2126,6 +2150,17 @@ mod tests {
         fn forget(&mut self, link: &Path) -> io::Result<()> {
             self.0.retain(|r| r.link != link);
             Ok(())
+        }
+        fn holders_folded(
+            &mut self,
+            link: &Path,
+        ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+            Ok(self
+                .0
+                .iter()
+                .filter(|r| fold_path(&r.link) == fold_path(link))
+                .map(|r| (r.link.clone(), r.source.clone(), r.index, r.extracted))
+                .collect())
         }
     }
 
@@ -2289,6 +2324,12 @@ mod tests {
             fn forget(&mut self, _: &Path) -> io::Result<()> {
                 Ok(())
             }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
+            }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 self.0.claim(p)
             }
@@ -2326,6 +2367,12 @@ mod tests {
             }
             fn forget(&mut self, _: &Path) -> io::Result<()> {
                 Ok(())
+            }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
             }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 self.0.claim(p)
@@ -2695,6 +2742,7 @@ mod tests {
         assert!(!f.google.join("d").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_raw_that_cannot_be_read_now_is_kept_for_a_retry() {
         use std::os::unix::fs::PermissionsExt;
@@ -2747,6 +2795,37 @@ mod tests {
         put(&f.lib.join("e/C.jpg"), b"elsewhere");
         let _ = book.place(&f, &[placement(&f.lib, "e/C.jpg")]);
         assert!(f.google.join("d/C.jpg").exists());
+    }
+
+    /// 大文字小文字を区別しない台でだけ、名前が同じになる
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn a_real_jpeg_spelled_in_another_case_still_takes_the_name_back() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        put(&f.lib.join("d/b.JPG"), b"camera jpeg");
+        let r = book.place(&f, &[placement(&f.lib, "d/b.JPG")]);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert!(same_file(&f.lib.join("d/b.JPG"), &f.google.join("d/b.JPG")).unwrap());
+        assert!(book.0.iter().all(|r| !r.extracted));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_extract_behind_a_linked_folder_is_not_touched() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // アルバムを外へ移して、同じ名前のリンクに差し替えた
+        let outside = f.lib.parent().unwrap().join("outside");
+        std::fs::rename(f.google.join("d"), &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, f.google.join("d")).unwrap();
+        put(&f.lib.join("d/B.jpg"), b"camera jpeg");
+        let _ = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
+        assert!(outside.join("B.jpg").is_file(), "外のファイルを消した");
     }
 
     #[test]
@@ -3114,6 +3193,12 @@ mod tests {
             }
             fn forget(&mut self, _: &Path) -> io::Result<()> {
                 Ok(())
+            }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
             }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 if p.link.ends_with("a.jpg") {

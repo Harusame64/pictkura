@@ -2782,6 +2782,36 @@ impl Db {
             .optional()?)
     }
 
+    /// `link` の記録を、`fold` なら大文字小文字を畳んで引く（記録のリンク・原本・番号・取り出しか）。
+    /// [`crate::mirror::Ledger::holders_folded`]。畳むのは ASCII だけ（SQLite の `lower`）——
+    /// カメラの名前はほぼ ASCII で、引けなかったときは本物の写真が置けないだけ（取り返しはつく）
+    pub fn google_place_holders_folded(
+        &self,
+        link: &Path,
+        fold: bool,
+    ) -> Result<Vec<(PathBuf, PathBuf, u64, bool)>, DbError> {
+        let sql = if fold {
+            "SELECT link_path, source_path, file_index, extracted FROM google_placed
+             WHERE lower(link_path) = lower(?1)"
+        } else {
+            "SELECT link_path, source_path, file_index, extracted FROM google_placed
+             WHERE link_path = ?1"
+        };
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let rows = stmt.query_map(
+            params![crate::paths::normalize(link).to_string_lossy()],
+            |r| {
+                Ok((
+                    PathBuf::from(r.get::<_, String>(0)?),
+                    PathBuf::from(r.get::<_, String>(1)?),
+                    r.get::<_, i64>(2)? as u64,
+                    r.get::<_, i64>(3)? == 1,
+                ))
+            },
+        )?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// 前から在った行に、いま張ってある実体の番号を書き直す（[`crate::mirror::Ledger::renumber`]）。
     pub fn google_place_renumber(&mut self, placed: &crate::mirror::Placed) -> Result<(), DbError> {
         self.conn.execute(
@@ -3652,6 +3682,16 @@ mod tests {
                 .unwrap(),
             rec(7)
         );
+        // 大文字小文字を畳んで引けるのは、畳むと言ったときだけ（取り出しの譲り。PR5）
+        let upper = PathBuf::from("/g/d/A.JPG");
+        assert_eq!(
+            db.google_place_holders_folded(&upper, true).unwrap(),
+            [(PathBuf::from("/g/d/a.jpg"), src.clone(), 7, true)]
+        );
+        assert!(db
+            .google_place_holders_folded(&upper, false)
+            .unwrap()
+            .is_empty());
         // 綴りの違う原本では引かない（区別するボリュームでは別の写真かもしれない）
         let sibling = Placed {
             source: PathBuf::from("/lib/d/A.JPG"),
