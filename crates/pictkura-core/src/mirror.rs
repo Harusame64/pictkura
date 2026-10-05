@@ -625,9 +625,11 @@ pub fn retry_pending(
         for p in sources {
             match std::fs::symlink_metadata(&p) {
                 Ok(_) => here.push(p),
+                // 親が取り込み先そのもの（振り分けの「フォルダを作らない」）なら区別がつかない
+                // ——外れたマウント先も「在る」に見える。消えたとは見なさない（PR の codex）
                 Err(e)
                     if e.kind() == io::ErrorKind::NotFound
-                        && p.parent().is_some_and(|d| d.is_dir()) =>
+                        && p.parent().is_some_and(|d| d != dest && d.is_dir()) =>
                 {
                     gone.push(p)
                 }
@@ -2223,6 +2225,11 @@ mod tests {
             .unwrap();
         retry_pending(&config, &mut db).unwrap();
         assert_eq!(db.google_pending_all().unwrap().len(), 1);
+        // 振り分けなし（原本がマウント先の直下）でも残る
+        db.google_pending_add(&[mount.join("b.jpg")], &mount)
+            .unwrap();
+        retry_pending(&config, &mut db).unwrap();
+        assert_eq!(db.google_pending_all().unwrap()[0].1.len(), 2);
     }
 
     #[test]
