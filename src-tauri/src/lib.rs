@@ -3392,9 +3392,10 @@ fn scan_and_announce(
     if scan_changes_camera_counts(&stats) {
         announce_cameras_changed(app);
     }
-    if stats.removed > 0 {
-        sweep_google_orphans(state, true);
-    }
+    // 行が消えたかどうかに関係なく回す。前の回に残したリンク（OS のゴミ箱にあった原本）は、
+    // ゴミ箱を空にしたあとの再スキャンでは「新しく消えた行」が無いので、条件を付けると拾えない
+    // （ゲート1）。利用者が明示に頼んだ再スキャンなので、費用は気にしない
+    sweep_google_orphans(state, true);
     Ok(stats)
 }
 
