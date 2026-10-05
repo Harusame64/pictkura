@@ -4281,6 +4281,41 @@ fn finish_import(
     Ok(None)
 }
 
+/// 保留（一時的に置けなかったもの）を置き直した結果を記録へ残す。画面には出さない
+/// ——取り込みの結果とは別の写真の話なので、取り込みの数に混ぜない。
+fn note_google_retry(
+    result: Result<Option<pictkura_core::mirror::PlaceReport>, pictkura_core::mirror::MirrorError>,
+) {
+    match result {
+        // 置けなかったときは最初の1件の理由も残す——数だけでは直し方が分からない（win の実機）
+        Ok(Some(r)) if r.placed + r.failed.len() > 0 => applog::note(&format!(
+            "Google 用フォルダ: 保留から {} 件置いた・{} 件置けなかった（うち {} 件は保留のまま）{}",
+            r.placed,
+            r.failed.len(),
+            r.retry.len(),
+            r.failed
+                .first()
+                .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                .unwrap_or_default()
+        )),
+        Ok(_) => {}
+        Err(e) => applog::note(&format!("Google 用フォルダ: 保留を置き直せなかった: {e}")),
+    }
+}
+
+/// 起動時の走査のあとに、保留（一時的に置けなかったもの）を置き直す。走査と同じ鍵で回す。
+fn retry_google_pending(state: &AppState) {
+    let _scan_guard = lock_ok(&state.scan_lock);
+    let config = lock_ok(&state.config).clone();
+    if !pictkura_core::mirror::is_on(&config) {
+        return;
+    }
+    match Db::open(&state.db_path) {
+        Ok(mut db) => note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db)),
+        Err(e) => applog::note(&format!("Google 用フォルダ: 保留を開けなかった: {e}")),
+    }
+}
+
 /// 取り込みでコピーしたものを Google 用フォルダへ置く（設計書 `dev/plan.google-photos-at-import.md`）。
 /// **取り込み先をルートに足したあとの設定**で決める（相対パスはルートから取る）。
 /// 走査と同じ鍵で1本ずつ回す——同じフォルダへ2本同時に置かない。
@@ -4299,6 +4334,9 @@ fn place_google_links(
     let result = Db::open(&state.db_path)
         .map_err(|e| e.to_string())
         .and_then(|mut db| {
+            // 前の回に一時的に置けなかったもの（保留）を**先に**置き直す（2026-10-05 利用者決定）。
+            // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
+            note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
             pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
                 .map_err(|e| e.to_string())
         });
@@ -6061,6 +6099,14 @@ pub fn run() {
                     *lock_ok(&state.startup_report) = Some(report.clone());
                     let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
                     let _ = inner.emit("startup-scan-report", report);
+                    // 走査を知らせたあと、**別のスレッドで**（起動の完了を待たせない。ここで転んでも
+                    // 起動の失敗にしない。ゲート2）
+                    let retry_app = inner.clone();
+                    std::thread::spawn(move || {
+                        pictkura_core::panics::catching("google retry", move || {
+                            retry_google_pending(&retry_app.state::<AppState>());
+                        });
+                    });
                     true
                 });
                 // **この間に手で走らせた再スキャンが通っていないか**を見る。
