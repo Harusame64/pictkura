@@ -513,8 +513,8 @@ export const ja = {
   settingsGoogleAfterNote: "pictkura で写真をゴミ箱に入れると、このフォルダからも外します。Google フォトからは消えません。Google フォトのタブを開いている間だけアップロードされます。",
   pickGoogleFolder: "Google フォト用のフォルダを選んでください",
   importGoogle: (n: number) => ` · Google フォト用に${num(n)}枚`,
-  importGoogleFailed: (n: number) => ` · Google フォト用に置けなかったもの${num(n)}（ログを参照）`,
-  importGoogleError: (why: string) => ` · Google フォト用に置けませんでした: ${why}`,
+  importGoogleFailed: (n: number) => `Google フォト用に置けなかったもの${num(n)}（ログを参照）`,
+  importGoogleError: (why: string) => `Google フォト用に置けませんでした: ${why}`,
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
   burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
   /* 組の印（`RAW+JPEG`）と並ぶときの短い形 */

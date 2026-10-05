@@ -4231,94 +4231,146 @@ fn google_roots(config: &Config, dest: &Path) -> Vec<PathBuf> {
     roots
 }
 
-/// いまの取り込み先に対する Google 用フォルダ（[`pictkura_core::mirror::location_for_root`]）。
-/// **記録には残さない**（開くたびに訊く問い合わせなので。[`errs::quiet`]）
-fn resolve_google_location(config: &Config) -> Result<PathBuf, String> {
-    let Some(dest) = config.routing.destination.as_deref() else {
+/// いまの取り込み先と、それに対する Google 用フォルダ（[`pictkura_core::mirror::location_for_root`]）。
+/// **記録には残さない**（開くたびに訊く問い合わせなので。[`errs::quiet`]）。
+/// 取り込み先が見えない（外したドライブ等）ときは、Google 用フォルダの誤りではなく
+/// 取り込み先が無いと言う（ゲート2）
+fn resolve_google_location(config: &Config) -> Result<(PathBuf, PathBuf), String> {
+    let Some(dest) = config.routing.destination.clone() else {
         return Err(errs::code("errNoDestination"));
     };
-    pictkura_core::mirror::location_for_root(
-        dest,
+    if !dest.is_dir() {
+        return Err(errs::coded("errFolderMissing", dest.display()));
+    }
+    let dir = pictkura_core::mirror::location_for_root(
+        &dest,
         &config.google_mirror.locations,
-        &google_roots(config, dest),
+        &google_roots(config, &dest),
     )
-    .map_err(errs::quiet)
+    .map_err(errs::quiet)?;
+    Ok((dest, dir))
 }
 
-/// Google 用フォルダを作る。**先に親でハードリンクを試す**——中で試すと、登録済みのフォルダなら
-/// Google がその一瞬のファイルを拾う（[`pictkura_core::mirror::probe_hard_links`]）。
-/// 入れたときに作っておくのは、利用者がすぐ Google フォトに登録できるように
-fn prepare_google_folder(dir: &Path) -> Result<(), String> {
-    use pictkura_core::mirror::{probe_hard_links, MirrorError};
+/// Google 用フォルダを作る。**置くときと同じ門（[`pictkura_core::mirror::check_dir`]）を先に通す**
+/// ——シンボリックリンクのフォルダを設定では通し、置くたびに断る形にしない（ゲート1）。
+///
+/// ハードリンクは**親で試す**——中で試すと、登録済みのフォルダなら Google がその一瞬のファイルを
+/// 拾う（[`pictkura_core::mirror::probe_hard_links`]）。**親で試せないとき**（書けない `C:\` の直下、
+/// 親と別のボリュームに載るマウント先）は中で試す（ゲート2）。入れたときに作っておくのは、
+/// 利用者がすぐ Google フォトに登録できるように
+fn prepare_google_folder(dir: &Path, roots: &[PathBuf]) -> Result<(), String> {
+    use pictkura_core::mirror::{check_dir, probe_hard_links, same_volume, MirrorError};
+    check_dir(dir, roots).map_err(errs::from_err)?;
     let parent = dir
         .parent()
         .ok_or_else(|| errs::from_err(MirrorError::NoName(dir.to_path_buf())))?;
-    probe_hard_links(parent).map_err(errs::from_err)?;
+    let mount_point = dir.is_dir() && !same_volume(parent, dir).unwrap_or(false);
+    if mount_point || probe_hard_links(parent).is_err() {
+        let existed = dir.exists();
+        std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))?;
+        let probed = probe_hard_links(dir).map_err(errs::from_err);
+        if probed.is_err() && !existed {
+            // 断った場所に空のフォルダを残さない
+            let _ = std::fs::remove_dir(dir);
+        }
+        return probed;
+    }
     std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))
 }
 
+/// 場所の確かめはディスクに触る（眠った外付け・ネットワークでは数秒）ので、**主スレッドで回さない**（ゲート2）
+async fn on_blocking<T: Send + 'static>(
+    app: tauri::AppHandle,
+    f: impl FnOnce(&AppState) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || f(&app.state::<AppState>()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
-fn google_location(state: tauri::State<'_, AppState>) -> GoogleLocationDto {
-    let config = lock_ok(&state.config).clone();
-    match resolve_google_location(&config) {
-        Ok(p) => GoogleLocationDto {
-            path: Some(p.to_string_lossy().into_owned()),
-            error: None,
-        },
-        Err(e) => GoogleLocationDto {
-            path: None,
-            error: Some(e),
-        },
-    }
+async fn google_location(app: tauri::AppHandle) -> Result<GoogleLocationDto, String> {
+    on_blocking(app, |state| {
+        let config = lock_ok(&state.config).clone();
+        Ok(match resolve_google_location(&config) {
+            Ok((_, p)) => GoogleLocationDto {
+                path: Some(p.to_string_lossy().into_owned()),
+                error: None,
+            },
+            Err(e) => GoogleLocationDto {
+                path: None,
+                error: Some(e),
+            },
+        })
+    })
+    .await
 }
 
 /// 取り込みのあとに Google 用フォルダへ置くかを切り替える。**入れるときは場所を決めて作る**
 /// ——決まらない（取り込み先が無い・ドライブ丸ごと等）なら入れずに理由を返す。
 /// 切っても、置いたものはそのまま（姿「一度並んだら、そのあと pictkura は何もしない」）
 #[tauri::command]
-fn set_google_enabled(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
-    if enabled {
-        let config = lock_ok(&state.config).clone();
-        prepare_google_folder(&resolve_google_location(&config)?)?;
-    }
-    update_config(&state, |c| c.google_mirror.enabled = enabled)
+async fn set_google_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    on_blocking(app, move |state| {
+        if enabled {
+            let config = lock_ok(&state.config).clone();
+            let (dest, dir) = resolve_google_location(&config)?;
+            prepare_google_folder(&dir, &google_roots(&config, &dest))?;
+        }
+        update_config(state, |c| c.google_mirror.enabled = enabled)
+    })
+    .await
 }
 
 /// Google 用フォルダの場所を選び直す。**取り込み先と同じドライブ**（ハードリンクはドライブを
 /// 越えられない）で、ライブラリと重ならず、同期フォルダの外で、リンクを張れること。
 /// 同じドライブに前に選んだ場所があれば置き換える（ドライブごとに1つ）。
 /// 前の場所に置いたものは動かさない
+///
+/// 据え置き（ゲート2）: 確かめてから保存するまでの間に取り込み先やルートが変わると、古い前提で
+/// 保存しうる。置くたびに [`pictkura_core::mirror::check_dir`] が見直すので、黙って壊れはしない
 #[tauri::command]
-fn set_google_location(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
-    use pictkura_core::mirror::{check_location, same_volume};
-    let dir = PathBuf::from(&path);
-    if !dir.is_dir() {
-        return Err(errs::coded("errFolderMissing", path));
-    }
-    let config = lock_ok(&state.config).clone();
-    let Some(dest) = config.routing.destination.clone() else {
-        return Err(errs::code("errNoDestination"));
-    };
-    if !same_volume(&dest, &dir)
-        .map_err(|e| errs::from_err(pictkura_core::mirror::MirrorError::Io(e)))?
-    {
-        return Err(errs::coded("errGoogleOtherDrive", path));
-    }
-    check_location(&dir, &google_roots(&config, &dest)).map_err(errs::from_err)?;
-    prepare_google_folder(&dir)?;
-    update_config(&state, |c| {
-        let locations = &mut c.google_mirror.locations;
+async fn set_google_location(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use pictkura_core::mirror::same_volume;
+    on_blocking(app, move |state| {
+        let dir = PathBuf::from(&path);
+        if !dir.is_dir() {
+            return Err(errs::coded("errFolderMissing", path));
+        }
+        let config = lock_ok(&state.config).clone();
+        let Some(dest) = config.routing.destination.clone() else {
+            return Err(errs::code("errNoDestination"));
+        };
+        // 取り込み先が見えないのは選び方の誤りではない。読み書きの失敗として記録しない（ゲート2）
+        if !dest.is_dir() {
+            return Err(errs::coded("errFolderMissing", dest.display()));
+        }
+        if !same_volume(&dest, &dir)
+            .map_err(|e| errs::from_err(pictkura_core::mirror::MirrorError::Io(e)))?
+        {
+            return Err(errs::coded("errGoogleOtherDrive", path));
+        }
+        prepare_google_folder(&dir, &google_roots(&config, &dest))?;
+        // 同じドライブの前の場所を外す。**ディスクに触るので、設定の鍵の外で決める**（ゲート2）。
         // 外したドライブの場所は比べられないので残す（[`location_for_root`] と同じく、在る場所か親で見る）
-        locations.retain(|loc| {
-            let probe = if loc.exists() {
-                Some(loc.as_path())
-            } else {
-                loc.parent()
-            };
-            !probe.is_some_and(|p| p.is_dir() && same_volume(p, &dir).unwrap_or(false))
-        });
-        locations.push(dir);
+        let keep: Vec<PathBuf> = config
+            .google_mirror
+            .locations
+            .iter()
+            .filter(|loc| {
+                let probe = if loc.exists() {
+                    Some(loc.as_path())
+                } else {
+                    loc.parent()
+                };
+                !probe.is_some_and(|p| p.is_dir() && same_volume(p, &dir).unwrap_or(false))
+            })
+            .cloned()
+            .chain(std::iter::once(dir.clone()))
+            .collect();
+        update_config(state, |c| c.google_mirror.locations = keep)
     })
+    .await
 }
 
 /// 動画も Google 用フォルダへ置くか（2026-10-06 利用者: 既定は置く）。

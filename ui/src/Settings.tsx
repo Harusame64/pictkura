@@ -499,8 +499,10 @@ export default function Settings({
               </button>
             </div>
             <p className="settings-note">{t.settingsGoogleFolderNote}</p>
-            {/* 場所が決まらない理由（取り込み先が無い・ドライブ丸ごと等）。選び直した失敗が先 */}
-            {(googleError ?? googleLoc?.error) && (
+            {/* 場所が決まらない理由（取り込み先が無い・ドライブ丸ごと等）は、**入れているときだけ**赤で出す
+                ——切っている人に、選んでもいない場所の断りを毎回見せない（ゲート2）。
+                入れようとすれば断られて、その理由が `googleError` に出る。選び直した失敗が先 */}
+            {(googleError ?? (google?.enabled ? googleLoc?.error : null)) && (
               <p className="settings-error">
                 {googleError ?? errText(googleLoc?.error)}
               </p>

@@ -116,12 +116,7 @@ pub fn quiet<E: Coded>(e: E) -> String {
 /// [`Coded`] を実装した型から、画面へ渡す1本の文字列を作る。
 pub fn from_err<E: Coded>(e: E) -> String {
     let malfunction = e.is_malfunction();
-    let detail = e.detail();
-    let s = if detail.is_empty() {
-        code(e.code())
-    } else {
-        coded(e.code(), detail)
-    };
+    let s = quiet(e);
     if malfunction {
         applog::note(&for_log(&s));
     }

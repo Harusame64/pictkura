@@ -523,21 +523,24 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
   maximumFractionDigits: 1,
 });
 
-/** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 /**
- * 取り込みの1行に足す、送り出し（Google フォト用のフォルダ）の結果。切っていれば空。
+ * 取り込みの1行に足す、送り出し（Google フォト用のフォルダ）へ置いた枚数。切っていれば空。
+ * **置けなかったことはここに書かない**（[`googleFailure`]。状態の1行は 32ch で切れる・ゲート2）。
  * 保留（あとで置き直す分・クラウドのみ）は出さない——次の取り込みか起動で置き直すので、
  * 利用者にできることが無い（2026-10-06 利用者）。済み（同じ実体が在った）も出さない
  */
 function googleSummary(g: GooglePlaced | null): string {
-  if (!g) return "";
-  if (g.error) return t.importGoogleError(errText(g.error));
-  return (
-    (g.placed > 0 ? t.importGoogle(g.placed) : "") +
-    (g.failed > 0 ? t.importGoogleFailed(g.failed) : "")
-  );
+  return g && !g.error && g.placed > 0 ? t.importGoogle(g.placed) : "";
 }
 
+/** 送り出しへ置けなかったこと。失敗の一本道（`fail`）へ流す文。無ければ `null` */
+function googleFailure(g: GooglePlaced | null): string | null {
+  if (!g) return null;
+  if (g.error) return t.importGoogleError(errText(g.error));
+  return g.failed > 0 ? t.importGoogleFailed(g.failed) : null;
+}
+
+/** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
   // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
   // ここだけ英語式のまま帯に載っていた。桁区切りが付くのは1000秒を超えたときだけ。
@@ -2314,10 +2317,12 @@ export default function App() {
           (stats.scan_incomplete ? t.importIncomplete : "") +
           googleSummary(stats.google),
       );
+      const googleFailed = googleFailure(stats.google);
+      if (googleFailed) fail(googleFailed);
       await refreshRoots();
       checkDecoders();
     },
-    [refreshRoots, checkDecoders],
+    [refreshRoots, checkDecoders, fail],
   );
 
   // ライブラリのルート追加の本体。手入力（onAddFolder）と
