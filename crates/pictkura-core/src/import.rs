@@ -47,6 +47,9 @@ pub struct ImportStats {
     /// 取り込み元の走査中にエラーがあった（**取りこぼしの可能性あり**）。
     /// trueの場合、UIは「すべて取り込めた」と表示してはならない
     pub scan_incomplete: bool,
+    /// この回に**コピーした**ファイルのコピー先（スキップ・失敗は入らない）。
+    /// Google 用フォルダへ置くのはこれだけ（[`crate::mirror::place_imported`]）
+    pub copied_paths: Vec<PathBuf>,
 }
 
 /// 撮影日（またはmtime）の年月日。フォルダパターンの置換に使う。
@@ -826,7 +829,10 @@ pub fn import_from(
             &mut written,
         );
         match result {
-            ImportOneResult::Copied => stats.copied += 1,
+            ImportOneResult::Copied(dest) => {
+                stats.copied += 1;
+                stats.copied_paths.push(dest);
+            }
             ImportOneResult::Skipped => stats.skipped += 1,
             ImportOneResult::Failed => stats.failed += 1,
         }
@@ -900,7 +906,10 @@ pub fn import_files(
             }
         };
         match result {
-            ImportOneResult::Copied => stats.copied += 1,
+            ImportOneResult::Copied(dest) => {
+                stats.copied += 1;
+                stats.copied_paths.push(dest);
+            }
             ImportOneResult::Skipped => stats.skipped += 1,
             ImportOneResult::Failed => stats.failed += 1,
         }
@@ -999,7 +1008,8 @@ pub fn is_already_imported(
 }
 
 enum ImportOneResult {
-    Copied,
+    /// コピー先
+    Copied(PathBuf),
     Skipped,
     Failed,
 }
@@ -1232,7 +1242,7 @@ fn import_one_with(
             // 次の1枚が要らない連番へ回される（`export.rs` の
             // `a_name_whose_export_failed_is_not_marked_as_taken` と同じ扱い）
             written.insert(&dest_path);
-            ImportOneResult::Copied
+            ImportOneResult::Copied(dest_path)
         }
         Err(_) => {
             // **中途半端なファイルを残さない**（検証に失敗した枝と同じ扱い。
@@ -1371,6 +1381,15 @@ mod tests {
             let rel = p.strip_prefix(&dest).unwrap();
             assert_eq!(rel.components().count(), 3);
         }
+        // 結果はコピー先のパスを持つ（Google 用フォルダへ置く材料）
+        let mut got = stats.copied_paths.clone();
+        got.sort();
+        let mut want = copied.clone();
+        want.sort();
+        assert_eq!(got, want);
+        // 2回目は全部スキップ: コピーしていないものは入らない
+        let again = import_from(&src, &config, |_, _, _| {}).unwrap();
+        assert_eq!((again.skipped, again.copied_paths.len()), (2, 0));
     }
 
     /// **取り込み元そのもの**にパッケージを指定したら断る。

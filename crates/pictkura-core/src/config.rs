@@ -531,7 +531,7 @@ pub struct GoogleMirrorConfig {
     /// 動画を窓口に置かないか。既定は切
     pub exclude_video: bool,
     /// RAW だけのカット（同じフォルダ・同じ名前の写真が無い RAW）をどうするか。
-    /// `exclude_raw` が入のときだけ効く（2026-10-04 利用者: 3択）
+    /// `exclude_raw` が入のときだけ効く（2026-10-05 利用者: 2択。[`RawOnly`]）
     pub raw_only: RawOnly,
     /// 利用者が選んだ窓口の場所（ボリュームごとに1つ）。無いボリュームは既定の場所
     /// （[`crate::mirror::location_for_root`]）
@@ -554,26 +554,28 @@ impl Default for GoogleMirrorConfig {
     }
 }
 
-/// RAW だけのカットの扱い。
+/// RAW だけのカット（同じフォルダ・同じ名前の写真が無い RAW）の扱い。
+///
+/// **2択（2026-10-05 利用者決定）。** #179 のときの「★のみ／全部」は採らない——★は取り込みの
+/// 時点では付いておらず、RAW そのものは Google が節約画質の JPEG に詰め直す（win の S9）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RawOnly {
-    /// 送らない
+    /// 上げない
     #[default]
     None,
-    /// ★（お気に入り）を付けたものだけ
-    Starred,
-    /// 全部
-    All,
+    /// カメラが埋め込んだ JPEG を取り出して上げる
+    EmbeddedJpeg,
 }
 
 /// **知らない値は既定（送らない）として読む**（[`PairView`] と同じ理由——窓口を使って
 /// いない人まで、この1欄の書き間違いや新しい版の値で設定ごと読めなくしない。PR の codex）
 impl<'de> Deserialize<'de> for RawOnly {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // 前の3択の値（`starred`・`all`）は「上げない」として読む。設定画面に出る前の
+        // 値なので、入れていた人は居ない
         Ok(match lenient_word(d)?.as_deref() {
-            Some("starred") => Self::Starred,
-            Some("all") => Self::All,
+            Some("embedded_jpeg") => Self::EmbeddedJpeg,
             _ => Self::None,
         })
     }
@@ -766,8 +768,10 @@ verify_after_copy = true
     #[test]
     fn an_unknown_raw_only_value_falls_back_instead_of_failing_the_file() {
         for (text, want) in [
-            ("starred", RawOnly::Starred),
-            ("ALL", RawOnly::All),
+            ("embedded_jpeg", RawOnly::EmbeddedJpeg),
+            ("EMBEDDED_JPEG", RawOnly::EmbeddedJpeg),
+            ("starred", RawOnly::None),
+            ("all", RawOnly::None),
             ("none", RawOnly::None),
             ("everything", RawOnly::None),
         ] {
@@ -779,9 +783,9 @@ verify_after_copy = true
         assert_eq!(c.google_mirror.raw_only, RawOnly::None);
         // 書いたものは読み戻せる
         let mut c = Config::default();
-        c.google_mirror.raw_only = RawOnly::Starred;
+        c.google_mirror.raw_only = RawOnly::EmbeddedJpeg;
         let back: Config = toml::from_str(&toml::to_string(&c).unwrap()).unwrap();
-        assert_eq!(back.google_mirror.raw_only, RawOnly::Starred);
+        assert_eq!(back.google_mirror.raw_only, RawOnly::EmbeddedJpeg);
     }
 
     /// 送りの動き（2026-09-27）も `[viewer]` に後から足した——無ければ手はスライド・ショーはフェード。
