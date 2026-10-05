@@ -3630,14 +3630,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("old.db");
         {
-            // #182 の形の表と、その頃の1行
+            // #182 の形の表と、その頃の1行（綴りは本物と同じく揃えて入れる——Windows では区切りが変わる）
             let conn = Connection::open(&path).unwrap();
             conn.execute_batch(
                 "CREATE TABLE google_pending (
                      source_path TEXT PRIMARY KEY,
                      dest        TEXT NOT NULL
-                 ) WITHOUT ROWID;
-                 INSERT INTO google_pending VALUES ('/lib/a.jpg', '/lib');",
+                 ) WITHOUT ROWID;",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO google_pending VALUES (?1, ?2)",
+                params![
+                    crate::paths::normalize(Path::new("/lib/a.jpg")).to_string_lossy(),
+                    crate::paths::normalize(Path::new("/lib")).to_string_lossy(),
+                ],
             )
             .unwrap();
         }
