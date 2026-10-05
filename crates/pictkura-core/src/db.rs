@@ -2761,6 +2761,27 @@ impl Db {
         })
     }
 
+    /// `link` の記録（原本・番号・取り出しか）。[`crate::mirror::Ledger::holder`]
+    pub fn google_place_holder(
+        &self,
+        link: &Path,
+    ) -> Result<Option<(PathBuf, u64, bool)>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT source_path, file_index, extracted FROM google_placed WHERE link_path = ?1",
+                params![crate::paths::normalize(link).to_string_lossy()],
+                |r| {
+                    Ok((
+                        PathBuf::from(r.get::<_, String>(0)?),
+                        r.get::<_, i64>(1)? as u64,
+                        r.get::<_, i64>(2)? == 1,
+                    ))
+                },
+            )
+            .optional()?)
+    }
+
     /// 前から在った行に、いま張ってある実体の番号を書き直す（[`crate::mirror::Ledger::renumber`]）。
     pub fn google_place_renumber(&mut self, placed: &crate::mirror::Placed) -> Result<(), DbError> {
         self.conn.execute(

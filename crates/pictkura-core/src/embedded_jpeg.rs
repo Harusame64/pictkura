@@ -11,7 +11,16 @@
 
 use std::path::Path;
 
-/// `raw` の埋め込み JPEG を、向きを直し撮影日時を入れて返す。取り出せる絵が無ければ `None`。
+/// [`for_google`] が絵を返せなかった理由。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Missing {
+    /// **ファイルを最後まで見たうえで**絵が無い（ビューアでも枠だけの機種）。何度やっても同じ
+    NoPreview,
+    /// 読み切れなかった（共有ロック・入出力の誤り等）。あとで読めば出るかもしれない（ゲート1）
+    Unreadable,
+}
+
+/// `raw` の埋め込み JPEG を、向きを直し撮影日時を入れて返す。
 ///
 /// - 向きは [`crate::thumbs::raw_display_jpeg`] と同じに直す（向きが1でなければ画素を回して
 ///   詰め直す。そのとき元の EXIF は落ちる）
@@ -19,21 +28,47 @@ use std::path::Path;
 ///   撮影日時もカメラ名も実体と同じものが入っている。回した絵は EXIF を持たないので、
 ///   向きの印と画素が食い違うことはない
 /// - EXIF が無ければ撮影日時だけを入れる。日時が読めなければ絵だけを返す
-pub fn for_google(raw: &Path) -> Option<Vec<u8>> {
+pub fn for_google(raw: &Path) -> Result<Vec<u8>, Missing> {
     let exif = crate::thumbs::read_exif(raw);
-    let preview = exif.thumbnail?;
+    let Some(preview) = exif.thumbnail else {
+        // 読めなかっただけの空振りを「絵が無い」と決めつけない（[`crate::thumbs::ExifData::preview_exhausted`]）
+        return Err(if exif.preview_exhausted {
+            Missing::NoPreview
+        } else {
+            Missing::Unreadable
+        });
+    };
+    // 切手ほどの絵（IFD1 の 160x120 等）を写真として送らない。大きいプレビューを探し損ねた
+    // ときにも、これが残っていることがある（ゲート2）
+    if preview_long_edge(&preview) < MIN_LONG_EDGE {
+        return Err(Missing::NoPreview);
+    }
     let jpeg = if exif.orientation == 1 {
         preview
     } else {
-        crate::thumbs::rotate_raw_preview(&preview, exif.orientation)?
+        // 絵として読めないプレビューは、何度読んでも同じ
+        crate::thumbs::rotate_raw_preview(&preview, exif.orientation).ok_or(Missing::NoPreview)?
     };
     if has_exif(&jpeg) {
-        return Some(jpeg);
+        return Ok(jpeg);
     }
-    match exif.taken_at_ms.and_then(exif_datetime) {
-        Some(dt) => with_capture_time(&jpeg, &dt).or(Some(jpeg)),
-        None => Some(jpeg),
-    }
+    Ok(match exif.taken_at_ms.and_then(exif_datetime) {
+        Some(dt) => with_capture_time(&jpeg, &dt).unwrap_or(jpeg),
+        None => jpeg,
+    })
+}
+
+/// 送る絵の長辺の下限。これより小さいプレビューしか持たない RAW（古い機種・中判の一部）は
+/// 「絵が無い」として送らない——家族のアルバムに切手が並ぶだけになる
+/// （`dev/google-embedded-jpeg-mac-20261006.tsv`: 60本中、640px 以下は古い機種と中判の14本）
+pub const MIN_LONG_EDGE: u32 = 1000;
+
+fn preview_long_edge(jpeg: &[u8]) -> u32 {
+    image::ImageReader::new(std::io::Cursor::new(jpeg))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_dimensions().ok())
+        .map_or(0, |(w, h)| w.max(h))
 }
 
 /// 撮影日時（[`crate::thumbs::ExifData::taken_at_ms`]）を EXIF の `YYYY:MM:DD HH:MM:SS` に戻す。

@@ -4627,10 +4627,11 @@ fn note_google_sweep(
 ) {
     match result {
         // 外したものがあれば毎回書く（ゴミ箱へ渡した先を残す）。外せなかっただけの回は一度だけ
-        Ok(r) if r.removed + r.discarded > 0 => applog::note(&format!(
-            "Google 用フォルダ: リンクを {} 件外した・{} 件ゴミ箱へ・{} 件外せなかった{}",
+        Ok(r) if r.removed + r.discarded + r.deleted > 0 => applog::note(&format!(
+            "Google 用フォルダ: リンクを {} 件外した・{} 件ゴミ箱へ・取り出した JPEG を {} 件消した・{} 件外せなかった{}",
             r.removed,
             r.discarded,
+            r.deleted,
             r.failed.len(),
             r.failed
                 .first()
