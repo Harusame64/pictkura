@@ -4287,11 +4287,16 @@ fn note_google_retry(
     result: Result<Option<pictkura_core::mirror::PlaceReport>, pictkura_core::mirror::MirrorError>,
 ) {
     match result {
+        // 置けなかったときは最初の1件の理由も残す——数だけでは直し方が分からない（win の実機）
         Ok(Some(r)) if r.placed + r.failed.len() > 0 => applog::note(&format!(
-            "Google 用フォルダ: 保留から {} 件置いた・{} 件置けなかった（うち {} 件は保留のまま）",
+            "Google 用フォルダ: 保留から {} 件置いた・{} 件置けなかった（うち {} 件は保留のまま）{}",
             r.placed,
             r.failed.len(),
-            r.retry.len()
+            r.retry.len(),
+            r.failed
+                .first()
+                .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                .unwrap_or_default()
         )),
         Ok(_) => {}
         Err(e) => applog::note(&format!("Google 用フォルダ: 保留を置き直せなかった: {e}")),
