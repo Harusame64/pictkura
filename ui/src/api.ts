@@ -100,6 +100,20 @@ export interface ImportStats {
   failed: number;
   /** 取り込み元の走査でエラーがあった（取りこぼしの可能性） */
   scan_incomplete: boolean;
+  /** Google 用フォルダへ置いた結果。設定で切っていれば null（画面に出すのは設定画面の PR） */
+  google: GooglePlaced | null;
+}
+
+/** 取り込みのあとに Google 用フォルダへ置いた結果（`GooglePlacedDto`） */
+export interface GooglePlaced {
+  placed: number;
+  already: number;
+  /** 埋め込み JPEG で置くと決めたが、取り出しがまだ無いもの */
+  later: number;
+  cloud_only: number;
+  failed: number;
+  /** 1件も置けなかった理由（場所が決まらない等） */
+  error: string | null;
 }
 
 export interface ExportStats {

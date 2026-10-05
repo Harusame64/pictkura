@@ -33,13 +33,6 @@ use crate::search::MediaKind;
 /// Google 用フォルダの名前（ドライブごとの既定の場所で使う）。
 pub const MIRROR_DIR_NAME: &str = "pictkura-google";
 
-/// 置くかどうかを決める1件の材料（取り込んだ原本）。
-#[derive(Debug, Clone)]
-pub struct Item {
-    pub path: PathBuf,
-    pub favorite: bool,
-}
-
 /// 置くと決めた1件。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
@@ -47,6 +40,10 @@ pub struct Placement {
     pub source: PathBuf,
     /// Google 用フォルダの中での場所（原本の、持ち主のルートからの相対パス）
     pub rel: PathBuf,
+    /// 原本そのものではなく、**埋め込み JPEG を取り出して置く**（RAW だけのカット・
+    /// [`RawOnly::EmbeddedJpeg`]）。取り出しはまだ無い（設計書の PR5）ので、[`place`] は
+    /// [`PlaceReport::later`] に数えるだけで何も書かない
+    pub embedded: bool,
 }
 
 /// どれを置くかを決める。
@@ -60,9 +57,10 @@ pub struct Placement {
 ///   その原本を「オンラインのみ」にできなくなり、空き容量を増やせない）
 /// - どのルートにも入らないものは置かない
 ///
-/// 返す順は `items` の順。`photo_on_disk` は [`photos_on_disk`] を渡す（試験は偽物を渡す）。
+/// `items` はこの回に取り込んだ原本（コピー先のパス）。返す順は `items` の順。
+/// `photo_on_disk` は [`photos_on_disk`] を渡す（試験は偽物を渡す）。
 pub fn plan(
-    items: &[Item],
+    items: &[PathBuf],
     roots: &[PathBuf],
     cfg: &GoogleMirrorConfig,
     photo_on_disk: &mut dyn FnMut(&Path) -> bool,
@@ -76,22 +74,19 @@ pub fn plan(
 }
 
 fn plan_with(
-    items: &[Item],
+    items: &[PathBuf],
     roots: &[PathBuf],
     cfg: &GoogleMirrorConfig,
     photo_on_disk: &mut dyn FnMut(&Path) -> bool,
     onedrive: &[PathBuf],
 ) -> Vec<Placement> {
-    let kinds: Vec<MediaKind> = items
-        .iter()
-        .map(|i| MediaKind::from_path(&i.path))
-        .collect();
+    let kinds: Vec<MediaKind> = items.iter().map(|i| MediaKind::from_path(i)).collect();
     // 組の相方になれる「写真」の鍵。RAW だけのカットかどうかはこれで決まる
     let photo_keys: HashSet<(PathBuf, std::ffi::OsString)> = items
         .iter()
         .zip(&kinds)
         .filter(|(_, k)| **k == MediaKind::Photo)
-        .map(|(i, _)| pair_key_folded(&i.path))
+        .map(|(i, _)| pair_key_folded(i))
         .collect();
     // 解決した場所と、綴りのままの場所の両方で比べる。**解決できない OneDrive を黙って
     // 落とさない**——落とすと判定ごと素通りして、既定で守るものを失う（ゲート2）
@@ -112,40 +107,39 @@ fn plan_with(
     };
 
     let mut out = Vec::new();
-    for (item, kind) in items.iter().zip(kinds) {
+    for (path, kind) in items.iter().zip(kinds) {
+        // `Some(埋め込みか)`＝置く
         let wanted = match kind {
-            MediaKind::Photo => true,
-            MediaKind::Video => !cfg.exclude_video,
-            MediaKind::Raw if !cfg.exclude_raw => true,
+            MediaKind::Photo => Some(false),
+            MediaKind::Video => (!cfg.exclude_video).then_some(false),
+            MediaKind::Raw if !cfg.exclude_raw => Some(false),
             MediaKind::Raw => {
-                let paired =
-                    photo_keys.contains(&pair_key_folded(&item.path)) || photo_on_disk(&item.path);
-                !paired
-                    && match cfg.raw_only {
-                        RawOnly::None => false,
-                        RawOnly::Starred => item.favorite,
-                        RawOnly::All => true,
-                    }
+                let paired = photo_keys.contains(&pair_key_folded(path)) || photo_on_disk(path);
+                match cfg.raw_only {
+                    _ if paired => None,
+                    RawOnly::None => None,
+                    RawOnly::EmbeddedJpeg => Some(true),
+                }
             }
         };
         // OS の置き物の名前（`._IMG_1.JPG` は AppleDouble で写真ではない）は置かない
-        if !wanted || item.path.file_name().is_some_and(is_os_litter) {
+        let Some(embedded) = wanted.filter(|_| !path.file_name().is_some_and(is_os_litter)) else {
             continue;
-        }
+        };
         // 安いほうを先に（どのルートにも入らないものはディスクを引かずに落とす。ゲート2）
-        let Some(rel) = owning_root(&item.path, roots) else {
+        let Some(rel) = owning_root(path, roots) else {
             continue;
         };
         if !onedrive.is_empty()
-            && (spelled.iter().any(|d| fold_path(&item.path).starts_with(d))
-                || in_onedrive(&item.path))
+            && (spelled.iter().any(|d| fold_path(path).starts_with(d)) || in_onedrive(path))
         {
             continue;
         }
         if is_plain_relative(&rel) {
             out.push(Placement {
-                source: item.path.clone(),
+                source: path.clone(),
                 rel,
+                embedded,
             });
         }
     }
@@ -309,6 +303,8 @@ pub struct PlaceReport {
     pub already: usize,
     /// クラウドのみなので置かなかったもの（置くと Google が読みに行った瞬間に取り寄せが走る）
     pub cloud_only: usize,
+    /// 埋め込み JPEG で置くと決めたが、取り出しがまだ無いので置かなかったもの（設計書の PR5）
+    pub later: usize,
     /// 失敗（原本と理由）
     pub failed: Vec<(PathBuf, String)>,
 }
@@ -346,6 +342,10 @@ pub fn place(
         let fail = |report: &mut PlaceReport, why: String| {
             report.failed.push((p.source.clone(), why));
         };
+        if p.embedded {
+            report.later += 1;
+            continue;
+        }
         if !is_plain_relative(&p.rel) {
             fail(
                 &mut report,
@@ -469,6 +469,69 @@ pub struct Recorded {
     pub link: PathBuf,
     /// 置いたときの実体の番号（[`Placed::index`]）
     pub index: u64,
+}
+
+/// DB の `google_placed` を記録に使う [`Ledger`]。
+pub struct DbLedger<'a> {
+    pub db: &'a mut crate::db::Db,
+    /// 置く先の Google 用フォルダ（記録の `dir`）
+    pub dir: PathBuf,
+}
+
+impl Ledger for DbLedger<'_> {
+    fn claim(&mut self, placed: &Placed) -> io::Result<Claim> {
+        self.db
+            .google_place_claim(placed, &self.dir)
+            .map_err(io::Error::other)
+    }
+
+    fn release(&mut self, placed: &Placed) {
+        // 消せなくても、リンクの無い記録が残るだけ（外すときに「もう無い」として消える）
+        let _ = self
+            .db
+            .google_place_forget(std::slice::from_ref(&placed.link));
+    }
+
+    fn renumber(&mut self, placed: &Placed) -> io::Result<()> {
+        self.db
+            .google_place_renumber(placed)
+            .map_err(io::Error::other)
+    }
+}
+
+/// 取り込みでコピーしたものを Google 用フォルダへ置く（取り込みの最後に1回呼ぶ）。
+///
+/// - 設定で切っていれば何もしない（`None`）
+/// - 置く先は取り込み先のドライブの Google 用フォルダ（[`location_for_root`]）
+/// - `config` は**取り込み先をルートに足したあと**のもの（相対パスはルートから取る）
+///
+/// **同じフォルダに対して同時に2本走らせないこと**（呼び出し側が1本ずつ回す。[`place`]）。
+pub fn place_imported(
+    copied: &[PathBuf],
+    dest: &Path,
+    config: &crate::Config,
+    db: &mut crate::db::Db,
+) -> Result<Option<PlaceReport>, MirrorError> {
+    let g = &config.google_mirror;
+    if !g.enabled {
+        return Ok(None);
+    }
+    let roots = &config.library.roots;
+    let placements = plan(
+        copied,
+        roots,
+        g,
+        &mut photos_on_disk(&config.import.extensions),
+    );
+    if placements.is_empty() {
+        return Ok(Some(PlaceReport::default()));
+    }
+    let dir = location_for_root(dest, &g.locations, roots)?;
+    let mut ledger = DbLedger {
+        db,
+        dir: dir.clone(),
+    };
+    place(&dir, roots, &placements, &mut ledger).map(Some)
 }
 
 /// [`unplace`] の結果。
@@ -1067,16 +1130,21 @@ mod tests {
     use super::*;
     use crate::config::GoogleMirrorConfig;
 
-    fn item(p: &str, favorite: bool) -> Item {
-        Item {
-            path: PathBuf::from(p),
-            favorite,
-        }
+    fn item(p: &str) -> PathBuf {
+        PathBuf::from(p)
     }
 
+    /// 埋め込み JPEG で置くものには `*` を付ける
     fn rels(ps: &[Placement]) -> Vec<String> {
         ps.iter()
-            .map(|p| p.rel.to_string_lossy().replace('\\', "/"))
+            .map(|p| {
+                let r = p.rel.to_string_lossy().replace('\\', "/");
+                if p.embedded {
+                    format!("{r}*")
+                } else {
+                    r
+                }
+            })
             .collect()
     }
 
@@ -1092,19 +1160,19 @@ mod tests {
         |_: &Path| false
     }
 
-    fn plan_of(items: &[Item], roots: &[PathBuf], c: &GoogleMirrorConfig) -> Vec<Placement> {
+    fn plan_of(items: &[PathBuf], roots: &[PathBuf], c: &GoogleMirrorConfig) -> Vec<Placement> {
         plan_with(items, roots, c, &mut nothing_on_disk(), &[])
     }
 
     const ROOT: &str = "/lib/Photos";
 
-    fn shoot() -> Vec<Item> {
+    fn shoot() -> Vec<PathBuf> {
         vec![
-            item("/lib/Photos/d/A.ARW", false),
-            item("/lib/Photos/d/a.jpg", false), // 組（大文字小文字を畳む）
-            item("/lib/Photos/d/B.ARW", false), // RAW だけ・★なし
-            item("/lib/Photos/d/C.CR3", true),  // RAW だけ・★あり
-            item("/lib/Photos/d/clip.mp4", false),
+            item("/lib/Photos/d/A.ARW"),
+            item("/lib/Photos/d/a.jpg"), // 組（大文字小文字を畳む）
+            item("/lib/Photos/d/B.ARW"), // RAW だけ
+            item("/lib/Photos/d/C.CR3"), // RAW だけ
+            item("/lib/Photos/d/clip.mp4"),
         ]
     }
 
@@ -1115,33 +1183,33 @@ mod tests {
     }
 
     #[test]
-    fn raw_only_shots_follow_the_three_way_setting() {
+    fn raw_only_shots_follow_the_two_way_setting() {
         let roots = [PathBuf::from(ROOT)];
-        let starred = plan_of(&shoot(), &roots, &cfg(RawOnly::Starred));
-        assert_eq!(rels(&starred), ["d/a.jpg", "d/C.CR3", "d/clip.mp4"]);
-        let all = plan_of(&shoot(), &roots, &cfg(RawOnly::All));
-        assert_eq!(rels(&all), ["d/a.jpg", "d/B.ARW", "d/C.CR3", "d/clip.mp4"]);
+        let none = plan_of(&shoot(), &roots, &cfg(RawOnly::None));
+        assert_eq!(rels(&none), ["d/a.jpg", "d/clip.mp4"]);
+        let embedded = plan_of(&shoot(), &roots, &cfg(RawOnly::EmbeddedJpeg));
+        assert_eq!(
+            rels(&embedded),
+            ["d/a.jpg", "d/B.ARW*", "d/C.CR3*", "d/clip.mp4"]
+        );
     }
 
     #[test]
-    fn a_paired_raw_stays_home_even_when_starred_and_all_is_chosen() {
-        let items = [
-            item("/lib/Photos/d/A.ARW", true),
-            item("/lib/Photos/d/A.JPG", false),
-        ];
-        let got = plan_of(&items, &[ROOT.into()], &cfg(RawOnly::All));
+    fn a_paired_raw_stays_home_even_when_embedded_jpegs_are_chosen() {
+        let items = [item("/lib/Photos/d/A.ARW"), item("/lib/Photos/d/A.JPG")];
+        let got = plan_of(&items, &[ROOT.into()], &cfg(RawOnly::EmbeddedJpeg));
         assert_eq!(rels(&got), ["d/A.JPG"]);
     }
 
     #[test]
     fn a_partner_already_on_disk_pairs_a_raw_imported_later() {
         // JPEG は前の回に取り込み済み。この回は RAW だけ
-        let items = [item("/lib/Photos/d/A.ARW", true)];
+        let items = [item("/lib/Photos/d/A.ARW")];
         let mut on_disk = |p: &Path| p.file_stem() == Some(std::ffi::OsStr::new("A"));
         let got = plan_with(
             &items,
             &[ROOT.into()],
-            &cfg(RawOnly::All),
+            &cfg(RawOnly::EmbeddedJpeg),
             &mut on_disk,
             &[],
         );
@@ -1150,12 +1218,9 @@ mod tests {
 
     #[test]
     fn a_video_is_not_a_partner_for_a_raw() {
-        let items = [
-            item("/lib/Photos/d/A.ARW", false),
-            item("/lib/Photos/d/A.MOV", false),
-        ];
-        let got = plan_of(&items, &[ROOT.into()], &cfg(RawOnly::All));
-        assert_eq!(rels(&got), ["d/A.ARW", "d/A.MOV"]);
+        let items = [item("/lib/Photos/d/A.ARW"), item("/lib/Photos/d/A.MOV")];
+        let got = plan_of(&items, &[ROOT.into()], &cfg(RawOnly::EmbeddedJpeg));
+        assert_eq!(rels(&got), ["d/A.ARW*", "d/A.MOV"]);
     }
 
     #[test]
@@ -1173,9 +1238,9 @@ mod tests {
     fn a_file_belongs_to_the_outermost_root_and_strays_are_skipped() {
         let roots = [PathBuf::from("/lib"), PathBuf::from("/lib/Photos")];
         let items = [
-            item("/lib/Photos/1.jpg", false),
-            item("/lib/x.jpg", false),
-            item("/elsewhere/2.jpg", false),
+            item("/lib/Photos/1.jpg"),
+            item("/lib/x.jpg"),
+            item("/elsewhere/2.jpg"),
         ];
         let got = plan_of(&items, &roots, &GoogleMirrorConfig::default());
         assert_eq!(rels(&got), ["Photos/1.jpg", "x.jpg"]);
@@ -1183,7 +1248,7 @@ mod tests {
 
     #[test]
     fn a_root_spelled_in_another_case_still_owns_its_files() {
-        let items = [item("/lib/Photos/d/1.jpg", false)];
+        let items = [item("/lib/Photos/d/1.jpg")];
         let got = plan_of(
             &items,
             &["/lib/photos".into()],
@@ -1202,16 +1267,16 @@ mod tests {
             return;
         }
         let items = [
-            item("/lib/Photos/Trip/A.ARW", true),
-            item("/lib/Photos/trip/A.JPG", false),
+            item("/lib/Photos/Trip/A.ARW"),
+            item("/lib/Photos/trip/A.JPG"),
         ];
-        let got = plan_of(&items, &[ROOT.into()], &cfg(RawOnly::All));
+        let got = plan_of(&items, &[ROOT.into()], &cfg(RawOnly::EmbeddedJpeg));
         assert_eq!(rels(&got), ["trip/A.JPG"]);
     }
 
     #[test]
     fn os_litter_is_never_planned() {
-        let items = [item("/lib/Photos/d/._a.jpg", false)];
+        let items = [item("/lib/Photos/d/._a.jpg")];
         assert!(plan_of(&items, &[ROOT.into()], &GoogleMirrorConfig::default()).is_empty());
     }
 
@@ -1221,10 +1286,7 @@ mod tests {
         let od = f.lib.join("OneDrive");
         put(&od.join("d/a.jpg"), b"photo");
         put(&f.lib.join("d/b.jpg"), b"photo");
-        let items = [
-            item(od.join("d/a.jpg").to_str().unwrap(), false),
-            item(f.lib.join("d/b.jpg").to_str().unwrap(), false),
-        ];
+        let items = [od.join("d/a.jpg"), f.lib.join("d/b.jpg")];
         let roots = [f.lib.clone()];
         let c = GoogleMirrorConfig::default();
         let got = plan_with(
@@ -1243,7 +1305,7 @@ mod tests {
     #[test]
     fn an_original_whose_folder_cannot_be_resolved_counts_as_inside_onedrive() {
         // 在る祖先が1つも無い綴り（解決できない）
-        let items = [item("no-such-root/d/a.jpg", false)];
+        let items = [item("no-such-root/d/a.jpg")];
         let roots = [PathBuf::from("no-such-root")];
         let c = GoogleMirrorConfig::default();
         let od = [std::env::temp_dir()];
@@ -1263,6 +1325,7 @@ mod tests {
         let p = Placement {
             source: src,
             rel: PathBuf::from("d/null"),
+            embedded: false,
         };
         /// 記録に手を付けたら落ちる
         struct Untouched;
@@ -1358,6 +1421,7 @@ mod tests {
         Placement {
             source: lib.join(rel),
             rel: PathBuf::from(rel),
+            embedded: false,
         }
     }
 
@@ -1659,6 +1723,7 @@ mod tests {
         let p = Placement {
             source: f.lib.join("d/a.jpg"),
             rel: PathBuf::from("alias/album/a.jpg"),
+            embedded: false,
         };
         let r = Book::default().place(&f, &[p]);
         assert_eq!(r.failed.len(), 1);
@@ -1803,6 +1868,53 @@ mod tests {
         probe_hard_links(&f.lib).unwrap();
         assert_eq!(std::fs::read(&src).unwrap(), b"photo");
         assert!(squatter.exists());
+    }
+
+    #[test]
+    fn an_embedded_jpeg_placement_is_counted_for_later_and_writes_nothing() {
+        let f = fixture();
+        put(&f.lib.join("d/B.ARW"), b"raw");
+        let p = Placement {
+            embedded: true,
+            ..placement(&f.lib, "d/B.ARW")
+        };
+        let mut book = Book::default();
+        let r = book.place(&f, &[p]);
+        assert_eq!((r.later, r.placed, r.failed.len()), (1, 0, 0));
+        assert!(book.0.is_empty());
+        assert!(!f.google.join("d").exists());
+    }
+
+    #[test]
+    fn placing_what_was_imported_records_it_in_the_database() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        put(&f.lib.join("d/B.ARW"), b"raw");
+        let mut config = crate::Config::default();
+        config.library.roots = vec![f.lib.clone()];
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let copied = [f.lib.join("d/a.jpg"), f.lib.join("d/B.ARW")];
+        // 切のあいだは何もしない
+        assert_eq!(
+            place_imported(&copied, &f.lib, &config, &mut db).unwrap(),
+            None
+        );
+        config.google_mirror.enabled = true;
+        config.google_mirror.locations = vec![f.google.clone()];
+        let r = place_imported(&copied, &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        // RAW だけは既定で上げない
+        assert_eq!((r.placed, r.failed.len()), (1, 0));
+        assert!(same_file(&f.lib.join("d/a.jpg"), &f.google.join("d/a.jpg")).unwrap());
+        let rows = db
+            .google_placed_for_sources(&[f.lib.join("d/a.jpg")])
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, f.google);
+        // 記録どおりに外せる
+        let u = unplace(&f.google, &[rows[0].1.clone()], &mut no_discard());
+        assert_eq!(u.removed, 1);
     }
 
     #[test]

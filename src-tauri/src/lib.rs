@@ -3959,6 +3959,22 @@ struct ImportStatsDto {
     failed: usize,
     /// 取り込み元の走査でエラーがあった（取りこぼしの可能性）
     scan_incomplete: bool,
+    /// Google 用フォルダへ置いた結果。設定で切っていれば `None`
+    google: Option<GooglePlacedDto>,
+}
+
+/// 取り込みのあとに Google 用フォルダへ置いた結果（[`pictkura_core::mirror::place_imported`]）。
+/// 置けなくても取り込みは成功のまま——コピーは済んでいる。
+#[derive(serde::Serialize, Clone, Default)]
+struct GooglePlacedDto {
+    placed: usize,
+    already: usize,
+    /// 埋め込み JPEG で置くと決めたが、取り出しがまだ無いもの
+    later: usize,
+    cloud_only: usize,
+    failed: usize,
+    /// 1件も置けなかった理由（場所が決まらない等）。1件ずつの失敗は `failed` に数える
+    error: Option<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -4244,7 +4260,8 @@ fn finish_import(
     state: &tauri::State<'_, AppState>,
     source: PathBuf,
     dest: Option<PathBuf>,
-) -> Result<(), String> {
+    copied: &[PathBuf],
+) -> Result<Option<GooglePlacedDto>, String> {
     update_config(state, |c| {
         c.import.last_source_dir = Some(source);
         if let Some(dest) = dest.clone() {
@@ -4259,8 +4276,58 @@ fn finish_import(
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
         let sync_stats = scan_and_apply_root(state, dest)?;
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
+        return Ok(place_google_links(state, dest, copied));
     }
-    Ok(())
+    Ok(None)
+}
+
+/// 取り込みでコピーしたものを Google 用フォルダへ置く（設計書 `dev/plan.google-photos-at-import.md`）。
+/// **取り込み先をルートに足したあとの設定**で決める（相対パスはルートから取る）。
+/// 走査と同じ鍵で1本ずつ回す——同じフォルダへ2本同時に置かない。
+fn place_google_links(
+    state: &tauri::State<'_, AppState>,
+    dest: &Path,
+    copied: &[PathBuf],
+) -> Option<GooglePlacedDto> {
+    let config = lock_ok(&state.config).clone();
+    if !config.google_mirror.enabled {
+        return None;
+    }
+    let _scan_guard = lock_ok(&state.scan_lock);
+    let result = Db::open(&state.db_path)
+        .map_err(|e| e.to_string())
+        .and_then(|mut db| {
+            pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
+                .map_err(|e| e.to_string())
+        });
+    let dto = match result {
+        Ok(Some(r)) => {
+            if let Some((path, why)) = r.failed.first() {
+                applog::note(&format!(
+                    "Google 用フォルダ: {} 件置けなかった（最初: {}: {why}）",
+                    r.failed.len(),
+                    path.display()
+                ));
+            }
+            GooglePlacedDto {
+                placed: r.placed,
+                already: r.already,
+                later: r.later,
+                cloud_only: r.cloud_only,
+                failed: r.failed.len(),
+                error: None,
+            }
+        }
+        Ok(None) => return None,
+        Err(e) => {
+            applog::note(&format!("Google 用フォルダ: 置けなかった: {e}"));
+            GooglePlacedDto {
+                error: Some(e),
+                ..GooglePlacedDto::default()
+            }
+        }
+    };
+    Some(dto)
 }
 
 /// USB等のフォルダから取り込み（コピー）を実行し、コピー先をライブラリへ反映する。
@@ -4285,13 +4352,14 @@ async fn import_from_folder(
         })
         .map_err(errs::from_err)?;
 
-        finish_import(&app, &state, source, dest)?;
+        let google = finish_import(&app, &state, source, dest, &stats.copied_paths)?;
 
         Ok(ImportStatsDto {
             copied: stats.copied,
             skipped: stats.skipped,
             failed: stats.failed,
             scan_incomplete: stats.scan_incomplete,
+            google,
         })
     })
     .await
@@ -4499,12 +4567,19 @@ async fn import_paths(
             })
             .map_err(errs::from_err)?;
 
-        finish_import(&app, &state, PathBuf::from(&source_dir), dest)?;
+        let google = finish_import(
+            &app,
+            &state,
+            PathBuf::from(&source_dir),
+            dest,
+            &stats.copied_paths,
+        )?;
         Ok(ImportStatsDto {
             copied: stats.copied,
             skipped: stats.skipped,
             failed: stats.failed,
             scan_incomplete: stats.scan_incomplete,
+            google,
         })
     })
     .await
