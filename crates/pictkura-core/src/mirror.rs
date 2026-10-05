@@ -129,12 +129,13 @@ fn plan_with(
         if !wanted || item.path.file_name().is_some_and(is_os_litter) {
             continue;
         }
-        if !onedrive.is_empty() && in_onedrive(&item.path) {
-            continue;
-        }
+        // 安いほうを先に（どのルートにも入らないものはディスクを引かずに落とす。ゲート2）
         let Some(rel) = owning_root(&item.path, roots) else {
             continue;
         };
+        if !onedrive.is_empty() && in_onedrive(&item.path) {
+            continue;
+        }
         if is_plain_relative(&rel) {
             out.push(Placement {
                 source: item.path.clone(),
@@ -296,8 +297,9 @@ pub trait Ledger {
     /// （前から在った行は、前に置いたリンクのものなので残す）。
     fn release(&mut self, placed: &Placed);
     /// [`Claim::Ours`] の行に、いま張ってある実体の番号を書き直す（原本が差し替わって
-    /// 張り直せたとき）。
-    fn renumber(&mut self, placed: &Placed);
+    /// 張り直せたとき）。**失敗したら、張ったばかりのリンクを外す**——古い番号のまま
+    /// 残すと、外すときに他人と見なされ、二度と外せないリンクになる（ゲート2）。
+    fn renumber(&mut self, placed: &Placed) -> io::Result<()>;
 }
 
 /// [`place`] の結果。
@@ -337,6 +339,7 @@ pub fn place(
         return Err(MirrorError::LinkInTheWay(dir.to_path_buf()));
     }
 
+    let dir_volume = volume_of(dir)?;
     let mut report = PlaceReport::default();
     // 置けなかった1件のために作ったフォルダ。最後に空なら畳む——Google が見ているフォルダに
     // 空のアルバムを残さない（ゲート2）
@@ -369,7 +372,7 @@ pub fn place(
             }
         };
         // 別のボリュームの原本はリンクにならない。記録もフォルダも作る前に断る（ゲート2）
-        match same_volume(&p.source, dir) {
+        match volume_of(&p.source).map(|v| v == dir_volume) {
             Ok(true) => {}
             Ok(false) => {
                 fail(
@@ -413,24 +416,35 @@ pub fn place(
                 continue;
             }
         };
+        // `Ok(true)` = この回に張った、`Ok(false)` = 同じ実体が既に在った
         let linked = match std::fs::hard_link(&p.source, &placed.link) {
-            Ok(()) => {
-                report.placed += 1;
-                Ok(())
-            }
+            Ok(()) => Ok(true),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 if !is_link(&placed.link) && same_file(&p.source, &placed.link).unwrap_or(false) {
-                    report.already += 1;
-                    Ok(())
+                    Ok(false)
                 } else {
                     Err(format!("同じ名前が既にある: {}", placed.link.display()))
                 }
             }
             Err(e) => Err(e.to_string()),
         };
+        let linked = match linked {
+            Ok(created) if claim == Claim::Ours => match ledger.renumber(&placed) {
+                Ok(()) => Ok(created),
+                Err(e) => {
+                    // 古い番号の記録のまま残すと二度と外せないので、リンクを外す。原本が在るので
+                    // 名前の数は2以上——消しても実体は残る
+                    match std::fs::remove_file(&placed.link) {
+                        Ok(()) => Err(format!("記録を書き直せない: {e}")),
+                        Err(u) => Err(format!("記録を書き直せず、リンクも外せない: {e} / {u}")),
+                    }
+                }
+            },
+            other => other,
+        };
         match linked {
-            Ok(()) if claim == Claim::Ours => ledger.renumber(&placed),
-            Ok(()) => {}
+            Ok(true) => report.placed += 1,
+            Ok(false) => report.already += 1,
             Err(why) => {
                 if claim == Claim::New {
                     ledger.release(&placed);
@@ -515,21 +529,25 @@ pub fn unplace(
                 continue;
             }
         };
-        let ours = meta.is_file()
-            && !is_link_meta(&meta)
-            && match file_id(link) {
-                Ok(id) => id.index == *index,
+        // 番号と名前の数は**同じ1回の問い合わせ**で読む（ゲート2: 2回引くと、間に差し替わった
+        // 別物の名前の数で決めることになる）
+        let id = if meta.is_file() && !is_link_meta(&meta) {
+            match file_id(link) {
+                Ok(id) => Some(id),
                 Err(e) => {
                     report.failed.push((link.clone(), e.to_string()));
                     continue;
                 }
-            };
-        if !ours {
+            }
+        } else {
+            None
+        };
+        let Some(id) = id.filter(|id| id.index == *index) else {
             report.gone += 1;
             report.forget.push(link.clone());
             continue;
-        }
-        match remove_or_discard(link, discard) {
+        };
+        match remove_or_discard(link, id.links, discard) {
             Ok(handed) => {
                 if handed {
                     report.discarded += 1;
@@ -830,9 +848,10 @@ fn is_link_meta(m: &std::fs::Metadata) -> bool {
 /// **そこにしか実体が無ければ `discard` へ渡す**。渡したら `true`。
 fn remove_or_discard(
     path: &Path,
+    links: u64,
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> io::Result<bool> {
-    if file_id(path)?.links <= 1 {
+    if links <= 1 {
         hand_over(path, discard)?;
         Ok(true)
     } else {
@@ -1221,7 +1240,9 @@ mod tests {
                 panic!("claimed {}", p.link.display())
             }
             fn release(&mut self, _: &Placed) {}
-            fn renumber(&mut self, _: &Placed) {}
+            fn renumber(&mut self, _: &Placed) -> io::Result<()> {
+                Ok(())
+            }
         }
         let r = place(
             &f.google,
@@ -1327,10 +1348,11 @@ mod tests {
         fn release(&mut self, p: &Placed) {
             self.0.retain(|r| r.link != p.link);
         }
-        fn renumber(&mut self, p: &Placed) {
+        fn renumber(&mut self, p: &Placed) -> io::Result<()> {
             for r in self.0.iter_mut().filter(|r| r.link == p.link) {
                 r.index = p.index;
             }
+            Ok(())
         }
     }
 
@@ -1467,6 +1489,42 @@ mod tests {
         // 番号が新しい実体に合っていれば、外せる
         let u = unplace(&f.google, &book.records(), &mut no_discard());
         assert_eq!(u.removed, 1);
+    }
+
+    #[test]
+    fn a_renumber_that_fails_takes_the_new_link_back() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let mut book = Book::default();
+        book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        std::fs::remove_file(f.google.join("d/a.jpg")).unwrap();
+        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
+        put(&f.lib.join("d/a.jpg"), b"new photo");
+        /// 書き直しだけが落ちる記録
+        struct Stuck(Book);
+        impl Ledger for Stuck {
+            fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
+                self.0.claim(p)
+            }
+            fn release(&mut self, p: &Placed) {
+                self.0.release(p)
+            }
+            fn renumber(&mut self, _: &Placed) -> io::Result<()> {
+                Err(io::Error::other("database is locked"))
+            }
+        }
+        let mut stuck = Stuck(book);
+        let r = place(
+            &f.google,
+            std::slice::from_ref(&f.lib),
+            &[placement(&f.lib, "d/a.jpg")],
+            &mut stuck,
+        )
+        .unwrap();
+        assert_eq!((r.placed, r.failed.len()), (0, 1));
+        // 古い番号の記録が指す名前に、新しい実体を残さない
+        assert!(!f.google.join("d/a.jpg").exists());
+        assert!(f.lib.join("d/a.jpg").exists());
     }
 
     #[test]

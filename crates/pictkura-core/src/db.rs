@@ -2728,15 +2728,22 @@ impl Db {
 
     /// 原本ごとの、記録にあるリンクと、それを置いた Google 用フォルダ（[`crate::mirror::unplace`]
     /// へ渡す組）。原本をゴミ箱へ入れるとき・走査が消滅を見つけたときに引く。
+    ///
+    /// 畳んだ鍵（[`crate::mirror::source_key`]）で引くが、**綴りまで同じ行が在ればそれだけを
+    /// 返す**——大文字小文字を区別するボリュームでは `A.jpg` と `a.jpg` が別の写真で、
+    /// 畳んだ鍵だけで引くと片方を消したときにもう片方のリンクまで外す（ゲート2）。
+    /// 綴りの同じ行が無いときだけ、USN の別の綴りとして畳んだ一致を使う。
     pub fn google_placed_for_sources(
         &self,
         sources: &[PathBuf],
     ) -> Result<Vec<(PathBuf, crate::mirror::Recorded)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT dir, link_path, file_index FROM google_placed WHERE source_key = ?1",
+            "SELECT dir, link_path, file_index, source_path FROM google_placed
+             WHERE source_key = ?1",
         )?;
         let mut out = Vec::new();
         for src in sources {
+            let exact = crate::paths::normalize(src).to_string_lossy().into_owned();
             let rows = stmt.query_map(params![crate::mirror::source_key(src)], |r| {
                 Ok((
                     PathBuf::from(r.get::<_, String>(0)?),
@@ -2744,11 +2751,16 @@ impl Db {
                         link: PathBuf::from(r.get::<_, String>(1)?),
                         index: r.get::<_, i64>(2)? as u64,
                     },
+                    r.get::<_, String>(3)? == exact,
                 ))
             })?;
-            for row in rows {
-                out.push(row?);
-            }
+            let rows: Vec<_> = rows.collect::<Result<_, _>>()?;
+            let any_exact = rows.iter().any(|(_, _, same)| *same);
+            out.extend(
+                rows.into_iter()
+                    .filter(|(_, _, same)| *same || !any_exact)
+                    .map(|(dir, rec, _)| (dir, rec)),
+            );
         }
         Ok(out)
     }
@@ -3440,7 +3452,21 @@ mod tests {
             found.len(),
             usize::from(cfg!(any(windows, target_os = "macos")))
         );
-        db.google_place_forget(&[placed.link.clone()]).unwrap();
+        // 綴りの違う別の原本（区別するボリュームの `A.JPG`）の行が並んでも、綴りの同じ行が
+        // 在ればそれだけを返す
+        let sibling = Placed {
+            source: PathBuf::from("/lib/d/A.JPG"),
+            link: PathBuf::from("/g/d/A.JPG"),
+            index: 9,
+        };
+        assert_eq!(db.google_place_claim(&sibling, &dir).unwrap(), Claim::New);
+        assert_eq!(
+            db.google_placed_for_sources(std::slice::from_ref(&src))
+                .unwrap(),
+            rec(7)
+        );
+        db.google_place_forget(&[placed.link.clone(), sibling.link])
+            .unwrap();
         assert!(db.google_placed_for_sources(&[src]).unwrap().is_empty());
     }
 
