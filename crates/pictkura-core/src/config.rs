@@ -515,10 +515,11 @@ impl Default for GridConfig {
     }
 }
 
-/// `[google_mirror]` Google フォト用の窓口フォルダ（`dev/plan.google-photos-mirror.md`）。
+/// `[google_mirror]` Google フォト用のフォルダ（`dev/plan.google-photos-at-import.md`）。
+/// 取り込みのときに、ここで決めた規則で原本のリンクを置く（[`crate::mirror`]）。
 ///
 /// **配ったあとに足した節**なので、古い設定ファイルには無い——`serde(default)` で
-/// 既定（切）として読む。窓口の中身は [`crate::mirror`]
+/// 既定（切）として読む。節の名前は #179 の窓口フォルダのときのまま
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GoogleMirrorConfig {
@@ -535,6 +536,9 @@ pub struct GoogleMirrorConfig {
     /// 利用者が選んだ窓口の場所（ボリュームごとに1つ）。無いボリュームは既定の場所
     /// （[`crate::mirror::location_for_root`]）
     pub locations: Vec<PathBuf>,
+    /// OneDrive の中の原本も置くか。既定は切——置くと OneDrive がその原本を
+    /// 「オンラインのみ」にできず、空き容量を増やせなくなる（2026-10-05 利用者）
+    pub include_onedrive: bool,
 }
 
 impl Default for GoogleMirrorConfig {
@@ -545,6 +549,7 @@ impl Default for GoogleMirrorConfig {
             exclude_video: false,
             raw_only: RawOnly::None,
             locations: Vec::new(),
+            include_onedrive: false,
         }
     }
 }

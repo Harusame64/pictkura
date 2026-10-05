@@ -553,6 +553,15 @@ impl Db {
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             ) WITHOUT ROWID;
+            -- Google 用フォルダに置いたリンク（[`crate::mirror`]）。**置いたものだけを記録し、
+            -- 記録したものだけを外す**。鍵は原本の id ではなくパス——pictkura に移動の機能は無く、
+            -- `media.id` は行を消すと番号が使い回されうる（別の写真のリンクを外してしまう）
+            CREATE TABLE IF NOT EXISTS google_placed (
+                link_path   TEXT PRIMARY KEY,
+                source_path TEXT NOT NULL,
+                dir         TEXT NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
             "#,
         )?;
         // タイムライン索引: サマリはこのインデックスのスキャンだけで、
@@ -2644,6 +2653,67 @@ impl Db {
         Ok(())
     }
 
+    /// Google 用フォルダに置くリンクを記録する（[`crate::mirror::place`] の `record`）。
+    /// **新しく書いたら `true`**、同じリンクの行が既に在れば何も変えずに `false`
+    /// ——前から在る行は前に置いたリンクのものなので、置けなかったときも消してはいけない。
+    pub fn google_place_record(
+        &mut self,
+        source: &Path,
+        link: &Path,
+        dir: &Path,
+    ) -> Result<bool, DbError> {
+        let n = self.conn.execute(
+            "INSERT INTO google_placed (link_path, source_path, dir) VALUES (?1, ?2, ?3)
+             ON CONFLICT(link_path) DO NOTHING",
+            params![
+                crate::paths::normalize(link).to_string_lossy(),
+                crate::paths::normalize(source).to_string_lossy(),
+                crate::paths::normalize(dir).to_string_lossy(),
+            ],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// 記録からリンクを消す（外し終えたもの・置けなかったもの）。
+    pub fn google_place_forget(&mut self, links: &[PathBuf]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt = tx.prepare_cached("DELETE FROM google_placed WHERE link_path = ?1")?;
+            for l in links {
+                stmt.execute(params![crate::paths::normalize(l).to_string_lossy()])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 原本ごとの、記録にあるリンクと、それを置いた Google 用フォルダ（[`crate::mirror::unplace`]
+    /// へ渡す組）。原本をゴミ箱へ入れるとき・走査が消滅を見つけたときに引く。
+    pub fn google_placed_for_sources(
+        &self,
+        sources: &[PathBuf],
+    ) -> Result<Vec<(PathBuf, PathBuf)>, DbError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT link_path, dir FROM google_placed WHERE source_path = ?1")?;
+        let mut out = Vec::new();
+        for src in sources {
+            let rows = stmt.query_map(
+                params![crate::paths::normalize(src).to_string_lossy()],
+                |r| {
+                    Ok((
+                        PathBuf::from(r.get::<_, String>(0)?),
+                        PathBuf::from(r.get::<_, String>(1)?),
+                    ))
+                },
+            )?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
+    }
+
     /// メタデータ（幅・高さ・撮影日時）未抽出のIDを新しい順で返す。
     ///
     /// 段階B-3: 事前の自動処理はこの「メタデータ抽出＋即席サムネイル」までに絞る。
@@ -3279,6 +3349,29 @@ mod tests {
         db.set_favorite(id, false).unwrap();
         assert!(!db.get_by_id(id).unwrap().unwrap().favorite);
         assert_eq!(db.count_favorites().unwrap(), 0);
+    }
+
+    #[test]
+    fn google_placed_records_once_and_forgets_by_link() {
+        let mut db = Db::open_in_memory().unwrap();
+        let dir = PathBuf::from("/g");
+        let (src, link) = (PathBuf::from("/lib/d/a.jpg"), PathBuf::from("/g/d/a.jpg"));
+        assert!(db.google_place_record(&src, &link, &dir).unwrap());
+        // 同じリンクの2回目は書かない（前の行を残す）
+        assert!(!db
+            .google_place_record(Path::new("/lib/other.jpg"), &link, &dir)
+            .unwrap());
+        assert_eq!(
+            db.google_placed_for_sources(std::slice::from_ref(&src))
+                .unwrap(),
+            [(link.clone(), dir.clone())]
+        );
+        assert!(db
+            .google_placed_for_sources(&[PathBuf::from("/lib/other.jpg")])
+            .unwrap()
+            .is_empty());
+        db.google_place_forget(&[link]).unwrap();
+        assert!(db.google_placed_for_sources(&[src]).unwrap().is_empty());
     }
 
     #[test]
