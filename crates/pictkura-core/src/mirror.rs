@@ -307,10 +307,31 @@ pub struct PlaceReport {
     pub later: usize,
     /// 失敗（原本と理由）。一時的なものも恒久的なものも入る
     pub failed: Vec<(PathBuf, String)>,
-    /// **あとで置き直すもの**（一時的な失敗とクラウドのみ）。原本の並び。
+    /// **あとで置き直すもの**（一時的な失敗・クラウドのみ・埋め込み JPEG 待ち・フォルダを解決できなかったもの）。
+    /// 原本の並び。
     /// 同じ名前が在る・別のドライブ・別の原本で記録済みのように、何度やっても同じものは入らない
     /// （2026-10-05 利用者決定。[`place_imported`] が保留として DB に残す）
     pub retry: Vec<PathBuf>,
+}
+
+impl PlaceReport {
+    /// もう1つの結果を足し込む。**項目を足したらここも**——呼び出し側で1つずつ足すと漏れる（ゲート2）
+    pub fn absorb(&mut self, other: PlaceReport) {
+        let PlaceReport {
+            placed,
+            already,
+            cloud_only,
+            later,
+            failed,
+            retry,
+        } = other;
+        self.placed += placed;
+        self.already += already;
+        self.cloud_only += cloud_only;
+        self.later += later;
+        self.failed.extend(failed);
+        self.retry.extend(retry);
+    }
 }
 
 /// `placements` を `dir`（Google 用フォルダ）へハードリンクで置く。
@@ -441,7 +462,15 @@ pub fn place(
                     ))
                 }
             }
-            Err(e) => Err((e.to_string(), true)),
+            // 張れないドライブ（exFAT 等）・別のボリュームは何度やっても同じ。拒否（Windows の
+            // 使用中のファイルもこれで返る）とそのほかの入出力は一時的と見る（ゲート2）
+            Err(e) => {
+                let permanent = matches!(
+                    e.kind(),
+                    io::ErrorKind::Unsupported | io::ErrorKind::CrossesDevices
+                );
+                Err((e.to_string(), !permanent))
+            }
         };
         let linked = match linked {
             // 番号が記録と同じなら書かない。一時的に書けないだけで、正しい記録のリンクを
@@ -547,12 +576,11 @@ pub fn place_imported(
     config: &crate::Config,
     db: &mut crate::db::Db,
 ) -> Result<Option<PlaceReport>, MirrorError> {
-    if !is_on(config) || copied.is_empty() {
-        return Ok(if is_on(config) {
-            Some(PlaceReport::default())
-        } else {
-            None
-        });
+    if !is_on(config) {
+        return Ok(None);
+    }
+    if copied.is_empty() {
+        return Ok(Some(PlaceReport::default()));
     }
     db.google_pending_add(copied, dest)
         .map_err(io::Error::other)?;
@@ -598,16 +626,12 @@ pub fn retry_pending(
                 Err(_) => {}
             }
         }
-        db.google_pending_remove(&gone).map_err(io::Error::other)?;
+        if let Err(e) = db.google_pending_remove(&gone) {
+            first_err.get_or_insert(MirrorError::Io(io::Error::other(e)));
+            continue;
+        }
         match place_imported(&here, &dest, config, db) {
-            Ok(Some(r)) => {
-                total.placed += r.placed;
-                total.already += r.already;
-                total.cloud_only += r.cloud_only;
-                total.later += r.later;
-                total.failed.extend(r.failed);
-                total.retry.extend(r.retry);
-            }
+            Ok(Some(r)) => total.absorb(r),
             Ok(None) => {}
             Err(e) => {
                 first_err.get_or_insert(e);
@@ -627,6 +651,22 @@ fn place_now(
     config: &crate::Config,
     db: &mut crate::db::Db,
 ) -> Result<PlaceReport, MirrorError> {
+    let onedrive = if config.google_mirror.include_onedrive {
+        Vec::new()
+    } else {
+        onedrive_folders()
+    };
+    place_now_with(copied, dest, config, db, &onedrive)
+}
+
+/// [`place_now`] の OneDrive の場所を外から渡す形（試験はこちらを呼ぶ。台の OneDrive に左右されない）。
+fn place_now_with(
+    copied: &[PathBuf],
+    dest: &Path,
+    config: &crate::Config,
+    db: &mut crate::db::Db,
+    onedrive: &[PathBuf],
+) -> Result<PlaceReport, MirrorError> {
     let g = &config.google_mirror;
     let roots = &config.library.roots;
     let patterns = &config.library.exclude_patterns;
@@ -639,19 +679,47 @@ fn place_now(
         })
         .cloned()
         .collect();
-    let (embedded, placements): (Vec<Placement>, Vec<Placement>) = plan(
+    let planned = plan_with(
         &copied,
         roots,
         g,
         &mut photos_on_disk(&config.import.extensions),
-    )
-    .into_iter()
-    .partition(|p| p.embedded);
+        onedrive,
+    );
+    // フォルダを解決できなかったものは、OneDrive の判定で「中」と見なされて計画から落ちる
+    // （置く側へ倒さないため）。**計画から落ちたものに限り、保留に残す**——一時的に見えなかった
+    // だけなら次で置ける（ゲート2）。計画に入ったものまで残すと、置けても保留が消えない
+    let unsure: Vec<PathBuf> = if onedrive.is_empty() {
+        Vec::new()
+    } else {
+        let in_plan: HashSet<&PathBuf> = planned.iter().map(|p| &p.source).collect();
+        let mut seen: HashMap<PathBuf, bool> = HashMap::new();
+        copied
+            .iter()
+            .filter(|p| !in_plan.contains(p))
+            .filter(|p| {
+                let parent = p.parent().unwrap_or(Path::new("")).to_path_buf();
+                !*seen
+                    .entry(parent)
+                    .or_insert_with_key(|d| disk_key(d).is_ok())
+            })
+            .cloned()
+            .collect()
+    };
+    let (embedded, placements): (Vec<Placement>, Vec<Placement>) =
+        planned.into_iter().partition(|p| p.embedded);
+    // 埋め込み JPEG で置くと決めたものも保留に残す——取り出しが入ったとき（PR5）に拾うため（ゲート2）
+    let deferred = PlaceReport {
+        later: embedded.len(),
+        retry: embedded
+            .into_iter()
+            .map(|p| p.source)
+            .chain(unsure)
+            .collect(),
+        ..PlaceReport::default()
+    };
     if placements.is_empty() {
-        return Ok(PlaceReport {
-            later: embedded.len(),
-            ..PlaceReport::default()
-        });
+        return Ok(deferred);
     }
     let dir = location_for_root(dest, &g.locations, roots)?;
     let mut ledger = DbLedger {
@@ -659,7 +727,7 @@ fn place_now(
         dir: dir.clone(),
     };
     let mut report = place(&dir, roots, &placements, &mut ledger)?;
-    report.later += embedded.len();
+    report.absorb(deferred);
     Ok(report)
 }
 
@@ -2111,6 +2179,28 @@ mod tests {
     }
 
     #[test]
+    fn an_original_whose_folder_cannot_be_resolved_is_kept_for_retry() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let od = [f.lib.parent().unwrap().join("OneDrive")];
+        // 在る祖先が1つも無い綴り（解決できない）は計画から落ち、保留に残す
+        let lost = PathBuf::from("no-such-root/d/b.jpg");
+        let r = place_now_with(
+            &[f.lib.join("d/a.jpg"), lost.clone()],
+            &f.lib,
+            &config,
+            &mut db,
+            &od,
+        )
+        .unwrap();
+        assert_eq!(r.placed, 1);
+        // 置けたものは入らない（計画に入ったものまで残すと、置けても保留が消えない）
+        assert_eq!(r.retry, [lost]);
+    }
+
+    #[test]
     fn a_permanent_failure_is_reported_but_not_kept_pending() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
@@ -2210,6 +2300,8 @@ mod tests {
             .unwrap();
         assert_eq!((r.later, r.placed), (1, 0));
         assert!(!f.google.exists());
+        // 取り出しが入ったとき（PR5）に拾えるよう、保留に残る
+        assert_eq!(db.google_pending_all().unwrap().len(), 1);
     }
 
     #[test]

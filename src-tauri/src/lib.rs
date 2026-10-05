@@ -4329,11 +4329,11 @@ fn place_google_links(
     let result = Db::open(&state.db_path)
         .map_err(|e| e.to_string())
         .and_then(|mut db| {
-            let placed = pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
-                .map_err(|e| e.to_string());
-            // 前の回に一時的に置けなかったもの（保留）も、ここで置き直す（2026-10-05 利用者決定）
+            // 前の回に一時的に置けなかったもの（保留）を**先に**置き直す（2026-10-05 利用者決定）。
+            // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
             note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
-            placed
+            pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
+                .map_err(|e| e.to_string())
         });
     let dto = match result {
         Ok(Some(r)) => {
@@ -6094,8 +6094,14 @@ pub fn run() {
                     *lock_ok(&state.startup_report) = Some(report.clone());
                     let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
                     let _ = inner.emit("startup-scan-report", report);
-                    // 走査を知らせたあと（一覧を待たせない）
-                    retry_google_pending(&state);
+                    // 走査を知らせたあと、**別のスレッドで**（起動の完了を待たせない。ここで転んでも
+                    // 起動の失敗にしない。ゲート2）
+                    let retry_app = inner.clone();
+                    std::thread::spawn(move || {
+                        pictkura_core::panics::catching("google retry", move || {
+                            retry_google_pending(&retry_app.state::<AppState>());
+                        });
+                    });
                     true
                 });
                 // **この間に手で走らせた再スキャンが通っていないか**を見る。
