@@ -558,13 +558,15 @@ impl Db {
             -- `media.id` は行を消すと番号が使い回されうる（別の写真のリンクを外してしまう）
             -- `file_index` は置いたリンクの実体の番号（[`crate::mirror::Placed::index`]）。外すときに
             -- 照合し、同じ名前に後から来た他人のファイルを消さない
+            -- `source_key` は原本を引く鍵（[`crate::mirror::source_key`]。大文字小文字を畳む）
             CREATE TABLE IF NOT EXISTS google_placed (
                 link_path   TEXT PRIMARY KEY,
                 source_path TEXT NOT NULL,
+                source_key  TEXT NOT NULL,
                 dir         TEXT NOT NULL,
                 file_index  INTEGER NOT NULL
             ) WITHOUT ROWID;
-            CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
+            CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_key);
             "#,
         )?;
         // タイムライン索引: サマリはこのインデックスのスキャンだけで、
@@ -2671,14 +2673,15 @@ impl Db {
         let link = crate::paths::normalize(&placed.link);
         let link = link.to_string_lossy();
         let source = crate::paths::normalize(&placed.source);
-        let source = source.to_string_lossy();
+        let key = crate::mirror::source_key(&placed.source);
         let n = self.conn.execute(
-            "INSERT INTO google_placed (link_path, source_path, dir, file_index)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO google_placed (link_path, source_path, source_key, dir, file_index)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(link_path) DO NOTHING",
             params![
                 link,
-                source,
+                source.to_string_lossy(),
+                key,
                 crate::paths::normalize(dir).to_string_lossy(),
                 placed.index as i64,
             ],
@@ -2687,11 +2690,11 @@ impl Db {
             return Ok(Claim::New);
         }
         let held: String = self.conn.query_row(
-            "SELECT source_path FROM google_placed WHERE link_path = ?1",
+            "SELECT source_key FROM google_placed WHERE link_path = ?1",
             params![link],
             |r| r.get(0),
         )?;
-        Ok(if held == source {
+        Ok(if held == key {
             Claim::Ours
         } else {
             Claim::Other
@@ -2730,22 +2733,19 @@ impl Db {
         sources: &[PathBuf],
     ) -> Result<Vec<(PathBuf, crate::mirror::Recorded)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT dir, link_path, file_index FROM google_placed WHERE source_path = ?1",
+            "SELECT dir, link_path, file_index FROM google_placed WHERE source_key = ?1",
         )?;
         let mut out = Vec::new();
         for src in sources {
-            let rows = stmt.query_map(
-                params![crate::paths::normalize(src).to_string_lossy()],
-                |r| {
-                    Ok((
-                        PathBuf::from(r.get::<_, String>(0)?),
-                        crate::mirror::Recorded {
-                            link: PathBuf::from(r.get::<_, String>(1)?),
-                            index: r.get::<_, i64>(2)? as u64,
-                        },
-                    ))
-                },
-            )?;
+            let rows = stmt.query_map(params![crate::mirror::source_key(src)], |r| {
+                Ok((
+                    PathBuf::from(r.get::<_, String>(0)?),
+                    crate::mirror::Recorded {
+                        link: PathBuf::from(r.get::<_, String>(1)?),
+                        index: r.get::<_, i64>(2)? as u64,
+                    },
+                ))
+            })?;
             for row in rows {
                 out.push(row?);
             }
@@ -3430,6 +3430,15 @@ mod tests {
             db.google_placed_for_sources(std::slice::from_ref(&src))
                 .unwrap(),
             rec(7)
+        );
+        // 大文字小文字を区別しない台では、別の綴りでも引ける
+        let upper = PathBuf::from("/LIB/D/A.JPG");
+        let found = db
+            .google_placed_for_sources(std::slice::from_ref(&upper))
+            .unwrap();
+        assert_eq!(
+            found.len(),
+            usize::from(cfg!(any(windows, target_os = "macos")))
         );
         db.google_place_forget(&[placed.link.clone()]).unwrap();
         assert!(db.google_placed_for_sources(&[src]).unwrap().is_empty());

@@ -94,6 +94,19 @@ fn plan_with(
         .map(|(i, _)| pair_key_folded(&i.path))
         .collect();
     let onedrive: Vec<PathBuf> = onedrive.iter().filter_map(|d| disk_key(d).ok()).collect();
+    // フォルダごとに1回だけ解決する（取り込みの1回は同じ日のフォルダに何百枚も来る。ゲート2）。
+    // **解決できなければ OneDrive の中と見なす**——置く側へ倒すと、既定で守るはずの
+    // 「オンラインのみにできる」を黙って失う（ゲート2）
+    let mut parents: HashMap<PathBuf, bool> = HashMap::new();
+    let mut in_onedrive = |path: &Path| -> bool {
+        let parent = path.parent().unwrap_or(Path::new("")).to_path_buf();
+        *parents
+            .entry(parent)
+            .or_insert_with_key(|parent| match disk_key(parent) {
+                Ok(k) => onedrive.iter().any(|d| k.starts_with(d)),
+                Err(_) => true,
+            })
+    };
 
     let mut out = Vec::new();
     for (item, kind) in items.iter().zip(kinds) {
@@ -116,9 +129,7 @@ fn plan_with(
         if !wanted || item.path.file_name().is_some_and(is_os_litter) {
             continue;
         }
-        if !onedrive.is_empty()
-            && disk_key(&item.path).is_ok_and(|k| onedrive.iter().any(|d| k.starts_with(d)))
-        {
+        if !onedrive.is_empty() && in_onedrive(&item.path) {
             continue;
         }
         let Some(rel) = owning_root(&item.path, roots) else {
@@ -140,7 +151,11 @@ fn plan_with(
 /// 相方と見なすのは**取り込みの対象になる写真の拡張子**のものだけ——`A.xmp` のような
 /// 添え物を写真と見ると、RAW だけのカットが組に見えて置かれなくなる
 /// （[`MediaKind::from_path`] は知らない拡張子を写真と答える）。
-pub fn photos_on_disk() -> impl FnMut(&Path) -> bool {
+///
+/// `extensions` は取り込みの設定の拡張子（[`crate::config::ImportConfig::extensions`]）
+/// ——利用者が足した形式も相方に数える（ゲート2）。
+pub fn photos_on_disk(extensions: &[String]) -> impl FnMut(&Path) -> bool {
+    let extensions: HashSet<String> = extensions.iter().map(|e| e.to_ascii_lowercase()).collect();
     let mut seen: HashMap<PathBuf, HashSet<std::ffi::OsString>> = HashMap::new();
     move |raw: &Path| {
         let (dir, stem) = pair_key_folded(raw);
@@ -155,7 +170,10 @@ pub fn photos_on_disk() -> impl FnMut(&Path) -> bool {
                     .flatten()
                     .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
                     .map(|e| e.path())
-                    .filter(|p| is_photo_extension(p) && !p.file_name().is_some_and(is_os_litter))
+                    .filter(|p| {
+                        is_photo_extension(p, &extensions)
+                            && !p.file_name().is_some_and(is_os_litter)
+                    })
                     .map(|p| pair_key_folded(&p).1)
                     .collect()
             })
@@ -163,13 +181,11 @@ pub fn photos_on_disk() -> impl FnMut(&Path) -> bool {
     }
 }
 
-fn is_photo_extension(path: &Path) -> bool {
+fn is_photo_extension(path: &Path, extensions: &HashSet<String>) -> bool {
     let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
         return false;
     };
-    let ext = ext.to_ascii_lowercase();
-    crate::config::DEFAULT_EXTENSIONS.contains(&ext.as_str())
-        && MediaKind::from_path(path) == MediaKind::Photo
+    extensions.contains(&ext.to_ascii_lowercase()) && MediaKind::from_path(path) == MediaKind::Photo
 }
 
 /// 組の鍵。[`crate::sidecar::pair_key`] に**フォルダの大文字小文字の畳み**を足したもの
@@ -228,6 +244,15 @@ fn fold(s: &std::ffi::OsStr) -> std::ffi::OsString {
 
 fn fold_path(p: &Path) -> PathBuf {
     p.components().map(|c| fold(c.as_os_str())).collect()
+}
+
+/// 記録で原本を引く鍵（DB の `google_placed.source_key`）。大文字小文字を区別しない台では
+/// 畳む——USN 経由で同じ原本が別の綴りで DB に入ると、綴りのままでは記録が引けず、
+/// リンクが残ってディスクが空かない（ゲート2）。
+pub fn source_key(path: &Path) -> String {
+    fold_path(&crate::paths::normalize(path))
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// フォルダの外を指さない相対パスか（`..`・絶対・ドライブ付きを拒む）。
@@ -313,6 +338,9 @@ pub fn place(
     }
 
     let mut report = PlaceReport::default();
+    // 置けなかった1件のために作ったフォルダ。最後に空なら畳む——Google が見ているフォルダに
+    // 空のアルバムを残さない（ゲート2）
+    let mut emptied: Vec<PathBuf> = Vec::new();
     for p in placements {
         let fail = |report: &mut PlaceReport, why: String| {
             report.failed.push((p.source.clone(), why));
@@ -340,6 +368,21 @@ pub fn place(
                 continue;
             }
         };
+        // 別のボリュームの原本はリンクにならない。記録もフォルダも作る前に断る（ゲート2）
+        match same_volume(&p.source, dir) {
+            Ok(true) => {}
+            Ok(false) => {
+                fail(
+                    &mut report,
+                    "原本が Google 用フォルダと別のドライブにある".into(),
+                );
+                continue;
+            }
+            Err(e) => {
+                fail(&mut report, e.to_string());
+                continue;
+            }
+        }
         let placed = Placed {
             source: p.source.clone(),
             link: dir.join(&p.rel),
@@ -347,19 +390,26 @@ pub fn place(
         };
         if let Err(e) = make_parent_dirs(dir, &p.rel) {
             fail(&mut report, e.to_string());
+            if let Some(parent) = placed.link.parent() {
+                emptied.push(parent.to_path_buf());
+            }
             continue;
         }
         let claim = match ledger.claim(&placed) {
-            Ok(Claim::Other) => {
-                fail(
-                    &mut report,
-                    format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
-                );
-                continue;
-            }
+            Ok(Claim::Other) => Err(format!(
+                "同じ名前が別の原本で記録済み: {}",
+                placed.link.display()
+            )),
+            Ok(claim) => Ok(claim),
+            Err(e) => Err(format!("記録できない: {e}")),
+        };
+        let claim = match claim {
             Ok(claim) => claim,
-            Err(e) => {
-                fail(&mut report, format!("記録できない: {e}"));
+            Err(why) => {
+                fail(&mut report, why);
+                if let Some(parent) = placed.link.parent() {
+                    emptied.push(parent.to_path_buf());
+                }
                 continue;
             }
         };
@@ -386,9 +436,13 @@ pub fn place(
                     ledger.release(&placed);
                 }
                 fail(&mut report, why);
+                if let Some(parent) = placed.link.parent() {
+                    emptied.push(parent.to_path_buf());
+                }
             }
         }
     }
+    fold_empty_dirs(dir, emptied);
     Ok(report)
 }
 
@@ -1132,13 +1186,57 @@ mod tests {
     }
 
     #[test]
+    fn an_original_whose_folder_cannot_be_resolved_counts_as_inside_onedrive() {
+        // 在る祖先が1つも無い綴り（解決できない）
+        let items = [item("no-such-root/d/a.jpg", false)];
+        let roots = [PathBuf::from("no-such-root")];
+        let c = GoogleMirrorConfig::default();
+        let od = [std::env::temp_dir()];
+        assert!(plan_with(&items, &roots, &c, &mut nothing_on_disk(), &od).is_empty());
+        assert_eq!(
+            plan_with(&items, &roots, &c, &mut nothing_on_disk(), &[]).len(),
+            1
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_original_on_another_volume_is_refused_before_anything_is_written() {
+        let f = fixture();
+        // /dev は別のボリューム（devfs・devtmpfs）
+        let src = PathBuf::from("/dev/null");
+        let mut book = Book::default();
+        let p = Placement {
+            source: src,
+            rel: PathBuf::from("d/null"),
+        };
+        let r = book.place(&f, &[p]);
+        assert_eq!((r.placed, r.failed.len()), (0, 1));
+        assert!(book.0.is_empty());
+        assert!(!f.google.join("d").exists());
+    }
+
+    #[test]
     fn only_photo_extensions_on_disk_count_as_a_partner() {
         let f = fixture();
         put(&f.lib.join("d/A.ARW"), b"raw");
         put(&f.lib.join("d/A.xmp"), b"sidecar");
         put(&f.lib.join("d/B.ARW"), b"raw");
         put(&f.lib.join("d/b.JPG"), b"photo");
-        let mut on_disk = photos_on_disk();
+        let exts: Vec<String> = crate::config::DEFAULT_EXTENSIONS
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
+        let mut on_disk = photos_on_disk(&exts);
+        assert!(!on_disk(&f.lib.join("d/A.ARW")));
+        assert!(on_disk(&f.lib.join("d/B.ARW")));
+        // 利用者が足した形式も相方に数える
+        put(&f.lib.join("e/C.ARW"), b"raw");
+        put(&f.lib.join("e/C.jxl"), b"photo");
+        assert!(!photos_on_disk(&exts)(&f.lib.join("e/C.ARW")));
+        let mut more = exts.clone();
+        more.push("JXL".into());
+        let mut on_disk = photos_on_disk(&more);
         assert!(!on_disk(&f.lib.join("d/A.ARW")));
         assert!(on_disk(&f.lib.join("d/B.ARW")));
     }
@@ -1332,6 +1430,8 @@ mod tests {
         assert_eq!((r.placed, r.failed.len()), (0, 1));
         assert!(!link.exists());
         assert_eq!(book.0[0].source, f.lib.join("old/a.jpg"));
+        // 置けなかった1件のために作ったフォルダは畳む
+        assert!(!f.google.join("d").exists());
     }
 
     #[test]
