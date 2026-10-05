@@ -502,6 +502,16 @@ pub fn unplace(
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> UnplaceReport {
     let mut report = UnplaceReport::default();
+    // フォルダごと見えない（外付けが外れている等）なら、どのリンクも「もう無い」とは言えない。
+    // 記録を消すと、挿し直したあとで二度と外せない（ゲート1）。全部を失敗として残す
+    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir() && !is_link_meta(&m)) {
+        for Recorded { link, .. } in records {
+            report
+                .failed
+                .push((link.clone(), "Google 用フォルダが見えない".into()));
+        }
+        return report;
+    }
     let mut parents: Vec<PathBuf> = Vec::new();
     for Recorded { link, index } in records {
         let rel = match link.strip_prefix(dir) {
@@ -1726,6 +1736,7 @@ mod tests {
     #[test]
     fn a_missing_link_or_a_non_file_is_only_forgotten() {
         let f = fixture();
+        std::fs::create_dir_all(&f.google).unwrap();
         std::fs::create_dir_all(f.google.join("d/dir.jpg")).unwrap();
         let links = [
             rec(f.google.join("d/gone.jpg")),
@@ -1734,6 +1745,18 @@ mod tests {
         let r = unplace(&f.google, &links, &mut no_discard());
         assert_eq!((r.gone, r.forget.len()), (2, 2));
         assert!(f.google.join("d/dir.jpg").is_dir());
+    }
+
+    #[test]
+    fn records_are_kept_while_the_folder_is_out_of_reach() {
+        let f = fixture();
+        // 外付けが外れている: フォルダごと無い
+        let r = unplace(
+            &f.google,
+            &[rec(f.google.join("d/a.jpg"))],
+            &mut no_discard(),
+        );
+        assert_eq!((r.gone, r.forget.len(), r.failed.len()), (0, 0, 1));
     }
 
     #[test]
