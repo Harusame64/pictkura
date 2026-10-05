@@ -582,9 +582,22 @@ pub fn retry_pending(
     let mut total = PlaceReport::default();
     let mut first_err = None;
     for (dest, sources) in pending {
-        let (here, gone): (Vec<PathBuf>, Vec<PathBuf>) = sources
-            .into_iter()
-            .partition(|p| std::fs::symlink_metadata(p).is_ok());
+        // 取り込み先が見えない（外付けが外れている等）なら、この組は触らない。ここで
+        // 「原本が無い」と読むと保留を捨て、挿し直しても二度と置けない（ゲート1）
+        if !dest.is_dir() {
+            continue;
+        }
+        // 消えたと言えるのは、取り込み先が見えていて原本だけが `NotFound` のときだけ。
+        // 読めない（権限・入出力）ものは保留のまま、この回は飛ばす
+        let mut here = Vec::new();
+        let mut gone = Vec::new();
+        for p in sources {
+            match std::fs::symlink_metadata(&p) {
+                Ok(_) => here.push(p),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => gone.push(p),
+                Err(_) => {}
+            }
+        }
         db.google_pending_remove(&gone).map_err(io::Error::other)?;
         match place_imported(&here, &dest, config, db) {
             Ok(Some(r)) => {
@@ -2082,6 +2095,19 @@ mod tests {
             db.google_pending_all().unwrap(),
             [(f.lib.clone(), vec![f.lib.join("d/unreadable.jpg")])]
         );
+    }
+
+    #[test]
+    fn pending_on_an_unplugged_destination_is_kept() {
+        let f = fixture();
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // 取り込み先ごと見えない
+        let unplugged = f.lib.parent().unwrap().join("unplugged");
+        db.google_pending_add(&[unplugged.join("d/a.jpg")], &unplugged)
+            .unwrap();
+        retry_pending(&config, &mut db).unwrap();
+        assert_eq!(db.google_pending_all().unwrap().len(), 1);
     }
 
     #[test]
