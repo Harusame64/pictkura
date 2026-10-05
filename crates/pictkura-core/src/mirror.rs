@@ -734,6 +734,9 @@ pub fn unplace_sources(
     sources: &[PathBuf],
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> Result<UnplaceReport, MirrorError> {
+    // **先に印を付ける**。外すのに一時的に失敗しても、次の突き合わせが名前の数に関係なく外す
+    // ——原本はゴミ箱の中で名前を持ち続けるので、印が無いと「移っただけ」と見分けられない（ゲート1）
+    db.google_place_doom(sources).map_err(io::Error::other)?;
     let rows = db
         .google_placed_for_sources(sources)
         .map_err(io::Error::other)?;
@@ -779,11 +782,13 @@ pub fn sweep_orphans(
     // 渡すのは「原本のファイルが無い」記録のうち、**リンクに別の名前が残っているもの以外**。
     // リンクがもう無い・番号が違う記録も渡す——[`unplace`] が「もう無い」として記録から消す。
     // 飛ばすと、表に残って毎回見直すことになる（ゲート2）
-    let last_copies = orphans.into_iter().filter(|(_, rec, source)| {
-        matches!(std::fs::symlink_metadata(source), Err(e) if e.kind() == io::ErrorKind::NotFound)
-            && !file_id(&rec.link).is_ok_and(|id| id.links >= 2 && id.index == rec.index)
+    // 外すと決まった印のある行（pictkura がゴミ箱へ入れた原本の、外し損ねたリンク）は無条件に渡す
+    let last_copies = orphans.into_iter().filter(|(_, rec, source, doomed)| {
+        *doomed
+            || (matches!(std::fs::symlink_metadata(source), Err(e) if e.kind() == io::ErrorKind::NotFound)
+                && !file_id(&rec.link).is_ok_and(|id| id.links >= 2 && id.index == rec.index))
     });
-    let rows = last_copies.map(|(dir, rec, _)| (dir, rec));
+    let rows = last_copies.map(|(dir, rec, _, _)| (dir, rec));
     Ok(unplace_grouped(db, group_by_dir(rows), discard))
 }
 
@@ -2436,7 +2441,32 @@ mod tests {
         let left = db.google_placed_orphans().unwrap();
         assert!(left
             .iter()
-            .all(|(_, rec, _)| rec.link != f.google.join("d/kept.jpg")));
+            .all(|(_, rec, _, _)| rec.link != f.google.join("d/kept.jpg")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_trashed_originals_link_that_could_not_be_removed_is_removed_later() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/a.jpg")], &f.lib, &config, &mut db).unwrap();
+        let bin = f.lib.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::rename(f.lib.join("d/a.jpg"), bin.join("a.jpg")).unwrap();
+        // 外すときだけフォルダが書けない（一時的な失敗）
+        let album = f.google.join("d");
+        std::fs::set_permissions(&album, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let r = unplace_sources(&mut db, &[f.lib.join("d/a.jpg")], &mut no_discard()).unwrap();
+        std::fs::set_permissions(&album, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!((r.removed, r.failed.len()), (0, 1));
+        // 原本はゴミ箱の中で名前を持ち続ける（名前の数 2）が、印があるので次の突き合わせが外す
+        let r = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert_eq!(r.removed, 1);
+        assert!(!album.join("a.jpg").exists());
+        assert_eq!(std::fs::read(bin.join("a.jpg")).unwrap(), b"photo");
     }
 
     #[test]

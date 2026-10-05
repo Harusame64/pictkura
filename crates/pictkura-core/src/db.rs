@@ -558,11 +558,14 @@ impl Db {
             -- `media.id` は行を消すと番号が使い回されうる（別の写真のリンクを外してしまう）
             -- `file_index` は置いたリンクの実体の番号（[`crate::mirror::Placed::index`]）。外すときに
             -- 照合し、同じ名前に後から来た他人のファイルを消さない
+            -- `doomed` は pictkura がゴミ箱へ入れた原本のリンク＝**外すと決まった**印。外すのに一時的に
+            -- 失敗しても、次の突き合わせで名前の数に関係なく外す（PR4 のゲート1）
             CREATE TABLE IF NOT EXISTS google_placed (
                 link_path   TEXT PRIMARY KEY,
                 source_path TEXT NOT NULL,
                 dir         TEXT NOT NULL,
-                file_index  INTEGER NOT NULL
+                file_index  INTEGER NOT NULL,
+                doomed      INTEGER NOT NULL DEFAULT 0
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
             -- Google 用フォルダへ**まだ置けていない**原本（[`crate::mirror::place_imported`]）。
@@ -581,6 +584,16 @@ impl Db {
         // 「載った」と読むのを1つのトランザクションで行う——#182 は走査のあとに保留を書いていたので、
         // 載っていなかった行は無い。分けると、足せたあとで落ちたときに埋め直しが二度と走らない。
         // 誤りを「もう在る」と読み替えることもしない（ゲート2）
+        // #182 の版の表に `doomed` が無ければ足す（その版では外すと決まった行はまだ無い）
+        let has_doomed: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('google_placed') WHERE name = 'doomed'")?
+            .exists([])?;
+        if !has_doomed {
+            conn.execute(
+                "ALTER TABLE google_placed ADD COLUMN doomed INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
         let has_indexed: bool = conn
             .prepare("SELECT 1 FROM pragma_table_info('google_pending') WHERE name = 'indexed'")?
             .exists([])?;
@@ -2821,12 +2834,14 @@ impl Db {
     /// 記録にあるのに、**原本の行がライブラリに無い**リンク（置いたフォルダ・記録・原本）。
     /// 原本をゴミ箱へ入れた・走査が消滅を見つけた・書き出しで移したときに残るもの
     /// （[`crate::mirror::sweep_orphans`]）。
+    /// 最後の要素は「外すと決まった」印（[`Db::google_place_doom`]）。
     pub fn google_placed_orphans(
         &self,
-    ) -> Result<Vec<(PathBuf, crate::mirror::Recorded, PathBuf)>, DbError> {
+    ) -> Result<Vec<(PathBuf, crate::mirror::Recorded, PathBuf, bool)>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT g.dir, g.link_path, g.file_index, g.source_path FROM google_placed g
-             WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.path = g.source_path)
+            "SELECT g.dir, g.link_path, g.file_index, g.source_path, g.doomed FROM google_placed g
+             WHERE g.doomed = 1
+                OR NOT EXISTS (SELECT 1 FROM media m WHERE m.path = g.source_path)
              ORDER BY g.dir, g.link_path",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -2837,9 +2852,24 @@ impl Db {
                     index: r.get::<_, i64>(2)? as u64,
                 },
                 PathBuf::from(r.get::<_, String>(3)?),
+                r.get::<_, i64>(4)? == 1,
             ))
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 原本ごとの記録に「外すと決まった」印を付ける（pictkura がゴミ箱へ入れたとき）。
+    pub fn google_place_doom(&mut self, sources: &[PathBuf]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt =
+                tx.prepare_cached("UPDATE google_placed SET doomed = 1 WHERE source_path = ?1")?;
+            for src in sources {
+                stmt.execute(params![crate::paths::normalize(src).to_string_lossy()])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// 記録からリンクを消す（外し終えたもの・置けなかったもの）。
@@ -3636,6 +3666,12 @@ mod tests {
                 "CREATE TABLE google_pending (
                      source_path TEXT PRIMARY KEY,
                      dest        TEXT NOT NULL
+                 ) WITHOUT ROWID;
+                 CREATE TABLE google_placed (
+                     link_path   TEXT PRIMARY KEY,
+                     source_path TEXT NOT NULL,
+                     dir         TEXT NOT NULL,
+                     file_index  INTEGER NOT NULL
                  ) WITHOUT ROWID;",
             )
             .unwrap();
@@ -3652,6 +3688,10 @@ mod tests {
         assert!(db
             .google_pending_was_indexed(Path::new("/lib/a.jpg"))
             .unwrap());
+        // 記録の表にも「外すと決まった」印の列が足される（無ければここで落ちる）
+        db.google_place_doom(&[PathBuf::from("/lib/a.jpg")])
+            .unwrap();
+        assert!(db.google_placed_orphans().unwrap().is_empty());
         // 2回目に開いても壊れない
         drop(db);
         let mut db = Db::open(&path).unwrap();
