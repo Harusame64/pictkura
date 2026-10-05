@@ -641,13 +641,18 @@ pub fn retry_pending(
         for p in sources {
             match std::fs::symlink_metadata(&p) {
                 Ok(_) => here.push(p),
-                Err(e) if e.kind() == io::ErrorKind::NotFound => match db.get_meta_by_path(&p) {
-                    Ok(None) => gone.push(p),
-                    Ok(Some(_)) => {}
-                    Err(e) => {
-                        first_err.get_or_insert(MirrorError::Io(io::Error::other(e)));
+                // 一度もライブラリに載っていない原本は「走査が消した」と読めない（コピーの直後・走査の
+                // 前にボリュームが外れた等）。載ったことがあって、いま行が無いときだけ外す（PR4）
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    let was = db.google_pending_was_indexed(&p);
+                    match (db.get_meta_by_path(&p), was) {
+                        (Ok(None), Ok(true)) => gone.push(p),
+                        (Ok(_), Ok(_)) => {}
+                        (Err(e), _) | (_, Err(e)) => {
+                            first_err.get_or_insert(MirrorError::Io(io::Error::other(e)));
+                        }
                     }
-                },
+                }
                 Err(_) => {}
             }
         }
@@ -667,6 +672,124 @@ pub fn retry_pending(
         Some(e) => Err(e),
         None => Ok(Some(total)),
     }
+}
+
+impl UnplaceReport {
+    /// もう1つの結果を足し込む。**項目を足したらここも**
+    pub fn absorb(&mut self, other: UnplaceReport) {
+        let UnplaceReport {
+            removed,
+            discarded,
+            gone,
+            forget,
+            failed,
+        } = other;
+        self.removed += removed;
+        self.discarded += discarded;
+        self.gone += gone;
+        self.forget.extend(forget);
+        self.failed.extend(failed);
+    }
+}
+
+/// フォルダごとに外して、外し終えた記録を消す。DB の誤りは `failed` に積んで次へ進む
+/// ——ファイルはもう動いているので、結果を捨てると何をゴミ箱へ渡したかが残らない（ゲート2）。
+fn unplace_grouped(
+    db: &mut crate::db::Db,
+    by_dir: Vec<(PathBuf, Vec<Recorded>)>,
+    discard: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> UnplaceReport {
+    let mut total = UnplaceReport::default();
+    for (dir, recs) in by_dir {
+        let r = unplace(&dir, &recs, discard);
+        if let Err(e) = db.google_place_forget(&r.forget) {
+            total
+                .failed
+                .push((dir.clone(), format!("記録から消せない: {e}")));
+        }
+        total.absorb(r);
+    }
+    total
+}
+
+fn group_by_dir(
+    rows: impl IntoIterator<Item = (PathBuf, Recorded)>,
+) -> Vec<(PathBuf, Vec<Recorded>)> {
+    let mut map: HashMap<PathBuf, Vec<Recorded>> = HashMap::new();
+    for (dir, rec) in rows {
+        map.entry(dir).or_default().push(rec);
+    }
+    let mut by_dir: Vec<(PathBuf, Vec<Recorded>)> = map.into_iter().collect();
+    by_dir.sort_by(|a, b| a.0.cmp(&b.0));
+    by_dir
+}
+
+/// **pictkura でゴミ箱へ入れた**原本のリンクを外す（設計書 §4。PR4）。原本はゴミ箱の中で実体を
+/// リンクと分け合っている（名前の数 2）ので、リンクの名前を消すだけ。保留からも外す。
+///
+/// 何を入れたかを知っているのはゴミ箱へ入れた側だけなので、そこから原本の並びを渡す
+/// ——走査のあとの突き合わせ（[`sweep_orphans`]）は、移動とゴミ箱を見分けられない。
+pub fn unplace_sources(
+    db: &mut crate::db::Db,
+    sources: &[PathBuf],
+    discard: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> Result<UnplaceReport, MirrorError> {
+    // **先に印を付ける**。外すのに一時的に失敗しても、次の突き合わせが名前の数に関係なく外す
+    // ——原本はゴミ箱の中で名前を持ち続けるので、印が無いと「移っただけ」と見分けられない（ゲート1）
+    db.google_place_doom(sources).map_err(io::Error::other)?;
+    let rows = db
+        .google_placed_for_sources(sources)
+        .map_err(io::Error::other)?;
+    let mut report = unplace_grouped(db, group_by_dir(rows), discard);
+    if let Err(e) = db.google_pending_remove(sources) {
+        report
+            .failed
+            .push((PathBuf::new(), format!("保留から外せない: {e}")));
+    }
+    Ok(report)
+}
+
+/// **書き出しで移した**原本の記録を消す（リンクは残す。設計書 §4「移してもリンクはそのまま」）。
+/// 追い続けると、別のドライブへ移した原本は OS のゴミ箱を経て消え、残ったリンクが「最後の1枚」に
+/// 見えてゴミ箱へ渡される——写真は移した先で生きているのに（ゲート2）。
+pub fn forget_moved(db: &mut crate::db::Db, sources: &[PathBuf]) -> Result<(), MirrorError> {
+    let rows = db
+        .google_placed_for_sources(sources)
+        .map_err(io::Error::other)?;
+    let links: Vec<PathBuf> = rows.into_iter().map(|(_, r)| r.link).collect();
+    db.google_place_forget(&links).map_err(io::Error::other)?;
+    db.google_pending_remove(sources)
+        .map_err(io::Error::other)?;
+    Ok(())
+}
+
+/// 原本が pictkura の外で消えて、**Google 用フォルダのリンクが最後の1枚になった**ものを
+/// ゴミ箱へ渡す（設計書 §4。PR4）。走査・監視のあとに呼ぶ。
+///
+/// - 見るのは、原本の行がライブラリに無く、原本のファイルも無い記録
+/// - **名前の数が 2 以上なら触らない**——原本はどこかへ移った・名前が変わった（Finder でフォルダの
+///   名前を変えた、書き出しで移した）か、OS のゴミ箱の中にある。外すと、Google がまだ上げて
+///   いない写真が上がらずじまいになる（ゲート2）。OS のゴミ箱を空にした時点で名前の数が 1 になり、
+///   次の回に拾う
+/// - 名前の数が 1 のものは消さずに `discard`（ゴミ箱）へ渡す——[`unplace`] の規則のまま
+///
+/// 設定で切っていても回す——前に置いたリンクを、原本を消したあとまで残さないため。
+pub fn sweep_orphans(
+    db: &mut crate::db::Db,
+    discard: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> Result<UnplaceReport, MirrorError> {
+    let orphans = db.google_placed_orphans().map_err(io::Error::other)?;
+    // 渡すのは「原本のファイルが無い」記録のうち、**リンクに別の名前が残っているもの以外**。
+    // リンクがもう無い・番号が違う記録も渡す——[`unplace`] が「もう無い」として記録から消す。
+    // 飛ばすと、表に残って毎回見直すことになる（ゲート2）
+    // 外すと決まった印のある行（pictkura がゴミ箱へ入れた原本の、外し損ねたリンク）は無条件に渡す
+    let last_copies = orphans.into_iter().filter(|(_, rec, source, doomed)| {
+        *doomed
+            || (matches!(std::fs::symlink_metadata(source), Err(e) if e.kind() == io::ErrorKind::NotFound)
+                && !file_id(&rec.link).is_ok_and(|id| id.links >= 2 && id.index == rec.index))
+    });
+    let rows = last_copies.map(|(dir, rec, _, _)| (dir, rec));
+    Ok(unplace_grouped(db, group_by_dir(rows), discard))
 }
 
 /// [`place_imported`] の中身（保留の出し入れを除く）。
@@ -2256,6 +2379,133 @@ mod tests {
     }
 
     #[test]
+    fn a_pending_original_never_indexed_is_not_read_as_deleted() {
+        let f = fixture();
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // コピーの直後・走査の前にボリュームが外れた: 行は一度も出来ていない
+        db.google_pending_add(&[f.lib.join("d/a.jpg")], &f.lib)
+            .unwrap();
+        retry_pending(&config, &mut db).unwrap();
+        assert_eq!(db.google_pending_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn only_a_last_copy_is_swept_and_a_moved_original_keeps_its_link() {
+        let f = fixture();
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let row = |p: PathBuf| crate::scanner::ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        };
+        let names = ["kept", "moved", "deleted", "unlisted"];
+        let paths: Vec<PathBuf> = names
+            .iter()
+            .map(|n| f.lib.join(format!("d/{n}.jpg")))
+            .collect();
+        for p in &paths {
+            put(p, b"photo");
+        }
+        db.upsert_files(&paths.iter().cloned().map(row).collect::<Vec<_>>())
+            .unwrap();
+        place_imported(&paths, &f.lib, &config, &mut db).unwrap();
+        // Finder でフォルダの名前を変えた・OS のゴミ箱へ入れた（実体は別の名前で生きている）
+        std::fs::create_dir_all(f.lib.join("Trip")).unwrap();
+        std::fs::rename(&paths[1], f.lib.join("Trip/moved.jpg")).unwrap();
+        // 外で消し切った（リンクが最後の1枚）
+        std::fs::remove_file(&paths[2]).unwrap();
+        // 3つとも行が消えたが、unlisted はファイルが在る（ライブラリから外しただけ）
+        db.remove_paths(&paths[1..]).unwrap();
+        let trash = f.lib.parent().unwrap().join("trash");
+        let r = sweep_orphans(&mut db, &mut move_into(&trash)).unwrap();
+        assert_eq!((r.removed, r.discarded), (0, 1));
+        assert!(f.google.join("d/kept.jpg").exists());
+        assert!(f.google.join("d/moved.jpg").exists());
+        assert!(f.google.join("d/unlisted.jpg").exists());
+        assert_eq!(std::fs::read(trash.join("deleted.jpg")).unwrap(), b"photo");
+        // 移った先が消し切られたら、次の回に拾う
+        std::fs::remove_file(f.lib.join("Trip/moved.jpg")).unwrap();
+        let r = sweep_orphans(&mut db, &mut move_into(&trash)).unwrap();
+        assert_eq!(r.discarded, 1);
+        // 2回目は何もしない
+        let again = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert_eq!(again, UnplaceReport::default());
+        // リンクを手で消してから原本も消した記録は「もう無い」として消え、表に残らない
+        std::fs::remove_file(f.google.join("d/kept.jpg")).unwrap();
+        std::fs::remove_file(&paths[0]).unwrap();
+        db.remove_paths(&paths[..1]).unwrap();
+        let r = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert_eq!(r.gone, 1);
+        let left = db.google_placed_orphans().unwrap();
+        assert!(left
+            .iter()
+            .all(|(_, rec, _, _)| rec.link != f.google.join("d/kept.jpg")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_trashed_originals_link_that_could_not_be_removed_is_removed_later() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/a.jpg")], &f.lib, &config, &mut db).unwrap();
+        let bin = f.lib.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::rename(f.lib.join("d/a.jpg"), bin.join("a.jpg")).unwrap();
+        // 外すときだけフォルダが書けない（一時的な失敗）
+        let album = f.google.join("d");
+        std::fs::set_permissions(&album, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let r = unplace_sources(&mut db, &[f.lib.join("d/a.jpg")], &mut no_discard()).unwrap();
+        std::fs::set_permissions(&album, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!((r.removed, r.failed.len()), (0, 1));
+        // 原本はゴミ箱の中で名前を持ち続ける（名前の数 2）が、印があるので次の突き合わせが外す
+        let r = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert_eq!(r.removed, 1);
+        assert!(!album.join("a.jpg").exists());
+        assert_eq!(std::fs::read(bin.join("a.jpg")).unwrap(), b"photo");
+    }
+
+    #[test]
+    fn a_moved_out_original_is_no_longer_followed_and_its_link_stays() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/a.jpg")], &f.lib, &config, &mut db).unwrap();
+        forget_moved(&mut db, &[f.lib.join("d/a.jpg")]).unwrap();
+        // 移した先が別のドライブで、原本が OS のゴミ箱を経て消えても、リンクは触られない
+        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
+        let r = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert_eq!(r, UnplaceReport::default());
+        assert!(f.google.join("d/a.jpg").exists());
+    }
+
+    #[test]
+    fn trashing_in_pictkura_takes_only_the_name_back() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let config = on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/a.jpg")], &f.lib, &config, &mut db).unwrap();
+        // pictkura がゴミ箱へ入れた（実体はゴミ箱の中に残る）
+        let bin = f.lib.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::rename(f.lib.join("d/a.jpg"), bin.join("a.jpg")).unwrap();
+        let r = unplace_sources(&mut db, &[f.lib.join("d/a.jpg")], &mut no_discard()).unwrap();
+        assert_eq!((r.removed, r.discarded), (1, 0));
+        assert!(!f.google.join("d/a.jpg").exists());
+        assert_eq!(std::fs::read(bin.join("a.jpg")).unwrap(), b"photo");
+        assert!(db
+            .google_placed_for_sources(&[f.lib.join("d/a.jpg")])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn a_permanent_failure_is_reported_but_not_kept_pending() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
@@ -2276,11 +2526,19 @@ mod tests {
         put(&f.lib.join("d/gone.jpg"), b"photo");
         let config = on(&f);
         let mut db = crate::db::Db::open_in_memory().unwrap();
-        // 保留を書いたところで落ちた
+        let row = |p: PathBuf| crate::scanner::ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        };
+        // 2枚ともライブラリに載ったあと、保留を書いたところで落ちた
+        db.upsert_files(&[row(f.lib.join("d/a.jpg")), row(f.lib.join("d/gone.jpg"))])
+            .unwrap();
         db.google_pending_add(&[f.lib.join("d/a.jpg"), f.lib.join("d/gone.jpg")], &f.lib)
             .unwrap();
-        // その間に1枚は消された
+        // その間に1枚は消され、走査も行を消した
         std::fs::remove_file(f.lib.join("d/gone.jpg")).unwrap();
+        db.remove_paths(&[f.lib.join("d/gone.jpg")]).unwrap();
         let r = retry_pending(&config, &mut db).unwrap().unwrap();
         assert_eq!((r.placed, r.failed.len()), (1, 0));
         assert!(db.google_pending_all().unwrap().is_empty());
