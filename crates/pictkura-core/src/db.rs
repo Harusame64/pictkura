@@ -553,6 +553,18 @@ impl Db {
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             ) WITHOUT ROWID;
+            -- Google 用フォルダに置いたリンク（[`crate::mirror`]）。**置いたものだけを記録し、
+            -- 記録したものだけを外す**。鍵は原本の id ではなくパス——pictkura に移動の機能は無く、
+            -- `media.id` は行を消すと番号が使い回されうる（別の写真のリンクを外してしまう）
+            -- `file_index` は置いたリンクの実体の番号（[`crate::mirror::Placed::index`]）。外すときに
+            -- 照合し、同じ名前に後から来た他人のファイルを消さない
+            CREATE TABLE IF NOT EXISTS google_placed (
+                link_path   TEXT PRIMARY KEY,
+                source_path TEXT NOT NULL,
+                dir         TEXT NOT NULL,
+                file_index  INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS idx_google_placed_source ON google_placed(source_path);
             "#,
         )?;
         // タイムライン索引: サマリはこのインデックスのスキャンだけで、
@@ -2644,6 +2656,111 @@ impl Db {
         Ok(())
     }
 
+    /// Google 用フォルダに置くリンクを、**張る前に**記録する（[`crate::mirror::Ledger::claim`]）。
+    /// 同じリンクの行が既に在れば何も変えず、原本が同じなら [`Claim::Ours`]（記録の番号つき）、違えば
+    /// [`Claim::Other`] を返す——前から在る行は前に置いたリンクのものなので、上書きしない。
+    ///
+    /// [`Claim::Ours`]: crate::mirror::Claim::Ours
+    /// [`Claim::Other`]: crate::mirror::Claim::Other
+    pub fn google_place_claim(
+        &mut self,
+        placed: &crate::mirror::Placed,
+        dir: &Path,
+    ) -> Result<crate::mirror::Claim, DbError> {
+        use crate::mirror::Claim;
+        let link = crate::paths::normalize(&placed.link);
+        let link = link.to_string_lossy();
+        let source = crate::paths::normalize(&placed.source);
+        let source = source.to_string_lossy();
+        let n = self.conn.execute(
+            "INSERT INTO google_placed (link_path, source_path, dir, file_index)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(link_path) DO NOTHING",
+            params![
+                link,
+                source,
+                crate::paths::normalize(dir).to_string_lossy(),
+                placed.index as i64,
+            ],
+        )?;
+        if n == 1 {
+            return Ok(Claim::New);
+        }
+        let (held, index): (String, i64) = self.conn.query_row(
+            "SELECT source_path, file_index FROM google_placed WHERE link_path = ?1",
+            params![link],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok(if held == source {
+            Claim::Ours {
+                index: index as u64,
+            }
+        } else {
+            Claim::Other
+        })
+    }
+
+    /// 前から在った行に、いま張ってある実体の番号を書き直す（[`crate::mirror::Ledger::renumber`]）。
+    pub fn google_place_renumber(&mut self, placed: &crate::mirror::Placed) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE google_placed SET file_index = ?2 WHERE link_path = ?1",
+            params![
+                crate::paths::normalize(&placed.link).to_string_lossy(),
+                placed.index as i64,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 記録からリンクを消す（外し終えたもの・置けなかったもの）。
+    pub fn google_place_forget(&mut self, links: &[PathBuf]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt = tx.prepare_cached("DELETE FROM google_placed WHERE link_path = ?1")?;
+            for l in links {
+                stmt.execute(params![crate::paths::normalize(l).to_string_lossy()])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 原本ごとの、記録にあるリンクと、それを置いた Google 用フォルダ（[`crate::mirror::unplace`]
+    /// へ渡す組）。原本をゴミ箱へ入れるとき・走査が消滅を見つけたときに引く。
+    ///
+    /// **綴りが同じ行だけを返す。** 大文字小文字を畳んで引くと、区別するボリュームでは
+    /// `A.jpg` と `a.jpg` が別の写真なので、片方を消したときにもう片方のリンクを外す
+    /// （ゲートが3周続けてこの行を反対向きに動かした）。綴りが割れて引けなかったときは
+    /// リンクが残ってディスクが空かないだけ——取り返しのつかない側には倒さない。
+    /// 別の綴りも引きたいときは、呼び出し側が両方を渡す。
+    pub fn google_placed_for_sources(
+        &self,
+        sources: &[PathBuf],
+    ) -> Result<Vec<(PathBuf, crate::mirror::Recorded)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT dir, link_path, file_index FROM google_placed WHERE source_path = ?1",
+        )?;
+        let mut out = Vec::new();
+        for src in sources {
+            let rows = stmt.query_map(
+                params![crate::paths::normalize(src).to_string_lossy()],
+                |r| {
+                    Ok((
+                        PathBuf::from(r.get::<_, String>(0)?),
+                        crate::mirror::Recorded {
+                            link: PathBuf::from(r.get::<_, String>(1)?),
+                            index: r.get::<_, i64>(2)? as u64,
+                        },
+                    ))
+                },
+            )?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
+    }
+
     /// メタデータ（幅・高さ・撮影日時）未抽出のIDを新しい順で返す。
     ///
     /// 段階B-3: 事前の自動処理はこの「メタデータ抽出＋即席サムネイル」までに絞る。
@@ -3279,6 +3396,74 @@ mod tests {
         db.set_favorite(id, false).unwrap();
         assert!(!db.get_by_id(id).unwrap().unwrap().favorite);
         assert_eq!(db.count_favorites().unwrap(), 0);
+    }
+
+    #[test]
+    fn google_placed_claims_once_and_forgets_by_link() {
+        use crate::mirror::{Claim, Placed, Recorded};
+        let mut db = Db::open_in_memory().unwrap();
+        let dir = PathBuf::from("/g");
+        let mut placed = Placed {
+            source: PathBuf::from("/lib/d/a.jpg"),
+            link: PathBuf::from("/g/d/a.jpg"),
+            // 64 ビット全部を使う番号（Windows のファイル番号）も往復する
+            index: u64::MAX - 1,
+        };
+        assert_eq!(db.google_place_claim(&placed, &dir).unwrap(), Claim::New);
+        assert_eq!(
+            db.google_place_claim(&placed, &dir).unwrap(),
+            Claim::Ours {
+                index: u64::MAX - 1
+            }
+        );
+        // 同じリンクを別の原本で取ろうとしても、前の行を残す
+        let other = Placed {
+            source: PathBuf::from("/lib/other.jpg"),
+            ..placed.clone()
+        };
+        assert_eq!(db.google_place_claim(&other, &dir).unwrap(), Claim::Other);
+        let src = placed.source.clone();
+        let rec = |index| {
+            vec![(
+                dir.clone(),
+                Recorded {
+                    link: PathBuf::from("/g/d/a.jpg"),
+                    index,
+                },
+            )]
+        };
+        assert_eq!(
+            db.google_placed_for_sources(std::slice::from_ref(&src))
+                .unwrap(),
+            rec(u64::MAX - 1)
+        );
+        placed.index = 7;
+        db.google_place_renumber(&placed).unwrap();
+        assert_eq!(
+            db.google_placed_for_sources(std::slice::from_ref(&src))
+                .unwrap(),
+            rec(7)
+        );
+        // 綴りの違う原本では引かない（区別するボリュームでは別の写真かもしれない）
+        let sibling = Placed {
+            source: PathBuf::from("/lib/d/A.JPG"),
+            link: PathBuf::from("/g/d/A.JPG"),
+            index: 9,
+        };
+        assert_eq!(db.google_place_claim(&sibling, &dir).unwrap(), Claim::New);
+        assert_eq!(
+            db.google_placed_for_sources(std::slice::from_ref(&src))
+                .unwrap(),
+            rec(7)
+        );
+        let unrecorded = PathBuf::from("/lib/d/a.JPG");
+        assert!(db
+            .google_placed_for_sources(std::slice::from_ref(&unrecorded))
+            .unwrap()
+            .is_empty());
+        db.google_place_forget(&[placed.link.clone(), sibling.link])
+            .unwrap();
+        assert!(db.google_placed_for_sources(&[src]).unwrap().is_empty());
     }
 
     #[test]
