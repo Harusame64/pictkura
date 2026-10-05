@@ -4265,7 +4265,17 @@ fn prepare_google_folder(dir: &Path, roots: &[PathBuf]) -> Result<(), String> {
         .parent()
         .ok_or_else(|| errs::from_err(MirrorError::NoName(dir.to_path_buf())))?;
     let mount_point = dir.is_dir() && !same_volume(parent, dir).unwrap_or(false);
-    if mount_point || probe_hard_links(parent).is_err() {
+    let parent_probe = if mount_point {
+        None
+    } else {
+        Some(probe_hard_links(parent))
+    };
+    // 「張れない」と答えた親は同じドライブなので、中で試し直さない——登録済みのフォルダに
+    // 試しのファイルを置くだけになる（ゲート2）。書けない等の読み書きの失敗だけ中で試す
+    if let Some(Err(e @ MirrorError::NoHardLinks(..))) = parent_probe {
+        return Err(errs::from_err(e));
+    }
+    if !matches!(parent_probe, Some(Ok(()))) {
         let existed = dir.exists();
         std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))?;
         let probed = probe_hard_links(dir).map_err(errs::from_err);
@@ -4312,6 +4322,8 @@ async fn google_location(app: tauri::AppHandle) -> Result<GoogleLocationDto, Str
 #[tauri::command]
 async fn set_google_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     on_blocking(app, move |state| {
+        // 置く・外すと同じ鍵の中で作る（同じフォルダに2本同時に触らない。ゲート2）
+        let _google_guard = lock_ok(&state.google_lock);
         if enabled {
             let config = lock_ok(&state.config).clone();
             let (dest, dir) = resolve_google_location(&config)?;
@@ -4337,6 +4349,7 @@ async fn set_google_location(app: tauri::AppHandle, path: String) -> Result<(), 
         if !dir.is_dir() {
             return Err(errs::coded("errFolderMissing", path));
         }
+        let _google_guard = lock_ok(&state.google_lock);
         let config = lock_ok(&state.config).clone();
         let Some(dest) = config.routing.destination.clone() else {
             return Err(errs::code("errNoDestination"));
@@ -4353,20 +4366,24 @@ async fn set_google_location(app: tauri::AppHandle, path: String) -> Result<(), 
         prepare_google_folder(&dir, &google_roots(&config, &dest))?;
         // 同じドライブの前の場所を外す。**ディスクに触るので、設定の鍵の外で決める**（ゲート2）。
         // 外したドライブの場所は比べられないので残す（[`location_for_root`] と同じく、在る場所か親で見る）
-        let keep: Vec<PathBuf> = config
-            .google_mirror
-            .locations
-            .iter()
-            .filter(|loc| {
-                let probe = if loc.exists() {
-                    Some(loc.as_path())
-                } else {
-                    loc.parent()
-                };
-                !probe.is_some_and(|p| p.is_dir() && same_volume(p, &dir).unwrap_or(false))
-            })
-            .cloned()
-            .chain(std::iter::once(dir.clone()))
+        // **選んだ場所を先頭に置く**——[`location_for_root`] は最初に当たったものを使うので、
+        // 下の絞り込みが古い場所を取りこぼしても、選んだ場所が勝つ（ゲート2）
+        let keep: Vec<PathBuf> = std::iter::once(dir.clone())
+            .chain(
+                config
+                    .google_mirror
+                    .locations
+                    .iter()
+                    .filter(|loc| {
+                        let probe = if loc.exists() {
+                            Some(loc.as_path())
+                        } else {
+                            loc.parent()
+                        };
+                        !probe.is_some_and(|p| p.is_dir() && same_volume(p, &dir).unwrap_or(false))
+                    })
+                    .cloned(),
+            )
             .collect();
         update_config(state, |c| c.google_mirror.locations = keep)
     })
@@ -4675,7 +4692,13 @@ fn place_google_links(
                 already: r.already,
                 later: r.later,
                 cloud_only: r.cloud_only,
-                failed: r.failed.len(),
+                // 次の取り込み・起動で置き直すもの（保留）は数えない——利用者にできることが無い
+                // （2026-10-06 利用者。ゲート2）
+                failed: r
+                    .failed
+                    .iter()
+                    .filter(|(p, _)| !r.retry.contains(p))
+                    .count(),
                 error: None,
             }
         }

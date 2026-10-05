@@ -218,9 +218,10 @@ impl Coded for MirrorError {
     }
     fn detail(&self) -> String {
         match self {
+            // OS の理由も添える——SMB 等で思いがけず断られたとき、記録から追えるように（ゲート2）
+            MirrorError::NoHardLinks(p, e) => format!("{}: {e}", p.display()),
             MirrorError::OverlapsRoot(p)
             | MirrorError::InsideSyncFolder(p)
-            | MirrorError::NoHardLinks(p, _)
             | MirrorError::RootIsWholeVolume(p)
             | MirrorError::NoName(p)
             | MirrorError::LinkInTheWay(p) => p.display().to_string(),

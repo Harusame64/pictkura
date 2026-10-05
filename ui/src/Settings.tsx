@@ -253,6 +253,11 @@ export default function Settings({
   const [googleError, setGoogleError] = useState<string | null>(null);
   /** 場所を選んでいる・入れている最中。二度押しで確かめを重ねない */
   const [googleBusy, setGoogleBusy] = useState(false);
+  const googleKey = JSON.stringify([
+    config?.routing.destination,
+    config?.library.roots,
+    config?.google_mirror,
+  ]);
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -264,7 +269,9 @@ export default function Settings({
     return () => {
       alive = false;
     };
-  }, [open, config]);
+    // 場所に関わる設定が変わったときだけ訊き直す——ほかの設定を切り替えるたびに
+    // 眠ったドライブを起こさない（ゲート2）
+  }, [open, googleKey]);
   // 閉じたら前の失敗の文言を下ろす（次に開いたときに古い理由を見せない）
   useEffect(() => {
     if (!open) setGoogleError(null);
