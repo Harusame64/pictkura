@@ -243,6 +243,36 @@ pub struct Placed {
     pub source: PathBuf,
     /// Google 用フォルダの中のリンク
     pub link: PathBuf,
+    /// リンクの実体の番号（原本と同じ。unix の inode、Windows のファイル番号）。
+    /// **外すときにこれと照合する**——パスだけでは、フォルダを消して作り直したあとに
+    /// 同じ名前で置かれた他人のファイルを、自分の置いたものと取り違える（ゲート1）。
+    /// **ボリュームの番号は持たない**——macOS は外付けを挿し直すたびに `st_dev` を
+    /// 振り直すので、照合に入れると外付けのリンクが一生外せなくなる
+    pub index: u64,
+}
+
+/// 記録へ書こうとした結果（[`Ledger::claim`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Claim {
+    /// 新しく書いた
+    New,
+    /// 同じリンク・同じ原本の行が既に在った（前の回に置いたもの）
+    Ours,
+    /// 同じリンクの行が**別の原本で**在った——置かない。置くと、新しいリンクが古い原本の
+    /// 行のまま残り、古い原本を消したときに外され、新しい原本からは外せなくなる（ゲート1）
+    Other,
+}
+
+/// 置いたものの記録（DB の `google_placed`）。[`place`] が使う。
+pub trait Ledger {
+    /// リンクを張る**前に**書く。
+    fn claim(&mut self, placed: &Placed) -> io::Result<Claim>;
+    /// 張れなかった。[`Claim::New`] で書いた行だけを取り消すために呼ばれる
+    /// （前から在った行は、前に置いたリンクのものなので残す）。
+    fn release(&mut self, placed: &Placed);
+    /// [`Claim::Ours`] の行に、いま張ってある実体の番号を書き直す（原本が差し替わって
+    /// 張り直せたとき）。
+    fn renumber(&mut self, placed: &Placed);
 }
 
 /// [`place`] の結果。
@@ -260,15 +290,12 @@ pub struct PlaceReport {
 
 /// `placements` を `dir`（Google 用フォルダ）へハードリンクで置く。
 ///
-/// **記録してからリンクする。** `record` が `Ok` を返した1件だけを置く——リンクだけが
-/// 残って記録に無いと、二度と外せない（外すのは記録したものだけなので）。逆に、記録だけが
-/// 残る（記録のあとで落ちた）のは害が無い: [`unplace`] は無いリンクを「もう無い」として
-/// 記録から消す。`record` は**新しく書いたら `true`**、既に在ったら `false` を返す。
-/// 置けなかったときは、新しく書いた記録だけを `unrecord` で取り消す（前から在った記録は
-/// 前に置いたリンクのものなので残す）。
+/// **記録してからリンクする**（[`Ledger::claim`]）。リンクだけが残って記録に無いと、
+/// 二度と外せない（外すのは記録したものだけなので）。逆に、記録だけが残る（記録のあとで
+/// 落ちた）のは害が無い: [`unplace`] は無いリンクを「もう無い」として記録から消す。
 ///
 /// 在る名前は**上書きしない**。同じ実体なら済み（[`PlaceReport::already`]）、違えば失敗。
-/// 原本がシンボリックリンクのもの・クラウドのみのものは置かない。
+/// 原本がシンボリックリンクのもの・クラウドのみのもの・別の原本で記録済みの名前は置かない。
 ///
 /// 1件ずつの失敗は [`PlaceReport::failed`] に積んで続ける。**同じフォルダに対して同時に
 /// 2本走らせないこと**（呼び出し側が1本ずつ回す）。
@@ -276,8 +303,7 @@ pub fn place(
     dir: &Path,
     roots: &[PathBuf],
     placements: &[Placement],
-    record: &mut dyn FnMut(&Placed) -> io::Result<bool>,
-    unrecord: &mut dyn FnMut(&Placed),
+    ledger: &mut dyn Ledger,
 ) -> Result<PlaceReport, MirrorError> {
     check_dir(dir, roots)?;
     std::fs::create_dir_all(dir)?;
@@ -307,45 +333,71 @@ pub fn place(
             report.cloud_only += 1;
             continue;
         }
+        let index = match file_id(&p.source) {
+            Ok(id) => id.index,
+            Err(e) => {
+                fail(&mut report, e.to_string());
+                continue;
+            }
+        };
         let placed = Placed {
             source: p.source.clone(),
             link: dir.join(&p.rel),
+            index,
         };
         if let Err(e) = make_parent_dirs(dir, &p.rel) {
             fail(&mut report, e.to_string());
             continue;
         }
-        let inserted = match record(&placed) {
-            Ok(inserted) => inserted,
+        let claim = match ledger.claim(&placed) {
+            Ok(Claim::Other) => {
+                fail(
+                    &mut report,
+                    format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                );
+                continue;
+            }
+            Ok(claim) => claim,
             Err(e) => {
                 fail(&mut report, format!("記録できない: {e}"));
                 continue;
             }
         };
-        match std::fs::hard_link(&p.source, &placed.link) {
-            Ok(()) => report.placed += 1,
+        let linked = match std::fs::hard_link(&p.source, &placed.link) {
+            Ok(()) => {
+                report.placed += 1;
+                Ok(())
+            }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 if !is_link(&placed.link) && same_file(&p.source, &placed.link).unwrap_or(false) {
                     report.already += 1;
+                    Ok(())
                 } else {
-                    if inserted {
-                        unrecord(&placed);
-                    }
-                    fail(
-                        &mut report,
-                        format!("同じ名前が既にある: {}", placed.link.display()),
-                    );
+                    Err(format!("同じ名前が既にある: {}", placed.link.display()))
                 }
             }
-            Err(e) => {
-                if inserted {
-                    unrecord(&placed);
+            Err(e) => Err(e.to_string()),
+        };
+        match linked {
+            Ok(()) if claim == Claim::Ours => ledger.renumber(&placed),
+            Ok(()) => {}
+            Err(why) => {
+                if claim == Claim::New {
+                    ledger.release(&placed);
                 }
-                fail(&mut report, e.to_string());
+                fail(&mut report, why);
             }
         }
     }
     Ok(report)
+}
+
+/// 外すように渡す記録の1行（[`unplace`]）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recorded {
+    pub link: PathBuf,
+    /// 置いたときの実体の番号（[`Placed::index`]）
+    pub index: u64,
 }
 
 /// [`unplace`] の結果。
@@ -355,7 +407,7 @@ pub struct UnplaceReport {
     pub removed: usize,
     /// **そこにしか実体が無かった**ので `discard` へ渡したもの
     pub discarded: usize,
-    /// もう無かった（または pictkura の置いた形ではなかったので触らなかった）
+    /// もう無かった、または pictkura の置いたものではなかった（触らなかった）
     pub gone: usize,
     /// 記録から消してよいリンク（上の3つの合計と同じ数）
     pub forget: Vec<PathBuf>,
@@ -368,19 +420,19 @@ pub struct UnplaceReport {
 /// - ほかに名前があれば（原本が在る）、名前を消すだけ
 /// - **そこにしか実体が無ければ消さずに `discard` へ渡す**——原本を pictkura の外で
 ///   消し切った写真の、最後の1枚かもしれない
-/// - もう無いもの・普通のファイルでないもの（リンク・フォルダ）は触らずに記録から消す
-///   ——pictkura が置くのはハードリンク（普通のファイル）だけ
+/// - もう無いもの・普通のファイルでないもの（リンク・フォルダ）・**実体の番号が記録と
+///   違うもの**は触らずに記録から消す——pictkura が置いたのは、その番号のハードリンクだけ
 /// - `dir` の外を指す記録・途中にリンクを挟む記録は触らない（失敗として返す）
 ///
 /// 外したあと、空になったフォルダを畳む（`dir` そのものは残す）。
 pub fn unplace(
     dir: &Path,
-    links: &[PathBuf],
+    records: &[Recorded],
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> UnplaceReport {
     let mut report = UnplaceReport::default();
     let mut parents: Vec<PathBuf> = Vec::new();
-    for link in links {
+    for Recorded { link, index } in records {
         let rel = match link.strip_prefix(dir) {
             Ok(rel) if is_plain_relative(rel) => rel,
             _ => {
@@ -409,7 +461,16 @@ pub fn unplace(
                 continue;
             }
         };
-        if !meta.is_file() || is_link_meta(&meta) {
+        let ours = meta.is_file()
+            && !is_link_meta(&meta)
+            && match file_id(link) {
+                Ok(id) => id.index == *index,
+                Err(e) => {
+                    report.failed.push((link.clone(), e.to_string()));
+                    continue;
+                }
+            };
+        if !ours {
             report.gone += 1;
             report.forget.push(link.clone());
             continue;
@@ -1136,31 +1197,49 @@ mod tests {
     #[derive(Default)]
     struct Book(Vec<Placed>);
 
+    impl Ledger for Book {
+        fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
+            match self.0.iter().find(|r| r.link == p.link) {
+                Some(r) if r.source == p.source => Ok(Claim::Ours),
+                Some(_) => Ok(Claim::Other),
+                None => {
+                    self.0.push(p.clone());
+                    Ok(Claim::New)
+                }
+            }
+        }
+        fn release(&mut self, p: &Placed) {
+            self.0.retain(|r| r.link != p.link);
+        }
+        fn renumber(&mut self, p: &Placed) {
+            for r in self.0.iter_mut().filter(|r| r.link == p.link) {
+                r.index = p.index;
+            }
+        }
+    }
+
     impl Book {
         fn place(&mut self, f: &Fixture, ps: &[Placement]) -> PlaceReport {
-            let rows = std::cell::RefCell::new(std::mem::take(&mut self.0));
-            let r = place(
-                &f.google,
-                std::slice::from_ref(&f.lib),
-                ps,
-                &mut |p: &Placed| {
-                    let mut rows = rows.borrow_mut();
-                    if rows.iter().any(|r| r.link == p.link) {
-                        return Ok(false);
-                    }
-                    rows.push(p.clone());
-                    Ok(true)
-                },
-                &mut |p: &Placed| rows.borrow_mut().retain(|r| r.link != p.link),
-            )
-            .unwrap();
-            self.0 = rows.into_inner();
-            r
+            place(&f.google, std::slice::from_ref(&f.lib), ps, self).unwrap()
         }
 
         fn links(&self) -> Vec<PathBuf> {
             self.0.iter().map(|p| p.link.clone()).collect()
         }
+
+        fn records(&self) -> Vec<Recorded> {
+            self.0
+                .iter()
+                .map(|p| Recorded {
+                    link: p.link.clone(),
+                    index: p.index,
+                })
+                .collect()
+        }
+    }
+
+    fn rec(link: PathBuf) -> Recorded {
+        Recorded { link, index: 0 }
     }
 
     /// ゴミ箱の代わり: `dir` へ移す
@@ -1230,10 +1309,63 @@ mod tests {
         book.0.push(Placed {
             source: f.lib.join("d/a.jpg"),
             link: link.clone(),
+            index: 0,
         });
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         assert_eq!((r.placed, r.failed.len()), (0, 1));
         assert_eq!(book.links(), [link]);
+    }
+
+    #[test]
+    fn a_name_recorded_for_another_source_is_not_linked() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let mut book = Book::default();
+        // 別の原本の記録が同じリンクで残っている（リンクは外で消された）
+        let link = f.google.join("d/a.jpg");
+        book.0.push(Placed {
+            source: f.lib.join("old/a.jpg"),
+            link: link.clone(),
+            index: 0,
+        });
+        let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        assert_eq!((r.placed, r.failed.len()), (0, 1));
+        assert!(!link.exists());
+        assert_eq!(book.0[0].source, f.lib.join("old/a.jpg"));
+    }
+
+    #[test]
+    fn a_relinked_replacement_is_renumbered() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let mut book = Book::default();
+        book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        // 外で原本を差し替え、古いリンクも消した
+        std::fs::remove_file(f.google.join("d/a.jpg")).unwrap();
+        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
+        put(&f.lib.join("d/a.jpg"), b"new photo");
+        let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        assert_eq!(r.placed, 1);
+        // 番号が新しい実体に合っていれば、外せる
+        let u = unplace(&f.google, &book.records(), &mut no_discard());
+        assert_eq!(u.removed, 1);
+    }
+
+    #[test]
+    fn a_stranger_at_a_recorded_name_is_left_alone() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let mut book = Book::default();
+        book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        // フォルダを消して作り直し、同じ名前に他人のファイルが来た
+        std::fs::remove_dir_all(&f.google).unwrap();
+        put(&f.google.join("d/a.jpg"), b"someone else's only copy");
+        let r = unplace(&f.google, &book.records(), &mut no_discard());
+        assert_eq!((r.removed, r.discarded, r.gone), (0, 0, 1));
+        assert_eq!(
+            std::fs::read(f.google.join("d/a.jpg")).unwrap(),
+            b"someone else's only copy"
+        );
     }
 
     #[test]
@@ -1278,7 +1410,7 @@ mod tests {
     fn placing_refuses_a_folder_that_a_root_now_contains() {
         let f = fixture();
         let wider = [f.google.parent().unwrap().to_path_buf()];
-        let err = place(&f.google, &wider, &[], &mut |_| Ok(true), &mut |_| {}).unwrap_err();
+        let err = place(&f.google, &wider, &[], &mut Book::default()).unwrap_err();
         assert!(matches!(err, MirrorError::OverlapsRoot(_)));
     }
 
@@ -1289,7 +1421,7 @@ mod tests {
         let mut book = Book::default();
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         put(&f.google.join("d/.DS_Store"), b"finder");
-        let r = unplace(&f.google, &book.links(), &mut no_discard());
+        let r = unplace(&f.google, &book.records(), &mut no_discard());
         assert_eq!((r.removed, r.discarded, r.gone), (1, 0, 0));
         assert_eq!(r.forget, book.links());
         assert!(f.lib.join("d/a.jpg").exists());
@@ -1306,7 +1438,7 @@ mod tests {
         // pictkura の外で原本を消した
         std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
         let trash = f.lib.parent().unwrap().join("trash");
-        let r = unplace(&f.google, &book.links(), &mut move_into(&trash));
+        let r = unplace(&f.google, &book.records(), &mut move_into(&trash));
         assert_eq!((r.removed, r.discarded), (0, 1));
         assert_eq!(std::fs::read(trash.join("a.jpg")).unwrap(), b"photo");
     }
@@ -1318,7 +1450,7 @@ mod tests {
         let mut book = Book::default();
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
-        let r = unplace(&f.google, &book.links(), &mut |_: &Path| Ok(()));
+        let r = unplace(&f.google, &book.records(), &mut |_: &Path| Ok(()));
         assert_eq!(r.failed.len(), 1);
         assert!(r.forget.is_empty());
         assert!(f.google.join("d/a.jpg").exists());
@@ -1328,7 +1460,10 @@ mod tests {
     fn a_missing_link_or_a_non_file_is_only_forgotten() {
         let f = fixture();
         std::fs::create_dir_all(f.google.join("d/dir.jpg")).unwrap();
-        let links = [f.google.join("d/gone.jpg"), f.google.join("d/dir.jpg")];
+        let links = [
+            rec(f.google.join("d/gone.jpg")),
+            rec(f.google.join("d/dir.jpg")),
+        ];
         let r = unplace(&f.google, &links, &mut no_discard());
         assert_eq!((r.gone, r.forget.len()), (2, 2));
         assert!(f.google.join("d/dir.jpg").is_dir());
@@ -1338,7 +1473,10 @@ mod tests {
     fn records_pointing_outside_the_folder_are_not_touched() {
         let f = fixture();
         put(&f.lib.join("d/a.jpg"), b"photo");
-        let links = [f.lib.join("d/a.jpg"), f.google.join("../lib/d/a.jpg")];
+        let links = [
+            rec(f.lib.join("d/a.jpg")),
+            rec(f.google.join("../lib/d/a.jpg")),
+        ];
         let r = unplace(&f.google, &links, &mut no_discard());
         assert_eq!((r.failed.len(), r.forget.len()), (2, 0));
         assert!(f.lib.join("d/a.jpg").exists());
@@ -1355,7 +1493,11 @@ mod tests {
         if std::os::windows::fs::symlink_dir(f.lib.join("d"), f.google.join("d")).is_err() {
             return;
         }
-        let r = unplace(&f.google, &[f.google.join("d/a.jpg")], &mut no_discard());
+        let r = unplace(
+            &f.google,
+            &[rec(f.google.join("d/a.jpg"))],
+            &mut no_discard(),
+        );
         assert_eq!((r.failed.len(), r.forget.len()), (1, 0));
         assert!(f.lib.join("d/a.jpg").exists());
     }
