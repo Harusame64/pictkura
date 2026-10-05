@@ -502,6 +502,19 @@ export const ja = {
   settingsStackBurstsNote:
     "同じカメラで続けて撮った写真を、一覧では1枚にまとめます。撮影時刻が秒より細かく記録されている写真だけが対象です（記録しないカメラもあります）。一覧の右クリックで付ける★・⚑は表紙の1枚だけに付き、削除と選択は連写ぜんぶに効きます。写真を大きく見ているときは、連写もまとめずに1枚ずつ送ります。",
   settingsBurstGap: "連写とみなす間隔",
+  settingsOutgoing: "送り出し",
+  settingsGoogleToggle: "取り込んだ写真を Google フォト用のフォルダにも置く",
+  settingsGoogleNote: "取り込みのたびに、写真をこのフォルダにも並べます（ディスクは余分に使いません）。このフォルダを Google フォトの「フォルダをバックアップ」に登録してください。RAW と JPEG の組は JPEG だけを置き、RAW だけのカットは置きません。",
+  settingsGoogleFolder: "フォルダ",
+  settingsGoogleFolderNote: "取り込み先と同じドライブに置きます。NAS や Amazon Photos など、ほかのバックアップが見張っているフォルダの外を選んでください。",
+  settingsGoogleVideo: "動画も置く",
+  settingsGoogleOneDrive: "OneDrive の中の写真も置く",
+  settingsGoogleOneDriveNote: "置くと、その写真は OneDrive で「オンラインのみ」にできなくなります。",
+  settingsGoogleAfterNote: "pictkura で写真をゴミ箱に入れると、このフォルダからも外します。Google フォトからは消えません。Google フォトのタブを開いている間だけアップロードされます。",
+  pickGoogleFolder: "Google フォト用のフォルダを選んでください",
+  importGoogle: (n: number) => ` · Google フォト用に${num(n)}枚`,
+  importGoogleFailed: (n: number) => ` · Google フォト用に置けなかったもの${num(n)}（ログを参照）`,
+  importGoogleError: (why: string) => ` · Google フォト用に置けませんでした: ${why}`,
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
   burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
   /* 組の印（`RAW+JPEG`）と並ぶときの短い形 */
@@ -571,6 +584,14 @@ export const ja = {
   //
   // **詳細（パス・OSの文言）は訳さずに後ろへ添える**（`i18n/err.ts`）。
   // ここに無い鍵が来たら、フロントは**生のまま**出す
+  errGoogleOverlapsRoot: "ライブラリのフォルダの中と、それを含むフォルダは選べません。",
+  errGoogleInsideSync: "同期フォルダ（OneDrive・Google ドライブ・Dropbox・iCloud Drive など）の中は選べません。",
+  errGoogleNoHardLinks: "このドライブには置けません（exFAT・FAT などはハードリンクを作れません）。",
+  errGoogleWholeVolume: "取り込み先がドライブ丸ごとなので、Google フォト用のフォルダを置ける場所がありません。取り込み先を変えてください。",
+  errGoogleNoName: "ドライブそのものは選べません。中のフォルダを選んでください。",
+  errGoogleLinkInTheWay: "Google フォト用のフォルダがシンボリックリンクになっています。別の場所を選んでください。",
+  errGoogleIo: "Google フォト用のフォルダを読み書きできませんでした。",
+  errGoogleOtherDrive: "取り込み先と同じドライブのフォルダを選んでください。",
   errNotFound: "その写真の記録が見つかりません。",
   errDb: "索引の読み書きに失敗しました。",
   errConfigIo: "設定ファイルを読み書きできませんでした。",

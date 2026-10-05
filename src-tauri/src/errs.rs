@@ -33,6 +33,7 @@ use pictkura_core::config::ConfigError;
 use pictkura_core::db::DbError;
 use pictkura_core::export::ExportError;
 use pictkura_core::import::ImportError;
+use pictkura_core::mirror::MirrorError;
 
 /// 鍵と詳細の継ぎ目。**画面に出ない制御文字**を使う——`:` や `|` は
 /// パスにもOSの文言にも出るので、区切りに使うと詳細の途中で切れる。
@@ -97,6 +98,18 @@ pub fn for_log_err<E: Coded>(e: E) -> String {
         code(e.code())
     } else {
         format!("{}: {}", e.code(), detail)
+    }
+}
+
+/// [`from_err`] と同じ形で、**記録には残さない**。開くたびに訊き直す問い合わせ
+/// （設定画面の Google 用フォルダの場所）に使う——外したドライブのせいで、
+/// 開くたびに同じ1行を記録へ積まないため。
+pub fn quiet<E: Coded>(e: E) -> String {
+    let detail = e.detail();
+    if detail.is_empty() {
+        code(e.code())
+    } else {
+        coded(e.code(), detail)
     }
 }
 
@@ -193,6 +206,35 @@ impl Coded for ImportError {
     /// **読めないのは不具合、選び間違いは違う。**
     fn is_malfunction(&self) -> bool {
         matches!(self, ImportError::SourceUnreadable(_))
+    }
+}
+
+impl Coded for MirrorError {
+    fn code(&self) -> &'static str {
+        match self {
+            MirrorError::OverlapsRoot(_) => "errGoogleOverlapsRoot",
+            MirrorError::InsideSyncFolder(_) => "errGoogleInsideSync",
+            MirrorError::NoHardLinks(..) => "errGoogleNoHardLinks",
+            MirrorError::RootIsWholeVolume(_) => "errGoogleWholeVolume",
+            MirrorError::NoName(_) => "errGoogleNoName",
+            MirrorError::LinkInTheWay(_) => "errGoogleLinkInTheWay",
+            MirrorError::Io(_) => "errGoogleIo",
+        }
+    }
+    fn detail(&self) -> String {
+        match self {
+            MirrorError::OverlapsRoot(p)
+            | MirrorError::InsideSyncFolder(p)
+            | MirrorError::NoHardLinks(p, _)
+            | MirrorError::RootIsWholeVolume(p)
+            | MirrorError::NoName(p)
+            | MirrorError::LinkInTheWay(p) => p.display().to_string(),
+            MirrorError::Io(e) => e.to_string(),
+        }
+    }
+    /// **場所の選び方の話は残さない**（選び直せば済む）。読み書きの失敗だけが機械の側
+    fn is_malfunction(&self) -> bool {
+        matches!(self, MirrorError::Io(_))
     }
 }
 

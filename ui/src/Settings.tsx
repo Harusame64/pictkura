@@ -26,6 +26,12 @@ import {
   BURST_GAPS_MS,
   burstGapOf,
   setRegisterAutoplay,
+  googleLocation,
+  setGoogleEnabled,
+  setGoogleLocation,
+  setGoogleIncludeVideo,
+  setGoogleIncludeOnedrive,
+  type GoogleLocation,
   type AboutInfo,
   type AppConfig,
   type UpdateCheck,
@@ -238,7 +244,48 @@ export default function Settings({
     open,
   );
 
+  /**
+   * 送り出し（Google フォト用のフォルダ）の場所。**場所は Rust が決める**（取り込み先のドライブ・
+   * 選び直した場所・既定）ので、開くたび・設定が変わるたびに訊く。`error` は決まらない理由
+   */
+  const [googleLoc, setGoogleLoc] = useState<GoogleLocation | null>(null);
+  /** 入れる・場所を選ぶのが断られた理由（ダイアログの中に出す。`destError` と同じ扱い） */
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  /** 場所を選んでいる・入れている最中。二度押しで確かめを重ねない */
+  const [googleBusy, setGoogleBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    googleLocation()
+      .then((l) => {
+        if (alive) setGoogleLoc(l);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, config]);
+  // 閉じたら前の失敗の文言を下ろす（次に開いたときに古い理由を見せない）
+  useEffect(() => {
+    if (!open) setGoogleError(null);
+  }, [open]);
+
   if (!open) return null;
+
+  /** 送り出しの設定を1つ変える。断られたら理由をこの節に出す */
+  const changeGoogle = async (save: () => Promise<void>) => {
+    setGoogleBusy(true);
+    try {
+      await save();
+      setGoogleError(null);
+    } catch (e) {
+      setGoogleError(errText(e));
+    } finally {
+      setGoogleBusy(false);
+      onConfigChanged();
+    }
+  };
+  const google = config?.google_mirror;
 
   /**
    * 開くべき取扱説明書の種類（同梱されていなければ `null`）。
@@ -411,6 +458,79 @@ export default function Settings({
                 </div>
               )}
             </div>
+          </section>
+
+          {/*
+            送り出し（Google フォト用のフォルダ。`dev/plan.google-photos-at-import.md` §7c）。
+            見出しに会社名は出さない（2026-10-06 利用者）。RAW だけのカットと「選んだ動画だけ」は
+            それぞれの PR で択を足す——動かない択は出さない
+          */}
+          <section className="settings-section">
+            <h3>{t.settingsOutgoing}</h3>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                disabled={googleBusy}
+                checked={google?.enabled ?? false}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  void changeGoogle(() => setGoogleEnabled(on));
+                }}
+              />
+              {t.settingsGoogleToggle}
+            </label>
+            <p className="settings-note">{t.settingsGoogleNote}</p>
+            <div className="settings-dest">
+              {t.settingsGoogleFolder}:{" "}
+              <code>{googleLoc?.path ?? "—"}</code>
+              <button
+                className="settings-dest-change"
+                disabled={googleBusy}
+                onClick={async () => {
+                  const dir = await openDialog({
+                    directory: true,
+                    title: t.pickGoogleFolder,
+                  });
+                  if (typeof dir !== "string") return;
+                  await changeGoogle(() => setGoogleLocation(dir));
+                }}
+              >
+                {t.wizardChangeDestination}
+              </button>
+            </div>
+            <p className="settings-note">{t.settingsGoogleFolderNote}</p>
+            {/* 場所が決まらない理由（取り込み先が無い・ドライブ丸ごと等）。選び直した失敗が先 */}
+            {(googleError ?? googleLoc?.error) && (
+              <p className="settings-error">
+                {googleError ?? errText(googleLoc?.error)}
+              </p>
+            )}
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                disabled={googleBusy}
+                checked={!(google?.exclude_video ?? false)}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  void changeGoogle(() => setGoogleIncludeVideo(on));
+                }}
+              />
+              {t.settingsGoogleVideo}
+            </label>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                disabled={googleBusy}
+                checked={google?.include_onedrive ?? false}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  void changeGoogle(() => setGoogleIncludeOnedrive(on));
+                }}
+              />
+              {t.settingsGoogleOneDrive}
+            </label>
+            <p className="settings-note">{t.settingsGoogleOneDriveNote}</p>
+            <p className="settings-note">{t.settingsGoogleAfterNote}</p>
           </section>
 
           {/*

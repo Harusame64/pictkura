@@ -100,7 +100,7 @@ export interface ImportStats {
   failed: number;
   /** 取り込み元の走査でエラーがあった（取りこぼしの可能性） */
   scan_incomplete: boolean;
-  /** Google 用フォルダへ置いた結果。設定で切っていれば null（画面に出すのは設定画面の PR） */
+  /** Google 用フォルダへ置いた結果。設定で切っていれば null */
   google: GooglePlaced | null;
 }
 
@@ -112,7 +112,7 @@ export interface GooglePlaced {
   later: number;
   cloud_only: number;
   failed: number;
-  /** 1件も置けなかった理由（場所が決まらない等） */
+  /** 1件も置けなかった理由（場所が決まらない等）。辞書の鍵＋詳細なので `errText` で読む */
   error: string | null;
 }
 
@@ -187,6 +187,15 @@ export interface AppConfig {
   update?: { check_on_start: boolean; last_check_ms: number };
   /** 一覧の描き方（dev #32）。配ったあとに足した節なので**欠けうる**（既定は重ねる） */
   grid?: { stack_raw_jpeg: boolean; stack_bursts?: boolean; burst_gap_ms?: number };
+  /**
+   * 送り出し（Google フォト用のフォルダ。`dev/plan.google-photos-at-import.md`）。
+   * 配ったあとに足した節なので**欠けうる**（既定は切・動画は置く・OneDrive は置かない）
+   */
+  google_mirror?: {
+    enabled: boolean;
+    exclude_video: boolean;
+    include_onedrive: boolean;
+  };
 }
 
 /**
@@ -850,6 +859,27 @@ export const scanRootsOnDrives = (drives: string[]) =>
 /** 一覧で連写を1枚に重ねるかを切り替える（dev #32） */
 export const setStackBursts = (enabled: boolean) =>
   invoke<void>("set_stack_bursts", { enabled });
+
+/** いまの取り込み先のドライブの Google 用フォルダ。決まらなければ理由（辞書の鍵＋詳細） */
+export interface GoogleLocation {
+  path: string | null;
+  error: string | null;
+}
+
+export const googleLocation = () => invoke<GoogleLocation>("google_location");
+
+/** 入れるときは Rust 側がフォルダを決めて作る。決まらなければ断られる（理由は `errText` で読む） */
+export const setGoogleEnabled = (enabled: boolean) =>
+  invoke<void>("set_google_enabled", { enabled });
+
+export const setGoogleLocation = (path: string) =>
+  invoke<void>("set_google_location", { path });
+
+export const setGoogleIncludeVideo = (include: boolean) =>
+  invoke<void>("set_google_include_video", { include });
+
+export const setGoogleIncludeOnedrive = (include: boolean) =>
+  invoke<void>("set_google_include_onedrive", { include });
 
 /**
  * 連写とみなす間隔の選択肢（ミリ秒）。**Rust の `config::BURST_GAPS_MS` と同じ3つ**——

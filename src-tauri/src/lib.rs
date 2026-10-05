@@ -4212,6 +4212,134 @@ fn set_import_destination(state: tauri::State<'_, AppState>, path: String) -> Re
     update_config(&state, |c| c.routing.destination = Some(dest))
 }
 
+/// 設定画面の「送り出し」に出す、いまの取り込み先のドライブの Google 用フォルダ。
+#[derive(serde::Serialize)]
+struct GoogleLocationDto {
+    /// 置く場所。決まらなければ `None`
+    path: Option<String>,
+    /// 決まらない理由（辞書の鍵＋詳細）。取り込み先が未設定のときも入る
+    error: Option<String>,
+}
+
+/// 場所の確かめに使うルート。**取り込み先を足す**——取り込みのときはルートに足したあとの
+/// 設定で決める（[`place_google_links`]）ので、まだ一度も取り込んでいない先とも重ねない
+fn google_roots(config: &Config, dest: &Path) -> Vec<PathBuf> {
+    let mut roots = config.library.roots.clone();
+    if !roots.iter().any(|r| r == dest) {
+        roots.push(dest.to_path_buf());
+    }
+    roots
+}
+
+/// いまの取り込み先に対する Google 用フォルダ（[`pictkura_core::mirror::location_for_root`]）。
+/// **記録には残さない**（開くたびに訊く問い合わせなので。[`errs::quiet`]）
+fn resolve_google_location(config: &Config) -> Result<PathBuf, String> {
+    let Some(dest) = config.routing.destination.as_deref() else {
+        return Err(errs::code("errNoDestination"));
+    };
+    pictkura_core::mirror::location_for_root(
+        dest,
+        &config.google_mirror.locations,
+        &google_roots(config, dest),
+    )
+    .map_err(errs::quiet)
+}
+
+/// Google 用フォルダを作る。**先に親でハードリンクを試す**——中で試すと、登録済みのフォルダなら
+/// Google がその一瞬のファイルを拾う（[`pictkura_core::mirror::probe_hard_links`]）。
+/// 入れたときに作っておくのは、利用者がすぐ Google フォトに登録できるように
+fn prepare_google_folder(dir: &Path) -> Result<(), String> {
+    use pictkura_core::mirror::{probe_hard_links, MirrorError};
+    let parent = dir
+        .parent()
+        .ok_or_else(|| errs::from_err(MirrorError::NoName(dir.to_path_buf())))?;
+    probe_hard_links(parent).map_err(errs::from_err)?;
+    std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))
+}
+
+#[tauri::command]
+fn google_location(state: tauri::State<'_, AppState>) -> GoogleLocationDto {
+    let config = lock_ok(&state.config).clone();
+    match resolve_google_location(&config) {
+        Ok(p) => GoogleLocationDto {
+            path: Some(p.to_string_lossy().into_owned()),
+            error: None,
+        },
+        Err(e) => GoogleLocationDto {
+            path: None,
+            error: Some(e),
+        },
+    }
+}
+
+/// 取り込みのあとに Google 用フォルダへ置くかを切り替える。**入れるときは場所を決めて作る**
+/// ——決まらない（取り込み先が無い・ドライブ丸ごと等）なら入れずに理由を返す。
+/// 切っても、置いたものはそのまま（姿「一度並んだら、そのあと pictkura は何もしない」）
+#[tauri::command]
+fn set_google_enabled(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    if enabled {
+        let config = lock_ok(&state.config).clone();
+        prepare_google_folder(&resolve_google_location(&config)?)?;
+    }
+    update_config(&state, |c| c.google_mirror.enabled = enabled)
+}
+
+/// Google 用フォルダの場所を選び直す。**取り込み先と同じドライブ**（ハードリンクはドライブを
+/// 越えられない）で、ライブラリと重ならず、同期フォルダの外で、リンクを張れること。
+/// 同じドライブに前に選んだ場所があれば置き換える（ドライブごとに1つ）。
+/// 前の場所に置いたものは動かさない
+#[tauri::command]
+fn set_google_location(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
+    use pictkura_core::mirror::{check_location, same_volume};
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(errs::coded("errFolderMissing", path));
+    }
+    let config = lock_ok(&state.config).clone();
+    let Some(dest) = config.routing.destination.clone() else {
+        return Err(errs::code("errNoDestination"));
+    };
+    if !same_volume(&dest, &dir)
+        .map_err(|e| errs::from_err(pictkura_core::mirror::MirrorError::Io(e)))?
+    {
+        return Err(errs::coded("errGoogleOtherDrive", path));
+    }
+    check_location(&dir, &google_roots(&config, &dest)).map_err(errs::from_err)?;
+    prepare_google_folder(&dir)?;
+    update_config(&state, |c| {
+        let locations = &mut c.google_mirror.locations;
+        // 外したドライブの場所は比べられないので残す（[`location_for_root`] と同じく、在る場所か親で見る）
+        locations.retain(|loc| {
+            let probe = if loc.exists() {
+                Some(loc.as_path())
+            } else {
+                loc.parent()
+            };
+            !probe.is_some_and(|p| p.is_dir() && same_volume(p, &dir).unwrap_or(false))
+        });
+        locations.push(dir);
+    })
+}
+
+/// 動画も Google 用フォルダへ置くか（2026-10-06 利用者: 既定は置く）。
+/// 「選んだものだけ」は動画を選ぶ画面の PR で足す
+#[tauri::command]
+fn set_google_include_video(
+    state: tauri::State<'_, AppState>,
+    include: bool,
+) -> Result<(), String> {
+    update_config(&state, |c| c.google_mirror.exclude_video = !include)
+}
+
+/// OneDrive の中の原本も置くか（既定は置かない。置くと OneDrive で空き容量を増やせなくなる）
+#[tauri::command]
+fn set_google_include_onedrive(
+    state: tauri::State<'_, AppState>,
+    include: bool,
+) -> Result<(), String> {
+    update_config(&state, |c| c.google_mirror.include_onedrive = include)
+}
+
 /// 取り込みの進捗通知。少件数はそのまま、大量時は0.5%刻みにまとめる。
 ///
 /// UIはこのイベントで**いま入れている写真のサムネイル**も出すので、
@@ -4466,8 +4594,9 @@ fn place_google_links(
     if !pictkura_core::mirror::is_on(&config) {
         return None;
     }
+    // 理由は辞書の鍵で持つ（画面に出す）。記録には下で1行だけ残す
     let result = Db::open(&state.db_path)
-        .map_err(|e| e.to_string())
+        .map_err(errs::quiet)
         .and_then(|mut db| {
             // 原本が外で消し切られたリンクを外す（PR4）
             note_google_sweep(
@@ -4478,7 +4607,7 @@ fn place_google_links(
             // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
             note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
             pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
-                .map_err(|e| e.to_string())
+                .map_err(errs::quiet)
         });
     let dto = match result {
         Ok(Some(r)) => {
@@ -4500,7 +4629,10 @@ fn place_google_links(
         }
         Ok(None) => return None,
         Err(e) => {
-            applog::note(&format!("Google 用フォルダ: 置けなかった: {e}"));
+            applog::note(&format!(
+                "Google 用フォルダ: 置けなかった: {}",
+                errs::for_log(&e)
+            ));
             GooglePlacedDto {
                 error: Some(e),
                 ..GooglePlacedDto::default()
@@ -6390,6 +6522,11 @@ pub fn run() {
             set_slideshow_transition,
             set_stack_raw_jpeg,
             set_stack_bursts,
+            google_location,
+            set_google_enabled,
+            set_google_location,
+            set_google_include_video,
+            set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,
             set_register_autoplay,

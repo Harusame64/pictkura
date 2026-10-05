@@ -100,7 +100,7 @@ import {
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
-import type { VideoStatus } from "./api";
+import type { GooglePlaced, VideoStatus } from "./api";
 import {
   closeOverStacks,
   countPhotos,
@@ -524,6 +524,20 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
 });
 
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
+/**
+ * 取り込みの1行に足す、送り出し（Google フォト用のフォルダ）の結果。切っていれば空。
+ * 保留（あとで置き直す分・クラウドのみ）は出さない——次の取り込みか起動で置き直すので、
+ * 利用者にできることが無い（2026-10-06 利用者）。済み（同じ実体が在った）も出さない
+ */
+function googleSummary(g: GooglePlaced | null): string {
+  if (!g) return "";
+  if (g.error) return t.importGoogleError(errText(g.error));
+  return (
+    (g.placed > 0 ? t.importGoogle(g.placed) : "") +
+    (g.failed > 0 ? t.importGoogleFailed(g.failed) : "")
+  );
+}
+
 function speedLabel(r: StartupScanReport): string {
   // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
   // ここだけ英語式のまま帯に載っていた。桁区切りが付くのは1000秒を超えたときだけ。
@@ -2297,7 +2311,8 @@ export default function App() {
       setStatus(
         t.importDone(stats.copied, stats.skipped) +
           (stats.failed > 0 ? t.importFailed(stats.failed) : "") +
-          (stats.scan_incomplete ? t.importIncomplete : ""),
+          (stats.scan_incomplete ? t.importIncomplete : "") +
+          googleSummary(stats.google),
       );
       await refreshRoots();
       checkDecoders();
