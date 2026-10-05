@@ -1048,8 +1048,9 @@ fn fold_one(dir: &Path, d: &Path) {
     let _ = std::fs::remove_dir(d);
 }
 
-/// Google 用フォルダとして使ってよいか（[`place`] が毎回見る門）。
-fn check_dir(dir: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
+/// Google 用フォルダとして使ってよいか（[`place`] が毎回見る門）。設定画面で場所を決めるときも
+/// これを通す——ここより緩い確かめで保存すると、入れたのに置くたびに断られる（ゲート1）。
+pub fn check_dir(dir: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
     if dir.file_name().is_none() {
         return Err(MirrorError::NoName(dir.to_path_buf()));
     }

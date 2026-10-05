@@ -100,7 +100,7 @@ import {
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
-import type { VideoStatus } from "./api";
+import type { GooglePlaced, VideoStatus } from "./api";
 import {
   closeOverStacks,
   countPhotos,
@@ -522,6 +522,23 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
 });
+
+/**
+ * 取り込みの1行に足す、送り出し（Google フォト用のフォルダ）へ置いた枚数。切っていれば空。
+ * **置けなかったことはここに書かない**（[`googleFailure`]。状態の1行は 32ch で切れる・ゲート2）。
+ * 保留（あとで置き直す分・クラウドのみ）は出さない——次の取り込みか起動で置き直すので、
+ * 利用者にできることが無い（2026-10-06 利用者）。済み（同じ実体が在った）も出さない
+ */
+function googleSummary(g: GooglePlaced | null): string {
+  return g && !g.error && g.placed > 0 ? t.importGoogle(g.placed) : "";
+}
+
+/** 送り出しへ置けなかったこと。失敗の一本道（`fail`）へ流す文。無ければ `null` */
+function googleFailure(g: GooglePlaced | null): string | null {
+  if (!g) return null;
+  if (g.error) return t.importGoogleError(errText(g.error));
+  return g.failed > 0 ? t.importGoogleFailed(g.failed) : null;
+}
 
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
 function speedLabel(r: StartupScanReport): string {
@@ -2297,12 +2314,15 @@ export default function App() {
       setStatus(
         t.importDone(stats.copied, stats.skipped) +
           (stats.failed > 0 ? t.importFailed(stats.failed) : "") +
-          (stats.scan_incomplete ? t.importIncomplete : ""),
+          (stats.scan_incomplete ? t.importIncomplete : "") +
+          googleSummary(stats.google),
       );
+      const googleFailed = googleFailure(stats.google);
+      if (googleFailed) fail(googleFailed);
       await refreshRoots();
       checkDecoders();
     },
-    [refreshRoots, checkDecoders],
+    [refreshRoots, checkDecoders, fail],
   );
 
   // ライブラリのルート追加の本体。手入力（onAddFolder）と
