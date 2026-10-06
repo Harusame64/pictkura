@@ -612,7 +612,7 @@ export const ja = {
   calendarEmpty: "写真がありません",
   // 絞り込んで0件のとき（案内。pictkura-dev plan.filter-empty.md、2026-10-07 利用者決定: 案B）。
   // `conds` は効いている条件の名前を `listSeparator` でつないだもの（`src/filterEmpty.ts`）
-  filterEmptyTitle: (conds: string) => `この絞り込みに合う写真はありません：${conds}`,
+  filterEmptyTitle: (conds: string) => `この絞り込みに該当する写真はありません：${conds}`,
   filterEmptyMessage: "検索語や、左の一覧で選んでいる絞り込みを外すと、ほかの写真が出てきます。",
   filterEmptyStillIndexing: "まだ取り込み・索引の途中なので、あとで出てくることがあります。",
   filterCondQuery: (q: string) => `検索語「${q}」`,

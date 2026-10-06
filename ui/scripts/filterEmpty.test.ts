@@ -59,13 +59,13 @@ test("検索語がカメラだけなら機種名で言い、混ざっていれ�
 test("見出しの最終形（ja / en）", () => {
   assert.equal(
     titleOf(ja, "fav", "video", "海"),
-    "この絞り込みに合う写真はありません：★ お気に入り、動画、検索語「海」",
+    "この絞り込みに該当する写真はありません：★ お気に入り、動画、検索語「海」",
   );
   assert.equal(
     titleOf(en, "fav", "video", "sea"),
     "No photos match these filters: ★ Favorites, Videos, the search “sea”",
   );
-  assert.equal(titleOf(ja, "outgoing", "all", ""), "この絞り込みに合う写真はありません：送り出し");
+  assert.equal(titleOf(ja, "outgoing", "all", ""), "この絞り込みに該当する写真はありません：送り出し");
   assert.equal(titleOf(en, "all", "all", 'camera:"X100V"'), "No photos match these filters: taken with X100V");
 });
 
