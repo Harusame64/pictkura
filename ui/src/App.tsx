@@ -99,7 +99,7 @@ import {
   burstGapOf,
   googleChosenSummary,
   googleSendChosen,
-  listMediaIdsInDays,
+  type ChosenForGoogle,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
@@ -4919,7 +4919,7 @@ export default function App() {
         if (e.key === "Escape" && !trashing && answerKey(e)) setRejectGate(null);
         return;
       }
-      if (wizardOpen || menu !== null || calMenu !== null) return;
+      if (wizardOpen || menu !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -5008,7 +5008,6 @@ export default function App() {
     settingsOpen,
     wizardOpen,
     menu,
-    calMenu,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5150,7 +5149,6 @@ export default function App() {
         settingsOpen ||
         wizardOpen ||
         menu !== null ||
-        calMenu !== null ||
         view !== "grid"
       )
         return;
@@ -5166,7 +5164,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, calMenu, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -5943,15 +5941,14 @@ export default function App() {
    * `fromSelection` なら終わったあと選択を解く（ほかの一括操作と同じ）
    */
   const sendToGoogle = useCallback(
-    async (ids: number[], photos: number, wide: boolean, fromSelection: boolean) => {
-      if (sendingRef.current || ids.length === 0) return;
+    async (chosen: ChosenForGoogle, photos: number, wide: boolean, fromSelection: boolean) => {
+      if (sendingRef.current || (chosen.kind === "ids" && chosen.ids.length === 0)) return;
       // **全体の `busy` は触らない**——右クリックからも呼ばれ、再スキャン等の最中に下ろすと、
       // 走っている操作のボタンが押せるようになる（ゲート2）。二度押しは `sendingRef` で止める
       sendingRef.current = true;
       // 送り始めたときの選択（終わったときに同じなら解く。途中で選び直した分は残す。ゲート1）
       const selectionAtStart = selectedRef.current;
       try {
-        const chosen = { kind: "ids", ids } as const;
         const s = await googleChosenSummary(chosen);
         const placeable = s.photos + s.videos + s.raw_only;
         // 置き先が決まらないだけ（ドライブ丸ごとのルート等）なら、送る側まで進めて理由を出す（ゲート1）
@@ -6019,13 +6016,13 @@ export default function App() {
    */
   const sendDaysToGoogle = useCallback(
     async (from: number, to: number) => {
-      const ids = await listMediaIdsInDays(queryRef.current, filterRef.current, from, to);
-      // 空なら黙らない（検索を打ち変えた直後など。ゲート2）
-      if (ids.length === 0) {
-        fail(t.googleSendNothing);
-        return;
-      }
-      await sendToGoogle(ids, ids.length, true, false);
+      // 範囲のまま渡す（年まるごとの ID を画面へ持ってこない）。空なら見積もりが「置けるものがありません」と言う
+      await sendToGoogle(
+        { kind: "days", query: queryRef.current, filter: filterRef.current, from, to },
+        0,
+        true,
+        false,
+      );
     },
     [sendToGoogle],
   );
@@ -6036,7 +6033,7 @@ export default function App() {
     if (ids.length === 0) return;
     const photos =
       countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ?? ids.length;
-    await sendToGoogle(ids, photos, wideSelectRef.current, true);
+    await sendToGoogle({ kind: "ids", ids }, photos, wideSelectRef.current, true);
   }, [visibleSelection, sendToGoogle]);
 
   /** 対象1枚に対する右クリックメニューの項目 */
@@ -6086,7 +6083,7 @@ export default function App() {
                 // ★・⚑ と同じ `markFiles` を送る: 連写は表紙のコマだけ、RAW+JPEG は組の両方（JPEG だけ
                 // 置かれる）。1タイル＝1枚の約束（2026-09-25 の利用者の選択）に揃える（ゲート2）
                 void sendToGoogle(
-                  markFiles.map((f) => f.id),
+                  { kind: "ids", ids: markFiles.map((f) => f.id) },
                   1,
                   false,
                   false,

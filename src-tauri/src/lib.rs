@@ -3678,25 +3678,6 @@ fn list_media_ids(
         .map_err(errs::from_err)
 }
 
-/// いまの検索・絞り込みのうち、**表示日が `from`〜`to`（YYYYMMDD、両端を含む）のID**。
-/// カレンダーの月・年をまとめて送り出しへ置くときに使う（`dev/plan.google-photos-from-library.md` §9）。
-/// 検索の日付の条件があれば、それとの重なりだけ（広げない）
-#[tauri::command]
-fn list_media_ids_in_days(
-    state: tauri::State<'_, AppState>,
-    query: String,
-    filter: pictkura_core::MediaFilter,
-    from: i64,
-    to: i64,
-) -> Result<Vec<i64>, String> {
-    let mut query = pictkura_core::parse_query(&query, filter);
-    query.narrow_days(from, to);
-    state
-        .read_pool
-        .with(|db| db.search_ids(&query))
-        .map_err(errs::from_err)
-}
-
 /// 範囲選択（Shift+クリック）で、**2点に挟まれたIDだけ**を取る。
 ///
 /// 全IDを返す `list_media_ids` を範囲選択に使うと、隣り合う2枚のために
@@ -4423,8 +4404,15 @@ async fn set_google_location(app: tauri::AppHandle, path: String) -> Result<(), 
 enum ChosenDto {
     /// 一覧で選んだタイル（重ねた組は両方の id が来る。組は JPEG だけ置く）
     Ids { ids: Vec<i64> },
-    /// フォルダツリーで選んだフォルダ（下のフォルダも）
-    Folder { path: String },
+    /// カレンダーの月・年（`dev/plan.google-photos-from-library.md` §9）: いまの検索・絞り込みのうち、
+    /// 表示日が `from`〜`to`（YYYYMMDD、両端を含む）のもの。**範囲のまま受けて、ここで引く**——
+    /// 年まるごとの ID を画面へ渡して送り返さない（ゲート2）
+    Days {
+        query: String,
+        filter: pictkura_core::MediaFilter,
+        from: i64,
+        to: i64,
+    },
 }
 
 /// 選んだものの原本と大きさ。消えている id は黙って飛ばす（選んだあとに外から消された等）が、
@@ -4445,13 +4433,28 @@ fn chosen_items(state: &AppState, chosen: &ChosenDto) -> Result<Vec<(PathBuf, u6
                 Ok::<_, pictkura_core::db::DbError>(out)
             })
             .map_err(errs::from_err),
-        ChosenDto::Folder { path } => Ok(state
-            .read_pool
-            .with(|db| db.paths_by_prefix(Path::new(path)))
-            .map_err(errs::from_err)?
-            .into_iter()
-            .map(|(p, n)| (p, n.max(0) as u64))
-            .collect()),
+        ChosenDto::Days {
+            query,
+            filter,
+            from,
+            to,
+        } => {
+            let mut q = pictkura_core::parse_query(query, *filter);
+            // 検索の日付の条件があれば、それとの重なりだけ（広げない）
+            q.narrow_days(*from, *to);
+            state
+                .read_pool
+                .with(|db| {
+                    let mut out = Vec::new();
+                    for id in db.search_ids(&q)? {
+                        if let Some(r) = db.get_by_id(id)? {
+                            out.push((r.path, r.size.max(0) as u64));
+                        }
+                    }
+                    Ok::<_, pictkura_core::db::DbError>(out)
+                })
+                .map_err(errs::from_err)
+        }
     }
 }
 
@@ -6799,7 +6802,6 @@ pub fn run() {
             set_google_raw_only,
             google_chosen_summary,
             google_send_chosen,
-            list_media_ids_in_days,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

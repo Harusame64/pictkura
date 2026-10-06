@@ -2689,25 +2689,6 @@ impl Db {
         Ok(total)
     }
 
-    /// フォルダ**配下**の写真のパスと大きさ（パスの順）。[`Db::count_by_prefix`] と同じ範囲で引く
-    /// （索引に乗る・バイト厳密）。ライブラリのフォルダを丸ごと Google フォトへ送るときに使う
-    /// （`dev/plan.google-photos-from-library.md`）
-    pub fn paths_by_prefix(&self, prefix: &Path) -> Result<Vec<(PathBuf, i64)>, DbError> {
-        let mut out = Vec::new();
-        let mut stmt = self.conn.prepare_cached(
-            "SELECT path, size FROM media WHERE path >= ?1 AND path < ?2 ORDER BY path",
-        )?;
-        for (head, end) in prefix_ranges(prefix) {
-            let rows = stmt.query_map(rusqlite::params![head, end], |r| {
-                Ok((PathBuf::from(r.get::<_, String>(0)?), r.get::<_, i64>(1)?))
-            })?;
-            for row in rows {
-                out.push(row?);
-            }
-        }
-        Ok(out)
-    }
-
     /// 消えたファイルのレコードをトランザクションでまとめて削除する。
     pub fn remove_paths(&mut self, paths: &[PathBuf]) -> Result<(), DbError> {
         let tx = self.write_tx()?;
@@ -3775,36 +3756,6 @@ mod tests {
         assert_eq!(
             db.google_pending_all().unwrap(),
             [(a, vec![PathBuf::from("/a/2.jpg")])]
-        );
-    }
-
-    #[test]
-    fn paths_by_prefix_lists_a_folder_and_below_but_not_its_namesakes() {
-        let mut db = Db::open_in_memory().unwrap();
-        let rec = |p: &str, size: i64| ScannedFile {
-            path: PathBuf::from(p),
-            size,
-            mtime_ms: 0,
-        };
-        db.upsert_files(&[
-            rec("/lib/2010/a.jpg", 10),
-            rec("/lib/2010/sub/b.jpg", 20),
-            rec("/lib/2010x/c.jpg", 30),
-            rec("/lib/2011/d.jpg", 40),
-        ])
-        .unwrap();
-        let got: Vec<(PathBuf, i64)> = db
-            .paths_by_prefix(Path::new("/lib/2010"))
-            .unwrap()
-            .into_iter()
-            .map(|(p, n)| (PathBuf::from(p.to_string_lossy().replace('\\', "/")), n))
-            .collect();
-        assert_eq!(
-            got,
-            [
-                (PathBuf::from("/lib/2010/a.jpg"), 10),
-                (PathBuf::from("/lib/2010/sub/b.jpg"), 20),
-            ]
         );
     }
 

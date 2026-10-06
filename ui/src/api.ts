@@ -590,13 +590,6 @@ export const setFavorites = (ids: number[], favorite: boolean) =>
  */
 export const listMediaIds = (query: string, filter: MediaFilter) =>
   invoke<number[]>("list_media_ids", { query, filter });
-/** いまの検索・絞り込みのうち、表示日が `from`〜`to`（YYYYMMDD、両端を含む）のID（カレンダーから送り出しへ） */
-export const listMediaIdsInDays = (
-  query: string,
-  filter: MediaFilter,
-  from: number,
-  to: number,
-) => invoke<number[]>("list_media_ids_in_days", { query, filter, from, to });
 /**
  * 一覧の並びで、**2点に挟まれた範囲のIDだけ**を取る（Shift+クリック）。
  *
@@ -896,7 +889,7 @@ export const setGoogleRawOnly = (rawOnly: GoogleRawOnly) =>
 /** ライブラリから Google フォトへ送るものの選び方（`dev/plan.google-photos-from-library.md` §1） */
 export type ChosenForGoogle =
   | { kind: "ids"; ids: number[] }
-  | { kind: "folder"; path: string };
+  | { kind: "days"; query: string; filter: MediaFilter; from: number; to: number };
 
 /** 送る前の見積もり（確認に出す）。`bytes` はリンクで置くものの合計（取り出す JPEG は含まない） */
 export interface ChosenSummary {
