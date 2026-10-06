@@ -1102,7 +1102,9 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
             // 「新しく作る」と言うのは、作れる（親が在る）ときだけ。外れたドライブの場所を
             // 「作ります・登録してください」と言わない（ゲート2）
             // 壊れたリンクが居座っているのも「無い」ではない（置くときに断られる。ゲート2）
-            if std::fs::symlink_metadata(&dir).is_err() && dir.parent().is_some_and(Path::is_dir) {
+            // 読めないだけ（権限・共有の一時的な誤り）は「無い」と言わない（PR の codex）
+            let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == io::ErrorKind::NotFound);
+            if missing && dir.parent().is_some_and(Path::is_dir) {
                 out.new_folders.push(dir.clone());
             }
             out.folders.push(dir);
