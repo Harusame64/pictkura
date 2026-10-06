@@ -27,6 +27,7 @@ import {
   burstGapOf,
   setRegisterAutoplay,
   googleLocation,
+  googleFolders,
   setGoogleEnabled,
   setGoogleLocation,
   setGoogleIncludeVideo,
@@ -251,6 +252,8 @@ export default function Settings({
    * 選び直した場所・既定）ので、開くたび・設定が変わるたびに訊く。`error` は決まらない理由
    */
   const [googleLoc, setGoogleLoc] = useState<GoogleLocation | null>(null);
+  /** pictkura が作った Google 用フォルダの一覧（ドライブごと）。2つ以上あるときに並べる */
+  const [googleDirs, setGoogleDirs] = useState<string[]>([]);
   /** 入れる・場所を選ぶのが断られた理由（ダイアログの中に出す。`destError` と同じ扱い） */
   const [googleError, setGoogleError] = useState<string | null>(null);
   /** 場所を選んでいる・入れている最中。二度押しで確かめを重ねない */
@@ -266,6 +269,11 @@ export default function Settings({
     googleLocation()
       .then((l) => {
         if (alive) setGoogleLoc(l);
+      })
+      .catch(() => {});
+    googleFolders()
+      .then((d) => {
+        if (alive) setGoogleDirs(d);
       })
       .catch(() => {});
     return () => {
@@ -510,6 +518,20 @@ export default function Settings({
               </button>
             </div>
             <p className="settings-note">{t.settingsGoogleFolderNote}</p>
+            {/* ドライブごとに作ったフォルダの一覧（2つ以上のとき）。作った回の知らせを見逃しても辿れるように。
+                登録済みかは pictkura に分からないので印は付けない（2026-10-06 利用者決定） */}
+            {google?.enabled && googleDirs.length > 1 && (
+              <div className="settings-google-folders">
+                <p className="settings-note">{t.settingsGoogleFoldersNote}</p>
+                <ul>
+                  {googleDirs.map((d) => (
+                    <li key={d}>
+                      <code>{d}</code>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {/* 場所が決まらない理由（取り込み先が無い・ドライブ丸ごと等）は、**入れているときだけ**赤で出す
                 ——切っている人に、選んでもいない場所の断りを毎回見せない（ゲート2）。
                 入れようとすれば断られて、その理由が `googleError` に出る。選び直した失敗が先 */}

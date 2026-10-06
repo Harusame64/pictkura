@@ -489,6 +489,7 @@ export const es: Dict = {
   settingsGoogleNote: "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Añade esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
   settingsGoogleFolder: "Carpeta",
   settingsGoogleFolderNote: "Está en la misma unidad que la carpeta de destino de la importación. Elige un lugar fuera de las carpetas que vigila otra copia de seguridad, como un NAS o Amazon Photos.",
+  settingsGoogleFoldersNote: "Las carpetas para Google Fotos que ha creado pictkura (una por unidad). Añade cada una a la copia de seguridad de carpetas de Google Fotos.",
   settingsGoogleVideo: "Poner también los vídeos",
   settingsGoogleRawOnly: "Tomas solo en RAW",
   googleRawOnlyNone: "No poner",

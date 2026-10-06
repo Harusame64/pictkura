@@ -507,6 +507,7 @@ export const ja = {
   settingsGoogleNote: "取り込みのたびに、写真をこのフォルダにも並べます（ディスクは余分に使いません）。このフォルダを Google フォトの「フォルダをバックアップ」に登録してください。RAW と JPEG の組は JPEG だけを置きます。",
   settingsGoogleFolder: "フォルダ",
   settingsGoogleFolderNote: "取り込み先と同じドライブに置きます。NAS や Amazon Photos など、ほかのバックアップが見張っているフォルダの外を選んでください。",
+  settingsGoogleFoldersNote: "pictkura が作った Google フォト用のフォルダです（ドライブごとに1つ）。どれも Google フォトの「フォルダをバックアップ」に登録してください。",
   settingsGoogleVideo: "動画も置く",
   settingsGoogleRawOnly: "RAW だけのカット",
   googleRawOnlyNone: "上げない",

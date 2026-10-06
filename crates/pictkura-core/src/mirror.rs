@@ -309,8 +309,9 @@ pub struct PlaceReport {
     /// クラウドのみなので置かなかったもの（置くと Google が読みに行った瞬間に取り寄せが走る）
     pub cloud_only: usize,
     /// この回に**新しく作った** Google 用フォルダ。Google フォトへの登録が要るので、画面で知らせる
-    /// （取り込み先を別のドライブへ変えたあとの最初の取り込み等。黙って作ると、登録されずに上がらない）
-    pub new_folder: Option<PathBuf>,
+    /// （取り込み先を別のドライブへ変えたあとの最初の取り込み等。黙って作ると、登録されずに上がらない）。
+    /// 見逃しても、設定の「送り出し」に作ったフォルダの一覧が出る（2026-10-06 利用者決定）
+    pub new_folders: Vec<PathBuf>,
     /// 失敗（原本と理由）。一時的なものも恒久的なものも入る
     pub failed: Vec<(PathBuf, String)>,
     /// **あとで置き直すもの**（一時的な失敗・クラウドのみ・フォルダを解決できなかったもの）。
@@ -327,12 +328,15 @@ impl PlaceReport {
             placed,
             already,
             cloud_only,
-            new_folder,
+            new_folders,
             failed,
             retry,
         } = other;
-        if self.new_folder.is_none() {
-            self.new_folder = new_folder;
+        // ドライブごとに作りうる（ルートが2つのドライブにまたがる回）。全部を残す（ゲート2）
+        for f in new_folders {
+            if !self.new_folders.contains(&f) {
+                self.new_folders.push(f);
+            }
         }
         self.placed += placed;
         self.already += already;
@@ -360,7 +364,9 @@ pub fn place(
     ledger: &mut dyn Ledger,
 ) -> Result<PlaceReport, MirrorError> {
     check_dir(dir, roots)?;
-    let existed = std::fs::symlink_metadata(dir).is_ok();
+    // 「無かった」と言うのは NotFound のときだけ（読めないだけの在るフォルダを「作った」と言わない。ゲート2）
+    let existed =
+        !matches!(std::fs::symlink_metadata(dir), Err(e) if e.kind() == io::ErrorKind::NotFound);
     std::fs::create_dir_all(dir)?;
     // 作った直後にもう一度見る（作る前は無かったので、リンクかどうかは作ってから分かる）
     if is_link(dir) {
@@ -369,7 +375,11 @@ pub fn place(
 
     let dir_volume = volume_of(dir)?;
     let mut report = PlaceReport {
-        new_folder: (!existed).then(|| dir.to_path_buf()),
+        new_folders: if existed {
+            Vec::new()
+        } else {
+            vec![dir.to_path_buf()]
+        },
         ..PlaceReport::default()
     };
     // 置けなかった1件のために**この回に作った**フォルダ。最後に空なら畳む——Google が
@@ -2533,10 +2543,10 @@ mod tests {
         put(&f.lib.join("d/b.jpg"), b"photo b");
         let mut book = Book::default();
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
-        assert_eq!(r.new_folder, Some(f.google.clone()));
+        assert_eq!(r.new_folders, std::slice::from_ref(&f.google));
         // 在るフォルダへ置いた回は知らせない
         let r = book.place(&f, &[placement(&f.lib, "d/b.jpg")]);
-        assert_eq!(r.new_folder, None);
+        assert!(r.new_folders.is_empty());
     }
 
     #[test]

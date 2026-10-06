@@ -113,6 +113,8 @@ export const es419: Dict = {
   },
 
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
+  settingsGoogleFoldersNote:
+    "Las carpetas para Google Fotos que ha creado pictkura (una por unidad). Agrega cada una a la copia de seguridad de carpetas de Google Fotos.",
   googleSendNewFolder: (path: string) =>
     `Se creará ${path}. Agrega también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
   googleFolderCreated: (path: string) =>

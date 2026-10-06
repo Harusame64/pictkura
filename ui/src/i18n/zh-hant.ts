@@ -468,6 +468,7 @@ export const zhHant: Dict = {
   settingsGoogleNote: "每次匯入時，照片也會排進這個資料夾（不額外佔用磁碟空間）。請在 Google 相簿的資料夾備份中加入這個資料夾。RAW+JPEG 成對的只放 JPEG。",
   settingsGoogleFolder: "資料夾",
   settingsGoogleFolderNote: "放在與匯入目的地相同的磁碟上。請選在 NAS、Amazon Photos 等其他備份所監看的資料夾之外。",
+  settingsGoogleFoldersNote: "pictkura 建立的 Google 相簿專用資料夾（每個磁碟一個）。請在 Google 相簿的資料夾備份中加入每一個。",
   settingsGoogleVideo: "影片也放",
   settingsGoogleRawOnly: "只有 RAW 的照片",
   googleRawOnlyNone: "不放",
