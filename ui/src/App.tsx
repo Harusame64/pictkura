@@ -99,6 +99,7 @@ import {
   burstGapOf,
   googleChosenSummary,
   googleSendChosen,
+  type ChosenForGoogle,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
@@ -842,6 +843,13 @@ export default function App() {
     files?: MediaItem[];
     /** ★・⚑ が効くファイル（連写では表紙のコマだけ。`Cell.markFiles`）。無ければ `files` */
     markFiles?: MediaItem[];
+  } | null>(null);
+  /** カレンダーの月の見出しの右クリック（送り出しへ。設計 ② §9）。
+   * 上の幕が開くときは、タイルの `menu` と一緒に畳む（ゲート1） */
+  const [calMenu, setCalMenu] = useState<{
+    pos: { x: number; y: number };
+    year: number;
+    month: number;
   } | null>(null);
   /** 登録済みの外部編集アプリ（設定から読む） */
   const [editors, setEditors] = useState<ExternalApp[]>([]);
@@ -2281,6 +2289,7 @@ export default function App() {
     setPaletteOpen(false);
     setShortcutsOpen(false);
     setMenu(null);
+    setCalMenu(null);
     // **待たされて出た面かどうか**を渡す（`ImportWizard` の `graceOnOpen`）。
     // **耳栓が要るのはその道だけ**——自分でボタンを押して開けた人の `Esc` は、
     // **すぐ効かないと「効かない」**である
@@ -2303,6 +2312,7 @@ export default function App() {
   useEffect(() => {
     if (rejectGate === null) return;
     setMenu(null);
+    setCalMenu(null);
     setPaletteOpen(false);
   }, [rejectGate]);
 
@@ -5406,6 +5416,7 @@ export default function App() {
     setPaletteOpen(false);
     setShortcutsOpen(false);
     setMenu(null);
+    setCalMenu(null);
     setSettingsOpen(true);
   };
 
@@ -5418,7 +5429,8 @@ export default function App() {
       settingsOpen ||
       shortcutsOpen ||
       paletteOpen ||
-      menu !== null;
+      menu !== null ||
+      calMenu !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -5929,15 +5941,14 @@ export default function App() {
    * `fromSelection` なら終わったあと選択を解く（ほかの一括操作と同じ）
    */
   const sendToGoogle = useCallback(
-    async (ids: number[], photos: number, wide: boolean, fromSelection: boolean) => {
-      if (sendingRef.current || ids.length === 0) return;
+    async (chosen: ChosenForGoogle, photos: number, wide: boolean, fromSelection: boolean) => {
+      if (sendingRef.current || (chosen.kind === "ids" && chosen.ids.length === 0)) return;
       // **全体の `busy` は触らない**——右クリックからも呼ばれ、再スキャン等の最中に下ろすと、
       // 走っている操作のボタンが押せるようになる（ゲート2）。二度押しは `sendingRef` で止める
       sendingRef.current = true;
       // 送り始めたときの選択（終わったときに同じなら解く。途中で選び直した分は残す。ゲート1）
       const selectionAtStart = selectedRef.current;
       try {
-        const chosen = { kind: "ids", ids } as const;
         const s = await googleChosenSummary(chosen);
         const placeable = s.photos + s.videos + s.raw_only;
         // 置き先が決まらないだけ（ドライブ丸ごとのルート等）なら、送る側まで進めて理由を出す（ゲート1）
@@ -5994,13 +6005,35 @@ export default function App() {
     [confirmAction, fail, clearSelection, platform],
   );
 
+  // 送り出しを切った・カレンダーを離れたら、月のメニューを畳む（古い項目を押させない。ゲート2）
+  useEffect(() => {
+    if (!googleOn || view !== "calendar") setCalMenu(null);
+  }, [googleOn, view]);
+
+  /**
+   * カレンダーの月・年を送り出しへ置く。**いまの検索・絞り込みで見えているもの**だけ（カレンダーの数と
+   * 同じ）。中身が見えにくい選び方なので、いつも確かめる（`wide`）
+   */
+  const sendDaysToGoogle = useCallback(
+    async (from: number, to: number) => {
+      // 範囲のまま渡す（年まるごとの ID を画面へ持ってこない）。空なら見積もりが「置けるものがありません」と言う
+      await sendToGoogle(
+        { kind: "days", query: queryRef.current, filter: filterRef.current, from, to },
+        0,
+        true,
+        false,
+      );
+    },
+    [sendToGoogle],
+  );
+
   /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
   const onBulkSendGoogle = useCallback(async () => {
     const ids = await visibleSelection();
     if (ids.length === 0) return;
     const photos =
       countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ?? ids.length;
-    await sendToGoogle(ids, photos, wideSelectRef.current, true);
+    await sendToGoogle({ kind: "ids", ids }, photos, wideSelectRef.current, true);
   }, [visibleSelection, sendToGoogle]);
 
   /** 対象1枚に対する右クリックメニューの項目 */
@@ -6050,7 +6083,7 @@ export default function App() {
                 // ★・⚑ と同じ `markFiles` を送る: 連写は表紙のコマだけ、RAW+JPEG は組の両方（JPEG だけ
                 // 置かれる）。1タイル＝1枚の約束（2026-09-25 の利用者の選択）に揃える（ゲート2）
                 void sendToGoogle(
-                  markFiles.map((f) => f.id),
+                  { kind: "ids", ids: markFiles.map((f) => f.id) },
                   1,
                   false,
                   false,
@@ -6733,7 +6766,15 @@ export default function App() {
                   起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
               {!showEmptyPanel && !unsureWhyEmpty && (
-                <Calendar summary={summary} onOpenDay={openDay} />
+                <Calendar
+                  summary={summary}
+                  onOpenDay={openDay}
+                  onMonthMenu={
+                    googleOn
+                      ? (pos, year, month) => setCalMenu({ pos, year, month })
+                      : undefined
+                  }
+                />
               )}
             </div>
           ) : (
@@ -7718,6 +7759,30 @@ export default function App() {
         pos={menu?.pos ?? null}
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
         onClose={() => setMenu(null)}
+      />
+      <ContextMenu
+        pos={calMenu?.pos ?? null}
+        items={
+          calMenu
+            ? [
+                {
+                  label: t.calendarSendMonth,
+                  run: () => {
+                    const base = calMenu.year * 10000 + calMenu.month * 100;
+                    sendDaysToGoogle(base + 1, base + 31).catch((e) => fail(errText(e)));
+                  },
+                },
+                {
+                  label: t.calendarSendYear(String(calMenu.year)),
+                  run: () => {
+                    const base = calMenu.year * 10000;
+                    sendDaysToGoogle(base + 101, base + 1231).catch((e) => fail(errText(e)));
+                  },
+                },
+              ]
+            : []
+        }
+        onClose={() => setCalMenu(null)}
       />
       {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、
           いま押せるものがその場で分かるように出す */}

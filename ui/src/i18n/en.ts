@@ -425,6 +425,9 @@ export const en: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} could not be placed for Google Photos (see the log)`,
   importGoogleError: (why: string) => `Nothing was placed for Google Photos: ${why}`,
   bulkSendGoogle: "Add to Outgoing",
+  calendarSendMonth: "Add this month to Outgoing",
+  /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
+  calendarSendYear: (year: string) => `Add all of ${year} to Outgoing`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "photo", "photos")}`);

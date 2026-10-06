@@ -40,10 +40,16 @@ function buildMonths(summary: DaySummary[]): MonthData[] {
 export default function Calendar({
   summary,
   onOpenDay,
+  onMonthMenu,
 }: {
   summary: DaySummary[];
   /** 日セルのクリック: グリッド表示のその日へジャンプする */
   onOpenDay: (dayKey: number) => void;
+  /**
+   * 月の見出しの右クリック（送り出しへ置く。`dev/plan.google-photos-from-library.md` §9）。
+   * 渡さなければ右クリックはブラウザの既定のまま
+   */
+  onMonthMenu?: (pos: { x: number; y: number }, year: number, month: number) => void;
 }) {
   const months = useMemo(() => buildMonths(summary), [summary]);
 
@@ -65,7 +71,16 @@ export default function Calendar({
         ];
         return (
           <section key={`${m.year}-${m.month}`} className="month-card">
-            <h3 className="month-title">
+            <h3
+              className="month-title"
+              onContextMenu={
+                onMonthMenu &&
+                ((e) => {
+                  e.preventDefault();
+                  onMonthMenu({ x: e.clientX, y: e.clientY }, m.year, m.month);
+                })
+              }
+            >
               {formatMonth(m.year, m.month)}
               <span className="month-count">{t.photosCount(m.total)}</span>
             </h3>

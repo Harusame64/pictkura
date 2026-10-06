@@ -502,6 +502,9 @@ export const es: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} no se ${one(n, "ha", "han")} podido poner para Google Fotos (consulta el registro)`,
   importGoogleError: (why: string) => `No se ha puesto nada para Google Fotos: ${why}`,
   bulkSendGoogle: "Enviar a Salida",
+  calendarSendMonth: "Enviar este mes a Salida",
+  /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
+  calendarSendYear: (year: string) => `Enviar todo ${year} a Salida`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
