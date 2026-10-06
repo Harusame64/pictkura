@@ -462,6 +462,21 @@ pub fn place(
         }
         // `Err((理由, 一時的か))`
         let claim = match ledger.claim(&placed) {
+            // 同じカットの取り出しの記録が、中身の消えたまま残っている（どかしたあと記録を消す前に
+            // 落ちた）なら、記録を消して取り直す（PR の codex）
+            Ok(Claim::Other) if stale_extract(&placed, ledger) => {
+                match ledger
+                    .forget(&placed.link)
+                    .and_then(|()| ledger.claim(&placed))
+                {
+                    Ok(Claim::Other) => Err((
+                        format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                        false,
+                    )),
+                    Ok(claim) => Ok(claim),
+                    Err(e) => Err((format!("記録できない: {e}"), true)),
+                }
+            }
             Ok(Claim::Other) => Err((
                 format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
                 false,
@@ -613,6 +628,14 @@ fn same_bytes_index(link: &Path, tmp: &Path) -> Option<u64> {
     }
     let id = file_id(link).ok()?;
     (std::fs::read(link).ok()? == std::fs::read(tmp).ok()?).then_some(id.index)
+}
+
+/// `placed.link` の記録が、同じカットの RAW からの取り出しで、名前にもう何も無いか。
+fn stale_extract(placed: &Placed, ledger: &mut dyn Ledger) -> bool {
+    matches!(
+        ledger.holder(&placed.link),
+        Ok(Some((raw, _, true))) if pair_key_folded(&raw) == pair_key_folded(&placed.source)
+    ) && matches!(std::fs::symlink_metadata(&placed.link), Err(e) if e.kind() == io::ErrorKind::NotFound)
 }
 
 /// [`place_extracted`] が置かなかった理由。
@@ -2995,6 +3018,20 @@ mod tests {
         // 記録はもう無いが、作業場の名前も消えている（中身がディスクに残らない）
         assert!(!left.exists());
         assert!(!work.exists());
+    }
+
+    #[test]
+    fn a_stale_extract_record_left_by_a_crash_gives_way_on_retry() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // 取り出しを消したが、記録を消す前に落ちた形
+        std::fs::remove_file(f.google.join("d/B.jpg")).unwrap();
+        put(&f.lib.join("d/B.jpg"), b"camera jpeg");
+        let r = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert!(book.0.iter().all(|r| !r.extracted));
     }
 
     #[test]
