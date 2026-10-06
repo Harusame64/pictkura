@@ -4725,11 +4725,18 @@ async fn google_remove_chosen(
         }
         let r = pictkura_core::mirror::unplace_sources(&mut db, &sources, &mut trash_one)
             .map_err(errs::quiet)?;
-        if let Some((path, why)) = r.failed.first() {
+        // 外したものがあれば毎回書く（ゴミ箱の道と同じ。win の実機: 成功が記録に残らなかった）
+        if r.removed + r.discarded + r.deleted > 0 || !r.failed.is_empty() {
             applog::note(&format!(
-                "Google 用フォルダ: 送り出しから外すときに {} 件失敗した（最初: {}: {why}）",
+                "Google 用フォルダ: 送り出しから外した——リンク {} 件・ゴミ箱へ {} 件・取り出した JPEG {} 件、失敗 {} 件{}",
+                r.removed,
+                r.discarded,
+                r.deleted,
                 r.failed.len(),
-                path.display()
+                r.failed
+                    .first()
+                    .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                    .unwrap_or_default()
             ));
         }
         let stuck: std::collections::HashSet<&PathBuf> = r.failed.iter().map(|(p, _)| p).collect();
