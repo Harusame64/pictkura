@@ -1265,7 +1265,12 @@ pub fn unplace(
         return report;
     }
     let mut parents: Vec<PathBuf> = Vec::new();
-    for Recorded { link, index, .. } in records {
+    for Recorded {
+        link,
+        index,
+        extracted,
+    } in records
+    {
         let rel = match link.strip_prefix(dir) {
             Ok(rel) if is_plain_relative(rel) => rel,
             _ => {
@@ -1312,7 +1317,10 @@ pub fn unplace(
             report.forget.push(link.clone());
             continue;
         };
-        match remove_or_discard(link, id.links, discard) {
+        // 取り出した JPEG は名前の数を見ない——2つ目の名前は作業場に消し損ねたもので、次の取り出しが
+        // 片付ける。名前を外すだけにすると、片付けのときに中身ごと消える（PR の codex）
+        let links = if *extracted { 1 } else { id.links };
+        match remove_or_discard(link, links, discard) {
             Ok(handed) => {
                 if handed {
                     report.discarded += 1;
@@ -2852,7 +2860,9 @@ mod tests {
         std::fs::remove_file(f.lib.join("d/B.ARW")).unwrap();
         let trash = f.lib.parent().unwrap().join("trash");
         let r = sweep_orphans(&mut db, &mut move_into(&trash)).unwrap();
-        assert_eq!((r.removed + r.discarded, r.failed.len()), (1, 0));
+        // 名前を外すだけでは、作業場の名前が片付けられたときに中身ごと消える。ゴミ箱へ渡す
+        assert_eq!((r.discarded, r.removed, r.failed.len()), (1, 0, 0));
+        assert!(trash.join("B.jpg").is_file());
         assert!(!f.google.join("d/B.jpg").exists());
     }
 
