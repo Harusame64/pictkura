@@ -465,6 +465,7 @@ export const zh: Dict = {
   settingsGoogleNote: "每次导入时，照片也会排进这个文件夹（不额外占用磁盘空间）。请在 Google 相册的文件夹备份中添加这个文件夹。RAW+JPEG 成对的只放 JPEG。",
   settingsGoogleFolder: "文件夹",
   settingsGoogleFolderNote: "放在与导入目标相同的磁盘上。请选在 NAS、Amazon Photos 等其他备份所监视的文件夹之外。",
+  settingsGoogleFoldersNote: "pictkura 曾放入照片的 Google 相册专用文件夹（每个磁盘建一个）。请在 Google 相册的文件夹备份中添加你要使用的每一个。",
   settingsGoogleVideo: "视频也放",
   settingsGoogleRawOnly: "只有 RAW 的照片",
   googleRawOnlyNone: "不放",
@@ -493,6 +494,8 @@ export const zh: Dict = {
   googleSendFolders: (list: string) => `放入位置：${list}`,
   googleSendNewFolder: (path: string) =>
     `将新建 ${path}。请在 Google 相册的文件夹备份中也添加这个文件夹。`,
+  googleFolderCreated: (path: string) =>
+    `已新建 ${path}。请在 Google 相册的文件夹备份中也添加这个文件夹。`,
   googleSendNothing: "没有可以放入的内容。",
   googleSendConfirmOk: "放入",
   googleSent: (total: number, already: number) =>

@@ -1810,6 +1810,14 @@ body {
   color: var(--text-faint);
   line-height: 1.6;
 }
+/* 送り出しで作ったフォルダの一覧（設定）。注記と同じ大きさで、パスは折り返す */
+.settings-google-folders ul {
+  margin: calc(-1 * var(--sp-2)) 0 var(--sp-3);
+  padding-left: var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
 .settings-dest {
   font-size: var(--fs-sm);
   color: var(--text-muted);

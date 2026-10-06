@@ -113,8 +113,12 @@ export const es419: Dict = {
   },
 
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
+  settingsGoogleFoldersNote:
+    "Carpetas para Google Fotos en las que pictkura ha colocado fotos (se crea una por unidad). Agrega cada una que uses a la copia de seguridad de carpetas de Google Fotos.",
   googleSendNewFolder: (path: string) =>
     `Se creará ${path}. Agrega también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+  googleFolderCreated: (path: string) =>
+    `Se ha creado ${path}. Agrega también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
   settingsGoogleNote:
     "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
   errRootManaged:

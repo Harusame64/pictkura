@@ -308,6 +308,10 @@ pub struct PlaceReport {
     pub already: usize,
     /// クラウドのみなので置かなかったもの（置くと Google が読みに行った瞬間に取り寄せが走る）
     pub cloud_only: usize,
+    /// この回に**新しく作った** Google 用フォルダ。Google フォトへの登録が要るので、画面で知らせる
+    /// （取り込み先を別のドライブへ変えたあとの最初の取り込み等。黙って作ると、登録されずに上がらない）。
+    /// 見逃しても、設定の「送り出し」に作ったフォルダの一覧が出る（2026-10-06 利用者決定）
+    pub new_folders: Vec<PathBuf>,
     /// 失敗（原本と理由）。一時的なものも恒久的なものも入る
     pub failed: Vec<(PathBuf, String)>,
     /// **あとで置き直すもの**（一時的な失敗・クラウドのみ・フォルダを解決できなかったもの）。
@@ -324,9 +328,16 @@ impl PlaceReport {
             placed,
             already,
             cloud_only,
+            new_folders,
             failed,
             retry,
         } = other;
+        // ドライブごとに作りうる（ルートが2つのドライブにまたがる回）。全部を残す（ゲート2）
+        for f in new_folders {
+            if !self.new_folders.contains(&f) {
+                self.new_folders.push(f);
+            }
+        }
         self.placed += placed;
         self.already += already;
         self.cloud_only += cloud_only;
@@ -353,6 +364,8 @@ pub fn place(
     ledger: &mut dyn Ledger,
 ) -> Result<PlaceReport, MirrorError> {
     check_dir(dir, roots)?;
+    // 「無かった」と言うのは NotFound のときだけ（読めないだけの在るフォルダを「作った」と言わない。ゲート2）
+    let existed = !is_missing(dir);
     std::fs::create_dir_all(dir)?;
     // 作った直後にもう一度見る（作る前は無かったので、リンクかどうかは作ってから分かる）
     if is_link(dir) {
@@ -360,7 +373,14 @@ pub fn place(
     }
 
     let dir_volume = volume_of(dir)?;
-    let mut report = PlaceReport::default();
+    let mut report = PlaceReport {
+        new_folders: if existed {
+            Vec::new()
+        } else {
+            vec![dir.to_path_buf()]
+        },
+        ..PlaceReport::default()
+    };
     // 置けなかった1件のために**この回に作った**フォルダ。最後に空なら畳む——Google が
     // 見ているフォルダに空のアルバムを残さない（ゲート2）
     let mut emptied: Vec<PathBuf> = Vec::new();
@@ -631,6 +651,12 @@ fn stale_extract(placed: &Placed, ledger: &mut dyn Ledger) -> bool {
         ledger.holder(&placed.link),
         Ok(Some((raw, _, true))) if pair_key_folded(&raw) == pair_key_folded(&placed.source)
     ) && matches!(std::fs::symlink_metadata(&placed.link), Err(e) if e.kind() == io::ErrorKind::NotFound)
+}
+
+/// `path` が**無い**か（`NotFound` のときだけ真）。読めないだけ（権限・共有の一時的な誤り）や、壊れたリンクが
+/// 居座っているのは「無い」ではない。新しく作るフォルダの判定（見積もり・置いた結果）はここだけを通す（ゲート2）
+fn is_missing(path: &Path) -> bool {
+    matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound)
 }
 
 /// [`place_extracted`] が置かなかった理由。
@@ -1103,8 +1129,7 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
             // 「作ります・登録してください」と言わない（ゲート2）
             // 壊れたリンクが居座っているのも「無い」ではない（置くときに断られる。ゲート2）
             // 読めないだけ（権限・共有の一時的な誤り）は「無い」と言わない（PR の codex）
-            let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == io::ErrorKind::NotFound);
-            if missing && dir.parent().is_some_and(Path::is_dir) {
+            if is_missing(&dir) && dir.parent().is_some_and(Path::is_dir) {
                 out.new_folders.push(dir.clone());
             }
             out.folders.push(dir);
@@ -2513,6 +2538,19 @@ mod tests {
 
     fn no_discard() -> impl FnMut(&Path) -> io::Result<()> {
         |p: &Path| panic!("discard was not expected: {}", p.display())
+    }
+
+    #[test]
+    fn a_folder_made_by_this_run_is_reported_once() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        put(&f.lib.join("d/b.jpg"), b"photo b");
+        let mut book = Book::default();
+        let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
+        assert_eq!(r.new_folders, std::slice::from_ref(&f.google));
+        // 在るフォルダへ置いた回は知らせない
+        let r = book.place(&f, &[placement(&f.lib, "d/b.jpg")]);
+        assert!(r.new_folders.is_empty());
     }
 
     #[test]

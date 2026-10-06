@@ -4006,6 +4006,8 @@ struct GooglePlacedDto {
     error: Option<String>,
     /// 選んだのに置かないもの（ライブラリから選んで送ったときだけ。[`pictkura_core::mirror::left_out`]）
     left_out: usize,
+    /// この回に新しく作った Google 用フォルダ（Google フォトへの登録を促す）
+    new_folders: Vec<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -4324,6 +4326,28 @@ async fn google_location(app: tauri::AppHandle) -> Result<GoogleLocationDto, Str
     .await
 }
 
+/// pictkura が置いた（＝作った）Google 用フォルダの一覧と、いまの取り込み先の場所。設定の「送り出し」に
+/// 並べて、どれも Google フォトに登録するよう書く（作った回の知らせを見逃しても辿れるように。2026-10-06 利用者決定）
+#[tauri::command]
+async fn google_folders(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    on_blocking(app, |state| {
+        let mut dirs = state
+            .read_pool
+            .with(|db| db.google_placed_dirs())
+            .map_err(errs::from_err)?;
+        let config = lock_ok(&state.config).clone();
+        if let Ok((_, here)) = resolve_google_location(&config) {
+            // 記録の綴りは揃えてある（`paths::normalize`）ので、こちらも揃えて比べる（ゲート2）
+            let here = pictkura_core::paths::normalize(&here);
+            if here.is_dir() && !dirs.contains(&here) {
+                dirs.push(here);
+            }
+        }
+        Ok(google_paths(&dirs))
+    })
+    .await
+}
+
 /// 取り込みのあとに Google 用フォルダへ置くかを切り替える。**入れるときは場所を決めて作る**
 /// ——決まらない（取り込み先が無い・ドライブ丸ごと等）なら入れずに理由を返す。
 /// 切っても、置いたものはそのまま（姿「一度並んだら、そのあと pictkura は何もしない」）
@@ -4543,6 +4567,7 @@ async fn google_send_chosen(
                     failed: r.failed.len(),
                     error,
                     left_out: c.left_out,
+                    new_folders: google_paths(&r.new_folders),
                 }
             }
             Err(e) => {
@@ -4685,9 +4710,14 @@ fn finish_import(
 
 /// 保留（一時的に置けなかったもの）を置き直した結果を記録へ残す。画面には出さない
 /// ——取り込みの結果とは別の写真の話なので、取り込みの数に混ぜない。
+/// 返すのは、置き直しで**新しく作った** Google 用フォルダ（取り込みの知らせに足す。黙って作らない。ゲート2）
 fn note_google_retry(
     result: Result<Option<pictkura_core::mirror::PlaceReport>, pictkura_core::mirror::MirrorError>,
-) {
+) -> Vec<PathBuf> {
+    let made = match &result {
+        Ok(Some(r)) => r.new_folders.clone(),
+        _ => Vec::new(),
+    };
     match result {
         // 置けなかったときは最初の1件の理由も残す——数だけでは直し方が分からない（win の実機）
         Ok(Some(r)) if r.placed + r.failed.len() > 0 => applog::note(&format!(
@@ -4703,6 +4733,14 @@ fn note_google_retry(
         Ok(_) => {}
         Err(e) => applog::note(&format!("Google 用フォルダ: 保留を置き直せなかった: {e}")),
     }
+    made
+}
+
+fn google_paths(paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
 }
 
 /// Google 用フォルダの記録（DB）を開き、専用の鍵の中で `f` を回す。開けなければ記録に残す
@@ -4752,7 +4790,8 @@ fn retry_google_pending(state: &AppState) {
             &SWEEP_FAILURE_SAID,
         );
         if pictkura_core::mirror::is_on(config) {
-            note_google_retry(pictkura_core::mirror::retry_pending(config, db));
+            // 起動の置き直しで作ったフォルダは、設定の一覧で見える（ここでは画面へ出す道が無い）
+            let _ = note_google_retry(pictkura_core::mirror::retry_pending(config, db));
         }
     });
 }
@@ -4861,6 +4900,8 @@ fn place_google_links(
     if !pictkura_core::mirror::is_on(&config) {
         return None;
     }
+    // 置き直し（保留）で新しく作ったフォルダ。この回の結果がどうであれ知らせに足す（ゲート2）
+    let mut made_by_retry: Vec<PathBuf> = Vec::new();
     // 理由は辞書の鍵で持つ（画面に出す）。記録には下で1行だけ残す
     let result = Db::open(&state.db_path)
         .map_err(errs::quiet)
@@ -4872,7 +4913,8 @@ fn place_google_links(
             );
             // 前の回に一時的に置けなかったもの（保留）を**先に**置き直す（2026-10-05 利用者決定）。
             // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
-            note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
+            made_by_retry =
+                note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
             pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
                 .map_err(errs::quiet)
         });
@@ -4898,6 +4940,7 @@ fn place_google_links(
                     .count(),
                 error: None,
                 left_out: 0,
+                new_folders: google_paths(&r.new_folders),
             }
         }
         Ok(None) => return None,
@@ -4912,6 +4955,12 @@ fn place_google_links(
             }
         }
     };
+    let mut dto = dto;
+    for f in google_paths(&made_by_retry) {
+        if !dto.new_folders.contains(&f) {
+            dto.new_folders.push(f);
+        }
+    }
     Some(dto)
 }
 
@@ -6796,6 +6845,7 @@ pub fn run() {
             set_stack_raw_jpeg,
             set_stack_bursts,
             google_location,
+            google_folders,
             set_google_enabled,
             set_google_location,
             set_google_include_video,

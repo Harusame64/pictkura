@@ -564,11 +564,18 @@ function googleSummary(g: GooglePlaced | null): string {
   return g && !g.error && g.placed > 0 ? t.importGoogle(g.placed) : "";
 }
 
-/** 送り出しへ置けなかったこと。失敗の一本道（`fail`）へ流す文。無ければ `null` */
+/**
+ * 送り出しへ置けなかったこと・新しくフォルダを作ったこと。失敗の一本道（`fail`）へ流す文。無ければ `null`。
+ * 新しいフォルダは Google フォトへ登録しないと上がらないので、取り込みのたびに見落とさない所へ出す
+ * （取り込み先を別のドライブへ変えたあとの最初の取り込みで作る。黙って作らない）
+ */
 function googleFailure(g: GooglePlaced | null): string | null {
   if (!g) return null;
-  if (g.error) return t.importGoogleError(errText(g.error));
-  return g.failed > 0 ? t.importGoogleFailed(g.failed) : null;
+  const notes: string[] = [];
+  if (g.error) notes.push(t.importGoogleError(errText(g.error)));
+  else if (g.failed > 0) notes.push(t.importGoogleFailed(g.failed));
+  for (const f of g.new_folders) notes.push(t.googleFolderCreated(f));
+  return notes.length > 0 ? notes.join(" ") : null;
 }
 
 /** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
@@ -5991,6 +5998,10 @@ export default function App() {
         else if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
         if (r.cloud_only > 0) notes.push(t.googleSentCloudOnly(r.cloud_only));
         if (!ask && r.left_out > 0) notes.push(t.googleSentLeftOut(r.left_out));
+        // 確認で「作ります」と言わなかったフォルダを作っていたら知らせる（親から作った・確認のあとに消された等。ゲート2）
+        for (const f of r.new_folders) {
+          if (!ask || !s.new_folders.includes(f)) notes.push(t.googleFolderCreated(f));
+        }
         if (notes.length > 0) fail(notes.join(" "));
         // 何も置けなかったときは選択を残す——送り直すのに選び直させない（ゲート2）
         if (fromSelection && total > 0 && selectedRef.current === selectionAtStart) {

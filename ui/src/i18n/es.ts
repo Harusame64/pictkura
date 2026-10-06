@@ -489,6 +489,7 @@ export const es: Dict = {
   settingsGoogleNote: "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Añade esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
   settingsGoogleFolder: "Carpeta",
   settingsGoogleFolderNote: "Está en la misma unidad que la carpeta de destino de la importación. Elige un lugar fuera de las carpetas que vigila otra copia de seguridad, como un NAS o Amazon Photos.",
+  settingsGoogleFoldersNote: "Carpetas para Google Fotos en las que pictkura ha colocado fotos (se crea una por unidad). Añade cada una que uses a la copia de seguridad de carpetas de Google Fotos.",
   settingsGoogleVideo: "Poner también los vídeos",
   settingsGoogleRawOnly: "Tomas solo en RAW",
   googleRawOnlyNone: "No poner",
@@ -517,6 +518,8 @@ export const es: Dict = {
   googleSendFolders: (list: string) => `Destino: ${list}`,
   googleSendNewFolder: (path: string) =>
     `Se creará ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+  googleFolderCreated: (path: string) =>
+    `Se ha creado ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
   googleSendNothing: "No hay nada que se pueda colocar.",
   googleSendConfirmOk: "Colocar",
   googleSent: (total: number, already: number) =>
