@@ -6305,7 +6305,9 @@ export default function App() {
         icon: "🖼",
         label: t.actionShowAll,
         run: () => {
+          // 種類（画像・RAW・動画）も戻す——棚と検索語だけ外すと、種類の絞り込みが残る
           setFilter("all");
+          setKind("all");
           setQueryInput("");
         },
       },
