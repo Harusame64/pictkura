@@ -683,7 +683,9 @@ fn open_work_dir(dir: &Path) -> io::Result<PathBuf> {
             work.display()
         )));
     }
-    clear_work_files(&work)?;
+    // 消せない残り（削除の共有なしに掴まれている）があっても止めない——新しい名前は `create_new` で
+    // 空いているものを取るので邪魔にならない。残りは突き合わせの片付けが拾う（ゲート2）
+    let _ = clear_work_files(&work);
     Ok(work)
 }
 
@@ -799,16 +801,7 @@ fn place_extracted(
     if let Err(e) = std::fs::metadata(&p.source) {
         return Err(Skip::Failed(e.to_string(), true));
     }
-    let bytes = match crate::embedded_jpeg::for_google(&p.source) {
-        Ok(b) => b,
-        Err(crate::embedded_jpeg::Missing::NoPreview) => {
-            return Err(Skip::Failed("取り出せる埋め込み JPEG が無い".into(), false))
-        }
-        // 読み切れなかっただけ（共有ロック等）。保留に残して次に読み直す（ゲート1）
-        Err(crate::embedded_jpeg::Missing::Unreadable) => {
-            return Err(Skip::Failed("RAW を読み切れない".into(), true))
-        }
-    };
+    // 作業場を先に開く。開けない（隣に書けない等）のに RAW を読み切ると、1枚ごとに高い読みが無駄になる（ゲート2）
     let work_dir = match work {
         Some(w) => w.clone(),
         None => {
@@ -818,6 +811,16 @@ fn place_extracted(
             })?;
             *work = Some(w.clone());
             w
+        }
+    };
+    let bytes = match crate::embedded_jpeg::for_google(&p.source) {
+        Ok(b) => b,
+        Err(crate::embedded_jpeg::Missing::NoPreview) => {
+            return Err(Skip::Failed("取り出せる埋め込み JPEG が無い".into(), false))
+        }
+        // 読み切れなかっただけ（共有ロック等）。保留に残して次に読み直す（ゲート1）
+        Err(crate::embedded_jpeg::Missing::Unreadable) => {
+            return Err(Skip::Failed("RAW を読み切れない".into(), true))
         }
     };
     let tmp = write_work_file(&work_dir, &bytes, &p.source)

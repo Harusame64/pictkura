@@ -16,7 +16,7 @@ use std::path::Path;
 pub enum Missing {
     /// **ファイルを最後まで見たうえで**絵が無い（ビューアでも枠だけの機種）。何度やっても同じ
     NoPreview,
-    /// 読み切れなかった（共有ロック・入出力の誤り等）。あとで読めば出るかもしれない（ゲート1）
+    /// 開けなかった（共有ロック等）。あとで読めば出るかもしれない（ゲート1）
     Unreadable,
 }
 
@@ -31,11 +31,13 @@ pub enum Missing {
 pub fn for_google(raw: &Path) -> Result<Vec<u8>, Missing> {
     let exif = crate::thumbs::read_exif(raw);
     let Some(preview) = exif.thumbnail else {
-        // 読めなかっただけの空振りを「絵が無い」と決めつけない（[`crate::thumbs::ExifData::preview_exhausted`]）
-        return Err(if exif.preview_exhausted {
-            Missing::NoPreview
-        } else {
+        // 「あとで」に回すのは**開けなかった**ときだけ（共有ロック等）。探し切れなかった理由には、何度
+        // 読んでも同じもの（128MB を超える RAW・起こせない HEVC のプレビュー）もあり、それを保留に残すと
+        // 取り込みと起動のたびに丸ごと読み直す（ゲート2）。開けて絵が無ければ「絵が無い」とする
+        return Err(if std::fs::File::open(raw).is_err() {
             Missing::Unreadable
+        } else {
+            Missing::NoPreview
         });
     };
     // 切手ほどの絵（IFD1 の 160x120 等）を写真として送らない。大きいプレビューを探し損ねた
