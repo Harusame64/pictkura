@@ -133,6 +133,7 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { filterConditions, joinConditions } from "./filterEmpty";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
@@ -1999,6 +2000,19 @@ export default function App() {
     // 絞り込み中に読み込みが転ぶと、カレンダーも消えパネルも出ない
     // **文字が1つも無い枠**になっていた（どちらもゲート2の指摘）
     (settled && loadFailed && summary.length === 0);
+  /**
+   * **絞り込んで0件**で、そう言ってよいか（pictkura-dev `plan.filter-empty.md`、案B）。
+   *
+   * `canSayEmpty` とは**別の旗**にする——あちらは「ライブラリが空」の断定で、理由の問い合わせ
+   * （`emptyReason`）と見つからないフォルダの知らせの抑止がそれに乗っている。混ぜると、
+   * 絞り込んだだけで空のライブラリの理由を聞きに行き、知らせも消える。
+   *
+   * 要るのは `settled && !loadFailed` だけ。`!settled` の間の `summary` は**前の絞り込みの答え**
+   * なので「無い」と言わない。読み込みの失敗は上の「出せませんでした」に任せる。
+   * 取り込み・走査・索引の途中は、あとで増えうるので一言添える（断定はやめない）
+   */
+  const filterEmpty = filtering && settled && !loadFailed && summary.length === 0;
+  const filterEmptyMayGrow = busy || !scanSettled || indexProgress?.building === true;
   /**
    * パネルの見出し。**本文と食い違わせない。**
    *
@@ -6914,6 +6928,49 @@ export default function App() {
           {!showEmptyPanel && unsureWhyEmpty && (
             <div className="calendar-empty">{t.calendarChecking}</div>
           )}
+          {/* **絞り込んで0件**（plan.filter-empty.md、案B）。一覧もカレンダーも同じ案内——
+              カレンダーの自前の「写真がありません」は止める（並べると空の知らせが2つになる）。
+              ツールバーの「🔍 0件」はそのまま残す */}
+          {!showEmptyPanel && filterEmpty && (
+            <div className="empty-library">
+              <h2>
+                {t.filterEmptyTitle(
+                  joinConditions(
+                    filterConditions(filter, kind, query, {
+                      shelf: {
+                        fav: t.navFavorites,
+                        picked: t.navPicked,
+                        outgoing: t.navOutgoing,
+                      },
+                      kind: { photo: t.kindPhoto, raw: t.kindRaw, video: t.kindVideo },
+                      query: t.filterCondQuery,
+                      camera: t.filterCondCamera,
+                    }),
+                    t.listSeparator,
+                    t.andMore,
+                  ),
+                )}
+              </h2>
+              <p>{t.filterEmptyMessage}</p>
+              {filterEmptyMayGrow && <p>{t.filterEmptyStillIndexing}</p>}
+              <div className="empty-actions">
+                {/* 検索語を消す。左のカメラも検索語なので、これで外れる */}
+                {query !== "" && (
+                  <button onClick={() => setQueryInput("")}>{t.filterEmptyClearSearch}</button>
+                )}
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setFilter("all");
+                    setKind("all");
+                    setQueryInput("");
+                  }}
+                >
+                  {t.actionShowAll}
+                </button>
+              </div>
+            </div>
+          )}
           {view === "calendar" ? (
             <div className="calendar-scroll">
               {/* パネルが出ているなら、カレンダー側の「写真がありません」は
@@ -6927,7 +6984,7 @@ export default function App() {
                   理由をまだ言えないときは**代わりに何か置く**——止めるだけだと、
                   起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
-              {!showEmptyPanel && !unsureWhyEmpty && (
+              {!showEmptyPanel && !unsureWhyEmpty && !filterEmpty && (
                 <Calendar
                   summary={summary}
                   onOpenDay={openDay}

@@ -591,6 +591,13 @@ export const es: Dict = {
   settingsEditorsNote: "Aplicaciones que has elegido en «Abrir con otra aplicación…».",
   settingsForgetEditor: "Quitar de la lista",
   calendarEmpty: "Sin fotos",
+  filterEmptyTitle: (conds: string) => `Ninguna foto coincide con estos filtros: ${conds}`,
+  filterEmptyMessage: "Quita la búsqueda o el filtro elegido a la izquierda para ver las demás fotos.",
+  filterEmptyStillIndexing:
+    "Todavía se están importando o indexando fotos, así que pueden aparecer más.",
+  filterCondQuery: (q: string) => `la búsqueda «${q}»`,
+  filterCondCamera: (name: string) => `hechas con ${name}`,
+  filterEmptyClearSearch: "Borrar la búsqueda",
   speedPrefix: (sec: string) => `⚡ Comprobación de arranque en ${sec} s — `,
   speedUsn: "Diferencia del diario USN: ",
   speedUsnNoChange: "sin cambios, ninguna carpeta recorrida",
