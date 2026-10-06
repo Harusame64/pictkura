@@ -519,6 +519,27 @@ export const ja = {
   importGoogle: (n: number) => ` · Google フォト用に${num(n)}枚`,
   importGoogleFailed: (n: number) => `Google フォト用に${num(n)}件置けませんでした（ログを参照）`,
   importGoogleError: (why: string) => `Google フォト用に置けませんでした: ${why}`,
+  bulkSendGoogle: "送り出しへ",
+  googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${num(photos)}枚`);
+    if (videos > 0) parts.push(`動画${num(videos)}本`);
+    if (rawOnly > 0) parts.push(`RAW だけ ${num(rawOnly)}枚`);
+    return `${parts.join("・")}${size ? `（${size}）` : ""}を Google フォト用のフォルダに置きます。Google フォトのタブを開いている間に上がります。`;
+  },
+  googleSendLeftOut: (n: number) =>
+    `選んだうち ${num(n)}枚は置きません（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
+  googleSendFolders: (list: string) => `置き先: ${list}`,
+  googleSendNewFolder: (path: string) =>
+    `${path} を新しく作ります。Google フォトの「フォルダをバックアップ」にこのフォルダも登録してください。`,
+  googleSendNothing: "置けるものがありません。",
+  googleSendConfirmOk: "置く",
+  googleSent: (total: number, already: number) =>
+    `Google フォト用に${num(total)}枚置きました${already > 0 ? `（うち${num(already)}枚は置き済み）` : ""}`,
+  googleSentCloudOnly: (n: number) =>
+    `${num(n)}枚はクラウドにしか無いので置けませんでした。手元に取り寄せてから、もう一度送ってください。`,
+  googleSentLeftOut: (n: number) =>
+    `${num(n)}枚は置きませんでした（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
   burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
   /* 組の印（`RAW+JPEG`）と並ぶときの短い形 */

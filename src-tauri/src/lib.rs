@@ -4444,6 +4444,7 @@ struct ChosenSummaryDto {
     raw_only: usize,
     bytes: u64,
     folders: Vec<String>,
+    new_folders: Vec<String>,
     unplaceable: usize,
     left_out: usize,
 }
@@ -4464,6 +4465,11 @@ async fn google_chosen_summary(
             bytes: s.bytes,
             folders: s
                 .folders
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            new_folders: s
+                .new_folders
                 .iter()
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect(),

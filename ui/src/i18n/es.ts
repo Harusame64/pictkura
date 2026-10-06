@@ -501,6 +501,27 @@ export const es: Dict = {
   importGoogle: (n: number) => ` · ${num(n)} para Google Fotos`,
   importGoogleFailed: (n: number) => `${num(n)} no se ${one(n, "ha", "han")} podido poner para Google Fotos (consulta el registro)`,
   importGoogleError: (why: string) => `No se ha puesto nada para Google Fotos: ${why}`,
+  bulkSendGoogle: "Enviar a Salida",
+  googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
+    if (videos > 0) parts.push(`${num(videos)} ${one(videos, "vídeo", "vídeos")}`);
+    if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "toma solo en RAW", "tomas solo en RAW")}`);
+    return `Se ${one(photos + videos + rawOnly, "colocará", "colocarán")} ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
+  },
+  googleSendLeftOut: (n: number) =>
+    `${num(n)} de los elementos elegidos no se ${one(n, "coloca", "colocan")} (el RAW de un par RAW+JPEG, archivos dentro de OneDrive, etc.).`,
+  googleSendFolders: (list: string) => `Destino: ${list}`,
+  googleSendNewFolder: (path: string) =>
+    `Se creará ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+  googleSendNothing: "No hay nada que se pueda colocar.",
+  googleSendConfirmOk: "Colocar",
+  googleSent: (total: number, already: number) =>
+    `${one(total, "Se ha", "Se han")} colocado ${num(total)} para Google Fotos${already > 0 ? ` (${num(already)} ya ${one(already, "estaba", "estaban")})` : ""}`,
+  googleSentCloudOnly: (n: number) =>
+    `${num(n)} solo ${one(n, "está", "están")} en la nube y no se ${one(n, "ha", "han")} podido colocar. Descárga${one(n, "lo", "los")} primero y vuelve a enviar.`,
+  googleSentLeftOut: (n: number) =>
+    `${num(n)} no se ${one(n, "ha", "han")} colocado (el RAW de un par RAW+JPEG, archivos dentro de OneDrive, etc.).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Ráfaga ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,

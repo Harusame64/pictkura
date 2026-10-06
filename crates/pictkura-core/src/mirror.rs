@@ -1037,6 +1037,9 @@ pub struct ChosenSummary {
     pub bytes: u64,
     /// 置き先の Google 用フォルダ（ドライブごと）。決まらないルートの写真は数えない
     pub folders: Vec<PathBuf>,
+    /// `folders` のうち、まだ無い（送ると新しく作る）もの。Google フォトへの登録も要るので、
+    /// 枚数に関係なく確認で知らせる（2026-10-06 利用者）
+    pub new_folders: Vec<PathBuf>,
     /// 置き先が決まらない（ドライブ丸ごとのルート等）ので置けないもの
     pub unplaceable: usize,
     /// 選んだのに置かないもの（組の RAW だけを選んだ・OneDrive の中・ライブラリの外 等）。
@@ -1096,6 +1099,14 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
             continue;
         };
         if !out.folders.contains(&dir) {
+            // 「新しく作る」と言うのは、作れる（親が在る）ときだけ。外れたドライブの場所を
+            // 「作ります・登録してください」と言わない（ゲート2）
+            // 壊れたリンクが居座っているのも「無い」ではない（置くときに断られる。ゲート2）
+            // 読めないだけ（権限・共有の一時的な誤り）は「無い」と言わない（PR の codex）
+            let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == io::ErrorKind::NotFound);
+            if missing && dir.parent().is_some_and(Path::is_dir) {
+                out.new_folders.push(dir.clone());
+            }
             out.folders.push(dir);
         }
         if p.embedded {
@@ -3295,12 +3306,18 @@ mod tests {
                 raw_only: 1,
                 bytes,
                 folders: vec![f.google.clone()],
+                // まだ置いたことが無いので、送ると作る
+                new_folders: vec![f.google.clone()],
                 unplaceable: 0,
                 left_out: 0,
             }
         );
         // 数えるだけで、何も作らない
         assert!(!f.google.exists());
+        // 在るフォルダは「新しく作る」に入れない
+        std::fs::create_dir_all(&f.google).unwrap();
+        let s = summarize_chosen(&items, &config);
+        assert_eq!((s.folders.len(), s.new_folders.len()), (1, 0));
     }
 
     #[test]
