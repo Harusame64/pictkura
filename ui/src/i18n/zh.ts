@@ -511,7 +511,7 @@ export const zh: Dict = {
     `${num(n)} 个只在云端，未能放入。请先下载到本地，再重新送出。`,
   googleRemoved: (n: number) => `已从送出中移除 ${num(n)} 个`,
   googleRemoveFailed: (n: number) =>
-    `${num(n)} 个暂时无法移除（可能磁盘未连接）。pictkura 下次启动时会再次移除。`,
+    `${num(n)} 个暂时无法移除（可能磁盘未连接）。下次启动 pictkura 时会再尝试移除。`,
   googleSentLeftOut: (n: number) =>
     `${num(n)} 个未放入（RAW+JPEG 成对中的 RAW、OneDrive 中的文件等）。`,
   burstGapOption: (seconds: number) => `${num(seconds)} 秒`,

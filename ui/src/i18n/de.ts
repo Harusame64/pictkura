@@ -501,7 +501,7 @@ export const de: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht im Ausgang abgelegt werden (siehe Protokoll)`,
   importGoogleError: (why: string) => `Nichts im Ausgang abgelegt: ${why}`,
   bulkSendGoogle: "Zum Ausgang",
-  bulkRemoveGoogle: "Aus dem Ausgang nehmen",
+  bulkRemoveGoogle: "Aus dem Ausgang entfernen",
   calendarSendMonth: "Diesen Monat zum Ausgang",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `Das ganze Jahr ${year} zum Ausgang`,
@@ -530,9 +530,9 @@ export const de: Dict = {
     `${num(total)} im Ausgang abgelegt${already > 0 ? ` (davon ${num(already)} schon vorhanden)` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} ${one(n, "liegt", "liegen")} nur in der Cloud und ${one(n, "konnte", "konnten")} nicht abgelegt werden. Lade sie zuerst herunter und sende dann erneut.`,
-  googleRemoved: (n: number) => `${num(n)} aus dem Ausgang genommen`,
+  googleRemoved: (n: number) => `${num(n)} aus dem Ausgang entfernt`,
   googleRemoveFailed: (n: number) =>
-    `${num(n)} ${one(n, "konnte", "konnten")} gerade nicht entfernt werden (etwa weil das Laufwerk nicht verbunden ist). pictkura versucht es beim nächsten Start erneut.`,
+    `${num(n)} ${one(n, "konnte", "konnten")} gerade nicht aus dem Ausgang entfernt werden (etwa weil das Laufwerk nicht verbunden ist). pictkura versucht es beim nächsten Start erneut.`,
   googleSentLeftOut: (n: number) =>
     `${num(n)} ${one(n, "wurde", "wurden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,

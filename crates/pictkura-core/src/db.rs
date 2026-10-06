@@ -2758,6 +2758,12 @@ impl Db {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         Ok(if held == source {
+            // 置き直すと決めた行は、外すと決まった印を下ろす（設計書 §3c）——送り出しから外したが
+            // 外付けが見えずに残った行へ送り直すと、印のままでは一覧に出ず、次の起動で外されてしまう
+            self.conn.execute(
+                "UPDATE google_placed SET doomed = 0 WHERE link_path = ?1 AND doomed = 1",
+                params![link],
+            )?;
             Claim::Ours {
                 index: index as u64,
             }
@@ -5587,6 +5593,22 @@ mod tests {
         db.google_place_doom(std::slice::from_ref(&b)).unwrap();
         assert_eq!(db.search_ids(&outgoing).unwrap(), [all[0]]);
         assert_eq!(db.count_outgoing().unwrap(), 1);
+
+        // 外せずに印だけ残った行へ送り直したら、また並ぶ（印が下りる）
+        let again = db
+            .google_place_claim(
+                &crate::mirror::Placed {
+                    source: b.clone(),
+                    link: PathBuf::from("/g/b.jpg"),
+                    index: 2,
+                    extracted: false,
+                },
+                &dir,
+            )
+            .unwrap();
+        assert_eq!(again, crate::mirror::Claim::Ours { index: 2 });
+        assert_eq!(db.count_outgoing().unwrap(), 2, "送り直すと印が下りる");
+        db.google_place_doom(std::slice::from_ref(&b)).unwrap();
         assert_eq!(
             db.search_summary(&outgoing)
                 .unwrap()
