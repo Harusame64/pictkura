@@ -1048,8 +1048,12 @@ pub struct ChosenSummary {
 /// 組の RAW で、相方の写真がこの回に置かれるものは数えない——組を選んだ人には「JPEG だけ置く」が答え
 pub fn left_out(chosen: &[PathBuf], planned: &[Placement]) -> usize {
     let placed: HashSet<&PathBuf> = planned.iter().map(|p| &p.source).collect();
-    let keys: HashSet<(PathBuf, std::ffi::OsString)> =
-        planned.iter().map(|p| pair_key_folded(&p.source)).collect();
+    // 相方と数えるのは**置く写真**だけ（動画・取り出しの JPEG・RAW は組の相方ではない。ゲート2）
+    let keys: HashSet<(PathBuf, std::ffi::OsString)> = planned
+        .iter()
+        .filter(|p| !p.embedded && MediaKind::from_path(&p.source) == MediaKind::Photo)
+        .map(|p| pair_key_folded(&p.source))
+        .collect();
     let mut seen: HashSet<&PathBuf> = HashSet::new();
     chosen
         .iter()
@@ -1108,14 +1112,6 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
     out
 }
 
-/// **ライブラリから選んだもの**を Google 用フォルダへ置く（設計 ②）。ルートごとに、そのドライブの
-/// Google 用フォルダ（[`location_for_root`]）へ置く。置き先が決まらないルートの分は失敗として返し、
-/// 残りは続ける。
-///
-/// 一時的な失敗は**保留に残さない**——保留の置き直しは取り込みの規則（設定の動画・RAW だけ）で回るので、
-/// 明示して選んだ動画を落としてしまう。結果に出し、利用者がもう一度送れば置ける。
-///
-/// 設定で切っていれば何もしない（`None`。入口も出さない）。
 /// [`place_chosen`] の結果。
 #[derive(Debug, Default)]
 pub struct ChosenReport {
@@ -1126,6 +1122,14 @@ pub struct ChosenReport {
     pub root_error: Option<MirrorError>,
 }
 
+/// **ライブラリから選んだもの**を Google 用フォルダへ置く（設計 ②）。ルートごとに、そのドライブの
+/// Google 用フォルダ（[`location_for_root`]）へ置く。置き先が決まらないルートの分は失敗として返し、
+/// 残りは続ける。
+///
+/// 一時的な失敗は**保留に残さない**——保留の置き直しは取り込みの規則（設定の動画・RAW だけ）で回るので、
+/// 明示して選んだ動画を落としてしまう。結果に出し、利用者がもう一度送れば置ける。
+///
+/// 設定で切っていれば何もしない（`None`。入口も出さない）。
 pub fn place_chosen(
     sources: &[PathBuf],
     config: &crate::Config,
@@ -3328,6 +3332,24 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((c.report.placed, c.left_out), (0, 1));
+    }
+
+    #[test]
+    fn a_video_of_the_same_name_does_not_cover_a_raw_left_out() {
+        let f = fixture();
+        chosen_shoot(&f);
+        put(&f.lib.join("2010/P.MOV"), b"live photo");
+        let config = strict_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // 組の RAW と、同じ名前の動画だけを選んだ（JPEG は選んでいない）
+        let c = place_chosen(
+            &[f.lib.join("2010/P.ARW"), f.lib.join("2010/P.MOV")],
+            &config,
+            &mut db,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!((c.report.placed, c.left_out), (1, 1));
     }
 
     #[test]

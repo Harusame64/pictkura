@@ -4482,9 +4482,11 @@ async fn google_send_chosen(
     chosen: ChosenDto,
 ) -> Result<Option<GooglePlacedDto>, String> {
     on_blocking(app, move |state| {
+        // 鍵を取ってから選んだものを引く——移動（鍵を持ったまま原本を動かす）と重なったとき、
+        // 古いパスで置こうとして全部失敗しないように（ゲート2）
+        let _google_guard = lock_ok(&state.google_lock);
         let items = chosen_items(state, &chosen)?;
         let sources: Vec<PathBuf> = items.into_iter().map(|(p, _)| p).collect();
-        let _google_guard = lock_ok(&state.google_lock);
         // 鍵を取ってから読む（[`place_google_links`] と同じ理由）
         let config = lock_ok(&state.config).clone();
         let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
