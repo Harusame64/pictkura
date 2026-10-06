@@ -41,8 +41,7 @@ pub struct Placement {
     /// Google 用フォルダの中での場所（原本の、持ち主のルートからの相対パス）
     pub rel: PathBuf,
     /// 原本そのものではなく、**埋め込み JPEG を取り出して置く**（RAW だけのカット・
-    /// [`RawOnly::EmbeddedJpeg`]）。取り出しはまだ無い（設計書の PR5）ので、[`place`] は
-    /// [`PlaceReport::later`] に数えるだけで何も書かない
+    /// [`RawOnly::EmbeddedJpeg`]）。置く名前は拡張子を `.jpg` にしたもの（[`place`]）
     pub embedded: bool,
 }
 
@@ -267,6 +266,9 @@ pub struct Placed {
     /// **ボリュームの番号は持たない**——macOS は外付けを挿し直すたびに `st_dev` を
     /// 振り直すので、照合に入れると外付けのリンクが一生外せなくなる
     pub index: u64,
+    /// 原本へのリンクではなく、**取り出した埋め込み JPEG**（別の実体・名前はいつも1つ）。
+    /// 外し方が違う（設計書 §4b）——pictkura で RAW をゴミ箱へ入れたら消す、外で消えたらゴミ箱へ
+    pub extracted: bool,
 }
 
 /// 記録へ書こうとした結果（[`Ledger::claim`]）。
@@ -292,6 +294,14 @@ pub trait Ledger {
     /// 張り直せたとき）。**失敗したら、張ったばかりのリンクを外す**——古い番号のまま
     /// 残すと、外すときに他人と見なされ、二度と外せないリンクになる（ゲート2）。
     fn renumber(&mut self, placed: &Placed) -> io::Result<()>;
+    /// `link` の記録（原本・番号・取り出しか）。無ければ `None`
+    fn holder(&mut self, link: &Path) -> io::Result<Option<(PathBuf, u64, bool)>>;
+    /// `link` の記録を消す（取り出した JPEG を本物の JPEG に譲ったとき）
+    fn forget(&mut self, link: &Path) -> io::Result<()>;
+    /// `link` と**大文字小文字だけ違う**記録も含めて返す（記録のリンク・原本・番号・取り出しか）。
+    /// 区別しない台（Windows・macOS）でだけ畳む。[`give_way`] が、`b.JPG` の前に `B.jpg` の
+    /// 取り出しを見つけるために使う（ゲート1）
+    fn holders_folded(&mut self, link: &Path) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>>;
 }
 
 /// [`place`] の結果。
@@ -303,11 +313,9 @@ pub struct PlaceReport {
     pub already: usize,
     /// クラウドのみなので置かなかったもの（置くと Google が読みに行った瞬間に取り寄せが走る）
     pub cloud_only: usize,
-    /// 埋め込み JPEG で置くと決めたが、取り出しがまだ無いので置かなかったもの（設計書の PR5）
-    pub later: usize,
     /// 失敗（原本と理由）。一時的なものも恒久的なものも入る
     pub failed: Vec<(PathBuf, String)>,
-    /// **あとで置き直すもの**（一時的な失敗・クラウドのみ・埋め込み JPEG 待ち・フォルダを解決できなかったもの）。
+    /// **あとで置き直すもの**（一時的な失敗・クラウドのみ・フォルダを解決できなかったもの）。
     /// 原本の並び。
     /// 同じ名前が在る・別のドライブ・別の原本で記録済みのように、何度やっても同じものは入らない
     /// （2026-10-05 利用者決定。[`place_imported`] が保留として DB に残す）
@@ -321,14 +329,12 @@ impl PlaceReport {
             placed,
             already,
             cloud_only,
-            later,
             failed,
             retry,
         } = other;
         self.placed += placed;
         self.already += already;
         self.cloud_only += cloud_only;
-        self.later += later;
         self.failed.extend(failed);
         self.retry.extend(retry);
     }
@@ -363,6 +369,8 @@ pub fn place(
     // 置けなかった1件のために**この回に作った**フォルダ。最後に空なら畳む——Google が
     // 見ているフォルダに空のアルバムを残さない（ゲート2）
     let mut emptied: Vec<PathBuf> = Vec::new();
+    // 埋め込み JPEG を書き切る作業場（要るときに作る。[`work_dir_for`]）
+    let mut work: Option<PathBuf> = None;
     for p in placements {
         // `retry`: 一時的な失敗か（あとで置き直す）
         let fail = |report: &mut PlaceReport, why: String, retry: bool| {
@@ -372,7 +380,19 @@ pub fn place(
             }
         };
         if p.embedded {
-            report.later += 1;
+            let mut created = Vec::new();
+            match place_extracted(dir, p, ledger, &mut work, &mut created) {
+                Ok(true) => report.placed += 1,
+                Ok(false) => report.already += 1,
+                Err(Skip::CloudOnly) => {
+                    report.cloud_only += 1;
+                    report.retry.push(p.source.clone());
+                }
+                Err(Skip::Failed(why, retry)) => {
+                    fail(&mut report, why, retry);
+                    emptied.extend(created);
+                }
+            }
             continue;
         }
         if !is_plain_relative(&p.rel) {
@@ -417,10 +437,19 @@ pub fn place(
                 continue;
             }
         }
+        if let Err(e) = give_way(dir, p, ledger) {
+            fail(
+                &mut report,
+                format!("取り出した JPEG をどかせない: {e}"),
+                true,
+            );
+            continue;
+        }
         let placed = Placed {
             source: p.source.clone(),
             link: dir.join(&p.rel),
             index,
+            extracted: false,
         };
         let mut created = Vec::new();
         let made = make_parent_dirs(dir, &p.rel, &mut created);
@@ -433,6 +462,21 @@ pub fn place(
         }
         // `Err((理由, 一時的か))`
         let claim = match ledger.claim(&placed) {
+            // 同じカットの取り出しの記録が、中身の消えたまま残っている（どかしたあと記録を消す前に
+            // 落ちた）なら、記録を消して取り直す（PR の codex）
+            Ok(Claim::Other) if stale_extract(&placed, ledger) => {
+                match ledger
+                    .forget(&placed.link)
+                    .and_then(|()| ledger.claim(&placed))
+                {
+                    Ok(Claim::Other) => Err((
+                        format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                        false,
+                    )),
+                    Ok(claim) => Ok(claim),
+                    Err(e) => Err((format!("記録できない: {e}"), true)),
+                }
+            }
             Ok(Claim::Other) => Err((
                 format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
                 false,
@@ -525,7 +569,343 @@ pub fn place(
     for d in &emptied {
         fold_one(dir, d);
     }
+    // 作業場は空なら畳む（書き切ったものは名前を付けたあとで消しているので、普通は空）
+    if let Some(w) = work {
+        let _ = std::fs::remove_dir(w);
+    }
     Ok(report)
+}
+
+/// 本物の写真を置く前に、**同じカットの RAW から取り出した JPEG** が同じ名前（`B.ARW` → `B.jpg`）を
+/// 持っていればどかす（ゲート2）。RAW を先に取り込んでから JPEG を別の回に取り込むと、そのカットは
+/// もう「RAW だけ」ではなく、名前は本物の JPEG のもの——どかさないと本物が永久に断られる
+/// （大文字小文字を区別しない台では `B.JPG` と `B.jpg` は同じ名前）。どかすのは**消す**（RAW から
+/// いつでも取り出し直せる。§4b の「pictkura が外す」と同じ）。Google に上がった分は残る。
+fn give_way(dir: &Path, p: &Placement, ledger: &mut dyn Ledger) -> io::Result<()> {
+    if MediaKind::from_path(&p.source) != MediaKind::Photo {
+        return Ok(());
+    }
+    let spot = dir.join(p.rel.with_extension("jpg"));
+    // その名前に何も無ければ、譲ってもらうものも無い。畳んだ引き方は表を全部なめるので、
+    // 普通の取り込み（名前が空いている）では引かない（PR の codex）。大文字小文字を区別しない
+    // 台では、`b.jpg` を訊いても `B.jpg` が答える
+    if std::fs::symlink_metadata(&spot).is_err() {
+        return Ok(());
+    }
+    for (link, raw, index, extracted) in ledger.holders_folded(&spot)? {
+        if !extracted
+            || raw == crate::paths::normalize(&p.source)
+            || pair_key_folded(&raw) != pair_key_folded(&p.source)
+        {
+            continue;
+        }
+        // 途中にリンクを挟んでいれば、辿った先は Google 用フォルダの外——触らない（[`unplace`] と同じ門。
+        // ゲート1）。そのときは記録も残し、本物の写真は名前がぶつかって置けないまま
+        let inside = link
+            .strip_prefix(dir)
+            .is_ok_and(|rel| is_plain_relative(rel) && link_on_the_way(dir, rel).is_none());
+        if !inside {
+            continue;
+        }
+        // 記録の番号の実体だけを消す。違えば pictkura の置いたものではないので触らない（記録だけ消す）
+        // 記録を忘れるのは、消せたか・もう無い・別物と確かめられたときだけ。確かめられなければ
+        // 記録を残して誤りを返す——忘れると、残ったファイルを二度と外せない（ゲート2）
+        match file_id(&link) {
+            Ok(id) if id.index == index && !is_link(&link) => std::fs::remove_file(&link)?,
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        ledger.forget(&link)?;
+    }
+    Ok(())
+}
+
+/// `link` が普通のファイルで中身が `tmp` と同じなら、その実体の番号。
+fn same_bytes_index(link: &Path, tmp: &Path) -> Option<u64> {
+    if is_link(link) {
+        return None;
+    }
+    let id = file_id(link).ok()?;
+    (std::fs::read(link).ok()? == std::fs::read(tmp).ok()?).then_some(id.index)
+}
+
+/// `placed.link` の記録が、同じカットの RAW からの取り出しで、名前にもう何も無いか。
+fn stale_extract(placed: &Placed, ledger: &mut dyn Ledger) -> bool {
+    matches!(
+        ledger.holder(&placed.link),
+        Ok(Some((raw, _, true))) if pair_key_folded(&raw) == pair_key_folded(&placed.source)
+    ) && matches!(std::fs::symlink_metadata(&placed.link), Err(e) if e.kind() == io::ErrorKind::NotFound)
+}
+
+/// [`place_extracted`] が置かなかった理由。
+enum Skip {
+    /// 原本がクラウドのみ（手元へ来れば置ける）
+    CloudOnly,
+    /// 失敗（理由・一時的か）
+    Failed(String, bool),
+}
+
+/// 埋め込み JPEG を書き切る作業場。**Google 用フォルダの隣**（同じボリュームなので、書き切った
+/// ものをハードリンクで1回の操作として中へ入れられる）で、**中ではない**——Google は名前が付いた
+/// 瞬間に拾うので、書きかけを中に置けない（S7b）。中身はすべて pictkura が書いたもの。
+fn work_dir_for(dir: &Path) -> io::Result<PathBuf> {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(io::Error::other("Google 用フォルダの隣に作業場を作れない"));
+    };
+    let mut work_name = std::ffi::OsString::from(".");
+    work_name.push(name);
+    work_name.push("-work");
+    Ok(parent.join(work_name))
+}
+
+/// 作業場の名前の頭（これで始まるものだけを片付ける）
+const WORK_PREFIX: &str = "pictkura-extract-";
+
+/// 作業場を用意する。前の回が途中で落ちて残した書きかけは片付ける。
+fn open_work_dir(dir: &Path) -> io::Result<PathBuf> {
+    let work = work_dir_for(dir)?;
+    // 隣が別のボリューム（Google 用フォルダがマウント先そのもの）なら、書き切ったものを
+    // リンクで入れられない。そこに隠しフォルダを作る前に断る（ゲート2）
+    if let Some(parent) = work.parent() {
+        if volume_of(parent)? != volume_of(dir)? {
+            return Err(io::Error::new(
+                io::ErrorKind::CrossesDevices,
+                "Google 用フォルダの隣が別のドライブなので、埋め込み JPEG の作業場を置けない",
+            ));
+        }
+    }
+    std::fs::create_dir_all(&work)?;
+    if is_link(&work) {
+        // 辿った先で書くと、どこを片付けるか分からなくなる
+        return Err(io::Error::other(format!(
+            "作業場がリンクになっている: {}",
+            work.display()
+        )));
+    }
+    // 消せない残り（削除の共有なしに掴まれている）があっても止めない——新しい名前は `create_new` で
+    // 空いているものを取るので邪魔にならない。残りは突き合わせの片付けが拾う（ゲート2）
+    let _ = clear_work_files(&work);
+    Ok(work)
+}
+
+/// 作業場に残った書きかけ・消し損ねた名前（[`WORK_PREFIX`] で始まるもの）を消す。
+/// 消せなかったものがあれば、最初の誤りを返す（残りは試す）。
+fn clear_work_files(work: &Path) -> io::Result<()> {
+    let mut first = None;
+    for e in std::fs::read_dir(work)?.flatten() {
+        let ours = e.file_name().to_string_lossy().starts_with(WORK_PREFIX);
+        if ours && e.file_type().is_ok_and(|t| t.is_file()) {
+            if let Err(err) = std::fs::remove_file(e.path()) {
+                first.get_or_insert(err);
+            }
+        }
+    }
+    first.map_or(Ok(()), Err)
+}
+
+/// 記録のある Google 用フォルダの作業場を片付けて畳む（突き合わせのたびに呼ぶ）。
+/// 取り出した直後に作業場の名前を消せなかった（Windows で削除の共有なしに掴まれた）ものは、
+/// 次の取り出しまで残り、名前が2つのまま中身がディスクに残る——RAW だけのカットを二度と
+/// 取り込まない人のところでは残り続ける（win の W12b）。消せなかったものは `failed` に積む
+fn tidy_work_dirs(dirs: &[PathBuf], report: &mut UnplaceReport) {
+    for dir in dirs {
+        let Ok(work) = work_dir_for(dir) else {
+            continue;
+        };
+        // 作業場がリンクなら辿らない（[`open_work_dir`] と同じ）
+        if !std::fs::symlink_metadata(&work).is_ok_and(|m| m.is_dir() && !is_link_meta(&m)) {
+            continue;
+        }
+        if let Err(e) = clear_work_files(&work) {
+            report
+                .failed
+                .push((work.clone(), format!("作業場を片付けられない: {e}")));
+        }
+        let _ = std::fs::remove_dir(&work);
+    }
+}
+
+/// `bytes` を作業場に書き切って、その場所を返す。更新日時は原本に揃える（Google が日時を
+/// EXIF から読めないときの手がかり。[`crate::extract::write_to`] と同じ理由）。
+fn write_work_file(work: &Path, bytes: &[u8], source: &Path) -> io::Result<PathBuf> {
+    use std::io::Write;
+    let pid = std::process::id();
+    for n in 0..64 {
+        let tmp = work.join(format!("{WORK_PREFIX}{pid}-{n}.jpg"));
+        let mut f = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        let written = f.write_all(bytes).and_then(|()| f.sync_all());
+        drop(f);
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+        if let Ok(m) = std::fs::metadata(source) {
+            let _ =
+                filetime::set_file_mtime(&tmp, filetime::FileTime::from_last_modification_time(&m));
+        }
+        return Ok(tmp);
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "作業場の名前が空いていない",
+    ))
+}
+
+/// RAW だけのカットの埋め込み JPEG を取り出して置く（設計書 §2・§4b。PR5）。
+/// `Ok(true)` は新しく置いた、`Ok(false)` は前の回に置いたものが在った。
+///
+/// **作業場で書き切ってから、記録して、ハードリンクで名前を付ける**——[`place`] のリンクと
+/// 同じ「記録してから置く」の順で、Google が見るのは書き終えた1回の操作だけ（S7c）。
+/// 名前を付けたら作業場の名前は消す（中の実体は名前1つになる＝原本と分け合わない）。
+/// 記録の番号は**取り出した JPEG 自身のもの**（原本の番号では照合で他人と見なされ、外せない）。
+fn place_extracted(
+    dir: &Path,
+    p: &Placement,
+    ledger: &mut dyn Ledger,
+    work: &mut Option<PathBuf>,
+    created: &mut Vec<PathBuf>,
+) -> Result<bool, Skip> {
+    let rel = p.rel.with_extension("jpg");
+    if !is_plain_relative(&rel) {
+        return Err(Skip::Failed(
+            format!("フォルダの外を指す: {}", rel.display()),
+            false,
+        ));
+    }
+    if is_link(&p.source) {
+        return Err(Skip::Failed("原本がシンボリックリンク".into(), false));
+    }
+    if crate::cloud::is_cloud_only_path(&p.source) {
+        return Err(Skip::CloudOnly);
+    }
+    // 前の回に置いたものがそのまま在れば、RAW を読む前に済ませる（読むのは高い。ゲート2）
+    let link = dir.join(&rel);
+    if let Ok(Some((src, index, true))) = ledger.holder(&link) {
+        // 記録の綴りは揃えてある（`paths::normalize`）ので、こちらも揃えて比べる（ゲート2）
+        if src == crate::paths::normalize(&p.source)
+            && file_id(&link).is_ok_and(|id| id.index == index)
+        {
+            return Ok(false);
+        }
+    }
+    // 読めない（一瞬の拒否・外れた）ものは次に試す。読めて絵が無いものは何度やっても同じ
+    if let Err(e) = std::fs::metadata(&p.source) {
+        return Err(Skip::Failed(e.to_string(), true));
+    }
+    // 作業場を先に開く。開けない（隣に書けない等）のに RAW を読み切ると、1枚ごとに高い読みが無駄になる（ゲート2）
+    let work_dir = match work {
+        Some(w) => w.clone(),
+        None => {
+            let w = open_work_dir(dir).map_err(|e| {
+                let retry = e.kind() != io::ErrorKind::CrossesDevices;
+                Skip::Failed(e.to_string(), retry)
+            })?;
+            *work = Some(w.clone());
+            w
+        }
+    };
+    let bytes = match crate::embedded_jpeg::for_google(&p.source) {
+        Ok(b) => b,
+        Err(crate::embedded_jpeg::Missing::NoPreview) => {
+            return Err(Skip::Failed("取り出せる埋め込み JPEG が無い".into(), false))
+        }
+        // 読み切れなかっただけ（共有ロック等）。保留に残して次に読み直す（ゲート1）
+        Err(crate::embedded_jpeg::Missing::Unreadable) => {
+            return Err(Skip::Failed("RAW を読み切れない".into(), true))
+        }
+    };
+    let tmp = write_work_file(&work_dir, &bytes, &p.source)
+        .map_err(|e| Skip::Failed(format!("作業場に書けない: {e}"), true))?;
+    let result = link_extracted(dir, p, &rel, &tmp, ledger, created);
+    // 名前を付けられてもそうでなくても、作業場の名前は消す
+    let _ = std::fs::remove_file(&tmp);
+    result
+}
+
+/// [`place_extracted`] の後半: 書き切った `tmp` を記録して `dir/rel` へ入れる。
+fn link_extracted(
+    dir: &Path,
+    p: &Placement,
+    rel: &Path,
+    tmp: &Path,
+    ledger: &mut dyn Ledger,
+    created: &mut Vec<PathBuf>,
+) -> Result<bool, Skip> {
+    let index = file_id(tmp)
+        .map_err(|e| Skip::Failed(e.to_string(), true))?
+        .index;
+    if let Err(e) = make_parent_dirs(dir, rel, created) {
+        let retry = e.kind() != io::ErrorKind::AlreadyExists;
+        return Err(Skip::Failed(e.to_string(), retry));
+    }
+    let placed = Placed {
+        source: p.source.clone(),
+        link: dir.join(rel),
+        index,
+        extracted: true,
+    };
+    let claim = match ledger.claim(&placed) {
+        Ok(Claim::Other) => {
+            return Err(Skip::Failed(
+                format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                false,
+            ))
+        }
+        Ok(claim) => claim,
+        Err(e) => return Err(Skip::Failed(format!("記録できない: {e}"), true)),
+    };
+    // 前の回に置いたものがそのまま在る（保留から置き直した等）。取り出し直さない
+    if let Claim::Ours { index: old } = claim {
+        if file_id(&placed.link).is_ok_and(|id| id.index == old) {
+            return Ok(false);
+        }
+    }
+    if let Err(e) = std::fs::hard_link(tmp, &placed.link) {
+        // 前の回が張ったあと、番号を書く前に落ちた: 名前に在るのは自分の取り出しで、中身は今回と
+        // 同じ（取り出しは同じ RAW から同じ絵を出す）。番号を書き直して済みとする（PR の codex）
+        if e.kind() == io::ErrorKind::AlreadyExists && matches!(claim, Claim::Ours { .. }) {
+            if let Some(index) = same_bytes_index(&placed.link, tmp) {
+                let adopted = Placed { index, ..placed };
+                return match ledger.renumber(&adopted) {
+                    Ok(()) => Ok(false),
+                    Err(e) => Err(Skip::Failed(format!("記録を書き直せない: {e}"), true)),
+                };
+            }
+        }
+        if claim == Claim::New {
+            ledger.release(&placed);
+        }
+        return Err(if e.kind() == io::ErrorKind::AlreadyExists {
+            Skip::Failed(
+                format!("同じ名前が既にある: {}", placed.link.display()),
+                false,
+            )
+        } else {
+            let permanent = matches!(
+                e.kind(),
+                io::ErrorKind::Unsupported | io::ErrorKind::CrossesDevices
+            );
+            Skip::Failed(e.to_string(), !permanent)
+        });
+    }
+    // 前の回の記録（中身は消えていた）なら、番号を新しい実体へ書き直す。書けなければ外す
+    // ——古い番号のまま残すと二度と外せない（[`Ledger::renumber`]）
+    if matches!(claim, Claim::Ours { .. }) {
+        if let Err(e) = ledger.renumber(&placed) {
+            let _ = std::fs::remove_file(&placed.link);
+            return Err(Skip::Failed(format!("記録を書き直せない: {e}"), true));
+        }
+    }
+    Ok(true)
 }
 
 /// 外すように渡す記録の1行（[`unplace`]）。
@@ -534,6 +914,8 @@ pub struct Recorded {
     pub link: PathBuf,
     /// 置いたときの実体の番号（[`Placed::index`]）
     pub index: u64,
+    /// 取り出した埋め込み JPEG か（[`Placed::extracted`]）
+    pub extracted: bool,
 }
 
 /// DB の `google_placed` を記録に使う [`Ledger`]。
@@ -562,6 +944,22 @@ impl Ledger for DbLedger<'_> {
             .google_place_renumber(placed)
             .map_err(io::Error::other)
     }
+
+    fn holder(&mut self, link: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
+        self.db.google_place_holder(link).map_err(io::Error::other)
+    }
+
+    fn forget(&mut self, link: &Path) -> io::Result<()> {
+        self.db
+            .google_place_forget(&[link.to_path_buf()])
+            .map_err(io::Error::other)
+    }
+
+    fn holders_folded(&mut self, link: &Path) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+        self.db
+            .google_place_holders_folded(link, cfg!(any(windows, target_os = "macos")))
+            .map_err(io::Error::other)
+    }
 }
 
 /// 取り込みのあとに置くか。**判定はここだけ**——呼び出し側が DB を開く前に聞くのにも使う。
@@ -578,8 +976,7 @@ pub fn is_on(config: &crate::Config) -> bool {
 ///   フォルダごと置けない誤り（場所が見えない等）のときは、全部を保留のまま返す
 /// - ライブラリの除外パターン（[`crate::config::LibraryConfig::exclude_patterns`]）に当たるものは
 ///   置かない——一覧に出ないので、pictkura から外す手段が無くなる（ゲート2）
-/// - 埋め込み JPEG で置くと決めたものは数えるだけ（取り出しは設計書の PR5）。それしか無い回は
-///   場所も決めず、フォルダも作らない（ゲート2）
+/// - RAW だけのカットで埋め込み JPEG と決めたものは、取り出して置く（[`place`]。PR5）
 /// - 置く先は取り込み先のドライブの Google 用フォルダ（[`location_for_root`]）
 /// - `config` は**取り込み先をルートに足したあと**のもの（相対パスはルートから取る）
 ///
@@ -680,12 +1077,14 @@ impl UnplaceReport {
         let UnplaceReport {
             removed,
             discarded,
+            deleted,
             gone,
             forget,
             failed,
         } = other;
         self.removed += removed;
         self.discarded += discarded;
+        self.deleted += deleted;
         self.gone += gone;
         self.forget.extend(forget);
         self.failed.extend(failed);
@@ -740,7 +1139,17 @@ pub fn unplace_sources(
     let rows = db
         .google_placed_for_sources(sources)
         .map_err(io::Error::other)?;
-    let mut report = unplace_grouped(db, group_by_dir(rows), discard);
+    // 取り出した JPEG は**消す**（ゴミ箱へ入れない）——RAW はゴミ箱にあって戻せ、戻せばいつでも
+    // 取り出し直せる（設計書 §4b。2026-10-05 利用者決定）
+    // 作業場を片付けるフォルダは**記録を消す前に**控える——最後の1件の記録が消えると、突き合わせの
+    // 片付け（[`tidy_work_dirs`]）は作業場を見つけられない（PR の codex）
+    let mut dirs: Vec<PathBuf> = rows.iter().map(|(d, _)| d.clone()).collect();
+    dirs.sort();
+    dirs.dedup();
+    let (extracted, links): (Vec<_>, Vec<_>) = rows.into_iter().partition(|(_, r)| r.extracted);
+    let mut report = unplace_grouped(db, group_by_dir(links), discard);
+    report.absorb(delete_extracted_grouped(db, group_by_dir(extracted)));
+    tidy_work_dirs(&dirs, &mut report);
     if let Err(e) = db.google_pending_remove(sources) {
         report
             .failed
@@ -778,18 +1187,50 @@ pub fn sweep_orphans(
     db: &mut crate::db::Db,
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> Result<UnplaceReport, MirrorError> {
+    let dirs = db.google_placed_dirs().map_err(io::Error::other)?;
     let orphans = db.google_placed_orphans().map_err(io::Error::other)?;
     // 渡すのは「原本のファイルが無い」記録のうち、**リンクに別の名前が残っているもの以外**。
     // リンクがもう無い・番号が違う記録も渡す——[`unplace`] が「もう無い」として記録から消す。
     // 飛ばすと、表に残って毎回見直すことになる（ゲート2）
     // 外すと決まった印のある行（pictkura がゴミ箱へ入れた原本の、外し損ねたリンク）は無条件に渡す
+    // 取り出した JPEG は名前の数を見ない——名前はいつも1つの約束で、作業場の名前を消し損ねて
+    // 2つになっていても「移っただけ」ではない（ゲート2）
     let last_copies = orphans.into_iter().filter(|(_, rec, source, doomed)| {
         *doomed
             || (matches!(std::fs::symlink_metadata(source), Err(e) if e.kind() == io::ErrorKind::NotFound)
-                && !file_id(&rec.link).is_ok_and(|id| id.links >= 2 && id.index == rec.index))
+                && (rec.extracted
+                    || !file_id(&rec.link).is_ok_and(|id| id.links >= 2 && id.index == rec.index)))
     });
-    let rows = last_copies.map(|(dir, rec, _, _)| (dir, rec));
-    Ok(unplace_grouped(db, group_by_dir(rows), discard))
+    // 取り出した JPEG のうち、pictkura が RAW をゴミ箱へ入れた印のある行は消す（[`unplace_sources`] で
+    // 外し損ねたもの）。外で RAW が消えたものはゴミ箱へ——手元に残る最後の1枚かもしれない（§4b）。
+    // 取り出したものは名前がいつも1つなので、名前の数では「移っただけ」と見分けられない。
+    // RAW を外で移した・名前を変えたときもゴミ箱へ渡る（戻せる。まだ上がっていなかった分は
+    // 上がらずじまいになる——据え置き、設計書 §7d）
+    let (deleted, rest): (Vec<_>, Vec<_>) =
+        last_copies.partition(|(_, rec, _, doomed)| rec.extracted && *doomed);
+    let mut report = unplace_grouped(
+        db,
+        group_by_dir(rest.into_iter().map(|(dir, rec, _, _)| (dir, rec))),
+        discard,
+    );
+    report.absorb(delete_extracted_grouped(
+        db,
+        group_by_dir(deleted.into_iter().map(|(dir, rec, _, _)| (dir, rec))),
+    ));
+    tidy_work_dirs(&dirs, &mut report);
+    Ok(report)
+}
+
+/// 取り出した JPEG を**消して**外す（ゴミ箱を通さない。設計書 §4b）。[`unplace`] は名前が
+/// 最後の1つのものを `discard` へ渡すので、そこで消し、数は `deleted` へ付け替える
+/// ——記録に「ゴミ箱へ」と書かない（ゲート2）
+fn delete_extracted_grouped(
+    db: &mut crate::db::Db,
+    by_dir: Vec<(PathBuf, Vec<Recorded>)>,
+) -> UnplaceReport {
+    let mut r = unplace_grouped(db, by_dir, &mut |path: &Path| std::fs::remove_file(path));
+    r.deleted += std::mem::take(&mut r.discarded);
+    r
 }
 
 /// [`place_imported`] の中身（保留の出し入れを除く）。
@@ -854,16 +1295,9 @@ fn place_now_with(
             .cloned()
             .collect()
     };
-    let (embedded, placements): (Vec<Placement>, Vec<Placement>) =
-        planned.into_iter().partition(|p| p.embedded);
-    // 埋め込み JPEG で置くと決めたものも保留に残す——取り出しが入ったとき（PR5）に拾うため（ゲート2）
+    let placements = planned;
     let deferred = PlaceReport {
-        later: embedded.len(),
-        retry: embedded
-            .into_iter()
-            .map(|p| p.source)
-            .chain(unsure)
-            .collect(),
+        retry: unsure,
         ..PlaceReport::default()
     };
     if placements.is_empty() {
@@ -886,6 +1320,8 @@ pub struct UnplaceReport {
     pub removed: usize,
     /// **そこにしか実体が無かった**ので `discard` へ渡したもの
     pub discarded: usize,
+    /// 取り出した JPEG で、ゴミ箱を通さずに消したもの（pictkura が RAW をゴミ箱へ入れた。§4b）
+    pub deleted: usize,
     /// もう無かった、または pictkura の置いたものではなかった（触らなかった）
     pub gone: usize,
     /// 記録から消してよいリンク（上の3つの合計と同じ数）
@@ -921,7 +1357,12 @@ pub fn unplace(
         return report;
     }
     let mut parents: Vec<PathBuf> = Vec::new();
-    for Recorded { link, index } in records {
+    for Recorded {
+        link,
+        index,
+        extracted,
+    } in records
+    {
         let rel = match link.strip_prefix(dir) {
             Ok(rel) if is_plain_relative(rel) => rel,
             _ => {
@@ -968,7 +1409,10 @@ pub fn unplace(
             report.forget.push(link.clone());
             continue;
         };
-        match remove_or_discard(link, id.links, discard) {
+        // 取り出した JPEG は名前の数を見ない——2つ目の名前は作業場に消し損ねたもので、次の取り出しが
+        // 片付ける。名前を外すだけにすると、片付けのときに中身ごと消える（PR の codex）
+        let links = if *extracted { 1 } else { id.links };
+        match remove_or_discard(link, links, discard) {
             Ok(handed) => {
                 if handed {
                     report.discarded += 1;
@@ -1676,6 +2120,18 @@ mod tests {
         /// 記録に手を付けたら落ちる
         struct Untouched;
         impl Ledger for Untouched {
+            fn holder(&mut self, _: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
+                Ok(None)
+            }
+            fn forget(&mut self, _: &Path) -> io::Result<()> {
+                Ok(())
+            }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
+            }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 panic!("claimed {}", p.link.display())
             }
@@ -1795,6 +2251,28 @@ mod tests {
             }
             Ok(())
         }
+        fn holder(&mut self, link: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
+            Ok(self
+                .0
+                .iter()
+                .find(|r| r.link == link)
+                .map(|r| (r.source.clone(), r.index, r.extracted)))
+        }
+        fn forget(&mut self, link: &Path) -> io::Result<()> {
+            self.0.retain(|r| r.link != link);
+            Ok(())
+        }
+        fn holders_folded(
+            &mut self,
+            link: &Path,
+        ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+            Ok(self
+                .0
+                .iter()
+                .filter(|r| fold_path(&r.link) == fold_path(link))
+                .map(|r| (r.link.clone(), r.source.clone(), r.index, r.extracted))
+                .collect())
+        }
     }
 
     impl Book {
@@ -1812,13 +2290,18 @@ mod tests {
                 .map(|p| Recorded {
                     link: p.link.clone(),
                     index: p.index,
+                    extracted: p.extracted,
                 })
                 .collect()
         }
     }
 
     fn rec(link: PathBuf) -> Recorded {
-        Recorded { link, index: 0 }
+        Recorded {
+            link,
+            index: 0,
+            extracted: false,
+        }
     }
 
     /// ゴミ箱の代わり: `dir` へ移す
@@ -1889,6 +2372,7 @@ mod tests {
             source: f.lib.join("d/a.jpg"),
             link: link.clone(),
             index: 0,
+            extracted: false,
         });
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         assert_eq!((r.placed, r.failed.len()), (0, 1));
@@ -1906,6 +2390,7 @@ mod tests {
             source: f.lib.join("old/a.jpg"),
             link: link.clone(),
             index: 0,
+            extracted: false,
         });
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         assert_eq!((r.placed, r.failed.len()), (0, 1));
@@ -1944,6 +2429,18 @@ mod tests {
         /// 書き直しだけが落ちる記録
         struct Stuck(Book);
         impl Ledger for Stuck {
+            fn holder(&mut self, _: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
+                Ok(None)
+            }
+            fn forget(&mut self, _: &Path) -> io::Result<()> {
+                Ok(())
+            }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
+            }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 self.0.claim(p)
             }
@@ -1976,6 +2473,18 @@ mod tests {
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         struct Busy(Book);
         impl Ledger for Busy {
+            fn holder(&mut self, _: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
+                Ok(None)
+            }
+            fn forget(&mut self, _: &Path) -> io::Result<()> {
+                Ok(())
+            }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
+            }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 self.0.claim(p)
             }
@@ -2009,6 +2518,7 @@ mod tests {
             source: f.lib.join("old/a.jpg"),
             link: f.google.join("d/a.jpg"),
             index: 0,
+            extracted: false,
         });
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         assert_eq!(r.failed.len(), 1);
@@ -2216,19 +2726,330 @@ mod tests {
         assert!(squatter.exists());
     }
 
-    #[test]
-    fn an_embedded_jpeg_placement_is_counted_for_later_and_writes_nothing() {
-        let f = fixture();
-        put(&f.lib.join("d/B.ARW"), b"raw");
-        let p = Placement {
+    /// 埋め込み JPEG を持つ RAW（TIFF の形。IFD0 に JPEG の申告と向き、ExifIFD に撮影日時）。
+    /// `preview` が `None` なら絵を持たない
+    fn raw_with_preview(path: &Path, orientation: u16, preview: Option<&[u8]>) {
+        let jpeg = preview.unwrap_or(&[]);
+        let mut buf: Vec<u8> = b"II".to_vec();
+        buf.extend_from_slice(&42u16.to_le_bytes());
+        buf.extend_from_slice(&8u32.to_le_bytes());
+        // IFD0（8〜62）: Orientation・JPEGInterchangeFormat・その長さ・ExifIFD への指し
+        // ExifIFD（62〜80）: DateTimeOriginal、文字列は 80〜100、絵は 100 から
+        let mut entries: Vec<(u16, u16, u32)> = vec![(274, 3, orientation as u32)];
+        if preview.is_some() {
+            entries.push((513, 4, 100));
+            entries.push((514, 4, jpeg.len() as u32));
+        }
+        entries.push((0x8769, 4, 0));
+        let exif_at = (8 + 2 + entries.len() * 12 + 4) as u32;
+        entries.last_mut().unwrap().2 = exif_at;
+        let dto_at = exif_at + 2 + 12 + 4;
+        let jpeg_at = dto_at + 20;
+        buf.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, kind, value) in entries {
+            let value = if tag == 513 { jpeg_at } else { value };
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&kind.to_le_bytes());
+            buf.extend_from_slice(&1u32.to_le_bytes());
+            if kind == 3 {
+                buf.extend_from_slice(&(value as u16).to_le_bytes());
+                buf.extend_from_slice(&[0, 0]);
+            } else {
+                buf.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&0x9003u16.to_le_bytes());
+        buf.extend_from_slice(&2u16.to_le_bytes());
+        buf.extend_from_slice(&20u32.to_le_bytes());
+        buf.extend_from_slice(&dto_at.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(b"2026:10:05 09:30:15\0");
+        buf.extend_from_slice(jpeg);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, &buf).unwrap();
+    }
+
+    fn preview_jpeg(width: u32, height: u32) -> Vec<u8> {
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::new(width, height));
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
+        out.into_inner()
+    }
+
+    fn dto_of(path: &Path) -> Option<String> {
+        let file = std::fs::File::open(path).ok()?;
+        let exif = exif::Reader::new()
+            .read_from_container(&mut std::io::BufReader::new(file))
+            .ok()?;
+        let f = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
+        match &f.value {
+            exif::Value::Ascii(v) => Some(String::from_utf8_lossy(v.first()?).into_owned()),
+            _ => None,
+        }
+    }
+
+    fn embedded(lib: &Path, rel: &str) -> Placement {
+        Placement {
             embedded: true,
-            ..placement(&f.lib, "d/B.ARW")
-        };
+            ..placement(lib, rel)
+        }
+    }
+
+    #[test]
+    fn an_embedded_jpeg_is_extracted_dated_and_recorded_as_its_own_file() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1600, 1200)));
         let mut book = Book::default();
-        let r = book.place(&f, &[p]);
-        assert_eq!((r.later, r.placed, r.failed.len()), (1, 0, 0));
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        let out = f.google.join("d/B.jpg");
+        let img = image::open(&out).expect("取り出したものが絵として読めない");
+        assert_eq!((img.width(), img.height()), (1600, 1200));
+        assert_eq!(dto_of(&out).as_deref(), Some("2026:10:05 09:30:15"));
+        // 原本とは別の実体で、名前は1つ（作業場の名前は消えている）
+        let id = file_id(&out).unwrap();
+        assert_eq!(id.links, 1);
+        assert_ne!(id.index, file_id(&f.lib.join("d/B.ARW")).unwrap().index);
+        assert_eq!(
+            book.0,
+            [Placed {
+                source: f.lib.join("d/B.ARW"),
+                link: out.clone(),
+                index: id.index,
+                extracted: true,
+            }]
+        );
+        // 作業場は Google 用フォルダの外で、終われば畳まれる
+        assert!(!work_dir_for(&f.google).unwrap().exists());
+        // もう一度置いても、前の回のものが在れば取り出し直さない
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.placed, r.already), (0, 1));
+        assert_eq!(file_id(&out).unwrap().index, id.index);
+    }
+
+    #[test]
+    fn a_turned_preview_is_turned_upright_and_still_dated() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 6, Some(&preview_jpeg(1600, 1200)));
+        let mut book = Book::default();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!(r.placed, 1, "{:?}", r.failed);
+        let out = f.google.join("d/B.jpg");
+        let img = image::open(&out).unwrap();
+        assert_eq!((img.width(), img.height()), (1200, 1600));
+        assert_eq!(dto_of(&out).as_deref(), Some("2026:10:05 09:30:15"));
+    }
+
+    #[test]
+    fn a_raw_without_a_preview_fails_for_good_and_leaves_nothing() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, None);
+        let mut book = Book::default();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.placed, r.failed.len(), r.retry.len()), (0, 1, 0));
         assert!(book.0.is_empty());
         assert!(!f.google.join("d").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_raw_that_cannot_be_read_now_is_kept_for_a_retry() {
+        use std::os::unix::fs::PermissionsExt;
+        let f = fixture();
+        let raw = f.lib.join("d/B.ARW");
+        raw_with_preview(&raw, 1, Some(&preview_jpeg(1200, 900)));
+        // 名前は見えるが中身を開けない（Windows の共有ロックの代わり）
+        std::fs::set_permissions(&raw, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut book = Book::default();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        std::fs::set_permissions(&raw, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!((r.placed, r.failed.len()), (0, 1));
+        assert_eq!(
+            r.retry,
+            std::slice::from_ref(&raw),
+            "読めなかっただけなら保留に残す"
+        );
+        // 読めるようになれば置ける
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!(r.placed, 1, "{:?}", r.failed);
+    }
+
+    #[test]
+    fn a_thumbnail_sized_preview_is_not_sent_as_the_photo() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(160, 120)));
+        let mut book = Book::default();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.placed, r.failed.len(), r.retry.len()), (0, 1, 0));
+        assert!(!f.google.join("d/B.jpg").exists());
+    }
+
+    #[test]
+    fn the_real_jpeg_imported_later_takes_its_name_back_from_the_extract() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // 同じカットの JPEG が別の回に来た
+        put(&f.lib.join("d/B.jpg"), b"camera jpeg");
+        let r = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        let out = f.google.join("d/B.jpg");
+        assert!(same_file(&f.lib.join("d/B.jpg"), &out).unwrap());
+        assert_eq!(book.0.len(), 1);
+        assert!(!book.0[0].extracted && book.0[0].source == f.lib.join("d/B.jpg"));
+        // 別のカットの取り出しには触らない
+        raw_with_preview(&f.lib.join("d/C.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/C.ARW")]).placed, 1);
+        put(&f.lib.join("e/C.jpg"), b"elsewhere");
+        let _ = book.place(&f, &[placement(&f.lib, "e/C.jpg")]);
+        assert!(f.google.join("d/C.jpg").exists());
+    }
+
+    /// 大文字小文字を区別しない台でだけ、名前が同じになる
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn a_real_jpeg_spelled_in_another_case_still_takes_the_name_back() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        put(&f.lib.join("d/b.JPG"), b"camera jpeg");
+        let r = book.place(&f, &[placement(&f.lib, "d/b.JPG")]);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert!(same_file(&f.lib.join("d/b.JPG"), &f.google.join("d/b.JPG")).unwrap());
+        assert!(book.0.iter().all(|r| !r.extracted));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_extract_behind_a_linked_folder_is_not_touched() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // アルバムを外へ移して、同じ名前のリンクに差し替えた
+        let outside = f.lib.parent().unwrap().join("outside");
+        std::fs::rename(f.google.join("d"), &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, f.google.join("d")).unwrap();
+        put(&f.lib.join("d/B.jpg"), b"camera jpeg");
+        let _ = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
+        assert!(outside.join("B.jpg").is_file(), "外のファイルを消した");
+    }
+
+    #[test]
+    fn an_extract_with_a_stray_second_name_still_goes_when_its_raw_is_gone() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        // 作業場の名前を消し損ねた（Windows で一瞬掴まれた等）
+        let stray = f.lib.parent().unwrap().join("stray.jpg");
+        std::fs::hard_link(f.google.join("d/B.jpg"), &stray).unwrap();
+        std::fs::remove_file(f.lib.join("d/B.ARW")).unwrap();
+        let trash = f.lib.parent().unwrap().join("trash");
+        let r = sweep_orphans(&mut db, &mut move_into(&trash)).unwrap();
+        // 名前を外すだけでは、作業場の名前が片付けられたときに中身ごと消える。ゴミ箱へ渡す
+        assert_eq!((r.discarded, r.removed, r.failed.len()), (1, 0, 0));
+        assert!(trash.join("B.jpg").is_file());
+        assert!(!f.google.join("d/B.jpg").exists());
+    }
+
+    #[test]
+    fn an_extract_linked_before_its_number_was_written_is_taken_back_on_retry() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // 張ったが番号を書く前に落ちた形: 記録は古い番号のまま、名前には新しい実体
+        let out = f.google.join("d/B.jpg");
+        let bytes = std::fs::read(&out).unwrap();
+        std::fs::remove_file(&out).unwrap();
+        std::fs::write(&out, &bytes).unwrap();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.already, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert_eq!(book.0[0].index, file_id(&out).unwrap().index);
+        // 中身の違う他人のファイルは取らない
+        std::fs::remove_file(&out).unwrap();
+        std::fs::write(&out, b"someone else").unwrap();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.already, r.placed, r.failed.len()), (0, 0, 1));
+        assert_eq!(std::fs::read(&out).unwrap(), b"someone else");
+    }
+
+    #[test]
+    fn a_work_name_left_behind_is_cleared_by_the_next_sweep() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        // 作業場の名前を消し損ねた形（win の W12b）
+        let work = work_dir_for(&f.google).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let left = work.join(format!("{WORK_PREFIX}1-0.jpg"));
+        std::fs::hard_link(f.google.join("d/B.jpg"), &left).unwrap();
+        // 利用者の置いたものには触らない
+        let theirs = work.join("notes.txt");
+        put(&theirs, b"mine");
+        let r = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+        assert!(!left.exists());
+        assert!(theirs.exists());
+        assert_eq!(file_id(&f.google.join("d/B.jpg")).unwrap().links, 1);
+    }
+
+    #[test]
+    fn trashing_the_last_extract_also_clears_a_work_name_left_behind() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        let work = work_dir_for(&f.google).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let left = work.join(format!("{WORK_PREFIX}1-0.jpg"));
+        std::fs::hard_link(f.google.join("d/B.jpg"), &left).unwrap();
+        let bin = f.lib.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::rename(f.lib.join("d/B.ARW"), bin.join("B.ARW")).unwrap();
+        let r = unplace_sources(&mut db, &[f.lib.join("d/B.ARW")], &mut no_discard()).unwrap();
+        assert_eq!((r.deleted, r.failed.len()), (1, 0), "{:?}", r.failed);
+        // 記録はもう無いが、作業場の名前も消えている（中身がディスクに残らない）
+        assert!(!left.exists());
+        assert!(!work.exists());
+    }
+
+    #[test]
+    fn a_stale_extract_record_left_by_a_crash_gives_way_on_retry() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // 取り出しを消したが、記録を消す前に落ちた形
+        std::fs::remove_file(f.google.join("d/B.jpg")).unwrap();
+        put(&f.lib.join("d/B.jpg"), b"camera jpeg");
+        let r = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert!(book.0.iter().all(|r| !r.extracted));
+    }
+
+    #[test]
+    fn a_name_already_taken_is_not_overwritten_by_an_extract() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        put(&f.google.join("d/B.jpg"), b"someone else");
+        let mut book = Book::default();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.placed, r.failed.len(), r.retry.len()), (0, 1, 0));
+        assert!(book.0.is_empty(), "置けなかった行は取り消す");
+        assert_eq!(
+            std::fs::read(f.google.join("d/B.jpg")).unwrap(),
+            b"someone else"
+        );
     }
 
     #[test]
@@ -2559,6 +3380,18 @@ mod tests {
         put(&f.lib.join("d/b.jpg"), b"photo");
         struct Flaky;
         impl Ledger for Flaky {
+            fn holder(&mut self, _: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
+                Ok(None)
+            }
+            fn forget(&mut self, _: &Path) -> io::Result<()> {
+                Ok(())
+            }
+            fn holders_folded(
+                &mut self,
+                _: &Path,
+            ) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>> {
+                Ok(Vec::new())
+            }
             fn claim(&mut self, p: &Placed) -> io::Result<Claim> {
                 if p.link.ends_with("a.jpg") {
                     Err(io::Error::other("database is locked"))
@@ -2599,23 +3432,65 @@ mod tests {
         assert!(!f.google.exists());
     }
 
-    #[test]
-    fn a_run_of_only_embedded_placements_makes_no_folder() {
-        let f = fixture();
-        put(&f.lib.join("d/B.ARW"), b"raw");
-        let mut config = crate::Config::default();
-        config.library.roots = vec![f.lib.clone()];
-        config.google_mirror.enabled = true;
+    fn embedded_on(f: &Fixture) -> crate::Config {
+        let mut config = on(f);
         config.google_mirror.raw_only = RawOnly::EmbeddedJpeg;
-        config.google_mirror.locations = vec![f.google.clone()];
+        config
+    }
+
+    #[test]
+    fn a_raw_only_cut_is_placed_as_its_embedded_jpeg_at_import() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
         let mut db = crate::db::Db::open_in_memory().unwrap();
         let r = place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db)
             .unwrap()
             .unwrap();
-        assert_eq!((r.later, r.placed), (1, 0));
-        assert!(!f.google.exists());
-        // 取り出しが入ったとき（PR5）に拾えるよう、保留に残る
-        assert_eq!(db.google_pending_all().unwrap().len(), 1);
+        assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert!(f.google.join("d/B.jpg").is_file());
+        assert!(!f.google.join("d/B.ARW").exists());
+        assert!(db.google_pending_all().unwrap().is_empty());
+        let rows = db
+            .google_placed_for_sources(&[f.lib.join("d/B.ARW")])
+            .unwrap();
+        assert!(rows.len() == 1 && rows[0].1.extracted);
+    }
+
+    #[test]
+    fn trashing_the_raw_in_pictkura_deletes_its_extract_outright() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        let bin = f.lib.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::rename(f.lib.join("d/B.ARW"), bin.join("B.ARW")).unwrap();
+        // 取り出したものの名前は1つだが、ゴミ箱へは渡さずに消す（RAW から取り出し直せる）
+        let r = unplace_sources(&mut db, &[f.lib.join("d/B.ARW")], &mut no_discard()).unwrap();
+        // 消した数は「ゴミ箱へ」と数えない
+        assert_eq!((r.deleted, r.discarded, r.failed.len()), (1, 0, 0));
+        assert!(!f.google.join("d/B.jpg").exists());
+        assert!(db
+            .google_placed_for_sources(&[f.lib.join("d/B.ARW")])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_raw_gone_outside_pictkura_sends_its_extract_to_the_trash() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        std::fs::remove_file(f.lib.join("d/B.ARW")).unwrap();
+        let trash = f.lib.parent().unwrap().join("trash");
+        let r = sweep_orphans(&mut db, &mut move_into(&trash)).unwrap();
+        assert_eq!((r.discarded, r.failed.len()), (1, 0));
+        assert!(trash.join("B.jpg").is_file());
+        assert!(!f.google.join("d/B.jpg").exists());
     }
 
     #[test]

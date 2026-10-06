@@ -2866,6 +2866,10 @@ async fn export_media(
         let progress_app = app.clone();
         // サイドカー（`.xmp` 等）も一緒に運ぶ（0.2）。設定で空にすれば運ばない
         let sidecar_exts = lock_ok(&state.config).import.sidecar_extensions.clone();
+        // **移すあいだは Google 用の鍵を持つ**。監視の突き合わせ（鍵が取れなければ見送る）が、移しかけの
+        // 原本を「外で消えた」と読み、取り出した JPEG をゴミ箱へ送らないように（取り出しは名前の数で
+        // 「移っただけ」と見分けられない。PR5 のゲート2）。記録を消し終えるまで放さない
+        let google_hold = move_files.then(|| lock_ok(&state.google_lock));
         let outcome = pictkura_core::export_files(
             &paths,
             Path::new(&dest),
@@ -2930,8 +2934,12 @@ async fn export_media(
             // Google 用フォルダのリンクは外さない——移しただけで実体は生きている（設計書 §4）。
             // 記録からは外す（追い続けると、別のドライブへ移した原本が OS のゴミ箱を経て消えたとき、
             // 残ったリンクを最後の1枚と見てゴミ箱へ渡してしまう。ゲート2）
-            forget_moved_out(&state, &gone);
+            match &google_hold {
+                Some(_) => forget_moved_held(&state, &gone),
+                None => forget_moved_out(&state, &gone),
+            }
         }
+        drop(google_hold);
         Ok(stats)
     })
     .await
@@ -3992,8 +4000,6 @@ struct ImportStatsDto {
 struct GooglePlacedDto {
     placed: usize,
     already: usize,
-    /// 埋め込み JPEG で置くと決めたが、取り出しがまだ無いもの
-    later: usize,
     cloud_only: usize,
     failed: usize,
     /// 1件も置けなかった理由（場所が決まらない等）。1件ずつの失敗は `failed` に数える
@@ -4400,6 +4406,16 @@ fn set_google_include_video(
     update_config(&state, |c| c.google_mirror.exclude_video = !include)
 }
 
+/// RAW だけのカット（同じ名前の写真が無い RAW）を、上げないか、埋め込み JPEG を取り出して置くか
+/// （2026-10-05 利用者決定の2択。設計書 §2）
+#[tauri::command]
+fn set_google_raw_only(
+    state: tauri::State<'_, AppState>,
+    raw_only: pictkura_core::config::RawOnly,
+) -> Result<(), String> {
+    update_config(&state, |c| c.google_mirror.raw_only = raw_only)
+}
+
 /// OneDrive の中の原本も置くか（既定は置かない。置くと OneDrive で空き容量を増やせなくなる）
 #[tauri::command]
 fn set_google_include_onedrive(
@@ -4599,13 +4615,28 @@ fn unplace_trashed(state: &AppState, sources: &[PathBuf]) {
 /// 書き出しで移した原本の記録を消す（リンクは残す。設計書 §4）。
 fn forget_moved_out(state: &AppState, sources: &[PathBuf]) {
     with_google_db(state, true, &UNPLACE_FAILURE_SAID, |db, _| {
-        if let Err(e) = pictkura_core::mirror::forget_moved(db, sources) {
-            note_once(
-                &UNPLACE_FAILURE_SAID,
-                &format!("Google 用フォルダ: 移した原本の記録を消せなかった: {e}"),
-            );
-        }
+        forget_moved_in(db, sources)
     });
+}
+
+/// [`forget_moved_out`] の、**Google 用の鍵を呼び出し側が持っている**ときの形（鍵を取り直すと止まる）。
+fn forget_moved_held(state: &AppState, sources: &[PathBuf]) {
+    match Db::open(&state.db_path) {
+        Ok(mut db) => forget_moved_in(&mut db, sources),
+        Err(e) => note_once(
+            &UNPLACE_FAILURE_SAID,
+            &format!("Google 用フォルダ: 記録を開けなかった: {e}"),
+        ),
+    }
+}
+
+fn forget_moved_in(db: &mut Db, sources: &[PathBuf]) {
+    if let Err(e) = pictkura_core::mirror::forget_moved(db, sources) {
+        note_once(
+            &UNPLACE_FAILURE_SAID,
+            &format!("Google 用フォルダ: 移した原本の記録を消せなかった: {e}"),
+        );
+    }
 }
 
 /// Google 用フォルダの最後の1枚をゴミ箱へ（[`pictkura_core::mirror::unplace`] の `discard`）。
@@ -4619,10 +4650,11 @@ fn note_google_sweep(
 ) {
     match result {
         // 外したものがあれば毎回書く（ゴミ箱へ渡した先を残す）。外せなかっただけの回は一度だけ
-        Ok(r) if r.removed + r.discarded > 0 => applog::note(&format!(
-            "Google 用フォルダ: リンクを {} 件外した・{} 件ゴミ箱へ・{} 件外せなかった{}",
+        Ok(r) if r.removed + r.discarded + r.deleted > 0 => applog::note(&format!(
+            "Google 用フォルダ: リンクを {} 件外した・{} 件ゴミ箱へ・取り出した JPEG を {} 件消した・{} 件外せなかった{}",
             r.removed,
             r.discarded,
+            r.deleted,
             r.failed.len(),
             r.failed
                 .first()
@@ -4690,7 +4722,6 @@ fn place_google_links(
             GooglePlacedDto {
                 placed: r.placed,
                 already: r.already,
-                later: r.later,
                 cloud_only: r.cloud_only,
                 // 次の取り込み・起動で置き直すもの（保留）は数えない——利用者にできることが無い
                 // （2026-10-06 利用者。ゲート2）
@@ -6601,6 +6632,7 @@ pub fn run() {
             set_google_enabled,
             set_google_location,
             set_google_include_video,
+            set_google_raw_only,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

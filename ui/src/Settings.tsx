@@ -31,7 +31,9 @@ import {
   setGoogleLocation,
   setGoogleIncludeVideo,
   setGoogleIncludeOnedrive,
+  setGoogleRawOnly,
   type GoogleLocation,
+  type GoogleRawOnly,
   type AboutInfo,
   type AppConfig,
   type UpdateCheck,
@@ -469,8 +471,8 @@ export default function Settings({
 
           {/*
             送り出し（Google フォト用のフォルダ。`dev/plan.google-photos-at-import.md` §7c）。
-            見出しに会社名は出さない（2026-10-06 利用者）。RAW だけのカットと「選んだ動画だけ」は
-            それぞれの PR で択を足す——動かない択は出さない
+            見出しに会社名は出さない（2026-10-06 利用者）。「選んだ動画だけ」は動画を選ぶ画面の
+            PR で択を足す——動かない択は出さない
           */}
           <section className="settings-section">
             <h3>{t.settingsOutgoing}</h3>
@@ -497,6 +499,8 @@ export default function Settings({
                   const dir = await openDialog({
                     directory: true,
                     title: t.pickGoogleFolder,
+                    // いまの場所から開く（既定だと OneDrive の「ドキュメント」で開く。win の W6）
+                    defaultPath: googleLoc?.path ?? undefined,
                   });
                   if (typeof dir !== "string") return;
                   await changeGoogle(() => setGoogleLocation(dir));
@@ -514,6 +518,31 @@ export default function Settings({
                 {googleError ?? errText(googleLoc?.error)}
               </p>
             )}
+            {/* RAW だけのカット（2026-10-05 利用者決定の2択・既定は上げない。設計書 §2） */}
+            <label className="settings-toggle">
+              {t.settingsGoogleRawOnly}
+              <select
+                className="settings-select"
+                disabled={googleBusy}
+                value={google?.raw_only ?? "none"}
+                onChange={(e) => {
+                  const v = e.target.value as GoogleRawOnly;
+                  void changeGoogle(() => setGoogleRawOnly(v));
+                }}
+              >
+                {(
+                  [
+                    ["none", t.googleRawOnlyNone],
+                    ["embedded_jpeg", t.googleRawOnlyEmbedded],
+                  ] as const satisfies readonly (readonly [GoogleRawOnly, string])[]
+                ).map(([v, name]) => (
+                  <option key={v} value={v}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="settings-note">{t.settingsGoogleRawOnlyNote}</p>
             <label className="settings-toggle">
               <input
                 type="checkbox"

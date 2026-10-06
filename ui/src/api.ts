@@ -108,8 +108,6 @@ export interface ImportStats {
 export interface GooglePlaced {
   placed: number;
   already: number;
-  /** 埋め込み JPEG で置くと決めたが、取り出しがまだ無いもの */
-  later: number;
   cloud_only: number;
   failed: number;
   /** 1件も置けなかった理由（場所が決まらない等）。辞書の鍵＋詳細なので `errText` で読む */
@@ -195,6 +193,8 @@ export interface AppConfig {
     enabled: boolean;
     exclude_video: boolean;
     include_onedrive: boolean;
+    /** RAW だけのカット: 上げない／埋め込み JPEG を置く */
+    raw_only?: GoogleRawOnly;
   };
 }
 
@@ -877,6 +877,12 @@ export const setGoogleLocation = (path: string) =>
 
 export const setGoogleIncludeVideo = (include: boolean) =>
   invoke<void>("set_google_include_video", { include });
+
+/** RAW だけのカットの扱い（Rust の `config::RawOnly` と同じ綴り） */
+export type GoogleRawOnly = "none" | "embedded_jpeg";
+
+export const setGoogleRawOnly = (rawOnly: GoogleRawOnly) =>
+  invoke<void>("set_google_raw_only", { rawOnly });
 
 export const setGoogleIncludeOnedrive = (include: boolean) =>
   invoke<void>("set_google_include_onedrive", { include });
