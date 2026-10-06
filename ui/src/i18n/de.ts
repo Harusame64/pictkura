@@ -504,7 +504,7 @@ export const de: Dict = {
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "Foto", "Fotos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "Video", "Videos")}`);
     if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "Nur-RAW-Aufnahme", "Nur-RAW-Aufnahmen")}`);
-    return `${parts.join(", ")}${size ? ` (${size})` : ""} werden im Ordner für Google Fotos abgelegt. Hochgeladen wird, solange ein Tab mit Google Fotos geöffnet ist.`;
+    return `${parts.join(", ")}${size ? ` (${size})` : ""} ${one(photos + videos + rawOnly, "wird", "werden")} im Ordner für Google Fotos abgelegt. Hochgeladen wird, solange ein Tab mit Google Fotos geöffnet ist.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} der gewählten Dateien ${one(n, "wird", "werden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,

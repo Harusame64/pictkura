@@ -1099,7 +1099,9 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
             continue;
         };
         if !out.folders.contains(&dir) {
-            if !dir.exists() {
+            // 「新しく作る」と言うのは、作れる（親が在る）ときだけ。外れたドライブの場所を
+            // 「作ります・登録してください」と言わない（ゲート2）
+            if !dir.exists() && dir.parent().is_some_and(Path::is_dir) {
                 out.new_folders.push(dir.clone());
             }
             out.folders.push(dir);
@@ -3309,6 +3311,10 @@ mod tests {
         );
         // 数えるだけで、何も作らない
         assert!(!f.google.exists());
+        // 在るフォルダは「新しく作る」に入れない
+        std::fs::create_dir_all(&f.google).unwrap();
+        let s = summarize_chosen(&items, &config);
+        assert_eq!((s.folders.len(), s.new_folders.len()), (1, 0));
     }
 
     #[test]

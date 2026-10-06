@@ -430,7 +430,7 @@ export const en: Dict = {
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "photo", "photos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "video", "videos")}`);
     if (rawOnly > 0) parts.push(`${num(rawOnly)} RAW-only ${one(rawOnly, "shot", "shots")}`);
-    return `${parts.join(", ")}${size ? ` (${size})` : ""} will be placed in the folder for Google Photos. They upload while a Google Photos tab is open.`;
+    return `${parts.join(", ")}${size ? ` (${size})` : ""} will be placed in the folder for Google Photos. ${one(photos + videos + rawOnly, "It uploads", "They upload")} while a Google Photos tab is open.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} of the chosen ${one(n, "item is", "items are")} left out (the RAW of a RAW+JPEG pair, files inside OneDrive and the like).`,

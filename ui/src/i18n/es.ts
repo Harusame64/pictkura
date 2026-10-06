@@ -507,7 +507,7 @@ export const es: Dict = {
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "vídeo", "vídeos")}`);
     if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "toma solo en RAW", "tomas solo en RAW")}`);
-    return `Se colocarán ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
+    return `Se ${one(photos + videos + rawOnly, "colocará", "colocarán")} ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} de los elementos elegidos no se ${one(n, "coloca", "colocan")} (el RAW de un par RAW+JPEG, archivos dentro de OneDrive, etc.).`,

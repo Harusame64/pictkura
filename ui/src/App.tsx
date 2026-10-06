@@ -520,14 +520,23 @@ const secondsFmt2 = new Intl.NumberFormat(formatLocale, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
-/** 大きさ（バイト）を「8.4 GB」の形に。送り出しの確認で使う（1024 で繰り上げる。OS のファイルの一覧と同じ数え方） */
+const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
+/**
+ * 大きさ（バイト）を「8.4 GB」の形に。送り出しの確認で使う。**OS のファイルの一覧と同じ数え方**にする
+ * ——Finder は 1000、エクスプローラーは 1024 で繰り上げる（ゲート2）。食い違うと、利用者が見比べたときに
+ * どちらかが嘘に見える
+ */
 const sizeFmt = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 1 });
-function formatSize(bytes: number): string {
+function formatSize(bytes: number, base: 1000 | 1024): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = bytes;
   let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
+  while (v >= base && i < units.length - 1) {
+    v /= base;
     i++;
   }
   return `${sizeFmt.format(v)} ${units[i]}`;
@@ -538,11 +547,6 @@ function formatSize(bytes: number): string {
  * 2026-10-06 利用者決定）。すべて選択・範囲選択・新しいフォルダを作るときは枚数に関係なく確かめる
  */
 const SEND_WITHOUT_ASKING = 100;
-
-const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
 
 /**
  * 取り込みの1行に足す、送り出し（Google フォト用のフォルダ）へ置いた枚数。切っていれば空。
@@ -5161,6 +5165,11 @@ export default function App() {
     wideSelectRef.current = false;
   }, [query, filter, kind]);
 
+  // 選択が空になったら「広い選び方」の印も下ろす（1枚ずつ外して空にした後の選択へ持ち越さない。ゲート2）
+  useEffect(() => {
+    if (selected.size === 0) wideSelectRef.current = false;
+  }, [selected]);
+
   /** 選択中かどうか。**選択が0なら選択モードではない** */
   const selecting = selected.size > 0;
 
@@ -5297,6 +5306,8 @@ export default function App() {
       });
       setAnchorId(ids[0]);
       lastRangeRef.current = null;
+      // 日ごと選んだのは、見えていない写真まで入りうる選び方（送り出しでは確かめる。ゲート2）
+      wideSelectRef.current = true;
     },
     [dayItems],
   );
@@ -5902,7 +5913,6 @@ export default function App() {
     [refreshRoots],
   );
 
-  /** 対象1枚に対する右クリックメニューの項目 */
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
   const googleOn = config?.google_mirror?.enabled ?? false;
 
@@ -5916,12 +5926,15 @@ export default function App() {
   const sendToGoogle = useCallback(
     async (ids: number[], photos: number, wide: boolean, fromSelection: boolean) => {
       if (sendingRef.current || ids.length === 0) return;
+      // **全体の `busy` は触らない**——右クリックからも呼ばれ、再スキャン等の最中に下ろすと、
+      // 走っている操作のボタンが押せるようになる（ゲート2）。二度押しは `sendingRef` で止める
       sendingRef.current = true;
-      setBusy(true);
       try {
         const chosen = { kind: "ids", ids } as const;
         const s = await googleChosenSummary(chosen);
-        if (s.photos + s.videos + s.raw_only === 0) {
+        const placeable = s.photos + s.videos + s.raw_only;
+        // 置き先が決まらないだけ（ドライブ丸ごとのルート等）なら、送る側まで進めて理由を出す（ゲート1）
+        if (placeable === 0 && s.unplaceable === 0) {
           fail(
             [t.googleSendNothing, s.left_out > 0 ? t.googleSendLeftOut(s.left_out) : ""]
               .filter(Boolean)
@@ -5929,14 +5942,19 @@ export default function App() {
           );
           return;
         }
-        const ask = wide || photos > SEND_WITHOUT_ASKING || s.new_folders.length > 0;
+        // 枚数は見積もりの実数でも見る——連写の束は1タイルで何百コマにもなる（ゲート2）
+        const ask =
+          placeable > 0 &&
+          (wide ||
+            Math.max(photos, placeable) > SEND_WITHOUT_ASKING ||
+            s.new_folders.length > 0);
         if (ask) {
           const lines = [
             t.googleSendSummary(
               s.photos,
               s.videos,
               s.raw_only,
-              s.bytes > 0 ? formatSize(s.bytes) : "",
+              s.bytes > 0 ? formatSize(s.bytes, platform === "macos" ? 1000 : 1024) : "",
             ),
           ];
           if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));
@@ -5961,10 +5979,9 @@ export default function App() {
         fail(errText(e));
       } finally {
         sendingRef.current = false;
-        setBusy(false);
       }
     },
-    [confirmAction, fail, clearSelection],
+    [confirmAction, fail, clearSelection, platform],
   );
 
   /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
@@ -5976,6 +5993,7 @@ export default function App() {
     await sendToGoogle(ids, photos, wideSelectRef.current, true);
   }, [visibleSelection, sendToGoogle]);
 
+  /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
     (
       item: MediaItem,

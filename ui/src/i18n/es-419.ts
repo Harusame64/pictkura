@@ -109,7 +109,7 @@ export const es419: Dict = {
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "video", "videos")}`);
     if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "toma solo en RAW", "tomas solo en RAW")}`);
-    return `Se colocarán ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
+    return `Se ${one(photos + videos + rawOnly, "colocará", "colocarán")} ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
   },
 
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
