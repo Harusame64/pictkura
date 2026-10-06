@@ -539,6 +539,11 @@ function formatSize(bytes: number, base: 1000 | 1024): string {
     v /= base;
     i++;
   }
+  // 丸めると単位の境目に届くもの（1023.96 KB → 「1,024 KB」）は、次の単位へ上げる（ゲート2）
+  if (Number(v.toFixed(1)) >= base && i < units.length - 1) {
+    v /= base;
+    i++;
+  }
   return `${sizeFmt.format(v)} ${units[i]}`;
 }
 
@@ -5929,6 +5934,8 @@ export default function App() {
       // **全体の `busy` は触らない**——右クリックからも呼ばれ、再スキャン等の最中に下ろすと、
       // 走っている操作のボタンが押せるようになる（ゲート2）。二度押しは `sendingRef` で止める
       sendingRef.current = true;
+      // 送り始めたときの選択（終わったときに同じなら解く。途中で選び直した分は残す。ゲート1）
+      const selectionAtStart = selectedRef.current;
       try {
         const chosen = { kind: "ids", ids } as const;
         const s = await googleChosenSummary(chosen);
@@ -5974,7 +5981,10 @@ export default function App() {
         if (r.cloud_only > 0) notes.push(t.googleSentCloudOnly(r.cloud_only));
         if (!ask && r.left_out > 0) notes.push(t.googleSentLeftOut(r.left_out));
         if (notes.length > 0) fail(notes.join(" "));
-        if (fromSelection) clearSelection();
+        // 何も置けなかったときは選択を残す——送り直すのに選び直させない（ゲート2）
+        if (fromSelection && total > 0 && selectedRef.current === selectionAtStart) {
+          clearSelection();
+        }
       } catch (e) {
         fail(errText(e));
       } finally {
@@ -6037,8 +6047,10 @@ export default function App() {
               label: t.bulkSendGoogle,
               separator: true,
               run: () => {
+                // ★・⚑ と同じ `markFiles` を送る: 連写は表紙のコマだけ、RAW+JPEG は組の両方（JPEG だけ
+                // 置かれる）。1タイル＝1枚の約束（2026-09-25 の利用者の選択）に揃える（ゲート2）
                 void sendToGoogle(
-                  files.map((f) => f.id),
+                  markFiles.map((f) => f.id),
                   1,
                   false,
                   false,

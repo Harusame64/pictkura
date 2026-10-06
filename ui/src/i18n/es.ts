@@ -517,7 +517,7 @@ export const es: Dict = {
   googleSendNothing: "No hay nada que se pueda colocar.",
   googleSendConfirmOk: "Colocar",
   googleSent: (total: number, already: number) =>
-    `${num(total)} para Google Fotos${already > 0 ? ` (${num(already)} ya ${one(already, "estaba", "estaban")})` : ""}`,
+    `${one(total, "Se ha", "Se han")} colocado ${num(total)} para Google Fotos${already > 0 ? ` (${num(already)} ya ${one(already, "estaba", "estaban")})` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} solo ${one(n, "está", "están")} en la nube y no se ${one(n, "ha", "han")} podido colocar. Descárga${one(n, "lo", "los")} primero y vuelve a enviar.`,
   googleSentLeftOut: (n: number) =>

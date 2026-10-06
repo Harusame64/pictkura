@@ -1101,7 +1101,8 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
         if !out.folders.contains(&dir) {
             // 「新しく作る」と言うのは、作れる（親が在る）ときだけ。外れたドライブの場所を
             // 「作ります・登録してください」と言わない（ゲート2）
-            if !dir.exists() && dir.parent().is_some_and(Path::is_dir) {
+            // 壊れたリンクが居座っているのも「無い」ではない（置くときに断られる。ゲート2）
+            if std::fs::symlink_metadata(&dir).is_err() && dir.parent().is_some_and(Path::is_dir) {
                 out.new_folders.push(dir.clone());
             }
             out.folders.push(dir);
