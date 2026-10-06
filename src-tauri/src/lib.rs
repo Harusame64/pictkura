@@ -4004,6 +4004,8 @@ struct GooglePlacedDto {
     failed: usize,
     /// 1件も置けなかった理由（場所が決まらない等）。1件ずつの失敗は `failed` に数える
     error: Option<String>,
+    /// 選んだのに置かないもの（ライブラリから選んで送ったときだけ。[`pictkura_core::mirror::left_out`]）
+    left_out: usize,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -4406,14 +4408,24 @@ enum ChosenDto {
     Folder { path: String },
 }
 
-/// 選んだものの原本と大きさ。消えている id は黙って飛ばす（選んだあとに外から消された等）
+/// 選んだものの原本と大きさ。消えている id は黙って飛ばす（選んだあとに外から消された等）が、
+/// **読めなかった**ときは誤りとして返す——黙って減らすと、数も結果も小さく出て気付けない（ゲート2）。
+/// 同じ id は1つにする（重ねた組と、その片方を別に選んだとき等。確認の数と結果が食い違わないように）
 fn chosen_items(state: &AppState, chosen: &ChosenDto) -> Result<Vec<(PathBuf, u64)>, String> {
     match chosen {
-        ChosenDto::Ids { ids } => Ok(ids
-            .iter()
-            .filter_map(|id| state.read_pool.with(|db| db.get_by_id(*id)).ok().flatten())
-            .map(|r| (r.path, r.size.max(0) as u64))
-            .collect()),
+        ChosenDto::Ids { ids } => state
+            .read_pool
+            .with(|db| {
+                let mut seen = std::collections::HashSet::new();
+                let mut out = Vec::new();
+                for id in ids.iter().filter(|id| seen.insert(**id)) {
+                    if let Some(r) = db.get_by_id(*id)? {
+                        out.push((r.path, r.size.max(0) as u64));
+                    }
+                }
+                Ok::<_, pictkura_core::db::DbError>(out)
+            })
+            .map_err(errs::from_err),
         ChosenDto::Folder { path } => Ok(state
             .read_pool
             .with(|db| db.paths_by_prefix(Path::new(path)))
@@ -4433,6 +4445,7 @@ struct ChosenSummaryDto {
     bytes: u64,
     folders: Vec<String>,
     unplaceable: usize,
+    left_out: usize,
 }
 
 #[tauri::command]
@@ -4455,6 +4468,7 @@ async fn google_chosen_summary(
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect(),
             unplaceable: s.unplaceable,
+            left_out: s.left_out,
         })
     })
     .await
@@ -4476,7 +4490,8 @@ async fn google_send_chosen(
         let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
         let dto = match pictkura_core::mirror::place_chosen(&sources, &config, &mut db) {
             Ok(None) => return Ok(None),
-            Ok(Some(r)) => {
+            Ok(Some(c)) => {
+                let r = &c.report;
                 if let Some((path, why)) = r.failed.first() {
                     applog::note(&format!(
                         "Google 用フォルダ: 選んだもののうち {} 件置けなかった（最初: {}: {why}）",
@@ -4484,6 +4499,11 @@ async fn google_send_chosen(
                         path.display()
                     ));
                 }
+                // フォルダごと置けなかった理由は、何も置けなかったときに画面に出す（ゲート2）
+                let error = (r.placed + r.already == 0)
+                    .then_some(c.root_error)
+                    .flatten()
+                    .map(errs::quiet);
                 GooglePlacedDto {
                     placed: r.placed,
                     already: r.already,
@@ -4491,7 +4511,8 @@ async fn google_send_chosen(
                     // 選んだものは保留に残さない（[`pictkura_core::mirror::place_chosen`]）ので、
                     // 一時的な失敗も数える——もう一度送れば置ける
                     failed: r.failed.len(),
-                    error: None,
+                    error,
+                    left_out: c.left_out,
                 }
             }
             Err(e) => {
@@ -4846,6 +4867,7 @@ fn place_google_links(
                     .filter(|(p, _)| !r.retry.contains(p))
                     .count(),
                 error: None,
+                left_out: 0,
             }
         }
         Ok(None) => return None,

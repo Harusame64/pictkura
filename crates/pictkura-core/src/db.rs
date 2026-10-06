@@ -3149,13 +3149,6 @@ fn escape_like(s: &str) -> String {
     s.replace('!', "!!").replace('%', "!%").replace('_', "!_")
 }
 
-/// 「`column` が `prefix` 配下（区切りは \\ か /）」を**バイト厳密**に判定する
-/// SQL条件とパラメータを組む。プレースホルダは ?N から4つ使う。
-///
-/// SQLiteのLIKEはASCII大文字小文字を区別しないため、LIKE単独の前方一致は
-/// `summer` と `Summer` を同一視してしまう。大小文字だけのフォルダ名リネームで
-/// 「消えた旧綴りの削除」が新綴りの行まで巻き込む事故を防ぐため、
-/// LIKE（インデックスでの絞り込み用）に substr のバイト一致を重ねる。
 /// フォルダ**配下**を `path` の範囲で引くときの `[頭, 終わり)` の組（[`Db::count_by_prefix`]）。
 /// TEXT の比較は BINARY（バイト順）なので、`[p/, p0)` は「`p/` で始まる」と同じで、大小文字も区別する
 /// （`/` の次のバイトが `0`、`\` の次が `]`）。
@@ -3176,6 +3169,13 @@ fn prefix_ranges(prefix: &Path) -> Vec<(String, String)> {
     }
 }
 
+/// 「`column` が `prefix` 配下（区切りは \\ か /）」を**バイト厳密**に判定する
+/// SQL条件とパラメータを組む。プレースホルダは ?N から4つ使う。
+///
+/// SQLiteのLIKEはASCII大文字小文字を区別しないため、LIKE単独の前方一致は
+/// `summer` と `Summer` を同一視してしまう。大小文字だけのフォルダ名リネームで
+/// 「消えた旧綴りの削除」が新綴りの行まで巻き込む事故を防ぐため、
+/// LIKE（インデックスでの絞り込み用）に substr のバイト一致を重ねる。
 fn binary_prefix_sql(column: &str, prefix: &str, first_param: usize) -> (String, Vec<String>) {
     let escaped = escape_like(prefix);
     let (a, b, c, d) = (

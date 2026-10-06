@@ -112,6 +112,8 @@ export interface GooglePlaced {
   failed: number;
   /** 1件も置けなかった理由（場所が決まらない等）。辞書の鍵＋詳細なので `errText` で読む */
   error: string | null;
+  /** 選んだのに置かないもの（ライブラリから選んで送ったときだけ。取り込みでは 0） */
+  left_out: number;
 }
 
 export interface ExportStats {
@@ -897,6 +899,8 @@ export interface ChosenSummary {
   bytes: number;
   folders: string[];
   unplaceable: number;
+  /** 選んだのに置かないもの（組の RAW だけ・OneDrive の中・ライブラリの外 等） */
+  left_out: number;
 }
 
 export const googleChosenSummary = (chosen: ChosenForGoogle) =>
