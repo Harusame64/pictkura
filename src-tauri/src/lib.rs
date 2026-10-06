@@ -4396,6 +4396,121 @@ async fn set_google_location(app: tauri::AppHandle, path: String) -> Result<(), 
     .await
 }
 
+/// ライブラリから Google フォトへ送るものの選び方（`dev/plan.google-photos-from-library.md` §1）。
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum ChosenDto {
+    /// 一覧で選んだタイル（重ねた組は両方の id が来る。組は JPEG だけ置く）
+    Ids { ids: Vec<i64> },
+    /// フォルダツリーで選んだフォルダ（下のフォルダも）
+    Folder { path: String },
+}
+
+/// 選んだものの原本と大きさ。消えている id は黙って飛ばす（選んだあとに外から消された等）
+fn chosen_items(state: &AppState, chosen: &ChosenDto) -> Result<Vec<(PathBuf, u64)>, String> {
+    match chosen {
+        ChosenDto::Ids { ids } => Ok(ids
+            .iter()
+            .filter_map(|id| state.read_pool.with(|db| db.get_by_id(*id)).ok().flatten())
+            .map(|r| (r.path, r.size.max(0) as u64))
+            .collect()),
+        ChosenDto::Folder { path } => Ok(state
+            .read_pool
+            .with(|db| db.paths_by_prefix(Path::new(path)))
+            .map_err(errs::from_err)?
+            .into_iter()
+            .map(|(p, n)| (p, n.max(0) as u64))
+            .collect()),
+    }
+}
+
+/// 送る前の見積もり（確認に出す。[`pictkura_core::mirror::summarize_chosen`]）
+#[derive(serde::Serialize)]
+struct ChosenSummaryDto {
+    photos: usize,
+    videos: usize,
+    raw_only: usize,
+    bytes: u64,
+    folders: Vec<String>,
+    unplaceable: usize,
+}
+
+#[tauri::command]
+async fn google_chosen_summary(
+    app: tauri::AppHandle,
+    chosen: ChosenDto,
+) -> Result<ChosenSummaryDto, String> {
+    on_blocking(app, move |state| {
+        let items = chosen_items(state, &chosen)?;
+        let config = lock_ok(&state.config).clone();
+        let s = pictkura_core::mirror::summarize_chosen(&items, &config);
+        Ok(ChosenSummaryDto {
+            photos: s.photos,
+            videos: s.videos,
+            raw_only: s.raw_only,
+            bytes: s.bytes,
+            folders: s
+                .folders
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            unplaceable: s.unplaceable,
+        })
+    })
+    .await
+}
+
+/// ライブラリから選んだものを Google 用フォルダへ置く（設計 ②）。置く・外すと同じ鍵で1本ずつ。
+/// 切っていれば `None`（入口も出さない）
+#[tauri::command]
+async fn google_send_chosen(
+    app: tauri::AppHandle,
+    chosen: ChosenDto,
+) -> Result<Option<GooglePlacedDto>, String> {
+    on_blocking(app, move |state| {
+        let items = chosen_items(state, &chosen)?;
+        let sources: Vec<PathBuf> = items.into_iter().map(|(p, _)| p).collect();
+        let _google_guard = lock_ok(&state.google_lock);
+        // 鍵を取ってから読む（[`place_google_links`] と同じ理由）
+        let config = lock_ok(&state.config).clone();
+        let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        let dto = match pictkura_core::mirror::place_chosen(&sources, &config, &mut db) {
+            Ok(None) => return Ok(None),
+            Ok(Some(r)) => {
+                if let Some((path, why)) = r.failed.first() {
+                    applog::note(&format!(
+                        "Google 用フォルダ: 選んだもののうち {} 件置けなかった（最初: {}: {why}）",
+                        r.failed.len(),
+                        path.display()
+                    ));
+                }
+                GooglePlacedDto {
+                    placed: r.placed,
+                    already: r.already,
+                    cloud_only: r.cloud_only,
+                    // 選んだものは保留に残さない（[`pictkura_core::mirror::place_chosen`]）ので、
+                    // 一時的な失敗も数える——もう一度送れば置ける
+                    failed: r.failed.len(),
+                    error: None,
+                }
+            }
+            Err(e) => {
+                let e = errs::quiet(e);
+                applog::note(&format!(
+                    "Google 用フォルダ: 選んだものを置けなかった: {}",
+                    errs::for_log(&e)
+                ));
+                GooglePlacedDto {
+                    error: Some(e),
+                    ..GooglePlacedDto::default()
+                }
+            }
+        };
+        Ok(Some(dto))
+    })
+    .await
+}
+
 /// 動画も Google 用フォルダへ置くか（2026-10-06 利用者: 既定は置く）。
 /// 「選んだものだけ」は動画を選ぶ画面の PR で足す
 #[tauri::command]
@@ -6633,6 +6748,8 @@ pub fn run() {
             set_google_location,
             set_google_include_video,
             set_google_raw_only,
+            google_chosen_summary,
+            google_send_chosen,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,
