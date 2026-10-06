@@ -564,6 +564,12 @@ export const zh: Dict = {
   settingsEditorsNote: "会记住你在“用其他应用打开…”里选过的应用。",
   settingsForgetEditor: "从列表中移除",
   calendarEmpty: "没有照片",
+  filterEmptyTitle: (conds: string) => `没有符合以下条件的照片：${conds}`,
+  filterEmptyMessage: "清除搜索词或左侧选中的筛选，即可看到其他照片。",
+  filterEmptyStillIndexing: "仍在导入或建立索引，之后可能还会出现更多照片。",
+  filterCondQuery: (q: string) => `搜索词“${q}”`,
+  filterCondCamera: (name: string) => `用 ${name} 拍的`,
+  filterEmptyClearSearch: "清除搜索",
   // ⚡爆速メーター
   speedPrefix: (sec: string) => `⚡ ${sec} 秒完成启动检查 —— `,
   speedUsn: "USN 日志差分：",

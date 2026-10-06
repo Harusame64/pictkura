@@ -586,6 +586,14 @@ export const de: Dict = {
   settingsEditorsNote: "Apps, die du unter „Mit anderer App öffnen…“ gewählt hast.",
   settingsForgetEditor: "Aus der Liste entfernen",
   calendarEmpty: "Keine Fotos",
+  filterEmptyTitle: (conds: string) => `Keine Fotos passen zu: ${conds}`,
+  filterEmptyMessage:
+    "Entferne den Suchbegriff oder den links gewählten Filter, um die übrigen Fotos zu sehen.",
+  filterEmptyStillIndexing:
+    "Es wird noch importiert oder indiziert – weitere Fotos können noch auftauchen.",
+  filterCondQuery: (q: string) => `Suchbegriff „${q}“`,
+  filterCondCamera: (name: string) => `aufgenommen mit ${name}`,
+  filterEmptyClearSearch: "Suche löschen",
   speedPrefix: (sec: string) => `⚡ Startprüfung in ${sec} s — `,
   speedUsn: "USN-Journal-Differenz: ",
   speedUsnNoChange: "keine Änderungen, keine Ordner durchlaufen",

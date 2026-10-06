@@ -567,6 +567,12 @@ export const zhHant: Dict = {
   settingsEditorsNote: "會記住你在「用其他程式開啟…」裡選過的程式。",
   settingsForgetEditor: "從清單中移除",
   calendarEmpty: "沒有照片",
+  filterEmptyTitle: (conds: string) => `沒有符合以下條件的照片：${conds}`,
+  filterEmptyMessage: "清除搜尋字詞或左側選取的篩選，即可看到其他照片。",
+  filterEmptyStillIndexing: "仍在匯入或建立索引，之後可能還會出現更多照片。",
+  filterCondQuery: (q: string) => `搜尋字詞「${q}」`,
+  filterCondCamera: (name: string) => `用 ${name} 拍的`,
+  filterEmptyClearSearch: "清除搜尋",
   // ⚡爆速メーター
   speedPrefix: (sec: string) => `⚡ ${sec} 秒完成啟動檢查 —— `,
   speedUsn: "USN 日誌差異：",
