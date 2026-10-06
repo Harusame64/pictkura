@@ -1115,9 +1115,15 @@ pub fn unplace_sources(
         .map_err(io::Error::other)?;
     // 取り出した JPEG は**消す**（ゴミ箱へ入れない）——RAW はゴミ箱にあって戻せ、戻せばいつでも
     // 取り出し直せる（設計書 §4b。2026-10-05 利用者決定）
+    // 作業場を片付けるフォルダは**記録を消す前に**控える——最後の1件の記録が消えると、突き合わせの
+    // 片付け（[`tidy_work_dirs`]）は作業場を見つけられない（PR の codex）
+    let mut dirs: Vec<PathBuf> = rows.iter().map(|(d, _)| d.clone()).collect();
+    dirs.sort();
+    dirs.dedup();
     let (extracted, links): (Vec<_>, Vec<_>) = rows.into_iter().partition(|(_, r)| r.extracted);
     let mut report = unplace_grouped(db, group_by_dir(links), discard);
     report.absorb(delete_extracted_grouped(db, group_by_dir(extracted)));
+    tidy_work_dirs(&dirs, &mut report);
     if let Err(e) = db.google_pending_remove(sources) {
         report
             .failed
@@ -2968,6 +2974,27 @@ mod tests {
         assert!(!left.exists());
         assert!(theirs.exists());
         assert_eq!(file_id(&f.google.join("d/B.jpg")).unwrap().links, 1);
+    }
+
+    #[test]
+    fn trashing_the_last_extract_also_clears_a_work_name_left_behind() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        let work = work_dir_for(&f.google).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let left = work.join(format!("{WORK_PREFIX}1-0.jpg"));
+        std::fs::hard_link(f.google.join("d/B.jpg"), &left).unwrap();
+        let bin = f.lib.parent().unwrap().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::rename(f.lib.join("d/B.ARW"), bin.join("B.ARW")).unwrap();
+        let r = unplace_sources(&mut db, &[f.lib.join("d/B.ARW")], &mut no_discard()).unwrap();
+        assert_eq!((r.deleted, r.failed.len()), (1, 0), "{:?}", r.failed);
+        // 記録はもう無いが、作業場の名前も消えている（中身がディスクに残らない）
+        assert!(!left.exists());
+        assert!(!work.exists());
     }
 
     #[test]
