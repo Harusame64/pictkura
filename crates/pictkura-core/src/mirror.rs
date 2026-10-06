@@ -600,6 +600,15 @@ fn give_way(dir: &Path, p: &Placement, ledger: &mut dyn Ledger) -> io::Result<()
     Ok(())
 }
 
+/// `link` が普通のファイルで中身が `tmp` と同じなら、その実体の番号。
+fn same_bytes_index(link: &Path, tmp: &Path) -> Option<u64> {
+    if is_link(link) {
+        return None;
+    }
+    let id = file_id(link).ok()?;
+    (std::fs::read(link).ok()? == std::fs::read(tmp).ok()?).then_some(id.index)
+}
+
 /// [`place_extracted`] が置かなかった理由。
 enum Skip {
     /// 原本がクラウドのみ（手元へ来れば置ける）
@@ -797,6 +806,17 @@ fn link_extracted(
         }
     }
     if let Err(e) = std::fs::hard_link(tmp, &placed.link) {
+        // 前の回が張ったあと、番号を書く前に落ちた: 名前に在るのは自分の取り出しで、中身は今回と
+        // 同じ（取り出しは同じ RAW から同じ絵を出す）。番号を書き直して済みとする（PR の codex）
+        if e.kind() == io::ErrorKind::AlreadyExists && matches!(claim, Claim::Ours { .. }) {
+            if let Some(index) = same_bytes_index(&placed.link, tmp) {
+                let adopted = Placed { index, ..placed };
+                return match ledger.renumber(&adopted) {
+                    Ok(()) => Ok(false),
+                    Err(e) => Err(Skip::Failed(format!("記録を書き直せない: {e}"), true)),
+                };
+            }
+        }
         if claim == Claim::New {
             ledger.release(&placed);
         }
@@ -2864,6 +2884,28 @@ mod tests {
         assert_eq!((r.discarded, r.removed, r.failed.len()), (1, 0, 0));
         assert!(trash.join("B.jpg").is_file());
         assert!(!f.google.join("d/B.jpg").exists());
+    }
+
+    #[test]
+    fn an_extract_linked_before_its_number_was_written_is_taken_back_on_retry() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let mut book = Book::default();
+        assert_eq!(book.place(&f, &[embedded(&f.lib, "d/B.ARW")]).placed, 1);
+        // 張ったが番号を書く前に落ちた形: 記録は古い番号のまま、名前には新しい実体
+        let out = f.google.join("d/B.jpg");
+        let bytes = std::fs::read(&out).unwrap();
+        std::fs::remove_file(&out).unwrap();
+        std::fs::write(&out, &bytes).unwrap();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.already, r.failed.len()), (1, 0), "{:?}", r.failed);
+        assert_eq!(book.0[0].index, file_id(&out).unwrap().index);
+        // 中身の違う他人のファイルは取らない
+        std::fs::remove_file(&out).unwrap();
+        std::fs::write(&out, b"someone else").unwrap();
+        let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
+        assert_eq!((r.already, r.placed, r.failed.len()), (0, 0, 1));
+        assert_eq!(std::fs::read(&out).unwrap(), b"someone else");
     }
 
     #[test]
