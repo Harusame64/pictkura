@@ -99,6 +99,7 @@ import {
   burstGapOf,
   googleChosenSummary,
   googleSendChosen,
+  googleAddPickedFrames,
   type ChosenForGoogle,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
@@ -1013,6 +1014,11 @@ export default function App() {
   const selectEpochRef = useRef(0);
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
+  /**
+   * ⚑ を付けたコマを送り出しへ足す（連写の表紙だけ送った束。設計 §3b の案B）。中身は送り出しの関数が
+   * そろったところで入れる——⚑ を付ける関数（`setMark`・`markIds`）はそれより前に組まれるので、ref で渡す
+   */
+  const addPickedToGoogleRef = useRef<(ids: readonly number[]) => void>(() => {});
   /** 送り出しへ置いている最中（二度押しで2本走らせない。`exportingRef` と同じ理由で ref） */
   const sendingRef = useRef(false);
   /**
@@ -2650,6 +2656,7 @@ export default function App() {
         fail(errText(e));
         return;
       }
+      if (kind === "picked" && next) addPickedToGoogleRef.current([item.id]);
       {
         // その印で絞り込み中は骨組み（枚数・日の有無）が変わる
         if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
@@ -5594,9 +5601,12 @@ export default function App() {
       };
       patch(on);
       try {
-        return kind === "favorite"
-          ? await setFavorites([...ids], on)
-          : await setPickeds([...ids], on);
+        const n =
+          kind === "favorite"
+            ? await setFavorites([...ids], on)
+            : await setPickeds([...ids], on);
+        if (kind === "picked" && on) addPickedToGoogleRef.current(ids);
+        return n;
       } catch (e) {
         // **反転で戻さない**。選択に付いている・付いていないが混ざっていると、
         // 反転では元に戻らない（付ける操作の失敗で、全部が「外れた」表示になる）。
@@ -6052,6 +6062,30 @@ export default function App() {
     },
     [sendToGoogle],
   );
+
+  // ⚑ を付けたコマのうち、重ね（連写）に入っているものを渡す。足すかどうかは Rust が決める
+  // （同じ束のほかのコマが送り出しに置いてあるときだけ）。黙って足し、置けたときだけ状態の1行で知らせる
+  addPickedToGoogleRef.current = (ids) => {
+    if (!googleOn) return;
+    const frames = ids
+      .map((id) => ({
+        id,
+        siblings: (stackIndexRef.current.get(id) ?? []).filter((x) => x !== id),
+      }))
+      .filter((f) => f.siblings.length > 0);
+    if (frames.length === 0) return;
+    googleAddPickedFrames(frames)
+      .then((r) => {
+        if (r && r.placed > 0) setStatus(t.googleSent(r.placed, 0));
+        if (r) {
+          const notes: string[] = [];
+          if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
+          for (const f of r.new_folders) notes.push(t.googleFolderCreated(f));
+          if (notes.length > 0) fail(notes.join(" "));
+        }
+      })
+      .catch((e) => fail(errText(e)));
+  };
 
   /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
   const onBulkSendGoogle = useCallback(async () => {

@@ -1473,7 +1473,76 @@ fn place_now(
     place_now_with(copied, dest, config, db, &onedrive)
 }
 
-/// [`place_now`] の OneDrive の場所を外から渡す形（試験はこちらを呼ぶ。台の OneDrive に左右されない）。
+/// 連写の鎖に使う、1枚の撮影の印（機体と、秒未満まで分かる撮影時刻のミリ秒）。
+/// 一覧の重ね（`ui/src/stacks.ts` の `burstTime`）と同じ条件: 機体が分かり、秒未満まで分かること。
+/// どちらかが欠けたら `None`（束ねない——誤って間引くより、全部置く）
+fn capture_of(path: &Path) -> Option<(String, i64)> {
+    let exif = crate::thumbs::read_exif_capture(path)?;
+    let camera = exif.camera.filter(|c| !c.trim().is_empty())?;
+    if !exif.taken_subsec {
+        return None;
+    }
+    let ms = exif.taken_at_ms?;
+    let serial = exif.body_serial.unwrap_or_default();
+    Some((format!("{camera}\u{1}{}", serial.trim()), ms))
+}
+
+/// 取り込みの回の連写を、**最初のコマだけ**にする（設計 §3b。2026-10-05 利用者: 連写の JPEG が全部並ぶと
+/// 家族のアルバムが埋まる）。束ね方は一覧の重ね（`ui/src/stacks.ts`）と同じ: 同じ機体のコマを撮影時刻の順に
+/// 並べ、直前のコマとの間隔が `gap_ms` 以下なら鎖でつなぐ。日をまたいだら切る。2コマ以上の鎖が連写。
+///
+/// - 表紙は**撮り始めのコマ**（取り込んだばかりで ⚑ はまだ無い。あとで ⚑ を付けたコマは、
+///   [`place_chosen`] で足す——設計 §3b の案B）
+/// - 動画は鎖に入れない。機体か秒未満が分からないコマも入れない（そのまま置く）
+/// - 撮影の印を読めないものは束ねない側へ倒す
+fn thin_bursts(
+    placements: Vec<Placement>,
+    gap_ms: i64,
+    capture: &mut dyn FnMut(&Path) -> Option<(String, i64)>,
+) -> Vec<Placement> {
+    use chrono::TimeZone;
+    let day_of = |ms: i64| {
+        chrono::Local
+            .timestamp_millis_opt(ms)
+            .single()
+            .map(|t| t.date_naive())
+    };
+    // 機体ごとに、(撮影時刻, 置く並びの位置)
+    let mut by_body: HashMap<String, Vec<(i64, usize)>> = HashMap::new();
+    for (i, p) in placements.iter().enumerate() {
+        if MediaKind::from_path(&p.source) == MediaKind::Video {
+            continue;
+        }
+        if let Some((body, ms)) = capture(&p.source) {
+            by_body.entry(body).or_default().push((ms, i));
+        }
+    }
+    let mut drop: HashSet<usize> = HashSet::new();
+    for list in by_body.values_mut() {
+        list.sort();
+        let mut run_start = 0;
+        for k in 1..=list.len() {
+            let breaks = k == list.len()
+                || list[k].0 - list[k - 1].0 > gap_ms
+                || day_of(list[k].0) != day_of(list[k - 1].0);
+            if breaks {
+                // 鎖 [run_start, k) が2コマ以上なら、最初の1コマ以外を落とす
+                if k - run_start >= 2 {
+                    drop.extend(list[run_start + 1..k].iter().map(|&(_, i)| i));
+                }
+                run_start = k;
+            }
+        }
+    }
+    placements
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !drop.contains(i))
+        .map(|(_, p)| p)
+        .collect()
+}
+
+/// [`place_now`] の OneDrive の場所を外から渡す形/// [`place_now`] の OneDrive の場所を外から渡す形（試験はこちらを呼ぶ。台の OneDrive に左右されない）。
 fn place_now_with(
     copied: &[PathBuf],
     dest: &Path,
@@ -1520,7 +1589,16 @@ fn place_now_with(
             .cloned()
             .collect()
     };
-    let placements = planned;
+    // 連写は表紙の1コマだけ（設計 §3b。一覧で連写を重ねているときだけ——重ねない人には連写が見えない）
+    let placements = if config.grid.stack_bursts {
+        thin_bursts(
+            planned,
+            i64::from(config.grid.burst_gap_ms),
+            &mut capture_of,
+        )
+    } else {
+        planned
+    };
     let deferred = PlaceReport {
         retry: unsure,
         ..PlaceReport::default()
@@ -3425,6 +3503,50 @@ mod tests {
             matches!(c.root_error, Some(MirrorError::OverlapsRoot(_))),
             "{:?}",
             c.root_error
+        );
+    }
+
+    #[test]
+    fn a_burst_at_import_keeps_only_its_first_frame() {
+        let lib = PathBuf::from("/lib");
+        let p = |n: &str| placement(&lib, n);
+        let placements = vec![
+            p("d/B1.JPG"),
+            p("d/B2.JPG"),
+            p("d/B3.JPG"),
+            p("d/LONE.JPG"),
+            p("d/X1.JPG"),
+            p("d/NOSUB.JPG"),
+            p("d/CLIP.MP4"),
+        ];
+        // 機体 A で 0.4 秒おきの3コマ、2.5 秒あけて1枚。機体 B の1枚は A と同じ時刻でも別の鎖。
+        // 秒未満の無いもの・動画は束ねない
+        let mut capture = |path: &Path| -> Option<(String, i64)> {
+            let name = path.file_name()?.to_str()?;
+            let base = 1_700_000_000_000;
+            match name {
+                "B1.JPG" => Some(("A".into(), base)),
+                "B2.JPG" => Some(("A".into(), base + 400)),
+                "B3.JPG" => Some(("A".into(), base + 800)),
+                "LONE.JPG" => Some(("A".into(), base + 3_300)),
+                "X1.JPG" => Some(("B".into(), base + 400)),
+                "CLIP.MP4" => Some(("A".into(), base + 900)),
+                _ => None,
+            }
+        };
+        let kept: Vec<String> = thin_bursts(placements, 1000, &mut capture)
+            .into_iter()
+            .map(|p| p.rel.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                "d/B1.JPG",
+                "d/LONE.JPG",
+                "d/X1.JPG",
+                "d/NOSUB.JPG",
+                "d/CLIP.MP4"
+            ]
         );
     }
 

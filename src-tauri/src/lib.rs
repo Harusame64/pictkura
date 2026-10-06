@@ -4590,6 +4590,87 @@ async fn google_send_chosen(
     .await
 }
 
+/// あとで ⚑ を付けたコマ1つと、同じ重ね（連写）のほかのコマ（一覧が知っている束。`stackMembersIndex`）
+#[derive(serde::Deserialize)]
+struct PickedFrame {
+    id: i64,
+    siblings: Vec<i64>,
+}
+
+/// 連写のうち、**取り込みのときに表紙だけ送ったもの**に、あとで ⚑ を付けたコマを足す（設計 §3b の案B。
+/// 2026-10-05 利用者）。足すのは、同じ束のほかのコマが送り出しに置いてあるときだけ——送り出しを使って
+/// いなかった束に ⚑ を付けても、勝手に送らない。置き方は選んで送ったときと同じ（[`google_send_chosen`]）。
+/// 切っていれば `None`
+#[tauri::command]
+async fn google_add_picked_frames(
+    app: tauri::AppHandle,
+    frames: Vec<PickedFrame>,
+) -> Result<Option<GooglePlacedDto>, String> {
+    on_blocking(app, move |state| {
+        let _google_guard = lock_ok(&state.google_lock);
+        let config = lock_ok(&state.config).clone();
+        if !pictkura_core::mirror::is_on(&config) {
+            return Ok(None);
+        }
+        let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        let path_of_id = |id: i64| -> Result<Option<PathBuf>, String> {
+            Ok(state
+                .read_pool
+                .with(|r| r.get_by_id(id))
+                .map_err(errs::from_err)?
+                .map(|m| m.path))
+        };
+        let mut chosen = Vec::new();
+        for f in frames {
+            let mut siblings = Vec::new();
+            for id in f.siblings.iter().filter(|s| **s != f.id) {
+                if let Some(p) = path_of_id(*id)? {
+                    siblings.push(p);
+                }
+            }
+            let placed = db
+                .google_placed_for_sources(&siblings)
+                .map_err(errs::from_err)?;
+            if placed.is_empty() {
+                continue;
+            }
+            if let Some(p) = path_of_id(f.id)? {
+                chosen.push(p);
+            }
+        }
+        if chosen.is_empty() {
+            return Ok(None);
+        }
+        match pictkura_core::mirror::place_chosen(&chosen, &config, &mut db) {
+            Ok(Some(c)) => {
+                let r = &c.report;
+                if let Some((path, why)) = r.failed.first() {
+                    applog::note(&format!(
+                        "Google 用フォルダ: ⚑ を付けたコマのうち {} 件置けなかった（最初: {}: {why}）",
+                        r.failed.len(),
+                        path.display()
+                    ));
+                }
+                Ok(Some(GooglePlacedDto {
+                    placed: r.placed,
+                    already: r.already,
+                    cloud_only: r.cloud_only,
+                    failed: r.failed.len(),
+                    error: None,
+                    left_out: c.left_out,
+                    new_folders: {
+                        note_new_google_folders(&r.new_folders);
+                        google_paths(&r.new_folders)
+                    },
+                }))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(errs::from_err(e)),
+        }
+    })
+    .await
+}
+
 /// 動画も Google 用フォルダへ置くか（2026-10-06 利用者: 既定は置く）。
 /// 「選んだものだけ」は動画を選ぶ画面の PR で足す
 #[tauri::command]
@@ -6872,6 +6953,7 @@ pub fn run() {
             set_google_raw_only,
             google_chosen_summary,
             google_send_chosen,
+            google_add_picked_frames,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,
