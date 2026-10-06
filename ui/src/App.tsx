@@ -6978,6 +6978,9 @@ export default function App() {
               </h2>
               <p>{t.filterEmptyMessage}</p>
               {filterEmptyMayGrow && <p>{t.filterEmptyStillIndexing}</p>}
+              {/* 起動の同期が終わっていなければ、合う写真がまだ一覧に入っていないだけかもしれない。
+                  空のライブラリの案内と同じ文で、再スキャンへ導く（PR の codex） */}
+              {startupFailed && <p>{t.emptyStartupFailed}</p>}
               <div className="empty-actions">
                 {/* 検索語を消す。左のカメラも検索語なので、これで外れる */}
                 {/* 見出しと同じ答えに揃える（検索語を名指ししているときだけ出す） */}
