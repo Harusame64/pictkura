@@ -485,11 +485,13 @@ export const es: Dict = {
     "Las fotos tomadas seguidas con la misma cámara se muestran como una sola miniatura. Solo se agrupan las fotos cuya hora de captura se guarda con fracciones de segundo (algunas cámaras no la guardan). En la cuadrícula, ★ y ⚑ del menú contextual solo se aplican a la foto de portada; borrar y la selección se aplican a toda la ráfaga. Al ver una foto en grande, la ráfaga no se agrupa: se pasa foto por foto.",
   settingsBurstGap: "Separación máxima dentro de una ráfaga",
   settingsOutgoing: "Salida",
-  settingsGoogleToggle: "Poner también las fotos importadas en una carpeta para Google Fotos",
-  settingsGoogleNote: "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Añade esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
+  settingsGoogleToggle: "Poner también las fotos importadas en la carpeta de Salida",
+  settingsGoogleNote:
+    "En cada importación, las fotos se colocan también en la carpeta de Salida (no ocupa espacio extra en el disco). De los pares RAW+JPEG solo entra el JPEG. Si usas Google Fotos: añade esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   settingsGoogleFolder: "Carpeta",
   settingsGoogleFolderNote: "Está en la misma unidad que la carpeta de destino de la importación. Elige un lugar fuera de las carpetas que vigila otra copia de seguridad, como un NAS o Amazon Photos.",
-  settingsGoogleFoldersNote: "Carpetas para Google Fotos en las que pictkura ha colocado fotos (se crea una por unidad). Añade cada una que uses a la copia de seguridad de carpetas de Google Fotos.",
+  settingsGoogleFoldersNote:
+    "Carpetas de Salida en las que pictkura ha colocado fotos (se crea una por unidad). Si usas Google Fotos: añade cada una que uses a la copia de seguridad de carpetas.",
   settingsGoogleVideo: "Poner también los vídeos",
   settingsGoogleRawOnly: "Tomas solo en RAW",
   googleRawOnlyNone: "No poner",
@@ -497,11 +499,11 @@ export const es: Dict = {
   settingsGoogleRawOnlyNote: "Qué hacer con los RAW que se tomaron sin JPEG. «JPEG incrustado» saca la imagen de vista previa que la cámara guardó dentro del RAW y la coloca con la fecha de captura. El JPEG extraído es un archivo aparte, así que ocupa espacio en el disco.",
   settingsGoogleOneDrive: "Poner también las fotos que están en OneDrive",
   settingsGoogleOneDriveNote: "Si lo haces, OneDrive ya no podrá dejar esas fotos «Solo en línea».",
-  settingsGoogleAfterNote: "Cuando mandas una foto a la papelera en pictkura, también se quita de esta carpeta. En Google Fotos se queda. Solo se sube mientras hay una pestaña de Google Fotos abierta.",
-  pickGoogleFolder: "Elige la carpeta para Google Fotos",
-  importGoogle: (n: number) => ` · ${num(n)} para Google Fotos`,
-  importGoogleFailed: (n: number) => `${num(n)} no se ${one(n, "ha", "han")} podido poner para Google Fotos (consulta el registro)`,
-  importGoogleError: (why: string) => `No se ha puesto nada para Google Fotos: ${why}`,
+  settingsGoogleAfterNote: "Cuando mandas una foto a la papelera en pictkura, también se quita de la carpeta de Salida. Si usas Google Fotos: en Google Fotos se queda. La subida la hace la página web de Google Fotos (photos.google.com), así que solo avanza mientras esa página está abierta en el navegador.",
+  pickGoogleFolder: "Elige la carpeta de Salida",
+  importGoogle: (n: number) => ` · ${num(n)} en Salida`,
+  importGoogleFailed: (n: number) => `${num(n)} no se ${one(n, "ha", "han")} podido poner en Salida (consulta el registro)`,
+  importGoogleError: (why: string) => `No se ha puesto nada en Salida: ${why}`,
   bulkSendGoogle: "Enviar a Salida",
   calendarSendMonth: "Enviar este mes a Salida",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
@@ -510,20 +512,25 @@ export const es: Dict = {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "vídeo", "vídeos")}`);
-    if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "toma solo en RAW", "tomas solo en RAW")}`);
-    return `Se ${one(photos + videos + rawOnly, "colocará", "colocarán")} ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
+    const items: string[] = [];
+    if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
+    if (rawOnly > 0) items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG extraído", "JPEG extraídos")} de tomas solo en RAW`);
+    return `Se colocará en la carpeta de Salida: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} de los elementos elegidos no se ${one(n, "coloca", "colocan")} (el RAW de un par RAW+JPEG, archivos dentro de OneDrive, etc.).`,
   googleSendFolders: (list: string) => `Destino: ${list}`,
-  googleSendNewFolder: (path: string) =>
-    `Se creará ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+  googleSendNewFolder: (path: string) => `Se creará ${path}.`,
+  googleSendGoogleNote:
+    "Si usas Google Fotos: la subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
+  googleSendGoogleNoteNew:
+    "Si usas Google Fotos: añade también la carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   googleFolderCreated: (path: string) =>
-    `Se ha creado ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+    `Se ha creado ${path}. Si usas Google Fotos: añade también esta carpeta a la copia de seguridad de carpetas.`,
   googleSendNothing: "No hay nada que se pueda colocar.",
   googleSendConfirmOk: "Colocar",
   googleSent: (total: number, already: number) =>
-    `${one(total, "Se ha", "Se han")} colocado ${num(total)} para Google Fotos${already > 0 ? ` (${num(already)} ya ${one(already, "estaba", "estaban")})` : ""}`,
+    `${one(total, "Se ha", "Se han")} colocado ${num(total)} en Salida${already > 0 ? ` (${num(already)} ya ${one(already, "estaba", "estaban")})` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} solo ${one(n, "está", "están")} en la nube y no se ${one(n, "ha", "han")} podido colocar. Descárga${one(n, "lo", "los")} primero y vuelve a enviar.`,
   googleSentLeftOut: (n: number) =>
@@ -594,10 +601,10 @@ export const es: Dict = {
   errGoogleOverlapsRoot: "No se puede elegir una carpeta de la biblioteca, una carpeta dentro de ella ni una que la contenga.",
   errGoogleInsideSync: "No se puede elegir un lugar dentro de una carpeta sincronizada (OneDrive, Google Drive, Dropbox, iCloud Drive, etc.).",
   errGoogleNoHardLinks: "Esta unidad no sirve (exFAT, FAT y similares no pueden crear vínculos físicos).",
-  errGoogleWholeVolume: "La carpeta de destino de la importación es una unidad entera, así que no queda sitio en ella para la carpeta de Google Fotos. Cambia el destino de la importación.",
+  errGoogleWholeVolume: "La carpeta de destino de la importación es una unidad entera, así que no queda sitio en ella para la carpeta de Salida. Cambia el destino de la importación.",
   errGoogleNoName: "No se puede elegir la unidad en sí. Elige una carpeta dentro de ella.",
-  errGoogleLinkInTheWay: "La carpeta de Google Fotos es un vínculo simbólico. Elige otro lugar.",
-  errGoogleIo: "No se ha podido leer ni escribir en la carpeta de Google Fotos.",
+  errGoogleLinkInTheWay: "La carpeta de Salida es un vínculo simbólico. Elige otro lugar.",
+  errGoogleIo: "No se ha podido leer ni escribir en la carpeta de Salida.",
   errGoogleOtherDrive: "Elige una carpeta en la misma unidad que el destino de la importación.",
   errNotFound: "Esa foto ya no está en el índice.",
   errDb: "No se pudo leer ni escribir el índice.",

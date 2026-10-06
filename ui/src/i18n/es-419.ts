@@ -108,19 +108,22 @@ export const es419: Dict = {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "video", "videos")}`);
-    if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "toma solo en RAW", "tomas solo en RAW")}`);
-    return `Se ${one(photos + videos + rawOnly, "colocará", "colocarán")} ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
+    const items: string[] = [];
+    if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
+    if (rawOnly > 0) items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG extraído", "JPEG extraídos")} de tomas solo en RAW`);
+    return `Se colocará en la carpeta de Salida: ${items.join("; ")}.`;
   },
-
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
   settingsGoogleFoldersNote:
-    "Carpetas para Google Fotos en las que pictkura ha colocado fotos (se crea una por unidad). Agrega cada una que uses a la copia de seguridad de carpetas de Google Fotos.",
-  googleSendNewFolder: (path: string) =>
-    `Se creará ${path}. Agrega también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+    "Carpetas de Salida en las que pictkura ha colocado fotos (se crea una por unidad). Si usas Google Fotos: agrega cada una que uses a la copia de seguridad de carpetas.",
   googleFolderCreated: (path: string) =>
-    `Se ha creado ${path}. Agrega también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+    `Se ha creado ${path}. Si usas Google Fotos: agrega también esta carpeta a la copia de seguridad de carpetas.`,
+  googleSendGoogleNote:
+    "Si usas Google Fotos: la subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
+  googleSendGoogleNoteNew:
+    "Si usas Google Fotos: agrega también la carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   settingsGoogleNote:
-    "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
+    "En cada importación, las fotos se colocan también en la carpeta de Salida (no ocupa espacio extra en el disco). De los pares RAW+JPEG solo entra el JPEG. Si usas Google Fotos: agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   errRootManaged:
     "Una fototeca gestionada no se puede agregar como carpeta: lo de dentro pertenece a esa aplicación.",
   navAddFolder: "Agregar una carpeta",

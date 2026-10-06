@@ -503,11 +503,11 @@ export const ja = {
     "同じカメラで続けて撮った写真を、一覧では1枚にまとめます。撮影時刻が秒より細かく記録されている写真だけが対象です（記録しないカメラもあります）。一覧の右クリックで付ける★・⚑は表紙の1枚だけに付き、削除と選択は連写ぜんぶに効きます。写真を大きく見ているときは、連写もまとめずに1枚ずつ送ります。",
   settingsBurstGap: "連写とみなす間隔",
   settingsOutgoing: "送り出し",
-  settingsGoogleToggle: "取り込んだ写真を Google フォト用のフォルダにも置く",
-  settingsGoogleNote: "取り込みのたびに、写真をこのフォルダにも並べます（ディスクは余分に使いません）。このフォルダを Google フォトの「フォルダをバックアップ」に登録してください。RAW と JPEG の組は JPEG だけを置きます。",
+  settingsGoogleToggle: "取り込んだ写真を送り出しフォルダにも置く",
+  settingsGoogleNote: "取り込みのたびに、写真を送り出しフォルダにも並べます（ディスクは余分に使いません）。RAW と JPEG の組は JPEG だけを置きます。Google フォトを使う場合：このフォルダを Google フォトの「フォルダをバックアップ」に登録してください。",
   settingsGoogleFolder: "フォルダ",
   settingsGoogleFolderNote: "取り込み先と同じドライブに置きます。NAS や Amazon Photos など、ほかのバックアップが見張っているフォルダの外を選んでください。",
-  settingsGoogleFoldersNote: "pictkura がこれまでに写真を置いた Google フォト用のフォルダです（ドライブごとに作ります）。使うものは、どれも Google フォトの「フォルダをバックアップ」に登録してください。",
+  settingsGoogleFoldersNote: "pictkura がこれまでに写真を置いた送り出しフォルダです（ドライブごとに作ります）。Google フォトを使う場合：使うものは、どれも「フォルダをバックアップ」に登録してください。",
   settingsGoogleVideo: "動画も置く",
   settingsGoogleRawOnly: "RAW だけのカット",
   googleRawOnlyNone: "上げない",
@@ -515,37 +515,42 @@ export const ja = {
   settingsGoogleRawOnlyNote: "JPEG を一緒に撮らなかった RAW の扱いです。「埋め込み JPEG」は、カメラが RAW の中に入れている表示用の絵を取り出し、撮影日時を付けて置きます。取り出した JPEG は別のファイルなので、そのぶんディスクを使います。",
   settingsGoogleOneDrive: "OneDrive の中の写真も置く",
   settingsGoogleOneDriveNote: "置くと、その写真は OneDrive で「オンラインのみ」にできなくなります。",
-  settingsGoogleAfterNote: "pictkura で写真をゴミ箱に入れると、このフォルダからも外します。Google フォトからは消えません。Google フォトのタブを開いている間だけアップロードされます。",
-  pickGoogleFolder: "Google フォト用のフォルダを選んでください",
-  importGoogle: (n: number) => ` · Google フォト用に${num(n)}枚`,
-  importGoogleFailed: (n: number) => `Google フォト用に${num(n)}件置けませんでした（ログを参照）`,
-  importGoogleError: (why: string) => `Google フォト用に置けませんでした: ${why}`,
+  settingsGoogleAfterNote: "pictkura で写真をゴミ箱に入れると、送り出しフォルダからも外します。Google フォトを使う場合：Google フォトからは消えません。アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いているときだけ進みます。",
+  pickGoogleFolder: "送り出しフォルダを選んでください",
+  importGoogle: (n: number) => ` · 送り出しに${num(n)}件`,
+  importGoogleFailed: (n: number) => `送り出しに${num(n)}件置けませんでした（ログを参照）`,
+  importGoogleError: (why: string) => `送り出しに置けませんでした: ${why}`,
   bulkSendGoogle: "送り出しへ",
   calendarSendMonth: "この月を送り出しへ",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `${year}年をまるごと送り出しへ`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
-    if (photos > 0) parts.push(`${num(photos)}枚`);
+    if (photos > 0) parts.push(`写真${num(photos)}枚`);
     if (videos > 0) parts.push(`動画${num(videos)}本`);
-    if (rawOnly > 0) parts.push(`RAW だけ ${num(rawOnly)}枚`);
-    return `${parts.join("・")}${size ? `（${size}）` : ""}を Google フォト用のフォルダに置きます。Google フォトのタブを開いている間に上がります。`;
+    const items: string[] = [];
+    if (parts.length > 0) items.push(`${parts.join("・")}${size ? `（${size}）` : ""}`);
+    if (rawOnly > 0) items.push(`RAW から取り出す JPEG ${num(rawOnly)}枚`);
+    return `送り出しフォルダに置きます：${items.join("、")}。`;
   },
   googleSendLeftOut: (n: number) =>
-    `選んだうち ${num(n)}枚は置きません（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
+    `選んだうち ${num(n)}件は置きません（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
   googleSendFolders: (list: string) => `置き先: ${list}`,
-  googleSendNewFolder: (path: string) =>
-    `${path} を新しく作ります。Google フォトの「フォルダをバックアップ」にこのフォルダも登録してください。`,
+  googleSendNewFolder: (path: string) => `${path} を新しく作ります。`,
+  googleSendGoogleNote:
+    "Google フォトを使う場合：アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いている間に順に進みます。",
+  googleSendGoogleNoteNew:
+    "Google フォトを使う場合：新しいフォルダも Google フォトの「フォルダをバックアップ」に登録してください。アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いている間に順に進みます。",
   googleFolderCreated: (path: string) =>
-    `${path} を新しく作りました。Google フォトの「フォルダをバックアップ」にこのフォルダも登録してください。`,
+    `${path} を新しく作りました。Google フォトを使う場合：このフォルダも「フォルダをバックアップ」に登録してください。`,
   googleSendNothing: "置けるものがありません。",
   googleSendConfirmOk: "置く",
   googleSent: (total: number, already: number) =>
-    `Google フォト用に${num(total)}枚置きました${already > 0 ? `（うち${num(already)}枚は置き済み）` : ""}`,
+    `送り出しに${num(total)}件置きました${already > 0 ? `（うち${num(already)}件は置き済み）` : ""}`,
   googleSentCloudOnly: (n: number) =>
-    `${num(n)}枚はクラウドにしか無いので置けませんでした。手元に取り寄せてから、もう一度送ってください。`,
+    `${num(n)}件はクラウドにしか無いので置けませんでした。手元に取り寄せてから、もう一度送ってください。`,
   googleSentLeftOut: (n: number) =>
-    `${num(n)}枚は置きませんでした（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
+    `${num(n)}件は置きませんでした（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
   burstChip: (frames: number) => `▤ 連写 ${num(frames)}`,
   /* 組の印（`RAW+JPEG`）と並ぶときの短い形 */
@@ -618,10 +623,10 @@ export const ja = {
   errGoogleOverlapsRoot: "ライブラリのフォルダの中と、それを含むフォルダは選べません。",
   errGoogleInsideSync: "同期フォルダ（OneDrive・Google ドライブ・Dropbox・iCloud Drive など）の中は選べません。",
   errGoogleNoHardLinks: "このドライブには置けません（exFAT・FAT などはハードリンクを作れません）。",
-  errGoogleWholeVolume: "取り込み先がドライブ丸ごとなので、Google フォト用のフォルダを置ける場所がありません。取り込み先を変えてください。",
+  errGoogleWholeVolume: "取り込み先がドライブ丸ごとなので、送り出しフォルダを置ける場所がありません。取り込み先を変えてください。",
   errGoogleNoName: "ドライブそのものは選べません。中のフォルダを選んでください。",
-  errGoogleLinkInTheWay: "Google フォト用のフォルダがシンボリックリンクになっています。別の場所を選んでください。",
-  errGoogleIo: "Google フォト用のフォルダを読み書きできませんでした。",
+  errGoogleLinkInTheWay: "送り出しフォルダがシンボリックリンクになっています。別の場所を選んでください。",
+  errGoogleIo: "送り出しフォルダを読み書きできませんでした。",
   errGoogleOtherDrive: "取り込み先と同じドライブのフォルダを選んでください。",
   errNotFound: "その写真の記録が見つかりません。",
   errDb: "索引の読み書きに失敗しました。",

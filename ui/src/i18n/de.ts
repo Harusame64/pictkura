@@ -482,11 +482,11 @@ export const de: Dict = {
     "Fotos, die mit derselben Kamera kurz hintereinander aufgenommen wurden, werden als ein Bild angezeigt. Das gilt nur für Fotos, deren Aufnahmezeit auf Bruchteile einer Sekunde genau gespeichert ist (manche Kameras speichern sie nicht). In der Übersicht gelten ★ und ⚑ aus dem Kontextmenü nur für das Titelbild; Löschen und Auswahl gelten für die ganze Serie. In der Großansicht wird eine Serie nicht zusammengefasst; du blätterst Bild für Bild.",
   settingsBurstGap: "Längster Abstand innerhalb einer Serie",
   settingsOutgoing: "Ausgang",
-  settingsGoogleToggle: "Importierte Fotos auch in einen Ordner für Google Fotos legen",
-  settingsGoogleNote: "Bei jedem Import werden die Fotos auch in diesem Ordner abgelegt (das belegt keinen zusätzlichen Speicherplatz). Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu. Von RAW+JPEG-Paaren kommt nur das JPEG hinein.",
+  settingsGoogleToggle: "Importierte Fotos auch in den Ausgangsordner legen",
+  settingsGoogleNote: "Bei jedem Import werden die Fotos auch im Ausgangsordner abgelegt (das belegt keinen zusätzlichen Speicherplatz). Von RAW+JPEG-Paaren kommt nur das JPEG hinein. Wenn du Google Fotos nutzt: Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu.",
   settingsGoogleFolder: "Ordner",
   settingsGoogleFolderNote: "Er liegt auf demselben Laufwerk wie das Importziel. Wähle einen Ort außerhalb der Ordner, die eine andere Sicherung überwacht, etwa ein NAS oder Amazon Photos.",
-  settingsGoogleFoldersNote: "Ordner für Google Fotos, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Füge jeden, den du nutzt, in Google Fotos der Ordnersicherung hinzu.",
+  settingsGoogleFoldersNote: "Ausgangsordner, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Wenn du Google Fotos nutzt: Füge jeden, den du nutzt, der Ordnersicherung hinzu.",
   settingsGoogleVideo: "Auch Videos ablegen",
   settingsGoogleRawOnly: "Nur-RAW-Aufnahmen",
   googleRawOnlyNone: "Weglassen",
@@ -494,11 +494,11 @@ export const de: Dict = {
   settingsGoogleRawOnlyNote: "Gilt für RAW-Dateien, die ohne JPEG aufgenommen wurden. „Eingebettetes JPEG“ holt das Vorschaubild heraus, das die Kamera in der RAW-Datei gespeichert hat, und legt es mit dem Aufnahmedatum ab. Das herausgeholte JPEG ist eine eigene Datei und belegt daher Speicherplatz.",
   settingsGoogleOneDrive: "Auch Fotos in OneDrive ablegen",
   settingsGoogleOneDriveNote: "Dann kann OneDrive diese Fotos nicht mehr auf „Nur online“ setzen.",
-  settingsGoogleAfterNote: "Wenn du ein Foto in pictkura in den Papierkorb legst, wird es auch aus diesem Ordner genommen. In Google Fotos bleibt es erhalten. Hochgeladen wird nur, solange ein Tab mit Google Fotos geöffnet ist.",
-  pickGoogleFolder: "Ordner für Google Fotos wählen",
-  importGoogle: (n: number) => ` · ${num(n)} für Google Fotos abgelegt`,
-  importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht für Google Fotos abgelegt werden (siehe Protokoll)`,
-  importGoogleError: (why: string) => `Nichts für Google Fotos abgelegt: ${why}`,
+  settingsGoogleAfterNote: "Wenn du ein Foto in pictkura in den Papierkorb legst, wird es auch aus dem Ausgangsordner genommen. Wenn du Google Fotos nutzt: In Google Fotos bleibt es erhalten. Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es geht daher nur weiter, solange diese Seite im Browser geöffnet ist.",
+  pickGoogleFolder: "Ausgangsordner wählen",
+  importGoogle: (n: number) => ` · ${num(n)} im Ausgang abgelegt`,
+  importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht im Ausgang abgelegt werden (siehe Protokoll)`,
+  importGoogleError: (why: string) => `Nichts im Ausgang abgelegt: ${why}`,
   bulkSendGoogle: "Zum Ausgang",
   calendarSendMonth: "Diesen Monat zum Ausgang",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
@@ -507,20 +507,25 @@ export const de: Dict = {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "Foto", "Fotos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "Video", "Videos")}`);
-    if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "Nur-RAW-Aufnahme", "Nur-RAW-Aufnahmen")}`);
-    return `${parts.join(", ")}${size ? ` (${size})` : ""} ${one(photos + videos + rawOnly, "wird", "werden")} im Ordner für Google Fotos abgelegt. Hochgeladen wird, solange ein Tab mit Google Fotos geöffnet ist.`;
+    const items: string[] = [];
+    if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
+    if (rawOnly > 0) items.push(`${num(rawOnly)} aus Nur-RAW-Aufnahmen ${one(rawOnly, "entnommenes JPEG", "entnommene JPEGs")}`);
+    return `Im Ausgangsordner wird abgelegt: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} der gewählten Dateien ${one(n, "wird", "werden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,
   googleSendFolders: (list: string) => `Ablageort: ${list}`,
-  googleSendNewFolder: (path: string) =>
-    `${path} wird neu angelegt. Füge auch diesen Ordner in Google Fotos der Ordnersicherung hinzu.`,
+  googleSendNewFolder: (path: string) => `${path} wird neu angelegt.`,
+  googleSendGoogleNote:
+    "Wenn du Google Fotos nutzt: Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es läuft, solange diese Seite im Browser geöffnet ist.",
+  googleSendGoogleNoteNew:
+    "Wenn du Google Fotos nutzt: Füge auch den neuen Ordner in Google Fotos der Ordnersicherung hinzu. Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es läuft, solange diese Seite im Browser geöffnet ist.",
   googleFolderCreated: (path: string) =>
-    `${path} wurde neu angelegt. Füge auch diesen Ordner in Google Fotos der Ordnersicherung hinzu.`,
+    `${path} wurde neu angelegt. Wenn du Google Fotos nutzt: Füge auch diesen Ordner der Ordnersicherung hinzu.`,
   googleSendNothing: "Hier gibt es nichts, das abgelegt werden kann.",
   googleSendConfirmOk: "Ablegen",
   googleSent: (total: number, already: number) =>
-    `${num(total)} für Google Fotos abgelegt${already > 0 ? ` (davon ${num(already)} schon vorhanden)` : ""}`,
+    `${num(total)} im Ausgang abgelegt${already > 0 ? ` (davon ${num(already)} schon vorhanden)` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} ${one(n, "liegt", "liegen")} nur in der Cloud und ${one(n, "konnte", "konnten")} nicht abgelegt werden. Lade sie zuerst herunter und sende dann erneut.`,
   googleSentLeftOut: (n: number) =>
@@ -591,10 +596,10 @@ export const de: Dict = {
   errGoogleOverlapsRoot: "Ein Bibliotheksordner, ein Ordner darin oder ein Ordner, der einen enthält, kann nicht gewählt werden.",
   errGoogleInsideSync: "Ein Ort innerhalb eines Sync-Ordners (OneDrive, Google Drive, Dropbox, iCloud Drive usw.) kann nicht gewählt werden.",
   errGoogleNoHardLinks: "Auf diesem Laufwerk geht das nicht (exFAT, FAT und Ähnliches können keine Hardlinks anlegen).",
-  errGoogleWholeVolume: "Das Importziel ist ein ganzes Laufwerk, daher gibt es darauf keinen Platz für den Ordner für Google Fotos. Ändere das Importziel.",
+  errGoogleWholeVolume: "Das Importziel ist ein ganzes Laufwerk, daher gibt es darauf keinen Platz für den Ausgangsordner. Ändere das Importziel.",
   errGoogleNoName: "Ein Laufwerk selbst kann nicht gewählt werden. Wähle einen Ordner darauf.",
-  errGoogleLinkInTheWay: "Der Ordner für Google Fotos ist ein symbolischer Link. Wähle einen anderen Ort.",
-  errGoogleIo: "Der Ordner für Google Fotos konnte nicht gelesen oder beschrieben werden.",
+  errGoogleLinkInTheWay: "Der Ausgangsordner ist ein symbolischer Link. Wähle einen anderen Ort.",
+  errGoogleIo: "Der Ausgangsordner konnte nicht gelesen oder beschrieben werden.",
   errGoogleOtherDrive: "Wähle einen Ordner auf demselben Laufwerk wie das Importziel.",
   errNotFound: "Dieses Foto steht nicht mehr im Index.",
   errDb: "Der Index ließ sich nicht lesen oder schreiben.",

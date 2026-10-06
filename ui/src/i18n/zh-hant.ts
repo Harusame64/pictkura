@@ -464,11 +464,11 @@ export const zhHant: Dict = {
     "同一台相機連續拍攝的照片，在網格中合併為一張。只合併拍攝時間記錄到不足一秒精度的照片（有些相機不記錄）。在網格中用右鍵選單加上的 ★ 與 ⚑ 只會套用到封面那一張；刪除與選取會套用到整組連拍。全螢幕檢視時不合併連拍，逐張切換。",
   settingsBurstGap: "連拍中相鄰兩張的最大間隔",
   settingsOutgoing: "送出",
-  settingsGoogleToggle: "把匯入的照片也放進 Google 相簿專用的資料夾",
-  settingsGoogleNote: "每次匯入時，照片也會排進這個資料夾（不額外佔用磁碟空間）。請在 Google 相簿的資料夾備份中加入這個資料夾。RAW+JPEG 成對的只放 JPEG。",
+  settingsGoogleToggle: "把匯入的照片也放進送出資料夾",
+  settingsGoogleNote: "每次匯入時，照片也會排進送出資料夾（不額外佔用磁碟空間）。RAW+JPEG 成對的只放 JPEG。使用 Google 相簿時：請在 Google 相簿的資料夾備份中加入這個資料夾。",
   settingsGoogleFolder: "資料夾",
   settingsGoogleFolderNote: "放在與匯入目的地相同的磁碟上。請選在 NAS、Amazon Photos 等其他備份所監看的資料夾之外。",
-  settingsGoogleFoldersNote: "pictkura 曾放入照片的 Google 相簿專用資料夾（每個磁碟建一個）。請在 Google 相簿的資料夾備份中加入你要使用的每一個。",
+  settingsGoogleFoldersNote: "pictkura 曾放入照片的送出資料夾（每個磁碟建一個）。使用 Google 相簿時：請在資料夾備份中加入你要使用的每一個。",
   settingsGoogleVideo: "影片也放",
   settingsGoogleRawOnly: "只有 RAW 的照片",
   googleRawOnlyNone: "不放",
@@ -476,33 +476,38 @@ export const zhHant: Dict = {
   settingsGoogleRawOnlyNote: "指拍攝時沒有同時儲存 JPEG 的 RAW。「內嵌的 JPEG」會取出相機存放在 RAW 中的預覽圖，加上拍攝日期後放入。取出的 JPEG 是獨立的檔案，會佔用相應的磁碟空間。",
   settingsGoogleOneDrive: "OneDrive 裡的照片也放",
   settingsGoogleOneDriveNote: "放了之後，OneDrive 就不能再把這些照片設為「僅限線上」。",
-  settingsGoogleAfterNote: "在 pictkura 中把照片移到資源回收筒時，也會從這個資料夾移除。Google 相簿裡的不會刪除。只有在開著 Google 相簿分頁時才會上傳。",
-  pickGoogleFolder: "選擇 Google 相簿專用的資料夾",
-  importGoogle: (n: number) => ` · 已為 Google 相簿放入 ${num(n)} 個`,
-  importGoogleFailed: (n: number) => `${num(n)} 個未能放入 Google 相簿專用資料夾（請查看記錄）`,
-  importGoogleError: (why: string) => `未能為 Google 相簿放入任何檔案：${why}`,
+  settingsGoogleAfterNote: "在 pictkura 中把照片移到資源回收筒時，也會從送出資料夾移除。使用 Google 相簿時：Google 相簿裡的不會刪除。上傳由 Google 相簿網頁（photos.google.com）進行，因此只有在瀏覽器中開著該網頁時才會繼續。",
+  pickGoogleFolder: "選擇送出資料夾",
+  importGoogle: (n: number) => ` · 已放入送出 ${num(n)} 個`,
+  importGoogleFailed: (n: number) => `${num(n)} 個未能放入送出（請查看記錄）`,
+  importGoogleError: (why: string) => `未能放入送出：${why}`,
   bulkSendGoogle: "加入送出",
   calendarSendMonth: "將本月加入送出",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `將 ${year} 年全部加入送出`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
-    if (photos > 0) parts.push(`${num(photos)} 張照片`);
-    if (videos > 0) parts.push(`${num(videos)} 部影片`);
-    if (rawOnly > 0) parts.push(`${num(rawOnly)} 張只有 RAW 的照片`);
-    return `將把 ${parts.join("、")}${size ? `（${size}）` : ""}放入 Google 相簿專用的資料夾。開著 Google 相簿分頁時才會上傳。`;
+    if (photos > 0) parts.push(`照片 ${num(photos)} 張`);
+    if (videos > 0) parts.push(`影片 ${num(videos)} 部`);
+    const items: string[] = [];
+    if (parts.length > 0) items.push(`${parts.join("、")}${size ? `（${size}）` : ""}`);
+    if (rawOnly > 0) items.push(`從只有 RAW 的照片中取出的 JPEG ${num(rawOnly)} 張`);
+    return `將放入送出資料夾：${items.join("；")}。`;
   },
   googleSendLeftOut: (n: number) =>
     `所選內容中有 ${num(n)} 個不會放入（RAW+JPEG 成對中的 RAW、OneDrive 中的檔案等）。`,
   googleSendFolders: (list: string) => `放入位置：${list}`,
-  googleSendNewFolder: (path: string) =>
-    `將新建 ${path}。請在 Google 相簿的資料夾備份中也加入這個資料夾。`,
+  googleSendNewFolder: (path: string) => `將新建 ${path}。`,
+  googleSendGoogleNote:
+    "使用 Google 相簿時：上傳由 Google 相簿網頁（photos.google.com）進行，因此在瀏覽器中開著該網頁時會依序上傳。",
+  googleSendGoogleNoteNew:
+    "使用 Google 相簿時：請在 Google 相簿的資料夾備份中也加入新資料夾。上傳由 Google 相簿網頁（photos.google.com）進行，因此在瀏覽器中開著該網頁時會依序上傳。",
   googleFolderCreated: (path: string) =>
-    `已新建 ${path}。請在 Google 相簿的資料夾備份中也加入這個資料夾。`,
+    `已新建 ${path}。使用 Google 相簿時：請在資料夾備份中也加入這個資料夾。`,
   googleSendNothing: "沒有可以放入的內容。",
   googleSendConfirmOk: "放入",
   googleSent: (total: number, already: number) =>
-    `已為 Google 相簿放入 ${num(total)} 個${already > 0 ? `（其中 ${num(already)} 個已放入過）` : ""}`,
+    `已放入送出 ${num(total)} 個${already > 0 ? `（其中 ${num(already)} 個已放入過）` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} 個只在雲端，未能放入。請先下載到本機，再重新送出。`,
   googleSentLeftOut: (n: number) =>
@@ -571,10 +576,10 @@ export const zhHant: Dict = {
   errGoogleOverlapsRoot: "不能選擇圖庫資料夾、其中的資料夾或包含它的資料夾。",
   errGoogleInsideSync: "不能選擇同步資料夾（OneDrive、Google 雲端硬碟、Dropbox、iCloud 雲碟等）中的位置。",
   errGoogleNoHardLinks: "這個磁碟不能放（exFAT、FAT 等無法建立硬連結）。",
-  errGoogleWholeVolume: "匯入目的地是整個磁碟，所以磁碟上沒有地方放 Google 相簿專用的資料夾。請變更匯入目的地。",
+  errGoogleWholeVolume: "匯入目的地是整個磁碟，所以磁碟上沒有地方放送出資料夾。請變更匯入目的地。",
   errGoogleNoName: "不能選擇磁碟本身。請選擇其中的資料夾。",
-  errGoogleLinkInTheWay: "Google 相簿專用的資料夾是一個符號連結。請選擇其他位置。",
-  errGoogleIo: "無法讀寫 Google 相簿專用的資料夾。",
+  errGoogleLinkInTheWay: "送出資料夾是一個符號連結。請選擇其他位置。",
+  errGoogleIo: "無法讀寫送出資料夾。",
   errGoogleOtherDrive: "請選擇與匯入目的地在同一個磁碟上的資料夾。",
   errNotFound: "索引裡已經沒有這張照片。",
   errDb: "索引讀寫失敗。",

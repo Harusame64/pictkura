@@ -4567,7 +4567,10 @@ async fn google_send_chosen(
                     failed: r.failed.len(),
                     error,
                     left_out: c.left_out,
-                    new_folders: google_paths(&r.new_folders),
+                    new_folders: {
+                        note_new_google_folders(&r.new_folders);
+                        google_paths(&r.new_folders)
+                    },
                 }
             }
             Err(e) => {
@@ -4736,6 +4739,13 @@ fn note_google_retry(
     made
 }
 
+/// 新しく作った送り出しフォルダを記録に残す（win の実機: 作ったことがどこにも残っていなかった）
+fn note_new_google_folders(folders: &[PathBuf]) {
+    for f in folders {
+        applog::note(&format!("Outgoing: created folder {}", f.display()));
+    }
+}
+
 fn google_paths(paths: &[PathBuf]) -> Vec<String> {
     paths
         .iter()
@@ -4790,8 +4800,10 @@ fn retry_google_pending(state: &AppState) {
             &SWEEP_FAILURE_SAID,
         );
         if pictkura_core::mirror::is_on(config) {
-            // 起動の置き直しで作ったフォルダは、設定の一覧で見える（ここでは画面へ出す道が無い）
-            let _ = note_google_retry(pictkura_core::mirror::retry_pending(config, db));
+            // 起動の置き直しで作ったフォルダは、記録に残し、設定の一覧で見える（ここでは画面へ出す道が無い）
+            note_new_google_folders(&note_google_retry(pictkura_core::mirror::retry_pending(
+                config, db,
+            )));
         }
     });
 }
@@ -4940,7 +4952,10 @@ fn place_google_links(
                     .count(),
                 error: None,
                 left_out: 0,
-                new_folders: google_paths(&r.new_folders),
+                new_folders: {
+                    note_new_google_folders(&r.new_folders);
+                    google_paths(&r.new_folders)
+                },
             }
         }
         Ok(None) => return None,
@@ -4956,6 +4971,7 @@ fn place_google_links(
         }
     };
     let mut dto = dto;
+    note_new_google_folders(&made_by_retry);
     for f in google_paths(&made_by_retry) {
         if !dto.new_folders.contains(&f) {
             dto.new_folders.push(f);
