@@ -4285,17 +4285,25 @@ fn prepare_google_folder(dir: &Path, roots: &[PathBuf]) -> Result<(), String> {
     if let Some(Err(e @ MirrorError::NoHardLinks(..))) = parent_probe {
         return Err(errs::from_err(e));
     }
+    let existed = dir.exists();
     if !matches!(parent_probe, Some(Ok(()))) {
-        let existed = dir.exists();
         std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))?;
         let probed = probe_hard_links(dir).map_err(errs::from_err);
         if probed.is_err() && !existed {
             // 断った場所に空のフォルダを残さない
             let _ = std::fs::remove_dir(dir);
         }
+        if probed.is_ok() && !existed {
+            note_new_google_folders(&[dir.to_path_buf()]);
+        }
         return probed;
     }
-    std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))
+    std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))?;
+    // 設定で入れた・場所を選んだときに作ったフォルダも記録に残す（置くときに作った分と同じ行。win の実機）
+    if !existed {
+        note_new_google_folders(&[dir.to_path_buf()]);
+    }
+    Ok(())
 }
 
 /// 場所の確かめはディスクに触る（眠った外付け・ネットワークでは数秒）ので、**主スレッドで回さない**（ゲート2）
