@@ -2746,8 +2746,12 @@ body {
   font-size: var(--fs-md);
   cursor: pointer;
 }
-.empty-actions button:hover {
+.empty-actions button:hover:not(:disabled) {
   filter: brightness(1.08);
+}
+.empty-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .empty-actions button.primary {
   background: var(--accent);

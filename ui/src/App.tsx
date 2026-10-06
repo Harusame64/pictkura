@@ -2023,9 +2023,10 @@ export default function App() {
    * （`emptyReason`）と見つからないフォルダの知らせの抑止がそれに乗っている。混ぜると、
    * 絞り込んだだけで空のライブラリの理由を聞きに行き、知らせも消える。
    *
-   * 要るのは `settled && !loadFailed` だけ。`!settled` の間の `summary` は**前の絞り込みの答え**
-   * なので「無い」と言わない。読み込みの失敗は上の「出せませんでした」に任せる。
-   * 取り込み・走査・索引の途中は、あとで増えうるので一言添える（断定はやめない）
+   * `settled` は見ない——見出しは `summaryFor`（いま出ている答えが問うた絞り込み）から組むので、
+   * 次の答えを待つ間も、出ている答えについて正しいことしか言わない。読み込みの失敗は上の
+   * 「出せませんでした」に任せる。取り込み・走査・索引の途中は、あとで増えうるので一言添える
+   * （`busy` は見ない。削除・書き出しでも立つ）
    */
   const filterEmpty =
     !showEmptyPanel &&
@@ -6979,7 +6980,8 @@ export default function App() {
               {filterEmptyMayGrow && <p>{t.filterEmptyStillIndexing}</p>}
               <div className="empty-actions">
                 {/* 検索語を消す。左のカメラも検索語なので、これで外れる */}
-                {query !== "" && (
+                {/* 見出しと同じ答えに揃える（検索語を名指ししているときだけ出す） */}
+                {summaryFor.query !== "" && (
                   <button onClick={() => setQueryInput("")}>{t.filterEmptyClearSearch}</button>
                 )}
                 <button
