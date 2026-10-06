@@ -2766,6 +2766,24 @@ impl Db {
         })
     }
 
+    /// `sources` のどれかが、送り出しに置いてあるか（外すと決まった行は数えない。一覧の
+    /// [`OUTGOING_COND`] と同じ見方）。⚑ で連写のコマを足すときの「この束は送り出しを使っているか」
+    pub fn google_any_placed(&self, sources: &[PathBuf]) -> Result<bool, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT EXISTS (SELECT 1 FROM google_placed WHERE source_path = ?1 AND doomed = 0)",
+        )?;
+        for src in sources {
+            let hit: bool = stmt.query_row(
+                params![crate::paths::normalize(src).to_string_lossy()],
+                |r| r.get(0),
+            )?;
+            if hit {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// 置けたと確かめたリンクの、外すと決まった印を下ろす（[`crate::mirror::Ledger::settle`]）。
     /// 印が無ければ書かない——置くたびに書き込みの鍵を取らない（混んでいると失敗に化ける。ゲート2）
     pub fn google_place_settle(&mut self, link: &Path) -> Result<(), DbError> {
@@ -5605,8 +5623,14 @@ mod tests {
         assert_eq!(got, want, "記録が2本ある原本も1件");
         assert_eq!(db.count_outgoing().unwrap(), 2);
 
+        assert!(db.google_any_placed(std::slice::from_ref(&b)).unwrap());
         // 外すと決まった行は、外し終える前でも並べない
         db.google_place_doom(std::slice::from_ref(&b)).unwrap();
+        assert!(
+            !db.google_any_placed(std::slice::from_ref(&b)).unwrap(),
+            "外すと決まった行は「使っている」に数えない"
+        );
+        assert!(db.google_any_placed(&[b.clone(), a.clone()]).unwrap());
         assert_eq!(db.search_ids(&outgoing).unwrap(), [all[0]]);
         assert_eq!(db.count_outgoing().unwrap(), 1);
 

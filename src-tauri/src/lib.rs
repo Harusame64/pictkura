@@ -4639,10 +4639,12 @@ async fn google_add_picked_frames(
                     siblings.push(p);
                 }
             }
-            let placed = db
-                .google_placed_for_sources(&siblings)
-                .map_err(errs::from_err)?;
-            if placed.is_empty() {
+            // 外すと決まった行（送り出しから外したが、外しきれずに残ったもの）は「使っている」に数えない
+            // ——利用者が外した束へ、⚑ のコマを送らない
+            if !db
+                .google_any_placed(&siblings)
+                .map_err(errs::from_err)?
+            {
                 continue;
             }
             if let Some(p) = path_of_id(f.id)? {
@@ -6884,11 +6886,13 @@ pub fn run() {
                     // 起動の失敗にしない。ゲート2）
                     let retry_app = inner.clone();
                     std::thread::spawn(move || {
+                        let app = retry_app.clone();
                         pictkura_core::panics::catching("google retry", move || {
-                            retry_google_pending(&retry_app.state::<AppState>());
-                            // 走査の知らせより後に送り出しが動く（置き直し・突き合わせ）。件数を取り直させる
-                            let _ = retry_app.emit("outgoing-changed", ());
+                            retry_google_pending(&app.state::<AppState>());
                         });
+                        // 走査の知らせより後に送り出しが動く（置き直し・突き合わせ）。件数を取り直させる
+                        // ——途中で転んでも、書き換えた分はあるので出す
+                        let _ = retry_app.emit("outgoing-changed", ());
                     });
                     true
                 });
