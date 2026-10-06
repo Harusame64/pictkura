@@ -100,6 +100,7 @@ import {
   googleChosenSummary,
   googleSendChosen,
   googleAddPickedFrames,
+  googleRemoveChosen,
   type ChosenForGoogle,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
@@ -740,6 +741,7 @@ export default function App() {
     total: 0,
     favorites: 0,
     picked: 0,
+    outgoing: 0,
   });
   const [memories, setMemories] = useState<Memory[]>([]);
   const [cellSize, setCellSize] = useState(180);
@@ -1562,6 +1564,7 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let unlistenCameras: (() => void) | undefined;
+    let unlistenOutgoing: (() => void) | undefined;
     let unlistenExport: (() => void) | undefined;
     let unlistenDelete: (() => void) | undefined;
     /** 届いた進捗の知らせの数。下の取り直しの返事が、それより新しい知らせを上書きしないように */
@@ -1608,6 +1611,16 @@ export default function App() {
       );
       if (cancelled) deleteProgress();
       else unlistenDelete = deleteProgress;
+      // 起動のあと、保留の置き直しと突き合わせが送り出しを動かした（§3c）。走査の知らせより後に来る
+      const outgoingDone = await listen("outgoing-changed", () => {
+        refreshSummary().catch(() => {});
+      });
+      if (cancelled) outgoingDone();
+      else {
+        unlistenOutgoing = outgoingDone;
+        // 登録の前に出た知らせ（起動の置き直しが速く終わった）は届いていない。一度取り直す
+        refreshSummary().catch(() => {});
+      }
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else {
@@ -1639,10 +1652,11 @@ export default function App() {
       cancelled = true;
       unlisten?.();
       unlistenCameras?.();
+      unlistenOutgoing?.();
       unlistenExport?.();
       unlistenDelete?.();
     };
-  }, [refreshCameras]);
+  }, [refreshCameras, refreshSummary]);
   /**
    * 新しい版が出ていないかの知らせ（0.2）。**アプリで唯一の外向き通信**で、
    * 設定で切れる（既定はON・24時間に1回）。
@@ -1693,7 +1707,8 @@ export default function App() {
       // 表示中の項目の差し替え（サムネイル完成）だけを行い、日の捨て直しはしない
       // （判定できないまま捨てると、生成のたびにシマー→再取得を繰り返す）。
       // 件数・日付の骨組みはデバウンスされたサマリ再取得が追従させる
-      const searching = queryRef.current !== "";
+      // 送り出し（§3c）も同じ: 置いてあるかは項目に載っていない
+      const searching = queryRef.current !== "" || filter === "outgoing";
       setDayItems((prev) => {
         let next: Map<number, MediaItem[]> | null = null;
         const current = () => next ?? prev;
@@ -2391,6 +2406,7 @@ export default function App() {
       const googleFailed = googleFailure(stats.google);
       if (googleFailed) fail(googleFailed);
       await refreshRoots();
+      // 送り出しの件数と一覧は、取り込みのあとの `outgoing-changed` が取り直させる
       checkDecoders();
     },
     [refreshRoots, checkDecoders, fail],
@@ -6016,6 +6032,9 @@ export default function App() {
         if (!r) return;
         const total = r.placed + r.already;
         if (total > 0) setStatus(t.googleSent(total, r.already));
+        // 左の「送り出し」の件数と、送り出しを表示中なら並びも追わせる
+        // 置き済みでも取り直す——外せずに残った行へ送り直すと「置き済み」と数えられ、印が下りて一覧に戻る
+        if (total > 0) refreshSummary().catch(() => {});
         // 置けなかったこと・置かなかったことは失敗の一本道へ（状態の1行は 32ch で切れる）。
         // 置かないもの（`left_out`）は、確認で見せた回には繰り返さない
         const notes: string[] = [];
@@ -6038,7 +6057,35 @@ export default function App() {
         sendingRef.current = false;
       }
     },
-    [confirmAction, fail, clearSelection, platform],
+    [confirmAction, fail, clearSelection, platform, refreshSummary],
+  );
+
+  /**
+   * 選んだものを送り出しから外す（設計書 §3c。2026-10-06 利用者決定: 確認は出さず、外したあとに知らせる）。
+   * Google フォトからは消えない。入口は送り出しを表示中の選択バーと右クリックだけ
+   */
+  const removeFromGoogle = useCallback(
+    async (ids: readonly number[], fromSelection: boolean) => {
+      if (ids.length === 0 || sendingRef.current) return;
+      sendingRef.current = true;
+      // 外す間に選び直した選択は消さない（送るときと同じ。PR の codex）
+      const selectionAtStart = selectedRef.current;
+      try {
+        const r = await googleRemoveChosen([...ids]);
+        // 1件も外せなかった回は、前の操作の文（「置きました」等）を残さない（win の実機 W37）
+        setStatus(r.removed > 0 ? t.googleRemoved(r.removed) : "");
+        if (r.failed > 0) fail(t.googleRemoveFailed(r.failed));
+        // 外せなかったものも一覧からは消える（外すと決まった印が付く）ので、選択は残さない
+        if (fromSelection && selectedRef.current === selectionAtStart) clearSelection();
+      } catch (e) {
+        fail(errText(e));
+      } finally {
+        sendingRef.current = false;
+        // 途中で転んでも取り直す——印は付いているかもしれず、そのときは一覧の対象から外れている
+        refreshSummary().catch(() => {});
+      }
+    },
+    [fail, clearSelection, refreshSummary],
   );
 
   // 送り出しを切った・カレンダーを離れたら、月のメニューを畳む（古い項目を押させない。ゲート2）
@@ -6081,6 +6128,8 @@ export default function App() {
     googleAddPickedFrames(frames)
       .then((r) => {
         if (r && r.placed > 0) setStatus(t.googleSent(r.placed, 0));
+        // 置き済みでも取り直す——外せずに印が残ったコマは、置けたと確かめた時点で一覧に戻る
+        if (r && r.placed + r.already > 0) refreshSummary().catch(() => {});
         if (r) {
           const notes: string[] = [];
           if (r.error) notes.push(t.importGoogleError(errText(r.error)));
@@ -6102,6 +6151,11 @@ export default function App() {
       countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ?? ids.length;
     await sendToGoogle({ kind: "ids", ids }, photos, wideSelectRef.current, true);
   }, [visibleSelection, sendToGoogle]);
+
+  /** 選択バーの「送り出しから外す」（送り出しを表示中だけ。§3c） */
+  const onBulkRemoveGoogle = useCallback(async () => {
+    await removeFromGoogle(await visibleSelection(), true);
+  }, [visibleSelection, removeFromGoogle]);
 
   /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
@@ -6140,8 +6194,18 @@ export default function App() {
           run: () => markStack(markFiles, kind, !marked),
         };
       }),
-      // 送り出し（設計 ②）。タイルの重ねぜんぶを渡す——組は JPEG だけ置かれる（中核の規則）
-      ...(googleOn
+      // 送り出しを表示中は「外す」（§3c）。並んでいるのは置いてあるものだけなので、重ねのファイル
+      // ぜんぶを渡してよい——記録の無いもの（組の RAW）は何もされない
+      ...(filter === "outgoing"
+        ? [
+            {
+              label: t.bulkRemoveGoogle,
+              separator: true,
+              run: () => void removeFromGoogle(files.map((f) => f.id), false),
+            },
+          ]
+        : // 送り出し（設計 ②）。タイルの重ねぜんぶを渡す——組は JPEG だけ置かれる（中核の規則）
+          googleOn
         ? [
             {
               label: t.bulkSendGoogle,
@@ -6166,7 +6230,16 @@ export default function App() {
         run: () => onDelete(files),
       },
     ],
-    [editors, onOpenWithOther, onDelete, markStack, googleOn, sendToGoogle],
+    [
+      editors,
+      onOpenWithOther,
+      onDelete,
+      markStack,
+      googleOn,
+      sendToGoogle,
+      filter,
+      removeFromGoogle,
+    ],
   );
 
   const openDay = useCallback((dayKey: number) => {
@@ -6352,13 +6425,22 @@ export default function App() {
           >
             {t.bulkMove}
           </button>
-          {googleOn && (
+          {filter === "outgoing" ? (
             <button
               disabled={busy}
-              onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+              onClick={() => onBulkRemoveGoogle().catch((e) => fail(errText(e)))}
             >
-              {t.bulkSendGoogle}
+              {t.bulkRemoveGoogle}
             </button>
+          ) : (
+            googleOn && (
+              <button
+                disabled={busy}
+                onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+              >
+                {t.bulkSendGoogle}
+              </button>
+            )
           )}
           <button
             className="danger"
@@ -6637,6 +6719,19 @@ export default function App() {
               <span className="fav-count">{formatNumber(stats.picked)}</span>
             )}
           </div>
+          {/* 送り出しに置いたもの（設計書 §3c）。使っていない人の目次は増やさない——入れているか、
+              置いたものが残っているか、いま開いているときだけ出す */}
+          {(googleOn || stats.outgoing > 0 || filter === "outgoing") && (
+            <div
+              className={"nav-item" + (filter === "outgoing" ? " active" : "")}
+              onClick={() => setFilter("outgoing")}
+            >
+              {t.navOutgoing}
+              {stats.outgoing > 0 && (
+                <span className="fav-count">{formatNumber(stats.outgoing)}</span>
+              )}
+            </div>
+          )}
           {/* 種類（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので節を分ける
               ——重ねて効くものを同じ列に並べると、片方を押したときに
               もう片方が外れる棚に見える。カメラと同じで、押している1つを

@@ -25,6 +25,7 @@ export const en: Dict = {
   navAllPhotos: "All photos",
   navFavorites: "★ Favorites",
   navPicked: "⚑ Picked",
+  navOutgoing: "Outgoing",
   navKinds: "Kind",
   kindPhoto: "Photos",
   kindRaw: "RAW",
@@ -426,6 +427,7 @@ export const en: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} could not be placed in Outgoing (see the log)`,
   importGoogleError: (why: string) => `Nothing was placed in Outgoing: ${why}`,
   bulkSendGoogle: "Add to Outgoing",
+  bulkRemoveGoogle: "Remove from Outgoing",
   calendarSendMonth: "Add this month to Outgoing",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `Add all of ${year} to Outgoing`,
@@ -454,6 +456,9 @@ export const en: Dict = {
     `${num(total)} placed in Outgoing${already > 0 ? ` (${num(already)} already there)` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} ${one(n, "is", "are")} only in the cloud and could not be placed. Download ${one(n, "it", "them")} first, then send again.`,
+  googleRemoved: (n: number) => `${num(n)} removed from Outgoing`,
+  googleRemoveFailed: (n: number) =>
+    `${num(n)} could not be removed right now (the drive may be disconnected). pictkura will try again the next time it starts.`,
   googleSentLeftOut: (n: number) =>
     `${num(n)} ${one(n, "was", "were")} left out (the RAW of a RAW+JPEG pair, files inside OneDrive and the like).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,

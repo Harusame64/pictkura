@@ -745,6 +745,8 @@ struct LibraryStatsDto {
     favorites: i64,
     /// 選別で選んだ件数（⚑。0.2 ②）
     picked: i64,
+    /// 送り出しに置いてある件数（設計書 §3c）
+    outgoing: i64,
 }
 
 /// カメラ別の枚数（左ペイン「カメラとメディア」用、第4部 段階D）。
@@ -3338,6 +3340,7 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
                 total: db.count()?,
                 favorites: db.count_favorites()?,
                 picked: db.count_picked()?,
+                outgoing: db.count_outgoing()?,
             })
         })
         // 型は `map_err` の側から決まらない（閉包が `?` で組み立てている）
@@ -4636,10 +4639,12 @@ async fn google_add_picked_frames(
                     siblings.push(p);
                 }
             }
-            let placed = db
-                .google_placed_for_sources(&siblings)
-                .map_err(errs::from_err)?;
-            if placed.is_empty() {
+            // 外すと決まった行（送り出しから外したが、外しきれずに残ったもの）は「使っている」に数えない
+            // ——利用者が外した束へ、⚑ のコマを送らない
+            if !db
+                .google_any_placed(&siblings)
+                .map_err(errs::from_err)?
+            {
                 continue;
             }
             if let Some(p) = path_of_id(f.id)? {
@@ -4680,6 +4685,71 @@ async fn google_add_picked_frames(
             Ok(None) => Ok(None),
             Err(e) => Err(errs::from_err(e)),
         }
+    })
+    .await
+}
+
+/// 送り出しから外した結果（設計書 §3c）。
+#[derive(serde::Serialize)]
+struct GoogleRemovedDto {
+    /// 送り出しから外れた写真（名前を消した・取り出した JPEG を消した・もう無かった）
+    removed: usize,
+    /// リンクのどれかをいま外せなかった写真（外付けが見えない等）。印は付いたので、次の突き合わせで外れる
+    failed: usize,
+}
+
+/// 一覧で選んだものを送り出しから外す（設計書 §3c。2026-10-06 利用者決定: 確認は出さない）。
+/// Google フォトからは消えない。外し方は pictkura のゴミ箱と同じ道——リンクは名前を消すだけ、
+/// 取り出した JPEG は消す（§4b）、保留からも外す
+#[tauri::command]
+async fn google_remove_chosen(
+    app: tauri::AppHandle,
+    ids: Vec<i64>,
+) -> Result<GoogleRemovedDto, String> {
+    on_blocking(app, move |state| {
+        let _google_guard = lock_ok(&state.google_lock);
+        let sources: Vec<PathBuf> = chosen_items(state, &ChosenDto::Ids { ids })?
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        // 数えるのは選んだ写真ごと（ゲート2）——リンクが2本ある原本も1件、作業場の片付けや保留の
+        // 失敗（リンクではない）は「外せなかった写真」に数えない（記録には残す）
+        let mut links: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+        for src in &sources {
+            let recs = db
+                .google_placed_for_sources(std::slice::from_ref(src))
+                .map_err(errs::from_err)?;
+            if !recs.is_empty() {
+                let l = recs.into_iter().map(|(_, r)| r.link).collect();
+                links.push((src.clone(), l));
+            }
+        }
+        let r = pictkura_core::mirror::unplace_sources(&mut db, &sources, &mut trash_one)
+            .map_err(errs::quiet)?;
+        // 外したものがあれば毎回書く（ゴミ箱の道と同じ。win の実機: 成功が記録に残らなかった）
+        if r.removed + r.discarded + r.deleted > 0 || !r.failed.is_empty() {
+            applog::note(&format!(
+                "Google 用フォルダ: 送り出しから外した——リンク {} 件・ゴミ箱へ {} 件・取り出した JPEG {} 件、失敗 {} 件{}",
+                r.removed,
+                r.discarded,
+                r.deleted,
+                r.failed.len(),
+                r.failed
+                    .first()
+                    .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                    .unwrap_or_default()
+            ));
+        }
+        let stuck: std::collections::HashSet<&PathBuf> = r.failed.iter().map(|(p, _)| p).collect();
+        let failed = links
+            .iter()
+            .filter(|(_, l)| l.iter().any(|l| stuck.contains(l)))
+            .count();
+        Ok(GoogleRemovedDto {
+            removed: links.len() - failed,
+            failed,
+        })
     })
     .await
 }
@@ -4800,7 +4870,11 @@ fn finish_import(
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
         let sync_stats = scan_and_apply_root(state, dest)?;
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
-        return Ok(place_google_links(state, dest, copied));
+        let placed = place_google_links(state, dest, copied);
+        // 送り出しは走査の知らせより後に動く（保留の置き直し・突き合わせ・この回の分）。
+        // 取り込みの結果の数だけでは、保留から置いた分を拾えない（ゲート2）
+        let _ = app.emit("outgoing-changed", ());
+        return Ok(placed);
     }
     Ok(None)
 }
@@ -6812,9 +6886,13 @@ pub fn run() {
                     // 起動の失敗にしない。ゲート2）
                     let retry_app = inner.clone();
                     std::thread::spawn(move || {
+                        let app = retry_app.clone();
                         pictkura_core::panics::catching("google retry", move || {
-                            retry_google_pending(&retry_app.state::<AppState>());
+                            retry_google_pending(&app.state::<AppState>());
                         });
+                        // 走査の知らせより後に送り出しが動く（置き直し・突き合わせ）。件数を取り直させる
+                        // ——途中で転んでも、書き換えた分はあるので出す
+                        let _ = retry_app.emit("outgoing-changed", ());
                     });
                     true
                 });
@@ -6967,6 +7045,7 @@ pub fn run() {
             google_chosen_summary,
             google_send_chosen,
             google_add_picked_frames,
+            google_remove_chosen,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

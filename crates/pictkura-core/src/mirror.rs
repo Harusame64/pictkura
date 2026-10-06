@@ -298,6 +298,13 @@ pub trait Ledger {
     /// 区別しない台（Windows・macOS）でだけ畳む。[`give_way`] が、`b.JPG` の前に `B.jpg` の
     /// 取り出しを見つけるために使う（ゲート1）
     fn holders_folded(&mut self, link: &Path) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>>;
+    /// `link` が**この原本のものとして在ると確かめた**あとに呼ぶ。送り出しから外すと決まった印
+    /// （外しきれずに残ったもの）を下ろす——送り直したのに、印のまま一覧に出ず、次の突き合わせで
+    /// 外されないように（設計書 §3c）。**確かめる前に下ろさない**：在る名前が別の実体だったとき、
+    /// 印が消えると古いリンクを外す道が無くなる（ゲート2）
+    fn settle(&mut self, _link: &Path) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// [`place`] の結果。
@@ -397,7 +404,14 @@ pub fn place(
         };
         if p.embedded {
             let mut created = Vec::new();
-            match place_extracted(dir, p, ledger, &mut work, &mut created) {
+            let link = dir.join(p.rel.with_extension("jpg"));
+            let placed = place_extracted(dir, p, ledger, &mut work, &mut created).and_then(|r| {
+                ledger
+                    .settle(&link)
+                    .map(|()| r)
+                    .map_err(|e| Skip::Failed(format!("記録の印を下ろせない: {e}"), true))
+            });
+            match placed {
                 Ok(true) => report.placed += 1,
                 Ok(false) => report.already += 1,
                 Err(Skip::CloudOnly) => {
@@ -567,6 +581,15 @@ pub fn place(
             }
             other => other,
         };
+        // 印が在りうるのは前からの行だけ。新しい行で呼ぶと、書けなかったときに下の失敗の道が記録を
+        // 取り消し、張ったばかりのリンクが記録の無いまま残る（ゲート2）
+        let linked = linked.and_then(|r| match claim {
+            Claim::Ours { .. } => ledger
+                .settle(&placed.link)
+                .map(|()| r)
+                .map_err(|e| (format!("記録の印を下ろせない: {e}"), true)),
+            _ => Ok(r),
+        });
         match linked {
             Ok(true) => report.placed += 1,
             Ok(false) => report.already += 1,
@@ -969,6 +992,10 @@ impl Ledger for DbLedger<'_> {
 
     fn holder(&mut self, link: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
         self.db.google_place_holder(link).map_err(io::Error::other)
+    }
+
+    fn settle(&mut self, link: &Path) -> io::Result<()> {
+        self.db.google_place_settle(link).map_err(io::Error::other)
     }
 
     fn forget(&mut self, link: &Path) -> io::Result<()> {
@@ -3386,6 +3413,50 @@ mod tests {
         let r = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
         assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
         assert!(book.0.iter().all(|r| !r.extracted));
+    }
+
+    /// 外しきれずに印が残った行は、送り直して**置けたと確かめたら**印を下ろす（設計書 §3c）。
+    /// 在る名前が別の実体（差し替わった原本の古いリンク）なら下ろさない——下ろすと古いリンクを
+    /// 外す道が無くなる（ゲート2）。取り出した JPEG の「前の回のまま在る」近道でも下ろす
+    #[test]
+    fn re_sending_settles_the_mark_only_once_the_link_is_confirmed() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo a");
+        put(&f.lib.join("d/c.jpg"), b"photo c");
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let all = ["d/a.jpg", "d/c.jpg", "d/B.ARW"].map(|r| f.lib.join(r));
+        let r = place_imported(&all, &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.placed, 3, "{:?}", r.failed);
+        db.google_place_doom(&all).unwrap();
+        let doomed = |db: &crate::db::Db| -> Vec<PathBuf> {
+            let mut v: Vec<PathBuf> = db
+                .google_placed_orphans()
+                .unwrap()
+                .into_iter()
+                .filter(|(_, _, _, d)| *d)
+                .map(|(_, rec, _, _)| rec.link)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(doomed(&db).len(), 3);
+
+        // c.jpg の原本を差し替える（新しい実体）。送り出しの c.jpg は古い実体のまま
+        std::fs::remove_file(f.lib.join("d/c.jpg")).unwrap();
+        put(&f.lib.join("d/c.jpg"), b"photo c, new");
+
+        let c = place_chosen(&all, &config, &mut db).unwrap().unwrap();
+        assert_eq!(c.report.already, 2, "{:?}", c.report.failed);
+        assert_eq!(c.report.failed.len(), 1, "c.jpg は名前が塞がっている");
+        assert_eq!(
+            doomed(&db),
+            [crate::paths::normalize(&f.google.join("d/c.jpg"))],
+            "置けたと確かめた a.jpg と B.jpg（取り出し）だけ下りる"
+        );
     }
 
     /// 設定は「動画は置かない・RAW だけは上げない」——明示して選んだものはそれでも置く（設計 ② §5）

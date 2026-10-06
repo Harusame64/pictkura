@@ -84,6 +84,7 @@ export const zh: Dict = {
   navAllPhotos: "全部照片",
   navFavorites: "★ 收藏",
   navPicked: "⚑ 已留用",
+  navOutgoing: "送出",
   navKinds: "类型",
   kindPhoto: "照片",
   kindRaw: "RAW",
@@ -479,6 +480,7 @@ export const zh: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} 个未能放入送出（请查看日志）`,
   importGoogleError: (why: string) => `未能放入送出：${why}`,
   bulkSendGoogle: "加入送出",
+  bulkRemoveGoogle: "从送出中移除",
   calendarSendMonth: "将本月加入送出",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `将 ${year} 年全部加入送出`,
@@ -507,6 +509,9 @@ export const zh: Dict = {
     `已放入送出 ${num(total)} 个${already > 0 ? `（其中 ${num(already)} 个已放入过）` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} 个只在云端，未能放入。请先下载到本地，再重新送出。`,
+  googleRemoved: (n: number) => `已从送出中移除 ${num(n)} 个`,
+  googleRemoveFailed: (n: number) =>
+    `${num(n)} 个暂时无法移除（可能磁盘未连接）。下次启动 pictkura 时会再尝试移除。`,
   googleSentLeftOut: (n: number) =>
     `${num(n)} 个未放入（RAW+JPEG 成对中的 RAW、OneDrive 中的文件等）。`,
   burstGapOption: (seconds: number) => `${num(seconds)} 秒`,
