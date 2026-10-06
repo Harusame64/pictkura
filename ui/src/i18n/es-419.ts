@@ -104,8 +104,17 @@ export const es419: Dict = {
   videoCodecHelp: "Conseguir las Extensiones de video HEVC (de pago)",
   decoderHevcHow: "Extensiones de video HEVC (de pago)",
   settingsGoogleVideo: "Poner también los videos",
+  googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);
+    if (videos > 0) parts.push(`${num(videos)} ${one(videos, "video", "videos")}`);
+    if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "toma solo en RAW", "tomas solo en RAW")}`);
+    return `Se colocarán ${parts.join(", ")}${size ? ` (${size})` : ""} en la carpeta para Google Fotos. Se suben mientras haya una pestaña de Google Fotos abierta.`;
+  },
 
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
+  googleSendNewFolder: (path: string) =>
+    `Se creará ${path}. Agrega también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
   settingsGoogleNote:
     "En cada importación, las fotos se colocan también en esta carpeta (no ocupa espacio extra en el disco). Agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos. De los pares RAW+JPEG solo entra el JPEG.",
   errRootManaged:

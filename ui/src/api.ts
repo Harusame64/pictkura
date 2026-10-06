@@ -898,6 +898,8 @@ export interface ChosenSummary {
   raw_only: number;
   bytes: number;
   folders: string[];
+  /** `folders` のうち、送ると新しく作るもの（Google フォトへの登録も要る） */
+  new_folders: string[];
   unplaceable: number;
   /** 選んだのに置かないもの（組の RAW だけ・OneDrive の中・ライブラリの外 等） */
   left_out: number;

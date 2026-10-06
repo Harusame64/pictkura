@@ -1037,6 +1037,9 @@ pub struct ChosenSummary {
     pub bytes: u64,
     /// 置き先の Google 用フォルダ（ドライブごと）。決まらないルートの写真は数えない
     pub folders: Vec<PathBuf>,
+    /// `folders` のうち、まだ無い（送ると新しく作る）もの。Google フォトへの登録も要るので、
+    /// 枚数に関係なく確認で知らせる（2026-10-06 利用者）
+    pub new_folders: Vec<PathBuf>,
     /// 置き先が決まらない（ドライブ丸ごとのルート等）ので置けないもの
     pub unplaceable: usize,
     /// 選んだのに置かないもの（組の RAW だけを選んだ・OneDrive の中・ライブラリの外 等）。
@@ -1096,6 +1099,9 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
             continue;
         };
         if !out.folders.contains(&dir) {
+            if !dir.exists() {
+                out.new_folders.push(dir.clone());
+            }
             out.folders.push(dir);
         }
         if p.embedded {
@@ -3295,6 +3301,8 @@ mod tests {
                 raw_only: 1,
                 bytes,
                 folders: vec![f.google.clone()],
+                // まだ置いたことが無いので、送ると作る
+                new_folders: vec![f.google.clone()],
                 unplaceable: 0,
                 left_out: 0,
             }

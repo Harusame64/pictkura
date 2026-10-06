@@ -498,6 +498,27 @@ export const de: Dict = {
   importGoogle: (n: number) => ` · ${num(n)} für Google Fotos abgelegt`,
   importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht für Google Fotos abgelegt werden (siehe Protokoll)`,
   importGoogleError: (why: string) => `Nichts für Google Fotos abgelegt: ${why}`,
+  bulkSendGoogle: "Zum Ausgang",
+  googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${num(photos)} ${one(photos, "Foto", "Fotos")}`);
+    if (videos > 0) parts.push(`${num(videos)} ${one(videos, "Video", "Videos")}`);
+    if (rawOnly > 0) parts.push(`${num(rawOnly)} ${one(rawOnly, "Nur-RAW-Aufnahme", "Nur-RAW-Aufnahmen")}`);
+    return `${parts.join(", ")}${size ? ` (${size})` : ""} werden im Ordner für Google Fotos abgelegt. Hochgeladen wird, solange ein Tab mit Google Fotos geöffnet ist.`;
+  },
+  googleSendLeftOut: (n: number) =>
+    `${num(n)} der gewählten Dateien ${one(n, "wird", "werden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,
+  googleSendFolders: (list: string) => `Ablageort: ${list}`,
+  googleSendNewFolder: (path: string) =>
+    `${path} wird neu angelegt. Füge auch diesen Ordner in Google Fotos der Ordnersicherung hinzu.`,
+  googleSendNothing: "Hier gibt es nichts, das abgelegt werden kann.",
+  googleSendConfirmOk: "Ablegen",
+  googleSent: (total: number, already: number) =>
+    `${num(total)} für Google Fotos abgelegt${already > 0 ? ` (davon ${num(already)} schon vorhanden)` : ""}`,
+  googleSentCloudOnly: (n: number) =>
+    `${num(n)} ${one(n, "liegt", "liegen")} nur in der Cloud und ${one(n, "konnte", "konnten")} nicht abgelegt werden. Lade sie zuerst herunter und sende dann erneut.`,
+  googleSentLeftOut: (n: number) =>
+    `${num(n)} ${one(n, "wurde", "wurden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Serie ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,

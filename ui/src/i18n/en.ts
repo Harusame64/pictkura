@@ -424,6 +424,27 @@ export const en: Dict = {
   importGoogle: (n: number) => ` · ${num(n)} placed for Google Photos`,
   importGoogleFailed: (n: number) => `${num(n)} could not be placed for Google Photos (see the log)`,
   importGoogleError: (why: string) => `Nothing was placed for Google Photos: ${why}`,
+  bulkSendGoogle: "Add to Outgoing",
+  googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${num(photos)} ${one(photos, "photo", "photos")}`);
+    if (videos > 0) parts.push(`${num(videos)} ${one(videos, "video", "videos")}`);
+    if (rawOnly > 0) parts.push(`${num(rawOnly)} RAW-only ${one(rawOnly, "shot", "shots")}`);
+    return `${parts.join(", ")}${size ? ` (${size})` : ""} will be placed in the folder for Google Photos. They upload while a Google Photos tab is open.`;
+  },
+  googleSendLeftOut: (n: number) =>
+    `${num(n)} of the chosen ${one(n, "item is", "items are")} left out (the RAW of a RAW+JPEG pair, files inside OneDrive and the like).`,
+  googleSendFolders: (list: string) => `Placed in: ${list}`,
+  googleSendNewFolder: (path: string) =>
+    `${path} will be created. Add this folder to folder backup in Google Photos as well.`,
+  googleSendNothing: "Nothing here can be placed.",
+  googleSendConfirmOk: "Place",
+  googleSent: (total: number, already: number) =>
+    `${num(total)} placed for Google Photos${already > 0 ? ` (${num(already)} already there)` : ""}`,
+  googleSentCloudOnly: (n: number) =>
+    `${num(n)} ${one(n, "is", "are")} only in the cloud and could not be placed. Download ${one(n, "it", "them")} first, then send again.`,
+  googleSentLeftOut: (n: number) =>
+    `${num(n)} ${one(n, "was", "were")} left out (the RAW of a RAW+JPEG pair, files inside OneDrive and the like).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Burst ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,

@@ -480,6 +480,27 @@ export const zhHant: Dict = {
   importGoogle: (n: number) => ` · 已為 Google 相簿放入 ${num(n)} 個`,
   importGoogleFailed: (n: number) => `${num(n)} 個未能放入 Google 相簿專用資料夾（請查看記錄）`,
   importGoogleError: (why: string) => `未能為 Google 相簿放入任何檔案：${why}`,
+  bulkSendGoogle: "加入送出",
+  googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
+    const parts: string[] = [];
+    if (photos > 0) parts.push(`${num(photos)} 張照片`);
+    if (videos > 0) parts.push(`${num(videos)} 部影片`);
+    if (rawOnly > 0) parts.push(`${num(rawOnly)} 張只有 RAW 的照片`);
+    return `將把 ${parts.join("、")}${size ? `（${size}）` : ""}放入 Google 相簿專用的資料夾。開著 Google 相簿分頁時才會上傳。`;
+  },
+  googleSendLeftOut: (n: number) =>
+    `所選內容中有 ${num(n)} 個不會放入（RAW+JPEG 成對中的 RAW、OneDrive 中的檔案等）。`,
+  googleSendFolders: (list: string) => `放入位置：${list}`,
+  googleSendNewFolder: (path: string) =>
+    `將新建 ${path}。請在 Google 相簿的資料夾備份中也加入這個資料夾。`,
+  googleSendNothing: "沒有可以放入的內容。",
+  googleSendConfirmOk: "放入",
+  googleSent: (total: number, already: number) =>
+    `已為 Google 相簿放入 ${num(total)} 個${already > 0 ? `（其中 ${num(already)} 個已放入過）` : ""}`,
+  googleSentCloudOnly: (n: number) =>
+    `${num(n)} 個只在雲端，未能放入。請先下載到本機，再重新送出。`,
+  googleSentLeftOut: (n: number) =>
+    `${num(n)} 個未放入（RAW+JPEG 成對中的 RAW、OneDrive 中的檔案等）。`,
   burstGapOption: (seconds: number) => `${num(seconds)} 秒`,
   burstChip: (frames: number) => `▤ 連拍 ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,

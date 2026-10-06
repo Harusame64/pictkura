@@ -263,6 +263,12 @@ const INFLECTS: Record<string, string[]> = {
     "speedUsnDirty:1",
     "speedPruned:0",
     "speedFull:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSendLeftOut:0",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
   ],
   de: [
     "itemsCount:0",
@@ -292,6 +298,12 @@ const INFLECTS: Record<string, string[]> = {
     "rootsMissingNotice:1",
     "speedUsnDirty:0",
     "speedFull:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSendLeftOut:0",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
   ],
   es: [
     "itemsCount:0",
@@ -339,6 +351,13 @@ const INFLECTS: Record<string, string[]> = {
     "speedDiff:0",
     "speedDiff:1",
     "speedDiff:2",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSendLeftOut:0",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "googleSent:1",
   ],
   // **中南米版は本国と同じ活用**（差分は語彙だけで、単複の作りは変えていない）
   "es-419": [
@@ -387,6 +406,13 @@ const INFLECTS: Record<string, string[]> = {
     "speedDiff:0",
     "speedDiff:1",
     "speedDiff:2",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSendLeftOut:0",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "googleSent:1",
   ],
 };
 

@@ -97,6 +97,8 @@ import {
   type EmptyLibraryReason,
   temporaryLibraryRoots,
   burstGapOf,
+  googleChosenSummary,
+  googleSendChosen,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
@@ -518,6 +520,25 @@ const secondsFmt2 = new Intl.NumberFormat(formatLocale, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+/** 大きさ（バイト）を「8.4 GB」の形に。送り出しの確認で使う（1024 で繰り上げる。OS のファイルの一覧と同じ数え方） */
+const sizeFmt = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 1 });
+function formatSize(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = bytes;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${sizeFmt.format(v)} ${units[i]}`;
+}
+
+/**
+ * 一覧で選んで送るとき、確認なしで置いてよい枚数の上限（`dev/plan.google-photos-from-library.md` §4。
+ * 2026-10-06 利用者決定）。すべて選択・範囲選択・新しいフォルダを作るときは枚数に関係なく確かめる
+ */
+const SEND_WITHOUT_ASKING = 100;
+
 const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
@@ -957,6 +978,13 @@ export default function App() {
   const selectEpochRef = useRef(0);
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
+  /** 送り出しへ置いている最中（二度押しで2本走らせない。`exportingRef` と同じ理由で ref） */
+  const sendingRef = useRef(false);
+  /**
+   * いまの選択に「すべて選択」か範囲選択が混ざっているか。中身が見えにくい選び方なので、送り出しでは
+   * 枚数に関係なく確かめる（設計 ② §1。案C）。選択を解くと下ろす
+   */
+  const wideSelectRef = useRef(false);
   /**
    * いま走っている書き出しの種類。**`exportMedia` を待っている間だけ**値を持つ。
    * 進捗の文言を「書き出し中」と「移動中」で分け、**終わったあとに遅れて届いた進捗が
@@ -5130,6 +5158,7 @@ export default function App() {
     selectEpochRef.current += 1;
     setSelected(new Set());
     setAnchorId(null);
+    wideSelectRef.current = false;
   }, [query, filter, kind]);
 
   /** 選択中かどうか。**選択が0なら選択モードではない** */
@@ -5140,6 +5169,7 @@ export default function App() {
     setSelected(new Set());
     setAnchorId(null);
     lastRangeRef.current = null;
+    wideSelectRef.current = false;
     // 待っている選択の応答を無効にする（Escの直後に範囲が復活しないように）
     beginSelectOp();
   }, []);
@@ -5235,6 +5265,7 @@ export default function App() {
       ))
         next.add(id);
       setSelected(next);
+      wideSelectRef.current = true;
       // 起点は動かさない（続けてShift+クリックすると範囲を伸縮できる）
     },
     [toggleOne],
@@ -5283,6 +5314,7 @@ export default function App() {
     setSelected(new Set(ids));
     setAnchorId(ids[0] ?? null);
     lastRangeRef.current = null;
+    wideSelectRef.current = true;
   }, []);
 
   /**
@@ -5871,6 +5903,79 @@ export default function App() {
   );
 
   /** 対象1枚に対する右クリックメニューの項目 */
+  /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
+  const googleOn = config?.google_mirror?.enabled ?? false;
+
+  /**
+   * 選んだものを送り出しへ置く（設計 ②。`dev/plan.google-photos-from-library.md`）。
+   *
+   * 先に見積もりを取り、**100枚を超える・すべて選択／範囲選択・新しいフォルダを作る**ときは確かめる
+   * （2026-10-06 利用者決定）。置けるものが無ければ、置かない理由だけを言って終える。
+   * `fromSelection` なら終わったあと選択を解く（ほかの一括操作と同じ）
+   */
+  const sendToGoogle = useCallback(
+    async (ids: number[], photos: number, wide: boolean, fromSelection: boolean) => {
+      if (sendingRef.current || ids.length === 0) return;
+      sendingRef.current = true;
+      setBusy(true);
+      try {
+        const chosen = { kind: "ids", ids } as const;
+        const s = await googleChosenSummary(chosen);
+        if (s.photos + s.videos + s.raw_only === 0) {
+          fail(
+            [t.googleSendNothing, s.left_out > 0 ? t.googleSendLeftOut(s.left_out) : ""]
+              .filter(Boolean)
+              .join(" "),
+          );
+          return;
+        }
+        const ask = wide || photos > SEND_WITHOUT_ASKING || s.new_folders.length > 0;
+        if (ask) {
+          const lines = [
+            t.googleSendSummary(
+              s.photos,
+              s.videos,
+              s.raw_only,
+              s.bytes > 0 ? formatSize(s.bytes) : "",
+            ),
+          ];
+          if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));
+          if (s.folders.length > 1) lines.push(t.googleSendFolders(s.folders.join(", ")));
+          for (const f of s.new_folders) lines.push(t.googleSendNewFolder(f));
+          if (!(await confirmAction(lines.join("\n\n"), t.googleSendConfirmOk))) return;
+        }
+        const r = await googleSendChosen(chosen);
+        if (!r) return;
+        const total = r.placed + r.already;
+        if (total > 0) setStatus(t.googleSent(total, r.already));
+        // 置けなかったこと・置かなかったことは失敗の一本道へ（状態の1行は 32ch で切れる）。
+        // 置かないもの（`left_out`）は、確認で見せた回には繰り返さない
+        const notes: string[] = [];
+        if (r.error) notes.push(t.importGoogleError(errText(r.error)));
+        else if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
+        if (r.cloud_only > 0) notes.push(t.googleSentCloudOnly(r.cloud_only));
+        if (!ask && r.left_out > 0) notes.push(t.googleSentLeftOut(r.left_out));
+        if (notes.length > 0) fail(notes.join(" "));
+        if (fromSelection) clearSelection();
+      } catch (e) {
+        fail(errText(e));
+      } finally {
+        sendingRef.current = false;
+        setBusy(false);
+      }
+    },
+    [confirmAction, fail, clearSelection],
+  );
+
+  /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
+  const onBulkSendGoogle = useCallback(async () => {
+    const ids = await visibleSelection();
+    if (ids.length === 0) return;
+    const photos =
+      countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ?? ids.length;
+    await sendToGoogle(ids, photos, wideSelectRef.current, true);
+  }, [visibleSelection, sendToGoogle]);
+
   const menuItemsFor = useCallback(
     (
       item: MediaItem,
@@ -5907,6 +6012,23 @@ export default function App() {
           run: () => markStack(markFiles, kind, !marked),
         };
       }),
+      // 送り出し（設計 ②）。タイルの重ねぜんぶを渡す——組は JPEG だけ置かれる（中核の規則）
+      ...(googleOn
+        ? [
+            {
+              label: t.bulkSendGoogle,
+              separator: true,
+              run: () => {
+                void sendToGoogle(
+                  files.map((f) => f.id),
+                  1,
+                  false,
+                  false,
+                );
+              },
+            },
+          ]
+        : []),
       {
         label: t.menuDelete,
         danger: true,
@@ -5914,7 +6036,7 @@ export default function App() {
         run: () => onDelete(files),
       },
     ],
-    [editors, onOpenWithOther, onDelete, markStack],
+    [editors, onOpenWithOther, onDelete, markStack, googleOn, sendToGoogle],
   );
 
   const openDay = useCallback((dayKey: number) => {
@@ -6100,6 +6222,14 @@ export default function App() {
           >
             {t.bulkMove}
           </button>
+          {googleOn && (
+            <button
+              disabled={busy}
+              onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+            >
+              {t.bulkSendGoogle}
+            </button>
+          )}
           <button
             className="danger"
             disabled={busy}
