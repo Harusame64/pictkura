@@ -6067,19 +6067,24 @@ export default function App() {
   // （同じ束のほかのコマが送り出しに置いてあるときだけ）。黙って足し、置けたときだけ状態の1行で知らせる
   addPickedToGoogleRef.current = (ids) => {
     if (!googleOn) return;
+    const picked = new Set(ids);
     const frames = ids
       .map((id) => ({
         id,
         siblings: (stackIndexRef.current.get(id) ?? []).filter((x) => x !== id),
       }))
-      .filter((f) => f.siblings.length > 0);
+      // 重ねのコマが**全部いっぺんに** ⚑ になったもの（選択バーで連写のタイルごと ⚑ にした）は足さない
+      // ——足すと連写が全部並び、取り込みのときに1枚にした意味が無くなる（ゲート2）。足すのは、選んで
+      // 1コマずつ ⚑ を付けたときだけ
+      .filter((f) => f.siblings.length > 0 && !f.siblings.every((x) => picked.has(x)));
     if (frames.length === 0) return;
     googleAddPickedFrames(frames)
       .then((r) => {
         if (r && r.placed > 0) setStatus(t.googleSent(r.placed, 0));
         if (r) {
           const notes: string[] = [];
-          if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
+          if (r.error) notes.push(t.importGoogleError(errText(r.error)));
+          else if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
           for (const f of r.new_folders) notes.push(t.googleFolderCreated(f));
           if (notes.length > 0) fail(notes.join(" "));
         }

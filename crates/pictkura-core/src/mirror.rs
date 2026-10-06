@@ -1507,14 +1507,24 @@ fn thin_bursts(
             .single()
             .map(|t| t.date_naive())
     };
-    // 機体ごとに、(撮影時刻, 置く並びの位置)
-    let mut by_body: HashMap<String, Vec<(i64, usize)>> = HashMap::new();
+    // **コマは組で数える**（同じフォルダ・同じ名前の RAW と JPEG は1コマ）。設定ファイルの `exclude_raw = false`
+    // では組の両方を置くので、ファイルで数えると連写でない1組の片方を落とす（ゲート1）
+    let mut shots: Vec<((PathBuf, std::ffi::OsString), Vec<usize>)> = Vec::new();
     for (i, p) in placements.iter().enumerate() {
         if MediaKind::from_path(&p.source) == MediaKind::Video {
             continue;
         }
-        if let Some((body, ms)) = capture(&p.source) {
-            by_body.entry(body).or_default().push((ms, i));
+        let key = pair_key_folded(&p.source);
+        match shots.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, files)) => files.push(i),
+            None => shots.push((key, vec![i])),
+        }
+    }
+    // 機体ごとに、(撮影時刻, コマの番号)。コマの時刻は読めた最初のファイルのもの
+    let mut by_body: HashMap<String, Vec<(i64, usize)>> = HashMap::new();
+    for (n, (_, files)) in shots.iter().enumerate() {
+        if let Some((body, ms)) = files.iter().find_map(|&i| capture(&placements[i].source)) {
+            by_body.entry(body).or_default().push((ms, n));
         }
     }
     let mut drop: HashSet<usize> = HashSet::new();
@@ -1526,9 +1536,11 @@ fn thin_bursts(
                 || list[k].0 - list[k - 1].0 > gap_ms
                 || day_of(list[k].0) != day_of(list[k - 1].0);
             if breaks {
-                // 鎖 [run_start, k) が2コマ以上なら、最初の1コマ以外を落とす
+                // 鎖 [run_start, k) が2コマ以上なら、最初の1コマ以外のファイルを落とす
                 if k - run_start >= 2 {
-                    drop.extend(list[run_start + 1..k].iter().map(|&(_, i)| i));
+                    for &(_, n) in &list[run_start + 1..k] {
+                        drop.extend(shots[n].1.iter().copied());
+                    }
                 }
                 run_start = k;
             }
@@ -1542,7 +1554,7 @@ fn thin_bursts(
         .collect()
 }
 
-/// [`place_now`] の OneDrive の場所を外から渡す形/// [`place_now`] の OneDrive の場所を外から渡す形（試験はこちらを呼ぶ。台の OneDrive に左右されない）。
+/// [`place_now`] の OneDrive の場所を外から渡す形（試験はこちらを呼ぶ。台の OneDrive に左右されない）。
 fn place_now_with(
     copied: &[PathBuf],
     dest: &Path,
@@ -3548,6 +3560,36 @@ mod tests {
                 "d/CLIP.MP4"
             ]
         );
+    }
+
+    #[test]
+    fn a_raw_jpeg_pair_counts_as_one_frame_when_both_are_placed() {
+        let lib = PathBuf::from("/lib");
+        let p = |n: &str| placement(&lib, n);
+        // exclude_raw = false で組の両方を置く形。連写でない1組と、2組の連写
+        let placements = vec![
+            p("d/SOLO.ARW"),
+            p("d/SOLO.JPG"),
+            p("d/C1.ARW"),
+            p("d/C1.JPG"),
+            p("d/C2.ARW"),
+            p("d/C2.JPG"),
+        ];
+        let base = 1_700_000_000_000;
+        let mut capture = |path: &Path| -> Option<(String, i64)> {
+            let stem = path.file_stem()?.to_str()?;
+            match stem {
+                "SOLO" => Some(("A".into(), base)),
+                "C1" => Some(("A".into(), base + 5_000)),
+                "C2" => Some(("A".into(), base + 5_300)),
+                _ => None,
+            }
+        };
+        let kept: Vec<String> = thin_bursts(placements, 1000, &mut capture)
+            .into_iter()
+            .map(|p| p.rel.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(kept, ["d/SOLO.ARW", "d/SOLO.JPG", "d/C1.ARW", "d/C1.JPG"]);
     }
 
     #[test]

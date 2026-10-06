@@ -4651,12 +4651,17 @@ async fn google_add_picked_frames(
                         path.display()
                     ));
                 }
+                // フォルダごと置けなかった理由は、何も置けなかったときに画面に出す（[`google_send_chosen`] と同じ。ゲート2）
+                let error = (r.placed + r.already == 0)
+                    .then_some(c.root_error)
+                    .flatten()
+                    .map(errs::quiet);
                 Ok(Some(GooglePlacedDto {
                     placed: r.placed,
                     already: r.already,
                     cloud_only: r.cloud_only,
                     failed: r.failed.len(),
-                    error: None,
+                    error,
                     left_out: c.left_out,
                     new_folders: {
                         note_new_google_folders(&r.new_folders);
