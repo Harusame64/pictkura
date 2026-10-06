@@ -76,6 +76,7 @@ export const es: Dict = {
   navAllPhotos: "Todas las fotos",
   navFavorites: "★ Favoritos",
   navPicked: "⚑ Con indicador",
+  navOutgoing: "Salida",
   navKinds: "Tipo",
   kindPhoto: "Fotos",
   kindRaw: "RAW",
@@ -505,6 +506,7 @@ export const es: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} no se ${one(n, "ha", "han")} podido poner en Salida (consulta el registro)`,
   importGoogleError: (why: string) => `No se ha puesto nada en Salida: ${why}`,
   bulkSendGoogle: "Enviar a Salida",
+  bulkRemoveGoogle: "Quitar de Salida",
   calendarSendMonth: "Enviar este mes a Salida",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `Enviar todo ${year} a Salida`,
@@ -533,6 +535,9 @@ export const es: Dict = {
     `${one(total, "Se ha", "Se han")} colocado ${num(total)} en Salida${already > 0 ? ` (${num(already)} ya ${one(already, "estaba", "estaban")})` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} solo ${one(n, "está", "están")} en la nube y no se ${one(n, "ha", "han")} podido colocar. Descárga${one(n, "lo", "los")} primero y vuelve a enviar.`,
+  googleRemoved: (n: number) => `${one(n, "Se ha", "Se han")} quitado ${num(n)} de Salida`,
+  googleRemoveFailed: (n: number) =>
+    `${num(n)} no se ${one(n, "ha", "han")} podido quitar ahora (puede que la unidad no esté conectada). pictkura lo volverá a intentar la próxima vez que se inicie.`,
   googleSentLeftOut: (n: number) =>
     `${num(n)} no se ${one(n, "ha", "han")} colocado (el RAW de un par RAW+JPEG, archivos dentro de OneDrive, etc.).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,

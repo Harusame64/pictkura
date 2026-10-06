@@ -745,6 +745,8 @@ struct LibraryStatsDto {
     favorites: i64,
     /// 選別で選んだ件数（⚑。0.2 ②）
     picked: i64,
+    /// 送り出しに置いてある件数（設計書 §3c）
+    outgoing: i64,
 }
 
 /// カメラ別の枚数（左ペイン「カメラとメディア」用、第4部 段階D）。
@@ -3338,6 +3340,7 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
                 total: db.count()?,
                 favorites: db.count_favorites()?,
                 picked: db.count_picked()?,
+                outgoing: db.count_outgoing()?,
             })
         })
         // 型は `map_err` の側から決まらない（閉包が `?` で組み立てている）
@@ -4680,6 +4683,47 @@ async fn google_add_picked_frames(
             Ok(None) => Ok(None),
             Err(e) => Err(errs::from_err(e)),
         }
+    })
+    .await
+}
+
+/// 送り出しから外した結果（設計書 §3c）。
+#[derive(serde::Serialize)]
+struct GoogleRemovedDto {
+    /// 送り出しから外れたもの（名前を消した・取り出した JPEG を消した・もう無かった）
+    removed: usize,
+    /// いま外せなかったもの（外付けが見えない等）。印は付いたので、次の突き合わせで外れる
+    failed: usize,
+}
+
+/// 一覧で選んだものを送り出しから外す（設計書 §3c。2026-10-06 利用者決定: 確認は出さない）。
+/// Google フォトからは消えない。外し方は pictkura のゴミ箱と同じ道——リンクは名前を消すだけ、
+/// 取り出した JPEG は消す（§4b）、保留からも外す
+#[tauri::command]
+async fn google_remove_chosen(
+    app: tauri::AppHandle,
+    ids: Vec<i64>,
+) -> Result<GoogleRemovedDto, String> {
+    on_blocking(app, move |state| {
+        let _google_guard = lock_ok(&state.google_lock);
+        let sources: Vec<PathBuf> = chosen_items(state, &ChosenDto::Ids { ids })?
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        let r = pictkura_core::mirror::unplace_sources(&mut db, &sources, &mut trash_one)
+            .map_err(errs::quiet)?;
+        if let Some((path, why)) = r.failed.first() {
+            applog::note(&format!(
+                "Google 用フォルダ: 送り出しから外すもののうち {} 件外せなかった（最初: {}: {why}）",
+                r.failed.len(),
+                path.display()
+            ));
+        }
+        Ok(GoogleRemovedDto {
+            removed: r.removed + r.discarded + r.deleted + r.gone,
+            failed: r.failed.len(),
+        })
     })
     .await
 }
@@ -6967,6 +7011,7 @@ pub fn run() {
             google_chosen_summary,
             google_send_chosen,
             google_add_picked_frames,
+            google_remove_chosen,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

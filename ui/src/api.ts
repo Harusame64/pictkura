@@ -86,6 +86,8 @@ export interface LibraryStats {
   favorites: number;
   /** 選別で選んだ件数（⚑。0.2 ②） */
   picked: number;
+  /** 送り出しに置いてある件数（設計書 §3c） */
+  outgoing: number;
 }
 
 export interface SyncStats {
@@ -356,7 +358,7 @@ export const modKeyLabel = modKey("K");
  * **★と⚑は別の棚**（0.2 ②）。「あとで見返したい写真」と
  * 「この連写から残す1枚」を同じ印にしないため
  */
-export type MediaFilter = "all" | "fav" | "picked";
+export type MediaFilter = "all" | "fav" | "picked" | "outgoing";
 
 /**
  * 種類の絞り込み（画面左の「種類」）。**★ / ⚑ とは別の軸**で、重ねて効く。
@@ -918,6 +920,16 @@ export const googleSendChosen = (chosen: ChosenForGoogle) =>
   invoke<GooglePlaced | null>("google_send_chosen", { chosen });
 
 /** あとで ⚑ を付けたコマと、同じ重ねのほかのコマ（連写の表紙だけ送った束に、そのコマを足す。設計 §3b） */
+/** 送り出しから外した結果（設計書 §3c）。`failed` は次の起動でもう一度外す */
+export interface GoogleRemoved {
+  removed: number;
+  failed: number;
+}
+
+/** 選んだものを送り出しから外す。Google フォトからは消えない（設計書 §3c） */
+export const googleRemoveChosen = (ids: number[]) =>
+  invoke<GoogleRemoved>("google_remove_chosen", { ids });
+
 export const googleAddPickedFrames = (frames: { id: number; siblings: number[] }[]) =>
   invoke<GooglePlaced | null>("google_add_picked_frames", { frames });
 

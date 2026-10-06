@@ -208,6 +208,11 @@ pub struct DaySummary {
 /// （SQLiteの式インデックスは式のテキスト一致で適用可否を判定する）。
 const SORT_TS: &str = "COALESCE(taken_at_ms, mtime_ms)";
 
+/// 送り出し（Google フォト用のフォルダ）に置いてある行の条件（設計書 §3c）。
+/// 一覧の絞り込みと件数で**同じ式**を使う——数と並びがずれないように。
+/// 取り出した JPEG は記録の原本（RAW）の行として当たる
+const OUTGOING_COND: &str = "path IN (SELECT source_path FROM google_placed WHERE doomed = 0)";
+
 /// 検索索引の初期構築で「どこまで索引化したか」を持つmetaキー。
 const FTS_CURSOR_KEY: &str = "fts_cursor";
 /// 初期構築の対象上限ID（これより新しい行はトリガが直接索引化する）。
@@ -1883,6 +1888,11 @@ impl Db {
         if query.favorites_only {
             conds.push("favorite = 1".to_string());
         }
+        // 送り出し（設計書 §3c）。記録の綴りと行の綴りの完全一致で引く（記録を引くほかの道と同じ）。
+        // 外すと決まった行（`doomed`）は、外し終える前でも並べない——利用者は外したつもりでいる
+        if query.outgoing_only {
+            conds.push(OUTGOING_COND.to_string());
+        }
         // 種類（画像 / RAW / 動画）。`idx_media_kind_day` の先頭列なのでシークに落ちる。
         // **空なら「何にも当たらない」**（`kind:` に知らない値が来たとき。search.rs 参照）
         if let Some(kinds) = &query.kinds {
@@ -2596,6 +2606,15 @@ impl Db {
             }
         }
         Ok(out)
+    }
+
+    /// 送り出しに置いてある件数（画面左の「送り出し」。[`OUTGOING_COND`] と同じ数え方）。
+    pub fn count_outgoing(&self) -> Result<i64, DbError> {
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM media WHERE {OUTGOING_COND}"),
+            [],
+            |r| r.get(0),
+        )?)
     }
 
     /// 選別で選んだ（⚑）件数。部分インデックスのスキャンで返る（0.2 ②）。
@@ -5522,6 +5541,61 @@ mod tests {
         assert_eq!(db.set_pickeds(&all, false).unwrap(), all.len());
         assert!(db.search_ids(&picked).unwrap().is_empty());
         assert_eq!(db.search_ids(&fav).unwrap(), [all[1]], "★は残る");
+    }
+
+    /// 送り出しの絞り込み（設計書 §3c）は、記録のある行だけを並べ、外すと決まった行は並べない。
+    /// 件数は一覧と同じ数え方——取り出した JPEG は記録の原本（RAW）の行として1件
+    #[test]
+    fn outgoing_filter_lists_only_placed_rows() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
+            .unwrap();
+        let outgoing = crate::search::parse_query("", crate::MediaFilter::Outgoing);
+        assert!(
+            db.search_ids(&outgoing).unwrap().is_empty(),
+            "記録が無ければ0件"
+        );
+        assert_eq!(db.count_outgoing().unwrap(), 0);
+
+        let path = |id: i64| db.get_by_id(id).unwrap().unwrap().path;
+        let (a, b) = (path(all[0]), path(all[1]));
+        let dir = PathBuf::from("/g");
+        for (n, (source, link)) in [(&a, "/g/a.jpg"), (&a, "/g/a-2.jpg"), (&b, "/g/b.jpg")]
+            .into_iter()
+            .enumerate()
+        {
+            db.google_place_claim(
+                &crate::mirror::Placed {
+                    source: source.clone(),
+                    link: PathBuf::from(link),
+                    index: n as u64,
+                    extracted: false,
+                },
+                &dir,
+            )
+            .unwrap();
+        }
+        let mut got = db.search_ids(&outgoing).unwrap();
+        got.sort();
+        let mut want = vec![all[0], all[1]];
+        want.sort();
+        assert_eq!(got, want, "記録が2本ある原本も1件");
+        assert_eq!(db.count_outgoing().unwrap(), 2);
+
+        // 外すと決まった行は、外し終える前でも並べない
+        db.google_place_doom(std::slice::from_ref(&b)).unwrap();
+        assert_eq!(db.search_ids(&outgoing).unwrap(), [all[0]]);
+        assert_eq!(db.count_outgoing().unwrap(), 1);
+        assert_eq!(
+            db.search_summary(&outgoing)
+                .unwrap()
+                .iter()
+                .map(|d| d.count)
+                .sum::<i64>(),
+            1,
+            "日ごとの数も同じ条件"
+        );
     }
 
     #[test]
