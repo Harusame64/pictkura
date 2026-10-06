@@ -499,6 +499,8 @@ export default function Settings({
                   const dir = await openDialog({
                     directory: true,
                     title: t.pickGoogleFolder,
+                    // いまの場所から開く（既定だと OneDrive の「ドキュメント」で開く。win の W6）
+                    defaultPath: googleLoc?.path ?? undefined,
                   });
                   if (typeof dir !== "string") return;
                   await changeGoogle(() => setGoogleLocation(dir));

@@ -660,13 +660,45 @@ fn open_work_dir(dir: &Path) -> io::Result<PathBuf> {
             work.display()
         )));
     }
-    for e in std::fs::read_dir(&work)?.flatten() {
+    clear_work_files(&work)?;
+    Ok(work)
+}
+
+/// 作業場に残った書きかけ・消し損ねた名前（[`WORK_PREFIX`] で始まるもの）を消す。
+/// 消せなかったものがあれば、最初の誤りを返す（残りは試す）。
+fn clear_work_files(work: &Path) -> io::Result<()> {
+    let mut first = None;
+    for e in std::fs::read_dir(work)?.flatten() {
         let ours = e.file_name().to_string_lossy().starts_with(WORK_PREFIX);
         if ours && e.file_type().is_ok_and(|t| t.is_file()) {
-            let _ = std::fs::remove_file(e.path());
+            if let Err(err) = std::fs::remove_file(e.path()) {
+                first.get_or_insert(err);
+            }
         }
     }
-    Ok(work)
+    first.map_or(Ok(()), Err)
+}
+
+/// 記録のある Google 用フォルダの作業場を片付けて畳む（突き合わせのたびに呼ぶ）。
+/// 取り出した直後に作業場の名前を消せなかった（Windows で削除の共有なしに掴まれた）ものは、
+/// 次の取り出しまで残り、名前が2つのまま中身がディスクに残る——RAW だけのカットを二度と
+/// 取り込まない人のところでは残り続ける（win の W12b）。消せなかったものは `failed` に積む
+fn tidy_work_dirs(dirs: &[PathBuf], report: &mut UnplaceReport) {
+    for dir in dirs {
+        let Ok(work) = work_dir_for(dir) else {
+            continue;
+        };
+        // 作業場がリンクなら辿らない（[`open_work_dir`] と同じ）
+        if !std::fs::symlink_metadata(&work).is_ok_and(|m| m.is_dir() && !is_link_meta(&m)) {
+            continue;
+        }
+        if let Err(e) = clear_work_files(&work) {
+            report
+                .failed
+                .push((work.clone(), format!("作業場を片付けられない: {e}")));
+        }
+        let _ = std::fs::remove_dir(&work);
+    }
 }
 
 /// `bytes` を作業場に書き切って、その場所を返す。更新日時は原本に揃える（Google が日時を
@@ -1123,6 +1155,7 @@ pub fn sweep_orphans(
     db: &mut crate::db::Db,
     discard: &mut dyn FnMut(&Path) -> io::Result<()>,
 ) -> Result<UnplaceReport, MirrorError> {
+    let dirs = db.google_placed_dirs().map_err(io::Error::other)?;
     let orphans = db.google_placed_orphans().map_err(io::Error::other)?;
     // 渡すのは「原本のファイルが無い」記録のうち、**リンクに別の名前が残っているもの以外**。
     // リンクがもう無い・番号が違う記録も渡す——[`unplace`] が「もう無い」として記録から消す。
@@ -1152,6 +1185,7 @@ pub fn sweep_orphans(
         db,
         group_by_dir(deleted.into_iter().map(|(dir, rec, _, _)| (dir, rec))),
     ));
+    tidy_work_dirs(&dirs, &mut report);
     Ok(report)
 }
 
@@ -2912,6 +2946,28 @@ mod tests {
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         assert_eq!((r.already, r.placed, r.failed.len()), (0, 0, 1));
         assert_eq!(std::fs::read(&out).unwrap(), b"someone else");
+    }
+
+    #[test]
+    fn a_work_name_left_behind_is_cleared_by_the_next_sweep() {
+        let f = fixture();
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        place_imported(&[f.lib.join("d/B.ARW")], &f.lib, &config, &mut db).unwrap();
+        // 作業場の名前を消し損ねた形（win の W12b）
+        let work = work_dir_for(&f.google).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let left = work.join(format!("{WORK_PREFIX}1-0.jpg"));
+        std::fs::hard_link(f.google.join("d/B.jpg"), &left).unwrap();
+        // 利用者の置いたものには触らない
+        let theirs = work.join("notes.txt");
+        put(&theirs, b"mine");
+        let r = sweep_orphans(&mut db, &mut no_discard()).unwrap();
+        assert!(r.failed.is_empty(), "{:?}", r.failed);
+        assert!(!left.exists());
+        assert!(theirs.exists());
+        assert_eq!(file_id(&f.google.join("d/B.jpg")).unwrap().links, 1);
     }
 
     #[test]

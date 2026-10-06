@@ -2812,6 +2812,15 @@ impl Db {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// 記録のある Google 用フォルダの並び（作業場の片付けに使う。[`crate::mirror::sweep_orphans`]）
+    pub fn google_placed_dirs(&self) -> Result<Vec<PathBuf>, DbError> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT DISTINCT dir FROM google_placed ORDER BY dir")?;
+        let rows = stmt.query_map([], |r| Ok(PathBuf::from(r.get::<_, String>(0)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// 前から在った行に、いま張ってある実体の番号を書き直す（[`crate::mirror::Ledger::renumber`]）。
     pub fn google_place_renumber(&mut self, placed: &crate::mirror::Placed) -> Result<(), DbError> {
         self.conn.execute(
