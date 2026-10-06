@@ -113,6 +113,8 @@
   h3 { font-size: 1.05rem; margin: 34px 0 10px; }
   p, li { color: var(--text); }
   .lead { color: var(--text-muted); margin: 0; font-size: 1.02rem; }
+  /* 但し書き（画面に出ない設定・商標）。本文より一段小さく、色を落とす */
+  .fine { color: var(--text-muted); font-size: 0.9rem; }
 
   code {
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -243,7 +245,7 @@
     <li><a href="#select">Select several at once</a></li>
     <li><a href="#formats">Supported file formats</a></li>
     <li><a href="#cloud">Files that only exist in the cloud</a></li>
-    <li><a href="#outgoing">Outgoing — to Google Photos</a></li>
+    <li><a href="#outgoing">Outgoing</a></li>
     <li><a href="#update">Update notices</a></li>
     <li><a href="#notes">Limitations and things it does not do</a></li>
     <li><a href="#files">Where settings and data live</a></li>
@@ -573,7 +575,7 @@ If your system is set to reduce motion, photos change without moving whatever yo
   <p>
     <strong>Deleting always goes through the Recycle Bin.</strong>
     The app never removes a file outright. The one exception is an Outgoing embedded JPEG: when its RAW is moved to the
-    Recycle Bin in pictkura, the JPEG is removed from the folder for Google Photos directly (it can be taken from the RAW again;
+    Recycle Bin in pictkura, the JPEG is removed from the Outgoing folder directly (it can be taken from the RAW again;
     see <a href="#outgoing">9. Outgoing</a>).
   </p>
 </div>
@@ -855,31 +857,33 @@ is a marker.
   <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would download the entire file, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
-<h2 id="outgoing">9. Outgoing — to Google Photos</h2>
+<h2 id="outgoing">9. Outgoing</h2>
 
 <p>
-Folder backup in Google Photos uploads the folder you add <strong>as a whole</strong>; it has no setting to leave out RAW files or videos.
-So pictkura keeps a <strong>folder for Google Photos</strong> that holds only what should go up. Add only that folder in Google Photos.
+Outgoing lines up, at every import, what you want to hand to a photo service in an <strong>Outgoing folder</strong>.
+Today it is for Google Photos. Folder backup in Google Photos uploads the folder you add <strong>as a whole</strong>, with no setting to leave out RAW files or videos,
+so pictkura places only what should go up in the Outgoing folder.
 pictkura does not talk to Google; the uploading is done by Google Photos.
 </p>
 
 <h3>Getting started</h3>
 
 <ol>
-  <li>In Settings → Outgoing, turn on “Also place imported photos in a folder for Google Photos”. The folder is created and its place is shown</li>
-  <li>In Google Photos (photos.google.com), add that folder with “+” → folder backup</li>
+  <li>In Settings → Outgoing, turn on “Also place imported photos in the Outgoing folder”. The folder is created and its place is shown</li>
+  <li>If you use Google Photos: in Google Photos (photos.google.com), add that folder with “+” → folder backup</li>
 </ol>
 
 <div class="note warn">
   <p>
-    <strong>Uploads happen only while a Google Photos tab is open.</strong> With the browser closed, photos are lined up but not sent.
+    <strong>If you use Google Photos:</strong> uploading is done by the Google Photos web page (photos.google.com), not by pictkura.
+    So it only goes ahead while that page is open in your browser. While the browser is closed, the photos wait in the folder.
   </p>
 </div>
 
 <h3>What goes in</h3>
 
 <ul>
-  <li><strong>Every import</strong> lines up the photos it copied, in the same folder layout as the import destination</li>
+  <li><strong>Every import</strong> lines up the photos it copied, in the same folder layout as inside the library location</li>
   <li>For RAW+JPEG pairs, <strong>only the JPEG</strong>. For RAW-only shots, Settings offers “Leave out” or “Place the embedded JPEG” (the preview picture the camera stored inside the RAW, given the capture date). A RAW without a preview of at least 1000 px on the long edge, as from some older cameras, is not placed</li>
   <li>Videos follow “Place videos too”. Photos inside OneDrive go in only when that setting is on</li>
   <li>Photos are placed as hard links (a second name for the same file), so <strong>they take no extra disk space</strong>. An embedded JPEG is a separate file and does take space</li>
@@ -892,18 +896,18 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <ul>
   <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar. “Add to Outgoing” in a photo’s right-click menu sends only that photo</li>
   <li><strong>Right-click a month heading in the calendar</strong> for “Add this month to Outgoing” or “Add all of &lt;year&gt; to Outgoing”. It covers the photos the current search and filter show</li>
-  <li>Over 100 photos, after select-all or a range, and from the calendar, pictkura shows the count and size before placing anything</li>
+  <li>Over 100 photos, after select-all or a range, from the calendar, and when a new folder has to be made, pictkura shows what will be placed before placing anything</li>
   <li>What you choose goes in even if it is a video or a RAW-only shot (as its embedded JPEG, when one of at least 1000 px on the long edge can be taken out); those two settings only steer what an import places on its own. Photos inside OneDrive follow their setting</li>
   <li>Files that exist only in the cloud are not placed. Download them first, then send again</li>
 </ul>
 
-<h3>One folder per drive</h3>
+<h3>One Outgoing folder per drive</h3>
 
 <p>
-Hard links cannot cross drives, so each drive that holds photos gets its own folder for Google Photos
-(<code>pictkura-google</code> under your home folder if the drive holds it, otherwise at the top of the drive).
-The first time you send photos from another drive, pictkura tells you; <strong>add that folder in Google Photos too</strong>.
-Changing the import destination to another drive also creates a folder there on the next import, without telling you. Remember to add it.
+Hard links cannot cross drives, so each drive that holds photos gets its own Outgoing folder
+(<code>pictkura-outgoing</code> under your home folder if the drive holds it, otherwise at the top of the drive).
+When one is created, the confirmation or the import result tells you, and Settings → Outgoing lists the Outgoing folders photos have been placed in.
+<strong>If you use Google Photos:</strong> add each one you use in Google Photos.
 You can choose another place on the same drive as the import destination with Settings → Outgoing → Change.
 </p>
 
@@ -916,7 +920,7 @@ You can choose another place on the same drive as the import destination with Se
   <li>while your home folder itself, or a folder containing it, is a library location (the default place falls inside the library; if the import destination is on the same drive, choose a place in Settings; otherwise photos on that drive cannot be sent)</li>
   <li>inside a sync folder (OneDrive, Google Drive, Dropbox, iCloud Drive, and Desktop and Documents on a Mac). pictkura only recognises their default places; avoid a sync folder you put somewhere else yourself</li>
   <li>while no import destination is set or it cannot be reached (Outgoing cannot be turned on)</li>
-  <li>when the folder for Google Photos is a symbolic link or junction</li>
+  <li>when the Outgoing folder is a symbolic link or junction</li>
 </ul>
 
 <div class="note">
@@ -928,13 +932,19 @@ You can choose another place on the same drive as the import destination with Se
 <h3>When something is deleted</h3>
 
 <ul>
-  <li>Moving a photo to the Recycle Bin in pictkura also takes it out of the folder for Google Photos. <strong>It stays in Google Photos</strong></li>
-  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; after the Recycle Bin is emptied, it moves at the next scan (startup or rescan)</li>
+  <li>Moving a photo to the Recycle Bin in pictkura also takes it out of the Outgoing folder. <strong>If you use Google Photos:</strong> it stays in Google Photos</li>
+  <li>If an original is deleted outside pictkura, what is left in the Outgoing folder goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; after the Recycle Bin is emptied, it moves at the next scan (startup or rescan)</li>
   <li>An embedded JPEG goes to the Recycle Bin at the next scan after its RAW is moved to the Recycle Bin, renamed or moved elsewhere outside pictkura (it is not the same file as the RAW, so these cannot be told apart)</li>
-  <li>Photos moved with pictkura’s “Move to folder” are no longer followed: what was placed stays, and trashing them later does not take it out of the folder for Google Photos</li>
+  <li>Photos moved with pictkura’s “Move to folder” are no longer followed: what was placed stays, and trashing them later does not take it out of the Outgoing folder</li>
   <li>Photos renamed or moved within the same drive outside pictkura keep what was placed. If such a photo is deleted later, what was placed goes to the Recycle Bin at the scan after the Recycle Bin is emptied. Moving one to another drive counts as deleting it</li>
-  <li>Deleting things inside the folder for Google Photos yourself does not touch the originals</li>
+  <li>Deleting things inside the Outgoing folder yourself does not touch the originals</li>
 </ul>
+
+<p class="fine">
+Setting <code>exclude_raw = false</code> under <code>[google_mirror]</code> in the settings file (<code>pictkura.toml</code>) also places the RAW of a RAW+JPEG pair (this setting is not shown on screen).
+</p>
+
+<p class="fine">Google Photos is a trademark of Google LLC.</p>
 
 <h2 id="update">10. Update notices</h2>
 
