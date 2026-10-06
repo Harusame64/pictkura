@@ -6068,13 +6068,15 @@ export default function App() {
     async (ids: readonly number[], fromSelection: boolean) => {
       if (ids.length === 0 || sendingRef.current) return;
       sendingRef.current = true;
+      // 外す間に選び直した選択は消さない（送るときと同じ。PR の codex）
+      const selectionAtStart = selectedRef.current;
       try {
         const r = await googleRemoveChosen([...ids]);
         // 1件も外せなかった回は、前の操作の文（「置きました」等）を残さない（win の実機 W37）
         setStatus(r.removed > 0 ? t.googleRemoved(r.removed) : "");
         if (r.failed > 0) fail(t.googleRemoveFailed(r.failed));
         // 外せなかったものも一覧からは消える（外すと決まった印が付く）ので、選択は残さない
-        if (fromSelection) clearSelection();
+        if (fromSelection && selectedRef.current === selectionAtStart) clearSelection();
       } catch (e) {
         fail(errText(e));
       } finally {
