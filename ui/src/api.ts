@@ -917,6 +917,10 @@ export const googleChosenSummary = (chosen: ChosenForGoogle) =>
 export const googleSendChosen = (chosen: ChosenForGoogle) =>
   invoke<GooglePlaced | null>("google_send_chosen", { chosen });
 
+/** あとで ⚑ を付けたコマと、同じ重ねのほかのコマ（連写の表紙だけ送った束に、そのコマを足す。設計 §3b） */
+export const googleAddPickedFrames = (frames: { id: number; siblings: number[] }[]) =>
+  invoke<GooglePlaced | null>("google_add_picked_frames", { frames });
+
 export const setGoogleIncludeOnedrive = (include: boolean) =>
   invoke<void>("set_google_include_onedrive", { include });
 
