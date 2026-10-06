@@ -428,6 +428,8 @@ type Row =
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
+/** 一覧に問い合わせた絞り込み（棚・種類・検索語）。`summaryFor` を見よ */
+type Asked = { filter: MediaFilter; kind: MediaKind; query: string };
 
 /**
  * ビューアで**何かが起きた**ときに一瞬出す合図の種類。
@@ -746,11 +748,12 @@ export default function App() {
   });
   const [memories, setMemories] = useState<Memory[]>([]);
   /**
-   * いまの `summary` が**どの絞り込みへの答えか**（`filter|検索語`）。絞り込みを変えた描画では
-   * `summary` はまだ前の答えなので、0件の案内（`filterEmpty`）はこれが今と一致するときだけ出す
-   * ——一致を見ないと、前の0件に新しい条件の名前を付けて1コマ見せる（ゲート2）
+   * いまの `summary` が**どの絞り込みへの答えか**。0件の案内（`filterEmpty`）の見出しは、
+   * 画面の今の絞り込みではなく**これ**から組む——絞り込みを変えた直後の `summary` は前の答えで、
+   * 今の条件の名前を付けると前の0件を新しい条件の答えとして見せる（ゲート2）。答えを待つ間も
+   * 前の答えの案内を出し続けられるので、0件から0件へ移るときに案内が1コマ消えない（win2 の実機 W51）
    */
-  const [summaryFor, setSummaryFor] = useState("");
+  const [summaryFor, setSummaryFor] = useState<Asked | null>(null);
   const [cellSize, setCellSize] = useState(180);
   /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
@@ -1102,6 +1105,8 @@ export default function App() {
    */
   const openSettingsRef = useRef<() => void>(() => {});
   const queryRef = useRef("");
+  /** 次に問い合わせる絞り込み（`summaryFor` に写す。見出しの条件の名前に要る生の形） */
+  const askedRef = useRef<Asked>({ filter: "all", kind: "all", query: "" });
   /** フィルタ切替・全体再読込のたびに増える世代番号。古い応答を捨てる */
   const generationRef = useRef(0);
   /** 取得中の日（重複リクエスト防止） */
@@ -1132,7 +1137,7 @@ export default function App() {
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
-    const askedFor = `${filterRef.current}|${queryRef.current}`;
+    const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
     // **同期で倒す。** 効果は同じ描画の中で順に走るので、状態の更新を待つと
@@ -1208,7 +1213,7 @@ export default function App() {
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
-    const askedFor = `${filterRef.current}|${queryRef.current}`;
+    const askedFor = askedRef.current;
     const [sum, st] = await Promise.all([
       timelineSummary(queryRef.current, filterRef.current),
       getStats(),
@@ -1557,6 +1562,7 @@ export default function App() {
     // 「絞り込み中はサムネイル完成の差分でその日を捨て直さない」判断
     // （`applyPatches`）も、種類で絞っているあいだは検索と同じ扱いになる
     queryRef.current = withKind(query, kind);
+    askedRef.current = { filter, kind, query };
     if (filterInitRef.current) {
       filterInitRef.current = false;
       return;
@@ -2021,9 +2027,12 @@ export default function App() {
    * なので「無い」と言わない。読み込みの失敗は上の「出せませんでした」に任せる。
    * 取り込み・走査・索引の途中は、あとで増えうるので一言添える（断定はやめない）
    */
-  const filterAnswered = summaryFor === `${filter}|${withKind(query, kind)}`;
   const filterEmpty =
-    filtering && settled && !loadFailed && summary.length === 0 && filterAnswered;
+    !showEmptyPanel &&
+    !loadFailed &&
+    summary.length === 0 &&
+    summaryFor !== null &&
+    (summaryFor.filter !== "all" || summaryFor.kind !== "all" || summaryFor.query !== "");
   // 一言は取り込み・索引の合図だけで決める——`busy` は削除・書き出しでも立つ（ゲート2）
   const filterEmptyMayGrow = !scanSettled || indexProgress?.building === true;
   /**
@@ -6940,18 +6949,18 @@ export default function App() {
               `.grid-scroll` と幅を分け合って左に寄る（ゲート2の指摘）。
               カレンダーは自前で「写真がありません」と出すので、
               こちらが出ているあいだは `Calendar` ごと止める */}
-          {!showEmptyPanel && unsureWhyEmpty && (
+          {!showEmptyPanel && unsureWhyEmpty && !filterEmpty && (
             <div className="calendar-empty">{t.calendarChecking}</div>
           )}
           {/* **絞り込んで0件**（plan.filter-empty.md、案B）。一覧もカレンダーも同じ案内——
               カレンダーの自前の「写真がありません」は止める（並べると空の知らせが2つになる）。
               ツールバーの「🔍 0件」はそのまま残す */}
-          {!showEmptyPanel && filterEmpty && (
-            <div className="empty-library">
+          {filterEmpty && summaryFor && (
+            <div className="empty-library filter-empty">
               <h2>
                 {t.filterEmptyTitle(
                   joinConditions(
-                    filterConditions(filter, kind, query, {
+                    filterConditions(summaryFor.filter, summaryFor.kind, summaryFor.query, {
                       shelf: {
                         fav: t.navFavorites,
                         picked: t.navPicked,
@@ -7001,7 +7010,7 @@ export default function App() {
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
               {/* 絞り込んで0件のときは、答えを待つ間もカレンダー自前の「写真がありません」を出さない
                   ——案内と交互に出て、空の知らせが2種類ちらつく（ゲート2） */}
-              {!showEmptyPanel && !unsureWhyEmpty && !(filtering && summary.length === 0) && (
+              {!showEmptyPanel && !unsureWhyEmpty && !filterEmpty && !(filtering && summary.length === 0) && (
                 <Calendar
                   summary={summary}
                   onOpenDay={openDay}

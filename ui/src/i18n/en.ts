@@ -513,7 +513,7 @@ export const en: Dict = {
   settingsForgetEditor: "Remove from the list",
   calendarEmpty: "No photos",
   filterEmptyTitle: (conds: string) => `No photos match these filters: ${conds}`,
-  filterEmptyMessage: "Clear the search or the filter picked on the left to see the rest.",
+  filterEmptyMessage: "Clear the search or the filters on the left to see the rest.",
   filterEmptyStillIndexing: "Photos are still being imported or indexed, so more may turn up.",
   filterCondQuery: (q: string) => `the search “${q}”`,
   filterCondCamera: (name: string) => `taken with ${name}`,
