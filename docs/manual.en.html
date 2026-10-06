@@ -243,6 +243,7 @@
     <li><a href="#select">Select several at once</a></li>
     <li><a href="#formats">Supported file formats</a></li>
     <li><a href="#cloud">Files that only exist in the cloud</a></li>
+    <li><a href="#outgoing">Outgoing — to Google Photos</a></li>
     <li><a href="#update">Update notices</a></li>
     <li><a href="#notes">Limitations and things it does not do</a></li>
     <li><a href="#files">Where settings and data live</a></li>
@@ -851,7 +852,69 @@ is a marker.
   <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would download the entire file, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
-<h2 id="update">9. Update notices</h2>
+<h2 id="outgoing">9. Outgoing — to Google Photos</h2>
+
+<p>
+Folder backup in Google Photos uploads the folder you add <strong>as a whole</strong>; it has no setting to leave out RAW files or videos.
+So pictkura keeps a <strong>folder for Google Photos</strong> that holds only what should go up. Add only that folder in Google Photos.
+pictkura does not talk to Google; the uploading is done by Google Photos.
+</p>
+
+<h3>Getting started</h3>
+
+<ol>
+  <li>In Settings → Outgoing, turn on “Also place imported photos in a folder for Google Photos”. The folder is created and its place is shown</li>
+  <li>In Google Photos (photos.google.com), add that folder with “+” → folder backup</li>
+</ol>
+
+<div class="note warn">
+  <p>
+    <strong>Uploads happen only while a Google Photos tab is open.</strong> With the browser closed, photos are lined up but not sent.
+  </p>
+</div>
+
+<h3>What goes in</h3>
+
+<ul>
+  <li><strong>Every import</strong> lines up the photos it copied, in the same folder layout as the import destination</li>
+  <li>For RAW+JPEG pairs, <strong>only the JPEG</strong>. For RAW-only shots, Settings offers “Leave out” or “Place the embedded JPEG” (the preview picture the camera stored inside the RAW, given the capture date)</li>
+  <li>Videos follow “Place videos too”. Photos inside OneDrive go in only when that setting is on</li>
+  <li>Photos are placed as hard links (a second name for the same file), so <strong>they take no extra disk space</strong>. An embedded JPEG is a separate file and does take space</li>
+</ul>
+
+<h3>Sending photos you imported earlier</h3>
+
+<ul>
+  <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar or the right-click menu</li>
+  <li><strong>Right-click a month heading in the calendar</strong> for “Add this month to Outgoing” or “Add all of &lt;year&gt; to Outgoing”. It covers the photos the current search and filter show</li>
+  <li>Over 100 photos, after select-all or a range, and from the calendar, pictkura shows the count and size before placing anything</li>
+  <li>What you choose goes in even if it is a video or a RAW-only shot (as its embedded JPEG). The settings only steer what an import places on its own</li>
+</ul>
+
+<h3>One folder per drive</h3>
+
+<p>
+Hard links cannot cross drives, so each drive that holds photos gets its own folder for Google Photos
+(<code>pictkura-google</code> under your home folder on that drive, otherwise at the top of the drive).
+The first time you send photos from another drive, pictkura tells you; <strong>add that folder in Google Photos too</strong>.
+Photos in a library location that is a whole drive, such as an SD card, cannot be sent.
+</p>
+
+<div class="note">
+  <p>
+    Keep it <strong>outside any folder another backup watches</strong>, such as a NAS or Amazon Photos. Inside one, the same photo is backed up twice.
+  </p>
+</div>
+
+<h3>When something is deleted</h3>
+
+<ul>
+  <li>Moving a photo to the trash in pictkura also takes it out of the folder for Google Photos. <strong>It stays in Google Photos</strong></li>
+  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the trash</li>
+  <li>Deleting things inside the folder for Google Photos yourself does not touch the originals</li>
+</ul>
+
+<h2 id="update">10. Update notices</h2>
 
 <p>
 A few seconds after it starts, pictkura <strong>asks once whether a newer version exists</strong>.
@@ -877,7 +940,7 @@ With that off, pictkura never reaches the network at all — and you can still p
 “Check for updates” in the same place to ask once, right then.
 </p>
 
-<h2 id="notes">10. Limitations and things it does not do</h2>
+<h2 id="notes">11. Limitations and things it does not do</h2>
 
 <div class="table-scroll">
 <table>
@@ -897,7 +960,7 @@ With that off, pictkura never reaches the network at all — and you can still p
 </table>
 </div>
 
-<h2 id="files">11. Where settings and data live</h2>
+<h2 id="files">12. Where settings and data live</h2>
 
 <div class="table-scroll">
 <table>
