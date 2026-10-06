@@ -573,7 +573,7 @@ If your system is set to reduce motion, photos change without moving whatever yo
   <p>
     <strong>Deleting always goes through the Recycle Bin.</strong>
     The app never removes a file outright. The one exception is an Outgoing embedded JPEG: when its RAW is moved to the
-    Recycle Bin, the JPEG is removed from the folder for Google Photos directly (it can be taken from the RAW again;
+    Recycle Bin in pictkura, the JPEG is removed from the folder for Google Photos directly (it can be taken from the RAW again;
     see <a href="#outgoing">9. Outgoing</a>).
   </p>
 </div>
@@ -913,9 +913,10 @@ You can choose another place on the same drive as the import destination with Se
   <li>on an exFAT or FAT drive (they cannot make hard links; many external USB drives use them)</li>
   <li>for a library location that is a whole drive, such as an SD card</li>
   <li>while the import destination is a whole drive (change the import destination)</li>
-  <li>while your home folder itself, or a folder containing it, is a library location (the default place falls inside the library; choose a place in Settings)</li>
+  <li>while your home folder itself, or a folder containing it, is a library location (the default place falls inside the library; if the import destination is on the same drive, choose a place in Settings; otherwise photos on that drive cannot be sent)</li>
   <li>inside a sync folder (OneDrive, Google Drive, Dropbox, iCloud Drive, and Desktop and Documents on a Mac)</li>
-  <li>while no import destination is set (Outgoing cannot be turned on)</li>
+  <li>while no import destination is set or it cannot be reached (Outgoing cannot be turned on)</li>
+  <li>when the folder for Google Photos is a symbolic link or junction</li>
 </ul>
 
 <div class="note">
@@ -928,9 +929,9 @@ You can choose another place on the same drive as the import destination with Se
 
 <ul>
   <li>Moving a photo to the Recycle Bin in pictkura also takes it out of the folder for Google Photos. <strong>It stays in Google Photos</strong></li>
-  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; it moves once the Recycle Bin is emptied</li>
-  <li>An embedded JPEG goes to the Recycle Bin as soon as its RAW is moved to the Recycle Bin, renamed or moved elsewhere outside pictkura (it is not the same file as the RAW, so these cannot be told apart)</li>
-  <li>Photos moved with pictkura’s “Move to folder” are no longer followed: what was placed stays, and trashing them later does not take it out of the folder for Google Photos</li>
+  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; after the Recycle Bin is emptied, it moves at the next scan (startup or rescan)</li>
+  <li>An embedded JPEG goes to the Recycle Bin at the next scan after its RAW is moved to the Recycle Bin, renamed or moved elsewhere outside pictkura (it is not the same file as the RAW, so these cannot be told apart)</li>
+  <li>Photos moved with pictkura’s “Move to folder”, or renamed or moved outside pictkura, are no longer followed: what was placed stays, and trashing them later does not take it out of the folder for Google Photos. Moving one to another drive counts as deleting it</li>
   <li>Deleting things inside the folder for Google Photos yourself does not touch the originals</li>
 </ul>
 
