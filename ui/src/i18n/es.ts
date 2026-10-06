@@ -517,6 +517,8 @@ export const es: Dict = {
   googleSendFolders: (list: string) => `Destino: ${list}`,
   googleSendNewFolder: (path: string) =>
     `Se creará ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
+  googleFolderCreated: (path: string) =>
+    `Se ha creado ${path}. Añade también esta carpeta a la copia de seguridad de carpetas de Google Fotos.`,
   googleSendNothing: "No hay nada que se pueda colocar.",
   googleSendConfirmOk: "Colocar",
   googleSent: (total: number, already: number) =>

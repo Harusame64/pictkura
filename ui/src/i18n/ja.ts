@@ -535,6 +535,8 @@ export const ja = {
   googleSendFolders: (list: string) => `置き先: ${list}`,
   googleSendNewFolder: (path: string) =>
     `${path} を新しく作ります。Google フォトの「フォルダをバックアップ」にこのフォルダも登録してください。`,
+  googleFolderCreated: (path: string) =>
+    `${path} を新しく作りました。Google フォトの「フォルダをバックアップ」にこのフォルダも登録してください。`,
   googleSendNothing: "置けるものがありません。",
   googleSendConfirmOk: "置く",
   googleSent: (total: number, already: number) =>

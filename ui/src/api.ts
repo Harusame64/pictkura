@@ -114,6 +114,8 @@ export interface GooglePlaced {
   error: string | null;
   /** 選んだのに置かないもの（ライブラリから選んで送ったときだけ。取り込みでは 0） */
   left_out: number;
+  /** この回に新しく作った Google 用フォルダ（Google フォトへの登録が要る）。作らなければ null */
+  new_folder: string | null;
 }
 
 export interface ExportStats {

@@ -493,6 +493,8 @@ export const zh: Dict = {
   googleSendFolders: (list: string) => `放入位置：${list}`,
   googleSendNewFolder: (path: string) =>
     `将新建 ${path}。请在 Google 相册的文件夹备份中也添加这个文件夹。`,
+  googleFolderCreated: (path: string) =>
+    `已新建 ${path}。请在 Google 相册的文件夹备份中也添加这个文件夹。`,
   googleSendNothing: "没有可以放入的内容。",
   googleSendConfirmOk: "放入",
   googleSent: (total: number, already: number) =>

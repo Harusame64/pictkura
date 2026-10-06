@@ -4006,6 +4006,8 @@ struct GooglePlacedDto {
     error: Option<String>,
     /// 選んだのに置かないもの（ライブラリから選んで送ったときだけ。[`pictkura_core::mirror::left_out`]）
     left_out: usize,
+    /// この回に新しく作った Google 用フォルダ（Google フォトへの登録を促す）
+    new_folder: Option<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -4543,6 +4545,10 @@ async fn google_send_chosen(
                     failed: r.failed.len(),
                     error,
                     left_out: c.left_out,
+                    new_folder: r
+                        .new_folder
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().into_owned()),
                 }
             }
             Err(e) => {
@@ -4898,6 +4904,10 @@ fn place_google_links(
                     .count(),
                 error: None,
                 left_out: 0,
+                new_folder: r
+                    .new_folder
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().into_owned()),
             }
         }
         Ok(None) => return None,

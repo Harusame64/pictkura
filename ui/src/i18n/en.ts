@@ -440,6 +440,8 @@ export const en: Dict = {
   googleSendFolders: (list: string) => `Placed in: ${list}`,
   googleSendNewFolder: (path: string) =>
     `${path} will be created. Add this folder to folder backup in Google Photos as well.`,
+  googleFolderCreated: (path: string) =>
+    `${path} was created. Add this folder to folder backup in Google Photos as well.`,
   googleSendNothing: "Nothing here can be placed.",
   googleSendConfirmOk: "Place",
   googleSent: (total: number, already: number) =>

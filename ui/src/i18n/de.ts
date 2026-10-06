@@ -514,6 +514,8 @@ export const de: Dict = {
   googleSendFolders: (list: string) => `Ablageort: ${list}`,
   googleSendNewFolder: (path: string) =>
     `${path} wird neu angelegt. Füge auch diesen Ordner in Google Fotos der Ordnersicherung hinzu.`,
+  googleFolderCreated: (path: string) =>
+    `${path} wurde neu angelegt. Füge auch diesen Ordner in Google Fotos der Ordnersicherung hinzu.`,
   googleSendNothing: "Hier gibt es nichts, das abgelegt werden kann.",
   googleSendConfirmOk: "Ablegen",
   googleSent: (total: number, already: number) =>
