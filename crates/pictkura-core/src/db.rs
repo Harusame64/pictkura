@@ -2758,18 +2758,21 @@ impl Db {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
         Ok(if held == source {
-            // 置き直すと決めた行は、外すと決まった印を下ろす（設計書 §3c）——送り出しから外したが
-            // 外付けが見えずに残った行へ送り直すと、印のままでは一覧に出ず、次の起動で外されてしまう
-            self.conn.execute(
-                "UPDATE google_placed SET doomed = 0 WHERE link_path = ?1 AND doomed = 1",
-                params![link],
-            )?;
             Claim::Ours {
                 index: index as u64,
             }
         } else {
             Claim::Other
         })
+    }
+
+    /// 置けたと確かめたリンクの、外すと決まった印を下ろす（[`crate::mirror::Ledger::settle`]）。
+    pub fn google_place_settle(&mut self, link: &Path) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE google_placed SET doomed = 0 WHERE link_path = ?1 AND doomed = 1",
+            params![crate::paths::normalize(link).to_string_lossy()],
+        )?;
+        Ok(())
     }
 
     /// `link` の記録（原本・番号・取り出しか）。[`crate::mirror::Ledger::holder`]
@@ -5607,7 +5610,17 @@ mod tests {
             )
             .unwrap();
         assert_eq!(again, crate::mirror::Claim::Ours { index: 2 });
-        assert_eq!(db.count_outgoing().unwrap(), 2, "送り直すと印が下りる");
+        assert_eq!(
+            db.count_outgoing().unwrap(),
+            1,
+            "記録を引いただけでは下ろさない（在るリンクを確かめる前）"
+        );
+        db.google_place_settle(Path::new("/g/b.jpg")).unwrap();
+        assert_eq!(
+            db.count_outgoing().unwrap(),
+            2,
+            "置けたと確かめたら印が下りる"
+        );
         db.google_place_doom(std::slice::from_ref(&b)).unwrap();
         assert_eq!(
             db.search_summary(&outgoing)

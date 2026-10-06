@@ -1616,7 +1616,11 @@ export default function App() {
         refreshSummary().catch(() => {});
       });
       if (cancelled) outgoingDone();
-      else unlistenOutgoing = outgoingDone;
+      else {
+        unlistenOutgoing = outgoingDone;
+        // 登録の前に出た知らせ（起動の置き直しが速く終わった）は届いていない。一度取り直す
+        refreshSummary().catch(() => {});
+      }
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else {
@@ -2402,11 +2406,10 @@ export default function App() {
       const googleFailed = googleFailure(stats.google);
       if (googleFailed) fail(googleFailed);
       await refreshRoots();
-      // 送り出しに置くのは走査の知らせ（library-updated）の後なので、件数と一覧はここで取り直す
-      if (stats.google && stats.google.placed > 0) refreshSummary().catch(() => {});
+      // 送り出しの件数と一覧は、取り込みのあとの `outgoing-changed` が取り直させる
       checkDecoders();
     },
-    [refreshRoots, checkDecoders, fail, refreshSummary],
+    [refreshRoots, checkDecoders, fail],
   );
 
   // ライブラリのルート追加の本体。手入力（onAddFolder）と
@@ -6122,10 +6125,9 @@ export default function App() {
     if (frames.length === 0) return;
     googleAddPickedFrames(frames)
       .then((r) => {
-        if (r && r.placed > 0) {
-          setStatus(t.googleSent(r.placed, 0));
-          refreshSummary().catch(() => {});
-        }
+        if (r && r.placed > 0) setStatus(t.googleSent(r.placed, 0));
+        // 置き済みでも取り直す——外せずに印が残ったコマは、置けたと確かめた時点で一覧に戻る
+        if (r && r.placed + r.already > 0) refreshSummary().catch(() => {});
         if (r) {
           const notes: string[] = [];
           if (r.error) notes.push(t.importGoogleError(errText(r.error)));

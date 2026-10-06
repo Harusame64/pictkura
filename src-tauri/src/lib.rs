@@ -4868,7 +4868,11 @@ fn finish_import(
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
         let sync_stats = scan_and_apply_root(state, dest)?;
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
-        return Ok(place_google_links(state, dest, copied));
+        let placed = place_google_links(state, dest, copied);
+        // 送り出しは走査の知らせより後に動く（保留の置き直し・突き合わせ・この回の分）。
+        // 取り込みの結果の数だけでは、保留から置いた分を拾えない（ゲート2）
+        let _ = app.emit("outgoing-changed", ());
+        return Ok(placed);
     }
     Ok(None)
 }
