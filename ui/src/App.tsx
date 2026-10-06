@@ -6950,9 +6950,12 @@ export default function App() {
               `.grid-scroll` と幅を分け合って左に寄る（ゲート2の指摘）。
               カレンダーは自前で「写真がありません」と出すので、
               こちらが出ているあいだは `Calendar` ごと止める */}
-          {!showEmptyPanel && unsureWhyEmpty && !filterEmpty && (
-            <div className="calendar-empty">{t.calendarChecking}</div>
-          )}
+          {/* 絞り込んだ最初の答えを待つ間（前の答えが絞り込み無しの0件）も、空白にしない（PR の codex） */}
+          {!showEmptyPanel &&
+            !filterEmpty &&
+            (unsureWhyEmpty || (filtering && summary.length === 0)) && (
+              <div className="calendar-empty">{t.calendarChecking}</div>
+            )}
           {/* **絞り込んで0件**（plan.filter-empty.md、案B）。一覧もカレンダーも同じ案内——
               カレンダーの自前の「写真がありません」は止める（並べると空の知らせが2つになる）。
               ツールバーの「🔍 0件」はそのまま残す */}
