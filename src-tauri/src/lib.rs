@@ -3690,8 +3690,7 @@ fn list_media_ids_in_days(
     to: i64,
 ) -> Result<Vec<i64>, String> {
     let mut query = pictkura_core::parse_query(&query, filter);
-    query.day_from = Some(query.day_from.map_or(from, |f| f.max(from)));
-    query.day_to = Some(query.day_to.map_or(to, |t| t.min(to)));
+    query.narrow_days(from, to);
     state
         .read_pool
         .with(|db| db.search_ids(&query))

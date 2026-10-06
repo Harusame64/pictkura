@@ -844,6 +844,13 @@ export default function App() {
     /** ★・⚑ が効くファイル（連写では表紙のコマだけ。`Cell.markFiles`）。無ければ `files` */
     markFiles?: MediaItem[];
   } | null>(null);
+  /** カレンダーの月の見出しの右クリック（送り出しへ。設計 ② §9）。
+   * 上の幕が開くときは、タイルの `menu` と一緒に畳む（ゲート1） */
+  const [calMenu, setCalMenu] = useState<{
+    pos: { x: number; y: number };
+    year: number;
+    month: number;
+  } | null>(null);
   /** 登録済みの外部編集アプリ（設定から読む） */
   const [editors, setEditors] = useState<ExternalApp[]>([]);
   /** 設定ダイアログの表示と、その中身になる設定スナップショット */
@@ -2282,6 +2289,7 @@ export default function App() {
     setPaletteOpen(false);
     setShortcutsOpen(false);
     setMenu(null);
+    setCalMenu(null);
     // **待たされて出た面かどうか**を渡す（`ImportWizard` の `graceOnOpen`）。
     // **耳栓が要るのはその道だけ**——自分でボタンを押して開けた人の `Esc` は、
     // **すぐ効かないと「効かない」**である
@@ -2304,6 +2312,7 @@ export default function App() {
   useEffect(() => {
     if (rejectGate === null) return;
     setMenu(null);
+    setCalMenu(null);
     setPaletteOpen(false);
   }, [rejectGate]);
 
@@ -4910,7 +4919,7 @@ export default function App() {
         if (e.key === "Escape" && !trashing && answerKey(e)) setRejectGate(null);
         return;
       }
-      if (wizardOpen || menu !== null) return;
+      if (wizardOpen || menu !== null || calMenu !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -4999,6 +5008,7 @@ export default function App() {
     settingsOpen,
     wizardOpen,
     menu,
+    calMenu,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5140,6 +5150,7 @@ export default function App() {
         settingsOpen ||
         wizardOpen ||
         menu !== null ||
+        calMenu !== null ||
         view !== "grid"
       )
         return;
@@ -5155,7 +5166,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, calMenu, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -5407,6 +5418,7 @@ export default function App() {
     setPaletteOpen(false);
     setShortcutsOpen(false);
     setMenu(null);
+    setCalMenu(null);
     setSettingsOpen(true);
   };
 
@@ -5419,7 +5431,8 @@ export default function App() {
       settingsOpen ||
       shortcutsOpen ||
       paletteOpen ||
-      menu !== null;
+      menu !== null ||
+      calMenu !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -5995,12 +6008,10 @@ export default function App() {
     [confirmAction, fail, clearSelection, platform],
   );
 
-  /** カレンダーの月の見出しの右クリック（送り出しへ。設計 ② §9） */
-  const [calMenu, setCalMenu] = useState<{
-    pos: { x: number; y: number };
-    year: number;
-    month: number;
-  } | null>(null);
+  // 送り出しを切った・カレンダーを離れたら、月のメニューを畳む（古い項目を押させない。ゲート2）
+  useEffect(() => {
+    if (!googleOn || view !== "calendar") setCalMenu(null);
+  }, [googleOn, view]);
 
   /**
    * カレンダーの月・年を送り出しへ置く。**いまの検索・絞り込みで見えているもの**だけ（カレンダーの数と
@@ -6009,6 +6020,11 @@ export default function App() {
   const sendDaysToGoogle = useCallback(
     async (from: number, to: number) => {
       const ids = await listMediaIdsInDays(queryRef.current, filterRef.current, from, to);
+      // 空なら黙らない（検索を打ち変えた直後など。ゲート2）
+      if (ids.length === 0) {
+        fail(t.googleSendNothing);
+        return;
+      }
       await sendToGoogle(ids, ids.length, true, false);
     },
     [sendToGoogle],

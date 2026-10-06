@@ -253,6 +253,14 @@ impl MediaKind {
 }
 
 impl SearchQuery {
+    /// 表示日の範囲を `from`〜`to`（YYYYMMDD、両端を含む）で**狭める**（広げない）。
+    /// 日付の条件が重なったときは共通部分——`year:` の読めない値（何にも当たらない範囲）も、
+    /// 重ねたあとまで何にも当たらないまま残る。カレンダーの月・年を送るときもここを通す
+    pub fn narrow_days(&mut self, from: i64, to: i64) {
+        self.day_from = Some(self.day_from.map_or(from, |v| v.max(from)));
+        self.day_to = Some(self.day_to.map_or(to, |v| v.min(to)));
+    }
+
     /// 入口の絞り込みだけの（＝検索語なしの）クエリ。
     pub fn filtered(filter: MediaFilter) -> Self {
         Self {
@@ -473,8 +481,7 @@ pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
                     // 絞り込みが黙って消えて**全件が出る**——絞ったつもりの利用者には
                     // 一番分かりにくい壊れ方になる。0件なら打ち間違いに気付ける
                     let (from, to) = parse_year(value).unwrap_or((MAX_DAY_KEY, MIN_DAY_KEY));
-                    q.day_from = Some(q.day_from.map_or(from, |v: i64| v.max(from)));
-                    q.day_to = Some(q.day_to.map_or(to, |v: i64| v.min(to)));
+                    q.narrow_days(from, to);
                     true
                 }
                 "fav" | "favorite" | "★" => {
@@ -514,8 +521,7 @@ pub fn parse_query(input: &str, filter: MediaFilter) -> SearchQuery {
         }
         if let Some((from, to)) = parse_date_range(&token) {
             // 複数の日付指定は範囲の共通部分（＝より狭い方）を採る
-            q.day_from = Some(q.day_from.map_or(from, |v: i64| v.max(from)));
-            q.day_to = Some(q.day_to.map_or(to, |v: i64| v.min(to)));
+            q.narrow_days(from, to);
             continue;
         }
         q.terms.push(token);
@@ -775,5 +781,21 @@ mod tests {
     fn date_ranges_narrow_to_the_tighter_one() {
         let q = parse_query("2019年 2019年8月", crate::MediaFilter::All);
         assert_eq!((q.day_from, q.day_to), (Some(20190801), Some(20190831)));
+    }
+
+    #[test]
+    fn narrowing_days_never_widens_and_keeps_an_empty_range_empty() {
+        // 検索に 2019-08-10 があるところへ「8月を送る」を重ねても、8月全体には広がらない
+        let mut q = parse_query("2019-08-10", MediaFilter::All);
+        q.narrow_days(20190801, 20190831);
+        assert_eq!((q.day_from, q.day_to), (Some(20190810), Some(20190810)));
+        // 日付の条件が無ければ、そのまま範囲になる
+        let mut q = parse_query("", MediaFilter::All);
+        q.narrow_days(20100101, 20101231);
+        assert_eq!((q.day_from, q.day_to), (Some(20100101), Some(20101231)));
+        // 読めない `year:` は何にも当たらない範囲のまま
+        let mut q = parse_query("year:abc", MediaFilter::All);
+        q.narrow_days(20100101, 20101231);
+        assert!(q.day_from.unwrap() > q.day_to.unwrap());
     }
 }
