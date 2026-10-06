@@ -2800,8 +2800,7 @@ mod tests {
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         // 外で原本を差し替え、古いリンクも消した
         std::fs::remove_file(f.google.join("d/a.jpg")).unwrap();
-        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
-        put(&f.lib.join("d/a.jpg"), b"new photo");
+        put_fresh(&f.lib.join("d/a.jpg"), b"new photo");
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         assert_eq!(r.placed, 1);
         // 番号が新しい実体に合っていれば、外せる
