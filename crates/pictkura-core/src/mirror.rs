@@ -581,11 +581,14 @@ pub fn place(
             }
             other => other,
         };
-        let linked = linked.and_then(|r| {
-            ledger
+        // 印が在りうるのは前からの行だけ。新しい行で呼ぶと、書けなかったときに下の失敗の道が記録を
+        // 取り消し、張ったばかりのリンクが記録の無いまま残る（ゲート2）
+        let linked = linked.and_then(|r| match claim {
+            Claim::Ours { .. } => ledger
                 .settle(&placed.link)
                 .map(|()| r)
-                .map_err(|e| (format!("記録の印を下ろせない: {e}"), true))
+                .map_err(|e| (format!("記録の印を下ろせない: {e}"), true)),
+            _ => Ok(r),
         });
         match linked {
             Ok(true) => report.placed += 1,

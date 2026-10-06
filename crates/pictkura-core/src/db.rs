@@ -2767,11 +2767,24 @@ impl Db {
     }
 
     /// 置けたと確かめたリンクの、外すと決まった印を下ろす（[`crate::mirror::Ledger::settle`]）。
+    /// 印が無ければ書かない——置くたびに書き込みの鍵を取らない（混んでいると失敗に化ける。ゲート2）
     pub fn google_place_settle(&mut self, link: &Path) -> Result<(), DbError> {
-        self.conn.execute(
-            "UPDATE google_placed SET doomed = 0 WHERE link_path = ?1 AND doomed = 1",
-            params![crate::paths::normalize(link).to_string_lossy()],
-        )?;
+        let link = crate::paths::normalize(link);
+        let link = link.to_string_lossy();
+        let doomed: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT doomed FROM google_placed WHERE link_path = ?1",
+                params![link],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if doomed == Some(1) {
+            self.conn.execute(
+                "UPDATE google_placed SET doomed = 0 WHERE link_path = ?1",
+                params![link],
+            )?;
+        }
         Ok(())
     }
 
