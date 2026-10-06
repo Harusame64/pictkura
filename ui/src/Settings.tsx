@@ -520,8 +520,9 @@ export default function Settings({
             <p className="settings-note">{t.settingsGoogleFolderNote}</p>
             {/* ドライブごとに作ったフォルダの一覧（上の「フォルダ」に出ていないものが1つでもあるとき。取り込み先を
                 別のドライブへ変えたあとの、前のドライブの置き済みのフォルダも辿れるように。ゲート1）。作った回の知らせを見逃しても辿れるように。
-                登録済みかは pictkura に分からないので印は付けない（2026-10-06 利用者決定） */}
-            {google?.enabled && googleDirs.some((d) => d !== googleLoc?.path) && (
+                登録済みかは pictkura に分からないので印は付けない（2026-10-06 利用者決定）。
+                切っていても出す——切っても置いたものは残っている（PR の codex） */}
+            {googleDirs.some((d) => d !== googleLoc?.path) && (
               <div className="settings-google-folders">
                 <p className="settings-note">{t.settingsGoogleFoldersNote}</p>
                 <ul>
