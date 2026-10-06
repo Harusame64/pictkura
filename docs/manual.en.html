@@ -574,8 +574,9 @@ If your system is set to reduce motion, photos change without moving whatever yo
 <div class="note">
   <p>
     <strong>Deleting always goes through the Recycle Bin.</strong>
-    The app never removes a file outright. The one exception is an Outgoing embedded JPEG: when its RAW is moved to the
-    Recycle Bin in pictkura, the JPEG is removed from the Outgoing folder directly (it can be taken from the RAW again;
+    The app never removes a file outright. The one exception is the Outgoing folder: when a photo is moved to the
+    Recycle Bin in pictkura, what was placed in the Outgoing folder is taken out without going through the Recycle Bin
+    (the photo itself stays in the Recycle Bin, and an embedded JPEG can be taken from its RAW again;
     see <a href="#outgoing">9. Outgoing</a>).
   </p>
 </div>
@@ -883,8 +884,8 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <h3>What goes in</h3>
 
 <ul>
-  <li><strong>Every import</strong> lines up the photos it copied, in the same folder layout as inside the library location</li>
-  <li>For RAW+JPEG pairs, <strong>only the JPEG</strong>. For RAW-only shots, Settings offers “Leave out” or “Place the embedded JPEG” (the preview picture the camera stored inside the RAW, given the capture date). A RAW without a preview of at least 1000 px on the long edge, as from some older cameras, is not placed</li>
+  <li><strong>Every import</strong> lines up the photos it copied (except those matching the library’s exclude patterns), in the same folder layout as inside the library location</li>
+  <li>For RAW+JPEG pairs, <strong>only the JPEG</strong>. For RAW-only shots, Settings offers “Leave out” or “Place the embedded JPEG” (the preview picture the camera stored inside the RAW, given the capture date). A RAW without a preview of at least 1000 px on the long edge (some older cameras, and some phones’ DNG files) is not placed</li>
   <li>Videos follow “Place videos too”. Photos inside OneDrive go in only when that setting is on</li>
   <li>Photos are placed as hard links (a second name for the same file), so <strong>they take no extra disk space</strong>. An embedded JPEG is a separate file and does take space</li>
 </ul>
@@ -906,7 +907,7 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <p>
 Hard links cannot cross drives, so each drive that holds photos gets its own Outgoing folder
 (<code>pictkura-outgoing</code> under your home folder if the drive holds it, otherwise at the top of the drive).
-When one is created, the confirmation or the import result tells you, and Settings → Outgoing lists the Outgoing folders photos have been placed in.
+When one is created, the confirmation or the import result usually tells you (not when it is made by the retry at startup), and Settings → Outgoing always lists the Outgoing folders photos have been placed in.
 <strong>If you use Google Photos:</strong> add each one you use in Google Photos.
 You can choose another place on the same drive as the import destination with Settings → Outgoing → Change.
 </p>
@@ -933,16 +934,12 @@ You can choose another place on the same drive as the import destination with Se
 
 <ul>
   <li>Moving a photo to the Recycle Bin in pictkura also takes it out of the Outgoing folder. <strong>If you use Google Photos:</strong> it stays in Google Photos</li>
-  <li>If an original is deleted outside pictkura, what is left in the Outgoing folder goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; after the Recycle Bin is emptied, it moves at the next scan (startup or rescan)</li>
+  <li>If an original is deleted outside pictkura, what is left in the Outgoing folder goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; after the Recycle Bin is emptied, it moves the next time pictkura scans (at startup, an import, a rescan, or when it notices a folder change)</li>
   <li>An embedded JPEG goes to the Recycle Bin at the next scan after its RAW is moved to the Recycle Bin, renamed or moved elsewhere outside pictkura (it is not the same file as the RAW, so these cannot be told apart)</li>
   <li>Photos moved with pictkura’s “Move to folder” are no longer followed: what was placed stays, and trashing them later does not take it out of the Outgoing folder</li>
-  <li>Photos renamed or moved within the same drive outside pictkura keep what was placed. If such a photo is deleted later, what was placed goes to the Recycle Bin at the scan after the Recycle Bin is emptied. Moving one to another drive counts as deleting it</li>
+  <li>Photos renamed or moved within the same drive outside pictkura keep what was placed. If such a photo is deleted later, what was placed goes to the Recycle Bin the next time pictkura scans after the Recycle Bin is emptied. Moving one to another drive counts as deleting it</li>
   <li>Deleting things inside the Outgoing folder yourself does not touch the originals</li>
 </ul>
-
-<p class="fine">
-Setting <code>exclude_raw = false</code> under <code>[google_mirror]</code> in the settings file (<code>pictkura.toml</code>) also places the RAW of a RAW+JPEG pair (this setting is not shown on screen).
-</p>
 
 <p class="fine">Google Photos is a trademark of Google LLC.</p>
 
@@ -1031,6 +1028,8 @@ file open, say), in which case the older half is dropped to keep the cap, and th
 You can edit the settings file by hand. Anything the app has no UI for — the patterns of
 folders to exclude from scanning, or <code>[import] sidecar_extensions</code> for the files
 carried along with each photo — can be changed there.
+Setting Outgoing’s <code>[google_mirror] exclude_raw = false</code> places every RAW as it is
+(paired RAWs and RAW-only shots alike; the “RAW-only shots” setting then has no effect).
 <strong>Your photos are never stored in these places.</strong>
 Deleting the database does not delete any photo; it is simply rebuilt.
 </p>
