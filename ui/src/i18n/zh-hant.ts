@@ -481,6 +481,9 @@ export const zhHant: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} 個未能放入 Google 相簿專用資料夾（請查看記錄）`,
   importGoogleError: (why: string) => `未能為 Google 相簿放入任何檔案：${why}`,
   bulkSendGoogle: "加入送出",
+  calendarSendMonth: "將本月加入送出",
+  /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
+  calendarSendYear: (year: string) => `將 ${year} 年全部加入送出`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} 張照片`);

@@ -499,6 +499,9 @@ export const de: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht für Google Fotos abgelegt werden (siehe Protokoll)`,
   importGoogleError: (why: string) => `Nichts für Google Fotos abgelegt: ${why}`,
   bulkSendGoogle: "Zum Ausgang",
+  calendarSendMonth: "Diesen Monat zum Ausgang",
+  /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
+  calendarSendYear: (year: string) => `Das ganze Jahr ${year} zum Ausgang`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "Foto", "Fotos")}`);

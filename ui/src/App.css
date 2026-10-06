@@ -713,6 +713,9 @@ body {
   margin: 0 auto var(--sp-6);
 }
 .month-title {
+  /* 右クリックで送り出しのメニューを出すので、見出しの文字が選ばれて見えないように */
+  user-select: none;
+  -webkit-user-select: none;
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);

@@ -478,6 +478,9 @@ export const zh: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} 个未能放入 Google 相册专用文件夹（请查看日志）`,
   importGoogleError: (why: string) => `未能为 Google 相册放入任何文件：${why}`,
   bulkSendGoogle: "加入送出",
+  calendarSendMonth: "将本月加入送出",
+  /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
+  calendarSendYear: (year: string) => `将 ${year} 年全部加入送出`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} 张照片`);

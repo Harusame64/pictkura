@@ -590,6 +590,13 @@ export const setFavorites = (ids: number[], favorite: boolean) =>
  */
 export const listMediaIds = (query: string, filter: MediaFilter) =>
   invoke<number[]>("list_media_ids", { query, filter });
+/** いまの検索・絞り込みのうち、表示日が `from`〜`to`（YYYYMMDD、両端を含む）のID（カレンダーから送り出しへ） */
+export const listMediaIdsInDays = (
+  query: string,
+  filter: MediaFilter,
+  from: number,
+  to: number,
+) => invoke<number[]>("list_media_ids_in_days", { query, filter, from, to });
 /**
  * 一覧の並びで、**2点に挟まれた範囲のIDだけ**を取る（Shift+クリック）。
  *

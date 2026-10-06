@@ -3678,6 +3678,26 @@ fn list_media_ids(
         .map_err(errs::from_err)
 }
 
+/// いまの検索・絞り込みのうち、**表示日が `from`〜`to`（YYYYMMDD、両端を含む）のID**。
+/// カレンダーの月・年をまとめて送り出しへ置くときに使う（`dev/plan.google-photos-from-library.md` §9）。
+/// 検索の日付の条件があれば、それとの重なりだけ（広げない）
+#[tauri::command]
+fn list_media_ids_in_days(
+    state: tauri::State<'_, AppState>,
+    query: String,
+    filter: pictkura_core::MediaFilter,
+    from: i64,
+    to: i64,
+) -> Result<Vec<i64>, String> {
+    let mut query = pictkura_core::parse_query(&query, filter);
+    query.day_from = Some(query.day_from.map_or(from, |f| f.max(from)));
+    query.day_to = Some(query.day_to.map_or(to, |t| t.min(to)));
+    state
+        .read_pool
+        .with(|db| db.search_ids(&query))
+        .map_err(errs::from_err)
+}
+
 /// 範囲選択（Shift+クリック）で、**2点に挟まれたIDだけ**を取る。
 ///
 /// 全IDを返す `list_media_ids` を範囲選択に使うと、隣り合う2枚のために
@@ -6780,6 +6800,7 @@ pub fn run() {
             set_google_raw_only,
             google_chosen_summary,
             google_send_chosen,
+            list_media_ids_in_days,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

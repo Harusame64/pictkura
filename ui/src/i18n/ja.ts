@@ -520,6 +520,9 @@ export const ja = {
   importGoogleFailed: (n: number) => `Google フォト用に${num(n)}件置けませんでした（ログを参照）`,
   importGoogleError: (why: string) => `Google フォト用に置けませんでした: ${why}`,
   bulkSendGoogle: "送り出しへ",
+  calendarSendMonth: "この月を送り出しへ",
+  /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
+  calendarSendYear: (year: string) => `${year}年をまるごと送り出しへ`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)}枚`);

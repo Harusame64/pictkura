@@ -99,6 +99,7 @@ import {
   burstGapOf,
   googleChosenSummary,
   googleSendChosen,
+  listMediaIdsInDays,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
@@ -5994,6 +5995,25 @@ export default function App() {
     [confirmAction, fail, clearSelection, platform],
   );
 
+  /** カレンダーの月の見出しの右クリック（送り出しへ。設計 ② §9） */
+  const [calMenu, setCalMenu] = useState<{
+    pos: { x: number; y: number };
+    year: number;
+    month: number;
+  } | null>(null);
+
+  /**
+   * カレンダーの月・年を送り出しへ置く。**いまの検索・絞り込みで見えているもの**だけ（カレンダーの数と
+   * 同じ）。中身が見えにくい選び方なので、いつも確かめる（`wide`）
+   */
+  const sendDaysToGoogle = useCallback(
+    async (from: number, to: number) => {
+      const ids = await listMediaIdsInDays(queryRef.current, filterRef.current, from, to);
+      await sendToGoogle(ids, ids.length, true, false);
+    },
+    [sendToGoogle],
+  );
+
   /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
   const onBulkSendGoogle = useCallback(async () => {
     const ids = await visibleSelection();
@@ -6733,7 +6753,15 @@ export default function App() {
                   起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
               {!showEmptyPanel && !unsureWhyEmpty && (
-                <Calendar summary={summary} onOpenDay={openDay} />
+                <Calendar
+                  summary={summary}
+                  onOpenDay={openDay}
+                  onMonthMenu={
+                    googleOn
+                      ? (pos, year, month) => setCalMenu({ pos, year, month })
+                      : undefined
+                  }
+                />
               )}
             </div>
           ) : (
@@ -7718,6 +7746,30 @@ export default function App() {
         pos={menu?.pos ?? null}
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
         onClose={() => setMenu(null)}
+      />
+      <ContextMenu
+        pos={calMenu?.pos ?? null}
+        items={
+          calMenu
+            ? [
+                {
+                  label: t.calendarSendMonth,
+                  run: () => {
+                    const base = calMenu.year * 10000 + calMenu.month * 100;
+                    sendDaysToGoogle(base + 1, base + 31).catch((e) => fail(errText(e)));
+                  },
+                },
+                {
+                  label: t.calendarSendYear(String(calMenu.year)),
+                  run: () => {
+                    const base = calMenu.year * 10000;
+                    sendDaysToGoogle(base + 101, base + 1231).catch((e) => fail(errText(e)));
+                  },
+                },
+              ]
+            : []
+        }
+        onClose={() => setCalMenu(null)}
       />
       {/* ショートカット一覧（`?` / `F1`）。キーを覚えていなくても、
           いま押せるものがその場で分かるように出す */}
