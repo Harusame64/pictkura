@@ -558,6 +558,7 @@ was read before.
 
 <p>
 Right-click for “Open”, “Open with another app…”, “Show in folder”, “Add to favorites”, “Pick” and “Delete (move to trash)”.
+With Outgoing on, “Add to Outgoing” is there too (<a href="#outgoing">9. Outgoing</a>).
 An editing app you pick once is remembered and appears in the menu from then on.
 </p>
 
@@ -571,7 +572,9 @@ If your system is set to reduce motion, photos change without moving whatever yo
 <div class="note">
   <p>
     <strong>Deleting always goes through the Recycle Bin.</strong>
-    The app never removes a file outright.
+    The app never removes a file outright. The one exception is an Outgoing embedded JPEG: when its RAW is moved to the
+    Recycle Bin, the JPEG is removed from the folder for Google Photos directly (it can be taken from the RAW again;
+    see <a href="#outgoing">9. Outgoing</a>).
   </p>
 </div>
 
@@ -643,7 +646,7 @@ what you can do to the selection.
 <p>
 While something is selected, a plain click toggles a tile instead of opening the viewer.
 From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
-you pick, or move all of it to the Recycle Bin in one go. It asks before deleting.
+you pick, or move all of it to the Recycle Bin in one go. It asks before deleting. With Outgoing on, the bar also has “Add to Outgoing”.
 </p>
 
 <h3>⚑ Picked</h3>
@@ -884,6 +887,8 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 
 <h3>Sending photos you imported earlier</h3>
 
+<p>These appear only while Outgoing is turned on in Settings.</p>
+
 <ul>
   <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar. “Add to Outgoing” in a photo’s right-click menu sends only that photo</li>
   <li><strong>Right-click a month heading in the calendar</strong> for “Add this month to Outgoing” or “Add all of &lt;year&gt; to Outgoing”. It covers the photos the current search and filter show</li>
@@ -898,6 +903,7 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 Hard links cannot cross drives, so each drive that holds photos gets its own folder for Google Photos
 (<code>pictkura-google</code> under your home folder if the drive holds it, otherwise at the top of the drive).
 The first time you send photos from another drive, pictkura tells you; <strong>add that folder in Google Photos too</strong>.
+Changing the import destination to another drive also creates a folder there on the next import, without telling you. Remember to add it.
 You can choose another place on the same drive as the import destination with Settings → Outgoing → Change.
 </p>
 
@@ -907,7 +913,9 @@ You can choose another place on the same drive as the import destination with Se
   <li>on an exFAT or FAT drive (they cannot make hard links; many external USB drives use them)</li>
   <li>for a library location that is a whole drive, such as an SD card</li>
   <li>while the import destination is a whole drive (change the import destination)</li>
-  <li>while your home folder itself is a library location (the default place falls inside the library; choose a place in Settings)</li>
+  <li>while your home folder itself, or a folder containing it, is a library location (the default place falls inside the library; choose a place in Settings)</li>
+  <li>inside a sync folder (OneDrive, Google Drive, Dropbox, iCloud Drive, and Desktop and Documents on a Mac)</li>
+  <li>while no import destination is set (Outgoing cannot be turned on)</li>
 </ul>
 
 <div class="note">
@@ -919,8 +927,10 @@ You can choose another place on the same drive as the import destination with Se
 <h3>When something is deleted</h3>
 
 <ul>
-  <li>Moving a photo to the trash in pictkura also takes it out of the folder for Google Photos. <strong>It stays in Google Photos</strong></li>
-  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the trash. While the original is still in the system trash it stays; it moves once that trash is emptied</li>
+  <li>Moving a photo to the Recycle Bin in pictkura also takes it out of the folder for Google Photos. <strong>It stays in Google Photos</strong></li>
+  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; it moves once the Recycle Bin is emptied</li>
+  <li>An embedded JPEG goes to the Recycle Bin as soon as its RAW is moved to the Recycle Bin, renamed or moved elsewhere outside pictkura (it is not the same file as the RAW, so these cannot be told apart)</li>
+  <li>Photos moved with pictkura’s “Move to folder” are no longer followed: what was placed stays, and trashing them later does not take it out of the folder for Google Photos</li>
   <li>Deleting things inside the folder for Google Photos yourself does not touch the originals</li>
 </ul>
 
