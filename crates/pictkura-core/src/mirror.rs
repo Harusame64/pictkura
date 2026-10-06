@@ -2557,6 +2557,20 @@ mod tests {
         std::fs::write(p, bytes).unwrap();
     }
 
+    /// `p` を**別の実体**で置き換える。新しいファイルを古いものが在るうちに作ってから名前を移す
+    /// ——消してから作ると、ext4 などは空いた番号をすぐ使い回し、「同じ実体」に見えてしまう
+    fn put_fresh(p: &Path, bytes: &[u8]) {
+        let before = file_id(p).unwrap().index;
+        let tmp = p.with_extension("fresh-tmp");
+        put(&tmp, bytes);
+        std::fs::rename(&tmp, p).unwrap();
+        assert_ne!(
+            file_id(p).unwrap().index,
+            before,
+            "実体が入れ替わっていない"
+        );
+    }
+
     fn placement(lib: &Path, rel: &str) -> Placement {
         Placement {
             source: lib.join(rel),
@@ -2775,8 +2789,7 @@ mod tests {
         let mut book = Book::default();
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         std::fs::remove_file(f.google.join("d/a.jpg")).unwrap();
-        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
-        put(&f.lib.join("d/a.jpg"), b"new photo");
+        put_fresh(&f.lib.join("d/a.jpg"), b"new photo");
         /// 書き直しだけが落ちる記録
         struct Stuck(Book);
         impl Ledger for Stuck {
@@ -3318,14 +3331,12 @@ mod tests {
         // 張ったが番号を書く前に落ちた形: 記録は古い番号のまま、名前には新しい実体
         let out = f.google.join("d/B.jpg");
         let bytes = std::fs::read(&out).unwrap();
-        std::fs::remove_file(&out).unwrap();
-        std::fs::write(&out, &bytes).unwrap();
+        put_fresh(&out, &bytes);
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         assert_eq!((r.already, r.failed.len()), (1, 0), "{:?}", r.failed);
         assert_eq!(book.0[0].index, file_id(&out).unwrap().index);
         // 中身の違う他人のファイルは取らない
-        std::fs::remove_file(&out).unwrap();
-        std::fs::write(&out, b"someone else").unwrap();
+        put_fresh(&out, b"someone else");
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         assert_eq!((r.already, r.placed, r.failed.len()), (0, 0, 1));
         assert_eq!(std::fs::read(&out).unwrap(), b"someone else");

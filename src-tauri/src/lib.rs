@@ -6014,6 +6014,10 @@ fn os_region_locale() -> Option<String> {
 /// macOSは `ja_JP` のように下線で、さらに `ja_JP@calendar=japanese` のような
 /// 修飾が付くことがある。**`@` から先は落とす**——BCP-47では
 /// `ja-JP-u-ca-japanese` と綴る別物で、そのまま渡すと `Intl` が受け付けない。
+///
+/// 呼ぶのは macOS と Windows の [`os_region_locale`] だけ——Linux 等では使わないので、
+/// 同じ条件で建てる（`-D warnings` の dead-code で落ちないように）
+#[cfg(any(target_os = "macos", windows))]
 fn normalize_locale_tag(raw: impl AsRef<str>) -> String {
     raw.as_ref()
         .split('@')
