@@ -486,7 +486,7 @@ export const de: Dict = {
   settingsGoogleNote: "Bei jedem Import werden die Fotos auch in diesem Ordner abgelegt (das belegt keinen zusätzlichen Speicherplatz). Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu. Von RAW+JPEG-Paaren kommt nur das JPEG hinein.",
   settingsGoogleFolder: "Ordner",
   settingsGoogleFolderNote: "Er liegt auf demselben Laufwerk wie das Importziel. Wähle einen Ort außerhalb der Ordner, die eine andere Sicherung überwacht, etwa ein NAS oder Amazon Photos.",
-  settingsGoogleFoldersNote: "Die Ordner für Google Fotos, die pictkura angelegt hat (einer pro Laufwerk). Füge jeden davon in Google Fotos der Ordnersicherung hinzu.",
+  settingsGoogleFoldersNote: "Ordner für Google Fotos, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Füge jeden, den du nutzt, in Google Fotos der Ordnersicherung hinzu.",
   settingsGoogleVideo: "Auch Videos ablegen",
   settingsGoogleRawOnly: "Nur-RAW-Aufnahmen",
   googleRawOnlyNone: "Weglassen",

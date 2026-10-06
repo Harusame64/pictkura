@@ -4337,6 +4337,8 @@ async fn google_folders(app: tauri::AppHandle) -> Result<Vec<String>, String> {
             .map_err(errs::from_err)?;
         let config = lock_ok(&state.config).clone();
         if let Ok((_, here)) = resolve_google_location(&config) {
+            // 記録の綴りは揃えてある（`paths::normalize`）ので、こちらも揃えて比べる（ゲート2）
+            let here = pictkura_core::paths::normalize(&here);
             if here.is_dir() && !dirs.contains(&here) {
                 dirs.push(here);
             }
@@ -4898,6 +4900,8 @@ fn place_google_links(
     if !pictkura_core::mirror::is_on(&config) {
         return None;
     }
+    // 置き直し（保留）で新しく作ったフォルダ。この回の結果がどうであれ知らせに足す（ゲート2）
+    let mut made_by_retry: Vec<PathBuf> = Vec::new();
     // 理由は辞書の鍵で持つ（画面に出す）。記録には下で1行だけ残す
     let result = Db::open(&state.db_path)
         .map_err(errs::quiet)
@@ -4909,18 +4913,9 @@ fn place_google_links(
             );
             // 前の回に一時的に置けなかったもの（保留）を**先に**置き直す（2026-10-05 利用者決定）。
             // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
-            let made = note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
+            made_by_retry =
+                note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
             pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
-                .map(|r| {
-                    // 置き直しで作ったフォルダも、この回の知らせに足す（ゲート2）
-                    r.map(|mut r| {
-                        r.absorb(pictkura_core::mirror::PlaceReport {
-                            new_folders: made,
-                            ..Default::default()
-                        });
-                        r
-                    })
-                })
                 .map_err(errs::quiet)
         });
     let dto = match result {
@@ -4960,6 +4955,12 @@ fn place_google_links(
             }
         }
     };
+    let mut dto = dto;
+    for f in google_paths(&made_by_retry) {
+        if !dto.new_folders.contains(&f) {
+            dto.new_folders.push(f);
+        }
+    }
     Some(dto)
 }
 

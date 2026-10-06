@@ -412,7 +412,7 @@ export const en: Dict = {
   settingsGoogleNote: "Each import also lines up the photos in this folder (it takes no extra disk space). Add this folder to folder backup in Google Photos. For RAW+JPEG pairs only the JPEG goes in.",
   settingsGoogleFolder: "Folder",
   settingsGoogleFolderNote: "It sits on the same drive as the import destination. Choose a place outside any folder another backup watches, such as a NAS or Amazon Photos.",
-  settingsGoogleFoldersNote: "The folders for Google Photos pictkura has made (one per drive). Add each of them to folder backup in Google Photos.",
+  settingsGoogleFoldersNote: "Folders for Google Photos that pictkura has placed photos in (one is made per drive). Add each one you use to folder backup in Google Photos.",
   settingsGoogleVideo: "Place videos too",
   settingsGoogleRawOnly: "RAW-only shots",
   googleRawOnlyNone: "Leave out",

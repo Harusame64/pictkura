@@ -365,8 +365,7 @@ pub fn place(
 ) -> Result<PlaceReport, MirrorError> {
     check_dir(dir, roots)?;
     // 「無かった」と言うのは NotFound のときだけ（読めないだけの在るフォルダを「作った」と言わない。ゲート2）
-    let existed =
-        !matches!(std::fs::symlink_metadata(dir), Err(e) if e.kind() == io::ErrorKind::NotFound);
+    let existed = !is_missing(dir);
     std::fs::create_dir_all(dir)?;
     // 作った直後にもう一度見る（作る前は無かったので、リンクかどうかは作ってから分かる）
     if is_link(dir) {
@@ -652,6 +651,12 @@ fn stale_extract(placed: &Placed, ledger: &mut dyn Ledger) -> bool {
         ledger.holder(&placed.link),
         Ok(Some((raw, _, true))) if pair_key_folded(&raw) == pair_key_folded(&placed.source)
     ) && matches!(std::fs::symlink_metadata(&placed.link), Err(e) if e.kind() == io::ErrorKind::NotFound)
+}
+
+/// `path` が**無い**か（`NotFound` のときだけ真）。読めないだけ（権限・共有の一時的な誤り）や、壊れたリンクが
+/// 居座っているのは「無い」ではない。新しく作るフォルダの判定（見積もり・置いた結果）はここだけを通す（ゲート2）
+fn is_missing(path: &Path) -> bool {
+    matches!(std::fs::symlink_metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound)
 }
 
 /// [`place_extracted`] が置かなかった理由。
@@ -1124,8 +1129,7 @@ pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> Cho
             // 「作ります・登録してください」と言わない（ゲート2）
             // 壊れたリンクが居座っているのも「無い」ではない（置くときに断られる。ゲート2）
             // 読めないだけ（権限・共有の一時的な誤り）は「無い」と言わない（PR の codex）
-            let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == io::ErrorKind::NotFound);
-            if missing && dir.parent().is_some_and(Path::is_dir) {
+            if is_missing(&dir) && dir.parent().is_some_and(Path::is_dir) {
                 out.new_folders.push(dir.clone());
             }
             out.folders.push(dir);
