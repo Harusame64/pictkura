@@ -510,7 +510,7 @@ export const ja = {
   settingsGoogleFoldersNote: "pictkura がこれまでに写真を置いた送り出しフォルダです（ドライブごとに作ります）。Google フォトを使う場合：使うものは、どれも「フォルダをバックアップ」に登録してください。",
   settingsGoogleVideo: "動画も置く",
   settingsGoogleRawOnly: "RAW だけのカット",
-  googleRawOnlyNone: "上げない",
+  googleRawOnlyNone: "置かない",
   googleRawOnlyEmbedded: "埋め込み JPEG を置く",
   settingsGoogleRawOnlyNote: "JPEG を一緒に撮らなかった RAW の扱いです。「埋め込み JPEG」は、カメラが RAW の中に入れている表示用の絵を取り出し、撮影日時を付けて置きます。取り出した JPEG は別のファイルなので、そのぶんディスクを使います。",
   settingsGoogleOneDrive: "OneDrive の中の写真も置く",
