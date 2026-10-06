@@ -885,20 +885,30 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <h3>Sending photos you imported earlier</h3>
 
 <ul>
-  <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar or the right-click menu</li>
+  <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar. “Add to Outgoing” in a photo’s right-click menu sends only that photo</li>
   <li><strong>Right-click a month heading in the calendar</strong> for “Add this month to Outgoing” or “Add all of &lt;year&gt; to Outgoing”. It covers the photos the current search and filter show</li>
   <li>Over 100 photos, after select-all or a range, and from the calendar, pictkura shows the count and size before placing anything</li>
-  <li>What you choose goes in even if it is a video or a RAW-only shot (as its embedded JPEG). The settings only steer what an import places on its own</li>
+  <li>What you choose goes in even if it is a video or a RAW-only shot (as its embedded JPEG); those two settings only steer what an import places on its own. Photos inside OneDrive follow their setting</li>
+  <li>Files that exist only in the cloud are not placed. Download them first, then send again</li>
 </ul>
 
 <h3>One folder per drive</h3>
 
 <p>
 Hard links cannot cross drives, so each drive that holds photos gets its own folder for Google Photos
-(<code>pictkura-google</code> under your home folder on that drive, otherwise at the top of the drive).
+(<code>pictkura-google</code> under your home folder if the drive holds it, otherwise at the top of the drive).
 The first time you send photos from another drive, pictkura tells you; <strong>add that folder in Google Photos too</strong>.
-Photos in a library location that is a whole drive, such as an SD card, cannot be sent.
+You can choose another place on the same drive as the import destination with Settings → Outgoing → Change.
 </p>
+
+<p>It cannot be placed:</p>
+
+<ul>
+  <li>on an exFAT or FAT drive (they cannot make hard links; many external USB drives use them)</li>
+  <li>for a library location that is a whole drive, such as an SD card</li>
+  <li>while the import destination is a whole drive (change the import destination)</li>
+  <li>while your home folder itself is a library location (the default place falls inside the library; choose a place in Settings)</li>
+</ul>
 
 <div class="note">
   <p>
@@ -910,7 +920,7 @@ Photos in a library location that is a whole drive, such as an SD card, cannot b
 
 <ul>
   <li>Moving a photo to the trash in pictkura also takes it out of the folder for Google Photos. <strong>It stays in Google Photos</strong></li>
-  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the trash</li>
+  <li>If an original is deleted outside pictkura, what is left in the folder for Google Photos goes to the trash. While the original is still in the system trash it stays; it moves once that trash is emptied</li>
   <li>Deleting things inside the folder for Google Photos yourself does not touch the originals</li>
 </ul>
 
