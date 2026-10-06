@@ -6085,6 +6085,8 @@ export default function App() {
           const notes: string[] = [];
           if (r.error) notes.push(t.importGoogleError(errText(r.error)));
           else if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
+          // クラウドにしか無いコマは黙らない（⚑ を付け直さない限り、あとで置き直さない。PR の codex）
+          if (r.cloud_only > 0) notes.push(t.googleSentCloudOnly(r.cloud_only));
           for (const f of r.new_folders) notes.push(t.googleFolderCreated(f));
           if (notes.length > 0) fail(notes.join(" "));
         }

@@ -1509,13 +1509,36 @@ fn thin_bursts(
     };
     // **コマは組で数える**（同じフォルダ・同じ名前の RAW と JPEG は1コマ）。設定ファイルの `exclude_raw = false`
     // では組の両方を置くので、ファイルで数えると連写でない1組の片方を落とす（ゲート1）
+    // 組にするのは一覧（`shotsOfDay`）と同じ条件だけ: 同じフォルダ・同じ名前の **RAW と RAW 以外**で、
+    // 撮影時刻が**同じ秒**のもの。名前が同じだけ（`IMG_1.JPG` と `IMG_1.HEIC`、名前を使い回した別の撮影）は
+    // 別のコマ（PR の codex）
+    let stamps: Vec<Option<(String, i64)>> = placements
+        .iter()
+        .map(|p| {
+            if MediaKind::from_path(&p.source) == MediaKind::Video {
+                None
+            } else {
+                capture(&p.source)
+            }
+        })
+        .collect();
+    let is_raw = |i: usize| MediaKind::from_path(&placements[i].source) == MediaKind::Raw;
     let mut shots: Vec<((PathBuf, std::ffi::OsString), Vec<usize>)> = Vec::new();
     for (i, p) in placements.iter().enumerate() {
         if MediaKind::from_path(&p.source) == MediaKind::Video {
             continue;
         }
         let key = pair_key_folded(&p.source);
-        match shots.iter_mut().find(|(k, _)| *k == key) {
+        let partner = shots.iter_mut().find(|(k, files)| {
+            *k == key
+                && files.len() == 1
+                && is_raw(files[0]) != is_raw(i)
+                && matches!(
+                    (&stamps[files[0]], &stamps[i]),
+                    (Some((_, a)), Some((_, b))) if a.div_euclid(1000) == b.div_euclid(1000)
+                )
+        });
+        match partner {
             Some((_, files)) => files.push(i),
             None => shots.push((key, vec![i])),
         }
@@ -1523,7 +1546,7 @@ fn thin_bursts(
     // 機体ごとに、(撮影時刻, コマの番号)。コマの時刻は読めた最初のファイルのもの
     let mut by_body: HashMap<String, Vec<(i64, usize)>> = HashMap::new();
     for (n, (_, files)) in shots.iter().enumerate() {
-        if let Some((body, ms)) = files.iter().find_map(|&i| capture(&placements[i].source)) {
+        if let Some((body, ms)) = files.iter().find_map(|&i| stamps[i].clone()) {
             by_body.entry(body).or_default().push((ms, n));
         }
     }
@@ -3590,6 +3613,28 @@ mod tests {
             .map(|p| p.rel.to_string_lossy().into_owned())
             .collect();
         assert_eq!(kept, ["d/SOLO.ARW", "d/SOLO.JPG", "d/C1.ARW", "d/C1.JPG"]);
+    }
+
+    #[test]
+    fn files_sharing_a_name_are_one_frame_only_as_a_raw_jpeg_pair_of_the_same_second() {
+        let lib = PathBuf::from("/lib");
+        let p = |n: &str| placement(&lib, n);
+        let base = 1_700_000_000_000;
+        // JPG と HEIC は名前が同じでも別のコマ。0.3 秒おきなので連写になり、HEIC は落ちる
+        // （組と取り違えると、表紙と一緒に残ってしまう）
+        let placements = vec![p("d/IMG_1.JPG"), p("d/IMG_1.HEIC")];
+        let mut capture = |path: &Path| -> Option<(String, i64)> {
+            match path.extension()?.to_str()? {
+                "JPG" => Some(("A".into(), base)),
+                "HEIC" => Some(("A".into(), base + 300)),
+                _ => None,
+            }
+        };
+        let kept: Vec<String> = thin_bursts(placements, 1000, &mut capture)
+            .into_iter()
+            .map(|p| p.rel.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(kept, ["d/IMG_1.JPG"]);
     }
 
     #[test]
