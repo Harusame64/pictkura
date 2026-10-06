@@ -4690,9 +4690,9 @@ async fn google_add_picked_frames(
 /// 送り出しから外した結果（設計書 §3c）。
 #[derive(serde::Serialize)]
 struct GoogleRemovedDto {
-    /// 送り出しから外れたもの（名前を消した・取り出した JPEG を消した・もう無かった）
+    /// 送り出しから外れた写真（名前を消した・取り出した JPEG を消した・もう無かった）
     removed: usize,
-    /// いま外せなかったもの（外付けが見えない等）。印は付いたので、次の突き合わせで外れる
+    /// リンクのどれかをいま外せなかった写真（外付けが見えない等）。印は付いたので、次の突き合わせで外れる
     failed: usize,
 }
 
@@ -4711,18 +4711,35 @@ async fn google_remove_chosen(
             .map(|(p, _)| p)
             .collect();
         let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        // 数えるのは選んだ写真ごと（ゲート2）——リンクが2本ある原本も1件、作業場の片付けや保留の
+        // 失敗（リンクではない）は「外せなかった写真」に数えない（記録には残す）
+        let mut links: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+        for src in &sources {
+            let recs = db
+                .google_placed_for_sources(std::slice::from_ref(src))
+                .map_err(errs::from_err)?;
+            if !recs.is_empty() {
+                let l = recs.into_iter().map(|(_, r)| r.link).collect();
+                links.push((src.clone(), l));
+            }
+        }
         let r = pictkura_core::mirror::unplace_sources(&mut db, &sources, &mut trash_one)
             .map_err(errs::quiet)?;
         if let Some((path, why)) = r.failed.first() {
             applog::note(&format!(
-                "Google 用フォルダ: 送り出しから外すもののうち {} 件外せなかった（最初: {}: {why}）",
+                "Google 用フォルダ: 送り出しから外すときに {} 件失敗した（最初: {}: {why}）",
                 r.failed.len(),
                 path.display()
             ));
         }
+        let stuck: std::collections::HashSet<&PathBuf> = r.failed.iter().map(|(p, _)| p).collect();
+        let failed = links
+            .iter()
+            .filter(|(_, l)| l.iter().any(|l| stuck.contains(l)))
+            .count();
         Ok(GoogleRemovedDto {
-            removed: r.removed + r.discarded + r.deleted + r.gone,
-            failed: r.failed.len(),
+            removed: links.len() - failed,
+            failed,
         })
     })
     .await
@@ -6858,6 +6875,8 @@ pub fn run() {
                     std::thread::spawn(move || {
                         pictkura_core::panics::catching("google retry", move || {
                             retry_google_pending(&retry_app.state::<AppState>());
+                            // 走査の知らせより後に送り出しが動く（置き直し・突き合わせ）。件数を取り直させる
+                            let _ = retry_app.emit("outgoing-changed", ());
                         });
                     });
                     true

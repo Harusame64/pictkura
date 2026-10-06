@@ -919,7 +919,6 @@ export const googleChosenSummary = (chosen: ChosenForGoogle) =>
 export const googleSendChosen = (chosen: ChosenForGoogle) =>
   invoke<GooglePlaced | null>("google_send_chosen", { chosen });
 
-/** あとで ⚑ を付けたコマと、同じ重ねのほかのコマ（連写の表紙だけ送った束に、そのコマを足す。設計 §3b） */
 /** 送り出しから外した結果（設計書 §3c）。`failed` は次の起動でもう一度外す */
 export interface GoogleRemoved {
   removed: number;
@@ -930,6 +929,7 @@ export interface GoogleRemoved {
 export const googleRemoveChosen = (ids: number[]) =>
   invoke<GoogleRemoved>("google_remove_chosen", { ids });
 
+/** あとで ⚑ を付けたコマと、同じ重ねのほかのコマ（連写の表紙だけ送った束に、そのコマを足す。設計 §3b） */
 export const googleAddPickedFrames = (frames: { id: number; siblings: number[] }[]) =>
   invoke<GooglePlaced | null>("google_add_picked_frames", { frames });
 

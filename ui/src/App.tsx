@@ -1564,6 +1564,7 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let unlistenCameras: (() => void) | undefined;
+    let unlistenOutgoing: (() => void) | undefined;
     let unlistenExport: (() => void) | undefined;
     let unlistenDelete: (() => void) | undefined;
     /** 届いた進捗の知らせの数。下の取り直しの返事が、それより新しい知らせを上書きしないように */
@@ -1610,6 +1611,12 @@ export default function App() {
       );
       if (cancelled) deleteProgress();
       else unlistenDelete = deleteProgress;
+      // 起動のあと、保留の置き直しと突き合わせが送り出しを動かした（§3c）。走査の知らせより後に来る
+      const outgoingDone = await listen("outgoing-changed", () => {
+        refreshSummary().catch(() => {});
+      });
+      if (cancelled) outgoingDone();
+      else unlistenOutgoing = outgoingDone;
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else {
@@ -1641,10 +1648,11 @@ export default function App() {
       cancelled = true;
       unlisten?.();
       unlistenCameras?.();
+      unlistenOutgoing?.();
       unlistenExport?.();
       unlistenDelete?.();
     };
-  }, [refreshCameras]);
+  }, [refreshCameras, refreshSummary]);
   /**
    * 新しい版が出ていないかの知らせ（0.2）。**アプリで唯一の外向き通信**で、
    * 設定で切れる（既定はON・24時間に1回）。
@@ -2394,9 +2402,11 @@ export default function App() {
       const googleFailed = googleFailure(stats.google);
       if (googleFailed) fail(googleFailed);
       await refreshRoots();
+      // 送り出しに置くのは走査の知らせ（library-updated）の後なので、件数と一覧はここで取り直す
+      if (stats.google && stats.google.placed > 0) refreshSummary().catch(() => {});
       checkDecoders();
     },
-    [refreshRoots, checkDecoders, fail],
+    [refreshRoots, checkDecoders, fail, refreshSummary],
   );
 
   // ライブラリのルート追加の本体。手入力（onAddFolder）と
@@ -6020,7 +6030,8 @@ export default function App() {
         const total = r.placed + r.already;
         if (total > 0) setStatus(t.googleSent(total, r.already));
         // 左の「送り出し」の件数と、送り出しを表示中なら並びも追わせる
-        if (r.placed > 0) refreshSummary().catch(() => {});
+        // 置き済みでも取り直す——外せずに残った行へ送り直すと「置き済み」と数えられ、印が下りて一覧に戻る
+        if (total > 0) refreshSummary().catch(() => {});
         // 置けなかったこと・置かなかったことは失敗の一本道へ（状態の1行は 32ch で切れる）。
         // 置かないもの（`left_out`）は、確認で見せた回には繰り返さない
         const notes: string[] = [];
@@ -6060,11 +6071,12 @@ export default function App() {
         if (r.failed > 0) fail(t.googleRemoveFailed(r.failed));
         // 外せなかったものも一覧からは消える（外すと決まった印が付く）ので、選択は残さない
         if (fromSelection) clearSelection();
-        await refreshSummary();
       } catch (e) {
         fail(errText(e));
       } finally {
         sendingRef.current = false;
+        // 途中で転んでも取り直す——印は付いているかもしれず、そのときは一覧の対象から外れている
+        refreshSummary().catch(() => {});
       }
     },
     [fail, clearSelection, refreshSummary],
