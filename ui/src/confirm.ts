@@ -21,11 +21,13 @@ export async function confirmAction(
   message: string,
   okLabel: string,
   onError: (message: string) => void,
+  /** 消す・動かす確認は警告、送り出しのように取り返しのつく確認は `info`（win の実機: 確認に ⚠ は重い） */
+  kind: "warning" | "info" = "warning",
 ): Promise<boolean> {
   try {
     return await confirm(message, {
       title: t.appName,
-      kind: "warning",
+      kind,
       okLabel,
       cancelLabel: cancelLabelFor(platform, t.confirmCancel, osT?.confirmCancel),
     });

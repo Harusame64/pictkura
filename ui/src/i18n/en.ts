@@ -408,11 +408,11 @@ export const en: Dict = {
     "Photos taken in quick succession with the same camera show as one tile. Only photos whose capture time is recorded to a fraction of a second are stacked (some cameras do not record it). In the grid, ★ and ⚑ from the right-click menu apply to the cover photo only; delete and selection apply to the whole burst. Full screen does not collapse bursts; it steps through every shot.",
   settingsBurstGap: "Longest gap within a burst",
   settingsOutgoing: "Outgoing",
-  settingsGoogleToggle: "Also place imported photos in a folder for Google Photos",
-  settingsGoogleNote: "Each import also lines up the photos in this folder (it takes no extra disk space). Add this folder to folder backup in Google Photos. For RAW+JPEG pairs only the JPEG goes in.",
+  settingsGoogleToggle: "Also place imported photos in the Outgoing folder",
+  settingsGoogleNote: "Each import also lines up the photos in the Outgoing folder (it takes no extra disk space). For RAW+JPEG pairs only the JPEG goes in. If you use Google Photos: add this folder to folder backup in Google Photos.",
   settingsGoogleFolder: "Folder",
   settingsGoogleFolderNote: "It sits on the same drive as the import destination. Choose a place outside any folder another backup watches, such as a NAS or Amazon Photos.",
-  settingsGoogleFoldersNote: "Folders for Google Photos that pictkura has placed photos in (one is made per drive). Add each one you use to folder backup in Google Photos.",
+  settingsGoogleFoldersNote: "Outgoing folders pictkura has placed photos in (one is made per drive). If you use Google Photos: add each one you use to folder backup.",
   settingsGoogleVideo: "Place videos too",
   settingsGoogleRawOnly: "RAW-only shots",
   googleRawOnlyNone: "Leave out",
@@ -420,11 +420,11 @@ export const en: Dict = {
   settingsGoogleRawOnlyNote: "What to do with RAW files shot without a JPEG. “Embedded JPEG” takes out the preview picture the camera stored inside the RAW and places it with the capture date. The extracted JPEG is a separate file, so it does take disk space.",
   settingsGoogleOneDrive: "Place photos inside OneDrive too",
   settingsGoogleOneDriveNote: "If you do, OneDrive can no longer make those photos online-only.",
-  settingsGoogleAfterNote: "When you move a photo to the trash in pictkura, it is taken out of this folder too. It stays in Google Photos. Uploads happen only while a Google Photos tab is open.",
-  pickGoogleFolder: "Choose the folder for Google Photos",
-  importGoogle: (n: number) => ` · ${num(n)} placed for Google Photos`,
-  importGoogleFailed: (n: number) => `${num(n)} could not be placed for Google Photos (see the log)`,
-  importGoogleError: (why: string) => `Nothing was placed for Google Photos: ${why}`,
+  settingsGoogleAfterNote: "When you move a photo to the trash in pictkura, it is taken out of the Outgoing folder too. If you use Google Photos: it stays in Google Photos. Uploading is done by the Google Photos web page (photos.google.com), so it only goes ahead while that page is open in your browser.",
+  pickGoogleFolder: "Choose the Outgoing folder",
+  importGoogle: (n: number) => ` · ${num(n)} placed in Outgoing`,
+  importGoogleFailed: (n: number) => `${num(n)} could not be placed in Outgoing (see the log)`,
+  importGoogleError: (why: string) => `Nothing was placed in Outgoing: ${why}`,
   bulkSendGoogle: "Add to Outgoing",
   calendarSendMonth: "Add this month to Outgoing",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
@@ -433,20 +433,25 @@ export const en: Dict = {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "photo", "photos")}`);
     if (videos > 0) parts.push(`${num(videos)} ${one(videos, "video", "videos")}`);
-    if (rawOnly > 0) parts.push(`${num(rawOnly)} RAW-only ${one(rawOnly, "shot", "shots")}`);
-    return `${parts.join(", ")}${size ? ` (${size})` : ""} will be placed in the folder for Google Photos. ${one(photos + videos + rawOnly, "It uploads", "They upload")} while a Google Photos tab is open.`;
+    const items: string[] = [];
+    if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
+    if (rawOnly > 0) items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG", "JPEGs")} taken out of RAW-only shots`);
+    return `To be placed in the Outgoing folder: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} of the chosen ${one(n, "item is", "items are")} left out (the RAW of a RAW+JPEG pair, files inside OneDrive and the like).`,
   googleSendFolders: (list: string) => `Placed in: ${list}`,
-  googleSendNewFolder: (path: string) =>
-    `${path} will be created. Add this folder to folder backup in Google Photos as well.`,
+  googleSendNewFolder: (path: string) => `${path} will be created.`,
+  googleSendGoogleNote:
+    "If you use Google Photos: Uploading is done by the Google Photos web page (photos.google.com), so it goes ahead while that page is open in your browser.",
+  googleSendGoogleNoteNew:
+    "If you use Google Photos: add each new folder to folder backup in Google Photos as well. Uploading is done by the Google Photos web page (photos.google.com), so it goes ahead while that page is open in your browser.",
   googleFolderCreated: (path: string) =>
-    `${path} was created. Add this folder to folder backup in Google Photos as well.`,
+    `${path} was created. If you use Google Photos: add this folder to folder backup as well.`,
   googleSendNothing: "Nothing here can be placed.",
   googleSendConfirmOk: "Place",
   googleSent: (total: number, already: number) =>
-    `${num(total)} placed for Google Photos${already > 0 ? ` (${num(already)} already there)` : ""}`,
+    `${num(total)} placed in Outgoing${already > 0 ? ` (${num(already)} already there)` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} ${one(n, "is", "are")} only in the cloud and could not be placed. Download ${one(n, "it", "them")} first, then send again.`,
   googleSentLeftOut: (n: number) =>
@@ -517,10 +522,10 @@ export const en: Dict = {
   errGoogleOverlapsRoot: "You can’t choose a library folder, a folder inside one, or a folder that contains one.",
   errGoogleInsideSync: "You can’t choose a place inside a sync folder (OneDrive, Google Drive, Dropbox, iCloud Drive and the like).",
   errGoogleNoHardLinks: "This drive can’t hold it (exFAT, FAT and similar can’t make hard links).",
-  errGoogleWholeVolume: "The import destination is a whole drive, so there is nowhere on it for the Google Photos folder. Change the import destination.",
+  errGoogleWholeVolume: "The import destination is a whole drive, so there is nowhere on it for the Outgoing folder. Change the import destination.",
   errGoogleNoName: "You can’t choose a drive itself. Choose a folder on it.",
-  errGoogleLinkInTheWay: "The Google Photos folder is a symbolic link. Choose another place.",
-  errGoogleIo: "Could not read or write the Google Photos folder.",
+  errGoogleLinkInTheWay: "The Outgoing folder is a symbolic link. Choose another place.",
+  errGoogleIo: "Could not read or write the Outgoing folder.",
   errGoogleOtherDrive: "Choose a folder on the same drive as the import destination.",
   errNotFound: "That photo is no longer in the index.",
   errDb: "The index could not be read or written.",

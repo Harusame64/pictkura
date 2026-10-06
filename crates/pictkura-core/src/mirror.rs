@@ -31,7 +31,8 @@ use crate::config::{GoogleMirrorConfig, RawOnly};
 use crate::search::MediaKind;
 
 /// Google 用フォルダの名前（ドライブごとの既定の場所で使う）。
-pub const MIRROR_DIR_NAME: &str = "pictkura-google";
+/// 画面の呼び名「送り出し」に揃える（2026-10-06 利用者決定。`pictkura-google` から変えた——未公開のうちに。開発機で古い名前を使っていた台は、新しい名前のフォルダへ切り替わる）
+pub const MIRROR_DIR_NAME: &str = "pictkura-outgoing";
 
 /// 置くと決めた1件。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -207,7 +208,7 @@ fn pair_key_folded(path: &Path) -> (PathBuf, std::ffi::OsString) {
 /// `path` を持つルートからの残り。入れ子なら**いちばん外側**のルート——内側を選ぶと、
 /// 外側のルートの直下の `IMG_0001.JPG` と内側の `IMG_0001.JPG` が同じ名前になる（ゲート2）。
 ///
-/// フォルダの形は取り込み先と同じにする（`D:\photos\2026年\…` → `D:\pictkura-google\2026年\…`）。
+/// フォルダの形は取り込み先と同じにする（`D:\photos\2026年\…` → `D:\pictkura-outgoing\2026年\…`）。
 /// 同じドライブの別のルートから同じ相対パスが来たら、2本目は [`place`] で
 /// 「同じ名前が既にある」として失敗する（上書きはしない）。
 fn owning_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
@@ -1734,7 +1735,7 @@ pub fn check_dir(dir: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
 /// Google 用フォルダの場所として使ってよいか。ルートの中・ルートを含む場所は、
 /// ライブラリに二重に載るので拒む。同期フォルダの中も拒む。
 ///
-/// **綴りではなく実体で比べる**（[`disk_key`]）。`D:\Photos` と `d:\photos\pictkura-google`、
+/// **綴りではなく実体で比べる**（[`disk_key`]）。`D:\Photos` と `d:\photos\pictkura-outgoing`、
 /// シンボリックリンク越しの別名、`..` を含む綴りは、文字列の前方一致では重ならないのに
 /// ディスク上では重なる。
 pub fn check_location(dir: &Path, roots: &[PathBuf]) -> Result<(), MirrorError> {
@@ -3919,7 +3920,7 @@ mod tests {
             return;
         }
         let roots = [f.lib.clone()];
-        assert!(check_location(&alias.join("pictkura-google"), &roots).is_err());
+        assert!(check_location(&alias.join("pictkura-outgoing"), &roots).is_err());
         // 大文字小文字を区別しない台では、綴りの違いも同じ場所。在る部分は canonicalize が
         // ディスクの綴りに直すので、効くのは**まだ無い部分**——そこを違えて比べる
         if cfg!(any(windows, target_os = "macos")) {
@@ -3964,13 +3965,13 @@ mod tests {
 
     #[test]
     fn the_verbatim_prefix_is_dropped_on_windows() {
-        let p = PathBuf::from(r"\\?\D:\pictkura-google");
-        let q = PathBuf::from(r"\\?\UNC\nas\share\pictkura-google");
+        let p = PathBuf::from(r"\\?\D:\pictkura-outgoing");
+        let q = PathBuf::from(r"\\?\UNC\nas\share\pictkura-outgoing");
         if cfg!(windows) {
-            assert_eq!(without_verbatim(p), PathBuf::from(r"D:\pictkura-google"));
+            assert_eq!(without_verbatim(p), PathBuf::from(r"D:\pictkura-outgoing"));
             assert_eq!(
                 without_verbatim(q),
-                PathBuf::from(r"\\nas\share\pictkura-google")
+                PathBuf::from(r"\\nas\share\pictkura-outgoing")
             );
         } else {
             assert_eq!(without_verbatim(p.clone()), p);

@@ -528,19 +528,30 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
 
 /**
  * 大きさ（バイト）を「8.4 GB」の形に。送り出しの確認で使う。**OS のファイルの一覧と同じ数え方**にする
- * ——Finder は 1000、エクスプローラーは 1024 で繰り上げる（ゲート2）。食い違うと、利用者が見比べたときに
- * どちらかが嘘に見える
+ * ——Finder は 1000 で割って小数1桁に四捨五入、エクスプローラー（`StrFormatByteSizeW`）は 1024 で割って
+ * **有効3桁で切り捨て**（35.29 → 「35.2」、6.613 → 「6.61」。win の実機で突き合わせた）。食い違うと、
+ * 利用者が見比べたときにどちらかが嘘に見える
  */
 const sizeFmt = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 1 });
+const sizeFmt2 = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 2 });
 function formatSize(bytes: number, base: 1000 | 1024): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = bytes;
   let i = 0;
-  while (v >= base && i < units.length - 1) {
+  // エクスプローラーは 1024 で割るが、**1,000 を超えたら次の単位へ上げる**（1,015 KB ではなく 0.99 MB。ゲート2）
+  const step = base === 1024 ? 1000 : base;
+  while (v >= step && i < units.length - 1) {
     v /= base;
     i++;
   }
-  // 丸めると単位の境目に届くもの（1023.96 KB → 「1,024 KB」）は、次の単位へ上げる（ゲート2）
+  if (base === 1024) {
+    // 有効3桁で切り捨て（エクスプローラーと同じ）。整数部が3桁ならそのまま
+    const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+    const f = 10 ** digits;
+    const cut = Math.floor(v * f) / f;
+    return `${(digits === 2 ? sizeFmt2 : sizeFmt).format(cut)} ${units[i]}`;
+  }
+  // 丸めると単位の境目に届くもの（999.96 KB → 「1,000 KB」）は、次の単位へ上げる（ゲート2）
   if (Number(v.toFixed(1)) >= base && i < units.length - 1) {
     v /= base;
     i++;
@@ -1468,8 +1479,8 @@ export default function App() {
   const platform = usePlatform();
   /** 確認ダイアログ（`confirm.ts`）。開けなかったら知らせて、取り消しと同じに扱う */
   const confirmAction = useCallback(
-    (message: string, okLabel: string): Promise<boolean> =>
-      confirmActionIn(platform, message, okLabel, fail),
+    (message: string, okLabel: string, kind: "warning" | "info" = "warning"): Promise<boolean> =>
+      confirmActionIn(platform, message, okLabel, fail, kind),
     [platform, fail],
   );
   /**
@@ -5979,13 +5990,17 @@ export default function App() {
               s.photos,
               s.videos,
               s.raw_only,
-              s.bytes > 0 ? formatSize(s.bytes, platform === "macos" ? 1000 : 1024) : "",
+              // 1024 で切り捨てるのはエクスプローラーだけ。macOS・Linux のファイルの一覧は 1000 で丸める（ゲート2）
+              s.bytes > 0 ? formatSize(s.bytes, platform === "windows" ? 1024 : 1000) : "",
             ),
           ];
           if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));
           if (s.folders.length > 1) lines.push(t.googleSendFolders(s.folders.join(", ")));
+          // 新しいフォルダは、Google フォトの説明より**先に**言う（登録しないと上がらない。win の実機）
           for (const f of s.new_folders) lines.push(t.googleSendNewFolder(f));
-          if (!(await confirmAction(lines.join("\n\n"), t.googleSendConfirmOk))) return;
+          lines.push(s.new_folders.length > 0 ? t.googleSendGoogleNoteNew : t.googleSendGoogleNote);
+          // 取り返しのつく操作なので警告のアイコンは付けない（win の実機）
+          if (!(await confirmAction(lines.join("\n\n"), t.googleSendConfirmOk, "info"))) return;
         }
         const r = await googleSendChosen(chosen);
         if (!r) return;

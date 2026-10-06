@@ -1825,6 +1825,7 @@ body {
   word-break: break-all;
 }
 .settings-dest code,
+.settings-google-folders code,
 .pattern-example,
 .editor-path {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
