@@ -4742,7 +4742,10 @@ fn note_google_retry(
 /// 新しく作った送り出しフォルダを記録に残す（win の実機: 作ったことがどこにも残っていなかった）
 fn note_new_google_folders(folders: &[PathBuf]) {
     for f in folders {
-        applog::note(&format!("Outgoing: created folder {}", f.display()));
+        applog::note(&format!(
+            "Google 用フォルダ: 送り出しフォルダを新しく作った: {}",
+            f.display()
+        ));
     }
 }
 
@@ -4927,6 +4930,8 @@ fn place_google_links(
             // あとにすると、この回の失敗をすぐ同じ条件で試し直し、取り込みの数とも食い違う（ゲート2）
             made_by_retry =
                 note_google_retry(pictkura_core::mirror::retry_pending(&config, &mut db));
+            // 置き直しで作った分を先に記録する（起きた順に並べる。ゲート2）
+            note_new_google_folders(&made_by_retry);
             pictkura_core::mirror::place_imported(copied, dest, &config, &mut db)
                 .map_err(errs::quiet)
         });
@@ -4971,7 +4976,6 @@ fn place_google_links(
         }
     };
     let mut dto = dto;
-    note_new_google_folders(&made_by_retry);
     for f in google_paths(&made_by_retry) {
         if !dto.new_folders.contains(&f) {
             dto.new_folders.push(f);

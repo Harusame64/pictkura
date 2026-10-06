@@ -111,7 +111,7 @@ export const es419: Dict = {
     const items: string[] = [];
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0) items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG extraído", "JPEG extraídos")} de tomas solo en RAW`);
-    return `Se colocará en la carpeta de Salida: ${items.join("; ")}.`;
+    return `Esto se colocará en la carpeta de Salida: ${items.join("; ")}.`;
   },
   // Añadir → Agregar。**不定形だけでなく活用形も**（ゲート1）
   settingsGoogleFoldersNote:
@@ -121,7 +121,7 @@ export const es419: Dict = {
   googleSendGoogleNote:
     "Si usas Google Fotos: la subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   googleSendGoogleNoteNew:
-    "Si usas Google Fotos: agrega también la carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
+    "Si usas Google Fotos: agrega también cada carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   settingsGoogleNote:
     "En cada importación, las fotos se colocan también en la carpeta de Salida (no ocupa espacio extra en el disco). De los pares RAW+JPEG solo entra el JPEG. Si usas Google Fotos: agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   errRootManaged:

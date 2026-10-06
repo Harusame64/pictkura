@@ -498,7 +498,7 @@ export const zh: Dict = {
   googleSendGoogleNote:
     "使用 Google 相册时：上传由 Google 相册网页（photos.google.com）进行，因此在浏览器中打开着该网页时会依次上传。",
   googleSendGoogleNoteNew:
-    "使用 Google 相册时：请在 Google 相册的文件夹备份中也添加新文件夹。上传由 Google 相册网页（photos.google.com）进行，因此在浏览器中打开着该网页时会依次上传。",
+    "使用 Google 相册时：请在 Google 相册的文件夹备份中也添加每个新文件夹。上传由 Google 相册网页（photos.google.com）进行，因此在浏览器中打开着该网页时会依次上传。",
   googleFolderCreated: (path: string) =>
     `已新建 ${path}。使用 Google 相册时：请在文件夹备份中也添加这个文件夹。`,
   googleSendNothing: "没有可以放入的内容。",

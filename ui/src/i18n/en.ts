@@ -445,7 +445,7 @@ export const en: Dict = {
   googleSendGoogleNote:
     "If you use Google Photos: Uploading is done by the Google Photos web page (photos.google.com), so it goes ahead while that page is open in your browser.",
   googleSendGoogleNoteNew:
-    "If you use Google Photos: add the new folder to folder backup in Google Photos as well. Uploading is done by the Google Photos web page (photos.google.com), so it goes ahead while that page is open in your browser.",
+    "If you use Google Photos: add each new folder to folder backup in Google Photos as well. Uploading is done by the Google Photos web page (photos.google.com), so it goes ahead while that page is open in your browser.",
   googleFolderCreated: (path: string) =>
     `${path} was created. If you use Google Photos: add this folder to folder backup as well.`,
   googleSendNothing: "Nothing here can be placed.",

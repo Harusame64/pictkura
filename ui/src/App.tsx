@@ -538,7 +538,9 @@ function formatSize(bytes: number, base: 1000 | 1024): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = bytes;
   let i = 0;
-  while (v >= base && i < units.length - 1) {
+  // エクスプローラーは 1024 で割るが、**1,000 を超えたら次の単位へ上げる**（1,015 KB ではなく 0.99 MB。ゲート2）
+  const step = base === 1024 ? 1000 : base;
+  while (v >= step && i < units.length - 1) {
     v /= base;
     i++;
   }
@@ -5988,7 +5990,8 @@ export default function App() {
               s.photos,
               s.videos,
               s.raw_only,
-              s.bytes > 0 ? formatSize(s.bytes, platform === "macos" ? 1000 : 1024) : "",
+              // 1024 で切り捨てるのはエクスプローラーだけ。macOS・Linux のファイルの一覧は 1000 で丸める（ゲート2）
+              s.bytes > 0 ? formatSize(s.bytes, platform === "windows" ? 1024 : 1000) : "",
             ),
           ];
           if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));

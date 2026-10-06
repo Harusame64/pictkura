@@ -482,11 +482,11 @@ export const de: Dict = {
     "Fotos, die mit derselben Kamera kurz hintereinander aufgenommen wurden, werden als ein Bild angezeigt. Das gilt nur für Fotos, deren Aufnahmezeit auf Bruchteile einer Sekunde genau gespeichert ist (manche Kameras speichern sie nicht). In der Übersicht gelten ★ und ⚑ aus dem Kontextmenü nur für das Titelbild; Löschen und Auswahl gelten für die ganze Serie. In der Großansicht wird eine Serie nicht zusammengefasst; du blätterst Bild für Bild.",
   settingsBurstGap: "Längster Abstand innerhalb einer Serie",
   settingsOutgoing: "Ausgang",
-  settingsGoogleToggle: "Importierte Fotos auch in den Ausgangsordner legen",
-  settingsGoogleNote: "Bei jedem Import werden die Fotos auch im Ausgangsordner abgelegt (das belegt keinen zusätzlichen Speicherplatz). Von RAW+JPEG-Paaren kommt nur das JPEG hinein. Wenn du Google Fotos nutzt: Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu.",
+  settingsGoogleToggle: "Importierte Fotos auch in den Ordner „Ausgang“ legen",
+  settingsGoogleNote: "Bei jedem Import werden die Fotos auch im Ordner „Ausgang“ abgelegt (das belegt keinen zusätzlichen Speicherplatz). Von RAW+JPEG-Paaren kommt nur das JPEG hinein. Wenn du Google Fotos nutzt: Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu.",
   settingsGoogleFolder: "Ordner",
   settingsGoogleFolderNote: "Er liegt auf demselben Laufwerk wie das Importziel. Wähle einen Ort außerhalb der Ordner, die eine andere Sicherung überwacht, etwa ein NAS oder Amazon Photos.",
-  settingsGoogleFoldersNote: "Ausgangsordner, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Wenn du Google Fotos nutzt: Füge jeden, den du nutzt, der Ordnersicherung hinzu.",
+  settingsGoogleFoldersNote: "Ordner „Ausgang“, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Wenn du Google Fotos nutzt: Füge jeden, den du nutzt, der Ordnersicherung hinzu.",
   settingsGoogleVideo: "Auch Videos ablegen",
   settingsGoogleRawOnly: "Nur-RAW-Aufnahmen",
   googleRawOnlyNone: "Weglassen",
@@ -494,8 +494,8 @@ export const de: Dict = {
   settingsGoogleRawOnlyNote: "Gilt für RAW-Dateien, die ohne JPEG aufgenommen wurden. „Eingebettetes JPEG“ holt das Vorschaubild heraus, das die Kamera in der RAW-Datei gespeichert hat, und legt es mit dem Aufnahmedatum ab. Das herausgeholte JPEG ist eine eigene Datei und belegt daher Speicherplatz.",
   settingsGoogleOneDrive: "Auch Fotos in OneDrive ablegen",
   settingsGoogleOneDriveNote: "Dann kann OneDrive diese Fotos nicht mehr auf „Nur online“ setzen.",
-  settingsGoogleAfterNote: "Wenn du ein Foto in pictkura in den Papierkorb legst, wird es auch aus dem Ausgangsordner genommen. Wenn du Google Fotos nutzt: In Google Fotos bleibt es erhalten. Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es geht daher nur weiter, solange diese Seite im Browser geöffnet ist.",
-  pickGoogleFolder: "Ausgangsordner wählen",
+  settingsGoogleAfterNote: "Wenn du ein Foto in pictkura in den Papierkorb legst, wird es auch aus dem Ordner „Ausgang“ genommen. Wenn du Google Fotos nutzt: In Google Fotos bleibt es erhalten. Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es geht daher nur weiter, solange diese Seite im Browser geöffnet ist.",
+  pickGoogleFolder: "Ordner „Ausgang“ wählen",
   importGoogle: (n: number) => ` · ${num(n)} im Ausgang abgelegt`,
   importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht im Ausgang abgelegt werden (siehe Protokoll)`,
   importGoogleError: (why: string) => `Nichts im Ausgang abgelegt: ${why}`,
@@ -510,7 +510,7 @@ export const de: Dict = {
     const items: string[] = [];
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0) items.push(`${num(rawOnly)} aus Nur-RAW-Aufnahmen ${one(rawOnly, "entnommenes JPEG", "entnommene JPEGs")}`);
-    return `Im Ausgangsordner wird abgelegt: ${items.join("; ")}.`;
+    return `Folgendes wird im Ordner „Ausgang“ abgelegt: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} der gewählten Dateien ${one(n, "wird", "werden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,
@@ -519,7 +519,7 @@ export const de: Dict = {
   googleSendGoogleNote:
     "Wenn du Google Fotos nutzt: Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es läuft, solange diese Seite im Browser geöffnet ist.",
   googleSendGoogleNoteNew:
-    "Wenn du Google Fotos nutzt: Füge auch den neuen Ordner in Google Fotos der Ordnersicherung hinzu. Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es läuft, solange diese Seite im Browser geöffnet ist.",
+    "Wenn du Google Fotos nutzt: Füge jeden neuen Ordner in Google Fotos der Ordnersicherung hinzu. Das Hochladen übernimmt die Webseite von Google Fotos (photos.google.com); es läuft, solange diese Seite im Browser geöffnet ist.",
   googleFolderCreated: (path: string) =>
     `${path} wurde neu angelegt. Wenn du Google Fotos nutzt: Füge auch diesen Ordner der Ordnersicherung hinzu.`,
   googleSendNothing: "Hier gibt es nichts, das abgelegt werden kann.",
@@ -596,10 +596,10 @@ export const de: Dict = {
   errGoogleOverlapsRoot: "Ein Bibliotheksordner, ein Ordner darin oder ein Ordner, der einen enthält, kann nicht gewählt werden.",
   errGoogleInsideSync: "Ein Ort innerhalb eines Sync-Ordners (OneDrive, Google Drive, Dropbox, iCloud Drive usw.) kann nicht gewählt werden.",
   errGoogleNoHardLinks: "Auf diesem Laufwerk geht das nicht (exFAT, FAT und Ähnliches können keine Hardlinks anlegen).",
-  errGoogleWholeVolume: "Das Importziel ist ein ganzes Laufwerk, daher gibt es darauf keinen Platz für den Ausgangsordner. Ändere das Importziel.",
+  errGoogleWholeVolume: "Das Importziel ist ein ganzes Laufwerk, daher gibt es darauf keinen Platz für den Ordner „Ausgang“. Ändere das Importziel.",
   errGoogleNoName: "Ein Laufwerk selbst kann nicht gewählt werden. Wähle einen Ordner darauf.",
-  errGoogleLinkInTheWay: "Der Ausgangsordner ist ein symbolischer Link. Wähle einen anderen Ort.",
-  errGoogleIo: "Der Ausgangsordner konnte nicht gelesen oder beschrieben werden.",
+  errGoogleLinkInTheWay: "Der Ordner „Ausgang“ ist ein symbolischer Link. Wähle einen anderen Ort.",
+  errGoogleIo: "Der Ordner „Ausgang“ konnte nicht gelesen oder beschrieben werden.",
   errGoogleOtherDrive: "Wähle einen Ordner auf demselben Laufwerk wie das Importziel.",
   errNotFound: "Dieses Foto steht nicht mehr im Index.",
   errDb: "Der Index ließ sich nicht lesen oder schreiben.",

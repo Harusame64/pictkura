@@ -31,7 +31,7 @@ use crate::config::{GoogleMirrorConfig, RawOnly};
 use crate::search::MediaKind;
 
 /// Google 用フォルダの名前（ドライブごとの既定の場所で使う）。
-/// 画面の呼び名「送り出し」に揃える（2026-10-06 利用者決定。`pictkura-outgoing` から変えた——未公開のうちに）
+/// 画面の呼び名「送り出し」に揃える（2026-10-06 利用者決定。`pictkura-google` から変えた——未公開のうちに。開発機で古い名前を使っていた台は、新しい名前のフォルダへ切り替わる）
 pub const MIRROR_DIR_NAME: &str = "pictkura-outgoing";
 
 /// 置くと決めた1件。

@@ -501,7 +501,7 @@ export const zhHant: Dict = {
   googleSendGoogleNote:
     "使用 Google 相簿時：上傳由 Google 相簿網頁（photos.google.com）進行，因此在瀏覽器中開著該網頁時會依序上傳。",
   googleSendGoogleNoteNew:
-    "使用 Google 相簿時：請在 Google 相簿的資料夾備份中也加入新資料夾。上傳由 Google 相簿網頁（photos.google.com）進行，因此在瀏覽器中開著該網頁時會依序上傳。",
+    "使用 Google 相簿時：請在 Google 相簿的資料夾備份中也加入每個新資料夾。上傳由 Google 相簿網頁（photos.google.com）進行，因此在瀏覽器中開著該網頁時會依序上傳。",
   googleFolderCreated: (path: string) =>
     `已新建 ${path}。使用 Google 相簿時：請在資料夾備份中也加入這個資料夾。`,
   googleSendNothing: "沒有可以放入的內容。",

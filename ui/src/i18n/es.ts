@@ -515,7 +515,7 @@ export const es: Dict = {
     const items: string[] = [];
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0) items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG extraído", "JPEG extraídos")} de tomas solo en RAW`);
-    return `Se colocará en la carpeta de Salida: ${items.join("; ")}.`;
+    return `Esto se colocará en la carpeta de Salida: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} de los elementos elegidos no se ${one(n, "coloca", "colocan")} (el RAW de un par RAW+JPEG, archivos dentro de OneDrive, etc.).`,
@@ -524,7 +524,7 @@ export const es: Dict = {
   googleSendGoogleNote:
     "Si usas Google Fotos: la subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   googleSendGoogleNoteNew:
-    "Si usas Google Fotos: añade también la carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
+    "Si usas Google Fotos: añade también cada carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   googleFolderCreated: (path: string) =>
     `Se ha creado ${path}. Si usas Google Fotos: añade también esta carpeta a la copia de seguridad de carpetas.`,
   googleSendNothing: "No hay nada que se pueda colocar.",

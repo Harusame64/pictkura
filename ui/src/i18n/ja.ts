@@ -540,7 +540,7 @@ export const ja = {
   googleSendGoogleNote:
     "Google フォトを使う場合：アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いている間に順に進みます。",
   googleSendGoogleNoteNew:
-    "Google フォトを使う場合：新しいフォルダも Google フォトの「フォルダをバックアップ」に登録してください。アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いている間に順に進みます。",
+    "Google フォトを使う場合：新しいフォルダはどれも Google フォトの「フォルダをバックアップ」に登録してください。アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いている間に順に進みます。",
   googleFolderCreated: (path: string) =>
     `${path} を新しく作りました。Google フォトを使う場合：このフォルダも「フォルダをバックアップ」に登録してください。`,
   googleSendNothing: "置けるものがありません。",
