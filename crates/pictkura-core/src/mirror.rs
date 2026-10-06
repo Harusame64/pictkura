@@ -571,6 +571,12 @@ fn give_way(dir: &Path, p: &Placement, ledger: &mut dyn Ledger) -> io::Result<()
         return Ok(());
     }
     let spot = dir.join(p.rel.with_extension("jpg"));
+    // その名前に何も無ければ、譲ってもらうものも無い。畳んだ引き方は表を全部なめるので、
+    // 普通の取り込み（名前が空いている）では引かない（PR の codex）。大文字小文字を区別しない
+    // 台では、`b.jpg` を訊いても `B.jpg` が答える
+    if std::fs::symlink_metadata(&spot).is_err() {
+        return Ok(());
+    }
     for (link, raw, index, extracted) in ledger.holders_folded(&spot)? {
         if !extracted
             || raw == crate::paths::normalize(&p.source)
