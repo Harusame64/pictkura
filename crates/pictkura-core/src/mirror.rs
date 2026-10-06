@@ -211,12 +211,7 @@ fn pair_key_folded(path: &Path) -> (PathBuf, std::ffi::OsString) {
 /// 同じドライブの別のルートから同じ相対パスが来たら、2本目は [`place`] で
 /// 「同じ名前が既にある」として失敗する（上書きはしない）。
 fn owning_root(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
-    roots
-        .iter()
-        .filter_map(|root| strip_root(path, root).map(|rest| (root, rest)))
-        .filter(|(_, rest)| !rest.as_os_str().is_empty())
-        .min_by_key(|(root, _)| root.components().count())
-        .map(|(_, rest)| rest)
+    outer_root(path, roots).and_then(|root| strip_root(path, root))
 }
 
 /// `path` が `root` の下なら残りを返す。**大文字小文字を区別しない台では畳んで比べる**
@@ -1005,6 +1000,199 @@ pub fn place_imported(
         .collect();
     db.google_pending_remove(&done).map_err(io::Error::other)?;
     Ok(Some(report))
+}
+
+/// **明示して選んだもの**の置き方の規則（`dev/plan.google-photos-from-library.md` §5。2026-10-06 利用者決定）。
+/// 動画も、RAW だけのカットも（埋め込み JPEG で）置く——設定は取り込みのときの自動の分にだけ効く。
+/// ほかは取り込みと同じ: 組（RAW と JPEG）は JPEG だけ、OneDrive の中は設定どおり（空き容量の話で、
+/// 選んだかどうかに関係しない）。設定ファイルだけにある `exclude_raw = false`（RAW そのものも置く）も
+/// 取り込みと同じく効く——選んだときだけ RAW を落とすと、同じ写真が入口によって違う形で並ぶ（ゲート1）
+fn chosen_rules(cfg: &GoogleMirrorConfig) -> GoogleMirrorConfig {
+    GoogleMirrorConfig {
+        exclude_video: false,
+        raw_only: RawOnly::EmbeddedJpeg,
+        ..cfg.clone()
+    }
+}
+
+/// `path` を持つルートのうち、**いちばん外側**のもの。[`owning_root`] の選び方の本体——置き先の
+/// ドライブ（[`place_chosen`]）と相対パスが別のルートから決まらないよう、1か所にだけ置く（ゲート2）
+fn outer_root<'a>(path: &Path, roots: &'a [PathBuf]) -> Option<&'a PathBuf> {
+    roots
+        .iter()
+        .filter(|root| strip_root(path, root).is_some_and(|rest| !rest.as_os_str().is_empty()))
+        .min_by_key(|root| root.components().count())
+}
+
+/// 選んだものを Google 用フォルダへ置く前の見積もり（確認に出す。設計 ② §1）。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ChosenSummary {
+    /// 置く写真（原本へのリンク）
+    pub photos: usize,
+    /// 置く動画
+    pub videos: usize,
+    /// RAW だけのカット（埋め込み JPEG を取り出して置く）
+    pub raw_only: usize,
+    /// リンクで置くものの大きさの合計（Google へ上がる量の目安。取り出す JPEG は含まない）
+    pub bytes: u64,
+    /// 置き先の Google 用フォルダ（ドライブごと）。決まらないルートの写真は数えない
+    pub folders: Vec<PathBuf>,
+    /// 置き先が決まらない（ドライブ丸ごとのルート等）ので置けないもの
+    pub unplaceable: usize,
+    /// 選んだのに置かないもの（組の RAW だけを選んだ・OneDrive の中・ライブラリの外 等）。
+    /// 組の相方がいっしょに選ばれて置かれる RAW は数えない（[`left_out`]）
+    pub left_out: usize,
+}
+
+/// 選んだのに置かないものの数。黙って消えると「押したのに何も起きない」になる（ゲート2）。
+/// 組の RAW で、相方の写真がこの回に置かれるものは数えない——組を選んだ人には「JPEG だけ置く」が答え
+pub fn left_out(chosen: &[PathBuf], planned: &[Placement]) -> usize {
+    let placed: HashSet<&PathBuf> = planned.iter().map(|p| &p.source).collect();
+    // 相方と数えるのは**置く写真**だけ（動画・取り出しの JPEG・RAW は組の相方ではない。ゲート2）
+    let keys: HashSet<(PathBuf, std::ffi::OsString)> = planned
+        .iter()
+        .filter(|p| !p.embedded && MediaKind::from_path(&p.source) == MediaKind::Photo)
+        .map(|p| pair_key_folded(&p.source))
+        .collect();
+    let mut seen: HashSet<&PathBuf> = HashSet::new();
+    chosen
+        .iter()
+        .filter(|p| seen.insert(p))
+        .filter(|p| !placed.contains(p))
+        .filter(|p| {
+            !(MediaKind::from_path(p) == MediaKind::Raw && keys.contains(&pair_key_folded(p)))
+        })
+        .count()
+}
+
+/// 選んだもの（原本と大きさ）を、置くときと同じ規則で数える。ファイルは読まない（組の相方だけは
+/// ディスクで探す——[`plan`] と同じ）。
+pub fn summarize_chosen(items: &[(PathBuf, u64)], config: &crate::Config) -> ChosenSummary {
+    let roots = &config.library.roots;
+    let rules = chosen_rules(&config.google_mirror);
+    let sources: Vec<PathBuf> = items.iter().map(|(p, _)| p.clone()).collect();
+    let sizes: HashMap<&PathBuf, u64> = items.iter().map(|(p, n)| (p, *n)).collect();
+    let planned = plan(
+        &sources,
+        roots,
+        &rules,
+        &mut photos_on_disk(&config.import.extensions),
+    );
+    let mut out = ChosenSummary {
+        left_out: left_out(&sources, &planned),
+        ..ChosenSummary::default()
+    };
+    let mut where_of: HashMap<PathBuf, Option<PathBuf>> = HashMap::new();
+    for p in &planned {
+        let Some(root) = outer_root(&p.source, roots) else {
+            continue;
+        };
+        let dir = where_of
+            .entry(root.clone())
+            .or_insert_with(|| location_for_root(root, &config.google_mirror.locations, roots).ok())
+            .clone();
+        let Some(dir) = dir else {
+            out.unplaceable += 1;
+            continue;
+        };
+        if !out.folders.contains(&dir) {
+            out.folders.push(dir);
+        }
+        if p.embedded {
+            out.raw_only += 1;
+        } else {
+            if MediaKind::from_path(&p.source) == MediaKind::Video {
+                out.videos += 1;
+            } else {
+                out.photos += 1;
+            }
+            out.bytes += sizes.get(&p.source).copied().unwrap_or(0);
+        }
+    }
+    out
+}
+
+/// [`place_chosen`] の結果。
+#[derive(Debug, Default)]
+pub struct ChosenReport {
+    pub report: PlaceReport,
+    /// 選んだのに置かないもの（[`left_out`]）
+    pub left_out: usize,
+    /// フォルダごと置けなかったルートの、最初の理由（場所が決まらない等）。その分は `report.failed` にも入る
+    pub root_error: Option<MirrorError>,
+}
+
+/// **ライブラリから選んだもの**を Google 用フォルダへ置く（設計 ②）。ルートごとに、そのドライブの
+/// Google 用フォルダ（[`location_for_root`]）へ置く。置き先が決まらないルートの分は失敗として返し、
+/// 残りは続ける。
+///
+/// 一時的な失敗は**保留に残さない**——保留の置き直しは取り込みの規則（設定の動画・RAW だけ）で回るので、
+/// 明示して選んだ動画を落としてしまう。結果に出し、利用者がもう一度送れば置ける。
+///
+/// 設定で切っていれば何もしない（`None`。入口も出さない）。
+pub fn place_chosen(
+    sources: &[PathBuf],
+    config: &crate::Config,
+    db: &mut crate::db::Db,
+) -> Result<Option<ChosenReport>, MirrorError> {
+    if !is_on(config) {
+        return Ok(None);
+    }
+    let roots = &config.library.roots;
+    let rules = chosen_rules(&config.google_mirror);
+    let onedrive = if rules.include_onedrive {
+        Vec::new()
+    } else {
+        onedrive_folders()
+    };
+    let mut by_root: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+    for src in sources {
+        let Some(root) = outer_root(src, roots) else {
+            continue;
+        };
+        match by_root.iter_mut().find(|(r, _)| r == root) {
+            Some((_, list)) => list.push(src.clone()),
+            None => by_root.push((root.clone(), vec![src.clone()])),
+        }
+    }
+    let mut total = ChosenReport::default();
+    let mut planned_all: Vec<Placement> = Vec::new();
+    for (root, items) in by_root {
+        let placements = plan_with(
+            &items,
+            roots,
+            &rules,
+            &mut photos_on_disk(&config.import.extensions),
+            &onedrive,
+        );
+        planned_all.extend(placements.iter().cloned());
+        if placements.is_empty() {
+            continue;
+        }
+        let placed =
+            location_for_root(&root, &config.google_mirror.locations, roots).and_then(|dir| {
+                let mut ledger = DbLedger {
+                    db: &mut *db,
+                    dir: dir.clone(),
+                };
+                place(&dir, roots, &placements, &mut ledger)
+            });
+        match placed {
+            Ok(r) => total.report.absorb(r),
+            // フォルダごと置けない（場所が決まらない・見えない）: その分を1件ずつの失敗にして続け、
+            // 理由は画面に出せるよう持ち帰る（ゲート2）
+            Err(e) => {
+                let why = e.to_string();
+                total
+                    .report
+                    .failed
+                    .extend(placements.into_iter().map(|p| (p.source, why.clone())));
+                total.root_error.get_or_insert(e);
+            }
+        }
+    }
+    total.left_out = left_out(sources, &planned_all);
+    Ok(Some(total))
 }
 
 /// 保留を置き直す（次の取り込みの前・起動のあとに呼ぶ）。設定で切っていれば何もしない。
@@ -3035,6 +3223,153 @@ mod tests {
         let r = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
         assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
         assert!(book.0.iter().all(|r| !r.extracted));
+    }
+
+    /// 設定は「動画は置かない・RAW だけは上げない」——明示して選んだものはそれでも置く（設計 ② §5）
+    fn strict_on(f: &Fixture) -> crate::Config {
+        let mut config = on(f);
+        config.google_mirror.exclude_video = true;
+        config.google_mirror.raw_only = RawOnly::None;
+        config
+    }
+
+    fn chosen_shoot(f: &Fixture) -> Vec<PathBuf> {
+        put(&f.lib.join("2010/a.jpg"), b"photo a");
+        put(&f.lib.join("2010/P.ARW"), b"raw of a pair");
+        put(&f.lib.join("2010/P.JPG"), b"jpeg of a pair");
+        put(&f.lib.join("2010/v.mp4"), b"video");
+        raw_with_preview(&f.lib.join("2010/R.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        ["a.jpg", "P.ARW", "P.JPG", "v.mp4", "R.ARW"]
+            .iter()
+            .map(|n| f.lib.join("2010").join(n))
+            .collect()
+    }
+
+    #[test]
+    fn chosen_videos_and_raw_only_cuts_are_placed_whatever_the_settings() {
+        let f = fixture();
+        let chosen = chosen_shoot(&f);
+        let config = strict_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let c = place_chosen(&chosen, &config, &mut db).unwrap().unwrap();
+        // 組の RAW は「置かないもの」に数えない（相方の JPEG が置かれる）
+        assert_eq!(c.left_out, 0);
+        let r = c.report;
+        assert_eq!((r.placed, r.failed.len()), (4, 0), "{:?}", r.failed);
+        let g = f.google.join("2010");
+        assert!(same_file(&f.lib.join("2010/a.jpg"), &g.join("a.jpg")).unwrap());
+        assert!(same_file(&f.lib.join("2010/v.mp4"), &g.join("v.mp4")).unwrap());
+        assert!(same_file(&f.lib.join("2010/P.JPG"), &g.join("P.JPG")).unwrap());
+        // 組の RAW は置かない。RAW だけのカットは埋め込み JPEG で
+        assert!(!g.join("P.ARW").exists());
+        assert!(g.join("R.jpg").is_file());
+        // 保留には残さない（置き直しは取り込みの規則で回るので、選んだ動画を落とす）
+        assert!(db.google_pending_all().unwrap().is_empty());
+        // もう一度送っても重ならない
+        let r = place_chosen(&chosen, &config, &mut db)
+            .unwrap()
+            .unwrap()
+            .report;
+        assert_eq!((r.placed, r.already), (0, 4));
+    }
+
+    #[test]
+    fn the_summary_counts_what_sending_would_place() {
+        let f = fixture();
+        let chosen = chosen_shoot(&f);
+        let config = strict_on(&f);
+        let items: Vec<(PathBuf, u64)> = chosen
+            .iter()
+            .map(|p| (p.clone(), std::fs::metadata(p).unwrap().len()))
+            .collect();
+        let s = summarize_chosen(&items, &config);
+        let bytes = ["a.jpg", "P.JPG", "v.mp4"]
+            .iter()
+            .map(|n| std::fs::metadata(f.lib.join("2010").join(n)).unwrap().len())
+            .sum::<u64>();
+        assert_eq!(
+            s,
+            ChosenSummary {
+                photos: 2,
+                videos: 1,
+                raw_only: 1,
+                bytes,
+                folders: vec![f.google.clone()],
+                unplaceable: 0,
+                left_out: 0,
+            }
+        );
+        // 数えるだけで、何も作らない
+        assert!(!f.google.exists());
+    }
+
+    #[test]
+    fn nothing_is_sent_while_the_switch_is_off_or_outside_the_library() {
+        let f = fixture();
+        let chosen = chosen_shoot(&f);
+        let mut config = strict_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        config.google_mirror.enabled = false;
+        assert!(place_chosen(&chosen, &config, &mut db).unwrap().is_none());
+        config.google_mirror.enabled = true;
+        let outside = f.lib.parent().unwrap().join("elsewhere/x.jpg");
+        put(&outside, b"not in the library");
+        let c = place_chosen(&[outside], &config, &mut db).unwrap().unwrap();
+        assert_eq!(c.report, PlaceReport::default());
+        // 黙って消さない: 置かないものとして数える
+        assert_eq!(c.left_out, 1);
+        assert!(!f.google.exists());
+    }
+
+    #[test]
+    fn a_raw_chosen_without_its_jpeg_is_counted_as_left_out() {
+        let f = fixture();
+        chosen_shoot(&f);
+        let config = strict_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // 組の RAW だけを選んだ（重ねずに見ている一覧で）
+        let c = place_chosen(&[f.lib.join("2010/P.ARW")], &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!((c.report.placed, c.left_out), (0, 1));
+    }
+
+    #[test]
+    fn a_video_of_the_same_name_does_not_cover_a_raw_left_out() {
+        let f = fixture();
+        chosen_shoot(&f);
+        put(&f.lib.join("2010/P.MOV"), b"live photo");
+        let config = strict_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        // 組の RAW と、同じ名前の動画だけを選んだ（JPEG は選んでいない）
+        let c = place_chosen(
+            &[f.lib.join("2010/P.ARW"), f.lib.join("2010/P.MOV")],
+            &config,
+            &mut db,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!((c.report.placed, c.left_out), (1, 1));
+    }
+
+    #[test]
+    fn a_root_that_has_no_place_brings_its_reason_back() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo");
+        let mut config = strict_on(&f);
+        // 置き場の候補がライブラリの中（重なる）
+        config.google_mirror.locations = vec![f.lib.join("inside")];
+        std::fs::create_dir_all(f.lib.join("inside")).unwrap();
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let c = place_chosen(&[f.lib.join("d/a.jpg")], &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!(c.report.failed.len(), 1);
+        assert!(
+            matches!(c.root_error, Some(MirrorError::OverlapsRoot(_))),
+            "{:?}",
+            c.root_error
+        );
     }
 
     #[test]

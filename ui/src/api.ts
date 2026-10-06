@@ -112,6 +112,8 @@ export interface GooglePlaced {
   failed: number;
   /** 1件も置けなかった理由（場所が決まらない等）。辞書の鍵＋詳細なので `errText` で読む */
   error: string | null;
+  /** 選んだのに置かないもの（ライブラリから選んで送ったときだけ。取り込みでは 0） */
+  left_out: number;
 }
 
 export interface ExportStats {
@@ -883,6 +885,30 @@ export type GoogleRawOnly = "none" | "embedded_jpeg";
 
 export const setGoogleRawOnly = (rawOnly: GoogleRawOnly) =>
   invoke<void>("set_google_raw_only", { rawOnly });
+
+/** ライブラリから Google フォトへ送るものの選び方（`dev/plan.google-photos-from-library.md` §1） */
+export type ChosenForGoogle =
+  | { kind: "ids"; ids: number[] }
+  | { kind: "folder"; path: string };
+
+/** 送る前の見積もり（確認に出す）。`bytes` はリンクで置くものの合計（取り出す JPEG は含まない） */
+export interface ChosenSummary {
+  photos: number;
+  videos: number;
+  raw_only: number;
+  bytes: number;
+  folders: string[];
+  unplaceable: number;
+  /** 選んだのに置かないもの（組の RAW だけ・OneDrive の中・ライブラリの外 等） */
+  left_out: number;
+}
+
+export const googleChosenSummary = (chosen: ChosenForGoogle) =>
+  invoke<ChosenSummary>("google_chosen_summary", { chosen });
+
+/** 切っていれば null（入口も出さない） */
+export const googleSendChosen = (chosen: ChosenForGoogle) =>
+  invoke<GooglePlaced | null>("google_send_chosen", { chosen });
 
 export const setGoogleIncludeOnedrive = (include: boolean) =>
   invoke<void>("set_google_include_onedrive", { include });
