@@ -610,6 +610,14 @@ export const ja = {
   settingsEditorsNote: "「他のアプリで開く…」で選んだアプリを覚えています。",
   settingsForgetEditor: "一覧から外す",
   calendarEmpty: "写真がありません",
+  // 絞り込んで0件のとき（案内。pictkura-dev plan.filter-empty.md、2026-10-07 利用者決定: 案B）。
+  // `conds` は効いている条件の名前を `listSeparator` でつないだもの（`src/filterEmpty.ts`）
+  filterEmptyTitle: (conds: string) => `${conds}に合う写真はありません`,
+  filterEmptyMessage: "検索語や、左の一覧で選んでいる絞り込みを外すと、ほかの写真が出てきます。",
+  filterEmptyStillIndexing: "まだ取り込み・索引の途中なので、あとで出てくることがあります。",
+  filterCondQuery: (q: string) => `検索語「${q}」`,
+  filterCondCamera: (name: string) => `${name} で撮ったもの`,
+  filterEmptyClearSearch: "検索を消す",
   // ⚡爆速メーター
   speedPrefix: (sec: string) => `⚡ ${sec}秒で起動チェック — `,
   speedUsn: "USNジャーナル差分: ",
