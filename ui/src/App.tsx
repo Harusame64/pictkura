@@ -745,6 +745,12 @@ export default function App() {
     outgoing: 0,
   });
   const [memories, setMemories] = useState<Memory[]>([]);
+  /**
+   * いまの `summary` が**どの絞り込みへの答えか**（`filter|検索語`）。絞り込みを変えた描画では
+   * `summary` はまだ前の答えなので、0件の案内（`filterEmpty`）はこれが今と一致するときだけ出す
+   * ——一致を見ないと、前の0件に新しい条件の名前を付けて1コマ見せる（ゲート2）
+   */
+  const [summaryFor, setSummaryFor] = useState("");
   const [cellSize, setCellSize] = useState(180);
   /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
@@ -1126,6 +1132,7 @@ export default function App() {
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    const askedFor = `${filterRef.current}|${queryRef.current}`;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
     // **同期で倒す。** 効果は同じ描画の中で順に走るので、状態の更新を待つと
@@ -1164,6 +1171,7 @@ export default function App() {
       if (sumR.status === "rejected") throw sumR.reason;
       gotSummary = true;
       setSummary(sumR.value);
+      setSummaryFor(askedFor);
       setDayItems(new Map());
       gotSummaryRef.current += 1;
       setLoadFailed(false);
@@ -1200,12 +1208,14 @@ export default function App() {
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
+    const askedFor = `${filterRef.current}|${queryRef.current}`;
     const [sum, st] = await Promise.all([
       timelineSummary(queryRef.current, filterRef.current),
       getStats(),
     ]);
     if (generationRef.current !== gen) return; // リロードが割り込んだら捨てる
     setSummary(sum);
+    setSummaryFor(askedFor);
     // **成功したら失敗の表示を下ろす。** ここは `reloadAll` と同じ骨組みを
     // 取り直している。下ろさないと、1回転んだあと部分更新が何度成功しても
     // 「一覧を出せませんでした」が居座る——次の `reloadAll` まで固まる
@@ -2011,8 +2021,11 @@ export default function App() {
    * なので「無い」と言わない。読み込みの失敗は上の「出せませんでした」に任せる。
    * 取り込み・走査・索引の途中は、あとで増えうるので一言添える（断定はやめない）
    */
-  const filterEmpty = filtering && settled && !loadFailed && summary.length === 0;
-  const filterEmptyMayGrow = busy || !scanSettled || indexProgress?.building === true;
+  const filterAnswered = summaryFor === `${filter}|${withKind(query, kind)}`;
+  const filterEmpty =
+    filtering && settled && !loadFailed && summary.length === 0 && filterAnswered;
+  // 一言は取り込み・索引の合図だけで決める——`busy` は削除・書き出しでも立つ（ゲート2）
+  const filterEmptyMayGrow = !scanSettled || indexProgress?.building === true;
   /**
    * パネルの見出し。**本文と食い違わせない。**
    *
@@ -6986,7 +6999,9 @@ export default function App() {
                   理由をまだ言えないときは**代わりに何か置く**——止めるだけだと、
                   起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
-              {!showEmptyPanel && !unsureWhyEmpty && !filterEmpty && (
+              {/* 絞り込んで0件のときは、答えを待つ間もカレンダー自前の「写真がありません」を出さない
+                  ——案内と交互に出て、空の知らせが2種類ちらつく（ゲート2） */}
+              {!showEmptyPanel && !unsureWhyEmpty && !(filtering && summary.length === 0) && (
                 <Calendar
                   summary={summary}
                   onOpenDay={openDay}
