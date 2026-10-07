@@ -2,15 +2,27 @@
  * パレットの「（を）検索」と、アプリ操作の並べ方（2026-10-07 利用者決定）。純関数。
  * `scripts/paletteOrder.test.ts` が見る。
  *
- * **打った語が操作の名前に当たったら、その操作を検索より上に出す。** パレットに操作の名前を
- * 打つ人はその操作を探している——「すべての画像」と打って Enter で検索になっていた（win2 の実機）。
- * 検索は消さずにすぐ下へ残す（↓ 1回で届く）。当たる操作が無ければ、今までどおり検索が先
+ * **打った語が操作の名前の頭（語の頭）に当たったら、その操作を検索より上に出す。** パレットに操作の
+ * 名前を打つ人はその操作を探している——「すべての画像」と打って Enter で検索になっていた（win2 の実機）。
+ * 頭に限るのは、名前の途中に当たる普通の検索語（「画像」「scan」）で Enter が操作を走らせないため
+ * （ゲート2。再スキャン・取り込みのような重い操作もある）。検索は消さずに当たった操作の下へ残す。
+ *
+ * **英語の名前でも当たる**（`alias`）。IME で変換する言語（日本語・中国語）では、英語のまま打てば
+ * 変換と確定の手間が要らない（2026-10-07 利用者）。英語の名前は動詞から始まる（"Show all photos"）
+ * ので、頭は**語ごと**に見る（"all" で当たる）
  */
 
-/** 操作の名前が、打った語に当たるか（大文字小文字を畳んだ部分一致。今までの絞り方と同じ） */
-export function actionMatches(label: string, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  return q === "" || label.toLowerCase().includes(q);
+/** `text` のどこかの語の頭から、`q`（小文字・前後の空白なし）が続くか */
+function fromAWordStart(text: string, q: string): boolean {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  return words.some((_, i) => words.slice(i).join(" ").startsWith(q));
+}
+
+/** 操作が、打った語に当たるか。名前（今の言語）と英語の名前（`alias`）の、語の頭で見る */
+export function actionMatches(label: string, query: string, alias?: string): boolean {
+  const q = query.trim().toLowerCase().replace(/\s+/g, " ");
+  if (q === "") return true;
+  return fromAWordStart(label, q) || (alias !== undefined && fromAWordStart(alias, q));
 }
 
 /**

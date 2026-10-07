@@ -1,36 +1,69 @@
 /**
  * パレットの「（を）検索」と操作の並べ方（`src/paletteOrder.ts`。2026-10-07 利用者決定）。`npm --prefix ui test`。
+ * 名前は実際の辞書（ja・en・zh）から取る——写しの名前で緑にしない
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { actionMatches, orderSearchAndActions } from "../src/paletteOrder.ts";
+import { ja } from "../src/i18n/ja.ts";
+import { en } from "../src/i18n/en.ts";
+import { zh } from "../src/i18n/zh.ts";
 
-const actions = ["すべての画像を表示", "再スキャン", "設定を開く", "Show all photos"];
-const pick = (q: string) => actions.filter((a) => actionMatches(a, q));
-const order = (q: string) => orderSearchAndActions(q.trim() ? `検索:${q}` : null, pick(q));
+const KEYS = [
+  "importFromUsb",
+  "rescan",
+  "actionShowFavorites",
+  "actionShowPicked",
+  "actionShortcuts",
+  "actionShowAll",
+  "actionCalendar",
+  "actionThumbnails",
+] as const;
+type Dict = typeof ja;
+/** 画面の言語 `d` で、英語の名前を別名に持たせた操作（`App.tsx` の `paletteActions` と同じ組み方） */
+const actionsIn = (d: Dict) => KEYS.map((k) => ({ label: d[k] as string, alias: en[k] as string }));
+const order = (d: Dict, q: string) =>
+  orderSearchAndActions(
+    q.trim() ? `検索` : null,
+    actionsIn(d)
+      .filter((a) => actionMatches(a.label, q, a.alias))
+      .map((a) => a.label),
+  );
 
-test("操作の名前に当たれば、操作が検索より上（win2 の実機: Enter で検索になっていた）", () => {
-  assert.deepEqual(order("すべての画像"), ["すべての画像を表示", "検索:すべての画像"]);
-  assert.deepEqual(order("画像"), ["すべての画像を表示", "検索:画像"], "部分一致でも上げる");
+test("名前の頭に当たれば、操作が検索より上（win2 の実機: Enter で検索になっていた）", () => {
+  assert.deepEqual(order(ja, "すべての画像"), [ja.actionShowAll, "検索"]);
+  assert.deepEqual(order(ja, "再スキャン"), [ja.rescan, "検索"]);
 });
 
-test("当たる操作が無ければ、検索が先頭のまま（たいていの検索語）", () => {
-  assert.deepEqual(order("海"), ["検索:海"]);
-  assert.deepEqual(order("沖縄 2019"), ["検索:沖縄 2019"]);
+test("名前の途中に当たるだけなら、検索が先頭のまま（ゲート2: 「画像」「scan」で Enter が操作を走らせない）", () => {
+  assert.deepEqual(order(ja, "画像"), ["検索"]);
+  assert.deepEqual(order(en, "scan"), ["検索"], "Rescan の途中");
+  assert.deepEqual(order(ja, "海"), ["検索"]);
 });
 
-test("検索は消さない——操作が当たっても、すぐ下に残る", () => {
-  const got = order("設定");
-  assert.equal(got.at(-1), "検索:設定");
-  assert.equal(got.length, 2);
+test("英語の名前でも当たる——日本語・中国語の画面で、英語のまま打てる（利用者 10-07）", () => {
+  assert.deepEqual(order(ja, "all"), [ja.actionShowAll, "検索"], "語の頭（Show all photos の all）");
+  assert.deepEqual(order(ja, "show all"), [ja.actionShowAll, "検索"], "2語でも");
+  assert.deepEqual(order(zh, "cal"), [zh.actionCalendar, "検索"]);
+  assert.deepEqual(order(ja, "resc"), [ja.rescan, "検索"]);
 });
 
-test("大文字小文字を畳む・前後の空白は見ない", () => {
-  assert.deepEqual(order("  show ALL "), ["Show all photos", "検索:  show ALL "]);
+test("当たる操作がいくつもあれば、全部を検索より上に（並びは操作の並びのまま）", () => {
+  assert.deepEqual(order(en, "show"), [
+    en.actionShowFavorites,
+    en.actionShowPicked,
+    en.actionShortcuts,
+    en.actionShowAll,
+    "検索",
+  ]);
 });
 
-test("入力が空なら検索は出さず、操作は全部（並びはそのまま）", () => {
-  assert.deepEqual(order(""), actions);
-  assert.deepEqual(order("   "), actions);
+test("大文字小文字・前後と途中の空白は畳む", () => {
+  assert.deepEqual(order(en, "  SHOW   all "), [en.actionShowAll, "検索"]);
+});
+
+test("入力が空なら検索は出さず、操作は全部", () => {
+  assert.deepEqual(order(ja, ""), KEYS.map((k) => ja[k]));
+  assert.deepEqual(order(ja, "   "), KEYS.map((k) => ja[k]));
 });
