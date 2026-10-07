@@ -323,7 +323,7 @@ on its own</strong>: the import wizard opens on that drive only when you choose 
 </p>
 
 <p>
-To turn it on, tick “<strong>When you insert a USB drive or SD card</strong>” in Settings ⚙.
+To turn it on, tick “<strong>Offer pictkura in the AutoPlay choices</strong>” under “When you insert a USB drive or SD card” in Settings ⚙.
 Clearing the same checkbox removes it from the choices right away.
 </p>
 
@@ -512,7 +512,7 @@ was read before.
 
 <h2 id="search">4. Find</h2>
 
-<p>Use the search box at the top, or the command palette with <kbd>Ctrl</kbd> + <kbd>K</kbd>.</p>
+<p>Use the search box at the top, or the command palette with <kbd>Ctrl</kbd> + <kbd>K</kbd> (<kbd>⌘</kbd> + <kbd>K</kbd> on macOS).</p>
 
 <div class="table-scroll">
 <table>
@@ -529,6 +529,22 @@ was read before.
 </div>
 
 <p>All terms are ANDed. The order is fixed: newest capture date first.</p>
+
+<p>
+Besides jumping to a date, narrowing by camera and searching, the command palette offers actions
+(“Import from USB”, “Rescan”, “Show favorites only”, “Show picked only”, “Show keyboard shortcuts”,
+“Show all photos”, “Calendar view”, “Photo grid”).
+When what you type matches the start of an action’s name (the start of a word), that action is listed above the search.
+Actions also answer to their English names whatever language the app is in.
+</p>
+
+<p>
+When a filter leaves no photos at all, the heading names the filters in effect
+(“No photos match these filters: …”).
+“Clear search” clears the search, and “Show all photos” clears every filter at once.
+If photos are still being imported or indexed, it says more may turn up.
+If the sync that runs at startup did not finish, it asks you to press Rescan.
+</p>
 
 <h2 id="viewer">5. Look</h2>
 
@@ -553,7 +569,7 @@ was read before.
   <tr><td><kbd>1</kbd> / <kbd>0</kbd></td><td><kbd>1</kbd> <strong>toggles</strong> between actual size 100% and fit to screen; <kbd>0</kbd> always fits</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
-  <tr><td><kbd>?</kbd></td><td>Show the keyboard shortcuts (works in the grid too)</td></tr>
+  <tr><td><kbd>?</kbd> / <kbd>F1</kbd></td><td>Show the keyboard shortcuts (works in the grid too)</td></tr>
   <tr><td><kbd>Ctrl</kbd> + <kbd>,</kbd></td><td>Open Settings (<strong>works in the grid too</strong>; <kbd>⌘</kbd> + <kbd>,</kbd> on macOS, or pictkura &rarr; Settings… in the menu). The same panel the toolbar gear opens &mdash; <strong>and the way in if the toolbar is ever too narrow to show the gear</strong></td></tr>
 </table>
 </div>
@@ -575,9 +591,9 @@ If your system is set to reduce motion, photos change without moving whatever yo
   <p>
     <strong>Deleting always goes through the Recycle Bin.</strong>
     The app never removes a file outright. The one exception is the Outgoing folder: when a photo is moved to the
-    Recycle Bin in pictkura, what was placed in the Outgoing folder is taken out without going through the Recycle Bin
-    (the photo itself stays in the Recycle Bin, and an embedded JPEG can be taken from its RAW again;
-    see <a href="#outgoing">9. Outgoing</a>).
+    Recycle Bin in pictkura, and when you use “Remove from Outgoing”, what was placed in the Outgoing folder is taken out
+    without going through the Recycle Bin (the photo itself stays where it was or in the Recycle Bin, and an embedded JPEG
+    can be taken from its RAW again; see <a href="#outgoing">9. Outgoing</a>).
   </p>
 </div>
 
@@ -887,6 +903,8 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
   <li><strong>Every import</strong> lines up the photos it copied (except those matching the library’s exclude patterns), in the same folder layout as inside the library location</li>
   <li>For RAW+JPEG pairs, <strong>only the JPEG</strong>. For RAW-only shots, Settings offers “Leave out” or “Place the embedded JPEG” (the preview picture the camera stored inside the RAW, given the capture date). A RAW without a preview of at least 1000 px on the long edge (some older cameras, and some phones’ DNG files) is not placed</li>
   <li>Videos follow “Place videos too”. Photos inside OneDrive go in only when that setting is on</li>
+  <li>With “Stack bursts into one tile” on, a burst within one import is placed as <strong>its first frame only</strong>. A frame you flag ⚑ later is added only when a frame of the same burst is already in Outgoing (not when you flag the whole burst at once; removing ⚑ does not take it out of Outgoing)</li>
+  <li>When a real JPEG with the same name is imported later for a RAW-only shot, it replaces the JPEG taken out of the RAW</li>
   <li>Photos are placed as hard links (a second name for the same file), so <strong>they take no extra disk space</strong>. An embedded JPEG is a separate file and does take space</li>
 </ul>
 
@@ -895,7 +913,7 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <p>These appear only while Outgoing is turned on in Settings.</p>
 
 <ul>
-  <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar. “Add to Outgoing” in a photo’s right-click menu sends only that photo</li>
+  <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar. “Add to Outgoing” in a photo’s right-click menu sends only that photo. With bursts stacked, the selection bar and the calendar place every frame of a burst, and the right-click menu places only its cover frame</li>
   <li><strong>Right-click a month heading in the calendar</strong> for “Add this month to Outgoing” or “Add all of &lt;year&gt; to Outgoing”. It covers the photos the current search and filter show</li>
   <li>Over 100 photos, after select-all or a range, from the calendar, and when a new folder has to be made, pictkura shows what will be placed before placing anything</li>
   <li>What you choose goes in even if it is a video or a RAW-only shot (as its embedded JPEG, when one of at least 1000 px on the long edge can be taken out); those two settings only steer what an import places on its own. Photos inside OneDrive follow their setting</li>
@@ -918,7 +936,7 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <p>
 Hard links cannot cross drives, so each drive that holds photos gets its own Outgoing folder
 (<code>pictkura-outgoing</code> under your home folder if the drive holds it, otherwise at the top of the drive).
-When one is created, the confirmation or the import result usually tells you (not when it is made by the retry at startup), and Settings → Outgoing always lists the Outgoing folders photos have been placed in.
+When one is created, the confirmation or the import result usually tells you (not when it is made by the retry at startup). The current Outgoing folder is shown under “Folder” in Settings → Outgoing; when photos have been placed in other Outgoing folders too, every folder used so far is listed below it.
 <strong>If you use Google Photos:</strong> add each one you use in Google Photos.
 You can choose another place on the same drive as the import destination with Settings → Outgoing → Change.
 </p>
@@ -1008,21 +1026,23 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Settings</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
   <tr><td>Database</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
   <tr><td>Thumbnails</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
-  <tr><td>Record of failures</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only when something fails</strong>)</td></tr>
+  <tr><td>Log</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only when something fails, or when you use Outgoing</strong>)</td></tr>
 </table>
 </div>
 
 <p>
 <strong>About the log.</strong>
-It records <strong>only the things that did not work</strong> — a read that fell over
+It records <strong>the things that did not work</strong> — a read that fell over
 part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
-launch that failed — one line each. Successes are not written. What gets written is
+launch that failed — and what it did in the Outgoing folders (creating one, removing from it,
+placing what could not be placed earlier), one line each. Other successes are not written. The failures written are
 <strong>the machine falling over</strong>: an index it cannot read or write, a setting it
 cannot save. <strong>That includes ones you were told about on screen</strong>, so you can
 report them afterwards. <strong>What does not get written is a choice you can simply make
 again</strong> — a folder that is not there, a library another app manages — or something
 <strong>the screen already shows you</strong>, like a thumbnail that does not appear. So no
-file means <strong>none of the failures that belong here</strong> have happened.
+file means <strong>none of the failures that belong here</strong> have happened (if you use Outgoing, the file
+can exist without any failure).
 Open it from Settings → “About” → “Open the log” (the button is disabled while there
 is nothing to open). <strong>The sentences this app writes there are English</strong> whatever language the app is
 set to, so they can go straight into a bug report; what you see on screen stays in your own
