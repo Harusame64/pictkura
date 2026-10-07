@@ -57,8 +57,8 @@
   <h1 class="disp">Specification</h1>
   <p class="lead">What it does, what it does not, the file formats it handles, what it needs to run, and where it keeps its data. Only facts we have actually checked.</p>
   <p class="stamps">
-    <span>Version &nbsp;<b>0.2</b></span>
-    <span>Updated &nbsp;<b>2026-09-06</b></span>
+    <span>Version &nbsp;<b>0.3</b></span>
+    <span>Updated &nbsp;<b>2026-10-07</b></span>
     <span>License &nbsp;<b>MIT</b></span>
   </p>
 </div>
@@ -113,6 +113,7 @@
         <div><h3>Take out the picture you are looking at</h3><p>📋 copies it to the clipboard, 💾 saves it to a file (<code>Ctrl</code>+<code>C</code> / <code>Ctrl</code>+<code>S</code>). The <a href="../manual.en.html#viewer">manual</a> has the details</p></div>
         <div><h3>Bulk actions</h3><p>Star a selection, copy or move it to a folder, or send all of it to the recycle bin</p></div>
         <div><h3>Slideshow and video playback</h3><p>Containers the engine cannot play are handed to your default player</p></div>
+        <div><h3>Outgoing</h3><p>Every import lines up what you want to hand to a photo service in an Outgoing folder. For RAW+JPEG pairs only the JPEG goes in. Off by default. <a href="outgoing.html">Guide</a></p></div>
         <div><h3>AutoPlay entry (Windows)</h3><p>Turn it on in Settings and it appears as a choice when a card is inserted. Off by default, and it never launches on its own</p></div>
       </div>
       <!-- 実際に操作しているところ。画面は日本語のまま使い回しているので断りを添える。
@@ -237,9 +238,9 @@
             <tr><td class="k">Outbound connections</td><td>One update check at startup, automatic at most once a day. All it sends is "pictkura version X is asking"</td></tr>
             <tr><td class="k">Never sent</td><td>Photos, file names, folder paths, usage. <strong class="em">There is no analytics or telemetry of any kind</strong></td></tr>
             <tr><td class="k">Turning it off</td><td>Settings → About → "Check for updates at startup". With it off, the app never reaches the network</td></tr>
-            <tr><td class="k">Cloud-only files</td><td>Never fetched on their own. The real file is pulled only when you actually look at that photo</td></tr>
-            <tr><td class="k">Deleting</td><td>Always through the recycle bin. pictkura never removes a file outright</td></tr>
-            <tr><td class="k">Record of failures</td><td>Only the things that did not work are appended to <code>pictkura.log</code> (lines can contain file names and folder paths). <strong class="em">Nothing sends it anywhere</strong> — open it from Settings to read it, and delete it whenever you like</td></tr>
+            <tr><td class="k">Cloud-only files</td><td>Never fetched on their own. The real file is pulled only when you actually look at that photo, or copy or move it to a folder</td></tr>
+            <tr><td class="k">Deleting</td><td>Always through the recycle bin. pictkura never removes a file outright, except what it placed in the Outgoing folder</td></tr>
+            <tr><td class="k">Log</td><td>The things that did not work, and what pictkura did in the Outgoing folders (creating one, removing from it, placing what could not be placed earlier), are appended to <code>pictkura.log</code> (lines can contain file names and folder paths). <strong class="em">Nothing sends it anywhere</strong> — open it from Settings to read it, and delete it whenever you like</td></tr>
           </tbody>
         </table>
       </div>
@@ -256,7 +257,7 @@
             <tr><td class="k">Settings (macOS)</td><td><code>~/Library/Application Support/dev.harusame.pictkura/</code></td></tr>
             <tr><td class="k">Index</td><td><code>pictkura.db</code>, in the same folder</td></tr>
             <tr><td class="k">Thumbnails</td><td><code>thumbs\</code>, in the same folder</td></tr>
-            <tr><td class="k">Record of failures</td><td><code>pictkura.log</code>, in the same folder — written <strong>only when something fails</strong>, and never sent anywhere</td></tr>
+            <tr><td class="k">Log</td><td><code>pictkura.log</code>, in the same folder — written <strong>only when something fails, or when you use Outgoing</strong>, and never sent anywhere</td></tr>
             <tr><td class="k">The photos themselves</td><td>Untouched, in whatever folder you added</td></tr>
           </tbody>
         </table>
@@ -362,6 +363,7 @@
     <a href="install.html">Install</a>
     <a href="about.html">Why I made pictkura</a>
     <a href="../manual.en.html">Manual</a>
+    <a href="outgoing.html">Outgoing</a>
     <a href="privacy.html">Privacy policy</a>
     <a href="terms.html">Terms &amp; disclaimer</a>
     <a href="https://github.com/Harusame64/pictkura/issues">Report something</a>

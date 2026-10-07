@@ -113,6 +113,8 @@
   h3 { font-size: 1.05rem; margin: 34px 0 10px; }
   p, li { color: var(--text); }
   .lead { color: var(--text-muted); margin: 0; font-size: 1.02rem; }
+  /* 但し書き（画面に出ない設定・商標）。本文より一段小さく、色を落とす */
+  .fine { color: var(--text-muted); font-size: 0.9rem; }
 
   code {
     font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -243,6 +245,7 @@
     <li><a href="#select">Select several at once</a></li>
     <li><a href="#formats">Supported file formats</a></li>
     <li><a href="#cloud">Files that only exist in the cloud</a></li>
+    <li><a href="#outgoing">Outgoing</a></li>
     <li><a href="#update">Update notices</a></li>
     <li><a href="#notes">Limitations and things it does not do</a></li>
     <li><a href="#files">Where settings and data live</a></li>
@@ -320,7 +323,7 @@ on its own</strong>: the import wizard opens on that drive only when you choose 
 </p>
 
 <p>
-To turn it on, tick “<strong>When you insert a USB drive or SD card</strong>” in Settings ⚙.
+To turn it on, tick “<strong>Offer pictkura in the AutoPlay choices</strong>” under “When you insert a USB drive or SD card” in Settings ⚙.
 Clearing the same checkbox removes it from the choices right away.
 </p>
 
@@ -509,7 +512,7 @@ was read before.
 
 <h2 id="search">4. Find</h2>
 
-<p>Use the search box at the top, or the command palette with <kbd>Ctrl</kbd> + <kbd>K</kbd>.</p>
+<p>Use the search box at the top, or the command palette with <kbd>Ctrl</kbd> + <kbd>K</kbd> (<kbd>⌘</kbd> + <kbd>K</kbd> on macOS).</p>
 
 <div class="table-scroll">
 <table>
@@ -526,6 +529,22 @@ was read before.
 </div>
 
 <p>All terms are ANDed. The order is fixed: newest capture date first.</p>
+
+<p>
+Besides jumping to a date, narrowing by camera and searching, the command palette offers actions
+(“Import from USB”, “Rescan”, “Show favorites only”, “Show picked only”, “Show keyboard shortcuts”,
+“Show all photos”, “Calendar view”, “Photo grid”).
+When what you type matches the start of an action’s name (the start of a word), that action is listed above the search.
+Actions also answer to their English names whatever language the app is in.
+</p>
+
+<p>
+When a filter leaves no photos at all, the heading names the filters in effect
+(“No photos match these filters: …”).
+“Clear search” clears the search, and “Show all photos” clears every filter at once.
+If photos are still being imported or indexed, it says more may turn up.
+If the sync that runs at startup did not finish, it asks you to press Rescan.
+</p>
 
 <h2 id="viewer">5. Look</h2>
 
@@ -550,13 +569,14 @@ was read before.
   <tr><td><kbd>1</kbd> / <kbd>0</kbd></td><td><kbd>1</kbd> <strong>toggles</strong> between actual size 100% and fit to screen; <kbd>0</kbd> always fits</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
-  <tr><td><kbd>?</kbd></td><td>Show the keyboard shortcuts (works in the grid too)</td></tr>
+  <tr><td><kbd>?</kbd> / <kbd>F1</kbd></td><td>Show the keyboard shortcuts (works in the grid too)</td></tr>
   <tr><td><kbd>Ctrl</kbd> + <kbd>,</kbd></td><td>Open Settings (<strong>works in the grid too</strong>; <kbd>⌘</kbd> + <kbd>,</kbd> on macOS, or pictkura &rarr; Settings… in the menu). The same panel the toolbar gear opens &mdash; <strong>and the way in if the toolbar is ever too narrow to show the gear</strong></td></tr>
 </table>
 </div>
 
 <p>
 Right-click for “Open”, “Open with another app…”, “Show in folder”, “Add to favorites”, “Pick” and “Delete (move to trash)”.
+With Outgoing on, “Add to Outgoing” is there too; while Outgoing on the left is shown, “Remove from Outgoing” takes its place (<a href="#outgoing">9. Outgoing</a>).
 An editing app you pick once is remembered and appears in the menu from then on.
 </p>
 
@@ -570,7 +590,10 @@ If your system is set to reduce motion, photos change without moving whatever yo
 <div class="note">
   <p>
     <strong>Deleting always goes through the Recycle Bin.</strong>
-    The app never removes a file outright.
+    The app never removes a file outright. The one exception is the Outgoing folder: when a photo is moved to the
+    Recycle Bin in pictkura, and when you use “Remove from Outgoing”, what was placed in the Outgoing folder is taken out
+    without going through the Recycle Bin (the photo itself stays where it was or in the Recycle Bin, and an embedded JPEG
+    can be taken from its RAW again; see <a href="#outgoing">9. Outgoing</a>).
   </p>
 </div>
 
@@ -642,7 +665,7 @@ what you can do to the selection.
 <p>
 While something is selected, a plain click toggles a tile instead of opening the viewer.
 From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
-you pick, or move all of it to the Recycle Bin in one go. It asks before deleting.
+you pick, or move all of it to the Recycle Bin in one go. It asks before deleting. With Outgoing on, the bar also has “Add to Outgoing” (“Remove from Outgoing” while Outgoing on the left is shown).
 </p>
 
 <h3>⚑ Picked</h3>
@@ -851,7 +874,107 @@ is a marker.
   <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would download the entire file, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
 
-<h2 id="update">9. Update notices</h2>
+<h2 id="outgoing">9. Outgoing</h2>
+
+<p>
+Outgoing lines up, at every import, what you want to hand to a photo service in an <strong>Outgoing folder</strong>.
+Today it is for Google Photos. Folder backup in Google Photos uploads the folder you add <strong>as a whole</strong>, with no setting to leave out RAW files or videos,
+so pictkura places only what should go up in the Outgoing folder.
+pictkura does not talk to Google; the uploading is done by Google Photos.
+</p>
+
+<p>How it works and how to start, with diagrams, are on the <a href="https://harusame64.github.io/pictkura/en/outgoing.html">Outgoing page</a>. This section gives the detailed rules.</p>
+
+<h3>Getting started</h3>
+
+<ol>
+  <li>In Settings → Outgoing, turn on “Also place imported photos in the Outgoing folder”. The folder is created and its place is shown</li>
+  <li>If you use Google Photos: in Google Photos (photos.google.com), add that folder with “+” → folder backup</li>
+</ol>
+
+<div class="note warn">
+  <p>
+    <strong>If you use Google Photos:</strong> uploading is done by the Google Photos web page (photos.google.com), not by pictkura.
+    So it only goes ahead while that page is open in your browser. While the browser is closed, the photos wait in the folder.
+  </p>
+</div>
+
+<h3>What goes in</h3>
+
+<ul>
+  <li><strong>Every import</strong> lines up the photos it copied (except those matching the library’s exclude patterns), in the same folder layout as inside the library location</li>
+  <li>For RAW+JPEG pairs, <strong>only the JPEG</strong>. For RAW-only shots, Settings offers “Leave out” or “Place the embedded JPEG” (the preview picture the camera stored inside the RAW, given the capture date). A RAW without a preview of at least 1000 px on the long edge (some older cameras, and some phones’ DNG files) is not placed</li>
+  <li>Videos follow “Place videos too”. Photos inside OneDrive go in only when that setting is on</li>
+  <li>With “Stack bursts into one tile” on, a burst within one import is placed as <strong>its first frame only</strong>. A frame you flag ⚑ later is added only when a frame of the same burst is already in Outgoing (not when you flag the whole burst at once; removing ⚑ does not take it out of Outgoing)</li>
+  <li>When a real JPEG with the same name is imported later for a RAW-only shot, it replaces the JPEG taken out of the RAW</li>
+  <li>Photos are placed as hard links (a second name for the same file), so <strong>they take no extra disk space</strong>. An embedded JPEG is a separate file and does take space</li>
+</ul>
+
+<h3>Sending photos you imported earlier</h3>
+
+<p>These appear only while Outgoing is turned on in Settings.</p>
+
+<ul>
+  <li><strong>Select them in the grid</strong> and use “Add to Outgoing” on the selection bar. “Add to Outgoing” in a photo’s right-click menu sends only that photo. With bursts stacked, the selection bar and the calendar place every frame of a burst, and the right-click menu places only its cover frame</li>
+  <li><strong>Right-click a month heading in the calendar</strong> for “Add this month to Outgoing” or “Add all of &lt;year&gt; to Outgoing”. It covers the photos the current search and filter show</li>
+  <li>Over 100 photos, after select-all or a range, from the calendar, and when a new folder has to be made, pictkura shows what will be placed before placing anything</li>
+  <li>What you choose goes in even if it is a video or a RAW-only shot (as its embedded JPEG, when one of at least 1000 px on the long edge can be taken out); those two settings only steer what an import places on its own. Photos inside OneDrive follow their setting</li>
+  <li>Files that exist only in the cloud are not placed. Download them first, then send again</li>
+</ul>
+
+<h3>Seeing and removing what was placed</h3>
+
+<p>“Outgoing” on the left appears while Outgoing is turned on in Settings, and while anything placed is still there.</p>
+
+<ul>
+  <li>Click it to list only what is in the Outgoing folder, with a count</li>
+  <li>Select photos there and use “Remove from Outgoing” on the selection bar. “Remove from Outgoing” in a photo’s right-click menu removes only that photo. pictkura does not ask first; it tells you how many were removed</li>
+  <li>Only what is in the Outgoing folder is removed. The originals on your computer stay. <strong>If you use Google Photos:</strong> it stays in Google Photos</li>
+  <li>Anything that could not be removed right now (the drive may be disconnected) also leaves the list, and pictkura tries again the next time it starts</li>
+</ul>
+
+<h3>One Outgoing folder per drive</h3>
+
+<p>
+Hard links cannot cross drives, so each drive that holds photos gets its own Outgoing folder
+(<code>pictkura-outgoing</code> under your home folder if the drive holds it, otherwise at the top of the drive).
+When one is created, the confirmation or the import result usually tells you (not when it is made by the retry at startup). The current Outgoing folder is shown under “Folder” in Settings → Outgoing; when photos have been placed in other Outgoing folders too, every folder used so far is listed below it.
+<strong>If you use Google Photos:</strong> add each one you use in Google Photos.
+You can choose another place on the same drive as the import destination with Settings → Outgoing → Change. This changes only where new photos are placed: what is already in the previous Outgoing folder stays there (and stays in the list in Settings). Keep the previous folder added to your photo service until everything in it has been uploaded.
+</p>
+
+<p>It cannot be placed:</p>
+
+<ul>
+  <li>on an exFAT or FAT drive (they cannot make hard links; many external USB drives use them)</li>
+  <li>for a library location that is a whole drive, such as an SD card</li>
+  <li>while the import destination is a whole drive (change the import destination)</li>
+  <li>while your home folder itself, or a folder containing it, is a library location (the default place falls inside the library; if the import destination is on the same drive, choose a place in Settings; otherwise photos on that drive cannot be sent)</li>
+  <li>inside a sync folder (OneDrive, Google Drive, Dropbox, iCloud Drive, and Desktop and Documents on a Mac). pictkura only recognises their default places; avoid a sync folder you put somewhere else yourself</li>
+  <li>while no import destination is set or it cannot be reached (Outgoing cannot be turned on)</li>
+  <li>when the Outgoing folder is a symbolic link or junction</li>
+</ul>
+
+<div class="note">
+  <p>
+    Keep it <strong>outside any folder another backup watches</strong>, such as a NAS or Amazon Photos. Inside one, the same photo is backed up twice.
+  </p>
+</div>
+
+<h3>When something is deleted</h3>
+
+<ul>
+  <li>Moving a photo to the Recycle Bin in pictkura also takes it out of the Outgoing folder. <strong>If you use Google Photos:</strong> it stays in Google Photos</li>
+  <li>If an original is deleted outside pictkura, what is left in the Outgoing folder goes to the Recycle Bin. While the original is still in the Recycle Bin it stays; after the Recycle Bin is emptied, it moves the next time pictkura scans (at startup, an import, a rescan, or when it notices a folder change)</li>
+  <li>An embedded JPEG goes to the Recycle Bin at the next scan after its RAW is moved to the Recycle Bin, renamed or moved elsewhere outside pictkura (it is not the same file as the RAW, so these cannot be told apart)</li>
+  <li>Photos moved with pictkura’s “Move to folder” are no longer followed: what was placed stays, and trashing them later does not take it out of the Outgoing folder</li>
+  <li>Photos renamed or moved within the same drive outside pictkura keep what was placed. If such a photo is deleted later, what was placed goes to the Recycle Bin the next time pictkura scans after the Recycle Bin is emptied. Moving one to another drive counts as deleting it</li>
+  <li>Deleting things inside the Outgoing folder yourself does not touch the originals</li>
+</ul>
+
+<p class="fine">Google Photos is a trademark of Google LLC.</p>
+
+<h2 id="update">10. Update notices</h2>
 
 <p>
 A few seconds after it starts, pictkura <strong>asks once whether a newer version exists</strong>.
@@ -877,7 +1000,7 @@ With that off, pictkura never reaches the network at all — and you can still p
 “Check for updates” in the same place to ask once, right then.
 </p>
 
-<h2 id="notes">10. Limitations and things it does not do</h2>
+<h2 id="notes">11. Limitations and things it does not do</h2>
 
 <div class="table-scroll">
 <table>
@@ -897,7 +1020,7 @@ With that off, pictkura never reaches the network at all — and you can still p
 </table>
 </div>
 
-<h2 id="files">11. Where settings and data live</h2>
+<h2 id="files">12. Where settings and data live</h2>
 
 <div class="table-scroll">
 <table>
@@ -905,21 +1028,23 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Settings</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
   <tr><td>Database</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
   <tr><td>Thumbnails</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
-  <tr><td>Record of failures</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only when something fails</strong>)</td></tr>
+  <tr><td>Log</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only when something fails, or when you use Outgoing</strong>)</td></tr>
 </table>
 </div>
 
 <p>
 <strong>About the log.</strong>
-It records <strong>only the things that did not work</strong> — a read that fell over
+It records <strong>the things that did not work</strong> — a read that fell over
 part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
-launch that failed — one line each. Successes are not written. What gets written is
+launch that failed — and what it did in the Outgoing folders (creating one, removing from it,
+placing what could not be placed earlier), one line each. Other successes are not written. The failures written are
 <strong>the machine falling over</strong>: an index it cannot read or write, a setting it
 cannot save. <strong>That includes ones you were told about on screen</strong>, so you can
 report them afterwards. <strong>What does not get written is a choice you can simply make
 again</strong> — a folder that is not there, a library another app manages — or something
 <strong>the screen already shows you</strong>, like a thumbnail that does not appear. So no
-file means <strong>none of the failures that belong here</strong> have happened.
+file means <strong>none of the failures that belong here</strong> have happened (if you use Outgoing, the file
+can exist without any failure).
 Open it from Settings → “About” → “Open the log” (the button is disabled while there
 is nothing to open). <strong>The sentences this app writes there are English</strong> whatever language the app is
 set to, so they can go straight into a bug report; what you see on screen stays in your own
@@ -936,6 +1061,8 @@ file open, say), in which case the older half is dropped to keep the cap, and th
 You can edit the settings file by hand. Anything the app has no UI for — the patterns of
 folders to exclude from scanning, or <code>[import] sidecar_extensions</code> for the files
 carried along with each photo — can be changed there.
+Setting Outgoing’s <code>[google_mirror] exclude_raw = false</code> places every RAW as it is
+(paired RAWs and RAW-only shots alike; the “RAW-only shots” setting then has no effect).
 <strong>Your photos are never stored in these places.</strong>
 Deleting the database does not delete any photo; it is simply rebuilt.
 </p>
@@ -949,6 +1076,7 @@ Deleting the database does not delete any photo; it is simply rebuilt.
     <a href="https://harusame64.github.io/pictkura/en/">Home</a>
     <a href="https://harusame64.github.io/pictkura/en/spec.html">Specification</a>
     <a href="https://harusame64.github.io/pictkura/en/cameras.html">Cameras</a>
+    <a href="https://harusame64.github.io/pictkura/en/outgoing.html">Outgoing</a>
     <a href="https://harusame64.github.io/pictkura/en/install.html">Install</a>
     <a href="https://harusame64.github.io/pictkura/en/about.html">Why I made pictkura</a>
     <a href="https://harusame64.github.io/pictkura/en/privacy.html">Privacy policy</a>

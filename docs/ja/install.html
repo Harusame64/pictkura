@@ -130,7 +130,7 @@
       </div>
       <div class="note warn" style="margin-top:26px">
         <p><strong class="em">1 台を複数人で使っている場合は注意してください。</strong> MSI 版は PC 全体（<code>Program Files</code>）に入っているため、削除した時点で<strong class="em">ほかの利用者も pictkura を使えなくなります</strong>。<code>-setup.exe</code> が入れる先は実行した利用者のプロファイル内で、ほかの利用者には引き継がれません。使う人それぞれが <code>-setup.exe</code> を実行してください。</p>
-        <p>また、ほかの利用者の環境に<strong class="em">自動再生の候補だけが残っていることがあります</strong>（0.2.7 までは、起動しただけで登録されていました）。入れ直して設定の「USBやSDカードを挿したとき」をオフにしてもらうか、Windows の設定で自動再生の既定を選び直してもらってください。</p>
+        <p>また、ほかの利用者の環境に<strong class="em">自動再生の候補だけが残っていることがあります</strong>（0.2.7 までは、起動しただけで登録されていました）。入れ直して設定の「USBやSDカードを挿したとき」にある「「pictkura で写真を取り込む」を候補に出す」のチェックを外してもらうか、Windows の設定で自動再生の既定を選び直してもらってください。</p>
         <p>逆向き（<code>-setup.exe</code> を入れた状態で MSI を入れる）には対応していないので、先に「設定 → アプリ」からアンインストールしてください。</p>
       </div>
 
@@ -201,7 +201,7 @@ MpCmdRun.exe -SignatureUpdate</pre>
 
     <section id="first">
       <h2 class="disp"><span class="num">4</span>インストール後の最初の操作</h2>
-      <p>起動したら、写真の入ったフォルダを左下の<strong class="em">「参照…」</strong>から登録します。メモリーカードから取り込む場合は、カードを挿入してから上の<strong class="em">「USB から取り込み」</strong>です。取り込み先のフォルダと、撮影日ごとの振り分け方は、その画面で選べます。</p>
+      <p>起動したら、写真の入ったフォルダを左下の<strong class="em">「参照…」</strong>から登録します。メモリーカードから取り込む場合は、カードを挿入してから上の<strong class="em">「USBから取り込み」</strong>です。取り込み先のフォルダと、撮影日ごとの振り分け方は、その画面で選べます。</p>
       <!-- 実際に操作しているところ。再生は `assets/demo.js` が受け持つ（動きを減らす設定のときは動かさない） -->
       <figure class="demo">
         <video src="../images/c-import.mp4" poster="../images/c-import.jpg" width="960" height="630"
@@ -237,6 +237,7 @@ MpCmdRun.exe -SignatureUpdate</pre>
     <a href="spec.html">アプリ仕様</a>
     <a href="about.html">なぜ作ったのか</a>
     <a href="../manual.html">マニュアル</a>
+    <a href="outgoing.html">送り出し</a>
     <a href="privacy.html">プライバシーポリシー</a>
     <a href="terms.html">利用条件・免責</a>
   </span>

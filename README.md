@@ -53,8 +53,8 @@ on up-to-date Windows 10.
 > pictkura for the other users** (`-setup.exe` installs only for you). Each person should run
 > `-setup.exe` themselves. Also, another user on that PC **may still have an AutoPlay entry
 > left behind** (up to 0.2.7, merely launching pictkura registered one) — they can reinstall and
-> turn off "When you insert a USB drive or SD card" in Settings, or pick a new AutoPlay default
-> in Windows Settings.
+> clear "Offer pictkura in the AutoPlay choices" under "When you insert a USB drive or SD card" in
+> Settings, or pick a new AutoPlay default in Windows Settings.
 >
 > The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
 > uninstall from Settings → Apps first in that case.
@@ -330,7 +330,7 @@ at that year's folder and pick the preset that adds only `2026-08-16/`.
 
 ### 4. Find things
 
-Use the search box, or the command palette with **Ctrl + K**.
+Use the search box, or the command palette with **Ctrl + K** (**⌘ + K** on macOS).
 
 | Query | Meaning |
 |---|---|
@@ -344,6 +344,11 @@ Use the search box, or the command palette with **Ctrl + K**.
 | `kind:raw` / `kind:video` | filter by kind (`image` / `raw` / `video`) |
 
 All conditions are ANDed. Results are ordered by capture date, newest first.
+
+Besides dates, cameras and search, the command palette offers actions ("Import from USB",
+"Rescan", "Show all photos", "Calendar view" and more). When what you type matches the start of
+an action's name (the start of a word), that action is listed above the search. Actions also
+answer to their English names whatever language the app is in.
 
 ### 5. Look at them
 
@@ -361,13 +366,14 @@ All conditions are ANDed. Results are ordered by capture date, newest first.
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `F11` | full screen |
 | `Esc` | close |
-| `?` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
+| `?` / `F1` | show the keyboard shortcuts (in the grid and in the viewer; not while a dialog is up) |
 | `Ctrl` + `,` | open Settings (`⌘` + `,` on macOS, or pictkura → Settings… in the menu) |
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 “Open”, “Open with another app…”, “Show in folder”, “Add to favorites”, “Pick” and
-“Delete (move to trash)” (editors you have used before sit just under “Open”). **Deleting always goes through the
-recycle bin** — pictkura never removes a file outright.
+“Delete (move to trash)” (editors you have used before sit just under “Open”); with Outgoing
+on, “Add to Outgoing” is there too. **Deleting always goes through the
+recycle bin** — pictkura never removes a file outright (except what it placed in the Outgoing folder).
 
 ### 6. Select several at once
 
@@ -384,9 +390,9 @@ selection.
 | `Esc` | stop selecting |
 
 While something is selected, a plain click toggles a tile instead of opening the viewer.
-From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
+From the bar you can add or remove ★ and ⚑ for the whole selection, copy or move it to a folder
 you pick, or move all of it to the recycle bin in one go — deleting asks first, and
-**it still goes through the recycle bin**.
+**it still goes through the recycle bin**. With Outgoing on, the bar also has "Add to Outgoing".
 
 **View the selection** opens the viewer on just those photos: `←` `→` stay inside the
 selection and the counter shows how many you picked out. Going through a burst is then
@@ -440,6 +446,21 @@ That is **the only outbound connection the app makes**. All it sends is “pictk
 is asking” — no photos, no file names, no folder paths. Turn off ⚙ (Settings) →
 **About** → “Check for updates at startup” and pictkura never reaches the network
 at all (the “Check for updates” button next to it still asks, once, when you press it).
+
+### 9. Outgoing
+
+Outgoing lines up, at every import, what you want to hand to a photo service in an
+**Outgoing folder** (off by default; turn it on in ⚙ Settings → Outgoing). You add the Outgoing
+folder to the photo service instead of your library folders. For RAW+JPEG pairs only the JPEG goes
+in, and a burst goes in as its first frame only (with "Stack bursts into one tile" on), so a
+service that uploads whole folders does not get RAW files or every frame of a burst. Photos are
+placed as hard links, so they take no extra disk space. pictkura does not talk to the photo
+service. **If you use Google Photos:** add the Outgoing folder with "Back up a folder".
+
+More in the [Outgoing guide](https://harusame64.github.io/pictkura/en/outgoing.html) and the
+[manual](https://harusame64.github.io/pictkura/manual.en.html#outgoing).
+
+Google Photos is a trademark of Google LLC.
 
 ---
 
@@ -638,9 +659,10 @@ present, so a failure on one OS cannot produce a half release.
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
-Failures are appended, one line each, to `pictkura.log` in that same folder — created only
-when something fails, never sent anywhere, and opened from Settings → About →
-"Open the log". `eprintln!` reaches nobody in a distributed build (a release Windows binary
+Failures, and what pictkura did in the Outgoing folders (creating one, removing from it, placing
+what could not be placed earlier), are appended, one line each, to `pictkura.log` in that same
+folder — created only when something fails or when you use Outgoing, never sent anywhere, and
+opened from Settings → About → "Open the log". `eprintln!` reaches nobody in a distributed build (a release Windows binary
 has no console), so what happens on someone else's machine is recorded here or nowhere.
 
 ### Regenerating the third-party license list
