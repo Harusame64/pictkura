@@ -133,6 +133,8 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+// パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
+import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
@@ -6297,36 +6299,42 @@ export default function App() {
         group: t.paletteGroupActions,
         icon: "📥",
         label: t.importFromUsb,
+        alias: en.importFromUsb,
         run: () => openWizard(),
       },
       {
         group: t.paletteGroupActions,
         icon: "🔄",
         label: t.rescan,
+        alias: en.rescan,
         run: () => onSync(),
       },
       {
         group: t.paletteGroupActions,
         icon: "★",
         label: t.actionShowFavorites,
+        alias: en.actionShowFavorites,
         run: () => setFilter("fav"),
       },
       {
         group: t.paletteGroupActions,
         icon: "⚑",
         label: t.actionShowPicked,
+        alias: en.actionShowPicked,
         run: () => setFilter("picked"),
       },
       {
         group: t.paletteGroupActions,
         icon: "⌨",
         label: t.actionShortcuts,
+        alias: en.actionShortcuts,
         run: () => setShortcutsOpen(true),
       },
       {
         group: t.paletteGroupActions,
         icon: "🖼",
         label: t.actionShowAll,
+        alias: en.actionShowAll,
         run: () => {
           // 種類（画像・RAW・動画）も戻す——棚と検索語だけ外すと、種類の絞り込みが残る
           setFilter("all");
@@ -6338,12 +6346,14 @@ export default function App() {
         group: t.paletteGroupActions,
         icon: "📆",
         label: t.actionCalendar,
+        alias: en.actionCalendar,
         run: () => setView("calendar"),
       },
       {
         group: t.paletteGroupActions,
         icon: "▦",
         label: t.actionThumbnails,
+        alias: en.actionThumbnails,
         run: () => setView("grid"),
       },
     ],

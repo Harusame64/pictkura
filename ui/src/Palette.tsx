@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
+import { actionMatch, orderSearchAndActions } from "./paletteOrder";
 
 /** パレットの1候補。実行するとパレットは閉じる */
 export type PaletteItem = {
@@ -9,6 +10,8 @@ export type PaletteItem = {
   label: string;
   hint?: string;
   icon: string;
+  /** 英語の名前（操作だけ。今の言語が英語でなくても、英語で打てば当たる。`paletteOrder.ts`） */
+  alias?: string;
   run: () => void;
 };
 
@@ -115,21 +118,20 @@ export default function Palette({
       });
     }
 
-    // 3. 全文検索（入力があれば必ず候補に出す）
-    if (q) {
-      out.push({
-        group: t.paletteGroupSearch,
-        icon: "🔍",
-        label: t.paletteSearchFor(q),
-        hint: t.paletteSearchHint,
-        run: () => onSearch(q),
-      });
-    }
-
-    // 4. アプリ操作
-    for (const action of actions) {
-      if (!q || action.label.toLowerCase().includes(lower)) out.push(action);
-    }
+    // 3・4. 全文検索（入力があれば必ず候補に出す）とアプリ操作。打った語が操作の名前に
+    // 当たれば操作を検索より上に出す（`paletteOrder.ts`。2026-10-07 利用者決定）
+    const search: PaletteItem | null = q
+      ? {
+          group: t.paletteGroupSearch,
+          icon: "🔍",
+          label: t.paletteSearchFor(q),
+          hint: t.paletteSearchHint,
+          run: () => onSearch(q),
+        }
+      : null;
+    out.push(
+      ...orderSearchAndActions(search, actions, (a) => actionMatch(a.label, q, a.alias)),
+    );
     return out;
   }, [input, summary, cameras, actions, onJumpDay, onSearch]);
 
@@ -162,7 +164,12 @@ export default function Palette({
           className="palette-input"
           placeholder={t.paletteInput}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            // 打ち直したら先頭へ戻す——候補の並びが変わるので、前の位置のままだと Enter が
+            // 別の候補（検索のつもりが操作）を走らせる（ゲート2）
+            setCursor(0);
+          }}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
@@ -173,6 +180,8 @@ export default function Palette({
                 items.length ? (c - 1 + items.length) % items.length : 0,
               );
             } else if (e.key === "Enter") {
+              // 変換の確定の Enter では走らせない（日本語入力。先頭が操作になりうるので。ゲート2）
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               e.preventDefault();
               run(items[cursor]);
             } else if (e.key === "Escape") {
