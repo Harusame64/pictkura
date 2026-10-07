@@ -4559,7 +4559,7 @@ async fn google_send_chosen(
                 let r = &c.report;
                 if let Some((path, why)) = r.failed.first() {
                     applog::note(&format!(
-                        "Google 用フォルダ: 選んだもののうち {} 件置けなかった（最初: {}: {why}）",
+                        "Outgoing: chosen items not placed: {} (first: {}: {why})",
                         r.failed.len(),
                         path.display()
                     ));
@@ -4587,7 +4587,7 @@ async fn google_send_chosen(
             Err(e) => {
                 let e = errs::quiet(e);
                 applog::note(&format!(
-                    "Google 用フォルダ: 選んだものを置けなかった: {}",
+                    "Outgoing: the chosen items could not be placed: {}",
                     errs::for_log(&e)
                 ));
                 GooglePlacedDto {
@@ -4641,10 +4641,7 @@ async fn google_add_picked_frames(
             }
             // 外すと決まった行（送り出しから外したが、外しきれずに残ったもの）は「使っている」に数えない
             // ——利用者が外した束へ、⚑ のコマを送らない
-            if !db
-                .google_any_placed(&siblings)
-                .map_err(errs::from_err)?
-            {
+            if !db.google_any_placed(&siblings).map_err(errs::from_err)? {
                 continue;
             }
             if let Some(p) = path_of_id(f.id)? {
@@ -4659,7 +4656,7 @@ async fn google_add_picked_frames(
                 let r = &c.report;
                 if let Some((path, why)) = r.failed.first() {
                     applog::note(&format!(
-                        "Google 用フォルダ: ⚑ を付けたコマのうち {} 件置けなかった（最初: {}: {why}）",
+                        "Outgoing: picked burst frames not placed: {} (first: {}: {why})",
                         r.failed.len(),
                         path.display()
                     ));
@@ -4730,14 +4727,14 @@ async fn google_remove_chosen(
         // 外したものがあれば毎回書く（ゴミ箱の道と同じ。win の実機: 成功が記録に残らなかった）
         if r.removed + r.discarded + r.deleted > 0 || !r.failed.is_empty() {
             applog::note(&format!(
-                "Google 用フォルダ: 送り出しから外した——リンク {} 件・ゴミ箱へ {} 件・取り出した JPEG {} 件、失敗 {} 件{}",
+                "Outgoing: removed — links: {}, to the trash: {}, extracted JPEGs: {}, failed: {}{}",
                 r.removed,
                 r.discarded,
                 r.deleted,
                 r.failed.len(),
                 r.failed
                     .first()
-                    .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                    .map(|(path, why)| format!(" (first: {}: {why})", path.display()))
                     .unwrap_or_default()
             ));
         }
@@ -4892,17 +4889,17 @@ fn note_google_retry(
     match result {
         // 置けなかったときは最初の1件の理由も残す——数だけでは直し方が分からない（win の実機）
         Ok(Some(r)) if r.placed + r.failed.len() > 0 => applog::note(&format!(
-            "Google 用フォルダ: 保留から {} 件置いた・{} 件置けなかった（うち {} 件は保留のまま）{}",
+            "Outgoing: pending items placed: {}, not placed: {} (still pending: {}){}",
             r.placed,
             r.failed.len(),
             r.retry.len(),
             r.failed
                 .first()
-                .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                .map(|(path, why)| format!(" (first: {}: {why})", path.display()))
                 .unwrap_or_default()
         )),
         Ok(_) => {}
-        Err(e) => applog::note(&format!("Google 用フォルダ: 保留を置き直せなかった: {e}")),
+        Err(e) => applog::note(&format!("Outgoing: could not retry the pending items: {e}")),
     }
     made
 }
@@ -4911,7 +4908,7 @@ fn note_google_retry(
 fn note_new_google_folders(folders: &[PathBuf]) {
     for f in folders {
         applog::note(&format!(
-            "Google 用フォルダ: 送り出しフォルダを新しく作った: {}",
+            "Outgoing: created the Outgoing folder {}",
             f.display()
         ));
     }
@@ -4945,7 +4942,7 @@ fn with_google_db(
     let config = lock_ok(&state.config).clone();
     match Db::open(&state.db_path) {
         Ok(mut db) => f(&mut db, &config),
-        Err(e) => note_once(said, &format!("Google 用フォルダ: 記録を開けなかった: {e}")),
+        Err(e) => note_once(said, &format!("Outgoing: could not open the ledger: {e}")),
     }
 }
 
@@ -5013,7 +5010,7 @@ fn forget_moved_held(state: &AppState, sources: &[PathBuf]) {
         Ok(mut db) => forget_moved_in(&mut db, sources),
         Err(e) => note_once(
             &UNPLACE_FAILURE_SAID,
-            &format!("Google 用フォルダ: 記録を開けなかった: {e}"),
+            &format!("Outgoing: could not open the ledger: {e}"),
         ),
     }
 }
@@ -5022,7 +5019,7 @@ fn forget_moved_in(db: &mut Db, sources: &[PathBuf]) {
     if let Err(e) = pictkura_core::mirror::forget_moved(db, sources) {
         note_once(
             &UNPLACE_FAILURE_SAID,
-            &format!("Google 用フォルダ: 移した原本の記録を消せなかった: {e}"),
+            &format!("Outgoing: could not forget the moved originals: {e}"),
         );
     }
 }
@@ -5039,14 +5036,14 @@ fn note_google_sweep(
     match result {
         // 外したものがあれば毎回書く（ゴミ箱へ渡した先を残す）。外せなかっただけの回は一度だけ
         Ok(r) if r.removed + r.discarded + r.deleted > 0 => applog::note(&format!(
-            "Google 用フォルダ: リンクを {} 件外した・{} 件ゴミ箱へ・取り出した JPEG を {} 件消した・{} 件外せなかった{}",
+            "Outgoing: links removed: {}, to the trash: {}, extracted JPEGs deleted: {}, not removed: {}{}",
             r.removed,
             r.discarded,
             r.deleted,
             r.failed.len(),
             r.failed
                 .first()
-                .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                .map(|(path, why)| format!(" (first: {}: {why})", path.display()))
                 .unwrap_or_default()
         )),
         Ok(r) => {
@@ -5054,7 +5051,7 @@ fn note_google_sweep(
                 note_once(
                     said,
                     &format!(
-                        "Google 用フォルダ: リンクを {} 件外せなかった（最初: {}: {why}）",
+                        "Outgoing: links not removed: {} (first: {}: {why})",
                         r.failed.len(),
                         path.display()
                     ),
@@ -5063,7 +5060,7 @@ fn note_google_sweep(
         }
         Err(e) => note_once(
             said,
-            &format!("Google 用フォルダ: リンクを外せなかった: {e}"),
+            &format!("Outgoing: could not remove links: {e}"),
         ),
     }
 }
@@ -5107,7 +5104,7 @@ fn place_google_links(
         Ok(Some(r)) => {
             if let Some((path, why)) = r.failed.first() {
                 applog::note(&format!(
-                    "Google 用フォルダ: {} 件置けなかった（最初: {}: {why}）",
+                    "Outgoing: items not placed: {} (first: {}: {why})",
                     r.failed.len(),
                     path.display()
                 ));
@@ -5133,10 +5130,7 @@ fn place_google_links(
         }
         Ok(None) => return None,
         Err(e) => {
-            applog::note(&format!(
-                "Google 用フォルダ: 置けなかった: {}",
-                errs::for_log(&e)
-            ));
+            applog::note(&format!("Outgoing: could not place: {}", errs::for_log(&e)));
             GooglePlacedDto {
                 error: Some(e),
                 ..GooglePlacedDto::default()

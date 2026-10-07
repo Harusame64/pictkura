@@ -406,10 +406,12 @@ pub fn place(
             let mut created = Vec::new();
             let link = dir.join(p.rel.with_extension("jpg"));
             let placed = place_extracted(dir, p, ledger, &mut work, &mut created).and_then(|r| {
-                ledger
-                    .settle(&link)
-                    .map(|()| r)
-                    .map_err(|e| Skip::Failed(format!("記録の印を下ろせない: {e}"), true))
+                ledger.settle(&link).map(|()| r).map_err(|e| {
+                    Skip::Failed(
+                        format!("cannot clear the removal mark in the ledger: {e}"),
+                        true,
+                    )
+                })
             });
             match placed {
                 Ok(true) => report.placed += 1,
@@ -428,14 +430,14 @@ pub fn place(
         if !is_plain_relative(&p.rel) {
             fail(
                 &mut report,
-                format!("フォルダの外を指す: {}", p.rel.display()),
+                format!("points outside the folder: {}", p.rel.display()),
                 false,
             );
             continue;
         }
         if is_link(&p.source) {
             // リンクそのものに張る台と先に張る台があり、どちらにしても Google は辿らない
-            fail(&mut report, "原本がシンボリックリンク".into(), false);
+            fail(&mut report, "the original is a symbolic link".into(), false);
             continue;
         }
         if crate::cloud::is_cloud_only_path(&p.source) {
@@ -457,7 +459,7 @@ pub fn place(
             Ok(false) => {
                 fail(
                     &mut report,
-                    "原本が Google 用フォルダと別のドライブにある".into(),
+                    "the original is on a different drive from the Outgoing folder".into(),
                     false,
                 );
                 continue;
@@ -470,7 +472,7 @@ pub fn place(
         if let Err(e) = give_way(dir, p, ledger) {
             fail(
                 &mut report,
-                format!("取り出した JPEG をどかせない: {e}"),
+                format!("cannot move the extracted JPEG out of the way: {e}"),
                 true,
             );
             continue;
@@ -500,19 +502,25 @@ pub fn place(
                     .and_then(|()| ledger.claim(&placed))
                 {
                     Ok(Claim::Other) => Err((
-                        format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                        format!(
+                            "the same name is already recorded for another original: {}",
+                            placed.link.display()
+                        ),
                         false,
                     )),
                     Ok(claim) => Ok(claim),
-                    Err(e) => Err((format!("記録できない: {e}"), true)),
+                    Err(e) => Err((format!("cannot write the ledger: {e}"), true)),
                 }
             }
             Ok(Claim::Other) => Err((
-                format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                format!(
+                    "the same name is already recorded for another original: {}",
+                    placed.link.display()
+                ),
                 false,
             )),
             Ok(claim) => Ok(claim),
-            Err(e) => Err((format!("記録できない: {e}"), true)),
+            Err(e) => Err((format!("cannot write the ledger: {e}"), true)),
         };
         let claim = match claim {
             Ok(claim) => claim,
@@ -529,7 +537,7 @@ pub fn place(
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 let taken = || {
                     Err((
-                        format!("同じ名前が既にある: {}", placed.link.display()),
+                        format!("the same name already exists: {}", placed.link.display()),
                         false,
                     ))
                 };
@@ -542,7 +550,10 @@ pub fn place(
                         // 確かめられなかった（一瞬の拒否・その間に消えた等）。名前の衝突と
                         // 決めつけると保留から外れる——次の回にもう一度見る（PR の codex）
                         Err(e) => Err((
-                            format!("在る名前を確かめられない: {}: {e}", placed.link.display()),
+                            format!(
+                                "cannot check the existing name: {}: {e}",
+                                placed.link.display()
+                            ),
                             true,
                         )),
                     }
@@ -570,9 +581,9 @@ pub fn place(
                         // 古い番号の記録のまま残すと二度と外せないので、リンクを外す。原本が在るので
                         // 名前の数は2以上——消しても実体は残る
                         match std::fs::remove_file(&placed.link) {
-                            Ok(()) => Err((format!("記録を書き直せない: {e}"), true)),
+                            Ok(()) => Err((format!("cannot update the ledger: {e}"), true)),
                             Err(u) => Err((
-                                format!("記録を書き直せず、リンクも外せない: {e} / {u}"),
+                                format!("cannot update the ledger nor remove the link: {e} / {u}"),
                                 true,
                             )),
                         }
@@ -584,10 +595,12 @@ pub fn place(
         // 印が在りうるのは前からの行だけ。新しい行で呼ぶと、書けなかったときに下の失敗の道が記録を
         // 取り消し、張ったばかりのリンクが記録の無いまま残る（ゲート2）
         let linked = linked.and_then(|r| match claim {
-            Claim::Ours { .. } => ledger
-                .settle(&placed.link)
-                .map(|()| r)
-                .map_err(|e| (format!("記録の印を下ろせない: {e}"), true)),
+            Claim::Ours { .. } => ledger.settle(&placed.link).map(|()| r).map_err(|e| {
+                (
+                    format!("cannot clear the removal mark in the ledger: {e}"),
+                    true,
+                )
+            }),
             _ => Ok(r),
         });
         match linked {
@@ -696,7 +709,9 @@ enum Skip {
 /// 瞬間に拾うので、書きかけを中に置けない（S7b）。中身はすべて pictkura が書いたもの。
 fn work_dir_for(dir: &Path) -> io::Result<PathBuf> {
     let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
-        return Err(io::Error::other("Google 用フォルダの隣に作業場を作れない"));
+        return Err(io::Error::other(
+            "cannot make a work folder next to the Outgoing folder",
+        ));
     };
     let mut work_name = std::ffi::OsString::from(".");
     work_name.push(name);
@@ -716,7 +731,7 @@ fn open_work_dir(dir: &Path) -> io::Result<PathBuf> {
         if volume_of(parent)? != volume_of(dir)? {
             return Err(io::Error::new(
                 io::ErrorKind::CrossesDevices,
-                "Google 用フォルダの隣が別のドライブなので、埋め込み JPEG の作業場を置けない",
+                "the place next to the Outgoing folder is on another drive, so there is nowhere to write embedded JPEGs",
             ));
         }
     }
@@ -724,7 +739,7 @@ fn open_work_dir(dir: &Path) -> io::Result<PathBuf> {
     if is_link(&work) {
         // 辿った先で書くと、どこを片付けるか分からなくなる
         return Err(io::Error::other(format!(
-            "作業場がリンクになっている: {}",
+            "the work folder is a link: {}",
             work.display()
         )));
     }
@@ -765,7 +780,7 @@ fn tidy_work_dirs(dirs: &[PathBuf], report: &mut UnplaceReport) {
         if let Err(e) = clear_work_files(&work) {
             report
                 .failed
-                .push((work.clone(), format!("作業場を片付けられない: {e}")));
+                .push((work.clone(), format!("cannot tidy the work folder: {e}")));
         }
         let _ = std::fs::remove_dir(&work);
     }
@@ -801,7 +816,7 @@ fn write_work_file(work: &Path, bytes: &[u8], source: &Path) -> io::Result<PathB
     }
     Err(io::Error::new(
         io::ErrorKind::AlreadyExists,
-        "作業場の名前が空いていない",
+        "no free name in the work folder",
     ))
 }
 
@@ -822,12 +837,15 @@ fn place_extracted(
     let rel = p.rel.with_extension("jpg");
     if !is_plain_relative(&rel) {
         return Err(Skip::Failed(
-            format!("フォルダの外を指す: {}", rel.display()),
+            format!("points outside the folder: {}", rel.display()),
             false,
         ));
     }
     if is_link(&p.source) {
-        return Err(Skip::Failed("原本がシンボリックリンク".into(), false));
+        return Err(Skip::Failed(
+            "the original is a symbolic link".into(),
+            false,
+        ));
     }
     if crate::cloud::is_cloud_only_path(&p.source) {
         return Err(Skip::CloudOnly);
@@ -861,15 +879,15 @@ fn place_extracted(
     let bytes = match crate::embedded_jpeg::for_google(&p.source) {
         Ok(b) => b,
         Err(crate::embedded_jpeg::Missing::NoPreview) => {
-            return Err(Skip::Failed("取り出せる埋め込み JPEG が無い".into(), false))
+            return Err(Skip::Failed("no embedded JPEG to extract".into(), false))
         }
         // 読み切れなかっただけ（共有ロック等）。保留に残して次に読み直す（ゲート1）
         Err(crate::embedded_jpeg::Missing::Unreadable) => {
-            return Err(Skip::Failed("RAW を読み切れない".into(), true))
+            return Err(Skip::Failed("cannot read the whole RAW file".into(), true))
         }
     };
     let tmp = write_work_file(&work_dir, &bytes, &p.source)
-        .map_err(|e| Skip::Failed(format!("作業場に書けない: {e}"), true))?;
+        .map_err(|e| Skip::Failed(format!("cannot write to the work folder: {e}"), true))?;
     let result = link_extracted(dir, p, &rel, &tmp, ledger, created);
     // 名前を付けられてもそうでなくても、作業場の名前は消す
     let _ = std::fs::remove_file(&tmp);
@@ -901,12 +919,15 @@ fn link_extracted(
     let claim = match ledger.claim(&placed) {
         Ok(Claim::Other) => {
             return Err(Skip::Failed(
-                format!("同じ名前が別の原本で記録済み: {}", placed.link.display()),
+                format!(
+                    "the same name is already recorded for another original: {}",
+                    placed.link.display()
+                ),
                 false,
             ))
         }
         Ok(claim) => claim,
-        Err(e) => return Err(Skip::Failed(format!("記録できない: {e}"), true)),
+        Err(e) => return Err(Skip::Failed(format!("cannot write the ledger: {e}"), true)),
     };
     // 前の回に置いたものがそのまま在る（保留から置き直した等）。取り出し直さない
     if let Claim::Ours { index: old } = claim {
@@ -922,7 +943,7 @@ fn link_extracted(
                 let adopted = Placed { index, ..placed };
                 return match ledger.renumber(&adopted) {
                     Ok(()) => Ok(false),
-                    Err(e) => Err(Skip::Failed(format!("記録を書き直せない: {e}"), true)),
+                    Err(e) => Err(Skip::Failed(format!("cannot update the ledger: {e}"), true)),
                 };
             }
         }
@@ -931,7 +952,7 @@ fn link_extracted(
         }
         return Err(if e.kind() == io::ErrorKind::AlreadyExists {
             Skip::Failed(
-                format!("同じ名前が既にある: {}", placed.link.display()),
+                format!("the same name already exists: {}", placed.link.display()),
                 false,
             )
         } else {
@@ -947,7 +968,7 @@ fn link_extracted(
     if matches!(claim, Claim::Ours { .. }) {
         if let Err(e) = ledger.renumber(&placed) {
             let _ = std::fs::remove_file(&placed.link);
-            return Err(Skip::Failed(format!("記録を書き直せない: {e}"), true));
+            return Err(Skip::Failed(format!("cannot update the ledger: {e}"), true));
         }
     }
     Ok(true)
@@ -1356,7 +1377,7 @@ fn unplace_grouped(
         if let Err(e) = db.google_place_forget(&r.forget) {
             total
                 .failed
-                .push((dir.clone(), format!("記録から消せない: {e}")));
+                .push((dir.clone(), format!("cannot delete from the ledger: {e}")));
         }
         total.absorb(r);
     }
@@ -1403,9 +1424,10 @@ pub fn unplace_sources(
     report.absorb(delete_extracted_grouped(db, group_by_dir(extracted)));
     tidy_work_dirs(&dirs, &mut report);
     if let Err(e) = db.google_pending_remove(sources) {
-        report
-            .failed
-            .push((PathBuf::new(), format!("保留から外せない: {e}")));
+        report.failed.push((
+            PathBuf::new(),
+            format!("cannot remove from the pending list: {e}"),
+        ));
     }
     Ok(report)
 }
@@ -1717,7 +1739,7 @@ pub fn unplace(
         for Recorded { link, .. } in records {
             report
                 .failed
-                .push((link.clone(), "Google 用フォルダが見えない".into()));
+                .push((link.clone(), "the Outgoing folder is not visible".into()));
         }
         return report;
     }
@@ -1733,14 +1755,14 @@ pub fn unplace(
             _ => {
                 report
                     .failed
-                    .push((link.clone(), "Google 用フォルダの外を指す".into()));
+                    .push((link.clone(), "points outside the Outgoing folder".into()));
                 continue;
             }
         };
         if let Some(at) = link_on_the_way(dir, rel) {
             report.failed.push((
                 link.clone(),
-                format!("途中にリンクがある: {}", at.display()),
+                format!("a link is in the path: {}", at.display()),
             ));
             continue;
         }
@@ -1905,12 +1927,12 @@ fn disk_key(path: &Path) -> io::Result<PathBuf> {
     let existing = path
         .ancestors()
         .find(|a| !a.as_os_str().is_empty() && a.exists())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "在る祖先が無い"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no existing ancestor"))?;
     let rest = path.strip_prefix(existing).unwrap_or(Path::new(""));
     if !rest.components().all(|c| matches!(c, Component::Normal(_))) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "まだ無い部分に .. がある",
+            "the part that does not exist yet contains ..",
         ));
     }
     let resolved = std::fs::canonicalize(existing)?.join(rest);
@@ -1989,17 +2011,17 @@ use crate::paths::home_dir;
 /// Google 用フォルダで起きる、続けられない誤り。
 #[derive(Debug, thiserror::Error)]
 pub enum MirrorError {
-    #[error("Google 用フォルダがライブラリのフォルダ {0} と重なっている")]
+    #[error("the Outgoing folder overlaps the library folder {0}")]
     OverlapsRoot(PathBuf),
-    #[error("Google 用フォルダが同期フォルダ {0} の中にある")]
+    #[error("the Outgoing folder is inside the sync folder {0}")]
     InsideSyncFolder(PathBuf),
-    #[error("{0} のドライブはハードリンクを張れない（exFAT・FAT 等）: {1}")]
+    #[error("the drive of {0} cannot hold hard links (exFAT, FAT, …): {1}")]
     NoHardLinks(PathBuf, io::Error),
-    #[error("ライブラリのフォルダ {0} はドライブ丸ごとなので、同じドライブに Google 用フォルダを置く場所が無い")]
+    #[error("the library folder {0} is a whole drive, so there is no place for an Outgoing folder on it")]
     RootIsWholeVolume(PathBuf),
-    #[error("Google 用フォルダ {0} はフォルダの名前を持たない（ドライブそのもの等）")]
+    #[error("the Outgoing folder {0} has no folder name (a drive itself, …)")]
     NoName(PathBuf),
-    #[error("Google 用フォルダ {0} がリンクになっている")]
+    #[error("the Outgoing folder {0} is a link")]
     LinkInTheWay(PathBuf),
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -2037,7 +2059,11 @@ pub fn probe_hard_links(dir: &Path) -> Result<(), MirrorError> {
             Err(e) => Err(MirrorError::NoHardLinks(dir.to_path_buf(), e)),
         };
     }
-    Err(io::Error::new(io::ErrorKind::AlreadyExists, "試しの名前が空いていない").into())
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "no free name for the probe file",
+    )
+    .into())
 }
 
 /// ハードリンクが張れるかの試しに付ける名前の頭。
@@ -2071,7 +2097,10 @@ fn make_parent_dirs(dir: &Path, rel: &Path, created: &mut Vec<PathBuf>) -> io::R
             Ok(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
-                    format!("フォルダの場所にリンクかファイルがある: {}", at.display()),
+                    format!(
+                        "a link or a file is where the folder should be: {}",
+                        at.display()
+                    ),
                 ))
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -2116,7 +2145,7 @@ fn hand_over(path: &Path, discard: &mut dyn FnMut(&Path) -> io::Result<()>) -> i
     discard(path)?;
     if std::fs::symlink_metadata(path).is_ok() {
         return Err(io::Error::other(format!(
-            "渡したファイルがまだ在る: {}",
+            "the file handed over is still there: {}",
             path.display()
         )));
     }
