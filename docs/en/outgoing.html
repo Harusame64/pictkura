@@ -115,14 +115,14 @@
       <p><strong class="em">If you use Google Photos:</strong> “Back up a folder” on its web page (photos.google.com) works this way, with no setting to leave out RAW files or videos.</p>
       <ul>
         <li>For a RAW+JPEG pair, only the JPEG is placed</li>
-        <li>For a burst, one shot is placed</li>
+        <li>For a burst, one shot is placed (when “Stack bursts into one tile” is on)</li>
         <li>For RAW-only shots and videos, a setting decides</li>
       </ul>
     </section>
 
     <section id="how">
       <h2 class="disp"><span class="num">2</span>How it works</h2>
-      <div class="flow-wrap"><svg class="flow" viewBox="0 0 900 330" role="img" aria-labelledby="flow-t">
+      <figure style="margin:0"><div class="flow-wrap"><svg class="flow" viewBox="0 0 900 330" role="img" aria-labelledby="flow-t">
         <title id="flow-t">Photos imported from an SD card go into the library; only those to be uploaded are placed in the Outgoing folder, which the photo service uploads</title>
         <defs>
           <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0 0L10 5L0 10z"/></marker>
@@ -165,7 +165,7 @@
         <text class="s" x="560" y="300">* RAW-only shots: when “Place the embedded JPEG” is chosen</text>
         <text class="s" x="560" y="320">(the preview picture the camera stored in the RAW)</text>
       </svg></div>
-      <figcaption class="fig" style="margin-top:12px">Figure 1. From import to upload. The photo service uploads only what is in the Outgoing folder.</figcaption>
+      <figcaption class="fig" style="margin-top:12px">Figure 1. From import to upload. The photo service uploads only what is in the Outgoing folder.</figcaption></figure>
 
       <h3>Placed as hard links</h3>
       <p>Photos in the Outgoing folder are not copies. Each is a second name (a hard link) for the same file as the photo in your library.</p>
