@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
+import { actionMatches, orderSearchAndActions } from "./paletteOrder";
 
 /** パレットの1候補。実行するとパレットは閉じる */
 export type PaletteItem = {
@@ -115,21 +116,23 @@ export default function Palette({
       });
     }
 
-    // 3. 全文検索（入力があれば必ず候補に出す）
-    if (q) {
-      out.push({
-        group: t.paletteGroupSearch,
-        icon: "🔍",
-        label: t.paletteSearchFor(q),
-        hint: t.paletteSearchHint,
-        run: () => onSearch(q),
-      });
-    }
-
-    // 4. アプリ操作
-    for (const action of actions) {
-      if (!q || action.label.toLowerCase().includes(lower)) out.push(action);
-    }
+    // 3・4. 全文検索（入力があれば必ず候補に出す）とアプリ操作。打った語が操作の名前に
+    // 当たれば操作を検索より上に出す（`paletteOrder.ts`。2026-10-07 利用者決定）
+    const search: PaletteItem | null = q
+      ? {
+          group: t.paletteGroupSearch,
+          icon: "🔍",
+          label: t.paletteSearchFor(q),
+          hint: t.paletteSearchHint,
+          run: () => onSearch(q),
+        }
+      : null;
+    out.push(
+      ...orderSearchAndActions(
+        search,
+        actions.filter((a) => actionMatches(a.label, q)),
+      ),
+    );
     return out;
   }, [input, summary, cameras, actions, onJumpDay, onSearch]);
 
