@@ -29,7 +29,7 @@ const MEDIA_COLUMNS: &str = "id, path, size, mtime_ms, width, height, taken_at_m
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
-    #[error("DB操作に失敗: {0}")]
+    #[error("database error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 }
 
