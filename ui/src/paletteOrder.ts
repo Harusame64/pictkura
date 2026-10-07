@@ -6,6 +6,8 @@
  * 名前を打つ人はその操作を探している——「すべての画像」と打って Enter で検索になっていた（win2 の実機）。
  * 頭に限るのは、名前の途中に当たる普通の検索語（「画像」「scan」）で Enter が操作を走らせないため
  * （ゲート2。再スキャン・取り込みのような重い操作もある）。検索は消さずに当たった操作の下へ残す。
+ * **途中に当たる操作は消さない**——検索の下に今までどおり並べる（「表示」「收藏」で操作が見つからなく
+ * ならないように。ゲート2）
  *
  * **英語の名前でも当たる**（`alias`）。IME で変換する言語（日本語・中国語）では、英語のまま打てば
  * 変換と確定の手間が要らない（2026-10-07 利用者）。英語の名前は動詞から始まる（"Show all photos"）
@@ -18,18 +20,33 @@ function fromAWordStart(text: string, q: string): boolean {
   return words.some((_, i) => words.slice(i).join(" ").startsWith(q));
 }
 
-/** 操作が、打った語に当たるか。名前（今の言語）と英語の名前（`alias`）の、語の頭で見る */
-export function actionMatches(label: string, query: string, alias?: string): boolean {
+/**
+ * 操作が、打った語にどう当たるか。`start`＝名前（今の言語）か英語の名前（`alias`）の語の頭、
+ * `inside`＝どちらかの途中（今までの部分一致）、`null`＝当たらない。入力が空なら全部 `start`
+ */
+export function actionMatch(
+  label: string,
+  query: string,
+  alias?: string,
+): "start" | "inside" | null {
   const q = query.trim().toLowerCase().replace(/\s+/g, " ");
-  if (q === "") return true;
-  return fromAWordStart(label, q) || (alias !== undefined && fromAWordStart(alias, q));
+  if (q === "") return "start";
+  if (fromAWordStart(label, q) || (alias !== undefined && fromAWordStart(alias, q))) return "start";
+  const inside = (text: string) => text.toLowerCase().replace(/\s+/g, " ").includes(q);
+  if (inside(label) || (alias !== undefined && inside(alias))) return "inside";
+  return null;
 }
 
 /**
- * 検索の候補（`search`。入力が空なら `null`）と、名前で絞った操作（`matched`）を並べる。
- * 入力があって操作が当たれば操作が先、無ければ検索だけ
+ * 検索の候補（`search`。入力が空なら `null`）と操作を並べる: 語の頭に当たった操作 → 検索 →
+ * 途中に当たった操作。操作どうしの並びは元のまま
  */
-export function orderSearchAndActions<T>(search: T | null, matched: readonly T[]): T[] {
-  if (search === null) return [...matched];
-  return matched.length > 0 ? [...matched, search] : [search];
+export function orderSearchAndActions<T>(
+  search: T | null,
+  actions: readonly T[],
+  matchOf: (action: T) => "start" | "inside" | null,
+): T[] {
+  const start = actions.filter((a) => matchOf(a) === "start");
+  const inside = actions.filter((a) => matchOf(a) === "inside");
+  return search === null ? [...start, ...inside] : [...start, search, ...inside];
 }

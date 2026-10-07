@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
-import { actionMatches, orderSearchAndActions } from "./paletteOrder";
+import { actionMatch, orderSearchAndActions } from "./paletteOrder";
 
 /** パレットの1候補。実行するとパレットは閉じる */
 export type PaletteItem = {
@@ -130,10 +130,7 @@ export default function Palette({
         }
       : null;
     out.push(
-      ...orderSearchAndActions(
-        search,
-        actions.filter((a) => actionMatches(a.label, q, a.alias)),
-      ),
+      ...orderSearchAndActions(search, actions, (a) => actionMatch(a.label, q, a.alias)),
     );
     return out;
   }, [input, summary, cameras, actions, onJumpDay, onSearch]);
