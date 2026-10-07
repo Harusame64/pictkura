@@ -86,6 +86,22 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://harusame64.github.io/pictkura/ja/outgoing.html</loc>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/outgoing.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/outgoing.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-10-07</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://harusame64.github.io/pictkura/en/outgoing.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/outgoing.html"/>
+    <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/outgoing.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/"/>
+    <lastmod>2026-10-07</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://harusame64.github.io/pictkura/ja/install.html</loc>
     <xhtml:link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/install.html"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/install.html"/>

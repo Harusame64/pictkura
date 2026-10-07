@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>送り出し — Google フォトへ写真を選んで渡す | pictkura</title>
+<meta name="description" content="pictkura の送り出し機能の概要、仕組み、使い始める手順、送り出しフォルダに置かれるものを説明します。Google フォトの「フォルダをバックアップ」に、RAW や動画を除いた写真を渡せます。">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/ja/outgoing.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/outgoing.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/outgoing.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:title" content="送り出し | pictkura">
+<meta property="og:description" content="送り出し機能の概要、仕組み、使い始める手順。">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/ja/outgoing.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.2.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/nav.js"></script>
+<style>
+  /* このページの図だけの色。サイトの配色（site.css の変数）に乗る */
+  .flow { width: 100%; height: auto; display: block; margin: 8px 0 0; }
+  /* 幅の狭い画面では、図を縮めずに横へスクロールさせる（文字が読めない大きさにならないように） */
+  .flow-wrap { overflow-x: auto; }
+  @media (max-width: 720px) { .flow-wrap .flow { width: 720px; max-width: none; } }
+  .flow .box { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+  .flow .box.out { stroke: var(--accent); stroke-width: 1.5; }
+  .flow .t { fill: var(--text); font-family: var(--font-jp); font-size: 15px; font-weight: 500; }
+  .flow .s { fill: var(--text-muted); font-family: var(--font-jp); font-size: 12.5px; }
+  .flow .m { fill: var(--text-soft); font-family: var(--font-mono); font-size: 12px; }
+  .flow .arrow { stroke: var(--text-faint); stroke-width: 1.4; fill: none; }
+  .flow .arrow.ok { stroke: var(--accent); }
+  .flow .arrow.no { stroke: var(--text-faint); stroke-dasharray: 4 4; }
+  .flow .tip { fill: var(--text-faint); }
+  .flow .tip.ok { fill: var(--accent); }
+  .flow .tag { fill: var(--bg-raise); stroke: var(--line); }
+  .flow .ok-t { fill: var(--accent-bright); font-family: var(--font-jp); font-size: 12.5px; }
+  .flow .no-t { fill: var(--text-faint); font-family: var(--font-jp); font-size: 12.5px; }
+  .shot { margin: 24px 0 0; }
+  .shot .ph { aspect-ratio: 16 / 10; border: 1px dashed var(--line-strong); display: grid; place-items: center;
+              color: var(--text-faint); font-size: 13px; background: var(--bg-raise); }
+  .shot img { width: 100%; height: auto; display: block; border: 1px solid var(--line); }
+  .ascii { font-family: var(--font-mono); font-size: 13px; line-height: 1.45; color: var(--text-soft);
+           background: var(--bg-raise); border: 1px solid var(--line); padding: 18px 20px; margin: 0;
+           overflow-x: auto; white-space: pre; }
+  .steps { counter-reset: st; list-style: none; padding: 0; margin: 0; display: grid; gap: 18px; }
+  .steps > li { counter-increment: st; position: relative; padding-left: 40px; font-size: 15px; line-height: 1.9; color: var(--text-soft); }
+  .steps > li::before { content: counter(st); position: absolute; left: 0; top: 2px; width: 26px; height: 26px; border-radius: 50%;
+                        border: 1px solid var(--accent); color: var(--accent); font-family: var(--font-mono); font-size: 12px;
+                        display: grid; place-items: center; }
+</style>
+</head>
+<body lang="ja">
+
+<a class="skip" href="#main">本文へ移動</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" id="site-nav" aria-label="サイト内">
+    <a href="install.html">インストール</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="cameras.html">対応機種</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="about.html">About</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+    <span class="lang">JA / <a href="../en/outgoing.html" hreflang="en">EN</a></span>
+  </nav>
+  <div class="bar-end">
+    <a href="download.html" class="btn btn-sm">ダウンロード</a>
+    <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="メニュー">
+      <svg class="i-open" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7.5h16M4 12h16M4 16.5h16"/></svg><svg class="i-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="page-head photo gate">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; 送り出し</p>
+  <h1 class="disp">送り出し</h1>
+  <p class="lead">写真サービスへアップロードする写真だけを、1つのフォルダ（送り出しフォルダ）に置く機能です。このページでは、概要、仕組み、使い始める手順を説明します。</p>
+  <p class="stamps">
+    <span>バージョン &nbsp;<b>0.3</b></span>
+    <span>最終更新 &nbsp;<b>2026-10-07</b></span>
+  </p>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="このページの目次">
+    <p class="eyebrow" style="margin:0 0 8px">目次</p>
+    <a href="#why">1. 概要</a>
+    <a href="#how">2. 仕組み</a>
+    <a href="#start">3. 使い始める</a>
+    <a href="#what">4. 送り出しフォルダに置かれるもの</a>
+    <a href="#later">5. 追加と除外</a>
+    <a href="#faq">6. 補足</a>
+    <span class="hr"></span>
+    <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="../manual.html#outgoing">詳細はマニュアルへ →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="why">
+      <h2 class="disp"><span class="num">1</span>概要</h2>
+      <p>Google フォトをパソコンで使う場合、Web ページの<strong class="em">「フォルダをバックアップ」</strong>で、登録したフォルダの中身がアップロードされます。この機能には、RAW ファイルや動画を除く設定がありません。</p>
+      <p>送り出し機能を使うと、pictkura は取り込んだ写真のうち、アップロードの対象とするものだけを<strong class="em">送り出しフォルダ</strong>に置きます。Google フォトには、ライブラリのフォルダではなく送り出しフォルダを登録します。</p>
+      <ul>
+        <li>RAW と JPEG の組は、JPEG だけを置きます</li>
+        <li>連写は、1コマだけを置きます</li>
+        <li>RAW だけのカットと動画は、設定で置くかどうかを選べます</li>
+      </ul>
+    </section>
+
+    <section id="how">
+      <h2 class="disp"><span class="num">2</span>仕組み</h2>
+      <div class="flow-wrap"><svg class="flow" viewBox="0 0 900 330" role="img" aria-labelledby="flow-t">
+        <title id="flow-t">SD カードから取り込んだ写真がライブラリに入り、そのうち上げてよいものだけが送り出しフォルダに並び、Google フォトがそれを上げる流れ</title>
+        <defs>
+          <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="tip-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip ok" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <!-- カード -->
+        <rect class="box" x="10" y="110" width="150" height="90" rx="6"/>
+        <text class="t" x="85" y="148" text-anchor="middle">SD カード</text>
+        <text class="s" x="85" y="172" text-anchor="middle">カメラ・スマホ</text>
+        <path class="arrow" d="M160 155H218" marker-end="url(#tip)"/>
+        <text class="s" x="189" y="142" text-anchor="middle">取り込み</text>
+        <!-- ライブラリ -->
+        <rect class="box" x="222" y="40" width="250" height="230" rx="6"/>
+        <text class="t" x="347" y="72" text-anchor="middle">ライブラリ（原本）</text>
+        <rect class="tag" x="242" y="92" width="210" height="28" rx="3"/><text class="m" x="256" y="111">IMG_0001.JPG</text>
+        <rect class="tag" x="242" y="126" width="210" height="28" rx="3"/><text class="m" x="256" y="145">IMG_0002.CR3 + .JPG</text>
+        <rect class="tag" x="242" y="160" width="210" height="28" rx="3"/><text class="m" x="256" y="179">IMG_0003.CR3（RAW だけ）</text>
+        <rect class="tag" x="242" y="194" width="210" height="28" rx="3"/><text class="m" x="256" y="213">連写 12 コマ</text>
+        <rect class="tag" x="242" y="228" width="210" height="28" rx="3"/><text class="m" x="256" y="247">MOV_0004.MP4</text>
+        <!-- 送り出し -->
+        <rect class="box out" x="560" y="40" width="190" height="230" rx="6"/>
+        <text class="t" x="655" y="72" text-anchor="middle">送り出しフォルダ</text>
+        <text class="m" x="578" y="111">IMG_0001.JPG</text>
+        <text class="m" x="578" y="145">IMG_0002.JPG</text>
+        <text class="m" x="578" y="179">IMG_0003.jpg *</text>
+        <text class="m" x="578" y="213">連写の1コマ</text>
+        <text class="m" x="578" y="247">（動画は設定で）</text>
+        <path class="arrow ok" d="M452 106H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow ok" d="M452 140H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow ok" d="M452 174H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow ok" d="M452 208H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow no" d="M452 242H566" marker-end="url(#tip)"/>
+        <text class="ok-t" x="509" y="132" text-anchor="middle">JPEG だけ</text>
+        <text class="ok-t" x="509" y="200" text-anchor="middle">1枚</text>
+        <!-- Google -->
+        <path class="arrow ok" d="M750 155H808" marker-end="url(#tip-ok)"/>
+        <rect class="box" x="812" y="110" width="80" height="90" rx="6"/>
+        <text class="t" x="852" y="148" text-anchor="middle">Google</text>
+        <text class="t" x="852" y="170" text-anchor="middle">フォト</text>
+        <text class="s" x="560" y="300">* RAW だけのカットは、設定で「埋め込み JPEG を置く」を選んだとき</text>
+        <text class="s" x="560" y="320">（カメラが RAW に入れている表示用の絵）</text>
+      </svg></div>
+      <figcaption class="fig" style="margin-top:12px">図1　取り込みから Google フォトへのアップロードまで。Google フォトは送り出しフォルダの中身だけをアップロードします。</figcaption>
+
+      <h3>ハードリンクによる配置</h3>
+      <p>送り出しフォルダの写真はコピーではなく、ライブラリの写真と同じファイルに付けた別の名前（ハードリンク）です。</p>
+      <ul>
+        <li>ディスクの空き容量は減りません（埋め込み JPEG は別のファイルとして作るため、その分を使います）</li>
+        <li>送り出しフォルダから除外しても、ライブラリの写真は削除されません</li>
+        <li>ハードリンクは同じドライブの中にしか作れないため、送り出しフォルダは写真のあるドライブごとに1つ作られます</li>
+      </ul>
+      <div class="note">
+        <p><strong class="em">pictkura は Google と通信しません。</strong> アップロードは Google フォトの Web ページ（photos.google.com）が行います。アップロードは、ブラウザでこのページを開いている間に進みます。</p>
+      </div>
+    </section>
+
+    <section id="start">
+      <h2 class="disp"><span class="num">3</span>使い始める</h2>
+      <ol class="steps">
+        <li>pictkura の設定を開き、<strong class="em">「送り出し」</strong>で「取り込んだ写真を送り出しフォルダにも置く」をオンにします。送り出しフォルダが作られ、その場所が表示されます。
+          <figure class="shot"><div class="ph">画面: 設定の「送り出し」（撮影待ち）</div></figure>
+        </li>
+        <li>ブラウザで Google フォト（photos.google.com）を開き、<strong class="em">「＋」→「フォルダをバックアップ」</strong>で、手順1の送り出しフォルダを登録します。
+          <figure class="shot">
+<div class="flow-wrap"><svg class="flow" viewBox="0 0 760 300" role="img" aria-labelledby="gp-t">
+              <title id="gp-t">Google フォトの Web ページで、右上の＋から「フォルダをバックアップ」を選び、送り出しフォルダを指定する模式図</title>
+              <rect class="box" x="10" y="10" width="740" height="280" rx="8"/>
+              <line x1="10" y1="52" x2="750" y2="52" style="stroke:var(--line-strong)"/>
+              <text class="m" x="32" y="37">photos.google.com</text>
+              <rect class="box out" x="600" y="20" width="40" height="24" rx="12"/>
+              <text class="t" x="620" y="38" text-anchor="middle">＋</text>
+              <circle cx="680" cy="32" r="11" style="fill:none;stroke:var(--line-strong)"/>
+              <path class="arrow ok" d="M620 46V70" marker-end="url(#tip-ok)"/>
+              <rect class="box" x="470" y="74" width="250" height="168" rx="6"/>
+              <text class="s" x="492" y="104">アルバム</text>
+              <text class="s" x="492" y="134">共有アルバム</text>
+              <text class="s" x="492" y="164">…</text>
+              <rect x="478" y="182" width="234" height="34" rx="4" style="fill:oklch(0.72 0.14 255 / 0.16);stroke:var(--accent)"/>
+              <text class="t" x="492" y="205">フォルダをバックアップ</text>
+              <path class="arrow ok" d="M470 199H300" marker-end="url(#tip-ok)"/>
+              <rect class="tag" x="40" y="178" width="250" height="44" rx="4"/>
+              <text class="m" x="56" y="205">pictkura-outgoing</text>
+              <text class="s" x="40" y="250">送り出しフォルダを選ぶ</text>
+            </svg></div>
+            <figcaption class="fig">図2　Google フォトでの登録（画面のイメージ。実際の画面は Google フォトの版によって異なります）</figcaption>
+          </figure>
+        </li>
+        <li>写真を取り込みます。取り込みが終わると、置いた件数が「送り出しに N 件」と表示されます。</li>
+      </ol>
+    </section>
+
+    <section id="what">
+      <h2 class="disp"><span class="num">4</span>送り出しフォルダに置かれるもの</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:220px">取り込んだファイル</th><th>送り出しフォルダへの配置</th></tr></thead>
+          <tbody>
+            <tr><td class="k">JPEG・HEIC など</td><td>置きます</td></tr>
+            <tr><td class="k">RAW と JPEG の組</td><td>JPEG だけを置きます</td></tr>
+            <tr><td class="k">RAW だけのカット</td><td>設定で「置かない」（既定）または「埋め込み JPEG を置く」を選びます</td></tr>
+            <tr><td class="k">連写</td><td>撮り始めの1コマだけを置きます（設定「連写を1枚に重ねる」がオンのとき）。あとで ⚑ を付けたコマも追加されます</td></tr>
+            <tr><td class="k">動画</td><td>設定「動画も置く」に従います（既定はオン）</td></tr>
+            <tr><td class="k">OneDrive の中の写真</td><td>既定では置きません。置くと、OneDrive でその写真を「オンラインのみ」にできなくなります</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="later">
+      <h2 class="disp"><span class="num">5</span>追加と除外</h2>
+      <p><strong class="em">追加する：</strong> 取り込み済みの写真を送り出しフォルダに追加するには、一覧で写真を選択し、選択バーの「送り出しへ」を押します。写真の右クリックメニューからも追加できます。カレンダーでは、月の見出しを右クリックして、月または年の単位で追加できます。</p>
+      <figure class="shot"><div class="ph">画面: 選択バーの「送り出しへ」（撮影待ち）</div></figure>
+      <p style="margin-top:24px"><strong class="em">確認と除外：</strong> 左の「送り出し」を押すと、送り出しフォルダに置いた写真が一覧に表示されます。除外するには、写真を選択して「送り出しから外す」を押します。</p>
+      <figure class="shot"><div class="ph">画面: 左の「送り出し」の一覧と「送り出しから外す」（撮影待ち）</div></figure>
+    </section>
+
+    <section id="faq">
+      <h2 class="disp"><span class="num">6</span>補足</h2>
+      <h3>Google フォト側の写真</h3>
+      <p>送り出しフォルダから除外した場合も、pictkura で写真をゴミ箱へ移した場合も、Google フォトにアップロード済みの写真は削除されません。</p>
+      <h3>ディスクの使用量</h3>
+      <p>写真はハードリンクで置くため、使用量は増えません。埋め込み JPEG を置く場合は、その分を使います。</p>
+      <h3>使用できるドライブ</h3>
+      <p>NTFS・APFS など、ハードリンクを作成できるドライブで使用できます。exFAT・FAT（USB メモリや SD カードに多い形式）のドライブには、送り出しフォルダを作れません。</p>
+      <h3>ほかのバックアップとの併用</h3>
+      <p>NAS や Amazon Photos などで写真をバックアップしている場合は、送り出しフォルダを、それらが対象にしているフォルダの<strong class="em">外</strong>に置いてください。中に置くと、同じ写真が重複してバックアップされます。</p>
+      <p style="margin-top:28px">送り出しフォルダを作れない場所や、写真を削除したときの動作は、<a href="../manual.html#outgoing">マニュアルの「9. 送り出し」</a>を参照してください。</p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; 写真: Wikimedia Commons, CC0 &nbsp;·&nbsp; Google フォトは Google LLC の商標です</span>
+  <span class="links">
+    <a href="./">紹介</a>
+    <a href="download.html">ダウンロード</a>
+    <a href="spec.html">アプリ仕様</a>
+    <a href="about.html">なぜ作ったのか</a>
+    <a href="../manual.html">マニュアル</a>
+    <a href="outgoing.html">送り出し</a>
+    <a href="privacy.html">プライバシーポリシー</a>
+    <a href="terms.html">利用条件・免責</a>
+  </span>
+</footer>
+
+</body>
+</html>

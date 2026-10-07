@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outgoing — hand Google Photos only the photos you want up | pictkura</title>
+<meta name="description" content="An overview of Outgoing in pictkura: how it works, how to start, and what goes in the Outgoing folder. It hands Google Photos folder backup your photos without RAW files or videos.">
+<link rel="canonical" href="https://harusame64.github.io/pictkura/en/outgoing.html">
+<link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/outgoing.html">
+<link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/outgoing.html">
+<link rel="alternate" hreflang="x-default" href="https://harusame64.github.io/pictkura/">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="pictkura">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="Outgoing | pictkura">
+<meta property="og:description" content="What Outgoing does, how it works, and how to start.">
+<meta property="og:url" content="https://harusame64.github.io/pictkura/en/outgoing.html">
+<meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.2.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../assets/icon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..700&family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/nav.js"></script>
+<style>
+  /* このページの図だけの色。サイトの配色（site.css の変数）に乗る */
+  .flow { width: 100%; height: auto; display: block; margin: 8px 0 0; }
+  /* 幅の狭い画面では、図を縮めずに横へスクロールさせる（文字が読めない大きさにならないように） */
+  .flow-wrap { overflow-x: auto; }
+  @media (max-width: 720px) { .flow-wrap .flow { width: 720px; max-width: none; } }
+  .flow .box { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+  .flow .box.out { stroke: var(--accent); stroke-width: 1.5; }
+  .flow .t { fill: var(--text); font-family: var(--font-jp); font-size: 15px; font-weight: 500; }
+  .flow .s { fill: var(--text-muted); font-family: var(--font-jp); font-size: 12.5px; }
+  .flow .m { fill: var(--text-soft); font-family: var(--font-mono); font-size: 12px; }
+  .flow .arrow { stroke: var(--text-faint); stroke-width: 1.4; fill: none; }
+  .flow .arrow.ok { stroke: var(--accent); }
+  .flow .arrow.no { stroke: var(--text-faint); stroke-dasharray: 4 4; }
+  .flow .tip { fill: var(--text-faint); }
+  .flow .tip.ok { fill: var(--accent); }
+  .flow .tag { fill: var(--bg-raise); stroke: var(--line); }
+  .flow .ok-t { fill: var(--accent-bright); font-family: var(--font-jp); font-size: 12.5px; }
+  .flow .no-t { fill: var(--text-faint); font-family: var(--font-jp); font-size: 12.5px; }
+  .shot { margin: 24px 0 0; }
+  .shot .ph { aspect-ratio: 16 / 10; border: 1px dashed var(--line-strong); display: grid; place-items: center;
+              color: var(--text-faint); font-size: 13px; background: var(--bg-raise); }
+  .shot img { width: 100%; height: auto; display: block; border: 1px solid var(--line); }
+  .ascii { font-family: var(--font-mono); font-size: 13px; line-height: 1.45; color: var(--text-soft);
+           background: var(--bg-raise); border: 1px solid var(--line); padding: 18px 20px; margin: 0;
+           overflow-x: auto; white-space: pre; }
+  .steps { counter-reset: st; list-style: none; padding: 0; margin: 0; display: grid; gap: 18px; }
+  .steps > li { counter-increment: st; position: relative; padding-left: 40px; font-size: 15px; line-height: 1.9; color: var(--text-soft); }
+  .steps > li::before { content: counter(st); position: absolute; left: 0; top: 2px; width: 26px; height: 26px; border-radius: 50%;
+                        border: 1px solid var(--accent); color: var(--accent); font-family: var(--font-mono); font-size: 12px;
+                        display: grid; place-items: center; }
+</style>
+</head>
+<body lang="en">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="12" cy="12" r="4"/><path d="M17.6 8.2h1.2"/></svg>
+    <a class="disp" href="./">pictkura</a>
+  </div>
+  <nav class="nav" id="site-nav" aria-label="Site">
+    <a href="install.html">Install</a>
+    <a href="spec.html">Specification</a>
+    <a href="cameras.html">Cameras</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="about.html">About</a>
+    <a href="https://github.com/Harusame64/pictkura">GitHub</a>
+    <span class="lang"><a href="../ja/outgoing.html" hreflang="ja">JA</a> / EN</span>
+  </nav>
+  <div class="bar-end">
+    <a href="download.html" class="btn btn-sm">Download</a>
+    <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Menu">
+      <svg class="i-open" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7.5h16M4 12h16M4 16.5h16"/></svg><svg class="i-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+    </button>
+  </div>
+</header>
+
+<div class="page-head photo gate">
+  <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Outgoing</p>
+  <h1 class="disp">Outgoing</h1>
+  <p class="lead">Outgoing places only the photos you want a photo service to upload in one folder, the Outgoing folder. This page covers what it does, how it works, and how to start.</p>
+  <p class="stamps">
+    <span>Version &nbsp;<b>0.3</b></span>
+    <span>Last updated &nbsp;<b>2026-10-07</b></span>
+  </p>
+</div>
+
+<div class="doc">
+  <nav class="doc-nav" aria-label="On this page">
+    <p class="eyebrow" style="margin:0 0 8px">Contents</p>
+    <a href="#why">1. Overview</a>
+    <a href="#how">2. How it works</a>
+    <a href="#start">3. Getting started</a>
+    <a href="#what">4. What goes in the Outgoing folder</a>
+    <a href="#later">5. Adding and removing</a>
+    <a href="#faq">6. Notes</a>
+    <span class="hr"></span>
+    <a class="mono" style="font-size:11.5px;letter-spacing:.05em" href="../manual.en.html#outgoing">Details in the manual →</a>
+  </nav>
+
+  <main class="doc-body" id="main">
+
+    <section id="why">
+      <h2 class="disp"><span class="num">1</span>Overview</h2>
+      <p>On a computer, Google Photos uploads the contents of a folder you add with <strong class="em">Back up a folder</strong> on its web page. It has no setting to leave out RAW files or videos.</p>
+      <p>With Outgoing, pictkura places only the imported photos that should be uploaded in the <strong class="em">Outgoing folder</strong>. You add the Outgoing folder to Google Photos instead of your library folders.</p>
+      <ul>
+        <li>For a RAW+JPEG pair, only the JPEG is placed</li>
+        <li>For a burst, one shot is placed</li>
+        <li>For RAW-only shots and videos, a setting decides</li>
+      </ul>
+    </section>
+
+    <section id="how">
+      <h2 class="disp"><span class="num">2</span>How it works</h2>
+      <div class="flow-wrap"><svg class="flow" viewBox="0 0 900 330" role="img" aria-labelledby="flow-t">
+        <title id="flow-t">Photos imported from an SD card go into the library; only those to be uploaded are placed in the Outgoing folder, which Google Photos uploads</title>
+        <defs>
+          <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="tip-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip ok" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <!-- カード -->
+        <rect class="box" x="10" y="110" width="150" height="90" rx="6"/>
+        <text class="t" x="85" y="148" text-anchor="middle">SD card</text>
+        <text class="s" x="85" y="172" text-anchor="middle">camera or phone</text>
+        <path class="arrow" d="M160 155H218" marker-end="url(#tip)"/>
+        <text class="s" x="189" y="142" text-anchor="middle">import</text>
+        <!-- ライブラリ -->
+        <rect class="box" x="222" y="40" width="250" height="230" rx="6"/>
+        <text class="t" x="347" y="72" text-anchor="middle">Library (originals)</text>
+        <rect class="tag" x="242" y="92" width="210" height="28" rx="3"/><text class="m" x="256" y="111">IMG_0001.JPG</text>
+        <rect class="tag" x="242" y="126" width="210" height="28" rx="3"/><text class="m" x="256" y="145">IMG_0002.CR3 + .JPG</text>
+        <rect class="tag" x="242" y="160" width="210" height="28" rx="3"/><text class="m" x="256" y="179">IMG_0003.CR3 (RAW only)</text>
+        <rect class="tag" x="242" y="194" width="210" height="28" rx="3"/><text class="m" x="256" y="213">Burst, 12 shots</text>
+        <rect class="tag" x="242" y="228" width="210" height="28" rx="3"/><text class="m" x="256" y="247">MOV_0004.MP4</text>
+        <!-- 送り出し -->
+        <rect class="box out" x="560" y="40" width="190" height="230" rx="6"/>
+        <text class="t" x="655" y="72" text-anchor="middle">Outgoing folder</text>
+        <text class="m" x="578" y="111">IMG_0001.JPG</text>
+        <text class="m" x="578" y="145">IMG_0002.JPG</text>
+        <text class="m" x="578" y="179">IMG_0003.jpg *</text>
+        <text class="m" x="578" y="213">one shot of the burst</text>
+        <text class="m" x="578" y="247">(videos: setting)</text>
+        <path class="arrow ok" d="M452 106H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow ok" d="M452 140H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow ok" d="M452 174H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow ok" d="M452 208H566" marker-end="url(#tip-ok)"/>
+        <path class="arrow no" d="M452 242H566" marker-end="url(#tip)"/>
+        <text class="ok-t" x="509" y="132" text-anchor="middle">JPEG only</text>
+        <text class="ok-t" x="509" y="200" text-anchor="middle">one</text>
+        <!-- Google -->
+        <path class="arrow ok" d="M750 155H808" marker-end="url(#tip-ok)"/>
+        <rect class="box" x="812" y="110" width="80" height="90" rx="6"/>
+        <text class="t" x="852" y="148" text-anchor="middle">Google</text>
+        <text class="t" x="852" y="170" text-anchor="middle">Photos</text>
+        <text class="s" x="560" y="300">* RAW-only shots: when “Place the embedded JPEG” is chosen</text>
+        <text class="s" x="560" y="320">(the preview picture the camera stored in the RAW)</text>
+      </svg></div>
+      <figcaption class="fig" style="margin-top:12px">Figure 1. From import to upload. Google Photos uploads only what is in the Outgoing folder.</figcaption>
+
+      <h3>Placed as hard links</h3>
+      <p>Photos in the Outgoing folder are not copies. Each is a second name (a hard link) for the same file as the photo in your library.</p>
+      <ul>
+        <li>No extra disk space is used (an embedded JPEG is a separate file, so it does take its own space)</li>
+        <li>Removing a photo from the Outgoing folder does not delete it from your library</li>
+        <li>Hard links cannot cross drives, so one Outgoing folder is made on each drive that holds photos</li>
+      </ul>
+      <div class="note">
+        <p><strong class="em">pictkura does not talk to Google.</strong> The upload is done by the Google Photos web page (photos.google.com), and it runs while that page is open in your browser.</p>
+      </div>
+    </section>
+
+    <section id="start">
+      <h2 class="disp"><span class="num">3</span>Getting started</h2>
+      <ol class="steps">
+        <li>Open the pictkura settings and, under <strong class="em">Outgoing</strong>, turn on “Also place imported photos in the Outgoing folder”. The Outgoing folder is made and its location is shown.
+          <figure class="shot"><div class="ph">Screen: Settings → Outgoing (screenshot to come)</div></figure>
+        </li>
+        <li>Open Google Photos (photos.google.com) in your browser and add the Outgoing folder from step 1 with <strong class="em">+ → Back up a folder</strong>.
+          <figure class="shot">
+<div class="flow-wrap"><svg class="flow" viewBox="0 0 760 300" role="img" aria-labelledby="gp-t">
+              <title id="gp-t">Schematic: on the Google Photos web page, choose Back up a folder from the + menu and pick the Outgoing folder</title>
+              <rect class="box" x="10" y="10" width="740" height="280" rx="8"/>
+              <line x1="10" y1="52" x2="750" y2="52" style="stroke:var(--line-strong)"/>
+              <text class="m" x="32" y="37">photos.google.com</text>
+              <rect class="box out" x="600" y="20" width="40" height="24" rx="12"/>
+              <text class="t" x="620" y="38" text-anchor="middle">＋</text>
+              <circle cx="680" cy="32" r="11" style="fill:none;stroke:var(--line-strong)"/>
+              <path class="arrow ok" d="M620 46V70" marker-end="url(#tip-ok)"/>
+              <rect class="box" x="470" y="74" width="250" height="168" rx="6"/>
+              <text class="s" x="492" y="104">Album</text>
+              <text class="s" x="492" y="134">Shared album</text>
+              <text class="s" x="492" y="164">…</text>
+              <rect x="478" y="182" width="234" height="34" rx="4" style="fill:oklch(0.72 0.14 255 / 0.16);stroke:var(--accent)"/>
+              <text class="t" x="492" y="205">Back up a folder</text>
+              <path class="arrow ok" d="M470 199H300" marker-end="url(#tip-ok)"/>
+              <rect class="tag" x="40" y="178" width="250" height="44" rx="4"/>
+              <text class="m" x="56" y="205">pictkura-outgoing</text>
+              <text class="s" x="40" y="250">pick the Outgoing folder</text>
+            </svg></div>
+            <figcaption class="fig">Figure 2. Adding the folder in Google Photos (an illustration; the real screen depends on the Google Photos version)</figcaption>
+          </figure>
+        </li>
+        <li>Import photos. When the import finishes, the number placed is shown as “N placed in Outgoing”.</li>
+      </ol>
+    </section>
+
+    <section id="what">
+      <h2 class="disp"><span class="num">4</span>What goes in the Outgoing folder</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width:220px">Imported file</th><th>In the Outgoing folder</th></tr></thead>
+          <tbody>
+            <tr><td class="k">JPEG, HEIC and similar</td><td>Placed</td></tr>
+            <tr><td class="k">RAW+JPEG pair</td><td>Only the JPEG is placed</td></tr>
+            <tr><td class="k">RAW-only shot</td><td>Set to “Leave out” (the default) or “Place the embedded JPEG”</td></tr>
+            <tr><td class="k">Burst</td><td>Only the first shot is placed (when “Stack bursts into one tile” is on). A shot you mark ⚑ later is added too</td></tr>
+            <tr><td class="k">Video</td><td>Follows “Place videos too” (on by default)</td></tr>
+            <tr><td class="k">Photos inside OneDrive</td><td>Not placed by default. If placed, OneDrive can no longer make them online-only</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="later">
+      <h2 class="disp"><span class="num">5</span>Adding and removing</h2>
+      <p><strong class="em">Adding:</strong> to add photos you imported earlier, select them in the grid and press “Add to Outgoing” in the selection bar. The right-click menu on a photo has it too. In the calendar, right-click a month heading to add a month or a whole year.</p>
+      <figure class="shot"><div class="ph">Screen: “Add to Outgoing” in the selection bar (screenshot to come)</div></figure>
+      <p style="margin-top:24px"><strong class="em">Checking and removing:</strong> press “Outgoing” on the left to list what is in the Outgoing folder. To remove photos, select them and press “Remove from Outgoing”.</p>
+      <figure class="shot"><div class="ph">Screen: the Outgoing list and “Remove from Outgoing” (screenshot to come)</div></figure>
+    </section>
+
+    <section id="faq">
+      <h2 class="disp"><span class="num">6</span>Notes</h2>
+      <h3>Photos already in Google Photos</h3>
+      <p>Removing a photo from the Outgoing folder, or moving it to the trash in pictkura, does not delete what Google Photos has already uploaded.</p>
+      <h3>Disk space</h3>
+      <p>Photos are placed as hard links, so no extra space is used. Embedded JPEGs take their own space.</p>
+      <h3>Drives</h3>
+      <p>Outgoing works on drives that support hard links, such as NTFS and APFS. An Outgoing folder cannot be made on exFAT or FAT drives (common on USB sticks and SD cards).</p>
+      <h3>Other backups</h3>
+      <p>If a NAS, Amazon Photos or another service backs up your photos, keep the Outgoing folder <strong class="em">outside</strong> the folders it watches. Inside, the same photos would be backed up twice.</p>
+      <p style="margin-top:28px">Where an Outgoing folder cannot be made, and what happens when photos are deleted, are in <a href="../manual.en.html#outgoing">section 9, Outgoing, of the manual</a>.</p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot-slim">
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; Photos: Wikimedia Commons, CC0 &nbsp;·&nbsp; Google Photos is a trademark of Google LLC</span>
+  <span class="links">
+    <a href="./">Home</a>
+    <a href="download.html">Download</a>
+    <a href="spec.html">Specification</a>
+    <a href="about.html">Why I made pictkura</a>
+    <a href="../manual.en.html">Manual</a>
+    <a href="outgoing.html">Outgoing</a>
+    <a href="privacy.html">Privacy policy</a>
+    <a href="terms.html">Terms &amp; disclaimer</a>
+  </span>
+</footer>
+
+</body>
+</html>
