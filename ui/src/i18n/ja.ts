@@ -29,6 +29,7 @@ export const ja = {
   navAllPhotos: "すべての画像",
   navFavorites: "★ お気に入り",
   navPicked: "⚑ 選別で選んだもの",
+  navOutgoing: "送り出し",
   // 種類の絞り込み（画像・RAW・動画）。押すと絞り、もう一度押すと外れる
   navKinds: "種類",
   kindPhoto: "画像",
@@ -521,6 +522,7 @@ export const ja = {
   importGoogleFailed: (n: number) => `送り出しに${num(n)}件置けませんでした（ログを参照）`,
   importGoogleError: (why: string) => `送り出しに置けませんでした: ${why}`,
   bulkSendGoogle: "送り出しへ",
+  bulkRemoveGoogle: "送り出しから外す",
   calendarSendMonth: "この月を送り出しへ",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `${year}年をまるごと送り出しへ`,
@@ -549,6 +551,9 @@ export const ja = {
     `送り出しに${num(total)}件置きました${already > 0 ? `（うち${num(already)}件は置き済み）` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)}件はクラウドにしか無いので置けませんでした。手元に取り寄せてから、もう一度送ってください。`,
+  googleRemoved: (n: number) => `送り出しから${num(n)}件外しました`,
+  googleRemoveFailed: (n: number) =>
+    `${num(n)}件はいま外せませんでした（ドライブがつながっていない等）。次に pictkura を起動したときに、もう一度外します。`,
   googleSentLeftOut: (n: number) =>
     `${num(n)}件は置きませんでした（RAW と JPEG の組の RAW だけ・OneDrive の中など）。`,
   burstGapOption: (seconds: number) => `${num(seconds)}秒以内`,
@@ -605,6 +610,14 @@ export const ja = {
   settingsEditorsNote: "「他のアプリで開く…」で選んだアプリを覚えています。",
   settingsForgetEditor: "一覧から外す",
   calendarEmpty: "写真がありません",
+  // 絞り込んで0件のとき（案内。pictkura-dev plan.filter-empty.md、2026-10-07 利用者決定: 案B）。
+  // `conds` は効いている条件の名前を `listSeparator` でつないだもの（`src/filterEmpty.ts`）
+  filterEmptyTitle: (conds: string) => `この絞り込みに該当する写真はありません：${conds}`,
+  filterEmptyMessage: "検索語や、左の一覧で選んでいる絞り込みを外すと、ほかの写真が出てきます。",
+  filterEmptyStillIndexing: "まだ取り込み・索引の途中なので、あとで出てくることがあります。",
+  filterCondQuery: (q: string) => `検索語「${q}」`,
+  filterCondCamera: (name: string) => `${name} で撮ったもの`,
+  filterEmptyClearSearch: "検索を消す",
   // ⚡爆速メーター
   speedPrefix: (sec: string) => `⚡ ${sec}秒で起動チェック — `,
   speedUsn: "USNジャーナル差分: ",

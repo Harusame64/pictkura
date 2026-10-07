@@ -208,6 +208,11 @@ pub struct DaySummary {
 /// （SQLiteの式インデックスは式のテキスト一致で適用可否を判定する）。
 const SORT_TS: &str = "COALESCE(taken_at_ms, mtime_ms)";
 
+/// 送り出し（Google フォト用のフォルダ）に置いてある行の条件（設計書 §3c）。
+/// 一覧の絞り込みと件数で**同じ式**を使う——数と並びがずれないように。
+/// 取り出した JPEG は記録の原本（RAW）の行として当たる
+const OUTGOING_COND: &str = "path IN (SELECT source_path FROM google_placed WHERE doomed = 0)";
+
 /// 検索索引の初期構築で「どこまで索引化したか」を持つmetaキー。
 const FTS_CURSOR_KEY: &str = "fts_cursor";
 /// 初期構築の対象上限ID（これより新しい行はトリガが直接索引化する）。
@@ -1883,6 +1888,11 @@ impl Db {
         if query.favorites_only {
             conds.push("favorite = 1".to_string());
         }
+        // 送り出し（設計書 §3c）。記録の綴りと行の綴りの完全一致で引く（記録を引くほかの道と同じ）。
+        // 外すと決まった行（`doomed`）は、外し終える前でも並べない——利用者は外したつもりでいる
+        if query.outgoing_only {
+            conds.push(OUTGOING_COND.to_string());
+        }
         // 種類（画像 / RAW / 動画）。`idx_media_kind_day` の先頭列なのでシークに落ちる。
         // **空なら「何にも当たらない」**（`kind:` に知らない値が来たとき。search.rs 参照）
         if let Some(kinds) = &query.kinds {
@@ -2598,6 +2608,15 @@ impl Db {
         Ok(out)
     }
 
+    /// 送り出しに置いてある件数（画面左の「送り出し」。[`OUTGOING_COND`] と同じ数え方）。
+    pub fn count_outgoing(&self) -> Result<i64, DbError> {
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM media WHERE {OUTGOING_COND}"),
+            [],
+            |r| r.get(0),
+        )?)
+    }
+
     /// 選別で選んだ（⚑）件数。部分インデックスのスキャンで返る（0.2 ②）。
     pub fn count_picked(&self) -> Result<i64, DbError> {
         Ok(self
@@ -2745,6 +2764,46 @@ impl Db {
         } else {
             Claim::Other
         })
+    }
+
+    /// `sources` のどれかが、送り出しに置いてあるか（外すと決まった行は数えない。一覧の
+    /// [`OUTGOING_COND`] と同じ見方）。⚑ で連写のコマを足すときの「この束は送り出しを使っているか」
+    pub fn google_any_placed(&self, sources: &[PathBuf]) -> Result<bool, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT EXISTS (SELECT 1 FROM google_placed WHERE source_path = ?1 AND doomed = 0)",
+        )?;
+        for src in sources {
+            let hit: bool = stmt.query_row(
+                params![crate::paths::normalize(src).to_string_lossy()],
+                |r| r.get(0),
+            )?;
+            if hit {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// 置けたと確かめたリンクの、外すと決まった印を下ろす（[`crate::mirror::Ledger::settle`]）。
+    /// 印が無ければ書かない——置くたびに書き込みの鍵を取らない（混んでいると失敗に化ける。ゲート2）
+    pub fn google_place_settle(&mut self, link: &Path) -> Result<(), DbError> {
+        let link = crate::paths::normalize(link);
+        let link = link.to_string_lossy();
+        let doomed: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT doomed FROM google_placed WHERE link_path = ?1",
+                params![link],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if doomed == Some(1) {
+            self.conn.execute(
+                "UPDATE google_placed SET doomed = 0 WHERE link_path = ?1",
+                params![link],
+            )?;
+        }
+        Ok(())
     }
 
     /// `link` の記録（原本・番号・取り出しか）。[`crate::mirror::Ledger::holder`]
@@ -5522,6 +5581,93 @@ mod tests {
         assert_eq!(db.set_pickeds(&all, false).unwrap(), all.len());
         assert!(db.search_ids(&picked).unwrap().is_empty());
         assert_eq!(db.search_ids(&fav).unwrap(), [all[1]], "★は残る");
+    }
+
+    /// 送り出しの絞り込み（設計書 §3c）は、記録のある行だけを並べ、外すと決まった行は並べない。
+    /// 件数は一覧と同じ数え方——取り出した JPEG は記録の原本（RAW）の行として1件
+    #[test]
+    fn outgoing_filter_lists_only_placed_rows() {
+        let mut db = seed_search_db();
+        let all = db
+            .search_ids(&crate::search::parse_query("", crate::MediaFilter::All))
+            .unwrap();
+        let outgoing = crate::search::parse_query("", crate::MediaFilter::Outgoing);
+        assert!(
+            db.search_ids(&outgoing).unwrap().is_empty(),
+            "記録が無ければ0件"
+        );
+        assert_eq!(db.count_outgoing().unwrap(), 0);
+
+        let path = |id: i64| db.get_by_id(id).unwrap().unwrap().path;
+        let (a, b) = (path(all[0]), path(all[1]));
+        let dir = PathBuf::from("/g");
+        for (n, (source, link)) in [(&a, "/g/a.jpg"), (&a, "/g/a-2.jpg"), (&b, "/g/b.jpg")]
+            .into_iter()
+            .enumerate()
+        {
+            db.google_place_claim(
+                &crate::mirror::Placed {
+                    source: source.clone(),
+                    link: PathBuf::from(link),
+                    index: n as u64,
+                    extracted: false,
+                },
+                &dir,
+            )
+            .unwrap();
+        }
+        let mut got = db.search_ids(&outgoing).unwrap();
+        got.sort();
+        let mut want = vec![all[0], all[1]];
+        want.sort();
+        assert_eq!(got, want, "記録が2本ある原本も1件");
+        assert_eq!(db.count_outgoing().unwrap(), 2);
+
+        assert!(db.google_any_placed(std::slice::from_ref(&b)).unwrap());
+        // 外すと決まった行は、外し終える前でも並べない
+        db.google_place_doom(std::slice::from_ref(&b)).unwrap();
+        assert!(
+            !db.google_any_placed(std::slice::from_ref(&b)).unwrap(),
+            "外すと決まった行は「使っている」に数えない"
+        );
+        assert!(db.google_any_placed(&[b.clone(), a.clone()]).unwrap());
+        assert_eq!(db.search_ids(&outgoing).unwrap(), [all[0]]);
+        assert_eq!(db.count_outgoing().unwrap(), 1);
+
+        // 外せずに印だけ残った行へ送り直したら、また並ぶ（印が下りる）
+        let again = db
+            .google_place_claim(
+                &crate::mirror::Placed {
+                    source: b.clone(),
+                    link: PathBuf::from("/g/b.jpg"),
+                    index: 2,
+                    extracted: false,
+                },
+                &dir,
+            )
+            .unwrap();
+        assert_eq!(again, crate::mirror::Claim::Ours { index: 2 });
+        assert_eq!(
+            db.count_outgoing().unwrap(),
+            1,
+            "記録を引いただけでは下ろさない（在るリンクを確かめる前）"
+        );
+        db.google_place_settle(Path::new("/g/b.jpg")).unwrap();
+        assert_eq!(
+            db.count_outgoing().unwrap(),
+            2,
+            "置けたと確かめたら印が下りる"
+        );
+        db.google_place_doom(std::slice::from_ref(&b)).unwrap();
+        assert_eq!(
+            db.search_summary(&outgoing)
+                .unwrap()
+                .iter()
+                .map(|d| d.count)
+                .sum::<i64>(),
+            1,
+            "日ごとの数も同じ条件"
+        );
     }
 
     #[test]

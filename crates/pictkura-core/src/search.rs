@@ -173,6 +173,9 @@ pub struct SearchQuery {
     pub favorites_only: bool,
     /// 選別で選んだもの（⚑ Pick。0.2 ②）のみ
     pub picked_only: bool,
+    /// 送り出し（Google フォト用のフォルダ）に置いてあるものだけ（設計書 §3c）。
+    /// 画面左の入口からだけ立てる——検索語の綴りは持たない
+    pub outgoing_only: bool,
     /// 種類（画像・RAW・動画）の指定。`None` は指定なし。
     ///
     /// **空の `Some` は「何にも当たらない」**——`kind:` に知らない値が来たとき、
@@ -194,6 +197,8 @@ pub enum MediaFilter {
     Fav,
     /// 選別で選んだもの（⚑）だけ
     Picked,
+    /// 送り出しに置いてあるものだけ（設計書 §3c）
+    Outgoing,
 }
 
 /// メディアの種類（画面左の「種類」に対応する）。
@@ -266,6 +271,7 @@ impl SearchQuery {
         Self {
             favorites_only: filter == MediaFilter::Fav,
             picked_only: filter == MediaFilter::Picked,
+            outgoing_only: filter == MediaFilter::Outgoing,
             ..Default::default()
         }
     }
@@ -279,6 +285,7 @@ impl SearchQuery {
             && self.day_to.is_none()
             && !self.favorites_only
             && !self.picked_only
+            && !self.outgoing_only
             && self.kinds.is_none()
     }
 

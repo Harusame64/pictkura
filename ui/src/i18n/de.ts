@@ -59,6 +59,7 @@ export const de: Dict = {
   navAllPhotos: "Alle Fotos",
   navFavorites: "★ Favoriten",
   navPicked: "⚑ Auswahl",
+  navOutgoing: "Ausgang",
   navKinds: "Art",
   kindPhoto: "Fotos",
   kindRaw: "RAW",
@@ -500,6 +501,7 @@ export const de: Dict = {
   importGoogleFailed: (n: number) => `${num(n)} ${one(n, "konnte", "konnten")} nicht im Ausgang abgelegt werden (siehe Protokoll)`,
   importGoogleError: (why: string) => `Nichts im Ausgang abgelegt: ${why}`,
   bulkSendGoogle: "Zum Ausgang",
+  bulkRemoveGoogle: "Aus dem Ausgang entfernen",
   calendarSendMonth: "Diesen Monat zum Ausgang",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
   calendarSendYear: (year: string) => `Das ganze Jahr ${year} zum Ausgang`,
@@ -528,6 +530,9 @@ export const de: Dict = {
     `${num(total)} im Ausgang abgelegt${already > 0 ? ` (davon ${num(already)} schon vorhanden)` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} ${one(n, "liegt", "liegen")} nur in der Cloud und ${one(n, "konnte", "konnten")} nicht abgelegt werden. Lade sie zuerst herunter und sende dann erneut.`,
+  googleRemoved: (n: number) => `${num(n)} aus dem Ausgang entfernt`,
+  googleRemoveFailed: (n: number) =>
+    `${num(n)} ${one(n, "konnte", "konnten")} gerade nicht aus dem Ausgang entfernt werden (etwa weil das Laufwerk nicht verbunden ist). pictkura versucht es beim nächsten Start erneut.`,
   googleSentLeftOut: (n: number) =>
     `${num(n)} ${one(n, "wurde", "wurden")} nicht abgelegt (das RAW eines RAW+JPEG-Paars, Dateien in OneDrive u. Ä.).`,
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
@@ -581,6 +586,14 @@ export const de: Dict = {
   settingsEditorsNote: "Apps, die du unter „Mit anderer App öffnen…“ gewählt hast.",
   settingsForgetEditor: "Aus der Liste entfernen",
   calendarEmpty: "Keine Fotos",
+  filterEmptyTitle: (conds: string) => `Keine Fotos passen zu: ${conds}`,
+  filterEmptyMessage:
+    "Entferne den Suchbegriff oder den links gewählten Filter, um die übrigen Fotos zu sehen.",
+  filterEmptyStillIndexing:
+    "Es wird noch importiert oder indiziert – weitere Fotos können noch auftauchen.",
+  filterCondQuery: (q: string) => `Suchbegriff „${q}“`,
+  filterCondCamera: (name: string) => `aufgenommen mit ${name}`,
+  filterEmptyClearSearch: "Suche löschen",
   speedPrefix: (sec: string) => `⚡ Startprüfung in ${sec} s — `,
   speedUsn: "USN-Journal-Differenz: ",
   speedUsnNoChange: "keine Änderungen, keine Ordner durchlaufen",

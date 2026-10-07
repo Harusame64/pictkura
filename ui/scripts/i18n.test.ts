@@ -304,6 +304,7 @@ const INFLECTS: Record<string, string[]> = {
     "googleSendLeftOut:0",
     "googleSentCloudOnly:0",
     "googleSentLeftOut:0",
+    "googleRemoveFailed:0",
   ],
   es: [
     "itemsCount:0",
@@ -359,6 +360,8 @@ const INFLECTS: Record<string, string[]> = {
     "googleSentLeftOut:0",
     "googleSent:1",
     "googleSent:0",
+    "googleRemoved:0",
+    "googleRemoveFailed:0",
   ],
   // **中南米版は本国と同じ活用**（差分は語彙だけで、単複の作りは変えていない）
   "es-419": [
@@ -415,6 +418,8 @@ const INFLECTS: Record<string, string[]> = {
     "googleSentLeftOut:0",
     "googleSent:1",
     "googleSent:0",
+    "googleRemoved:0",
+    "googleRemoveFailed:0",
   ],
 };
 

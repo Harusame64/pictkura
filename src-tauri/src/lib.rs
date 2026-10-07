@@ -745,6 +745,8 @@ struct LibraryStatsDto {
     favorites: i64,
     /// 選別で選んだ件数（⚑。0.2 ②）
     picked: i64,
+    /// 送り出しに置いてある件数（設計書 §3c）
+    outgoing: i64,
 }
 
 /// カメラ別の枚数（左ペイン「カメラとメディア」用、第4部 段階D）。
@@ -3338,6 +3340,7 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
                 total: db.count()?,
                 favorites: db.count_favorites()?,
                 picked: db.count_picked()?,
+                outgoing: db.count_outgoing()?,
             })
         })
         // 型は `map_err` の側から決まらない（閉包が `?` で組み立てている）
@@ -4285,17 +4288,25 @@ fn prepare_google_folder(dir: &Path, roots: &[PathBuf]) -> Result<(), String> {
     if let Some(Err(e @ MirrorError::NoHardLinks(..))) = parent_probe {
         return Err(errs::from_err(e));
     }
+    let existed = dir.exists();
     if !matches!(parent_probe, Some(Ok(()))) {
-        let existed = dir.exists();
         std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))?;
         let probed = probe_hard_links(dir).map_err(errs::from_err);
         if probed.is_err() && !existed {
             // 断った場所に空のフォルダを残さない
             let _ = std::fs::remove_dir(dir);
         }
+        if probed.is_ok() && !existed {
+            note_new_google_folders(&[dir.to_path_buf()]);
+        }
         return probed;
     }
-    std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))
+    std::fs::create_dir_all(dir).map_err(|e| errs::from_err(MirrorError::Io(e)))?;
+    // 設定で入れた・場所を選んだときに作ったフォルダも記録に残す（置くときに作った分と同じ行。win の実機）
+    if !existed {
+        note_new_google_folders(&[dir.to_path_buf()]);
+    }
+    Ok(())
 }
 
 /// 場所の確かめはディスクに触る（眠った外付け・ネットワークでは数秒）ので、**主スレッドで回さない**（ゲート2）
@@ -4590,6 +4601,159 @@ async fn google_send_chosen(
     .await
 }
 
+/// あとで ⚑ を付けたコマ1つと、同じ重ね（連写）のほかのコマ（一覧が知っている束。`stackMembersIndex`）
+#[derive(serde::Deserialize)]
+struct PickedFrame {
+    id: i64,
+    siblings: Vec<i64>,
+}
+
+/// 連写のうち、**取り込みのときに表紙だけ送ったもの**に、あとで ⚑ を付けたコマを足す（設計 §3b の案B。
+/// 2026-10-05 利用者）。足すのは、同じ束のほかのコマが送り出しに置いてあるときだけ——送り出しを使って
+/// いなかった束に ⚑ を付けても、勝手に送らない。置き方は選んで送ったときと同じ（[`google_send_chosen`]）。
+/// 切っていれば `None`
+#[tauri::command]
+async fn google_add_picked_frames(
+    app: tauri::AppHandle,
+    frames: Vec<PickedFrame>,
+) -> Result<Option<GooglePlacedDto>, String> {
+    on_blocking(app, move |state| {
+        let _google_guard = lock_ok(&state.google_lock);
+        let config = lock_ok(&state.config).clone();
+        if !pictkura_core::mirror::is_on(&config) {
+            return Ok(None);
+        }
+        let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        let path_of_id = |id: i64| -> Result<Option<PathBuf>, String> {
+            Ok(state
+                .read_pool
+                .with(|r| r.get_by_id(id))
+                .map_err(errs::from_err)?
+                .map(|m| m.path))
+        };
+        let mut chosen = Vec::new();
+        for f in frames {
+            let mut siblings = Vec::new();
+            for id in f.siblings.iter().filter(|s| **s != f.id) {
+                if let Some(p) = path_of_id(*id)? {
+                    siblings.push(p);
+                }
+            }
+            // 外すと決まった行（送り出しから外したが、外しきれずに残ったもの）は「使っている」に数えない
+            // ——利用者が外した束へ、⚑ のコマを送らない
+            if !db
+                .google_any_placed(&siblings)
+                .map_err(errs::from_err)?
+            {
+                continue;
+            }
+            if let Some(p) = path_of_id(f.id)? {
+                chosen.push(p);
+            }
+        }
+        if chosen.is_empty() {
+            return Ok(None);
+        }
+        match pictkura_core::mirror::place_chosen(&chosen, &config, &mut db) {
+            Ok(Some(c)) => {
+                let r = &c.report;
+                if let Some((path, why)) = r.failed.first() {
+                    applog::note(&format!(
+                        "Google 用フォルダ: ⚑ を付けたコマのうち {} 件置けなかった（最初: {}: {why}）",
+                        r.failed.len(),
+                        path.display()
+                    ));
+                }
+                // フォルダごと置けなかった理由は、何も置けなかったときに画面に出す（[`google_send_chosen`] と同じ。ゲート2）
+                let error = (r.placed + r.already == 0)
+                    .then_some(c.root_error)
+                    .flatten()
+                    .map(errs::quiet);
+                Ok(Some(GooglePlacedDto {
+                    placed: r.placed,
+                    already: r.already,
+                    cloud_only: r.cloud_only,
+                    failed: r.failed.len(),
+                    error,
+                    left_out: c.left_out,
+                    new_folders: {
+                        note_new_google_folders(&r.new_folders);
+                        google_paths(&r.new_folders)
+                    },
+                }))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(errs::from_err(e)),
+        }
+    })
+    .await
+}
+
+/// 送り出しから外した結果（設計書 §3c）。
+#[derive(serde::Serialize)]
+struct GoogleRemovedDto {
+    /// 送り出しから外れた写真（名前を消した・取り出した JPEG を消した・もう無かった）
+    removed: usize,
+    /// リンクのどれかをいま外せなかった写真（外付けが見えない等）。印は付いたので、次の突き合わせで外れる
+    failed: usize,
+}
+
+/// 一覧で選んだものを送り出しから外す（設計書 §3c。2026-10-06 利用者決定: 確認は出さない）。
+/// Google フォトからは消えない。外し方は pictkura のゴミ箱と同じ道——リンクは名前を消すだけ、
+/// 取り出した JPEG は消す（§4b）、保留からも外す
+#[tauri::command]
+async fn google_remove_chosen(
+    app: tauri::AppHandle,
+    ids: Vec<i64>,
+) -> Result<GoogleRemovedDto, String> {
+    on_blocking(app, move |state| {
+        let _google_guard = lock_ok(&state.google_lock);
+        let sources: Vec<PathBuf> = chosen_items(state, &ChosenDto::Ids { ids })?
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+        // 数えるのは選んだ写真ごと（ゲート2）——リンクが2本ある原本も1件、作業場の片付けや保留の
+        // 失敗（リンクではない）は「外せなかった写真」に数えない（記録には残す）
+        let mut links: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+        for src in &sources {
+            let recs = db
+                .google_placed_for_sources(std::slice::from_ref(src))
+                .map_err(errs::from_err)?;
+            if !recs.is_empty() {
+                let l = recs.into_iter().map(|(_, r)| r.link).collect();
+                links.push((src.clone(), l));
+            }
+        }
+        let r = pictkura_core::mirror::unplace_sources(&mut db, &sources, &mut trash_one)
+            .map_err(errs::quiet)?;
+        // 外したものがあれば毎回書く（ゴミ箱の道と同じ。win の実機: 成功が記録に残らなかった）
+        if r.removed + r.discarded + r.deleted > 0 || !r.failed.is_empty() {
+            applog::note(&format!(
+                "Google 用フォルダ: 送り出しから外した——リンク {} 件・ゴミ箱へ {} 件・取り出した JPEG {} 件、失敗 {} 件{}",
+                r.removed,
+                r.discarded,
+                r.deleted,
+                r.failed.len(),
+                r.failed
+                    .first()
+                    .map(|(path, why)| format!("（最初: {}: {why}）", path.display()))
+                    .unwrap_or_default()
+            ));
+        }
+        let stuck: std::collections::HashSet<&PathBuf> = r.failed.iter().map(|(p, _)| p).collect();
+        let failed = links
+            .iter()
+            .filter(|(_, l)| l.iter().any(|l| stuck.contains(l)))
+            .count();
+        Ok(GoogleRemovedDto {
+            removed: links.len() - failed,
+            failed,
+        })
+    })
+    .await
+}
+
 /// 動画も Google 用フォルダへ置くか（2026-10-06 利用者: 既定は置く）。
 /// 「選んだものだけ」は動画を選ぶ画面の PR で足す
 #[tauri::command]
@@ -4706,7 +4870,11 @@ fn finish_import(
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
         let sync_stats = scan_and_apply_root(state, dest)?;
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
-        return Ok(place_google_links(state, dest, copied));
+        let placed = place_google_links(state, dest, copied);
+        // 送り出しは走査の知らせより後に動く（保留の置き直し・突き合わせ・この回の分）。
+        // 取り込みの結果の数だけでは、保留から置いた分を拾えない（ゲート2）
+        let _ = app.emit("outgoing-changed", ());
+        return Ok(placed);
     }
     Ok(None)
 }
@@ -5920,6 +6088,10 @@ fn os_region_locale() -> Option<String> {
 /// macOSは `ja_JP` のように下線で、さらに `ja_JP@calendar=japanese` のような
 /// 修飾が付くことがある。**`@` から先は落とす**——BCP-47では
 /// `ja-JP-u-ca-japanese` と綴る別物で、そのまま渡すと `Intl` が受け付けない。
+///
+/// 呼ぶのは macOS と Windows の [`os_region_locale`] だけ——Linux 等では使わないので、
+/// 同じ条件で建てる（`-D warnings` の dead-code で落ちないように）
+#[cfg(any(target_os = "macos", windows))]
 fn normalize_locale_tag(raw: impl AsRef<str>) -> String {
     raw.as_ref()
         .split('@')
@@ -6718,9 +6890,13 @@ pub fn run() {
                     // 起動の失敗にしない。ゲート2）
                     let retry_app = inner.clone();
                     std::thread::spawn(move || {
+                        let app = retry_app.clone();
                         pictkura_core::panics::catching("google retry", move || {
-                            retry_google_pending(&retry_app.state::<AppState>());
+                            retry_google_pending(&app.state::<AppState>());
                         });
+                        // 走査の知らせより後に送り出しが動く（置き直し・突き合わせ）。件数を取り直させる
+                        // ——途中で転んでも、書き換えた分はあるので出す
+                        let _ = retry_app.emit("outgoing-changed", ());
                     });
                     true
                 });
@@ -6872,6 +7048,8 @@ pub fn run() {
             set_google_raw_only,
             google_chosen_summary,
             google_send_chosen,
+            google_add_picked_frames,
+            google_remove_chosen,
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,

@@ -99,6 +99,8 @@ import {
   burstGapOf,
   googleChosenSummary,
   googleSendChosen,
+  googleAddPickedFrames,
+  googleRemoveChosen,
   type ChosenForGoogle,
 } from "./api";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
@@ -131,6 +133,9 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+// パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
+import { en } from "./i18n/en.ts";
+import { filterConditions, joinConditions } from "./filterEmpty";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
@@ -425,6 +430,8 @@ type Row =
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
+/** 一覧に問い合わせた絞り込み（棚・種類・検索語）。`summaryFor` を見よ */
+type Asked = { filter: MediaFilter; kind: MediaKind; query: string };
 
 /**
  * ビューアで**何かが起きた**ときに一瞬出す合図の種類。
@@ -739,8 +746,16 @@ export default function App() {
     total: 0,
     favorites: 0,
     picked: 0,
+    outgoing: 0,
   });
   const [memories, setMemories] = useState<Memory[]>([]);
+  /**
+   * いまの `summary` が**どの絞り込みへの答えか**。0件の案内（`filterEmpty`）の見出しは、
+   * 画面の今の絞り込みではなく**これ**から組む——絞り込みを変えた直後の `summary` は前の答えで、
+   * 今の条件の名前を付けると前の0件を新しい条件の答えとして見せる（ゲート2）。答えを待つ間も
+   * 前の答えの案内を出し続けられるので、0件から0件へ移るときに案内が1コマ消えない（win2 の実機 W51）
+   */
+  const [summaryFor, setSummaryFor] = useState<Asked | null>(null);
   const [cellSize, setCellSize] = useState(180);
   /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
@@ -1013,6 +1028,11 @@ export default function App() {
   const selectEpochRef = useRef(0);
   /** 書き出しが走っている印。**ダイアログを開く前**に立てて二度押しを断る */
   const exportingRef = useRef(false);
+  /**
+   * ⚑ を付けたコマを送り出しへ足す（連写の表紙だけ送った束。設計 §3b の案B）。中身は送り出しの関数が
+   * そろったところで入れる——⚑ を付ける関数（`setMark`・`markIds`）はそれより前に組まれるので、ref で渡す
+   */
+  const addPickedToGoogleRef = useRef<(ids: readonly number[]) => void>(() => {});
   /** 送り出しへ置いている最中（二度押しで2本走らせない。`exportingRef` と同じ理由で ref） */
   const sendingRef = useRef(false);
   /**
@@ -1087,6 +1107,8 @@ export default function App() {
    */
   const openSettingsRef = useRef<() => void>(() => {});
   const queryRef = useRef("");
+  /** 次に問い合わせる絞り込み（`summaryFor` に写す。見出しの条件の名前に要る生の形） */
+  const askedRef = useRef<Asked>({ filter: "all", kind: "all", query: "" });
   /** フィルタ切替・全体再読込のたびに増える世代番号。古い応答を捨てる */
   const generationRef = useRef(0);
   /** 取得中の日（重複リクエスト防止） */
@@ -1117,6 +1139,7 @@ export default function App() {
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
     // **同期で倒す。** 効果は同じ描画の中で順に走るので、状態の更新を待つと
@@ -1155,6 +1178,7 @@ export default function App() {
       if (sumR.status === "rejected") throw sumR.reason;
       gotSummary = true;
       setSummary(sumR.value);
+      setSummaryFor(askedFor);
       setDayItems(new Map());
       gotSummaryRef.current += 1;
       setLoadFailed(false);
@@ -1191,12 +1215,14 @@ export default function App() {
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
+    const askedFor = askedRef.current;
     const [sum, st] = await Promise.all([
       timelineSummary(queryRef.current, filterRef.current),
       getStats(),
     ]);
     if (generationRef.current !== gen) return; // リロードが割り込んだら捨てる
     setSummary(sum);
+    setSummaryFor(askedFor);
     // **成功したら失敗の表示を下ろす。** ここは `reloadAll` と同じ骨組みを
     // 取り直している。下ろさないと、1回転んだあと部分更新が何度成功しても
     // 「一覧を出せませんでした」が居座る——次の `reloadAll` まで固まる
@@ -1538,6 +1564,7 @@ export default function App() {
     // 「絞り込み中はサムネイル完成の差分でその日を捨て直さない」判断
     // （`applyPatches`）も、種類で絞っているあいだは検索と同じ扱いになる
     queryRef.current = withKind(query, kind);
+    askedRef.current = { filter, kind, query };
     if (filterInitRef.current) {
       filterInitRef.current = false;
       return;
@@ -1556,6 +1583,7 @@ export default function App() {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     let unlistenCameras: (() => void) | undefined;
+    let unlistenOutgoing: (() => void) | undefined;
     let unlistenExport: (() => void) | undefined;
     let unlistenDelete: (() => void) | undefined;
     /** 届いた進捗の知らせの数。下の取り直しの返事が、それより新しい知らせを上書きしないように */
@@ -1602,6 +1630,16 @@ export default function App() {
       );
       if (cancelled) deleteProgress();
       else unlistenDelete = deleteProgress;
+      // 起動のあと、保留の置き直しと突き合わせが送り出しを動かした（§3c）。走査の知らせより後に来る
+      const outgoingDone = await listen("outgoing-changed", () => {
+        refreshSummary().catch(() => {});
+      });
+      if (cancelled) outgoingDone();
+      else {
+        unlistenOutgoing = outgoingDone;
+        // 登録の前に出た知らせ（起動の置き直しが速く終わった）は届いていない。一度取り直す
+        refreshSummary().catch(() => {});
+      }
       const camerasDone = await listen("cameras-updated", () => refreshCameras());
       if (cancelled) camerasDone();
       else {
@@ -1633,10 +1671,11 @@ export default function App() {
       cancelled = true;
       unlisten?.();
       unlistenCameras?.();
+      unlistenOutgoing?.();
       unlistenExport?.();
       unlistenDelete?.();
     };
-  }, [refreshCameras]);
+  }, [refreshCameras, refreshSummary]);
   /**
    * 新しい版が出ていないかの知らせ（0.2）。**アプリで唯一の外向き通信**で、
    * 設定で切れる（既定はON・24時間に1回）。
@@ -1687,7 +1726,8 @@ export default function App() {
       // 表示中の項目の差し替え（サムネイル完成）だけを行い、日の捨て直しはしない
       // （判定できないまま捨てると、生成のたびにシマー→再取得を繰り返す）。
       // 件数・日付の骨組みはデバウンスされたサマリ再取得が追従させる
-      const searching = queryRef.current !== "";
+      // 送り出し（§3c）も同じ: 置いてあるかは項目に載っていない
+      const searching = queryRef.current !== "" || filter === "outgoing";
       setDayItems((prev) => {
         let next: Map<number, MediaItem[]> | null = null;
         const current = () => next ?? prev;
@@ -1978,6 +2018,26 @@ export default function App() {
     // 絞り込み中に読み込みが転ぶと、カレンダーも消えパネルも出ない
     // **文字が1つも無い枠**になっていた（どちらもゲート2の指摘）
     (settled && loadFailed && summary.length === 0);
+  /**
+   * **絞り込んで0件**で、そう言ってよいか（pictkura-dev `plan.filter-empty.md`、案B）。
+   *
+   * `canSayEmpty` とは**別の旗**にする——あちらは「ライブラリが空」の断定で、理由の問い合わせ
+   * （`emptyReason`）と見つからないフォルダの知らせの抑止がそれに乗っている。混ぜると、
+   * 絞り込んだだけで空のライブラリの理由を聞きに行き、知らせも消える。
+   *
+   * `settled` は見ない——見出しは `summaryFor`（いま出ている答えが問うた絞り込み）から組むので、
+   * 次の答えを待つ間も、出ている答えについて正しいことしか言わない。読み込みの失敗は上の
+   * 「出せませんでした」に任せる。取り込み・走査・索引の途中は、あとで増えうるので一言添える
+   * （`busy` は見ない。削除・書き出しでも立つ）
+   */
+  const filterEmpty =
+    !showEmptyPanel &&
+    !loadFailed &&
+    summary.length === 0 &&
+    summaryFor !== null &&
+    (summaryFor.filter !== "all" || summaryFor.kind !== "all" || summaryFor.query !== "");
+  // 一言は取り込み・索引の合図だけで決める——`busy` は削除・書き出しでも立つ（ゲート2）
+  const filterEmptyMayGrow = !scanSettled || indexProgress?.building === true;
   /**
    * パネルの見出し。**本文と食い違わせない。**
    *
@@ -2385,6 +2445,7 @@ export default function App() {
       const googleFailed = googleFailure(stats.google);
       if (googleFailed) fail(googleFailed);
       await refreshRoots();
+      // 送り出しの件数と一覧は、取り込みのあとの `outgoing-changed` が取り直させる
       checkDecoders();
     },
     [refreshRoots, checkDecoders, fail],
@@ -2650,6 +2711,7 @@ export default function App() {
         fail(errText(e));
         return;
       }
+      if (kind === "picked" && next) addPickedToGoogleRef.current([item.id]);
       {
         // その印で絞り込み中は骨組み（枚数・日の有無）が変わる
         if (filterRef.current === (kind === "favorite" ? "fav" : "picked")) {
@@ -5594,9 +5656,12 @@ export default function App() {
       };
       patch(on);
       try {
-        return kind === "favorite"
-          ? await setFavorites([...ids], on)
-          : await setPickeds([...ids], on);
+        const n =
+          kind === "favorite"
+            ? await setFavorites([...ids], on)
+            : await setPickeds([...ids], on);
+        if (kind === "picked" && on) addPickedToGoogleRef.current(ids);
+        return n;
       } catch (e) {
         // **反転で戻さない**。選択に付いている・付いていないが混ざっていると、
         // 反転では元に戻らない（付ける操作の失敗で、全部が「外れた」表示になる）。
@@ -6006,6 +6071,9 @@ export default function App() {
         if (!r) return;
         const total = r.placed + r.already;
         if (total > 0) setStatus(t.googleSent(total, r.already));
+        // 左の「送り出し」の件数と、送り出しを表示中なら並びも追わせる
+        // 置き済みでも取り直す——外せずに残った行へ送り直すと「置き済み」と数えられ、印が下りて一覧に戻る
+        if (total > 0) refreshSummary().catch(() => {});
         // 置けなかったこと・置かなかったことは失敗の一本道へ（状態の1行は 32ch で切れる）。
         // 置かないもの（`left_out`）は、確認で見せた回には繰り返さない
         const notes: string[] = [];
@@ -6028,7 +6096,35 @@ export default function App() {
         sendingRef.current = false;
       }
     },
-    [confirmAction, fail, clearSelection, platform],
+    [confirmAction, fail, clearSelection, platform, refreshSummary],
+  );
+
+  /**
+   * 選んだものを送り出しから外す（設計書 §3c。2026-10-06 利用者決定: 確認は出さず、外したあとに知らせる）。
+   * Google フォトからは消えない。入口は送り出しを表示中の選択バーと右クリックだけ
+   */
+  const removeFromGoogle = useCallback(
+    async (ids: readonly number[], fromSelection: boolean) => {
+      if (ids.length === 0 || sendingRef.current) return;
+      sendingRef.current = true;
+      // 外す間に選び直した選択は消さない（送るときと同じ。PR の codex）
+      const selectionAtStart = selectedRef.current;
+      try {
+        const r = await googleRemoveChosen([...ids]);
+        // 1件も外せなかった回は、前の操作の文（「置きました」等）を残さない（win の実機 W37）
+        setStatus(r.removed > 0 ? t.googleRemoved(r.removed) : "");
+        if (r.failed > 0) fail(t.googleRemoveFailed(r.failed));
+        // 外せなかったものも一覧からは消える（外すと決まった印が付く）ので、選択は残さない
+        if (fromSelection && selectedRef.current === selectionAtStart) clearSelection();
+      } catch (e) {
+        fail(errText(e));
+      } finally {
+        sendingRef.current = false;
+        // 途中で転んでも取り直す——印は付いているかもしれず、そのときは一覧の対象から外れている
+        refreshSummary().catch(() => {});
+      }
+    },
+    [fail, clearSelection, refreshSummary],
   );
 
   // 送り出しを切った・カレンダーを離れたら、月のメニューを畳む（古い項目を押させない。ゲート2）
@@ -6053,6 +6149,39 @@ export default function App() {
     [sendToGoogle],
   );
 
+  // ⚑ を付けたコマのうち、重ね（連写）に入っているものを渡す。足すかどうかは Rust が決める
+  // （同じ束のほかのコマが送り出しに置いてあるときだけ）。黙って足し、置けたときだけ状態の1行で知らせる
+  addPickedToGoogleRef.current = (ids) => {
+    if (!googleOn) return;
+    const picked = new Set(ids);
+    const frames = ids
+      .map((id) => ({
+        id,
+        siblings: (stackIndexRef.current.get(id) ?? []).filter((x) => x !== id),
+      }))
+      // 重ねのコマが**全部いっぺんに** ⚑ になったもの（選択バーで連写のタイルごと ⚑ にした）は足さない
+      // ——足すと連写が全部並び、取り込みのときに1枚にした意味が無くなる（ゲート2）。足すのは、選んで
+      // 1コマずつ ⚑ を付けたときだけ
+      .filter((f) => f.siblings.length > 0 && !f.siblings.every((x) => picked.has(x)));
+    if (frames.length === 0) return;
+    googleAddPickedFrames(frames)
+      .then((r) => {
+        if (r && r.placed > 0) setStatus(t.googleSent(r.placed, 0));
+        // 置き済みでも取り直す——外せずに印が残ったコマは、置けたと確かめた時点で一覧に戻る
+        if (r && r.placed + r.already > 0) refreshSummary().catch(() => {});
+        if (r) {
+          const notes: string[] = [];
+          if (r.error) notes.push(t.importGoogleError(errText(r.error)));
+          else if (r.failed > 0) notes.push(t.importGoogleFailed(r.failed));
+          // クラウドにしか無いコマは黙らない（⚑ を付け直さない限り、あとで置き直さない。PR の codex）
+          if (r.cloud_only > 0) notes.push(t.googleSentCloudOnly(r.cloud_only));
+          for (const f of r.new_folders) notes.push(t.googleFolderCreated(f));
+          if (notes.length > 0) fail(notes.join(" "));
+        }
+      })
+      .catch((e) => fail(errText(e)));
+  };
+
   /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
   const onBulkSendGoogle = useCallback(async () => {
     const ids = await visibleSelection();
@@ -6061,6 +6190,11 @@ export default function App() {
       countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ?? ids.length;
     await sendToGoogle({ kind: "ids", ids }, photos, wideSelectRef.current, true);
   }, [visibleSelection, sendToGoogle]);
+
+  /** 選択バーの「送り出しから外す」（送り出しを表示中だけ。§3c） */
+  const onBulkRemoveGoogle = useCallback(async () => {
+    await removeFromGoogle(await visibleSelection(), true);
+  }, [visibleSelection, removeFromGoogle]);
 
   /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
@@ -6099,8 +6233,18 @@ export default function App() {
           run: () => markStack(markFiles, kind, !marked),
         };
       }),
-      // 送り出し（設計 ②）。タイルの重ねぜんぶを渡す——組は JPEG だけ置かれる（中核の規則）
-      ...(googleOn
+      // 送り出しを表示中は「外す」（§3c）。並んでいるのは置いてあるものだけなので、重ねのファイル
+      // ぜんぶを渡してよい——記録の無いもの（組の RAW）は何もされない
+      ...(filter === "outgoing"
+        ? [
+            {
+              label: t.bulkRemoveGoogle,
+              separator: true,
+              run: () => void removeFromGoogle(files.map((f) => f.id), false),
+            },
+          ]
+        : // 送り出し（設計 ②）。タイルの重ねぜんぶを渡す——組は JPEG だけ置かれる（中核の規則）
+          googleOn
         ? [
             {
               label: t.bulkSendGoogle,
@@ -6125,7 +6269,16 @@ export default function App() {
         run: () => onDelete(files),
       },
     ],
-    [editors, onOpenWithOther, onDelete, markStack, googleOn, sendToGoogle],
+    [
+      editors,
+      onOpenWithOther,
+      onDelete,
+      markStack,
+      googleOn,
+      sendToGoogle,
+      filter,
+      removeFromGoogle,
+    ],
   );
 
   const openDay = useCallback((dayKey: number) => {
@@ -6146,38 +6299,46 @@ export default function App() {
         group: t.paletteGroupActions,
         icon: "📥",
         label: t.importFromUsb,
+        alias: en.importFromUsb,
         run: () => openWizard(),
       },
       {
         group: t.paletteGroupActions,
         icon: "🔄",
         label: t.rescan,
+        alias: en.rescan,
         run: () => onSync(),
       },
       {
         group: t.paletteGroupActions,
         icon: "★",
         label: t.actionShowFavorites,
+        alias: en.actionShowFavorites,
         run: () => setFilter("fav"),
       },
       {
         group: t.paletteGroupActions,
         icon: "⚑",
         label: t.actionShowPicked,
+        alias: en.actionShowPicked,
         run: () => setFilter("picked"),
       },
       {
         group: t.paletteGroupActions,
         icon: "⌨",
         label: t.actionShortcuts,
+        alias: en.actionShortcuts,
         run: () => setShortcutsOpen(true),
       },
       {
         group: t.paletteGroupActions,
         icon: "🖼",
         label: t.actionShowAll,
+        alias: en.actionShowAll,
         run: () => {
+          // 種類（画像・RAW・動画）も戻す——棚と検索語だけ外すと、種類の絞り込みが残る
           setFilter("all");
+          setKind("all");
           setQueryInput("");
         },
       },
@@ -6185,12 +6346,14 @@ export default function App() {
         group: t.paletteGroupActions,
         icon: "📆",
         label: t.actionCalendar,
+        alias: en.actionCalendar,
         run: () => setView("calendar"),
       },
       {
         group: t.paletteGroupActions,
         icon: "▦",
         label: t.actionThumbnails,
+        alias: en.actionThumbnails,
         run: () => setView("grid"),
       },
     ],
@@ -6311,13 +6474,22 @@ export default function App() {
           >
             {t.bulkMove}
           </button>
-          {googleOn && (
+          {filter === "outgoing" ? (
             <button
               disabled={busy}
-              onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+              onClick={() => onBulkRemoveGoogle().catch((e) => fail(errText(e)))}
             >
-              {t.bulkSendGoogle}
+              {t.bulkRemoveGoogle}
             </button>
+          ) : (
+            googleOn && (
+              <button
+                disabled={busy}
+                onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+              >
+                {t.bulkSendGoogle}
+              </button>
+            )
           )}
           <button
             className="danger"
@@ -6596,6 +6768,19 @@ export default function App() {
               <span className="fav-count">{formatNumber(stats.picked)}</span>
             )}
           </div>
+          {/* 送り出しに置いたもの（設計書 §3c）。使っていない人の目次は増やさない——入れているか、
+              置いたものが残っているか、いま開いているときだけ出す */}
+          {(googleOn || stats.outgoing > 0 || filter === "outgoing") && (
+            <div
+              className={"nav-item" + (filter === "outgoing" ? " active" : "")}
+              onClick={() => setFilter("outgoing")}
+            >
+              {t.navOutgoing}
+              {stats.outgoing > 0 && (
+                <span className="fav-count">{formatNumber(stats.outgoing)}</span>
+              )}
+            </div>
+          )}
           {/* 種類（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので節を分ける
               ——重ねて効くものを同じ列に並べると、片方を押したときに
               もう片方が外れる棚に見える。カメラと同じで、押している1つを
@@ -6775,8 +6960,58 @@ export default function App() {
               `.grid-scroll` と幅を分け合って左に寄る（ゲート2の指摘）。
               カレンダーは自前で「写真がありません」と出すので、
               こちらが出ているあいだは `Calendar` ごと止める */}
-          {!showEmptyPanel && unsureWhyEmpty && (
-            <div className="calendar-empty">{t.calendarChecking}</div>
+          {/* 絞り込んだ最初の答えを待つ間（前の答えが絞り込み無しの0件）も、空白にしない（PR の codex） */}
+          {!showEmptyPanel &&
+            !filterEmpty &&
+            (unsureWhyEmpty || (filtering && summary.length === 0)) && (
+              <div className="calendar-empty">{t.calendarChecking}</div>
+            )}
+          {/* **絞り込んで0件**（plan.filter-empty.md、案B）。一覧もカレンダーも同じ案内——
+              カレンダーの自前の「写真がありません」は止める（並べると空の知らせが2つになる）。
+              ツールバーの「🔍 0件」はそのまま残す */}
+          {filterEmpty && summaryFor && (
+            <div className="empty-library filter-empty">
+              <h2>
+                {t.filterEmptyTitle(
+                  joinConditions(
+                    filterConditions(summaryFor.filter, summaryFor.kind, summaryFor.query, {
+                      shelf: {
+                        fav: t.navFavorites,
+                        picked: t.navPicked,
+                        outgoing: t.navOutgoing,
+                      },
+                      kind: { photo: t.kindPhoto, raw: t.kindRaw, video: t.kindVideo },
+                      query: t.filterCondQuery,
+                      camera: t.filterCondCamera,
+                    }),
+                    t.listSeparator,
+                    t.andMore,
+                  ),
+                )}
+              </h2>
+              <p>{t.filterEmptyMessage}</p>
+              {filterEmptyMayGrow && <p>{t.filterEmptyStillIndexing}</p>}
+              {/* 起動の同期が終わっていなければ、合う写真がまだ一覧に入っていないだけかもしれない。
+                  空のライブラリの案内と同じ文で、再スキャンへ導く（PR の codex） */}
+              {startupFailed && <p>{t.emptyStartupFailed}</p>}
+              <div className="empty-actions">
+                {/* 検索語を消す。左のカメラも検索語なので、これで外れる */}
+                {/* 見出しと同じ答えに揃える（検索語を名指ししているときだけ出す） */}
+                {summaryFor.query !== "" && (
+                  <button onClick={() => setQueryInput("")}>{t.filterEmptyClearSearch}</button>
+                )}
+                <button
+                  className="primary"
+                  onClick={() => {
+                    setFilter("all");
+                    setKind("all");
+                    setQueryInput("");
+                  }}
+                >
+                  {t.actionShowAll}
+                </button>
+              </div>
+            </div>
           )}
           {view === "calendar" ? (
             <div className="calendar-scroll">
@@ -6791,7 +7026,9 @@ export default function App() {
                   理由をまだ言えないときは**代わりに何か置く**——止めるだけだと、
                   起動時の走査の最中（NASなら数十秒）や絞り込みを消した直後が、
                   **文字が1つも無い枠**になる（ゲート2の指摘） */}
-              {!showEmptyPanel && !unsureWhyEmpty && (
+              {/* 絞り込んで0件のときは、答えを待つ間もカレンダー自前の「写真がありません」を出さない
+                  ——案内と交互に出て、空の知らせが2種類ちらつく（ゲート2） */}
+              {!showEmptyPanel && !unsureWhyEmpty && !filterEmpty && !(filtering && summary.length === 0) && (
                 <Calendar
                   summary={summary}
                   onOpenDay={openDay}

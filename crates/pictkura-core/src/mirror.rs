@@ -298,6 +298,13 @@ pub trait Ledger {
     /// 区別しない台（Windows・macOS）でだけ畳む。[`give_way`] が、`b.JPG` の前に `B.jpg` の
     /// 取り出しを見つけるために使う（ゲート1）
     fn holders_folded(&mut self, link: &Path) -> io::Result<Vec<(PathBuf, PathBuf, u64, bool)>>;
+    /// `link` が**この原本のものとして在ると確かめた**あとに呼ぶ。送り出しから外すと決まった印
+    /// （外しきれずに残ったもの）を下ろす——送り直したのに、印のまま一覧に出ず、次の突き合わせで
+    /// 外されないように（設計書 §3c）。**確かめる前に下ろさない**：在る名前が別の実体だったとき、
+    /// 印が消えると古いリンクを外す道が無くなる（ゲート2）
+    fn settle(&mut self, _link: &Path) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// [`place`] の結果。
@@ -397,7 +404,14 @@ pub fn place(
         };
         if p.embedded {
             let mut created = Vec::new();
-            match place_extracted(dir, p, ledger, &mut work, &mut created) {
+            let link = dir.join(p.rel.with_extension("jpg"));
+            let placed = place_extracted(dir, p, ledger, &mut work, &mut created).and_then(|r| {
+                ledger
+                    .settle(&link)
+                    .map(|()| r)
+                    .map_err(|e| Skip::Failed(format!("記録の印を下ろせない: {e}"), true))
+            });
+            match placed {
                 Ok(true) => report.placed += 1,
                 Ok(false) => report.already += 1,
                 Err(Skip::CloudOnly) => {
@@ -567,6 +581,15 @@ pub fn place(
             }
             other => other,
         };
+        // 印が在りうるのは前からの行だけ。新しい行で呼ぶと、書けなかったときに下の失敗の道が記録を
+        // 取り消し、張ったばかりのリンクが記録の無いまま残る（ゲート2）
+        let linked = linked.and_then(|r| match claim {
+            Claim::Ours { .. } => ledger
+                .settle(&placed.link)
+                .map(|()| r)
+                .map_err(|e| (format!("記録の印を下ろせない: {e}"), true)),
+            _ => Ok(r),
+        });
         match linked {
             Ok(true) => report.placed += 1,
             Ok(false) => report.already += 1,
@@ -969,6 +992,10 @@ impl Ledger for DbLedger<'_> {
 
     fn holder(&mut self, link: &Path) -> io::Result<Option<(PathBuf, u64, bool)>> {
         self.db.google_place_holder(link).map_err(io::Error::other)
+    }
+
+    fn settle(&mut self, link: &Path) -> io::Result<()> {
+        self.db.google_place_settle(link).map_err(io::Error::other)
     }
 
     fn forget(&mut self, link: &Path) -> io::Result<()> {
@@ -1473,6 +1500,110 @@ fn place_now(
     place_now_with(copied, dest, config, db, &onedrive)
 }
 
+/// 連写の鎖に使う、1枚の撮影の印（機体と、秒未満まで分かる撮影時刻のミリ秒）。
+/// 一覧の重ね（`ui/src/stacks.ts` の `burstTime`）と同じ条件: 機体が分かり、秒未満まで分かること。
+/// どちらかが欠けたら `None`（束ねない——誤って間引くより、全部置く）
+fn capture_of(path: &Path) -> Option<(String, i64)> {
+    let exif = crate::thumbs::read_exif_capture(path)?;
+    let camera = exif.camera.filter(|c| !c.trim().is_empty())?;
+    if !exif.taken_subsec {
+        return None;
+    }
+    let ms = exif.taken_at_ms?;
+    let serial = exif.body_serial.unwrap_or_default();
+    Some((format!("{camera}\u{1}{}", serial.trim()), ms))
+}
+
+/// 取り込みの回の連写を、**最初のコマだけ**にする（設計 §3b。2026-10-05 利用者: 連写の JPEG が全部並ぶと
+/// 家族のアルバムが埋まる）。束ね方は一覧の重ね（`ui/src/stacks.ts`）と同じ: 同じ機体のコマを撮影時刻の順に
+/// 並べ、直前のコマとの間隔が `gap_ms` 以下なら鎖でつなぐ。日をまたいだら切る。2コマ以上の鎖が連写。
+///
+/// - 表紙は**撮り始めのコマ**（取り込んだばかりで ⚑ はまだ無い。あとで ⚑ を付けたコマは、
+///   [`place_chosen`] で足す——設計 §3b の案B）
+/// - 動画は鎖に入れない。機体か秒未満が分からないコマも入れない（そのまま置く）
+/// - 撮影の印を読めないものは束ねない側へ倒す
+fn thin_bursts(
+    placements: Vec<Placement>,
+    gap_ms: i64,
+    capture: &mut dyn FnMut(&Path) -> Option<(String, i64)>,
+) -> Vec<Placement> {
+    use chrono::TimeZone;
+    let day_of = |ms: i64| {
+        chrono::Local
+            .timestamp_millis_opt(ms)
+            .single()
+            .map(|t| t.date_naive())
+    };
+    // **コマは組で数える**（同じフォルダ・同じ名前の RAW と JPEG は1コマ）。設定ファイルの `exclude_raw = false`
+    // では組の両方を置くので、ファイルで数えると連写でない1組の片方を落とす（ゲート1）
+    // 組にするのは一覧（`shotsOfDay`）と同じ条件だけ: 同じフォルダ・同じ名前の **RAW と RAW 以外**で、
+    // 撮影時刻が**同じ秒**のもの。名前が同じだけ（`IMG_1.JPG` と `IMG_1.HEIC`、名前を使い回した別の撮影）は
+    // 別のコマ（PR の codex）
+    let stamps: Vec<Option<(String, i64)>> = placements
+        .iter()
+        .map(|p| {
+            if MediaKind::from_path(&p.source) == MediaKind::Video {
+                None
+            } else {
+                capture(&p.source)
+            }
+        })
+        .collect();
+    let is_raw = |i: usize| MediaKind::from_path(&placements[i].source) == MediaKind::Raw;
+    let mut shots: Vec<((PathBuf, std::ffi::OsString), Vec<usize>)> = Vec::new();
+    for (i, p) in placements.iter().enumerate() {
+        if MediaKind::from_path(&p.source) == MediaKind::Video {
+            continue;
+        }
+        let key = pair_key_folded(&p.source);
+        let partner = shots.iter_mut().find(|(k, files)| {
+            *k == key
+                && files.len() == 1
+                && is_raw(files[0]) != is_raw(i)
+                && matches!(
+                    (&stamps[files[0]], &stamps[i]),
+                    (Some((_, a)), Some((_, b))) if a.div_euclid(1000) == b.div_euclid(1000)
+                )
+        });
+        match partner {
+            Some((_, files)) => files.push(i),
+            None => shots.push((key, vec![i])),
+        }
+    }
+    // 機体ごとに、(撮影時刻, コマの番号)。コマの時刻は読めた最初のファイルのもの
+    let mut by_body: HashMap<String, Vec<(i64, usize)>> = HashMap::new();
+    for (n, (_, files)) in shots.iter().enumerate() {
+        if let Some((body, ms)) = files.iter().find_map(|&i| stamps[i].clone()) {
+            by_body.entry(body).or_default().push((ms, n));
+        }
+    }
+    let mut drop: HashSet<usize> = HashSet::new();
+    for list in by_body.values_mut() {
+        list.sort();
+        let mut run_start = 0;
+        for k in 1..=list.len() {
+            let breaks = k == list.len()
+                || list[k].0 - list[k - 1].0 > gap_ms
+                || day_of(list[k].0) != day_of(list[k - 1].0);
+            if breaks {
+                // 鎖 [run_start, k) が2コマ以上なら、最初の1コマ以外のファイルを落とす
+                if k - run_start >= 2 {
+                    for &(_, n) in &list[run_start + 1..k] {
+                        drop.extend(shots[n].1.iter().copied());
+                    }
+                }
+                run_start = k;
+            }
+        }
+    }
+    placements
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| !drop.contains(i))
+        .map(|(_, p)| p)
+        .collect()
+}
+
 /// [`place_now`] の OneDrive の場所を外から渡す形（試験はこちらを呼ぶ。台の OneDrive に左右されない）。
 fn place_now_with(
     copied: &[PathBuf],
@@ -1520,7 +1651,16 @@ fn place_now_with(
             .cloned()
             .collect()
     };
-    let placements = planned;
+    // 連写は表紙の1コマだけ（設計 §3b。一覧で連写を重ねているときだけ——重ねない人には連写が見えない）
+    let placements = if config.grid.stack_bursts {
+        thin_bursts(
+            planned,
+            i64::from(config.grid.burst_gap_ms),
+            &mut capture_of,
+        )
+    } else {
+        planned
+    };
     let deferred = PlaceReport {
         retry: unsure,
         ..PlaceReport::default()
@@ -2444,6 +2584,20 @@ mod tests {
         std::fs::write(p, bytes).unwrap();
     }
 
+    /// `p` を**別の実体**で置き換える。新しいファイルを古いものが在るうちに作ってから名前を移す
+    /// ——消してから作ると、ext4 などは空いた番号をすぐ使い回し、「同じ実体」に見えてしまう
+    fn put_fresh(p: &Path, bytes: &[u8]) {
+        let before = file_id(p).unwrap().index;
+        let tmp = p.with_extension("fresh-tmp");
+        put(&tmp, bytes);
+        std::fs::rename(&tmp, p).unwrap();
+        assert_ne!(
+            file_id(p).unwrap().index,
+            before,
+            "実体が入れ替わっていない"
+        );
+    }
+
     fn placement(lib: &Path, rel: &str) -> Placement {
         Placement {
             source: lib.join(rel),
@@ -2646,8 +2800,7 @@ mod tests {
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         // 外で原本を差し替え、古いリンクも消した
         std::fs::remove_file(f.google.join("d/a.jpg")).unwrap();
-        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
-        put(&f.lib.join("d/a.jpg"), b"new photo");
+        put_fresh(&f.lib.join("d/a.jpg"), b"new photo");
         let r = book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         assert_eq!(r.placed, 1);
         // 番号が新しい実体に合っていれば、外せる
@@ -2662,8 +2815,7 @@ mod tests {
         let mut book = Book::default();
         book.place(&f, &[placement(&f.lib, "d/a.jpg")]);
         std::fs::remove_file(f.google.join("d/a.jpg")).unwrap();
-        std::fs::remove_file(f.lib.join("d/a.jpg")).unwrap();
-        put(&f.lib.join("d/a.jpg"), b"new photo");
+        put_fresh(&f.lib.join("d/a.jpg"), b"new photo");
         /// 書き直しだけが落ちる記録
         struct Stuck(Book);
         impl Ledger for Stuck {
@@ -3205,14 +3357,12 @@ mod tests {
         // 張ったが番号を書く前に落ちた形: 記録は古い番号のまま、名前には新しい実体
         let out = f.google.join("d/B.jpg");
         let bytes = std::fs::read(&out).unwrap();
-        std::fs::remove_file(&out).unwrap();
-        std::fs::write(&out, &bytes).unwrap();
+        put_fresh(&out, &bytes);
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         assert_eq!((r.already, r.failed.len()), (1, 0), "{:?}", r.failed);
         assert_eq!(book.0[0].index, file_id(&out).unwrap().index);
         // 中身の違う他人のファイルは取らない
-        std::fs::remove_file(&out).unwrap();
-        std::fs::write(&out, b"someone else").unwrap();
+        put_fresh(&out, b"someone else");
         let r = book.place(&f, &[embedded(&f.lib, "d/B.ARW")]);
         assert_eq!((r.already, r.placed, r.failed.len()), (0, 0, 1));
         assert_eq!(std::fs::read(&out).unwrap(), b"someone else");
@@ -3273,6 +3423,50 @@ mod tests {
         let r = book.place(&f, &[placement(&f.lib, "d/B.jpg")]);
         assert_eq!((r.placed, r.failed.len()), (1, 0), "{:?}", r.failed);
         assert!(book.0.iter().all(|r| !r.extracted));
+    }
+
+    /// 外しきれずに印が残った行は、送り直して**置けたと確かめたら**印を下ろす（設計書 §3c）。
+    /// 在る名前が別の実体（差し替わった原本の古いリンク）なら下ろさない——下ろすと古いリンクを
+    /// 外す道が無くなる（ゲート2）。取り出した JPEG の「前の回のまま在る」近道でも下ろす
+    #[test]
+    fn re_sending_settles_the_mark_only_once_the_link_is_confirmed() {
+        let f = fixture();
+        put(&f.lib.join("d/a.jpg"), b"photo a");
+        put(&f.lib.join("d/c.jpg"), b"photo c");
+        raw_with_preview(&f.lib.join("d/B.ARW"), 1, Some(&preview_jpeg(1200, 900)));
+        let config = embedded_on(&f);
+        let mut db = crate::db::Db::open_in_memory().unwrap();
+        let all = ["d/a.jpg", "d/c.jpg", "d/B.ARW"].map(|r| f.lib.join(r));
+        let r = place_imported(&all, &f.lib, &config, &mut db)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.placed, 3, "{:?}", r.failed);
+        db.google_place_doom(&all).unwrap();
+        let doomed = |db: &crate::db::Db| -> Vec<PathBuf> {
+            let mut v: Vec<PathBuf> = db
+                .google_placed_orphans()
+                .unwrap()
+                .into_iter()
+                .filter(|(_, _, _, d)| *d)
+                .map(|(_, rec, _, _)| rec.link)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(doomed(&db).len(), 3);
+
+        // c.jpg の原本を差し替える（新しい実体）。送り出しの c.jpg は古い実体のまま
+        std::fs::remove_file(f.lib.join("d/c.jpg")).unwrap();
+        put(&f.lib.join("d/c.jpg"), b"photo c, new");
+
+        let c = place_chosen(&all, &config, &mut db).unwrap().unwrap();
+        assert_eq!(c.report.already, 2, "{:?}", c.report.failed);
+        assert_eq!(c.report.failed.len(), 1, "c.jpg は名前が塞がっている");
+        assert_eq!(
+            doomed(&db),
+            [crate::paths::normalize(&f.google.join("d/c.jpg"))],
+            "置けたと確かめた a.jpg と B.jpg（取り出し）だけ下りる"
+        );
     }
 
     /// 設定は「動画は置かない・RAW だけは上げない」——明示して選んだものはそれでも置く（設計 ② §5）
@@ -3426,6 +3620,102 @@ mod tests {
             "{:?}",
             c.root_error
         );
+    }
+
+    #[test]
+    fn a_burst_at_import_keeps_only_its_first_frame() {
+        let lib = PathBuf::from("/lib");
+        let p = |n: &str| placement(&lib, n);
+        let placements = vec![
+            p("d/B1.JPG"),
+            p("d/B2.JPG"),
+            p("d/B3.JPG"),
+            p("d/LONE.JPG"),
+            p("d/X1.JPG"),
+            p("d/NOSUB.JPG"),
+            p("d/CLIP.MP4"),
+        ];
+        // 機体 A で 0.4 秒おきの3コマ、2.5 秒あけて1枚。機体 B の1枚は A と同じ時刻でも別の鎖。
+        // 秒未満の無いもの・動画は束ねない
+        let mut capture = |path: &Path| -> Option<(String, i64)> {
+            let name = path.file_name()?.to_str()?;
+            let base = 1_700_000_000_000;
+            match name {
+                "B1.JPG" => Some(("A".into(), base)),
+                "B2.JPG" => Some(("A".into(), base + 400)),
+                "B3.JPG" => Some(("A".into(), base + 800)),
+                "LONE.JPG" => Some(("A".into(), base + 3_300)),
+                "X1.JPG" => Some(("B".into(), base + 400)),
+                "CLIP.MP4" => Some(("A".into(), base + 900)),
+                _ => None,
+            }
+        };
+        let kept: Vec<String> = thin_bursts(placements, 1000, &mut capture)
+            .into_iter()
+            .map(|p| p.rel.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                "d/B1.JPG",
+                "d/LONE.JPG",
+                "d/X1.JPG",
+                "d/NOSUB.JPG",
+                "d/CLIP.MP4"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_raw_jpeg_pair_counts_as_one_frame_when_both_are_placed() {
+        let lib = PathBuf::from("/lib");
+        let p = |n: &str| placement(&lib, n);
+        // exclude_raw = false で組の両方を置く形。連写でない1組と、2組の連写
+        let placements = vec![
+            p("d/SOLO.ARW"),
+            p("d/SOLO.JPG"),
+            p("d/C1.ARW"),
+            p("d/C1.JPG"),
+            p("d/C2.ARW"),
+            p("d/C2.JPG"),
+        ];
+        let base = 1_700_000_000_000;
+        let mut capture = |path: &Path| -> Option<(String, i64)> {
+            let stem = path.file_stem()?.to_str()?;
+            match stem {
+                "SOLO" => Some(("A".into(), base)),
+                "C1" => Some(("A".into(), base + 5_000)),
+                "C2" => Some(("A".into(), base + 5_300)),
+                _ => None,
+            }
+        };
+        let kept: Vec<String> = thin_bursts(placements, 1000, &mut capture)
+            .into_iter()
+            .map(|p| p.rel.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(kept, ["d/SOLO.ARW", "d/SOLO.JPG", "d/C1.ARW", "d/C1.JPG"]);
+    }
+
+    #[test]
+    fn files_sharing_a_name_are_one_frame_only_as_a_raw_jpeg_pair_of_the_same_second() {
+        let lib = PathBuf::from("/lib");
+        let p = |n: &str| placement(&lib, n);
+        let base = 1_700_000_000_000;
+        // JPG と HEIC は名前が同じでも別のコマ。0.3 秒おきなので連写になり、HEIC は落ちる
+        // （組と取り違えると、表紙と一緒に残ってしまう）
+        let placements = vec![p("d/IMG_1.JPG"), p("d/IMG_1.HEIC")];
+        let mut capture = |path: &Path| -> Option<(String, i64)> {
+            match path.extension()?.to_str()? {
+                "JPG" => Some(("A".into(), base)),
+                "HEIC" => Some(("A".into(), base + 300)),
+                _ => None,
+            }
+        };
+        let kept: Vec<String> = thin_bursts(placements, 1000, &mut capture)
+            .into_iter()
+            .map(|p| p.rel.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(kept, ["d/IMG_1.JPG"]);
     }
 
     #[test]

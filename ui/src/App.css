@@ -2735,6 +2735,39 @@ body {
   justify-content: center;
   flex-wrap: wrap;
 }
+/* 案内のボタン。ツールバーの外には装飾が無く、灰色の素のボタンで主従が見えなかった（win2 の実機） */
+.empty-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.empty-actions button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.empty-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.empty-actions button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+/* 絞り込んで0件の案内はパスを含まないので、見出しと揃えて中央に置く（win2 の実機） */
+.empty-library.filter-empty p {
+  text-align: center;
+}
+/* 見出しには検索語・機種名がそのまま入る。空白の無い長い語（ファイル名・ハッシュ）でも箱から
+   はみ出さないよう折る（PR の codex） */
+.empty-library.filter-empty h2 {
+  overflow-wrap: anywhere;
+}
 
 /* ===== 失敗の面（2026-09-07・週の台紙 項目「失敗が利用者に届く道」）=====
 
