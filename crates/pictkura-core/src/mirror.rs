@@ -1762,7 +1762,7 @@ pub fn unplace(
         if let Some(at) = link_on_the_way(dir, rel) {
             report.failed.push((
                 link.clone(),
-                format!("a link is on the way: {}", at.display()),
+                format!("a link is in the path: {}", at.display()),
             ));
             continue;
         }

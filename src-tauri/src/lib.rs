@@ -4559,7 +4559,7 @@ async fn google_send_chosen(
                 let r = &c.report;
                 if let Some((path, why)) = r.failed.first() {
                     applog::note(&format!(
-                        "Outgoing: {} of the chosen items could not be placed (first: {}: {why})",
+                        "Outgoing: chosen items not placed: {} (first: {}: {why})",
                         r.failed.len(),
                         path.display()
                     ));
@@ -4641,10 +4641,7 @@ async fn google_add_picked_frames(
             }
             // 外すと決まった行（送り出しから外したが、外しきれずに残ったもの）は「使っている」に数えない
             // ——利用者が外した束へ、⚑ のコマを送らない
-            if !db
-                .google_any_placed(&siblings)
-                .map_err(errs::from_err)?
-            {
+            if !db.google_any_placed(&siblings).map_err(errs::from_err)? {
                 continue;
             }
             if let Some(p) = path_of_id(f.id)? {
@@ -4659,7 +4656,7 @@ async fn google_add_picked_frames(
                 let r = &c.report;
                 if let Some((path, why)) = r.failed.first() {
                     applog::note(&format!(
-                        "Outgoing: {} of the picked burst frames could not be placed (first: {}: {why})",
+                        "Outgoing: picked burst frames not placed: {} (first: {}: {why})",
                         r.failed.len(),
                         path.display()
                     ));
@@ -4730,7 +4727,7 @@ async fn google_remove_chosen(
         // 外したものがあれば毎回書く（ゴミ箱の道と同じ。win の実機: 成功が記録に残らなかった）
         if r.removed + r.discarded + r.deleted > 0 || !r.failed.is_empty() {
             applog::note(&format!(
-                "Outgoing: removed — {} links, {} to the trash, {} extracted JPEGs, {} failed{}",
+                "Outgoing: removed — links: {}, to the trash: {}, extracted JPEGs: {}, failed: {}{}",
                 r.removed,
                 r.discarded,
                 r.deleted,
@@ -4892,7 +4889,7 @@ fn note_google_retry(
     match result {
         // 置けなかったときは最初の1件の理由も残す——数だけでは直し方が分からない（win の実機）
         Ok(Some(r)) if r.placed + r.failed.len() > 0 => applog::note(&format!(
-            "Outgoing: placed {} pending items, {} could not be placed ({} still pending){}",
+            "Outgoing: pending items placed: {}, not placed: {} (still pending: {}){}",
             r.placed,
             r.failed.len(),
             r.retry.len(),
@@ -5039,7 +5036,7 @@ fn note_google_sweep(
     match result {
         // 外したものがあれば毎回書く（ゴミ箱へ渡した先を残す）。外せなかっただけの回は一度だけ
         Ok(r) if r.removed + r.discarded + r.deleted > 0 => applog::note(&format!(
-            "Outgoing: removed {} links, {} to the trash, deleted {} extracted JPEGs, {} could not be removed{}",
+            "Outgoing: links removed: {}, to the trash: {}, extracted JPEGs deleted: {}, not removed: {}{}",
             r.removed,
             r.discarded,
             r.deleted,
@@ -5054,7 +5051,7 @@ fn note_google_sweep(
                 note_once(
                     said,
                     &format!(
-                        "Outgoing: {} links could not be removed (first: {}: {why})",
+                        "Outgoing: links not removed: {} (first: {}: {why})",
                         r.failed.len(),
                         path.display()
                     ),
@@ -5107,7 +5104,7 @@ fn place_google_links(
         Ok(Some(r)) => {
             if let Some((path, why)) = r.failed.first() {
                 applog::note(&format!(
-                    "Outgoing: {} items could not be placed (first: {}: {why})",
+                    "Outgoing: items not placed: {} (first: {}: {why})",
                     r.failed.len(),
                     path.display()
                 ));
