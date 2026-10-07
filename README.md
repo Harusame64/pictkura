@@ -450,14 +450,17 @@ at all (the “Check for updates” button next to it still asks, once, when you
 ### 9. Outgoing
 
 Outgoing lines up, at every import, what you want to hand to a photo service in an
-**Outgoing folder** (off by default; turn it on in ⚙ Settings → Outgoing). Today it is for
-folder backup in Google Photos. For RAW+JPEG pairs only the JPEG goes in, and a burst goes in as
-its first frame only (with "Stack bursts into one tile" on), so backing up the whole folder does
-not upload RAW files or every frame of a burst. Photos are placed as hard links, so they take no
-extra disk space. pictkura does not talk to Google; the uploading is done by Google Photos.
+**Outgoing folder** (off by default; turn it on in ⚙ Settings → Outgoing). You add the Outgoing
+folder to the photo service instead of your library folders. For RAW+JPEG pairs only the JPEG goes
+in, and a burst goes in as its first frame only (with "Stack bursts into one tile" on), so a
+service that uploads whole folders does not get RAW files or every frame of a burst. Photos are
+placed as hard links, so they take no extra disk space. pictkura does not talk to the photo
+service. **If you use Google Photos:** add the Outgoing folder with "Back up a folder".
 
 More in the [Outgoing guide](https://harusame64.github.io/pictkura/en/outgoing.html) and the
 [manual](https://harusame64.github.io/pictkura/manual.en.html#outgoing).
+
+Google Photos is a trademark of Google LLC.
 
 ---
 

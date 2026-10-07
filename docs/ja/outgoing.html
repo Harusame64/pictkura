@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>送り出し — Google フォトへ写真を選んで渡す | pictkura</title>
-<meta name="description" content="pictkura の送り出し機能の概要、仕組み、使い始める手順、送り出しフォルダに置かれるものを説明します。Google フォトの「フォルダをバックアップ」に、RAW や動画を除いた写真を渡せます。">
+<title>送り出し — 写真サービスへ渡す写真を選んで置く | pictkura</title>
+<meta name="description" content="pictkura の送り出し機能の概要、仕組み、使い始める手順、送り出しフォルダに置かれるものを説明します。フォルダを丸ごとアップロードする写真サービスに、RAW や動画を除いた写真を渡せます。">
 <link rel="canonical" href="https://harusame64.github.io/pictkura/ja/outgoing.html">
 <link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/outgoing.html">
 <link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/outgoing.html">
@@ -110,8 +110,9 @@
 
     <section id="why">
       <h2 class="disp"><span class="num">1</span>概要</h2>
-      <p>Google フォトをパソコンで使う場合、Web ページの<strong class="em">「フォルダをバックアップ」</strong>で、登録したフォルダの中身がアップロードされます。この機能には、RAW ファイルや動画を除く設定がありません。</p>
-      <p>送り出し機能を使うと、pictkura は取り込んだ写真のうち、アップロードの対象とするものだけを<strong class="em">送り出しフォルダ</strong>に置きます。Google フォトには、ライブラリのフォルダではなく送り出しフォルダを登録します。</p>
+      <p>写真サービスの中には、登録したフォルダの中身を丸ごとアップロードするものがあります。そのままライブラリのフォルダを登録すると、RAW ファイルや動画、連写の似たコマまでアップロードされます。</p>
+      <p>送り出し機能を使うと、pictkura は取り込んだ写真のうち、アップロードの対象とするものだけを<strong class="em">送り出しフォルダ</strong>に置きます。写真サービスには、ライブラリのフォルダではなく送り出しフォルダを登録します。</p>
+      <p><strong class="em">Google フォトを使う場合：</strong>Web ページ（photos.google.com）の「フォルダをバックアップ」がこの形です。RAW や動画だけを除く設定はありません。</p>
       <ul>
         <li>RAW と JPEG の組は、JPEG だけを置きます</li>
         <li>連写は、1コマだけを置きます</li>
@@ -122,7 +123,7 @@
     <section id="how">
       <h2 class="disp"><span class="num">2</span>仕組み</h2>
       <div class="flow-wrap"><svg class="flow" viewBox="0 0 900 330" role="img" aria-labelledby="flow-t">
-        <title id="flow-t">SD カードから取り込んだ写真がライブラリに入り、そのうち上げてよいものだけが送り出しフォルダに並び、Google フォトがそれを上げる流れ</title>
+        <title id="flow-t">SD カードから取り込んだ写真がライブラリに入り、そのうちアップロードの対象だけが送り出しフォルダに置かれ、写真サービスがそれをアップロードする流れ</title>
         <defs>
           <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0 0L10 5L0 10z"/></marker>
           <marker id="tip-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip ok" d="M0 0L10 5L0 10z"/></marker>
@@ -159,12 +160,12 @@
         <!-- Google -->
         <path class="arrow ok" d="M750 155H808" marker-end="url(#tip-ok)"/>
         <rect class="box" x="812" y="110" width="80" height="90" rx="6"/>
-        <text class="t" x="852" y="148" text-anchor="middle">Google</text>
-        <text class="t" x="852" y="170" text-anchor="middle">フォト</text>
+        <text class="t" x="852" y="148" text-anchor="middle">写真</text>
+        <text class="t" x="852" y="170" text-anchor="middle">サービス</text>
         <text class="s" x="560" y="300">* RAW だけのカットは、設定で「埋め込み JPEG を置く」を選んだとき</text>
         <text class="s" x="560" y="320">（カメラが RAW に入れている表示用の絵）</text>
       </svg></div>
-      <figcaption class="fig" style="margin-top:12px">図1　取り込みから Google フォトへのアップロードまで。Google フォトは送り出しフォルダの中身だけをアップロードします。</figcaption>
+      <figcaption class="fig" style="margin-top:12px">図1　取り込みからアップロードまで。写真サービスは送り出しフォルダの中身だけをアップロードします。</figcaption>
 
       <h3>ハードリンクによる配置</h3>
       <p>送り出しフォルダの写真はコピーではなく、ライブラリの写真と同じファイルに付けた別の名前（ハードリンク）です。</p>
@@ -174,7 +175,7 @@
         <li>ハードリンクは同じドライブの中にしか作れないため、送り出しフォルダは写真のあるドライブごとに1つ作られます</li>
       </ul>
       <div class="note">
-        <p><strong class="em">pictkura は Google と通信しません。</strong> アップロードは Google フォトの Web ページ（photos.google.com）が行います。アップロードは、ブラウザでこのページを開いている間に進みます。</p>
+        <p><strong class="em">pictkura は写真サービスと通信しません。</strong> アップロードは写真サービスが行います。</p><p><strong class="em">Google フォトを使う場合：</strong>アップロードは Google フォトの Web ページ（photos.google.com）が行うため、ブラウザでそのページを開いているときだけ進みます。</p>
       </div>
     </section>
 
@@ -184,7 +185,7 @@
         <li>pictkura の設定を開き、<strong class="em">「送り出し」</strong>で「取り込んだ写真を送り出しフォルダにも置く」をオンにします。送り出しフォルダが作られ、その場所が表示されます。
           <figure class="shot"><div class="ph">画面: 設定の「送り出し」（撮影待ち）</div></figure>
         </li>
-        <li>ブラウザで Google フォト（photos.google.com）を開き、<strong class="em">「＋」→「フォルダをバックアップ」</strong>で、手順1の送り出しフォルダを登録します。
+        <li>写真サービスに、手順1の送り出しフォルダを登録します。<strong class="em">Google フォトを使う場合：</strong>ブラウザで photos.google.com を開き、「＋」→「フォルダをバックアップ」で登録します（図2）。
           <figure class="shot">
 <div class="flow-wrap"><svg class="flow" viewBox="0 0 760 300" role="img" aria-labelledby="gp-t">
               <title id="gp-t">Google フォトの Web ページで、右上の＋から「フォルダをバックアップ」を選び、送り出しフォルダを指定する模式図</title>
@@ -240,8 +241,8 @@
 
     <section id="faq">
       <h2 class="disp"><span class="num">6</span>補足</h2>
-      <h3>Google フォト側の写真</h3>
-      <p>送り出しフォルダから除外した場合も、pictkura で写真をゴミ箱へ移した場合も、Google フォトにアップロード済みの写真は削除されません。</p>
+      <h3>アップロード済みの写真</h3>
+      <p>送り出しフォルダから除外した場合も、pictkura で写真をゴミ箱へ移した場合も、写真サービスにアップロード済みの写真には触りません。<strong class="em">Google フォトを使う場合：</strong>Google フォトからは削除されません。</p>
       <h3>ディスクの使用量</h3>
       <p>写真はハードリンクで置くため、使用量は増えません。埋め込み JPEG を置く場合は、その分を使います。</p>
       <h3>使用できるドライブ</h3>
@@ -249,13 +250,14 @@
       <h3>ほかのバックアップとの併用</h3>
       <p>NAS や Amazon Photos などで写真をバックアップしている場合は、送り出しフォルダを、それらが対象にしているフォルダの<strong class="em">外</strong>に置いてください。中に置くと、同じ写真が重複してバックアップされます。</p>
       <p style="margin-top:28px">送り出しフォルダを作れない場所や、写真を削除したときの動作は、<a href="../manual.html#outgoing">マニュアルの「9. 送り出し」</a>を参照してください。</p>
+      <p class="fig" style="margin-top:20px">Google フォトは Google LLC の商標です。</p>
     </section>
 
   </main>
 </div>
 
 <footer class="foot-slim">
-  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; 写真: Wikimedia Commons, CC0 &nbsp;·&nbsp; Google フォトは Google LLC の商標です</span>
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; 写真: Wikimedia Commons, CC0</span>
   <span class="links">
     <a href="./">紹介</a>
     <a href="download.html">ダウンロード</a>

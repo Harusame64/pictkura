@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Outgoing — hand Google Photos only the photos you want up | pictkura</title>
-<meta name="description" content="An overview of Outgoing in pictkura: how it works, how to start, and what goes in the Outgoing folder. It hands Google Photos folder backup your photos without RAW files or videos.">
+<title>Outgoing — place only what a photo service should upload | pictkura</title>
+<meta name="description" content="An overview of Outgoing in pictkura: how it works, how to start, and what goes in the Outgoing folder. It hands a photo service that uploads whole folders your photos without RAW files or videos.">
 <link rel="canonical" href="https://harusame64.github.io/pictkura/en/outgoing.html">
 <link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/outgoing.html">
 <link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/outgoing.html">
@@ -110,8 +110,9 @@
 
     <section id="why">
       <h2 class="disp"><span class="num">1</span>Overview</h2>
-      <p>On a computer, Google Photos uploads the contents of a folder you add with <strong class="em">Back up a folder</strong> on its web page. It has no setting to leave out RAW files or videos.</p>
-      <p>With Outgoing, pictkura places only the imported photos that should be uploaded in the <strong class="em">Outgoing folder</strong>. You add the Outgoing folder to Google Photos instead of your library folders.</p>
+      <p>Some photo services upload everything in a folder you add. Adding your library folders as they are would upload RAW files, videos and every shot of a burst.</p>
+      <p>With Outgoing, pictkura places only the imported photos that should be uploaded in the <strong class="em">Outgoing folder</strong>. You add the Outgoing folder to the photo service instead of your library folders.</p>
+      <p><strong class="em">If you use Google Photos:</strong> “Back up a folder” on its web page (photos.google.com) works this way, with no setting to leave out RAW files or videos.</p>
       <ul>
         <li>For a RAW+JPEG pair, only the JPEG is placed</li>
         <li>For a burst, one shot is placed</li>
@@ -122,7 +123,7 @@
     <section id="how">
       <h2 class="disp"><span class="num">2</span>How it works</h2>
       <div class="flow-wrap"><svg class="flow" viewBox="0 0 900 330" role="img" aria-labelledby="flow-t">
-        <title id="flow-t">Photos imported from an SD card go into the library; only those to be uploaded are placed in the Outgoing folder, which Google Photos uploads</title>
+        <title id="flow-t">Photos imported from an SD card go into the library; only those to be uploaded are placed in the Outgoing folder, which the photo service uploads</title>
         <defs>
           <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip" d="M0 0L10 5L0 10z"/></marker>
           <marker id="tip-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="tip ok" d="M0 0L10 5L0 10z"/></marker>
@@ -159,12 +160,12 @@
         <!-- Google -->
         <path class="arrow ok" d="M750 155H808" marker-end="url(#tip-ok)"/>
         <rect class="box" x="812" y="110" width="80" height="90" rx="6"/>
-        <text class="t" x="852" y="148" text-anchor="middle">Google</text>
-        <text class="t" x="852" y="170" text-anchor="middle">Photos</text>
+        <text class="t" x="852" y="148" text-anchor="middle">Photo</text>
+        <text class="t" x="852" y="170" text-anchor="middle">service</text>
         <text class="s" x="560" y="300">* RAW-only shots: when “Place the embedded JPEG” is chosen</text>
         <text class="s" x="560" y="320">(the preview picture the camera stored in the RAW)</text>
       </svg></div>
-      <figcaption class="fig" style="margin-top:12px">Figure 1. From import to upload. Google Photos uploads only what is in the Outgoing folder.</figcaption>
+      <figcaption class="fig" style="margin-top:12px">Figure 1. From import to upload. The photo service uploads only what is in the Outgoing folder.</figcaption>
 
       <h3>Placed as hard links</h3>
       <p>Photos in the Outgoing folder are not copies. Each is a second name (a hard link) for the same file as the photo in your library.</p>
@@ -174,7 +175,7 @@
         <li>Hard links cannot cross drives, so one Outgoing folder is made on each drive that holds photos</li>
       </ul>
       <div class="note">
-        <p><strong class="em">pictkura does not talk to Google.</strong> The upload is done by the Google Photos web page (photos.google.com), and it runs while that page is open in your browser.</p>
+        <p><strong class="em">pictkura does not talk to the photo service.</strong> The photo service does the upload.</p><p><strong class="em">If you use Google Photos:</strong> the upload is done by the Google Photos web page (photos.google.com), so it runs only while that page is open in your browser.</p>
       </div>
     </section>
 
@@ -184,7 +185,7 @@
         <li>Open the pictkura settings and, under <strong class="em">Outgoing</strong>, turn on “Also place imported photos in the Outgoing folder”. The Outgoing folder is made and its location is shown.
           <figure class="shot"><div class="ph">Screen: Settings → Outgoing (screenshot to come)</div></figure>
         </li>
-        <li>Open Google Photos (photos.google.com) in your browser and add the Outgoing folder from step 1 with <strong class="em">+ → Back up a folder</strong>.
+        <li>Add the Outgoing folder from step 1 to your photo service. <strong class="em">If you use Google Photos:</strong> open photos.google.com in your browser and add it with + → Back up a folder (Figure 2).
           <figure class="shot">
 <div class="flow-wrap"><svg class="flow" viewBox="0 0 760 300" role="img" aria-labelledby="gp-t">
               <title id="gp-t">Schematic: on the Google Photos web page, choose Back up a folder from the + menu and pick the Outgoing folder</title>
@@ -240,8 +241,8 @@
 
     <section id="faq">
       <h2 class="disp"><span class="num">6</span>Notes</h2>
-      <h3>Photos already in Google Photos</h3>
-      <p>Removing a photo from the Outgoing folder, or moving it to the trash in pictkura, does not delete what Google Photos has already uploaded.</p>
+      <h3>Photos already uploaded</h3>
+      <p>Removing a photo from the Outgoing folder, or moving it to the trash in pictkura, does not touch what the photo service has already uploaded. <strong class="em">If you use Google Photos:</strong> nothing is deleted from Google Photos.</p>
       <h3>Disk space</h3>
       <p>Photos are placed as hard links, so no extra space is used. Embedded JPEGs take their own space.</p>
       <h3>Drives</h3>
@@ -249,13 +250,14 @@
       <h3>Other backups</h3>
       <p>If a NAS, Amazon Photos or another service backs up your photos, keep the Outgoing folder <strong class="em">outside</strong> the folders it watches. Inside, the same photos would be backed up twice.</p>
       <p style="margin-top:28px">Where an Outgoing folder cannot be made, and what happens when photos are deleted, are in <a href="../manual.en.html#outgoing">section 9, Outgoing, of the manual</a>.</p>
+      <p class="fig" style="margin-top:20px">Google Photos is a trademark of Google LLC.</p>
     </section>
 
   </main>
 </div>
 
 <footer class="foot-slim">
-  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; Photos: Wikimedia Commons, CC0 &nbsp;·&nbsp; Google Photos is a trademark of Google LLC</span>
+  <span class="mono" style="font-size:11.5px;color:var(--text-faint);letter-spacing:.04em">© 2026 Harusame64 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; Photos: Wikimedia Commons, CC0</span>
   <span class="links">
     <a href="./">Home</a>
     <a href="download.html">Download</a>
