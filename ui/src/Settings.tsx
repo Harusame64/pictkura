@@ -27,6 +27,7 @@ import {
   burstGapOf,
   setRegisterAutoplay,
   googleLocation,
+  openGoogleFolder,
   googleFolders,
   setGoogleEnabled,
   setGoogleLocation,
@@ -41,6 +42,7 @@ import {
   type ExternalApp,
   type FolderPattern,
 } from "./api";
+import { copyText } from "./copyText";
 import { usePlatform } from "./usePlatform";
 import { confirmTemporaryDestination } from "./confirm";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
@@ -256,6 +258,33 @@ export default function Settings({
   const [googleDirs, setGoogleDirs] = useState<string[]>([]);
   /** 入れる・場所を選ぶのが断られた理由（ダイアログの中に出す。`destError` と同じ扱い） */
   const [googleError, setGoogleError] = useState<string | null>(null);
+  /**
+   * いま「コピーしました」を出しているボタン（pictkura-dev #40）。**パスではなくボタンで持つ**——いまのフォルダは
+   * 前のドライブのフォルダの一覧にも並ぶので、パスで持つと2つのボタンが一緒に光る（ゲート2）
+   */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  /** 送り出しフォルダを開く・写すときの失敗（設定の切り替えの失敗とは別に出す。ゲート2） */
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [openingFolder, setOpeningFolder] = useState(false);
+  /** 設定を開いた回の番号（待っている間に閉じられた・開き直された回の失敗を捨てるため。PR の codex） */
+  const openSession = useRef(0);
+  useEffect(() => {
+    if (open) openSession.current += 1;
+  }, [open]);
+  const openRef = useRef(open);
+  openRef.current = open;
+  const copyPath = async (key: string, path: string) => {
+    setFolderError(null);
+    if (await copyText(path)) {
+      setCopiedKey(key);
+      // 続けて押したら前の消し時計は止める（早く消えないように。ゲート2）
+      window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopiedKey(null), 1500);
+    } else {
+      setFolderError(t.settingsGoogleCopyFailed);
+    }
+  };
   /** 場所を選んでいる・入れている最中。二度押しで確かめを重ねない */
   const [googleBusy, setGoogleBusy] = useState(false);
   const googleKey = JSON.stringify([
@@ -284,7 +313,10 @@ export default function Settings({
   }, [open, googleKey]);
   // 閉じたら前の失敗の文言を下ろす（次に開いたときに古い理由を見せない）
   useEffect(() => {
-    if (!open) setGoogleError(null);
+    if (!open) {
+      setGoogleError(null);
+      setFolderError(null);
+    }
   }, [open]);
 
   if (!open) return null;
@@ -516,8 +548,34 @@ export default function Settings({
               >
                 {t.wizardChangeDestination}
               </button>
+              {/* 写真サービスの画面でフォルダを選ぶときに迷わないよう、パスを写す・フォルダを開く（pictkura-dev #40）。
+                  **入れているときだけ**——切っている人に「開く」を見せると、フォルダを見るためだけに入れさせてしまう（ゲート2） */}
+              {google?.enabled && googleLoc?.path && (
+                <>
+                  <button className="settings-dest-change" onClick={() => void copyPath("current", googleLoc.path!)}>
+                    {copiedKey === "current" ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
+                  </button>
+                  <button
+                    className="settings-dest-change"
+                    disabled={googleBusy || openingFolder}
+                    onClick={() => {
+                      setFolderError(null);
+                      // 眠った外付けでは数秒かかる。待つ間にもう一度押されても窓を増やさない（ゲート2）
+                      setOpeningFolder(true);
+                      const session = openSession.current;
+                      openGoogleFolder()
+                        // 待つ間に設定が閉じられた（開き直された）ら、届いた失敗は捨てる（古い失敗を出さない。PR の codex）
+                        .catch((e) => session === openSession.current && openRef.current && setFolderError(errText(e)))
+                        .finally(() => setOpeningFolder(false));
+                    }}
+                  >
+                    {t.settingsGoogleOpenFolder}
+                  </button>
+                </>
+              )}
             </div>
             <p className="settings-note">{t.settingsGoogleFolderNote}</p>
+            {folderError && <p className="settings-error">{folderError}</p>}
             {/* ドライブごとに作ったフォルダの一覧（上の「フォルダ」に出ていないものが1つでもあるとき。取り込み先を
                 別のドライブへ変えたあとの、前のドライブの置き済みのフォルダも辿れるように。ゲート1）。作った回の知らせを見逃しても辿れるように。
                 登録済みかは pictkura に分からないので印は付けない（2026-10-06 利用者決定）。
@@ -528,7 +586,10 @@ export default function Settings({
                 <ul>
                   {googleDirs.map((d) => (
                     <li key={d}>
-                      <code>{d}</code>
+                      <code>{d}</code>{" "}
+                      <button className="settings-dest-change" onClick={() => void copyPath(`list:${d}`, d)}>
+                        {copiedKey === `list:${d}` ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
+                      </button>
                     </li>
                   ))}
                 </ul>
