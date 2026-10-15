@@ -1806,8 +1806,10 @@ impl Db {
                 "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM media WHERE id IN ({})",
                 placeholders(chunk.len())
             ))?;
-            let (c, t): (i64, i64) =
-                stmt.query_row(rusqlite::params_from_iter(chunk.iter()), |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let (c, t): (i64, i64) = stmt
+                .query_row(rusqlite::params_from_iter(chunk.iter()), |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?;
             count += c;
             total += t;
         }
@@ -3978,7 +3980,10 @@ mod tests {
     fn taken_at_is_real_rejects_the_mtime_fallback() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("/r/a.jpg", 1, 5000)]).unwrap();
-        let id: i64 = db.conn.query_row("SELECT id FROM media", [], |r| r.get(0)).unwrap();
+        let id: i64 = db
+            .conn
+            .query_row("SELECT id FROM media", [], |r| r.get(0))
+            .unwrap();
         let mut r = db.get_by_id(id).unwrap().unwrap();
         assert!(!r.taken_at_is_real(), "NULL");
         r.taken_at_ms = Some(5000);
@@ -3991,7 +3996,9 @@ mod tests {
     #[test]
     fn sizes_of_counts_each_present_row_once_across_chunks() {
         let mut db = Db::open_in_memory().unwrap();
-        let files: Vec<ScannedFile> = (0..450).map(|i| scanned(&format!("/r/{i}.jpg"), i + 1, 1)).collect();
+        let files: Vec<ScannedFile> = (0..450)
+            .map(|i| scanned(&format!("/r/{i}.jpg"), i + 1, 1))
+            .collect();
         db.upsert_files(&files).unwrap();
         let mut ids: Vec<i64> = db
             .conn

@@ -471,6 +471,7 @@ export const cloudOnlyMedia = (ids: number[]) =>
 
 /** ファイルの基本情報（`dev/adr.file-info-and-context-menu.md` の A）。DB の値だけ——ディスクに触らない */
 export type FileInfo = {
+  id: number;
   path: string;
   size: number;
   mtime_ms: number;
@@ -480,7 +481,8 @@ export type FileInfo = {
   height: number | null;
   duration_ms: number | null;
 };
-export const getFileInfo = (id: number) => invoke<FileInfo>("get_file_info", { id });
+/** まとめて1回で聞く。DB に無い id は返らない */
+export const getFilesInfo = (ids: number[]) => invoke<FileInfo[]>("get_files_info", { ids });
 /** 選択の合計。DB に在る行の数と大きさの合計（バイト） */
 export const getFilesSize = (ids: number[]) =>
   invoke<{ count: number; total: number }>("get_files_size", { ids });

@@ -4,7 +4,9 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { getFileInfo, type FileInfo } from "./api";
+import { listen } from "@tauri-apps/api/event";
+
+import { getFilesInfo, type FileInfo } from "./api";
 import { extensionOf, formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import { formatDateTime, formatDuration, formatLocale, formatNumber, t } from "./i18n";
 import { errText } from "./i18n/err.ts";
@@ -41,29 +43,59 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
 }
 
 /**
- * id を1つずつ問い合わせる。**消えた・変わった後に届いた答えは捨てる**（`ids` が変わったら番号を進める）。
- * 1件でも失敗したら、その id の行の代わりに理由を出す（黙って欠けない）
+ * id の並びを**まとめて1回で**問い合わせる（連写は何百ファイルにもなる。PR の codex）。
+ *
+ * - **消えた・変わった後に届いた答えは捨てる**（`ids` が変わったら番号を進める）
+ * - 開いている間に記録が変わったら聞き直す——抽出が寸法を埋める・走査が大きさや日時を直す（`media-updated`、
+ *   `library-updated`。PR の codex）。続けて来る知らせは 300ms まとめる
+ * - 失敗はその理由、DB に無い id は「見つからない」を、その id の行の代わりに出す（黙って欠けない）
  */
 export function useFileInfos(ids: readonly number[] | null) {
   const [infos, setInfos] = useState<Map<number, FileInfo | string>>(new Map());
   const round = useRef(0);
+  const [stale, setStale] = useState(0);
   const key = ids === null ? "" : ids.join(",");
   useEffect(() => {
+    if (key === "") return;
+    const wanted = new Set(key.split(",").map(Number));
+    let timer: number | undefined;
+    const bump = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setStale((n) => n + 1), 300);
+    };
+    const offs = [
+      listen<{ id: number }>("media-updated", (ev) => {
+        if (wanted.has(ev.payload.id)) bump();
+      }),
+      listen("library-updated", bump),
+    ];
+    return () => {
+      window.clearTimeout(timer);
+      for (const off of offs) void off.then((f) => f()).catch(() => {});
+    };
+  }, [key]);
+  useEffect(() => {
     const mine = ++round.current;
-    setInfos(new Map());
-    if (ids === null) return;
-    for (const id of ids) {
-      getFileInfo(id)
-        .then((info) => info as FileInfo | string)
-        .catch((e) => errText(e))
-        .then((v) => {
-          if (mine !== round.current) return;
-          setInfos((m) => new Map(m).set(id, v));
-        });
+    if (ids === null) {
+      setInfos(new Map());
+      return;
     }
+    const list = [...ids];
+    getFilesInfo(list)
+      .then((got) => {
+        if (mine !== round.current) return;
+        const m = new Map<number, FileInfo | string>(list.map((id) => [id, t.errNotFound]));
+        for (const info of got) m.set(info.id, info);
+        setInfos(m);
+      })
+      .catch((e) => {
+        if (mine !== round.current) return;
+        const reason = errText(e);
+        setInfos(new Map(list.map((id) => [id, reason])));
+      });
     // `ids` の中身は `key` で見る（配列の身元が描くたびに変わっても問い合わせ直さない）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, stale]);
   return infos;
 }
 
