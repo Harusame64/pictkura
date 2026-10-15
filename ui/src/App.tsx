@@ -103,9 +103,9 @@ import {
   googleRemoveChosen,
   type ChosenForGoogle,
   googleLocation,
-  openGoogleFolder,
+  googleFolders,
 } from "./api";
-import { copyText } from "./copyText";
+import { OutgoingFolderActions } from "./OutgoingFolderActions";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { GooglePlaced, VideoStatus } from "./api";
@@ -6020,26 +6020,32 @@ export default function App() {
   const googleOn = config?.google_mirror?.enabled ?? false;
   /**
    * 送り出しの画面の案内（pictkura-dev #40、利用者 2026-10-15）:「送り出し画面には、送り出しフォルダを開くがほしい」
-   * 「写真サービスへ送り出しフォルダを選ぶようメッセージを出しておく」。入れていて、送り出しを見ているときだけ場所を聞く
+   * 「写真サービスへ送り出しフォルダを選ぶようメッセージを出しておく」。入れていて、送り出しを見ているときだけ場所を聞く。
+   *
+   * **場所の決め方に効く設定が変わったときだけ聞く**（設定の `googleKey` と同じ材料）。画面を切り替えるたびに聞くと、
+   * 眠った外付けを毎回起こす（#205 のゲート2）。変わったら**先に古い答えを消す**——聞き直している数秒のあいだ、
+   * 前のドライブのパスを写せてしまう（同）。前のドライブのフォルダも並べる——どれも写真サービスへの登録が要る
+   * （設定の一覧と同じ。2026-10-06 利用者決定）
    */
-  const [outgoingPath, setOutgoingPath] = useState<string | null>(null);
-  const [outgoingCopied, setOutgoingCopied] = useState(false);
-  const [outgoingOpening, setOutgoingOpening] = useState(false);
-  const [outgoingError, setOutgoingError] = useState<string | null>(null);
-  // 場所の決め方に効く設定が変わったら聞き直す（設定の `googleKey` と同じ材料。送り出しを開いたまま設定で場所を
-  // 変えると、写すパスと開くフォルダが食い違う。ゲート1）
   const outgoingKey = JSON.stringify([config?.routing.destination, config?.library.roots, config?.google_mirror]);
+  const [outgoingLoc, setOutgoingLoc] = useState<{ key: string; path: string | null; error: string | null } | null>(null);
+  const [outgoingDirs, setOutgoingDirs] = useState<string[]>([]);
   useEffect(() => {
     if (!googleOn || filter !== "outgoing") return;
+    if (outgoingLoc?.key === outgoingKey) return;
     let cancelled = false;
-    setOutgoingError(null);
+    setOutgoingLoc(null);
+    setOutgoingDirs([]);
     googleLocation()
-      .then((l) => !cancelled && setOutgoingPath(l.path ?? null))
-      .catch(() => !cancelled && setOutgoingPath(null));
+      .then((l) => !cancelled && setOutgoingLoc({ key: outgoingKey, path: l.path ?? null, error: l.error ?? null }))
+      .catch((e) => !cancelled && setOutgoingLoc({ key: outgoingKey, path: null, error: errText(e) }));
+    googleFolders()
+      .then((d) => !cancelled && setOutgoingDirs(d))
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [googleOn, filter, outgoingKey]);
+  }, [googleOn, filter, outgoingKey, outgoingLoc?.key]);
 
   /**
    * 選んだものを送り出しへ置く（設計 ②。`dev/plan.google-photos-from-library.md`）。
@@ -6924,41 +6930,35 @@ export default function App() {
           </div>
         </nav>
         <div className="main">
-          {/* 送り出しの案内（pictkura-dev #40）。写真サービスでこのフォルダを選ぶよう言い、開く・写すを置く */}
+          {/* 送り出しの案内（pictkura-dev #40）。写真サービスでこのフォルダを選ぶよう言い、開く・写すを置く。
+              ボタンは設定と同じ部品（`OutgoingFolderActions`） */}
           {googleOn && filter === "outgoing" && (
             <div className="outgoing-guide">
               <p>{t.outgoingGuide}</p>
-              {outgoingPath && (
+              {outgoingLoc?.path && (
                 <div className="outgoing-guide-folder">
-                  <code>{outgoingPath}</code>
-                  <button
-                    disabled={outgoingOpening}
-                    onClick={() => {
-                      setOutgoingError(null);
-                      setOutgoingOpening(true);
-                      openGoogleFolder()
-                        .catch((e) => setOutgoingError(errText(e)))
-                        .finally(() => setOutgoingOpening(false));
-                    }}
-                  >
-                    {t.settingsGoogleOpenFolder}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setOutgoingError(null);
-                      if (await copyText(outgoingPath)) {
-                        setOutgoingCopied(true);
-                        window.setTimeout(() => setOutgoingCopied(false), 1500);
-                      } else {
-                        setOutgoingError(t.settingsGoogleCopyFailed);
-                      }
-                    }}
-                  >
-                    {outgoingCopied ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
-                  </button>
+                  <code>{outgoingLoc.path}</code>
+                  <OutgoingFolderActions path={outgoingLoc.path} canOpen />
                 </div>
               )}
-              {outgoingError && <p className="outgoing-guide-error">{outgoingError}</p>}
+              {/* 場所を求められなかった理由（取り込み先が無い・ドライブを外した等）。名指せないのに「このフォルダ」と
+                  言うだけにしない（#205 のゲート2） */}
+              {outgoingLoc && !outgoingLoc.path && outgoingLoc.error && (
+                <p className="outgoing-guide-error">{errText(outgoingLoc.error)}</p>
+              )}
+              {outgoingDirs.some((d) => d !== outgoingLoc?.path) && (
+                <>
+                  <p>{t.settingsGoogleFoldersNote}</p>
+                  {outgoingDirs
+                    .filter((d) => d !== outgoingLoc?.path)
+                    .map((d) => (
+                      <div key={d} className="outgoing-guide-folder">
+                        <code>{d}</code>
+                        <OutgoingFolderActions path={d} canOpen={false} />
+                      </div>
+                    ))}
+                </>
+              )}
             </div>
           )}
           {/* 検索中は隠す: 思い出は検索条件を無視して取っているため、結果と

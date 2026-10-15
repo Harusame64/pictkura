@@ -440,7 +440,6 @@ body {
   background: var(--bg-canvas);
 }
 
-/* 思い出（〇年前の今日） */
 /* 送り出しの案内（pictkura-dev #40）。思い出の帯と同じく .main の縦の flex の頭に置く */
 .outgoing-guide {
   flex: none;
@@ -464,9 +463,11 @@ body {
   color: var(--text);
   word-break: break-all;
 }
-.outgoing-guide-error {
+.outgoing-guide-error,
+.folder-actions-error {
   color: var(--danger);
 }
+/* 思い出（〇年前の今日） */
 .memories {
   flex: none;
   display: flex;
