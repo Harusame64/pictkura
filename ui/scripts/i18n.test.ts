@@ -852,6 +852,11 @@ test("書き出し・移動の結果が、ライブラリから無くなった�
       `${lang}: 何も書き出していないのに「0枚を書き出しました」から始めた: ${exportMissing}`,
     );
     assert.ok(!call(d, "exportDone", [3, 0, 0, 0]).includes("7"), `${lang}: 無くなった写真が無いのに数を言った`);
+    // 書き出した枚数と無くなった枚数の両方を言う（ゲート2: 片方の場合しか見ていなかった）
+    const both = call(d, "exportDone", [3, 0, 0, 7]);
+    assert.ok(/3/.test(both) && /7/.test(both), `${lang}: 3枚書き出して7枚無くなったのに、両方を言わない: ${both}`);
+    const moveBoth = call(d, "moveDone", [3, 0, 0, 0, 7]);
+    assert.ok(/3/.test(moveBoth) && /7/.test(moveBoth), `${lang}: 3枚移動して7枚無くなったのに、両方を言わない: ${moveBoth}`);
     const moveNone = call(d, "moveDone", [0, 0, 0, 0, 0]);
     const moveMissing = call(d, "moveDone", [0, 0, 0, 0, 7]);
     assert.match(moveMissing, /7/, `${lang}: moveDone が無くなった枚数を言わない`);

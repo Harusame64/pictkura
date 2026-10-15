@@ -421,7 +421,7 @@ export const zh: Dict = {
     if (done > 0 || skipped + failed + missing === 0) parts.push(`已导出 ${num(done)} 张`);
     if (skipped > 0) parts.push(`有 ${num(skipped)} 张已经存在`);
     if (failed > 0) parts.push(`有 ${num(failed)} 张失败`);
-    if (missing > 0) parts.push(`有 ${num(missing)} 张已不在图库中，没有导出`);
+    if (missing > 0) parts.push(`有 ${num(missing)} 张已不在图库中而未导出`);
     return parts.join("，") + "。";
   },
   moving: (done: number, total: number, name: string) =>
@@ -432,7 +432,7 @@ export const zh: Dict = {
     if (skipped > 0) parts.push(`有 ${num(skipped)} 张在目标位置已经存在，留在了原来的位置`);
     if (failed > 0) parts.push(`有 ${num(failed)} 张无法移动，仍在原来的位置`);
     if (leftBehind > 0) parts.push(`有 ${num(leftBehind)} 张已复制过去，但无法从原来的位置删除`);
-    if (missing > 0) parts.push(`有 ${num(missing)} 张已不在图库中，没有移动`);
+    if (missing > 0) parts.push(`有 ${num(missing)} 张已不在图库中而未移动`);
     return parts.join("；") + "。";
   },
   bulkPickOn: "留用",

@@ -2859,12 +2859,35 @@ async fn export_media(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         // 選んだあとにライブラリから無くなったID（再スキャンで行が消えた等）は運ばない。**黙って落とさず数える**
-        // （pictkura-dev #33）
-        let paths: Vec<PathBuf> = ids
-            .iter()
-            .filter_map(|id| path_of(&state, *id).ok())
-            .collect();
-        let missing = ids.len() - paths.len();
+        // （pictkura-dev #33）。`path_of` は通さない——あちらは「行が無い」とデータベースの失敗を同じ文字列にするので、
+        // 一時的に読めなかった写真まで「ライブラリから無くなった」と言ってしまう（ゲート2）。読めなかったものは
+        // 「失敗」に数え、理由を記録に残す。どちらも、どの写真だったかを記録に書く（画面は数しか出さない）
+        let mut paths: Vec<PathBuf> = Vec::with_capacity(ids.len());
+        let mut missing_ids: Vec<i64> = Vec::new();
+        let mut unread = 0usize;
+        for id in &ids {
+            match state.read_pool.with(|db| db.get_by_id(*id)) {
+                Ok(Some(record)) => paths.push(record.path),
+                Ok(None) => missing_ids.push(*id),
+                Err(e) => {
+                    unread += 1;
+                    applog::note(&format!(
+                        "could not look up photo {id} before {}: {}",
+                        if move_files { "a move" } else { "an export" },
+                        errs::for_log_err(e)
+                    ));
+                }
+            }
+        }
+        if !missing_ids.is_empty() {
+            applog::note(&format!(
+                "{} selected photo(s) were no longer in the library and were not {} (ids {:?})",
+                missing_ids.len(),
+                if move_files { "moved" } else { "exported" },
+                missing_ids
+            ));
+        }
+        let missing = missing_ids.len();
         let mode = if move_files {
             pictkura_core::ExportMode::Move
         } else {
@@ -2889,7 +2912,7 @@ async fn export_media(
         let mut stats = ExportStatsDto {
             done: outcome.stats.done,
             skipped: outcome.stats.skipped,
-            failed: outcome.stats.failed,
+            failed: outcome.stats.failed + unread,
             left_behind: 0,
             moved: 0,
             missing,
