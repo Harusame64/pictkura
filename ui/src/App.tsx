@@ -6026,6 +6026,9 @@ export default function App() {
   const [outgoingCopied, setOutgoingCopied] = useState(false);
   const [outgoingOpening, setOutgoingOpening] = useState(false);
   const [outgoingError, setOutgoingError] = useState<string | null>(null);
+  // 場所の決め方に効く設定が変わったら聞き直す（設定の `googleKey` と同じ材料。送り出しを開いたまま設定で場所を
+  // 変えると、写すパスと開くフォルダが食い違う。ゲート1）
+  const outgoingKey = JSON.stringify([config?.routing.destination, config?.library.roots, config?.google_mirror]);
   useEffect(() => {
     if (!googleOn || filter !== "outgoing") return;
     let cancelled = false;
@@ -6036,7 +6039,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [googleOn, filter, config?.routing.destination]);
+  }, [googleOn, filter, outgoingKey]);
 
   /**
    * 選んだものを送り出しへ置く（設計 ②。`dev/plan.google-photos-from-library.md`）。
