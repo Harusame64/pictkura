@@ -1362,6 +1362,54 @@ fn get_exif_info(
     Ok(pictkura_core::thumbs::read_exif_info(&record.path))
 }
 
+/// ファイルの基本情報（`dev/adr.file-info-and-context-menu.md` の A）。**DB の値だけ**——
+/// ディスクに触らない（眠った外付けを起こさない、クラウドの実体を落とさない）。走査が直すまで
+/// ディスクの今の値とずれうることは許す
+#[derive(serde::Serialize)]
+struct FileInfoDto {
+    path: String,
+    size: i64,
+    mtime_ms: i64,
+    /// 本当に分かっている撮影日時だけ。更新日時で埋めた値は `None`（[`pictkura_core::MediaRecord::taken_at_is_real`]）
+    taken_at_ms: Option<i64>,
+    /// 原本の寸法。未読（`None`）と読めない（0）は出さない
+    width: Option<i64>,
+    height: Option<i64>,
+    duration_ms: Option<i64>,
+}
+
+#[tauri::command]
+fn get_file_info(state: tauri::State<'_, AppState>, id: i64) -> Result<FileInfoDto, String> {
+    let r = state
+        .read_pool
+        .with(|db| db.get_by_id(id))
+        .map_err(errs::from_err)?
+        .ok_or_else(|| errs::code("errNotFound"))?;
+    let positive = |v: Option<i64>| v.filter(|&n| n > 0);
+    Ok(FileInfoDto {
+        path: r.path.to_string_lossy().into_owned(),
+        size: r.size,
+        mtime_ms: r.mtime_ms,
+        taken_at_ms: r.taken_at_ms.filter(|_| r.taken_at_is_real()),
+        width: positive(r.width),
+        height: positive(r.height),
+        duration_ms: r.duration_ms,
+    })
+}
+
+/// 選択の合計（ADR の A）。DB に在る行の数と、大きさの合計（バイト）
+#[derive(serde::Serialize)]
+struct FilesSizeDto {
+    count: i64,
+    total: i64,
+}
+
+#[tauri::command]
+fn get_files_size(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<FilesSizeDto, String> {
+    let (count, total) = state.read_pool.with(|db| db.sizes_of(&ids)).map_err(errs::from_err)?;
+    Ok(FilesSizeDto { count, total })
+}
+
 /// この環境で開けない形式があるかの報せ（第7部 段階G-6）。
 #[derive(serde::Serialize)]
 struct DecoderStatusDto {
@@ -7049,6 +7097,8 @@ pub fn run() {
             set_favorite,
             list_cameras,
             get_exif_info,
+            get_file_info,
+            get_files_size,
             decoder_status,
             host_platform,
             empty_library_reason,

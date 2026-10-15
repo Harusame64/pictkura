@@ -23,6 +23,8 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
+import { FileInfoDialog, FileInfoRows, useFileInfos } from "./FileInfoView";
+import { formatBytes, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
 import {
@@ -42,6 +44,7 @@ import {
   originalStatus,
   getConfig,
   getExifInfo,
+  getFilesSize,
   getIndexProgress,
   getDecoderStatus,
   getEmptyLibraryReason,
@@ -904,6 +907,8 @@ export default function App() {
   /** ビューアの撮影情報パネル（iキーで開閉） */
   const [showExif, setShowExif] = useState(false);
   const [exif, setExif] = useState<ExifInfo | null>(null);
+  /** 右クリックの「情報」で見ているファイル（タイルの重ねぜんぶ）。ADR の A */
+  const [infoFor, setInfoFor] = useState<number[] | null>(null);
   /** カレンダーの日クリックでグリッドのこの日付見出しへスクロールする */
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
@@ -5232,6 +5237,7 @@ export default function App() {
         settingsOpen ||
         wizardOpen ||
         menu !== null ||
+        infoFor !== null ||
         view !== "grid"
       )
         return;
@@ -5247,7 +5253,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -5270,6 +5276,42 @@ export default function App() {
 
   /** 選択中かどうか。**選択が0なら選択モードではない** */
   const selecting = selected.size > 0;
+
+  // 情報の幕は軽い幕。**重い幕（関所・取り込み・設定）やビューアが立ったら畳む**——下に残すと
+  // `Esc` の1押しを先に取ってしまう（`useWindowEvent` の項。受け口は開いた順に呼ばれる）
+  useEffect(() => {
+    if (rejectGate !== null || wizardOpen || settingsOpen || viewer !== null) setInfoFor(null);
+  }, [rejectGate, wizardOpen, settingsOpen, viewer]);
+
+  /**
+   * 選んだときの帯（ADR の A）。**合計は選んだファイルぜんぶ**（重ねなら組と連写のファイルも）の大きさ。
+   * 選択が変わるたびに投げるので 200ms 待ち、**遅れて届いた答えは捨てる**。待つ間は前の値を出さない
+   * （別の選択の合計を、いまの枚数の隣に見せない）
+   */
+  const [selectionSize, setSelectionSize] = useState<number | null>(null);
+  useEffect(() => {
+    setSelectionSize(null);
+    if (selected.size === 0) return;
+    const ids = [...selected];
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      getFilesSize(ids)
+        .then((r) => !cancelled && setSelectionSize(r.total))
+        .catch(() => {});
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [selected]);
+  const selectionTileCount = countPhotos(selected, selectionTiles, selectionTiles);
+  /** 1タイルだけ選んでいるときの代表（名前と撮影日時を出す）。何枚かは**タイルで**数える（`countPhotos`） */
+  const singleSelected =
+    selectionTileCount === 1 ? (selectionTiles.get(selected.values().next().value ?? -1)?.[0] ?? null) : null;
+  const singleInfos = useFileInfos(singleSelected === null ? null : [singleSelected]);
+  const singleInfo = singleSelected === null ? undefined : singleInfos.get(singleSelected);
+  /** ビューアの撮影情報パネルの「ファイル」の節。表示中の1ファイル */
+  const viewerFileInfos = useFileInfos(showExif && viewerItem !== null ? [viewerItem.id] : null);
 
   /** 選択をやめる */
   const clearSelection = useCallback(() => {
@@ -5513,7 +5555,8 @@ export default function App() {
       shortcutsOpen ||
       paletteOpen ||
       menu !== null ||
-      calMenu !== null;
+      calMenu !== null ||
+      infoFor !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -6298,10 +6341,15 @@ export default function App() {
             },
           ]
         : []),
+      // 情報は**重ねのファイルぜんぶ**（RAW と JPEG の大きさが両方見える。ADR の A）
+      {
+        label: t.menuInfo,
+        separator: true,
+        run: () => setInfoFor(files.map((f) => f.id)),
+      },
       {
         label: t.menuDelete,
         danger: true,
-        separator: true,
         run: () => onDelete(files),
       },
     ],
@@ -6447,9 +6495,7 @@ export default function App() {
             ✕
           </button>
           <span className="select-bar-count">
-            {t.selectedCount(
-              countPhotos(selected, selectionTiles, selectionTiles) ?? selected.size,
-            )}
+            {t.selectedCount(selectionTileCount ?? selected.size)}
           </span>
           <button
             disabled={busy}
@@ -6534,6 +6580,25 @@ export default function App() {
           >
             🗑 {t.bulkDelete}
           </button>
+        </div>
+      )}
+      {/* 選択バーの下に1行（バーの中は操作のボタンで埋まっていて、名前が読めるだけの幅が残らない）。
+          1タイルなら名前・撮影日時・大きさ、複数なら合計（ADR の A）。大きさは OS のファイル管理と同じ数え方 */}
+      {/* 答えを待つ間も行は出しておく（届いた時に一覧が1行ぶん下へずれないように） */}
+      {selecting && (
+        <div className="select-info">
+          {"\u00a0"}
+          {singleInfo !== undefined && typeof singleInfo !== "string" && (
+            <>
+              {splitPath(singleInfo.path).name}
+              {singleInfo.taken_at_ms !== null && ` · ${formatDateTime(singleInfo.taken_at_ms)}`}
+              {selectionSize !== null && " · "}
+            </>
+          )}
+          {selectionSize !== null &&
+            (singleSelected !== null
+              ? formatBytes(selectionSize, sizeBaseFor(platform), formatLocale)
+              : t.selectionTotal(formatBytes(selectionSize, sizeBaseFor(platform), formatLocale)))}
         </div>
       )}
       <header className="topbar">
@@ -7832,6 +7897,14 @@ export default function App() {
           )}
           {showExif && viewerItem && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
+              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む */}
+              <div className="exif-title">{t.fileInfoTitle}</div>
+              {(() => {
+                const v = viewerFileInfos.get(viewerItem.id);
+                if (v === undefined) return <div className="exif-row">{t.loading}</div>;
+                if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
+                return <FileInfoRows info={v} />;
+              })()}
               <div className="exif-title">{t.exifTitle}</div>
               {exif === null ? (
                 <div className="exif-row">{t.loading}</div>
@@ -8090,6 +8163,7 @@ export default function App() {
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
         onClose={() => setMenu(null)}
       />
+      {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}
       <ContextMenu
         pos={calMenu?.pos ?? null}
         items={

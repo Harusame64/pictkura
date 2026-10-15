@@ -1671,6 +1671,55 @@ body {
   text-decoration: underline;
 }
 
+/* ファイルの基本情報（ADR の A）。パネルではファイルの節の後に撮影情報の節が続く */
+.exif-panel .exif-title + .exif-row ~ .exif-title,
+.exif-panel .file-info-error + .exif-title {
+  margin-top: var(--sp-3);
+}
+.file-info-value {
+  font-variant-numeric: tabular-nums;
+}
+.file-info-error {
+  color: var(--danger);
+}
+/* 右クリックの「情報」。右クリック（300）より下・パレット（200）より上。開くのはメニューを閉じた後 */
+.file-info-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: var(--scrim);
+}
+.file-info-dialog {
+  width: min(480px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  padding: var(--sp-4);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  font-size: var(--fs-sm);
+}
+.file-info-dialog .exif-key {
+  width: 96px;
+  color: var(--text-muted);
+}
+.file-info-section + .file-info-section {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.file-info-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--sp-3);
+}
+
 /* ===== コマンドパレット ===== */
 .palette-backdrop {
   position: fixed;
@@ -2700,6 +2749,18 @@ body {
 .select-bar-count {
   font-weight: 700;
   color: var(--accent);
+}
+/* 選択バーの下の1行。1タイルなら名前・撮影日時・大きさ、複数なら合計（ADR の A）。狭い窓では省略記号で切る */
+.select-info {
+  padding: 2px var(--sp-3) 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
 }
 .select-bar-spacer {
   flex: 1;

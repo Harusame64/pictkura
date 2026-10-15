@@ -86,6 +86,16 @@ pub struct MediaRecord {
     pub duration_ms: Option<i64>,
 }
 
+impl MediaRecord {
+    /// 撮影日時が**本当に分かっている**か。抽出は何も読めないと最後に更新日時を入れる（`thumbs.rs`）ので、
+    /// `taken_at_ms.is_some()` では見分けられない。拾い直しの門（`thumbs.rs` の抽出・
+    /// [`Db::rows_with_fallback_taken_at`]）と同じ規則で「NULL か、更新日時と同じなら不明」と読む
+    /// （`dev/adr.file-info-and-context-menu.md` の A、ゲート2 P1-1）
+    pub fn taken_at_is_real(&self) -> bool {
+        self.taken_at_ms.is_some_and(|t| t != self.mtime_ms)
+    }
+}
+
 /// [`Db::update_metadata`] へ渡す寸法。
 ///
 /// 原本と、一覧が掴んだ埋め込みプレビューの2組。**数字を4つ並べて渡すと
@@ -1784,6 +1794,27 @@ impl Db {
     }
 
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
+    /// 渡した id のうち DB に在る行の数と、その大きさの合計（バイト）。選択の帯の「合計」
+    /// （`dev/adr.file-info-and-context-menu.md` の A）。**同じ id は1回だけ数える**。
+    /// 全選択の数万件でも変数の上限を越えないよう 400 件ずつ問い合わせる（[`Db::visible_ids`] と同じ刻み）
+    pub fn sizes_of(&self, ids: &[i64]) -> Result<(i64, i64), DbError> {
+        let mut ids = ids.to_vec();
+        ids.sort_unstable();
+        ids.dedup();
+        let (mut count, mut total) = (0i64, 0i64);
+        for chunk in ids.chunks(400) {
+            let mut stmt = self.conn.prepare_cached(&format!(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM media WHERE id IN ({})",
+                placeholders(chunk.len())
+            ))?;
+            let (c, t): (i64, i64) =
+                stmt.query_row(rusqlite::params_from_iter(chunk.iter()), |r| Ok((r.get(0)?, r.get(1)?)))?;
+            count += c;
+            total += t;
+        }
+        Ok((count, total))
+    }
+
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self
             .conn
@@ -3940,6 +3971,41 @@ mod tests {
 
         // 拡張子を1つも渡さないときに全件が当たらないこと
         assert_eq!(db.count_by_extensions(&[], 8).unwrap().0, 0);
+    }
+
+    /// 撮影日時の「分かっている」: 更新日時で埋めた値は分かっていないと読む（ゲート2 P1-1）
+    #[test]
+    fn taken_at_is_real_rejects_the_mtime_fallback() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("/r/a.jpg", 1, 5000)]).unwrap();
+        let id: i64 = db.conn.query_row("SELECT id FROM media", [], |r| r.get(0)).unwrap();
+        let mut r = db.get_by_id(id).unwrap().unwrap();
+        assert!(!r.taken_at_is_real(), "NULL");
+        r.taken_at_ms = Some(5000);
+        assert!(!r.taken_at_is_real(), "filled from mtime");
+        r.taken_at_ms = Some(4000);
+        assert!(r.taken_at_is_real(), "read from the file");
+    }
+
+    /// 選択の合計: 在る行だけを数え、同じ id を2度数えず、400件の境を越えても合う
+    #[test]
+    fn sizes_of_counts_each_present_row_once_across_chunks() {
+        let mut db = Db::open_in_memory().unwrap();
+        let files: Vec<ScannedFile> = (0..450).map(|i| scanned(&format!("/r/{i}.jpg"), i + 1, 1)).collect();
+        db.upsert_files(&files).unwrap();
+        let mut ids: Vec<i64> = db
+            .conn
+            .prepare("SELECT id FROM media")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(ids.len(), 450);
+        ids.push(ids[0]); // 重複
+        ids.push(999_999); // 消えた行
+        assert_eq!(db.sizes_of(&ids).unwrap(), (450, (1..=450).sum::<i64>()));
+        assert_eq!(db.sizes_of(&[]).unwrap(), (0, 0));
     }
 
     #[test]
