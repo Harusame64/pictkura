@@ -2,7 +2,7 @@
  * ファイルの基本情報の表示（`dev/adr.file-info-and-context-menu.md` の A）。ビューアのパネル・右クリックの「情報」の
  * 両方で**同じ行の並び**を使う。値は DB のもの（`get_file_info`）——ディスクに触らない
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { listen } from "@tauri-apps/api/event";
 
@@ -43,25 +43,21 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
 }
 
 /**
- * id の並びを**まとめて1回で**問い合わせる（連写は何百ファイルにもなる。PR の codex）。
- *
- * - **消えた・変わった後に届いた答えは捨てる**（`ids` が変わったら番号を進める）
- * - 開いている間に記録が変わったら聞き直す——抽出が寸法を埋める・走査が大きさや日時を直す（`media-updated`、
- *   `library-updated`。PR の codex）。続けて来る知らせは 300ms まとめる
- * - 失敗はその理由、DB に無い id は「見つからない」を、その id の行の代わりに出す（黙って欠けない）
+ * 開いている間に記録が変わったら進む数（聞き直しの合図）。抽出が寸法を埋める・走査が大きさや日時を直す・
+ * 外で消される——`media-updated`（その id）と `library-updated`。続けて来る知らせは 300ms まとめる。
+ * ファイルの情報と選択の合計の両方で使う（PR の codex が2回、同じ形を別の場所で挙げた）
  */
-export function useFileInfos(ids: readonly number[] | null) {
-  const [infos, setInfos] = useState<Map<number, FileInfo | string>>(new Map());
-  const round = useRef(0);
-  const [stale, setStale] = useState(0);
-  const key = ids === null ? "" : ids.join(",");
+export function useChangedCount(ids: Iterable<number> | null): number {
+  const [count, setCount] = useState(0);
+  // 全選択は数万件になる。並びの身元が同じ間は組み直さない（選択の Set は変わったときだけ作り直される）
+  const key = useMemo(() => (ids === null ? "" : [...ids].join(",")), [ids]);
   useEffect(() => {
     if (key === "") return;
     const wanted = new Set(key.split(",").map(Number));
     let timer: number | undefined;
     const bump = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => setStale((n) => n + 1), 300);
+      timer = window.setTimeout(() => setCount((n) => n + 1), 300);
     };
     const offs = [
       listen<{ id: number }>("media-updated", (ev) => {
@@ -74,6 +70,21 @@ export function useFileInfos(ids: readonly number[] | null) {
       for (const off of offs) void off.then((f) => f()).catch(() => {});
     };
   }, [key]);
+  return count;
+}
+
+/**
+ * id の並びを**まとめて1回で**問い合わせる（連写は何百ファイルにもなる。PR の codex）。
+ *
+ * - **消えた・変わった後に届いた答えは捨てる**（`ids` が変わったら番号を進める）
+ * - 開いている間に記録が変わったら聞き直す（[`useChangedCount`]）
+ * - 失敗はその理由、DB に無い id は「見つからない」を、その id の行の代わりに出す（黙って欠けない）
+ */
+export function useFileInfos(ids: readonly number[] | null) {
+  const [infos, setInfos] = useState<Map<number, FileInfo | string>>(new Map());
+  const round = useRef(0);
+  const key = ids === null ? "" : ids.join(",");
+  const stale = useChangedCount(ids);
   useEffect(() => {
     const mine = ++round.current;
     if (ids === null) {

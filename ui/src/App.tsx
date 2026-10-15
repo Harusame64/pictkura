@@ -23,7 +23,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
-import { FileInfoDialog, FileInfoRows, useFileInfos } from "./FileInfoView";
+import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -5260,6 +5260,8 @@ export default function App() {
    * （別の選択の合計を、いまの枚数の隣に見せない）
    */
   const [selectionSize, setSelectionSize] = useState<{ count: number; total: number } | string | null>(null);
+  // 選んだファイルが外で変わった・消えたら合計も聞き直す（PR の codex）
+  const selectionChanged = useChangedCount(selected.size === 0 ? null : selected);
   useEffect(() => {
     setSelectionSize(null);
     if (selected.size === 0) return;
@@ -5275,7 +5277,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [selected]);
+  }, [selected, selectionChanged]);
   const selectionTileCount = countPhotos(selected, selectionTiles, selectionTiles);
   /** 1タイルだけ選んでいるときの代表（名前と撮影日時を出す）。何枚かは**タイルで**数える（`countPhotos`） */
   const singleSelected =
