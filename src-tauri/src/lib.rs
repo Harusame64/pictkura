@@ -2839,6 +2839,9 @@ struct ExportStatsDto {
     /// **元の場所から実際に無くなった**写真の数（移動のときだけ。コピーは0）。
     /// `done` は写し終えた数で `left_behind` を含むので、画面はこちらで「移動しました」と言う
     moved: usize,
+    /// 選んだあとに**ライブラリから無くなった**写真の数（再スキャンで行が消えた等）。書き出しも移動もしていない。
+    /// 数えないと「10枚を移動」の確認が「8枚を移動しました」で終わり、2枚の行方が分からない（pictkura-dev #33）
+    missing: usize,
 }
 
 /// 選んだものを、指定のフォルダへ**コピー／移動**する。
@@ -2855,11 +2858,13 @@ async fn export_media(
 ) -> Result<ExportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
+        // 選んだあとにライブラリから無くなったID（再スキャンで行が消えた等）は運ばない。**黙って落とさず数える**
+        // （pictkura-dev #33）
         let paths: Vec<PathBuf> = ids
             .iter()
             .filter_map(|id| path_of(&state, *id).ok())
             .collect();
+        let missing = ids.len() - paths.len();
         let mode = if move_files {
             pictkura_core::ExportMode::Move
         } else {
@@ -2887,6 +2892,7 @@ async fn export_media(
             failed: outcome.stats.failed,
             left_behind: 0,
             moved: 0,
+            missing,
         };
         // 別のドライブへ移したぶんは、コピーが済んでいて元が残っている。
         // **元はゴミ箱へ**送る——「アプリがファイルを直接消すことはない」を移動でも守る

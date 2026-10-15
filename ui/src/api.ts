@@ -128,6 +128,8 @@ export interface ExportStats {
   left_behind: number;
   /** 元の場所から実際に無くなった写真の数（移動のときだけ。コピーは0） */
   moved: number;
+  /** 選んだあとにライブラリから無くなった写真の数。書き出しも移動もしていない（pictkura-dev #33） */
+  missing: number;
 }
 
 export interface ExportProgress {

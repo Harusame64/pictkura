@@ -289,6 +289,8 @@ const INFLECTS: Record<string, string[]> = {
     "moveDone:1",
     "moveDone:2",
     "moveDone:3",
+    "exportDone:3",
+    "moveDone:4",
     "bulkPickDone:0",
     "bulkUnpickDone:0",
     "bulkFavoriteDone:0",
@@ -338,6 +340,8 @@ const INFLECTS: Record<string, string[]> = {
     "moveDone:1",
     "moveDone:2",
     "moveDone:3",
+    "exportDone:3",
+    "moveDone:4",
     "bulkPickDone:0",
     "bulkUnpickDone:0",
     "bulkFavoriteDone:0",
@@ -396,6 +400,8 @@ const INFLECTS: Record<string, string[]> = {
     "moveDone:1",
     "moveDone:2",
     "moveDone:3",
+    "exportDone:3",
+    "moveDone:4",
     "bulkPickDone:0",
     "bulkUnpickDone:0",
     "bulkFavoriteDone:0",
@@ -830,5 +836,33 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
         assert.ok(s2.includes(two), `${lang}.${key}(2): ${s2}`);
       }
     }
+  }
+});
+
+test("書き出し・移動の結果が、ライブラリから無くなった枚数を言うこと（pictkura-dev #33）", () => {
+  // 選んだあとに再スキャンで行が消えた写真は運ばない。**数えずに落とすと「10枚を移動」が「8枚を移動しました」で
+  // 終わり、2枚の行方が分からない**。全部の辞書で、その枚数が文に出ること、何も運ばなかったときに
+  // 「0枚を書き出しました／移動しました」から始めないことを見る
+  for (const [lang, d] of Object.entries(DICTS)) {
+    const exportNone = call(d, "exportDone", [0, 0, 0, 0]);
+    const exportMissing = call(d, "exportDone", [0, 0, 0, 7]);
+    assert.match(exportMissing, /7/, `${lang}: exportDone が無くなった枚数を言わない`);
+    assert.ok(
+      !exportMissing.includes(exportNone.replace(/[。.]$/, "")),
+      `${lang}: 何も書き出していないのに「0枚を書き出しました」から始めた: ${exportMissing}`,
+    );
+    assert.ok(!call(d, "exportDone", [3, 0, 0, 0]).includes("7"), `${lang}: 無くなった写真が無いのに数を言った`);
+    const moveNone = call(d, "moveDone", [0, 0, 0, 0, 0]);
+    const moveMissing = call(d, "moveDone", [0, 0, 0, 0, 7]);
+    assert.match(moveMissing, /7/, `${lang}: moveDone が無くなった枚数を言わない`);
+    assert.ok(
+      !moveMissing.includes(moveNone.replace(/[。.]$/, "")),
+      `${lang}: 何も移動していないのに「0枚を移動しました」から始めた: ${moveMissing}`,
+    );
+    assert.notEqual(
+      call(d, "moveDone", [8, 0, 0, 0, 2]),
+      call(d, "moveDone", [8, 0, 0, 0, 0]),
+      `${lang}: 8枚移動して2枚無くなったのに、8枚だけの文と同じ`,
+    );
   }
 });

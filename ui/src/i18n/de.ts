@@ -425,17 +425,20 @@ export const de: Dict = {
   rootRemoveConfirmOk: "Entfernen",
   exporting: (done: number, total: number, name: string) =>
     `Wird exportiert… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number) => {
-    const parts = [done === 1 ? "1 Foto exportiert" : `${num(done)} Fotos exportiert`];
+  exportDone: (done: number, skipped: number, failed: number, missing: number) => {
+    const parts: string[] = [];
+    // 書き出すものが無かったときに「0枚を書き出しました」から始めない（pictkura-dev #33）
+    if (done > 0 || skipped + failed + missing === 0) parts.push(done === 1 ? "1 Foto exportiert" : `${num(done)} Fotos exportiert`);
     if (skipped > 0) parts.push(`${num(skipped)} ${one(skipped, "war", "waren")} schon da`);
     if (failed > 0) parts.push(`${num(failed)} fehlgeschlagen`);
+    if (missing > 0) parts.push(`${num(missing)} ${one(missing, "war", "waren")} nicht mehr in der Bibliothek und ${one(missing, "wurde", "wurden")} nicht exportiert`);
     return parts.join(". ") + ".";
   },
   moving: (done: number, total: number, name: string) =>
     `Wird verschoben… ${num(done)}/${num(total)} ${name}`,
-  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number, missing: number) => {
     const parts: string[] = [];
-    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(moved === 1 ? "1 Foto verschoben" : `${num(moved)} Fotos verschoben`);
+    if (moved > 0 || skipped + failed + leftBehind + missing === 0) parts.push(moved === 1 ? "1 Foto verschoben" : `${num(moved)} Fotos verschoben`);
     if (skipped > 0)
       parts.push(`${num(skipped)} ${one(skipped, "war", "waren")} schon da und ${one(skipped, "bleibt", "bleiben")} am bisherigen Platz`);
     if (failed > 0) parts.push(`${num(failed)} ${one(failed, "konnte", "konnten")} nicht verschoben werden und ${one(failed, "bleibt", "bleiben")} am bisherigen Platz`);
@@ -443,6 +446,7 @@ export const de: Dict = {
       parts.push(
         `${num(leftBehind)} ${one(leftBehind, "wurde", "wurden")} kopiert, ${one(leftBehind, "ließ", "ließen")} sich am bisherigen Platz aber nicht entfernen`,
       );
+    if (missing > 0) parts.push(`${num(missing)} ${one(missing, "war", "waren")} nicht mehr in der Bibliothek und ${one(missing, "wurde", "wurden")} nicht verschoben`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Als Auswahl markieren",

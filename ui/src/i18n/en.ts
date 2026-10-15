@@ -357,20 +357,24 @@ export const en: Dict = {
   rootRemoveConfirmOk: "Remove",
   exporting: (done: number, total: number, name: string) =>
     `Exporting… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number) => {
-    const parts = [done === 1 ? "Exported 1 photo" : `Exported ${num(done)} photos`];
+  exportDone: (done: number, skipped: number, failed: number, missing: number) => {
+    const parts: string[] = [];
+    // 書き出すものが無かったときに「0枚を書き出しました」から始めない（pictkura-dev #33）
+    if (done > 0 || skipped + failed + missing === 0) parts.push(done === 1 ? "Exported 1 photo" : `Exported ${num(done)} photos`);
     if (skipped > 0) parts.push(`${num(skipped)} already there`);
     if (failed > 0) parts.push(`${num(failed)} failed`);
+    if (missing > 0) parts.push(`${num(missing)} no longer in the library, not exported`);
     return parts.join(". ") + ".";
   },
   moving: (done: number, total: number, name: string) =>
     `Moving… ${num(done)}/${num(total)} ${name}`,
-  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number, missing: number) => {
     const parts: string[] = [];
-    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(moved === 1 ? "Moved 1 photo" : `Moved ${num(moved)} photos`);
+    if (moved > 0 || skipped + failed + leftBehind + missing === 0) parts.push(moved === 1 ? "Moved 1 photo" : `Moved ${num(moved)} photos`);
     if (skipped > 0) parts.push(`${num(skipped)} already there, left in place`);
     if (failed > 0) parts.push(`${num(failed)} could not be moved and stayed in place`);
     if (leftBehind > 0) parts.push(`${num(leftBehind)} copied, but could not be removed from the original place`);
+    if (missing > 0) parts.push(`${num(missing)} no longer in the library, not moved`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Pick",
