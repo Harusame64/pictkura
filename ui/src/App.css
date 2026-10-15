@@ -1635,6 +1635,9 @@ body {
   top: 60px;
   right: var(--sp-4);
   width: 260px;
+  /* ファイルの節を足して長くなった（ADR の A）。低い窓では中で巻く——撮影地のリンクが窓の外へ出ないように */
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
   border: 1px solid oklch(1 0 0 / 0.08);
   border-radius: var(--radius-lg);

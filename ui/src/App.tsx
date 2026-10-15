@@ -5007,7 +5007,9 @@ export default function App() {
         if (e.key === "Escape" && !trashing && answerKey(e)) setRejectGate(null);
         return;
       }
-      if (wizardOpen || menu !== null) return;
+      // 情報の幕（ADR の A）はビューアの右クリックからも開く。開いている間は `Esc`・送り・判定を通さない
+      // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）
+      if (wizardOpen || menu !== null || infoFor !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -5096,6 +5098,7 @@ export default function App() {
     settingsOpen,
     wizardOpen,
     menu,
+    infoFor,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5277,11 +5280,12 @@ export default function App() {
   /** 選択中かどうか。**選択が0なら選択モードではない** */
   const selecting = selected.size > 0;
 
-  // 情報の幕は軽い幕。**重い幕（関所・取り込み・設定）やビューアが立ったら畳む**——下に残すと
-  // `Esc` の1押しを先に取ってしまう（`useWindowEvent` の項。受け口は開いた順に呼ばれる）
+  // 情報の幕は軽い幕。**重い幕（関所・取り込み・設定）が立ったら畳む**——下に残すと
+  // `Esc` の1押しを先に取ってしまう（`useWindowEvent` の項。受け口は開いた順に呼ばれる）。
+  // ビューアでは畳まない——ビューアの右クリックから開く幕である
   useEffect(() => {
-    if (rejectGate !== null || wizardOpen || settingsOpen || viewer !== null) setInfoFor(null);
-  }, [rejectGate, wizardOpen, settingsOpen, viewer]);
+    if (rejectGate !== null || wizardOpen || settingsOpen) setInfoFor(null);
+  }, [rejectGate, wizardOpen, settingsOpen]);
 
   /**
    * 選んだときの帯（ADR の A）。**合計は選んだファイルぜんぶ**（重ねなら組と連写のファイルも）の大きさ。
