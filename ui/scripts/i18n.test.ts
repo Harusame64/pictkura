@@ -553,6 +553,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "actualSizeBadge", // `1:1`
     "exifIso",
     "wizardTitle", // `Import` は独語の語でもある
+    "fileInfoName", // `Name` は独語の語でもある
     "listSeparator", // `, `
     "photosCount", // 数だけ
     "rejectChip", // `✕ 3`

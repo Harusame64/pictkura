@@ -1362,6 +1362,78 @@ fn get_exif_info(
     Ok(pictkura_core::thumbs::read_exif_info(&record.path))
 }
 
+/// ファイルの基本情報（`dev/adr.file-info-and-context-menu.md` の A）。**DB の値だけ**——
+/// ディスクに触らない（眠った外付けを起こさない、クラウドの実体を落とさない）。走査が直すまで
+/// ディスクの今の値とずれうることは許す
+#[derive(serde::Serialize)]
+struct FileInfoDto {
+    id: i64,
+    path: String,
+    size: i64,
+    mtime_ms: i64,
+    /// 本当に分かっている撮影日時だけ。更新日時で埋めた値は `None`（[`pictkura_core::MediaRecord::taken_at_is_real`]）
+    taken_at_ms: Option<i64>,
+    /// 原本の寸法。未読（`None`）と読めない（0）は出さない
+    width: Option<i64>,
+    height: Option<i64>,
+    duration_ms: Option<i64>,
+}
+
+/// **まとめて1回で**聞く——連写のタイルは何百ファイルにもなり、1件ずつ投げると呼び出しが並ぶ（PR の codex）。
+/// DB に無い id は返さない（呼ぶ側が「見つからない」と言う）
+#[tauri::command]
+async fn get_files_info(app: tauri::AppHandle, ids: Vec<i64>) -> Result<Vec<FileInfoDto>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let positive = |v: Option<i64>| v.filter(|&n| n > 0);
+        state
+            .read_pool
+            .with(|db| {
+                let mut out = Vec::with_capacity(ids.len());
+                for &id in &ids {
+                    if let Some(r) = db.get_by_id(id)? {
+                        out.push(FileInfoDto {
+                            id,
+                            path: r.path.to_string_lossy().into_owned(),
+                            size: r.size,
+                            mtime_ms: r.mtime_ms,
+                            taken_at_ms: r.taken_at_ms.filter(|_| r.taken_at_is_real()),
+                            width: positive(r.width),
+                            height: positive(r.height),
+                            duration_ms: r.duration_ms,
+                        });
+                    }
+                }
+                Ok::<_, pictkura_core::db::DbError>(out)
+            })
+            .map_err(errs::from_err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 選択の合計（ADR の A）。DB に在る行の数と、大きさの合計（バイト）
+#[derive(serde::Serialize)]
+struct FilesSizeDto {
+    count: i64,
+    total: i64,
+}
+
+/// 全選択の数万件を受けて数百回問い合わせることがあるので、**画面の糸の外で**走らせる（PR のゲート2）
+#[tauri::command]
+async fn get_files_size(app: tauri::AppHandle, ids: Vec<i64>) -> Result<FilesSizeDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (count, total) = state
+            .read_pool
+            .with(|db| db.sizes_of(&ids))
+            .map_err(errs::from_err)?;
+        Ok(FilesSizeDto { count, total })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// この環境で開けない形式があるかの報せ（第7部 段階G-6）。
 #[derive(serde::Serialize)]
 struct DecoderStatusDto {
@@ -7049,6 +7121,8 @@ pub fn run() {
             set_favorite,
             list_cameras,
             get_exif_info,
+            get_files_info,
+            get_files_size,
             decoder_status,
             host_platform,
             empty_library_reason,

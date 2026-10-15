@@ -23,6 +23,8 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
+import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
+import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
 import {
@@ -42,6 +44,7 @@ import {
   originalStatus,
   getConfig,
   getExifInfo,
+  getFilesSize,
   getIndexProgress,
   getDecoderStatus,
   getEmptyLibraryReason,
@@ -537,39 +540,6 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
 });
 
 /**
- * 大きさ（バイト）を「8.4 GB」の形に。送り出しの確認で使う。**OS のファイルの一覧と同じ数え方**にする
- * ——Finder は 1000 で割って小数1桁に四捨五入、エクスプローラー（`StrFormatByteSizeW`）は 1024 で割って
- * **有効3桁で切り捨て**（35.29 → 「35.2」、6.613 → 「6.61」。win の実機で突き合わせた）。食い違うと、
- * 利用者が見比べたときにどちらかが嘘に見える
- */
-const sizeFmt = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 1 });
-const sizeFmt2 = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 2 });
-function formatSize(bytes: number, base: 1000 | 1024): string {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let v = bytes;
-  let i = 0;
-  // エクスプローラーは 1024 で割るが、**1,000 を超えたら次の単位へ上げる**（1,015 KB ではなく 0.99 MB。ゲート2）
-  const step = base === 1024 ? 1000 : base;
-  while (v >= step && i < units.length - 1) {
-    v /= base;
-    i++;
-  }
-  if (base === 1024) {
-    // 有効3桁で切り捨て（エクスプローラーと同じ）。整数部が3桁ならそのまま
-    const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
-    const f = 10 ** digits;
-    const cut = Math.floor(v * f) / f;
-    return `${(digits === 2 ? sizeFmt2 : sizeFmt).format(cut)} ${units[i]}`;
-  }
-  // 丸めると単位の境目に届くもの（999.96 KB → 「1,000 KB」）は、次の単位へ上げる（ゲート2）
-  if (Number(v.toFixed(1)) >= base && i < units.length - 1) {
-    v /= base;
-    i++;
-  }
-  return `${sizeFmt.format(v)} ${units[i]}`;
-}
-
-/**
  * 一覧で選んで送るとき、確認なしで置いてよい枚数の上限（`dev/plan.google-photos-from-library.md` §4。
  * 2026-10-06 利用者決定）。すべて選択・範囲選択・新しいフォルダを作るときは枚数に関係なく確かめる
  */
@@ -904,6 +874,8 @@ export default function App() {
   /** ビューアの撮影情報パネル（iキーで開閉） */
   const [showExif, setShowExif] = useState(false);
   const [exif, setExif] = useState<ExifInfo | null>(null);
+  /** 右クリックの「情報」で見ているファイル（タイルの重ねぜんぶ）。ADR の A */
+  const [infoFor, setInfoFor] = useState<number[] | null>(null);
   /** カレンダーの日クリックでグリッドのこの日付見出しへスクロールする */
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
@@ -5002,7 +4974,9 @@ export default function App() {
         if (e.key === "Escape" && !trashing && answerKey(e)) setRejectGate(null);
         return;
       }
-      if (wizardOpen || menu !== null) return;
+      // 情報の幕（ADR の A）はビューアの右クリックからも開く。開いている間は `Esc`・送り・判定を通さない
+      // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）
+      if (wizardOpen || menu !== null || infoFor !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -5091,6 +5065,7 @@ export default function App() {
     settingsOpen,
     wizardOpen,
     menu,
+    infoFor,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5232,6 +5207,7 @@ export default function App() {
         settingsOpen ||
         wizardOpen ||
         menu !== null ||
+        infoFor !== null ||
         view !== "grid"
       )
         return;
@@ -5247,7 +5223,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -5270,6 +5246,46 @@ export default function App() {
 
   /** 選択中かどうか。**選択が0なら選択モードではない** */
   const selecting = selected.size > 0;
+
+  // 情報の幕は軽い幕。**重い幕（関所・取り込み・設定）が立ったら畳む**——下に残すと
+  // `Esc` の1押しを先に取ってしまう（`useWindowEvent` の項。受け口は開いた順に呼ばれる）。
+  // ビューアでは畳まない——ビューアの右クリックから開く幕である
+  useEffect(() => {
+    if (rejectGate !== null || wizardOpen || settingsOpen) setInfoFor(null);
+  }, [rejectGate, wizardOpen, settingsOpen]);
+
+  /**
+   * 選んだときの帯（ADR の A）。**合計は選んだファイルぜんぶ**（重ねなら組と連写のファイルも）の大きさ。
+   * 選択が変わるたびに投げるので 200ms 待ち、**遅れて届いた答えは捨てる**。待つ間は前の値を出さない
+   * （別の選択の合計を、いまの枚数の隣に見せない）
+   */
+  const [selectionSize, setSelectionSize] = useState<{ count: number; total: number } | string | null>(null);
+  // 選んだファイルが外で変わった・消えたら合計も聞き直す（PR の codex）
+  const selectionChanged = useChangedCount(selected.size === 0 ? null : selected);
+  useEffect(() => {
+    setSelectionSize(null);
+    if (selected.size === 0) return;
+    const ids = [...selected];
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      getFilesSize(ids)
+        .then((r) => !cancelled && setSelectionSize(r))
+        // 失敗は理由を出す（黙って空けない。PR のゲート2）
+        .catch((e) => !cancelled && setSelectionSize(errText(e)));
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [selected, selectionChanged]);
+  const selectionTileCount = countPhotos(selected, selectionTiles, selectionTiles);
+  /** 1タイルだけ選んでいるときの代表（名前と撮影日時を出す）。何枚かは**タイルで**数える（`countPhotos`） */
+  const singleSelected =
+    selectionTileCount === 1 ? (selectionTiles.get(selected.values().next().value ?? -1)?.[0] ?? null) : null;
+  const singleInfos = useFileInfos(singleSelected === null ? null : [singleSelected]);
+  const singleInfo = singleSelected === null ? undefined : singleInfos.get(singleSelected);
+  /** ビューアの撮影情報パネルの「ファイル」の節。表示中の1ファイル */
+  const viewerFileInfos = useFileInfos(showExif && viewerItem !== null ? [viewerItem.id] : null);
 
   /** 選択をやめる */
   const clearSelection = useCallback(() => {
@@ -5513,7 +5529,8 @@ export default function App() {
       shortcutsOpen ||
       paletteOpen ||
       menu !== null ||
-      calMenu !== null;
+      calMenu !== null ||
+      infoFor !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -6092,7 +6109,7 @@ export default function App() {
               s.videos,
               s.raw_only,
               // 1024 で切り捨てるのはエクスプローラーだけ。macOS・Linux のファイルの一覧は 1000 で丸める（ゲート2）
-              s.bytes > 0 ? formatSize(s.bytes, platform === "windows" ? 1024 : 1000) : "",
+              s.bytes > 0 ? formatSize(s.bytes, sizeBaseFor(platform), formatLocale) : "",
             ),
           ];
           if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));
@@ -6298,6 +6315,12 @@ export default function App() {
             },
           ]
         : []),
+      // 情報は**重ねのファイルぜんぶ**（RAW と JPEG の大きさが両方見える。ADR の A）
+      {
+        label: t.menuInfo,
+        separator: true,
+        run: () => setInfoFor(files.map((f) => f.id)),
+      },
       {
         label: t.menuDelete,
         danger: true,
@@ -6447,9 +6470,7 @@ export default function App() {
             ✕
           </button>
           <span className="select-bar-count">
-            {t.selectedCount(
-              countPhotos(selected, selectionTiles, selectionTiles) ?? selected.size,
-            )}
+            {t.selectedCount(selectionTileCount ?? selected.size)}
           </span>
           <button
             disabled={busy}
@@ -6534,6 +6555,30 @@ export default function App() {
           >
             🗑 {t.bulkDelete}
           </button>
+        </div>
+      )}
+      {/* 選択バーの下に1行（バーの中は操作のボタンで埋まっていて、名前が読めるだけの幅が残らない）。
+          1タイルなら名前・撮影日時・大きさ、複数なら合計（ADR の A）。大きさは OS のファイル管理と同じ数え方 */}
+      {/* 答えを待つ間も行は出しておく（届いた時に一覧が1行ぶん下へずれないように） */}
+      {selecting && (
+        <div className="select-info">
+          {"\u00a0"}
+          {/* 1タイルは代表のファイル自身の大きさ。重ね（組・連写）でファイルが2つ以上なら、全体を「合計」と添える
+              ——代表の名前の隣に組ぜんぶの大きさだけを置くと、その1ファイルの大きさに読める（PR のゲート2） */}
+          {singleInfo !== undefined && typeof singleInfo !== "string" && (
+            <>
+              {splitPath(singleInfo.path).name}
+              {singleInfo.taken_at_ms !== null && ` · ${formatDateTime(singleInfo.taken_at_ms)}`}
+              {` · ${formatSize(singleInfo.size, sizeBaseFor(platform), formatLocale)}`}
+            </>
+          )}
+          {typeof selectionSize === "string" && <span className="file-info-error">{selectionSize}</span>}
+          {selectionSize !== null &&
+            typeof selectionSize !== "string" &&
+            (singleSelected === null || selectionSize.count > 1) &&
+            `${singleSelected !== null ? " · " : ""}${t.selectionTotal(
+              formatSize(selectionSize.total, sizeBaseFor(platform), formatLocale),
+            )}`}
         </div>
       )}
       <header className="topbar">
@@ -7832,6 +7877,14 @@ export default function App() {
           )}
           {showExif && viewerItem && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
+              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む */}
+              <div className="exif-title">{t.fileInfoTitle}</div>
+              {(() => {
+                const v = viewerFileInfos.get(viewerItem.id);
+                if (v === undefined) return <div className="exif-row">{t.loading}</div>;
+                if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
+                return <FileInfoRows info={v} />;
+              })()}
               <div className="exif-title">{t.exifTitle}</div>
               {exif === null ? (
                 <div className="exif-row">{t.loading}</div>
@@ -8090,6 +8143,7 @@ export default function App() {
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
         onClose={() => setMenu(null)}
       />
+      {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}
       <ContextMenu
         pos={calMenu?.pos ?? null}
         items={

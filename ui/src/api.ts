@@ -469,6 +469,24 @@ export const originalStatus = (id: number) =>
 export const cloudOnlyMedia = (ids: number[]) =>
   invoke<number[]>("cloud_only_media", { ids });
 
+/** ファイルの基本情報（`dev/adr.file-info-and-context-menu.md` の A）。DB の値だけ——ディスクに触らない */
+export type FileInfo = {
+  id: number;
+  path: string;
+  size: number;
+  mtime_ms: number;
+  /** 本当に分かっている撮影日時だけ。更新日時で埋めた値は null */
+  taken_at_ms: number | null;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+};
+/** まとめて1回で聞く。DB に無い id は返らない */
+export const getFilesInfo = (ids: number[]) => invoke<FileInfo[]>("get_files_info", { ids });
+/** 選択の合計。DB に在る行の数と大きさの合計（バイト） */
+export const getFilesSize = (ids: number[]) =>
+  invoke<{ count: number; total: number }>("get_files_size", { ids });
+
 export const getExifInfo = (id: number) =>
   invoke<ExifInfo>("get_exif_info", { id });
 export const getIndexProgress = () =>
