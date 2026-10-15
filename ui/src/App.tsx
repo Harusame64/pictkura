@@ -3778,7 +3778,11 @@ export default function App() {
         else setStatus(t.extractCopied);
       } catch (e) {
         if (onViewer) flashExtract(item, "extractFailed");
-        else fail(errText(e));
+        else {
+          // 「コピーしています…」を残さない（失敗の面が消えた後に、まだ進んでいるように見える。PR の codex）
+          setStatus("");
+          fail(errText(e));
+        }
       } finally {
         extractingRef.current = false;
         setExtracting(false);
