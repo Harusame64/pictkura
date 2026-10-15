@@ -25,6 +25,7 @@ import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { confirmTemporaryDestination } from "./confirm";
 import { usePlatform } from "./usePlatform";
+import { preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
@@ -149,6 +150,8 @@ export default function ImportWizard({
   onErrorRef.current = onError;
   /** 取り込みを始めた時刻。残り時間の見積もりに使う */
   const importStartedAt = useRef(0);
+  /** 一覧と進捗の器（取り込みを始めたら一番上へ戻す。pictkura-dev #39） */
+  const mainRef = useRef<HTMLDivElement>(null);
   /** 開き直しの再読込で参照する現在地（effectの依存に入れずに読む） */
   const viewRef = useRef<{ path: string | null; deep: boolean }>({
     path: null,
@@ -353,6 +356,24 @@ export default function ImportWizard({
     [loadView],
   );
 
+  /**
+   * **カメラのカードが1枚だけ挿さっていたら、開いた時点で選んでおく**（pictkura-dev #39）。
+   * 候補の決め方は `importPreselect.ts`（macOS のバックアップ用ディスクは選ばない）。
+   * カードから来た（`startPath`）とき・前に見ていたフォルダがあるときは触らない。開いている間に1回だけ
+   * ——ドライブの一覧は後から届くので、届いたときに選ぶ
+   */
+  const preselectedRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) preselectedRef.current = false;
+  }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen || startPath || preselectedRef.current || viewRef.current.path) return;
+    const pick = preselectDrive(drives, platform);
+    if (!pick) return;
+    preselectedRef.current = true;
+    openFolder(pick.path, true);
+  }, [isOpen, startPath, drives, platform, openFolder]);
+
   // 開いたときの初期表示: メディアから来たならその中を丸ごと見せる。
   // `startNonce` も見るのは、開いたまま同じドライブで開き直された場合
   // （カードを差し替えて再びAutoPlayを選ぶ）に、前のカードの一覧を
@@ -469,6 +490,9 @@ export default function ImportWizard({
       // コピー先のダイアログを開いている時間は「コピー時間」ではない。
       // 起点をここに置かないと残り時間の見積もりが桁違いに膨らむ
       if (!(await ensureDestination())) return;
+      // **進捗は一覧の上に出る。** 下のほうまで選んでから押すと見えないまま待たされ、確かめるのを忘れる
+      // （pictkura-dev #39、利用者の声）。始めた時点で一番上へ戻す
+      mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       importStartedAt.current = Date.now();
       const stats = whole
         ? await importFromFolder(current)
@@ -550,7 +574,12 @@ export default function ImportWizard({
     return (
       <div key={node.path}>
         <div
-          className={"wiz-node" + (current === node.path ? " active" : "")}
+          className={
+            "wiz-node" +
+            (current === node.path ? " active" : "") +
+            // カードと取り外せるドライブは目立たせる（pictkura-dev #39。開いた時点で選ぶのは1枚のときだけ）
+            (node.drive && standsOut(node.drive) ? " wiz-card" : "")
+          }
           style={{ paddingInlineStart: `${8 + depth * 14}px` }}
           onClick={() => openFolder(node.path, node.deepDefault)}
           title={node.path}
@@ -647,7 +676,7 @@ export default function ImportWizard({
             </button>
           </div>
 
-          <div className="wizard-main">
+          <div className="wizard-main" ref={mainRef}>
             {progress && (
               <div className="wiz-copying">
                 {/* 今まさにコピーした1枚を見せる。待ち時間の手持ち無沙汰を減らす */}
