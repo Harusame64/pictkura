@@ -426,17 +426,20 @@ export const es: Dict = {
   rootRemoveConfirmOk: "Quitar",
   exporting: (done: number, total: number, name: string) =>
     `Exportando… ${num(done)}/${num(total)} ${name}`,
-  exportDone: (done: number, skipped: number, failed: number) => {
-    const parts = [done === 1 ? "1 foto exportada" : `${num(done)} fotos exportadas`];
+  exportDone: (done: number, skipped: number, failed: number, missing: number) => {
+    const parts: string[] = [];
+    // 書き出すものが無かったときに「0枚を書き出しました」から始めない（pictkura-dev #33）
+    if (done > 0 || skipped + failed + missing === 0) parts.push(done === 1 ? "1 foto exportada" : `${num(done)} fotos exportadas`);
     if (skipped > 0) parts.push(`${num(skipped)} ya ${one(skipped, "estaba", "estaban")}`);
     if (failed > 0) parts.push(`${num(failed)} con error`);
+    if (missing > 0) parts.push(`${num(missing)} ya no ${one(missing, "estaba", "estaban")} en la biblioteca y no se ${one(missing, "ha", "han")} exportado`);
     return parts.join(". ") + ".";
   },
   moving: (done: number, total: number, name: string) =>
     `Moviendo… ${num(done)}/${num(total)} ${name}`,
-  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number) => {
+  moveDone: (moved: number, skipped: number, failed: number, leftBehind: number, missing: number) => {
     const parts: string[] = [];
-    if (moved > 0 || skipped + failed + leftBehind === 0) parts.push(moved === 1 ? "1 foto movida" : `${num(moved)} fotos movidas`);
+    if (moved > 0 || skipped + failed + leftBehind + missing === 0) parts.push(moved === 1 ? "1 foto movida" : `${num(moved)} fotos movidas`);
     if (skipped > 0)
       parts.push(
         `${num(skipped)} ya ${one(skipped, "estaba", "estaban")} en el destino y se ${one(skipped, "queda", "quedan")} donde ${one(skipped, "estaba", "estaban")}`,
@@ -446,6 +449,7 @@ export const es: Dict = {
       parts.push(
         `${num(leftBehind)} se ${one(leftBehind, "ha", "han")} copiado, pero no se ${one(leftBehind, "ha", "han")} podido quitar de donde ${one(leftBehind, "estaba", "estaban")}`,
       );
+    if (missing > 0) parts.push(`${num(missing)} ya no ${one(missing, "estaba", "estaban")} en la biblioteca y no se ${one(missing, "ha", "han")} movido`);
     return parts.join(". ") + ".";
   },
   bulkPickOn: "Marcar con un indicador",

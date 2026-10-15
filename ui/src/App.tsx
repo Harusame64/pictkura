@@ -5970,8 +5970,8 @@ export default function App() {
         }
         setStatus(
           moveFiles
-            ? t.moveDone(st.moved, st.skipped, st.failed, st.left_behind)
-            : t.exportDone(st.done, st.skipped, st.failed),
+            ? t.moveDone(st.moved, st.skipped, st.failed, st.left_behind, st.missing)
+            : t.exportDone(st.done, st.skipped, st.failed, st.missing),
         );
         if (moveFiles) {
           // 移動したぶんはライブラリから外れている。選択も画面も取り直す
