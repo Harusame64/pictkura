@@ -1793,7 +1793,6 @@ impl Db {
         Ok(changed)
     }
 
-    /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     /// 渡した id のうち DB に在る行の数と、その大きさの合計（バイト）。選択の帯の「合計」
     /// （`dev/adr.file-info-and-context-menu.md` の A）。**同じ id は1回だけ数える**。
     /// 全選択の数万件でも変数の上限を越えないよう 400 件ずつ問い合わせる（[`Db::visible_ids`] と同じ刻み）
@@ -1815,6 +1814,7 @@ impl Db {
         Ok((count, total))
     }
 
+    /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self
             .conn

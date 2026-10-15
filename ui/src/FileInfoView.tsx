@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { getFileInfo, type FileInfo } from "./api";
-import { extensionOf, formatBytes, sizeBaseFor, splitPath } from "./fileInfo";
+import { extensionOf, formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import { formatDateTime, formatDuration, formatLocale, formatNumber, t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { usePlatform } from "./usePlatform";
@@ -18,7 +18,7 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
   const rows: [string, string][] = [
     [t.fileInfoName, name],
     [t.fileInfoFolder, folder],
-    [t.fileInfoSize, formatBytes(info.size, base, formatLocale)],
+    [t.fileInfoSize, formatSize(info.size, base, formatLocale)],
     [t.fileInfoTaken, info.taken_at_ms === null ? t.fileInfoTakenUnknown : formatDateTime(info.taken_at_ms)],
     [t.fileInfoModified, formatDateTime(info.mtime_ms)],
   ];

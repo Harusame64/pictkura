@@ -1404,10 +1404,16 @@ struct FilesSizeDto {
     total: i64,
 }
 
+/// 全選択の数万件を受けて数百回問い合わせることがあるので、**画面の糸の外で**走らせる（PR のゲート2）
 #[tauri::command]
-fn get_files_size(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<FilesSizeDto, String> {
-    let (count, total) = state.read_pool.with(|db| db.sizes_of(&ids)).map_err(errs::from_err)?;
-    Ok(FilesSizeDto { count, total })
+async fn get_files_size(app: tauri::AppHandle, ids: Vec<i64>) -> Result<FilesSizeDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (count, total) = state.read_pool.with(|db| db.sizes_of(&ids)).map_err(errs::from_err)?;
+        Ok(FilesSizeDto { count, total })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// この環境で開けない形式があるかの報せ（第7部 段階G-6）。

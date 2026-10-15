@@ -24,7 +24,7 @@ import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useFileInfos } from "./FileInfoView";
-import { formatBytes, sizeBaseFor, splitPath } from "./fileInfo";
+import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
 import {
@@ -538,39 +538,6 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
 });
-
-/**
- * 大きさ（バイト）を「8.4 GB」の形に。送り出しの確認で使う。**OS のファイルの一覧と同じ数え方**にする
- * ——Finder は 1000 で割って小数1桁に四捨五入、エクスプローラー（`StrFormatByteSizeW`）は 1024 で割って
- * **有効3桁で切り捨て**（35.29 → 「35.2」、6.613 → 「6.61」。win の実機で突き合わせた）。食い違うと、
- * 利用者が見比べたときにどちらかが嘘に見える
- */
-const sizeFmt = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 1 });
-const sizeFmt2 = new Intl.NumberFormat(formatLocale, { maximumFractionDigits: 2 });
-function formatSize(bytes: number, base: 1000 | 1024): string {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let v = bytes;
-  let i = 0;
-  // エクスプローラーは 1024 で割るが、**1,000 を超えたら次の単位へ上げる**（1,015 KB ではなく 0.99 MB。ゲート2）
-  const step = base === 1024 ? 1000 : base;
-  while (v >= step && i < units.length - 1) {
-    v /= base;
-    i++;
-  }
-  if (base === 1024) {
-    // 有効3桁で切り捨て（エクスプローラーと同じ）。整数部が3桁ならそのまま
-    const digits = v >= 100 ? 0 : v >= 10 ? 1 : 2;
-    const f = 10 ** digits;
-    const cut = Math.floor(v * f) / f;
-    return `${(digits === 2 ? sizeFmt2 : sizeFmt).format(cut)} ${units[i]}`;
-  }
-  // 丸めると単位の境目に届くもの（999.96 KB → 「1,000 KB」）は、次の単位へ上げる（ゲート2）
-  if (Number(v.toFixed(1)) >= base && i < units.length - 1) {
-    v /= base;
-    i++;
-  }
-  return `${sizeFmt.format(v)} ${units[i]}`;
-}
 
 /**
  * 一覧で選んで送るとき、確認なしで置いてよい枚数の上限（`dev/plan.google-photos-from-library.md` §4。
@@ -5292,7 +5259,7 @@ export default function App() {
    * 選択が変わるたびに投げるので 200ms 待ち、**遅れて届いた答えは捨てる**。待つ間は前の値を出さない
    * （別の選択の合計を、いまの枚数の隣に見せない）
    */
-  const [selectionSize, setSelectionSize] = useState<number | null>(null);
+  const [selectionSize, setSelectionSize] = useState<{ count: number; total: number } | string | null>(null);
   useEffect(() => {
     setSelectionSize(null);
     if (selected.size === 0) return;
@@ -5300,8 +5267,9 @@ export default function App() {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       getFilesSize(ids)
-        .then((r) => !cancelled && setSelectionSize(r.total))
-        .catch(() => {});
+        .then((r) => !cancelled && setSelectionSize(r))
+        // 失敗は理由を出す（黙って空けない。PR のゲート2）
+        .catch((e) => !cancelled && setSelectionSize(errText(e)));
     }, 200);
     return () => {
       cancelled = true;
@@ -6139,7 +6107,7 @@ export default function App() {
               s.videos,
               s.raw_only,
               // 1024 で切り捨てるのはエクスプローラーだけ。macOS・Linux のファイルの一覧は 1000 で丸める（ゲート2）
-              s.bytes > 0 ? formatSize(s.bytes, platform === "windows" ? 1024 : 1000) : "",
+              s.bytes > 0 ? formatSize(s.bytes, sizeBaseFor(platform), formatLocale) : "",
             ),
           ];
           if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));
@@ -6354,6 +6322,7 @@ export default function App() {
       {
         label: t.menuDelete,
         danger: true,
+        separator: true,
         run: () => onDelete(files),
       },
     ],
@@ -6592,17 +6561,22 @@ export default function App() {
       {selecting && (
         <div className="select-info">
           {"\u00a0"}
+          {/* 1タイルは代表のファイル自身の大きさ。重ね（組・連写）でファイルが2つ以上なら、全体を「合計」と添える
+              ——代表の名前の隣に組ぜんぶの大きさだけを置くと、その1ファイルの大きさに読める（PR のゲート2） */}
           {singleInfo !== undefined && typeof singleInfo !== "string" && (
             <>
               {splitPath(singleInfo.path).name}
               {singleInfo.taken_at_ms !== null && ` · ${formatDateTime(singleInfo.taken_at_ms)}`}
-              {selectionSize !== null && " · "}
+              {` · ${formatSize(singleInfo.size, sizeBaseFor(platform), formatLocale)}`}
             </>
           )}
+          {typeof selectionSize === "string" && <span className="file-info-error">{selectionSize}</span>}
           {selectionSize !== null &&
-            (singleSelected !== null
-              ? formatBytes(selectionSize, sizeBaseFor(platform), formatLocale)
-              : t.selectionTotal(formatBytes(selectionSize, sizeBaseFor(platform), formatLocale)))}
+            typeof selectionSize !== "string" &&
+            (singleSelected === null || selectionSize.count > 1) &&
+            `${singleSelected !== null ? " · " : ""}${t.selectionTotal(
+              formatSize(selectionSize.total, sizeBaseFor(platform), formatLocale),
+            )}`}
         </div>
       )}
       <header className="topbar">
