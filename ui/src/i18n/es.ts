@@ -183,6 +183,7 @@ export const es: Dict = {
   extractFilter: "Imagen",
   extractSaved: "Guardada",
   extractCopied: "Copiada",
+  extractCopying: "Copiando…",
   extractFailed: "No se ha podido extraer esta imagen",
   extractSameFile: "No se puede sobrescribir el archivo original",
   viewerExif: "Datos de la foto (I)",

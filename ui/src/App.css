@@ -2121,6 +2121,9 @@ body {
   position: fixed;
   z-index: 300;
   min-width: 200px;
+  /* 窓よりメニューが高いときは中で巻く（低い窓でも「情報」「削除」へ届くように） */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: var(--sp-1);
   background: var(--surface);
   border: 1px solid var(--border);

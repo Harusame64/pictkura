@@ -149,6 +149,7 @@ export const ja = {
   extractFilter: "画像",
   extractSaved: "保存しました",
   extractCopied: "コピーしました",
+  extractCopying: "コピーしています…",
   extractFailed: "取り出せませんでした",
   extractSameFile: "元のファイルには上書きできません",
   viewerExif: "撮影情報 (I)",

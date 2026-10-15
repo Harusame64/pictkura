@@ -8,7 +8,13 @@ import { listen } from "@tauri-apps/api/event";
 
 import { getFilesInfo, type FileInfo } from "./api";
 import { extensionOf, formatSize, sizeBaseFor, splitPath } from "./fileInfo";
-import { formatDateTime, formatDuration, formatLocale, formatNumber, t } from "./i18n";
+import {
+  formatDateTime,
+  formatDuration,
+  formatLocale,
+  formatNumber,
+  t,
+} from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { usePlatform } from "./usePlatform";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
@@ -21,13 +27,22 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
     [t.fileInfoName, name],
     [t.fileInfoFolder, folder],
     [t.fileInfoSize, formatSize(info.size, base, formatLocale)],
-    [t.fileInfoTaken, info.taken_at_ms === null ? t.fileInfoTakenUnknown : formatDateTime(info.taken_at_ms)],
+    [
+      t.fileInfoTaken,
+      info.taken_at_ms === null
+        ? t.fileInfoTakenUnknown
+        : formatDateTime(info.taken_at_ms),
+    ],
     [t.fileInfoModified, formatDateTime(info.mtime_ms)],
   ];
   if (info.width !== null && info.height !== null) {
-    rows.push([t.fileInfoDimensions, `${formatNumber(info.width)} × ${formatNumber(info.height)}`]);
+    rows.push([
+      t.fileInfoDimensions,
+      `${formatNumber(info.width)} × ${formatNumber(info.height)}`,
+    ]);
   }
-  if (info.duration_ms !== null) rows.push([t.fileInfoDuration, formatDuration(info.duration_ms)]);
+  if (info.duration_ms !== null)
+    rows.push([t.fileInfoDuration, formatDuration(info.duration_ms)]);
   const ext = extensionOf(name);
   if (ext) rows.push([t.fileInfoType, ext]);
   return (
@@ -95,7 +110,9 @@ export function useFileInfos(ids: readonly number[] | null) {
     getFilesInfo(list)
       .then((got) => {
         if (mine !== round.current) return;
-        const m = new Map<number, FileInfo | string>(list.map((id) => [id, t.errNotFound]));
+        const m = new Map<number, FileInfo | string>(
+          list.map((id) => [id, t.errNotFound]),
+        );
         for (const info of got) m.set(info.id, info);
         setInfos(m);
       })
@@ -111,7 +128,13 @@ export function useFileInfos(ids: readonly number[] | null) {
 }
 
 /** 右クリックの「情報」。重ねのタイルはファイルごとに節を並べる（RAW と JPEG の大きさが両方見える） */
-export function FileInfoDialog({ ids, onClose }: { ids: readonly number[]; onClose: () => void }) {
+export function FileInfoDialog({
+  ids,
+  onClose,
+}: {
+  ids: readonly number[];
+  onClose: () => void;
+}) {
   const infos = useFileInfos(ids);
   // 手前の幕として Esc を取る（`useWindowEvent` の項。開くのはメニューを閉じた後で、上に幕は生まれない）
   useWindowEvent("keydown", true, (e) => {
@@ -127,20 +150,30 @@ export function FileInfoDialog({ ids, onClose }: { ids: readonly number[]; onClo
         aria-label={t.fileInfoTitle}
         onClick={(e) => e.stopPropagation()}
       >
-        {ids.map((id) => {
-          const v = infos.get(id);
-          return (
-            <section className="file-info-section" key={id}>
-              {v === undefined ? (
-                <div className="exif-row">{t.loading}</div>
-              ) : typeof v === "string" ? (
-                <div className="exif-row file-info-error">{v}</div>
-              ) : (
-                <FileInfoRows info={v} />
-              )}
-            </section>
-          );
-        })}
+        {/* 名前の順に並べる（組の RAW と JPEG が組ごとに逆の順で並んでいた。win の実機、2026-10-16）。
+            答えが届くまでは渡された順 */}
+        {[...ids]
+          .sort((a, b) => {
+            const pa = infos.get(a);
+            const pb = infos.get(b);
+            return typeof pa === "object" && typeof pb === "object"
+              ? pa.path.localeCompare(pb.path)
+              : 0;
+          })
+          .map((id) => {
+            const v = infos.get(id);
+            return (
+              <section className="file-info-section" key={id}>
+                {v === undefined ? (
+                  <div className="exif-row">{t.loading}</div>
+                ) : typeof v === "string" ? (
+                  <div className="exif-row file-info-error">{v}</div>
+                ) : (
+                  <FileInfoRows info={v} />
+                )}
+              </section>
+            );
+          })}
         <div className="file-info-actions">
           <button onClick={onClose} autoFocus>
             {t.close}

@@ -185,6 +185,7 @@ export const zh: Dict = {
   extractFilter: "图像",
   extractSaved: "已保存",
   extractCopied: "已复制",
+  extractCopying: "正在复制…",
   extractFailed: "无法取出这张图片",
   extractSameFile: "不能覆盖原文件",
   viewerExif: "拍摄信息 (I)",

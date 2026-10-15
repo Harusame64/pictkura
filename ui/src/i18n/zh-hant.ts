@@ -188,6 +188,7 @@ export const zhHant: Dict = {
   extractFilter: "影像",
   extractSaved: "已儲存",
   extractCopied: "已複製",
+  extractCopying: "正在複製…",
   extractFailed: "無法取出這張圖片",
   extractSameFile: "不能覆寫原檔案",
   viewerExif: "拍攝資訊 (I)",

@@ -3769,6 +3769,9 @@ export default function App() {
       extractingRef.current = true;
       setExtracting(true);
       const onViewer = viewerItemIdRef.current === item.id;
+      // 一覧からは進んでいることを先に言う。大きな RAW や HEIC は起こすのに数秒〜十数秒かかり、その間は前の
+      // 「コピーしました」が残って、済んだのか進んでいるのか見分けられなかった（win の実機、2026-10-16）
+      if (!onViewer) setStatus(t.extractCopying);
       try {
         await copyDisplayImage(item.id);
         if (onViewer) flashExtract(item, "copied");

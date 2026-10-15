@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /** 右クリックメニューの1項目。`separator` の前に区切り線を引く */
@@ -32,16 +32,17 @@ export default function ContextMenu({
   const ref = useRef<HTMLDivElement>(null);
   const [adjusted, setAdjusted] = useState<MenuPos | null>(pos);
 
-  useEffect(() => setAdjusted(pos), [pos]);
-
-  // 実寸を測ってから画面内へ収める（描画前に位置を確定させ、ちらつきを防ぐ）
+  // 実寸を測ってから画面内へ収める（描画前に位置を確定させ、ちらつきを防ぐ）。
+  // **寄せた位置を後から上書きしない**——以前は `useEffect(() => setAdjusted(pos))` がこの後に走り、
+  // 寄せる前の位置へ戻していた。窓の下のほうで開くと「情報」「削除」が画面の外に出て押せなかった
+  // （win の実機、2026-10-16。項目が増えて表に出た）。項目の数が変われば高さも変わるので測り直す
   useLayoutEffect(() => {
     if (!pos || !ref.current) return;
     const rect = ref.current.getBoundingClientRect();
     const x = Math.min(pos.x, window.innerWidth - rect.width - 8);
     const y = Math.min(pos.y, window.innerHeight - rect.height - 8);
     setAdjusted({ x: Math.max(8, x), y: Math.max(8, y) });
-  }, [pos]);
+  }, [pos, items.length]);
 
   // **受け口は [`useWindowEvent`] 越しに張る**——**張り替えると、その1回が落ちる**
   // （あちらの節に理由）。

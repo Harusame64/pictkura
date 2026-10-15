@@ -128,6 +128,7 @@ export const en: Dict = {
   extractFilter: "Image",
   extractSaved: "Saved",
   extractCopied: "Copied",
+  extractCopying: "Copying…",
   extractFailed: "Could not extract this picture",
   extractSameFile: "Cannot save over the original file",
   viewerExif: "Photo info (I)",

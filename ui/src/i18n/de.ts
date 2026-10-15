@@ -166,6 +166,7 @@ export const de: Dict = {
   extractFilter: "Bild",
   extractSaved: "Gespeichert",
   extractCopied: "Kopiert",
+  extractCopying: "Wird kopiert…",
   extractFailed: "Dieses Bild konnte nicht entnommen werden",
   extractSameFile: "Die Originaldatei kann nicht überschrieben werden",
   viewerExif: "Fotoinfos (I)",
