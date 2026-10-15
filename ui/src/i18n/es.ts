@@ -649,6 +649,7 @@ export const es: Dict = {
     "No se pudo guardar el ajuste. La reproducción automática queda como se acaba de cambiar; el próximo inicio la alineará con el ajuste.",
   errNoLogYet: "Todavía no hay nada registrado.",
   errOutgoingFolderMissing: "La carpeta de Salida no está. Se crea al activar la Salida (si ya está activada, desactívala y vuelve a activarla).",
+  errOpenOutgoingFailed: "No se pudo abrir la carpeta de Salida. Usa «Copiar ruta» y ábrela desde ahí.",
   errNotBundled: "No se incluye en esta compilación.",
   errNoStoreLink: "Este sistema no tiene una página que indicar.",
   errBadKind: "No había nada que abrir.",

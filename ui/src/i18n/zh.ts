@@ -617,6 +617,7 @@ export const zh: Dict = {
     "无法保存该设置。自动播放的注册暂时保持刚才更改后的状态，下次启动时会按设置恢复。",
   errNoLogYet: "还没有任何记录。",
   errOutgoingFolderMissing: "找不到送出文件夹。开启送出后会自动创建（如果已经开启，请先关闭再重新开启）。",
+  errOpenOutgoingFailed: "无法打开送出文件夹。请用“复制路径”复制位置后打开。",
   errNotBundled: "此版本中没有附带。",
   errNoStoreLink: "此系统没有可以指引的页面。",
   errBadKind: "没有可以打开的内容。",

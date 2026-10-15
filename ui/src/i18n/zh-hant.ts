@@ -620,6 +620,7 @@ export const zhHant: Dict = {
     "無法儲存該設定。自動播放的註冊暫時維持剛才變更後的狀態，下次啟動時會依設定恢復。",
   errNoLogYet: "還沒有任何記錄。",
   errOutgoingFolderMissing: "找不到送出資料夾。開啟送出後會自動建立（如果已經開啟，請先關閉再重新開啟）。",
+  errOpenOutgoingFailed: "無法開啟送出資料夾。請用「複製路徑」複製位置後開啟。",
   errNotBundled: "此版本中沒有附帶。",
   errNoStoreLink: "此系統沒有可以指引的頁面。",
   errBadKind: "沒有可以開啟的內容。",

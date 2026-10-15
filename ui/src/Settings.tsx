@@ -267,6 +267,9 @@ export default function Settings({
   /** 送り出しフォルダを開く・写すときの失敗（設定の切り替えの失敗とは別に出す。ゲート2） */
   const [folderError, setFolderError] = useState<string | null>(null);
   const [openingFolder, setOpeningFolder] = useState(false);
+  /** 設定がいま開いているか（待っている間に閉じられた失敗を捨てるため） */
+  const openRef = useRef(open);
+  openRef.current = open;
   const copyPath = async (key: string, path: string) => {
     setFolderError(null);
     if (await copyText(path)) {
@@ -556,7 +559,8 @@ export default function Settings({
                       // 眠った外付けでは数秒かかる。待つ間にもう一度押されても窓を増やさない（ゲート2）
                       setOpeningFolder(true);
                       openGoogleFolder()
-                        .catch((e) => setFolderError(errText(e)))
+                        // 待つ間に設定が閉じられたら、届いた失敗は捨てる（次に開いたときに古い失敗を出さない。PR の codex）
+                        .catch((e) => openRef.current && setFolderError(errText(e)))
                         .finally(() => setOpeningFolder(false));
                     }}
                   >

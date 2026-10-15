@@ -569,6 +569,7 @@ export const en: Dict = {
     "The setting could not be saved. AutoPlay is left as it was just changed, and the next launch puts it back in line with the setting.",
   errNoLogYet: "Nothing has been recorded yet.",
   errOutgoingFolderMissing: "The Outgoing folder is not there. Turning Outgoing on creates it (if it is already on, turn it off and on again).",
+  errOpenOutgoingFailed: "Could not open the Outgoing folder. Use \"Copy path\" and open it from there.",
   errNotBundled: "It is not bundled in this build.",
   errNoStoreLink: "This OS has no page to point you to.",
   errBadKind: "There was nothing to open.",

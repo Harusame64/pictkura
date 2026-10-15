@@ -645,6 +645,7 @@ export const de: Dict = {
     "Die Einstellung ließ sich nicht speichern. Die AutoPlay-Registrierung bleibt vorerst geändert; der nächste Start gleicht sie wieder an.",
   errNoLogYet: "Es wurde noch nichts aufgezeichnet.",
   errOutgoingFolderMissing: "Den Ordner „Ausgang“ gibt es nicht. Er wird angelegt, wenn du den Ausgang einschaltest (ist er schon an, schalte ihn aus und wieder ein).",
+  errOpenOutgoingFailed: "Der Ordner „Ausgang“ ließ sich nicht öffnen. Kopiere den Pfad mit „Pfad kopieren“ und öffne ihn von dort.",
   errNotBundled: "In diesem Build nicht enthalten.",
   errNoStoreLink: "Für dieses Betriebssystem gibt es keine Seite dazu.",
   errBadKind: "Es gab nichts zu öffnen.",

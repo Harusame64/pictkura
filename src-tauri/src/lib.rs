@@ -4379,10 +4379,14 @@ async fn open_google_folder(app: tauri::AppHandle) -> Result<(), String> {
         if !dir.is_dir() {
             return Err(errs::code("errOutgoingFolderMissing"));
         }
-        // 開けなければ、親のフォルダでその行を選ぶところまで落とす（`open_log` と同じ。ゲート2）
+        // 開けなければ、親のフォルダでその行を選ぶところまで落とす（`open_log` と同じ。ゲート2）。それも駄目なら、
+        // OS の生の文は記録に残し、画面には訳した文を返す（OS の文は英語のことが多い。PR の codex）
         match tauri_plugin_opener::open_path(&dir, None::<&str>) {
             Ok(()) => Ok(()),
-            Err(e) => tauri_plugin_opener::reveal_item_in_dir(&dir).map_err(|_| e.to_string()),
+            Err(e) => tauri_plugin_opener::reveal_item_in_dir(&dir).map_err(|_| {
+                applog::note(&format!("could not open the Outgoing folder: {e}"));
+                errs::code("errOpenOutgoingFailed")
+            }),
         }
     })
     .await
