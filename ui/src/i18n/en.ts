@@ -416,6 +416,9 @@ export const en: Dict = {
   settingsGoogleToggle: "Also place imported photos in the Outgoing folder",
   settingsGoogleNote: "Each import also lines up the photos in the Outgoing folder (it takes no extra disk space). For RAW+JPEG pairs only the JPEG goes in. If you use Google Photos: add this folder to folder backup in Google Photos.",
   settingsGoogleFolder: "Folder",
+  settingsGoogleOpenFolder: "Open folder",
+  settingsGoogleCopyPath: "Copy path",
+  settingsGoogleCopied: "Copied",
   settingsGoogleFolderNote: "It sits on the same drive as the import destination. Choose a place outside any folder another backup watches, such as a NAS or Amazon Photos.",
   settingsGoogleFoldersNote: "Outgoing folders pictkura has placed photos in (one is made per drive). If you use Google Photos: add each one you use to folder backup.",
   settingsGoogleVideo: "Place videos too",
@@ -564,6 +567,7 @@ export const en: Dict = {
   errAutoplayRollback:
     "The setting could not be saved. AutoPlay is left as it was just changed, and the next launch puts it back in line with the setting.",
   errNoLogYet: "Nothing has been recorded yet.",
+  errOutgoingFolderMissing: "The Outgoing folder is not there. Turning Outgoing on creates it (if it is already on, turn it off and on again).",
   errNotBundled: "It is not bundled in this build.",
   errNoStoreLink: "This OS has no page to point you to.",
   errBadKind: "There was nothing to open.",

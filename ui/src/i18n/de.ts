@@ -490,6 +490,9 @@ export const de: Dict = {
   settingsGoogleToggle: "Importierte Fotos auch in den Ordner „Ausgang“ legen",
   settingsGoogleNote: "Bei jedem Import werden die Fotos auch im Ordner „Ausgang“ abgelegt (das belegt keinen zusätzlichen Speicherplatz). Von RAW+JPEG-Paaren kommt nur das JPEG hinein. Wenn du Google Fotos nutzt: Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu.",
   settingsGoogleFolder: "Ordner",
+  settingsGoogleOpenFolder: "Ordner öffnen",
+  settingsGoogleCopyPath: "Pfad kopieren",
+  settingsGoogleCopied: "Kopiert",
   settingsGoogleFolderNote: "Er liegt auf demselben Laufwerk wie das Importziel. Wähle einen Ort außerhalb der Ordner, die eine andere Sicherung überwacht, etwa ein NAS oder Amazon Photos.",
   settingsGoogleFoldersNote: "Ordner „Ausgang“, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Wenn du Google Fotos nutzt: Füge jeden, den du nutzt, der Ordnersicherung hinzu.",
   settingsGoogleVideo: "Auch Videos ablegen",
@@ -640,6 +643,7 @@ export const de: Dict = {
   errAutoplayRollback:
     "Die Einstellung ließ sich nicht speichern. Die AutoPlay-Registrierung bleibt vorerst geändert; der nächste Start gleicht sie wieder an.",
   errNoLogYet: "Es wurde noch nichts aufgezeichnet.",
+  errOutgoingFolderMissing: "Den Ordner „Ausgang“ gibt es nicht. Er wird angelegt, wenn du den Ausgang einschaltest (ist er schon an, schalte ihn aus und wieder ein).",
   errNotBundled: "In diesem Build nicht enthalten.",
   errNoStoreLink: "Für dieses Betriebssystem gibt es keine Seite dazu.",
   errBadKind: "Es gab nichts zu öffnen.",

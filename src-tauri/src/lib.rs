@@ -4366,6 +4366,24 @@ async fn google_location(app: tauri::AppHandle) -> Result<GoogleLocationDto, Str
     .await
 }
 
+/// 送り出しフォルダを OS のファイル画面（エクスプローラー・Finder）で開く（pictkura-dev #40）。
+///
+/// 写真サービスの画面でフォルダを選ぶときに、利用者が場所を探して迷った（2026-10-10 利用者）。
+/// **パスは受け取らない**——開くのは設定から求めた送り出しフォルダだけ（`open_log` と同じ理由）。
+/// まだ作られていなければ、そう言う（送り出しを入れると作られる）
+#[tauri::command]
+async fn open_google_folder(app: tauri::AppHandle) -> Result<(), String> {
+    on_blocking(app, |state| {
+        let config = lock_ok(&state.config).clone();
+        let (_, dir) = resolve_google_location(&config)?;
+        if !dir.is_dir() {
+            return Err(errs::code("errOutgoingFolderMissing"));
+        }
+        tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| e.to_string())
+    })
+    .await
+}
+
 /// pictkura が置いた（＝作った）Google 用フォルダの一覧と、いまの取り込み先の場所。設定の「送り出し」に
 /// 並べて、どれも Google フォトに登録するよう書く（作った回の知らせを見逃しても辿れるように。2026-10-06 利用者決定）
 #[tauri::command]
@@ -7064,6 +7082,7 @@ pub fn run() {
             set_stack_raw_jpeg,
             set_stack_bursts,
             google_location,
+            open_google_folder,
             google_folders,
             set_google_enabled,
             set_google_location,

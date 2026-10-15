@@ -494,6 +494,9 @@ export const es: Dict = {
   settingsGoogleNote:
     "En cada importación, las fotos se colocan también en la carpeta de Salida (no ocupa espacio extra en el disco). De los pares RAW+JPEG solo entra el JPEG. Si usas Google Fotos: añade esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   settingsGoogleFolder: "Carpeta",
+  settingsGoogleOpenFolder: "Abrir carpeta",
+  settingsGoogleCopyPath: "Copiar ruta",
+  settingsGoogleCopied: "Copiada",
   settingsGoogleFolderNote: "Está en la misma unidad que la carpeta de destino de la importación. Elige un lugar fuera de las carpetas que vigila otra copia de seguridad, como un NAS o Amazon Photos.",
   settingsGoogleFoldersNote:
     "Carpetas de Salida en las que pictkura ha colocado fotos (se crea una por unidad). Si usas Google Fotos: añade cada una que uses a la copia de seguridad de carpetas.",
@@ -644,6 +647,7 @@ export const es: Dict = {
   errAutoplayRollback:
     "No se pudo guardar el ajuste. La reproducción automática queda como se acaba de cambiar; el próximo inicio la alineará con el ajuste.",
   errNoLogYet: "Todavía no hay nada registrado.",
+  errOutgoingFolderMissing: "La carpeta de Salida no está. Se crea al activar la Salida (si ya está activada, desactívala y vuelve a activarla).",
   errNotBundled: "No se incluye en esta compilación.",
   errNoStoreLink: "Este sistema no tiene una página que indicar.",
   errBadKind: "No había nada que abrir.",

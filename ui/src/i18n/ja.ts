@@ -511,6 +511,9 @@ export const ja = {
   settingsGoogleToggle: "取り込んだ写真を送り出しフォルダにも置く",
   settingsGoogleNote: "取り込みのたびに、写真を送り出しフォルダにも並べます（ディスクは余分に使いません）。RAW と JPEG の組は JPEG だけを置きます。Google フォトを使う場合：このフォルダを Google フォトの「フォルダをバックアップ」に登録してください。",
   settingsGoogleFolder: "フォルダ",
+  settingsGoogleOpenFolder: "フォルダを開く",
+  settingsGoogleCopyPath: "パスをコピー",
+  settingsGoogleCopied: "コピーしました",
   settingsGoogleFolderNote: "取り込み先と同じドライブに置きます。NAS や Amazon Photos など、ほかのバックアップが見張っているフォルダの外を選んでください。",
   settingsGoogleFoldersNote: "pictkura がこれまでに写真を置いた送り出しフォルダです（ドライブごとに作ります）。Google フォトを使う場合：使うものは、どれも「フォルダをバックアップ」に登録してください。",
   settingsGoogleVideo: "動画も置く",
@@ -667,6 +670,7 @@ export const ja = {
   errAutoplayRollback:
     "設定を保存できませんでした。自動再生の登録だけが変わったまま残っていますが、次に起動したときに設定どおりへ直します。",
   errNoLogYet: "まだ記録はありません。",
+  errOutgoingFolderMissing: "送り出しフォルダが見つかりません。送り出しを入れると（入っていれば、いったん切って入れ直すと）作られます。",
   errNotBundled: "この実行環境には同梱されていません。",
   errNoStoreLink: "このOSでは案内できる入手先がありません。",
   errBadKind: "開き方が分かりませんでした。",

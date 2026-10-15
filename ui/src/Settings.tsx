@@ -27,6 +27,7 @@ import {
   burstGapOf,
   setRegisterAutoplay,
   googleLocation,
+  openGoogleFolder,
   googleFolders,
   setGoogleEnabled,
   setGoogleLocation,
@@ -41,6 +42,7 @@ import {
   type ExternalApp,
   type FolderPattern,
 } from "./api";
+import { copyText } from "./copyText";
 import { usePlatform } from "./usePlatform";
 import { confirmTemporaryDestination } from "./confirm";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
@@ -256,6 +258,14 @@ export default function Settings({
   const [googleDirs, setGoogleDirs] = useState<string[]>([]);
   /** 入れる・場所を選ぶのが断られた理由（ダイアログの中に出す。`destError` と同じ扱い） */
   const [googleError, setGoogleError] = useState<string | null>(null);
+  /** いまコピーを知らせているパス（押したボタンだけ「コピーしました」にする。pictkura-dev #40） */
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const copyPath = async (path: string) => {
+    if (await copyText(path)) {
+      setCopiedPath(path);
+      setTimeout(() => setCopiedPath((p) => (p === path ? null : p)), 1500);
+    }
+  };
   /** 場所を選んでいる・入れている最中。二度押しで確かめを重ねない */
   const [googleBusy, setGoogleBusy] = useState(false);
   const googleKey = JSON.stringify([
@@ -516,6 +526,24 @@ export default function Settings({
               >
                 {t.wizardChangeDestination}
               </button>
+              {/* 写真サービスの画面でフォルダを選ぶときに迷わないよう、パスを写す・フォルダを開く（pictkura-dev #40） */}
+              <button
+                className="settings-dest-change"
+                disabled={!googleLoc?.path}
+                onClick={() => googleLoc?.path && void copyPath(googleLoc.path)}
+              >
+                {copiedPath !== null && copiedPath === googleLoc?.path ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
+              </button>
+              <button
+                className="settings-dest-change"
+                disabled={!googleLoc?.path || googleBusy}
+                onClick={() => {
+                  setGoogleError(null);
+                  openGoogleFolder().catch((e) => setGoogleError(errText(e)));
+                }}
+              >
+                {t.settingsGoogleOpenFolder}
+              </button>
             </div>
             <p className="settings-note">{t.settingsGoogleFolderNote}</p>
             {/* ドライブごとに作ったフォルダの一覧（上の「フォルダ」に出ていないものが1つでもあるとき。取り込み先を
@@ -528,7 +556,10 @@ export default function Settings({
                 <ul>
                   {googleDirs.map((d) => (
                     <li key={d}>
-                      <code>{d}</code>
+                      <code>{d}</code>{" "}
+                      <button className="settings-dest-change" onClick={() => void copyPath(d)}>
+                        {copiedPath === d ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
+                      </button>
                     </li>
                   ))}
                 </ul>

@@ -876,6 +876,9 @@ export interface GoogleLocation {
 
 export const googleLocation = () => invoke<GoogleLocation>("google_location");
 
+/** 送り出しフォルダを OS のファイル画面で開く（pictkura-dev #40。パスは渡さない——設定から求める） */
+export const openGoogleFolder = () => invoke<void>("open_google_folder");
+
 /** pictkura が作った Google 用フォルダの一覧（ドライブごと。どれも Google フォトへの登録が要る） */
 export const googleFolders = () => invoke<string[]>("google_folders");
 
