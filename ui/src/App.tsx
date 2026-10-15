@@ -102,7 +102,10 @@ import {
   googleAddPickedFrames,
   googleRemoveChosen,
   type ChosenForGoogle,
+  googleLocation,
+  openGoogleFolder,
 } from "./api";
+import { copyText } from "./copyText";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { GooglePlaced, VideoStatus } from "./api";
@@ -6015,6 +6018,25 @@ export default function App() {
 
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
   const googleOn = config?.google_mirror?.enabled ?? false;
+  /**
+   * 送り出しの画面の案内（pictkura-dev #40、利用者 2026-10-15）:「送り出し画面には、送り出しフォルダを開くがほしい」
+   * 「写真サービスへ送り出しフォルダを選ぶようメッセージを出しておく」。入れていて、送り出しを見ているときだけ場所を聞く
+   */
+  const [outgoingPath, setOutgoingPath] = useState<string | null>(null);
+  const [outgoingCopied, setOutgoingCopied] = useState(false);
+  const [outgoingOpening, setOutgoingOpening] = useState(false);
+  const [outgoingError, setOutgoingError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!googleOn || filter !== "outgoing") return;
+    let cancelled = false;
+    setOutgoingError(null);
+    googleLocation()
+      .then((l) => !cancelled && setOutgoingPath(l.path ?? null))
+      .catch(() => !cancelled && setOutgoingPath(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [googleOn, filter, config?.routing.destination]);
 
   /**
    * 選んだものを送り出しへ置く（設計 ②。`dev/plan.google-photos-from-library.md`）。
@@ -6899,6 +6921,43 @@ export default function App() {
           </div>
         </nav>
         <div className="main">
+          {/* 送り出しの案内（pictkura-dev #40）。写真サービスでこのフォルダを選ぶよう言い、開く・写すを置く */}
+          {googleOn && filter === "outgoing" && (
+            <div className="outgoing-guide">
+              <p>{t.outgoingGuide}</p>
+              {outgoingPath && (
+                <div className="outgoing-guide-folder">
+                  <code>{outgoingPath}</code>
+                  <button
+                    disabled={outgoingOpening}
+                    onClick={() => {
+                      setOutgoingError(null);
+                      setOutgoingOpening(true);
+                      openGoogleFolder()
+                        .catch((e) => setOutgoingError(errText(e)))
+                        .finally(() => setOutgoingOpening(false));
+                    }}
+                  >
+                    {t.settingsGoogleOpenFolder}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setOutgoingError(null);
+                      if (await copyText(outgoingPath)) {
+                        setOutgoingCopied(true);
+                        window.setTimeout(() => setOutgoingCopied(false), 1500);
+                      } else {
+                        setOutgoingError(t.settingsGoogleCopyFailed);
+                      }
+                    }}
+                  >
+                    {outgoingCopied ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
+                  </button>
+                </div>
+              )}
+              {outgoingError && <p className="outgoing-guide-error">{outgoingError}</p>}
+            </div>
+          )}
           {/* 検索中は隠す: 思い出は検索条件を無視して取っているため、結果と
               無関係な写真が混ざるうえ、開いてもタイムライン上に居場所がなく
               ビューアがすぐ閉じてしまう */}

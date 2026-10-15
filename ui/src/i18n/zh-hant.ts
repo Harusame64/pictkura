@@ -88,6 +88,7 @@ export const zhHant: Dict = {
   navFavorites: "★ 最愛",
   navPicked: "⚑ 已留用",
   navOutgoing: "送出",
+  outgoingGuide: "請在照片服務的應用程式中，把這個送出資料夾選為要備份（同步）的資料夾。之後每次匯入，照片都會排進這裡，由服務自動取走。使用 Google 相簿時：請在 Google 相簿的資料夾備份中加入這個資料夾。",
   navKinds: "類型",
   kindPhoto: "照片",
   kindRaw: "RAW",

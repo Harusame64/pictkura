@@ -441,6 +441,32 @@ body {
 }
 
 /* 思い出（〇年前の今日） */
+/* 送り出しの案内（pictkura-dev #40）。思い出の帯と同じく .main の縦の flex の頭に置く */
+.outgoing-guide {
+  flex: none;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.outgoing-guide p {
+  margin: 0;
+}
+.outgoing-guide-folder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.outgoing-guide-folder code {
+  color: var(--text);
+  word-break: break-all;
+}
+.outgoing-guide-error {
+  color: var(--danger);
+}
 .memories {
   flex: none;
   display: flex;

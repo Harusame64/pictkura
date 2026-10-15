@@ -122,6 +122,8 @@ export const es419: Dict = {
     "Si usas Google Fotos: la subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
   googleSendGoogleNoteNew:
     "Si usas Google Fotos: agrega también cada carpeta nueva a la copia de seguridad de carpetas de Google Fotos. La subida la hace la página web de Google Fotos (photos.google.com), así que avanza mientras esa página está abierta en el navegador.",
+  outgoingGuide:
+    "Elige esta carpeta de Salida como carpeta para copiar (sincronizar) en la aplicación de tu servicio de fotos. A partir de entonces, cada importación coloca aquí las fotos y el servicio las recoge. Si usas Google Fotos: agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   settingsGoogleNote:
     "En cada importación, las fotos se colocan también en la carpeta de Salida (no ocupa espacio extra en el disco). De los pares RAW+JPEG solo entra el JPEG. Si usas Google Fotos: agrega esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   errRootManaged:

@@ -26,6 +26,7 @@ export const en: Dict = {
   navFavorites: "★ Favorites",
   navPicked: "⚑ Picked",
   navOutgoing: "Outgoing",
+  outgoingGuide: "Choose this Outgoing folder as a folder to back up (sync) in your photo service's app. From then on, each import lines photos up here and the service picks them up. If you use Google Photos: add this folder to folder backup in Google Photos.",
   navKinds: "Kind",
   kindPhoto: "Photos",
   kindRaw: "RAW",
