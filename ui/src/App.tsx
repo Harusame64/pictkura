@@ -3708,8 +3708,15 @@ export default function App() {
    * 置き場所は**前回保存した先**（無ければ「ピクチャ」）。同じ場所へ何枚も
    * 取り出す使い方で、毎回たどり直させないため（`extract_suggested_path`）。
    */
+  /**
+   * 抽出（保存・コピー）が走っているか。**描画を待たずに読める印**——`extracting` の state は次の描画まで古く、
+   * 右クリックの「コピー」は帯のボタンの伏せ方を通らないので、保存の途中に割り込めた（#207 の PR codex）
+   */
+  const extractingRef = useRef(false);
   const saveViewerImage = useCallback(
     async (item: MediaItem) => {
+      if (extractingRef.current) return;
+      extractingRef.current = true;
       setExtracting(true);
       // **ダイアログを出すところまで囲う**。`extractSuggestedPath` も `save` も
       // 転ぶことがある（行が消えている・OSがダイアログを出せない）。外に置くと
@@ -3741,6 +3748,7 @@ export default function App() {
             : "extractFailed",
         );
       } finally {
+        extractingRef.current = false;
         setExtracting(false);
       }
     },
@@ -3755,7 +3763,6 @@ export default function App() {
    * - 走っている間は受け付けない（HEIC・大きな TIFF は起こすのに1秒前後かかり、二度押しで2本走る）
    * - 知らせはビューアに出ているならその絵の上（`flashExtract`）、一覧からなら状態の1行／失敗の面
    */
-  const extractingRef = useRef(false);
   const copyViewerImage = useCallback(
     async (item: MediaItem) => {
       if (extractingRef.current) return;
