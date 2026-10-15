@@ -514,6 +514,7 @@ export const ja = {
   settingsGoogleOpenFolder: "フォルダを開く",
   settingsGoogleCopyPath: "パスをコピー",
   settingsGoogleCopied: "コピーしました",
+  settingsGoogleCopyFailed: "コピーできませんでした。パスを選んで写してください。",
   settingsGoogleFolderNote: "取り込み先と同じドライブに置きます。NAS や Amazon Photos など、ほかのバックアップが見張っているフォルダの外を選んでください。",
   settingsGoogleFoldersNote: "pictkura がこれまでに写真を置いた送り出しフォルダです（ドライブごとに作ります）。Google フォトを使う場合：使うものは、どれも「フォルダをバックアップ」に登録してください。",
   settingsGoogleVideo: "動画も置く",

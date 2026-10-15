@@ -4379,7 +4379,11 @@ async fn open_google_folder(app: tauri::AppHandle) -> Result<(), String> {
         if !dir.is_dir() {
             return Err(errs::code("errOutgoingFolderMissing"));
         }
-        tauri_plugin_opener::open_path(&dir, None::<&str>).map_err(|e| e.to_string())
+        // 開けなければ、親のフォルダでその行を選ぶところまで落とす（`open_log` と同じ。ゲート2）
+        match tauri_plugin_opener::open_path(&dir, None::<&str>) {
+            Ok(()) => Ok(()),
+            Err(e) => tauri_plugin_opener::reveal_item_in_dir(&dir).map_err(|_| e.to_string()),
+        }
     })
     .await
 }

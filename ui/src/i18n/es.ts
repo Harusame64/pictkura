@@ -497,6 +497,7 @@ export const es: Dict = {
   settingsGoogleOpenFolder: "Abrir carpeta",
   settingsGoogleCopyPath: "Copiar ruta",
   settingsGoogleCopied: "Copiada",
+  settingsGoogleCopyFailed: "No se pudo copiar. Selecciona la ruta y cópiala.",
   settingsGoogleFolderNote: "Está en la misma unidad que la carpeta de destino de la importación. Elige un lugar fuera de las carpetas que vigila otra copia de seguridad, como un NAS o Amazon Photos.",
   settingsGoogleFoldersNote:
     "Carpetas de Salida en las que pictkura ha colocado fotos (se crea una por unidad). Si usas Google Fotos: añade cada una que uses a la copia de seguridad de carpetas.",

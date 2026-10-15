@@ -493,6 +493,7 @@ export const de: Dict = {
   settingsGoogleOpenFolder: "Ordner öffnen",
   settingsGoogleCopyPath: "Pfad kopieren",
   settingsGoogleCopied: "Kopiert",
+  settingsGoogleCopyFailed: "Kopieren ging nicht. Markiere den Pfad und kopiere ihn.",
   settingsGoogleFolderNote: "Er liegt auf demselben Laufwerk wie das Importziel. Wähle einen Ort außerhalb der Ordner, die eine andere Sicherung überwacht, etwa ein NAS oder Amazon Photos.",
   settingsGoogleFoldersNote: "Ordner „Ausgang“, in die pictkura bisher Fotos gelegt hat (pro Laufwerk wird einer angelegt). Wenn du Google Fotos nutzt: Füge jeden, den du nutzt, der Ordnersicherung hinzu.",
   settingsGoogleVideo: "Auch Videos ablegen",

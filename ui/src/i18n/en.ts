@@ -419,6 +419,7 @@ export const en: Dict = {
   settingsGoogleOpenFolder: "Open folder",
   settingsGoogleCopyPath: "Copy path",
   settingsGoogleCopied: "Copied",
+  settingsGoogleCopyFailed: "Could not copy. Select the path and copy it.",
   settingsGoogleFolderNote: "It sits on the same drive as the import destination. Choose a place outside any folder another backup watches, such as a NAS or Amazon Photos.",
   settingsGoogleFoldersNote: "Outgoing folders pictkura has placed photos in (one is made per drive). If you use Google Photos: add each one you use to folder backup.",
   settingsGoogleVideo: "Place videos too",

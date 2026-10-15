@@ -472,6 +472,7 @@ export const zh: Dict = {
   settingsGoogleOpenFolder: "打开文件夹",
   settingsGoogleCopyPath: "复制路径",
   settingsGoogleCopied: "已复制",
+  settingsGoogleCopyFailed: "无法复制。请选中路径后复制。",
   settingsGoogleFolderNote: "放在与导入目标相同的磁盘上。请选在 NAS、Amazon Photos 等其他备份所监视的文件夹之外。",
   settingsGoogleFoldersNote: "pictkura 曾放入照片的送出文件夹（每个磁盘建一个）。使用 Google 相册时：请在文件夹备份中添加你要使用的每一个。",
   settingsGoogleVideo: "视频也放",
