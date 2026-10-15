@@ -377,6 +377,7 @@ export const zh: Dict = {
   menuOpenWith: (name: string) => `用 ${name} 打开`,
   menuOpenWithOther: "用其他应用打开…",
   menuReveal: "在文件夹中显示",
+  menuCopyImage: "复制到剪贴板",
   menuDelete: "删除（移到回收站）",
   menuInfo: "信息",
   fileInfoTitle: "文件",

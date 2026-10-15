@@ -319,6 +319,7 @@ export const en: Dict = {
   menuOpenWith: (name: string) => `Open with ${name}`,
   menuOpenWithOther: "Open with another app…",
   menuReveal: "Show in folder",
+  menuCopyImage: "Copy to clipboard",
   menuDelete: "Delete (move to trash)",
   menuInfo: "Info",
   fileInfoTitle: "File",

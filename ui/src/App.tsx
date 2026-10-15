@@ -6267,6 +6267,21 @@ export default function App() {
         separator: true,
         run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
+      // 画像そのものをクリップボードへ（ADR の B-1。ビューアの「抽出」と同じ `copy_display_image`——向きを直した絵、
+      // RAW・HEIC も貼れる）。対象は表紙の1枚。動画と SVG には出さない（ビューアと同じ条件）
+      ...(item.is_video || /\.svg$/i.test(item.file_name)
+        ? []
+        : [
+            {
+              label: t.menuCopyImage,
+              separator: true,
+              run: () => {
+                copyDisplayImage(item.id)
+                  .then(() => setStatus(t.extractCopied))
+                  .catch((e) => fail(errText(e)));
+              },
+            },
+          ]),
       // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
       // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
       // どれか1つに付いていれば「付いている」と見せる（タイルの ★/⚑ と同じ規則）
