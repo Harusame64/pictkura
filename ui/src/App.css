@@ -2214,6 +2214,12 @@ body {
   background: var(--accent-soft);
   color: var(--text);
 }
+/* カードと取り外せるドライブ（pictkura-dev #39）。挿したカードが一覧に埋もれないように */
+.wiz-node.wiz-card {
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 .wiz-twisty {
   width: 16px;
   flex: none;

@@ -25,6 +25,7 @@ import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { confirmTemporaryDestination } from "./confirm";
 import { usePlatform } from "./usePlatform";
+import { isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
@@ -149,6 +150,8 @@ export default function ImportWizard({
   onErrorRef.current = onError;
   /** 取り込みを始めた時刻。残り時間の見積もりに使う */
   const importStartedAt = useRef(0);
+  /** 一覧と進捗の器（取り込みを始めたら一番上へ戻す。pictkura-dev #39） */
+  const mainRef = useRef<HTMLDivElement>(null);
   /** 開き直しの再読込で参照する現在地（effectの依存に入れずに読む） */
   const viewRef = useRef<{ path: string | null; deep: boolean }>({
     path: null,
@@ -378,15 +381,35 @@ export default function ImportWizard({
     if (isOpen) openedAtRef.current = performance.now();
   }, [isOpen, startNonce]);
 
-  // 開き直したら「済」判定と中身を読み直す（前回の取り込みで状況が変わっている）
+  // 開き直したら「済」判定と中身を読み直す（前回の取り込みで状況が変わっている）。
+  //
+  // **カメラのカードが1枚だけ挿さっていたら、開いた時点でそれを選ぶ**（pictkura-dev #39）。候補の決め方は
+  // `importPreselect.ts`。判断は開いた瞬間に1回だけ——開いている間にドライブの一覧が変わっても選び直さない
+  // （AutoPlay の `startPath` と同じカードを2度走査しない。ゲート2）。カードから来た（`startPath`）ときは触らない。
+  // 前に見ていたフォルダがそのカードの中なら、そのまま読み直す。別の場所（前のカード・外したドライブ）なら
+  // カードを開く——一度何かを見たあとは二度と選ばない、にしない（ゲート2）。同じ処理の中で決めるのは、
+  // 読み直しとカードの走査を同時に走らせないため
+  const drivesRef = useRef(drives);
+  drivesRef.current = drives;
+  const startPathRef = useRef(startPath);
+  startPathRef.current = startPath;
+  const platformRef = useRef(platform);
+  platformRef.current = platform;
   useEffect(() => {
     if (!isOpen) return;
     setImported({});
     setSelected(new Set());
     autoSelect.current = true;
     const view = viewRef.current;
+    if (!startPathRef.current) {
+      const pick = preselectDrive(drivesRef.current, platformRef.current);
+      if (pick && !isViewing(view.path, pick)) {
+        openFolder(openPathOf(pick), true);
+        return;
+      }
+    }
     if (view.path) loadView(view.path, view.deep);
-  }, [isOpen, loadView]);
+  }, [isOpen, loadView, openFolder]);
 
   // **`Esc` は、いちばん手前の物が取る**（2026-09-08）。
   //
@@ -469,6 +492,11 @@ export default function ImportWizard({
       // コピー先のダイアログを開いている時間は「コピー時間」ではない。
       // 起点をここに置かないと残り時間の見積もりが桁違いに膨らむ
       if (!(await ensureDestination())) return;
+      // **進捗は一覧の上に出る。** 下のほうまで選んでから押すと見えないまま待たされ、確かめるのを忘れる
+      // （pictkura-dev #39、利用者の声）。始めた時点で一番上へ戻す
+      // 動きを減らす設定なら一瞬で（ほかの動きと同じく prefers-reduced-motion に従う。ゲート2）
+      const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      mainRef.current?.scrollTo({ top: 0, behavior: still ? "auto" : "smooth" });
       importStartedAt.current = Date.now();
       const stats = whole
         ? await importFromFolder(current)
@@ -550,7 +578,12 @@ export default function ImportWizard({
     return (
       <div key={node.path}>
         <div
-          className={"wiz-node" + (current === node.path ? " active" : "")}
+          className={
+            "wiz-node" +
+            (current === node.path ? " active" : "") +
+            // カードと取り外せるドライブは目立たせる（pictkura-dev #39。開いた時点で選ぶのは1枚のときだけ）
+            (node.drive && standsOut(node.drive) ? " wiz-card" : "")
+          }
           style={{ paddingInlineStart: `${8 + depth * 14}px` }}
           onClick={() => openFolder(node.path, node.deepDefault)}
           title={node.path}
@@ -647,7 +680,7 @@ export default function ImportWizard({
             </button>
           </div>
 
-          <div className="wizard-main">
+          <div className="wizard-main" ref={mainRef}>
             {progress && (
               <div className="wiz-copying">
                 {/* 今まさにコピーした1枚を見せる。待ち時間の手持ち無沙汰を減らす */}
