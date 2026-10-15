@@ -6030,9 +6030,12 @@ export default function App() {
   const outgoingKey = JSON.stringify([config?.routing.destination, config?.library.roots, config?.google_mirror]);
   const [outgoingLoc, setOutgoingLoc] = useState<{ key: string; path: string | null; error: string | null } | null>(null);
   const [outgoingDirs, setOutgoingDirs] = useState<string[]>([]);
+  /** いちばん最近に聞いた材料。答えの側を依存に入れると、場所が先に届いた時点で一覧の問い合わせが取り消される（PR の codex） */
+  const outgoingAskedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!googleOn || filter !== "outgoing") return;
-    if (outgoingLoc?.key === outgoingKey) return;
+    if (outgoingAskedKey.current === outgoingKey) return;
+    outgoingAskedKey.current = outgoingKey;
     let cancelled = false;
     setOutgoingLoc(null);
     setOutgoingDirs([]);
@@ -6044,8 +6047,10 @@ export default function App() {
       .catch(() => {});
     return () => {
       cancelled = true;
+      // 答えが届く前に取り消されたら、次に来たときに聞き直す
+      if (outgoingAskedKey.current === outgoingKey) outgoingAskedKey.current = null;
     };
-  }, [googleOn, filter, outgoingKey, outgoingLoc?.key]);
+  }, [googleOn, filter, outgoingKey]);
 
   /**
    * 選んだものを送り出しへ置く（設計 ②。`dev/plan.google-photos-from-library.md`）。

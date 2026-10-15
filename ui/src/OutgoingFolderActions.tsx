@@ -26,26 +26,32 @@ export function OutgoingFolderActions({
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
-  /** 押した回の番号。パスが変わる・消えると進む——それより前の回の結果は捨てる */
-  const round = useRef(0);
+  /**
+   * 押した回の番号。**写すと開くで別に数える**——同じ番号だと、開くのを待つ間に写したら開く失敗が捨てられる
+   * （PR の codex）。パスが変わる・消えると両方進む——それより前の回の結果は捨てる
+   */
+  const copyRound = useRef(0);
+  const openRound = useRef(0);
   useEffect(() => {
-    round.current += 1;
+    copyRound.current += 1;
+    openRound.current += 1;
     setError(null);
     setCopied(false);
   }, [path]);
   useEffect(
     () => () => {
-      round.current += 1;
+      copyRound.current += 1;
+      openRound.current += 1;
       window.clearTimeout(timer.current);
     },
     [],
   );
 
   const copy = async () => {
-    const mine = ++round.current;
+    const mine = ++copyRound.current;
     setError(null);
     const ok = await copyText(path);
-    if (mine !== round.current) return;
+    if (mine !== copyRound.current) return;
     if (ok) {
       setCopied(true);
       // 続けて押したら前の消し時計は止める（早く消えないように）
@@ -57,12 +63,12 @@ export function OutgoingFolderActions({
   };
 
   const open = () => {
-    const mine = ++round.current;
+    const mine = ++openRound.current;
     setError(null);
     // 眠った外付けでは数秒かかる。待つ間にもう一度押されても窓を増やさない
     setOpening(true);
     openGoogleFolder()
-      .catch((e) => mine === round.current && setError(errText(e)))
+      .catch((e) => mine === openRound.current && setError(errText(e)))
       .finally(() => setOpening(false));
   };
 
