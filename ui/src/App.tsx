@@ -102,7 +102,10 @@ import {
   googleAddPickedFrames,
   googleRemoveChosen,
   type ChosenForGoogle,
+  googleLocation,
+  googleFolders,
 } from "./api";
+import { OutgoingFolderActions } from "./OutgoingFolderActions";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { GooglePlaced, VideoStatus } from "./api";
@@ -6015,6 +6018,39 @@ export default function App() {
 
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
   const googleOn = config?.google_mirror?.enabled ?? false;
+  /**
+   * 送り出しの画面の案内（pictkura-dev #40、利用者 2026-10-15）:「送り出し画面には、送り出しフォルダを開くがほしい」
+   * 「写真サービスへ送り出しフォルダを選ぶようメッセージを出しておく」。入れていて、送り出しを見ているときだけ場所を聞く。
+   *
+   * **場所の決め方に効く設定が変わったときだけ聞く**（設定の `googleKey` と同じ材料）。画面を切り替えるたびに聞くと、
+   * 眠った外付けを毎回起こす（#205 のゲート2）。変わったら**先に古い答えを消す**——聞き直している数秒のあいだ、
+   * 前のドライブのパスを写せてしまう（同）。前のドライブのフォルダも並べる——どれも写真サービスへの登録が要る
+   * （設定の一覧と同じ。2026-10-06 利用者決定）
+   */
+  const outgoingKey = JSON.stringify([config?.routing.destination, config?.library.roots, config?.google_mirror]);
+  const [outgoingLoc, setOutgoingLoc] = useState<{ key: string; path: string | null; error: string | null } | null>(null);
+  const [outgoingDirs, setOutgoingDirs] = useState<string[]>([]);
+  /** いちばん最近に聞いた材料。答えの側を依存に入れると、場所が先に届いた時点で一覧の問い合わせが取り消される（PR の codex） */
+  const outgoingAskedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!googleOn || filter !== "outgoing") return;
+    if (outgoingAskedKey.current === outgoingKey) return;
+    outgoingAskedKey.current = outgoingKey;
+    let cancelled = false;
+    setOutgoingLoc(null);
+    setOutgoingDirs([]);
+    googleLocation()
+      .then((l) => !cancelled && setOutgoingLoc({ key: outgoingKey, path: l.path ?? null, error: l.error ?? null }))
+      .catch((e) => !cancelled && setOutgoingLoc({ key: outgoingKey, path: null, error: errText(e) }));
+    googleFolders()
+      .then((d) => !cancelled && setOutgoingDirs(d))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      // 答えが届く前に取り消されたら、次に来たときに聞き直す
+      if (outgoingAskedKey.current === outgoingKey) outgoingAskedKey.current = null;
+    };
+  }, [googleOn, filter, outgoingKey]);
 
   /**
    * 選んだものを送り出しへ置く（設計 ②。`dev/plan.google-photos-from-library.md`）。
@@ -6899,6 +6935,37 @@ export default function App() {
           </div>
         </nav>
         <div className="main">
+          {/* 送り出しの案内（pictkura-dev #40）。写真サービスでこのフォルダを選ぶよう言い、開く・写すを置く。
+              ボタンは設定と同じ部品（`OutgoingFolderActions`） */}
+          {googleOn && filter === "outgoing" && (
+            <div className="outgoing-guide">
+              <p>{t.outgoingGuide}</p>
+              {outgoingLoc?.path && (
+                <div className="outgoing-guide-folder">
+                  <code>{outgoingLoc.path}</code>
+                  <OutgoingFolderActions path={outgoingLoc.path} canOpen />
+                </div>
+              )}
+              {/* 場所を求められなかった理由（取り込み先が無い・ドライブを外した等）。名指せないのに「このフォルダ」と
+                  言うだけにしない（#205 のゲート2） */}
+              {outgoingLoc && !outgoingLoc.path && outgoingLoc.error && (
+                <p className="outgoing-guide-error">{errText(outgoingLoc.error)}</p>
+              )}
+              {outgoingDirs.some((d) => d !== outgoingLoc?.path) && (
+                <>
+                  <p>{t.settingsGoogleFoldersNote}</p>
+                  {outgoingDirs
+                    .filter((d) => d !== outgoingLoc?.path)
+                    .map((d) => (
+                      <div key={d} className="outgoing-guide-folder">
+                        <code>{d}</code>
+                        <OutgoingFolderActions path={d} canOpen={false} />
+                      </div>
+                    ))}
+                </>
+              )}
+            </div>
+          )}
           {/* 検索中は隠す: 思い出は検索条件を無視して取っているため、結果と
               無関係な写真が混ざるうえ、開いてもタイムライン上に居場所がなく
               ビューアがすぐ閉じてしまう */}

@@ -60,6 +60,7 @@ export const de: Dict = {
   navFavorites: "★ Favoriten",
   navPicked: "⚑ Auswahl",
   navOutgoing: "Ausgang",
+  outgoingGuide: "Wähle diesen Ordner „Ausgang“ in der App deines Fotodienstes als Ordner zum Sichern (Synchronisieren). Danach legt jeder Import die Fotos hier ab, und der Dienst übernimmt sie. Wenn du Google Fotos nutzt: Füge diesen Ordner in Google Fotos der Ordnersicherung hinzu.",
   navKinds: "Art",
   kindPhoto: "Fotos",
   kindRaw: "RAW",
