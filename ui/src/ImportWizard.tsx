@@ -25,7 +25,7 @@ import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { confirmTemporaryDestination } from "./confirm";
 import { usePlatform } from "./usePlatform";
-import { preselectDrive, standsOut } from "./importPreselect";
+import { isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
@@ -356,24 +356,6 @@ export default function ImportWizard({
     [loadView],
   );
 
-  /**
-   * **カメラのカードが1枚だけ挿さっていたら、開いた時点で選んでおく**（pictkura-dev #39）。
-   * 候補の決め方は `importPreselect.ts`（macOS のバックアップ用ディスクは選ばない）。
-   * カードから来た（`startPath`）とき・前に見ていたフォルダがあるときは触らない。開いている間に1回だけ
-   * ——ドライブの一覧は後から届くので、届いたときに選ぶ
-   */
-  const preselectedRef = useRef(false);
-  useEffect(() => {
-    if (!isOpen) preselectedRef.current = false;
-  }, [isOpen]);
-  useEffect(() => {
-    if (!isOpen || startPath || preselectedRef.current || viewRef.current.path) return;
-    const pick = preselectDrive(drives, platform);
-    if (!pick) return;
-    preselectedRef.current = true;
-    openFolder(pick.path, true);
-  }, [isOpen, startPath, drives, platform, openFolder]);
-
   // 開いたときの初期表示: メディアから来たならその中を丸ごと見せる。
   // `startNonce` も見るのは、開いたまま同じドライブで開き直された場合
   // （カードを差し替えて再びAutoPlayを選ぶ）に、前のカードの一覧を
@@ -399,15 +381,35 @@ export default function ImportWizard({
     if (isOpen) openedAtRef.current = performance.now();
   }, [isOpen, startNonce]);
 
-  // 開き直したら「済」判定と中身を読み直す（前回の取り込みで状況が変わっている）
+  // 開き直したら「済」判定と中身を読み直す（前回の取り込みで状況が変わっている）。
+  //
+  // **カメラのカードが1枚だけ挿さっていたら、開いた時点でそれを選ぶ**（pictkura-dev #39）。候補の決め方は
+  // `importPreselect.ts`。判断は開いた瞬間に1回だけ——開いている間にドライブの一覧が変わっても選び直さない
+  // （AutoPlay の `startPath` と同じカードを2度走査しない。ゲート2）。カードから来た（`startPath`）ときは触らない。
+  // 前に見ていたフォルダがそのカードの中なら、そのまま読み直す。別の場所（前のカード・外したドライブ）なら
+  // カードを開く——一度何かを見たあとは二度と選ばない、にしない（ゲート2）。同じ処理の中で決めるのは、
+  // 読み直しとカードの走査を同時に走らせないため
+  const drivesRef = useRef(drives);
+  drivesRef.current = drives;
+  const startPathRef = useRef(startPath);
+  startPathRef.current = startPath;
+  const platformRef = useRef(platform);
+  platformRef.current = platform;
   useEffect(() => {
     if (!isOpen) return;
     setImported({});
     setSelected(new Set());
     autoSelect.current = true;
     const view = viewRef.current;
+    if (!startPathRef.current) {
+      const pick = preselectDrive(drivesRef.current, platformRef.current);
+      if (pick && !isViewing(view.path, pick)) {
+        openFolder(openPathOf(pick), true);
+        return;
+      }
+    }
     if (view.path) loadView(view.path, view.deep);
-  }, [isOpen, loadView]);
+  }, [isOpen, loadView, openFolder]);
 
   // **`Esc` は、いちばん手前の物が取る**（2026-09-08）。
   //
@@ -492,7 +494,9 @@ export default function ImportWizard({
       if (!(await ensureDestination())) return;
       // **進捗は一覧の上に出る。** 下のほうまで選んでから押すと見えないまま待たされ、確かめるのを忘れる
       // （pictkura-dev #39、利用者の声）。始めた時点で一番上へ戻す
-      mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      // 動きを減らす設定なら一瞬で（ほかの動きと同じく prefers-reduced-motion に従う。ゲート2）
+      const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      mainRef.current?.scrollTo({ top: 0, behavior: still ? "auto" : "smooth" });
       importStartedAt.current = Date.now();
       const stats = whole
         ? await importFromFolder(current)

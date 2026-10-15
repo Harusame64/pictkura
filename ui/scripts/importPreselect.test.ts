@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { preselectDrive, standsOut, type DriveLike } from "../src/importPreselect.ts";
+import { isViewing, openPathOf, preselectDrive, standsOut, type DriveLike } from "../src/importPreselect.ts";
 
 const card = (path: string): DriveLike => ({ path, kind: "removable", dcim_path: path + "/DCIM" });
 const removable = (path: string): DriveLike => ({ path, kind: "removable", dcim_path: null });
@@ -12,7 +12,7 @@ const fixed = (path: string): DriveLike => ({ path, kind: "fixed", dcim_path: nu
 const network = (path: string): DriveLike => ({ path, kind: "network", dcim_path: null });
 
 test("カードがちょうど1枚なら、それを選ぶ（ほかに取り外せるディスクがあっても）", () => {
-  for (const platform of ["windows", "macos"]) {
+  for (const platform of ["windows", "macos"] as const) {
     const sd = card("/Volumes/SD");
     assert.equal(preselectDrive([fixed("/"), removable("/Volumes/Backup"), sd], platform), sd, platform);
   }
@@ -42,4 +42,27 @@ test("目立たせるのはカードと取り外せるドライブ", () => {
   assert.equal(standsOut(removable("/Volumes/Backup")), true);
   assert.equal(standsOut(fixed("C:\\")), false);
   assert.equal(standsOut(network("Z:\\")), false);
+});
+
+test("固定ディスクは DCIM を持っていても選ばない（外付け HDD の控えを開いた瞬間に走査しない。ゲート2）", () => {
+  const backup: DriveLike = { path: "X:\\", kind: "fixed", dcim_path: "X:\\DCIM" };
+  assert.equal(preselectDrive([backup], "windows"), null);
+  const sd = card("E:\\");
+  assert.equal(preselectDrive([backup, sd], "windows"), sd, "カードが1枚あればそれ");
+});
+
+test("開くのは DCIM から（一番上から走査しない。ゲート2）", () => {
+  assert.equal(openPathOf(card("/Volumes/SD")), "/Volumes/SD/DCIM");
+  assert.equal(openPathOf(removable("E:\\")), "E:\\");
+});
+
+test("いま見ているフォルダがカードの中かは、区切りまで見る", () => {
+  const sd = card("/Volumes/SD");
+  assert.equal(isViewing("/Volumes/SD/DCIM/100TEST", sd), true);
+  assert.equal(isViewing("/Volumes/SD", sd), true);
+  assert.equal(isViewing("/Volumes/SD2/DCIM", sd), false, "名前の頭が同じ別のカード");
+  assert.equal(isViewing(null, sd), false);
+  const e = card("E:\\");
+  assert.equal(isViewing("E:\\DCIM\\100CANON", e), true);
+  assert.equal(isViewing("F:\\DCIM", e), false);
 });
