@@ -380,7 +380,7 @@ export const zhHant: Dict = {
   menuOpenWith: (name: string) => `用 ${name} 開啟`,
   menuOpenWithOther: "用其他程式開啟…",
   menuReveal: "在資料夾中顯示",
-  menuCopyImage: "複製到剪貼簿",
+  menuCopyImage: "複製圖片到剪貼簿",
   menuDelete: "刪除（移到資源回收筒）",
   menuInfo: "資訊",
   fileInfoTitle: "檔案",

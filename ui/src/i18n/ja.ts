@@ -411,7 +411,7 @@ export const ja = {
   menuOpenWith: (name: string) => `${name} で開く`,
   menuOpenWithOther: "他のアプリで開く…",
   menuReveal: "ファイルの場所を開く",
-  menuCopyImage: "クリップボードへコピー",
+  menuCopyImage: "画像をクリップボードへコピー",
   menuDelete: "削除（ゴミ箱へ）",
   menuInfo: "情報",
   fileInfoTitle: "ファイル",

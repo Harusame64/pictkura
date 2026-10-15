@@ -386,7 +386,7 @@ export const es: Dict = {
   menuOpenWith: (name: string) => `Abrir con ${name}`,
   menuOpenWithOther: "Abrir con otra aplicación…",
   menuReveal: "Mostrar en la carpeta",
-  menuCopyImage: "Copiar al portapapeles",
+  menuCopyImage: "Copiar imagen al portapapeles",
   menuDelete: "Borrar (mover a la papelera)",
   menuInfo: "Información",
   fileInfoTitle: "Archivo",

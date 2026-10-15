@@ -540,6 +540,18 @@ const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
 });
 
 /**
+ * 絵をクリップボードへ載せられるか（抽出 Issue #13・右クリック ADR B-1 の**共通の判定**。2か所に写すと片方が
+ * 遅れた——#207 のゲート2）。
+ *
+ * - 動画は取り出す「1枚の絵」が無い
+ * - SVG は画素に起こすラスタライザを積んでいない（`crates/pictkura-core/src/svg.rs`）ので、貼れる絵を作れない
+ * - ビューアが絵を出せなかった1枚（`fullFailedId`）は、押しても何も起きないボタンより無い方がよい
+ */
+function canCopyToClipboard(item: MediaItem, fullFailedId: number | null): boolean {
+  return !item.is_video && !/\.svg$/i.test(item.file_name) && item.id !== fullFailedId;
+}
+
+/**
  * 一覧で選んで送るとき、確認なしで置いてよい枚数の上限（`dev/plan.google-photos-from-library.md` §4。
  * 2026-10-06 利用者決定）。すべて選択・範囲選択・新しいフォルダを作るときは枚数に関係なく確かめる
  */
@@ -3736,19 +3748,33 @@ export default function App() {
   );
 
   /** 抽出（Issue #13）: いま出ている絵をクリップボードへ載せる。 */
+  /**
+   * 絵をクリップボードへ（ビューアの帯・`Ctrl+C`・右クリック。ADR の B-1）。**1本の道にする**——右クリックだけ
+   * 別に呼ぶと、二度押しの守りと知らせ方がずれた（#207 のゲート2）。
+   *
+   * - 走っている間は受け付けない（HEIC・大きな TIFF は起こすのに1秒前後かかり、二度押しで2本走る）
+   * - 知らせはビューアに出ているならその絵の上（`flashExtract`）、一覧からなら状態の1行／失敗の面
+   */
+  const extractingRef = useRef(false);
   const copyViewerImage = useCallback(
     async (item: MediaItem) => {
+      if (extractingRef.current) return;
+      extractingRef.current = true;
       setExtracting(true);
+      const onViewer = viewerItemIdRef.current === item.id;
       try {
         await copyDisplayImage(item.id);
-        flashExtract(item, "copied");
-      } catch {
-        flashExtract(item, "extractFailed");
+        if (onViewer) flashExtract(item, "copied");
+        else setStatus(t.extractCopied);
+      } catch (e) {
+        if (onViewer) flashExtract(item, "extractFailed");
+        else fail(errText(e));
       } finally {
+        extractingRef.current = false;
         setExtracting(false);
       }
     },
-    [flashExtract],
+    [flashExtract, fail],
   );
 
   /**
@@ -4163,8 +4189,7 @@ export default function App() {
    * （`crates/pictkura-core/src/svg.rs`)、絵として貼れるものを作れない。
    * 保存の方は原本のコピーで済むので、あちらには出したままにする
    */
-  const canCopyImage =
-    canExtract && !/\.svg$/i.test(viewerItem?.file_name ?? "");
+  const canCopyImage = viewerItem !== null && canCopyToClipboard(viewerItem, fullFailedId);
   /** 配信される絵の寸法（TIFFだけ長辺が丸められる） */
   const [servedW, servedH] = viewerItem ? servedSize(viewerItem) : [0, 0];
   /**
@@ -6267,21 +6292,12 @@ export default function App() {
         separator: true,
         run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
-      // 画像そのものをクリップボードへ（ADR の B-1。ビューアの「抽出」と同じ `copy_display_image`——向きを直した絵、
-      // RAW・HEIC も貼れる）。対象は表紙の1枚。動画と SVG には出さない（ビューアと同じ条件）
-      ...(item.is_video || /\.svg$/i.test(item.file_name)
-        ? []
-        : [
-            {
-              label: t.menuCopyImage,
-              separator: true,
-              run: () => {
-                copyDisplayImage(item.id)
-                  .then(() => setStatus(t.extractCopied))
-                  .catch((e) => fail(errText(e)));
-              },
-            },
-          ]),
+      // 画像そのものをクリップボードへ（ADR の B-1。ビューアの「抽出」と同じ道——向きを直した絵、RAW・HEIC も
+      // 貼れる）。対象は表紙の1枚。出す条件もビューアと同じ（`canCopyToClipboard`）。クラウドにだけ在るファイルは
+      // 実体を落としてから載せる——押したのは利用者で、ビューアで開くのと同じ扱い
+      ...(canCopyToClipboard(item, fullFailedId)
+        ? [{ label: t.menuCopyImage, separator: true, run: () => void copyViewerImage(item) }]
+        : []),
       // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
       // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
       // どれか1つに付いていれば「付いている」と見せる（タイルの ★/⚑ と同じ規則）
@@ -6290,6 +6306,8 @@ export default function App() {
       ...(["favorite", "picked"] as const).map((kind) => {
         const marked = markFiles.some((f) => f[kind]);
         return {
+          // ★・⚑ は印のまとまり（コピーとは分ける。#207 のゲート2）
+          separator: kind === "favorite",
           label:
             kind === "favorite"
               ? marked
@@ -6348,6 +6366,8 @@ export default function App() {
       onOpenWithOther,
       onDelete,
       markStack,
+      fullFailedId,
+      copyViewerImage,
       googleOn,
       sendToGoogle,
       filter,
