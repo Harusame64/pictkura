@@ -1579,6 +1579,214 @@ mod tests {
         assert!(db.edit_of(&key).unwrap().is_none(), "控えは捨てる");
     }
 
+    /// 取り込んだ写真を回しても、同じカードを挿し直したときに「取り込み済み」のまま（R2）
+    #[test]
+    fn a_turned_photo_still_counts_as_imported() {
+        use crate::import::{import_files, is_already_imported, Edits, ImportState};
+        use std::collections::HashSet;
+        let dir = tempfile::tempdir().unwrap();
+        let card = dir.path().join("card");
+        std::fs::create_dir_all(&card).unwrap();
+        let src = card.join("IMG_0001.JPG");
+        std::fs::write(&src, jpeg_with(1, false, None)).unwrap();
+        filetime::set_file_mtime(&src, filetime::FileTime::from_unix_time(1_600_000_000, 0))
+            .unwrap();
+        let mut config = crate::Config::default();
+        config.routing.destination = Some(dir.path().join("lib"));
+        // 日付のフォルダに分けない（作り物の JPEG は撮影日時を持たないので、更新日時で振り分けが変わる）
+        config.routing.folder_pattern = String::new();
+        let none = HashSet::new();
+        let stats = import_files(
+            std::slice::from_ref(&src),
+            &none,
+            &config,
+            &Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(stats.copied, 1);
+        let dest = stats.copied_paths[0].clone();
+
+        let meta = std::fs::metadata(&dest).unwrap();
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: dest.clone(),
+            size: meta.len() as i64,
+            mtime_ms: crate::scanner::mtime_of(&meta),
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(
+            id,
+            Dimensions::original(6, 4),
+            TakenAt::tag(Some(1_500_000_000_000), TakenSource::Exif),
+            None,
+        )
+        .unwrap();
+        let prep = prepare(&dest).unwrap();
+        apply(&mut db, id, Turn::Right, &prep, NOW).unwrap();
+
+        let edits = Edits::from_records(db.edits_all().unwrap());
+        // 控えを読まないと、回した写真は「まだ」に見える（直す前の振る舞い）
+        assert_eq!(
+            is_already_imported(&src, &config, &none, &Edits::default()),
+            ImportState::NotImported
+        );
+        assert_eq!(
+            is_already_imported(&src, &config, &none, &edits),
+            ImportState::Imported
+        );
+        let again = import_files(
+            std::slice::from_ref(&src),
+            &none,
+            &config,
+            &edits,
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!((again.copied, again.skipped), (0, 1), "二重に入れない");
+
+        // 名前がぶつかっている（中身まで読む）ときも、向きの2バイトを戻して比べる
+        let contested = crate::import::contested_set(["IMG_0001.JPG"].into_iter());
+        let again = import_files(
+            std::slice::from_ref(&src),
+            &contested,
+            &config,
+            &edits,
+            |_, _, _| {},
+        )
+        .unwrap();
+        assert_eq!(
+            (again.copied, again.skipped),
+            (0, 1),
+            "中身まで読んでも同じ写真"
+        );
+
+        // 回した後の写し（書き出した控え）を取り込んでも、今の姿で合うので入れない
+        let backup = dir.path().join("backup");
+        std::fs::create_dir_all(&backup).unwrap();
+        let copy = backup.join("IMG_0001.JPG");
+        std::fs::copy(&dest, &copy).unwrap();
+        let turned_at = std::fs::metadata(&dest).unwrap().modified().unwrap();
+        filetime::set_file_mtime(&copy, filetime::FileTime::from_system_time(turned_at)).unwrap();
+        for names in [&none, &contested] {
+            let again = import_files(
+                std::slice::from_ref(&copy),
+                names,
+                &config,
+                &edits,
+                |_, _, _| {},
+            )
+            .unwrap();
+            assert_eq!((again.copied, again.skipped), (0, 1), "回した後の写し");
+        }
+
+        // 外で中身が変わった回した写真は、控えを当てにしない
+        let mut bytes = std::fs::read(&dest).unwrap();
+        let last = bytes.len() - 3;
+        bytes[last] ^= 1;
+        std::fs::write(&dest, &bytes).unwrap();
+        assert_eq!(
+            is_already_imported(&src, &config, &none, &edits),
+            ImportState::NotImported
+        );
+    }
+
+    /// カードから1枚取り込み、ライブラリの行を作る（作り物の JPEG は撮影日時を持たないので、振り分けない）
+    fn imported(dir: &Path) -> (crate::Config, Db, i64, PathBuf, PathBuf) {
+        let card = dir.join("card");
+        std::fs::create_dir_all(&card).unwrap();
+        let src = card.join("IMG_0001.JPG");
+        std::fs::write(&src, jpeg_with(1, false, None)).unwrap();
+        filetime::set_file_mtime(&src, filetime::FileTime::from_unix_time(1_600_000_000, 0))
+            .unwrap();
+        let mut config = crate::Config::default();
+        config.routing.destination = Some(dir.join("lib"));
+        config.routing.folder_pattern = String::new();
+        let stats = crate::import::import_files(
+            std::slice::from_ref(&src),
+            &std::collections::HashSet::new(),
+            &config,
+            &crate::import::Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
+        let dest = stats.copied_paths[0].clone();
+        let meta = std::fs::metadata(&dest).unwrap();
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: dest.clone(),
+            size: meta.len() as i64,
+            mtime_ms: crate::scanner::mtime_of(&meta),
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        db.update_metadata(
+            id,
+            Dimensions::original(6, 4),
+            TakenAt::tag(Some(1_500_000_000_000), TakenSource::Exif),
+            None,
+        )
+        .unwrap();
+        (config, db, id, src, dest)
+    }
+
+    fn state_of(src: &Path, config: &crate::Config, db: &Db) -> crate::import::ImportState {
+        let edits = crate::import::Edits::from_records(db.edits_all().unwrap());
+        crate::import::is_already_imported(src, config, &std::collections::HashSet::new(), &edits)
+    }
+
+    #[test]
+    fn a_write_not_yet_settled_still_counts_as_imported() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, mut db, id, src, dest) = imported(dir.path());
+        let prep = prepare(&dest).unwrap();
+        // 書いて日時を付けたところで落ち、後始末がまだ（ドライブが抜けている等）
+        let new = prep.spot.bytes_of(6);
+        begin_pending(&mut db, id, &dest, &prep, new, NOW);
+        write_bytes(&dest, prep.spot.offset, new).unwrap();
+        set_mtime(&dest, NOW).unwrap();
+        assert_eq!(
+            state_of(&src, &config, &db),
+            crate::import::ImportState::Imported
+        );
+    }
+
+    #[test]
+    fn an_orientation_rewritten_outside_is_not_trusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let (config, mut db, id, src, dest) = imported(dir.path());
+        let prep = prepare(&dest).unwrap();
+        apply(&mut db, id, Turn::Right, &prep, NOW).unwrap();
+        assert_eq!(
+            state_of(&src, &config, &db),
+            crate::import::ImportState::Imported
+        );
+        // 外の道具が向きだけ書き換え、日時を保った
+        let turned_at = std::fs::metadata(&dest).unwrap().modified().unwrap();
+        write_bytes(&dest, prep.spot.offset, prep.spot.bytes_of(8)).unwrap();
+        filetime::set_file_mtime(&dest, filetime::FileTime::from_system_time(turned_at)).unwrap();
+        assert_eq!(
+            state_of(&src, &config, &db),
+            crate::import::ImportState::NotImported
+        );
+    }
+
+    /// 設定の行き先の綴りが実物と違っても（大文字小文字を区別しないボリューム）、控えに当たる
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn a_destination_spelled_differently_still_finds_the_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut config, mut db, id, src, dest) = imported(dir.path());
+        let prep = prepare(&dest).unwrap();
+        apply(&mut db, id, Turn::Right, &prep, NOW).unwrap();
+        config.routing.destination = Some(dir.path().join("LIB"));
+        assert_eq!(
+            state_of(&src, &config, &db),
+            crate::import::ImportState::Imported
+        );
+    }
+
     #[test]
     fn a_raw_partners_xmp_does_not_block_the_jpeg() {
         let dir = tempfile::tempdir().unwrap();
@@ -1623,7 +1831,7 @@ mod tests {
         let rec = EditRecord {
             path_key: key.clone(),
             path: path.to_path_buf(),
-            fold_name: "a.jpg".into(),
+            fold_name: fold_name_of(path),
             size: prep.size as i64,
             offset: prep.spot.offset as i64,
             orig_bytes: prep.spot.bytes(),

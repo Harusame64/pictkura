@@ -163,6 +163,7 @@ fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportO
         // 「同じ名前が2つあり、行き先の1本がどちらのものか決まらない」ときで、
         // ここは**選んだ写真を運ぶ**側——ぶつかった相手は `carry.written` が覚えている
         Confirm::ByLooks,
+        &crate::import::Edits::default(),
     ) {
         DestResolution::CopyTo(p) => p,
         DestResolution::AlreadyImported => {
@@ -259,6 +260,7 @@ fn carry_sidecars(
             mtime_ms,
             &carry.written,
             Confirm::ByLooks,
+            &crate::import::Edits::default(),
         ) {
             DestResolution::CopyTo(p) => p,
             DestResolution::AlreadyImported | DestResolution::Exhausted => continue,
