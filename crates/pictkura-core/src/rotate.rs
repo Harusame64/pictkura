@@ -829,22 +829,30 @@ pub fn apply(
 /// ファイルを丸ごと読まずに済むもの（大きさ・更新日時・向きの2バイト）を同じ規則で見る。中身の要約は回すときに
 /// 確かめる——メニューを開くたびに写真を丸ごと読まない
 pub fn restorable(db: &Db, path: &Path) -> Result<bool, DbError> {
-    let Some(e) = db.edit_of(&crate::paths::fold(path))? else {
-        return Ok(false);
+    Ok(restorable_from(
+        db.edit_of(&crate::paths::fold(path))?,
+        path,
+    ))
+}
+
+/// [`restorable`] のファイルを見る側。DB の接続を持たずに呼べる（遅い共有で返ってこなくても接続を塞がない）
+pub fn restorable_from(edit: Option<EditRecord>, path: &Path) -> bool {
+    let Some(e) = edit else {
+        return false;
     };
     if e.pending.is_some() || e.edited_bytes == e.orig_bytes {
-        return Ok(false);
+        return false;
     }
     let Ok(meta) = std::fs::metadata(path) else {
-        return Ok(false);
+        return false;
     };
     let size = meta.len();
-    Ok(size as i64 == e.size
+    size as i64 == e.size
         && crate::import::looks_alike(
             (size, e.edited_mtime_ms),
             (size, crate::scanner::mtime_of(&meta)),
         )
-        && read_bytes(path, e.offset as u64).is_ok_and(|b| b == e.edited_bytes))
+        && read_bytes(path, e.offset as u64).is_ok_and(|b| b == e.edited_bytes)
 }
 
 /// 名前だけを畳む（取り込みの照合の索引。畳み方は `import.rs` の1か所）

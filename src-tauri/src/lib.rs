@@ -3323,18 +3323,29 @@ async fn rotate_media(app: tauri::AppHandle, id: i64, turn: String) -> Result<bo
     .map_err(|e| e.to_string())?
 }
 
-/// pictkura が回した写真で、まだ元の向きに戻せるか（右クリックの「向きを元に戻す」を出すか）
+/// pictkura が回した写真で、まだ元の向きに戻せるか（右クリックの「向きを元に戻す」を出すか）。
+///
+/// **別の糸で走らせる**（PR の codex P1）: ファイルの大きさと2バイトを見るので、つながらない共有の上の写真だと
+/// 返ってこないことがある。窓の糸で待つと、右クリックしただけでアプリが固まる
 #[tauri::command]
-fn rotation_restorable(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
-    state
-        .read_pool
-        .with(|db| -> Result<bool, pictkura_core::DbError> {
-            let Some(record) = db.get_by_id(id)? else {
-                return Ok(false);
-            };
-            pictkura_core::rotate::restorable(db, &record.path)
-        })
-        .map_err(errs::from_err)
+async fn rotation_restorable(app: tauri::AppHandle, id: i64) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        // 控えだけ読んで接続を返し、ファイルは接続を持たずに見る
+        let found = state
+            .read_pool
+            .with(|db| -> Result<_, pictkura_core::DbError> {
+                let Some(record) = db.get_by_id(id)? else {
+                    return Ok(None);
+                };
+                let edit = db.edit_of(&pictkura_core::paths::fold(&record.path))?;
+                Ok(Some((edit, record.path)))
+            })
+            .map_err(errs::from_err)?;
+        Ok(found.is_some_and(|(edit, path)| pictkura_core::rotate::restorable_from(edit, &path)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 取り込み先フォルダ構成の選択肢1つ（パターンと、今日の日付での実例）。
