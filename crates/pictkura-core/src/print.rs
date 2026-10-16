@@ -109,7 +109,13 @@ fn icc_of(path: &Path) -> Option<Vec<u8>> {
         .icc_profile()
         .ok()
         .flatten()
-        .filter(|p| !p.is_empty())
+        .filter(|p| is_rgb_profile(p))
+}
+
+/// ICC の「データの色空間」（ヘッダの 16〜19 バイト目）が RGB か。詰め直した JPEG は必ず RGB なので、グレーや
+/// CMYK のプロファイルを付けると中身と食い違い、色を管理する印刷の道が断るか色を取り違える（#213 の PR codex）
+fn is_rgb_profile(icc: &[u8]) -> bool {
+    icc.get(16..20) == Some(b"RGB ")
 }
 
 /// JPEG の SOI（と APP0）の直後に ICC プロファイルを APP2 で差し込む。64KB を超えるものは区画を分ける
@@ -393,7 +399,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("p3.png");
         // ICC を持つ PNG（中身は解読器が読めればよい。色の変換はしない）
-        let icc = vec![7u8; 70_000];
+        let mut icc = vec![7u8; 70_000];
+        icc[16..20].copy_from_slice(b"RGB ");
         let mut bytes = Vec::new();
         {
             use image::ImageEncoder;
@@ -452,6 +459,18 @@ mod tests {
             .unwrap();
         let rgb = decoded(&print_jpeg(&p).unwrap());
         assert_eq!(rgb.width(), PRINT_MAX_EDGE);
+    }
+
+    #[test]
+    fn only_an_rgb_profile_is_put_back() {
+        let mut icc = vec![0u8; 128];
+        icc[16..20].copy_from_slice(b"RGB ");
+        assert!(is_rgb_profile(&icc));
+        for space in [b"GRAY", b"CMYK"] {
+            icc[16..20].copy_from_slice(space);
+            assert!(!is_rgb_profile(&icc));
+        }
+        assert!(!is_rgb_profile(&[]));
     }
 
     #[test]
