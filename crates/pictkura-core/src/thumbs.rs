@@ -1001,7 +1001,7 @@ pub fn heif_display_jpeg(path: &Path) -> Option<Vec<u8>> {
 }
 
 /// 拡張子がTIFFか。
-fn is_tiff_path(path: &Path) -> bool {
+pub fn is_tiff_path(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("tif") || e.eq_ignore_ascii_case("tiff"))
@@ -1042,7 +1042,7 @@ pub fn display_jpeg_full(path: &Path) -> Option<Vec<u8>> {
     display_jpeg_within(path, None)
 }
 
-fn display_jpeg_within(path: &Path, max_edge: Option<u32>) -> Option<Vec<u8>> {
+pub(crate) fn display_jpeg_within(path: &Path, max_edge: Option<u32>) -> Option<Vec<u8>> {
     if crate::raw::is_raw_path(path) {
         return raw_display_jpeg(path);
     }

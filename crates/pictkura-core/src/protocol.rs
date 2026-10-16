@@ -18,6 +18,8 @@ pub enum ServeKind {
     Thumb,
     /// 動画の実体（第9部）。`<video>` へ渡すのでRangeリクエストに応える必要がある
     Video,
+    /// 印刷に渡す絵（ADR B-3）。撮影情報を落とした JPEG（[`crate::print`]）
+    Print,
 }
 
 /// URLが指しているもの。
@@ -79,7 +81,7 @@ fn percent_decode(s: &str) -> String {
 /// メディアURLが指す対象を取り出す。
 ///
 /// 期待する形式（クエリ文字列は無視）:
-/// - `.../full/<id>` `.../thumb/<id>` `.../video/<id>` … ライブラリのメディア
+/// - `.../full/<id>` `.../thumb/<id>` `.../video/<id>` `.../print/<id>` … ライブラリのメディア
 /// - `.../src/<16進のパス>` … 取り込み元のファイル
 pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
     let path = percent_decode(url.split(['?', '#']).next()?);
@@ -96,6 +98,10 @@ pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
         }),
         "video" => Some(MediaTarget::Library {
             kind: ServeKind::Video,
+            id: payload.parse().ok()?,
+        }),
+        "print" => Some(MediaTarget::Library {
+            kind: ServeKind::Print,
             id: payload.parse().ok()?,
         }),
         "src" => {
@@ -371,6 +377,15 @@ mod tests {
             parse_media_url("http://media.localhost/video/9"),
             library(ServeKind::Video, 9)
         );
+    }
+
+    #[test]
+    fn parses_a_print_url() {
+        assert_eq!(
+            parse_media_url("http://media.localhost/print/12?v=1-0"),
+            library(ServeKind::Print, 12)
+        );
+        assert_eq!(parse_media_url("http://media.localhost/print/x"), None);
     }
 
     #[test]

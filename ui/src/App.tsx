@@ -24,6 +24,8 @@ import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
+import { PrintDialog } from "./PrintDialog";
+import { printPhoto, type PrintFit } from "./printPhoto";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -39,6 +41,7 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
+  printSrc,
   saveDisplayImage,
   setPairView,
   videoSrc,
@@ -918,6 +921,8 @@ export default function App() {
   const [exif, setExif] = useState<ExifInfo | null>(null);
   /** 右クリックの「情報」で見ているファイル（タイルの重ねぜんぶ）。ADR の A */
   const [infoFor, setInfoFor] = useState<number[] | null>(null);
+  // 右クリックの「印刷…」で載せ方を選んでいる写真（ADR B-3）
+  const [printFor, setPrintFor] = useState<MediaItem | null>(null);
   /** カレンダーの日クリックでグリッドのこの日付見出しへスクロールする */
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
@@ -5047,14 +5052,19 @@ export default function App() {
         return;
       }
       // 情報の幕（ADR の A）はビューアの右クリックからも開く。開いている間は `Esc`・送り・判定を通さない
-      // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）
-      if (wizardOpen || menu !== null || infoFor !== null) return;
+      // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）。印刷の幕（B-3）も同じ
+      if (wizardOpen || menu !== null || infoFor !== null || printFor !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
         const saving = e.key === "s" || e.key === "S";
         const copying = e.key === "c" || e.key === "C";
+        // 印刷（ADR B-3）。右クリックの「印刷…」と同じ幕を開く。食べるのは常時のハンドラ（上の `Ctrl+S` と同じ）
+        if ((e.key === "p" || e.key === "P") && viewerItem && canCopyToClipboard(viewerItem, fullFailedId)) {
+          setPrintFor(viewerItem);
+          return;
+        }
         if (saving || copying) {
           // **`Ctrl+S` を食べるのはここではない。** 画面に関わらず食べる
           // 必要があるので、パレットと同じ常時のハンドラでやっている
@@ -5138,6 +5148,7 @@ export default function App() {
     wizardOpen,
     menu,
     infoFor,
+    printFor,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5145,6 +5156,7 @@ export default function App() {
     copyViewerImage,
     saveViewerImage,
     extracting,
+    fullFailedId,
   ]);
 
   // 撮影情報は**パネルを開いている間だけ**、表示中の1枚について実ファイルから読む。
@@ -5238,6 +5250,14 @@ export default function App() {
         e.preventDefault();
         return;
       }
+      // **`Ctrl+P` も同じ理由で食べる**（ADR B-3）。素通しすると WebView2 のページの印刷が開き、ビューアの
+      // `full/`——**原本の JPEG を EXIF・GPS ごと**——刷る・PDF に保存する（#213 のゲート2）。ビューアは
+      // 自分の受け口で印刷の幕を開く
+      const printKey = e.key === "p" || e.key === "P";
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && printKey) {
+        e.preventDefault();
+        return;
+      }
       // 文字入力中は効かせない（検索欄に「?」と打てなくなる）
       const el = e.target as HTMLElement | null;
       const typing =
@@ -5280,6 +5300,7 @@ export default function App() {
         wizardOpen ||
         menu !== null ||
         infoFor !== null ||
+        printFor !== null ||
         view !== "grid"
       )
         return;
@@ -5295,7 +5316,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, printFor, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -5323,7 +5344,10 @@ export default function App() {
   // `Esc` の1押しを先に取ってしまう（`useWindowEvent` の項。受け口は開いた順に呼ばれる）。
   // ビューアでは畳まない——ビューアの右クリックから開く幕である
   useEffect(() => {
-    if (rejectGate !== null || wizardOpen || settingsOpen) setInfoFor(null);
+    if (rejectGate !== null || wizardOpen || settingsOpen) {
+      setInfoFor(null);
+      setPrintFor(null);
+    }
   }, [rejectGate, wizardOpen, settingsOpen]);
 
   /**
@@ -5602,7 +5626,8 @@ export default function App() {
       paletteOpen ||
       menu !== null ||
       calMenu !== null ||
-      infoFor !== null;
+      infoFor !== null ||
+      printFor !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -6378,6 +6403,10 @@ export default function App() {
         : []),
       ...(item.is_jpeg && restorableId === item.id
         ? [{ label: t.menuRotateRestore, run: () => rotate(item, "restore") }]
+        : []),
+      // 印刷（ADR B-3）。対象は表紙の1枚、出す条件はコピーと同じ（絵に起こせるもの）。載せ方を選ぶ画面を先に出す
+      ...(canCopyToClipboard(item, fullFailedId)
+        ? [{ label: t.menuPrint, run: () => setPrintFor(item) }]
         : []),
       // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
       // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
@@ -8262,6 +8291,23 @@ export default function App() {
         onClose={() => setMenu(null)}
       />
       {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}
+      {printFor !== null && (
+        <PrintDialog
+          onClose={() => setPrintFor(null)}
+          onPrint={(fit: PrintFit) => {
+            const item = printFor;
+            setPrintFor(null);
+            // 一覧からは状態の1行でも言う（「コピーしています…」と同じ。ビューアはカーソルだけ）
+            const fromGrid = viewerItemIdRef.current !== item.id;
+            if (fromGrid) setStatus(t.printPreparing);
+            printPhoto(printSrc(item.id, item.mtime_ms, item.rev), fit)
+              .catch((e) => fail(errText(e instanceof Error ? e.message : e)))
+              .finally(() => {
+                if (fromGrid) setStatus((s) => (s === t.printPreparing ? "" : s));
+              });
+          }}
+        />
+      )}
       <ContextMenu
         pos={calMenu?.pos ?? null}
         items={

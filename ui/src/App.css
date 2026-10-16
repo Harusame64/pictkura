@@ -1723,6 +1723,110 @@ body {
   margin-top: var(--sp-3);
 }
 
+/* 右クリックの「印刷…」（ADR B-3）。情報の箱を借りて、載せ方の3択を並べる */
+.print-dialog-title {
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.print-fit {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.print-fit:hover {
+  background: var(--surface-2);
+}
+.print-fit.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.print-fit input {
+  margin: 0;
+}
+/* 見本: 縦の紙（枠）に横長の写真（塗り）を載せた形 */
+.print-fit-sample {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 38px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--text-muted);
+  border-radius: 2px;
+}
+.print-fit-sample > span {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background: linear-gradient(135deg, oklch(0.72 0.12 230), oklch(0.62 0.13 150));
+}
+/* 写真の中の丸。クロップでは端が欠け、用紙いっぱいでは縦に伸びて楕円になる——3つの見分けはこれが付ける */
+.print-fit-sample > span::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  left: 18%;
+  height: 56%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: oklch(0.92 0.1 90);
+}
+.print-fit-sample-cover > span::after {
+  left: 6%;
+}
+.print-fit-sample-fill > span::after {
+  aspect-ratio: auto;
+  width: 30%;
+}
+.print-fit-sample-contain > span {
+  width: 100%;
+  height: 67%;
+}
+.print-fit-sample-cover > span {
+  left: -50%;
+  width: 200%;
+  height: 100%;
+}
+.print-fit-sample-fill > span {
+  width: 100%;
+  height: 100%;
+}
+.print-fit-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.print-fit-label {
+  font-weight: 600;
+}
+.print-fit-hint {
+  color: var(--text-muted);
+}
+.print-dialog-note {
+  margin: var(--sp-3) 0 0;
+  color: var(--text-muted);
+}
+.print-dialog-actions {
+  gap: var(--sp-2);
+}
+/* 印刷の絵を作っている間（`printPhoto.ts`） */
+.print-preparing,
+.print-preparing * {
+  cursor: progress !important;
+}
+.print-dialog-actions button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
 /* ===== コマンドパレット ===== */
 .palette-backdrop {
   position: fixed;

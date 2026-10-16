@@ -28,6 +28,7 @@ pub mod mirror;
 pub mod namedate;
 pub mod panics;
 pub mod paths;
+pub mod print;
 pub mod protocol;
 pub mod raw;
 pub mod resize;
