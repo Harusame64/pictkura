@@ -126,6 +126,7 @@ export default function Calendar({
                             src={thumbSrcOf(
                               data.cover_id,
                               data.cover_mtime_ms,
+                              data.cover_rev,
                               data.cover_thumb_state,
                             )}
                             alt=""

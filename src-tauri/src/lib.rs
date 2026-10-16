@@ -644,6 +644,8 @@ struct MediaItemDto {
     day_key: i64,
     /// キャッシュバスティング用（サムネイルURLのバージョンに使う）
     mtime_ms: i64,
+    /// 中身の版（`MediaRecord::rev`）。絵の URL に入れる（F1）
+    rev: i64,
     has_thumb: bool,
     /// サムネイルの品質段階: 0=なし, 1=即席, 2=高品質。
     /// URLバージョンに含めて、即席→高品質の差し替え時にキャッシュを割る
@@ -702,6 +704,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             taken_at_ms: r.taken_at_ms.unwrap_or(r.mtime_ms),
             day_key: r.day_key,
             mtime_ms: r.mtime_ms,
+            rev: r.rev,
             has_thumb: r.thumb_path.is_some(),
             thumb_state: r.thumb_state,
             favorite: r.favorite,
@@ -729,6 +732,7 @@ struct DaySummaryDto {
     cover_id: i64,
     cover_mtime_ms: i64,
     cover_thumb_state: i64,
+    cover_rev: i64,
 }
 
 /// 「〇年前の今日」の1件分のDTO。
@@ -1310,6 +1314,7 @@ fn timeline_summary(
             cover_id: d.cover_id,
             cover_mtime_ms: d.cover_mtime_ms,
             cover_thumb_state: d.cover_thumb_state,
+            cover_rev: d.cover_rev,
         })
         .collect())
 }
@@ -3201,6 +3206,7 @@ async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String
         let cached = state.display_cache.get(pictkura_core::display_cache::Key {
             id,
             mtime_ms: record.mtime_ms,
+            rev: record.rev,
         });
         let rgba = match cached {
             Some(bytes) => pictkura_core::extract::rgba_from_display_jpeg(bytes.as_ref()),
@@ -5781,6 +5787,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     // 表示用JPEGキャッシュの鍵に使う。この下で record.path / record.thumb_path を
     // 取り出す（部分ムーブ）ので、先に控えておく
     let mtime_ms = record.mtime_ms;
+    let rev = record.rev;
     // 動画の再生（第9部）。ここだけが原本を丸ごと相手にする経路で、
     // Rangeで刻んで返す。WebViewが扱えないコンテナ（.m2ts/.avi）は渡しても
     // 黒い枠になるだけなので、415を返してUIの「既定のアプリで開く」へ寄せる
@@ -5826,7 +5833,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // 戻ってきたときに払うのはファイル読み出しぶんだけになる。
         //
         // **鍵に mtime を含める**——同じidでもファイルが差し替われば別物
-        let key = pictkura_core::display_cache::Key { id, mtime_ms };
+        let key = pictkura_core::display_cache::Key { id, mtime_ms, rev };
         let served = |bytes: Vec<u8>| {
             Response::builder()
                 .status(StatusCode::OK)
