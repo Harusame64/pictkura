@@ -1042,7 +1042,7 @@ pub fn display_jpeg_full(path: &Path) -> Option<Vec<u8>> {
     display_jpeg_within(path, None)
 }
 
-fn display_jpeg_within(path: &Path, max_edge: Option<u32>) -> Option<Vec<u8>> {
+pub(crate) fn display_jpeg_within(path: &Path, max_edge: Option<u32>) -> Option<Vec<u8>> {
     if crate::raw::is_raw_path(path) {
         return raw_display_jpeg(path);
     }

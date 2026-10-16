@@ -45,8 +45,12 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
         return strip_jpeg(&bytes).or_else(|| redraw(path));
     }
     if crate::thumbs::needs_display_transcode(path) {
-        // 作った側（`display_jpeg_full`）が向きを当て済み。**丸めない側**を使う——TIFF の上限は配信の都合
-        return from_display_jpeg(&crate::thumbs::display_jpeg_full(path)?);
+        // 作った側が向きを当て済み。丸めるのは**印刷の上限**——表示の上限（4096）は配信の都合で紙には小さいが、
+        // 丸めないと1億画素のスキャン TIFF を原寸で抱える（#213 の PR codex。効くのは TIFF だけ）
+        return from_display_jpeg(&crate::thumbs::display_jpeg_within(
+            path,
+            Some(PRINT_MAX_EDGE),
+        )?);
     }
     redraw(path)
 }
@@ -426,6 +430,17 @@ mod tests {
         // 作り直す側の解読器（`image`）はゴミを読み飛ばす
         let out = print_jpeg(&p).unwrap();
         assert_eq!(decoded(&out).dimensions(), picture().dimensions());
+    }
+
+    #[test]
+    fn a_huge_tiff_is_capped_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("scan.tif");
+        image::RgbImage::from_pixel(PRINT_MAX_EDGE + 100, 2, image::Rgb([1, 2, 3]))
+            .save(&p)
+            .unwrap();
+        let rgb = decoded(&print_jpeg(&p).unwrap());
+        assert_eq!(rgb.width(), PRINT_MAX_EDGE);
     }
 
     #[test]

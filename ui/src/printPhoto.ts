@@ -21,6 +21,13 @@ export type PrintFit = "contain" | "cover" | "fill";
 
 export const PRINT_FITS: readonly PrintFit[] = ["contain", "cover", "fill"];
 
+/** 写真の形（`naturalWidth`・`naturalHeight` で決める） */
+export type PhotoShape = "landscape" | "portrait" | "square";
+
+export function shapeOf(w: number, h: number): PhotoShape {
+  return w > h ? "landscape" : w < h ? "portrait" : "square";
+}
+
 const FIT_KEY = "pictkura.printFit";
 const SHEET_ID = "print-sheet";
 const STYLE_ID = "print-sheet-style";
@@ -57,7 +64,7 @@ function clearSheet(): void {
 }
 
 /**
- * 紙面の CSS。`landscape` は写真が横長か。
+ * 紙面の CSS。`shape` は写真の形。
  *
  * 紙の向きが写真と逆のときは、写真を90度回して紙の長い辺に合わせる。印刷の画面で向きを変えるとプレビューは
  * 組み直されるので、回すかどうかも追いかける。
@@ -66,8 +73,21 @@ function clearSheet(): void {
  * **窓**の大きさで決まり、写真が回らず左上に寄って切れた（mac の実測、2026-10-17）。紙面を `height: 100%` で
  * 紙に合わせ、`@container (orientation)` と `cqw`・`cqh` で読む
  */
-export function sheetCss(fit: PrintFit, landscape: boolean): string {
-  const other = landscape ? "portrait" : "landscape";
+export function sheetCss(fit: PrintFit, shape: PhotoShape): string {
+  // 正方形はどちらの紙にもそのまま載る。回すと、横の紙で要らない90度が入る（#213 の PR codex）
+  const turn =
+    shape === "square"
+      ? ""
+      : `
+@container (orientation: ${shape === "landscape" ? "portrait" : "landscape"}) {
+  #${SHEET_ID} img {
+    left: 50%;
+    top: 50%;
+    width: 100cqh;
+    height: 100cqw;
+    transform: translate(-50%, -50%) rotate(90deg);
+  }
+}`;
   return `
 @page { margin: 0; }
 #${SHEET_ID} { display: none; }
@@ -98,15 +118,7 @@ export function sheetCss(fit: PrintFit, landscape: boolean): string {
     object-fit: ${fit};
   }
 }
-@container (orientation: ${other}) {
-  #${SHEET_ID} img {
-    left: 50%;
-    top: 50%;
-    width: 100cqh;
-    height: 100cqw;
-    transform: translate(-50%, -50%) rotate(90deg);
-  }
-}`;
+}${turn}`;
 }
 
 /**
@@ -136,7 +148,7 @@ export async function printPhoto(src: string, fit: PrintFit): Promise<void> {
   }
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = sheetCss(fit, img.naturalWidth > img.naturalHeight);
+  style.textContent = sheetCss(fit, shapeOf(img.naturalWidth, img.naturalHeight));
   const sheet = document.createElement("div");
   sheet.id = SHEET_ID;
   sheet.appendChild(img);
