@@ -45,7 +45,7 @@ pub mod watch;
 
 pub use browse::{list_dir, list_tree, DirListing, SourceDir, SourceFile, TreeListing};
 pub use config::{Config, ConfigError};
-pub use db::{Db, DbError, DirSnapshot, MediaRecord, ReadPool, RowVersion};
+pub use db::{Db, DbError, DirSnapshot, MediaRecord, ReadPool, RowVersion, TakenAt, TakenSource};
 pub use export::{export_files, ExportError, ExportMode, ExportOutcome, ExportStats};
 pub use import::{
     contested_flags, contested_names, contested_set, import_files, import_from,

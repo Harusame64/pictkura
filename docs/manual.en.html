@@ -504,8 +504,8 @@ they land on the right day.
 <p>
 When pictkura can make no picture for a file — a RAW with no usable preview, say — a date
 already recorded for it comes third in the list, ahead of the file name and the
-modification time, unless what is recorded is only that modification time, which means
-nothing has been read yet. That matters because a file that ends up with no size at all is
+modification time, unless what is recorded was only filled in from the modification time,
+which means nothing has been read yet. That matters because a file that ends up with no size at all is
 looked at again on every startup, so a pass that reads nothing must not erase a date that
 was read before.
 </p>
@@ -770,7 +770,7 @@ rendering.
 <div class="note">
   <p>
     <strong>If you shoot RAW+JPEG, the grid stacks each pair into one tile.</strong>
-    A RAW and a non-RAW image with the same name in the same folder and the same capture time (to the second),
+    A RAW and a non-RAW image with the same name in the same folder and the same capture time (to the second; a date filled in from the modification time does not count),
     such as <code>IMG_0001.CR3</code> and <code>IMG_0001.JPG</code> (a HEIF <code>.HIF</code> pairs too; videos never do), show as the non-RAW image (usually the JPEG), with a <code>RAW+JPEG</code> badge in the corner
     (on narrow tiles, a mark of two overlapping squares).
     In the grid, ★, ⚑, delete and selection apply to both. Full screen shows only the non-RAW file (usually the JPEG) by default,

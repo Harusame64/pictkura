@@ -562,20 +562,18 @@ fn enqueue_missing_thumbs(state: &AppState) {
     //
     // **済んだ印は持たない**。印を先に書くと、投げた仕事が終わる前にアプリが
     // 落ちたときに二度と拾い直せなくなる。代わりに**名前から日時を拾える行だけ**へ
-    // 絞る: 拾えた行は日時が mtime と変わって条件から外れ、拾えない行は
-    // ファイルを開かない文字列判定だけで弾けるので、毎回通っても実質ただ
+    // 絞る: 拾えた行は出どころが `name`（か EXIF・OS）になって条件から外れ、拾えない行は
+    // ファイルを開かない文字列判定だけで弾けるので、毎回通っても実質ただ。
+    //
+    // 以前は「名前の日時が mtime と同じ行」も外していた。出どころが無かったころは、
+    // 投げ直しても値が mtime と同じままで条件から外れず、毎回の同期で RAW/HEIF を
+    // 解き直し続けたため。いまは出どころで外れるので、1回だけ読み直して `name` に
+    // 確定させる（F2 より前の DB で mtime と読まれていたスクリーンショット等）
     if let Ok(rows) = db.rows_with_fallback_taken_at() {
         let ids: Vec<i64> = rows
             .into_iter()
-            // **mtimeと同じ値しか出てこない行は投げない**。スクリーンショットのように
-            // 名前の日時とmtimeが同じ秒のファイルは、投げ直しても値が変わらないので
-            // 条件から外れず、毎回の同期で投げ直され続ける。RAW/HEIFはその都度
-            // 原寸を展開し直すので、放っておくと重い仕事が永久に回る
-            .filter(|(_, path, mtime_ms)| {
-                pictkura_core::namedate::guess_taken_at(path)
-                    .is_some_and(|guessed| guessed != *mtime_ms)
-            })
-            .map(|(id, _, _)| id)
+            .filter(|(_, path)| pictkura_core::namedate::guess_taken_at(path).is_some())
+            .map(|(id, _)| id)
             .collect();
         state.thumbs.enqueue(&ids);
     }
@@ -715,7 +713,8 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             needs_transcode: pictkura_core::thumbs::needs_display_transcode(&r.path),
             shot_key: pictkura_core::sidecar::shot_key(&r.path),
             is_raw: pictkura_core::raw::is_raw_path(&r.path),
-            taken_at_known: r.taken_at_ms.is_some(),
+            // 更新日時で埋めた値は「分かっていない」（F2、dev #44）。組・連写はこれで決まる
+            taken_at_known: r.taken_at_is_real(),
             taken_subsec: r.taken_subsec == Some(true),
             body_key: pictkura_core::burst::body_key(r.camera_id, r.body_serial.as_deref()),
         }
