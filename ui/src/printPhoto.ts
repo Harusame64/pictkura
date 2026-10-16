@@ -22,6 +22,12 @@ const FIT_KEY = "pictkura.printFit";
 const SHEET_ID = "print-sheet";
 const STYLE_ID = "print-sheet-style";
 
+/**
+ * 写真を読んでいる間（HEIC は1秒ほど）。**重ねて押されたら受け付けない**——両方が紙面を足すと、macOS は
+ * `print()` がすぐ戻るので2枚刷られ、Windows は印刷の画面が2回続けて出る（#213 のゲート2）
+ */
+let preparing = false;
+
 /** 前に選んだ載せ方。読めない・知らない値なら「用紙に合わせて拡大」 */
 export function loadPrintFit(): PrintFit {
   try {
@@ -107,15 +113,19 @@ export function sheetCss(fit: PrintFit, landscape: boolean): string {
  * 返るのは画面を出したところまで（Windows は閉じたところまで）。片付けは `afterprint` で行う
  */
 export async function printPhoto(src: string, fit: PrintFit): Promise<void> {
+  if (preparing) return;
   // 前の紙面が残っていたら（`afterprint` が来なかった等）、ここで外す——紙面が2つあると2枚刷られる
   clearSheet();
   const img = new Image();
   img.decoding = "sync";
   img.src = src;
+  preparing = true;
   try {
     await img.decode();
   } catch {
     throw new Error("errPrint");
+  } finally {
+    preparing = false;
   }
   const style = document.createElement("style");
   style.id = STYLE_ID;

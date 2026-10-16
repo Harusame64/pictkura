@@ -5954,7 +5954,22 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         if is_video {
             return not_found();
         }
-        return match pictkura_core::print::print_jpeg(&record.path) {
+        // 表示中の HEIC・RAW は表示のキャッシュに同じ JPEG が居る。作り直さずに洗う（HEIC は1枚 0.6〜1秒）。
+        // TIFF は丸めた側が入っているので使わない——印刷は丸めない
+        let path = &record.path;
+        let cached = (pictkura_core::thumbs::needs_display_transcode(path)
+            && !pictkura_core::thumbs::is_tiff_path(path))
+        .then(|| {
+            state
+                .display_cache
+                .get(pictkura_core::display_cache::Key { id, mtime_ms, rev })
+        })
+        .flatten();
+        let printed = match cached {
+            Some(bytes) => pictkura_core::print::from_display_jpeg(bytes.as_ref()),
+            None => pictkura_core::print::print_jpeg(path),
+        };
+        return match printed {
             Some(bytes) => Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "image/jpeg")

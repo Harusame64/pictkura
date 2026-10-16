@@ -20,7 +20,14 @@ use std::path::Path;
 /// 詰め直すときの品質。**表示の 82 より上げる**——紙は画面より近くで、大きく見る
 pub const PRINT_QUALITY: u8 = 92;
 
+/// 詰め直すときの長辺の上限。A3 を 300dpi で刷っても 4961 画素なので、それを十分に超える値。1億画素の
+/// スキャンを原寸で起こすと、RGBA と RGB の2枚で 700MB を抱える（#213 のゲート2）
+pub const PRINT_MAX_EDGE: u32 = 8192;
+
 /// 印刷に渡す JPEG を作る。作れないもの（SVG・動画・読めないファイル）は `None`。
+///
+/// 描けない形式（RAW・HEIC・TIFF）の色と品質は**画面に出ている絵と同じ**（表示の道で作るため）——刷るのは
+/// ビューアで見ていたもの
 pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
     if crate::video::is_video_path(path) || crate::svg::is_svg_path(path) {
         return None;
@@ -28,15 +35,32 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
     if crate::jpeg::is_jpeg_path(path) {
         let bytes = std::fs::read(path).ok()?;
         let orientation = crate::thumbs::read_exif_meta(path).orientation;
-        return strip_jpeg(&bytes, orientation);
+        // 区画の並びが崩れている（区画の間にゴミがある・中身が別の形式）ものも、ビューアは描けている。
+        // 洗えなければ画素から作り直す（#213 のゲート2）
+        return strip_jpeg(&bytes, orientation).or_else(|| redraw(path));
     }
     if crate::thumbs::needs_display_transcode(path) {
         // 作った側（`display_jpeg_full`）が向きを当て済み。**丸めない側**を使う——TIFF の上限は配信の都合
-        return strip_jpeg(&crate::thumbs::display_jpeg_full(path)?, 1);
+        return from_display_jpeg(&crate::thumbs::display_jpeg_full(path)?);
     }
-    let rgba = crate::extract::rgba(path)?;
+    redraw(path)
+}
+
+/// 表示の道で作った JPEG（向きは当て済み）を印刷用に洗う。呼ぶ側が表示のキャッシュに同じバイト列を持って
+/// いれば、それを渡せば作り直さずに済む（HEIC は1枚 0.6〜1秒）
+pub fn from_display_jpeg(jpeg: &[u8]) -> Option<Vec<u8>> {
+    strip_jpeg(jpeg, 1)
+}
+
+/// 画素へ起こして JPEG に詰め直す（白の上に置き、長辺を [`PRINT_MAX_EDGE`] に抑え、ICC を付け直す）
+fn redraw(path: &Path) -> Option<Vec<u8>> {
+    let mut img = image::DynamicImage::ImageRgba8(crate::extract::rgba(path)?);
+    if img.width().max(img.height()) > PRINT_MAX_EDGE {
+        let (w, h) = crate::resize::fit_within(img.width(), img.height(), PRINT_MAX_EDGE);
+        img = crate::resize::box_filter(&img, w, h);
+    }
     let jpeg = crate::jpeg::encode_rgb(
-        &on_white(&rgba),
+        &crate::resize::flatten_onto_white(&img),
         PRINT_QUALITY,
         crate::jpeg::ChromaSampling::Full,
     )?;
@@ -91,16 +115,6 @@ fn with_icc(jpeg: &[u8], icc: &[u8]) -> Vec<u8> {
     }
     out.extend_from_slice(&jpeg[at..]);
     out
-}
-
-/// 透けている画素を白い紙の上に置く（JPEG は透明を持てない。黒く落ちると紙の上で目立つ）
-fn on_white(rgba: &image::RgbaImage) -> image::RgbImage {
-    image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
-        let p = rgba.get_pixel(x, y).0;
-        let a = u32::from(p[3]);
-        let mix = |c: u8| ((u32::from(c) * a + 255 * (255 - a) + 127) / 255) as u8;
-        image::Rgb([mix(p[0]), mix(p[1]), mix(p[2])])
-    })
 }
 
 /// JPEG から撮影情報の区画を外す。**符号化されたデータには触らない。**
@@ -386,6 +400,33 @@ mod tests {
         let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(&out)).unwrap();
         assert_eq!(dec.icc_profile().unwrap(), Some(icc));
         assert!(contains(&out, b"ICC_PROFILE\0\x02\x02"));
+    }
+
+    #[test]
+    fn a_jpeg_that_cannot_be_cleaned_is_redrawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("padded.jpg");
+        // 区画の間にゴミ（libjpeg は「marker の前に余分なバイト」と警告して読む）。洗う側は断る
+        let plain = plain_jpeg(false);
+        let mut jpeg = plain[..2].to_vec();
+        jpeg.extend_from_slice(&[0x00, 0x00, 0x00]);
+        jpeg.extend_from_slice(&plain[2..]);
+        assert_eq!(strip_jpeg(&jpeg, 1), None);
+        std::fs::write(&p, &jpeg).unwrap();
+        // 作り直す側の解読器（`image`）はゴミを読み飛ばす
+        let out = print_jpeg(&p).unwrap();
+        assert_eq!(decoded(&out).dimensions(), picture().dimensions());
+    }
+
+    #[test]
+    fn a_huge_redraw_is_capped() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("wide.png");
+        image::RgbImage::from_pixel(PRINT_MAX_EDGE + 100, 2, image::Rgb([1, 2, 3]))
+            .save(&p)
+            .unwrap();
+        let rgb = decoded(&print_jpeg(&p).unwrap());
+        assert_eq!(rgb.width(), PRINT_MAX_EDGE);
     }
 
     #[test]

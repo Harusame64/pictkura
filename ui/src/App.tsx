@@ -5060,6 +5060,11 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
         const saving = e.key === "s" || e.key === "S";
         const copying = e.key === "c" || e.key === "C";
+        // 印刷（ADR B-3）。右クリックの「印刷…」と同じ幕を開く。食べるのは常時のハンドラ（上の `Ctrl+S` と同じ）
+        if ((e.key === "p" || e.key === "P") && viewerItem && canCopyToClipboard(viewerItem, fullFailedId)) {
+          setPrintFor(viewerItem);
+          return;
+        }
         if (saving || copying) {
           // **`Ctrl+S` を食べるのはここではない。** 画面に関わらず食べる
           // 必要があるので、パレットと同じ常時のハンドラでやっている
@@ -5151,6 +5156,7 @@ export default function App() {
     copyViewerImage,
     saveViewerImage,
     extracting,
+    fullFailedId,
   ]);
 
   // 撮影情報は**パネルを開いている間だけ**、表示中の1枚について実ファイルから読む。
@@ -5241,6 +5247,14 @@ export default function App() {
       // なる。ここは開いている画面に関わらず走るので、穴が残らない
       const saveKey = e.key === "s" || e.key === "S";
       if ((e.ctrlKey || e.metaKey) && !e.altKey && saveKey) {
+        e.preventDefault();
+        return;
+      }
+      // **`Ctrl+P` も同じ理由で食べる**（ADR B-3）。素通しすると WebView2 のページの印刷が開き、ビューアの
+      // `full/`——**原本の JPEG を EXIF・GPS ごと**——刷る・PDF に保存する（#213 のゲート2）。ビューアは
+      // 自分の受け口で印刷の幕を開く
+      const printKey = e.key === "p" || e.key === "P";
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && printKey) {
         e.preventDefault();
         return;
       }
