@@ -474,8 +474,8 @@ pub fn prepare(path: &Path) -> Result<Prepared, RotateError> {
     Ok(Prepared {
         path: path.to_path_buf(),
         size: after.len(),
-        mtime_ms: crate::scanner::mtime_of(&after),
-        mtime_sub_ns: sub_ms_nanos(&after),
+        mtime_ms: file_stamp(&after).0,
+        mtime_sub_ns: file_stamp(&after).1,
         spot,
         content_hash,
     })
@@ -520,11 +520,16 @@ fn write_checked(
 }
 
 /// 更新日時のミリ秒より下（ナノ秒、0〜999_999）
-fn sub_ms_nanos(meta: &std::fs::Metadata) -> u32 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.subsec_nanos() % 1_000_000)
+///
+/// ミリ秒と端数を**1か所で**同じ時刻から取る。1970年より前の日時も負の値のまま持つ——走査（`mtime_of`）は
+/// それを 0 と読むので、行と合わずに回すのを断る（元期の日時で書き戻すより、回さないほうがよい。PR のゲート2）
+fn file_stamp(meta: &std::fs::Metadata) -> (i64, u32) {
+    let t = filetime::FileTime::from_last_modification_time(meta);
+    let nanos = t.nanoseconds();
+    (
+        t.unix_seconds() * 1000 + i64::from(nanos / 1_000_000),
+        nanos % 1_000_000,
+    )
 }
 
 /// 開いている手で2バイトを書き、更新日時（ミリ秒＋その下のナノ秒）を付けて `sync_all`。
@@ -712,6 +717,7 @@ pub fn apply(
         orig_mtime_sub_ns: orig_sub_ns,
         edited_bytes: current,
         edited_mtime_ms: prep.mtime_ms,
+        edited_mtime_sub_ns: prep.mtime_sub_ns,
         content_hash: prep.content_hash,
         pending: Some((new_bytes, target_mtime)),
     };
@@ -828,14 +834,9 @@ pub fn apply(
 /// その写真で「向きを元に戻す」が効きそうか（右クリックに出すか）。[`apply`] が控えを当てにする条件のうち、
 /// ファイルを丸ごと読まずに済むもの（大きさ・更新日時・向きの2バイト）を同じ規則で見る。中身の要約は回すときに
 /// 確かめる——メニューを開くたびに写真を丸ごと読まない
-pub fn restorable(db: &Db, path: &Path) -> Result<bool, DbError> {
-    Ok(restorable_from(
-        db.edit_of(&crate::paths::fold(path))?,
-        path,
-    ))
-}
-
-/// [`restorable`] のファイルを見る側。DB の接続を持たずに呼べる（遅い共有で返ってこなくても接続を塞がない）
+///
+/// 控え（`db.edit_of(&paths::fold(path))`）は呼び出し側が読んで渡す。DB の接続を持たずに呼べる（遅い共有で
+/// 返ってこなくても接続を塞がない）
 pub fn restorable_from(edit: Option<EditRecord>, path: &Path) -> bool {
     let Some(e) = edit else {
         return false;
@@ -878,12 +879,8 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
         settled.pending = None;
         // 初めて回そうとしていた行（控えの中身が元のまま）は、片付けたら消す
         let fresh = e.edited_bytes == e.orig_bytes && e.edited_mtime_ms == e.orig_mtime_ms;
-        // 書く前の日時の端数。pictkura が付けた日時は端数を持たないので、端数があるのは元の日時だけ
-        let edited_sub_ns = if e.edited_mtime_ms == e.orig_mtime_ms {
-            e.orig_mtime_sub_ns
-        } else {
-            0
-        };
+        // 書く前の日時の端数（控えに書いた実際の値）
+        let edited_sub_ns = e.edited_mtime_sub_ns;
         let finish = |db: &mut Db| {
             if fresh {
                 db.edit_forget(&e.path_key)
@@ -1304,21 +1301,46 @@ mod tests {
     #[test]
     fn restorable_follows_the_same_rule_as_apply() {
         let (_dir, mut db, id, path) = library("a.jpg", 1);
-        assert!(!restorable(&db, &path).unwrap(), "回していない");
+        assert!(
+            !restorable_from(db.edit_of(&crate::paths::fold(&path)).unwrap(), &path),
+            "回していない"
+        );
         let prep = prepare(&path).unwrap();
         apply(&mut db, id, Turn::Right, &prep, NOW).unwrap();
-        assert!(restorable(&db, &path).unwrap());
+        assert!(restorable_from(
+            db.edit_of(&crate::paths::fold(&path)).unwrap(),
+            &path
+        ));
         // 外の道具が向きを書き換えた（日時は保った）
         let turned_at = std::fs::metadata(&path).unwrap().modified().unwrap();
         write_bytes(&path, prep.spot.offset, prep.spot.bytes_of(8)).unwrap();
         filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(turned_at)).unwrap();
-        assert!(!restorable(&db, &path).unwrap(), "もう戻せないのに出さない");
+        assert!(
+            !restorable_from(db.edit_of(&crate::paths::fold(&path)).unwrap(), &path),
+            "もう戻せないのに出さない"
+        );
     }
 
     #[test]
     fn restoring_gives_back_the_time_below_the_millisecond() {
-        let (_dir, mut db, id, path) = library("a.jpg", 1);
-        // 端数を持つ元の日時（NTFS・APFS は 1ms より細かく持つ）
+        let (_dir, mut db, id, path, before) = library_with_fraction();
+        for turns in [
+            vec![Turn::Right, Turn::Restore],
+            vec![Turn::Right, Turn::Left],
+        ] {
+            for turn in turns {
+                let prep = prepare(&path).unwrap();
+                apply(&mut db, id, turn, &prep, NOW).unwrap();
+            }
+            let after =
+                filetime::FileTime::from_last_modification_time(&std::fs::metadata(&path).unwrap());
+            assert_eq!(after, before, "ナノ秒まで元の日時");
+        }
+    }
+
+    /// 元の日時に端数を持たせたライブラリ（NTFS・APFS は 1ms より細かく持つ）
+    fn library_with_fraction() -> (tempfile::TempDir, Db, i64, PathBuf, filetime::FileTime) {
+        let (dir, mut db, id, path) = library("a.jpg", 1);
         let orig = filetime::FileTime::from_unix_time(1_600_000_000, 123_456_700);
         filetime::set_file_mtime(&path, orig).unwrap();
         let meta = std::fs::metadata(&path).unwrap();
@@ -1335,19 +1357,41 @@ mod tests {
             None,
         )
         .unwrap();
-        let before = filetime::FileTime::from_last_modification_time(&meta);
-        for turns in [
-            vec![Turn::Right, Turn::Restore],
-            vec![Turn::Right, Turn::Left],
-        ] {
-            for turn in turns {
-                let prep = prepare(&path).unwrap();
-                apply(&mut db, id, turn, &prep, NOW).unwrap();
-            }
-            let after =
-                filetime::FileTime::from_last_modification_time(&std::fs::metadata(&path).unwrap());
-            assert_eq!(after, before, "ナノ秒まで元の日時");
-        }
+        (
+            dir,
+            db,
+            id,
+            path,
+            filetime::FileTime::from_last_modification_time(&meta),
+        )
+    }
+
+    fn mtime_ft(path: &Path) -> filetime::FileTime {
+        filetime::FileTime::from_last_modification_time(&std::fs::metadata(path).unwrap())
+    }
+
+    #[test]
+    fn a_failed_settle_puts_the_time_back_below_the_millisecond() {
+        let (_dir, mut db, id, path, before) = library_with_fraction();
+        db.execute_for_test(
+            "CREATE TRIGGER no_settle BEFORE UPDATE OF mtime_ms ON media \
+             BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+        );
+        let prep = prepare(&path).unwrap();
+        assert!(apply(&mut db, id, Turn::Right, &prep, NOW).is_err());
+        assert_eq!(mtime_ft(&path), before);
+    }
+
+    #[test]
+    fn recovery_puts_the_time_back_below_the_millisecond() {
+        let (_dir, mut db, id, path, before) = library_with_fraction();
+        let prep = prepare(&path).unwrap();
+        let new = prep.spot.bytes_of(6);
+        begin_pending(&mut db, id, &path, &prep, new, NOW);
+        write_bytes(&path, prep.spot.offset, new).unwrap();
+        set_mtime(&path, NOW).unwrap();
+        recover(&mut db).unwrap();
+        assert_eq!(mtime_ft(&path), before);
     }
 
     #[test]
@@ -1643,6 +1687,7 @@ mod tests {
             orig_bytes: prep.spot.bytes(),
             orig_mtime_ms: orig_mtime,
             orig_mtime_sub_ns: 0,
+            edited_mtime_sub_ns: 0,
             edited_bytes: prep.spot.bytes(),
             edited_mtime_ms: orig_mtime,
             content_hash: prep.content_hash,
@@ -1706,6 +1751,7 @@ mod tests {
             orig_bytes: prep.spot.bytes(),
             orig_mtime_ms: orig_mtime,
             orig_mtime_sub_ns: 0,
+            edited_mtime_sub_ns: 0,
             edited_bytes: prep.spot.bytes(),
             edited_mtime_ms: orig_mtime,
             content_hash: prep.content_hash,
@@ -1982,7 +2028,8 @@ mod tests {
             offset: prep.spot.offset as i64,
             orig_bytes: prep.spot.bytes(),
             orig_mtime_ms: prep.mtime_ms,
-            orig_mtime_sub_ns: 0,
+            orig_mtime_sub_ns: prep.mtime_sub_ns,
+            edited_mtime_sub_ns: prep.mtime_sub_ns,
             edited_bytes: prep.spot.bytes(),
             edited_mtime_ms: prep.mtime_ms,
             content_hash: prep.content_hash,
