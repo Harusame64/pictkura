@@ -35,11 +35,62 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
         return strip_jpeg(&crate::thumbs::display_jpeg_full(path)?, 1);
     }
     let rgba = crate::extract::rgba(path)?;
-    crate::jpeg::encode_rgb(
+    let jpeg = crate::jpeg::encode_rgb(
         &on_white(&rgba),
         PRINT_QUALITY,
         crate::jpeg::ChromaSampling::Full,
-    )
+    )?;
+    // 画素は色空間を変えずに起こしてある。**元の ICC を付け直さないと sRGB と読まれ**、Display P3・Adobe RGB の
+    // PNG や WebP は画面より色が浅く刷られる（#213 のゲート1）
+    Some(match icc_of(path) {
+        Some(icc) => with_icc(&jpeg, &icc),
+        None => jpeg,
+    })
+}
+
+/// 画像の ICC プロファイル（`image` の解読器が読める形式だけ。AVIF は同梱の解読器が持たないので `None`）
+fn icc_of(path: &Path) -> Option<Vec<u8>> {
+    use image::ImageDecoder;
+    if crate::heif::is_avif_path(path) {
+        return None;
+    }
+    let mut decoder = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .into_decoder()
+        .ok()?;
+    decoder
+        .icc_profile()
+        .ok()
+        .flatten()
+        .filter(|p| !p.is_empty())
+}
+
+/// JPEG の SOI（と APP0）の直後に ICC プロファイルを APP2 で差し込む。64KB を超えるものは区画を分ける
+/// （`ICC_PROFILE\0`・番号・総数の順。ICC.1 の Annex B）
+fn with_icc(jpeg: &[u8], icc: &[u8]) -> Vec<u8> {
+    const CHUNK: usize = 65_533 - 16;
+    let mut at = 2;
+    if jpeg.get(2..4) == Some(&[0xFF, 0xE0]) {
+        at += 2 + usize::from(u16::from_be_bytes([jpeg[4], jpeg[5]]));
+    }
+    let chunks: Vec<&[u8]> = icc.chunks(CHUNK).collect();
+    // 区画の数は1バイトで数える。収まらないほど大きなものは付けない（色より、刷れることを取る）
+    if chunks.len() > 255 {
+        return jpeg.to_vec();
+    }
+    let mut out = Vec::with_capacity(jpeg.len() + icc.len() + chunks.len() * 18);
+    out.extend_from_slice(&jpeg[..at]);
+    for (i, chunk) in chunks.iter().enumerate() {
+        out.extend_from_slice(&[0xFF, 0xE2]);
+        out.extend_from_slice(&((2 + 14 + chunk.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"ICC_PROFILE\0");
+        out.extend_from_slice(&[(i + 1) as u8, chunks.len() as u8]);
+        out.extend_from_slice(chunk);
+    }
+    out.extend_from_slice(&jpeg[at..]);
+    out
 }
 
 /// 透けている画素を白い紙の上に置く（JPEG は透明を持てない。黒く落ちると紙の上で目立つ）
@@ -307,6 +358,34 @@ mod tests {
         let rgb = decoded(&out);
         assert!(rgb.get_pixel(1, 4).0.iter().all(|&c| c > 240), "透明は白");
         assert!(rgb.get_pixel(6, 4).0.iter().all(|&c| c < 15), "黒は黒");
+    }
+
+    #[test]
+    fn a_redrawn_png_keeps_its_colour_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("p3.png");
+        // ICC を持つ PNG（中身は解読器が読めればよい。色の変換はしない）
+        let icc = vec![7u8; 70_000];
+        let mut bytes = Vec::new();
+        {
+            use image::ImageEncoder;
+            let mut enc = image::codecs::png::PngEncoder::new(&mut bytes);
+            enc.set_icc_profile(icc.clone()).unwrap();
+            enc.write_image(
+                &[200, 10, 10, 20, 200, 10],
+                2,
+                1,
+                image::ExtendedColorType::Rgb8,
+            )
+            .unwrap();
+        }
+        std::fs::write(&p, &bytes).unwrap();
+        let out = print_jpeg(&p).unwrap();
+        // 64KB を超えるので2つに分かれ、つなぐと元に戻る
+        use image::ImageDecoder;
+        let mut dec = image::codecs::jpeg::JpegDecoder::new(std::io::Cursor::new(&out)).unwrap();
+        assert_eq!(dec.icc_profile().unwrap(), Some(icc));
+        assert!(contains(&out, b"ICC_PROFILE\0\x02\x02"));
     }
 
     #[test]

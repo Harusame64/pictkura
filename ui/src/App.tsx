@@ -5052,8 +5052,8 @@ export default function App() {
         return;
       }
       // 情報の幕（ADR の A）はビューアの右クリックからも開く。開いている間は `Esc`・送り・判定を通さない
-      // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）
-      if (wizardOpen || menu !== null || infoFor !== null) return;
+      // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）。印刷の幕（B-3）も同じ
+      if (wizardOpen || menu !== null || infoFor !== null || printFor !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -5143,6 +5143,7 @@ export default function App() {
     wizardOpen,
     menu,
     infoFor,
+    printFor,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5285,6 +5286,7 @@ export default function App() {
         wizardOpen ||
         menu !== null ||
         infoFor !== null ||
+        printFor !== null ||
         view !== "grid"
       )
         return;
@@ -5300,7 +5302,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, printFor, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -5610,7 +5612,8 @@ export default function App() {
       paletteOpen ||
       menu !== null ||
       calMenu !== null ||
-      infoFor !== null;
+      infoFor !== null ||
+      printFor !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
