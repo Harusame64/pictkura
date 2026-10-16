@@ -348,14 +348,23 @@ fn volume_root(_path: &Path) -> Option<PathBuf> {
 /// 拡張子を置き換える形（`IMG_0001.xmp`）は、**同じ名前の相方（RAW 等）が居れば見ない**——RAW+JPEG の組では
 /// それは RAW の現像設定で、JPEG の向きではない（組は JPEG だけを回す、ADR）。足す形（`IMG_0001.JPG.xmp`）は
 /// 必ずこの写真のもの（PR のゲート2）
-fn sidecar_declares_orientation(path: &Path) -> bool {
+///
+/// **読めなければ誤りを返す**（断る側へ倒す。PR の codex P2）——共有の錠や権限で一時的に読めないだけで
+/// 「向きは無い」と読むと、その `.xmp` が持つ向きと食い違う EXIF を書く
+fn sidecar_declares_orientation(path: &Path) -> std::io::Result<bool> {
     let has_partner = has_partner(path);
-    crate::sidecar::sidecars_of(path, &["xmp".to_string()])
+    for x in crate::sidecar::sidecars_of(path, &["xmp".to_string()])
         .iter()
         .filter(|x| !has_partner || is_appended_sidecar(path, x))
-        .any(|x| {
-            std::fs::read(x).is_ok_and(|bytes| bytes.windows(XMP_TAG.len()).any(|w| w == XMP_TAG))
-        })
+    {
+        if std::fs::read(x)?
+            .windows(XMP_TAG.len())
+            .any(|w| w == XMP_TAG)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// `x` が `path` の名前の後ろへ足した形（`IMG_0001.JPG.xmp`）か
@@ -409,7 +418,7 @@ pub fn prepare(path: &Path) -> Result<Prepared, RotateError> {
     }
     let before = std::fs::metadata(path)?;
     let header = read_header(&mut File::open(path)?)?;
-    if header.xmp_orientation || sidecar_declares_orientation(path) {
+    if header.xmp_orientation || sidecar_declares_orientation(path)? {
         return Err(RotateError::XmpOrientation);
     }
     let spot = header.spot.ok_or(RotateError::NoOrientation)?;
@@ -443,6 +452,31 @@ fn write_bytes(path: &Path, offset: u64, bytes: [u8; 2]) -> std::io::Result<()> 
     f.seek(SeekFrom::Start(offset))?;
     f.write_all(&bytes)?;
     f.sync_all()
+}
+
+/// 書くために開いた**その手で**、向きの位置と今の2バイトが調べたときのままか確かめてから書き、`sync_all`、
+/// 同じ手で更新日時を付ける（PR の codex P1）。確かめてから開き直すと、その間に差し替えられた別のファイルの
+/// 同じ位置へ書きうる。読み返した更新日時を返す。合わなければ何も書かずに `Changed`
+fn write_checked(
+    path: &Path,
+    spot: Spot,
+    new_bytes: [u8; 2],
+    mtime_ms: i64,
+) -> Result<i64, RotateError> {
+    let mut f = OpenOptions::new().read(true).write(true).open(path)?;
+    if read_header(&mut f)?.spot != Some(spot) {
+        return Err(RotateError::Changed);
+    }
+    f.seek(SeekFrom::Start(spot.offset))?;
+    f.write_all(&new_bytes)?;
+    f.sync_all()?;
+    let t = filetime::FileTime::from_unix_time(
+        mtime_ms.div_euclid(1000),
+        (mtime_ms.rem_euclid(1000) as u32) * 1_000_000,
+    );
+    filetime::set_file_handle_times(&f, None, Some(t))?;
+    drop(f);
+    Ok(crate::scanner::mtime_of(&std::fs::metadata(path)?))
 }
 
 fn read_bytes(path: &Path, offset: u64) -> std::io::Result<[u8; 2]> {
@@ -529,6 +563,10 @@ pub fn apply(
     if content_hash(path, prep.spot.offset)? != prep.content_hash {
         return Err(RotateError::Changed);
     }
+    // 横の `.xmp` も今のうちに見直す（prepare の後に現像ソフトが作ったかもしれない。PR の codex P2）
+    if sidecar_declares_orientation(path)? {
+        return Err(RotateError::XmpOrientation);
+    }
     let key = crate::paths::fold(path);
     let current = prep.spot.bytes();
     // 控えが今のファイルを指しているか。外れていれば（外で書き換えられた）捨てて新しく始める
@@ -603,11 +641,11 @@ pub fn apply(
             ));
         }
     };
-    let written = write_bytes(path, offset, new_bytes).and_then(|()| set_mtime(path, target_mtime));
+    let written = write_checked(path, prep.spot, new_bytes, target_mtime);
     let readback = match written {
         Ok(ms) => ms,
         Err(e) => {
-            let err = undo_write(path, offset, current, prep.mtime_ms, e.into());
+            let err = undo_write(path, offset, current, prep.mtime_ms, e);
             if !matches!(err, RotateError::LeftChanged(_)) {
                 forget_pending(db);
             }
@@ -1116,6 +1154,54 @@ mod tests {
         let row = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(row.rev, rev + 1);
         assert!(row.thumb_path.is_none());
+    }
+
+    #[test]
+    fn a_sidecar_made_after_prepare_stops_the_turn() {
+        let (dir, mut db, id, path) = library("a.jpg", 1);
+        let original = std::fs::read(&path).unwrap();
+        let prep = prepare(&path).unwrap();
+        std::fs::write(dir.path().join("a.jpg.xmp"), "<x tiff:Orientation=\"6\"/>").unwrap();
+        assert!(matches!(
+            apply(&mut db, id, Turn::Right, &prep, NOW),
+            Err(RotateError::XmpOrientation)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(db.edits_pending().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sidecar_that_cannot_be_read_stops_the_turn() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, _db, _id, path) = library("a.jpg", 1);
+        let xmp = dir.path().join("a.jpg.xmp");
+        std::fs::write(&xmp, "<x/>").unwrap();
+        std::fs::set_permissions(&xmp, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let got = prepare(&path);
+        std::fs::set_permissions(&xmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(got, Err(RotateError::Io(_))), "{got:?}");
+    }
+
+    #[test]
+    fn the_write_checks_the_handle_it_writes_through() {
+        let (_dir, _db, _id, path) = library("a.jpg", 1);
+        let original = std::fs::read(&path).unwrap();
+        let spot = read_header(&mut File::open(&path).unwrap())
+            .unwrap()
+            .spot
+            .unwrap();
+        // 調べたときと違う姿（別のファイルに差し替わった）を渡す
+        let stale = Spot { value: 3, ..spot };
+        assert!(matches!(
+            write_checked(&path, stale, spot.bytes_of(6), NOW),
+            Err(RotateError::Changed)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), original, "何も書かない");
+        assert_eq!(
+            write_checked(&path, spot, spot.bytes_of(6), NOW).unwrap(),
+            NOW
+        );
     }
 
     #[test]
