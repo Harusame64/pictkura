@@ -384,9 +384,36 @@ fn sidecar_declares_orientation(path: &Path) -> std::io::Result<bool> {
 
 /// XMP が向きを持っているか。`tiff:Orientation` か、TIFF の名前空間を別の接頭辞で結んだ `…:Orientation`。
 /// 名前空間が在って `:Orientation` が在れば断る側へ倒す（ほかの名前空間に `Orientation` は無い）
+///
+/// XMP は UTF-16・UTF-32 でも書ける（PR の codex P2）ので、探す語をその並びにも直して探す
 fn xmp_declares_orientation(xmp: &[u8]) -> bool {
-    let has = |needle: &[u8]| xmp.windows(needle.len()).any(|w| w == needle);
+    let has = |needle: &[u8]| {
+        encodings(needle)
+            .iter()
+            .any(|n| xmp.windows(n.len()).any(|w| w == n.as_slice()))
+    };
     has(XMP_TAG) || (has(XMP_TIFF_NS) && has(XMP_ORIENTATION))
+}
+
+/// ASCII の語を、UTF-8・UTF-16（LE/BE）・UTF-32（LE/BE）の並びにする
+fn encodings(ascii: &[u8]) -> [Vec<u8>; 5] {
+    let wide = |width: usize, big: bool| -> Vec<u8> {
+        ascii
+            .iter()
+            .flat_map(|&b| {
+                let mut unit = vec![0u8; width];
+                unit[if big { width - 1 } else { 0 }] = b;
+                unit
+            })
+            .collect()
+    };
+    [
+        ascii.to_vec(),
+        wide(2, false),
+        wide(2, true),
+        wide(4, false),
+        wide(4, true),
+    ]
 }
 
 /// 同じフォルダに、拡張子だけ違う RAW が在るか（組の相方。`.aae`・`.txt` やフォルダは相方ではない。PR のゲート1）
@@ -668,9 +695,9 @@ pub fn apply(
         content_hash: prep.content_hash,
         pending: Some((new_bytes, target_mtime)),
     };
-    if db.edit_begin(id, record.version(), &begin)?.is_none() {
+    let Some(fenced) = db.edit_begin(id, record.version(), &begin)? else {
         return Err(RotateError::Changed);
-    }
+    };
     // ここから先はファイルを変える。どこで落ちても書き戻し、控えの「これから書く」を外す
     let offset = prep.spot.offset;
     // 外せなければ印が残り、次の起動の `recover` までそのファイルは「変わった」と断られる。記録には残す
@@ -734,7 +761,7 @@ pub fn apply(
         keep,
         issued_mtime_ms: issued,
     };
-    let settled = db.edit_settle(id, record.version(), &settle);
+    let settled = db.edit_settle(id, fenced, &settle);
     match settled {
         Ok(Some(())) => Ok(Applied {
             orientation: new_value,
@@ -1089,7 +1116,7 @@ mod tests {
         assert_eq!(mtime, NOW, "更新日時は今");
         let row = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(row.mtime_ms, mtime, "行は読み返した更新日時");
-        assert_eq!(row.rev, before.rev + 1);
+        assert_eq!(row.rev, before.rev + 2, "印で1つ、確定で1つ");
         assert_eq!(
             (row.width, row.height),
             (Some(4), Some(6)),
@@ -1170,6 +1197,19 @@ mod tests {
     }
 
     #[test]
+    fn the_pending_mark_fences_thumbnail_work_holding_the_old_version() {
+        let (_dir, mut db, id, path) = library("a.jpg", 1);
+        let old = db.get_by_id(id).unwrap().unwrap().version();
+        let prep = prepare(&path).unwrap();
+        begin_pending(&mut db, id, &path, &prep, prep.spot.bytes_of(6), NOW);
+        // 印を付けた後、古い版を掴んだ作業（書いている途中のファイルを読んだかもしれない）は書けない
+        let wrote = db
+            .guarded(id, old, |_| Ok::<_, crate::DbError>(()))
+            .unwrap();
+        assert!(wrote.is_none());
+    }
+
+    #[test]
     fn nothing_to_restore_on_a_file_never_turned() {
         let (_dir, mut db, id, path) = library("a.jpg", 6);
         let prep = prepare(&path).unwrap();
@@ -1216,10 +1256,10 @@ mod tests {
         let (dir, mut db, id, path) = library("a.jpg", 1);
         db.update_thumb_path(id, &dir.path().join("1.webp"), 2, Some(10))
             .unwrap();
-        let rev = db.get_by_id(id).unwrap().unwrap().rev;
         let prep = prepare(&path).unwrap();
         // 後始末の書き戻しが済んだところで落ちた（2バイトも日時も書く前の姿）
         begin_pending(&mut db, id, &path, &prep, prep.spot.bytes_of(6), NOW);
+        let rev = db.get_by_id(id).unwrap().unwrap().rev;
         recover(&mut db).unwrap();
         let row = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(row.rev, rev + 1);
@@ -1318,6 +1358,9 @@ mod tests {
             br#"<x xmlns:foo="http://ns.adobe.com/tiff/1.0/" foo:Orientation="6"/>"#
         ));
         assert!(xmp_declares_orientation(br#"<x tiff:Orientation="6"/>"#));
+        let utf16: Vec<u8> =
+            r#"<x tiff:Orientation="6"/>"#.encode_utf16().flat_map(u16::to_be_bytes).collect();
+        assert!(xmp_declares_orientation(&utf16), "UTF-16");
         assert!(!xmp_declares_orientation(
             br#"<x xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="A"/>"#
         ));
@@ -1644,10 +1687,10 @@ mod tests {
         let (dir, mut db, id, path) = library("a.jpg", 1);
         db.update_thumb_path(id, &dir.path().join("1.webp"), 2, Some(10))
             .unwrap();
-        let rev = db.get_by_id(id).unwrap().unwrap().rev;
         let prep = prepare(&path).unwrap();
         let new = prep.spot.bytes_of(6);
         begin_pending(&mut db, id, &path, &prep, new, NOW);
+        let rev = db.get_by_id(id).unwrap().unwrap().rev;
         write_bytes(&path, prep.spot.offset, new).unwrap();
         recover(&mut db).unwrap();
         let row = db.get_by_id(id).unwrap().unwrap();

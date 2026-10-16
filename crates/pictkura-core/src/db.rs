@@ -2153,13 +2153,17 @@ impl Db {
     }
 
     /// 書く前に「これから書く」を確定させる。`media` の行が `expect` の版のままのときだけ書き、
-    /// 変わっていたら `None`（[`Self::guarded`]）
+    /// 変わっていたら `None`（[`Self::guarded`]）。
+    ///
+    /// **同じトランザクションで版を1つ進め、進めた後の版を返す**（PR の codex P2）。サムネイル作りが古い版を
+    /// 掴んだまま、書いている途中のファイルを読んで寸法や絵を書くと、確定（[`Self::edit_settle`]）が寸法を
+    /// もう一度入れ替えて縦横が狂う。版を先に進めれば、その書き込みは守り（[`Self::guarded`]）で落ちる
     pub fn edit_begin(
         &mut self,
         id: i64,
         expect: RowVersion,
         rec: &EditRecord,
-    ) -> Result<Option<()>, DbError> {
+    ) -> Result<Option<RowVersion>, DbError> {
         // **この確定だけは WAL を同期してから返す**（PR の codex P1）。ふだんの `synchronous=NORMAL` では、
         // 確定がディスクに届く前に電源が落ちうる。そのあと書いて `sync_all` したファイルだけが残ると、
         // 起動時の後始末は印を見つけられず、元の向きと日時が失われる。`synchronous` はトランザクションの
@@ -2167,7 +2171,12 @@ impl Db {
         self.conn.pragma_update(None, "synchronous", "FULL")?;
         let begun = self.guarded(id, expect, |db| {
             db.put_edit(rec)?;
-            Ok::<_, DbError>(())
+            db.conn
+                .execute("UPDATE media SET rev = rev + 1 WHERE id = ?1", params![id])?;
+            Ok::<_, DbError>(RowVersion {
+                rev: expect.rev + 1,
+                ..expect
+            })
         });
         let restored = self.conn.pragma_update(None, "synchronous", "NORMAL");
         let begun = begun?;
