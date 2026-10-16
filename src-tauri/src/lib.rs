@@ -1234,6 +1234,13 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
+    // 回している途中で落ちたファイルを書く前へ戻す（ADR の R）。**走査より前に、走査の錠の中で**——
+    // 戻す前の更新日時を走査が見ると、行を作り直してしまう。窓を出す前（setup）には置かない:
+    // 控えの指すファイルがつながらない共有に在ると、OS の待ち時間だけ起動が止まる。ふだんは控えが空で、すぐ返る
+    match pictkura_core::rotate::recover(&mut db) {
+        Ok(notes) => notes.iter().for_each(|n| applog::note(n)),
+        Err(e) => applog::note(&format!("could not check the rotation ledger: {e}")),
+    }
     let fingerprint_ok =
         db.get_meta("scan_fingerprint").ok().flatten().as_deref() == Some(fingerprint.as_str());
 

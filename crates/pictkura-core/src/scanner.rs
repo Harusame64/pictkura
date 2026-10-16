@@ -559,7 +559,7 @@ fn walk_pruned(
 }
 
 /// メタデータからUnixエポックミリ秒のmtimeを取り出す（取得不能は0）。
-fn mtime_of(meta: &std::fs::Metadata) -> i64 {
+pub(crate) fn mtime_of(meta: &std::fs::Metadata) -> i64 {
     meta.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())

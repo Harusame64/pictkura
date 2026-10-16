@@ -336,7 +336,7 @@ fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
 /// ——そこは中身を読まない枝なので、**2枚目が黙って消える**。だから規則はここ1つ。
 ///
 /// ちょうど1時間ずれ（夏時間）を同じ扱いにしているのは [`looks_same`] の説明のとおり。
-fn looks_alike(a: (u64, i64), b: (u64, i64)) -> bool {
+pub(crate) fn looks_alike(a: (u64, i64), b: (u64, i64)) -> bool {
     if a.0 != b.0 {
         return false;
     }
@@ -715,7 +715,7 @@ pub fn contested_names<'a>(entries: impl Iterator<Item = (&'a str, u64, i64)>) -
 /// [`contested_names`] は畳んだ綴りで数え、[`is_contested`] は畳んだ綴りで引く。
 /// **片方だけ変えると、当たらなくなったことに誰も気づけない**——
 /// バッジは「まだ入っていない」と出し続け、取り込みは中身を読まなくなる。
-fn fold_name(name: &str) -> String {
+pub(crate) fn fold_name(name: &str) -> String {
     name.to_lowercase()
 }
 
