@@ -1849,6 +1849,24 @@ impl Db {
         Ok((count, total))
     }
 
+    /// 行のいまの版（[`RowVersion`]）。行が無ければ `None`
+    pub fn version_of(&self, id: i64) -> Result<Option<RowVersion>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT mtime_ms, size, rev FROM media WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(RowVersion {
+                        mtime_ms: r.get(0)?,
+                        size: r.get(1)?,
+                        rev: r.get(2)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
     /// **行が `expect` の版のままなら** `f` を1つのトランザクションで走らせて `Some` を返す。変わっていたら
     /// 何も書かずに `None`（F1）。
     ///
@@ -1865,26 +1883,12 @@ impl Db {
         self.conn
             .execute_batch("BEGIN IMMEDIATE")
             .map_err(|e| E::from(DbError::from(e)))?;
-        let now = self
-            .conn
-            .query_row(
-                "SELECT mtime_ms, size, rev FROM media WHERE id = ?1",
-                params![id],
-                |r| {
-                    Ok(RowVersion {
-                        mtime_ms: r.get(0)?,
-                        size: r.get(1)?,
-                        rev: r.get(2)?,
-                    })
-                },
-            )
-            .optional();
-        let matches = match now {
+        let matches = match self.version_of(id) {
             Ok(Some(v)) => v == expect,
             Ok(None) => false,
             Err(e) => {
                 let _ = self.conn.execute_batch("ROLLBACK");
-                return Err(E::from(DbError::from(e)));
+                return Err(E::from(e));
             }
         };
         if !matches {

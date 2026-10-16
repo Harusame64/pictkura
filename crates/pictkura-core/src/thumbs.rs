@@ -1305,7 +1305,12 @@ fn publish_thumb(
     thumb_bytes: Option<i64>,
 ) -> Result<bool, ThumbError> {
     // **記録を書いてから付け替える**。付け替えの後で記録が失敗すると、取り消された行の裏で本当の名前の
-    // ファイルだけが差し替わり、同じ URL の中身が変わる（PR のゲート2）。逆なら付け替えの失敗で記録も取り消せる
+    // ファイルだけが差し替わり、同じ URL の中身が変わる（PR のゲート2）。逆なら付け替えの失敗で記録も取り消せる。
+    //
+    // 付け替えた後の COMMIT の失敗（落ちた・ディスクが満杯）だけは取り消せない。それでも置いた絵は、
+    // 書き込みロックの中で版が一致した**同じ中身の**絵である: 古い thumb_state の URL がより良い絵を返すか、
+    // 行に記録の無いファイルが残るだけで、違う写真が出ることはない。行は後の可視の要求で作り直されうる
+    // （PR #208 の codex。版ごとの名前にはしない）
     let published = db.guarded(id, record.version(), |db| {
         db.update_thumb_path(id, final_path, thumb_state, thumb_bytes)?;
         std::fs::rename(tmp, final_path)?;
@@ -1821,10 +1826,6 @@ struct QueueState {
     processing: HashSet<i64>,
     /// ID別の処理失敗回数（壊れた画像の無限リトライ防止。セッション内のみ）
     failures: HashMap<i64, u32>,
-    /// 処理中に [`ThumbQueue::enqueue`] で積まれた ID（F1）。処理中は積めないので印だけ付け、
-    /// [`ThumbQueue::complete`] で積み直す。走査が行を初期化して積んだのに、走っていた作業が
-    /// 最後の書き込みの後だったために気付かず、行が空のまま残るのを防ぐ（PR のゲート2）
-    dirty: HashSet<i64>,
     shutdown: bool,
 }
 
@@ -1850,6 +1851,36 @@ impl Default for ThumbQueue {
     }
 }
 
+/// ジョブを終え、作業の間に行が新しくなっていたら積み直す（F1）。
+///
+/// 走査は行を初期化してから積むが、処理中の id は積めない（[`ThumbQueue::enqueue`] が捨てる）。
+/// 作業が最後の書き込みを終えた後に初期化が来ると、`Stale` にもならず行が空のまま残る。そこで
+/// **`complete` の後で**版を読み比べる: それより前の初期化はここで見え、後の初期化は走査の積み込みが
+/// 拾う。「処理中に積まれた」を印にすると、取りこぼしを拾い直すだけの一括の積み込みでも重い
+/// RAW を解き直すので、印ではなく版で決める（PR #208 の codex）。
+///
+/// **先頭へは割り込ませない**——書き換えが続くファイル（同期中・テザー撮影）が、見えているタイルの
+/// 前に何度も入り込む。見えていれば、次の可視の知らせが引き上げる（PR のゲート2）
+///
+/// `before` は `pop` の直後に読む。`process_one` が行を読むまでの間に初期化が来ると、作業は新しい行で
+/// 正しく済んだのに、ここで「変わった」と見てもう1回解く。まれで1回きりなので許す（PR のゲート2）
+fn finish_job(
+    queue: &ThumbQueue,
+    db: &Db,
+    id: i64,
+    before: Option<crate::RowVersion>,
+    stale: bool,
+) {
+    queue.complete(id);
+    let changed = match (before, db.version_of(id)) {
+        (Some(b), Ok(Some(now))) => b != now,
+        _ => false,
+    };
+    if stale || changed {
+        queue.enqueue(&[id]);
+    }
+}
+
 impl ThumbQueue {
     pub fn new() -> Self {
         Self {
@@ -1860,7 +1891,6 @@ impl ThumbQueue {
                     queued: HashSet::new(),
                     processing: HashSet::new(),
                     failures: HashMap::new(),
-                    dirty: HashSet::new(),
                     shutdown: false,
                 }),
                 cvar: Condvar::new(),
@@ -1880,10 +1910,7 @@ impl ThumbQueue {
             if state.blocked(id) {
                 continue;
             }
-            if state.processing.contains(&id) {
-                // 終わってから積み直す（`dirty` の項）
-                state.dirty.insert(id);
-            } else if state.queued.insert(id) {
+            if !state.processing.contains(&id) && state.queued.insert(id) {
                 state.pending.push_back(id);
             }
         }
@@ -1960,19 +1987,9 @@ impl ThumbQueue {
         }
     }
 
-    /// 処理完了（成功・失敗とも）を通知し、そのIDの再投入を許可する。処理中に積まれていたら
-    /// ここで積み直す（`dirty` の項）
+    /// 処理完了（成功・失敗とも）を通知し、そのIDの再投入を許可する。
     pub fn complete(&self, id: i64) {
-        let mut state = self.lock_state();
-        state.processing.remove(&id);
-        let again = state.dirty.remove(&id) && !state.blocked(id) && state.queued.insert(id);
-        if again {
-            state.pending.push_back(id);
-        }
-        drop(state);
-        if again {
-            self.inner.cvar.notify_all();
-        }
+        self.lock_state().processing.remove(&id);
     }
 
     /// 処理失敗を記録する。上限（MAX_FAILURES）を超えたIDは以後投入されない。
@@ -2088,19 +2105,14 @@ impl ThumbnailService {
                         //
                         // カメラは処理の前後で読み比べる（[`CameraWrite`]）
                         let camera_before = db.camera_id_of_media(id);
+                        let version_before = db.version_of(id).ok().flatten();
                         let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
                             process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
-                        queue.complete(id);
-                        // 作業の途中で行が新しくなった（F1）。何も書いていないので、新しい行で積み直す。
-                        // `complete` の後でないと、処理中の id は積めない。**先頭へは割り込ませない**
-                        // ——書き換えが続くファイル（同期中・テザー撮影）が、見えているタイルの前に
-                        // 何度も入り込む。見えていれば、次の可視の知らせが引き上げる（PR のゲート2）
-                        if matches!(result, Ok(ThumbOutcome::Stale)) {
-                            queue.enqueue(&[id]);
-                        }
+                        let stale = matches!(result, Ok(ThumbOutcome::Stale));
+                        finish_job(&queue, &db, id, version_before, stale);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
                         if result.is_err() {
@@ -2287,28 +2299,44 @@ mod tests {
         out.into_inner()
     }
 
-    /// 処理中に積まれた id は、終わったときに積み直す（PR のゲート2）。可視の引き上げ（`prioritize`）では
-    /// 印を付けない——見えているタイルを毎回作り直すことになる
+    /// 作業の間に行が新しくなったときだけ積み直す（`finish_job`）。処理中に積まれたことは印にしない
+    /// ——取りこぼしを拾い直す一括の積み込みで、重い RAW を解き直すことになる（PR #208 の codex）
     #[test]
-    fn an_id_enqueued_while_processing_runs_again_after_complete() {
+    fn a_job_whose_row_was_reset_meanwhile_runs_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let photo = dir.path().join("a.jpg");
+        let file = |size, mtime_ms| ScannedFile {
+            path: photo.clone(),
+            size,
+            mtime_ms,
+        };
+        db.upsert_files(&[file(10, 1)]).unwrap();
+        let id: i64 = db.list_all().unwrap()[0].id;
         let q = ThumbQueue::new();
-        q.enqueue(&[7]);
-        assert_eq!(q.pop(), Some((7, false)));
-        q.enqueue(&[7]); // 走査が行を初期化して積んだ
-        q.complete(7);
-        // pop() は空の列で待ち続けるので、積み直しの有無は待たない is_active で先に見る
-        // （積み直さない変異で試験が赤ではなく止まりになった）
-        assert!(q.is_active(7), "終わった後に積み直す");
-        assert_eq!(q.pop(), Some((7, false)));
-        q.prioritize(&[7]); // 処理中に見えた
-        q.complete(7);
-        assert!(!q.is_active(7), "可視の知らせだけでは積み直さない");
-        q.enqueue(&[8]);
-        assert_eq!(
-            q.pop(),
-            Some((8, false)),
-            "可視の知らせだけでは積み直さない"
-        );
+
+        // 行が変わらなければ、作業の途中で一括の積み込みが来ても積み直さない
+        q.enqueue(&[id]);
+        assert_eq!(q.pop(), Some((id, false)));
+        let before = db.version_of(id).unwrap();
+        q.enqueue(&[id]); // 取りこぼしの拾い直し（処理中なので捨てられる）
+        finish_job(&q, &db, id, before, false);
+        assert!(!q.is_active(id), "行が同じなら解き直さない");
+
+        // 最後の書き込みの後で走査が行を初期化した
+        q.enqueue(&[id]);
+        assert_eq!(q.pop(), Some((id, false)));
+        let before = db.version_of(id).unwrap();
+        db.upsert_files(&[file(11, 2)]).unwrap();
+        q.enqueue(&[id]); // 走査の積み込み（処理中なので捨てられる）
+        finish_job(&q, &db, id, before, false);
+        assert!(q.is_active(id), "新しい行で積み直す");
+
+        // 作業が Stale を返したら、版の読み比べに関わらず積み直す
+        assert_eq!(q.pop(), Some((id, false)));
+        let before = db.version_of(id).unwrap();
+        finish_job(&q, &db, id, before, true);
+        assert!(q.is_active(id), "Stale は積み直す");
     }
 
     /// 起動時の掃除は一時ファイルだけを消す
