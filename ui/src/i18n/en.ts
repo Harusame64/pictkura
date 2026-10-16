@@ -335,6 +335,7 @@ export const en: Dict = {
   printFitStretchHint: "No margins and nothing cut off, but the photo is stretched.",
   printBorderless: "To print without borders, choose a borderless paper size in the next print dialog.",
   printGo: "Print…",
+  printPreparing: "Preparing to print…",
   errPrint: "Couldn't prepare the photo for printing.",
   menuDelete: "Delete (move to trash)",
   menuInfo: "Info",

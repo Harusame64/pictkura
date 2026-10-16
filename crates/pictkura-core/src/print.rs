@@ -59,7 +59,19 @@ pub fn from_display_jpeg(jpeg: &[u8]) -> Option<Vec<u8>> {
 
 /// 画素へ起こして JPEG に詰め直す（向きを当て、白の上に置き、長辺を [`PRINT_MAX_EDGE`] に抑え、ICC を付け直す）
 fn redraw(path: &Path) -> Option<Vec<u8>> {
-    let mut img = image::DynamicImage::ImageRgba8(crate::extract::rgba(path)?);
+    // JPEG は libjpeg-turbo で起こす（サムネイルと同じ道）。`image` の解読は 6000×4000 の向き付きの写真で
+    // 印刷の画面が出るまで10秒かかった（win、debug ビルド）。読めないもの（区画の間のゴミ等）は `image` へ
+    let decoded = if crate::jpeg::is_jpeg_path(path) {
+        crate::jpeg::decode_scaled(path, PRINT_MAX_EDGE).map(|img| {
+            crate::thumbs::apply_orientation(img, crate::thumbs::read_exif_meta(path).orientation)
+        })
+    } else {
+        None
+    };
+    let mut img = match decoded {
+        Some(img) => img,
+        None => image::DynamicImage::ImageRgba8(crate::extract::rgba(path)?),
+    };
     if img.width().max(img.height()) > PRINT_MAX_EDGE {
         let (w, h) = crate::resize::fit_within(img.width(), img.height(), PRINT_MAX_EDGE);
         img = crate::resize::box_filter(&img, w, h);

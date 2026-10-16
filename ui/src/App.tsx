@@ -8297,9 +8297,14 @@ export default function App() {
           onPrint={(fit: PrintFit) => {
             const item = printFor;
             setPrintFor(null);
-            printPhoto(printSrc(item.id, item.mtime_ms, item.rev), fit).catch((e) =>
-              fail(errText(e instanceof Error ? e.message : e)),
-            );
+            // 一覧からは状態の1行でも言う（「コピーしています…」と同じ。ビューアはカーソルだけ）
+            const fromGrid = viewerItemIdRef.current !== item.id;
+            if (fromGrid) setStatus(t.printPreparing);
+            printPhoto(printSrc(item.id, item.mtime_ms, item.rev), fit)
+              .catch((e) => fail(errText(e instanceof Error ? e.message : e)))
+              .finally(() => {
+                if (fromGrid) setStatus((s) => (s === t.printPreparing ? "" : s));
+              });
           }}
         />
       )}

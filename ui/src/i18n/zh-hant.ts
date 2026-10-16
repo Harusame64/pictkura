@@ -396,6 +396,7 @@ export const zhHant: Dict = {
   printFitStretchHint: "沒有空白也不裁切，但照片會被拉伸。",
   printBorderless: "如需無邊框列印，請在接下來的列印視窗中選擇無邊框紙張。",
   printGo: "列印…",
+  printPreparing: "正在準備列印…",
   errPrint: "無法準備要列印的照片。",
   menuDelete: "刪除（移到資源回收筒）",
   menuInfo: "資訊",

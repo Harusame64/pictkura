@@ -393,6 +393,7 @@ export const zh: Dict = {
   printFitStretchHint: "没有空白也不裁剪，但照片会被拉伸。",
   printBorderless: "如需无边距打印，请在接下来的打印窗口中选择无边距纸张。",
   printGo: "打印…",
+  printPreparing: "正在准备打印…",
   errPrint: "无法准备用于打印的照片。",
   menuDelete: "删除（移到回收站）",
   menuInfo: "信息",

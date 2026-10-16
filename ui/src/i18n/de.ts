@@ -403,6 +403,7 @@ export const de: Dict = {
   printFitStretchHint: "Keine Ränder und nichts abgeschnitten, aber das Foto wird gestreckt.",
   printBorderless: "Für randlosen Druck wähle im folgenden Druckdialog ein randloses Papierformat.",
   printGo: "Drucken…",
+  printPreparing: "Druck wird vorbereitet…",
   errPrint: "Das Foto konnte nicht für den Druck vorbereitet werden.",
   menuDelete: "Löschen (in den Papierkorb)",
   menuInfo: "Informationen",

@@ -402,6 +402,7 @@ export const es: Dict = {
   printFitStretchHint: "Sin márgenes y sin recortes, pero la foto se estira.",
   printBorderless: "Para imprimir sin bordes, elige un tamaño de papel sin bordes en el siguiente cuadro de impresión.",
   printGo: "Imprimir…",
+  printPreparing: "Preparando la impresión…",
   errPrint: "No se pudo preparar la foto para imprimir.",
   menuDelete: "Borrar (mover a la papelera)",
   menuInfo: "Información",

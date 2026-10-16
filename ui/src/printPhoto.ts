@@ -123,12 +123,16 @@ export async function printPhoto(src: string, fit: PrintFit): Promise<void> {
   img.decoding = "sync";
   img.src = src;
   preparing = true;
+  // 向きのある大きな JPEG・HEIC は作るのに1秒ほどかかる。押しても何も起きないように見えないよう、
+  // 待っている間はカーソルで知らせる（ビューアの合図は 0.9 秒で消えるので向かない）
+  document.documentElement.classList.add("print-preparing");
   try {
     await img.decode();
   } catch {
     throw new Error("errPrint");
   } finally {
     preparing = false;
+    document.documentElement.classList.remove("print-preparing");
   }
   const style = document.createElement("style");
   style.id = STYLE_ID;

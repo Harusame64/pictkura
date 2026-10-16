@@ -1815,6 +1815,11 @@ body {
 .print-dialog-actions {
   gap: var(--sp-2);
 }
+/* 印刷の絵を作っている間（`printPhoto.ts`） */
+.print-preparing,
+.print-preparing * {
+  cursor: progress !important;
+}
 .print-dialog-actions button.primary {
   background: var(--accent);
   border-color: transparent;

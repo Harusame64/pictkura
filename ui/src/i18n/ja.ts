@@ -427,6 +427,7 @@ export const ja = {
   printFitStretchHint: "余白はできず、写真も切り取られませんが、写真が縦または横に引き伸ばされます。",
   printBorderless: "フチなしで印刷するには、次の印刷画面でフチなしの用紙を選んでください。",
   printGo: "印刷画面へ",
+  printPreparing: "印刷の準備をしています…",
   errPrint: "印刷用の画像を用意できませんでした。",
   menuDelete: "削除（ゴミ箱へ）",
   menuInfo: "情報",
