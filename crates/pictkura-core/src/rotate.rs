@@ -115,6 +115,9 @@ pub struct Header {
 const ORIENTATION_TAG: u16 = 0x0112;
 const SHORT: u16 = 3;
 const XMP_TAG: &[u8] = b"tiff:Orientation";
+/// TIFF の名前空間。接頭辞は `tiff:` とは限らない（`xmlns:foo="…tiff/1.0/"` と `foo:Orientation`。PR の codex P2）
+const XMP_TIFF_NS: &[u8] = b"http://ns.adobe.com/tiff/1.0/";
+const XMP_ORIENTATION: &[u8] = b":Orientation";
 const XMP_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 /// SOS より前に見る区切りの数の上限（壊れたファイルで回り続けない）
 const MAX_SEGMENTS: usize = 512;
@@ -171,9 +174,7 @@ pub fn read_header(r: &mut (impl Read + Seek)) -> std::io::Result<Header> {
                 // **最初の Exif だけを見る**（読む側の道具もそこしか見ない）
                 seen_exif = true;
                 out.spot = orientation_in_tiff(&body[6..], body_start + 6);
-            } else if body.starts_with(XMP_HEADER)
-                && body.windows(XMP_TAG.len()).any(|w| w == XMP_TAG)
-            {
+            } else if body.starts_with(XMP_HEADER) && xmp_declares_orientation(body.as_slice()) {
                 out.xmp_orientation = true;
             }
         } else {
@@ -358,26 +359,34 @@ fn volume_root(_path: &Path) -> Option<PathBuf> {
 /// 「向きは無い」と読むと、その `.xmp` が持つ向きと食い違う EXIF を書く
 fn sidecar_declares_orientation(path: &Path) -> std::io::Result<bool> {
     let has_partner = has_partner(path);
-    for x in crate::sidecar::sidecars_of(path, &["xmp".to_string()])
-        .iter()
-        .filter(|x| !has_partner || is_appended_sidecar(path, x))
-    {
-        if std::fs::read(x)?
-            .windows(XMP_TAG.len())
-            .any(|w| w == XMP_TAG)
-        {
-            return Ok(true);
+    // 候補は自分で並べる: `sidecars_of` は見つけられなかったもの（I/O の誤りを含む）を黙って飛ばすので、
+    // 一時的に見えない `.xmp` を「無い」と読んでしまう（PR の codex P2）。無いと分かったものだけ飛ばす
+    let mut appended = path.as_os_str().to_os_string();
+    appended.push(".xmp");
+    let mut candidates = vec![PathBuf::from(appended)];
+    if !has_partner {
+        candidates.push(path.with_extension("xmp"));
+    }
+    if !cfg!(windows) {
+        let upper: Vec<PathBuf> = candidates.iter().map(|c| c.with_extension("XMP")).collect();
+        candidates.extend(upper);
+    }
+    for x in candidates {
+        match std::fs::read(&x) {
+            Ok(bytes) if xmp_declares_orientation(&bytes) => return Ok(true),
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
         }
     }
     Ok(false)
 }
 
-/// `x` が `path` の名前の後ろへ足した形（`IMG_0001.JPG.xmp`）か
-fn is_appended_sidecar(path: &Path, x: &Path) -> bool {
-    let (Some(name), Some(stem)) = (path.file_name(), x.file_stem()) else {
-        return false;
-    };
-    name.to_string_lossy().to_lowercase() == stem.to_string_lossy().to_lowercase()
+/// XMP が向きを持っているか。`tiff:Orientation` か、TIFF の名前空間を別の接頭辞で結んだ `…:Orientation`。
+/// 名前空間が在って `:Orientation` が在れば断る側へ倒す（ほかの名前空間に `Orientation` は無い）
+fn xmp_declares_orientation(xmp: &[u8]) -> bool {
+    let has = |needle: &[u8]| xmp.windows(needle.len()).any(|w| w == needle);
+    has(XMP_TAG) || (has(XMP_TIFF_NS) && has(XMP_ORIENTATION))
 }
 
 /// 同じフォルダに、拡張子だけ違う RAW が在るか（組の相方。`.aae`・`.txt` やフォルダは相方ではない。PR のゲート1）
@@ -1264,6 +1273,33 @@ mod tests {
             read_bytes(&path, prep.spot.offset).unwrap(),
             prep.spot.bytes_of(6)
         );
+    }
+
+    #[test]
+    fn an_xmp_orientation_under_another_prefix_is_seen() {
+        assert!(xmp_declares_orientation(
+            br#"<x xmlns:foo="http://ns.adobe.com/tiff/1.0/" foo:Orientation="6"/>"#
+        ));
+        assert!(xmp_declares_orientation(br#"<x tiff:Orientation="6"/>"#));
+        assert!(!xmp_declares_orientation(
+            br#"<x xmlns:tiff="http://ns.adobe.com/tiff/1.0/" tiff:Make="A"/>"#
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sidecar_that_cannot_be_looked_at_stops_the_turn() {
+        use std::os::unix::fs::PermissionsExt;
+        // フォルダに入れない（`is_file` も `canonicalize` も誤りになる）と、`.xmp` が在るかどうか分からない
+        let (dir, _db, _id, path) = library("a.jpg", 1);
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        let inner = locked.join("b.jpg");
+        std::fs::copy(&path, &inner).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let got = sidecar_declares_orientation(&inner);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(got.is_err(), "{got:?}");
     }
 
     #[test]
