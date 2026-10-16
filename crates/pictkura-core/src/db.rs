@@ -2160,10 +2160,19 @@ impl Db {
         expect: RowVersion,
         rec: &EditRecord,
     ) -> Result<Option<()>, DbError> {
-        self.guarded(id, expect, |db| {
+        // **この確定だけは WAL を同期してから返す**（PR の codex P1）。ふだんの `synchronous=NORMAL` では、
+        // 確定がディスクに届く前に電源が落ちうる。そのあと書いて `sync_all` したファイルだけが残ると、
+        // 起動時の後始末は印を見つけられず、元の向きと日時が失われる。`synchronous` はトランザクションの
+        // 中では変えられないので外で切り替え、終わったら戻す
+        self.conn.pragma_update(None, "synchronous", "FULL")?;
+        let begun = self.guarded(id, expect, |db| {
             db.put_edit(rec)?;
             Ok::<_, DbError>(())
-        })
+        });
+        let restored = self.conn.pragma_update(None, "synchronous", "NORMAL");
+        let begun = begun?;
+        restored?;
+        Ok(begun)
     }
 
     /// 書き終えたことを `media` と控えへ同じトランザクションで書く。`media` が `expect` の版のままの

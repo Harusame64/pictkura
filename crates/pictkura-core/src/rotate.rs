@@ -524,6 +524,11 @@ pub fn apply(
     {
         return Err(RotateError::Changed);
     }
+    // 中身も prepare のときのままか（大きさ・向き・日時を保ったまま書き換えられた。FAT の粗い日時で起きうる。
+    // PR の codex P2）。古い要約を控えに書くと、次に回すとき控えが外れて元の姿を上書きする
+    if content_hash(path, prep.spot.offset)? != prep.content_hash {
+        return Err(RotateError::Changed);
+    }
     let key = crate::paths::fold(path);
     let current = prep.spot.bytes();
     // 控えが今のファイルを指しているか。外れていれば（外で書き換えられた）捨てて新しく始める
@@ -789,6 +794,9 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
                     continue;
                 }
             }
+            // 書いたあと・後始末の書き戻しの後で落ちたこともありうる。途中の姿から作られた絵を捨てさせる
+            // （書いていなかったなら、作り直しが1回増えるだけ。PR の codex P2）
+            db.edit_reset_row(&e.path)?;
             finish(db)?;
         } else {
             // 外で書き換えられた。控えは当てにならない
@@ -1076,6 +1084,38 @@ mod tests {
         ));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         assert!(db.edit_of(&crate::paths::fold(&path)).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_file_rewritten_with_the_same_size_and_time_is_left_alone() {
+        let (_dir, mut db, id, path) = library("a.jpg", 1);
+        let prep = prepare(&path).unwrap();
+        // 大きさ・向き・日時を保ったまま中身だけ書き換えられた
+        let mut bytes = std::fs::read(&path).unwrap();
+        let last = bytes.len() - 3;
+        bytes[last] ^= 1;
+        std::fs::write(&path, &bytes).unwrap();
+        set_mtime(&path, prep.mtime_ms).unwrap();
+        assert!(matches!(
+            apply(&mut db, id, Turn::Right, &prep, NOW),
+            Err(RotateError::Changed)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn recovery_resets_the_row_even_when_the_bytes_were_already_back() {
+        let (dir, mut db, id, path) = library("a.jpg", 1);
+        db.update_thumb_path(id, &dir.path().join("1.webp"), 2, Some(10))
+            .unwrap();
+        let rev = db.get_by_id(id).unwrap().unwrap().rev;
+        let prep = prepare(&path).unwrap();
+        // 後始末の書き戻しが済んだところで落ちた（2バイトも日時も書く前の姿）
+        begin_pending(&mut db, id, &path, &prep, prep.spot.bytes_of(6), NOW);
+        recover(&mut db).unwrap();
+        let row = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(row.rev, rev + 1);
+        assert!(row.thumb_path.is_none());
     }
 
     #[test]
