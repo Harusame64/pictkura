@@ -271,7 +271,12 @@ fn is_quarter(value: u16) -> bool {
 /// 元に戻す前に「pictkura が書いた後、ほかに誰も中身を変えていない」ことを確かめる
 /// （大きさと更新日時を保ったままの書き換えも拾う）。暗号の強さは要らない
 pub fn content_hash(path: &Path, offset: u64) -> std::io::Result<i64> {
-    let mut f = File::open(path)?;
+    hash_of(&mut File::open(path)?, offset)
+}
+
+/// [`content_hash`] を、開いている手で（頭から読む）
+fn hash_of(f: &mut (impl Read + Seek), offset: u64) -> std::io::Result<i64> {
+    f.seek(SeekFrom::Start(0))?;
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut buf = vec![0u8; 1 << 20];
     let mut at: u64 = 0;
@@ -446,7 +451,8 @@ pub struct Applied {
     pub restorable: bool,
 }
 
-/// 2バイトを書いて `sync_all`
+/// 2バイトを書いて `sync_all`（試験で落ちた形を作る）
+#[cfg(test)]
 fn write_bytes(path: &Path, offset: u64, bytes: [u8; 2]) -> std::io::Result<()> {
     let mut f = OpenOptions::new().write(true).open(path)?;
     f.seek(SeekFrom::Start(offset))?;
@@ -454,29 +460,35 @@ fn write_bytes(path: &Path, offset: u64, bytes: [u8; 2]) -> std::io::Result<()> 
     f.sync_all()
 }
 
-/// 書くために開いた**その手で**、向きの位置と今の2バイトが調べたときのままか確かめてから書き、`sync_all`、
-/// 同じ手で更新日時を付ける（PR の codex P1）。確かめてから開き直すと、その間に差し替えられた別のファイルの
-/// 同じ位置へ書きうる。読み返した更新日時を返す。合わなければ何も書かずに `Changed`
+/// 書くために開いた**その手で**、向きの位置と今の2バイト、中身の要約が調べたときのままか確かめてから書き、
+/// 同じ手で更新日時を付けて `sync_all` する（PR の codex P1）。確かめてから開き直すと、その間に差し替えられた
+/// 別のファイルへ書きうる。更新日時も同期してから返す——返った後に控えを確定させるので、日時だけが電源断で
+/// 失われると、控えと合わなくなる。読み返した更新日時を返す。合わなければ何も書かずに `Changed`
 fn write_checked(
     path: &Path,
     spot: Spot,
+    expect_hash: i64,
     new_bytes: [u8; 2],
     mtime_ms: i64,
 ) -> Result<i64, RotateError> {
     let mut f = OpenOptions::new().read(true).write(true).open(path)?;
-    if read_header(&mut f)?.spot != Some(spot) {
+    if read_header(&mut f)?.spot != Some(spot) || hash_of(&mut f, spot.offset)? != expect_hash {
         return Err(RotateError::Changed);
     }
-    f.seek(SeekFrom::Start(spot.offset))?;
-    f.write_all(&new_bytes)?;
-    f.sync_all()?;
+    write_on(&mut f, spot.offset, new_bytes, mtime_ms)?;
+    Ok(crate::scanner::mtime_of(&f.metadata()?))
+}
+
+/// 開いている手で2バイトを書き、更新日時を付けて `sync_all`
+fn write_on(f: &mut File, offset: u64, bytes: [u8; 2], mtime_ms: i64) -> std::io::Result<()> {
+    f.seek(SeekFrom::Start(offset))?;
+    f.write_all(&bytes)?;
     let t = filetime::FileTime::from_unix_time(
         mtime_ms.div_euclid(1000),
         (mtime_ms.rem_euclid(1000) as u32) * 1_000_000,
     );
-    filetime::set_file_handle_times(&f, None, Some(t))?;
-    drop(f);
-    Ok(crate::scanner::mtime_of(&std::fs::metadata(path)?))
+    filetime::set_file_handle_times(f, None, Some(t))?;
+    f.sync_all()
 }
 
 fn read_bytes(path: &Path, offset: u64) -> std::io::Result<[u8; 2]> {
@@ -487,7 +499,8 @@ fn read_bytes(path: &Path, offset: u64) -> std::io::Result<[u8; 2]> {
     Ok(b)
 }
 
-/// 更新日時を付けて、読み返した値を返す
+/// 更新日時を付けて、読み返した値を返す（試験で落ちた形を作る）
+#[cfg(test)]
 fn set_mtime(path: &Path, ms: i64) -> std::io::Result<i64> {
     let t = filetime::FileTime::from_unix_time(
         ms.div_euclid(1000),
@@ -497,10 +510,23 @@ fn set_mtime(path: &Path, ms: i64) -> std::io::Result<i64> {
     Ok(crate::scanner::mtime_of(&std::fs::metadata(path)?))
 }
 
-/// 2バイトと更新日時を書き戻す
-fn put_back(path: &Path, offset: u64, bytes: [u8; 2], mtime_ms: i64) -> std::io::Result<()> {
-    write_bytes(path, offset, bytes)?;
-    set_mtime(path, mtime_ms).map(|_| ())
+/// 2バイトと更新日時を書き戻す。**書き戻す手で**同じファイルか（向きの位置・中身の要約）確かめてから
+fn put_back(
+    path: &Path,
+    offset: u64,
+    expect_hash: i64,
+    bytes: [u8; 2],
+    mtime_ms: i64,
+) -> Result<(), RotateError> {
+    let mut f = OpenOptions::new().read(true).write(true).open(path)?;
+    let same = read_header(&mut f)?
+        .spot
+        .is_some_and(|s| s.offset == offset)
+        && hash_of(&mut f, offset)? == expect_hash;
+    if !same {
+        return Err(RotateError::Changed);
+    }
+    Ok(write_on(&mut f, offset, bytes, mtime_ms)?)
 }
 
 /// 書き戻す。書き戻せなければ、回ったままであることを返す。
@@ -510,6 +536,7 @@ fn put_back(path: &Path, offset: u64, bytes: [u8; 2], mtime_ms: i64) -> std::io:
 fn undo_write(
     path: &Path,
     offset: u64,
+    expect_hash: i64,
     bytes: [u8; 2],
     mtime_ms: i64,
     why: RotateError,
@@ -519,7 +546,7 @@ fn undo_write(
     if untouched {
         return why;
     }
-    match put_back(path, offset, bytes, mtime_ms) {
+    match put_back(path, offset, expect_hash, bytes, mtime_ms) {
         Ok(()) => why,
         Err(e) => RotateError::LeftChanged(format!("{why}; putting back failed: {e}")),
     }
@@ -641,11 +668,11 @@ pub fn apply(
             ));
         }
     };
-    let written = write_checked(path, prep.spot, new_bytes, target_mtime);
+    let written = write_checked(path, prep.spot, prep.content_hash, new_bytes, target_mtime);
     let readback = match written {
         Ok(ms) => ms,
         Err(e) => {
-            let err = undo_write(path, offset, current, prep.mtime_ms, e);
+            let err = undo_write(path, offset, prep.content_hash, current, prep.mtime_ms, e);
             if !matches!(err, RotateError::LeftChanged(_)) {
                 forget_pending(db);
             }
@@ -664,6 +691,7 @@ pub fn apply(
                 let err = undo_write(
                     path,
                     offset,
+                    prep.content_hash,
                     current,
                     prep.mtime_ms,
                     RotateError::MtimeDidNotMove,
@@ -696,7 +724,7 @@ pub fn apply(
                 Err(e) => RotateError::Db(e),
                 _ => RotateError::Changed,
             };
-            let err = undo_write(path, offset, current, prep.mtime_ms, why);
+            let err = undo_write(path, offset, prep.content_hash, current, prep.mtime_ms, why);
             if !matches!(err, RotateError::LeftChanged(_)) {
                 forget_pending(db);
             }
@@ -735,8 +763,10 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
                 db.put_edit(&settled)
             }
         };
-        let meta = match std::fs::metadata(&e.path) {
-            Ok(m) => m,
+        // **1つの手で確かめて書き戻す**（PR の codex P1）: 確かめてから開き直すと、その間に差し替えられた
+        // 別のファイルへ書きうる
+        let mut f = match OpenOptions::new().read(true).write(true).open(&e.path) {
+            Ok(f) => f,
             // フォルダごと見えないなら、ドライブが抜けているか共有が切れているだけかもしれない。
             // 控えを捨てると、戻ってきたときに書きかけのまま戻せなくなる（PR のゲート2）
             Err(err)
@@ -752,40 +782,34 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
             }
             Err(err) => {
                 notes.push(format!(
-                    "rotation ledger: could not check {}: {err}; will retry",
+                    "rotation ledger: could not open {}: {err}; will retry",
                     e.path.display()
                 ));
                 continue;
             }
         };
-        let now = match read_bytes(&e.path, offset) {
-            Ok(b) => b,
-            Err(err) => {
-                notes.push(format!(
-                    "rotation ledger: could not read {}: {err}; will retry",
-                    e.path.display()
-                ));
-                continue;
-            }
-        };
-        let mtime = crate::scanner::mtime_of(&meta);
-        let size = meta.len();
         // **同じファイルか先に確かめる**（PR のゲート1）: 落ちた後・起動の前に外で差し替えられていれば、
         // その位置の2バイトがたまたま同じでも別の中身である。大きさ・向きの位置・中身の要約が合わなければ
         // 触らずに控えを捨てる
-        let same_file = (|| -> std::io::Result<bool> {
-            if size as i64 != e.size {
-                return Ok(false);
+        let checked = (|| -> std::io::Result<Option<([u8; 2], i64)>> {
+            let meta = f.metadata()?;
+            if meta.len() as i64 != e.size {
+                return Ok(None);
             }
-            let header = read_header(&mut File::open(&e.path)?)?;
-            if header.spot.is_none_or(|s| s.offset != offset) {
-                return Ok(false);
+            if read_header(&mut f)?.spot.is_none_or(|s| s.offset != offset) {
+                return Ok(None);
             }
-            Ok(content_hash(&e.path, offset)? == e.content_hash)
+            if hash_of(&mut f, offset)? != e.content_hash {
+                return Ok(None);
+            }
+            f.seek(SeekFrom::Start(offset))?;
+            let mut now = [0u8; 2];
+            f.read_exact(&mut now)?;
+            Ok(Some((now, crate::scanner::mtime_of(&meta))))
         })();
-        match same_file {
-            Ok(true) => {}
-            Ok(false) => {
+        let (now, mtime) = match checked {
+            Ok(Some(found)) => found,
+            Ok(None) => {
                 db.edit_forget(&e.path_key)?;
                 notes.push(format!(
                     "rotation ledger: {} changed outside pictkura; forgot it",
@@ -801,10 +825,10 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
                 ));
                 continue;
             }
-        }
+        };
         if now == pending_bytes && pending_bytes != e.edited_bytes {
             // 書いたところで落ちた。書く前へ戻す
-            match put_back(&e.path, offset, e.edited_bytes, e.edited_mtime_ms) {
+            match write_on(&mut f, offset, e.edited_bytes, e.edited_mtime_ms) {
                 Ok(()) => {
                     // 落ちる前に、途中の姿から作られた絵や作りかけの作業を捨てさせる
                     db.edit_reset_row(&e.path)?;
@@ -824,7 +848,7 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
             // ——行は書く前の日時を持っているので、許容幅で「同じ」と見て残すと、走査が変わったと見て
             // 行を作り直す（付ける日時は書く前の2秒後になりうる。PR のゲート2）
             if mtime != e.edited_mtime_ms {
-                if let Err(err) = set_mtime(&e.path, e.edited_mtime_ms) {
+                if let Err(err) = write_on(&mut f, offset, e.edited_bytes, e.edited_mtime_ms) {
                     notes.push(format!(
                         "rotation ledger: could not reset the time of {}: {err}; will retry",
                         e.path.display()
@@ -1186,6 +1210,7 @@ mod tests {
     #[test]
     fn the_write_checks_the_handle_it_writes_through() {
         let (_dir, _db, _id, path) = library("a.jpg", 1);
+        let hash = prepare(&path).unwrap().content_hash;
         let original = std::fs::read(&path).unwrap();
         let spot = read_header(&mut File::open(&path).unwrap())
             .unwrap()
@@ -1194,13 +1219,50 @@ mod tests {
         // 調べたときと違う姿（別のファイルに差し替わった）を渡す
         let stale = Spot { value: 3, ..spot };
         assert!(matches!(
-            write_checked(&path, stale, spot.bytes_of(6), NOW),
+            write_checked(&path, stale, hash, spot.bytes_of(6), NOW),
+            Err(RotateError::Changed)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), original, "何も書かない");
+        // 位置は同じでも中身が違う（同じ機種の別の写真に差し替わった）
+        assert!(matches!(
+            write_checked(&path, spot, hash ^ 1, spot.bytes_of(6), NOW),
             Err(RotateError::Changed)
         ));
         assert_eq!(std::fs::read(&path).unwrap(), original, "何も書かない");
         assert_eq!(
-            write_checked(&path, spot, spot.bytes_of(6), NOW).unwrap(),
+            write_checked(&path, spot, hash, spot.bytes_of(6), NOW).unwrap(),
             NOW
+        );
+    }
+
+    #[test]
+    fn putting_back_checks_it_is_the_same_file() {
+        let (_dir, _db, _id, path) = library("a.jpg", 1);
+        let prep = prepare(&path).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        // 書き戻す前に別の中身へ差し替わった（要約が合わない）
+        assert!(matches!(
+            put_back(
+                &path,
+                prep.spot.offset,
+                prep.content_hash ^ 1,
+                prep.spot.bytes_of(6),
+                NOW
+            ),
+            Err(RotateError::Changed)
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), original, "触らない");
+        put_back(
+            &path,
+            prep.spot.offset,
+            prep.content_hash,
+            prep.spot.bytes_of(6),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(
+            read_bytes(&path, prep.spot.offset).unwrap(),
+            prep.spot.bytes_of(6)
         );
     }
 
