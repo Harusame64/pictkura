@@ -575,10 +575,17 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
 </div>
 
 <p>
-Right-click for “Open”, “Open with another app…”, “Show in folder”, “Copy image to clipboard”, “Add to favorites”, “Pick”, “Info” and “Delete (move to trash)”.
+Right-click for “Open”, “Open with another app…”, “Show in folder”, “Copy image to clipboard”, “Rotate right”, “Rotate left”, “Add to favorites”, “Pick”, “Info” and “Delete (move to trash)”.
 “Info” shows the name, folder, size, date taken and more (both files of a RAW+JPEG pair). When you select photos in the grid, a line under the selection bar shows the name and size, or the total for several.
 With Outgoing on, “Add to Outgoing” is there too; while Outgoing on the left is shown, “Remove from Outgoing” takes its place (<a href="#outgoing">9. Outgoing</a>).
 An editing app you pick once is remembered and appears in the menu from then on.
+</p>
+
+<p>
+Right-click a JPEG in the grid or the viewer and choose “Rotate right” or “Rotate left” to turn it. Only the orientation information in the file (EXIF) is rewritten, so <strong>the image quality does not change</strong>. Other apps show the photo turned too. Rotating gives the file a new modification time.
+A photo you rotated in pictkura gets “Restore original orientation”, which puts back the orientation and the modification time it had before. Turning a photo back to where it started also puts the original modification time back.
+In a RAW+JPEG pair only the JPEG turns. Photos on a camera card and photos that are only in the cloud can’t be rotated, and neither can a JPEG with no orientation information, such as a screenshot. When a photo can’t be rotated for another reason, a message says why.
+Importing a card again after you rotated one of its photos does not bring that photo in twice.
 </p>
 
 <p>

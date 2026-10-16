@@ -182,7 +182,8 @@ impl From<Option<i64>> for Taken {
 
 /// 控え（`edited_files`）の列の並び。[`Db::row_to_edit`] と [`Db::put_edit`] はこの順で読み書きする
 const EDIT_COLUMNS: &str =
-    "path_key, path, fold_name, size, byte_offset, orig_bytes, orig_mtime_ms, \
+    "path_key, path, fold_name, size, byte_offset, orig_bytes, orig_mtime_ms, orig_mtime_sub_ns, \
+     edited_mtime_sub_ns, \
      edited_bytes, edited_mtime_ms, content_hash, pending_bytes, pending_mtime_ms";
 
 /// pictkura が書き換えたファイルの控え（`edited_files` の1行、ADR の R）。
@@ -202,9 +203,13 @@ pub struct EditRecord {
     /// 最初に書き換える前の2バイトと更新日時（読み返した値）
     pub orig_bytes: [u8; 2],
     pub orig_mtime_ms: i64,
+    /// 元の更新日時のミリ秒より下（ナノ秒）。元に戻すときナノ秒まで戻す（NTFS は 100ns 刻み）
+    pub orig_mtime_sub_ns: u32,
     /// pictkura が最後に書いた後の2バイトと更新日時（読み返した値）
     pub edited_bytes: [u8; 2],
     pub edited_mtime_ms: i64,
+    /// その端数（pictkura が付けた日時は端数を持たないので 0。初めて回す前は元の日時の端数）
+    pub edited_mtime_sub_ns: u32,
     /// 向きの2バイトを除いた中身の要約（[`crate::rotate::content_hash`]）
     pub content_hash: i64,
     /// 「これから書く」2バイトと更新日時。書き終えたら消える
@@ -845,6 +850,8 @@ impl Db {
                 byte_offset      INTEGER NOT NULL,
                 orig_bytes       BLOB NOT NULL,
                 orig_mtime_ms    INTEGER NOT NULL,
+                orig_mtime_sub_ns INTEGER NOT NULL DEFAULT 0,
+                edited_mtime_sub_ns INTEGER NOT NULL DEFAULT 0,
                 edited_bytes     BLOB NOT NULL,
                 edited_mtime_ms  INTEGER NOT NULL,
                 content_hash     INTEGER NOT NULL,
@@ -858,6 +865,29 @@ impl Db {
             ) WITHOUT ROWID;
             "#,
         )?;
+        // R1 の版（#210）の表には端数の列が無い（未公開の版。在る行は端数 0 として読む）
+        // 2つの接続が同時に開くと、両方が「無い」と見て片方の ALTER が「もう在る」で落ちる。在れば同じことなので
+        // 足したあとに在るかを見直して決める（PR のゲート2）
+        for column in ["orig_mtime_sub_ns", "edited_mtime_sub_ns"] {
+            let has = |conn: &Connection| -> Result<bool, DbError> {
+                Ok(conn
+                    .prepare("SELECT 1 FROM pragma_table_info('edited_files') WHERE name = ?1")?
+                    .exists(params![column])?)
+            };
+            if !has(&conn)? {
+                let added = conn.execute(
+                    &format!(
+                        "ALTER TABLE edited_files ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
+                    ),
+                    [],
+                );
+                if let Err(e) = added {
+                    if !has(&conn)? {
+                        return Err(e.into());
+                    }
+                }
+            }
+        }
         Self::init_search(&conn)?;
         Ok(Self { conn })
     }
@@ -2218,7 +2248,8 @@ impl Db {
             if settle.keep {
                 db.conn.execute(
                     "UPDATE edited_files SET edited_bytes = ?2, edited_mtime_ms = ?3, \
-                     pending_bytes = NULL, pending_mtime_ms = NULL WHERE path_key = ?1",
+                     edited_mtime_sub_ns = 0, pending_bytes = NULL, pending_mtime_ms = NULL \
+                     WHERE path_key = ?1",
                     params![settle.path_key, settle.bytes.to_vec(), settle.mtime_ms],
                 )?;
             } else {
@@ -2244,7 +2275,7 @@ impl Db {
         self.conn.execute(
             &format!(
                 "INSERT OR REPLACE INTO edited_files ({EDIT_COLUMNS}) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
             ),
             params![
                 rec.path_key,
@@ -2254,6 +2285,8 @@ impl Db {
                 rec.offset,
                 rec.orig_bytes.to_vec(),
                 rec.orig_mtime_ms,
+                rec.orig_mtime_sub_ns,
+                rec.edited_mtime_sub_ns,
                 rec.edited_bytes.to_vec(),
                 rec.edited_mtime_ms,
                 rec.content_hash,
@@ -2295,9 +2328,9 @@ impl Db {
                 )
             })
         };
-        let pending_bytes: Option<Vec<u8>> = r.get(10)?;
-        let pending = match (pending_bytes, r.get::<_, Option<i64>>(11)?) {
-            (Some(_), Some(m)) => Some((two(10)?, m)),
+        let pending_bytes: Option<Vec<u8>> = r.get(12)?;
+        let pending = match (pending_bytes, r.get::<_, Option<i64>>(13)?) {
+            (Some(_), Some(m)) => Some((two(12)?, m)),
             _ => None,
         };
         Ok(EditRecord {
@@ -2308,9 +2341,11 @@ impl Db {
             offset: r.get(4)?,
             orig_bytes: two(5)?,
             orig_mtime_ms: r.get(6)?,
-            edited_bytes: two(7)?,
-            edited_mtime_ms: r.get(8)?,
-            content_hash: r.get(9)?,
+            orig_mtime_sub_ns: r.get(7)?,
+            edited_mtime_sub_ns: r.get(8)?,
+            edited_bytes: two(9)?,
+            edited_mtime_ms: r.get(10)?,
+            content_hash: r.get(11)?,
             pending,
         })
     }
@@ -3724,7 +3759,7 @@ impl Db {
 }
 
 /// 現在時刻のUnixエポックミリ秒（サムネイルLRUの利用時刻用）。
-fn now_ms() -> i64 {
+pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

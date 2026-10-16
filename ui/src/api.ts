@@ -65,6 +65,8 @@ export interface MediaItem {
   taken_subsec: boolean;
   /** 機体の鍵（機種＋本体シリアル。0 は分からない。dev #32） */
   body_key: number;
+  /** JPEG か（右クリックの回転を出すか。回せるかの最後の判断は Rust が回すときにする。ADR B-2） */
+  is_jpeg: boolean;
 }
 
 /** タイムライン索引の1日分（日付・枚数と、カレンダー用の代表サムネイル） */
@@ -680,6 +682,17 @@ export const saveDisplayImage = (id: number, dest: string) =>
  */
 export const copyDisplayImage = (id: number) =>
   invoke<void>("copy_display_image", { id });
+
+/**
+ * 写真を回す・向きを元に戻す（ADR B-2 の R3）。ファイルの EXIF の向きだけを書き換える。済んだ行は
+ * `media-updated` で届く。返すのは「まだ元に戻せるか」
+ */
+export const rotateMedia = (id: number, turn: "right" | "left" | "restore") =>
+  invoke<boolean>("rotate_media", { id, turn });
+
+/** pictkura が回した写真で、まだ元の向きに戻せるか（右クリックの「向きを元に戻す」） */
+export const rotationRestorable = (id: number) =>
+  invoke<boolean>("rotation_restorable", { id });
 /** ビューアの選択スコープの1件（idとその日）。位置は `(day_key, id)` で持つ */
 export interface ScopeItem {
   id: number;
