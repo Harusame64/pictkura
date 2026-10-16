@@ -24,6 +24,8 @@ import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
+import { PrintDialog } from "./PrintDialog";
+import { printPhoto, type PrintFit } from "./printPhoto";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -39,6 +41,7 @@ import {
   deleteMedia,
   openDownloadPage,
   fullSrc,
+  printSrc,
   saveDisplayImage,
   setPairView,
   videoSrc,
@@ -918,6 +921,8 @@ export default function App() {
   const [exif, setExif] = useState<ExifInfo | null>(null);
   /** 右クリックの「情報」で見ているファイル（タイルの重ねぜんぶ）。ADR の A */
   const [infoFor, setInfoFor] = useState<number[] | null>(null);
+  // 右クリックの「印刷…」で載せ方を選んでいる写真（ADR B-3）
+  const [printFor, setPrintFor] = useState<MediaItem | null>(null);
   /** カレンダーの日クリックでグリッドのこの日付見出しへスクロールする */
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
@@ -5323,7 +5328,10 @@ export default function App() {
   // `Esc` の1押しを先に取ってしまう（`useWindowEvent` の項。受け口は開いた順に呼ばれる）。
   // ビューアでは畳まない——ビューアの右クリックから開く幕である
   useEffect(() => {
-    if (rejectGate !== null || wizardOpen || settingsOpen) setInfoFor(null);
+    if (rejectGate !== null || wizardOpen || settingsOpen) {
+      setInfoFor(null);
+      setPrintFor(null);
+    }
   }, [rejectGate, wizardOpen, settingsOpen]);
 
   /**
@@ -6378,6 +6386,10 @@ export default function App() {
         : []),
       ...(item.is_jpeg && restorableId === item.id
         ? [{ label: t.menuRotateRestore, run: () => rotate(item, "restore") }]
+        : []),
+      // 印刷（ADR B-3）。対象は表紙の1枚、出す条件はコピーと同じ（絵に起こせるもの）。載せ方を選ぶ画面を先に出す
+      ...(canCopyToClipboard(item, fullFailedId)
+        ? [{ label: t.menuPrint, run: () => setPrintFor(item) }]
         : []),
       // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
       // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
@@ -8262,6 +8274,18 @@ export default function App() {
         onClose={() => setMenu(null)}
       />
       {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}
+      {printFor !== null && (
+        <PrintDialog
+          onClose={() => setPrintFor(null)}
+          onPrint={(fit: PrintFit) => {
+            const item = printFor;
+            setPrintFor(null);
+            printPhoto(printSrc(item.id, item.mtime_ms, item.rev), fit).catch((e) =>
+              fail(errText(e instanceof Error ? e.message : e)),
+            );
+          }}
+        />
+      )}
       <ContextMenu
         pos={calMenu?.pos ?? null}
         items={

@@ -371,7 +371,7 @@ answer to their English names whatever language the app is in.
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 “Open”, “Open with another app…”, “Show in folder”, “Copy image to clipboard”, “Rotate right” and
-“Rotate left” (JPEG), “Add to favorites”,
+“Rotate left” (JPEG), “Print…”, “Add to favorites”,
 “Pick”, “Info” and “Delete (move to trash)” (editors you have used before sit just under “Open”); with Outgoing
 on, “Add to Outgoing” is there too. **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright (except what it placed in the Outgoing folder).

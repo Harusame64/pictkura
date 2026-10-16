@@ -1066,6 +1066,13 @@ export const fullSrc = (id: number, mtimeMs: number, rev: number) =>
   convertFileSrc(`full/${id}`, "media") + `?v=${mtimeMs}-${rev}`;
 
 /**
+ * 印刷に渡す絵のURL（ADR B-3）。撮影情報を落とした JPEG（`crates/pictkura-core/src/print.rs`）。
+ * `full/` を印刷に使わない——JPEG は原本のまま配っていて、「PDF として保存」が EXIF・GPS ごと埋め込む
+ */
+export const printSrc = (id: number, mtimeMs: number, rev: number) =>
+  convertFileSrc(`print/${id}`, "media") + `?v=${mtimeMs}-${rev}`;
+
+/**
  * 動画の実体のURL（第9部）。`<video>` へ渡す。
  *
  * 画像と別の経路にしてあるのは、こちらだけがRangeリクエスト（部分要求）に

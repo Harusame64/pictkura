@@ -1,0 +1,340 @@
+//! 印刷に渡す絵（ADR B-3）。
+//!
+//! **表示用の絵（`full/`）を印刷に使ってはいけない。** JPEG は原本のバイト列をそのまま配っているので、
+//! Windows の印刷プレビューで「PDF として保存」を選ぶと、**元の JPEG が EXIF ごと PDF に埋め込まれる**
+//! ——撮った場所（GPS）・機種・番号が、印刷のつもりで作った PDF に乗って出ていく（win の実測、
+//! 2026-10-17。埋め込まれた JPEG の SHA256 が原本と一致した）。
+//!
+//! だからここで**撮影情報を落とした絵**を作る。残すのは見た目に要るものだけ:
+//!
+//! - **向き**（EXIF の Orientation だけを持つ小さな APP1 を作り直す）。落とすと縦の写真が寝て刷られる
+//! - **色**（ICC プロファイル・Adobe の APP14）。落とすと Display P3 や Adobe RGB の写真がくすむ
+//!
+//! JPEG は**画素を作り直さない**（符号化されたデータをそのまま写す）ので、画質は落ちず、45MP でも
+//! 展開の費用を払わない。描けない形式（RAW・HEIC・TIFF）は表示と同じ道で作った JPEG を、同じ規則で
+//! 洗う。そのほか（PNG・WebP・GIF・BMP・AVIF）は画素へ起こして JPEG に詰め直す——PNG の `eXIf`・
+//! WebP の `EXIF` を1つずつ見るより、作り直すほうが漏れない。
+
+use std::path::Path;
+
+/// 詰め直すときの品質。**表示の 82 より上げる**——紙は画面より近くで、大きく見る
+pub const PRINT_QUALITY: u8 = 92;
+
+/// 印刷に渡す JPEG を作る。作れないもの（SVG・動画・読めないファイル）は `None`。
+pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
+    if crate::video::is_video_path(path) || crate::svg::is_svg_path(path) {
+        return None;
+    }
+    if crate::jpeg::is_jpeg_path(path) {
+        let bytes = std::fs::read(path).ok()?;
+        let orientation = crate::thumbs::read_exif_meta(path).orientation;
+        return strip_jpeg(&bytes, orientation);
+    }
+    if crate::thumbs::needs_display_transcode(path) {
+        // 作った側（`display_jpeg_full`）が向きを当て済み。**丸めない側**を使う——TIFF の上限は配信の都合
+        return strip_jpeg(&crate::thumbs::display_jpeg_full(path)?, 1);
+    }
+    let rgba = crate::extract::rgba(path)?;
+    crate::jpeg::encode_rgb(
+        &on_white(&rgba),
+        PRINT_QUALITY,
+        crate::jpeg::ChromaSampling::Full,
+    )
+}
+
+/// 透けている画素を白い紙の上に置く（JPEG は透明を持てない。黒く落ちると紙の上で目立つ）
+fn on_white(rgba: &image::RgbaImage) -> image::RgbImage {
+    image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let p = rgba.get_pixel(x, y).0;
+        let a = u32::from(p[3]);
+        let mix = |c: u8| ((u32::from(c) * a + 255 * (255 - a) + 127) / 255) as u8;
+        image::Rgb([mix(p[0]), mix(p[1]), mix(p[2])])
+    })
+}
+
+/// JPEG から撮影情報の区画を外す。**符号化されたデータには触らない。**
+///
+/// 残す区画: APP0（JFIF）・APP2 のうち ICC プロファイル・APP14（Adobe。色の変換の有無を言う）・
+/// 表・フレーム・スキャン。外す区画: APP1（EXIF・XMP）・APP2 のその他（MPF）・APP3〜13（IPTC は
+/// APP13）・APP15・COM。**EOI の後ろも捨てる**——MPF が指す2枚目の絵（深度・ゲインマップ）は
+/// そこに居て、それぞれが自分の EXIF を持つ。
+///
+/// `orientation` が 2〜8 なら、それだけを持つ APP1 を SOI（と APP0）の直後に置く。
+///
+/// JPEG として読めない（SOI が無い・区画の長さがファイルの外を指す）なら `None`。
+pub fn strip_jpeg(bytes: &[u8], orientation: u8) -> Option<Vec<u8>> {
+    if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    out.extend_from_slice(&[0xFF, 0xD8]);
+    let mut wrote_orientation = !(2..=8).contains(&orientation);
+    let mut pos = 2;
+    loop {
+        // 区画の頭（0xFF の詰め物は飛ばす）
+        if *bytes.get(pos)? != 0xFF {
+            return None;
+        }
+        while bytes.get(pos + 1) == Some(&0xFF) {
+            pos += 1;
+        }
+        let marker = *bytes.get(pos + 1)?;
+        if marker == 0xD9 {
+            out.extend_from_slice(&[0xFF, 0xD9]);
+            return Some(out);
+        }
+        // 長さを持たない印（RSTn・TEM）は SOS の前には来ないはずだが、来ても写して進む
+        if (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
+            out.extend_from_slice(&[0xFF, marker]);
+            pos += 2;
+            continue;
+        }
+        let len = usize::from(u16::from_be_bytes([
+            *bytes.get(pos + 2)?,
+            *bytes.get(pos + 3)?,
+        ]));
+        if len < 2 {
+            return None;
+        }
+        let end = pos + 2 + len;
+        let segment = bytes.get(pos..end)?;
+        let payload = &segment[4..];
+        // 向きは APP0 の後ろ（JFIF は先頭に居ることを求める）、最初のほかの区画の前に置く
+        if !wrote_orientation && marker != 0xE0 {
+            out.extend_from_slice(&orientation_app1(orientation));
+            wrote_orientation = true;
+        }
+        if keeps(marker, payload) {
+            out.extend_from_slice(segment);
+        }
+        pos = end;
+        if marker == 0xDA {
+            // 符号化されたデータ。0xFF の後ろが 00（詰め物）・RSTn・FF なら中身、それ以外は次の区画
+            pos = past_entropy_data(bytes, pos, &mut out);
+            // 途中で切れた写真（EOI が無い）。ビューアが描けるところまでは刷れるよう、あるだけ返す
+            if pos >= bytes.len() {
+                return Some(out);
+            }
+        }
+    }
+}
+
+/// 残す区画か
+fn keeps(marker: u8, payload: &[u8]) -> bool {
+    match marker {
+        0xE0 => true,
+        0xE2 => payload.starts_with(b"ICC_PROFILE\0"),
+        0xEE => true,
+        0xE1 | 0xE3..=0xED | 0xEF | 0xFE => false,
+        _ => true,
+    }
+}
+
+/// `pos` から符号化されたデータを写し、次の区画の頭（0xFF）の位置を返す。終わりまで無ければ末尾
+fn past_entropy_data(bytes: &[u8], mut pos: usize, out: &mut Vec<u8>) -> usize {
+    let start = pos;
+    while pos < bytes.len() {
+        if bytes[pos] == 0xFF {
+            match bytes.get(pos + 1) {
+                Some(0x00) | Some(0xD0..=0xD7) => pos += 2,
+                // 詰め物の 0xFF は次の印の前に付いている。ここから先は区画の読み手に任せる
+                Some(_) => break,
+                None => {
+                    pos += 1;
+                    break;
+                }
+            }
+        } else {
+            pos += 1;
+        }
+    }
+    out.extend_from_slice(&bytes[start..pos.min(bytes.len())]);
+    pos
+}
+
+/// Orientation だけを持つ EXIF の APP1（リトルエンディアン、IFD0 に1項目）
+fn orientation_app1(orientation: u8) -> Vec<u8> {
+    let mut tiff = Vec::with_capacity(26);
+    tiff.extend_from_slice(b"II*\0");
+    tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 の位置
+    tiff.extend_from_slice(&1u16.to_le_bytes()); // 項目の数
+    tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation
+    tiff.extend_from_slice(&3u16.to_le_bytes()); // SHORT
+    tiff.extend_from_slice(&1u32.to_le_bytes()); // 個数
+    tiff.extend_from_slice(&u16::from(orientation).to_le_bytes());
+    tiff.extend_from_slice(&[0, 0]); // 4バイトの枠の残り
+    tiff.extend_from_slice(&0u32.to_le_bytes()); // 次の IFD は無い
+    let mut app1 = vec![0xFF, 0xE1];
+    let len = (2 + 6 + tiff.len()) as u16;
+    app1.extend_from_slice(&len.to_be_bytes());
+    app1.extend_from_slice(b"Exif\0\0");
+    app1.extend_from_slice(&tiff);
+    app1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn segment(marker: u8, payload: &[u8]) -> Vec<u8> {
+        let mut s = vec![0xFF, marker];
+        s.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        s.extend_from_slice(payload);
+        s
+    }
+
+    /// 縞のある絵（展開した画素で比べるので、平らな絵だと取り違えに気づけない）
+    fn picture() -> image::RgbImage {
+        image::RgbImage::from_fn(64, 48, |x, y| {
+            image::Rgb([(x * 4) as u8, (y * 5) as u8, ((x + y) * 3) as u8])
+        })
+    }
+
+    fn plain_jpeg(progressive: bool) -> Vec<u8> {
+        let rgb = picture();
+        let mut comp = mozjpeg::Compress::new(mozjpeg::ColorSpace::JCS_RGB);
+        comp.set_size(rgb.width() as usize, rgb.height() as usize);
+        comp.set_quality(90.0);
+        if progressive {
+            comp.set_progressive_mode();
+        } else {
+            comp.set_fastest_defaults();
+        }
+        let mut started = comp.start_compress(Vec::new()).unwrap();
+        started.write_scanlines(rgb.as_raw()).unwrap();
+        started.finish().unwrap()
+    }
+
+    /// 本物のカメラが書く形に近づける: APP0 の後ろに EXIF（GPS の印つき）・XMP・ICC・MPF・IPTC・
+    /// COM を挟み、EOI の後ろに2枚目の絵を付ける
+    fn camera_jpeg(progressive: bool) -> (Vec<u8>, Vec<u8>) {
+        let plain = plain_jpeg(progressive);
+        let icc = {
+            let mut p = b"ICC_PROFILE\0\x01\x01".to_vec();
+            p.extend_from_slice(b"fake icc profile body");
+            p
+        };
+        // APP0 があれば、その後ろに差し込む
+        let mut at = 2;
+        if plain[2..4] == [0xFF, 0xE0] {
+            at += 2 + usize::from(u16::from_be_bytes([plain[4], plain[5]]));
+        }
+        let mut jpeg = plain[..at].to_vec();
+        jpeg.extend(segment(0xE1, b"Exif\0\0II*\0GPSLatitude 35.6812 secret"));
+        jpeg.extend(segment(
+            0xE1,
+            b"http://ns.adobe.com/xap/1.0/\0<x:xmpmeta>GPS secret</x:xmpmeta>",
+        ));
+        jpeg.extend(segment(0xE2, &icc));
+        jpeg.extend(segment(0xE2, b"MPF\0II*\0 secret second image"));
+        jpeg.extend(segment(0xED, b"Photoshop 3.0\0 IPTC secret"));
+        jpeg.extend(segment(0xFE, b"comment secret"));
+        jpeg.extend_from_slice(&plain[at..]);
+        // 2枚目（MPF が指す絵）。中にも EXIF が居る
+        jpeg.extend_from_slice(&[0xFF, 0xD8]);
+        jpeg.extend(segment(0xE1, b"Exif\0\0 second secret"));
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+        (jpeg, icc)
+    }
+
+    fn decoded(jpeg: &[u8]) -> image::RgbImage {
+        image::load_from_memory(jpeg).unwrap().into_rgb8()
+    }
+
+    fn contains(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn the_shooting_data_goes_and_the_pixels_stay() {
+        for progressive in [false, true] {
+            let (jpeg, icc) = camera_jpeg(progressive);
+            let out = strip_jpeg(&jpeg, 1).unwrap();
+            assert!(!contains(&out, b"secret"), "progressive={progressive}");
+            assert!(!contains(&out, b"Exif"), "向きが 1 なら APP1 は置かない");
+            assert!(contains(&out, &segment(0xE2, &icc)), "ICC は区画ごと残る");
+            assert_eq!(&out[out.len() - 2..], &[0xFF, 0xD9], "EOI で終わる");
+            assert_eq!(decoded(&out), decoded(&jpeg), "画素は1つも変わらない");
+        }
+    }
+
+    #[test]
+    fn the_orientation_comes_back_alone() {
+        let (jpeg, _) = camera_jpeg(false);
+        let out = strip_jpeg(&jpeg, 6).unwrap();
+        assert!(!contains(&out, b"secret"));
+        let app1 = orientation_app1(6);
+        assert!(contains(&out, &app1));
+        // APP0 の直後
+        let app0_end = 4 + usize::from(u16::from_be_bytes([out[4], out[5]]));
+        assert_eq!(out[2..4], [0xFF, 0xE0]);
+        assert_eq!(&out[app0_end..app0_end + app1.len()], &app1[..]);
+        // 読み手（`thumbs` が使う EXIF の読み手）が 6 と読む
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("o.jpg");
+        std::fs::write(&p, &out).unwrap();
+        assert_eq!(crate::thumbs::read_exif_meta(&p).orientation, 6);
+    }
+
+    #[test]
+    fn a_file_on_disk_comes_out_clean_with_its_orientation() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("写真.JPG");
+        // 本物の EXIF（Orientation=8）を持つ JPEG を作り、後ろに秘密を足す
+        let plain = plain_jpeg(false);
+        let mut jpeg = plain[..2].to_vec();
+        let mut exif = orientation_app1(8);
+        // 同じ APP1 の後ろに GPS 相当の印を付けた別の APP1 を足す（読み手は最初の EXIF を見る）
+        jpeg.append(&mut exif);
+        jpeg.extend(segment(0xE1, b"http://ns.adobe.com/xap/1.0/\0 secret"));
+        jpeg.extend_from_slice(&plain[2..]);
+        std::fs::write(&p, &jpeg).unwrap();
+        let out = print_jpeg(&p).unwrap();
+        assert!(!contains(&out, b"secret"));
+        assert!(contains(&out, &orientation_app1(8)));
+        assert_eq!(decoded(&out), decoded(&jpeg));
+    }
+
+    #[test]
+    fn a_png_is_redrawn_on_white() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.png");
+        let img = image::RgbaImage::from_fn(8, 8, |x, _| {
+            image::Rgba([0, 0, 0, if x < 4 { 0 } else { 255 }])
+        });
+        img.save(&p).unwrap();
+        let out = print_jpeg(&p).unwrap();
+        let rgb = decoded(&out);
+        assert!(rgb.get_pixel(1, 4).0.iter().all(|&c| c > 240), "透明は白");
+        assert!(rgb.get_pixel(6, 4).0.iter().all(|&c| c < 15), "黒は黒");
+    }
+
+    #[test]
+    fn what_cannot_be_printed_says_none() {
+        assert_eq!(strip_jpeg(b"not a jpeg", 1), None);
+        // 区画の長さがファイルの外を指す
+        assert_eq!(
+            strip_jpeg(&[0xFF, 0xD8, 0xFF, 0xE1, 0x10, 0x00, 1, 2], 1),
+            None
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let svg = dir.path().join("a.svg");
+        std::fs::write(&svg, "<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap();
+        assert_eq!(print_jpeg(&svg), None);
+        let mp4 = dir.path().join("a.mp4");
+        std::fs::write(&mp4, b"video").unwrap();
+        assert_eq!(print_jpeg(&mp4), None);
+    }
+
+    #[test]
+    fn a_truncated_scan_is_kept_as_far_as_it_goes() {
+        let plain = plain_jpeg(false);
+        let cut = &plain[..plain.len() - 40];
+        let out = strip_jpeg(cut, 1).unwrap();
+        assert_eq!(
+            out.len(),
+            cut.len(),
+            "あるだけ写す（壊れた写真もビューアと同じだけ刷れる）"
+        );
+    }
+}
