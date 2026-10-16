@@ -31,6 +31,8 @@ export interface MediaItem {
   day_key: number;
   /** キャッシュバスティング用のファイル更新日時 */
   mtime_ms: number;
+  /** 中身の版（Rust の `MediaRecord::rev`）。絵の URL に入れる（F1） */
+  rev: number;
   has_thumb: boolean;
   /** サムネイルの品質段階: 0=なし, 1=即席, 2=高品質 */
   thumb_state: number;
@@ -73,6 +75,7 @@ export interface DaySummary {
   cover_id: number;
   cover_mtime_ms: number;
   cover_thumb_state: number;
+  cover_rev: number;
 }
 
 /** 「〇年前の今日」の1件分 */
@@ -1016,11 +1019,17 @@ export const setRegisterAutoplay = (enabled: boolean) =>
  * レスポンスはimmutableキャッシュされるため、内容が変わる要素（ファイル更新日時と
  * サムネイル品質段階）をURLのバージョンに含めて古いキャッシュを掴まないようにする。
  */
-export const thumbSrcOf = (id: number, mtimeMs: number, thumbState: number) =>
-  convertFileSrc(`thumb/${id}`, "media") + `?v=${mtimeMs}-${thumbState}`;
+// 版（`rev`）は**どの URL でも更新日時の次**に置く（`fullSrc`・`videoSrc` と同じ並び。数ばかりの引数を
+// 取り違えても型では気付けないため。PR のゲート2）
+export const thumbSrcOf = (
+  id: number,
+  mtimeMs: number,
+  rev: number,
+  thumbState: number,
+) => convertFileSrc(`thumb/${id}`, "media") + `?v=${mtimeMs}-${rev}-${thumbState}`;
 
 export const thumbSrc = (item: MediaItem) =>
-  thumbSrcOf(item.id, item.mtime_ms, item.thumb_state);
+  thumbSrcOf(item.id, item.mtime_ms, item.rev, item.thumb_state);
 
 /**
  * 取り込み**前**のファイルのプレビューURL（第5部 段階E）。
@@ -1036,9 +1045,12 @@ export const sourceThumbSrc = (path: string, mtimeMs: number) => {
   return convertFileSrc(`src/${hex}`, "media") + `?v=${mtimeMs}`;
 };
 
-/** 原寸画像のURL（詳細ビューア用） */
-export const fullSrc = (id: number, mtimeMs: number) =>
-  convertFileSrc(`full/${id}`, "media") + `?v=${mtimeMs}`;
+/**
+ * 原寸画像のURL（詳細ビューア用）。**版（`rev`）も入れる**——更新日時だけだと、FAT の2秒刻みや
+ * 「書いて元に戻す」で同じ URL に戻り、immutable で掴んだ古い絵が出続ける（F1）
+ */
+export const fullSrc = (id: number, mtimeMs: number, rev: number) =>
+  convertFileSrc(`full/${id}`, "media") + `?v=${mtimeMs}-${rev}`;
 
 /**
  * 動画の実体のURL（第9部）。`<video>` へ渡す。
@@ -1046,8 +1058,8 @@ export const fullSrc = (id: number, mtimeMs: number) =>
  * 画像と別の経路にしてあるのは、こちらだけがRangeリクエスト（部分要求）に
  * 応えるため。206を返せないとWebViewはシークを諦める。
  */
-export const videoSrc = (id: number, mtimeMs: number) =>
-  convertFileSrc(`video/${id}`, "media") + `?v=${mtimeMs}`;
+export const videoSrc = (id: number, mtimeMs: number, rev: number) =>
+  convertFileSrc(`video/${id}`, "media") + `?v=${mtimeMs}-${rev}`;
 
 /** day_key（YYYYMMDD整数）→ (年, 月, 日) */
 export const splitDayKey = (dayKey: number): [number, number, number] => [

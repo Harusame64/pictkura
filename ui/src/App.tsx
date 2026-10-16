@@ -4475,8 +4475,11 @@ export default function App() {
       setPreload((prev) =>
         prev.length === items.length &&
         prev.every(
-          // mtimeまで見る。差し替わったファイルを古い `?v=` で先読みしない
-          (x, i) => x.id === items[i].id && x.mtime_ms === items[i].mtime_ms,
+          // mtime と版まで見る。差し替わったファイルを古い `?v=` で先読みしない
+          (x, i) =>
+            x.id === items[i].id &&
+            x.mtime_ms === items[i].mtime_ms &&
+            x.rev === items[i].rev,
         )
           ? prev // 中身が同じなら参照を変えない（decodeのやり直しを防ぐ）
           : items,
@@ -4529,7 +4532,7 @@ export default function App() {
         if (cancelled) return;
         const el = preloadElsRef.current.get(it.id);
         if (!el) continue;
-        const src = fullSrc(it.id, it.mtime_ms);
+        const src = fullSrc(it.id, it.mtime_ms, it.rev);
         // 既に読んだものは触らない（同じ値を入れ直すと読み込みが起き直る）
         if (el.getAttribute("src") !== src) {
           // Rust側の変換はここで始まる。**始めた1枚を控えておく**
@@ -7481,7 +7484,7 @@ export default function App() {
                 key={viewerItem.id}
                 ref={videoRef}
                 className="viewer-video"
-                src={videoSrc(viewerItem.id, viewerItem.mtime_ms)}
+                src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
                 autoPlay
                 onClick={(e) => e.stopPropagation()}
@@ -7569,7 +7572,7 @@ export default function App() {
               // 置いてから消しても、Rust側で走り出した変換は取り消せない
               src={
                 fullGateId === viewerItem.id
-                  ? fullSrc(viewerItem.id, viewerItem.mtime_ms)
+                  ? fullSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)
                   : undefined
               }
               // 絵が出ていないあいだ（門が閉じている・原寸が出せなかった）は
@@ -7768,7 +7771,7 @@ export default function App() {
               受けないので、地をクリックして閉じる操作の邪魔にならない */}
           {preload.map((it) => (
             <img
-              key={`${it.id}-${it.mtime_ms}`}
+              key={`${it.id}-${it.mtime_ms}-${it.rev}`}
               ref={(el) => {
                 if (el) preloadElsRef.current.set(it.id, el);
                 else preloadElsRef.current.delete(it.id);

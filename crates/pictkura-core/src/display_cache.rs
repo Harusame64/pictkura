@@ -25,10 +25,14 @@ pub const DEFAULT_CAPACITY_BYTES: usize = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 512;
 
 /// キャッシュの鍵。同じidでもファイルが差し替われば別物として扱う。
+///
+/// **版（`rev`）も入れる**（F1）。更新日時だけだと、同じ時刻で大きさだけ変わった差し替えが同じ鍵になり、
+/// 古い絵を返した。回転（ADR の R）が入ると、FAT の2秒刻みで「回して元に戻す」も同じ時刻に戻りうる
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Key {
     pub id: i64,
     pub mtime_ms: i64,
+    pub rev: i64,
 }
 
 struct Entry {
@@ -132,7 +136,11 @@ mod tests {
     use super::*;
 
     fn key(id: i64) -> Key {
-        Key { id, mtime_ms: 1 }
+        Key {
+            id,
+            mtime_ms: 1,
+            rev: 0,
+        }
     }
     fn blob(n: usize) -> Arc<Vec<u8>> {
         Arc::new(vec![0u8; n])
@@ -153,6 +161,7 @@ mod tests {
             Key {
                 id: 1,
                 mtime_ms: 100,
+                rev: 0,
             },
             blob(10),
         );
@@ -160,7 +169,16 @@ mod tests {
         assert!(c
             .get(Key {
                 id: 1,
-                mtime_ms: 200
+                mtime_ms: 200,
+                rev: 0,
+            })
+            .is_none());
+        // 時刻が同じでも版が違えば別物（F1）
+        assert!(c
+            .get(Key {
+                id: 1,
+                mtime_ms: 100,
+                rev: 1,
             })
             .is_none());
     }

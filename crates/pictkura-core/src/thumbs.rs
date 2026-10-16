@@ -450,10 +450,10 @@ fn record_metadata_without_preview(
     src: &Path,
     exif: &ExifData,
     readable: bool,
-) -> Result<(), ThumbError> {
+) -> Result<bool, ThumbError> {
     // 読めていないなら**何も知らない**。知らないことを書きに行かない
     if !readable {
-        return Ok(());
+        return Ok(true);
     }
     // 順番は EXIF → OSのプロパティ → **前に読めた値** → 名前 → mtime。
     //
@@ -483,9 +483,13 @@ fn record_metadata_without_preview(
     // 申告が無いなら**寸法だけ**を諦める。読めている日付とカメラはここで書く
     // 連写の材料（dev #32）。撮影日時と同じ1回で書く（[`shot_of`]）
     let shot = shot_of(exif);
+    // 行がまだ同じ版のときだけ書く（F1、[`Db::guarded`]）。変わっていたら偽を返し、呼ぶ側は積み直す
     let Some(original) = exif.original else {
-        db.update_metadata_keeping_dimensions(id, taken_at_ms, exif.camera.as_deref(), shot)?;
-        return Ok(());
+        let wrote = db.guarded(id, record.version(), |db| {
+            db.update_metadata_keeping_dimensions(id, taken_at_ms, exif.camera.as_deref(), shot)?;
+            Ok::<_, ThumbError>(())
+        })?;
+        return Ok(wrote.is_some());
     };
     let dims = recorded_dimensions(
         // 申告が入るのはRAWだけなので、ここまで来たならRAW
@@ -500,8 +504,11 @@ fn record_metadata_without_preview(
         original,
         exif.orientation,
     );
-    db.update_metadata_shot(id, dims, taken_at_ms, exif.camera.as_deref(), shot)?;
-    Ok(())
+    let wrote = db.guarded(id, record.version(), |db| {
+        db.update_metadata_shot(id, dims, taken_at_ms, exif.camera.as_deref(), shot)?;
+        Ok::<_, ThumbError>(())
+    })?;
+    Ok(wrote.is_some())
 }
 
 /// 撮影日時に添える連写の材料（dev #32）。**秒未満を言えるのは、撮影日時が EXIF から来たとき
@@ -1207,6 +1214,9 @@ pub fn backfilled_dimensions(
 /// process_oneの結果: どの品質段階まで進んだか。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbOutcome {
+    /// 作業の途中で行の中身が変わった（[`crate::db::Db::guarded`]）。何も書いていない。
+    /// 呼ぶ側は新しい行で積み直す
+    Stale,
     /// メタデータ（幅・高さ・撮影日時）のみ書いた。サムネイルは未生成
     /// （埋め込みサムネイルが無く、高品質生成は可視要求までしない: 段階B-3）
     MetadataOnly,
@@ -1230,6 +1240,95 @@ fn thumb_path_for(thumbs_dir: &Path, id: i64, ext: &str) -> PathBuf {
     thumbs_dir
         .join(format!("{:02x}", (id % 256) as u8))
         .join(format!("{id}.{ext}"))
+}
+
+/// 作業ごとの一時ファイル（[`publish_thumb`] が本当の名前へ付け替える）。同じ id の作業は1本ずつだが、
+/// 名前に通し番号を入れて、落ちた作業の残りと混ざらないようにする
+fn temp_thumb_path(final_path: &Path) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut name = final_path.as_os_str().to_owned();
+    name.push(format!("{PARTIAL_MARK}{}-{n}", std::process::id()));
+    PathBuf::from(name)
+}
+
+/// 一時ファイルの印（[`temp_thumb_path`] が名前に足す）
+const PARTIAL_MARK: &str = ".part-";
+
+/// サムネイルを一時ファイルに書く。**書いている途中で失敗したら、その場で消す**——残ると
+/// 掃除の相手（`thumb_path` が指すもの）にならず、置き場に溜まり続ける（PR のゲート2）
+fn write_temp_thumb(
+    final_path: &Path,
+    write: impl FnOnce(&Path) -> Result<(), ThumbError>,
+) -> Result<PathBuf, ThumbError> {
+    let tmp = temp_thumb_path(final_path);
+    match write(&tmp) {
+        Ok(()) => Ok(tmp),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// 落ちた作業が残した一時ファイルを掃く（[`ThumbnailService::start`] で1回）。置き場は `thumbs/xx/`
+/// の2段なので、2段だけ見る
+fn sweep_partial_thumbs(thumbs_dir: &Path) {
+    let Ok(dirs) = std::fs::read_dir(thumbs_dir) else {
+        return;
+    };
+    for dir in dirs.flatten() {
+        let Ok(files) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
+        for f in files.flatten() {
+            if f.file_name().to_string_lossy().contains(PARTIAL_MARK) {
+                let _ = std::fs::remove_file(f.path());
+            }
+        }
+    }
+}
+
+/// 一時ファイルに書いたサムネイルを、**行がまだ同じ版のときだけ**本当の名前へ付け替えて記録する（F1）。
+///
+/// 以前は本当の名前へ直接書いてから行を更新していた。作業の途中で行が新しくなる（回した・外で書き換えた）と、
+/// 古い向きの絵が新しい行の絵として残り、URL は immutable なので直らなかった（2ゲート、2026-10-16）。
+/// 版が変わっていたら一時ファイルを消し、古いサムネイルの掃除もしない
+#[allow(clippy::too_many_arguments)]
+fn publish_thumb(
+    db: &mut Db,
+    id: i64,
+    record: &crate::MediaRecord,
+    tmp: &Path,
+    final_path: &Path,
+    thumb_state: i64,
+    thumb_bytes: Option<i64>,
+) -> Result<bool, ThumbError> {
+    // **記録を書いてから付け替える**。付け替えの後で記録が失敗すると、取り消された行の裏で本当の名前の
+    // ファイルだけが差し替わり、同じ URL の中身が変わる（PR のゲート2）。逆なら付け替えの失敗で記録も取り消せる
+    let published = db.guarded(id, record.version(), |db| {
+        db.update_thumb_path(id, final_path, thumb_state, thumb_bytes)?;
+        std::fs::rename(tmp, final_path)?;
+        Ok::<_, ThumbError>(())
+    });
+    match published {
+        Ok(Some(())) => {
+            if let Some(old) = &record.thumb_path {
+                if old != final_path {
+                    let _ = std::fs::remove_file(old);
+                }
+            }
+            Ok(true)
+        }
+        Ok(None) => {
+            let _ = std::fs::remove_file(tmp);
+            Ok(false)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(tmp);
+            Err(e)
+        }
+    }
 }
 
 /// 動画1件を処理する（第9部）。
@@ -1282,19 +1381,25 @@ fn process_video(
     // それでも寸法が読めなければ0のまま。グリッドは既定の縦横比で並べる。
     // 動画は原本をそのまま配るので、プレビューの寸法は持たない
     // 動画は連写に入らない（dev #32）。「秒まで」と記録する
-    db.update_metadata_shot(
-        id,
-        crate::db::Dimensions::original(i64::from(info.width), i64::from(info.height)),
-        info.taken_at_ms
-            .or_else(|| crate::namedate::guess_taken_at(src))
-            .or(Some(record.mtime_ms)),
-        None,
-        crate::db::Shot {
-            subsec: Some(false),
-            body_serial: None,
-        },
-    )?;
-    db.update_duration(id, info.duration_ms)?;
+    let wrote = db.guarded(id, record.version(), |db| {
+        db.update_metadata_shot(
+            id,
+            crate::db::Dimensions::original(i64::from(info.width), i64::from(info.height)),
+            info.taken_at_ms
+                .or_else(|| crate::namedate::guess_taken_at(src))
+                .or(Some(record.mtime_ms)),
+            None,
+            crate::db::Shot {
+                subsec: Some(false),
+                body_serial: None,
+            },
+        )?;
+        db.update_duration(id, info.duration_ms)?;
+        Ok::<_, ThumbError>(())
+    })?;
+    if wrote.is_none() {
+        return Ok(ThumbOutcome::Stale);
+    }
 
     // 自動パスはここまで。寸法が入ったので、一覧は枠を確保して並べられる
     if !want_final {
@@ -1320,15 +1425,20 @@ fn process_video(
     ensure_parent(&webp_path)?;
     let rgb = crate::resize::flatten_onto_white(&thumb);
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
-    std::fs::write(&webp_path, &*encoded)?;
+    let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
 
     // OSから借りた絵がそのまま最終形なので、高品質（2）として記録する。
     // LRUの管理対象に入れておけば、増えすぎたときに消してもらえる
-    db.update_thumb_path(id, &webp_path, 2, Some(encoded.len() as i64))?;
-    if let Some(old) = &record.thumb_path {
-        if old != &webp_path {
-            let _ = std::fs::remove_file(old);
-        }
+    if !publish_thumb(
+        db,
+        id,
+        record,
+        &tmp,
+        &webp_path,
+        2,
+        Some(encoded.len() as i64),
+    )? {
+        return Ok(ThumbOutcome::Stale);
     }
     Ok(ThumbOutcome::Final)
 }
@@ -1407,14 +1517,20 @@ pub fn process_one(
                 .taken_at_ms
                 .or_else(|| crate::namedate::guess_taken_at(src));
             if !meta.is_empty() {
-                db.update_shell_metadata(
-                    id,
-                    i64::from(meta.width),
-                    i64::from(meta.height),
-                    meta.taken_at_ms,
-                )?;
-                if meta.duration_ms.is_some() {
-                    db.update_duration(id, meta.duration_ms)?;
+                let wrote = db.guarded(id, record.version(), |db| {
+                    db.update_shell_metadata(
+                        id,
+                        i64::from(meta.width),
+                        i64::from(meta.height),
+                        meta.taken_at_ms,
+                    )?;
+                    if meta.duration_ms.is_some() {
+                        db.update_duration(id, meta.duration_ms)?;
+                    }
+                    Ok::<_, ThumbError>(())
+                })?;
+                if wrote.is_none() {
+                    return Ok(ThumbOutcome::Stale);
                 }
             }
         }
@@ -1459,7 +1575,9 @@ pub fn process_one(
     let (prev_w, prev_h) = match preview_dimensions(src, &exif_data) {
         Ok(size) => size,
         Err(err) => {
-            record_metadata_without_preview(db, id, &record, src, &exif_data, readable)?;
+            if !record_metadata_without_preview(db, id, &record, src, &exif_data, readable)? {
+                return Ok(ThumbOutcome::Stale);
+            }
             // **「今回は作れなかった」と「この先も作れない」は別。**
             //
             // 探索がファイルを最後まで見たうえで空振りしたときだけ、
@@ -1473,8 +1591,15 @@ pub fn process_one(
                 return Ok(ThumbOutcome::NoPreview);
             }
             if readable && exif_data.preview_exhausted {
-                db.update_thumb_state(id, THUMB_STATE_NO_PREVIEW)?;
-                return Ok(ThumbOutcome::NoPreview);
+                let wrote = db.guarded(id, record.version(), |db| {
+                    db.update_thumb_state(id, THUMB_STATE_NO_PREVIEW)?;
+                    Ok::<_, ThumbError>(())
+                })?;
+                return Ok(if wrote.is_some() {
+                    ThumbOutcome::NoPreview
+                } else {
+                    ThumbOutcome::Stale
+                });
             }
             return Err(err);
         }
@@ -1506,9 +1631,7 @@ pub fn process_one(
     );
     // 連写の材料（dev #32）も**撮影日時と同じ1回で**書く（[`shot_of`]）。別の書き込みにすると、
     // 読めなかった回に時刻だけが秒止まりへ書き換わり、「秒未満あり」が残った（#158 のゲート2）
-    db.update_metadata_shot(
-        id,
-        dims,
+    let taken_at_ms = {
         // EXIF → OSのプロパティ → 名前 → mtime（段階H-2）。`or_else` なので
         // EXIFで決まればOSには聞きに行かない。
         //
@@ -1520,10 +1643,21 @@ pub fn process_one(
             .taken_at_ms
             .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
             .or_else(|| crate::namedate::guess_taken_at(src))
-            .or(Some(record.mtime_ms)),
-        exif_data.camera.as_deref(),
-        shot_of(&exif_data),
-    )?;
+            .or(Some(record.mtime_ms))
+    };
+    let wrote = db.guarded(id, record.version(), |db| {
+        db.update_metadata_shot(
+            id,
+            dims,
+            taken_at_ms,
+            exif_data.camera.as_deref(),
+            shot_of(&exif_data),
+        )?;
+        Ok::<_, ThumbError>(())
+    })?;
+    if wrote.is_none() {
+        return Ok(ThumbOutcome::Stale);
+    }
 
     // SVGはブラウザがそのまま描けるので、サムネイルを作らない。
     // 一覧にも原本を配れば足りるうえ、拡大しても劣化しない。
@@ -1532,18 +1666,18 @@ pub fn process_one(
     // 可視領域の通知は `thumb_state < 2` の行を投げ直すので、0のままだと
     // スクロールのたびにファイルを開き直してDBへ書き続ける（無限に繰り返す）
     if crate::svg::is_svg_path(src) {
-        db.update_thumb_state(id, THUMB_STATE_NOT_NEEDED)?;
-        return Ok(ThumbOutcome::NotNeeded);
+        let wrote = db.guarded(id, record.version(), |db| {
+            db.update_thumb_state(id, THUMB_STATE_NOT_NEEDED)?;
+            Ok::<_, ThumbError>(())
+        })?;
+        return Ok(if wrote.is_some() {
+            ThumbOutcome::NotNeeded
+        } else {
+            ThumbOutcome::Stale
+        });
     }
 
-    // 旧配置（フラット/旧拡張子）のサムネイルは新パス書き込み後に消す
-    let cleanup_old = |new_path: &Path| {
-        if let Some(old) = &record.thumb_path {
-            if old != new_path {
-                let _ = std::fs::remove_file(old);
-            }
-        }
-    };
+    // 旧配置（フラット/旧拡張子）のサムネイルの掃除は [`publish_thumb`] が、付け替えが通ったときだけする
 
     // 段階1(HEIF): iPhoneのHEICは主画像とは別に**小さいHEVCのサムネイル**を持つ。
     // JPEGではないのでバイト列のままでは使えないが、小さいまま展開すれば
@@ -1555,10 +1689,11 @@ pub fn process_one(
             ensure_parent(&webp_path)?;
             let rgb = crate::resize::flatten_onto_white(&img);
             let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
-            std::fs::write(&webp_path, &*encoded)?;
+            let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
             // 即席（state=1）なので、可視になったら主画像から作り直す
-            db.update_thumb_path(id, &webp_path, 1, None)?;
-            cleanup_old(&webp_path);
+            if !publish_thumb(db, id, &record, &tmp, &webp_path, 1, None)? {
+                return Ok(ThumbOutcome::Stale);
+            }
             return Ok(ThumbOutcome::Provisional);
         }
     }
@@ -1570,16 +1705,23 @@ pub fn process_one(
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
                 ensure_parent(&jpg_path)?;
-                if exif_data.orientation == 1 {
-                    std::fs::write(&jpg_path, bytes)?;
-                } else {
-                    let rotated = apply_orientation(embedded, exif_data.orientation);
-                    let mut out = std::io::BufWriter::new(std::fs::File::create(&jpg_path)?);
-                    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
-                    rotated.to_rgb8().write_with_encoder(encoder)?;
+                let tmp = write_temp_thumb(&jpg_path, |p| {
+                    if exif_data.orientation == 1 {
+                        std::fs::write(p, bytes)?;
+                    } else {
+                        let rotated = apply_orientation(embedded, exif_data.orientation);
+                        let mut out = std::io::BufWriter::new(std::fs::File::create(p)?);
+                        let encoder =
+                            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
+                        rotated.to_rgb8().write_with_encoder(encoder)?;
+                        use std::io::Write as _;
+                        out.flush()?;
+                    }
+                    Ok(())
+                })?;
+                if !publish_thumb(db, id, &record, &tmp, &jpg_path, 1, None)? {
+                    return Ok(ThumbOutcome::Stale);
                 }
-                db.update_thumb_path(id, &jpg_path, 1, None)?;
-                cleanup_old(&jpg_path);
                 return Ok(ThumbOutcome::Provisional);
             }
         }
@@ -1619,11 +1761,20 @@ pub fn process_one(
     ensure_parent(&webp_path)?;
     let rgb = crate::resize::flatten_onto_white(&apply_orientation(thumb, exif_data.orientation));
     let encoded = webp::Encoder::from_rgb(&rgb, rgb.width(), rgb.height()).encode(82.0);
-    std::fs::write(&webp_path, &*encoded)?;
+    let tmp = write_temp_thumb(&webp_path, |p| Ok(std::fs::write(p, &*encoded)?))?;
 
     // 高品質サムネイルはLRUキャッシュ管理対象: サイズを記録する（段階B-3）
-    db.update_thumb_path(id, &webp_path, 2, Some(encoded.len() as i64))?;
-    cleanup_old(&webp_path);
+    if !publish_thumb(
+        db,
+        id,
+        &record,
+        &tmp,
+        &webp_path,
+        2,
+        Some(encoded.len() as i64),
+    )? {
+        return Ok(ThumbOutcome::Stale);
+    }
     Ok(ThumbOutcome::Final)
 }
 
@@ -1670,6 +1821,10 @@ struct QueueState {
     processing: HashSet<i64>,
     /// ID別の処理失敗回数（壊れた画像の無限リトライ防止。セッション内のみ）
     failures: HashMap<i64, u32>,
+    /// 処理中に [`ThumbQueue::enqueue`] で積まれた ID（F1）。処理中は積めないので印だけ付け、
+    /// [`ThumbQueue::complete`] で積み直す。走査が行を初期化して積んだのに、走っていた作業が
+    /// 最後の書き込みの後だったために気付かず、行が空のまま残るのを防ぐ（PR のゲート2）
+    dirty: HashSet<i64>,
     shutdown: bool,
 }
 
@@ -1705,6 +1860,7 @@ impl ThumbQueue {
                     queued: HashSet::new(),
                     processing: HashSet::new(),
                     failures: HashMap::new(),
+                    dirty: HashSet::new(),
                     shutdown: false,
                 }),
                 cvar: Condvar::new(),
@@ -1721,7 +1877,13 @@ impl ThumbQueue {
     pub fn enqueue(&self, ids: &[i64]) {
         let mut state = self.lock_state();
         for &id in ids {
-            if !state.blocked(id) && !state.processing.contains(&id) && state.queued.insert(id) {
+            if state.blocked(id) {
+                continue;
+            }
+            if state.processing.contains(&id) {
+                // 終わってから積み直す（`dirty` の項）
+                state.dirty.insert(id);
+            } else if state.queued.insert(id) {
                 state.pending.push_back(id);
             }
         }
@@ -1798,9 +1960,19 @@ impl ThumbQueue {
         }
     }
 
-    /// 処理完了（成功・失敗とも）を通知し、そのIDの再投入を許可する。
+    /// 処理完了（成功・失敗とも）を通知し、そのIDの再投入を許可する。処理中に積まれていたら
+    /// ここで積み直す（`dirty` の項）
     pub fn complete(&self, id: i64) {
-        self.lock_state().processing.remove(&id);
+        let mut state = self.lock_state();
+        state.processing.remove(&id);
+        let again = state.dirty.remove(&id) && !state.blocked(id) && state.queued.insert(id);
+        if again {
+            state.pending.push_back(id);
+        }
+        drop(state);
+        if again {
+            self.inner.cvar.notify_all();
+        }
     }
 
     /// 処理失敗を記録する。上限（MAX_FAILURES）を超えたIDは以後投入されない。
@@ -1879,6 +2051,9 @@ impl ThumbnailService {
         worker_count: usize,
         on_done: impl Fn(i64, CameraWrite) + Send + Sync + 'static,
     ) -> Self {
+        // 前回の作業が落ちて残した一時ファイル（[`temp_thumb_path`]）を掃く。ワーカーが動き出す前なので、
+        // 今の作業のものを消すことは無い（単一起動はアプリが守っている）
+        sweep_partial_thumbs(&thumbs_dir);
         let queue = ThumbQueue::new();
         let on_done = Arc::new(on_done);
         let count = if worker_count == 0 {
@@ -1919,6 +2094,13 @@ impl ThumbnailService {
                         .unwrap_or(Err(ThumbError::Panicked(id)));
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         queue.complete(id);
+                        // 作業の途中で行が新しくなった（F1）。何も書いていないので、新しい行で積み直す。
+                        // `complete` の後でないと、処理中の id は積めない。**先頭へは割り込ませない**
+                        // ——書き換えが続くファイル（同期中・テザー撮影）が、見えているタイルの前に
+                        // 何度も入り込む。見えていれば、次の可視の知らせが引き上げる（PR のゲート2）
+                        if matches!(result, Ok(ThumbOutcome::Stale)) {
+                            queue.enqueue(&[id]);
+                        }
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
                         if result.is_err() {
@@ -2103,6 +2285,92 @@ mod tests {
         let mut out = std::io::Cursor::new(Vec::new());
         img.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
         out.into_inner()
+    }
+
+    /// 処理中に積まれた id は、終わったときに積み直す（PR のゲート2）。可視の引き上げ（`prioritize`）では
+    /// 印を付けない——見えているタイルを毎回作り直すことになる
+    #[test]
+    fn an_id_enqueued_while_processing_runs_again_after_complete() {
+        let q = ThumbQueue::new();
+        q.enqueue(&[7]);
+        assert_eq!(q.pop(), Some((7, false)));
+        q.enqueue(&[7]); // 走査が行を初期化して積んだ
+        q.complete(7);
+        // pop() は空の列で待ち続けるので、積み直しの有無は待たない is_active で先に見る
+        // （積み直さない変異で試験が赤ではなく止まりになった）
+        assert!(q.is_active(7), "終わった後に積み直す");
+        assert_eq!(q.pop(), Some((7, false)));
+        q.prioritize(&[7]); // 処理中に見えた
+        q.complete(7);
+        assert!(!q.is_active(7), "可視の知らせだけでは積み直さない");
+        q.enqueue(&[8]);
+        assert_eq!(
+            q.pop(),
+            Some((8, false)),
+            "可視の知らせだけでは積み直さない"
+        );
+    }
+
+    /// 起動時の掃除は一時ファイルだけを消す
+    #[test]
+    fn the_startup_sweep_removes_only_partial_thumbnails() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("07");
+        std::fs::create_dir_all(&sub).unwrap();
+        let kept = sub.join("7.webp");
+        std::fs::write(&kept, b"x").unwrap();
+        let partial = temp_thumb_path(&kept);
+        std::fs::write(&partial, b"y").unwrap();
+        sweep_partial_thumbs(dir.path());
+        assert!(kept.exists());
+        assert!(!partial.exists());
+    }
+
+    /// F1: 作業の途中で行の版が進んだら、古い作業の絵は付け替えず、一時ファイルも残さず、行も書き換えない。
+    /// 版が同じなら付け替えて記録する（`publish_thumb`）
+    #[test]
+    fn a_stale_job_does_not_publish_its_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let photo = dir.path().join("a.jpg");
+        std::fs::write(&photo, test_jpeg_bytes(16, 16)).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: photo.clone(),
+            size: 10,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id: i64 = db.list_all().unwrap()[0].id;
+        let before = db.get_by_id(id).unwrap().unwrap();
+
+        // 行が新しくなる（走査が中身の変化を見つけた）
+        db.upsert_files(&[ScannedFile {
+            path: photo.clone(),
+            size: 11,
+            mtime_ms: 2,
+        }])
+        .unwrap();
+        let final_path = dir.path().join("thumbs").join("1.webp");
+        std::fs::create_dir_all(final_path.parent().unwrap()).unwrap();
+        let tmp = temp_thumb_path(&final_path);
+        std::fs::write(&tmp, b"old picture").unwrap();
+        assert!(!publish_thumb(&mut db, id, &before, &tmp, &final_path, 2, Some(11)).unwrap());
+        assert!(!tmp.exists(), "一時ファイルは消す");
+        assert!(!final_path.exists(), "古い絵を本当の名前に置かない");
+        assert!(
+            db.get_by_id(id).unwrap().unwrap().thumb_path.is_none(),
+            "行は書き換えない"
+        );
+
+        // 新しい行で作り直した作業は付け替える
+        let now = db.get_by_id(id).unwrap().unwrap();
+        let tmp = temp_thumb_path(&final_path);
+        std::fs::write(&tmp, b"new picture").unwrap();
+        assert!(publish_thumb(&mut db, id, &now, &tmp, &final_path, 2, Some(11)).unwrap());
+        assert_eq!(std::fs::read(&final_path).unwrap(), b"new picture");
+        let row = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(row.thumb_path.as_deref(), Some(final_path.as_path()));
+        assert_eq!(row.thumb_state, 2);
     }
 
     #[test]

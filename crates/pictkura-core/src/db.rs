@@ -25,7 +25,7 @@ use crate::search::{index_text, SearchQuery};
 /// ——別々に書くと、列を足したときに片方だけ直して添字がずれる。
 const MEDIA_COLUMNS: &str = "id, path, size, mtime_ms, width, height, taken_at_ms,
      day_key, thumb_path, thumb_state, favorite, picked, duration_ms,
-     preview_width, preview_height, camera_id, taken_subsec, body_serial";
+     preview_width, preview_height, camera_id, taken_subsec, body_serial, rev";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -84,9 +84,31 @@ pub struct MediaRecord {
     pub picked: bool,
     /// 動画の長さ（ミリ秒）。画像はNULL（第9部）
     pub duration_ms: Option<i64>,
+    /// **中身の版**。走査・見張りが大きさか更新日時の変化を見つけるたびに1つ進む（`CHANGED_ROW_RESET`）。
+    /// 絵の URL とサムネイル作りの守りに使う。**回転（ADR の R）では pictkura が書いたときにも進める**
+    /// ——更新日時だけだと、FAT の2秒刻みや「書いて元に戻す」で同じ値に戻り、古い絵が出続ける
+    /// （`dev/adr.file-info-and-context-menu.md` の F1）。**同じ大きさ・同じ時刻のまま外で書き換えられた**
+    /// ファイルは走査にも見えないので、版も進まない（前からの限界）
+    pub rev: i64,
+}
+
+/// 行の中身の版（[`Db::guarded`]）。作業を始めたときに掴み、書く直前に今の行と比べる
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowVersion {
+    pub mtime_ms: i64,
+    pub size: i64,
+    pub rev: i64,
 }
 
 impl MediaRecord {
+    pub fn version(&self) -> RowVersion {
+        RowVersion {
+            mtime_ms: self.mtime_ms,
+            size: self.size,
+            rev: self.rev,
+        }
+    }
+
     /// 撮影日時が**本当に分かっている**か。抽出は何も読めないと最後に更新日時を入れる（`thumbs.rs`）ので、
     /// `taken_at_ms.is_some()` では見分けられない。拾い直しの門（`thumbs.rs` の抽出・
     /// [`Db::rows_with_fallback_taken_at`]）と同じ規則で「NULL か、更新日時と同じなら不明」と読む
@@ -134,7 +156,7 @@ impl Dimensions {
 /// なめたうえで `ORDER BY id` のために一時B木まで作る。名指ししておけば、
 /// 条件を崩した日に**黙って遅くなるのではなく、その場でエラーになる**
 /// ——見張っているのは `backfill_query_rides_the_partial_index`。
-const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, size FROM media
+const DIMS_TO_BACKFILL_SQL: &str = "SELECT id, path, width, height, mtime_ms, size, rev FROM media
      INDEXED BY idx_media_dims_pending
      WHERE kind = 1 AND preview_width IS NULL AND id > ?1
      AND width > 0 AND height > 0 AND thumb_path IS NOT NULL
@@ -151,7 +173,7 @@ const SHOTS_PENDING_WHERE: &str = "taken_subsec IS NULL AND width IS NOT NULL AN
 /// のを200件ごとに繰り返していた。見張りは `shot_backfill_query_rides_its_partial_index`
 /// （条件が [`SHOTS_PENDING_WHERE`] と同じ文字列であることも見る）
 const SHOTS_TO_BACKFILL_SQL: &str =
-    "SELECT id, path, mtime_ms, size FROM media INDEXED BY idx_media_shots_pending
+    "SELECT id, path, mtime_ms, size, rev FROM media INDEXED BY idx_media_shots_pending
      WHERE taken_subsec IS NULL AND width IS NOT NULL AND kind = 0
      AND path NOT LIKE '%.tif' AND path NOT LIKE '%.tiff' AND id > ?1
      ORDER BY id LIMIT ?2";
@@ -176,6 +198,8 @@ pub struct DimensionTarget {
     /// 版のもう半分。スキャンは `size <> size OR mtime_ms <> mtime_ms` で
     /// 差し替えを見ているので、**時刻を保ったコピー**は大きさでしか気づけない
     pub size: i64,
+    /// 読んだ時点の中身の版（[`MediaRecord::rev`]）。時刻と大きさが元に戻る差し替え（ABA）も見抜く（F1）
+    pub rev: i64,
 }
 
 /// 連写の材料を読み直す1行（[`Db::shots_to_backfill`] が返し、[`Db::set_shots`] が
@@ -191,6 +215,8 @@ pub struct ShotTarget {
     pub mtime_ms: i64,
     /// 読んだ時点の `size`（時刻を保ったコピーは大きさでしか気づけない。[`DimensionTarget`] と同じ）
     pub size: i64,
+    /// 読んだ時点の中身の版（[`DimensionTarget::rev`] と同じ）
+    pub rev: i64,
 }
 
 /// DBに保存済みのファイルメタデータ（差分検知用の軽量ビュー）。
@@ -211,6 +237,8 @@ pub struct DaySummary {
     pub cover_id: i64,
     pub cover_mtime_ms: i64,
     pub cover_thumb_state: i64,
+    /// 表紙の中身の版（[`MediaRecord::rev`]。絵の URL に入れる）
+    pub cover_rev: i64,
 }
 
 /// 表示時刻（撮影日時、なければmtime）のSQL式。
@@ -276,7 +304,7 @@ pub type FallbackDateRow = (i64, PathBuf, i64);
 /// 両方を直す必要があった
 const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NULL, \
      preview_height = NULL, taken_at_ms = NULL, taken_subsec = NULL, thumb_path = NULL, \
-     thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL";
+     thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL, rev = rev + 1";
 
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
 /// day_keyの計算はすべてSQLite側（strftime + localtime）に統一する。
@@ -365,7 +393,7 @@ fn all_ids_sql(filter: &str) -> String {
 /// 骨組みの取得がそのまま遅くなる。実行計画に釘を打てるよう、組み立てを1か所に置く。
 fn summary_sql(filter: &str) -> String {
     format!(
-        "SELECT day_key, COUNT(*), id, mtime_ms, thumb_state, MAX({SORT_TS})
+        "SELECT day_key, COUNT(*), id, mtime_ms, thumb_state, rev, MAX({SORT_TS})
              FROM media {filter}
              GROUP BY day_key ORDER BY day_key DESC"
     )
@@ -684,6 +712,11 @@ impl Db {
         // 連写の材料（dev #32）: 撮影時刻が秒未満まで分かったか（NULL=未確認）と本体シリアル
         let _ = conn.execute("ALTER TABLE media ADD COLUMN taken_subsec INTEGER", []);
         let _ = conn.execute("ALTER TABLE media ADD COLUMN body_serial TEXT", []);
+        // F1: 中身の版（[`MediaRecord::rev`]）。在る行はみな 0 から
+        let _ = conn.execute(
+            "ALTER TABLE media ADD COLUMN rev INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // 動画の長さ（ミリ秒。第9部）。画像はNULLのまま
         let _ = conn.execute("ALTER TABLE media ADD COLUMN duration_ms INTEGER", []);
         // 種類（0=画像 / 1=RAW / 2=動画。[`crate::MediaKind`]）。
@@ -1816,6 +1849,71 @@ impl Db {
         Ok((count, total))
     }
 
+    /// **行が `expect` の版のままなら** `f` を1つのトランザクションで走らせて `Some` を返す。変わっていたら
+    /// 何も書かずに `None`（F1）。
+    ///
+    /// サムネイル作りは行を読んでから書くまでに数百ミリ秒〜数秒かかる。その間に走査が中身の変化を
+    /// 見つけた・pictkura が回した、などで行が新しくなると、古い作業が**新しい行へ古い寸法・日時・絵を
+    /// 書いていた**（id だけで書いていたため）。`BEGIN IMMEDIATE` で書き手の順番を取ってから比べるので、
+    /// 比べた後・書く前に割り込まれることも無い
+    pub fn guarded<T, E: From<DbError>>(
+        &mut self,
+        id: i64,
+        expect: RowVersion,
+        f: impl FnOnce(&mut Db) -> Result<T, E>,
+    ) -> Result<Option<T>, E> {
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(|e| E::from(DbError::from(e)))?;
+        let now = self
+            .conn
+            .query_row(
+                "SELECT mtime_ms, size, rev FROM media WHERE id = ?1",
+                params![id],
+                |r| {
+                    Ok(RowVersion {
+                        mtime_ms: r.get(0)?,
+                        size: r.get(1)?,
+                        rev: r.get(2)?,
+                    })
+                },
+            )
+            .optional();
+        let matches = match now {
+            Ok(Some(v)) => v == expect,
+            Ok(None) => false,
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                return Err(E::from(DbError::from(e)));
+            }
+        };
+        if !matches {
+            let _ = self.conn.execute_batch("ROLLBACK");
+            return Ok(None);
+        }
+        // **どの抜け方でも取り消す**。`f` が落ちた（パニック）・確定に失敗した、のどちらでも、
+        // 書き手の順番（RESERVED）を握ったままの接続が残ると、以後この接続の `BEGIN` はすべて失敗し、
+        // ほかの接続は busy_timeout の末に「database is locked」になる（PR のゲート2）
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        match ran {
+            Ok(Ok(v)) => match self.conn.execute_batch("COMMIT") {
+                Ok(()) => Ok(Some(v)),
+                Err(e) => {
+                    let _ = self.conn.execute_batch("ROLLBACK");
+                    Err(E::from(DbError::from(e)))
+                }
+            },
+            Ok(Err(e)) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+            Err(panic) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                std::panic::resume_unwind(panic)
+            }
+        }
+    }
+
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self
@@ -1978,6 +2076,7 @@ impl Db {
                 cover_id: r.get(2)?,
                 cover_mtime_ms: r.get(3)?,
                 cover_thumb_state: r.get(4)?,
+                cover_rev: r.get(5)?,
             })
         })?;
         let mut out = Vec::new();
@@ -2349,6 +2448,7 @@ impl Db {
                 path: PathBuf::from(r.get::<_, String>(1)?),
                 mtime_ms: r.get(2)?,
                 size: r.get(3)?,
+                rev: r.get(4)?,
             })
         })?;
         let mut out = Vec::new();
@@ -2375,17 +2475,17 @@ impl Db {
                 "UPDATE media SET taken_at_ms = ?2, day_key = {}, taken_subsec = ?3,
                         body_serial = COALESCE(?4, body_serial)
                  WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
-                   AND mtime_ms = ?5 AND size = ?6",
+                   AND mtime_ms = ?5 AND size = ?6 AND rev = ?7",
                 day_key_expr("?2")
             ))?;
             let mut meta_only = tx.prepare_cached(
                 "UPDATE media SET taken_subsec = ?2, body_serial = COALESCE(?3, body_serial)
                  WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
-                   AND mtime_ms = ?4 AND size = ?5",
+                   AND mtime_ms = ?4 AND size = ?5 AND rev = ?6",
             )?;
             for (target, taken, subsec, serial) in results {
                 let serial = serial.as_deref().map(str::trim).filter(|s| !s.is_empty());
-                let (id, mtime, size) = (target.id, target.mtime_ms, target.size);
+                let (id, mtime, size, rev) = (target.id, target.mtime_ms, target.size, target.rev);
                 match taken {
                     Some(at) => with_time.execute(params![
                         id,
@@ -2393,11 +2493,17 @@ impl Db {
                         i64::from(*subsec),
                         serial,
                         mtime,
-                        size
+                        size,
+                        rev
                     ])?,
-                    None => {
-                        meta_only.execute(params![id, i64::from(*subsec), serial, mtime, size])?
-                    }
+                    None => meta_only.execute(params![
+                        id,
+                        i64::from(*subsec),
+                        serial,
+                        mtime,
+                        size,
+                        rev
+                    ])?,
                 };
             }
         }
@@ -2496,6 +2602,7 @@ impl Db {
                 height: r.get(3)?,
                 mtime_ms: r.get(4)?,
                 size: r.get(5)?,
+                rev: r.get(6)?,
             })
         })?;
         let mut out = Vec::new();
@@ -2541,7 +2648,7 @@ impl Db {
                         preview_width = ?4, preview_height = ?5
                  WHERE id = ?1 AND preview_width IS NULL
                    AND width = ?6 AND height = ?7
-                   AND mtime_ms = ?8 AND size = ?9",
+                   AND mtime_ms = ?8 AND size = ?9 AND rev = ?10",
             )?;
             for (target, dims) in results {
                 let n = stmt.execute(params![
@@ -2553,7 +2660,8 @@ impl Db {
                     target.width,
                     target.height,
                     target.mtime_ms,
-                    target.size
+                    target.size,
+                    target.rev
                 ])?;
                 // 寸法が動いた行だけ返す（UIへ知らせるのはそれだけでよい）
                 if n > 0 && (dims.width, dims.height) != (target.width, target.height) {
@@ -3204,6 +3312,7 @@ impl Db {
             camera_id: row.get(15)?,
             taken_subsec: row.get::<_, Option<i64>>(16)?.map(|v| v != 0),
             body_serial: row.get(17)?,
+            rev: row.get(18)?,
         })
     }
 }
@@ -3324,7 +3433,7 @@ mod tests {
     fn target_of(db: &Db, id: i64) -> ShotTarget {
         db.conn
             .query_row(
-                "SELECT path, mtime_ms, size FROM media WHERE id = ?1",
+                "SELECT path, mtime_ms, size, rev FROM media WHERE id = ?1",
                 params![id],
                 |r| {
                     Ok(ShotTarget {
@@ -3332,6 +3441,7 @@ mod tests {
                         path: PathBuf::from(r.get::<_, String>(0)?),
                         mtime_ms: r.get(1)?,
                         size: r.get(2)?,
+                        rev: r.get(3)?,
                     })
                 },
             )
@@ -3973,6 +4083,72 @@ mod tests {
 
         // 拡張子を1つも渡さないときに全件が当たらないこと
         assert_eq!(db.count_by_extensions(&[], 8).unwrap().0, 0);
+    }
+
+    /// F1: 版が合えば書き、合わなければ何も書かない。走査が中身の変化を見つけたら版が進む
+    #[test]
+    fn guarded_writes_only_while_the_row_keeps_its_version() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("/r/a.jpg", 10, 1000)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let v0 = db.get_by_id(id).unwrap().unwrap().version();
+        assert_eq!(v0.rev, 0);
+
+        let wrote = db
+            .guarded(id, v0, |db| db.update_thumb_state(id, 3))
+            .unwrap();
+        assert_eq!(wrote, Some(()));
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().thumb_state, 3);
+
+        // 中身が変わった（大きさ・更新日時）→ 版が進み、古い版の書き込みは通らない
+        db.upsert_files(&[scanned("/r/a.jpg", 11, 1000)]).unwrap();
+        let v1 = db.get_by_id(id).unwrap().unwrap().version();
+        assert_eq!(v1.rev, 1, "変化を見つけたら版を1つ進める");
+        let wrote = db
+            .guarded(id, v0, |db| db.update_thumb_state(id, 2))
+            .unwrap();
+        assert_eq!(wrote, None);
+        assert_eq!(
+            db.get_by_id(id).unwrap().unwrap().thumb_state,
+            0,
+            "初期化のまま"
+        );
+
+        // 中で失敗したら巻き戻す（半分だけ書かない）
+        let res: Result<Option<()>, DbError> = db.guarded(id, v1, |db| {
+            db.update_thumb_state(id, 2)?;
+            Err(DbError::Sqlite(rusqlite::Error::InvalidQuery))
+        });
+        assert!(res.is_err());
+        assert_eq!(
+            db.get_by_id(id).unwrap().unwrap().thumb_state,
+            0,
+            "巻き戻した"
+        );
+        // 消えた行には書かない
+        assert_eq!(
+            db.guarded(id + 99, v1, |_| Ok::<_, DbError>(())).unwrap(),
+            None
+        );
+        // 中で落ちても（パニック）取り消し、同じ接続で次が書ける（PR のゲート2）
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = db.guarded(id, v1, |db| -> Result<(), DbError> {
+                db.update_thumb_state(id, 2)?;
+                panic!("decoder blew up")
+            });
+        }));
+        assert!(caught.is_err());
+        assert_eq!(
+            db.get_by_id(id).unwrap().unwrap().thumb_state,
+            0,
+            "取り消した"
+        );
+        assert_eq!(
+            db.guarded(id, v1, |db| db.update_thumb_state(id, 2))
+                .unwrap(),
+            Some(()),
+            "取引が開いたまま残っていない"
+        );
     }
 
     /// 撮影日時の「分かっている」: 更新日時で埋めた値は分かっていないと読む（ゲート2 P1-1）
