@@ -502,12 +502,12 @@ alone files them under “the day you saved it”. When the name carries a date,
 they land on the right day.
 </p>
 <p>
-When pictkura can make no picture for a file — a RAW with no usable preview, say — a date
-already recorded for it comes third in the list, ahead of the file name and the
-modification time, unless what is recorded was only filled in from the modification time,
-which means nothing has been read yet. That matters because a file that ends up with no size at all is
-looked at again on every startup, so a pass that reads nothing must not erase a date that
-was read before.
+When pictkura can make no picture for a file — a RAW with no usable preview, say — <strong>a
+capture time read on an earlier pass</strong> comes third, after EXIF and the OS, ahead of the
+file name. A date that was only the modification time, used because nothing else could be
+read, does not count. <strong>A file whose image size cannot be read is checked again on
+every startup</strong>, and this keeps a pass that reads nothing from erasing a capture time
+read before.
 </p>
 
 <h2 id="search">4. Find</h2>
@@ -770,8 +770,10 @@ rendering.
 <div class="note">
   <p>
     <strong>If you shoot RAW+JPEG, the grid stacks each pair into one tile.</strong>
-    A RAW and a non-RAW image with the same name in the same folder and the same capture time (to the second; a date filled in from the modification time does not count),
-    such as <code>IMG_0001.CR3</code> and <code>IMG_0001.JPG</code> (a HEIF <code>.HIF</code> pairs too; videos never do), show as the non-RAW image (usually the JPEG), with a <code>RAW+JPEG</code> badge in the corner
+    A RAW and a non-RAW image in the same folder, with the same name apart from the extension and the same capture time to the second, form a pair.
+    A file whose capture time could not be read, and which is dated only by its modification time, is never paired.
+    For example, <code>IMG_0001.CR3</code> and <code>IMG_0001.JPG</code> pair up (a HEIF <code>.HIF</code> pairs too; videos never do).
+    A pair shows as the non-RAW image (usually the JPEG), with a <code>RAW+JPEG</code> badge in the corner
     (on narrow tiles, a mark of two overlapping squares).
     In the grid, ★, ⚑, delete and selection apply to both. Full screen shows only the non-RAW file (usually the JPEG) by default,
     and ★, ⚑, ✕ and delete there apply to both files too. You can switch to RAW only, or to both
