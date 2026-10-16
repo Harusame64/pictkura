@@ -106,7 +106,13 @@ fn every_raw_on_the_card_is_copied() {
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
 
-    let stats = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let stats = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     let copied: BTreeSet<String> = walkdir::WalkDir::new(&dest)
         .into_iter()
@@ -182,7 +188,13 @@ fn two_cards_folders_with_the_same_file_name_both_arrive() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    let stats = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let stats = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     let bodies: BTreeSet<String> = walkdir::WalkDir::new(&dest)
         .into_iter()
@@ -221,7 +233,13 @@ fn the_same_name_in_a_different_case_still_arrives() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    let stats = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let stats = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     assert_eq!(stats.copied, 2, "大小違いの2枚目が消えた");
     assert!(
@@ -257,7 +275,13 @@ fn the_same_name_in_a_different_normalisation_still_arrives() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    let stats = import_from(&src, &config, |_, _, _| {}).unwrap();
+    let stats = import_from(
+        &src,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     let got = contents(&dest);
     assert_eq!(stats.copied, 2, "正規化違いの2枚目が消えた: {got:?}");
@@ -288,7 +312,13 @@ fn an_identical_copy_on_the_same_card_is_folded_into_one() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    let stats = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let stats = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     let names: Vec<String> = walkdir::WalkDir::new(&dest)
         .into_iter()
@@ -307,7 +337,13 @@ fn an_identical_copy_on_the_same_card_is_folded_into_one() {
     // **挿し直しても増えない。** ここは新しい経路である——名前がぶつかっているので
     // 行き先の中身まで読む（`Confirm::ByBytes`）。**同じだと分かったら畳む**。
     // 「読めなかった＝別物」に倒していると、**挿し直すたびに2倍になる**
-    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let second = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     let after: BTreeSet<String> = walkdir::WalkDir::new(&dest)
         .into_iter()
         .flatten()
@@ -339,7 +375,17 @@ fn an_identical_copy_is_folded_even_when_the_plain_name_is_taken() {
     filetime::set_file_mtime(&other, stamp).unwrap();
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    assert_eq!(import_from(&card, &config, |_, _, _| {}).unwrap().copied, 1);
+    assert_eq!(
+        import_from(
+            &card,
+            &config,
+            &pictkura_core::Edits::default(),
+            |_, _, _| {}
+        )
+        .unwrap()
+        .copied,
+        1
+    );
     fs::remove_file(&other).unwrap();
 
     // 2周目: 同じ名前・同じ中身が2箇所にある
@@ -351,7 +397,13 @@ fn an_identical_copy_is_folded_even_when_the_plain_name_is_taken() {
         fs::write(&p, b"aaaa").unwrap();
         filetime::set_file_mtime(&p, stamp).unwrap();
     }
-    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let second = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     let names: BTreeSet<String> = walkdir::WalkDir::new(&dest)
         .into_iter()
@@ -394,13 +446,29 @@ fn a_twin_in_a_later_run_arrives_because_the_card_shows_both_names() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    assert_eq!(import_from(&card, &config, |_, _, _| {}).unwrap().copied, 1);
+    assert_eq!(
+        import_from(
+            &card,
+            &config,
+            &pictkura_core::Edits::default(),
+            |_, _, _| {}
+        )
+        .unwrap()
+        .copied,
+        1
+    );
 
     fs::create_dir_all(card.join("DCIM/101MSDCF")).unwrap();
     let twin = card.join("DCIM/101MSDCF/DSC00001.ARW");
     fs::write(&twin, b"bbbb").unwrap();
     filetime::set_file_mtime(&twin, stamp).unwrap();
-    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let second = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     assert_eq!(second.copied, 1, "片割れが届いていない");
     assert_eq!(second.skipped, 1, "1周目のぶんを運び直している");
@@ -413,7 +481,13 @@ fn a_twin_in_a_later_run_arrives_because_the_card_shows_both_names() {
 
     // **もう一度挿しても増えない。** 2枚目は素の名前で中身が違うと分かり、
     // `-1` まで見に行って、そこで自分を見つける
-    let third = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let third = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(third.copied, 0, "挿し直しで増えた");
     assert_eq!(third.skipped, 2);
 }
@@ -438,7 +512,13 @@ fn a_twin_from_another_card_is_still_not_taken_but_nothing_is_duplicated() {
         let shot = card.join("DCIM/100MSDCF/DSC00001.ARW");
         fs::write(&shot, bytes).unwrap();
         filetime::set_file_mtime(&shot, stamp).unwrap();
-        import_from(&card, &config, |_, _, _| {}).unwrap();
+        import_from(
+            &card,
+            &config,
+            &pictkura_core::Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
     }
 
     let got: Vec<String> = contents(&dest).into_iter().collect();
@@ -477,7 +557,17 @@ fn a_destination_that_cannot_be_read_is_folded_not_duplicated() {
 
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    assert_eq!(import_from(&card, &config, |_, _, _| {}).unwrap().copied, 1);
+    assert_eq!(
+        import_from(
+            &card,
+            &config,
+            &pictkura_core::Edits::default(),
+            |_, _, _| {}
+        )
+        .unwrap()
+        .copied,
+        1
+    );
 
     // 入った1本を読めなくする
     let landed: Vec<PathBuf> = walkdir::WalkDir::new(&dest)
@@ -497,7 +587,13 @@ fn a_destination_that_cannot_be_read_is_folded_not_duplicated() {
         return;
     }
 
-    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let second = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(second.copied, 0, "読めないというだけで写真が増えた");
     let after = walkdir::WalkDir::new(&dest)
         .into_iter()
@@ -543,24 +639,44 @@ fn the_badge_does_not_claim_a_twin_is_imported_and_the_import_delivers_it() {
     // **行き先が空のうちは、ぶつかっている名前でも言い切れる**
     // ——在るものが1つも無いので、読むまでもない
     assert_eq!(
-        pictkura_core::is_already_imported(&b, &config, &contested),
+        pictkura_core::is_already_imported(
+            &b,
+            &config,
+            &contested,
+            &pictkura_core::Edits::default()
+        ),
         ImportState::NotImported,
         "行き先が空なのに言い切れていない"
     );
 
     // 利用者は1枚目だけを選んだ
-    let first =
-        pictkura_core::import_files(std::slice::from_ref(&a), &contested, &config, |_, _, _| {})
-            .unwrap();
+    let first = pictkura_core::import_files(
+        std::slice::from_ref(&a),
+        &contested,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(first.copied, 1);
 
     // **どちらも「分からない」。** 行き先に在る1本がどちらのものかは、中身を読まないと決まらない
     assert_eq!(
-        pictkura_core::is_already_imported(&a, &config, &contested),
+        pictkura_core::is_already_imported(
+            &a,
+            &config,
+            &contested,
+            &pictkura_core::Edits::default()
+        ),
         ImportState::Unsure
     );
     assert_eq!(
-        pictkura_core::is_already_imported(&b, &config, &contested),
+        pictkura_core::is_already_imported(
+            &b,
+            &config,
+            &contested,
+            &pictkura_core::Edits::default()
+        ),
         ImportState::Unsure,
         "まだ入っていない写真に「済」と出している（既定では画面からも消える）"
     );
@@ -568,15 +684,25 @@ fn the_badge_does_not_claim_a_twin_is_imported_and_the_import_delivers_it() {
     // **陽性対照**: 名前のぶつかりを渡さないと、バッジは「済」と**言い切る**。
     // **この引数が飾りでないことを、ここで押さえる**
     assert_eq!(
-        pictkura_core::is_already_imported(&b, &config, &HashSet::new()),
+        pictkura_core::is_already_imported(
+            &b,
+            &config,
+            &HashSet::new(),
+            &pictkura_core::Edits::default()
+        ),
         ImportState::Imported,
         "名前のぶつかりを渡さなくても正しく出た（この試験が何も守っていない）"
     );
 
     // 「分からない」ほうを選ぶと、実際に届く
-    let second =
-        pictkura_core::import_files(std::slice::from_ref(&b), &contested, &config, |_, _, _| {})
-            .unwrap();
+    let second = pictkura_core::import_files(
+        std::slice::from_ref(&b),
+        &contested,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(second.copied, 1, "済と出ていない写真が取り込まれなかった");
     let got: Vec<String> = contents(&dest).into_iter().collect();
     assert_eq!(got, vec!["aaaa".to_string(), "bbbb".to_string()]);
@@ -602,8 +728,14 @@ fn the_wizard_path_carries_both_of_a_same_named_pair() {
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
     let listed = vec![a, b];
-    let stats =
-        pictkura_core::import_files(&listed, &contested(&listed), &config, |_, _, _| {}).unwrap();
+    let stats = pictkura_core::import_files(
+        &listed,
+        &contested(&listed),
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     assert_eq!(stats.copied, 2, "選んだ2枚のうち1枚が消えた");
     assert!(contents(&dest).contains("aaaa") && contents(&dest).contains("bbbb"));
@@ -629,7 +761,13 @@ fn a_dangling_link_in_the_destination_is_not_removed() {
     // 行き先のフォルダを、日付の振り分けと同じ形で先に作る
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
-    import_from(&card, &config, |_, _, _| {}).unwrap();
+    import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     let day_dir = walkdir::WalkDir::new(&dest)
         .into_iter()
         .flatten()
@@ -645,7 +783,13 @@ fn a_dangling_link_in_the_destination_is_not_removed() {
     let second = card.join("DCIM/100MSDCF/DSC00099.ARW");
     fs::write(&second, b"bbbb").unwrap();
     filetime::set_file_mtime(&second, stamp).unwrap();
-    import_from(&card, &config, |_, _, _| {}).unwrap();
+    import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
 
     assert!(
         fs::symlink_metadata(&link).is_ok(),
@@ -668,10 +812,22 @@ fn inserting_the_same_card_twice_copies_nothing_new() {
     let mut config = Config::default();
     config.routing.destination = Some(dest.clone());
 
-    let first = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let first = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(first.copied, ON_THE_CARD.len());
 
-    let second = import_from(&card, &config, |_, _, _| {}).unwrap();
+    let second = import_from(
+        &card,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(second.copied, 0, "同じカードをもう一度コピーした");
     assert_eq!(second.skipped, ON_THE_CARD.len(), "「済」と見なせていない");
 }
@@ -711,7 +867,14 @@ fn twins_that_can_be_told_apart_are_not_left_unsure() {
         "見分けられる2枚を「ぶつかっている」と数えている: {contested:?}"
     );
 
-    let stats = pictkura_core::import_files(&listed, &contested, &config, |_, _, _| {}).unwrap();
+    let stats = pictkura_core::import_files(
+        &listed,
+        &contested,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(stats.copied, 2, "2枚とも入っていない");
     assert_eq!(
         contents(&dest),
@@ -723,7 +886,12 @@ fn twins_that_can_be_told_apart_are_not_left_unsure() {
     // ここが `Unsure` に戻ると、既定の操作が「カード全部を取り込み直す」になる
     for (path, which) in [(&a, "1枚目"), (&b, "2枚目")] {
         assert_eq!(
-            pictkura_core::is_already_imported(path, &config, &contested),
+            pictkura_core::is_already_imported(
+                path,
+                &config,
+                &contested,
+                &pictkura_core::Edits::default()
+            ),
             ImportState::Imported,
             "{which}が「分からない」に戻っている"
         );
@@ -775,23 +943,38 @@ fn a_sub_second_difference_does_not_swallow_a_photo() {
     );
 
     // 1枚目だけ入れる
-    let first =
-        pictkura_core::import_files(std::slice::from_ref(&a), &contested, &config, |_, _, _| {})
-            .unwrap();
+    let first = pictkura_core::import_files(
+        std::slice::from_ref(&a),
+        &contested,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(first.copied, 1);
 
     // **2枚目は「済」ではない。** ここが `Imported` に倒れると、
     // ウィザードが隠して選択から外し、押しても飛ばされる
     assert_ne!(
-        pictkura_core::is_already_imported(&b, &config, &contested),
+        pictkura_core::is_already_imported(
+            &b,
+            &config,
+            &contested,
+            &pictkura_core::Edits::default()
+        ),
         ImportState::Imported,
         "入っていない写真に「済」と出している"
     );
 
     // **そして実際に届く**
-    let second =
-        pictkura_core::import_files(std::slice::from_ref(&b), &contested, &config, |_, _, _| {})
-            .unwrap();
+    let second = pictkura_core::import_files(
+        std::slice::from_ref(&b),
+        &contested,
+        &config,
+        &pictkura_core::Edits::default(),
+        |_, _, _| {},
+    )
+    .unwrap();
     assert_eq!(second.copied, 1, "2枚目が飛ばされた");
     assert_eq!(
         contents(&dest),

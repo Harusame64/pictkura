@@ -2131,6 +2131,15 @@ impl Db {
             .optional()?)
     }
 
+    /// 控えをすべて（取り込みの照合が、呼ぶたびに読む。[`crate::import::Edits`]）
+    pub fn edits_all(&self) -> Result<Vec<EditRecord>, DbError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("SELECT {EDIT_COLUMNS} FROM edited_files"))?;
+        let rows = stmt.query_map([], Self::row_to_edit)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// 「これから書く」の印が残っている控え。書いている途中で落ちた（[`crate::rotate::recover`]）
     pub fn edits_pending(&self) -> Result<Vec<EditRecord>, DbError> {
         let mut stmt = self.conn.prepare(&format!(

@@ -50,7 +50,7 @@ pub use db::{Db, DbError, DirSnapshot, MediaRecord, ReadPool, RowVersion, TakenA
 pub use export::{export_files, ExportError, ExportMode, ExportOutcome, ExportStats};
 pub use import::{
     contested_flags, contested_names, contested_set, import_files, import_from,
-    is_already_imported, ImportError, ImportState, ImportStats,
+    is_already_imported, Edits, ImportError, ImportState, ImportStats,
 };
 pub use scanner::{PrunedScanOutcome, ScanOutcome, ScannedFile};
 pub use search::{parse_query, MediaFilter, MediaKind, SearchQuery};

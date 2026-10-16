@@ -286,6 +286,7 @@ pub(crate) fn resolve_dest_path(
         src_mtime_ms,
         &TakenPaths::default(),
         Confirm::ByLooks,
+        &Edits::default(),
     )
 }
 
@@ -318,15 +319,144 @@ pub(crate) fn resolve_dest_path(
 /// **どちらも2枚目は取り込まれない。**
 /// **誤って同じとみなす害より、取りこぼしを疑わせる害のほうが小さい**という判断で、
 /// ちょうど1時間ずれ（夏時間）も同じ扱いにしてある。
-fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64) -> bool {
-    let Ok(meta) = existing.metadata() else {
-        return false;
+///
+/// **pictkura が回した行き先**（[`Edits`]）は、回す前の更新日時でも比べる。回すと大きさは同じまま
+/// 更新日時だけ新しくなるので、今の日時だけで比べるとカードを挿し直すたびに「別の写真」と見て二重に入れる。
+/// 今の日時でも比べるのは、回した後の写し（書き出した控え）を取り込むときのため（PR R2 のゲート1）
+fn looks_same(existing: &Path, src_size: u64, src_mtime_ms: i64, edits: &Edits) -> bool {
+    !matches!(
+        dest_match(existing, src_size, src_mtime_ms, edits),
+        DestMatch::No
+    )
+}
+
+/// 行き先が取り込み元と、どの姿で合ったか（[`looks_same`]）
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DestMatch {
+    No,
+    /// 今の姿で合った
+    AsIs,
+    /// pictkura が回す前の姿で合った（中身を比べるときは向きの2バイトを戻す）
+    BeforeTurn(EditView),
+    /// どちらでも合った
+    Both(EditView),
+}
+
+fn dest_match(existing: &Path, src_size: u64, src_mtime_ms: i64, edits: &Edits) -> DestMatch {
+    let Some((len, dest_ms, edit)) = dest_stamp(existing, edits) else {
+        return DestMatch::No;
     };
-    let Ok(mtime) = meta.modified() else {
-        return false;
-    };
+    let as_is = looks_alike((len, dest_ms), (src_size, src_mtime_ms));
+    let before = edit.filter(|e| looks_alike((len, e.orig_mtime_ms), (src_size, src_mtime_ms)));
+    match (as_is, before) {
+        (false, None) => DestMatch::No,
+        (true, None) => DestMatch::AsIs,
+        (false, Some(e)) => DestMatch::BeforeTurn(e),
+        (true, Some(e)) => DestMatch::Both(e),
+    }
+}
+
+/// 行き先の大きさと更新時刻（秒へ切り捨て）、それに pictkura が回した控え（今の姿に合うものだけ）
+fn dest_stamp(existing: &Path, edits: &Edits) -> Option<(u64, i64, Option<EditView>)> {
+    let meta = existing.metadata().ok()?;
+    let mtime = meta.modified().ok()?;
     let dest_ms = filetime::FileTime::from_system_time(mtime).unix_seconds() * 1000;
-    looks_alike((meta.len(), dest_ms), (src_size, src_mtime_ms))
+    let len = meta.len();
+    Some((len, dest_ms, edits.matching(existing, len, dest_ms)))
+}
+
+/// pictkura が書き換えたファイルの、書き換える前の姿（[`crate::rotate`] の控え）。
+///
+/// 取り込みの照合はこれを**呼ぶたびに DB から読んだ写し**で受け取る（ウィザードを開いたときの
+/// 写しを使い回すと、その後に回したファイルを知らない）。書き出し（`export.rs`）は空で渡す。
+#[derive(Debug, Default, Clone)]
+pub struct Edits {
+    /// 名前だけを畳んだもの（[`fold_name`]）ごと。パスの綴りは取り込みの側（設定の行き先＋振り分け）と
+    /// DB の側（走査）でずれうるので、名前で引いてから同じファイルか確かめる（PR R2 のゲート2）
+    by_name: HashMap<String, Vec<EditView>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EditView {
+    path: PathBuf,
+    path_key: String,
+    size: u64,
+    /// pictkura が書いた後の2バイトと更新時刻。書いている途中（`pending`）なら、その値も今の姿として認める
+    /// ——書いた後・確定させる前に落ちて、後始末がまだのとき（PR R2 のゲート2）
+    now: Vec<([u8; 2], i64)>,
+    orig_mtime_ms: i64,
+    offset: u64,
+    orig_bytes: [u8; 2],
+}
+
+impl Edits {
+    /// 控えの行から作る
+    pub fn from_records(records: impl IntoIterator<Item = crate::db::EditRecord>) -> Self {
+        let mut by_name: HashMap<String, Vec<EditView>> = HashMap::new();
+        for e in records {
+            if e.size < 0 || e.offset < 0 {
+                continue;
+            }
+            let mut now = vec![(e.edited_bytes, e.edited_mtime_ms)];
+            now.extend(e.pending);
+            by_name.entry(e.fold_name).or_default().push(EditView {
+                path: e.path,
+                path_key: e.path_key,
+                size: e.size as u64,
+                now,
+                orig_mtime_ms: e.orig_mtime_ms,
+                offset: e.offset as u64,
+                orig_bytes: e.orig_bytes,
+            });
+        }
+        Self { by_name }
+    }
+
+    /// `existing` の控えが、今の姿（大きさ・pictkura が書いた後の更新時刻と2バイト）に合えば返す。
+    /// 合わなければ、回した後に外で書き換えられた——控えは当てにしない
+    fn matching(&self, existing: &Path, len: u64, dest_ms: i64) -> Option<EditView> {
+        if self.by_name.is_empty() {
+            return None;
+        }
+        let name = fold_name(&existing.file_name()?.to_string_lossy());
+        let candidates = self.by_name.get(&name)?;
+        candidates
+            .iter()
+            .find(|v| {
+                let at_now: Vec<[u8; 2]> = v
+                    .now
+                    .iter()
+                    .filter(|(_, ms)| looks_alike((v.size, *ms), (len, dest_ms)))
+                    .map(|(b, _)| *b)
+                    .collect();
+                !at_now.is_empty()
+                    && same_file(existing, v)
+                    // 向きの2バイトも pictkura が書いたままか（大きさと日時を保った書き換えを拾う）。
+                    // クラウドにしか実体が無ければ読まない（読むと取り寄せが走る）
+                    && (crate::cloud::is_cloud_only_path(existing)
+                        || read_two(existing, v.offset).is_some_and(|b| at_now.contains(&b)))
+            })
+            .cloned()
+    }
+}
+
+/// 控えの行と同じファイルか。綴りが畳んで同じなら同じ。違えば実体のパスで比べる
+/// （大文字小文字を区別しないボリューム、NFC と NFD の違い）
+fn same_file(existing: &Path, view: &EditView) -> bool {
+    crate::paths::fold(existing) == view.path_key
+        || matches!(
+            (std::fs::canonicalize(existing), std::fs::canonicalize(&view.path)),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
+fn read_two(path: &Path, offset: u64) -> Option<[u8; 2]> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    f.seek(SeekFrom::Start(offset)).ok()?;
+    let mut b = [0u8; 2];
+    f.read_exact(&mut b).ok()?;
+    Some(b)
 }
 
 /// 「大きさと更新時刻」の2つ組が、[`looks_same`] の目で同じに見えるか。
@@ -410,7 +540,7 @@ fn already_written_same_photo(
             dest_dir.join(numbered_name(file_name, i))
         };
         if written.contains(&candidate)
-            && looks_same(&candidate, src_size, src_mtime_ms)
+            && looks_same(&candidate, src_size, src_mtime_ms, &Edits::default())
             && same_bytes(src, &candidate)
         {
             return true;
@@ -494,7 +624,10 @@ enum Bytes {
 /// ほとんど呼ばれないが、**カードの中に自分の控えが丸ごとある**ときは**全ファイルが
 /// ぶつかる**ので、**カード1枚ぶんを読み直す**ことになる。
 /// **それでも、同じ写真が2枚に増えるよりはよい。**
-fn compare_bytes(a: &Path, b: &Path) -> Bytes {
+///
+/// `patch` は `b` の中の位置と2バイト。読んだ `b` のその位置を置き換えて比べる——pictkura が回した行き先は
+/// 向きの2バイトだけが取り込み元と違う（[`Edits`]）
+fn compare_bytes(a: &Path, b: &Path, patch: Option<(u64, [u8; 2])>) -> Bytes {
     // **免除されるのは行き先だけ。** 取り込み元（`a`）はここで見ない
     if crate::cloud::is_cloud_only_path(b) {
         return Bytes::Unknown;
@@ -521,6 +654,7 @@ fn compare_bytes(a: &Path, b: &Path) -> Bytes {
     let mut rb = std::io::BufReader::new(fb);
     let mut ba = [0u8; 64 * 1024];
     let mut bb = [0u8; 64 * 1024];
+    let mut at: u64 = 0;
     loop {
         // `ra` は取り込み元。**途中で転んだのも「元が読めない」である**
         let Ok(na) = ra.read(&mut ba) else {
@@ -544,6 +678,15 @@ fn compare_bytes(a: &Path, b: &Path) -> Bytes {
                 Err(_) => return Bytes::Unknown,
             }
         }
+        if let Some((offset, bytes)) = patch {
+            for (k, byte) in bytes.into_iter().enumerate() {
+                let p = offset + k as u64;
+                if (at..at + nb as u64).contains(&p) {
+                    bb[(p - at) as usize] = byte;
+                }
+            }
+        }
+        at += nb as u64;
         if na != nb || ba[..na] != bb[..nb] {
             return Bytes::Differ;
         }
@@ -553,7 +696,7 @@ fn compare_bytes(a: &Path, b: &Path) -> Bytes {
 /// [`compare_bytes`] を「同じと言い切れたか」だけに畳む。
 /// **読めなかったものは「別物」に倒す**——連番が1つ増えるだけで、写真は消えない。
 fn same_bytes(a: &Path, b: &Path) -> bool {
-    compare_bytes(a, b) == Bytes::Same
+    compare_bytes(a, b, None) == Bytes::Same
 }
 
 /// 更新時刻の許容差（FAT32 の2秒刻み）。
@@ -577,11 +720,13 @@ pub(crate) fn resolve_dest_path_avoiding(
     src_mtime_ms: i64,
     taken: &TakenPaths,
     confirm: Confirm<'_>,
+    edits: &Edits,
 ) -> DestResolution {
     // **在るものが「この写真」かどうか。** `looks_same` を通ったものだけ中身を読む
     // ——読む相手を、名前も大きさも時刻も合ったものだけに絞るため
     let is_this_photo = |existing: &Path| {
-        if !looks_same(existing, src_size, src_mtime_ms) {
+        let matched = dest_match(existing, src_size, src_mtime_ms, edits);
+        if matched == DestMatch::No {
             return false;
         }
         match confirm {
@@ -594,10 +739,23 @@ pub(crate) fn resolve_dest_path_avoiding(
             // （[`Bytes::SourceUnreadable`]）——倒すと**「取り込み済み」と報告する**
             // ことになる。倒さなければ連番へ回り、**コピーがそこで転んで
             // `failed` に数えられる**。**入っていないものを、入ったことにしない。**
-            Confirm::ByBytes(src) => !matches!(
-                compare_bytes(src, existing),
-                Bytes::Differ | Bytes::SourceUnreadable
-            ),
+            //
+            // pictkura が回した行き先は、回す前の姿で合ったなら向きの2バイトを回す前の値に置き換えて比べる。
+            // 今の姿で合ったならそのまま比べる。両方で合ったなら、どちらかが合えば同じ写真
+            Confirm::ByBytes(src) => {
+                let alike = |patch| {
+                    !matches!(
+                        compare_bytes(src, existing, patch),
+                        Bytes::Differ | Bytes::SourceUnreadable
+                    )
+                };
+                match matched {
+                    DestMatch::No => false,
+                    DestMatch::AsIs => alike(None),
+                    DestMatch::BeforeTurn(e) => alike(Some((e.offset, e.orig_bytes))),
+                    DestMatch::Both(e) => alike(None) || alike(Some((e.offset, e.orig_bytes))),
+                }
+            }
         }
     };
 
@@ -750,9 +908,13 @@ fn is_contested(contested: &HashSet<String>, file_name: &str) -> bool {
 ///
 /// `on_progress(処理済み件数, 総件数, いま処理したファイル)` は1件ごとに呼ばれる。
 /// 進捗表示に「今どれを入れているか」を出せるよう、パスも渡す。
+///
+/// `edits` は pictkura が回した行き先の控え（[`Edits`]）。**アプリは呼ぶたびに DB から読んで渡す**
+/// ——空で渡すと、回した写真の入ったカードを挿し直すたびに同じ写真がもう1枚入る
 pub fn import_from(
     source: &Path,
     config: &Config,
+    edits: &Edits,
     on_progress: impl Fn(usize, usize, &Path),
 ) -> Result<ImportStats, ImportError> {
     let dest_root = config
@@ -827,6 +989,7 @@ pub fn import_from(
             dest_root,
             config,
             &mut written,
+            edits,
         );
         match result {
             ImportOneResult::Copied(dest) => {
@@ -853,10 +1016,14 @@ pub fn import_from(
 /// ——ウィザードが「まだ入っていない」と出して選ばせた写真を、
 /// **取り込みが「もう入っている」と読んで飛ばす**。
 /// **同じ答えを2度出すには、同じ材料で数えるしかない。**
+///
+/// `edits` は pictkura が回した行き先の控え（[`Edits`]）。**アプリは呼ぶたびに DB から読んで渡す**
+/// ——空で渡すと、回した写真の入ったカードを挿し直すたびに同じ写真がもう1枚入る
 pub fn import_files(
     files: &[PathBuf],
     contested: &HashSet<String>,
     config: &Config,
+    edits: &Edits,
     on_progress: impl Fn(usize, usize, &Path),
 ) -> Result<ImportStats, ImportError> {
     let dest_root = config
@@ -901,6 +1068,7 @@ pub fn import_files(
                     dest_root,
                     config,
                     &mut written,
+                    edits,
                 ),
                 Err(_) => ImportOneResult::Failed,
             }
@@ -965,10 +1133,14 @@ pub enum ImportState {
 /// そちらで中身まで確かめる。
 ///
 /// **[`import_files`] へ渡すのと同じ集合を渡すこと。**
+///
+/// `edits` は pictkura が回した行き先の控え（[`Edits`]）。**アプリは呼ぶたびに DB から読んで渡す**
+/// ——空で渡すと、回した写真の入ったカードを挿し直すたびに同じ写真がもう1枚入る
 pub fn is_already_imported(
     path: &Path,
     config: &Config,
     contested: &HashSet<String>,
+    edits: &Edits,
 ) -> ImportState {
     let Some(dest_root) = config.routing.destination.as_ref() else {
         return ImportState::NotImported;
@@ -994,6 +1166,7 @@ pub fn is_already_imported(
         mtime_ms,
         &TakenPaths::default(),
         Confirm::ByLooks,
+        edits,
     ) {
         // **名前も大きさも時刻も合った。** それが「この写真」かどうかは、
         // 名前がぶつかっていなければ言い切ってよく、ぶつかっていれば言い切れない
@@ -1158,6 +1331,7 @@ fn import_one_with(
     dest_root: &Path,
     config: &Config,
     written: &mut TakenPaths,
+    edits: &Edits,
 ) -> ImportOneResult {
     let Incoming {
         path,
@@ -1199,13 +1373,14 @@ fn import_one_with(
     } else {
         Confirm::ByLooks
     };
-    let dest_path =
-        match resolve_dest_path_avoiding(&dest_dir, file_name, size, mtime_ms, written, confirm) {
-            DestResolution::CopyTo(p) => p,
-            DestResolution::AlreadyImported => return ImportOneResult::Skipped,
-            // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される
-            DestResolution::Exhausted => return ImportOneResult::Failed,
-        };
+    let dest_path = match resolve_dest_path_avoiding(
+        &dest_dir, file_name, size, mtime_ms, written, confirm, edits,
+    ) {
+        DestResolution::CopyTo(p) => p,
+        DestResolution::AlreadyImported => return ImportOneResult::Skipped,
+        // コピーしていないのにSkippedと報告すると「取り込み済み」と誤認される
+        DestResolution::Exhausted => return ImportOneResult::Failed,
+    };
 
     match std::fs::copy(path, &dest_path) {
         Ok(copied_bytes) => {
@@ -1363,7 +1538,7 @@ mod tests {
         fs::write(src.join("b.jpg"), b"bbbb").unwrap();
 
         let config = test_config(&dest);
-        let stats = import_from(&src, &config, |_, _, _| {}).unwrap();
+        let stats = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
         assert_eq!(stats.copied, 2);
         assert_eq!(stats.skipped, 0);
         assert_eq!(stats.failed, 0);
@@ -1388,7 +1563,7 @@ mod tests {
         want.sort();
         assert_eq!(got, want);
         // 2回目は全部スキップ: コピーしていないものは入らない
-        let again = import_from(&src, &config, |_, _, _| {}).unwrap();
+        let again = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
         assert_eq!((again.skipped, again.copied_paths.len()), (2, 0));
     }
 
@@ -1407,7 +1582,7 @@ mod tests {
         fs::write(inner.join("derived.jpg"), b"xxx").unwrap();
 
         let config = test_config(&dest);
-        let err = import_from(&src, &config, |_, _, _| {}).unwrap_err();
+        let err = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap_err();
         assert!(
             matches!(err, ImportError::SourceIsManagedPackage(_)),
             "err={err}"
@@ -1417,7 +1592,7 @@ mod tests {
 
         // **中のフォルダを名指しされても断る**。ネイティブのダイアログは
         // パッケージの中へ入って選べるので、葉の名前だけでは守れない
-        let err = import_from(&inner, &config, |_, _, _| {}).unwrap_err();
+        let err = import_from(&inner, &config, &Edits::default(), |_, _, _| {}).unwrap_err();
         assert!(
             matches!(err, ImportError::SourceIsManagedPackage(_)),
             "err={err}"
@@ -1471,7 +1646,7 @@ mod tests {
         fs::write(src.join("DCIM/a.jpg"), b"aaa").unwrap();
 
         let config = test_config(&dest);
-        let stats = import_from(&src, &config, |_, _, _| {}).unwrap();
+        let stats = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
         assert_eq!(stats.copied, 1, "DCIMの1枚だけ");
 
         let copied: Vec<String> = walkdir::WalkDir::new(&dest)
@@ -1492,11 +1667,11 @@ mod tests {
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
 
         let config = test_config(&dest);
-        let first = import_from(&src, &config, |_, _, _| {}).unwrap();
+        let first = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
         assert_eq!(first.copied, 1);
 
         // 再取り込み → スキップ
-        let second = import_from(&src, &config, |_, _, _| {}).unwrap();
+        let second = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
         assert_eq!(second.copied, 0);
         assert_eq!(second.skipped, 1);
     }
@@ -1515,7 +1690,12 @@ mod tests {
         fs::write(src.join("IMG_0001.jpg.xmp"), b"<x>darktable</x>").unwrap();
 
         let config = test_config(&dest);
-        assert_eq!(import_from(&src, &config, |_, _, _| {}).unwrap().copied, 1);
+        assert_eq!(
+            import_from(&src, &config, &Edits::default(), |_, _, _| {})
+                .unwrap()
+                .copied,
+            1
+        );
 
         let names: Vec<String> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -1546,8 +1726,8 @@ mod tests {
         fs::write(src2.join("DSC_0001.xmp"), b"<x>2</x>").unwrap();
 
         let config = test_config(&dest);
-        import_from(&src1, &config, |_, _, _| {}).unwrap();
-        import_from(&src2, &config, |_, _, _| {}).unwrap();
+        import_from(&src1, &config, &Edits::default(), |_, _, _| {}).unwrap();
+        import_from(&src2, &config, &Edits::default(), |_, _, _| {}).unwrap();
 
         let mut names: Vec<String> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -1580,7 +1760,7 @@ mod tests {
 
         let mut config = test_config(&dest);
         config.import.sidecar_extensions.clear();
-        import_from(&src, &config, |_, _, _| {}).unwrap();
+        import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
 
         let names: Vec<String> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -1661,7 +1841,7 @@ mod tests {
         .unwrap();
 
         let config = test_config(&dest);
-        import_from(&src, &config, |_, _, _| {}).unwrap();
+        import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
 
         let dirs: std::collections::HashSet<String> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -1722,6 +1902,7 @@ mod tests {
                     opaque_mtime_ms,
                     &TakenPaths::default(),
                     Confirm::ByBytes(&readable_src),
+                    &Edits::default(),
                 ),
                 DestResolution::AlreadyImported
             ),
@@ -1739,6 +1920,7 @@ mod tests {
             mtime_ms,
             &TakenPaths::default(),
             Confirm::ByBytes(&different),
+            &Edits::default(),
         ) {
             DestResolution::CopyTo(p) => {
                 assert_eq!(
@@ -1978,6 +2160,7 @@ mod tests {
             mtime_ms,
             &TakenPaths::default(),
             Confirm::ByBytes(&src),
+            &Edits::default(),
         ) {
             DestResolution::CopyTo(p) => assert_eq!(
                 p.file_name().and_then(|n| n.to_str()),
@@ -1998,6 +2181,7 @@ mod tests {
                     mtime_ms,
                     &TakenPaths::default(),
                     Confirm::ByBytes(&src),
+                    &Edits::default(),
                 ),
                 DestResolution::AlreadyImported
             ),
@@ -2038,6 +2222,7 @@ mod tests {
             mtime_ms,
             &TakenPaths::default(),
             Confirm::ByBytes(&gone),
+            &Edits::default(),
         ) {
             DestResolution::CopyTo(p) => assert_eq!(
                 p.file_name().and_then(|n| n.to_str()),
@@ -2069,13 +2254,13 @@ mod tests {
 
         let config = test_config(&dest);
         assert_eq!(
-            is_already_imported(&raw, &config, &no_repeated_names()),
+            is_already_imported(&raw, &config, &no_repeated_names(), &Edits::default()),
             ImportState::NotImported
         );
-        import_from(&src, &config, |_, _, _| {}).unwrap();
+        import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
 
         assert_eq!(
-            is_already_imported(&raw, &config, &no_repeated_names()),
+            is_already_imported(&raw, &config, &no_repeated_names(), &Edits::default()),
             ImportState::Imported,
             "組で決めた日付のフォルダを見ていない（もう一度コピーしてしまう）"
         );
@@ -2084,6 +2269,7 @@ mod tests {
             std::slice::from_ref(&raw),
             &no_repeated_names(),
             &config,
+            &Edits::default(),
             |_, _, _| {},
         )
         .unwrap();
@@ -2108,7 +2294,7 @@ mod tests {
         filetime::set_file_mtime(&undated, filetime::FileTime::from_unix_time(0, 0)).unwrap();
 
         let config = test_config(&dest);
-        import_from(&src, &config, |_, _, _| {}).unwrap();
+        import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
 
         let dirs: std::collections::HashSet<String> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -2132,8 +2318,18 @@ mod tests {
         fs::write(src2.join("DSC_0001.jpg"), b"second-longer").unwrap();
 
         let config = test_config(&dest);
-        assert_eq!(import_from(&src1, &config, |_, _, _| {}).unwrap().copied, 1);
-        assert_eq!(import_from(&src2, &config, |_, _, _| {}).unwrap().copied, 1);
+        assert_eq!(
+            import_from(&src1, &config, &Edits::default(), |_, _, _| {})
+                .unwrap()
+                .copied,
+            1
+        );
+        assert_eq!(
+            import_from(&src2, &config, &Edits::default(), |_, _, _| {})
+                .unwrap()
+                .copied,
+            1
+        );
 
         let names: Vec<_> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -2157,7 +2353,7 @@ mod tests {
         filetime::set_file_mtime(&f, filetime::FileTime::from_unix_time(0, 0)).unwrap();
 
         let config = test_config(&dest);
-        let stats = import_from(&src, &config, |_, _, _| {}).unwrap();
+        let stats = import_from(&src, &config, &Edits::default(), |_, _, _| {}).unwrap();
         assert_eq!(stats.copied, 1);
         let year_dir = fs::read_dir(&dest).unwrap().next().unwrap().unwrap();
         let name = year_dir.file_name().to_string_lossy().into_owned();
@@ -2177,7 +2373,12 @@ mod tests {
         filetime::set_file_mtime(&f, past).unwrap();
 
         let config = test_config(&dest);
-        assert_eq!(import_from(&src, &config, |_, _, _| {}).unwrap().copied, 1);
+        assert_eq!(
+            import_from(&src, &config, &Edits::default(), |_, _, _| {})
+                .unwrap()
+                .copied,
+            1
+        );
         let copied = walkdir::WalkDir::new(&dest)
             .into_iter()
             .flatten()
@@ -2192,7 +2393,7 @@ mod tests {
     fn no_destination_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let config = Config::default();
-        let result = import_from(dir.path(), &config, |_, _, _| {});
+        let result = import_from(dir.path(), &config, &Edits::default(), |_, _, _| {});
         assert!(matches!(result, Err(ImportError::NoDestination)));
     }
 
@@ -2207,7 +2408,7 @@ mod tests {
         }
         let config = test_config(&dest);
         let calls = std::sync::Mutex::new(Vec::new());
-        import_from(&src, &config, |done, total, path| {
+        import_from(&src, &config, &Edits::default(), |done, total, path| {
             calls
                 .lock()
                 .unwrap()
@@ -2242,7 +2443,14 @@ mod tests {
         let config = test_config(&dest);
         // チェックを外した c.jpg は渡さない → コピーされない
         let picked = vec![src.join("a.jpg"), src.join("b.jpg")];
-        let stats = import_files(&picked, &no_repeated_names(), &config, |_, _, _| {}).unwrap();
+        let stats = import_files(
+            &picked,
+            &no_repeated_names(),
+            &config,
+            &Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(stats.copied, 2);
         let names: Vec<_> = walkdir::WalkDir::new(&dest)
             .into_iter()
@@ -2264,7 +2472,14 @@ mod tests {
 
         let config = test_config(&dest);
         let picked = vec![src.join("消えた.jpg"), src.join("a.jpg")];
-        let stats = import_files(&picked, &no_repeated_names(), &config, |_, _, _| {}).unwrap();
+        let stats = import_files(
+            &picked,
+            &no_repeated_names(),
+            &config,
+            &Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(stats.failed, 1);
         assert_eq!(stats.copied, 1, "1件失敗しても後続は取り込む");
     }
@@ -2280,7 +2495,7 @@ mod tests {
 
         let config = test_config(&dest);
         assert_eq!(
-            is_already_imported(&a, &config, &no_repeated_names()),
+            is_already_imported(&a, &config, &no_repeated_names(), &Edits::default()),
             ImportState::NotImported,
             "取り込む前は未取り込み"
         );
@@ -2288,11 +2503,12 @@ mod tests {
             std::slice::from_ref(&a),
             &no_repeated_names(),
             &config,
+            &Edits::default(),
             |_, _, _| {},
         )
         .unwrap();
         assert_eq!(
-            is_already_imported(&a, &config, &no_repeated_names()),
+            is_already_imported(&a, &config, &no_repeated_names(), &Edits::default()),
             ImportState::Imported,
             "取り込んだ後は済"
         );
@@ -2301,6 +2517,7 @@ mod tests {
             std::slice::from_ref(&a),
             &no_repeated_names(),
             &config,
+            &Edits::default(),
             |_, _, _| {},
         )
         .unwrap();
@@ -2314,7 +2531,12 @@ mod tests {
         let f = dir.path().join("a.jpg");
         fs::write(&f, b"x").unwrap();
         assert_eq!(
-            is_already_imported(&f, &Config::default(), &no_repeated_names()),
+            is_already_imported(
+                &f,
+                &Config::default(),
+                &no_repeated_names(),
+                &Edits::default()
+            ),
             ImportState::NotImported
         );
     }

@@ -5302,10 +5302,12 @@ async fn import_from_folder(
         let dest = config.routing.destination.clone();
 
         let progress_app = app.clone();
-        let stats = pictkura_core::import_from(&source, &config, move |done, total, path| {
-            emit_import_progress(&progress_app, done, total, path);
-        })
-        .map_err(errs::from_err)?;
+        let edits = rotation_edits(&state);
+        let stats =
+            pictkura_core::import_from(&source, &config, &edits, move |done, total, path| {
+                emit_import_progress(&progress_app, done, total, path);
+            })
+            .map_err(errs::from_err)?;
 
         let google = finish_import(&app, &state, source, dest, &stats.copied_paths)?;
 
@@ -5398,6 +5400,25 @@ async fn list_source_tree(
     .map_err(|e| e.to_string())?
 }
 
+/// pictkura が回したファイルの控え（ADR の R）。取り込みの照合へ渡す。**呼ぶたびに読む**
+/// ——ウィザードを開いた後に回したファイルも照合に乗るように。
+///
+/// **名前で絞らずに全部読む**: 行き先は連番（`IMG_0001-1.JPG`）にもなるので、取り込み元の名前では引けない。
+/// 控えに載るのは利用者が回した写真だけなので、ウィザードの100件ごとの問い合わせで読んでも軽い。
+///
+/// 読めなければ空で返す: 取り込みは止めない（回した写真がもう1枚入りうるだけで、写真は失わない）
+fn rotation_edits(state: &AppState) -> pictkura_core::Edits {
+    match state.read_pool.with(|db| db.edits_all()) {
+        Ok(rows) => pictkura_core::Edits::from_records(rows),
+        Err(e) => {
+            applog::note(&format!(
+                "could not read the rotation ledger for import: {e}"
+            ));
+            pictkura_core::Edits::default()
+        }
+    }
+}
+
 /// 渡したファイルが既にコピー先へ取り込み済みかを1件ずつ返す（第5部 段階E）。
 ///
 /// 一覧表示とは別コマンドにしてある: EXIF読み＋コピー先の存在確認は
@@ -5427,15 +5448,17 @@ async fn probe_imported(
         let state = app.state::<AppState>();
         let config = lock_ok(&state.config).clone();
         let contested = pictkura_core::contested_set(contested.iter().map(String::as_str));
+        let edits = rotation_edits(&state);
         paths
             .iter()
-            .map(
-                |p| match pictkura_core::is_already_imported(Path::new(p), &config, &contested) {
+            .map(|p| {
+                match pictkura_core::is_already_imported(Path::new(p), &config, &contested, &edits)
+                {
                     pictkura_core::ImportState::Imported => "imported",
                     pictkura_core::ImportState::NotImported => "new",
                     pictkura_core::ImportState::Unsure => "unsure",
-                },
-            )
+                }
+            })
             .collect()
     })
     .await
@@ -5516,11 +5539,17 @@ async fn import_paths(
             pictkura_core::contested_names(entries.iter().map(|(n, s, m)| (n.as_str(), *s, *m)));
 
         let progress_app = app.clone();
-        let stats =
-            pictkura_core::import_files(&files, &contested, &config, move |done, total, path| {
+        let edits = rotation_edits(&state);
+        let stats = pictkura_core::import_files(
+            &files,
+            &contested,
+            &config,
+            &edits,
+            move |done, total, path| {
                 emit_import_progress(&progress_app, done, total, path);
-            })
-            .map_err(errs::from_err)?;
+            },
+        )
+        .map_err(errs::from_err)?;
 
         let google = finish_import(
             &app,
