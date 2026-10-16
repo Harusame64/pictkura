@@ -57,6 +57,7 @@ export const en: Dict = {
         ["U", "Undo the judgement on this photo (clear ⚑ and ✕)"],
         ["Ctrl+C / ⌘C", "Copy the picture on screen to the clipboard"],
         ["Ctrl+S / ⌘S", "Save the picture on screen to a file"],
+        ["Ctrl+P / ⌘P", "Print the photo on screen"],
         ["F", "Toggle favorite (★)"],
         ["I", "Capture details (camera, lens, aperture, ISO, GPS)"],
         ["Space", "Slideshow. On a video, play / pause"],

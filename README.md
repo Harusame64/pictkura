@@ -363,6 +363,7 @@ answer to their English names whatever language the app is in.
 | `F` | toggle favorite (★) |
 | `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
 | `Ctrl` + `C` / `Ctrl` + `S` | copy the picture on screen to the clipboard / save it to a file (`⌘` on macOS) |
+| `Ctrl` + `P` | print the photo on screen (`⌘` on macOS) |
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |
 | `F11` | full screen |
 | `Esc` | close |

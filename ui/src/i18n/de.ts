@@ -91,6 +91,7 @@ export const de: Dict = {
         ["U", "Markierung dieses Fotos aufheben (⚑ und ✕ entfernen)"],
         ["Strg+C / ⌘C", "Das angezeigte Bild in die Zwischenablage kopieren"],
         ["Strg+S / ⌘S", "Das angezeigte Bild als Datei speichern"],
+        ["Strg+P / ⌘P", "Das angezeigte Foto drucken"],
         ["F", "Favorit (★) an- und abschalten"],
         ["I", "Aufnahmedaten (Kamera, Objektiv, Blende, ISO, GPS)"],
         ["Leertaste", "Diashow. Bei einem Video: abspielen / anhalten"],

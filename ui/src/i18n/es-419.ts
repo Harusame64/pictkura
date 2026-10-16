@@ -183,6 +183,7 @@ export const es419: Dict = {
         ["U", "Quitar la marca de esta foto (⚑ y ✕)"],
         ["Ctrl+C / ⌘C", "Copiar al portapapeles la imagen que hay en pantalla"],
         ["Ctrl+S / ⌘S", "Guardar en un archivo la imagen que hay en pantalla"],
+        ["Ctrl+P / ⌘P", "Imprimir la foto que hay en pantalla"],
         ["F", "Poner o quitar favorita (★)"],
         ["I", "Datos de la toma (cámara, objetivo, diafragma, ISO, GPS)"],
         ["Espacio", "Pase de diapositivas. En un video, reproducir / pausar"],
