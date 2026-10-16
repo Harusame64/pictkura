@@ -14,7 +14,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use chrono::TimeZone;
 use exif::{In, Tag};
 
-use crate::db::{Db, DbError};
+use crate::db::{Db, DbError, TakenAt, TakenSource};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ThumbError {
@@ -474,19 +474,25 @@ fn record_metadata_without_preview(
     // **ただし `mtime` と同じ値は「まだ何も分かっていない」印**なので、
     // そこは名前に譲る——[`Db::rows_with_fallback_taken_at`] が
     // `taken_at_ms = mtime_ms` の行を投げ直しているのは、名前で直させるためである。
-    let taken_at_ms = exif
-        .taken_at_ms
-        .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
-        .or(record.taken_at_ms.filter(|at| *at != record.mtime_ms))
-        .or_else(|| crate::namedate::guess_taken_at(src))
-        .or(Some(record.mtime_ms));
+    //
+    // 「前に読めた値」と「mtime」は出どころで見分ける（F2、[`TakenSource`]）
+    let taken = TakenAt::tag(exif.taken_at_ms, TakenSource::Exif)
+        .or_else(|| {
+            TakenAt::tag(
+                crate::shell::metadata(src).and_then(|m| m.taken_at_ms),
+                TakenSource::Os,
+            )
+        })
+        .or_else(|| known_taken(record))
+        .or_else(|| TakenAt::tag(crate::namedate::guess_taken_at(src), TakenSource::Name))
+        .or_else(|| Some(mtime_taken(record)));
     // 申告が無いなら**寸法だけ**を諦める。読めている日付とカメラはここで書く
     // 連写の材料（dev #32）。撮影日時と同じ1回で書く（[`shot_of`]）
     let shot = shot_of(exif);
     // 行がまだ同じ版のときだけ書く（F1、[`Db::guarded`]）。変わっていたら偽を返し、呼ぶ側は積み直す
     let Some(original) = exif.original else {
         let wrote = db.guarded(id, record.version(), |db| {
-            db.update_metadata_keeping_dimensions(id, taken_at_ms, exif.camera.as_deref(), shot)?;
+            db.update_metadata_keeping_dimensions(id, taken, exif.camera.as_deref(), shot)?;
             Ok::<_, ThumbError>(())
         })?;
         return Ok(wrote.is_some());
@@ -505,10 +511,33 @@ fn record_metadata_without_preview(
         exif.orientation,
     );
     let wrote = db.guarded(id, record.version(), |db| {
-        db.update_metadata_shot(id, dims, taken_at_ms, exif.camera.as_deref(), shot)?;
+        db.update_metadata_shot(id, dims, taken, exif.camera.as_deref(), shot)?;
         Ok::<_, ThumbError>(())
     })?;
     Ok(wrote.is_some())
+}
+
+/// 行が持っている、**本当に分かっている**撮影日時（[`crate::MediaRecord::taken_at_is_real`]）。
+/// 今回何も読めなかったときに、前に読めた値を残すために使う
+fn known_taken(record: &crate::MediaRecord) -> Option<TakenAt> {
+    if !record.taken_at_is_real() {
+        return None;
+    }
+    TakenAt::tag(record.taken_at_ms, record.taken_source?)
+}
+
+/// 何も分からなかったときの最後の値。**前に更新日時で埋めた値があれば、それを保つ**——今の更新日時を
+/// 拾い直すと、pictkura が回した（更新日時を新しくした）写真が今日の束へ跳ぶ（F2、ゲート2 P1-1）。
+/// 走査が中身の変化を見つけた行は日時が空にされている（`CHANGED_ROW_RESET`）ので、今の更新日時を拾う
+fn mtime_taken(record: &crate::MediaRecord) -> TakenAt {
+    let ms = match (record.taken_source, record.taken_at_ms) {
+        (Some(TakenSource::Mtime), Some(ms)) => ms,
+        _ => record.mtime_ms,
+    };
+    TakenAt {
+        ms,
+        source: TakenSource::Mtime,
+    }
 }
 
 /// 撮影日時に添える連写の材料（dev #32）。**秒未満を言えるのは、撮影日時が EXIF から来たとき
@@ -1372,13 +1401,15 @@ fn process_video(
     // - **実体がクラウドにしか無い動画** … 開けないのでコンテナを読めていない。
     //   Shellは同期クライアントが置いたぶんだけを返すので、実体を落とさずに
     //   寸法と撮影日時が埋まる（長さは返らない。詳しくは `shell::metadata`）
-    if info.width == 0 || info.taken_at_ms.is_none() || info.duration_ms.is_none() {
+    // コンテナの日時はファイルの中のメタデータ（[`TakenSource::Exif`]）、Shell の日時は OS（F2）
+    let mut taken = TakenAt::tag(info.taken_at_ms, TakenSource::Exif);
+    if info.width == 0 || taken.is_none() || info.duration_ms.is_none() {
         if let Some(meta) = crate::shell::metadata(src) {
             if info.width == 0 {
                 info.width = meta.width;
                 info.height = meta.height;
             }
-            info.taken_at_ms = info.taken_at_ms.or(meta.taken_at_ms);
+            taken = taken.or(TakenAt::tag(meta.taken_at_ms, TakenSource::Os));
             info.duration_ms = info.duration_ms.or(meta.duration_ms);
         }
     }
@@ -1390,9 +1421,9 @@ fn process_video(
         db.update_metadata_shot(
             id,
             crate::db::Dimensions::original(i64::from(info.width), i64::from(info.height)),
-            info.taken_at_ms
-                .or_else(|| crate::namedate::guess_taken_at(src))
-                .or(Some(record.mtime_ms)),
+            taken
+                .or_else(|| TakenAt::tag(crate::namedate::guess_taken_at(src), TakenSource::Name))
+                .or_else(|| Some(mtime_taken(record))),
             None,
             crate::db::Shot {
                 subsec: Some(false),
@@ -1512,22 +1543,19 @@ pub fn process_one(
         // これが無いと、一度実体が落ちてきた後に同期クライアントへ戻された
         // ファイル（Storage Sense等）が、寸法も日時も入っているせいで
         // 永久にこの門を素通りする（段階H-2）
-        if record.width.is_none()
-            || record.taken_at_ms.is_none()
-            || record.taken_at_ms == Some(record.mtime_ms)
-        {
+        if record.width.is_none() || !record.taken_at_is_real() {
             let mut meta = crate::shell::metadata(src).unwrap_or_default();
             // OSも知らないならファイル名に聞く（段階H-2）。開かずに済む点は同じ
-            meta.taken_at_ms = meta
-                .taken_at_ms
-                .or_else(|| crate::namedate::guess_taken_at(src));
+            let taken = TakenAt::tag(meta.taken_at_ms, TakenSource::Os)
+                .or_else(|| TakenAt::tag(crate::namedate::guess_taken_at(src), TakenSource::Name));
+            meta.taken_at_ms = taken.map(|t| t.ms);
             if !meta.is_empty() {
                 let wrote = db.guarded(id, record.version(), |db| {
                     db.update_shell_metadata(
                         id,
                         i64::from(meta.width),
                         i64::from(meta.height),
-                        meta.taken_at_ms,
+                        taken,
                     )?;
                     if meta.duration_ms.is_some() {
                         db.update_duration(id, meta.duration_ms)?;
@@ -1636,7 +1664,7 @@ pub fn process_one(
     );
     // 連写の材料（dev #32）も**撮影日時と同じ1回で**書く（[`shot_of`]）。別の書き込みにすると、
     // 読めなかった回に時刻だけが秒止まりへ書き換わり、「秒未満あり」が残った（#158 のゲート2）
-    let taken_at_ms = {
+    let taken = {
         // EXIF → OSのプロパティ → 名前 → mtime（段階H-2）。`or_else` なので
         // EXIFで決まればOSには聞きに行かない。
         //
@@ -1644,17 +1672,23 @@ pub fn process_one(
         // Google フォト）は `read_exif` が何も返さないが、Shellのハンドラは読める。
         // ここを飛ばすと、背景の門がOSから正しい日付を入れた後で、可視要求の
         // この経路が mtime で**上書きし直してしまう**（タイルが同期日へ飛ぶ）
-        exif_data
-            .taken_at_ms
-            .or_else(|| crate::shell::metadata(src).and_then(|m| m.taken_at_ms))
-            .or_else(|| crate::namedate::guess_taken_at(src))
-            .or(Some(record.mtime_ms))
+        //
+        // 出どころも一緒に書く（F2）。mtime まで落ちたら、前に mtime で埋めた値を保つ（[`mtime_taken`]）
+        TakenAt::tag(exif_data.taken_at_ms, TakenSource::Exif)
+            .or_else(|| {
+                TakenAt::tag(
+                    crate::shell::metadata(src).and_then(|m| m.taken_at_ms),
+                    TakenSource::Os,
+                )
+            })
+            .or_else(|| TakenAt::tag(crate::namedate::guess_taken_at(src), TakenSource::Name))
+            .or_else(|| Some(mtime_taken(&record)))
     };
     let wrote = db.guarded(id, record.version(), |db| {
         db.update_metadata_shot(
             id,
             dims,
-            taken_at_ms,
+            taken,
             exif_data.camera.as_deref(),
             shot_of(&exif_data),
         )?;
@@ -2503,8 +2537,9 @@ mod tests {
         let rec = db.get_by_id(id).unwrap().unwrap();
         assert_eq!(rec.width, Some(800));
         assert_eq!(rec.height, Some(600));
-        // EXIFなし → mtimeがtaken_atへフォールバック
+        // EXIFなし → mtimeがtaken_atへフォールバック。出どころは mtime（F2）
         assert_eq!(rec.taken_at_ms, Some(42));
+        assert_eq!(rec.taken_source, Some(TakenSource::Mtime));
         assert_eq!(rec.thumb_state, 2);
         let thumb_path = rec.thumb_path.unwrap();
         assert!(thumb_path.exists());
@@ -2516,6 +2551,64 @@ mod tests {
         );
         let (tw, th) = image::image_dimensions(&thumb_path).unwrap();
         assert!(tw <= 320 && th <= 320);
+    }
+
+    /// F2: 更新日時で埋めた行は、作り直しで**今の**更新日時を拾い直さない。pictkura が回した写真は
+    /// 更新日時が新しくなるが、走査の初期化は通らない（行を pictkura が書く）ので、作り直しの後も
+    /// 前の日付の束に残る（ゲート2 P1-1）。走査が初期化した行は今の更新日時を拾う
+    #[test]
+    fn a_date_filled_from_mtime_does_not_jump_when_the_mtime_moves() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("photo.jpg");
+        make_test_jpeg(&src, 800, 600);
+        let db_path = dir.path().join("test.db");
+        let mut db = Db::open(&db_path).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: src.clone(),
+            size: 1,
+            mtime_ms: 42,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let thumbs = dir.path().join("thumbs");
+        process_one(&mut db, &thumbs, 320, id, true).unwrap();
+        let before = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(
+            (before.taken_at_ms, before.taken_source),
+            (Some(42), Some(TakenSource::Mtime))
+        );
+
+        // 回転の書き方: 更新日時と版を進め、日時は保ち、サムネイルを作り直しへ（R がする UPDATE の形）
+        let later = 1_700_000_000_000_i64;
+        rusqlite::Connection::open(&db_path)
+            .unwrap()
+            .execute(
+                "UPDATE media SET mtime_ms = ?1, rev = rev + 1, thumb_state = 0 WHERE id = ?2",
+                rusqlite::params![later, id],
+            )
+            .unwrap();
+        process_one(&mut db, &thumbs, 320, id, true).unwrap();
+        let after = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(after.mtime_ms, later);
+        assert_eq!(
+            (after.taken_at_ms, after.taken_source, after.day_key),
+            (Some(42), Some(TakenSource::Mtime), before.day_key),
+            "今日の束へ跳ばない"
+        );
+        assert!(!after.taken_at_is_real(), "不明のまま");
+
+        // 走査が中身の変化を見つけた行は、今の更新日時を拾う
+        db.upsert_files(&[ScannedFile {
+            path: src.clone(),
+            size: 2,
+            mtime_ms: later + 5000,
+        }])
+        .unwrap();
+        process_one(&mut db, &thumbs, 320, id, true).unwrap();
+        assert_eq!(
+            db.get_by_id(id).unwrap().unwrap().taken_at_ms,
+            Some(later + 5000)
+        );
     }
 
     #[test]
@@ -2876,7 +2969,8 @@ mod tests {
         .unwrap();
         let id = db.list_all().unwrap()[0].id;
         // OSから寸法だけ借りている状態（申告が無いので、これが唯一の寸法）
-        db.update_shell_metadata(id, 4224, 2376, None).unwrap();
+        db.update_shell_metadata(id, 4224, 2376, None::<i64>)
+            .unwrap();
 
         assert_eq!(
             process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap(),
@@ -2992,7 +3086,7 @@ mod tests {
 
     #[test]
     fn a_row_still_sitting_on_its_mtime_can_still_be_fixed_by_its_name() {
-        // 逆側の歯止め。`taken_at_ms = mtime_ms` は「まだ何も分かっていない」印で、
+        // 逆側の歯止め。出どころ `mtime` は「まだ何も分かっていない」印で（F2）、
         // `rows_with_fallback_taken_at` が名前で直させるために投げ直している行。
         // ここを「前に読めた値」として守ると、その道を塞ぐ
         let dir = tempfile::tempdir().unwrap();
@@ -3007,7 +3101,8 @@ mod tests {
         .unwrap();
         let id = db.list_all().unwrap()[0].id;
         // 前の周が mtime まで落ちた後の状態（＝まだ何も分かっていない行）
-        db.update_shell_metadata(id, 0, 0, Some(42)).unwrap();
+        db.update_shell_metadata(id, 0, 0, TakenAt::tag(Some(42), TakenSource::Mtime))
+            .unwrap();
 
         assert_eq!(
             process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).unwrap(),
@@ -3020,7 +3115,7 @@ mod tests {
             crate::namedate::guess_taken_at(&src),
             "mtimeのままの行は、名前で直る"
         );
-        assert_ne!(rec.taken_at_ms, Some(rec.mtime_ms));
+        assert_eq!(rec.taken_source, Some(TakenSource::Name));
     }
 
     #[test]
@@ -3043,7 +3138,8 @@ mod tests {
         .unwrap();
         let id = db.list_all().unwrap()[0].id;
         // OSのプロパティからは寸法だけ返っている（カメラは未確認のまま）
-        db.update_shell_metadata(id, 4032, 3024, None).unwrap();
+        db.update_shell_metadata(id, 4032, 3024, None::<i64>)
+            .unwrap();
 
         assert!(
             process_one(&mut db, &dir.path().join("thumbs"), 320, id, true).is_err(),

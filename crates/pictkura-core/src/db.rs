@@ -25,7 +25,7 @@ use crate::search::{index_text, SearchQuery};
 /// ——別々に書くと、列を足したときに片方だけ直して添字がずれる。
 const MEDIA_COLUMNS: &str = "id, path, size, mtime_ms, width, height, taken_at_ms,
      day_key, thumb_path, thumb_state, favorite, picked, duration_ms,
-     preview_width, preview_height, camera_id, taken_subsec, body_serial, rev";
+     preview_width, preview_height, camera_id, taken_subsec, body_serial, rev, taken_source";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -90,6 +90,93 @@ pub struct MediaRecord {
     /// （`dev/adr.file-info-and-context-menu.md` の F1）。**同じ大きさ・同じ時刻のまま外で書き換えられた**
     /// ファイルは走査にも見えないので、版も進まない（前からの限界）
     pub rev: i64,
+    /// [`Self::taken_at_ms`] の出どころ（F2）。`taken_at_ms` が NULL なら NULL
+    pub taken_source: Option<TakenSource>,
+}
+
+/// 撮影日時の出どころ（F2、`dev/adr.file-info-and-context-menu.md`）。
+///
+/// 以前は「更新日時と同じ値なら、更新日時で埋めた」と読んでいた。回転（R）は更新日時を新しくするので、
+/// 埋めた値が本物に化ける（ゲート2 P2-1）。偶然同じ秒に撮ったファイルも不明と読まれていた
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TakenSource {
+    /// ファイルの中のメタデータ（EXIF・動画のコンテナ）
+    Exif,
+    /// ファイル名の日付（[`crate::namedate::guess_taken_at`]）
+    Name,
+    /// OS のプロパティ（Windows の Shell）
+    Os,
+    /// 何も分からず、更新日時で埋めた。**撮影日時としては不明**
+    Mtime,
+    /// 出どころを持つ前から在った値（更新日時と違う値）。今の振る舞いを保つため「分かっている」と読む。
+    /// 中身が変わって読み直されたときだけ本当の出どころへ置き換わる（全件は読み直さない。回転は回す前に
+    /// その1ファイルを読んで確かめる、ADR の R）
+    Legacy,
+}
+
+impl TakenSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exif => "exif",
+            Self::Name => "name",
+            Self::Os => "os",
+            Self::Mtime => "mtime",
+            Self::Legacy => "legacy",
+        }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "exif" => Self::Exif,
+            "name" => Self::Name,
+            "os" => Self::Os,
+            "mtime" => Self::Mtime,
+            "legacy" => Self::Legacy,
+            _ => return None,
+        })
+    }
+}
+
+/// 出どころ付きの撮影日時（F2）。日時と出どころは**いつも一緒に書く**
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TakenAt {
+    pub ms: i64,
+    pub source: TakenSource,
+}
+
+impl TakenAt {
+    /// 値が在れば出どころを付ける
+    pub fn tag(ms: Option<i64>, source: TakenSource) -> Option<Self> {
+        ms.map(|ms| Self { ms, source })
+    }
+}
+
+/// 書き手が受け取る撮影日時。製品のコードは `Option<TakenAt>` を渡す。
+/// **試験のビルドでだけ** `Option<i64>` も受け、`Exif` と読む（書き手の試験は出どころを問わないものが多い）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Taken(pub Option<TakenAt>);
+
+impl Taken {
+    fn ms(self) -> Option<i64> {
+        self.0.map(|t| t.ms)
+    }
+
+    fn source(self) -> Option<&'static str> {
+        self.0.map(|t| t.source.as_str())
+    }
+}
+
+impl From<Option<TakenAt>> for Taken {
+    fn from(t: Option<TakenAt>) -> Self {
+        Self(t)
+    }
+}
+
+#[cfg(test)]
+impl From<Option<i64>> for Taken {
+    fn from(ms: Option<i64>) -> Self {
+        Self(TakenAt::tag(ms, TakenSource::Exif))
+    }
 }
 
 /// 行の中身の版（[`Db::guarded`]）。作業を始めたときに掴み、書く直前に今の行と比べる
@@ -110,11 +197,12 @@ impl MediaRecord {
     }
 
     /// 撮影日時が**本当に分かっている**か。抽出は何も読めないと最後に更新日時を入れる（`thumbs.rs`）ので、
-    /// `taken_at_ms.is_some()` では見分けられない。拾い直しの門（`thumbs.rs` の抽出・
-    /// [`Db::rows_with_fallback_taken_at`]）と同じ規則で「NULL か、更新日時と同じなら不明」と読む
-    /// （`dev/adr.file-info-and-context-menu.md` の A、ゲート2 P1-1）
+    /// `taken_at_ms.is_some()` では見分けられない。出どころ（[`TakenSource`]、F2）で読む: NULL か
+    /// 更新日時で埋めた値は不明。拾い直しの門（`thumbs.rs` の抽出・[`Db::rows_with_fallback_taken_at`]）も同じ規則
+    /// （`dev/adr.file-info-and-context-menu.md` の A と F2、dev #44）
     pub fn taken_at_is_real(&self) -> bool {
-        self.taken_at_ms.is_some_and(|t| t != self.mtime_ms)
+        self.taken_at_ms.is_some()
+            && matches!(self.taken_source, Some(s) if s != TakenSource::Mtime)
     }
 }
 
@@ -294,8 +382,8 @@ impl<'a> Shot<'a> {
     }
 }
 
-/// [`Db::rows_with_fallback_taken_at`] が返す行（ID・パス・mtime）。
-pub type FallbackDateRow = (i64, PathBuf, i64);
+/// [`Db::rows_with_fallback_taken_at`] が返す行（ID・パス）。
+pub type FallbackDateRow = (i64, PathBuf);
 
 /// **中身が変わった行で空にする列**（`upsert_files` と `stage_scan_tmp` の2か所で同じ）。
 /// 寸法・撮影日時・絵を空にして、サムネイルの流れの読み直し（`ids_missing_metadata` が
@@ -303,7 +391,8 @@ pub type FallbackDateRow = (i64, PathBuf, i64);
 /// 残す（dev #31、[`Db::upsert_files`]）。以前は2か所に同じ一覧を写していて、変えるたびに
 /// 両方を直す必要があった
 const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NULL, \
-     preview_height = NULL, taken_at_ms = NULL, taken_subsec = NULL, thumb_path = NULL, \
+     preview_height = NULL, taken_at_ms = NULL, taken_source = NULL, taken_subsec = NULL, \
+     thumb_path = NULL, \
      thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL, rev = rev + 1";
 
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
@@ -717,6 +806,23 @@ impl Db {
             "ALTER TABLE media ADD COLUMN rev INTEGER NOT NULL DEFAULT 0",
             [],
         );
+        // F2: 撮影日時の出どころ（[`TakenSource`]）。足したときだけ、在る行を埋める: 更新日時と同じ値は
+        // 更新日時で埋めたもの（前からの読み方）、違う値は出どころ不明の `legacy`（「分かっている」と読む）。
+        // **足すのと埋めるのは1つのトランザクションで**。別々だと、足した後に落ちたとき次の起動では列が
+        // 在るので埋めず、読めていた日付が「分からない」に化けたまま残る（F2 の codex）
+        let has_taken_source: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('media') WHERE name = 'taken_source'")?
+            .exists([])?;
+        if !has_taken_source {
+            let tx = conn.unchecked_transaction()?;
+            tx.execute("ALTER TABLE media ADD COLUMN taken_source TEXT", [])?;
+            tx.execute(
+                "UPDATE media SET taken_source = CASE WHEN taken_at_ms = mtime_ms THEN 'mtime' ELSE 'legacy' END
+                 WHERE taken_at_ms IS NOT NULL",
+                [],
+            )?;
+            tx.commit()?;
+        }
         // 動画の長さ（ミリ秒。第9部）。画像はNULLのまま
         let _ = conn.execute("ALTER TABLE media ADD COLUMN duration_ms INTEGER", []);
         // 種類（0=画像 / 1=RAW / 2=動画。[`crate::MediaKind`]）。
@@ -918,6 +1024,10 @@ impl Db {
                 taken_subsec = CASE WHEN taken_at_ms IS NULL THEN (SELECT o.taken_subsec FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))
                                 ELSE taken_subsec END,
+                -- 出どころも同じ（F2）
+                taken_source = CASE WHEN taken_at_ms IS NULL THEN (SELECT o.taken_source FROM media o
+                                WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))
+                                ELSE taken_source END,
                 body_serial = COALESCE(body_serial, (SELECT o.body_serial FROM media o
                                 WHERE o.id = (SELECT d.donor_id FROM path_dup_tmp d WHERE d.keep_id = media.id))),
                 camera_id   = COALESCE(camera_id,   (SELECT o.camera_id FROM media o
@@ -1446,10 +1556,10 @@ impl Db {
         &mut self,
         id: i64,
         dims: Dimensions,
-        taken_at_ms: Option<i64>,
+        taken: impl Into<Taken>,
         camera: Option<&str>,
     ) -> Result<(), DbError> {
-        self.update_metadata_shot(id, dims, taken_at_ms, camera, Shot::UNKNOWN)
+        self.update_metadata_shot(id, dims, taken, camera, Shot::UNKNOWN)
     }
 
     /// [`Self::update_metadata`] に**連写の材料**を添えて、**撮影日時と同じ1回の UPDATE で**書く
@@ -1459,10 +1569,11 @@ impl Db {
         &mut self,
         id: i64,
         dims: Dimensions,
-        taken_at_ms: Option<i64>,
+        taken: impl Into<Taken>,
         camera: Option<&str>,
         shot: Shot<'_>,
     ) -> Result<(), DbError> {
+        let taken = taken.into();
         let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
             Some(name) => self.camera_id_of(name)?,
             // 「確認済みだがカメラ情報なし」の印（NULLは未確認を意味する）
@@ -1473,7 +1584,8 @@ impl Db {
                 "UPDATE media SET width = ?2, height = ?3, taken_at_ms = ?4,
                         day_key = {}, camera_id = ?5,
                         preview_width = ?6, preview_height = ?7,
-                        taken_subsec = ?8, body_serial = COALESCE(?9, body_serial)
+                        taken_subsec = ?8, body_serial = COALESCE(?9, body_serial),
+                        taken_source = ?10
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, mtime_ms)")
             ),
@@ -1481,12 +1593,13 @@ impl Db {
                 id,
                 dims.width,
                 dims.height,
-                taken_at_ms,
+                taken.ms(),
                 camera_id,
                 dims.preview.map(|(w, _)| w),
                 dims.preview.map(|(_, h)| h),
                 shot.subsec.map(i64::from),
-                shot.serial()
+                shot.serial(),
+                taken.source()
             ],
         )?;
         Ok(())
@@ -1524,10 +1637,11 @@ impl Db {
     pub fn update_metadata_keeping_dimensions(
         &mut self,
         id: i64,
-        taken_at_ms: Option<i64>,
+        taken: impl Into<Taken>,
         camera: Option<&str>,
         shot: Shot<'_>,
     ) -> Result<(), DbError> {
+        let taken = taken.into();
         let camera_id = match camera.map(str::trim).filter(|c| !c.is_empty()) {
             Some(name) => Some(self.camera_id_of(name)?),
             None => None,
@@ -1536,16 +1650,18 @@ impl Db {
             &format!(
                 "UPDATE media SET taken_at_ms = ?2, day_key = {},
                         camera_id = COALESCE(?3, camera_id),
-                        taken_subsec = ?4, body_serial = COALESCE(?5, body_serial)
+                        taken_subsec = ?4, body_serial = COALESCE(?5, body_serial),
+                        taken_source = ?6
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?2, mtime_ms)")
             ),
             params![
                 id,
-                taken_at_ms,
+                taken.ms(),
                 camera_id,
                 shot.subsec.map(i64::from),
-                shot.serial()
+                shot.serial(),
+                taken.source()
             ],
         )?;
         Ok(())
@@ -1567,8 +1683,9 @@ impl Db {
         id: i64,
         width: i64,
         height: i64,
-        taken_at_ms: Option<i64>,
+        taken: impl Into<Taken>,
     ) -> Result<(), DbError> {
+        let taken = taken.into();
         self.conn.execute(
             &format!(
                 "UPDATE media SET width = COALESCE(NULLIF(?2, 0), width),
@@ -1577,11 +1694,12 @@ impl Db {
                         -- OS の日時は秒まで。時刻を書き換えたら「秒未満が分かった」は
                         -- もう本当ではない——未確認へ戻し、後追いに EXIF を読ませる（dev #32）
                         taken_subsec = CASE WHEN ?4 IS NOT NULL THEN NULL ELSE taken_subsec END,
+                        taken_source = CASE WHEN ?4 IS NOT NULL THEN ?5 ELSE taken_source END,
                         day_key = {}
                  WHERE id = ?1",
                 day_key_expr("COALESCE(?4, taken_at_ms, mtime_ms)")
             ),
-            params![id, width, height, taken_at_ms],
+            params![id, width, height, taken.ms(), taken.source()],
         )?;
         Ok(())
     }
@@ -2477,7 +2595,7 @@ impl Db {
             // 印だけでは差し替えを見抜けない（[`ShotTarget`]、#158 の codex の P2）
             let mut with_time = tx.prepare_cached(&format!(
                 "UPDATE media SET taken_at_ms = ?2, day_key = {}, taken_subsec = ?3,
-                        body_serial = COALESCE(?4, body_serial)
+                        taken_source = 'exif', body_serial = COALESCE(?4, body_serial)
                  WHERE id = ?1 AND taken_subsec IS NULL AND width IS NOT NULL
                    AND mtime_ms = ?5 AND size = ?6 AND rev = ?7",
                 day_key_expr("?2")
@@ -3202,7 +3320,8 @@ impl Db {
     /// LRUで削除されたもの（width有り・state=0）もここには含まれない。
     /// 撮影日時が mtime へ落ちている行（段階H-2の拾い直し用）。
     ///
-    /// 撮影日時が読めなかったとき、この列には mtime がそのまま入る。
+    /// 撮影日時が読めなかったとき、この列には mtime が入り、出どころは `mtime` になる（F2。以前は
+    /// 「mtime と同じ値」で見分けていたが、回転で更新日時が動くと見分けられなくなる）。
     /// ファイル名から日時を拾えるようにする前に走査したDBには、
     /// 「同期した日」が撮影日として並んだ行が残っている（実測965件、うち212件は
     /// 名前が別の日を知っていた）。**ここでは直さず、投げ直すだけ**にして、
@@ -3214,19 +3333,19 @@ impl Db {
     /// `width` は入っているので [`Self::ids_missing_metadata`] からも漏れる。
     /// 両方の網から落ちて mtime で並び続けるのを防ぐ。
     ///
-    /// パスとmtimeも返すのは、呼び出し側が**投げ直す意味のある行だけ**に
+    /// パスも返すのは、呼び出し側が**投げ直す意味のある行だけ**に
     /// 絞れるようにするため。「済んだ印」を持たずに済ませたい——印を先に書くと、
     /// 投げた仕事が終わる前にアプリが落ちたときに二度と拾い直せなくなる。
-    /// 代わりに「名前から拾える日時が mtime と違う行」だけを投げれば、
-    /// 直った行は条件から外れ、直らない行はファイルを開かない文字列判定で弾ける。
+    /// 代わりに「名前から日時を拾える行」だけを投げれば、
+    /// 直った行（出どころが `name` になる）は条件から外れ、直らない行はファイルを開かない文字列判定で弾ける。
     pub fn rows_with_fallback_taken_at(&self) -> Result<Vec<FallbackDateRow>, DbError> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT id, path, mtime_ms FROM media
-             WHERE taken_at_ms IS NULL OR taken_at_ms = mtime_ms
+            "SELECT id, path FROM media
+             WHERE taken_at_ms IS NULL OR taken_source IS NULL OR taken_source = 'mtime'
              ORDER BY id",
         )?;
         let rows = stmt.query_map([], |r| {
-            Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?), r.get(2)?))
+            Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?)))
         })?;
         let mut out = Vec::new();
         for row in rows {
@@ -3317,6 +3436,10 @@ impl Db {
             taken_subsec: row.get::<_, Option<i64>>(16)?.map(|v| v != 0),
             body_serial: row.get(17)?,
             rev: row.get(18)?,
+            taken_source: row
+                .get::<_, Option<String>>(19)?
+                .as_deref()
+                .and_then(TakenSource::parse),
         })
     }
 }
@@ -4155,9 +4278,10 @@ mod tests {
         );
     }
 
-    /// 撮影日時の「分かっている」: 更新日時で埋めた値は分かっていないと読む（ゲート2 P1-1）
+    /// 撮影日時の「分かっている」は出どころで読む（F2、dev #44）。更新日時で埋めた値は、更新日時が
+    /// 動いた後（回転）でも分かっていない。本物の日時が偶然更新日時と同じ秒でも、分かっている
     #[test]
-    fn taken_at_is_real_rejects_the_mtime_fallback() {
+    fn taken_at_is_real_reads_the_source_not_the_value() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[scanned("/r/a.jpg", 1, 5000)]).unwrap();
         let id: i64 = db
@@ -4166,10 +4290,102 @@ mod tests {
             .unwrap();
         let mut r = db.get_by_id(id).unwrap().unwrap();
         assert!(!r.taken_at_is_real(), "NULL");
-        r.taken_at_ms = Some(5000);
-        assert!(!r.taken_at_is_real(), "filled from mtime");
-        r.taken_at_ms = Some(4000);
-        assert!(r.taken_at_is_real(), "read from the file");
+        let at = |ms, source| (Some(ms), Some(source));
+        for ((ms, source), real, why) in [
+            (at(5000, TakenSource::Mtime), false, "filled from mtime"),
+            (
+                at(4000, TakenSource::Mtime),
+                false,
+                "filled from mtime, then the mtime moved",
+            ),
+            (
+                at(5000, TakenSource::Exif),
+                true,
+                "read from the file, same second as mtime",
+            ),
+            (at(4000, TakenSource::Name), true, "from the name"),
+            (at(4000, TakenSource::Os), true, "from the OS"),
+            (
+                at(4000, TakenSource::Legacy),
+                true,
+                "from before sources were kept",
+            ),
+            ((Some(4000), None), false, "a value without a source"),
+        ] {
+            (r.taken_at_ms, r.taken_source) = (ms, source);
+            assert_eq!(r.taken_at_is_real(), real, "{why}");
+        }
+    }
+
+    /// 拾い直しの対象は出どころで決まる（F2）: 更新日時で埋めた行は更新日時が動いた後も拾い、
+    /// 本当に読めた日時は偶然更新日時と同じ秒でも拾わない
+    #[test]
+    fn fallback_rows_are_chosen_by_source() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("/r/moved.jpg", 1, 9000),
+            scanned("/r/same_second.jpg", 1, 5000),
+            scanned("/r/none.jpg", 1, 5000),
+        ])
+        .unwrap();
+        let id_of = |db: &Db, n: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.ends_with(n))
+                .unwrap()
+                .id
+        };
+        let moved = id_of(&db, "moved.jpg");
+        let same = id_of(&db, "same_second.jpg");
+        let none = id_of(&db, "none.jpg");
+        db.update_shell_metadata(moved, 0, 0, TakenAt::tag(Some(5000), TakenSource::Mtime))
+            .unwrap();
+        db.update_shell_metadata(same, 0, 0, TakenAt::tag(Some(5000), TakenSource::Exif))
+            .unwrap();
+        let ids: Vec<i64> = db
+            .rows_with_fallback_taken_at()
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(ids, vec![moved, none]);
+    }
+
+    /// F2 の上げ込み: 在る行は「更新日時と同じなら mtime、違えば legacy」で埋まり、日時の無い行は NULL のまま
+    #[test]
+    fn the_migration_tags_existing_dates_by_the_old_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let mut db = Db::open(&path).unwrap();
+            db.upsert_files(&[
+                scanned("/r/a.jpg", 1, 5000),
+                scanned("/r/b.jpg", 1, 5000),
+                scanned("/r/c.jpg", 1, 5000),
+            ])
+            .unwrap();
+            // 出どころを持つ前の DB を作る
+            db.conn
+                .execute_batch(
+                    "UPDATE media SET taken_at_ms = 5000 WHERE path LIKE '%a.jpg';
+                     UPDATE media SET taken_at_ms = 4000 WHERE path LIKE '%b.jpg';
+                     ALTER TABLE media DROP COLUMN taken_source;",
+                )
+                .unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        let by_name = |n: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.ends_with(n))
+                .unwrap()
+                .taken_source
+        };
+        assert_eq!(by_name("a.jpg"), Some(TakenSource::Mtime));
+        assert_eq!(by_name("b.jpg"), Some(TakenSource::Legacy));
+        assert_eq!(by_name("c.jpg"), None);
     }
 
     /// 選択の合計: 在る行だけを数え、同じ id を2度数えず、400件の境を越えても合う
@@ -5355,8 +5571,13 @@ mod tests {
             } else {
                 "SONY ILCE-7M3"
             };
-            db.update_metadata(id, Dimensions::original(400, 300), None, Some(camera))
-                .unwrap();
+            db.update_metadata(
+                id,
+                Dimensions::original(400, 300),
+                None::<i64>,
+                Some(camera),
+            )
+            .unwrap();
         }
         db
     }
@@ -5981,11 +6202,11 @@ mod tests {
         db.update_metadata(
             ids[0],
             Dimensions::original(400, 300),
-            None,
+            None::<i64>,
             Some("SONY ILCE-7M3"),
         )
         .unwrap();
-        db.update_metadata(ids[1], Dimensions::original(400, 300), None, None)
+        db.update_metadata(ids[1], Dimensions::original(400, 300), None::<i64>, None)
             .unwrap();
 
         let sony: i64 = db
@@ -6047,7 +6268,7 @@ mod tests {
         db.update_metadata(
             id,
             Dimensions::original(400, 300),
-            None,
+            None::<i64>,
             Some("Canon EOS R5"),
         )
         .unwrap();
@@ -6485,7 +6706,7 @@ mod tests {
         // OS から借りた時刻（秒まで）を書いたら未確認へ。時刻を書かなければ印も残す
         db.update_metadata_keeping_dimensions(id, Some(1_480), None, known)
             .unwrap();
-        db.update_shell_metadata(id, 4, 3, None).unwrap();
+        db.update_shell_metadata(id, 4, 3, None::<i64>).unwrap();
         assert_eq!(mark(&db), (Some(1_480), Some(true), s1.clone()));
         db.update_shell_metadata(id, 4, 3, Some(2_000)).unwrap();
         assert_eq!(mark(&db), (Some(2_000), None, s1));
@@ -6606,7 +6827,7 @@ mod tests {
         db.update_metadata(
             id,
             Dimensions::original(400, 300),
-            None,
+            None::<i64>,
             Some("SONY ILCE-7M3"),
         )
         .unwrap();
@@ -6634,7 +6855,7 @@ mod tests {
             ["IMG_1234.jpg"],
             "読み直すまでは残る"
         );
-        db.update_metadata(id, Dimensions::original(400, 300), None, None)
+        db.update_metadata(id, Dimensions::original(400, 300), None::<i64>, None)
             .unwrap();
         assert_eq!(db.camera_id_of_media(id).unwrap(), Some(CAMERA_NONE));
         assert!(search_names(&db, "camera:iPhone").is_empty());

@@ -2596,10 +2596,10 @@ fn insert_synthetic(conn: &Connection, count: u64) {
                 .prepare_cached(
                     "INSERT INTO media
                      (path, size, mtime_ms, width, height, taken_at_ms, day_key,
-                      thumb_path, thumb_state, favorite, camera_id)
+                      thumb_path, thumb_state, favorite, camera_id, taken_source)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6,
                         CAST(strftime('%Y%m%d', COALESCE(?6, ?3)/1000, 'unixepoch', 'localtime') AS INTEGER),
-                        ?7, 2, ?8, ?9)",
+                        ?7, 2, ?8, ?9, CASE WHEN ?6 IS NULL THEN NULL ELSE 'exif' END)",
                 )
                 .unwrap();
             for i in inserted..inserted + n {
