@@ -625,6 +625,18 @@ pub fn apply(
         Some(e) => (e.orig_bytes, e.orig_mtime_ms),
         None => (current, prep.mtime_ms),
     };
+    // 回して pictkura が回す前の向きへ戻ったなら、「元に戻す」と同じに扱う: 更新日時も元へ戻し、控えを消す
+    // （win の実機確認、2026-10-16）。新しい日時のまま残すと、中身は元どおりなのに日時だけ違い、
+    // 向きが元なので「元に戻す」も出せない——日時を取り戻す道が無くなる
+    let turn = match turn {
+        Turn::Right | Turn::Left
+            if ledger.is_some()
+                && prep.spot.bytes_of(turned(prep.spot.value, turn)) == orig_bytes =>
+        {
+            Turn::Restore
+        }
+        other => other,
+    };
     let (new_bytes, target_mtime) = match turn {
         Turn::Restore => {
             if ledger.is_none() || orig_bytes == current {
@@ -1130,6 +1142,31 @@ mod tests {
         apply(&mut db, id, Turn::Left, &prep, NOW).unwrap();
         let third = crate::scanner::mtime_of(&std::fs::metadata(&path).unwrap());
         assert!(third >= second + 2_000, "{third}");
+    }
+
+    #[test]
+    fn turning_back_to_the_original_gives_the_original_time_back() {
+        let (_dir, mut db, id, path) = library("a.jpg", 1);
+        let original = std::fs::read(&path).unwrap();
+        let orig_mtime = crate::scanner::mtime_of(&std::fs::metadata(&path).unwrap());
+        let prep = prepare(&path).unwrap();
+        apply(&mut db, id, Turn::Right, &prep, NOW).unwrap();
+        let prep = prepare(&path).unwrap();
+        let back = apply(&mut db, id, Turn::Left, &prep, NOW).unwrap();
+        assert_eq!(
+            back,
+            Applied {
+                orientation: 1,
+                restorable: false
+            }
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(
+            crate::scanner::mtime_of(&std::fs::metadata(&path).unwrap()),
+            orig_mtime
+        );
+        assert!(db.edit_of(&crate::paths::fold(&path)).unwrap().is_none());
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().mtime_ms, orig_mtime);
     }
 
     #[test]
