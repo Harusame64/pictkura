@@ -47,6 +47,19 @@ pub fn normalize_str(path: &str) -> String {
     }
 }
 
+/// 照合の鍵にする形へ畳む（回転の控え、ADR の R）。[`normalize_str`] で綴りを揃え、
+/// **Windows だけ**小文字にする（`D:\Photos` と `d:\photos` が同じ行に当たるように）。
+/// macOS は畳まない: 大文字小文字を区別するボリュームを作れるので、畳むと別のファイルが同じ鍵になる
+/// （PR のゲート2）。DB のパスは走査が実物の綴りで書くので、畳まなくても揃う
+pub fn fold(path: &Path) -> String {
+    let s = normalize_str(&path.to_string_lossy());
+    if cfg!(windows) {
+        s.to_lowercase()
+    } else {
+        s
+    }
+}
+
 /// ホームフォルダ（Windows は `USERPROFILE`、それ以外は `HOME`）。空なら `None`。
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
@@ -72,6 +85,17 @@ pub fn normalize_dir_str(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fold_lowers_case_only_on_windows() {
+        let folded = fold(Path::new("Photos/A.JPG"));
+        if cfg!(windows) {
+            assert_eq!(folded, "photos\\a.jpg");
+        } else {
+            // 大文字小文字を区別するボリュームでは別のファイル
+            assert_eq!(folded, "Photos/A.JPG");
+        }
+    }
 
     #[cfg(windows)]
     #[test]

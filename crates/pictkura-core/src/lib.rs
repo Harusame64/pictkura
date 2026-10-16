@@ -31,6 +31,7 @@ pub mod paths;
 pub mod protocol;
 pub mod raw;
 pub mod resize;
+pub mod rotate;
 pub mod scanner;
 pub mod search;
 pub mod shell;

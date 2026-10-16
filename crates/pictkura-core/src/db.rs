@@ -109,8 +109,9 @@ pub enum TakenSource {
     /// 何も分からず、更新日時で埋めた。**撮影日時としては不明**
     Mtime,
     /// 出どころを持つ前から在った値（更新日時と違う値）。今の振る舞いを保つため「分かっている」と読む。
-    /// 中身が変わって読み直されたときだけ本当の出どころへ置き換わる（全件は読み直さない。回転は回す前に
-    /// その1ファイルを読んで確かめる、ADR の R）
+    /// 中身が変わって読み直されたときだけ本当の出どころへ置き換わる（全件は読み直さない）。回転（ADR の R）は
+    /// 読み直さずに回す: 旧規則でも更新日時と違う値は本物と読んでいた。回した後はサムネイルの作り直しが
+    /// EXIF を読む
     Legacy,
 }
 
@@ -177,6 +178,53 @@ impl From<Option<i64>> for Taken {
     fn from(ms: Option<i64>) -> Self {
         Self(TakenAt::tag(ms, TakenSource::Exif))
     }
+}
+
+/// 控え（`edited_files`）の列の並び。[`Db::row_to_edit`] と [`Db::put_edit`] はこの順で読み書きする
+const EDIT_COLUMNS: &str =
+    "path_key, path, fold_name, size, byte_offset, orig_bytes, orig_mtime_ms, \
+     edited_bytes, edited_mtime_ms, content_hash, pending_bytes, pending_mtime_ms";
+
+/// pictkura が書き換えたファイルの控え（`edited_files` の1行、ADR の R）。
+///
+/// 向きの2バイトは**ファイルのバイト順のまま**持つ（書き戻すときに並べ替えない）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditRecord {
+    /// 畳んだパス（[`crate::paths::fold`]）
+    pub path_key: String,
+    /// 書いたときの `media.path`
+    pub path: PathBuf,
+    /// 名前だけを畳んだもの（取り込みの照合の索引）
+    pub fold_name: String,
+    pub size: i64,
+    /// 向きの2バイトの位置
+    pub offset: i64,
+    /// 最初に書き換える前の2バイトと更新日時（読み返した値）
+    pub orig_bytes: [u8; 2],
+    pub orig_mtime_ms: i64,
+    /// pictkura が最後に書いた後の2バイトと更新日時（読み返した値）
+    pub edited_bytes: [u8; 2],
+    pub edited_mtime_ms: i64,
+    /// 向きの2バイトを除いた中身の要約（[`crate::rotate::content_hash`]）
+    pub content_hash: i64,
+    /// 「これから書く」2バイトと更新日時。書き終えたら消える
+    pub pending: Option<([u8; 2], i64)>,
+}
+
+/// [`Db::edit_settle`] に渡す、書き終えた結果。
+#[derive(Debug, Clone)]
+pub struct EditSettle {
+    pub path_key: String,
+    /// 書いた2バイト
+    pub bytes: [u8; 2],
+    /// 読み返した更新日時
+    pub mtime_ms: i64,
+    /// 向きが縦横をまたいだ
+    pub swap_dimensions: bool,
+    /// 控えを残すか（元に戻しきったら消す）
+    pub keep: bool,
+    /// 付けた更新日時（元に戻すときは付けていないので `None`）
+    pub issued_mtime_ms: Option<i64>,
 }
 
 /// 行の中身の版（[`Db::guarded`]）。作業を始めたときに掴み、書く直前に今の行と比べる
@@ -780,6 +828,35 @@ impl Db {
                 day_key_expr(SORT_TS)
             ),
             [],
+        )?;
+        // pictkura が書き換えたファイルの、書き換える前の姿（回転、ADR の R）。`media` とは切り離す
+        // ——ルートを外して入れ直しても残り、元に戻すと取り込みの照合がこれを読む。鍵は
+        // [`crate::paths::fold`] で畳んだパス。`pending_*` は「これから書く」印で、書く前に確定させ、
+        // 書き終えて `media` と一緒に消す。残っていたら書いている途中で落ちた（[`crate::rotate::recover`]）
+        // `issued_mtimes` はそのファイルに最後に付けた更新日時。元に戻しても残し、次に回すときは
+        // それより後を付ける（同じ時刻へ戻ると、エクスプローラーが古い絵を出し続ける）
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS edited_files (
+                path_key         TEXT PRIMARY KEY,
+                path             TEXT NOT NULL,
+                fold_name        TEXT NOT NULL,
+                size             INTEGER NOT NULL,
+                byte_offset      INTEGER NOT NULL,
+                orig_bytes       BLOB NOT NULL,
+                orig_mtime_ms    INTEGER NOT NULL,
+                edited_bytes     BLOB NOT NULL,
+                edited_mtime_ms  INTEGER NOT NULL,
+                content_hash     INTEGER NOT NULL,
+                pending_bytes    BLOB,
+                pending_mtime_ms INTEGER
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS idx_edited_files_name ON edited_files(fold_name, size);
+            CREATE TABLE IF NOT EXISTS issued_mtimes (
+                path_key TEXT PRIMARY KEY,
+                mtime_ms INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            "#,
         )?;
         Self::init_search(&conn)?;
         Ok(Self { conn })
@@ -2034,6 +2111,199 @@ impl Db {
                 std::panic::resume_unwind(panic)
             }
         }
+    }
+
+    /// 試験から SQL を直に流す（引き金で書き込みを落とす等）
+    #[cfg(test)]
+    pub(crate) fn execute_for_test(&self, sql: &str) {
+        self.conn.execute_batch(sql).unwrap();
+    }
+
+    /// 控え（`edited_files`）の1行。鍵は畳んだパス（[`crate::paths::fold`]）
+    pub fn edit_of(&self, path_key: &str) -> Result<Option<EditRecord>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!("SELECT {EDIT_COLUMNS} FROM edited_files WHERE path_key = ?1"),
+                params![path_key],
+                Self::row_to_edit,
+            )
+            .optional()?)
+    }
+
+    /// 「これから書く」の印が残っている控え。書いている途中で落ちた（[`crate::rotate::recover`]）
+    pub fn edits_pending(&self) -> Result<Vec<EditRecord>, DbError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {EDIT_COLUMNS} FROM edited_files WHERE pending_bytes IS NOT NULL"
+        ))?;
+        let rows = stmt.query_map([], Self::row_to_edit)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// そのファイルに pictkura が最後に付けた更新日時（元に戻した後も残る）
+    pub fn last_issued_mtime(&self, path_key: &str) -> Result<Option<i64>, DbError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT mtime_ms FROM issued_mtimes WHERE path_key = ?1",
+                params![path_key],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// 書く前に「これから書く」を確定させる。`media` の行が `expect` の版のままのときだけ書き、
+    /// 変わっていたら `None`（[`Self::guarded`]）。
+    ///
+    /// **同じトランザクションで版を1つ進め、進めた後の版を返す**（PR の codex P2）。サムネイル作りが古い版を
+    /// 掴んだまま、書いている途中のファイルを読んで寸法や絵を書くと、確定（[`Self::edit_settle`]）が寸法を
+    /// もう一度入れ替えて縦横が狂う。版を先に進めれば、その書き込みは守り（[`Self::guarded`]）で落ちる
+    pub fn edit_begin(
+        &mut self,
+        id: i64,
+        expect: RowVersion,
+        rec: &EditRecord,
+    ) -> Result<Option<RowVersion>, DbError> {
+        // **この確定だけは WAL を同期してから返す**（PR の codex P1）。ふだんの `synchronous=NORMAL` では、
+        // 確定がディスクに届く前に電源が落ちうる。そのあと書いて `sync_all` したファイルだけが残ると、
+        // 起動時の後始末は印を見つけられず、元の向きと日時が失われる。`synchronous` はトランザクションの
+        // 中では変えられないので外で切り替え、終わったら戻す
+        self.conn.pragma_update(None, "synchronous", "FULL")?;
+        let begun = self.guarded(id, expect, |db| {
+            db.put_edit(rec)?;
+            db.conn
+                .execute("UPDATE media SET rev = rev + 1 WHERE id = ?1", params![id])?;
+            Ok::<_, DbError>(RowVersion {
+                rev: expect.rev + 1,
+                ..expect
+            })
+        });
+        let restored = self.conn.pragma_update(None, "synchronous", "NORMAL");
+        let begun = begun?;
+        restored?;
+        Ok(begun)
+    }
+
+    /// 書き終えたことを `media` と控えへ同じトランザクションで書く。`media` が `expect` の版のままの
+    /// ときだけ書き、変わっていたら `None`（呼び出し側がファイルを書き戻す）
+    ///
+    /// `media`: 更新日時を読み返した値に、版を1つ進め、向きが縦横をまたいだら寸法を入れ替え、
+    /// サムネイルを作り直しへ戻す。撮影日時と `day_key` は保つ（回しても日付は動かない）
+    pub fn edit_settle(
+        &mut self,
+        id: i64,
+        expect: RowVersion,
+        settle: &EditSettle,
+    ) -> Result<Option<()>, DbError> {
+        self.guarded(id, expect, |db| {
+            db.conn.execute(
+                "UPDATE media SET mtime_ms = ?2, rev = rev + 1, \
+                 width = CASE WHEN ?3 THEN height ELSE width END, \
+                 height = CASE WHEN ?3 THEN width ELSE height END, \
+                 preview_width = CASE WHEN ?3 THEN preview_height ELSE preview_width END, \
+                 preview_height = CASE WHEN ?3 THEN preview_width ELSE preview_height END, \
+                 thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL \
+                 WHERE id = ?1",
+                params![id, settle.mtime_ms, settle.swap_dimensions],
+            )?;
+            if settle.keep {
+                db.conn.execute(
+                    "UPDATE edited_files SET edited_bytes = ?2, edited_mtime_ms = ?3, \
+                     pending_bytes = NULL, pending_mtime_ms = NULL WHERE path_key = ?1",
+                    params![settle.path_key, settle.bytes.to_vec(), settle.mtime_ms],
+                )?;
+            } else {
+                db.edit_forget(&settle.path_key)?;
+            }
+            if let Some(issued) = settle.issued_mtime_ms {
+                db.conn.execute(
+                    "INSERT INTO issued_mtimes (path_key, mtime_ms) VALUES (?1, ?2) \
+                     ON CONFLICT(path_key) DO UPDATE SET mtime_ms = MAX(mtime_ms, excluded.mtime_ms)",
+                    params![settle.path_key, issued],
+                )?;
+            }
+            Ok::<_, DbError>(())
+        })
+    }
+
+    /// 控えを書く（無ければ足し、在れば置き換える）
+    pub fn put_edit(&mut self, rec: &EditRecord) -> Result<(), DbError> {
+        let (pending_bytes, pending_mtime) = match rec.pending {
+            Some((b, m)) => (Some(b.to_vec()), Some(m)),
+            None => (None, None),
+        };
+        self.conn.execute(
+            &format!(
+                "INSERT OR REPLACE INTO edited_files ({EDIT_COLUMNS}) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+            ),
+            params![
+                rec.path_key,
+                rec.path.to_string_lossy(),
+                rec.fold_name,
+                rec.size,
+                rec.offset,
+                rec.orig_bytes.to_vec(),
+                rec.orig_mtime_ms,
+                rec.edited_bytes.to_vec(),
+                rec.edited_mtime_ms,
+                rec.content_hash,
+                pending_bytes,
+                pending_mtime,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// そのパスの行の版を進め、サムネイルを作り直しへ戻す（[`crate::rotate::recover`] がファイルを書き戻したあと。
+    /// 落ちる前に途中の姿から作られた絵や、作りかけの作業を捨てさせる）
+    pub fn edit_reset_row(&mut self, path: &Path) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE media SET rev = rev + 1, thumb_path = NULL, thumb_state = 0, \
+             thumb_bytes = NULL, thumb_used_ms = NULL WHERE path = ?1",
+            params![path.to_string_lossy()],
+        )?;
+        Ok(())
+    }
+
+    /// 控えを消す（`issued_mtimes` は残す）
+    pub fn edit_forget(&mut self, path_key: &str) -> Result<(), DbError> {
+        self.conn.execute(
+            "DELETE FROM edited_files WHERE path_key = ?1",
+            params![path_key],
+        )?;
+        Ok(())
+    }
+
+    fn row_to_edit(r: &rusqlite::Row) -> rusqlite::Result<EditRecord> {
+        let two = |i: usize| -> rusqlite::Result<[u8; 2]> {
+            let v: Vec<u8> = r.get(i)?;
+            v.try_into().map_err(|_| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    i,
+                    rusqlite::types::Type::Blob,
+                    "expected 2 bytes".into(),
+                )
+            })
+        };
+        let pending_bytes: Option<Vec<u8>> = r.get(10)?;
+        let pending = match (pending_bytes, r.get::<_, Option<i64>>(11)?) {
+            (Some(_), Some(m)) => Some((two(10)?, m)),
+            _ => None,
+        };
+        Ok(EditRecord {
+            path_key: r.get(0)?,
+            path: PathBuf::from(r.get::<_, String>(1)?),
+            fold_name: r.get(2)?,
+            size: r.get(3)?,
+            offset: r.get(4)?,
+            orig_bytes: two(5)?,
+            orig_mtime_ms: r.get(6)?,
+            edited_bytes: two(7)?,
+            edited_mtime_ms: r.get(8)?,
+            content_hash: r.get(9)?,
+            pending,
+        })
     }
 
     /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
