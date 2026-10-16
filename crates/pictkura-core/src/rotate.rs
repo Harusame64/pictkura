@@ -442,6 +442,8 @@ pub struct Prepared {
     pub path: PathBuf,
     pub size: u64,
     pub mtime_ms: i64,
+    /// 更新日時のミリ秒より下（ナノ秒）。NTFS は 100ns 刻みで持つので、書き戻すときに要る（win の実機、10-16）
+    pub mtime_sub_ns: u32,
     pub spot: Spot,
     pub content_hash: i64,
 }
@@ -473,6 +475,7 @@ pub fn prepare(path: &Path) -> Result<Prepared, RotateError> {
         path: path.to_path_buf(),
         size: after.len(),
         mtime_ms: crate::scanner::mtime_of(&after),
+        mtime_sub_ns: sub_ms_nanos(&after),
         spot,
         content_hash,
     })
@@ -506,22 +509,39 @@ fn write_checked(
     expect_hash: i64,
     new_bytes: [u8; 2],
     mtime_ms: i64,
+    sub_ns: u32,
 ) -> Result<i64, RotateError> {
     let mut f = OpenOptions::new().read(true).write(true).open(path)?;
     if read_header(&mut f)?.spot != Some(spot) || hash_of(&mut f, spot.offset)? != expect_hash {
         return Err(RotateError::Changed);
     }
-    write_on(&mut f, spot.offset, new_bytes, mtime_ms)?;
+    write_on(&mut f, spot.offset, new_bytes, mtime_ms, sub_ns)?;
     Ok(crate::scanner::mtime_of(&f.metadata()?))
 }
 
-/// 開いている手で2バイトを書き、更新日時を付けて `sync_all`
-fn write_on(f: &mut File, offset: u64, bytes: [u8; 2], mtime_ms: i64) -> std::io::Result<()> {
+/// 更新日時のミリ秒より下（ナノ秒、0〜999_999）
+fn sub_ms_nanos(meta: &std::fs::Metadata) -> u32 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.subsec_nanos() % 1_000_000)
+}
+
+/// 開いている手で2バイトを書き、更新日時（ミリ秒＋その下のナノ秒）を付けて `sync_all`。
+/// **元の日時へ戻すときはナノ秒まで戻す**——ミリ秒で切ると、中身は元どおりでも日時が 1ms 未満ずれ、日時を丸ごと
+/// 比べるバックアップ・同期の道具には別のファイルに見える（win の実機、10-16）。pictkura が付ける日時は端数を持たない
+fn write_on(
+    f: &mut File,
+    offset: u64,
+    bytes: [u8; 2],
+    mtime_ms: i64,
+    sub_ns: u32,
+) -> std::io::Result<()> {
     f.seek(SeekFrom::Start(offset))?;
     f.write_all(&bytes)?;
     let t = filetime::FileTime::from_unix_time(
         mtime_ms.div_euclid(1000),
-        (mtime_ms.rem_euclid(1000) as u32) * 1_000_000,
+        (mtime_ms.rem_euclid(1000) as u32) * 1_000_000 + sub_ns % 1_000_000,
     );
     filetime::set_file_handle_times(f, None, Some(t))?;
     f.sync_all()
@@ -553,6 +573,7 @@ fn put_back(
     expect_hash: i64,
     bytes: [u8; 2],
     mtime_ms: i64,
+    sub_ns: u32,
 ) -> Result<(), RotateError> {
     let mut f = OpenOptions::new().read(true).write(true).open(path)?;
     let same = read_header(&mut f)?
@@ -562,7 +583,7 @@ fn put_back(
     if !same {
         return Err(RotateError::Changed);
     }
-    Ok(write_on(&mut f, offset, bytes, mtime_ms)?)
+    Ok(write_on(&mut f, offset, bytes, mtime_ms, sub_ns)?)
 }
 
 /// 書き戻す。書き戻せなければ、回ったままであることを返す。
@@ -575,6 +596,7 @@ fn undo_write(
     expect_hash: i64,
     bytes: [u8; 2],
     mtime_ms: i64,
+    sub_ns: u32,
     why: RotateError,
 ) -> RotateError {
     let untouched = read_bytes(path, offset).is_ok_and(|b| b == bytes)
@@ -582,7 +604,7 @@ fn undo_write(
     if untouched {
         return why;
     }
-    match put_back(path, offset, expect_hash, bytes, mtime_ms) {
+    match put_back(path, offset, expect_hash, bytes, mtime_ms, sub_ns) {
         Ok(()) => why,
         Err(e) => RotateError::LeftChanged(format!("{why}; putting back failed: {e}")),
     }
@@ -645,9 +667,9 @@ pub fn apply(
                 (prep.size, prep.mtime_ms),
             )
     });
-    let (orig_bytes, orig_mtime_ms) = match &ledger {
-        Some(e) => (e.orig_bytes, e.orig_mtime_ms),
-        None => (current, prep.mtime_ms),
+    let (orig_bytes, orig_mtime_ms, orig_sub_ns) = match &ledger {
+        Some(e) => (e.orig_bytes, e.orig_mtime_ms, e.orig_mtime_sub_ns),
+        None => (current, prep.mtime_ms, prep.mtime_sub_ns),
     };
     // 回して pictkura が回す前の向きへ戻ったなら、「元に戻す」と同じに扱う: 更新日時も元へ戻し、控えを消す
     // （win の実機確認、2026-10-16）。新しい日時のまま残すと、中身は元どおりなのに日時だけ違い、
@@ -661,12 +683,12 @@ pub fn apply(
         }
         other => other,
     };
-    let (new_bytes, target_mtime) = match turn {
+    let (new_bytes, target_mtime, target_sub_ns) = match turn {
         Turn::Restore => {
             if ledger.is_none() || orig_bytes == current {
                 return Err(RotateError::NothingToRestore);
             }
-            (orig_bytes, orig_mtime_ms)
+            (orig_bytes, orig_mtime_ms, orig_sub_ns)
         }
         Turn::Right | Turn::Left => {
             let new_value = turned(prep.spot.value, turn);
@@ -676,7 +698,7 @@ pub fn apply(
                 .max(orig_mtime_ms + 2_000)
                 .max(issued + 2_000)
                 .max(prep.mtime_ms + 2_000);
-            (prep.spot.bytes_of(new_value), target)
+            (prep.spot.bytes_of(new_value), target, 0)
         }
     };
     let begin = EditRecord {
@@ -687,6 +709,7 @@ pub fn apply(
         offset: prep.spot.offset as i64,
         orig_bytes,
         orig_mtime_ms,
+        orig_mtime_sub_ns: orig_sub_ns,
         edited_bytes: current,
         edited_mtime_ms: prep.mtime_ms,
         content_hash: prep.content_hash,
@@ -713,11 +736,26 @@ pub fn apply(
             ));
         }
     };
-    let written = write_checked(path, prep.spot, prep.content_hash, new_bytes, target_mtime);
+    let written = write_checked(
+        path,
+        prep.spot,
+        prep.content_hash,
+        new_bytes,
+        target_mtime,
+        target_sub_ns,
+    );
     let readback = match written {
         Ok(ms) => ms,
         Err(e) => {
-            let err = undo_write(path, offset, prep.content_hash, current, prep.mtime_ms, e);
+            let err = undo_write(
+                path,
+                offset,
+                prep.content_hash,
+                current,
+                prep.mtime_ms,
+                prep.mtime_sub_ns,
+                e,
+            );
             if !matches!(err, RotateError::LeftChanged(_)) {
                 forget_pending(db);
             }
@@ -739,6 +777,7 @@ pub fn apply(
                     prep.content_hash,
                     current,
                     prep.mtime_ms,
+                    prep.mtime_sub_ns,
                     RotateError::MtimeDidNotMove,
                 );
                 if !matches!(err, RotateError::LeftChanged(_)) {
@@ -769,7 +808,15 @@ pub fn apply(
                 Err(e) => RotateError::Db(e),
                 _ => RotateError::Changed,
             };
-            let err = undo_write(path, offset, prep.content_hash, current, prep.mtime_ms, why);
+            let err = undo_write(
+                path,
+                offset,
+                prep.content_hash,
+                current,
+                prep.mtime_ms,
+                prep.mtime_sub_ns,
+                why,
+            );
             if !matches!(err, RotateError::LeftChanged(_)) {
                 forget_pending(db);
             }
@@ -823,6 +870,12 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
         settled.pending = None;
         // 初めて回そうとしていた行（控えの中身が元のまま）は、片付けたら消す
         let fresh = e.edited_bytes == e.orig_bytes && e.edited_mtime_ms == e.orig_mtime_ms;
+        // 書く前の日時の端数。pictkura が付けた日時は端数を持たないので、端数があるのは元の日時だけ
+        let edited_sub_ns = if e.edited_mtime_ms == e.orig_mtime_ms {
+            e.orig_mtime_sub_ns
+        } else {
+            0
+        };
         let finish = |db: &mut Db| {
             if fresh {
                 db.edit_forget(&e.path_key)
@@ -895,7 +948,13 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
         };
         if now == pending_bytes && pending_bytes != e.edited_bytes {
             // 書いたところで落ちた。書く前へ戻す
-            match write_on(&mut f, offset, e.edited_bytes, e.edited_mtime_ms) {
+            match write_on(
+                &mut f,
+                offset,
+                e.edited_bytes,
+                e.edited_mtime_ms,
+                edited_sub_ns,
+            ) {
                 Ok(()) => {
                     // 落ちる前に、途中の姿から作られた絵や作りかけの作業を捨てさせる
                     db.edit_reset_row(&e.path)?;
@@ -915,7 +974,13 @@ pub fn recover(db: &mut Db) -> Result<Vec<String>, DbError> {
             // ——行は書く前の日時を持っているので、許容幅で「同じ」と見て残すと、走査が変わったと見て
             // 行を作り直す（付ける日時は書く前の2秒後になりうる。PR のゲート2）
             if mtime != e.edited_mtime_ms {
-                if let Err(err) = write_on(&mut f, offset, e.edited_bytes, e.edited_mtime_ms) {
+                if let Err(err) = write_on(
+                    &mut f,
+                    offset,
+                    e.edited_bytes,
+                    e.edited_mtime_ms,
+                    edited_sub_ns,
+                ) {
                     notes.push(format!(
                         "rotation ledger: could not reset the time of {}: {err}; will retry",
                         e.path.display()
@@ -1243,6 +1308,41 @@ mod tests {
     }
 
     #[test]
+    fn restoring_gives_back_the_time_below_the_millisecond() {
+        let (_dir, mut db, id, path) = library("a.jpg", 1);
+        // 端数を持つ元の日時（NTFS・APFS は 1ms より細かく持つ）
+        let orig = filetime::FileTime::from_unix_time(1_600_000_000, 123_456_700);
+        filetime::set_file_mtime(&path, orig).unwrap();
+        let meta = std::fs::metadata(&path).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: path.clone(),
+            size: meta.len() as i64,
+            mtime_ms: crate::scanner::mtime_of(&meta),
+        }])
+        .unwrap();
+        db.update_metadata(
+            id,
+            Dimensions::original(6, 4),
+            TakenAt::tag(Some(1_500_000_000_000), TakenSource::Exif),
+            None,
+        )
+        .unwrap();
+        let before = filetime::FileTime::from_last_modification_time(&meta);
+        for turns in [
+            vec![Turn::Right, Turn::Restore],
+            vec![Turn::Right, Turn::Left],
+        ] {
+            for turn in turns {
+                let prep = prepare(&path).unwrap();
+                apply(&mut db, id, turn, &prep, NOW).unwrap();
+            }
+            let after =
+                filetime::FileTime::from_last_modification_time(&std::fs::metadata(&path).unwrap());
+            assert_eq!(after, before, "ナノ秒まで元の日時");
+        }
+    }
+
+    #[test]
     fn nothing_to_restore_on_a_file_never_turned() {
         let (_dir, mut db, id, path) = library("a.jpg", 6);
         let prep = prepare(&path).unwrap();
@@ -1339,18 +1439,18 @@ mod tests {
         // 調べたときと違う姿（別のファイルに差し替わった）を渡す
         let stale = Spot { value: 3, ..spot };
         assert!(matches!(
-            write_checked(&path, stale, hash, spot.bytes_of(6), NOW),
+            write_checked(&path, stale, hash, spot.bytes_of(6), NOW, 0),
             Err(RotateError::Changed)
         ));
         assert_eq!(std::fs::read(&path).unwrap(), original, "何も書かない");
         // 位置は同じでも中身が違う（同じ機種の別の写真に差し替わった）
         assert!(matches!(
-            write_checked(&path, spot, hash ^ 1, spot.bytes_of(6), NOW),
+            write_checked(&path, spot, hash ^ 1, spot.bytes_of(6), NOW, 0),
             Err(RotateError::Changed)
         ));
         assert_eq!(std::fs::read(&path).unwrap(), original, "何も書かない");
         assert_eq!(
-            write_checked(&path, spot, hash, spot.bytes_of(6), NOW).unwrap(),
+            write_checked(&path, spot, hash, spot.bytes_of(6), NOW, 0).unwrap(),
             NOW
         );
     }
@@ -1367,7 +1467,8 @@ mod tests {
                 prep.spot.offset,
                 prep.content_hash ^ 1,
                 prep.spot.bytes_of(6),
-                NOW
+                NOW,
+                0
             ),
             Err(RotateError::Changed)
         ));
@@ -1378,6 +1479,7 @@ mod tests {
             prep.content_hash,
             prep.spot.bytes_of(6),
             NOW,
+            0,
         )
         .unwrap();
         assert_eq!(
@@ -1532,6 +1634,7 @@ mod tests {
             offset: prep.spot.offset as i64,
             orig_bytes: prep.spot.bytes(),
             orig_mtime_ms: orig_mtime,
+            orig_mtime_sub_ns: 0,
             edited_bytes: prep.spot.bytes(),
             edited_mtime_ms: orig_mtime,
             content_hash: prep.content_hash,
@@ -1594,6 +1697,7 @@ mod tests {
             offset: prep.spot.offset as i64,
             orig_bytes: prep.spot.bytes(),
             orig_mtime_ms: orig_mtime,
+            orig_mtime_sub_ns: 0,
             edited_bytes: prep.spot.bytes(),
             edited_mtime_ms: orig_mtime,
             content_hash: prep.content_hash,
@@ -1870,6 +1974,7 @@ mod tests {
             offset: prep.spot.offset as i64,
             orig_bytes: prep.spot.bytes(),
             orig_mtime_ms: prep.mtime_ms,
+            orig_mtime_sub_ns: 0,
             edited_bytes: prep.spot.bytes(),
             edited_mtime_ms: prep.mtime_ms,
             content_hash: prep.content_hash,
