@@ -621,11 +621,8 @@ pub fn apply(
     {
         return Err(RotateError::Changed);
     }
-    // 中身も prepare のときのままか（大きさ・向き・日時を保ったまま書き換えられた。FAT の粗い日時で起きうる。
-    // PR の codex P2）。古い要約を控えに書くと、次に回すとき控えが外れて元の姿を上書きする
-    if content_hash(path, prep.spot.offset)? != prep.content_hash {
-        return Err(RotateError::Changed);
-    }
+    // 中身が prepare のときのままか（大きさ・向き・日時を保ったまま書き換えられた。FAT の粗い日時で起きうる）は、
+    // 書く手で確かめる（[`write_checked`]）。ここで丸ごと読み直すと、呼び出し側の `Db` の錠を2回ぶん長く持つ
     // 横の `.xmp` も今のうちに見直す（prepare の後に現像ソフトが作ったかもしれない。PR の codex P2）
     if sidecar_declares_orientation(path)? {
         return Err(RotateError::XmpOrientation);
@@ -779,6 +776,28 @@ pub fn apply(
             Err(err)
         }
     }
+}
+
+/// その写真で「向きを元に戻す」が効きそうか（右クリックに出すか）。[`apply`] が控えを当てにする条件のうち、
+/// ファイルを丸ごと読まずに済むもの（大きさ・更新日時・向きの2バイト）を同じ規則で見る。中身の要約は回すときに
+/// 確かめる——メニューを開くたびに写真を丸ごと読まない
+pub fn restorable(db: &Db, path: &Path) -> Result<bool, DbError> {
+    let Some(e) = db.edit_of(&crate::paths::fold(path))? else {
+        return Ok(false);
+    };
+    if e.pending.is_some() || e.edited_bytes == e.orig_bytes {
+        return Ok(false);
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Ok(false);
+    };
+    let size = meta.len();
+    Ok(size as i64 == e.size
+        && crate::import::looks_alike(
+            (size, e.edited_mtime_ms),
+            (size, crate::scanner::mtime_of(&meta)),
+        )
+        && read_bytes(path, e.offset as u64).is_ok_and(|b| b == e.edited_bytes))
 }
 
 /// 名前だけを畳む（取り込みの照合の索引。畳み方は `import.rs` の1か所）
@@ -1210,6 +1229,20 @@ mod tests {
     }
 
     #[test]
+    fn restorable_follows_the_same_rule_as_apply() {
+        let (_dir, mut db, id, path) = library("a.jpg", 1);
+        assert!(!restorable(&db, &path).unwrap(), "回していない");
+        let prep = prepare(&path).unwrap();
+        apply(&mut db, id, Turn::Right, &prep, NOW).unwrap();
+        assert!(restorable(&db, &path).unwrap());
+        // 外の道具が向きを書き換えた（日時は保った）
+        let turned_at = std::fs::metadata(&path).unwrap().modified().unwrap();
+        write_bytes(&path, prep.spot.offset, prep.spot.bytes_of(8)).unwrap();
+        filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(turned_at)).unwrap();
+        assert!(!restorable(&db, &path).unwrap(), "もう戻せないのに出さない");
+    }
+
+    #[test]
     fn nothing_to_restore_on_a_file_never_turned() {
         let (_dir, mut db, id, path) = library("a.jpg", 6);
         let prep = prepare(&path).unwrap();
@@ -1249,6 +1282,7 @@ mod tests {
             Err(RotateError::Changed)
         ));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert!(db.edits_pending().unwrap().is_empty(), "印は残さない");
     }
 
     #[test]

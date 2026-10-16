@@ -33,6 +33,8 @@ import {
   withKind,
   cloudOnlyMedia,
   copyDisplayImage,
+  rotateMedia,
+  rotationRestorable,
   extractSuggestedPath,
   deleteMedia,
   openDownloadPage,
@@ -862,6 +864,34 @@ export default function App() {
     /** ★・⚑ が効くファイル（連写では表紙のコマだけ。`Cell.markFiles`）。無ければ `files` */
     markFiles?: MediaItem[];
   } | null>(null);
+  /**
+   * 右クリックした写真が「向きを元に戻す」を出せるか（pictkura が回した写真だけ。ADR B-2 の R3）。
+   * メニューを開くたびに Rust へ訊く——控えは DB にしか無い。答えが来るまでは出さない（出してから消すより
+   * 後から出るほうが押し間違えない）。id で持つのは、答えが遅れて別の写真のメニューに乗らないため
+   */
+  const [restorableId, setRestorableId] = useState<number | null>(null);
+  /**
+   * 回すたびに進む番号。メニューを開いて訊いた答えが、その間に済んだ回転より古ければ捨てる——戻した直後に開き直すと、
+   * 戻す前の DB を読んだ「戻せる」が後から届いて項目が蘇った（PR のゲート2）
+   */
+  const rotationSeqRef = useRef(0);
+  /** 回している最中か。二度押しは受けない（2本目は「調べています」「ほかで変更」と事実と違う知らせになる） */
+  const rotatingRef = useRef(false);
+  const menuItemId = menu?.item.is_jpeg ? menu.item.id : null;
+  useEffect(() => {
+    setRestorableId(null);
+    if (menuItemId === null) return;
+    let cancelled = false;
+    const seq = rotationSeqRef.current;
+    rotationRestorable(menuItemId)
+      .then((yes) => {
+        if (!cancelled && yes && seq === rotationSeqRef.current) setRestorableId(menuItemId);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [menuItemId]);
   /** カレンダーの月の見出しの右クリック（送り出しへ。設計 ② §9）。
    * 上の幕が開くときは、タイルの `menu` と一緒に畳む（ゲート1） */
   const [calMenu, setCalMenu] = useState<{
@@ -6291,6 +6321,23 @@ export default function App() {
     await removeFromGoogle(await visibleSelection(), true);
   }, [visibleSelection, removeFromGoogle]);
 
+  /** 写真を回す・向きを元に戻す（ADR B-2 の R3）。失敗は理由を1行で（済んだときは絵が回るので黙る） */
+  const rotate = useCallback(
+    (item: MediaItem, turn: "right" | "left" | "restore") => {
+      if (rotatingRef.current) return;
+      rotatingRef.current = true;
+      rotationSeqRef.current += 1;
+      rotateMedia(item.id, turn)
+        .then((restorable) => setRestorableId(restorable ? item.id : null))
+        .catch((e) => fail(errText(e)))
+        .finally(() => {
+          rotationSeqRef.current += 1;
+          rotatingRef.current = false;
+        });
+    },
+    [fail],
+  );
+
   /** 対象1枚に対する右クリックメニューの項目 */
   const menuItemsFor = useCallback(
     (
@@ -6314,6 +6361,23 @@ export default function App() {
       // 実体を落としてから載せる——押したのは利用者で、ビューアで開くのと同じ扱い
       ...(canCopyToClipboard(item, fullFailedId)
         ? [{ label: t.menuCopyImage, separator: true, run: () => void copyViewerImage(item) }]
+        : []),
+      // 回転（ADR B-2 の R3）。ファイルの EXIF の向きだけを書き換える。対象は表紙の1枚——RAW+JPEG の組では
+      // JPEG（表紙は RAW でないほう）、連写では表紙のコマ。JPEG でなければ出さない。回せない理由（向きの情報が
+      // 無い・カードの上・クラウドだけ等）は Rust が名指しで返す。済んだ行は `media-updated` で届く
+      ...(item.is_jpeg
+        ? [
+            {
+              label: t.menuRotateRight,
+              // コピーが出ていれば同じまとまり、出ていなければここで区切る
+              separator: !canCopyToClipboard(item, fullFailedId),
+              run: () => rotate(item, "right"),
+            },
+            { label: t.menuRotateLeft, run: () => rotate(item, "left") },
+          ]
+        : []),
+      ...(item.is_jpeg && restorableId === item.id
+        ? [{ label: t.menuRotateRestore, run: () => rotate(item, "restore") }]
         : []),
       // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
       // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
@@ -6385,6 +6449,8 @@ export default function App() {
       markStack,
       fullFailedId,
       copyViewerImage,
+      rotate,
+      restorableId,
       googleOn,
       sendToGoogle,
       filter,

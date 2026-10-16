@@ -684,6 +684,8 @@ struct MediaItemDto {
     taken_subsec: bool,
     /// 機体の鍵（機種＋本体シリアル。0 は分からない。dev #32、[`pictkura_core::burst::body_key`]）
     body_key: i64,
+    /// JPEG か（右クリックの回転を出すか。回せるかの最後の判断は回すときに Rust がする。ADR B-2）
+    is_jpeg: bool,
 }
 
 impl From<pictkura_core::MediaRecord> for MediaItemDto {
@@ -717,6 +719,7 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             taken_at_known: r.taken_at_is_real(),
             taken_subsec: r.taken_subsec == Some(true),
             body_key: pictkura_core::burst::body_key(r.camera_id, r.body_serial.as_deref()),
+            is_jpeg: pictkura_core::jpeg::is_jpeg_path(&r.path),
         }
     }
 }
@@ -3237,6 +3240,101 @@ async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// 写真を回す・向きを元に戻す（ADR B-2 の R3。芯は [`pictkura_core::rotate`]）。
+///
+/// 下調べ（中身の要約）は錠の外で済ませ、**走査の錠は待たずに試す**——走査は数分続くことがあり、押した操作が
+/// 黙って待つより「調べています」と言うほうがよい。そのあと `Db` の錠を持ったまま書いて確定させる（見張りの反映は
+/// 同じ錠で待つので、書いた後・確定前の更新日時を見ない）。**錠の中でも1回は丸ごと読む**: 書く手で中身が
+/// 調べたときのままか確かめる（[`pictkura_core::rotate::apply`]）。大きな JPEG を遅い共有で回すと、その間は
+/// ほかの書き込みが待つ。
+///
+/// 済んだら新しい行を `media-updated` で配り（寸法の入れ替え・版の進みで絵の URL が変わる）、サムネイルを
+/// 先頭で作り直させる。返すのは「まだ元に戻せるか」
+#[tauri::command]
+async fn rotate_media(app: tauri::AppHandle, id: i64, turn: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use pictkura_core::rotate::{RotateError, Turn};
+        let turn = match turn.as_str() {
+            "right" => Turn::Right,
+            "left" => Turn::Left,
+            "restore" => Turn::Restore,
+            other => return Err(format!("unknown turn: {other}")),
+        };
+        let state = app.state::<AppState>();
+        let path = path_of(&state, id)?;
+        let to_code = |e: RotateError| -> String {
+            match e {
+                RotateError::NotJpeg | RotateError::NoOrientation => {
+                    errs::code("errRotateNoOrientation")
+                }
+                RotateError::XmpOrientation => errs::code("errRotateXmp"),
+                RotateError::CloudOnly => errs::code("errRotateCloudOnly"),
+                RotateError::CameraCard => errs::code("errRotateCameraCard"),
+                RotateError::NotReady => errs::code("errRotateNotReady"),
+                RotateError::Changed => errs::code("errRotateChanged"),
+                // 日時を進められない台（共有など）。やり直しても同じなので「書き込めない」と言い、記録に残す
+                RotateError::MtimeDidNotMove => {
+                    applog::note(&format!(
+                        "could not rotate {}: its modification time did not move forward",
+                        path.display()
+                    ));
+                    errs::code("errRotateWrite")
+                }
+                RotateError::NothingToRestore => errs::code("errRotateCannotRestore"),
+                RotateError::LeftChanged(why) => {
+                    applog::note(&format!("rotation left {} changed: {why}", path.display()));
+                    errs::code("errRotateLeftChanged")
+                }
+                // 消えた・動いた（見張りがまだ拾っていない）
+                RotateError::Io(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    errs::code("errNotFound")
+                }
+                RotateError::Io(e) => {
+                    applog::note(&format!("could not rotate {}: {e}", path.display()));
+                    errs::code("errRotateWrite")
+                }
+                RotateError::Db(e) => errs::from_err(e),
+            }
+        };
+        let prep = pictkura_core::rotate::prepare(&path).map_err(to_code)?;
+        // 壊れた錠（走査がパニックした）は使う——ほかの走査の錠の使い手（`lock_ok`）と同じ。
+        // 「調べています」のまま回せなくならないように（PR のゲート2）
+        let _scan_guard = match state.scan_lock.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return Err(errs::code("errRotateBusy")),
+        };
+        let now = pictkura_core::db::now_ms();
+        let (applied, record) = {
+            let mut db = lock_ok(&state.db);
+            let applied =
+                pictkura_core::rotate::apply(&mut db, id, turn, &prep, now).map_err(to_code)?;
+            (applied, db.get_by_id(id).ok().flatten())
+        };
+        if let Some(record) = record {
+            let _ = app.emit("media-updated", MediaItemDto::from(record));
+        }
+        state.thumbs.prioritize(&[id]);
+        Ok(applied.restorable)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// pictkura が回した写真で、まだ元の向きに戻せるか（右クリックの「向きを元に戻す」を出すか）
+#[tauri::command]
+fn rotation_restorable(state: tauri::State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state
+        .read_pool
+        .with(|db| -> Result<bool, pictkura_core::DbError> {
+            let Some(record) = db.get_by_id(id)? else {
+                return Ok(false);
+            };
+            pictkura_core::rotate::restorable(db, &record.path)
+        })
+        .map_err(errs::from_err)
 }
 
 /// 取り込み先フォルダ構成の選択肢1つ（パターンと、今日の日付での実例）。
@@ -7193,6 +7291,8 @@ pub fn run() {
             extract_suggested_path,
             save_display_image,
             copy_display_image,
+            rotate_media,
+            rotation_restorable,
             list_media_ids,
             list_media_ids_between,
             visible_media_ids,
