@@ -6,10 +6,13 @@
  *
  * 2つの OS で印刷の振る舞いが違う（spike の実測。`dev/adr.file-info-and-context-menu.md`）:
  *
- * - **Windows（WebView2）**: `window.print()` は**閉じるまで戻らない**。`@page { size }` が効くので、紙の向きを
- *   写真に合わせる。既定で日時・題・URL のヘッダーとフッターが付く——**`@page { margin: 0 }` で消える**
+ * - **Windows（WebView2）**: `window.print()` は**閉じるまで戻らない**。既定で日時・題・URL のヘッダーとフッターが
+ *   付く——**`@page { margin: 0 }` で消える**
  * - **macOS（WKWebView）**: Tauri が `window.print` を自分の命令に差し替えていて、**Promise は画面が開いている間に
- *   解ける**。`@page { size }` は効かない（紙は既定の縦のまま）ので、横長の写真は紙面の上で90度回して載せる
+ *   解ける**
+ *
+ * **紙の向きは決めない**（`@page { size }` を書かない）。macOS は聞かず、Windows は聞くが**利用者がプレビューで
+ * 縦横を切り替えても効かなくなる**（win の実測、2026-10-17）。紙は利用者が選び、写真のほうを紙に合わせて回す
  *
  * どちらも `afterprint` は画面を閉じたときに来る（キャンセルでも、保存でも）。
  */
@@ -56,8 +59,8 @@ function clearSheet(): void {
 /**
  * 紙面の CSS。`landscape` は写真が横長か。
  *
- * 紙の向きが写真と逆になったとき（macOS は `@page { size }` を聞かないので必ずこうなる。Windows でも利用者が
- * 印刷の画面で向きを変えればなる）は、写真を90度回して紙の長い辺に合わせる。
+ * 紙の向きが写真と逆のときは、写真を90度回して紙の長い辺に合わせる。印刷の画面で向きを変えるとプレビューは
+ * 組み直されるので、回すかどうかも追いかける。
  *
  * **紙の大きさは紙面（コンテナ）で測る。** WebKit の印刷では `vw`・`vh` と `@media (orientation)` が紙ではなく
  * **窓**の大きさで決まり、写真が回らず左上に寄って切れた（mac の実測、2026-10-17）。紙面を `height: 100%` で
@@ -66,7 +69,7 @@ function clearSheet(): void {
 export function sheetCss(fit: PrintFit, landscape: boolean): string {
   const other = landscape ? "portrait" : "landscape";
   return `
-@page { size: ${landscape ? "landscape" : "portrait"}; margin: 0; }
+@page { margin: 0; }
 #${SHEET_ID} { display: none; }
 @media print {
   html, body {

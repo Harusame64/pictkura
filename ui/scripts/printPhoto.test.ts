@@ -8,13 +8,14 @@ import { loadPrintFit, sheetCss } from "../src/printPhoto.ts";
 
 test("the page has no margin, so WebView2 prints no header or footer", () => {
   for (const landscape of [true, false]) {
-    assert.match(sheetCss("contain", landscape), /@page \{ size: \w+; margin: 0; \}/);
+    assert.match(sheetCss("contain", landscape), /@page \{ margin: 0; \}/);
   }
 });
 
-test("the paper is asked to face the way the photo does", () => {
-  assert.match(sheetCss("contain", true), /size: landscape;/);
-  assert.match(sheetCss("contain", false), /size: portrait;/);
+test("the paper's orientation is left to the user (a size pins it in WebView2's preview)", () => {
+  for (const landscape of [true, false]) {
+    assert.doesNotMatch(sheetCss("contain", landscape), /size:/);
+  }
 });
 
 test("the photo turns when the paper faces the other way, measured on the sheet, not the window", () => {

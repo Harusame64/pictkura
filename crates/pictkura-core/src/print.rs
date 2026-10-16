@@ -7,11 +7,13 @@
 //!
 //! だからここで**撮影情報を落とした絵**を作る。残すのは見た目に要るものだけ:
 //!
-//! - **向き**（EXIF の Orientation だけを持つ小さな APP1 を作り直す）。落とすと縦の写真が寝て刷られる
 //! - **色**（ICC プロファイル・Adobe の APP14）。落とすと Display P3 や Adobe RGB の写真がくすむ
+//! - **向き**は画素に当てて渡す（下）
 //!
-//! JPEG は**画素を作り直さない**（符号化されたデータをそのまま写す）ので、画質は落ちず、45MP でも
-//! 展開の費用を払わない。描けない形式（RAW・HEIC・TIFF）は表示と同じ道で作った JPEG を、同じ規則で
+//! 向きを持たない JPEG は**画素を作り直さない**（符号化されたデータをそのまま写す）ので、画質は落ちず、
+//! 45MP でも展開の費用を払わない。**向きを持つ JPEG は画素へ起こして立ててから詰め直す**——向きの EXIF を
+//! 付けたまま渡すと、WebView2 が自分で立てた画素を **PNG（Flate）で PDF に埋め込み**、6000×4000 で
+//! 25MB になった（win の実測、2026-10-17。向きの無いものは JPEG のまま 6MB）。描けない形式（RAW・HEIC・TIFF）は表示と同じ道で作った JPEG を、同じ規則で
 //! 洗う。そのほか（PNG・WebP・GIF・BMP・AVIF）は画素へ起こして JPEG に詰め直す——PNG の `eXIf`・
 //! WebP の `EXIF` を1つずつ見るより、作り直すほうが漏れない。
 
@@ -33,11 +35,14 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
         return None;
     }
     if crate::jpeg::is_jpeg_path(path) {
+        // 向きを持つものは立てて詰め直す（上の説明。PDF が4倍に膨らむ）
+        if (2..=8).contains(&crate::thumbs::read_exif_meta(path).orientation) {
+            return redraw(path);
+        }
         let bytes = std::fs::read(path).ok()?;
-        let orientation = crate::thumbs::read_exif_meta(path).orientation;
         // 区画の並びが崩れている（区画の間にゴミがある・中身が別の形式）ものも、ビューアは描けている。
         // 洗えなければ画素から作り直す（#213 のゲート2）
-        return strip_jpeg(&bytes, orientation).or_else(|| redraw(path));
+        return strip_jpeg(&bytes).or_else(|| redraw(path));
     }
     if crate::thumbs::needs_display_transcode(path) {
         // 作った側（`display_jpeg_full`）が向きを当て済み。**丸めない側**を使う——TIFF の上限は配信の都合
@@ -49,10 +54,10 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
 /// 表示の道で作った JPEG（向きは当て済み）を印刷用に洗う。呼ぶ側が表示のキャッシュに同じバイト列を持って
 /// いれば、それを渡せば作り直さずに済む（HEIC は1枚 0.6〜1秒）
 pub fn from_display_jpeg(jpeg: &[u8]) -> Option<Vec<u8>> {
-    strip_jpeg(jpeg, 1)
+    strip_jpeg(jpeg)
 }
 
-/// 画素へ起こして JPEG に詰め直す（白の上に置き、長辺を [`PRINT_MAX_EDGE`] に抑え、ICC を付け直す）
+/// 画素へ起こして JPEG に詰め直す（向きを当て、白の上に置き、長辺を [`PRINT_MAX_EDGE`] に抑え、ICC を付け直す）
 fn redraw(path: &Path) -> Option<Vec<u8>> {
     let mut img = image::DynamicImage::ImageRgba8(crate::extract::rgba(path)?);
     if img.width().max(img.height()) > PRINT_MAX_EDGE {
@@ -124,16 +129,13 @@ fn with_icc(jpeg: &[u8], icc: &[u8]) -> Vec<u8> {
 /// APP13）・APP15・COM。**EOI の後ろも捨てる**——MPF が指す2枚目の絵（深度・ゲインマップ）は
 /// そこに居て、それぞれが自分の EXIF を持つ。
 ///
-/// `orientation` が 2〜8 なら、それだけを持つ APP1 を SOI（と APP0）の直後に置く。
-///
 /// JPEG として読めない（SOI が無い・区画の長さがファイルの外を指す）なら `None`。
-pub fn strip_jpeg(bytes: &[u8], orientation: u8) -> Option<Vec<u8>> {
+pub fn strip_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
     if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
         return None;
     }
     let mut out = Vec::with_capacity(bytes.len());
     out.extend_from_slice(&[0xFF, 0xD8]);
-    let mut wrote_orientation = !(2..=8).contains(&orientation);
     let mut pos = 2;
     loop {
         // 区画の頭（0xFF の詰め物は飛ばす）
@@ -164,11 +166,6 @@ pub fn strip_jpeg(bytes: &[u8], orientation: u8) -> Option<Vec<u8>> {
         let end = pos + 2 + len;
         let segment = bytes.get(pos..end)?;
         let payload = &segment[4..];
-        // 向きは APP0 の後ろ（JFIF は先頭に居ることを求める）、最初のほかの区画の前に置く
-        if !wrote_orientation && marker != 0xE0 {
-            out.extend_from_slice(&orientation_app1(orientation));
-            wrote_orientation = true;
-        }
         if keeps(marker, payload) {
             out.extend_from_slice(segment);
         }
@@ -217,29 +214,29 @@ fn past_entropy_data(bytes: &[u8], mut pos: usize, out: &mut Vec<u8>) -> usize {
     pos
 }
 
-/// Orientation だけを持つ EXIF の APP1（リトルエンディアン、IFD0 に1項目）
-fn orientation_app1(orientation: u8) -> Vec<u8> {
-    let mut tiff = Vec::with_capacity(26);
-    tiff.extend_from_slice(b"II*\0");
-    tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 の位置
-    tiff.extend_from_slice(&1u16.to_le_bytes()); // 項目の数
-    tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation
-    tiff.extend_from_slice(&3u16.to_le_bytes()); // SHORT
-    tiff.extend_from_slice(&1u32.to_le_bytes()); // 個数
-    tiff.extend_from_slice(&u16::from(orientation).to_le_bytes());
-    tiff.extend_from_slice(&[0, 0]); // 4バイトの枠の残り
-    tiff.extend_from_slice(&0u32.to_le_bytes()); // 次の IFD は無い
-    let mut app1 = vec![0xFF, 0xE1];
-    let len = (2 + 6 + tiff.len()) as u16;
-    app1.extend_from_slice(&len.to_be_bytes());
-    app1.extend_from_slice(b"Exif\0\0");
-    app1.extend_from_slice(&tiff);
-    app1
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Orientation だけを持つ EXIF の APP1（リトルエンディアン、IFD0 に1項目）
+    fn orientation_app1(orientation: u8) -> Vec<u8> {
+        let mut tiff = Vec::with_capacity(26);
+        tiff.extend_from_slice(b"II*\0");
+        tiff.extend_from_slice(&8u32.to_le_bytes()); // IFD0 の位置
+        tiff.extend_from_slice(&1u16.to_le_bytes()); // 項目の数
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation
+        tiff.extend_from_slice(&3u16.to_le_bytes()); // SHORT
+        tiff.extend_from_slice(&1u32.to_le_bytes()); // 個数
+        tiff.extend_from_slice(&u16::from(orientation).to_le_bytes());
+        tiff.extend_from_slice(&[0, 0]); // 4バイトの枠の残り
+        tiff.extend_from_slice(&0u32.to_le_bytes()); // 次の IFD は無い
+        let mut app1 = vec![0xFF, 0xE1];
+        let len = (2 + 6 + tiff.len()) as u16;
+        app1.extend_from_slice(&len.to_be_bytes());
+        app1.extend_from_slice(b"Exif\0\0");
+        app1.extend_from_slice(&tiff);
+        app1
+    }
 
     fn segment(marker: u8, payload: &[u8]) -> Vec<u8> {
         let mut s = vec![0xFF, marker];
@@ -314,7 +311,7 @@ mod tests {
     fn the_shooting_data_goes_and_the_pixels_stay() {
         for progressive in [false, true] {
             let (jpeg, icc) = camera_jpeg(progressive);
-            let out = strip_jpeg(&jpeg, 1).unwrap();
+            let out = strip_jpeg(&jpeg).unwrap();
             assert!(!contains(&out, b"secret"), "progressive={progressive}");
             assert!(!contains(&out, b"Exif"), "向きが 1 なら APP1 は置かない");
             assert!(contains(&out, &segment(0xE2, &icc)), "ICC は区画ごと残る");
@@ -324,40 +321,41 @@ mod tests {
     }
 
     #[test]
-    fn the_orientation_comes_back_alone() {
-        let (jpeg, _) = camera_jpeg(false);
-        let out = strip_jpeg(&jpeg, 6).unwrap();
-        assert!(!contains(&out, b"secret"));
-        let app1 = orientation_app1(6);
-        assert!(contains(&out, &app1));
-        // APP0 の直後
-        let app0_end = 4 + usize::from(u16::from_be_bytes([out[4], out[5]]));
-        assert_eq!(out[2..4], [0xFF, 0xE0]);
-        assert_eq!(&out[app0_end..app0_end + app1.len()], &app1[..]);
-        // 読み手（`thumbs` が使う EXIF の読み手）が 6 と読む
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("o.jpg");
-        std::fs::write(&p, &out).unwrap();
-        assert_eq!(crate::thumbs::read_exif_meta(&p).orientation, 6);
-    }
-
-    #[test]
-    fn a_file_on_disk_comes_out_clean_with_its_orientation() {
+    fn a_turned_jpeg_is_redrawn_upright_and_clean() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("写真.JPG");
-        // 本物の EXIF（Orientation=8）を持つ JPEG を作り、後ろに秘密を足す
+        // Orientation=6（時計回りに90度回して見る）の EXIF と、秘密を持つ XMP
         let plain = plain_jpeg(false);
         let mut jpeg = plain[..2].to_vec();
-        let mut exif = orientation_app1(8);
-        // 同じ APP1 の後ろに GPS 相当の印を付けた別の APP1 を足す（読み手は最初の EXIF を見る）
-        jpeg.append(&mut exif);
+        jpeg.extend(orientation_app1(6));
         jpeg.extend(segment(0xE1, b"http://ns.adobe.com/xap/1.0/\0 secret"));
         jpeg.extend_from_slice(&plain[2..]);
         std::fs::write(&p, &jpeg).unwrap();
         let out = print_jpeg(&p).unwrap();
         assert!(!contains(&out, b"secret"));
-        assert!(contains(&out, &orientation_app1(8)));
-        assert_eq!(decoded(&out), decoded(&jpeg));
+        assert!(
+            !contains(&out, b"Exif"),
+            "向きは画素に当てたので EXIF は要らない"
+        );
+        let rgb = decoded(&out);
+        assert_eq!(rgb.dimensions(), (48, 64), "立っている");
+        // 90度右に回すと、左上には元の左下（x=0, y=47 → 0, 235, 141）が来る
+        let [r, g, b] = rgb.get_pixel(0, 0).0;
+        assert!(
+            r < 25 && g > 210 && (120..165).contains(&b),
+            "{:?}",
+            (r, g, b)
+        );
+    }
+
+    #[test]
+    fn an_upright_jpeg_is_not_redrawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.jpg");
+        let (jpeg, _) = camera_jpeg(false);
+        std::fs::write(&p, &jpeg).unwrap();
+        // 洗っただけ（符号化されたデータはそのまま）なので、洗った結果と1バイトも違わない
+        assert_eq!(print_jpeg(&p).unwrap(), strip_jpeg(&jpeg).unwrap());
     }
 
     #[test]
@@ -411,7 +409,7 @@ mod tests {
         let mut jpeg = plain[..2].to_vec();
         jpeg.extend_from_slice(&[0x00, 0x00, 0x00]);
         jpeg.extend_from_slice(&plain[2..]);
-        assert_eq!(strip_jpeg(&jpeg, 1), None);
+        assert_eq!(strip_jpeg(&jpeg), None);
         std::fs::write(&p, &jpeg).unwrap();
         // 作り直す側の解読器（`image`）はゴミを読み飛ばす
         let out = print_jpeg(&p).unwrap();
@@ -431,10 +429,10 @@ mod tests {
 
     #[test]
     fn what_cannot_be_printed_says_none() {
-        assert_eq!(strip_jpeg(b"not a jpeg", 1), None);
+        assert_eq!(strip_jpeg(b"not a jpeg"), None);
         // 区画の長さがファイルの外を指す
         assert_eq!(
-            strip_jpeg(&[0xFF, 0xD8, 0xFF, 0xE1, 0x10, 0x00, 1, 2], 1),
+            strip_jpeg(&[0xFF, 0xD8, 0xFF, 0xE1, 0x10, 0x00, 1, 2]),
             None
         );
         let dir = tempfile::tempdir().unwrap();
@@ -450,7 +448,7 @@ mod tests {
     fn a_truncated_scan_is_kept_as_far_as_it_goes() {
         let plain = plain_jpeg(false);
         let cut = &plain[..plain.len() - 40];
-        let out = strip_jpeg(cut, 1).unwrap();
+        let out = strip_jpeg(cut).unwrap();
         assert_eq!(
             out.len(),
             cut.len(),
