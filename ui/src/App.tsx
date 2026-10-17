@@ -7931,17 +7931,21 @@ export default function App() {
             (viewerItem.favorite ||
               viewerItem.picked ||
               rejected.has(viewerItem.id) ||
-              (playingVideo && videoSilent)) && (
+              (playingVideo && videoInfo && videoSilent)) && (
               <div className="viewer-badges">
                 {/* 音が出ない動画の印（dev #54）。覚えた消音で始まると、操作の帯が隠れている間は
                     気づけないので。押すと音を出す（音量 0 なら半分へ） */}
-                {playingVideo && videoSilent && (
+                {/* `videoInfo` が来るまでは `<video>` が無い（読み込み中の字だけ）——押しても効かない */}
+                {playingVideo && videoInfo && videoSilent && (
                   <button
                     className="viewer-badge muted"
                     title={t.viewerMutedHint}
                     aria-label={t.viewerMutedHint}
                     onClick={(e) => {
+                      // 地へは届けないので、動きを終わらせた押下の「次のクリックを飲む」印もここで外す
+                      // （ゲート2。外さないと、次に地を押して閉じようとしたクリックが飲まれる）
                       e.stopPropagation();
+                      swallowClickRef.current = false;
                       const video = videoRef.current;
                       if (!video) return;
                       video.muted = false;

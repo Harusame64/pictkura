@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isSilent, parseVideoVolume } from "../src/videoVolume.ts";
+import { isSilent, loadVideoVolume, parseVideoVolume, saveVideoVolume } from "../src/videoVolume.ts";
 
 test("a saved volume and mute come back as saved", () => {
   assert.deepEqual(parseVideoVolume('{"volume":0.3,"muted":true}'), { volume: 0.3, muted: true });
@@ -35,4 +35,13 @@ test("muted, or volume 0, counts as silent (the viewer shows a mark)", () => {
   assert.equal(isSilent({ volume: 0.5, muted: true }), true);
   assert.equal(isSilent({ volume: 0, muted: false }), true);
   assert.equal(isSilent({ volume: 0.5, muted: false }), false);
+});
+
+test("a change that could not be stored still holds for the next video in this window", () => {
+  // node には localStorage が無い＝書き込みも読み出しも失敗する窓と同じ
+  saveVideoVolume({ volume: 0.2, muted: true });
+  assert.deepEqual(loadVideoVolume(), { volume: 0.2, muted: true });
+  // 返した値をいじっても、覚えた値は変わらない
+  loadVideoVolume().volume = 1;
+  assert.equal(loadVideoVolume().volume, 0.2);
 });
