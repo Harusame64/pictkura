@@ -3770,10 +3770,17 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
 
 /// 指定ルートだけを走査して差分反映する（取り込み直後用）。
 /// 走査しなかったルートはok_rootsに入らないため、その配下のレコードは削除されない。
-fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, String> {
+/// `since` は呼ぶ側が控えた「これより後は新しい写真」の境（取り込みならコピーを始める前）。無ければここで控える
+fn scan_and_apply_root(
+    state: &AppState,
+    root: &Path,
+    since: Option<i64>,
+) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
-    // 走査の前の最大の id。これより後に入った行だけを「新しく読む写真」と数える（dev #64）
-    let since = lock_ok(&state.db).max_media_id().ok();
+    // 走査の前の最大の id。これより後に入った行だけを「新しく読む写真」と数える（dev #64）。**取り込みはコピーの前の
+    // 境を使う**——取り込み先が既にライブラリなら、見張りがコピーの途中で行を足して列にも積むので、ここで控えると
+    // それらを数え漏らす（PR の codex）
+    let since = since.or_else(|| lock_ok(&state.db).max_media_id().ok());
     let _running = ScanRunning::new(state);
     let config = lock_ok(&state.config).clone();
     let scan = pictkura_core::LibraryScan {
@@ -5351,6 +5358,7 @@ fn finish_import(
     source: PathBuf,
     dest: Option<PathBuf>,
     copied: &[PathBuf],
+    since: Option<i64>,
 ) -> Result<Option<GooglePlacedDto>, String> {
     update_config(state, |c| {
         c.import.last_source_dir = Some(source);
@@ -5364,7 +5372,7 @@ fn finish_import(
     // コピー先ルートだけを走査してグリッドへ反映（全ルート再走査を避ける）
     if let Some(dest) = &dest {
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
-        let sync_stats = scan_and_apply_root(state, dest)?;
+        let sync_stats = scan_and_apply_root(state, dest, since)?;
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
         let placed = place_google_links(state, dest, copied);
         // 送り出しは走査の知らせより後に動く（保留の置き直し・突き合わせ・この回の分）。
@@ -5655,6 +5663,9 @@ async fn import_from_folder(
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // コピーを始める前の最大の id。ここより後に入った行を、新しく読む写真と数える（dev #64。見張りがコピーの途中で
+        // 行を足しても数え漏らさない）
+        let since = lock_ok(&state.db).max_media_id().ok();
         let source = PathBuf::from(&source);
         let config = lock_ok(&state.config).clone();
         // コピー先はこのスナップショットのものを最後まで使う
@@ -5669,7 +5680,7 @@ async fn import_from_folder(
             })
             .map_err(errs::from_err)?;
 
-        let google = finish_import(&app, &state, source, dest, &stats.copied_paths)?;
+        let google = finish_import(&app, &state, source, dest, &stats.copied_paths, since)?;
 
         Ok(ImportStatsDto {
             copied: stats.copied,
@@ -5890,6 +5901,9 @@ async fn import_paths(
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // コピーを始める前の最大の id。ここより後に入った行を、新しく読む写真と数える（dev #64。見張りがコピーの途中で
+        // 行を足しても数え漏らさない）
+        let since = lock_ok(&state.db).max_media_id().ok();
         let config = lock_ok(&state.config).clone();
         let dest = config.routing.destination.clone();
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -5917,6 +5931,7 @@ async fn import_paths(
             PathBuf::from(&source_dir),
             dest,
             &stats.copied_paths,
+            since,
         )?;
         Ok(ImportStatsDto {
             copied: stats.copied,
