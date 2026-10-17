@@ -4245,8 +4245,11 @@ export default function App() {
    * **inert** にする——UI Automation や読み上げに後ろの「選択」ボタンが並び、手前の幕と区別が付かなかった
    * （pictkura-dev #65 の基準線、win の実測）。右クリックのメニューは幕ではないので含めない
    */
-  const backgroundInert =
-    viewer !== null ||
+  /**
+   * ビューアより手前に出る幕（ビューアの上でも開く）。`curtainRef`（キーを幕へ渡すか）もこれを使う——幕の一覧を
+   * 何か所にも写すと、足したときに片方だけ漏れる（ゲート2）
+   */
+  const curtainUp =
     wizardOpen ||
     settingsOpen ||
     shortcutsOpen ||
@@ -4255,8 +4258,30 @@ export default function App() {
     infoFor !== null ||
     printFor !== null ||
     printSheetFor !== null;
-  /** React 18 は `inert` を知らないので、文字列の属性として渡す（無いときは付けない） */
-  const inertProps = (backgroundInert ? { inert: "" } : {}) as React.HTMLAttributes<HTMLElement>;
+  const backgroundInert = viewer !== null || curtainUp;
+  /**
+   * React 18 は `inert` を知らないので、文字列の属性として渡す（無いときは付けない）。**React 19 に上げたら**
+   * `inert={真偽}` に替える——19 は `inert` を真偽で読むので、空文字は「付けない」になって黙って効かなくなる
+   */
+  const inertWhen = (on: boolean) =>
+    (on ? { inert: "" } : {}) as React.HTMLAttributes<HTMLElement>;
+  const inertProps = inertWhen(backgroundInert);
+  // 幕を開いたときにフォーカスを持っていた後ろの要素（inert にするとフォーカスが外れる）。閉じたら戻す——戻さないと
+  // フォーカスが <body> へ落ち、Tab が先頭からになる（ゲート2）
+  const focusBeforeCurtainRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (backgroundInert) {
+      if (focusBeforeCurtainRef.current === null) {
+        const el = document.activeElement;
+        focusBeforeCurtainRef.current =
+          el instanceof HTMLElement && el !== document.body ? el : null;
+      }
+      return;
+    }
+    const el = focusBeforeCurtainRef.current;
+    focusBeforeCurtainRef.current = null;
+    if (el?.isConnected && !el.closest("[inert]")) el.focus({ preventScroll: true });
+  }, [backgroundInert]);
 
   /**
    * グリッドとビューアの間の動き（dev #52）。開くときはタイルから、閉じるときはいまの写真のタイルへ。
@@ -6147,17 +6172,7 @@ export default function App() {
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
   useLayoutEffect(() => {
-    curtainRef.current =
-      rejectGate !== null ||
-      wizardOpen ||
-      settingsOpen ||
-      shortcutsOpen ||
-      paletteOpen ||
-      menu !== null ||
-      calMenu !== null ||
-      infoFor !== null ||
-      printFor !== null ||
-      printSheetFor !== null;
+    curtainRef.current = curtainUp || menu !== null || calMenu !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -8257,9 +8272,10 @@ export default function App() {
             (viewerIdle ? " idle" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
-          // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真
+          // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が
+          // 出たら、ビューアも後ろとして inert にする
+          {...inertWhen(curtainUp)}
           role="dialog"
-          aria-modal="true"
           aria-label={viewerItem?.file_name ?? t.appName}
           style={
             {
@@ -9172,7 +9188,6 @@ export default function App() {
           <div
             className="reject-gate"
             role="dialog"
-            aria-modal="true"
             aria-label={t.rejectGateTitle(rejected.size)}
             onClick={(e) => e.stopPropagation()}
           >
@@ -9250,7 +9265,6 @@ export default function App() {
           <div
             className="shortcuts"
             role="dialog"
-            aria-modal="true"
             aria-label={t.shortcutsTitle}
             onClick={(e) => e.stopPropagation()}
           >

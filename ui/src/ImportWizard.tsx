@@ -438,6 +438,7 @@ export default function ImportWizard({
     onClose();
   });
 
+  const titleId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
   if (!isOpen) return null;
 
   const toggle = (path: string) => {
@@ -660,13 +661,11 @@ export default function ImportWizard({
               : t.wizardNoImages
           : null;
 
-  const titleId = useId();
   return (
     <div className="palette-backdrop" onClick={() => !busy && onClose()}>
       <div
         className="wizard"
         role="dialog"
-        aria-modal="true"
         aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >

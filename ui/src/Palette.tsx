@@ -147,6 +147,7 @@ export default function Palette({
       ?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
+  const listId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
   if (!open) return null;
 
   const run = (item: PaletteItem | undefined) => {
@@ -155,14 +156,12 @@ export default function Palette({
     item.run();
   };
 
-  const listId = useId();
   let lastGroup = "";
   return (
     <div className="palette-backdrop" onClick={onClose}>
       <div
         className="palette"
         role="dialog"
-        aria-modal="true"
         aria-label={t.commandPalette}
         onClick={(e) => e.stopPropagation()}
       >

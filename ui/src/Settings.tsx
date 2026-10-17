@@ -288,6 +288,7 @@ export default function Settings({
     if (!open) setGoogleError(null);
   }, [open]);
 
+  const titleId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
   if (!open) return null;
 
   /** 送り出しの設定を1つ変える。断られたら理由をこの節に出す */
@@ -337,14 +338,12 @@ export default function Settings({
     }
   };
 
-  const titleId = useId();
   return (
     <div className="palette-backdrop" onClick={closeDialog}>
       <div
         className="settings"
         // 名前のある窓として見せる（UI Automation の Window。pictkura-dev #65）
         role="dialog"
-        aria-modal="true"
         aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
       >

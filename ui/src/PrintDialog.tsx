@@ -61,7 +61,6 @@ export function PrintDialog({
       <div
         className="file-info-dialog print-dialog"
         role="dialog"
-        aria-modal="true"
         aria-label={t.printTitle}
         onClick={(e) => e.stopPropagation()}
       >
