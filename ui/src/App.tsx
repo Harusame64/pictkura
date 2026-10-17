@@ -7267,6 +7267,7 @@ export default function App() {
           <button
             className="select-bar-close"
             title={t.clearSelection}
+            aria-label={t.clearSelection}
             onClick={clearSelection}
           >
             ✕
@@ -7424,6 +7425,7 @@ export default function App() {
             <button
               className="search-clear"
               title={t.searchClear}
+              aria-label={t.searchClear}
               onClick={() => setQueryInput("")}
             >
               ✕
@@ -7735,6 +7737,7 @@ export default function App() {
                 <button
                   className="root-remove"
                   title={t.removeRoot(r)}
+                  aria-label={t.removeRoot(r)}
                   disabled={busy}
                   onClick={() => onRemoveRoot(r)}
                 >
@@ -8096,7 +8099,7 @@ export default function App() {
                                 </span>
                               )}
                               {cell.files.some((f) => f.favorite) && (
-                                <span className="cell-fav">★</span>
+                                <span className="cell-fav" aria-hidden>★</span>
                               )}
                               {/* 重ねたタイルの印（dev #32）。2026-09-26 の利用者の選択「E」で、これが重ねの唯一の目印（紙は描かない）。
                                   `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので両方出ることがある。
@@ -8730,6 +8733,9 @@ export default function App() {
                     (rejected.has(item.id) ? " rejected" : "")
                   }
                   title={item.file_name}
+                  // 名前はファイル名（中の ⚑・★・✕ の記号を名前にしない。pictkura-dev #65）
+                  aria-label={item.file_name}
+                  aria-current={offset === 0 ? "true" : undefined}
                   onClick={() => {
                     // 帯で選んだ絵も、押した側から流れてくる（今の絵を押したときは名乗らない）
                     if (offset !== 0) markNav(offset > 0 ? 1 : -1, false);
@@ -8741,12 +8747,12 @@ export default function App() {
                   ) : (
                     <span className="strip-blank" />
                   )}
-                  {item.picked && <span className="strip-flag">⚑</span>}
-                  {item.favorite && <span className="strip-fav">★</span>}
+                  {item.picked && <span className="strip-flag" aria-hidden>⚑</span>}
+                  {item.favorite && <span className="strip-fav" aria-hidden>★</span>}
                   {/* ✕の足あと（0.2 ③）。ここに残るので、連打で巻き添えに
                       したときも数枚のうちに気付ける */}
                   {rejected.has(item.id) && (
-                    <span className="strip-reject">✕</span>
+                    <span className="strip-reject" aria-hidden>✕</span>
                   )}
                 </button>
               ))}
@@ -8868,6 +8874,8 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite}
+                aria-label={t.viewerFavorite}
+                aria-pressed={viewerItem.favorite}
                 onClick={() => favoriteViewer(viewerItem)}
               >
                 {viewerItem.favorite ? "★" : "☆"}
@@ -8877,6 +8885,8 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick}
+                aria-label={t.viewerPick}
+                aria-pressed={viewerItem.picked}
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
                 ⚑
@@ -8891,6 +8901,8 @@ export default function App() {
                   (rejected.has(viewerItem.id) ? " rejecting" : "")
                 }
                 title={t.viewerReject}
+                aria-label={t.viewerReject}
+                aria-pressed={rejected.has(viewerItem.id)}
                 onClick={() => rejectTool(viewerItem)}
               >
                 ✕
@@ -8899,6 +8911,8 @@ export default function App() {
             <button
               className={"viewer-tool" + (showExif ? " on" : "")}
               title={t.viewerExif}
+              aria-label={t.viewerExif}
+              aria-pressed={showExif}
               onClick={() => setShowExif((s) => !s)}
             >
               ℹ
@@ -8906,6 +8920,8 @@ export default function App() {
             <button
               className={"viewer-tool" + (playing ? " on" : "")}
               title={t.viewerSlideshow}
+              aria-label={t.viewerSlideshow}
+              aria-pressed={playing}
               onClick={() => setPlaying((p) => !p)}
             >
               {playing ? "⏸" : "▶"}
@@ -8918,6 +8934,7 @@ export default function App() {
               <button
                 className="viewer-tool"
                 title={t.extractCopy(modKey("C"))}
+                aria-label={t.extractCopy(modKey("C"))}
                 disabled={extracting}
                 onClick={() => void copyViewerImage(viewerItem)}
               >
@@ -8928,6 +8945,7 @@ export default function App() {
               <button
                 className="viewer-tool"
                 title={t.extractSave(modKey("S"))}
+                aria-label={t.extractSave(modKey("S"))}
                 disabled={extracting}
                 onClick={() => void saveViewerImage(viewerItem)}
               >
@@ -8938,6 +8956,7 @@ export default function App() {
               <button
                 className="viewer-tool"
                 title={t.menuReveal}
+                aria-label={t.menuReveal}
                 onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
               >
                 📁
@@ -8947,6 +8966,7 @@ export default function App() {
               <button
                 className="viewer-tool danger"
                 title={t.menuDelete}
+                aria-label={t.menuDelete}
                 onClick={() => onDelete(viewerTargets(viewerItem))}
               >
                 🗑
@@ -8955,6 +8975,7 @@ export default function App() {
             <button
               className="viewer-tool"
               title={t.shortcutsTitle}
+              aria-label={t.shortcutsTitle}
               onClick={() => setShortcutsOpen(true)}
             >
               ?
@@ -8962,6 +8983,8 @@ export default function App() {
             <button
               className={"viewer-tool" + (isFullscreen ? " on" : "")}
               title={t.viewerFullscreen}
+              aria-label={t.viewerFullscreen}
+              aria-pressed={isFullscreen}
               onClick={toggleFullscreen}
             >
               {isFullscreen ? "⤡" : "⛶"}
@@ -8969,6 +8992,7 @@ export default function App() {
             <button
               className="viewer-tool"
               title={t.viewerClose}
+              aria-label={t.viewerClose}
               onClick={requestCloseViewer}
             >
               ✕
@@ -8978,6 +9002,7 @@ export default function App() {
             <button
               className="viewer-nav prev"
               title={t.viewerPrev}
+              aria-label={t.viewerPrev}
               onClick={(e) => {
                 e.stopPropagation();
                 moveViewer(-1);
@@ -8990,6 +9015,7 @@ export default function App() {
             <button
               className="viewer-nav next"
               title={t.viewerNext}
+              aria-label={t.viewerNext}
               onClick={(e) => {
                 e.stopPropagation();
                 moveViewer(1);
@@ -9213,6 +9239,7 @@ export default function App() {
               <button
                 className="shortcuts-close"
                 title={t.close}
+                aria-label={t.close}
                 onClick={() => setShortcutsOpen(false)}
               >
                 ✕

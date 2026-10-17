@@ -591,6 +591,9 @@ export default function ImportWizard({
           <button
             className="wiz-twisty"
             disabled={!node.hasSubdirs}
+            // 名前はフォルダ名、開閉は aria-expanded で言う（記号の ▸▾ を名前にしない。pictkura-dev #65）
+            aria-label={node.name}
+            aria-expanded={node.hasSubdirs ? isOpenNode : undefined}
             onClick={(e) => {
               e.stopPropagation();
               setExpanded((prev) => {
@@ -665,6 +668,7 @@ export default function ImportWizard({
             onClick={onClose}
             disabled={busy}
             title={t.close}
+            aria-label={t.close}
           >
             ✕
           </button>

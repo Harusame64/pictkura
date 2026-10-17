@@ -342,7 +342,7 @@ export default function Settings({
       <div className="settings" onClick={(e) => e.stopPropagation()}>
         <div className="settings-head">
           <h2>{t.settingsTitle}</h2>
-          <button className="settings-close" onClick={closeDialog} title={t.close}>
+          <button className="settings-close" onClick={closeDialog} title={t.close} aria-label={t.close}>
             ✕
           </button>
         </div>
@@ -874,6 +874,7 @@ export default function Settings({
                         .catch((e) => onError(errText(e)))
                     }
                     title={t.settingsForgetEditor}
+                    aria-label={t.settingsForgetEditor}
                   >
                     ✕
                   </button>
