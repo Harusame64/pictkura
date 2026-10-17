@@ -29,6 +29,7 @@ import { printPhoto, type PrintFit } from "./printPhoto";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
+import { quitAfterFileOp } from "./quitAfterFileOp";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -1115,16 +1116,23 @@ export default function App() {
           quitAfterTrashRef.current = false;
           const pastGate = quitPastGateRef.current;
           quitPastGateRef.current = false;
-          const goneIds = new Set(gone);
-          if (!ok) {
-            // 閉じない。何が起きたかを読める場所に残す（もう一度×を押せば、そのときは通る）
-          } else if (!pastGate && [...rejectedRef.current.keys()].some((id) => !goneIds.has(id))) {
-            setRejectGate({ closeAfter: true, quitAfter: true });
-          } else {
-            // 窓を壊す道（`finishGate` の quitAfter と同じ）。待たせていた取り込みは捨てる
-            pendingWizardRef.current = null;
-            void getCurrentWindow().destroy();
-          }
+          // **呼んだ側の後片付けの後で決める**——後片付けがビューアを閉じると、その副作用が印と関所を空にし、ここで
+          // 出した関所ごと×が消えた（ゲート2）。次の描画まで待ち、そのときの印で決める
+          window.setTimeout(() => {
+            const next = quitAfterFileOp({
+              ok,
+              pastGate,
+              marks: rejectedRef.current.keys(),
+              gone: new Set(gone),
+            });
+            if (next === "gate") setRejectGate({ closeAfter: true, quitAfter: true });
+            else if (next === "destroy") {
+              // 窓を壊す道（`finishGate` の quitAfter と同じ）。待たせていた取り込みは捨てる
+              pendingWizardRef.current = null;
+              void getCurrentWindow().destroy();
+            }
+            // "stay": 閉じない。結果の文を読める場所に残す（関所の削除と同じ）
+          }, 0);
         }
       }
     },
@@ -5960,6 +5968,11 @@ export default function App() {
       // 一覧からのまとめて削除と**同じ鍵**を使う。1枚と数千枚が同時に走ると、
       // 進捗イベントもステータスも混ざる（ゲート1の指摘）
       if (deletingRef.current) return;
+      // 別の削除・移動が走っていれば、確かめる前に断る（同時に1本だけ。確かめさせてから断らない）
+      if (fileOpRef.current) {
+        fail(t.fileOpBusy);
+        return;
+      }
       deletingRef.current = true;
       try {
         // 重ねのタイルは1枚に見えて複数ファイル——数を言う（dev #32）
@@ -6033,7 +6046,7 @@ export default function App() {
         deletingRef.current = false;
       }
     },
-    [refreshSummary, confirmAction, runFileOp, unmark],
+    [refreshSummary, confirmAction, runFileOp, unmark, fail],
   );
 
   /**
@@ -6198,6 +6211,10 @@ export default function App() {
    */
   const onBulkDelete = useCallback(async () => {
     if (deletingRef.current) return;
+    if (fileOpRef.current) {
+      fail(t.fileOpBusy);
+      return;
+    }
     deletingRef.current = true;
     setBusy(true);
     try {
@@ -6256,6 +6273,7 @@ export default function App() {
     confirmAction,
     runFileOp,
     unmark,
+    fail,
   ]);
 
   /**
@@ -6385,6 +6403,10 @@ export default function App() {
       // `busy` の反映（次のレンダー）を待つので、続けて2回押されると
       // 2本ともダイアログまで進んでしまう。refなら即座に効く
       if (exportingRef.current) return;
+      if (fileOpRef.current) {
+        fail(t.fileOpBusy);
+        return;
+      }
       exportingRef.current = true;
       setBusy(true);
       try {
@@ -6407,6 +6429,9 @@ export default function App() {
         });
         if (typeof dest !== "string") return;
         exportKindRef.current = moveFiles ? "move" : "copy";
+        // 移動で「全部が元の場所から無くなった」か。×の畳み方とボツの印の片付けが、同じ式で決める
+        const movedAll = (r: { moved: number; missing: number }) =>
+          r.moved + r.missing === ids.length;
         let st;
         try {
           // 転んだら「書き出し中…」「移動中…」を残さない（dev #68。削除と同じ穴）
@@ -6417,7 +6442,7 @@ export default function App() {
             () => withProgressLine(exportLineRef, setStatus, () => exportMedia(ids, dest, moveFiles)),
             (r) =>
               moveFiles
-                ? { ok: r.moved + r.missing === ids.length, gone: ids }
+                ? { ok: movedAll(r), gone: movedAll(r) ? ids : [] }
                 : { ok: r.failed === 0, gone: [] },
           );
           if (done === null) return;
@@ -6435,7 +6460,7 @@ export default function App() {
           clearSelection();
           // 全部が元の場所から無くなったなら、ボツの印からも外す（削除と同じ）。一部が残った回は、どれが残ったかが
           // 返事に無いので触らない
-          if (st.moved + st.missing === ids.length) unmark(new Set(ids));
+          if (movedAll(st)) unmark(new Set(ids));
           await reloadAll();
         }
       } catch (e) {
@@ -6451,7 +6476,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [visibleSelection, clearSelection, reloadAll, confirmAction, runFileOp, unmark],
+    [visibleSelection, clearSelection, reloadAll, confirmAction, runFileOp, unmark, fail],
   );
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
