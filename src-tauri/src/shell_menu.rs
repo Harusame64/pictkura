@@ -12,8 +12,9 @@
 //!   入口を自分から増やさない（ADR C で見送り）
 //! - **削除と回転はシェルの項目を外す**（[`OWN_VERBS`]）。pictkura の右クリックに同じ項目が在り、そちらは
 //!   付属の `.xmp` も一緒に捨て、回した記録（取り込みの「済」の控え）も残す。シェルのものはどちらもしない
-//! - `QueryContextMenu` は、間が空くと毎回 1 秒ほどかかる（拡張を読み直す）。待ちの合図は画面の側で出す。
-//!   その間と `InvokeCommand` の間は UI の糸が止まる。**別の糸へは移さない**——メニューの持ち主の窓と
+//! - `QueryContextMenu` は、間が空くと毎回 1 秒ほどかかる（拡張を読み直す）。**待ちの合図は足さない**——
+//!   その間は UI の糸が止まるので OS が処理中のカーソルを出し、メニューが出ると戻る。CSS で足した合図は
+//!   閉じた後もマウスを動かすまで残った（win の実測、#214）。その間と `InvokeCommand` の間は UI の糸が止まる。**別の糸へは移さない**——メニューの持ち主の窓と
 //!   `IContextMenu` はこの糸のもので、走らせる側の実測は 0〜245 ms（プロパティ・削除）。重い処理（圧縮等）は
 //!   シェルが自分の糸へ回す
 #![cfg(windows)]
@@ -31,9 +32,10 @@ use windows::Win32::UI::Shell::{
     CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, GCS_VERBW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreatePopupMenu, DeleteMenu, DestroyMenu, GetMenuItemCount, GetMenuItemID, SetForegroundWindow,
-    TrackPopupMenuEx, HMENU, MF_BYCOMMAND, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+    CreatePopupMenu, DeleteMenu, DestroyMenu, GetMenuItemCount, GetMenuItemID, GetMenuItemInfoW,
+    SetForegroundWindow, TrackPopupMenuEx, HMENU, MENUITEMINFOW, MFT_SEPARATOR, MF_BYCOMMAND,
+    MF_BYPOSITION, MIIM_FTYPE, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
+    WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
 };
 
 /// シェルに渡す番号の幅。0 は「何も選ばなかった」なので 1 から
@@ -76,6 +78,25 @@ unsafe fn drop_own_verbs(cm: &IContextMenu, menu: HMENU) {
             let _ = unsafe { DeleteMenu(menu, id, MF_BYCOMMAND) };
         }
     }
+    // 外した項目の前後の区切りが2本続く（「右に回転」「左に回転」の2行は区切りに挟まれている。win の実測）。
+    // 続いた区切りと、端に残った区切りを外す
+    let is_separator = |pos: i32| {
+        let mut info = MENUITEMINFOW {
+            cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+            fMask: MIIM_FTYPE,
+            ..Default::default()
+        };
+        unsafe { GetMenuItemInfoW(menu, pos as u32, true, &mut info) }.is_ok()
+            && info.fType.contains(MFT_SEPARATOR)
+    };
+    let mut pos = unsafe { GetMenuItemCount(Some(menu)) } - 1;
+    while pos >= 0 {
+        let last = unsafe { GetMenuItemCount(Some(menu)) } - 1;
+        if is_separator(pos) && (pos == 0 || pos == last || is_separator(pos - 1)) {
+            let _ = unsafe { DeleteMenu(menu, pos as u32, MF_BYPOSITION) };
+        }
+        pos -= 1;
+    }
 }
 
 thread_local! {
@@ -116,18 +137,10 @@ unsafe extern "system" fn forward(
 }
 
 /// `paths` のメニューを画面の `at`（物理ピクセル）に出し、選ばれた項目を走らせる。
-/// **UI の糸で呼ぶこと。** 閉じるまで戻らない。`paths` は同じフォルダに在ること（シェルの制約）。
-///
-/// `shown` はメニューを組み終えて出す直前に呼ぶ（組むのに1秒ほどかかることがあり、その間の合図を
-/// 画面の側で消すため）。出せなかったときは呼ばない
-pub fn show(
-    hwnd: HWND,
-    paths: &[PathBuf],
-    at: (i32, i32),
-    shown: impl FnOnce(),
-) -> Result<(), String> {
+/// **UI の糸で呼ぶこと。** 閉じるまで戻らない。`paths` は同じフォルダに在ること（シェルの制約）
+pub fn show(hwnd: HWND, paths: &[PathBuf], at: (i32, i32)) -> Result<(), String> {
     let mut abs: Vec<*mut ITEMIDLIST> = Vec::with_capacity(paths.len());
-    let r = unsafe { show_inner(hwnd, paths, at, shown, &mut abs) };
+    let r = unsafe { show_inner(hwnd, paths, at, &mut abs) };
     for p in abs {
         unsafe { ILFree(Some(p)) };
     }
@@ -138,7 +151,6 @@ unsafe fn show_inner(
     hwnd: HWND,
     paths: &[PathBuf],
     at: (i32, i32),
-    shown: impl FnOnce(),
     abs: &mut Vec<*mut ITEMIDLIST>,
 ) -> Result<(), String> {
     for p in paths {
@@ -156,7 +168,7 @@ unsafe fn show_inner(
     let cm: IContextMenu =
         unsafe { folder.GetUIObjectOf(hwnd, &children, None) }.map_err(|e| e.to_string())?;
     let menu = unsafe { CreatePopupMenu() }.map_err(|e| e.to_string())?;
-    let r = (move || {
+    let r = (|| {
         unsafe { cm.QueryContextMenu(menu, 0, FIRST, LAST, CMF_NORMAL) }
             .ok()
             .map_err(|e| e.to_string())?;
@@ -165,7 +177,6 @@ unsafe fn show_inner(
         let _ = unsafe { SetWindowSubclass(hwnd, Some(forward), SUBCLASS_ID, 0) };
         // 前面に居ないと、外をクリックしてもメニューが閉じない（TrackPopupMenu の決まり）
         let _ = unsafe { SetForegroundWindow(hwnd) };
-        shown();
         let cmd = unsafe {
             TrackPopupMenuEx(
                 menu,

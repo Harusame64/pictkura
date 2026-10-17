@@ -791,7 +791,7 @@ export const revealInFolder = (id: number) =>
   invoke<void>("reveal_in_folder", { id });
 /**
  * エクスプローラーと同じ右クリックのメニューを、窓の中の `x`・`y` に出す（Windows だけ。ADR B-4）。
- * 閉じたら解ける。組み終えて出す直前に `shell-menu-shown` が来る
+ * 閉じたら解ける
  */
 export const showShellMenu = (ids: number[], x: number, y: number) =>
   invoke<void>("show_shell_menu", { ids, x, y });

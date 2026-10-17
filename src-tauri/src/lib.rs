@@ -2630,8 +2630,6 @@ fn open_default(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String
 /// エクスプローラーと同じ右クリックのメニューを、窓の中の `x`・`y`（CSS ピクセル）に出す（ADR B-4。
 /// Windows だけ）。選ばれた項目はシェルが走らせ、閉じたら戻る。中身が変わったファイルは見張りが拾う。
 ///
-/// メニューを組み終えたら `shell-menu-shown` を送る（それまでの待ちの合図を消すため）。
-///
 /// `ids` の先頭は右クリックした写真。シェルのメニューは1つのフォルダの中でしか組めないので、それと
 /// 違うフォルダのものは外す
 #[cfg(windows)]
@@ -2667,15 +2665,7 @@ async fn show_shell_menu(
     let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {
-        let shown = || {
-            let _ = window.emit("shell-menu-shown", ());
-        };
-        let r = shell_menu::show(
-            windows::Win32::Foundation::HWND(hwnd as _),
-            &paths,
-            at,
-            shown,
-        );
+        let r = shell_menu::show(windows::Win32::Foundation::HWND(hwnd as _), &paths, at);
         let _ = tx.send(r);
     })
     .map_err(|e| e.to_string())?;
