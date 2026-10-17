@@ -17,6 +17,8 @@ export type Zoom = {
   to: Box | null;
   /** 開くときの写真（ビューアが別の写真へ移ったら止める） */
   id?: number;
+  /** 閉じるときの地の濃さの始まり（開く途中で閉じたら、そのときのビューアの濃さ。無ければ 1） */
+  backFrom?: number;
   /** 戻る先が見つからなかった（閉じる）。その場で薄れて消える */
   lost?: boolean;
 };
@@ -63,7 +65,7 @@ export function ViewerZoom({
         easing: "ease-out",
         fill: "forwards",
       });
-      back?.animate([{ opacity: 1 }, { opacity: 0 }], {
+      back?.animate([{ opacity: zoom.backFrom ?? 1 }, { opacity: 0 }], {
         duration: ZOOM_MS,
         fill: "forwards",
       });
@@ -78,7 +80,7 @@ export function ViewerZoom({
     });
     // 開くときの地はビューアの側が薄れて入ってくる。ここで敷くのは閉じるときだけ
     if (zoom.kind === "close") {
-      back?.animate([{ opacity: 1 }, { opacity: 0 }], {
+      back?.animate([{ opacity: zoom.backFrom ?? 1 }, { opacity: 0 }], {
         duration: ZOOM_MS,
         easing: "ease-out",
         fill: "forwards",
@@ -89,12 +91,16 @@ export function ViewerZoom({
   }, [zoom]);
 
   return (
-    <div className="viewer-zoom" aria-hidden>
+    <div className="tile-zoom" aria-hidden>
       {zoom.kind === "close" && (
-        <div className="viewer-zoom-back" ref={backRef} />
+        <div
+          className="tile-zoom-back"
+          ref={backRef}
+          style={{ opacity: zoom.backFrom ?? 1 }}
+        />
       )}
       <div
-        className="viewer-zoom-box"
+        className="tile-zoom-box"
         ref={boxRef}
         style={{
           left: zoom.from.left,

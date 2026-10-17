@@ -3814,8 +3814,12 @@ export default function App() {
   const markNav = useCallback((dir: 1 | -1, slideshow: boolean) => {
     const shown = visibleRef.current;
     if (!shown) return;
+    // タイルから広がる途中なら、見えているのはその箱（台は隠れている）。残像は箱から作る——隠れた原寸から作ると、
+    // 1コマだけ全開の大きさに跳ねる（#229 の win の実機）
+    const growing = document.querySelector<HTMLElement>(".tile-zoom-box");
+    const growingImg = growing?.querySelector("img");
     // 動画は残像を作らない（台だけが入ってくる）
-    const el = shownImageEl();
+    const el = growing && growingImg ? growingImg : shownImageEl();
     const src = el?.currentSrc;
     navIntentRef.current = {
       fromId: shown.id,
@@ -3823,7 +3827,10 @@ export default function App() {
       slideshow,
       repeat: keyRepeatRef.current,
       at: Date.now(),
-      ghost: el && src ? { src, rect: el.getBoundingClientRect() } : null,
+      ghost:
+        el && src
+          ? { src, rect: (growing && growingImg ? growing : el).getBoundingClientRect() }
+          : null,
     };
   }, [shownImageEl]);
   /**
@@ -4166,15 +4173,29 @@ export default function App() {
       return;
     }
     const id = shown.id;
+    // 開く途中なら、見えているのは広がっている箱。そこから縮め、地もそのときの濃さから薄める——全開の絵から
+    // 始めると、1コマだけ写真が大きくなり暗い地がパッと出る（#229 の win の実機）
+    const growing =
+      tileZoom?.kind === "open"
+        ? document.querySelector<HTMLElement>(".tile-zoom-box")
+        : null;
+    const viewerEl = document.querySelector<HTMLElement>(".viewer");
     // 絵が描かれている部分から縮める（下敷きの箱は絵より横長・縦長になりうる）
-    const from = containBox(
-      boxOf(el.getBoundingClientRect()),
-      el.naturalWidth,
-      el.naturalHeight,
-    );
+    const from = growing
+      ? boxOf(growing.getBoundingClientRect())
+      : containBox(boxOf(el.getBoundingClientRect()), el.naturalWidth, el.naturalHeight);
+    const backFrom =
+      growing && viewerEl ? Number(getComputedStyle(viewerEl).opacity) : undefined;
     setViewer(null);
     // 戻る先を測るまで、写真はいまの場所に止めて描く（消してから縮めると一瞬グリッドだけが見える）
-    setTileZoom({ kind: "close", src, from, to: null });
+    const zoomSrc = growing && tileZoom ? tileZoom.src : src;
+    setTileZoom({
+      kind: "close",
+      src: zoomSrc,
+      from,
+      to: null,
+      backFrom,
+    });
     /** 戻る先のタイル。グリッドの見えている範囲に**丸ごと**入っているときだけ */
     const tileBox = (): Box | null => {
       const scroller = scrollRef.current;
@@ -4201,7 +4222,7 @@ export default function App() {
       requestAnimationFrame(() => {
         const to = tileBox();
         setTileZoom((z) =>
-          z && z.kind === "close" && z.src === src && z.to === null && !z.lost
+          z && z.kind === "close" && z.src === zoomSrc && z.to === null && !z.lost
             ? to
               ? { ...z, to }
               : { ...z, lost: true }
