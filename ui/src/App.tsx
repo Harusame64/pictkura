@@ -28,6 +28,7 @@ import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
+import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -1049,11 +1050,11 @@ export default function App() {
    */
   const deletingRef = useRef(false);
   /**
-   * 一覧からの削除が `deleteMedia` の返事を待っている間だけ立つ。進み具合はこの間だけステータス行へ書く
-   * ——返事の後に届いた知らせが結果の文を上書きしたり、失敗した回に「移動中…」が残ったりしない（dev #68。
-   * 書き出しの `exportKindRef` と同じ形）
+   * 一覧からの削除と書き出しの、ステータス行の持ち分（`progressLine.ts`、dev #68）。返事を待っている間だけ
+   * 進み具合を書き、転んだ回は自分の文だけを消す——「移動中… (n / N)」が残らず、隣の操作の行も消さない
    */
-  const trashStatusRef = useRef(false);
+  const trashLineRef = useRef<ProgressLine>(idleLine());
+  const exportLineRef = useRef<ProgressLine>(idleLine());
   /**
    * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
    *
@@ -1761,12 +1762,14 @@ export default function App() {
         (ev) => {
           const kind = exportKindRef.current;
           if (kind === null) return;
-          setStatus(
+          writeProgress(
+            exportLineRef,
             (kind === "move" ? t.moving : t.exporting)(
               ev.payload.done,
               ev.payload.total,
               ev.payload.name,
             ),
+            setStatus,
           );
         },
       );
@@ -1779,16 +1782,16 @@ export default function App() {
         "delete-progress",
         (ev) => {
           if (cancelled) return;
-          setTrashProgress(ev.payload);
-          // **最後の束のぶんは書かない**（ゲート2のP3）。完了の「n枚を
-          // ゴミ箱へ移動しました」より後に届くと、それを上書きして
-          // 「移動中… (n / n)」で止まって見える
-          if (
-            trashStatusRef.current &&
-            !rejectGateRef.current &&
-            ev.payload.done < ev.payload.total
-          ) {
-            setStatus(t.rejectGateTrashing(ev.payload.done, ev.payload.total));
+          // 一覧からの削除の知らせは関所のボタンへ流さない（ゲート2、dev #68）
+          if (!trashLineRef.current.active) setTrashProgress(ev.payload);
+          // 返事の後に届いた知らせは `writeProgress` が落とす（完了の文を上書きしない）。
+          // 最後の束のぶんを書かないのは、完了の文までの一瞬「(n / n)」を見せないため
+          if (!rejectGateRef.current && ev.payload.done < ev.payload.total) {
+            writeProgress(
+              trashLineRef,
+              t.rejectGateTrashing(ev.payload.done, ev.payload.total),
+              setStatus,
+            );
           }
         },
       );
@@ -5880,19 +5883,11 @@ export default function App() {
           t.deleteConfirmOk,
         );
         if (!ok) return;
-        trashStatusRef.current = true;
-        let result;
-        try {
-          result = await deleteMedia([...ids]);
-        } catch (e) {
-          // 「移動中… (n / N)」を残さない（dev #68）。消すのは移動そのものが転んだときだけ——後の取り直しで
-          // 転んだときは、結果の文がもう出ている
-          setStatus("");
-          throw e;
-        } finally {
-          trashStatusRef.current = false;
-        }
-        const { deleted: n, missing } = result;
+        // 転んだら「移動中… (n / N)」を残さない（dev #68）。消すのは移動そのものが転んだときだけ——後の取り直しで
+        // 転んだときは、結果の文がもう出ている
+        const { deleted: n, missing } = await withProgressLine(trashLineRef, setStatus, () =>
+          deleteMedia([...ids]),
+        );
         // 重ねのタイル1枚を全部消せたら「1枚」と言う（確かめたときと同じ数え方）。無くなっていたぶんは
         // 黙って減らさない（dev #41）
         setStatus(missing > 0 ? t.deletedMissing(n, missing) : t.deleted(n === ids.size ? 1 : n));
@@ -6134,18 +6129,10 @@ export default function App() {
       );
       if (!ok) return;
       try {
-        trashStatusRef.current = true;
-        let result;
-        try {
-          result = await deleteMedia(ids);
-        } catch (e) {
-          // 「移動中… (n / N)」を残さない（dev #68。1枚の削除と同じ）
-          setStatus("");
-          throw e;
-        } finally {
-          trashStatusRef.current = false;
-        }
-        const { deleted: n, missing } = result;
+        // 転んだら「移動中… (n / N)」を残さない（dev #68。1枚の削除と同じ）
+        const { deleted: n, missing } = await withProgressLine(trashLineRef, setStatus, () =>
+          deleteMedia(ids),
+        );
         // 全部消せたら、確かめたときと同じ数え方（見えている枚数）で言う。無くなっていたぶんは黙って減らさない
         // （dev #41。この数はファイルの数——確かめたときのタイルの数とそろえるのは dev #42 の残り）
         setStatus(
@@ -6317,11 +6304,10 @@ export default function App() {
         exportKindRef.current = moveFiles ? "move" : "copy";
         let st;
         try {
-          st = await exportMedia(ids, dest, moveFiles);
-        } catch (e) {
-          // 「書き出し中…」「移動中…」を残さない（dev #68。削除と同じ穴）
-          setStatus("");
-          throw e;
+          // 転んだら「書き出し中…」「移動中…」を残さない（dev #68。削除と同じ穴）
+          st = await withProgressLine(exportLineRef, setStatus, () =>
+            exportMedia(ids, dest, moveFiles),
+          );
         } finally {
           exportKindRef.current = null;
         }
