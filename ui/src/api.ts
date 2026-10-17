@@ -782,12 +782,12 @@ export const openWith = (id: number, appPath: string, remember: boolean) =>
 /** 登録済みの外部エディタを設定から外す */
 export const forgetEditor = (appPath: string) =>
   invoke<void>("forget_editor", { appPath });
-/** ゴミ箱へ移動してDBからも取り除く。戻り値は実際に削除できた件数 */
-/** まとめてゴミ箱へ送った結果。`missing` は選んだあとにライブラリから無くなっていた数（dev #41） */
+/** まとめてゴミ箱へ送った結果。`missing` は選んだあとに無くなっていた数（ライブラリからも、ディスクからも。dev #41・#42） */
 export interface DeleteResult {
   deleted: number;
   missing: number;
 }
+/** ゴミ箱へ移動してDBからも取り除く */
 export const deleteMedia = (ids: number[]) =>
   invoke<DeleteResult>("delete_media", { ids });
 /** 取り込み先フォルダ構成の選択肢 */

@@ -144,13 +144,24 @@ struct Carry<'a> {
     pending: Vec<(PathBuf, String)>,
 }
 
+/// ファイルが**確かに消えた**か: 自分は無いが、入っていたフォルダは在る。フォルダごと見えないのは、
+/// ドライブを抜いた・共有が切れたのと見分けられないので消えたとは言わない（pictkura-dev #42）
+pub fn is_gone_from_its_folder(path: &Path) -> bool {
+    matches!(path.try_exists(), Ok(false))
+        && path
+            .parent()
+            .is_some_and(|dir| matches!(dir.try_exists(), Ok(true)))
+}
+
 fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportOutcome) {
     let mode = carry.mode;
-    // 一覧に出したあとに消えている可能性があるので、ここで改めてstatする。**無いなら「無くなっていた」**
-    // と数える——失敗に数えると、移動の結果が「移せずに元の場所に残った」と嘘を言う（pictkura-dev #42）
+    // 一覧に出したあとに消えている可能性があるので、ここで改めてstatする。**フォルダは在るのにファイルが
+    // 無いなら「無くなっていた」**と数える——失敗に数えると、移動の結果が「移せずに元の場所に残った」と嘘を
+    // 言う（pictkura-dev #42）。**フォルダごと見えないなら失敗のまま**: USB・SD を抜いた直後も NotFound に
+    // なり、そのときの写真はドライブの中に残っている（ゲート2）
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && is_gone_from_its_folder(path) => {
             out.stats.vanished += 1;
             return;
         }
@@ -777,7 +788,7 @@ mod tests {
         fs::create_dir_all(&src).unwrap();
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
 
-        // 1枚目はもう無い（数えるだけで書かない）。2枚目は同じ名前で書ける
+        // 1枚目はフォルダごと見えない（ドライブを抜いたのと同じ形）＝失敗。2枚目は同じ名前で書ける
         let out = export_files(
             &[dir.path().join("gone/a.jpg"), src.join("a.jpg")],
             &dest,
@@ -787,8 +798,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(out.stats.vanished, 1);
-        assert_eq!(out.stats.failed, 0);
+        assert_eq!(
+            out.stats.failed, 1,
+            "フォルダごと見えないものは、消えたとは言わない"
+        );
+        assert_eq!(out.stats.vanished, 0);
         assert_eq!(out.stats.done, 1);
         // 落ちた1枚のせいで `a-1.jpg` にならないこと
         assert_eq!(files_in(&dest), ["a.jpg"]);

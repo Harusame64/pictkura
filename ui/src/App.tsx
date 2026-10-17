@@ -6192,11 +6192,18 @@ export default function App() {
       // （別の言葉で探し直したなら、それは見ていた列ではない）
       const kept = await visibleMediaIds(queryRef.current, "all", ids);
       if (kept.length > 0) {
-        const { deleted: n } = await deleteMedia(kept);
+        const { deleted: n, missing } = await deleteMedia(kept);
         // **数が合わないときは黙らない**（ゲート2のP3）。もう無い・検索語から
-        // 外れた等でここまで来られなかったぶんを、そのまま件数で言う
+        // 外れた等でここまで来られなかったぶんを、そのまま件数で言う。無くなっていただけなら、ほかの
+        // 削除と同じ言い方にする（dev #41）
         const left = ids.length - n;
-        setStatus(left > 0 ? t.deletedSomeLeft(n, left) : t.deleted(n));
+        setStatus(
+          left === 0
+            ? t.deleted(n)
+            : left === missing
+              ? t.deletedMissing(n, missing)
+              : t.deletedSomeLeft(n, left),
+        );
         forgetDeleted(new Set(kept));
         await refreshSummary();
       }

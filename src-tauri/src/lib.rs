@@ -2770,9 +2770,40 @@ fn trash_paths_with_progress(
 
 /// ファイルを**ゴミ箱へ**移動し、DBからも取り除く。
 ///
+/// 選んだ写真の ID を、パスと「ライブラリから無くなっていた ID」と「引けなかった数」に分ける
+/// （pictkura-dev #33・#41）。`path_of` は通さない——あちらは「行が無い」とデータベースの失敗を同じ文字列に
+/// するので、一時的に読めなかった写真まで「無くなった」と言ってしまう（#33 のゲート2）。どちらも記録に書く
+/// （画面は数しか出さない）。`doing` は記録の文に入る動作（"a move" 等）
+fn lookup_selected(state: &AppState, ids: &[i64], doing: &str) -> (Vec<PathBuf>, Vec<i64>, usize) {
+    let mut paths: Vec<PathBuf> = Vec::with_capacity(ids.len());
+    let mut missing_ids: Vec<i64> = Vec::new();
+    let mut unread = 0usize;
+    for id in ids {
+        match state.read_pool.with(|db| db.get_by_id(*id)) {
+            Ok(Some(record)) => paths.push(record.path),
+            Ok(None) => missing_ids.push(*id),
+            Err(e) => {
+                unread += 1;
+                applog::note(&format!(
+                    "could not look up photo {id} before {doing}: {}",
+                    errs::for_log_err(e)
+                ));
+            }
+        }
+    }
+    if !missing_ids.is_empty() {
+        applog::note(&format!(
+            "{} selected photo(s) were no longer in the library and were left out of {doing} (ids {:?})",
+            missing_ids.len(),
+            missing_ids
+        ));
+    }
+    (paths, missing_ids, unread)
+}
+
 /// 完全削除はしない（写真は取り返しがつかないため、OSのゴミ箱経由にして
 /// 誤操作から戻せるようにする）。ゴミ箱に入れられたものだけをDBから消す。
-/// 戻り値は実際に削除できた件数。
+/// 返すのはゴミ箱へ送れた写真の数と、選んだあとに無くなっていた数（[`DeleteResultDto`]）。
 ///
 /// **別スレッドで走らせる**（`export_media` と同じ形）。シェルのゴミ箱APIは
 /// 1件あたり中央20ms・最悪215msの固定費で、**実機の500件（2MB×500）で約4.9秒**
@@ -2788,33 +2819,9 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         // 選んだあとにライブラリから無くなったID（再スキャンで行が消えた等）は**黙って落とさず数える**
-        // （pictkura-dev #41。書き出しの #33 と同じ形）。読めなかったものは数に入れず、理由を記録に残す——
-        // 消していないので「消した」にも「無くなっていた」にも数えない（下で一部失敗として返す）
-        let mut paths: Vec<PathBuf> = Vec::with_capacity(ids.len());
-        let mut missing_ids: Vec<i64> = Vec::new();
-        let mut unread = 0usize;
-        for id in &ids {
-            match state.read_pool.with(|db| db.get_by_id(*id)) {
-                Ok(Some(record)) => paths.push(record.path),
-                Ok(None) => missing_ids.push(*id),
-                Err(e) => {
-                    unread += 1;
-                    applog::note(&format!(
-                        "could not look up photo {id} before moving it to the recycle bin: {}",
-                        errs::for_log_err(e)
-                    ));
-                }
-            }
-        }
-        if !missing_ids.is_empty() {
-            applog::note(&format!(
-                "{} selected photo(s) were no longer in the library and were not moved to the recycle bin (ids {:?})",
-                missing_ids.len(),
-                missing_ids
-            ));
-        }
-        let missing = missing_ids.len();
-        // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
+        // （pictkura-dev #41。書き出しの #33 と同じ形）。引けなかったものは消していないので、下で一部失敗として返す
+        let (paths, missing_ids, unread) = lookup_selected(&state, &ids, "moving them to the recycle bin");
+        let mut missing = missing_ids.len();        // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
         // `.xmp` は一覧に出ないので、置いていくと**誰にも見えない迷子**になる
         // ——写真だけ消えたフォルダに現像設定だけが残り続ける。
         // 取り込みで一緒に運んだものを、消すときだけ置いていく道理も無い。
@@ -2828,6 +2835,23 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
             if seen.insert(path.clone()) {
                 media.push(path);
             }
+        }
+        // **選んだあとに外で消えたファイル**（行はまだ在る）はゴミ箱へ送らず、「無くなっていた」に数える
+        // ——ゴミ箱の束はもう無いものを「片付いた」と返すので、そのままだと「ゴミ箱へ移した」に数えられ、
+        // ゴミ箱を探しても無い（ゲート2）。フォルダごと見えないもの（ドライブを抜いた等）は今までどおり送って
+        // 失敗させる。**行と送り出しのリンクには触らない**——外で消えたものの後始末は見張りの道
+        // （`handle_fs_events` と `sweep_google_orphans`）が持っている。ここで送り出しのリンクを外すと、
+        // 原本を外で完全に消していたとき、残った最後の1つをゴミ箱へ送ることになる
+        let (vanished, kept): (Vec<PathBuf>, Vec<PathBuf>) = media
+            .into_iter()
+            .partition(|p| pictkura_core::export::is_gone_from_its_folder(p));
+        let media = kept;
+        if !vanished.is_empty() {
+            applog::note(&format!(
+                "{} selected photo(s) were already gone from disk and were not moved to the recycle bin",
+                vanished.len()
+            ));
+            missing += vanished.len();
         }
         let mut companions = pictkura_core::sidecar::Companions::new(media.iter().cloned());
         let mut sidecars: Vec<PathBuf> = Vec::new();
@@ -3001,31 +3025,11 @@ async fn export_media(
         // （pictkura-dev #33）。`path_of` は通さない——あちらは「行が無い」とデータベースの失敗を同じ文字列にするので、
         // 一時的に読めなかった写真まで「ライブラリから無くなった」と言ってしまう（ゲート2）。読めなかったものは
         // 「失敗」に数え、理由を記録に残す。どちらも、どの写真だったかを記録に書く（画面は数しか出さない）
-        let mut paths: Vec<PathBuf> = Vec::with_capacity(ids.len());
-        let mut missing_ids: Vec<i64> = Vec::new();
-        let mut unread = 0usize;
-        for id in &ids {
-            match state.read_pool.with(|db| db.get_by_id(*id)) {
-                Ok(Some(record)) => paths.push(record.path),
-                Ok(None) => missing_ids.push(*id),
-                Err(e) => {
-                    unread += 1;
-                    applog::note(&format!(
-                        "could not look up photo {id} before {}: {}",
-                        if move_files { "a move" } else { "an export" },
-                        errs::for_log_err(e)
-                    ));
-                }
-            }
-        }
-        if !missing_ids.is_empty() {
-            applog::note(&format!(
-                "{} selected photo(s) were no longer in the library and were not {} (ids {:?})",
-                missing_ids.len(),
-                if move_files { "moved" } else { "exported" },
-                missing_ids
-            ));
-        }
+        let (paths, missing_ids, unread) = lookup_selected(
+            &state,
+            &ids,
+            if move_files { "a move" } else { "an export" },
+        );
         let missing = missing_ids.len();
         let mode = if move_files {
             pictkura_core::ExportMode::Move
