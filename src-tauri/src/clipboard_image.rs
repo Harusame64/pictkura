@@ -149,8 +149,13 @@ fn write_dib_pixels(img: &RgbaImage, out: &mut [u8]) {
     for y in 0..h {
         let from = &src[y * row..(y + 1) * row];
         let to = &mut out[(h - 1 - y) * row..(h - y) * row];
-        for (s, d) in from.chunks_exact(4).zip(to.chunks_exact_mut(4)) {
-            d.copy_from_slice(&[s[2], s[1], s[0], s[3]]);
+        for (s, d) in from
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(to.as_chunks_mut::<4>().0)
+        {
+            *d = [s[2], s[1], s[0], s[3]];
         }
     }
 }
