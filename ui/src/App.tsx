@@ -56,7 +56,6 @@ import {
   getDecoderStatus,
   getEmptyLibraryReason,
   countMediaUnder,
-  getStartupReport,
   startupScanFinished,
   getStats,
   listCameras,
@@ -103,7 +102,6 @@ import {
   type MediaItem,
   type Memory,
   type ScopeItem,
-  type StartupScanReport,
   type EmptyLibraryReason,
   temporaryLibraryRoots,
   burstGapOf,
@@ -533,20 +531,6 @@ function measureChipText(text: string): number {
 }
 
 /**
- * 秒の整形器は**モジュールで1つずつ持つ**。`speedLabel` は描画のたびに呼ばれるので、
- * ここで `new Intl.NumberFormat` すると帯が出ている間ずっと作り直しになる
- * （`i18n/index.ts` の `Intl` の使い方に合わせた）
- */
-const secondsFmt2 = new Intl.NumberFormat(formatLocale, {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-const secondsFmt1 = new Intl.NumberFormat(formatLocale, {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-
-/**
  * 絵をクリップボードへ載せられるか（抽出 Issue #13・右クリック ADR B-1 の**共通の判定**。2か所に写すと片方が
  * 遅れた——#207 のゲート2）。
  *
@@ -586,36 +570,6 @@ function googleFailure(g: GooglePlaced | null): string | null {
   else if (g.failed > 0) notes.push(t.importGoogleFailed(g.failed));
   for (const f of g.new_folders) notes.push(t.googleFolderCreated(f));
   return notes.length > 0 ? notes.join(" ") : null;
-}
-
-/** ⚡爆速メーターの表示文言（起動時同期の方式と成果） */
-function speedLabel(r: StartupScanReport): string {
-  // **小数点も地域のもの**（独語・西語は `0,42`）。`toFixed` は必ず `.` を返すので、
-  // ここだけ英語式のまま帯に載っていた。桁区切りが付くのは1000秒を超えたときだけ。
-  //
-  // **件数の桁区切りは辞書の中で付く**（2026-09-02）——`speedFull` も `speedUsnDirty` も
-  // `speedDiff` も `num()` を通すようになったので、独語で12万件なら
-  // ヘッダの `120.000 Objekte`（`itemsCount`）と帯の `120.000 Dateien` が揃う。
-  // 直前の版はここが生の `${total}` で、帯だけ `120000` と出ていた
-  const sec = (r.elapsed_ms < 1000 ? secondsFmt2 : secondsFmt1).format(
-    r.elapsed_ms / 1000,
-  );
-  const diff =
-    r.added || r.changed || r.removed
-      ? t.speedDiff(r.added, r.changed, r.removed)
-      : t.speedNoDiff;
-  const head = t.speedPrefix(sec);
-  if (r.method === "usn") {
-    const detail =
-      r.usn_records === 0
-        ? t.speedUsnNoChange
-        : t.speedUsnDirty(r.usn_records, r.dirty_dirs);
-    return `${head}${t.speedUsn}${detail}${diff}`;
-  }
-  if (r.method === "pruned") {
-    return `${head}${t.speedPruned(r.skipped_dirs)}${diff}`;
-  }
-  return `${head}${t.speedFull(r.total)}${diff}`;
 }
 
 /** アスペクト比（幅/高さ）。未抽出は4:3、極端なパノラマ等はレイアウト崩壊しない範囲に制限 */
@@ -710,8 +664,7 @@ export default function App() {
   /**
    * 起動時の走査が報告を出したか。**出るまで「空です」と言わない**。
    *
-   * 走査は別スレッドで走り、終わってから `library-updated` と
-   * `startup-scan-report` を出す。最初の `reloadAll` はそれより前にDBを読むので、
+   * 走査は別スレッドで走り、終わってから `library-updated` を出す。最初の `reloadAll` はそれより前にDBを読むので、
    * **初回起動では正しく `[]` が返る**——そこで理由を出すと、索引中のライブラリに
    * 「扱える画像がありません」と言うことになる（ゲート2の指摘）。
    *
@@ -1399,41 +1352,9 @@ export default function App() {
     };
   }, [reloadAll, refreshCameras]);
 
-  // ⚡爆速メーター: 起動時同期の方式と所要時間を数秒だけトースト表示する。
-  // USN差分は数msで完了し、リスナー登録前にイベントが発火して取りこぼされる
-  // ことがあるため、登録後にコマンドでも一度取りに行く（両方来ても表示は同じ）
-  const [speedReport, setSpeedReport] = useState<StartupScanReport | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    let timer: number | undefined;
-    const show = (report: StartupScanReport) => {
-      if (cancelled) return;
-      setSpeedReport(report);
-      if (timer != null) window.clearTimeout(timer);
-      timer = window.setTimeout(() => setSpeedReport(null), 8000);
-    };
-    (async () => {
-      const f = await listen<StartupScanReport>("startup-scan-report", (ev) =>
-        show(ev.payload),
-      );
-      if (cancelled) {
-        f();
-        return;
-      }
-      unlisten = f;
-      const missed = await getStartupReport().catch(() => null);
-      if (missed) show(missed);
-    })();
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      if (timer != null) window.clearTimeout(timer);
-    };
-  }, []);
 
-  // 起動時の同期が**終わった**合図。⚡爆速メーターの報告とは別に要る——
-  // 走査が落ちれば報告は一度も出ないので、来ないことを「まだ走っている」と
+  // 起動時の同期が**終わった**合図。`library-updated` とは別に要る——
+  // 走査が落ちればそれは一度も出ないので、来ないことを「まだ走っている」と
   // 読むと**永久に無言**になる（ゲート2の指摘）。バックエンドは成功でも失敗でも
   // これを出し、取りこぼした側が後から聞けるよう旗も立てている
   useEffect(() => {
@@ -1468,7 +1389,6 @@ export default function App() {
       // **登録が転んでも先へ進む。** ここで例外が上がると下の問い合わせに
       // 届かず、`scanSettled` がその起動のあいだ偽のまま固まる——
       // つまり**この機能が丸ごと出なくなる**。
-      // 隣の⚡爆速メーターは取りこぼしても帯が1つ出ないだけだが、こちらは違う
       const f = await listen<{ failed?: boolean } | null>(
         "startup-scan-finished",
         (ev) => settle(ev.payload?.failed === true),
@@ -6882,11 +6802,6 @@ export default function App() {
         >
           {failure.text}
         </button>
-      )}
-      {speedReport && (
-        <div className="speed-toast" onClick={() => setSpeedReport(null)}>
-          {speedLabel(speedReport)}
-        </div>
       )}
       {/* 画面下の知らせは**1つの箱に積む**（2026-09-27、win の実機）。前は1つずつ `bottom` の高さを
           決め打ちしていたので、文が折り返して背が伸びると上の段にかぶり、しかも幅が画面の半分までしか

@@ -640,18 +640,6 @@ export const es: Dict = {
   filterCondQuery: (q: string) => `la búsqueda «${q}»`,
   filterCondCamera: (name: string) => `hechas con ${name}`,
   filterEmptyClearSearch: "Borrar la búsqueda",
-  speedPrefix: (sec: string) => `⚡ Comprobación de arranque en ${sec} s — `,
-  speedUsn: "Diferencia del diario USN: ",
-  speedUsnNoChange: "sin cambios, ninguna carpeta recorrida",
-  speedUsnDirty: (records: number, dirs: number) =>
-    `${num(records)} ${one(records, "entrada", "entradas")} del diario → solo se ${one(dirs, "ha", "han")} vuelto a explorar ${num(dirs)} ${one(dirs, "carpeta", "carpetas")}`,
-  speedPruned: (skipped: number) =>
-    `recorrido podado: ${num(skipped)} ${one(skipped, "carpeta omitida", "carpetas omitidas")}`,
-  speedFull: (total: number) =>
-    `recorrido completo (${num(total)} ${one(total, "archivo", "archivos")})`,
-  speedNoDiff: " — sin cambios",
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   errGoogleOverlapsRoot: "No se puede elegir una carpeta de la biblioteca, una carpeta dentro de ella ni una que la contenga.",
   errGoogleInsideSync: "No se puede elegir un lugar dentro de una carpeta sincronizada (OneDrive, Google Drive, Dropbox, iCloud Drive, etc.).",
   errGoogleNoHardLinks: "Esta unidad no sirve (exFAT, FAT y similares no pueden crear vínculos físicos).",

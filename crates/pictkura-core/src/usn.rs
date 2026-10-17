@@ -50,7 +50,7 @@ pub struct UsnDelta {
     pub dirty_dirs: Vec<PathBuf>,
     /// 反映後に保存すべき新しい読み取り位置
     pub position: UsnPosition,
-    /// 処理したレコード数（爆速メーター用）
+    /// 処理したレコード数（`examples/usn_probe.rs` と試験が読む）
     pub record_count: usize,
 }
 

@@ -636,18 +636,6 @@ export const de: Dict = {
   filterCondQuery: (q: string) => `Suchbegriff „${q}“`,
   filterCondCamera: (name: string) => `aufgenommen mit ${name}`,
   filterEmptyClearSearch: "Suche löschen",
-  speedPrefix: (sec: string) => `⚡ Startprüfung in ${sec} s — `,
-  speedUsn: "USN-Journal-Differenz: ",
-  speedUsnNoChange: "keine Änderungen, keine Ordner durchlaufen",
-  speedUsnDirty: (records: number, dirs: number) =>
-    `${num(records)} ${one(records, "Journaleintrag", "Journaleinträge")} → nur ${num(dirs)} Ordner neu eingelesen`,
-  speedPruned: (skipped: number) =>
-    `beschnittener Durchlauf: ${num(skipped)} Ordner übersprungen`,
-  speedFull: (total: number) =>
-    `vollständiger Durchlauf (${num(total)} ${one(total, "Datei", "Dateien")})`,
-  speedNoDiff: " — keine Änderungen",
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
   errGoogleOverlapsRoot: "Ein Bibliotheksordner, ein Ordner darin oder ein Ordner, der einen enthält, kann nicht gewählt werden.",
   errGoogleInsideSync: "Ein Ort innerhalb eines Sync-Ordners (OneDrive, Google Drive, Dropbox, iCloud Drive usw.) kann nicht gewählt werden.",
   errGoogleNoHardLinks: "Auf diesem Laufwerk geht das nicht (exFAT, FAT und Ähnliches können keine Hardlinks anlegen).",
