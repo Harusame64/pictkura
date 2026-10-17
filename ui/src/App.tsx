@@ -1115,6 +1115,37 @@ export default function App() {
    * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる。
    * ただし立てるだけだと今度は**失敗を「空」と読む**ので、
    * 落ちたことは [`loadFailed`] に分けて持つ */
+  /**
+   * 外で消えたファイルを、選択と Shift+クリックの起点・範囲の土台から外す（dev #45）。残すと選択の帯が、
+   * もう一覧に無いタイルを数え続けて閉じない。**一覧を取り直すたびに**（`reloadAll` の終わりで）呼ぶ
+   * ——見張りの `library-updated` だけでなく、フォルダを外した等でも行は消える（ゲート2）。
+   *
+   * 絞り込みなしで訊く——★を外した等で今の絞り込みから外れただけのものは選択に残す（一括操作の直前の
+   * 確認が受け持つ）。訊いている間に選び足したものには触らない
+   */
+  const pruneVanished = useCallback(async () => {
+    const asked = [...selectedRef.current];
+    if (asked.length === 0) return;
+    let alive: number[];
+    try {
+      alive = await visibleMediaIds("", "all", asked);
+    } catch (e) {
+      // 黙らない——外せなかった選択は帯に残り続けるので
+      fail(errText(e));
+      return;
+    }
+    const gone = new Set(asked);
+    for (const id of alive) gone.delete(id);
+    if (gone.size === 0) return;
+    setSelected((prev) => dropVanished(prev, asked, alive));
+    // 起点と範囲の土台も忘れる（単独削除と同じ）。古い土台のまま Shift+クリックすると、消えたものを
+    // 選び直す
+    setAnchorId((a) => (a !== null && gone.has(a) ? null : a));
+    if ([...gone].some((id) => lastRangeRef.current?.base.has(id))) {
+      lastRangeRef.current = null;
+    }
+  }, [fail]);
+
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     const askedFor = askedRef.current;
@@ -1180,9 +1211,10 @@ export default function App() {
       if (generationRef.current === gen) {
         settledRef.current = true;
         setSettled(true);
+        void pruneVanished();
       }
     }
-  }, []);
+  }, [pruneVanished]);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
    *
@@ -1335,19 +1367,6 @@ export default function App() {
       const f = await listen("library-updated", () => {
         reloadAll().catch((e) => fail(errText(e)));
         refreshCameras();
-        // 外で消えたファイルを選択から外す（dev #45）。残すと選択の帯が、もう一覧に無いタイルを
-        // 数え続けて閉じない。絞り込みなしで訊く——★を外した等で今の絞り込みから外れただけのものは
-        // 選択に残す（一括操作の直前の確認が受け持つ）。訊いている間に選び足したものには触らない
-        const asked = [...selectedRef.current];
-        if (asked.length > 0) {
-          visibleMediaIds("", "all", asked)
-            .then((alive) => {
-              if (alive.length < asked.length) {
-                setSelected((prev) => dropVanished(prev, asked, alive));
-              }
-            })
-            .catch(() => {});
-        }
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
         // 実体を後から退避するので、古い「ローカルにある」を信じない
         cloudOnlyRef.current.clear();
