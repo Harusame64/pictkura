@@ -5373,6 +5373,19 @@ fn finish_import(
     if let Some(dest) = &dest {
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
         let sync_stats = scan_and_apply_root(state, dest, since)?;
+        // コピーしたパスの行にも印を付ける（dev #64）。**境の id だけでは漏れる**——`media.id` は AUTOINCREMENT
+        // でないので、コピーの間に最大の id の行が消えるとその id が使い回され、境より後に見えない（PR の codex）。
+        // 印は列に居るものにしか付かないので、読み終えた行を足しても数は増えない
+        {
+            let ids: Vec<i64> = {
+                let db = lock_ok(&state.db);
+                copied
+                    .iter()
+                    .filter_map(|p| db.get_meta_by_path(p).ok().flatten().map(|m| m.id))
+                    .collect()
+            };
+            state.thumbs.mark_fresh(&ids);
+        }
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
         let placed = place_google_links(state, dest, copied);
         // 送り出しは走査の知らせより後に動く（保留の置き直し・突き合わせ・この回の分）。
