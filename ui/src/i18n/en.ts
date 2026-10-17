@@ -100,6 +100,8 @@ export const en: Dict = {
   judgeUnflag: "Judgement cleared",
   viewerReject: "Reject (X)",
   viewerRejected: "Rejected",
+  /** 写真がお気に入りであること（記号 ★ の読み上げ名。pictkura-dev #65） */
+  favoriteMark: "Favorite",
   viewerMutedHint: "Muted — click to turn the sound on",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Review the rejected photos",

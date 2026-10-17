@@ -134,6 +134,7 @@ export const de: Dict = {
   judgeUnflag: "Markierung aufgehoben",
   viewerReject: "Als abgelehnt markieren (X)",
   viewerRejected: "Abgelehnt",
+  favoriteMark: "Favorit",
   viewerMutedHint: "Stumm – klicken, um den Ton einzuschalten",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Abgelehnte Fotos durchsehen",

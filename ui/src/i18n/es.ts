@@ -153,6 +153,7 @@ export const es: Dict = {
   judgeUnflag: "Marca quitada",
   viewerReject: "Marcar como rechazada (X)",
   viewerRejected: "Rechazada",
+  favoriteMark: "Favorita",
   viewerMutedHint: "Silenciado: haz clic para activar el sonido",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Revisar las fotos rechazadas",

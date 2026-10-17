@@ -343,7 +343,7 @@ export default function Settings({
         <div className="settings-head">
           <h2>{t.settingsTitle}</h2>
           <button className="settings-close" onClick={closeDialog} title={t.close}>
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="settings-body">
@@ -844,6 +844,7 @@ export default function Settings({
                 <button
                   key={choice}
                   className={theme === choice ? "active" : ""}
+                  aria-pressed={theme === choice}
                   onClick={() => {
                     setTheme(choice);
                     applyTheme(choice);
@@ -874,8 +875,10 @@ export default function Settings({
                         .catch((e) => onError(errText(e)))
                     }
                     title={t.settingsForgetEditor}
+                    // 行ごとに名前を分ける（どれも「一覧から外す」だと、どのアプリの ✕ か分からない）
+                    aria-label={`${t.settingsForgetEditor}: ${app.name}`}
                   >
-                    ✕
+                    <span aria-hidden="true">✕</span>
                   </button>
                 </div>
               ))}

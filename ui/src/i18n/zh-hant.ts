@@ -161,6 +161,7 @@ export const zhHant: Dict = {
   judgeUnflag: "已取消標記",
   viewerReject: "排除 (X)",
   viewerRejected: "已排除",
+  favoriteMark: "最愛",
   viewerMutedHint: "已靜音——按一下以開啟聲音",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "查看已排除的照片",
