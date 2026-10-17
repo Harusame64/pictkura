@@ -520,7 +520,7 @@ export default function Settings({
               {/* 写真サービスの画面でフォルダを選ぶときに迷わないよう、パスを写す・フォルダを開く（pictkura-dev #40）。
                   **入れているときだけ**——切っている人に「開く」を見せると、フォルダを見るためだけに入れさせてしまう（ゲート2） */}
               {google?.enabled && googleLoc?.path && (
-                <OutgoingFolderActions path={googleLoc.path} canOpen disabled={googleBusy} />
+                <OutgoingFolderActions path={googleLoc.path} current disabled={googleBusy} />
               )}
             </div>
             <p className="settings-note">{t.settingsGoogleFolderNote}</p>
@@ -535,7 +535,7 @@ export default function Settings({
                   {googleDirs.map((d) => (
                     <li key={d}>
                       <code>{d}</code>{" "}
-                      <OutgoingFolderActions path={d} canOpen={false} />
+                      <OutgoingFolderActions path={d} current={d === googleLoc?.path} />
                     </li>
                   ))}
                 </ul>

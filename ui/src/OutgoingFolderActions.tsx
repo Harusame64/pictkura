@@ -2,7 +2,8 @@
  * 送り出しフォルダの「パスをコピー」「フォルダを開く」（pictkura-dev #40）。設定と送り出しの画面で**同じ部品**を使う
  * ——2か所に写すと、片方で直した不具合（遅れて届いた失敗・消し時計の重なり）がもう片方に残った（#205 のゲート2）。
  *
- * - 「開く」はパスを渡さない（バックエンドが設定から求める。`open_google_folder`）。だから**いまのフォルダにだけ**出す
+ * - 「開く」は、いまのフォルダならパスを渡さない（バックエンドが設定から求める）。前のドライブのフォルダは
+ *   パスで名指し、バックエンドが記録と照らしてから開く（`open_google_folder`、pictkura-dev #43）
  * - 失敗はこの部品の中に出す。消えた後・パスが変わった後に届いた結果は捨てる
  */
 import { useEffect, useRef, useState } from "react";
@@ -14,12 +15,12 @@ import { errText } from "./i18n/err.ts";
 
 export function OutgoingFolderActions({
   path,
-  canOpen,
+  current,
   disabled = false,
 }: {
   path: string;
-  /** いまの送り出しフォルダか（前のドライブのフォルダは写すだけ） */
-  canOpen: boolean;
+  /** いまの送り出しフォルダか（前のドライブのフォルダは、パスで名指して開く） */
+  current: boolean;
   disabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -67,7 +68,7 @@ export function OutgoingFolderActions({
     setError(null);
     // 眠った外付けでは数秒かかる。待つ間にもう一度押されても窓を増やさない
     setOpening(true);
-    openGoogleFolder()
+    openGoogleFolder(current ? undefined : path)
       .catch((e) => mine === openRound.current && setError(errText(e)))
       .finally(() => setOpening(false));
   };
@@ -77,11 +78,9 @@ export function OutgoingFolderActions({
       <button className="settings-dest-change" disabled={disabled} onClick={() => void copy()}>
         {copied ? t.settingsGoogleCopied : t.settingsGoogleCopyPath}
       </button>
-      {canOpen && (
-        <button className="settings-dest-change" disabled={disabled || opening} onClick={open}>
-          {t.settingsGoogleOpenFolder}
-        </button>
-      )}
+      <button className="settings-dest-change" disabled={disabled || opening} onClick={open}>
+        {t.settingsGoogleOpenFolder}
+      </button>
       {error && <span className="folder-actions-error">{error}</span>}
     </>
   );
