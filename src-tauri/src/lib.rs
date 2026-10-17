@@ -149,6 +149,8 @@ struct AppState {
     /// 検索インデックスの初期構築の進捗（第4部 段階D）。既存ライブラリを
     /// 後追いで索引化している間だけ building=true になる
     index_progress: Mutex<IndexProgressDto>,
+    /// いま走っているライブラリの走査の数（pictkura-dev #64。ヘッダーの「読み込み中」）。[`ScanRunning`] が数える
+    scans_running: std::sync::atomic::AtomicUsize,
     /// 取り込みウィザードで**実際に開いたフォルダ**（第5部 段階E）。
     /// `media://src/...` はライブラリ外の任意パスを配信できてしまうため、
     /// 「UIがユーザー操作で開いたフォルダの直下」だけに配信先を限る。
@@ -521,7 +523,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     }
 
     if changed {
-        enqueue_missing_thumbs(&state);
+        // 見張りの束は新しい写真を数えない（外でのファイル変化。ヘッダーには出さない）
+        enqueue_missing_thumbs(&state, None);
         let _ = app.emit("library-updated", ());
     }
     // 行が消えた束のときだけ（追加だけの束で表を見直さない。ゲート2）
@@ -586,7 +589,8 @@ fn vanished_path_is_a_deletion(
 
 /// 同期後にメタデータ未抽出分（＋即席サムネイル生成）をワーカーへ投入する。
 /// 高品質サムネイルはここでは作らない（可視領域の要求時のみ: 段階B-3）。
-fn enqueue_missing_thumbs(state: &AppState) {
+/// `since` があれば、それより後に入った行のうちサムネイルの無いものに「新しく読む写真」の印を付ける（dev #64）
+fn enqueue_missing_thumbs(state: &AppState, since: Option<i64>) {
     let db = lock_ok(&state.db);
     // 段階H-2の拾い直し。ファイル名から撮影日時を拾えるようにする前に走査した
     // DBには、撮影日時が mtime（＝同期やコピーの日）へ落ちた行が残っている。
@@ -612,6 +616,13 @@ fn enqueue_missing_thumbs(state: &AppState) {
     }
     if let Ok(ids) = db.ids_missing_metadata() {
         state.thumbs.enqueue(&ids);
+    }
+    // この走査で入った、まだサムネイルの無い行に印を付ける。ヘッダーの「写真を読み込み中（残り n枚）」はこれだけを
+    // 数える（dev #64）
+    if let Some(since) = since {
+        if let Ok(ids) = db.new_ids_without_thumb(since) {
+            state.thumbs.mark_fresh(&ids);
+        }
     }
 }
 
@@ -879,6 +890,9 @@ fn scan_fingerprint(config: &Config) -> String {
 /// full = true で呼び、修復手段を兼ねる。
 fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
+    // 走査の前の最大の id。これより後に入った行だけを「新しく読む写真」と数える（dev #64）
+    let since = lock_ok(&state.db).max_media_id().ok();
+    let _running = ScanRunning::new(state);
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
@@ -910,7 +924,7 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     state
         .scan_successes
         .fetch_add(1, std::sync::atomic::Ordering::Release);
-    enqueue_missing_thumbs(state);
+    enqueue_missing_thumbs(state, since);
     Ok(stats)
 }
 
@@ -1235,6 +1249,11 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<SyncStats> {
 /// 起動時同期: USNジャーナル差分 → mtime枝刈り → フルの順で最速の方式を選ぶ。
 fn startup_scan(state: &AppState) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
+    // 走査の前の最大の id。これより後に入った行だけを「新しく読む写真」と数える（dev #64）
+    let since = lock_ok(&state.db).max_media_id().ok();
+    // **ここでは `ScanRunning` を立てない（わざと）**。起動時の同期は「ライブラリを更新中」に数えない
+    // （BackgroundStatusDto::scanning）。新しく入った写真の読み込みは数える（`since`）
+
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
@@ -1250,7 +1269,7 @@ fn startup_scan(state: &AppState) -> Result<SyncStats, String> {
 
     if fingerprint_ok {
         if let Some(stats) = try_usn_sync(&mut db, &config) {
-            enqueue_missing_thumbs(state);
+            enqueue_missing_thumbs(state, since);
             return Ok(stats);
         }
     }
@@ -1292,7 +1311,7 @@ fn startup_scan(state: &AppState) -> Result<SyncStats, String> {
             let _ = db.set_meta(&usn_meta_key(&volume), &position.to_meta());
         }
     }
-    enqueue_missing_thumbs(state);
+    enqueue_missing_thumbs(state, since);
     Ok(stats)
 }
 
@@ -3644,6 +3663,51 @@ fn preview_folder_pattern(pattern: String) -> String {
     pictkura_core::import::render_folder_pattern(&pattern, today)
 }
 
+/// 走査が走っている間だけ数を1つ上げる（錠を取ったあと＝実際に走っている間。どの道で抜けても下ろす）
+struct ScanRunning<'a>(&'a AppState);
+
+impl<'a> ScanRunning<'a> {
+    fn new(state: &'a AppState) -> Self {
+        state
+            .scans_running
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        ScanRunning(state)
+    }
+}
+
+impl Drop for ScanRunning<'_> {
+    fn drop(&mut self) {
+        self.0
+            .scans_running
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 裏で走っている仕事の様子（pictkura-dev #64）。ヘッダーの小さな「読み込み中」が問い合わせる。
+/// 取り込みのコピーは `import-progress` の知らせで画面が自分で持つので、ここには無い
+#[derive(serde::Serialize)]
+struct BackgroundStatusDto {
+    /// ライブラリの走査（フォルダを足した・外した・取り込み先・今すぐ同期・ドライブが戻った）が走っているか。**起動時の同期は
+    /// 数えない**——大きなライブラリでは毎回数秒かかり、何も変わらない起動で毎回「読み込み中」と言う（#57 の決まり）
+    scanning: bool,
+    /// **まだサムネイルの無い写真**のうち、読み終えていない数（[`ThumbnailService::fresh_pending`]）
+    thumbs_pending: usize,
+}
+
+/// **本体のスレッドで答えない**（async）。画面は動いている間1秒ごとに訊くので、同期のコマンドだと本体の
+/// スレッドでサムネイルの列の錠を待つことがある（ゲート2）。`State` は async では取れないので `AppHandle` から読む
+#[tauri::command]
+async fn background_status(app: tauri::AppHandle) -> BackgroundStatusDto {
+    let state = app.state::<AppState>();
+    BackgroundStatusDto {
+        scanning: state
+            .scans_running
+            .load(std::sync::atomic::Ordering::SeqCst)
+            > 0,
+        thumbs_pending: state.thumbs.fresh_pending(),
+    }
+}
+
 /// 検索インデックスの初期構築の進捗を返す（イベント取りこぼし時のフォールバック）。
 #[tauri::command]
 fn get_index_progress(state: tauri::State<'_, AppState>) -> IndexProgressDto {
@@ -3706,8 +3770,18 @@ fn get_stats(state: tauri::State<'_, AppState>) -> Result<LibraryStatsDto, Strin
 
 /// 指定ルートだけを走査して差分反映する（取り込み直後用）。
 /// 走査しなかったルートはok_rootsに入らないため、その配下のレコードは削除されない。
-fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, String> {
+/// `since` は呼ぶ側が控えた「これより後は新しい写真」の境（取り込みならコピーを始める前）。無ければここで控える
+fn scan_and_apply_root(
+    state: &AppState,
+    root: &Path,
+    since: Option<i64>,
+) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
+    // 走査の前の最大の id。これより後に入った行だけを「新しく読む写真」と数える（dev #64）。**取り込みはコピーの前の
+    // 境を使う**——取り込み先が既にライブラリなら、見張りがコピーの途中で行を足して列にも積むので、ここで控えると
+    // それらを数え漏らす（PR の codex）
+    let since = since.or_else(|| lock_ok(&state.db).max_media_id().ok());
+    let _running = ScanRunning::new(state);
     let config = lock_ok(&state.config).clone();
     let scan = pictkura_core::LibraryScan {
         outcome: pictkura_core::scanner::scan_roots_pruned(
@@ -3720,7 +3794,7 @@ fn scan_and_apply_root(state: &AppState, root: &Path) -> Result<SyncStats, Strin
     };
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
-    enqueue_missing_thumbs(state);
+    enqueue_missing_thumbs(state, since);
     Ok(stats)
 }
 
@@ -3872,6 +3946,9 @@ fn retain_known_dirs_outside(known_dirs: &mut HashMap<PathBuf, i64>, roots: &[Pa
 /// ただし**フォルダの更新時刻が信用できない形式（FAT32・exFAT）の上では飛ばさない**（[`drop_untrusted_known_dirs`]）
 fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
+    // 走査の前の最大の id。これより後に入った行だけを「新しく読む写真」と数える（dev #64）
+    let since = lock_ok(&state.db).max_media_id().ok();
+    let _running = ScanRunning::new(state);
     let config = lock_ok(&state.config).clone();
     // **鍵を取ってから、いまの設定で選び直す**。鍵を待っている間に利用者がそのフォルダを
     // ライブラリから外すと、外した走査のあとでここが古い一覧のまま読み、外した写真を
@@ -3911,7 +3988,7 @@ fn scan_returned_roots(state: &AppState, roots: &[PathBuf]) -> Result<SyncStats,
         roots: config.library.roots.clone(),
     };
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
-    enqueue_missing_thumbs(state);
+    enqueue_missing_thumbs(state, since);
     Ok(stats)
 }
 
@@ -5281,6 +5358,7 @@ fn finish_import(
     source: PathBuf,
     dest: Option<PathBuf>,
     copied: &[PathBuf],
+    since: Option<i64>,
 ) -> Result<Option<GooglePlacedDto>, String> {
     update_config(state, |c| {
         c.import.last_source_dir = Some(source);
@@ -5294,7 +5372,20 @@ fn finish_import(
     // コピー先ルートだけを走査してグリッドへ反映（全ルート再走査を避ける）
     if let Some(dest) = &dest {
         rebuild_watcher(app); // コピー先がルートに追加された可能性がある
-        let sync_stats = scan_and_apply_root(state, dest)?;
+        let sync_stats = scan_and_apply_root(state, dest, since)?;
+        // コピーしたパスの行にも印を付ける（dev #64）。**境の id だけでは漏れる**——`media.id` は AUTOINCREMENT
+        // でないので、コピーの間に最大の id の行が消えるとその id が使い回され、境より後に見えない（PR の codex）。
+        // 印は列に居るものにしか付かないので、読み終えた行を足しても数は増えない
+        {
+            let ids: Vec<i64> = {
+                let db = lock_ok(&state.db);
+                copied
+                    .iter()
+                    .filter_map(|p| db.get_meta_by_path(p).ok().flatten().map(|m| m.id))
+                    .collect()
+            };
+            state.thumbs.mark_fresh(&ids);
+        }
         let _ = app.emit("library-updated", SyncStatsDto::from(sync_stats));
         let placed = place_google_links(state, dest, copied);
         // 送り出しは走査の知らせより後に動く（保留の置き直し・突き合わせ・この回の分）。
@@ -5585,6 +5676,9 @@ async fn import_from_folder(
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // コピーを始める前の最大の id。ここより後に入った行を、新しく読む写真と数える（dev #64。見張りがコピーの途中で
+        // 行を足しても数え漏らさない）
+        let since = lock_ok(&state.db).max_media_id().ok();
         let source = PathBuf::from(&source);
         let config = lock_ok(&state.config).clone();
         // コピー先はこのスナップショットのものを最後まで使う
@@ -5599,7 +5693,7 @@ async fn import_from_folder(
             })
             .map_err(errs::from_err)?;
 
-        let google = finish_import(&app, &state, source, dest, &stats.copied_paths)?;
+        let google = finish_import(&app, &state, source, dest, &stats.copied_paths, since)?;
 
         Ok(ImportStatsDto {
             copied: stats.copied,
@@ -5820,6 +5914,9 @@ async fn import_paths(
 ) -> Result<ImportStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        // コピーを始める前の最大の id。ここより後に入った行を、新しく読む写真と数える（dev #64。見張りがコピーの途中で
+        // 行を足しても数え漏らさない）
+        let since = lock_ok(&state.db).max_media_id().ok();
         let config = lock_ok(&state.config).clone();
         let dest = config.routing.destination.clone();
         let files: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -5847,6 +5944,7 @@ async fn import_paths(
             PathBuf::from(&source_dir),
             dest,
             &stats.copied_paths,
+            since,
         )?;
         Ok(ImportStatsDto {
             copied: stats.copied,
@@ -6913,6 +7011,7 @@ pub fn run() {
                 scan_successes: std::sync::atomic::AtomicU64::new(0),
                 root_probes: RootProbes::default(),
                 index_progress: Mutex::new(IndexProgressDto::default()),
+                scans_running: std::sync::atomic::AtomicUsize::new(0),
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
                 // 抽出が初めて押されたときに作る（`AppState::clipboard`）
@@ -7475,6 +7574,7 @@ pub fn run() {
             empty_library_reason,
             open_decoder_help,
             get_index_progress,
+            background_status,
             video_status,
             original_status,
             temporary_library_roots,

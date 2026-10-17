@@ -482,6 +482,10 @@ export const getExifInfo = (id: number) =>
   invoke<ExifInfo>("get_exif_info", { id });
 export const getIndexProgress = () =>
   invoke<IndexProgress>("get_index_progress");
+
+/** 裏で走っている仕事の様子（pictkura-dev #64）。ヘッダーの小さな「読み込み中」が問い合わせる */
+export type BackgroundStatus = { scanning: boolean; thumbs_pending: number };
+export const backgroundStatus = () => invoke<BackgroundStatus>("background_status");
 export const listMemories = () => invoke<Memory[]>("list_memories");
 export const getStats = () => invoke<LibraryStats>("get_stats");
 /**

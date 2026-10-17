@@ -187,6 +187,11 @@ export const en: Dict = {
   actionCalendar: "Calendar view",
   actionThumbnails: "Photo grid",
   indexBuilding: "🔍 Building the search index… ",
+  bgScanning: "Updating the library…",
+  bgThumbs: (n: number) => `Reading photos (${num(n)} left)`,
+  /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
+  bgScanningShort: "Updating",
+  bgThumbsShort: (n: number) => `${num(n)} left`,
   cameraScanning: "📷 Reading camera info… ",
   indexIncompleteWarning:
     "⚠ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",

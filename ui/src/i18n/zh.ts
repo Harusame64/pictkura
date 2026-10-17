@@ -244,6 +244,11 @@ export const zh: Dict = {
   actionCalendar: "日历视图",
   actionThumbnails: "照片网格",
   indexBuilding: "🔍 正在建立搜索索引… ",
+  bgScanning: "正在更新图库…",
+  bgThumbs: (n: number) => `正在读取照片（还剩 ${num(n)} 张）`,
+  /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
+  bgScanningShort: "更新中",
+  bgThumbsShort: (n: number) => `还剩 ${num(n)}`,
   cameraScanning: "📷 正在读取相机信息… ",
   indexIncompleteWarning:
     "⚠ 搜索索引的建立中断了，搜索结果可能不完整（下次启动时接着建立）",

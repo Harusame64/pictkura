@@ -1860,6 +1860,8 @@ struct QueueState {
     processing: HashSet<i64>,
     /// ID別の処理失敗回数（壊れた画像の無限リトライ防止。セッション内のみ）
     failures: HashMap<i64, u32>,
+    /// **新しく読む写真**（まだサムネイルの無い行）として積まれた id。済んだら外す（pictkura-dev #64 の「残り n枚」）
+    fresh: HashSet<i64>,
     shutdown: bool,
 }
 
@@ -1905,13 +1907,15 @@ fn finish_job(
     before: Option<crate::RowVersion>,
     stale: bool,
 ) {
-    queue.complete(id);
     let changed = match (before, db.version_of(id)) {
         (Some(b), Ok(Some(now))) => b != now,
         _ => false,
     };
     if stale || changed {
-        queue.enqueue(&[id]);
+        // 積み直す。**新しい写真の印は残す**——まだ読み終えていない（pictkura-dev #64 のゲート2）
+        queue.requeue(id);
+    } else {
+        queue.complete(id);
     }
 }
 
@@ -1925,6 +1929,7 @@ impl ThumbQueue {
                     queued: HashSet::new(),
                     processing: HashSet::new(),
                     failures: HashMap::new(),
+                    fresh: HashSet::new(),
                     shutdown: false,
                 }),
                 cvar: Condvar::new(),
@@ -2023,7 +2028,21 @@ impl ThumbQueue {
 
     /// 処理完了（成功・失敗とも）を通知し、そのIDの再投入を許可する。
     pub fn complete(&self, id: i64) {
-        self.lock_state().processing.remove(&id);
+        let mut state = self.lock_state();
+        state.processing.remove(&id);
+        state.fresh.remove(&id);
+    }
+
+    /// 処理を終えたが、もう一度解く（ファイルが書き換え途中・行が変わった）。[`Self::complete`] と違い、
+    /// 新しい写真の印は外さない
+    pub fn requeue(&self, id: i64) {
+        let mut state = self.lock_state();
+        state.processing.remove(&id);
+        if !state.blocked(id) && state.queued.insert(id) {
+            state.pending.push_back(id);
+        }
+        drop(state);
+        self.inner.cvar.notify_all();
     }
 
     /// 処理失敗を記録する。上限（MAX_FAILURES）を超えたIDは以後投入されない。
@@ -2042,6 +2061,29 @@ impl ThumbQueue {
     pub fn active_ids(&self) -> HashSet<i64> {
         let state = self.lock_state();
         state.queued.union(&state.processing).copied().collect()
+    }
+
+    /// 積まれている id のうち、**新しく読む写真**の印を付ける（列に居るもの・処理中のものだけ）
+    pub fn mark_fresh(&self, ids: &[i64]) {
+        let mut state = self.lock_state();
+        for &id in ids {
+            if state.queued.contains(&id) || state.processing.contains(&id) {
+                state.fresh.insert(id);
+            }
+        }
+    }
+
+    /// 新しく読む写真のうち、まだ済んでいない数（列に居る・処理中。pictkura-dev #64 の「残り n枚」）。
+    /// 列から黙って落ちたものを数え続けないよう、いま居るものとの重なりで数える
+    pub fn fresh_pending(&self) -> usize {
+        let mut guard = self.lock_state();
+        let state = &mut *guard;
+        // 列から黙って抜けたもの（失敗の上限で優先から落ちた等）は印ごと捨てる。集合は済むほど小さくなる
+        let (queued, processing) = (&state.queued, &state.processing);
+        state
+            .fresh
+            .retain(|id| queued.contains(id) || processing.contains(id));
+        state.fresh.len()
     }
 
     pub fn shutdown(&self) {
@@ -2187,6 +2229,16 @@ impl ThumbnailService {
     /// キュー内＋処理中のIDのスナップショット（LRU削除の除外集合用）。
     pub fn active_ids(&self) -> HashSet<i64> {
         self.queue.active_ids()
+    }
+
+    /// 新しく読む写真の印を付ける（[`ThumbQueue::mark_fresh`]）。
+    pub fn mark_fresh(&self, ids: &[i64]) {
+        self.queue.mark_fresh(ids);
+    }
+
+    /// 新しく読む写真の残り（[`ThumbQueue::fresh_pending`]）。
+    pub fn fresh_pending(&self) -> usize {
+        self.queue.fresh_pending()
     }
 
     /// このIDがキュー内または処理中か（LRU削除ファイル消去直前の再確認用）。
@@ -3711,6 +3763,43 @@ mod tests {
         });
         rx.recv_timeout(std::time::Duration::from_secs(secs))
             .expect("キューから仕事が出てこない（消えている）")
+    }
+
+    /// 「残り n枚」は新しく読む写真だけを数え、済んだら減る（pictkura-dev #64）。列に居ない id には印を付けない
+    #[test]
+    fn fresh_pending_counts_only_marked_ids_until_they_complete() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2, 3]);
+        // 2 と 3 だけが新しい写真。9 は列に居ないので数えない
+        queue.mark_fresh(&[2, 3, 9]);
+        assert_eq!(queue.fresh_pending(), 2);
+        // 処理中も数える（最後の重い数枚を読んでいる間に「終わった」と言わない）
+        let (first, _) = pop_within(&queue, 10).unwrap();
+        assert_eq!(first, 1);
+        let (second, _) = pop_within(&queue, 10).unwrap();
+        assert_eq!(queue.fresh_pending(), 2);
+        queue.complete(second);
+        assert_eq!(queue.fresh_pending(), 1);
+        let (third, _) = pop_within(&queue, 10).unwrap();
+        queue.complete(third);
+        assert_eq!(queue.fresh_pending(), 0);
+        // 済んだ写真が（寸法を持たないまま）次の走査で積み直されても、もう新しい写真ではない——印は残さない
+        queue.enqueue(&[second]);
+        assert_eq!(queue.fresh_pending(), 0);
+    }
+
+    /// 書き換え途中で解き直す（Stale・行が変わった）ときは、新しい写真の印を残したまま積み直す（pictkura-dev #64）
+    #[test]
+    fn a_requeued_fresh_photo_is_still_counted() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[5]);
+        queue.mark_fresh(&[5]);
+        let (id, _) = pop_within(&queue, 10).unwrap();
+        queue.requeue(id);
+        assert_eq!(queue.fresh_pending(), 1, "まだ読み終えていない");
+        let (id, _) = pop_within(&queue, 10).unwrap();
+        queue.complete(id);
+        assert_eq!(queue.fresh_pending(), 0);
     }
 
     #[test]

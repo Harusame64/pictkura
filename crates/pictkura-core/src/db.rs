@@ -3686,6 +3686,29 @@ impl Db {
         Ok(out)
     }
 
+    /// いまある行の最大の id（無ければ 0）。走査の前に控え、その後に入った行を「新しい写真」と見分ける（pictkura-dev #64）
+    pub fn max_media_id(&self) -> Result<i64, DbError> {
+        Ok(self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM media", [], |r| r.get(0))?)
+    }
+
+    /// `since` より後に入った行のうち、メタデータも**サムネイルもまだ無い**もの（`thumb_state = 0`）。走査や取り込みで
+    /// 新しく入った写真で、一覧では灰色のマス。**古い行は数えない**——毎回読めずに列へ戻る行（壊れた画像・寸法を
+    /// 持たない RAW）を、起動のたびに「新しく読む写真」と言わない（pictkura-dev #64 の「残り n枚」）。主キーで絞るので
+    /// 表を一巡りしない
+    pub fn new_ids_without_thumb(&self, since: i64) -> Result<Vec<i64>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM media WHERE id > ?1 AND (width IS NULL OR width = 0) AND thumb_state = 0",
+        )?;
+        let rows = stmt.query_map([since], |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     /// 拡張子で数え、見本のパスも少しだけ返す。
     ///
     /// 「この環境ではHEIFを展開できない」と知らせるかどうかの判断に使う
