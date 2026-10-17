@@ -7296,7 +7296,7 @@ export default function App() {
               onBulkMark("picked", true).catch((e) => fail(errText(e)))
             }
           >
-            <span aria-hidden="true">⚑</span> {t.bulkPickOn}
+            <span aria-hidden="true">⚑ </span>{t.bulkPickOn}
           </button>
           <button
             disabled={busy}
@@ -7312,7 +7312,7 @@ export default function App() {
               onBulkMark("favorite", true).catch((e) => fail(errText(e)))
             }
           >
-            <span aria-hidden="true">★</span> {t.bulkFavoriteOn}
+            <span aria-hidden="true">★ </span>{t.bulkFavoriteOn}
           </button>
           <button
             disabled={busy}
@@ -7362,7 +7362,7 @@ export default function App() {
             disabled={busy}
             onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
           >
-            <span aria-hidden="true">🗑</span> {t.bulkDelete}
+            <span aria-hidden="true">🗑 </span>{t.bulkDelete}
           </button>
         </div>
       )}
@@ -7767,7 +7767,7 @@ export default function App() {
               onClick={onBrowseFolder}
               disabled={busy}
             >
-              <span aria-hidden="true">📂</span> {t.browse}
+              <span aria-hidden="true">📂 </span>{t.browse}
             </button>
             <div className="add-folder-manual">
               <input
@@ -7869,7 +7869,7 @@ export default function App() {
                   {t.importFromUsb}
                 </button>
                 <button onClick={onBrowseFolder} disabled={busy}>
-                  <span aria-hidden="true">📂</span> {t.browse}
+                  <span aria-hidden="true">📂 </span>{t.browse}
                 </button>
               </div>
             </div>
@@ -8654,10 +8654,10 @@ export default function App() {
                   </button>
                 )}
                 {viewerItem.favorite && (
-                  <span className="viewer-badge fav"><span aria-hidden="true">★</span> {t.judgeFav}</span>
+                  <span className="viewer-badge fav"><span aria-hidden="true">★ </span>{t.judgeFav}</span>
                 )}
                 {viewerItem.picked && (
-                  <span className="viewer-badge pick"><span aria-hidden="true">⚑</span> {t.judgePick}</span>
+                  <span className="viewer-badge pick"><span aria-hidden="true">⚑ </span>{t.judgePick}</span>
                 )}
                 {rejected.has(viewerItem.id) && (
                   <span className="viewer-badge reject">
