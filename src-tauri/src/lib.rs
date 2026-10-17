@@ -3674,8 +3674,11 @@ struct BackgroundStatusDto {
     thumbs_pending: usize,
 }
 
+/// **本体のスレッドで答えない**（async）。画面は動いている間1秒ごとに訊くので、同期のコマンドだと本体の
+/// スレッドでサムネイルの列の錠を待つことがある（ゲート2）。`State` は async では取れないので `AppHandle` から読む
 #[tauri::command]
-fn background_status(state: tauri::State<'_, AppState>) -> BackgroundStatusDto {
+async fn background_status(app: tauri::AppHandle) -> BackgroundStatusDto {
+    let state = app.state::<AppState>();
     BackgroundStatusDto {
         scanning: state.scans_running.load(std::sync::atomic::Ordering::SeqCst) > 0,
         thumbs_pending: state.thumbs.background_pending(),

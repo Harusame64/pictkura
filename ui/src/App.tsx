@@ -1626,7 +1626,9 @@ export default function App() {
       // `reloadAll` に届かず、`settled` がその起動のあいだ偽のまま固まる——
       // **データも説明も出ない完全な無言**になる（ゲート1の指摘。
       // 隣のリスナーには入れてあるのに、こちらだけ抜けていた）
-      const f = await listen("library-updated", () => {
+      const f = await listen<{ added?: number; changed?: number } | null>("library-updated", (ev) => {
+        // 増えた・変わったなら、写真の読み込みの残りを出してよい（dev #64）。中身の無い知らせは数えない
+        if ((ev.payload?.added ?? 0) + (ev.payload?.changed ?? 0) > 0) libraryGrewRef.current = true;
         reloadAll().catch((e) => fail(errText(e)));
         refreshCameras();
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
@@ -1833,54 +1835,71 @@ export default function App() {
   const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
   /**
    * 裏で走っている仕事（pictkura-dev #64）。ヘッダーの件数の隣に、**邪魔にならない1行だけ**出す（2026-10-17 利用者の
-   * 形）。取り込みのコピー → 走査 → サムネイルの自動のパス、の順に1つだけ言う。**0.8秒続いたものだけ**出す——短い
-   * 作業でちらつかせず、何も変わらない普通の起動では何も出さない（#57 の決まり）
+   * 形）。取り込みのコピー → 走査 → 写真の読み込み（サムネイルとメタデータの自動のパス）、の順に1つだけ言う。
+   *
+   * **続けて2回の問い合わせで同じ仕事を見たときだけ出す**——1回だけ捕まえた短い走査（起動時の同期・今すぐ同期）を
+   * 出さない（#57 の決まり。ゲート2: 0.8秒の時計は問い合わせの間隔より短く、短い仕事も出していた）。
+   * 写真の読み込みは**ライブラリが増えたあとだけ**数える。寸法を持たない RAW などは起動のたびに列へ戻るので、
+   * 何も変わらない起動でも「残り n枚」と言ってしまう（ゲート2）
    */
-  const [bgStatus, setBgStatus] = useState<{ scanning: boolean; thumbs: number }>({
-    scanning: false,
-    thumbs: 0,
-  });
+  const [bgShown, setBgShown] = useState<
+    | { kind: "import"; done: number; total: number }
+    | { kind: "scan" }
+    | { kind: "thumbs"; left: number }
+    | null
+  >(null);
   /** 取り込みのコピーの進み具合（`import-progress`）。取り込みの面の外でも、ここで持つ */
-  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(
-    null,
-  );
-  const bgLabel =
-    importProgress !== null
-      ? t.bgImporting(importProgress.done, importProgress.total)
-      : bgStatus.scanning
-        ? t.bgScanning
-        : bgStatus.thumbs > 0
-          ? t.bgThumbs(bgStatus.thumbs)
-          : null;
-  /** 何の仕事か（数の動きでは出し直さない）。0.8秒の待ちは、これが変わったときだけ数え直す */
-  const bgKind = importProgress !== null ? "import" : bgStatus.scanning ? "scan" : bgStatus.thumbs > 0 ? "thumbs" : null;
-  const [bgShownKind, setBgShownKind] = useState<string | null>(null);
+  const importProgressRef = useRef<{ done: number; total: number } | null>(null);
+  /** ライブラリが増えた（足した・取り込んだ・走査で増えた・変わった）。写真の読み込みが空になったら下ろす */
+  const libraryGrewRef = useRef(false);
+  /** 同じ仕事を続けて見た回数（2回で出す） */
+  const bgStreakRef = useRef<{ kind: string | null; n: number }>({ kind: null, n: 0 });
+  const wizardOpenRef = useRef(false);
   useEffect(() => {
-    if (bgKind === null) {
-      setBgShownKind(null);
-      return;
-    }
-    const timer = window.setTimeout(() => setBgShownKind(bgKind), 800);
-    return () => window.clearTimeout(timer);
-  }, [bgKind]);
-  // 様子は問い合わせで取る（走査とサムネイルの列には知らせが無い）。見えている間は1秒ごと、隠れている間は5秒ごと。
-  // 1回の問い合わせは数と旗を読むだけで、DB にも触らない
+    wizardOpenRef.current = wizardOpen;
+  }, [wizardOpen]);
+  const bgLabel =
+    bgShown === null
+      ? null
+      : bgShown.kind === "import"
+        ? t.bgImporting(bgShown.done, bgShown.total)
+        : bgShown.kind === "scan"
+          ? t.bgScanning
+          : t.bgThumbs(bgShown.left);
+  // 様子は問い合わせで取る（走査とサムネイルの列には知らせが無い）。何か見えている間は1秒ごと、無い間は3秒ごと、
+  // 窓が隠れている間は5秒ごと。1回の問い合わせは数と旗を読むだけで、DB にも触らない
   useEffect(() => {
     let alive = true;
     let timer: number | undefined;
     const tick = async () => {
+      let kind: "import" | "scan" | "thumbs" | null = null;
+      let left = 0;
       try {
         const s = await backgroundStatus();
         if (!alive) return;
-        setBgStatus((prev) =>
-          prev.scanning === s.scanning && prev.thumbs === s.thumbs_pending
-            ? prev
-            : { scanning: s.scanning, thumbs: s.thumbs_pending },
-        );
+        if (s.thumbs_pending === 0) libraryGrewRef.current = false;
+        // 取り込みの面が開いていれば、そちらが進み具合を出している（ヘッダーで二重に言わない。ゲート2）
+        const imp = wizardOpenRef.current ? null : importProgressRef.current;
+        kind = imp ? "import" : s.scanning ? "scan" : libraryGrewRef.current ? "thumbs" : null;
+        left = s.thumbs_pending;
       } catch {
-        // 取れなかった回は前の様子のまま。次で取り直す
+        // 取れなかった回は何も無かったことにする（出しっぱなしにしない）
       }
-      if (alive) timer = window.setTimeout(tick, document.hidden ? 5000 : 1000);
+      const streak = bgStreakRef.current;
+      bgStreakRef.current = streak.kind === kind ? { kind, n: streak.n + 1 } : { kind, n: 1 };
+      const show = kind !== null && bgStreakRef.current.n >= 2;
+      const imp = importProgressRef.current;
+      setBgShown(
+        !show
+          ? null
+          : kind === "import" && imp
+            ? { kind: "import", done: imp.done, total: imp.total }
+            : kind === "scan"
+              ? { kind: "scan" }
+              : { kind: "thumbs", left },
+      );
+      if (alive)
+        timer = window.setTimeout(tick, document.hidden ? 5000 : kind !== null ? 1000 : 3000);
     };
     void tick();
     return () => {
@@ -1894,7 +1913,8 @@ export default function App() {
     void listen<{ done: number; total: number }>("import-progress", (ev) => {
       const { done, total } = ev.payload;
       // 写し終えたら下ろす（このあと取り込み先の走査に移り、そちらは「読み込み中」で出る）
-      setImportProgress(done >= total ? null : { done, total });
+      importProgressRef.current = done >= total ? null : { done, total };
+      if (done < total) libraryGrewRef.current = true;
     }).then((f) => {
       if (cancelled) f();
       else off = f;
@@ -2326,7 +2346,14 @@ export default function App() {
   /** ウィザードからのエラー通知。毎レンダで作り直すと向こうのeffectが再実行される */
   // **ウィザードの失敗も同じ道へ。** 前は `status` だったので、
   // **ウィザード自身が張る scrim の下**に出ていた——言っても届かない
-  const onWizardError = useCallback((message: string) => fail(message), [fail]);
+  const onWizardError = useCallback(
+    (message: string) => {
+      // 取り込みが転んだら「取り込み中」を下ろす。最後の知らせが来ないまま止まることがある（dev #64 のゲート2）
+      importProgressRef.current = null;
+      fail(message);
+    },
+    [fail],
+  );
 
   /**
    * 「まだ写真がありません」と言ってよい状態か。
@@ -2802,6 +2829,9 @@ export default function App() {
   // バックエンド側で済んでおり、ここではルート一覧と表示の更新だけ）
   const onImported = useCallback(
     async (stats: ImportStats) => {
+      // 取り込みが終わった。「取り込み中」を下ろし、入れたぶんの写真の読み込みを出してよい（dev #64）
+      importProgressRef.current = null;
+      if (stats.copied > 0) libraryGrewRef.current = true;
       setStatus(
         t.importDone(stats.copied, stats.skipped) +
           (stats.failed > 0 ? t.importFailed(stats.failed) : "") +
@@ -2840,7 +2870,9 @@ export default function App() {
         ))
       )
         return false;
-      await addLibraryRoot(path);
+      const added = await addLibraryRoot(path);
+      // 増えたぶんの写真の読み込みを、ヘッダーに出してよい（dev #64）
+      if (added.added + added.changed > 0) libraryGrewRef.current = true;
       // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
       // 起動時に転んだ話はここで終わり。**取り直しより前に下ろす**
       // （後ろだと、飾りの取り直しが転んだだけで届かない）
@@ -7273,7 +7305,7 @@ export default function App() {
           {status}
         </span>
         {/* 裏で走っている仕事（dev #64）。0.8秒続いたものだけ。読み上げには載せない（数が毎秒変わる） */}
-        {bgShownKind !== null && bgLabel !== null && (
+        {bgLabel !== null && (
           <span className="bg-work" title={bgLabel}>
             <span className="bg-spinner" aria-hidden />
             {bgLabel}

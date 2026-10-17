@@ -189,7 +189,7 @@ export const en: Dict = {
   indexBuilding: "🔍 Building the search index… ",
   bgScanning: "Reading folders…",
   bgImporting: (done: number, total: number) => `Importing ${num(done)} / ${num(total)}`,
-  bgThumbs: (n: number) => `Making thumbnails (${num(n)} left)`,
+  bgThumbs: (n: number) => `Reading photos (${num(n)} left)`,
   cameraScanning: "📷 Reading camera info… ",
   indexIncompleteWarning:
     "⚠ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",

@@ -246,7 +246,7 @@ export const zh: Dict = {
   indexBuilding: "🔍 正在建立搜索索引… ",
   bgScanning: "正在读取文件夹…",
   bgImporting: (done: number, total: number) => `正在导入 ${num(done)} / ${num(total)}`,
-  bgThumbs: (n: number) => `正在生成缩略图（还剩 ${num(n)} 张）`,
+  bgThumbs: (n: number) => `正在读取照片（还剩 ${num(n)} 张）`,
   cameraScanning: "📷 正在读取相机信息… ",
   indexIncompleteWarning:
     "⚠ 搜索索引的建立中断了，搜索结果可能不完整（下次启动时接着建立）",

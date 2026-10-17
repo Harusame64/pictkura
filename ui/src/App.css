@@ -136,10 +136,16 @@ body {
   color: var(--text-faint);
   font-size: var(--fs-sm);
   white-space: nowrap;
-  flex: none;
+  /* 細い窓では縮んで省略する（ほかの部品を押し出さない。全文は title で読める） */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
 .bg-spinner {
+  flex: none;
   width: 10px;
   height: 10px;
   border: 1.5px solid currentColor;
