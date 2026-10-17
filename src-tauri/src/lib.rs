@@ -3550,9 +3550,7 @@ struct StartupDoneDto {
 }
 
 /// 起動時の同期が終わったか、そして**どう終わったか**。
-/// **イベントを取りこぼしたフロント用**。
-///
-/// （`AppState::startup_done` の説明）。
+/// **イベントを取りこぼしたフロント用**（なぜ要るかは `AppState::startup_done` の説明）。
 #[tauri::command]
 fn startup_scan_finished(state: tauri::State<'_, AppState>) -> StartupDoneDto {
     use std::sync::atomic::Ordering::Acquire;
@@ -7175,8 +7173,12 @@ pub fn run() {
                     let state = inner.state::<AppState>();
                     // ふだんの起動は何も言わない・何も書かない（dev #57、利用者 2026-10-17）。
                     // 読めないフォルダや転んだ起動は、それぞれの知らせと記録が受け持つ
-                    let Ok(stats) = startup_scan(&state) else {
-                        return false;
+                    let stats = match startup_scan(&state) {
+                        Ok(stats) => stats,
+                        Err(e) => {
+                            applog::note(&format!("startup sync failed: {e}"));
+                            return false;
+                        }
                     };
                     let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
                     // 走査を知らせたあと、**別のスレッドで**（起動の完了を待たせない。ここで転んでも

@@ -272,7 +272,7 @@ pub struct PrunedScanOutcome {
     pub enumerated_dirs: Vec<PathBuf>,
     /// 存在を確認した全ディレクトリとそのmtime（スキップ分も含む。dirsテーブル更新用）
     pub seen_dirs: Vec<(PathBuf, i64)>,
-    /// mtime一致でファイル列挙をスキップしたディレクトリ数（統計・爆速メーター用）
+    /// mtime一致でファイル列挙をスキップしたディレクトリ数（統計・試験用）
     pub skipped_dirs: usize,
     /// 1件のエラーもなく走査しきれたルート
     pub ok_roots: Vec<PathBuf>,

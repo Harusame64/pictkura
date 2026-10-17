@@ -160,7 +160,6 @@ export interface DeleteProgress {
   total: number;
 }
 
-/** 起動時同期の⚡爆速メーター（startup-scan-reportイベントのペイロード） */
 export interface AppConfig {
   import: {
     last_source_dir: string | null;
