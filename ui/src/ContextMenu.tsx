@@ -67,14 +67,17 @@ export default function ContextMenu({
     <div
       ref={ref}
       className="context-menu"
+      // メニューとして見せる（UI Automation の Menu／MenuItem。pictkura-dev #65）
+      role="menu"
       style={{ left: adjusted?.x ?? pos.x, top: adjusted?.y ?? pos.y }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item, i) => (
-        <div key={`${item.label}-${i}`}>
-          {item.separator && <div className="context-separator" />}
+        <div key={`${item.label}-${i}`} role="none">
+          {item.separator && <div className="context-separator" role="separator" />}
           <button
+            role="menuitem"
             className={"context-item" + (item.danger ? " danger" : "")}
             onClick={() => {
               onClose();

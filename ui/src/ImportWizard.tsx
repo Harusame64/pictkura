@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -660,11 +660,18 @@ export default function ImportWizard({
               : t.wizardNoImages
           : null;
 
+  const titleId = useId();
   return (
     <div className="palette-backdrop" onClick={() => !busy && onClose()}>
-      <div className="wizard" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="wizard"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="settings-head">
-          <h2>{t.wizardTitle}</h2>
+          <h2 id={titleId}>{t.wizardTitle}</h2>
           <button
             className="settings-close"
             onClick={onClose}

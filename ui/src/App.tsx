@@ -4240,6 +4240,23 @@ export default function App() {
   }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
+  /**
+   * 手前に幕（ビューア・設定・取り込み・パレット・一覧・印刷・情報・ボツの確認）がある間は、後ろの一覧と帯を
+   * **inert** にする——UI Automation や読み上げに後ろの「選択」ボタンが並び、手前の幕と区別が付かなかった
+   * （pictkura-dev #65 の基準線、win の実測）。右クリックのメニューは幕ではないので含めない
+   */
+  const backgroundInert =
+    viewer !== null ||
+    wizardOpen ||
+    settingsOpen ||
+    shortcutsOpen ||
+    paletteOpen ||
+    rejectGate !== null ||
+    infoFor !== null ||
+    printFor !== null ||
+    printSheetFor !== null;
+  /** React 18 は `inert` を知らないので、文字列の属性として渡す（無いときは付けない） */
+  const inertProps = (backgroundInert ? { inert: "" } : {}) as React.HTMLAttributes<HTMLElement>;
 
   /**
    * グリッドとビューアの間の動き（dev #52）。開くときはタイルから、閉じるときはいまの写真のタイルへ。
@@ -7263,7 +7280,7 @@ export default function App() {
   return (
     <div className="app">
       {selecting && (
-        <div className="select-bar">
+        <div className="select-bar" {...inertProps}>
           <button
             className="select-bar-close"
             title={t.clearSelection}
@@ -7370,7 +7387,7 @@ export default function App() {
           1タイルなら名前・撮影日時・大きさ、複数なら合計（ADR の A）。大きさは OS のファイル管理と同じ数え方 */}
       {/* 答えを待つ間も行は出しておく（届いた時に一覧が1行ぶん下へずれないように） */}
       {selecting && (
-        <div className="select-info">
+        <div className="select-info" {...inertProps}>
           {"\u00a0"}
           {/* 1タイルは代表のファイル自身の大きさ。重ね（組・連写）でファイルが2つ以上なら、全体を「合計」と添える
               ——代表の名前の隣に組ぜんぶの大きさだけを置くと、その1ファイルの大きさに読める（PR のゲート2） */}
@@ -7390,7 +7407,7 @@ export default function App() {
             )}`}
         </div>
       )}
-      <header className="topbar">
+      <header className="topbar" {...inertProps}>
         <span className="logo">{t.appName}</span>
         <div className="view-switch">
           <button
@@ -7629,7 +7646,7 @@ export default function App() {
             </div>
           ))}
       </div>
-      <div className="body">
+      <div className="body" {...inertProps}>
         <nav className="sidebar">
           <div className="nav-section">{t.navPlaces}</div>
           <div
@@ -8240,6 +8257,10 @@ export default function App() {
             (viewerIdle ? " idle" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
+          // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真
+          role="dialog"
+          aria-modal="true"
+          aria-label={viewerItem?.file_name ?? t.appName}
           style={
             {
               "--exif-panel-width": `${EXIF_PANEL_WIDTH}px`,
@@ -9151,6 +9172,7 @@ export default function App() {
           <div
             className="reject-gate"
             role="dialog"
+            aria-modal="true"
             aria-label={t.rejectGateTitle(rejected.size)}
             onClick={(e) => e.stopPropagation()}
           >
@@ -9228,6 +9250,7 @@ export default function App() {
           <div
             className="shortcuts"
             role="dialog"
+            aria-modal="true"
             aria-label={t.shortcutsTitle}
             onClick={(e) => e.stopPropagation()}
           >

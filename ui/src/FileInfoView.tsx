@@ -147,6 +147,7 @@ export function FileInfoDialog({
       <div
         className="file-info-dialog"
         role="dialog"
+        aria-modal="true"
         aria-label={t.fileInfoTitle}
         onClick={(e) => e.stopPropagation()}
       >

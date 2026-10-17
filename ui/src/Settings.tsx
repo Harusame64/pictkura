@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 // `open` は下のプロパティ名とぶつかるので別名で受ける
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -337,11 +337,19 @@ export default function Settings({
     }
   };
 
+  const titleId = useId();
   return (
     <div className="palette-backdrop" onClick={closeDialog}>
-      <div className="settings" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="settings"
+        // 名前のある窓として見せる（UI Automation の Window。pictkura-dev #65）
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="settings-head">
-          <h2>{t.settingsTitle}</h2>
+          <h2 id={titleId}>{t.settingsTitle}</h2>
           <button className="settings-close" onClick={closeDialog} title={t.close}>
             <span aria-hidden="true">✕</span>
           </button>
