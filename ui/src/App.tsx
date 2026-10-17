@@ -3418,6 +3418,14 @@ export default function App() {
   // 外していくのは選別の本線の使い方で、そのたびにビューアが消えると
   // 選別が続けられない。寄せ先が無いときだけ閉じる（「読み込み中…」のまま
   // 操作不能で固まるのは防ぐ、という元の目的はそのまま）
+  /**
+   * 見ていた写真が居なくなったとき、**別の日へ移っただけか**を訊いた答え（dev #49）。外で上書きして撮影日が
+   * 変わると、行はそのまま（id も ★ も同じ）別の日へ移る。訊かずに隣へ寄せると、上書きしただけで
+   * ビューアが隣へ飛ぶか閉じる（win の実測: 一覧のタイルが約1秒後に1つ減り、約3秒後に戻る）。
+   * `gone` は「移ったのではない」と分かった印で、そのときだけ下の寄せ方へ進む
+   */
+  const viewerFollowRef = useRef<{ id: number; dayKey: number; gone: boolean } | null>(null);
+  const [viewerFollowTick, setViewerFollowTick] = useState(0);
   useEffect(() => {
     if (!viewer) return;
     const items = viewerDayItems.get(viewer.dayKey);
@@ -3427,6 +3435,34 @@ export default function App() {
         ? items.length > 0
         : walkIndexOf(items, viewer.id) >= 0;
     if (resolvable && dayIdxByKey.has(viewer.dayKey)) return;
+
+    // まず、同じ写真が別の日へ移っていないかを訊く（1つの id と日について1回だけ）
+    if (typeof viewer.id === "number") {
+      const { id, dayKey } = viewer;
+      const f = viewerFollowRef.current;
+      if (!f || f.id !== id || f.dayKey !== dayKey) {
+        viewerFollowRef.current = { id, dayKey, gone: false };
+        const giveUp = () => {
+          const now = viewerFollowRef.current;
+          if (now && now.id === id && now.dayKey === dayKey) {
+            viewerFollowRef.current = { id, dayKey, gone: true };
+            setViewerFollowTick((t) => t + 1);
+          }
+        };
+        scopeMedia(queryRef.current, filterRef.current, [id])
+          .then((found) => {
+            const at = found.find((x) => x.id === id);
+            // 居ない、または同じ日のまま（一覧に出ない形——組の片割れ等）なら、今までどおり寄せる。
+            // 同じ日で待つことはしない: 出ない形だと「読み込み中…」のまま固まる
+            if (!at || at.day_key === dayKey) return giveUp();
+            // 待っている間に送られていたら追わない
+            setViewer((v) => (v && v.id === id && v.dayKey === dayKey ? { dayKey: at.day_key, id } : v));
+          })
+          .catch(giveUp);
+        return;
+      }
+      if (!f.gone) return; // 答え待ち
+    }
 
     // スコープで開いているなら、列の**次**（無ければ前）で、いま一覧に
     // 居るものへ寄せる。列は作り直さない設計なので、消えたidも席は残っている
@@ -3452,7 +3488,15 @@ export default function App() {
       return;
     }
     setViewer(null); // その日ごと消えた
-  }, [viewer, viewerDayItems, dayIdxByKey, viewerScope, scopeIndexById, walkIndexOf]);
+  }, [
+    viewer,
+    viewerDayItems,
+    dayIdxByKey,
+    viewerScope,
+    scopeIndexById,
+    walkIndexOf,
+    viewerFollowTick,
+  ]);
 
   /**
    * 送りの動き（2026-09-27 の利用者の選択: なし／スライド／フェード、既定はスライド。
