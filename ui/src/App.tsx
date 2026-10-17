@@ -6651,7 +6651,7 @@ export default function App() {
       return i ? [i] : [];
     });
     const stills = ordered.filter((i) => !i.is_video);
-    const items = printSides(stills, pairView).map((i) => ({
+    const items = printSides(stills, pairView, unpaired).map((i) => ({
       id: i.id,
       caption:
         splitPath(i.path).name +
@@ -6662,7 +6662,7 @@ export default function App() {
       return;
     }
     setPrintSheetFor({ items, left: ordered.length - stills.length });
-  }, [pairView]);
+  }, [pairView, unpaired]);
 
   /**
    * 選んだものを、フォルダへコピー／移動する。

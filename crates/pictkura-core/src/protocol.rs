@@ -115,7 +115,10 @@ pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
             let edge: u32 = kind["print-".len()..].parse().ok()?;
             Some(MediaTarget::Library {
                 kind: ServeKind::PrintSheet {
-                    edge: edge.clamp(*PRINT_SHEET_EDGE_RANGE.start(), *PRINT_SHEET_EDGE_RANGE.end()),
+                    edge: edge.clamp(
+                        *PRINT_SHEET_EDGE_RANGE.start(),
+                        *PRINT_SHEET_EDGE_RANGE.end(),
+                    ),
                 },
                 id: payload.parse().ok()?,
             })

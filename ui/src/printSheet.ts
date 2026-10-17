@@ -63,18 +63,21 @@ export function maxPhotosFor(perPage: PerPage): number {
 /**
  * まとめて刷るとき、RAW+JPEG の組のどちら側を刷るか（大きく見るときの設定 `pairView` と同じ。`null` は一覧で
  * 組を重ねていない＝両方）。組は**同じ鍵（フォルダと名前）で、本当の撮影日時が一致する RAW と RAW 以外**
- * （一覧の重ね `shotsOfDay` と同じ条件）。まだ読んでいない日の写真も、ファイル情報だけで見分ける。
- * 並びは `infos` のまま
+ * （一覧の重ね `shotsOfDay` と同じ条件——撮影日時は**秒の単位**で比べる。RAW が秒までしか持たず JPEG が秒未満まで
+ * 持つ組を、一覧は1枚に重ねている）。まだ読んでいない日の写真も、ファイル情報だけで見分ける。
+ * `unpaired` は一覧で広げて別々のタイルにした組のファイル（`unpairedBySpread`）——組として扱わず、選んだものは
+ * どちらも刷る。並びは `infos` のまま
  */
 export function printSides<T extends Pick<FileInfo, "id" | "is_raw" | "shot_key" | "taken_at_ms">>(
   infos: readonly T[],
   pairView: PairView | null,
+  unpaired: ReadonlySet<number> = new Set(),
 ): T[] {
   if (pairView === null || pairView === "both") return [...infos];
   const groups = new Map<string, T[]>();
   for (const i of infos) {
-    if (i.taken_at_ms === null) continue;
-    const key = `${i.shot_key}:${i.taken_at_ms}`;
+    if (i.taken_at_ms === null || unpaired.has(i.id)) continue;
+    const key = `${i.shot_key}:${Math.floor(i.taken_at_ms / 1000)}`;
     const g = groups.get(key);
     if (g) g.push(i);
     else groups.set(key, [i]);

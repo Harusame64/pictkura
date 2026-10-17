@@ -88,3 +88,14 @@ test("printSides pairs only files whose real capture time matches", () => {
   ];
   assert.deepEqual(printSides(xs, "jpeg").map((x) => x.id), [1, 2, 3, 4]);
 });
+
+test("printSides pairs within the same second, as the grid does", () => {
+  // RAW は秒まで、JPEG は秒未満まで持つ組。一覧は1枚に重ねる
+  const xs = [info(1, 10, false, 5_340), info(2, 10, true, 5_000)];
+  assert.deepEqual(printSides(xs, "jpeg").map((x) => x.id), [1]);
+});
+
+test("printSides keeps both sides of a pair spread into two tiles", () => {
+  const xs = [info(1, 10, false, 5000), info(2, 10, true, 5000)];
+  assert.deepEqual(printSides(xs, "jpeg", new Set([1, 2])).map((x) => x.id), [1, 2]);
+});
