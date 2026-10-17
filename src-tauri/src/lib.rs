@@ -2917,6 +2917,9 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
         // 分母は写真＋影。**進む数字が止まらない**ほうを取る
         let shadows = sidecars.len();
         let media_total = std::cell::Cell::new(0usize);
+        // 送ろうとした写真の数（記録の「N枚のうち」に使う）。進み具合の分母は届いたものしか数えないので、
+        // 全部が届かなかったとき「0枚のうち」になる（PR の codex）
+        let attempted = media.len();
         let (deleted_media, first_err) = trash_paths_with_progress(media, &roots, |done, total| {
             media_total.set(total);
             let _ = app.emit(
@@ -2995,7 +2998,7 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
                 // ——サイドカーの2行に「X of Y」を足したのと同じ理由である（ゲート2）
                 applog::note(&format!(
                     "none of {} photo(s) could go to the recycle bin: {}",
-                    media_total.get(),
+                    attempted,
                     errs::for_log(&e)
                 ));
                 Err(e)
