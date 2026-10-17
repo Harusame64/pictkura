@@ -3083,6 +3083,7 @@ dependencies = [
  "arboard",
  "chrono",
  "core-foundation-sys",
+ "image",
  "libc",
  "pictkura-core",
  "serde",

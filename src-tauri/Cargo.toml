@@ -61,13 +61,15 @@ tokio = { version = "1", default-features = false, features = ["time", "sync"] }
 # 足してある**——切ると Linux は X11 だけになり、Wayland のセッションでは
 # 押しても黙って何も起きない。**Linuxの配布物は出していない**ので、これが
 # 効くのは自分で組む人にだけだが、そこで黙って何も起きないのは同じである。
-# Windows/macOS のビルドには入らない（arboard 側でターゲット別に分かれている）。
+# macOS のビルドには入らない（arboard 側でターゲット別に分かれている）。
 #
 # `default-features = false` にしているが、**既定は `image-data` ひとつ**なので
 # 減らしているわけではない。ここで明示しているのは、既定が変わったときに
-# 黙って付いてこないようにするため。`image-data` は `image` /  `windows-sys` /
-# `core-graphics` を連れてくる（arboard の `[features]`）ので、それらを
-# 並べて書く必要は無い。
+# 黙って付いてこないようにするため。`image-data` は `image` / `core-graphics` を
+# 連れてくる（arboard の `[features]`）ので、ここに並べて書く必要は無い。
+# **Windows では使わない**——画像は `clipboard_image.rs` が自分で置く（pictkura-dev #47）。だから非 Windows の
+# 依存に置く
+[target.'cfg(not(windows))'.dependencies]
 arboard = { version = "3.6", default-features = false, features = [
     "image-data",
     "wayland-data-control",
@@ -92,14 +94,20 @@ windows-sys = { version = "0.60", features = [
 ] }
 # エクスプローラーと同じ右クリックのメニュー（`shell_menu.rs`、ADR B-4）。`IContextMenu` は COM なので、
 # ラッパのある windows クレートを使う（pictkura-core と同じ版。新しくビルドされるものは無い）
+# Win32_System_DataExchange・Win32_System_Memory: 画像をクリップボードへ置く（`clipboard_image.rs`、dev #47）
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# クリップボードへ置く PNG を、開く前に自分で作る（`clipboard_image.rs`）。pictkura-core が同じ版を引いているので、
+# 新しくビルドされるものは無い
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # マウントの旗（`MNT_DONTBROWSE`）を読むための `statfs`。sysinfo は旗を返さない。
 # Tauri が既に同じ版を引いているので、依存は増えても新しくビルドされない
