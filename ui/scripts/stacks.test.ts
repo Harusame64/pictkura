@@ -12,6 +12,7 @@ import {
   selectRangeOverTiles,
   selectionTilesOf,
   dropVanished,
+  vanishedOf,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -529,17 +530,17 @@ test("選んだ時点のタイル: 読めている日は今の組み方で覚え
 });
 
 test("a file deleted outside pictkura leaves the selection (dev #45)", () => {
-  const prev = new Set([1, 2, 3]);
-  const next = dropVanished(prev, [1, 2, 3], [1, 3]);
-  assert.deepEqual([...next], [1, 3]);
+  const gone = vanishedOf([1, 2, 3], [1, 3]);
+  assert.deepEqual([...gone], [2]);
+  assert.deepEqual([...dropVanished(new Set([1, 2, 3]), gone)], [1, 3]);
 });
 
 test("ids picked while the check was out are kept, and nothing gone means the same set", () => {
   // 4 は訊いたあとで選び足した
-  assert.deepEqual([...dropVanished(new Set([1, 2, 4]), [1, 2], [1])], [1, 4]);
+  assert.deepEqual([...dropVanished(new Set([1, 2, 4]), vanishedOf([1, 2], [1]))], [1, 4]);
   const prev = new Set([1, 2]);
-  assert.equal(dropVanished(prev, [1, 2], [1, 2]), prev);
+  assert.equal(dropVanished(prev, vanishedOf([1, 2], [1, 2])), prev);
   // 消えたものがもう選択に無ければ（その間に外した）、同じ集合のまま
   const now = new Set([1]);
-  assert.equal(dropVanished(now, [1, 2], [1]), now);
+  assert.equal(dropVanished(now, vanishedOf([1, 2], [1])), now);
 });

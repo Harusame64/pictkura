@@ -124,6 +124,7 @@ import {
   selectRangeOverTiles,
   selectionTilesOf,
   dropVanished,
+  vanishedOf,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -1043,6 +1044,8 @@ export default function App() {
    * 依存に入れるとキーを押すたびにリスナーを張り替えることになる。
    */
   const selectedRef = useRef<ReadonlySet<number>>(new Set());
+  /** Shift+クリックの起点（`anchorId`）の最新の値。外で消えたかを訊くときに読む（dev #45） */
+  const anchorRef = useRef<number | null>(null);
   const selectAllRef = useRef<() => Promise<void>>(async () => {});
   const clearSelectionRef = useRef<() => void>(() => {});
   /**
@@ -1107,24 +1110,22 @@ export default function App() {
     return () => ro.disconnect();
   }, [view]);
 
-  /** 骨組み（サマリ・件数・思い出）を取り直し、日キャッシュを捨てる。
-   * 可視範囲の日は placeholder になった瞬間に自動で再取得される。
-   *
-   * **落ちても `settled` は立てる**（`finally`）。立てないと、
-   * 呼び出し側は例外を `status` へ流すだけでリトライしないので、
-   * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる。
-   * ただし立てるだけだと今度は**失敗を「空」と読む**ので、
-   * 落ちたことは [`loadFailed`] に分けて持つ */
   /**
    * 外で消えたファイルを、選択と Shift+クリックの起点・範囲の土台から外す（dev #45）。残すと選択の帯が、
-   * もう一覧に無いタイルを数え続けて閉じない。**一覧を取り直すたびに**（`reloadAll` の終わりで）呼ぶ
+   * もう一覧に無いタイルを数え続けて閉じない。**一覧を取り直せたたびに**（`reloadAll` の終わりで）呼ぶ
    * ——見張りの `library-updated` だけでなく、フォルダを外した等でも行は消える（ゲート2）。
    *
+   * **行を消す道ごとに ID を知らせてもらう形にはしない**: 消す道は Rust に6つあり、1つ抜けると黙って
+   * 残る。DB に今あるかを訊けば、道の数に依らない。
+   *
    * 絞り込みなしで訊く——★を外した等で今の絞り込みから外れただけのものは選択に残す（一括操作の直前の
-   * 確認が受け持つ）。訊いている間に選び足したものには触らない
+   * 確認が受け持つ）。選択に入っていない起点も訊く（選んでから外した写真が起点のまま残る）。
+   * 訊いている間に選び足したものには触らない
    */
   const pruneVanished = useCallback(async () => {
     const asked = [...selectedRef.current];
+    const anchor = anchorRef.current;
+    if (anchor !== null && !selectedRef.current.has(anchor)) asked.push(anchor);
     if (asked.length === 0) return;
     let alive: number[];
     try {
@@ -1134,18 +1135,25 @@ export default function App() {
       fail(errText(e));
       return;
     }
-    const gone = new Set(asked);
-    for (const id of alive) gone.delete(id);
+    const gone = vanishedOf(asked, alive);
     if (gone.size === 0) return;
-    setSelected((prev) => dropVanished(prev, asked, alive));
+    // 走っている全選択・範囲選択の答えを捨てさせる——消える前に数えた答えが、外した ID を戻す
+    beginSelectOp();
+    setSelected((prev) => dropVanished(prev, gone));
     // 起点と範囲の土台も忘れる（単独削除と同じ）。古い土台のまま Shift+クリックすると、消えたものを
     // 選び直す
     setAnchorId((a) => (a !== null && gone.has(a) ? null : a));
-    if ([...gone].some((id) => lastRangeRef.current?.base.has(id))) {
-      lastRangeRef.current = null;
-    }
+    lastRangeRef.current = null;
   }, [fail]);
 
+  /** 骨組み（サマリ・件数・思い出）を取り直し、日キャッシュを捨てる。
+   * 可視範囲の日は placeholder になった瞬間に自動で再取得される。
+   *
+   * **落ちても `settled` は立てる**（`finally`）。立てないと、
+   * 呼び出し側は例外を `status` へ流すだけでリトライしないので、
+   * `settled` が**その起動のあいだ偽のまま固まり**、この機能が丸ごと出なくなる。
+   * ただし立てるだけだと今度は**失敗を「空」と読む**ので、
+   * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     const askedFor = askedRef.current;
@@ -1211,7 +1219,8 @@ export default function App() {
       if (generationRef.current === gen) {
         settledRef.current = true;
         setSettled(true);
-        void pruneVanished();
+        // 一覧を取り直せたときだけ（落ちた知らせはもう出ている。二重に言わない）
+        if (gotSummary) void pruneVanished();
       }
     }
   }, [pruneVanished]);
@@ -5600,6 +5609,7 @@ export default function App() {
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
     selectedRef.current = selected;
+    anchorRef.current = anchorId;
     selectAllRef.current = selectAll;
     clearSelectionRef.current = clearSelection;
   });
