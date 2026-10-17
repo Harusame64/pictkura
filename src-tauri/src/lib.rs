@@ -2821,7 +2821,8 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
         // 選んだあとにライブラリから無くなったID（再スキャンで行が消えた等）は**黙って落とさず数える**
         // （pictkura-dev #41。書き出しの #33 と同じ形）。引けなかったものは消していないので、下で一部失敗として返す
         let (paths, missing_ids, unread) = lookup_selected(&state, &ids, "moving them to the recycle bin");
-        let mut missing = missing_ids.len();        // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
+        let mut missing = missing_ids.len();
+        // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
         // `.xmp` は一覧に出ないので、置いていくと**誰にも見えない迷子**になる
         // ——写真だけ消えたフォルダに現像設定だけが残り続ける。
         // 取り込みで一緒に運んだものを、消すときだけ置いていく道理も無い。
@@ -2836,23 +2837,15 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
                 media.push(path);
             }
         }
-        // **選んだあとに外で消えたファイル**（行はまだ在る）はゴミ箱へ送らず、「無くなっていた」に数える
-        // ——ゴミ箱の束はもう無いものを「片付いた」と返すので、そのままだと「ゴミ箱へ移した」に数えられ、
-        // ゴミ箱を探しても無い（ゲート2）。フォルダごと見えないもの（ドライブを抜いた等）は今までどおり送って
-        // 失敗させる。**行と送り出しのリンクには触らない**——外で消えたものの後始末は見張りの道
-        // （`handle_fs_events` と `sweep_google_orphans`）が持っている。ここで送り出しのリンクを外すと、
-        // 原本を外で完全に消していたとき、残った最後の1つをゴミ箱へ送ることになる
-        let (vanished, kept): (Vec<PathBuf>, Vec<PathBuf>) = media
-            .into_iter()
-            .partition(|p| pictkura_core::export::is_gone_from_its_folder(p));
-        let media = kept;
-        if !vanished.is_empty() {
-            applog::note(&format!(
-                "{} selected photo(s) were already gone from disk and were not moved to the recycle bin",
-                vanished.len()
-            ));
-            missing += vanished.len();
-        }
+        // **選んだあとに外で消えたファイル**（行はまだ在る）を先に控える。ゴミ箱の束はもう無いものを「片付いた」
+        // と返すので、そのまま数えると「ゴミ箱へ移した」になり、ゴミ箱を探しても無い（ゲート2）。後始末（行・
+        // サイドカー・送り出しのリンク）は今までどおり一緒にやる——外したままだと、閉じている間に消えて走査も
+        // 拾わなかった写真を、一覧から消す手立てが無くなる（2周目のゲート2）。変えるのは数え方だけ
+        let vanished: std::collections::HashSet<PathBuf> = media
+            .iter()
+            .filter(|p| pictkura_core::export::is_gone_from_its_folder(p))
+            .cloned()
+            .collect();
         let mut companions = pictkura_core::sidecar::Companions::new(media.iter().cloned());
         let mut sidecars: Vec<PathBuf> = Vec::new();
         // その影が「誰のものか」。**全員をゴミ箱へ送れたときだけ**一緒に送る
@@ -2938,8 +2931,15 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
             // 行が消えたので「カメラとメディア」も数え直させる（一部だけ成功した回も）
             announce_cameras_changed(&app);
         }
-        // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」
-        let count = deleted_media.len();
+        // 数えて返すのも写真だけ——利用者が見ているのは「何枚消えたか」。もう無かったものは「無くなっていた」へ
+        let gone_before = deleted_media.iter().filter(|p| vanished.contains(*p)).count();
+        if gone_before > 0 {
+            applog::note(&format!(
+                "{gone_before} selected photo(s) were already gone from disk; counted as missing, not trashed"
+            ));
+        }
+        missing += gone_before;
+        let count = deleted_media.len() - gone_before;
         match first_err {
             Some(e) if count == 0 => {
                 // **1枚も移せていない。** `errs::coded` は記録に触らないので、
