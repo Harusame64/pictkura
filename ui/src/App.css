@@ -822,8 +822,9 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
-  /* 情報パネルの幅。「次へ」をパネルの左隣へ寄せるときにも使う（#48） */
+  /* 情報パネルの幅と、開いている間に写真の側から空ける幅。値は App.tsx（倍率の計算と揃える、#48） */
   --exif-panel-width: 260px;
+  --info-reserve: 0px;
   position: fixed;
   inset: 0;
   background: oklch(0.1 0 0 / 0.97);
@@ -842,6 +843,8 @@ body {
 .viewer-stage {
   position: absolute;
   inset: 0;
+  /* 情報パネルの分を空けて、その残りの中央に絵を置く（#48） */
+  right: var(--info-reserve);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -875,7 +878,7 @@ body {
   text-shadow: 0 2px 8px oklch(0 0 0 / 0.8);
 }
 .viewer-image {
-  max-width: calc(100vw - 120px);
+  max-width: calc(100vw - 120px - var(--info-reserve));
   max-height: calc(100vh - 80px);
   object-fit: contain;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
@@ -893,7 +896,7 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  max-width: calc(100vw - 120px);
+  max-width: calc(100vw - 120px - var(--info-reserve));
   max-height: calc(100vh - 80px);
   object-fit: contain;
   /* 原寸と同じ影。差し替わるときに影だけポンと出ないように */
@@ -905,7 +908,7 @@ body {
  * 操作バーは `controls` に任せる——自前で作ると全画面・音量・字幕まで
  * 面倒を見ることになり、「最小機能」から外れる */
 .viewer-video {
-  max-width: calc(100vw - 120px);
+  max-width: calc(100vw - 120px - var(--info-reserve));
   max-height: calc(100vh - 80px);
   /* 字幕の帯に操作バーが潜らないよう、その分だけ下を空ける（2026-08-22）。
    * 中央寄せのflexなので、下向きの余白を足すと絵はその半分だけ上がる
@@ -1019,7 +1022,8 @@ body {
 .viewer-strip {
   position: absolute;
   left: 0;
-  right: 0;
+  /* 写真と同じく、情報パネルの分を空けた残りの中央に並べる（パネルの下に潜らない、#48） */
+  right: var(--info-reserve);
   bottom: var(--caption-h);
   display: flex;
   justify-content: center;
@@ -1641,13 +1645,9 @@ body {
   left: var(--sp-4);
 }
 .viewer-nav.next {
-  right: var(--sp-4);
-}
-/* 情報パネルを開いている間は、パネルの左隣へ寄せる。パネルは右端の上から伸び、ファイルの節を足してからは
-   標準の窓（1296×879）で「次へ」の高さまで届いて隠していた（pictkura-dev #48）。高さは変えない——
-   押す場所が上下に動くと、送り続けている手が外れる */
-.viewer.info-open .viewer-nav.next {
-  right: calc(var(--sp-4) + var(--exif-panel-width) + var(--sp-3));
+  /* 情報パネルを開いている間は、縮めた写真とパネルの間へ寄る（#48）。高さは変えない——押す場所が上下に
+     動くと、送り続けている手が外れる */
+  right: calc(var(--info-reserve) + var(--sp-4));
 }
 
 /* 撮影情報パネル */
