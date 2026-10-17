@@ -104,6 +104,10 @@ export const es419: Dict = {
   videoCodecHelp: "Conseguir las Extensiones de video HEVC (de pago)",
   decoderHevcHow: "Extensiones de video HEVC (de pago)",
   settingsGoogleVideo: "Poner también los videos",
+  printSkipped: (n: number) =>
+    `${num(n)} ${one(n, "foto no se pudo", "fotos no se pudieron")} imprimir (videos, por ejemplo) y ${one(n, "se omitió", "se omitieron")}.`,
+  // Añadir → Agregar
+  printCaptions: "Agregar nombre de archivo y fecha de captura",
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} ${one(photos, "foto", "fotos")}`);

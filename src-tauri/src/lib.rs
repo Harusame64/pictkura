@@ -1406,6 +1406,11 @@ struct FileInfoDto {
     width: Option<i64>,
     height: Option<i64>,
     duration_ms: Option<i64>,
+    /// 動画か・RAW か・組の鍵（`MediaItemDto` と同じ作り方）。まとめて刷るときに動画を外し、まだ読んでいない日の
+    /// RAW+JPEG の組も見分けるのに使う（dev #55）
+    is_video: bool,
+    is_raw: bool,
+    shot_key: i64,
 }
 
 /// **まとめて1回で**聞く——連写のタイルは何百ファイルにもなり、1件ずつ投げると呼び出しが並ぶ（PR の codex）。
@@ -1430,6 +1435,9 @@ async fn get_files_info(app: tauri::AppHandle, ids: Vec<i64>) -> Result<Vec<File
                             width: positive(r.width),
                             height: positive(r.height),
                             duration_ms: r.duration_ms,
+                            is_video: pictkura_core::video::is_video_path(&r.path),
+                            is_raw: pictkura_core::raw::is_raw_path(&r.path),
+                            shot_key: pictkura_core::sidecar::shot_key(&r.path),
                         });
                     }
                 }
@@ -6258,6 +6266,21 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             None => not_found(),
         };
     }
+    // 並べて印刷する絵（dev #55）。長辺を抑えて洗い直す。表示のキャッシュは使わない（大きさが違う）
+    if let ServeKind::PrintSheet { edge } = kind {
+        if is_video {
+            return not_found();
+        }
+        return match pictkura_core::print::sheet_jpeg(&record.path, edge) {
+            Some(bytes) => Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "image/jpeg")
+                .header("Cache-Control", "no-store")
+                .body(bytes)
+                .unwrap_or_else(|_| server_error()),
+            None => not_found(),
+        };
+    }
     // 動画の**絵**の要求は原本へ流さない。`<img>` に動画を渡しても絵にならず、
     // 下の `std::fs::read` はファイルを丸ごとメモリへ載せる。
     // サムネイル（あれば）で代用し、無ければ空タイルを出す
@@ -6269,7 +6292,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // 上の `if kind == ServeKind::Video` で必ず返しているので通らない。
         // それでも `unreachable!` を置かないのは、**通ったときに落ちる**のが
         // ここでいちばん高くつくため（要求を捌くスレッドが死ぬ）
-        ServeKind::Video | ServeKind::Print => return not_found(),
+        ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
             None if !can_serve_original(&record) => return blank_thumb(),

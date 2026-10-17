@@ -26,6 +26,7 @@ import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
+import { printSheet, printSides, type SheetItem, type SheetLayout } from "./printSheet";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
@@ -54,6 +55,7 @@ import {
   getConfig,
   getExifInfo,
   getFilesSize,
+  getFilesInfo,
   getIndexProgress,
   getDecoderStatus,
   getEmptyLibraryReason,
@@ -926,6 +928,13 @@ export default function App() {
   const [infoFor, setInfoFor] = useState<number[] | null>(null);
   // 右クリックの「印刷…」で載せ方を選んでいる写真（ADR B-3）
   const [printFor, setPrintFor] = useState<MediaItem | null>(null);
+  /**
+   * 選んだ写真をまとめて刷る（dev #55）。並べ方を選ぶ画面を出している間だけ値がある。`left` は刷る前に外した
+   * 動画の数（刷った後の「外しました」に足す）
+   */
+  const [printSheetFor, setPrintSheetFor] = useState<{ items: SheetItem[]; left: number } | null>(
+    null,
+  );
   /** カレンダーの日クリックでグリッドのこの日付見出しへスクロールする */
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
@@ -5554,7 +5563,7 @@ export default function App() {
       }
       // 情報の幕（ADR の A）はビューアの右クリックからも開く。開いている間は `Esc`・送り・判定を通さない
       // ——通すと `Esc` の1押しで幕とビューアが両方閉じ、裏で写真が替わる（PR のゲート1）。印刷の幕（B-3）も同じ
-      if (wizardOpen || menu !== null || infoFor !== null || printFor !== null) return;
+      if (wizardOpen || menu !== null || infoFor !== null || printFor !== null || printSheetFor !== null) return;
       // 抽出（Issue #13）。**修飾キーを見る枝はここが先**——下の1文字キーは
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
@@ -5650,6 +5659,7 @@ export default function App() {
     menu,
     infoFor,
     printFor,
+    printSheetFor,
     toggleFullscreen,
     toggleActualSize,
     canExtract,
@@ -5802,6 +5812,7 @@ export default function App() {
         menu !== null ||
         infoFor !== null ||
         printFor !== null ||
+        printSheetFor !== null ||
         view !== "grid"
       )
         return;
@@ -5817,7 +5828,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, printFor, view]);
+  }, [viewer, paletteOpen, shortcutsOpen, settingsOpen, wizardOpen, menu, infoFor, printFor, printSheetFor, view]);
 
   // 検索条件が変わったら選択を捨てる。
   // **見えていないものを選んだまま**にすると、一括操作が思わぬ範囲に効く。
@@ -6128,7 +6139,8 @@ export default function App() {
       menu !== null ||
       calMenu !== null ||
       infoFor !== null ||
-      printFor !== null;
+      printFor !== null ||
+      printSheetFor !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -6619,6 +6631,38 @@ export default function App() {
     setRejectGate(null);
     finishGate(gate);
   }, [rejectGate, rejected, trashing, finishGate]);
+
+  /**
+   * 選んだ写真をまとめて刷る（dev #55）。**いま並んでいるものだけを一覧と同じ並びで**（`scopeMedia`。選択の中の
+   * 隠れた写真を刷らない・未読の日も一覧の順に）。動画は外し、RAW+JPEG の組は大きく見るときと同じ側だけ
+   * （`printSides`。まだ読んでいない日の組もファイル情報で見分ける）
+   */
+  const onBulkPrint = useCallback(async () => {
+    const ids = [...selectedRef.current];
+    if (ids.length === 0) return;
+    const epoch = selectEpochRef.current;
+    const scope = await scopeMedia(queryRef.current, filterRef.current, ids);
+    if (selectEpochRef.current !== epoch) return;
+    const infos = await getFilesInfo(scope.map((x) => x.id));
+    if (selectEpochRef.current !== epoch) return;
+    const byId = new Map(infos.map((i) => [i.id, i]));
+    const ordered = scope.flatMap((x) => {
+      const i = byId.get(x.id);
+      return i ? [i] : [];
+    });
+    const stills = ordered.filter((i) => !i.is_video);
+    const items = printSides(stills, pairView, unpaired).map((i) => ({
+      id: i.id,
+      caption:
+        splitPath(i.path).name +
+        (i.taken_at_ms !== null ? ` · ${formatDateTime(i.taken_at_ms)}` : ""),
+    }));
+    if (items.length === 0) {
+      fail(t.printSkipped(ordered.length));
+      return;
+    }
+    setPrintSheetFor({ items, left: ordered.length - stills.length });
+  }, [pairView, unpaired]);
 
   /**
    * 選んだものを、フォルダへコピー／移動する。
@@ -7289,6 +7333,12 @@ export default function App() {
             onClick={() => onBulkExport(true).catch((e) => fail(errText(e)))}
           >
             {t.bulkMove}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => onBulkPrint().catch((e) => fail(errText(e)))}
+          >
+            {t.menuPrint}
           </button>
           {filter === "outgoing" ? (
             <button
@@ -9009,6 +9059,31 @@ export default function App() {
               .catch((e) => fail(errText(e instanceof Error ? e.message : e)))
               .finally(() => {
                 if (fromGrid) setStatus((s) => (s === t.printPreparing ? "" : s));
+              });
+          }}
+        />
+      )}
+      {printSheetFor !== null && (
+        <PrintDialog
+          sheetCount={printSheetFor.items.length}
+          onClose={() => setPrintSheetFor(null)}
+          onPrint={(fit: PrintFit, layout?: SheetLayout) => {
+            const { items, left } = printSheetFor;
+            setPrintSheetFor(null);
+            if (!layout) return;
+            printSheet(items, fit, layout, (done, total) =>
+              setStatus(t.printPreparingN(done, total)),
+            )
+              .then((done) => {
+                // ほかの印刷を準備中で受け付けなかった（その印刷の進み具合の行は消さない）
+                if (done === null) return;
+                setStatus("");
+                const skipped = done.skipped + left;
+                if (skipped > 0) fail(t.printSkipped(skipped));
+              })
+              .catch((e) => {
+                setStatus("");
+                fail(errText(e instanceof Error ? e.message : e));
               });
           }}
         />

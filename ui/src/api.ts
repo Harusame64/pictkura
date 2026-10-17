@@ -471,6 +471,10 @@ export type FileInfo = {
   width: number | null;
   height: number | null;
   duration_ms: number | null;
+  is_video: boolean;
+  is_raw: boolean;
+  /** RAW+JPEG の組の鍵（同じフォルダ・同じ名前で同じ値） */
+  shot_key: number;
 };
 /** まとめて1回で聞く。DB に無い id は返らない */
 export const getFilesInfo = (ids: number[]) => invoke<FileInfo[]>("get_files_info", { ids });
