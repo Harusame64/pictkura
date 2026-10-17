@@ -116,6 +116,7 @@ import {
   googleFolders,
 } from "./api";
 import { OutgoingFolderActions } from "./OutgoingFolderActions";
+import { BackgroundWork } from "./BackgroundWork";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { GooglePlaced, VideoStatus } from "./api";
@@ -7198,6 +7199,8 @@ export default function App() {
         <span className="status" title={status}>
           {status}
         </span>
+        {/* 裏で走っている仕事（dev #64）。取り込みの面を開いている間は黙る */}
+        <BackgroundWork quiet={wizardOpen} />
         <span className={"count" + (query ? " searching" : "")}>
           {query && "🔍 "}
           {t.itemsCount(totalShown)}

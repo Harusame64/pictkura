@@ -242,6 +242,11 @@ export const es: Dict = {
   actionCalendar: "Vista de calendario",
   actionThumbnails: "Cuadrícula de fotos",
   indexBuilding: "🔍 Creando el índice de búsqueda… ",
+  bgScanning: "Actualizando la biblioteca…",
+  bgThumbs: (n: number) => `Leyendo fotos (${one(n, "queda", "quedan")} ${num(n)})`,
+  /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
+  bgScanningShort: "Actualizando",
+  bgThumbsShort: (n: number) => `${one(n, "queda", "quedan")} ${num(n)}`,
   cameraScanning: "📷 Leyendo los datos de la cámara… ",
   indexIncompleteWarning:
     "⚠ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",

@@ -128,6 +128,47 @@ body {
   color: var(--accent);
   font-weight: 600;
 }
+/* 裏で走っている仕事（dev #64）。件数の隣に小さく、レイアウトを動かさない程度に */
+.bg-work {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  /* 中身は短い形だけ（「残り n」「更新中」。全文は title）なので縮めない——縮めると最小幅で数まで省略された
+     （win の実機）。万一長い訳が来ても押し出さないよう上限と省略は残す。省略記号はブロックの中でしか出ないので、
+     文字は内側の `.bg-text` に入れる（ゲート2） */
+  flex: none;
+  max-width: 16ch;
+  font-variant-numeric: tabular-nums;
+}
+.bg-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bg-spinner {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: bg-spin 0.9s linear infinite;
+}
+@keyframes bg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bg-spinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
+  }
+}
 
 /* 表示切替: セグメントコントロール */
 .view-switch {
