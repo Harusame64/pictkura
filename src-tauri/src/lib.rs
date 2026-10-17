@@ -2639,11 +2639,13 @@ fn open_default(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String
 async fn show_shell_menu(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    state: tauri::State<'_, AppState>,
     ids: Vec<i64>,
     x: f64,
     y: f64,
 ) -> Result<(), String> {
+    // `State<'_>` を引数に取ると、async のコマンドでは Tauri のマクロが `unreachable!` を出して clippy が落ちる
+    // （ほかの async のコマンドと同じく `AppHandle` から読む）
+    let state = app.state::<AppState>();
     let mut paths = ids
         .iter()
         .map(|&id| path_of(&state, id))
