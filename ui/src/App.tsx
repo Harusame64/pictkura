@@ -6410,14 +6410,15 @@ export default function App() {
         let st;
         try {
           // 転んだら「書き出し中…」「移動中…」を残さない（dev #68。削除と同じ穴）
-          // 移動は一部が残っても成功で返る。全部が元の場所から無くなったときだけ「片付いた」——どれが残ったかは
-          // 返事に無い。コピーはどれも元に残る
+          // 書き出しは1枚ずつの失敗を返事の数で返す（投げない）。移動は全部が元の場所から無くなったときだけ、
+          // コピーは失敗が無いときだけ「片付いた」——そうでない回に×で閉じると、結果の文を読めないまま消える
+          // （PR 前の codex）。コピーはどれも元に残るので、ボツの印は片付かない
           const done = await runFileOp(
             () => withProgressLine(exportLineRef, setStatus, () => exportMedia(ids, dest, moveFiles)),
             (r) =>
               moveFiles
                 ? { ok: r.moved + r.missing === ids.length, gone: ids }
-                : { ok: true, gone: [] },
+                : { ok: r.failed === 0, gone: [] },
           );
           if (done === null) return;
           st = done;
