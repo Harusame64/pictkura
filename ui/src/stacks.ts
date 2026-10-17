@@ -392,3 +392,22 @@ export function selectionTilesOf(
   }
   return out;
 }
+
+/** 存在を訊いた `asked` のうち、残っていなかった（`alive` に無い）ID（dev #45） */
+export function vanishedOf(asked: readonly number[], alive: readonly number[]): Set<number> {
+  const gone = new Set(asked);
+  for (const id of alive) gone.delete(id);
+  return gone;
+}
+
+/**
+ * 選択から `gone` を外す（dev #45）。何も外れなければ `prev` をそのまま返す（同じ値なら React が
+ * 描き直さない）。`gone` に無い ID——訊いている間に選び足したもの——には触らない
+ */
+export function dropVanished(
+  prev: ReadonlySet<number>,
+  gone: ReadonlySet<number>,
+): ReadonlySet<number> {
+  if (![...gone].some((id) => prev.has(id))) return prev;
+  return new Set([...prev].filter((id) => !gone.has(id)));
+}
