@@ -4298,8 +4298,8 @@ async fn is_temporary_folder(path: String) -> bool {
 /// 在るかどうかはその後で見る
 fn folder_from_input(path: &str) -> Result<PathBuf, String> {
     // エクスプローラーの「パスのコピー」は `"D:\Photos"` と引用符で囲む。貼っただけの完全なパスを
-    // 「完全なパスを」と断らないよう、前後の対の引用符だけ外す（ゲート2）
-    let path = path.trim();
+    // 「完全なパスを」と断らないよう、前後の対の引用符だけ外す（ゲート2）。**空白は削らない**——macOS では
+    // 名前が空白で終わるフォルダがあり、選択ダイアログからの正確なパスを変えてしまう。手入力の欄は画面が削る
     let path = path
         .strip_prefix('"')
         .and_then(|p| p.strip_suffix('"'))
