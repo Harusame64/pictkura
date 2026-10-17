@@ -27,6 +27,7 @@ import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./F
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
 import { openShellMenu } from "./shellMenu";
+import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -1553,6 +1554,19 @@ export default function App() {
   // `<video>` は出さない（出すと実ファイルを取りに行ってしまう）
   const [videoInfo, setVideoInfo] = useState<VideoStatus | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  /** 動画の音が出ない（消音・音量 0）。ビューアに小さな印を出す（dev #54） */
+  const [videoSilent, setVideoSilent] = useState(() => isSilent(loadVideoVolume()));
+  // 覚えた音量で始める（dev #54）。`<video>` は動画ごとに作り直され、そのたび既定の最大音量へ戻るので、
+  // 付いた時点（自動再生が鳴り出す前）で当てる。**関数は1つに固定する**——描くたびに新しい関数だと
+  // React が毎回付け直し、つまみを動かした直後に古い値で上書きしてしまう（ゲート2）
+  const attachVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (!el) return;
+    const v = loadVideoVolume();
+    el.volume = v.volume;
+    el.muted = v.muted;
+    setVideoSilent(isSilent(v));
+  }, []);
   // ライブラリの中身は取り込みやルート追加で増える。起動時に1回だけ見ると、
   // 「最初は空だったので黙っていた」まま次の起動まで案内が出ない
   const checkDecoders = useCallback(() => {
@@ -7596,7 +7610,12 @@ export default function App() {
                 // idをkeyにして、次の動画へ進んだときに要素を作り直す
                 // （src差し替えだけだと前の再生位置やバッファが残る）
                 key={viewerItem.id}
-                ref={videoRef}
+                ref={attachVideo}
+                onVolumeChange={(e) => {
+                  const v = { volume: e.currentTarget.volume, muted: e.currentTarget.muted };
+                  saveVideoVolume(v);
+                  setVideoSilent(isSilent(v));
+                }}
                 className="viewer-video"
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
@@ -7911,8 +7930,39 @@ export default function App() {
           {viewerItem &&
             (viewerItem.favorite ||
               viewerItem.picked ||
-              rejected.has(viewerItem.id)) && (
+              rejected.has(viewerItem.id) ||
+              (playingVideo && videoInfo && videoSilent)) && (
               <div className="viewer-badges">
+                {/* 音が出ない動画の印（dev #54）。覚えた消音で始まると、操作の帯が隠れている間は
+                    気づけないので。押すと音を出す（音量 0 なら半分へ） */}
+                {/* `videoInfo` が来るまでは `<video>` が無い（読み込み中の字だけ）——押しても効かない */}
+                {playingVideo && videoInfo && videoSilent && (
+                  <button
+                    className="viewer-badge muted"
+                    title={t.viewerMutedHint}
+                    aria-label={t.viewerMutedHint}
+                    onClick={(e) => {
+                      // 地へは届けないので、動きを終わらせた押下の「次のクリックを飲む」印もここで外す
+                      // （ゲート2。外さないと、次に地を押して閉じようとしたクリックが飲まれる）
+                      e.stopPropagation();
+                      swallowClickRef.current = false;
+                      const video = videoRef.current;
+                      if (!video) return;
+                      video.muted = false;
+                      if (video.volume === 0) video.volume = 0.5;
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor" />
+                      <path
+                        d="M11 6l4 4M15 6l-4 4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
                 {viewerItem.favorite && (
                   <span className="viewer-badge fav">★ {t.judgeFav}</span>
                 )}

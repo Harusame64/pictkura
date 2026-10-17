@@ -158,6 +158,7 @@ export const zh: Dict = {
   judgeUnflag: "已取消标记",
   viewerReject: "排除 (X)",
   viewerRejected: "已排除",
+  viewerMutedHint: "已静音——点击以打开声音",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "查看已排除的照片",
   rejectGateTitle: (n: number) => `将 ${num(n)} 张照片移到回收站`,

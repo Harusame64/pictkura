@@ -1187,6 +1187,19 @@ body {
 .viewer-badge.reject {
   background: var(--danger);
 }
+/* 音が出ない動画の印（dev #54）。印の並びは押せないが、これだけは押して音を出せる */
+.viewer-badge.muted {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px;
+  border: none;
+  background: oklch(0 0 0 / 0.55);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.viewer-badge.muted:hover {
+  background: oklch(0 0 0 / 0.75);
+}
 
 /* 「効いた」の合図。絵の真ん中で一度だけ膨らんで消える（2026-08-19）。
    判定（★⚑✕）と抽出（Issue #13）が同じ形を使う。
