@@ -518,12 +518,16 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
 /// `path` が**確かに消えた**か（無い、かつ見張りの規則で削除と読める）。`root_present` はルートが在るかの
 /// 控え（同じ束の中で何度も訊かない）。ゴミ箱へ送る前の仕分けと、削除の「もう無かった」の数え方が使う
 /// （pictkura-dev #66）
+///
+/// 見張りの規則（いちばん深いルートが在ること）に、**入っていたフォルダが在ること**を足す（ゲート2）。ルートの
+/// 中に別のドライブや共有をつないだフォルダがあると、ルートが在っても中身は届かない——ファイルが無くても
+/// 消えたとは言えない。外で消されたフォルダの中の写真は、ここでは消えたと読まない（見張りが行を落とす）
 fn gone_for_good(
     path: &Path,
     roots: &[PathBuf],
     root_present: &mut HashMap<PathBuf, bool>,
 ) -> bool {
-    matches!(path.try_exists(), Ok(false))
+    pictkura_core::export::is_gone_from_its_folder(path)
         && vanished_path_is_a_deletion(path, roots, |r| {
             *root_present
                 .entry(r.to_path_buf())
@@ -2700,7 +2704,8 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
 ///
 /// 実体がもう無いものは**先に分ける**。ファイルが1つ欠けるだけで、まとめての操作は
 /// 全体が失敗して1件ずつへ落ちてしまう（選択したあとに外から消えるのは、
-/// 同期フォルダでは普通に起きる）。無いものはDBからだけ落とす（実体に合わせる）。
+/// 同期フォルダでは普通に起きる）。**確かに消えた**ものはDBからだけ落とす（実体に合わせる）。届かないもの
+/// （ドライブを抜いた等）は失敗に数える（[`gone_for_good`]、pictkura-dev #66）。
 ///
 /// **まとめて1回で渡す**のが要点。Windowsの `trash::delete` は1件ごとにシェルの
 /// ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
@@ -2735,17 +2740,18 @@ fn trash_paths_with_progress(
     // ★・⚑ を落とし、送り出しのリンクまで外していた——ファイルはドライブの中に在るのに。見張りと同じ規則
     // （[`vanished_path_is_a_deletion`]）で決め、届かないものは失敗に数える。ルートが在るかは1回ずつ訊く
     let mut root_present: HashMap<PathBuf, bool> = HashMap::new();
-    let mut deleted = |p: &Path| gone_for_good(p, roots, &mut root_present);
     let mut first_err: Option<String> = None;
+    // 届かなかったことは、ほかに失敗が無いときだけ言う——OS の理由（他のアプリが握っている等）を隠さない
+    let mut unreachable: Option<String> = None;
     let mut gone: Vec<PathBuf> = Vec::new();
     let mut present: Vec<PathBuf> = Vec::new();
     for p in paths {
         if p.exists() {
             present.push(p);
-        } else if deleted(&p) {
+        } else if gone_for_good(&p, roots, &mut root_present) {
             gone.push(p);
-        } else if first_err.is_none() {
-            first_err = Some(errs::coded("errTrashUnreachable", p.display()));
+        } else if unreachable.is_none() {
+            unreachable = Some(errs::coded("errTrashUnreachable", p.display()));
         }
     }
     let total = present.len();
@@ -2760,11 +2766,15 @@ fn trash_paths_with_progress(
                 // **落ちるのは束の中だけ**。1件ずつへ降りるのはこの束に限り、
                 // 残りの束はまとめて渡す速さのまま進む
                 for path in chunk {
-                    // ファイルが既に無い場合も片付いた扱い（実体に合わせる）。
+                    // ファイルが確かに消えていれば片付いた扱い（実体に合わせる）。**ルートが在るかは訊き直す**——
+                    // 最初に控えた答えを使うと、長い削除の途中でカードを抜いたとき、ここで無くなったものを
+                    // 片付いた扱いにしてしまう（ゲート2）。
                     // まとめての操作が途中まで通っていたぶんも、ここで拾える
                     match trash::delete(path) {
                         Ok(()) => gone.push(path.clone()),
-                        Err(_) if deleted(path) => gone.push(path.clone()),
+                        Err(_) if gone_for_good(path, roots, &mut HashMap::new()) => {
+                            gone.push(path.clone())
+                        }
                         Err(e) => {
                             // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
                             // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
@@ -2797,7 +2807,7 @@ fn trash_paths_with_progress(
         size = size.saturating_mul(2).min(TRASH_CHUNK_MAX);
         on_progress(done, total);
     }
-    (gone, first_err)
+    (gone, first_err.or(unreachable))
 }
 
 /// ファイルを**ゴミ箱へ**移動し、DBからも取り除く。
@@ -7483,6 +7493,19 @@ mod tests {
         );
         let err = err.expect("届かないものは失敗として返す");
         assert!(err.contains("b.jpg"), "どのファイルかを詳細に載せる: {err}");
+    }
+
+    /// ルートは在っても、入っていたフォルダごと届かない（ルートの中につないだドライブを外した等）なら、
+    /// 消えたとは言わない（#66 のゲート2）
+    #[test]
+    fn a_missing_folder_inside_a_present_root_is_not_a_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("lib");
+        std::fs::create_dir_all(&root).unwrap();
+        let in_mount = root.join("mounted").join("c.jpg");
+        let (gone, err) = super::trash_paths(vec![in_mount], &[root]);
+        assert!(gone.is_empty());
+        assert!(err.is_some());
     }
 
     #[cfg(any(windows, target_os = "macos"))]
