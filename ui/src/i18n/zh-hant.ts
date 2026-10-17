@@ -650,6 +650,7 @@ export const zhHant: Dict = {
   errExportManaged: "無法寫入該位置：這個套件由其他應用程式管理。",
   errFolderMissing: "找不到該資料夾。",
   errTrashFailed: "無法移到資源回收筒。",
+  errTrashUnreachable: "找不到磁碟機或資料夾，因此沒有移到資源回收筒。",
   errTrashPartly: (n: number) => `已將 ${num(n)} 張移到資源回收筒，其餘未能移動。`,
   errAutoplayRollback:
     "無法儲存該設定。自動播放的註冊暫時維持剛才變更後的狀態，下次啟動時會依設定恢復。",

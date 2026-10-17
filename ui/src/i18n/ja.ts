@@ -703,6 +703,7 @@ export const ja = {
   errExportManaged: "この場所へは書き出せません（アプリが管理している入れ物です）。",
   errFolderMissing: "フォルダが見つかりません。",
   errTrashFailed: "ゴミ箱へ移せませんでした。",
+  errTrashUnreachable: "ドライブまたはフォルダが見つからないため、ゴミ箱へ移せませんでした。",
   errTrashPartly: (n: number) =>
     `${num(n)}枚はゴミ箱へ移しました。残りは移せませんでした。`,
   errAutoplayRollback:

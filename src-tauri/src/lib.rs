@@ -2745,10 +2745,7 @@ fn trash_paths_with_progress(
         } else if deleted(&p) {
             gone.push(p);
         } else if first_err.is_none() {
-            first_err = Some(errs::coded(
-                "errTrashFailed",
-                format!("{}: the drive or folder is not reachable", p.display()),
-            ));
+            first_err = Some(errs::coded("errTrashUnreachable", p.display()));
         }
     }
     let total = present.len();

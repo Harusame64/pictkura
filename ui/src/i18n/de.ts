@@ -673,6 +673,7 @@ export const de: Dict = {
   errExportManaged: "Dorthin kann nichts geschrieben werden — das Paket verwaltet eine andere App.",
   errFolderMissing: "Diesen Ordner gibt es nicht.",
   errTrashFailed: "Verschieben in den Papierkorb nicht möglich.",
+  errTrashUnreachable: "Das Laufwerk oder der Ordner ist nicht erreichbar, daher wurde nichts in den Papierkorb verschoben.",
   errTrashPartly: (n: number) =>
     `${num(n)} in den Papierkorb verschoben; der Rest nicht.`,
   errAutoplayRollback:
