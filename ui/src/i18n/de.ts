@@ -225,7 +225,7 @@ export const de: Dict = {
   actionCalendar: "Kalenderansicht",
   actionThumbnails: "Fotoübersicht",
   indexBuilding: "🔍 Suchindex wird aufgebaut… ",
-  bgScanning: "Ordner werden gelesen…",
+  bgScanning: "Mediathek wird aktualisiert…",
   bgThumbs: (n: number) => `Fotos werden eingelesen (noch ${num(n)})`,
   cameraScanning: "📷 Kameradaten werden gelesen… ",
   indexIncompleteWarning:

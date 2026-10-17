@@ -247,7 +247,7 @@ export const zhHant: Dict = {
   actionCalendar: "行事曆檢視",
   actionThumbnails: "照片網格",
   indexBuilding: "🔍 正在建立搜尋索引… ",
-  bgScanning: "正在讀取資料夾…",
+  bgScanning: "正在更新圖庫…",
   bgThumbs: (n: number) => `正在讀取相片（還剩 ${num(n)} 張）`,
   cameraScanning: "📷 正在讀取相機資訊… ",
   indexIncompleteWarning:

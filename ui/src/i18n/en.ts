@@ -187,7 +187,7 @@ export const en: Dict = {
   actionCalendar: "Calendar view",
   actionThumbnails: "Photo grid",
   indexBuilding: "🔍 Building the search index… ",
-  bgScanning: "Reading folders…",
+  bgScanning: "Updating the library…",
   bgThumbs: (n: number) => `Reading photos (${num(n)} left)`,
   cameraScanning: "📷 Reading camera info… ",
   indexIncompleteWarning:

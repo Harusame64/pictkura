@@ -1907,13 +1907,15 @@ fn finish_job(
     before: Option<crate::RowVersion>,
     stale: bool,
 ) {
-    queue.complete(id);
     let changed = match (before, db.version_of(id)) {
         (Some(b), Ok(Some(now))) => b != now,
         _ => false,
     };
     if stale || changed {
-        queue.enqueue(&[id]);
+        // 積み直す。**新しい写真の印は残す**——まだ読み終えていない（pictkura-dev #64 のゲート2）
+        queue.requeue(id);
+    } else {
+        queue.complete(id);
     }
 }
 
@@ -2031,6 +2033,18 @@ impl ThumbQueue {
         state.fresh.remove(&id);
     }
 
+    /// 処理を終えたが、もう一度解く（ファイルが書き換え途中・行が変わった）。[`Self::complete`] と違い、
+    /// 新しい写真の印は外さない
+    pub fn requeue(&self, id: i64) {
+        let mut state = self.lock_state();
+        state.processing.remove(&id);
+        if !state.blocked(id) && state.queued.insert(id) {
+            state.pending.push_back(id);
+        }
+        drop(state);
+        self.inner.cvar.notify_all();
+    }
+
     /// 処理失敗を記録する。上限（MAX_FAILURES）を超えたIDは以後投入されない。
     pub fn record_failure(&self, id: i64) {
         *self.lock_state().failures.entry(id).or_insert(0) += 1;
@@ -2062,12 +2076,14 @@ impl ThumbQueue {
     /// 新しく読む写真のうち、まだ済んでいない数（列に居る・処理中。pictkura-dev #64 の「残り n枚」）。
     /// 列から黙って落ちたものを数え続けないよう、いま居るものとの重なりで数える
     pub fn fresh_pending(&self) -> usize {
-        let state = self.lock_state();
+        let mut guard = self.lock_state();
+        let state = &mut *guard;
+        // 列から黙って抜けたもの（失敗の上限で優先から落ちた等）は印ごと捨てる。集合は済むほど小さくなる
+        let (queued, processing) = (&state.queued, &state.processing);
         state
             .fresh
-            .iter()
-            .filter(|id| state.queued.contains(id) || state.processing.contains(id))
-            .count()
+            .retain(|id| queued.contains(id) || processing.contains(id));
+        state.fresh.len()
     }
 
     pub fn shutdown(&self) {
@@ -3769,6 +3785,20 @@ mod tests {
         assert_eq!(queue.fresh_pending(), 0);
         // 済んだ写真が（寸法を持たないまま）次の走査で積み直されても、もう新しい写真ではない——印は残さない
         queue.enqueue(&[second]);
+        assert_eq!(queue.fresh_pending(), 0);
+    }
+
+    /// 書き換え途中で解き直す（Stale・行が変わった）ときは、新しい写真の印を残したまま積み直す（pictkura-dev #64）
+    #[test]
+    fn a_requeued_fresh_photo_is_still_counted() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[5]);
+        queue.mark_fresh(&[5]);
+        let (id, _) = pop_within(&queue, 10).unwrap();
+        queue.requeue(id);
+        assert_eq!(queue.fresh_pending(), 1, "まだ読み終えていない");
+        let (id, _) = pop_within(&queue, 10).unwrap();
+        queue.complete(id);
         assert_eq!(queue.fresh_pending(), 0);
     }
 

@@ -242,7 +242,7 @@ export const es: Dict = {
   actionCalendar: "Vista de calendario",
   actionThumbnails: "Cuadrícula de fotos",
   indexBuilding: "🔍 Creando el índice de búsqueda… ",
-  bgScanning: "Leyendo carpetas…",
+  bgScanning: "Actualizando la biblioteca…",
   bgThumbs: (n: number) => `Leyendo fotos (${one(n, "queda", "quedan")} ${num(n)})`,
   cameraScanning: "📷 Leyendo los datos de la cámara… ",
   indexIncompleteWarning:

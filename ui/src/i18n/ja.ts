@@ -217,7 +217,7 @@ export const ja = {
   actionCalendar: "カレンダー表示",
   actionThumbnails: "サムネイル表示",
   indexBuilding: "🔍 検索インデックスを作成中… ",
-  bgScanning: "フォルダを読み込み中…",
+  bgScanning: "ライブラリを更新中…",
   bgThumbs: (n: number) => `写真を読み込み中（残り${num(n)}枚）`,
   cameraScanning: "📷 カメラ情報を読み取り中… ",
   indexIncompleteWarning:
