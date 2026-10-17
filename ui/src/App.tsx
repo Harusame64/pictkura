@@ -3425,6 +3425,8 @@ export default function App() {
    * `gone` は「移ったのではない」と分かった印で、そのときだけ下の寄せ方へ進む
    */
   const viewerFollowRef = useRef<{ id: number; dayKey: number; gone: boolean } | null>(null);
+  /** 移った写真を追って着いた先（その日がサマリに並ぶまで、下の寄せ方を待たせる） */
+  const viewerFollowedToRef = useRef<{ id: number; dayKey: number } | null>(null);
   const [viewerFollowTick, setViewerFollowTick] = useState(0);
   useEffect(() => {
     if (!viewer) return;
@@ -3435,6 +3437,14 @@ export default function App() {
         ? items.length > 0
         : walkIndexOf(items, viewer.id) >= 0;
     if (resolvable && dayIdxByKey.has(viewer.dayKey)) return;
+    // **移った写真を追ってきた日**が、日の並び（サマリ）にまだ無い——サマリの取り直し（`applyPatches` は
+    // 2秒後に回す）より先にその日の中身が読めただけ。閉じずに待つ。その日の中身はサマリと同じ条件で
+    // 引いているので、取り直せば並ぶ（ゲート1）。追ってきた日だけに限る——ほかの日で同じ形になるのは
+    // 「サマリからその日が消えた」で、そのときは待っても並ばない
+    const arrived = viewerFollowedToRef.current;
+    if (resolvable && arrived && arrived.id === viewer.id && arrived.dayKey === viewer.dayKey) {
+      return;
+    }
 
     // まず、同じ写真が別の日へ移っていないかを訊く（1つの id と日について1回だけ）
     if (typeof viewer.id === "number") {
@@ -3456,7 +3466,11 @@ export default function App() {
             // 同じ日で待つことはしない: 出ない形だと「読み込み中…」のまま固まる
             if (!at || at.day_key === dayKey) return giveUp();
             // 待っている間に送られていたら追わない
-            setViewer((v) => (v && v.id === id && v.dayKey === dayKey ? { dayKey: at.day_key, id } : v));
+            setViewer((v) => {
+              if (!v || v.id !== id || v.dayKey !== dayKey) return v;
+              viewerFollowedToRef.current = { id, dayKey: at.day_key };
+              return { dayKey: at.day_key, id };
+            });
           })
           .catch(giveUp);
         return;
