@@ -955,15 +955,6 @@ export default function App() {
   }, [rejectGate]);
   /** ゴミ箱へ移動している最中か（**実機の500件で約4.9秒**・2026-08-19の実測） */
   const [trashing, setTrashing] = useState(false);
-  /** 窓の×の受け口（登録は一度きり）から、移動中かどうかを見るための控え */
-  const trashingRef = useRef(false);
-  /**
-   * 移動中に×が押されたら、ここに控えて**終わってから**閉じる。
-   * 途中で窓を壊すと、ゴミ箱へ入れ終えたぶんがDBから落ちないまま残る
-   * （ゲート1の指摘）。次の起動の同期で拾い直せるとはいえ、
-   * **自分から不整合を作る道は塞ぐ**
-   */
-  const quitAfterTrashRef = useRef(false);
   /**
    * その4.9秒のあいだの進み具合（`delete-progress`）。**待たせる時間が3秒を
    * 超えたら件数を出す**——「動いている」ことを、止まっていない証拠として見せる
@@ -972,9 +963,6 @@ export default function App() {
   const [trashProgress, setTrashProgress] = useState<DeleteProgress | null>(
     null,
   );
-  useEffect(() => {
-    trashingRef.current = trashing;
-  }, [trashing]);
   /** 窓を閉じる要求など、**登録が1回きりの経路**から今の印を見るための控え */
   const rejectedRef = useRef(rejected);
   useEffect(() => {
@@ -1067,22 +1055,24 @@ export default function App() {
    */
   const trashLineRef = useRef<ProgressLine>(idleLine());
   /**
-   * いまファイルを動かしている操作（一覧・ビューアからの削除、フォルダへの移動）の数と、その間に×が押されたか
-   * （dev #69）。窓の×は、関所の削除と同じく**1度目は待たせ、終わってから閉じる**——途中で窓を壊すと、ゴミ箱へ
-   * 入れ終えた（移し終えた）ぶんの行が次の起動まで残る。旗は関所の削除（`quitAfterTrashRef`）と分ける。
-   * 1本の旗を2つの終わり方で畳むと、片方の失敗がもう片方の×を消した（ゲート2）
+   * いまファイルを動かしている操作の数（関所の削除・一覧とビューアからの削除・フォルダへの移動）と、その間に×が
+   * 押されたか（dev #69）。窓の×は**1度目は待たせ、終わってから閉じる**——途中で窓を壊すと、ゴミ箱へ入れ終えた
+   * （移し終えた）ぶんの行が次の起動まで残る（ゲート1）。**数も旗も1組だけ**持つ。関所の削除を別の旗にして
+   * 渡し合うと、遅れて追いつく state の控えと噛み合わず、×が消えたり残ったりした（#69 のゲート2、2周）
    */
   const fileOpsRef = useRef(0);
   const quitAfterFileOpRef = useRef(false);
+  /** 待たせた×が、関所が出ている間に押されたものか。それは「2度目の×」——終わったら印を見ずに閉じる */
+  const quitPastGateRef = useRef(false);
   /** 重なって走った操作のどれかが転んだ・残したか。最後の1本が通っても、それで閉じない（PR 前の codex） */
   const fileOpFailedRef = useRef(false);
   /** 重なって走った操作で片付いた id（ボツの印の確かめから外す）。最後の1本が終わるまで積む */
   const fileOpGoneRef = useRef(new Set<number>());
   /**
    * ファイルを動かす `op` を、×を待たせながら走らせる。最後の1本が終わったとき、×が押されていれば閉じ方を
-   * **ここで決める**: 転んだ回は閉じない（関所と同じ）。関所の削除がまだ走っていればそちらへ渡す。ボツの印が
-   * （いま片付いた `gone` を除いて）残っていれば関所を出し、無ければ窓を閉じる。閉じる要求を出し直す形は取らない
-   * ——受け口が読む印はまだ描き直されていない古いもので、関所が出ていると「2度目の×」として素通りした（ゲート2）
+   * **ここ1か所で決める**（[`quitAfterFileOps`]）: どれかが転んだ・残した回は閉じない。関所の上で押された×なら
+   * 閉じる。ボツの印が（片付いた id を除いて）残っていれば関所を出し、無ければ閉じる。閉じる要求を出し直す形は
+   * 取らない——受け口が読む印はまだ描き直されていない古いもので、関所が出ていると素通りした（ゲート2）
    */
   const holdCloseWhile = useCallback(
     async <T,>(
@@ -1110,16 +1100,21 @@ export default function App() {
           fileOpGoneRef.current = new Set();
           const quit = quitAfterFileOpRef.current;
           quitAfterFileOpRef.current = false;
+          const pastGate = quitPastGateRef.current;
+          quitPastGateRef.current = false;
           const next = quitAfterFileOps({
             quitAsked: quit,
             failed,
-            gateTrashing: trashingRef.current,
+            pastGate,
             marks: rejectedRef.current.keys(),
             gone: goneIds,
           });
-          if (next === "handover") quitAfterTrashRef.current = true;
-          else if (next === "gate") setRejectGate({ closeAfter: true, quitAfter: true });
-          else if (next === "destroy") void getCurrentWindow().destroy();
+          if (next === "gate") setRejectGate({ closeAfter: true, quitAfter: true });
+          else if (next === "destroy") {
+            // 窓を壊す道（`finishGate` の quitAfter と同じ）。待たせていた取り込みは捨てる
+            pendingWizardRef.current = null;
+            void getCurrentWindow().destroy();
+          }
         }
       }
     },
@@ -5200,13 +5195,12 @@ export default function App() {
       // また「閉じられない窓」を作らないため。そのとき残る不整合
       // （実体はゴミ箱・行はDBに残る）は、次の起動の同期が拾って消す
       // 一覧・ビューアからの削除と、フォルダへの移動も同じ（dev #69）。関所を通らないので、前はここを素通りしていた。
-      // 両方走っていれば、ファイルの側の旗に控える——終わったときに関所がまだ走っていれば、そちらへ渡す
-      const fileOp = fileOpsRef.current > 0;
-      if (trashingRef.current || fileOp) {
-        if (quitAfterTrashRef.current || quitAfterFileOpRef.current) return;
+      // 関所が出ている間の×は「2度目」——終わったら印を見ずに閉じる（関所の削除の最中に押したときと同じ）
+      if (fileOpsRef.current > 0) {
+        if (quitAfterFileOpRef.current) return;
         e.preventDefault();
-        if (fileOp) quitAfterFileOpRef.current = true;
-        else quitAfterTrashRef.current = true;
+        quitAfterFileOpRef.current = true;
+        quitPastGateRef.current = rejectGateRef.current !== null;
         return;
       }
       if (rejectedRef.current.size === 0) return;
@@ -6273,6 +6267,12 @@ export default function App() {
   const finishGate = useCallback(
     (gate: { closeAfter: boolean; quitAfter?: boolean }) => {
       if (gate.quitAfter) {
+        // ほかの削除・移動がまだ走っていれば、今は壊さない。終わったときに閉じる（関所を通った×なので印は見ない。dev #69）
+        if (fileOpsRef.current > 0) {
+          quitAfterFileOpRef.current = true;
+          quitPastGateRef.current = true;
+          return;
+        }
         // **待たせていた取り込みは捨てる**（2026-09-08）。ここは**窓を壊す道**で、
         // 開いても**死につつある窓の上**にしか出ない
         pendingWizardRef.current = null;
@@ -6308,7 +6308,11 @@ export default function App() {
       // （別の言葉で探し直したなら、それは見ていた列ではない）
       const kept = await visibleMediaIds(queryRef.current, "all", ids);
       if (kept.length > 0) {
-        const { deleted: n, missing } = await deleteMedia(kept);
+        // 一覧の削除・移動と同じ数え方で×を待たせる（dev #69）。終われば印は全部片付く（下で空にする）
+        const { deleted: n, missing } = await holdCloseWhile(
+          () => deleteMedia(kept),
+          () => ({ ok: true, gone: ids }),
+        );
         // **数が合わないときは黙らない**（ゲート2のP3）。もう無い・検索語から
         // 外れた等でここまで来られなかったぶんを、そのまま件数で言う。無くなっていただけなら、ほかの
         // 削除と同じ言い方にする（dev #41）
@@ -6325,16 +6329,8 @@ export default function App() {
       }
       setRejected(new Map());
       setRejectGate(null);
-      // 移動中に×が押されていたなら、**その意思のとおり**ここで閉じる
-      // ×が押されていても、一覧の削除・移動がまだ走っていれば今は閉じない——そちらが終わったときに閉じる（dev #69）
-      if (quitAfterTrashRef.current && fileOpsRef.current > 0) {
-        quitAfterFileOpRef.current = true;
-        finishGate(gate);
-      } else {
-        finishGate(
-          quitAfterTrashRef.current ? { closeAfter: true, quitAfter: true } : gate,
-        );
-      }
+      // 移動中に押された×は `holdCloseWhile` が畳んだ（もう窓は閉じかけている）。ここは開いた理由へ戻すだけ
+      finishGate(gate);
     } catch (e) {
       // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
       // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
@@ -6346,9 +6342,6 @@ export default function App() {
     } finally {
       setTrashing(false);
       setTrashProgress(null);
-      // **失敗した回は閉じない**。何が起きたかを読める場所に残す
-      // （もう一度×を押せば、そのときは通る）
-      quitAfterTrashRef.current = false;
     }
   }, [
     rejectGate,
@@ -6357,6 +6350,7 @@ export default function App() {
     forgetDeleted,
     refreshSummary,
     finishGate,
+    holdCloseWhile,
   ]);
 
   /**
@@ -6429,6 +6423,17 @@ export default function App() {
         if (moveFiles) {
           // 移動したぶんはライブラリから外れている。選択も画面も取り直す
           clearSelection();
+          // 全部が元の場所から無くなったなら、ボツの印からも外す（削除と同じ。関所にもう無い写真を並べない）。
+          // 一部が残った回は、どれが残ったかが返事に無いので触らない
+          if (st.moved + st.missing === ids.length) {
+            const gone = new Set(ids);
+            setRejected((prev) => {
+              if (![...gone].some((id) => prev.has(id))) return prev;
+              const next = new Map(prev);
+              for (const id of gone) next.delete(id);
+              return next;
+            });
+          }
           await reloadAll();
         }
       } catch (e) {

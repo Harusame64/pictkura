@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { quitAfterFileOps } from "../src/quitAfterFileOps.ts";
 
-const base = { quitAsked: true, failed: false, gateTrashing: false, marks: [] as number[], gone: new Set<number>() };
+const base = { quitAsked: true, failed: false, pastGate: false, marks: [] as number[], gone: new Set<number>() };
 
 test("no × pressed: stay", () => {
   assert.equal(quitAfterFileOps({ ...base, quitAsked: false }), "stay");
@@ -16,8 +16,10 @@ test("an operation failed or left photos behind: stay, even if the last one succ
   assert.equal(quitAfterFileOps({ ...base, failed: true }), "stay");
 });
 
-test("the reject gate's trash is still running: hand the quit over", () => {
-  assert.equal(quitAfterFileOps({ ...base, gateTrashing: true, marks: [1] }), "handover");
+test("× pressed over a gate counts as the second ×: close without looking at marks", () => {
+  assert.equal(quitAfterFileOps({ ...base, pastGate: true, marks: [1] }), "destroy");
+  // ただし転んだ回は閉じない
+  assert.equal(quitAfterFileOps({ ...base, pastGate: true, failed: true }), "stay");
 });
 
 test("marks left besides the ones just removed: show the gate", () => {

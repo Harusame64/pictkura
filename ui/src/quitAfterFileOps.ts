@@ -3,21 +3,20 @@
  * どう畳むか（pictkura-dev #69）。
  *
  * - `"stay"`: 閉じない。×が押されていない、または重なった操作のどれかが転んだ・残した（何が起きたかを読める場所に残す）
- * - `"handover"`: 関所の削除がまだ走っている。そちらが終えてから閉じる
- * - `"gate"`: ボツの印が（いま片付いたものを除いて）残っている。いつもどおり関所を出す
- * - `"destroy"`: 窓を閉じる
+ * - `"destroy"`: 窓を閉じる。関所の上で押された×（「2度目」）なら、印は見ずに閉じる
+ * - `"gate"`: ボツの印が（片付いたものを除いて）残っている。いつもどおり関所を出す
  */
-export type QuitAfterFileOps = "stay" | "handover" | "gate" | "destroy";
+export type QuitAfterFileOps = "stay" | "gate" | "destroy";
 
 export function quitAfterFileOps(s: {
   quitAsked: boolean;
   failed: boolean;
-  gateTrashing: boolean;
+  pastGate: boolean;
   marks: Iterable<number>;
   gone: ReadonlySet<number>;
 }): QuitAfterFileOps {
   if (!s.quitAsked || s.failed) return "stay";
-  if (s.gateTrashing) return "handover";
+  if (s.pastGate) return "destroy";
   for (const id of s.marks) if (!s.gone.has(id)) return "gate";
   return "destroy";
 }
