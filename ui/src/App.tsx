@@ -1178,7 +1178,10 @@ export default function App() {
    * 読んで隣へ飛ぶか閉じる（win の実測、spikes/49-results）。日が移ったと分かる場所は2つで、どちらも
    * ここを呼ぶ: 見張りの読み直し（`reloadAll`）と、抽出の差分（`applyPatches`）。`moves` は id → 新しい日。
    * 選択から開いた列の日も移す（移さないと、送って戻ったときに古い日で探して飛ばす）。
-   * ビューアを動かしたら真を返す
+   * ビューアを動かしたら真を返す。
+   *
+   * **見失ってから DB に訊く形にはしない**（一度そう作って戻した）: 訊いている間ビューアが止まり、⚑ で絞って
+   * `U` を続けて押す選別でキーが落ちた。日が移ったと分かる場所で動かす
    */
   const followViewerTo = useCallback((moves: ReadonlyMap<number, number>): boolean => {
     if (moves.size === 0) return false;
