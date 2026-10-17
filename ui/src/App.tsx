@@ -1161,6 +1161,8 @@ export default function App() {
    * ビューアで開いている位置の最新の値（`reloadAll` は依存を持たないので ref 越しに読む。dev #49）
    */
   const viewerPosRef = useRef<ViewerPos | null>(null);
+  /** `refreshSummary` は `reloadAll` より後ろで作るので、`reloadAll` からは ref 越しに呼ぶ */
+  const refreshSummaryRef = useRef<() => Promise<void>>(async () => {});
   /** 選択から開いた列の最新の値（同じ理由で ref 越しに読む） */
   const viewerScopeRef = useRef<ScopeItem[] | null>(null);
   /** 移った写真を追って着いた先。その日がサマリに並ぶまで、ビューアの寄せ直しを待たせる（dev #49） */
@@ -1276,7 +1278,14 @@ export default function App() {
       setSummaryFor(askedFor);
       setDayItems(new Map());
       if (openR.status === "fulfilled") {
-        followViewerTo(new Map(openR.value.map((x) => [x.id, x.day_key])));
+        const moves = new Map(openR.value.map((x) => [x.id, x.day_key]));
+        // サマリと日の問い合わせは別の読み取りなので、移った先の日がこのサマリにまだ無いことがある。
+        // そのときはすぐ取り直す（待たせると、追っていったビューアが5秒後に閉じる。ゲート2）
+        const open = viewerPosRef.current;
+        const to = open && typeof open.id === "number" ? moves.get(open.id) : undefined;
+        if (followViewerTo(moves) && to !== undefined && !sumR.value.some((d) => d.day_key === to)) {
+          refreshSummaryRef.current().catch(() => {});
+        }
       }
       gotSummaryRef.current += 1;
       setLoadFailed(false);
@@ -1862,7 +1871,11 @@ export default function App() {
       // 開いている写真の日が移ったら、ビューアも付いていく（dev #49）。検索中・送り出しでは、移った先で
       // 結果に入るかをここで判定できないので追わない（今までどおり寄せる）。★・⚑ で絞っていて印が無いなら
       // 一覧から外れるのが正しい
-      if (!searching) {
+      // 種類の絞り込み（`kind:` として検索語に畳まれる）は追いかけを止めない——上書きで種類は変わらず、
+      // 追うのはもう一覧に居る写真だけ（ゲート2）。止めるのは、移った先で結果に入るか分からない検索語と
+      // 送り出しだけ
+      const freeText = askedRef.current.query !== "" || filter === "outgoing";
+      if (!freeText) {
         const moves = new Map<number, number>();
         for (const p of patches) if (shownUnder(filter, p)) moves.set(p.id, p.day_key);
         // 追っていった先の日をすぐ並べる。2秒待つと、その間ビューアは何も出せない（動画なら止まる）
@@ -5725,6 +5738,7 @@ export default function App() {
     openSettingsRef.current = openSettingsBySecondDoor;
     selectedRef.current = selected;
     viewerPosRef.current = viewer;
+    refreshSummaryRef.current = refreshSummary;
     viewerScopeRef.current = viewerScopeFiles;
     anchorRef.current = anchorId;
     selectAllRef.current = selectAll;
