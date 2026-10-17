@@ -23,10 +23,11 @@ const CF_DIBV5: u32 = 17;
 const LCS_SRGB: u32 = 0x7352_4742;
 /// `LCS_GM_IMAGES`
 const LCS_GM_IMAGES: i32 = 4;
-/// 開けなかったときに試し直す回数と間隔。arboard（Chromium と同じ）は 5回×5ms。こちらは開いている時間が短いぶん、
-/// 他のアプリが開いている間を待てるようにもう少し待つ
-const OPEN_ATTEMPTS: usize = 10;
-const OPEN_RETRY_MS: u64 = 10;
+/// 開けなかったときに試し直す回数と間隔（合わせて約0.5秒）。arboard（Chromium と同じ）は 5回×5ms。
+/// 大きな絵を置いた直後は、履歴のアプリ等が 180MB の DIB を読み終えるまで開けないことがある（ゲート2）——
+/// こちらは開いた後が短いので、その前で待つ側に回る
+const OPEN_ATTEMPTS: usize = 25;
+const OPEN_RETRY_MS: u64 = 20;
 
 /// 置く前の確保。置けたら持ち主はクリップボードに移るので、`release` で手放す。置けずに落ちたら自分で解放する
 struct Global {
@@ -35,19 +36,15 @@ struct Global {
 }
 
 impl Global {
-    fn from_bytes(parts: &[&[u8]]) -> Result<Self, String> {
-        let len: usize = parts.iter().map(|p| p.len()).sum();
+    /// `len` バイトを確保し、`fill` で**確保した場所へ直に**書く。間に1枚写しを挟むと、45MP で 180MB 余分に持つ
+    fn filled(len: usize, fill: impl FnOnce(&mut [u8])) -> Result<Self, String> {
         let h = unsafe { GlobalAlloc(GMEM_MOVEABLE, len) }.map_err(|e| e.to_string())?;
         let me = Global { h, owned: true };
         let dst = unsafe { GlobalLock(h) } as *mut u8;
         if dst.is_null() {
             return Err(windows::core::Error::from_win32().to_string());
         }
-        let mut at = 0;
-        for p in parts {
-            unsafe { std::ptr::copy_nonoverlapping(p.as_ptr(), dst.add(at), p.len()) };
-            at += p.len();
-        }
+        fill(unsafe { std::slice::from_raw_parts_mut(dst, len) });
         // 最後の錠を外すと「錠が無い」で Err が返る（成功の形）。中身は書き終えているので見ない
         let _ = unsafe { GlobalUnlock(h) };
         Ok(me)
@@ -107,11 +104,9 @@ fn png_bytes(img: &RgbaImage) -> Result<Vec<u8>, String> {
     Ok(buf)
 }
 
-/// `CF_DIBV5` の中身（見出し＋画素）。画素は BGRA の**下から上**——高さを負にすれば上からでよいが、
-/// Word とワードパッドはそれを貼れない（arboard の注記）
-fn dibv5_parts(img: &RgbaImage) -> (BITMAPV5HEADER, Vec<u8>) {
-    let (w, h) = (img.width() as usize, img.height() as usize);
-    let header = BITMAPV5HEADER {
+/// `CF_DIBV5` の見出し
+fn dibv5_header(w: usize, h: usize) -> BITMAPV5HEADER {
+    BITMAPV5HEADER {
         bV5Size: std::mem::size_of::<BITMAPV5HEADER>() as u32,
         bV5Width: w as i32,
         bV5Height: h as i32,
@@ -126,32 +121,39 @@ fn dibv5_parts(img: &RgbaImage) -> (BITMAPV5HEADER, Vec<u8>) {
         bV5CSType: LCS_SRGB,
         bV5Intent: LCS_GM_IMAGES as u32,
         ..Default::default()
-    };
+    }
+}
+
+/// `CF_DIBV5` の画素を `out` へ書く。BGRA の**下から上**——高さを負にすれば上からでよいが、Word とワードパッドは
+/// それを貼れない（arboard の注記）
+fn write_dib_pixels(img: &RgbaImage, out: &mut [u8]) {
+    let (w, h) = (img.width() as usize, img.height() as usize);
     let src = img.as_raw();
     let row = 4 * w;
-    let mut pixels = vec![0u8; row * h];
     for y in 0..h {
         let from = &src[y * row..(y + 1) * row];
-        let to = &mut pixels[(h - 1 - y) * row..(h - y) * row];
+        let to = &mut out[(h - 1 - y) * row..(h - y) * row];
         for (s, d) in from.chunks_exact(4).zip(to.chunks_exact_mut(4)) {
             d.copy_from_slice(&[s[2], s[1], s[0], s[3]]);
         }
     }
-    (header, pixels)
 }
 
 /// 画像を PNG と `CF_DIBV5` で置く。**重い仕事は全部ここで先に済ませ**、開いている間は置くだけ
 pub fn set_image(owner: HWND, img: &RgbaImage) -> Result<(), String> {
-    let mut png = Global::from_bytes(&[&png_bytes(img)?])?;
-    let (header, pixels) = dibv5_parts(img);
-    let header_bytes = unsafe {
-        std::slice::from_raw_parts(
-            (&header as *const BITMAPV5HEADER).cast::<u8>(),
-            std::mem::size_of::<BITMAPV5HEADER>(),
-        )
-    };
-    let mut dib = Global::from_bytes(&[header_bytes, &pixels])?;
-    drop(pixels);
+    let png_bytes = png_bytes(img)?;
+    let mut png = Global::filled(png_bytes.len(), |out| out.copy_from_slice(&png_bytes))?;
+    drop(png_bytes);
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let header = dibv5_header(w, h);
+    let header_len = std::mem::size_of::<BITMAPV5HEADER>();
+    let mut dib = Global::filled(header_len + 4 * w * h, |out| {
+        let (head, pixels) = out.split_at_mut(header_len);
+        head.copy_from_slice(unsafe {
+            std::slice::from_raw_parts((&header as *const BITMAPV5HEADER).cast::<u8>(), header_len)
+        });
+        write_dib_pixels(img, pixels);
+    })?;
     let png_format = unsafe { RegisterClipboardFormatW(windows::core::w!("PNG")) };
     if png_format == 0 {
         return Err(windows::core::Error::from_win32().to_string());
@@ -181,11 +183,13 @@ mod tests {
             ],
         )
         .unwrap();
-        let (header, px) = dibv5_parts(&img);
+        let header = dibv5_header(2, 2);
         assert_eq!(
             (header.bV5Width, header.bV5Height, header.bV5SizeImage),
             (2, 2, 16)
         );
+        let mut px = vec![0u8; 16];
+        write_dib_pixels(&img, &mut px);
         // 先頭は下の行（青・白）、次が上の行（赤・緑）。並びは BGRA
         assert_eq!(
             px,

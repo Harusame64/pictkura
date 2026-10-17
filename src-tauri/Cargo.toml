@@ -68,6 +68,9 @@ tokio = { version = "1", default-features = false, features = ["time", "sync"] }
 # 黙って付いてこないようにするため。`image-data` は `image` /  `windows-sys` /
 # `core-graphics` を連れてくる（arboard の `[features]`）ので、それらを
 # 並べて書く必要は無い。
+# **Windows では使わない**——画像は `clipboard_image.rs` が自分で置く（pictkura-dev #47）。だから非 Windows の
+# 依存に置く
+[target.'cfg(not(windows))'.dependencies]
 arboard = { version = "3.6", default-features = false, features = [
     "image-data",
     "wayland-data-control",
@@ -103,8 +106,8 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
-# クリップボードへ置く PNG を、開く前に自分で作る（`clipboard_image.rs`）。pictkura-core と arboard が同じ版を
-# 引いているので、新しくビルドされるものは無い
+# クリップボードへ置く PNG を、開く前に自分で作る（`clipboard_image.rs`）。pictkura-core が同じ版を引いているので、
+# 新しくビルドされるものは無い
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 # マウントの旗（`MNT_DONTBROWSE`）を読むための `statfs`。sysinfo は旗を返さない。

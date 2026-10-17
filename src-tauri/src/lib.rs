@@ -166,11 +166,10 @@ struct AppState {
     /// X11では、置いた側のプロセスが「いま持っている」と名乗り続けないと
     /// 中身が消える。押されるたびに作って落とすと、クリップボードマネージャが
     /// 居ない環境では**貼る前に空になる**（arboard の `Drop` は、居れば
-    /// そこへ引き渡す）。Windows/macOSでは持ち回りに意味は無いが、
-    /// 場所を分ける理由も無いので同じ形にしてある。
+    /// そこへ引き渡す）。macOSでは持ち回りに意味は無いが、場所を分ける理由も無いので同じ形にしてある。
     ///
-    /// **Windowsでは同時に1スレッドしか開けない**（arboardのドキュメント）。
-    /// このMutexがそれを満たしている。**Windows は使わない**（`clipboard_image` が自分で開く。#47）
+    /// **Windows には無い**——`clipboard_image` が毎回自分で開き、同時に2本来ても `OpenClipboard` の試し直しで
+    /// 順に通る（pictkura-dev #47）
     #[cfg(not(windows))]
     clipboard: Mutex<Option<arboard::Clipboard>>,
     /// 原寸表示用JPEG（HEIC/RAW/TIFF）のバイト列LRU（0.2 ①）。
@@ -3340,9 +3339,17 @@ async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String
         {
             let window = app
                 .get_webview_window("main")
-                .ok_or_else(|| errs::code("errNotFound"))?;
+                .ok_or_else(|| "the main window is not available".to_string())?;
             let hwnd = window.hwnd().map_err(|e| e.to_string())?;
             clipboard_image::set_image(windows::Win32::Foundation::HWND(hwnd.0 as _), &rgba)
+                .inspect_err(|e| {
+                    // 画面に出るのは OS の文だけ。直したはずの #47 がまだ起きているかを、記録で追えるようにする
+                    applog::note(&format!(
+                        "could not put a {}x{} image on the clipboard: {e}",
+                        rgba.width(),
+                        rgba.height()
+                    ))
+                })
         }
         #[cfg(not(windows))]
         {
