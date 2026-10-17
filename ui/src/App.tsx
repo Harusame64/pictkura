@@ -3116,13 +3116,19 @@ export default function App() {
       for (const id of ids) next.delete(id);
       return next;
     });
+    const picked = ids.filter((id) => selectedRef.current.has(id));
+    if (picked.length === 0 || picked.length === ids.length) return;
     setSelected((prev) => {
-      const picked = ids.filter((id) => prev.has(id));
-      if (picked.length === 0 || picked.length === ids.length) return prev;
       const next = new Set(prev);
       for (const id of picked) next.delete(id);
       return next;
     });
+    // 外したコマが範囲選択の起点なら、起点も外す——残すと次の Shift クリックが、たたんだ重ねから押した
+    // タイルまでを選ぶ（PR の codex）
+    if (anchorRef.current !== null && ids.includes(anchorRef.current)) {
+      setAnchorId(null);
+      lastRangeRef.current = null;
+    }
   }, []);
   /**
    * 広げて別々のタイルにした組のファイル（ビューアでも組にしない）。**中身が同じなら前の Set を返す**——連写を
