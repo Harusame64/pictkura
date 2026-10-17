@@ -414,10 +414,6 @@ export const zh: Dict = {
   menuFavoriteOn: "添加到收藏",
   menuFavoriteOff: "取消收藏",
   pickEditor: "选择用来编辑的应用",
-  deleteConfirmFiles: (photos: number, files: number) =>
-    photos === 1
-      ? `要把这张照片（${num(files)} 个文件）移到回收站吗？`
-      : `要把这 ${num(photos)} 张照片（${num(files)} 个文件）移到回收站吗？`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "要把这张照片移到回收站吗？"

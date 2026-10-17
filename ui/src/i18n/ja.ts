@@ -449,11 +449,6 @@ export const ja = {
   menuFavoriteOn: "お気に入りに追加",
   menuFavoriteOff: "お気に入りを外す",
   pickEditor: "編集に使うアプリを選択",
-  /* 一覧で重ねたタイル（RAW+JPEG）を消すとき、見えている枚数とファイル数が違う（dev #32） */
-  deleteConfirmFiles: (photos: number, files: number) =>
-    photos === 1
-      ? `この写真（${num(files)}ファイル）をゴミ箱へ移動しますか？`
-      : `${num(photos)}枚の写真（${num(files)}ファイル）をゴミ箱へ移動しますか？`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "この写真をゴミ箱へ移動しますか？"
