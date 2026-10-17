@@ -27,6 +27,7 @@ import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./F
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
 import { printSheet, printSides, type SheetItem, type SheetLayout } from "./printSheet";
+import { pressable } from "./pressable";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
@@ -7682,12 +7683,16 @@ export default function App() {
           <div
             className={"nav-item" + (filter === "all" ? " active" : "")}
             onClick={() => setFilter("all")}
+            {...pressable(() => setFilter("all"))}
+            aria-pressed={filter === "all"}
           >
             {t.navAllPhotos}
           </div>
           <div
             className={"nav-item" + (filter === "fav" ? " active" : "")}
             onClick={() => setFilter("fav")}
+            {...pressable(() => setFilter("fav"))}
+            aria-pressed={filter === "fav"}
           >
             {t.navFavorites}
             {stats.favorites > 0 && (
@@ -7698,6 +7703,8 @@ export default function App() {
           <div
             className={"nav-item" + (filter === "picked" ? " active" : "")}
             onClick={() => setFilter("picked")}
+            {...pressable(() => setFilter("picked"))}
+            aria-pressed={filter === "picked"}
           >
             {t.navPicked}
             {stats.picked > 0 && (
@@ -7710,6 +7717,8 @@ export default function App() {
             <div
               className={"nav-item" + (filter === "outgoing" ? " active" : "")}
               onClick={() => setFilter("outgoing")}
+              {...pressable(() => setFilter("outgoing"))}
+              aria-pressed={filter === "outgoing"}
             >
               {t.navOutgoing}
               {stats.outgoing > 0 && (
@@ -7727,6 +7736,8 @@ export default function App() {
               key={k}
               className={"nav-item" + (kind === k ? " active" : "")}
               onClick={() => setKind(kind === k ? "all" : k)}
+              {...pressable(() => setKind(kind === k ? "all" : k))}
+              aria-pressed={kind === k}
             >
               {KIND_LABEL[k]()}
             </div>
@@ -7758,8 +7769,10 @@ export default function App() {
                     className={"nav-item camera" + (active ? " active" : "")}
                     title={t.filterByCamera(cam.name)}
                     onClick={() => setQueryInput(active ? "" : term)}
+                    {...pressable(() => setQueryInput(active ? "" : term))}
+                    aria-pressed={active}
                   >
-                    <span className="camera-icon">📷</span>
+                    <span className="camera-icon" aria-hidden="true">📷</span>
                     <span className="camera-name">{cam.name}</span>
                     <span className="fav-count">{formatNumber(cam.count)}</span>
                   </div>
@@ -7801,8 +7814,10 @@ export default function App() {
               onClick={() =>
                 !busy && openWizard(d.dcim_path ?? d.path)
               }
+              {...pressable(() => !busy && openWizard(d.dcim_path ?? d.path))}
+              aria-disabled={busy || undefined}
             >
-              <span className="drive-icon">{d.removable ? "🔌" : "💾"}</span>
+              <span className="drive-icon" aria-hidden="true">{d.removable ? "🔌" : "💾"}</span>
               {d.label}
               {d.dcim_path && <span className="dcim-badge">DCIM</span>}
             </div>
@@ -7880,9 +7895,11 @@ export default function App() {
                     key={item.id}
                     src={thumbSrc(item)}
                     title={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
+                    alt={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
                     onClick={() =>
                       setViewer({ dayKey: item.day_key, id: item.id })
                     }
+                    {...pressable(() => setViewer({ dayKey: item.day_key, id: item.id }))}
                   />
                 ))}
               </div>
@@ -8093,6 +8110,10 @@ export default function App() {
                                   : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
+                              // ボタンとして、ファイル名で名乗る（UI Automation では名前の無い Group だった。
+                              // pictkura-dev #65）。Tab では止めない——一覧には自分のキー操作がある
+                              role="button"
+                              aria-label={cell.item.file_name}
                               // 閉じるときに戻る先を引く（dev #52）。組のどれを見ていても同じタイルへ
                               data-ids={cell.files.map((f) => f.id).join(" ")}
                               title={
