@@ -1197,6 +1197,8 @@ export default function App() {
    */
   const patchSeqRef = useRef(0);
   const patchedAtRef = useRef(new Map<number, number>());
+  /** 走っている読み直しが始めた回（古い回の印を捨てるとき、これより後は残す） */
+  const activeReloadSeqsRef = useRef(new Set<number>());
   const [viewerHoldExpired, setViewerHoldExpired] = useState(0);
   const holdViewer = useCallback((id: number, ms: number) => {
     const until = Date.now() + ms;
@@ -1282,6 +1284,7 @@ export default function App() {
     // 描画でビューアを付いていかせる（後から訊くと、古い日を読み終えたビューアが先に隣へ飛ぶ。dev #49）
     // 選択から開いた列の写真も同じ問い合わせで日を取り直す（開いている1枚だけだと、列の残りが古い日のまま）
     const patchSeqAtStart = patchSeqRef.current;
+    activeReloadSeqsRef.current.add(patchSeqAtStart);
     const open = viewerPosRef.current;
     const followIds = new Set<number>();
     if (open) {
@@ -1366,6 +1369,7 @@ export default function App() {
       }
       throw err;
     } finally {
+      activeReloadSeqsRef.current.delete(patchSeqAtStart);
       // **追い越されていたら立てない**——新しい方がまだ走っている
       if (generationRef.current === gen) {
         settledRef.current = true;
@@ -1873,11 +1877,13 @@ export default function App() {
     (patches: MediaItem[]) => {
       // どの写真の差分をいつ当てたか（`reloadAll` が古い答えで引き戻さないように）。覚えるのはビューアで
       // 追う写真だけで足りるが、見分けるより全部書くほうが安い。表が育ちすぎたら古い回だけ捨てる——
-      // 走っている読み直しが見るのは、始めてから後の回だけ（数十回も前の回は要らない）
+      // 走っている読み直しが見るのは、それぞれが始めた回より後だけ。**いちばん古い読み直しの回より前**を
+      // 捨てる（回の数で切ると、長い読み直しの最中に要る印まで捨てうる。PR の codex）
       const seq = ++patchSeqRef.current;
       if (patchedAtRef.current.size > 5000) {
+        const keepFrom = Math.min(seq, ...activeReloadSeqsRef.current);
         for (const [id, at] of patchedAtRef.current) {
-          if (at < seq - 50) patchedAtRef.current.delete(id);
+          if (at <= keepFrom) patchedAtRef.current.delete(id);
         }
       }
       for (const p of patches) patchedAtRef.current.set(p.id, seq);
