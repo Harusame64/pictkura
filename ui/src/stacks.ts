@@ -60,19 +60,21 @@ export type Stack<T> = {
   cover: Shot<T>;
   shots: Shot<T>[];
   spanMs?: number;
-  /** 広げた重ねの1枚（dev #51）。`key` は広げる前の表紙の id、`index` は何枚目、`count` は広げた枚数 */
-  spread?: { key: number; index: number; count: number };
+  /**
+   * 広げた重ねの1枚（dev #51）。`key` は広げる前の表紙の id（描くときのまとまり）、`index` は何枚目、`count` は
+   * 広げた枚数、`ids` は広げる前の重ねのファイルぜんぶ（たたむとき・選択を外すときに使う）。`fromPair` はこの1枚が
+   * RAW+JPEG の組を分けた片方か（ビューアでも組にしない）
+   */
+  spread?: { key: number; index: number; count: number; ids: number[]; fromPair: boolean };
 };
-
-/** 重ねを広げる・たたむときの鍵（表紙の id）。広げた後の各タイルも同じ鍵を `spread.key` に持つ */
-export function stackKey<T extends { id: number }>(stack: Stack<T>): number {
-  return stack.spread?.key ?? stack.cover.lead.id;
-}
 
 /**
  * 広げた重ねを、その場で1枚ずつのタイルに分ける（dev #51、2026-10-18 利用者の選択「その場で並べる」）。
  *
- * - 連写はコマごと。コマが RAW+JPEG の組なら**組のまま**1枚
+ * - **広げたかどうかはファイルの id で覚える**（`spread` にどれか1つでも入っていれば広げる）。表紙の id で覚えると、
+ *   広げた連写で ⚑ を付け替える・表紙のコマを消すと表紙が変わり、選別の途中でたたまれてしまう（ゲート2）
+ * - 連写はコマごと。コマが RAW+JPEG の組なら**組のまま**1枚——ただし `splitPairs`（一覧で組を重ねない設定）
+ *   なら組も分ける（重ねない設定で、広げた先にだけ組が残らないように）
  * - 組だけ（1コマ）は RAW と JPEG を別々の1枚に
  * - 分けたタイルは**普通のタイル**——★・⚑・削除・選択はそのタイルのファイルにだけ効く（索引も分けた形から作る）
  *
@@ -81,23 +83,31 @@ export function stackKey<T extends { id: number }>(stack: Stack<T>): number {
 export function spreadStacks<T extends { id: number }>(
   stacks: readonly Stack<T>[],
   spread: ReadonlySet<number>,
+  splitPairs = false,
 ): Stack<T>[] {
   if (spread.size === 0) return stacks as Stack<T>[];
   const out: Stack<T>[] = [];
   for (const st of stacks) {
-    const key = st.cover.lead.id;
     const files = filesOf(st);
-    if (!spread.has(key) || files.length < 2) {
+    if (files.length < 2 || !files.some((f) => spread.has(f.id))) {
       out.push(st);
       continue;
     }
-    const shots: Shot<T>[] =
-      st.shots.length > 1 ? st.shots : files.map((f) => ({ lead: f, files: [f] }));
-    shots.forEach((shot, index) =>
+    const tiles: { shot: Shot<T>; fromPair: boolean }[] = [];
+    for (const shot of st.shots.length > 1 ? st.shots : [st.cover]) {
+      const split = shot.files.length > 1 && (st.shots.length === 1 || splitPairs);
+      if (split) {
+        for (const f of shot.files) tiles.push({ shot: { lead: f, files: [f] }, fromPair: true });
+      } else {
+        tiles.push({ shot, fromPair: false });
+      }
+    }
+    const ids = files.map((f) => f.id);
+    tiles.forEach(({ shot, fromPair }, index) =>
       out.push({
         cover: shot,
         shots: [shot],
-        spread: { key, index, count: shots.length },
+        spread: { key: st.cover.lead.id, index, count: tiles.length, ids, fromPair },
       }),
     );
   }
@@ -113,9 +123,7 @@ export function unpairedBySpread<T extends { id: number }>(
 ): Set<number> {
   const out = new Set<number>();
   for (const st of stacks) {
-    if (st.spread && st.shots.length === 1 && st.cover.files.length === 1) {
-      out.add(st.cover.lead.id);
-    }
+    if (st.spread?.fromPair) out.add(st.cover.lead.id);
   }
   return out;
 }

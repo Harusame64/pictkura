@@ -131,7 +131,6 @@ import {
   stackMembersIndex,
   pairAwareScope,
   spreadStacks,
-  stackKey,
   stacksOfDay,
   unpairedBySpread,
   viewerWalk,
@@ -433,10 +432,12 @@ type Cell = {
   rawPair: boolean;
   /** 連写の最初のコマから最後のコマまで（ミリ秒。連写でなければ 0） */
   spanMs: number;
-  /** 広げる・たたむの鍵（`stackKey`） */
-  key: number;
-  /** 広げた重ねの1枚なら、何枚目か（dev #51） */
-  spread?: { index: number; count: number };
+  /** 広げる・たたむときのファイル（広げる前の重ねのファイルぜんぶ。dev #51） */
+  groupIds: number[];
+  /**
+   * 広げた重ねの1枚なら、何枚目か。`join` は同じ行の右隣も同じ重ねか（下線を隙間までつなぐ。行の端では切る）
+   */
+  spread?: { index: number; join: boolean };
   w: number;
   h: number;
 };
@@ -3083,38 +3084,61 @@ export default function App() {
     return out;
   }, [dayItems, stackRawJpeg, stackBursts, burstGapMs]);
   /**
-   * 広げた重ねの鍵（表紙の id。dev #51）。印を押すと出し入れする。広げた後のタイルは**普通のタイル**として
-   * 一覧・索引・選択に乗るので、広げた形を `dayStacks` にする（組んだままの形は `groupedStacks`）
+   * 広げた重ね（dev #51）。**ファイルの id で覚える**——重ねのどれか1つでも入っていれば広げる（`spreadStacks`）。
+   * 広げた後のタイルは**普通のタイル**として一覧・索引・選択に乗るので、広げた形を `dayStacks` にする
+   * （組んだままの形は `groupedStacks`）
    */
-  const [spreadKeys, setSpreadKeys] = useState<ReadonlySet<number>>(new Set());
-  const toggleSpread = useCallback((key: number) => {
-    setSpreadKeys((prev) => {
+  const [spreadIds, setSpreadIds] = useState<ReadonlySet<number>>(new Set());
+  // 組み方の設定や、一覧に出す範囲（絞り込み・検索・種類）が変わったら、広げた重ねは忘れる。覚えたままだと、別の
+  // 組み方で同じファイルを含む別の重ね（連写を切った後の組など）が、押していないのに広がって出る（ゲート2）
+  useEffect(() => {
+    setSpreadIds((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [stackRawJpeg, stackBursts, burstGapMs, filter, kind, query]);
+  const dayStacks = useMemo(() => {
+    if (spreadIds.size === 0) return groupedStacks;
+    const out = new Map<number, Stack<MediaItem>[]>();
+    for (const [dayKey, stacks] of groupedStacks) {
+      out.set(dayKey, spreadStacks(stacks, spreadIds, !stackRawJpeg));
+    }
+    return out;
+  }, [groupedStacks, spreadIds, stackRawJpeg]);
+  /** 重ねを広げる（印を押したとき）。`ids` は重ねのファイルぜんぶ */
+  const spreadStack = useCallback((ids: readonly number[]) => {
+    setSpreadIds((prev) => new Set([...prev, ...ids]));
+  }, []);
+  /**
+   * 広げた重ねをたたむ。**半端に選んでいた分は選択から外す**——たたむと選択は重ねぜんぶへ閉じ直される
+   * （`closeOverStacks`）ので、広げて1コマだけ選んでから たたむと、選んでいないコマまで消す・動かす対象に入る（ゲート2）
+   */
+  const foldStack = useCallback((ids: readonly number[]) => {
+    setSpreadIds((prev) => {
       const next = new Set(prev);
-      if (!next.delete(key)) next.add(key);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setSelected((prev) => {
+      const picked = ids.filter((id) => prev.has(id));
+      if (picked.length === 0 || picked.length === ids.length) return prev;
+      const next = new Set(prev);
+      for (const id of picked) next.delete(id);
       return next;
     });
   }, []);
-  const dayStacks = useMemo(() => {
-    if (spreadKeys.size === 0) return groupedStacks;
-    const out = new Map<number, Stack<MediaItem>[]>();
-    for (const [dayKey, stacks] of groupedStacks) {
-      out.set(dayKey, spreadStacks(stacks, spreadKeys));
-    }
-    return out;
-  }, [groupedStacks, spreadKeys]);
   /**
-   * 広げて別々のタイルにした組のファイル（ビューアでも組にしない）。中身が同じなら同じ値を返す——広げるたびに
-   * ビューアの列を作り直さない
+   * 広げて別々のタイルにした組のファイル（ビューアでも組にしない）。**中身が同じなら前の Set を返す**——連写を
+   * 広げるたびにビューアの列を作り直さない
    */
-  const unpairedKey = useMemo(() => {
-    const ids: number[] = [];
-    for (const stacks of dayStacks.values()) ids.push(...unpairedBySpread(stacks));
-    return ids.sort((a, b) => a - b).join(",");
+  const unpairedRef = useRef<ReadonlySet<number>>(new Set());
+  const unpaired = useMemo(() => {
+    const next = new Set<number>();
+    for (const stacks of dayStacks.values()) {
+      for (const id of unpairedBySpread(stacks)) next.add(id);
+    }
+    const prev = unpairedRef.current;
+    if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+    unpairedRef.current = next;
+    return next;
   }, [dayStacks]);
-  const unpaired = useMemo(
-    () => new Set(unpairedKey ? unpairedKey.split(",").map(Number) : []),
-    [unpairedKey],
-  );
   /**
    * ビューアでの RAW+JPEG の組の歩き方（2026-09-26 の利用者の選択。既定は JPEG だけ）。
    * **一覧で組を重ねていないときは効かない**（`null`）——一覧で2枚に見えているものは2枚とも歩く
@@ -3352,12 +3376,19 @@ export default function App() {
             ),
             // 連写の長さは束ね役が鎖に使った時刻で出したもの（ここで数え直さない。#160 のゲート2）
             spanMs: st.spanMs ?? 0,
-            key: stackKey(st),
-            spread: st.spread && { index: st.spread.index, count: st.spread.count },
+            groupIds: st.spread?.ids ?? filesOf(st).map((f) => f.id),
+            spread: st.spread && { index: st.spread.index, join: false },
             w: Math.floor(aspectOf(st.cover.lead) * h),
             h: Math.round(h),
           };
         });
+        // 広げた重ねの下線を、同じ行で右隣も同じ重ねのときだけ隙間までつなぐ
+        for (let i = 0; i + 1 < cells.length; i++) {
+          const here = cells[i].spread;
+          if (here && cells[i + 1].spread && rowItems[i].spread?.key === rowItems[i + 1].spread?.key) {
+            here.join = true;
+          }
+        }
         out.push({
           kind: "cells",
           dayKey: day.day_key,
@@ -7804,10 +7835,7 @@ export default function App() {
                                 "cell-wrap" +
                                 (cellSelected ? " picked" : "") +
                                 (cell.spread
-                                  ? " spread" +
-                                    (cell.spread.index === cell.spread.count - 1
-                                      ? " spread-last"
-                                      : "")
+                                  ? " spread" + (cell.spread.join ? " spread-join" : "")
                                   : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
@@ -7869,7 +7897,12 @@ export default function App() {
                               {(cell.rawPair || burst) &&
                                 (() => {
                                   const badges = chooseBadges(
-                                    cell.w - 8,
+                                    // 広げた先頭は左下に「たたむ」が居るので、その幅を空ける
+                                    cell.w -
+                                      8 -
+                                      (cell.spread?.index === 0
+                                        ? measureChipText(t.foldStack) + 12 + 4
+                                        : 0),
                                     {
                                       pair: cell.rawPair,
                                       burst: burst
@@ -7912,8 +7945,10 @@ export default function App() {
                                       title={t.spreadStack}
                                       aria-label={t.spreadStack}
                                       onClick={(e) => {
+                                        // 選ぶ操作（Shift・Ctrl/⌘・選択中）は印の上でもタイルへ通す
+                                        if (e.shiftKey || e.ctrlKey || e.metaKey || selecting) return;
                                         e.stopPropagation();
-                                        toggleSpread(cell.key);
+                                        spreadStack(cell.groupIds);
                                       }}
                                     >
                                       {parts}
@@ -7928,7 +7963,7 @@ export default function App() {
                                   title={t.foldStack}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    toggleSpread(cell.key);
+                                    foldStack(cell.groupIds);
                                   }}
                                 >
                                   {t.foldStack}
