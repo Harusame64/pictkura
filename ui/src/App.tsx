@@ -444,6 +444,16 @@ type Row =
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
+
+/**
+ * ビューアの情報パネル（I）の幅。パネルを開いている間は、写真・「次へ」・フィルムストリップ・字幕と、絵の中央に
+ * 出すもの（判定の印・読み込み中・原本が無い帯）を、パネルの左端まで左へ寄せて横に並べる（pictkura-dev #48。
+ * パネルが「次へ」と写真の右端を覆っていた）。
+ * CSS はこの値を `--exif-panel-width` / `--info-reserve` で受ける——倍率の計算と1か所で揃える
+ */
+const EXIF_PANEL_WIDTH = 260;
+/** パネルと窓の右端の間（CSS の `right: var(--sp-4)`）。空ける幅はパネルの左端まで——「次へ」はその内側に `--sp-4` で付く */
+const EXIF_PANEL_INSET = 16;
 /** 一覧に問い合わせた絞り込み（棚・種類・検索語）。`summaryFor` を見よ */
 type Asked = { filter: MediaFilter; kind: MediaKind; query: string };
 
@@ -4040,6 +4050,13 @@ export default function App() {
   }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
+  /** 情報パネルを描くか・ファイルの節を読むか */
+  const infoOpen = showExif && viewerItem !== null;
+  /**
+   * 写真の側から空ける幅（px）。**I を押しているかだけで決める**——表示中の1枚で決めると、まだ読んでいない日へ
+   * 送った間だけ 0 に戻り、絵と「次へ」が横に跳ねる（ゲート2）
+   */
+  const infoReserve = showExif ? EXIF_PANEL_WIDTH + EXIF_PANEL_INSET : 0;
   // 抽出の合図が「送った先の絵」に乗らないように控える（`flashExtract`）
   useEffect(() => {
     viewerItemIdRef.current = viewerItem?.id ?? null;
@@ -5015,10 +5032,11 @@ export default function App() {
         ? [servedNatural.w, servedNatural.h]
         : servedSize(viewerItem);
     if (w <= 0 || h <= 0) return 1;
-    const maxW = windowSize.w - 120;
+    // CSS の `max-width: calc(100vw - 120px - var(--info-reserve))` と同じ枠
+    const maxW = windowSize.w - 120 - infoReserve;
     const maxH = windowSize.h - 80;
     return Math.min(1, maxW / w, maxH / h);
-  }, [viewerItem, servedNatural, windowSize]);
+  }, [viewerItem, servedNatural, windowSize, infoReserve]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
   const isActualSize = Math.abs(displayScale - 1) < 0.005;
@@ -5582,7 +5600,7 @@ export default function App() {
   const singleInfos = useFileInfos(singleSelected === null ? null : [singleSelected]);
   const singleInfo = singleSelected === null ? undefined : singleInfos.get(singleSelected);
   /** ビューアの撮影情報パネルの「ファイル」の節。表示中の1ファイル */
-  const viewerFileInfos = useFileInfos(showExif && viewerItem !== null ? [viewerItem.id] : null);
+  const viewerFileInfos = useFileInfos(infoOpen ? [viewerItem.id] : null);
 
   /** 選択をやめる */
   const clearSelection = useCallback(() => {
@@ -7765,6 +7783,12 @@ export default function App() {
       {viewer && (
         <div
           className={"viewer" + (viewerIdle ? " idle" : "")}
+          style={
+            {
+              "--exif-panel-width": `${EXIF_PANEL_WIDTH}px`,
+              "--info-reserve": `${infoReserve}px`,
+            } as React.CSSProperties
+          }
           // **動いている間は、地のクリックで閉じない。** 見えている写真（残像）は当たり判定を
           // 持たず、台は画面の外から入ってくる途中か透明なので、写真を押した手は地に落ちる
           // （ゲート2・codex）。残像で受け止める形は、フェードでは上に居る台に先を取られた
@@ -8299,7 +8323,7 @@ export default function App() {
               )}
             </div>
           )}
-          {showExif && viewerItem && (
+          {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
               {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む */}
               <div className="exif-title">{t.fileInfoTitle}</div>

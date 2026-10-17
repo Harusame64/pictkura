@@ -822,6 +822,9 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
+  /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
+     App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
+  --viewer-fit-w: calc(100vw - 120px - var(--info-reserve));
   position: fixed;
   inset: 0;
   background: oklch(0.1 0 0 / 0.97);
@@ -840,6 +843,8 @@ body {
 .viewer-stage {
   position: absolute;
   inset: 0;
+  /* 情報パネルの分を空けて、その残りの中央に絵を置く（#48） */
+  right: var(--info-reserve);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -866,6 +871,7 @@ body {
 .viewer-loading-overlay {
   position: absolute;
   inset: 0;
+  right: var(--info-reserve); /* 絵と同じ場所の中央に（#48） */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -873,7 +879,7 @@ body {
   text-shadow: 0 2px 8px oklch(0 0 0 / 0.8);
 }
 .viewer-image {
-  max-width: calc(100vw - 120px);
+  max-width: var(--viewer-fit-w);
   max-height: calc(100vh - 80px);
   object-fit: contain;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
@@ -891,7 +897,7 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  max-width: calc(100vw - 120px);
+  max-width: var(--viewer-fit-w);
   max-height: calc(100vh - 80px);
   object-fit: contain;
   /* 原寸と同じ影。差し替わるときに影だけポンと出ないように */
@@ -903,7 +909,7 @@ body {
  * 操作バーは `controls` に任せる——自前で作ると全画面・音量・字幕まで
  * 面倒を見ることになり、「最小機能」から外れる */
 .viewer-video {
-  max-width: calc(100vw - 120px);
+  max-width: var(--viewer-fit-w);
   max-height: calc(100vh - 80px);
   /* 字幕の帯に操作バーが潜らないよう、その分だけ下を空ける（2026-08-22）。
    * 中央寄せのflexなので、下向きの余白を足すと絵はその半分だけ上がる
@@ -944,10 +950,11 @@ body {
 .viewer-missing-band {
   position: absolute;
   top: calc(var(--sp-3) + 44px);
-  left: 50%;
+  /* 情報パネルを開いている間は、縮めた絵の中央に（#48） */
+  left: calc((100vw - var(--info-reserve)) / 2);
   transform: translateX(-50%);
   width: max-content;
-  max-width: min(640px, calc(100vw - 2 * var(--sp-6)));
+  max-width: min(640px, calc(100vw - var(--info-reserve) - 2 * var(--sp-6)));
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--radius-lg);
   background: oklch(0.2 0 0 / 0.92);
@@ -1001,7 +1008,7 @@ body {
 .viewer-caption {
   position: absolute;
   left: 0;
-  right: 0;
+  right: var(--info-reserve); /* 上のフィルムストリップと揃える（#48） */
   bottom: 0;
   display: flex;
   gap: var(--sp-4);
@@ -1017,7 +1024,8 @@ body {
 .viewer-strip {
   position: absolute;
   left: 0;
-  right: 0;
+  /* 写真と同じく、情報パネルの分を空けた残りの中央に並べる（パネルの下に潜らない、#48） */
+  right: var(--info-reserve);
   bottom: var(--caption-h);
   display: flex;
   justify-content: center;
@@ -1207,7 +1215,7 @@ body {
 .viewer-flash {
   position: absolute;
   top: 50%;
-  left: 50%;
+  left: calc((100% - var(--info-reserve)) / 2); /* 情報パネルを開いている間は、縮めた絵の中央（#48） */
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -1639,7 +1647,9 @@ body {
   left: var(--sp-4);
 }
 .viewer-nav.next {
-  right: var(--sp-4);
+  /* 情報パネルを開いている間は、縮めた写真とパネルの間へ寄る（#48）。高さは変えない——押す場所が上下に
+     動くと、送り続けている手が外れる */
+  right: calc(var(--info-reserve) + var(--sp-4));
 }
 
 /* 撮影情報パネル */
@@ -1647,7 +1657,7 @@ body {
   position: absolute;
   top: 60px;
   right: var(--sp-4);
-  width: 260px;
+  width: var(--exif-panel-width);
   /* ファイルの節を足して長くなった（ADR の A）。低い窓では中で巻く——撮影地のリンクが窓の外へ出ないように */
   max-height: calc(100vh - 140px);
   overflow-y: auto;
