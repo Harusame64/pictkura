@@ -509,6 +509,10 @@ export const en: Dict = {
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Burst ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  /** 重ねの印を押すと広がる（dev #51）。印の title */
+  spreadStack: "Spread out to see each one",
+  /** 広げた重ねの先頭に出る、たたむ印 */
+  foldStack: "Fold",
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `Burst of ${num(frames)} shots over ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} files)`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>

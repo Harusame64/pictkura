@@ -56,7 +56,69 @@ export type Shot<T> = { lead: T; files: T[] };
  * 重ね: 一覧のタイル1枚。`cover` が表紙のコマ。`spanMs` は連写の最初のコマから最後のコマまで
  * （鎖に使った秒未満の時刻で。連写でなければ無い）
  */
-export type Stack<T> = { cover: Shot<T>; shots: Shot<T>[]; spanMs?: number };
+export type Stack<T> = {
+  cover: Shot<T>;
+  shots: Shot<T>[];
+  spanMs?: number;
+  /** 広げた重ねの1枚（dev #51）。`key` は広げる前の表紙の id、`index` は何枚目、`count` は広げた枚数 */
+  spread?: { key: number; index: number; count: number };
+};
+
+/** 重ねを広げる・たたむときの鍵（表紙の id）。広げた後の各タイルも同じ鍵を `spread.key` に持つ */
+export function stackKey<T extends { id: number }>(stack: Stack<T>): number {
+  return stack.spread?.key ?? stack.cover.lead.id;
+}
+
+/**
+ * 広げた重ねを、その場で1枚ずつのタイルに分ける（dev #51、2026-10-18 利用者の選択「その場で並べる」）。
+ *
+ * - 連写はコマごと。コマが RAW+JPEG の組なら**組のまま**1枚
+ * - 組だけ（1コマ）は RAW と JPEG を別々の1枚に
+ * - 分けたタイルは**普通のタイル**——★・⚑・削除・選択はそのタイルのファイルにだけ効く（索引も分けた形から作る）
+ *
+ * 並びは重ねの中の順（コマの順・組は日の並び）のまま、重ねが居た席に置く
+ */
+export function spreadStacks<T extends { id: number }>(
+  stacks: readonly Stack<T>[],
+  spread: ReadonlySet<number>,
+): Stack<T>[] {
+  if (spread.size === 0) return stacks as Stack<T>[];
+  const out: Stack<T>[] = [];
+  for (const st of stacks) {
+    const key = st.cover.lead.id;
+    const files = filesOf(st);
+    if (!spread.has(key) || files.length < 2) {
+      out.push(st);
+      continue;
+    }
+    const shots: Shot<T>[] =
+      st.shots.length > 1 ? st.shots : files.map((f) => ({ lead: f, files: [f] }));
+    shots.forEach((shot, index) =>
+      out.push({
+        cover: shot,
+        shots: [shot],
+        spread: { key, index, count: shots.length },
+      }),
+    );
+  }
+  return out;
+}
+
+/**
+ * 広げて別々のタイルになった RAW+JPEG の組のファイル（ビューアで組として扱わない。`viewerWalk` の `unpaired`）。
+ * **一覧で2枚に見えているものは2枚とも歩く**——重ねない設定と同じ考え
+ */
+export function unpairedBySpread<T extends { id: number }>(
+  stacks: readonly Stack<T>[],
+): Set<number> {
+  const out = new Set<number>();
+  for (const st of stacks) {
+    if (st.spread && st.shots.length === 1 && st.cover.files.length === 1) {
+      out.add(st.cover.lead.id);
+    }
+  }
+  return out;
+}
 
 export interface StackOptions {
   /** RAW+JPEG を1コマに重ねるか（設定 `[grid] stack_raw_jpeg`） */
@@ -215,12 +277,18 @@ export type PairView = "jpeg" | "raw" | "both";
 export function viewerWalk<T extends Stackable>(
   items: readonly T[],
   view: PairView,
+  /** 一覧で広げて別々のタイルにした組のファイル（`unpairedBySpread`）。組にせず、どちらも歩く */
+  unpaired: ReadonlySet<number> = new Set(),
 ): { walk: T[]; pairOf: Map<number, T[]> } {
   const walk: T[] = [];
   const pairOf = new Map<number, T[]>();
   for (const shot of shotsOfDay(items, true)) {
     if (shot.files.length === 1) {
       walk.push(shot.files[0]);
+      continue;
+    }
+    if (shot.files.some((f) => unpaired.has(f.id))) {
+      walk.push(...shot.files);
       continue;
     }
     const raws = shot.files.filter((f) => f.is_raw);

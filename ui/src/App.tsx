@@ -130,7 +130,10 @@ import {
   vanishedOf,
   stackMembersIndex,
   pairAwareScope,
+  spreadStacks,
+  stackKey,
   stacksOfDay,
+  unpairedBySpread,
   viewerWalk,
   type PairView,
   type Stack,
@@ -430,6 +433,10 @@ type Cell = {
   rawPair: boolean;
   /** 連写の最初のコマから最後のコマまで（ミリ秒。連写でなければ 0） */
   spanMs: number;
+  /** 広げる・たたむの鍵（`stackKey`） */
+  key: number;
+  /** 広げた重ねの1枚なら、何枚目か（dev #51） */
+  spread?: { index: number; count: number };
   w: number;
   h: number;
 };
@@ -3061,7 +3068,7 @@ export default function App() {
    * 読み込み済みの日ごとの重ね（dev #32）。**日と設定が変わったときだけ**組む——
    * 一覧の行（窓の幅・サイズのつまみで組み直る）と索引の両方がこれを使う
    */
-  const dayStacks = useMemo(() => {
+  const groupedStacks = useMemo(() => {
     const out = new Map<number, Stack<MediaItem>[]>();
     for (const [dayKey, items] of dayItems) {
       out.set(
@@ -3076,6 +3083,39 @@ export default function App() {
     return out;
   }, [dayItems, stackRawJpeg, stackBursts, burstGapMs]);
   /**
+   * 広げた重ねの鍵（表紙の id。dev #51）。印を押すと出し入れする。広げた後のタイルは**普通のタイル**として
+   * 一覧・索引・選択に乗るので、広げた形を `dayStacks` にする（組んだままの形は `groupedStacks`）
+   */
+  const [spreadKeys, setSpreadKeys] = useState<ReadonlySet<number>>(new Set());
+  const toggleSpread = useCallback((key: number) => {
+    setSpreadKeys((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  const dayStacks = useMemo(() => {
+    if (spreadKeys.size === 0) return groupedStacks;
+    const out = new Map<number, Stack<MediaItem>[]>();
+    for (const [dayKey, stacks] of groupedStacks) {
+      out.set(dayKey, spreadStacks(stacks, spreadKeys));
+    }
+    return out;
+  }, [groupedStacks, spreadKeys]);
+  /**
+   * 広げて別々のタイルにした組のファイル（ビューアでも組にしない）。中身が同じなら同じ値を返す——広げるたびに
+   * ビューアの列を作り直さない
+   */
+  const unpairedKey = useMemo(() => {
+    const ids: number[] = [];
+    for (const stacks of dayStacks.values()) ids.push(...unpairedBySpread(stacks));
+    return ids.sort((a, b) => a - b).join(",");
+  }, [dayStacks]);
+  const unpaired = useMemo(
+    () => new Set(unpairedKey ? unpairedKey.split(",").map(Number) : []),
+    [unpairedKey],
+  );
+  /**
    * ビューアでの RAW+JPEG の組の歩き方（2026-09-26 の利用者の選択。既定は JPEG だけ）。
    * **一覧で組を重ねていないときは効かない**（`null`）——一覧で2枚に見えているものは2枚とも歩く
    */
@@ -3089,12 +3129,12 @@ export default function App() {
     if (pairView === null) return { viewerDayItems: dayItems, pairOf: pairs };
     const out = new Map<number, MediaItem[]>();
     for (const [dayKey, items] of dayItems) {
-      const { walk, pairOf: p } = viewerWalk(items, pairView);
+      const { walk, pairOf: p } = viewerWalk(items, pairView, unpaired);
       out.set(dayKey, walk);
       for (const [id, files] of p) pairs.set(id, files);
     }
     return { viewerDayItems: out, pairOf: pairs };
-  }, [dayItems, pairView]);
+  }, [dayItems, pairView, unpaired]);
   /**
    * 選択スコープを組の歩き方にそろえたもの（`pairAwareScope`）。**ビューアはこちらを歩く**——
    * 送り・端・分母・隣の先読みがみな同じ列を見るように、ここで1回だけ作る
@@ -3312,6 +3352,8 @@ export default function App() {
             ),
             // 連写の長さは束ね役が鎖に使った時刻で出したもの（ここで数え直さない。#160 のゲート2）
             spanMs: st.spanMs ?? 0,
+            key: stackKey(st),
+            spread: st.spread && { index: st.spread.index, count: st.spread.count },
             w: Math.floor(aspectOf(st.cover.lead) * h),
             h: Math.round(h),
           };
@@ -7760,7 +7802,13 @@ export default function App() {
                               key={cell.item.id}
                               className={
                                 "cell-wrap" +
-                                (cellSelected ? " picked" : "")
+                                (cellSelected ? " picked" : "") +
+                                (cell.spread
+                                  ? " spread" +
+                                    (cell.spread.index === cell.spread.count - 1
+                                      ? " spread-last"
+                                      : "")
+                                  : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
                               title={
@@ -7833,9 +7881,7 @@ export default function App() {
                                     },
                                     measureChipText,
                                   );
-                                  return (
-                                    <span className={"cell-chips" + (badges.tight ? " tight" : "")}>
-                                      {badges.parts.map((p) =>
+                                  const parts = badges.parts.map((p) =>
                                         p.kind === "pair-text" ? (
                                           <span key="pair" className="cell-chip">
                                             RAW+JPEG
@@ -7853,10 +7899,41 @@ export default function App() {
                                             {p.text}
                                           </span>
                                         ),
-                                      )}
-                                    </span>
+                                      );
+                                  const cls = "cell-chips" + (badges.tight ? " tight" : "");
+                                  // **印を押すと広がる**（dev #51、2026-10-18 利用者の選択）。タイルの本体は今どおりビューア。
+                                  // 広げた後の1枚に残る組の印は押せない（押すとたたむ、では組の印の意味とずれる）
+                                  return cell.spread ? (
+                                    <span className={cls}>{parts}</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className={cls + " cell-chips-btn"}
+                                      title={t.spreadStack}
+                                      aria-label={t.spreadStack}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleSpread(cell.key);
+                                      }}
+                                    >
+                                      {parts}
+                                    </button>
                                   );
                                 })()}
+                              {/* 広げた重ねの先頭に、たたむ印（左下）。広げた枚数ぶんの下線がひとまとまりを示す */}
+                              {cell.spread?.index === 0 && (
+                                <button
+                                  type="button"
+                                  className="cell-fold"
+                                  title={t.foldStack}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleSpread(cell.key);
+                                  }}
+                                >
+                                  {t.foldStack}
+                                </button>
+                              )}
                               {/* 選別の印。`cell-pick` は複数選択の丸なので
                                   名前を分ける（`cell-flag`） */}
                               {cell.files.some((f) => f.picked) && (

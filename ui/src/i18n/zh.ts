@@ -562,6 +562,8 @@ export const zh: Dict = {
   burstGapOption: (seconds: number) => `${num(seconds)} 秒`,
   burstChip: (frames: number) => `▤ 连拍 ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  spreadStack: "展开以逐张查看",
+  foldStack: "收起",
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `连拍 ${num(frames)} 张，历时 ${num(Math.round(spanMs / 100) / 10)} 秒（${num(files)} 个文件）`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
