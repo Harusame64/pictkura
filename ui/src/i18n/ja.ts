@@ -702,6 +702,7 @@ export const ja = {
   errExportDest: "書き出し先のフォルダを作れません。",
   errExportManaged: "この場所へは書き出せません（アプリが管理している入れ物です）。",
   errFolderMissing: "フォルダが見つかりません。",
+  fileOpBusy: "前の処理が終わってから、もう一度押してください。",
   errFolderNotAbsolute: "フォルダのフルパスを入力してください。",
   errTrashFailed: "ゴミ箱へ移せませんでした。",
   errTrashUnreachable: "ドライブまたはフォルダが見つからないため、ゴミ箱へ移せませんでした。",
