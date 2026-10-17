@@ -2708,7 +2708,8 @@ export default function App() {
   const onAddFolder = () => {
     // ボタンは disabled になるが Enter キーは素通りするので、ここでも弾く
     if (busy) return;
-    const path = folderInput.trim();
+    // 「パスのコピー」の前後の引用符は外す（一時フォルダの確かめも、同じ綴りで見るため。dev #34）
+    const path = folderInput.trim().replace(/^"(.*)"$/, "$1");
     // 入力欄を空にするのは手入力から追加できたときだけ。「参照…」からの
     // 追加でここを消すと、打ちかけのパスが黙って消える
     if (path)

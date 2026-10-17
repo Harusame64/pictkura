@@ -268,10 +268,22 @@ fn import_path_from_args(argv: &[String]) -> Option<String> {
             if p.ends_with(':') {
                 p.push('\\');
             }
+            // `E:DCIM` のような**ドライブ相対**は受けない（pictkura-dev #34。シェルが `\` を落とした形）。
+            // 受け取るプロセスの「E: の今いるフォルダ」からの相対になり、呼んだ側の意図とずれる。
+            // 文字列で見る——`Path::is_absolute` は Windows でしか `E:\` を完全なパスと読まない
+            if is_drive_relative(&p) {
+                return None;
+            }
             return Some(p);
         }
     }
     None
+}
+
+/// `E:folder` の形か（ドライブ名のすぐ後に区切りが無い）。どの OS でも同じに読む
+fn is_drive_relative(p: &str) -> bool {
+    let b = p.as_bytes();
+    b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] != b'\\' && b[2] != b'/'
 }
 
 /// 取り込みの起点を、あれば `DCIM` まで寄せる。
@@ -4278,15 +4290,36 @@ async fn is_temporary_folder(path: String) -> bool {
     matches!(tokio::time::timeout(DEADLINE, asked).await, Ok(Ok(true)))
 }
 
+/// 利用者が打った（選んだ）フォルダを、**保存してよい形か**確かめて返す。
+///
+/// **完全なパスでなければ断る**（pictkura-dev #34）。Windows の `J:folder` はドライブ J: の「今いるフォルダ」からの
+/// 相対で、シェルが `\` を落としただけで登録できてしまった。同じ文字列が後で別の場所を指しうるので、ルートや
+/// 取り込み先として覚えてはいけない。`Pictures` のような相対も同じ（アプリの作業フォルダ次第になる）。
+/// 在るかどうかはその後で見る
+fn folder_from_input(path: &str) -> Result<PathBuf, String> {
+    // エクスプローラーの「パスのコピー」は `"D:\Photos"` と引用符で囲む。貼っただけの完全なパスを
+    // 「完全なパスを」と断らないよう、前後の対の引用符だけ外す（ゲート2）。**空白は削らない**——macOS では
+    // 名前が空白で終わるフォルダがあり、選択ダイアログからの正確なパスを変えてしまう。手入力の欄は画面が削る
+    let path = path
+        .strip_prefix('"')
+        .and_then(|p| p.strip_suffix('"'))
+        .unwrap_or(path);
+    let dir = PathBuf::from(path);
+    if !dir.is_absolute() {
+        return Err(errs::coded("errFolderNotAbsolute", path));
+    }
+    if !dir.is_dir() {
+        return Err(errs::coded("errFolderMissing", path));
+    }
+    Ok(dir)
+}
+
 /// ライブラリのルートフォルダを追加して保存し、即スキャンする。
 #[tauri::command]
 async fn add_library_root(app: tauri::AppHandle, path: String) -> Result<SyncStatsDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let root = PathBuf::from(&path);
-        if !root.is_dir() {
-            return Err(errs::coded("errFolderMissing", path));
-        }
+        let root = folder_from_input(&path)?;
         // 走査は `depth 0` を除外判定しないので、パッケージ（やその中）を
         // ルートに登録すると内部ファイルが索引される。しかも監視とUSNは
         // `is_excluded_path` が全構成要素を見るため更新イベントを全部落とす
@@ -4558,10 +4591,7 @@ fn is_browsable(mount: &Path) -> bool {
 /// 取り込みのコピー先ルートを設定して保存する。
 #[tauri::command]
 fn set_import_destination(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
-    let dest = PathBuf::from(&path);
-    if !dest.is_dir() {
-        return Err(errs::coded("errFolderMissing", path));
-    }
+    let dest = folder_from_input(&path)?;
     // コピー先は取り込み後に**ライブラリのルートへ足される**（`finish_import`）ので、
     // ルート登録と同じ理由でパッケージの中は断る
     if pictkura_core::import::is_managed_package_path(&dest) {
@@ -4759,10 +4789,7 @@ async fn set_google_enabled(app: tauri::AppHandle, enabled: bool) -> Result<(), 
 async fn set_google_location(app: tauri::AppHandle, path: String) -> Result<(), String> {
     use pictkura_core::mirror::same_volume;
     on_blocking(app, move |state| {
-        let dir = PathBuf::from(&path);
-        if !dir.is_dir() {
-            return Err(errs::coded("errFolderMissing", path));
-        }
+        let dir = folder_from_input(&path)?;
         let _google_guard = lock_ok(&state.google_lock);
         let config = lock_ok(&state.config).clone();
         let Some(dest) = config.routing.destination.clone() else {
@@ -7499,6 +7526,46 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 打ったフォルダは完全なパスでなければ断る（pictkura-dev #34）。在るかどうかより先に見る——`J:folder` は
+    /// たまたま在ることがあり、そのときも通してはいけない
+    #[test]
+    fn a_folder_must_be_a_full_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let code = |r: Result<std::path::PathBuf, String>| {
+            r.err()
+                .map(|e| e.split(super::errs::SEP).next().unwrap_or("").to_string())
+        };
+        // 在る相対パス（作業フォルダの "."）でも断る
+        assert_eq!(
+            code(super::folder_from_input(".")).as_deref(),
+            Some("errFolderNotAbsolute")
+        );
+        assert_eq!(
+            code(super::folder_from_input("Pictures")).as_deref(),
+            Some("errFolderNotAbsolute")
+        );
+        #[cfg(windows)]
+        for relative in ["C:Windows", "\\Windows"] {
+            assert_eq!(
+                code(super::folder_from_input(relative)).as_deref(),
+                Some("errFolderNotAbsolute"),
+                "{relative}"
+            );
+        }
+        // 「パスのコピー」の引用符つきでも、完全なパスなら通す
+        let quoted = format!("\"{}\"", dir.path().display());
+        assert_eq!(super::folder_from_input(&quoted).unwrap(), dir.path());
+        let missing = dir.path().join("nope");
+        assert_eq!(
+            code(super::folder_from_input(&missing.display().to_string())).as_deref(),
+            Some("errFolderMissing")
+        );
+        assert_eq!(
+            super::folder_from_input(&dir.path().display().to_string()).unwrap(),
+            dir.path()
+        );
+    }
+
     /// 抜いたドライブの上のパスは「片付いた」ではなく失敗（pictkura-dev #66）。ルートが在って
     /// ファイルだけ無いものは片付いた扱い（外で消された）。実物はゴミ箱へは送らない（渡すのは無いパスだけ）
     #[test]
@@ -8842,6 +8909,23 @@ mod tests {
         assert_eq!(
             import_path_from_args(&args(&["pictkura.exe", "--import", "E:\\"])),
             Some("E:\\".to_string())
+        );
+    }
+
+    /// シェルが `\\` を落とした `E:DCIM` は受けない（pictkura-dev #34）。`E:\\DCIM` と `E:/DCIM` は受ける
+    #[test]
+    fn a_drive_relative_import_path_is_refused() {
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:DCIM"])),
+            None
+        );
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:\\DCIM"])),
+            Some("E:\\DCIM".to_string())
+        );
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:/DCIM"])),
+            Some("E:/DCIM".to_string())
         );
     }
 
