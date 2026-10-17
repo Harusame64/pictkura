@@ -27,6 +27,7 @@ import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./F
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
 import { openShellMenu } from "./shellMenu";
+import { loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -7596,7 +7597,22 @@ export default function App() {
                 // idをkeyにして、次の動画へ進んだときに要素を作り直す
                 // （src差し替えだけだと前の再生位置やバッファが残る）
                 key={viewerItem.id}
-                ref={videoRef}
+                // 覚えた音量で始める（dev #54）。作り直すたびに既定の最大音量へ戻るので、ここで毎回当てる
+                // ——自動再生が鳴り出すより前（要素が付いた時点）に
+                ref={(el) => {
+                  videoRef.current = el;
+                  if (el) {
+                    const { volume, muted } = loadVideoVolume();
+                    el.volume = volume;
+                    el.muted = muted;
+                  }
+                }}
+                onVolumeChange={(e) =>
+                  saveVideoVolume({
+                    volume: e.currentTarget.volume,
+                    muted: e.currentTarget.muted,
+                  })
+                }
                 className="viewer-video"
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
