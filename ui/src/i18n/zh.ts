@@ -425,6 +425,8 @@ export const zh: Dict = {
   deleted: (n: number) => `已把 ${num(n)} 张移到回收站`,
   deletedSomeLeft: (n: number, left: number) =>
     `已把 ${num(n)} 张移到回收站（有 ${num(left)} 张没有找到，保持原样）`,
+  deletedMissing: (n: number, missing: number) =>
+    `已把 ${num(n)} 张移到回收站（有 ${num(missing)} 张已不在图库中而未移动）`,
   // 複数選択と一括操作
   selectItem: "选择",
   selectedCount: (n: number) => `已选择 ${num(n)} 张`,

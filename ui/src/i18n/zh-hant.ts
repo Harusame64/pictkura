@@ -428,6 +428,8 @@ export const zhHant: Dict = {
   deleted: (n: number) => `已把 ${num(n)} 張移到資源回收筒`,
   deletedSomeLeft: (n: number, left: number) =>
     `已把 ${num(n)} 張移到資源回收筒（有 ${num(left)} 張沒有找到，保持原樣）`,
+  deletedMissing: (n: number, missing: number) =>
+    `已把 ${num(n)} 張移到資源回收筒（有 ${num(missing)} 張已不在圖庫中而未移動）`,
   // 複数選択と一括操作
   selectItem: "選取",
   selectedCount: (n: number) => `已選取 ${num(n)} 張`,

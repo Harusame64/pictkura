@@ -38,6 +38,9 @@ pub struct ExportStats {
     pub skipped: usize,
     /// 読めない・書けない等で落ちた件数
     pub failed: usize,
+    /// **もうディスクに無かった**件数（選んだあとに外で消され、見張りがまだ行を落としていない）。
+    /// 「失敗して元の場所に残った」とは数えない——どこにも残っていない（pictkura-dev #42）
+    pub vanished: usize,
 }
 
 /// 結果と、呼び出し側にやってもらう後始末。
@@ -141,12 +144,31 @@ struct Carry<'a> {
     pending: Vec<(PathBuf, String)>,
 }
 
+/// ファイルが**確かに消えた**か: 自分は無いが、入っていたフォルダは在る。フォルダごと見えないのは、
+/// ドライブを抜いた・共有が切れたのと見分けられないので消えたとは言わない（pictkura-dev #42）
+pub fn is_gone_from_its_folder(path: &Path) -> bool {
+    matches!(path.try_exists(), Ok(false))
+        && path
+            .parent()
+            .is_some_and(|dir| matches!(dir.try_exists(), Ok(true)))
+}
+
 fn export_one(path: &Path, dest_dir: &Path, carry: &mut Carry, out: &mut ExportOutcome) {
     let mode = carry.mode;
-    // 一覧に出したあとに消えている可能性があるので、ここで改めてstatする
-    let Ok(meta) = std::fs::metadata(path) else {
-        out.stats.failed += 1;
-        return;
+    // 一覧に出したあとに消えている可能性があるので、ここで改めてstatする。**フォルダは在るのにファイルが
+    // 無いなら「無くなっていた」**と数える——失敗に数えると、移動の結果が「移せずに元の場所に残った」と嘘を
+    // 言う（pictkura-dev #42）。**フォルダごと見えないなら失敗のまま**: USB・SD を抜いた直後も NotFound に
+    // なり、そのときの写真はドライブの中に残っている（ゲート2）
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && is_gone_from_its_folder(path) => {
+            out.stats.vanished += 1;
+            return;
+        }
+        Err(_) => {
+            out.stats.failed += 1;
+            return;
+        }
     };
     let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
         out.stats.failed += 1;
@@ -766,7 +788,7 @@ mod tests {
         fs::create_dir_all(&src).unwrap();
         fs::write(src.join("a.jpg"), b"aaa").unwrap();
 
-        // 1枚目は読めない（失敗する）。2枚目は同じ名前で書ける
+        // 1枚目はフォルダごと見えない（ドライブを抜いたのと同じ形）＝失敗。2枚目は同じ名前で書ける
         let out = export_files(
             &[dir.path().join("gone/a.jpg"), src.join("a.jpg")],
             &dest,
@@ -776,7 +798,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(out.stats.failed, 1);
+        assert_eq!(
+            out.stats.failed, 1,
+            "フォルダごと見えないものは、消えたとは言わない"
+        );
+        assert_eq!(out.stats.vanished, 0);
         assert_eq!(out.stats.done, 1);
         // 落ちた1枚のせいで `a-1.jpg` にならないこと
         assert_eq!(files_in(&dest), ["a.jpg"]);
@@ -874,9 +900,35 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(out.stats.failed, 1);
+        assert_eq!(out.stats.vanished, 1);
         assert_eq!(out.stats.done, 1);
-        assert_eq!(seen.get(), 2, "進捗は落ちた分も含めて1件ずつ来る");
+        assert_eq!(seen.get(), 2, "進捗は無かった分も含めて1件ずつ来る");
         assert_eq!(files_in(&dest), ["a.jpg"]);
+    }
+
+    /// 選んだあとに外で消えたファイルを移すと、「移せずに元の場所に残った」ではなく「無くなっていた」と
+    /// 数える（pictkura-dev #42）。ゴミ箱へ送る後始末にも載せない
+    #[test]
+    fn a_file_gone_from_disk_is_vanished_not_failed_on_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("lib");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("b.jpg"), b"bbb").unwrap();
+
+        let out = export_files(
+            &[src.join("deleted.jpg"), src.join("b.jpg")],
+            &dest,
+            ExportMode::Move,
+            &exts(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(out.stats.vanished, 1);
+        assert_eq!(out.stats.failed, 0);
+        assert_eq!(out.stats.done, 1);
+        assert!(out.to_remove.iter().all(|p| !p.ends_with("deleted.jpg")));
+        assert!(out.moved.iter().all(|p| !p.ends_with("deleted.jpg")));
     }
 }
