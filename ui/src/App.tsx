@@ -1109,29 +1109,35 @@ export default function App() {
         ({ ok, gone } = settled(result));
         return result;
       } finally {
-        fileOpRef.current = false;
-        setFileOpRunning(false);
         // **ここで return しない**——finally の return は op の返り値を上書きする
-        if (quitAfterTrashRef.current) {
-          quitAfterTrashRef.current = false;
-          const pastGate = quitPastGateRef.current;
-          quitPastGateRef.current = false;
+        if (!quitAfterTrashRef.current) {
+          fileOpRef.current = false;
+          setFileOpRunning(false);
+        } else {
+          // ×を待たせた回は、**閉じ方が決まるまで鍵を放さない**——先に放すと、確認やフォルダ選択を待っていた次の
+          // 操作がその隙に鍵を取り、下で窓を壊すとその操作の途中で閉じる（PR の codex）。
           // **呼んだ側の後片付けの後で決める**——後片付けがビューアを閉じると印は捨てられる。次の描画まで待ち、
           // そのときの印で決める。読み直しがもっと後でビューアを閉じても、閉じる側の片付けが×から出た関所を
           // 見て閉じる（ゲート2・PR 前の codex）
           window.setTimeout(() => {
+            const pastGate = quitPastGateRef.current;
+            quitAfterTrashRef.current = false;
+            quitPastGateRef.current = false;
             const next = quitAfterFileOp({
               ok,
               pastGate,
               marks: rejectedRef.current.keys(),
               gone: new Set(gone),
             });
-            if (next === "gate") setRejectGate({ closeAfter: true, quitAfter: true });
-            else if (next === "destroy") {
-              // 窓を壊す道（`finishGate` の quitAfter と同じ）。待たせていた取り込みは捨てる
+            if (next === "destroy") {
+              // 窓を壊す道（`finishGate` の quitAfter と同じ）。待たせていた取り込みは捨てる。鍵は持ったまま
               pendingWizardRef.current = null;
               void getCurrentWindow().destroy();
+              return;
             }
+            fileOpRef.current = false;
+            setFileOpRunning(false);
+            if (next === "gate") setRejectGate({ closeAfter: true, quitAfter: true });
             // "stay": 閉じない。結果の文を読める場所に残す（関所の削除と同じ）
           }, 0);
         }
