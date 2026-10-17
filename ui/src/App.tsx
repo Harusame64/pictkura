@@ -3206,8 +3206,8 @@ export default function App() {
   );
   /**
    * 読み込み済みの日の「id → 重ねのファイルの id ぜんぶ」と、読み込み済みの id。
-   * 範囲選択を重ねの単位へ閉じ、選択の枚数を「見えているタイル」で数えるのに使う
-   * （dev #32、`closeOverStacks` と `countPhotos` の論証）
+   * 範囲選択を重ねの単位へ閉じるのに使う（dev #32、`closeOverStacks` の論証）。選択の**枚数はファイルで**数える
+   * （dev #42、2026-10-17 利用者決定）
    */
   const { stackIndex, loadedIds, tilePos } = useMemo(() => {
     const index = new Map<number, number[]>();
@@ -3245,8 +3245,8 @@ export default function App() {
     });
   }, [stackIndex]);
   /**
-   * 選んだ写真ごとの、選んだ時点のタイル（`selectionTilesOf`）。選択の枚数・削除の確認・印の報告は
-   * これで数える——選んだ日が一覧から間引かれても、組のタイル1つは1枚のまま
+   * 選んだ写真ごとの、選んだ時点のタイル（`selectionTilesOf`）。**1タイルだけ選んでいるか**（帯の下に名前を
+   * 出すか）をこれで見る——選んだ日が一覧から間引かれても、組のタイル1つは1つのまま。枚数はファイルで数える（dev #42）
    */
   const selectionTilesRef = useRef<ReadonlyMap<number, readonly number[]>>(new Map());
   // **重ね方の設定が変わったら、覚えたタイルを捨てる**。間引かれた日の写真は新しい組み方を
@@ -5688,7 +5688,7 @@ export default function App() {
     };
   }, [selected, selectionChanged]);
   const selectionTileCount = countPhotos(selected, selectionTiles, selectionTiles);
-  /** 1タイルだけ選んでいるときの代表（名前と撮影日時を出す）。何枚かは**タイルで**数える（`countPhotos`） */
+  /** 1タイルだけ選んでいるときの代表（名前と撮影日時を出す）。1タイルかは**タイルで**見る（`countPhotos`）。帯の枚数はファイルの数（dev #42） */
   const singleSelected =
     selectionTileCount === 1 ? (selectionTiles.get(selected.values().next().value ?? -1)?.[0] ?? null) : null;
   const singleInfos = useFileInfos(singleSelected === null ? null : [singleSelected]);
@@ -5995,13 +5995,8 @@ export default function App() {
       if (deletingRef.current) return;
       deletingRef.current = true;
       try {
-        // 重ねのタイルは1枚に見えて複数ファイル——数を言う（dev #32）
-        const ok = await confirmAction(
-          items.length === 1
-            ? t.deleteConfirm(1)
-            : t.deleteConfirmFiles(1, items.length),
-          t.deleteConfirmOk,
-        );
+        // 数は**ファイルの数**（dev #42、2026-10-17 利用者決定）。重ねのタイル1枚は、組のファイルの数だけ数える
+        const ok = await confirmAction(t.deleteConfirm(ids.size), t.deleteConfirmOk);
         if (!ok) return;
         // 転んだら「移動中… (n / N)」を残さない（dev #68）。消すのは移動そのものが転んだときだけ——後の取り直しで
         // 転んだときは、結果の文がもう出ている
@@ -6012,9 +6007,8 @@ export default function App() {
         );
         if (result === null) return;
         const { deleted: n, missing } = result;
-        // 重ねのタイル1枚を全部消せたら「1枚」と言う（確かめたときと同じ数え方）。無くなっていたぶんは
-        // 黙って減らさない（dev #41）
-        setStatus(missing > 0 ? t.deletedMissing(n, missing) : t.deleted(n === ids.size ? 1 : n));
+        // 無くなっていたぶんは黙って減らさない（dev #41）。数はファイルの数（dev #42）
+        setStatus(missing > 0 ? t.deletedMissing(n, missing) : t.deleted(n));
         // 削除された日だけを捨てて取り直す（骨組みの件数も変わる）
         const days = new Set(items.map((it) => it.day_key));
         setDayItems((prev) => {
@@ -6178,12 +6172,9 @@ export default function App() {
     async (kind: MarkKind, on: boolean) => {
       const ids = await visibleSelection();
       if (ids.length === 0) return;
-      // 報告は見えている枚数で（重ねのタイル1枚は1枚。PRのcodex）。全部に付いたときだけ
-      // 言い換える——一部だけのときはファイルの数のほうが正確
-      const photos = countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current);
-      const written = await markIds(kind, on, ids);
-      if (written === null) return;
-      const n = written === ids.length && photos !== null ? photos : written;
+      // 報告はファイルの数（dev #42、2026-10-17 利用者決定。帯・確認・結果をそろえる）
+      const n = await markIds(kind, on, ids);
+      if (n === null) return;
       setStatus(
         kind === "favorite"
           ? on
@@ -6242,14 +6233,8 @@ export default function App() {
       if (ids.length === 0) return;
       // 消すのは絞ったあとのIDだけ。画面の巻き取りも同じ顔ぶれで見る
       const touched = new Set(ids);
-      // 重ねのタイルを含むなら、見えている枚数とファイル数の両方を言う（dev #32）
-      const photos = countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current);
-      const ok = await confirmAction(
-        photos !== null && photos < ids.length
-          ? t.deleteConfirmFiles(photos, ids.length)
-          : t.deleteConfirm(ids.length),
-        t.deleteConfirmOk,
-      );
+      // 数はファイルの数（dev #42、2026-10-17 利用者決定）。帯・確認・結果で同じ数を言う
+      const ok = await confirmAction(t.deleteConfirm(ids.length), t.deleteConfirmOk);
       if (!ok) return;
       try {
         // 転んだら「移動中… (n / N)」を残さない（dev #68。1枚の削除と同じ）
@@ -6259,13 +6244,8 @@ export default function App() {
         );
         if (result === null) return;
         const { deleted: n, missing } = result;
-        // 全部消せたら、確かめたときと同じ数え方（見えている枚数）で言う。無くなっていたぶんは黙って減らさない
-        // （dev #41。この数はファイルの数——確かめたときのタイルの数とそろえるのは dev #42 の残り）
-        setStatus(
-          missing > 0
-            ? t.deletedMissing(n, missing)
-            : t.deleted(n === ids.length && photos !== null ? photos : n),
-        );
+        // 無くなっていたぶんは黙って減らさない（dev #41）。確かめたときと同じくファイルの数（dev #42）
+        setStatus(missing > 0 ? t.deletedMissing(n, missing) : t.deleted(n));
         forgetDeleted(touched);
         // **消えた写真はボツの印からも外す**（ビューアの🗑と同じ）。残すと、関所にもう無い写真が並ぶ（#69 のゲート2）
         unmark(touched);
@@ -6433,14 +6413,8 @@ export default function App() {
         const ids = await visibleSelection();
         if (ids.length === 0) return;
         if (moveFiles) {
-          // 見えている枚数で言う（重ねのタイルは1枚——組ぜんぶが動く。dev #32）
-          const ok = await confirmAction(
-            t.moveConfirm(
-              countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ??
-                ids.length,
-            ),
-            t.moveConfirmOk,
-          );
+          // ファイルの数で言う（結果と同じ数え方。dev #42、2026-10-17 利用者決定）
+          const ok = await confirmAction(t.moveConfirm(ids.length), t.moveConfirmOk);
           if (!ok) return;
         }
         const dest = await open({
@@ -6720,10 +6694,12 @@ export default function App() {
       .catch((e) => fail(errText(e)));
   };
 
-  /** 選択バーの「送り出しへ」。見えている枚数で数える（重ねのタイルは1枚） */
+  /** 選択バーの「送り出しへ」。確かめずに送る上限は見えているタイルで数える（重ねのタイルは1枚） */
   const onBulkSendGoogle = useCallback(async () => {
     const ids = await visibleSelection();
     if (ids.length === 0) return;
+    // この数は画面に出ず、確かめずに送る上限（`SEND_WITHOUT_ASKING`）にだけ効く。送るのは組の JPEG だけなので
+    // **見えているタイル**で数える（右クリックの1枚と同じ）。表示の枚数をファイルにそろえた dev #42 の外
     const photos =
       countPhotos(ids, selectionTilesRef.current, selectionTilesRef.current) ?? ids.length;
     await sendToGoogle({ kind: "ids", ids }, photos, wideSelectRef.current, true);
@@ -7023,7 +6999,8 @@ export default function App() {
             ✕
           </button>
           <span className="select-bar-count">
-            {t.selectedCount(selectionTileCount ?? selected.size)}
+            {/* ファイルの数（dev #42、2026-10-17 利用者決定。確認・結果と同じ数） */}
+            {t.selectedCount(selected.size)}
           </span>
           <button
             disabled={busy}

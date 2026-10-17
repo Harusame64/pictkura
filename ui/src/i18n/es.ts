@@ -423,10 +423,6 @@ export const es: Dict = {
   menuFavoriteOn: "Añadir a Favoritos",
   menuFavoriteOff: "Quitar de Favoritos",
   pickEditor: "Elige una aplicación para editar",
-  deleteConfirmFiles: (photos: number, files: number) =>
-    photos === 1
-      ? `¿Mover esta foto (${num(files)} archivos) a la papelera?`
-      : `¿Mover ${num(photos)} fotos (${num(files)} archivos) a la papelera?`,
   deleteConfirm: (n: number) =>
     n === 1
       ? "¿Mover esta foto a la papelera?"
