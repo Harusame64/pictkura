@@ -55,6 +55,7 @@ import {
   getExifInfo,
   getFilesSize,
   getIndexProgress,
+  backgroundStatus,
   getDecoderStatus,
   getEmptyLibraryReason,
   countMediaUnder,
@@ -1830,6 +1831,79 @@ export default function App() {
   // 検索インデックスの初期構築（既存ライブラリの後追い索引化）の進捗。
   // 構築中は検索結果が不完全になりうるので、その旨をUIに出す
   const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
+  /**
+   * 裏で走っている仕事（pictkura-dev #64）。ヘッダーの件数の隣に、**邪魔にならない1行だけ**出す（2026-10-17 利用者の
+   * 形）。取り込みのコピー → 走査 → サムネイルの自動のパス、の順に1つだけ言う。**0.8秒続いたものだけ**出す——短い
+   * 作業でちらつかせず、何も変わらない普通の起動では何も出さない（#57 の決まり）
+   */
+  const [bgStatus, setBgStatus] = useState<{ scanning: boolean; thumbs: number }>({
+    scanning: false,
+    thumbs: 0,
+  });
+  /** 取り込みのコピーの進み具合（`import-progress`）。取り込みの面の外でも、ここで持つ */
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const bgLabel =
+    importProgress !== null
+      ? t.bgImporting(importProgress.done, importProgress.total)
+      : bgStatus.scanning
+        ? t.bgScanning
+        : bgStatus.thumbs > 0
+          ? t.bgThumbs(bgStatus.thumbs)
+          : null;
+  /** 何の仕事か（数の動きでは出し直さない）。0.8秒の待ちは、これが変わったときだけ数え直す */
+  const bgKind = importProgress !== null ? "import" : bgStatus.scanning ? "scan" : bgStatus.thumbs > 0 ? "thumbs" : null;
+  const [bgShownKind, setBgShownKind] = useState<string | null>(null);
+  useEffect(() => {
+    if (bgKind === null) {
+      setBgShownKind(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setBgShownKind(bgKind), 800);
+    return () => window.clearTimeout(timer);
+  }, [bgKind]);
+  // 様子は問い合わせで取る（走査とサムネイルの列には知らせが無い）。見えている間は1秒ごと、隠れている間は5秒ごと。
+  // 1回の問い合わせは数と旗を読むだけで、DB にも触らない
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    const tick = async () => {
+      try {
+        const s = await backgroundStatus();
+        if (!alive) return;
+        setBgStatus((prev) =>
+          prev.scanning === s.scanning && prev.thumbs === s.thumbs_pending
+            ? prev
+            : { scanning: s.scanning, thumbs: s.thumbs_pending },
+        );
+      } catch {
+        // 取れなかった回は前の様子のまま。次で取り直す
+      }
+      if (alive) timer = window.setTimeout(tick, document.hidden ? 5000 : 1000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let cancelled = false;
+    void listen<{ done: number; total: number }>("import-progress", (ev) => {
+      const { done, total } = ev.payload;
+      // 写し終えたら下ろす（このあと取り込み先の走査に移り、そちらは「読み込み中」で出る）
+      setImportProgress(done >= total ? null : { done, total });
+    }).then((f) => {
+      if (cancelled) f();
+      else off = f;
+    });
+    return () => {
+      cancelled = true;
+      off?.();
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
@@ -7198,6 +7272,13 @@ export default function App() {
         <span className="status" title={status}>
           {status}
         </span>
+        {/* 裏で走っている仕事（dev #64）。0.8秒続いたものだけ。読み上げには載せない（数が毎秒変わる） */}
+        {bgShownKind !== null && bgLabel !== null && (
+          <span className="bg-work" title={bgLabel}>
+            <span className="bg-spinner" aria-hidden />
+            {bgLabel}
+          </span>
+        )}
         <span className={"count" + (query ? " searching" : "")}>
           {query && "🔍 "}
           {t.itemsCount(totalShown)}

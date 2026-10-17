@@ -242,6 +242,9 @@ export const es: Dict = {
   actionCalendar: "Vista de calendario",
   actionThumbnails: "Cuadrícula de fotos",
   indexBuilding: "🔍 Creando el índice de búsqueda… ",
+  bgScanning: "Leyendo carpetas…",
+  bgImporting: (done: number, total: number) => `Importando ${num(done)} / ${num(total)}`,
+  bgThumbs: (n: number) => `Creando miniaturas (quedan ${num(n)})`,
   cameraScanning: "📷 Leyendo los datos de la cámara… ",
   indexIncompleteWarning:
     "⚠ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",

@@ -225,6 +225,9 @@ export const de: Dict = {
   actionCalendar: "Kalenderansicht",
   actionThumbnails: "Fotoübersicht",
   indexBuilding: "🔍 Suchindex wird aufgebaut… ",
+  bgScanning: "Ordner werden gelesen…",
+  bgImporting: (done: number, total: number) => `Importieren ${num(done)} / ${num(total)}`,
+  bgThumbs: (n: number) => `Vorschaubilder werden erstellt (noch ${num(n)})`,
   cameraScanning: "📷 Kameradaten werden gelesen… ",
   indexIncompleteWarning:
     "⚠ Der Suchindex wurde unterbrochen — Treffer können unvollständig sein (es geht beim nächsten Start weiter)",

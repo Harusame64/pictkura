@@ -2044,6 +2044,12 @@ impl ThumbQueue {
         state.queued.union(&state.processing).copied().collect()
     }
 
+    /// 裏で回る自動のパス（メタデータ＋即席）に残っている数。**見えている分の優先は数えない**——スクロールの
+    /// たびに「作成中」が出ないように（pictkura-dev #64 の進み具合）
+    pub fn background_pending(&self) -> usize {
+        self.lock_state().pending.len()
+    }
+
     pub fn shutdown(&self) {
         self.lock_state().shutdown = true;
         self.inner.cvar.notify_all();
@@ -2187,6 +2193,11 @@ impl ThumbnailService {
     /// キュー内＋処理中のIDのスナップショット（LRU削除の除外集合用）。
     pub fn active_ids(&self) -> HashSet<i64> {
         self.queue.active_ids()
+    }
+
+    /// 裏で回る自動のパスに残っている数（[`ThumbQueue::background_pending`]）。
+    pub fn background_pending(&self) -> usize {
+        self.queue.background_pending()
     }
 
     /// このIDがキュー内または処理中か（LRU削除ファイル消去直前の再確認用）。
