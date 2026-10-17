@@ -902,8 +902,12 @@ export interface GoogleLocation {
 
 export const googleLocation = () => invoke<GoogleLocation>("google_location");
 
-/** 送り出しフォルダを OS のファイル画面で開く（pictkura-dev #40。パスは渡さない——設定から求める） */
-export const openGoogleFolder = () => invoke<void>("open_google_folder");
+/**
+ * 送り出しフォルダを OS のファイル画面で開く（pictkura-dev #40）。`path` を省くといまのフォルダ（設定から求める）。
+ * 前のドライブのフォルダは `path` で名指す——バックエンドは記録にあるものしか開かない（#43）
+ */
+export const openGoogleFolder = (path?: string) =>
+  invoke<void>("open_google_folder", { path: path ?? null });
 
 /** pictkura が作った Google 用フォルダの一覧（ドライブごと。どれも Google フォトへの登録が要る） */
 export const googleFolders = () => invoke<string[]>("google_folders");

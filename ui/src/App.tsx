@@ -7395,7 +7395,7 @@ export default function App() {
               {outgoingLoc?.path && (
                 <div className="outgoing-guide-folder">
                   <code>{outgoingLoc.path}</code>
-                  <OutgoingFolderActions path={outgoingLoc.path} canOpen />
+                  <OutgoingFolderActions path={outgoingLoc.path} current />
                 </div>
               )}
               {/* 場所を求められなかった理由（取り込み先が無い・ドライブを外した等）。名指せないのに「このフォルダ」と
@@ -7411,7 +7411,7 @@ export default function App() {
                     .map((d) => (
                       <div key={d} className="outgoing-guide-folder">
                         <code>{d}</code>
-                        <OutgoingFolderActions path={d} canOpen={false} />
+                        <OutgoingFolderActions path={d} current={false} />
                       </div>
                     ))}
                 </>

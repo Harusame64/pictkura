@@ -4715,16 +4715,27 @@ async fn google_location(app: tauri::AppHandle) -> Result<GoogleLocationDto, Str
 /// 送り出しフォルダを OS のファイル画面（エクスプローラー・Finder）で開く（pictkura-dev #40）。
 ///
 /// 写真サービスの画面でフォルダを選ぶときに、利用者が場所を探して迷った（2026-10-10 利用者）。
-/// **パスは受け取らない**——開くのは設定から求めた送り出しフォルダだけ（`open_log` と同じ理由）。
-/// まだ作られていなければ、そう言う（送り出しを入れると作られる）
+/// `path` が無ければ、設定から求めたいまの送り出しフォルダを開く。まだ作られていなければ、そう言う（送り出しを
+/// 入れると作られる）。`path` があれば、**一覧に出しているフォルダ（[`outgoing_dirs`]）のどれかのときだけ**開く
+/// ——画面から来た文字列をそのまま OS に渡すと、何でも開けるコマンドになる（pictkura-dev #43）
 #[tauri::command]
-async fn open_google_folder(app: tauri::AppHandle) -> Result<(), String> {
-    on_blocking(app, |state| {
+async fn open_google_folder(app: tauri::AppHandle, path: Option<String>) -> Result<(), String> {
+    on_blocking(app, move |state| {
         let config = lock_ok(&state.config).clone();
-        let (_, dir) = resolve_google_location(&config)?;
-        if !dir.is_dir() {
-            return Err(errs::code("errOutgoingFolderMissing"));
-        }
+        let dir = match path {
+            // いまの送り出しフォルダ（パスは設定から求める）
+            None => {
+                let (_, dir) = resolve_google_location(&config)?;
+                if !dir.is_dir() {
+                    return Err(errs::code("errOutgoingFolderMissing"));
+                }
+                dir
+            }
+            // 前のドライブのフォルダ（pictkura-dev #43）。**記録にあるものだけ開く**——画面から来たパスを
+            // そのまま OS に渡すと、何でも開けるコマンドになる。抜いたドライブのことが多いので、無ければ
+            // 「見つからない」とそのパスを言う（送り出しを入れ直せ、ではない）
+            Some(asked) => recorded_outgoing_dir(&asked, &outgoing_dirs(state, &config)?)?,
+        };
         // 開けなければ、親のフォルダでその行を選ぶところまで落とす（`open_log` と同じ。ゲート2）。それも駄目なら、
         // OS の生の文は記録に残し、画面には訳した文を返す（OS の文は英語のことが多い。PR の codex）
         match tauri_plugin_opener::open_path(&dir, None::<&str>) {
@@ -4738,24 +4749,44 @@ async fn open_google_folder(app: tauri::AppHandle) -> Result<(), String> {
     .await
 }
 
+/// 一覧の行の送り出しフォルダを、**一覧に出しているもの（`known`）のときだけ**返す（pictkura-dev #43）。綴りは
+/// 一覧と同じく揃えて比べる。一覧に無い（読んだ後に記録から外れた等）は「開けなかった」、もう無い（抜いたドライブ）は
+/// 「見つからない」とそのパスを言う——在るフォルダを「見つからない」と言うと、挿さっているドライブを探させる（ゲート2）
+fn recorded_outgoing_dir(asked: &str, known: &[PathBuf]) -> Result<PathBuf, String> {
+    let asked = pictkura_core::paths::normalize(Path::new(asked));
+    if !known.contains(&asked) {
+        return Err(errs::code("errOpenOutgoingFailed"));
+    }
+    if !asked.is_dir() {
+        return Err(errs::coded("errFolderMissing", asked.display()));
+    }
+    Ok(asked)
+}
+
+/// 送り出しの一覧に出すフォルダ: pictkura が置いた（記録にある）ものと、在るならいまの場所。**開いてよい集合も
+/// これと同じ**——別々に作ると、一覧に出ているのに開けない行ができる（まだ何も置いていないいまの場所。ゲート2）
+fn outgoing_dirs(state: &AppState, config: &Config) -> Result<Vec<PathBuf>, String> {
+    let mut dirs = state
+        .read_pool
+        .with(|db| db.google_placed_dirs())
+        .map_err(errs::from_err)?;
+    if let Ok((_, here)) = resolve_google_location(config) {
+        // 記録の綴りは揃えてある（`paths::normalize`）ので、こちらも揃えて比べる（ゲート2）
+        let here = pictkura_core::paths::normalize(&here);
+        if here.is_dir() && !dirs.contains(&here) {
+            dirs.push(here);
+        }
+    }
+    Ok(dirs)
+}
+
 /// pictkura が置いた（＝作った）Google 用フォルダの一覧と、いまの取り込み先の場所。設定の「送り出し」に
 /// 並べて、どれも Google フォトに登録するよう書く（作った回の知らせを見逃しても辿れるように。2026-10-06 利用者決定）
 #[tauri::command]
 async fn google_folders(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     on_blocking(app, |state| {
-        let mut dirs = state
-            .read_pool
-            .with(|db| db.google_placed_dirs())
-            .map_err(errs::from_err)?;
         let config = lock_ok(&state.config).clone();
-        if let Ok((_, here)) = resolve_google_location(&config) {
-            // 記録の綴りは揃えてある（`paths::normalize`）ので、こちらも揃えて比べる（ゲート2）
-            let here = pictkura_core::paths::normalize(&here);
-            if here.is_dir() && !dirs.contains(&here) {
-                dirs.push(here);
-            }
-        }
-        Ok(google_paths(&dirs))
+        Ok(google_paths(&outgoing_dirs(state, &config)?))
     })
     .await
 }
@@ -7526,6 +7557,39 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 前のドライブの送り出しフォルダは、記録にあって在るものだけ開く（pictkura-dev #43）
+    #[test]
+    fn only_a_recorded_outgoing_folder_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let recorded = pictkura_core::paths::normalize(&dir.path().join("Outgoing"));
+        std::fs::create_dir_all(&recorded).unwrap();
+        let elsewhere = dir.path().join("Other");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let unplugged = pictkura_core::paths::normalize(&dir.path().join("Gone"));
+        let known = vec![recorded.clone(), unplugged.clone()];
+        let s = |p: &std::path::Path| p.display().to_string();
+
+        assert_eq!(
+            super::recorded_outgoing_dir(&s(&recorded), &known).unwrap(),
+            recorded
+        );
+        // 在っても記録に無いフォルダは開かない（画面から来たパスで何でも開けるようにしない）
+        assert!(super::recorded_outgoing_dir(&s(&elsewhere), &known).is_err());
+        // 記録にあっても、もう無い（抜いたドライブ）なら開かない。在るのに一覧に無いのとは言い分ける
+        let code = |r: Result<std::path::PathBuf, String>| {
+            r.err()
+                .map(|e| e.split(super::errs::SEP).next().unwrap_or("").to_string())
+        };
+        assert_eq!(
+            code(super::recorded_outgoing_dir(&s(&unplugged), &known)).as_deref(),
+            Some("errFolderMissing")
+        );
+        assert_eq!(
+            code(super::recorded_outgoing_dir(&s(&elsewhere), &known)).as_deref(),
+            Some("errOpenOutgoingFailed")
+        );
+    }
+
     /// 打ったフォルダは完全なパスでなければ断る（pictkura-dev #34）。在るかどうかより先に見る——`J:folder` は
     /// たまたま在ることがあり、そのときも通してはいけない
     #[test]
