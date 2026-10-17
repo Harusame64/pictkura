@@ -1049,6 +1049,12 @@ export default function App() {
    */
   const deletingRef = useRef(false);
   /**
+   * 一覧からの削除が `deleteMedia` の返事を待っている間だけ立つ。進み具合はこの間だけステータス行へ書く
+   * ——返事の後に届いた知らせが結果の文を上書きしたり、失敗した回に「移動中…」が残ったりしない（dev #68。
+   * 書き出しの `exportKindRef` と同じ形）
+   */
+  const trashStatusRef = useRef(false);
+  /**
    * 選択操作を1つ始める。**世代を進めて、待っている古い応答を無効にする**。
    *
    * 解除だけでなく**あらゆる選択操作**で進めるのが要点。3万件のライブラリで
@@ -1777,7 +1783,11 @@ export default function App() {
           // **最後の束のぶんは書かない**（ゲート2のP3）。完了の「n枚を
           // ゴミ箱へ移動しました」より後に届くと、それを上書きして
           // 「移動中… (n / n)」で止まって見える
-          if (!rejectGateRef.current && ev.payload.done < ev.payload.total) {
+          if (
+            trashStatusRef.current &&
+            !rejectGateRef.current &&
+            ev.payload.done < ev.payload.total
+          ) {
             setStatus(t.rejectGateTrashing(ev.payload.done, ev.payload.total));
           }
         },
@@ -5870,7 +5880,19 @@ export default function App() {
           t.deleteConfirmOk,
         );
         if (!ok) return;
-        const { deleted: n, missing } = await deleteMedia([...ids]);
+        trashStatusRef.current = true;
+        let result;
+        try {
+          result = await deleteMedia([...ids]);
+        } catch (e) {
+          // 「移動中… (n / N)」を残さない（dev #68）。消すのは移動そのものが転んだときだけ——後の取り直しで
+          // 転んだときは、結果の文がもう出ている
+          setStatus("");
+          throw e;
+        } finally {
+          trashStatusRef.current = false;
+        }
+        const { deleted: n, missing } = result;
         // 重ねのタイル1枚を全部消せたら「1枚」と言う（確かめたときと同じ数え方）。無くなっていたぶんは
         // 黙って減らさない（dev #41）
         setStatus(missing > 0 ? t.deletedMissing(n, missing) : t.deleted(n === ids.size ? 1 : n));
@@ -6112,7 +6134,18 @@ export default function App() {
       );
       if (!ok) return;
       try {
-        const { deleted: n, missing } = await deleteMedia(ids);
+        trashStatusRef.current = true;
+        let result;
+        try {
+          result = await deleteMedia(ids);
+        } catch (e) {
+          // 「移動中… (n / N)」を残さない（dev #68。1枚の削除と同じ）
+          setStatus("");
+          throw e;
+        } finally {
+          trashStatusRef.current = false;
+        }
+        const { deleted: n, missing } = result;
         // 全部消せたら、確かめたときと同じ数え方（見えている枚数）で言う。無くなっていたぶんは黙って減らさない
         // （dev #41。この数はファイルの数——確かめたときのタイルの数とそろえるのは dev #42 の残り）
         setStatus(
@@ -6285,6 +6318,10 @@ export default function App() {
         let st;
         try {
           st = await exportMedia(ids, dest, moveFiles);
+        } catch (e) {
+          // 「書き出し中…」「移動中…」を残さない（dev #68。削除と同じ穴）
+          setStatus("");
+          throw e;
         } finally {
           exportKindRef.current = null;
         }
