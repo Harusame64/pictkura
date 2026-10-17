@@ -615,6 +615,10 @@ fn enqueue_missing_thumbs(state: &AppState) {
     if let Ok(ids) = db.ids_missing_metadata() {
         state.thumbs.enqueue(&ids);
     }
+    // まだサムネイルの無い行に印を付ける。ヘッダーの「写真を読み込み中（残り n枚）」はこれだけを数える（dev #64）
+    if let Ok(ids) = db.ids_missing_metadata_without_thumb() {
+        state.thumbs.mark_fresh(&ids);
+    }
 }
 
 /// 2つのパスが同じ場所を指すか。Windowsは大文字小文字・区切り文字の揺れを無視する。
@@ -1238,7 +1242,8 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<SyncStats> {
 /// 起動時同期: USNジャーナル差分 → mtime枝刈り → フルの順で最速の方式を選ぶ。
 fn startup_scan(state: &AppState) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
-    let _running = ScanRunning::new(state);
+    // 起動時の同期は「読み込み中」に数えない（BackgroundStatusDto::scanning）
+
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
     let mut db = Db::open(&state.db_path).map_err(errs::from_err)?;
@@ -3653,14 +3658,18 @@ struct ScanRunning<'a>(&'a AppState);
 
 impl<'a> ScanRunning<'a> {
     fn new(state: &'a AppState) -> Self {
-        state.scans_running.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        state
+            .scans_running
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         ScanRunning(state)
     }
 }
 
 impl Drop for ScanRunning<'_> {
     fn drop(&mut self) {
-        self.0.scans_running.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        self.0
+            .scans_running
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -3668,9 +3677,10 @@ impl Drop for ScanRunning<'_> {
 /// 取り込みのコピーは `import-progress` の知らせで画面が自分で持つので、ここには無い
 #[derive(serde::Serialize)]
 struct BackgroundStatusDto {
-    /// ライブラリの走査（フォルダを足した・取り込み先・起動時の同期・今すぐ同期・ドライブが戻った）が走っているか
+    /// ライブラリの走査（フォルダを足した・取り込み先・今すぐ同期・ドライブが戻った）が走っているか。**起動時の同期は
+    /// 数えない**——大きなライブラリでは毎回数秒かかり、何も変わらない起動で毎回「読み込み中」と言う（#57 の決まり）
     scanning: bool,
-    /// サムネイルとメタデータの自動のパスに残っている数（見えている分の優先は数えない）
+    /// **まだサムネイルの無い写真**のうち、読み終えていない数（[`ThumbnailService::fresh_pending`]）
     thumbs_pending: usize,
 }
 
@@ -3680,8 +3690,11 @@ struct BackgroundStatusDto {
 async fn background_status(app: tauri::AppHandle) -> BackgroundStatusDto {
     let state = app.state::<AppState>();
     BackgroundStatusDto {
-        scanning: state.scans_running.load(std::sync::atomic::Ordering::SeqCst) > 0,
-        thumbs_pending: state.thumbs.background_pending(),
+        scanning: state
+            .scans_running
+            .load(std::sync::atomic::Ordering::SeqCst)
+            > 0,
+        thumbs_pending: state.thumbs.fresh_pending(),
     }
 }
 

@@ -3673,6 +3673,21 @@ impl Db {
     /// 聞く道ができた後は取れるようになるので、既に走査済みのDBでも拾い直せるようにする。
     /// どうしても取れないファイルは毎回聞き直すことになるが、1件あたり10ms程度で、
     /// そもそも「自前でもOSでも読めない動画」はほとんど無い（実測のライブラリで1件）。
+    /// [`Self::ids_missing_metadata`] のうち、**まだサムネイルの無い**行（`thumb_state = 0`）。走査や取り込みで
+    /// 新しく入った・中身が変わった写真で、一覧では灰色のマス。寸法を持たないまま起動のたびに列へ戻る RAW などは
+    /// サムネイルを持っているので入らない（pictkura-dev #64 の「残り n枚」）
+    pub fn ids_missing_metadata_without_thumb(&self) -> Result<Vec<i64>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM media WHERE (width IS NULL OR width = 0) AND thumb_state = 0",
+        )?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     pub fn ids_missing_metadata(&self) -> Result<Vec<i64>, DbError> {
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT id FROM media WHERE width IS NULL OR width = 0

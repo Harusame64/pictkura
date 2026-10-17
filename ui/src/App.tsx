@@ -55,7 +55,6 @@ import {
   getExifInfo,
   getFilesSize,
   getIndexProgress,
-  backgroundStatus,
   getDecoderStatus,
   getEmptyLibraryReason,
   countMediaUnder,
@@ -117,6 +116,7 @@ import {
   googleFolders,
 } from "./api";
 import { OutgoingFolderActions } from "./OutgoingFolderActions";
+import { BackgroundWork } from "./BackgroundWork";
 import { useConfirmedPlatform, usePlatform } from "./usePlatform";
 import { answerKey } from "./useWindowEvent";
 import type { GooglePlaced, VideoStatus } from "./api";
@@ -1626,11 +1626,7 @@ export default function App() {
       // `reloadAll` に届かず、`settled` がその起動のあいだ偽のまま固まる——
       // **データも説明も出ない完全な無言**になる（ゲート1の指摘。
       // 隣のリスナーには入れてあるのに、こちらだけ抜けていた）
-      const f = await listen<{ added?: number; changed?: number } | null>("library-updated", (ev) => {
-        // 増えた・変わったなら、写真の読み込みの残りを出してよい（dev #64）。中身の無い知らせは見張りの束
-        // （外でファイルが変わった）なので、それも仕込む。起動時の同期で何も変わらなかった回は仕込まない
-        const p = ev.payload;
-        if (p == null || (p.added ?? 0) + (p.changed ?? 0) > 0) armReadingPhotos();
+      const f = await listen("library-updated", () => {
         reloadAll().catch((e) => fail(errText(e)));
         refreshCameras();
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
@@ -1835,78 +1831,6 @@ export default function App() {
   // 検索インデックスの初期構築（既存ライブラリの後追い索引化）の進捗。
   // 構築中は検索結果が不完全になりうるので、その旨をUIに出す
   const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
-  /**
-   * 裏で走っている仕事（pictkura-dev #64）。ヘッダーの件数の隣に、**邪魔にならない1行だけ**出す（2026-10-17 利用者の
-   * 形）。走査 → 写真の読み込み（サムネイルとメタデータの自動のパス）の順に1つだけ言う。取り込みのコピーは、取り込みの
-   * 面が自分で出している（面を開いている間は、ヘッダーには何も出さない——幕の奥で同じことを二重に言わない）。
-   *
-   * **続けて2回の問い合わせで何かの仕事を見たときだけ出す**——1回だけ捕まえた短い走査（起動時の同期・今すぐ同期）を
-   * 出さない（#57 の決まり。ゲート2）。種類が移っても数え直さない（走査 → 読み込みの間で一度消えて見えないように）。
-   *
-   * 写真の読み込みは、**ライブラリが増えた・変わったと知らされてから、その列が空になるまで**だけ数える。寸法を持たない
-   * RAW などは起動のたびに列へ戻るので、何も変わらない起動でも「残り n枚」と言ってしまう（ゲート2）。仕込みは
-   * 「仕込んだ → 列に何か居るのを見た → 空になった」で下ろす。問い合わせの返事が仕込みより古くても消えない（ゲート2）
-   */
-  const [bgShown, setBgShown] = useState<{ kind: "scan" } | { kind: "thumbs"; left: number } | null>(
-    null,
-  );
-  /** 写真の読み込みの仕込み。`armed` は仕込んだ時刻（列に何も入らないまま5秒たてば解く）、`seen` は列に居るのを見たか */
-  const readingArmRef = useRef<{ armed: number; seen: boolean } | null>(null);
-  const armReadingPhotos = useCallback(() => {
-    readingArmRef.current = { armed: Date.now(), seen: false };
-  }, []);
-  /** 何かの仕事を続けて見た回数（2回で出す） */
-  const bgStreakRef = useRef(0);
-  const wizardOpenRef = useRef(false);
-  useEffect(() => {
-    wizardOpenRef.current = wizardOpen;
-  }, [wizardOpen]);
-  const bgLabel =
-    bgShown === null ? null : bgShown.kind === "scan" ? t.bgScanning : t.bgThumbs(bgShown.left);
-  // 様子は問い合わせで取る（走査とサムネイルの列には知らせが無い）。何か見えている間は1秒ごと、無い間は3秒ごと、
-  // 窓が隠れている間は5秒ごと。1回の問い合わせは数と旗を読むだけで、DB にも触らない
-  useEffect(() => {
-    let alive = true;
-    let timer: number | undefined;
-    const tick = async () => {
-      let next: { kind: "scan" } | { kind: "thumbs"; left: number } | null = null;
-      try {
-        const s = await backgroundStatus();
-        if (!alive) return;
-        const arm = readingArmRef.current;
-        if (arm) {
-          if (s.thumbs_pending > 0) arm.seen = true;
-          else if (arm.seen || Date.now() - arm.armed > 5000) readingArmRef.current = null;
-        }
-        if (!wizardOpenRef.current) {
-          if (s.scanning) next = { kind: "scan" };
-          else if (readingArmRef.current?.seen && s.thumbs_pending > 0)
-            next = { kind: "thumbs", left: s.thumbs_pending };
-        }
-      } catch {
-        // 取れなかった回は何も無かったことにする（出しっぱなしにしない）
-      }
-      bgStreakRef.current = next === null ? 0 : bgStreakRef.current + 1;
-      const shown = bgStreakRef.current >= 2 ? next : null;
-      // 同じなら描き直させない（App 全体が毎秒描き直される。ゲート2）
-      setBgShown((prev) =>
-        prev === shown ||
-        (prev !== null &&
-          shown !== null &&
-          prev.kind === shown.kind &&
-          (prev.kind === "scan" || (shown.kind === "thumbs" && prev.left === shown.left)))
-          ? prev
-          : shown,
-      );
-      if (alive)
-        timer = window.setTimeout(tick, document.hidden ? 5000 : next !== null ? 1000 : 3000);
-    };
-    void tick();
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, []);
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
@@ -2204,7 +2128,6 @@ export default function App() {
     setBusy(true);
     try {
       const stats = await syncNow();
-      if (stats.added + stats.changed > 0) armReadingPhotos();
       // **走査が通った時点で下ろす。** ここより後ろに置くと、件数や思い出の
       // 取り直しが転んだだけで（`reloadAll` はそれを投げ直す）下ろす行に
       // 届かず、**成功した再スキャンの後も案内が居座る**（ゲート1の指摘）。
@@ -2240,7 +2163,6 @@ export default function App() {
   onDrivesAddedRef.current = (paths) =>
     scanRootsOnDrives(paths)
       .then(async (r) => {
-        if (r.added + r.changed > 0) armReadingPhotos();
         if (r.roots > 0) {
           // 手動の再スキャンと同じ後始末: 見つからないフォルダを訊き直し、一覧を取り直す
           emptyReasonInFlight.current = null;
@@ -2331,12 +2253,7 @@ export default function App() {
   /** ウィザードからのエラー通知。毎レンダで作り直すと向こうのeffectが再実行される */
   // **ウィザードの失敗も同じ道へ。** 前は `status` だったので、
   // **ウィザード自身が張る scrim の下**に出ていた——言っても届かない
-  const onWizardError = useCallback(
-    (message: string) => {
-      fail(message);
-    },
-    [fail],
-  );
+  const onWizardError = useCallback((message: string) => fail(message), [fail]);
 
   /**
    * 「まだ写真がありません」と言ってよい状態か。
@@ -2812,8 +2729,6 @@ export default function App() {
   // バックエンド側で済んでおり、ここではルート一覧と表示の更新だけ）
   const onImported = useCallback(
     async (stats: ImportStats) => {
-      // 入れたぶんの写真の読み込みを、ヘッダーに出してよい（dev #64）
-      if (stats.copied > 0) armReadingPhotos();
       setStatus(
         t.importDone(stats.copied, stats.skipped) +
           (stats.failed > 0 ? t.importFailed(stats.failed) : "") +
@@ -2852,9 +2767,7 @@ export default function App() {
         ))
       )
         return false;
-      const added = await addLibraryRoot(path);
-      // 増えたぶんの写真の読み込みを、ヘッダーに出してよい（dev #64）
-      if (added.added + added.changed > 0) armReadingPhotos();
+      await addLibraryRoot(path);
       // ルートの追加もライブラリ全体を走査し直す（`scan_and_apply`）ので、
       // 起動時に転んだ話はここで終わり。**取り直しより前に下ろす**
       // （後ろだと、飾りの取り直しが転んだだけで届かない）
@@ -7286,13 +7199,8 @@ export default function App() {
         <span className="status" title={status}>
           {status}
         </span>
-        {/* 裏で走っている仕事（dev #64）。続けて2回の問い合わせで見たものだけ。読み上げには載せない（数が毎秒変わる） */}
-        {bgLabel !== null && (
-          <span className="bg-work" title={bgLabel}>
-            <span className="bg-spinner" aria-hidden />
-            <span className="bg-text">{bgLabel}</span>
-          </span>
-        )}
+        {/* 裏で走っている仕事（dev #64）。取り込みの面を開いている間は黙る */}
+        <BackgroundWork quiet={wizardOpen} />
         <span className={"count" + (query ? " searching" : "")}>
           {query && "🔍 "}
           {t.itemsCount(totalShown)}

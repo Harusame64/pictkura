@@ -243,7 +243,7 @@ export const es: Dict = {
   actionThumbnails: "Cuadrícula de fotos",
   indexBuilding: "🔍 Creando el índice de búsqueda… ",
   bgScanning: "Leyendo carpetas…",
-  bgThumbs: (n: number) => `Leyendo fotos (quedan ${num(n)})`,
+  bgThumbs: (n: number) => `Leyendo fotos (${one(n, "queda", "quedan")} ${num(n)})`,
   cameraScanning: "📷 Leyendo los datos de la cámara… ",
   indexIncompleteWarning:
     "⚠ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",
