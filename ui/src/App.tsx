@@ -29,6 +29,7 @@ import { printPhoto, type PrintFit } from "./printPhoto";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
+import { quitAfterFileOps } from "./quitAfterFileOps";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -1109,15 +1110,16 @@ export default function App() {
           fileOpGoneRef.current = new Set();
           const quit = quitAfterFileOpRef.current;
           quitAfterFileOpRef.current = false;
-          if (quit && !failed) {
-            if (trashingRef.current) {
-              quitAfterTrashRef.current = true;
-            } else if ([...rejectedRef.current.keys()].some((id) => !goneIds.has(id))) {
-              setRejectGate({ closeAfter: true, quitAfter: true });
-            } else {
-              void getCurrentWindow().destroy();
-            }
-          }
+          const next = quitAfterFileOps({
+            quitAsked: quit,
+            failed,
+            gateTrashing: trashingRef.current,
+            marks: rejectedRef.current.keys(),
+            gone: goneIds,
+          });
+          if (next === "handover") quitAfterTrashRef.current = true;
+          else if (next === "gate") setRejectGate({ closeAfter: true, quitAfter: true });
+          else if (next === "destroy") void getCurrentWindow().destroy();
         }
       }
     },
