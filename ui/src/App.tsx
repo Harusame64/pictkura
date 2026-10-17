@@ -1177,13 +1177,32 @@ export default function App() {
   const refreshSummaryRef = useRef<() => Promise<void>>(async () => {});
   /** 選択から開いた列の最新の値（同じ理由で ref 越しに読む） */
   const viewerScopeRef = useRef<ScopeItem[] | null>(null);
-  /** 移った写真を追って着いた先。その日がサマリに並ぶまで、ビューアの寄せ直しを待たせる（dev #49） */
-  const viewerFollowedToRef = useRef<{ id: number; dayKey: number } | null>(null);
   /**
-   * 待つのは5秒まで。サマリの取り直しが落ちると（`scheduleSummaryRefresh` は落ちても言わず、やり直さない）
-   * その日は並ばず、「読み込み中…」のまま固まる（ゲート1）。過ぎたら印を外し、寄せ直しの効果を回し直す
+   * ビューアの寄せ直し（隣へ・閉じる）を、この写真について**しばらく待たせる**印（dev #49）。
+   *
+   * 外で上書きして撮影日が変わると、日は2段で移る: 見張りの読み直しで更新日時の日へ、約10ms 後の抽出で
+   * 撮影日の日へ。読み直しで日の中身を取り直す時点では DB はもう撮影日の日になっていて、ビューアの居る日
+   * から写真が消えて見える。撮影日の日を知らせる差分はその後に届く（win の証人、spikes/pr218-results）。
+   * だから読み直しで**まだ一覧に居る**と分かった写真と、追いかけて日を移った写真は、寄せ直す前に待つ。
+   * U で印を外した・消えた写真は読み直しで見つからないので待たない（選別の本線は今までどおりすぐ寄る）。
+   *
+   * 待つのは期限まで。サマリの取り直しが落ちる等で並ばないと「読み込み中…」のまま固まる（ゲート1）ので、
+   * 過ぎたら印を外し、寄せ直しの効果を回し直す
    */
-  const [viewerFollowExpired, setViewerFollowExpired] = useState(0);
+  const viewerHoldRef = useRef<{ id: number; until: number } | null>(null);
+  const [viewerHoldExpired, setViewerHoldExpired] = useState(0);
+  const holdViewer = useCallback((id: number, ms: number) => {
+    const until = Date.now() + ms;
+    const now = viewerHoldRef.current;
+    if (now && now.id === id && now.until >= until) return;
+    const mark = { id, until };
+    viewerHoldRef.current = mark;
+    window.setTimeout(() => {
+      if (viewerHoldRef.current !== mark) return;
+      viewerHoldRef.current = null;
+      setViewerHoldExpired((n) => n + 1);
+    }, ms);
+  }, []);
   /**
    * 開いている写真が別の日へ移ったとき、ビューアをその日へ付いていかせる（dev #49）。外で上書きして撮影日が
    * 変わると、行はそのまま（id も ★ も同じ）別の日へ移る。付いていかないと、ビューアは「居なくなった」と
@@ -1207,13 +1226,8 @@ export default function App() {
       if (to !== undefined && to !== v.dayKey) {
         const id = shownId;
         const { id: posId, dayKey: from } = v;
-        const mark = { id, dayKey: to };
-        viewerFollowedToRef.current = mark;
-        window.setTimeout(() => {
-          if (viewerFollowedToRef.current !== mark) return;
-          viewerFollowedToRef.current = null;
-          setViewerFollowExpired((n) => n + 1);
-        }, 5000);
+        // 移った先の日がサマリに並ぶまで（すぐ取り直す）待たせる
+        holdViewer(id, 5000);
         setViewer((cur) =>
           cur && cur.id === posId && cur.dayKey === from ? { dayKey: to, id } : cur,
         );
@@ -1232,7 +1246,7 @@ export default function App() {
       return changed ? out : sc;
     });
     return moved;
-  }, []);
+  }, [holdViewer]);
 
   /** 骨組み（サマリ・件数・思い出）を取り直し、日キャッシュを捨てる。
    * 可視範囲の日は placeholder になった瞬間に自動で再取得される。
@@ -1308,6 +1322,8 @@ export default function App() {
         if (followViewerTo(moves) && to !== undefined && !sumR.value.some((d) => d.day_key === to)) {
           refreshSummaryRef.current().catch(() => {});
         }
+        // まだ一覧に居る写真は、撮影日の差分が届くまで寄せ直さない（上の `viewerHoldRef`）
+        if (to !== undefined && atId !== null) holdViewer(atId, 1500);
       }
       gotSummaryRef.current += 1;
       setLoadFailed(false);
@@ -1335,7 +1351,7 @@ export default function App() {
         if (gotSummary) void pruneVanished();
       }
     }
-  }, [pruneVanished, followViewerTo]);
+  }, [pruneVanished, followViewerTo, holdViewer]);
 
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
    *
@@ -1929,6 +1945,16 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     listen<MediaItem>("media-updated", (ev) => {
       patchBuffer.current.push(ev.payload);
+      // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
+      // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）
+      if (ev.payload.id === viewerItemIdRef.current || ev.payload.id === viewerHoldRef.current?.id) {
+        if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
+        patchTimer.current = null;
+        const patches = patchBuffer.current;
+        patchBuffer.current = [];
+        applyPatches(patches);
+        return;
+      }
       if (patchTimer.current != null) return;
       patchTimer.current = window.setTimeout(() => {
         patchTimer.current = null;
@@ -3538,7 +3564,7 @@ export default function App() {
   // 操作不能で固まるのは防ぐ、という元の目的はそのまま）
   useEffect(() => {
     if (!viewer) {
-      viewerFollowedToRef.current = null;
+      viewerHoldRef.current = null;
       return;
     }
     const items = viewerDayItems.get(viewer.dayKey);
@@ -3547,22 +3573,16 @@ export default function App() {
       viewer.id === "first" || viewer.id === "last"
         ? items.length > 0
         : walkIndexOf(items, viewer.id) >= 0;
-    // 追ってきた先の印は、そこに居る間だけ効かせる（離れたあとに同じ形になっても待たない）
-    const followed = viewerFollowedToRef.current;
-    if (followed && (followed.id !== viewer.id || followed.dayKey !== viewer.dayKey)) {
-      viewerFollowedToRef.current = null;
-    }
+    // 待たせる印は、その写真を見ている間だけ効かせる（離れたら外す）
+    const hold = viewerHoldRef.current;
+    if (hold && hold.id !== viewer.id) viewerHoldRef.current = null;
     if (resolvable && dayIdxByKey.has(viewer.dayKey)) {
-      viewerFollowedToRef.current = null;
+      viewerHoldRef.current = null;
       return;
     }
-    // **移った写真を追ってきた日**が、日の並び（サマリ）にまだ無い——サマリの取り直し（`applyPatches` は
-    // 2秒後に回す）より先にその日の中身が読めただけ。閉じずに待つ。追ってきた日だけに限る——ほかの日で
-    // 同じ形になるのは「サマリからその日が消えた」で、そのときは待っても並ばない（dev #49）
-    const arrived = viewerFollowedToRef.current;
-    if (resolvable && arrived && arrived.id === viewer.id && arrived.dayKey === viewer.dayKey) {
-      return;
-    }
+    // 日が移っている途中の写真（上の `viewerHoldRef`）。差分かサマリの取り直しが届けば上で解決する。
+    // 期限が来れば印が外れて、ここを素通りする
+    if (viewerHoldRef.current && viewerHoldRef.current.id === viewer.id) return;
 
     // スコープで開いているなら、列の**次**（無ければ前）で、いま一覧に
     // 居るものへ寄せる。列は作り直さない設計なので、消えたidも席は残っている
@@ -3595,7 +3615,7 @@ export default function App() {
     viewerScope,
     scopeIndexById,
     walkIndexOf,
-    viewerFollowExpired,
+    viewerHoldExpired,
   ]);
 
   /**
