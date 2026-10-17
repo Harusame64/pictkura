@@ -893,7 +893,7 @@ body {
 /* グリッドとビューアの間の動き（dev #52）。開く間はビューアの絵を隠し、地と操作だけを薄く入れる——
  * 写真はタイルから広がってくる箱（`.viewer-zoom`）が描く */
 .viewer.opening {
-  animation: viewer-open 220ms ease-out;
+  animation: viewer-open var(--zoom-ms) ease-out;
 }
 .viewer.opening .viewer-stage,
 .viewer.opening .viewer-loading-overlay {

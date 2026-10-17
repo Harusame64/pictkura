@@ -153,8 +153,14 @@ import { errText } from "./i18n/err.ts";
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
-import { ViewerZoom, zoomAllowed, type Zoom } from "./ViewerZoom";
-import { boxOf, viewerBox, type Box } from "./viewerZoomBox";
+import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
+import {
+  boxOf,
+  containBox,
+  fitScaleFor,
+  viewerBox,
+  type Box,
+} from "./viewerZoomBox";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
 const GAP = 4;
@@ -3794,16 +3800,22 @@ export default function App() {
   const stageRef = useRef<HTMLDivElement>(null);
   /** いま見えているのが原寸か下敷きか（描画のたびに下で書く。`markNav` が読む） */
   const visibleRef = useRef<{ id: number; which: "full" | "thumb" | null } | null>(null);
+  /** いま見えている絵の要素（原寸か下敷き）。動画・逃げ道・まだ何も無いときは null */
+  const shownImageEl = useCallback((): HTMLImageElement | null => {
+    const which = visibleRef.current?.which;
+    const sel =
+      which === "full"
+        ? "img.viewer-image"
+        : which === "thumb"
+          ? "img.viewer-thumb"
+          : null;
+    return sel ? (stageRef.current?.querySelector<HTMLImageElement>(sel) ?? null) : null;
+  }, []);
   const markNav = useCallback((dir: 1 | -1, slideshow: boolean) => {
     const shown = visibleRef.current;
     if (!shown) return;
     // 動画は残像を作らない（台だけが入ってくる）
-    const el =
-      shown.which === "full"
-        ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-image")
-        : shown.which === "thumb"
-          ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-thumb")
-          : null;
+    const el = shownImageEl();
     const src = el?.currentSrc;
     navIntentRef.current = {
       fromId: shown.id,
@@ -3813,7 +3825,7 @@ export default function App() {
       at: Date.now(),
       ghost: el && src ? { src, rect: el.getBoundingClientRect() } : null,
     };
-  }, []);
+  }, [shownImageEl]);
   /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
@@ -4139,23 +4151,27 @@ export default function App() {
    * 動きを減らす設定・カレンダー・動画・絵がまだ無いときは動かさず、これまでどおりその場で切り替える
    */
   const [tileZoom, setTileZoom] = useState<Zoom | null>(null);
-  /** 閉じる（動きつき）。`requestCloseViewer` は依存を持たないので、毎回の描画で書き換えるこの口を呼ぶ */
+  /** 閉じる（動きつき）。`requestCloseViewer` は依存を持たないので、描画が確定するたびに差し替えるこの口を呼ぶ */
   const closeViewerRef = useRef<() => void>(() => setViewer(null));
-  closeViewerRef.current = () => {
+  /** タイルとの間を動かすか。動きを減らす OS と、送りの動きを「なし」にした設定では動かさない */
+  const tileZoomOn = () => zoomAllowed() && handTransition !== "none";
+  const closeViewerWithZoom = () => {
     const shown = visibleRef.current;
-    const el =
-      shown?.which === "full"
-        ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-image")
-        : shown?.which === "thumb"
-          ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-thumb")
-          : null;
+    const el = shownImageEl();
     const src = el?.currentSrc;
-    if (!shown || !el || !src || view !== "grid" || !zoomAllowed()) {
+    if (!shown || !el || !src || view !== "grid" || !tileZoomOn()) {
+      // 開く途中の動きが残っていれば一緒に消す（空のグリッドの上で広がり続けない）
+      setTileZoom(null);
       setViewer(null);
       return;
     }
     const id = shown.id;
-    const from = boxOf(el.getBoundingClientRect());
+    // 絵が描かれている部分から縮める（下敷きの箱は絵より横長・縦長になりうる）
+    const from = containBox(
+      boxOf(el.getBoundingClientRect()),
+      el.naturalWidth,
+      el.naturalHeight,
+    );
     setViewer(null);
     // 戻る先を測るまで、写真はいまの場所に止めて描く（消してから縮めると一瞬グリッドだけが見える）
     setTileZoom({ kind: "close", src, from, to: null });
@@ -4194,6 +4210,16 @@ export default function App() {
       }),
     );
   };
+  useLayoutEffect(() => {
+    closeViewerRef.current = closeViewerWithZoom;
+  });
+  // 残った動きを止める: 開く動きの途中で別の写真へ送った・閉じた、閉じる動きの途中で開き直した（動きのない道でも）
+  useEffect(() => {
+    if (!tileZoom) return;
+    const stale =
+      tileZoom.kind === "close" ? viewer !== null : viewer?.id !== tileZoom.id;
+    if (stale) setTileZoom(null);
+  }, [viewer, tileZoom]);
   /** 情報パネルを描くか・ファイルの節を読むか */
   const infoOpen = showExif && viewerItem !== null;
   /**
@@ -5177,9 +5203,7 @@ export default function App() {
         : servedSize(viewerItem);
     if (w <= 0 || h <= 0) return 1;
     // CSS の `max-width: calc(100vw - 120px - var(--info-reserve))` と同じ枠
-    const maxW = windowSize.w - 120 - infoReserve;
-    const maxH = windowSize.h - 80;
-    return Math.min(1, maxW / w, maxH / h);
+    return fitScaleFor(w, h, infoReserve, windowSize.w, windowSize.h);
   }, [viewerItem, servedNatural, windowSize, infoReserve]);
   /** 実ピクセルに対する表示倍率（100%＝等倍） */
   const displayScale = fitScale * zoom;
@@ -6041,24 +6065,42 @@ export default function App() {
       const img = e.currentTarget.querySelector<HTMLImageElement>("img.cell");
       if (
         zoomAllowed() &&
+        handTransition !== "none" &&
         !opened.is_video &&
         img &&
         img.complete &&
         img.naturalWidth > 0
       ) {
-        const to = viewerBox(servedSize(opened), infoReserve);
-        if (to) {
-          setTileZoom({
-            kind: "open",
-            src: img.currentSrc,
-            from: boxOf(img.getBoundingClientRect()),
-            to,
-          });
-        }
+        // 一度見た写真は届いた絵の実寸で（DB の寸法が小さい形式がある。GR III の DNG は 720x480 と名乗って 6000x4000）
+        const to = viewerBox(
+          naturalRef.current.get(opened.id) ?? servedSize(opened),
+          infoReserve,
+        );
+        setTileZoom(
+          to
+            ? {
+                kind: "open",
+                id,
+                src: img.currentSrc,
+                from: boxOf(img.getBoundingClientRect()),
+                to,
+              }
+            : null,
+        );
+      } else {
+        setTileZoom(null);
       }
       setViewer({ dayKey, id });
     },
-    [anchorId, selecting, selectRange, toggleMany, openIdOf, infoReserve],
+    [
+      anchorId,
+      selecting,
+      selectRange,
+      toggleMany,
+      openIdOf,
+      infoReserve,
+      handTransition,
+    ],
   );
 
   /**
@@ -8002,6 +8044,7 @@ export default function App() {
             {
               "--exif-panel-width": `${EXIF_PANEL_WIDTH}px`,
               "--info-reserve": `${infoReserve}px`,
+              "--zoom-ms": `${ZOOM_MS}ms`,
             } as React.CSSProperties
           }
           // **動いている間は、地のクリックで閉じない。** 見えている写真（残像）は当たり判定を

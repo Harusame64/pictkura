@@ -15,6 +15,8 @@ export type Zoom = {
   src: string;
   from: Box;
   to: Box | null;
+  /** 開くときの写真（ビューアが別の写真へ移ったら止める） */
+  id?: number;
   /** 戻る先が見つからなかった（閉じる）。その場で薄れて消える */
   lost?: boolean;
 };
@@ -23,7 +25,7 @@ export type Zoom = {
 export const ZOOM_MS = 220;
 const EASE = "cubic-bezier(0.2, 0, 0, 1)";
 
-/** 動きを減らす設定の OS では動かさない（送りの動きと同じ判定） */
+/** 動きを減らす設定の OS では動かさない（送りの動きと同じ判定。送りの動きを「なし」にした設定は呼ぶ側が見る） */
 export function zoomAllowed(): boolean {
   return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -47,19 +49,21 @@ export function ViewerZoom({
   const boxRef = useRef<HTMLDivElement>(null);
   const backRef = useRef<HTMLDivElement>(null);
   const doneRef = useRef(onDone);
-  doneRef.current = onDone;
+  useLayoutEffect(() => {
+    doneRef.current = onDone;
+  });
 
   useLayoutEffect(() => {
     const box = boxRef.current;
     const back = backRef.current;
-    if (!box || !back) return;
+    if (!box) return;
     if (zoom.lost) {
       const a = box.animate([{ opacity: 1 }, { opacity: 0 }], {
         duration: ZOOM_MS,
         easing: "ease-out",
         fill: "forwards",
       });
-      back.animate([{ opacity: 1 }, { opacity: 0 }], {
+      back?.animate([{ opacity: 1 }, { opacity: 0 }], {
         duration: ZOOM_MS,
         fill: "forwards",
       });
@@ -74,7 +78,7 @@ export function ViewerZoom({
     });
     // 開くときの地はビューアの側が薄れて入ってくる。ここで敷くのは閉じるときだけ
     if (zoom.kind === "close") {
-      back.animate([{ opacity: 1 }, { opacity: 0 }], {
+      back?.animate([{ opacity: 1 }, { opacity: 0 }], {
         duration: ZOOM_MS,
         easing: "ease-out",
         fill: "forwards",
@@ -86,8 +90,9 @@ export function ViewerZoom({
 
   return (
     <div className="viewer-zoom" aria-hidden>
-      {zoom.kind === "close" && <div className="viewer-zoom-back" ref={backRef} />}
-      {zoom.kind === "open" && <div ref={backRef} />}
+      {zoom.kind === "close" && (
+        <div className="viewer-zoom-back" ref={backRef} />
+      )}
       <div
         className="viewer-zoom-box"
         ref={boxRef}
