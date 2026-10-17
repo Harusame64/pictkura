@@ -219,6 +219,9 @@ export const ja = {
   indexBuilding: "🔍 検索インデックスを作成中… ",
   bgScanning: "ライブラリを更新中…",
   bgThumbs: (n: number) => `写真を読み込み中（残り${num(n)}枚）`,
+  /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
+  bgScanningShort: "更新中",
+  bgThumbsShort: (n: number) => `残り${num(n)}`,
   cameraScanning: "📷 カメラ情報を読み取り中… ",
   indexIncompleteWarning:
     "⚠ 検索インデックスの作成を中断しました ／ 検索結果が一部欠けています（次の起動で続きから作り直します）",

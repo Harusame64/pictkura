@@ -59,11 +59,13 @@ export function BackgroundWork({ quiet }: { quiet: boolean }) {
 
   if (shown === null || quiet) return null;
   const label = shown.kind === "scan" ? t.bgScanning : t.bgThumbs(shown.left);
-  // 読み上げには載せない（数が毎秒変わる）
+  // ヘッダーには短い形だけ（全文は title）。全文を並べると、出ている間ふつうの幅でも検索欄が半分ほどに縮んだ
+  // （win の実機。2026-10-17 利用者の選択）。読み上げには載せない（数が毎秒変わる）
+  const short = shown.kind === "scan" ? t.bgScanningShort : t.bgThumbsShort(shown.left);
   return (
     <span className="bg-work" title={label}>
       <span className="bg-spinner" aria-hidden />
-      <span className="bg-text">{label}</span>
+      <span className="bg-text">{short}</span>
     </span>
   );
 }
