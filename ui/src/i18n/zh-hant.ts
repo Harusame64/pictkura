@@ -649,6 +649,7 @@ export const zhHant: Dict = {
   errExportDest: "無法建立該目標資料夾。",
   errExportManaged: "無法寫入該位置：這個套件由其他應用程式管理。",
   errFolderMissing: "找不到該資料夾。",
+  errFolderNotAbsolute: "請輸入資料夾的完整路徑。",
   errTrashFailed: "無法移到資源回收筒。",
   errTrashUnreachable: "找不到磁碟機或資料夾，因此沒有移到資源回收筒。",
   errTrashPartly: (n: number) => `已將 ${num(n)} 張移到資源回收筒，其餘未能移動。`,

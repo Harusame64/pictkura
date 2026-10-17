@@ -676,6 +676,7 @@ export const es: Dict = {
   errExportDest: "No se pudo crear esa carpeta de destino.",
   errExportManaged: "Ahí no se puede escribir: ese paquete lo gestiona otra aplicación.",
   errFolderMissing: "Esa carpeta no está.",
+  errFolderNotAbsolute: "Indica la ruta completa de la carpeta.",
   errTrashFailed: "No se pudo mover a la papelera.",
   errTrashUnreachable: "No se puede acceder a la unidad o la carpeta, así que no se ha movido nada a la papelera.",
   errTrashPartly: (n: number) =>

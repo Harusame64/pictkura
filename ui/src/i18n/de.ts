@@ -672,6 +672,7 @@ export const de: Dict = {
   errExportDest: "Dieser Zielordner ließ sich nicht anlegen.",
   errExportManaged: "Dorthin kann nichts geschrieben werden — das Paket verwaltet eine andere App.",
   errFolderMissing: "Diesen Ordner gibt es nicht.",
+  errFolderNotAbsolute: "Bitte den vollständigen Ordnerpfad eingeben.",
   errTrashFailed: "Verschieben in den Papierkorb nicht möglich.",
   errTrashUnreachable: "Das Laufwerk oder der Ordner ist nicht erreichbar, daher wurde nichts in den Papierkorb verschoben.",
   errTrashPartly: (n: number) =>
