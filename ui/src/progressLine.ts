@@ -14,11 +14,14 @@ export type ProgressLine = {
 
 export const idleLine = (): ProgressLine => ({ active: false, text: null });
 
+/** React の `setStatus` と同じ形（値でも、前の値から作る関数でも受ける） */
+export type SetStatus = (update: string | ((prev: string) => string)) => void;
+
 /** 知らせの受け口から呼ぶ。待っていない間（返事の後に遅れて届いた知らせ等）は書かずに `false` */
 export function writeProgress(
   line: { current: ProgressLine },
+  setStatus: SetStatus,
   text: string,
-  setStatus: (text: string) => void,
 ): boolean {
   if (!line.current.active) return false;
   line.current.text = text;
@@ -32,17 +35,21 @@ export function writeProgress(
  */
 export async function withProgressLine<T>(
   line: { current: ProgressLine },
-  setStatus: (update: (prev: string) => string) => void,
+  setStatus: SetStatus,
   op: () => Promise<T>,
 ): Promise<T> {
-  line.current = { active: true, text: null };
+  // 呼び出しごとの持ち分。後から同じ行で始まった呼び出しの持ち分は、こちらの後片付けで畳まない（ゲート2）
+  const own: ProgressLine = { active: true, text: null };
+  line.current = own;
   try {
     return await op();
   } catch (e) {
-    const mine = line.current.text;
+    // 前の文へ戻さず空にする——前の文が隣の操作の古い進み具合なら、それこそ #68 の止まった行になる
+    const mine = own.text;
     if (mine !== null) setStatus((prev) => (prev === mine ? "" : prev));
     throw e;
   } finally {
-    line.current = idleLine();
+    own.active = false;
+    if (line.current === own) line.current = idleLine();
   }
 }

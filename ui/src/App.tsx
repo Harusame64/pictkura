@@ -1040,7 +1040,8 @@ export default function App() {
   /**
    * いま走っている書き出しの種類。**`exportMedia` を待っている間だけ**値を持つ。
    * 進捗の文言を「書き出し中」と「移動中」で分け、**終わったあとに遅れて届いた進捗が
-   * 結果の文を上書きしない**よう、`null` の間は進捗を捨てる（#159 のゲート2）。
+   * 結果の文を上書きしない**よう、`null` の間は進捗を捨てる（#159 のゲート2。いまは `exportLineRef` も
+   * 同じ寿命で同じことをする——こちらは文言を選ぶために残る）。
    * `exportingRef` は二度押しの鍵で、確認とフォルダ選択の間も立っている——寿命が違う
    */
   const exportKindRef = useRef<"copy" | "move" | null>(null);
@@ -1050,7 +1051,7 @@ export default function App() {
    */
   const deletingRef = useRef(false);
   /**
-   * 一覧からの削除と書き出しの、ステータス行の持ち分（`progressLine.ts`、dev #68）。返事を待っている間だけ
+   * 一覧・ビューアからの削除と書き出しの、ステータス行の持ち分（`progressLine.ts`、dev #68）。返事を待っている間だけ
    * 進み具合を書き、転んだ回は自分の文だけを消す——「移動中… (n / N)」が残らず、隣の操作の行も消さない
    */
   const trashLineRef = useRef<ProgressLine>(idleLine());
@@ -1764,12 +1765,12 @@ export default function App() {
           if (kind === null) return;
           writeProgress(
             exportLineRef,
+            setStatus,
             (kind === "move" ? t.moving : t.exporting)(
               ev.payload.done,
               ev.payload.total,
               ev.payload.name,
             ),
-            setStatus,
           );
         },
       );
@@ -1782,15 +1783,16 @@ export default function App() {
         "delete-progress",
         (ev) => {
           if (cancelled) return;
-          // 一覧からの削除の知らせは関所のボタンへ流さない（ゲート2、dev #68）
+          // 一覧・ビューアからの削除を待っている間の知らせは関所のボタンへ流さない（ゲート2、dev #68）。
+          // 返事の後に遅れて届いたぶんは通るが、関所は移動を始めるときに `null` から数え直す
           if (!trashLineRef.current.active) setTrashProgress(ev.payload);
           // 返事の後に届いた知らせは `writeProgress` が落とす（完了の文を上書きしない）。
           // 最後の束のぶんを書かないのは、完了の文までの一瞬「(n / n)」を見せないため
           if (!rejectGateRef.current && ev.payload.done < ev.payload.total) {
             writeProgress(
               trashLineRef,
-              t.rejectGateTrashing(ev.payload.done, ev.payload.total),
               setStatus,
+              t.rejectGateTrashing(ev.payload.done, ev.payload.total),
             );
           }
         },

@@ -20,7 +20,7 @@ test("a failed op does not leave its progress on the line", async () => {
   const line = { current: idleLine() };
   await assert.rejects(
     withProgressLine(line, s.set, async () => {
-      writeProgress(line, "Moving… (175 / 300)", s.set);
+      writeProgress(line, s.set, "Moving… (175 / 300)");
       throw new Error("one file is held open");
     }),
   );
@@ -34,8 +34,8 @@ test("a failed op leaves another op's progress alone", async () => {
   theirs.current.active = true;
   await assert.rejects(
     withProgressLine(mine, s.set, async () => {
-      writeProgress(mine, "Moving… (1 / 1)", s.set);
-      writeProgress(theirs, "Exporting… (800 / 3000)", s.set);
+      writeProgress(mine, s.set, "Moving… (1 / 1)");
+      writeProgress(theirs, s.set, "Exporting… (800 / 3000)");
       throw new Error("x");
     }),
   );
@@ -53,19 +53,34 @@ test("progress after the op has answered is not written", async () => {
   const s = statusLine();
   const line = { current: idleLine() };
   const result = await withProgressLine(line, s.set, async () => {
-    writeProgress(line, "Moving… (25 / 300)", s.set);
+    writeProgress(line, s.set, "Moving… (25 / 300)");
     return 300;
   });
   s.set(`Moved ${result}`);
-  assert.equal(writeProgress(line, "Moving… (300 / 300)", s.set), false);
+  assert.equal(writeProgress(line, s.set, "Moving… (300 / 300)"), false);
   assert.equal(s.get(), "Moved 300");
+});
+
+test("a call that ends does not fold a newer call's share of the line", async () => {
+  const s = statusLine();
+  const line = { current: idleLine() };
+  let releaseFirst!: () => void;
+  const first = withProgressLine(line, s.set, () => new Promise<void>((r) => (releaseFirst = r)));
+  const second = withProgressLine(line, s.set, async () => {
+    releaseFirst();
+    await first;
+    writeProgress(line, s.set, "Moving… (5 / 9)");
+    throw new Error("x");
+  });
+  await assert.rejects(second);
+  assert.equal(s.get(), "");
 });
 
 test("success does not touch the line (the caller writes the result)", async () => {
   const s = statusLine();
   const line = { current: idleLine() };
   await withProgressLine(line, s.set, async () => {
-    writeProgress(line, "Moving… (25 / 300)", s.set);
+    writeProgress(line, s.set, "Moving… (25 / 300)");
   });
   assert.equal(s.get(), "Moving… (25 / 300)");
   assert.equal(line.current.active, false);
