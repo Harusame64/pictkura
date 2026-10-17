@@ -1815,9 +1815,11 @@ body {
 .print-dialog-actions {
   gap: var(--sp-2);
 }
-/* 印刷の絵を作っている間（`printPhoto.ts`） */
+/* 印刷の絵を作っている間（`printPhoto.ts`）・エクスプローラーのメニューを組んでいる間（`shellMenu.ts`） */
 .print-preparing,
-.print-preparing * {
+.print-preparing *,
+.shell-menu-preparing,
+.shell-menu-preparing * {
   cursor: progress !important;
 }
 .print-dialog-actions button.primary {

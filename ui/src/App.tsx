@@ -26,6 +26,7 @@ import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
+import { openShellMenu } from "./shellMenu";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -6369,6 +6370,7 @@ export default function App() {
       item: MediaItem,
       files: readonly MediaItem[] = [item],
       markFiles: readonly MediaItem[] = files,
+      pos?: MenuPos,
     ): MenuItem[] => [
       { label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
       ...editors.map((app) => ({
@@ -6381,6 +6383,21 @@ export default function App() {
         separator: true,
         run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
+      // エクスプローラーと同じメニュー（ADR B-4。Windows だけ）。対象は削除と同じ重ねのファイルぜんぶ、
+      // 出す場所は右クリックした点（この行を押した点ではない）
+      ...(platform === "windows" && pos
+        ? [
+            {
+              label: t.menuMoreOptions,
+              run: () =>
+                openShellMenu(
+                  files.map((f) => f.id),
+                  pos.x,
+                  pos.y,
+                ).catch((e) => fail(errText(e))),
+            },
+          ]
+        : []),
       // 画像そのものをクリップボードへ（ADR の B-1。ビューアの「抽出」と同じ道——向きを直した絵、RAW・HEIC も
       // 貼れる）。対象は表紙の1枚。出す条件もビューアと同じ（`canCopyToClipboard`）。クラウドにだけ在るファイルは
       // 実体を落としてから載せる——押したのは利用者で、ビューアで開くのと同じ扱い
@@ -6484,6 +6501,7 @@ export default function App() {
       sendToGoogle,
       filter,
       removeFromGoogle,
+      platform,
     ],
   );
 
@@ -8287,7 +8305,7 @@ export default function App() {
       />
       <ContextMenu
         pos={menu?.pos ?? null}
-        items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles) : []}
+        items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles, menu.pos) : []}
         onClose={() => setMenu(null)}
       />
       {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}

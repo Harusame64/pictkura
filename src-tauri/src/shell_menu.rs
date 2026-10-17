@@ -1,0 +1,163 @@
+//! 右クリックの「その他のオプションを表示」——エクスプローラーと同じメニュー（ADR B-4。Windows だけ）。
+//!
+//! シェルの `IContextMenu` をそのまま出す。送る・プログラムから開く・プロパティ・7-Zip・OneDrive も、
+//! 入っている拡張がそのまま並ぶ。**選ばれた項目はシェルが走らせる**——削除・回転のように中身が変わるものは、
+//! 見張りが拾ってタイルを直す（win の実測で約0.9秒。`dev/spikes/b4-results/`）。
+//!
+//! 実測で決めたこと（2026-10-17、win）:
+//!
+//! - **UI の糸で回す。** そこは既に STA（`CoInitializeEx` は S_FALSE）で、メニューの持ち主の窓もそこに居る
+//! - **メニューのメッセージを `IContextMenu3` へ渡す。** 渡さないと「プログラムから開く」が仮の1行のまま
+//! - **名前の変更は出さない**（`CMF_CANRENAME` を渡さない）。pictkura の外での改名は ★・⚑ を外すので、
+//!   入口を自分から増やさない（ADR C で見送り）
+//! - `QueryContextMenu` は、間が空くと毎回 1 秒ほどかかる（拡張を読み直す）。待ちの合図は画面の側で出す
+#![cfg(windows)]
+
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::ptr::null_mut;
+
+use windows::core::{Interface, HSTRING, PCSTR, PCWSTR};
+use windows::Win32::Foundation::{ERROR_CANCELLED, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+use windows::Win32::UI::Shell::{
+    DefSubclassProc, IContextMenu, IContextMenu2, IContextMenu3, ILFindLastID, ILFree,
+    IShellFolder, RemoveWindowSubclass, SHBindToParent, SHParseDisplayName, SetWindowSubclass,
+    CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreatePopupMenu, DestroyMenu, SetForegroundWindow, TrackPopupMenuEx, SW_SHOWNORMAL,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+};
+
+/// シェルに渡す番号の幅。0 は「何も選ばなかった」なので 1 から
+const FIRST: u32 = 1;
+const LAST: u32 = 0x7FFF;
+/// `CMIC_MASK_UNICODE`（windows クレートでは別のモジュールに居る）
+const CMIC_MASK_UNICODE: u32 = 0x4000;
+const SUBCLASS_ID: usize = 0x504B_4234;
+
+thread_local! {
+    /// 開いている間のメニュー。持ち主の窓に来るメッセージをこれへ渡す
+    static ACTIVE: RefCell<Option<IContextMenu>> = const { RefCell::new(None) };
+}
+
+/// サブメニュー（送る・プログラムから開く）は、開くときに中身を組む。その合図は持ち主の窓へ来るので、
+/// メニューが開いている間だけ窓を横取りして渡す
+unsafe extern "system" fn forward(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    if matches!(
+        msg,
+        WM_INITMENUPOPUP | WM_DRAWITEM | WM_MEASUREITEM | WM_MENUCHAR
+    ) {
+        if let Some(cm) = ACTIVE.with_borrow(|c| c.clone()) {
+            if let Ok(cm3) = cm.cast::<IContextMenu3>() {
+                let mut r = LRESULT(0);
+                if unsafe { cm3.HandleMenuMsg2(msg, wp, lp, Some(&mut r)) }.is_ok() {
+                    return r;
+                }
+            } else if let Ok(cm2) = cm.cast::<IContextMenu2>() {
+                if unsafe { cm2.HandleMenuMsg(msg, wp, lp) }.is_ok() {
+                    return LRESULT(0);
+                }
+            }
+        }
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
+}
+
+/// `paths` のメニューを画面の `at`（物理ピクセル）に出し、選ばれた項目を走らせる。
+/// **UI の糸で呼ぶこと。** 閉じるまで戻らない。`paths` は同じフォルダに在ること（シェルの制約）。
+///
+/// `shown` はメニューを組み終えて出す直前に呼ぶ（組むのに1秒ほどかかることがあり、その間の合図を
+/// 画面の側で消すため）。出せなかったときは呼ばない
+pub fn show(
+    hwnd: HWND,
+    paths: &[PathBuf],
+    at: (i32, i32),
+    shown: impl FnOnce(),
+) -> Result<(), String> {
+    let mut abs: Vec<*mut ITEMIDLIST> = Vec::with_capacity(paths.len());
+    let r = unsafe { show_inner(hwnd, paths, at, shown, &mut abs) };
+    for p in abs {
+        unsafe { ILFree(Some(p)) };
+    }
+    r
+}
+
+unsafe fn show_inner(
+    hwnd: HWND,
+    paths: &[PathBuf],
+    at: (i32, i32),
+    shown: impl FnOnce(),
+    abs: &mut Vec<*mut ITEMIDLIST>,
+) -> Result<(), String> {
+    for p in paths {
+        let mut pidl = null_mut();
+        unsafe { SHParseDisplayName(&HSTRING::from(p.as_os_str()), None, &mut pidl, 0, None) }
+            .map_err(|e| e.to_string())?;
+        abs.push(pidl);
+    }
+    let first = *abs.first().ok_or("no files")?;
+    let folder: IShellFolder = unsafe { SHBindToParent(first, None) }.map_err(|e| e.to_string())?;
+    let children: Vec<*const ITEMIDLIST> = abs
+        .iter()
+        .map(|&p| unsafe { ILFindLastID(p) } as *const _)
+        .collect();
+    let cm: IContextMenu =
+        unsafe { folder.GetUIObjectOf(hwnd, &children, None) }.map_err(|e| e.to_string())?;
+    let menu = unsafe { CreatePopupMenu() }.map_err(|e| e.to_string())?;
+    let r = (move || {
+        unsafe { cm.QueryContextMenu(menu, 0, FIRST, LAST, CMF_NORMAL) }
+            .ok()
+            .map_err(|e| e.to_string())?;
+        ACTIVE.set(Some(cm.clone()));
+        let _ = unsafe { SetWindowSubclass(hwnd, Some(forward), SUBCLASS_ID, 0) };
+        // 前面に居ないと、外をクリックしてもメニューが閉じない（TrackPopupMenu の決まり）
+        let _ = unsafe { SetForegroundWindow(hwnd) };
+        shown();
+        let cmd = unsafe {
+            TrackPopupMenuEx(
+                menu,
+                (TPM_RETURNCMD | TPM_RIGHTBUTTON).0,
+                at.0,
+                at.1,
+                hwnd,
+                None,
+            )
+        }
+        .0 as u32;
+        let _ = unsafe { RemoveWindowSubclass(hwnd, Some(forward), SUBCLASS_ID) };
+        ACTIVE.set(None);
+        if cmd < FIRST {
+            return Ok(());
+        }
+        let offset = (cmd - FIRST) as usize;
+        let info = CMINVOKECOMMANDINFOEX {
+            cbSize: std::mem::size_of::<CMINVOKECOMMANDINFOEX>() as u32,
+            fMask: CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE,
+            hwnd,
+            // 動詞の名前ではなく、番号を渡す（MAKEINTRESOURCE の形）
+            lpVerb: PCSTR(offset as *const u8),
+            lpVerbW: PCWSTR(offset as *const u16),
+            nShow: SW_SHOWNORMAL.0,
+            ptInvoke: POINT { x: at.0, y: at.1 },
+            ..Default::default()
+        };
+        match unsafe {
+            cm.InvokeCommand(&info as *const CMINVOKECOMMANDINFOEX as *const CMINVOKECOMMANDINFO)
+        } {
+            // 走った項目の中で利用者が取りやめた（確認の画面で「いいえ」等）
+            Err(e) if e.code() == ERROR_CANCELLED.to_hresult() => Ok(()),
+            r => r.map_err(|e| e.to_string()),
+        }
+    })();
+    let _ = unsafe { DestroyMenu(menu) };
+    r
+}
