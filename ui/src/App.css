@@ -822,6 +822,8 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
+  /* 情報パネルの幅。「次へ」をパネルの左隣へ寄せるときにも使う（#48） */
+  --exif-panel-width: 260px;
   position: fixed;
   inset: 0;
   background: oklch(0.1 0 0 / 0.97);
@@ -1641,13 +1643,19 @@ body {
 .viewer-nav.next {
   right: var(--sp-4);
 }
+/* 情報パネルを開いている間は、パネルの左隣へ寄せる。パネルは右端の上から伸び、ファイルの節を足してからは
+   標準の窓（1296×879）で「次へ」の高さまで届いて隠していた（pictkura-dev #48）。高さは変えない——
+   押す場所が上下に動くと、送り続けている手が外れる */
+.viewer.info-open .viewer-nav.next {
+  right: calc(var(--sp-4) + var(--exif-panel-width) + var(--sp-3));
+}
 
 /* 撮影情報パネル */
 .exif-panel {
   position: absolute;
   top: 60px;
   right: var(--sp-4);
-  width: 260px;
+  width: var(--exif-panel-width);
   /* ファイルの節を足して長くなった（ADR の A）。低い窓では中で巻く——撮影地のリンクが窓の外へ出ないように */
   max-height: calc(100vh - 140px);
   overflow-y: auto;

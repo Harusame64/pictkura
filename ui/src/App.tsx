@@ -7764,7 +7764,9 @@ export default function App() {
       </div>
       {viewer && (
         <div
-          className={"viewer" + (viewerIdle ? " idle" : "")}
+          className={
+            "viewer" + (viewerIdle ? " idle" : "") + (showExif && viewerItem ? " info-open" : "")
+          }
           // **動いている間は、地のクリックで閉じない。** 見えている写真（残像）は当たり判定を
           // 持たず、台は画面の外から入ってくる途中か透明なので、写真を押した手は地に落ちる
           // （ゲート2・codex）。残像で受け止める形は、フェードでは上に居る台に先を取られた
