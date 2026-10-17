@@ -20,7 +20,13 @@ pub enum ServeKind {
     Video,
     /// 印刷に渡す絵（ADR B-3）。撮影情報を落とした JPEG（[`crate::print`]）
     Print,
+    /// 並べて印刷するときの絵（pictkura-dev #55）。`Print` と同じく撮影情報を落とし、長辺を `edge` に抑える
+    /// ——1ページに何枚も載せると、原寸のまま渡した写真を WebView が全部ほどいて抱える
+    PrintSheet { edge: u32 },
 }
+
+/// 並べて印刷する絵の長辺の範囲。外れた値はこの範囲へ寄せる（URL は画面が作るが、壊れた値で巨大な絵を作らない）
+pub const PRINT_SHEET_EDGE_RANGE: std::ops::RangeInclusive<u32> = 256..=4096;
 
 /// URLが指しているもの。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +88,7 @@ fn percent_decode(s: &str) -> String {
 ///
 /// 期待する形式（クエリ文字列は無視）:
 /// - `.../full/<id>` `.../thumb/<id>` `.../video/<id>` `.../print/<id>` … ライブラリのメディア
+/// - `.../print-<長辺>/<id>` … 並べて印刷する絵（`PrintSheet`）
 /// - `.../src/<16進のパス>` … 取り込み元のファイル
 pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
     let path = percent_decode(url.split(['?', '#']).next()?);
@@ -104,6 +111,15 @@ pub fn parse_media_url(url: &str) -> Option<MediaTarget> {
             kind: ServeKind::Print,
             id: payload.parse().ok()?,
         }),
+        kind if kind.starts_with("print-") => {
+            let edge: u32 = kind["print-".len()..].parse().ok()?;
+            Some(MediaTarget::Library {
+                kind: ServeKind::PrintSheet {
+                    edge: edge.clamp(*PRINT_SHEET_EDGE_RANGE.start(), *PRINT_SHEET_EDGE_RANGE.end()),
+                },
+                id: payload.parse().ok()?,
+            })
+        }
         "src" => {
             let bytes = decode_hex(payload)?;
             let text = String::from_utf8(bytes).ok()?;
@@ -386,6 +402,24 @@ mod tests {
             library(ServeKind::Print, 12)
         );
         assert_eq!(parse_media_url("http://media.localhost/print/x"), None);
+    }
+
+    #[test]
+    fn parses_a_print_sheet_url_and_clamps_its_edge() {
+        assert_eq!(
+            parse_media_url("http://media.localhost/print-1600/12"),
+            library(ServeKind::PrintSheet { edge: 1600 }, 12)
+        );
+        assert_eq!(
+            parse_media_url("media://localhost/print-99999/3"),
+            library(ServeKind::PrintSheet { edge: 4096 }, 3)
+        );
+        assert_eq!(
+            parse_media_url("media://localhost/print-1/3"),
+            library(ServeKind::PrintSheet { edge: 256 }, 3)
+        );
+        assert_eq!(parse_media_url("media://localhost/print-x/3"), None);
+        assert_eq!(parse_media_url("media://localhost/print-/3"), None);
     }
 
     #[test]

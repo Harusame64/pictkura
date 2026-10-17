@@ -37,12 +37,12 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
     if crate::jpeg::is_jpeg_path(path) {
         // 向きを持つものは立てて詰め直す（上の説明。PDF が4倍に膨らむ）
         if (2..=8).contains(&crate::thumbs::read_exif_meta(path).orientation) {
-            return redraw(path);
+            return redraw(path, PRINT_MAX_EDGE);
         }
         let bytes = std::fs::read(path).ok()?;
         // 区画の並びが崩れている（区画の間にゴミがある・中身が別の形式）ものも、ビューアは描けている。
         // 洗えなければ画素から作り直す（#213 のゲート2）
-        return strip_jpeg(&bytes).or_else(|| redraw(path));
+        return strip_jpeg(&bytes).or_else(|| redraw(path, PRINT_MAX_EDGE));
     }
     if crate::thumbs::needs_display_transcode(path) {
         // 作った側が向きを当て済み。丸めるのは**印刷の上限**——表示の上限（4096）は配信の都合で紙には小さいが、
@@ -52,7 +52,20 @@ pub fn print_jpeg(path: &Path) -> Option<Vec<u8>> {
             Some(PRINT_MAX_EDGE),
         )?);
     }
-    redraw(path)
+    redraw(path, PRINT_MAX_EDGE)
+}
+
+/// 並べて印刷するときの絵（pictkura-dev #55）。[`print_jpeg`] と同じく撮影情報を落とすが、**どの形式も長辺を
+/// `edge` に抑えて作り直す**——1ページに何枚も載せると、原寸の絵を WebView が全部ほどいて抱える（45MP の
+/// JPEG は1枚で 180MB）。マスは紙の何分の1かなので、画質は落ちない
+pub fn sheet_jpeg(path: &Path, edge: u32) -> Option<Vec<u8>> {
+    if crate::video::is_video_path(path) || crate::svg::is_svg_path(path) {
+        return None;
+    }
+    if crate::thumbs::needs_display_transcode(path) {
+        return from_display_jpeg(&crate::thumbs::display_jpeg_within(path, Some(edge))?);
+    }
+    redraw(path, edge)
 }
 
 /// 表示の道で作った JPEG（向きは当て済み）を印刷用に洗う。呼ぶ側が表示のキャッシュに同じバイト列を持って
@@ -61,12 +74,12 @@ pub fn from_display_jpeg(jpeg: &[u8]) -> Option<Vec<u8>> {
     strip_jpeg(jpeg)
 }
 
-/// 画素へ起こして JPEG に詰め直す（向きを当て、白の上に置き、長辺を [`PRINT_MAX_EDGE`] に抑え、ICC を付け直す）
-fn redraw(path: &Path) -> Option<Vec<u8>> {
+/// 画素へ起こして JPEG に詰め直す（向きを当て、白の上に置き、長辺を `max_edge` に抑え、ICC を付け直す）
+fn redraw(path: &Path, max_edge: u32) -> Option<Vec<u8>> {
     // JPEG は libjpeg-turbo で起こす（サムネイルと同じ道）。`image` の解読は 6000×4000 の向き付きの写真で
     // 印刷の画面が出るまで10秒かかった（win、debug ビルド）。読めないもの（区画の間のゴミ等）は `image` へ
     let decoded = if crate::jpeg::is_jpeg_path(path) {
-        crate::jpeg::decode_scaled(path, PRINT_MAX_EDGE).map(|img| {
+        crate::jpeg::decode_scaled(path, max_edge).map(|img| {
             crate::thumbs::apply_orientation(img, crate::thumbs::read_exif_meta(path).orientation)
         })
     } else {
@@ -76,8 +89,8 @@ fn redraw(path: &Path) -> Option<Vec<u8>> {
         Some(img) => img,
         None => image::DynamicImage::ImageRgba8(crate::extract::rgba(path)?),
     };
-    if img.width().max(img.height()) > PRINT_MAX_EDGE {
-        let (w, h) = crate::resize::fit_within(img.width(), img.height(), PRINT_MAX_EDGE);
+    if img.width().max(img.height()) > max_edge {
+        let (w, h) = crate::resize::fit_within(img.width(), img.height(), max_edge);
         img = crate::resize::box_filter(&img, w, h);
     }
     let jpeg = crate::jpeg::encode_rgb(
