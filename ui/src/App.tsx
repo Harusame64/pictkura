@@ -1073,6 +1073,10 @@ export default function App() {
    */
   const fileOpsRef = useRef(0);
   const quitAfterFileOpRef = useRef(false);
+  /** 重なって走った操作のどれかが転んだ・残したか。最後の1本が通っても、それで閉じない（PR 前の codex） */
+  const fileOpFailedRef = useRef(false);
+  /** 重なって走った操作で片付いた id（ボツの印の確かめから外す）。最後の1本が終わるまで積む */
+  const fileOpGoneRef = useRef(new Set<number>());
   /**
    * ファイルを動かす `op` を、×を待たせながら走らせる。最後の1本が終わったとき、×が押されていれば閉じ方を
    * **ここで決める**: 転んだ回は閉じない（関所と同じ）。関所の削除がまだ走っていればそちらへ渡す。ボツの印が
@@ -1080,19 +1084,32 @@ export default function App() {
    * ——受け口が読む印はまだ描き直されていない古いもので、関所が出ていると「2度目の×」として素通りした（ゲート2）
    */
   const holdCloseWhile = useCallback(
-    async <T,>(gone: readonly number[], op: () => Promise<T>): Promise<T> => {
+    async <T,>(
+      op: () => Promise<T>,
+      /** 返事から「全部片付いたか」と「片付いた（もう一覧に無い）id」を読む。移動は一部が残っても成功で返る */
+      settled: (result: T) => { ok: boolean; gone: readonly number[] },
+    ): Promise<T> => {
       fileOpsRef.current += 1;
-      let ok = false;
       try {
         const result = await op();
-        ok = true;
+        const s = settled(result);
+        if (!s.ok) fileOpFailedRef.current = true;
+        for (const id of s.gone) fileOpGoneRef.current.add(id);
         return result;
+      } catch (e) {
+        fileOpFailedRef.current = true;
+        throw e;
       } finally {
         fileOpsRef.current -= 1;
-        if (fileOpsRef.current === 0 && quitAfterFileOpRef.current) {
+        // **ここで return しない**——finally の return は、op の返り値を上書きして呼び出し側へ undefined を渡す
+        if (fileOpsRef.current === 0) {
+          const failed = fileOpFailedRef.current;
+          fileOpFailedRef.current = false;
+          const goneIds = fileOpGoneRef.current;
+          fileOpGoneRef.current = new Set();
+          const quit = quitAfterFileOpRef.current;
           quitAfterFileOpRef.current = false;
-          if (ok) {
-            const goneIds = new Set(gone);
+          if (quit && !failed) {
             if (trashingRef.current) {
               quitAfterTrashRef.current = true;
             } else if ([...rejectedRef.current.keys()].some((id) => !goneIds.has(id))) {
@@ -5951,8 +5968,10 @@ export default function App() {
         if (!ok) return;
         // 転んだら「移動中… (n / N)」を残さない（dev #68）。消すのは移動そのものが転んだときだけ——後の取り直しで
         // 転んだときは、結果の文がもう出ている
-        const { deleted: n, missing } = await holdCloseWhile([...ids], () =>
-          withProgressLine(trashLineRef, setStatus, () => deleteMedia([...ids])),
+        // 削除は、移せなかった1枚があれば投げる。返事が来たなら選んだものは全部片付いている（無くなっていたぶんも）
+        const { deleted: n, missing } = await holdCloseWhile(
+          () => withProgressLine(trashLineRef, setStatus, () => deleteMedia([...ids])),
+          () => ({ ok: true, gone: [...ids] }),
         );
         // 重ねのタイル1枚を全部消せたら「1枚」と言う（確かめたときと同じ数え方）。無くなっていたぶんは
         // 黙って減らさない（dev #41）
@@ -6196,8 +6215,9 @@ export default function App() {
       if (!ok) return;
       try {
         // 転んだら「移動中… (n / N)」を残さない（dev #68。1枚の削除と同じ）
-        const { deleted: n, missing } = await holdCloseWhile(ids, () =>
-          withProgressLine(trashLineRef, setStatus, () => deleteMedia(ids)),
+        const { deleted: n, missing } = await holdCloseWhile(
+          () => withProgressLine(trashLineRef, setStatus, () => deleteMedia(ids)),
+          () => ({ ok: true, gone: ids }),
         );
         // 全部消せたら、確かめたときと同じ数え方（見えている枚数）で言う。無くなっていたぶんは黙って減らさない
         // （dev #41。この数はファイルの数——確かめたときのタイルの数とそろえるのは dev #42 の残り）
@@ -6388,7 +6408,14 @@ export default function App() {
           const run = () =>
             withProgressLine(exportLineRef, setStatus, () => exportMedia(ids, dest, moveFiles));
           // 移動はファイルを動かすので、削除と同じく×を待たせる（dev #69）。コピーは途中で閉じても元は残る
-          st = await (moveFiles ? holdCloseWhile(ids, run) : run());
+          // 移動は一部が残っても成功で返る。全部が元の場所から無くなったときだけ「片付いた」——どれが残ったかは
+          // 返事に無いので、1枚でも残れば片付いたものは無しと数える（ボツの印の確かめが、残った写真を落とさない）
+          st = await (moveFiles
+            ? holdCloseWhile(run, (r) => {
+                const all = r.moved + r.missing === ids.length;
+                return { ok: all, gone: all ? ids : [] };
+              })
+            : run());
         } finally {
           exportKindRef.current = null;
         }
