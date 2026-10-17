@@ -1190,6 +1190,13 @@ export default function App() {
    * 過ぎたら印を外し、寄せ直しの効果を回し直す
    */
   const viewerHoldRef = useRef<{ id: number; until: number } | null>(null);
+  /**
+   * 差分を当てた回数と、写真ごとの最後に当てた回（dev #49、PR の codex）。読み直しの答えは、問い合わせが
+   * 全部そろってから当たるので、その間に差分が撮影日の日へ移した写真を、古い一時の日（更新日時の日）へ
+   * 引き戻しうる。**読み直しを始めた後に差分が当たった写真は、読み直しの答えでは動かさない**
+   */
+  const patchSeqRef = useRef(0);
+  const patchedAtRef = useRef(new Map<number, number>());
   const [viewerHoldExpired, setViewerHoldExpired] = useState(0);
   const holdViewer = useCallback((id: number, ms: number) => {
     const until = Date.now() + ms;
@@ -1274,6 +1281,7 @@ export default function App() {
     // 開いている写真の今の日も同じ束で訊く——読み直しで別の日へ移っていたら、日の中身を捨てるのと同じ
     // 描画でビューアを付いていかせる（後から訊くと、古い日を読み終えたビューアが先に隣へ飛ぶ。dev #49）
     // 選択から開いた列の写真も同じ問い合わせで日を取り直す（開いている1枚だけだと、列の残りが古い日のまま）
+    const patchSeqAtStart = patchSeqRef.current;
     const open = viewerPosRef.current;
     const followIds = new Set<number>();
     if (open) {
@@ -1313,7 +1321,12 @@ export default function App() {
       setSummaryFor(askedFor);
       setDayItems(new Map());
       if (openR.status === "fulfilled") {
-        const moves = new Map(openR.value.map((x) => [x.id, x.day_key]));
+        // 始めた後に差分が当たった写真は、差分のほうが新しい
+        const moves = new Map(
+          openR.value
+            .filter((x) => (patchedAtRef.current.get(x.id) ?? -1) <= patchSeqAtStart)
+            .map((x) => [x.id, x.day_key]),
+        );
         // サマリと日の問い合わせは別の読み取りなので、移った先の日がこのサマリにまだ無いことがある。
         // そのときはすぐ取り直す（待たせると、追っていったビューアが5秒後に閉じる。ゲート2）
         const at = viewerPosRef.current;
@@ -1848,6 +1861,16 @@ export default function App() {
   const patchTimer = useRef<number | null>(null);
   const applyPatches = useCallback(
     (patches: MediaItem[]) => {
+      // どの写真の差分をいつ当てたか（`reloadAll` が古い答えで引き戻さないように）。覚えるのはビューアで
+      // 追う写真だけで足りるが、見分けるより全部書くほうが安い。表が育ちすぎたら古い回だけ捨てる——
+      // 走っている読み直しが見るのは、始めてから後の回だけ（数十回も前の回は要らない）
+      const seq = ++patchSeqRef.current;
+      if (patchedAtRef.current.size > 5000) {
+        for (const [id, at] of patchedAtRef.current) {
+          if (at < seq - 50) patchedAtRef.current.delete(id);
+        }
+      }
+      for (const p of patches) patchedAtRef.current.set(p.id, seq);
       const filter = filterRef.current;
       // 検索中は「その項目が結果に含まれるか」をフロント側で判定できない。
       // 表示中の項目の差し替え（サムネイル完成）だけを行い、日の捨て直しはしない
