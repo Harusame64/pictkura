@@ -6308,7 +6308,13 @@ export default function App() {
       // （別の言葉で探し直したなら、それは見ていた列ではない）
       const kept = await visibleMediaIds(queryRef.current, "all", ids);
       if (kept.length > 0) {
-        // 一覧の削除・移動と同じ数え方で×を待たせる（dev #69）。終われば印は全部片付く（下で空にする）
+        // 一覧の削除・移動と同じ数え方で×を待たせる（dev #69）。終われば印は全部片付く（下で空にする）。
+        // ×から開いた関所なら、その×も同じ旗に預ける——閉じるかは共通の判断だけが決める。ここで別に閉じると、
+        // 重なった削除が転んでいても窓を壊した（PR 前の codex、3周目）
+        if (gate.quitAfter) {
+          quitAfterFileOpRef.current = true;
+          quitPastGateRef.current = true;
+        }
         const { deleted: n, missing } = await holdCloseWhile(
           () => deleteMedia(kept),
           () => ({ ok: true, gone: ids }),
@@ -6329,8 +6335,9 @@ export default function App() {
       }
       setRejected(new Map());
       setRejectGate(null);
-      // 移動中に押された×は `holdCloseWhile` が畳んだ（もう窓は閉じかけている）。ここは開いた理由へ戻すだけ
-      finishGate(gate);
+      // ゴミ箱へ送った回の×は `holdCloseWhile` が畳んだ。ここは開いた理由（ビューアを閉じる等）へ戻すだけ。
+      // 送るものが無かった回だけ、関所の×をここで扱う
+      finishGate(kept.length > 0 ? { closeAfter: gate.closeAfter } : gate);
     } catch (e) {
       // **一部だけ成功していることがある**（消せたぶんはDBから落ちている）。
       // 画面は取り直し、**印は残す**——残っている写真をもう一度確かめられる
