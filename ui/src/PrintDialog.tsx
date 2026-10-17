@@ -61,7 +61,7 @@ export function PrintDialog({
       <div
         className="file-info-dialog print-dialog"
         role="dialog"
-        aria-label={t.printTitle}
+        aria-label={sheet ? t.printSheetTitle(sheetCount) : t.printTitle}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="print-dialog-title">

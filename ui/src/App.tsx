@@ -4269,6 +4269,21 @@ export default function App() {
   // 幕を開いたときにフォーカスを持っていた後ろの要素（inert にするとフォーカスが外れる）。閉じたら戻す——戻さないと
   // フォーカスが <body> へ落ち、Tab が先頭からになる（ゲート2）
   const focusBeforeCurtainRef = useRef<HTMLElement | null>(null);
+  /**
+   * ビューアの外枠。開いたとき・上の幕（情報・ボツの確認…）を閉じてビューアへ戻ったときに、フォーカスをここへ
+   * 移す——後ろは inert なので、移さないと <body> に残り、読み上げがビューアの名前を読まない（win の実測、
+   * pictkura-dev #65）
+   */
+  const viewerRootRef = useRef<HTMLDivElement>(null);
+  const viewerOpen = viewer !== null;
+  useEffect(() => {
+    if (!viewerOpen || curtainUp) return;
+    const active = document.activeElement;
+    const root = viewerRootRef.current;
+    if (root && (!active || active === document.body || !root.contains(active))) {
+      root.focus({ preventScroll: true });
+    }
+  }, [viewerOpen, curtainUp]);
   useLayoutEffect(() => {
     if (backgroundInert) {
       if (focusBeforeCurtainRef.current === null) {
@@ -8275,6 +8290,8 @@ export default function App() {
           // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が
           // 出たら、ビューアも後ろとして inert にする
           {...inertWhen(curtainUp)}
+          ref={viewerRootRef}
+          tabIndex={-1}
           role="dialog"
           aria-label={viewerItem?.file_name ?? t.appName}
           style={

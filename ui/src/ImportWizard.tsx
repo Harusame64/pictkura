@@ -439,6 +439,12 @@ export default function ImportWizard({
   });
 
   const titleId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
+  // 開いたら幕の中へフォーカスを移す（後ろは inert なので、そのままでは <body> に残り、読み上げが幕の名前を
+  // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (isOpen) dialogRef.current?.focus({ preventScroll: true });
+  }, [isOpen]);
   if (!isOpen) return null;
 
   const toggle = (path: string) => {
@@ -665,6 +671,8 @@ export default function ImportWizard({
     <div className="palette-backdrop" onClick={() => !busy && onClose()}>
       <div
         className="wizard"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}

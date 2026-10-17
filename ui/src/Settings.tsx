@@ -289,6 +289,12 @@ export default function Settings({
   }, [open]);
 
   const titleId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
+  // 開いたら幕の中へフォーカスを移す（後ろは inert なので、そのままでは <body> に残り、読み上げが幕の名前を
+  // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open) dialogRef.current?.focus({ preventScroll: true });
+  }, [open]);
   if (!open) return null;
 
   /** 送り出しの設定を1つ変える。断られたら理由をこの節に出す */
@@ -342,6 +348,8 @@ export default function Settings({
     <div className="palette-backdrop" onClick={closeDialog}>
       <div
         className="settings"
+        ref={dialogRef}
+        tabIndex={-1}
         // 名前のある窓として見せる（UI Automation の Window。pictkura-dev #65）
         role="dialog"
         aria-labelledby={titleId}

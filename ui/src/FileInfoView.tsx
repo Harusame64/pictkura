@@ -147,7 +147,8 @@ export function FileInfoDialog({
       <div
         className="file-info-dialog"
         role="dialog"
-        aria-label={t.fileInfoTitle}
+        // 窓の名前は「情報」（`fileInfoTitle` は中の節の見出し「ファイル」。win の実測、pictkura-dev #65）
+        aria-label={t.menuInfo}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 名前の順に並べる（組の RAW と JPEG が組ごとに逆の順で並んでいた。win の実機、2026-10-16）。
