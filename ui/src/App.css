@@ -136,11 +136,11 @@ body {
   color: var(--text-faint);
   font-size: var(--fs-sm);
   white-space: nowrap;
-  /* 細い窓では縮んで省略する（ほかの部品を押し出さない。全文は title で読める）。省略記号はブロックの
-     中でしか出ないので、文字は内側の `.bg-text` に入れる（ゲート2） */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 28ch;
+  /* 中身は短い形だけ（「残り n」「更新中」。全文は title）なので縮めない——縮めると最小幅で数まで省略された
+     （win の実機）。万一長い訳が来ても押し出さないよう上限と省略は残す。省略記号はブロックの中でしか出ないので、
+     文字は内側の `.bg-text` に入れる（ゲート2） */
+  flex: none;
+  max-width: 16ch;
   font-variant-numeric: tabular-nums;
 }
 .bg-text {
