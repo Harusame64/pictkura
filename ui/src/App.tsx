@@ -6092,11 +6092,13 @@ export default function App() {
         img.complete &&
         img.naturalWidth > 0
       ) {
-        // 一度見た写真は届いた絵の実寸で（DB の寸法が小さい形式がある。GR III の DNG は 720x480 と名乗って 6000x4000）
-        const to = viewerBox(
-          naturalRef.current.get(opened.id) ?? servedSize(opened),
-          infoReserve,
-        );
+        // 一度見た写真は届いた絵の実寸で（DB の寸法が小さい形式がある。GR III の DNG は 720x480 と名乗って 6000x4000）。
+        // **縦横が DB と食い違う実寸は使わない**——覚えた実寸は id でしか引かないので、見た後に回すと回す前の
+        // 縦横が残り、縦になった写真が横の箱へ広がってから跳ねる（PR の codex）
+        const known = naturalRef.current.get(opened.id);
+        const db = servedSize(opened);
+        const size = known && known[0] > known[1] === db[0] > db[1] ? known : db;
+        const to = viewerBox(size, infoReserve);
         setTileZoom(
           to
             ? {
