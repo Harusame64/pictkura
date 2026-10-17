@@ -5986,12 +5986,13 @@ export default function App() {
       const ids = new Set(items.map((it) => it.id));
       // 一覧からのまとめて削除と**同じ鍵**を使う。1枚と数千枚が同時に走ると、
       // 進捗イベントもステータスも混ざる（ゲート1の指摘）
-      if (deletingRef.current) return;
-      // 別の削除・移動が走っていれば、確かめる前に断る（同時に1本だけ。確かめさせてから断らない）
+      // 別の削除・移動が走っていれば、確かめる前に断る（同時に1本だけ。確かめさせてから断らない）。
+      // **二度押しの鍵より先に見る**——一覧の削除の最中は鍵も立っていて、先に見ると黙って何も起きなかった（win）
       if (fileOpRef.current) {
         fail(t.fileOpBusy);
         return;
       }
+      if (deletingRef.current) return;
       deletingRef.current = true;
       try {
         // 重ねのタイルは1枚に見えて複数ファイル——数を言う（dev #32）
@@ -6229,11 +6230,11 @@ export default function App() {
    * **即座に効くのはrefだけ**。
    */
   const onBulkDelete = useCallback(async () => {
-    if (deletingRef.current) return;
     if (fileOpRef.current) {
       fail(t.fileOpBusy);
       return;
     }
+    if (deletingRef.current) return;
     deletingRef.current = true;
     setBusy(true);
     try {
@@ -6421,11 +6422,11 @@ export default function App() {
       // **確認とフォルダ選択を待つ前に鍵を掛ける**。ボタンの非活性は
       // `busy` の反映（次のレンダー）を待つので、続けて2回押されると
       // 2本ともダイアログまで進んでしまう。refなら即座に効く
-      if (exportingRef.current) return;
       if (fileOpRef.current) {
         fail(t.fileOpBusy);
         return;
       }
+      if (exportingRef.current) return;
       exportingRef.current = true;
       setBusy(true);
       try {
