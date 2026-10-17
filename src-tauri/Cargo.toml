@@ -90,6 +90,16 @@ windows-sys = { version = "0.60", features = [
     "Win32_Globalization",
     "Win32_System_SystemServices",
 ] }
+# エクスプローラーと同じ右クリックのメニュー（`shell_menu.rs`、ADR B-4）。`IContextMenu` は COM なので、
+# ラッパのある windows クレートを使う（pictkura-core と同じ版。新しくビルドされるものは無い）
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 # マウントの旗（`MNT_DONTBROWSE`）を読むための `statfs`。sysinfo は旗を返さない。
 # Tauri が既に同じ版を引いているので、依存は増えても新しくビルドされない

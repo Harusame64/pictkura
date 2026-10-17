@@ -413,6 +413,8 @@ export const ja = {
   menuOpenWith: (name: string) => `${name} で開く`,
   menuOpenWithOther: "他のアプリで開く…",
   menuReveal: "ファイルの場所を開く",
+  // Windows 11 のエクスプローラーの同じ項目と同じ言葉（ADR B-4。Microsoft のサポートページで確かめた）
+  menuMoreOptions: "その他のオプションを表示",
   menuCopyImage: "画像をクリップボードへコピー",
   menuRotateRight: "右に回転",
   menuRotateLeft: "左に回転",
@@ -429,6 +431,7 @@ export const ja = {
   printGo: "印刷画面へ",
   printPreparing: "印刷の準備をしています…",
   errPrint: "印刷用の画像を用意できませんでした。",
+  errShellMenu: "エクスプローラーのメニューを出せませんでした。",
   menuDelete: "削除（ゴミ箱へ）",
   menuInfo: "情報",
   fileInfoTitle: "ファイル",

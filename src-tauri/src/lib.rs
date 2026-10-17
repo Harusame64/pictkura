@@ -31,6 +31,9 @@ mod autoplay;
 mod camera_signal;
 // 画面に出す失敗に辞書の鍵を付ける（完成度週間の項目3）
 mod errs;
+// エクスプローラーと同じ右クリックのメニュー（ADR B-4）。Windows だけ
+#[cfg(windows)]
+mod shell_menu;
 // メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
@@ -2622,6 +2625,62 @@ fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
 fn open_default(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     let path = path_of(&state, id)?;
     tauri_plugin_opener::open_path(&path, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// エクスプローラーと同じ右クリックのメニューを、窓の中の `x`・`y`（CSS ピクセル）に出す（ADR B-4。
+/// Windows だけ）。選ばれた項目はシェルが走らせ、閉じたら戻る。中身が変わったファイルは見張りが拾う。
+///
+/// `ids` の先頭は右クリックした写真。シェルのメニューは1つのフォルダの中でしか組めないので、それと
+/// 違うフォルダのものは外す
+#[cfg(windows)]
+#[tauri::command]
+async fn show_shell_menu(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    ids: Vec<i64>,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    // `State<'_>` を引数に取ると、async のコマンドでは Tauri のマクロが `unreachable!` を出して clippy が落ちる
+    // （ほかの async のコマンドと同じく `AppHandle` から読む）
+    let state = app.state::<AppState>();
+    let mut paths = ids
+        .iter()
+        .map(|&id| path_of(&state, id))
+        .collect::<Result<Vec<_>, _>>()?;
+    // 連写の束はフォルダをまたぐことがある（`stacks.ts` はフォルダで分けない）。そのときは押した写真
+    // （先頭）と同じフォルダのものだけにする——ほかのフォルダのコマはこのメニューでは扱えない
+    let dir = paths
+        .first()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf);
+    paths.retain(|p| p.parent() == dir.as_deref());
+    // 窓の中の点を画面の点へ。中身の左上（物理ピクセル）に、倍率を掛けた点を足す
+    let origin = window.inner_position().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let at = (
+        origin.x + (x * scale).round() as i32,
+        origin.y + (y * scale).round() as i32,
+    );
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let r = shell_menu::show(windows::Win32::Foundation::HWND(hwnd as _), &paths, at);
+        let _ = tx.send(r);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.await.map_err(|e| e.to_string())?.map_err(|e| {
+        // 画面に出した失敗は記録にも残す（errs.rs の決まり）。壊れた拡張を後から追えるように
+        applog::note(&format!("could not show the Explorer menu: {e}"));
+        errs::coded("errShellMenu", e)
+    })
+}
+
+/// 画面は Windows でしか出さない（`platform === "windows"`）。呼ばれたら断る
+#[cfg(not(windows))]
+#[tauri::command]
+fn show_shell_menu(_ids: Vec<i64>, _x: f64, _y: f64) -> Result<(), String> {
+    Err(errs::code("errShellMenu"))
 }
 
 /// エクスプローラー／Finderでファイルの場所を開き、その項目を選択する。
@@ -7324,6 +7383,7 @@ pub fn run() {
             open_log,
             log_path,
             open_with,
+            show_shell_menu,
             forget_editor,
             delete_media,
             list_folder_patterns,
