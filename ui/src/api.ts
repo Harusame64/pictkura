@@ -161,19 +161,6 @@ export interface DeleteProgress {
 }
 
 /** 起動時同期の⚡爆速メーター（startup-scan-reportイベントのペイロード） */
-export interface StartupScanReport {
-  /** 同期方式: USNジャーナル差分 / mtime枝刈り / フルスキャン */
-  method: "usn" | "pruned" | "full";
-  elapsed_ms: number;
-  added: number;
-  changed: number;
-  removed: number;
-  usn_records: number;
-  dirty_dirs: number;
-  skipped_dirs: number;
-  total: number;
-}
-
 export interface AppConfig {
   import: {
     last_source_dir: string | null;
@@ -564,8 +551,6 @@ export const isTemporaryFolder = (path: string) =>
 export const temporaryLibraryRoots = () =>
   invoke<string[]>("temporary_library_roots");
 
-export const getStartupReport = () =>
-  invoke<StartupScanReport | null>("get_startup_report");
 /** 起動時同期の**終わり方**。「終わった」だけでは足りない——転んで終わったのに
  *  同じ合図を出すと、取り込めていないだけのライブラリを「空」と断定する */
 export interface StartupDone {
@@ -575,9 +560,6 @@ export interface StartupDone {
 }
 /**
  * 起動時の同期が**終わったか**、そして**どう終わったか**。
- *
- * `getStartupReport` では代わりにならない——走査が落ちたときは報告が
- * 一度も出ないので、`null` が「まだ走っている」と見分けられない
  */
 export const startupScanFinished = () =>
   invoke<StartupDone>("startup_scan_finished");

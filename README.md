@@ -276,7 +276,7 @@ beside it removes it; no photos are deleted). For other folders, or if nothing w
 > them ([details](#caveats-and-known-gaps)).
 
 > From the second launch onwards, pictkura reads the NTFS change journal and only visits
-> **files that changed since last time**. A ⚡ line at the bottom of the window shows how much it skipped.
+> **files that changed since last time**.
 > Folders on a USB drive or SD card (FAT32 or exFAT) are walked in full on every launch, and while the
 > library has one, the other folders are checked without the journal too.
 

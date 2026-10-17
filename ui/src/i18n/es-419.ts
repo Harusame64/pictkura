@@ -137,8 +137,6 @@ export const es419: Dict = {
     `${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   drivesReturnedScanned: (added: number, changed: number) =>
     `Se han vuelto a leer las carpetas de la unidad conectada (${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")})`,
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${num(added)} ${one(added, "agregada", "agregadas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   bulkFavoriteDone: (n: number) =>
     n === 1 ? "1 foto agregada a Favoritos" : `${num(n)} fotos agregadas a Favoritos`,
   rootTempConfirm: (path: string) =>

@@ -235,8 +235,7 @@ test("件数が桁区切りを通ること", () => {
  *   1度は考えることになる
  *
  * **載っていない ＝ 壊れている、ではない。** `photosCount`（数だけ）・
- * `importing`（`3/10` の分数）・`en.speedDiff`（`1 added` は英語として正しい）・
- * `de.speedPruned`（`Ordner` は単複同形）のように、変わらないのが正解のものがある。
+ * `importing`（`3/10` の分数）のように、変わらないのが正解のものがある。
  * 到達しないものもある（`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に）。
  */
 const INFLECTS: Record<string, string[]> = {
@@ -259,10 +258,6 @@ const INFLECTS: Record<string, string[]> = {
     "bulkUnfavoriteDone:0",
     "rootMissingNotice:1",
     "rootsMissingNotice:1",
-    "speedUsnDirty:0",
-    "speedUsnDirty:1",
-    "speedPruned:0",
-    "speedFull:0",
     "googleSendSummary:0",
     "googleSendSummary:1",
     "googleSendSummary:2",
@@ -298,8 +293,6 @@ const INFLECTS: Record<string, string[]> = {
     "importGoogleFailed:0",
     "rootMissingNotice:1",
     "rootsMissingNotice:1",
-    "speedUsnDirty:0",
-    "speedFull:0",
     "googleSendSummary:0",
     "googleSendSummary:1",
     "googleSendSummary:2",
@@ -349,13 +342,6 @@ const INFLECTS: Record<string, string[]> = {
     "importGoogleFailed:0",
     "rootMissingNotice:1",
     "rootsMissingNotice:1",
-    "speedUsnDirty:0",
-    "speedUsnDirty:1",
-    "speedPruned:0",
-    "speedFull:0",
-    "speedDiff:0",
-    "speedDiff:1",
-    "speedDiff:2",
     "googleSendSummary:0",
     "googleSendSummary:1",
     "googleSendSummary:2",
@@ -409,13 +395,6 @@ const INFLECTS: Record<string, string[]> = {
     "importGoogleFailed:0",
     "rootMissingNotice:1",
     "rootsMissingNotice:1",
-    "speedUsnDirty:0",
-    "speedUsnDirty:1",
-    "speedPruned:0",
-    "speedFull:0",
-    "speedDiff:0",
-    "speedDiff:1",
-    "speedDiff:2",
     "googleSendSummary:0",
     "googleSendSummary:1",
     "googleSendSummary:2",
@@ -603,7 +582,7 @@ const SAME_AS_EN: Record<string, string[]> = {
 test("英語からの丸写しが無いこと", () => {
   // **関数のキーも見る**（2026-09-02、ゲート2の指摘）。文字列だけを比べていたが、
   // **桁区切りが抜けていた36キーは全部が関数**で、いちばん写されやすいのもそちら。
-  // 呼んで出力で比べれば、英語の `speedFull` をそのまま写した7つ目の辞書がここで止まる
+  // 呼んで出力で比べれば、英語の関数をそのまま写した7つ目の辞書がここで止まる
   const e = en as Any;
   const rendered = (d: Any, k: string): string | null => {
     if (typeof e[k] === "string") return (e[k] as string).length > 1 ? (d[k] as string) : null;

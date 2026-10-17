@@ -612,17 +612,6 @@ export const zh: Dict = {
   filterCondQuery: (q: string) => `搜索词“${q}”`,
   filterCondCamera: (name: string) => `用 ${name} 拍的`,
   filterEmptyClearSearch: "清除搜索",
-  // ⚡爆速メーター
-  speedPrefix: (sec: string) => `⚡ ${sec} 秒完成启动检查 —— `,
-  speedUsn: "USN 日志差分：",
-  speedUsnNoChange: "没有变更，没有遍历文件夹",
-  speedUsnDirty: (records: number, dirs: number) =>
-    `${num(records)} 条日志 → 只重新遍历了 ${num(dirs)} 个文件夹`,
-  speedPruned: (skipped: number) => `剪枝扫描：跳过了 ${num(skipped)} 个文件夹`,
-  speedFull: (total: number) => `全量扫描（${num(total)} 个文件）`,
-  speedNoDiff: " —— 没有变更",
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` —— 新增 ${num(added)}、变更 ${num(changed)}、删除 ${num(removed)}`,
   errGoogleOverlapsRoot: "不能选择图库文件夹、其中的文件夹或包含它的文件夹。",
   errGoogleInsideSync: "不能选择同步文件夹（OneDrive、Google 云端硬盘、Dropbox、iCloud 云盘等）中的位置。",
   errGoogleNoHardLinks: "这个磁盘不能放（exFAT、FAT 等无法创建硬链接）。",

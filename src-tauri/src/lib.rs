@@ -80,14 +80,9 @@ struct AppState {
     /// サムネイル配信のタッチ記録（id→利用時刻ms）。LRUの鮮度情報として
     /// メモリに集約し、ジャニターが定期的にDBへフラッシュする（段階B-3）
     thumb_touches: Mutex<HashMap<i64, i64>>,
-    /// 起動時同期の⚡爆速メーター。USN差分は数msで終わり、Webviewの
-    /// リスナー登録より先にイベントが発火して取りこぼされるため、
-    /// ここに保持してフロントがマウント後にコマンドで取りにも来られるようにする
-    startup_report: Mutex<Option<StartupScanDto>>,
     /// 起動時の同期が**終わったか**（成功・失敗・パニックのどれでも真）。
     ///
-    /// `startup_report` では代わりにならない: 走査が `Err` で早く返ったときや
-    /// パニックを `panics::catching` が拾ったときは、報告が**一度も出ない**。
+    /// 走査が `Err` で早く返ったときやパニックを `panics::catching` が拾ったときも真になる。
     /// フロントは「走査が続いている間は空だと言わない」ので、**終わったことを
     /// 別に知らせないと永久に無言**になる（ゲート2の指摘）。
     /// イベントを取りこぼしたフロントが後から聞けるよう、旗としても置く
@@ -884,35 +879,6 @@ fn scan_and_apply(state: &AppState, full: bool) -> Result<SyncStats, String> {
     Ok(stats)
 }
 
-/// 起動時同期の方式（爆速メーターの表示用）。
-enum StartupMethod {
-    /// USNジャーナル差分（処理レコード数・ダーティディレクトリ数）
-    Usn { records: usize, dirty: usize },
-    /// ディレクトリmtime枝刈りスキャン
-    Pruned,
-    /// フルスキャン（初回・設定変更後）
-    Full,
-}
-
-/// 起動時同期の結果をフロントへ知らせる「⚡爆速メーター」のDTO。
-#[derive(serde::Serialize, Clone)]
-struct StartupScanDto {
-    /// "usn" | "pruned" | "full"
-    method: String,
-    elapsed_ms: u64,
-    added: usize,
-    changed: usize,
-    removed: usize,
-    /// usn: 処理したジャーナルレコード数
-    usn_records: usize,
-    /// usn: 再走査したダーティディレクトリ数
-    dirty_dirs: usize,
-    /// 枝刈り: ファイル列挙をスキップしたディレクトリ数
-    skipped_dirs: usize,
-    /// ライブラリ総数
-    total: i64,
-}
-
 /// 綴りを照合の形へ畳む。**バイト長を変えない**
 /// （畳んだ文字列上の位置で、元の文字列をそのまま切り出すため）。
 ///
@@ -1151,7 +1117,7 @@ fn rebase_windows(path: &Path, specs: &[RootSpec]) -> Option<PathBuf> {
 /// USNジャーナルの差分だけでライブラリを追従させる（段階B-1の最速パス）。
 /// 全ルートのボリュームで差分が成立した場合のみ Some を返す。
 /// None ならフォールバック（枝刈り/フルスキャン）が必要。
-fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize)> {
+fn try_usn_sync(db: &mut Db, config: &Config) -> Option<SyncStats> {
     let roots = &config.library.roots;
     if roots.is_empty() {
         return None;
@@ -1166,7 +1132,6 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
     let volumes = volumes_of_roots(roots)?;
     let mut dirty_dirs: Vec<PathBuf> = Vec::new();
     let mut positions: Vec<(String, UsnPosition)> = Vec::new();
-    let mut records = 0usize;
     for volume in &volumes {
         let stored = db
             .get_meta(&usn_meta_key(volume))
@@ -1175,7 +1140,6 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
             .and_then(|s| UsnPosition::from_meta(&s));
         match usn::read_changes_since(volume, stored.as_ref()) {
             UsnOutcome::Delta(delta) => {
-                records += delta.record_count;
                 positions.push((volume.clone(), delta.position));
                 dirty_dirs.extend(delta.dirty_dirs);
             }
@@ -1202,7 +1166,6 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
         .filter(|dir| !package_roots.iter().any(|root| dir.starts_with(root)))
         .filter(|dir| seen_dirty.insert(dir.clone()))
         .collect();
-    let dirty_count = dirty_dirs.len();
 
     let stats = if dirty_dirs.is_empty() {
         SyncStats::default() // 変更なし: ファイルシステムを一切歩かない最速パス
@@ -1231,11 +1194,11 @@ fn try_usn_sync(db: &mut Db, config: &Config) -> Option<(SyncStats, usize, usize
     for (volume, position) in positions {
         let _ = db.set_meta(&usn_meta_key(&volume), &position.to_meta());
     }
-    Some((stats, records, dirty_count))
+    Some(stats)
 }
 
 /// 起動時同期: USNジャーナル差分 → mtime枝刈り → フルの順で最速の方式を選ぶ。
-fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> {
+fn startup_scan(state: &AppState) -> Result<SyncStats, String> {
     let _scan_guard = lock_ok(&state.scan_lock);
     let config = lock_ok(&state.config).clone();
     let fingerprint = scan_fingerprint(&config);
@@ -1251,9 +1214,9 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
         db.get_meta("scan_fingerprint").ok().flatten().as_deref() == Some(fingerprint.as_str());
 
     if fingerprint_ok {
-        if let Some((stats, records, dirty)) = try_usn_sync(&mut db, &config) {
+        if let Some(stats) = try_usn_sync(&mut db, &config) {
             enqueue_missing_thumbs(state);
-            return Ok((stats, StartupMethod::Usn { records, dirty }));
+            return Ok(stats);
         }
     }
 
@@ -1276,11 +1239,6 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
     };
     // FAT32・exFAT の上のルートは枝刈りしない（dev #37）
     drop_untrusted_known_dirs(&mut known_dirs, &config.library.roots);
-    let method = if known_dirs.is_empty() {
-        StartupMethod::Full
-    } else {
-        StartupMethod::Pruned
-    };
     let scan = pictkura_core::scan_library_pruned(&config, &known_dirs);
     remember_unreadable(state, &scan.outcome, &config.library.roots);
     let stats = pictkura_core::apply_scan(&mut db, &scan).map_err(errs::from_err)?;
@@ -1300,7 +1258,7 @@ fn startup_scan(state: &AppState) -> Result<(SyncStats, StartupMethod), String> 
         }
     }
     enqueue_missing_thumbs(state);
-    Ok((stats, method))
+    Ok(stats)
 }
 
 /// タイムライン索引: 「日付→枚数」のサマリを新しい日付順で返す。
@@ -3580,12 +3538,6 @@ fn list_memories(state: tauri::State<'_, AppState>) -> Result<Vec<MemoryDto>, St
         .collect())
 }
 
-/// 起動時同期の⚡爆速メーターを返す（イベント取りこぼし時のフォールバック）。
-#[tauri::command]
-fn get_startup_report(state: tauri::State<'_, AppState>) -> Option<StartupScanDto> {
-    lock_ok(&state.startup_report).clone()
-}
-
 /// 起動時の同期の**終わり方**。
 #[derive(serde::Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
@@ -3600,7 +3552,6 @@ struct StartupDoneDto {
 /// 起動時の同期が終わったか、そして**どう終わったか**。
 /// **イベントを取りこぼしたフロント用**。
 ///
-/// [`get_startup_report`] とは別に要る——報告が出ないまま終わる道があるため
 /// （`AppState::startup_done` の説明）。
 #[tauri::command]
 fn startup_scan_finished(state: tauri::State<'_, AppState>) -> StartupDoneDto {
@@ -6785,7 +6736,6 @@ pub fn run() {
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
                 thumb_touches: Mutex::new(HashMap::new()),
-                startup_report: Mutex::new(None),
                 startup_done: std::sync::atomic::AtomicBool::new(false),
                 scan_unreadable: Mutex::new(ScanUnreadable::default()),
                 startup_failed: std::sync::atomic::AtomicBool::new(false),
@@ -7209,8 +7159,7 @@ pub fn run() {
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
             rebuild_watcher(app.handle());
 
-            // 起動時にバックグラウンドでライブラリを同期し、完了をフロントへ通知する。
-            // 方式（USN差分/枝刈り/フル）と所要時間は⚡爆速メーターとして別途知らせる
+            // 起動時にバックグラウンドでライブラリを同期し、完了をフロントへ通知する
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let inner = handle.clone();
@@ -7223,32 +7172,13 @@ pub fn run() {
                 // `None` にして飲むので、`Err` で早く返った道と合わせて
                 // 「転んだ」を1つの値にまとめる（下で旗と合図に載せる）
                 let finished_well = pictkura_core::panics::catching("startup sync", move || {
-                    let started = std::time::Instant::now();
                     let state = inner.state::<AppState>();
-                    let Ok((stats, method)) = startup_scan(&state) else {
+                    // ふだんの起動は何も言わない・何も書かない（dev #57、利用者 2026-10-17）。
+                    // 読めないフォルダや転んだ起動は、それぞれの知らせと記録が受け持つ
+                    let Ok(stats) = startup_scan(&state) else {
                         return false;
                     };
-                    let elapsed_ms = started.elapsed().as_millis() as u64;
-                    let total = state.read_pool.with(|db| db.count()).unwrap_or(0);
-                    let (method_name, usn_records, dirty_dirs) = match method {
-                        StartupMethod::Usn { records, dirty } => ("usn", records, dirty),
-                        StartupMethod::Pruned => ("pruned", 0, 0),
-                        StartupMethod::Full => ("full", 0, 0),
-                    };
-                    let report = StartupScanDto {
-                        method: method_name.into(),
-                        elapsed_ms,
-                        added: stats.added,
-                        changed: stats.changed,
-                        removed: stats.removed,
-                        usn_records,
-                        dirty_dirs,
-                        skipped_dirs: stats.skipped_dirs,
-                        total,
-                    };
-                    *lock_ok(&state.startup_report) = Some(report.clone());
                     let _ = inner.emit("library-updated", SyncStatsDto::from(stats));
-                    let _ = inner.emit("startup-scan-report", report);
                     // 走査を知らせたあと、**別のスレッドで**（起動の完了を待たせない。ここで転んでも
                     // 起動の失敗にしない。ゲート2）
                     let retry_app = inner.clone();
@@ -7345,7 +7275,6 @@ pub fn run() {
             list_day,
             list_memories,
             get_stats,
-            get_startup_report,
             startup_scan_finished,
             sync_now,
             add_library_root,

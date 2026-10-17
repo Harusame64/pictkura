@@ -615,17 +615,6 @@ export const zhHant: Dict = {
   filterCondQuery: (q: string) => `搜尋字詞「${q}」`,
   filterCondCamera: (name: string) => `用 ${name} 拍的`,
   filterEmptyClearSearch: "清除搜尋",
-  // ⚡爆速メーター
-  speedPrefix: (sec: string) => `⚡ ${sec} 秒完成啟動檢查 —— `,
-  speedUsn: "USN 日誌差異：",
-  speedUsnNoChange: "沒有變更，沒有走訪資料夾",
-  speedUsnDirty: (records: number, dirs: number) =>
-    `${num(records)} 筆日誌 → 只重新走訪了 ${num(dirs)} 個資料夾`,
-  speedPruned: (skipped: number) => `剪枝掃描：略過了 ${num(skipped)} 個資料夾`,
-  speedFull: (total: number) => `完整掃描（${num(total)} 個檔案）`,
-  speedNoDiff: " —— 沒有變更",
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` —— 新增 ${num(added)}、變更 ${num(changed)}、刪除 ${num(removed)}`,
   errGoogleOverlapsRoot: "不能選擇圖庫資料夾、其中的資料夾或包含它的資料夾。",
   errGoogleInsideSync: "不能選擇同步資料夾（OneDrive、Google 雲端硬碟、Dropbox、iCloud 雲碟等）中的位置。",
   errGoogleNoHardLinks: "這個磁碟不能放（exFAT、FAT 等無法建立硬連結）。",

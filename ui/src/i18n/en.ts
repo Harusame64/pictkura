@@ -560,18 +560,6 @@ export const en: Dict = {
   filterCondQuery: (q: string) => `the search “${q}”`,
   filterCondCamera: (name: string) => `taken with ${name}`,
   filterEmptyClearSearch: "Clear search",
-  speedPrefix: (sec: string) => `⚡ Startup check in ${sec}s — `,
-  speedUsn: "USN journal delta: ",
-  speedUsnNoChange: "no changes, no folders walked",
-  speedUsnDirty: (records: number, dirs: number) =>
-    `${num(records)} journal ${one(records, "record", "records")} → rescanned only ${num(dirs)} ${one(dirs, "folder", "folders")}`,
-  speedPruned: (skipped: number) =>
-    `pruned scan: skipped ${num(skipped)} ${one(skipped, "folder", "folders")}`,
-  speedFull: (total: number) =>
-    `full scan (${num(total)} ${one(total, "file", "files")})`,
-  speedNoDiff: " — no changes",
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` — ${num(added)} added, ${num(changed)} changed, ${num(removed)} removed`,
   errGoogleOverlapsRoot: "You can’t choose a library folder, a folder inside one, or a folder that contains one.",
   errGoogleInsideSync: "You can’t choose a place inside a sync folder (OneDrive, Google Drive, Dropbox, iCloud Drive and the like).",
   errGoogleNoHardLinks: "This drive can’t hold it (exFAT, FAT and similar can’t make hard links).",

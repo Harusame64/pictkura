@@ -661,17 +661,6 @@ export const ja = {
   filterCondQuery: (q: string) => `検索語「${q}」`,
   filterCondCamera: (name: string) => `${name} で撮ったもの`,
   filterEmptyClearSearch: "検索を消す",
-  // ⚡爆速メーター
-  speedPrefix: (sec: string) => `⚡ ${sec}秒で起動チェック — `,
-  speedUsn: "USNジャーナル差分: ",
-  speedUsnNoChange: "変更ゼロ、フォルダ走査なし",
-  speedUsnDirty: (records: number, dirs: number) =>
-    `${num(records)}件のログ → ${num(dirs)}フォルダだけ再走査`,
-  speedPruned: (skipped: number) => `枝刈りスキャン: ${num(skipped)}フォルダをスキップ`,
-  speedFull: (total: number) => `フルスキャン（${num(total)}件）`,
-  speedNoDiff: " ／ 変更なし",
-  speedDiff: (added: number, changed: number, removed: number) =>
-    ` ／ 追加${num(added)}・変更${num(changed)}・削除${num(removed)}`,
   // ===== Rust から届く失敗（`errs.rs` の鍵と一対一）=====
   //
   // **詳細（パス・OSの文言）は訳さずに後ろへ添える**（`i18n/err.ts`）。
