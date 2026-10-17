@@ -62,14 +62,15 @@ test("progress after the op has answered is not written", async () => {
 });
 
 test("a call that ends does not fold a newer call's share of the line", async () => {
-  const s = statusLine();
+  // 空でない行から始める——書き込みが落ちても空のままでは、通ったのか落ちたのか見分けられない
+  const s = statusLine("Copied");
   const line = { current: idleLine() };
   let releaseFirst!: () => void;
   const first = withProgressLine(line, s.set, () => new Promise<void>((r) => (releaseFirst = r)));
   const second = withProgressLine(line, s.set, async () => {
     releaseFirst();
     await first;
-    writeProgress(line, s.set, "Moving… (5 / 9)");
+    assert.equal(writeProgress(line, s.set, "Moving… (5 / 9)"), true);
     throw new Error("x");
   });
   await assert.rejects(second);
