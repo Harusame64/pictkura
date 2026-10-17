@@ -11,6 +11,7 @@ import {
   filesOf,
   selectRangeOverTiles,
   selectionTilesOf,
+  dropVanished,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -525,4 +526,20 @@ test("選んだ時点のタイル: 読めている日は今の組み方で覚え
   // 重ね方の設定が変わったら、呼ぶ側が前の記憶を捨てて渡す（空の prev）: 間引かれた日は数えない
   const tiles4 = selectionTilesOf([1, 2], new Map(), new Set(), new Map());
   assert.equal(countPhotos([1, 2], tiles4, tiles4), null);
+});
+
+test("a file deleted outside pictkura leaves the selection (dev #45)", () => {
+  const prev = new Set([1, 2, 3]);
+  const next = dropVanished(prev, [1, 2, 3], [1, 3]);
+  assert.deepEqual([...next], [1, 3]);
+});
+
+test("ids picked while the check was out are kept, and nothing gone means the same set", () => {
+  // 4 は訊いたあとで選び足した
+  assert.deepEqual([...dropVanished(new Set([1, 2, 4]), [1, 2], [1])], [1, 4]);
+  const prev = new Set([1, 2]);
+  assert.equal(dropVanished(prev, [1, 2], [1, 2]), prev);
+  // 消えたものがもう選択に無ければ（その間に外した）、同じ集合のまま
+  const now = new Set([1]);
+  assert.equal(dropVanished(now, [1, 2], [1]), now);
 });

@@ -392,3 +392,19 @@ export function selectionTilesOf(
   }
   return out;
 }
+
+/**
+ * 外で消えたファイルを選択から外す（dev #45）。`asked` は存在を訊いたID、`alive` はそのうち残っていたもの。
+ * **訊いていないID（訊いている間に選び足したもの）には触らない。** 何も外れなければ `prev` をそのまま返す
+ * （同じ値なら React が描き直さない）
+ */
+export function dropVanished(
+  prev: ReadonlySet<number>,
+  asked: readonly number[],
+  alive: readonly number[],
+): ReadonlySet<number> {
+  const gone = new Set(asked);
+  for (const id of alive) gone.delete(id);
+  if (![...gone].some((id) => prev.has(id))) return prev;
+  return new Set([...prev].filter((id) => !gone.has(id)));
+}

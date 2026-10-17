@@ -123,6 +123,7 @@ import {
   filesOf,
   selectRangeOverTiles,
   selectionTilesOf,
+  dropVanished,
   stackMembersIndex,
   pairAwareScope,
   stacksOfDay,
@@ -1334,6 +1335,19 @@ export default function App() {
       const f = await listen("library-updated", () => {
         reloadAll().catch((e) => fail(errText(e)));
         refreshCameras();
+        // 外で消えたファイルを選択から外す（dev #45）。残すと選択の帯が、もう一覧に無いタイルを
+        // 数え続けて閉じない。絞り込みなしで訊く——★を外した等で今の絞り込みから外れただけのものは
+        // 選択に残す（一括操作の直前の確認が受け持つ）。訊いている間に選び足したものには触らない
+        const asked = [...selectedRef.current];
+        if (asked.length > 0) {
+          visibleMediaIds("", "all", asked)
+            .then((alive) => {
+              if (alive.length < asked.length) {
+                setSelected((prev) => dropVanished(prev, asked, alive));
+              }
+            })
+            .catch(() => {});
+        }
         // クラウド判定の覚えも捨てる。OneDriveは「空き容量を増やす」で
         // 実体を後から退避するので、古い「ローカルにある」を信じない
         cloudOnlyRef.current.clear();
