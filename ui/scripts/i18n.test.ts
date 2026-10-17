@@ -240,6 +240,8 @@ test("件数が桁区切りを通ること", () => {
  */
 const INFLECTS: Record<string, string[]> = {
   en: [
+    "printSheetTitle:0",
+    "printSkipped:0",
     "itemsCount:0",
     "memoriesTitle:0",
     "rejectGateTitle:0",
@@ -265,6 +267,8 @@ const INFLECTS: Record<string, string[]> = {
     "googleSentLeftOut:0",
   ],
   de: [
+    "printSheetTitle:0",
+    "printSkipped:0",
     "itemsCount:0",
     "memoriesTitle:0",
     "rejectGateTitle:0",
@@ -301,6 +305,8 @@ const INFLECTS: Record<string, string[]> = {
     "googleRemoveFailed:0",
   ],
   es: [
+    "printSheetTitle:0",
+    "printSkipped:0",
     "itemsCount:0",
     "memoriesTitle:0",
     "rejectGateTitle:0",
@@ -357,6 +363,8 @@ const INFLECTS: Record<string, string[]> = {
   ],
   // **中南米版は本国と同じ活用**（差分は語彙だけで、単複の作りは変えていない）
   "es-419": [
+    "printSheetTitle:0",
+    "printSkipped:0",
     "itemsCount:0",
     "memoriesTitle:0",
     "rejectGateTitle:0",
