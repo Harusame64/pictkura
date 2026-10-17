@@ -6390,8 +6390,9 @@ export default function App() {
             {
               label: t.menuMoreOptions,
               run: () =>
+                // 押した写真を先頭に——フォルダをまたぐ束は、それと同じフォルダのものだけになる
                 openShellMenu(
-                  files.map((f) => f.id),
+                  [item.id, ...files.filter((f) => f.id !== item.id).map((f) => f.id)],
                   pos.x,
                   pos.y,
                 ).catch((e) => fail(errText(e))),

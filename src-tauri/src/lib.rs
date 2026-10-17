@@ -2632,8 +2632,8 @@ fn open_default(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String
 ///
 /// メニューを組み終えたら `shell-menu-shown` を送る（それまでの待ちの合図を消すため）。
 ///
-/// `ids` は同じフォルダに在ること——シェルのメニューは1つのフォルダの中でしか組めない。組や連写の束は
-/// 同じフォルダに並ぶので、ふだんは当たらない
+/// `ids` の先頭は右クリックした写真。シェルのメニューは1つのフォルダの中でしか組めないので、それと
+/// 違うフォルダのものは外す
 #[cfg(windows)]
 #[tauri::command]
 async fn show_shell_menu(
@@ -2644,13 +2644,17 @@ async fn show_shell_menu(
     x: f64,
     y: f64,
 ) -> Result<(), String> {
-    let paths = ids
+    let mut paths = ids
         .iter()
         .map(|&id| path_of(&state, id))
         .collect::<Result<Vec<_>, _>>()?;
-    if paths.windows(2).any(|w| w[0].parent() != w[1].parent()) {
-        return Err(errs::code("errShellMenu"));
-    }
+    // 連写の束はフォルダをまたぐことがある（`stacks.ts` はフォルダで分けない）。そのときは押した写真
+    // （先頭）と同じフォルダのものだけにする——ほかのフォルダのコマはこのメニューでは扱えない
+    let dir = paths
+        .first()
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf);
+    paths.retain(|p| p.parent() == dir.as_deref());
     // 窓の中の点を画面の点へ。中身の左上（物理ピクセル）に、倍率を掛けた点を足す
     let origin = window.inner_position().map_err(|e| e.to_string())?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
@@ -2673,9 +2677,11 @@ async fn show_shell_menu(
         let _ = tx.send(r);
     })
     .map_err(|e| e.to_string())?;
-    rx.await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| errs::coded("errShellMenu", e))
+    rx.await.map_err(|e| e.to_string())?.map_err(|e| {
+        // 画面に出した失敗は記録にも残す（errs.rs の決まり）。壊れた拡張を後から追えるように
+        applog::note(&format!("could not show the Explorer menu: {e}"));
+        errs::coded("errShellMenu", e)
+    })
 }
 
 /// 画面は Windows でしか出さない（`platform === "windows"`）。呼ばれたら断る

@@ -1,7 +1,7 @@
 //! 右クリックの「その他のオプションを表示」——エクスプローラーと同じメニュー（ADR B-4。Windows だけ）。
 //!
 //! シェルの `IContextMenu` をそのまま出す。送る・プログラムから開く・プロパティ・7-Zip・OneDrive も、
-//! 入っている拡張がそのまま並ぶ。**選ばれた項目はシェルが走らせる**——削除・回転のように中身が変わるものは、
+//! 入っている拡張がそのまま並ぶ。**選ばれた項目はシェルが走らせる**——移動のように中身や場所が変わるものは、
 //! 見張りが拾ってタイルを直す（win の実測で約0.9秒。`dev/spikes/b4-results/`）。
 //!
 //! 実測で決めたこと（2026-10-17、win）:
@@ -10,24 +10,30 @@
 //! - **メニューのメッセージを `IContextMenu3` へ渡す。** 渡さないと「プログラムから開く」が仮の1行のまま
 //! - **名前の変更は出さない**（`CMF_CANRENAME` を渡さない）。pictkura の外での改名は ★・⚑ を外すので、
 //!   入口を自分から増やさない（ADR C で見送り）
-//! - `QueryContextMenu` は、間が空くと毎回 1 秒ほどかかる（拡張を読み直す）。待ちの合図は画面の側で出す
+//! - **削除と回転はシェルの項目を外す**（[`OWN_VERBS`]）。pictkura の右クリックに同じ項目が在り、そちらは
+//!   付属の `.xmp` も一緒に捨て、回した記録（取り込みの「済」の控え）も残す。シェルのものはどちらもしない
+//! - `QueryContextMenu` は、間が空くと毎回 1 秒ほどかかる（拡張を読み直す）。待ちの合図は画面の側で出す。
+//!   その間と `InvokeCommand` の間は UI の糸が止まる。**別の糸へは移さない**——メニューの持ち主の窓と
+//!   `IContextMenu` はこの糸のもので、走らせる側の実測は 0〜245 ms（プロパティ・削除）。重い処理（圧縮等）は
+//!   シェルが自分の糸へ回す
 #![cfg(windows)]
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::ptr::null_mut;
 
-use windows::core::{Interface, HSTRING, PCSTR, PCWSTR};
+use windows::core::{Interface, HSTRING, PCSTR, PCWSTR, PSTR};
 use windows::Win32::Foundation::{ERROR_CANCELLED, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
     DefSubclassProc, IContextMenu, IContextMenu2, IContextMenu3, ILFindLastID, ILFree,
     IShellFolder, RemoveWindowSubclass, SHBindToParent, SHParseDisplayName, SetWindowSubclass,
-    CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX,
+    CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, GCS_VERBW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreatePopupMenu, DestroyMenu, SetForegroundWindow, TrackPopupMenuEx, SW_SHOWNORMAL,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+    CreatePopupMenu, DeleteMenu, DestroyMenu, GetMenuItemCount, GetMenuItemID, SetForegroundWindow,
+    TrackPopupMenuEx, HMENU, MF_BYCOMMAND, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
 };
 
 /// シェルに渡す番号の幅。0 は「何も選ばなかった」なので 1 から
@@ -36,6 +42,41 @@ const LAST: u32 = 0x7FFF;
 /// `CMIC_MASK_UNICODE`（windows クレートでは別のモジュールに居る）
 const CMIC_MASK_UNICODE: u32 = 0x4000;
 const SUBCLASS_ID: usize = 0x504B_4234;
+
+/// シェルのメニューから外す動詞。pictkura の右クリックに同じ項目が在り、シェルのものは pictkura の後始末を
+/// しない: 削除は `.xmp` を残し、回転は回した記録を書かない（取り込みで同じ写真が二重に入る。#211）。
+/// `rotate90` は win の実測（`dev/spikes/b4-results/`）、`rotate270` はその対
+const OWN_VERBS: [&str; 3] = ["delete", "rotate90", "rotate270"];
+
+/// `menu` から [`OWN_VERBS`] の項目を外す。動詞を名乗らない項目は残す
+unsafe fn drop_own_verbs(cm: &IContextMenu, menu: HMENU) {
+    let count = unsafe { GetMenuItemCount(Some(menu)) };
+    for pos in (0..count).rev() {
+        let id = unsafe { GetMenuItemID(menu, pos) };
+        // 区切り（0）とサブメニュー（u32::MAX）は動詞を持たない
+        if !(FIRST..=LAST).contains(&id) {
+            continue;
+        }
+        let mut buf = [0u16; 64];
+        let named = unsafe {
+            cm.GetCommandString(
+                (id - FIRST) as usize,
+                GCS_VERBW,
+                None,
+                PSTR(buf.as_mut_ptr().cast()),
+                buf.len() as u32,
+            )
+        };
+        if named.is_err() {
+            continue;
+        }
+        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        let verb = String::from_utf16_lossy(&buf[..n]);
+        if OWN_VERBS.iter().any(|v| v.eq_ignore_ascii_case(&verb)) {
+            let _ = unsafe { DeleteMenu(menu, id, MF_BYCOMMAND) };
+        }
+    }
+}
 
 thread_local! {
     /// 開いている間のメニュー。持ち主の窓に来るメッセージをこれへ渡す
@@ -62,7 +103,9 @@ unsafe extern "system" fn forward(
                 if unsafe { cm3.HandleMenuMsg2(msg, wp, lp, Some(&mut r)) }.is_ok() {
                     return r;
                 }
-            } else if let Ok(cm2) = cm.cast::<IContextMenu2>() {
+            }
+            // 3 を名乗っても 2 の口でしか答えない拡張がある（ゲート2）
+            if let Ok(cm2) = cm.cast::<IContextMenu2>() {
                 if unsafe { cm2.HandleMenuMsg(msg, wp, lp) }.is_ok() {
                     return LRESULT(0);
                 }
@@ -117,6 +160,7 @@ unsafe fn show_inner(
         unsafe { cm.QueryContextMenu(menu, 0, FIRST, LAST, CMF_NORMAL) }
             .ok()
             .map_err(|e| e.to_string())?;
+        unsafe { drop_own_verbs(&cm, menu) };
         ACTIVE.set(Some(cm.clone()));
         let _ = unsafe { SetWindowSubclass(hwnd, Some(forward), SUBCLASS_ID, 0) };
         // 前面に居ないと、外をクリックしてもメニューが閉じない（TrackPopupMenu の決まり）
