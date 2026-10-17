@@ -1335,8 +1335,18 @@ export default function App() {
         if (followViewerTo(moves) && to !== undefined && !sumR.value.some((d) => d.day_key === to)) {
           refreshSummaryRef.current().catch(() => {});
         }
-        // まだ一覧に居る写真は、撮影日の差分が届くまで寄せ直さない（上の `viewerHoldRef`）
-        if (to !== undefined && atId !== null) holdViewer(atId, 1500);
+        // まだ一覧に居る写真は、撮影日の差分が届くまで寄せ直さない（上の `viewerHoldRef`）。位置が
+        // "first"・"last" のままだと、日の中身が戻った時点で端の写真へ解決してしまうので、見えている写真の
+        // id に固定してから待たせる（PR の codex）
+        if (to !== undefined && atId !== null) {
+          if (at && typeof at.id !== "number") {
+            const { dayKey: atDay, id: sentinel } = at;
+            setViewer((cur) =>
+              cur && cur.dayKey === atDay && cur.id === sentinel ? { dayKey: atDay, id: atId } : cur,
+            );
+          }
+          holdViewer(atId, 1500);
+        }
       }
       gotSummaryRef.current += 1;
       setLoadFailed(false);
