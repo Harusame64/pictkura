@@ -1116,8 +1116,9 @@ export default function App() {
           quitAfterTrashRef.current = false;
           const pastGate = quitPastGateRef.current;
           quitPastGateRef.current = false;
-          // **呼んだ側の後片付けの後で決める**——後片付けがビューアを閉じると、その副作用が印と関所を空にし、ここで
-          // 出した関所ごと×が消えた（ゲート2）。次の描画まで待ち、そのときの印で決める
+          // **呼んだ側の後片付けの後で決める**——後片付けがビューアを閉じると印は捨てられる。次の描画まで待ち、
+          // そのときの印で決める。読み直しがもっと後でビューアを閉じても、閉じる側の片付けが×から出た関所を
+          // 見て閉じる（ゲート2・PR 前の codex）
           window.setTimeout(() => {
             const next = quitAfterFileOp({
               ok,
@@ -5189,7 +5190,19 @@ export default function App() {
       // ボツの印も捨てる（0.2 ③の不変条件）。関所を通さずに閉じる経路
       // （その日ごと消えた等）でも、**何も消えない側**へ倒れる
       setRejected((prev) => (prev.size === 0 ? prev : new Map()));
+      const gate = rejectGateRef.current;
       setRejectGate(null);
+      // **×から出た関所をここで畳んだなら、×の意思どおり閉じる**（dev #69）。削除・移動のあと読み直しでビューアが
+      // 閉じると、待たせた×で出した関所がここで消え、×ごと失われた（PR 前の codex）。印はもう捨てたので確かめる物は無い
+      if (gate?.quitAfter) {
+        if (fileOpRef.current) {
+          quitAfterTrashRef.current = true;
+          quitPastGateRef.current = true;
+        } else {
+          pendingWizardRef.current = null;
+          void getCurrentWindow().destroy();
+        }
+      }
     }
   }, [viewer]);
 
