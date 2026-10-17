@@ -583,6 +583,8 @@ export const de: Dict = {
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Serie ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  spreadStack: "Auffächern, um jedes Bild einzeln zu sehen",
+  foldStack: "Einklappen",
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `Serie mit ${num(frames)} Aufnahmen in ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} Dateien)`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>

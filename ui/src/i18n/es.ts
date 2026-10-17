@@ -588,6 +588,8 @@ export const es: Dict = {
   burstGapOption: (seconds: number) => `${num(seconds)} s`,
   burstChip: (frames: number) => `▤ Ráfaga ${num(frames)}`,
   burstChipShort: (frames: number) => `▤ ${num(frames)}`,
+  spreadStack: "Desplegar para ver cada una",
+  foldStack: "Plegar",
   burstTitle: (frames: number, spanMs: number, files: number) =>
     `Ráfaga de ${num(frames)} fotos en ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} archivos)`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>

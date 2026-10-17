@@ -15,7 +15,9 @@ import {
   vanishedOf,
   stackMembersIndex,
   pairAwareScope,
+  spreadStacks,
   stacksOfDay,
+  unpairedBySpread,
   viewerWalk,
   type Stackable,
 } from "../src/stacks.ts";
@@ -543,4 +545,82 @@ test("ids picked while the check was out are kept, and nothing gone means the sa
   // 消えたものがもう選択に無ければ（その間に外した）、同じ集合のまま
   const now = new Set([1]);
   assert.equal(dropVanished(now, vanishedOf([1, 2], [1])), now);
+});
+
+// ---- 広げる（dev #51） ----
+
+/** `list_day` の順（新しい順）: 組だけの1枚（D）と、連写3コマ（C・B・A、B は RAW+JPEG の組） */
+const spreadDay = () => {
+  const o = { taken_subsec: true, body_key: 7 };
+  return [
+    f(5, 40, true, "D.CR3", 9000, o),
+    f(6, 40, false, "D.JPG", 9000, o),
+    f(4, 30, false, "C.JPG", 1600, o),
+    f(2, 20, true, "B.CR3", 1300, o),
+    f(3, 20, false, "B.JPG", 1300, o),
+    f(1, 10, false, "A.JPG", 1000, o),
+  ];
+};
+const on = { rawJpeg: true, bursts: true, burstGapMs: 1000 };
+
+test("spreading a burst gives one tile per frame, a paired frame stays one tile", () => {
+  const stacks = stacksOfDay(spreadDay(), on);
+  assert.deepEqual(members(stacks), [[5, 6], [4, 2, 3, 1]]);
+  const key = stacks[1].cover.lead.id;
+  const spread = spreadStacks(stacks, new Set([key]));
+  assert.deepEqual(members(spread), [[5, 6], [4], [2, 3], [1]]);
+  assert.deepEqual(
+    spread.map((s) => s.spread && [s.spread.key, s.spread.index, s.spread.count]),
+    [undefined, [key, 0, 3], [key, 1, 3], [key, 2, 3]],
+  );
+  // 広げた後のタイルは、たたむためにもとの重ねのファイルを持つ
+  assert.deepEqual(spread[2].spread?.ids, [4, 2, 3, 1]);
+});
+
+test("a spread burst stays spread when its cover changes (any of its files keeps it open)", () => {
+  // 表紙（C）でなく、⚑ で表紙が替わった後も残る A の id で覚えていても広がる
+  const stacks = stacksOfDay(spreadDay(), on);
+  assert.deepEqual(members(spreadStacks(stacks, new Set([1]))), [[5, 6], [4], [2, 3], [1]]);
+});
+
+test("with RAW+JPEG stacking off, a spread burst splits its paired frames too", () => {
+  const stacks = stacksOfDay(spreadDay(), on);
+  const spread = spreadStacks(stacks, new Set([4]), true);
+  assert.deepEqual(members(spread), [[5, 6], [4], [2], [3], [1]]);
+  assert.deepEqual(spread.map((s) => s.spread?.fromPair ?? null), [null, false, true, true, false]);
+});
+
+test("spreading a RAW+JPEG pair gives the RAW and the JPEG their own tiles", () => {
+  const stacks = stacksOfDay(spreadDay(), on);
+  const spread = spreadStacks(stacks, new Set([6]));
+  assert.deepEqual(members(spread), [[5], [6], [4, 2, 3, 1]]);
+  assert.deepEqual([...unpairedBySpread(spread)].sort(), [5, 6]);
+});
+
+test("spread tiles are separate stacks for selection; only spread pairs are unpaired", () => {
+  const stacks = stacksOfDay(spreadDay(), on);
+  const spread = spreadStacks(stacks, new Set([6, 4]));
+  const index = stackMembersIndex(spread);
+  // 組のまま残ったコマ（2,3）だけが重ねの索引に残る
+  assert.deepEqual([...index.keys()].sort(), [2, 3]);
+  // 連写の1ファイルのコマ（4,1）は組を分けたものではない
+  assert.deepEqual([...unpairedBySpread(spread)].sort(), [5, 6]);
+});
+
+test("a key that is not spread, or a single photo, is left alone", () => {
+  const stacks = stacksOfDay(spreadDay(), on);
+  assert.equal(spreadStacks(stacks, new Set()), stacks);
+  assert.deepEqual(members(spreadStacks(stacks, new Set([999]))), members(stacks));
+});
+
+test("the viewer walks both sides of a pair that was spread in the grid", () => {
+  const items = spreadDay();
+  const stacks = stacksOfDay(items, on);
+  const spread = spreadStacks(stacks, new Set([5]));
+  const walk = (u?: Set<number>) =>
+    viewerWalk(items, "jpeg", u).walk.map((x) => x.id);
+  assert.deepEqual(walk(), [6, 4, 3, 1]);
+  const unpaired = unpairedBySpread(spread);
+  assert.deepEqual(walk(unpaired), [5, 6, 4, 3, 1]);
+  assert.equal(viewerWalk(items, "jpeg", unpaired).pairOf.has(5), false);
 });

@@ -733,6 +733,54 @@ body {
 .cell-chips.tight .cell-chip {
   padding: 0 3px;
 }
+/* 重ねの印は押せる（dev #51。押すと広がる）。印だけが当たりを持つ——タイルの本体は今どおりビューア */
+.cell-chips-btn {
+  pointer-events: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.cell-chips-btn:hover .cell-chip,
+.cell-chips-btn:focus-visible .cell-chip {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+/* 広げた重ねの先頭の「たたむ」（左下。右下には組の印が残ることがある） */
+.cell-fold {
+  position: absolute;
+  left: var(--sp-1);
+  bottom: var(--sp-1);
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.cell-fold:hover,
+.cell-fold:focus-visible {
+  filter: brightness(1.15);
+}
+/* 広げた重ねのひとまとまり: タイルの下に下線を引く */
+.cell-wrap.spread::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+/* 同じ行で右隣も同じ重ねなら、隙間（4px）までつなぐ。行の端では切る */
+.cell-wrap.spread-join::after {
+  right: -4px;
+}
 /* 組の記号（細いタイルの組の形。2026-09-26 の利用者の選択） */
 .cell-chip.chip-icon {
   display: inline-flex;
