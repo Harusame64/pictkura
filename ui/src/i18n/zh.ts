@@ -646,6 +646,7 @@ export const zh: Dict = {
   errExportDest: "无法创建该目标文件夹。",
   errExportManaged: "无法写入该位置：这个包由其他应用管理。",
   errFolderMissing: "找不到该文件夹。",
+  fileOpBusy: "请等当前操作完成后再试一次。",
   errFolderNotAbsolute: "请输入文件夹的完整路径。",
   errTrashFailed: "无法移到回收站。",
   errTrashUnreachable: "找不到驱动器或文件夹，因此没有移到回收站。",
