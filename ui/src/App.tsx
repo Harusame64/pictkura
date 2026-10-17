@@ -446,12 +446,14 @@ type Row =
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
 
 /**
- * ビューアの情報パネル（I）の幅と、写真の側とのすき間。パネルを開いている間は、写真・「次へ」・フィルムストリップを
- * この分だけ左へ寄せて横に並べる（pictkura-dev #48。パネルが「次へ」と写真の右端を覆っていた）。
+ * ビューアの情報パネル（I）の幅。パネルを開いている間は、写真・「次へ」・フィルムストリップ・字幕と、絵の中央に
+ * 出すもの（判定の印・読み込み中・原本が無い帯）を、パネルの左端まで左へ寄せて横に並べる（pictkura-dev #48。
+ * パネルが「次へ」と写真の右端を覆っていた）。
  * CSS はこの値を `--exif-panel-width` / `--info-reserve` で受ける——倍率の計算と1か所で揃える
  */
 const EXIF_PANEL_WIDTH = 260;
-const INFO_PANEL_GAP = 12;
+/** パネルと窓の右端の間（CSS の `right: var(--sp-4)`）。空ける幅はパネルの左端まで——「次へ」はその内側に `--sp-4` で付く */
+const EXIF_PANEL_INSET = 16;
 /** 一覧に問い合わせた絞り込み（棚・種類・検索語）。`summaryFor` を見よ */
 type Asked = { filter: MediaFilter; kind: MediaKind; query: string };
 
@@ -4048,10 +4050,13 @@ export default function App() {
   }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
-  /** 情報パネルが出ているか。パネルを描くか・写真の場所を空けるか・ファイルの節を読むかを、この1つで決める */
+  /** 情報パネルを描くか・ファイルの節を読むか */
   const infoOpen = showExif && viewerItem !== null;
-  /** 開いている間に写真の側から空ける幅（px） */
-  const infoReserve = infoOpen ? EXIF_PANEL_WIDTH + INFO_PANEL_GAP : 0;
+  /**
+   * 写真の側から空ける幅（px）。**I を押しているかだけで決める**——表示中の1枚で決めると、まだ読んでいない日へ
+   * 送った間だけ 0 に戻り、絵と「次へ」が横に跳ねる（ゲート2）
+   */
+  const infoReserve = showExif ? EXIF_PANEL_WIDTH + EXIF_PANEL_INSET : 0;
   // 抽出の合図が「送った先の絵」に乗らないように控える（`flashExtract`）
   useEffect(() => {
     viewerItemIdRef.current = viewerItem?.id ?? null;
@@ -8318,7 +8323,7 @@ export default function App() {
               )}
             </div>
           )}
-          {infoOpen && viewerItem && (
+          {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
               {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む */}
               <div className="exif-title">{t.fileInfoTitle}</div>
