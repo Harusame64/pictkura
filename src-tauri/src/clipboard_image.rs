@@ -81,7 +81,14 @@ fn open(owner: HWND) -> Result<Opened, String> {
     for i in 0..OPEN_ATTEMPTS {
         match unsafe { OpenClipboard(Some(owner)) } {
             Ok(()) => return Ok(Opened),
-            Err(e) => last = e.to_string(),
+            // ほかのアプリが開いているとき、OS は理由を返さないことがある（最後のエラーが 0 で「成功しました」になる）。
+            // 記録と画面に「成功」と出さないよう、何が起きたかをこちらで言う（ゲート2）
+            Err(e) => {
+                last = format!(
+                    "the clipboard is in use by another app (tried for {} ms): {e}",
+                    OPEN_ATTEMPTS as u64 * OPEN_RETRY_MS
+                )
+            }
         }
         if i + 1 < OPEN_ATTEMPTS {
             std::thread::sleep(std::time::Duration::from_millis(OPEN_RETRY_MS));
@@ -93,14 +100,20 @@ fn open(owner: HWND) -> Result<Opened, String> {
 fn png_bytes(img: &RgbaImage) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
     let mut buf = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut buf)
-        .write_image(
-            img.as_raw(),
-            img.width(),
-            img.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .map_err(|e| e.to_string())?;
+    // 圧縮は**速い側に固定する**。クリップボードを渡るだけの PNG なので縮める意味が薄い。image 0.25.10 の既定も
+    // Fast だが、既定が変わったときに 45MP の待ちが黙って延びないよう名指しする
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut buf,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    )
+    .write_image(
+        img.as_raw(),
+        img.width(),
+        img.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(buf)
 }
 

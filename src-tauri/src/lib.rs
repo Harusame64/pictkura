@@ -168,8 +168,8 @@ struct AppState {
     /// 居ない環境では**貼る前に空になる**（arboard の `Drop` は、居れば
     /// そこへ引き渡す）。macOSでは持ち回りに意味は無いが、場所を分ける理由も無いので同じ形にしてある。
     ///
-    /// **Windows には無い**——`clipboard_image` が毎回自分で開き、同時に2本来ても `OpenClipboard` の試し直しで
-    /// 順に通る（pictkura-dev #47）
+    /// **Windows には無い**——`clipboard_image` が毎回自分で開く（pictkura-dev #47）。2本が同時に走らないのは
+    /// 画面の側の鍵（`extractingRef`）による。ここでは並べていない
     #[cfg(not(windows))]
     clipboard: Mutex<Option<arboard::Clipboard>>,
     /// 原寸表示用JPEG（HEIC/RAW/TIFF）のバイト列LRU（0.2 ①）。
