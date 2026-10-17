@@ -115,6 +115,7 @@ export const ja = {
   // ボツの候補（0.2 ③）。印を付けるだけで、ファイルは閉じるときまで動かない
   viewerReject: "ボツにする (X)",
   viewerRejected: "ボツの候補",
+  viewerMutedHint: "消音中 — 押すと音が出ます",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "ボツの候補を確かめる",
   rejectGateTitle: (n: number) =>

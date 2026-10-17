@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseVideoVolume } from "../src/videoVolume.ts";
+import { isSilent, parseVideoVolume } from "../src/videoVolume.ts";
 
 test("a saved volume and mute come back as saved", () => {
   assert.deepEqual(parseVideoVolume('{"volume":0.3,"muted":true}'), { volume: 0.3, muted: true });
@@ -20,4 +20,19 @@ test("nothing saved, or something unreadable, starts at full volume, not muted",
 
 test("mute is on only when saved as true", () => {
   assert.equal(parseVideoVolume('{"volume":0.5,"muted":"yes"}').muted, false);
+});
+
+test("what is saved reads back the same (the stored shape)", () => {
+  for (const v of [
+    { volume: 0.25, muted: false },
+    { volume: 1, muted: true },
+  ]) {
+    assert.deepEqual(parseVideoVolume(JSON.stringify(v)), v);
+  }
+});
+
+test("muted, or volume 0, counts as silent (the viewer shows a mark)", () => {
+  assert.equal(isSilent({ volume: 0.5, muted: true }), true);
+  assert.equal(isSilent({ volume: 0, muted: false }), true);
+  assert.equal(isSilent({ volume: 0.5, muted: false }), false);
 });

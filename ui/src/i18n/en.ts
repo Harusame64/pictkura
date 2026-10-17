@@ -100,6 +100,7 @@ export const en: Dict = {
   judgeUnflag: "Judgement cleared",
   viewerReject: "Reject (X)",
   viewerRejected: "Rejected",
+  viewerMutedHint: "Muted — click to turn the sound on",
   rejectChip: (n: number) => `✕ ${num(n)}`,
   rejectChipTitle: "Review the rejected photos",
   rejectGateTitle: (n: number) =>
