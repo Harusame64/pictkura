@@ -574,9 +574,21 @@ function googleFailure(g: GooglePlaced | null): string | null {
   return notes.length > 0 ? notes.join(" ") : null;
 }
 
-/** ★（⚑）だけを出す絞り込みで、その項目が一覧に並ぶか（差分の当て方とビューアの追いかけが同じ規則で見る） */
-function shownUnder(filter: MediaFilter, p: MediaItem): boolean {
-  return filter === "fav" ? p.favorite : filter === "picked" ? p.picked : true;
+/**
+ * ★・⚑ と種類の絞り込みで、その項目が一覧に並ぶか（差分の当て方とビューアの追いかけが同じ規則で見る）。
+ * 種類は拡張子で決まる（`MediaKind::from_path`）ので、項目の `is_raw`・`is_video` から判定できる
+ */
+function shownUnder(filter: MediaFilter, kind: MediaKind, p: MediaItem): boolean {
+  const marked = filter === "fav" ? p.favorite : filter === "picked" ? p.picked : true;
+  const kindOk =
+    kind === "all"
+      ? true
+      : kind === "video"
+        ? p.is_video
+        : kind === "raw"
+          ? p.is_raw
+          : !p.is_video && !p.is_raw;
+  return marked && kindOk;
 }
 
 /** アスペクト比（幅/高さ）。未抽出は4:3、極端なパノラマ等はレイアウト崩壊しない範囲に制限 */
@@ -1187,11 +1199,14 @@ export default function App() {
     if (moves.size === 0) return false;
     let moved = false;
     // 印を立てるのは状態の更新関数の外で（更新関数は描画中に2回走ることがある）
+    // 日をまたいで送った直後は位置が "first"・"last" のまま——そのとき見えている写真の id で追う（PR の codex）
     const v = viewerPosRef.current;
-    if (v && typeof v.id === "number") {
-      const to = moves.get(v.id);
+    const shownId = v ? (typeof v.id === "number" ? v.id : viewerItemIdRef.current) : null;
+    if (v && shownId !== null) {
+      const to = moves.get(shownId);
       if (to !== undefined && to !== v.dayKey) {
-        const { id, dayKey: from } = v;
+        const id = shownId;
+        const { id: posId, dayKey: from } = v;
         const mark = { id, dayKey: to };
         viewerFollowedToRef.current = mark;
         window.setTimeout(() => {
@@ -1199,7 +1214,9 @@ export default function App() {
           viewerFollowedToRef.current = null;
           setViewerFollowExpired((n) => n + 1);
         }, 5000);
-        setViewer((cur) => (cur && cur.id === id && cur.dayKey === from ? { dayKey: to, id } : cur));
+        setViewer((cur) =>
+          cur && cur.id === posId && cur.dayKey === from ? { dayKey: to, id } : cur,
+        );
         moved = true;
       }
     }
@@ -1246,7 +1263,8 @@ export default function App() {
     const open = viewerPosRef.current;
     const followIds = new Set<number>();
     if (open) {
-      if (typeof open.id === "number") followIds.add(open.id);
+      const shownId = typeof open.id === "number" ? open.id : viewerItemIdRef.current;
+      if (shownId !== null) followIds.add(shownId);
       for (const x of viewerScopeRef.current ?? []) followIds.add(x.id);
     }
     try {
@@ -1284,8 +1302,9 @@ export default function App() {
         const moves = new Map(openR.value.map((x) => [x.id, x.day_key]));
         // サマリと日の問い合わせは別の読み取りなので、移った先の日がこのサマリにまだ無いことがある。
         // そのときはすぐ取り直す（待たせると、追っていったビューアが5秒後に閉じる。ゲート2）
-        const open = viewerPosRef.current;
-        const to = open && typeof open.id === "number" ? moves.get(open.id) : undefined;
+        const at = viewerPosRef.current;
+        const atId = at ? (typeof at.id === "number" ? at.id : viewerItemIdRef.current) : null;
+        const to = atId !== null ? moves.get(atId) : undefined;
         if (followViewerTo(moves) && to !== undefined && !sumR.value.some((d) => d.day_key === to)) {
           refreshSummaryRef.current().catch(() => {});
         }
@@ -1819,7 +1838,10 @@ export default function App() {
       // （判定できないまま捨てると、生成のたびにシマー→再取得を繰り返す）。
       // 件数・日付の骨組みはデバウンスされたサマリ再取得が追従させる
       // 送り出し（§3c）も同じ: 置いてあるかは項目に載っていない
-      const searching = queryRef.current !== "" || filter === "outgoing";
+      // 種類の絞り込み（`kind:` として検索語に畳まれる）はここでは検索に数えない——種類は項目から判定できる
+      // （`shownUnder`）。数えると、日が移った項目が古い日に残り、ビューアが追っていった先に居ない（PR の codex）
+      const kind = askedRef.current.kind;
+      const searching = askedRef.current.query !== "" || filter === "outgoing";
       setDayItems((prev) => {
         let next: Map<number, MediaItem[]> | null = null;
         const current = () => next ?? prev;
@@ -1839,7 +1861,7 @@ export default function App() {
           // 読み込み済みの日に古い姿が残っていれば外すだけで、日の再取得はしない
           // （サムネイル完成イベントは印の有無に関わらず届くため、ここで日を
           //  捨てると可視日が生成のたびにシマー→再取得を繰り返してしまう）
-          const shown = shownUnder(filter, p);
+          const shown = shownUnder(filter, kind, p);
           const arr = current().get(p.day_key);
           const idx = arr?.findIndex((it) => it.id === p.id) ?? -1;
           if (arr && idx >= 0 && shown) {
@@ -1874,13 +1896,10 @@ export default function App() {
       // 開いている写真の日が移ったら、ビューアも付いていく（dev #49）。検索中・送り出しでは、移った先で
       // 結果に入るかをここで判定できないので追わない（今までどおり寄せる）。★・⚑ で絞っていて印が無いなら
       // 一覧から外れるのが正しい
-      // 種類の絞り込み（`kind:` として検索語に畳まれる）は追いかけを止めない——上書きで種類は変わらず、
-      // 追うのはもう一覧に居る写真だけ（ゲート2）。止めるのは、移った先で結果に入るか分からない検索語と
-      // 送り出しだけ
-      const freeText = askedRef.current.query !== "" || filter === "outgoing";
-      if (!freeText) {
+      // 検索語と送り出しでは、移った先で結果に入るかをここで判定できないので追わない
+      if (!searching) {
         const moves = new Map<number, number>();
-        for (const p of patches) if (shownUnder(filter, p)) moves.set(p.id, p.day_key);
+        for (const p of patches) if (shownUnder(filter, kind, p)) moves.set(p.id, p.day_key);
         // 追っていった先の日をすぐ並べる。2秒待つと、その間ビューアは何も出せない（動画なら止まる）
         if (followViewerTo(moves)) refreshSummary().catch(() => {});
       }
