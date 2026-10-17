@@ -2784,14 +2784,36 @@ fn trash_paths_with_progress(
 /// 件数が動くようにしてある（`dev/plan.0.2.rev.md` 3-3 の「3秒超なら進捗表示へ」）。
 /// 束を刻むぶんは遅くなるので、[`TRASH_CHUNK_FIRST`] のとおり小さく始めて倍にする。
 #[tauri::command]
-async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, String> {
+async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResultDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        // 消えているIDは黙って飛ばす（選択したあとに外から消された等）
-        let paths: Vec<PathBuf> = ids
-            .iter()
-            .filter_map(|id| path_of(&state, *id).ok())
-            .collect();
+        // 選んだあとにライブラリから無くなったID（再スキャンで行が消えた等）は**黙って落とさず数える**
+        // （pictkura-dev #41。書き出しの #33 と同じ形）。読めなかったものは数に入れず、理由を記録に残す——
+        // 消していないので「消した」にも「無くなっていた」にも数えない（下で一部失敗として返す）
+        let mut paths: Vec<PathBuf> = Vec::with_capacity(ids.len());
+        let mut missing_ids: Vec<i64> = Vec::new();
+        let mut unread = 0usize;
+        for id in &ids {
+            match state.read_pool.with(|db| db.get_by_id(*id)) {
+                Ok(Some(record)) => paths.push(record.path),
+                Ok(None) => missing_ids.push(*id),
+                Err(e) => {
+                    unread += 1;
+                    applog::note(&format!(
+                        "could not look up photo {id} before moving it to the recycle bin: {}",
+                        errs::for_log_err(e)
+                    ));
+                }
+            }
+        }
+        if !missing_ids.is_empty() {
+            applog::note(&format!(
+                "{} selected photo(s) were no longer in the library and were not moved to the recycle bin (ids {:?})",
+                missing_ids.len(),
+                missing_ids
+            ));
+        }
+        let missing = missing_ids.len();
         // **サイドカーも一緒にゴミ箱へ**（0.2・`dev/loadmap.md` 1.1）。
         // `.xmp` は一覧に出ないので、置いていくと**誰にも見えない迷子**になる
         // ——写真だけ消えたフォルダに現像設定だけが残り続ける。
@@ -2923,11 +2945,25 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<usize, Str
                 // 原因は1行上で書いた。**同じ1件を2行にしない**
                 Err(errs::coded("errTrashPartly", count))
             }
-            None => Ok(count),
+            // 引けなかった写真が在れば、全部は消せていない（理由は上で記録した）
+            None if unread > 0 => Err(errs::coded("errTrashPartly", count)),
+            None => Ok(DeleteResultDto {
+                deleted: count,
+                missing,
+            }),
         }
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// まとめてゴミ箱へ送った結果（pictkura-dev #41）
+#[derive(serde::Serialize)]
+struct DeleteResultDto {
+    /// ゴミ箱へ送れた写真の数（サイドカーは数えない）
+    deleted: usize,
+    /// 選んだあとにライブラリから無くなっていた数（何もしていない）
+    missing: usize,
 }
 
 /// 書き出し（コピー／移動）の結果。
@@ -3018,7 +3054,9 @@ async fn export_media(
             failed: outcome.stats.failed + unread,
             left_behind: 0,
             moved: 0,
-            missing,
+            // ライブラリから無くなっていた（行が無い）と、ディスクから無くなっていた（行はまだ在る）は、
+            // 利用者には同じ「無くなっていた」（pictkura-dev #42）
+            missing: missing + outcome.stats.vanished,
         };
         // 別のドライブへ移したぶんは、コピーが済んでいて元が残っている。
         // **元はゴミ箱へ**送る——「アプリがファイルを直接消すことはない」を移動でも守る

@@ -435,6 +435,8 @@ export const es: Dict = {
     `${num(n)} ${one(n, "movida", "movidas")} a la papelera`,
   deletedSomeLeft: (n: number, left: number) =>
     `${num(n)} ${one(n, "movida", "movidas")} a la papelera (${num(left)} no se ${one(left, "ha", "han")} encontrado y se ${one(left, "ha quedado", "han quedado")} como ${one(left, "estaba", "estaban")})`,
+  deletedMissing: (n: number, missing: number) =>
+    `${num(n)} ${one(n, "movida", "movidas")} a la papelera (${num(missing)} ya no ${one(missing, "estaba", "estaban")} en la biblioteca y no se ${one(missing, "ha", "han")} movido)`,
   // 複数選択と一括操作
   selectItem: "Seleccionar",
   selectedCount: (n: number) =>

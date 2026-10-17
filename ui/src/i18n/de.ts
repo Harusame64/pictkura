@@ -435,6 +435,8 @@ export const de: Dict = {
   deleted: (n: number) => `${num(n)} in den Papierkorb verschoben`,
   deletedSomeLeft: (n: number, left: number) =>
     `${num(n)} in den Papierkorb verschoben (${num(left)} ${one(left, "war", "waren")} nicht auffindbar und ${one(left, "blieb", "blieben")} unangetastet)`,
+  deletedMissing: (n: number, missing: number) =>
+    `${num(n)} in den Papierkorb verschoben (${num(missing)} ${one(missing, "war", "waren")} nicht mehr in der Bibliothek und ${one(missing, "wurde", "wurden")} nicht verschoben)`,
   // 複数選択と一括操作
   selectItem: "Auswählen",
   selectedCount: (n: number) => (n === 1 ? "1 ausgewählt" : `${num(n)} ausgewählt`),

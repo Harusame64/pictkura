@@ -462,6 +462,9 @@ export const ja = {
   // 関所に並べた数より少なかったとき。**黙って減らさない**（ゲート2の指摘）
   deletedSomeLeft: (n: number, left: number) =>
     `${num(n)}枚をゴミ箱へ移動しました（${num(left)}枚は見つからず残しました）`,
+  // 選んだあとにライブラリから無くなっていたぶん（dev #41）。何もしていないので「残した」とは言わない
+  deletedMissing: (n: number, missing: number) =>
+    `${num(n)}枚をゴミ箱へ移動しました（${num(missing)}枚はライブラリから無くなっていたので、移動していません）`,
   // 複数選択と一括操作
   selectItem: "選択",
   selectedCount: (n: number) => `${num(n)}枚を選択中`,

@@ -783,8 +783,13 @@ export const openWith = (id: number, appPath: string, remember: boolean) =>
 export const forgetEditor = (appPath: string) =>
   invoke<void>("forget_editor", { appPath });
 /** ゴミ箱へ移動してDBからも取り除く。戻り値は実際に削除できた件数 */
+/** まとめてゴミ箱へ送った結果。`missing` は選んだあとにライブラリから無くなっていた数（dev #41） */
+export interface DeleteResult {
+  deleted: number;
+  missing: number;
+}
 export const deleteMedia = (ids: number[]) =>
-  invoke<number>("delete_media", { ids });
+  invoke<DeleteResult>("delete_media", { ids });
 /** 取り込み先フォルダ構成の選択肢 */
 export const listFolderPatterns = () =>
   invoke<FolderPattern[]>("list_folder_patterns");

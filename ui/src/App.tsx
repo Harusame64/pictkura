@@ -5870,9 +5870,10 @@ export default function App() {
           t.deleteConfirmOk,
         );
         if (!ok) return;
-        const n = await deleteMedia([...ids]);
-        // 重ねのタイル1枚を全部消せたら「1枚」と言う（確かめたときと同じ数え方）
-        setStatus(t.deleted(n === ids.size ? 1 : n));
+        const { deleted: n, missing } = await deleteMedia([...ids]);
+        // 重ねのタイル1枚を全部消せたら「1枚」と言う（確かめたときと同じ数え方）。無くなっていたぶんは
+        // 黙って減らさない（dev #41）
+        setStatus(missing > 0 ? t.deletedMissing(n, missing) : t.deleted(n === ids.size ? 1 : n));
         // 削除された日だけを捨てて取り直す（骨組みの件数も変わる）
         const days = new Set(items.map((it) => it.day_key));
         setDayItems((prev) => {
@@ -6111,9 +6112,14 @@ export default function App() {
       );
       if (!ok) return;
       try {
-        const n = await deleteMedia(ids);
-        // 全部消せたら、確かめたときと同じ数え方（見えている枚数）で言う
-        setStatus(t.deleted(n === ids.length && photos !== null ? photos : n));
+        const { deleted: n, missing } = await deleteMedia(ids);
+        // 全部消せたら、確かめたときと同じ数え方（見えている枚数）で言う。無くなっていたぶんは黙って減らさない
+        // （dev #41。この数はファイルの数——確かめたときのタイルの数とそろえるのは dev #42 の残り）
+        setStatus(
+          missing > 0
+            ? t.deletedMissing(n, missing)
+            : t.deleted(n === ids.length && photos !== null ? photos : n),
+        );
         forgetDeleted(touched);
         setViewer((v) => (v && touched.has(v.id as number) ? null : v));
         clearSelection();
@@ -6186,7 +6192,7 @@ export default function App() {
       // （別の言葉で探し直したなら、それは見ていた列ではない）
       const kept = await visibleMediaIds(queryRef.current, "all", ids);
       if (kept.length > 0) {
-        const n = await deleteMedia(kept);
+        const { deleted: n } = await deleteMedia(kept);
         // **数が合わないときは黙らない**（ゲート2のP3）。もう無い・検索語から
         // 外れた等でここまで来られなかったぶんを、そのまま件数で言う
         const left = ids.length - n;

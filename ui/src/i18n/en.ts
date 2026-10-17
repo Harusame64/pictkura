@@ -367,6 +367,8 @@ export const en: Dict = {
   deleted: (n: number) => `Moved ${num(n)} to the trash`,
   deletedSomeLeft: (n: number, left: number) =>
     `Moved ${num(n)} to the trash (${num(left)} ${one(left, "was", "were")} not found and ${one(left, "was", "were")} left alone)`,
+  deletedMissing: (n: number, missing: number) =>
+    `Moved ${num(n)} to the trash (${num(missing)} no longer in the library, not moved)`,
   // 複数選択と一括操作
   selectItem: "Select",
   selectedCount: (n: number) => (n === 1 ? "1 selected" : `${num(n)} selected`),
