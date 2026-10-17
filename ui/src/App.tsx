@@ -7267,10 +7267,9 @@ export default function App() {
           <button
             className="select-bar-close"
             title={t.clearSelection}
-            aria-label={t.clearSelection}
             onClick={clearSelection}
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
           <span className="select-bar-count">
             {/* ファイルの数（dev #42、2026-10-17 利用者決定。確認・結果と同じ数） */}
@@ -7297,7 +7296,7 @@ export default function App() {
               onBulkMark("picked", true).catch((e) => fail(errText(e)))
             }
           >
-            ⚑ {t.bulkPickOn}
+            <span aria-hidden="true">⚑</span> {t.bulkPickOn}
           </button>
           <button
             disabled={busy}
@@ -7313,7 +7312,7 @@ export default function App() {
               onBulkMark("favorite", true).catch((e) => fail(errText(e)))
             }
           >
-            ★ {t.bulkFavoriteOn}
+            <span aria-hidden="true">★</span> {t.bulkFavoriteOn}
           </button>
           <button
             disabled={busy}
@@ -7363,7 +7362,7 @@ export default function App() {
             disabled={busy}
             onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
           >
-            🗑 {t.bulkDelete}
+            <span aria-hidden="true">🗑</span> {t.bulkDelete}
           </button>
         </div>
       )}
@@ -7396,12 +7395,14 @@ export default function App() {
         <div className="view-switch">
           <button
             className={view === "grid" ? "active" : ""}
+            aria-pressed={view === "grid"}
             onClick={() => setView("grid")}
           >
             {t.viewThumbnails}
           </button>
           <button
             className={view === "calendar" ? "active" : ""}
+            aria-pressed={view === "calendar"}
             onClick={() => setView("calendar")}
           >
             {t.viewCalendar}
@@ -7425,10 +7426,9 @@ export default function App() {
             <button
               className="search-clear"
               title={t.searchClear}
-              aria-label={t.searchClear}
               onClick={() => setQueryInput("")}
             >
-              ✕
+              <span aria-hidden="true">✕</span>
             </button>
           ) : (
             <span className="search-kbd" title={t.commandPalette}>
@@ -7737,11 +7737,10 @@ export default function App() {
                 <button
                   className="root-remove"
                   title={t.removeRoot(r)}
-                  aria-label={t.removeRoot(r)}
                   disabled={busy}
                   onClick={() => onRemoveRoot(r)}
                 >
-                  ✕
+                  <span aria-hidden="true">✕</span>
                 </button>
               </div>
             );
@@ -8099,7 +8098,9 @@ export default function App() {
                                 </span>
                               )}
                               {cell.files.some((f) => f.favorite) && (
-                                <span className="cell-fav" aria-hidden>★</span>
+                                <span className="cell-fav" role="img" aria-label={t.favoriteMark}>
+                                  ★
+                                </span>
                               )}
                               {/* 重ねたタイルの印（dev #32）。2026-09-26 の利用者の選択「E」で、これが重ねの唯一の目印（紙は描かない）。
                                   `RAW` だけだと RAW のファイルと読める。連写とコマの組は独立なので両方出ることがある。
@@ -8653,10 +8654,10 @@ export default function App() {
                   </button>
                 )}
                 {viewerItem.favorite && (
-                  <span className="viewer-badge fav">★ {t.judgeFav}</span>
+                  <span className="viewer-badge fav"><span aria-hidden="true">★</span> {t.judgeFav}</span>
                 )}
                 {viewerItem.picked && (
-                  <span className="viewer-badge pick">⚑ {t.judgePick}</span>
+                  <span className="viewer-badge pick"><span aria-hidden="true">⚑</span> {t.judgePick}</span>
                 )}
                 {rejected.has(viewerItem.id) && (
                   <span className="viewer-badge reject">
@@ -8733,8 +8734,16 @@ export default function App() {
                     (rejected.has(item.id) ? " rejected" : "")
                   }
                   title={item.file_name}
-                  // 名前はファイル名（中の ⚑・★・✕ の記号を名前にしない。pictkura-dev #65）
-                  aria-label={item.file_name}
+                  // 名前はファイル名と印（中の ⚑・★・✕ の記号を名前にしない。✕ の足あとは巻き添えに気付くための
+                  // ものなので、名前から落とさない。pictkura-dev #65）
+                  aria-label={[
+                    item.file_name,
+                    item.picked ? t.viewerPicked : null,
+                    item.favorite ? t.favoriteMark : null,
+                    rejected.has(item.id) ? t.viewerRejected : null,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
                   aria-current={offset === 0 ? "true" : undefined}
                   onClick={() => {
                     // 帯で選んだ絵も、押した側から流れてくる（今の絵を押したときは名乗らない）
@@ -8747,12 +8756,12 @@ export default function App() {
                   ) : (
                     <span className="strip-blank" />
                   )}
-                  {item.picked && <span className="strip-flag" aria-hidden>⚑</span>}
-                  {item.favorite && <span className="strip-fav" aria-hidden>★</span>}
+                  {item.picked && <span className="strip-flag">⚑</span>}
+                  {item.favorite && <span className="strip-fav">★</span>}
                   {/* ✕の足あと（0.2 ③）。ここに残るので、連打で巻き添えに
                       したときも数枚のうちに気付ける */}
                   {rejected.has(item.id) && (
-                    <span className="strip-reject" aria-hidden>✕</span>
+                    <span className="strip-reject">✕</span>
                   )}
                 </button>
               ))}
@@ -8776,6 +8785,8 @@ export default function App() {
                 <button
                   className="viewer-reject-chip"
                   title={t.rejectChipTitle}
+                  // 名前は「✕ 3」ではなく役目と数（記号を名前にしない。pictkura-dev #65）
+                  aria-label={`${t.rejectChipTitle} (${rejected.size})`}
                   onClick={() => setRejectGate({ closeAfter: false })}
                 >
                   {t.rejectChip(rejected.size)}
@@ -8859,6 +8870,7 @@ export default function App() {
             {viewerItem && (
               <button
                 className={"viewer-zoom" + (isActualSize ? " actual" : "")}
+                aria-pressed={isActualSize}
                 title={
                   isActualSize
                     ? t.viewerFitToScreen
@@ -8874,22 +8886,19 @@ export default function App() {
               <button
                 className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite}
-                aria-label={t.viewerFavorite}
                 aria-pressed={viewerItem.favorite}
                 onClick={() => favoriteViewer(viewerItem)}
               >
-                {viewerItem.favorite ? "★" : "☆"}
+                <span aria-hidden="true">{viewerItem.favorite ? "★" : "☆"}</span>
               </button>
             )}
             {viewerItem && (
               <button
                 className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick}
-                aria-label={t.viewerPick}
-                aria-pressed={viewerItem.picked}
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
-                ⚑
+                <span aria-hidden="true">⚑</span>
               </button>
             )}
             {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
@@ -8901,30 +8910,27 @@ export default function App() {
                   (rejected.has(viewerItem.id) ? " rejecting" : "")
                 }
                 title={t.viewerReject}
-                aria-label={t.viewerReject}
                 aria-pressed={rejected.has(viewerItem.id)}
                 onClick={() => rejectTool(viewerItem)}
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             )}
             <button
               className={"viewer-tool" + (showExif ? " on" : "")}
               title={t.viewerExif}
-              aria-label={t.viewerExif}
               aria-pressed={showExif}
               onClick={() => setShowExif((s) => !s)}
             >
-              ℹ
+              <span aria-hidden="true">ℹ</span>
             </button>
             <button
               className={"viewer-tool" + (playing ? " on" : "")}
               title={t.viewerSlideshow}
-              aria-label={t.viewerSlideshow}
               aria-pressed={playing}
               onClick={() => setPlaying((p) => !p)}
             >
-              {playing ? "⏸" : "▶"}
+              <span aria-hidden="true">{playing ? "⏸" : "▶"}</span>
             </button>
             {/* 抽出（Issue #13）。**「書き出し」の隣ではなくここに置く**——
                 書き出しは選んだぶんをフォルダへ運ぶ一覧側の機能で、これは
@@ -8934,94 +8940,85 @@ export default function App() {
               <button
                 className="viewer-tool"
                 title={t.extractCopy(modKey("C"))}
-                aria-label={t.extractCopy(modKey("C"))}
                 disabled={extracting}
                 onClick={() => void copyViewerImage(viewerItem)}
               >
-                📋
+                <span aria-hidden="true">📋</span>
               </button>
             )}
             {viewerItem && canExtract && (
               <button
                 className="viewer-tool"
                 title={t.extractSave(modKey("S"))}
-                aria-label={t.extractSave(modKey("S"))}
                 disabled={extracting}
                 onClick={() => void saveViewerImage(viewerItem)}
               >
-                💾
+                <span aria-hidden="true">💾</span>
               </button>
             )}
             {viewerItem && (
               <button
                 className="viewer-tool"
                 title={t.menuReveal}
-                aria-label={t.menuReveal}
                 onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
               >
-                📁
+                <span aria-hidden="true">📁</span>
               </button>
             )}
             {viewerItem && (
               <button
                 className="viewer-tool danger"
                 title={t.menuDelete}
-                aria-label={t.menuDelete}
                 onClick={() => onDelete(viewerTargets(viewerItem))}
               >
-                🗑
+                <span aria-hidden="true">🗑</span>
               </button>
             )}
             <button
               className="viewer-tool"
               title={t.shortcutsTitle}
-              aria-label={t.shortcutsTitle}
               onClick={() => setShortcutsOpen(true)}
             >
-              ?
+              <span aria-hidden="true">?</span>
             </button>
             <button
               className={"viewer-tool" + (isFullscreen ? " on" : "")}
               title={t.viewerFullscreen}
-              aria-label={t.viewerFullscreen}
               aria-pressed={isFullscreen}
               onClick={toggleFullscreen}
             >
-              {isFullscreen ? "⤡" : "⛶"}
+              <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
             </button>
             <button
               className="viewer-tool"
               title={t.viewerClose}
-              aria-label={t.viewerClose}
               onClick={requestCloseViewer}
             >
-              ✕
+              <span aria-hidden="true">✕</span>
             </button>
           </div>
           {hasPrev && (
             <button
               className="viewer-nav prev"
               title={t.viewerPrev}
-              aria-label={t.viewerPrev}
               onClick={(e) => {
                 e.stopPropagation();
                 moveViewer(-1);
               }}
             >
-              ‹
+              <span aria-hidden="true">‹</span>
             </button>
           )}
           {hasNext && (
             <button
               className="viewer-nav next"
               title={t.viewerNext}
-              aria-label={t.viewerNext}
               onClick={(e) => {
                 e.stopPropagation();
                 moveViewer(1);
               }}
             >
-              ›
+              <span aria-hidden="true">›</span>
             </button>
           )}
         </div>
@@ -9239,10 +9236,9 @@ export default function App() {
               <button
                 className="shortcuts-close"
                 title={t.close}
-                aria-label={t.close}
                 onClick={() => setShortcutsOpen(false)}
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
             <div className="shortcuts-cols">

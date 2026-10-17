@@ -591,9 +591,11 @@ export default function ImportWizard({
           <button
             className="wiz-twisty"
             disabled={!node.hasSubdirs}
-            // 名前はフォルダ名、開閉は aria-expanded で言う（記号の ▸▾ を名前にしない。pictkura-dev #65）
-            aria-label={node.name}
+            // 子フォルダのあるものだけ、フォルダ名と開閉の状態で名乗る。無いものは読み上げに出さない——押せない
+            // 「100CANON」ボタンに見えて、行（押すと開く）まで選べないと読まれる（pictkura-dev #65 のゲート2）
+            aria-label={node.hasSubdirs ? node.name : undefined}
             aria-expanded={node.hasSubdirs ? isOpenNode : undefined}
+            aria-hidden={node.hasSubdirs ? undefined : true}
             onClick={(e) => {
               e.stopPropagation();
               setExpanded((prev) => {
@@ -668,9 +670,8 @@ export default function ImportWizard({
             onClick={onClose}
             disabled={busy}
             title={t.close}
-            aria-label={t.close}
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
 
