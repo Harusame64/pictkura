@@ -7896,13 +7896,18 @@ export default function App() {
                                   **形はタイルの幅に入るものを選ぶ**（`stackBadges.ts`。切って見せない） */}
                               {(cell.rawPair || burst) &&
                                 (() => {
-                                  const badges = chooseBadges(
-                                    // 広げた先頭は左下に「たたむ」が居るので、その幅を空ける
+                                  // 広げた先頭は左下に「たたむ」が居るので、その幅を空ける。**組の記号すら入らない細い
+                                  // タイル（縦位置の組）では、組の印を出さない**——「たたむ」の下に隠れて重なる（#230 の
+                                  // win の実機。組であることはタイルの title が言う）
+                                  const room =
                                     cell.w -
-                                      8 -
-                                      (cell.spread?.index === 0
-                                        ? measureChipText(t.foldStack) + 12 + 4
-                                        : 0),
+                                    8 -
+                                    (cell.spread?.index === 0
+                                      ? measureChipText(t.foldStack) + 12 + 4
+                                      : 0);
+                                  if (cell.spread && room < PAIR_ICON_WIDTH + 6) return null;
+                                  const badges = chooseBadges(
+                                    room,
                                     {
                                       pair: cell.rawPair,
                                       burst: burst
