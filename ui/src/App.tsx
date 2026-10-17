@@ -1073,7 +1073,8 @@ export default function App() {
   const settleQuitAfterDelete = useCallback((ok: boolean) => {
     if (!quitAfterTrashRef.current) return;
     quitAfterTrashRef.current = false;
-    if (ok) void getCurrentWindow().close();
+    // 断られても黙って落とさない（権限が抜けると×が効かない窓になる。PR 前の codex が拾った）
+    if (ok) getCurrentWindow().close().catch((e) => console.error("close after delete failed", e));
   }, []);
   const exportLineRef = useRef<ProgressLine>(idleLine());
   /**
