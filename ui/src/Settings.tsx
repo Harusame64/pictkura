@@ -535,7 +535,7 @@ export default function Settings({
                   {googleDirs.map((d) => (
                     <li key={d}>
                       <code>{d}</code>{" "}
-                      <OutgoingFolderActions path={d} current={d === googleLoc?.path} />
+                      <OutgoingFolderActions path={d} current={false} />
                     </li>
                   ))}
                 </ul>

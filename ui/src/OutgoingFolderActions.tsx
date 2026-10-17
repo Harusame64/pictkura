@@ -19,7 +19,11 @@ export function OutgoingFolderActions({
   disabled = false,
 }: {
   path: string;
-  /** いまの送り出しフォルダか（前のドライブのフォルダは、パスで名指して開く） */
+  /**
+   * 上の「いまのフォルダ」のボタンか。真ならパスを渡さず、バックエンドが設定から求める（まだ無ければ「送り出しを
+   * 入れると作られる」と言える）。一覧の行は偽——**行に書いてあるそのパス**を渡す。画面の側で「いまのか」を文字列で
+   * 比べて決めない（2つの返事は綴りの揃え方が違う。ゲート2）
+   */
   current: boolean;
   disabled?: boolean;
 }) {
@@ -38,7 +42,7 @@ export function OutgoingFolderActions({
     openRound.current += 1;
     setError(null);
     setCopied(false);
-  }, [path]);
+  }, [path, current]);
   useEffect(
     () => () => {
       copyRound.current += 1;
