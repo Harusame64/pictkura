@@ -3767,6 +3767,9 @@ mod tests {
         let (third, _) = pop_within(&queue, 10).unwrap();
         queue.complete(third);
         assert_eq!(queue.fresh_pending(), 0);
+        // 済んだ写真が（寸法を持たないまま）次の走査で積み直されても、もう新しい写真ではない——印は残さない
+        queue.enqueue(&[second]);
+        assert_eq!(queue.fresh_pending(), 0);
     }
 
     #[test]
