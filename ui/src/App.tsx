@@ -153,6 +153,8 @@ import { errText } from "./i18n/err.ts";
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
+import { ViewerZoom, zoomAllowed, type Zoom } from "./ViewerZoom";
+import { boxOf, viewerBox, type Box } from "./viewerZoomBox";
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
 const GAP = 4;
@@ -4127,10 +4129,71 @@ export default function App() {
    */
   const requestCloseViewer = useCallback(() => {
     if (rejectedRef.current.size > 0) setRejectGate({ closeAfter: true });
-    else setViewer(null);
+    else closeViewerRef.current();
   }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
+
+  /**
+   * グリッドとビューアの間の動き（dev #52）。開くときはタイルから、閉じるときはいまの写真のタイルへ。
+   * 動きを減らす設定・カレンダー・動画・絵がまだ無いときは動かさず、これまでどおりその場で切り替える
+   */
+  const [tileZoom, setTileZoom] = useState<Zoom | null>(null);
+  /** 閉じる（動きつき）。`requestCloseViewer` は依存を持たないので、毎回の描画で書き換えるこの口を呼ぶ */
+  const closeViewerRef = useRef<() => void>(() => setViewer(null));
+  closeViewerRef.current = () => {
+    const shown = visibleRef.current;
+    const el =
+      shown?.which === "full"
+        ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-image")
+        : shown?.which === "thumb"
+          ? stageRef.current?.querySelector<HTMLImageElement>("img.viewer-thumb")
+          : null;
+    const src = el?.currentSrc;
+    if (!shown || !el || !src || view !== "grid" || !zoomAllowed()) {
+      setViewer(null);
+      return;
+    }
+    const id = shown.id;
+    const from = boxOf(el.getBoundingClientRect());
+    setViewer(null);
+    // 戻る先を測るまで、写真はいまの場所に止めて描く（消してから縮めると一瞬グリッドだけが見える）
+    setTileZoom({ kind: "close", src, from, to: null });
+    /** 戻る先のタイル。グリッドの見えている範囲に**丸ごと**入っているときだけ */
+    const tileBox = (): Box | null => {
+      const scroller = scrollRef.current;
+      const img = scroller?.querySelector<HTMLImageElement>(
+        `[data-ids~="${id}"] img.cell`,
+      );
+      if (!scroller || !img) return null;
+      const r = img.getBoundingClientRect();
+      const v = scroller.getBoundingClientRect();
+      if (r.width === 0 || r.top < v.top || r.bottom > v.bottom) return null;
+      return boxOf(r);
+    };
+    // 送った先の写真は、グリッドでは画面の外に居ることがある。そのときはそこまで送る
+    if (!tileBox()) {
+      const idx = rows.findIndex(
+        (r) =>
+          r.kind === "cells" &&
+          r.cells.some((c) => c.files.some((f) => f.id === id)),
+      );
+      if (idx >= 0) virtualizer.scrollToIndex(idx, { align: "center" });
+    }
+    // 送った分の行が描かれてから測る
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const to = tileBox();
+        setTileZoom((z) =>
+          z && z.kind === "close" && z.src === src && z.to === null && !z.lost
+            ? to
+              ? { ...z, to }
+              : { ...z, lost: true }
+            : z,
+        );
+      }),
+    );
+  };
   /** 情報パネルを描くか・ファイルの節を読むか */
   const infoOpen = showExif && viewerItem !== null;
   /**
@@ -5972,9 +6035,30 @@ export default function App() {
         toggleMany(files.map((f) => f.id));
         return;
       }
-      setViewer({ dayKey, id: openIdOf(item.id) });
+      const id = openIdOf(item.id);
+      // 押したタイルから広げる（dev #52）。タイルの絵が届いていないとき・動画は動かさない
+      const opened = files.find((f) => f.id === id) ?? item;
+      const img = e.currentTarget.querySelector<HTMLImageElement>("img.cell");
+      if (
+        zoomAllowed() &&
+        !opened.is_video &&
+        img &&
+        img.complete &&
+        img.naturalWidth > 0
+      ) {
+        const to = viewerBox(servedSize(opened), infoReserve);
+        if (to) {
+          setTileZoom({
+            kind: "open",
+            src: img.currentSrc,
+            from: boxOf(img.getBoundingClientRect()),
+            to,
+          });
+        }
+      }
+      setViewer({ dayKey, id });
     },
-    [anchorId, selecting, selectRange, toggleMany, openIdOf],
+    [anchorId, selecting, selectRange, toggleMany, openIdOf, infoReserve],
   );
 
   /**
@@ -7763,6 +7847,8 @@ export default function App() {
                                 (cellSelected ? " picked" : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
+                              // 閉じるときに戻る先を引く（dev #52）。組のどれを見ていても同じタイルへ
+                              data-ids={cell.files.map((f) => f.id).join(" ")}
                               title={
                                 burst
                                   ? `${cell.item.file_name}\n${(cell.rawPair ? t.burstTitleRawJpeg : t.burstTitle)(cell.frames, cell.spanMs, cell.files.length)}`
@@ -7902,9 +7988,16 @@ export default function App() {
           )}
         </div>
       </div>
+      {tileZoom && (
+        <ViewerZoom zoom={tileZoom} onDone={() => setTileZoom(null)} />
+      )}
       {viewer && (
         <div
-          className={"viewer" + (viewerIdle ? " idle" : "")}
+          className={
+            "viewer" +
+            (viewerIdle ? " idle" : "") +
+            (tileZoom?.kind === "open" ? " opening" : "")
+          }
           style={
             {
               "--exif-panel-width": `${EXIF_PANEL_WIDTH}px`,

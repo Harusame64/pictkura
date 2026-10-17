@@ -890,6 +890,44 @@ body {
   align-items: center;
   justify-content: center;
 }
+/* グリッドとビューアの間の動き（dev #52）。開く間はビューアの絵を隠し、地と操作だけを薄く入れる——
+ * 写真はタイルから広がってくる箱（`.viewer-zoom`）が描く */
+.viewer.opening {
+  animation: viewer-open 220ms ease-out;
+}
+.viewer.opening .viewer-stage,
+.viewer.opening .viewer-loading-overlay {
+  visibility: hidden;
+}
+@keyframes viewer-open {
+  from {
+    opacity: 0;
+  }
+}
+/* タイルとビューアの間を動く写真。ビューアより前に描き、当たり判定は持たない */
+.viewer-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  pointer-events: none;
+}
+/* 閉じるときの地（ビューアと同じ色）。グリッドの上で薄れていく */
+.viewer-zoom-back {
+  position: absolute;
+  inset: 0;
+  background: oklch(0.1 0 0 / 0.97);
+}
+/* 箱の形が変わるにつれて、タイルの切り抜き（cover）が写真全体へほどける */
+.viewer-zoom-box {
+  position: absolute;
+  overflow: hidden;
+}
+.viewer-zoom-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 /* 送り出す前の絵の残像。控えた位置に同じ大きさで置き、画面の外へ流す／薄れさせる */
 .viewer-ghost {
   position: absolute;
