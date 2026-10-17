@@ -31,6 +31,9 @@ mod autoplay;
 mod camera_signal;
 // 画面に出す失敗に辞書の鍵を付ける（完成度週間の項目3）
 mod errs;
+// 画像をクリップボードへ、開いている時間を短く置く（pictkura-dev #47）。Windows だけ——ほかは arboard
+#[cfg(windows)]
+mod clipboard_image;
 // エクスプローラーと同じ右クリックのメニュー（ADR B-4）。Windows だけ
 #[cfg(windows)]
 mod shell_menu;
@@ -167,7 +170,8 @@ struct AppState {
     /// 場所を分ける理由も無いので同じ形にしてある。
     ///
     /// **Windowsでは同時に1スレッドしか開けない**（arboardのドキュメント）。
-    /// このMutexがそれを満たしている
+    /// このMutexがそれを満たしている。**Windows は使わない**（`clipboard_image` が自分で開く。#47）
+    #[cfg(not(windows))]
     clipboard: Mutex<Option<arboard::Clipboard>>,
     /// 原寸表示用JPEG（HEIC/RAW/TIFF）のバイト列LRU（0.2 ①）。
     ///
@@ -3330,21 +3334,34 @@ async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String
             None => pictkura_core::extract::rgba(&path),
         }
         .ok_or_else(|| NO_IMAGE_TO_EXTRACT.to_string())?;
-        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
-        let image = arboard::ImageData {
-            width: w,
-            height: h,
-            bytes: std::borrow::Cow::Owned(rgba.into_raw()),
-        };
-        let mut held = lock_ok(&state.clipboard);
-        // 初回だけ作る。**作れない環境がある**（クリップボードの無い
-        // ヘッドレス、X11もWaylandも掴めないセッション）ので、起動時ではなく
-        // 押されたときに作って、駄目ならその場で言う
-        let clipboard = match held.as_mut() {
-            Some(c) => c,
-            None => held.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
-        };
-        clipboard.set_image(image).map_err(|e| e.to_string())
+        // Windows は自前で置く（`clipboard_image`）。arboard は持ち主の窓なしで開き、開いたまま PNG を作るので、
+        // こまめにクリップボードを読むアプリが居ると置けずに落ちた（pictkura-dev #47）
+        #[cfg(windows)]
+        {
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| errs::code("errNotFound"))?;
+            let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+            clipboard_image::set_image(windows::Win32::Foundation::HWND(hwnd.0 as _), &rgba)
+        }
+        #[cfg(not(windows))]
+        {
+            let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+            let image = arboard::ImageData {
+                width: w,
+                height: h,
+                bytes: std::borrow::Cow::Owned(rgba.into_raw()),
+            };
+            let mut held = lock_ok(&state.clipboard);
+            // 初回だけ作る。**作れない環境がある**（クリップボードの無い
+            // ヘッドレス、X11もWaylandも掴めないセッション）ので、起動時ではなく
+            // 押されたときに作って、駄目ならその場で言う
+            let clipboard = match held.as_mut() {
+                Some(c) => c,
+                None => held.insert(arboard::Clipboard::new().map_err(|e| e.to_string())?),
+            };
+            clipboard.set_image(image).map_err(|e| e.to_string())
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -6834,6 +6851,7 @@ pub fn run() {
                 browse_allow: Mutex::new(HashSet::new()),
                 pending_import: Mutex::new(pending_import),
                 // 抽出が初めて押されたときに作る（`AppState::clipboard`）
+                #[cfg(not(windows))]
                 clipboard: Mutex::new(None),
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
