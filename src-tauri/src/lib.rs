@@ -268,10 +268,22 @@ fn import_path_from_args(argv: &[String]) -> Option<String> {
             if p.ends_with(':') {
                 p.push('\\');
             }
+            // `E:DCIM` のような**ドライブ相対**は受けない（pictkura-dev #34。シェルが `\` を落とした形）。
+            // 受け取るプロセスの「E: の今いるフォルダ」からの相対になり、呼んだ側の意図とずれる。
+            // 文字列で見る——`Path::is_absolute` は Windows でしか `E:\` を完全なパスと読まない
+            if is_drive_relative(&p) {
+                return None;
+            }
             return Some(p);
         }
     }
     None
+}
+
+/// `E:folder` の形か（ドライブ名のすぐ後に区切りが無い）。どの OS でも同じに読む
+fn is_drive_relative(p: &str) -> bool {
+    let b = p.as_bytes();
+    b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] != b'\\' && b[2] != b'/'
 }
 
 /// 取り込みの起点を、あれば `DCIM` まで寄せる。
@@ -4285,6 +4297,13 @@ async fn is_temporary_folder(path: String) -> bool {
 /// 取り込み先として覚えてはいけない。`Pictures` のような相対も同じ（アプリの作業フォルダ次第になる）。
 /// 在るかどうかはその後で見る
 fn folder_from_input(path: &str) -> Result<PathBuf, String> {
+    // エクスプローラーの「パスのコピー」は `"D:\Photos"` と引用符で囲む。貼っただけの完全なパスを
+    // 「完全なパスを」と断らないよう、前後の対の引用符だけ外す（ゲート2）
+    let path = path.trim();
+    let path = path
+        .strip_prefix('"')
+        .and_then(|p| p.strip_suffix('"'))
+        .unwrap_or(path);
     let dir = PathBuf::from(path);
     if !dir.is_absolute() {
         return Err(errs::coded("errFolderNotAbsolute", path));
@@ -7526,10 +7545,16 @@ mod tests {
             Some("errFolderNotAbsolute")
         );
         #[cfg(windows)]
-        assert_eq!(
-            code(super::folder_from_input("C:Windows")).as_deref(),
-            Some("errFolderNotAbsolute")
-        );
+        for relative in ["C:Windows", "\\Windows"] {
+            assert_eq!(
+                code(super::folder_from_input(relative)).as_deref(),
+                Some("errFolderNotAbsolute"),
+                "{relative}"
+            );
+        }
+        // 「パスのコピー」の引用符つきでも、完全なパスなら通す
+        let quoted = format!("\"{}\"", dir.path().display());
+        assert_eq!(super::folder_from_input(&quoted).unwrap(), dir.path());
         let missing = dir.path().join("nope");
         assert_eq!(
             code(super::folder_from_input(&missing.display().to_string())).as_deref(),
@@ -8884,6 +8909,23 @@ mod tests {
         assert_eq!(
             import_path_from_args(&args(&["pictkura.exe", "--import", "E:\\"])),
             Some("E:\\".to_string())
+        );
+    }
+
+    /// シェルが `\\` を落とした `E:DCIM` は受けない（pictkura-dev #34）。`E:\\DCIM` と `E:/DCIM` は受ける
+    #[test]
+    fn a_drive_relative_import_path_is_refused() {
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:DCIM"])),
+            None
+        );
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:\\DCIM"])),
+            Some("E:\\DCIM".to_string())
+        );
+        assert_eq!(
+            import_path_from_args(&args(&["pictkura.exe", "--import", "E:/DCIM"])),
+            Some("E:/DCIM".to_string())
         );
     }
 
