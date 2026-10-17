@@ -2044,10 +2044,12 @@ impl ThumbQueue {
         state.queued.union(&state.processing).copied().collect()
     }
 
-    /// 裏で回る自動のパス（メタデータ＋即席）に残っている数。**見えている分の優先は数えない**——スクロールの
-    /// たびに「作成中」が出ないように（pictkura-dev #64 の進み具合）
+    /// 裏で回る自動のパス（メタデータ＋即席）に残っている数と、いま処理中の数（pictkura-dev #64 の進み具合）。
+    /// **見えている分の優先の列は数えない**——スクロールのたびに出ないように。処理中は数える——最後の重い数枚を
+    /// 読んでいる間に「終わった」と言わない（ゲート2）
     pub fn background_pending(&self) -> usize {
-        self.lock_state().pending.len()
+        let state = self.lock_state();
+        state.pending.len() + state.processing.len()
     }
 
     pub fn shutdown(&self) {

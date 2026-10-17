@@ -248,7 +248,6 @@ export const zhHant: Dict = {
   actionThumbnails: "照片網格",
   indexBuilding: "🔍 正在建立搜尋索引… ",
   bgScanning: "正在讀取資料夾…",
-  bgImporting: (done: number, total: number) => `正在匯入 ${num(done)} / ${num(total)}`,
   bgThumbs: (n: number) => `正在讀取相片（還剩 ${num(n)} 張）`,
   cameraScanning: "📷 正在讀取相機資訊… ",
   indexIncompleteWarning:

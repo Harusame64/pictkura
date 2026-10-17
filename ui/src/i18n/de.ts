@@ -226,7 +226,6 @@ export const de: Dict = {
   actionThumbnails: "Fotoübersicht",
   indexBuilding: "🔍 Suchindex wird aufgebaut… ",
   bgScanning: "Ordner werden gelesen…",
-  bgImporting: (done: number, total: number) => `Importieren ${num(done)} / ${num(total)}`,
   bgThumbs: (n: number) => `Fotos werden eingelesen (noch ${num(n)})`,
   cameraScanning: "📷 Kameradaten werden gelesen… ",
   indexIncompleteWarning:

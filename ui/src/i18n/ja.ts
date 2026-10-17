@@ -218,7 +218,6 @@ export const ja = {
   actionThumbnails: "サムネイル表示",
   indexBuilding: "🔍 検索インデックスを作成中… ",
   bgScanning: "フォルダを読み込み中…",
-  bgImporting: (done: number, total: number) => `取り込み中 ${num(done)} / ${num(total)}`,
   bgThumbs: (n: number) => `写真を読み込み中（残り${num(n)}枚）`,
   cameraScanning: "📷 カメラ情報を読み取り中… ",
   indexIncompleteWarning:

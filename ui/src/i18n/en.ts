@@ -188,7 +188,6 @@ export const en: Dict = {
   actionThumbnails: "Photo grid",
   indexBuilding: "🔍 Building the search index… ",
   bgScanning: "Reading folders…",
-  bgImporting: (done: number, total: number) => `Importing ${num(done)} / ${num(total)}`,
   bgThumbs: (n: number) => `Reading photos (${num(n)} left)`,
   cameraScanning: "📷 Reading camera info… ",
   indexIncompleteWarning:
