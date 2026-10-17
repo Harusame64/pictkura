@@ -1965,6 +1965,38 @@ body {
 .print-dialog-actions {
   gap: var(--sp-2);
 }
+/* まとめて刷るときの選択（dev #55）。1ページの枚数は小さな押しボタンの列 */
+.print-sheet-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.print-per-page {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.print-per-page-label {
+  margin-right: var(--sp-2);
+}
+.print-per-page button {
+  min-width: 2.2em;
+}
+.print-per-page button.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.print-captions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+.print-dialog-warn {
+  color: var(--danger, var(--text));
+}
 /* 印刷の絵を作っている間（`printPhoto.ts`） */
 .print-preparing,
 .print-preparing * {

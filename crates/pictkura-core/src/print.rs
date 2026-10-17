@@ -475,6 +475,29 @@ mod tests {
     }
 
     #[test]
+    fn a_sheet_picture_is_capped_and_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("camera.jpg");
+        std::fs::write(&p, camera_jpeg(false).0).unwrap();
+        let sheet = sheet_jpeg(&p, 32).unwrap();
+        let rgb = decoded(&sheet);
+        assert_eq!((rgb.width(), rgb.height()), (32, 24));
+        assert!(!contains(&sheet, b"secret"));
+        // 上限より小さな写真は広げない
+        assert_eq!(decoded(&sheet_jpeg(&p, 1000).unwrap()).width(), 64);
+    }
+
+    #[test]
+    fn a_sheet_tiff_is_capped_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("scan.tif");
+        image::RgbImage::from_pixel(600, 2, image::Rgb([1, 2, 3]))
+            .save(&p)
+            .unwrap();
+        assert_eq!(decoded(&sheet_jpeg(&p, 300).unwrap()).width(), 300);
+    }
+
+    #[test]
     fn only_an_rgb_profile_is_put_back() {
         let mut icc = vec![0u8; 128];
         icc[16..20].copy_from_slice(b"RGB ");

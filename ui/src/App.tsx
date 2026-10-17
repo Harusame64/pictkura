@@ -26,6 +26,7 @@ import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
+import { printSheet, type SheetItem, type SheetLayout } from "./printSheet";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
@@ -54,6 +55,7 @@ import {
   getConfig,
   getExifInfo,
   getFilesSize,
+  getFilesInfo,
   getIndexProgress,
   getDecoderStatus,
   getEmptyLibraryReason,
@@ -926,6 +928,8 @@ export default function App() {
   const [infoFor, setInfoFor] = useState<number[] | null>(null);
   // 右クリックの「印刷…」で載せ方を選んでいる写真（ADR B-3）
   const [printFor, setPrintFor] = useState<MediaItem | null>(null);
+  /** 選んだ写真をまとめて刷る（dev #55）。並べ方を選ぶ画面を出している間だけ値がある */
+  const [printSheetFor, setPrintSheetFor] = useState<SheetItem[] | null>(null);
   /** カレンダーの日クリックでグリッドのこの日付見出しへスクロールする */
   const [pendingScrollDay, setPendingScrollDay] = useState<number | null>(null);
   /** 詳細ビューアの位置（nullで非表示） */
@@ -6626,6 +6630,36 @@ export default function App() {
    * **一括操作の作法は削除と同じ**——先に `visibleSelection` でいま出ているものへ
    * 絞ってから渡す。移動は元の場所から無くなるので確認を取る。
    */
+  /**
+   * 選んだ写真をまとめて刷る（dev #55）。動画は外し、RAW+JPEG の組は大きく見るときと同じ側だけ（`pairAwareScope`）。
+   * 並びは撮影日時の新しい順（一覧と同じ）
+   */
+  const onBulkPrint = useCallback(async () => {
+    const infos = await getFilesInfo([...selected]);
+    const byId = new Map(infos.map((i) => [i.id, i]));
+    const stills = infos.filter((i) => i.duration_ms === null);
+    const shown = pairView !== null ? pairAwareScope(stills, pairOf, pairView) : stills;
+    const items = shown
+      .flatMap((e) => {
+        const i = byId.get(e.id);
+        return i && i.duration_ms === null ? [i] : [];
+      })
+      .sort(
+        (a, b) => (b.taken_at_ms ?? b.mtime_ms) - (a.taken_at_ms ?? a.mtime_ms) || b.id - a.id,
+      )
+      .map((i) => ({
+        id: i.id,
+        caption:
+          splitPath(i.path).name +
+          (i.taken_at_ms !== null ? ` · ${formatDateTime(i.taken_at_ms)}` : ""),
+      }));
+    if (items.length === 0) {
+      fail(t.printSkipped(infos.length));
+      return;
+    }
+    setPrintSheetFor(items);
+  }, [selected, pairView, pairOf]);
+
   const onBulkExport = useCallback(
     async (moveFiles: boolean) => {
       // **確認とフォルダ選択を待つ前に鍵を掛ける**。ボタンの非活性は
@@ -7289,6 +7323,12 @@ export default function App() {
             onClick={() => onBulkExport(true).catch((e) => fail(errText(e)))}
           >
             {t.bulkMove}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => onBulkPrint().catch((e) => fail(errText(e)))}
+          >
+            {t.menuPrint}
           </button>
           {filter === "outgoing" ? (
             <button
@@ -9009,6 +9049,28 @@ export default function App() {
               .catch((e) => fail(errText(e instanceof Error ? e.message : e)))
               .finally(() => {
                 if (fromGrid) setStatus((s) => (s === t.printPreparing ? "" : s));
+              });
+          }}
+        />
+      )}
+      {printSheetFor !== null && (
+        <PrintDialog
+          sheetCount={printSheetFor.length}
+          onClose={() => setPrintSheetFor(null)}
+          onPrint={(fit: PrintFit, layout?: SheetLayout) => {
+            const items = printSheetFor;
+            setPrintSheetFor(null);
+            if (!layout) return;
+            printSheet(items, fit, layout, (done, total) =>
+              setStatus(t.printPreparingN(done, total)),
+            )
+              .then(({ skipped }) => {
+                setStatus("");
+                if (skipped > 0) fail(t.printSkipped(skipped));
+              })
+              .catch((e) => {
+                setStatus("");
+                fail(errText(e instanceof Error ? e.message : e));
               });
           }}
         />

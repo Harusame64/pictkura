@@ -6258,6 +6258,21 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             None => not_found(),
         };
     }
+    // 並べて印刷する絵（dev #55）。長辺を抑えて洗い直す。表示のキャッシュは使わない（大きさが違う）
+    if let ServeKind::PrintSheet { edge } = kind {
+        if is_video {
+            return not_found();
+        }
+        return match pictkura_core::print::sheet_jpeg(&record.path, edge) {
+            Some(bytes) => Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "image/jpeg")
+                .header("Cache-Control", "no-store")
+                .body(bytes)
+                .unwrap_or_else(|_| server_error()),
+            None => not_found(),
+        };
+    }
     // 動画の**絵**の要求は原本へ流さない。`<img>` に動画を渡しても絵にならず、
     // 下の `std::fs::read` はファイルを丸ごとメモリへ載せる。
     // サムネイル（あれば）で代用し、無ければ空タイルを出す
@@ -6269,7 +6284,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // 上の `if kind == ServeKind::Video` で必ず返しているので通らない。
         // それでも `unreachable!` を置かないのは、**通ったときに落ちる**のが
         // ここでいちばん高くつくため（要求を捌くスレッドが死ぬ）
-        ServeKind::Video | ServeKind::Print => return not_found(),
+        ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
             None if !can_serve_original(&record) => return blank_thumb(),

@@ -343,6 +343,13 @@ export const en: Dict = {
   printBorderless: "To print without borders, choose a borderless paper size in the next print dialog.",
   printGo: "Print…",
   printPreparing: "Preparing to print…",
+  /** 選んだ写真を並べて印刷する（dev #55） */
+  printSheetTitle: (n: number) => `Print ${num(n)} photos`,
+  printPerPage: "Photos per page",
+  printCaptions: "Add file name and date taken",
+  printTooMany: (max: number) => `Up to ${num(max)} photos can be printed at once at this size. Choose more per page, or select fewer.`,
+  printPreparingN: (done: number, total: number) => `Preparing to print… ${num(done)}/${num(total)}`,
+  printSkipped: (n: number) => `${num(n)} photos could not be printed (videos and the like) and were left out.`,
   errPrint: "Couldn't prepare the photo for printing.",
   errShellMenu: "Couldn't show the Explorer menu.",
   menuDelete: "Delete (move to trash)",
