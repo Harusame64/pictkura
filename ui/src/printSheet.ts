@@ -12,7 +12,9 @@
  */
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-import type { PrintFit } from "./printPhoto";
+import type { FileInfo } from "./api";
+import { clearSheet, printJob, SHEET_ID, STYLE_ID, type PrintFit } from "./printPhoto.ts";
+import type { PairView } from "./stacks";
 
 /** 1ページに載せる枚数 */
 export type PerPage = 1 | 2 | 4 | 6 | 9;
@@ -24,10 +26,6 @@ export type SheetItem = { id: number; caption: string };
 export type SheetLayout = { perPage: PerPage; captions: boolean };
 
 const LAYOUT_KEY = "pictkura.printSheet";
-// 紙面の id は `printPhoto` と同じにしてある——どちらかが残した紙面を、次の印刷がどちらでも外す（紙面が2つ
-// あると両方が刷られる）
-const SHEET_ID = "print-sheet";
-const STYLE_ID = "print-sheet-style";
 
 /** 縦の紙での列×行。横の紙では入れ替える（正方形の並びは同じ） */
 export function gridFor(perPage: PerPage): { cols: number; rows: number } {
@@ -54,11 +52,39 @@ export function edgeFor(perPage: PerPage): number {
 }
 
 /**
- * 一度に刷れる枚数。ほどいた絵（長辺×短辺×4 バイト、3:2 として）の合計がおよそ 600MB に収まる数。
- * 紙面は全部の絵をほどいてから印刷の画面へ渡すので、枚数がそのままメモリになる
+ * 一度に刷れる枚数。ほどいた絵（長辺×短辺×4 バイト）の合計が、**正方形の写真でも** 650MB に収まる数。
+ * 紙面は全部の絵をほどいてから印刷の画面へ渡すので、枚数がそのままメモリになる（3:2 で見積もると、4:3 や
+ * 正方形で5割はみ出した。ゲート2）
  */
 export function maxPhotosFor(perPage: PerPage): number {
-  return { 1: 40, 2: 60, 4: 90, 6: 120, 9: 180 }[perPage];
+  return { 1: 28, 2: 40, 4: 60, 6: 80, 9: 130 }[perPage];
+}
+
+/**
+ * まとめて刷るとき、RAW+JPEG の組のどちら側を刷るか（大きく見るときの設定 `pairView` と同じ。`null` は一覧で
+ * 組を重ねていない＝両方）。組は**同じ鍵（フォルダと名前）で、本当の撮影日時が一致する RAW と RAW 以外**
+ * （一覧の重ね `shotsOfDay` と同じ条件）。まだ読んでいない日の写真も、ファイル情報だけで見分ける。
+ * 並びは `infos` のまま
+ */
+export function printSides<T extends Pick<FileInfo, "id" | "is_raw" | "shot_key" | "taken_at_ms">>(
+  infos: readonly T[],
+  pairView: PairView | null,
+): T[] {
+  if (pairView === null || pairView === "both") return [...infos];
+  const groups = new Map<string, T[]>();
+  for (const i of infos) {
+    if (i.taken_at_ms === null) continue;
+    const key = `${i.shot_key}:${i.taken_at_ms}`;
+    const g = groups.get(key);
+    if (g) g.push(i);
+    else groups.set(key, [i]);
+  }
+  const hidden = new Set<number>();
+  for (const g of groups.values()) {
+    if (!g.some((i) => i.is_raw) || g.every((i) => i.is_raw)) continue;
+    for (const i of g) if (i.is_raw !== (pairView === "raw")) hidden.add(i.id);
+  }
+  return infos.filter((i) => !hidden.has(i.id));
 }
 
 /** `items` をページごとに分ける（並びはそのまま） */
@@ -154,28 +180,20 @@ export function sheetCss(fit: PrintFit, layout: SheetLayout): string {
 }`;
 }
 
-function clearSheet(): void {
-  document.getElementById(SHEET_ID)?.remove();
-  document.getElementById(STYLE_ID)?.remove();
-}
-
-/** 読み込み中に重ねて押されたら受け付けない（`printPhoto` と同じ理由） */
-let preparing = false;
-
 /**
  * 並べて印刷の画面を出す。絵は4枚ずつ並行して読み、`onProgress(読めた数, 全数)` で知らせる。
  * 読めなかった写真（動画・消えたファイル等）は飛ばして詰め、その数を返す。1枚も読めなければ
- * 辞書の鍵 `errPrint` を名に持つ Error を投げる
+ * 辞書の鍵 `errPrint` を名に持つ Error を投げる。**ほかの印刷を準備している間は何もせず `null`**
  */
 export async function printSheet(
   items: readonly SheetItem[],
   fit: PrintFit,
   layout: SheetLayout,
   onProgress: (done: number, total: number) => void,
-): Promise<{ skipped: number }> {
-  if (preparing) return { skipped: 0 };
+): Promise<{ skipped: number } | null> {
+  if (printJob.preparing) return null;
   clearSheet();
-  preparing = true;
+  printJob.preparing = true;
   document.documentElement.classList.add("print-preparing");
   const edge = edgeFor(layout.perPage);
   const loaded: (HTMLImageElement | null)[] = new Array(items.length).fill(null);
@@ -200,7 +218,7 @@ export async function printSheet(
     };
     await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
   } finally {
-    preparing = false;
+    printJob.preparing = false;
     document.documentElement.classList.remove("print-preparing");
   }
   const ok = items.flatMap((it, i) => (loaded[i] ? [{ it, img: loaded[i] }] : []));

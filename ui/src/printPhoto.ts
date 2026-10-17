@@ -29,14 +29,16 @@ export function shapeOf(w: number, h: number): PhotoShape {
 }
 
 const FIT_KEY = "pictkura.printFit";
-const SHEET_ID = "print-sheet";
-const STYLE_ID = "print-sheet-style";
+/** 紙面とその CSS の id。並べて刷る紙面（`printSheet.ts`）も同じものを使う——どちらかが残した紙面を次の印刷が外す */
+export const SHEET_ID = "print-sheet";
+export const STYLE_ID = "print-sheet-style";
 
 /**
  * 写真を読んでいる間（HEIC は1秒ほど）。**重ねて押されたら受け付けない**——両方が紙面を足すと、macOS は
- * `print()` がすぐ戻るので2枚刷られ、Windows は印刷の画面が2回続けて出る（#213 のゲート2）
+ * `print()` がすぐ戻るので2枚刷られ、Windows は印刷の画面が2回続けて出る（#213 のゲート2）。
+ * **1枚の印刷と並べて刷る印刷で共有する**（片方が読んでいる間にもう片方を始めると、紙面が2つ残る。dev #55 のゲート2）
  */
-let preparing = false;
+export const printJob = { preparing: false };
 
 /** 前に選んだ載せ方。読めない・知らない値なら「用紙に合わせて拡大」 */
 export function loadPrintFit(): PrintFit {
@@ -57,10 +59,9 @@ export function savePrintFit(fit: PrintFit): void {
   }
 }
 
-/** 紙面と、それを出すための CSS を外す。何度呼んでもよい */
-function clearSheet(): void {
-  document.getElementById(SHEET_ID)?.remove();
-  document.getElementById(STYLE_ID)?.remove();
+/** 紙面と、それを出すための CSS を外す（同じ id が2つ残っていても全部）。何度呼んでもよい */
+export function clearSheet(): void {
+  for (const el of document.querySelectorAll(`#${SHEET_ID}, #${STYLE_ID}`)) el.remove();
 }
 
 /**
@@ -128,13 +129,13 @@ export function sheetCss(fit: PrintFit, shape: PhotoShape): string {
  * 返るのは画面を出したところまで（Windows は閉じたところまで）。片付けは `afterprint` で行う
  */
 export async function printPhoto(src: string, fit: PrintFit): Promise<void> {
-  if (preparing) return;
+  if (printJob.preparing) return;
   // 前の紙面が残っていたら（`afterprint` が来なかった等）、ここで外す——紙面が2つあると2枚刷られる
   clearSheet();
   const img = new Image();
   img.decoding = "sync";
   img.src = src;
-  preparing = true;
+  printJob.preparing = true;
   // 向きのある大きな JPEG・HEIC は作るのに1秒ほどかかる。押しても何も起きないように見えないよう、
   // 待っている間はカーソルで知らせる（ビューアの合図は 0.9 秒で消えるので向かない）
   document.documentElement.classList.add("print-preparing");
@@ -143,7 +144,7 @@ export async function printPhoto(src: string, fit: PrintFit): Promise<void> {
   } catch {
     throw new Error("errPrint");
   } finally {
-    preparing = false;
+    printJob.preparing = false;
     document.documentElement.classList.remove("print-preparing");
   }
   const style = document.createElement("style");

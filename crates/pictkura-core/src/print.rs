@@ -65,6 +65,15 @@ pub fn sheet_jpeg(path: &Path, edge: u32) -> Option<Vec<u8>> {
     if crate::thumbs::needs_display_transcode(path) {
         return from_display_jpeg(&crate::thumbs::display_jpeg_within(path, Some(edge))?);
     }
+    // 向きを持たず、もう上限に収まっている JPEG は作り直さない（洗うだけ。`print_jpeg` と同じ）
+    if crate::jpeg::is_jpeg_path(path)
+        && !(2..=8).contains(&crate::thumbs::read_exif_meta(path).orientation)
+        && image::image_dimensions(path).is_ok_and(|(w, h)| w.max(h) <= edge)
+    {
+        if let Some(bytes) = std::fs::read(path).ok().and_then(|b| strip_jpeg(&b)) {
+            return Some(bytes);
+        }
+    }
     redraw(path, edge)
 }
 
@@ -483,8 +492,11 @@ mod tests {
         let rgb = decoded(&sheet);
         assert_eq!((rgb.width(), rgb.height()), (32, 24));
         assert!(!contains(&sheet, b"secret"));
-        // 上限より小さな写真は広げない
-        assert_eq!(decoded(&sheet_jpeg(&p, 1000).unwrap()).width(), 64);
+        // 上限より小さな写真は広げず、作り直さずに洗うだけ（符号化されたデータはそのまま）
+        let small = sheet_jpeg(&p, 1000).unwrap();
+        assert_eq!(decoded(&small).width(), 64);
+        assert!(!contains(&small, b"secret"));
+        assert_eq!(small, strip_jpeg(&camera_jpeg(false).0).unwrap());
     }
 
     #[test]
