@@ -677,6 +677,7 @@ export const es: Dict = {
   errExportManaged: "Ahí no se puede escribir: ese paquete lo gestiona otra aplicación.",
   errFolderMissing: "Esa carpeta no está.",
   errTrashFailed: "No se pudo mover a la papelera.",
+  errTrashUnreachable: "No se puede acceder a la unidad o la carpeta, así que no se ha movido nada a la papelera.",
   errTrashPartly: (n: number) =>
     `${num(n)} en la papelera; el resto no se pudo mover.`,
   errAutoplayRollback:

@@ -515,6 +515,26 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     }
 }
 
+/// `path` が**確かに消えた**か（無い、かつ見張りの規則で削除と読める）。`root_present` はルートが在るかの
+/// 控え（同じ束の中で何度も訊かない）。ゴミ箱へ送る前の仕分けと、削除の「もう無かった」の数え方が使う
+/// （pictkura-dev #66）
+///
+/// 見張りの規則（いちばん深いルートが在ること）に、**入っていたフォルダが在ること**を足す（ゲート2）。ルートの
+/// 中に別のドライブや共有をつないだフォルダがあると、ルートが在っても中身は届かない——ファイルが無くても
+/// 消えたとは言えない。外で消されたフォルダの中の写真は、ここでは消えたと読まない（見張りが行を落とす）
+fn gone_for_good(
+    path: &Path,
+    roots: &[PathBuf],
+    root_present: &mut HashMap<PathBuf, bool>,
+) -> bool {
+    pictkura_core::export::is_gone_from_its_folder(path)
+        && vanished_path_is_a_deletion(path, roots, |r| {
+            *root_present
+                .entry(r.to_path_buf())
+                .or_insert_with(|| matches!(r.try_exists(), Ok(true)))
+        })
+}
+
 /// 監視が「消えた」と言ったパスを、**本当に消えた**と読んでよいか。
 ///
 /// **ルートごと見えなくなったなら、ドライブが外れただけ**——消さない。root がボリュームそのもの
@@ -2684,13 +2704,14 @@ fn forget_editor(state: tauri::State<'_, AppState>, app_path: String) -> Result<
 ///
 /// 実体がもう無いものは**先に分ける**。ファイルが1つ欠けるだけで、まとめての操作は
 /// 全体が失敗して1件ずつへ落ちてしまう（選択したあとに外から消えるのは、
-/// 同期フォルダでは普通に起きる）。無いものはDBからだけ落とす（実体に合わせる）。
+/// 同期フォルダでは普通に起きる）。**確かに消えた**ものはDBからだけ落とす（実体に合わせる）。届かないもの
+/// （ドライブを抜いた等）は失敗に数える（[`gone_for_good`]、pictkura-dev #66）。
 ///
 /// **まとめて1回で渡す**のが要点。Windowsの `trash::delete` は1件ごとにシェルの
 /// ファイル操作を起こすので、一覧の全選択（数千〜数万件）では分単位で固まる。
 /// 失敗したときだけ1件ずつへ落とし、**消せたぶんだけ**返す。
-fn trash_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, Option<String>) {
-    trash_paths_with_progress(paths, |_, _| {})
+fn trash_paths(paths: Vec<PathBuf>, roots: &[PathBuf]) -> (Vec<PathBuf>, Option<String>) {
+    trash_paths_with_progress(paths, roots, |_, _| {})
 }
 
 /// ひと束の大きさは**小さく始めて倍にしていく**（上限まで）。
@@ -2711,13 +2732,30 @@ const TRASH_CHUNK_MAX: usize = 200;
 /// `total` は実体のあるものだけ——もう無いファイルは待ち時間を生まないので数えない。
 fn trash_paths_with_progress(
     paths: Vec<PathBuf>,
+    roots: &[PathBuf],
     mut on_progress: impl FnMut(usize, usize),
 ) -> (Vec<PathBuf>, Option<String>) {
-    let (mut gone, present): (Vec<PathBuf>, Vec<PathBuf>) =
-        paths.into_iter().partition(|p| !p.exists());
+    // **「無い」を確かに消えたと読むのは、そのパスを持つライブラリのルートが在るときだけ**（pictkura-dev #66）。
+    // USB・SD を抜いた直後は全部が「無い」になり、それを片付いた扱いにすると、ゴミ箱へ移したと言い、行と
+    // ★・⚑ を落とし、送り出しのリンクまで外していた——ファイルはドライブの中に在るのに。見張りと同じ規則
+    // （[`vanished_path_is_a_deletion`]）で決め、届かないものは失敗に数える。ルートが在るかは1回ずつ訊く
+    let mut root_present: HashMap<PathBuf, bool> = HashMap::new();
+    let mut first_err: Option<String> = None;
+    // 届かなかったことは、ほかに失敗が無いときだけ言う——OS の理由（他のアプリが握っている等）を隠さない
+    let mut unreachable: Option<String> = None;
+    let mut gone: Vec<PathBuf> = Vec::new();
+    let mut present: Vec<PathBuf> = Vec::new();
+    for p in paths {
+        if p.exists() {
+            present.push(p);
+        } else if gone_for_good(&p, roots, &mut root_present) {
+            gone.push(p);
+        } else if unreachable.is_none() {
+            unreachable = Some(errs::coded("errTrashUnreachable", p.display()));
+        }
+    }
     let total = present.len();
     let mut done = 0usize;
-    let mut first_err: Option<String> = None;
     let mut size = TRASH_CHUNK_FIRST;
     while done < total {
         let end = (done + size).min(total);
@@ -2728,11 +2766,15 @@ fn trash_paths_with_progress(
                 // **落ちるのは束の中だけ**。1件ずつへ降りるのはこの束に限り、
                 // 残りの束はまとめて渡す速さのまま進む
                 for path in chunk {
-                    // ファイルが既に無い場合も片付いた扱い（実体に合わせる）。
+                    // ファイルが確かに消えていれば片付いた扱い（実体に合わせる）。**ルートが在るかは訊き直す**——
+                    // 最初に控えた答えを使うと、長い削除の途中でカードを抜いたとき、ここで無くなったものを
+                    // 片付いた扱いにしてしまう（ゲート2）。
                     // まとめての操作が途中まで通っていたぶんも、ここで拾える
                     match trash::delete(path) {
                         Ok(()) => gone.push(path.clone()),
-                        Err(_) if !path.exists() => gone.push(path.clone()),
+                        Err(_) if gone_for_good(path, roots, &mut HashMap::new()) => {
+                            gone.push(path.clone())
+                        }
                         Err(e) => {
                             // **ここで打ち切らない**。既にゴミ箱へ入れたぶんを呼び出し側が
                             // DBへ反映できなくなり、一覧には居るのに実体が無い行になる
@@ -2765,7 +2807,7 @@ fn trash_paths_with_progress(
         size = size.saturating_mul(2).min(TRASH_CHUNK_MAX);
         on_progress(done, total);
     }
-    (gone, first_err)
+    (gone, first_err.or(unreachable))
 }
 
 /// ファイルを**ゴミ箱へ**移動し、DBからも取り除く。
@@ -2841,9 +2883,12 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
         // と返すので、そのまま数えると「ゴミ箱へ移した」になり、ゴミ箱を探しても無い（ゲート2）。後始末（行・
         // サイドカー・送り出しのリンク）は今までどおり一緒にやる——外したままだと、閉じている間に消えて走査も
         // 拾わなかった写真を、一覧から消す手立てが無くなる（2周目のゲート2）。変えるのは数え方だけ
+        // 「もう無かった」もゴミ箱の仕分けと同じ規則で決める（ルートが在るときだけ。#66）
+        let roots = lock_ok(&state.config).library.roots.clone();
+        let mut root_present: HashMap<PathBuf, bool> = HashMap::new();
         let vanished: std::collections::HashSet<PathBuf> = media
             .iter()
-            .filter(|p| pictkura_core::export::is_gone_from_its_folder(p))
+            .filter(|p| gone_for_good(p, &roots, &mut root_present))
             .cloned()
             .collect();
         let mut companions = pictkura_core::sidecar::Companions::new(media.iter().cloned());
@@ -2872,7 +2917,10 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
         // 分母は写真＋影。**進む数字が止まらない**ほうを取る
         let shadows = sidecars.len();
         let media_total = std::cell::Cell::new(0usize);
-        let (deleted_media, first_err) = trash_paths_with_progress(media, |done, total| {
+        // 送ろうとした写真の数（記録の「N枚のうち」に使う）。進み具合の分母は届いたものしか数えないので、
+        // 全部が届かなかったとき「0枚のうち」になる（PR の codex）
+        let attempted = media.len();
+        let (deleted_media, first_err) = trash_paths_with_progress(media, &roots, |done, total| {
             media_total.set(total);
             let _ = app.emit(
                 "delete-progress",
@@ -2900,7 +2948,7 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
         // **何本頼んだかを、渡す前に控える。** 片付いた数との差が「残った数」で、
         // **1本のうち1本**と**300本のうち1本**は、読む人にとって別の話である
         let asked = sidecars.len();
-        let (cleared, sidecar_err) = trash_paths_with_progress(sidecars, |done, total| {
+        let (cleared, sidecar_err) = trash_paths_with_progress(sidecars, &roots, |done, total| {
             let _ = app.emit(
                 "delete-progress",
                 DeleteProgress {
@@ -2950,7 +2998,7 @@ async fn delete_media(app: tauri::AppHandle, ids: Vec<i64>) -> Result<DeleteResu
                 // ——サイドカーの2行に「X of Y」を足したのと同じ理由である（ゲート2）
                 applog::note(&format!(
                     "none of {} photo(s) could go to the recycle bin: {}",
-                    media_total.get(),
+                    attempted,
                     errs::for_log(&e)
                 ));
                 Err(e)
@@ -3039,6 +3087,7 @@ async fn export_media(
         let progress_app = app.clone();
         // サイドカー（`.xmp` 等）も一緒に運ぶ（0.2）。設定で空にすれば運ばない
         let sidecar_exts = lock_ok(&state.config).import.sidecar_extensions.clone();
+        let roots = lock_ok(&state.config).library.roots.clone();
         // **移すあいだは Google 用の鍵を持つ**。監視の突き合わせ（鍵が取れなければ見送る）が、移しかけの
         // 原本を「外で消えた」と読み、取り出した JPEG をゴミ箱へ送らないように（取り出しは名前の数で
         // 「移っただけ」と見分けられない。PR5 のゲート2）。記録を消し終えるまで放さない
@@ -3067,7 +3116,7 @@ async fn export_media(
         let mut gone = outcome.moved;
         if !outcome.to_remove.is_empty() {
             let asked = outcome.to_remove.len();
-            let (trashed, err) = trash_paths(outcome.to_remove);
+            let (trashed, err) = trash_paths(outcome.to_remove, &roots);
             stats.left_behind = asked - trashed.len();
             gone.extend(trashed);
             if let Some(e) = err {
@@ -3090,7 +3139,7 @@ async fn export_media(
         // 落とすものは無く、**件数にも数えない**——利用者が見ているのは写真の枚数
         if !outcome.sidecars_to_remove.is_empty() {
             let asked = outcome.sidecars_to_remove.len();
-            let (cleared, err) = trash_paths(outcome.sidecars_to_remove);
+            let (cleared, err) = trash_paths(outcome.sidecars_to_remove, &roots);
             if let Some(e) = err {
                 // 移した先には在るのに、元の `.xmp` も残る。一覧に出ない
                 // ファイルなので利用者からは見えない——記録には残す
@@ -7425,6 +7474,43 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 抜いたドライブの上のパスは「片付いた」ではなく失敗（pictkura-dev #66）。ルートが在って
+    /// ファイルだけ無いものは片付いた扱い（外で消された）。実物はゴミ箱へは送らない（渡すのは無いパスだけ）
+    #[test]
+    fn an_unreachable_drive_is_a_failure_not_a_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        let present_root = dir.path().join("lib");
+        std::fs::create_dir_all(&present_root).unwrap();
+        let unplugged_root = dir.path().join("card");
+        let roots = vec![present_root.clone(), unplugged_root.clone()];
+
+        let deleted_outside = present_root.join("a.jpg");
+        let on_the_card = unplugged_root.join("DCIM").join("b.jpg");
+        let (gone, err) =
+            super::trash_paths(vec![deleted_outside.clone(), on_the_card.clone()], &roots);
+
+        assert_eq!(
+            gone,
+            vec![deleted_outside],
+            "ルートが在ってファイルだけ無いものは片付いた"
+        );
+        let err = err.expect("届かないものは失敗として返す");
+        assert!(err.contains("b.jpg"), "どのファイルかを詳細に載せる: {err}");
+    }
+
+    /// ルートは在っても、入っていたフォルダごと届かない（ルートの中につないだドライブを外した等）なら、
+    /// 消えたとは言わない（#66 のゲート2）
+    #[test]
+    fn a_missing_folder_inside_a_present_root_is_not_a_deletion() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("lib");
+        std::fs::create_dir_all(&root).unwrap();
+        let in_mount = root.join("mounted").join("c.jpg");
+        let (gone, err) = super::trash_paths(vec![in_mount], &[root]);
+        assert!(gone.is_empty());
+        assert!(err.is_some());
+    }
+
     #[cfg(any(windows, target_os = "macos"))]
     use super::APP_IDENTIFIER;
     use super::{

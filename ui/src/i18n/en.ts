@@ -597,6 +597,7 @@ export const en: Dict = {
   errExportManaged: "Nothing can be written there — another app manages that package.",
   errFolderMissing: "That folder is not there.",
   errTrashFailed: "It could not be moved to the trash.",
+  errTrashUnreachable: "The drive or folder can’t be reached, so nothing was moved to the trash.",
   errTrashPartly: (n: number) =>
     `${num(n)} moved to the trash; the rest could not be.`,
   errAutoplayRollback:

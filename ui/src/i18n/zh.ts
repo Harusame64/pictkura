@@ -647,6 +647,7 @@ export const zh: Dict = {
   errExportManaged: "无法写入该位置：这个包由其他应用管理。",
   errFolderMissing: "找不到该文件夹。",
   errTrashFailed: "无法移到回收站。",
+  errTrashUnreachable: "找不到驱动器或文件夹，因此没有移到回收站。",
   errTrashPartly: (n: number) => `已将 ${num(n)} 张移到回收站，其余未能移动。`,
   errAutoplayRollback:
     "无法保存该设置。自动播放的注册暂时保持刚才更改后的状态，下次启动时会按设置恢复。",
