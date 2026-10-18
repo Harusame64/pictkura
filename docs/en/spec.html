@@ -133,7 +133,7 @@
           <thead><tr><th style="width:260px">Not available</th><th>Why / current state</th></tr></thead>
           <tbody>
             <tr><td class="k">RAW development</td><td>Deliberate. The camera's embedded display JPEG is used instead</td></tr>
-            <tr><td class="k">Editing photos</td><td>No cropping or raw development. It is a tool for looking and choosing (saving the picture on screen, and copying or moving files, are there). A JPEG can be rotated if it has an orientation tag; files on a camera card, or only in the cloud, cannot</td></tr>
+            <tr><td class="k">Editing photos</td><td>No cropping or raw development. It is a tool for looking and choosing (saving the picture on screen, and copying or moving files, are there). A JPEG can be rotated, except photos on a camera card, photos only in the cloud, and JPEGs with no orientation information; when another reason stops it, a message says why</td></tr>
             <tr><td class="k">AI culling or face detection</td><td>Deliberate. The person who took the photo decides</td></tr>
             <tr><td class="k">Tags and keywords</td><td>None. There are exactly two marks, ★ and ⚑</td></tr>
             <tr><td class="k">Changing the sort order</td><td>Newest capture date first, with no way to change it</td></tr>
@@ -142,7 +142,7 @@
             <tr><td class="k">Duration and dimensions on macOS outside <code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code></td><td>Those four are read from the container header. The rest depend on the Windows Shell, so macOS shows no duration or dimensions, and the capture date falls back to the file name or the modification time</td></tr>
             <tr><td class="k">Playing <code>.m2ts</code> / <code>.avi</code> in-app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
             <tr><td class="k">A size for a RAW that declares none</td><td>Dimensions come from the file's own declaration, from the sensor borders in Panasonic's own RAW formats (<code>rw2</code> <code>raw</code> <code>rwl</code>), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG we tested — shows no size. On Windows a file that only exists in the cloud is the exception: the Shell supplies its dimensions without downloading it</td></tr>
-            <tr><td class="k">Rebuilding the index from the UI</td><td>Delete <code>pictkura.db</code> in the settings folder and it is rebuilt (★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing are lost)</td></tr>
+            <tr><td class="k">Rebuilding the index from the UI</td><td>Delete <code>pictkura.db</code> in the settings folder and it is rebuilt (★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing or is waiting to be placed again are lost)</td></tr>
             <tr><td class="k">Right-to-left layout</td><td>Not supported</td></tr>
           </tbody>
         </table>
