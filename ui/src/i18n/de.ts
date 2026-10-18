@@ -618,6 +618,10 @@ export const de: Dict = {
   settingsAutoplayNote:
     "Mit dem Installer oder aus dem Microsoft Store installiert, erscheint beim Anschließen eines Laufwerks „pictkura で写真を取り込む“ (Fotos mit pictkura importieren) unter den Optionen; die portable Version bietet das nicht an. pictkura startet nie von selbst — der Import öffnet sich nur, wenn Sie ihn wählen. Was standardmäßig geschieht, legen Sie in den Windows-Einstellungen für die automatische Wiedergabe fest. Der Eintrag selbst ist auf Japanisch beschriftet – außer beim englischen MSI, dort heißt er „Import photos with pictkura“.",
   settingsAutoplayOpenWindows: "Windows-Einstellungen für die automatische Wiedergabe öffnen",
+  settingsImportWaitingFrom: (path: string) =>
+    `Ein Import von ${path} wartet. Er öffnet sich, wenn Sie die Einstellungen schließen.`,
+  settingsImportWaiting: "Ein Import wartet. Er öffnet sich, wenn Sie die Einstellungen schließen.",
+  settingsImportWaitingOpen: "Schließen und importieren",
   settingsAbout: "Über",
   settingsAboutLicense: "Veröffentlicht unter der MIT-Lizenz.",
   settingsManual: "Handbuch",

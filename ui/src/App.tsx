@@ -1159,7 +1159,7 @@ export default function App() {
             });
             if (next === "destroy") {
               // 窓を壊す道（`finishGate` の quitAfter と同じ）。待たせていた取り込みは捨てる。鍵は持ったまま
-              pendingWizardRef.current = null;
+              setPendingWizard(null);
               void getCurrentWindow().destroy();
               return;
             }
@@ -1222,6 +1222,20 @@ export default function App() {
    * **最後に挿したカードのほうが、その人の用である見込みが高い**。
    */
   const pendingWizardRef = useRef<{ startPath?: string } | null>(null);
+  /**
+   * **設定の裏で待っている取り込みを、設定の中に知らせるための写し**（pictkura-dev #71）。
+   * 待たせるだけだと、カードを挿した人には**何も起きていないように見える**（黙る口）。
+   * 値は待っている取り込みの場所（場所の無い要求は `""`）、待っていなければ `null`
+   */
+  const [importWaiting, setImportWaiting] = useState<string | null>(null);
+  /**
+   * 待たせる要求を書き換える道はこれ1本——ref（`openWizard` が読む）と、設定の知らせ（state）を一緒に動かす。
+   * 片方だけ消すと、窓を閉じ損ねたあとの設定に、もう無い取り込みが「待っている」と出る（ゲート2）
+   */
+  const setPendingWizard = useCallback((v: { startPath?: string } | null) => {
+    pendingWizardRef.current = v;
+    setImportWaiting(v === null ? null : (v.startPath ?? ""));
+  }, []);
   /**
    * **2本目の道（`⌘/Ctrl + ,` と macOS のメニュー）から設定を開く**。
    *
@@ -2673,7 +2687,7 @@ export default function App() {
     // **繰り返しは `answerKey` が弾き**、**出たばかりの面は自分で受けない**
     // （`ImportWizard` の 400ms）。**3つ揃って初めて塞がる。**
     if (gateUpRef.current || settingsOpenRef.current) {
-      pendingWizardRef.current = { startPath };
+      setPendingWizard({ startPath });
       return;
     }
     // **開く前に、軽い幕を畳む**（[`openSettingsBySecondDoor`] と同じ作法）。
@@ -2695,7 +2709,7 @@ export default function App() {
     setWizardStart(startPath);
     setWizardNonce((n) => n + 1);
     setWizardOpen(true);
-  }, []);
+  }, [setPendingWizard]);
 
   // **関所が立ったら、関所より下の軽い幕は畳む**（2026-09-08）。
   //
@@ -2719,7 +2733,7 @@ export default function App() {
     if (rejectGate !== null || settingsOpen) return;
     const pending = pendingWizardRef.current;
     if (pending === null) return;
-    pendingWizardRef.current = null;
+    setPendingWizard(null);
     openWizard(pending.startPath, true);
   }, [rejectGate, settingsOpen, openWizard]);
 
@@ -5473,7 +5487,7 @@ export default function App() {
           quitAfterTrashRef.current = true;
           quitPastGateRef.current = true;
         } else {
-          pendingWizardRef.current = null;
+          setPendingWizard(null);
           void getCurrentWindow().destroy();
         }
       }
@@ -6592,7 +6606,7 @@ export default function App() {
       if (gate.quitAfter) {
         // **待たせていた取り込みは捨てる**（2026-09-08）。ここは**窓を壊す道**で、
         // 開いても**死につつある窓の上**にしか出ない
-        pendingWizardRef.current = null;
+        setPendingWizard(null);
         void getCurrentWindow().destroy();
         return;
       }
@@ -9151,6 +9165,7 @@ export default function App() {
         // **`settingsOpen` をこちらで倒さない**のは、**閉じる道が向こうに1本ある**
         // からである（自由記述の確定がぶら下がっている）。**畳めと言うだけにする。**
         dismiss={rejectGate !== null}
+        importWaiting={importWaiting}
         onClose={() => setSettingsOpen(false)}
         config={config}
         onConfigChanged={refreshRoots}

@@ -66,6 +66,7 @@ import { answerKey, useWindowEvent } from "./useWindowEvent";
 export default function Settings({
   open,
   dismiss = false,
+  importWaiting = null,
   onClose,
   config,
   onConfigChanged,
@@ -81,6 +82,12 @@ export default function Settings({
    * 面が消えるときに飛ばない）。**外から状態だけ倒すと、打ちかけの文字が消える。**
    */
   dismiss?: boolean;
+  /**
+   * **設定の裏で待っている取り込み**（AutoPlay と2重起動から来た要求。App の `openWizard`）。場所の無い要求は
+   * `""`、無ければ `null`。設定は勝手に畳まない（打ちかけの自由記述がある）ので、**待っていると知らせ、
+   * 閉じる道を1つ置く**——閉じれば App が開く（pictkura-dev #71）
+   */
+  importWaiting?: string | null;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
@@ -365,6 +372,17 @@ export default function Settings({
           <button className="settings-close" onClick={closeDialog} title={t.close} id="pk-settings-close" data-testid="settings-close">
             <span aria-hidden="true">✕</span>
           </button>
+        </div>
+        {/* 読み上げの枠は常に置き、中身だけ出し入れする——中身ごと現れた枠は、読み上げソフトが告げないことがある */}
+        <div role="status" data-testid="settings-import-waiting-banner">
+          {importWaiting !== null && (
+            <div className="settings-waiting">
+              <span>{importWaiting ? t.settingsImportWaitingFrom(importWaiting) : t.settingsImportWaiting}</span>
+              <button onClick={closeDialog} id="pk-settings-import-waiting" data-testid="settings-import-waiting">
+                {t.settingsImportWaitingOpen}
+              </button>
+            </div>
+          )}
         </div>
         <div className="settings-body">
           <section className="settings-section">
@@ -789,7 +807,10 @@ export default function Settings({
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
               <p className="settings-note">{t.settingsAutoplayNote}</p>
-              <button onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}>
+              <button
+                className="settings-plain-button"
+                onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}
+              >
                 {t.settingsAutoplayOpenWindows}
               </button>
             </section>
