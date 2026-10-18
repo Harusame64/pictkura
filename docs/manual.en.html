@@ -258,7 +258,8 @@
 On first launch your <strong>Pictures</strong> folder, if there is one, is added automatically
 (the ✕ beside it removes it; no photos are deleted). For other folders, or if nothing was
 added, use “<strong>Add a folder</strong>” at
-the bottom of the left pane: type the folder and press “Add”, or pick a drive.
+the bottom of the left pane: choose a folder with “Browse…”, or type its full path and press “Add” (the box shows an example).
+Clicking a drive under “Drives” on the left does not add it; it opens an import from that drive.
 </p>
 <div class="note warn">
   <p>
@@ -269,6 +270,7 @@ the bottom of the left pane: type the folder and press “Add”, or pick a driv
 <p>
 Scanning starts immediately, and a grid ordered by date builds up. The grid stays live
 while the scan runs — rows appear as they are ready.
+While scanning or loading thumbnails is still going on, the header shows “Updating” or “n left” next to the count (hover over it for the full text).
 </p>
 
 <figure>
@@ -307,8 +309,17 @@ while the scan runs — rows appear as they are ready.
 
 <p>
 While copying you get a progress bar, an estimated time remaining, and
-<strong>the photo currently being copied</strong>. When a copy finishes, sizes are compared
+<strong>the photo currently being copied</strong>, and the view moves to the progress when the import starts. When a copy finishes, sizes are compared
 to verify it.
+</p>
+
+<p>
+When exactly one camera card (a drive with DCIM) is inserted, the import opens with it already selected.
+On Windows the same goes for a single removable drive when there is no card. Cards and removable drives stand out in the list on the left.
+</p>
+
+<p>
+An import that arrives from AutoPlay while Settings is open waits until Settings closes. Settings says “An import is waiting”; press “Close and import” to open it.
 </p>
 
 <h3>Offer pictkura when a card is inserted (Windows only)</h3>
@@ -559,7 +570,7 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
   <tr><td><kbd>Ctrl</kbd> + <kbd>P</kbd></td><td>Print the photo on screen (<kbd>⌘</kbd> + <kbd>P</kbd> on macOS)</td></tr>
   <tr><td><kbd>Space</kbd></td><td>Start or stop the slideshow. On a video, play / pause</td></tr>
   <tr><td><kbd>F</kbd></td><td>Toggle favorite (★)</td></tr>
-  <tr><td><kbd>I</kbd></td><td>File details (name, folder, size, date taken, date modified, dimensions) and capture details (camera, lens, aperture, shutter, ISO, GPS)</td></tr>
+  <tr><td><kbd>I</kbd></td><td>File details (name, folder, size, date taken, date modified, dimensions, type, and length for a video) and capture details (camera, lens, focal length, aperture, shutter, ISO, GPS)</td></tr>
   <tr><td><kbd>1</kbd> / <kbd>0</kbd></td><td><kbd>1</kbd> <strong>toggles</strong> between actual size 100% and fit to screen; <kbd>0</kbd> always fits</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
@@ -598,6 +609,11 @@ There is a limit to how many photos can be printed at once (28 at one per page, 
 <p>
 On Windows, “Show more options” opens the same menu as File Explorer, with “Send to”, “Open with”, “Properties” and the rest.
 If you move a photo elsewhere from that menu, its favorite and pick marks are dropped.
+</p>
+
+<p>
+Opening a photo by clicking its tile grows it out of the tile. Closing shrinks the current photo back into its tile (scrolling the grid there if the tile is off screen).
+There is no motion when you open from the calendar, for videos, or when the transition is set to None.
 </p>
 
 <p>
@@ -659,7 +675,7 @@ Saving starts in <strong>the folder you saved to last time</strong>
     <a href="https://harusame64.github.io/pictkura/en/cameras.html">camera list</a>.
   </p>
   <p>
-    SVG can only be saved, not copied to the clipboard.
+    SVG can only be saved, not copied to the clipboard or printed.
   </p>
 </div>
 
@@ -685,7 +701,8 @@ what you can do to the selection.
 <p>
 While something is selected, a plain click toggles a tile instead of opening the viewer.
 From the bar you can add or remove ★ for the whole selection, copy or move it to a folder
-you pick, or move all of it to the Recycle Bin in one go. It asks before deleting. With Outgoing on, the bar also has “Add to Outgoing” (“Remove from Outgoing” while Outgoing on the left is shown).
+you pick, print it, or move all of it to the Recycle Bin in one go. It asks before deleting.
+Deleting, moving and copying run one at a time; pressing again while one is running tells you to wait for it to finish. With Outgoing on, the bar also has “Add to Outgoing” (“Remove from Outgoing” while Outgoing on the left is shown).
 </p>
 
 <h3>⚑ Picked</h3>
@@ -882,6 +899,10 @@ were never checked.
 date falls back to the file name or the modification time.
 </p>
 
+<p>
+Video volume and mute are remembered, so the next video starts the same way. While muted (volume 0 included), the viewer shows a “Muted” mark; click it to turn the sound on.
+</p>
+
 <h2 id="cloud">8. Files that only exist in the cloud</h2>
 
 <p>
@@ -900,6 +921,7 @@ is a marker.
 <ul>
   <li><strong>They do appear in the grid.</strong> Dimensions and capture time come from what the OS already knows, so they sit on the correct date</li>
   <li><strong>The image may not appear.</strong> The real file is fetched only when you actually go and look at it</li>
+  <li><strong>Copying or moving to a folder, copying to the clipboard and printing fetch the real file.</strong> Rotating is not available</li>
   <li><strong>Video duration is missing.</strong> It cannot be known without reading the container, and that needs the real file</li>
   <li><strong>Videos are stopped before they open.</strong> Opening a multi-gigabyte video would download the entire file, so pictkura explains the situation and steers you to “Open in default app”</li>
 </ul>
@@ -957,7 +979,7 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <p>“Outgoing” on the left appears while Outgoing is turned on in Settings, and while anything placed is still there.</p>
 
 <ul>
-  <li>Click it to list only what is in the Outgoing folder, with a count</li>
+  <li>Click it to list only what is in the Outgoing folder, with a count. Above the list, a note says which folder to choose in your photo service, with “Open folder” and “Copy path”</li>
   <li>Select photos there and use “Remove from Outgoing” on the selection bar. “Remove from Outgoing” in a photo’s right-click menu removes only that photo. pictkura does not ask first; it tells you how many were removed</li>
   <li>Only what is in the Outgoing folder is removed. The originals on your computer stay. <strong>If you use Google Photos:</strong> it stays in Google Photos</li>
   <li>Anything that could not be removed right now (the drive may be disconnected) also leaves the list, and pictkura tries again the next time it starts</li>
@@ -968,7 +990,7 @@ pictkura does not talk to Google; the uploading is done by Google Photos.
 <p>
 Hard links cannot cross drives, so each drive that holds photos gets its own Outgoing folder
 (<code>pictkura-outgoing</code> under your home folder if the drive holds it, otherwise at the top of the drive).
-When one is created, the confirmation or the import result usually tells you (not when it is made by the retry at startup). The current Outgoing folder is shown under “Folder” in Settings → Outgoing; when photos have been placed in other Outgoing folders too, every folder used so far is listed below it.
+When one is created, the confirmation or the import result usually tells you (not when it is made by the retry at startup). The current Outgoing folder is shown under “Folder” in Settings → Outgoing; when photos have been placed in other Outgoing folders too, every folder used so far is listed below it. Each one has “Open folder” and “Copy path”.
 <strong>If you use Google Photos:</strong> add each one you use in Google Photos.
 You can choose another place on the same drive as the import destination with Settings → Outgoing → Change. This changes only where new photos are placed: what is already in the previous Outgoing folder stays there (and stays in the list in Settings). Keep the previous folder added to your photo service until everything in it has been uploaded.
 </p>
