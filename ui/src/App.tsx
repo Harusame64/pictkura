@@ -8249,7 +8249,7 @@ export default function App() {
                               {/* 選別の印。`cell-pick` は複数選択の丸なので
                                   名前を分ける（`cell-flag`） */}
                               {cell.files.some((f) => f.picked) && (
-                                <span className="cell-flag" title={t.viewerPicked}>
+                                <span className="cell-flag" title={t.viewerPicked} role="img" aria-label={t.viewerPicked}>
                                   ⚑
                                 </span>
                               )}
