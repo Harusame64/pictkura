@@ -324,8 +324,8 @@ USB や SD カードを挿したときの Windows の「自動再生」に、
 </p>
 
 <p>
-<strong>0.3 までの版は、アプリが起動時に候補を登録していました。</strong>新しい版を入れると、その古い登録は自動で片付きます
-（インストーラーが入れた直後に、1台を複数の人で使っている場合は、それぞれの人が新しい版を起動したときに）。
+<strong>0.3 までの版は、アプリが起動時に候補を登録していました。</strong>新しい版をインストールすると、その古い登録は自動で片付きます
+（インストールした直後に、1台を複数の人で使っている場合は、それぞれの人が新しい版を起動したときに）。
 <strong>持ち歩き版で候補を出していた場合</strong>は、新しい版を一度起動するか、やめるときに
 <code>pictkura.exe --unregister-autoplay</code> を実行してください。
 <strong>インストーラー版から Microsoft Store 版へ乗り換えるときは、先にインストーラー版をアンインストールしてください</strong>——
@@ -844,7 +844,7 @@ JPEG や PNG など、そのまま表示できる写真は<strong>原本をコ�
 一覧のサムネイルはOSから借りるので、そのOSがコンテナを開ける範囲までが上限になります。
 Windowsはエクスプローラと同じシェルの経路で、<code>.avi</code> とHEVCの <code>.mov</code> は
 サムネイルが返ることを実測済み、<code>.m2ts</code> は未確認のままです。OSに対応する部品もコーデックも
-無ければ何も返りません。なおHEVCを測った機械には下に書いた有料の拡張機能が入っており、
+無ければ何も返りません。なおHEVCを測った機械には下に書いた有料の拡張機能がインストールされており、
 外した状態では試していません。
 <strong>macOSの AVFoundation は開けたものだけを返します</strong>
 ——<code>mp4</code> と <code>mov</code> は、H.264 でも HEVC（<code>hvc1</code>＝iPhoneと同じ綴り）でも
@@ -872,7 +872,7 @@ Windowsの「ピクチャ」は既定でOneDriveに向いており、しばら�
 <div class="note warn">
   <p>
     pictkura が<strong>先回りしてダウンロードすることはありません</strong>。
-    アプリを入れただけで何GBも通信が走ることはありません。
+    アプリをインストールしただけで何GBも通信が走ることはありません。
   </p>
 </div>
 
@@ -1018,7 +1018,7 @@ pictkura は Google と通信しません。アップロードするのは Googl
   <tr><th>事柄</th><th>内容</th></tr>
   <tr>
     <td>HEIC / HEVC にOSの部品が要るのはWindowsだけ</td>
-    <td><strong>HEVCのデコーダは同梱しません</strong>——特許の都合で、OSが持っていれば使う方針です。そのため <strong>Windows</strong> では「HEIF Image Extensions」（無料）に加え、画素の展開に「HEVC Video Extensions」（有料・数百円）が要ります（必要なときはアプリから案内を出します）。<strong>macOSは入れるものがありません</strong>——ImageIOもHEVCのデコーダもOSに同梱されています</td>
+    <td><strong>HEVCのデコーダは同梱しません</strong>——特許の都合で、OSが持っていれば使う方針です。そのため <strong>Windows</strong> では「HEIF Image Extensions」（無料）に加え、画素の展開に「HEVC Video Extensions」（有料・数百円）が要ります（必要なときはアプリから案内を出します）。<strong>macOSはインストールするものがありません</strong>——ImageIOもHEVCのデコーダもOSに同梱されています</td>
   </tr>
   <tr><td>動画のサムネイルは、OSがコンテナを開ける範囲まで</td><td>Windowsはシェルから借ります——<code>.avi</code> とHEVCの <code>.mov</code> は出ることを実測済み、<code>.m2ts</code> は未確認、OSに部品もコーデックも無いものは何も返りません。<strong>macOSは AVFoundation が開けたものだけ</strong>——<code>mp4</code>・<code>mov</code> はH.264とHEVC（<code>hvc1</code>）の見本で出ることを実測済み、<code>.avi</code> は出ないことを実測済みで、他のコンテナは未測定です。<strong>Linuxは経路そのものがありません</strong></td></tr>
   <tr><td><code>mp4</code>・<code>m4v</code>・<code>mov</code>・<code>3gp</code> 以外の長さ・寸法</td><td>この4つはコンテナのヘッダから直接読みます。それ以外はWindowsのシェル頼みで（実測は合成した <code>.m2ts</code> の1件のみ）、macOS・Linuxでは長さも寸法も出ません（日付はファイル名か更新日時に落ちます）</td></tr>
