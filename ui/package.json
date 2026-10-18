@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && tsc -p tsconfig.scripts.json && vite build",
-    "test": "node --test scripts/i18n.test.ts scripts/missingRoots.test.ts scripts/confirmLabels.test.ts scripts/originalTrouble.test.ts scripts/stacks.test.ts scripts/stackBadges.test.ts scripts/filterEmpty.test.ts scripts/paletteOrder.test.ts scripts/importPreselect.test.ts scripts/fileInfo.test.ts scripts/printPhoto.test.ts scripts/videoVolume.test.ts scripts/progressLine.test.ts scripts/quitAfterFileOp.test.ts scripts/viewerZoomBox.test.ts scripts/printSheet.test.ts scripts/pressable.test.ts",
+    "test": "node --test scripts/i18n.test.ts scripts/missingRoots.test.ts scripts/confirmLabels.test.ts scripts/originalTrouble.test.ts scripts/stacks.test.ts scripts/stackBadges.test.ts scripts/filterEmpty.test.ts scripts/paletteOrder.test.ts scripts/importPreselect.test.ts scripts/fileInfo.test.ts scripts/printPhoto.test.ts scripts/videoVolume.test.ts scripts/progressLine.test.ts scripts/quitAfterFileOp.test.ts scripts/viewerZoomBox.test.ts scripts/printSheet.test.ts scripts/pressable.test.ts scripts/testIds.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

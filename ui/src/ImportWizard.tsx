@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { pressable } from "./pressable";
 
 /** `pressable` のうち、クリック以外（役割・Tab・キー）。クリックは外側の行が受ける */
@@ -445,7 +445,9 @@ export default function ImportWizard({
     onClose();
   });
 
-  const titleId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
+  // 見出しの id は固定（`useId` の「:r0:」は開いた順で番号が変わり、UI Automation の AutomationId にそのまま出る。
+  // 自動操作の手がかりと紛れる。win の実測、pictkura-dev #65）
+  const titleId = "pk-wizard-title";
   // 開いたら幕の中へフォーカスを移す（後ろは inert なので、そのままでは <body> に残り、読み上げが幕の名前を
   // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -689,6 +691,8 @@ export default function ImportWizard({
     <div className="palette-backdrop" onClick={() => !busy && onClose()}>
       <div
         className="wizard"
+        id="pk-wizard"
+        data-testid="wizard"
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
@@ -699,6 +703,8 @@ export default function ImportWizard({
           <h2 id={titleId}>{t.wizardTitle}</h2>
           <button
             className="settings-close"
+            id="pk-wizard-close"
+            data-testid="wizard-close"
             onClick={onClose}
             disabled={busy}
             title={t.close}
