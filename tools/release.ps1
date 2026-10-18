@@ -163,7 +163,9 @@ try {
     Write-Output "== 4/4 インストーラ（MSI・NSIS）と持ち歩き版を作る =="
     Push-Location (Join-Path $root "src-tauri")
     try {
-        cargo tauri bundle
+        # --verbose: 失敗したときに WiX（candle・light）の本文が出る。無いと「light.exe を走らせられなかった」の
+        # 1行だけになり、どの ICE・どの行で落ちたか分からない（2026-10-18 #237 で踏んだ）
+        cargo tauri bundle --verbose
         if ($LASTEXITCODE -ne 0) { throw "cargo tauri bundle に失敗" }
     } finally { Pop-Location }
 
