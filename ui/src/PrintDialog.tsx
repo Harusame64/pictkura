@@ -125,7 +125,7 @@ export function PrintDialog({
         )}
         <div className="file-info-actions print-dialog-actions">
           <button onClick={onClose}>{t.confirmCancel}</button>
-          <button className="primary" onClick={go} disabled={tooMany} autoFocus>
+          <button className="primary" onClick={go} disabled={tooMany} autoFocus id="pk-print-go" data-testid="print-go">
             {t.printGo}
           </button>
         </div>

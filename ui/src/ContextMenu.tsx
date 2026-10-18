@@ -3,6 +3,8 @@ import { answerKey, useWindowEvent } from "./useWindowEvent";
 
 /** 右クリックメニューの1項目。`separator` の前に区切り線を引く */
 export type MenuItem = {
+  /** 試験と自動操作の手がかり（`id="pk-menu-<id>"`・`data-testid="menu-<id>"`）。表示の言語で変わらない名前（pictkura-dev #65） */
+  id?: string;
   label: string;
   /** 危険な操作（削除）を赤字にする */
   danger?: boolean;
@@ -108,6 +110,8 @@ export default function ContextMenu({
       className="context-menu"
       // メニューとして見せる（UI Automation の Menu／MenuItem。pictkura-dev #65）
       role="menu"
+      id="pk-context-menu"
+      data-testid="context-menu"
       onKeyDown={onMenuKey}
       style={{ left: adjusted?.x ?? pos.x, top: adjusted?.y ?? pos.y }}
       onClick={(e) => e.stopPropagation()}
@@ -118,6 +122,8 @@ export default function ContextMenu({
           {item.separator && <div className="context-separator" role="separator" />}
           <button
             role="menuitem"
+            id={item.id ? `pk-menu-${item.id}` : undefined}
+            data-testid={item.id ? `menu-${item.id}` : undefined}
             className={"context-item" + (item.danger ? " danger" : "")}
             onClick={() => {
               onClose();

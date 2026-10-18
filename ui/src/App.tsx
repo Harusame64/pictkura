@@ -7068,14 +7068,16 @@ export default function App() {
       markFiles: readonly MediaItem[] = files,
       pos?: MenuPos,
     ): MenuItem[] => [
-      { label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
-      ...editors.map((app) => ({
+      { id: "open", label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
+      // 編集アプリは何本でも並ぶので、並びの番号で分ける（同じ id を重ねない。ゲート2）
+      ...editors.map((app, i) => ({
+        id: `open-with-${i}`,
         label: t.menuOpenWith(app.name),
         run: () => openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
       })),
-      { label: t.menuOpenWithOther, run: () => onOpenWithOther(item) },
+      { id: "open-with-other", label: t.menuOpenWithOther, run: () => onOpenWithOther(item) },
       {
-        label: t.menuReveal,
+        id: "reveal", label: t.menuReveal,
         separator: true,
         run: () => revealInFolder(item.id).catch((e) => fail(errText(e))),
       },
@@ -7084,7 +7086,7 @@ export default function App() {
       ...(platform === "windows" && pos
         ? [
             {
-              label: t.menuMoreOptions,
+              id: "more-options", label: t.menuMoreOptions,
               run: () =>
                 // 押した写真を先頭に——フォルダをまたぐ束は、それと同じフォルダのものだけになる
                 openShellMenu(
@@ -7099,7 +7101,7 @@ export default function App() {
       // 貼れる）。対象は表紙の1枚。出す条件もビューアと同じ（`canCopyToClipboard`）。クラウドにだけ在るファイルは
       // 実体を落としてから載せる——押したのは利用者で、ビューアで開くのと同じ扱い
       ...(canCopyToClipboard(item, fullFailedId)
-        ? [{ label: t.menuCopyImage, separator: true, run: () => void copyViewerImage(item) }]
+        ? [{ id: "copy-image", label: t.menuCopyImage, separator: true, run: () => void copyViewerImage(item) }]
         : []),
       // 回転（ADR B-2 の R3）。ファイルの EXIF の向きだけを書き換える。対象は表紙の1枚——RAW+JPEG の組では
       // JPEG（表紙は RAW でないほう）、連写では表紙のコマ。JPEG でなければ出さない。回せない理由（向きの情報が
@@ -7107,20 +7109,20 @@ export default function App() {
       ...(item.is_jpeg
         ? [
             {
-              label: t.menuRotateRight,
+              id: "rotate-right", label: t.menuRotateRight,
               // コピーが出ていれば同じまとまり、出ていなければここで区切る
               separator: !canCopyToClipboard(item, fullFailedId),
               run: () => rotate(item, "right"),
             },
-            { label: t.menuRotateLeft, run: () => rotate(item, "left") },
+            { id: "rotate-left", label: t.menuRotateLeft, run: () => rotate(item, "left") },
           ]
         : []),
       ...(item.is_jpeg && restorableId === item.id
-        ? [{ label: t.menuRotateRestore, run: () => rotate(item, "restore") }]
+        ? [{ id: "rotate-restore", label: t.menuRotateRestore, run: () => rotate(item, "restore") }]
         : []),
       // 印刷（ADR B-3）。対象は表紙の1枚、出す条件はコピーと同じ（絵に起こせるもの）。載せ方を選ぶ画面を先に出す
       ...(canCopyToClipboard(item, fullFailedId)
-        ? [{ label: t.menuPrint, run: () => setPrintFor(item) }]
+        ? [{ id: "print", label: t.menuPrint, run: () => setPrintFor(item) }]
         : []),
       // ★・⚑ は `markFiles`、削除は**重ねのファイルぜんぶ**に効く（dev #32）。RAW+JPEG は組の
       // 両方（2026-09-08 の利用者の選択）、**連写は表紙のコマだけ**（2026-09-25 の利用者の選択）。
@@ -7140,6 +7142,7 @@ export default function App() {
               : marked
                 ? t.bulkPickOff
                 : t.bulkPickOn,
+          id: kind,
           run: () => markStack(markFiles, kind, !marked),
         };
       }),
@@ -7148,7 +7151,7 @@ export default function App() {
       ...(filter === "outgoing"
         ? [
             {
-              label: t.bulkRemoveGoogle,
+              id: "outgoing-remove", label: t.bulkRemoveGoogle,
               separator: true,
               run: () => void removeFromGoogle(files.map((f) => f.id), false),
             },
@@ -7157,7 +7160,7 @@ export default function App() {
           googleOn
         ? [
             {
-              label: t.bulkSendGoogle,
+              id: "outgoing-send", label: t.bulkSendGoogle,
               separator: true,
               run: () => {
                 // ★・⚑ と同じ `markFiles` を送る: 連写は表紙のコマだけ、RAW+JPEG は組の両方（JPEG だけ
@@ -7174,12 +7177,12 @@ export default function App() {
         : []),
       // 情報は**重ねのファイルぜんぶ**（RAW と JPEG の大きさが両方見える。ADR の A）
       {
-        label: t.menuInfo,
+        id: "info", label: t.menuInfo,
         separator: true,
         run: () => setInfoFor(files.map((f) => f.id)),
       },
       {
-        label: t.menuDelete,
+        id: "delete", label: t.menuDelete,
         danger: true,
         separator: true,
         run: () => onDelete(files),
@@ -7326,7 +7329,7 @@ export default function App() {
         <div className="select-bar" {...inertProps}>
           <button
             className="select-bar-close"
-            title={t.clearSelection}
+            title={t.clearSelection} id="pk-select-clear" data-testid="select-clear"
             onClick={clearSelection}
           >
             <span aria-hidden="true">✕</span>
@@ -7473,6 +7476,7 @@ export default function App() {
           <input
             type="search"
             placeholder={t.searchPlaceholder}
+            id="pk-search" data-testid="search"
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
             onKeyDown={(e) => {
@@ -7485,7 +7489,7 @@ export default function App() {
           {queryInput ? (
             <button
               className="search-clear"
-              title={t.searchClear}
+              title={t.searchClear} id="pk-search-clear" data-testid="search-clear"
               onClick={() => setQueryInput("")}
             >
               <span aria-hidden="true">✕</span>
@@ -7496,10 +7500,10 @@ export default function App() {
             </span>
           )}
         </div>
-        <button className="primary" onClick={() => openWizard()} disabled={busy}>
+        <button className="primary" onClick={() => openWizard()} disabled={busy} id="pk-import" data-testid="import">
           {t.importFromUsb}
         </button>
-        <button onClick={onSync} disabled={busy}>
+        <button onClick={onSync} disabled={busy} id="pk-rescan" data-testid="rescan">
           {t.rescan}
         </button>
         {/* 設定。**文字の ⚙ ではなく絵にする**——字は他のボタンと同じ 13px で小さく、
@@ -7509,6 +7513,7 @@ export default function App() {
           className="settings-btn"
           title={t.settings}
           aria-label={t.settings}
+          id="pk-settings" data-testid="settings"
           onClick={() => setSettingsOpen(true)}
         >
           <svg
@@ -8113,6 +8118,7 @@ export default function App() {
                               style={{ width: cell.w, height: cell.h }}
                               // 閉じるときに戻る先を引く（dev #52）。組のどれを見ていても同じタイルへ
                               data-ids={cell.files.map((f) => f.id).join(" ")}
+                              data-testid="tile"
                               title={
                                 burst
                                   ? `${cell.item.file_name}\n${(cell.rawPair ? t.burstTitleRawJpeg : t.burstTitle)(cell.frames, cell.spanMs, cell.files.length)}`
@@ -8315,6 +8321,7 @@ export default function App() {
           // 出たら、ビューアも後ろとして inert にする
           {...inertWhen(curtainUp)}
           ref={viewerRootRef}
+          id="pk-viewer" data-testid="viewer"
           tabIndex={-1}
           role="dialog"
           aria-label={viewerItem?.file_name ?? t.appName}
@@ -8806,6 +8813,7 @@ export default function App() {
               {strip.map(({ item, offset }) => (
                 <button
                   key={item.id}
+                  data-testid="viewer-strip-cell"
                   className={
                     "strip-cell" +
                     (offset === 0 ? " current" : "") +
@@ -8862,7 +8870,7 @@ export default function App() {
               {rejected.size > 0 && (
                 <button
                   className="viewer-reject-chip"
-                  title={t.rejectChipTitle}
+                  title={t.rejectChipTitle} id="pk-viewer-reject-chip" data-testid="viewer-reject-chip"
                   // 名前は「✕ 3」ではなく役目と数（記号を名前にしない。pictkura-dev #65）
                   aria-label={`${t.rejectChipTitle} (${rejected.size})`}
                   onClick={() => setRejectGate({ closeAfter: false })}
@@ -8948,6 +8956,7 @@ export default function App() {
             {viewerItem && (
               <button
                 className={"viewer-zoom" + (isActualSize ? " actual" : "")}
+                id="pk-viewer-zoom" data-testid="viewer-zoom"
                 aria-pressed={isActualSize}
                 title={
                   isActualSize
@@ -8963,7 +8972,7 @@ export default function App() {
             {viewerItem && (
               <button
                 className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
-                title={t.viewerFavorite}
+                title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
                 aria-pressed={viewerItem.favorite}
                 onClick={() => favoriteViewer(viewerItem)}
               >
@@ -8973,7 +8982,7 @@ export default function App() {
             {viewerItem && (
               <button
                 className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
-                title={viewerItem.picked ? t.viewerUnpick : t.viewerPick}
+                title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
                 <span aria-hidden="true">⚑</span>
@@ -8987,7 +8996,7 @@ export default function App() {
                   "viewer-tool reject-tool" +
                   (rejected.has(viewerItem.id) ? " rejecting" : "")
                 }
-                title={t.viewerReject}
+                title={t.viewerReject} id="pk-viewer-reject" data-testid="viewer-reject"
                 aria-pressed={rejected.has(viewerItem.id)}
                 onClick={() => rejectTool(viewerItem)}
               >
@@ -8996,7 +9005,7 @@ export default function App() {
             )}
             <button
               className={"viewer-tool" + (showExif ? " on" : "")}
-              title={t.viewerExif}
+              title={t.viewerExif} id="pk-viewer-info" data-testid="viewer-info"
               aria-pressed={showExif}
               onClick={() => setShowExif((s) => !s)}
             >
@@ -9004,7 +9013,7 @@ export default function App() {
             </button>
             <button
               className={"viewer-tool" + (playing ? " on" : "")}
-              title={t.viewerSlideshow}
+              title={t.viewerSlideshow} id="pk-viewer-slideshow" data-testid="viewer-slideshow"
               aria-pressed={playing}
               onClick={() => setPlaying((p) => !p)}
             >
@@ -9017,7 +9026,7 @@ export default function App() {
             {viewerItem && canCopyImage && (
               <button
                 className="viewer-tool"
-                title={t.extractCopy(modKey("C"))}
+                title={t.extractCopy(modKey("C"))} id="pk-viewer-copy" data-testid="viewer-copy"
                 disabled={extracting}
                 onClick={() => void copyViewerImage(viewerItem)}
               >
@@ -9027,7 +9036,7 @@ export default function App() {
             {viewerItem && canExtract && (
               <button
                 className="viewer-tool"
-                title={t.extractSave(modKey("S"))}
+                title={t.extractSave(modKey("S"))} id="pk-viewer-save" data-testid="viewer-save"
                 disabled={extracting}
                 onClick={() => void saveViewerImage(viewerItem)}
               >
@@ -9037,7 +9046,7 @@ export default function App() {
             {viewerItem && (
               <button
                 className="viewer-tool"
-                title={t.menuReveal}
+                title={t.menuReveal} id="pk-viewer-reveal" data-testid="viewer-reveal"
                 onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
               >
                 <span aria-hidden="true">📁</span>
@@ -9046,7 +9055,7 @@ export default function App() {
             {viewerItem && (
               <button
                 className="viewer-tool danger"
-                title={t.menuDelete}
+                title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
                 onClick={() => onDelete(viewerTargets(viewerItem))}
               >
                 <span aria-hidden="true">🗑</span>
@@ -9054,14 +9063,14 @@ export default function App() {
             )}
             <button
               className="viewer-tool"
-              title={t.shortcutsTitle}
+              title={t.shortcutsTitle} id="pk-viewer-shortcuts" data-testid="viewer-shortcuts"
               onClick={() => setShortcutsOpen(true)}
             >
               <span aria-hidden="true">?</span>
             </button>
             <button
               className={"viewer-tool" + (isFullscreen ? " on" : "")}
-              title={t.viewerFullscreen}
+              title={t.viewerFullscreen} id="pk-viewer-fullscreen" data-testid="viewer-fullscreen"
               aria-pressed={isFullscreen}
               onClick={toggleFullscreen}
             >
@@ -9069,7 +9078,7 @@ export default function App() {
             </button>
             <button
               className="viewer-tool"
-              title={t.viewerClose}
+              title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
               onClick={requestCloseViewer}
             >
               <span aria-hidden="true">✕</span>
@@ -9078,7 +9087,7 @@ export default function App() {
           {hasPrev && (
             <button
               className="viewer-nav prev"
-              title={t.viewerPrev}
+              title={t.viewerPrev} id="pk-viewer-prev" data-testid="viewer-prev"
               onClick={(e) => {
                 e.stopPropagation();
                 moveViewer(-1);
@@ -9090,7 +9099,7 @@ export default function App() {
           {hasNext && (
             <button
               className="viewer-nav next"
-              title={t.viewerNext}
+              title={t.viewerNext} id="pk-viewer-next" data-testid="viewer-next"
               onClick={(e) => {
                 e.stopPropagation();
                 moveViewer(1);

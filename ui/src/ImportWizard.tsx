@@ -689,6 +689,8 @@ export default function ImportWizard({
     <div className="palette-backdrop" onClick={() => !busy && onClose()}>
       <div
         className="wizard"
+        id="pk-wizard"
+        data-testid="wizard"
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
@@ -699,6 +701,8 @@ export default function ImportWizard({
           <h2 id={titleId}>{t.wizardTitle}</h2>
           <button
             className="settings-close"
+            id="pk-wizard-close"
+            data-testid="wizard-close"
             onClick={onClose}
             disabled={busy}
             title={t.close}

@@ -169,6 +169,8 @@ export default function Palette({
         <input
           ref={inputRef}
           className="palette-input"
+          id="pk-palette-input"
+          data-testid="palette-input"
           placeholder={t.paletteInput}
           role="combobox"
           aria-label={t.paletteInput}

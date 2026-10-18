@@ -350,6 +350,8 @@ export default function Settings({
     <div className="palette-backdrop" onClick={closeDialog}>
       <div
         className="settings"
+        id="pk-settings-dialog"
+        data-testid="settings-dialog"
         ref={dialogRef}
         tabIndex={-1}
         // 名前のある窓として見せる（UI Automation の Window。pictkura-dev #65）
@@ -359,7 +361,7 @@ export default function Settings({
       >
         <div className="settings-head">
           <h2 id={titleId}>{t.settingsTitle}</h2>
-          <button className="settings-close" onClick={closeDialog} title={t.close}>
+          <button className="settings-close" onClick={closeDialog} title={t.close} id="pk-settings-close" data-testid="settings-close">
             <span aria-hidden="true">✕</span>
           </button>
         </div>
