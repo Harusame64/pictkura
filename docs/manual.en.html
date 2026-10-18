@@ -321,7 +321,7 @@ The entry itself is worded in Japanese, except with the English MSI, where it re
 
 <p>
 The entry is registered by the <strong>installer</strong> (MSI or setup) and by the <strong>Microsoft Store version</strong>, and uninstalling removes it.
-The app itself registers no entry (it only cleans up the one an older version registered from the app). <strong>The portable build does not offer it.</strong>
+The app itself registers no entry (it removes the one an older version registered from the app, and if pictkura was your AutoPlay default, moves that choice to the new entry). <strong>The portable build does not offer it.</strong>
 Change what happens by default with “<strong>Open Windows AutoPlay settings</strong>” under “When you insert a USB drive or SD card” in Settings ⚙ (see also “When inserting a card asks you nothing” below).
 </p>
 
@@ -1047,7 +1047,7 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Duration and dimensions outside <code>mp4</code>, <code>m4v</code>, <code>mov</code>, <code>3gp</code></td><td>Those four are read straight from the container header. The rest rely on the Windows Shell (measured with a synthetic <code>.m2ts</code> only); on macOS and Linux they show no duration or dimensions (the date falls back to the file name or modification time)</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
   <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file’s own declaration, from the sensor borders inside Panasonic’s own RAW formats (<code>rw2</code>, <code>raw</code>, <code>rwl</code> — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup. On Windows a file that only exists in the cloud is the exception — the Shell supplies its dimensions without downloading it</td></tr>
-  <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too, and ★, ⚑ and the records that let a rotation be undone are lost)</td></tr>
+  <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too, and ★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing are lost)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
   <tr><td>An import cannot be canceled</td><td>Once started, it runs to the end</td></tr>
   <tr><td>RTL layouts</td><td>Right-to-left languages such as Arabic are not supported yet</td></tr>
@@ -1067,7 +1067,7 @@ With that off, pictkura never reaches the network at all — and you can still p
 </div>
 
 <p>
-The <strong>Microsoft Store version</strong> uses the same places if another build of pictkura was used on this PC (settings and the index carry on as they are).
+The <strong>Microsoft Store version</strong> uses the same places if another build of pictkura was used with this Windows account (settings and the index carry on as they are).
 If only the Store version is used, they live in <code>%LOCALAPPDATA%\Packages\&lt;package name&gt;\LocalCache\Roaming\dev.harusame.pictkura\</code>, and <strong>uninstalling the Store version deletes that folder</strong>.
 </p>
 
@@ -1076,7 +1076,7 @@ If only the Store version is used, they live in <code>%LOCALAPPDATA%\Packages\&l
 It records <strong>the things that did not work</strong> — a read that fell over
 part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
 launch that failed — and what it did in the Outgoing folders (creating one, removing from it,
-placing what could not be placed earlier), and what it put right on its own (a file left half-rotated, AutoPlay entries an older version registered, a window that ended up off screen), one line each. Other successes are not written. The failures written are
+placing what could not be placed earlier), and what it put right on its own (a file left half-rotated, AutoPlay entries an older version registered, a window that ended up off screen or did not fit the display), one line each. Other successes are not written. The failures written are
 <strong>the machine falling over</strong>: an index it cannot read or write, a setting it
 cannot save. <strong>That includes ones you were told about on screen</strong>, so you can
 report them afterwards. <strong>What does not get written is a choice you can simply make
@@ -1103,7 +1103,7 @@ carried along with each photo — can be changed there.
 Setting Outgoing’s <code>[google_mirror] exclude_raw = false</code> places every RAW as it is
 (paired RAWs and RAW-only shots alike; the “RAW-only shots” setting then has no effect).
 <strong>Your photos are never stored in these places.</strong>
-Deleting the database does not delete any photo; it is rebuilt, though ★, ⚑ and the records that let a rotation be undone are lost.
+Deleting the database does not delete any photo; it is rebuilt, though ★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing are lost.
 </p>
 
 <footer>

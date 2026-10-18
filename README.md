@@ -555,7 +555,7 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
 | **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date. When pictkura can make no picture for a file — a RAW with no usable preview — a date already recorded for it is preferred over the file name and the modification time, unless the recorded date was taken from the modification time, which means nothing has been read yet. That matters because a file that ends up with no size at all is looked at again on every startup, and this keeps a pass that reads nothing from moving it back to the day it was copied |
 | **A RAW that declares its size nowhere shows none** | Dimensions come from the file's own declaration, from the sensor borders inside Panasonic's own RAW formats (`rw2`, `raw`, `rwl` — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG in the sample set — shows no size in the grid, and is asked again on every startup. The exception is a file that only exists in the cloud on Windows, where the Shell supplies dimensions without downloading it |
-| **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too) |
+| **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too, and ★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing are lost) |
 | **No sort order for results** | always newest capture date first |
 | **Imports cannot be canceled** | once started, an import runs to completion |
 | **No RTL layout** | Arabic and other right-to-left languages are not supported |
@@ -663,7 +663,7 @@ Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and
 
 Failures, what pictkura did in the Outgoing folders (creating one, removing from it, placing
 what could not be placed earlier), and what pictkura put right on its own (a file left half-rotated,
-AutoPlay entries an older version registered, a window that ended up off screen) are appended, one
+AutoPlay entries an older version registered, a window that ended up off screen or did not fit the display) are appended, one
 line each, to `pictkura.log` in that same folder — created only when one of these happens, never sent anywhere, and
 opened from Settings → About → "Open the log". `eprintln!` reaches nobody in a distributed build (a release Windows binary
 has no console), so what happens on someone else's machine is recorded here or nowhere.

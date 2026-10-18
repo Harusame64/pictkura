@@ -132,7 +132,7 @@
           <thead><tr><th style="width:260px">できないこと</th><th>理由・現状</th></tr></thead>
           <tbody>
             <tr><td class="k">RAW 現像</td><td>実装していません。カメラが埋め込んだ表示用 JPEG を使用します</td></tr>
-            <tr><td class="k">写真の編集</td><td>切り抜き・現像は実装していません。閲覧と選別のための道具です（JPEG の回転、いま見ている絵の保存、フォルダへのコピー／移動はできます）</td></tr>
+            <tr><td class="k">写真の編集</td><td>切り抜き・現像は実装していません。閲覧と選別のための道具です（いま見ている絵の保存、フォルダへのコピー／移動はできます）。JPEG は回転できます（向きの情報を持つものだけ。カメラのカードの上や、クラウドにだけあるファイルは回せません）</td></tr>
             <tr><td class="k">AI による選別・顔認識</td><td>実装していません。選別は利用者が行う設計です</td></tr>
             <tr><td class="k">タグ・キーワード付け</td><td>実装していません。印は ★ と ⚑ の 2 種類のみです</td></tr>
             <tr><td class="k">並び順の変更</td><td>撮影日の新しい順に固定しており、変更する手段はありません</td></tr>
@@ -141,7 +141,7 @@
             <tr><td class="k">長さ・寸法（macOS・<code>mp4</code> <code>m4v</code> <code>mov</code> <code>3gp</code> 以外）</td><td>この 4 つはコンテナのヘッダから読み取ります。他のコンテナは Windows のシェルに依存するため、macOS では長さも寸法も表示されず、撮影日時はファイル名か更新日時に落ちます</td></tr>
             <tr><td class="k"><code>.m2ts</code> / <code>.avi</code> のアプリ内再生</td><td>WebView が該当するコンテナに対応していません。一覧には表示されます</td></tr>
             <tr><td class="k">どこにも寸法を申告していないRAWの寸法</td><td>寸法は、ファイル自身の申告か、Panasonic系のRAW（<code>rw2</code> <code>raw</code> <code>rwl</code>）に入っているセンサーの縁か、埋め込みプレビューから決まります。そのどれも無いRAW（確かめたものでは Blackmagic の CinemaDNG）は寸法が出ません。例外はWindowsでクラウドにしか実体が無いファイルで、そちらは実体を落とさずにシェルが寸法を返します</td></tr>
-            <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を削除すると再作成します</td></tr>
+            <tr><td class="k">索引の作り直し（画面から）</td><td>設定フォルダの <code>pictkura.db</code> を削除すると再作成します（★・⚑、回転を元に戻すための控え、送り出しフォルダに置いたものの記録は消えます）</td></tr>
             <tr><td class="k">右から左に書く言語の配置</td><td>未対応です</td></tr>
           </tbody>
         </table>
@@ -239,7 +239,7 @@
             <tr><td class="k">通信を止める</td><td>設定 →「このアプリについて」→「起動時に新しいバージョンを確認する」を無効にすると、通信は発生しません</td></tr>
             <tr><td class="k">クラウドのファイル</td><td>クラウドにのみ存在するファイルを自動では取得しません。実際に表示した時点、フォルダへコピー・移動した時点、クリップボードへコピー・印刷した時点で取得します</td></tr>
             <tr><td class="k">削除</td><td>必ずごみ箱を経由します。直接の削除は行いません（送り出しフォルダに置いたものを除く）</td></tr>
-            <tr><td class="k">記録（ログ）</td><td>うまくいかなかったこと、送り出しフォルダでしたこと（フォルダを作った・外した・置けなかったものを置き直した）、pictkura が自分で直したこと（回転の途中で止まったファイルを戻した、前の版の自動再生の登録を片付けた、画面の外に出た窓を戻した）を <code>pictkura.log</code> に書き足します（ファイル名やフォルダのパスを含みます）。<strong class="em">送信する仕組みはありません</strong>——設定から開いて確認でき、削除もできます</td></tr>
+            <tr><td class="k">記録（ログ）</td><td>うまくいかなかったこと、送り出しフォルダでしたこと（フォルダを作った・外した・置けなかったものを置き直した）、pictkura が自分で直したこと（回転の途中で止まったファイルを戻した、前の版の自動再生の登録を片付けた、画面の外に出た窓や画面に収まらない窓を戻した）を <code>pictkura.log</code> に書き足します（ファイル名やフォルダのパスを含みます）。<strong class="em">送信する仕組みはありません</strong>——設定から開いて確認でき、削除もできます</td></tr>
           </tbody>
         </table>
       </div>
@@ -257,7 +257,7 @@
             <tr><td class="k">索引</td><td><code>pictkura.db</code>（同じフォルダ）</td></tr>
             <tr><td class="k">サムネイル</td><td><code>thumbs\</code>（同じフォルダ）</td></tr>
             <tr><td class="k">記録（ログ）</td><td><code>pictkura.log</code>（同じフォルダ。<strong>書くのは<a href="#network">5章</a>の「記録（ログ）」に挙げたことだけ</strong>で、送信はしません）</td></tr>
-            <tr><td class="k">Microsoft Store 版</td><td>この PC でほかの版を使っていたなら、上と同じ場所を使います。Store 版だけを使っている場合は <code>%LOCALAPPDATA%\Packages\&lt;パッケージ名&gt;\LocalCache\Roaming\dev.harusame.pictkura\</code> に置き、<strong>アンインストールすると消えます</strong></td></tr>
+            <tr><td class="k">Microsoft Store 版</td><td>この Windows のアカウントでほかの版を使っていたなら、上と同じ場所を使います。Store 版だけを使っている場合は <code>%LOCALAPPDATA%\Packages\&lt;パッケージ名&gt;\LocalCache\Roaming\dev.harusame.pictkura\</code> に置き、<strong>アンインストールすると消えます</strong></td></tr>
             <tr><td class="k">写真そのもの</td><td>登録したフォルダに保存されたままです。書き換えるのは右クリックの回転だけで、JPEG の向きの情報と更新日時が変わります（「向きを元に戻す」で元に戻ります）</td></tr>
           </tbody>
         </table>
