@@ -435,7 +435,8 @@ In this repository it lives at `docs/manual.en.html` and `docs/manual.html`, whi
 shows as HTML source.
 
 > One thing is still Japanese-only: the entry pictkura adds to the Windows AutoPlay
-> choices reads「pictkura で写真を取り込む」regardless of the UI language.
+> choices reads「pictkura で写真を取り込む」regardless of the UI language — except with the
+> English MSI, where it reads "Import photos with pictkura".
 
 ### 8. Update notices
 

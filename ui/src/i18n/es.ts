@@ -621,7 +621,7 @@ export const es: Dict = {
     "Cómo cambia la vista grande a la siguiente foto cuando avanzas (flechas, botones, la tira de abajo o el avance tras una valoración), y cuando avanza un pase de diapositivas. Deslizar sigue la dirección en la que avanzas. Si el sistema está configurado para reducir el movimiento, las fotos cambian sin moverse, elijas lo que elijas.",
   settingsAutoplay: "Cuando conectas una unidad USB o una tarjeta SD",
   settingsAutoplayNote:
-    "Si instalaste pictkura con el instalador o desde Microsoft Store, «pictkura で写真を取り込む» (importar fotos con pictkura) aparece entre las opciones al conectar una unidad; la versión portable no lo ofrece. Nunca se abre por sí solo: la importación solo se abre cuando lo eliges. Lo que ocurre de forma predeterminada se cambia en la configuración de Reproducción automática de Windows. Ten en cuenta que la entrada está escrita en japonés.",
+    "Si instalaste pictkura con el instalador o desde Microsoft Store, «pictkura で写真を取り込む» (importar fotos con pictkura) aparece entre las opciones al conectar una unidad; la versión portable no lo ofrece. Nunca se abre por sí solo: la importación solo se abre cuando lo eliges. Lo que ocurre de forma predeterminada se cambia en la configuración de Reproducción automática de Windows. Ten en cuenta que la entrada está escrita en japonés, salvo con el MSI en inglés, donde dice «Import photos with pictkura».",
   settingsAutoplayOpenWindows: "Abrir la configuración de Reproducción automática de Windows",
   settingsAbout: "Acerca de",
   settingsAboutLicense: "Publicado bajo la licencia MIT.",
