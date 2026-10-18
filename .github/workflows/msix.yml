@@ -8,6 +8,10 @@
 name: MSIX
 
 on:
+  # spike の間だけ: 手で起動する workflow は main に無いと起動できないので、この枝への push でも走らせる。
+  # main へ入れる前に外す
+  push:
+    branches: [feat/53-msix]
   workflow_dispatch:
     inputs:
       identity_name:
