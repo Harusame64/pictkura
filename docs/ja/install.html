@@ -58,7 +58,7 @@
   <p class="lead">Windows と macOS へのインストール手順と、初回起動時に表示される警告への対処をまとめたページです。</p>
   <p class="stamps">
     <span>バージョン &nbsp;<b>0.2</b></span>
-    <span>最終更新 &nbsp;<b>2026-09-06</b></span>
+    <span>最終更新 &nbsp;<b>2026-10-18</b></span>
   </p>
 </div>
 
@@ -217,8 +217,8 @@ MpCmdRun.exe -SignatureUpdate</pre>
         <table>
           <thead><tr><th style="width:230px">インストール方法</th><th>削除方法</th></tr></thead>
           <tbody>
-            <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows の「設定 → アプリ」から。自動再生の登録も外れますが、<strong class="em">解除されるのは、アンインストールを実行したアカウントの分のみ</strong>です（この設定はユーザーごとに保存されるためです）</td></tr>
-            <tr><td class="k">持ち歩き版</td><td>フォルダを削除します。<strong class="em">自動再生の候補を出していたなら、消す前に <code>pictkura.exe --unregister-autoplay</code> を実行してください</strong>——候補が残らないようにするためです</td></tr>
+            <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows の「設定 → アプリ」から。自動再生の候補も消えます。<code>-setup.exe</code> はインストールしたアカウントだけに、MSI は PC の全員に候補を登録しているので、消えるのもその範囲です。<strong class="em">ほかのアカウントで「常にこの操作を行う」に pictkura を選んでいた記録は残ります</strong>（Windows の設定の「自動再生」で選び直せます）</td></tr>
+            <tr><td class="k">持ち歩き版</td><td>フォルダを削除します。持ち歩き版は自動再生の候補を出しません。<strong class="em">0.3 までの持ち歩き版で候補を出していたなら</strong>、新しい版を一度起動するか、消す前に <code>pictkura.exe --unregister-autoplay</code> を実行すると、残りません</td></tr>
             <tr><td class="k">macOS</td><td><code>pictkura.app</code> をゴミ箱へ</td></tr>
           </tbody>
         </table>
