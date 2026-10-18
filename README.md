@@ -371,7 +371,7 @@ answer to their English names whatever language the app is in.
 
 The controls fade out when the mouse stops and come back when it moves. Right-click for
 “Open”, “Open with another app…”, “Show in folder”, “Show more options” (Windows), “Copy image to clipboard”, “Rotate right” and
-“Rotate left” (JPEG), “Print…”, “Add to favorites”,
+“Rotate left” (JPEG; once turned, “Restore original orientation” appears too), “Print…”, “Add to favorites”,
 “Pick”, “Info” and “Delete (move to trash)” (editors you have used before sit just under “Open”); with Outgoing
 on, “Add to Outgoing” is there too. **Deleting always goes through the
 recycle bin** — pictkura never removes a file outright (except what it placed in the Outgoing folder).
@@ -392,7 +392,7 @@ selection.
 
 While something is selected, a plain click toggles a tile instead of opening the viewer.
 From the bar you can add or remove ★ and ⚑ for the whole selection, copy or move it to a folder
-you pick, or move all of it to the recycle bin in one go — deleting asks first, and
+you pick, print it, or move all of it to the recycle bin in one go — deleting asks first, and
 **it still goes through the recycle bin**. With Outgoing on, the bar also has "Add to Outgoing".
 
 **View the selection** opens the viewer on just those photos: `←` `→` stay inside the
@@ -502,7 +502,7 @@ One surprise worth knowing up front: **a High Res shot is three files.** An OM S
 body writes `.ORF`, `.ORI` and `.JPG` for a single press, and adding `.ori` means all three
 are now imported and listed. That is deliberate — hiding a file sitting on the card would be worse.
 The grid does stack a RAW and a JPEG with the same name in the same folder and the same capture
-second into one tile (on by default), so if all three carry the same second they show as **one tile,
+second into one tile (on by default; a file whose capture date could only be taken from its modification time is not stacked), so if all three carry the same second they show as **one tile,
 the JPG** (a file whose second differs gets its own tile). Turn stacking off under Settings → Photo
 grid to see all three.
 
@@ -548,12 +548,12 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 
 | Topic | Detail |
 |---|---|
-| **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows — that fallback is the Windows Shell, so it is Windows only (duration is not available there either). The real file is fetched only when you actually look at that photo — when its tile scrolls into view, or when you open it in the viewer |
+| **Files that only exist in the cloud** | pictkura **never downloads them on its own**. OneDrive "online-only" files still appear in the grid, with dimensions and capture date taken from what the OS already knows — that fallback is the Windows Shell, so it is Windows only (duration is not available there either). The real file is fetched only when you actually look at that photo — when its tile scrolls into view, or when you open it in the viewer — or when you copy or move it to a folder, copy it to the clipboard, or print it |
 | **HEIC / HEVC need OS components on Windows** | **No HEVC decoder is bundled** — patent licensing applies to shipping one, so pictkura uses whatever the OS already has. On **Windows** that means installing "HEIF Image Extensions" (free) plus "HEVC Video Extensions" (paid) before HEIC photos get a picture. On **macOS there is nothing to install**: ImageIO and the HEVC decoder ship with the system. **Linux** has no route yet |
 | **Video thumbnails go only as far as the OS can open the container** | On **Windows** the Shell provides them: `.avi` and HEVC `.mov` measured working, `.m2ts` never checked, and anything the OS has no handler or codec for comes back empty. On **macOS** AVFoundation provides them: `mp4` and `mov` measured working with H.264 and with HEVC (`hvc1`) samples, `.avi` measured empty, every other container untested. **Linux** (distro thumbnailers) is not wired up at all |
 | **Duration and dimensions outside `mp4` `m4v` `mov` `3gp`** | Read straight from the container header for those four. Whatever the header did not give up is asked of the **Windows** Shell, which is also the only source for the other containers — measured with a synthetic `.m2ts`, the rest never checked. On **macOS** and **Linux** there is no such fallback, so those containers show no duration or dimensions and the date falls back to the file name or modification time |
 | **`.m2ts` / `.avi` do not play in-app** | the browser engine cannot handle those containers. They still appear in the grid |
-| **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date. When pictkura can make no picture for a file — a RAW with no usable preview — a date already recorded for it is preferred over the file name and the modification time, unless what is recorded is only that modification time, which means nothing has been read yet. That matters because a file that ends up with no size at all is looked at again on every startup, and this keeps a pass that reads nothing from moving it back to the day it was copied |
+| **How the capture date is decided** | EXIF → OS properties → **date in the file name** → file modification time. Screenshots and saved images without EXIF still land on the right day if their name carries a date. When pictkura can make no picture for a file — a RAW with no usable preview — a date already recorded for it is preferred over the file name and the modification time, unless the recorded date was taken from the modification time, which means nothing has been read yet. That matters because a file that ends up with no size at all is looked at again on every startup, and this keeps a pass that reads nothing from moving it back to the day it was copied |
 | **A RAW that declares its size nowhere shows none** | Dimensions come from the file's own declaration, from the sensor borders inside Panasonic's own RAW formats (`rw2`, `raw`, `rwl` — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG in the sample set — shows no size in the grid, and is asked again on every startup. The exception is a file that only exists in the cloud on Windows, where the Shell supplies dimensions without downloading it |
 | **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too) |
 | **No sort order for results** | always newest capture date first |
@@ -661,9 +661,10 @@ present, so a failure on one OS cannot produce a half release.
 Settings live in `%APPDATA%/dev.harusame.pictkura/pictkura.toml` on Windows, and in
 `~/Library/Application Support/dev.harusame.pictkura/` on macOS.
 
-Failures, and what pictkura did in the Outgoing folders (creating one, removing from it, placing
-what could not be placed earlier), are appended, one line each, to `pictkura.log` in that same
-folder — created only when something fails or when you use Outgoing, never sent anywhere, and
+Failures, what pictkura did in the Outgoing folders (creating one, removing from it, placing
+what could not be placed earlier), and what pictkura put right on its own (a file left half-rotated,
+AutoPlay entries an older version registered, a window that ended up off screen) are appended, one
+line each, to `pictkura.log` in that same folder — created only when one of these happens, never sent anywhere, and
 opened from Settings → About → "Open the log". `eprintln!` reaches nobody in a distributed build (a release Windows binary
 has no console), so what happens on someone else's machine is recorded here or nowhere.
 

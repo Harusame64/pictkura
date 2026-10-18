@@ -321,7 +321,7 @@ The entry itself is worded in Japanese, except with the English MSI, where it re
 
 <p>
 The entry is registered by the <strong>installer</strong> (MSI or setup) and by the <strong>Microsoft Store version</strong>, and uninstalling removes it.
-The app itself writes nothing to the registry. <strong>The portable build does not offer it.</strong>
+The app itself registers no entry (it only cleans up the one an older version registered from the app). <strong>The portable build does not offer it.</strong>
 Change what happens by default with “<strong>Open Windows AutoPlay settings</strong>” under “When you insert a USB drive or SD card” in Settings ⚙ (see also “When inserting a card asks you nothing” below).
 </p>
 
@@ -583,7 +583,7 @@ Importing a card again after you rotated one of its photos does not bring that p
 </p>
 
 <p>
-Choose “Print…” from the right-click menu to print that photo on a page of its own. Pick how it goes on the paper: “Fit to page”, “Crop to fill” or “Stretch to fill (ignore proportions)”. pictkura remembers your choice.
+Choose “Print…” from the right-click menu to print that photo on a page of its own. Pick how it goes on the paper: “Fit to page”, “Crop to fill” or “Stretch to fill (ignore proportions)”, then go on to the system print dialog. pictkura remembers your choice.
 When the photo and the paper face different ways, the photo is turned to match.
 The image sent to the printer has its shooting details, such as the location, removed, so saving to PDF does not carry the location along.
 For a borderless print, choose a borderless paper size in the print dialog.
@@ -1047,7 +1047,7 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Duration and dimensions outside <code>mp4</code>, <code>m4v</code>, <code>mov</code>, <code>3gp</code></td><td>Those four are read straight from the container header. The rest rely on the Windows Shell (measured with a synthetic <code>.m2ts</code> only); on macOS and Linux they show no duration or dimensions (the date falls back to the file name or modification time)</td></tr>
   <tr><td><code>.m2ts</code> / <code>.avi</code> do not play in the app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
   <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file’s own declaration, from the sensor borders inside Panasonic’s own RAW formats (<code>rw2</code>, <code>raw</code>, <code>rwl</code> — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup. On Windows a file that only exists in the cloud is the exception — the Shell supplies its dimensions without downloading it</td></tr>
-  <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too)</td></tr>
+  <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too, and ★, ⚑ and the records that let a rotation be undone are lost)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
   <tr><td>An import cannot be canceled</td><td>Once started, it runs to the end</td></tr>
   <tr><td>RTL layouts</td><td>Right-to-left languages such as Arabic are not supported yet</td></tr>
@@ -1062,22 +1062,27 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>Settings</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.toml</code></td></tr>
   <tr><td>Database</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.db</code></td></tr>
   <tr><td>Thumbnails</td><td><code>%APPDATA%\dev.harusame.pictkura\thumbs\</code></td></tr>
-  <tr><td>Log</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only when something fails, or when you use Outgoing</strong>)</td></tr>
+  <tr><td>Log</td><td><code>%APPDATA%\dev.harusame.pictkura\pictkura.log</code> (created <strong>only for the things listed below</strong>)</td></tr>
 </table>
 </div>
+
+<p>
+The <strong>Microsoft Store version</strong> uses the same places if another build of pictkura was used on this PC (settings and the index carry on as they are).
+If only the Store version is used, they live in <code>%LOCALAPPDATA%\Packages\&lt;package name&gt;\LocalCache\Roaming\dev.harusame.pictkura\</code>, and <strong>uninstalling the Store version deletes that folder</strong>.
+</p>
 
 <p>
 <strong>About the log.</strong>
 It records <strong>the things that did not work</strong> — a read that fell over
 part-way (a corrupt file, say), a sidecar that could not be moved to the recycle bin, a
 launch that failed — and what it did in the Outgoing folders (creating one, removing from it,
-placing what could not be placed earlier), one line each. Other successes are not written. The failures written are
+placing what could not be placed earlier), and what it put right on its own (a file left half-rotated, AutoPlay entries an older version registered, a window that ended up off screen), one line each. Other successes are not written. The failures written are
 <strong>the machine falling over</strong>: an index it cannot read or write, a setting it
 cannot save. <strong>That includes ones you were told about on screen</strong>, so you can
 report them afterwards. <strong>What does not get written is a choice you can simply make
 again</strong> — a folder that is not there, a library another app manages — or something
 <strong>the screen already shows you</strong>, like a thumbnail that does not appear. So no
-file means <strong>none of the failures that belong here</strong> have happened (if you use Outgoing, the file
+file means <strong>none of the failures that belong here</strong> have happened (if you use Outgoing, or pictkura put something right on its own, the file
 can exist without any failure).
 Open it from Settings → “About” → “Open the log” (the button is disabled while there
 is nothing to open). <strong>The sentences this app writes there are English</strong> whatever language the app is
@@ -1098,7 +1103,7 @@ carried along with each photo — can be changed there.
 Setting Outgoing’s <code>[google_mirror] exclude_raw = false</code> places every RAW as it is
 (paired RAWs and RAW-only shots alike; the “RAW-only shots” setting then has no effect).
 <strong>Your photos are never stored in these places.</strong>
-Deleting the database does not delete any photo; it is simply rebuilt.
+Deleting the database does not delete any photo; it is rebuilt, though ★, ⚑ and the records that let a rotation be undone are lost.
 </p>
 
 <footer>
