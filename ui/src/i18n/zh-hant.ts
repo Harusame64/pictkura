@@ -601,7 +601,7 @@ export const zhHant: Dict = {
   settingsAutoplayNote:
     "會把 pictkura 加到 Windows「自動播放」的選項裡。它不會自行啟動。請注意，這個選項本身的文字是日文。用安裝程式解除安裝時會自動取消註冊，但可攜版以及同一台電腦上其他使用者的註冊不在此列——那些情況下，請在刪除 pictkura 之前先關閉這裡。",
   settingsAutoplayStoreNote:
-    "Microsoft Store 版在插入磁碟機時一律會列出此選項（pictkura 不會自行啟動）。預設動作請在 Windows 的「自動播放」設定中變更。",
+    "Microsoft Store 版在插入磁碟機時一律會列出此選項（pictkura 不會自行啟動）。預設動作請在 Windows 的「自動播放」設定中變更。請注意，這個選項本身的文字是日文。",
   settingsAutoplayOpenWindows: "開啟 Windows 自動播放設定",
   settingsAbout: "關於",
   settingsAboutLicense: "以 MIT 授權發布。",

@@ -3614,13 +3614,6 @@ fn set_slideshow_transition(
     update_config(&state, |c| c.viewer.slideshow_transition = transition)
 }
 
-/// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
-///
-/// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
-/// 設定だけ変わって「切ったはずなのに候補が残る」というずれ方をする。
-///
-/// 起動時にも同じ処理が走るが、ここでその場で反映するのが要点。**アプリを消す前に
-/// 切る**という使い方では、切ったあとに起動し直す機会が無い。
 /// Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53）。Store 版の候補はマニフェストの登録で、
 /// アプリからは入り切りできない——既定の動作や表示は OS の設定で変えてもらう
 #[tauri::command]
@@ -3628,6 +3621,13 @@ fn open_autoplay_settings() -> Result<(), String> {
     tauri_plugin_opener::open_url("ms-settings:autoplay", None::<&str>).map_err(|e| e.to_string())
 }
 
+/// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
+///
+/// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
+/// 設定だけ変わって「切ったはずなのに候補が残る」というずれ方をする。
+///
+/// 起動時にも同じ処理が走るが、ここでその場で反映するのが要点。**アプリを消す前に
+/// 切る**という使い方では、切ったあとに起動し直す機会が無い。
 #[tauri::command]
 fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
     // Store 版は設定に出さない（マニフェストの登録。外すのは Windows の「自動再生」の設定）。来ても書かない
@@ -7071,7 +7071,12 @@ pub fn run() {
             // 失敗しても起動は続ける（レジストリが書けない環境でもアプリは動くべき）
             // **Store 版（MSIX）では触らない**——AutoPlay はマニフェストが登録する。パッケージの中から HKCU へ
             // 書いても仮想レジストリに入るだけで、エクスプローラーには届かない（dev #53）
-            if let (false, Ok(exe)) = (packaged::is_packaged(), std::env::current_exe()) {
+            let exe = if packaged::is_packaged() {
+                None
+            } else {
+                std::env::current_exe().ok()
+            };
+            if let Some(exe) = exe {
                 // **まだ決めていない人のレジストリには触らない**（`None`）。
                 // **入れただけで HKCU を書き換えるアプリは嫌われる**し、
                 // **macOS には自動再生そのものが無い**ので、**初期の挙動を両方でそろえる**

@@ -795,7 +795,8 @@ export default function Settings({
               </button>
             </section>
           )}
-          {platform === "windows" && !about?.packaged && (
+          {/* 読み込み前（about が無い）はどちらも出さない——Store 版に切り替えや更新の確認が一瞬出ないように（ゲート2） */}
+          {platform === "windows" && about && !about.packaged && (
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
               <label className="settings-toggle">
@@ -922,7 +923,7 @@ export default function Settings({
               <span className="about-name">pictkura</span>
               <code className="about-version">v{about?.version ?? "?"}</code>
               {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く。Store 版は Store が更新する（dev #53） */}
-              {!about?.packaged && (
+              {about && !about.packaged && (
               <button
                 className="about-check"
                 disabled={updateChecking}
@@ -961,7 +962,7 @@ export default function Settings({
                 )}
               </p>
             )}
-            {!about?.packaged && (
+            {about && !about.packaged && (
             <>
             <label className="settings-toggle">
               <input

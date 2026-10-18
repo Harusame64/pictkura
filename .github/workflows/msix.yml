@@ -1,6 +1,8 @@
 # Microsoft Store 版（MSIX）を作る（pictkura-dev #53。計画は dev/plan.msix.md）。
 #
-# **手で起動する**（workflow_dispatch。リリースではタグを選んで走らせる）。MSI・NSIS・持ち歩き版の Release とは分けてある——MSIX が落ちても
+# **手で起動する**（workflow_dispatch）。試しに包むための道で、**Store へ出す MSIX はリリースの workflow
+# （release.yml）が作る**——あちらは MSI・NSIS・持ち歩き版と同じ実行の exe を包む。ここは exe を作り直すので、
+# 配った物とバイトが違う。MSI・NSIS・持ち歩き版の Release とは分けてある——MSIX が落ちても
 # そちらは止めない。exe は release.ps1 で作る（3つの入れ物と同じバイト）。それを tools/pack-msix.ps1 が包む。
 #
 # 成果物: 未署名の MSIX（Store へ出すのはこちら。Store が署名する）、試験用に自己署名した MSIX と .cer
@@ -188,6 +190,7 @@ jobs:
           $appcert = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit" -Filter appcert.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $appcert) { Write-Host "::warning::appcert.exe がこのランナーに無い"; exit 0 }
           $msix = Get-ChildItem "$env:PK_BUNDLE_DIR/msix" -Filter "*_test-signed.msix" | Select-Object -First 1
+          if (-not $msix) { Write-Host "::warning::試験用に署名した MSIX が無い——WACK は走らせていない"; exit 0 }
           $report = Join-Path $env:RUNNER_TEMP "wack-report.xml"
           & $appcert.FullName reset
           & $appcert.FullName test -appxpackagepath $msix.FullName -reportoutputpath $report

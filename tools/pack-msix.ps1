@@ -25,9 +25,17 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not $targetDir) { throw "cargo metadata から置き場を取れない" }
 } finally { Pop-Location }
 
+if ($env:CARGO_BUILD_TARGET) {
+    throw "CARGO_BUILD_TARGET が設定されている（$env:CARGO_BUILD_TARGET）——cargo と cargo tauri bundle が別の置き場を見るので、この工程は支えていません"
+}
 $releaseDir = Join-Path $targetDir "release"
 $exe = Join-Path $releaseDir "pictkura.exe"
-if (-not (Test-Path $exe)) { throw "実行ファイルがない: $exe （先に pwsh tools/release.ps1 を実行してください）" }
+# 持ち歩き版と同じ守り（pack-portable.ps1）: 実行ファイルが1か所だけで、それが target\release にあること——
+# 三つ組つきの置き場に新しい exe があるのに、前の回の target\release を黙って包まない（ゲート2）
+$builds = @(Get-ReleaseBinaryCandidates $targetDir "pictkura.exe")
+if ($builds.Count -eq 0) { throw "実行ファイルがない: $exe （先に pwsh tools/release.ps1 を実行してください）" }
+if ($builds.Count -gt 1) { throw "実行ファイルが $($builds.Count) 箇所にある——どれを包むのか決められない: $($builds.FullName -join ', ')" }
+if ($builds[0].FullName -ne $exe) { throw "実行ファイルの置き場が想定と違う: $($builds[0].FullName)" }
 # 持ち歩き版と同じ守り: release.ps1 を通った exe か（目印が伏せてあるか）
 $blob = [IO.File]::ReadAllBytes($exe)
 $found = Test-BundleToken $blob $BundleTokenReplacement

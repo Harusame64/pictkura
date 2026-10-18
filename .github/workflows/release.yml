@@ -369,6 +369,28 @@ jobs:
             ${{ env.PK_BUNDLE_DIR }}/portable/*.zip
           if-no-files-found: error
 
+      # Microsoft Store 版（dev #53）。**この回の exe（MSI・NSIS・持ち歩き版と同じバイト）をそのまま包む**——
+      # 別の実行で作り直すと、Store に出す exe だけ配った物と違うバイトになる（PR のゲート2）。
+      # Release には載せない（Store へは Partner Center から手で出す）。Identity は Partner Center の値を
+      # リポジトリの変数で渡す（無ければ試験用の値で包む）
+      - name: MSIX を包む
+        env:
+          PK_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          PK_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          PK_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $packArgs = @()
+          if ($env:PK_IDENTITY_NAME) { $packArgs += @("-IdentityName", $env:PK_IDENTITY_NAME) }
+          if ($env:PK_PUBLISHER) { $packArgs += @("-Publisher", $env:PK_PUBLISHER) }
+          if ($env:PK_PUBLISHER_DISPLAY_NAME) { $packArgs += @("-PublisherDisplayName", $env:PK_PUBLISHER_DISPLAY_NAME) }
+          pwsh tools/pack-msix.ps1 @packArgs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pictkura-msix
+          path: ${{ env.PK_BUNDLE_DIR }}/msix/*.msix
+          if-no-files-found: error
+
   # macOS（Apple Silicon）。**Developer ID の署名も公証もしていない**ので、
   # 受け取った人は初回だけ、一度弾かれてから
   # システム設定→プライバシーとセキュリティ→「このまま開く」を踏む必要がある
