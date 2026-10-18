@@ -70,14 +70,33 @@
                   ExeCommand="--unregister-autoplay"
                   Return="ignore" />
     <!--
-      全員向けの MSI がユーザーのプロファイルに入らないようにする（pictkura-dev #70。AutoPlay とは別の話だが、
-      インストーラーに足す断片がこれ1つなのでここに置く）。Tauri の雛形は前のインストール先を HKCU の
-      Software\Harusame64\pictkura から拾う（NSIS 版の記録を引き継ぐため）。0.3 までの NSIS 版はアンインストールで
-      その値を残すので、NSIS 版を消してから MSI を入れると INSTALLDIR がその人の AppData\Local\pictkura になる。
-      AppSearch の後（CostInitialize の前）に Program Files へ戻す。条件の ~>< は大文字小文字を区別しない「含む」
+      **全員向けの MSI を、誰かのプロファイルに入れない**（pictkura-dev #70。AutoPlay とは別の話だが、こちらが足す
+      断片はこれ1つなので相乗りする。外れないことは autoplay.rs の試験が見る）。
+
+      Tauri の雛形は INSTALLDIR を HKCU\Software\Harusame64\pictkura から拾う——既定値（NSIS 版の記録）と
+      InstallDir（MSI 版の記録）。0.3 までの NSIS 版はアンインストールで既定値を残すので、NSIS 版を消してから
+      MSI を入れると、全員向けの MSI がその人の %LOCALAPPDATA%\pictkura に入り、ほかの人は使えない。
+
+      **場所では見分けない。値の出どころで見分ける**（ゲート2: 「AppData を含むか」では、本人が選んだ場所まで
+      書き換え、別の個人用フォルダは見逃す）:
+
+      1. AppSearch の前に、本人が与えた INSTALLDIR（コマンドラインか、ダイアログで選んで実行の側へ渡ったもの）を
+         PK_GIVEN_DIR に控える——実行の側の AppSearch は、雛形の検索で INSTALLDIR を上書きしてしまう
+      2. AppSearch で、MSI 版の記録（InstallDir）を PK_MSI_DIR に読む
+      3. AppSearch の後: 控えがあればそれに戻す。控えが無く、MSI 版の記録も無いのに INSTALLDIR が入っている
+         （＝NSIS 版の記録から来た）なら、既定の Program Files\<製品名> にする
     -->
-    <SetProperty Id="INSTALLDIR" Value="[ProgramFiles64Folder]pictkura\" Before="CostInitialize" Sequence="both">
-      <![CDATA[NOT Installed AND INSTALLDIR ~>< "\AppData\Local\"]]>
+    <Property Id="PK_MSI_DIR">
+      <RegistrySearch Id="PkMsiInstallDir" Root="HKCU" Key="Software\Harusame64\pictkura" Name="InstallDir" Type="raw" />
+    </Property>
+    <SetProperty Id="PK_GIVEN_DIR" Action="PkRememberGivenDir" Value="[INSTALLDIR]" Before="AppSearch" Sequence="both">
+      <![CDATA[INSTALLDIR]]>
+    </SetProperty>
+    <SetProperty Id="INSTALLDIR" Action="PkRestoreGivenDir" Value="[PK_GIVEN_DIR]" After="AppSearch" Sequence="both">
+      <![CDATA[PK_GIVEN_DIR]]>
+    </SetProperty>
+    <SetProperty Id="INSTALLDIR" Action="PkDropNsisDir" Value="[ProgramFiles64Folder][ProductName]\" After="PkRestoreGivenDir" Sequence="both">
+      <![CDATA[NOT Installed AND NOT PK_GIVEN_DIR AND NOT PK_MSI_DIR AND INSTALLDIR]]>
     </SetProperty>
     <InstallExecuteSequence>
       <!-- 入れ終わった後（ファイルが在る）。消すときは走らせない -->

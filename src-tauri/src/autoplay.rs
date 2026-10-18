@@ -367,4 +367,23 @@ mod tests {
             "installer-hooks.nsh"
         );
     }
+
+    /// **インストール先の守り（pictkura-dev #70）が MSI に入ったままである。** その守りは AutoPlay の断片に相乗りして
+    /// いて、断片は `tauri.conf.json` の `componentRefs` が AutoPlay の component を名指すことでだけリンクされる——
+    /// 名指しを外すと、ビルドは通ったまま守りが黙って消える
+    #[test]
+    fn the_install_dir_guard_ships_with_the_autoplay_fragment() {
+        let wxs = include_str!("../windows/autoplay.wxs");
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        let wix = &conf["bundle"]["windows"]["wix"];
+        assert!(wix["fragmentPaths"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v == "windows/autoplay.wxs")));
+        assert!(wix["componentRefs"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v == "AutoPlayRegistration")));
+        assert!(wxs.contains(r#"Component Id="AutoPlayRegistration""#));
+        assert!(wxs.contains(r#"Action="PkDropNsisDir""#));
+    }
 }
