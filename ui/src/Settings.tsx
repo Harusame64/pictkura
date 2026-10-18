@@ -66,6 +66,7 @@ import { answerKey, useWindowEvent } from "./useWindowEvent";
 export default function Settings({
   open,
   dismiss = false,
+  importWaiting = null,
   onClose,
   config,
   onConfigChanged,
@@ -81,6 +82,12 @@ export default function Settings({
    * 面が消えるときに飛ばない）。**外から状態だけ倒すと、打ちかけの文字が消える。**
    */
   dismiss?: boolean;
+  /**
+   * **設定の裏で待っている取り込み**（AutoPlay と2重起動から来た要求。App の `openWizard`）。場所の無い要求は
+   * `""`、無ければ `null`。設定は勝手に畳まない（打ちかけの自由記述がある）ので、**待っていると知らせ、
+   * 閉じる道を1つ置く**——閉じれば App が開く（pictkura-dev #71）
+   */
+  importWaiting?: string | null;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
@@ -366,6 +373,14 @@ export default function Settings({
             <span aria-hidden="true">✕</span>
           </button>
         </div>
+        {importWaiting !== null && (
+          <div className="settings-waiting" role="status" data-testid="settings-import-waiting-banner">
+            <span>{importWaiting ? t.settingsImportWaitingFrom(importWaiting) : t.settingsImportWaiting}</span>
+            <button onClick={closeDialog} id="pk-settings-import-waiting" data-testid="settings-import-waiting">
+              {t.settingsImportWaitingOpen}
+            </button>
+          </div>
+        )}
         <div className="settings-body">
           <section className="settings-section">
             <h3>{t.settingsImportStructure}</h3>

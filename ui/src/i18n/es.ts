@@ -623,6 +623,10 @@ export const es: Dict = {
   settingsAutoplayNote:
     "Si instalaste pictkura con el instalador o desde Microsoft Store, «pictkura で写真を取り込む» (importar fotos con pictkura) aparece entre las opciones al conectar una unidad; la versión portable no lo ofrece. Nunca se abre por sí solo: la importación solo se abre cuando lo eliges. Lo que ocurre de forma predeterminada se cambia en la configuración de Reproducción automática de Windows. Ten en cuenta que la entrada está escrita en japonés, salvo con el MSI en inglés, donde dice «Import photos with pictkura».",
   settingsAutoplayOpenWindows: "Abrir la configuración de Reproducción automática de Windows",
+  settingsImportWaitingFrom: (path: string) =>
+    `Hay una importación desde ${path} esperando. Se abrirá al cerrar la configuración.`,
+  settingsImportWaiting: "Hay una importación esperando. Se abrirá al cerrar la configuración.",
+  settingsImportWaitingOpen: "Cerrar e importar",
   settingsAbout: "Acerca de",
   settingsAboutLicense: "Publicado bajo la licencia MIT.",
   settingsManual: "Manual",

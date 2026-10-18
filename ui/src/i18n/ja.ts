@@ -643,6 +643,10 @@ export const ja = {
   settingsAutoplayNote:
     "インストーラーで入れた pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。自動的に起動することはなく、選んだときだけ取り込みが開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
   settingsAutoplayOpenWindows: "Windows の自動再生の設定を開く",
+  settingsImportWaitingFrom: (path: string) =>
+    `${path} からの取り込みが待っています。設定を閉じると開きます。`,
+  settingsImportWaiting: "取り込みが待っています。設定を閉じると開きます。",
+  settingsImportWaitingOpen: "閉じて取り込む",
   settingsAbout: "このアプリについて",
   settingsAboutLicense: "MIT ライセンスで配布しています。",
   settingsManual: "取扱説明書",

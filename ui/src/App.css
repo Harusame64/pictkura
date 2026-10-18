@@ -2143,6 +2143,24 @@ body {
   font-size: var(--fs-xl);
   color: var(--text);
 }
+/* 設定の裏で待っている取り込みの知らせ（pictkura-dev #71）。見出しのすぐ下、本文のスクロールの外に置く */
+.settings-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+.settings-waiting span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.settings-waiting button {
+  flex: none;
+}
 /* 断られた理由をダイアログの中に出す。画面下の状態バーは
    このダイアログが覆っているうえ32chで省略されるため読めない */
 .settings-error {

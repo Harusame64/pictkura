@@ -597,6 +597,10 @@ export const zh: Dict = {
   settingsAutoplayNote:
     "用安装程序或从 Microsoft Store 安装的 pictkura，插入驱动器时会在选项中列出“pictkura で写真を取り込む”（用 pictkura 导入照片）；便携版不会列出。它不会自行启动，只有选择时才会打开导入。默认操作请在 Windows 的“自动播放”设置中更改。请注意，这个选项本身的文字是日语（英文版 MSI 则是“Import photos with pictkura”）。",
   settingsAutoplayOpenWindows: "打开 Windows 自动播放设置",
+  settingsImportWaitingFrom: (path: string) =>
+    `来自 ${path} 的导入正在等待，关闭设置后就会打开。`,
+  settingsImportWaiting: "有一项导入正在等待，关闭设置后就会打开。",
+  settingsImportWaitingOpen: "关闭并导入",
   settingsAbout: "关于",
   settingsAboutLicense: "以 MIT 许可证发布。",
   settingsManual: "使用手册",

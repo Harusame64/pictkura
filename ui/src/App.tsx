@@ -1223,6 +1223,12 @@ export default function App() {
    */
   const pendingWizardRef = useRef<{ startPath?: string } | null>(null);
   /**
+   * **設定の裏で待っている取り込みを、設定の中に知らせるための写し**（pictkura-dev #71）。
+   * 待たせるだけだと、カードを挿した人には**何も起きていないように見える**（黙る口）。
+   * 値は待っている取り込みの場所（場所の無い要求は `""`）、待っていなければ `null`
+   */
+  const [importWaiting, setImportWaiting] = useState<string | null>(null);
+  /**
    * **2本目の道（`⌘/Ctrl + ,` と macOS のメニュー）から設定を開く**。
    *
    * **常時のハンドラと Rust からの環は依存を持てない**（どちらも `[]` で
@@ -2674,6 +2680,7 @@ export default function App() {
     // （`ImportWizard` の 400ms）。**3つ揃って初めて塞がる。**
     if (gateUpRef.current || settingsOpenRef.current) {
       pendingWizardRef.current = { startPath };
+      setImportWaiting(startPath ?? "");
       return;
     }
     // **開く前に、軽い幕を畳む**（[`openSettingsBySecondDoor`] と同じ作法）。
@@ -2720,6 +2727,7 @@ export default function App() {
     const pending = pendingWizardRef.current;
     if (pending === null) return;
     pendingWizardRef.current = null;
+    setImportWaiting(null);
     openWizard(pending.startPath, true);
   }, [rejectGate, settingsOpen, openWizard]);
 
@@ -9151,6 +9159,7 @@ export default function App() {
         // **`settingsOpen` をこちらで倒さない**のは、**閉じる道が向こうに1本ある**
         // からである（自由記述の確定がぶら下がっている）。**畳めと言うだけにする。**
         dismiss={rejectGate !== null}
+        importWaiting={importWaiting}
         onClose={() => setSettingsOpen(false)}
         config={config}
         onConfigChanged={refreshRoots}
