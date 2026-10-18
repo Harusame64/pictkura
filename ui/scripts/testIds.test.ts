@@ -66,4 +66,6 @@ test("open-with ids come from the app's name, numbered only when needed", () => 
   // 同じ形になる名前どうしは番号を添えて分ける
   assert.equal(openWithId("GIMP", 1, all), "open-with-gimp-1");
   assert.equal(openWithId("gimp", 3, all), "open-with-gimp-3");
+  // 「他のアプリで開く…」の id（open-with-other）とは重ならない
+  assert.equal(openWithId("Other", 0, ["Other"]), "open-with-other-0");
 });

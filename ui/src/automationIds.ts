@@ -13,6 +13,7 @@ export function openWithId(name: string, index: number, all: readonly string[]):
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
   const mine = slug(name);
-  const clash = all.filter((n) => slug(n) === mine).length > 1;
+  // 「other」は「他のアプリで開く…」（`open-with-other`）が使っているので、名前がそうなるときも番号を添える（PR の codex）
+  const clash = mine === "other" || all.filter((n) => slug(n) === mine).length > 1;
   return mine && !clash ? `open-with-${mine}` : `open-with-${mine ? `${mine}-` : ""}${index}`;
 }
