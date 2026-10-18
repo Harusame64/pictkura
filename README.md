@@ -360,7 +360,7 @@ answer to their English names whatever language the app is in.
 | `X` | reject it (✕). **Nothing is deleted when you press it** — closing the viewer shows you the faces first, then moves them all to the recycle bin at once |
 | `Space` | slideshow (play / pause for video) |
 | `F` | toggle favorite (★) |
-| `I` | capture info (camera, lens, aperture, shutter, ISO, GPS) |
+| `I` | file details and capture info (camera, lens, aperture, shutter, ISO, focal length, GPS) |
 | `Ctrl` + `C` / `Ctrl` + `S` | copy the picture on screen to the clipboard / save it to a file (`⌘` on macOS) |
 | `Ctrl` + `P` | print the photo on screen (`⌘` on macOS) |
 | `1` / `0` | `1` **toggles** actual size 100% ⇔ fit to screen; `0` always fits |

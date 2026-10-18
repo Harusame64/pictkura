@@ -45,10 +45,11 @@
  *
  * **ゴミ箱の呼び名はOSで割れる**——Windowsは `資源回收筒`、macOSは `垃圾桶`。
  * 簡体字辞書と同じ理由で**Windows側に寄せた**（配布の主戦場がWindows、
- * macOSの利用者にも通じる）。**分けるなら11キーと1行**——`menuDelete` /
+ * macOSの利用者にも通じる）。**分けるなら14キーと1行**——`menuDelete` /
  * `bulkDelete` / `deleteConfirm` / `deleteConfirmOk`（確認の釦・2026-09-25）/ `deleted` / `deletedSomeLeft` /
  * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
- * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）と、
+ * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）/ `deletedMissing` / `errTrashUnreachable` /
+ * `settingsGoogleAfterNote`（10-18 に数え直して足した）と、
  * ショートカット一覧の X の行（右クリックの行からは #242 で外れた。`grep 資源回收筒` で数える）。
  *
  * **見出しの語**は簡体字辞書と同じ分け方。`navPlaces` は `相簿`（`位置` はGPSの撮影地、
