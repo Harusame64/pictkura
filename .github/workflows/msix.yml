@@ -183,3 +183,30 @@ jobs:
             ${{ env.PK_BUNDLE_DIR }}/msix/*.msix
             ${{ env.PK_BUNDLE_DIR }}/msix/*.cer
           if-no-files-found: error
+
+      # Windows App Certification Kit（WACK）。Store の認定で回る検査を先に回す——空の Tauri 2 が
+      # 「Package Sanity Test」で落ちる報告がある（tauri#14935）。**結果を見るための段**なので、落ちても止めない
+      - name: WACK
+        continue-on-error: true
+        run: |
+          $appcert = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit" -Filter appcert.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $appcert) { Write-Host "::warning::appcert.exe がこのランナーに無い"; exit 0 }
+          $msix = Get-ChildItem "$env:PK_BUNDLE_DIR/msix" -Filter "*_test-signed.msix" | Select-Object -First 1
+          $report = Join-Path $env:RUNNER_TEMP "wack-report.xml"
+          & $appcert.FullName reset
+          & $appcert.FullName test -appxpackagepath $msix.FullName -reportoutputpath $report
+          "appcert exit: $LASTEXITCODE"
+          if (Test-Path $report) {
+            [xml]$x = Get-Content $report
+            "OVERALL: $($x.REPORT.OVERALL_RESULT)"
+            foreach ($t in $x.SelectNodes("//TEST")) { "$($t.RESULT)`t$($t.NAME)" }
+            Copy-Item $report "$env:PK_BUNDLE_DIR/msix/wack-report.xml"
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wack-report
+          path: ${{ env.PK_BUNDLE_DIR }}/msix/wack-report.xml
+          if-no-files-found: ignore
+
