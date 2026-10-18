@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { pressable } from "./pressable";
+
+/** `pressable` のうち、クリック以外（役割・Tab・キー）。クリックは外側の行が受ける */
+function pressKeys(onActivate: () => void) {
+  const { onClick: _onClick, ...rest } = pressable(onActivate);
+  return rest;
+}
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -595,11 +601,9 @@ export default function ImportWizard({
             (node.drive && standsOut(node.drive) ? " wiz-card" : "")
           }
           style={{ paddingInlineStart: `${8 + depth * 14}px` }}
-          // 行はフォルダを開くボタン（名前はフォルダ名。pictkura-dev #65）。中の ▸ は子の開閉だけ
-          {...pressable(() => openFolder(node.path, node.deepDefault))}
-          // 名前はフォルダ名だけ（中身から作ると、中の ▸ ボタンの名前まで混ざる）
-          aria-label={node.name}
-          aria-current={current === node.path ? "true" : undefined}
+          // 押す口は行全体（マウス）。読み上げとキーボードのボタンは中のフォルダ名——行全体をボタンにすると、
+          // 中の ▸ ボタンが入れ子になって潰れる（PR の codex。タイルと同じ理由）
+          onClick={() => openFolder(node.path, node.deepDefault)}
           title={node.path}
         >
           <button
@@ -626,7 +630,14 @@ export default function ImportWizard({
             {node.hasSubdirs ? (isOpenNode ? "▾" : "▸") : ""}
           </button>
           <span className="wiz-icon" aria-hidden="true">{node.drive ? driveIcon(node.drive) : "📁"}</span>
-          <span className="wiz-name">{node.name}</span>
+          <span
+            className="wiz-name"
+            // 行はフォルダを開くボタン（名前はフォルダ名。pictkura-dev #65）。クリックは行へ上がる
+            {...pressKeys(() => openFolder(node.path, node.deepDefault))}
+            aria-current={current === node.path ? "true" : undefined}
+          >
+            {node.name}
+          </span>
           {node.imageCount > 0 && (
             <span className="wiz-count">
               {node.countCapped
