@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 // `open` は下のプロパティ名とぶつかるので別名で受ける
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -288,6 +288,13 @@ export default function Settings({
     if (!open) setGoogleError(null);
   }, [open]);
 
+  const titleId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
+  // 開いたら幕の中へフォーカスを移す（後ろは inert なので、そのままでは <body> に残り、読み上げが幕の名前を
+  // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open) dialogRef.current?.focus({ preventScroll: true });
+  }, [open]);
   if (!open) return null;
 
   /** 送り出しの設定を1つ変える。断られたら理由をこの節に出す */
@@ -339,9 +346,17 @@ export default function Settings({
 
   return (
     <div className="palette-backdrop" onClick={closeDialog}>
-      <div className="settings" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="settings"
+        ref={dialogRef}
+        tabIndex={-1}
+        // 名前のある窓として見せる（UI Automation の Window。pictkura-dev #65）
+        role="dialog"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="settings-head">
-          <h2>{t.settingsTitle}</h2>
+          <h2 id={titleId}>{t.settingsTitle}</h2>
           <button className="settings-close" onClick={closeDialog} title={t.close}>
             <span aria-hidden="true">✕</span>
           </button>

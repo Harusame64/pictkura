@@ -319,6 +319,12 @@ body {
   cursor: pointer;
   transition: background var(--dur-fast) var(--easing);
 }
+/* 開いたときにフォーカスを受ける幕の外枠（tabIndex=-1）には枠を出さない（中の部品の枠と紛れる） */
+.viewer:focus,
+.settings:focus,
+.wizard:focus {
+  outline: none;
+}
 .nav-item:hover {
   background: var(--surface-2);
   color: var(--text);

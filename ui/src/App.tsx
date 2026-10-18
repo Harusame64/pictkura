@@ -4240,6 +4240,63 @@ export default function App() {
   }, []);
 
   const viewerItem = viewerInfo?.item ?? null;
+  /**
+   * 手前に幕（ビューア・設定・取り込み・パレット・一覧・印刷・情報・ボツの確認）がある間は、後ろの一覧と帯を
+   * **inert** にする——UI Automation や読み上げに後ろの「選択」ボタンが並び、手前の幕と区別が付かなかった
+   * （pictkura-dev #65 の基準線、win の実測）。右クリックのメニューは幕ではないので含めない
+   */
+  /**
+   * ビューアより手前に出る幕（ビューアの上でも開く）。`curtainRef`（キーを幕へ渡すか）もこれを使う——幕の一覧を
+   * 何か所にも写すと、足したときに片方だけ漏れる（ゲート2）
+   */
+  const curtainUp =
+    wizardOpen ||
+    settingsOpen ||
+    shortcutsOpen ||
+    paletteOpen ||
+    rejectGate !== null ||
+    infoFor !== null ||
+    printFor !== null ||
+    printSheetFor !== null;
+  const backgroundInert = viewer !== null || curtainUp;
+  /**
+   * React 18 は `inert` を知らないので、文字列の属性として渡す（無いときは付けない）。**React 19 に上げたら**
+   * `inert={真偽}` に替える——19 は `inert` を真偽で読むので、空文字は「付けない」になって黙って効かなくなる
+   */
+  const inertWhen = (on: boolean) =>
+    (on ? { inert: "" } : {}) as React.HTMLAttributes<HTMLElement>;
+  const inertProps = inertWhen(backgroundInert);
+  // 幕を開いたときにフォーカスを持っていた後ろの要素（inert にするとフォーカスが外れる）。閉じたら戻す——戻さないと
+  // フォーカスが <body> へ落ち、Tab が先頭からになる（ゲート2）
+  const focusBeforeCurtainRef = useRef<HTMLElement | null>(null);
+  /**
+   * ビューアの外枠。開いたとき・上の幕（情報・ボツの確認…）を閉じてビューアへ戻ったときに、フォーカスをここへ
+   * 移す——後ろは inert なので、移さないと <body> に残り、読み上げがビューアの名前を読まない（win の実測、
+   * pictkura-dev #65）
+   */
+  const viewerRootRef = useRef<HTMLDivElement>(null);
+  const viewerOpen = viewer !== null;
+  useEffect(() => {
+    if (!viewerOpen || curtainUp) return;
+    const active = document.activeElement;
+    const root = viewerRootRef.current;
+    if (root && (!active || active === document.body || !root.contains(active))) {
+      root.focus({ preventScroll: true });
+    }
+  }, [viewerOpen, curtainUp]);
+  useLayoutEffect(() => {
+    if (backgroundInert) {
+      if (focusBeforeCurtainRef.current === null) {
+        const el = document.activeElement;
+        focusBeforeCurtainRef.current =
+          el instanceof HTMLElement && el !== document.body ? el : null;
+      }
+      return;
+    }
+    const el = focusBeforeCurtainRef.current;
+    focusBeforeCurtainRef.current = null;
+    if (el?.isConnected && !el.closest("[inert]")) el.focus({ preventScroll: true });
+  }, [backgroundInert]);
 
   /**
    * グリッドとビューアの間の動き（dev #52）。開くときはタイルから、閉じるときはいまの写真のタイルへ。
@@ -6130,17 +6187,7 @@ export default function App() {
   // **レンダー中にrefを書き換えない**（レンダーは純粋であるべきで、破棄された
   // レンダーの値が残りうる）。描画が確定してから差し替える
   useLayoutEffect(() => {
-    curtainRef.current =
-      rejectGate !== null ||
-      wizardOpen ||
-      settingsOpen ||
-      shortcutsOpen ||
-      paletteOpen ||
-      menu !== null ||
-      calMenu !== null ||
-      infoFor !== null ||
-      printFor !== null ||
-      printSheetFor !== null;
+    curtainRef.current = curtainUp || menu !== null || calMenu !== null;
     gateUpRef.current = rejectGate !== null;
     settingsOpenRef.current = settingsOpen;
     openSettingsRef.current = openSettingsBySecondDoor;
@@ -7263,7 +7310,7 @@ export default function App() {
   return (
     <div className="app">
       {selecting && (
-        <div className="select-bar">
+        <div className="select-bar" {...inertProps}>
           <button
             className="select-bar-close"
             title={t.clearSelection}
@@ -7370,7 +7417,7 @@ export default function App() {
           1タイルなら名前・撮影日時・大きさ、複数なら合計（ADR の A）。大きさは OS のファイル管理と同じ数え方 */}
       {/* 答えを待つ間も行は出しておく（届いた時に一覧が1行ぶん下へずれないように） */}
       {selecting && (
-        <div className="select-info">
+        <div className="select-info" {...inertProps}>
           {"\u00a0"}
           {/* 1タイルは代表のファイル自身の大きさ。重ね（組・連写）でファイルが2つ以上なら、全体を「合計」と添える
               ——代表の名前の隣に組ぜんぶの大きさだけを置くと、その1ファイルの大きさに読める（PR のゲート2） */}
@@ -7390,7 +7437,7 @@ export default function App() {
             )}`}
         </div>
       )}
-      <header className="topbar">
+      <header className="topbar" {...inertProps}>
         <span className="logo">{t.appName}</span>
         <div className="view-switch">
           <button
@@ -7629,7 +7676,7 @@ export default function App() {
             </div>
           ))}
       </div>
-      <div className="body">
+      <div className="body" {...inertProps}>
         <nav className="sidebar">
           <div className="nav-section">{t.navPlaces}</div>
           <div
@@ -8240,6 +8287,13 @@ export default function App() {
             (viewerIdle ? " idle" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
+          // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が
+          // 出たら、ビューアも後ろとして inert にする
+          {...inertWhen(curtainUp)}
+          ref={viewerRootRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-label={viewerItem?.file_name ?? t.appName}
           style={
             {
               "--exif-panel-width": `${EXIF_PANEL_WIDTH}px`,

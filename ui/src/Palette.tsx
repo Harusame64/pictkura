@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
 import { actionMatch, orderSearchAndActions } from "./paletteOrder";
@@ -147,6 +147,7 @@ export default function Palette({
       ?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
+  const listId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
   if (!open) return null;
 
   const run = (item: PaletteItem | undefined) => {
@@ -158,11 +159,23 @@ export default function Palette({
   let lastGroup = "";
   return (
     <div className="palette-backdrop" onClick={onClose}>
-      <div className="palette" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="palette"
+        role="dialog"
+        aria-label={t.commandPalette}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 入力欄と候補の並びは combobox と listbox（矢印で動かす候補を、読み上げにも今の1つとして渡す） */}
         <input
           ref={inputRef}
           className="palette-input"
           placeholder={t.paletteInput}
+          role="combobox"
+          aria-label={t.paletteInput}
+          aria-expanded={items.length > 0}
+          aria-controls={listId}
+          aria-activedescendant={items.length > 0 ? `${listId}-${cursor}` : undefined}
+          aria-autocomplete="list"
           value={input}
           onChange={(e) => {
             setInput(e.target.value);
@@ -190,7 +203,7 @@ export default function Palette({
             }
           }}
         />
-        <div className="palette-list" ref={listRef}>
+        <div className="palette-list" ref={listRef} role="listbox" id={listId} aria-label={t.commandPalette}>
           {items.length === 0 && (
             <div className="palette-empty">{t.paletteNoResults}</div>
           )}
@@ -199,14 +212,21 @@ export default function Palette({
             lastGroup = item.group;
             return (
               <div key={`${item.group}-${item.label}-${i}`}>
-                {header && <div className="palette-group">{header}</div>}
+                {header && (
+                  <div className="palette-group" role="presentation">
+                    {header}
+                  </div>
+                )}
                 <div
+                  id={`${listId}-${i}`}
+                  role="option"
+                  aria-selected={i === cursor}
                   data-idx={i}
                   className={"palette-item" + (i === cursor ? " active" : "")}
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => run(item)}
                 >
-                  <span className="palette-icon">{item.icon}</span>
+                  <span className="palette-icon" aria-hidden="true">{item.icon}</span>
                   <span className="palette-label">{item.label}</span>
                   {item.hint && <span className="palette-hint">{item.hint}</span>}
                 </div>

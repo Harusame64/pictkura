@@ -58,6 +58,36 @@ export default function ContextMenu({
     onClose();
   });
   useWindowEvent("click", pos !== null, () => onClose());
+
+  // **開いたら先頭の項目へフォーカスを移し、閉じたら元へ戻す**。メニューとして名乗る（role="menu"）と、読み上げは
+  // 上下の矢印で項目を動く前提で入ってくる——フォーカスが後ろに残ったままだと項目へ届かない（pictkura-dev #65 の
+  // ゲート2）
+  const isOpen = pos !== null;
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const before = document.activeElement;
+    ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+    return () => {
+      if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
+    };
+  }, [isOpen]);
+  /** 上下・Home・End で項目を動く（端で回る） */
+  const onMenuKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    if (!keys.includes(e.key)) return;
+    const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    if (list.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const at = list.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? list.length - 1
+          : (at + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
+    list[next].focus({ preventScroll: true });
+  };
   // スクロールやリサイズで位置がずれるくらいなら閉じる
   useWindowEvent("resize", pos !== null, () => onClose());
 
@@ -67,14 +97,18 @@ export default function ContextMenu({
     <div
       ref={ref}
       className="context-menu"
+      // メニューとして見せる（UI Automation の Menu／MenuItem。pictkura-dev #65）
+      role="menu"
+      onKeyDown={onMenuKey}
       style={{ left: adjusted?.x ?? pos.x, top: adjusted?.y ?? pos.y }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item, i) => (
-        <div key={`${item.label}-${i}`}>
-          {item.separator && <div className="context-separator" />}
+        <div key={`${item.label}-${i}`} role="none">
+          {item.separator && <div className="context-separator" role="separator" />}
           <button
+            role="menuitem"
             className={"context-item" + (item.danger ? " danger" : "")}
             onClick={() => {
               onClose();
