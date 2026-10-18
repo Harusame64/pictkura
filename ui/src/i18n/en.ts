@@ -59,7 +59,7 @@ export const en: Dict = {
         ["Ctrl+S / ⌘S", "Save the picture on screen to a file"],
         ["Ctrl+P / ⌘P", "Print the photo on screen"],
         ["F", "Toggle favorite (★)"],
-        ["I", "File details and capture details (camera, lens, aperture, ISO, GPS)"],
+        ["I", "File details and capture details (camera, lens, aperture, shutter, ISO, focal length, GPS)"],
         ["Space", "Slideshow. On a video, play / pause"],
         ["1 / 0", "1 toggles actual size 100% ⇔ fit to screen; 0 always fits"],
         ["F11", "Full screen"],
