@@ -270,12 +270,10 @@ mod tests {
         assert!(!ExportError::DestIsPackage("/写真.photoslibrary".into()).is_malfunction());
     }
 
-    /// **`--sync-autoplay` の枝の型を、macOS 側で押さえる。**
+    /// **設定の読み込みの失敗を、窓の無い道で英語の1行にする**（`for_log_err`）。
     ///
-    /// あの枝は `#[cfg(windows)]` の中に在るので、**手元では1行もコンパイルされない**
-    /// ——`Config::load(..).map_err(for_log_err)?` が通るかは、CI の Windows が
-    /// 初めて見ることになる。**同じ呼びをここで1回やっておく**と、
-    /// 型（`ConfigError: Coded` と `-> String`）だけは手元で落ちる。
+    /// 書いたころは `--sync-autoplay`（Windows だけの枝）の型を macOS で押さえるためだったが、その枝は無くなった
+    /// （pictkura-dev #53）。言葉の約束（下）を見る試験として残す。
     ///
     /// 中身のほうも見る: **`ConfigError` の `Display` は日本語**なので、
     /// `{e}` で載せると**窓の無い枝の唯一の手がかりが混じった言葉**になる

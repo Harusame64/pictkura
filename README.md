@@ -52,9 +52,8 @@ on up-to-date Windows 10.
 > **Take care on a shared PC.** The MSI is installed for everyone, so switching **removes
 > pictkura for the other users** (`-setup.exe` installs only for you). Each person should run
 > `-setup.exe` themselves. Also, another user on that PC **may still have an AutoPlay entry
-> left behind** (up to 0.2.7, merely launching pictkura registered one) — they can reinstall and
-> clear "Offer pictkura in the AutoPlay choices" under "When you insert a USB drive or SD card" in
-> Settings, or pick a new AutoPlay default in Windows Settings.
+> left behind** (versions up to 0.3 registered it from the app) — starting a newer pictkura once
+> clears it, or they can pick a new AutoPlay default in Windows Settings.
 >
 > The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
 > uninstall from Settings → Apps first in that case.
@@ -436,7 +435,8 @@ In this repository it lives at `docs/manual.en.html` and `docs/manual.html`, whi
 shows as HTML source.
 
 > One thing is still Japanese-only: the entry pictkura adds to the Windows AutoPlay
-> choices reads「pictkura で写真を取り込む」regardless of the UI language.
+> choices reads「pictkura で写真を取り込む」regardless of the UI language — except with the
+> English MSI, where it reads "Import photos with pictkura".
 
 ### 8. Update notices
 

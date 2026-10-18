@@ -79,7 +79,7 @@ arboard = { version = "3.6", default-features = false, features = [
 # sysinfo は removable かどうかしか教えてくれず、ネットワークドライブを
 # 「取り込み元」として自動走査してしまうため
 [target.'cfg(windows)'.dependencies]
-# Win32_System_Registry: AutoPlayハンドラをHKCUへ登録する（autoplay.rs）
+# Win32_System_Registry: 前の版の AutoPlay 登録の片付け（autoplay.rs）
 # Win32_Globalization: 地域書式の設定を読む（`GetUserDefaultLocaleName`）。
 # 表示言語のリスト（`sys-locale`）とは別の設定
 # Win32_System_SystemServices: **`LOCALE_NAME_MAX_LENGTH` だけがここに居る**。

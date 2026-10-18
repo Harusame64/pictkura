@@ -620,11 +620,8 @@ export const es: Dict = {
   settingsTransitionNote:
     "Cómo cambia la vista grande a la siguiente foto cuando avanzas (flechas, botones, la tira de abajo o el avance tras una valoración), y cuando avanza un pase de diapositivas. Deslizar sigue la dirección en la que avanzas. Si el sistema está configurado para reducir el movimiento, las fotos cambian sin moverse, elijas lo que elijas.",
   settingsAutoplay: "Cuando conectas una unidad USB o una tarjeta SD",
-  settingsAutoplayToggle: "Ofrecer pictkura en la Reproducción automática",
   settingsAutoplayNote:
-    "Añade pictkura a las opciones de la Reproducción automática de Windows. Nunca arranca por su cuenta. Ten en cuenta que la entrada está escrita en japonés. Al desinstalar con el instalador se quita, pero la versión portable —y las copias de otros usuarios en el mismo PC— no están cubiertas; desactiva esto antes de quitar pictkura en esos casos.",
-  settingsAutoplayStoreNote:
-    "En la versión de Microsoft Store esta opción aparece siempre al conectar una unidad (pictkura nunca se abre por sí solo). Lo que ocurre de forma predeterminada se cambia en la configuración de Reproducción automática de Windows. Ten en cuenta que la entrada está escrita en japonés.",
+    "Si instalaste pictkura con el instalador o desde Microsoft Store, «pictkura で写真を取り込む» (importar fotos con pictkura) aparece entre las opciones al conectar una unidad; la versión portable no lo ofrece. Nunca se abre por sí solo: la importación solo se abre cuando lo eliges. Lo que ocurre de forma predeterminada se cambia en la configuración de Reproducción automática de Windows. Ten en cuenta que la entrada está escrita en japonés, salvo con el MSI en inglés, donde dice «Import photos with pictkura».",
   settingsAutoplayOpenWindows: "Abrir la configuración de Reproducción automática de Windows",
   settingsAbout: "Acerca de",
   settingsAboutLicense: "Publicado bajo la licencia MIT.",
@@ -695,8 +692,6 @@ export const es: Dict = {
   errTrashUnreachable: "No se puede acceder a la unidad o la carpeta, así que no se ha movido nada a la papelera.",
   errTrashPartly: (n: number) =>
     `${num(n)} en la papelera; el resto no se pudo mover.`,
-  errAutoplayRollback:
-    "No se pudo guardar el ajuste. La reproducción automática queda como se acaba de cambiar; el próximo inicio la alineará con el ajuste.",
   errNoLogYet: "Todavía no hay nada registrado.",
   errOutgoingFolderMissing: "La carpeta de Salida no está. Se crea al activar la Salida (si ya está activada, desactívala y vuelve a activarla).",
   errOpenOutgoingFailed: "No se pudo abrir la carpeta de Salida. Usa «Copiar ruta» y ábrela desde ahí.",

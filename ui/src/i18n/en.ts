@@ -545,12 +545,9 @@ export const en: Dict = {
   settingsTransitionNote:
     "How full screen moves to the next photo when you step (arrow keys, buttons, the strip at the bottom, or moving on after a judgement), and when a slideshow moves on. Slide follows the direction you step in. If your system is set to reduce motion, photos change without moving whatever you choose here.",
   settingsAutoplay: "When you insert a USB drive or SD card",
-  settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
+  /** 自動再生の節の説明（どの版も同じ。登録はインストーラーと Store のマニフェスト。dev #53） */
   settingsAutoplayNote:
-    "Adds pictkura to the Windows AutoPlay choices. It never starts on its own. Note that the entry itself is worded in Japanese. Uninstalling with the installer removes it, but the portable build — and other users’ copies on a shared PC — are not covered; turn this off before removing pictkura in those cases.",
-  /** Store 版（MSIX）の自動再生の節（dev #53）。切り替えの代わりに、OS の設定への入口を置く */
-  settingsAutoplayStoreNote:
-    "In the Microsoft Store version this choice is always offered when you insert a drive (pictkura never starts on its own). Change what happens by default in the Windows AutoPlay settings. The entry itself is worded in Japanese.",
+    "When pictkura is installed with the installer or from the Microsoft Store, “pictkura で写真を取り込む” (import photos with pictkura) appears among the choices when you insert a drive; the portable build does not offer it. It never starts on its own — the import opens only when you choose it. Change what happens by default in the Windows AutoPlay settings. The entry itself is worded in Japanese, except with the English MSI, where it reads “Import photos with pictkura”.",
   settingsAutoplayOpenWindows: "Open Windows AutoPlay settings",
   settingsAbout: "About",
   settingsAboutLicense: "Distributed under the MIT license.",
@@ -620,8 +617,6 @@ export const en: Dict = {
   errTrashUnreachable: "The drive or folder can’t be reached, so nothing was moved to the trash.",
   errTrashPartly: (n: number) =>
     `${num(n)} moved to the trash; the rest could not be.`,
-  errAutoplayRollback:
-    "The setting could not be saved. AutoPlay is left as it was just changed, and the next launch puts it back in line with the setting.",
   errNoLogYet: "Nothing has been recorded yet.",
   errOutgoingFolderMissing: "The Outgoing folder is not there. Turning Outgoing on creates it (if it is already on, turn it off and on again).",
   errOpenOutgoingFailed: "Could not open the Outgoing folder. Use \"Copy path\" and open it from there.",

@@ -1,31 +1,31 @@
-; NSISインストーラのフック。AutoPlay（自動再生）の登録を、インストーラの前後で辻褄が
-; 合うように面倒を見る。
+﻿; NSISインストーラのフック。AutoPlay（自動再生）の登録と、winget のための QuietUninstallString を書く。
 ;
-; なぜ要るか: AutoPlayの登録は**アプリが起動のたびに実行時にHKCUへ書く**もので、
-; インストーラが作ったものではない。消さずにアンインストールすると、USB/SDカードを
-; 挿すたびに「pictkura で写真を取り込む」が候補に並び、選ぶと**もう居ない実行ファイル**
-; を呼ぶ。WiX断片（windows/autoplay-cleanup.wxs）が同じことをMSI側でやっている。
+; **このファイルは UTF-8（BOM つき）で保つ。** 下の登録に日本語の文字列があり、NSIS は BOM の無いファイルを
+; システムの文字コード（CI の英語版 Windows なら cp1252）で読む。
 ;
-; **考え方**: **利用者が消すときだけ解除**し、**入れ終わったら設定に合わせ直す**。
+; **AutoPlay の登録はインストーラーが書く**（2026-10-18 利用者の決定。pictkura-dev #53、dev/plan.msix.md）。
+; アプリは実行中にレジストリへ登録を書かない。MSI 版は windows/autoplay.wxs、Store 版はマニフェスト、持ち歩き版は
+; 候補に出さない。名前は前の版がアプリから書いた登録（pictkuraImportFromDrive）と分ける——アプリが起動時に前の版の
+; ぶんを片付けるとき、こちらを巻き添えにしない。currentUser のインストールなので SHCTX は HKCU。
 ;
 ; やってみて分かったこと（同じ道を二度通らないための記録）:
 ;
 ; - **`$CMDLINE` から `_?=` は探せない**。NSISがそこから取り除く。実測では更新の
 ;   呼び出しでも `["…\pictkura\uninstall.exe" /S]` としか入っておらず、利用者による
 ;   削除では `["…\Temp\~nsu2.tmp\Un.exe"  /S]` になる（差はパスのほう）
-; - **解除を `NSIS_HOOK_POSTUNINSTALL`（本当に消えた後）へ移すのは駄目だった**。
-;   そのときには `pictkura.exe` も消えているので `$PLUGINSDIR` へ写しておく形にしたが、
-;   **写した exe は起動できない**——隣にあるべき `WebView2Loader.dll` が無く、
-;   DLLが見つからないというエラーで止まる。`ExecWait` は返らず、**アンインストーラごと
-;   固まった**（実測: 20秒待っても終了せず、$PLUGINSDIR に44MBの写しが残ったまま）。
-;   DLLも一緒に写せば動くが、**同梱物が1つ増えるたびに黙って固まる**作りになる
-; - **「アプリが動いているなら解除しない」も駄目**。キャンセルされずに進んだとき、
-;   消えた実行ファイルを指す登録が残り続ける（こちらは自然に治らない）
+; - **アンインストールの後（POSTUNINSTALL）で exe を呼ぶのは駄目だった**。そのときには `pictkura.exe` が
+;   消えていて、`$PLUGINSDIR` へ写した exe は隣の `WebView2Loader.dll` が無くて起動できず、
+;   **アンインストーラごと固まった**。exe を呼ぶ片付けは PREUNINSTALL（まだ在る）で行う
+
+!define PK_AUTOPLAY "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers"
+!define PK_AUTOPLAY_HANDLER "pictkuraAutoPlay"
+!define PK_AUTOPLAY_PROGID "pictkura.AutoPlay"
+!define PK_AUTOPLAY_ACTION "pictkura で写真を取り込む"
 
 !macro NSIS_HOOK_PREUNINSTALL
   ; **インストーラから呼ばれたときは何もしない。** アプリは消えるのではなく
   ; 入れ替わるので、ここで解除すると「常にこの操作」で pictkura を選んでいた記録まで
-  ; 消える（`autoplay::unregister` は、もう居ないハンドラを呼び続けないよう
+  ; 消える（`--unregister-autoplay` は、もう居ないハンドラを呼び続けないよう
   ; その記録も消す作りになっている）。**更新の既定は「先にアンインストール」**なので、
   ; 素通しすると**更新のたびに選び直させる**——MSIでは `NOT UPGRADINGPRODUCTCODE`
   ; で守られていた性質（PR #24 のゲート1 P2）。
@@ -38,7 +38,7 @@
   ;   $EXEDIR != $INSTDIR  → 利用者が「設定 → アプリ」等から消した
   ;
   ; （**MSIからの乗り換えはここを通らない**。消すのは msiexec で、こちらの
-  ;   アンインストーラは走らない。あちらで消えた登録は POSTINSTALL が戻す）
+  ;   アンインストーラは走らない。MSI の登録（HKLM）は MSI が消し、こちらの POSTINSTALL が HKCU に書く）
   ;
   ; **残る穴（承知のうえ・2つ）**:
   ;
@@ -47,15 +47,29 @@
   ;    削除口は「設定 → アプリ」で、そちらは正しく消える
   ; 2. 解除は、テンプレートの「pictkura を閉じますか」より**前**に走る（フックの位置は
   ;    Tauri側で固定）。アプリを動かしたまま消し始めて**そこでキャンセル**すると、
-  ;    アプリは残ったまま登録だけ消える。次に起動すれば**候補は**書き直されるが、
-  ;    **「常にこの操作」の記録は戻らない**（`register` は候補しか作らない）ので、
-  ;    選び直しが要る——**「自然に治る」のは半分だけ**
+  ;    アプリも候補も残るが、**「常にこの操作」の記録だけ消える**（選び直しが要る）。候補そのものは
+  ;    POSTUNINSTALL で消すので残る
   ;
-  ; どちらも塞ぐには「常にこの操作」の記録を控えて入れ終わりに戻す仕掛けが要る——別のPRで。
+  ; どちらも塞ぐには、「常にこの操作」の記録を控えて戻す仕掛けが要る——別のPRで。
   ${If} $EXEDIR != $INSTDIR
-    ; 窓を出さずに解除だけして終わる入口（src-tauri/src/lib.rs の --unregister-autoplay）。
+    ; 前の版の登録と、新しい候補を指す「常にこの操作」を消す（exe がまだ在るうちに。src-tauri/src/lib.rs の
+    ; --unregister-autoplay）。残すとエクスプローラーはもう居ないハンドラを呼び続ける。
     ; 失敗してもアンインストールは続ける——解除できないことは、消せないことより軽い
     ExecWait '"$INSTDIR\pictkura.exe" --unregister-autoplay'
+  ${EndIf}
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; **登録そのものは消し終わってから消す**（このインストーラーが書いたもの）。PREUNINSTALL で消すと、テンプレートの
+  ; 「pictkura を閉じますか」でキャンセルしたとき、アプリは残ったまま候補だけ消え、入れ直すまで戻らない
+  ; （アプリは登録を書かない。ゲート2）。ここでは exe を呼ばない——上の記録のとおり固まる。
+  ; 更新（$EXEDIR == $INSTDIR）では消さない——すぐ POSTINSTALL が書き直すが、間の時間を作らない
+  ${If} $EXEDIR != $INSTDIR
+    DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\ShowPicturesOnArrival" "${PK_AUTOPLAY_HANDLER}"
+    DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\MixedContentOnArrival" "${PK_AUTOPLAY_HANDLER}"
+    DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\StorageOnArrival" "${PK_AUTOPLAY_HANDLER}"
+    DeleteRegKey SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}"
+    DeleteRegKey SHCTX "Software\Classes\${PK_AUTOPLAY_PROGID}"
   ${EndIf}
 !macroend
 
@@ -89,15 +103,21 @@
   !endif
   WriteRegStr SHCTX "${UNINSTKEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
 
-  ; **入れ終わったら設定に合わせ直す。** 役目は2つ:
-  ;
-  ; - **MSI版からの乗り換え**で消えた登録を戻す。NSISはMSI版を見つけると先に消すが、
-  ;   その削除はMSIから見れば普通のアンインストールなので、MSI側の掃除
-  ;   （windows/autoplay-cleanup.wxs）が走ってしまう
-  ; - 登録が残っている場合も、**指す先を新しい導入先へ書き直す**
-  ;
-  ; 呼ぶ先は**設定を読んでから決める**（自動再生を自分で切った人に勝手に名乗らせない）。
-  ; **設定ファイルがまだ無ければ何もしない**＝まだ一度も使っていない人の環境に、
-  ; 起動前から候補を足さない
-  ExecWait '"$INSTDIR\pictkura.exe" --sync-autoplay'
+  ; **AutoPlay の候補を登録する**（このインストーラーが書き、アンインストールで消す）。起動の引数は MSI 版・Store 版と
+  ; 同じ。対象のパスは引用符で囲む（フォルダにマウントされたボリュームでは空白を含みうる。受け側の
+  ; import_path_from_args が末尾のバックスラッシュの崩れを戻す）。版上げでも書き直すので、導入先が変わっても追従する
+  WriteRegStr SHCTX "Software\Classes\${PK_AUTOPLAY_PROGID}" "" "${PK_AUTOPLAY_ACTION}"
+  WriteRegStr SHCTX "Software\Classes\${PK_AUTOPLAY_PROGID}\shell\import\command" "" '"$INSTDIR\pictkura.exe" --import "%L"'
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}" "Action" "${PK_AUTOPLAY_ACTION}"
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}" "Provider" "pictkura"
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}" "InvokeProgID" "${PK_AUTOPLAY_PROGID}"
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}" "InvokeVerb" "import"
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}" "DefaultIcon" "$INSTDIR\pictkura.exe,0"
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\EventHandlers\ShowPicturesOnArrival" "${PK_AUTOPLAY_HANDLER}" ""
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\EventHandlers\MixedContentOnArrival" "${PK_AUTOPLAY_HANDLER}" ""
+  WriteRegStr SHCTX "${PK_AUTOPLAY}\EventHandlers\StorageOnArrival" "${PK_AUTOPLAY_HANDLER}" ""
+
+  ; **前の版がアプリから書いた登録を消す**（旧い候補と新しい候補が並ぶ時間を作らない）。新しい登録の
+  ; 「常にこの操作」には触らない——版上げのたびに選び直させない
+  ExecWait '"$INSTDIR\pictkura.exe" --remove-legacy-autoplay'
 !macroend

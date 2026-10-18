@@ -597,11 +597,8 @@ export const zhHant: Dict = {
   settingsTransitionNote:
     "全螢幕時切換到下一張照片（方向鍵、按鈕、底部的縮圖列，或判定後的自動前進），以及投影片放映切換時的效果。滑動會朝你切換的方向移動。如果系統設定了減少動態效果，無論這裡選什麼，照片都會直接切換。",
   settingsAutoplay: "插入 USB 隨身碟或 SD 記憶卡時",
-  settingsAutoplayToggle: "在「自動播放」的選項中提供 pictkura",
   settingsAutoplayNote:
-    "會把 pictkura 加到 Windows「自動播放」的選項裡。它不會自行啟動。請注意，這個選項本身的文字是日文。用安裝程式解除安裝時會自動取消註冊，但可攜版以及同一台電腦上其他使用者的註冊不在此列——那些情況下，請在刪除 pictkura 之前先關閉這裡。",
-  settingsAutoplayStoreNote:
-    "Microsoft Store 版在插入磁碟機時一律會列出此選項（pictkura 不會自行啟動）。預設動作請在 Windows 的「自動播放」設定中變更。請注意，這個選項本身的文字是日文。",
+    "用安裝程式或從 Microsoft Store 安裝的 pictkura，插入磁碟機時會在選項中列出「pictkura で写真を取り込む」（用 pictkura 匯入相片）；可攜版不會列出。它不會自行啟動，只有選擇時才會開啟匯入。預設動作請在 Windows 的「自動播放」設定中變更。請注意，這個選項本身的文字是日文（英文版 MSI 則是「Import photos with pictkura」）。",
   settingsAutoplayOpenWindows: "開啟 Windows 自動播放設定",
   settingsAbout: "關於",
   settingsAboutLicense: "以 MIT 授權發布。",
@@ -667,8 +664,6 @@ export const zhHant: Dict = {
   errTrashFailed: "無法移到資源回收筒。",
   errTrashUnreachable: "找不到磁碟機或資料夾，因此沒有移到資源回收筒。",
   errTrashPartly: (n: number) => `已將 ${num(n)} 張移到資源回收筒，其餘未能移動。`,
-  errAutoplayRollback:
-    "無法儲存該設定。自動播放的註冊暫時維持剛才變更後的狀態，下次啟動時會依設定恢復。",
   errNoLogYet: "還沒有任何記錄。",
   errOutgoingFolderMissing: "找不到送出資料夾。開啟送出後會自動建立（如果已經開啟，請先關閉再重新開啟）。",
   errOpenOutgoingFailed: "無法開啟送出資料夾。請用「複製路徑」複製位置後開啟。",

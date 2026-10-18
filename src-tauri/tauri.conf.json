@@ -38,9 +38,12 @@
     ],
     "windows": {
       "wix": {
-        "language": ["ja-JP", "en-US"],
-        "fragmentPaths": ["windows/autoplay-cleanup.wxs"],
-        "componentRefs": ["AutoPlayCleanup"]
+        "language": {
+          "ja-JP": { "localePath": "windows/locale-ja.wxl" },
+          "en-US": { "localePath": "windows/locale-en.wxl" }
+        },
+        "fragmentPaths": ["windows/autoplay.wxs"],
+        "componentRefs": ["AutoPlayRegistration"]
       },
       "nsis": {
         "installMode": "currentUser",

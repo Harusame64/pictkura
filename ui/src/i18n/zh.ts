@@ -594,11 +594,8 @@ export const zh: Dict = {
   settingsTransitionNote:
     "全屏时切换到下一张照片（方向键、按钮、底部的缩略图条，或判定后的自动前进），以及幻灯片放映切换时的效果。滑动会朝你切换的方向移动。如果系统设置了减少动态效果，无论这里选什么，照片都会直接切换。",
   settingsAutoplay: "插入 U 盘或 SD 卡时",
-  settingsAutoplayToggle: "在“自动播放”的选项里提供 pictkura",
   settingsAutoplayNote:
-    "会把 pictkura 加到 Windows“自动播放”的选项里。它不会自行启动。请注意，这个选项本身的文字是日语。用安装程序卸载时会自动取消注册，但便携版以及同一台电脑上其他用户的注册不在此列——那些情况下，请在删除 pictkura 之前先关掉这里。",
-  settingsAutoplayStoreNote:
-    "Microsoft Store 版在插入驱动器时始终会列出此选项（pictkura 不会自行启动）。默认操作请在 Windows 的“自动播放”设置中更改。请注意，这个选项本身的文字是日语。",
+    "用安装程序或从 Microsoft Store 安装的 pictkura，插入驱动器时会在选项中列出“pictkura で写真を取り込む”（用 pictkura 导入照片）；便携版不会列出。它不会自行启动，只有选择时才会打开导入。默认操作请在 Windows 的“自动播放”设置中更改。请注意，这个选项本身的文字是日语（英文版 MSI 则是“Import photos with pictkura”）。",
   settingsAutoplayOpenWindows: "打开 Windows 自动播放设置",
   settingsAbout: "关于",
   settingsAboutLicense: "以 MIT 许可证发布。",
@@ -664,8 +661,6 @@ export const zh: Dict = {
   errTrashFailed: "无法移到回收站。",
   errTrashUnreachable: "找不到驱动器或文件夹，因此没有移到回收站。",
   errTrashPartly: (n: number) => `已将 ${num(n)} 张移到回收站，其余未能移动。`,
-  errAutoplayRollback:
-    "无法保存该设置。自动播放的注册暂时保持刚才更改后的状态，下次启动时会按设置恢复。",
   errNoLogYet: "还没有任何记录。",
   errOutgoingFolderMissing: "找不到送出文件夹。开启送出后会自动创建（如果已经开启，请先关闭再重新开启）。",
   errOpenOutgoingFailed: "无法打开送出文件夹。请用“复制路径”复制位置后打开。",

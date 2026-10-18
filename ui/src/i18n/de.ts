@@ -615,11 +615,8 @@ export const de: Dict = {
   settingsTransitionNote:
     "Wie die Großansicht zum nächsten Foto wechselt, wenn du blätterst (Pfeiltasten, Schaltflächen, der Streifen unten oder das Weitergehen nach einer Bewertung), und wenn eine Diashow weitergeht. Schieben folgt der Richtung, in die du blätterst. Ist im System „Bewegung reduzieren“ eingestellt, wechseln die Fotos ohne Bewegung, egal was du hier wählst.",
   settingsAutoplay: "Wenn du ein USB-Laufwerk oder eine SD-Karte einsteckst",
-  settingsAutoplayToggle: "pictkura in der automatischen Wiedergabe anbieten",
   settingsAutoplayNote:
-    "Fügt pictkura den Optionen der automatischen Wiedergabe von Windows hinzu. Von allein startet es nie. Der Eintrag selbst ist auf Japanisch beschriftet. Beim Deinstallieren über den Installer wird er entfernt — die portable Version und die Kopien anderer Benutzer auf demselben PC aber nicht; schalte das in diesen Fällen aus, bevor du pictkura entfernst.",
-  settingsAutoplayStoreNote:
-    "In der Microsoft-Store-Version wird diese Auswahl beim Anschließen eines Laufwerks immer angeboten (pictkura startet nie von selbst). Was standardmäßig geschieht, legen Sie in den Windows-Einstellungen für die automatische Wiedergabe fest. Der Eintrag selbst ist auf Japanisch beschriftet.",
+    "Mit dem Installer oder aus dem Microsoft Store installiert, erscheint beim Anschließen eines Laufwerks „pictkura で写真を取り込む“ (Fotos mit pictkura importieren) unter den Optionen; die portable Version bietet das nicht an. pictkura startet nie von selbst — der Import öffnet sich nur, wenn Sie ihn wählen. Was standardmäßig geschieht, legen Sie in den Windows-Einstellungen für die automatische Wiedergabe fest. Der Eintrag selbst ist auf Japanisch beschriftet – außer beim englischen MSI, dort heißt er „Import photos with pictkura“.",
   settingsAutoplayOpenWindows: "Windows-Einstellungen für die automatische Wiedergabe öffnen",
   settingsAbout: "Über",
   settingsAboutLicense: "Veröffentlicht unter der MIT-Lizenz.",
@@ -691,8 +688,6 @@ export const de: Dict = {
   errTrashUnreachable: "Das Laufwerk oder der Ordner ist nicht erreichbar, daher wurde nichts in den Papierkorb verschoben.",
   errTrashPartly: (n: number) =>
     `${num(n)} in den Papierkorb verschoben; der Rest nicht.`,
-  errAutoplayRollback:
-    "Die Einstellung ließ sich nicht speichern. Die AutoPlay-Registrierung bleibt vorerst geändert; der nächste Start gleicht sie wieder an.",
   errNoLogYet: "Es wurde noch nichts aufgezeichnet.",
   errOutgoingFolderMissing: "Den Ordner „Ausgang“ gibt es nicht. Er wird angelegt, wenn du den Ausgang einschaltest (ist er schon an, schalte ihn aus und wieder ein).",
   errOpenOutgoingFailed: "Der Ordner „Ausgang“ ließ sich nicht öffnen. Kopiere den Pfad mit „Pfad kopieren“ und öffne ihn von dort.",
