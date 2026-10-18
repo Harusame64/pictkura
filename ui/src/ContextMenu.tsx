@@ -13,11 +13,6 @@ export type MenuItem = {
 
 export type MenuPos = { x: number; y: number };
 
-/**
- * メニューを開く前にフォーカスを持っていた要素。項目が幕（情報・印刷）を開くと、後ろが inert になってから
- * メニューが閉じるので、メニューの側では戻せない。幕を閉じたときの戻り先として App がここを読む（ゲート2）
- */
-export const menuOpener: { el: HTMLElement | null } = { el: null };
 
 /**
  * 右クリックのコンテキストメニュー。
@@ -72,10 +67,9 @@ export default function ContextMenu({
   useLayoutEffect(() => {
     if (!isOpen) return;
     const before = document.activeElement;
-    menuOpener.el = before instanceof HTMLElement && before !== document.body ? before : null;
     ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
     return () => {
-      // 後ろが inert になっていたら（項目が幕を開いた）戻さない——戻り先は幕が閉じるときに App が使う
+      // 後ろが inert になっていたら（項目が幕を開いた）戻さない——幕が閉じるときに App が戻す
       if (before instanceof HTMLElement && before.isConnected && !before.closest("[inert]")) {
         before.focus({ preventScroll: true });
       }

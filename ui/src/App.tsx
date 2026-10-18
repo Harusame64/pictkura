@@ -22,7 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
-import ContextMenu, { menuOpener, type MenuItem, type MenuPos } from "./ContextMenu";
+import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
@@ -4270,6 +4270,18 @@ export default function App() {
   // 幕を開いたときにフォーカスを持っていた後ろの要素（inert にするとフォーカスが外れる）。閉じたら戻す——戻さないと
   // フォーカスが <body> へ落ち、Tab が先頭からになる（ゲート2）
   const focusBeforeCurtainRef = useRef<HTMLElement | null>(null);
+  /** 後ろ（幕・メニューの外）で最後にフォーカスを持った要素。幕を閉じたときの戻り先 */
+  const lastBackgroundFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target;
+      if (el instanceof HTMLElement && !el.closest('[role="dialog"], [role="menu"], [inert]')) {
+        lastBackgroundFocusRef.current = el;
+      }
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
   /**
    * ビューアの外枠。開いたとき・上の幕（情報・ボツの確認…）を閉じてビューアへ戻ったときに、フォーカスをここへ
    * 移す——後ろは inert なので、移さないと <body> に残り、読み上げがビューアの名前を読まない（win の実測、
@@ -4288,11 +4300,9 @@ export default function App() {
   useLayoutEffect(() => {
     if (backgroundInert) {
       if (focusBeforeCurtainRef.current === null) {
-        const el = document.activeElement;
-        const usable =
-          el instanceof HTMLElement && el !== document.body && !el.closest(".context-menu");
-        // メニューの項目から開いた幕なら、戻り先はメニューを開く前の要素（ゲート2）
-        focusBeforeCurtainRef.current = usable ? el : menuOpener.el;
+        // **いまの activeElement は使わない**——幕の中の部品が autoFocus で先に取っている（情報の「閉じる」。
+        // win の追跡、#234）か、メニューの項目が消えて <body> に落ちている。後ろで最後にフォーカスを持った要素へ戻す
+        focusBeforeCurtainRef.current = lastBackgroundFocusRef.current;
       }
       return;
     }
