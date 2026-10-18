@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Microsoft Store 版（MSIX）のマニフェスト（pictkura-dev #53。計画は dev/plan.msix.md）。
+  `tools/pack-msix.ps1` が {{…}} を埋めて使う。Identity の3つ（Name・Publisher・PublisherDisplayName）は
+  Partner Center で名前を予約すると決まる値——それまでは試験用の値で包む。
+
+  - フルトラストの desktop app として動かす（runFullTrust）。任意のフォルダ・リムーバブルは通常の Win32 I/O で読む
+  - AutoPlay はここで登録する。パッケージの中から HKCU へ書いても、パッケージ専用の仮想レジストリに入って
+    エクスプローラーからは見えない（autoplay.rs の実行時の登録は、パッケージとして動くときは止める）
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop3="http://schemas.microsoft.com/appx/manifest/desktop/windows10/3"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop3 rescap">
+
+  <Identity
+    Name="{{IDENTITY_NAME}}"
+    Publisher="{{PUBLISHER}}"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>pictkura</DisplayName>
+    <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ja-JP" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="pictkura" Executable="pictkura.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="pictkura"
+        Description="写真の取り込みと一覧表示に特化した画像管理"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- 今の実行時の登録（autoplay.rs）と同じ3つの到着イベント。選ばれると、取り込みの引数にドライブを付けて起動する（XML のコメントには二重のハイフンを書けない） -->
+        <desktop3:Extension Category="windows.autoPlayHandler">
+          <desktop3:AutoPlayHandler>
+            <desktop3:InvokeAction ActionDisplayName="pictkura で写真を取り込む" ProviderDisplayName="pictkura">
+              <desktop3:Content ContentEvent="ShowPicturesOnArrival" Verb="importpictures" Parameters="--import &quot;%1&quot;" />
+              <desktop3:Content ContentEvent="MixedContentOnArrival" Verb="importmixed" Parameters="--import &quot;%1&quot;" />
+              <desktop3:Content ContentEvent="StorageOnArrival" Verb="importstorage" Parameters="--import &quot;%1&quot;" />
+            </desktop3:InvokeAction>
+          </desktop3:AutoPlayHandler>
+        </desktop3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

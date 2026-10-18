@@ -60,6 +60,15 @@ struct LatestRelease {
 #[tauri::command]
 pub async fn check_update(app: tauri::AppHandle, force: bool) -> Result<UpdateCheckDto, String> {
     let current = app.package_info().version.to_string();
+    // Store 版は Store が更新を配る。GitHub の最新版は訊かない（dev #53）
+    if crate::packaged::is_packaged() {
+        return Ok(UpdateCheckDto {
+            current,
+            latest: None,
+            newer: false,
+            checked: false,
+        });
+    }
     let state = app.state::<AppState>();
     let now_ms = chrono::Local::now().timestamp_millis();
     if !force {

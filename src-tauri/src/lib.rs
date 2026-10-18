@@ -41,6 +41,7 @@ mod shell_menu;
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
 mod menu;
+mod packaged;
 
 /// メニューの「設定…」の id。**`menu` は macOS でしかコンパイルされない**ので、
 /// **この字はモジュールの外に置く**——受け口（`on_menu_event`）は台に依らず
@@ -2337,6 +2338,8 @@ struct AboutDto {
     manual_en_path: Option<String>,
     /// 同梱したOSSライセンス一覧
     licenses_path: Option<String>,
+    /// Store 版（MSIX）として動いているか。設定の画面が AutoPlay と更新の確認を出し分ける（dev #53）
+    packaged: bool,
 }
 
 /// 版と、同梱した文書の場所を返す。
@@ -2364,6 +2367,7 @@ fn about_info(app: tauri::AppHandle) -> AboutDto {
         manual_path: resolve("docs/manual.html"),
         manual_en_path: resolve("docs/manual.en.html"),
         licenses_path: resolve("THIRD-PARTY-LICENSES.txt"),
+        packaged: packaged::is_packaged(),
     }
 }
 
@@ -3610,6 +3614,13 @@ fn set_slideshow_transition(
     update_config(&state, |c| c.viewer.slideshow_transition = transition)
 }
 
+/// Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53）。Store 版の候補はマニフェストの登録で、
+/// アプリからは入り切りできない——既定の動作や表示は OS の設定で変えてもらう
+#[tauri::command]
+fn open_autoplay_settings() -> Result<(), String> {
+    tauri_plugin_opener::open_url("ms-settings:autoplay", None::<&str>).map_err(|e| e.to_string())
+}
+
 /// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
 ///
 /// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
@@ -3619,6 +3630,10 @@ fn set_slideshow_transition(
 /// 切る**という使い方では、切ったあとに起動し直す機会が無い。
 #[tauri::command]
 fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    // Store 版は設定に出さない（マニフェストの登録。外すのは Windows の「自動再生」の設定）。来ても書かない
+    if packaged::is_packaged() {
+        return Err("AutoPlay is registered by the Store package".into());
+    }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     // **触る前の状態を控える。** 戻すのはこの呼び出しが変えたぶんだけで、
     // **元から在った登録を戻しの名目で消すと、「常にこの操作」の記録ごと失われる**
@@ -6850,6 +6865,10 @@ pub fn run() {
     // ポータブル版を消すときや、アンインストーラから呼ぶときのために
     // 窓を出さずに解除だけできる入口を用意する。
     if std::env::args().any(|a| a == "--unregister-autoplay") {
+        // Store 版の登録はマニフェストのもの（アンインストールで消える）。消す対象が無い
+        if packaged::is_packaged() {
+            return;
+        }
         set_log_path_without_app();
         // **レジストリを歩く側で落ちたときも残す**（ゲート2の指摘）。
         // `setup` の中で張る掛け金は、この枝には届かない
@@ -6876,6 +6895,9 @@ pub fn run() {
     // 勝手に名乗らせない。**設定ファイルが無ければ何もしない**（＝まだ一度も
     // 使っていない人。起動前から候補に並べるのは越権）
     if std::env::args().any(|a| a == "--sync-autoplay") {
+        if packaged::is_packaged() {
+            return;
+        }
         set_log_path_without_app();
         applog::install_panic_hook();
         if let Err(e) = sync_autoplay_with_config() {
@@ -7047,7 +7069,14 @@ pub fn run() {
             // 足す（Windowsのみ・HKCU・管理者不要）。既定は乗っ取らない。冪等なので
             // 起動のたびに書き直し、ポータブル版を移動しても実行ファイルのパスが追従する。
             // 失敗しても起動は続ける（レジストリが書けない環境でもアプリは動くべき）
-            if let Ok(exe) = std::env::current_exe() {
+            // **Store 版（MSIX）では触らない**——AutoPlay はマニフェストが登録する。パッケージの中から HKCU へ
+            // 書いても仮想レジストリに入るだけで、エクスプローラーには届かない（dev #53）
+            let exe = if packaged::is_packaged() {
+                None
+            } else {
+                std::env::current_exe().ok()
+            };
+            if let Some(exe) = exe {
                 // **まだ決めていない人のレジストリには触らない**（`None`）。
                 // **入れただけで HKCU を書き換えるアプリは嫌われる**し、
                 // **macOS には自動再生そのものが無い**ので、**初期の挙動を両方でそろえる**
@@ -7651,6 +7680,7 @@ pub fn run() {
             scan_roots_on_drives,
             set_burst_gap_ms,
             set_register_autoplay,
+            open_autoplay_settings,
             take_pending_import,
             update::check_update,
             update::open_download_page,

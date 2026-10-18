@@ -26,6 +26,7 @@ import {
   BURST_GAPS_MS,
   burstGapOf,
   setRegisterAutoplay,
+  openAutoplaySettings,
   googleLocation,
   googleFolders,
   setGoogleEnabled,
@@ -783,7 +784,19 @@ export default function Settings({
             ——外れると**Windowsの利用者からトグルごと消える**。文言が違うより悪い
             （ゲート2の指摘）。届くまでは推測で出しておく
           */}
-          {platform === "windows" && (
+          {/* Store 版は切り替えの代わりに、Windows の「自動再生」の設定への入口を置く（再設定の逃げ道。dev #53）——
+              候補はマニフェストの登録で、アプリからは入り切りできない */}
+          {platform === "windows" && about?.packaged && (
+            <section className="settings-section">
+              <h3>{t.settingsAutoplay}</h3>
+              <p className="settings-note">{t.settingsAutoplayStoreNote}</p>
+              <button onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}>
+                {t.settingsAutoplayOpenWindows}
+              </button>
+            </section>
+          )}
+          {/* 読み込み前（about が無い）はどちらも出さない——Store 版に切り替えや更新の確認が一瞬出ないように（ゲート2） */}
+          {platform === "windows" && about && !about.packaged && (
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
               <label className="settings-toggle">
@@ -909,7 +922,8 @@ export default function Settings({
             <div className="about-row">
               <span className="about-name">pictkura</span>
               <code className="about-version">v{about?.version ?? "?"}</code>
-              {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く */}
+              {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く。Store 版は Store が更新する（dev #53） */}
+              {about && !about.packaged && (
               <button
                 className="about-check"
                 disabled={updateChecking}
@@ -936,6 +950,7 @@ export default function Settings({
               >
                 {t.updateCheckNow}
               </button>
+              )}
             </div>
             {updateSay && (
               <p className="settings-note update-say">
@@ -947,6 +962,8 @@ export default function Settings({
                 )}
               </p>
             )}
+            {about && !about.packaged && (
+            <>
             <label className="settings-toggle">
               <input
                 type="checkbox"
@@ -965,6 +982,8 @@ export default function Settings({
               {t.updateOnStart}
             </label>
             <p className="settings-note">{t.updateOnStartNote}</p>
+            </>
+            )}
             <p className="settings-note">{t.settingsAboutLicense}</p>
             <div className="about-links">
               {/*

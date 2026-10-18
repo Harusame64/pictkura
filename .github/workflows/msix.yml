@@ -1,0 +1,211 @@
+# Microsoft Store 版（MSIX）を作る（pictkura-dev #53。計画は dev/plan.msix.md）。
+#
+# **手で起動する**（workflow_dispatch）。試しに包むための道で、**Store へ出す MSIX はリリースの workflow
+# （release.yml）が作る**——あちらは MSI・NSIS・持ち歩き版と同じ実行の exe を包む。ここは exe を作り直すので、
+# 配った物とバイトが違う。MSI・NSIS・持ち歩き版の Release とは分けてある——MSIX が落ちても
+# そちらは止めない。exe は release.ps1 で作る（3つの入れ物と同じバイト）。それを tools/pack-msix.ps1 が包む。
+#
+# 成果物: 未署名の MSIX（Store へ出すのはこちら。Store が署名する）、試験用に自己署名した MSIX と .cer
+# （手元で入れて確かめるため）。Identity は Partner Center で名前を予約するまで試験用の値。
+name: MSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      identity_name:
+        description: "Identity Name（Partner Center の値。空なら試験用）"
+        required: false
+        default: ""
+      publisher:
+        description: "Publisher（CN=…。空なら試験用）"
+        required: false
+        default: ""
+      publisher_display_name:
+        description: "PublisherDisplayName（空なら Harusame64）"
+        required: false
+        default: ""
+
+concurrency:
+  group: msix-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 既定では書き込み権のあるトークンが .git/config に平文で残る。
+          # このジョブは依存のbuild.rsとnpmのスクリプトを走らせるので置かない
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          # **22.18 以上**（2026-09-02）。辞書のテスト（下の検査に入っている）は
+          # Node が `.ts` をそのまま読めることに乗っていて、それが既定になったのが 22.18。
+          # `ui/package.json` の `engines` と同じ床
+          node-version: "^22.18"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # rav1d（AVIF）と mozjpeg のアセンブリに要る。**外すと6倍遅くなる**。
+      # 版を固定するのは、これが**配布バイナリの中身に直接効く入力**だから
+      - name: NASM を入れる
+        # **`shell` を明示する。** Windowsランナーの既定は pwsh だが、
+        # 書いていないと actionlint が bash と思って shellcheck を掛ける
+        # （PowerShellの `$n` や `{}` が構文誤りとして並ぶ）。
+        # 何より、既定に頼らないほうが読む側に優しい
+        shell: pwsh
+        run: |
+          # **瞬断だけ拾う。障害は待たない。** 2026-08-31 に Chocolatey の
+          # API（`/api/v2/`）が 503 を返し、サイト本体は 200 のまま、という
+          # 部分障害でPRが2回止まった。**あの回はこの3回では救えない**
+          # （20分以上続いた）——ここが見ているのは、数十秒で戻る類のほうである。
+          #
+          # **失敗は握り潰さない。** 3回とも駄目なら `exit 1` で step ごと落とす。
+          # NASMを欠いたまま先へ進むと、後ろのビルドが**別の顔で**転ぶか、もっと
+          # 悪くてアセンブリを落としたバイナリが黙って出来る（上の「6倍遅くなる」）。
+          #
+          # 下の1行は保険である。**既定は偽なので、今日は書かなくても動く**
+          # （PowerShell 7.6 の about_Preference_Variables で確認）。それでも
+          # 書くのは、**この繰り返しの正しさをそこに預けているから**——真に
+          # なると、GitHubのpwshが設定する `$ErrorActionPreference = 'Stop'` と
+          # 噛み合って**`choco` の非0終了がその場で例外になり**、1回目の失敗で
+          # step が死ぬ。繰り返す前に終わってしまう。
+          #
+          # `throw` ではなく `exit 1` を使うのも同じ筋で、こちらはシェルの
+          # 設定に依らず必ず落ちる。
+          #
+          # `choco install` は既に入っているとき 0 を返すので、途中まで入った
+          # 状態から試し直しても壊れない
+          $PSNativeCommandUseErrorActionPreference = $false
+          $tries = 3
+          $ok = $false
+          foreach ($n in 1..$tries) {
+            choco install nasm -y --no-progress --version=3.2.0
+            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
+            if ($n -lt $tries) {
+              Write-Host "::warning::choco が exit $LASTEXITCODE で落ちました（$n/$tries）。60秒待って試し直します"
+              Start-Sleep -Seconds 60
+            }
+          }
+          if (-not $ok) {
+            Write-Host "::error::NASM を入れられませんでした（$tries 回とも失敗）。Chocolatey 側の障害が続いているなら、復旧を確かめてから再実行してください"
+            exit 1
+          }
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
+
+      - uses: Swatinem/rust-cache@v2
+
+      # MSIを作るのに要る。`--features cli` は不要（plan.md の引き継ぎ節）。
+      # ~/.cargo/bin は上のキャッシュに乗るが、**キャッシュはrefごと**なので
+      # タグからの実行では基本コールドになる（mainでの手動実行が温めた場合だけ効く）
+      # **版を固定する。** `tools/release.ps1` は「語が見つからなければ bundler は
+      # 警告して束ねる」という上流の枝に乗っている（3つの入れ物に同じバイト列を
+      # 入れるため）。**その枝は上流の実装であって、約束された仕様ではない**ので、
+      # 浮かせておくと**ある日黙って3本のバイト列に戻る**。下の「中身が1本か」で
+      # 気づけるようにはしてあるが、**まず動かないようにする。**
+      - name: tauri-cli
+        run: |
+          $want = "2.11.4"
+          $have = ""
+          # **版を訊くだけで落ちないようにする。** GitHub Actions の pwsh は
+          # `$ErrorActionPreference = 'stop'` で走るので、**キャッシュから戻した
+          # `cargo-tauri` が起動できない**（別のツールチェインで作られた・DLL が無い・
+          # 復元が中途半端）と、**直すための `cargo install --force` へ辿り着く前に
+          # ステップごと落ちる**。版が読めなければ「未導入」として入れ直す。
+          if (Get-Command cargo-tauri -ErrorAction SilentlyContinue) {
+            try {
+              # **`2>&1` にしない。** `stop` の下では、native command が
+              # **stderr に1行書いただけで `NativeCommandError` が飛ぶ**——
+              # cargo の警告1本で catch に落ち、**版が合っているのに数分かけて入れ直す。**
+              $out = (cargo tauri --version 2>$null) -join " "
+              if ($out -match '(\d+\.\d+\.\d+)') { $have = $Matches[1] }
+            } catch { $have = "" }
+          }
+          if ($have -ne $want) {
+            "tauri-cli: $(if ($have) { $have } else { '未導入' }) -> $want"
+            cargo install tauri-cli --version $want --locked --force
+          } else {
+            "tauri-cli: $have（そのまま）"
+          }
+
+      - name: npm の依存
+        run: npm --prefix ui ci
+
+      # **置き場を1回だけ決めて、以降はここを見る。**
+      # `CARGO_TARGET_DIR` が置かれると `target\release` の決め打ちは外れる。
+      # **測る段と、数える段と、上げる段が別々の場所を指すのが一番まずい**
+      # ——**測った物と配る物が違っていても気づけない。**
+      - name: 置き場を決める
+        run: |
+          # **`--locked` を付ける。** `cargo metadata` は解決をやり直して
+          # **`Cargo.lock` を黙って書き換える**——ここで書き換わると、
+          # このあと作る配布物が**手元の木と違う依存**で出来る。
+          $meta = cargo metadata --format-version 1 --no-deps --locked
+          if ($LASTEXITCODE -ne 0) { throw "cargo metadata が $LASTEXITCODE で落ちた" }
+          $targetDir = ($meta | ConvertFrom-Json).target_directory
+          if (-not $targetDir) { throw "cargo metadata から置き場を取れない" }
+          # **区切りは / に寄せる。** upload-artifact の glob は / を期待するので、
+          # \ のまま渡すと**一致しないのに if-no-files-found: error まで進む**。
+          # PowerShell 側は / でも読めるので、揃えても困らない。
+          $releaseDir = (Join-Path $targetDir "release").Replace("\", "/")
+          $bundleDir = "$releaseDir/bundle"
+          "PK_RELEASE_DIR=$releaseDir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PK_BUNDLE_DIR=$bundleDir" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "  置き場: $bundleDir"
+
+      # WiX は tauri-cli が必要になった時点で自分で取ってくる
+      - name: 配布物を作る
+        run: pwsh tools/release.ps1
+
+      - name: MSIX を包む
+        env:
+          PK_IDENTITY_NAME: ${{ inputs.identity_name }}
+          PK_PUBLISHER: ${{ inputs.publisher }}
+          PK_PUBLISHER_DISPLAY_NAME: ${{ inputs.publisher_display_name }}
+        run: |
+          $packArgs = @("-TestSign")
+          if ($env:PK_IDENTITY_NAME) { $packArgs += @("-IdentityName", $env:PK_IDENTITY_NAME) }
+          if ($env:PK_PUBLISHER) { $packArgs += @("-Publisher", $env:PK_PUBLISHER) }
+          if ($env:PK_PUBLISHER_DISPLAY_NAME) { $packArgs += @("-PublisherDisplayName", $env:PK_PUBLISHER_DISPLAY_NAME) }
+          pwsh tools/pack-msix.ps1 @packArgs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pictkura-msix
+          path: |
+            ${{ env.PK_BUNDLE_DIR }}/msix/*.msix
+            ${{ env.PK_BUNDLE_DIR }}/msix/*.cer
+          if-no-files-found: error
+
+      # Windows App Certification Kit（WACK）。Store の認定で回る検査を先に回す——空の Tauri 2 が
+      # 「Package Sanity Test」で落ちる報告がある（tauri#14935）。**結果を見るための段**なので、落ちても止めない
+      - name: WACK
+        continue-on-error: true
+        run: |
+          $appcert = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit" -Filter appcert.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $appcert) { Write-Host "::warning::appcert.exe がこのランナーに無い"; exit 0 }
+          $msix = Get-ChildItem "$env:PK_BUNDLE_DIR/msix" -Filter "*_test-signed.msix" | Select-Object -First 1
+          if (-not $msix) { Write-Host "::warning::試験用に署名した MSIX が無い——WACK は走らせていない"; exit 0 }
+          $report = Join-Path $env:RUNNER_TEMP "wack-report.xml"
+          & $appcert.FullName reset
+          & $appcert.FullName test -appxpackagepath $msix.FullName -reportoutputpath $report
+          "appcert exit: $LASTEXITCODE"
+          if (Test-Path $report) {
+            [xml]$x = Get-Content $report
+            "OVERALL: $($x.REPORT.OVERALL_RESULT)"
+            foreach ($t in $x.SelectNodes("//TEST")) { "$($t.RESULT)`t$($t.NAME)" }
+            Copy-Item $report "$env:PK_BUNDLE_DIR/msix/wack-report.xml"
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wack-report
+          path: ${{ env.PK_BUNDLE_DIR }}/msix/wack-report.xml
+          if-no-files-found: ignore
+

@@ -809,6 +809,8 @@ export interface AboutInfo {
   /** 英語版の取扱説明書。表示言語での出し分けはフロント側で行う */
   manual_en_path: string | null;
   licenses_path: string | null;
+  /** Store 版（MSIX）として動いているか。AutoPlay はマニフェスト、更新は Store が受け持つ（dev #53） */
+  packaged: boolean;
 }
 
 export const aboutInfo = () => invoke<AboutInfo>("about_info");
@@ -1028,6 +1030,8 @@ export const setCheckUpdateOnStart = (enabled: boolean) =>
 export const syncMenuLocale = () =>
   invoke<void>("set_menu_locale", { code: locale }).catch(() => {});
 
+/** Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53） */
+export const openAutoplaySettings = () => invoke<void>("open_autoplay_settings");
 export const setRegisterAutoplay = (enabled: boolean) =>
   invoke<void>("set_register_autoplay", { enabled });
 
