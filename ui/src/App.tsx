@@ -28,6 +28,7 @@ import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
 import { printSheet, printSides, type SheetItem, type SheetLayout } from "./printSheet";
 import { pressable } from "./pressable";
+import { openWithId } from "./automationIds";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
@@ -7069,9 +7070,10 @@ export default function App() {
       pos?: MenuPos,
     ): MenuItem[] => [
       { id: "open", label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
-      // 編集アプリは何本でも並ぶので、並びの番号で分ける（同じ id を重ねない。ゲート2）
+      // 編集アプリは何本でも並ぶので、アプリの名前で分ける（並びの番号だと台や一覧の順で別のアプリを指す。
+      // ゲート2）。名前が英数字にならない・重なるときだけ番号を添える
       ...editors.map((app, i) => ({
-        id: `open-with-${i}`,
+        id: openWithId(app.name, i, editors.map((e) => e.name)),
         label: t.menuOpenWith(app.name),
         run: () => openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
       })),
@@ -7142,7 +7144,9 @@ export default function App() {
               : marked
                 ? t.bulkPickOff
                 : t.bulkPickOn,
-          id: kind,
+          // ビューアの道具と同じ名前（viewer-favorite・viewer-pick）。入り切りは aria-checked で言う
+          id: kind === "picked" ? "pick" : "favorite",
+          checked: marked,
           run: () => markStack(markFiles, kind, !marked),
         };
       }),
@@ -7935,6 +7939,8 @@ export default function App() {
                   className="primary"
                   onClick={() => !busy && openWizard()}
                   disabled={busy}
+                  id="pk-empty-import"
+                  data-testid="empty-import"
                 >
                   {t.importFromUsb}
                 </button>
@@ -9204,6 +9210,7 @@ export default function App() {
           calMenu
             ? [
                 {
+                  id: "calendar-send-month",
                   label: t.calendarSendMonth,
                   run: () => {
                     const base = calMenu.year * 10000 + calMenu.month * 100;
@@ -9211,6 +9218,7 @@ export default function App() {
                   },
                 },
                 {
+                  id: "calendar-send-year",
                   label: t.calendarSendYear(String(calMenu.year)),
                   run: () => {
                     const base = calMenu.year * 10000;

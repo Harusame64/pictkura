@@ -5,6 +5,8 @@ import { answerKey, useWindowEvent } from "./useWindowEvent";
 export type MenuItem = {
   /** 試験と自動操作の手がかり（`id="pk-menu-<id>"`・`data-testid="menu-<id>"`）。表示の言語で変わらない名前（pictkura-dev #65） */
   id?: string;
+  /** 入り切りのある項目（★・⚑）の今の状態。あれば menuitemcheckbox として aria-checked で言う（表示の言葉に頼らない） */
+  checked?: boolean;
   label: string;
   /** 危険な操作（削除）を赤字にする */
   danger?: boolean;
@@ -69,7 +71,7 @@ export default function ContextMenu({
   useLayoutEffect(() => {
     if (!isOpen) return;
     const before = document.activeElement;
-    ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+    ref.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true });
     return () => {
       // 後ろが inert になっていたら（項目が幕を開いた）戻さない——幕が閉じるときに App が戻す
       if (before instanceof HTMLElement && before.isConnected && !before.closest("[inert]")) {
@@ -86,7 +88,7 @@ export default function ContextMenu({
     }
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
     if (!keys.includes(e.key)) return;
-    const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
     if (list.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -118,10 +120,11 @@ export default function ContextMenu({
       onContextMenu={(e) => e.preventDefault()}
     >
       {items.map((item, i) => (
-        <div key={`${item.label}-${i}`} role="none">
+        <div key={item.id ?? `${item.label}-${i}`} role="none">
           {item.separator && <div className="context-separator" role="separator" />}
           <button
-            role="menuitem"
+            role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+            aria-checked={item.checked}
             id={item.id ? `pk-menu-${item.id}` : undefined}
             data-testid={item.id ? `menu-${item.id}` : undefined}
             className={"context-item" + (item.danger ? " danger" : "")}

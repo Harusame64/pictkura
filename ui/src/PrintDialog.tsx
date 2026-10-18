@@ -125,7 +125,11 @@ export function PrintDialog({
         )}
         <div className="file-info-actions print-dialog-actions">
           <button onClick={onClose}>{t.confirmCancel}</button>
-          <button className="primary" onClick={go} disabled={tooMany} autoFocus id="pk-print-go" data-testid="print-go">
+          <button className="primary" onClick={go} disabled={tooMany} autoFocus
+            // 1枚と並べての2つの画面は同時に開きうるので、id を分ける（ゲート2）
+            id={sheet ? "pk-print-sheet-go" : "pk-print-go"}
+            data-testid={sheet ? "print-sheet-go" : "print-go"}
+          >
             {t.printGo}
           </button>
         </div>
