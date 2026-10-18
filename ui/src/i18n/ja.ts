@@ -185,10 +185,10 @@ export const ja = {
     "macOSはHEVCを最初から再生できるので、対応していない記録方式なのかもしれません。",
   /**
    * それ以外（Linux）。**デコーダがあるとは言い切らない**——
-   * ディストリによってはHEVCのデコーダが入っていない（`video.rs` のとおり同梱しない）
+   * ディストリによってはHEVCのデコーダがインストールされていない（`video.rs` のとおり同梱しない）
    */
   videoCodecNoteOther:
-    "この記録方式に対応するデコーダが、この環境に入っていないのかもしれません。",
+    "この記録方式に対応するデコーダが、この環境にインストールされていないのかもしれません。",
   videoCodecHelp: "HEVC ビデオ拡張機能を見る（有料）",
   loading: "読み込み中…",
   exifTitle: "撮影情報",
@@ -391,7 +391,7 @@ export const ja = {
   decoderHeifNotice: (n: number) =>
     `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
   /**
-   * macOS。**買わせる話をしない**——入れるものが無いので、次にやることが無い
+   * macOS。**買わせる話をしない**——インストールするものが無いので、次にやることが無い
    * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
    */
   decoderHeifNoticeMac: (n: number) =>
@@ -401,7 +401,7 @@ export const ja = {
    * ——動画側（`videoCodecNoteOther`）と揃える
    */
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダが入っていないのかもしれません`,
+    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダがインストールされていないのかもしれません`,
   decoderHeifHow: "HEIF 画像拡張機能（無料）",
   decoderHevcHow: "HEVC ビデオ拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
@@ -641,7 +641,7 @@ export const ja = {
     "大きく見ている画面で次の写真へ進むとき（矢印キー・送りボタン・下の帯・判定のあとの自動送り）と、スライドショーが次へ進むときの動きです。スライドは押した向きへ流れます。OS の設定でアニメーションを減らしているときは、どれを選んでいても動きません。",
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayNote:
-    "インストーラーで入れた pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。自動的に起動することはなく、選んだときだけ取り込みが開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
+    "インストーラー版の pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。自動的に起動することはなく、選んだときだけ取り込みが開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
   settingsAutoplayOpenWindows: "Windows の自動再生の設定を開く",
   settingsImportWaitingFrom: (path: string) =>
     `${path} からの取り込みが待っています。設定を閉じると開きます。`,
