@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AutoPlay（自動再生）の登録を MSI が持つための WiX 断片（pictkura-dev #53。計画は dev/plan.msix.md）。
+
+  登録はインストーラーが書き、アンインストールで MSI が自分で消す（2026-10-19 利用者の決定）。アプリは実行中に
+  レジストリへ登録を書かない——実行中のプログラムがエクスプローラーの登録を書き換えるのは、居座る類の振る舞いに
+  似て見える。Store 版はマニフェスト（windows/msix/AppxManifest.xml）、NSIS 版はフック（installer-hooks.nsh）、
+  持ち歩き版は候補に出さない。
+
+  - per-machine のインストールなので HKLM に書く（その台の全員の選択肢に並ぶ）
+  - 名前は前の版がアプリから書いた登録（pictkuraImportFromDrive・pictkura.ImportFromDrive）と分ける——アプリが
+    起動時に前の版のぶんを片付けるとき、こちらを巻き添えにしない
+  - 起動の引数は Store 版・NSIS 版と同じ。対象のパスは引用符で囲む（フォルダにマウントされたボリュームでは空白を
+    含みうる。受け側の import_path_from_args が末尾のバックスラッシュの崩れを戻す）
+
+  カスタムアクションは2つ。どちらも即時実行（Execute を書かない＝immediate）——アンインストール・インストールを
+  始めた本人の権限で動き、その人の HKCU を見る（遅延実行だと SYSTEM で走り、別のユーザーの HKCU を見てしまう）:
+
+  - 入れ終わったら、前の版がアプリから書いた登録を消す（旧い候補と新しい候補が並ぶ時間を作らない）
+  - アンインストールの前に、前の版の登録と、新しい候補を指す「常にこの操作」を消す（残すとエクスプローラーは
+    もう居ないハンドラを呼び続ける）。版上げ（メジャーアップグレードの内側のアンインストール）では走らせない——
+    走らせると、更新のたびに「常にこの操作」を選び直させる
+
+  共有 PC の他の利用者の HKCU は、ここでは消せない（その人が新しい版を起動したときにアプリが片付ける）。
+  注意: XML のコメントにはハイフン2つを書けない。引数の綴りは下の ExeCommand を見ること。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!-- Win64="yes" は ICE80 対策。配るのは x64 だけで、INSTALLDIR は 64 ビット側の Program Files の下にある -->
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="AutoPlayRegistration" Guid="6E0B9C41-2F7A-4D8B-A3C5-91D4E7F20B63" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.AutoPlay">
+          <RegistryValue Type="string" Value="pictkura で写真を取り込む" KeyPath="yes" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.AutoPlay\shell\import\command">
+          <RegistryValue Type="string" Value="&quot;[#Path]&quot; --import &quot;%L&quot;" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\Handlers\pictkuraAutoPlay">
+          <RegistryValue Name="Action" Type="string" Value="pictkura で写真を取り込む" />
+          <RegistryValue Name="Provider" Type="string" Value="pictkura" />
+          <RegistryValue Name="InvokeProgID" Type="string" Value="pictkura.AutoPlay" />
+          <RegistryValue Name="InvokeVerb" Type="string" Value="import" />
+          <RegistryValue Name="DefaultIcon" Type="string" Value="[#Path],0" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\EventHandlers\ShowPicturesOnArrival">
+          <RegistryValue Name="pictkuraAutoPlay" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\EventHandlers\MixedContentOnArrival">
+          <RegistryValue Name="pictkuraAutoPlay" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\EventHandlers\StorageOnArrival">
+          <RegistryValue Name="pictkuraAutoPlay" Type="string" Value="" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+    <!-- `FileKey="Path"` は Tauri のテンプレートが本体の実行ファイルに付ける Id（`LaunchApplication` と同じ） -->
+    <CustomAction Id="RemoveLegacyAutoPlay"
+                  FileKey="Path"
+                  ExeCommand="--remove-legacy-autoplay"
+                  Return="ignore" />
+    <CustomAction Id="UnregisterAutoPlay"
+                  FileKey="Path"
+                  ExeCommand="--unregister-autoplay"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <!-- 入れ終わった後（ファイルが在る）。消すときは走らせない -->
+      <Custom Action="RemoveLegacyAutoPlay" After="InstallFinalize">
+        <![CDATA[NOT REMOVE~="ALL"]]>
+      </Custom>
+      <!-- RemoveFiles より前（呼ぶ実行ファイルがまだ在る）。版上げの内側では走らせない -->
+      <Custom Action="UnregisterAutoPlay" Before="RemoveFiles">
+        <![CDATA[REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE]]>
+      </Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

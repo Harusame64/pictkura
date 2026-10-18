@@ -25,7 +25,6 @@ import {
   setBurstGapMs,
   BURST_GAPS_MS,
   burstGapOf,
-  setRegisterAutoplay,
   openAutoplaySettings,
   googleLocation,
   googleFolders,
@@ -784,41 +783,15 @@ export default function Settings({
             ——外れると**Windowsの利用者からトグルごと消える**。文言が違うより悪い
             （ゲート2の指摘）。届くまでは推測で出しておく
           */}
-          {/* Store 版は切り替えの代わりに、Windows の「自動再生」の設定への入口を置く（再設定の逃げ道。dev #53）——
-              候補はマニフェストの登録で、アプリからは入り切りできない */}
-          {platform === "windows" && about?.packaged && (
+          {/* 自動再生（Windows のみ）。登録はインストーラーと Store のマニフェストが書き、アプリからは入り切りしない
+              ——どの版も同じ説明と、Windows の「自動再生」の設定への入口（再設定の逃げ道。dev #53） */}
+          {platform === "windows" && (
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
-              <p className="settings-note">{t.settingsAutoplayStoreNote}</p>
+              <p className="settings-note">{t.settingsAutoplayNote}</p>
               <button onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}>
                 {t.settingsAutoplayOpenWindows}
               </button>
-            </section>
-          )}
-          {/* 読み込み前（about が無い）はどちらも出さない——Store 版に切り替えや更新の確認が一瞬出ないように（ゲート2） */}
-          {platform === "windows" && about && !about.packaged && (
-            <section className="settings-section">
-              <h3>{t.settingsAutoplay}</h3>
-              <label className="settings-toggle">
-                <input
-                  type="checkbox"
-                  // **まだ決めていない（null）ときはOFFに見せる。**
-                  // そのとき登録は書かれていないので、これが実際の状態である
-                  checked={config?.import.register_autoplay ?? false}
-                  onChange={async (e) => {
-                    try {
-                      await setRegisterAutoplay(e.target.checked);
-                    } catch (err) {
-                      // レジストリに書けなかった場合。設定は保存されていないので
-                      // 下の onConfigChanged で表示は元の状態に戻る
-                      onError(errText(err));
-                    }
-                    onConfigChanged();
-                  }}
-                />
-                {t.settingsAutoplayToggle}
-              </label>
-              <p className="settings-note">{t.settingsAutoplayNote}</p>
             </section>
           )}
 

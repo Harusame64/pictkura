@@ -640,11 +640,8 @@ export const ja = {
   settingsTransitionNote:
     "大きく見ている画面で次の写真へ進むとき（矢印キー・送りボタン・下の帯・判定のあとの自動送り）と、スライドショーが次へ進むときの動きです。スライドは押した向きへ流れます。OS の設定でアニメーションを減らしているときは、どれを選んでいても動きません。",
   settingsAutoplay: "USBやSDカードを挿したとき",
-  settingsAutoplayToggle: "「pictkura で写真を取り込む」を候補に出す",
   settingsAutoplayNote:
-    "Windowsの「自動再生」の選択肢に並びます。自動的に起動することはありません。インストーラで消す場合はアンインストール時に自動で解除しますが、持ち歩き版と、同じPCの他の利用者の登録は残ります——その場合は、消す前にここを切ってください。",
-  settingsAutoplayStoreNote:
-    "Microsoft Store 版では、挿したときの選択肢に常に並びます（自動的に起動することはありません）。既定の動作や表示は、Windows の「自動再生」の設定で変えられます。",
+    "インストーラーで入れた pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。自動的に起動することはなく、選んだときだけ取り込みが開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
   settingsAutoplayOpenWindows: "Windows の自動再生の設定を開く",
   settingsAbout: "このアプリについて",
   settingsAboutLicense: "MIT ライセンスで配布しています。",
@@ -720,8 +717,6 @@ export const ja = {
   errTrashUnreachable: "ドライブまたはフォルダが見つからないため、ゴミ箱へ移せませんでした。",
   errTrashPartly: (n: number) =>
     `${num(n)}枚はゴミ箱へ移しました。残りは移せませんでした。`,
-  errAutoplayRollback:
-    "設定を保存できませんでした。自動再生の登録だけが変わったまま残っていますが、次に起動したときに設定どおりへ直します。",
   errNoLogYet: "まだ記録はありません。",
   errOutgoingFolderMissing: "送り出しフォルダが見つかりません。送り出しを入れると（入っていれば、いったん切って入れ直すと）作られます。",
   errOpenOutgoingFailed: "送り出しフォルダを開けませんでした。「パスをコピー」で場所を写して開いてください。",

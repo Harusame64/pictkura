@@ -3614,58 +3614,11 @@ fn set_slideshow_transition(
     update_config(&state, |c| c.viewer.slideshow_transition = transition)
 }
 
-/// Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53）。Store 版の候補はマニフェストの登録で、
-/// アプリからは入り切りできない——既定の動作や表示は OS の設定で変えてもらう
+/// Windows の「自動再生」の設定を開く（再設定の入口。dev #53）。候補の登録はインストーラーと Store のマニフェストが
+/// 書き、アプリからは入り切りしない——挿したときの既定の動作は OS の設定で変えてもらう
 #[tauri::command]
 fn open_autoplay_settings() -> Result<(), String> {
     tauri_plugin_opener::open_url("ms-settings:autoplay", None::<&str>).map_err(|e| e.to_string())
-}
-
-/// USB/SDカードを挿したときの「自動再生」の候補に pictkura を出すかを切り替える。
-///
-/// **レジストリを先に書き、成功したら設定を保存する**。逆順だと、書けなかったときに
-/// 設定だけ変わって「切ったはずなのに候補が残る」というずれ方をする。
-///
-/// 起動時にも同じ処理が走るが、ここでその場で反映するのが要点。**アプリを消す前に
-/// 切る**という使い方では、切ったあとに起動し直す機会が無い。
-#[tauri::command]
-fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
-    // Store 版は設定に出さない（マニフェストの登録。外すのは Windows の「自動再生」の設定）。来ても書かない
-    if packaged::is_packaged() {
-        return Err("AutoPlay is registered by the Store package".into());
-    }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    // **触る前の状態を控える。** 戻すのはこの呼び出しが変えたぶんだけで、
-    // **元から在った登録を戻しの名目で消すと、「常にこの操作」の記録ごと失われる**
-    // （[`autoplay_rollback`]）
-    let was_registered = autoplay::is_registered();
-    if enabled {
-        autoplay::register(&exe).map_err(|e| e.to_string())?;
-    } else {
-        autoplay::unregister().map_err(|e| e.to_string())?;
-    }
-    // 設定の保存に失敗したら**レジストリを元へ戻す**。戻さないと、画面と設定ファイルは
-    // 元のまま・レジストリだけ変わった状態で残り、しかも次の起動で起動時の同期処理が
-    // 設定に合わせて戻す——利用者から見ると「切ったのに戻っている」。
-    if let Err(e) = update_config(&state, |c| c.import.register_autoplay = Some(enabled)) {
-        let rollback = match autoplay_rollback(was_registered, enabled) {
-            AutoplayRollback::Register => autoplay::register(&exe),
-            AutoplayRollback::Unregister => autoplay::unregister(),
-            AutoplayRollback::Nothing => Ok(()),
-        };
-        return Err(match rollback {
-            Ok(()) => e,
-            Err(re) => {
-                // **戻せなかったことは、画面より先にログへ**——利用者に要るのは
-                // 「切り替えられなかった」で、レジストリの理由は追う側の材料である
-                // **元の失敗は既に1行になっている**（`update_config` の中の
-                // `from_err` が書く）。ここは**戻せなかったことだけ**を足す
-                applog::note(&format!("could not put the AutoPlay setting back: {re}"));
-                errs::code("errAutoplayRollback")
-            }
-        });
-    }
-    Ok(())
 }
 
 /// 自由記述のフォルダ構成が、実際にどんなフォルダ名になるかを返す。
@@ -6422,7 +6375,7 @@ fn app_dir_without_app() -> Option<std::path::PathBuf> {
 ///
 /// 呼ぶ場所は2つ:
 ///
-/// 1. `--unregister-autoplay` と `--sync-autoplay`——**インストーラと
+/// 1. `--unregister-autoplay` と `--remove-legacy-autoplay`——**インストーラと
 ///    アンインストーラから呼ばれる**。あそこには `stderr` の行き先が無く、
 ///    しかも**窓を出さずに返る**ので `setup` まで進まない
 /// 2. **起動そのものが失敗したとき**——`setup` は置き場を決める前に
@@ -6443,192 +6396,6 @@ fn set_log_path_without_app() {
     if let Some(dir) = app_dir_without_app() {
         applog::set_file(dir.join("pictkura.log"));
     }
-}
-
-/// 起動時（と導入直後）に、自動再生の登録をどう扱うか。
-///
-/// **切り出してあるのは、ここが Windows でしかコンパイルされない側と接するから**。
-/// 判断そのものはどのOSでも同じなので、**判断だけこちらに置いて試験する**。
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum AutoplayPlan {
-    /// 登録する（本人がONにした）
-    Register,
-    /// 解除する（本人がOFFにした）
-    Unregister,
-    /// **触らない**（まだ決めていない・登録も無い）
-    LeaveAlone,
-    /// **引き継ぐ**——書き直したうえで「ONに決めた」として控える
-    Adopt,
-}
-
-/// [`AutoplayPlan`] を決める。
-///
-/// **`Unregister` を返すのは、本人が切ったときだけ**である
-/// ——**既に使っている人を、版を上げただけで切らない**（2026-09-07・利用者の指示）。
-/// 設定ファイルにこの項目が無い人（この項目より前の版から使っている人）は
-/// `decided = None` になるが、**その台に登録が在れば引き継ぐ**ので消えない。
-fn autoplay_plan(decided: Option<bool>, already_registered: bool) -> AutoplayPlan {
-    match decided {
-        Some(true) => AutoplayPlan::Register,
-        Some(false) => AutoplayPlan::Unregister,
-        None if already_registered => AutoplayPlan::Adopt,
-        None => AutoplayPlan::LeaveAlone,
-    }
-}
-
-#[cfg(test)]
-mod autoplay_plan_tests {
-    use super::{autoplay_plan, AutoplayPlan};
-
-    /// **既に使っている人を、版を上げただけで切らない。**
-    ///
-    /// この項目より前の版から使っている人は、設定ファイルに値を持たない（`None`）。
-    /// **そこで解除に倒すと、挿したときの候補が黙って消え、
-    /// 「常にこの操作」で選んでいた記録まで失われる。**
-    #[test]
-    fn an_existing_registration_is_never_removed_by_the_upgrade() {
-        assert_eq!(
-            autoplay_plan(None, true),
-            AutoplayPlan::Adopt,
-            "使っている人の登録を引き継いでいない"
-        );
-        // **解除に倒れるのは、本人が切ったときだけ**——6通りを全部見る
-        // （`Option<bool>` の3通り × 登録の有無の2通り）
-        for (decided, already) in [
-            (None, false),
-            (None, true),
-            (Some(true), false),
-            (Some(true), true),
-            (Some(false), false),
-            (Some(false), true),
-        ] {
-            let plan = autoplay_plan(decided, already);
-            assert_eq!(
-                plan == AutoplayPlan::Unregister,
-                decided == Some(false),
-                "({decided:?}, {already}) で解除の判断がずれている"
-            );
-        }
-    }
-
-    /// **戻しが、戻すつもりのないものを壊さない。**
-    ///
-    /// `unregister` は「常にこの操作」の記録まで消し、`register` は書き戻せない。
-    /// **元から在った登録を、設定の保存に失敗したからといって消してはいけない**
-    /// ——消えるのは候補だけでなく、**利用者が選んだ既定**である（2026-09-07・ゲート2）。
-    #[test]
-    fn a_rollback_only_undoes_what_this_call_changed() {
-        use super::{autoplay_rollback, AutoplayRollback};
-        // 作ったものは消す
-        assert_eq!(autoplay_rollback(false, true), AutoplayRollback::Unregister);
-        // **元から在ったものは消さない**（ここが壊れると利用者の既定が飛ぶ）
-        assert_eq!(autoplay_rollback(true, true), AutoplayRollback::Nothing);
-        // 消したものは書き戻す
-        assert_eq!(autoplay_rollback(true, false), AutoplayRollback::Register);
-        // 元から無かったものを、戻しの名目で作らない
-        assert_eq!(autoplay_rollback(false, false), AutoplayRollback::Nothing);
-    }
-
-    /// **入れただけの台には、1バイトも書かない。**
-    #[test]
-    fn a_fresh_install_does_not_touch_the_registry() {
-        assert_eq!(autoplay_plan(None, false), AutoplayPlan::LeaveAlone);
-    }
-
-    /// 本人が決めたなら、そのとおりにする（登録の有無に関わらず冪等に）。
-    #[test]
-    fn a_decision_is_followed_whatever_the_registry_says() {
-        assert_eq!(autoplay_plan(Some(true), false), AutoplayPlan::Register);
-        assert_eq!(autoplay_plan(Some(true), true), AutoplayPlan::Register);
-        assert_eq!(autoplay_plan(Some(false), true), AutoplayPlan::Unregister);
-        assert_eq!(autoplay_plan(Some(false), false), AutoplayPlan::Unregister);
-    }
-}
-
-/// 設定の保存に失敗したとき、レジストリをどこへ戻すか。
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum AutoplayRollback {
-    /// 消したものを書き戻す
-    Register,
-    /// 作ったものを消す
-    Unregister,
-    /// **戻すものが無い**（この呼び出しでは変わっていない）
-    Nothing,
-}
-
-/// **戻すのは、この呼び出しが変えたぶんだけ。**
-///
-/// [`autoplay::unregister`] は**「常にこの操作」の記録**（`UserChosenExecuteHandlers`）まで
-/// 消すが、[`autoplay::register`] は**それを書き戻せない**——候補は作り直せても、
-/// **利用者が選んだ既定は戻らない**。
-///
-/// **だから「元から在った登録」を、戻しの名目で消してはいけない**
-/// （2026-09-07・ゲート2）。**元から無かったものを、戻しの名目で作る**のも同じく違う。
-fn autoplay_rollback(was_registered: bool, enabled: bool) -> AutoplayRollback {
-    if was_registered == enabled {
-        AutoplayRollback::Nothing
-    } else if was_registered {
-        AutoplayRollback::Register
-    } else {
-        AutoplayRollback::Unregister
-    }
-}
-
-/// AutoPlayの登録を設定に合わせ直す（`--sync-autoplay`）。
-///
-/// 設定ファイルが無ければ**何もしない**。まだ一度も使っていない人の環境に、
-/// 起動前から自動再生の候補を足さないため。
-///
-/// **戻せるのは、設定に答えが書いてある人のぶんだけ**（`Some(true)`）。
-/// **`None` の人のぶんは戻せない**——引き継ぎの手がかりは**登録そのもの**で、
-/// MSI の掃除（`autoplay-cleanup.wxs`）は**その登録を先に消してから**ここへ来る。
-/// **`register_autoplay` は v0.1.1 から在り、設定は初回起動で必ず保存される**ので、
-/// これに当たるのは**初回起動が v0.1.0 だった人だけ**である
-/// （2026-09-07・ゲート2。**この入口の説明と実装が食い違っていたので、説明のほうを狭めた**）。
-#[cfg(windows)]
-fn sync_autoplay_with_config() -> Result<(), String> {
-    let Some(path) = config_path_without_app() else {
-        return Ok(());
-    };
-    if !path.exists() {
-        return Ok(());
-    }
-    // **ここの失敗は画面へ出ない。** この入口は窓を出さずに返り、呼ぶ側は
-    // 記録へ回すだけなので、**画面用の鍵（`from_err`）は付けない**
-    // ——`\u{1}` で継いだ物が、開かれないまま記録に落ちる。
-    //
-    // **記録用の姿（[`errs::for_log_err`]）は要る。** `ConfigError` の `Display` は
-    // **日本語**なので、そのまま `{e}` に載せると
-    // `could not sync AutoPlay ... 設定ファイル...` という混じった行になる
-    // ——**この枝は窓を出さないので、その行が唯一の手がかり**であり、
-    // 説明書の「本アプリが書く文は英語」を破る（PRのcodex）。
-    //
-    // `current_exe` と `autoplay::*` は `io::Error` で、**中身はOSの言葉**
-    // ——訳せないので、そのまま載せる（説明書もそう断っている）。
-    // **Windowsでしかコンパイルされないので、手元の門は素通りする**（ゲート1が捕まえた）。
-    // **型の裏取りは `errs.rs` の試験でやる**——あちらは macOS でも走る
-    let config = Config::load(&path).map_err(errs::for_log_err)?;
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    // **判断は起動時と同じ関数を通す**（[`autoplay_plan`]）。別々に書くと、
-    // 「導入直後だけ違う」というずれ方をする。**まだ決めていない人のぶんは書かないが、
-    // 在るものは書き直す**——この入口の仕事は「更新やMSIからの乗り換えで消えた登録を
-    // 戻すこと」で、**消えていないなら、それは引き継ぐべき登録**である。
-    // **ここでは控えない**（窓を出さない短命のプロセスなので、控えるのは次の起動）
-    let plan = autoplay_plan(config.import.register_autoplay, {
-        config.import.register_autoplay.is_none() && autoplay::is_registered()
-    });
-    match plan {
-        AutoplayPlan::Register | AutoplayPlan::Adopt => {
-            autoplay::register(&exe).map_err(|e| e.to_string())
-        }
-        AutoplayPlan::Unregister => autoplay::unregister().map_err(|e| e.to_string()),
-        AutoplayPlan::LeaveAlone => Ok(()),
-    }
-}
-
-#[cfg(not(windows))]
-fn sync_autoplay_with_config() -> Result<(), String> {
-    Ok(())
 }
 
 /// **地域書式の設定を読む**（数字の桁区切り・日付の並び・週の始まり）。
@@ -6859,13 +6626,25 @@ fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // アンインストール前の明示的な解除口。AutoPlayの登録は**実行時にHKCUへ**
-    // 書くので、アプリを消してもレジストリには残り、挿すたびに居ないpictkuraを
-    // 呼ぶ候補が並び続ける。設定のトグルを切っても同じ処理が走るが、
-    // ポータブル版を消すときや、アンインストーラから呼ぶときのために
-    // 窓を出さずに解除だけできる入口を用意する。
-    if std::env::args().any(|a| a == "--unregister-autoplay") {
-        // Store 版の登録はマニフェストのもの（アンインストールで消える）。消す対象が無い
+    // AutoPlay の片付けの入口（窓を出さずに終わる。pictkura-dev #53）。登録はインストーラーと Store の
+    // マニフェストが書くので、アプリに残る仕事は片付けだけ（`autoplay.rs`）:
+    //
+    // - `--remove-legacy-autoplay`: 前の版がアプリから書いた登録を消す。インストーラーが入れた直後に呼ぶ
+    //   （旧い候補と新しい候補が並ぶ時間を作らない）。新しい登録の「常にこの操作」には触らない
+    // - `--unregister-autoplay`: 上に加えて、新しい候補を指す「常にこの操作」も消す。アンインストールの直前に
+    //   呼ぶ（MSI・NSIS）。持ち歩き版をやめる人が手で叩く口でもある（前の版の持ち歩き版が書いた登録を消す）
+    //
+    // Store 版は何もしない——パッケージの中から HKCU を消しても仮想レジストリに入るだけ
+    for (flag, run_cleanup) in [
+        (
+            "--unregister-autoplay",
+            autoplay::uninstall_cleanup as fn() -> std::io::Result<()>,
+        ),
+        ("--remove-legacy-autoplay", autoplay::remove_legacy),
+    ] {
+        if !std::env::args().any(|a| a == flag) {
+            continue;
+        }
         if packaged::is_packaged() {
             return;
         }
@@ -6873,35 +6652,11 @@ pub fn run() {
         // **レジストリを歩く側で落ちたときも残す**（ゲート2の指摘）。
         // `setup` の中で張る掛け金は、この枝には届かない
         applog::install_panic_hook();
-        if let Err(e) = autoplay::unregister() {
-            applog::note(&format!("could not unregister AutoPlay: {e}"));
+        if let Err(e) = run_cleanup() {
+            applog::note(&format!("could not clean up AutoPlay ({flag}): {e}"));
             // **`exit` は後片付けを飛ばす。** 抱えている数は、ここで出しておく
             applog::flush_pending();
             std::process::exit(1);
-        }
-        applog::flush_pending();
-        return;
-    }
-
-    // AutoPlayの登録を**設定に合わせ直す**だけの入口（窓を出さない）。
-    //
-    // インストーラは「消してから入れる」ので、入れ終わった時点で登録が消えている
-    // ことがある——**更新**（古い版のアンインストーラが走る）と、**MSI版からの
-    // 乗り換え**（MSI側の掃除 `windows/autoplay-cleanup.wxs` が走る）の2つ。
-    // どちらもアプリは在るのに、次に起動するまで自動再生の候補から居なくなる。
-    // NSISの `NSIS_HOOK_POSTINSTALL` からここを呼んで揃え直す。
-    //
-    // **設定を読んでから決める**——自動再生を自分で切った人に、乗り換えを機に
-    // 勝手に名乗らせない。**設定ファイルが無ければ何もしない**（＝まだ一度も
-    // 使っていない人。起動前から候補に並べるのは越権）
-    if std::env::args().any(|a| a == "--sync-autoplay") {
-        if packaged::is_packaged() {
-            return;
-        }
-        set_log_path_without_app();
-        applog::install_panic_hook();
-        if let Err(e) = sync_autoplay_with_config() {
-            applog::note(&format!("could not sync AutoPlay (ignored): {e}"));
         }
         applog::flush_pending();
         return;
@@ -7034,8 +6789,6 @@ pub fn run() {
             );
 
             let thumb_cache_mb = config.performance.thumb_cache_mb;
-            // AutoPlayの登録可否は設定から。configはこの後AppStateへ移すので先に読む
-            let register_autoplay = config.import.register_autoplay;
             // 冷起動（AutoPlay/2重起動でこのプロセスが最初のとき）の取り込み対象
             let pending_import =
                 import_path_from_args(&std::env::args().collect::<Vec<_>>()).map(narrow_to_dcim);
@@ -7065,51 +6818,19 @@ pub fn run() {
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
 
-            // USB/SDカードの自動再生（AutoPlay）に「pictkuraで取り込む」を候補として
-            // 足す（Windowsのみ・HKCU・管理者不要）。既定は乗っ取らない。冪等なので
-            // 起動のたびに書き直し、ポータブル版を移動しても実行ファイルのパスが追従する。
-            // 失敗しても起動は続ける（レジストリが書けない環境でもアプリは動くべき）
-            // **Store 版（MSIX）では触らない**——AutoPlay はマニフェストが登録する。パッケージの中から HKCU へ
-            // 書いても仮想レジストリに入るだけで、エクスプローラーには届かない（dev #53）
-            let exe = if packaged::is_packaged() {
-                None
-            } else {
-                std::env::current_exe().ok()
-            };
-            if let Some(exe) = exe {
-                // **まだ決めていない人のレジストリには触らない**（`None`）。
-                // **入れただけで HKCU を書き換えるアプリは嫌われる**し、
-                // **macOS には自動再生そのものが無い**ので、**初期の挙動を両方でそろえる**
-                // （2026-09-07・利用者の判断）。
-                //
-                // **ただし、既に登録が在るなら引き継ぐ。** それは**既定がONだったころに
-                // 書いたもの**で、その人は使っているかもしれない——**黙って消さない**。
-                // 引き継いだら「決めた」ことにして控えるので、次からは上の枝を通り、
-                // 設定の画面にもONとして出る
-                // **登録が在るかは、決めていない人のときだけ訊く**（読むだけでも
-                // レジストリを開くので、答えを使わない周では開かない）
-                let plan = autoplay_plan(register_autoplay, {
-                    register_autoplay.is_none() && autoplay::is_registered()
-                });
-                let result = match plan {
-                    // 引き継ぐときも書き直す——実行ファイルを移していればパスが古い
-                    AutoplayPlan::Register | AutoplayPlan::Adopt => autoplay::register(&exe),
-                    AutoplayPlan::Unregister => autoplay::unregister(),
-                    AutoplayPlan::LeaveAlone => Ok(()),
-                };
-                match result {
-                    Err(e) => applog::note(&format!("could not register AutoPlay (ignored): {e}")),
-                    Ok(()) if plan == AutoplayPlan::Adopt => {
-                        let state = app.state::<AppState>();
-                        if let Err(e) = update_config(&state, |c| {
-                            c.import.register_autoplay = Some(true);
-                        }) {
-                            // 原因の1行は `update_config` の中で既に書かれている
-                            let _ = e;
-                            applog::note("could not record the adopted AutoPlay registration");
-                        }
-                    }
-                    Ok(()) => {}
+            // **前の版がアプリから書いた AutoPlay の登録を片付ける**（あれば。pictkura-dev #53）。登録は
+            // インストーラーと Store のマニフェストが書くようになった——旧い候補が新しい候補と並ばないように。
+            // インストーラーも入れた直後に消すが、1台を複数の利用者で使っているとき、入れた人以外のぶんはここで
+            // 消える。Store 版では何もしない（パッケージの中から HKCU を消しても仮想レジストリに入るだけ）。
+            // 失敗しても起動は続ける
+            if !packaged::is_packaged() && autoplay::legacy_present() {
+                match autoplay::remove_legacy() {
+                    Ok(()) => applog::note(
+                        "removed the AutoPlay registration written by an older version",
+                    ),
+                    Err(e) => applog::note(&format!(
+                        "could not remove the old AutoPlay registration (ignored): {e}"
+                    )),
                 }
             }
 
@@ -7679,7 +7400,6 @@ pub fn run() {
             set_google_include_onedrive,
             scan_roots_on_drives,
             set_burst_gap_ms,
-            set_register_autoplay,
             open_autoplay_settings,
             take_pending_import,
             update::check_update,

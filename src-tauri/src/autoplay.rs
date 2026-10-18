@@ -1,31 +1,35 @@
-//! WindowsのAutoPlay（自動再生）ハンドラ登録。
+//! Windows の AutoPlay（自動再生）の、**アプリ側に残った仕事**——片付けだけ。
 //!
-//! USB/SDカードを挿したときの「このデバイスに対して行う操作」の一覧に
-//! pictkura を候補として足す（**既定は乗っ取らない**——選ぶのは利用者）。
-//! 選ばれると `pictkura.exe --import <ドライブ>` が起動し、取り込みウィザードが
-//! そのドライブで開く（引数の処理は [`crate`] 本体側）。
+//! **登録はインストーラーと Store のマニフェストが書く**（2026-10-19 利用者の決定。pictkura-dev #53、
+//! dev/plan.msix.md）。アプリは実行中にレジストリへ登録を書かない:
 //!
-//! 登録先は **HKCU**（現在のユーザー）なので**管理者権限は要らない**。
-//! 起動のたびに冪等に書き直すので、ポータブル版を別の場所へ移しても
-//! 次回起動で実行ファイルのパスが更新される。設定 `[import] register_autoplay`
-//! を false にすると [`unregister`] で候補ごと消える。
+//! - MSI: `windows/autoplay.wxs` が HKLM に書き、アンインストールで MSI が消す
+//! - NSIS: `windows/installer-hooks.nsh` が HKCU に書き、アンインストールで消す
+//! - Store 版: `windows/msix/AppxManifest.xml`
+//! - 持ち歩き版: 候補に出さない
+//!
+//! ここに残るのは2つ:
+//!
+//! - [`remove_legacy`] — **前の版がアプリから書いた登録**（名前が `pictkuraImportFromDrive`）を消す。インストーラーが
+//!   入れた直後と、アプリの起動時に走る。新しい登録（`pictkuraAutoPlay`）とその「常にこの操作」には触らない
+//! - [`uninstall_cleanup`] — 上に加えて、**新しい候補を指す「常にこの操作」**も消す（アンインストールの直前）。
+//!   残すとエクスプローラーはもう居ないハンドラを呼び続け、通常の選択画面にも戻らない
 
 #[cfg(windows)]
-pub use imp::{is_registered, register, unregister};
+pub use imp::{legacy_present, remove_legacy, uninstall_cleanup};
 
-// AutoPlayはWindowsだけの機構。他のOSでは何もしない（呼び出し側を分岐させない）。
+// AutoPlay は Windows だけの機構。他の OS では何もしない（呼び出し側を分岐させない）
 #[cfg(not(windows))]
-pub fn register(_exe: &std::path::Path) -> std::io::Result<()> {
-    Ok(())
-}
-#[cfg(not(windows))]
-pub fn unregister() -> std::io::Result<()> {
-    Ok(())
-}
-/// 他のOSには自動再生が無いので、**登録も在りようがない**。
-#[cfg(not(windows))]
-pub fn is_registered() -> bool {
+pub fn legacy_present() -> bool {
     false
+}
+#[cfg(not(windows))]
+pub fn remove_legacy() -> std::io::Result<()> {
+    Ok(())
+}
+#[cfg(not(windows))]
+pub fn uninstall_cleanup() -> std::io::Result<()> {
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -33,40 +37,29 @@ mod imp {
     use std::ffi::OsStr;
     use std::io;
     use std::os::windows::ffi::OsStrExt;
-    use std::path::Path;
 
     use windows_sys::Win32::Foundation::{
         ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
     };
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegEnumKeyExW,
-        RegGetValueW, RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
-        REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
+        RegCloseKey, RegDeleteKeyValueW, RegDeleteTreeW, RegEnumKeyExW, RegGetValueW,
+        RegOpenKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ, RRF_RT_REG_SZ,
     };
 
-    /// AutoPlayハンドラの内部識別子（EventHandlersに並ぶ名前）。
-    const HANDLER: &str = "pictkuraImportFromDrive";
-    /// 起動に使うProgID（下に開くverbのコマンドを持たせる）。
-    const PROGID: &str = "pictkura.ImportFromDrive";
-    /// ProgIDのverb名。
-    const VERB: &str = "import";
-    /// 自動再生のメニューに出る文言。
-    const ACTION: &str = "pictkura で写真を取り込む";
-    const PROVIDER: &str = "pictkura";
-    /// この候補を出すデバイス到着イベント。SDカード（写真）とUSBメモリ（汎用ストレージ）の
-    /// 両方で拾えるようにする。挿しても既定にはならず、あくまで選択肢に並ぶだけ。
+    /// 前の版がアプリから書いたハンドラの名前と ProgID（もう書かない。片付けるだけ）
+    const LEGACY_HANDLER: &str = "pictkuraImportFromDrive";
+    const LEGACY_PROGID: &str = "pictkura.ImportFromDrive";
+    /// インストーラーが書くハンドラの名前（`windows/autoplay.wxs`・`windows/installer-hooks.nsh` と同じ綴り）。
+    /// アプリは書かない——アンインストールで、これを指す「常にこの操作」を消すためにだけ名前を持つ
+    const HANDLER: &str = "pictkuraAutoPlay";
+    /// 前の版が登録していた到着イベント
     const EVENTS: &[&str] = &[
         "ShowPicturesOnArrival",
         "MixedContentOnArrival",
         "StorageOnArrival",
     ];
-
-    /// もう使わないイベント名。**登録はしないが、解除では消す**。
-    ///
-    /// `ShowMixedContentOnArrival` は**OSに無いイベント名だった**（正しくは
-    /// `MixedContentOnArrival`。HKLMの `EventHandlers` の一覧で確認）。発火しないので
-    /// 実害は無かったが、古い版が HKCU に孤立した鍵を作っている。版を上げた人の
-    /// ぶんも掃除する。
+    /// OS に無いイベント名だった（正しくは `MixedContentOnArrival`）。古い版が HKCU に孤立した鍵を作っている。
+    /// 他アプリが相乗りしようがないので**丸ごと**消す
     const LEGACY_EVENTS: &[&str] = &["ShowMixedContentOnArrival"];
 
     const AUTOPLAY: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers";
@@ -76,49 +69,6 @@ mod imp {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect()
-    }
-
-    /// `HKCU\<subkey>` を作り（無ければ）、文字列値を書く。`name=None` は既定値。
-    fn set_string(subkey: &str, name: Option<&str>, value: &str) -> io::Result<()> {
-        let subkey_w = wide(subkey);
-        let mut hkey: HKEY = std::ptr::null_mut();
-        let rc = unsafe {
-            RegCreateKeyExW(
-                HKEY_CURRENT_USER,
-                subkey_w.as_ptr(),
-                0,
-                std::ptr::null(),
-                REG_OPTION_NON_VOLATILE,
-                KEY_WRITE,
-                std::ptr::null(),
-                &mut hkey,
-                std::ptr::null_mut(),
-            )
-        };
-        if rc != ERROR_SUCCESS {
-            return Err(io::Error::from_raw_os_error(rc as i32));
-        }
-        let value_w = wide(value);
-        let name_w = name.map(wide);
-        let name_ptr = name_w.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
-        // 長さはNUL込みのバイト数（UTF-16なので要素数×2）。
-        let rc = unsafe {
-            RegSetValueExW(
-                hkey,
-                name_ptr,
-                0,
-                REG_SZ,
-                value_w.as_ptr() as *const u8,
-                (value_w.len() * 2) as u32,
-            )
-        };
-        unsafe {
-            RegCloseKey(hkey);
-        }
-        if rc != ERROR_SUCCESS {
-            return Err(io::Error::from_raw_os_error(rc as i32));
-        }
-        Ok(())
     }
 
     /// `HKCU\<subkey>` の文字列値を読む。`name=None` は既定値。
@@ -224,116 +174,56 @@ mod imp {
         Ok(names)
     }
 
-    /// ハンドラの定義を置く鍵。**組み立ては1箇所に置く**——
-    /// 書く側（[`register`]）・消す側（[`unregister`]）・在るか見る側
-    /// （[`is_registered`]）が**別々に組み立てると、ずれたときに誰も気づけない**。
-    fn handler_key() -> String {
-        format!(r"{AUTOPLAY}\Handlers\{HANDLER}")
+    fn legacy_handler_key() -> String {
+        format!(r"{AUTOPLAY}\Handlers\{LEGACY_HANDLER}")
     }
 
-    /// **この台に、いまこのアプリの登録が在るか。**
-    ///
-    /// 見るのは [`register`] が必ず書く値1つ。**読めなかったら「無い」に倒す**
-    /// ——この答えは「**まだ決めていない人の登録を引き継ぐか**」にしか使わず、
-    /// **引き継がない側に倒れても、書かないだけで害が無い**。
-    /// 逆に倒すと、**読めなかっただけの台に勝手に登録を書く**ことになる。
-    pub fn is_registered() -> bool {
-        matches!(
-            get_string(&handler_key(), Some("InvokeProgID")),
-            Ok(Some(_))
+    /// 前の版の登録が、この利用者の HKCU に残っているか（起動のたびに消しに行かないための安い問い）。
+    /// **読めなかったら「在る」に倒す**——片付けを試みるだけで害が無い
+    pub fn legacy_present() -> bool {
+        !matches!(
+            get_string(&legacy_handler_key(), Some("InvokeProgID")),
+            Ok(None)
         )
     }
 
-    pub fn register(exe: &Path) -> io::Result<()> {
-        let exe = exe.display().to_string();
-        // verbのコマンド。`%L` が対象のパスに置き換わる。ドライブ直下なら `E:\` で
-        // スペースは無いが、`ShowPicturesOnArrival` は MTP/ポータブル機器や
-        // フォルダにマウントされたボリュームでも上がり、そこでは `C:\My Photos\` の
-        // ようにスペースを含みうる。裸で渡すと `C:\My` で切れて存在しない
-        // フォルダを開いてしまうので**囲む**。ただし末尾のバックスラッシュが
-        // 閉じ引用符をエスケープして `E:"` の形で届くため、受け側
-        // （`import_path_from_args`）で元に戻している。
-        let command = format!("\"{exe}\" --import \"%L\"");
-        set_string(
-            &format!(r"Software\Classes\{PROGID}\shell\{VERB}\command"),
-            None,
-            &command,
-        )?;
-        set_string(&format!(r"Software\Classes\{PROGID}"), None, ACTION)?;
-
-        // ハンドラの定義。
-        let handler_key = handler_key();
-        set_string(&handler_key, Some("Action"), ACTION)?;
-        set_string(&handler_key, Some("Provider"), PROVIDER)?;
-        set_string(&handler_key, Some("InvokeProgID"), PROGID)?;
-        set_string(&handler_key, Some("InvokeVerb"), VERB)?;
-        set_string(&handler_key, Some("DefaultIcon"), &format!("{exe},0"))?;
-
-        // 到着イベントに紐付ける（値名がハンドラ名、中身は空でよい）。
-        for event in EVENTS {
-            set_string(
-                &format!(r"{AUTOPLAY}\EventHandlers\{event}"),
-                Some(HANDLER),
-                "",
-            )?;
+    /// 削除の結果を集める。**「無かった」と「消せなかった」を分ける**——既に無い鍵や値は目的を満たしている
+    /// ので成功、権限やポリシーで拒まれたものは最初の1つを返す（途中で失敗しても残りは続ける）
+    #[derive(Default)]
+    struct Outcome(Option<i32>);
+    impl Outcome {
+        fn check(&mut self, rc: u32) {
+            if rc != ERROR_SUCCESS && rc != ERROR_FILE_NOT_FOUND && self.0.is_none() {
+                self.0 = Some(rc as i32);
+            }
         }
-        Ok(())
+        fn into_result(self) -> io::Result<()> {
+            match self.0 {
+                Some(rc) => Err(io::Error::from_raw_os_error(rc)),
+                None => Ok(()),
+            }
+        }
     }
 
-    /// 登録を消す（`register_autoplay = false` のとき）。
+    /// 「常にこの操作」で `handler` が選ばれていた記録を消す。
     ///
-    /// **「無かった」と「消せなかった」を分ける**のが要点。既に無い鍵や値の削除は
-    /// `ERROR_FILE_NOT_FOUND` を返すが、これは目的（候補が出ないこと）を満たしている
-    /// ので成功として扱う。一方、権限やポリシーで削除を拒まれた場合まで握り潰すと、
-    /// **候補が残ったまま「切れました」と答える**ことになる。
-    ///
-    /// 途中で失敗しても残りの削除は続け、**最初の本物のエラー**を返す。1つ消せない
-    /// からといって他を残すと、中途半端な登録がかえって始末に負えない。
-    pub fn unregister() -> io::Result<()> {
-        let mut first_err: Option<i32> = None;
-        let mut check = |rc: u32| {
-            if rc != ERROR_SUCCESS && rc != ERROR_FILE_NOT_FOUND && first_err.is_none() {
-                first_err = Some(rc as i32);
-            }
-        };
-        // 正規のイベントの鍵は**他アプリも値を並べている**ので、こちらの値だけ消す。
-        for event in EVENTS {
-            let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
-            let name = wide(HANDLER);
-            check(unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) });
-        }
-        // 古い名前の鍵は**丸ごと**消す。OSに無いイベント名なので他アプリが
-        // 相乗りしようがなく、値だけ消すと空の殻が残る。
-        for event in LEGACY_EVENTS {
-            let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
-            check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
-        }
-
-        // 「常にこの操作」で pictkura を選ばれていた場合、その記録も消す。
-        // 残すとエクスプローラーは**もう居ないハンドラを呼び続け**、
-        // 通常の選択画面にも戻らない。
-        //
-        // **記録は入れ子になっている**のが罠。リムーバブルドライブで選ぶと
-        // `UserChosenExecuteHandlers\StorageOnArrival` に直接書かれるが、
-        // **メモリカードで選ぶと `UserChosenExecuteHandlers\CameraAlternate\
-        // ShowPicturesOnArrival` に書かれる**（実測）。直下だけ見ていると
-        // メモリカード側の選択が残る。イベント名を決め打ちで辿るのはやめて、
-        // **中身がこちらのハンドラである鍵を探して消す**（他アプリの選択は
-        // 中身が違うので巻き添えにしない）。
+    /// **記録は入れ子になっている**のが罠。リムーバブルドライブで選ぶと `UserChosenExecuteHandlers\
+    /// StorageOnArrival` に直接書かれるが、**メモリカードで選ぶと `...\CameraAlternate\ShowPicturesOnArrival`**
+    /// に書かれる（実測）。イベント名を決め打ちで辿らず、**中身がこのハンドラである鍵を探して消す**（他アプリの
+    /// 選択は中身が違うので巻き添えにしない）。深さは2まで——壊れたレジストリで回り続けないため
+    fn forget_choices(handler: &str, out: &mut Outcome) {
         let root = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers");
-        // 深さは2まで（`UCEH\<イベント>` と `UCEH\<種別>\<イベント>`）。
-        // 際限なく潜らないのは、壊れたレジストリで回り続けないため。
         let mut stack: Vec<(String, u32)> = vec![(root, 0)];
         while let Some((key, depth)) = stack.pop() {
             match get_string(&key, None) {
-                Ok(Some(v)) if v == HANDLER => {
+                Ok(Some(v)) if v == handler => {
                     let w = wide(&key);
-                    check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) });
+                    out.check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) });
                     continue;
                 }
                 Ok(_) => {}
                 // 読めなければ、こちらのものか判断が付かない。**黙って飛ばさない**
-                Err(rc) => check(rc),
+                Err(rc) => out.check(rc),
             }
             if depth < 2 {
                 match subkeys(&key) {
@@ -342,19 +232,48 @@ mod imp {
                             stack.push((format!(r"{key}\{child}"), depth + 1));
                         }
                     }
-                    // 開けなければ、その下の記録を見落としたことになる
-                    Err(rc) => check(rc),
+                    Err(rc) => out.check(rc),
                 }
             }
         }
+    }
 
-        for tree in [handler_key(), format!(r"Software\Classes\{PROGID}")] {
+    fn remove_legacy_into(out: &mut Outcome) {
+        // 正規のイベントの鍵は**他アプリも値を並べている**ので、こちらの値だけ消す
+        for event in EVENTS {
+            let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
+            let name = wide(LEGACY_HANDLER);
+            out.check(unsafe {
+                RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr())
+            });
+        }
+        for event in LEGACY_EVENTS {
+            let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
+            out.check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
+        }
+        forget_choices(LEGACY_HANDLER, out);
+        for tree in [
+            legacy_handler_key(),
+            format!(r"Software\Classes\{LEGACY_PROGID}"),
+        ] {
             let key = wide(&tree);
-            check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
+            out.check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
         }
-        match first_err {
-            Some(rc) => Err(io::Error::from_raw_os_error(rc)),
-            None => Ok(()),
-        }
+    }
+
+    /// 前の版がアプリから書いた登録を消す（この利用者の HKCU）
+    pub fn remove_legacy() -> io::Result<()> {
+        let mut out = Outcome::default();
+        remove_legacy_into(&mut out);
+        out.into_result()
+    }
+
+    /// アンインストールの直前に: 前の版の登録と、新しい候補を指す「常にこの操作」を消す。
+    /// 新しい登録そのものはインストーラーが消す（MSI はコンポーネントごと、NSIS はフックで）
+    pub fn uninstall_cleanup() -> io::Result<()> {
+        let mut out = Outcome::default();
+        remove_legacy_into(&mut out);
+        forget_choices(HANDLER, &mut out);
+        out.into_result()
     }
 }

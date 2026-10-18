@@ -146,8 +146,6 @@ export const es419: Dict = {
   rootTempConfirm: (path: string) =>
     `«${path}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sin avisar los archivos que contiene. ¿Agregarla a la biblioteca de todos modos?`,
   rootTempConfirmOk: "Agregar de todos modos",
-  settingsAutoplayNote:
-    "Agrega pictkura a las opciones de la Reproducción automática de Windows. Nunca arranca por su cuenta. Ten en cuenta que la entrada está escrita en japonés. Al desinstalar con el instalador se quita, pero la versión portable —y las copias de otros usuarios en el mismo PC— no están cubiertas; desactiva esto antes de quitar pictkura en esos casos.",
 
   // **macOSの設定の名前が地域で違う**（`Ajustes` / `Configuración`）
   emptyUnreadableMac: (names: string) =>

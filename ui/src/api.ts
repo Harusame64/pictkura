@@ -1032,8 +1032,6 @@ export const syncMenuLocale = () =>
 
 /** Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53） */
 export const openAutoplaySettings = () => invoke<void>("open_autoplay_settings");
-export const setRegisterAutoplay = (enabled: boolean) =>
-  invoke<void>("set_register_autoplay", { enabled });
 
 /**
  * media:// カスタムプロトコル経由のサムネイルURL（Base64禁止・直接ストリーミング）。
