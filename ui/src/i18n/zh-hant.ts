@@ -45,11 +45,12 @@
  *
  * **ゴミ箱の呼び名はOSで割れる**——Windowsは `資源回收筒`、macOSは `垃圾桶`。
  * 簡体字辞書と同じ理由で**Windows側に寄せた**（配布の主戦場がWindows、
- * macOSの利用者にも通じる）。**分けるなら11キーと2行**——`menuDelete` /
+ * macOSの利用者にも通じる）。**分けるなら14キーと1行**——`menuDelete` /
  * `bulkDelete` / `deleteConfirm` / `deleteConfirmOk`（確認の釦・2026-09-25）/ `deleted` / `deletedSomeLeft` /
  * `rejectGateTitle` / `rejectGateConfirm` / `rejectGateNote` /
- * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）と、
- * ショートカット一覧の X と右クリックの行（`grep 資源回收筒` で数える）。
+ * `errTrashFailed` / `errTrashPartly`（失敗の文言・2026-09-07に追加）/ `deletedMissing` / `errTrashUnreachable` /
+ * `settingsGoogleAfterNote`（10-18 に数え直して足した）と、
+ * ショートカット一覧の X の行（右クリックの行からは #242 で外れた。`grep 資源回收筒` で数える）。
  *
  * **見出しの語**は簡体字辞書と同じ分け方。`navPlaces` は `相簿`（`位置` はGPSの撮影地、
  * `圖庫` は `圖庫資料夾` と、`瀏覽` は `browse` の釦とぶつかる）、pictkura の蔵書は `圖庫資料夾`、写真.appの蔵書も
@@ -121,7 +122,7 @@ export const zhHant: Dict = {
         ["Ctrl+S / ⌘S", "把螢幕上的圖片儲存成檔案"],
         ["Ctrl+P / ⌘P", "列印螢幕上的照片"],
         ["F", "最愛（★）的開關"],
-        ["I", "拍攝資訊（相機、鏡頭、光圈、ISO、GPS）"],
+        ["I", "檔案資訊與拍攝資訊（相機、鏡頭、光圈、快門、ISO、焦距、GPS）"],
         ["空白鍵", "投影片放映。影片則是播放 / 暫停"],
         ["1 / 0", "1 在實際大小 100% 與符合視窗之間切換；0 一律符合視窗"],
         ["F11", "全螢幕"],
@@ -134,7 +135,7 @@ export const zhHant: Dict = {
         ["按兩下", "實際大小 100% ⇔ 符合視窗"],
         ["滾輪", "放大 / 縮小"],
         ["拖曳", "放大後移動畫面"],
-        ["按右鍵", "開啟 / 用其他程式開啟… / 在資料夾中顯示 / 加入最愛 / 留用 / 刪除（移到資源回收筒）"],
+        ["按右鍵", "選單（開啟、複製、旋轉、列印、資訊、刪除等）"],
         ["按一下下方的底片條", "跳到那張照片"],
       ],
     },
