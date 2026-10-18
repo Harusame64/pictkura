@@ -31,6 +31,8 @@
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
+    <!-- 実行ファイルは [#Path] ではなく [INSTALLDIR]pictkura.exe で書く。[#Path] は別の component（Tauri の Path）の
+         ファイルを指すので、light が ICE69 で止める（2026-10-18 #237 の CI）。exe の名前は tauri.conf.json の productName から来る（MSI のディレクトリのプロパティは末尾に \ が付く） -->
     <!-- Win64="yes" は ICE80 対策。配るのは x64 だけで、INSTALLDIR は 64 ビット側の Program Files の下にある -->
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="AutoPlayRegistration" Guid="6E0B9C41-2F7A-4D8B-A3C5-91D4E7F20B63" Win64="yes">
@@ -38,14 +40,14 @@
           <RegistryValue Type="string" Value="!(loc.PkAutoPlayAction)" KeyPath="yes" />
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.AutoPlay\shell\import\command">
-          <RegistryValue Type="string" Value="&quot;[#Path]&quot; --import &quot;%L&quot;" />
+          <RegistryValue Type="string" Value="&quot;[INSTALLDIR]pictkura.exe&quot; --import &quot;%L&quot;" />
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\Handlers\pictkuraAutoPlay">
           <RegistryValue Name="Action" Type="string" Value="!(loc.PkAutoPlayAction)" />
           <RegistryValue Name="Provider" Type="string" Value="pictkura" />
           <RegistryValue Name="InvokeProgID" Type="string" Value="pictkura.AutoPlay" />
           <RegistryValue Name="InvokeVerb" Type="string" Value="import" />
-          <RegistryValue Name="DefaultIcon" Type="string" Value="[#Path],0" />
+          <RegistryValue Name="DefaultIcon" Type="string" Value="[INSTALLDIR]pictkura.exe,0" />
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\EventHandlers\ShowPicturesOnArrival">
           <RegistryValue Name="pictkuraAutoPlay" Type="string" Value="" />
