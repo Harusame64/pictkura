@@ -6,12 +6,13 @@ import assert from "node:assert/strict";
 
 import { pressable } from "../src/pressable.ts";
 
-const key = (k: string, same = true) => {
+const key = (k: string, same = true, repeat = false) => {
   const el = {};
   let prevented = false;
   return {
     e: {
       key: k,
+      repeat,
       target: el,
       currentTarget: same ? el : {},
       preventDefault: () => {
@@ -44,4 +45,19 @@ test("a key pressed on a button inside it is left to that button", () => {
 
 test("focusable: false gives the role without a tab stop", () => {
   assert.equal(pressable(() => {}, { focusable: false }).tabIndex, undefined);
+});
+
+test("holding the key down presses once, like a real button", () => {
+  let n = 0;
+  const p = pressable(() => n++);
+  p.onKeyDown(key(" ").e);
+  p.onKeyDown(key(" ", true, true).e);
+  p.onKeyDown(key(" ", true, true).e);
+  assert.equal(n, 1);
+});
+
+test("the click runs the same action as the keys", () => {
+  let n = 0;
+  pressable(() => n++).onClick();
+  assert.equal(n, 1);
 });

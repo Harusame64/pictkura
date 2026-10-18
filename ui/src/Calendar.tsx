@@ -112,7 +112,6 @@ export default function Calendar({
                       <div
                         key={day}
                         className={"day-cell" + (data ? " has-photos" : "")}
-                        onClick={() => data && onOpenDay(data.day_key)}
                         title={
                           data
                             ? `${formatDayKey(data.day_key)} ${t.photosCount(data.count)}`
@@ -121,7 +120,8 @@ export default function Calendar({
                         // 写真のある日だけボタンとして名乗る（pictkura-dev #65）
                         {...(data
                           ? {
-                              ...pressable(() => onOpenDay(data.day_key)),
+                              // 日は数百になりうるので Tab では止めない（一覧のタイルと同じ）
+                              ...pressable(() => onOpenDay(data.day_key), { focusable: false }),
                               "aria-label": `${formatDayKey(data.day_key)} ${t.photosCount(data.count)}`,
                             }
                           : {})}

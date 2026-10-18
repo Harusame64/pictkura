@@ -14,6 +14,12 @@ export type MenuItem = {
 export type MenuPos = { x: number; y: number };
 
 /**
+ * メニューを開く前にフォーカスを持っていた要素。項目が幕（情報・印刷）を開くと、後ろが inert になってから
+ * メニューが閉じるので、メニューの側では戻せない。幕を閉じたときの戻り先として App がここを読む（ゲート2）
+ */
+export const menuOpener: { el: HTMLElement | null } = { el: null };
+
+/**
  * 右クリックのコンテキストメニュー。
  *
  * OSのネイティブメニューではなくDOMで描くのは、Webview内の座標・テーマ・
@@ -66,13 +72,22 @@ export default function ContextMenu({
   useLayoutEffect(() => {
     if (!isOpen) return;
     const before = document.activeElement;
+    menuOpener.el = before instanceof HTMLElement && before !== document.body ? before : null;
     ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
     return () => {
-      if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
+      // 後ろが inert になっていたら（項目が幕を開いた）戻さない——戻り先は幕が閉じるときに App が使う
+      if (before instanceof HTMLElement && before.isConnected && !before.closest("[inert]")) {
+        before.focus({ preventScroll: true });
+      }
     };
   }, [isOpen]);
   /** 上下・Home・End で項目を動く（端で回る） */
   const onMenuKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Tab はメニューを閉じる（メニューは Tab で項目を回らない。開いたまま後ろへフォーカスが出ないように。ゲート2）
+    if (e.key === "Tab") {
+      onClose();
+      return;
+    }
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
     if (!keys.includes(e.key)) return;
     const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];

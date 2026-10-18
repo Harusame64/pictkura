@@ -16,16 +16,21 @@ export function pressable(
 ): {
   role: "button";
   tabIndex?: number;
+  onClick: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 } {
   return {
     role: "button",
     tabIndex: opts.focusable === false ? undefined : 0,
+    // 押したときの動きは1か所に（マウスとキーで別々に書くと、片方だけ直してずれる。ゲート2）
+    onClick: onActivate,
     onKeyDown: (e) => {
       // 中の本物のボタン（行の ✕ 等）で押したキーは、そちらに任せる
       if (e.target !== e.currentTarget) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
+        // 押しっぱなしの繰り返しでは押さない（本物のボタンは1回。切り替えが行き来しないように）
+        if (e.repeat) return;
         onActivate();
       }
     },

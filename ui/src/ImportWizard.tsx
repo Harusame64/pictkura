@@ -444,7 +444,9 @@ export default function ImportWizard({
   // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
   const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (isOpen) dialogRef.current?.focus({ preventScroll: true });
+    // 中の部品が autoFocus で先に取っていたら奪わない（設定の自分で決める欄。ゲート2）
+    const root = dialogRef.current;
+    if (isOpen && root && !root.contains(document.activeElement)) root.focus({ preventScroll: true });
   }, [isOpen]);
   if (!isOpen) return null;
 
@@ -593,8 +595,7 @@ export default function ImportWizard({
             (node.drive && standsOut(node.drive) ? " wiz-card" : "")
           }
           style={{ paddingInlineStart: `${8 + depth * 14}px` }}
-          onClick={() => openFolder(node.path, node.deepDefault)}
-          // 行はフォルダを開くボタン（名前はフォルダ名と枚数。pictkura-dev #65）。中の ▸ は子の開閉だけ
+          // 行はフォルダを開くボタン（名前はフォルダ名。pictkura-dev #65）。中の ▸ は子の開閉だけ
           {...pressable(() => openFolder(node.path, node.deepDefault))}
           // 名前はフォルダ名だけ（中身から作ると、中の ▸ ボタンの名前まで混ざる）
           aria-label={node.name}

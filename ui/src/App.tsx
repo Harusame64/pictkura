@@ -22,7 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
-import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
+import ContextMenu, { menuOpener, type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
@@ -4289,8 +4289,10 @@ export default function App() {
     if (backgroundInert) {
       if (focusBeforeCurtainRef.current === null) {
         const el = document.activeElement;
-        focusBeforeCurtainRef.current =
-          el instanceof HTMLElement && el !== document.body ? el : null;
+        const usable =
+          el instanceof HTMLElement && el !== document.body && !el.closest(".context-menu");
+        // メニューの項目から開いた幕なら、戻り先はメニューを開く前の要素（ゲート2）
+        focusBeforeCurtainRef.current = usable ? el : menuOpener.el;
       }
       return;
     }
@@ -7570,7 +7572,8 @@ export default function App() {
           上から: 索引の進み具合 → 見つからないフォルダ → 新しい版 → HEIC/HEIF。**出たり消えたりする索引の
           帯をいちばん上に置く**——下に置くと、出入りのたびにボタンを持つ知らせが1段ずれて、押そうとした手が
           別の知らせのボタンに当たる（ゲート2） */}
-      <div className="notice-stack">
+      {/* 幕の間は知らせも後ろ（ビューアの下に隠れたボタンへ Tab で出ないように。ゲート2） */}
+      <div className="notice-stack" {...inertProps}>
         {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
             ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
         {/* 空の一覧の画面が同じ理由を言っているあいだは出さない（二重に言わない） */}
@@ -7671,7 +7674,7 @@ export default function App() {
           ) : (
             <div
               className="speed-toast index warn index-progress"
-              onClick={() => setIndexProgress(null)}
+              {...pressable(() => setIndexProgress(null))}
             >
               {t.indexIncompleteWarning}
             </div>
@@ -7682,7 +7685,6 @@ export default function App() {
           <div className="nav-section">{t.navPlaces}</div>
           <div
             className={"nav-item" + (filter === "all" ? " active" : "")}
-            onClick={() => setFilter("all")}
             {...pressable(() => setFilter("all"))}
             aria-pressed={filter === "all"}
           >
@@ -7690,7 +7692,6 @@ export default function App() {
           </div>
           <div
             className={"nav-item" + (filter === "fav" ? " active" : "")}
-            onClick={() => setFilter("fav")}
             {...pressable(() => setFilter("fav"))}
             aria-pressed={filter === "fav"}
           >
@@ -7702,7 +7703,6 @@ export default function App() {
           {/* 選別で選んだもの（⚑。0.2 ②）。★とは別の棚なので入口も分ける */}
           <div
             className={"nav-item" + (filter === "picked" ? " active" : "")}
-            onClick={() => setFilter("picked")}
             {...pressable(() => setFilter("picked"))}
             aria-pressed={filter === "picked"}
           >
@@ -7716,7 +7716,6 @@ export default function App() {
           {(googleOn || stats.outgoing > 0 || filter === "outgoing") && (
             <div
               className={"nav-item" + (filter === "outgoing" ? " active" : "")}
-              onClick={() => setFilter("outgoing")}
               {...pressable(() => setFilter("outgoing"))}
               aria-pressed={filter === "outgoing"}
             >
@@ -7735,7 +7734,6 @@ export default function App() {
             <div
               key={k}
               className={"nav-item" + (kind === k ? " active" : "")}
-              onClick={() => setKind(kind === k ? "all" : k)}
               {...pressable(() => setKind(kind === k ? "all" : k))}
               aria-pressed={kind === k}
             >
@@ -7768,7 +7766,6 @@ export default function App() {
                     key={cam.name}
                     className={"nav-item camera" + (active ? " active" : "")}
                     title={t.filterByCamera(cam.name)}
-                    onClick={() => setQueryInput(active ? "" : term)}
                     {...pressable(() => setQueryInput(active ? "" : term))}
                     aria-pressed={active}
                   >
@@ -7811,9 +7808,6 @@ export default function App() {
               key={d.path}
               className={"nav-item drive" + (d.removable ? " removable" : "")}
               title={t.importFrom(d.path)}
-              onClick={() =>
-                !busy && openWizard(d.dcim_path ?? d.path)
-              }
               {...pressable(() => !busy && openWizard(d.dcim_path ?? d.path))}
               aria-disabled={busy || undefined}
             >
@@ -7896,9 +7890,6 @@ export default function App() {
                     src={thumbSrc(item)}
                     title={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
                     alt={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
-                    onClick={() =>
-                      setViewer({ dayKey: item.day_key, id: item.id })
-                    }
                     {...pressable(() => setViewer({ dayKey: item.day_key, id: item.id }))}
                   />
                 ))}
@@ -8110,10 +8101,6 @@ export default function App() {
                                   : "")
                               }
                               style={{ width: cell.w, height: cell.h }}
-                              // ボタンとして、ファイル名で名乗る（UI Automation では名前の無い Group だった。
-                              // pictkura-dev #65）。Tab では止めない——一覧には自分のキー操作がある
-                              role="button"
-                              aria-label={cell.item.file_name}
                               // 閉じるときに戻る先を引く（dev #52）。組のどれを見ていても同じタイルへ
                               data-ids={cell.files.map((f) => f.id).join(" ")}
                               title={
@@ -8154,6 +8141,12 @@ export default function App() {
                                 // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
                                 // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
                                 alt=""
+                                // **絵をボタンとして、ファイル名で名乗る**（UI Automation では名前の無い Group だった。
+                                // pictkura-dev #65）。タイル全体をボタンにすると、中の「選択」や重ねの印のボタンが
+                                // 読み上げから潰れる（ゲート2）。押すとタイルの onClick へ上がる。Tab では止めない
+                                // ——一覧には自分のキー操作がある
+                                role="button"
+                                aria-label={cell.item.file_name}
                               />
                               {cell.item.is_video && (
                                 <span className="cell-video">
