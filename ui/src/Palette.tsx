@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
 import { actionMatch, orderSearchAndActions } from "./paletteOrder";
@@ -147,7 +147,8 @@ export default function Palette({
       ?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
-  const listId = useId(); // **早い return より前に**（フックの数が開閉で変わると React が落ちる。ゲート2）
+  // 候補の並びの id は固定（`useId` の「:r2:」は開いた順で番号が変わり、AutomationId に出る。pictkura-dev #65）
+  const listId = "pk-palette-list";
   if (!open) return null;
 
   const run = (item: PaletteItem | undefined) => {
