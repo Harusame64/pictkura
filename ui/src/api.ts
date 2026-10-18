@@ -809,6 +809,8 @@ export interface AboutInfo {
   /** 英語版の取扱説明書。表示言語での出し分けはフロント側で行う */
   manual_en_path: string | null;
   licenses_path: string | null;
+  /** Store 版（MSIX）として動いているか。AutoPlay はマニフェスト、更新は Store が受け持つ（dev #53） */
+  packaged: boolean;
 }
 
 export const aboutInfo = () => invoke<AboutInfo>("about_info");

@@ -783,7 +783,8 @@ export default function Settings({
             ——外れると**Windowsの利用者からトグルごと消える**。文言が違うより悪い
             （ゲート2の指摘）。届くまでは推測で出しておく
           */}
-          {platform === "windows" && (
+          {/* Store 版は出さない——AutoPlay はマニフェストが登録し、外すのは Windows の「自動再生」の設定（dev #53） */}
+          {platform === "windows" && !about?.packaged && (
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
               <label className="settings-toggle">
@@ -909,7 +910,8 @@ export default function Settings({
             <div className="about-row">
               <span className="about-name">pictkura</span>
               <code className="about-version">v{about?.version ?? "?"}</code>
-              {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く */}
+              {/* 新しい版の確認（0.2）。押した回は間隔も入切も無視して聞きに行く。Store 版は Store が更新する（dev #53） */}
+              {!about?.packaged && (
               <button
                 className="about-check"
                 disabled={updateChecking}
@@ -936,6 +938,7 @@ export default function Settings({
               >
                 {t.updateCheckNow}
               </button>
+              )}
             </div>
             {updateSay && (
               <p className="settings-note update-say">
@@ -947,6 +950,8 @@ export default function Settings({
                 )}
               </p>
             )}
+            {!about?.packaged && (
+            <>
             <label className="settings-toggle">
               <input
                 type="checkbox"
@@ -965,6 +970,8 @@ export default function Settings({
               {t.updateOnStart}
             </label>
             <p className="settings-note">{t.updateOnStartNote}</p>
+            </>
+            )}
             <p className="settings-note">{t.settingsAboutLicense}</p>
             <div className="about-links">
               {/*

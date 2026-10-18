@@ -91,6 +91,8 @@ windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_System_SystemServices",
+    # Store 版（MSIX）として動いているか（`packaged.rs`、dev #53）
+    "Win32_Storage_Packaging_Appx",
 ] }
 # エクスプローラーと同じ右クリックのメニュー（`shell_menu.rs`、ADR B-4）。`IContextMenu` は COM なので、
 # ラッパのある windows クレートを使う（pictkura-core と同じ版。新しくビルドされるものは無い）
