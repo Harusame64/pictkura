@@ -548,6 +548,10 @@ export const en: Dict = {
   settingsAutoplayToggle: "Offer pictkura in the AutoPlay choices",
   settingsAutoplayNote:
     "Adds pictkura to the Windows AutoPlay choices. It never starts on its own. Note that the entry itself is worded in Japanese. Uninstalling with the installer removes it, but the portable build — and other users’ copies on a shared PC — are not covered; turn this off before removing pictkura in those cases.",
+  /** Store 版（MSIX）の自動再生の節（dev #53）。切り替えの代わりに、OS の設定への入口を置く */
+  settingsAutoplayStoreNote:
+    "In the Microsoft Store version this choice is always offered when you insert a drive (pictkura never starts on its own). Change what happens by default in the Windows AutoPlay settings.",
+  settingsAutoplayOpenWindows: "Open Windows AutoPlay settings",
   settingsAbout: "About",
   settingsAboutLicense: "Distributed under the MIT license.",
   settingsManual: "Manual",

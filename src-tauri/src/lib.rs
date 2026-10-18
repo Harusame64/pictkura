@@ -3621,6 +3621,13 @@ fn set_slideshow_transition(
 ///
 /// 起動時にも同じ処理が走るが、ここでその場で反映するのが要点。**アプリを消す前に
 /// 切る**という使い方では、切ったあとに起動し直す機会が無い。
+/// Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53）。Store 版の候補はマニフェストの登録で、
+/// アプリからは入り切りできない——既定の動作や表示は OS の設定で変えてもらう
+#[tauri::command]
+fn open_autoplay_settings() -> Result<(), String> {
+    tauri_plugin_opener::open_url("ms-settings:autoplay", None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn set_register_autoplay(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
     // Store 版は設定に出さない（マニフェストの登録。外すのは Windows の「自動再生」の設定）。来ても書かない
@@ -7668,6 +7675,7 @@ pub fn run() {
             scan_roots_on_drives,
             set_burst_gap_ms,
             set_register_autoplay,
+            open_autoplay_settings,
             take_pending_import,
             update::check_update,
             update::open_download_page,

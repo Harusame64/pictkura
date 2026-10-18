@@ -618,6 +618,9 @@ export const de: Dict = {
   settingsAutoplayToggle: "pictkura in der automatischen Wiedergabe anbieten",
   settingsAutoplayNote:
     "Fügt pictkura den Optionen der automatischen Wiedergabe von Windows hinzu. Von allein startet es nie. Der Eintrag selbst ist auf Japanisch beschriftet. Beim Deinstallieren über den Installer wird er entfernt — die portable Version und die Kopien anderer Benutzer auf demselben PC aber nicht; schalte das in diesen Fällen aus, bevor du pictkura entfernst.",
+  settingsAutoplayStoreNote:
+    "In der Microsoft-Store-Version wird diese Auswahl beim Anschließen eines Laufwerks immer angeboten (pictkura startet nie von selbst). Was standardmäßig geschieht, legen Sie in den Windows-Einstellungen für die automatische Wiedergabe fest.",
+  settingsAutoplayOpenWindows: "Windows-Einstellungen für die automatische Wiedergabe öffnen",
   settingsAbout: "Über",
   settingsAboutLicense: "Veröffentlicht unter der MIT-Lizenz.",
   settingsManual: "Handbuch",

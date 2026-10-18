@@ -26,6 +26,7 @@ import {
   BURST_GAPS_MS,
   burstGapOf,
   setRegisterAutoplay,
+  openAutoplaySettings,
   googleLocation,
   googleFolders,
   setGoogleEnabled,
@@ -783,7 +784,17 @@ export default function Settings({
             ——外れると**Windowsの利用者からトグルごと消える**。文言が違うより悪い
             （ゲート2の指摘）。届くまでは推測で出しておく
           */}
-          {/* Store 版は出さない——AutoPlay はマニフェストが登録し、外すのは Windows の「自動再生」の設定（dev #53） */}
+          {/* Store 版は切り替えの代わりに、Windows の「自動再生」の設定への入口を置く（再設定の逃げ道。dev #53）——
+              候補はマニフェストの登録で、アプリからは入り切りできない */}
+          {platform === "windows" && about?.packaged && (
+            <section className="settings-section">
+              <h3>{t.settingsAutoplay}</h3>
+              <p className="settings-note">{t.settingsAutoplayStoreNote}</p>
+              <button onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}>
+                {t.settingsAutoplayOpenWindows}
+              </button>
+            </section>
+          )}
           {platform === "windows" && !about?.packaged && (
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
