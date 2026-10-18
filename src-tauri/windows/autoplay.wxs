@@ -2,7 +2,7 @@
 <!--
   AutoPlay（自動再生）の登録を MSI が持つための WiX 断片（pictkura-dev #53。計画は dev/plan.msix.md）。
 
-  登録はインストーラーが書き、アンインストールで MSI が自分で消す（2026-10-19 利用者の決定）。アプリは実行中に
+  登録はインストーラーが書き、アンインストールで MSI が自分で消す（2026-10-18 利用者の決定）。アプリは実行中に
   レジストリへ登録を書かない——実行中のプログラムがエクスプローラーの登録を書き換えるのは、居座る類の振る舞いに
   似て見える。Store 版はマニフェスト（windows/msix/AppxManifest.xml）、NSIS 版はフック（installer-hooks.nsh）、
   持ち歩き版は候補に出さない。
@@ -16,12 +16,17 @@
   カスタムアクションは2つ。どちらも即時実行（Execute を書かない＝immediate）——アンインストール・インストールを
   始めた本人の権限で動き、その人の HKCU を見る（遅延実行だと SYSTEM で走り、別のユーザーの HKCU を見てしまう）:
 
-  - 入れ終わったら、前の版がアプリから書いた登録を消す（旧い候補と新しい候補が並ぶ時間を作らない）
+  - 入れ終わったら、前の版がアプリから書いた登録を消す（旧い候補と新しい候補が並ぶ時間を作らない）。旧い候補を
+    「常にこの操作」で選んでいた記録は、新しい候補へ移す（上げただけで選び直しにさせない）
   - アンインストールの前に、前の版の登録と、新しい候補を指す「常にこの操作」を消す（残すとエクスプローラーは
     もう居ないハンドラを呼び続ける）。版上げ（メジャーアップグレードの内側のアンインストール）では走らせない——
     走らせると、更新のたびに「常にこの操作」を選び直させる
 
-  共有 PC の他の利用者の HKCU は、ここでは消せない（その人が新しい版を起動したときにアプリが片付ける）。
+  候補名は言語ごとの文言（locale-ja.wxl・locale-en.wxl）。英語版の MSI は文字コードが 1252 で日本語を入れられない。
+
+  **残る穴（承知のうえ）**: 共有 PC の他の利用者の HKCU は、ここでは消せない。前の版の登録はその人が新しい版を
+  起動したときにアプリが片付けるが、アンインストールしたあとの「常にこの操作」（新しい候補を選んでいた記録）は
+  残る。MSI から NSIS へ乗り換えるときも、NSIS が MSI を消す段で「常にこの操作」が消える（選び直しになる）。
   注意: XML のコメントにはハイフン2つを書けない。引数の綴りは下の ExeCommand を見ること。
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
@@ -30,13 +35,13 @@
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="AutoPlayRegistration" Guid="6E0B9C41-2F7A-4D8B-A3C5-91D4E7F20B63" Win64="yes">
         <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.AutoPlay">
-          <RegistryValue Type="string" Value="pictkura で写真を取り込む" KeyPath="yes" />
+          <RegistryValue Type="string" Value="!(loc.PkAutoPlayAction)" KeyPath="yes" />
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.AutoPlay\shell\import\command">
           <RegistryValue Type="string" Value="&quot;[#Path]&quot; --import &quot;%L&quot;" />
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers\Handlers\pictkuraAutoPlay">
-          <RegistryValue Name="Action" Type="string" Value="pictkura で写真を取り込む" />
+          <RegistryValue Name="Action" Type="string" Value="!(loc.PkAutoPlayAction)" />
           <RegistryValue Name="Provider" Type="string" Value="pictkura" />
           <RegistryValue Name="InvokeProgID" Type="string" Value="pictkura.AutoPlay" />
           <RegistryValue Name="InvokeVerb" Type="string" Value="import" />

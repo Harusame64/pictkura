@@ -6327,16 +6327,6 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
     }
 }
 
-/// 設定ファイルの置き場。`tauri::path::app_config_dir` と**同じ場所**を、
-/// アプリを組み立てる前に知るための計算。
-///
-/// Windowsでは `%APPDATA%\<identifier>`。identifier が `tauri.conf.json` と
-/// ずれないよう、下のテストで突き合わせている。
-#[cfg(windows)]
-fn config_path_without_app() -> Option<std::path::PathBuf> {
-    Some(app_dir_without_app()?.join("pictkura.toml"))
-}
-
 /// 設定とデータのフォルダを、**アプリを組み立てる前に**求める。
 ///
 /// **WindowsもmacOSも、この2つは同じ場所**である
@@ -6740,15 +6730,10 @@ pub fn run() {
                         config.library.roots.push(pictures);
                     }
                 }
-                // **写真フォルダが無くても必ず書く**。設定ファイルの有無を
-                // 「一度でも使ったか」の目印にしている場所がある
-                // （インストーラから呼ぶ `--sync-autoplay`）。書かないと、
-                // 使っている人を「まだ使っていない人」と読み違える。
-                //
-                // **引き換えに失うもの**: 以前は保存しないことで次回も
-                // `first_launch` 扱いになり、「写真フォルダが後から現れたら拾う」
-                // 再試行が暗黙に効いていた（OneDriveの移動が済んでいない初回など）。
-                // これからは初回に無ければ自動では足さない——設定から手で足せる
+                // **写真フォルダが無くても必ず書く**（初回に無ければ、後から現れても自動では足さない——
+                // 設定から手で足せる）。書く理由だった「インストーラから呼ぶ `--sync-autoplay` が設定ファイルの
+                // 有無で使っている人を見分ける」は、AutoPlay をインストーラーが登録するようになって無くなった
+                // （pictkura-dev #53）。振る舞いは変えていない
                 config.save(&config_path).map_err(errs::for_log_err)?;
             }
             let db_path = data_dir.join("pictkura.db");
@@ -8941,10 +8926,8 @@ mod tests {
 
     /// `APP_IDENTIFIER` が `tauri.conf.json` の `identifier` と一致している。
     ///
-    /// ずれると [`config_path_without_app`] が**空のフォルダ**を指し、
-    /// `--sync-autoplay` は「設定ファイルが無い」と読んで黙って何もしなくなる
-    /// （MSIから乗り換えた人のAutoPlay登録が戻らない。PR #24 のゲート1 P2）。
-    /// **失敗の記録の置き場**（[`app_dir_without_app`]）も同じ綴りに乗っている。
+    /// **失敗の記録の置き場**（[`app_dir_without_app`]——窓を出さない AutoPlay の片付けの入口が使う）が
+    /// この綴りに乗っている。ずれると、その記録が空のフォルダへ書かれる
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn the_identifier_matches_the_tauri_config() {

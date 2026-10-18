@@ -1,6 +1,6 @@
 //! Windows の AutoPlay（自動再生）の、**アプリ側に残った仕事**——片付けだけ。
 //!
-//! **登録はインストーラーと Store のマニフェストが書く**（2026-10-19 利用者の決定。pictkura-dev #53、
+//! **登録はインストーラーと Store のマニフェストが書く**（2026-10-18 利用者の決定。pictkura-dev #53、
 //! dev/plan.msix.md）。アプリは実行中にレジストリへ登録を書かない:
 //!
 //! - MSI: `windows/autoplay.wxs` が HKLM に書き、アンインストールで MSI が消す
@@ -11,12 +11,21 @@
 //! ここに残るのは2つ:
 //!
 //! - [`remove_legacy`] — **前の版がアプリから書いた登録**（名前が `pictkuraImportFromDrive`）を消す。インストーラーが
-//!   入れた直後と、アプリの起動時に走る。新しい登録（`pictkuraAutoPlay`）とその「常にこの操作」には触らない
+//!   入れた直後と、アプリの起動時に走る。前の候補を「常にこの操作」で選んでいた記録は、インストーラーの登録が
+//!   在れば新しい候補（`pictkuraAutoPlay`）へ移し、無ければ（持ち歩き版）消す
 //! - [`uninstall_cleanup`] — 上に加えて、**新しい候補を指す「常にこの操作」**も消す（アンインストールの直前）。
 //!   残すとエクスプローラーはもう居ないハンドラを呼び続け、通常の選択画面にも戻らない
 
 #[cfg(windows)]
 pub use imp::{legacy_present, remove_legacy, uninstall_cleanup};
+
+/// インストーラーが書くハンドラの名前と ProgID（`windows/autoplay.wxs`・`windows/installer-hooks.nsh` と同じ綴り。
+/// 下の試験で突き合わせる）。アプリは書かない——前の版の「常にこの操作」を移す先と、アンインストールで消す
+/// 「常にこの操作」を見分けるためにだけ名前を持つ
+#[cfg_attr(not(windows), allow(dead_code))]
+const HANDLER: &str = "pictkuraAutoPlay";
+#[cfg(test)]
+const PROGID: &str = "pictkura.AutoPlay";
 
 // AutoPlay は Windows だけの機構。他の OS では何もしない（呼び出し側を分岐させない）
 #[cfg(not(windows))]
@@ -43,15 +52,15 @@ mod imp {
     };
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegDeleteKeyValueW, RegDeleteTreeW, RegEnumKeyExW, RegGetValueW,
-        RegOpenKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ, RRF_RT_REG_SZ,
+        RegOpenKeyExW, RegSetKeyValueW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ,
+        REG_SZ, RRF_RT_REG_SZ,
     };
+
+    use super::HANDLER;
 
     /// 前の版がアプリから書いたハンドラの名前と ProgID（もう書かない。片付けるだけ）
     const LEGACY_HANDLER: &str = "pictkuraImportFromDrive";
     const LEGACY_PROGID: &str = "pictkura.ImportFromDrive";
-    /// インストーラーが書くハンドラの名前（`windows/autoplay.wxs`・`windows/installer-hooks.nsh` と同じ綴り）。
-    /// アプリは書かない——アンインストールで、これを指す「常にこの操作」を消すためにだけ名前を持つ
-    const HANDLER: &str = "pictkuraAutoPlay";
     /// 前の版が登録していた到着イベント
     const EVENTS: &[&str] = &[
         "ShowPicturesOnArrival",
@@ -81,6 +90,11 @@ mod imp {
     /// - `Ok(None)`    鍵か値が無い（目的は満たしている）
     /// - `Err(rc)`     読めなかった
     fn get_string(subkey: &str, name: Option<&str>) -> Result<Option<String>, u32> {
+        get_string_in(HKEY_CURRENT_USER, subkey, name)
+    }
+
+    /// [`get_string`] の、根（HKCU・HKLM）を選べる形
+    fn get_string_in(root: HKEY, subkey: &str, name: Option<&str>) -> Result<Option<String>, u32> {
         let subkey_w = wide(subkey);
         let name_w = name.map(wide);
         let name_ptr = name_w.as_ref().map_or(std::ptr::null(), |v| v.as_ptr());
@@ -88,7 +102,7 @@ mod imp {
         let mut len: u32 = 0;
         let rc = unsafe {
             RegGetValueW(
-                HKEY_CURRENT_USER,
+                root,
                 subkey_w.as_ptr(),
                 name_ptr,
                 RRF_RT_REG_SZ,
@@ -111,7 +125,7 @@ mod imp {
         let mut len2 = len;
         let rc = unsafe {
             RegGetValueW(
-                HKEY_CURRENT_USER,
+                root,
                 subkey_w.as_ptr(),
                 name_ptr,
                 RRF_RT_REG_SZ,
@@ -179,11 +193,12 @@ mod imp {
     }
 
     /// 前の版の登録が、この利用者の HKCU に残っているか（起動のたびに消しに行かないための安い問い）。
-    /// **読めなかったら「在る」に倒す**——片付けを試みるだけで害が無い
+    /// **読めなかったら「無い」に倒す**——ポリシーで読めない台で、起動のたびに片付けを試みて失敗の行を
+    /// 書き続けないため（ゲート2）。インストーラーからの片付けは、この問いを通らずに走る
     pub fn legacy_present() -> bool {
-        !matches!(
+        matches!(
             get_string(&legacy_handler_key(), Some("InvokeProgID")),
-            Ok(None)
+            Ok(Some(_))
         )
     }
 
@@ -212,13 +227,43 @@ mod imp {
     /// に書かれる（実測）。イベント名を決め打ちで辿らず、**中身がこのハンドラである鍵を探して消す**（他アプリの
     /// 選択は中身が違うので巻き添えにしない）。深さは2まで——壊れたレジストリで回り続けないため
     fn forget_choices(handler: &str, out: &mut Outcome) {
+        rewrite_choices(handler, None, out);
+    }
+
+    /// インストーラーの登録（新しい名前）が在るか——HKLM（MSI）か HKCU（NSIS）。持ち歩き版には無い
+    fn installer_handler_present() -> bool {
+        let key = format!(r"{AUTOPLAY}\Handlers\{HANDLER}");
+        [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER]
+            .into_iter()
+            .any(|root| matches!(get_string_in(root, &key, Some("InvokeProgID")), Ok(Some(_))))
+    }
+
+    /// 「常にこの操作」で `handler` が選ばれていた記録を、`to` があればそちらへ書き換え、無ければ消す
+    /// （探し方は [`forget_choices`] の説明のとおり）
+    fn rewrite_choices(handler: &str, to: Option<&str>, out: &mut Outcome) {
         let root = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers");
         let mut stack: Vec<(String, u32)> = vec![(root, 0)];
         while let Some((key, depth)) = stack.pop() {
             match get_string(&key, None) {
                 Ok(Some(v)) if v == handler => {
                     let w = wide(&key);
-                    out.check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) });
+                    match to {
+                        // 既定値だけを書き換える（鍵はそのまま。選んだ記録を移す）
+                        Some(new) => {
+                            let value = wide(new);
+                            out.check(unsafe {
+                                RegSetKeyValueW(
+                                    HKEY_CURRENT_USER,
+                                    w.as_ptr(),
+                                    std::ptr::null(),
+                                    REG_SZ,
+                                    value.as_ptr().cast(),
+                                    (value.len() * 2) as u32,
+                                )
+                            });
+                        }
+                        None => out.check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, w.as_ptr()) }),
+                    }
                     continue;
                 }
                 Ok(_) => {}
@@ -251,7 +296,10 @@ mod imp {
             let key = wide(&format!(r"{AUTOPLAY}\EventHandlers\{event}"));
             out.check(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) });
         }
-        forget_choices(LEGACY_HANDLER, out);
+        // 「常にこの操作」で前の版の候補を選んでいた人は、**新しい候補へ移す**——消すと、上げただけで選び直しに
+        // なる（ゲート2）。インストーラーの登録が無い（持ち歩き版）なら、移す先が無いので消す
+        let to = installer_handler_present().then_some(HANDLER);
+        rewrite_choices(LEGACY_HANDLER, to, out);
         for tree in [
             legacy_handler_key(),
             format!(r"Software\Classes\{LEGACY_PROGID}"),
@@ -275,5 +323,42 @@ mod imp {
         remove_legacy_into(&mut out);
         forget_choices(HANDLER, &mut out);
         out.into_result()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// **3か所の綴りがずれない。** 名前はアプリ・MSI の断片・NSIS のフックに別々に書いてある——ずれると、
+    /// アンインストールで消すはずの「常にこの操作」が残り、エクスプローラーがもう居ないハンドラを呼び続ける
+    #[test]
+    fn the_handler_name_matches_the_installers() {
+        let wxs = include_str!("../windows/autoplay.wxs");
+        let nsh = include_str!("../windows/installer-hooks.nsh");
+        assert!(
+            wxs.contains(&format!(r"Handlers\{}", super::HANDLER)),
+            "autoplay.wxs"
+        );
+        assert!(
+            wxs.contains(&format!(r"Classes\{}", super::PROGID)),
+            "autoplay.wxs"
+        );
+        assert!(
+            wxs.contains(&format!(r#"Name="{}""#, super::HANDLER)),
+            "autoplay.wxs"
+        );
+        assert!(
+            nsh.contains(&format!(
+                r#"!define PK_AUTOPLAY_HANDLER "{}""#,
+                super::HANDLER
+            )),
+            "installer-hooks.nsh"
+        );
+        assert!(
+            nsh.contains(&format!(
+                r#"!define PK_AUTOPLAY_PROGID "{}""#,
+                super::PROGID
+            )),
+            "installer-hooks.nsh"
+        );
     }
 }

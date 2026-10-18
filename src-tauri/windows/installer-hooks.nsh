@@ -3,7 +3,7 @@
 ; **このファイルは UTF-8（BOM つき）で保つ。** 下の登録に日本語の文字列があり、NSIS は BOM の無いファイルを
 ; システムの文字コード（CI の英語版 Windows なら cp1252）で読む。
 ;
-; **AutoPlay の登録はインストーラーが書く**（2026-10-19 利用者の決定。pictkura-dev #53、dev/plan.msix.md）。
+; **AutoPlay の登録はインストーラーが書く**（2026-10-18 利用者の決定。pictkura-dev #53、dev/plan.msix.md）。
 ; アプリは実行中にレジストリへ登録を書かない。MSI 版は windows/autoplay.wxs、Store 版はマニフェスト、持ち歩き版は
 ; 候補に出さない。名前は前の版がアプリから書いた登録（pictkuraImportFromDrive）と分ける——アプリが起動時に前の版の
 ; ぶんを片付けるとき、こちらを巻き添えにしない。currentUser のインストールなので SHCTX は HKCU。
@@ -47,16 +47,24 @@
   ;    削除口は「設定 → アプリ」で、そちらは正しく消える
   ; 2. 解除は、テンプレートの「pictkura を閉じますか」より**前**に走る（フックの位置は
   ;    Tauri側で固定）。アプリを動かしたまま消し始めて**そこでキャンセル**すると、
-  ;    アプリは残ったまま登録だけ消える。**アプリは登録を書かないので、入れ直すまで候補に戻らない**
-  ;    （「常にこの操作」の記録も戻らない）
+  ;    アプリも候補も残るが、**「常にこの操作」の記録だけ消える**（選び直しが要る）。候補そのものは
+  ;    POSTUNINSTALL で消すので残る
   ;
-  ; どちらも塞ぐには、登録と「常にこの操作」の記録を控えて戻す仕掛けが要る——別のPRで。
+  ; どちらも塞ぐには、「常にこの操作」の記録を控えて戻す仕掛けが要る——別のPRで。
   ${If} $EXEDIR != $INSTDIR
     ; 前の版の登録と、新しい候補を指す「常にこの操作」を消す（exe がまだ在るうちに。src-tauri/src/lib.rs の
     ; --unregister-autoplay）。残すとエクスプローラーはもう居ないハンドラを呼び続ける。
     ; 失敗してもアンインストールは続ける——解除できないことは、消せないことより軽い
     ExecWait '"$INSTDIR\pictkura.exe" --unregister-autoplay'
-    ; 登録そのものを消す（このインストーラーが書いたもの）
+  ${EndIf}
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; **登録そのものは消し終わってから消す**（このインストーラーが書いたもの）。PREUNINSTALL で消すと、テンプレートの
+  ; 「pictkura を閉じますか」でキャンセルしたとき、アプリは残ったまま候補だけ消え、入れ直すまで戻らない
+  ; （アプリは登録を書かない。ゲート2）。ここでは exe を呼ばない——上の記録のとおり固まる。
+  ; 更新（$EXEDIR == $INSTDIR）では消さない——すぐ POSTINSTALL が書き直すが、間の時間を作らない
+  ${If} $EXEDIR != $INSTDIR
     DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\ShowPicturesOnArrival" "${PK_AUTOPLAY_HANDLER}"
     DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\MixedContentOnArrival" "${PK_AUTOPLAY_HANDLER}"
     DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\StorageOnArrival" "${PK_AUTOPLAY_HANDLER}"

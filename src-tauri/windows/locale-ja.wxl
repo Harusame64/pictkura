@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 日本語版 MSI の文言（pictkura-dev #53）。Tauri は足りない分を既定の文言で補う。AutoPlay の候補名は NSIS 版・Store 版と同じ -->
+<WixLocalization Culture="ja-jp" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="PkAutoPlayAction">pictkura で写真を取り込む</String>
+</WixLocalization>

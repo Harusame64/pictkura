@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 英語版 MSI の文言（pictkura-dev #53）。英語版の MSI は文字コードが 1252 なので日本語を入れられない——AutoPlay の
+     候補名だけ英語にする（2026-10-18 利用者） -->
+<WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
+  <String Id="PkAutoPlayAction">Import photos with pictkura</String>
+</WixLocalization>

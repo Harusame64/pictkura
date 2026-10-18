@@ -95,7 +95,7 @@ pub struct ImportConfig {
     /// 既定と、入れなかったものの理由は [`crate::sidecar::DEFAULT_SIDECAR_EXTENSIONS`]。
     /// **空にすれば一切運ばない**。
     pub sidecar_extensions: Vec<String>,
-    /// **もう使っていない**（2026-10-19、pictkura-dev #53）。自動再生の候補はインストーラーと Store のマニフェストが
+    /// **もう使っていない**（2026-10-18、pictkura-dev #53）。自動再生の候補はインストーラーと Store のマニフェストが
     /// 登録するようになり、アプリからは入り切りしない。書いてあっても無視する——項目を残すのは、版を戻した人の
     /// 設定を黙って捨てないため
     pub register_autoplay: Option<bool>,
