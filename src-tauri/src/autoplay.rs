@@ -225,7 +225,10 @@ mod imp {
     /// **記録は入れ子になっている**のが罠。リムーバブルドライブで選ぶと `UserChosenExecuteHandlers\
     /// StorageOnArrival` に直接書かれるが、**メモリカードで選ぶと `...\CameraAlternate\ShowPicturesOnArrival`**
     /// に書かれる（実測）。イベント名を決め打ちで辿らず、**中身がこのハンドラである鍵を探して消す**（他アプリの
-    /// 選択は中身が違うので巻き添えにしない）。深さは2まで——壊れたレジストリで回り続けないため
+    /// 選択は中身が違うので巻き添えにしない）。深さは2まで——壊れたレジストリで回り続けないため。
+    ///
+    /// **同じ名前は `EventHandlersDefaultSelection` にも残る**（2026-10-18 win の台の記録で、前の版の名前が両方に
+    /// 在った。どの操作で書かれるかは未測）。どちらの木も同じ形で辿る
     fn forget_choices(handler: &str, out: &mut Outcome) {
         rewrite_choices(handler, None, out);
     }
@@ -241,8 +244,11 @@ mod imp {
     /// 「常にこの操作」で `handler` が選ばれていた記録を、`to` があればそちらへ書き換え、無ければ消す
     /// （探し方は [`forget_choices`] の説明のとおり）
     fn rewrite_choices(handler: &str, to: Option<&str>, out: &mut Outcome) {
-        let root = format!(r"{AUTOPLAY}\UserChosenExecuteHandlers");
-        let mut stack: Vec<(String, u32)> = vec![(root, 0)];
+        let mut stack: Vec<(String, u32)> =
+            ["UserChosenExecuteHandlers", "EventHandlersDefaultSelection"]
+                .into_iter()
+                .map(|tree| (format!(r"{AUTOPLAY}\{tree}"), 0))
+                .collect();
         while let Some((key, depth)) = stack.pop() {
             match get_string(&key, None) {
                 Ok(Some(v)) if v == handler => {
