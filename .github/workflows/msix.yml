@@ -1,6 +1,6 @@
 # Microsoft Store 版（MSIX）を作る（pictkura-dev #53。計画は dev/plan.msix.md）。
 #
-# **手で起動する**（workflow_dispatch）。MSI・NSIS・持ち歩き版の Release とは分けてある——MSIX が落ちても
+# **手で起動する**（workflow_dispatch。リリースではタグを選んで走らせる）。MSI・NSIS・持ち歩き版の Release とは分けてある——MSIX が落ちても
 # そちらは止めない。exe は release.ps1 で作る（3つの入れ物と同じバイト）。それを tools/pack-msix.ps1 が包む。
 #
 # 成果物: 未署名の MSIX（Store へ出すのはこちら。Store が署名する）、試験用に自己署名した MSIX と .cer
@@ -8,10 +8,6 @@
 name: MSIX
 
 on:
-  # spike の間だけ: 手で起動する workflow は main に無いと起動できないので、この枝への push でも走らせる。
-  # main へ入れる前に外す
-  push:
-    branches: [feat/53-msix]
   workflow_dispatch:
     inputs:
       identity_name:
