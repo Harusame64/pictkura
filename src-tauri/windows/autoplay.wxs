@@ -69,6 +69,16 @@
                   FileKey="Path"
                   ExeCommand="--unregister-autoplay"
                   Return="ignore" />
+    <!--
+      全員向けの MSI がユーザーのプロファイルに入らないようにする（pictkura-dev #70。AutoPlay とは別の話だが、
+      インストーラーに足す断片がこれ1つなのでここに置く）。Tauri の雛形は前のインストール先を HKCU の
+      Software\Harusame64\pictkura から拾う（NSIS 版の記録を引き継ぐため）。0.3 までの NSIS 版はアンインストールで
+      その値を残すので、NSIS 版を消してから MSI を入れると INSTALLDIR がその人の AppData\Local\pictkura になる。
+      AppSearch の後（CostInitialize の前）に Program Files へ戻す。条件の ~>< は大文字小文字を区別しない「含む」
+    -->
+    <SetProperty Id="INSTALLDIR" Value="[ProgramFiles64Folder]pictkura\" Before="CostInitialize" Sequence="both">
+      <![CDATA[NOT Installed AND INSTALLDIR ~>< "\AppData\Local\"]]>
+    </SetProperty>
     <InstallExecuteSequence>
       <!-- 入れ終わった後（ファイルが在る）。消すときは走らせない -->
       <Custom Action="RemoveLegacyAutoPlay" After="InstallFinalize">

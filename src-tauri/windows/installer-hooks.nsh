@@ -70,6 +70,14 @@
     DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\StorageOnArrival" "${PK_AUTOPLAY_HANDLER}"
     DeleteRegKey SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}"
     DeleteRegKey SHCTX "Software\Classes\${PK_AUTOPLAY_PROGID}"
+
+    ; **インストール先の記録も消す**（pictkura-dev #70）。Tauri のアンインストーラーは「アプリのデータも消す」に
+    ; チェックしたときしか消さず、残った既定値を **MSI が前のインストール先として拾う**——全員向けの MSI が
+    ; この利用者の AppData\Local に入り、ほかの利用者は使えない。データ（%APPDATA%）には触らない
+    DeleteRegValue SHCTX "${MANUPRODUCTKEY}" ""
+    DeleteRegValue HKCU "${MANUPRODUCTKEY}" "Installer Language"
+    DeleteRegKey /ifempty SHCTX "${MANUPRODUCTKEY}"
+    DeleteRegKey /ifempty SHCTX "${MANUKEY}"
   ${EndIf}
 !macroend
 
