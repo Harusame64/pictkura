@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { pressable } from "./pressable";
 import { splitDayKey, thumbSrcOf, type DaySummary } from "./api";
 import {
   firstWeekday,
@@ -111,12 +112,19 @@ export default function Calendar({
                       <div
                         key={day}
                         className={"day-cell" + (data ? " has-photos" : "")}
-                        onClick={() => data && onOpenDay(data.day_key)}
                         title={
                           data
                             ? `${formatDayKey(data.day_key)} ${t.photosCount(data.count)}`
                             : ""
                         }
+                        // 写真のある日だけボタンとして名乗る（pictkura-dev #65）
+                        {...(data
+                          ? {
+                              // 日は数百になりうるので Tab では止めない（一覧のタイルと同じ）
+                              ...pressable(() => onOpenDay(data.day_key), { focusable: false }),
+                              "aria-label": `${formatDayKey(data.day_key)} ${t.photosCount(data.count)}`,
+                            }
+                          : {})}
                       >
                         {data && (
                           <img

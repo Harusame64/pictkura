@@ -293,7 +293,9 @@ export default function Settings({
   // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
   const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (open) dialogRef.current?.focus({ preventScroll: true });
+    // 中の部品が autoFocus で先に取っていたら奪わない（設定の自分で決める欄。ゲート2）
+    const root = dialogRef.current;
+    if (open && root && !root.contains(document.activeElement)) root.focus({ preventScroll: true });
   }, [open]);
   if (!open) return null;
 

@@ -27,6 +27,7 @@ import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./F
 import { PrintDialog } from "./PrintDialog";
 import { printPhoto, type PrintFit } from "./printPhoto";
 import { printSheet, printSides, type SheetItem, type SheetLayout } from "./printSheet";
+import { pressable } from "./pressable";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
@@ -4269,6 +4270,18 @@ export default function App() {
   // 幕を開いたときにフォーカスを持っていた後ろの要素（inert にするとフォーカスが外れる）。閉じたら戻す——戻さないと
   // フォーカスが <body> へ落ち、Tab が先頭からになる（ゲート2）
   const focusBeforeCurtainRef = useRef<HTMLElement | null>(null);
+  /** 後ろ（幕・メニューの外）で最後にフォーカスを持った要素。幕を閉じたときの戻り先 */
+  const lastBackgroundFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target;
+      if (el instanceof HTMLElement && !el.closest('[role="dialog"], [role="menu"], [inert]')) {
+        lastBackgroundFocusRef.current = el;
+      }
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
   /**
    * ビューアの外枠。開いたとき・上の幕（情報・ボツの確認…）を閉じてビューアへ戻ったときに、フォーカスをここへ
    * 移す——後ろは inert なので、移さないと <body> に残り、読み上げがビューアの名前を読まない（win の実測、
@@ -4287,9 +4300,9 @@ export default function App() {
   useLayoutEffect(() => {
     if (backgroundInert) {
       if (focusBeforeCurtainRef.current === null) {
-        const el = document.activeElement;
-        focusBeforeCurtainRef.current =
-          el instanceof HTMLElement && el !== document.body ? el : null;
+        // **いまの activeElement は使わない**——幕の中の部品が autoFocus で先に取っている（情報の「閉じる」。
+        // win の追跡、#234）か、メニューの項目が消えて <body> に落ちている。後ろで最後にフォーカスを持った要素へ戻す
+        focusBeforeCurtainRef.current = lastBackgroundFocusRef.current;
       }
       return;
     }
@@ -7569,7 +7582,8 @@ export default function App() {
           上から: 索引の進み具合 → 見つからないフォルダ → 新しい版 → HEIC/HEIF。**出たり消えたりする索引の
           帯をいちばん上に置く**——下に置くと、出入りのたびにボタンを持つ知らせが1段ずれて、押そうとした手が
           別の知らせのボタンに当たる（ゲート2） */}
-      <div className="notice-stack">
+      {/* 幕の間は知らせも後ろ（ビューアの下に隠れたボタンへ Tab で出ないように。ゲート2） */}
+      <div className="notice-stack" {...inertProps}>
         {/* 見つからないライブラリのフォルダ（dev #23）。**外すボタンはフォルダが1つのときだけ**
             ——複数なら、どれを外すかはサイドバーの ✕ で選んでもらう */}
         {/* 空の一覧の画面が同じ理由を言っているあいだは出さない（二重に言わない） */}
@@ -7670,7 +7684,7 @@ export default function App() {
           ) : (
             <div
               className="speed-toast index warn index-progress"
-              onClick={() => setIndexProgress(null)}
+              {...pressable(() => setIndexProgress(null))}
             >
               {t.indexIncompleteWarning}
             </div>
@@ -7681,13 +7695,15 @@ export default function App() {
           <div className="nav-section">{t.navPlaces}</div>
           <div
             className={"nav-item" + (filter === "all" ? " active" : "")}
-            onClick={() => setFilter("all")}
+            {...pressable(() => setFilter("all"))}
+            aria-pressed={filter === "all"}
           >
             {t.navAllPhotos}
           </div>
           <div
             className={"nav-item" + (filter === "fav" ? " active" : "")}
-            onClick={() => setFilter("fav")}
+            {...pressable(() => setFilter("fav"))}
+            aria-pressed={filter === "fav"}
           >
             {t.navFavorites}
             {stats.favorites > 0 && (
@@ -7697,7 +7713,8 @@ export default function App() {
           {/* 選別で選んだもの（⚑。0.2 ②）。★とは別の棚なので入口も分ける */}
           <div
             className={"nav-item" + (filter === "picked" ? " active" : "")}
-            onClick={() => setFilter("picked")}
+            {...pressable(() => setFilter("picked"))}
+            aria-pressed={filter === "picked"}
           >
             {t.navPicked}
             {stats.picked > 0 && (
@@ -7709,7 +7726,8 @@ export default function App() {
           {(googleOn || stats.outgoing > 0 || filter === "outgoing") && (
             <div
               className={"nav-item" + (filter === "outgoing" ? " active" : "")}
-              onClick={() => setFilter("outgoing")}
+              {...pressable(() => setFilter("outgoing"))}
+              aria-pressed={filter === "outgoing"}
             >
               {t.navOutgoing}
               {stats.outgoing > 0 && (
@@ -7726,7 +7744,8 @@ export default function App() {
             <div
               key={k}
               className={"nav-item" + (kind === k ? " active" : "")}
-              onClick={() => setKind(kind === k ? "all" : k)}
+              {...pressable(() => setKind(kind === k ? "all" : k))}
+              aria-pressed={kind === k}
             >
               {KIND_LABEL[k]()}
             </div>
@@ -7757,9 +7776,10 @@ export default function App() {
                     key={cam.name}
                     className={"nav-item camera" + (active ? " active" : "")}
                     title={t.filterByCamera(cam.name)}
-                    onClick={() => setQueryInput(active ? "" : term)}
+                    {...pressable(() => setQueryInput(active ? "" : term))}
+                    aria-pressed={active}
                   >
-                    <span className="camera-icon">📷</span>
+                    <span className="camera-icon" aria-hidden="true">📷</span>
                     <span className="camera-name">{cam.name}</span>
                     <span className="fav-count">{formatNumber(cam.count)}</span>
                   </div>
@@ -7798,11 +7818,10 @@ export default function App() {
               key={d.path}
               className={"nav-item drive" + (d.removable ? " removable" : "")}
               title={t.importFrom(d.path)}
-              onClick={() =>
-                !busy && openWizard(d.dcim_path ?? d.path)
-              }
+              {...pressable(() => !busy && openWizard(d.dcim_path ?? d.path))}
+              aria-disabled={busy || undefined}
             >
-              <span className="drive-icon">{d.removable ? "🔌" : "💾"}</span>
+              <span className="drive-icon" aria-hidden="true">{d.removable ? "🔌" : "💾"}</span>
               {d.label}
               {d.dcim_path && <span className="dcim-badge">DCIM</span>}
             </div>
@@ -7880,9 +7899,8 @@ export default function App() {
                     key={item.id}
                     src={thumbSrc(item)}
                     title={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
-                    onClick={() =>
-                      setViewer({ dayKey: item.day_key, id: item.id })
-                    }
+                    alt={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
+                    {...pressable(() => setViewer({ dayKey: item.day_key, id: item.id }))}
                   />
                 ))}
               </div>
@@ -8133,6 +8151,12 @@ export default function App() {
                                 // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
                                 // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
                                 alt=""
+                                // **絵をボタンとして、ファイル名で名乗る**（UI Automation では名前の無い Group だった。
+                                // pictkura-dev #65）。タイル全体をボタンにすると、中の「選択」や重ねの印のボタンが
+                                // 読み上げから潰れる（ゲート2）。押すとタイルの onClick へ上がる。Tab では止めない
+                                // ——一覧には自分のキー操作がある
+                                role="button"
+                                aria-label={cell.item.file_name}
                               />
                               {cell.item.is_video && (
                                 <span className="cell-video">
@@ -8235,7 +8259,7 @@ export default function App() {
                               {/* 選別の印。`cell-pick` は複数選択の丸なので
                                   名前を分ける（`cell-flag`） */}
                               {cell.files.some((f) => f.picked) && (
-                                <span className="cell-flag" title={t.viewerPicked}>
+                                <span className="cell-flag" title={t.viewerPicked} role="img" aria-label={t.viewerPicked}>
                                   ⚑
                                 </span>
                               )}

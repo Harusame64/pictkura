@@ -13,6 +13,7 @@ export type MenuItem = {
 
 export type MenuPos = { x: number; y: number };
 
+
 /**
  * 右クリックのコンテキストメニュー。
  *
@@ -68,11 +69,19 @@ export default function ContextMenu({
     const before = document.activeElement;
     ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
     return () => {
-      if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
+      // 後ろが inert になっていたら（項目が幕を開いた）戻さない——幕が閉じるときに App が戻す
+      if (before instanceof HTMLElement && before.isConnected && !before.closest("[inert]")) {
+        before.focus({ preventScroll: true });
+      }
     };
   }, [isOpen]);
   /** 上下・Home・End で項目を動く（端で回る） */
   const onMenuKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Tab はメニューを閉じる（メニューは Tab で項目を回らない。開いたまま後ろへフォーカスが出ないように。ゲート2）
+    if (e.key === "Tab") {
+      onClose();
+      return;
+    }
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
     if (!keys.includes(e.key)) return;
     const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];

@@ -325,6 +325,11 @@ body {
 .wizard:focus {
   outline: none;
 }
+/* div で描いた押せるもの（`pressable`。pictkura-dev #65）は、キーボードで来たときだけ枠を出す */
+[role="button"]:not(button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .nav-item:hover {
   background: var(--surface-2);
   color: var(--text);
