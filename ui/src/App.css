@@ -2359,7 +2359,11 @@ body {
   gap: var(--sp-2);
   margin-top: var(--sp-2);
 }
-.about-links button {
+/* 設定の中の普通のボタン（about・待っている取り込み・自動再生の設定を開く）。素の button は WebView2 で
+   アプリの書体も色も継がない */
+.about-links button,
+.settings-waiting button,
+.settings-plain-button {
   padding: 4px 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -2368,7 +2372,9 @@ body {
   cursor: pointer;
   font-size: var(--fs-sm);
 }
-.about-links button:hover:not(:disabled) {
+.about-links button:hover:not(:disabled),
+.settings-waiting button:hover,
+.settings-plain-button:hover {
   background: var(--surface-2);
 }
 .about-links button:disabled {

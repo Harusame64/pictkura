@@ -373,14 +373,17 @@ export default function Settings({
             <span aria-hidden="true">✕</span>
           </button>
         </div>
-        {importWaiting !== null && (
-          <div className="settings-waiting" role="status" data-testid="settings-import-waiting-banner">
-            <span>{importWaiting ? t.settingsImportWaitingFrom(importWaiting) : t.settingsImportWaiting}</span>
-            <button onClick={closeDialog} id="pk-settings-import-waiting" data-testid="settings-import-waiting">
-              {t.settingsImportWaitingOpen}
-            </button>
-          </div>
-        )}
+        {/* 読み上げの枠は常に置き、中身だけ出し入れする——中身ごと現れた枠は、読み上げソフトが告げないことがある */}
+        <div role="status" data-testid="settings-import-waiting-banner">
+          {importWaiting !== null && (
+            <div className="settings-waiting">
+              <span>{importWaiting ? t.settingsImportWaitingFrom(importWaiting) : t.settingsImportWaiting}</span>
+              <button onClick={closeDialog} id="pk-settings-import-waiting" data-testid="settings-import-waiting">
+                {t.settingsImportWaitingOpen}
+              </button>
+            </div>
+          )}
+        </div>
         <div className="settings-body">
           <section className="settings-section">
             <h3>{t.settingsImportStructure}</h3>
@@ -804,7 +807,10 @@ export default function Settings({
             <section className="settings-section">
               <h3>{t.settingsAutoplay}</h3>
               <p className="settings-note">{t.settingsAutoplayNote}</p>
-              <button onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}>
+              <button
+                className="settings-plain-button"
+                onClick={() => openAutoplaySettings().catch((e) => onError(errText(e)))}
+              >
                 {t.settingsAutoplayOpenWindows}
               </button>
             </section>
