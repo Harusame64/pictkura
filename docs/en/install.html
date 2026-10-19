@@ -58,7 +58,7 @@
   <p class="lead">Installation steps for Windows and macOS, and what to do about the warnings shown on the first launch.</p>
   <p class="stamps">
     <span>Version &nbsp;<b>0.2</b></span>
-    <span>Updated &nbsp;<b>2026-09-06</b></span>
+    <span>Updated &nbsp;<b>2026-10-18</b></span>
   </p>
 </div>
 
@@ -218,8 +218,8 @@ MpCmdRun.exe -SignatureUpdate</pre>
         <table>
           <thead><tr><th style="width:230px">How it was installed</th><th>How to remove it</th></tr></thead>
           <tbody>
-            <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows Settings → Apps. The AutoPlay entry is removed too, but <strong class="em">only for the user doing the uninstall</strong> — that setting is per-user</td></tr>
-            <tr><td class="k">Portable ZIP</td><td>Delete the folder. <strong class="em">If you had the AutoPlay entry switched on, run <code>pictkura.exe --unregister-autoplay</code> first</strong>, so none is left behind</td></tr>
+            <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows Settings → Apps. The AutoPlay entry goes too. <code>-setup.exe</code> registers it only for the account that installed it, and the MSI for everyone on the PC, so that is also what is removed. <strong class="em">Other accounts that chose pictkura under “Always do this” keep that choice</strong> (it can be changed in Windows Settings → AutoPlay)</td></tr>
+            <tr><td class="k">Portable ZIP</td><td>Delete the folder. The portable build does not offer an AutoPlay entry. <strong class="em">If a portable build up to 0.3 had one</strong>, start the new version once, or run <code>pictkura.exe --unregister-autoplay</code> before deleting, and nothing is left behind</td></tr>
             <tr><td class="k">macOS</td><td>Drag <code>pictkura.app</code> to the Trash</td></tr>
           </tbody>
         </table>
