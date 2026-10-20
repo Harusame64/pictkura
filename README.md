@@ -38,7 +38,7 @@ Every other build is on [Releases](https://github.com/Harusame64/pictkura/releas
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11 (x64), recommended** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | No first-launch warning; the Store delivers updates. **Moving from the installer version (setup.exe or MSI)? Uninstall it first** (otherwise two AutoPlay entries appear). From a terminal: `winget install 9N5H2QBMK9NB` (this also goes through the Store, so it does not work where the Store is unavailable) |
+| **Windows 10/11 (x64), recommended** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | No first-launch warning; the Store delivers updates. **Moving from the installer version (setup.exe or MSI)? Uninstall it first** (otherwise two AutoPlay entries appear). From a terminal: `winget install 9N5H2QBMK9NB` (this also goes through the Store, so it does not work on a PC where the Store is unavailable) |
 | **Windows 10/11 (x64)** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
 | **Windows, machine-wide install (for administrators)** | `pictkura_<version>_x64_<lang>.msi` | For installing per-machine. **Asks for administrator rights.** Japanese and English installers are separate files |
 | **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe` |

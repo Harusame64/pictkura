@@ -93,7 +93,7 @@
         <table>
           <thead><tr><th style="width:230px">対象</th><th style="width:240px">ファイル</th><th>備考</th></tr></thead>
           <tbody>
-            <tr><td class="k">Windows 10/11（x64）<br><span class="badge">おすすめ</span></td><td><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store</a></td><td>初回の警告が出ず、更新も Store が配ります。<strong class="em">インストーラ版（setup.exe・MSI）から移るときは、先にアンインストールしてください</strong>（自動再生の候補が2つ並ぶため）</td></tr>
+            <tr><td class="k">Windows 10/11（x64）<br><span class="badge">おすすめ</span></td><td><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store</a></td><td>初回の警告が出ず、更新も Store が配ります。<strong class="em">インストーラ版（setup.exe・MSI）から移るときは、先にアンインストールしてください</strong>（自動再生の候補が2つ並ぶため）。端末からなら <code>winget install 9N5H2QBMK9NB</code> でもインストールできます（これも Store を通るので、Store を使えない PC ではインストールできません）</td></tr>
             <tr><td class="k">Windows 10/11（x64）</td><td><code>pictkura_&lt;版&gt;_x64-setup.exe</code></td><td><strong class="em">管理者権限は不要です。</strong>自分のユーザーにだけインストールされます（<code>%LOCALAPPDATA%\pictkura</code>）。<strong class="em">インストーラ</strong>の言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます）</td></tr>
             <tr><td class="k">Windows・PC 全体へ<br>（管理者向け）</td><td><code>pictkura_&lt;版&gt;_x64_&lt;言語&gt;.msi</code></td><td>PC 全体にインストールする場合。<strong class="em">管理者権限を求められます。</strong>日本語版と英語版は別のファイルです</td></tr>
             <tr><td class="k">Windows・インストール不要</td><td><code>pictkura_&lt;版&gt;_x64-portable.zip</code></td><td>展開して <code>pictkura.exe</code> を実行するだけ</td></tr>
@@ -101,12 +101,12 @@
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px">Intel（x86_64）版と Linux 版はありません。Windows では <strong class="em">WebView2 ランタイム</strong>も必要ですが、Windows 11 と更新済みの Windows 10 には含まれています。無い PC では、インストーラが取得してインストールします。Microsoft Store 版は取得しないので、そのような PC ではインストーラを使うか、先に <a href="https://developer.microsoft.com/ja-jp/microsoft-edge/webview2/">WebView2 ランタイム</a>を入れてください。</p>
+      <p style="margin-top:20px">Intel（x86_64）版と Linux 版はありません。Windows では <strong class="em">WebView2 ランタイム</strong>も必要ですが、Windows 11 と更新済みの Windows 10 には含まれています。無い PC では、インストーラが取得してインストールします。Microsoft Store 版は取得しないので、そのような PC ではインストーラを使うか、先に <a href="https://developer.microsoft.com/ja-jp/microsoft-edge/webview2/">WebView2 ランタイム</a>をインストールしてください。</p>
     </section>
 
     <section id="windows">
       <h2 class="disp"><span class="num">2</span>Windows にインストールする</h2>
-      <p><strong class="em"><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store 版</a></strong>は Store のページから入れます。Microsoft が署名するので、下の警告は出ません。</p>
+      <p><strong class="em"><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store 版</a></strong>は Store のページからインストールします。Microsoft が署名するので、下の警告は出ません。</p>
       <p>Store 版以外の pictkura は <strong class="em">Windows のコード署名を受けていません</strong>（証明書が有料のためです）。そのため下のような警告が表示されます。警告を通過すれば、通常どおり使用できます。</p>
 
       <h3 id="warn-setup">2.1 &nbsp;<code>-setup.exe</code> のとき</h3>
