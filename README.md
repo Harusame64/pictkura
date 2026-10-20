@@ -33,17 +33,21 @@ library. The screens are in Japanese; pictkura itself is available in 7 language
 
 ## Installing
 
-Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/releases).
+On Windows, the [Microsoft Store version](https://apps.microsoft.com/detail/9N5H2QBMK9NB) is the easiest: no first-launch warning, and the Store keeps it updated.
+Every other build is on [Releases](https://github.com/Harusame64/pictkura/releases).
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
+| **Windows 10/11 (x64), recommended** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | No first-launch warning; the Store delivers updates. **Moving from the installer version (setup.exe or MSI)? Uninstall it first** (otherwise two AutoPlay entries appear) |
+| **Windows 10/11 (x64)** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
 | **Windows, machine-wide install (for administrators)** | `pictkura_<version>_x64_<lang>.msi` | For installing per-machine. **Asks for administrator rights.** Japanese and English installers are separate files |
 | **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe` |
 | **macOS 11+ (Apple Silicon)** | `pictkura_<version>_arm64.zip` | Unzip and move `pictkura.app` wherever you like. **See the note below before the first launch** |
 
 Windows also needs the **WebView2 runtime**, which is already present on Windows 11 and
-on up-to-date Windows 10.
+on up-to-date Windows 10. The installer fetches it where it is missing; the Microsoft Store
+version does not, so on such a PC use the installer or install
+[the WebView2 runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) first.
 
 > **Moving from the MSI to `-setup.exe` needs no manual step.** When `-setup.exe` finds an
 > existing MSI install, it **removes that first**, then installs. Removing the MSI touches the
@@ -58,9 +62,10 @@ on up-to-date Windows 10.
 > The other direction (installing the MSI while `-setup.exe` is installed) is not handled, so
 > uninstall from Settings → Apps first in that case.
 
-### Windows shows warnings because the app is not signed
+### Windows shows warnings for the unsigned builds
 
-pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
+The [Microsoft Store version](https://apps.microsoft.com/detail/9N5H2QBMK9NB) is signed by Microsoft, so none of this applies to it.
+Apart from that, pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
 broken, but you will see the security warnings below; just proceed and the app works normally.
 **SmartScreen can appear for each version you download.**
 
@@ -95,12 +100,13 @@ No install is needed, but the **first time you run** the extracted `pictkura.exe
 **SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
 anyway**.
 
-**All of them: Smart App Control**
+**All but the Store version: Smart App Control**
 
 If **Smart App Control** is on — it can be, on a clean install of Windows 11 — it may block an
-unsigned app **outright**, with no **Run anyway** to click. This applies to **every** download
-here, since it judges the code, not how it reached you. There is no way around it
-from the app's side: you would need a PC without SAC, or a signed build. Switching SAC off does
+unsigned app **outright**, with no **Run anyway** to click. This applies to **every** file
+downloaded here, since it judges the code, not how it reached you. There is no way around it
+from the installer or portable side: try the [Microsoft Store version](https://apps.microsoft.com/detail/9N5H2QBMK9NB), which Microsoft
+signs, or use a PC without SAC. Switching SAC off does
 lift the block, but it is **one-way** — Windows cannot turn it back on without a reinstall — so
 we don't suggest it just to run this app.
 
@@ -215,7 +221,7 @@ There is no Intel (x86_64) build, and no Linux build.
 
 ### Checking the files yourself
 
-There is no signing certificate, so **us telling you it is safe gives you nothing you
+The files here carry no signing certificate, so **us telling you it is safe gives you nothing you
 can check**. Here is what you can check instead.
 
 - **The source is all there.** Every build is made from the source at

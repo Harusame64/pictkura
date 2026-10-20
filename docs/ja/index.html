@@ -81,16 +81,17 @@
     <h1 class="disp">撮った写真の、<br>最初の行き先。</h1>
     <p>カードから取り込んで、<strong class="em">大量の RAW もすぐ見渡せる</strong>。写真を現像する場所ではなく、<strong class="em">貯めておくための道具</strong>です。<strong class="em">この二つだけ</strong>に絞って Rust で書き、作らなかった分は、そのまま速さに回っています。</p>
     <div class="hero-cta">
-      <!-- 押した時点で実物が落ちる。`assets/download.js` が端末を見て行き先と文言を差し替える。
+      <!-- `assets/download.js` が端末を見て行き先と文言を差し替える。Windows は Microsoft Store の
+           ページへ（警告が出ず、更新も Store が配る。2026-10-20 利用者）、Mac は押した時点で実物が落ちる。
            判定できないとき・JS が動かないときは、選ぶ頁へ送るだけにしてある -->
       <a class="btn btn-primary" href="download.html"
-         data-pick-cta data-file-win="x64-setup.exe" data-file-mac="arm64.zip"
-         data-cta-win="Windows 用をダウンロード" data-cta-mac="Mac 用をダウンロード">ダウンロード（無料）</a>
+         data-pick-cta data-store-win data-file-win="x64-setup.exe" data-file-mac="arm64.zip"
+         data-cta-win="Microsoft Store で入手" data-cta-mac="Mac 用をダウンロード">ダウンロード（無料）</a>
       <a class="btn btn-ghost" href="https://github.com/Harusame64/pictkura">ソースを見る</a>
     </div>
     <!-- 押しどころのすぐ下に「選ぶ頁」への道を置く（2026-08-22）。ここが遠いと、
          MSI や持ち歩き版を探す人が、案内のページを経由して回り道することになる -->
-    <p class="hero-meta" style="margin-top:12px"><a href="download.html">その他のダウンロード →</a></p>
+    <p class="hero-meta" style="margin-top:12px"><span data-pick-direct data-file="x64-setup.exe" hidden><a data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe" style="white-space:nowrap">インストーラを直接ダウンロード</a>　／　</span><a href="download.html" style="white-space:nowrap">その他のダウンロード →</a></p>
     <!-- Hero 直下の信頼帯。**数字は置かない**。ここに載せられる数字はどれも
          条件付き（17ms は横位置・かつ「原寸を用意するまで」で描画は別、HEIC は 0.6〜1 秒）で、
          但し書きの付けられないこの行に置くと過大な主張になる。数字は実測値の帯へ（計画書 §6） -->
@@ -385,15 +386,15 @@
        このページの版番号は2箇所ある（上の見出しと、この節）。
        0.2.1 と 0.2.2 で2回続けて忘れ、v0.2.0 を出し続けていた -->
   <div class="tiles">
-    <a class="tile pick" data-file="x64-setup.exe" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe">
-      <h3 style="display:flex;align-items:baseline;gap:10px">Windows インストーラ <span class="badge">推奨</span></h3>
+    <a class="tile pick" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">
+      <h3 style="display:flex;align-items:baseline;gap:10px">Microsoft Store <span class="badge">推奨</span></h3>
+      <p>Windows 10 / 11。初回の警告が出ず、更新も Store が配ります。</p>
+      <p class="file">apps.microsoft.com</p>
+    </a>
+    <a class="tile" data-file="x64-setup.exe" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe">
+      <h3>Windows インストーラ</h3>
       <p>管理者権限は不要です。自分のユーザーにだけインストールされます。</p>
       <p class="file"><span data-name>pictkura_1.0.0_x64-setup.exe</span>　<span data-size>8.0 MB</span></p>
-    </a>
-    <a class="tile" data-file="x64-portable.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-portable.zip">
-      <h3>Windows 持ち歩き版</h3>
-      <p>展開して <code class="mono">pictkura.exe</code> を起動するだけ。インストールしません。</p>
-      <p class="file"><span data-name>pictkura_1.0.0_x64-portable.zip</span>　<span data-size>10.7 MB</span></p>
     </a>
     <a class="tile" data-file="arm64.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_arm64.zip">
       <h3>macOS</h3>
@@ -401,12 +402,12 @@
       <p class="file"><span data-name>pictkura_1.0.0_arm64.zip</span>　<span data-size>10.0 MB</span></p>
     </a>
   </div>
-  <a class="more" href="download.html">その他のダウンロード（MSI・言語別インストーラを含む、すべてのファイル）→</a>
+  <a class="more" href="download.html">その他のダウンロード（持ち歩き版・MSI・言語別インストーラを含む、すべてのファイル）→</a>
   <div class="note warn" data-stale hidden style="margin-top:28px">
-    <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>上の 3 つは <b>v1.0.0</b> のファイルで、これが最新とは限りません。<a href="download.html">ダウンロードのページ</a>か <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>で確かめてください。</p>
+    <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>上の Windows インストーラと macOS のファイルは <b>v1.0.0</b> のもので、これが最新とは限りません。<a href="download.html">ダウンロードのページ</a>か <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>で確かめてください。</p>
   </div>
   <div class="note warn" style="margin-top:28px">
-    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> この警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに記載しています。確かめるための材料は<a href="download.html#build">配布物の作られ方</a>に並べました。</p>
+    <p><strong class="em">Microsoft Store 版を除き、署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> この警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに記載しています。確かめるための材料は<a href="download.html#build">配布物の作られ方</a>に並べました。</p>
   </div>
 </section>
 

@@ -80,16 +80,17 @@
     <h1 class="disp">The first stop<br>for your photos.</h1>
     <p>Import from your camera card and <strong class="em">browse large RAW collections right away</strong>. Not a place to develop photos — <strong class="em">a place to keep them</strong>. Those two things only, written in Rust, with everything we did not build spent on speed instead.</p>
     <div class="hero-cta">
-      <!-- 押した時点で実物が落ちる。`assets/download.js` が端末を見て行き先と文言を差し替える。
+      <!-- `assets/download.js` が端末を見て行き先と文言を差し替える。Windows は Microsoft Store の
+           ページへ（2026-10-20）、Mac は押した時点で実物が落ちる。
            判定できないとき・JS が動かないときは、選ぶ頁へ送るだけにしてある -->
       <a class="btn btn-primary" href="download.html"
-         data-pick-cta data-file-win="x64-setup.exe" data-file-mac="arm64.zip"
-         data-cta-win="Download for Windows" data-cta-mac="Download for Mac">Download — free</a>
+         data-pick-cta data-store-win data-file-win="x64-setup.exe" data-file-mac="arm64.zip"
+         data-cta-win="Get it from the Microsoft Store" data-cta-mac="Download for Mac">Download — free</a>
       <a class="btn btn-ghost" href="https://github.com/Harusame64/pictkura">Read the source</a>
     </div>
     <!-- 押しどころのすぐ下に「選ぶ頁」への道を置く（2026-08-22）。ここが遠いと、
          MSI や持ち歩き版を探す人が、案内の頁を経由して回り道することになる -->
-    <p class="hero-meta" style="margin-top:12px"><a href="download.html">Other downloads →</a></p>
+    <p class="hero-meta" style="margin-top:12px"><span data-pick-direct data-file="x64-setup.exe" hidden><a data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe" style="white-space:nowrap">Download the installer directly</a> &nbsp;/&nbsp; </span><a href="download.html" style="white-space:nowrap">Other downloads →</a></p>
     <!-- Hero 直下の信頼帯。**数字は置かない**。ここに載せられる数字はどれも条件付きで、
          但し書きの付けられないこの行に置くと過大な主張になる。数字は実測値の帯へ（計画書 §6） -->
     <p class="hero-meta"><span style="white-space:nowrap">Free &amp; MIT</span> &nbsp;/&nbsp; <span style="white-space:nowrap">no account</span> &nbsp;/&nbsp; <span style="white-space:nowrap">local-first</span><span class="mono" data-pick-meta style="display:block;margin-top:10px"></span></p>
@@ -382,15 +383,15 @@
        この頁の版番号は2箇所ある（上の見出しと、この節）。
        0.2.1 と 0.2.2 で2回続けて忘れ、v0.2.0 を出し続けていた -->
   <div class="tiles">
-    <a class="tile pick" data-file="x64-setup.exe" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe">
-      <h3 style="display:flex;align-items:baseline;gap:10px">Windows installer <span class="badge">Recommended</span></h3>
+    <a class="tile pick" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">
+      <h3 style="display:flex;align-items:baseline;gap:10px">Microsoft Store <span class="badge">Recommended</span></h3>
+      <p>Windows 10 / 11. No first-launch warning, and the Store keeps it updated.</p>
+      <p class="file">apps.microsoft.com</p>
+    </a>
+    <a class="tile" data-file="x64-setup.exe" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe">
+      <h3>Windows installer</h3>
       <p>No administrator rights needed. Installs for your user only.</p>
       <p class="file"><span data-name>pictkura_1.0.0_x64-setup.exe</span> &nbsp;<span data-size>8.0 MB</span></p>
-    </a>
-    <a class="tile" data-file="x64-portable.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-portable.zip">
-      <h3>Portable ZIP</h3>
-      <p>Unzip and run <code class="mono">pictkura.exe</code>. Nothing is installed.</p>
-      <p class="file"><span data-name>pictkura_1.0.0_x64-portable.zip</span> &nbsp;<span data-size>10.7 MB</span></p>
     </a>
     <a class="tile" data-file="arm64.zip" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_arm64.zip">
       <h3>macOS</h3>
@@ -398,12 +399,12 @@
       <p class="file"><span data-name>pictkura_1.0.0_arm64.zip</span> &nbsp;<span data-size>10.0 MB</span></p>
     </a>
   </div>
-  <a class="more" href="download.html">Other downloads — every file, including the MSI and the language-specific installers →</a>
+  <a class="more" href="download.html">Other downloads — every file, including the portable ZIP, the MSI and the language-specific installers →</a>
   <div class="note warn" data-stale hidden style="margin-top:28px">
-    <p><strong class="em">The latest version information could not be retrieved.</strong> The three files above are from <b>v1.0.0</b>, which may no longer be the newest — check <a href="download.html">the download page</a> or <a href="https://github.com/Harusame64/pictkura/releases/latest">the releases page</a>.</p>
+    <p><strong class="em">The latest version information could not be retrieved.</strong> The Windows installer and macOS files above are from <b>v1.0.0</b>, which may no longer be the newest — check <a href="download.html">the download page</a> or <a href="https://github.com/Harusame64/pictkura/releases/latest">the releases page</a>.</p>
   </div>
   <div class="note warn" style="margin-top:28px">
-    <p><strong class="em">The builds are not code-signed, so Windows and macOS both warn you the first time.</strong> The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>, and the material you can check for yourself is under <a href="download.html#build">how these files are built</a>.</p>
+    <p><strong class="em">Apart from the Microsoft Store version, the builds are not code-signed, so Windows and macOS both warn you the first time.</strong> The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>, and the material you can check for yourself is under <a href="download.html#build">how these files are built</a>.</p>
   </div>
 </section>
 
