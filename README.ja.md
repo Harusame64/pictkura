@@ -36,7 +36,7 @@ Windows では [Microsoft Store 版](https://apps.microsoft.com/detail/9N5H2QBMK
 
 | 対象 | ファイル | 備考 |
 |---|---|---|
-| **Windows 10/11（x64）・おすすめ** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | 初回の警告が出ず、更新も Store が配ります。**インストーラ版（setup.exe・MSI）から移るときは、先にアンインストールしてください**（自動再生の候補が2つ並ぶため） |
+| **Windows 10/11（x64）・おすすめ** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | 初回の警告が出ず、更新も Store が配ります。**インストーラ版（setup.exe・MSI）から移るときは、先にアンインストールしてください**（自動再生の候補が2つ並ぶため）。端末からなら `winget install 9N5H2QBMK9NB` でも入ります（これも Store を通るので、Store を使えない PC では入りません） |
 | **Windows 10/11（x64）** | `pictkura_<バージョン>_x64-setup.exe` | **管理者権限は不要です**。自分のユーザーにだけインストールされます（`%LOCALAPPDATA%\pictkura`）。**インストーラ**の言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます） |
 | **Windows・PC全体へインストールする（企業などの管理者向け）** | `pictkura_<バージョン>_x64_<言語>.msi` | PC全体にインストールする場合。**管理者権限を求められます**。日本語版と英語版は別のファイルです |
 | **Windows・インストール不要** | `pictkura_<バージョン>_x64-portable.zip` | 展開して `pictkura.exe` を実行するだけ |
