@@ -8,7 +8,7 @@
  *   [data-file="末尾"] … その中の [data-dl] の行き先、[data-name]、[data-size] を差し替える
  *   [data-pick="win"|"mac"] … 見ている端末に合わせて出し分ける区画
  *   [data-pick-cta] … 押した時点で実物が落ちるボタン（紹介ページの見出し）。
- *                     data-store-win があれば、Windows では Microsoft Store のページへ送る
+ *                     data-store-win（印だけ）があれば、Windows では Microsoft Store のページ（STORE）へ送る
  *   [data-pick-direct] … Windows で Store を勧めたときに現れるインストーラへの道。
  *                       中は [data-file] として扱うので、行き先は上と同じく最新へ書き換わる
  *   [data-ver] [data-date] … 版と公開日
@@ -22,6 +22,8 @@
 
   var API = "https://api.github.com/repos/Harusame64/pictkura/releases/latest";
   var RELEASES = "https://github.com/Harusame64/pictkura/releases";
+  // Windows で勧める Microsoft Store のページ。HTML の属性から読まず、ここに固定する（CodeQL：属性の文字列を行き先にしない）
+  var STORE = "https://apps.microsoft.com/detail/9N5H2QBMK9NB";
 
   // 文言はほぼ HTML 側（data 属性）に置いてある。ここに残るのはこの 2 つだけ
   var ja = document.documentElement.lang === "ja";
@@ -100,12 +102,12 @@
   // Store の行き先は Releases に頼らないので、引けなくても待たずに書き換える
   function store(os) {
     var cta = document.querySelector("[data-pick-cta]");
-    var url = cta && cta.getAttribute("data-store-win");
-    if (os !== "win" || !url) return;
-    cta.href = url;
+    if (os !== "win" || !cta || !cta.hasAttribute("data-store-win")) return;
+    cta.href = STORE;
     var label = cta.getAttribute("data-cta-win");
     if (label) cta.textContent = label;
-    each("[data-pick-direct]", function (el) { el.hidden = false; });
+    // 版に exe が無いと分かった後（apply が dl-gone を付けた）なら出さない
+    each("[data-pick-direct]", function (el) { if (!el.classList.contains("dl-gone")) el.hidden = false; });
   }
 
   // 押した時点で実物が落ちるボタン。**渡すものが確かなときだけ**書き換える
@@ -135,6 +137,8 @@
         // **無いものに古い版のリンクを残さない。** 配布物の名前や種類が変わったとき、
         // 押したら黙って前の版が落ちてくる、という経路を作らないため
         box.classList.add("dl-gone");
+        // 「直接ダウンロード」の行は、落とす物が無いなら出さない（リリースのページへの道は「その他」がある）
+        if (box.hasAttribute("data-pick-direct")) { box.hidden = true; return; }
         if (link) link.href = rel.html_url || RELEASES;
         put(box, "[data-name]", "—");
         put(box, "[data-size]", GONE);
