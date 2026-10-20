@@ -106,7 +106,7 @@
     <div>
       <p class="eyebrow" style="margin-bottom:14px">Windows 10 / 11（x64）</p>
       <h2 class="disp" id="pick-win">Windows 向けのおすすめ</h2>
-      <p class="why">Microsoft Store から入れると、初回の警告が出ず、更新も Store が配ります。Store を使えない PC では、<a href="#setup">インストーラ</a>を使ってください。</p>
+      <p class="why">Microsoft Store からインストールすると、初回の警告が出ず、更新も Store が配ります。Store を使えない PC では、<a href="#setup">インストーラ</a>を使ってください。</p>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store で入手</a>
@@ -138,6 +138,7 @@
       <div>
         <h3>Microsoft Store <span class="badge">推奨</span></h3>
         <p>Windows 10 / 11。インストールも更新も Store が行います。同じ Windows のアカウントでほかの版を使っていたなら、同じライブラリと設定を使います。<strong class="em">インストーラ版（setup.exe・MSI）から移るときは、先にアンインストールしてください。</strong>インストーラ版が登録した自動再生の候補を Store 版からは消せないため、同じ名前の候補が2つ並びます。</p>
+        <p>端末からなら <code>winget install 9N5H2QBMK9NB</code> でもインストールできます。これも Store を通るので、Store を使えない PC ではインストールできません。</p>
       </div>
       <div class="get">
         <a class="btn btn-sm" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Store で開く</a>
@@ -224,7 +225,7 @@
   <div class="limits" style="margin-top:56px;max-width:980px">
     <div><b>Intel の Mac は対象外</b><br>Mac は Apple Silicon 専用です。Windows は 64bit（x64）のみ対応しています</div>
     <div><b>Linux 版はありません</b><br>取り込みの実装が Windows と macOS に依存しているためです</div>
-    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には含まれています。無い PC では、インストーラが取得してインストールします。Microsoft Store 版は取得しないので、インストーラを使うか、先に <a href="https://developer.microsoft.com/ja-jp/microsoft-edge/webview2/">WebView2 ランタイム</a>を入れてください</div>
+    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には含まれています。無い PC では、インストーラが取得してインストールします。Microsoft Store 版は取得しないので、インストーラを使うか、先に <a href="https://developer.microsoft.com/ja-jp/microsoft-edge/webview2/">WebView2 ランタイム</a>をインストールしてください</div>
     <div><b>インストールしても削除しても写真はそのまま</b><br>インストールやアンインストールで、写真ファイルを書き換えることはありません。保存場所は<a href="spec.html#storage">アプリ仕様</a>にあります</div>
   </div>
 
