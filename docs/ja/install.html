@@ -106,16 +106,17 @@
 
     <section id="windows">
       <h2 class="disp"><span class="num">2</span>Windows にインストールする</h2>
-      <p>pictkura は <strong class="em">Windows のコード署名を受けていません</strong>（証明書が有料のためです）。そのため下のような警告が表示されます。警告を通過すれば、通常どおり使用できます。</p>
+      <p><strong class="em"><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store 版</a></strong>は Store のページから入れます。Microsoft が署名するので、下の警告は出ません。</p>
+      <p>Store 版以外の pictkura は <strong class="em">Windows のコード署名を受けていません</strong>（証明書が有料のためです）。そのため下のような警告が表示されます。警告を通過すれば、通常どおり使用できます。</p>
 
-      <h3 id="warn-setup">2.1 &nbsp;<code>-setup.exe</code>（おすすめ）のとき</h3>
+      <h3 id="warn-setup">2.1 &nbsp;<code>-setup.exe</code> のとき</h3>
       <p><strong class="em">UAC は表示されません</strong>——PC 全体ではなく実行したユーザーのプロファイルにインストールするため、管理者の許可が不要だからです。表示される警告は、Windows の設定によって次の 1 つまたは 2 つです。</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th style="width:300px">表示される画面</th><th>進め方と、表示される条件</th></tr></thead>
           <tbody>
             <tr><td class="k">Microsoft Defender SmartScreen<br>「WindowsによってPCが保護されました」</td><td><b>「詳細情報」→「実行」</b>で進みます。ダウンロードしたファイルごとに判断されるため、新しいバージョンでは再び表示されます</td></tr>
-            <tr><td class="k">「インストールしようとしているアプリは、Microsoft 検証済みアプリではありません」</td><td>Windows の<strong class="em">「アプリを入手する場所の選択」</strong>が「入手元を制限しないが、Microsoft Store 以外からのアプリをインストールする前に警告を表示する」になっている場合に表示されます。<b>「インストールする」</b>で進みます。<br>「Microsoft Store のみ (推奨)」になっている場合は<strong class="em">「インストールする」が現れません</strong>——この設定を変えないかぎり進めません。設定の場所は Windows 11 が「設定 → アプリ → アプリの詳細設定」、Windows 10 が「設定 → アプリ → アプリと機能」です</td></tr>
+            <tr><td class="k">「インストールしようとしているアプリは、Microsoft 検証済みアプリではありません」</td><td>Windows の<strong class="em">「アプリを入手する場所の選択」</strong>が「入手元を制限しないが、Microsoft Store 以外からのアプリをインストールする前に警告を表示する」になっている場合に表示されます。<b>「インストールする」</b>で進みます。<br>「Microsoft Store のみ (推奨)」になっている場合は<strong class="em">「インストールする」が現れません</strong>——この設定のままなら <a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store 版</a>を使ってください。設定の場所は Windows 11 が「設定 → アプリ → アプリの詳細設定」、Windows 10 が「設定 → アプリ → アプリと機能」です</td></tr>
           </tbody>
         </table>
       </div>
@@ -142,9 +143,9 @@
       <h3 id="warn-zip">2.3 &nbsp;持ち歩き版（ZIP）のとき</h3>
       <p>インストールは不要ですが、展開した <code>pictkura.exe</code> を<strong class="em">初めて実行するとき</strong>に、同じ SmartScreen が出ることがあります。「詳細情報」→「実行」で進みます。</p>
 
-      <h3 id="sac">2.4 &nbsp;スマートアプリコントロール（共通）</h3>
-      <p><strong class="em">スマートアプリコントロール</strong>が有効な場合（Windows 11 をクリーンインストールすると有効なことがあります）、署名の無いアプリは「実行」ボタンすら出ないまま<strong class="em">拒否される</strong>ことがあります。これは<strong class="em">どの入手方法でも同じ</strong>です——届き方ではなく、コード自体を見るためです。</p>
-      <p>アプリ側で回避する手立てはありません。有効になっていない PC を使うか、署名版を待つことになります。オフにすれば通るようになりますが、<strong class="em">一度オフにすると元に戻せません</strong>（Windows を再インストールするまで再有効化できません）ので、このアプリのためにオフにすることはおすすめしません。</p>
+      <h3 id="sac">2.4 &nbsp;スマートアプリコントロール（Store 版以外で共通）</h3>
+      <p><strong class="em">スマートアプリコントロール</strong>が有効な場合（Windows 11 をクリーンインストールすると有効なことがあります）、署名の無いアプリは「実行」ボタンすら出ないまま<strong class="em">拒否される</strong>ことがあります。これは<strong class="em">インストーラ・持ち歩き版のどれでも同じ</strong>です——届き方ではなく、コード自体を見るためです。</p>
+      <p>インストーラ・持ち歩き版の側で回避する手立てはありません。Microsoft が署名した <a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store 版</a>を試すか、有効になっていない PC を使ってください。オフにすれば通るようになりますが、<strong class="em">一度オフにすると元に戻せません</strong>（Windows を再インストールするまで再有効化できません）ので、このアプリのためにオフにすることはおすすめしません。</p>
       <div class="note" style="margin-top:26px">
         <p>署名（Authenticode）をすれば「発行元: 不明」は発行元名に確実に変わり、SmartScreen も出にくくなります。ただし<strong class="em">必ず消えるわけではありません</strong>——署名したての、まだ評価の溜まっていないファイルは依然として警告されることがあります。証明書が有料のため、今は見送っています。</p>
       </div>
@@ -218,13 +219,14 @@ MpCmdRun.exe -SignatureUpdate</pre>
         <table>
           <thead><tr><th style="width:230px">インストール方法</th><th>削除方法</th></tr></thead>
           <tbody>
+            <tr><td class="k">Microsoft Store 版</td><td>Windows の「設定 → アプリ」か、スタートの pictkura を右クリックして「アンインストール」。自動再生の候補も消えます。<strong class="em">Store 版だけを使っていた場合は、設定と索引も一緒に消えます</strong></td></tr>
             <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows の「設定 → アプリ」から。自動再生の候補も消えます。<code>-setup.exe</code> はインストールしたアカウントだけに、MSI は PC の全員に候補を登録しているので、消えるのもその範囲です。<strong class="em">ほかのアカウントで「常にこの操作を行う」に pictkura を選んでいた記録は残ります</strong>（Windows の設定の「自動再生」で選び直せます）</td></tr>
             <tr><td class="k">持ち歩き版</td><td>フォルダを削除します。持ち歩き版は自動再生の候補を出しません。<strong class="em">0.3 までの持ち歩き版で候補を出していたなら</strong>、新しい版を一度起動するか、消す前に <code>pictkura.exe --unregister-autoplay</code> を実行すると、残りません</td></tr>
             <tr><td class="k">macOS</td><td><code>pictkura.app</code> をゴミ箱へ</td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px">設定と索引は残ります。完全に消したい場合の場所は<a href="spec.html#storage">アプリ仕様の「データの置き場所」</a>にあります。<strong class="em">写真そのものには一切触りません。</strong></p>
+      <p style="margin-top:20px">Store 版だけを使っていた場合を除き、設定と索引は残ります。完全に消したい場合の場所は<a href="spec.html#storage">アプリ仕様の「データの置き場所」</a>にあります。<strong class="em">写真そのものには一切触りません。</strong></p>
     </section>
 
   </main>

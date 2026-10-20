@@ -9,7 +9,7 @@
  *   [data-pick="win"|"mac"] … 見ている端末に合わせて出し分ける区画
  *   [data-pick-cta] … 押した時点で実物が落ちるボタン（紹介ページの見出し）。
  *                     data-store-win があれば、Windows では Microsoft Store のページへ送る
- *   [data-pick-direct] … Windows で Store を勧めたときだけ現れる、インストーラへの道
+ *   [data-pick-direct] … Windows で Store を勧めたとき、exe が引けたら現れるインストーラへの道
  *   [data-ver] [data-date] … 版と公開日
  *   [data-stale] … 引けなかったときだけ現れる断り
  *
@@ -104,7 +104,6 @@
     cta.href = url;
     var label = cta.getAttribute("data-cta-win");
     if (label) cta.textContent = label;
-    each("[data-pick-direct]", function (el) { el.hidden = false; });
   }
 
   // 押した時点で実物が落ちるボタン。**渡すものが確かなときだけ**書き換える
@@ -116,7 +115,9 @@
     if (!hit) return;
     // Store を勧めているときは、exe はボタンでなく「直接ダウンロード」の行へ
     if (os === "win" && cta.hasAttribute("data-store-win")) {
+      // 「直接ダウンロード」は exe の行き先が分かってから出す（引けなければ「その他」だけが残る）
       each("a[data-pick-direct]", function (el) { el.href = hit.browser_download_url; });
+      each("[data-pick-direct]", function (el) { el.hidden = false; });
       return;
     }
     cta.href = hit.browser_download_url;

@@ -62,7 +62,8 @@ on up-to-date Windows 10.
 
 ### Windows shows warnings because the app is not signed
 
-pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
+The [Microsoft Store version](https://apps.microsoft.com/detail/9N5H2QBMK9NB) is signed by Microsoft, so none of this applies to it.
+Apart from that, pictkura is **not code-signed on Windows** (a signing certificate costs money). Nothing is
 broken, but you will see the security warnings below; just proceed and the app works normally.
 **SmartScreen can appear for each version you download.**
 
@@ -97,12 +98,13 @@ No install is needed, but the **first time you run** the extracted `pictkura.exe
 **SmartScreen** prompt ("Windows protected your PC") may appear. Click **More info** → **Run
 anyway**.
 
-**All of them: Smart App Control**
+**All but the Store version: Smart App Control**
 
 If **Smart App Control** is on — it can be, on a clean install of Windows 11 — it may block an
 unsigned app **outright**, with no **Run anyway** to click. This applies to **every** download
 here, since it judges the code, not how it reached you. There is no way around it
-from the app's side: you would need a PC without SAC, or a signed build. Switching SAC off does
+from the installer or portable side: try the [Microsoft Store version](https://apps.microsoft.com/detail/9N5H2QBMK9NB), which Microsoft
+signs, or use a PC without SAC. Switching SAC off does
 lift the block, but it is **one-way** — Windows cannot turn it back on without a reinstall — so
 we don't suggest it just to run this app.
 

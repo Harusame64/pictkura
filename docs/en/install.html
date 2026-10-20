@@ -106,16 +106,17 @@
 
     <section id="windows">
       <h2 class="disp"><span class="num">2</span>Installing on Windows</h2>
-      <p>pictkura is <strong class="em">not code-signed on Windows</strong> — a signing certificate costs money. Nothing is broken; clearing the warnings below lets the app run normally.</p>
+      <p><strong class="em"><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">The Microsoft Store version</a></strong> installs from its Store page. Microsoft signs it, so none of the warnings below appear.</p>
+      <p>Apart from the Store version, pictkura is <strong class="em">not code-signed on Windows</strong> — a signing certificate costs money. Nothing is broken; clearing the warnings below lets the app run normally.</p>
 
-      <h3 id="warn-setup">2.1 &nbsp;Installing <code>-setup.exe</code> (recommended)</h3>
+      <h3 id="warn-setup">2.1 &nbsp;Installing <code>-setup.exe</code></h3>
       <p><strong class="em">There is no UAC prompt</strong>, because it installs into your own user profile rather than the whole machine. Depending on your Windows settings, you will see one or two prompts:</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th style="width:300px">Prompt</th><th>How to proceed, and when it appears</th></tr></thead>
           <tbody>
             <tr><td class="k">Microsoft Defender SmartScreen<br>"Windows protected your PC"</td><td><b>More info → Run anyway</b>. SmartScreen judges each downloaded file, so it appears again for a new version</td></tr>
-            <tr><td class="k">"The app you're trying to install isn't a Microsoft-verified app"</td><td>Appears when <strong class="em">"Choose where to get apps"</strong> is set to warn before installing apps from outside the Microsoft Store. Choose <b>Install anyway</b> to continue.<br>When it is set to "The Microsoft Store only (Recommended)", <strong class="em">there is no Install anyway button</strong> — the installation cannot proceed until that setting is changed. The setting lives under Settings → Apps → Advanced app settings on Windows 11, and Settings → Apps → Apps &amp; features on Windows 10</td></tr>
+            <tr><td class="k">"The app you're trying to install isn't a Microsoft-verified app"</td><td>Appears when <strong class="em">"Choose where to get apps"</strong> is set to warn before installing apps from outside the Microsoft Store. Choose <b>Install anyway</b> to continue.<br>When it is set to "The Microsoft Store only (Recommended)", <strong class="em">there is no Install anyway button</strong> — the installation cannot proceed; with that setting, use <a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">the Microsoft Store version</a>. The setting lives under Settings → Apps → Advanced app settings on Windows 11, and Settings → Apps → Apps &amp; features on Windows 10</td></tr>
           </tbody>
         </table>
       </div>
@@ -142,9 +143,9 @@
       <h3 id="warn-zip">2.3 &nbsp;The portable ZIP</h3>
       <p>No install is needed, but the <strong class="em">first time you run</strong> the extracted <code>pictkura.exe</code>, the same SmartScreen prompt may appear. Click <b>More info</b> → <b>Run anyway</b>.</p>
 
-      <h3 id="sac">2.4 &nbsp;Smart App Control (all of them)</h3>
+      <h3 id="sac">2.4 &nbsp;Smart App Control (all but the Store version)</h3>
       <p>If <strong class="em">Smart App Control</strong> is on — it can be, on a clean install of Windows 11 — it may block an unsigned app <strong class="em">outright</strong>, with no "Run anyway" to click. This applies to <strong class="em">every</strong> download here, since it judges the code, not how it reached you.</p>
-      <p>There is no way around it from the app's side: you would need a PC without SAC, or a signed build. Switching SAC off does lift the block, but it is <strong class="em">one-way</strong> — Windows cannot turn it back on without a reinstall — so we do not suggest it just to run this app.</p>
+      <p>There is no way around it from the installer or portable side: try <a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">the Microsoft Store version</a>, which Microsoft signs, or use a PC without SAC. Switching SAC off does lift the block, but it is <strong class="em">one-way</strong> — Windows cannot turn it back on without a reinstall — so we do not suggest it just to run this app.</p>
       <div class="note" style="margin-top:26px">
         <p>Authenticode signing would reliably replace "Publisher: Unknown" with the publisher name, and makes SmartScreen fire less often — but it does <strong class="em">not</strong> categorically remove it: a newly signed binary that has not built up reputation can still be flagged. The certificate is paid, so it is deferred.</p>
       </div>
@@ -219,13 +220,14 @@ MpCmdRun.exe -SignatureUpdate</pre>
         <table>
           <thead><tr><th style="width:230px">How it was installed</th><th>How to remove it</th></tr></thead>
           <tbody>
+            <tr><td class="k">Microsoft Store version</td><td>Windows Settings → Apps, or right-click pictkura in Start and choose Uninstall. The AutoPlay entry goes too. <strong class="em">If you only ever used the Store version, its settings and index are removed with it</strong></td></tr>
             <tr><td class="k"><code>-setup.exe</code> / MSI</td><td>Windows Settings → Apps. The AutoPlay entry goes too. <code>-setup.exe</code> registers it only for the account that installed it, and the MSI for everyone on the PC, so that is also what is removed. <strong class="em">Other accounts that chose pictkura under “Always do this” keep that choice</strong> (it can be changed in Windows Settings → AutoPlay)</td></tr>
             <tr><td class="k">Portable ZIP</td><td>Delete the folder. The portable build does not offer an AutoPlay entry. <strong class="em">If a portable build up to 0.3 had one</strong>, start the new version once, or run <code>pictkura.exe --unregister-autoplay</code> before deleting, and nothing is left behind</td></tr>
             <tr><td class="k">macOS</td><td>Drag <code>pictkura.app</code> to the Trash</td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px">Settings and the index remain. Their locations are listed under <a href="spec.html#storage">Where data lives</a>. <strong class="em">Your photos are never touched.</strong></p>
+      <p style="margin-top:20px">Unless you only used the Store version, settings and the index remain. Their locations are listed under <a href="spec.html#storage">Where data lives</a>. <strong class="em">Your photos are never touched.</strong></p>
     </section>
 
   </main>
