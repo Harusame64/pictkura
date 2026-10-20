@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Installing pictkura — SmartScreen, UAC and Gatekeeper, step by step</title>
-<meta name="description" content="How to install pictkura on Windows and macOS. The app is not code-signed, so this page walks through the SmartScreen 'Windows protected your PC' prompt, UAC, and the macOS Gatekeeper block, screen by screen.">
+<meta name="description" content="How to install pictkura on Windows and macOS. Apart from the Microsoft Store version the app is not code-signed, so this page walks through the SmartScreen 'Windows protected your PC' prompt, UAC, and the macOS Gatekeeper block, screen by screen.">
 <link rel="canonical" href="https://harusame64.github.io/pictkura/en/install.html">
 <link rel="alternate" hreflang="ja" href="https://harusame64.github.io/pictkura/ja/install.html">
 <link rel="alternate" hreflang="en" href="https://harusame64.github.io/pictkura/en/install.html">
@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="pictkura">
 <meta property="og:locale" content="en_US">
 <meta property="og:title" content="Installing pictkura — SmartScreen, UAC and Gatekeeper">
-<meta property="og:description" content="The app is not code-signed. Every prompt you will see, and what to press.">
+<meta property="og:description" content="Apart from the Microsoft Store version, the app is not code-signed. Every prompt you will see, and what to press.">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/en/install.html">
 <meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.2.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -93,7 +93,7 @@
         <table>
           <thead><tr><th style="width:230px">Platform</th><th style="width:250px">File</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td class="k">Windows 10/11 (x64)<br><span class="badge">Recommended</span></td><td><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store</a></td><td>No first-launch warning, and the Store keeps it updated. <strong class="em">Moving from the installer version? Uninstall it first</strong> (otherwise two AutoPlay entries appear)</td></tr>
+            <tr><td class="k">Windows 10/11 (x64)<br><span class="badge">Recommended</span></td><td><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store</a></td><td>No first-launch warning, and the Store keeps it updated. <strong class="em">Moving from the installer version (setup.exe or MSI)? Uninstall it first</strong> (otherwise two AutoPlay entries appear)</td></tr>
             <tr><td class="k">Windows 10/11 (x64)</td><td><code>pictkura_&lt;version&gt;_x64-setup.exe</code></td><td><strong class="em">No administrator rights needed.</strong> Installs for your user only (<code>%LOCALAPPDATA%\pictkura</code>). The <strong class="em">installer</strong> asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings)</td></tr>
             <tr><td class="k">Windows, machine-wide<br>(for administrators)</td><td><code>pictkura_&lt;version&gt;_x64_&lt;lang&gt;.msi</code></td><td>For installing per-machine. <strong class="em">Asks for administrator rights.</strong> Japanese and English installers are separate files</td></tr>
             <tr><td class="k">Windows, no installer</td><td><code>pictkura_&lt;version&gt;_x64-portable.zip</code></td><td>Unzip and run <code>pictkura.exe</code></td></tr>
@@ -101,7 +101,7 @@
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px">There is no Intel (x86_64) build, and no Linux build. Windows also needs the <strong class="em">WebView2 runtime</strong>, which is already present on Windows 11 and on up-to-date Windows 10; where it is missing, the installer fetches it (the Microsoft Store version does not).</p>
+      <p style="margin-top:20px">There is no Intel (x86_64) build, and no Linux build. Windows also needs the <strong class="em">WebView2 runtime</strong>, which is already present on Windows 11 and on up-to-date Windows 10; where it is missing, the installer fetches it. The Microsoft Store version does not: on such a PC, use the installer or install <a href="https://developer.microsoft.com/en-us/microsoft-edge/webview2/">the WebView2 runtime</a> first.</p>
     </section>
 
     <section id="windows">
@@ -144,7 +144,7 @@
       <p>No install is needed, but the <strong class="em">first time you run</strong> the extracted <code>pictkura.exe</code>, the same SmartScreen prompt may appear. Click <b>More info</b> → <b>Run anyway</b>.</p>
 
       <h3 id="sac">2.4 &nbsp;Smart App Control (all but the Store version)</h3>
-      <p>If <strong class="em">Smart App Control</strong> is on — it can be, on a clean install of Windows 11 — it may block an unsigned app <strong class="em">outright</strong>, with no "Run anyway" to click. This applies to <strong class="em">every</strong> download here, since it judges the code, not how it reached you.</p>
+      <p>If <strong class="em">Smart App Control</strong> is on — it can be, on a clean install of Windows 11 — it may block an unsigned app <strong class="em">outright</strong>, with no "Run anyway" to click. This applies to <strong class="em">every</strong> file downloaded from this site, since it judges the code, not how it reached you.</p>
       <p>There is no way around it from the installer or portable side: try <a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">the Microsoft Store version</a>, which Microsoft signs, or use a PC without SAC. Switching SAC off does lift the block, but it is <strong class="em">one-way</strong> — Windows cannot turn it back on without a reinstall — so we do not suggest it just to run this app.</p>
       <div class="note" style="margin-top:26px">
         <p>Authenticode signing would reliably replace "Publisher: Unknown" with the publisher name, and makes SmartScreen fire less often — but it does <strong class="em">not</strong> categorically remove it: a newly signed binary that has not built up reputation can still be flagged. The certificate is paid, so it is deferred.</p>

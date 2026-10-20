@@ -36,14 +36,15 @@ Windows では [Microsoft Store 版](https://apps.microsoft.com/detail/9N5H2QBMK
 
 | 対象 | ファイル | 備考 |
 |---|---|---|
-| **Windows 10/11（x64）・おすすめ** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | 初回の警告が出ず、更新も Store が配ります。**インストーラ版から移るときは、先にアンインストールしてください**（自動再生の候補が2つ並ぶため） |
+| **Windows 10/11（x64）・おすすめ** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | 初回の警告が出ず、更新も Store が配ります。**インストーラ版（setup.exe・MSI）から移るときは、先にアンインストールしてください**（自動再生の候補が2つ並ぶため） |
 | **Windows 10/11（x64）** | `pictkura_<バージョン>_x64-setup.exe` | **管理者権限は不要です**。自分のユーザーにだけインストールされます（`%LOCALAPPDATA%\pictkura`）。**インストーラ**の言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます） |
 | **Windows・PC全体へインストールする（企業などの管理者向け）** | `pictkura_<バージョン>_x64_<言語>.msi` | PC全体にインストールする場合。**管理者権限を求められます**。日本語版と英語版は別のファイルです |
 | **Windows・インストール不要** | `pictkura_<バージョン>_x64-portable.zip` | 展開して `pictkura.exe` を実行するだけ |
 | **macOS 11以降（Apple Silicon）** | `pictkura_<バージョン>_arm64.zip` | 展開して `pictkura.app` を好きな場所へ。**初回起動の前に下の注意を読んでください** |
 
 Windows では **WebView2 ランタイム**も必要です（Windows 11 と、更新済みの
-Windows 10 には含まれています）。
+Windows 10 には含まれています）。無い PC ではインストーラが取得しますが、Microsoft Store 版は
+取得しないので、インストーラを使うか、先に [WebView2 ランタイム](https://developer.microsoft.com/ja-jp/microsoft-edge/webview2/)を入れてください。
 
 > **MSI版から `-setup.exe` へ乗り換えるときは、手で消す必要はありません。**
 > `-setup.exe` はMSI版がインストールされていることを見つけると、**先にMSI版を削除してから**
@@ -62,7 +63,7 @@ Windows 10 には含まれています）。
 > 逆向き（`-setup.exe` でインストールした上に MSI を重ねる）には対応していないので、
 > 先に「設定 → アプリ」からアンインストールしてください。
 
-### Windows は署名していないので警告が出ます
+### 署名していない版では Windows が警告を出します
 
 [Microsoft Store 版](https://apps.microsoft.com/detail/9N5H2QBMK9NB)は Microsoft が署名するので、この節は当てはまりません。
 それ以外の pictkura は **Windows のコード署名を受けていません**（証明書が有料のためです）。
@@ -230,7 +231,7 @@ Intel（x86_64）版と Linux 版はありません。
 
 ### 配布物を自分で確かめる
 
-署名の証明書を持っていないので、**配布者が「安全です」と述べても、受け取る側に
+ここで配るファイルには署名が無いので、**配布者が「安全です」と述べても、受け取る側に
 それを確かめる手立てがありません**。代わりに材料を出します。
 
 - **ソース**は全部あります。配布物は[タグごと](https://github.com/Harusame64/pictkura/tags)に、

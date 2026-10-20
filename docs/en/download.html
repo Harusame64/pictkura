@@ -145,7 +145,7 @@
     <div class="dl-row">
       <div>
         <h3>Microsoft Store <span class="badge">Recommended</span></h3>
-        <p>Windows 10 / 11. The Store installs and updates it. If you have used another version of pictkura in the same Windows account, the Store version uses the same library and settings. <strong class="em">Moving from the installer version? Uninstall it first.</strong> The Store version cannot remove the AutoPlay entry the installer version left, so two entries with the same name would appear.</p>
+        <p>Windows 10 / 11. The Store installs and updates it. If you have used another version of pictkura in the same Windows account, the Store version uses the same library and settings. <strong class="em">Moving from the installer version (setup.exe or MSI)? Uninstall it first.</strong> The Store version cannot remove the AutoPlay entry the installer version left, so two entries with the same name would appear.</p>
       </div>
       <div class="get">
         <a class="btn btn-sm" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Open in the Store</a>
@@ -232,7 +232,7 @@
   <div class="limits" style="margin-top:56px;max-width:980px">
     <div><b>No Intel build</b><br>Windows is 64-bit (x64) only, and the Mac build is Apple Silicon only</div>
     <div><b>No Linux build</b><br>Importing relies on Windows and macOS features that have no Linux counterpart here</div>
-    <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it (the Microsoft Store version does not)</div>
+    <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it. The Microsoft Store version does not, so use the installer or install <a href="https://developer.microsoft.com/en-us/microsoft-edge/webview2/">the WebView2 runtime</a> first</div>
     <div><b>Installing or removing leaves your photos alone</b><br>Installing or removing pictkura never rewrites a photo file. Where they are kept is in the <a href="spec.html#storage">specification</a></div>
   </div>
 
@@ -242,7 +242,7 @@
     <span class="rule"></span>
   </div>
 
-  <p class="lead" style="max-width:980px">There is no signing certificate, so <strong class="em">us telling you it is safe gives you nothing you can check</strong>. Here is what you can check instead. The point is not to claim it is safe — it is to leave you able to find out.</p>
+  <p class="lead" style="max-width:980px">The files here carry no signing certificate, so <strong class="em">us telling you it is safe gives you nothing you can check</strong>. Here is what you can check instead. The point is not to claim it is safe — it is to leave you able to find out.</p>
 
   <div class="limits" style="margin-top:40px;max-width:980px">
     <div><b>The source is all there</b><br>Every build is made from the source at <a href="https://github.com/Harusame64/pictkura/tags">its tag</a>. The <a href="https://github.com/Harusame64/pictkura">repository</a> is MIT licensed</div>
