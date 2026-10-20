@@ -7,7 +7,9 @@
  *
  *   [data-file="末尾"] … その中の [data-dl] の行き先、[data-name]、[data-size] を差し替える
  *   [data-pick="win"|"mac"] … 見ている端末に合わせて出し分ける区画
- *   [data-pick-cta] … 押した時点で実物が落ちるボタン（紹介ページの見出し）
+ *   [data-pick-cta] … 押した時点で実物が落ちるボタン（紹介ページの見出し）。
+ *                     data-store-win があれば、Windows では Microsoft Store のページへ送る
+ *   [data-pick-direct] … Windows で Store を勧めたときだけ現れる、インストーラへの道
  *   [data-ver] [data-date] … 版と公開日
  *   [data-stale] … 引けなかったときだけ現れる断り
  *
@@ -93,6 +95,18 @@
     return null;
   }
 
+  // Windows では見出しのボタンを Microsoft Store のページへ向ける（2026-10-20）。
+  // Store の行き先は Releases に頼らないので、引けなくても待たずに書き換える
+  function store(os) {
+    var cta = document.querySelector("[data-pick-cta]");
+    var url = cta && cta.getAttribute("data-store-win");
+    if (os !== "win" || !url) return;
+    cta.href = url;
+    var label = cta.getAttribute("data-cta-win");
+    if (label) cta.textContent = label;
+    each("[data-pick-direct]", function (el) { el.hidden = false; });
+  }
+
   // 押した時点で実物が落ちるボタン。**渡すものが確かなときだけ**書き換える
   // （"mac?" は含めない）。それ以外は埋めてある行き先＝選ぶ頁のまま
   function aim(assets, os) {
@@ -100,6 +114,11 @@
     if (!cta || (os !== "win" && os !== "mac")) return;
     var hit = find(assets, cta.getAttribute("data-file-" + os));
     if (!hit) return;
+    // Store を勧めているときは、exe はボタンでなく「直接ダウンロード」の行へ
+    if (os === "win" && cta.hasAttribute("data-store-win")) {
+      each("a[data-pick-direct]", function (el) { el.href = hit.browser_download_url; });
+      return;
+    }
     cta.href = hit.browser_download_url;
     var label = cta.getAttribute("data-cta-" + os);
     if (label) cta.textContent = label;
@@ -138,6 +157,7 @@
   // 端末の判定は通信と関係ないので、待たずに始めて先に区画を差し替える
   var seen = detect();
   seen.then(swap);
+  seen.then(store);
 
   fetch(API, { headers: { Accept: "application/vnd.github+json" } })
     .then(function (res) {

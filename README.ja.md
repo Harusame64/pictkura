@@ -31,11 +31,13 @@
 
 ## 入手とインストール
 
-最新版は [Releases](https://github.com/Harusame64/pictkura/releases) から入手できます。
+Windows では [Microsoft Store 版](https://apps.microsoft.com/detail/9N5H2QBMK9NB) がいちばん手軽です（初回の警告が出ず、更新も Store が配ります）。
+ほかのファイルは [Releases](https://github.com/Harusame64/pictkura/releases) から入手できます。
 
 | 対象 | ファイル | 備考 |
 |---|---|---|
-| **Windows 10/11（x64）・おすすめ** | `pictkura_<バージョン>_x64-setup.exe` | **管理者権限は不要です**。自分のユーザーにだけインストールされます（`%LOCALAPPDATA%\pictkura`）。**インストーラ**の言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます） |
+| **Windows 10/11（x64）・おすすめ** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | 初回の警告が出ず、更新も Store が配ります。**インストーラ版から移るときは、先にアンインストールしてください**（自動再生の候補が2つ並ぶため） |
+| **Windows 10/11（x64）** | `pictkura_<バージョン>_x64-setup.exe` | **管理者権限は不要です**。自分のユーザーにだけインストールされます（`%LOCALAPPDATA%\pictkura`）。**インストーラ**の言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます） |
 | **Windows・PC全体へインストールする（企業などの管理者向け）** | `pictkura_<バージョン>_x64_<言語>.msi` | PC全体にインストールする場合。**管理者権限を求められます**。日本語版と英語版は別のファイルです |
 | **Windows・インストール不要** | `pictkura_<バージョン>_x64-portable.zip` | 展開して `pictkura.exe` を実行するだけ |
 | **macOS 11以降（Apple Silicon）** | `pictkura_<バージョン>_arm64.zip` | 展開して `pictkura.app` を好きな場所へ。**初回起動の前に下の注意を読んでください** |

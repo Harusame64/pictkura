@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="pictkura">
 <meta property="og:locale" content="en_US">
 <meta property="og:title" content="Download | pictkura">
-<meta property="og:description" content="Every Windows and macOS build in one place. Press the button and the download starts.">
+<meta property="og:description" content="Every Windows and macOS build in one place. Press a file's button and the download starts.">
 <meta property="og:url" content="https://harusame64.github.io/pictkura/en/download.html">
 <meta property="og:image" content="https://harusame64.github.io/pictkura/assets/og.en.2.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -55,7 +55,7 @@
 <div class="page-head photo canopy">
   <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; Download</p>
   <h1 class="disp">Download</h1>
-  <p class="lead">Every Windows and macOS build, listed here. Pick one and the download starts immediately — no need to go and read a releases page. Free, no account, nothing to pay.</p>
+  <p class="lead">Every Windows and macOS build, listed here. Pick a file and the download starts immediately — no need to go and read a releases page. Free, no account, nothing to pay.</p>
   <p class="stamps">
     <span>Version &nbsp;<b>v<span data-ver>1.0.0</span></b></span>
     <span>Released &nbsp;<b data-date>2026-10-20</b></span>
@@ -108,15 +108,17 @@
     <p><strong class="em">The latest release information could not be retrieved.</strong> This is usually the network, or a temporary limit on GitHub's side. What is listed below is <b>v1.0.0</b>, which may no longer be the newest. Check <a href="https://github.com/Harusame64/pictkura/releases/latest">the releases page</a> if you want to be sure.</p>
   </div>
 
-  <section class="dl-pick" data-pick="win" data-file="x64-setup.exe" aria-labelledby="pick-win">
+  <!-- The Windows pick is the Microsoft Store version (2026-10-20): no first-launch warning, and the
+       Store delivers updates. The installer stays one link away for PCs without the Store -->
+  <section class="dl-pick" data-pick="win" aria-labelledby="pick-win">
     <div>
       <p class="eyebrow" style="margin-bottom:14px">Windows 10 / 11 (x64)</p>
       <h2 class="disp" id="pick-win">Recommended for Windows</h2>
-      <p class="why">No administrator rights are needed. It is installed for the current user only, and the installer asks whether you want English or Japanese (the app itself follows your OS language, or the one chosen in Settings). <a href="install.html#warn-setup">About the first-launch warning →</a></p>
+      <p class="why">Installed from the Microsoft Store, it shows no first-launch warning and the Store keeps it updated. On a PC without the Store, use <a href="#setup">the installer</a>.</p>
     </div>
     <div class="cta">
-      <a class="btn btn-primary" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe">Download</a>
-      <p class="meta"><span data-name>pictkura_1.0.0_x64-setup.exe</span><br><span data-size>8.0 MB</span></p>
+      <a class="btn btn-primary" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Get it from the Microsoft Store</a>
+      <p class="meta">apps.microsoft.com</p>
     </div>
   </section>
 
@@ -142,7 +144,7 @@
 
     <div class="dl-row">
       <div>
-        <h3>Microsoft Store</h3>
+        <h3>Microsoft Store <span class="badge">Recommended</span></h3>
         <p>Windows 10 / 11. The Store installs and updates it. If you have used another version of pictkura in the same Windows account, the Store version uses the same library and settings. <strong class="em">Moving from the installer version? Uninstall it first.</strong> The Store version cannot remove the AutoPlay entry the installer version left, so two entries with the same name would appear.</p>
       </div>
       <div class="get">
@@ -150,9 +152,9 @@
       </div>
     </div>
 
-    <div class="dl-row" data-file="x64-setup.exe">
+    <div class="dl-row" id="setup" data-file="x64-setup.exe">
       <div>
-        <h3>Windows installer <span class="badge">Recommended</span></h3>
+        <h3>Windows installer</h3>
         <p>No administrator rights are needed. It is installed for the current user only (<code>%LOCALAPPDATA%\pictkura</code>), and the installer lets you pick English or Japanese (the app itself follows your OS language, or the one chosen in Settings).</p>
         <p class="file" data-name>pictkura_1.0.0_x64-setup.exe</p>
       </div>
@@ -223,14 +225,14 @@
   </div>
 
   <div class="note warn" style="max-width:980px">
-    <p><strong class="em">Windows and macOS both warn you the first time, as the application is not digitally signed.</strong> The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>, and the material you can check for yourself is under <a href="#build">how these files are built</a>. <strong class="em">If anything still leaves you unsure after reading it, stop the installation.</strong></p>
+    <p><strong class="em">Apart from the Microsoft Store version, Windows and macOS both warn you the first time, as the application is not digitally signed.</strong> The warning means the publisher could not be verified — it is not the result of anything inspecting the contents. Every prompt, screen by screen, is written out in <a href="install.html">the installation guide</a>, and the material you can check for yourself is under <a href="#build">how these files are built</a>. <strong class="em">If anything still leaves you unsure after reading it, stop the installation.</strong></p>
     <p>On Windows it is "Windows protected your PC" → "More info" → "Run anyway". On macOS it refuses once, and you then allow it under System Settings → Privacy &amp; Security → "Open Anyway".</p>
   </div>
 
   <div class="limits" style="margin-top:56px;max-width:980px">
     <div><b>No Intel build</b><br>Windows is 64-bit (x64) only, and the Mac build is Apple Silicon only</div>
     <div><b>No Linux build</b><br>Importing relies on Windows and macOS features that have no Linux counterpart here</div>
-    <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it</div>
+    <div><b>WebView2 is required</b><br>Already present on Windows 11 and up-to-date Windows 10; where it is missing, the installer downloads it (the Microsoft Store version does not)</div>
     <div><b>Installing or removing leaves your photos alone</b><br>Installing or removing pictkura never rewrites a photo file. Where they are kept is in the <a href="spec.html#storage">specification</a></div>
   </div>
 

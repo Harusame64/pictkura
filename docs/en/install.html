@@ -88,19 +88,20 @@
 
     <section id="files">
       <h2 class="disp"><span class="num">1</span>Which file to download</h2>
-      <p>Every file is listed on <a href="download.html">the download page</a>, and older versions stay on <a href="https://github.com/Harusame64/pictkura/releases">the Releases page</a>. Usually you want <strong class="em"><code>-setup.exe</code> on Windows and <code>arm64.zip</code> on a Mac</strong>.</p>
+      <p>Every file is listed on <a href="download.html">the download page</a>, and older versions stay on <a href="https://github.com/Harusame64/pictkura/releases">the Releases page</a>. Usually you want <strong class="em"><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">the Microsoft Store version</a> on Windows and <code>arm64.zip</code> on a Mac</strong>. On a PC without the Store, use <code>-setup.exe</code>.</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th style="width:230px">Platform</th><th style="width:250px">File</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td class="k">Windows 10/11 (x64)<br><span class="badge">Recommended</span></td><td><code>pictkura_&lt;version&gt;_x64-setup.exe</code></td><td><strong class="em">No administrator rights needed.</strong> Installs for your user only (<code>%LOCALAPPDATA%\pictkura</code>). The <strong class="em">installer</strong> asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings)</td></tr>
+            <tr><td class="k">Windows 10/11 (x64)<br><span class="badge">Recommended</span></td><td><a href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store</a></td><td>No first-launch warning, and the Store keeps it updated. <strong class="em">Moving from the installer version? Uninstall it first</strong> (otherwise two AutoPlay entries appear)</td></tr>
+            <tr><td class="k">Windows 10/11 (x64)</td><td><code>pictkura_&lt;version&gt;_x64-setup.exe</code></td><td><strong class="em">No administrator rights needed.</strong> Installs for your user only (<code>%LOCALAPPDATA%\pictkura</code>). The <strong class="em">installer</strong> asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings)</td></tr>
             <tr><td class="k">Windows, machine-wide<br>(for administrators)</td><td><code>pictkura_&lt;version&gt;_x64_&lt;lang&gt;.msi</code></td><td>For installing per-machine. <strong class="em">Asks for administrator rights.</strong> Japanese and English installers are separate files</td></tr>
             <tr><td class="k">Windows, no installer</td><td><code>pictkura_&lt;version&gt;_x64-portable.zip</code></td><td>Unzip and run <code>pictkura.exe</code></td></tr>
             <tr><td class="k">macOS 11+<br>(Apple Silicon)</td><td><code>pictkura_&lt;version&gt;_arm64.zip</code></td><td>Unzip and move <code>pictkura.app</code> wherever you like. <strong class="em">Read <a href="#macos">section 3</a> before the first launch</strong></td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:20px">There is no Intel (x86_64) build, and no Linux build. Windows also needs the <strong class="em">WebView2 runtime</strong>, which is already present on Windows 11 and on up-to-date Windows 10; where it is missing, the installer fetches it.</p>
+      <p style="margin-top:20px">There is no Intel (x86_64) build, and no Linux build. Windows also needs the <strong class="em">WebView2 runtime</strong>, which is already present on Windows 11 and on up-to-date Windows 10; where it is missing, the installer fetches it (the Microsoft Store version does not).</p>
     </section>
 
     <section id="windows">

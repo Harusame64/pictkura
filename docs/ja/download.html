@@ -55,7 +55,7 @@
 <div class="page-head photo canopy">
   <p class="crumb"><a href="./">pictkura</a> &nbsp;/&nbsp; ダウンロード</p>
   <h1 class="disp">ダウンロード</h1>
-  <p class="lead">Windows 版と macOS 版のファイルは、ここに全部あります。ボタンを押すと、そのままダウンロードが始まります。無料で、登録も、支払いも要りません。</p>
+  <p class="lead">Windows 版と macOS 版のファイルは、ここに全部あります。ファイルのボタンを押すと、そのままダウンロードが始まります。無料で、登録も、支払いも要りません。</p>
   <p class="stamps">
     <span>バージョン &nbsp;<b>v<span data-ver>1.0.0</span></b></span>
     <span>公開日 &nbsp;<b data-date>2026-10-20</b></span>
@@ -100,15 +100,17 @@
     <p><strong class="em">最新バージョンの情報を取得できませんでした。</strong>回線か、GitHub 側の一時的な制限のようです。下に並んでいるのは <b>v1.0.0</b> のファイルで、これが最新とは限りません。念のため <a href="https://github.com/Harusame64/pictkura/releases/latest">GitHub のリリース</a>でも確かめてください。</p>
   </div>
 
-  <section class="dl-pick" data-pick="win" data-file="x64-setup.exe" aria-labelledby="pick-win">
+  <!-- Windows のおすすめは Microsoft Store 版（2026-10-20 利用者）。初回の警告が出ず、更新も Store が配る。
+       Store を使えない PC のために、インストーラへの道をすぐ下に置く -->
+  <section class="dl-pick" data-pick="win" aria-labelledby="pick-win">
     <div>
       <p class="eyebrow" style="margin-bottom:14px">Windows 10 / 11（x64）</p>
-      <h2 class="disp" id="pick-win">Windows 向けの推奨ファイル</h2>
-      <p class="why">管理者権限は要りません。現在のユーザーのみにインストールされ、インストーラの言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます）。<a href="install.html#warn-setup">初回起動時の警告について →</a></p>
+      <h2 class="disp" id="pick-win">Windows 向けのおすすめ</h2>
+      <p class="why">Microsoft Store から入れると、初回の警告が出ず、更新も Store が配ります。Store を使えない PC では、<a href="#setup">インストーラ</a>を使ってください。</p>
     </div>
     <div class="cta">
-      <a class="btn btn-primary" data-dl href="https://github.com/Harusame64/pictkura/releases/download/v1.0.0/pictkura_1.0.0_x64-setup.exe">ダウンロード</a>
-      <p class="meta"><span data-name>pictkura_1.0.0_x64-setup.exe</span><br><span data-size>8.0 MB</span></p>
+      <a class="btn btn-primary" href="https://apps.microsoft.com/detail/9N5H2QBMK9NB">Microsoft Store で入手</a>
+      <p class="meta">apps.microsoft.com</p>
     </div>
   </section>
 
@@ -134,7 +136,7 @@
 
     <div class="dl-row">
       <div>
-        <h3>Microsoft Store</h3>
+        <h3>Microsoft Store <span class="badge">推奨</span></h3>
         <p>Windows 10 / 11。インストールも更新も Store が行います。同じ Windows のアカウントでほかの版を使っていたなら、同じライブラリと設定を使います。<strong class="em">インストーラ版から移るときは、先にアンインストールしてください。</strong>インストーラ版が登録した自動再生の候補を Store 版からは消せないため、同じ名前の候補が2つ並びます。</p>
       </div>
       <div class="get">
@@ -142,9 +144,9 @@
       </div>
     </div>
 
-    <div class="dl-row" data-file="x64-setup.exe">
+    <div class="dl-row" id="setup" data-file="x64-setup.exe">
       <div>
-        <h3>Windows インストーラ <span class="badge">推奨</span></h3>
+        <h3>Windows インストーラ</h3>
         <p>管理者権限は要りません。現在のユーザーのみにインストールされます（<code>%LOCALAPPDATA%\pictkura</code>）。インストーラの言語は日本語か英語を選べます（アプリは OS の言語か、設定で選んだ言語で表示されます）。</p>
         <p class="file" data-name>pictkura_1.0.0_x64-setup.exe</p>
       </div>
@@ -215,14 +217,14 @@
   </div>
 
   <div class="note warn" style="max-width:980px">
-    <p><strong class="em">署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> この警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。自分で確かめるための材料は<a href="#build">配布物の作られ方</a>に並べました。<strong class="em">内容を確認しても判断がつかない場合は、インストールを中止してください。</strong></p>
+    <p><strong class="em">Microsoft Store 版を除き、署名の証明書を持っていないので、Windows でも macOS でも初回に警告が出ます。</strong> この警告は「発行元を確認できなかった」という意味で、中身を調べた結果ではありません。どの画面で何を押せばいいのかは、<a href="install.html">インストールと初回起動の手引き</a>に画面ごとに書いてあります。自分で確かめるための材料は<a href="#build">配布物の作られ方</a>に並べました。<strong class="em">内容を確認しても判断がつかない場合は、インストールを中止してください。</strong></p>
     <p>Windows は「WindowsによってPCが保護されました」→「詳細情報」→「実行」。macOS は一度断られたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。</p>
   </div>
 
   <div class="limits" style="margin-top:56px;max-width:980px">
     <div><b>Intel の Mac は対象外</b><br>Mac は Apple Silicon 専用です。Windows は 64bit（x64）のみ対応しています</div>
     <div><b>Linux 版はありません</b><br>取り込みの実装が Windows と macOS に依存しているためです</div>
-    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には含まれています。無い PC では、インストーラが取得してインストールします</div>
+    <div><b>WebView2 が要ります</b><br>Windows 11 と更新済みの Windows 10 には含まれています。無い PC では、インストーラが取得してインストールします（Microsoft Store 版は取得しません）</div>
     <div><b>インストールしても削除しても写真はそのまま</b><br>インストールやアンインストールで、写真ファイルを書き換えることはありません。保存場所は<a href="spec.html#storage">アプリ仕様</a>にあります</div>
   </div>
 

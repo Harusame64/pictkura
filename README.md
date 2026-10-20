@@ -33,11 +33,13 @@ library. The screens are in Japanese; pictkura itself is available in 7 language
 
 ## Installing
 
-Grab the latest build from [Releases](https://github.com/Harusame64/pictkura/releases).
+On Windows, the [Microsoft Store version](https://apps.microsoft.com/detail/9N5H2QBMK9NB) is the easiest: no first-launch warning, and the Store keeps it updated.
+Every other build is on [Releases](https://github.com/Harusame64/pictkura/releases).
 
 | Platform | File | Notes |
 |---|---|---|
-| **Windows 10/11 (x64), recommended** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
+| **Windows 10/11 (x64), recommended** | [Microsoft Store](https://apps.microsoft.com/detail/9N5H2QBMK9NB) | No first-launch warning; the Store delivers updates. **Moving from the installer version? Uninstall it first** (otherwise two AutoPlay entries appear) |
+| **Windows 10/11 (x64)** | `pictkura_<version>_x64-setup.exe` | **No administrator rights needed.** Installs for your user only (`%LOCALAPPDATA%\pictkura`). The **installer** asks for Japanese or English (the app itself follows your OS language, or the one chosen in Settings) |
 | **Windows, machine-wide install (for administrators)** | `pictkura_<version>_x64_<lang>.msi` | For installing per-machine. **Asks for administrator rights.** Japanese and English installers are separate files |
 | **Windows, no installer** | `pictkura_<version>_x64-portable.zip` | Unzip and run `pictkura.exe` |
 | **macOS 11+ (Apple Silicon)** | `pictkura_<version>_arm64.zip` | Unzip and move `pictkura.app` wherever you like. **See the note below before the first launch** |
