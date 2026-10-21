@@ -262,12 +262,26 @@ fn placement(
     work_pos: (i32, i32),
     work_size: (u32, u32),
 ) -> Option<(i32, i32)> {
-    let read = match (pos, size) {
+    landing(
+        resized,
+        read_of(pos, size, outer_before),
+        work_pos,
+        work_size,
+    )
+}
+
+/// 読めた位置と外形の組。**[`placement`] と [`placement_noted`] は、これ1つを見る**
+/// ——外形の代わりをどこから取るかを2か所に書くと、動かす判断と書く判断が別の外形で決まる（ゲート2）
+fn read_of(
+    pos: Option<(i32, i32)>,
+    size: Option<(u32, u32)>,
+    outer_before: (u32, u32),
+) -> Option<((i32, i32), (u32, u32))> {
+    match (pos, size) {
         (Some(pos), Some(size)) => Some((pos, size)),
         (Some(pos), None) => Some((pos, outer_before)),
         (None, _) => None,
-    };
-    landing(resized, read, work_pos, work_size)
+    }
 }
 
 /// **動いたことを記録に残さない、見た目の微調整か**（pictkura-dev #60）。
@@ -277,21 +291,39 @@ fn placement(
 /// 1行書いていた**（win の台で 49 行、09-27 の 0.2.8 から）。ふつうの起動では何も書かない、という
 /// 利用者の決まり（#57）に反するうえ、本物の行が埋もれる。
 ///
-/// **微調整と呼ぶのは、次の両方を満たすときだけ**:
+/// **微調整と呼ぶのは、次の3つを満たすときだけ**:
 /// - **上か左へしか動かない**——はみ出していたのは下か右で、左上の角（題の帯）は初めから中に在った。
 ///   題の帯が上や左に外れていた窓は、利用者が掴めなかった窓なので、量に依らず書く
-/// - **動く量が、どちらの軸も窓の寸法の 1/8 以下**——起動時に「跳んだ」と見える動きは書く
-///   （09-17 の「成功した移動こそ記録が無いと追えない」は、その症状を追うための決まり）
+/// - **動く量が、どちらの軸も窓の寸法の 1/16 以下**（高さ 879 なら 54 px）——起動時に「跳んだ」と
+///   見える動きは書く（09-17 の「成功した移動こそ記録が無いと追えない」は、その症状を追うための決まり）。
+///   win の台で見たいちばん大きい押し戻しは 48 px。1/8 では倍を越えて黙っていた（ゲート2の2周目）
+/// - **動かした先で、窓が作業領域に収まっている**——作業領域より大きい軸は端へ寄せるだけで、
+///   はみ出したまま残る。それは「合わない」の症状なので書く（ゲート2の2周目）
 ///
 /// **見えていた面積では決めない**（ゲート2）。半分見えていれば黙る規則だと、427 px 跳ぶ窓も、
 /// 題の帯が画面の上に外れた窓も黙ってしまう。
-fn is_a_nudge(from: (i32, i32), to: (i32, i32), outer: (u32, u32)) -> bool {
-    let small = |d: i64, len: u32| d <= i64::from(len) / 8;
+fn is_a_nudge(
+    from: (i32, i32),
+    to: (i32, i32),
+    outer: (u32, u32),
+    work_pos: (i32, i32),
+    work_size: (u32, u32),
+) -> bool {
+    let small = |d: i64, len: u32| d <= i64::from(len) / 16;
     let (dx, dy) = (
         i64::from(from.0) - i64::from(to.0),
         i64::from(from.1) - i64::from(to.1),
     );
-    dx >= 0 && dy >= 0 && small(dx, outer.0) && small(dy, outer.1)
+    let fits = |at: i32, len: u32, w: i32, wlen: u32| {
+        i64::from(at) >= i64::from(w)
+            && i64::from(at) + i64::from(len) <= i64::from(w) + i64::from(wlen)
+    };
+    dx >= 0
+        && dy >= 0
+        && small(dx, outer.0)
+        && small(dy, outer.1)
+        && fits(to.0, outer.0, work_pos.0, work_size.0)
+        && fits(to.1, outer.1, work_pos.1, work_size.1)
 }
 
 /// 置き場所と、**それを記録に書くか**を、同じ読みから決める（[`placement`] と [`is_a_nudge`]）。
@@ -309,8 +341,8 @@ fn placement_noted(
     work_size: (u32, u32),
 ) -> Option<((i32, i32), bool)> {
     let to = placement(resized, pos, size, outer_before, work_pos, work_size)?;
-    let noted = match pos {
-        Some(from) if !shrunk => !is_a_nudge(from, to, size.unwrap_or(outer_before)),
+    let noted = match read_of(pos, size, outer_before) {
+        Some((from, outer)) if !shrunk => !is_a_nudge(from, to, outer, work_pos, work_size),
         _ => true,
     };
     Some((to, noted))
@@ -520,6 +552,19 @@ mod tests {
         assert_eq!(at((100, -400)), Some(((100, 0), true)));
         // 左へ外れていた（右へ押し戻す）
         assert_eq!(at((-30, 100)), Some(((0, 100), true)));
+        // 押し戻しても収まらない（作業領域より高い窓。上の端へ寄せるだけで、下ははみ出したまま）
+        assert_eq!(
+            placement_noted(
+                false,
+                false,
+                Some((100, 10)),
+                Some((1296, 1050)),
+                (1296, 1050),
+                w.0,
+                w.1
+            ),
+            Some(((100, 0), true))
+        );
         // 外したモニターの座標
         assert_eq!(at((2500, 100)), Some(((624, 100), true)));
         // 寸法を直したなら、微調整でも書く（寸法の行と対にする）
@@ -542,21 +587,48 @@ mod tests {
         );
     }
 
-    /// 境目は窓の寸法の 1/8（879 なら 109 px）。入っていれば何もしない（書くものも無い）
+    /// 境目は窓の寸法の 1/16（879 なら 54 px、1296 なら 81 px）。入っていれば何もしない（書くものも無い）
     #[test]
-    fn the_nudge_ends_at_an_eighth_of_the_window() {
-        assert!(is_a_nudge((10, 262), (10, 153), (1296, 879)));
-        assert!(!is_a_nudge((10, 263), (10, 153), (1296, 879)));
+    fn the_nudge_ends_at_a_sixteenth_of_the_window() {
+        assert!(is_a_nudge(
+            (10, 207),
+            (10, 153),
+            (1296, 879),
+            (0, 0),
+            (1920, 1032)
+        ));
+        assert!(!is_a_nudge(
+            (10, 208),
+            (10, 153),
+            (1296, 879),
+            (0, 0),
+            (1920, 1032)
+        ));
+        // 横も同じ（左へ 81 px までは微調整、82 px は書く）
+        assert!(is_a_nudge(
+            (705, 10),
+            (624, 10),
+            (1296, 879),
+            (0, 0),
+            (1920, 1032)
+        ));
+        assert!(!is_a_nudge(
+            (706, 10),
+            (624, 10),
+            (1296, 879),
+            (0, 0),
+            (1920, 1032)
+        ));
         assert!(
-            !is_a_nudge((10, 100), (10, 153), (1296, 879)),
+            !is_a_nudge((10, 100), (10, 153), (1296, 879), (0, 0), (1920, 1032)),
             "下へ動くのは微調整ではない"
         );
-        // **量は、動かした窓そのものの外形で測る**（97 px は 879 の 1/8 以内。半分の外形なら越える）
+        // **量は、動かした窓そのものの外形で測る**（48 px は 879 の 1/16 以内。半分の外形なら越える）
         assert_eq!(
             placement_noted(
                 false,
                 false,
-                Some((10, 250)),
+                Some((10, 201)),
                 Some((1296, 879)),
                 (1296, 879),
                 (0, 0),
