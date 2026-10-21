@@ -615,6 +615,8 @@ export const zh: Dict = {
   settingsLanguageSystem: "跟随系统",
   settingsLanguageNote:
     "选好之后会重新加载界面。复制本身会在后台继续，但导入向导会关闭，看不到进度——所以请在导入结束之后再切换。",
+  settingsLanguageMacNote:
+    "保存面板、确认对话框等 macOS 窗口，会在下次启动 pictkura 时切换为这种语言。",
   settingsTheme: "主题",
   themeSystem: "跟随系统",
   themeLight: "浅色",

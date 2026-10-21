@@ -641,6 +641,8 @@ export const es: Dict = {
   settingsLanguageSystem: "El del sistema",
   settingsLanguageNote:
     "Al cambiarlo se recarga la ventana. La copia sigue en marcha en segundo plano, pero el asistente de importación se cierra y pierdes de vista su progreso, así que espera a que termine una importación antes de cambiar.",
+  settingsLanguageMacNote:
+    "Las ventanas de macOS, como el panel para guardar y las confirmaciones, cambiarán a este idioma la próxima vez que abras pictkura.",
   settingsTheme: "Aspecto",
   themeSystem: "El del sistema",
   themeLight: "Claro",

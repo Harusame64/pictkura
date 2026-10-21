@@ -3085,6 +3085,8 @@ dependencies = [
  "core-foundation-sys",
  "image",
  "libc",
+ "objc2",
+ "objc2-foundation",
  "pictkura-core",
  "serde",
  "serde_json",

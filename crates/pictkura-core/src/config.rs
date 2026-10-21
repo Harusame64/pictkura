@@ -7,6 +7,7 @@
 //! - `[performance]` : サムネイルサイズやワーカー数などの性能パラメータ
 //! - `[viewer]`      : 全画面ビューアの操作
 //! - `[update]`      : 新しい版が出ていないかの確認（唯一の外向き通信）
+//! - `[ui]`          : 画面の言語の選択の控え（macOS の枠を合わせるため。pictkura-dev #27）
 
 use std::path::{Path, PathBuf};
 
@@ -38,6 +39,21 @@ pub struct Config {
     pub update: UpdateConfig,
     pub grid: GridConfig,
     pub google_mirror: GoogleMirrorConfig,
+    pub ui: UiConfig,
+}
+
+/// `[ui]` 画面の言語の選択の**控え**（pictkura-dev #27）。
+///
+/// **選択の正は画面の localStorage**（`ui/src/i18n/index.ts` の `pickLocale()`）で、ここは写しである。
+/// 写しを持つのは、**macOS の枠（確認ダイアログ・保存パネルなど）を、起動の頭で同じ言語に合わせる**ため
+/// ——AppKit は窓が立つ前に言語を決めるので、画面の localStorage はまだ読めない。
+/// **`None` は「OS に合わせる」**（何も上書きしない）。画面は起動のたびに今の選択を送ってくるので、
+/// 食い違っても次の起動で揃う。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    /// 画面の辞書のコード（`ja` / `de` / `zh-hant` …）。
+    pub locale: Option<String>,
 }
 
 /// `[editors]` 外部の編集アプリ。

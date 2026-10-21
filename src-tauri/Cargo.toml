@@ -122,6 +122,17 @@ libc = "0.2"
 # 地域書式の設定を読む（`CFLocaleCopyCurrent`）。表示言語のリストとは別の設定。
 # Tauri が既に同じ版を引いているので、依存は増えても新しくビルドされない
 core-foundation-sys = "0.8"
+# macOS の枠（AppKit）を画面で選んだ言語に合わせる（`appkit_lang.rs`、dev #27）: 引数の領域に
+# `AppleLanguages` を置き、AppKit が解決した言語を読む。tao が同じ版を引いている
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSBundle",
+    "NSDictionary",
+    "NSString",
+    "NSUserDefaults",
+] }
 
 # 実物のフォルダとシンボリックリンクを作るテストで使う
 # （綴りを揃える方と、空の理由を答える方の両方）

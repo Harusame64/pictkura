@@ -5,7 +5,7 @@
 // タイムラインの骨組みを作り、可視範囲の日だけを listDay で取得する。
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
-import { locale, t } from "./i18n";
+import { locale, readLocaleChoice, t } from "./i18n";
 
 export interface MediaItem {
   id: number;
@@ -1029,6 +1029,16 @@ export const setCheckUpdateOnStart = (enabled: boolean) =>
  */
 export const syncMenuLocale = () =>
   invoke<void>("set_menu_locale", { code: locale }).catch(() => {});
+
+/**
+ * **言語の選択を Rust に控えてもらう**（macOSだけ効く。pictkura-dev #27）。`null` は「OSに合わせる」。
+ *
+ * 控えは**次の起動で** macOS の枠（確認ダイアログ・保存パネルなど）をこの言語に合わせるのに使う
+ * ——AppKit は窓が立つ前に言語を決めるので、localStorage はまだ読めない。起動のたびに今の選択を送る
+ * （前の版から上げた人も、1回起動すれば揃う）。**失敗しても黙る**——枠が OS の言語のまま残るだけ
+ */
+export const rememberLocaleChoice = (code: string | null = readLocaleChoice()) =>
+  invoke<void>("remember_locale_choice", { code }).catch(() => {});
 
 /** Windows の「自動再生」の設定を開く（Store 版の再設定の入口。dev #53） */
 export const openAutoplaySettings = () => invoke<void>("open_autoplay_settings");

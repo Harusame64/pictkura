@@ -567,6 +567,8 @@ export const en: Dict = {
   settingsLanguageSystem: "Match system",
   settingsLanguageNote:
     "Switching reloads the window. Copying itself keeps running in the background, but the import wizard closes and you lose sight of its progress — so wait until an import finishes before switching.",
+  settingsLanguageMacNote:
+    "macOS windows such as the Save panel and confirmation dialogs switch to this language the next time you start pictkura.",
   settingsTheme: "Theme",
   themeSystem: "Match system",
   themeLight: "Light",

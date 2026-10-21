@@ -1,10 +1,12 @@
 /**
  * 確認ダイアログのキャンセルの語を決める（純関数。`scripts/confirmLabels.test.ts` が表で見る）。
  *
- * **macOS は OS の言語の語を渡す**——AppKit が Esc を割り当てるのは、題が OS の言語の
+ * **macOS は AppKit の言語の語を渡す**（`osT`）——AppKit が Esc を割り当てるのは、題が AppKit の言語の
  * 「キャンセル」か英語の `Cancel` のボタンだけ。アプリだけドイツ語にした日本語の Mac で
- * `Abbrechen` を渡すと、Esc で閉じない（2026-09-25 実機、#147）。
- * OS の言語の辞書が無ければ `undefined`（＝プラグイン既定の英語 `Cancel`。これも Esc が効く）。
+ * `Abbrechen` を渡すと、Esc で閉じなかった（2026-09-25 実機、#147）。AppKit の言語は、起動の頭で
+ * 画面の言語の控えに合わせる（dev #27）ので、ふつうは画面と同じ語になる。**それでも `t` に寄せない**
+ * ——言語を選び直した起動の中では、AppKit だけ前の言語のまま。
+ * AppKit の言語の辞書が無ければ `undefined`（＝プラグイン既定の英語 `Cancel`。これも Esc が効く）。
  *
  * **Windows とその他はアプリの言語**——Windows は `TDF_ALLOW_DIALOG_CANCELLATION` で、
  * 語によらず Esc が効く。

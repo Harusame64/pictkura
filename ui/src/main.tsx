@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./App.css";
-import { syncMenuLocale } from "./api";
+import { rememberLocaleChoice, syncMenuLocale } from "./api";
 import { locale } from "./i18n";
 import { initTheme } from "./theme";
 
@@ -19,6 +19,7 @@ document.documentElement.lang = locale;
 // OSの言語から当てているので、`localStorage` で別の言語を選んでいる人は
 // ここで直る。**待たない**——描画を止めてまで揃える話ではない
 void syncMenuLocale();
+void rememberLocaleChoice();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

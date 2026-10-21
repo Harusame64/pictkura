@@ -26,6 +26,7 @@ import {
   BURST_GAPS_MS,
   burstGapOf,
   openAutoplaySettings,
+  rememberLocaleChoice,
   googleLocation,
   googleFolders,
   setGoogleEnabled,
@@ -851,7 +852,11 @@ export default function Settings({
                 // 変わらないので、先に表示だけ変えると「その言語になっている」と
                 // 嘘をつくことになる。state を変えなければ、Reactが
                 // プルダウンを元の選択へ戻してくれる
-                if (setLocaleChoice(code)) setLangChoice(code);
+                //
+                // **保存できたら、読み込み直す前に控えを送る**（macOS の枠を次の起動で揃えるため。dev #27）
+                void setLocaleChoice(code, () => rememberLocaleChoice(code)).then((ok) => {
+                  if (ok) setLangChoice(code);
+                });
               }}
             >
               <option value="">{t.settingsLanguageSystem}</option>
@@ -862,6 +867,9 @@ export default function Settings({
               ))}
             </select>
             <p className="settings-note">{t.settingsLanguageNote}</p>
+            {platform === "macos" && (
+              <p className="settings-note">{t.settingsLanguageMacNote}</p>
+            )}
           </section>
 
           <section className="settings-section">

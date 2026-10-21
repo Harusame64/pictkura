@@ -12,7 +12,7 @@ import { isTemporaryFolder, type HostPlatform } from "./api";
 
 /**
  * - **OK は押すと何が起きるかを言う**（`okLabel`）
- * - キャンセルの語は `cancelLabelFor`（macOS は OS の言語）
+ * - キャンセルの語は `cancelLabelFor`（macOS は AppKit の言語）
  * - **開けなかったら、知らせてから「取り消した」と同じに扱う**——黙って取り消しに倒すと、
  *   押しても何も起きないボタンになる（呼び側の `catch` に届いていた失敗を握り潰さない）
  */
