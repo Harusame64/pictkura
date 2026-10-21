@@ -432,8 +432,10 @@ Chinese (Simplified), Chinese (Traditional), and Japanese**.
 
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
 overrides that; switching reloads the window. The first day of the week follows your OS
-setting. The frames of system dialogs such as Save and folder pickers come from the OS and
-use its language (on macOS, English if the macOS language is not one of the seven).
+setting. The frames of system dialogs such as Save and folder pickers come from the OS. On
+Windows they use the OS language. On macOS they follow the language chosen in Settings,
+from the next launch after switching (when following the OS, its language; English if the
+macOS language is not one of the seven).
 
 The full manual ships with the app — ⚙ (Settings) → **Manual**. It is also readable in a
 browser at **[harusame64.github.io/pictkura/manual.en.html](https://harusame64.github.io/pictkura/manual.en.html)**.
