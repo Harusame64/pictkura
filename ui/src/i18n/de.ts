@@ -636,6 +636,8 @@ export const de: Dict = {
   settingsLanguageSystem: "Wie das System",
   settingsLanguageNote:
     "Beim Wechsel wird das Fenster neu geladen. Das Kopieren läuft im Hintergrund weiter, aber der Import-Assistent schließt sich und du siehst den Fortschritt nicht mehr — warte deshalb das Ende eines Imports ab, bevor du wechselst.",
+  settingsLanguageMacNote:
+    "macOS-Fenster wie der Sichern-Dialog und Bestätigungen wechseln beim nächsten Start von pictkura in diese Sprache.",
   settingsTheme: "Erscheinungsbild",
   themeSystem: "Wie das System",
   themeLight: "Hell",

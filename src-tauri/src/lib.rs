@@ -41,6 +41,9 @@ mod shell_menu;
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
 mod menu;
+// macOS の枠（AppKit）を画面で選んだ言語に合わせる（dev #27）
+#[cfg(target_os = "macos")]
+mod appkit_lang;
 // OS の言語から辞書のコードを当てる（メニューの繋ぎと、WebView2 が無いときの案内。dev #72）
 mod os_dict;
 mod packaged;
@@ -6571,6 +6574,31 @@ fn first_weekday_from_core_foundation(v: i64) -> Option<u32> {
 /// **こちらで作り直さない。** 画面が読み込まれた時点で1回呼んでくる。
 ///
 /// Windowsは窓にメニューを載せていないので**何もしない**。
+/// **画面の言語の選択を控える**（dev #27）。`None` は「OS に合わせる」。
+///
+/// 控えは次の起動で macOS の枠を合わせるのに使う（[`align_appkit_language`]）。画面は起動のたびと、
+/// 選び直したときに送ってくる。**同じなら書かない**——起動のたびに設定ファイルを書き直さない。
+/// 知らないコードは断る（控えを壊さない）
+#[tauri::command]
+fn remember_locale_choice(
+    state: tauri::State<'_, AppState>,
+    code: Option<String>,
+) -> Result<(), String> {
+    // **控えを読むのは macOS だけ**なので、ほかの台では設定ファイルを書き換えない
+    if !cfg!(target_os = "macos") {
+        return Ok(());
+    }
+    if let Some(c) = &code {
+        if !os_dict::DICT_CODES.contains(&c.as_str()) {
+            return Err(format!("unknown language code: {c}"));
+        }
+    }
+    if lock_ok(&state.config).ui.locale == code {
+        return Ok(());
+    }
+    update_config(&state, |c| c.ui.locale = code)
+}
+
 #[tauri::command]
 fn set_menu_locale(app: tauri::AppHandle, code: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -6603,20 +6631,58 @@ fn set_menu_locale(app: tauri::AppHandle, code: String) -> Result<(), String> {
 /// 言語の切り替えが `location.reload()` を挟んでいるのと同じ事情である。
 /// **確かめるときは「変えてから起動する」**——走っているアプリの脇で変えて
 /// 「効いていない」と読むと、直っているものを壊れていると判定する（win の申し送り）。
-fn os_locale_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
-    let locales: Vec<String> = sys_locale::get_locales().collect();
+///
+/// **値は [`OsLocale::read`] で先に読んでおいて渡す**（dev #27）。macOS では起動の頭で
+/// AppKit の言語を上書きし、上書きのあとに読むと OS の言語も地域書式も選んだ言語に化けるので、
+/// 読む時点を `run()` が決める。`appkit` は AppKit が実際に解決した言語（macOS だけ）。
+fn os_locale_plugin<R: tauri::Runtime>(
+    os: &OsLocale,
+    appkit: Option<&str>,
+) -> tauri::plugin::TauriPlugin<R> {
     // **JSは組み立てず、データだけ差し込む**。ロケール名を文字列連結で埋めると、
     // 変な値が来たときに**構文が壊れて画面が真っ白になる**。ここは起動経路なので、
     // 失敗しても「地域が分からない」に留める（`[]` を置いて画面側で従来動作へ倒す）
-    let langs = serde_json::to_string(&locales).unwrap_or_else(|_| "[]".to_string());
-    let region = serde_json::to_string(&os_region_locale()).unwrap_or_else(|_| "null".to_string());
-    let weekday = serde_json::to_string(&os_first_weekday()).unwrap_or_else(|_| "null".to_string());
+    let langs = serde_json::to_string(&os.locales).unwrap_or_else(|_| "[]".to_string());
+    let region = serde_json::to_string(&os.region).unwrap_or_else(|_| "null".to_string());
+    let weekday = serde_json::to_string(&os.first_weekday).unwrap_or_else(|_| "null".to_string());
+    let appkit = serde_json::to_string(&appkit).unwrap_or_else(|_| "null".to_string());
     tauri::plugin::Builder::new("os-locale")
         .js_init_script(format!(
             "window.__PICTKURA_OS_LOCALES__ = {langs}; window.__PICTKURA_OS_REGION__ = {region}; \
-             window.__PICTKURA_FIRST_WEEKDAY__ = {weekday};"
+             window.__PICTKURA_FIRST_WEEKDAY__ = {weekday}; window.__PICTKURA_APPKIT_LOCALE__ = {appkit};"
         ))
         .build()
+}
+
+/// 起動時に読む OS の言語・地域書式・週の始まり（[`os_locale_plugin`] へ渡す）
+struct OsLocale {
+    locales: Vec<String>,
+    region: Option<String>,
+    first_weekday: Option<u32>,
+}
+
+impl OsLocale {
+    fn read() -> Self {
+        Self {
+            locales: sys_locale::get_locales().collect(),
+            region: os_region_locale(),
+            first_weekday: os_first_weekday(),
+        }
+    }
+}
+
+/// **控えの言語を AppKit に置き、AppKit が解決した言語を返す**（macOS だけ、dev #27）。
+/// 控えは `pictkura.toml` の `[ui] locale`。読めなければ何も置かない（OS に合わせる）。
+/// **[`OsLocale::read`] のあとに呼ぶこと**——置いたあとは OS の言語が読めない
+#[cfg(target_os = "macos")]
+fn align_appkit_language() -> Option<&'static str> {
+    let saved = app_dir_without_app()
+        .and_then(|dir| Config::load(&dir.join("pictkura.toml")).ok())
+        .and_then(|c| c.ui.locale);
+    if let Some(code) = saved {
+        appkit_lang::apply(&code);
+    }
+    appkit_lang::resolved()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -6662,6 +6728,13 @@ pub fn run() {
     #[cfg(windows)]
     webview2_check::ensure_runtime_or_exit();
 
+    // **OS の言語と地域書式は、AppKit の言語を上書きする前に読む**（dev #27）
+    let os_locale = OsLocale::read();
+    #[cfg(target_os = "macos")]
+    let appkit_locale = align_appkit_language();
+    #[cfg(not(target_os = "macos"))]
+    let appkit_locale: Option<&str> = None;
+
     let run = tauri::Builder::default()
         // single-instanceは**最初のプラグイン**でなければならない（Tauriの規約）。
         // USB挿入の自動起動で2重に立ち上がっても、新しい窓を開かず動作中の
@@ -6670,7 +6743,7 @@ pub fn run() {
             handle_second_instance(app, &argv);
         }))
         // OSの言語（地域つき）を、画面のスクリプトより先に置く
-        .plugin(os_locale_plugin())
+        .plugin(os_locale_plugin(&os_locale, appkit_locale))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // **メニューの「設定…」が押されたことを、画面へ渡す**（2026-09-07）。
@@ -6713,6 +6786,8 @@ pub fn run() {
             window_fit::fit_main_window(app.handle());
 
             // **メニューバーを、まずOSの言語で当てて掛ける**（macOSだけ・Issue #14）。
+            // 控えの言語で AppKit を上書きした起動では、ここで読む言語はその控えになる
+            // ——画面が読み込まれる前から、メニューも選んだ言語で出る（dev #27）。
             // 画面が読み込まれたら `set_menu_locale` が正しい言語で組み直す。
             // **当てておく理由は、当てないと日本語のMacで毎回英語のメニューが
             // 一瞬見えるから**である。失敗しても起動は止めない——メニューの言語で
@@ -7400,7 +7475,8 @@ pub fn run() {
             update::check_update,
             update::open_download_page,
             update::set_check_update_on_start,
-            set_menu_locale
+            set_menu_locale,
+            remember_locale_choice
         ])
         .run(tauri::generate_context!());
     // **起動できなかったときは黙って消えない**。`expect` で落とすと

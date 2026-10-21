@@ -661,6 +661,8 @@ export const ja = {
   settingsLanguageSystem: "OSに合わせる",
   settingsLanguageNote:
     "選ぶと画面を読み込み直します。コピーそのものは裏で続きますが、取り込みウィザードは閉じて進み具合が見えなくなるので、取り込み中は終わってから切り替えてください。",
+  settingsLanguageMacNote:
+    "保存パネルや確認ダイアログなど macOS の窓は、次に pictkura を起動したときからこの言語になります。",
   settingsTheme: "テーマ",
   themeSystem: "システムに合わせる",
   themeLight: "ライト",

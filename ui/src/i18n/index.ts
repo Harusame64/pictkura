@@ -211,14 +211,24 @@ export function setLocaleChoice(code: string | null): boolean {
 export const t: Dict = DICTS[locale] ?? en;
 
 /**
- * **OS の言語の辞書**（利用者の言語の選択を見ない）。持っていない言語なら `null`。
+ * **AppKit の言語の辞書**。持っていない言語なら `null`。
  *
- * **macOS の確認ダイアログのキャンセルに使う。** 枠は AppKit のもので、OS の言語で出る
+ * **macOS の確認ダイアログのキャンセルに使う。** 枠は AppKit のもので、AppKit が解決した言語で出る
  * （`src-tauri/Info.plist` の `CFBundleLocalizations`）。**AppKit が Esc を割り当てるのは、
- * 題が OS の言語の「キャンセル」か英語の `Cancel` のボタンだけ**——アプリだけドイツ語にした
+ * 題が AppKit の言語の「キャンセル」か英語の `Cancel` のボタンだけ**——アプリだけドイツ語にした
  * 日本語の Mac で `Abbrechen` を渡すと、Esc で閉じない（2026-09-25 実機、#147 の2ゲート目）。
+ *
+ * **AppKit の言語は、起動の頭で控えの選択に合わせる**（`src-tauri/src/appkit_lang.rs`、dev #27）。だから
+ * ふつうは画面の言語と同じだが、**言語を選び直した起動の中だけは前の言語のまま**（AppKit は1回しか
+ * 解決しない）。Rust が解決の結果を置くので、それを見る。置かれていなければ（開発中のブラウザ・
+ * 古い版）、OS の言語から推し量る（従来の動き）。
  */
 export const osT: Dict | null = (() => {
+  // **AppKit が実際に解決した言語を先に見る**（Rust が置く。dev #27）。起動の頭で選んだ言語を AppKit に
+  // 置くようになったので、OS の言語から推し量ると食い違う——置いた起動では枠は選んだ言語で出る
+  const appkit = (window as unknown as { __PICTKURA_APPKIT_LOCALE__?: unknown })
+    .__PICTKURA_APPKIT_LOCALE__;
+  if (typeof appkit === "string" && hasDict(appkit)) return DICTS[appkit];
   const code = matchLocale(preferredLocales, hasDict);
   return code ? DICTS[code] : null;
 })();

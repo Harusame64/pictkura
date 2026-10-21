@@ -618,6 +618,8 @@ export const zhHant: Dict = {
   settingsLanguageSystem: "跟隨系統",
   settingsLanguageNote:
     "選好之後會重新載入畫面。複製本身會在背景繼續，但匯入精靈會關閉，看不到進度——所以請在匯入結束之後再切換。",
+  settingsLanguageMacNote:
+    "儲存面板、確認對話框等 macOS 視窗，會在下次啟動 pictkura 時切換為這種語言。",
   settingsTheme: "主題",
   themeSystem: "跟隨系統",
   themeLight: "淺色",
