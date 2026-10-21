@@ -270,6 +270,39 @@ fn placement(
     landing(resized, read, work_pos, work_size)
 }
 
+/// **動かしたことを記録に残すか**（pictkura-dev #60）。**残すのは、跳んだと見える動きだけ。**
+///
+/// 位置はどこにも覚えていないので、窓は毎回 Windows の既定の置き場所（段々ずらし）で開く。
+/// 1080p（作業領域 1032）では外形の高さ 879 が下に 3〜48 px はみ出し、**起動のたびに押し戻して
+/// 1行書いていた**（win の台で 49 行、09-27 の 0.2.8 から）。ふつうの起動では何も書かない、という
+/// 利用者の決まり（#57）に反するうえ、本物の行が埋もれる。
+///
+/// **動かす前に窓の半分以上が作業領域に入っていたら、それは見た目の微調整なので書かない。**
+/// 書くのは、縮めたとき・位置が読めなかったとき・半分以上が外に居たとき（外したモニターの
+/// 座標で開いた窓など）。09-17 の「成功した移動こそ記録が無いと追えない」は、利用者から
+/// 見える症状が「窓が起動時に跳んだ」だったから——**跳んだと見える動きは、今も書く**。
+fn worth_noting(
+    resized: bool,
+    pos: Option<(i32, i32)>,
+    outer: (u32, u32),
+    work_pos: (i32, i32),
+    work_size: (u32, u32),
+) -> bool {
+    let Some((x, y)) = pos else { return true };
+    if resized || outer.0 == 0 || outer.1 == 0 {
+        return true;
+    }
+    let inside = |start: i32, len: u32, wstart: i32, wlen: u32| -> i64 {
+        let (a, b) = (i64::from(start), i64::from(start) + i64::from(len));
+        let (wa, wb) = (i64::from(wstart), i64::from(wstart) + i64::from(wlen));
+        (b.min(wb) - a.max(wa)).max(0)
+    };
+    let shown =
+        inside(x, outer.0, work_pos.0, work_size.0) * inside(y, outer.1, work_pos.1, work_size.1);
+    let whole = i64::from(outer.0) * i64::from(outer.1);
+    shown * 2 < whole
+}
+
 /// 主窓を、いま載っている画面の作業領域に合わせる。**入っているなら何もしない。**
 ///
 /// **数は `tauri.conf.json` から読む**——ここに写しを置くと、
@@ -397,9 +430,18 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
         (work.size.width, work.size.height),
     );
     if let Some((x, y)) = moved_to {
-        // **動かしたことは書く。** 利用者から見える症状は「窓が起動時に跳んだ」で、
-        // **成功した移動こそ記録が無いと追えない**（2026-09-17 の指摘）。
+        // **跳んだと見える動きは書く。** 利用者から見える症状は「窓が起動時に跳んだ」で、
+        // **成功した移動こそ記録が無いと追えない**（2026-09-17 の指摘）。半分以上入っていた窓の
+        // 微調整は書かない（[`worth_noting`]、dev #60）。断られたときは、いつでも書く
+        let note = worth_noting(
+            resized,
+            pos,
+            size.unwrap_or((outer.width, outer.height)),
+            (work.position.x, work.position.y),
+            (work.size.width, work.size.height),
+        );
         match window.set_position(PhysicalPosition::new(x, y)) {
+            Ok(()) if !note => {}
             // **「頼んだ」までしか書かない。** macOS の `set_outer_position` は
             // `setFrameTopLeftPoint:` を主キューへ投げて `()` を返すので、`Ok(())` は
             // **動いた証拠ではない**（2ゲート目の2周目。30行上の寸法の記録が同じ理由で
@@ -428,6 +470,74 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **win の台の 49 行**（1920x1080・100%・作業領域 1032、外形 1296x879）は、どれも書かない
+    #[test]
+    fn a_nudge_back_onto_the_work_area_is_not_noted() {
+        for from in [(156, 156), (182, 182), (208, 201), (234, 201)] {
+            assert!(
+                !worth_noting(false, Some(from), (1296, 879), (0, 0), (1920, 1032)),
+                "{from:?}"
+            );
+        }
+    }
+
+    /// **跳んだと見える動きは書く**: 半分以上が外、縮めた、位置が読めない
+    #[test]
+    fn a_jump_is_still_noted() {
+        // 外したモニターの座標で開いた窓
+        assert!(worth_noting(
+            false,
+            Some((2500, 100)),
+            (1296, 879),
+            (0, 0),
+            (1920, 1032)
+        ));
+        // 縮めたなら、位置が中でも書く（寸法の行と対になる）
+        assert!(worth_noting(
+            true,
+            Some((10, 10)),
+            (1296, 879),
+            (0, 0),
+            (1920, 1032)
+        ));
+        assert!(worth_noting(false, None, (1296, 879), (0, 0), (1920, 1032)));
+    }
+
+    /// 境目はちょうど半分: 半分入っていれば微調整、それより外なら書く
+    #[test]
+    fn the_line_is_half_the_window() {
+        // 幅 1000 のうち 500 が中（右端の作業領域 1920 を 500 越える）
+        assert!(!worth_noting(
+            false,
+            Some((1420, 0)),
+            (1000, 800),
+            (0, 0),
+            (1920, 1032)
+        ));
+        assert!(worth_noting(
+            false,
+            Some((1421, 0)),
+            (1000, 800),
+            (0, 0),
+            (1920, 1032)
+        ));
+        // 作業領域が原点に無い台（左に置いたタスクバー）でも同じ
+        assert!(!worth_noting(
+            false,
+            Some((48, 0)),
+            (1000, 800),
+            (48, 0),
+            (1872, 1080)
+        ));
+        assert!(worth_noting(
+            false,
+            Some((-800, 0)),
+            (1000, 800),
+            (48, 0),
+            (1872, 1080)
+        ));
+    }
 
     // win の実測（2026-09-09）。**枠は倍率ごとに OS が返した値**。
     const FRAME_100: (u32, u32) = (16, 39);
