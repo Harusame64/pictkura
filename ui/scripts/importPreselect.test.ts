@@ -85,3 +85,13 @@ test("自分で足したフォルダは、それ自体が根なので上のド�
   // その中を開いたときは、近いほうの根（足したフォルダ）から辿る
   assert.deepEqual(branchTo(["C:\\", "C:\\Photos"], "C:\\Photos\\2026\\10"), ["C:\\Photos", "C:\\Photos\\2026"]);
 });
+
+test("macOS・Linux の名前に入った \\ は区切りではない", () => {
+  assert.deepEqual(branchTo(["/", "/Volumes/CARD\\2026"], "/Volumes/CARD\\2026/DCIM/100X"), [
+    "/Volumes/CARD\\2026",
+    "/Volumes/CARD\\2026/DCIM",
+  ]);
+  assert.equal(isViewing("/Volumes/CARD\\2026/DCIM", card("/Volumes/CARD\\2026")), true);
+  // Windows の UNC の根
+  assert.deepEqual(branchTo(["\\\\nas\\photos"], "\\\\nas\\photos\\2026\\10"), ["\\\\nas\\photos", "\\\\nas\\photos\\2026"]);
+});

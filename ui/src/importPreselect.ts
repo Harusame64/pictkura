@@ -45,9 +45,18 @@ export function isViewing(view: string | null, drive: DriveLike): boolean {
   return view.startsWith(withSeparator(drive.path));
 }
 
+/**
+ * そのパスの区切り。**形で決める**（`E:` か `\\` で始まれば Windows）——macOS と Linux では `\` も名前に
+ * 使える字なので、`\` を含むかで決めると `/Volumes/CARD\2026` を取り違える（#251 の PR の codex）
+ */
+function separatorOf(path: string): string {
+  return /^([A-Za-z]:|\\\\)/.test(path) ? "\\" : "/";
+}
+
 /** 末尾に区切りを付けた形（`E:\` はそのまま、`/Volumes/SD` は `/Volumes/SD/`） */
 function withSeparator(path: string): string {
-  return /[\\/]$/.test(path) ? path : path + (path.includes("\\") ? "\\" : "/");
+  const sep = separatorOf(path);
+  return path.endsWith(sep) || path.endsWith("/") ? path : path + sep;
 }
 
 /**
@@ -65,8 +74,12 @@ export function branchTo(roots: readonly string[], path: string): string[] {
     .reduce<string | null>((a, r) => (a === null || r.length > a.length ? r : a), null);
   if (root === null) return [];
   const base = withSeparator(root);
-  const sep = base.endsWith("\\") ? "\\" : "/";
-  const parts = path.slice(base.length).split(/[\\/]/).filter((x) => x !== "");
+  const sep = separatorOf(root);
+  // Windows は `/` も区切りとして通すので両方で割る。macOS・Linux は `/` だけ
+  const parts = path
+    .slice(base.length)
+    .split(sep === "\\" ? /[\\/]/ : "/")
+    .filter((x) => x !== "");
   const branch = [root];
   for (let i = 1; i < parts.length; i++) branch.push(base + parts.slice(0, i).join(sep));
   return branch;

@@ -495,12 +495,15 @@ export default function ImportWizard({
           .then((result) => setListings((prev) => ({ ...prev, [p]: result })))
           .catch(() => {}),
       );
+    // 描き終わってから探す（届いた枝の行は次の描画で出来る）。そのあいだに別の場所へ移っていたら送らない
+    // ——遅い枝の読み込みが、あとで選んだ行のほうを動かす（#251 の PR の codex）
+    const stillThisOne = () => revealedRef.current === key;
     void Promise.all(reads).then(() =>
-      // 描き終わってから探す（届いた枝の行は次の描画で出来る）
       requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          dialogRef.current?.querySelector(".wiz-node.active")?.scrollIntoView({ block: "nearest" }),
-        ),
+        requestAnimationFrame(() => {
+          if (!stillThisOne()) return;
+          dialogRef.current?.querySelector(".wiz-node.active")?.scrollIntoView({ block: "nearest" });
+        }),
       ),
     );
   }, [isOpen, current, loading, drives, extraRoots]);
