@@ -551,6 +551,19 @@ mod tests {
             !is_a_nudge((10, 100), (10, 153), (1296, 879)),
             "下へ動くのは微調整ではない"
         );
+        // **量は、動かした窓そのものの外形で測る**（97 px は 879 の 1/8 以内。半分の外形なら越える）
+        assert_eq!(
+            placement_noted(
+                false,
+                false,
+                Some((10, 250)),
+                Some((1296, 879)),
+                (1296, 879),
+                (0, 0),
+                (1920, 1032)
+            ),
+            Some(((10, 153), false))
+        );
         assert_eq!(
             placement_noted(
                 false,
