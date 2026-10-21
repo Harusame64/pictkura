@@ -20,28 +20,45 @@
 //! ## 確かめ方は tauri と同じ
 //!
 //! tauri は起動時に `wry::webview_version().is_ok()` を1回だけ見て「在る／無い」を決める。
-//! **同じ関数を見る**——ここが通って tauri が「無い」と言う食い違いを作らない。方針の鍵
+//! **同じ関数を見る**（`tauri::webview_version` はその再エクスポート）——ここが通って tauri が「無い」と言う
+//! 食い違いを作らない。方針の鍵
 //! （`BrowserExecutableFolder` が空の場所を指す）で塞がれた台もこれで「無い」になる
 //! （win の実測で、tauri は手で隠した台と同じダイアログを出した）。
 
 use windows::core::{w, HSTRING, PCWSTR};
-use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::System::Com::{
+    CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+};
+use windows::Win32::UI::HiDpi::{
+    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+};
+use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDYES, MB_ICONWARNING, MB_SETFOREGROUND, MB_YESNO, SW_SHOWNORMAL,
+    MessageBoxW, IDYES, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, SW_SHOWNORMAL,
 };
 
 use pictkura_core::applog;
 
 /// ランタイムが在れば何もしない。無ければ知らせて、**この関数から戻らない**
 pub fn ensure_runtime_or_exit() {
-    let Err(e) = wry::webview_version() else {
+    let Err(e) = tauri::webview_version() else {
         return;
     };
-    // **書けるときだけ書く。** 初めての起動ではデータのフォルダがまだ無く、`applog` は
-    // フォルダを作らない（アンインストールの途中で戻さないため）——その台では残らない
+    // **この道ではフォルダを作ってから書く。** `applog` は自分ではフォルダを作らない
+    // （アンインストールの途中で戻さないため）ので、作らないと初めての台——この案内が
+    // いちばん出る台——で何も残らない（ゲート2）。起動できていれば `setup` が同じものを作る
+    if let Some(dir) = crate::app_dir_without_app() {
+        let _ = std::fs::create_dir_all(dir);
+    }
     crate::set_log_path_without_app();
     applog::note(&format!("the WebView2 runtime was not found: {e}"));
     applog::flush_pending();
+
+    // **案内の前に DPI の扱いを宣言する**（ゲート2）。宣言は窓を作る tao がするので、その前の
+    // ここでは未宣言のまま——倍率の高い画面で、案内が引き伸ばされてぼやける。この道は
+    // 終わるだけなので、tao の宣言とはぶつからない。失敗しても見た目が変わるだけ
+    // SAFETY: 引数は定数。戻り値（既に宣言済みなど）は見ない
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
     let locales: Vec<String> = sys_locale::get_locales().collect();
     let notice = notice_for(crate::os_dict::guess(&locales));
@@ -52,24 +69,38 @@ pub fn ensure_runtime_or_exit() {
             None,
             PCWSTR(text.as_ptr()),
             w!("pictkura"),
-            MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND,
+            // **最前面に。** AutoPlay から起動されたときは前に出る権利を拒まれることがあり、
+            // 箱がエクスプローラーの後ろに隠れると「何も起きない」と同じに見える（ゲート2）
+            MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST,
         )
     };
     if answer == IDYES {
-        let url = HSTRING::from(notice.url);
-        // SAFETY: 文字列は呼び出しのあいだ生きている。開けなくても終わるだけ（戻り値は見ない）
-        unsafe {
-            ShellExecuteW(
-                None,
-                w!("open"),
-                PCWSTR(url.as_ptr()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                SW_SHOWNORMAL,
-            );
+        if let Err(e) = open_page(notice.url) {
+            applog::note(&format!("could not open the WebView2 download page: {e}"));
+            applog::flush_pending();
         }
     }
     std::process::exit(1);
+}
+
+/// 頁を既定のブラウザで開く。**開き終わるまで待つ**——このあとすぐ終わるので、
+/// `SEE_MASK_NOASYNC` が無いと、COM で渡す既定のブラウザ（DelegateExecute）では
+/// 渡す前にプロセスが消えて何も開かない（ShellExecuteEx の決まり。ゲート2）。
+/// 同じ理由で COM を先に立てる。`opener` プラグインはこの旗を付けないので使わない
+fn open_page(url: &str) -> windows::core::Result<()> {
+    // SAFETY: このスレッドで初めての初期化。戻り値（既に初期化済みなど）は見ない
+    let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
+    let url = HSTRING::from(url);
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOASYNC,
+        lpVerb: w!("open"),
+        lpFile: PCWSTR(url.as_ptr()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    // SAFETY: `info` と、その指す文字列は呼び出しのあいだ生きている
+    unsafe { ShellExecuteExW(&mut info) }
 }
 
 /// 案内の文と、開く頁。**頁は手引き（`docs/*/install.html`）と同じ Microsoft の WebView2 の頁**
@@ -82,37 +113,37 @@ struct Notice {
 fn notice_for(code: &str) -> Notice {
     match code {
         "ja" => Notice {
-            text: "pictkura を動かすには「Microsoft Edge WebView2 ランタイム」が必要ですが、この PC には見つかりませんでした。\n\n\
+            text: "pictkura を動かすには「Microsoft Edge WebView2 ランタイム」が必要ですが、見つかりませんでした。\n\n\
                    入手ページを開きますか？インストールしたあとで、もう一度 pictkura を起動してください。",
             url: "https://developer.microsoft.com/ja-jp/microsoft-edge/webview2/",
         },
         "de" => Notice {
-            text: "pictkura braucht die Microsoft Edge WebView2-Runtime, sie wurde auf diesem PC aber nicht gefunden.\n\n\
+            text: "pictkura braucht die Microsoft Edge WebView2-Runtime, sie wurde aber nicht gefunden.\n\n\
                    Downloadseite öffnen? Starte pictkura nach der Installation erneut.",
             url: "https://developer.microsoft.com/de-de/microsoft-edge/webview2/",
         },
         "es" => Notice {
-            text: "pictkura necesita Microsoft Edge WebView2 Runtime, pero no se ha encontrado en este ordenador.\n\n\
+            text: "pictkura necesita Microsoft Edge WebView2 Runtime, pero no se ha encontrado.\n\n\
                    ¿Abrir la página de descarga? Cuando lo hayas instalado, vuelve a abrir pictkura.",
             url: "https://developer.microsoft.com/es-es/microsoft-edge/webview2/",
         },
         "es-419" => Notice {
-            text: "pictkura necesita Microsoft Edge WebView2 Runtime, pero no se encontró en esta computadora.\n\n\
+            text: "pictkura necesita Microsoft Edge WebView2 Runtime, pero no se encontró.\n\n\
                    ¿Abrir la página de descarga? Cuando lo hayas instalado, vuelve a abrir pictkura.",
             url: "https://developer.microsoft.com/es-mx/microsoft-edge/webview2/",
         },
         "zh" => Notice {
-            text: "pictkura 需要 Microsoft Edge WebView2 运行时，但在这台电脑上没有找到。\n\n\
+            text: "pictkura 需要 Microsoft Edge WebView2 运行时，但没有找到。\n\n\
                    要打开下载页面吗？安装后请重新启动 pictkura。",
             url: "https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/",
         },
         "zh-hant" => Notice {
-            text: "pictkura 需要 Microsoft Edge WebView2 執行階段，但在這台電腦上找不到。\n\n\
+            text: "pictkura 需要 Microsoft Edge WebView2 執行階段，但找不到。\n\n\
                    要開啟下載頁面嗎？安裝後請重新啟動 pictkura。",
             url: "https://developer.microsoft.com/zh-tw/microsoft-edge/webview2/",
         },
         _ => Notice {
-            text: "pictkura needs the Microsoft Edge WebView2 Runtime, but it was not found on this PC.\n\n\
+            text: "pictkura needs the Microsoft Edge WebView2 Runtime, but it could not be found.\n\n\
                    Open the download page? After installing it, start pictkura again.",
             url: "https://developer.microsoft.com/en-us/microsoft-edge/webview2/",
         },

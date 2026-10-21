@@ -434,6 +434,19 @@ mod tests {
         }
     }
 
+    /// **繋ぎの当て推量（[`crate::os_dict::DICT_CODES`]）が返すコードは、全部この表に在ること**
+    /// ——言語の一覧は2つあるので、互いに見張る（ゲート2）
+    #[test]
+    fn the_menu_has_every_code_the_guess_can_return() {
+        for code in crate::os_dict::DICT_CODES {
+            assert!(
+                TEXTS.iter().any(|(c, _)| c == code),
+                "{code} の語がこの表に無い"
+            );
+        }
+        assert_eq!(TEXTS.len(), crate::os_dict::DICT_CODES.len());
+    }
+
     /// **`Info.plist` の `CFBundleLocalizations` も同じ顔ぶれであること。**
     ///
     /// **一度忘れている**——独語と西語の辞書（#94 / #95）を足したとき、あちらは
