@@ -6567,13 +6567,6 @@ fn first_weekday_from_core_foundation(v: i64) -> Option<u32> {
     (1..=7).contains(&v).then(|| (v - 1) as u32)
 }
 
-/// **画面が決めた言語で、メニューバーを組み直す**（macOSだけ。Issue #14）。
-///
-/// **言語を決める規則は画面側にしかない**——localStorage の指定が最優先で、
-/// その解決は `ui/src/i18n/index.ts` の `pickLocale()` が持っている。
-/// **こちらで作り直さない。** 画面が読み込まれた時点で1回呼んでくる。
-///
-/// Windowsは窓にメニューを載せていないので**何もしない**。
 /// **画面の言語の選択を控える**（dev #27）。`None` は「OS に合わせる」。
 ///
 /// 控えは次の起動で macOS の枠を合わせるのに使う（[`align_appkit_language`]）。画面は起動のたびと、
@@ -6599,6 +6592,13 @@ fn remember_locale_choice(
     update_config(&state, |c| c.ui.locale = code)
 }
 
+/// **画面が決めた言語で、メニューバーを組み直す**（macOSだけ。Issue #14）。
+///
+/// **言語を決める規則は画面側にしかない**——localStorage の指定が最優先で、
+/// その解決は `ui/src/i18n/index.ts` の `pickLocale()` が持っている。
+/// **こちらで作り直さない。** 画面が読み込まれた時点で1回呼んでくる。
+///
+/// Windowsは窓にメニューを載せていないので**何もしない**。
 #[tauri::command]
 fn set_menu_locale(app: tauri::AppHandle, code: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -6626,7 +6626,7 @@ fn set_menu_locale(app: tauri::AppHandle, code: String) -> Result<(), String> {
 /// `ui/src/i18n/index.ts` を読んだ時点で決まる定数で、`invoke` の非同期を待てない。
 /// `js_init_script` はそのための口（Tauriのドキュメントが挙げている用途そのもの）。
 ///
-/// **読むのは起動時の1回だけ**（この関数はプラグインを組むときに走る）。OSの側で
+/// **読むのは起動時の1回だけ**（`run()` の頭の [`OsLocale::read`]）。OSの側で
 /// 表示言語・地域・週の始まりを変えても、**アプリを起動し直すまで画面は変わらない**。
 /// 言語の切り替えが `location.reload()` を挟んでいるのと同じ事情である。
 /// **確かめるときは「変えてから起動する」**——走っているアプリの脇で変えて
@@ -6785,7 +6785,7 @@ pub fn run() {
             // 画面に入らない台では、ここで縮めて押し戻す
             window_fit::fit_main_window(app.handle());
 
-            // **メニューバーを、まずOSの言語で当てて掛ける**（macOSだけ・Issue #14）。
+            // **メニューバーを、まず当て推量の言語で掛ける**（macOSだけ・Issue #14）。
             // 控えの言語で AppKit を上書きした起動では、ここで読む言語はその控えになる
             // ——画面が読み込まれる前から、メニューも選んだ言語で出る（dev #27）。
             // 画面が読み込まれたら `set_menu_locale` が正しい言語で組み直す。

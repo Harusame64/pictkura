@@ -29,20 +29,32 @@ use objc2_foundation::{
 };
 
 /// 控えの言語を、この起動の AppKit に置く。**`run()` の頭で、OS の言語と地域書式を読んだあとに呼ぶ。**
-/// 知らないコードは置かない（OS に合わせる）
+/// 知らないコードは置かない（OS に合わせる）。
+///
+/// **引数の領域の今の中身に足す**（ゲート2）。`setVolatileDomain:forName:` は領域を丸ごと差し替えるので、
+/// そのまま置くと起動の引数（`--args -NSDocumentRevisionsDebugMode YES` など）を捨てる。
+/// **引数で `-AppleLanguages` が渡されていれば、そちらを優先して何もしない**——別の言語で説明書の
+/// スクリーンショットを撮るときの、いつもの手である
 pub fn apply(code: &str) {
     let Some(id) = appkit_id(code) else {
         return;
     };
+    let defaults = NSUserDefaults::standardUserDefaults();
+    // SAFETY: `NSArgumentDomain` は Foundation の定数
+    let name = unsafe { NSArgumentDomain };
+    let key = NSString::from_str("AppleLanguages");
+    let (mut keys, mut values) = defaults.volatileDomainForName(name).to_vecs();
+    if keys.iter().any(|k| **k == *key) {
+        return;
+    }
     let languages: Retained<NSArray<NSString>> =
         NSArray::from_retained_slice(&[NSString::from_str(id)]);
-    let key = NSString::from_str("AppleLanguages");
-    let value: &AnyObject = &languages;
-    let domain = NSDictionary::<NSString, AnyObject>::from_slices(&[&*key], &[value]);
-    // SAFETY: 渡す辞書と名前は呼び出しのあいだ生きている。`NSArgumentDomain` は Foundation の定数
-    unsafe {
-        NSUserDefaults::standardUserDefaults().setVolatileDomain_forName(&domain, NSArgumentDomain);
-    }
+    keys.push(key);
+    values.push(Retained::into_super(Retained::into_super(languages)));
+    let key_refs: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
+    let domain = NSDictionary::<NSString, AnyObject>::from_retained_objects(&key_refs, &values);
+    // SAFETY: 渡す辞書と名前は呼び出しのあいだ生きている
+    unsafe { defaults.setVolatileDomain_forName(&domain, name) };
 }
 
 /// **AppKit が実際に解決した言語**を、画面の辞書のコードで返す。持っていない言語なら `None`。

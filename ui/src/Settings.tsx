@@ -853,10 +853,9 @@ export default function Settings({
                 // 嘘をつくことになる。state を変えなければ、Reactが
                 // プルダウンを元の選択へ戻してくれる
                 //
-                // **控えを先に送る**（macOS の枠を次の起動で揃えるため。dev #27）。切り替えは画面を
-                // 読み込み直すので、あとに回すと届かないことがある。控えられなくても切り替えは進める
-                void rememberLocaleChoice(code).then(() => {
-                  if (setLocaleChoice(code)) setLangChoice(code);
+                // **保存できたら、読み込み直す前に控えを送る**（macOS の枠を次の起動で揃えるため。dev #27）
+                void setLocaleChoice(code, () => rememberLocaleChoice(code)).then((ok) => {
+                  if (ok) setLangChoice(code);
                 });
               }}
             >

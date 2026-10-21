@@ -197,10 +197,18 @@ export function readLocaleChoice(): string | null {
  * 呼び出し側が「その言語になっている」と表示してしまわないようにする。
  * 保存が効かない状態でメモリ上だけ切り替えても、読み込み直した先で
  * 元に戻るだけで、かえって分からなくなる。
+ *
+ * **`beforeReload` は、保存できたあと・読み込み直す前に待つ**（dev #27）。macOS の枠の言語の控えを
+ * Rust へ送るのに使う——保存より先に送ると、保存に失敗したとき控えだけが進む（ゲート2）。
+ * 読み込み直したあとでは届かないことがある。失敗しても切り替えは進める
  */
-export function setLocaleChoice(code: string | null): boolean {
+export async function setLocaleChoice(
+  code: string | null,
+  beforeReload?: () => Promise<unknown>,
+): Promise<boolean> {
   if (code !== null && !hasDict(code)) return false;
   if (!writeStored(code)) return false;
+  await beforeReload?.().catch(() => {});
   // **書いたあとで決め直す**。「OSに合わせる」を選んだ結果いまと同じ言語に
   // なることもあるので、指定そのものではなく**結果**を見て判断する
   if (pickLocale() !== locale) location.reload();
