@@ -244,7 +244,7 @@ fn landing(
     }
 }
 
-/// 読めた物から、置き場所を1つ決める。**`fit_main_window` に残るのは、この関数へ値を渡す1行だけ。**
+/// 読めた物から、置き場所を1つ決める。**`fit_main_window` に残るのは、[`placement_noted`] 経由でこの関数へ値を渡す1行だけ。**
 ///
 /// **分けたのは、呼び側に升が1本も無かったからである**（2026-09-17 の2ゲート目の3周目）。
 /// `landing` は純粋で手厚く覆われていたのに、**`resized` を決めて読みを組み立てる所**は
@@ -270,37 +270,50 @@ fn placement(
     landing(resized, read, work_pos, work_size)
 }
 
-/// **動かしたことを記録に残すか**（pictkura-dev #60）。**残すのは、跳んだと見える動きだけ。**
+/// **動いたことを記録に残さない、見た目の微調整か**（pictkura-dev #60）。
 ///
 /// 位置はどこにも覚えていないので、窓は毎回 Windows の既定の置き場所（段々ずらし）で開く。
 /// 1080p（作業領域 1032）では外形の高さ 879 が下に 3〜48 px はみ出し、**起動のたびに押し戻して
 /// 1行書いていた**（win の台で 49 行、09-27 の 0.2.8 から）。ふつうの起動では何も書かない、という
 /// 利用者の決まり（#57）に反するうえ、本物の行が埋もれる。
 ///
-/// **動かす前に窓の半分以上が作業領域に入っていたら、それは見た目の微調整なので書かない。**
-/// 書くのは、縮めたとき・位置が読めなかったとき・半分以上が外に居たとき（外したモニターの
-/// 座標で開いた窓など）。09-17 の「成功した移動こそ記録が無いと追えない」は、利用者から
-/// 見える症状が「窓が起動時に跳んだ」だったから——**跳んだと見える動きは、今も書く**。
-fn worth_noting(
+/// **微調整と呼ぶのは、次の両方を満たすときだけ**:
+/// - **上か左へしか動かない**——はみ出していたのは下か右で、左上の角（題の帯）は初めから中に在った。
+///   題の帯が上や左に外れていた窓は、利用者が掴めなかった窓なので、量に依らず書く
+/// - **動く量が、どちらの軸も窓の寸法の 1/8 以下**——起動時に「跳んだ」と見える動きは書く
+///   （09-17 の「成功した移動こそ記録が無いと追えない」は、その症状を追うための決まり）
+///
+/// **見えていた面積では決めない**（ゲート2）。半分見えていれば黙る規則だと、427 px 跳ぶ窓も、
+/// 題の帯が画面の上に外れた窓も黙ってしまう。
+fn is_a_nudge(from: (i32, i32), to: (i32, i32), outer: (u32, u32)) -> bool {
+    let small = |d: i64, len: u32| d <= i64::from(len) / 8;
+    let (dx, dy) = (
+        i64::from(from.0) - i64::from(to.0),
+        i64::from(from.1) - i64::from(to.1),
+    );
+    dx >= 0 && dy >= 0 && small(dx, outer.0) && small(dy, outer.1)
+}
+
+/// 置き場所と、**それを記録に書くか**を、同じ読みから決める（[`placement`] と [`is_a_nudge`]）。
+///
+/// **判断を呼び側に置かない**（ゲート2）。`fit_main_window` は `AppHandle` が要るので升が無く、
+/// そこに足した判断は変異で殺せない——[`placement`] を切り出したのと同じ理由である。
+/// 書くのは、寸法を直したとき（`shrunk`。寸法の行と対にする）、位置が読めなかったとき、微調整でないとき。
+fn placement_noted(
     resized: bool,
+    shrunk: bool,
     pos: Option<(i32, i32)>,
-    outer: (u32, u32),
+    size: Option<(u32, u32)>,
+    outer_before: (u32, u32),
     work_pos: (i32, i32),
     work_size: (u32, u32),
-) -> bool {
-    let Some((x, y)) = pos else { return true };
-    if resized || outer.0 == 0 || outer.1 == 0 {
-        return true;
-    }
-    let inside = |start: i32, len: u32, wstart: i32, wlen: u32| -> i64 {
-        let (a, b) = (i64::from(start), i64::from(start) + i64::from(len));
-        let (wa, wb) = (i64::from(wstart), i64::from(wstart) + i64::from(wlen));
-        (b.min(wb) - a.max(wa)).max(0)
+) -> Option<((i32, i32), bool)> {
+    let to = placement(resized, pos, size, outer_before, work_pos, work_size)?;
+    let noted = match pos {
+        Some(from) if !shrunk => !is_a_nudge(from, to, size.unwrap_or(outer_before)),
+        _ => true,
     };
-    let shown =
-        inside(x, outer.0, work_pos.0, work_size.0) * inside(y, outer.1, work_pos.1, work_size.1);
-    let whole = i64::from(outer.0) * i64::from(outer.1);
-    shown * 2 < whole
+    Some((to, noted))
 }
 
 /// 主窓を、いま載っている画面の作業領域に合わせる。**入っているなら何もしない。**
@@ -421,27 +434,21 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
     // **床の高さで開く**ので、`f.size == want` でも窓は縮む——ここは偽のまま原点へ退避しない。
     // **その設定を足すなら、この行ではなく `fit` から直すこと**（#144 の2ゲート目）。
     let resized = f.size != want;
-    let moved_to = placement(
+    let moved_to = placement_noted(
         resized,
+        f.shrunk,
         pos,
         size,
         (outer.width, outer.height),
         (work.position.x, work.position.y),
         (work.size.width, work.size.height),
     );
-    if let Some((x, y)) = moved_to {
+    if let Some(((x, y), noted)) = moved_to {
         // **跳んだと見える動きは書く。** 利用者から見える症状は「窓が起動時に跳んだ」で、
-        // **成功した移動こそ記録が無いと追えない**（2026-09-17 の指摘）。半分以上入っていた窓の
-        // 微調整は書かない（[`worth_noting`]、dev #60）。断られたときは、いつでも書く
-        let note = worth_noting(
-            resized,
-            pos,
-            size.unwrap_or((outer.width, outer.height)),
-            (work.position.x, work.position.y),
-            (work.size.width, work.size.height),
-        );
+        // **成功した移動こそ記録が無いと追えない**（2026-09-17 の指摘）。下か右へのはみ出しを
+        // 少し押し戻すだけの微調整は書かない（[`placement_noted`]、dev #60）。断られたときは、いつでも書く
         match window.set_position(PhysicalPosition::new(x, y)) {
-            Ok(()) if !note => {}
+            Ok(()) if !noted => {}
             // **「頼んだ」までしか書かない。** macOS の `set_outer_position` は
             // `setFrameTopLeftPoint:` を主キューへ投げて `()` を返すので、`Ok(())` は
             // **動いた証拠ではない**（2ゲート目の2周目。30行上の寸法の記録が同じ理由で
@@ -471,72 +478,91 @@ pub(crate) fn fit_main_window(app: &tauri::AppHandle) {
 mod tests {
     use super::*;
 
-    /// **win の台の 49 行**（1920x1080・100%・作業領域 1032、外形 1296x879）は、どれも書かない
+    /// **win の台の 49 行**（1920x1080・100%・作業領域 1032、外形 1296x879）の4つの形は、
+    /// どれも**本当に動き**（y=153 へ）、**書かない**
     #[test]
-    fn a_nudge_back_onto_the_work_area_is_not_noted() {
+    fn the_nudge_a_1080p_launch_makes_is_moved_but_not_noted() {
         for from in [(156, 156), (182, 182), (208, 201), (234, 201)] {
-            assert!(
-                !worth_noting(false, Some(from), (1296, 879), (0, 0), (1920, 1032)),
+            assert_eq!(
+                placement_noted(
+                    false,
+                    false,
+                    Some(from),
+                    Some((1296, 879)),
+                    (1296, 879),
+                    (0, 0),
+                    (1920, 1032)
+                ),
+                Some(((from.0, 153), false)),
                 "{from:?}"
             );
         }
     }
 
-    /// **跳んだと見える動きは書く**: 半分以上が外、縮めた、位置が読めない
+    /// **跳んだと見える動きは書く**（ゲート2が挙げた2つの形を含む）
     #[test]
     fn a_jump_is_still_noted() {
-        // 外したモニターの座標で開いた窓
-        assert!(worth_noting(
-            false,
-            Some((2500, 100)),
-            (1296, 879),
-            (0, 0),
-            (1920, 1032)
-        ));
-        // 縮めたなら、位置が中でも書く（寸法の行と対になる）
-        assert!(worth_noting(
-            true,
-            Some((10, 10)),
-            (1296, 879),
-            (0, 0),
-            (1920, 1032)
-        ));
-        assert!(worth_noting(false, None, (1296, 879), (0, 0), (1920, 1032)));
+        let w = ((0, 0), (1920, 1032));
+        let at = |from| {
+            placement_noted(
+                false,
+                false,
+                Some(from),
+                Some((1296, 879)),
+                (1296, 879),
+                w.0,
+                w.1,
+            )
+        };
+        // 427 px 跳ぶ（窓の半分は見えていた）
+        assert_eq!(at((0, 580)), Some(((0, 153), true)));
+        // 題の帯が画面の上に外れていた
+        assert_eq!(at((100, -400)), Some(((100, 0), true)));
+        // 左へ外れていた（右へ押し戻す）
+        assert_eq!(at((-30, 100)), Some(((0, 100), true)));
+        // 外したモニターの座標
+        assert_eq!(at((2500, 100)), Some(((624, 100), true)));
+        // 寸法を直したなら、微調整でも書く（寸法の行と対にする）
+        assert_eq!(
+            placement_noted(
+                false,
+                true,
+                Some((156, 156)),
+                Some((1296, 879)),
+                (1296, 879),
+                w.0,
+                w.1
+            ),
+            Some(((156, 153), true))
+        );
+        // 位置が読めないまま、縮めて原点へ
+        assert_eq!(
+            placement_noted(true, true, None, None, (1296, 879), w.0, w.1),
+            Some(((0, 0), true))
+        );
     }
 
-    /// 境目はちょうど半分: 半分入っていれば微調整、それより外なら書く
+    /// 境目は窓の寸法の 1/8（879 なら 109 px）。入っていれば何もしない（書くものも無い）
     #[test]
-    fn the_line_is_half_the_window() {
-        // 幅 1000 のうち 500 が中（右端の作業領域 1920 を 500 越える）
-        assert!(!worth_noting(
-            false,
-            Some((1420, 0)),
-            (1000, 800),
-            (0, 0),
-            (1920, 1032)
-        ));
-        assert!(worth_noting(
-            false,
-            Some((1421, 0)),
-            (1000, 800),
-            (0, 0),
-            (1920, 1032)
-        ));
-        // 作業領域が原点に無い台（左に置いたタスクバー）でも同じ
-        assert!(!worth_noting(
-            false,
-            Some((48, 0)),
-            (1000, 800),
-            (48, 0),
-            (1872, 1080)
-        ));
-        assert!(worth_noting(
-            false,
-            Some((-800, 0)),
-            (1000, 800),
-            (48, 0),
-            (1872, 1080)
-        ));
+    fn the_nudge_ends_at_an_eighth_of_the_window() {
+        assert!(is_a_nudge((10, 262), (10, 153), (1296, 879)));
+        assert!(!is_a_nudge((10, 263), (10, 153), (1296, 879)));
+        assert!(
+            !is_a_nudge((10, 100), (10, 153), (1296, 879)),
+            "下へ動くのは微調整ではない"
+        );
+        assert_eq!(
+            placement_noted(
+                false,
+                false,
+                Some((100, 100)),
+                Some((1296, 879)),
+                (1296, 879),
+                (0, 0),
+                (1920, 1032)
+            ),
+            None
+        );
     }
 
     // win の実測（2026-09-09）。**枠は倍率ごとに OS が返した値**。
