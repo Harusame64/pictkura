@@ -165,11 +165,12 @@ export default function ImportWizard({
     deep: true,
   });
   viewRef.current = { path: current, deep };
-  /** ツリーの根（ドライブと自分で足したフォルダ）と読めた枝。開いた場所までの枝を開くときに読む */
-  const rootPathsRef = useRef<string[]>([]);
-  rootPathsRef.current = [...drives.map((d) => d.path), ...extraRoots];
-  const listingsRef = useRef(listings);
-  listingsRef.current = listings;
+  /** `openFolder` を呼んだ回数。開いた場所までの枝を開くのと、その行へ送るのは、開くたびに1回ずつ */
+  const [openGen, setOpenGen] = useState(0);
+  /** 枝を開き終えた「回と枝」（ドライブの一覧が5秒ごとに来ても、同じ枝を読み直さない） */
+  const revealedRef = useRef("");
+  /** 選んでいる行へまだ送っていない回（送ったら -1） */
+  const scrollGenRef = useRef(-1);
 
   const destination = config?.routing.destination ?? null;
   const platform = usePlatform();
@@ -362,18 +363,14 @@ export default function ImportWizard({
       setDeep(wantDeep);
       setSelected(new Set());
       setShown(PAGE_SIZE);
-      // **開いた場所の行が見えるところまで枝も開く**（`X:\DCIM` を開いてもドライブが閉じていると、
-      // 選んでいる行がどこにも出ない。#203 の win の実機）
-      const branch = branchTo(rootPathsRef.current, path);
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        branch.forEach((p) => next.add(p));
-        return next.add(path);
+      setExpanded((prev) => new Set(prev).add(path));
+      setOpenGen((g) => {
+        scrollGenRef.current = g + 1;
+        return g + 1;
       });
-      branch.filter((p) => !listingsRef.current[p]).forEach((p) => void loadDir(p));
       await loadView(path, wantDeep);
     },
-    [loadDir, loadView],
+    [loadView],
   );
 
   // 開いたときの初期表示: メディアから来たならその中を丸ごと見せる。
@@ -464,6 +461,44 @@ export default function ImportWizard({
   // 開いたら幕の中へフォーカスを移す（後ろは inert なので、そのままでは <body> に残り、読み上げが幕の名前を
   // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // **開いた場所の行が見えるところまで、ツリーの枝も開く**。入口（左の欄のドライブ・AutoPlay・最初から
+  // 選ぶカード）は `X:\DCIM` を開くが、ツリーの根はドライブなので、閉じたままだと選んでいる行が
+  // どこにも出ない（#203 の win の実機）。
+  // - **開いた時点で1回決めない。** AutoPlay ではカードがまだドライブの一覧（5秒ごと）に居ないことが多い
+  //   ——ドライブが現れたら枝が変わるので、そこで開く（ゲート2）
+  // - **枝は開くたびに読み直す。** 同じ `J:` に別のカードが挿さっていると、控えの中身は前のカードのもの。
+  //   読めなかった控え（`unreadable`）も残らない
+  // - **読み直しは一覧の走査が済んでから、失敗は黙る。** 遅いカードで走査と取り合わない。押していない
+  //   フォルダのことで知らせを出さない（開いた場所そのものの失敗は `loadView` が出す）
+  useEffect(() => {
+    if (!isOpen || !current || loading) return;
+    const branch = branchTo([...drives.map((d) => d.path), ...extraRoots], current);
+    const key = `${openGen}\n${branch.join("\n")}`;
+    if (key === revealedRef.current) return;
+    revealedRef.current = key;
+    if (branch.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      branch.forEach((p) => next.add(p));
+      return next;
+    });
+    for (const p of branch) {
+      listSourceDir(p)
+        .then((result) => setListings((prev) => ({ ...prev, [p]: result })))
+        .catch(() => {});
+    }
+  }, [isOpen, current, openGen, loading, drives, extraRoots]);
+
+  // **開いた回ごとに1回だけ、選んでいる行をツリーの見える所へ送る**。枝の中身が届いて行が出来たときに送る
+  // ——毎回送ると、利用者がツリーを動かしている最中に引き戻す
+  useEffect(() => {
+    if (scrollGenRef.current !== openGen) return;
+    const row = dialogRef.current?.querySelector(".wiz-node.active");
+    if (!row) return;
+    scrollGenRef.current = -1;
+    row.scrollIntoView({ block: "nearest" });
+  }, [openGen, current, expanded, listings]);
   useEffect(() => {
     // 中の部品が autoFocus で先に取っていたら奪わない（設定の自分で決める欄。ゲート2）
     const root = dialogRef.current;
