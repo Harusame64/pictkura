@@ -468,8 +468,14 @@ export default function ImportWizard({
   //   失敗は黙る——押していないフォルダのことで知らせを出さない
   // - **読み終えたら1回だけ、選んでいる行を見える所へ送る。** 待ちを残さない（あとで利用者が枝を開いた
   //   ときに引き戻さない）
+  // - **閉じたら忘れる。** 画面は閉じても場所と開いた枝を覚えているので、同じ場所へ開き直すと
+  //   「もう開いた」と読んで、手で閉じた枝のまま選んでいる行が見えなかった（#251 の win の実機 R2a）
   useEffect(() => {
-    if (!isOpen || !current || loading) return;
+    if (!isOpen) {
+      revealedRef.current = "";
+      return;
+    }
+    if (!current || loading) return;
     const branch = branchTo([...drives.map((d) => d.path), ...extraRoots], current);
     const key = `${current}\n${branch.join("\n")}`;
     if (key === revealedRef.current) return;
