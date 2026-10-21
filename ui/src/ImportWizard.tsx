@@ -374,6 +374,8 @@ export default function ImportWizard({
   // 出しっぱなしにしないため
   useEffect(() => {
     if (!isOpen || !startPath) return;
+    // 開いたまま同じ場所へ来ても、選んでいる行をもう一度見せる（手で閉じた枝を開け直す。#251 の PR の codex）
+    revealedRef.current = "";
     openFolder(startPath, true);
   }, [isOpen, startPath, startNonce, openFolder]);
 
