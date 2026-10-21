@@ -107,6 +107,9 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# WebView2 ランタイムが在るかを、tauri と同じ関数で確かめる（`webview2_check.rs`、dev #72）。tauri-runtime-wry が
+# 同じ版を引いているので、新しくビルドされるものは無い
+wry = { version = "0.55", default-features = false, features = ["os-webview"] }
 # クリップボードへ置く PNG を、開く前に自分で作る（`clipboard_image.rs`）。pictkura-core が同じ版を引いているので、
 # 新しくビルドされるものは無い
 image = { version = "0.25", default-features = false, features = ["png"] }

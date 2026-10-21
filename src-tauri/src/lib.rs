@@ -41,7 +41,12 @@ mod shell_menu;
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
 mod menu;
+// OS の言語から辞書のコードを当てる（メニューの繋ぎと、WebView2 が無いときの案内。dev #72）
+mod os_dict;
 mod packaged;
+// WebView2 ランタイムが無ければ、tauri を組む前に知らせて終わる（dev #72）。Windows だけ
+#[cfg(windows)]
+mod webview2_check;
 
 /// メニューの「設定…」の id。**`menu` は macOS でしかコンパイルされない**ので、
 /// **この字はモジュールの外に置く**——受け口（`on_menu_event`）は台に依らず
@@ -6651,6 +6656,11 @@ pub fn run() {
         applog::flush_pending();
         return;
     }
+
+    // **WebView2 が無ければ、ここで知らせて終わる**（dev #72）。tauri に任せると、英語のダイアログの
+    // あと窓の無いプロセスが残り、以後の起動を単一起動で飲み込む。単一起動のプラグインより前に置く
+    #[cfg(windows)]
+    webview2_check::ensure_runtime_or_exit();
 
     let run = tauri::Builder::default()
         // single-instanceは**最初のプラグイン**でなければならない（Tauriの規約）。

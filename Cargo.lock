@@ -3101,6 +3101,7 @@ dependencies = [
  "ureq",
  "windows 0.61.3",
  "windows-sys 0.60.2",
+ "wry",
 ]
 
 [[package]]

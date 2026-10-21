@@ -268,51 +268,10 @@ fn text_for(code: &str) -> &'static MenuText {
 /// **OSの言語から、繋ぎの1つを当てる。**
 ///
 /// **これは `pickLocale()` の写しではない。** 画面が `set_menu_locale` を呼ぶまでの
-/// 数百ミリ秒を埋めるためだけの当て推量で、**食い違っても直る**。
-/// だから込み入ったことはしない——**中国語の書き言葉だけ見分けて、あとは言語の副タグ**。
+/// 数百ミリ秒を埋めるためだけの当て推量で、**食い違っても直る**。規則は
+/// [`crate::os_dict::guess`]（WebView2 が無いときの案内と同じ当て方）。
 fn provisional(os_locales: &[String]) -> &'static str {
-    for tag in os_locales {
-        let tag = tag.to_lowercase();
-        // **粵語もここ。** `pickLocale()` が `yue` を書き言葉として繁体字へ寄せている
-        // （香港・マカオの書き言葉は繁体字の中国語）ので、当て推量も同じ側へ寄せる
-        // ——ここだけ英語へ落とすと、**繁体字のMacで毎回英語のメニューが一瞬見える**、
-        // というこの節が消したい形がそのまま残る（ゲート2）
-        if tag.starts_with("zh") || tag.starts_with("yue") {
-            // **`Hans` と書いてあれば地域より優先**。書いていなければ地域で見て、
-            // 粵語は既定で繁体字（CLDRの既定が `yue-Hant-HK`）
-            let hans = tag.contains("hans");
-            let hant = tag.contains("hant")
-                || tag.starts_with("yue")
-                || tag.contains("-tw")
-                || tag.contains("-hk")
-                || tag.contains("-mo");
-            return if hant && !hans { "zh-hant" } else { "zh" };
-        }
-        // **スペイン語も地域で割れる**（dev #17）。`pickLocale()` は
-        // **`ES` 以外の地域つき**を中南米（`es-419`）へ寄せるので、繋ぎも同じ側へ寄せる
-        // ——ここだけ本国に倒すと、メキシコのMacで**一瞬だけ本国のスペイン語**が出る
-        if tag == "es" || tag.starts_with("es-") {
-            // **1文字の副タグで止める**（ゲート1）。BCP-47 では1文字は拡張の始まりで、
-            // `es-u-nu-latn` の `nu` は**2文字だが地域ではない**
-            let region = tag
-                .split('-')
-                .skip(1)
-                .take_while(|p| p.len() != 1)
-                .find(|p| p.len() == 2 || (p.len() == 3 && p.chars().all(|c| c.is_ascii_digit())));
-            return match region {
-                None | Some("es") => "es",
-                _ => "es-419",
-            };
-        }
-        // **前方一致では足りない**（ゲート2）。副タグの切れ目で切らないと
-        // `jam-JM`（ジャマイカ・クレオール）が `ja` に、`esu`（ユピック）が `es` に当たる
-        if let Some((code, _)) = TEXTS.iter().find(|(c, _)| {
-            !c.starts_with("zh") && (tag == **c || tag.starts_with(&format!("{c}-")))
-        }) {
-            return code;
-        }
-    }
-    "en"
+    crate::os_dict::guess(os_locales)
 }
 
 /// そのコードでメニューを1枚組む。
@@ -453,35 +412,7 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, code: &str) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{provisional, text_for, TEXTS};
-
-    /// `ui/src/i18n/index.ts` の `DICTS` に並んでいる言語コード。
-    ///
-    /// **1行だと決め打ちしない**（ゲート2）。7つ目を足せば行は折り返されるし、
-    /// **最後の要素には末尾のカンマが無い**——**言語を足したときにだけ壊れる歯止め**は、
-    /// 守りたい場面でちょうど役に立たない。だから中括弧の中を素直に読む。
-    fn dict_codes() -> Vec<String> {
-        let src = include_str!("../../ui/src/i18n/index.ts");
-        let Some(at) = src.find("const DICTS: Record<string, Dict>") else {
-            panic!("index.ts に DICTS が無い（綴りが変わった？）")
-        };
-        let rest = src.get(at..).unwrap_or_default();
-        let (Some(open), Some(close)) = (rest.find('{'), rest.find('}')) else {
-            panic!("DICTS の中括弧を読めない")
-        };
-        let inner = rest.get(open + 1..close).unwrap_or_default();
-        inner
-            .split(',')
-            .filter_map(|part| {
-                let name = part
-                    .split(':')
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .trim_matches('"');
-                (!name.is_empty()).then(|| name.to_string())
-            })
-            .collect()
-    }
+    use crate::os_dict::tests::dict_codes;
 
     /// **表の顔ぶれは `DICTS` と揃っていること。**
     /// 片方だけ足すと、その言語だけメニューが英語で出る
@@ -525,44 +456,11 @@ mod tests {
         }
     }
 
-    /// **繋ぎの当て推量**。込み入ったことはしないが、書き言葉つきの中国語だけは分ける
+    /// 繋ぎは [`crate::os_dict::guess`] の答えをそのまま使う（規則の升はあちら）
     #[test]
-    fn the_provisional_guess_splits_the_two_chinese_scripts() {
-        assert_eq!(provisional(&["ja-JP".into()]), "ja");
-        assert_eq!(provisional(&["de-DE".into()]), "de");
-        assert_eq!(provisional(&["en-GB".into()]), "en");
-        // 簡体字と繁体字
-        assert_eq!(provisional(&["zh-Hans-CN".into()]), "zh");
-        assert_eq!(provisional(&["zh-CN".into()]), "zh");
+    fn the_provisional_guess_is_the_shared_rule() {
         assert_eq!(provisional(&["zh-TW".into()]), "zh-hant");
-        assert_eq!(provisional(&["zh-Hant-HK".into()]), "zh-hant");
-        assert_eq!(provisional(&["zh-MO".into()]), "zh-hant");
-        // **`Hans` と書いてあれば地域より優先**（`pickLocale()` と同じ）
-        assert_eq!(provisional(&["zh-Hans-TW".into()]), "zh");
-        // **粵語も繁体字へ。** ここを英語へ落とすと、この節が消したい
-        // 「英語のメニューが一瞬見える」がそのまま起きる（ゲート2）
-        assert_eq!(provisional(&["yue-Hant-HK".into()]), "zh-hant");
-        assert_eq!(provisional(&["yue".into()]), "zh-hant");
-        // **副タグの切れ目で切る。** 前方一致だけだと `ja` / `es` に当たってしまう
-        assert_eq!(provisional(&["jam-JM".into()]), "en");
-        assert_eq!(provisional(&["esu".into()]), "en");
-        // **スペイン語は地域で本国と中南米に割れる**（dev #17。`pickLocale()` と同じ規則）
-        assert_eq!(provisional(&["es-ES".into()]), "es");
-        assert_eq!(
-            provisional(&["es".into()]),
-            "es",
-            "地域が分からなければ本国側"
-        );
-        assert_eq!(provisional(&["es-MX".into()]), "es-419");
-        assert_eq!(provisional(&["es-419".into()]), "es-419");
-        assert_eq!(provisional(&["es-Latn-MX".into()]), "es-419");
-        // **拡張は地域ではない**（`-u-` の先の `nu` / `hc` は2文字だが国ではない）
-        assert_eq!(provisional(&["es-u-nu-latn".into()]), "es");
-        assert_eq!(provisional(&["es-u-hc-h23".into()]), "es");
-        // 知らない言語は飛ばして次を見る。全部知らなければ英語
-        assert_eq!(provisional(&["th-TH".into(), "ja-JP".into()]), "ja");
         assert_eq!(provisional(&["th-TH".into()]), "en");
-        assert_eq!(provisional(&[]), "en");
     }
 
     /// 知らないコードは英語へ倒す（画面から来ることは無いが、倒す先を決めておく）
