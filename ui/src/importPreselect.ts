@@ -42,8 +42,47 @@ export function openPathOf(drive: DriveLike): string {
 export function isViewing(view: string | null, drive: DriveLike): boolean {
   if (!view) return false;
   if (view === drive.path) return true;
-  const root = /[\\/]$/.test(drive.path) ? drive.path : drive.path + (drive.path.includes("\\") ? "\\" : "/");
-  return view.startsWith(root);
+  return view.startsWith(withSeparator(drive.path));
+}
+
+/**
+ * そのパスの区切り。**形で決める**（`E:` か `\\` で始まれば Windows）——macOS と Linux では `\` も名前に
+ * 使える字なので、`\` を含むかで決めると `/Volumes/CARD\2026` を取り違える（#251 の PR の codex）
+ */
+function separatorOf(path: string): string {
+  return /^([A-Za-z]:|\\\\)/.test(path) ? "\\" : "/";
+}
+
+/** 末尾に区切りを付けた形（`E:\` はそのまま、`/Volumes/SD` は `/Volumes/SD/`） */
+function withSeparator(path: string): string {
+  const sep = separatorOf(path);
+  return path.endsWith(sep) || path.endsWith("/") ? path : path + sep;
+}
+
+/**
+ * ツリーで `path` の行を見せるために開く枝（根から `path` の親まで）。どの根の中でもなければ空。
+ *
+ * 取り込み画面の入口（本体の左の欄のドライブ・AutoPlay・最初から選ぶカード）は `X:\DCIM` を開くが、ツリーの根はドライブなので、
+ * 根を開かないと `DCIM` の行が出ず、選んでいる行がどこにも見えない（#203 の win の実機）。
+ * 根が入れ子なら（ドライブの中に自分で足したフォルダ）、深いほうから辿る。
+ */
+export function branchTo(roots: readonly string[], path: string): string[] {
+  // 自分で足したフォルダはそれ自体が根の行なので、上のドライブ（`C:\`・`/`）を開いて辿らない
+  if (roots.includes(path)) return [];
+  const root = roots
+    .filter((r) => path.startsWith(withSeparator(r)))
+    .reduce<string | null>((a, r) => (a === null || r.length > a.length ? r : a), null);
+  if (root === null) return [];
+  const base = withSeparator(root);
+  const sep = separatorOf(root);
+  // Windows は `/` も区切りとして通すので両方で割る。macOS・Linux は `/` だけ
+  const parts = path
+    .slice(base.length)
+    .split(sep === "\\" ? /[\\/]/ : "/")
+    .filter((x) => x !== "");
+  const branch = [root];
+  for (let i = 1; i < parts.length; i++) branch.push(base + parts.slice(0, i).join(sep));
+  return branch;
 }
 
 /** 一覧で目立たせるドライブか（カメラのカードか、取り外せるドライブ）。選ぶかどうかとは別で、広めに取る */

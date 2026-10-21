@@ -32,7 +32,7 @@ import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { confirmTemporaryDestination } from "./confirm";
 import { usePlatform } from "./usePlatform";
-import { isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
+import { branchTo, isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
@@ -165,6 +165,11 @@ export default function ImportWizard({
     deep: true,
   });
   viewRef.current = { path: current, deep };
+  /** 枝を開き終えた「場所と枝」（ドライブの一覧が5秒ごとに来ても、同じ枝を開き直さない） */
+  const revealedRef = useRef("");
+  /** 読めた枝（枝を開くときに、まだ読んでいないものだけ読む。effectの依存に入れずに読む） */
+  const listingsRef = useRef(listings);
+  listingsRef.current = listings;
 
   const destination = config?.routing.destination ?? null;
   const platform = usePlatform();
@@ -369,6 +374,8 @@ export default function ImportWizard({
   // 出しっぱなしにしないため
   useEffect(() => {
     if (!isOpen || !startPath) return;
+    // 開いたまま同じ場所へ来ても、選んでいる行をもう一度見せる（手で閉じた枝を開け直す。#251 の PR の codex）
+    revealedRef.current = "";
     openFolder(startPath, true);
   }, [isOpen, startPath, startNonce, openFolder]);
 
@@ -451,6 +458,55 @@ export default function ImportWizard({
   // 開いたら幕の中へフォーカスを移す（後ろは inert なので、そのままでは <body> に残り、読み上げが幕の名前を
   // 読まない。win の実測、pictkura-dev #65）。フックは早い return より前に
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // **開いた場所の行が見えるところまで、ツリーの枝も開く**。入口（本体の左の欄のドライブ・AutoPlay・最初から
+  // 選ぶカード）は `X:\DCIM` を開くが、ツリーの根はドライブなので、閉じたままだと選んでいる行が
+  // どこにも出ない（#203 の win の実機）。
+  // - **開いた時点で1回決めない。** AutoPlay ではカードがまだドライブの一覧（5秒ごと）に居ないことが多い
+  //   ——ドライブが現れたら枝が変わるので、そこで開く（ゲート2）
+  // - **開くのは、場所か枝が変わったときだけ。** ツリーを辿るたび・「下の階層も」を切り替えるたびに開き直すと、
+  //   利用者が閉じた枝を開け直し、読んである枝を読み直す（ゲート2の2周目）
+  // - **読むのは、まだ読んでいない枝だけ**（手で開いたときと同じ）。読むのは一覧の走査が済んでから、
+  //   失敗は黙る——押していないフォルダのことで知らせを出さない
+  // - **読み終えたら1回だけ、選んでいる行を見える所へ送る。** 待ちを残さない（あとで利用者が枝を開いた
+  //   ときに引き戻さない）
+  // - **閉じたら忘れる。** 画面は閉じても場所と開いた枝を覚えているので、同じ場所へ開き直すと
+  //   「もう開いた」と読んで、手で閉じた枝のまま選んでいる行が見えなかった（#251 の win の実機 R2a）
+  useEffect(() => {
+    if (!isOpen) {
+      revealedRef.current = "";
+      return;
+    }
+    if (!current || loading) return;
+    const branch = branchTo([...drives.map((d) => d.path), ...extraRoots], current);
+    const key = `${current}\n${branch.join("\n")}`;
+    if (key === revealedRef.current) return;
+    revealedRef.current = key;
+    if (branch.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      branch.forEach((p) => next.add(p));
+      return next;
+    });
+    const reads = branch
+      .filter((p) => !listingsRef.current[p])
+      .map((p) =>
+        listSourceDir(p)
+          .then((result) => setListings((prev) => ({ ...prev, [p]: result })))
+          .catch(() => {}),
+      );
+    // 描き終わってから探す（届いた枝の行は次の描画で出来る）。そのあいだに別の場所へ移っていたら送らない
+    // ——遅い枝の読み込みが、あとで選んだ行のほうを動かす（#251 の PR の codex）
+    const stillThisOne = () => revealedRef.current === key;
+    void Promise.all(reads).then(() =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (!stillThisOne()) return;
+          dialogRef.current?.querySelector(".wiz-node.active")?.scrollIntoView({ block: "nearest" });
+        }),
+      ),
+    );
+  }, [isOpen, current, loading, drives, extraRoots]);
   useEffect(() => {
     // 中の部品が autoFocus で先に取っていたら奪わない（設定の自分で決める欄。ゲート2）
     const root = dialogRef.current;

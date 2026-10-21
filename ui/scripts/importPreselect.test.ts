@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isViewing, openPathOf, preselectDrive, standsOut, type DriveLike } from "../src/importPreselect.ts";
+import { branchTo, isViewing, openPathOf, preselectDrive, standsOut, type DriveLike } from "../src/importPreselect.ts";
 
 const card = (path: string): DriveLike => ({ path, kind: "removable", dcim_path: path + "/DCIM" });
 const removable = (path: string): DriveLike => ({ path, kind: "removable", dcim_path: null });
@@ -65,4 +65,33 @@ test("いま見ているフォルダがカードの中かは、区切りまで�
   const e = card("E:\\");
   assert.equal(isViewing("E:\\DCIM\\100CANON", e), true);
   assert.equal(isViewing("F:\\DCIM", e), false);
+});
+
+test("開いた場所の行が見えるまで、根からその親までの枝を開く（DCIM を開くとドライブが閉じたままだった）", () => {
+  assert.deepEqual(branchTo(["C:\\", "J:\\"], "J:\\DCIM"), ["J:\\"]);
+  assert.deepEqual(branchTo(["C:\\", "J:\\"], "J:\\DCIM\\100MSDCF"), ["J:\\", "J:\\DCIM"]);
+  assert.deepEqual(branchTo(["/", "/Volumes/SD"], "/Volumes/SD/DCIM/100TEST"), ["/Volumes/SD", "/Volumes/SD/DCIM"]);
+});
+
+test("根そのものや、どの根の中でもない場所では何も開かない", () => {
+  assert.deepEqual(branchTo(["C:\\", "J:\\"], "J:\\"), []);
+  assert.deepEqual(branchTo(["/Volumes/SD"], "/Volumes/SD2/DCIM"), [], "名前の頭が同じ別のカード");
+  assert.deepEqual(branchTo(["J:\\"], "K:\\DCIM"), []);
+});
+
+test("自分で足したフォルダは、それ自体が根なので上のドライブを開かない", () => {
+  assert.deepEqual(branchTo(["/", "/Users/me/Pictures"], "/Users/me/Pictures"), []);
+  assert.deepEqual(branchTo(["C:\\", "C:\\Photos"], "C:\\Photos"), []);
+  // その中を開いたときは、近いほうの根（足したフォルダ）から辿る
+  assert.deepEqual(branchTo(["C:\\", "C:\\Photos"], "C:\\Photos\\2026\\10"), ["C:\\Photos", "C:\\Photos\\2026"]);
+});
+
+test("macOS・Linux の名前に入った \\ は区切りではない", () => {
+  assert.deepEqual(branchTo(["/", "/Volumes/CARD\\2026"], "/Volumes/CARD\\2026/DCIM/100X"), [
+    "/Volumes/CARD\\2026",
+    "/Volumes/CARD\\2026/DCIM",
+  ]);
+  assert.equal(isViewing("/Volumes/CARD\\2026/DCIM", card("/Volumes/CARD\\2026")), true);
+  // Windows の UNC の根
+  assert.deepEqual(branchTo(["\\\\nas\\photos"], "\\\\nas\\photos\\2026\\10"), ["\\\\nas\\photos", "\\\\nas\\photos\\2026"]);
 });
