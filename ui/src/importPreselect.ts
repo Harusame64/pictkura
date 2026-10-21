@@ -42,8 +42,34 @@ export function openPathOf(drive: DriveLike): string {
 export function isViewing(view: string | null, drive: DriveLike): boolean {
   if (!view) return false;
   if (view === drive.path) return true;
-  const root = /[\\/]$/.test(drive.path) ? drive.path : drive.path + (drive.path.includes("\\") ? "\\" : "/");
-  return view.startsWith(root);
+  return view.startsWith(withSeparator(drive.path));
+}
+
+/** 末尾に区切りを付けた形（`E:\` はそのまま、`/Volumes/SD` は `/Volumes/SD/`） */
+function withSeparator(path: string): string {
+  return /[\\/]$/.test(path) ? path : path + (path.includes("\\") ? "\\" : "/");
+}
+
+/**
+ * ツリーで `path` の行を見せるために開く枝（根から `path` の親まで）。どの根の中でもなければ空。
+ *
+ * どの入口（ドライブの行・AutoPlay・最初から選ぶカード）も `X:\DCIM` を開くが、ツリーの根はドライブなので、
+ * 根を開かないと `DCIM` の行が出ず、選んでいる行がどこにも見えない（#203 の win の実機）。
+ * 根が入れ子なら（ドライブの中に自分で足したフォルダ）、深いほうから辿る。
+ */
+export function branchTo(roots: readonly string[], path: string): string[] {
+  // 自分で足したフォルダはそれ自体が根の行なので、上のドライブ（`C:\`・`/`）を開いて辿らない
+  if (roots.includes(path)) return [];
+  const root = roots
+    .filter((r) => path.startsWith(withSeparator(r)))
+    .reduce<string | null>((a, r) => (a === null || r.length > a.length ? r : a), null);
+  if (root === null) return [];
+  const base = withSeparator(root);
+  const sep = base.endsWith("\\") ? "\\" : "/";
+  const parts = path.slice(base.length).split(/[\\/]/).filter((x) => x !== "");
+  const branch = [root];
+  for (let i = 1; i < parts.length; i++) branch.push(base + parts.slice(0, i).join(sep));
+  return branch;
 }
 
 /** 一覧で目立たせるドライブか（カメラのカードか、取り外せるドライブ）。選ぶかどうかとは別で、広めに取る */

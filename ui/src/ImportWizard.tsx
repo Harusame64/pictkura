@@ -32,7 +32,7 @@ import { t } from "./i18n";
 import { errText } from "./i18n/err.ts";
 import { confirmTemporaryDestination } from "./confirm";
 import { usePlatform } from "./usePlatform";
-import { isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
+import { branchTo, isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 
@@ -165,6 +165,11 @@ export default function ImportWizard({
     deep: true,
   });
   viewRef.current = { path: current, deep };
+  /** ツリーの根（ドライブと自分で足したフォルダ）と読めた枝。開いた場所までの枝を開くときに読む */
+  const rootPathsRef = useRef<string[]>([]);
+  rootPathsRef.current = [...drives.map((d) => d.path), ...extraRoots];
+  const listingsRef = useRef(listings);
+  listingsRef.current = listings;
 
   const destination = config?.routing.destination ?? null;
   const platform = usePlatform();
@@ -357,10 +362,18 @@ export default function ImportWizard({
       setDeep(wantDeep);
       setSelected(new Set());
       setShown(PAGE_SIZE);
-      setExpanded((prev) => new Set(prev).add(path));
+      // **開いた場所の行が見えるところまで枝も開く**（`X:\DCIM` を開いてもドライブが閉じていると、
+      // 選んでいる行がどこにも出ない。#203 の win の実機）
+      const branch = branchTo(rootPathsRef.current, path);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        branch.forEach((p) => next.add(p));
+        return next.add(path);
+      });
+      branch.filter((p) => !listingsRef.current[p]).forEach((p) => void loadDir(p));
       await loadView(path, wantDeep);
     },
-    [loadView],
+    [loadDir, loadView],
   );
 
   // 開いたときの初期表示: メディアから来たならその中を丸ごと見せる。
