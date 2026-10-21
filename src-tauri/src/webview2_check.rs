@@ -34,7 +34,7 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDYES, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, SW_SHOWNORMAL,
+    MessageBoxW, IDYES, MB_ICONWARNING, MB_SETFOREGROUND, MB_SYSTEMMODAL, MB_YESNO, SW_SHOWNORMAL,
 };
 
 use pictkura_core::applog;
@@ -69,11 +69,13 @@ pub fn ensure_runtime_or_exit() {
             None,
             PCWSTR(text.as_ptr()),
             w!("pictkura"),
-            // **最前面を頼む。ただし効かない場合がある**（ゲート2で足し、PR #252 の win の実機で確かめた）。
-            // 前に出る権利を持たないプロセス（スケジュールタスクから起動した場合）では、箱は
-            // エクスプローラーの後ろに出て、タスクバーが点滅するだけだった。押せば前に出て答えられる。
-            // 前に出す手立ては pictkura-dev #72 で実測してから選ぶ
-            MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST,
+            // **最前面には `MB_SYSTEMMODAL` で載せる**（pictkura-dev #72、win の実測 dev mbspike-win-20261021）。
+            // 前に出る権利を持たないプロセス（スケジュールタスクや AutoPlay からの起動）では、`MB_TOPMOST` は
+            // 効かず（箱に WS_EX_TOPMOST が付かない）、エクスプローラーの後ろに出て点滅するだけだった。
+            // `MB_SYSTEMMODAL` なら付いて、上に見える。**それでも前景にはならない**——キーはエクスプローラーに
+            // 残り、押すにはクリックが要る。親を最前面の見えない窓にする手も上に出たが、タスクバーから
+            // 辿れなくなるので取らない
+            MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND | MB_SYSTEMMODAL,
         )
     };
     if answer == IDYES {
