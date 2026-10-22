@@ -599,7 +599,7 @@ export const zhHant: Dict = {
     "全螢幕時切換到下一張照片（方向鍵、按鈕、底部的縮圖列，或判定後的自動前進），以及投影片放映切換時的效果。滑動會朝你切換的方向移動。如果系統設定了減少動態效果，無論這裡選什麼，照片都會直接切換。",
   settingsAutoplay: "插入 USB 隨身碟或 SD 記憶卡時",
   settingsAutoplayNote:
-    "用安裝程式或從 Microsoft Store 安裝的 pictkura，插入磁碟機時會在選項中列出「pictkura で写真を取り込む」（用 pictkura 匯入相片）；可攜版不會列出。它不會自行啟動，只有選擇時才會開啟匯入。預設動作請在 Windows 的「自動播放」設定中變更。請注意，這個選項本身的文字是日文（英文版 MSI 則是「Import photos with pictkura」）。",
+    "用安裝程式或從 Microsoft Store 安裝的 pictkura，插入磁碟機時會在選項中列出「pictkura で写真を取り込む」（用 pictkura 匯入相片）；可攜版不會列出。在你選取這個選項之前，插入記憶卡或 USB 隨身碟不會啟動 pictkura。選取一次後，Windows 會將它記為這類媒體的預設動作（記憶卡和 USB 隨身碟分別設定），之後每次插入同類媒體都會開啟匯入畫面。預設動作請在 Windows 的「自動播放」設定中變更。請注意，這個選項本身的文字是日文（英文版 MSI 則是「Import photos with pictkura」）。",
   settingsAutoplayOpenWindows: "開啟 Windows 自動播放設定",
   settingsImportWaitingFrom: (path: string) =>
     `來自 ${path} 的匯入正在等待，關閉設定後就會開啟。`,
