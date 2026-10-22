@@ -570,8 +570,19 @@ struct LookedAt {
 
 /// [`embedded_preview_at_least`] に「**どこまで探したか**」を添えて返す。
 pub fn search_embedded_preview(path: &Path, min_long_edge: u32) -> PreviewSearch {
+    search_preview(path, min_long_edge, false)
+}
+
+/// 取り込み元（USB・SD）の一覧用。[`search_embedded_preview`] との違いは、
+/// 長辺 [`USABLE_LONG_EDGE`] 未満を求めるとき、先頭を広げながら探して
+/// **足りる絵が見つかった時点で止める**こと（[`scan_growing_head`]）。
+pub fn search_source_preview(path: &Path, min_long_edge: u32) -> PreviewSearch {
+    search_preview(path, min_long_edge, true)
+}
+
+fn search_preview(path: &Path, min_long_edge: u32, grow: bool) -> PreviewSearch {
     let mut looked = LookedAt::default();
-    let preview = search_preview_inner(path, min_long_edge, &mut looked);
+    let preview = search_preview_inner(path, min_long_edge, grow, &mut looked);
     PreviewSearch {
         exhausted: preview.is_none()
             && looked.whole_file
@@ -582,7 +593,12 @@ pub fn search_embedded_preview(path: &Path, min_long_edge: u32) -> PreviewSearch
 }
 
 /// [`search_embedded_preview`] の本体。
-fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) -> Option<Vec<u8>> {
+fn search_preview_inner(
+    path: &Path,
+    min_long_edge: u32,
+    grow: bool,
+    looked: &mut LookedAt,
+) -> Option<Vec<u8>> {
     /// 大きい方を残す。
     fn keep(best: &mut Option<Vec<u8>>, found: Vec<u8>) {
         if best
@@ -612,7 +628,26 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
     // ここでHEVCの箱（数百KB）だけ取り出して、先頭は落とす。
     // **代償**: HEVCのプレビューを探せるのは先頭16MBまでになる。3段目は128MBまで
     // 読むが、6段目が使える材料はここで決まる（実物の `PRVW` は0.15MB地点）
-    let hevc_boxes: Vec<Cr3Hevc> = match read_head(path, SCAN_LIMIT) {
+    //
+    // **取り込み元の一覧（`grow`、[`USABLE_LONG_EDGE`] 未満）は先頭を広げながら探す**（dev #73）。
+    // 足りる絵が1MB・4MBの内に見つかればそこで止める——RW2・NEF・RWL は1MB、
+    // RAF は多くが4MBで足りる（手元の871件）。USB・SDの取り込み画面では、
+    // 1枚ごとに16MB読んでいたのがそのまま待ち時間だった。選ぶ絵は「その範囲で
+    // 一番大きいもの」なので、16MB読んだときより小さい絵になることがある
+    // （CR3は1620pxの `PRVW` で止まり、6960pxの原寸は探さない）。
+    // 原寸が要るビューアと、ライブラリのサムネイル（掴んだ絵の寸法がビューアの
+    // 最初の枠になる）は従来どおり16MBを一度に読む。見つからなければ
+    // 16MBまで読んだ状態から先は従来と同じ
+    let early = if grow && min_long_edge < USABLE_LONG_EDGE {
+        scan_growing_head(path, min_long_edge)
+    } else {
+        GrowingHead::Read(read_head(path, SCAN_LIMIT))
+    };
+    let head = match early {
+        GrowingHead::Found(found) => return Some(found),
+        GrowingHead::Read(head) => head,
+    };
+    let hevc_boxes: Vec<Cr3Hevc> = match head {
         Some(head) => {
             // 先頭16MBに収まる大きさなら、この1回で**ファイルは全部見えている**
             looked.whole_file = file_len.is_some_and(|len| len <= SCAN_LIMIT);
@@ -682,7 +717,8 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
             return None;
         };
         let mut reader = std::io::BufReader::new(file);
-        let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
+        // 使うのは項目だけ（ストリップはファイルから読む）なので、先頭で止めてよい
+        let exif = crate::thumbs::read_exif_head_first(&mut reader, false).ok()?;
         uncompressed_preview(path, &exif, big_endian)
     })();
     if let Some(bytes) = uncompressed {
@@ -742,23 +778,83 @@ fn search_preview_inner(path: &Path, min_long_edge: u32, looked: &mut LookedAt) 
     best
 }
 
+/// [`scan_growing_head`] の答え。
+enum GrowingHead {
+    /// 足りる絵が途中で見つかった
+    Found(Vec<u8>),
+    /// 見つからなかった。[`read_head`]`(path, SCAN_LIMIT)` と同じもの
+    Read(Option<Vec<u8>>),
+}
+
+/// 先頭を1MB・4MB・16MBと広げながら、長辺 `min_long_edge` に届くJPEGを探す。
+///
+/// 広げるたびに読み足すだけで、読み直さない。16MBまで来たら（またはファイルが
+/// 尽きたら）探さずに返す——そこから先は呼び出し側が従来どおり走査する。
+fn scan_growing_head(path: &Path, min_long_edge: u32) -> GrowingHead {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else {
+        return GrowingHead::Read(None);
+    };
+    let mut reader = file.take(SCAN_LIMIT as u64);
+    let mut head = Vec::new();
+    for step in [1 << 20, 4 << 20] {
+        let want = step - head.len();
+        match reader.by_ref().take(want as u64).read_to_end(&mut head) {
+            Ok(n) if n == want => {}
+            // ファイルが尽きた: `head` がもう全体。探すのは従来の走査に任せる
+            Ok(_) => return GrowingHead::Read((!head.is_empty()).then_some(head)),
+            // [`read_head`] と同じく、読めなければ何も無い
+            Err(_) => return GrowingHead::Read(None),
+        }
+        if let Some(found) = scan_largest_jpeg(&head) {
+            if long_edge(found) >= min_long_edge {
+                return GrowingHead::Found(found.to_vec());
+            }
+        }
+    }
+    if reader.read_to_end(&mut head).is_err() {
+        return GrowingHead::Read(None);
+    }
+    GrowingHead::Read((!head.is_empty()).then_some(head))
+}
+
 /// TIFFが**申告している**プレビューのうち、表示できて一番大きいもの。
 fn declared_preview(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
     let Ok(file) = std::fs::File::open(path) else {
         looked.reopen_failed = true;
         return None;
     };
+    let file_len = file.metadata().ok().map(|m| m.len() as usize);
     let mut reader = std::io::BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
+    // TIFFは先頭1MBで足りればそこで止める（dev #73）。そのときバッファは先頭だけ
+    let exif = crate::thumbs::read_exif_head_first(&mut reader, false).ok()?;
     for (offset, len) in declared_previews(&exif) {
         if len == 0 {
             continue;
         }
-        // まずEXIFパーサが保持しているバッファから切り出せるか試す
-        // （サムネイルIFDのJPEGはここに入っている）
-        if let Some(bytes) = exif.buf().get(offset..offset.saturating_add(len)) {
-            if is_displayable_jpeg(bytes) {
-                return Some(bytes.to_vec());
+        // まず申告どおりの範囲をそのまま試す（サムネイルIFDのJPEGはここで当たる）。
+        // EXIFパーサのバッファが先頭だけでその外なら、**同じ範囲をファイルから読む**
+        // ——全体を読んでいた頃にバッファから切り出していたのと同じバイト列になる。
+        // ファイルの外を指す申告は、従来どおりここを飛ばす。
+        //
+        // 出る絵は、ここを飛ばして下の窓の読みに任せても変わらない
+        // （`is_displayable_jpeg` は終端がちょうど合うときだけ通す）。読み直すのは
+        // **窓が申告の2倍を読むから**——CR2の原寸プレビューは数MBある
+        let end = offset.saturating_add(len);
+        let declared = match exif.buf().get(offset..end) {
+            Some(bytes) => Some(bytes.to_vec()),
+            None if file_len.is_some_and(|l| end <= l) => {
+                let read = read_exact_range(&mut reader, offset, len);
+                if read.is_none() {
+                    looked.reopen_failed = true;
+                }
+                read
+            }
+            None => None,
+        };
+        if let Some(bytes) = declared {
+            if is_displayable_jpeg(&bytes) {
+                return Some(bytes);
             }
         }
         // 申告の長さが実物と合わないファイルがある（切れたJPEGになる）。
@@ -776,6 +872,18 @@ fn declared_preview(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+/// `offset` から**ちょうど** `len` バイト。足りなければ `None`。
+fn read_exact_range<R: std::io::Read + std::io::Seek>(
+    reader: &mut R,
+    offset: usize,
+    len: usize,
+) -> Option<Vec<u8>> {
+    reader.seek(std::io::SeekFrom::Start(offset as u64)).ok()?;
+    let mut buf = vec![0u8; len];
+    reader.read_exact(&mut buf).ok()?;
+    Some(buf)
 }
 
 /// Minoltaの `.mrw` が持つ「先頭を潰されたJPEG」を直して返す。
@@ -1732,6 +1840,98 @@ mod tests {
         let mut file = std::fs::File::create(&path).unwrap();
         file.write_all(&buf).unwrap();
         path
+    }
+
+    /// IFD0 だけのTIFFで、申告したJPEGを `at` に置く（dev #73: 先頭1MBの外）。
+    fn tiff_declaring_at(at: usize, jpeg: &[u8], total: usize) -> Vec<u8> {
+        let mut buf = vec![0u8; total.max(at + jpeg.len())];
+        buf[..4].copy_from_slice(b"II\x2a\x00");
+        buf[4..8].copy_from_slice(&8u32.to_le_bytes());
+        buf[8..10].copy_from_slice(&2u16.to_le_bytes());
+        for (i, (tag, value)) in [(513u16, at as u32), (514u16, jpeg.len() as u32)]
+            .into_iter()
+            .enumerate()
+        {
+            let e = 10 + i * 12;
+            buf[e..e + 2].copy_from_slice(&tag.to_le_bytes());
+            buf[e + 2..e + 4].copy_from_slice(&4u16.to_le_bytes());
+            buf[e + 4..e + 8].copy_from_slice(&1u32.to_le_bytes());
+            buf[e + 8..e + 12].copy_from_slice(&value.to_le_bytes());
+        }
+        buf[at..at + jpeg.len()].copy_from_slice(jpeg);
+        buf
+    }
+
+    #[test]
+    fn a_declared_preview_past_the_first_megabyte_is_still_found() {
+        // EXIF は先頭1MBで読み終わるので、申告の範囲はファイルから読み直す
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("far.dng");
+        let jpeg = jpeg_bytes(1024, 768);
+        std::fs::write(&path, tiff_declaring_at(3 << 20, &jpeg, 6 << 20)).unwrap();
+        let mut looked = LookedAt::default();
+        assert_eq!(declared_preview(&path, &mut looked), Some(jpeg));
+        assert!(!looked.reopen_failed);
+    }
+
+    #[test]
+    fn a_declared_preview_past_the_end_of_the_file_is_skipped_as_before() {
+        // 全体を読んでいた頃は、バッファの外なので切り出せず次の手へ進んだ
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cut.dng");
+        let jpeg = jpeg_bytes(1024, 768);
+        let mut bytes = tiff_declaring_at(3 << 20, &jpeg, 6 << 20);
+        bytes.truncate((3 << 20) + jpeg.len() / 2);
+        std::fs::write(&path, bytes).unwrap();
+        let mut looked = LookedAt::default();
+        assert_eq!(declared_preview(&path, &mut looked), None);
+    }
+
+    /// 先頭近くに小さめの絵、`far` に大きい絵を置いた、申告の無いRAW。
+    fn raw_with_two_jpegs(path: &Path, far: usize) {
+        let mut bytes = vec![0u8; far + (1 << 20)];
+        let near = jpeg_bytes(640, 480);
+        bytes[4096..4096 + near.len()].copy_from_slice(&near);
+        let big = jpeg_bytes(2000, 1500);
+        bytes[far..far + big.len()].copy_from_slice(&big);
+        bytes.resize(16 << 20, 0);
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn the_import_screen_stops_at_the_first_picture_big_enough() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("two.raf");
+        raw_with_two_jpegs(&path, 8 << 20);
+        let source = search_source_preview(&path, 512).preview.unwrap();
+        assert_eq!(long_edge(&source), 640, "1MBの内の640pxで止まる");
+        // ライブラリとビューアは従来どおり16MBで一番大きい絵
+        assert_eq!(
+            long_edge(&search_embedded_preview(&path, 512).preview.unwrap()),
+            2000
+        );
+        assert_eq!(
+            long_edge(
+                &search_embedded_preview(&path, USABLE_LONG_EDGE)
+                    .preview
+                    .unwrap()
+            ),
+            2000
+        );
+    }
+
+    #[test]
+    fn the_import_screen_reads_on_when_the_near_picture_is_too_small() {
+        // 640pxでは足りない要求なら、16MBまで読んで従来と同じ絵
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("two.raf");
+        raw_with_two_jpegs(&path, 8 << 20);
+        let source = search_source_preview(&path, 1024).preview.unwrap();
+        assert_eq!(
+            source,
+            search_embedded_preview(&path, 1024).preview.unwrap()
+        );
+        assert_eq!(long_edge(&source), 2000);
     }
 
     #[test]
