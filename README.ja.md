@@ -438,8 +438,9 @@ GitHub は `sha256:` を付けて返し、`Get-FileHash` は大文字で返し�
 
 OSの優先言語に従います。対応する言語が無い場合は英語です。⚙（設定）→「**言語**」で
 明示的に選べます（切り替えると画面を読み込み直します）。週の始まりは OS の設定に
-従います。保存やフォルダ選びなどのシステムのダイアログの枠は OS のもので、OS の言語で
-出ます（macOS では、macOS の言語が上の7つに無ければ英語です）。
+従います。保存やフォルダ選びなどのシステムのダイアログの枠は OS のものです。Windows では
+OS の言語で出ます。macOS では、設定で選んだ言語に次の起動から合わせます。OS に合わせているときは
+macOS の言語で出ます（上の7つに無ければ英語です）。
 
 取扱説明書はアプリに同梱しており、⚙（設定）→「**取扱説明書**」から開けます。
 ブラウザでも読めます → **[harusame64.github.io/pictkura/manual.html](https://harusame64.github.io/pictkura/manual.html)**。
@@ -672,7 +673,7 @@ macOSのバンドル対象は `src-tauri/tauri.macos.conf.json` で決めてい�
 
 設定は `%APPDATA%/dev.harusame.pictkura/pictkura.toml`（Windows）、
 `~/Library/Application Support/dev.harusame.pictkura/`（macOS）に保存されます。
-`[import]` `[routing]` `[library]` `[performance]` `[editors]` `[viewer]` `[update]` `[grid]` `[google_mirror]` の構成です。
+`[import]` `[routing]` `[library]` `[performance]` `[editors]` `[viewer]` `[update]` `[grid]` `[google_mirror]` `[ui]` の構成です。
 
 失敗したこと、送り出しフォルダでしたこと（フォルダを作った・外した・置けなかったものを置き直した）、
 pictkura が自分で直したこと（回転の途中で止まったファイルを戻した、前の版の自動再生の登録を片付けた、画面の外に出た窓を戻した、画面に収まらない窓を縮めた）は、
