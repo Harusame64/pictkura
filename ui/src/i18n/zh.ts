@@ -596,7 +596,7 @@ export const zh: Dict = {
     "全屏时切换到下一张照片（方向键、按钮、底部的缩略图条，或判定后的自动前进），以及幻灯片放映切换时的效果。滑动会朝你切换的方向移动。如果系统设置了减少动态效果，无论这里选什么，照片都会直接切换。",
   settingsAutoplay: "插入 U 盘或 SD 卡时",
   settingsAutoplayNote:
-    "用安装程序或从 Microsoft Store 安装的 pictkura，插入驱动器时会在选项中列出“pictkura で写真を取り込む”（用 pictkura 导入照片）；便携版不会列出。在你选择此选项之前，插入存储卡不会启动 pictkura。选择一次后，Windows 会将其记为默认操作，此后每次插入存储卡都会打开导入界面。默认操作请在 Windows 的“自动播放”设置中更改。请注意，这个选项本身的文字是日语（英文版 MSI 则是“Import photos with pictkura”）。",
+    "用安装程序或从 Microsoft Store 安装的 pictkura，插入驱动器时会在选项中列出“pictkura で写真を取り込む”（用 pictkura 导入照片）；便携版不会列出。在你选择此选项之前，插入存储卡或 U 盘不会启动 pictkura。选择一次后，Windows 会将其记为这类介质的默认操作（存储卡和 U 盘分别设置），此后每次插入同类介质都会打开导入界面。默认操作请在 Windows 的“自动播放”设置中更改。请注意，这个选项本身的文字是日语（英文版 MSI 则是“Import photos with pictkura”）。",
   settingsAutoplayOpenWindows: "打开 Windows 自动播放设置",
   settingsImportWaitingFrom: (path: string) =>
     `来自 ${path} 的导入正在等待，关闭设置后就会打开。`,
