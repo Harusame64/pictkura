@@ -547,7 +547,7 @@ export const en: Dict = {
   settingsAutoplay: "When you insert a USB drive or SD card",
   /** 自動再生の節の説明（どの版も同じ。登録はインストーラーと Store のマニフェスト。dev #53） */
   settingsAutoplayNote:
-    "When pictkura is installed with the installer or from the Microsoft Store, “pictkura で写真を取り込む” (import photos with pictkura) appears among the choices when you insert a drive; the portable build does not offer it. It never starts on its own — the import opens only when you choose it. Change what happens by default in the Windows AutoPlay settings. The entry itself is worded in Japanese, except with the English MSI, where it reads “Import photos with pictkura”.",
+    "When pictkura is installed with the installer or from the Microsoft Store, “pictkura で写真を取り込む” (import photos with pictkura) appears among the choices when you insert a drive; the portable build does not offer it. It does not start until you choose it. Once you do, Windows remembers the choice, and the import opens each time you insert a card. Change what happens by default in the Windows AutoPlay settings. The entry itself is worded in Japanese, except with the English MSI, where it reads “Import photos with pictkura”.",
   settingsAutoplayOpenWindows: "Open Windows AutoPlay settings",
   settingsImportWaitingFrom: (path: string) =>
     `An import from ${path} is waiting. It opens when you close Settings.`,
