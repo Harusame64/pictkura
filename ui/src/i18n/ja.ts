@@ -641,7 +641,7 @@ export const ja = {
     "大きく見ている画面で次の写真へ進むとき（矢印キー・送りボタン・下の帯・判定のあとの自動送り）と、スライドショーが次へ進むときの動きです。スライドは押した向きへ流れます。OS の設定でアニメーションを減らしているときは、どれを選んでいても動きません。",
   settingsAutoplay: "USBやSDカードを挿したとき",
   settingsAutoplayNote:
-    "インストーラー版の pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。選ぶまでは起動しません。一度選ぶと Windows がその選択を覚え、次からはカードを挿すたびに取り込みが開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
+    "インストーラー版の pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。選ぶまでは起動しません。一度選ぶと Windows が既定の動作として覚え、次からはカードを挿すたびに取り込み画面が開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
   settingsAutoplayOpenWindows: "Windows の自動再生の設定を開く",
   settingsImportWaitingFrom: (path: string) =>
     `${path} からの取り込みが待っています。設定を閉じると開きます。`,
