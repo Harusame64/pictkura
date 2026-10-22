@@ -891,6 +891,8 @@ fn read_exif_container(path: &Path, keeps_thumbnail: bool) -> Container {
 /// 全体と同じ答えを出せる最短の先頭は、CR2・NEF・ARW・SRW・3FR では最大でも
 /// 0.6MB以下、DNG は中央値30KB。IIQ・TIFF・一部のDNG・PEF は EXIF の表を
 /// ファイルの後ろに置くので、何MBにしても届かない（そちらは従来どおり全体を読む）。
+/// もう1つ全体を読むのは、絵を求める読みで IFD1 の切手が1MBより後ろにあるとき
+/// （[`read_tiff_from_head`]）。
 const EXIF_TIFF_HEAD: u64 = 1 << 20;
 
 /// [`read_exif_container`] の本体。読み手を外から渡せるのは、**どこまで読んだか**を
@@ -923,7 +925,7 @@ fn read_exif_container_from<R: std::io::BufRead + std::io::Seek>(
     let parsed = if !is_tiff {
         exif::Reader::new().read_from_container(reader)
     } else {
-        let mut head = Vec::new();
+        let mut head = Vec::with_capacity(EXIF_TIFF_HEAD as usize);
         match reader.by_ref().take(EXIF_TIFF_HEAD).read_to_end(&mut head) {
             Err(e) => Err(exif::Error::Io(e)),
             Ok(n) if (n as u64) < EXIF_TIFF_HEAD => exif::Reader::new().read_raw(head),
