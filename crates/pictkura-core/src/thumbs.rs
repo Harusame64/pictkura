@@ -600,8 +600,9 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
 ///
 /// 真になるのは**読み出しが1つも失敗しなかった**とき。「読み通した」ではない
 /// ——CR3・RAF・X3F・ORF・RW2 では、コンテナ読みは先頭4096バイトを見て
-/// 「知らない形式」と言うだけで、実際に中身を担保しているのは後段の
-/// `read_head`（256KB・1MB）のほう。
+/// 「知らない形式」と言うだけで、実際に中身を担保しているのは後段の読み
+/// （ORF・RW2 は `patched_tiff_metadata` の 256KB、CR3 は
+/// `bmff_metadata_blocks` の箱の渡り歩き）のほう。
 ///
 /// 開き直しが挟まる経路は**後の読みが失敗したら偽へ落とす**（開けた瞬間から
 /// 共有ロックが掛かるまでの隙間で嘘を付かないため）。
@@ -677,6 +678,9 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     // 掛かると読み直しだけが落ちるので、そのときは「読めた」を取り下げる
     // ——取り下げないとORF・RW2が申告なしの印を付けられて二度と直らない
     // （ゲート1の4周目のP2）
+    //
+    // TIFF の頭を持たない形式（CR3・RAF・X3F）は、先頭の数バイトを見た所で
+    // `NotApplicable` が返る（続きの 256KB は読まない）
     if !had_container {
         match crate::raw::patched_tiff_metadata(path) {
             crate::raw::PatchedTiff::Patched(buf) => {
@@ -703,11 +707,11 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     //
     // **原寸の申告も `CMT1` にある**（[`crate::raw::cr3_declared_dimensions`]）ので、
     // 撮影日時が既に取れていてもCR3なら見に行く。TIFF系RAWを巻き込むと、
-    // 申告を持たない社のために毎回1MB読み直すことになるので、拡張子で切る。
+    // 申告を持たない社のために毎回開き直して読むことになるので、拡張子で切る。
     //
     // **後追い（[`Want::Declaration`]）は日付のために辿らない**（PRコメント側の
     // CodexのP2）。要るのは寸法の申告と向きだけなのに「撮影日時が空だから」で
-    // 入ると、**箱を持たない社でも1件あたり1MB読み直す**ことになる。当たるのは
+    // 入ると、**箱を持たない社でも1件ごとに開き直して読む**ことになる。当たるのは
     // コンテナに日付を持たない社——Fujifilm RAF・Sigma X3F・Kodak KDC・
     // Hasselblad FFF・Leaf MOS。いずれも箱は無いので、読んでも空が返るだけ
     let wants_date = !matches!(want, Want::Declaration);
@@ -716,7 +720,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     {
         // **箱を辿れたかどうかで読めたかを言い直す。** CR3はコンテナ読みも
         // 版番号の直しも素通りするので、ここが**3度目の `File::open`**
-        // （コンテナ読み → `patched_tiff_metadata` → ここ）。前の2回が通った
+        // （コンテナ読み → `patched_tiff_metadata` の先頭8バイト → ここ）。前の2回が通った
         // 後に共有ロックが掛かると箱は空で返り、そのまま進むと
         // **読めていないのに印を付ける**
         let blocks = crate::raw::bmff_metadata_blocks(path);
