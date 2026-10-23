@@ -1180,6 +1180,57 @@ pub fn is_already_imported(
     }
 }
 
+/// [`are_already_imported`] が同時に見るファイルの数。
+///
+/// 1件の値段はほぼ撮影日時の読みで、読む量ではなく**1件ごとの往復の待ち**で決まる。
+/// win の実測（dev `measure73-probe-threads-win.md`、冷えた媒体）では、1本→4本で
+/// SD の 424 件が 6.3→3.8 秒（JPEG の部分は 3.3 倍）、USB の JPEG 300 件が
+/// 2.8→1.3 秒。8本は4本とほぼ同じだった。重い RAW は読む量で決まるので縮まない
+pub const PROBE_READS: usize = 4;
+
+/// [`is_already_imported`] を、渡した並びのまま全件に答える。
+///
+/// [`PROBE_READS`] 本のスレッドが、前から1件ずつ取って見る。答えは1件ずつ
+/// 独立なので（同じ行き先を読むだけで、書かない）、並べても答えは変わらない
+pub fn are_already_imported(
+    paths: &[PathBuf],
+    config: &Config,
+    contested: &HashSet<String>,
+    edits: &Edits,
+) -> Vec<ImportState> {
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut answers = vec![ImportState::NotImported; paths.len()];
+    std::thread::scope(|s| {
+        let workers: Vec<_> = (0..PROBE_READS.min(paths.len()))
+            .map(|_| {
+                let next = &next;
+                s.spawn(move || {
+                    let mut mine = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(path) = paths.get(i) else { break };
+                        mine.push((i, is_already_imported(path, config, contested, edits)));
+                    }
+                    mine
+                })
+            })
+            .collect();
+        for worker in workers {
+            // 1本が落ちたら、1件ずつ回していた頃と同じく呼び出しごと落とす。
+            // 拾った分だけ返すと、落ちたスレッドが見た「済」が「未取り込み」に化ける
+            match worker.join() {
+                Ok(mine) => {
+                    for (i, state) in mine {
+                        answers[i] = state;
+                    }
+                }
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        }
+    });
+    answers
+}
+
 enum ImportOneResult {
     /// コピー先
     Copied(PathBuf),
@@ -2523,6 +2574,48 @@ mod tests {
         .unwrap();
         assert_eq!(again.copied, 0);
         assert_eq!(again.skipped, 1);
+    }
+
+    #[test]
+    fn the_parallel_check_answers_each_file_in_the_order_given() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        // 並べる本数より多く、答えが入り混じる並び（3件ごとに1件だけ取り込み済み）
+        let files: Vec<PathBuf> = (0..PROBE_READS * 5 + 3)
+            .map(|i| {
+                let f = src.join(format!("p{i:02}.jpg"));
+                fs::write(&f, format!("photo {i}")).unwrap();
+                f
+            })
+            .collect();
+        let config = test_config(&dest);
+        let imported: Vec<PathBuf> = files.iter().step_by(3).cloned().collect();
+        import_files(
+            &imported,
+            &no_repeated_names(),
+            &config,
+            &Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        let answers =
+            are_already_imported(&files, &config, &no_repeated_names(), &Edits::default());
+        let expected: Vec<ImportState> = (0..files.len())
+            .map(|i| {
+                if i % 3 == 0 {
+                    ImportState::Imported
+                } else {
+                    ImportState::NotImported
+                }
+            })
+            .collect();
+        assert_eq!(answers, expected);
+        assert!(
+            are_already_imported(&[], &config, &no_repeated_names(), &Edits::default()).is_empty()
+        );
     }
 
     #[test]

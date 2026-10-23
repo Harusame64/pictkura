@@ -5817,15 +5817,13 @@ async fn probe_imported(
         let config = lock_ok(&state.config).clone();
         let contested = pictkura_core::contested_set(contested.iter().map(String::as_str));
         let edits = rotation_edits(&state);
-        paths
-            .iter()
-            .map(|p| {
-                match pictkura_core::is_already_imported(Path::new(p), &config, &contested, &edits)
-                {
-                    pictkura_core::ImportState::Imported => "imported",
-                    pictkura_core::ImportState::NotImported => "new",
-                    pictkura_core::ImportState::Unsure => "unsure",
-                }
+        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        pictkura_core::are_already_imported(&paths, &config, &contested, &edits)
+            .into_iter()
+            .map(|answer| match answer {
+                pictkura_core::ImportState::Imported => "imported",
+                pictkura_core::ImportState::NotImported => "new",
+                pictkura_core::ImportState::Unsure => "unsure",
             })
             .collect()
     })
