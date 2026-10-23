@@ -1142,6 +1142,18 @@ pub fn is_already_imported(
     contested: &HashSet<String>,
     edits: &Edits,
 ) -> ImportState {
+    already_imported_with(path, config, contested, edits, &mut PairIndex::default())
+}
+
+/// [`is_already_imported`] の中身。`pairs` は相方を探すフォルダの一覧の控えで、
+/// 何件も続けて見るときは使い回す（1つのフォルダは1回しか読まない）
+fn already_imported_with(
+    path: &Path,
+    config: &Config,
+    contested: &HashSet<String>,
+    edits: &Edits,
+    pairs: &mut PairIndex,
+) -> ImportState {
     let Some(dest_root) = config.routing.destination.as_ref() else {
         return ImportState::NotImported;
     };
@@ -1149,9 +1161,8 @@ pub fn is_already_imported(
         return ImportState::NotImported;
     };
     let mtime_ms = mtime_ms_of(&meta);
-    let mut pairs = PairIndex::default();
     let dest_dir = dest_dir_for(
-        taken_at_paired(path, config, &mut pairs),
+        taken_at_paired(path, config, pairs),
         mtime_ms,
         dest_root,
         config,
@@ -1178,6 +1189,116 @@ pub fn is_already_imported(
         // 選ばせて取り込みに失敗させる。ここで「済」と出すと、入っていないものが消える
         DestResolution::CopyTo(_) | DestResolution::Exhausted => ImportState::NotImported,
     }
+}
+
+/// [`are_already_imported`] が同時に見るファイルの数。
+///
+/// 1件の値段はほぼ撮影日時の読みで、読む量ではなく**1件ごとの往復の待ち**で決まる。
+/// win の実測（dev `measure73-probe-threads-win.md`、冷えた媒体）では、1本→4本で
+/// SD の 424 件が 6.3→3.8 秒（JPEG の部分は 3.3 倍）、USB の JPEG 300 件が
+/// 2.8→1.3 秒。8本は4本とほぼ同じだった。重い RAW は読む量で決まるので縮まない
+pub const PROBE_READS: usize = 4;
+
+/// 何本並べて見るか。**シークに時間のかかるドライブ（円盤）は1本**——4本で速くなるのは
+/// フラッシュの媒体で測っただけで、円盤では測っていない（[`crate::seek`]）。
+/// 見るのは最初のパスのドライブ（取り込み元は1つのフォルダの下）
+fn probe_readers<P: AsRef<Path>>(paths: &[P]) -> usize {
+    match paths
+        .first()
+        .map(|p| crate::seek::incurs_seek_penalty(p.as_ref()))
+    {
+        Some(Some(true)) => 1,
+        _ => PROBE_READS,
+    }
+}
+
+/// [`is_already_imported`] を、渡した並びのまま全件に答える。
+///
+/// [`PROBE_READS`] 本のスレッドが、前から1件ずつ取って見る。答えは1件ずつ
+/// 独立なので（同じ行き先を読むだけで、書かない）、並べても答えは変わらない。
+/// 相方を探すフォルダの一覧は、スレッドごとに1回だけ読む
+///
+/// `may_widen` は**2本目以降のスレッドが次の1件を取ってよいか**。偽のあいだ、
+/// 1本目だけが進む——同じカードから取り込み画面のタイルを読んでいるあいだは
+/// カードをタイルに譲るため。win の実測（dev `measure73-probe-app-win.md`）では、
+/// 譲らずに4本で読むと、SD で見えている20枚が揃うまでが 2.1 → 5.1 秒に延びた
+pub fn are_already_imported<P: AsRef<Path> + Sync>(
+    paths: &[P],
+    config: &Config,
+    contested: &HashSet<String>,
+    edits: &Edits,
+    may_widen: &(dyn Fn() -> bool + Sync),
+) -> Vec<ImportState> {
+    if config.routing.destination.is_none() {
+        return vec![ImportState::NotImported; paths.len()];
+    }
+    check_each(paths, probe_readers(paths), may_widen, || {
+        let mut pairs = PairIndex::default();
+        move |path: &Path| already_imported_with(path, config, contested, edits, &mut pairs)
+    })
+}
+
+/// `paths` を [`PROBE_READS`] 本のスレッドで1件ずつ `check` に通し、渡した並びのまま返す。
+/// `check` はスレッドごとに `make_check` で作る（スレッドの中だけで使う控えを持てるように）。
+///
+/// **1件が落ちても（パニック）、その1件を [`ImportState::Unsure`] にして続ける。**
+/// 束ごと落とすと、画面は残りの束も問い合わせなくなり、入っている写真まで選ばれたままになる。
+/// 「済」にも「未取り込み」にも丸めない——どちらとも言えていない
+fn check_each<P, C>(
+    paths: &[P],
+    readers: usize,
+    may_widen: &(dyn Fn() -> bool + Sync),
+    make_check: impl Fn() -> C + Sync,
+) -> Vec<ImportState>
+where
+    P: AsRef<Path> + Sync,
+    C: FnMut(&Path) -> ImportState,
+{
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut answers: Vec<Option<ImportState>> = vec![None; paths.len()];
+    std::thread::scope(|s| {
+        let workers: Vec<_> = (0..readers.clamp(1, PROBE_READS).min(paths.len()))
+            .map(|worker| {
+                let (next, make_check) = (&next, &make_check);
+                s.spawn(move || {
+                    let mut check = make_check();
+                    let mut mine = Vec::new();
+                    loop {
+                        // 1本目は止まらない。ほかは譲るあいだ待つ（残りが尽きたら抜ける）
+                        while worker > 0 && !may_widen() {
+                            if next.load(std::sync::atomic::Ordering::Relaxed) >= paths.len() {
+                                return mine;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(path) = paths.get(i).map(AsRef::as_ref) else {
+                            break;
+                        };
+                        let label = format!("already imported? {}", path.display());
+                        let state = crate::panics::catching(&label, || check(path))
+                            .unwrap_or(ImportState::Unsure);
+                        mine.push((i, state));
+                    }
+                    mine
+                })
+            })
+            .collect();
+        for worker in workers {
+            // 1件ずつ網を張っているので、ここでスレッドが落ちることは無い。
+            // それでも落ちたなら、そのスレッドが見た分は下で「分からない」になる
+            if let Ok(mine) = worker.join() {
+                for (i, state) in mine {
+                    answers[i] = Some(state);
+                }
+            }
+        }
+    });
+    // 答えの無い枠は「分からない」——「未取り込み」で埋めると、穴が「新しい写真」に見える
+    answers
+        .into_iter()
+        .map(|a| a.unwrap_or(ImportState::Unsure))
+        .collect()
 }
 
 enum ImportOneResult {
@@ -2523,6 +2644,153 @@ mod tests {
         .unwrap();
         assert_eq!(again.copied, 0);
         assert_eq!(again.skipped, 1);
+    }
+
+    #[test]
+    fn the_parallel_check_answers_each_file_in_the_order_given() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("usb");
+        let dest = dir.path().join("photos");
+        fs::create_dir_all(&src).unwrap();
+        // 並べる本数より多く、答えが入り混じる並び（3件ごとに1件だけ取り込み済み）
+        let files: Vec<PathBuf> = (0..PROBE_READS * 5 + 3)
+            .map(|i| {
+                let f = src.join(format!("p{i:02}.jpg"));
+                fs::write(&f, format!("photo {i}")).unwrap();
+                f
+            })
+            .collect();
+        let config = test_config(&dest);
+        let imported: Vec<PathBuf> = files.iter().step_by(3).cloned().collect();
+        import_files(
+            &imported,
+            &no_repeated_names(),
+            &config,
+            &Edits::default(),
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        let answers = are_already_imported(
+            &files,
+            &config,
+            &no_repeated_names(),
+            &Edits::default(),
+            &|| true,
+        );
+        let expected: Vec<ImportState> = (0..files.len())
+            .map(|i| {
+                if i % 3 == 0 {
+                    ImportState::Imported
+                } else {
+                    ImportState::NotImported
+                }
+            })
+            .collect();
+        assert_eq!(answers, expected);
+        assert!(are_already_imported::<PathBuf>(
+            &[],
+            &config,
+            &no_repeated_names(),
+            &Edits::default(),
+            &|| true,
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn a_panic_on_one_file_answers_unsure_for_that_file_only() {
+        let paths: Vec<PathBuf> = (0..PROBE_READS * 3)
+            .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
+            .collect();
+        let answers = check_each(&paths, PROBE_READS, &|| true, || {
+            |path: &Path| {
+                if path == Path::new("p05.jpg") {
+                    panic!("わざと落とす");
+                }
+                ImportState::Imported
+            }
+        });
+        let expected: Vec<ImportState> = (0..paths.len())
+            .map(|i| {
+                if i == 5 {
+                    ImportState::Unsure
+                } else {
+                    ImportState::Imported
+                }
+            })
+            .collect();
+        assert_eq!(answers, expected);
+    }
+
+    #[test]
+    fn while_told_not_to_widen_only_one_thread_checks() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let paths: Vec<PathBuf> = (0..PROBE_READS * 4)
+            .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
+            .collect();
+        let (now, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let widen = AtomicBool::new(false);
+        let answers = check_each(
+            &paths,
+            PROBE_READS,
+            &|| widen.load(Ordering::SeqCst),
+            || {
+                |_: &Path| {
+                    let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(n, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    now.fetch_sub(1, Ordering::SeqCst);
+                    ImportState::NotImported
+                }
+            },
+        );
+        assert_eq!(answers.len(), paths.len());
+        assert!(answers.iter().all(|a| *a == ImportState::NotImported));
+        assert_eq!(most.load(Ordering::SeqCst), 1, "譲っているあいだは1本だけ");
+
+        // 譲るのをやめたら、並べて読む。1件目は2本目が来るまで（最大5秒）待つ
+        // ——スレッドの立ち上がりが遅い機械でも、並んだかどうかを確かめられるように
+        widen.store(true, Ordering::SeqCst);
+        most.store(0, Ordering::SeqCst);
+        check_each(
+            &paths,
+            PROBE_READS,
+            &|| widen.load(Ordering::SeqCst),
+            || {
+                |_: &Path| {
+                    let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(n, Ordering::SeqCst);
+                    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    while most.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < until {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    now.fetch_sub(1, Ordering::SeqCst);
+                    ImportState::NotImported
+                }
+            },
+        );
+        assert!(most.load(Ordering::SeqCst) > 1);
+    }
+
+    #[test]
+    fn one_reader_means_one_thread_even_when_told_to_widen() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let paths: Vec<PathBuf> = (0..PROBE_READS * 4)
+            .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
+            .collect();
+        let (now, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let answers = check_each(&paths, 1, &|| true, || {
+            |_: &Path| {
+                let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                most.fetch_max(n, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+                now.fetch_sub(1, Ordering::SeqCst);
+                ImportState::NotImported
+            }
+        });
+        assert_eq!(answers.len(), paths.len());
+        assert_eq!(most.load(Ordering::SeqCst), 1);
     }
 
     #[test]

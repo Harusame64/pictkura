@@ -41,8 +41,8 @@ export class TileQueue {
   private readonly away = new Set<string>();
   /**
    * 読み途中。**時間切れは置かない**——枠を空けてもアプリの側の読みは続くので、
-   * 遅い媒体で読みが積み上がる。答えはかならず来る（アプリは失敗も 500 で返し、
-   * 抜かれた媒体の読みは失敗で終わる）
+   * 遅い媒体で読みが積み上がる。答えはかならず来る（アプリは失敗も 403・404・500 で
+   * 返し、どれも `onerror` になる。抜かれた媒体の読みは失敗で終わる）
    */
   private readonly running = new Set<string>();
   private scheduled = false;

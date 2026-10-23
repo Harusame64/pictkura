@@ -35,6 +35,7 @@ pub mod resize;
 pub mod rotate;
 pub mod scanner;
 pub mod search;
+pub mod seek;
 pub mod shell;
 pub mod sidecar;
 pub mod svg;
@@ -50,8 +51,8 @@ pub use config::{Config, ConfigError};
 pub use db::{Db, DbError, DirSnapshot, MediaRecord, ReadPool, RowVersion, TakenAt, TakenSource};
 pub use export::{export_files, ExportError, ExportMode, ExportOutcome, ExportStats};
 pub use import::{
-    contested_flags, contested_names, contested_set, import_files, import_from,
-    is_already_imported, Edits, ImportError, ImportState, ImportStats,
+    are_already_imported, contested_flags, contested_names, contested_set, import_files,
+    import_from, is_already_imported, Edits, ImportError, ImportState, ImportStats,
 };
 pub use scanner::{PrunedScanOutcome, ScanOutcome, ScannedFile};
 pub use search::{parse_query, MediaFilter, MediaKind, SearchQuery};
