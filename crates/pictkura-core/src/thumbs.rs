@@ -337,11 +337,12 @@ pub fn read_exif_meta(path: &Path) -> ExifData {
 /// （[`crate::raw::embedded_preview_at_least`] の3段目）。後追いに日付は要らない
 /// ——書き換えるのは寸法の4列だけなので、その3段目へ降りる理由が無い。
 ///
-/// **それでも「ヘッダだけ」ではない。** 入口の [`read_exif_container`] が使う
-/// `exif::Reader::read_from_container` は、先頭4KBを見て**TIFFだと分かった時点で
-/// ファイル全体を読む**（kamadak-exif 0.6.1 の作り）。安いのはCR3（箱を辿るだけ）と、
-/// TIFFに見えないORF・RW2・RAF・X3Fだけで、cr2・nef・arw・dng・3fr・iiq 等は
-/// **1枚まるごと**読む。1件あたりの実測（OSのキャッシュが温まった状態・6回まわして
+/// **それでも「ヘッダだけ」とは限らない。** 入口の [`read_exif_container`] は
+/// TIFF系を先頭1MBで読み、それで足りなければ**ファイル全体を読む**（dev #73。
+/// 足りないのは EXIF の表をファイルの後ろに置く IIQ・TIFF・一部の DNG・PEF）。
+/// 安いのはCR3（箱を辿るだけ）と、TIFFに見えないORF・RW2・RAF・X3F。
+/// 以下の実測は **#73 の前、TIFF系を必ず全体で読んでいた頃**の値（cr2・nef・arw・
+/// 3fr もまるごと読んでいた）。1件あたり（OSのキャッシュが温まった状態・6回まわして
 /// 最小〜最大）は **0.4〜13.1ms**。**CR3とORF・RW2以外は大きさに比例する**:
 /// Hasselblad 3FR（51MB）は11.6〜13.1ms、Apple DNG（27MB）は6.2〜9.1ms、
 /// Canon CR2（10MB）は2.2〜2.4ms。**CR3は27MBでも1.0〜1.1ms**（箱を辿るだけ）、
@@ -591,7 +592,10 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
 /// 開き直しが挟まる経路は**後の読みが失敗したら偽へ落とす**（開けた瞬間から
 /// 共有ロックが掛かるまでの隙間で嘘を付かないため）。
 fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
-    read_exif_from(path, read_exif_container(path), want)
+    // RAWは絵を求めない読みでは切手を最後に落とす（[`read_exif_from`]）。
+    // 落とす切手のためにファイル全体を読まない（dev #73）
+    let keeps_thumbnail = matches!(want, Want::Image(_)) || !crate::raw::is_raw_path(path);
+    read_exif_from(path, read_exif_container(path, keeps_thumbnail), want)
 }
 
 /// [`read_exif_checked`] の本体。**コンテナ読みの結果を外から渡せる形**にして
@@ -607,7 +611,8 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         // 1件あたり2回の無駄な `File::open` を積まない
         Container::Unopenable => return (ExifData::default(), false),
         // **開けたのに途中で落ちたときは先へ進む。** TIFF系RAWのコンテナ読みは
-        // ファイル全体を読むので、巨大なRAWや外付けの一瞬の切断でここへ来る。
+        // 先頭1MBで足りなければファイル全体を読む（dev #73）ので、巨大なRAWや
+        // 外付けの一瞬の切断でここへ来る。
         // 降りると絵を探す経路まで諦めることになり、作れたはずのサムネイルを
         // 落とす（ゲート2のP3）——一覧のサムネイルが要求する長辺
         // （[`process_one`] は `thumb_size`、既定512）なら、探索は**小さくても
@@ -865,12 +870,69 @@ enum Container {
 }
 
 /// コンテナ（ファイル本体）のEXIFヘッダを読む。
-fn read_exif_container(path: &Path) -> Container {
+///
+/// `keeps_thumbnail` が偽なら、IFD1の切手は要らない（呼び出し側が捨てる）。
+fn read_exif_container(path: &Path, keeps_thumbnail: bool) -> Container {
     let Ok(file) = std::fs::File::open(path) else {
         return Container::Unopenable;
     };
-    let mut reader = BufReader::new(file);
-    match exif::Reader::new().read_from_container(&mut reader) {
+    read_exif_container_from(&mut BufReader::new(file), keeps_thumbnail)
+}
+
+/// TIFF系のファイルで、まず読む先頭の長さ（dev #73）。
+///
+/// kamadak-exif 0.6.1 の `read_from_container` はTIFFと分かると**ファイル全体**を
+/// 読む。取り込みのスキャンはカードの全件で撮影日時を読む（[`crate::import`] の
+/// 「済」の判定）ので、USB・SDのTIFF系RAWを**写す前にまるごと1回読んでいた**
+/// ——win の実測（dev/measure73-copy-baseline.md）でスキャンが媒体から読んだ量は
+/// 全体の0.33倍、TIFF系RAWの合計は0.249倍。
+///
+/// 1MBにしたのは手元の285件の実測から（`II*`/`MM*` で全体のパースが通るもの）。
+/// 全体と同じ答えを出せる最短の先頭は、CR2・NEF・ARW・SRW・3FR では最大でも
+/// 0.6MB以下、DNG は中央値30KB。IIQ・TIFF・一部のDNG・PEF は EXIF の表を
+/// ファイルの後ろに置くので、何MBにしても届かない（そちらは従来どおり全体を読む）。
+/// もう1つ全体を読むのは、絵を求める読みで IFD1 の切手が1MBより後ろにあるとき
+/// （[`read_tiff_from_head`]）。
+const EXIF_TIFF_HEAD: u64 = 1 << 20;
+
+/// [`read_exif_container`] の本体。読み手を外から渡せるのは、**どこまで読んだか**を
+/// テストが数えるため。
+///
+/// TIFFは先頭 [`EXIF_TIFF_HEAD`] だけで**厳密に**（`continue_on_error` なしで）
+/// パースし、通ればそれを使う。**全体を読んだときと同じ答えになる**: パーサは
+/// 申告された位置しか読まず、1つでも範囲の外を指せば失敗する。先頭で通ったという
+/// ことは、全体で読んでも同じバイトを同じ順に読む。通らなければ残りを読み足して
+/// 従来と同じ全体のパースへ進む（失敗の形も従来どおり）。
+///
+/// ただし IFD1 の切手（[`exif_data_from`] が `exif.buf()` から切り出す）は
+/// パーサが位置を確かめない値なので、範囲の外を指していたら全体を読む
+/// ——`keeps_thumbnail` が偽（どうせ捨てる）なら読まない。
+///
+/// **TIFFかどうかは BufReader に溜まった分を覗いて決める**（読み進めない）。
+/// TIFF以外（JPEG・HEIF・PNG・WebP、TIFFに見えないRAW）は従来の
+/// `read_from_container` へそのまま渡す——先に1MB読むと、EXIFが先頭にある
+/// JPEGまで1枚1MB読むことになり、その途中の読み出し失敗で日付を落とす（ゲート2）。
+fn read_exif_container_from<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+    keeps_thumbnail: bool,
+) -> Container {
+    use std::io::Read;
+    let is_tiff = match reader.fill_buf() {
+        Ok(buf) => buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*"),
+        // 従来の経路に読ませて、同じ形で失敗させる
+        Err(_) => false,
+    };
+    let parsed = if !is_tiff {
+        exif::Reader::new().read_from_container(reader)
+    } else {
+        let mut head = Vec::with_capacity(EXIF_TIFF_HEAD as usize);
+        match reader.by_ref().take(EXIF_TIFF_HEAD).read_to_end(&mut head) {
+            Err(e) => Err(exif::Error::Io(e)),
+            Ok(n) if (n as u64) < EXIF_TIFF_HEAD => exif::Reader::new().read_raw(head),
+            Ok(_) => read_tiff_from_head(reader, head, keeps_thumbnail),
+        }
+    };
+    match parsed {
         Ok(exif) => Container::Found(exif_data_from(&exif)),
         // 読み出しそのものが落ちたときだけ取り下げる。**形として読めなかった
         // （`InvalidFormat` 等）は「読めた」に入れる**——CR3・ORF・RW2 は
@@ -886,6 +948,39 @@ fn read_exif_container(path: &Path) -> Container {
             Container::ReadFailed
         }
         Err(_) => Container::Empty,
+    }
+}
+
+/// 先頭 [`EXIF_TIFF_HEAD`] を読んだTIFF。先頭で厳密に通ればそれ、
+/// 通らなければ残りを読み足して全体をパースする。
+fn read_tiff_from_head<R: std::io::Read>(
+    reader: &mut R,
+    mut head: Vec<u8>,
+    keeps_thumbnail: bool,
+) -> Result<exif::Exif, exif::Error> {
+    match exif::Reader::new().read_raw(head.clone()) {
+        Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => Ok(exif),
+        _ => match reader.read_to_end(&mut head) {
+            Ok(_) => exif::Reader::new().read_raw(head),
+            Err(e) => Err(exif::Error::Io(e)),
+        },
+    }
+}
+
+/// IFD1の切手が、パーサの持っているバッファに収まっているか（切手が無ければ真）。
+fn thumbnail_in_buf(exif: &exif::Exif) -> bool {
+    let at = |tag| {
+        exif.get_field(tag, In::THUMBNAIL)
+            .and_then(|f| f.value.get_uint(0))
+    };
+    match (
+        at(Tag::JPEGInterchangeFormat),
+        at(Tag::JPEGInterchangeFormatLength),
+    ) {
+        (Some(offset), Some(len)) => {
+            (offset as usize).saturating_add(len as usize) <= exif.buf().len()
+        }
+        _ => true,
     }
 }
 
@@ -2273,6 +2368,276 @@ mod tests {
 
     use super::*;
     use crate::scanner::ScannedFile;
+
+    /// 読んだ位置の最大値を覚える読み手（dev #73: TIFFを先頭で止めているか）。
+    struct Reach {
+        inner: std::io::Cursor<Vec<u8>>,
+        furthest: u64,
+    }
+
+    impl std::io::Read for Reach {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.furthest = self.furthest.max(self.inner.position());
+            Ok(n)
+        }
+    }
+
+    impl std::io::Seek for Reach {
+        fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+            self.inner.seek(to)
+        }
+    }
+
+    /// little-endian のTIFF。IFD0 → Exif IFD（`DateTimeOriginal`）、IFD0 の次に
+    /// IFD1（切手）。表と値を置く位置を選べる。
+    fn tiff_at(exif_ifd: usize, date: usize, thumb: Option<usize>, total: usize) -> Vec<u8> {
+        let mut b = vec![0u8; total];
+        let put16 =
+            |b: &mut Vec<u8>, at: usize, v: u16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
+        let put32 =
+            |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        let entry = |b: &mut Vec<u8>, at: usize, tag: u16, typ: u16, count: u32, value: u32| {
+            put16(b, at, tag);
+            put16(b, at + 2, typ);
+            put32(b, at + 4, count);
+            put32(b, at + 8, value);
+        };
+        b[..4].copy_from_slice(b"II*\0");
+        put32(&mut b, 4, 8);
+        // IFD0: Exif IFD への指し示し1つ
+        put16(&mut b, 8, 1);
+        entry(&mut b, 10, 0x8769, 4, 1, exif_ifd as u32);
+        put32(&mut b, 22, if thumb.is_some() { 64 } else { 0 });
+        if let Some(at) = thumb {
+            put16(&mut b, 64, 2);
+            entry(&mut b, 66, 0x0201, 4, 1, at as u32);
+            entry(&mut b, 78, 0x0202, 4, 1, 4);
+            put32(&mut b, 90, 0);
+            b[at..at + 4].copy_from_slice(&[0xFF, 0xD8, 0xFF, 0xD9]);
+        }
+        put16(&mut b, exif_ifd, 1);
+        entry(&mut b, exif_ifd + 2, 0x9003, 2, 20, date as u32);
+        put32(&mut b, exif_ifd + 14, 0);
+        b[date..date + 20].copy_from_slice(b"2024:05:06 07:08:09\0");
+        b
+    }
+
+    /// 日付と切手（比べる2項目）。
+    type DateAndThumb = (Option<i64>, Option<Vec<u8>>);
+
+    /// 先頭で止める読みと、従来の全体の読みを、同じバイト列で比べる。
+    /// 3つ目は読み手が届いた位置。
+    fn read_both(bytes: Vec<u8>) -> (DateAndThumb, DateAndThumb, u64) {
+        let full = exif::Reader::new()
+            .read_from_container(&mut std::io::Cursor::new(bytes.clone()))
+            .map(|e| exif_data_from(&e))
+            .expect("全体では読める");
+        let mut reach = Reach {
+            inner: std::io::Cursor::new(bytes),
+            furthest: 0,
+        };
+        let Container::Found(ours) =
+            read_exif_container_from(&mut BufReader::new(&mut reach), true)
+        else {
+            panic!("先頭で止める読みでも読める");
+        };
+        (
+            (ours.taken_at_ms, ours.thumbnail),
+            (full.taken_at_ms, full.thumbnail),
+            reach.furthest,
+        )
+    }
+
+    const MB: usize = 1 << 20;
+
+    #[test]
+    fn a_tiff_whose_exif_is_near_the_start_is_not_read_to_the_end() {
+        let (ours, full, furthest) = read_both(tiff_at(200, 300, Some(400), 8 * MB));
+        assert_eq!(ours, full, "全体を読んだときと同じ答え");
+        assert!(
+            ours.0.is_some() && ours.1.is_some(),
+            "日付も切手も取れている"
+        );
+        // BufReader の 8KB ぶんだけ先へ読むことはある
+        assert!(furthest <= (MB + 8 * 1024) as u64, "読んだ位置 {furthest}");
+    }
+
+    #[test]
+    fn a_tiff_whose_exif_table_is_at_the_back_is_still_read_whole() {
+        // IIQ・TIFF・一部のDNG・PEF の形: 表がファイルの後ろにある
+        let (ours, full, furthest) = read_both(tiff_at(6 * MB, 6 * MB + 100, None, 8 * MB));
+        assert_eq!(ours, full);
+        assert!(ours.0.is_some(), "後ろの表から日付が取れている");
+        assert_eq!(furthest, (8 * MB) as u64);
+    }
+
+    #[test]
+    fn a_tiff_whose_date_value_is_at_the_back_is_still_read_whole() {
+        // 表は先頭、値（20バイトの日時）だけ後ろ。先頭で厳密に読むと失敗する
+        let (ours, full, _) = read_both(tiff_at(200, 5 * MB, None, 8 * MB));
+        assert_eq!(ours, full);
+        assert!(ours.0.is_some());
+    }
+
+    #[test]
+    fn a_thumbnail_past_the_first_megabyte_is_still_cut_out() {
+        // 切手の位置はパーサが確かめないので、先頭で通っても全体を読み直す
+        let (ours, full, furthest) = read_both(tiff_at(200, 300, Some(3 * MB), 8 * MB));
+        assert_eq!(ours, full);
+        assert_eq!(ours.1.as_deref(), Some(&[0xFF, 0xD8, 0xFF, 0xD9][..]));
+        assert_eq!(furthest, (8 * MB) as u64);
+    }
+
+    #[test]
+    fn a_tiff_shorter_than_the_head_is_read_as_before() {
+        let (ours, full, _) = read_both(tiff_at(200, 300, Some(400), 4096));
+        assert_eq!(ours, full);
+        assert!(ours.0.is_some() && ours.1.is_some());
+    }
+
+    /// 従来の `read_from_container` が届いた位置と答え。
+    fn old_reach(bytes: &[u8]) -> (Option<i64>, u64) {
+        let mut reach = Reach {
+            inner: std::io::Cursor::new(bytes.to_vec()),
+            furthest: 0,
+        };
+        let date = exif::Reader::new()
+            .read_from_container(&mut BufReader::new(&mut reach))
+            .ok()
+            .and_then(|e| exif_data_from(&e).taken_at_ms);
+        (date, reach.furthest)
+    }
+
+    fn new_reach(bytes: &[u8], keeps_thumbnail: bool) -> (Option<i64>, u64) {
+        let mut reach = Reach {
+            inner: std::io::Cursor::new(bytes.to_vec()),
+            furthest: 0,
+        };
+        let date = match read_exif_container_from(&mut BufReader::new(&mut reach), keeps_thumbnail)
+        {
+            Container::Found(d) => d.taken_at_ms,
+            _ => None,
+        };
+        (date, reach.furthest)
+    }
+
+    #[test]
+    fn a_jpeg_is_read_no_further_than_before() {
+        // ゲート2: 先に1MB読んでからTIFFかを見ると、EXIFが先頭にあるJPEGまで1MB読んだ
+        let tiff = tiff_at(200, 300, None, 400);
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        jpeg.extend_from_slice(&((tiff.len() + 8) as u16).to_be_bytes());
+        jpeg.extend_from_slice(b"Exif\0\0");
+        jpeg.extend_from_slice(&tiff);
+        jpeg.extend_from_slice(&[0xFF, 0xDA]);
+        jpeg.resize(4 * MB, 0);
+        let (old, new) = (old_reach(&jpeg), new_reach(&jpeg, true));
+        assert!(old.0.is_some(), "見本のJPEGから日付が取れる");
+        assert_eq!(new, old);
+    }
+
+    #[test]
+    fn a_raw_that_does_not_look_like_tiff_is_read_no_further_than_before() {
+        // ORF（`IIRO`）の形。従来は先頭4KBで「知らない形式」と言われるだけ
+        let mut orf = tiff_at(200, 300, None, 4 * MB);
+        orf[2..4].copy_from_slice(b"RO");
+        let (old, new) = (old_reach(&orf), new_reach(&orf, true));
+        assert_eq!(new, old);
+        assert!(new.1 <= 16 * 1024, "読んだ位置 {}", new.1);
+    }
+
+    #[test]
+    fn a_thumbnail_that_will_be_dropped_does_not_make_it_read_the_whole() {
+        // 取り込みの日付読み（RAW・`Want::Meta`）は切手を捨てる
+        let bytes = tiff_at(200, 300, Some(3 * MB), 8 * MB);
+        let (date, furthest) = new_reach(&bytes, false);
+        assert_eq!(date, old_reach(&bytes).0);
+        assert!(date.is_some());
+        assert!(furthest <= (MB + 8 * 1024) as u64, "読んだ位置 {furthest}");
+    }
+
+    /// 実物の山で、先頭で止める読みが従来の全体の読みと同じ答えを出すか（dev #73）。
+    /// `PK_EXIF_CORPUS=<フォルダ> cargo test -p pictkura-core --lib -- --ignored real_files_read_the_same`
+    #[test]
+    #[ignore]
+    fn real_files_read_the_same_from_the_head_as_from_the_whole() {
+        let root = std::env::var("PK_EXIF_CORPUS").expect("PK_EXIF_CORPUS");
+        let mut stack = vec![PathBuf::from(root)];
+        let (mut files, mut tiff, mut stopped, mut differ) = (0, 0, 0, Vec::new());
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                files += 1;
+                let old: Option<ExifData> = match exif::Reader::new()
+                    .read_from_container(&mut std::io::Cursor::new(bytes.clone()))
+                {
+                    Ok(e) => Some(exif_data_from(&e)),
+                    Err(_) => None,
+                };
+                let len = bytes.len() as u64;
+                let is_tiff = bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*");
+                // 切手を残す読み（一覧・ビューア）と、捨てる読み（取り込みの日付）の両方
+                let read = |keeps_thumbnail| {
+                    let mut reach = Reach {
+                        inner: std::io::Cursor::new(bytes.clone()),
+                        furthest: 0,
+                    };
+                    let found = match read_exif_container_from(
+                        &mut BufReader::new(&mut reach),
+                        keeps_thumbnail,
+                    ) {
+                        Container::Found(d) => Some(d),
+                        _ => None,
+                    };
+                    (found, reach.furthest)
+                };
+                let (new, _) = read(true);
+                let (dropped, furthest) = read(false);
+                if is_tiff {
+                    tiff += 1;
+                    stopped += usize::from(furthest < len);
+                }
+                let key = |d: &Option<ExifData>| {
+                    d.as_ref().map(|d| {
+                        (
+                            d.taken_at_ms,
+                            d.taken_subsec,
+                            d.taken_from_original,
+                            d.body_serial.clone(),
+                            d.thumbnail.clone(),
+                            d.orientation,
+                            d.camera.clone(),
+                            d.original,
+                        )
+                    })
+                };
+                // 捨てる読みは切手以外を比べる
+                let without_thumbnail = |d: &Option<ExifData>| {
+                    key(d).map(|mut k| {
+                        k.4 = None;
+                        k
+                    })
+                };
+                if key(&old) != key(&new) || without_thumbnail(&old) != without_thumbnail(&dropped)
+                {
+                    differ.push(path.display().to_string());
+                }
+            }
+        }
+        eprintln!(
+            "files {files} / tiff {tiff} / tiff stopped before the end {stopped} / differ {}",
+            differ.len()
+        );
+        assert!(differ.is_empty(), "{differ:#?}");
+    }
 
     fn make_test_jpeg(path: &Path, w: u32, h: u32) {
         let img = image::RgbImage::from_fn(w, h, |x, y| {
