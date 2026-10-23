@@ -35,6 +35,7 @@ pub mod resize;
 pub mod rotate;
 pub mod scanner;
 pub mod search;
+pub mod seek;
 pub mod shell;
 pub mod sidecar;
 pub mod svg;

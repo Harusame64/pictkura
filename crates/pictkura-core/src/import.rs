@@ -1199,6 +1199,19 @@ fn already_imported_with(
 /// 2.8→1.3 秒。8本は4本とほぼ同じだった。重い RAW は読む量で決まるので縮まない
 pub const PROBE_READS: usize = 4;
 
+/// 何本並べて見るか。**シークに時間のかかるドライブ（円盤）は1本**——4本で速くなるのは
+/// フラッシュの媒体で測っただけで、円盤では測っていない（[`crate::seek`]）。
+/// 見るのは最初のパスのドライブ（取り込み元は1つのフォルダの下）
+fn probe_readers<P: AsRef<Path>>(paths: &[P]) -> usize {
+    match paths
+        .first()
+        .map(|p| crate::seek::incurs_seek_penalty(p.as_ref()))
+    {
+        Some(Some(true)) => 1,
+        _ => PROBE_READS,
+    }
+}
+
 /// [`is_already_imported`] を、渡した並びのまま全件に答える。
 ///
 /// [`PROBE_READS`] 本のスレッドが、前から1件ずつ取って見る。答えは1件ずつ
@@ -1219,7 +1232,7 @@ pub fn are_already_imported<P: AsRef<Path> + Sync>(
     if config.routing.destination.is_none() {
         return vec![ImportState::NotImported; paths.len()];
     }
-    check_each(paths, may_widen, || {
+    check_each(paths, probe_readers(paths), may_widen, || {
         let mut pairs = PairIndex::default();
         move |path: &Path| already_imported_with(path, config, contested, edits, &mut pairs)
     })
@@ -1233,6 +1246,7 @@ pub fn are_already_imported<P: AsRef<Path> + Sync>(
 /// 「済」にも「未取り込み」にも丸めない——どちらとも言えていない
 fn check_each<P, C>(
     paths: &[P],
+    readers: usize,
     may_widen: &(dyn Fn() -> bool + Sync),
     make_check: impl Fn() -> C + Sync,
 ) -> Vec<ImportState>
@@ -1243,7 +1257,7 @@ where
     let next = std::sync::atomic::AtomicUsize::new(0);
     let mut answers: Vec<Option<ImportState>> = vec![None; paths.len()];
     std::thread::scope(|s| {
-        let workers: Vec<_> = (0..PROBE_READS.min(paths.len()))
+        let workers: Vec<_> = (0..readers.clamp(1, PROBE_READS).min(paths.len()))
             .map(|worker| {
                 let (next, make_check) = (&next, &make_check);
                 s.spawn(move || {
@@ -2689,7 +2703,7 @@ mod tests {
         let paths: Vec<PathBuf> = (0..PROBE_READS * 3)
             .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
             .collect();
-        let answers = check_each(&paths, &|| true, || {
+        let answers = check_each(&paths, PROBE_READS, &|| true, || {
             |path: &Path| {
                 if path == Path::new("p05.jpg") {
                     panic!("わざと落とす");
@@ -2717,15 +2731,20 @@ mod tests {
             .collect();
         let (now, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
         let widen = AtomicBool::new(false);
-        let answers = check_each(&paths, &|| widen.load(Ordering::SeqCst), || {
-            |_: &Path| {
-                let n = now.fetch_add(1, Ordering::SeqCst) + 1;
-                most.fetch_max(n, Ordering::SeqCst);
-                std::thread::sleep(std::time::Duration::from_millis(5));
-                now.fetch_sub(1, Ordering::SeqCst);
-                ImportState::NotImported
-            }
-        });
+        let answers = check_each(
+            &paths,
+            PROBE_READS,
+            &|| widen.load(Ordering::SeqCst),
+            || {
+                |_: &Path| {
+                    let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(n, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    now.fetch_sub(1, Ordering::SeqCst);
+                    ImportState::NotImported
+                }
+            },
+        );
         assert_eq!(answers.len(), paths.len());
         assert!(answers.iter().all(|a| *a == ImportState::NotImported));
         assert_eq!(most.load(Ordering::SeqCst), 1, "譲っているあいだは1本だけ");
@@ -2734,19 +2753,44 @@ mod tests {
         // ——スレッドの立ち上がりが遅い機械でも、並んだかどうかを確かめられるように
         widen.store(true, Ordering::SeqCst);
         most.store(0, Ordering::SeqCst);
-        check_each(&paths, &|| widen.load(Ordering::SeqCst), || {
+        check_each(
+            &paths,
+            PROBE_READS,
+            &|| widen.load(Ordering::SeqCst),
+            || {
+                |_: &Path| {
+                    let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(n, Ordering::SeqCst);
+                    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    while most.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < until {
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                    }
+                    now.fetch_sub(1, Ordering::SeqCst);
+                    ImportState::NotImported
+                }
+            },
+        );
+        assert!(most.load(Ordering::SeqCst) > 1);
+    }
+
+    #[test]
+    fn one_reader_means_one_thread_even_when_told_to_widen() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let paths: Vec<PathBuf> = (0..PROBE_READS * 4)
+            .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
+            .collect();
+        let (now, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let answers = check_each(&paths, 1, &|| true, || {
             |_: &Path| {
                 let n = now.fetch_add(1, Ordering::SeqCst) + 1;
                 most.fetch_max(n, Ordering::SeqCst);
-                let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
-                while most.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < until {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
                 now.fetch_sub(1, Ordering::SeqCst);
                 ImportState::NotImported
             }
         });
-        assert!(most.load(Ordering::SeqCst) > 1);
+        assert_eq!(answers.len(), paths.len());
+        assert_eq!(most.load(Ordering::SeqCst), 1);
     }
 
     #[test]
