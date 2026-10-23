@@ -369,19 +369,27 @@ pub fn read_exif_declaration(path: &Path) -> Option<ExifData> {
     readable.then_some(data)
 }
 
-/// 長辺 `max_edge` の絵に縮めて出す場面用。RAWのプレビューは**それを満たせば
-/// 十分**で、原寸を探してファイル全体を読む必要はない
-/// （取り込み元の一覧と、ライブラリのサムネイル生成）。
+/// 取り込み元の一覧で、長辺 `max_edge` の絵に縮めて出す場面用。RAWのプレビューは
+/// **それを満たせば十分**で、原寸を探してファイル全体を読む必要はない
+/// （[`Want::SourceImage`]）。
 pub fn read_exif_for_preview(path: &Path, max_edge: u32) -> ExifData {
-    read_exif_inner(path, Want::Image(max_edge))
+    read_exif_inner(path, Want::SourceImage(max_edge))
 }
 
-/// [`read_exif_for_preview`] に「**ファイルを読めたか**」を添えて返す。
+/// [`read_exif_for_thumbnail`] に「**ファイルを読めたか**」を添えて返す。
 ///
 /// 偽のときは寸法に「確かめた」印（`preview_*`）を付けてはいけない
 /// ——[`process_one`] を見よ。
 fn read_exif_for_preview_checked(path: &Path, max_edge: u32) -> (ExifData, bool) {
     read_exif_checked(path, Want::Image(max_edge))
+}
+
+/// ライブラリのサムネイル生成（[`process_one`]）と同じ読み。
+/// [`read_exif_for_preview`]（取り込み元の一覧）と違い、RAWの先頭16MBを一度に
+/// 読んで一番大きい絵を探す——掴んだ絵の寸法がビューアの最初の枠になるため
+/// （理由は [`Want::SourceImage`] に）。`bench` が作業者の読みを再現するのに使う。
+pub fn read_exif_for_thumbnail(path: &Path, max_edge: u32) -> ExifData {
+    read_exif_for_preview_checked(path, max_edge).0
 }
 
 /// [`process_one`] がDBへ書く寸法を決める。**「確かめた」印を付けるかどうか**も
@@ -563,6 +571,12 @@ enum Want {
     Declaration,
     /// 表示に使う絵。長辺がこれ以上あるものを探す
     Image(u32),
+    /// 取り込み元（USB・SD）の一覧に出す絵。[`Want::Image`] との違いは、RAWの
+    /// 先頭を広げながら探し、足りる絵が見つかった時点で止めること（dev #73、
+    /// [`crate::raw::search_source_preview`]）。ライブラリのサムネイルは
+    /// [`Want::Image`] のまま——あちらが掴んだ絵の寸法はビューアの最初の枠になる
+    /// （[`preview_dimensions`]）ので、小さい絵で止めると枠が変わる
+    SourceImage(u32),
     /// 撮影日時・カメラ名・向き。**絵は1枚も探さない**。
     ///
     /// [`Want::Meta`] との違いはそこだけ。あちらは日付が取れなかったときに
@@ -594,7 +608,8 @@ fn read_exif_inner(path: &Path, want: Want) -> ExifData {
 fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
     // RAWは絵を求めない読みでは切手を最後に落とす（[`read_exif_from`]）。
     // 落とす切手のためにファイル全体を読まない（dev #73）
-    let keeps_thumbnail = matches!(want, Want::Image(_)) || !crate::raw::is_raw_path(path);
+    let keeps_thumbnail =
+        matches!(want, Want::Image(_) | Want::SourceImage(_)) || !crate::raw::is_raw_path(path);
     read_exif_from(path, read_exif_container(path, keeps_thumbnail), want)
 }
 
@@ -724,7 +739,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         }
     }
 
-    let Want::Image(min_long_edge) = want else {
+    let (Want::Image(min_long_edge) | Want::SourceImage(min_long_edge)) = want else {
         // 絵は要らないが、**日付がプレビューにしか無い形式**はここで拾う。
         // 撮影日時がもう取れているならプレビューには触らない（大多数はこちら）
         //
@@ -761,7 +776,11 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     // サムネイルは埋め込みプレビューJPEGを使う（カメラが書いた表示用の絵）。
     // **コンテナのIFD1に入っている切手（160x120）で上書きさせない**のが要点:
     // Nikonはそこに切手だけを申告し、原寸のJPEGは申告の無い場所に置く
-    let found = crate::raw::search_embedded_preview(path, min_long_edge);
+    let found = if matches!(want, Want::SourceImage(_)) {
+        crate::raw::search_source_preview(path, min_long_edge)
+    } else {
+        crate::raw::search_embedded_preview(path, min_long_edge)
+    };
     result.preview_exhausted = found.exhausted;
     if let Some(preview) = found.preview {
         if preview_exif_may_fill(&result) {
@@ -916,22 +935,7 @@ fn read_exif_container_from<R: std::io::BufRead + std::io::Seek>(
     reader: &mut R,
     keeps_thumbnail: bool,
 ) -> Container {
-    use std::io::Read;
-    let is_tiff = match reader.fill_buf() {
-        Ok(buf) => buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*"),
-        // 従来の経路に読ませて、同じ形で失敗させる
-        Err(_) => false,
-    };
-    let parsed = if !is_tiff {
-        exif::Reader::new().read_from_container(reader)
-    } else {
-        let mut head = Vec::with_capacity(EXIF_TIFF_HEAD as usize);
-        match reader.by_ref().take(EXIF_TIFF_HEAD).read_to_end(&mut head) {
-            Err(e) => Err(exif::Error::Io(e)),
-            Ok(n) if (n as u64) < EXIF_TIFF_HEAD => exif::Reader::new().read_raw(head),
-            Ok(_) => read_tiff_from_head(reader, head, keeps_thumbnail),
-        }
-    };
+    let parsed = read_exif_head_first(reader, keeps_thumbnail);
     match parsed {
         Ok(exif) => Container::Found(exif_data_from(&exif)),
         // 読み出しそのものが落ちたときだけ取り下げる。**形として読めなかった
@@ -948,6 +952,33 @@ fn read_exif_container_from<R: std::io::BufRead + std::io::Seek>(
             Container::ReadFailed
         }
         Err(_) => Container::Empty,
+    }
+}
+
+/// `exif::Reader::read_from_container` の代わり。TIFFは先頭から読む
+/// （[`read_exif_container_from`] を見よ）。
+///
+/// `keeps_thumbnail` が偽なら、`exif.buf()` は先頭 [`EXIF_TIFF_HEAD`] だけの
+/// ことがある——バッファから値の外を切り出す呼び出し側は、外れたら
+/// ファイルから読み直すこと（[`crate::raw`] の申告されたプレビュー）。
+pub(crate) fn read_exif_head_first<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+    keeps_thumbnail: bool,
+) -> Result<exif::Exif, exif::Error> {
+    use std::io::Read;
+    let is_tiff = match reader.fill_buf() {
+        Ok(buf) => buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*"),
+        // 従来の経路に読ませて、同じ形で失敗させる
+        Err(_) => false,
+    };
+    if !is_tiff {
+        return exif::Reader::new().read_from_container(reader);
+    }
+    let mut head = Vec::with_capacity(EXIF_TIFF_HEAD as usize);
+    match reader.by_ref().take(EXIF_TIFF_HEAD).read_to_end(&mut head) {
+        Err(e) => Err(exif::Error::Io(e)),
+        Ok(n) if (n as u64) < EXIF_TIFF_HEAD => exif::Reader::new().read_raw(head),
+        Ok(_) => read_tiff_from_head(reader, head, keeps_thumbnail),
     }
 }
 
