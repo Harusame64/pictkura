@@ -164,6 +164,9 @@ struct AppState {
     /// `media://src/...` はライブラリ外の任意パスを配信できてしまうため、
     /// 「UIがユーザー操作で開いたフォルダの直下」だけに配信先を限る。
     browse_allow: Mutex<HashSet<PathBuf>>,
+    /// 取り込み画面のタイルを、いまカードから読んでいるか（[`SourceTiles`]）。
+    /// 取り込み済みの判定（[`probe_imported`]）は、読んでいるあいだ1本に絞る
+    source_tiles: SourceTiles,
     /// AutoPlayや2重起動の `--import <パス>` で渡された取り込み対象のうち、
     /// **まだフロントが受け取っていない**もの（起動レポートと同じ方式）。
     ///
@@ -5817,7 +5820,8 @@ async fn probe_imported(
         let config = lock_ok(&state.config).clone();
         let contested = pictkura_core::contested_set(contested.iter().map(String::as_str));
         let edits = rotation_edits(&state);
-        pictkura_core::are_already_imported(&paths, &config, &contested, &edits)
+        let quiet = || state.source_tiles.quiet();
+        pictkura_core::are_already_imported(&paths, &config, &contested, &edits, &quiet)
             .into_iter()
             .map(|answer| match answer {
                 pictkura_core::ImportState::Imported => "imported",
@@ -5939,6 +5943,58 @@ async fn import_paths(
     .map_err(|e| e.to_string())?
 }
 
+/// 取り込み画面のタイルを、いまカードから読んでいるか（pictkura-dev #73）。
+///
+/// 数えるのは [`source_preview_response`] の中——読みが終われば、成功でも失敗でも
+/// 必ず減る（[`SourceTileRead`] の `Drop`）。**最後の読みが終わってから少しのあいだも
+/// 「読んでいる」と答える**: 画面は1枚読み終わるとすぐ次を頼むので、その隙間に
+/// 判定が4本へ広がると、次のタイルとまたカードを取り合う
+#[derive(Default)]
+struct SourceTiles {
+    reading: std::sync::atomic::AtomicUsize,
+    /// 最後に読み終わった時刻（[`SourceTiles::epoch`] からのミリ秒 + 1）。0 はまだ1枚も読み終わっていない
+    last_end_ms: std::sync::atomic::AtomicU64,
+    epoch: std::sync::OnceLock<std::time::Instant>,
+}
+
+/// 最後の読みが終わってから、判定を広げるまで待つ時間
+const SOURCE_TILES_QUIET_MS: u64 = 150;
+
+impl SourceTiles {
+    fn now_ms(&self) -> u64 {
+        let epoch = self.epoch.get_or_init(std::time::Instant::now);
+        u64::try_from(epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    fn start(&self) -> SourceTileRead<'_> {
+        self.reading
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        SourceTileRead(self)
+    }
+
+    /// 読んでいるタイルが無く、最後の読みから [`SOURCE_TILES_QUIET_MS`] 経った
+    fn quiet(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        let last_end = self.last_end_ms.load(Ordering::SeqCst);
+        self.reading.load(Ordering::SeqCst) == 0
+            && (last_end == 0
+                || (self.now_ms() + 1).saturating_sub(last_end) >= SOURCE_TILES_QUIET_MS)
+    }
+}
+
+/// 読み終わったら（落ちても）数を戻す
+struct SourceTileRead<'a>(&'a SourceTiles);
+
+impl Drop for SourceTileRead<'_> {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        self.0
+            .last_end_ms
+            .store(self.0.now_ms() + 1, Ordering::SeqCst);
+        self.0.reading.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// 取り込み元ファイルのプレビューを返す（第5部 段階E）。
 ///
 /// ライブラリ外の任意パスを読むことになるため、**UIが開いたフォルダの直下**に
@@ -5958,6 +6014,7 @@ fn source_preview_response(state: &AppState, path: &Path) -> Response<Vec<u8>> {
         return denied();
     }
     let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+    let _reading = state.source_tiles.start();
     match pictkura_core::browse::preview(path, thumb_size) {
         Some(preview) => Response::builder()
             .status(StatusCode::OK)
@@ -6878,6 +6935,7 @@ pub fn run() {
                 index_progress: Mutex::new(IndexProgressDto::default()),
                 scans_running: std::sync::atomic::AtomicUsize::new(0),
                 browse_allow: Mutex::new(HashSet::new()),
+                source_tiles: SourceTiles::default(),
                 pending_import: Mutex::new(pending_import),
                 // 抽出が初めて押されたときに作る（`AppState::clipboard`）
                 #[cfg(not(windows))]
@@ -7498,6 +7556,27 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// タイルを読んでいるあいだと、読み終わってすぐは「静か」と言わない（pictkura-dev #73）
+    #[test]
+    fn source_tiles_are_quiet_only_a_while_after_the_last_read() {
+        let tiles = super::SourceTiles::default();
+        assert!(tiles.quiet(), "まだ何も読んでいない");
+        let first = tiles.start();
+        let second = tiles.start();
+        assert!(!tiles.quiet());
+        drop(first);
+        assert!(!tiles.quiet(), "まだ1枚読んでいる");
+        drop(second);
+        assert!(
+            !tiles.quiet(),
+            "読み終わった直後は、次の1枚が来るかもしれない"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(
+            super::SOURCE_TILES_QUIET_MS + 20,
+        ));
+        assert!(tiles.quiet());
+    }
+
     /// 前のドライブの送り出しフォルダは、記録にあって在るものだけ開く（pictkura-dev #43）
     #[test]
     fn only_a_recorded_outgoing_folder_opens() {

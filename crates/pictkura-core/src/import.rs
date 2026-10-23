@@ -1204,16 +1204,22 @@ pub const PROBE_READS: usize = 4;
 /// [`PROBE_READS`] 本のスレッドが、前から1件ずつ取って見る。答えは1件ずつ
 /// 独立なので（同じ行き先を読むだけで、書かない）、並べても答えは変わらない。
 /// 相方を探すフォルダの一覧は、スレッドごとに1回だけ読む
+///
+/// `may_widen` は**2本目以降のスレッドが次の1件を取ってよいか**。偽のあいだ、
+/// 1本目だけが進む——同じカードから取り込み画面のタイルを読んでいるあいだは
+/// カードをタイルに譲るため。win の実測（dev `measure73-probe-app-win.md`）では、
+/// 譲らずに4本で読むと、SD で見えている20枚が揃うまでが 2.1 → 5.1 秒に延びた
 pub fn are_already_imported<P: AsRef<Path> + Sync>(
     paths: &[P],
     config: &Config,
     contested: &HashSet<String>,
     edits: &Edits,
+    may_widen: &(dyn Fn() -> bool + Sync),
 ) -> Vec<ImportState> {
     if config.routing.destination.is_none() {
         return vec![ImportState::NotImported; paths.len()];
     }
-    check_each(paths, || {
+    check_each(paths, may_widen, || {
         let mut pairs = PairIndex::default();
         move |path: &Path| already_imported_with(path, config, contested, edits, &mut pairs)
     })
@@ -1225,7 +1231,11 @@ pub fn are_already_imported<P: AsRef<Path> + Sync>(
 /// **1件が落ちても（パニック）、その1件を [`ImportState::Unsure`] にして続ける。**
 /// 束ごと落とすと、画面は残りの束も問い合わせなくなり、入っている写真まで選ばれたままになる。
 /// 「済」にも「未取り込み」にも丸めない——どちらとも言えていない
-fn check_each<P, C>(paths: &[P], make_check: impl Fn() -> C + Sync) -> Vec<ImportState>
+fn check_each<P, C>(
+    paths: &[P],
+    may_widen: &(dyn Fn() -> bool + Sync),
+    make_check: impl Fn() -> C + Sync,
+) -> Vec<ImportState>
 where
     P: AsRef<Path> + Sync,
     C: FnMut(&Path) -> ImportState,
@@ -1234,12 +1244,19 @@ where
     let mut answers: Vec<Option<ImportState>> = vec![None; paths.len()];
     std::thread::scope(|s| {
         let workers: Vec<_> = (0..PROBE_READS.min(paths.len()))
-            .map(|_| {
+            .map(|worker| {
                 let (next, make_check) = (&next, &make_check);
                 s.spawn(move || {
                     let mut check = make_check();
                     let mut mine = Vec::new();
                     loop {
+                        // 1本目は止まらない。ほかは譲るあいだ待つ（残りが尽きたら抜ける）
+                        while worker > 0 && !may_widen() {
+                            if next.load(std::sync::atomic::Ordering::Relaxed) >= paths.len() {
+                                return mine;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(path) = paths.get(i).map(AsRef::as_ref) else {
                             break;
@@ -2640,8 +2657,13 @@ mod tests {
         )
         .unwrap();
 
-        let answers =
-            are_already_imported(&files, &config, &no_repeated_names(), &Edits::default());
+        let answers = are_already_imported(
+            &files,
+            &config,
+            &no_repeated_names(),
+            &Edits::default(),
+            &|| true,
+        );
         let expected: Vec<ImportState> = (0..files.len())
             .map(|i| {
                 if i % 3 == 0 {
@@ -2656,7 +2678,8 @@ mod tests {
             &[],
             &config,
             &no_repeated_names(),
-            &Edits::default()
+            &Edits::default(),
+            &|| true,
         )
         .is_empty());
     }
@@ -2666,7 +2689,7 @@ mod tests {
         let paths: Vec<PathBuf> = (0..PROBE_READS * 3)
             .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
             .collect();
-        let answers = check_each(&paths, || {
+        let answers = check_each(&paths, &|| true, || {
             |path: &Path| {
                 if path == Path::new("p05.jpg") {
                     panic!("わざと落とす");
@@ -2684,6 +2707,42 @@ mod tests {
             })
             .collect();
         assert_eq!(answers, expected);
+    }
+
+    #[test]
+    fn while_told_not_to_widen_only_one_thread_checks() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let paths: Vec<PathBuf> = (0..PROBE_READS * 4)
+            .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
+            .collect();
+        let (now, most) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let widen = AtomicBool::new(false);
+        let answers = check_each(&paths, &|| widen.load(Ordering::SeqCst), || {
+            |_: &Path| {
+                let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                most.fetch_max(n, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                now.fetch_sub(1, Ordering::SeqCst);
+                ImportState::NotImported
+            }
+        });
+        assert_eq!(answers.len(), paths.len());
+        assert!(answers.iter().all(|a| *a == ImportState::NotImported));
+        assert_eq!(most.load(Ordering::SeqCst), 1, "譲っているあいだは1本だけ");
+
+        // 譲るのをやめたら、並べて読む
+        widen.store(true, Ordering::SeqCst);
+        most.store(0, Ordering::SeqCst);
+        check_each(&paths, &|| widen.load(Ordering::SeqCst), || {
+            |_: &Path| {
+                let n = now.fetch_add(1, Ordering::SeqCst) + 1;
+                most.fetch_max(n, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                now.fetch_sub(1, Ordering::SeqCst);
+                ImportState::NotImported
+            }
+        });
+        assert!(most.load(Ordering::SeqCst) > 1);
     }
 
     #[test]
