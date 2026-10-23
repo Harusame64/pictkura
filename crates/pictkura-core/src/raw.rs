@@ -1338,7 +1338,12 @@ pub fn patched_tiff_metadata(path: &Path) -> PatchedTiff {
     // **先頭は一度だけ読む。** MRWの `TTW` 探しと版番号の直しは同じバイト列で
     // 足りるので、開き直す理由が無い（開き直しは「1度目は通ったのに2度目が
     // 落ちる」隙間を増やす）
-    let Some(head) = read_head(path, PATCHED_TIFF_HEAD) else {
+    //
+    // **TIFF（`II`・`MM`）でも MRW（`\0MRM`）でもない頭なら、続きは読まない。**
+    // 下の判定はどちらも先頭の数バイトで `NotApplicable` に落ちる
+    let tiff_like =
+        |h: &[u8]| h.starts_with(b"II") || h.starts_with(b"MM") || h.starts_with(b"\x00MRM");
+    let Some(head) = read_head_if(path, PATCHED_TIFF_HEAD, Some(tiff_like)) else {
         return PatchedTiff::Unreadable;
     };
     // MRWは版番号ではなく**入れ物ごと独自**で、TIFFは中の `TTW` に入っている
@@ -1407,18 +1412,159 @@ fn read_window(path: &Path, offset: usize, len: usize) -> Option<Vec<u8>> {
 /// 絵を探す側の呼び出しは、いずれも `None` を「ここでは見つからなかった」
 /// として扱うので影響しない。
 fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
+    read_head_if(path, limit, None)
+}
+
+/// [`read_head`] の、**先頭の数バイトを見てから続きを読むか決める**版。
+///
+/// `wanted` が先頭 [`PEEK`] バイトを見て偽を返したら、そこまでで返す
+/// ——形式の違うファイルに、使わない 256KB を読ませないため（CR3・RAF・X3F は
+/// TIFF の頭を持たない。`patched_tiff_metadata` が先頭だけで見分けられる）。
+///
+/// **読む量は先に決めて、そこへ直に読む。** 空の `Vec` から読むと、伸ばしながら
+/// 小さな読みを何回も出す——`Vec::with_capacity` でも `take` を挟むと大きさの見込みが
+/// 伝わらず、1MB に 8 回かかった（ゲート2）。冷えたカードでは1回ごとに往復を待つ
+/// （win の実測で CR3 の日付読み1件に 31 回、dev `measure73-scan-win.md`）
+fn read_head_if(path: &Path, limit: usize, wanted: Option<fn(&[u8]) -> bool>) -> Option<Vec<u8>> {
     use std::io::Read;
-    let file = std::fs::File::open(path).ok()?;
-    // **読む量を先に確保する。** 空の `Vec` から読むと、伸ばしながら小さな読みを
-    // 何十回も出す（win の実測で CR3 の日付読み1件に 31 回、dev `measure73-scan-win.md`）。
-    // 冷えたカードでは1回ごとに往復を待つ
+    /// 渡した範囲を、読み切るか終わりに着くまで読む。読めた数を返す
+    fn fill(file: &mut std::fs::File, buf: &mut [u8]) -> Option<usize> {
+        let mut filled = 0;
+        while filled < buf.len() {
+            match file.read(&mut buf[filled..]) {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return None,
+            }
+        }
+        Some(filled)
+    }
+    const PEEK: usize = 8;
+
+    let mut file = std::fs::File::open(path).ok()?;
     let expected = file
         .metadata()
         .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX).min(limit))
         .unwrap_or(0);
-    let mut buf = Vec::with_capacity(expected);
-    file.take(limit as u64).read_to_end(&mut buf).ok()?;
+    let mut buf = vec![0u8; expected];
+    let mut filled = 0;
+    if let Some(wanted) = wanted {
+        let peek = PEEK.min(expected);
+        filled = fill(&mut file, &mut buf[..peek])?;
+        if !wanted(&buf[..filled]) {
+            buf.truncate(filled);
+            return (!buf.is_empty()).then_some(buf);
+        }
+    }
+    filled += fill(&mut file, &mut buf[filled..])?;
+    buf.truncate(filled);
+    // 大きさの申告より伸びていたら（書き込みの途中など）、前と同じく `limit` まで読む
+    if filled == expected && expected < limit {
+        file.take((limit - expected) as u64)
+            .read_to_end(&mut buf)
+            .ok()?;
+    }
     (!buf.is_empty()).then_some(buf)
+}
+
+/// ISO-BMFFで中に箱が入っている（＝再帰して良い）コンテナ。
+/// `uuid` は先頭16バイトがUUIDで、その後ろに子の箱が続く
+const BMFF_CONTAINERS: &[&[u8; 4]] = &[b"moov", b"trak", b"mdia", b"minf", b"stbl", b"uuid"];
+/// TIFF形式のメタデータが入っている箱（CMT1=IFD0, CMT2=Exif IFD）
+const BMFF_METADATA: &[&[u8; 4]] = &[b"CMT1", b"CMT2", b"CMT3", b"CMT4"];
+
+/// 箱を渡り歩くための読み手。いまの位置を覚えておき、飛ばすときは
+/// 読み込み済みの範囲の中なら読み直さない（`seek_relative`）
+struct BmffBoxes<R> {
+    reader: std::io::BufReader<R>,
+    at: u64,
+    /// 1バイトでも読めたか。0バイトのファイルは「読めた」に数えない（[`read_head`]）
+    got_any: bool,
+}
+
+/// 読みの結果。**ファイルの終わりは誤りではない**——先頭を読んでから辿っていた頃は、
+/// 読めた所までの箱を見て終わっていた
+enum BoxStep {
+    Read,
+    End,
+    Failed,
+}
+
+impl<R: std::io::Read + std::io::Seek> BmffBoxes<R> {
+    fn read(&mut self, at: u64, buf: &mut [u8]) -> BoxStep {
+        use std::io::Read;
+        let (Ok(at_i), Ok(now)) = (i64::try_from(at), i64::try_from(self.at)) else {
+            return BoxStep::Failed;
+        };
+        if self.reader.seek_relative(at_i - now).is_err() {
+            return BoxStep::Failed;
+        }
+        self.at = at;
+        match self.reader.read_exact(buf) {
+            Ok(()) => {
+                self.at += buf.len() as u64;
+                self.got_any = true;
+                BoxStep::Read
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => BoxStep::End,
+            Err(_) => BoxStep::Failed,
+        }
+    }
+}
+
+/// `start..end` に並んだ箱を辿る。中を読むのはメタデータの箱だけで、
+/// 入れ物は頭の8バイトから中の箱へ降りる——**絵の入った箱（CR3 の
+/// プレビューの `uuid` は 800KB ほど）を丸ごと読まない**。
+/// `None` は読み出しの失敗、`Some(false)` はファイルの終わりに着いた
+fn walk_boxes<R: std::io::Read + std::io::Seek>(
+    boxes: &mut BmffBoxes<R>,
+    start: u64,
+    end: u64,
+    depth: usize,
+    out: &mut Vec<Vec<u8>>,
+) -> Option<bool> {
+    // 壊れたファイルで無限に潜らない
+    if depth > 6 {
+        return Some(true);
+    }
+    let mut pos = start;
+    while pos + 8 <= end {
+        let mut header = [0u8; 8];
+        match boxes.read(pos, &mut header) {
+            BoxStep::Read => {}
+            BoxStep::End => return Some(false),
+            BoxStep::Failed => return None,
+        }
+        let size = u64::from(u32::from_be_bytes([
+            header[0], header[1], header[2], header[3],
+        ]));
+        let kind = &header[4..8];
+        // size=0 は「以降すべて」、size=1 は64ビット長。ここでは扱わず打ち切る
+        if size < 8 || pos + size > end {
+            return Some(true);
+        }
+        if BMFF_METADATA.iter().any(|k| *k == kind) {
+            let mut body = vec![0u8; usize::try_from(size - 8).ok()?];
+            match boxes.read(pos + 8, &mut body) {
+                BoxStep::Read => out.push(body),
+                BoxStep::End => return Some(false),
+                BoxStep::Failed => return None,
+            }
+        } else if BMFF_CONTAINERS.iter().any(|k| *k == kind) {
+            // uuidの先頭16バイトはUUIDそのもの。飛ばしてから中を見る
+            let inner = if kind == b"uuid" && size - 8 > 16 {
+                pos + 8 + 16
+            } else {
+                pos + 8
+            };
+            if !walk_boxes(boxes, inner, pos + size, depth + 1, out)? {
+                return Some(false);
+            }
+        }
+        pos += size;
+    }
+    Some(true)
 }
 
 /// ISO-BMFF（CR3等）から**TIFF形式のメタデータブロック**を取り出す。
@@ -1436,92 +1582,32 @@ fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
 /// 見分けられないと、読めない行に「確かめた」印を付けてしまう
 /// （[`crate::thumbs::backfilled_dimensions`]）。
 pub fn bmff_metadata_blocks(path: &Path) -> Option<Vec<Vec<u8>>> {
-    /// ISO-BMFFで中に箱が入っている（＝再帰して良い）コンテナ。
-    /// `uuid` は先頭16バイトがUUIDで、その後ろに子の箱が続く
-    const CONTAINERS: &[&[u8; 4]] = &[b"moov", b"trak", b"mdia", b"minf", b"stbl", b"uuid"];
-    /// TIFF形式のメタデータが入っている箱（CMT1=IFD0, CMT2=Exif IFD）
-    const METADATA: &[&[u8; 4]] = &[b"CMT1", b"CMT2", b"CMT3", b"CMT4"];
-
-    /// 箱を渡り歩くための読み手。いまの位置を覚えておき、飛ばすときは
-    /// 読み込み済みの範囲の中なら読み直さない（`seek_relative`）
-    struct Boxes {
-        reader: std::io::BufReader<std::fs::File>,
-        at: u64,
-    }
-
-    impl Boxes {
-        fn read(&mut self, at: u64, buf: &mut [u8]) -> Option<()> {
-            use std::io::Read;
-            let delta = i64::try_from(at).ok()? - i64::try_from(self.at).ok()?;
-            self.reader.seek_relative(delta).ok()?;
-            self.reader.read_exact(buf).ok()?;
-            self.at = at + buf.len() as u64;
-            Some(())
-        }
-    }
-
-    /// `start..end` に並んだ箱を辿る。中を読むのはメタデータの箱だけで、
-    /// 入れ物は頭の8バイトから中の箱へ降りる——**絵の入った箱（CR3 の
-    /// プレビューの `uuid` は 800KB ほど）を丸ごと読まない**
-    fn walk(
-        boxes: &mut Boxes,
-        start: u64,
-        end: u64,
-        depth: usize,
-        out: &mut Vec<Vec<u8>>,
-    ) -> Option<()> {
-        // 壊れたファイルで無限に潜らない
-        if depth > 6 {
-            return Some(());
-        }
-        let mut pos = start;
-        while pos + 8 <= end {
-            let mut header = [0u8; 8];
-            boxes.read(pos, &mut header)?;
-            let size = u64::from(u32::from_be_bytes([
-                header[0], header[1], header[2], header[3],
-            ]));
-            let kind = &header[4..8];
-            // size=0 は「以降すべて」、size=1 は64ビット長。ここでは扱わず打ち切る
-            if size < 8 || pos + size > end {
-                return Some(());
-            }
-            if METADATA.iter().any(|k| *k == kind) {
-                let mut body = vec![0u8; usize::try_from(size - 8).ok()?];
-                boxes.read(pos + 8, &mut body)?;
-                out.push(body);
-            } else if CONTAINERS.iter().any(|k| *k == kind) {
-                // uuidの先頭16バイトはUUIDそのもの。飛ばしてから中を見る
-                let inner = if kind == b"uuid" && size - 8 > 16 {
-                    pos + 8 + 16
-                } else {
-                    pos + 8
-                };
-                walk(boxes, inner, pos + size, depth + 1, out)?;
-            }
-            pos += size;
-        }
-        Some(())
-    }
-
     // moovはCR3ではファイル先頭側にある。画素データ（mdat）まで読まない
     //
     // 見る範囲は先頭1MBで、**その中に収まりきる箱だけ**を見る（先頭1MBを
     // 読んでから辿っていた頃と同じ答えになるように）。読むのは箱の頭と
-    // メタデータの箱の中身だけで、まとめ読みの単位は 64KB
+    // メタデータの箱の中身だけ。まとめ読みの単位は 16KB で、長く飛んだ先の
+    // 頭を読むたびに1回分読む（大きいと、1MB の際の頭を見るだけで外まで読む）
     const LIMIT: u64 = 1024 * 1024;
     let file = std::fs::File::open(path).ok()?;
-    let end = file.metadata().ok()?.len().min(LIMIT);
-    if end == 0 {
-        return None;
-    }
-    let mut boxes = Boxes {
-        reader: std::io::BufReader::with_capacity(64 * 1024, file),
+    // 大きさが取れない・0 と言われたときは、読めた所までを見る（前と同じ）
+    let end = match file.metadata().map(|m| m.len()) {
+        Ok(len) if len > 0 => len.min(LIMIT),
+        _ => LIMIT,
+    };
+    bmff_blocks_in(file, end)
+}
+
+/// [`bmff_metadata_blocks`] の中身。`end` までの箱を辿る（試験は数える読み手を渡す）
+fn bmff_blocks_in<R: std::io::Read + std::io::Seek>(inner: R, end: u64) -> Option<Vec<Vec<u8>>> {
+    let mut boxes = BmffBoxes {
+        reader: std::io::BufReader::with_capacity(16 * 1024, inner),
         at: 0,
+        got_any: false,
     };
     let mut out = Vec::new();
-    walk(&mut boxes, 0, end, 0, &mut out)?;
-    Some(out)
+    walk_boxes(&mut boxes, 0, end, 0, &mut out)?;
+    boxes.got_any.then_some(out)
 }
 
 /// 原本（センサー）の寸法を、EXIFの申告から読む。**絵は1枚も起こさない**。
@@ -2668,13 +2754,90 @@ mod tests {
         file.extend_from_slice(&box_of(b"moov", &box_of(b"CMT1", b"II*\x00first")));
         let pad = 1024 * 1024 - file.len() - 8;
         file.extend_from_slice(&box_of(b"skip", &vec![0u8; pad - 8]));
-        file.extend_from_slice(&box_of(b"CMT3", &vec![b'x'; 64]));
+        file.extend_from_slice(&box_of(b"CMT3", &[b'x'; 64]));
         std::fs::write(&path, &file).unwrap();
 
         let blocks = bmff_metadata_blocks(&path).expect("読める");
         assert_eq!(
             blocks,
             vec![b"II*\x00second".to_vec(), b"II*\x00first".to_vec()]
+        );
+
+        // **飛ばした箱は読まない。** 先頭1MBを読んでから辿ると 1MB、いまは
+        // 箱の頭のまわりを 16KB ずつ数回
+        struct Counting {
+            inner: std::io::Cursor<Vec<u8>>,
+            read: usize,
+        }
+        impl std::io::Read for Counting {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.read += n;
+                Ok(n)
+            }
+        }
+        impl std::io::Seek for Counting {
+            fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> {
+                self.inner.seek(to)
+            }
+        }
+        let mut counting = Counting {
+            inner: std::io::Cursor::new(file.clone()),
+            read: 0,
+        };
+        let end = 1024 * 1024;
+        assert_eq!(bmff_blocks_in(&mut counting, end).expect("読める"), blocks);
+        assert!(
+            counting.read < 128 * 1024,
+            "読んだのは {} バイト",
+            counting.read
+        );
+    }
+
+    #[test]
+    fn a_file_shorter_than_its_reported_length_still_yields_its_boxes() {
+        fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        // 大きさの申告（1MB）より短い——書き戻しの途中や古い申告。読めた所までの箱を返す
+        let mut file = box_of(b"ftyp", b"crx ");
+        file.extend_from_slice(&box_of(b"moov", &box_of(b"CMT1", b"II*\x00first")));
+        let blocks = bmff_blocks_in(std::io::Cursor::new(file), 1024 * 1024).expect("読める");
+        assert_eq!(blocks, vec![b"II*\x00first".to_vec()]);
+        // 1バイトも無ければ「読めた」とは言わない
+        assert!(bmff_blocks_in(std::io::Cursor::new(Vec::new()), 1024 * 1024).is_none());
+    }
+
+    #[test]
+    fn a_head_that_is_not_tiff_is_not_read_past_its_first_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let raf = dir.path().join("a.raf");
+        let mut bytes = b"FUJIFILMCCD-RAW ".to_vec();
+        bytes.resize(PATCHED_TIFF_HEAD * 2, 0);
+        std::fs::write(&raf, &bytes).unwrap();
+        assert!(matches!(
+            patched_tiff_metadata(&raf),
+            PatchedTiff::NotApplicable
+        ));
+        let tiff_like = |h: &[u8]| h.starts_with(b"II");
+        assert_eq!(
+            read_head_if(&raf, PATCHED_TIFF_HEAD, Some(tiff_like)).map(|h| h.len()),
+            Some(8),
+            "頭だけ見て返す"
+        );
+        // 頭が合えば、前と同じく `limit` まで読む
+        bytes[..2].copy_from_slice(b"II");
+        std::fs::write(&raf, &bytes).unwrap();
+        assert_eq!(
+            read_head_if(&raf, PATCHED_TIFF_HEAD, Some(tiff_like)).map(|h| h.len()),
+            Some(PATCHED_TIFF_HEAD)
+        );
+        assert_eq!(
+            read_head(&raf, usize::MAX).map(|h| h.len()),
+            Some(bytes.len())
         );
     }
 
