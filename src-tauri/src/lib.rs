@@ -5952,6 +5952,9 @@ async fn import_paths(
 #[derive(Default)]
 struct SourceTiles {
     reading: std::sync::atomic::AtomicUsize,
+    /// 読み始めた回数。[`SourceTiles::quiet_at`] が、確かめている途中に読みが
+    /// 始まらなかったかを見るため
+    starts: std::sync::atomic::AtomicU64,
     /// 最後に読み終わった時刻（[`SourceTiles::epoch`] からのミリ秒 + 1）。0 はまだ1枚も読み終わっていない
     last_end_ms: std::sync::atomic::AtomicU64,
     epoch: std::sync::OnceLock<std::time::Instant>,
@@ -5967,8 +5970,9 @@ impl SourceTiles {
     }
 
     fn start(&self) -> SourceTileRead<'_> {
-        self.reading
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        use std::sync::atomic::Ordering;
+        self.starts.fetch_add(1, Ordering::SeqCst);
+        self.reading.fetch_add(1, Ordering::SeqCst);
         SourceTileRead(self)
     }
 
@@ -5981,14 +5985,27 @@ impl SourceTiles {
     ///
     /// **読んでいる数を先に読む。** 終わりの側（[`SourceTileRead`] の `Drop`）は時刻を
     /// 書いてから数を減らすので、数が 0 と見えたなら時刻はもう新しい。逆の順に読むと、
-    /// 古い時刻と 0 を組み合わせて、待つべき隙間を素通りする（ゲート2）
+    /// 古い時刻と 0 を組み合わせて、待つべき隙間を素通りする（ゲート2）。
+    ///
+    /// **確かめている途中に読みが始まったら、静かとは言わない**（始めた回数を前後で
+    /// 比べる。PR #264 の codex P2）。それでも、静かと答えた直後に始まる読みは
+    /// 止められない——そのとき重なるのは、判定のスレッドごとに1件までである
     fn quiet_at(&self, now_ms: u64) -> bool {
+        self.quiet_around(now_ms, || {})
+    }
+
+    /// [`SourceTiles::quiet_at`] の本体。`meanwhile` は数を読んだ直後に走る（試験が
+    /// その隙間に読みを始めさせる口）
+    fn quiet_around(&self, now_ms: u64, meanwhile: impl FnOnce()) -> bool {
         use std::sync::atomic::Ordering;
+        let starts = self.starts.load(Ordering::SeqCst);
         if self.reading.load(Ordering::SeqCst) != 0 {
             return false;
         }
+        meanwhile();
         let last_end = self.last_end_ms.load(Ordering::SeqCst);
-        last_end == 0 || (now_ms + 1).saturating_sub(last_end) >= SOURCE_TILES_QUIET_MS
+        let quiet = last_end == 0 || (now_ms + 1).saturating_sub(last_end) >= SOURCE_TILES_QUIET_MS;
+        quiet && self.starts.load(Ordering::SeqCst) == starts
     }
 }
 
@@ -7584,6 +7601,15 @@ mod tests {
             "読み終わった直後は、次の1枚が来るかもしれない"
         );
         assert!(tiles.quiet_at(ended + super::SOURCE_TILES_QUIET_MS));
+
+        // 数を読んだ直後に次の読みが始まったら、静かとは言わない
+        let mut started = None;
+        assert!(
+            !tiles.quiet_around(ended + super::SOURCE_TILES_QUIET_MS, || {
+                started = Some(tiles.start());
+            })
+        );
+        drop(started);
     }
 
     /// 前のドライブの送り出しフォルダは、記録にあって在るものだけ開く（pictkura-dev #43）
