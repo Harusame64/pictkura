@@ -1,25 +1,28 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { TileQueue, TILE_READS, type TileView } from "./tileQueue";
+import { TileQueue, TILE_READS } from "./tileQueue";
 
 /**
  * 取り込み画面のタイルを [`TileQueue`] の順で読ませる。
  *
- * 見え方は2つの `IntersectionObserver` で取る。1つは画面そのもの（visible）、
- * もう1つは上下に1画面ずつ広げた範囲（near）。
+ * 見張り（`IntersectionObserver`）は、画面の上下に1画面ずつ広げた範囲の1つだけ。
+ * 見えているかどうかは見張りに訊かず、選ぶときに位置を測る——見張りを2つにすると、
+ * 知らせの届く順で、見えているタイルより先読みのタイルが先に選ばれうる
  */
 export class TileLoader {
   private readonly queue: TileQueue;
   private readonly starters = new Map<string, () => void>();
+  private readonly elements = new Map<string, Element>();
   private readonly keys = new Map<Element, string>();
-  private readonly seen = new Map<
-    string,
-    { visible: boolean; near: boolean }
-  >();
-  private visible: IntersectionObserver | null = null;
-  private near: IntersectionObserver | null = null;
+  private root: Element | null = null;
+  private observer: IntersectionObserver | null = null;
 
   constructor(limit = TILE_READS) {
-    this.queue = new TileQueue(limit, (key) => this.starters.get(key)?.());
+    this.queue = new TileQueue(limit, {
+      start: (key) => this.starters.get(key)?.(),
+      distance: (key) => this.distance(key),
+      defer: (run) => setTimeout(run, 0),
+      after: (ms, run) => setTimeout(run, ms),
+    });
   }
 
   /**
@@ -27,67 +30,52 @@ export class TileLoader {
    * それまでに登録されたタイルもここで見張りに載せる
    */
   watch(root: Element): () => void {
-    const view = (
-      flag: "visible" | "near",
-      entries: IntersectionObserverEntry[],
-    ) => {
-      for (const e of entries) {
-        const key = this.keys.get(e.target);
-        if (key === undefined) continue;
-        const s = this.seen.get(key) ?? { visible: false, near: false };
-        s[flag] = e.isIntersecting;
-        this.seen.set(key, s);
-        const v: TileView = s.visible ? "visible" : s.near ? "near" : "away";
-        this.queue.see(key, v);
-      }
-    };
-    this.visible = new IntersectionObserver((es) => view("visible", es), {
-      root,
-    });
-    this.near = new IntersectionObserver((es) => view("near", es), {
-      root,
-      rootMargin: "100% 0px",
-    });
-    for (const el of this.keys.keys()) {
-      this.visible.observe(el);
-      this.near.observe(el);
-    }
+    this.root = root;
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const key = this.keys.get(e.target);
+          if (key !== undefined) this.queue.see(key, e.isIntersecting);
+        }
+      },
+      { root, rootMargin: "100% 0px" },
+    );
+    for (const el of this.keys.keys()) this.observer.observe(el);
     return () => {
-      this.visible?.disconnect();
-      this.near?.disconnect();
-      this.visible = null;
-      this.near = null;
+      this.observer?.disconnect();
+      this.observer = null;
+      this.root = null;
     };
   }
 
-  attach(
-    key: string,
-    index: number,
-    el: Element,
-    start: () => void,
-  ): () => void {
+  attach(key: string, el: Element, start: () => void): () => void {
     this.keys.set(el, key);
+    this.elements.set(key, el);
     this.starters.set(key, start);
-    this.queue.add(key, index);
-    this.visible?.observe(el);
-    this.near?.observe(el);
+    this.queue.add(key);
+    this.observer?.observe(el);
     return () => {
-      this.visible?.unobserve(el);
-      this.near?.unobserve(el);
+      this.observer?.unobserve(el);
       this.keys.delete(el);
+      this.elements.delete(key);
       this.starters.delete(key);
-      this.seen.delete(key);
       this.queue.remove(key);
     };
   }
 
-  /** 一覧の並びが変わった（絞り込みなど）。読み途中の枠には触らない */
-  reindex(key: string, index: number): void {
-    this.queue.reindex(key, index);
-  }
-
   done(key: string): void {
     this.queue.done(key);
+  }
+
+  /** 箱の見えている縦の範囲からの距離（px）。重なっていれば 0 */
+  private distance(key: string): number {
+    const el = this.elements.get(key);
+    if (!el || !this.root) return Infinity;
+    const box = this.root.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (r.bottom < box.top) return box.top - r.bottom;
+    if (r.top > box.bottom) return r.top - box.bottom;
+    return 0;
   }
 }
 
@@ -115,17 +103,14 @@ export function useTileLoader(
 export function useTileTurn(
   loader: TileLoader,
   key: string,
-  index: number,
 ): [RefObject<HTMLSpanElement>, boolean] {
   const ref = useRef<HTMLSpanElement>(null);
   const [go, setGo] = useState(false);
-  const first = useRef(index);
-  // 登録はタイルが在る間ずっと。`go` で外すと、読み途中の枠が読み終わる前に空く
+  // 登録はタイルが在る間ずっと。`go` で外すと、同じタイルがもう一度候補に入る
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    return loader.attach(key, first.current, el, () => setGo(true));
+    return loader.attach(key, el, () => setGo(true));
   }, [loader, key]);
-  useEffect(() => loader.reindex(key, index), [loader, key, index]);
   return [ref, go];
 }

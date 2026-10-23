@@ -8,74 +8,75 @@
  * 約 34 MB/s から 16〜19 MB/s に落ちた。見えている 20 枚が揃うまで 23 秒かかった。
  * スキャン（`probe_imported`）もその後ろで待たされた（SD で 7.6 秒が 17.8 秒に）。
  *
- * だから要求は画面の側で絞る。**見えているタイルを先に、その次に前後の先読み**。
- * 見えなくなったタイルは、まだ読み始めていなければ後回しにする。
+ * だから要求は画面の側で絞る。読む候補は画面の前後1画面に居るタイルだけで、
+ * **選ぶたびに画面からの距離を測り、近いものから**読む。見えているタイルは距離 0。
+ *
  * 読み始めた要求は取り消せない（アプリの側では、届いた要求を最後まで読む）。
+ * だから読み途中でタイルが消えても枠は空けず、読み終わりか時間切れで空ける。
+ * 時間切れが無いと、答えの来ない要求が2本あるだけで画面全体が止まる。
  */
 
 /** 同時に読むタイルの数。1 本だとデコードの間カードが遊ぶので 2 本 */
 export const TILE_READS = 2;
 
-/** タイルが画面のどこに居るか */
-export type TileView = "visible" | "near" | "away";
+/**
+ * 1本の読みに枠を貸しておく長さ。過ぎたら、読み終わっていなくても次へ回す。
+ * win の実測では USB で重い1枚（IIQ・DNG）が約 1.2 秒、FFF の 102MB が約 3 秒
+ */
+export const TILE_STALL_MS = 5000;
+
+export type TileQueueEnv = {
+  /** タイルの絵を要求させる */
+  start: (key: string) => void;
+  /** 画面からの距離（見えていれば 0）。選ぶときに測る。測れなければ `Infinity` */
+  distance: (key: string) => number;
+  /** 選ぶのを後へ回す（見え方の知らせをまとめて受けてから選ぶため） */
+  defer: (run: () => void) => void;
+  /** `ms` 後に `run` する */
+  after: (ms: number, run: () => void) => void;
+};
 
 export class TileQueue {
-  private readonly index = new Map<string, number>();
-  private readonly view = new Map<string, TileView>();
-  private readonly waiting = new Set<string>();
-  private readonly running = new Set<string>();
-
   private readonly limit: number;
-  private readonly start: (key: string) => void;
-  private readonly defer: (run: () => void) => void;
+  private readonly env: TileQueueEnv;
+  /** 画面に在るタイル（読み終わったものも含む） */
+  private readonly known = new Set<string>();
+  /** まだ読んでいない、画面の前後1画面に居るタイル */
+  private readonly near = new Set<string>();
+  /** まだ読んでいない、遠いタイル */
+  private readonly away = new Set<string>();
+  /** 読み途中。値は始めた順の番号（古い時間切れが、同じタイルの新しい読みを空けないため） */
+  private readonly running = new Map<string, number>();
+  private serial = 0;
   private scheduled = false;
 
-  /**
-   * `defer` は選ぶのを後へ回す口。見え方は2つの見張りから別々の呼び出しで届き、
-   * その間にマイクロタスクが走る。すぐ選ぶと、先に届いた「近い」だけを見て
-   * 先読みのタイルから読み始めてしまう（見えているタイルも「近い」に入るため）
-   */
-  constructor(
-    limit: number,
-    start: (key: string) => void,
-    defer: (run: () => void) => void = (run) => setTimeout(run, 0),
-  ) {
+  constructor(limit: number, env: TileQueueEnv) {
     this.limit = limit;
-    this.start = start;
-    this.defer = defer;
+    this.env = env;
   }
 
-  /** タイルを待ち行列に入れる（`index` は一覧の並び。同じ見え方のタイル同士はこの順） */
-  add(key: string, index: number): void {
-    if (this.index.has(key)) return;
-    this.index.set(key, index);
-    this.view.set(key, "away");
-    this.waiting.add(key);
-    this.pump();
-  }
-
-  /** 並びだけを変える。読み途中・読み終わりのタイルを待ち行列へ戻さない */
-  reindex(key: string, index: number): void {
-    if (!this.index.has(key)) return;
-    this.index.set(key, index);
+  /** タイルが画面に現れた。初めは遠い扱いで、近づいたら `see` が呼ばれる */
+  add(key: string): void {
+    if (this.known.has(key)) return;
+    this.known.add(key);
+    this.away.add(key);
   }
 
   /**
-   * タイルが画面から消えた。読み途中なら、その枠も空ける——
-   * `<img>` が消えると読み終わりの知らせが来ず、枠が永久に埋まったままになるため
+   * タイルが画面から消えた。**読み途中なら枠は空けない**——要求はアプリの側で
+   * 読まれ続けるので、空けると同時に読む数が上限を超える。枠は読み終わりか時間切れで空く
    */
   remove(key: string): void {
-    this.index.delete(key);
-    this.view.delete(key);
-    this.waiting.delete(key);
-    this.running.delete(key);
-    this.pump();
+    this.known.delete(key);
+    this.near.delete(key);
+    this.away.delete(key);
   }
 
-  /** 見え方が変わった */
-  see(key: string, view: TileView): void {
-    if (!this.index.has(key)) return;
-    this.view.set(key, view);
+  /** 画面の前後1画面に入った（`true`）か、出た（`false`） */
+  see(key: string, near: boolean): void {
+    if (!this.near.has(key) && !this.away.has(key)) return; // 消えたか、読み始めた後
+    (near ? this.away : this.near).delete(key);
+    (near ? this.near : this.away).add(key);
     this.pump();
   }
 
@@ -84,43 +85,34 @@ export class TileQueue {
     if (this.running.delete(key)) this.pump();
   }
 
-  /** いま読んでいるタイル（試験用） */
+  /** いま枠を使っている読み（試験用） */
   inFlight(): string[] {
-    return [...this.running];
-  }
-
-  private pick(): string | undefined {
-    let best: string | undefined;
-    let bestRank = Infinity;
-    for (const key of this.waiting) {
-      const v = this.view.get(key);
-      // 画面から遠いタイルは読まない。近づいたときに `see` が呼ばれる
-      if (v === "away" || v === undefined) continue;
-      const rank = (v === "visible" ? 0 : 1e9) + (this.index.get(key) ?? 0);
-      if (rank < bestRank) {
-        bestRank = rank;
-        best = key;
-      }
-    }
-    return best;
+    return [...this.running.keys()];
   }
 
   private pump(): void {
     if (this.scheduled) return;
     this.scheduled = true;
-    this.defer(() => {
+    this.env.defer(() => {
       this.scheduled = false;
       this.fill();
     });
   }
 
   private fill(): void {
-    while (this.running.size < this.limit) {
-      const key = this.pick();
-      if (key === undefined) return;
-      this.waiting.delete(key);
-      this.running.add(key);
-      this.start(key);
+    if (this.running.size >= this.limit || this.near.size === 0) return;
+    const ranked = [...this.near]
+      .map((key) => ({ key, d: this.env.distance(key) }))
+      .sort((a, b) => a.d - b.d);
+    for (const { key } of ranked) {
+      if (this.running.size >= this.limit) return;
+      this.near.delete(key);
+      const id = ++this.serial;
+      this.running.set(key, id);
+      this.env.after(TILE_STALL_MS, () => {
+        if (this.running.get(key) === id) this.done(key);
+      });
+      this.env.start(key);
     }
   }
 }

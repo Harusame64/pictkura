@@ -874,7 +874,7 @@ export default function ImportWizard({
             ) : (
               <>
                 <div className="wizard-grid">
-                  {visible.map((f, i) => {
+                  {visible.map((f) => {
                     const isSelected = selected.has(f.path);
                     const state = imported[f.path];
                     const done = state === "imported";
@@ -905,10 +905,12 @@ export default function ImportWizard({
                           <span className="wiz-cloud">☁</span>
                         ) : (
                           <SourceThumb
+                            // 更新日時が変わったら別のタイルとして順番に並び直す
+                            // （`src` だけ変えると、順番を通らずに読み直す）
+                            key={f.mtime_ms}
                             loader={tiles}
                             path={f.path}
                             mtimeMs={f.mtime_ms}
-                            index={i}
                           />
                         )}
                         <span className="wiz-check">{isSelected ? "✓" : ""}</span>
@@ -1021,24 +1023,23 @@ function SourceThumb({
   loader,
   path,
   mtimeMs,
-  index,
 }: {
   loader: TileLoader;
   path: string;
   mtimeMs: number;
-  index: number;
 }) {
-  const [ref, go] = useTileTurn(loader, path, index);
+  const src = sourceThumbSrc(path, mtimeMs);
+  const [ref, go] = useTileTurn(loader, src);
   return (
     <span className="wiz-thumb" ref={ref}>
       {go && (
         <img
-          src={sourceThumbSrc(path, mtimeMs)}
+          src={src}
           alt=""
           decoding="async"
           draggable={false}
-          onLoad={() => loader.done(path)}
-          onError={() => loader.done(path)}
+          onLoad={() => loader.done(src)}
+          onError={() => loader.done(src)}
         />
       )}
     </span>
