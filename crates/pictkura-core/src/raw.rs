@@ -1409,7 +1409,14 @@ fn read_window(path: &Path, offset: usize, len: usize) -> Option<Vec<u8>> {
 fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
     use std::io::Read;
     let file = std::fs::File::open(path).ok()?;
-    let mut buf = Vec::new();
+    // **読む量を先に確保する。** 空の `Vec` から読むと、伸ばしながら小さな読みを
+    // 何十回も出す（win の実測で CR3 の日付読み1件に 31 回、dev `measure73-scan-win.md`）。
+    // 冷えたカードでは1回ごとに往復を待つ
+    let expected = file
+        .metadata()
+        .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX).min(limit))
+        .unwrap_or(0);
+    let mut buf = Vec::with_capacity(expected);
     file.take(limit as u64).read_to_end(&mut buf).ok()?;
     (!buf.is_empty()).then_some(buf)
 }
@@ -1421,7 +1428,8 @@ fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
 /// `CMT2`（Exif IFD: 撮影日時）に、**中身はTIFFのまま**入れている。
 /// このボックスの中身をそのままEXIFパーサへ渡せば、普通のJPEGと同じに読める。
 ///
-/// 箱を辿るだけなので、読むのは先頭1MBだけ（画素データ `mdat` には触らない）。
+/// 箱を辿るだけなので、見るのは先頭1MBの中の箱だけ（画素データ `mdat` には触らない）。
+/// そのうち読むのは、箱の頭とメタデータの箱の中身だけ。
 ///
 /// **読めなかったときは `None`**、箱でなかった・箱に入っていなかったときは
 /// 空の `Some`。呼ぶ側が「一時的に読めないだけ」と「この形式には無い」を
@@ -1434,40 +1442,85 @@ pub fn bmff_metadata_blocks(path: &Path) -> Option<Vec<Vec<u8>>> {
     /// TIFF形式のメタデータが入っている箱（CMT1=IFD0, CMT2=Exif IFD）
     const METADATA: &[&[u8; 4]] = &[b"CMT1", b"CMT2", b"CMT3", b"CMT4"];
 
-    fn walk(buf: &[u8], depth: usize, out: &mut Vec<Vec<u8>>) {
-        // 壊れたファイルで無限に潜らない
-        if depth > 6 {
-            return;
-        }
-        let mut pos = 0usize;
-        while pos + 8 <= buf.len() {
-            let size = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
-            let kind = &buf[pos + 4..pos + 8];
-            // size=0 は「以降すべて」、size=1 は64ビット長。ここでは扱わず打ち切る
-            let size = size as usize;
-            if size < 8 || pos + size > buf.len() {
-                return;
-            }
-            let body = &buf[pos + 8..pos + size];
-            if METADATA.iter().any(|k| *k == kind) {
-                out.push(body.to_vec());
-            } else if CONTAINERS.iter().any(|k| *k == kind) {
-                // uuidの先頭16バイトはUUIDそのもの。飛ばしてから中を見る
-                let inner = if kind == b"uuid" && body.len() > 16 {
-                    &body[16..]
-                } else {
-                    body
-                };
-                walk(inner, depth + 1, out);
-            }
-            pos += size;
+    /// 箱を渡り歩くための読み手。いまの位置を覚えておき、飛ばすときは
+    /// 読み込み済みの範囲の中なら読み直さない（`seek_relative`）
+    struct Boxes {
+        reader: std::io::BufReader<std::fs::File>,
+        at: u64,
+    }
+
+    impl Boxes {
+        fn read(&mut self, at: u64, buf: &mut [u8]) -> Option<()> {
+            use std::io::Read;
+            let delta = i64::try_from(at).ok()? - i64::try_from(self.at).ok()?;
+            self.reader.seek_relative(delta).ok()?;
+            self.reader.read_exact(buf).ok()?;
+            self.at = at + buf.len() as u64;
+            Some(())
         }
     }
 
+    /// `start..end` に並んだ箱を辿る。中を読むのはメタデータの箱だけで、
+    /// 入れ物は頭の8バイトから中の箱へ降りる——**絵の入った箱（CR3 の
+    /// プレビューの `uuid` は 800KB ほど）を丸ごと読まない**
+    fn walk(
+        boxes: &mut Boxes,
+        start: u64,
+        end: u64,
+        depth: usize,
+        out: &mut Vec<Vec<u8>>,
+    ) -> Option<()> {
+        // 壊れたファイルで無限に潜らない
+        if depth > 6 {
+            return Some(());
+        }
+        let mut pos = start;
+        while pos + 8 <= end {
+            let mut header = [0u8; 8];
+            boxes.read(pos, &mut header)?;
+            let size = u64::from(u32::from_be_bytes([
+                header[0], header[1], header[2], header[3],
+            ]));
+            let kind = &header[4..8];
+            // size=0 は「以降すべて」、size=1 は64ビット長。ここでは扱わず打ち切る
+            if size < 8 || pos + size > end {
+                return Some(());
+            }
+            if METADATA.iter().any(|k| *k == kind) {
+                let mut body = vec![0u8; usize::try_from(size - 8).ok()?];
+                boxes.read(pos + 8, &mut body)?;
+                out.push(body);
+            } else if CONTAINERS.iter().any(|k| *k == kind) {
+                // uuidの先頭16バイトはUUIDそのもの。飛ばしてから中を見る
+                let inner = if kind == b"uuid" && size - 8 > 16 {
+                    pos + 8 + 16
+                } else {
+                    pos + 8
+                };
+                walk(boxes, inner, pos + size, depth + 1, out)?;
+            }
+            pos += size;
+        }
+        Some(())
+    }
+
     // moovはCR3ではファイル先頭側にある。画素データ（mdat）まで読まない
-    let head = read_head(path, 1024 * 1024)?;
+    //
+    // 見る範囲は先頭1MBで、**その中に収まりきる箱だけ**を見る（先頭1MBを
+    // 読んでから辿っていた頃と同じ答えになるように）。読むのは箱の頭と
+    // メタデータの箱の中身だけで、まとめ読みの単位は 64KB
+    const LIMIT: u64 = 1024 * 1024;
+    let file = std::fs::File::open(path).ok()?;
+    let end = file.metadata().ok()?.len().min(LIMIT);
+    if end == 0 {
+        return None;
+    }
+    let mut boxes = Boxes {
+        reader: std::io::BufReader::with_capacity(64 * 1024, file),
+        at: 0,
+    };
     let mut out = Vec::new();
-    walk(&head, 0, &mut out);
+    walk(&mut boxes, 0, end, 0, &mut out)?;
     Some(out)
 }
 
@@ -2592,6 +2645,37 @@ mod tests {
         let blocks = bmff_metadata_blocks(&path).expect("読める");
         assert_eq!(blocks.len(), 1);
         assert!(blocks[0].starts_with(b"II"), "TIFFの中身がそのまま出る");
+    }
+
+    #[test]
+    fn the_box_walk_skips_past_big_boxes_and_stops_at_the_first_megabyte() {
+        fn box_of(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.cr3");
+        // 読み込みの単位（64KB）より大きい箱を、中へ降りずに越えた先の箱を拾う。
+        // 最後の箱は先頭1MBをはみ出すので、前と同じく見ない
+        let mut preview = vec![0u8; 16]; // UUID
+        preview.extend_from_slice(&box_of(b"PRVW", &vec![0xAB; 300 * 1024]));
+        let mut file = box_of(b"ftyp", b"crx ");
+        file.extend_from_slice(&box_of(b"free", &vec![0u8; 100 * 1024]));
+        file.extend_from_slice(&box_of(b"uuid", &preview));
+        file.extend_from_slice(&box_of(b"CMT2", b"II*\x00second"));
+        file.extend_from_slice(&box_of(b"moov", &box_of(b"CMT1", b"II*\x00first")));
+        let pad = 1024 * 1024 - file.len() - 8;
+        file.extend_from_slice(&box_of(b"skip", &vec![0u8; pad - 8]));
+        file.extend_from_slice(&box_of(b"CMT3", &vec![b'x'; 64]));
+        std::fs::write(&path, &file).unwrap();
+
+        let blocks = bmff_metadata_blocks(&path).expect("読める");
+        assert_eq!(
+            blocks,
+            vec![b"II*\x00second".to_vec(), b"II*\x00first".to_vec()]
+        );
     }
 
     /// Exif IFD（`PixelXDimension` 等）をぶら下げたTIFFを組み立てる。

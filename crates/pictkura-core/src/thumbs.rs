@@ -677,7 +677,10 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     // 掛かると読み直しだけが落ちるので、そのときは「読めた」を取り下げる
     // ——取り下げないとORF・RW2が申告なしの印を付けられて二度と直らない
     // （ゲート1の4周目のP2）
-    if !had_container {
+    //
+    // **CR3 は通さない。** 先頭は `ftyp` の箱で TIFF ではないので、必ず
+    // `NotApplicable` が返る——それを知るために 256KB を読んでいた
+    if !had_container && !crate::raw::is_bmff_raw_path(path) {
         match crate::raw::patched_tiff_metadata(path) {
             crate::raw::PatchedTiff::Patched(buf) => {
                 if let Some(exif) = read_raw_partial(buf) {
