@@ -2629,7 +2629,7 @@ fn insert_synthetic(conn: &Connection, count: u64) {
 /// 連写の材料（dev #32）を実物で読む: 撮影時刻の秒未満と本体シリアル。
 ///
 /// 1行に2つの読み方を並べる——起動時の後追い（`read_exif_capture`、絵を探さない）と、
-/// サムネイルの流れ（`read_exif_for_preview`、プレビューも見る）。CR3 は2つ目の箱、
+/// ライブラリのサムネイルの流れ（`read_exif_for_thumbnail`、プレビューも見る）。CR3 は2つ目の箱、
 /// RAF は埋め込みプレビューにしか秒未満を持たないので、2つが食い違ったらそこを見る
 fn bench_capture(dir: &Path) {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)

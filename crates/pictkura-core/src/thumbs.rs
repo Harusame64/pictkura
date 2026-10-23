@@ -387,7 +387,7 @@ fn read_exif_for_preview_checked(path: &Path, max_edge: u32) -> (ExifData, bool)
 /// ライブラリのサムネイル生成（[`process_one`]）と同じ読み。
 /// [`read_exif_for_preview`]（取り込み元の一覧）と違い、RAWの先頭16MBを一度に
 /// 読んで一番大きい絵を探す——掴んだ絵の寸法がビューアの最初の枠になるため
-/// （[`Want::SourceImage`]）。`bench` が作業者の読みを再現するのに使う。
+/// （理由は [`Want::SourceImage`] に）。`bench` が作業者の読みを再現するのに使う。
 pub fn read_exif_for_thumbnail(path: &Path, max_edge: u32) -> ExifData {
     read_exif_for_preview_checked(path, max_edge).0
 }
