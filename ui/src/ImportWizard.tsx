@@ -35,6 +35,7 @@ import { usePlatform } from "./usePlatform";
 import { branchTo, isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
+import { useTileImage, useTileLoader, type TileLoader } from "./useTileQueue";
 
 /**
  * 取り込みウィザード（第5部 段階E）。PlayMemories Home のように
@@ -159,6 +160,7 @@ export default function ImportWizard({
   const importStartedAt = useRef(0);
   /** 一覧と進捗の器（取り込みを始めたら一番上へ戻す。pictkura-dev #39） */
   const mainRef = useRef<HTMLDivElement>(null);
+  const tiles = useTileLoader(mainRef, isOpen);
   /** 開き直しの再読込で参照する現在地（effectの依存に入れずに読む） */
   const viewRef = useRef<{ path: string | null; deep: boolean }>({
     path: null,
@@ -902,12 +904,13 @@ export default function ImportWizard({
                           // 実体のダウンロードが始まるので、雲マークだけ出す
                           <span className="wiz-cloud">☁</span>
                         ) : (
-                          <img
-                            src={sourceThumbSrc(f.path, f.mtime_ms)}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            draggable={false}
+                          <SourceThumb
+                            // 更新日時が変わったら別のタイルとして順番に並び直す
+                            // （`src` だけ変えると、順番を通らずに読み直す）
+                            key={f.mtime_ms}
+                            loader={tiles}
+                            path={f.path}
+                            mtimeMs={f.mtime_ms}
                           />
                         )}
                         <span className="wiz-check">{isSelected ? "✓" : ""}</span>
@@ -1010,4 +1013,22 @@ export default function ImportWizard({
       </div>
     </div>
   );
+}
+
+/**
+ * 取り込み元の1枚。[`TileLoader`] が順番を回して読み終えた絵を、箱に差し込む
+ * （pictkura-dev #73）——`loading="lazy"` に任せると、画面の前後を何十枚も
+ * 同時にカードから読む
+ */
+function SourceThumb({
+  loader,
+  path,
+  mtimeMs,
+}: {
+  loader: TileLoader;
+  path: string;
+  mtimeMs: number;
+}) {
+  const ref = useTileImage(loader, sourceThumbSrc(path, mtimeMs));
+  return <span className="wiz-thumb" ref={ref} />;
 }
