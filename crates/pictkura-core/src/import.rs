@@ -2730,14 +2730,18 @@ mod tests {
         assert!(answers.iter().all(|a| *a == ImportState::NotImported));
         assert_eq!(most.load(Ordering::SeqCst), 1, "譲っているあいだは1本だけ");
 
-        // 譲るのをやめたら、並べて読む
+        // 譲るのをやめたら、並べて読む。1件目は2本目が来るまで（最大5秒）待つ
+        // ——スレッドの立ち上がりが遅い機械でも、並んだかどうかを確かめられるように
         widen.store(true, Ordering::SeqCst);
         most.store(0, Ordering::SeqCst);
         check_each(&paths, &|| widen.load(Ordering::SeqCst), || {
             |_: &Path| {
                 let n = now.fetch_add(1, Ordering::SeqCst) + 1;
                 most.fetch_max(n, Ordering::SeqCst);
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while most.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < until {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
                 now.fetch_sub(1, Ordering::SeqCst);
                 ImportState::NotImported
             }

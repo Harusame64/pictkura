@@ -5974,11 +5974,21 @@ impl SourceTiles {
 
     /// 読んでいるタイルが無く、最後の読みから [`SOURCE_TILES_QUIET_MS`] 経った
     fn quiet(&self) -> bool {
+        self.quiet_at(self.now_ms())
+    }
+
+    /// [`SourceTiles::quiet`] を、時刻を渡して答える（試験が時計を待たずに済むように）。
+    ///
+    /// **読んでいる数を先に読む。** 終わりの側（[`SourceTileRead`] の `Drop`）は時刻を
+    /// 書いてから数を減らすので、数が 0 と見えたなら時刻はもう新しい。逆の順に読むと、
+    /// 古い時刻と 0 を組み合わせて、待つべき隙間を素通りする（ゲート2）
+    fn quiet_at(&self, now_ms: u64) -> bool {
         use std::sync::atomic::Ordering;
+        if self.reading.load(Ordering::SeqCst) != 0 {
+            return false;
+        }
         let last_end = self.last_end_ms.load(Ordering::SeqCst);
-        self.reading.load(Ordering::SeqCst) == 0
-            && (last_end == 0
-                || (self.now_ms() + 1).saturating_sub(last_end) >= SOURCE_TILES_QUIET_MS)
+        last_end == 0 || (now_ms + 1).saturating_sub(last_end) >= SOURCE_TILES_QUIET_MS
     }
 }
 
@@ -7567,14 +7577,13 @@ mod tests {
         drop(first);
         assert!(!tiles.quiet(), "まだ1枚読んでいる");
         drop(second);
+        // 読み終わった時刻から測る。実時間を待たない
+        let ended = tiles.last_end_ms.load(std::sync::atomic::Ordering::SeqCst) - 1;
         assert!(
-            !tiles.quiet(),
+            !tiles.quiet_at(ended + super::SOURCE_TILES_QUIET_MS - 1),
             "読み終わった直後は、次の1枚が来るかもしれない"
         );
-        std::thread::sleep(std::time::Duration::from_millis(
-            super::SOURCE_TILES_QUIET_MS + 20,
-        ));
-        assert!(tiles.quiet());
+        assert!(tiles.quiet_at(ended + super::SOURCE_TILES_QUIET_MS));
     }
 
     /// 前のドライブの送り出しフォルダは、記録にあって在るものだけ開く（pictkura-dev #43）
