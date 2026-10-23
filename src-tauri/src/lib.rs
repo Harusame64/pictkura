@@ -5817,7 +5817,6 @@ async fn probe_imported(
         let config = lock_ok(&state.config).clone();
         let contested = pictkura_core::contested_set(contested.iter().map(String::as_str));
         let edits = rotation_edits(&state);
-        let paths: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
         pictkura_core::are_already_imported(&paths, &config, &contested, &edits)
             .into_iter()
             .map(|answer| match answer {

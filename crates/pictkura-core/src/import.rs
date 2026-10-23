@@ -1142,6 +1142,18 @@ pub fn is_already_imported(
     contested: &HashSet<String>,
     edits: &Edits,
 ) -> ImportState {
+    already_imported_with(path, config, contested, edits, &mut PairIndex::default())
+}
+
+/// [`is_already_imported`] の中身。`pairs` は相方を探すフォルダの一覧の控えで、
+/// 何件も続けて見るときは使い回す（1つのフォルダは1回しか読まない）
+fn already_imported_with(
+    path: &Path,
+    config: &Config,
+    contested: &HashSet<String>,
+    edits: &Edits,
+    pairs: &mut PairIndex,
+) -> ImportState {
     let Some(dest_root) = config.routing.destination.as_ref() else {
         return ImportState::NotImported;
     };
@@ -1149,9 +1161,8 @@ pub fn is_already_imported(
         return ImportState::NotImported;
     };
     let mtime_ms = mtime_ms_of(&meta);
-    let mut pairs = PairIndex::default();
     let dest_dir = dest_dir_for(
-        taken_at_paired(path, config, &mut pairs),
+        taken_at_paired(path, config, pairs),
         mtime_ms,
         dest_root,
         config,
@@ -1191,44 +1202,72 @@ pub const PROBE_READS: usize = 4;
 /// [`is_already_imported`] を、渡した並びのまま全件に答える。
 ///
 /// [`PROBE_READS`] 本のスレッドが、前から1件ずつ取って見る。答えは1件ずつ
-/// 独立なので（同じ行き先を読むだけで、書かない）、並べても答えは変わらない
-pub fn are_already_imported(
-    paths: &[PathBuf],
+/// 独立なので（同じ行き先を読むだけで、書かない）、並べても答えは変わらない。
+/// 相方を探すフォルダの一覧は、スレッドごとに1回だけ読む
+pub fn are_already_imported<P: AsRef<Path> + Sync>(
+    paths: &[P],
     config: &Config,
     contested: &HashSet<String>,
     edits: &Edits,
 ) -> Vec<ImportState> {
+    if config.routing.destination.is_none() {
+        return vec![ImportState::NotImported; paths.len()];
+    }
+    check_each(paths, || {
+        let mut pairs = PairIndex::default();
+        move |path: &Path| already_imported_with(path, config, contested, edits, &mut pairs)
+    })
+}
+
+/// `paths` を [`PROBE_READS`] 本のスレッドで1件ずつ `check` に通し、渡した並びのまま返す。
+/// `check` はスレッドごとに `make_check` で作る（スレッドの中だけで使う控えを持てるように）。
+///
+/// **1件が落ちても（パニック）、その1件を [`ImportState::Unsure`] にして続ける。**
+/// 束ごと落とすと、画面は残りの束も問い合わせなくなり、入っている写真まで選ばれたままになる。
+/// 「済」にも「未取り込み」にも丸めない——どちらとも言えていない
+fn check_each<P, C>(paths: &[P], make_check: impl Fn() -> C + Sync) -> Vec<ImportState>
+where
+    P: AsRef<Path> + Sync,
+    C: FnMut(&Path) -> ImportState,
+{
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let mut answers = vec![ImportState::NotImported; paths.len()];
+    let mut answers: Vec<Option<ImportState>> = vec![None; paths.len()];
     std::thread::scope(|s| {
         let workers: Vec<_> = (0..PROBE_READS.min(paths.len()))
             .map(|_| {
-                let next = &next;
+                let (next, make_check) = (&next, &make_check);
                 s.spawn(move || {
+                    let mut check = make_check();
                     let mut mine = Vec::new();
                     loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(path) = paths.get(i) else { break };
-                        mine.push((i, is_already_imported(path, config, contested, edits)));
+                        let Some(path) = paths.get(i).map(AsRef::as_ref) else {
+                            break;
+                        };
+                        let label = format!("already imported? {}", path.display());
+                        let state = crate::panics::catching(&label, || check(path))
+                            .unwrap_or(ImportState::Unsure);
+                        mine.push((i, state));
                     }
                     mine
                 })
             })
             .collect();
         for worker in workers {
-            // 1本が落ちたら、1件ずつ回していた頃と同じく呼び出しごと落とす。
-            // 拾った分だけ返すと、落ちたスレッドが見た「済」が「未取り込み」に化ける
-            match worker.join() {
-                Ok(mine) => {
-                    for (i, state) in mine {
-                        answers[i] = state;
-                    }
+            // 1件ずつ網を張っているので、ここでスレッドが落ちることは無い。
+            // それでも落ちたなら、そのスレッドが見た分は下で「分からない」になる
+            if let Ok(mine) = worker.join() {
+                for (i, state) in mine {
+                    answers[i] = Some(state);
                 }
-                Err(panic) => std::panic::resume_unwind(panic),
             }
         }
     });
+    // 答えの無い枠は「分からない」——「未取り込み」で埋めると、穴が「新しい写真」に見える
     answers
+        .into_iter()
+        .map(|a| a.unwrap_or(ImportState::Unsure))
+        .collect()
 }
 
 enum ImportOneResult {
@@ -2613,9 +2652,38 @@ mod tests {
             })
             .collect();
         assert_eq!(answers, expected);
-        assert!(
-            are_already_imported(&[], &config, &no_repeated_names(), &Edits::default()).is_empty()
-        );
+        assert!(are_already_imported::<PathBuf>(
+            &[],
+            &config,
+            &no_repeated_names(),
+            &Edits::default()
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn a_panic_on_one_file_answers_unsure_for_that_file_only() {
+        let paths: Vec<PathBuf> = (0..PROBE_READS * 3)
+            .map(|i| PathBuf::from(format!("p{i:02}.jpg")))
+            .collect();
+        let answers = check_each(&paths, || {
+            |path: &Path| {
+                if path == Path::new("p05.jpg") {
+                    panic!("わざと落とす");
+                }
+                ImportState::Imported
+            }
+        });
+        let expected: Vec<ImportState> = (0..paths.len())
+            .map(|i| {
+                if i == 5 {
+                    ImportState::Unsure
+                } else {
+                    ImportState::Imported
+                }
+            })
+            .collect();
+        assert_eq!(answers, expected);
     }
 
     #[test]
