@@ -5947,65 +5947,6 @@ async fn import_paths(
 /// ライブラリ外の任意パスを読むことになるため、**UIが開いたフォルダの直下**に
 /// あるファイルしか配信しない。Webview側のスクリプトが細工したURLで
 /// `C:\Windows\...` を読み出せる、という穴を塞ぐ。
-/// 取り込み元のタイルを、同時に何枚までカードから読むか（pictkura-dev #73）。
-///
-/// 要求はタイルごとに別のスレッドで来る。開け放つと、画面の前後をまとめて
-/// 要求された分が全部同時にカードを読む。win の実測（dev `measure73-jump-win.md`）では
-/// 下端へ飛んだ瞬間に 55 本が同時に走り、USB の読みは 1 本ずつの約 34 MB/s から
-/// 16〜19 MB/s に落ち、見えている 20 枚が揃うまで 23 秒かかった。スキャンもその後ろで
-/// 待たされた。**どれから読むかは画面が決める**（`ui/src/tileQueue.ts`）。ここは数だけを守る。
-/// 画面の側では、読みが本当に終わった時を知れないので、数はここでしか守れない。
-const SOURCE_PREVIEW_LANES: usize = 2;
-
-/// 空きを待つ上限。答えの返らない読みが [`SOURCE_PREVIEW_LANES`] 本あるだけで
-/// 取り込み画面のタイルが全部止まらないよう、過ぎたら数えずに通す。
-/// win の実測では、USB で重い1枚（FFF 102MB）を1本で読んで約 3 秒
-const SOURCE_PREVIEW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
-static SOURCE_PREVIEW_RUNNING: Mutex<usize> = Mutex::new(0);
-static SOURCE_PREVIEW_FREED: std::sync::Condvar = std::sync::Condvar::new();
-
-/// 取り込み元のタイル1枚ぶんの読みの枠。**落ちても数え漏らさない**よう、`Drop` で戻す
-/// （`pictkura_core::raw` の `FullScanPermit` と同じ形）。待ちきれずに通した読みは
-/// 枠を持たない（`counted` が偽）。
-struct SourcePreviewLane {
-    counted: bool,
-}
-
-impl SourcePreviewLane {
-    fn acquire() -> Self {
-        let deadline = std::time::Instant::now() + SOURCE_PREVIEW_WAIT;
-        let mut running = SOURCE_PREVIEW_RUNNING
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        while *running >= SOURCE_PREVIEW_LANES {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
-                return Self { counted: false };
-            }
-            running = SOURCE_PREVIEW_FREED
-                .wait_timeout(running, left)
-                .unwrap_or_else(|e| e.into_inner())
-                .0;
-        }
-        *running += 1;
-        Self { counted: true }
-    }
-}
-
-impl Drop for SourcePreviewLane {
-    fn drop(&mut self) {
-        if !self.counted {
-            return;
-        }
-        let mut running = SOURCE_PREVIEW_RUNNING
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *running = running.saturating_sub(1);
-        SOURCE_PREVIEW_FREED.notify_one();
-    }
-}
-
 fn source_preview_response(state: &AppState, path: &Path) -> Response<Vec<u8>> {
     let denied = || {
         Response::builder()
@@ -6020,10 +5961,7 @@ fn source_preview_response(state: &AppState, path: &Path) -> Response<Vec<u8>> {
         return denied();
     }
     let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
-    let lane = SourcePreviewLane::acquire();
-    let preview = pictkura_core::browse::preview(path, thumb_size);
-    drop(lane);
-    match preview {
+    match pictkura_core::browse::preview(path, thumb_size) {
         Some(preview) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", preview.mime)
@@ -7563,31 +7501,6 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    /// 取り込み元のタイルは同時に2枚までしか読まない。空けば待っていた次が通る（pictkura-dev #73）
-    #[test]
-    fn a_third_source_tile_waits_for_a_free_lane() {
-        use super::{SourcePreviewLane, SOURCE_PREVIEW_LANES};
-        use std::time::{Duration, Instant};
-        assert_eq!(SOURCE_PREVIEW_LANES, 2);
-        let a = SourcePreviewLane::acquire();
-        let b = SourcePreviewLane::acquire();
-        assert!(a.counted && b.counted);
-        let (tx, rx) = std::sync::mpsc::channel();
-        let waiter = std::thread::spawn(move || {
-            let c = SourcePreviewLane::acquire();
-            tx.send(c.counted).unwrap();
-        });
-        // 3本目は、2本が読んでいる間は通らない
-        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
-        let freed = Instant::now();
-        drop(a);
-        // 1本空けば、待ち時間の上限（5秒）を待たずに枠を取って通る
-        assert!(rx.recv_timeout(Duration::from_secs(2)).unwrap());
-        assert!(freed.elapsed() < Duration::from_secs(2));
-        waiter.join().unwrap();
-        drop(b);
-    }
-
     /// 前のドライブの送り出しフォルダは、記録にあって在るものだけ開く（pictkura-dev #43）
     #[test]
     fn only_a_recorded_outgoing_folder_opens() {

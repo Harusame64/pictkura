@@ -4,21 +4,29 @@ import { TileQueue, TILE_READS } from "./tileQueue";
 /**
  * 取り込み画面のタイルを [`TileQueue`] の順で読ませる。
  *
+ * **絵はここが自前の `Image` で読む。** 読み終わったら、その要素をタイルに渡す。
+ * タイルが読み途中に消えても `Image` は残って読み終わりを知らせるので、
+ * 同時に読む数を取りこぼさない。戻ってきたタイルには、同じ要素を渡し直す。
+ *
  * 見張り（`IntersectionObserver`）は、画面の上下に1画面ずつ広げた範囲の1つだけ。
  * 見えているかどうかは見張りに訊かず、選ぶときに位置を測る——見張りを2つにすると、
  * 知らせの届く順で、見えているタイルより先読みのタイルが先に選ばれうる
  */
 export class TileLoader {
   private readonly queue: TileQueue;
-  private readonly starters = new Map<string, () => void>();
+  /** 画面に在るタイル。値は読み終わった絵を受け取る関数 */
+  private readonly ready = new Map<string, (img: HTMLImageElement) => void>();
   private readonly elements = new Map<string, Element>();
   private readonly keys = new Map<Element, string>();
+  /** 読み途中の絵と、画面に在るタイルの読み終わった絵 */
+  private readonly images = new Map<string, HTMLImageElement>();
+  private readonly loaded = new Set<string>();
   private root: Element | null = null;
   private observer: IntersectionObserver | null = null;
 
   constructor(limit = TILE_READS) {
     this.queue = new TileQueue(limit, {
-      start: (key) => this.starters.get(key)?.(),
+      start: (key) => this.load(key),
       measure: () => this.measure(),
       defer: (run) => setTimeout(run, 0),
       after: (ms, run) => setTimeout(run, ms),
@@ -48,23 +56,52 @@ export class TileLoader {
     };
   }
 
-  attach(key: string, el: Element, start: () => void): () => void {
+  /** タイルを載せる。鍵は絵の URL。読み終わった絵が在れば、すぐ渡す */
+  attach(
+    key: string,
+    el: Element,
+    ready: (img: HTMLImageElement) => void,
+  ): () => void {
     this.keys.set(el, key);
     this.elements.set(key, el);
-    this.starters.set(key, start);
-    this.queue.add(key);
+    this.ready.set(key, ready);
+    const img = this.images.get(key);
+    if (img && this.loaded.has(key)) ready(img);
+    else this.queue.add(key);
     this.observer?.observe(el);
     return () => {
       this.observer?.unobserve(el);
       this.keys.delete(el);
       this.elements.delete(key);
-      this.starters.delete(key);
+      this.ready.delete(key);
       this.queue.remove(key);
+      // 読み途中の絵は、読み終わりの知らせのために残す（`load` が片付ける）
+      if (this.loaded.delete(key)) this.images.delete(key);
     };
   }
 
-  done(key: string): void {
-    this.queue.done(key);
+  private load(key: string): void {
+    const img = new Image();
+    img.decoding = "async";
+    img.draggable = false;
+    img.alt = "";
+    const finish = () => {
+      img.onload = img.onerror = null;
+      // 時間切れの後で同じタイルを読み直していたら、こちらは古い読み。枠も絵も新しい方のもの
+      if (this.images.get(key) !== img) return;
+      this.queue.done(key);
+      const ready = this.ready.get(key);
+      if (ready) {
+        this.loaded.add(key);
+        ready(img);
+      } else {
+        this.images.delete(key);
+      }
+    };
+    img.onload = finish;
+    img.onerror = finish;
+    this.images.set(key, img);
+    img.src = key;
   }
 
   /**
@@ -106,20 +143,20 @@ export function useTileLoader(
 }
 
 /**
- * 1枚のタイルが読み始めてよいか。読み始めたら（読み終わっても）`true` のまま——
+ * 1枚のタイルを載せ、読み終わった絵を `ref` の箱へ差し込む。
  * 一度出した絵は、画面から外れても消さない
  */
-export function useTileTurn(
+export function useTileImage(
   loader: TileLoader,
   key: string,
-): [RefObject<HTMLSpanElement>, boolean] {
+): RefObject<HTMLSpanElement> {
   const ref = useRef<HTMLSpanElement>(null);
-  const [go, setGo] = useState(false);
-  // 登録はタイルが在る間ずっと。`go` で外すと、同じタイルがもう一度候補に入る
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    return loader.attach(key, el, () => setGo(true));
+    return loader.attach(key, el, (img) => {
+      if (img.parentNode !== el) el.replaceChildren(img);
+    });
   }, [loader, key]);
-  return [ref, go];
+  return ref;
 }

@@ -35,7 +35,7 @@ import { usePlatform } from "./usePlatform";
 import { branchTo, isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
-import { useTileLoader, useTileTurn, type TileLoader } from "./useTileQueue";
+import { useTileImage, useTileLoader, type TileLoader } from "./useTileQueue";
 
 /**
  * 取り込みウィザード（第5部 段階E）。PlayMemories Home のように
@@ -1016,8 +1016,9 @@ export default function ImportWizard({
 }
 
 /**
- * 取り込み元の1枚。[`TileLoader`] が順番を回すまで絵を要求しない（pictkura-dev #73）——
- * `loading="lazy"` に任せると、画面の前後を何十枚も同時にカードから読む
+ * 取り込み元の1枚。[`TileLoader`] が順番を回して読み終えた絵を、箱に差し込む
+ * （pictkura-dev #73）——`loading="lazy"` に任せると、画面の前後を何十枚も
+ * 同時にカードから読む
  */
 function SourceThumb({
   loader,
@@ -1028,20 +1029,6 @@ function SourceThumb({
   path: string;
   mtimeMs: number;
 }) {
-  const src = sourceThumbSrc(path, mtimeMs);
-  const [ref, go] = useTileTurn(loader, src);
-  return (
-    <span className="wiz-thumb" ref={ref}>
-      {go && (
-        <img
-          src={src}
-          alt=""
-          decoding="async"
-          draggable={false}
-          onLoad={() => loader.done(src)}
-          onError={() => loader.done(src)}
-        />
-      )}
-    </span>
-  );
+  const ref = useTileImage(loader, sourceThumbSrc(path, mtimeMs));
+  return <span className="wiz-thumb" ref={ref} />;
 }

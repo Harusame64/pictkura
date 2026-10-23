@@ -125,7 +125,7 @@ test("読む前に範囲から出たタイルは後回しにし、戻れば読�
   assert.deepEqual(started, [key(0), key(2), key(1)]);
 });
 
-test("読み途中で消えたタイルは枠をすぐ空ける（読み終わりの知らせはもう来ない。数はアプリが守る）", () => {
+test("読み途中で消えたタイルの枠は、読み終わりまで空けない（アプリはその読みを続けるため）", () => {
   const { q, started, flush } = queue(1);
   for (const i of [0, 1]) {
     q.add(key(i));
@@ -134,7 +134,23 @@ test("読み途中で消えたタイルは枠をすぐ空ける（読み終わ�
   flush();
   q.remove(key(0));
   flush();
+  assert.deepEqual(started, [key(0)]);
+  q.done(key(0));
+  flush();
   assert.deepEqual(started, [key(0), key(1)]);
+});
+
+test("読み途中に戻ってきたタイルは、もう一度は読まない", () => {
+  const { q, started, flush } = queue();
+  q.add(key(0));
+  q.see(key(0), true);
+  flush();
+  q.remove(key(0));
+  q.add(key(0));
+  q.see(key(0), true);
+  flush();
+  assert.deepEqual(started, [key(0)]);
+  assert.deepEqual(q.inFlight(), [key(0)]);
 });
 
 test("測れないタイル同士の順は、測れるタイルより後ろに揃う", () => {
@@ -204,22 +220,22 @@ test("まだ読み始めていないタイルの done は、枠を数え違え�
   assert.deepEqual(started, [key(0)]);
 });
 
-test("消えて戻ったタイルの新しい読みを、前の読みの時間切れで空けない", () => {
+test("読み終えて消え、戻ってきたタイルの新しい読みを、前の読みの時間切れで空けない", () => {
   const { q, started, flush, tick } = queue();
   q.add(key(0));
   q.see(key(0), true);
   flush();
+  q.done(key(0));
   q.remove(key(0));
-  tick(TILE_STALL_MS - 1);
+  tick(1);
   q.add(key(0));
   q.see(key(0), true);
-  flush();
   for (const i of [1, 2]) {
     q.add(key(i));
     q.see(key(i), true);
   }
   flush();
   assert.deepEqual(started, [key(0), key(0), key(1)]);
-  tick(1); // 1回目の読みの時間切れ
+  tick(TILE_STALL_MS - 1); // 1回目の読みの時間切れ（2回目はまだ）
   assert.deepEqual(started, [key(0), key(0), key(1)]);
 });
