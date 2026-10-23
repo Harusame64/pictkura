@@ -4,36 +4,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { TileQueue, TILE_READS, TILE_STALL_MS } from "../src/tileQueue.ts";
+import { TileQueue, TILE_READS } from "../src/tileQueue.ts";
 
 /**
- * 選ぶのは `flush` したときだけ（実物では次のタスク）。時計は `tick` で進める。
+ * 選ぶのは `flush` したときだけ（実物では次のタスク）。
  * 画面からの距離は `at` に書く（書いていないタイルは測れない＝`Infinity`）
  */
 function queue(limit = TILE_READS) {
   const started: string[] = [];
   const at = new Map<string, number>();
   const pending: Array<() => void> = [];
-  let now = 0;
-  const timers: Array<{ due: number; run: () => void }> = [];
   const q = new TileQueue(limit, {
     start: (k) => started.push(k),
     measure: () => (k) => at.get(k) ?? Infinity,
     defer: (run) => pending.push(run),
-    after: (ms, run) => timers.push({ due: now + ms, run }),
   });
   const flush = () => {
     while (pending.length > 0) pending.shift()!();
   };
-  const tick = (ms: number) => {
-    now += ms;
-    for (const t of timers.splice(0)) {
-      if (t.due <= now) t.run();
-      else timers.push(t);
-    }
-    flush();
-  };
-  return { q, started, at, flush, tick };
+  return { q, started, at, flush };
 }
 
 const key = (i: number) => `t${i}`;
@@ -164,35 +153,6 @@ test("測れないタイル同士の順は、測れるタイルより後ろに�
   assert.deepEqual(started, [key(3)]);
 });
 
-test("答えの来ない読みは、時間切れで枠を空ける", () => {
-  const { q, started, flush, tick } = queue();
-  for (const i of [0, 1, 2]) {
-    q.add(key(i));
-    q.see(key(i), true);
-  }
-  flush();
-  assert.deepEqual(started, [key(0), key(1)]);
-  tick(TILE_STALL_MS - 1);
-  assert.deepEqual(started, [key(0), key(1)]);
-  tick(1);
-  assert.deepEqual(started, keys(0, 3));
-});
-
-test("読み終わった後の時間切れは、別の読みの枠を空けない", () => {
-  const { q, started, flush, tick } = queue(1);
-  for (const i of [0, 1, 2]) {
-    q.add(key(i));
-    q.see(key(i), true);
-  }
-  flush();
-  tick(TILE_STALL_MS - 1);
-  q.done(key(0)); // key(1) が始まる
-  flush();
-  tick(1); // key(0) の時間切れ
-  assert.deepEqual(started, [key(0), key(1)]);
-  assert.deepEqual(q.inFlight(), [key(1)]);
-});
-
 test("読み始めた・読み終わったタイルを、もう一度読まない", () => {
   const { q, started, flush } = queue();
   q.add(key(0));
@@ -218,24 +178,4 @@ test("まだ読み始めていないタイルの done は、枠を数え違え�
   flush();
   assert.deepEqual(q.inFlight(), [key(0)]);
   assert.deepEqual(started, [key(0)]);
-});
-
-test("読み終えて消え、戻ってきたタイルの新しい読みを、前の読みの時間切れで空けない", () => {
-  const { q, started, flush, tick } = queue();
-  q.add(key(0));
-  q.see(key(0), true);
-  flush();
-  q.done(key(0));
-  q.remove(key(0));
-  tick(1);
-  q.add(key(0));
-  q.see(key(0), true);
-  for (const i of [1, 2]) {
-    q.add(key(i));
-    q.see(key(i), true);
-  }
-  flush();
-  assert.deepEqual(started, [key(0), key(0), key(1)]);
-  tick(TILE_STALL_MS - 1); // 1回目の読みの時間切れ（2回目はまだ）
-  assert.deepEqual(started, [key(0), key(0), key(1)]);
 });

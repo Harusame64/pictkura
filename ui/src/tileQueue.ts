@@ -20,14 +20,6 @@
 /** 同時に読むタイルの数。1 本だとデコードの間カードが遊ぶので 2 本 */
 export const TILE_READS = 2;
 
-/**
- * 1本の読みに枠を貸しておく長さ。過ぎたら、読み終わっていなくても次へ回す——
- * 答えの来ない要求が2本あるだけで画面全体が止まらないように。
- * win の実測では USB で重い1枚（FFF 102MB）を1本で読んで約 3 秒。
- * 2本で帯域を分けても 6 秒ほどなので、ふつうの読みはここに届かない
- */
-export const TILE_STALL_MS = 30000;
-
 export type TileQueueEnv = {
   /** タイルの絵を要求させる */
   start: (key: string) => void;
@@ -38,8 +30,6 @@ export type TileQueueEnv = {
   measure: () => (key: string) => number;
   /** 選ぶのを後へ回す（見え方の知らせをまとめて受けてから選ぶため） */
   defer: (run: () => void) => void;
-  /** `ms` 後に `run` する */
-  after: (ms: number, run: () => void) => void;
 };
 
 export class TileQueue {
@@ -49,9 +39,12 @@ export class TileQueue {
   private readonly near = new Set<string>();
   /** まだ読んでいない、遠いタイル */
   private readonly away = new Set<string>();
-  /** 読み途中。値は始めた順の番号（古い時間切れが、同じタイルの新しい読みを空けないため） */
-  private readonly running = new Map<string, number>();
-  private serial = 0;
+  /**
+   * 読み途中。**時間切れは置かない**——枠を空けてもアプリの側の読みは続くので、
+   * 遅い媒体で読みが積み上がる。答えはかならず来る（アプリは失敗も 500 で返し、
+   * 抜かれた媒体の読みは失敗で終わる）
+   */
+  private readonly running = new Set<string>();
   private scheduled = false;
 
   constructor(limit: number, env: TileQueueEnv) {
@@ -84,7 +77,8 @@ export class TileQueue {
     if (!this.near.has(key) && !this.away.has(key)) return; // 消えたか、読み始めた後
     (near ? this.away : this.near).delete(key);
     (near ? this.near : this.away).add(key);
-    this.pump();
+    // 範囲から出ただけなら、新しく始められる読みは無い
+    if (near) this.pump();
   }
 
   /** 読み終わった（失敗も含む） */
@@ -94,7 +88,7 @@ export class TileQueue {
 
   /** いま枠を使っている読み（試験用） */
   inFlight(): string[] {
-    return [...this.running.keys()];
+    return [...this.running];
   }
 
   private pump(): void {
@@ -116,11 +110,7 @@ export class TileQueue {
     for (const { key } of ranked) {
       if (this.running.size >= this.limit) return;
       this.near.delete(key);
-      const id = ++this.serial;
-      this.running.set(key, id);
-      this.env.after(TILE_STALL_MS, () => {
-        if (this.running.get(key) === id) this.done(key);
-      });
+      this.running.add(key);
       this.env.start(key);
     }
   }
