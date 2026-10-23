@@ -2,7 +2,7 @@
 //!
 //! ここは `unwrap()` を許している——条件が揃わなければその場で落ちて理由を
 //! 見せるのが正しい。本体側の方針は `Cargo.toml` の `[workspace.lints.clippy]`。
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! 取り込み画面のスキャン（`is_already_imported`）を、何本並べて回すと速いか
 //! （pictkura-dev #73 の spike）:
