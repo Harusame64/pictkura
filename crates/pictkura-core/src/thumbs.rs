@@ -902,7 +902,7 @@ fn read_exif_container(path: &Path, keeps_thumbnail: bool) -> Container {
     read_exif_container_from(&mut BufReader::new(file), keeps_thumbnail)
 }
 
-/// TIFF系のファイルで、まず読む先頭の長さ（dev #73）。
+/// TIFF系のファイルで、順に読み足す先頭の長さ（dev #73）。
 ///
 /// kamadak-exif 0.6.1 の `read_from_container` はTIFFと分かると**ファイル全体**を
 /// 読む。取り込みのスキャンはカードの全件で撮影日時を読む（[`crate::import`] の
@@ -910,22 +910,25 @@ fn read_exif_container(path: &Path, keeps_thumbnail: bool) -> Container {
 /// ——win の実測（dev/measure73-copy-baseline.md）でスキャンが媒体から読んだ量は
 /// 全体の0.33倍、TIFF系RAWの合計は0.249倍。
 ///
-/// 1MBにしたのは手元の285件の実測から（`II*`/`MM*` で全体のパースが通るもの）。
-/// 全体と同じ答えを出せる最短の先頭は、CR2・NEF・ARW・SRW・3FR では最大でも
-/// 0.6MB以下、DNG は中央値30KB。IIQ・TIFF・一部のDNG・PEF は EXIF の表を
-/// ファイルの後ろに置くので、何MBにしても届かない（そちらは従来どおり全体を読む）。
-/// もう1つ全体を読むのは、絵を求める読みで IFD1 の切手が1MBより後ろにあるとき
-/// （[`read_tiff_from_head`]）。
-const EXIF_TIFF_HEAD: u64 = 1 << 20;
+/// 段は手元の実測から。全体と同じ答えを出せる最短の先頭は、最初の 285 件で
+/// CR2・NEF・ARW・SRW・3FR が最大でも 0.6MB 以下、DNG は中央値 30KB だった。
+/// TIFF の頭を持つ 293 件を掃き直すと（2026-10-23）、NEF 6 件・ARW 6 件・PEF 36 件・
+/// DNG 145 件・3FR 10 件が **256KB 以内**で通り（どの段でも通らない PEF 6 件・DNG 16 件・
+/// IIQ・TIFF は除く）、1MB を要るのは CR2 3 件中 1・FFF 8 件・MOS 1 件・SRF 1 件だった。だから 256KB で試し、通らなければ 1MB まで読み足す（読み直さない）。
+/// IIQ・TIFF・一部のDNG・PEF は EXIF の表をファイルの後ろに置くので、何MBにしても
+/// 届かない（そちらは従来どおり全体を読む）。もう1つ全体を読むのは、絵を求める読みで
+/// IFD1 の切手が先頭より後ろにあるとき（[`read_tiff_from_head`]）。
+const EXIF_TIFF_HEADS: [u64; 2] = [256 << 10, 1 << 20];
 
 /// [`read_exif_container`] の本体。読み手を外から渡せるのは、**どこまで読んだか**を
 /// テストが数えるため。
 ///
-/// TIFFは先頭 [`EXIF_TIFF_HEAD`] だけで**厳密に**（`continue_on_error` なしで）
+/// TIFFは先頭 [`EXIF_TIFF_HEADS`] だけで**厳密に**（`continue_on_error` なしで）
 /// パースし、通ればそれを使う。**全体を読んだときと同じ答えになる**: パーサは
 /// 申告された位置しか読まず、1つでも範囲の外を指せば失敗する。先頭で通ったという
 /// ことは、全体で読んでも同じバイトを同じ順に読む。通らなければ残りを読み足して
-/// 従来と同じ全体のパースへ進む（失敗の形も従来どおり）。
+/// 従来と同じ全体のパースへ進む（失敗の形も従来どおり）。段の途中で通らなければ、
+/// 次の段まで読み足してもう一度試す。
 ///
 /// ただし IFD1 の切手（[`exif_data_from`] が `exif.buf()` から切り出す）は
 /// パーサが位置を確かめない値なので、範囲の外を指していたら全体を読む
@@ -962,14 +965,13 @@ fn read_exif_container_from<R: std::io::BufRead + std::io::Seek>(
 /// `exif::Reader::read_from_container` の代わり。TIFFは先頭から読む
 /// （[`read_exif_container_from`] を見よ）。
 ///
-/// `keeps_thumbnail` が偽なら、`exif.buf()` は先頭 [`EXIF_TIFF_HEAD`] だけの
+/// `keeps_thumbnail` が偽なら、`exif.buf()` は先頭 [`EXIF_TIFF_HEADS`] のどれかだけの
 /// ことがある——バッファから値の外を切り出す呼び出し側は、外れたら
 /// ファイルから読み直すこと（[`crate::raw`] の申告されたプレビュー）。
 pub(crate) fn read_exif_head_first<R: std::io::BufRead + std::io::Seek>(
     reader: &mut R,
     keeps_thumbnail: bool,
 ) -> Result<exif::Exif, exif::Error> {
-    use std::io::Read;
     let is_tiff = match reader.fill_buf() {
         Ok(buf) => buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*"),
         // 従来の経路に読ませて、同じ形で失敗させる
@@ -978,27 +980,60 @@ pub(crate) fn read_exif_head_first<R: std::io::BufRead + std::io::Seek>(
     if !is_tiff {
         return exif::Reader::new().read_from_container(reader);
     }
-    let mut head = Vec::with_capacity(EXIF_TIFF_HEAD as usize);
-    match reader.by_ref().take(EXIF_TIFF_HEAD).read_to_end(&mut head) {
-        Err(e) => Err(exif::Error::Io(e)),
-        Ok(n) if (n as u64) < EXIF_TIFF_HEAD => exif::Reader::new().read_raw(head),
-        Ok(_) => read_tiff_from_head(reader, head, keeps_thumbnail),
+    let mut head = Vec::new();
+    for step in EXIF_TIFF_HEADS {
+        if let Err(e) = fill_to(reader, &mut head, step as usize) {
+            return Err(exif::Error::Io(e));
+        }
+        // 段より短い＝ファイルを読み切った。従来どおり全体としてパースする
+        if (head.len() as u64) < step {
+            return exif::Reader::new().read_raw(head);
+        }
+        if let Some(exif) = parse_head(&head, keeps_thumbnail) {
+            return Ok(exif);
+        }
+    }
+    read_tiff_from_head(reader, head)
+}
+
+/// `buf` を `len` バイトまで読み足す（ファイルが先に終われば、そこまで）。
+///
+/// **大きさを先に決めて、そこへ直に読む。** `take` を挟んだ `read_to_end` は
+/// 大きさの見込みが伝わらず、小さな読みを何回も出す（PR #265 のゲート2）
+fn fill_to<R: std::io::Read>(reader: &mut R, buf: &mut Vec<u8>, len: usize) -> std::io::Result<()> {
+    let mut filled = buf.len();
+    buf.resize(len.max(filled), 0);
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => {
+                buf.truncate(filled);
+                return Err(e);
+            }
+        }
+    }
+    buf.truncate(filled);
+    Ok(())
+}
+
+/// 読んだ先頭だけで**厳密に**通るか。切手を残す読みでは、切手も先頭に収まっていること
+fn parse_head(head: &[u8], keeps_thumbnail: bool) -> Option<exif::Exif> {
+    match exif::Reader::new().read_raw(head.to_vec()) {
+        Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => Some(exif),
+        _ => None,
     }
 }
 
-/// 先頭 [`EXIF_TIFF_HEAD`] を読んだTIFF。先頭で厳密に通ればそれ、
-/// 通らなければ残りを読み足して全体をパースする。
+/// どの段でも通らなかったTIFF。残りを読み足して全体をパースする。
 fn read_tiff_from_head<R: std::io::Read>(
     reader: &mut R,
     mut head: Vec<u8>,
-    keeps_thumbnail: bool,
 ) -> Result<exif::Exif, exif::Error> {
-    match exif::Reader::new().read_raw(head.clone()) {
-        Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => Ok(exif),
-        _ => match reader.read_to_end(&mut head) {
-            Ok(_) => exif::Reader::new().read_raw(head),
-            Err(e) => Err(exif::Error::Io(e)),
-        },
+    match reader.read_to_end(&mut head) {
+        Ok(_) => exif::Reader::new().read_raw(head),
+        Err(e) => Err(exif::Error::Io(e)),
     }
 }
 
@@ -2494,7 +2529,27 @@ mod tests {
             ours.0.is_some() && ours.1.is_some(),
             "日付も切手も取れている"
         );
-        // BufReader の 8KB ぶんだけ先へ読むことはある
+        // 最初の段（256KB）で止まる。BufReader の 8KB ぶんだけ先へ読むことはある
+        assert!(
+            furthest <= (256 * 1024 + 8 * 1024) as u64,
+            "読んだ位置 {furthest}"
+        );
+    }
+
+    #[test]
+    fn a_tiff_whose_exif_is_past_the_first_step_stops_at_the_second() {
+        // NEF・CR2 の一部の形: 表が 256KB より後ろ、1MB より前
+        let (ours, full, furthest) = read_both(tiff_at(600 * 1024, 600 * 1024 + 100, None, 8 * MB));
+        assert_eq!(ours, full, "全体を読んだときと同じ答え");
+        assert!(ours.0.is_some());
+        assert!(
+            furthest > (256 * 1024) as u64 && furthest <= (MB + 8 * 1024) as u64,
+            "読んだ位置 {furthest}"
+        );
+        // 切手が 1 段目の外、2 段目の中にあっても同じ
+        let (ours, full, furthest) = read_both(tiff_at(200, 300, Some(600 * 1024), 8 * MB));
+        assert_eq!(ours, full);
+        assert!(ours.1.is_some());
         assert!(furthest <= (MB + 8 * 1024) as u64, "読んだ位置 {furthest}");
     }
 
