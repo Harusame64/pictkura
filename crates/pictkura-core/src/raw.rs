@@ -203,23 +203,44 @@ fn jpeg_span(buf: &[u8], start: usize) -> Option<JpegSpan> {
 /// **`start` の2バイトは見ない**ので、先頭を潰されたJPEG（Minolta MRW）を
 /// 直す前に、コピーせずその場で確かめられる。
 fn jpeg_span_body(buf: &[u8], start: usize) -> Option<JpegSpan> {
+    jpeg_walk(buf, start).ok()
+}
+
+/// [`jpeg_walk`] が終端に届かなかった理由。
+#[derive(Debug, PartialEq)]
+enum JpegCut {
+    /// バッファが先に尽きた。続きを読めば終端に届くかもしれない。
+    /// `sof` はそこまでに見たSOFが表示できる形だったか（見ていなければ `None`）
+    Truncated { sof: Option<bool> },
+    /// セグメントの形が崩れている
+    Broken,
+}
+
+/// [`jpeg_span_body`] の本体。届かなかったときに**切れたのか壊れたのか**を返す
+/// ——先頭だけを読んで探す側（[`scan_growing_head`]）は、切れたJPEGの中へ
+/// 入って内側の絵（APP1の切手やMPFの2枚目）を拾ってはいけない（ゲート2）。
+fn jpeg_walk(buf: &[u8], start: usize) -> Result<JpegSpan, JpegCut> {
+    use JpegCut::{Broken, Truncated};
     let mut displayable = false;
+    let mut sof_seen = false;
     let mut i = start + 2;
     while i + 1 < buf.len() {
         // マーカーの前には詰め物の 0xFF が並ぶことがある
         if buf[i] != 0xFF {
-            return None; // セグメントの切れ目に来ていない＝壊れている
+            return Err(Broken); // セグメントの切れ目に来ていない＝壊れている
         }
         let mut marker_pos = i;
         while marker_pos + 1 < buf.len() && buf[marker_pos + 1] == 0xFF {
             marker_pos += 1;
         }
-        let marker = *buf.get(marker_pos + 1)?;
+        let marker = *buf.get(marker_pos + 1).ok_or(Truncated {
+            sof: sof_seen.then_some(displayable),
+        })?;
         i = marker_pos + 2;
         match marker {
             // 終端
             0xD9 => {
-                return Some(JpegSpan {
+                return Ok(JpegSpan {
                     end: i,
                     displayable,
                 })
@@ -228,22 +249,35 @@ fn jpeg_span_body(buf: &[u8], start: usize) -> Option<JpegSpan> {
             0x01 | 0xD0..=0xD8 => continue,
             _ => {}
         }
-        let len = u16::from_be_bytes([*buf.get(i)?, *buf.get(i + 1)?]) as usize;
+        let len = u16::from_be_bytes([
+            *buf.get(i).ok_or(Truncated {
+                sof: sof_seen.then_some(displayable),
+            })?,
+            *buf.get(i + 1).ok_or(Truncated {
+                sof: sof_seen.then_some(displayable),
+            })?,
+        ]) as usize;
         if len < 2 {
-            return None;
+            return Err(Broken);
         }
         match marker {
             // 普通のJPEG（ベースライン・拡張シーケンシャル・プログレッシブ）。
             // 8ビット精度・成分1〜4のものだけ受け付ける
             0xC0..=0xC2 => {
-                let sof = buf.get(i + 2..i + 8)?;
+                let sof = buf.get(i + 2..i + 8).ok_or(Truncated {
+                    sof: sof_seen.then_some(displayable),
+                })?;
                 displayable = sof[0] == 8
                     && u16::from_be_bytes([sof[1], sof[2]]) > 0
                     && u16::from_be_bytes([sof[3], sof[4]]) > 0
                     && (1..=4).contains(&sof[5]);
+                sof_seen = true;
             }
             // ロスレス・差分・算術符号はデコードできない
-            0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF => displayable = false,
+            0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF => {
+                displayable = false;
+                sof_seen = true;
+            }
             _ => {}
         }
         i += len;
@@ -259,7 +293,9 @@ fn jpeg_span_body(buf: &[u8], start: usize) -> Option<JpegSpan> {
             }
         }
     }
-    None
+    Err(Truncated {
+        sof: sof_seen.then_some(displayable),
+    })
 }
 
 /// 完結した1枚のJPEGで、かつ表示できるか。
@@ -339,6 +375,36 @@ fn scan_largest_jpeg(buf: &[u8]) -> Option<&[u8]> {
             }
             // 途中で壊れていた: このSOIは諦めて次を探す
             None => i += 2,
+        }
+    }
+    best
+}
+
+/// [`scan_largest_jpeg`] と同じ走査を、**途中で切れたJPEGに出会うまで**。
+///
+/// ファイルの先頭だけを渡されたとき用（[`scan_growing_head`]）。切れたJPEGの
+/// 先へ進むと、全体の走査なら飛ばしていたはずの**その内側**（APP1の切手・
+/// MPFの2枚目）を外側の絵として拾う——内側の絵はEXIFを持たないので、日付と
+/// 向きが落ちる（ゲート2）。ここで止めれば、拾う絵は全体の走査でも同じ位置に
+/// 見つかる、外側の1枚に限られる。
+fn scan_largest_jpeg_before_cut(buf: &[u8]) -> Option<&[u8]> {
+    let mut best: Option<&[u8]> = None;
+    let mut i = 0usize;
+    while i + 3 < buf.len() {
+        if !looks_like_jpeg(&buf[i..]) {
+            i += 1;
+            continue;
+        }
+        match jpeg_walk(buf, i) {
+            Ok(span) => {
+                let block = &buf[i..span.end];
+                if span.displayable && best.is_none_or(|b| b.len() < block.len()) {
+                    best = Some(block);
+                }
+                i = span.end;
+            }
+            Err(JpegCut::Truncated { .. }) => break,
+            Err(JpegCut::Broken) => i += 2,
         }
     }
     best
@@ -806,7 +872,7 @@ fn scan_growing_head(path: &Path, min_long_edge: u32) -> GrowingHead {
             // [`read_head`] と同じく、読めなければ何も無い
             Err(_) => return GrowingHead::Read(None),
         }
-        if let Some(found) = scan_largest_jpeg(&head) {
+        if let Some(found) = scan_largest_jpeg_before_cut(&head) {
             if long_edge(found) >= min_long_edge {
                 return GrowingHead::Found(found.to_vec());
             }
@@ -844,11 +910,19 @@ fn declared_preview(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
         let declared = match exif.buf().get(offset..end) {
             Some(bytes) => Some(bytes.to_vec()),
             None if file_len.is_some_and(|l| end <= l) => {
-                let read = read_exact_range(&mut reader, offset, len);
-                if read.is_none() {
-                    looked.reopen_failed = true;
+                // **頭を見てから読む。** CR2はセンサーの生データをロスレスJPEG
+                // （SOF3、20MB余り）として申告し、長さの順で真っ先に来る。全体を
+                // 読んでいた頃はバッファから切り出すだけでただだったが、ここで
+                // 丸ごと読むと main より多く読む（ゲート2）。表示できないと頭で
+                // 分かる塊は、下の窓の読みでも同じ答え（表示できない）になるので、
+                // 読まずに次へ進む
+                if read_range(&mut reader, offset, len.min(PEEK_LEN))
+                    .is_some_and(|peek| head_rules_out(&peek))
+                {
+                    continue;
                 }
-                read
+                // 読めなくても印はまだ付けない。下の窓の読みが落ちたときに付く
+                read_range(&mut reader, offset, len).filter(|b| b.len() == len)
             }
             None => None,
         };
@@ -874,15 +948,30 @@ fn declared_preview(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
     None
 }
 
-/// `offset` から**ちょうど** `len` バイト。足りなければ `None`。
-fn read_exact_range<R: std::io::Read + std::io::Seek>(
+/// 頭だけで「表示できるJPEGにはならない」と言えるか（[`declared_preview`]）。
+/// 言えないとき（SOFまで届かない・表示できる形）は偽。
+fn head_rules_out(peek: &[u8]) -> bool {
+    match jpeg_walk(peek, 0) {
+        Ok(span) => !span.displayable,
+        Err(JpegCut::Truncated { sof }) => sof == Some(false),
+        Err(JpegCut::Broken) => true,
+    }
+}
+
+/// 申告されたプレビューの頭として見る長さ。SOFはふつう数KB以内にある
+/// （APP1に切手を抱えていても64KBに収まる——APP1の長さの上限）。
+const PEEK_LEN: usize = 64 * 1024 + 4096;
+
+/// `offset` から最大 `len` バイト（ファイルが尽きれば短い）。読めなければ `None`。
+fn read_range<R: std::io::Read + std::io::Seek>(
     reader: &mut R,
     offset: usize,
     len: usize,
 ) -> Option<Vec<u8>> {
+    use std::io::Read;
     reader.seek(std::io::SeekFrom::Start(offset as u64)).ok()?;
-    let mut buf = vec![0u8; len];
-    reader.read_exact(&mut buf).ok()?;
+    let mut buf = Vec::with_capacity(len);
+    reader.take(len as u64).read_to_end(&mut buf).ok()?;
     Some(buf)
 }
 
@@ -1932,6 +2021,51 @@ mod tests {
             search_embedded_preview(&path, 1024).preview.unwrap()
         );
         assert_eq!(long_edge(&source), 2000);
+    }
+
+    /// SOI・SOF・SOSまでの頭（中身は無い）。`sof` は SOF のマーカー。
+    fn jpeg_head(sof: u8) -> Vec<u8> {
+        let mut h = vec![0xFF, 0xD8];
+        h.extend_from_slice(&[
+            0xFF, sof, 0x00, 0x0B, 8, 0x0F, 0xA0, 0x17, 0x70, 1, 1, 0x11, 0,
+        ]);
+        h.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x08, 1, 1, 0, 0, 0x3F, 0]);
+        h.resize(PEEK_LEN, 0x12);
+        h
+    }
+
+    #[test]
+    fn a_lossless_strip_is_ruled_out_from_its_head() {
+        // CR2の生データ（SOF3）。頭だけで「表示できない」と分かる
+        assert!(head_rules_out(&jpeg_head(0xC3)));
+        // 普通のJPEG（SOF0）の頭は読み進める
+        assert!(!head_rules_out(&jpeg_head(0xC0)));
+        // 形が崩れていれば、全体を読んでも表示できない
+        assert!(head_rules_out(&[0xFF, 0xD8, 0x12, 0x34, 0x56]));
+        // SOFまで届かない頭は分からない＝読み進める
+        assert!(!head_rules_out(&[0xFF, 0xD8, 0xFF, 0xE1, 0x10, 0x00]));
+    }
+
+    #[test]
+    fn the_import_screen_does_not_pick_a_picture_from_inside_a_cut_one() {
+        // 先頭1MBの境目をまたぐ2000pxのJPEGが、APP1の中に640pxの絵を抱えている。
+        // 1MBで切れた外側の中へ入ると、内側の640pxを外側として拾う（ゲート2）
+        let inner = jpeg_bytes(640, 480);
+        assert!(inner.len() + 8 < 0xFFFF, "APP1に収まる");
+        let outer_body = jpeg_bytes(2000, 1500);
+        let mut outer = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        outer.extend_from_slice(&((inner.len() + 2) as u16).to_be_bytes());
+        outer.extend_from_slice(&inner);
+        outer.extend_from_slice(&outer_body[2..]);
+        let at = (1 << 20) - inner.len() - 100;
+        let mut bytes = vec![0u8; 16 << 20];
+        bytes[at..at + outer.len()].copy_from_slice(&outer);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cut.raf");
+        std::fs::write(&path, bytes).unwrap();
+        let source = search_source_preview(&path, 512).preview.unwrap();
+        assert_eq!(source, outer, "4MBまで広げて外側を拾う");
+        assert_eq!(source, search_embedded_preview(&path, 512).preview.unwrap());
     }
 
     #[test]

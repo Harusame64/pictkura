@@ -2648,7 +2648,7 @@ fn bench_capture(dir: &Path) {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let back = pictkura_core::thumbs::read_exif_capture(&p);
-        let work = pictkura_core::thumbs::read_exif_for_preview(&p, 320);
+        let work = pictkura_core::thumbs::read_exif_for_thumbnail(&p, 320);
         let ms = |v: Option<i64>| {
             v.map(|m| (m % 1000).to_string())
                 .unwrap_or_else(|| "-".into())

@@ -376,12 +376,20 @@ pub fn read_exif_for_preview(path: &Path, max_edge: u32) -> ExifData {
     read_exif_inner(path, Want::SourceImage(max_edge))
 }
 
-/// [`read_exif_for_preview`] に「**ファイルを読めたか**」を添えて返す。
+/// [`read_exif_for_thumbnail`] に「**ファイルを読めたか**」を添えて返す。
 ///
 /// 偽のときは寸法に「確かめた」印（`preview_*`）を付けてはいけない
 /// ——[`process_one`] を見よ。
 fn read_exif_for_preview_checked(path: &Path, max_edge: u32) -> (ExifData, bool) {
     read_exif_checked(path, Want::Image(max_edge))
+}
+
+/// ライブラリのサムネイル生成（[`process_one`]）と同じ読み。
+/// [`read_exif_for_preview`]（取り込み元の一覧）と違い、RAWの先頭16MBを一度に
+/// 読んで一番大きい絵を探す——掴んだ絵の寸法がビューアの最初の枠になるため
+/// （[`Want::SourceImage`]）。`bench` が作業者の読みを再現するのに使う。
+pub fn read_exif_for_thumbnail(path: &Path, max_edge: u32) -> ExifData {
+    read_exif_for_preview_checked(path, max_edge).0
 }
 
 /// [`process_one`] がDBへ書く寸法を決める。**「確かめた」印を付けるかどうか**も
