@@ -784,7 +784,12 @@ fn search_preview_inner(
         };
         let mut reader = std::io::BufReader::new(file);
         // 使うのは項目だけ（ストリップはファイルから読む）なので、先頭で止めてよい
-        let exif = crate::thumbs::read_exif_head_first(&mut reader, false).ok()?;
+        let exif = crate::thumbs::read_exif_head_first(
+            &mut reader,
+            false,
+            &crate::thumbs::EXIF_TIFF_HEADS_FOR_PICTURES,
+        )
+        .ok()?;
         uncompressed_preview(path, &exif, big_endian)
     })();
     if let Some(bytes) = uncompressed {
@@ -892,8 +897,15 @@ fn declared_preview(path: &Path, looked: &mut LookedAt) -> Option<Vec<u8>> {
     };
     let file_len = file.metadata().ok().map(|m| m.len() as usize);
     let mut reader = std::io::BufReader::new(file);
-    // TIFFは先頭1MBで足りればそこで止める（dev #73）。そのときバッファは先頭だけ
-    let exif = crate::thumbs::read_exif_head_first(&mut reader, false).ok()?;
+    // TIFFは先頭1MBで足りればそこで止める（dev #73）。そのときバッファは先頭だけ。
+    // 日付を読む側の 256KB の段は使わない——申告されたプレビューは 256KB〜1MB に
+    // 置かれることが多く、バッファから切り出せないと読み直しが増える（ゲート2）
+    let exif = crate::thumbs::read_exif_head_first(
+        &mut reader,
+        false,
+        &crate::thumbs::EXIF_TIFF_HEADS_FOR_PICTURES,
+    )
+    .ok()?;
     for (offset, len) in declared_previews(&exif) {
         if len == 0 {
             continue;
@@ -1402,6 +1414,34 @@ fn read_window(path: &Path, offset: usize, len: usize) -> Option<Vec<u8>> {
     (!buf.is_empty()).then_some(buf)
 }
 
+/// `buf` を `len` バイトまで読み足す（ファイルが先に終われば、そこまで）。
+///
+/// **大きさを先に決めて、そこへ直に読む。** `take` を挟んだ `read_to_end` は
+/// 大きさの見込みが伝わらず、伸ばしながら小さな読みを何回も出す——1MB に 8 回
+/// （PR #265 のゲート2）。冷えたカードでは1回ごとに往復を待つ。
+/// 失敗したときも、それまでに読めた分は `buf` に残す
+pub(crate) fn fill_to<R: std::io::Read>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+    len: usize,
+) -> std::io::Result<()> {
+    let mut filled = buf.len();
+    buf.resize(len.max(filled), 0);
+    let result = loop {
+        if filled >= buf.len() {
+            break Ok(());
+        }
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break Ok(()),
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => break Err(e),
+        }
+    };
+    buf.truncate(filled);
+    result
+}
+
 /// ファイルの先頭を最大 `limit` バイト読む。
 ///
 /// **1バイトも読めなければ `None`**（[`read_window`] と揃えた）。0バイトの
@@ -1427,19 +1467,6 @@ fn read_head(path: &Path, limit: usize) -> Option<Vec<u8>> {
 /// （win の実測で CR3 の日付読み1件に 31 回、dev `measure73-scan-win.md`）
 fn read_head_if(path: &Path, limit: usize, wanted: Option<fn(&[u8]) -> bool>) -> Option<Vec<u8>> {
     use std::io::Read;
-    /// 渡した範囲を、読み切るか終わりに着くまで読む。読めた数を返す
-    fn fill(file: &mut std::fs::File, buf: &mut [u8]) -> Option<usize> {
-        let mut filled = 0;
-        while filled < buf.len() {
-            match file.read(&mut buf[filled..]) {
-                Ok(0) => break,
-                Ok(n) => filled += n,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => return None,
-            }
-        }
-        Some(filled)
-    }
     const PEEK: usize = 8;
 
     let mut file = std::fs::File::open(path).ok()?;
@@ -1447,20 +1474,16 @@ fn read_head_if(path: &Path, limit: usize, wanted: Option<fn(&[u8]) -> bool>) ->
         .metadata()
         .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX).min(limit))
         .unwrap_or(0);
-    let mut buf = vec![0u8; expected];
-    let mut filled = 0;
+    let mut buf = Vec::with_capacity(expected);
     if let Some(wanted) = wanted {
-        let peek = PEEK.min(expected);
-        filled = fill(&mut file, &mut buf[..peek])?;
-        if !wanted(&buf[..filled]) {
-            buf.truncate(filled);
+        fill_to(&mut file, &mut buf, PEEK.min(expected)).ok()?;
+        if !wanted(&buf) {
             return (!buf.is_empty()).then_some(buf);
         }
     }
-    filled += fill(&mut file, &mut buf[filled..])?;
-    buf.truncate(filled);
+    fill_to(&mut file, &mut buf, expected).ok()?;
     // 大きさの申告より伸びていたら（書き込みの途中など）、前と同じく `limit` まで読む
-    if filled == expected && expected < limit {
+    if buf.len() == expected && expected < limit {
         file.take((limit - expected) as u64)
             .read_to_end(&mut buf)
             .ok()?;
@@ -2092,7 +2115,7 @@ mod tests {
 
     #[test]
     fn a_declared_preview_past_the_first_megabyte_is_still_found() {
-        // EXIF は先頭1MBで読み終わるので、申告の範囲はファイルから読み直す
+        // 絵を探す読みの EXIF は先頭1MBで読み終わるので、申告の範囲はファイルから読み直す
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("far.dng");
         let jpeg = jpeg_bytes(1024, 768);
