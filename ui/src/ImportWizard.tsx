@@ -35,6 +35,7 @@ import { usePlatform } from "./usePlatform";
 import { branchTo, isViewing, openPathOf, preselectDrive, standsOut } from "./importPreselect";
 import { useIsTemporaryFolder } from "./useIsTemporaryFolder";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
+import { useTileLoader, useTileTurn, type TileLoader } from "./useTileQueue";
 
 /**
  * 取り込みウィザード（第5部 段階E）。PlayMemories Home のように
@@ -159,6 +160,7 @@ export default function ImportWizard({
   const importStartedAt = useRef(0);
   /** 一覧と進捗の器（取り込みを始めたら一番上へ戻す。pictkura-dev #39） */
   const mainRef = useRef<HTMLDivElement>(null);
+  const tiles = useTileLoader(mainRef, isOpen);
   /** 開き直しの再読込で参照する現在地（effectの依存に入れずに読む） */
   const viewRef = useRef<{ path: string | null; deep: boolean }>({
     path: null,
@@ -872,7 +874,7 @@ export default function ImportWizard({
             ) : (
               <>
                 <div className="wizard-grid">
-                  {visible.map((f) => {
+                  {visible.map((f, i) => {
                     const isSelected = selected.has(f.path);
                     const state = imported[f.path];
                     const done = state === "imported";
@@ -902,12 +904,11 @@ export default function ImportWizard({
                           // 実体のダウンロードが始まるので、雲マークだけ出す
                           <span className="wiz-cloud">☁</span>
                         ) : (
-                          <img
-                            src={sourceThumbSrc(f.path, f.mtime_ms)}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            draggable={false}
+                          <SourceThumb
+                            loader={tiles}
+                            path={f.path}
+                            mtimeMs={f.mtime_ms}
+                            index={i}
                           />
                         )}
                         <span className="wiz-check">{isSelected ? "✓" : ""}</span>
@@ -1009,5 +1010,37 @@ export default function ImportWizard({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 取り込み元の1枚。[`TileLoader`] が順番を回すまで絵を要求しない（pictkura-dev #73）——
+ * `loading="lazy"` に任せると、画面の前後を何十枚も同時にカードから読む
+ */
+function SourceThumb({
+  loader,
+  path,
+  mtimeMs,
+  index,
+}: {
+  loader: TileLoader;
+  path: string;
+  mtimeMs: number;
+  index: number;
+}) {
+  const [ref, go] = useTileTurn(loader, path, index);
+  return (
+    <span className="wiz-thumb" ref={ref}>
+      {go && (
+        <img
+          src={sourceThumbSrc(path, mtimeMs)}
+          alt=""
+          decoding="async"
+          draggable={false}
+          onLoad={() => loader.done(path)}
+          onError={() => loader.done(path)}
+        />
+      )}
+    </span>
   );
 }
