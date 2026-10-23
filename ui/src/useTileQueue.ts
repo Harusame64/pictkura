@@ -19,7 +19,7 @@ export class TileLoader {
   constructor(limit = TILE_READS) {
     this.queue = new TileQueue(limit, {
       start: (key) => this.starters.get(key)?.(),
-      distance: (key) => this.distance(key),
+      measure: () => this.measure(),
       defer: (run) => setTimeout(run, 0),
       after: (ms, run) => setTimeout(run, ms),
     });
@@ -67,15 +67,24 @@ export class TileLoader {
     this.queue.done(key);
   }
 
-  /** 箱の見えている縦の範囲からの距離（px）。重なっていれば 0 */
-  private distance(key: string): number {
-    const el = this.elements.get(key);
-    if (!el || !this.root) return Infinity;
-    const box = this.root.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
-    if (r.bottom < box.top) return box.top - r.bottom;
-    if (r.top > box.bottom) return r.top - box.bottom;
-    return 0;
+  /**
+   * 箱の見えている縦の範囲を測り、そこからの距離（px、重なっていれば 0）を答える関数を返す。
+   * 上端は貼り付いた道具の帯（`.wizard-toolbar`）の下——帯の裏のタイルは見えていない
+   */
+  private measure(): (key: string) => number {
+    const root = this.root;
+    if (!root) return () => Infinity;
+    const box = root.getBoundingClientRect();
+    const bar = root.querySelector(".wizard-toolbar")?.getBoundingClientRect();
+    const top = Math.max(box.top, bar?.bottom ?? box.top);
+    return (key) => {
+      const el = this.elements.get(key);
+      if (!el) return Infinity;
+      const r = el.getBoundingClientRect();
+      if (r.bottom <= top) return top - r.bottom + 1;
+      if (r.top >= box.bottom) return r.top - box.bottom + 1;
+      return 0;
+    };
   }
 }
 
