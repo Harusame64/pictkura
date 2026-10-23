@@ -629,6 +629,7 @@ fn read_exif_checked(path: &Path, want: Want) -> (ExifData, bool) {
 fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, bool) {
     let (container, mut readable) = match container {
         Container::Found(data) => (Some(data), true),
+        Container::FoundButReadFailed(data) => (Some(data), false),
         Container::Empty => (None, true),
         // **開けないと分かった時点で降りる。** この先は開き直しが2回
         // （`patched_tiff_metadata` と `bmff_metadata_blocks`）あり、
@@ -899,6 +900,10 @@ enum Container {
     /// 外付け・ネットワークの一瞬の切断）。開き直せば通ることがあるので、
     /// 呼び出し側は「読めた」を取り下げるだけで**先へ進む**（ゲート2のP3）
     ReadFailed,
+    /// 先頭で EXIF は取れたが、切手を探して残りを読む途中で落ちた。**取れた分は使い、
+    /// 「読めた」は取り下げる**——使わなければ先頭に在った日付まで捨て、取り下げなければ
+    /// 後追いが「確かめた」印を付けて二度と読み直さない（PR #266 の codex P2）
+    FoundButReadFailed(ExifData),
 }
 
 /// コンテナ（ファイル本体）のEXIFヘッダを読む。
@@ -959,9 +964,10 @@ fn read_exif_container_from<R: std::io::BufRead + std::io::Seek>(
     keeps_thumbnail: bool,
     heads: &[u64],
 ) -> Container {
-    let parsed = read_exif_head_first(reader, keeps_thumbnail, heads);
+    let parsed = read_exif_head_first_checked(reader, keeps_thumbnail, heads);
     match parsed {
-        Ok(exif) => Container::Found(exif_data_from(&exif)),
+        Ok((exif, true)) => Container::Found(exif_data_from(&exif)),
+        Ok((exif, false)) => Container::FoundButReadFailed(exif_data_from(&exif)),
         // 読み出しそのものが落ちたときだけ取り下げる。**形として読めなかった
         // （`InvalidFormat` 等）は「読めた」に入れる**——CR3・ORF・RW2 は
         // 正常な個体でも必ずここへ来るし、切れたファイルも何度読めば同じなので、
@@ -990,36 +996,50 @@ pub(crate) fn read_exif_head_first<R: std::io::BufRead + std::io::Seek>(
     keeps_thumbnail: bool,
     heads: &[u64],
 ) -> Result<exif::Exif, exif::Error> {
+    read_exif_head_first_checked(reader, keeps_thumbnail, heads).map(|(exif, _)| exif)
+}
+
+/// [`read_exif_head_first`] に「**最後まで読めたか**」を添えて返す。偽は、先頭の段で
+/// EXIF が取れ、切手を探して残りを読む途中で落ちたとき（[`Container::FoundButReadFailed`]）
+fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+    keeps_thumbnail: bool,
+    heads: &[u64],
+) -> Result<(exif::Exif, bool), exif::Error> {
     let is_tiff = match reader.fill_buf() {
         Ok(buf) => buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*"),
         // 従来の経路に読ませて、同じ形で失敗させる
         Err(_) => false,
     };
+    let whole = |exif| (exif, true);
     if !is_tiff {
-        return exif::Reader::new().read_from_container(reader);
+        return exif::Reader::new().read_from_container(reader).map(whole);
     }
     let mut head = Vec::with_capacity(heads.last().copied().unwrap_or(0) as usize);
-    // 日付まで読めたのに切手だけが外れた段。残りを読む途中で落ちたら、これを返す
-    // ——一瞬の切断で、先頭に在った日付まで捨てない
+    // 日付まで読めたのに切手だけが外れた段。残りを読む途中で落ちたら、これを
+    // 「最後までは読めなかった」と添えて返す——一瞬の切断で、先頭に在った日付まで捨てない
     let mut without_thumbnail = None;
+    let partial = |without: Option<exif::Exif>, e| {
+        without.map(|exif| (exif, false)).ok_or(exif::Error::Io(e))
+    };
     for &step in heads {
         if let Err(e) = crate::raw::fill_to(reader, &mut head, step as usize) {
-            return without_thumbnail.ok_or(exif::Error::Io(e));
+            return partial(without_thumbnail, e);
         }
         // 段より短い＝ファイルを読み切った。従来どおり全体としてパースする
         if (head.len() as u64) < step {
-            return exif::Reader::new().read_raw(head);
+            return exif::Reader::new().read_raw(head).map(whole);
         }
         match exif::Reader::new().read_raw(head.clone()) {
-            Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => return Ok(exif),
+            Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => return Ok((exif, true)),
             Ok(exif) => without_thumbnail = Some(exif),
             Err(_) => {}
         }
     }
     // どの段でも通らなかった。残りを読み足して全体をパースする
     match reader.read_to_end(&mut head) {
-        Ok(_) => exif::Reader::new().read_raw(head),
-        Err(e) => without_thumbnail.ok_or(exif::Error::Io(e)),
+        Ok(_) => exif::Reader::new().read_raw(head).map(whole),
+        Err(e) => partial(without_thumbnail, e),
     }
 }
 
@@ -2603,12 +2623,20 @@ mod tests {
             inner: std::io::Cursor::new(tiff_at(200, 300, Some(3 * MB), 8 * MB)),
             at: (2 * MB) as u64,
         });
-        let Container::Found(data) =
+        let Container::FoundButReadFailed(data) =
             read_exif_container_from(&mut reader, true, &EXIF_TIFF_HEADS_FOR_FACTS)
         else {
-            panic!("先頭で読めた日付を返す");
+            panic!("先頭で読めた日付を、読みが落ちた印と一緒に返す");
         };
         assert!(data.taken_at_ms.is_some());
+        // 「読めた」は取り下げる（後追いが「確かめた」印を付けないように）
+        let (data, readable) = read_exif_from(
+            Path::new("x.tif"),
+            Container::FoundButReadFailed(data),
+            Want::Meta,
+        );
+        assert!(data.taken_at_ms.is_some());
+        assert!(!readable);
     }
 
     #[test]
