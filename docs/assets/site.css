@@ -679,6 +679,9 @@ td code, .doc-body code { font-family: var(--font-mono); font-size: 12.5px; colo
 }
 .foot-slim .links { display: flex; gap: 28px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-muted); }
 .foot-slim .links a { color: var(--text-muted); }
+/* 著作権の行の中の作者名。周りと同じ色で、下線でリンクと分かるようにする。 */
+a.author-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+a.author-link:hover { color: var(--accent-bright); }
 
 /* ─── 折り返し ─── */
 @media (max-width: 1180px) {
