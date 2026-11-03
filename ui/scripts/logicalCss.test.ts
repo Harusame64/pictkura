@@ -167,8 +167,11 @@ function isPhysical(d: Pick<Decl, "prop" | "value">): boolean {
     return /\b(left|right)\b/.test(value);
   if (/^(background-position|background-position-x|object-position)$/.test(prop)) {
     // 横の値が左右の言葉か、0・50%・center 以外なら向きを持つ
-    const x = splitTopLevel(value.split(",")[0])[0];
-    return /\b(left|right)\b/.test(value) || !(zero(x) || x === "50%" || x === "center");
+    if (/\b(left|right)\b/.test(value)) return true;
+    return splitTopLevel(value, /,/).some((layer) => {
+      const x = splitTopLevel(layer)[0];
+      return !(zero(x) || x === "50%" || x === "center");
+    });
   }
   if (/gradient\(/.test(value)) {
     if (/\bto (left|right)\b/.test(value)) return true;
@@ -222,6 +225,7 @@ test("the scanner flags each physical shape", () => {
     ["transform-origin", "left center"],
     ["background-position", "-200% 0"],
     ["object-position", "right"],
+    ["background-position", "center, 100% 0"],
     ["background", "linear-gradient(to right, red, blue)"],
     ["background", "linear-gradient(90deg, red, blue)"],
     ["padding", "0 var(--sp-7) 0 28px"],
