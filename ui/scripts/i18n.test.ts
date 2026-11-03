@@ -609,10 +609,11 @@ const NO_PLURAL = ["ja", "zh", "zh-hant"];
  *
  * `INFLECTS.ru` にあってここに無いキーは、**2 と 5 で同じ形でよいもの**だけ:
  * `фото` が不変化で、変わるのが 1 のときの指示語（`это фото`）か、指し直す代名詞（`его` / `их`）だけの文。
- * `googleSendSummary` の関係節・`errTooManyIds` の属格・`bulkPickDone` の `отмечены как выбранные` も 2 と 5 で同じ
+ * `googleSendSummary` の関係節・`errTooManyIds` の属格も 2 と 5 で同じ
  */
 const FEW_MANY: Record<string, string[]> = {
   ru: [
+    "bulkPickDone:0",
     "bulkFavoriteDone:0",
     "bulkUnfavoriteDone:0",
     "burstTitle:0",
@@ -692,6 +693,43 @@ test("3形の言語は、1の位と下2桁で形を決めること（11〜14 は
         assert.equal(at(22), at(2), `${lang}.${key} の ${i} 番目: 22 が 2〜4 の形でない`);
       });
     }
+  }
+});
+
+/**
+ * **21 が 1 と違う形でよい位置**（露語）。数詞の一致では 21 は 1 と同じ単数だが、
+ * 指し直す代名詞・名詞（`его`/`их`、`оригинал`/`оригиналы`、`который`/`которые`、`миниатюру`/`миниатюры`）は
+ * 1 のときだけ単数（`ru.ts` の `pron`）。`deleteConfirm` / `moveConfirm` は 1 のときだけ「это фото」と指す
+ */
+const REFERS_BACK: Record<string, string[]> = {
+  ru: [
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "googleSendSummary:2",
+    "googleSentCloudOnly:0",
+    "moveConfirm:0",
+    "moveDone:2",
+    "moveDone:3",
+    "printSkipped:0",
+  ],
+};
+
+test("3形の言語は、21 を 1 と同じ形にすること（指し直す語の位置を除く）", () => {
+  // 11/12/22 と 2/5 の比べでは、`n === 1 ? 単数 : …` と書いた単数（21 で `21 файлов` になる）が通る
+  for (const [lang, allowed] of Object.entries(REFERS_BACK)) {
+    const d = DICTS[lang];
+    const differs: string[] = [];
+    for (const key of COUNT_KEYS) {
+      const types = SIGNATURES[key] ?? [];
+      types.forEach((t, i) => {
+        if (t !== "number") return;
+        const at = (n: number) => shape(call(d, key, types.map((u, j) => (u !== "number" ? "X" : j === i ? n : 2))));
+        if (at(21) !== at(1)) differs.push(`${key}:${i}`);
+      });
+    }
+    assert.deepEqual(differs.sort(), allowed.slice().sort(), `${lang}: 21 と 1 の形が違う位置が変わった`);
   }
 });
 
@@ -1238,4 +1276,3 @@ test("書き出し・移動の結果が、ライブラリから無くなった�
     );
   }
 });
-
