@@ -641,6 +641,26 @@ test("単数形を持つキーの顔ぶれが変わっていないこと", () =>
   }
 });
 
+/**
+ * **仏語は 0 も単数**（`fr.ts` の `un()`）。上の顔ぶれの升は 1 と 2 しか比べないので、
+ * `un()` を共通の `one()`（0 は複数）に書き換えても落ちない（2026-11-03、ゲート2・3巡目）。
+ * 単数形を持つ位置ごとに、**0 が 2（複数）と同じ文にならない**ことを見る
+ * （1 と比べないのは、1 だけ「cette photo」と数を言わないキーがあるため）
+ */
+test("仏語は 0 を単数で言うこと", () => {
+  const digitless = (s: string) => s.replace(/\d+/g, "#");
+  for (const pair of INFLECTS.fr) {
+    const [key, at] = pair.split(":");
+    const pos = Number(at);
+    const make = (n: number) => {
+      const args = argsFor(key, 2, "X");
+      args[pos] = n;
+      return call(DICTS.fr, key, args);
+    };
+    assert.notEqual(digitless(make(0)), digitless(make(2)), `fr.${key} の ${pos} 番目が 0 で複数になった`);
+  }
+});
+
 test("単複の無い言語が場合分けしていないこと", () => {
   for (const lang of NO_PLURAL) {
     const unexpected = inflectionsOf(DICTS[lang]).filter(

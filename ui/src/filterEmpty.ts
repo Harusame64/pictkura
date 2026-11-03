@@ -48,6 +48,8 @@ export function filterConditions(
  *
  * `total` は**手元の名前より多いことがある**（除外の一覧はバックエンドが3件で切って持ってくる）。
  * 引くのは**出した数**。名前が1つも無ければ、区切りを頭に付けずに「ほか N 件」だけ言う
+ * ——ラテン文字の言語ではそれが接続詞で始まる（`and 5 more`）が、名前を1つも持たずに呼ぶ所は
+ * いま無い（呼び出し側が `length > 0` を見ている）。直す前の `[...shown, andMore].join()` も同じ出方だった
  */
 export function joinConditions(
   names: string[],

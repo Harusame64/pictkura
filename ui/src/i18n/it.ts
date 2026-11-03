@@ -297,7 +297,10 @@ export const it: Dict = {
   listLastSeparator: " ",
   /**
    * 受ける名詞は `posizioni` / `cartelle`（`nameList()`）で、どちらも女性。
-   * 絞り込みの見出し（`joinConditions`、`filtri` は男性）も同じ関数を通るが、条件は最大3つなので畳まれない
+   * 名詞を書かない文もある——`emptyAllExcluded`（除外で飛ばした物。ファイルもフォルダも在る）と
+   * 絞り込みの見出し（`joinConditions`。条件は最大3つなので畳まれない）。名詞を書く独語（`Orte`）と
+   * 違って伊語は呼び出しごとに名詞を変えられないので、**名詞を書く文が多い女性に寄せる**
+   * （2026-11-03、ゲート2が2巡目で女性へ、3巡目で男性へと反対向きに動かしたので、ここで止めた）
    */
   andMore: (n: number) => (n === 1 ? "e un'altra" : `e altre ${num(n)}`),
   emptyRootIsPackage:
