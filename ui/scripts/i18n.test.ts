@@ -986,6 +986,10 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
     [["de"], "rootsMissingNotice", [["1 Foto lässt", "2 Fotos lassen"]]],
     [["en"], "rootMissingNotice", [["1 photo in it", "2 photos in it"]]],
     [["en"], "rootsMissingNotice", [["1 photo in them", "2 photos in them"]]],
+    [["fr"], "rootMissingNotice", [["1 photo qu’il contient ne peut pas être ouverte", "2 photos qu’il contient ne peuvent pas être ouvertes"]]],
+    [["fr"], "rootsMissingNotice", [["1 photo ne peut pas être ouverte", "2 photos ne peuvent pas être ouvertes"]]],
+    [["it"], "rootMissingNotice", [["1 foto al suo interno non può essere aperta", "2 foto al suo interno non possono essere aperte"]]],
+    [["it"], "rootsMissingNotice", [["1 foto non può essere aperta", "2 foto non possono essere aperte"]]],
   ];
   for (const [langs, key, pairs] of cases) {
     for (const lang of langs) {

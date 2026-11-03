@@ -9,7 +9,9 @@
 //! ——中国語の書き言葉とスペイン語の地域だけ見分けて、あとは言語の副タグ。
 
 /// 画面の辞書のコード。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**（下の升が見張る）
-pub const DICT_CODES: &[&str] = &["en", "ja", "de", "es", "es-419", "zh", "zh-hant"];
+pub const DICT_CODES: &[&str] = &[
+    "en", "ja", "de", "es", "es-419", "zh", "zh-hant", "fr", "it",
+];
 
 /// OS の言語の並びから、辞書のコードを1つ当てる。知らない言語ばかりなら英語
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
@@ -108,6 +110,10 @@ pub(crate) mod tests {
     fn the_provisional_guess_splits_the_two_chinese_scripts() {
         assert_eq!(guess(&["ja-JP".into()]), "ja");
         assert_eq!(guess(&["de-DE".into()]), "de");
+        // 仏語・伊語は地域で割らない（`pickLocale()` の梯子と同じ。カナダ・アルジェリア・スイスも本国の辞書）
+        assert_eq!(guess(&["fr-CA".into()]), "fr");
+        assert_eq!(guess(&["fr-DZ".into()]), "fr");
+        assert_eq!(guess(&["it-CH".into()]), "it");
         assert_eq!(guess(&["en-GB".into()]), "en");
         // 簡体字と繁体字
         assert_eq!(guess(&["zh-Hans-CN".into()]), "zh");

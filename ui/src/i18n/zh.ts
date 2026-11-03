@@ -317,6 +317,7 @@ export const zh: Dict = {
   emptyUnreadableOther: (names: string) =>
     `打不开这些位置：${names}。请确认你有读取权限，然后按“重新扫描”。`,
   listSeparator: "、",
+  listLastSeparator: "、",
   andMore: (n: number) => `另外 ${num(n)} 项`,
   emptyRootIsPackage:
     "图库文件夹里指定的是“照片”App 的图库本身。pictkura 有意不读取它的内容，所以这里永远不会出现照片。请重新选择一个存放照片的文件夹，或者从存储卡导入。",

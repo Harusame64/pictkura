@@ -315,6 +315,7 @@ export const es: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Estos lugares no se han podido abrir: ${names}. Comprueba que tienes permiso para leerlos y pulsa «Volver a explorar».`,
   listSeparator: ", ",
+  listLastSeparator: " ",
   andMore: (n: number) => `y ${num(n)} más`,
   emptyRootIsPackage:
     "Una de las carpetas de la biblioteca es en sí una fototeca de Fotos. pictkura no entra a propósito en ese tipo de fototecas, así que nunca saldrá nada de ahí. Elige una carpeta que tenga fotos dentro o importa desde una tarjeta.",

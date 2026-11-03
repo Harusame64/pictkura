@@ -2465,7 +2465,7 @@ export default function App() {
       const shown = names.slice(0, 3);
       const rest = total - shown.length;
       return rest > 0
-        ? [...shown, t.andMore(rest)].join(t.listSeparator)
+        ? shown.join(t.listSeparator) + t.listLastSeparator + t.andMore(rest)
         : shown.join(t.listSeparator);
     },
     [t],
@@ -7995,6 +7995,7 @@ export default function App() {
                       camera: t.filterCondCamera,
                     }),
                     t.listSeparator,
+                    t.listLastSeparator,
                     t.andMore,
                   ),
                 )}

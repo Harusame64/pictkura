@@ -49,9 +49,12 @@ export function filterConditions(
 export function joinConditions(
   names: string[],
   separator: string,
+  lastSeparator: string,
   andMore: (n: number) => string,
 ): string {
   const shown = names.slice(0, 3);
   const rest = names.length - shown.length;
-  return rest > 0 ? [...shown, andMore(rest)].join(separator) : shown.join(separator);
+  return rest > 0
+    ? shown.join(separator) + lastSeparator + andMore(rest)
+    : shown.join(separator);
 }

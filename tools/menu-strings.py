@@ -35,6 +35,8 @@ LOCALES = [
     ("es-419", "es_419"),
     ("zh", "zh_CN"),
     ("zh-hant", "zh_TW"),
+    ("fr", "fr"),
+    ("it", "it"),
 ]
 
 # (Rustのフィールド名, loctableのキー, どちらの表か)

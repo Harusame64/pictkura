@@ -300,6 +300,7 @@ export const fr: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Ces emplacements n’ont pas pu être ouverts : ${names}. Vérifiez que vous avez le droit de les lire, puis cliquez sur « Réanalyser ».`,
   listSeparator: ", ",
+  listLastSeparator: " ",
   andMore: (n: number) => `et ${num(n)} ${un(n, "autre", "autres")}`,
   emptyRootIsPackage:
     "L’un des dossiers de la bibliothèque est lui-même une photothèque de l’application Photos. pictkura ne lit volontairement pas l’intérieur de ces photothèques ; aucune photo n’en proviendra donc jamais. Choisissez un dossier qui contient des photos, ou importez depuis une carte.",

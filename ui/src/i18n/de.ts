@@ -298,6 +298,7 @@ export const de: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Diese Orte ließen sich nicht öffnen: ${names}. Prüfe, ob du sie lesen darfst, und drücke dann „Neu einlesen“.`,
   listSeparator: ", ",
+  listLastSeparator: " ",
   /**
    * **1のときは名詞を書く。名詞は `Ort`**（2026-09-02、ゲート2の指摘）。
    *

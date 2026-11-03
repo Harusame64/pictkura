@@ -294,6 +294,7 @@ export const it: Dict = {
   emptyUnreadableOther: (names: string) =>
     `Impossibile aprire queste posizioni: ${names}. Controlla di avere il permesso di leggerle, poi premi “Ripeti scansione”.`,
   listSeparator: ", ",
+  listLastSeparator: " ",
   andMore: (n: number) => (n === 1 ? "e un altro" : `e altri ${num(n)}`),
   emptyRootIsPackage:
     "Una delle cartelle della libreria è essa stessa una libreria di Foto. pictkura di proposito non legge all'interno di questo tipo di libreria, quindi da lì non comparirà mai nessuna foto. Scegli una cartella che contiene foto o importa da una scheda.",
