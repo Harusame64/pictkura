@@ -26,12 +26,10 @@ const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
 
 /**
- * 物理で書き、右→左は `[dir="rtl"] 同じ規則` で**鏡の値**を付け直すもの。論理の形が無い（影）か、
- * 片側の幅（情報パネル）を引いた残りの中央に置くもの。下の試験が、対が在って値が鏡であることを確かめる
+ * 論理の形が無いもの（影・横の移動）は、横の値に `--inline-sign`（tokens.css。左→右は 1、右→左は -1）を
+ * 掛けて鏡に映す。下の試験が、掛かっていることと符号の定義を確かめる
  */
-const MIRRORED = "物理で書き、[dir=rtl] で鏡の値を付け直す";
-const FLASH = "横の戻しは --flash-x（左→右 -50%、右→左 50%）が持つ";
-const RESET = "右→左で、左→右の left を外す（鏡の right と組）";
+const SIGNED = "横の値に --inline-sign を掛けて鏡に映す";
 const FLIP = "右→左で部品ごと裏返す";
 const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
 const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
@@ -43,8 +41,6 @@ const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-q
 const KEEP: Record<string, string> = {
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
-  ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": MIRRORED,
-  '[dir="rtl"] .wiz-node.wiz-card|box-shadow|inset -3px 0 0 var(--accent)': MIRRORED,
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
     SHIMMER,
   "@keyframes placeholder-shimmer from|background-position|0 0": SHIMMER,
@@ -62,23 +58,17 @@ const KEEP: Record<string, string> = {
   ".print-fit-sample-cover > span::after|left|6%": PICTURE,
   ".print-fit-sample-cover > span|left|-50%": PICTURE,
 
-  ".viewer-missing-band|left|calc((100vw - var(--info-reserve)) / 2)": MIRRORED,
-  '[dir="rtl"] .viewer-missing-band|right|calc((100vw - var(--info-reserve)) / 2)': MIRRORED,
-  '[dir="rtl"] .viewer-missing-band|left|auto': RESET,
-  ".viewer-missing-band|transform|translateX(-50%)": MIRRORED,
-  '[dir="rtl"] .viewer-missing-band|transform|translateX(50%)': MIRRORED,
-  ".viewer-flash|left|calc((100% - var(--info-reserve)) / 2)": MIRRORED,
-  '[dir="rtl"] .viewer-flash|right|calc((100% - var(--info-reserve)) / 2)': MIRRORED,
-  '[dir="rtl"] .viewer-flash|left|auto': RESET,
+  ".wiz-node.wiz-card|box-shadow|inset calc(3px * var(--inline-sign)) 0 0 var(--accent)": SIGNED,
+  ".viewer-missing-band|transform|translateX(calc(-50% * var(--inline-sign)))": SIGNED,
+  "@keyframes viewer-flash 0%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(0.7)": SIGNED,
+  "@keyframes viewer-flash 18%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1)": SIGNED,
+  "@keyframes viewer-flash 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1)": SIGNED,
+  "@keyframes viewer-flash 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1.08)": SIGNED,
+  [`${QUIET} 0%, 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
+  [`${QUIET} 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
   '[dir="rtl"] .viewer-back-icon|transform|scaleX(-1)': FLIP,
   '[dir="rtl"] .viewer-progress|transform|scaleX(-1)': FLIP,
   ".viewer-progress::after|left|0": "流れる線の起点。右→左は帯ごと裏返す",
-  "@keyframes viewer-flash 0%|transform|translate(var(--flash-x), -50%) scale(0.7)": FLASH,
-  "@keyframes viewer-flash 18%|transform|translate(var(--flash-x), -50%) scale(1)": FLASH,
-  "@keyframes viewer-flash 70%|transform|translate(var(--flash-x), -50%) scale(1)": FLASH,
-  "@keyframes viewer-flash 100%|transform|translate(var(--flash-x), -50%) scale(1.08)": FLASH,
-  [`${QUIET} 0%, 70%|transform|translate(var(--flash-x), -50%)`]: FLASH,
-  [`${QUIET} 100%|transform|translate(var(--flash-x), -50%)`]: FLASH,
   "@keyframes viewer-progress-slide from|transform|translateX(-100%)": "流れる帯。右→左は帯ごと裏返す",
   "@keyframes viewer-progress-slide to|transform|translateX(360%)": "流れる帯。右→左は帯ごと裏返す",
 };
@@ -309,31 +299,13 @@ test("the scanner flags each physical shape", () => {
   }
 });
 
-/** 左右の鏡の値。left ↔ right は同じ値、それ以外は最初の横の数を裏返す（3px ↔ -3px、-50% ↔ 50%） */
-function mirror(prop: string, value: string): [string, string] {
-  if (prop === "left" || prop === "right") return [prop === "left" ? "right" : "left", value];
-  return [prop, value.replace(/(^|[\s(])(-?)(\d*\.?\d+)/, (_, pre, minus, n) => `${pre}${minus ? "" : "-"}${n}`)];
-}
-
-test("each mirrored rule has its [dir=rtl] twin with the mirrored value", () => {
-  const RTL = '[dir="rtl"] ';
+test("signed values carry --inline-sign and the sign flips with dir", () => {
+  for (const k of Object.keys(KEEP).filter((k) => KEEP[k] === SIGNED)) {
+    assert.ok(k.split("|")[2].includes("var(--inline-sign)"), k);
+  }
   const keys = new Set(all.map((d) => d.key));
-  const ltr = Object.keys(KEEP).filter((k) => KEEP[k] === MIRRORED && !k.startsWith(RTL));
-  for (const k of ltr) {
-    const [head, prop, value] = k.split("|");
-    const [p, v] = mirror(prop, value);
-    assert.ok(keys.has(`${RTL}${head}|${p}|${v}`), `${head} の鏡 ${RTL}${head} { ${p}: ${v} } が無い`);
-    if (prop === "left") assert.ok(keys.has(`${RTL}${head}|left|auto`), `${RTL}${head} が left を外していない`);
-  }
-  // 逆向き: 右→左の MIRRORED は、どれも左→右の元から鏡で作れる
-  for (const k of Object.keys(KEEP).filter((k) => KEEP[k] === MIRRORED && k.startsWith(RTL))) {
-    const [head, prop, value] = k.slice(RTL.length).split("|");
-    const [p, v] = mirror(prop, value);
-    assert.ok(keys.has(`${head}|${p}|${v}`), `${k} の元 ${head} { ${p}: ${v} } が無い`);
-  }
-  assert.ok(ltr.length >= 4, `only ${ltr.length}`);
-  // 合図の動きの横は custom property が持つ
-  assert.ok(keys.has(".viewer-flash|--flash-x|-50%") && keys.has(`${RTL}.viewer-flash|--flash-x|50%`));
+  assert.ok(keys.has(":root|--inline-sign|1"), "tokens.css に :root の --inline-sign: 1 が無い");
+  assert.ok(keys.has('[dir="rtl"]|--inline-sign|-1'), 'tokens.css に [dir="rtl"] の --inline-sign: -1 が無い');
 });
 
 test("right-to-left rules key on the dir attribute, not :dir()", () => {

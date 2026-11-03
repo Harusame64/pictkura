@@ -15,7 +15,7 @@ initTheme();
 // ここで実際に使う言語に合わせておく（言語の切り替えは読み込み直しを伴うので、
 // 起動時に一度当てれば足りる）
 document.documentElement.lang = locale;
-// **向きも同じく。** アラビア語・ヘブライ語は右から左。CSS（論理プロパティと `:dir(rtl)`）も
+// **向きも同じく。** アラビア語・ヘブライ語は右から左。CSS（論理プロパティと `[dir="rtl"]`）も
 // JS（`direction.ts` の `isRtl`）もこの属性を見る
 document.documentElement.dir = dirOf(locale);
 

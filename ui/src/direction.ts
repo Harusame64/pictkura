@@ -13,7 +13,8 @@
  * `sd-Deva`・`ar-Latn` は左→右。エンジンの `Intl.Locale` の textInfo には頼らない（WebView2 と WebKit で
  * 載っている版が違い、同じ言語で向きが割れうる）
  */
-const RTL_LANGS = /^(ar|he|fa|ur|ckb|ps|sd|yi|dv|ug)$/i;
+// iw・ji はヘブライ語・イディッシュ語の古いコード（Java 由来の環境がまだ返す）
+const RTL_LANGS = /^(ar|he|iw|fa|ur|ckb|ps|sd|yi|ji|dv|ug|ks|syr|mzn|lrc|nqo|bal)$/i;
 const RTL_SCRIPTS = /^(Arab|Hebr|Thaa|Syrc|Nkoo|Adlm|Rohg|Mand|Samr)$/i;
 
 export function dirOf(locale: string): "rtl" | "ltr" {

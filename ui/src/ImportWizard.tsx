@@ -944,7 +944,9 @@ export default function ImportWizard({
           <div className="wiz-dest-col">
           <div className="wiz-dest">
             <span className="wiz-dest-label">{t.wizardDestination}</span>
-            <code>{destination ?? t.settingsDestinationUnset}</code>
+            <code className={destination ? undefined : "prose"}>
+              {destination ?? t.settingsDestinationUnset}
+            </code>
             <button
               className="wiz-dest-change"
               disabled={busy}

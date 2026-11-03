@@ -470,13 +470,13 @@ type Row =
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
 
 /**
- * ビューアの情報パネル（I）の幅。パネルを開いている間は、写真・「次へ」・フィルムストリップ・字幕と、絵の中央に
- * 出すもの（判定の印・読み込み中・原本が無い帯）を、パネルの左端まで左へ寄せて横に並べる（pictkura-dev #48。
- * パネルが「次へ」と写真の右端を覆っていた）。
+ * ビューアの情報パネル（I）の幅。パネルは行の終わりの側（左→右なら右、右→左なら左）に開く。開いている間は、
+ * 写真・「次へ」・フィルムストリップ・字幕と、絵の中央に出すもの（判定の印・読み込み中・原本が無い帯）を、
+ * パネルの手前まで寄せて横に並べる（pictkura-dev #48。パネルが「次へ」と写真の端を覆っていた）。
  * CSS はこの値を `--exif-panel-width` / `--info-reserve` で受ける——倍率の計算と1か所で揃える
  */
 const EXIF_PANEL_WIDTH = 260;
-/** パネルと窓の右端の間（CSS の `right: var(--sp-4)`）。空ける幅はパネルの左端まで——「次へ」はその内側に `--sp-4` で付く */
+/** パネルと窓の端の間（CSS の `inset-inline-end: var(--sp-4)`）。空ける幅はパネルの内側の縁まで——「次へ」はその内側に `--sp-4` で付く */
 const EXIF_PANEL_INSET = 16;
 /** 一覧に問い合わせた絞り込み（棚・種類・検索語）。`summaryFor` を見よ */
 type Asked = { filter: MediaFilter; kind: MediaKind; query: string };

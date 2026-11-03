@@ -18,16 +18,23 @@ body,
    **パス・名前の型・版は左→右の文字列**——右→左の画面に混ぜると、向きを持たない `/` の前後が
    入れ替わって `2026/2026-11-04/IMG.JPG` が `IMG.JPG/2026/2026-11-04` に見える。囲って左→右に留める */
 code,
-.fallback-path,
-.pattern-custom-input {
+p.fallback-path,
+input.pattern-custom-input,
+.add-folder input {
   direction: ltr;
   unicode-bidi: isolate;
-  /* 段落ごと左→右にしても、揃えは周りに合わせる（右→左の帯の中で、パスだけ左に寄らない） */
+  /* 段落ごと左→右にしても、揃えは周りに合わせる（右→左の帯の中で、パスだけ左に寄らない）。
+     `.fallback-note` の `text-align: start` より強くするため、要素名を足してある */
   text-align: match-parent;
 }
-/* 名前の型の欄は、空のあいだの案内（訳した文）だけページの向きで出す */
-.pattern-custom-input:placeholder-shown {
+/* フォルダを足す欄は、空のあいだの案内（訳した文）だけページの向きで出す */
+.add-folder input:placeholder-shown {
   direction: inherit;
+}
+/* `<code>` に訳した文を入れるとき（「フォルダを作らない」の説明・未設定）は、ページの向きに戻す */
+code.prose {
+  direction: inherit;
+  unicode-bidi: normal;
 }
 code {
   font-family: var(--font-mono);
@@ -1138,9 +1145,10 @@ body {
   top: calc(
     var(--sp-3) + var(--viewer-tool-size) + var(--sp-2) + var(--viewer-badge-row) + var(--sp-2)
   );
-  /* 情報パネルを開いている間は、縮めた絵の中央に（#48） */
-  left: calc((100vw - var(--info-reserve)) / 2);
-  transform: translateX(-50%);
+  /* 情報パネルを開いている間は、縮めた絵の中央に（#48）。パネルは行の終わりの側なので、行の始まりから
+     測って半分戻す。戻す向きは --inline-sign（右→左で -1）が持つ */
+  inset-inline-start: calc((100vw - var(--info-reserve)) / 2);
+  transform: translateX(calc(-50% * var(--inline-sign)));
   width: max-content;
   max-width: min(640px, calc(100vw - var(--info-reserve) - 2 * var(--sp-6)));
   padding: var(--sp-3) var(--sp-4);
@@ -1148,12 +1156,6 @@ body {
   background: oklch(0.2 0 0 / 0.92);
   color: oklch(0.93 0 0);
   box-shadow: 0 4px 24px oklch(0 0 0 / 0.5);
-}
-/* 右→左では情報パネルが左に在る。左→右の置き方をそのまま鏡に映す（右から測り、右へ半分戻す） */
-[dir="rtl"] .viewer-missing-band {
-  left: auto;
-  right: calc((100vw - var(--info-reserve)) / 2);
-  transform: translateX(50%);
 }
 .viewer-missing-title {
   margin: 0 0 var(--sp-2);
@@ -1440,8 +1442,8 @@ body {
 .viewer-flash {
   position: absolute;
   top: 50%;
-  left: calc((100% - var(--info-reserve)) / 2); /* 情報パネルを開いている間は、縮めた絵の中央（#48） */
-  --flash-x: -50%;
+  /* 情報パネルを開いている間は、縮めた絵の中央（#48）。半分戻す向きは下の動きが --inline-sign で持つ */
+  inset-inline-start: calc((100% - var(--info-reserve)) / 2);
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -1457,12 +1459,6 @@ body {
   backdrop-filter: blur(4px);
   pointer-events: none;
   animation: viewer-flash 700ms var(--easing) forwards;
-}
-/* 右→左は左→右の鏡。動き（下の @keyframes）の横の戻しも --flash-x が向きごとに持つ */
-[dir="rtl"] .viewer-flash {
-  left: auto;
-  right: calc((100% - var(--info-reserve)) / 2);
-  --flash-x: 50%;
 }
 .viewer-flash-mark {
   font-size: 44px;
@@ -1498,19 +1494,19 @@ body {
 @keyframes viewer-flash {
   0% {
     opacity: 0;
-    transform: translate(var(--flash-x), -50%) scale(0.7);
+    transform: translate(calc(-50% * var(--inline-sign)), -50%) scale(0.7);
   }
   18% {
     opacity: 1;
-    transform: translate(var(--flash-x), -50%) scale(1);
+    transform: translate(calc(-50% * var(--inline-sign)), -50%) scale(1);
   }
   70% {
     opacity: 1;
-    transform: translate(var(--flash-x), -50%) scale(1);
+    transform: translate(calc(-50% * var(--inline-sign)), -50%) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(var(--flash-x), -50%) scale(1.08);
+    transform: translate(calc(-50% * var(--inline-sign)), -50%) scale(1.08);
   }
 }
 /* 動きを減らす設定なら、膨らませずに出して消すだけにする */
@@ -1522,11 +1518,11 @@ body {
     0%,
     70% {
       opacity: 1;
-      transform: translate(var(--flash-x), -50%);
+      transform: translate(calc(-50% * var(--inline-sign)), -50%);
     }
     100% {
       opacity: 0;
-      transform: translate(var(--flash-x), -50%);
+      transform: translate(calc(-50% * var(--inline-sign)), -50%);
     }
   }
 }
@@ -2726,11 +2722,8 @@ body {
 .wiz-node.wiz-card {
   color: var(--text);
   font-weight: 600;
-  /* 行の頭の側に引く線。box-shadow には論理の形が無いので、右→左では裏返す */
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-[dir="rtl"] .wiz-node.wiz-card {
-  box-shadow: inset -3px 0 0 var(--accent);
+  /* 行の頭の側に引く線。box-shadow には論理の形が無いので、横のずれに --inline-sign を掛ける */
+  box-shadow: inset calc(3px * var(--inline-sign)) 0 0 var(--accent);
 }
 .wiz-twisty {
   width: 16px;

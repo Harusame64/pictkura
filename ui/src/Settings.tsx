@@ -391,7 +391,9 @@ export default function Settings({
             <p className="settings-note">{t.settingsImportStructureNote}</p>
             <div className="settings-dest">
               {t.settingsDestination}:{" "}
-              <code>{destination ?? t.settingsDestinationUnset}</code>
+              <code className={destination ? undefined : "prose"}>
+                {destination ?? t.settingsDestinationUnset}
+              </code>
               <button
                 className="settings-dest-change"
                 disabled={destPicking}
@@ -464,7 +466,7 @@ export default function Settings({
                       choose(p.pattern);
                     }}
                   />
-                  <code className="pattern-example">
+                  <code className={"pattern-example" + (p.example ? "" : " prose")}>
                     {p.example
                       ? `${p.example}/IMG_0001.JPG`
                       : t.settingsFlatExample}
@@ -506,7 +508,7 @@ export default function Settings({
                   <p className="settings-note">{t.settingsCustomPatternNote}</p>
                   <div className="pattern-custom-preview">
                     {t.settingsCustomPatternResult}:{" "}
-                    <code>
+                    <code className={customPreview ? undefined : "prose"}>
                       {customPreview
                         ? `${customPreview}/IMG_0001.JPG`
                         : t.settingsFlatExample}
