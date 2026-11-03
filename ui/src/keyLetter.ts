@@ -9,9 +9,13 @@
  * （2026-11-03、露語を足したときのゲート2）。ショートカットの一覧は `P` と案内しているので、
  * 配列を切り替えずに同じ位置を押せば効くようにする（Lightroom・Photoshop の露語版と同じ振る舞い）。
  */
-export function letterOf(e: { key: string; code?: string }): string {
+export function letterOf(e: { key: string; code?: string; altKey?: boolean }): string {
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (/^[a-z]$/.test(key)) return key;
+  // **落とすのはラテン文字でない字の配列だけ、かつ Alt 無しのとき**（codex）。拡張ラテン（ラトビア語の
+  // AltGr で `ķ` など）は、ブラウザに Ctrl+Alt として届く。それを位置で `k` と読むと、字を打っただけで
+  // `Ctrl+K` のパレットが開く。ラテン文字の配列は、どの字でも刻印どおりにしか読まない
+  if (e.altKey || !/^\p{L}$/u.test(key) || /^\p{Script=Latin}$/u.test(key)) return key;
   const m = /^Key([A-Z])$/.exec(e.code ?? "");
   return m ? m[1].toLowerCase() : key;
 }
