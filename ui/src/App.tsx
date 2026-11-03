@@ -8965,6 +8965,27 @@ export default function App() {
               )}
             </div>
           )}
+          {/* **閉じるは左上の ←**（2026-11-03 利用者「抜けるボタンとボツボタンが一緒で怖い」）。
+              右上の帯にあったときは字も ✕ でボツ（✕、X キー・札と同じ印）と並び、押し違えると
+              写真がボツの候補になる。抜け道は帯から離して反対の角へ置き、字も変える。
+              **DOM では道具の帯より前**——帯の中を Tab で回る前に ← に着く。ビューア全体で最初とは
+              限らない（下の帯のセルや音なしの印のほうが DOM で前に在る） */}
+          <button
+            className="viewer-tool viewer-back"
+            title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
+            onClick={(e) => {
+              // 地へは届けないので、動きを終わらせた押下の「次のクリックを飲む」印もここで外す
+              // （音なしの印と同じ。ゲート2）
+              e.stopPropagation();
+              swallowClickRef.current = false;
+              requestCloseViewer();
+            }}
+          >
+            {/* 字の ← は書体の矢印で細く小さく、隣の ★・📋 より弱く見えた（利用者）。線で描いて太さを揃える */}
+            <svg className="viewer-back-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 12H5M11 6l-6 6 6 6" />
+            </svg>
+          </button>
           <div className="viewer-tools" onClick={(e) => e.stopPropagation()}>
             {/* RAW+JPEG の組のどちらを見るか（2026-09-26 の利用者の要望）。片方だけ見せている
                 ときの、組の写真にだけ出す。押すと設定も替わる（次に開いたときも同じ側） */}
@@ -9104,13 +9125,6 @@ export default function App() {
               onClick={toggleFullscreen}
             >
               <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
-            </button>
-            <button
-              className="viewer-tool"
-              title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
-              onClick={requestCloseViewer}
-            >
-              <span aria-hidden="true">✕</span>
             </button>
           </div>
           {hasPrev && (

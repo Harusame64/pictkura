@@ -945,6 +945,10 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
+  /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算、原本が無いときの帯の位置もこれを引く */
+  --viewer-tool-size: 36px;
+  /* ← の下に並ぶ印の段の高さ（音なしの印が 22px でいちばん高い） */
+  --viewer-badge-row: 24px;
   /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
      App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
   --viewer-fit-w: calc(100vw - 120px - var(--info-reserve));
@@ -1106,11 +1110,14 @@ body {
   user-select: text;
 }
 /* 写真の原本が無い／開けないとき、絵の上端に敷く帯（dev #23）。
- * **右上の道具の列の下に置く**——同じ高さに置くと、狭い窓で道具と重なる。
+ * **右上の道具の列と、左上の ← の下の印の段より下に置く**——同じ高さに置くと、狭い窓で
+ * 道具や印と重なる（印を ← の下へ移したとき、ゲート2が重なりを拾った）。
  * 絵の真ん中は空けておく（右クリック・拡大・移動をそのまま効かせる） */
 .viewer-missing-band {
   position: absolute;
-  top: calc(var(--sp-3) + 44px);
+  top: calc(
+    var(--sp-3) + var(--viewer-tool-size) + var(--sp-2) + var(--viewer-badge-row) + var(--sp-2)
+  );
   /* 情報パネルを開いている間は、縮めた絵の中央に（#48） */
   left: calc((100vw - var(--info-reserve)) / 2);
   transform: translateX(-50%);
@@ -1155,6 +1162,7 @@ body {
 /* マウスを止めるとクロームを消して写真だけにする */
 .viewer.idle .viewer-caption,
 .viewer.idle .viewer-tools,
+.viewer.idle .viewer-back,
 .viewer.idle .viewer-strip,
 .viewer.idle .viewer-nav {
   opacity: 0;
@@ -1162,6 +1170,7 @@ body {
 }
 .viewer-caption,
 .viewer-tools,
+.viewer-back,
 .viewer-strip,
 .viewer-nav {
   transition: opacity var(--dur) var(--easing);
@@ -1264,14 +1273,40 @@ body {
   align-items: center;
   gap: var(--sp-2);
 }
+/* 閉じる（一覧へ戻る）。道具の帯と反対の角に置く。**向きは物理（`left`）で帯（`right`）と揃える**
+   ——右から左の言語を足すときに、帯・送り・これを一緒に論理へ移す */
+.viewer-back {
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-4);
+}
+/* ボタンを grid／flex の箱にはしない（古いエンジンで効かなかった型）。絵のほうを真ん中へ寄せる */
+/* 帯と一緒に薄れて消える。`.viewer-tool` の `transition: background` が後ろで上書きするので、
+   ここで両方を並べ直す（ゲート2） */
+.viewer-tool.viewer-back {
+  transition:
+    opacity var(--dur) var(--easing),
+    background var(--dur-fast) var(--easing);
+}
+.viewer-back-icon {
+  display: block;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .viewer-tool {
   border: none;
   background: oklch(1 0 0 / 0.1);
   color: #fff;
   font-family: inherit;
   font-size: var(--fs-xl);
-  width: 36px;
-  height: 36px;
+  width: var(--viewer-tool-size);
+  height: var(--viewer-tool-size);
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: background var(--dur-fast) var(--easing);
@@ -1331,7 +1366,8 @@ body {
    帯は1.8秒で消えるので、消えたあとに見返す先が無かった（2026-08-19） */
 .viewer-badges {
   position: absolute;
-  top: var(--sp-3);
+  /* 左上の ← の**下**に置く。横に並べると、狭い窓（960px）で右上の帯とぶつかる（ゲート2） */
+  top: calc(var(--sp-3) + var(--viewer-tool-size) + var(--sp-2));
   left: var(--sp-4);
   display: flex;
   gap: var(--sp-1);
@@ -1732,9 +1768,8 @@ body {
   background: var(--pick);
   color: var(--n-10);
 }
-/* ボツの✕。**帯の右端にある「閉じる」の✕と字が同じ**なので、
-   付いていないときから赤くしておく（押し間違いは取り返しがつく側だが、
-   選別中に閉じるつもりで✕を付けるのは邪魔） */
+/* ボツの✕。付いていないときから赤くしておく。かつては帯の右端の「閉じる」も✕で、
+   字で見分けられなかった（2026-11-03 に閉じるは左上の ← へ移した）。赤は印の色として残す */
 .viewer-tool.reject-tool {
   color: var(--danger);
 }
@@ -1752,7 +1787,7 @@ body {
   font-family: inherit;
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
-  height: 36px;
+  height: var(--viewer-tool-size);
   min-width: 78px;
   padding: 0 var(--sp-3);
   border-radius: var(--radius-full);
