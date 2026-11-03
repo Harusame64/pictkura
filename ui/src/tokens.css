@@ -80,6 +80,10 @@
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "Hiragino Sans",
     "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
   --font-ui: var(--font-ui-ja);
+  /* 等幅（パス・版・名前の型）。**総称の `monospace` だけにしない**——日本語の Windows では
+     MS ゴシックに落ち、`\` が `¥` に化けて `C:¥Camera` と出る（2026-11-03、win の実測）。
+     Cascadia Mono／Consolas は `\` を `\` のまま描く */
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   --easing: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 120ms;
   --dur: 180ms;

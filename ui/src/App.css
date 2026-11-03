@@ -12,6 +12,11 @@ body,
   height: 100%;
   margin: 0;
 }
+/* `<code>` の既定。ブラウザ既定の `monospace` に任せると、日本語の Windows で `¥` に化ける
+   （`tokens.css` の `--font-mono`）。個別の規則が無い `<code>`（ウィザード・送り出しの案内）もこれで揃う */
+code {
+  font-family: var(--font-mono);
+}
 body {
   font-family: var(--font-ui);
   font-size: var(--fs-lg);
@@ -1105,7 +1110,7 @@ body {
 }
 /* 探した場所。長いパスは折り返し、選んで写せるようにする */
 .fallback-path {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   overflow-wrap: anywhere;
   user-select: text;
 }
@@ -2280,7 +2285,7 @@ body {
 .settings-google-folders code,
 .pattern-example,
 .editor-path {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-sm);
 }
 .pattern-list {
@@ -2344,7 +2349,7 @@ body {
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-sm);
 }
 .pattern-custom-input:focus {
@@ -2358,7 +2363,7 @@ body {
   word-break: break-all;
 }
 .pattern-custom-preview code {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   color: var(--accent);
 }
 /* このアプリについて */
@@ -2371,7 +2376,7 @@ body {
   font-weight: 600;
 }
 .about-version {
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
