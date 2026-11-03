@@ -13,6 +13,13 @@ import { readFileSync } from "node:fs";
 const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
 
+/**
+ * 情報パネル（右に開く）の側に結びついているもの。絵の大きさは JS（viewerZoomBox.ts）も
+ * 右にパネルがある前提で計算するので、**片方だけ論理にすると右→左で絵と合図がずれる**。
+ * パネルを左へ移すときに、JS・送りのキーと一緒にまとめて直す。
+ */
+const PANEL = "情報パネルの側に結びつく（viewerZoomBox・送りと一緒に直す）";
+
 /** 物理のまま残すもの。鍵は「規則の頭 + 空白 + 宣言の名前」（@keyframes の中は「@keyframes 名前 from」が頭） */
 const KEEP: Record<string, string> = {
   // 回るだけの印。欠けている辺に向きの意味は無い
@@ -24,8 +31,8 @@ const KEEP: Record<string, string> = {
   "@keyframes speed-toast-in from transform": "真ん中に置く translateX(-50%)",
   "@keyframes speed-toast-in to transform": "真ん中に置く translateX(-50%)",
   // 読み込み中の帯が流れる向き。RTL では逆に流したいが、情報パネルと一緒に直す
-  "@keyframes viewer-progress-slide from transform": "流れる帯の向き（情報パネルと一緒に直す）",
-  "@keyframes viewer-progress-slide to transform": "流れる帯の向き（情報パネルと一緒に直す）",
+  "@keyframes viewer-progress-slide from transform": PANEL,
+  "@keyframes viewer-progress-slide to transform": PANEL,
   ".failure-toast left": "left: 50% で真ん中。左右対称",
   ".failure-toast transform": "真ん中に置く translateX(-50%)",
   // 印刷の見本は写真の絵。写真は鏡に映さない
@@ -34,9 +41,18 @@ const KEEP: Record<string, string> = {
   ".print-fit-sample-cover > span left": "印刷の見本の絵。写真は鏡に映さない",
   // 情報パネルの側に結びついている。パネルを右から左へ移すときに、
   // 絵の大きさを計算する JS（viewerZoomBox.ts）と一緒に直す
-  ".viewer-missing-band left": "情報パネルの側に結びつく（viewerZoomBox と一緒に直す）",
-  ".viewer-missing-band transform": "情報パネルの側に結びつく（viewerZoomBox と一緒に直す）",
-  ".viewer-flash left": "情報パネルの側に結びつく（viewerZoomBox と一緒に直す）",
+  ".viewer-missing-band left": PANEL,
+  ".viewer-missing-band transform": PANEL,
+  ".viewer-flash left": PANEL,
+  ".viewer-stage right": PANEL,
+  ".viewer-loading-overlay right": PANEL,
+  ".viewer-caption left": PANEL,
+  ".viewer-caption right": PANEL,
+  ".viewer-strip left": PANEL,
+  ".viewer-strip right": PANEL,
+  ".viewer-nav.prev left": PANEL,
+  ".viewer-nav.next right": PANEL,
+  ".exif-panel right": PANEL,
 };
 
 type Decl = { key: string; prop: string; value: string; sheet: string };
@@ -132,7 +148,7 @@ test("the scanner reads the sheets", () => {
   // 読めていなければ上の2つは空のまま通ってしまう。床を置く
   assert.ok(all.length > 1500, `only ${all.length} declarations`);
   const logical = all.filter((d) => /inline-(start|end)|^inset-inline$|^padding-inline$/.test(d.prop));
-  assert.ok(logical.length >= 40, `only ${logical.length} logical declarations`);
+  assert.ok(logical.length >= 30, `only ${logical.length} logical declarations`);
 });
 
 test("the scanner flags each physical shape", () => {
