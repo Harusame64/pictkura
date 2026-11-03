@@ -8968,7 +8968,8 @@ export default function App() {
           {/* **閉じるは左上の ←**（2026-11-03 利用者「抜けるボタンとボツボタンが一緒で怖い」）。
               右上の帯にあったときは字も ✕ でボツ（✕、X キー・札と同じ印）と並び、押し違えると
               写真がボツの候補になる。抜け道は帯から離して反対の角へ置き、字も変える。
-              **DOM では帯より前**——見える順と Tab の順を揃える（ゲート2） */}
+              **DOM では道具の帯より前**——帯の中を Tab で回る前に ← に着く。ビューア全体で最初とは
+              限らない（下の帯のセルや音なしの印のほうが DOM で前に在る） */}
           <button
             className="viewer-tool viewer-back"
             title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"

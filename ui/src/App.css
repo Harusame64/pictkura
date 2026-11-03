@@ -945,8 +945,10 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
-  /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算もこれを引く */
+  /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算、原本が無いときの帯の位置もこれを引く */
   --viewer-tool-size: 36px;
+  /* ← の下に並ぶ印の段の高さ（音なしの印が 22px でいちばん高い） */
+  --viewer-badge-row: 24px;
   /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
      App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
   --viewer-fit-w: calc(100vw - 120px - var(--info-reserve));
@@ -1108,11 +1110,14 @@ body {
   user-select: text;
 }
 /* 写真の原本が無い／開けないとき、絵の上端に敷く帯（dev #23）。
- * **右上の道具の列の下に置く**——同じ高さに置くと、狭い窓で道具と重なる。
+ * **右上の道具の列と、左上の ← の下の印の段より下に置く**——同じ高さに置くと、狭い窓で
+ * 道具や印と重なる（印を ← の下へ移したとき、ゲート2が重なりを拾った）。
  * 絵の真ん中は空けておく（右クリック・拡大・移動をそのまま効かせる） */
 .viewer-missing-band {
   position: absolute;
-  top: calc(var(--sp-3) + 44px);
+  top: calc(
+    var(--sp-3) + var(--viewer-tool-size) + var(--sp-2) + var(--viewer-badge-row) + var(--sp-2)
+  );
   /* 情報パネルを開いている間は、縮めた絵の中央に（#48） */
   left: calc((100vw - var(--info-reserve)) / 2);
   transform: translateX(-50%);
@@ -1763,7 +1768,7 @@ body {
   font-family: inherit;
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
-  height: 36px;
+  height: var(--viewer-tool-size);
   min-width: 78px;
   padding: 0 var(--sp-3);
   border-radius: var(--radius-full);
