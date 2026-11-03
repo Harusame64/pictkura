@@ -283,29 +283,31 @@ body {
   padding: var(--sp-2);
   overflow-y: auto;
 }
+/* 見出しの横に開け閉めのボタンが並ぶことがある。**並ばないときは字の途中で折らず、
+   ボタンだけが次の行の右端へ降りる**——伊・西・独・仏で見出しとボタンが両方2行に
+   折れていた（2026-11-03、win の実測） */
 .nav-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-2) var(--sp-1);
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-faint);
 }
-/* カメラの一覧の末尾の開け閉め。**行の幅いっぱいを押せる**ようにし、字の頭は
-   カメラ名の列ではなく行の頭（.nav-item の内側）に揃える */
 .nav-more {
-  display: block;
-  width: 100%;
-  min-height: 24px;
-  margin: 1px 0 var(--sp-1);
-  padding-block: 2px;
-  padding-inline: var(--sp-2);
+  margin-inline-start: auto;
+  white-space: nowrap;
   border: none;
   background: none;
   color: var(--accent);
   font-family: inherit;
   font-size: var(--fs-xs);
-  text-align: start;
   cursor: pointer;
+  padding: 0 2px;
 }
 .nav-more:hover {
   text-decoration: underline;

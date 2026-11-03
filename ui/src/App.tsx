@@ -7771,7 +7771,24 @@ export default function App() {
           ))}
           {cameras.length > 0 && (
             <>
-              <div className="nav-section">{t.navCameras}</div>
+              {/* 開け閉めは**見出しの横に置いて動かさない**（2026-11-03 利用者）。一覧の末尾へ移すと
+                  押すたびにボタンが数千px動き、ダブルクリックの2回目が別の行を押す・フォーカスが
+                  画面の外へ出る、と穴が続いた（ゲート2を2巡）。並ばないときは字の途中で折らず、
+                  ボタンだけが下の行へ丸ごと降りる（`.nav-section` の `flex-wrap`） */}
+              <div className="nav-section">
+                <span>{t.navCameras}</span>
+                {cameras.length > CAMERAS_COLLAPSED && (
+                  <button
+                    className="nav-more"
+                    aria-expanded={camerasExpanded}
+                    onClick={() => setCamerasExpanded((v) => !v)}
+                  >
+                    {camerasExpanded
+                      ? t.collapse
+                      : t.showMore(cameras.length - CAMERAS_COLLAPSED)}
+                  </button>
+                )}
+              </div>
               {(camerasExpanded
                 ? cameras
                 : cameras.slice(0, CAMERAS_COLLAPSED)
@@ -7792,40 +7809,6 @@ export default function App() {
                   </div>
                 );
               })}
-              {/* **開け閉めは一覧の末尾で**（2026-11-03 利用者）。見出しの右に置くと、見出しと横幅を
-                  取り合って伊・西・独・仏で両方が2行に折れた（win の実測）。開いても閉じても
-                  **同じ要素**なので（`map` の配列は行の数によらず1つの子の枠）、押したあとも
-                  フォーカスが残り、続けて押せる。開くとボタンは隠れていた行のぶん下へ移る */}
-              {cameras.length > CAMERAS_COLLAPSED && (
-                <button
-                  className="nav-more"
-                  aria-expanded={camerasExpanded}
-                  onClick={(e) => {
-                    const button = e.currentTarget;
-                    const closing = camerasExpanded;
-                    setCamerasExpanded((v) => !v);
-                    // 長い一覧を下までスクロールして閉じると、上の行が消えたぶん
-                    // ボタンが画面の外へ出ることがある。閉じたら見える所まで寄せる（ゲート2）
-                    if (closing) {
-                      requestAnimationFrame(() => button.scrollIntoView({ block: "nearest" }));
-                    } else if (e.detail === 0) {
-                      // **キーボードで開いたら、出てきた最初の行へ移る**（win の実測）。ボタンは
-                      // 隠れていた行のぶん下（数千px）へ移り、フォーカスの輪が画面の外に消える。
-                      // ボタンへスクロールすると出てきた行を飛ばすので、続きの行から Tab で下る形にする。
-                      // マウス（`detail` が 1 以上）では移さない——押した所から目が離れない
-                      requestAnimationFrame(() => {
-                        const rows = button.parentElement?.querySelectorAll<HTMLElement>(".nav-item.camera");
-                        rows?.[CAMERAS_COLLAPSED]?.focus();
-                      });
-                    }
-                  }}
-                >
-                  {camerasExpanded
-                    ? t.collapse
-                    : t.showMore(cameras.length - CAMERAS_COLLAPSED)}
-                  <span aria-hidden="true">{camerasExpanded ? " ▴" : " ▾"}</span>
-                </button>
-              )}
             </>
           )}
           <div className="nav-section">{t.navLibraryFolders}</div>
