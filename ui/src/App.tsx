@@ -7771,16 +7771,28 @@ export default function App() {
           ))}
           {cameras.length > 0 && (
             <>
-              <div className="nav-section">
-                {t.navCameras}
+              {/* 開け閉めは**見出しの横に置いて動かさない**（2026-11-03 利用者）。一覧の末尾へ移すと
+                  押すたびにボタンが数千px動き、ダブルクリックの2回目が別の行を押す・フォーカスが
+                  画面の外へ出る、と穴が続いた（ゲート2を2巡）。並ばないときは字の途中で折らず、
+                  ボタンだけが下の行へ丸ごと降りる（`.has-toggle` の `flex-wrap`）。
+                  **2つの文言を重ねて、幅を長いほうに固定する**——幅が状態で変わると、伊・西・独では
+                  閉じると横に並び開くと降りる、と押すたびに1行ぶん動いた（ゲート2・3巡目）。
+                  状態は文言が言うので `aria-expanded` は付けない（読み上げで二重になる） */}
+              <div className="nav-section has-toggle">
+                <span>{t.navCameras}</span>
                 {cameras.length > CAMERAS_COLLAPSED && (
                   <button
                     className="nav-more"
                     onClick={() => setCamerasExpanded((v) => !v)}
                   >
-                    {camerasExpanded
-                      ? t.collapse
-                      : t.showMore(cameras.length - CAMERAS_COLLAPSED)}
+                    <span className="nav-more-labels">
+                      <span className={camerasExpanded ? "nav-more-off" : undefined}>
+                        {t.showMore(cameras.length - CAMERAS_COLLAPSED)}
+                      </span>
+                      <span className={camerasExpanded ? undefined : "nav-more-off"}>
+                        {t.collapse}
+                      </span>
+                    </span>
                   </button>
                 )}
               </div>
