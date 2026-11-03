@@ -1280,6 +1280,18 @@ body {
   top: var(--sp-3);
   left: var(--sp-4);
 }
+/* ボタンを grid／flex の箱にはしない（古いエンジンで効かなかった型）。絵のほうを真ん中へ寄せる */
+.viewer-back-icon {
+  display: block;
+  margin: auto;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .viewer-tool {
   border: none;
   background: oklch(1 0 0 / 0.1);

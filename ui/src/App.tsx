@@ -8978,7 +8978,10 @@ export default function App() {
               requestCloseViewer();
             }}
           >
-            <span aria-hidden="true">←</span>
+            {/* 字の ← は書体の矢印で細く小さく、隣の ★・📋 より弱く見えた（利用者）。線で描いて太さを揃える */}
+            <svg className="viewer-back-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 12H5M11 6l-6 6 6 6" />
+            </svg>
           </button>
           <div className="viewer-tools" onClick={(e) => e.stopPropagation()}>
             {/* RAW+JPEG の組のどちらを見るか（2026-09-26 の利用者の要望）。片方だけ見せている
