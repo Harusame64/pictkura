@@ -7808,6 +7808,15 @@ export default function App() {
                     // ボタンが画面の外へ出ることがある。閉じたら見える所まで寄せる（ゲート2）
                     if (closing) {
                       requestAnimationFrame(() => button.scrollIntoView({ block: "nearest" }));
+                    } else if (e.detail === 0) {
+                      // **キーボードで開いたら、出てきた最初の行へ移る**（win の実測）。ボタンは
+                      // 隠れていた行のぶん下（数千px）へ移り、フォーカスの輪が画面の外に消える。
+                      // ボタンへスクロールすると出てきた行を飛ばすので、続きの行から Tab で下る形にする。
+                      // マウス（`detail` が 1 以上）では移さない——押した所から目が離れない
+                      requestAnimationFrame(() => {
+                        const rows = button.parentElement?.querySelectorAll<HTMLElement>(".nav-item.camera");
+                        rows?.[CAMERAS_COLLAPSED]?.focus();
+                      });
                     }
                   }}
                 >
