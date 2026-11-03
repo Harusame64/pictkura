@@ -41,6 +41,8 @@ import { es } from "../src/i18n/es.ts";
 import { AMERICAS_ONLY, AMERICAS_SWAPS, es419 } from "../src/i18n/es-419.ts";
 import { zh } from "../src/i18n/zh.ts";
 import { zhHant } from "../src/i18n/zh-hant.ts";
+import { fr } from "../src/i18n/fr.ts";
+import { it as itDict } from "../src/i18n/it.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -60,6 +62,8 @@ const DICTS: Record<string, Any> = {
   "es-419": es419 as Any,
   zh: zh as Any,
   "zh-hant": zhHant as Any,
+  fr: fr as Any,
+  it: itDict as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -419,6 +423,128 @@ const INFLECTS: Record<string, string[]> = {
     "googleRemoved:0",
     "googleRemoveFailed:0",
   ],
+  // **0 も単数**（仏語の規則）。ここが見るのは 1 と 2 の差だけなので、0 の扱いは `fr.ts` の `un()` を見ること
+  fr: [
+    "andMore:0",
+    "bulkFavoriteDone:0",
+    "bulkPickDone:0",
+    "bulkUnfavoriteDone:0",
+    "bulkUnpickDone:0",
+    "burstTitle:0",
+    "burstTitle:2",
+    "burstTitleRawJpeg:0",
+    "burstTitleRawJpeg:2",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedMissing:1",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "drivesReturnedScanned:0",
+    "drivesReturnedScanned:1",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "googleRemoveFailed:0",
+    "googleRemoved:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSent:0",
+    "googleSent:1",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "importDone:0",
+    "importDone:1",
+    "importGoogle:0",
+    "importGoogleFailed:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "moveDone:0",
+    "moveDone:1",
+    "moveDone:2",
+    "moveDone:3",
+    "moveDone:4",
+    "printSheetTitle:0",
+    "printSkipped:0",
+    "printTooMany:0",
+    "rejectGateTitle:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "selectedCount:0",
+    "showMore:0",
+    "stackRawChipTitle:0",
+    "syncDone:0",
+    "syncDone:1",
+    "syncDone:2",
+    "wizardHiddenCount:0",
+    "wizardSelected:0",
+  ],
+  // **`foto` / `video` / `file` は単複同形**。英語より少ないキーは名詞だけの文（`Stampa 2 foto`）で、動くのは冠詞・形容詞・分詞
+  it: [
+    "andMore:0",
+    "bgThumbs:0",
+    "bulkFavoriteDone:0",
+    "bulkPickDone:0",
+    "bulkUnfavoriteDone:0",
+    "burstTitle:0",
+    "burstTitleRawJpeg:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedMissing:1",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "drivesReturnedScanned:0",
+    "drivesReturnedScanned:1",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:2",
+    "exportDone:3",
+    "googleRemoveFailed:0",
+    "googleRemoved:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:2",
+    "googleSent:0",
+    "googleSent:1",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "importDone:0",
+    "importDone:1",
+    "importFailed:0",
+    "importGoogle:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "moveDone:0",
+    "moveDone:1",
+    "moveDone:2",
+    "moveDone:3",
+    "moveDone:4",
+    "printSkipped:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "selectedCount:0",
+    "showMore:0",
+    "syncDone:0",
+    "syncDone:1",
+    "syncDone:2",
+    "wizardEtaMinutes:0",
+    "wizardEtaSeconds:0",
+    "wizardHiddenCount:0",
+    "wizardMoreFiles:0",
+    "wizardSelected:0",
+  ],
 };
 
 /**
@@ -515,6 +641,26 @@ test("単数形を持つキーの顔ぶれが変わっていないこと", () =>
   }
 });
 
+/**
+ * **仏語は 0 も単数**（`fr.ts` の `un()`）。上の顔ぶれの升は 1 と 2 しか比べないので、
+ * `un()` を共通の `one()`（0 は複数）に書き換えても落ちない（2026-11-03、ゲート2・3巡目）。
+ * 単数形を持つ位置ごとに、**0 が 2（複数）と同じ文にならない**ことを見る
+ * （1 と比べないのは、1 だけ「cette photo」と数を言わないキーがあるため）
+ */
+test("仏語は 0 を単数で言うこと", () => {
+  const digitless = (s: string) => s.replace(/\d+/g, "#");
+  for (const pair of INFLECTS.fr) {
+    const [key, at] = pair.split(":");
+    const pos = Number(at);
+    const make = (n: number) => {
+      const args = argsFor(key, 2, "X");
+      args[pos] = n;
+      return call(DICTS.fr, key, args);
+    };
+    assert.notEqual(digitless(make(0)), digitless(make(2)), `fr.${key} の ${pos} 番目が 0 で複数になった`);
+  }
+});
+
 test("単複の無い言語が場合分けしていないこと", () => {
   for (const lang of NO_PLURAL) {
     const unexpected = inflectionsOf(DICTS[lang]).filter(
@@ -590,6 +736,41 @@ const SAME_AS_EN: Record<string, string[]> = {
   ],
   zh: ["burstChipShort", "appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
   "zh-hant": ["burstChipShort", "appName", "kindRaw", "keyCtrl", "actualSizeBadge", "exifIso", "rejectChip"],
+  fr: [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "appName",
+    "kindRaw",
+    "keyCtrl",
+    "actualSizeBadge",
+    "exifIso",
+    "listSeparator",
+    "photosCount",
+    "rejectChip",
+    "wizardCapped",
+    "viewThumbnails", // `Photos` は仏語の語でもある
+    "kindPhoto", // 同上
+    "extractFilter", // `Image`
+    "paletteGroupActions", // `Actions`
+    "wizardSources", // `Source`
+    "wizardDestination", // `Destination`
+    "settingsDestination", // 同上
+    "fileInfoDimensions", // `Dimensions`
+    "fileInfoType", // `Type`
+  ],
+  it: [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "burstGapOption", // `0,5 s` など数と単位だけ
+    "appName",
+    "kindRaw",
+    "keyCtrl",
+    "actualSizeBadge",
+    "exifIso",
+    "fileInfoTitle", // `File` は伊語でも使う語
+    "listSeparator",
+    "photosCount",
+    "rejectChip",
+    "wizardCapped",
+  ],
 };
 
 test("英語からの丸写しが無いこと", () => {
@@ -763,6 +944,12 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("ja-JP"), "ja");
   assert.equal(pick("en-GB"), "en");
   assert.equal(pick("de-DE"), "de");
+  // 仏語・伊語は地域を分けない（カナダ・スイス・アルジェリアも同じ辞書）
+  assert.equal(pick("fr-FR"), "fr");
+  assert.equal(pick("fr-CA"), "fr");
+  assert.equal(pick("fr-DZ"), "fr");
+  assert.equal(pick("it-IT"), "it");
+  assert.equal(pick("it-CH"), "it");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -819,6 +1006,10 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
     [["de"], "rootsMissingNotice", [["1 Foto lässt", "2 Fotos lassen"]]],
     [["en"], "rootMissingNotice", [["1 photo in it", "2 photos in it"]]],
     [["en"], "rootsMissingNotice", [["1 photo in them", "2 photos in them"]]],
+    [["fr"], "rootMissingNotice", [["1 photo qu’il contient ne peut pas être ouverte", "2 photos qu’il contient ne peuvent pas être ouvertes"]]],
+    [["fr"], "rootsMissingNotice", [["1 photo ne peut pas être ouverte", "2 photos ne peuvent pas être ouvertes"]]],
+    [["it"], "rootMissingNotice", [["1 foto al suo interno non può essere aperta", "2 foto al suo interno non possono essere aperte"]]],
+    [["it"], "rootsMissingNotice", [["1 foto non può essere aperta", "2 foto non possono essere aperte"]]],
   ];
   for (const [langs, key, pairs] of cases) {
     for (const lang of langs) {

@@ -314,6 +314,8 @@ export const ja = {
     `次の場所を開けませんでした: ${names}。読み取りの権限があるかを確かめてから「再スキャン」を押してください。`,
   /** 並べるときの区切り（言語で違う） */
   listSeparator: "、",
+  /** 「ほかN件」の前の区切り。**接続詞の前にカンマを打たない言語がある**ので別に持つ */
+  listLastSeparator: "、",
   /** 名前を並べきらなかったぶん（**黙って落とさない**） */
   andMore: (n: number) => `ほか${num(n)}件`,
   /* **「この場所」と書かない**——写真.appの判定も除外の集計もルートをまたぐので、
@@ -672,7 +674,7 @@ export const ja = {
   settingsForgetEditor: "一覧から外す",
   calendarEmpty: "写真がありません",
   // 絞り込んで0件のとき（案内。pictkura-dev plan.filter-empty.md、2026-10-07 利用者決定: 案B）。
-  // `conds` は効いている条件の名前を `listSeparator` でつないだもの（`src/filterEmpty.ts`）
+  // `conds` は効いている条件の名前を `listSeparator` でつないだもの。畳んだときは最後だけ `listLastSeparator` で `andMore` をつなぐ（`src/filterEmpty.ts`）
   filterEmptyTitle: (conds: string) => `この絞り込みに該当する写真はありません：${conds}`,
   filterEmptyMessage: "検索語や、左の一覧で選んでいる絞り込みを外すと、ほかの写真が出てきます。",
   filterEmptyStillIndexing: "まだ取り込み・索引の途中なので、あとで出てくることがあります。",

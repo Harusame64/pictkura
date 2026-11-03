@@ -2459,14 +2459,10 @@ export default function App() {
    */
   const nameList = useCallback(
     (names: string[], total = names.length) => {
-      // **引くのは「出した数」**。`3` を引くと、名前が畳まれて1件しか
-      // 来ていない（6つのルートの `Lightroom Catalog/` など）ときに
-      // 数が合わない（ゲート2の指摘）
-      const shown = names.slice(0, 3);
-      const rest = total - shown.length;
-      return rest > 0
-        ? [...shown, t.andMore(rest)].join(t.listSeparator)
-        : shown.join(t.listSeparator);
+      // つなぎ方は `joinConditions` に1つだけ置く。**引くのは「出した数」**——
+      // `3` を引くと、名前が畳まれて1件しか来ていない（6つのルートの
+      // `Lightroom Catalog/` など）ときに数が合わない（ゲート2の指摘）
+      return joinConditions(names, t.listSeparator, t.listLastSeparator, t.andMore, total);
     },
     [t],
   );
@@ -7995,6 +7991,7 @@ export default function App() {
                       camera: t.filterCondCamera,
                     }),
                     t.listSeparator,
+                    t.listLastSeparator,
                     t.andMore,
                   ),
                 )}

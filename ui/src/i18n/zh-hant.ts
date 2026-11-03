@@ -320,6 +320,7 @@ export const zhHant: Dict = {
   emptyUnreadableOther: (names: string) =>
     `打不開這些位置：${names}。請確認你有讀取權限，然後按「重新掃描」。`,
   listSeparator: "、",
+  listLastSeparator: "、",
   andMore: (n: number) => `另外 ${num(n)} 項`,
   emptyRootIsPackage:
     "圖庫資料夾裡指定的是「照片」App 的圖庫本身。pictkura 刻意不讀取它的內容，所以這裡永遠不會出現照片。請重新選擇一個存放照片的資料夾，或者從記憶卡匯入。",

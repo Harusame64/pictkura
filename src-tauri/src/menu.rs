@@ -243,6 +243,52 @@ static ZH_HANT: MenuText = MenuText {
     zoom: "縮放",
     help: "輔助說明",
 };
+static FR: MenuText = MenuText {
+    about: "À propos de %@",
+    settings: "Réglages…",
+    services: "Services",
+    hide: "Masquer %@",
+    hide_others: "Masquer les autres",
+    quit: "Quitter %@",
+    file: "Fichier",
+    close_window: "Fermer la fenêtre",
+    edit: "Édition",
+    undo: "Annuler",
+    redo: "Rétablir",
+    cut: "Couper",
+    copy: "Copier",
+    paste: "Coller",
+    select_all: "Tout sélectionner",
+    view: "Présentation",
+    fullscreen: "Activer le mode plein écran",
+    window: "Fenêtre",
+    minimize: "Minimiser",
+    zoom: "Réduire/agrandir",
+    help: "Aide",
+};
+static IT: MenuText = MenuText {
+    about: "Informazioni su %@",
+    settings: "Impostazioni…",
+    services: "Servizi",
+    hide: "Nascondi %@",
+    hide_others: "Nascondi altre",
+    quit: "Esci da %@",
+    file: "File",
+    close_window: "Chiudi finestra",
+    edit: "Modifica",
+    undo: "Annulla",
+    redo: "Ripristina",
+    cut: "Taglia",
+    copy: "Copia",
+    paste: "Incolla",
+    select_all: "Seleziona tutto",
+    view: "Vista",
+    fullscreen: "Attiva modalità a tutto schermo",
+    window: "Finestra",
+    minimize: "Contrai",
+    zoom: "Ridimensiona",
+    help: "Aiuto",
+};
 
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
@@ -253,6 +299,8 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("es-419", &ES_419),
     ("zh", &ZH),
     ("zh-hant", &ZH_HANT),
+    ("fr", &FR),
+    ("it", &IT),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**

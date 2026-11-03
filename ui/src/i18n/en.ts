@@ -260,6 +260,8 @@ export const en: Dict = {
   emptyUnreadableOther: (names: string) =>
     `These places could not be opened: ${names}. Check that you have permission to read them, then press Rescan.`,
   listSeparator: ", ",
+  /** Before `andMore`: the serial comma, as in "A, B, C, and 2 more" */
+  listLastSeparator: ", ",
   andMore: (n: number) => `and ${num(n)} more`,
   emptyRootIsPackage:
     "One of the library folders is a Photos app library itself. pictkura deliberately does not read inside one, so nothing will ever come from it. Pick a folder that has photos in it, or import from a card.",

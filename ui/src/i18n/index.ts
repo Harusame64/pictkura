@@ -20,6 +20,12 @@
  *   保存・フォルダ選択・削除確認の枠は AppKit のもので、この辞書は届かない。
  *   辞書だけ足すと**枠だけ英語**のままになる。綴りは AppKit の言語IDなので
  *   辞書のコードと同じとは限らない（`zh` → `zh-Hans`、`zh-hant` → `zh-Hant`）。
+ * - **Rust側にも表が3つある**（画面が立つ前・画面の外で語を出す場所）。
+ *   `src-tauri/src/os_dict.rs` の `DICT_CODES`（言語選択の保存と AppKit の上書きもこれを引く）、
+ *   `menu.rs` のメニューバーの語（`tools/menu-strings.py` で Apple の訳から引く。手で訳さない）、
+ *   `webview2_check.rs` の WebView2 が無いときの案内。**`cargo test` が DICTS との食い違いを見張る**
+ *   が、`webview2_check` は Windows でしかコンパイルされない。2026-11-03 の仏・伊で
+ *   この3つを丸ごと足し忘れ、ゲート2が拾った。
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
  *   **例外は週の始まり**——これだけはタグに映らない設定なので、Rustが
  *   OSで効いている値を渡す（`weekday.ts`）。`Intl` はそれが無いときの近似。
@@ -39,6 +45,8 @@ import { es } from "./es.ts";
 import { es419 } from "./es-419.ts";
 import { zh } from "./zh.ts";
 import { zhHant } from "./zh-hant.ts";
+import { fr } from "./fr.ts";
+import { it } from "./it.ts";
 import { num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
@@ -54,6 +62,8 @@ const DICTS: Record<string, Dict> = {
   "es-419": es419,
   zh,
   "zh-hant": zhHant,
+  fr,
+  it,
 };
 
 /**
@@ -66,6 +76,8 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "ja", label: "日本語" },
   { code: "en", label: "English" },
   { code: "de", label: "Deutsch" },
+  { code: "fr", label: "Français" },
+  { code: "it", label: "Italiano" },
   // **本国と中南米を分けたので、どちらも地域まで名乗る**。`Español` が2つ並ぶと
   // 選べない（Appleの綴りに合わせている）
   { code: "es", label: "Español (España)" },

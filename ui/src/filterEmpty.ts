@@ -42,16 +42,25 @@ export function filterConditions(
 }
 
 /**
- * 名前をつなぐ。**`App.tsx` の `nameList` と同じ作り**——3つまで出し、残りは
- * 「ほか N 件」と数で言う。いまの条件は棚・種類・検索語の最大3つなので畳まれないが、
- * 条件が増えたときに見出しが伸び続けないよう、同じ規則に揃えておく
+ * 名前をつなぐ。3つまで出し、残りは「ほか N 件」と数で言う。**`App.tsx` の `nameList` もこれを呼ぶ**
+ * （つなぎ方を2か所に置かない）。いまの条件は棚・種類・検索語の最大3つなので畳まれないが、
+ * 条件が増えたときに見出しが伸び続けないよう、同じ規則に揃えておく。
+ *
+ * `total` は**手元の名前より多いことがある**（除外の一覧はバックエンドが3件で切って持ってくる）。
+ * 引くのは**出した数**。名前が1つも無ければ、区切りを頭に付けずに「ほか N 件」だけ言う
+ * ——ラテン文字の言語ではそれが接続詞で始まる（`and 5 more`）が、名前を1つも持たずに呼ぶ所は
+ * いま無い（呼び出し側が `length > 0` を見ている）。直す前の `[...shown, andMore].join()` も同じ出方だった
  */
 export function joinConditions(
   names: string[],
   separator: string,
+  lastSeparator: string,
   andMore: (n: number) => string,
+  total = names.length,
 ): string {
   const shown = names.slice(0, 3);
-  const rest = names.length - shown.length;
-  return rest > 0 ? [...shown, andMore(rest)].join(separator) : shown.join(separator);
+  const rest = total - shown.length;
+  if (rest <= 0) return shown.join(separator);
+  if (shown.length === 0) return andMore(rest);
+  return shown.join(separator) + lastSeparator + andMore(rest);
 }
