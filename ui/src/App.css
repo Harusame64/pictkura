@@ -945,6 +945,8 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
+  /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算もこれを引く */
+  --viewer-tool-size: 36px;
   /* `--exif-panel-width`（情報パネルの幅）と `--info-reserve`（開いている間に写真の側から空ける幅）は
      App.tsx が style で渡す——倍率の計算と1か所で揃える（#48）。写真の幅の上限はここで1回だけ書く */
   --viewer-fit-w: calc(100vw - 120px - var(--info-reserve));
@@ -1266,11 +1268,12 @@ body {
   align-items: center;
   gap: var(--sp-2);
 }
-/* 閉じる（一覧へ戻る）。道具の帯と反対の角に置く */
+/* 閉じる（一覧へ戻る）。道具の帯と反対の角に置く。**向きは物理（`left`）で帯（`right`）と揃える**
+   ——右から左の言語を足すときに、帯・送り・これを一緒に論理へ移す */
 .viewer-back {
   position: absolute;
   top: var(--sp-3);
-  inset-inline-start: var(--sp-4);
+  left: var(--sp-4);
 }
 .viewer-tool {
   border: none;
@@ -1278,8 +1281,8 @@ body {
   color: #fff;
   font-family: inherit;
   font-size: var(--fs-xl);
-  width: 36px;
-  height: 36px;
+  width: var(--viewer-tool-size);
+  height: var(--viewer-tool-size);
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: background var(--dur-fast) var(--easing);
@@ -1339,9 +1342,9 @@ body {
    帯は1.8秒で消えるので、消えたあとに見返す先が無かった（2026-08-19） */
 .viewer-badges {
   position: absolute;
-  /* 左上の ← と縦の中心を揃えて、その右に並べる（← は 36px） */
-  top: calc(var(--sp-3) + 6px);
-  inset-inline-start: calc(var(--sp-4) + 36px + var(--sp-2));
+  /* 左上の ← の**下**に置く。横に並べると、狭い窓（960px）で右上の帯とぶつかる（ゲート2） */
+  top: calc(var(--sp-3) + var(--viewer-tool-size) + var(--sp-2));
+  left: var(--sp-4);
   display: flex;
   gap: var(--sp-1);
   pointer-events: none;
@@ -1741,9 +1744,8 @@ body {
   background: var(--pick);
   color: var(--n-10);
 }
-/* ボツの✕。**帯の右端にある「閉じる」の✕と字が同じ**なので、
-   付いていないときから赤くしておく（押し間違いは取り返しがつく側だが、
-   選別中に閉じるつもりで✕を付けるのは邪魔） */
+/* ボツの✕。付いていないときから赤くしておく。かつては帯の右端の「閉じる」も✕で、
+   字で見分けられなかった（2026-11-03 に閉じるは左上の ← へ移した）。赤は印の色として残す */
 .viewer-tool.reject-tool {
   color: var(--danger);
 }

@@ -8965,6 +8965,20 @@ export default function App() {
               )}
             </div>
           )}
+          {/* **閉じるは左上の ←**（2026-11-03 利用者「抜けるボタンとボツボタンが一緒で怖い」）。
+              右上の帯にあったときは字も ✕ でボツ（✕、X キー・札と同じ印）と並び、押し違えると
+              写真がボツの候補になる。抜け道は帯から離して反対の角へ置き、字も変える。
+              **DOM では帯より前**——見える順と Tab の順を揃える（ゲート2） */}
+          <button
+            className="viewer-tool viewer-back"
+            title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              requestCloseViewer();
+            }}
+          >
+            <span aria-hidden="true">←</span>
+          </button>
           <div className="viewer-tools" onClick={(e) => e.stopPropagation()}>
             {/* RAW+JPEG の組のどちらを見るか（2026-09-26 の利用者の要望）。片方だけ見せている
                 ときの、組の写真にだけ出す。押すと設定も替わる（次に開いたときも同じ側） */}
@@ -9106,19 +9120,6 @@ export default function App() {
               <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
             </button>
           </div>
-          {/* **閉じるは左上の ←**（2026-11-03 利用者「抜けるボタンとボツボタンが一緒で怖い」）。
-              右上の帯にあったときは字も ✕ でボツ（✕、X キー・札と同じ印）と並び、押し違えると
-              写真がボツの候補になる。抜け道は帯から離して反対の角へ置き、字も変える */}
-          <button
-            className="viewer-tool viewer-back"
-            title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              requestCloseViewer();
-            }}
-          >
-            <span aria-hidden="true">←</span>
-          </button>
           {hasPrev && (
             <button
               className="viewer-nav prev"
