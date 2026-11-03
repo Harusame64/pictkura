@@ -40,6 +40,13 @@ test("拡張ラテン文字と AltGr は位置へ落とさない（字を打っ�
   assert.equal(letterOf({ key: "Dead", code: "KeyI", altKey: true }), "Dead");
   assert.equal(letterOf({ key: "Process", code: "KeyP" }), "Process");
   assert.equal(letterOf({ key: "Unidentified", code: "KeyX" }), "Unidentified");
+  // タイ語・ヒンディー語は母音記号（結合文字）を出すキーがある。それも落とす
+  assert.equal(letterOf({ key: "\u0e35", code: "KeyU" }), "u");
+  assert.equal(letterOf({ key: "\u0902", code: "KeyX" }), "x");
+  // 露語の `,` の位置は `б`
+  assert.equal(letterOf({ key: "б", code: "Comma" }), ",");
+  // ラテン文字の配列の `,` の位置にある別の字は、そのまま（AZERTY の `;`）
+  assert.equal(letterOf({ key: ";", code: "Comma" }), ";");
   // ギリシャ文字（ラテンでない別の字）は、Alt 無しなら落とす
   assert.equal(letterOf({ key: "π", code: "KeyP" }), "p");
 });

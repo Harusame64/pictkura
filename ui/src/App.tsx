@@ -5698,7 +5698,7 @@ export default function App() {
         if (viewerItem) rejectViewer(viewerItem);
       } else if (judging(e, "u")) {
         if (viewerItem) judgeViewer(viewerItem, false);
-      } else if (letterOf(e) === "i") {
+      } else if (judging(e, "i")) {
         setShowExif((s) => !s);
       } else if (e.key === "F11") {
         e.preventDefault();
@@ -5792,7 +5792,7 @@ export default function App() {
   // 設定（`Ctrl+,` / `⌘,`）。**どれもビューア表示中でも開ける**
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && letterOf(e) === "k") {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && letterOf(e) === "k") {
         e.preventDefault();
         // **手前に幕が在るときは開かない**（`curtainRef` の項）。**閉じるのは通す**
         // ——開いている物を畳む道まで塞ぐ理由は無い
@@ -5825,7 +5825,7 @@ export default function App() {
       //
       // **`Shift` は見ない**——ロシア語配列のように **`,` が Shift 側に在る**
       // 言語があり、そこでは `Ctrl+Shift` が正しい押し方になる
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === ",") {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && letterOf(e) === ",") {
         e.preventDefault();
         openSettingsRef.current();
         return;
