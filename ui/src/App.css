@@ -59,7 +59,7 @@ body {
   font-weight: 700;
   font-size: var(--fs-xl);
   color: var(--text);
-  margin-right: var(--sp-1);
+  margin-inline-end: var(--sp-1);
   letter-spacing: -0.01em;
 }
 .topbar button {
@@ -117,7 +117,7 @@ body {
   width: 96px;
 }
 .status {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--text-muted);
   font-size: var(--fs-md);
   max-width: 32ch;
@@ -213,7 +213,7 @@ body {
 }
 .search-icon {
   position: absolute;
-  left: 10px;
+  inset-inline-start: 10px;
   font-size: var(--fs-sm);
   opacity: 0.55;
   pointer-events: none;
@@ -221,7 +221,8 @@ body {
 .search-box input {
   width: 100%;
   height: 30px;
-  padding: 0 var(--sp-7) 0 28px;
+  padding-block: 0;
+  padding-inline: 28px var(--sp-7);
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   background: var(--surface-2);
@@ -249,7 +250,7 @@ body {
 .search-clear,
 .search-kbd {
   position: absolute;
-  right: 6px;
+  inset-inline-end: 6px;
 }
 .search-clear {
   border: none;
@@ -285,7 +286,7 @@ body {
   width: 220px;
   flex: none;
   background: var(--bg);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   padding: var(--sp-2);
   overflow-y: auto;
 }
@@ -428,7 +429,7 @@ body {
   padding: 1px 6px;
 }
 .fav-count {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: var(--fs-xs);
   background: var(--surface-2);
   color: var(--text-faint);
@@ -591,7 +592,7 @@ body {
 .scrubber {
   position: absolute;
   top: 0;
-  right: 0;
+  inset-inline-end: 0;
   bottom: 0;
   width: 46px;
   z-index: 5;
@@ -599,7 +600,7 @@ body {
 }
 .scrub-tick {
   position: absolute;
-  right: 2px;
+  inset-inline-end: 2px;
   transform: translateY(-50%);
   pointer-events: auto;
   border: none;
@@ -715,7 +716,7 @@ body {
 .cell-fav {
   position: absolute;
   top: var(--sp-1);
-  right: 6px;
+  inset-inline-end: 6px;
   color: var(--fav);
   filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
   font-size: var(--fs-lg);
@@ -726,7 +727,7 @@ body {
 .cell-flag {
   position: absolute;
   top: var(--sp-1);
-  right: 26px;
+  inset-inline-end: 26px;
   color: var(--pick);
   filter: drop-shadow(0 1px 2px oklch(0 0 0 / 0.6));
   font-size: var(--fs-lg);
@@ -742,7 +743,7 @@ body {
    並ぶことがあるので、右下に横へ並べる */
 .cell-chips {
   position: absolute;
-  right: var(--sp-1);
+  inset-inline-end: var(--sp-1);
   bottom: var(--sp-1);
   /* 形はタイルの幅に入るものを App.tsx が選ぶ（`stackBadges.ts`）。ここでは切らない——
      切ると `RAW+JPEG` が数文字に、`▤ 1,234` が `234` に見える（#167 のゲート2） */
@@ -790,7 +791,7 @@ body {
 /* 広げた重ねの先頭の「たたむ」（左下。右下には組の印が残ることがある） */
 .cell-fold {
   position: absolute;
-  left: var(--sp-1);
+  inset-inline-start: var(--sp-1);
   bottom: var(--sp-1);
   padding: 0 6px;
   border: 0;
@@ -810,8 +811,7 @@ body {
 .cell-wrap.spread::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   bottom: -3px;
   height: 2px;
   background: var(--accent);
@@ -819,7 +819,7 @@ body {
 }
 /* 同じ行で右隣も同じ重ねなら、隙間（4px）までつなぐ。行の端では切る */
 .cell-wrap.spread-join::after {
-  right: -4px;
+  inset-inline-end: -4px;
 }
 /* 組の記号（細いタイルの組の形。2026-09-26 の利用者の選択） */
 .cell-chip.chip-icon {
@@ -836,7 +836,7 @@ body {
  * 写真の上に文字を置くので、地の明るさに関係なく読めるよう影付きの黒帯にする */
 .cell-video {
   position: absolute;
-  left: var(--sp-1);
+  inset-inline-start: var(--sp-1);
   bottom: var(--sp-1);
   display: flex;
   align-items: center;
@@ -928,7 +928,7 @@ body {
 .day-number {
   position: absolute;
   top: 3px;
-  left: 5px;
+  inset-inline-start: 5px;
   font-size: var(--fs-xs);
   color: var(--text-faint);
 }
@@ -940,7 +940,7 @@ body {
 .day-count {
   position: absolute;
   bottom: 3px;
-  right: var(--sp-1);
+  inset-inline-end: var(--sp-1);
   font-size: 10px;
   background: oklch(0 0 0 / 0.55);
   color: #fff;
@@ -977,7 +977,7 @@ body {
   position: absolute;
   inset: 0;
   /* 情報パネルの分を空けて、その残りの中央に絵を置く（#48） */
-  right: var(--info-reserve);
+  inset-inline-end: var(--info-reserve);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1042,7 +1042,7 @@ body {
 .viewer-loading-overlay {
   position: absolute;
   inset: 0;
-  right: var(--info-reserve); /* 絵と同じ場所の中央に（#48） */
+  inset-inline-end: var(--info-reserve); /* 絵と同じ場所の中央に（#48） */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1183,8 +1183,8 @@ body {
 }
 .viewer-caption {
   position: absolute;
-  left: 0;
-  right: var(--info-reserve); /* 上のフィルムストリップと揃える（#48） */
+  inset-inline-start: 0;
+  inset-inline-end: var(--info-reserve); /* 上のフィルムストリップと揃える（#48） */
   bottom: 0;
   display: flex;
   gap: var(--sp-4);
@@ -1199,9 +1199,9 @@ body {
    高さは固定で、送っても帯が伸び縮みしない */
 .viewer-strip {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   /* 写真と同じく、情報パネルの分を空けた残りの中央に並べる（パネルの下に潜らない、#48） */
-  right: var(--info-reserve);
+  inset-inline-end: var(--info-reserve);
   bottom: var(--caption-h);
   display: flex;
   justify-content: center;
@@ -1258,11 +1258,11 @@ body {
   pointer-events: none;
 }
 .strip-flag {
-  left: 1px;
+  inset-inline-start: 1px;
   color: var(--pick);
 }
 .strip-fav {
-  right: 1px;
+  inset-inline-end: 1px;
   color: var(--fav);
 }
 
@@ -1274,7 +1274,7 @@ body {
 .viewer-tools {
   position: absolute;
   top: var(--sp-3);
-  right: var(--sp-4);
+  inset-inline-end: var(--sp-4);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -1284,7 +1284,7 @@ body {
 .viewer-back {
   position: absolute;
   top: var(--sp-3);
-  left: var(--sp-4);
+  inset-inline-start: var(--sp-4);
 }
 /* ボタンを grid／flex の箱にはしない（古いエンジンで効かなかった型）。絵のほうを真ん中へ寄せる */
 /* 帯と一緒に薄れて消える。`.viewer-tool` の `transition: background` が後ろで上書きするので、
@@ -1374,7 +1374,7 @@ body {
   position: absolute;
   /* 左上の ← の**下**に置く。横に並べると、狭い窓（960px）で右上の帯とぶつかる（ゲート2） */
   top: calc(var(--sp-3) + var(--viewer-tool-size) + var(--sp-2));
-  left: var(--sp-4);
+  inset-inline-start: var(--sp-4);
   display: flex;
   gap: var(--sp-1);
   pointer-events: none;
@@ -1725,8 +1725,7 @@ body {
 .viewer-progress {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 2px;
   overflow: hidden;
   pointer-events: none;
@@ -1815,10 +1814,14 @@ body {
   font-weight: 600;
 }
 .viewer-pair-side .viewer-tool:first-child {
-  border-radius: var(--radius-full) 0 0 var(--radius-full);
+  border-radius: 0;
+  border-start-start-radius: var(--radius-full);
+  border-end-start-radius: var(--radius-full);
 }
 .viewer-pair-side .viewer-tool:last-child {
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  border-radius: 0;
+  border-start-end-radius: var(--radius-full);
+  border-end-end-radius: var(--radius-full);
 }
 .viewer-pair-side .viewer-tool.on {
   background: var(--accent);
@@ -1846,19 +1849,19 @@ body {
   background: oklch(1 0 0 / 0.22);
 }
 .viewer-nav.prev {
-  left: var(--sp-4);
+  inset-inline-start: var(--sp-4);
 }
 .viewer-nav.next {
   /* 情報パネルを開いている間は、縮めた写真とパネルの間へ寄る（#48）。高さは変えない——押す場所が上下に
      動くと、送り続けている手が外れる */
-  right: calc(var(--info-reserve) + var(--sp-4));
+  inset-inline-end: calc(var(--info-reserve) + var(--sp-4));
 }
 
 /* 撮影情報パネル */
 .exif-panel {
   position: absolute;
   top: 60px;
-  right: var(--sp-4);
+  inset-inline-end: var(--sp-4);
   width: var(--exif-panel-width);
   /* ファイルの節を足して長くなった（ADR の A）。低い窓では中で巻く——撮影地のリンクが窓の外へ出ないように */
   max-height: calc(100vh - 140px);
@@ -2053,7 +2056,7 @@ body {
   gap: var(--sp-1);
 }
 .print-per-page-label {
-  margin-right: var(--sp-2);
+  margin-inline-end: var(--sp-2);
 }
 .print-per-page button {
   min-width: 2.2em;
@@ -2271,7 +2274,7 @@ body {
 /* 送り出しで作ったフォルダの一覧（設定）。注記と同じ大きさで、パスは折り返す */
 .settings-google-folders ul {
   margin: calc(-1 * var(--sp-2)) 0 var(--sp-3);
-  padding-left: var(--sp-4);
+  padding-inline-start: var(--sp-4);
   font-size: var(--fs-sm);
   color: var(--text-faint);
   overflow-wrap: anywhere;
@@ -2326,7 +2329,7 @@ body {
 }
 /* コピー先の「変更」。見出しの一部なので、押せると分かる最小限の装いにする */
 .settings-dest-change {
-  margin-left: var(--sp-2);
+  margin-inline-start: var(--sp-2);
   padding: 1px 8px;
   font-size: var(--fs-sm);
   border-radius: var(--radius-sm);
@@ -2340,7 +2343,8 @@ body {
 }
 /* 自由記述のフォルダ構成 */
 .pattern-custom {
-  padding: var(--sp-2) var(--sp-2) 0 26px;
+  padding-block: var(--sp-2) 0;
+  padding-inline: 26px var(--sp-2);
 }
 .pattern-custom-input {
   width: 100%;
@@ -2380,7 +2384,7 @@ body {
 }
 /* 「更新を確認」。版の隣に小さく置く——押す人だけが押せばいい大きさに */
 .about-check {
-  margin-left: auto;
+  margin-inline-start: auto;
   padding: 3px 10px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
@@ -2579,8 +2583,7 @@ body {
  * ——背が伸びても下から積まれるだけで、互いにかぶらない */
 .notice-stack {
   position: fixed;
-  left: var(--sp-4);
-  right: var(--sp-4);
+  inset-inline: var(--sp-4);
   bottom: 68px;
   z-index: 90;
   display: flex;
@@ -3095,7 +3098,7 @@ body {
 .cell-pick {
   position: absolute;
   top: 6px;
-  left: 6px;
+  inset-inline-start: 6px;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -3209,7 +3212,7 @@ body {
 .empty-library p {
   margin: 0 0 1.5rem;
   line-height: 1.7;
-  text-align: left;
+  text-align: start;
   /* **この段落だけが生のパスを本文に混ぜる。** `/Volumes/写真の倉庫-2019-2024`
      のように空白の無い長い名前は1語なので、折り返せないと箱からはみ出し、
      名指しするために出しているパスがそのまま切れる（ゲート2の指摘） */
@@ -3301,7 +3304,7 @@ body {
   box-shadow: var(--shadow-2);
   cursor: pointer;
   /* `button` の既定は中央寄せ。長い文は左から読ませる */
-  text-align: left;
+  text-align: start;
   display: block;
   /* **パスは折り返す**——`/` や `\` の後ろで切れてよい。切れないと
      長いパス1本で面が画面幅を越える */
