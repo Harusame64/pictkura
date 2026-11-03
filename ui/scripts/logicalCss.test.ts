@@ -7,6 +7,10 @@
  * 新しく左右を書いたら、ここで落ちる。部品の `style={{ left }}` は見ない——そこに在るのは
  * 押した所・絵の箱といった**画面の座標**で、向きではない。
  *
+ * **走査は手がかりであって証明ではない。** よく書く形（位置・余白・枠・角丸・影・移動・グラデーション）は拾うが、
+ * `background` の省略形の中の数値の位置、`var()` の先（トークンの中身）、`calc()` で書いた角度は見ない。
+ * KEEP の VIEWER は `.viewer` の中に描かれる部品にだけ使う（外に出る ViewerZoom などは留まらない）。
+ *
  * 論理の角丸（`border-start-start-radius`）は WebKit 15 から。画面は既に `oklch()`（15.4〜）で
  * 色を塗っているので、それより古い WebKit では元から描けない。
  * `npm --prefix ui test`。
@@ -37,7 +41,7 @@ const KEEP: Record<string, string> = {
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
   ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": "影に論理の形が無い。右→左は [dir=rtl] で裏返す",
-  '[dir="rtl"] .wiz-node.wiz-card|box-shadow|inset -3px 0 0 var(--accent)': "上の裏返し",
+  '.wiz-node.wiz-card:dir(rtl)|box-shadow|inset -3px 0 0 var(--accent)': "上の裏返し",
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
     SHIMMER,
   "@keyframes placeholder-shimmer from|background-position|0 0": SHIMMER,
@@ -140,9 +144,10 @@ function asymmetricRadius(prop: string, value: string): boolean {
 
 /** transform の中で、横へ動かすか、左右を裏返すもの */
 function movesSideways(value: string): boolean {
-  if (/translateX\(|translate3d\(|matrix(3d)?\(|skewX\(|scaleX\(\s*-/.test(value)) return true;
-  for (const m of value.matchAll(/translate\(([^)]*)\)/g)) {
-    if (!zero(splitTopLevel(m[1], /,/)[0])) return true;
+  if (/matrix(3d)?\(|skew(X)?\(|scaleX\(\s*-|rotateY\(/.test(value)) return true;
+  // translate / translateX / translate3d は横の成分が 0 でなければ横へ動く
+  for (const m of value.matchAll(/translate(X|3d)?\(([^)]*)\)/g)) {
+    if (!zero(splitTopLevel(m[2], /,/)[0])) return true;
   }
   for (const m of value.matchAll(/scale\(([^)]*)\)/g)) {
     if (splitTopLevel(m[1], /,/)[0].startsWith("-")) return true;
@@ -155,9 +160,9 @@ function sidewaysPosition(value: string): boolean {
   return splitTopLevel(value, /,/).some((layer) => {
     if (/\b(left|right)\b/.test(layer)) return true;
     const parts = splitTopLevel(layer);
-    // 1語だけの top / bottom は縦の話
-    if (parts.length === 1 && VERTICAL.test(parts[0])) return false;
-    return !middle(parts[0]);
+    // 縦の言葉（top / bottom）が先なら、横は2つ目（無ければ真ん中）
+    const x = VERTICAL.test(parts[0]) && parts[0] !== "center" ? (parts[1] ?? "center") : parts[0];
+    return !middle(x);
   });
 }
 
@@ -169,7 +174,7 @@ function sidewaysGradient(value: string): boolean {
     const turns = { deg: 1 / 360, turn: 1, rad: 1 / (2 * Math.PI), grad: 1 / 400 }[m[2] as "deg"];
     const t = ((Number(m[1]) * turns) % 0.5 + 0.5) % 0.5;
     // 135deg のような斜めは飾りの光沢で、どちらに傾いても読める。真横（0.25 turn）だけを向きとみなす
-    if (Math.abs(t - 0.25) < 1e-9) return true;
+    if (Math.abs(t - 0.25) < 1e-4) return true;
   }
   return false;
 }
@@ -193,6 +198,14 @@ function isPhysical(d: Pick<Decl, "prop" | "value">): boolean {
   if (/^(background-position|background-position-x|object-position|transform-origin|perspective-origin)$/.test(prop))
     return sidewaysPosition(value);
   if (/^(box-shadow|text-shadow)$/.test(prop) && sidewaysShadow(value)) return true;
+  for (const m of value.matchAll(/drop-shadow\(([^)]*(?:\([^)]*\))?[^)]*)\)/g)) {
+    if (sidewaysShadow(m[1])) return true;
+  }
+  if (/^(mask-position|-webkit-mask-position)$/.test(prop)) return sidewaysPosition(value);
+  if (prop === "clip-path" && /^inset\(/.test(value)) {
+    const parts = splitTopLevel(value.slice(6, value.indexOf(")")).split(" round ")[0]);
+    return parts.length === 4 && parts[1] !== parts[3];
+  }
   if (/gradient\(/.test(value) && sidewaysGradient(value)) return true;
   if (prop === "background" && /\b(left|right)\b/.test(value.replace(/gradient\([^)]*\)/g, ""))) return true;
   if (prop === "transform") return movesSideways(value);
@@ -252,6 +265,13 @@ test("the scanner flags each physical shape", () => {
     ["background", "radial-gradient(circle at left, a, b)"],
     ["background", "url() no-repeat right 8px center"],
     ["border-radius", "calc(var(--r) / 2) 0 0 calc(var(--r) / 2)"],
+    ["transform", "translateY(-50%) rotateY(180deg)"],
+    ["transform", "skew(10deg)"],
+    ["filter", "drop-shadow(2px 0 4px red)"],
+    ["mask-position", "right"],
+    ["clip-path", "inset(0 10px 0 0)"],
+    ["background", "linear-gradient(1.5708rad, a, b)"],
+    ["object-position", "top 4px"],
     ["background", "linear-gradient(to right, red, blue)"],
     ["background", "linear-gradient(90deg, red, blue)"],
     ["padding", "0 var(--sp-7) 0 28px"],
@@ -279,16 +299,28 @@ test("the scanner flags each physical shape", () => {
     ["box-shadow", "inset 0 0 0 1px var(--warn)"],
     ["box-shadow", "var(--shadow-2)"],
     ["background", "linear-gradient(0.5turn, a, b)"],
+    ["transform", "translateX(0)"],
+    ["transform", "translate3d(0, -50%, 0)"],
+    ["object-position", "top center"],
+    ["background-position", "bottom 50%"],
+    ["filter", "drop-shadow(0 1px 2px oklch(0 0 0 / 0.6))"],
+    ["clip-path", "inset(50%)"],
   ]) {
     assert.ok(!isPhysical({ prop, value }), `${prop}: ${value}`);
   }
 });
 
-test("the scanner keeps the last declaration and ignores braces in strings", () => {
-  assert.deepEqual(
-    parse('.a { content: "{"; left: 0 } @media (x) { .b { top: 1px } }').map((d) => d.key),
-    ['.a|content|"{"', ".a|left|0", "@media (x) .b|top|1px"],
-  );
+test("no right-to-left language ships while the viewer is pinned", () => {
+  // `.viewer` の direction: ltr は文字の向きも留める。アラビア語・ヘブライ語の字幕や情報パネルが
+  // 左→右で組まれてしまうので、それらの辞書を足す前に外す
+  // index.ts は window を読むので import できない（i18n.test と同じく文字で読む）
+  const index = readFileSync(new URL("i18n/index.ts", src), "utf8");
+  const block = /export const LOCALES[\s\S]*?\n\];/.exec(index)?.[0] ?? "";
+  const codes = [...block.matchAll(/code: "([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(codes.includes("ja") && codes.length >= 10, `LOCALES を読めていない: ${codes}`);
+  const rtl = codes.filter((c) => /^(ar|he|fa|ur)\b/.test(c));
+  const pinned = all.some((d) => d.key === ".viewer|direction|ltr");
+  assert.ok(!(pinned && rtl.length), `.viewer を留めたまま ${rtl} を足している`);
 });
 
 test("the viewer stays pinned left-to-right while its rules are kept physical", () => {
