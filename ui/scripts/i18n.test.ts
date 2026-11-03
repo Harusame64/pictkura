@@ -583,7 +583,6 @@ const INFLECTS: Record<string, string[]> = {
     "memoriesTitle:0",
     "moveConfirm:0",
     "moveDone:0",
-    "moveDone:1",
     "moveDone:2",
     "moveDone:3",
     "moveDone:4",
@@ -610,12 +609,11 @@ const NO_PLURAL = ["ja", "zh", "zh-hant"];
  *
  * `INFLECTS.ru` にあってここに無いキーは、**2 と 5 で同じ形でよいもの**だけ:
  * `фото` が不変化で、変わるのが 1 のときの指示語（`это фото`）か、指し直す代名詞（`его` / `их`）だけの文。
- * `googleSendSummary` の分詞・`errTooManyIds` の属格も 2 と 5 で同じ（`извлечённых` / `элементов`）
+ * `googleSendSummary` の関係節・`errTooManyIds` の属格・`bulkPickDone` の `отмечены как выбранные` も 2 と 5 で同じ
  */
 const FEW_MANY: Record<string, string[]> = {
   ru: [
     "bulkFavoriteDone:0",
-    "bulkPickDone:0",
     "bulkUnfavoriteDone:0",
     "burstTitle:0",
     "burstTitle:2",
@@ -641,7 +639,6 @@ const FEW_MANY: Record<string, string[]> = {
     "itemsCount:0",
     "memoriesTitle:0",
     "moveDone:0",
-    "moveDone:1",
     "moveDone:3",
     "moveDone:4",
     "printSkipped:0",
