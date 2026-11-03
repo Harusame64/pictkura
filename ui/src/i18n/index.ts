@@ -39,6 +39,8 @@ import { es } from "./es.ts";
 import { es419 } from "./es-419.ts";
 import { zh } from "./zh.ts";
 import { zhHant } from "./zh-hant.ts";
+import { fr } from "./fr.ts";
+import { it } from "./it.ts";
 import { num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
@@ -54,6 +56,8 @@ const DICTS: Record<string, Dict> = {
   "es-419": es419,
   zh,
   "zh-hant": zhHant,
+  fr,
+  it,
 };
 
 /**
@@ -72,6 +76,8 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "es-419", label: "Español (Latinoamérica)" },
   { code: "zh", label: "简体中文" },
   { code: "zh-hant", label: "繁體中文" },
+  { code: "fr", label: "Français" },
+  { code: "it", label: "Italiano" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */
