@@ -75,14 +75,15 @@ export const one = (n: number, singular: string, plural: string): string =>
  * - **many**: それ以外（0・5〜20・25・111…）
  *
  * `Intl.PluralRules` に任せずに手で書く——辞書の文は画面を描くたびに組み立てるので、
- * エンジンや版で答えが揺れる余地を残さない（仏語の `un()` と同じ判断）。
+ * エンジンや版（ICU のデータ）で答えが揺れる余地を残さない。上の `one()`・仏語の `un()` も手書きの規則。
+ * 引数の名前を `one` にしないのは、上の `one()` を隠さないため。
  * 0〜100000 の整数で `Intl.PluralRules("ru")` と一致することを確かめてある（`scripts/plural.test.ts`）。
  * 件数にしか使わないので、小数の形（CLDR の `other`）は持たない。
  */
-export const oneFewMany = (n: number, one: string, few: string, many: string): string => {
+export const oneFewMany = (n: number, singular: string, few: string, many: string): string => {
   const d = Math.abs(n) % 10;
   const h = Math.abs(n) % 100;
-  if (d === 1 && h !== 11) return one;
+  if (d === 1 && h !== 11) return singular;
   if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return few;
   return many;
 };
