@@ -289,6 +289,29 @@ static IT: MenuText = MenuText {
     zoom: "Ridimensiona",
     help: "Aiuto",
 };
+static RU: MenuText = MenuText {
+    about: "О приложении «%@»",
+    settings: "Настройки…",
+    services: "Службы",
+    hide: "Скрыть %@",
+    hide_others: "Скрыть остальные",
+    quit: "Завершить %@",
+    file: "Файл",
+    close_window: "Закрыть окно",
+    edit: "Правка",
+    undo: "Отменить",
+    redo: "Повторить",
+    cut: "Вырезать",
+    copy: "Скопировать",
+    paste: "Вставить",
+    select_all: "Выбрать все",
+    view: "Вид",
+    fullscreen: "Перейти в полноэкранный режим",
+    window: "Окно",
+    minimize: "Убрать в Dock",
+    zoom: "Изменить масштаб",
+    help: "Справка",
+};
 
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
@@ -301,6 +324,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("zh-hant", &ZH_HANT),
     ("fr", &FR),
     ("it", &IT),
+    ("ru", &RU),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**

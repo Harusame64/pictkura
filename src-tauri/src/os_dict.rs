@@ -10,7 +10,7 @@
 
 /// 画面の辞書のコード。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**（下の升が見張る）
 pub const DICT_CODES: &[&str] = &[
-    "en", "ja", "de", "es", "es-419", "zh", "zh-hant", "fr", "it",
+    "en", "ja", "de", "es", "es-419", "zh", "zh-hant", "fr", "it", "ru",
 ];
 
 /// OS の言語の並びから、辞書のコードを1つ当てる。知らない言語ばかりなら英語
@@ -114,6 +114,9 @@ pub(crate) mod tests {
         assert_eq!(guess(&["fr-CA".into()]), "fr");
         assert_eq!(guess(&["fr-DZ".into()]), "fr");
         assert_eq!(guess(&["it-CH".into()]), "it");
+        // 露語も地域で割らない（カザフスタンのロシア語も本国の辞書）
+        assert_eq!(guess(&["ru-RU".into()]), "ru");
+        assert_eq!(guess(&["ru-KZ".into()]), "ru");
         assert_eq!(guess(&["en-GB".into()]), "en");
         // 簡体字と繁体字
         assert_eq!(guess(&["zh-Hans-CN".into()]), "zh");

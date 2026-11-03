@@ -158,6 +158,7 @@ import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
+import { letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
 import {
@@ -5578,7 +5579,7 @@ export default function App() {
      * **`PrintWindow` では検索バーが写らない**ので、**画で「出ていない」と読まないこと**
      */
     const judging = (e: KeyboardEvent, key: string) =>
-      e.key.toLowerCase() === key && !e.ctrlKey && !e.metaKey && !e.altKey;
+      letterOf(e) === key && !e.ctrlKey && !e.metaKey && !e.altKey;
     const onKey = (e: KeyboardEvent) => {
       // 文字入力中はビューアの1文字ショートカットを効かせない。
       // パレットはビューアの上にも開けるので、"family" と打つと f で★が
@@ -5649,10 +5650,10 @@ export default function App() {
       // `Ctrl`/`⌘` を見ないものが混じっており、先に落とすと `⌘C` が
       // 素の `c` として通ってしまう
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
-        const saving = e.key === "s" || e.key === "S";
-        const copying = e.key === "c" || e.key === "C";
+        const saving = letterOf(e) === "s";
+        const copying = letterOf(e) === "c";
         // 印刷（ADR B-3）。右クリックの「印刷…」と同じ幕を開く。食べるのは常時のハンドラ（上の `Ctrl+S` と同じ）
-        if ((e.key === "p" || e.key === "P") && viewerItem && canCopyToClipboard(viewerItem, fullFailedId)) {
+        if (letterOf(e) === "p" && viewerItem && canCopyToClipboard(viewerItem, fullFailedId)) {
           setPrintFor(viewerItem);
           return;
         }
@@ -5697,7 +5698,7 @@ export default function App() {
         if (viewerItem) rejectViewer(viewerItem);
       } else if (judging(e, "u")) {
         if (viewerItem) judgeViewer(viewerItem, false);
-      } else if (e.key === "i" || e.key === "I") {
+      } else if (judging(e, "i")) {
         setShowExif((s) => !s);
       } else if (e.key === "F11") {
         e.preventDefault();
@@ -5791,7 +5792,7 @@ export default function App() {
   // 設定（`Ctrl+,` / `⌘,`）。**どれもビューア表示中でも開ける**
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && letterOf(e) === "k") {
         e.preventDefault();
         // **手前に幕が在るときは開かない**（`curtainRef` の項）。**閉じるのは通す**
         // ——開いている物を畳む道まで塞ぐ理由は無い
@@ -5824,7 +5825,7 @@ export default function App() {
       //
       // **`Shift` は見ない**——ロシア語配列のように **`,` が Shift 側に在る**
       // 言語があり、そこでは `Ctrl+Shift` が正しい押し方になる
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === ",") {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && letterOf(e) === ",") {
         e.preventDefault();
         openSettingsRef.current();
         return;
@@ -5837,7 +5838,7 @@ export default function App() {
       // 保存ダイアログ**が開く。「ビューアで `Ctrl+S`」を覚えた人が一覧へ
       // 戻って同じ手癖で押すと、アプリのHTMLを保存しますかと聞かれることに
       // なる。ここは開いている画面に関わらず走るので、穴が残らない
-      const saveKey = e.key === "s" || e.key === "S";
+      const saveKey = letterOf(e) === "s";
       if ((e.ctrlKey || e.metaKey) && !e.altKey && saveKey) {
         e.preventDefault();
         return;
@@ -5845,7 +5846,7 @@ export default function App() {
       // **`Ctrl+P` も同じ理由で食べる**（ADR B-3）。素通しすると WebView2 のページの印刷が開き、ビューアの
       // `full/`——**原本の JPEG を EXIF・GPS ごと**——刷る・PDF に保存する（#213 のゲート2）。ビューアは
       // 自分の受け口で印刷の幕を開く
-      const printKey = e.key === "p" || e.key === "P";
+      const printKey = letterOf(e) === "p";
       if ((e.ctrlKey || e.metaKey) && !e.altKey && printKey) {
         e.preventDefault();
         return;
@@ -5897,7 +5898,7 @@ export default function App() {
         view !== "grid"
       )
         return;
-      if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+      if ((e.ctrlKey || e.metaKey) && letterOf(e) === "a") {
         e.preventDefault();
         selectAllRef.current().catch((e) => fail(errText(e)));
         return;

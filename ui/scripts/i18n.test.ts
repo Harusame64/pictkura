@@ -43,6 +43,7 @@ import { zh } from "../src/i18n/zh.ts";
 import { zhHant } from "../src/i18n/zh-hant.ts";
 import { fr } from "../src/i18n/fr.ts";
 import { it as itDict } from "../src/i18n/it.ts";
+import { ru } from "../src/i18n/ru.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -64,6 +65,7 @@ const DICTS: Record<string, Any> = {
   "zh-hant": zhHant as Any,
   fr: fr as Any,
   it: itDict as Any,
+  ru: ru as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -545,6 +547,53 @@ const INFLECTS: Record<string, string[]> = {
     "wizardMoreFiles:0",
     "wizardSelected:0",
   ],
+  // **露語は3形**（`oneFewMany`）。ここは 1 と 2 の差だけ。2 と 5 の差は下の `FEW_MANY`
+  ru: [
+    "bulkFavoriteDone:0",
+    "bulkPickDone:0",
+    "bulkUnfavoriteDone:0",
+    "burstTitle:0",
+    "burstTitle:2",
+    "burstTitleRawJpeg:0",
+    "burstTitleRawJpeg:2",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedMissing:1",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "errTooManyIds:0",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "googleRemoveFailed:0",
+    "googleRemoved:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:2",
+    "googleSent:0",
+    "googleSent:1",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "importGoogleFailed:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "moveDone:0",
+    "moveDone:2",
+    "moveDone:3",
+    "moveDone:4",
+    "printSkipped:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "selectedCount:0",
+    "stackRawChipTitle:0",
+    "wizardHiddenCount:0",
+    "wizardSelected:0",
+  ],
 };
 
 /**
@@ -553,6 +602,146 @@ const INFLECTS: Record<string, string[]> = {
  * `INFLECTS` と合わせて `DICTS` を覆い切る。**覆えていなければ下のテストが落ちる。**
  */
 const NO_PLURAL = ["ja", "zh", "zh-hant"];
+
+/**
+ * **2〜4 と 5〜 で形が変わる位置**（露語の few と many）。`INFLECTS` は 1 と 2 しか比べないので、
+ * 英語から `one()` を写して `5 файла`（正しくは `5 файлов`）と出るキーを見逃す（2026-11-03）。
+ *
+ * `INFLECTS.ru` にあってここに無いキーは、**2 と 5 で同じ形でよいもの**だけ:
+ * `фото` が不変化で、変わるのが 1 のときの指示語（`это фото`）か、指し直す代名詞（`его` / `их`）だけの文。
+ * `googleSendSummary` の関係節・`errTooManyIds` の属格も 2 と 5 で同じ
+ */
+const FEW_MANY: Record<string, string[]> = {
+  ru: [
+    "bulkPickDone:0",
+    "bulkFavoriteDone:0",
+    "bulkUnfavoriteDone:0",
+    "burstTitle:0",
+    "burstTitle:2",
+    "burstTitleRawJpeg:0",
+    "burstTitleRawJpeg:2",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedMissing:1",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "googleRemoveFailed:0",
+    "googleRemoved:0",
+    "googleSendLeftOut:0",
+    "googleSent:0",
+    "googleSent:1",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "importGoogleFailed:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveDone:0",
+    "moveDone:3",
+    "moveDone:4",
+    "printSkipped:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "selectedCount:0",
+    "stackRawChipTitle:0",
+    "wizardHiddenCount:0",
+    "wizardSelected:0",
+  ],
+};
+
+/**
+ * **AppKit の「Cancel」の訳**（macOS 27 の `AppKit.framework/Resources/Common.loctable`、2026-11-03 に写した）。
+ * macOS の確認画面は、題がこれと同じボタンにだけ Esc を割り当てる（`confirmLabels.ts`、#147）。
+ * 露語の辞書が `Отмена` で、露語の Mac で Esc が効かなかった（ゲート2）。言語を足したら、ここに
+ * `plutil -convert json -o - …/Common.loctable` の `<言語>.Cancel` を写す
+ */
+const APPKIT_CANCEL: Record<string, string> = {
+  ja: "キャンセル",
+  en: "Cancel",
+  de: "Abbrechen",
+  es: "Cancelar",
+  "es-419": "Cancelar",
+  zh: "取消",
+  "zh-hant": "取消",
+  fr: "Annuler",
+  it: "Annulla",
+  ru: "Отменить",
+};
+
+test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
+  assert.deepEqual(Object.keys(APPKIT_CANCEL).sort(), Object.keys(DICTS).sort(), "辞書を足したら APPKIT_CANCEL にも写すこと");
+  for (const [lang, word] of Object.entries(APPKIT_CANCEL)) {
+    assert.equal(DICTS[lang].confirmCancel, word, `${lang}.confirmCancel が AppKit の Cancel と違う（macOS で Esc が効かない）`);
+  }
+});
+
+test("3形の言語は、1の位と下2桁で形を決めること（11〜14 は 5〜、22 は 2〜4）", () => {
+  // 2 と 5 の比べだけでは、手書きの `n < 5 ? few : many`（12 を few、22 を many にする）が通る。
+  // 数の位置ごとに、11・12 が 5 と、22 が 2 と同じ形になることを見る（ほかの数は 2 に固定）
+  for (const lang of Object.keys(FEW_MANY)) {
+    const d = DICTS[lang];
+    for (const key of COUNT_KEYS) {
+      const types = SIGNATURES[key] ?? [];
+      types.forEach((t, i) => {
+        if (t !== "number") return;
+        const at = (n: number) => shape(call(d, key, types.map((u, j) => (u !== "number" ? "X" : j === i ? n : 2))));
+        assert.equal(at(11), at(5), `${lang}.${key} の ${i} 番目: 11 が 5〜 の形でない`);
+        assert.equal(at(12), at(5), `${lang}.${key} の ${i} 番目: 12 が 5〜 の形でない`);
+        assert.equal(at(22), at(2), `${lang}.${key} の ${i} 番目: 22 が 2〜4 の形でない`);
+      });
+    }
+  }
+});
+
+/**
+ * **21 が 1 と違う形でよい位置**（露語）。数詞の一致では 21 は 1 と同じ単数だが、
+ * 指し直す代名詞・名詞（`его`/`их`、`оригинал`/`оригиналы`、`который`/`которые`、`миниатюру`/`миниатюры`）は
+ * 1 のときだけ単数（`ru.ts` の `pron`）。`deleteConfirm` / `moveConfirm` は 1 のときだけ「это фото」と指す
+ */
+const REFERS_BACK: Record<string, string[]> = {
+  ru: [
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "googleSendSummary:2",
+    "googleSentCloudOnly:0",
+    "moveConfirm:0",
+    "moveDone:2",
+    "moveDone:3",
+    "printSkipped:0",
+  ],
+};
+
+test("3形の言語は、21 を 1 と同じ形にすること（指し直す語の位置を除く）", () => {
+  // 11/12/22 と 2/5 の比べでは、`n === 1 ? 単数 : …` と書いた単数（21 で `21 файлов` になる）が通る
+  for (const [lang, allowed] of Object.entries(REFERS_BACK)) {
+    const d = DICTS[lang];
+    const differs: string[] = [];
+    for (const key of COUNT_KEYS) {
+      const types = SIGNATURES[key] ?? [];
+      types.forEach((t, i) => {
+        if (t !== "number") return;
+        const at = (n: number) => shape(call(d, key, types.map((u, j) => (u !== "number" ? "X" : j === i ? n : 2))));
+        if (at(21) !== at(1)) differs.push(`${key}:${i}`);
+      });
+    }
+    assert.deepEqual(differs.sort(), allowed.slice().sort(), `${lang}: 21 と 1 の形が違う位置が変わった`);
+  }
+});
+
+test("3形の言語は、2〜4 と 5〜 で形を変えること", () => {
+  for (const [lang, expected] of Object.entries(FEW_MANY)) {
+    assert.deepEqual(
+      fewManyOf(DICTS[lang]).slice().sort(),
+      expected.slice().sort(),
+      `${lang} で 2 と 5 の形が変わる「キー:位置」が変わった。減ったなら one() を写していないか見ること`,
+    );
+  }
+});
 
 /**
  * 1のときだけ**言い回しを変える**キー。単複ではないので、`NO_PLURAL` の言語にもある。
@@ -565,6 +754,21 @@ const PHRASING = ["deleteConfirm", "moveConfirm"];
 
 /** 数字そのものは伏せて、**語形だけ**を比べる */
 const shape = (s: string) => s.replace(/[\d., ]+/g, "#");
+
+/** 2 と 5 で形が変わる位置（露語の few と many）。ほかの数は 2 に固定する */
+const fewManyOf = (d: Any): string[] => {
+  const out: string[] = [];
+  for (const key of COUNT_KEYS) {
+    const types = SIGNATURES[key] ?? [];
+    const few = call(d, key, types.map((t) => (t === "number" ? 2 : "X")));
+    types.forEach((t, i) => {
+      if (t !== "number") return;
+      const many = types.map((u, j) => (u !== "number" ? "X" : j === i ? 5 : 2));
+      if (shape(call(d, key, many)) !== shape(few)) out.push(`${key}:${i}`);
+    });
+  }
+  return out;
+};
 
 /** その辞書で「1にすると語形が動く」引数の位置を、`キー:位置` で並べる */
 const inflectionsOf = (d: Any): string[] => {
@@ -771,6 +975,18 @@ const SAME_AS_EN: Record<string, string[]> = {
     "rejectChip",
     "wizardCapped",
   ],
+  ru: [
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "appName",
+    "kindRaw",
+    "keyCtrl",
+    "actualSizeBadge",
+    "exifIso",
+    "listSeparator",
+    "photosCount",
+    "rejectChip",
+    "wizardCapped",
+  ],
 };
 
 test("英語からの丸写しが無いこと", () => {
@@ -950,6 +1166,9 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("fr-DZ"), "fr");
   assert.equal(pick("it-IT"), "it");
   assert.equal(pick("it-CH"), "it");
+  // 露語も地域で割らない（カザフスタンも本国の辞書。Rust の `os_dict::guess` と同じ答え）
+  assert.equal(pick("ru-RU"), "ru");
+  assert.equal(pick("ru-KZ"), "ru");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1010,6 +1229,8 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
     [["fr"], "rootsMissingNotice", [["1 photo ne peut pas être ouverte", "2 photos ne peuvent pas être ouvertes"]]],
     [["it"], "rootMissingNotice", [["1 foto al suo interno non può essere aperta", "2 foto al suo interno non possono essere aperte"]]],
     [["it"], "rootsMissingNotice", [["1 foto non può essere aperta", "2 foto non possono essere aperte"]]],
+    [["ru"], "rootMissingNotice", [["1 фото в ней недоступно", "2 фото в ней недоступны"]]],
+    [["ru"], "rootsMissingNotice", [["1 фото недоступно", "2 фото недоступны"]]],
   ];
   for (const [langs, key, pairs] of cases) {
     for (const lang of langs) {

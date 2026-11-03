@@ -37,6 +37,7 @@ LOCALES = [
     ("zh-hant", "zh_TW"),
     ("fr", "fr"),
     ("it", "it"),
+    ("ru", "ru"),
 ]
 
 # (Rustのフィールド名, loctableのキー, どちらの表か)

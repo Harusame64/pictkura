@@ -156,6 +156,11 @@ fn notice_for(code: &str) -> Notice {
                    Aprire la pagina di download? Dopo averlo installato, avvia di nuovo pictkura.",
             url: "https://developer.microsoft.com/it-it/microsoft-edge/webview2/",
         },
+        "ru" => Notice {
+            text: "Для работы pictkura нужна среда выполнения Microsoft Edge WebView2, но она не найдена.\n\n\
+                   Открыть страницу загрузки? После установки снова запустите pictkura.",
+            url: "https://developer.microsoft.com/ru-ru/microsoft-edge/webview2/",
+        },
         _ => Notice {
             text: "pictkura needs the Microsoft Edge WebView2 Runtime, but it could not be found.\n\n\
                    Open the download page? After installing it, start pictkura again.",
