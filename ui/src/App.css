@@ -283,24 +283,29 @@ body {
   padding: var(--sp-2);
   overflow-y: auto;
 }
-/* 見出しの横に開け閉めのボタンが並ぶことがある。**並ばないときは字の途中で折らず、
-   ボタンだけが次の行の右端へ降りる**——伊・西・独・仏で見出しとボタンが両方2行に
-   折れていた（2026-11-03、win の実測） */
 .nav-section {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  column-gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-2) var(--sp-1);
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-faint);
 }
+/* 見出しの横に開け閉めのボタンが並ぶ（カメラ）。**並ばないときは字の途中で折らず、
+   ボタンだけが次の行の行末へ丸ごと降りる**——伊・西・独・仏で見出しとボタンが両方2行に
+   折れていた（2026-11-03、win の実測）。折り返せる flex 行は要素を本来の幅で並べるので、
+   入りきらなければ縮まずに降りる。サイドバーより長い文言だけはボタンの中で折れる */
+.nav-section.has-toggle {
+  flex-wrap: wrap;
+  column-gap: var(--sp-2);
+}
 .nav-more {
+  display: inline-grid;
+  max-width: 100%;
   margin-inline-start: auto;
-  white-space: nowrap;
+  text-align: end;
   border: none;
   background: none;
   color: var(--accent);
@@ -311,6 +316,13 @@ body {
 }
 .nav-more:hover {
   text-decoration: underline;
+}
+/* 2つの文言を同じ升に重ね、長いほうの幅を取る。使っていないほうは見えず、読み上げにも出ない */
+.nav-more > span {
+  grid-area: 1 / 1;
+}
+.nav-more-off {
+  visibility: hidden;
 }
 /* 選択は角丸ピル。塗りは accent-soft の淡い面にして文字だけを色づける */
 .nav-item {
