@@ -1869,6 +1869,8 @@ body {
 .viewer-nav:hover {
   background: oklch(1 0 0 / 0.22);
 }
+/* 前は行の始まり、次は行の終わり。**字形（‹ ›）は裏返さない**——どちらも Unicode の鏡像文字
+   （Bidi_Mirrored）なので、右→左の行では文字のほうが向きを変えて描かれる（win の実測: 前が右で ›） */
 .viewer-nav.prev {
   inset-inline-start: var(--sp-4);
 }
