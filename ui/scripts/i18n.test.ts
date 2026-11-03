@@ -651,6 +651,50 @@ const FEW_MANY: Record<string, string[]> = {
   ],
 };
 
+/**
+ * **AppKit の「Cancel」の訳**（macOS 27 の `AppKit.framework/Resources/Common.loctable`、2026-11-03 に写した）。
+ * macOS の確認画面は、題がこれと同じボタンにだけ Esc を割り当てる（`confirmLabels.ts`、#147）。
+ * 露語の辞書が `Отмена` で、露語の Mac で Esc が効かなかった（ゲート2）。言語を足したら、ここに
+ * `plutil -convert json -o - …/Common.loctable` の `<言語>.Cancel` を写す
+ */
+const APPKIT_CANCEL: Record<string, string> = {
+  ja: "キャンセル",
+  en: "Cancel",
+  de: "Abbrechen",
+  es: "Cancelar",
+  "es-419": "Cancelar",
+  zh: "取消",
+  "zh-hant": "取消",
+  fr: "Annuler",
+  it: "Annulla",
+  ru: "Отменить",
+};
+
+test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
+  assert.deepEqual(Object.keys(APPKIT_CANCEL).sort(), Object.keys(DICTS).sort(), "辞書を足したら APPKIT_CANCEL にも写すこと");
+  for (const [lang, word] of Object.entries(APPKIT_CANCEL)) {
+    assert.equal(DICTS[lang].confirmCancel, word, `${lang}.confirmCancel が AppKit の Cancel と違う（macOS で Esc が効かない）`);
+  }
+});
+
+test("3形の言語は、1の位と下2桁で形を決めること（11〜14 は 5〜、22 は 2〜4）", () => {
+  // 2 と 5 の比べだけでは、手書きの `n < 5 ? few : many`（12 を few、22 を many にする）が通る。
+  // 数の位置ごとに、11・12 が 5 と、22 が 2 と同じ形になることを見る（ほかの数は 2 に固定）
+  for (const lang of Object.keys(FEW_MANY)) {
+    const d = DICTS[lang];
+    for (const key of COUNT_KEYS) {
+      const types = SIGNATURES[key] ?? [];
+      types.forEach((t, i) => {
+        if (t !== "number") return;
+        const at = (n: number) => shape(call(d, key, types.map((u, j) => (u !== "number" ? "X" : j === i ? n : 2))));
+        assert.equal(at(11), at(5), `${lang}.${key} の ${i} 番目: 11 が 5〜 の形でない`);
+        assert.equal(at(12), at(5), `${lang}.${key} の ${i} 番目: 12 が 5〜 の形でない`);
+        assert.equal(at(22), at(2), `${lang}.${key} の ${i} 番目: 22 が 2〜4 の形でない`);
+      });
+    }
+  }
+});
+
 test("3形の言語は、2〜4 と 5〜 で形を変えること", () => {
   for (const [lang, expected] of Object.entries(FEW_MANY)) {
     assert.deepEqual(
@@ -673,7 +717,6 @@ const PHRASING = ["deleteConfirm", "moveConfirm"];
 /** 数字そのものは伏せて、**語形だけ**を比べる */
 const shape = (s: string) => s.replace(/[\d., ]+/g, "#");
 
-/** その辞書で「1にすると語形が動く」引数の位置を、`キー:位置` で並べる */
 /** 2 と 5 で形が変わる位置（露語の few と many）。ほかの数は 2 に固定する */
 const fewManyOf = (d: Any): string[] => {
   const out: string[] = [];
@@ -689,6 +732,7 @@ const fewManyOf = (d: Any): string[] => {
   return out;
 };
 
+/** その辞書で「1にすると語形が動く」引数の位置を、`キー:位置` で並べる */
 const inflectionsOf = (d: Any): string[] => {
   const out: string[] = [];
   for (const key of COUNT_KEYS) {
@@ -1084,6 +1128,9 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("fr-DZ"), "fr");
   assert.equal(pick("it-IT"), "it");
   assert.equal(pick("it-CH"), "it");
+  // 露語も地域で割らない（カザフスタンも本国の辞書。Rust の `os_dict::guess` と同じ答え）
+  assert.equal(pick("ru-RU"), "ru");
+  assert.equal(pick("ru-KZ"), "ru");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1144,6 +1191,8 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
     [["fr"], "rootsMissingNotice", [["1 photo ne peut pas être ouverte", "2 photos ne peuvent pas être ouvertes"]]],
     [["it"], "rootMissingNotice", [["1 foto al suo interno non può essere aperta", "2 foto al suo interno non possono essere aperte"]]],
     [["it"], "rootsMissingNotice", [["1 foto non può essere aperta", "2 foto non possono essere aperte"]]],
+    [["ru"], "rootMissingNotice", [["1 фото в ней недоступно", "2 фото в ней недоступны"]]],
+    [["ru"], "rootsMissingNotice", [["1 фото недоступно", "2 фото недоступны"]]],
   ];
   for (const [langs, key, pairs] of cases) {
     for (const lang of langs) {
