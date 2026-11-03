@@ -7794,12 +7794,22 @@ export default function App() {
               })}
               {/* **開け閉めは一覧の末尾で**（2026-11-03 利用者）。見出しの右に置くと、見出しと横幅を
                   取り合って伊・西・独・仏で両方が2行に折れた（win の実測）。開いても閉じても
-                  同じ位置の同じ要素なので、押したあともフォーカスが残り、続けて押せる */}
+                  **同じ要素**なので（`map` の配列は行の数によらず1つの子の枠）、押したあとも
+                  フォーカスが残り、続けて押せる。開くとボタンは隠れていた行のぶん下へ移る */}
               {cameras.length > CAMERAS_COLLAPSED && (
                 <button
-                  className="nav-more nav-more-end"
+                  className="nav-more"
                   aria-expanded={camerasExpanded}
-                  onClick={() => setCamerasExpanded((v) => !v)}
+                  onClick={(e) => {
+                    const button = e.currentTarget;
+                    const closing = camerasExpanded;
+                    setCamerasExpanded((v) => !v);
+                    // 長い一覧を下までスクロールして閉じると、上の行が消えたぶん
+                    // ボタンが画面の外へ出ることがある。閉じたら見える所まで寄せる（ゲート2）
+                    if (closing) {
+                      requestAnimationFrame(() => button.scrollIntoView({ block: "nearest" }));
+                    }
+                  }}
                 >
                   {camerasExpanded
                     ? t.collapse

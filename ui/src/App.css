@@ -284,35 +284,31 @@ body {
   overflow-y: auto;
 }
 .nav-section {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   padding: var(--sp-3) var(--sp-2) var(--sp-1);
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--text-faint);
 }
+/* カメラの一覧の末尾の開け閉め。**行の幅いっぱいを押せる**ようにし、字の頭は
+   カメラ名の列ではなく行の頭（.nav-item の内側）に揃える */
 .nav-more {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  margin: 1px 0 var(--sp-1);
+  padding-block: 2px;
+  padding-inline: var(--sp-2);
   border: none;
   background: none;
   color: var(--accent);
   font-family: inherit;
   font-size: var(--fs-xs);
+  text-align: start;
   cursor: pointer;
-  padding: 0 2px;
 }
 .nav-more:hover {
   text-decoration: underline;
-}
-/* 一覧の末尾の開け閉め。字の頭をカメラ名の列ではなく行の頭（.nav-item の内側）に揃える */
-.nav-more-end {
-  display: block;
-  min-height: 24px;
-  margin: 1px 0 var(--sp-1);
-  padding-block: 2px;
-  padding-inline: var(--sp-2);
-  text-align: start;
 }
 /* 選択は角丸ピル。塗りは accent-soft の淡い面にして文字だけを色づける */
 .nav-item {
