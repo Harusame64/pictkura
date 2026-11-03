@@ -9105,14 +9105,20 @@ export default function App() {
             >
               <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
             </button>
-            <button
-              className="viewer-tool"
-              title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
-              onClick={requestCloseViewer}
-            >
-              <span aria-hidden="true">✕</span>
-            </button>
           </div>
+          {/* **閉じるは左上の ←**（2026-11-03 利用者「抜けるボタンとボツボタンが一緒で怖い」）。
+              右上の帯にあったときは字も ✕ でボツ（✕、X キー・札と同じ印）と並び、押し違えると
+              写真がボツの候補になる。抜け道は帯から離して反対の角へ置き、字も変える */}
+          <button
+            className="viewer-tool viewer-back"
+            title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              requestCloseViewer();
+            }}
+          >
+            <span aria-hidden="true">←</span>
+          </button>
           {hasPrev && (
             <button
               className="viewer-nav prev"
