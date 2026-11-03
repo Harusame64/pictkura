@@ -19,7 +19,7 @@
  * - **OSの用語は引いてくる**。`Cestino`（ゴミ箱。Windows・macOS とも）・`Ctrl`・
  *   `Maiusc`（Shift）・`Barra spaziatrice`（Space）・`Appunti`（クリップボード）・
  *   `Esplora file`・`Mostra altre opzioni`（Windows 11 のメニュー）・
- *   `Riproduzione automatica`（Windows の自動再生）・
+ *   `AutoPlay`（Windows の自動再生。Windows 11 の伊語版は英語名のまま）・
  *   `Impostazioni di Sistema → Privacy e sicurezza`（macOS）・
  *   Microsoft Store の `Estensioni immagini HEIF` / `Estensioni video HEVC`
  *   （2026-11-03、apps.microsoft.com の it-IT 表示で確かめた）。
@@ -121,7 +121,7 @@ export const it: Dict = {
   browse: "Sfoglia…",
   addFolderPlaceholder: folderExample("es. ", "utente"),
   pickLibraryFolder: "Scegli la cartella da aggiungere alla libreria",
-  showMore: (n: number) => `${one(n, "altro", "altri")} ${num(n)}`,
+  showMore: (n: number) => (n === 1 ? "un altro" : `altri ${num(n)}`),
   collapse: "Mostra meno",
   photosCount: (n: number) => `${num(n)}`,
   memoriesTitle: (years: number) =>
@@ -145,7 +145,7 @@ export const it: Dict = {
   rejectGateRestore: "Conserva",
   rejectGateBack: "Indietro",
   rejectGateDiscard: "Chiudi senza eliminare",
-  rejectGateConfirm: (n: number) => `Sposta ${num(n)} nel Cestino`,
+  rejectGateConfirm: (n: number) => `Sposta ${num(n)} foto nel Cestino`,
   rejectGateTrashing: (done: number, total: number) =>
     `Spostamento… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `È disponibile la versione ${v}`,
@@ -331,7 +331,7 @@ export const it: Dict = {
   wizardDestination: "Destinazione",
   wizardChangeDestination: "Cambia",
   wizardStructure: "Organizzazione",
-  wizardImportButton: (n: number) => `Importa ${num(n)}`,
+  wizardImportButton: (n: number) => `Importa ${num(n)} foto`,
   wizardImportAll: "Importa tutta questa cartella (sottocartelle incluse)",
   wizardImportAllShort: "Cartella intera",
   wizardDeep: "Includi le sottocartelle",
@@ -355,9 +355,9 @@ export const it: Dict = {
   wizardAllImported: "Niente di nuovo qui (tutto il contenuto di questa cartella è già importato)",
   wizardHiddenCount: (n: number) =>
     `${num(n)} già ${one(n, "importata è nascosta", "importate sono nascoste")}`,
-  /** `circa` は「およそ」なので、1のときは落とす（西語の `unos` と同じ理由）。動詞も単数へ */
-  wizardEtaSeconds: (n: number) => `${one(n, "manca", "mancano circa")} ${num(n)} s`,
-  wizardEtaMinutes: (n: number) => `${one(n, "manca", "mancano circa")} ${num(n)} min`,
+  /** 動詞だけ単数へ。`circa` は不変化の副詞なので1でも残す（西語の `unos` とは違う） */
+  wizardEtaSeconds: (n: number) => `${one(n, "manca", "mancano")} circa ${num(n)} s`,
+  wizardEtaMinutes: (n: number) => `${one(n, "manca", "mancano")} circa ${num(n)} min`,
   wizardEtaCalculating: "stima del tempo rimanente…",
   wizardCapped: (n: number) => `${num(n)}+`,
   wizardMoreFiles: (n: number) =>
@@ -386,7 +386,7 @@ export const it: Dict = {
   printSheetTitle: (n: number) => `Stampa ${num(n)} foto`,
   printPerPage: "Foto per pagina",
   printCaptions: "Aggiungi nome file e data di scatto",
-  printTooMany: (max: number) => `Con questo formato puoi stampare al massimo ${num(max)} foto alla volta. Aumenta le foto per pagina o selezionane meno.`,
+  printTooMany: (max: number) => `Con questo numero di foto per pagina puoi stampare al massimo ${num(max)} foto alla volta. Aumenta le foto per pagina o selezionane meno.`,
   printPreparingN: (done: number, total: number) => `Preparazione della stampa… ${num(done)}/${num(total)}`,
   printSkipped: (n: number) =>
     `${num(n)} foto non ${one(n, "si può stampare (video, per esempio) ed è stata esclusa", "si possono stampare (video, per esempio) e sono state escluse")}.`,
@@ -520,14 +520,14 @@ export const it: Dict = {
   settingsGoogleOneDriveNote: "Se lo fai, OneDrive non potrà più rendere quelle foto “Solo online”.",
   settingsGoogleAfterNote: "Quando sposti una foto nel Cestino in pictkura, viene tolta anche dalla cartella In uscita. Se usi Google Foto: in Google Foto rimane. Il caricamento lo fa la pagina web di Google Foto (photos.google.com), quindi procede solo mentre quella pagina è aperta nel browser.",
   pickGoogleFolder: "Scegli la cartella In uscita",
-  importGoogle: (n: number) => ` · ${num(n)} in uscita`,
-  importGoogleFailed: (n: number) => `Impossibile mettere ${num(n)} in uscita (vedi il registro)`,
-  importGoogleError: (why: string) => `Non è stato messo nulla in uscita: ${why}`,
-  bulkSendGoogle: "Metti in uscita",
+  importGoogle: (n: number) => ` · ${num(n)} ${one(n, "aggiunto", "aggiunti")} a In uscita`,
+  importGoogleFailed: (n: number) => `Impossibile aggiungerne ${num(n)} a In uscita (vedi il registro)`,
+  importGoogleError: (why: string) => `Non è stato aggiunto nulla a In uscita: ${why}`,
+  bulkSendGoogle: "Aggiungi a In uscita",
   bulkRemoveGoogle: "Togli da In uscita",
-  calendarSendMonth: "Metti in uscita questo mese",
+  calendarSendMonth: "Aggiungi questo mese a In uscita",
   /** 年は数ではなく名前（2,010年にしない）——文字列で受ける */
-  calendarSendYear: (year: string) => `Metti in uscita tutto il ${year}`,
+  calendarSendYear: (year: string) => `Aggiungi tutto il ${year} a In uscita`,
   googleSendSummary: (photos: number, videos: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photos > 0) parts.push(`${num(photos)} foto`);
@@ -538,7 +538,7 @@ export const it: Dict = {
     return `Da mettere nella cartella In uscita: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
-    `${num(n)} ${one(n, "elemento scelto non viene messo", "degli elementi scelti non vengono messi")} (il RAW di una coppia RAW+JPEG, i file in OneDrive e simili).`,
+    `${num(n)} degli elementi scelti non ${one(n, "viene messo", "vengono messi")} (il RAW di una coppia RAW+JPEG, i file in OneDrive e simili).`,
   googleSendFolders: (list: string) => `Destinazione: ${list}`,
   googleSendNewFolder: (path: string) => `Verrà creata ${path}.`,
   googleSendGoogleNote:
@@ -550,7 +550,7 @@ export const it: Dict = {
   googleSendNothing: "Non c'è nulla da mettere.",
   googleSendConfirmOk: "Metti",
   googleSent: (total: number, already: number) =>
-    `${num(total)} ${one(total, "messo", "messi")} in uscita${already > 0 ? ` (${num(already)} ${one(already, "c'era già", "c'erano già")})` : ""}`,
+    `${num(total)} ${one(total, "aggiunto", "aggiunti")} a In uscita${already > 0 ? ` (${num(already)} ${one(already, "c'era già", "c'erano già")})` : ""}`,
   googleSentCloudOnly: (n: number) =>
     `${num(n)} ${one(n, "è solo nel cloud e non è stato messo", "sono solo nel cloud e non sono stati messi")}. ${one(n, "Scaricalo", "Scaricali")} prima, poi riprova.`,
   googleRemoved: (n: number) => `${num(n)} ${one(n, "tolto", "tolti")} da In uscita`,
@@ -584,11 +584,11 @@ export const it: Dict = {
   transitionSlide: "Scorrimento",
   transitionFade: "Dissolvenza",
   settingsTransitionNote:
-    "Come la vista grande passa alla foto successiva quando avanzi (tasti freccia, pulsanti, la striscia in basso o l'avanzamento automatico dopo aver contrassegnato o rifiutato una foto) e quando una presentazione avanza. Lo scorrimento segue la direzione del tasto o del gesto. Se il sistema è impostato per ridurre il movimento, le foto cambiano senza animazione, qualunque opzione tu scelga.",
+    "Come la vista grande passa alla foto successiva quando avanzi (tasti freccia, pulsanti, la striscia in basso o l'avanzamento automatico dopo aver contrassegnato o rifiutato una foto) e quando una presentazione avanza. Lo scorrimento segue la direzione in cui avanzi. Se il sistema è impostato per ridurre il movimento, le foto cambiano senza animazione, qualunque opzione tu scelga.",
   settingsAutoplay: "Quando inserisci un'unità USB o una scheda SD",
   settingsAutoplayNote:
-    "Se hai installato pictkura con il programma di installazione o da Microsoft Store, “pictkura で写真を取り込む” (importa foto con pictkura) compare tra le opzioni quando inserisci un'unità; la versione portatile non la offre. Non si avvia finché non la scegli. Dopo averla scelta, Windows la ricorda come azione predefinita per quel tipo di supporto (schede di memoria e unità USB si impostano separatamente) e apre la finestra di importazione ogni volta che inserisci un supporto dello stesso tipo. L'azione predefinita si cambia nelle impostazioni di Riproduzione automatica di Windows. La voce stessa è scritta in giapponese, tranne con l'MSI in inglese, dove si legge “Import photos with pictkura”.",
-  settingsAutoplayOpenWindows: "Apri le impostazioni di Riproduzione automatica di Windows",
+    "Se hai installato pictkura con il programma di installazione o da Microsoft Store, “pictkura で写真を取り込む” (importa foto con pictkura) compare tra le opzioni quando inserisci un'unità; la versione portatile non la offre. Non si avvia finché non la scegli. Dopo averla scelta, Windows la ricorda come azione predefinita per quel tipo di supporto (schede di memoria e unità USB si impostano separatamente) e apre la finestra di importazione ogni volta che inserisci un supporto dello stesso tipo. L'azione predefinita si cambia nelle impostazioni di AutoPlay di Windows. La voce stessa è scritta in giapponese, tranne con l'MSI in inglese, dove si legge “Import photos with pictkura”.",
+  settingsAutoplayOpenWindows: "Apri le impostazioni di AutoPlay di Windows",
   settingsImportWaitingFrom: (path: string) =>
     `Un'importazione da ${path} è in attesa. Si aprirà quando chiudi le impostazioni.`,
   settingsImportWaiting: "Un'importazione è in attesa. Si aprirà quando chiudi le impostazioni.",
@@ -669,6 +669,6 @@ export const it: Dict = {
   errOpenOutgoingFailed: "Impossibile aprire la cartella In uscita. Usa “Copia percorso” e aprila da lì.",
   errNotBundled: "Non è incluso in questa build.",
   errNoStoreLink: "Per questo sistema non c'è una pagina da indicare.",
-  errBadKind: "Non c'era nulla da aprire.",
+  errBadKind: "Impossibile stabilire come aprire questo elemento.",
   errTooManyIds: (n: number) => `Al massimo ${num(n)} alla volta.`,
 };

@@ -119,20 +119,20 @@ export const fr: Dict = {
   browse: "Parcourir…",
   addFolderPlaceholder: folderExample("ex. : ", "utilisateur"),
   pickLibraryFolder: "Choisir un dossier à ajouter à la bibliothèque",
-  showMore: (n: number) => `${num(n)} autres`,
+  showMore: (n: number) => `${num(n)} ${un(n, "autre", "autres")}`,
   collapse: "Afficher moins",
   photosCount: (n: number) => `${num(n)}`,
   memoriesTitle: (years: number) =>
     `Il y a ${num(years)} ${un(years, "an", "ans")}, jour pour jour`,
   viewerFavorite: "Favori (F)",
-  viewerPick: "Marquer comme retenue (P)",
+  viewerPick: "Retenir (P)",
   viewerUnpick: "Retirer le marqueur (U)",
   viewerPicked: "Photo retenue",
   judgeFav: "Favori",
   judgeUnfav: "Retirée des favoris",
   judgePick: "Retenue",
   judgeUnflag: "Marqueur retiré",
-  viewerReject: "Marquer comme rejetée (X)",
+  viewerReject: "Rejeter (X)",
   viewerRejected: "Rejetée",
   favoriteMark: "Favori",
   viewerMutedHint: "Son coupé — cliquez pour l’activer",
@@ -145,7 +145,7 @@ export const fr: Dict = {
   rejectGateRestore: "Conserver",
   rejectGateBack: "Retour",
   rejectGateDiscard: "Fermer sans supprimer",
-  rejectGateConfirm: (n: number) => `Mettre ${num(n)} à la Corbeille`,
+  rejectGateConfirm: (n: number) => `Mettre à la Corbeille (${num(n)})`,
   rejectGateTrashing: (done: number, total: number) =>
     `Déplacement… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `La version ${v} est disponible`,
@@ -166,7 +166,7 @@ export const fr: Dict = {
   extractFilter: "Image",
   extractSaved: "Enregistrée",
   extractCopied: "Copiée",
-  extractCopying: "Copie en cours…",
+  extractCopying: "Copie…",
   extractFailed: "Impossible d’extraire cette image",
   extractSameFile: "Impossible d’écraser le fichier d’origine",
   viewerExif: "Infos de la photo (I)",
@@ -337,7 +337,7 @@ export const fr: Dict = {
   wizardDestination: "Destination",
   wizardChangeDestination: "Modifier",
   wizardStructure: "Classement",
-  wizardImportButton: (n: number) => `Importer ${num(n)}`,
+  wizardImportButton: (n: number) => `Importer (${num(n)})`,
   wizardImportAll: "Importer tout ce dossier (sous-dossiers compris)",
   wizardImportAllShort: "Dossier entier",
   wizardDeep: "Inclure les sous-dossiers",
@@ -394,7 +394,7 @@ export const fr: Dict = {
   printPerPage: "Photos par page",
   printCaptions: "Ajouter le nom du fichier et la date de prise de vue",
   printTooMany: (max: number) =>
-    `À cette taille, vous pouvez imprimer au maximum ${num(max)} photos à la fois. Choisissez plus de photos par page, ou sélectionnez-en moins.`,
+    `Avec ce nombre de photos par page, vous pouvez imprimer au maximum ${num(max)} ${un(max, "photo", "photos")} à la fois. Choisissez plus de photos par page, ou sélectionnez-en moins.`,
   printPreparingN: (done: number, total: number) =>
     `Préparation de l’impression… ${num(done)}/${num(total)}`,
   printSkipped: (n: number) =>
@@ -402,7 +402,7 @@ export const fr: Dict = {
   errPrint: "Impossible de préparer la photo pour l’impression.",
   errShellMenu: "Impossible d’afficher le menu de l’Explorateur.",
   menuDelete: "Supprimer (vers la Corbeille)",
-  menuInfo: "Informations",
+  menuInfo: "Infos",
   fileInfoTitle: "Fichier",
   fileInfoName: "Nom",
   fileInfoFolder: "Emplacement",
@@ -445,7 +445,7 @@ export const fr: Dict = {
       ? "Déplacer cette photo vers un dossier que vous allez choisir ?\nElle quittera son emplacement actuel et la bibliothèque.\nLes marques ★ et ⚑ ne sont pas conservées."
       : `Déplacer ${num(n)} ${un(n, "photo", "photos")} vers un dossier que vous allez choisir ?\nElles quitteront leur emplacement actuel et la bibliothèque.\nLes marques ★ et ⚑ ne sont pas conservées.`,
   confirmCancel: "Annuler",
-  deleteConfirmOk: "Déplacer vers la Corbeille",
+  deleteConfirmOk: "Mettre à la Corbeille",
   moveConfirmOk: "Choisir la destination",
   rootRemoveConfirmOk: "Retirer",
   exporting: (done: number, total: number, name: string) =>
@@ -515,7 +515,7 @@ export const fr: Dict = {
   settingsStackRawJpegNote:
     "Un RAW et un JPEG portant le même nom dans le même dossier s’affichent en une seule vignette, celle du JPEG. Dans la grille, ★, ⚑, la suppression et la sélection s’appliquent aux deux. Le fichier montré en grand se règle sous « Lorsque vous affichez une photo en grand ».",
   stackRawChipTitle: (files: number) =>
-    `RAW et JPEG empilés en une seule vignette (${num(files)} fichiers)`,
+    `RAW et JPEG empilés en une seule vignette (${num(files)} ${un(files, "fichier", "fichiers")})`,
   settingsStackBurstsToggle: "Empiler les rafales en une seule vignette",
   settingsStackBurstsNote:
     "Les photos prises en succession rapide avec le même appareil s’affichent en une seule vignette. Seules les photos dont l’heure de prise de vue est enregistrée à la fraction de seconde près sont concernées (certains appareils ne l’enregistrent pas). Dans la grille, ★ et ⚑ posés depuis le menu du clic droit ne s’appliquent qu’à la photo de couverture ; la suppression et la sélection s’appliquent à toute la rafale. En affichage en grand, les rafales ne sont pas regroupées : on les parcourt photo par photo.",
@@ -543,9 +543,9 @@ export const fr: Dict = {
   settingsGoogleOneDriveNote:
     "Dans ce cas, OneDrive ne pourra plus rendre ces photos « disponibles en ligne uniquement ».",
   settingsGoogleAfterNote:
-    "Lorsque vous mettez une photo à la Corbeille dans pictkura, elle est aussi retirée du dossier Envoi. Si vous utilisez Google Photos : elle reste dans Google Photos. L’envoi est effectué par la page web de Google Photos (photos.google.com) ; il n’avance donc que lorsque cette page est ouverte dans votre navigateur.",
-  pickGoogleFolder: "Choisissez le dossier Envoi",
-  importGoogle: (n: number) => ` · ${num(n)} ${un(n, "placée", "placées")} dans Envoi`,
+    "Lorsque vous mettez une photo à la Corbeille dans pictkura, elle est aussi retirée du dossier Envoi. Si vous utilisez Google Photos : elle reste dans Google Photos. L’importation dans Google Photos est effectuée par sa page web (photos.google.com) ; elle n’avance donc que lorsque cette page est ouverte dans votre navigateur.",
+  pickGoogleFolder: "Choisir le dossier Envoi",
+  importGoogle: (n: number) => ` · ${num(n)} ${un(n, "placé", "placés")} dans Envoi`,
   importGoogleFailed: (n: number) =>
     `${num(n)} ${un(n, "élément n’a pas pu être placé", "éléments n’ont pas pu être placés")} dans Envoi (voir le journal)`,
   importGoogleError: (why: string) => `Rien n’a été placé dans Envoi : ${why}`,
@@ -569,9 +569,9 @@ export const fr: Dict = {
   googleSendFolders: (list: string) => `Emplacement : ${list}`,
   googleSendNewFolder: (path: string) => `${path} sera créé.`,
   googleSendGoogleNote:
-    "Si vous utilisez Google Photos : l’envoi est effectué par la page web de Google Photos (photos.google.com) ; il avance tant que cette page est ouverte dans votre navigateur.",
+    "Si vous utilisez Google Photos : l’importation dans Google Photos est effectuée par sa page web (photos.google.com) ; elle avance tant que cette page est ouverte dans votre navigateur.",
   googleSendGoogleNoteNew:
-    "Si vous utilisez Google Photos : ajoutez aussi chaque nouveau dossier à la sauvegarde de dossiers de Google Photos. L’envoi est effectué par la page web de Google Photos (photos.google.com) ; il avance tant que cette page est ouverte dans votre navigateur.",
+    "Si vous utilisez Google Photos : ajoutez aussi chaque nouveau dossier à la sauvegarde de dossiers de Google Photos. L’importation dans Google Photos est effectuée par sa page web (photos.google.com) ; elle avance tant que cette page est ouverte dans votre navigateur.",
   googleFolderCreated: (path: string) =>
     `${path} a été créé. Si vous utilisez Google Photos : ajoutez aussi ce dossier à la sauvegarde de dossiers.`,
   googleSendNothing: "Rien ici ne peut être placé.",
@@ -591,19 +591,19 @@ export const fr: Dict = {
   spreadStack: "Déplier pour voir chaque photo",
   foldStack: "Replier",
   burstTitle: (frames: number, spanMs: number, files: number) =>
-    `Rafale de ${num(frames)} vues en ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} fichiers)`,
+    `Rafale de ${num(frames)} ${un(frames, "vue", "vues")} en ${num(Math.round(spanMs / 100) / 10)} s (${num(files)} ${un(files, "fichier", "fichiers")})`,
   burstTitleRawJpeg: (frames: number, spanMs: number, files: number) =>
-    `Rafale de ${num(frames)} vues en ${num(Math.round(spanMs / 100) / 10)} s, RAW+JPEG (${num(files)} fichiers)`,
+    `Rafale de ${num(frames)} ${un(frames, "vue", "vues")} en ${num(Math.round(spanMs / 100) / 10)} s, RAW+JPEG (${num(files)} ${un(files, "fichier", "fichiers")})`,
   settingsViewer: "Lorsque vous affichez une photo en grand",
   settingsAutoAdvanceToggle: "Passer à la photo suivante après P / U",
   settingsAutoAdvanceNote:
     "En affichage en grand, P marque la photo d’un ⚑ (une catégorie distincte des ★ favoris) et U retire le marqueur. Avec cette option, la photo suivante s’affiche aussitôt : le tri se fait en une touche par photo. Sans elle, vous restez sur la même photo.",
   settingsPairView: "Affichage des paires RAW+JPEG",
-  pairViewJpeg: "JPEG uniquement",
-  pairViewRaw: "RAW uniquement",
+  pairViewJpeg: "JPEG seul",
+  pairViewRaw: "RAW seul",
   pairViewBoth: "Les deux (RAW, puis JPEG)",
   settingsPairViewNote:
-    "Comment l’affichage en grand parcourt une paire regroupée en une seule vignette dans la grille. Si un seul des deux est montré, ★, ⚑, ✕ et la suppression posés en grand s’appliquent aux deux fichiers de la paire. Si les deux sont montrés, ils ne s’appliquent qu’au fichier affiché. Les boutons RAW / JPEG de l’affichage en grand permettent aussi de changer. Si les paires ne sont pas regroupées dans la grille, les deux fichiers apparaissent.",
+    "Comment l’affichage en grand parcourt une paire regroupée en une seule vignette dans la grille. Si un seul des deux est montré, ★, ⚑, ✕ et la suppression en grand s’appliquent aux deux fichiers de la paire. Si les deux sont montrés, ils ne s’appliquent qu’au fichier affiché. Les boutons RAW / JPEG de l’affichage en grand permettent aussi de changer. Si les paires ne sont pas regroupées dans la grille, les deux fichiers apparaissent.",
   viewerPairSide: "Quel fichier de la paire afficher (également enregistré dans les paramètres)",
   settingsTransition: "Passage à la photo suivante",
   settingsSlideshowTransition: "Transition du diaporama",
@@ -679,11 +679,11 @@ export const fr: Dict = {
     "Le fichier a été modifié ailleurs pendant la rotation. Réessayez.",
   errRotateBusy: "Vérification des dossiers en cours. Patientez un instant, puis réessayez.",
   errRotateWrite:
-    "Impossible d’écrire dans le fichier ; la photo n’a pas été pivotée. Vérifiez qu’aucune autre application ne l’a ouvert et qu’il n’est pas en lecture seule.",
+    "Impossible d’écrire dans le fichier ; la photo n’a pas pivoté. Vérifiez qu’aucune autre application ne l’a ouvert et qu’il n’est pas en lecture seule.",
   errRotateLeftChanged:
-    "Un problème est survenu après la réécriture du fichier, qui n’a pas pu être rétabli. La photo est peut-être restée pivotée. Consultez le journal pour en savoir plus.",
+    "Un problème est survenu après la réécriture du fichier, qui n’a pas pu être rétabli. La photo a peut-être pivoté malgré tout. Consultez le journal pour en savoir plus.",
   errRotateCannotRestore:
-    "Cette photo ne peut plus retrouver l’orientation qu’elle avait avant d’être pivotée par pictkura, par exemple parce qu’une autre application l’a modifiée.",
+    "Cette photo ne peut plus retrouver l’orientation qu’elle avait avant que pictkura ne la fasse pivoter, par exemple parce qu’une autre application l’a modifiée.",
   errDb: "Impossible de lire ou d’écrire l’index.",
   errConfigIo: "Impossible de lire ou d’écrire le fichier de paramètres.",
   errConfigFormat: "Impossible de comprendre le contenu du fichier de paramètres.",
