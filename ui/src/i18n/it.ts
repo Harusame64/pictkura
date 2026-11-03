@@ -90,14 +90,14 @@ export const it: Dict = {
         ["← / →", "Foto precedente / successiva"],
         ["P", "Contrassegnala (⚑). Per impostazione predefinita passa alla foto successiva"],
         ["X", "Rifiutala (✕). Le foto rifiutate vanno nel Cestino quando chiudi la vista"],
-        ["U", "Togli il segno da questa foto (⚑ e ✕)"],
+        ["U", "Togli il segno da questa foto (⚑ o ✕)"],
         ["Ctrl+C / ⌘C", "Copia negli Appunti l'immagine sullo schermo"],
         ["Ctrl+S / ⌘S", "Salva in un file l'immagine sullo schermo"],
         ["Ctrl+P / ⌘P", "Stampa la foto sullo schermo"],
         ["F", "Aggiungi o togli dai preferiti (★)"],
         ["I", "Dati del file e dello scatto (fotocamera, obiettivo, diaframma, tempo di posa, ISO, lunghezza focale, GPS)"],
         ["Barra spaziatrice", "Presentazione. Su un video, riproduci / metti in pausa"],
-        ["1 / 0", "1 alterna tra dimensioni reali 100% e adatta allo schermo; 0 adatta sempre"],
+        ["1 / 0", "1 alterna tra dimensioni reali (100%) e adattamento allo schermo; 0 adatta sempre"],
         ["F11", "Schermo intero"],
         ["Esc", "Chiudi"],
       ],
@@ -189,7 +189,7 @@ export const it: Dict = {
   videoFailed: "Impossibile riprodurre questo video",
   videoOpenExternal: "Apri nell'app predefinita",
   videoCodecNote:
-    "I video degli iPhone e di fotocamere simili usano HEVC (H.265). Per riprodurli serve un decodificatore del sistema; su Windows è un'estensione a pagamento di Microsoft Store (pochi euro).",
+    "I video degli iPhone e di fotocamere simili usano HEVC (H.265). Per riprodurli serve un decodificatore del sistema; su Windows è un'estensione a pagamento disponibile in Microsoft Store (pochi euro).",
   videoCodecNoteMac:
     "macOS decodifica HEVC di serie, quindi probabilmente si tratta di un formato di registrazione che non supporta.",
   videoCodecNoteOther:
@@ -296,13 +296,13 @@ export const it: Dict = {
   listSeparator: ", ",
   andMore: (n: number) => (n === 1 ? "e un altro" : `e altri ${num(n)}`),
   emptyRootIsPackage:
-    "Una delle cartelle della libreria è essa stessa una libreria di Foto. pictkura di proposito non legge all'interno di questo tipo di libreria, quindi da lì non uscirà mai nulla. Scegli una cartella che contiene foto o importa da una scheda.",
+    "Una delle cartelle della libreria è essa stessa una libreria di Foto. pictkura di proposito non legge all'interno di questo tipo di libreria, quindi da lì non comparirà mai nessuna foto. Scegli una cartella che contiene foto o importa da una scheda.",
   emptyPhotoLibrary:
     "Non è stato trovato nulla oltre alla libreria di Foto. Per impostazione predefinita pictkura non legge all'interno di Foto: la maggior parte degli originali si trova in iCloud, non su questo Mac. Importa da una scheda o scegli una cartella che contiene foto.",
   emptyManagedLibrary:
-    "Non è stato trovato nulla oltre a librerie di app di gestione foto (Foto, iPhoto o Aperture). pictkura di proposito non legge al loro interno: ne indicizzerebbe il contenuto una volta, ma non vedrebbe mai le modifiche successive. Importa da una scheda o scegli una cartella che contiene foto.",
+    "Non è stato trovato nulla oltre alle librerie di app di gestione foto (Foto, iPhoto o Aperture). pictkura di proposito non legge al loro interno: ne indicizzerebbe il contenuto una volta, ma non vedrebbe mai le modifiche successive. Importa da una scheda o scegli una cartella che contiene foto.",
   emptyRootIsManagedLibrary:
-    "Una delle cartelle della libreria è essa stessa la libreria di un'app di gestione foto (Foto, iPhoto o Aperture). pictkura di proposito non legge all'interno di questo tipo di libreria, quindi da lì non uscirà mai nulla. Scegli una cartella che contiene foto o importa da una scheda.",
+    "Una delle cartelle della libreria è essa stessa la libreria di un'app di gestione foto (Foto, iPhoto o Aperture). pictkura di proposito non legge all'interno di questo tipo di libreria, quindi da lì non comparirà mai nessuna foto. Scegli una cartella che contiene foto o importa da una scheda.",
   emptyAllExcluded: (names: string) =>
     `Tutto ciò che è stato trovato viene saltato dai modelli di esclusione (per esempio ${names}). Puoi modificarli in pictkura.toml, nella cartella delle impostazioni.`,
   emptyNothingHere:
@@ -341,11 +341,11 @@ export const it: Dict = {
     `Vengono mostrate solo le prime ${num(n)}. Usa “Cartella intera” per importare tutto`,
   wizardScanIncomplete: "⚠ Alcune cartelle non sono state lette (potrebbero mancare foto)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} foto HEIC/HEIF qui non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Servono Estensioni immagini HEIF (gratuite) e, in più, Estensioni video HEVC (a pagamento, pochi euro), che decodificano i pixel`,
+    `⚠ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Servono Estensioni immagini HEIF (gratuite) e, per decodificare i pixel, Estensioni video HEVC (a pagamento, pochi euro)`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${num(n)} foto HEIC/HEIF qui non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno`,
+    `⚠ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} foto HEIC/HEIF qui non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Forse sul tuo sistema non è installato un decodificatore per HEIC/HEVC`,
+    `⚠ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Forse sul tuo sistema non è installato un decodificatore per HEIC/HEVC`,
   decoderHeifHow: "Estensioni immagini HEIF (gratuite)",
   decoderHevcHow: "Estensioni video HEVC (a pagamento)",
   decoderNoticeDismiss: "Non mostrare più",
@@ -354,7 +354,7 @@ export const it: Dict = {
   wizardHideImported: "Nascondi quelle già importate",
   wizardAllImported: "Niente di nuovo qui (tutto il contenuto di questa cartella è già importato)",
   wizardHiddenCount: (n: number) =>
-    `${num(n)} già ${one(n, "importata nascosta", "importate nascoste")}`,
+    `${num(n)} già ${one(n, "importata è nascosta", "importate sono nascoste")}`,
   /** `circa` は「およそ」なので、1のときは落とす（西語の `unos` と同じ理由）。動詞も単数へ */
   wizardEtaSeconds: (n: number) => `${one(n, "manca", "mancano circa")} ${num(n)} s`,
   wizardEtaMinutes: (n: number) => `${one(n, "manca", "mancano circa")} ${num(n)} min`,
@@ -400,7 +400,7 @@ export const it: Dict = {
   fileInfoSize: "Dimensioni",
   fileInfoTaken: "Data scatto",
   fileInfoTakenUnknown: "Sconosciuta",
-  fileInfoModified: "Modificato",
+  fileInfoModified: "Ultima modifica",
   fileInfoDimensions: "Dimensioni in pixel",
   fileInfoDuration: "Durata",
   fileInfoType: "Tipo",
@@ -535,7 +535,7 @@ export const it: Dict = {
     const items: string[] = [];
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0) items.push(`${num(rawOnly)} JPEG ${one(rawOnly, "estratto", "estratti")} da scatti solo RAW`);
-    return `Verrà messo nella cartella In uscita: ${items.join("; ")}.`;
+    return `Da mettere nella cartella In uscita: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} ${one(n, "elemento scelto non viene messo", "degli elementi scelti non vengono messi")} (il RAW di una coppia RAW+JPEG, i file in OneDrive e simili).`,
@@ -552,7 +552,7 @@ export const it: Dict = {
   googleSent: (total: number, already: number) =>
     `${num(total)} ${one(total, "messo", "messi")} in uscita${already > 0 ? ` (${num(already)} ${one(already, "c'era già", "c'erano già")})` : ""}`,
   googleSentCloudOnly: (n: number) =>
-    `${num(n)} ${one(n, "è solo nel cloud e non è stato messo", "sono solo nel cloud e non sono stati messi")}. ${one(n, "Scaricalo", "Scaricali")} prima, poi invia di nuovo.`,
+    `${num(n)} ${one(n, "è solo nel cloud e non è stato messo", "sono solo nel cloud e non sono stati messi")}. ${one(n, "Scaricalo", "Scaricali")} prima, poi riprova.`,
   googleRemoved: (n: number) => `${num(n)} ${one(n, "tolto", "tolti")} da In uscita`,
   googleRemoveFailed: (n: number) =>
     `${num(n)} non ${one(n, "si è potuto togliere", "si sono potuti togliere")} ora (forse l'unità non è collegata). pictkura riproverà al prossimo avvio.`,
@@ -584,7 +584,7 @@ export const it: Dict = {
   transitionSlide: "Scorrimento",
   transitionFade: "Dissolvenza",
   settingsTransitionNote:
-    "Come la vista grande passa alla foto successiva quando avanzi (tasti freccia, pulsanti, la striscia in basso o l'avanzamento automatico dopo un segno) e quando una presentazione avanza. Lo scorrimento segue la direzione in cui avanzi. Se il sistema è impostato per ridurre il movimento, le foto cambiano senza animazione, qualunque cosa scegli.",
+    "Come la vista grande passa alla foto successiva quando avanzi (tasti freccia, pulsanti, la striscia in basso o l'avanzamento automatico dopo aver contrassegnato o rifiutato una foto) e quando una presentazione avanza. Lo scorrimento segue la direzione del tasto o del gesto. Se il sistema è impostato per ridurre il movimento, le foto cambiano senza animazione, qualunque opzione tu scelga.",
   settingsAutoplay: "Quando inserisci un'unità USB o una scheda SD",
   settingsAutoplayNote:
     "Se hai installato pictkura con il programma di installazione o da Microsoft Store, “pictkura で写真を取り込む” (importa foto con pictkura) compare tra le opzioni quando inserisci un'unità; la versione portatile non la offre. Non si avvia finché non la scegli. Dopo averla scelta, Windows la ricorda come azione predefinita per quel tipo di supporto (schede di memoria e unità USB si impostano separatamente) e apre la finestra di importazione ogni volta che inserisci un supporto dello stesso tipo. L'azione predefinita si cambia nelle impostazioni di Riproduzione automatica di Windows. La voce stessa è scritta in giapponese, tranne con l'MSI in inglese, dove si legge “Import photos with pictkura”.",

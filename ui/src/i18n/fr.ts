@@ -43,7 +43,7 @@ export const fr: Dict = {
   searchPlaceholder: "Rechercher des fichiers, dossiers, appareils, 2019-08 ou year:2019",
   searchClear: "Effacer la recherche (Échap)",
   commandPalette: "Palette de commandes",
-  importFromUsb: "Importer depuis une clé USB",
+  importFromUsb: "Importer depuis USB",
   rescan: "Réanalyser",
   size: "Taille",
   /**
@@ -79,7 +79,7 @@ export const fr: Dict = {
         ["Maj + clic", "Sélectionner tout, de la dernière vignette cliquée jusqu’à celle-ci"],
         ["Ctrl + clic", "Ajouter ou retirer une photo (⌘ + clic sous macOS)"],
         ["Cliquer sur un en-tête de date", "Sélectionner toute la journée (cliquer à nouveau pour annuler)"],
-        ["Échap", "Arrêter la sélection"],
+        ["Échap", "Annuler la sélection"],
       ],
     },
     {
@@ -92,7 +92,7 @@ export const fr: Dict = {
         ["Ctrl+C / ⌘C", "Copier l’image affichée dans le presse-papiers"],
         ["Ctrl+S / ⌘S", "Enregistrer l’image affichée dans un fichier"],
         ["Ctrl+P / ⌘P", "Imprimer la photo affichée"],
-        ["F", "Ajouter aux favoris (★) ou les retirer"],
+        ["F", "Ajouter aux favoris (★) ou l’en retirer"],
         ["I", "Informations sur le fichier et la prise de vue (appareil, objectif, ouverture, vitesse, ISO, focale, GPS)"],
         ["Espace", "Diaporama. Sur une vidéo : lecture / pause"],
         ["1 / 0", "1 bascule entre taille réelle 100 % et ajusté à l’écran ; 0 ajuste toujours"],
@@ -145,7 +145,7 @@ export const fr: Dict = {
   rejectGateRestore: "Conserver",
   rejectGateBack: "Retour",
   rejectGateDiscard: "Fermer sans supprimer",
-  rejectGateConfirm: (n: number) => `Déplacer ${num(n)} vers la Corbeille`,
+  rejectGateConfirm: (n: number) => `Mettre ${num(n)} à la Corbeille`,
   rejectGateTrashing: (done: number, total: number) =>
     `Déplacement… (${num(done)} / ${num(total)})`,
   updateFound: (v: string) => `La version ${v} est disponible`,
@@ -195,7 +195,7 @@ export const fr: Dict = {
   videoCodecNote:
     "Les vidéos des iPhone et d’appareils similaires sont enregistrées en HEVC (H.265). Leur lecture nécessite un décodeur du système ; sous Windows, il s’agit d’une extension payante du Microsoft Store (quelques euros).",
   videoCodecNoteMac:
-    "macOS lit le HEVC d’origine ; il s’agit donc probablement d’un format d’enregistrement qu’il ne prend pas en charge.",
+    "macOS lit nativement le HEVC ; il s’agit donc probablement d’un format d’enregistrement qu’il ne prend pas en charge.",
   videoCodecNoteOther:
     "Il manque peut-être sur votre système un décodeur pour ce format d’enregistrement.",
   videoCodecHelp: "Obtenir les Extensions vidéo HEVC (payantes)",
@@ -302,13 +302,13 @@ export const fr: Dict = {
   listSeparator: ", ",
   andMore: (n: number) => `et ${num(n)} ${un(n, "autre", "autres")}`,
   emptyRootIsPackage:
-    "L’un des dossiers de la bibliothèque est lui-même une photothèque de l’app Photos. pictkura ne lit volontairement pas l’intérieur de ces photothèques ; rien n’en sortira donc jamais. Choisissez un dossier qui contient des photos, ou importez depuis une carte.",
+    "L’un des dossiers de la bibliothèque est lui-même une photothèque de l’application Photos. pictkura ne lit volontairement pas l’intérieur de ces photothèques ; aucune photo n’en proviendra donc jamais. Choisissez un dossier qui contient des photos, ou importez depuis une carte.",
   emptyPhotoLibrary:
-    "Rien d’autre que la photothèque de l’app Photos n’a été trouvé. Par défaut, pictkura ne lit pas l’intérieur de Photos (la plupart des originaux sont dans iCloud, pas sur ce Mac). Importez depuis une carte, ou choisissez un dossier qui contient des photos.",
+    "Rien d’autre que la photothèque de l’application Photos n’a été trouvé. Par défaut, pictkura ne lit pas l’intérieur de Photos (la plupart des originaux sont dans iCloud, pas sur ce Mac). Importez depuis une carte, ou choisissez un dossier qui contient des photos.",
   emptyManagedLibrary:
     "Rien d’autre que des photothèques d’applications de gestion de photos (Photos, iPhoto, Aperture, etc.) n’a été trouvé. pictkura ne lit volontairement pas l’intérieur de ces photothèques (il pourrait en indexer le contenu une fois, mais ne verrait jamais les modifications ultérieures). Importez depuis une carte, ou choisissez un dossier qui contient des photos.",
   emptyRootIsManagedLibrary:
-    "L’un des dossiers de la bibliothèque est lui-même la photothèque d’une application de gestion de photos (Photos, iPhoto, Aperture, etc.). pictkura ne lit volontairement pas l’intérieur de ces photothèques ; rien n’en sortira donc jamais. Choisissez un dossier qui contient des photos, ou importez depuis une carte.",
+    "L’un des dossiers de la bibliothèque est lui-même la photothèque d’une application de gestion de photos (Photos, iPhoto, Aperture, etc.). pictkura ne lit volontairement pas l’intérieur de ces photothèques ; aucune photo n’en proviendra donc jamais. Choisissez un dossier qui contient des photos, ou importez depuis une carte.",
   emptyAllExcluded: (names: string) =>
     `Tout ce qui a été trouvé est ignoré par les règles d’exclusion (par exemple ${names}). Vous pouvez les modifier dans pictkura.toml, dans le dossier des paramètres.`,
   emptyNothingHere:
@@ -326,7 +326,7 @@ export const fr: Dict = {
   wizardUnreadable: "Impossible de lire ce dossier (il a peut-être été retiré)",
   wizardCounting: "Chargement…",
   wizardSelectAll: "Tout sélectionner",
-  wizardSelectNew: "Sélectionner uniquement les nouvelles",
+  wizardSelectNew: "Nouvelles uniquement",
   wizardClearSelection: "Désélectionner",
   wizardSelected: (n: number) => `${num(n)} ${un(n, "sélectionnée", "sélectionnées")}`,
   wizardImportedBadge: "✓",
@@ -349,7 +349,7 @@ export const fr: Dict = {
   wizardScanIncomplete:
     "⚠ Certains dossiers n’ont pas pu être lus (des photos peuvent manquer)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}. Il faut les « Extensions d’image HEIF » (gratuites) et, en plus, les « Extensions vidéo HEVC » (payantes, quelques euros), qui décodent les pixels`,
+    `⚠ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}. Il faut les « Extensions d’image HEIF » (gratuites) et, en plus, les « Extensions vidéo HEVC » (payantes, quelques euros, sur le Microsoft Store), qui décodent les pixels`,
   decoderHeifNoticeMac: (n: number) =>
     `⚠ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}`,
   decoderHeifNoticeOther: (n: number) =>
@@ -362,7 +362,7 @@ export const fr: Dict = {
   wizardHideImported: "Masquer celles déjà importées",
   wizardAllImported: "Rien de nouveau (tout ce dossier est déjà importé)",
   wizardHiddenCount: (n: number) =>
-    `${num(n)} déjà ${un(n, "importée masquée", "importées masquées")}`,
+    `${num(n)} ${un(n, "photo déjà importée masquée", "photos déjà importées masquées")}`,
   wizardEtaSeconds: (n: number) => `encore environ ${num(n)} s`,
   wizardEtaMinutes: (n: number) => `encore environ ${num(n)} min`,
   wizardEtaCalculating: "estimation du temps restant…",
@@ -398,7 +398,7 @@ export const fr: Dict = {
   printPreparingN: (done: number, total: number) =>
     `Préparation de l’impression… ${num(done)}/${num(total)}`,
   printSkipped: (n: number) =>
-    `${num(n)} ${un(n, "photo n’a pas pu être imprimée", "photos n’ont pas pu être imprimées")} (vidéos, par exemple) et ${un(n, "a été retirée", "ont été retirées")}.`,
+    `${num(n)} ${un(n, "élément n’a pas pu être imprimé", "éléments n’ont pas pu être imprimés")} (vidéos, par exemple) et ${un(n, "a été retiré", "ont été retirés")}.`,
   errPrint: "Impossible de préparer la photo pour l’impression.",
   errShellMenu: "Impossible d’afficher le menu de l’Explorateur.",
   menuDelete: "Supprimer (vers la Corbeille)",
@@ -434,7 +434,7 @@ export const fr: Dict = {
   selectDay: "Sélectionner toute la journée",
   bulkFavoriteOn: "Ajouter aux favoris",
   bulkFavoriteOff: "Retirer des favoris",
-  bulkDelete: "Vers la Corbeille",
+  bulkDelete: "Mettre à la Corbeille",
   bulkCopy: "Copier dans un dossier",
   bulkMove: "Déplacer vers un dossier",
   bulkViewer: "Voir la sélection",
@@ -488,7 +488,7 @@ export const fr: Dict = {
       );
     return parts.join(". ") + ".";
   },
-  bulkPickOn: "Marquer comme retenues",
+  bulkPickOn: "Retenir",
   bulkPickOff: "Ne plus retenir",
   bulkPickDone: (n: number) => `${num(n)} ${un(n, "photo retenue", "photos retenues")}`,
   bulkUnpickDone: (n: number) =>
@@ -502,13 +502,13 @@ export const fr: Dict = {
   settingsTitle: "Paramètres",
   settingsImportStructure: "Structure des dossiers d’importation",
   settingsImportStructureNote:
-    "Comment les photos importées sont classées selon leur date de prise de vue. Cela concerne des milliers de fichiers, et le changer plus tard demande un travail considérable. Lorsqu’un nom de dossier contient une date, l’année vient en premier, quelle que soit la langue, afin que le tri par nom soit aussi un tri chronologique.",
+    "Comment les photos importées sont classées selon leur date de prise de vue. Cela concerne des milliers de fichiers, et le changer plus tard demande un travail considérable. Lorsqu’un nom de dossier contient une date, la date s’écrit dans l’ordre année, mois, jour, quelle que soit la langue, afin que le tri par nom soit aussi un tri chronologique.",
   settingsDestination: "Destination",
   settingsDestinationUnset: "(non définie — vous la choisirez lors de la première importation)",
   settingsFlatExample: "IMG_0001.JPG (sans sous-dossiers)",
   settingsCustomPattern: "Personnalisé",
   settingsCustomPatternNote:
-    "{year} {month} {day} sont remplacés par la date. / crée des niveaux. Les caractères non autorisés et les remontées vers le dossier parent (..) sont supprimés automatiquement.",
+    "{year} {month} {day} sont remplacés par la date. Le caractère / crée des sous-dossiers. Les caractères non autorisés et les remontées vers le dossier parent (..) sont supprimés automatiquement.",
   settingsCustomPatternResult: "Dossier obtenu",
   settingsGrid: "Grille de photos",
   settingsStackRawJpegToggle: "Empiler les paires RAW+JPEG en une seule vignette",
@@ -545,7 +545,7 @@ export const fr: Dict = {
   settingsGoogleAfterNote:
     "Lorsque vous mettez une photo à la Corbeille dans pictkura, elle est aussi retirée du dossier Envoi. Si vous utilisez Google Photos : elle reste dans Google Photos. L’envoi est effectué par la page web de Google Photos (photos.google.com) ; il n’avance donc que lorsque cette page est ouverte dans votre navigateur.",
   pickGoogleFolder: "Choisissez le dossier Envoi",
-  importGoogle: (n: number) => ` · ${num(n)} ${un(n, "placé", "placés")} dans Envoi`,
+  importGoogle: (n: number) => ` · ${num(n)} ${un(n, "placée", "placées")} dans Envoi`,
   importGoogleFailed: (n: number) =>
     `${num(n)} ${un(n, "élément n’a pas pu être placé", "éléments n’ont pas pu être placés")} dans Envoi (voir le journal)`,
   importGoogleError: (why: string) => `Rien n’a été placé dans Envoi : ${why}`,
@@ -562,7 +562,7 @@ export const fr: Dict = {
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0)
       items.push(`${num(rawOnly)} JPEG ${un(rawOnly, "extrait", "extraits")} de prises de vue en RAW seul`);
-    return `Sera placé dans le dossier Envoi : ${items.join(" ; ")}.`;
+    return `À placer dans le dossier Envoi : ${items.join(" ; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} des éléments choisis ${un(n, "n’est pas placé", "ne sont pas placés")} (le RAW d’une paire RAW+JPEG, les fichiers dans OneDrive, etc.).`,
@@ -579,7 +579,7 @@ export const fr: Dict = {
   googleSent: (total: number, already: number) =>
     `${num(total)} ${un(total, "placé", "placés")} dans Envoi${already > 0 ? ` (dont ${num(already)} déjà ${un(already, "présent", "présents")})` : ""}`,
   googleSentCloudOnly: (n: number) =>
-    `${num(n)} ${un(n, "élément n’est que dans le cloud et n’a pas pu être placé", "éléments ne sont que dans le cloud et n’ont pas pu être placés")}. ${un(n, "Téléchargez-le", "Téléchargez-les")} d’abord, puis renvoyez.`,
+    `${num(n)} ${un(n, "élément n’est que dans le cloud et n’a pas pu être placé", "éléments ne sont que dans le cloud et n’ont pas pu être placés")}. ${un(n, "Téléchargez-le", "Téléchargez-les")} d’abord, puis réessayez.`,
   googleRemoved: (n: number) => `${num(n)} ${un(n, "retiré", "retirés")} d’Envoi`,
   googleRemoveFailed: (n: number) =>
     `${num(n)} ${un(n, "élément n’a pas pu être retiré", "éléments n’ont pas pu être retirés")} pour l’instant (le lecteur n’est peut-être pas connecté). pictkura réessaiera au prochain démarrage.`,
@@ -597,8 +597,8 @@ export const fr: Dict = {
   settingsViewer: "Lorsque vous affichez une photo en grand",
   settingsAutoAdvanceToggle: "Passer à la photo suivante après P / U",
   settingsAutoAdvanceNote:
-    "En plein écran, P marque la photo d’un ⚑ (une catégorie distincte des ★ favoris) et U retire le marqueur. Avec cette option, la photo suivante s’affiche aussitôt : le tri se fait en une touche par photo. Sans elle, vous restez sur la même photo.",
-  settingsPairView: "Ce qu’on montre d’une paire RAW+JPEG",
+    "En affichage en grand, P marque la photo d’un ⚑ (une catégorie distincte des ★ favoris) et U retire le marqueur. Avec cette option, la photo suivante s’affiche aussitôt : le tri se fait en une touche par photo. Sans elle, vous restez sur la même photo.",
+  settingsPairView: "Affichage des paires RAW+JPEG",
   pairViewJpeg: "JPEG uniquement",
   pairViewRaw: "RAW uniquement",
   pairViewBoth: "Les deux (RAW, puis JPEG)",
@@ -673,7 +673,7 @@ export const fr: Dict = {
   errRotateCloudOnly:
     "Cette photo n’est que dans le cloud ; impossible de la faire pivoter. Téléchargez-la, puis réessayez.",
   errRotateCameraCard:
-    "Les photos d’une carte d’appareil photo sont protégées, car elles servent de source d’importation ; impossible de les faire pivoter. Importez-la, puis faites-la pivoter.",
+    "Cette photo se trouve sur une carte d’appareil photo, protégée car elle sert de source d’importation ; impossible de la faire pivoter. Importez-la, puis faites-la pivoter.",
   errRotateNotReady: "Lecture des informations de la photo en cours. Patientez un instant, puis réessayez.",
   errRotateChanged:
     "Le fichier a été modifié ailleurs pendant la rotation. Réessayez.",
