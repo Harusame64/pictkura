@@ -3,7 +3,12 @@
  * `margin-left` ではなく `margin-inline-start`、`right` ではなく `inset-inline-end`。
  * 横書きの左→右では物理と同じ値になるので、いまの見た目は変わらない。`dir="rtl"` で鏡に映る。
  *
- * 物理のまま残すものは下の `KEEP` に**理由ごと**書く。新しく左右を書いたらここで落ちる。
+ * 物理のまま残すものは下の `KEEP` に**値と理由ごと**書く。`App.css` と `tokens.css` に
+ * 新しく左右を書いたら、ここで落ちる。部品の `style={{ left }}` は見ない——そこに在るのは
+ * 押した所・絵の箱といった**画面の座標**で、向きではない。
+ *
+ * 論理の角丸（`border-start-start-radius`）は WebKit 15 から。画面は既に `oklch()`（15.4〜）で
+ * 色を塗っているので、それより古い WebKit では元から描けない。
  * `npm --prefix ui test`。
  */
 import { test } from "node:test";
@@ -14,74 +19,116 @@ const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
 
 /**
- * 情報パネル（右に開く）の側に結びついているもの。絵の大きさは JS（viewerZoomBox.ts）も
- * 右にパネルがある前提で計算するので、**片方だけ論理にすると右→左で絵と合図がずれる**。
- * パネルを左へ移すときに、JS・送りのキーと一緒にまとめて直す。
+ * ビューアの左右。情報パネルは右に開き、絵の大きさは JS（viewerZoomBox.ts）も右にパネルが
+ * ある前提で計算する。送り（← →）・戻る（←）・道具の帯も、その向きと組で決まっている。
+ * **一部だけ論理にすると、右→左で絵と合図と送りがずれる**ので、パネルを左へ移すときに
+ * JS・矢印キー・印の向きと一緒にまとめて直す。
  */
-const PANEL = "情報パネルの側に結びつく（viewerZoomBox・送りと一緒に直す）";
+const VIEWER = "ビューアの左右（パネル・viewerZoomBox・送りと一緒に直す）";
+const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
+const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
+const SPINNER = "回転する印の欠け。向きの意味が無い";
+const SHIMMER = "読み込み中の光が流れる向き。飾りで、どちら向きでも読める";
+const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-quiet";
 
-/** 物理のまま残すもの。鍵は「規則の頭 + 空白 + 宣言の名前」（@keyframes の中は「@keyframes 名前 from」が頭） */
+/** 物理のまま残すもの。鍵は「規則の頭（@media・@keyframes も含む）|宣言|値」 */
 const KEEP: Record<string, string> = {
-  // 回るだけの印。欠けている辺に向きの意味は無い
-  ".bg-spinner border-right-color": "回転する印の欠け。向きの意味が無い",
-  // 真ん中に置く（left: 50% と translateX(-50%) の組）。左右どちらから測っても同じ所
-  ".viewer-thumb left": "left: 50% で真ん中。左右対称",
-  ".speed-toast left": "left: 50% で真ん中。左右対称",
-  ".speed-toast transform": "真ん中に置く translateX(-50%)",
-  "@keyframes speed-toast-in from transform": "真ん中に置く translateX(-50%)",
-  "@keyframes speed-toast-in to transform": "真ん中に置く translateX(-50%)",
-  // 読み込み中の帯が流れる向き。RTL では逆に流したいが、情報パネルと一緒に直す
-  "@keyframes viewer-progress-slide from transform": PANEL,
-  "@keyframes viewer-progress-slide to transform": PANEL,
-  ".failure-toast left": "left: 50% で真ん中。左右対称",
-  ".failure-toast transform": "真ん中に置く translateX(-50%)",
-  // 印刷の見本は写真の絵。写真は鏡に映さない
-  ".print-fit-sample > span::after left": "印刷の見本の絵の中の丸。写真は鏡に映さない",
-  ".print-fit-sample-cover > span::after left": "印刷の見本の絵の中の丸。写真は鏡に映さない",
-  ".print-fit-sample-cover > span left": "印刷の見本の絵。写真は鏡に映さない",
-  // 情報パネルの側に結びついている。パネルを右から左へ移すときに、
-  // 絵の大きさを計算する JS（viewerZoomBox.ts）と一緒に直す
-  ".viewer-missing-band left": PANEL,
-  ".viewer-missing-band transform": PANEL,
-  ".viewer-flash left": PANEL,
-  ".viewer-stage right": PANEL,
-  ".viewer-loading-overlay right": PANEL,
-  ".viewer-caption left": PANEL,
-  ".viewer-caption right": PANEL,
-  ".viewer-strip left": PANEL,
-  ".viewer-strip right": PANEL,
-  ".viewer-nav.prev left": PANEL,
-  ".viewer-nav.next right": PANEL,
-  ".exif-panel right": PANEL,
+  ".bg-spinner|border-right-color|transparent": SPINNER,
+  "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
+  ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
+    SHIMMER,
+  "@keyframes placeholder-shimmer to|background-position|-200% 0": SHIMMER,
+
+  ".viewer-thumb|left|50%": CENTRE,
+  ".speed-toast|left|50%": CENTRE,
+  ".speed-toast|transform|translateX(-50%)": CENTRE,
+  "@keyframes speed-toast-in from|transform|translateX(-50%) translateY(8px)": CENTRE,
+  "@keyframes speed-toast-in to|transform|translateX(-50%) translateY(0)": CENTRE,
+  ".failure-toast|left|50%": CENTRE,
+  ".failure-toast|transform|translateX(-50%)": CENTRE,
+
+  ".print-fit-sample > span::after|left|18%": PICTURE,
+  ".print-fit-sample-cover > span::after|left|6%": PICTURE,
+  ".print-fit-sample-cover > span|left|-50%": PICTURE,
+
+  ".viewer-stage|right|var(--info-reserve)": VIEWER,
+  ".viewer-loading-overlay|right|var(--info-reserve)": VIEWER,
+  ".viewer-missing-band|left|calc((100vw - var(--info-reserve)) / 2)": VIEWER,
+  ".viewer-missing-band|transform|translateX(-50%)": VIEWER,
+  ".viewer-caption|left|0": VIEWER,
+  ".viewer-caption|right|var(--info-reserve)": VIEWER,
+  ".viewer-strip|left|0": VIEWER,
+  ".viewer-strip|right|var(--info-reserve)": VIEWER,
+  ".viewer-tools|right|var(--sp-4)": VIEWER,
+  ".viewer-back|left|var(--sp-4)": VIEWER,
+  ".viewer-badges|left|var(--sp-4)": VIEWER,
+  ".viewer-flash|left|calc((100% - var(--info-reserve)) / 2)": VIEWER,
+  "@keyframes viewer-flash 0%|transform|translate(-50%, -50%) scale(0.7)": VIEWER,
+  "@keyframes viewer-flash 18%|transform|translate(-50%, -50%) scale(1)": VIEWER,
+  "@keyframes viewer-flash 70%|transform|translate(-50%, -50%) scale(1)": VIEWER,
+  "@keyframes viewer-flash 100%|transform|translate(-50%, -50%) scale(1.08)": VIEWER,
+  [`${QUIET} 0%, 70%|transform|translate(-50%, -50%)`]: VIEWER,
+  [`${QUIET} 100%|transform|translate(-50%, -50%)`]: VIEWER,
+  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": VIEWER,
+  "@keyframes viewer-progress-slide to|transform|translateX(360%)": VIEWER,
+  ".viewer-nav.prev|left|var(--sp-4)": VIEWER,
+  ".viewer-nav.next|right|calc(var(--info-reserve) + var(--sp-4))": VIEWER,
+  ".exif-panel|right|var(--sp-4)": VIEWER,
 };
 
-type Decl = { key: string; prop: string; value: string; sheet: string };
+type Decl = { key: string; prop: string; value: string };
 
-/** コメントを落として、宣言を「直前の規則の頭」と組にして返す。入れ子（@media・@keyframes）も同じ扱い */
-function declarations(sheet: string): Decl[] {
-  const css = readFileSync(new URL(sheet, src), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+/**
+ * コメントと文字列を落として、宣言を「囲んでいる規則の頭」と組にして返す。
+ * 最後の `;` が無い宣言も `}` で拾う
+ */
+function parse(text: string): Decl[] {
+  const css = text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""')
+    .replace(/url\([^)]*\)/g, "url()");
   const out: Decl[] = [];
   const heads: string[] = [];
   let buf = "";
+  const flush = () => {
+    const m = /^\s*([-a-z]+)\s*:\s*([\s\S]*?)\s*$/.exec(buf);
+    if (m) {
+      const value = m[2].replace(/\s+/g, " ");
+      out.push({ key: `${heads.join(" ")}|${m[1]}|${value}`, prop: m[1], value });
+    }
+    buf = "";
+  };
   for (const ch of css) {
     if (ch === "{") {
       heads.push(buf.trim().replace(/\s+/g, " "));
       buf = "";
     } else if (ch === "}") {
+      flush();
       heads.pop();
-      buf = "";
-    } else if (ch === ";") {
-      const m = /^\s*([-a-z]+)\s*:\s*([\s\S]*)$/.exec(buf);
-      if (m) {
-        // @keyframes の from/to は名前と組にする（どの動きかが鍵に残るように）
-        const head = heads.filter((h) => !h.startsWith("@media")).join(" ");
-        out.push({ key: `${head} ${m[1]}`, prop: m[1], value: m[2].trim(), sheet });
-      }
-      buf = "";
-    } else buf += ch;
+    } else if (ch === ";") flush();
+    else buf += ch;
   }
   return out;
 }
+
+/** 空白（既定）で分ける。calc(…) の中では切らない */
+function splitTopLevel(v: string, sep = /\s/): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of v.trim()) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (sep.test(ch) && depth === 0) {
+      if (cur.trim()) out.push(cur.trim());
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+const zero = (v: string | undefined) => v === undefined || /^-?0(\.0+)?([a-z%]+)?$/.test(v);
 
 /** 4つの値を持つ省略形で、左と右が違うもの（上 右 下 左） */
 function asymmetricFour(prop: string, value: string): boolean {
@@ -91,50 +138,59 @@ function asymmetricFour(prop: string, value: string): boolean {
   return parts.length === 4 && parts[1] !== parts[3];
 }
 
-/** border-radius の4つの角で、左右の組が違うもの */
+/** border-radius の4つの角で、左右の組が違うもの（`/` の後ろの縦の半径も見る） */
 function asymmetricRadius(prop: string, value: string): boolean {
   if (prop !== "border-radius") return false;
-  const parts = splitTopLevel(value.split("/")[0]);
-  if (parts.length < 2) return false;
-  const [tl, tr = tl, br = tl, bl = tr] = parts;
-  return tl !== tr || bl !== br;
+  return value.split("/").some((half) => {
+    const parts = splitTopLevel(half);
+    if (parts.length < 2) return false;
+    const [tl, tr = tl, br = tl, bl = tr] = parts;
+    return tl !== tr || bl !== br;
+  });
 }
 
-/** 空白で分ける。calc(…) の中の空白では切らない */
-function splitTopLevel(v: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of v.trim()) {
-    if (ch === "(") depth++;
-    if (ch === ")") depth--;
-    if (/\s/.test(ch) && depth === 0) {
-      if (cur) out.push(cur);
-      cur = "";
-    } else cur += ch;
+/** transform の中で、横へ動かすもの。`translate(x, y)` は x が 0 でなければ横 */
+function movesSideways(value: string): boolean {
+  if (/translateX\(|translate3d\(|matrix(3d)?\(|skewX\(|scaleX\(-/.test(value)) return true;
+  for (const m of value.matchAll(/translate\(([^)]*)\)/g)) {
+    if (!zero(splitTopLevel(m[1], /,/)[0])) return true;
   }
-  if (cur) out.push(cur);
-  return out;
+  return false;
 }
 
-function isPhysical(d: Decl): boolean {
-  if (/^(left|right)$/.test(d.prop)) return true;
-  if (/^(margin|padding|border|scroll-margin|scroll-padding)-(left|right)(-|$)/.test(d.prop)) return true;
-  if (/^border-(top|bottom)-(left|right)-radius$/.test(d.prop)) return true;
-  if (/^(text-align|float|clear)$/.test(d.prop) && /\b(left|right)\b/.test(d.value)) return true;
-  if (d.prop === "transform" && /translateX\(/.test(d.value)) return true;
-  if (d.prop === "translate" && d.value !== "none") return true;
-  return asymmetricFour(d.prop, d.value) || asymmetricRadius(d.prop, d.value);
+function isPhysical(d: Pick<Decl, "prop" | "value">): boolean {
+  const { prop, value } = d;
+  if (/^(left|right)$/.test(prop)) return true;
+  if (/^(margin|padding|border|scroll-margin|scroll-padding)-(left|right)(-|$)/.test(prop)) return true;
+  if (/^border-(top|bottom)-(left|right)-radius$/.test(prop)) return true;
+  if (/^(text-align|float|clear|transform-origin|justify-content|justify-items|justify-self)$/.test(prop))
+    return /\b(left|right)\b/.test(value);
+  if (/^(background-position|background-position-x|object-position)$/.test(prop)) {
+    // 横の値が左右の言葉か、0・50%・center 以外なら向きを持つ
+    const x = splitTopLevel(value.split(",")[0])[0];
+    return /\b(left|right)\b/.test(value) || !(zero(x) || x === "50%" || x === "center");
+  }
+  if (/gradient\(/.test(value)) {
+    if (/\bto (left|right)\b/.test(value)) return true;
+    const deg = /gradient\(\s*(-?\d+(?:\.\d+)?)deg/.exec(value);
+    if (deg && Number(deg[1]) % 180 !== 0) {
+      // 135deg のような斜めは飾りの光沢で、どちらに傾いても読める。真横（90/270）だけを向きとみなす
+      return Math.abs(Number(deg[1])) % 180 === 90;
+    }
+  }
+  if (prop === "transform") return movesSideways(value);
+  if (prop === "translate") return value !== "none" && !zero(splitTopLevel(value)[0]);
+  return asymmetricFour(prop, value) || asymmetricRadius(prop, value);
 }
 
-const all = SHEETS.flatMap(declarations);
+const all = SHEETS.flatMap((s) => parse(readFileSync(new URL(s, src), "utf8")).map((d) => ({ ...d, sheet: s })));
 
 test("left and right are written as logical properties", () => {
   const found = all.filter(isPhysical).filter((d) => !(d.key in KEEP));
   assert.deepEqual(
-    found.map((d) => `${d.sheet}: ${d.key}: ${d.value}`),
+    found.map((d) => `${d.sheet}: ${d.key}`),
     [],
-    "書き換えるか、KEEP に理由を書く",
+    "書き換えるか、KEEP に値と理由を書く",
   );
 });
 
@@ -152,19 +208,48 @@ test("the scanner reads the sheets", () => {
 });
 
 test("the scanner flags each physical shape", () => {
-  const flag = (prop: string, value: string) => isPhysical({ key: "x", prop, value, sheet: "t" });
-  assert.ok(flag("left", "0"));
-  assert.ok(flag("margin-right", "4px"));
-  assert.ok(flag("border-left-color", "red"));
-  assert.ok(flag("border-top-left-radius", "4px"));
-  assert.ok(flag("text-align", "right"));
-  assert.ok(flag("transform", "translateX(-50%)"));
-  assert.ok(flag("padding", "0 var(--sp-7) 0 28px"));
-  assert.ok(flag("border-radius", "9px 0 0 9px"));
-  assert.ok(!flag("padding", "0 calc(1px + 2px) 0 calc(1px + 2px)"));
-  assert.ok(!flag("border-radius", "0 0 4px 4px"));
-  assert.ok(!flag("margin", "0 auto"));
-  assert.ok(!flag("text-align", "start"));
-  assert.ok(!flag("inset-inline-start", "0"));
-  assert.ok(!flag("transform", "translate(-50%, -50%) scale(1)"));
+  for (const [prop, value] of [
+    ["left", "0"],
+    ["margin-right", "4px"],
+    ["border-left-color", "red"],
+    ["border-top-left-radius", "4px"],
+    ["text-align", "right"],
+    ["transform", "translateX(-50%)"],
+    ["transform", "translate(12px, 0)"],
+    ["transform", "translate(-50%, -50%) scale(1)"],
+    ["transform", "matrix(1, 0, 0, 1, 4, 0)"],
+    ["translate", "12px"],
+    ["transform-origin", "left center"],
+    ["background-position", "-200% 0"],
+    ["object-position", "right"],
+    ["background", "linear-gradient(to right, red, blue)"],
+    ["background", "linear-gradient(90deg, red, blue)"],
+    ["padding", "0 var(--sp-7) 0 28px"],
+    ["border-radius", "9px 0 0 9px"],
+    ["border-radius", "4px / 9px 0 0 9px"],
+  ]) {
+    assert.ok(isPhysical({ prop, value }), `${prop}: ${value}`);
+  }
+  for (const [prop, value] of [
+    ["padding", "0 calc(1px + 2px) 0 calc(1px + 2px)"],
+    ["border-radius", "0 0 4px 4px"],
+    ["margin", "0 auto"],
+    ["text-align", "start"],
+    ["inset-inline-start", "0"],
+    ["transform", "translate(0, -50%)"],
+    ["transform", "translateY(-50%) scale(1.1)"],
+    ["translate", "0 -50%"],
+    ["background-position", "center"],
+    ["background", "linear-gradient(135deg, red, blue)"],
+    ["background", "linear-gradient(180deg, red, blue)"],
+  ]) {
+    assert.ok(!isPhysical({ prop, value }), `${prop}: ${value}`);
+  }
+});
+
+test("the scanner keeps the last declaration and ignores braces in strings", () => {
+  assert.deepEqual(
+    parse('.a { content: "{"; left: 0 } @media (x) { .b { top: 1px } }').map((d) => d.key),
+    ['.a|content|""', ".a|left|0", "@media (x) .b|top|1px"],
+  );
 });

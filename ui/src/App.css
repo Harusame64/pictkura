@@ -1274,7 +1274,7 @@ body {
 .viewer-tools {
   position: absolute;
   top: var(--sp-3);
-  inset-inline-end: var(--sp-4);
+  right: var(--sp-4);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -1284,7 +1284,7 @@ body {
 .viewer-back {
   position: absolute;
   top: var(--sp-3);
-  inset-inline-start: var(--sp-4);
+  left: var(--sp-4);
 }
 /* ボタンを grid／flex の箱にはしない（古いエンジンで効かなかった型）。絵のほうを真ん中へ寄せる */
 /* 帯と一緒に薄れて消える。`.viewer-tool` の `transition: background` が後ろで上書きするので、
@@ -1374,7 +1374,7 @@ body {
   position: absolute;
   /* 左上の ← の**下**に置く。横に並べると、狭い窓（960px）で右上の帯とぶつかる（ゲート2） */
   top: calc(var(--sp-3) + var(--viewer-tool-size) + var(--sp-2));
-  inset-inline-start: var(--sp-4);
+  left: var(--sp-4);
   display: flex;
   gap: var(--sp-1);
   pointer-events: none;
