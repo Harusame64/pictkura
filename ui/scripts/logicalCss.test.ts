@@ -9,7 +9,9 @@
  *
  * **走査は手がかりであって証明ではない。** よく書く形（位置・余白・枠・角丸・影・移動・グラデーション）は拾うが、
  * `background` の省略形の中の数値の位置、`var()` の先（トークンの中身）、`calc()` で書いた角度は見ない。
- * KEEP の VIEWER は `.viewer` の中に描かれる部品にだけ使う（外に出る ViewerZoom などは留まらない）。
+ *
+ * `:dir(rtl)` は WebKit 16.4・Chromium 120 から。それより古い WebKit では右→左の裏返しだけが効かない
+ * （左→右の見た目には関わらない）。
  *
  * 論理の角丸（`border-start-start-radius`）は WebKit 15 から。画面は既に `oklch()`（15.4〜）で
  * 色を塗っているので、それより古い WebKit では元から描けない。
@@ -24,12 +26,10 @@ const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
 
 /**
- * ビューアの左右。情報パネルは右に開き、絵の大きさは JS（viewerZoomBox.ts）も右にパネルが
- * ある前提で計算する。送り（← →）・戻る（←）・道具の帯も、その向きと組で決まっている。
- * **一部だけ鏡に映ると、右→左で絵と合図と送りがずれる**ので、`.viewer` を `direction: ltr` で
- * まるごと留めてある。パネルを左へ移すときに、JS・矢印キー・印の向きと一緒にまとめて外す。
+ * 物理で書き、右→左は同じ部品の `:dir(rtl)` で付け直すもの。論理の形が無い（影・裏返し）か、
+ * 片側の幅（情報パネル）を引いた残りの中央に置くもの。下の試験が対の `:dir(rtl)` を確かめる
  */
-const VIEWER = "ビューアは direction: ltr に留めてある（パネル・viewerZoomBox・送りと一緒に外す）";
+const MIRRORED = "物理で書き、:dir(rtl) で付け直す";
 const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
 const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
 const SPINNER = "回転する印の欠け。向きの意味が無い";
@@ -40,8 +40,8 @@ const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-q
 const KEEP: Record<string, string> = {
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
-  ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": "影に論理の形が無い。右→左は [dir=rtl] で裏返す",
-  '.wiz-node.wiz-card:dir(rtl)|box-shadow|inset -3px 0 0 var(--accent)': "上の裏返し",
+  ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": MIRRORED,
+  ".wiz-node.wiz-card:dir(rtl)|box-shadow|inset -3px 0 0 var(--accent)": MIRRORED,
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
     SHIMMER,
   "@keyframes placeholder-shimmer from|background-position|0 0": SHIMMER,
@@ -59,29 +59,21 @@ const KEEP: Record<string, string> = {
   ".print-fit-sample-cover > span::after|left|6%": PICTURE,
   ".print-fit-sample-cover > span|left|-50%": PICTURE,
 
-  ".viewer-stage|right|var(--info-reserve)": VIEWER,
-  ".viewer-loading-overlay|right|var(--info-reserve)": VIEWER,
-  ".viewer-missing-band|left|calc((100vw - var(--info-reserve)) / 2)": VIEWER,
-  ".viewer-missing-band|transform|translateX(-50%)": VIEWER,
-  ".viewer-caption|left|0": VIEWER,
-  ".viewer-caption|right|var(--info-reserve)": VIEWER,
-  ".viewer-strip|left|0": VIEWER,
-  ".viewer-strip|right|var(--info-reserve)": VIEWER,
-  ".viewer-tools|right|var(--sp-4)": VIEWER,
-  ".viewer-back|left|var(--sp-4)": VIEWER,
-  ".viewer-badges|left|var(--sp-4)": VIEWER,
-  ".viewer-flash|left|calc((100% - var(--info-reserve)) / 2)": VIEWER,
-  "@keyframes viewer-flash 0%|transform|translate(-50%, -50%) scale(0.7)": VIEWER,
-  "@keyframes viewer-flash 18%|transform|translate(-50%, -50%) scale(1)": VIEWER,
-  "@keyframes viewer-flash 70%|transform|translate(-50%, -50%) scale(1)": VIEWER,
-  "@keyframes viewer-flash 100%|transform|translate(-50%, -50%) scale(1.08)": VIEWER,
-  [`${QUIET} 0%, 70%|transform|translate(-50%, -50%)`]: VIEWER,
-  [`${QUIET} 100%|transform|translate(-50%, -50%)`]: VIEWER,
-  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": VIEWER,
-  "@keyframes viewer-progress-slide to|transform|translateX(360%)": VIEWER,
-  ".viewer-nav.prev|left|var(--sp-4)": VIEWER,
-  ".viewer-nav.next|right|calc(var(--info-reserve) + var(--sp-4))": VIEWER,
-  ".exif-panel|right|var(--sp-4)": VIEWER,
+  ".viewer-missing-band|left|calc((100vw - var(--info-reserve)) / 2)": MIRRORED,
+  ".viewer-missing-band:dir(rtl)|left|calc((100vw + var(--info-reserve)) / 2)": MIRRORED,
+  ".viewer-missing-band|transform|translateX(-50%)": CENTRE,
+  ".viewer-flash|left|calc((100% - var(--info-reserve)) / 2)": MIRRORED,
+  ".viewer-flash:dir(rtl)|left|calc((100% + var(--info-reserve)) / 2)": MIRRORED,
+  ".viewer-back-icon:dir(rtl)|transform|scaleX(-1)": "← を右→左で → に裏返す",
+  ".viewer-progress:dir(rtl)|transform|scaleX(-1)": "流れる帯を右→左で裏返す（下の2つの向きごと）",
+  "@keyframes viewer-flash 0%|transform|translate(-50%, -50%) scale(0.7)": CENTRE,
+  "@keyframes viewer-flash 18%|transform|translate(-50%, -50%) scale(1)": CENTRE,
+  "@keyframes viewer-flash 70%|transform|translate(-50%, -50%) scale(1)": CENTRE,
+  "@keyframes viewer-flash 100%|transform|translate(-50%, -50%) scale(1.08)": CENTRE,
+  [`${QUIET} 0%, 70%|transform|translate(-50%, -50%)`]: CENTRE,
+  [`${QUIET} 100%|transform|translate(-50%, -50%)`]: CENTRE,
+  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": "流れる帯。右→左は .viewer-progress:dir(rtl) が裏返す",
+  "@keyframes viewer-progress-slide to|transform|translateX(360%)": "流れる帯。右→左は .viewer-progress:dir(rtl) が裏返す",
 };
 
 type Decl = { key: string; prop: string; value: string };
@@ -310,22 +302,15 @@ test("the scanner flags each physical shape", () => {
   }
 });
 
-test("no right-to-left language ships while the viewer is pinned", () => {
-  // `.viewer` の direction: ltr は文字の向きも留める。アラビア語・ヘブライ語の字幕や情報パネルが
-  // 左→右で組まれてしまうので、それらの辞書を足す前に外す
-  // index.ts は window を読むので import できない（i18n.test と同じく文字で読む）
-  const index = readFileSync(new URL("i18n/index.ts", src), "utf8");
-  const block = /export const LOCALES[\s\S]*?\n\];/.exec(index)?.[0] ?? "";
-  const codes = [...block.matchAll(/code: "([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(codes.includes("ja") && codes.length >= 10, `LOCALES を読めていない: ${codes}`);
-  const rtl = codes.filter((c) => /^(ar|he|fa|ur)\b/.test(c));
-  const pinned = all.some((d) => d.key === ".viewer|direction|ltr");
-  assert.ok(!(pinned && rtl.length), `.viewer を留めたまま ${rtl} を足している`);
-});
-
-test("the viewer stays pinned left-to-right while its rules are kept physical", () => {
-  // VIEWER の物理が許されるのは、.viewer を direction: ltr で留めている間だけ
-  const pinned = all.some((d) => d.key === ".viewer|direction|ltr");
-  const kept = Object.values(KEEP).includes(VIEWER);
-  assert.equal(pinned, kept, pinned ? "VIEWER が空なら direction: ltr も外す" : "direction: ltr を外すなら VIEWER の物理も直す");
+test("each mirrored rule has its :dir(rtl) twin", () => {
+  // MIRRORED の物理は、同じ規則の左→右と :dir(rtl) が対で在って初めて鏡になる
+  const keys = Object.keys(KEEP).filter((k) => KEEP[k] === MIRRORED);
+  const heads = new Set(all.map((d) => d.key.split("|")[0]));
+  for (const k of keys) {
+    const [head, prop] = k.split("|");
+    const twin = head.endsWith(":dir(rtl)") ? head.slice(0, -":dir(rtl)".length) : `${head}:dir(rtl)`;
+    assert.ok(heads.has(twin), `${head} の対 ${twin} が無い`);
+    assert.ok(keys.some((o) => o.startsWith(`${twin}|${prop}|`)), `${twin} の ${prop} が MIRRORED に無い`);
+  }
+  assert.ok(keys.length >= 6);
 });

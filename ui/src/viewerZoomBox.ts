@@ -21,11 +21,12 @@ export function fitScaleFor(
 
 /**
  * 開いたときに写真が置かれる箱（情報パネルの分を除いた残りの中央）。寸法は届く絵の大きさ（実寸を知っていれば
- * それ、無ければ `servedSize` の見当）
+ * それ、無ければ `servedSize` の見当）。情報パネルは行の終わりの側に開くので、右→左（`rtl`）では左に在る
  */
 export function viewerBox(
   [w, h]: [number, number],
   infoReserve: number,
+  rtl = false,
   viewW = window.innerWidth,
   viewH = window.innerHeight,
 ): Box | null {
@@ -35,7 +36,7 @@ export function viewerBox(
   const width = w * k;
   const height = h * k;
   return {
-    left: (viewW - infoReserve - width) / 2,
+    left: (rtl ? infoReserve : 0) + (viewW - infoReserve - width) / 2,
     top: (viewH - height) / 2,
     width,
     height,

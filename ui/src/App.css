@@ -14,7 +14,15 @@ body,
 }
 /* `<code>` の既定。ブラウザ既定の `monospace` に任せると、日本語の Windows で `¥` に化ける
    （`tokens.css` の `--font-mono`）。`<code>` の書体はここだけで決める（個別の規則に書き写さない）。
-   `<code>` でない等幅（`.fallback-path` の `<p>`、名前の型の入力欄）だけが自分で読む */
+   `<code>` でない等幅（`.fallback-path` の `<p>`、名前の型の入力欄）だけが自分で読む。
+   **パス・名前の型・版は左→右の文字列**——右→左の画面に混ぜると、向きを持たない `/` の前後が
+   入れ替わって `2026/2026-11-04/IMG.JPG` が `IMG.JPG/2026/2026-11-04` に見える。囲って左→右に留める */
+code,
+.fallback-path,
+.pattern-custom-input {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 code {
   font-family: var(--font-mono);
 }
@@ -965,12 +973,6 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
-  /* **ビューアはまるごと左→右に留める。** 情報パネルは右に開き、絵の箱は JS（viewerZoomBox.ts）も
-     右にパネルがある前提で計算する。送り（← →）・戻る・フィルムストリップの並びもその向きと組なので、
-     一部だけ鏡に映ると「次へ」で帯が逆に動く。右→左の言語を足すときに、パネル・JS・矢印キーと一緒に
-     これを外す（scripts/logicalCss.test.ts の VIEWER）。**文字の向きも留まる**ので、右→左の辞書を
-     足す前に外すこと（同じ試験が止める） */
-  direction: ltr;
 
   /* 下端に敷く字幕の帯の高さ。フィルムストリップの位置決めと、動画の
      操作バーがその帯に潜らないための余白に使う */
@@ -983,7 +985,7 @@ body {
   position: absolute;
   inset: 0;
   /* 情報パネルの分を空けて、その残りの中央に絵を置く（#48） */
-  right: var(--info-reserve);
+  inset-inline-end: var(--info-reserve);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1048,7 +1050,7 @@ body {
 .viewer-loading-overlay {
   position: absolute;
   inset: 0;
-  right: var(--info-reserve); /* 絵と同じ場所の中央に（#48） */
+  inset-inline-end: var(--info-reserve); /* 絵と同じ場所の中央に（#48） */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1141,6 +1143,10 @@ body {
   color: oklch(0.93 0 0);
   box-shadow: 0 4px 24px oklch(0 0 0 / 0.5);
 }
+/* 右→左では情報パネルが左に在るので、残りの中央はパネルの分だけ右 */
+.viewer-missing-band:dir(rtl) {
+  left: calc((100vw + var(--info-reserve)) / 2);
+}
 .viewer-missing-title {
   margin: 0 0 var(--sp-2);
   font-size: var(--fs-lg);
@@ -1189,8 +1195,8 @@ body {
 }
 .viewer-caption {
   position: absolute;
-  left: 0;
-  right: var(--info-reserve); /* 上のフィルムストリップと揃える（#48） */
+  inset-inline-start: 0;
+  inset-inline-end: var(--info-reserve); /* 上のフィルムストリップと揃える（#48） */
   bottom: 0;
   display: flex;
   gap: var(--sp-4);
@@ -1205,9 +1211,9 @@ body {
    高さは固定で、送っても帯が伸び縮みしない */
 .viewer-strip {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   /* 写真と同じく、情報パネルの分を空けた残りの中央に並べる（パネルの下に潜らない、#48） */
-  right: var(--info-reserve);
+  inset-inline-end: var(--info-reserve);
   bottom: var(--caption-h);
   display: flex;
   justify-content: center;
@@ -1280,17 +1286,16 @@ body {
 .viewer-tools {
   position: absolute;
   top: var(--sp-3);
-  right: var(--sp-4);
+  inset-inline-end: var(--sp-4);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
 }
-/* 閉じる（一覧へ戻る）。道具の帯と反対の角に置く。**向きは物理（`left`）で帯（`right`）と揃える**
-   ——右から左の言語を足すときに、帯・送り・これを一緒に論理へ移す */
+/* 閉じる（一覧へ戻る）。道具の帯と反対の角——行の始まりの側に置く。右→左では右上へ移り、矢印も裏返る */
 .viewer-back {
   position: absolute;
   top: var(--sp-3);
-  left: var(--sp-4);
+  inset-inline-start: var(--sp-4);
 }
 /* ボタンを grid／flex の箱にはしない（古いエンジンで効かなかった型）。絵のほうを真ん中へ寄せる */
 /* 帯と一緒に薄れて消える。`.viewer-tool` の `transition: background` が後ろで上書きするので、
@@ -1310,6 +1315,9 @@ body {
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+.viewer-back-icon:dir(rtl) {
+  transform: scaleX(-1);
 }
 .viewer-tool {
   border: none;
@@ -1380,7 +1388,7 @@ body {
   position: absolute;
   /* 左上の ← の**下**に置く。横に並べると、狭い窓（960px）で右上の帯とぶつかる（ゲート2） */
   top: calc(var(--sp-3) + var(--viewer-tool-size) + var(--sp-2));
-  left: var(--sp-4);
+  inset-inline-start: var(--sp-4);
   display: flex;
   gap: var(--sp-1);
   pointer-events: none;
@@ -1440,6 +1448,9 @@ body {
   backdrop-filter: blur(4px);
   pointer-events: none;
   animation: viewer-flash 700ms var(--easing) forwards;
+}
+.viewer-flash:dir(rtl) {
+  left: calc((100% + var(--info-reserve)) / 2);
 }
 .viewer-flash-mark {
   font-size: 44px;
@@ -1748,6 +1759,10 @@ body {
   background: var(--accent);
   animation: viewer-progress-slide 1.1s ease-in-out infinite;
 }
+/* 右→左では右から左へ流す。帯ごと裏返す（細い線なので見た目は対称） */
+.viewer-progress:dir(rtl) {
+  transform: scaleX(-1);
+}
 @keyframes viewer-progress-show {
   to {
     opacity: 1;
@@ -1855,19 +1870,19 @@ body {
   background: oklch(1 0 0 / 0.22);
 }
 .viewer-nav.prev {
-  left: var(--sp-4);
+  inset-inline-start: var(--sp-4);
 }
 .viewer-nav.next {
   /* 情報パネルを開いている間は、縮めた写真とパネルの間へ寄る（#48）。高さは変えない——押す場所が上下に
      動くと、送り続けている手が外れる */
-  right: calc(var(--info-reserve) + var(--sp-4));
+  inset-inline-end: calc(var(--info-reserve) + var(--sp-4));
 }
 
 /* 撮影情報パネル */
 .exif-panel {
   position: absolute;
   top: 60px;
-  right: var(--sp-4);
+  inset-inline-end: var(--sp-4);
   width: var(--exif-panel-width);
   /* ファイルの節を足して長くなった（ADR の A）。低い窓では中で巻く——撮影地のリンクが窓の外へ出ないように */
   max-height: calc(100vh - 140px);

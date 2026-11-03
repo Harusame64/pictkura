@@ -158,6 +158,7 @@ import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
+import { isRtl, stepOfArrow } from "./direction";
 import { letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
@@ -4732,7 +4733,8 @@ export default function App() {
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!ghost || !stage) return;
-    const w = window.innerWidth;
+    // 次の絵は読む向きの先から入ってくる。右→左では左から
+    const w = window.innerWidth * (isRtl() ? -1 : 1);
     const slide = ghost.kind === "slide";
     const timing: KeyframeAnimationOptions = {
       duration: ghost.ms,
@@ -5685,8 +5687,8 @@ export default function App() {
         }
       }
       if (e.key === "Escape") requestCloseViewer();
-      else if (e.key === "ArrowLeft") moveViewer(-1);
-      else if (e.key === "ArrowRight") moveViewer(1);
+      // 右→左の画面では左が「次」（direction.ts）
+      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") moveViewer(stepOfArrow(e.key, isRtl()));
       // **`F` も判定と同じ扱いにする**（2026-09-08）。★も**写真の状態を書き換える**のに、
       // ここだけ修飾キーを見ていなかった——**`⌘F` / `Ctrl+F`（頁内検索の手癖）で
       // 黙って★が付く**。Windows では WebView2 の検索バーがその上に出る
@@ -6261,7 +6263,7 @@ export default function App() {
         const known = naturalRef.current.get(opened.id);
         const db = servedSize(opened);
         const size = known && known[0] > known[1] === db[0] > db[1] ? known : db;
-        const to = viewerBox(size, infoReserve);
+        const to = viewerBox(size, infoReserve, isRtl());
         setTileZoom(
           to
             ? {

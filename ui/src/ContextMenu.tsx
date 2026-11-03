@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
+import { isRtl } from "./direction";
 
 /** 右クリックメニューの1項目。`separator` の前に区切り線を引く */
 export type MenuItem = {
@@ -44,7 +45,8 @@ export default function ContextMenu({
   useLayoutEffect(() => {
     if (!pos || !ref.current) return;
     const rect = ref.current.getBoundingClientRect();
-    const x = Math.min(pos.x, window.innerWidth - rect.width - 8);
+    // 右→左の画面では、カーソルの左へ開く（メニューは行の始まりの側から読む）
+    const x = Math.min(isRtl() ? pos.x - rect.width : pos.x, window.innerWidth - rect.width - 8);
     const y = Math.min(pos.y, window.innerHeight - rect.height - 8);
     setAdjusted({ x: Math.max(8, x), y: Math.max(8, y) });
   }, [pos, items.length]);
