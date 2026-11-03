@@ -30,7 +30,17 @@ test("拡張ラテン文字と AltGr は位置へ落とさない（字を打っ�
   assert.equal(letterOf({ key: "ö", code: "Semicolon" }), "ö");
   // キリル文字でも Alt が混じれば落とさない
   assert.equal(letterOf({ key: "з", code: "KeyP", altKey: true }), "з");
-  // ギリシャ文字（ラテンでない別の字）は落とす
+  // ポーランド語 AltGr+A の `ą`・ハンガリー語 AltGr+K の `ł`・トルコ語 F 配列で KeyX にある `ö`
+  assert.equal(letterOf({ key: "ą", code: "KeyA", altKey: true }), "ą");
+  assert.equal(letterOf({ key: "ł", code: "KeyK", altKey: true }), "ł");
+  assert.equal(letterOf({ key: "ö", code: "KeyX" }), "ö");
+  // macOS の Option+P は `π`（Alt あり）。位置で `p` と読むと ⚑ が付く
+  assert.equal(letterOf({ key: "π", code: "KeyP", altKey: true }), "π");
+  // 字を生まないキー（デッドキー・IME の変換中）は、名前のまま
+  assert.equal(letterOf({ key: "Dead", code: "KeyI", altKey: true }), "Dead");
+  assert.equal(letterOf({ key: "Process", code: "KeyP" }), "Process");
+  assert.equal(letterOf({ key: "Unidentified", code: "KeyX" }), "Unidentified");
+  // ギリシャ文字（ラテンでない別の字）は、Alt 無しなら落とす
   assert.equal(letterOf({ key: "π", code: "KeyP" }), "p");
 });
 
