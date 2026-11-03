@@ -26,6 +26,9 @@
  *   `webview2_check.rs` の WebView2 が無いときの案内。**`cargo test` が DICTS との食い違いを見張る**
  *   が、`webview2_check` は Windows でしかコンパイルされない。2026-11-03 の仏・伊で
  *   この3つを丸ごと足し忘れ、ゲート2が拾った。
+ * - **`confirmCancel` は AppKit のその言語の Cancel と同じ語にする**（`Common.loctable`）。違うと macOS の
+ *   確認画面で Esc が効かない（2026-11-03 の露語で `Отмена` ≠ `Отменить`）。`i18n.test.ts` の
+ *   `APPKIT_CANCEL` に写すと試験が見張る
  * - 日付・数値の書式は辞書に持たず `Intl` に任せる（全ロケールが無料で正しくなる）。
  *   **例外は週の始まり**——これだけはタグに映らない設定なので、Rustが
  *   OSで効いている値を渡す（`weekday.ts`）。`Intl` はそれが無いときの近似。
