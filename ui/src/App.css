@@ -302,7 +302,6 @@ body {
   column-gap: var(--sp-2);
 }
 .nav-more {
-  display: inline-grid;
   max-width: 100%;
   margin-inline-start: auto;
   text-align: end;
@@ -317,8 +316,13 @@ body {
 .nav-more:hover {
   text-decoration: underline;
 }
-/* 2つの文言を同じ升に重ね、長いほうの幅を取る。使っていないほうは見えず、読み上げにも出ない */
-.nav-more > span {
+/* 2つの文言を同じ升に重ね、長いほうの幅を取る。使っていないほうは見えず、読み上げにも出ない。
+   **grid はボタンの内側の span に付ける**——`<button>` を grid の箱として扱わなかったエンジンが
+   在り（古い Chromium）、macOS 11 の WebKit は確かめていないため */
+.nav-more-labels {
+  display: inline-grid;
+}
+.nav-more-labels > span {
   grid-area: 1 / 1;
 }
 .nav-more-off {

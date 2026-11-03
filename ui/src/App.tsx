@@ -7785,11 +7785,13 @@ export default function App() {
                     className="nav-more"
                     onClick={() => setCamerasExpanded((v) => !v)}
                   >
-                    <span className={camerasExpanded ? "nav-more-off" : undefined}>
-                      {t.showMore(cameras.length - CAMERAS_COLLAPSED)}
-                    </span>
-                    <span className={camerasExpanded ? undefined : "nav-more-off"}>
-                      {t.collapse}
+                    <span className="nav-more-labels">
+                      <span className={camerasExpanded ? "nav-more-off" : undefined}>
+                        {t.showMore(cameras.length - CAMERAS_COLLAPSED)}
+                      </span>
+                      <span className={camerasExpanded ? undefined : "nav-more-off"}>
+                        {t.collapse}
+                      </span>
                     </span>
                   </button>
                 )}
