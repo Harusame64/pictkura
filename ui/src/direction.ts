@@ -8,13 +8,20 @@
  */
 
 /**
- * 右から左へ書く言語。アラビア語・ヘブライ語・ペルシア語・ウルドゥー語のほか、同じ文字を使う言語と、
- * 文字の札（`-Arab` / `-Hebr` など）で右→左の文字を名乗るもの。**エンジンの `Intl.Locale` の
- * textInfo には頼らない**——WebView2 と WebKit で載っている版が違い、同じ言語で向きが割れうる
+ * 右から左へ書く言語。アラビア語・ヘブライ語・ペルシア語・ウルドゥー語のほか、同じ文字を使う言語。
+ * **文字の札（`-Arab` / `-Latn` など）が付いていれば、言語より札を信じる**——`pa-Arab` は右→左、
+ * `sd-Deva`・`ar-Latn` は左→右。エンジンの `Intl.Locale` の textInfo には頼らない（WebView2 と WebKit で
+ * 載っている版が違い、同じ言語で向きが割れうる）
  */
-export const RTL_LANG = /^(ar|he|fa|ur|ckb|ps|sd|yi|dv|ug)(-|$)|-(Arab|Hebr|Thaa|Syrc|Nkoo|Adlm|Rohg)(-|$)/i;
+const RTL_LANGS = /^(ar|he|fa|ur|ckb|ps|sd|yi|dv|ug)$/i;
+const RTL_SCRIPTS = /^(Arab|Hebr|Thaa|Syrc|Nkoo|Adlm|Rohg|Mand|Samr)$/i;
 
-export const dirOf = (locale: string): "rtl" | "ltr" => (RTL_LANG.test(locale) ? "rtl" : "ltr");
+export function dirOf(locale: string): "rtl" | "ltr" {
+  const [lang, ...rest] = locale.split(/[-_]/);
+  const script = rest.find((p) => /^[A-Za-z]{4}$/.test(p));
+  const rtl = script ? RTL_SCRIPTS.test(script) : RTL_LANGS.test(lang);
+  return rtl ? "rtl" : "ltr";
+}
 
 /** いまの画面が右→左か */
 export const isRtl = (): boolean =>
