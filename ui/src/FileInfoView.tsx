@@ -23,9 +23,11 @@ import { answerKey, useWindowEvent } from "./useWindowEvent";
 export function FileInfoRows({ info }: { info: FileInfo }) {
   const base = sizeBaseFor(usePlatform());
   const { folder, name } = splitPath(info.path);
-  const rows: [string, string][] = [
-    [t.fileInfoName, name],
-    [t.fileInfoFolder, folder],
+  // 3つ目は値の種類。名前は書き手の文字から向きを決め（.name）、パスは左→右に留める（.path）——どちらも
+  // 右→左の画面で `_` `.` `/` の前後が入れ替わらないように（App.css）
+  const rows: [string, string, ("name" | "path")?][] = [
+    [t.fileInfoName, name, "name"],
+    [t.fileInfoFolder, folder, "path"],
     [t.fileInfoSize, formatSize(info.size, base, formatLocale)],
     [
       t.fileInfoTaken,
@@ -47,12 +49,11 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
   if (ext) rows.push([t.fileInfoType, ext]);
   return (
     <>
-      {rows.map(([label, value]) => (
+      {rows.map(([label, value, kind]) => (
         <div className="exif-row" key={label}>
           <span className="exif-key">{label}</span>
           <span className="exif-value file-info-value">
-            {/* フォルダはパス——右→左の画面でも `/` の前後が入れ替わらないよう、左→右に囲う（App.css の .path） */}
-            {label === t.fileInfoFolder ? <span className="path">{value}</span> : value}
+            {kind ? <span className={kind}>{value}</span> : value}
           </span>
         </div>
       ))}

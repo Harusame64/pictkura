@@ -183,6 +183,7 @@ html[data-theme="dark"] {
 :root {
   --inline-sign: 1;
 }
-[dir="rtl"] {
+/* `:root` と同じ重みだと、後に :root の塊が足されたとき上書きされる。重みを1段上げておく */
+:root[dir="rtl"] {
   --inline-sign: -1;
 }

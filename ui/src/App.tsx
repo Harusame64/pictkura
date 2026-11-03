@@ -7833,7 +7833,7 @@ export default function App() {
               >
                 <span className="root-name">
                   {mark !== null && "⚠ "}
-                  {rootName(r)}
+                  <span className="name">{rootName(r)}</span>
                 </span>
                 <button
                   className="root-remove"
@@ -8894,7 +8894,7 @@ export default function App() {
               className="viewer-caption"
               onClick={(e) => e.stopPropagation()}
             >
-              {viewerItem.file_name}
+              <span className="name">{viewerItem.file_name}</span>
               <span className="viewer-date">
                 {formatDateTime(viewerItem.taken_at_ms)}
               </span>

@@ -20,14 +20,17 @@ body,
    段落の中のパスは `<span class="path">` で囲う（段落ごと左→右にすると、揃えまで左に寄る） */
 code,
 .path,
-.pattern-custom-input,
-.add-folder input {
+.pattern-custom-input {
   direction: ltr;
   unicode-bidi: isolate;
 }
-/* フォルダを足す欄は、空のあいだの案内（訳した文）だけページの向きで出す */
-.add-folder input:placeholder-shown {
-  direction: inherit;
+/* **名前（ファイル・フォルダ）は書き手の文字で向きを決める**——`20261104_123045.jpg` や `100CANON` は
+   左→右、アラビア文字の名前は右→左。ページの向きのままだと、先頭の数字の並びが `_` `.` の向こうへ回る。
+   フォルダを足す欄も同じ（空のあいだは訳した案内がページの向きで出て、打ち始めると打った文字の向きになる） */
+.name,
+.wiz-name,
+.add-folder input {
+  unicode-bidi: plaintext;
 }
 /* `<code>` に訳した文を入れるとき（「フォルダを作らない」の説明・未設定）は、ページの向きに戻す */
 code.prose {
@@ -2729,6 +2732,10 @@ body {
   line-height: 1;
   padding: 0;
   cursor: pointer;
+}
+/* 閉じた枝の ▸ は鏡像文字ではないので、右→左では裏返して子の側（左）へ向ける */
+[dir="rtl"] .wiz-twisty {
+  transform: scaleX(-1);
 }
 .wiz-twisty:disabled {
   cursor: default;

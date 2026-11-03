@@ -67,6 +67,7 @@ const KEEP: Record<string, string> = {
   [`${QUIET} 0%, 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
   [`${QUIET} 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
   '[dir="rtl"] .viewer-back-icon|transform|scaleX(-1)': FLIP,
+  '[dir="rtl"] .wiz-twisty|transform|scaleX(-1)': FLIP,
   "@keyframes viewer-progress-slide from|transform|translateX(calc(-100% * var(--inline-sign)))": SIGNED,
   "@keyframes viewer-progress-slide to|transform|translateX(calc(360% * var(--inline-sign)))": SIGNED,
 };
@@ -303,7 +304,7 @@ test("signed values carry --inline-sign and the sign flips with dir", () => {
   }
   const keys = new Set(all.map((d) => d.key));
   assert.ok(keys.has(":root|--inline-sign|1"), "tokens.css に :root の --inline-sign: 1 が無い");
-  assert.ok(keys.has('[dir="rtl"]|--inline-sign|-1'), 'tokens.css に [dir="rtl"] の --inline-sign: -1 が無い');
+  assert.ok(keys.has(':root[dir="rtl"]|--inline-sign|-1'), 'tokens.css に :root[dir="rtl"] の --inline-sign: -1 が無い');
 });
 
 test("right-to-left rules key on the dir attribute, not :dir()", () => {

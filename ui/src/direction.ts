@@ -13,7 +13,6 @@
  * `sd-Deva`・`ar-Latn` は左→右。エンジンの `Intl.Locale` の textInfo には頼らない（WebView2 と WebKit で
  * 載っている版が違い、同じ言語で向きが割れうる）
  */
-// iw・ji はヘブライ語・イディッシュ語の古いコード（Java 由来の環境がまだ返す）
 // iw・ji はヘブライ語・イディッシュ語の古いコード（Java 由来の環境がまだ返す）。prs はダリー語（Windows が返す）
 const RTL_LANGS = /^(ar|he|iw|fa|prs|ur|ckb|ps|sd|yi|ji|dv|ug|ks|syr|mzn|lrc|nqo|bal|pnb|azb)$/i;
 const RTL_SCRIPTS = /^(Arab|Hebr|Thaa|Syrc|Nkoo|Adlm|Rohg|Mand|Samr)$/i;
