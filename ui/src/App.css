@@ -13,7 +13,8 @@ body,
   margin: 0;
 }
 /* `<code>` の既定。ブラウザ既定の `monospace` に任せると、日本語の Windows で `¥` に化ける
-   （`tokens.css` の `--font-mono`）。個別の規則が無い `<code>`（ウィザード・送り出しの案内）もこれで揃う */
+   （`tokens.css` の `--font-mono`）。`<code>` の書体はここだけで決める（個別の規則に書き写さない）。
+   `<code>` でない等幅（`.fallback-path` の `<p>`、名前の型の入力欄）だけが自分で読む */
 code {
   font-family: var(--font-mono);
 }
@@ -2285,7 +2286,6 @@ body {
 .settings-google-folders code,
 .pattern-example,
 .editor-path {
-  font-family: var(--font-mono);
   font-size: var(--fs-sm);
 }
 .pattern-list {
@@ -2363,7 +2363,6 @@ body {
   word-break: break-all;
 }
 .pattern-custom-preview code {
-  font-family: var(--font-mono);
   color: var(--accent);
 }
 /* このアプリについて */
@@ -2376,7 +2375,6 @@ body {
   font-weight: 600;
 }
 .about-version {
-  font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
