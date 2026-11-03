@@ -67,10 +67,8 @@ const KEEP: Record<string, string> = {
   [`${QUIET} 0%, 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
   [`${QUIET} 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
   '[dir="rtl"] .viewer-back-icon|transform|scaleX(-1)': FLIP,
-  '[dir="rtl"] .viewer-progress|transform|scaleX(-1)': FLIP,
-  ".viewer-progress::after|left|0": "流れる線の起点。右→左は帯ごと裏返す",
-  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": "流れる帯。右→左は帯ごと裏返す",
-  "@keyframes viewer-progress-slide to|transform|translateX(360%)": "流れる帯。右→左は帯ごと裏返す",
+  "@keyframes viewer-progress-slide from|transform|translateX(calc(-100% * var(--inline-sign)))": SIGNED,
+  "@keyframes viewer-progress-slide to|transform|translateX(calc(360% * var(--inline-sign)))": SIGNED,
 };
 
 type Decl = { key: string; prop: string; value: string };

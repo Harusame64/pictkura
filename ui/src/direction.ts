@@ -14,15 +14,22 @@
  * 載っている版が違い、同じ言語で向きが割れうる）
  */
 // iw・ji はヘブライ語・イディッシュ語の古いコード（Java 由来の環境がまだ返す）
-const RTL_LANGS = /^(ar|he|iw|fa|ur|ckb|ps|sd|yi|ji|dv|ug|ks|syr|mzn|lrc|nqo|bal)$/i;
+// iw・ji はヘブライ語・イディッシュ語の古いコード（Java 由来の環境がまだ返す）。prs はダリー語（Windows が返す）
+const RTL_LANGS = /^(ar|he|iw|fa|prs|ur|ckb|ps|sd|yi|ji|dv|ug|ks|syr|mzn|lrc|nqo|bal|pnb|azb)$/i;
 const RTL_SCRIPTS = /^(Arab|Hebr|Thaa|Syrc|Nkoo|Adlm|Rohg|Mand|Samr)$/i;
 
 export function dirOf(locale: string): "rtl" | "ltr" {
-  const [lang, ...rest] = locale.split(/[-_]/);
-  const script = rest.find((p) => /^[A-Za-z]{4}$/.test(p));
-  const rtl = script ? RTL_SCRIPTS.test(script) : RTL_LANGS.test(lang);
+  const parts = locale.split(/[-_]/);
+  // 文字の札は言語（と拡張言語 3 文字）の直後だけ。`-u-nu-latn` のような拡張の中の 4 文字は見ない
+  let at = 1;
+  while (at < parts.length && /^[A-Za-z]{3}$/.test(parts[at]) && at < 4) at++;
+  const script = /^[A-Za-z]{4}$/.test(parts[at] ?? "") ? parts[at] : undefined;
+  const rtl = script ? RTL_SCRIPTS.test(script) : RTL_LANGS.test(parts[0]);
   return rtl ? "rtl" : "ltr";
 }
+
+/** 横の向きの符号。左→右は 1、右→左は -1——CSS の `--inline-sign` と同じ。画面の座標を向きで裏返すときに掛ける */
+export const inlineSign = (): 1 | -1 => (isRtl() ? -1 : 1);
 
 /** いまの画面が右→左か */
 export const isRtl = (): boolean =>

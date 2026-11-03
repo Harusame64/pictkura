@@ -50,7 +50,10 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
       {rows.map(([label, value]) => (
         <div className="exif-row" key={label}>
           <span className="exif-key">{label}</span>
-          <span className="exif-value file-info-value">{value}</span>
+          <span className="exif-value file-info-value">
+            {/* フォルダはパス——右→左の画面でも `/` の前後が入れ替わらないよう、左→右に囲う（App.css の .path） */}
+            {label === t.fileInfoFolder ? <span className="path">{value}</span> : value}
+          </span>
         </div>
       ))}
     </>

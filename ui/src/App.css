@@ -16,16 +16,14 @@ body,
    （`tokens.css` の `--font-mono`）。`<code>` の書体はここだけで決める（個別の規則に書き写さない）。
    `<code>` でない等幅（`.fallback-path` の `<p>`、名前の型の入力欄）だけが自分で読む。
    **パス・名前の型・版は左→右の文字列**——右→左の画面に混ぜると、向きを持たない `/` の前後が
-   入れ替わって `2026/2026-11-04/IMG.JPG` が `IMG.JPG/2026/2026-11-04` に見える。囲って左→右に留める */
+   入れ替わって `2026/2026-11-04/IMG.JPG` が `IMG.JPG/2026/2026-11-04` に見える。囲って左→右に留める。
+   段落の中のパスは `<span class="path">` で囲う（段落ごと左→右にすると、揃えまで左に寄る） */
 code,
-p.fallback-path,
-input.pattern-custom-input,
+.path,
+.pattern-custom-input,
 .add-folder input {
   direction: ltr;
   unicode-bidi: isolate;
-  /* 段落ごと左→右にしても、揃えは周りに合わせる（右→左の帯の中で、パスだけ左に寄らない）。
-     `.fallback-note` の `text-align: start` より強くするため、要素名を足してある */
-  text-align: match-parent;
 }
 /* フォルダを足す欄は、空のあいだの案内（訳した文）だけページの向きで出す */
 .add-folder input:placeholder-shown {
@@ -1763,27 +1761,23 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
+  inset-inline-start: 0;
   width: 28%;
   background: var(--accent);
   animation: viewer-progress-slide 1.1s ease-in-out infinite;
-}
-/* 右→左では右から左へ流す。帯ごと裏返す（細い線なので見た目は対称）。流れる線は左端から
-   測るので（`left: 0`）、裏返すと右端から出る */
-[dir="rtl"] .viewer-progress {
-  transform: scaleX(-1);
 }
 @keyframes viewer-progress-show {
   to {
     opacity: 1;
   }
 }
+/* 行の始まりの外から終わりの外へ流す。向きは --inline-sign（右→左では右から左へ） */
 @keyframes viewer-progress-slide {
   from {
-    transform: translateX(-100%);
+    transform: translateX(calc(-100% * var(--inline-sign)));
   }
   to {
-    transform: translateX(360%);
+    transform: translateX(calc(360% * var(--inline-sign)));
   }
 }
 /* 動きを減らす設定では、流さずに置いておくだけにする（合図は残す） */

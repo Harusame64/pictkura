@@ -158,7 +158,7 @@ import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
-import { isRtl, stepOfArrow } from "./direction";
+import { inlineSign, isRtl, stepOfArrow } from "./direction";
 import { letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
@@ -4734,7 +4734,7 @@ export default function App() {
     const stage = stageRef.current;
     if (!ghost || !stage) return;
     // 次の絵は読む向きの先から入ってくる。右→左では左から
-    const w = window.innerWidth * (isRtl() ? -1 : 1);
+    const w = window.innerWidth * inlineSign();
     const slide = ghost.kind === "slide";
     const timing: KeyframeAnimationOptions = {
       duration: ghost.ms,
@@ -8460,7 +8460,9 @@ export default function App() {
                         : t.videoUnsupported}
                 </p>
                 {!videoInfo.exists && (
-                  <p className="fallback-note fallback-path">{videoInfo.path}</p>
+                  <p className="fallback-note fallback-path">
+                    <span className="path">{videoInfo.path}</span>
+                  </p>
                 )}
                 {/* 拡張機能の案内を出すのは「コンテナは扱えるのに再生できなかった」
                     ときだけ。ファイルが無い・コンテナが違う・クラウドにしか無いのを
@@ -8828,7 +8830,9 @@ export default function App() {
               <p className="viewer-missing-title">
                 {t[TROUBLE_TEXT[missingOriginal.reason]]}
               </p>
-              <p className="fallback-path">{missingOriginal.path}</p>
+              <p className="fallback-path">
+                <span className="path">{missingOriginal.path}</span>
+              </p>
             </div>
           )}
           {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
