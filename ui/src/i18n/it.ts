@@ -227,7 +227,7 @@ export const it: Dict = {
   bgThumbs: (n: number) => `Lettura delle foto (${num(n)} ${one(n, "rimanente", "rimanenti")})`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "Aggiornamento",
-  bgThumbsShort: (n: number) => `${one(n, "manca", "mancano")} ${num(n)}`,
+  bgThumbsShort: (n: number) => `ancora ${num(n)}`,
   cameraScanning: "📷 Lettura dei dati della fotocamera… ",
   indexIncompleteWarning:
     "⚠ L'indicizzazione della ricerca è stata interrotta — i risultati potrebbero essere incompleti (riprende al prossimo avvio)",

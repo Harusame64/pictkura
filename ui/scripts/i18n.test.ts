@@ -490,7 +490,6 @@ const INFLECTS: Record<string, string[]> = {
   it: [
     "andMore:0",
     "bgThumbs:0",
-    "bgThumbsShort:0",
     "bulkFavoriteDone:0",
     "bulkPickDone:0",
     "bulkUnfavoriteDone:0",
