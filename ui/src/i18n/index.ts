@@ -76,14 +76,14 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "ja", label: "日本語" },
   { code: "en", label: "English" },
   { code: "de", label: "Deutsch" },
+  { code: "fr", label: "Français" },
+  { code: "it", label: "Italiano" },
   // **本国と中南米を分けたので、どちらも地域まで名乗る**。`Español` が2つ並ぶと
   // 選べない（Appleの綴りに合わせている）
   { code: "es", label: "Español (España)" },
   { code: "es-419", label: "Español (Latinoamérica)" },
   { code: "zh", label: "简体中文" },
   { code: "zh-hant", label: "繁體中文" },
-  { code: "fr", label: "Français" },
-  { code: "it", label: "Italiano" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */

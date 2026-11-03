@@ -295,7 +295,11 @@ export const it: Dict = {
     `Impossibile aprire queste posizioni: ${names}. Controlla di avere il permesso di leggerle, poi premi “Ripeti scansione”.`,
   listSeparator: ", ",
   listLastSeparator: " ",
-  andMore: (n: number) => (n === 1 ? "e un altro" : `e altri ${num(n)}`),
+  /**
+   * 受ける名詞は `posizioni` / `cartelle`（`nameList()`）で、どちらも女性。
+   * 絞り込みの見出し（`joinConditions`、`filtri` は男性）も同じ関数を通るが、条件は最大3つなので畳まれない
+   */
+  andMore: (n: number) => (n === 1 ? "e un'altra" : `e altre ${num(n)}`),
   emptyRootIsPackage:
     "Una delle cartelle della libreria è essa stessa una libreria di Foto. pictkura di proposito non legge all'interno di questo tipo di libreria, quindi da lì non comparirà mai nessuna foto. Scegli una cartella che contiene foto o importa da una scheda.",
   emptyPhotoLibrary:

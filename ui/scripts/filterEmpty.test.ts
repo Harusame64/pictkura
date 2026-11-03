@@ -77,4 +77,8 @@ test("つなぎ方は nameList と同じ: 3つまで出し、残りは数で言�
   assert.equal(joinConditions(["a", "b", "c", "d", "e"], ", ", ", ", more), "a, b, c, +2");
   // 接続詞の前にカンマを打たない言語（仏・伊・独・西）は、最後の区切りだけ違う
   assert.equal(joinConditions(["a", "b", "c", "d", "e"], ", ", " ", more), "a, b, c +2");
+  // 名前より数が多いことがある（除外の一覧は3件で切って届く）。引くのは出した数
+  assert.equal(joinConditions(["a"], ", ", " ", more, 6), "a +5");
+  // 名前が1つも無ければ、区切りを頭に付けない
+  assert.equal(joinConditions([], ", ", ", ", more, 5), "+5");
 });

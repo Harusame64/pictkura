@@ -304,7 +304,8 @@ export const de: Dict = {
    *
    * 2026-09-01 にはここを「受ける名詞が呼び出しごとに変わるから据え置く」と書いていて、
    * その根拠に `showMore`（`Kameras`）を挙げていた。**それが間違い**——`showMore` は
-   * 別のキーで、`andMore` に来るのは `nameList()` からだけ（`App.tsx:1572`）。
+   * 別のキーで、`andMore` に来るのは `nameList()`（`App.tsx`）と絞り込み0件の見出し（`filterEmpty.ts` の
+   * `joinConditions`。条件の名前を並べる）から。
    *
    * そして `nameList()` を呼ぶ4つの文は**すべて `Orte` と言っている**
    * （`emptyMissing` / `emptyStalled` / `emptyUnreadable*`）。`Ordner` と書くと
