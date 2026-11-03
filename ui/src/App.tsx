@@ -7771,19 +7771,7 @@ export default function App() {
           ))}
           {cameras.length > 0 && (
             <>
-              <div className="nav-section">
-                {t.navCameras}
-                {cameras.length > CAMERAS_COLLAPSED && (
-                  <button
-                    className="nav-more"
-                    onClick={() => setCamerasExpanded((v) => !v)}
-                  >
-                    {camerasExpanded
-                      ? t.collapse
-                      : t.showMore(cameras.length - CAMERAS_COLLAPSED)}
-                  </button>
-                )}
-              </div>
+              <div className="nav-section">{t.navCameras}</div>
               {(camerasExpanded
                 ? cameras
                 : cameras.slice(0, CAMERAS_COLLAPSED)
@@ -7804,6 +7792,21 @@ export default function App() {
                   </div>
                 );
               })}
+              {/* **開け閉めは一覧の末尾で**（2026-11-03 利用者）。見出しの右に置くと、見出しと横幅を
+                  取り合って伊・西・独・仏で両方が2行に折れた（win の実測）。開いても閉じても
+                  同じ位置の同じ要素なので、押したあともフォーカスが残り、続けて押せる */}
+              {cameras.length > CAMERAS_COLLAPSED && (
+                <button
+                  className="nav-more nav-more-end"
+                  aria-expanded={camerasExpanded}
+                  onClick={() => setCamerasExpanded((v) => !v)}
+                >
+                  {camerasExpanded
+                    ? t.collapse
+                    : t.showMore(cameras.length - CAMERAS_COLLAPSED)}
+                  <span aria-hidden="true">{camerasExpanded ? " ▴" : " ▾"}</span>
+                </button>
+              )}
             </>
           )}
           <div className="nav-section">{t.navLibraryFolders}</div>

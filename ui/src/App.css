@@ -305,6 +305,15 @@ body {
 .nav-more:hover {
   text-decoration: underline;
 }
+/* 一覧の末尾の開け閉め。字の頭をカメラ名の列ではなく行の頭（.nav-item の内側）に揃える */
+.nav-more-end {
+  display: block;
+  min-height: 24px;
+  margin: 1px 0 var(--sp-1);
+  padding-block: 2px;
+  padding-inline: var(--sp-2);
+  text-align: start;
+}
 /* 選択は角丸ピル。塗りは accent-soft の淡い面にして文字だけを色づける */
 .nav-item {
   display: flex;
