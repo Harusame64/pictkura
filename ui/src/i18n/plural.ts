@@ -64,3 +64,25 @@ export const num = (n: number): string => (format ? format.format(n) : String(n)
  */
 export const one = (n: number, singular: string, plural: string): string =>
   n === 1 ? singular : plural;
+
+/**
+ * **1／2〜4／5〜 の3形**（東スラヴ語。露語のための用意、2026-11-03）。`one()` は「1か、それ以外か」の
+ * 2つしか言い分けないので、露語では `2 файла`（2〜4 の形）と `5 файлов`（5〜 の形）を分けられない。
+ *
+ * 規則は CLDR の `ru` と同じ（下の1の位・下2桁で決まる）:
+ * - **one**: 1の位が 1、ただし 11 は除く（1・21・101…）
+ * - **few**: 1の位が 2〜4、ただし 12〜14 は除く（2・22・104…）
+ * - **many**: それ以外（0・5〜20・25・111…）
+ *
+ * `Intl.PluralRules` に任せずに手で書く——辞書の文は画面を描くたびに組み立てるので、
+ * エンジンや版で答えが揺れる余地を残さない（仏語の `un()` と同じ判断）。
+ * 0〜100000 の整数で `Intl.PluralRules("ru")` と一致することを確かめてある（`scripts/plural.test.ts`）。
+ * 件数にしか使わないので、小数の形（CLDR の `other`）は持たない。
+ */
+export const oneFewMany = (n: number, one: string, few: string, many: string): string => {
+  const d = Math.abs(n) % 10;
+  const h = Math.abs(n) % 100;
+  if (d === 1 && h !== 11) return one;
+  if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return few;
+  return many;
+};
