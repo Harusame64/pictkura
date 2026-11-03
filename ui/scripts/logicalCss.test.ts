@@ -14,6 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import postcss from "postcss";
 
 const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
@@ -21,10 +22,10 @@ const SHEETS = ["App.css", "tokens.css"];
 /**
  * ビューアの左右。情報パネルは右に開き、絵の大きさは JS（viewerZoomBox.ts）も右にパネルが
  * ある前提で計算する。送り（← →）・戻る（←）・道具の帯も、その向きと組で決まっている。
- * **一部だけ論理にすると、右→左で絵と合図と送りがずれる**ので、パネルを左へ移すときに
- * JS・矢印キー・印の向きと一緒にまとめて直す。
+ * **一部だけ鏡に映ると、右→左で絵と合図と送りがずれる**ので、`.viewer` を `direction: ltr` で
+ * まるごと留めてある。パネルを左へ移すときに、JS・矢印キー・印の向きと一緒にまとめて外す。
  */
-const VIEWER = "ビューアの左右（パネル・viewerZoomBox・送りと一緒に直す）";
+const VIEWER = "ビューアは direction: ltr に留めてある（パネル・viewerZoomBox・送りと一緒に外す）";
 const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
 const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
 const SPINNER = "回転する印の欠け。向きの意味が無い";
@@ -35,8 +36,11 @@ const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-q
 const KEEP: Record<string, string> = {
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
+  ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": "影に論理の形が無い。右→左は [dir=rtl] で裏返す",
+  '[dir="rtl"] .wiz-node.wiz-card|box-shadow|inset -3px 0 0 var(--accent)': "上の裏返し",
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
     SHIMMER,
+  "@keyframes placeholder-shimmer from|background-position|0 0": SHIMMER,
   "@keyframes placeholder-shimmer to|background-position|-200% 0": SHIMMER,
 
   ".viewer-thumb|left|50%": CENTRE,
@@ -78,40 +82,22 @@ const KEEP: Record<string, string> = {
 
 type Decl = { key: string; prop: string; value: string };
 
-/**
- * コメントと文字列を落として、宣言を「囲んでいる規則の頭」と組にして返す。
- * 最後の `;` が無い宣言も `}` で拾う
- */
+/** 宣言を「囲んでいる規則の頭（@media・@keyframes も含む）|宣言|値」の鍵と組にして返す */
 function parse(text: string): Decl[] {
-  const css = text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""')
-    .replace(/url\([^)]*\)/g, "url()");
   const out: Decl[] = [];
-  const heads: string[] = [];
-  let buf = "";
-  const flush = () => {
-    const m = /^\s*([-a-z]+)\s*:\s*([\s\S]*?)\s*$/.exec(buf);
-    if (m) {
-      const value = m[2].replace(/\s+/g, " ");
-      out.push({ key: `${heads.join(" ")}|${m[1]}|${value}`, prop: m[1], value });
+  postcss.parse(text).walkDecls((d) => {
+    const heads: string[] = [];
+    for (let n: postcss.Container | postcss.Document | undefined = d.parent; n && n.type !== "root"; n = n.parent) {
+      if (n.type === "rule") heads.unshift((n as postcss.Rule).selector.replace(/\s+/g, " "));
+      else if (n.type === "atrule") heads.unshift(`@${(n as postcss.AtRule).name} ${(n as postcss.AtRule).params}`);
     }
-    buf = "";
-  };
-  for (const ch of css) {
-    if (ch === "{") {
-      heads.push(buf.trim().replace(/\s+/g, " "));
-      buf = "";
-    } else if (ch === "}") {
-      flush();
-      heads.pop();
-    } else if (ch === ";") flush();
-    else buf += ch;
-  }
+    const value = d.value.replace(/\s+/g, " ").trim();
+    out.push({ key: `${heads.join(" ")}|${d.prop}|${value}`, prop: d.prop, value });
+  });
   return out;
 }
 
-/** 空白（既定）で分ける。calc(…) の中では切らない */
+/** 区切り（既定は空白）で分ける。calc(…) の中では切らない */
 function splitTopLevel(v: string, sep = /\s/): string[] {
   const out: string[] = [];
   let depth = 0;
@@ -129,6 +115,9 @@ function splitTopLevel(v: string, sep = /\s/): string[] {
 }
 
 const zero = (v: string | undefined) => v === undefined || /^-?0(\.0+)?([a-z%]+)?$/.test(v);
+/** 位置の横の値で、左右どちらの端にも寄らないもの。`0` は左端なので入らない */
+const middle = (v: string) => v === "50%" || v === "center";
+const VERTICAL = /^(top|bottom|center)$/;
 
 /** 4つの値を持つ省略形で、左と右が違うもの（上 右 下 左） */
 function asymmetricFour(prop: string, value: string): boolean {
@@ -141,7 +130,7 @@ function asymmetricFour(prop: string, value: string): boolean {
 /** border-radius の4つの角で、左右の組が違うもの（`/` の後ろの縦の半径も見る） */
 function asymmetricRadius(prop: string, value: string): boolean {
   if (prop !== "border-radius") return false;
-  return value.split("/").some((half) => {
+  return splitTopLevel(value, /\//).some((half) => {
     const parts = splitTopLevel(half);
     if (parts.length < 2) return false;
     const [tl, tr = tl, br = tl, bl = tr] = parts;
@@ -149,13 +138,49 @@ function asymmetricRadius(prop: string, value: string): boolean {
   });
 }
 
-/** transform の中で、横へ動かすもの。`translate(x, y)` は x が 0 でなければ横 */
+/** transform の中で、横へ動かすか、左右を裏返すもの */
 function movesSideways(value: string): boolean {
-  if (/translateX\(|translate3d\(|matrix(3d)?\(|skewX\(|scaleX\(-/.test(value)) return true;
+  if (/translateX\(|translate3d\(|matrix(3d)?\(|skewX\(|scaleX\(\s*-/.test(value)) return true;
   for (const m of value.matchAll(/translate\(([^)]*)\)/g)) {
     if (!zero(splitTopLevel(m[1], /,/)[0])) return true;
   }
+  for (const m of value.matchAll(/scale\(([^)]*)\)/g)) {
+    if (splitTopLevel(m[1], /,/)[0].startsWith("-")) return true;
+  }
   return false;
+}
+
+/** 位置（background-position 等）の層ごとの横の値が、真ん中か端の 0 以外なら向きを持つ */
+function sidewaysPosition(value: string): boolean {
+  return splitTopLevel(value, /,/).some((layer) => {
+    if (/\b(left|right)\b/.test(layer)) return true;
+    const parts = splitTopLevel(layer);
+    // 1語だけの top / bottom は縦の話
+    if (parts.length === 1 && VERTICAL.test(parts[0])) return false;
+    return !middle(parts[0]);
+  });
+}
+
+/** グラデーションが横向きのもの（真上・真下以外の角度、to left/right、at left/right） */
+function sidewaysGradient(value: string): boolean {
+  if (/\b(to|at)\s+(\w+\s+)?(left|right)\b/.test(value)) return true;
+  if (/conic-gradient\(/.test(value)) return true;
+  for (const m of value.matchAll(/gradient\(\s*(-?\d*\.?\d+)(deg|turn|rad|grad)/g)) {
+    const turns = { deg: 1 / 360, turn: 1, rad: 1 / (2 * Math.PI), grad: 1 / 400 }[m[2] as "deg"];
+    const t = ((Number(m[1]) * turns) % 0.5 + 0.5) % 0.5;
+    // 135deg のような斜めは飾りの光沢で、どちらに傾いても読める。真横（0.25 turn）だけを向きとみなす
+    if (Math.abs(t - 0.25) < 1e-9) return true;
+  }
+  return false;
+}
+
+/** 影の層ごとの横のずれ（inset を除いた最初の長さ）が 0 でないもの */
+function sidewaysShadow(value: string): boolean {
+  if (value === "none") return false;
+  return splitTopLevel(value, /,/).some((layer) => {
+    const lengths = splitTopLevel(layer).filter((p) => /^-?\d*\.?\d+([a-z]+)?$/.test(p) || /^calc\(/.test(p));
+    return lengths.length >= 2 && !zero(lengths[0]);
+  });
 }
 
 function isPhysical(d: Pick<Decl, "prop" | "value">): boolean {
@@ -163,26 +188,16 @@ function isPhysical(d: Pick<Decl, "prop" | "value">): boolean {
   if (/^(left|right)$/.test(prop)) return true;
   if (/^(margin|padding|border|scroll-margin|scroll-padding)-(left|right)(-|$)/.test(prop)) return true;
   if (/^border-(top|bottom)-(left|right)-radius$/.test(prop)) return true;
-  if (/^(text-align|float|clear|transform-origin|justify-content|justify-items|justify-self)$/.test(prop))
+  if (/^(text-align|float|clear|justify-content|justify-items|justify-self)$/.test(prop))
     return /\b(left|right)\b/.test(value);
-  if (/^(background-position|background-position-x|object-position)$/.test(prop)) {
-    // 横の値が左右の言葉か、0・50%・center 以外なら向きを持つ
-    if (/\b(left|right)\b/.test(value)) return true;
-    return splitTopLevel(value, /,/).some((layer) => {
-      const x = splitTopLevel(layer)[0];
-      return !(zero(x) || x === "50%" || x === "center");
-    });
-  }
-  if (/gradient\(/.test(value)) {
-    if (/\bto (left|right)\b/.test(value)) return true;
-    const deg = /gradient\(\s*(-?\d+(?:\.\d+)?)deg/.exec(value);
-    if (deg && Number(deg[1]) % 180 !== 0) {
-      // 135deg のような斜めは飾りの光沢で、どちらに傾いても読める。真横（90/270）だけを向きとみなす
-      return Math.abs(Number(deg[1])) % 180 === 90;
-    }
-  }
+  if (/^(background-position|background-position-x|object-position|transform-origin|perspective-origin)$/.test(prop))
+    return sidewaysPosition(value);
+  if (/^(box-shadow|text-shadow)$/.test(prop) && sidewaysShadow(value)) return true;
+  if (/gradient\(/.test(value) && sidewaysGradient(value)) return true;
+  if (prop === "background" && /\b(left|right)\b/.test(value.replace(/gradient\([^)]*\)/g, ""))) return true;
   if (prop === "transform") return movesSideways(value);
   if (prop === "translate") return value !== "none" && !zero(splitTopLevel(value)[0]);
+  if (prop === "scale") return splitTopLevel(value)[0]?.startsWith("-") ?? false;
   return asymmetricFour(prop, value) || asymmetricRadius(prop, value);
 }
 
@@ -226,6 +241,17 @@ test("the scanner flags each physical shape", () => {
     ["background-position", "-200% 0"],
     ["object-position", "right"],
     ["background-position", "center, 100% 0"],
+    ["background-position", "0 0, right 4px top"],
+    ["transform-origin", "0 0"],
+    ["transform", "scale(-1, 1)"],
+    ["scale", "-1 1"],
+    ["box-shadow", "inset 3px 0 0 red"],
+    ["text-shadow", "0 1px 2px red, -1px 0 red"],
+    ["background", "linear-gradient(180deg, a, b), linear-gradient(90deg, c, d)"],
+    ["background", "linear-gradient(0.25turn, a, b)"],
+    ["background", "radial-gradient(circle at left, a, b)"],
+    ["background", "url() no-repeat right 8px center"],
+    ["border-radius", "calc(var(--r) / 2) 0 0 calc(var(--r) / 2)"],
     ["background", "linear-gradient(to right, red, blue)"],
     ["background", "linear-gradient(90deg, red, blue)"],
     ["padding", "0 var(--sp-7) 0 28px"],
@@ -246,6 +272,13 @@ test("the scanner flags each physical shape", () => {
     ["background-position", "center"],
     ["background", "linear-gradient(135deg, red, blue)"],
     ["background", "linear-gradient(180deg, red, blue)"],
+    ["object-position", "top"],
+    ["transform-origin", "center"],
+    ["transform-origin", "50% 0"],
+    ["text-shadow", "0 1px 3px oklch(0 0 0 / 0.8)"],
+    ["box-shadow", "inset 0 0 0 1px var(--warn)"],
+    ["box-shadow", "var(--shadow-2)"],
+    ["background", "linear-gradient(0.5turn, a, b)"],
   ]) {
     assert.ok(!isPhysical({ prop, value }), `${prop}: ${value}`);
   }
@@ -254,6 +287,13 @@ test("the scanner flags each physical shape", () => {
 test("the scanner keeps the last declaration and ignores braces in strings", () => {
   assert.deepEqual(
     parse('.a { content: "{"; left: 0 } @media (x) { .b { top: 1px } }').map((d) => d.key),
-    ['.a|content|""', ".a|left|0", "@media (x) .b|top|1px"],
+    ['.a|content|"{"', ".a|left|0", "@media (x) .b|top|1px"],
   );
+});
+
+test("the viewer stays pinned left-to-right while its rules are kept physical", () => {
+  // VIEWER の物理が許されるのは、.viewer を direction: ltr で留めている間だけ
+  const pinned = all.some((d) => d.key === ".viewer|direction|ltr");
+  const kept = Object.values(KEEP).includes(VIEWER);
+  assert.equal(pinned, kept, pinned ? "VIEWER が空なら direction: ltr も外す" : "direction: ltr を外すなら VIEWER の物理も直す");
 });

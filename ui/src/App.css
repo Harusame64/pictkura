@@ -965,6 +965,11 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
+  /* **ビューアはまるごと左→右に留める。** 情報パネルは右に開き、絵の箱は JS（viewerZoomBox.ts）も
+     右にパネルがある前提で計算する。送り（← →）・戻る・フィルムストリップの並びもその向きと組なので、
+     一部だけ鏡に映ると「次へ」で帯が逆に動く。右→左の言語を足すときに、パネル・JS・矢印キーと一緒に
+     これを外す（scripts/logicalCss.test.ts の VIEWER） */
+  direction: ltr;
 
   /* 下端に敷く字幕の帯の高さ。フィルムストリップの位置決めと、動画の
      操作バーがその帯に潜らないための余白に使う */
@@ -2685,7 +2690,11 @@ body {
 .wiz-node.wiz-card {
   color: var(--text);
   font-weight: 600;
+  /* 行の頭の側に引く線。box-shadow には論理の形が無いので、右→左では裏返す */
   box-shadow: inset 3px 0 0 var(--accent);
+}
+[dir="rtl"] .wiz-node.wiz-card {
+  box-shadow: inset -3px 0 0 var(--accent);
 }
 .wiz-twisty {
   width: 16px;
