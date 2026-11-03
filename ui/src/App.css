@@ -1281,6 +1281,13 @@ body {
   left: var(--sp-4);
 }
 /* ボタンを grid／flex の箱にはしない（古いエンジンで効かなかった型）。絵のほうを真ん中へ寄せる */
+/* 帯と一緒に薄れて消える。`.viewer-tool` の `transition: background` が後ろで上書きするので、
+   ここで両方を並べ直す（ゲート2） */
+.viewer-tool.viewer-back {
+  transition:
+    opacity var(--dur) var(--easing),
+    background var(--dur-fast) var(--easing);
+}
 .viewer-back-icon {
   display: block;
   margin: auto;

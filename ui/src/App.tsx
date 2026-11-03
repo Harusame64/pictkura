@@ -8974,7 +8974,10 @@ export default function App() {
             className="viewer-tool viewer-back"
             title={t.viewerClose} id="pk-viewer-close" data-testid="viewer-close"
             onClick={(e) => {
+              // 地へは届けないので、動きを終わらせた押下の「次のクリックを飲む」印もここで外す
+              // （音なしの印と同じ。ゲート2）
               e.stopPropagation();
+              swallowClickRef.current = false;
               requestCloseViewer();
             }}
           >
