@@ -22,6 +22,12 @@ code,
 .pattern-custom-input {
   direction: ltr;
   unicode-bidi: isolate;
+  /* 段落ごと左→右にしても、揃えは周りに合わせる（右→左の帯の中で、パスだけ左に寄らない） */
+  text-align: match-parent;
+}
+/* 名前の型の欄は、空のあいだの案内（訳した文）だけページの向きで出す */
+.pattern-custom-input:placeholder-shown {
+  direction: inherit;
 }
 code {
   font-family: var(--font-mono);
@@ -1143,9 +1149,11 @@ body {
   color: oklch(0.93 0 0);
   box-shadow: 0 4px 24px oklch(0 0 0 / 0.5);
 }
-/* 右→左では情報パネルが左に在るので、残りの中央はパネルの分だけ右 */
-.viewer-missing-band:dir(rtl) {
-  left: calc((100vw + var(--info-reserve)) / 2);
+/* 右→左では情報パネルが左に在る。左→右の置き方をそのまま鏡に映す（右から測り、右へ半分戻す） */
+[dir="rtl"] .viewer-missing-band {
+  left: auto;
+  right: calc((100vw - var(--info-reserve)) / 2);
+  transform: translateX(50%);
 }
 .viewer-missing-title {
   margin: 0 0 var(--sp-2);
@@ -1316,7 +1324,7 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.viewer-back-icon:dir(rtl) {
+[dir="rtl"] .viewer-back-icon {
   transform: scaleX(-1);
 }
 .viewer-tool {
@@ -1433,6 +1441,7 @@ body {
   position: absolute;
   top: 50%;
   left: calc((100% - var(--info-reserve)) / 2); /* 情報パネルを開いている間は、縮めた絵の中央（#48） */
+  --flash-x: -50%;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -1449,8 +1458,11 @@ body {
   pointer-events: none;
   animation: viewer-flash 700ms var(--easing) forwards;
 }
-.viewer-flash:dir(rtl) {
-  left: calc((100% + var(--info-reserve)) / 2);
+/* 右→左は左→右の鏡。動き（下の @keyframes）の横の戻しも --flash-x が向きごとに持つ */
+[dir="rtl"] .viewer-flash {
+  left: auto;
+  right: calc((100% - var(--info-reserve)) / 2);
+  --flash-x: 50%;
 }
 .viewer-flash-mark {
   font-size: 44px;
@@ -1486,19 +1498,19 @@ body {
 @keyframes viewer-flash {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.7);
+    transform: translate(var(--flash-x), -50%) scale(0.7);
   }
   18% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(var(--flash-x), -50%) scale(1);
   }
   70% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(var(--flash-x), -50%) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.08);
+    transform: translate(var(--flash-x), -50%) scale(1.08);
   }
 }
 /* 動きを減らす設定なら、膨らませずに出して消すだけにする */
@@ -1510,11 +1522,11 @@ body {
     0%,
     70% {
       opacity: 1;
-      transform: translate(-50%, -50%);
+      transform: translate(var(--flash-x), -50%);
     }
     100% {
       opacity: 0;
-      transform: translate(-50%, -50%);
+      transform: translate(var(--flash-x), -50%);
     }
   }
 }
@@ -1755,12 +1767,14 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   width: 28%;
   background: var(--accent);
   animation: viewer-progress-slide 1.1s ease-in-out infinite;
 }
-/* 右→左では右から左へ流す。帯ごと裏返す（細い線なので見た目は対称） */
-.viewer-progress:dir(rtl) {
+/* 右→左では右から左へ流す。帯ごと裏返す（細い線なので見た目は対称）。流れる線は左端から
+   測るので（`left: 0`）、裏返すと右端から出る */
+[dir="rtl"] .viewer-progress {
   transform: scaleX(-1);
 }
 @keyframes viewer-progress-show {
@@ -2530,6 +2544,10 @@ body {
   position: fixed;
   z-index: 300;
   min-width: 200px;
+  /* 幅は中身で決める。置いた位置の残りで縮むと、測った幅が実際より狭くなり、寄せた後に広がって
+     カーソルを越える（右→左は左へ開くので、右端の近くでいつも起きる） */
+  width: max-content;
+  max-width: calc(100vw - 16px);
   /* 窓よりメニューが高いときは中で巻く（低い窓でも「情報」「削除」へ届くように） */
   max-height: calc(100vh - 16px);
   overflow-y: auto;
@@ -2708,11 +2726,10 @@ body {
 .wiz-node.wiz-card {
   color: var(--text);
   font-weight: 600;
-  /* 行の頭の側に引く線。box-shadow には論理の形が無いので、右→左では裏返す（:dir は属性でなく
-     実際の向きを見る。古い WebKit で効かなくても、線が左に残るだけ） */
+  /* 行の頭の側に引く線。box-shadow には論理の形が無いので、右→左では裏返す */
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.wiz-node.wiz-card:dir(rtl) {
+[dir="rtl"] .wiz-node.wiz-card {
   box-shadow: inset -3px 0 0 var(--accent);
 }
 .wiz-twisty {

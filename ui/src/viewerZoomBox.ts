@@ -26,7 +26,8 @@ export function fitScaleFor(
 export function viewerBox(
   [w, h]: [number, number],
   infoReserve: number,
-  rtl = false,
+  // 省けなくしてある——省いた呼び出しが右→左で黙ってずれた箱を返さないように（呼ぶ側は `isRtl()`）
+  rtl: boolean,
   viewW = window.innerWidth,
   viewH = window.innerHeight,
 ): Box | null {

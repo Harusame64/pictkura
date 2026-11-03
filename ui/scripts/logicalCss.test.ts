@@ -10,8 +10,8 @@
  * **走査は手がかりであって証明ではない。** よく書く形（位置・余白・枠・角丸・影・移動・グラデーション）は拾うが、
  * `background` の省略形の中の数値の位置、`var()` の先（トークンの中身）、`calc()` で書いた角度は見ない。
  *
- * `:dir(rtl)` は WebKit 16.4・Chromium 120 から。それより古い WebKit では右→左の裏返しだけが効かない
- * （左→右の見た目には関わらない）。
+ * 右→左の付け直しは `[dir="rtl"] …` で書く（`<html dir>` は main.tsx が必ず付ける）。`:dir()` は
+ * WebKit 16.4 より前で効かないので使わない。
  *
  * 論理の角丸（`border-start-start-radius`）は WebKit 15 から。画面は既に `oklch()`（15.4〜）で
  * 色を塗っているので、それより古い WebKit では元から描けない。
@@ -26,10 +26,13 @@ const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
 
 /**
- * 物理で書き、右→左は同じ部品の `:dir(rtl)` で付け直すもの。論理の形が無い（影・裏返し）か、
- * 片側の幅（情報パネル）を引いた残りの中央に置くもの。下の試験が対の `:dir(rtl)` を確かめる
+ * 物理で書き、右→左は `[dir="rtl"] 同じ規則` で**鏡の値**を付け直すもの。論理の形が無い（影）か、
+ * 片側の幅（情報パネル）を引いた残りの中央に置くもの。下の試験が、対が在って値が鏡であることを確かめる
  */
-const MIRRORED = "物理で書き、:dir(rtl) で付け直す";
+const MIRRORED = "物理で書き、[dir=rtl] で鏡の値を付け直す";
+const FLASH = "横の戻しは --flash-x（左→右 -50%、右→左 50%）が持つ";
+const RESET = "右→左で、左→右の left を外す（鏡の right と組）";
+const FLIP = "右→左で部品ごと裏返す";
 const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
 const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
 const SPINNER = "回転する印の欠け。向きの意味が無い";
@@ -41,7 +44,7 @@ const KEEP: Record<string, string> = {
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
   ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": MIRRORED,
-  ".wiz-node.wiz-card:dir(rtl)|box-shadow|inset -3px 0 0 var(--accent)": MIRRORED,
+  '[dir="rtl"] .wiz-node.wiz-card|box-shadow|inset -3px 0 0 var(--accent)': MIRRORED,
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
     SHIMMER,
   "@keyframes placeholder-shimmer from|background-position|0 0": SHIMMER,
@@ -60,20 +63,24 @@ const KEEP: Record<string, string> = {
   ".print-fit-sample-cover > span|left|-50%": PICTURE,
 
   ".viewer-missing-band|left|calc((100vw - var(--info-reserve)) / 2)": MIRRORED,
-  ".viewer-missing-band:dir(rtl)|left|calc((100vw + var(--info-reserve)) / 2)": MIRRORED,
-  ".viewer-missing-band|transform|translateX(-50%)": CENTRE,
+  '[dir="rtl"] .viewer-missing-band|right|calc((100vw - var(--info-reserve)) / 2)': MIRRORED,
+  '[dir="rtl"] .viewer-missing-band|left|auto': RESET,
+  ".viewer-missing-band|transform|translateX(-50%)": MIRRORED,
+  '[dir="rtl"] .viewer-missing-band|transform|translateX(50%)': MIRRORED,
   ".viewer-flash|left|calc((100% - var(--info-reserve)) / 2)": MIRRORED,
-  ".viewer-flash:dir(rtl)|left|calc((100% + var(--info-reserve)) / 2)": MIRRORED,
-  ".viewer-back-icon:dir(rtl)|transform|scaleX(-1)": "← を右→左で → に裏返す",
-  ".viewer-progress:dir(rtl)|transform|scaleX(-1)": "流れる帯を右→左で裏返す（下の2つの向きごと）",
-  "@keyframes viewer-flash 0%|transform|translate(-50%, -50%) scale(0.7)": CENTRE,
-  "@keyframes viewer-flash 18%|transform|translate(-50%, -50%) scale(1)": CENTRE,
-  "@keyframes viewer-flash 70%|transform|translate(-50%, -50%) scale(1)": CENTRE,
-  "@keyframes viewer-flash 100%|transform|translate(-50%, -50%) scale(1.08)": CENTRE,
-  [`${QUIET} 0%, 70%|transform|translate(-50%, -50%)`]: CENTRE,
-  [`${QUIET} 100%|transform|translate(-50%, -50%)`]: CENTRE,
-  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": "流れる帯。右→左は .viewer-progress:dir(rtl) が裏返す",
-  "@keyframes viewer-progress-slide to|transform|translateX(360%)": "流れる帯。右→左は .viewer-progress:dir(rtl) が裏返す",
+  '[dir="rtl"] .viewer-flash|right|calc((100% - var(--info-reserve)) / 2)': MIRRORED,
+  '[dir="rtl"] .viewer-flash|left|auto': RESET,
+  '[dir="rtl"] .viewer-back-icon|transform|scaleX(-1)': FLIP,
+  '[dir="rtl"] .viewer-progress|transform|scaleX(-1)': FLIP,
+  ".viewer-progress::after|left|0": "流れる線の起点。右→左は帯ごと裏返す",
+  "@keyframes viewer-flash 0%|transform|translate(var(--flash-x), -50%) scale(0.7)": FLASH,
+  "@keyframes viewer-flash 18%|transform|translate(var(--flash-x), -50%) scale(1)": FLASH,
+  "@keyframes viewer-flash 70%|transform|translate(var(--flash-x), -50%) scale(1)": FLASH,
+  "@keyframes viewer-flash 100%|transform|translate(var(--flash-x), -50%) scale(1.08)": FLASH,
+  [`${QUIET} 0%, 70%|transform|translate(var(--flash-x), -50%)`]: FLASH,
+  [`${QUIET} 100%|transform|translate(var(--flash-x), -50%)`]: FLASH,
+  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": "流れる帯。右→左は帯ごと裏返す",
+  "@keyframes viewer-progress-slide to|transform|translateX(360%)": "流れる帯。右→左は帯ごと裏返す",
 };
 
 type Decl = { key: string; prop: string; value: string };
@@ -302,15 +309,34 @@ test("the scanner flags each physical shape", () => {
   }
 });
 
-test("each mirrored rule has its :dir(rtl) twin", () => {
-  // MIRRORED の物理は、同じ規則の左→右と :dir(rtl) が対で在って初めて鏡になる
-  const keys = Object.keys(KEEP).filter((k) => KEEP[k] === MIRRORED);
-  const heads = new Set(all.map((d) => d.key.split("|")[0]));
-  for (const k of keys) {
-    const [head, prop] = k.split("|");
-    const twin = head.endsWith(":dir(rtl)") ? head.slice(0, -":dir(rtl)".length) : `${head}:dir(rtl)`;
-    assert.ok(heads.has(twin), `${head} の対 ${twin} が無い`);
-    assert.ok(keys.some((o) => o.startsWith(`${twin}|${prop}|`)), `${twin} の ${prop} が MIRRORED に無い`);
+/** 左右の鏡の値。left ↔ right は同じ値、それ以外は最初の横の数を裏返す（3px ↔ -3px、-50% ↔ 50%） */
+function mirror(prop: string, value: string): [string, string] {
+  if (prop === "left" || prop === "right") return [prop === "left" ? "right" : "left", value];
+  return [prop, value.replace(/(^|[\s(])(-?)(\d*\.?\d+)/, (_, pre, minus, n) => `${pre}${minus ? "" : "-"}${n}`)];
+}
+
+test("each mirrored rule has its [dir=rtl] twin with the mirrored value", () => {
+  const RTL = '[dir="rtl"] ';
+  const keys = new Set(all.map((d) => d.key));
+  const ltr = Object.keys(KEEP).filter((k) => KEEP[k] === MIRRORED && !k.startsWith(RTL));
+  for (const k of ltr) {
+    const [head, prop, value] = k.split("|");
+    const [p, v] = mirror(prop, value);
+    assert.ok(keys.has(`${RTL}${head}|${p}|${v}`), `${head} の鏡 ${RTL}${head} { ${p}: ${v} } が無い`);
+    if (prop === "left") assert.ok(keys.has(`${RTL}${head}|left|auto`), `${RTL}${head} が left を外していない`);
   }
-  assert.ok(keys.length >= 6);
+  // 逆向き: 右→左の MIRRORED は、どれも左→右の元から鏡で作れる
+  for (const k of Object.keys(KEEP).filter((k) => KEEP[k] === MIRRORED && k.startsWith(RTL))) {
+    const [head, prop, value] = k.slice(RTL.length).split("|");
+    const [p, v] = mirror(prop, value);
+    assert.ok(keys.has(`${head}|${p}|${v}`), `${k} の元 ${head} { ${p}: ${v} } が無い`);
+  }
+  assert.ok(ltr.length >= 4, `only ${ltr.length}`);
+  // 合図の動きの横は custom property が持つ
+  assert.ok(keys.has(".viewer-flash|--flash-x|-50%") && keys.has(`${RTL}.viewer-flash|--flash-x|50%`));
+});
+
+test("right-to-left rules key on the dir attribute, not :dir()", () => {
+  // :dir() は WebKit 16.4 より前で効かない（macOS 11・12）。鏡が半分になる
+  assert.deepEqual(all.filter((d) => d.key.includes(":dir(")).map((d) => d.key), []);
 });
