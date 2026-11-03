@@ -696,7 +696,7 @@ export default function ImportWizard({
             {...pressKeys(() => openFolder(node.path, node.deepDefault))}
             aria-current={current === node.path ? "true" : undefined}
           >
-            {node.name}
+            <span className="name">{node.name}</span>
           </span>
           {node.imageCount > 0 && (
             <span className="wiz-count">
