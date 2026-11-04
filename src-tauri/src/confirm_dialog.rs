@@ -36,7 +36,7 @@ pub struct Confirm {
 pub fn show(parent: HWND, c: &Confirm) -> windows::core::Result<bool> {
     // 閉じの印（FSI…PDI）は箱に描かれ、向きも効かない（#283 の win の実機）。**箱へ渡す文字はすべて**
     // 埋め込みに直す——閉じが無ければ何も変わらない
-    let text = |s: &str| HSTRING::from(crate::legacy_bidi::isolates_to_embeddings(s));
+    let text = |s: &str| HSTRING::from(crate::legacy_bidi::for_right_to_left_box(s));
     let title = text(&c.title);
     let message = text(&c.message);
     let ok = text(&c.ok_label);

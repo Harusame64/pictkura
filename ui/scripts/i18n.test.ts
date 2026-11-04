@@ -35,6 +35,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { ja } from "../src/i18n/ja.ts";
+import type { Dict } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
 import { de } from "../src/i18n/de.ts";
 import { es } from "../src/i18n/es.ts";
@@ -47,6 +48,7 @@ import { ru } from "../src/i18n/ru.ts";
 import { pt } from "../src/i18n/pt.ts";
 import { ko, koEuro } from "../src/i18n/ko.ts";
 import { ar } from "../src/i18n/ar.ts";
+import { he } from "../src/i18n/he.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -73,6 +75,7 @@ const DICTS: Record<string, Any> = {
   pt: pt as Any,
   ko: ko as Any,
   ar: ar as Any,
+  he: he as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -252,6 +255,33 @@ test("件数が桁区切りを通ること", () => {
  * 到達しないものもある（`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に）。
  */
 const INFLECTS: Record<string, string[]> = {
+  // ヘブライ語は1か、それ以外か（`one()`）。件数の報告は「ラベル: N」で書くので（`הועברו: 3`）、
+  // 過去の動詞の性と数の一致が要らず、ここに無い。2 の形（双数）は下の升が見る
+  he: [
+    "burstTitle:0",
+    "burstTitle:2",
+    "burstTitleRawJpeg:0",
+    "burstTitleRawJpeg:2",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSentLeftOut:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "printSheetTitle:0",
+    "printSkipped:0",
+    "printTooMany:0",
+    "rejectGateConfirm:0",
+    "rejectGateTitle:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "stackRawChipTitle:0",
+  ],
   // アラビア語は6形（`arabic()`）。ここは 1 と 2 の差だけ。3〜10・11〜99・100〜 は下の升が見る。
   // 数えた物の一致を避けて「ラベル: N」と言う文（`المحدد: 3`）は 1 でも形が動かないので、ここに無い
   ar: [
@@ -774,6 +804,7 @@ const APPKIT_CANCEL: Record<string, string> = {
   pt: "Cancelar",
   ko: "취소",
   ar: "إلغاء",
+  he: "ביטול",
 };
 
 test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
@@ -1044,6 +1075,18 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
+  he: [
+    "actualSizeBadge", // `1:1`
+    "appName",
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "exifIso",
+    "keyCtrl",
+    "kindRaw",
+    "listSeparator", // ヘブライ語の読点も `,`
+    "photosCount", // 数だけ
+    "rejectChip", // 記号と数だけ
+    "wizardCapped", // 数だけ
+  ],
   ar: [
     "actualSizeBadge", // `1:1`
     "appName",
@@ -1368,6 +1411,9 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("ko-KR"), "ko");
   assert.equal(pick("ar-OM"), "ar");
   assert.equal(pick("ar-DZ"), "ar");
+  assert.equal(pick("he-IL"), "he");
+  assert.equal(pick("iw-IL"), "he");
+  assert.equal(pick("iw"), "he");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1516,10 +1562,50 @@ test("韓国語の辞書は、変数の直後に助詞を書き込んでいな�
   assert.deepEqual(hits, []);
 });
 
-test("アラビア語で差し込む名前の中の向きの印は外す（閉じが途中で切れない）", () => {
-  const out = ar.rootRemoveConfirm("a\u2069ب\u2066c\u202bd\u2029e");
-  assert.equal(out.match(/\u2068/gu)?.length, 1);
-  assert.equal(out.match(/\u2069/gu)?.length, 1);
-  assert.ok(out.includes("\u2068aبcd e\u2069"), out);
-  assert.ok(!/[\u202a-\u202e\u2066\u2067\u2029]/u.test(out), out);
+test("右から左の辞書で差し込む名前の中の向きの印は外す（閉じが途中で切れない）", () => {
+  for (const d of [ar, he]) {
+    const out = d.rootRemoveConfirm("a\u2069ب\u2066c\u202bd\u2029e");
+    assert.equal(out.match(/\u2068/gu)?.length, 1);
+    assert.equal(out.match(/\u2069/gu)?.length, 1);
+    assert.ok(out.includes("\u2068aبcd e\u2069"), out);
+    assert.ok(!/[\u202a-\u202e\u2066\u2067\u2029]/u.test(out), out);
+  }
+});
+
+test("ヘブライ語は年だけ双数で言うこと（שנתיים＝2年）", () => {
+  assert.equal(he.memoriesTitle(1), "היום לפני שנה");
+  assert.equal(he.memoriesTitle(2), "היום לפני שנתיים");
+  assert.ok(he.memoriesTitle(3).includes("3 שנים"), he.memoriesTitle(3));
+});
+
+test("右から左の辞書は、名前の一覧を丸ごと閉じないこと（呼ぶ側が名前ごとに閉じる）", () => {
+  // 丸ごと閉じると、閉じの向きが先頭の名前の字で決まり、右から読む人に2つ目の名前が先に来る（#284）。
+  // しかも `isolate()` は値の中の向きの印を外すので、呼ぶ側が名前ごとに閉じた印まで消える
+  const listed = "\u2068a\u2069, \u2068ב\u2069";
+  // 右から左の辞書は `dirOf` で選ぶ（次の右から左の辞書を足したら、自動でここに入る）
+  const rtlDicts = Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl");
+  assert.ok(rtlDicts.length >= 2, rtlDicts.map(([c]) => c).join());
+  for (const [, dict] of rtlDicts) {
+    const d = dict as unknown as Dict;
+    for (const out of [
+      d.rootsMissingNotice(listed, 2),
+      d.emptyMissing(listed),
+      d.emptyUnreadableMac(listed),
+      d.emptyUnreadableWin(listed),
+      d.emptyUnreadableOther(listed),
+      d.emptyAllExcluded(listed),
+      d.emptyStalled(listed),
+      d.googleSendFolders(listed),
+    ]) {
+      assert.ok(out.includes(listed), out);
+      assert.equal(out.match(/\u2068/gu)?.length, 2, out);
+    }
+  }
+});
+
+test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込むこと", () => {
+  for (const [, dict] of Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl")) {
+    const d = dict as unknown as Dict;
+    assert.ok(d.selectionTotal("1.22 MB").includes("\u20681.22 MB\u2069"), d.selectionTotal("1.22 MB"));
+  }
 });

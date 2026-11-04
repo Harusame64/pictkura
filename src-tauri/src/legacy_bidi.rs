@@ -11,21 +11,31 @@
 //! - **対の無い PDI は捨てる**——アルゴリズムでも何もしない文字で、PDF に変えると開いている埋め込みを閉じる
 //! - **閉じの境目を守る**: 閉じの中で開いたまま残った埋め込みは PDI の位置で閉じ、閉じの中の対の無い PDF は捨てる
 //!
-//! **閉じと埋め込みは同じではない**。PDF の後ろの文字は埋め込みの向きを引き継いで解かれるので、
-//! 左から右の名前の直後に（中立の文字だけを挟んで）数字が来ると、数字が名前の側に寄って見える。
-//! いまの確認の文には名前の直後の数字が無い。辞書でそういう文を書くなら、その間に字を置くこと
+//! **閉じと埋め込みは同じではない**。閉じは外から見ると中立の1文字だが、埋め込みの前後の中立の文字は
+//! 埋め込みの向きに引かれる。名前の一覧（`pk1, pk2`。名前ごとに閉じてあり、区切りは外。
+//! `ui/src/direction.ts` の `isolateEach`）では、左から右の名前に挟まれた `, ` が左から右に解かれ、
+//! 一覧ごと左から右に並んで、右から読む人に2つ目の名前が先に来た（#284 のゲート2）。名前の直後の
+//! 数字も名前の側に寄る。だから**外側の閉じを置き換えるたびに、前後に箱の向きの強い印を置く**
+//! （`mark`。右から左の箱なら RLM）——閉じが中立だったのと同じく、前後の文字が文の向きで解かれる
 //!
-//! 閉じの境目を壊す文字は、辞書の `isolate()`（`ui/src/direction.ts`）が先に外している。ここでも
-//! 守るのは、辞書を通らない文が箱に来たときのため
+//! 閉じの境目を壊す文字は、辞書と画面の `isolate()`（`ui/src/direction.ts`）が先に外している。
+//! ここでも守るのは、そこを通らない文が箱に来たときのため
 
 use unicode_bidi::{bidi_class, BidiClass};
 
 const LRE: char = '\u{202a}';
 const RLE: char = '\u{202b}';
 const PDF: char = '\u{202c}';
+const RLM: char = '\u{200f}';
 
+/// 右から左の箱に渡す文（`confirm_dialog.rs`）。外側の閉じの前後に RLM を置く
 #[cfg_attr(not(windows), allow(dead_code))]
-pub fn isolates_to_embeddings(s: &str) -> String {
+pub fn for_right_to_left_box(s: &str) -> String {
+    isolates_to_embeddings(s, Some(RLM))
+}
+
+/// `mark` は外側の閉じを置き換えた前後に置く強い印（箱の段落の向き）。`None` なら置かない
+fn isolates_to_embeddings(s: &str, mark: Option<char>) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
     // 開いている閉じごとに、その中で開いた埋め込み（LRE・RLE・LRO・RLO）の数
@@ -37,14 +47,17 @@ pub fn isolates_to_embeddings(s: &str) -> String {
                 out.push(c);
             }
             BidiClass::LRI => {
+                open_outer(&mut out, &inner, mark);
                 inner.push(0);
                 out.push(LRE);
             }
             BidiClass::RLI => {
+                open_outer(&mut out, &inner, mark);
                 inner.push(0);
                 out.push(RLE);
             }
             BidiClass::FSI => {
+                open_outer(&mut out, &inner, mark);
                 inner.push(0);
                 out.push(if first_strong_is_rtl(&chars[i + 1..]) {
                     RLE
@@ -55,6 +68,10 @@ pub fn isolates_to_embeddings(s: &str) -> String {
             BidiClass::PDI => {
                 if let Some(open) = inner.pop() {
                     out.extend(std::iter::repeat_n(PDF, open + 1));
+                    // 外側の閉じを閉じたら、後ろにも印
+                    if inner.is_empty() {
+                        out.extend(mark);
+                    }
                 }
             }
             BidiClass::LRE | BidiClass::RLE | BidiClass::LRO | BidiClass::RLO => {
@@ -75,6 +92,13 @@ pub fn isolates_to_embeddings(s: &str) -> String {
         }
     }
     out
+}
+
+/// 外側の閉じを開く前に印を置く
+fn open_outer(out: &mut String, inner: &[usize], mark: Option<char>) {
+    if inner.is_empty() {
+        out.extend(mark);
+    }
 }
 
 /// FSI の後ろから、対になる PDI（か段落の終わり）までで最初の強い文字が右から左か
@@ -100,7 +124,27 @@ fn first_strong_is_rtl(rest: &[char]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::isolates_to_embeddings as conv;
+    use super::{for_right_to_left_box, isolates_to_embeddings};
+
+    fn conv(s: &str) -> String {
+        isolates_to_embeddings(s, None)
+    }
+
+    #[test]
+    fn the_right_to_left_box_keeps_a_list_of_names_in_sentence_order() {
+        // 名前ごとに閉じた一覧（#284 のゲート2）。区切りの `, ` が RLM に挟まれて右から左に解かれる
+        assert_eq!(
+            for_right_to_left_box("מקומות: \u{2068}C:\\a\u{2069}, \u{2068}D:\\b\u{2069}."),
+            "מקומות: \u{200f}\u{202a}C:\\a\u{202c}\u{200f}, \u{200f}\u{202a}D:\\b\u{202c}\u{200f}."
+        );
+        // 入れ子の内側には置かない
+        assert_eq!(
+            for_right_to_left_box("\u{2068}a\u{2067}ب\u{2069}\u{2069}"),
+            "\u{200f}\u{202a}a\u{202b}ب\u{202c}\u{202c}\u{200f}"
+        );
+        // 閉じの無い文は変えない
+        assert_eq!(for_right_to_left_box("abc"), "abc");
+    }
 
     #[test]
     fn a_path_that_starts_latin_stays_left_to_right_even_if_it_ends_in_arabic() {

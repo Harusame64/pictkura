@@ -139,6 +139,14 @@
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "SF Arabic", "Geeza Pro",
     "Noto Sans Arabic", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
 }
+/* **ヘブライ語**（2026-11-04）。アラビア語と同じ理由で、ヘブライ文字の書体を日本語より前に置く。
+   Segoe UI はヘブライ文字も持つ（Windows）。macOS は -apple-system（SF Hebrew）が拾い、古い macOS は
+   Arial Hebrew */
+:lang(he) {
+  --font-ui:
+    "Segoe UI Variable Text", "Segoe UI", -apple-system, "SF Hebrew", "Arial Hebrew",
+    "Noto Sans Hebrew", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+}
 /* **逆向きも要る**（2026-09-02、ゲート2の指摘）。上の2つは中国語へ寄せるだけなので、
    **中国語の画面に出る日本語のラベル**——言語の選択肢の `日本語`——は中国語の並びを
    継承したままで、`日本語` が PingFang の字形で組まれる。`简体中文` が日本語の画面で

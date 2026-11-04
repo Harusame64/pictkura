@@ -243,6 +243,7 @@ static ZH_HANT: MenuText = MenuText {
     zoom: "縮放",
     help: "輔助說明",
 };
+
 static FR: MenuText = MenuText {
     about: "À propos de %@",
     settings: "Réglages…",
@@ -266,6 +267,7 @@ static FR: MenuText = MenuText {
     zoom: "Réduire/agrandir",
     help: "Aide",
 };
+
 static IT: MenuText = MenuText {
     about: "Informazioni su %@",
     settings: "Impostazioni…",
@@ -289,6 +291,7 @@ static IT: MenuText = MenuText {
     zoom: "Ridimensiona",
     help: "Aiuto",
 };
+
 static RU: MenuText = MenuText {
     about: "О приложении «%@»",
     settings: "Настройки…",
@@ -312,6 +315,7 @@ static RU: MenuText = MenuText {
     zoom: "Изменить масштаб",
     help: "Справка",
 };
+
 static PT: MenuText = MenuText {
     about: "Sobre o App %@",
     settings: "Ajustes…",
@@ -335,6 +339,7 @@ static PT: MenuText = MenuText {
     zoom: "Zoom",
     help: "Ajuda",
 };
+
 static KO: MenuText = MenuText {
     about: "%@에 관하여",
     settings: "설정…",
@@ -358,13 +363,14 @@ static KO: MenuText = MenuText {
     zoom: "확대/축소",
     help: "도움말",
 };
+
 static AR: MenuText = MenuText {
     about: "حول %@",
     settings: "الإعدادات…",
     services: "خدمات",
-    hide: "إخفاء %@‎",
+    hide: "إخفاء %@\u{200e}",
     hide_others: "إخفاء الأخرى",
-    quit: "إنهاء %@‎",
+    quit: "إنهاء %@\u{200e}",
     file: "ملف",
     close_window: "إغلاق النافذة",
     edit: "تعديل",
@@ -382,6 +388,30 @@ static AR: MenuText = MenuText {
     help: "مساعدة",
 };
 
+static HE: MenuText = MenuText {
+    about: "מידע על ״%@״",
+    settings: "הגדרות…",
+    services: "שירותים",
+    hide: "הסתרת ״\u{2068}%@\u{2069}״",
+    hide_others: "הסתרת יישומים אחרים",
+    quit: "סיום ״%@״",
+    file: "קובץ",
+    close_window: "סגירת החלון",
+    edit: "עריכה",
+    undo: "ביטול הפעולה האחרונה",
+    redo: "שחזור הפעולה האחרונה",
+    cut: "גזירה",
+    copy: "העתקה",
+    paste: "הדבקה",
+    select_all: "בחירת הכול",
+    view: "תצוגה",
+    fullscreen: "מעבר למסך מלא",
+    window: "חלון",
+    minimize: "מזעור",
+    zoom: "זום",
+    help: "עזרה",
+};
+
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
     ("en", &EN),
@@ -397,6 +427,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("pt", &PT),
     ("ko", &KO),
     ("ar", &AR),
+    ("he", &HE),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**

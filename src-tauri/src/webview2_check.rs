@@ -119,7 +119,7 @@ fn open_page(url: &str) -> windows::core::Result<()> {
 /// 辞書のコードのうち、右から左へ書くもの。**辞書のある言語だけを書く**——試験が `ui/src/direction.ts` の
 /// `RTL_LANGS` と突き合わせるので、右→左の辞書を足してここを忘れると落ちる
 fn right_to_left(code: &str) -> bool {
-    matches!(code, "ar")
+    matches!(code, "ar" | "he")
 }
 
 /// 案内の文と、開く頁。**頁は手引き（`docs/*/install.html`）と同じ Microsoft の WebView2 の頁**
@@ -190,6 +190,11 @@ fn notice_for(code: &str) -> Notice {
             text: "يحتاج pictkura إلى وقت تشغيل Microsoft Edge WebView2، لكن تعذّر العثور عليه.\n\n\
                    هل تريد فتح صفحة التنزيل؟ بعد التثبيت، شغّل pictkura مرة أخرى.",
             url: "https://developer.microsoft.com/ar-sa/microsoft-edge/webview2/",
+        },
+        "he" => Notice {
+            text: "pictkura זקוק לזמן הריצה של Microsoft Edge WebView2, אבל הוא לא נמצא.\n\n\
+                   לפתוח את דף ההורדה? אחרי ההתקנה, הפעילו את pictkura שוב.",
+            url: "https://developer.microsoft.com/he-il/microsoft-edge/webview2/",
         },
         _ => Notice {
             text: "pictkura needs the Microsoft Edge WebView2 Runtime, but it could not be found.\n\n\

@@ -41,6 +41,7 @@ LOCALES = [
     ("pt", "pt_BR"),
     ("ko", "ko"),
     ("ar", "ar"),
+    ("he", "he"),
 ]
 
 # (Rustのフィールド名, loctableのキー, どちらの表か)
@@ -79,6 +80,16 @@ def load(path: str) -> dict:
     return json.loads(out)
 
 
+# **向きの制御文字は `\u{…}` で書く**（2026-11-04、ヘブライ語）。Apple の he は `Hide %@` を
+# `הסתרת ״⁨%@⁩״` と、名前を FSI…PDI で閉じて持っている。Rust はこれらを生のまま文字列に
+# 置くことを拒む（`text_direction_codepoint_in_literal`）ので、見える形の逃がしにする
+BIDI_CONTROLS = {*range(0x202A, 0x202F), *range(0x2066, 0x206A), 0x200E, 0x200F, 0x061C}
+
+
+def rust_escape(v: str) -> str:
+    return "".join(f"\\u{{{ord(c):04x}}}" if ord(c) in BIDI_CONTROLS else c for c in v)
+
+
 def main() -> int:
     tables = {p: load(p) for p in {SWIFTUI, APPKIT}}
     print("// **ここから下は `tools/menu-strings.py` が作る。手で直さない。**")
@@ -92,7 +103,7 @@ def main() -> int:
             if v is None:
                 print(f"!! {spell} に {key!r} が無い", file=sys.stderr)
                 return 1
-            rows.append(f'    {field}: "{v}",')
+            rows.append(f'    {field}: "{rust_escape(v)}",')
         ident = code.upper().replace("-", "_")
         print(f"static {ident}: MenuText = MenuText {{")
         print("\n".join(rows))

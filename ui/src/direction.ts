@@ -81,3 +81,11 @@ export const asciiDateTokens = (q: string): string =>
  */
 export const isolate = (s: string): string =>
   `\u2068${s.replace(/[\u202a-\u202e\u2066-\u2069]/gu, "").replace(/[\n\r\u001c-\u001e\u0085\u2029]/gu, " ")}\u2069`;
+
+/**
+ * **一覧の名前を1つずつ閉じる**（右から左の画面だけ）。辞書は一覧を丸ごと閉じない——丸ごと閉じると、
+ * 閉じの向きが先頭の名前の最初の字で決まり、`pk284 בדיקה, בדיקה pk284` が左から右に並んで、
+ * 右から読む人には2つ目の名前が先に来た（#284 の win の実機）。名前ごとに閉じて区切りを外に出せば、
+ * 並びは文の向き（右から左）に従う。左から右の画面では何もしない（見えない文字を足さない）
+ */
+export const isolateEach = (names: string[]): string[] => (isRtl() ? names.map(isolate) : names);
