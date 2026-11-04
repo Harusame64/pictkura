@@ -21,7 +21,7 @@ exists](https://harusame64.github.io/pictkura/en/about.html).
 ![Paging through the viewer, marking picks and rejects](docs/images/a-cull.gif)
 
 *Paging with → while marking ⚑ (pick) and ✕ (reject), recorded on a 30,000-photo demo
-library. The screens are in Japanese; pictkura itself is available in 13 languages.*
+library. The screens are in Japanese; pictkura itself is available in 14 languages.*
 
 ## Goals
 
@@ -428,13 +428,13 @@ to the calendar, clears it, so a bulk action never reaches photos you cannot see
 ### 7. Language
 
 The interface is available in **English, German, French, Italian, Russian, Portuguese (Brazil, also shown in Portugal), Spanish (Spain), Spanish (Latin America),
-Chinese (Simplified), Chinese (Traditional), Korean, Arabic, and Japanese**.
+Chinese (Simplified), Chinese (Traditional), Korean, Arabic, Hebrew, and Japanese**.
 
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
 overrides that; switching reloads the window. The first day of the week follows your OS
 setting. The frames of system dialogs such as Save and folder pickers come from the OS. On
 Windows they use the OS language. On macOS they use the language chosen in Settings from the
-next launch, and with the OS language they follow macOS (English if it is not one of the thirteen).
+next launch, and with the OS language they follow macOS (English if it is not one of the fourteen).
 
 The full manual ships with the app — ⚙ (Settings) → **Manual**. It is also readable in a
 browser at **[harusame64.github.io/pictkura/manual.en.html](https://harusame64.github.io/pictkura/manual.en.html)**.

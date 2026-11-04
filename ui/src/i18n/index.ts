@@ -60,6 +60,7 @@ import { ru } from "./ru.ts";
 import { pt } from "./pt.ts";
 import { ko } from "./ko.ts";
 import { ar } from "./ar.ts";
+import { he } from "./he.ts";
 import { clockPart, num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
@@ -81,6 +82,7 @@ const DICTS: Record<string, Dict> = {
   pt,
   ko,
   ar,
+  he,
 };
 
 /**
@@ -105,6 +107,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "zh-hant", label: "繁體中文" },
   { code: "ko", label: "한국어" },
   { code: "ar", label: "العربية" },
+  { code: "he", label: "עברית" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */

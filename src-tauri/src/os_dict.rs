@@ -10,7 +10,7 @@
 
 /// 画面の辞書のコード。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**（下の升が見張る）
 pub const DICT_CODES: &[&str] = &[
-    "en", "ja", "de", "es", "es-419", "zh", "zh-hant", "fr", "it", "ru", "pt", "ko", "ar",
+    "en", "ja", "de", "es", "es-419", "zh", "zh-hant", "fr", "it", "ru", "pt", "ko", "ar", "he",
 ];
 
 /// OS の言語の並びから、辞書のコードを1つ当てる。知らない言語ばかりなら英語
@@ -124,6 +124,7 @@ pub(crate) mod tests {
         // アラビア語も地域で割らない（オマーン・アルジェリアも同じ辞書。書式は地域を残す）
         assert_eq!(guess(&["ar-OM".into()]), "ar");
         assert_eq!(guess(&["ar-DZ".into()]), "ar");
+        assert_eq!(guess(&["he-IL".into()]), "he");
         assert_eq!(guess(&["en-GB".into()]), "en");
         // 簡体字と繁体字
         assert_eq!(guess(&["zh-Hans-CN".into()]), "zh");
