@@ -44,6 +44,7 @@ import { zhHant } from "../src/i18n/zh-hant.ts";
 import { fr } from "../src/i18n/fr.ts";
 import { it as itDict } from "../src/i18n/it.ts";
 import { ru } from "../src/i18n/ru.ts";
+import { pt } from "../src/i18n/pt.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -67,6 +68,7 @@ const DICTS: Record<string, Any> = {
   fr: fr as Any,
   it: itDict as Any,
   ru: ru as Any,
+  pt: pt as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -246,6 +248,64 @@ test("件数が桁区切りを通ること", () => {
  * 到達しないものもある（`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に）。
  */
 const INFLECTS: Record<string, string[]> = {
+  // 葡語（pt-BR）は 1 だけ単数。0 は複数（`0 fotos`）——CLDR の pt は 0 も one だが、ブラジルの画面の書き方に合わせた（pt.ts の冒頭）
+  pt: [
+    "bgThumbs:0",
+    "bgThumbsShort:0",
+    "bulkFavoriteDone:0",
+    "bulkPickDone:0",
+    "bulkUnfavoriteDone:0",
+    "bulkUnpickDone:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedMissing:1",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "drivesReturnedScanned:0",
+    "drivesReturnedScanned:1",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "googleRemoveFailed:0",
+    "googleRemoved:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSent:0",
+    "googleSent:1",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "importDone:0",
+    "importDone:1",
+    "importGoogleFailed:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "moveDone:0",
+    "moveDone:1",
+    "moveDone:2",
+    "moveDone:3",
+    "moveDone:4",
+    "printSheetTitle:0",
+    "printSkipped:0",
+    "rejectGateTitle:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "selectedCount:0",
+    "syncDone:0",
+    "syncDone:1",
+    "syncDone:2",
+    "wizardEtaMinutes:0",
+    "wizardEtaSeconds:0",
+    "wizardHiddenCount:0",
+    "wizardSelected:0",
+  ],
   en: [
     "printSheetTitle:0",
     "printSkipped:0",
@@ -670,6 +730,7 @@ const APPKIT_CANCEL: Record<string, string> = {
   fr: "Annuler",
   it: "Annulla",
   ru: "Отменить",
+  pt: "Cancelar",
 };
 
 test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
@@ -866,6 +927,32 @@ test("仏語は 0 を単数で言うこと", () => {
   }
 });
 
+/**
+ * **葡語（pt-BR）は 0 を複数で言う**（`0 fotos`。`pt.ts` の冒頭）。CLDR の `pt` は 0 も単数なので、
+ * 「CLDR に合わせる」直しや仏語の `un()` の持ち込みで `0 foto` に戻っても、1 と 2 しか比べない
+ * 顔ぶれの升は落ちない。仏語の升の裏返しで、**0 が 2（複数）と同じ文になる**ことを見る
+ */
+test("葡語は 0 を複数で言うこと", () => {
+  let checked = 0;
+  const digitless = (s: string) => s.replace(/\d+/g, "#");
+  for (const pair of INFLECTS.pt) {
+    const [key, at] = pair.split(":");
+    const pos = Number(at);
+    const make = (n: number) => {
+      const args = argsFor(key, 2, "X");
+      args[pos] = n;
+      return call(DICTS.pt, key, args);
+    };
+    // 0 のときは節ごと出さない文がある（`exportDone` の「0 枚書き出した」）。数の数が合うものだけ比べる
+    const hashes = (t: string) => (digitless(t).match(/#/g) ?? []).length;
+    if (hashes(make(0)) !== hashes(make(2))) continue;
+    checked++;
+    assert.equal(digitless(make(0)), digitless(make(2)), `pt.${key} の ${pos} 番目が 0 で単数になった`);
+  }
+  // 飛ばしすぎて空振りしていないこと
+  assert.ok(checked >= 40, `only ${checked}`);
+});
+
 test("単複の無い言語が場合分けしていないこと", () => {
   for (const lang of NO_PLURAL) {
     const unexpected = inflectionsOf(DICTS[lang]).filter(
@@ -887,6 +974,20 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
+  pt: [
+    "actualSizeBadge", // `1:1`
+    "appName",
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "burstGapOption", // `0,5 s` など数と単位だけ
+    "exifIso",
+    "keyCtrl",
+    "kindRaw",
+    "listSeparator", // `, `
+    "photosCount", // 数だけ
+    "rejectChip", // 記号と数だけ
+    "settingsManual", // `Manual` は葡語の語でもある
+    "wizardCapped", // 数だけ
+  ],
   de: [
     "burstChipShort", // `▤ 12`: 記号と数だけ
     "burstGapOption", // `0,5 s` など数と単位だけ
@@ -1170,6 +1271,10 @@ test("辞書のコードの選び方（梯子）", () => {
   // 露語も地域で割らない（カザフスタンも本国の辞書。Rust の `os_dict::guess` と同じ答え）
   assert.equal(pick("ru-RU"), "ru");
   assert.equal(pick("ru-KZ"), "ru");
+  // 葡語も地域で割らない。ポルトガルの人にもブラジルの言葉で出す（2026-11-04 利用者。Rust の guess と同じ）
+  assert.equal(pick("pt-BR"), "pt");
+  assert.equal(pick("pt-PT"), "pt");
+  assert.equal(pick("pt-AO"), "pt");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1232,6 +1337,8 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
     [["it"], "rootsMissingNotice", [["1 foto non può essere aperta", "2 foto non possono essere aperte"]]],
     [["ru"], "rootMissingNotice", [["1 фото в ней недоступно", "2 фото в ней недоступны"]]],
     [["ru"], "rootsMissingNotice", [["1 фото недоступно", "2 фото недоступны"]]],
+    [["pt"], "rootMissingNotice", [["1 foto nela não pode ser aberta", "2 fotos nela não podem ser abertas"]]],
+    [["pt"], "rootsMissingNotice", [["1 foto nelas não pode ser aberta", "2 fotos nelas não podem ser abertas"]]],
   ];
   for (const [langs, key, pairs] of cases) {
     for (const lang of langs) {

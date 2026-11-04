@@ -19,7 +19,10 @@
  * - **macOSは `src-tauri/Info.plist` にも足す**（`CFBundleLocalizations`）。
  *   保存・フォルダ選択・削除確認の枠は AppKit のもので、この辞書は届かない。
  *   辞書だけ足すと**枠だけ英語**のままになる。綴りは AppKit の言語IDなので
- *   辞書のコードと同じとは限らない（`zh` → `zh-Hans`、`zh-hant` → `zh-Hant`）。
+ *   辞書のコードと同じとは限らない（`zh` → `zh-Hans`、`zh-hant` → `zh-Hant`、`pt` → `pt-BR`）。
+ *   対応は `src-tauri/src/appkit_lang.rs` の `appkit_id` の1か所。**辞書1つで国を2つ覆う言語は、
+ *   もう1つの国の ID も枠のために載せる**（`pt-PT`。載せないと `pt-PT, en` の Mac で AppKit が
+ *   国をまたがずに英語を選ぶ。同じファイルの `ALIASES`）。
  * - **Rust側にも表が3つある**（画面が立つ前・画面の外で語を出す場所）。
  *   `src-tauri/src/os_dict.rs` の `DICT_CODES`（言語選択の保存と AppKit の上書きもこれを引く）、
  *   `menu.rs` のメニューバーの語（`tools/menu-strings.py` で Apple の訳から引く。手で訳さない）、
@@ -54,6 +57,7 @@ import { zhHant } from "./zh-hant.ts";
 import { fr } from "./fr.ts";
 import { it } from "./it.ts";
 import { ru } from "./ru.ts";
+import { pt } from "./pt.ts";
 import { num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
@@ -72,6 +76,7 @@ const DICTS: Record<string, Dict> = {
   fr,
   it,
   ru,
+  pt,
 };
 
 /**
@@ -87,6 +92,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "fr", label: "Français" },
   { code: "it", label: "Italiano" },
   { code: "ru", label: "Русский" },
+  { code: "pt", label: "Português (Brasil)" },
   // **本国と中南米を分けたので、どちらも地域まで名乗る**。`Español` が2つ並ぶと
   // 選べない（Appleの綴りに合わせている）
   { code: "es", label: "Español (España)" },

@@ -312,6 +312,29 @@ static RU: MenuText = MenuText {
     zoom: "Изменить масштаб",
     help: "Справка",
 };
+static PT: MenuText = MenuText {
+    about: "Sobre o App %@",
+    settings: "Ajustes…",
+    services: "Serviços",
+    hide: "Ocultar %@",
+    hide_others: "Ocultar Outros",
+    quit: "Encerrar %@",
+    file: "Arquivo",
+    close_window: "Fechar Janela",
+    edit: "Editar",
+    undo: "Desfazer",
+    redo: "Refazer",
+    cut: "Cortar",
+    copy: "Copiar",
+    paste: "Colar",
+    select_all: "Selecionar Tudo",
+    view: "Visualizar",
+    fullscreen: "Entrar em Tela Cheia",
+    window: "Janela",
+    minimize: "Minimizar",
+    zoom: "Zoom",
+    help: "Ajuda",
+};
 
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
@@ -325,6 +348,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("fr", &FR),
     ("it", &IT),
     ("ru", &RU),
+    ("pt", &PT),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**
@@ -524,16 +548,14 @@ mod tests {
     /// **一度忘れている**——独語と西語の辞書（#94 / #95）を足したとき、あちらは
     /// そのままだった。書き忘れると**保存パネルとフォルダ選択だけ英語**という
     /// 混ざり方になり、画面を見ているだけでは気づきにくい。
-    /// **綴りはAppKitの言語IDなので、中国語だけ辞書のコードと違う。**
+    /// **綴りはAppKitの言語IDなので、辞書のコードと違う言語がある**（中国語・葡語）。
+    /// 対応は [`crate::appkit_lang::appkit_id`] の1か所だけに置き、ここはそれを呼ぶ
     #[test]
     fn the_bundle_declares_every_language_the_app_ships() {
         let plist = include_str!("../Info.plist");
         for code in dict_codes() {
-            let appkit = match code.as_str() {
-                "zh" => "zh-Hans",
-                "zh-hant" => "zh-Hant",
-                other => other,
-            };
+            let appkit = crate::appkit_lang::appkit_id(&code)
+                .unwrap_or_else(|| panic!("{code} に AppKit の ID が無い"));
             assert!(
                 plist.contains(&format!("<string>{appkit}</string>")),
                 "{appkit} が Info.plist の CFBundleLocalizations に無い"
