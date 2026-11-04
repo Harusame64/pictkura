@@ -68,3 +68,32 @@ export const asciiDateTokens = (q: string): string =>
   (q.match(/[^\s"]*"[^"]*"?|\S+|\s+/gu) ?? [])
     .map((tok) => (/^((year|年):)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
     .join("");
+
+/**
+ * **向きの閉じ（FSI/LRI/RLI … PDI）を、古い埋め込み（LRE/RLE … PDF）に置き換える**。
+ * Windows の TaskDialog は閉じの印を解さず、点線の箱で描いたうえ、アラビア語で終わる名前を
+ * 周りの文へ混ぜた（#283 の win の実機）。埋め込みは古い描き手でも効く。
+ * FSI の向きは、中の最初の文字（字）で決める——Unicode の FSI と同じ決め方。字が無ければ左から右
+ */
+export function isolatesToEmbeddings(s: string): string {
+  const chars = [...s];
+  return chars
+    .map((c, i) => {
+      if (c === "\u2066") return "\u202a";
+      if (c === "\u2067") return "\u202b";
+      if (c === "\u2069") return "\u202c";
+      if (c !== "\u2068") return c;
+      let depth = 0;
+      for (const d of chars.slice(i + 1)) {
+        if (d === "\u2066" || d === "\u2067" || d === "\u2068") depth++;
+        else if (d === "\u2069") {
+          if (depth === 0) break;
+          depth--;
+        } else if (depth === 0 && /\p{L}/u.test(d)) {
+          return hasRtlText(d) ? "\u202b" : "\u202a";
+        }
+      }
+      return "\u202a";
+    })
+    .join("");
+}

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { asciiDateTokens, asciiDigits, dirOf, hasRtlText, stepOfArrow } from "../src/direction.ts";
+import { asciiDateTokens, asciiDigits, dirOf, hasRtlText, stepOfArrow, isolatesToEmbeddings } from "../src/direction.ts";
 
 test("Arabic, Hebrew, Persian and Urdu read right to left", () => {
   for (const l of ["ar", "ar-EG", "he", "he-IL", "fa", "ur", "ckb", "ps", "yi", "iw", "ji", "ks", "prs", "fa-u-nu-latn", "pa-Arab", "az-Arab-IR", "pa-arab"])
@@ -48,4 +48,25 @@ test("only tokens made of digits and separators are turned into ASCII", () => {
   assert.equal(asciiDateTokens('"رحلة ٢٠١٩" ٢٠١٩'), '"رحلة ٢٠١٩" 2019');
   assert.equal(asciiDateTokens("年:٢٠١٩"), "年:2019");
   assert.ok(!hasRtlText("\ufeffCtrl+K"), "BOM is not right-to-left text");
+});
+
+test("閉じの印を、中の最初の字の向きの埋め込みに置き換える（TaskDialog 用）", () => {
+  // 左から右の字で始まるパス（アラビア語で終わっても、中ごと左から右）
+  assert.equal(
+    isolatesToEmbeddings("نقل \u2068C:\\Temp\\pk283 اختبار\u2069؟"),
+    "نقل \u202aC:\\Temp\\pk283 اختبار\u202c؟",
+  );
+  // 右から左の字で始まる名前。数字は字ではないので飛ばす
+  assert.equal(isolatesToEmbeddings("\u20682024 صور\u2069"), "\u202b2024 صور\u202c");
+  // 字が無ければ左から右
+  assert.equal(isolatesToEmbeddings("\u2068123\u2069"), "\u202a123\u202c");
+  // 入れ子の中の字は外の向きを決めない
+  assert.equal(
+    isolatesToEmbeddings("\u2068\u2067ب\u2069a\u2069"),
+    "\u202a\u202bب\u202ca\u202c",
+  );
+  // LRI・RLI もそのまま対応する埋め込みへ。印の無い文は変えない
+  assert.equal(isolatesToEmbeddings("\u2066a\u2069\u2067b\u2069"), "\u202aa\u202c\u202bb\u202c");
+  assert.equal(isolatesToEmbeddings("abc"), "abc");
+  assert.ok(!/[\u2066-\u2069]/u.test(isolatesToEmbeddings("\u2068x\u2069")));
 });
