@@ -155,6 +155,7 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
@@ -8078,7 +8079,8 @@ export default function App() {
                         virtualizer.scrollToIndex(m.rowIndex, { align: "start" })
                       }
                     >
-                      {m.label ? m.year : ""}
+                      {/* 年は地域の数字で（ar-SA ならアラビア・インド数字。`year()`） */}
+                      {m.label ? year(m.year) : ""}
                     </button>
                   ))}
                 </div>
