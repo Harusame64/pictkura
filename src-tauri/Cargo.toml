@@ -49,6 +49,9 @@ ureq = "3"
 # `enable_time()` を feature で守っているので、これが無いと
 # `tokio::time::timeout` は「no reactor running」で落ちる
 tokio = { version = "1", default-features = false, features = ["time", "sync"] }
+# 向きの閉じを古い埋め込みへ直す（`legacy_bidi.rs`）。字の bidi の分類を引く表。Windows の TaskDialog が
+# 閉じ（FSI…PDI）を解さないため。JS の正規表現は分類を引けず、手で近似すると周ごとに穴が出た（#283）
+unicode-bidi = "0.3"
 # 抽出（Issue #13）でクリップボードへ**画像として**載せる。
 #
 # フロントで済ませる道は無い。`media://` を fetch するのは CSP の

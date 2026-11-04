@@ -6,7 +6,7 @@
 import { confirm } from "@tauri-apps/plugin-dialog";
 
 import { cancelLabelFor, confirmRoute } from "./confirmLabels";
-import { isolatesToEmbeddings, isRtl } from "./direction";
+import { isRtl } from "./direction";
 import { errText } from "./i18n/err.ts";
 import { osT, t } from "./i18n";
 import { confirmRightToLeft, isTemporaryFolder, type HostPlatform } from "./api";
@@ -30,10 +30,9 @@ export async function confirmAction(
     if (confirmRoute(platform, isRtl()) === "windowsRtl") {
       return await confirmRightToLeft({
         title: t.appName,
-        // 閉じの印は TaskDialog で箱に描かれ、向きも効かない（#283 の win の実機）
-        message: isolatesToEmbeddings(message),
+        message,
         okLabel,
-        cancelLabel: cancelLabelFor(platform, t.confirmCancel, osT?.confirmCancel) ?? t.confirmCancel,
+        cancelLabel: t.confirmCancel,
         warning: kind === "warning",
       });
     }

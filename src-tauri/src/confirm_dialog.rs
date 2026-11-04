@@ -35,7 +35,8 @@ pub struct Confirm {
 /// **呼んだスレッドで、閉じるまで戻らない**——呼び側は UI のスレッドを避けること
 pub fn show(parent: HWND, c: &Confirm) -> windows::core::Result<bool> {
     let title = HSTRING::from(c.title.as_str());
-    let message = HSTRING::from(c.message.as_str());
+    // 閉じの印（FSI…PDI）は箱に描かれ、向きも効かない（#283 の win の実機）。埋め込みに直して渡す
+    let message = HSTRING::from(crate::legacy_bidi::isolates_to_embeddings(&c.message));
     let ok = HSTRING::from(c.ok_label.as_str());
     let cancel = HSTRING::from(c.cancel_label.as_str());
     let buttons = [

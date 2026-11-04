@@ -40,6 +40,8 @@ mod shell_menu;
 // 右から左へ書く言語の確認画面。プラグインは旗を渡せない（`confirm_dialog.rs`）。Windows だけ
 #[cfg(windows)]
 mod confirm_dialog;
+// 向きの閉じを古い埋め込みへ（TaskDialog が閉じを解さない）。試験は mac でも回るよう Windows 限定にしない
+mod legacy_bidi;
 // メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
