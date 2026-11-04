@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dirOf, stepOfArrow } from "../src/direction.ts";
+import { asciiDigits, dirOf, hasRtlText, stepOfArrow } from "../src/direction.ts";
 
 test("Arabic, Hebrew, Persian and Urdu read right to left", () => {
   for (const l of ["ar", "ar-EG", "he", "he-IL", "fa", "ur", "ckb", "ps", "yi", "iw", "ji", "ks", "prs", "fa-u-nu-latn", "pa-Arab", "az-Arab-IR", "pa-arab"])
@@ -18,4 +18,19 @@ test("the arrow keys step in reading order", () => {
   // 右→左では左が次
   assert.equal(stepOfArrow("ArrowLeft", true), 1);
   assert.equal(stepOfArrow("ArrowRight", true), -1);
+});
+
+test("Arabic-Indic and Persian digits become ASCII, nothing else changes", () => {
+  assert.equal(asciiDigits("٢٠١٩-٠٨"), "2019-08");
+  assert.equal(asciiDigits("۱۴۰۳"), "1403");
+  assert.equal(asciiDigits("year:٢٠٢٦ صور"), "year:2026 صور");
+  assert.equal(asciiDigits("IMG_0001 写真"), "IMG_0001 写真");
+});
+
+test("right-to-left text is found in base and presentation forms", () => {
+  assert.ok(hasRtlText("Shift + نقر"));
+  assert.ok(hasRtlText("ﻧﻘﺮ")); // 表示形（U+FE70〜）
+  assert.ok(hasRtlText("שלום"));
+  assert.ok(!hasRtlText("⌘K"));
+  assert.ok(!hasRtlText("Ctrl+,"));
 });

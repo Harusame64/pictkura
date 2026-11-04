@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
 import { actionMatch, orderSearchAndActions } from "./paletteOrder";
+import { asciiDigits } from "./direction";
 
 /** パレットの1候補。実行するとパレットは閉じる */
 export type PaletteItem = {
@@ -65,7 +66,8 @@ export default function Palette({
   }, [open]);
 
   const items = useMemo<PaletteItem[]>(() => {
-    const q = input.trim();
+    // アラビア語の配列の数字（`٢٠١٩`）も日付として読む（direction.ts）
+    const q = asciiDigits(input.trim());
     const lower = q.toLowerCase();
     const out: PaletteItem[] = [];
 

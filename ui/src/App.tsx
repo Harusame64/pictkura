@@ -159,7 +159,7 @@ import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
-import { inlineSign, isRtl, stepOfArrow } from "./direction";
+import { asciiDigits, hasRtlText, inlineSign, isRtl, stepOfArrow } from "./direction";
 import { letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
@@ -1846,8 +1846,9 @@ export default function App() {
   // 打鍵のたびにIPCを撃たないが、体感で待たされない間隔にする
   useEffect(() => {
     const trimmed = queryInput.trim();
-    if (trimmed === query) return;
-    const t = window.setTimeout(() => setQuery(trimmed), 160);
+    if (asciiDigits(trimmed) === query) return;
+    // アラビア語の配列の数字（`٢٠١٩`）は ASCII に揃えて渡す——日付として読ませる（direction.ts）
+    const t = window.setTimeout(() => setQuery(asciiDigits(trimmed)), 160);
     return () => window.clearTimeout(t);
   }, [queryInput, query]);
 
@@ -5706,10 +5707,11 @@ export default function App() {
       } else if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
-      // アラビア語の配列の数字の列は、アラビア・インド数字（`١` `٠`。ペルシア語は `۱` `۰`）を送る
-      } else if (/^[1١۱]$/u.test(e.key)) {
+      // **数字の列は物理キー（e.code）で見る**——仏語の AZERTY は 1 の位置で `&`、アラビア語の配列は
+      // `١` を送る。テンキーも同じ扱い
+      } else if (/^(Digit|Numpad)1$/.test(e.code) || e.key === "1") {
         toggleActualSize();
-      } else if (/^[0٠۰]$/u.test(e.key)) {
+      } else if (/^(Digit|Numpad)0$/.test(e.code) || e.key === "0") {
         setZoom(1);
         setPinnedActualId(null);
         setPan({ x: 0, y: 0 });
@@ -9401,7 +9403,7 @@ export default function App() {
                               {i > 0 && <span className="shortcut-or"> / </span>}
                               {/* 札は左→右（`⌘K`・`Ctrl+,`）。訳した語が混ざる札（`Shift + نقر`）だけ、
                                   右→左の言語の文字があればそちらの向きで読む（App.css の kbd） */}
-                              <kbd dir={/[\u0590-\u08ff]/u.test(k) ? "rtl" : undefined}>{k}</kbd>
+                              <kbd dir={hasRtlText(k) ? "rtl" : undefined}>{k}</kbd>
                             </span>
                           ))}
                         </dt>

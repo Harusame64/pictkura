@@ -441,9 +441,22 @@ export const formatDuration = (ms: number) => {
   const s = total % 60;
   const m = Math.floor(total / 60) % 60;
   const h = Math.floor(total / 3600);
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
-  return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+  const mm = h > 0 ? pad2(m) : plainDigits(m);
+  return `${h > 0 ? `${plainDigits(h)}:` : ""}${mm}:${pad2(s)}`;
 };
+/** 時計表記の数字も書式ロケールの数字で（ar-SA ならアラビア・インド数字。寸法や件数と揃える） */
+const clockFormat = (() => {
+  try {
+    return {
+      plain: new Intl.NumberFormat(formatLocale, { useGrouping: false }),
+      pad: new Intl.NumberFormat(formatLocale, { useGrouping: false, minimumIntegerDigits: 2 }),
+    };
+  } catch {
+    return null;
+  }
+})();
+const plainDigits = (n: number) => (clockFormat ? clockFormat.plain.format(n) : String(n));
+const pad2 = (n: number) => (clockFormat ? clockFormat.pad.format(n) : String(n).padStart(2, "0"));
 
 /**
  * **辞書へ書式ロケールを渡す**（2026-09-02）。

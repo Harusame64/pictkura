@@ -30,6 +30,21 @@ export function dirOf(locale: string): "rtl" | "ltr" {
 /** 横の向きの符号。左→右は 1、右→左は -1——CSS の `--inline-sign` と同じ。画面の座標を向きで裏返すときに掛ける */
 export const inlineSign = (): 1 | -1 => (isRtl() ? -1 : 1);
 
+/** 右→左の文字（ヘブライ文字・アラビア文字と、その表示形）を含むか */
+export const hasRtlText = (s: string): boolean =>
+  /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u.test(s);
+
+/**
+ * **数字を ASCII に揃える**（アラビア・インド数字 `٠-٩`、ペルシア数字 `۰-۹`）。アラビア語の配列は
+ * 数字の列からこれを送るので、検索の日付（`٢٠١٩-٠٨`）がファイル名の検索に落ちないように、
+ * 渡す前に揃える
+ */
+export const asciiDigits = (s: string): string =>
+  s.replace(/[\u0660-\u0669\u06f0-\u06f9]/gu, (d) => {
+    const c = d.charCodeAt(0);
+    return String(c >= 0x06f0 ? c - 0x06f0 : c - 0x0660);
+  });
+
 /** いまの画面が右→左か */
 export const isRtl = (): boolean =>
   typeof document !== "undefined" && document.documentElement.dir === "rtl";
