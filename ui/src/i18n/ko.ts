@@ -45,8 +45,9 @@ import type { Dict } from "./ja.ts";
 function batchim(word: string): { has: boolean; rieul: boolean } | null {
   // 助詞は括弧の前の語に付く（`확장자(.photoslibrary 등)를`）ので、末尾の括弧書きは丸ごと外して読む。
   // 閉じの引用符も外す
-  const head = word.replace(/\s*[(（][^()（）]*[)）]\s*$/u, "");
-  const ch = head.replace(/[\s\]」』"'”’»]+$/u, "").slice(-1);
+  const quotes = /[\s\]」』"'”’»]+$/u;
+  const head = word.replace(quotes, "").replace(/\s*[(（][^()（）]*[)）]\s*$/u, "");
+  const ch = head.replace(quotes, "").slice(-1);
   if (!ch) return null;
   const c = ch.charCodeAt(0);
   if (c >= 0xac00 && c <= 0xd7a3) {
@@ -522,7 +523,7 @@ export const ko: Dict = {
   googleRawOnlyNone: "놓지 않음",
   googleRawOnlyEmbedded: "내장 JPEG 놓기",
   settingsGoogleRawOnlyNote:
-    "JPEG을 함께 찍지 않은 RAW를 어떻게 할지입니다. ‘내장 JPEG’는 카메라가 RAW 안에 넣어 둔 표시용 이미지를 꺼내, 촬영 일시를 붙여 놓습니다. 꺼낸 JPEG는 별도의 파일이므로 그만큼 디스크를 씁니다.",
+    "JPEG을 함께 찍지 않은 RAW를 어떻게 할지입니다. ‘내장 JPEG’은 카메라가 RAW 안에 넣어 둔 표시용 이미지를 꺼내, 촬영 일시를 붙여 놓습니다. 꺼낸 JPEG은 별도의 파일이므로 그만큼 디스크를 씁니다.",
   settingsGoogleOneDrive: "OneDrive 안의 사진도 놓기",
   settingsGoogleOneDriveNote: "놓으면 그 사진은 OneDrive에서 ‘온라인 전용’으로 만들 수 없게 됩니다.",
   settingsGoogleAfterNote:

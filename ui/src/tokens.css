@@ -123,11 +123,13 @@
     sans-serif;
 }
 /* **韓国語**（2026-11-04）。上の並びの日本語の書体（Hiragino Sans / Yu Gothic UI）は**ハングルを持たない**
-   ので、ハングルは OS の代替へ、漢字と約物は日本語の書体へ割れる。ハングルの書体を先に置く */
+   ので、ハングルは OS の代替へ、漢字と約物は日本語の書体へ割れる。ハングルの書体を先に置く。
+   日本語の書体は後ろに残す——韓国語の辞書も Windows の自動再生の項目名（「pictkura で写真を取り込む」）を
+   そのまま引くので、韓国の書体に無い字（`込`）だけが別の書体へ落ちて1語が割れないように */
 :lang(ko) {
   --font-ui:
     "Segoe UI Variable Text", "Segoe UI", -apple-system, "Apple SD Gothic Neo",
-    "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+    "Malgun Gothic", "Noto Sans KR", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
 }
 /* **逆向きも要る**（2026-09-02、ゲート2の指摘）。上の2つは中国語へ寄せるだけなので、
    **中国語の画面に出る日本語のラベル**——言語の選択肢の `日本語`——は中国語の並びを
