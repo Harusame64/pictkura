@@ -106,6 +106,8 @@ export type ArabicForms = { zero: string; one: string; two: string; few: string;
  */
 export const arabic = (n: number, forms: ArabicForms): string => {
   const a = Math.abs(n);
+  // 件数にしか使わないが、小数が来たら CLDR と同じく other（`3.5` を few にしない）
+  if (!Number.isInteger(a)) return forms.other;
   const h = a % 100;
   if (a === 0) return forms.zero;
   if (a === 1) return forms.one;

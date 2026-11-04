@@ -31,6 +31,11 @@ test("アラビア語の6形は、CLDR の ar と全部の整数で一致する�
   }
 });
 
+test("アラビア語の6形は、小数を other にすること（CLDR と同じ）", () => {
+  const cldr = new Intl.PluralRules("ar");
+  for (const n of [0.5, 1.5, 2.5, 3.5, 10.5, 11.5, 99.5, 103.5]) assert.equal(ar(n), cldr.select(n), `n=${n}`);
+});
+
 test("アラビア語の6形は、下2桁で few と many を分け、100〜102 を other にすること", () => {
   // 0・1・2 を数そのもので見ずに下2桁で見る誤り（101 を one、102 を two にする）は、ここで落ちる
   assert.deepEqual(
