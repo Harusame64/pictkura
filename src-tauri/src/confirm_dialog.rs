@@ -34,11 +34,13 @@ pub struct Confirm {
 /// 箱を出して、**OK が押されたときだけ `true`**。閉じるボタン・Esc・取り消しは `false`。
 /// **呼んだスレッドで、閉じるまで戻らない**——呼び側は UI のスレッドを避けること
 pub fn show(parent: HWND, c: &Confirm) -> windows::core::Result<bool> {
-    let title = HSTRING::from(c.title.as_str());
-    // 閉じの印（FSI…PDI）は箱に描かれ、向きも効かない（#283 の win の実機）。埋め込みに直して渡す
-    let message = HSTRING::from(crate::legacy_bidi::isolates_to_embeddings(&c.message));
-    let ok = HSTRING::from(c.ok_label.as_str());
-    let cancel = HSTRING::from(c.cancel_label.as_str());
+    // 閉じの印（FSI…PDI）は箱に描かれ、向きも効かない（#283 の win の実機）。**箱へ渡す文字はすべて**
+    // 埋め込みに直す——閉じが無ければ何も変わらない
+    let text = |s: &str| HSTRING::from(crate::legacy_bidi::isolates_to_embeddings(s));
+    let title = text(&c.title);
+    let message = text(&c.message);
+    let ok = text(&c.ok_label);
+    let cancel = text(&c.cancel_label);
     let buttons = [
         TASKDIALOG_BUTTON {
             nButtonID: ID_OK,

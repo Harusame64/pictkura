@@ -1517,9 +1517,9 @@ test("韓国語の辞書は、変数の直後に助詞を書き込んでいな�
 });
 
 test("アラビア語で差し込む名前の中の向きの印は外す（閉じが途中で切れない）", () => {
-  const out = ar.rootRemoveConfirm("a\u2069ب\u2066c\u202bd");
+  const out = ar.rootRemoveConfirm("a\u2069ب\u2066c\u202bd\u2029e");
   assert.equal(out.match(/\u2068/gu)?.length, 1);
   assert.equal(out.match(/\u2069/gu)?.length, 1);
-  assert.ok(out.includes("\u2068aبcd\u2069"), out);
-  assert.ok(!/[\u202a-\u202e\u2066\u2067]/u.test(out), out);
+  assert.ok(out.includes("\u2068aبcd e\u2069"), out);
+  assert.ok(!/[\u202a-\u202e\u2066\u2067\u2029]/u.test(out), out);
 });
