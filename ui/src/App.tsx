@@ -159,7 +159,7 @@ import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
-import { asciiDateTokens, hasRtlText, inlineSign, isRtl, stepOfArrow } from "./direction";
+import { asciiDateTokens, hasRtlText, inlineSign, isolateEach, isRtl, stepOfArrow } from "./direction";
 import { digitOf, letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
@@ -2466,7 +2466,7 @@ export default function App() {
       // つなぎ方は `joinConditions` に1つだけ置く。**引くのは「出した数」**——
       // `3` を引くと、名前が畳まれて1件しか来ていない（6つのルートの
       // `Lightroom Catalog/` など）ときに数が合わない（ゲート2の指摘）
-      return joinConditions(names, t.listSeparator, t.listLastSeparator, t.andMore, total);
+      return joinConditions(isolateEach(names), t.listSeparator, t.listLastSeparator, t.andMore, total);
     },
     [t],
   );
@@ -6923,7 +6923,7 @@ export default function App() {
             ),
           ];
           if (s.left_out > 0) lines.push(t.googleSendLeftOut(s.left_out));
-          if (s.folders.length > 1) lines.push(t.googleSendFolders(s.folders.join(", ")));
+          if (s.folders.length > 1) lines.push(t.googleSendFolders(isolateEach(s.folders).join(t.listSeparator)));
           // 新しいフォルダは、Google フォトの説明より**先に**言う（登録しないと上がらない。win の実機）
           for (const f of s.new_folders) lines.push(t.googleSendNewFolder(f));
           lines.push(s.new_folders.length > 0 ? t.googleSendGoogleNoteNew : t.googleSendGoogleNote);

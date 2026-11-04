@@ -1576,3 +1576,30 @@ test("ヘブライ語は年だけ双数で言うこと（שנתיים＝2年）"
   assert.equal(he.memoriesTitle(2), "היום לפני שנתיים");
   assert.ok(he.memoriesTitle(3).includes("3 שנים"), he.memoriesTitle(3));
 });
+
+test("右から左の辞書は、名前の一覧を丸ごと閉じないこと（呼ぶ側が名前ごとに閉じる）", () => {
+  // 丸ごと閉じると、閉じの向きが先頭の名前の字で決まり、右から読む人に2つ目の名前が先に来る（#284）。
+  // しかも `isolate()` は値の中の向きの印を外すので、呼ぶ側が名前ごとに閉じた印まで消える
+  const listed = "\u2068a\u2069, \u2068ב\u2069";
+  for (const d of [ar, he]) {
+    for (const out of [
+      d.rootsMissingNotice(listed, 2),
+      d.emptyMissing(listed),
+      d.emptyUnreadableMac(listed),
+      d.emptyUnreadableWin(listed),
+      d.emptyUnreadableOther(listed),
+      d.emptyAllExcluded(listed),
+      d.emptyStalled(listed),
+      d.googleSendFolders(listed),
+    ]) {
+      assert.ok(out.includes(listed), out);
+      assert.equal(out.match(/\u2068/gu)?.length, 2, out);
+    }
+  }
+});
+
+test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込むこと", () => {
+  for (const d of [ar, he]) {
+    assert.ok(d.selectionTotal("1.22 MB").includes("\u20681.22 MB\u2069"), d.selectionTotal("1.22 MB"));
+  }
+});

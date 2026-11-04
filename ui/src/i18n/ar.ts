@@ -68,7 +68,11 @@ const counted =
       other: `${num(n)} ${other}`,
     });
 
-/** パス・名前・検索語・失敗の理由は、向きを閉じて差し込む（`direction.ts` の `isolate`） */
+/**
+ * パス・名前・検索語・失敗の理由は、向きを閉じて差し込む（`direction.ts` の `isolate`）。
+ * **名前の一覧（`names`・`list`）は閉じない**——呼ぶ側が名前ごとに閉じて渡す（`isolateEach`）。
+ * 丸ごと閉じると、一覧の並びが先頭の名前の字の向きで決まってしまう（#284 の win の実機）
+ */
 const iso = isolate;
 
 /** 写真（女性） */
@@ -279,7 +283,7 @@ export const ar: Dict = {
   rootMissingNotice: (name: string, count: number) =>
     `المجلد “${iso(name)}” غير موجود${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيه)` : ""}. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”.`,
   rootsMissingNotice: (names: string, count: number) =>
-    `بعض المجلدات غير موجودة: ${iso(names)}${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيها)` : ""}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”. للتوقف عن استخدام مجلد، أزِله من المكتبة بزر ✕ في القائمة الجانبية (لا تُحذف ملفات الصور).`,
+    `بعض المجلدات غير موجودة: ${names}${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيها)` : ""}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”. للتوقف عن استخدام مجلد، أزِله من المكتبة بزر ✕ في القائمة الجانبية (لا تُحذف ملفات الصور).`,
   rootRemoveFromLibrary: "إزالة من المكتبة",
   rootRemoveKeepsFiles: "يزيل المجلد من المكتبة فقط. لا تُحذف ملفات الصور",
   rootRemoveConfirm: (name: string) =>
@@ -328,13 +332,13 @@ export const ar: Dict = {
   emptyNoRoots:
     "لم يُضبط أي مجلد للمكتبة بعد. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
   emptyMissing: (names: string) =>
-    `هذه الأماكن غير موجودة: ${iso(names)}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”.`,
+    `هذه الأماكن غير موجودة: ${names}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”.`,
   emptyUnreadableMac: (names: string) =>
-    `تعذّر فتح هذه الأماكن: ${iso(names)}. امنح pictkura حق الوصول إلى ذلك المجلد (سطح المكتب، المستندات، قرص خارجي) من إعدادات النظام ← الخصوصية والأمن. وإذا كان على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
+    `تعذّر فتح هذه الأماكن: ${names}. امنح pictkura حق الوصول إلى ذلك المجلد (سطح المكتب، المستندات، قرص خارجي) من إعدادات النظام ← الخصوصية والأمن. وإذا كان على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
   emptyUnreadableWin: (names: string) =>
-    `تعذّر فتح هذه الأماكن: ${iso(names)}. تحقق من أذونات المجلد. وإذا كان محرك أقراص على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
+    `تعذّر فتح هذه الأماكن: ${names}. تحقق من أذونات المجلد. وإذا كان محرك أقراص على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
   emptyUnreadableOther: (names: string) =>
-    `تعذّر فتح هذه الأماكن: ${iso(names)}. تأكد من أن لديك إذنًا بقراءتها، ثم اضغط على “إعادة الفحص”.`,
+    `تعذّر فتح هذه الأماكن: ${names}. تأكد من أن لديك إذنًا بقراءتها، ثم اضغط على “إعادة الفحص”.`,
   listSeparator: "، ",
   listLastSeparator: " ",
   andMore: (n: number) => `و${num(n)} غيرها`,
@@ -347,13 +351,13 @@ export const ar: Dict = {
   emptyRootIsManagedLibrary:
     "أحد مجلدات المكتبة هو مكتبة مُدارة لتطبيق صور (الصور أو iPhoto أو Aperture). لا يقرأ pictkura داخلها عن قصد، لذا لن يأتي منها شيء. اختر مجلدًا فيه صور، أو استورد من بطاقة.",
   emptyAllExcluded: (names: string) =>
-    `كل ما عُثر عليه تتخطاه أنماط الاستبعاد (مثل ${iso(names)}). يمكنك تغييرها في pictkura.toml داخل مجلد الإعدادات.`,
+    `كل ما عُثر عليه تتخطاه أنماط الاستبعاد (مثل ${names}). يمكنك تغييرها في pictkura.toml داخل مجلد الإعدادات.`,
   emptyNothingHere:
     "لم يُعثر بعد على صور يستطيع pictkura قراءتها. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
   calendarChecking: "جارٍ التحقق…",
   emptyTitleStalled: "بعض الأماكن لا تستجيب",
   emptyStalled: (names: string) =>
-    `هذه الأماكن لا تستجيب: ${iso(names)}. إذا كان أحدها على الشبكة، فتأكد من أنه ما زال متصلًا واضغط على “إعادة الفحص”. وإذا زال نهائيًا، فأزِله من مجلدات المكتبة ليظهر الباقي.`,
+    `هذه الأماكن لا تستجيب: ${names}. إذا كان أحدها على الشبكة، فتأكد من أنه ما زال متصلًا واضغط على “إعادة الفحص”. وإذا زال نهائيًا، فأزِله من مجلدات المكتبة ليظهر الباقي.`,
   emptyChecking:
     "ما زال البحث في المجلدات جاريًا. إذا كان أحدها على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.",
   emptyLoadFailed: "تعذّر تحميل القائمة. اضغط على “إعادة الفحص”، أو أعد فتح التطبيق.",
@@ -442,7 +446,7 @@ export const ar: Dict = {
   fileInfoDimensions: "الأبعاد",
   fileInfoDuration: "المدة",
   fileInfoType: "النوع",
-  selectionTotal: (size: string) => `${size} إجمالًا`,
+  selectionTotal: (size: string) => `${iso(size)} إجمالًا`,
   menuFavoriteOn: "إضافة إلى المفضلة",
   menuFavoriteOff: "إزالة من المفضلة",
   pickEditor: "اختر تطبيقًا للتحرير",
@@ -560,14 +564,14 @@ export const ar: Dict = {
     if (photoCount > 0) parts.push(photos(photoCount, false));
     if (videoCount > 0) parts.push(videos(videoCount, false));
     const list: string[] = [];
-    if (parts.length > 0) list.push(`${parts.join("، ")}${size ? ` (${size})` : ""}`);
+    if (parts.length > 0) list.push(`${parts.join("، ")}${size ? ` (${iso(size)})` : ""}`);
     // 形容詞を数に合わせない形（双数なら مستخرجتان になる）: 「…から取り出した JPEG: N」
     if (rawOnly > 0) list.push(`صور JPEG مستخرجة من صور RAW فقط: ${num(rawOnly)}`);
     return `إلى مجلد الإرسال: ${list.join("؛ ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `يُستبعد ${items(n, false)} مما اخترته (ملف RAW من زوج RAW+JPEG، والملفات داخل OneDrive وما شابه).`,
-  googleSendFolders: (list: string) => `يوضع في: ${iso(list)}`,
+  googleSendFolders: (list: string) => `يوضع في: ${list}`,
   googleSendNewFolder: (path: string) => `سيُنشأ ${iso(path)}.`,
   googleSendGoogleNote:
     "إذا كنت تستخدم صور Google: يتولى الرفعَ موقع صور Google (photos.google.com)، فيتقدم ما دامت هذه الصفحة مفتوحة في المتصفح.",

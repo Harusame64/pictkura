@@ -47,7 +47,11 @@ import { folderExample } from "./folderExample.ts";
 import { num, one, year } from "./plural.ts";
 import type { Dict } from "./ja.ts";
 
-/** パス・名前・検索語・失敗の理由は、向きを閉じて差し込む（`direction.ts` の `isolate`） */
+/**
+ * パス・名前・検索語・失敗の理由は、向きを閉じて差し込む（`direction.ts` の `isolate`）。
+ * **名前の一覧（`names`・`list`）は閉じない**——呼ぶ側が名前ごとに閉じて渡す（`isolateEach`）。
+ * 丸ごと閉じると、一覧の並びが先頭の名前の字の向きで決まってしまう（#284 の win の実機）
+ */
 const iso = isolate;
 
 /** 写真（女性） */
@@ -258,7 +262,7 @@ export const he: Dict = {
   rootMissingNotice: (name: string, count: number) =>
     `התיקייה ״${iso(name)}״ לא נמצאת${count > 0 ? ` (לא ניתן לפתוח ${photos(count)} שבה)` : ""}. אם היא בזיכרון USB או בכרטיס SD, חברו אותו ולחצו על ״סריקה מחדש״.`,
   rootsMissingNotice: (names: string, count: number) =>
-    `חלק מהתיקיות לא נמצאות: ${iso(names)}${count > 0 ? ` (לא ניתן לפתוח ${photos(count)} שבהן)` : ""}. אם הן בזיכרון USB או בכרטיס SD, חברו אותו שוב ולחצו על ״סריקה מחדש״. כדי להפסיק להשתמש בתיקייה, הסירו אותה מהספרייה בלחצן ✕ שברשימה שבצד (קובצי התמונות לא נמחקים).`,
+    `חלק מהתיקיות לא נמצאות: ${names}${count > 0 ? ` (לא ניתן לפתוח ${photos(count)} שבהן)` : ""}. אם הן בזיכרון USB או בכרטיס SD, חברו אותו שוב ולחצו על ״סריקה מחדש״. כדי להפסיק להשתמש בתיקייה, הסירו אותה מהספרייה בלחצן ✕ שברשימה שבצד (קובצי התמונות לא נמחקים).`,
   rootRemoveFromLibrary: "הסרה מהספרייה",
   rootRemoveKeepsFiles: "מסיר את התיקייה מהספרייה בלבד. קובצי התמונות לא נמחקים",
   rootRemoveConfirm: (name: string) =>
@@ -306,13 +310,13 @@ export const he: Dict = {
   emptyTitleUnreadable: "לא ניתן היה לפתוח חלק מהמקומות",
   emptyNoRoots: "עדיין לא הוגדרה תיקיית ספרייה. ייבאו מכרטיס, או בחרו תיקייה שיש בה תמונות.",
   emptyMissing: (names: string) =>
-    `המקומות האלה לא נמצאים: ${iso(names)}. אם הם בזיכרון USB או בכרטיס SD, חברו אותו שוב ולחצו על ״סריקה מחדש״.`,
+    `המקומות האלה לא נמצאים: ${names}. אם הם בזיכרון USB או בכרטיס SD, חברו אותו שוב ולחצו על ״סריקה מחדש״.`,
   emptyUnreadableMac: (names: string) =>
-    `לא ניתן היה לפתוח את המקומות האלה: ${iso(names)}. תנו ל-pictkura גישה לתיקייה הזו (שולחן העבודה, מסמכים, כונן חיצוני) בהגדרות המערכת ← פרטיות ואבטחה. אם היא ברשת, ודאו שהיא מחוברת ולחצו על ״סריקה מחדש״.`,
+    `לא ניתן היה לפתוח את המקומות האלה: ${names}. תנו ל-pictkura גישה לתיקייה הזו (שולחן העבודה, מסמכים, כונן חיצוני) בהגדרות המערכת ← פרטיות ואבטחה. אם היא ברשת, ודאו שהיא מחוברת ולחצו על ״סריקה מחדש״.`,
   emptyUnreadableWin: (names: string) =>
-    `לא ניתן היה לפתוח את המקומות האלה: ${iso(names)}. בדקו את ההרשאות של התיקייה. אם זה כונן רשת, ודאו שהוא מחובר ולחצו על ״סריקה מחדש״.`,
+    `לא ניתן היה לפתוח את המקומות האלה: ${names}. בדקו את ההרשאות של התיקייה. אם זה כונן רשת, ודאו שהוא מחובר ולחצו על ״סריקה מחדש״.`,
   emptyUnreadableOther: (names: string) =>
-    `לא ניתן היה לפתוח את המקומות האלה: ${iso(names)}. ודאו שיש לכם הרשאה לקרוא אותם, ואז לחצו על ״סריקה מחדש״.`,
+    `לא ניתן היה לפתוח את המקומות האלה: ${names}. ודאו שיש לכם הרשאה לקרוא אותם, ואז לחצו על ״סריקה מחדש״.`,
   listSeparator: ", ",
   listLastSeparator: " ",
   andMore: (n: number) => `ועוד ${num(n)}`,
@@ -325,13 +329,13 @@ export const he: Dict = {
   emptyRootIsManagedLibrary:
     "אחת מתיקיות הספרייה היא בעצמה ספרייה מנוהלת של אפליקציית תמונות (תמונות, iPhoto או Aperture). pictkura אינו קורא בתוכה בכוונה, ולכן שום דבר לא יגיע ממנה. בחרו תיקייה שיש בה תמונות, או ייבאו מכרטיס.",
   emptyAllExcluded: (names: string) =>
-    `כל מה שנמצא מדולג לפי דפוסי ההחרגה (למשל ${iso(names)}). אפשר לשנות אותם בקובץ pictkura.toml שבתיקיית ההגדרות.`,
+    `כל מה שנמצא מדולג לפי דפוסי ההחרגה (למשל ${names}). אפשר לשנות אותם בקובץ pictkura.toml שבתיקיית ההגדרות.`,
   emptyNothingHere:
     "עדיין לא נמצאו תמונות ש-pictkura יכול לקרוא. ייבאו מכרטיס, או בחרו תיקייה שיש בה תמונות.",
   calendarChecking: "בודק…",
   emptyTitleStalled: "חלק מהמקומות לא מגיבים",
   emptyStalled: (names: string) =>
-    `המקומות האלה לא מגיבים: ${iso(names)}. אם אחד מהם ברשת, ודאו שהוא עדיין מחובר ולחצו על ״סריקה מחדש״. אם הוא נעלם לצמיתות, הסירו אותו מתיקיות הספרייה, ושאר המקומות ידווחו.`,
+    `המקומות האלה לא מגיבים: ${names}. אם אחד מהם ברשת, ודאו שהוא עדיין מחובר ולחצו על ״סריקה מחדש״. אם הוא נעלם לצמיתות, הסירו אותו מתיקיות הספרייה, ושאר המקומות ידווחו.`,
   emptyChecking:
     `עדיין מחפש בתיקיות. אם אחת מהן ברשת, ודאו שהיא מחוברת ולחצו על ״סריקה מחדש״.`,
   emptyLoadFailed: `לא ניתן היה לטעון את הרשימה. לחצו על ״סריקה מחדש״, או פתחו את האפליקציה מחדש.`,
@@ -421,7 +425,7 @@ export const he: Dict = {
   fileInfoDimensions: "ממדים",
   fileInfoDuration: "אורך",
   fileInfoType: "סוג",
-  selectionTotal: (size: string) => `${size} בסך הכול`,
+  selectionTotal: (size: string) => `${iso(size)} בסך הכול`,
   menuFavoriteOn: "הוספה למועדפים",
   menuFavoriteOff: "הסרה מהמועדפים",
   pickEditor: "בחרו אפליקציה לעריכה",
@@ -540,13 +544,13 @@ export const he: Dict = {
     if (photoCount > 0) parts.push(photos(photoCount));
     if (videoCount > 0) parts.push(videos(videoCount));
     const list: string[] = [];
-    if (parts.length > 0) list.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
+    if (parts.length > 0) list.push(`${parts.join(", ")}${size ? ` (${iso(size)})` : ""}`);
     if (rawOnly > 0) list.push(`קובצי JPEG שהוצאו מצילומי RAW בלבד: ${num(rawOnly)}`);
     return `יונחו בתיקיית השליחה: ${list.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `מתוך מה שבחרתם ${one(n, "מושמט פריט אחד", `מושמטים ${num(n)} פריטים`)} (ה-RAW של זוג RAW+JPEG, קבצים שבתוך OneDrive וכדומה).`,
-  googleSendFolders: (list: string) => `מקום ההנחה: ${iso(list)}`,
+  googleSendFolders: (list: string) => `מקום ההנחה: ${list}`,
   googleSendNewFolder: (path: string) => `התיקייה ${iso(path)} תיווצר.`,
   googleSendGoogleNote:
     "אם אתם משתמשים ב-Google Photos: ההעלאה נעשית בדף האינטרנט של Google Photos‏ (photos.google.com), ולכן היא מתקדמת כל עוד הדף הזה פתוח בדפדפן.",
