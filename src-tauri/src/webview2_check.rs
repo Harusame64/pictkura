@@ -34,7 +34,8 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDYES, MB_ICONWARNING, MB_SETFOREGROUND, MB_SYSTEMMODAL, MB_YESNO, SW_SHOWNORMAL,
+    MessageBoxW, IDYES, MB_ICONWARNING, MB_RIGHT, MB_RTLREADING, MB_SETFOREGROUND, MB_SYSTEMMODAL,
+    MB_YESNO, SW_SHOWNORMAL,
 };
 
 use pictkura_core::applog;
@@ -61,7 +62,15 @@ pub fn ensure_runtime_or_exit() {
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
     let locales: Vec<String> = sys_locale::get_locales().collect();
-    let notice = notice_for(crate::os_dict::guess(&locales));
+    let code = crate::os_dict::guess(&locales);
+    let notice = notice_for(code);
+    // **右から左へ書く言語は、箱も右から組む**——付けないと、アラビア語の文が左寄せで、
+    // 句読点が行頭に回る（MessageBox は文の向きを自分では決めない）
+    let rtl = if right_to_left(code) {
+        MB_RTLREADING | MB_RIGHT
+    } else {
+        Default::default()
+    };
     let text = HSTRING::from(notice.text);
     // SAFETY: 文字列は呼び出しのあいだ生きている `HSTRING` と、静的な `w!`。親の窓は無い（null）
     let answer = unsafe {
@@ -75,7 +84,7 @@ pub fn ensure_runtime_or_exit() {
             // `MB_SYSTEMMODAL` なら付いて、上に見える。**それでも前景にはならない**——キーはエクスプローラーに
             // 残り、押すにはクリックが要る。親を最前面の見えない窓にする手も上に出たが、タスクバーから
             // 辿れなくなるので取らない
-            MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND | MB_SYSTEMMODAL,
+            MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND | MB_SYSTEMMODAL | rtl,
         )
     };
     if answer == IDYES {
@@ -105,6 +114,11 @@ fn open_page(url: &str) -> windows::core::Result<()> {
     };
     // SAFETY: `info` と、その指す文字列は呼び出しのあいだ生きている
     unsafe { ShellExecuteExW(&mut info) }
+}
+
+/// 辞書のコードのうち、右から左へ書くもの（画面の `ui/src/direction.ts` と同じ顔ぶれ）
+fn right_to_left(code: &str) -> bool {
+    matches!(code, "ar" | "he")
 }
 
 /// 案内の文と、開く頁。**頁は手引き（`docs/*/install.html`）と同じ Microsoft の WebView2 の頁**
@@ -171,6 +185,11 @@ fn notice_for(code: &str) -> Notice {
                    다운로드 페이지를 여시겠습니까? 설치한 후 pictkura를 다시 시작하십시오.",
             url: "https://developer.microsoft.com/ko-kr/microsoft-edge/webview2/",
         },
+        "ar" => Notice {
+            text: "يحتاج pictkura إلى وقت تشغيل Microsoft Edge WebView2، لكن تعذّر العثور عليه.\n\n\
+                   هل تريد فتح صفحة التنزيل؟ بعد التثبيت، شغّل pictkura مرة أخرى.",
+            url: "https://developer.microsoft.com/ar-sa/microsoft-edge/webview2/",
+        },
         _ => Notice {
             text: "pictkura needs the Microsoft Edge WebView2 Runtime, but it could not be found.\n\n\
                    Open the download page? After installing it, start pictkura again.",
@@ -181,7 +200,7 @@ fn notice_for(code: &str) -> Notice {
 
 #[cfg(test)]
 mod tests {
-    use super::notice_for;
+    use super::{notice_for, right_to_left};
     use crate::os_dict::DICT_CODES;
 
     /// **画面が出せる言語ぶん、案内も持っていること**（英語へ落ちるのは知らない言語だけ）
@@ -202,13 +221,24 @@ mod tests {
             let n = notice_for(code);
             assert!(n.text.contains("WebView2"), "{code}");
             assert!(
-                n.text.contains('?') || n.text.contains('？'),
+                // アラビア語の疑問符は `؟`
+                n.text.contains('?') || n.text.contains('？') || n.text.contains('؟'),
                 "{code} は訊いていない"
             );
             assert!(
                 n.url.starts_with("https://developer.microsoft.com/"),
                 "{code}"
             );
+        }
+    }
+
+    /// 右から左の言語だけ、箱を右から組む（`ui/src/direction.ts` と同じ顔ぶれ）
+    #[test]
+    fn only_right_to_left_languages_flip_the_box() {
+        assert!(right_to_left("ar"));
+        assert!(right_to_left("he"));
+        for code in DICT_CODES.iter().filter(|c| !matches!(**c, "ar" | "he")) {
+            assert!(!right_to_left(code), "{code}");
         }
     }
 }

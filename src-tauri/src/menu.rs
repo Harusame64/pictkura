@@ -358,6 +358,29 @@ static KO: MenuText = MenuText {
     zoom: "확대/축소",
     help: "도움말",
 };
+static AR: MenuText = MenuText {
+    about: "حول %@",
+    settings: "الإعدادات…",
+    services: "خدمات",
+    hide: "إخفاء %@‎",
+    hide_others: "إخفاء الأخرى",
+    quit: "إنهاء %@‎",
+    file: "ملف",
+    close_window: "إغلاق النافذة",
+    edit: "تعديل",
+    undo: "تراجع",
+    redo: "إعادة",
+    cut: "قص",
+    copy: "نسخ",
+    paste: "لصق",
+    select_all: "تحديد الكل",
+    view: "عرض",
+    fullscreen: "الدخول إلى وضع ملء الشاشة",
+    window: "نافذة",
+    minimize: "تصغير",
+    zoom: "تكبير",
+    help: "مساعدة",
+};
 
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
@@ -373,6 +396,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("ru", &RU),
     ("pt", &PT),
     ("ko", &KO),
+    ("ar", &AR),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**

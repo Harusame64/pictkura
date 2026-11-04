@@ -46,6 +46,7 @@ import { it as itDict } from "../src/i18n/it.ts";
 import { ru } from "../src/i18n/ru.ts";
 import { pt } from "../src/i18n/pt.ts";
 import { ko, koEuro } from "../src/i18n/ko.ts";
+import { ar } from "../src/i18n/ar.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -71,6 +72,7 @@ const DICTS: Record<string, Any> = {
   ru: ru as Any,
   pt: pt as Any,
   ko: ko as Any,
+  ar: ar as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -250,6 +252,43 @@ test("件数が桁区切りを通ること", () => {
  * 到達しないものもある（`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に）。
  */
 const INFLECTS: Record<string, string[]> = {
+  // アラビア語は6形（`arabic()`）。ここは 1 と 2 の差だけ。3〜10・11〜99・100〜 は下の升が見る。
+  // 数えた物の一致を避けて「ラベル: N」と言う文（`المحدد: 3`）は 1 でも形が動かないので、ここに無い
+  ar: [
+    "bulkFavoriteDone:0",
+    "bulkPickDone:0",
+    "bulkUnfavoriteDone:0",
+    "bulkUnpickDone:0",
+    "burstTitle:0",
+    "burstTitle:2",
+    "burstTitleRawJpeg:0",
+    "burstTitleRawJpeg:2",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedSomeLeft:0",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSentLeftOut:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "moveDone:0",
+    "printSheetTitle:0",
+    "printSkipped:0",
+    "printTooMany:0",
+    "rejectGateConfirm:0",
+    "rejectGateTitle:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "stackRawChipTitle:0",
+  ],
   // 葡語（pt-BR）は 1 だけ単数。0 は複数（`0 fotos`）——CLDR の pt は 0 も one だが、ブラジルの画面の書き方に合わせた（pt.ts の冒頭）
   pt: [
     "bgThumbs:0",
@@ -734,6 +773,7 @@ const APPKIT_CANCEL: Record<string, string> = {
   ru: "Отменить",
   pt: "Cancelar",
   ko: "취소",
+  ar: "إلغاء",
 };
 
 test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
@@ -956,6 +996,33 @@ test("葡語は 0 を複数で言うこと", () => {
   assert.ok(checked >= 40, `only ${checked}`);
 });
 
+/**
+ * **アラビア語の6形は、下2桁で選ばれていること**（`arabic()` の規則が辞書の文まで届いているか）。
+ * 1 と 2 しか比べない上の升では、`few`（3〜10）と `many`（11〜99）と `other`（100〜）の取り違えを見られない。
+ * 単数形を持つ位置ごとに、**下2桁が同じ数は同じ形**（3 と 103、11 と 111、100 と 200）で、
+ * **few と many は違う形**（3 と 11）であることを見る
+ */
+test("アラビア語は、数の形を下2桁で選ぶこと（3〜10・11〜99・100〜）", () => {
+  let checked = 0;
+  for (const pair of INFLECTS.ar) {
+    const [key, at] = pair.split(":");
+    const pos = Number(at);
+    const make = (n: number) => {
+      const args = argsFor(key, 2, "X");
+      args[pos] = n;
+      return shape(call(DICTS.ar, key, args));
+    };
+    // 0 で節ごと消える文は、数の数が変わるので飛ばす
+    if (make(3).split("#").length !== make(11).split("#").length) continue;
+    checked++;
+    assert.equal(make(103), make(3), `ar.${key} の ${pos} 番目: 103 が 3〜10 の形でない`);
+    assert.equal(make(111), make(11), `ar.${key} の ${pos} 番目: 111 が 11〜99 の形でない`);
+    assert.equal(make(200), make(100), `ar.${key} の ${pos} 番目: 200 が 100 と違う形`);
+    assert.notEqual(make(3), make(11), `ar.${key} の ${pos} 番目: 3 と 11 が同じ形（複数と単数の対格を分けていない）`);
+  }
+  assert.ok(checked >= 20, `only ${checked}`);
+});
+
 test("単複の無い言語が場合分けしていないこと", () => {
   for (const lang of NO_PLURAL) {
     const unexpected = inflectionsOf(DICTS[lang]).filter(
@@ -977,6 +1044,17 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
+  ar: [
+    "actualSizeBadge", // `1:1`
+    "appName",
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "exifIso",
+    "keyCtrl",
+    "kindRaw",
+    "photosCount", // 数だけ
+    "rejectChip", // 記号と数だけ
+    "wizardCapped", // 数だけ
+  ],
   ko: [
     "appName",
     "burstChipShort", // `▤ 12`: 記号と数だけ
@@ -1288,6 +1366,8 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("pt-PT"), "pt");
   assert.equal(pick("pt-AO"), "pt");
   assert.equal(pick("ko-KR"), "ko");
+  assert.equal(pick("ar-OM"), "ar");
+  assert.equal(pick("ar-DZ"), "ar");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
