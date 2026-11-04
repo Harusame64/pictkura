@@ -4,12 +4,17 @@ import { arabic, oneFewMany } from "../src/i18n/plural.ts";
 
 const form = (n: number) => oneFewMany(n, "one", "few", "many");
 
+/** 手で書いた規則を、エンジンの答えと 0〜100000 の整数で突き合わせる */
+function assertMatchesCldr(locale: string, fn: (n: number) => string) {
+  const cldr = new Intl.PluralRules(locale);
+  for (let n = 0; n <= 100000; n++) {
+    if (fn(n) !== cldr.select(n)) assert.fail(`${locale} n=${n}: ${fn(n)} / CLDR ${cldr.select(n)}`);
+  }
+}
+
 test("1／2〜4／5〜 の3形は、CLDR の ru と全部の整数で一致すること", () => {
   // 手で書いた規則の正しさは、エンジンの答えと突き合わせて決める（0〜100000）
-  const ru = new Intl.PluralRules("ru");
-  for (let n = 0; n <= 100000; n++) {
-    if (form(n) !== ru.select(n)) assert.fail(`n=${n}: ${form(n)} / CLDR ${ru.select(n)}`);
-  }
+  assertMatchesCldr("ru", form);
 });
 
 test("1／2〜4／5〜 の3形は、11〜14 を 5〜 の形にすること（下2桁を見る）", () => {
@@ -25,10 +30,7 @@ const ar = (n: number) =>
   arabic(n, { zero: "zero", one: "one", two: "two", few: "few", many: "many", other: "other" });
 
 test("アラビア語の6形は、CLDR の ar と全部の整数で一致すること", () => {
-  const cldr = new Intl.PluralRules("ar");
-  for (let n = 0; n <= 100000; n++) {
-    if (ar(n) !== cldr.select(n)) assert.fail(`n=${n}: ${ar(n)} / CLDR ${cldr.select(n)}`);
-  }
+  assertMatchesCldr("ar", ar);
 });
 
 test("アラビア語の6形は、小数を other にすること（CLDR と同じ）", () => {
