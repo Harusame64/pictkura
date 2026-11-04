@@ -7459,11 +7459,13 @@ export default function App() {
           {/* 1タイルは代表のファイル自身の大きさ。重ね（組・連写）でファイルが2つ以上なら、全体を「合計」と添える
               ——代表の名前の隣に組ぜんぶの大きさだけを置くと、その1ファイルの大きさに読める（PR のゲート2） */}
           {singleInfo !== undefined && typeof singleInfo !== "string" && (
-            <>
-              {splitPath(singleInfo.path).name}
-              {singleInfo.taken_at_ms !== null && ` · ${formatDateTime(singleInfo.taken_at_ms)}`}
-              {` · ${formatSize(singleInfo.size, sizeBaseFor(platform), formatLocale)}`}
-            </>
+            // 右から左の画面では1つずつ閉じる——閉じないと、ラテン文字の名前の後ろで日時と大きさまで左から右の
+            // 1つの塊になり、右から読むと逆順になる（`selectionTotal` と同じ理由。#284 のゲート2）
+            isolateEach([
+              splitPath(singleInfo.path).name,
+              ...(singleInfo.taken_at_ms !== null ? [formatDateTime(singleInfo.taken_at_ms)] : []),
+              formatSize(singleInfo.size, sizeBaseFor(platform), formatLocale),
+            ]).join(" · ")
           )}
           {typeof selectionSize === "string" && <span className="file-info-error">{selectionSize}</span>}
           {selectionSize !== null &&

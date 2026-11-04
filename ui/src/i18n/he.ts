@@ -551,7 +551,7 @@ export const he: Dict = {
   },
   googleSendLeftOut: (n: number) =>
     `מתוך מה שבחרתם ${one(n, "מושמט פריט אחד", `מושמטים ${num(n)} פריטים`)} (ה-RAW של זוג RAW+JPEG, קבצים שבתוך OneDrive וכדומה).`,
-  googleSendFolders: (list: string) => `מקום ההנחה: ${list}`,
+  googleSendFolders: (list: string) => `מקומות ההנחה: ${list}`,
   googleSendNewFolder: (path: string) => `התיקייה ${iso(path)} תיווצר.`,
   googleSendGoogleNote:
     "אם אתם משתמשים ב-Google Photos: ההעלאה נעשית בדף האינטרנט של Google Photos‏ (photos.google.com), ולכן היא מתקדמת כל עוד הדף הזה פתוח בדפדפן.",

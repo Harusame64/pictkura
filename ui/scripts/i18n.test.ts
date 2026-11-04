@@ -1581,7 +1581,10 @@ test("右から左の辞書は、名前の一覧を丸ごと閉じないこと�
   // 丸ごと閉じると、閉じの向きが先頭の名前の字で決まり、右から読む人に2つ目の名前が先に来る（#284）。
   // しかも `isolate()` は値の中の向きの印を外すので、呼ぶ側が名前ごとに閉じた印まで消える
   const listed = "\u2068a\u2069, \u2068ב\u2069";
-  for (const d of [ar, he]) {
+  // 右から左の辞書は `dirOf` で選ぶ（次の右から左の辞書を足したら、自動でここに入る）
+  const rtlDicts = Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl");
+  assert.ok(rtlDicts.length >= 2, rtlDicts.map(([c]) => c).join());
+  for (const [, d] of rtlDicts) {
     for (const out of [
       d.rootsMissingNotice(listed, 2),
       d.emptyMissing(listed),
@@ -1599,7 +1602,7 @@ test("右から左の辞書は、名前の一覧を丸ごと閉じないこと�
 });
 
 test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込むこと", () => {
-  for (const d of [ar, he]) {
+  for (const [, d] of Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl")) {
     assert.ok(d.selectionTotal("1.22 MB").includes("\u20681.22 MB\u2069"), d.selectionTotal("1.22 MB"));
   }
 });
