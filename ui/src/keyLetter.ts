@@ -22,3 +22,30 @@ export function letterOf(e: { key: string; code?: string; altKey?: boolean }): s
   const m = /^Key([A-Z])$/.exec(e.code ?? "");
   return m ? m[1].toLowerCase() : key;
 }
+
+/**
+ * **数字のキー**（ビューアの 1 = 原寸・0 = 全体）。字を信じ、字が数字でないときだけ物理キーへ戻る:
+ * - 字が数字なら、その数（ラテン・アラビア・インド・ペルシアの数字。テンキーも NumLock が入っていれば字が数字）
+ * - 字が数字でなく、**修飾キーが1つも無い**ときだけ、数字の列の位置（`Digit1`）を見る——仏語の AZERTY は
+ *   1 の位置で `&` を送る。US の Shift+1（`!`）・Alt+1・Ctrl+1 は拾わない
+ * - テンキーの NumLock 切（`End` など）は字が数字でないので拾わない
+ * Ctrl / ⌘ が押されていれば、字が数字でも拾わない（別のショートカットの領分）
+ */
+export function digitOf(e: {
+  key: string;
+  code?: string;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+}): number | null {
+  if (e.ctrlKey || e.metaKey) return null;
+  const m = /^[0-9٠-٩۰-۹]$/u.exec(e.key);
+  if (m) {
+    const c = e.key.charCodeAt(0);
+    return c >= 0x06f0 ? c - 0x06f0 : c >= 0x0660 ? c - 0x0660 : c - 0x30;
+  }
+  if (e.altKey || e.shiftKey) return null;
+  const d = /^Digit([0-9])$/.exec(e.code ?? "");
+  return d ? Number(d[1]) : null;
+}

@@ -30,6 +30,22 @@ export function dirOf(locale: string): "rtl" | "ltr" {
 /** 横の向きの符号。左→右は 1、右→左は -1——CSS の `--inline-sign` と同じ。画面の座標を向きで裏返すときに掛ける */
 export const inlineSign = (): 1 | -1 => (isRtl() ? -1 : 1);
 
+/** 右→左の文字（ヘブライ文字・アラビア文字と、その表示形）を含むか */
+export const hasRtlText = (s: string): boolean =>
+  // 表示形は U+FEFC まで（U+FEFF は BOM・幅の無い空白なので数えない）
+  /[\u0590-\u08ff\ufb1d-\ufdcf\ufdf0-\ufdff\ufe70-\ufefc]/u.test(s);
+
+/**
+ * **数字を ASCII に揃える**（アラビア・インド数字 `٠-٩`、ペルシア数字 `۰-۹`）。アラビア語の配列は
+ * 数字の列からこれを送るので、検索の日付（`٢٠١٩-٠٨`）がファイル名の検索に落ちないように、
+ * 渡す前に揃える。検索語には下の `asciiDateTokens()` を使う
+ */
+export const asciiDigits = (s: string): string =>
+  s.replace(/[\u0660-\u0669\u06f0-\u06f9]/gu, (d) => {
+    const c = d.charCodeAt(0);
+    return String(c >= 0x06f0 ? c - 0x06f0 : c - 0x0660);
+  });
+
 /** いまの画面が右→左か */
 export const isRtl = (): boolean =>
   typeof document !== "undefined" && document.documentElement.dir === "rtl";
@@ -40,3 +56,15 @@ export const isRtl = (): boolean =>
  */
 export const stepOfArrow = (key: "ArrowLeft" | "ArrowRight", rtl: boolean): -1 | 1 =>
   (key === "ArrowRight") !== rtl ? 1 : -1;
+
+/**
+ * 検索語のうち、**日付として読まれる語**の数字だけを揃える——素の数と区切りだけの語（`٢٠١٩`・`٢٠١٩-٠٨`）と、
+ * 年の指定（`year:٢٠١٩`・`年:٢٠١٩`）。素の数だけの語は ASCII の利用者と同じく日付として読まれる
+ * （`trip 2019` と同じ結果）。**それ以外は打ったまま**——名前に混ざった数字（`رحلة٢٠١٩`・`DSC٠٠٠٨٩`）、
+ * 名前を指す欄（`folder:٢٠١٩`・`camera:…`。`search.rs` は字のまま探す）、引用符の中（`"trip ٢٠١٩"`）
+ */
+export const asciiDateTokens = (q: string): string =>
+  // 引用符で括った値（`"…"`・`folder:"…"`）は空白を含んでも1語として扱う
+  (q.match(/[^\s"]*"[^"]*"?|\S+|\s+/gu) ?? [])
+    .map((tok) => (/^((year|年):)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
+    .join("");

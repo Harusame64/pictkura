@@ -155,11 +155,12 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
+import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
-import { inlineSign, isRtl, stepOfArrow } from "./direction";
-import { letterOf } from "./keyLetter";
+import { asciiDateTokens, hasRtlText, inlineSign, isRtl, stepOfArrow } from "./direction";
+import { digitOf, letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
 import {
@@ -1845,8 +1846,9 @@ export default function App() {
   // 打鍵のたびにIPCを撃たないが、体感で待たされない間隔にする
   useEffect(() => {
     const trimmed = queryInput.trim();
-    if (trimmed === query) return;
-    const t = window.setTimeout(() => setQuery(trimmed), 160);
+    if (asciiDateTokens(trimmed) === query) return;
+    // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
+    const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
     return () => window.clearTimeout(t);
   }, [queryInput, query]);
 
@@ -5705,9 +5707,10 @@ export default function App() {
       } else if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
-      } else if (e.key === "1") {
+      // 数字は `digitOf()`（keyLetter.ts）——アラビア・インド数字と、仏語の AZERTY の `&`（1 の位置）も拾う
+      } else if (digitOf(e) === 1) {
         toggleActualSize();
-      } else if (e.key === "0") {
+      } else if (digitOf(e) === 0) {
         setZoom(1);
         setPinnedActualId(null);
         setPan({ x: 0, y: 0 });
@@ -5860,7 +5863,8 @@ export default function App() {
         el?.tagName === "TEXTAREA" ||
         el?.isContentEditable === true;
       if (typing) return;
-      if (e.key === "?" || e.key === "F1") {
+      // アラビア語の配列の Shift+/ は `؟`（アラビア語の疑問符）を送る
+      if (e.key === "?" || e.key === "؟" || e.key === "F1") {
         e.preventDefault();
         // パレットと同じ——**手前に幕が在るときは開かない。閉じるのは通す**。
         // 一覧は `z-index: 400` で**関所より手前に出る**ので見えはするが、
@@ -8076,7 +8080,8 @@ export default function App() {
                         virtualizer.scrollToIndex(m.rowIndex, { align: "start" })
                       }
                     >
-                      {m.label ? m.year : ""}
+                      {/* 年は地域の数字で（ar-SA ならアラビア・インド数字。`year()`） */}
+                      {m.label ? year(m.year) : ""}
                     </button>
                   ))}
                 </div>
@@ -8944,7 +8949,9 @@ export default function App() {
                     value ? (
                       <div className="exif-row" key={label}>
                         <span className="exif-key">{label}</span>
-                        <span className="exif-value">{value}</span>
+                        {/* 値は数と単位か名前。中の文字列が自分の向きを決める（`.name`）——段落ごとに
+                            決めると揃えが左右にばらつく */}
+                        <span className="exif-value"><span className="name">{value}</span></span>
                       </div>
                     ) : null,
                   )}
@@ -8957,7 +8964,8 @@ export default function App() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        📍 {exif.gps[0].toFixed(4)}, {exif.gps[1].toFixed(4)}
+                        {/* 緯度と経度は左→右の組（右→左の画面で順が入れ替わらない） */}
+                        📍 <span className="path">{exif.gps[0].toFixed(4)}, {exif.gps[1].toFixed(4)}</span>
                       </a>
                     </div>
                   )}
@@ -9392,7 +9400,9 @@ export default function App() {
                           {key.split(" / ").map((k, i) => (
                             <span key={k}>
                               {i > 0 && <span className="shortcut-or"> / </span>}
-                              <kbd>{k}</kbd>
+                              {/* 札は左→右（`⌘K`・`Ctrl+,`）。訳した語が混ざる札（`Shift + نقر`）だけ、
+                                  右→左の言語の文字があればそちらの向きで読む（App.css の kbd） */}
+                              <kbd dir={hasRtlText(k) ? "rtl" : undefined}>{k}</kbd>
                             </span>
                           ))}
                         </dt>

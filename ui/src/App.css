@@ -20,17 +20,26 @@ body,
    段落の中のパスは `<span class="path">` で囲う（段落ごと左→右にすると、揃えまで左に寄る） */
 code,
 .path,
-.pattern-custom-input {
+.pattern-custom-input,
+kbd {
   direction: ltr;
   unicode-bidi: isolate;
 }
+/* 訳した語が混ざるキーの札（`Shift + نقر`）は右→左で読む。CSS の direction は dir 属性より強いので、
+   属性を見て戻す */
+kbd[dir="rtl"] {
+  direction: rtl;
+}
 /* **名前（ファイル・フォルダ）は書き手の文字で向きを決める**——`20261104_123045.jpg` や `100CANON` は
    左→右、アラビア文字の名前は右→左。ページの向きのままだと、先頭の数字の並びが `_` `.` の向こうへ回る。
-   フォルダを足す欄も同じ（空のあいだは訳した案内がページの向きで出て、打ち始めると打った文字の向きになる）。
+   フォルダを足す欄・検索欄・パレットも同じ（空のあいだは訳した案内がページの向きで出て、打ち始めると
+   打った文字の向きになる。`IMG_1234` が `1234_IMG` に並ばない）。
    **名前はインラインの span で囲う**——ブロックにかけると段落ごと向きが変わり、揃えまで反対の端へ寄る
    （ウィザードの木で、ラテン文字の名前がアイコンから 130px 離れた。win の実測） */
 .name,
-.add-folder input {
+.add-folder input,
+.search-box input,
+.palette-input {
   unicode-bidi: plaintext;
 }
 /* `<code>` に訳した文を入れるとき（「フォルダを作らない」の説明・未設定）は、ページの向きに戻す */

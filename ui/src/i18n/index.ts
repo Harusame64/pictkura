@@ -59,7 +59,8 @@ import { it } from "./it.ts";
 import { ru } from "./ru.ts";
 import { pt } from "./pt.ts";
 import { ko } from "./ko.ts";
-import { num, setNumberLocale } from "./plural.ts";
+import { ar } from "./ar.ts";
+import { clockPart, num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
 
@@ -79,6 +80,7 @@ const DICTS: Record<string, Dict> = {
   ru,
   pt,
   ko,
+  ar,
 };
 
 /**
@@ -102,6 +104,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "zh", label: "简体中文" },
   { code: "zh-hant", label: "繁體中文" },
   { code: "ko", label: "한국어" },
+  { code: "ar", label: "العربية" },
 ];
 
 /** 言語の指定を置く場所（テーマと同じくlocalStorage） */
@@ -438,8 +441,9 @@ export const formatDuration = (ms: number) => {
   const s = total % 60;
   const m = Math.floor(total / 60) % 60;
   const h = Math.floor(total / 3600);
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
-  return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+  // 数字は書式ロケールの数字で（ar-SA ならアラビア・インド数字。寸法や件数と揃える。`plural.ts`）
+  const mm = clockPart(m, h > 0);
+  return `${h > 0 ? `${clockPart(h, false)}:` : ""}${mm}:${clockPart(s, true)}`;
 };
 
 /**

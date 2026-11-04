@@ -5,6 +5,8 @@
  * - `one()`: 1 とそれ以外（英・独・西・葡など）
  * - `oneFewMany()`: 1／2〜4／5〜（露語）
  * - `arabic()`: 0／1／2／3〜10／11〜99／その他（アラビア語）
+ * - `year()`: 年（桁区切り無し、数字の書き方は地域に従う）
+ * - `clockPart()`: 時計表記の時・分・秒（2桁に揃えるかを選ぶ）
  *
  * ## なぜ辞書の中で整形するのか
  *
@@ -39,16 +41,34 @@
  * 辞書だけを単体で読んだとき（`ui/scripts/i18n.test.ts`）。
  */
 let format: Intl.NumberFormat | null = null;
+/** 年（桁区切りを付けない。数字の書き方だけ書式ロケールに従う） */
+let yearFormat: Intl.NumberFormat | null = null;
+/** 時計表記の2桁（`05`） */
+let pad2Format: Intl.NumberFormat | null = null;
 
 /** 桁区切りに使うロケールを渡す。`index.ts` が `formatLocale` を決めた直後に1度だけ呼ぶ */
 export function setNumberLocale(tag: string): void {
   try {
     format = new Intl.NumberFormat(tag);
+    yearFormat = new Intl.NumberFormat(tag, { useGrouping: false });
+    pad2Format = new Intl.NumberFormat(tag, { useGrouping: false, minimumIntegerDigits: 2 });
   } catch {
     // 綴りを受け付けないロケール。桁区切り無しで出す（画面は落とさない）
     format = null;
+    yearFormat = null;
+    pad2Format = null;
   }
 }
+
+/**
+ * **年**。`num()` を通すと `2,026` になるので年は `String(year)` で書いてきたが、それだと
+ * アラビア・インド数字の地域（ar-EG・ar-SA）で年だけラテン数字に残る（ゲート2）。桁区切りを付けずに
+ * 数字の書き方だけ揃える。年が数字の文字列で来るときも受ける
+ */
+export const year = (y: number | string): string => {
+  const n = typeof y === "string" ? Number(y) : y;
+  return yearFormat && Number.isFinite(n) ? yearFormat.format(n) : String(y);
+};
 
 /**
  * 件数などの数値。**辞書の中の `${n}` は、原則これを通す。**
@@ -120,4 +140,10 @@ export const arabic = (n: number, forms: ArabicForms): string => {
   if (h >= 3 && h <= 10) return forms.few;
   if (h >= 11 && h <= 99) return forms.many;
   return forms.other;
+};
+
+/** 時計表記の一部（`1:02:03` の時・分・秒）。数字の書き方は地域に従う（ar-SA なら `١:٠٢`） */
+export const clockPart = (n: number, pad: boolean): string => {
+  const f = pad ? pad2Format : yearFormat;
+  return f ? f.format(n) : pad ? String(n).padStart(2, "0") : String(n);
 };

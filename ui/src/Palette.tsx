@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
 import { actionMatch, orderSearchAndActions } from "./paletteOrder";
+import { asciiDigits } from "./direction";
 
 /** パレットの1候補。実行するとパレットは閉じる */
 export type PaletteItem = {
@@ -66,15 +67,18 @@ export default function Palette({
 
   const items = useMemo<PaletteItem[]>(() => {
     const q = input.trim();
+    // アラビア語の配列の数字（`٢٠١٩`）も日付として読む（direction.ts）。打った字はそのまま残す——
+    // 見出し（地域の数字）との照合と、検索に渡す語には元の字を使う
+    const dateQ = asciiDigits(q);
     const lower = q.toLowerCase();
     const out: PaletteItem[] = [];
 
     // 1. 日付ジャンプ: 「2019」「2019年8」「8月11」等の部分一致
     if (q) {
       // 数字と年月日だけを含む入力を日付候補として扱う（"沖縄"では日付を出さない）
-      const dateish = /^[0-9年月日/\-. ]+$/.test(q);
+      const dateish = /^[0-9年月日/\-. ]+$/.test(dateQ);
       if (dateish) {
-        const digits = q.replace(/[^0-9]/g, "");
+        const digits = dateQ.replace(/[^0-9]/g, "");
         for (const day of summary) {
           if (out.length >= MAX_PER_GROUP) break;
           const key = String(day.day_key);
