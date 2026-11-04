@@ -1617,8 +1617,20 @@ test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込�
  */
 test("MSIX のマニフェストが、辞書の言語をすべて宣言していること", () => {
   const manifest = readFileSync(new URL("../../src-tauri/windows/msix/AppxManifest.xml", import.meta.url), "utf8");
-  // コメントの中の要素は宣言ではない（言語を一時的にコメントで外しても、ここが数えないように）
-  const live = manifest.replace(/<!--[\s\S]*?-->/g, "");
+  // コメントの中の要素は宣言ではない（言語を一時的にコメントで外しても、ここが数えないように）。
+  // 正規表現の置換では CodeQL が「取り除きが不完全」と止める（#285）ので、区切りを探して読み飛ばす
+  let live = "";
+  for (let at = 0; ; ) {
+    const open = manifest.indexOf("<!--", at);
+    if (open < 0) {
+      live += manifest.slice(at);
+      break;
+    }
+    live += manifest.slice(at, open);
+    const close = manifest.indexOf("-->", open + 4);
+    if (close < 0) break; // 閉じないコメントは、そこから先を宣言と数えない
+    at = close + 3;
+  }
   const declared = [...live.matchAll(/<Resource Language="([^"]+)"/g)].map((m) => m[1].toLowerCase());
   // 辞書のコード → Store の綴り（地域を付ける辞書だけ書く。ほかは同じ綴り）
   const storeTags: Record<string, string[]> = {
