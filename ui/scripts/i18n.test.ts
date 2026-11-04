@@ -35,6 +35,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { ja } from "../src/i18n/ja.ts";
+import type { Dict } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
 import { de } from "../src/i18n/de.ts";
 import { es } from "../src/i18n/es.ts";
@@ -1584,7 +1585,8 @@ test("右から左の辞書は、名前の一覧を丸ごと閉じないこと�
   // 右から左の辞書は `dirOf` で選ぶ（次の右から左の辞書を足したら、自動でここに入る）
   const rtlDicts = Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl");
   assert.ok(rtlDicts.length >= 2, rtlDicts.map(([c]) => c).join());
-  for (const [, d] of rtlDicts) {
+  for (const [, dict] of rtlDicts) {
+    const d = dict as unknown as Dict;
     for (const out of [
       d.rootsMissingNotice(listed, 2),
       d.emptyMissing(listed),
@@ -1602,7 +1604,8 @@ test("右から左の辞書は、名前の一覧を丸ごと閉じないこと�
 });
 
 test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込むこと", () => {
-  for (const [, d] of Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl")) {
+  for (const [, dict] of Object.entries(DICTS).filter(([code]) => dirOf(code) === "rtl")) {
+    const d = dict as unknown as Dict;
     assert.ok(d.selectionTotal("1.22 MB").includes("\u20681.22 MB\u2069"), d.selectionTotal("1.22 MB"));
   }
 });
