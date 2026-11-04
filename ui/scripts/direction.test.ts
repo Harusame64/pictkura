@@ -58,6 +58,8 @@ test("閉じの印を、中の最初の字の向きの埋め込みに置き換�
   );
   // 右から左の字で始まる名前。数字は字ではないので飛ばす
   assert.equal(isolatesToEmbeddings("\u20682024 صور\u2069"), "\u202b2024 صور\u202c");
+  // 補助面の右から左の字（Adlam）も右から左
+  assert.equal(isolatesToEmbeddings("\u2068\u{1E900}x\u2069"), "\u202b\u{1E900}x\u202c");
   // 字が無ければ左から右
   assert.equal(isolatesToEmbeddings("\u2068123\u2069"), "\u202a123\u202c");
   // 入れ子の中の字は外の向きを決めない

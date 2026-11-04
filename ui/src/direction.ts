@@ -69,6 +69,10 @@ export const asciiDateTokens = (q: string): string =>
     .map((tok) => (/^((year|年):)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
     .join("");
 
+/** 右から左へ書く字（`RTL_SCRIPTS` と同じ字種。補助面の Adlam・Hanifi Rohingya も入る） */
+const RTL_LETTER =
+  /[\p{sc=Arab}\p{sc=Hebr}\p{sc=Thaa}\p{sc=Syrc}\p{sc=Nkoo}\p{sc=Adlm}\p{sc=Rohg}\p{sc=Mand}\p{sc=Samr}]/u;
+
 /**
  * **向きの閉じ（FSI/LRI/RLI … PDI）を、古い埋め込み（LRE/RLE … PDF）に置き換える**。
  * Windows の TaskDialog は閉じの印を解さず、点線の箱で描いたうえ、アラビア語で終わる名前を
@@ -90,7 +94,7 @@ export function isolatesToEmbeddings(s: string): string {
           if (depth === 0) break;
           depth--;
         } else if (depth === 0 && /\p{L}/u.test(d)) {
-          return hasRtlText(d) ? "\u202b" : "\u202a";
+          return RTL_LETTER.test(d) ? "\u202b" : "\u202a";
         }
       }
       return "\u202a";
