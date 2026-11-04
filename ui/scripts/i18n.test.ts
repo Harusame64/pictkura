@@ -282,7 +282,6 @@ const INFLECTS: Record<string, string[]> = {
     "googleSentLeftOut:0",
     "importDone:0",
     "importDone:1",
-    "importGoogle:0",
     "importGoogleFailed:0",
     "itemsCount:0",
     "memoriesTitle:0",

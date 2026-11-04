@@ -28,7 +28,9 @@
  * - **ゴミ箱は一般名詞の `lixeira`**（英語の `trash` と同じく小文字の普通名詞）。
  *   Windows の `Lixeira`、macOS の `Lixo` のどちらで読んでも通じる語にする
  * - **アプリの設定は `Configurações`**（ブラジルのソフトウェアで最も普通の語。
- *   Windows の設定アプリも `Configurações`）
+ *   Windows の設定アプリも `Configurações`）。macOS のメニューの項目だけは Apple の語の `Ajustes…`
+ *   （menu.rs は OS の訳を引く）で、開く画面の題と語が分かれる。仏語の `Réglages…` / `Paramètres` と同じ割れで、
+ *   Windows の利用者に合わせる側を取った
  * - **金額は通貨で言わない**（`paga e barata`）。独西仏はユーロに直したが、この辞書はブラジル・
  *   ポルトガル・アンゴラ…で出るので、`alguns reais` と書くとブラジル以外で値段の言い方が外れる（ゲート2）
  * - **呼びかけは você**（ブラジルのソフトウェアUIの標準）。釦は不定詞
@@ -122,7 +124,7 @@ export const pt: Dict = {
   navAddFolder: "Adicionar pasta",
   add: "Adicionar",
   browse: "Procurar…",
-  addFolderPlaceholder: folderExample("ex.: ", "usuario"),
+  addFolderPlaceholder: folderExample("ex.: ", "usuário"),
   pickLibraryFolder: "Escolha uma pasta para adicionar à biblioteca",
   showMore: (n: number) => `mais ${num(n)}`,
   collapse: "Menos",
@@ -356,7 +358,7 @@ export const pt: Dict = {
   wizardHideImported: "Ocultar as já importadas",
   wizardAllImported: "Nada de novo aqui (tudo nesta pasta já foi importado)",
   wizardHiddenCount: (n: number) =>
-    `${num(n)} já ${one(n, "importada oculta", "importadas ocultas")}`,
+    `${num(n)} ${one(n, "oculta", "ocultas")} (já ${one(n, "importada", "importadas")})`,
   wizardEtaSeconds: (n: number) => `cerca de ${num(n)} s ${one(n, "restante", "restantes")}`,
   wizardEtaMinutes: (n: number) => `cerca de ${num(n)} min ${one(n, "restante", "restantes")}`,
   wizardEtaCalculating: "calculando o tempo restante…",
@@ -514,7 +516,8 @@ export const pt: Dict = {
   settingsGoogleOneDriveNote: "Se fizer isso, o OneDrive não poderá mais deixar essas fotos só on-line.",
   settingsGoogleAfterNote: "Quando você move uma foto para a lixeira no pictkura, ela também sai da pasta de Saída. Se você usa o Google Fotos: ela continua no Google Fotos. O envio é feito pela página web do Google Fotos (photos.google.com), então só avança enquanto essa página estiver aberta no navegador.",
   pickGoogleFolder: "Escolha a pasta de Saída",
-  importGoogle: (n: number) => ` · ${num(n)} ${one(n, "colocado", "colocados")} na Saída`,
+  // 取り込みの結果（女性の copiadas）の後ろに付くので、性を持たない言い方にする（ゲート2の往復）
+  importGoogle: (n: number) => ` · ${num(n)} na Saída`,
   importGoogleFailed: (n: number) =>
     `${num(n)} não ${one(n, "pôde ser colocado", "puderam ser colocados")} na Saída (veja o registro)`,
   importGoogleError: (why: string) => `Nada foi colocado na Saída: ${why}`,
@@ -530,8 +533,8 @@ export const pt: Dict = {
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0)
       items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG extraído", "JPEGs extraídos")} de fotos só em RAW`);
-    // 主語は後ろの品目の合計。1つなら単数（Será colocado）、2つ以上なら複数（Serão colocados）
-    return `${one(photos + videos + rawOnly, "Será colocado", "Serão colocados")} na pasta de Saída: ${items.join("; ")}.`;
+    // 品目は写真（女性）と動画（男性）が混ざるので、性も数も持たない言い方にする（ゲート2の往復）
+    return `Para a pasta de Saída: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} dos itens escolhidos ${one(n, "fica", "ficam")} de fora (o RAW de um par RAW+JPEG, arquivos dentro do OneDrive e afins).`,

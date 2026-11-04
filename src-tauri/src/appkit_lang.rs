@@ -161,6 +161,16 @@ mod tests {
         }
     }
 
+    /// **綴りが辞書のコードと違う言語は、値で固定する**（`menu.rs` の升は `appkit_id` を呼ぶので、
+    /// ここを書き換えても向こうは落ちない）。葡語は pt-BR——設定で葡語を選んだ人の枠をブラジルの訳にする
+    #[test]
+    fn the_ids_that_differ_from_the_dictionary_code_are_pinned() {
+        assert_eq!(appkit_id("zh"), Some("zh-Hans"));
+        assert_eq!(appkit_id("zh-hant"), Some("zh-Hant"));
+        assert_eq!(appkit_id("pt"), Some("pt-BR"));
+        assert_eq!(appkit_id("ja"), Some("ja"));
+    }
+
     /// 知らない言語は置かないし、返さない（OS に合わせる側へ倒す）
     #[test]
     fn an_unknown_language_is_left_alone() {

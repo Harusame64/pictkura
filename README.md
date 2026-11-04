@@ -427,7 +427,7 @@ to the calendar, clears it, so a bulk action never reaches photos you cannot see
 
 ### 7. Language
 
-The interface is available in **English, German, French, Italian, Russian, Portuguese (Brazil), Spanish (Spain), Spanish (Latin America),
+The interface is available in **English, German, French, Italian, Russian, Portuguese (Brazil, also shown in Portugal), Spanish (Spain), Spanish (Latin America),
 Chinese (Simplified), Chinese (Traditional), and Japanese**.
 
 pictkura follows your OS language and falls back to English. ⚙ (Settings) → **Language**
