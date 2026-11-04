@@ -1617,7 +1617,9 @@ test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込�
  */
 test("MSIX のマニフェストが、辞書の言語をすべて宣言していること", () => {
   const manifest = readFileSync(new URL("../../src-tauri/windows/msix/AppxManifest.xml", import.meta.url), "utf8");
-  const declared = [...manifest.matchAll(/<Resource Language="([^"]+)"/g)].map((m) => m[1].toLowerCase());
+  // コメントの中の要素は宣言ではない（言語を一時的にコメントで外しても、ここが数えないように）
+  const live = manifest.replace(/<!--[\s\S]*?-->/g, "");
+  const declared = [...live.matchAll(/<Resource Language="([^"]+)"/g)].map((m) => m[1].toLowerCase());
   // 辞書のコード → Store の綴り（地域を付ける辞書だけ書く。ほかは同じ綴り）
   const storeTags: Record<string, string[]> = {
     ja: ["ja-jp"],

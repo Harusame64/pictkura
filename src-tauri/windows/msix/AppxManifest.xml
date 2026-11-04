@@ -35,7 +35,8 @@
        **画面の辞書（ui/src/i18n/index.ts の DICTS）と揃える**——ui/scripts/i18n.test.ts が突き合わせる。
        ja-JP・en-US は 1.0.0 からの掲載がこの綴りに結びついているので残す。地域で割らない辞書は地域を付けない。
        葡語はブラジルの辞書1つでポルトガルも覆う（pt-PT の掲載にもブラジルの文を出す）。
-       綴りは Store の一覧にあるもの（learn.microsoft.com の App package requirements → Supported languages） -->
+       綴りは Store の一覧にあるもの（learn.microsoft.com の App package requirements → Supported languages）。
+       **掲載ページは日英だけ**（2026-11-04 利用者）。提出のときに Partner Center でほかの言語の掲載を Remove する -->
   <Resources>
     <Resource Language="ja-JP" />
     <Resource Language="en-US" />

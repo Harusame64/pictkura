@@ -23,6 +23,10 @@
  *   対応は `src-tauri/src/appkit_lang.rs` の `appkit_id` の1か所。**辞書1つで国を2つ覆う言語は、
  *   もう1つの国の ID も枠のために載せる**（`pt-PT`。載せないと `pt-PT, en` の Mac で AppKit が
  *   国をまたがずに英語を選ぶ。同じファイルの `ALIASES`）。
+ * - **Windows の Store 版は `src-tauri/windows/msix/AppxManifest.xml` の `<Resources>` にも足す**。
+ *   Store が「対応言語」に出すのはここに書いた言語だけ（1.0.1 まで日英の2つだけだった）。綴りは Store の
+ *   一覧にあるもの。`ui/scripts/i18n.test.ts` が DICTS と突き合わせる。**掲載ページは日英だけ**
+ *   （2026-11-04 利用者）——提出のときに Partner Center で、ほかの言語の掲載を Remove する
  * - **Rust側にも表が3つある**（画面が立つ前・画面の外で語を出す場所）。
  *   `src-tauri/src/os_dict.rs` の `DICT_CODES`（言語選択の保存と AppKit の上書きもこれを引く）、
  *   `menu.rs` のメニューバーの語（`tools/menu-strings.py` で Apple の訳から引く。手で訳さない）、
