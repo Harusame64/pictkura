@@ -45,6 +45,7 @@ import { fr } from "../src/i18n/fr.ts";
 import { it as itDict } from "../src/i18n/it.ts";
 import { ru } from "../src/i18n/ru.ts";
 import { pt } from "../src/i18n/pt.ts";
+import { ko, koEuro, koJosa } from "../src/i18n/ko.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -69,6 +70,7 @@ const DICTS: Record<string, Any> = {
   it: itDict as Any,
   ru: ru as Any,
   pt: pt as Any,
+  ko: ko as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -662,7 +664,7 @@ const INFLECTS: Record<string, string[]> = {
  *
  * `INFLECTS` と合わせて `DICTS` を覆い切る。**覆えていなければ下のテストが落ちる。**
  */
-const NO_PLURAL = ["ja", "zh", "zh-hant"];
+const NO_PLURAL = ["ja", "zh", "zh-hant", "ko"];
 
 /**
  * **2〜4 と 5〜 で形が変わる位置**（露語の few と many）。`INFLECTS` は 1 と 2 しか比べないので、
@@ -731,6 +733,7 @@ const APPKIT_CANCEL: Record<string, string> = {
   it: "Annulla",
   ru: "Отменить",
   pt: "Cancelar",
+  ko: "취소",
 };
 
 test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
@@ -974,6 +977,16 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
+  ko: [
+    "appName",
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "exifIso",
+    "keyCtrl",
+    "kindRaw",
+    "listLastSeparator", // `, `——韓国語も読点で並べる
+    "listSeparator",
+    "rejectChip", // 記号と数だけ
+  ],
   pt: [
     "actualSizeBadge", // `1:1`
     "appName",
@@ -1275,6 +1288,7 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("pt-BR"), "pt");
   assert.equal(pick("pt-PT"), "pt");
   assert.equal(pick("pt-AO"), "pt");
+  assert.equal(pick("ko-KR"), "ko");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1395,4 +1409,25 @@ test("the prev/next arrows point the way the keys step", () => {
     assert.ok(next.includes(rtl ? "←" : "→"), `${code}: viewerNext = ${next}`);
     assert.ok(prev.includes(rtl ? "→" : "←"), `${code}: viewerPrev = ${prev}`);
   }
+});
+
+test("韓国語の助詞は、前の語の終わり（パッチム・数字の読み）で形を選ぶこと", () => {
+  // 을/를: パッチムの有無。ハングルは字から、数字は読みから（0 영・1 일・3 삼・6 육・7 칠・8 팔 はあり）
+  assert.equal(koJosa("사진", "을", "를"), "사진을");
+  assert.equal(koJosa("파일", "을", "를"), "파일을");
+  assert.equal(koJosa("포토샵", "을", "를"), "포토샵을");
+  assert.equal(koJosa("폴더", "을", "를"), "폴더를");
+  assert.equal(koJosa("GIMP 3", "을", "를"), "GIMP 3을");
+  assert.equal(koJosa("GIMP 2", "을", "를"), "GIMP 2를");
+  assert.equal(koJosa("“C:\\Temp\\사진”", "은", "는"), "“C:\\Temp\\사진”은", "閉じの引用符は飛ばして読む");
+  // 読めない語（ラテン文字）は両方書く
+  assert.equal(koJosa("Canon", "을", "를"), "Canon을(를)");
+  // 으로/로: パッチムが無いか ㄹ なら 로（数字の 1・7・8 は ㄹ）
+  assert.equal(koEuro("사진"), "사진으로");
+  assert.equal(koEuro("파일"), "파일로");
+  assert.equal(koEuro("포토샵"), "포토샵으로");
+  assert.equal(koEuro("Canon EOS R5"), "Canon EOS R5로");
+  assert.equal(koEuro("GIMP 3"), "GIMP 3으로");
+  assert.equal(koEuro("GIMP 7"), "GIMP 7로");
+  assert.equal(koEuro("Canon"), "Canon(으)로");
 });

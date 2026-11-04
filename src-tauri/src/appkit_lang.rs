@@ -174,8 +174,8 @@ mod tests {
     /// 知らない言語は置かないし、返さない（OS に合わせる側へ倒す）
     #[test]
     fn an_unknown_language_is_left_alone() {
-        assert_eq!(appkit_id("ko"), None);
-        assert_eq!(dict_code("ko"), None);
+        assert_eq!(appkit_id("th"), None);
+        assert_eq!(dict_code("th"), None);
         assert_eq!(dict_code("zh-HANS"), Some("zh"), "大文字小文字は問わない");
     }
 }

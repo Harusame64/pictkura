@@ -335,6 +335,29 @@ static PT: MenuText = MenuText {
     zoom: "Zoom",
     help: "Ajuda",
 };
+static KO: MenuText = MenuText {
+    about: "%@에 관하여",
+    settings: "설정…",
+    services: "서비스",
+    hide: "%@ 가리기",
+    hide_others: "기타 가리기",
+    quit: "%@ 종료",
+    file: "파일",
+    close_window: "윈도우 닫기",
+    edit: "편집",
+    undo: "실행 취소",
+    redo: "실행 복귀",
+    cut: "오려두기",
+    copy: "복사",
+    paste: "붙여넣기",
+    select_all: "전체 선택",
+    view: "보기",
+    fullscreen: "전체 화면 시작",
+    window: "윈도우",
+    minimize: "최소화",
+    zoom: "확대/축소",
+    help: "도움말",
+};
 
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
@@ -349,6 +372,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("it", &IT),
     ("ru", &RU),
     ("pt", &PT),
+    ("ko", &KO),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**
@@ -573,7 +597,7 @@ mod tests {
     /// 知らないコードは英語へ倒す（画面から来ることは無いが、倒す先を決めておく）
     #[test]
     fn an_unknown_code_falls_back_to_english() {
-        assert_eq!(text_for("ko").file, "File");
+        assert_eq!(text_for("th").file, "File");
         assert_eq!(text_for("ja").file, "ファイル");
     }
 }
