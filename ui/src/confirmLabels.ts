@@ -1,3 +1,5 @@
+import type { HostPlatform } from "./api";
+
 /**
  * 確認ダイアログのキャンセルの語を決める（純関数。`scripts/confirmLabels.test.ts` が表で見る）。
  *
@@ -19,4 +21,18 @@ export function cancelLabelFor(
   osCancel: string | undefined,
 ): string | undefined {
   return platform === "macos" ? osCancel : appCancel;
+}
+
+/**
+ * **確認画面をどこで出すか**（純関数。`scripts/confirmLabels.test.ts`）。
+ *
+ * **Windows で右から左の言語のときだけ自前の箱**（`confirm_right_to_left`、`src-tauri/src/confirm_dialog.rs`）
+ * ——プラグインの箱は Windows で `TDF_RTL_LAYOUT` を渡せず、アラビア語の文が左寄せで組まれる。
+ * 左から右の言語は、これまでどおりプラグイン（見た目を変えない）。
+ */
+export function confirmRoute(
+  platform: HostPlatform,
+  rtl: boolean,
+): "plugin" | "windowsRtl" {
+  return platform === "windows" && rtl ? "windowsRtl" : "plugin";
 }

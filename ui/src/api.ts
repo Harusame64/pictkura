@@ -407,6 +407,15 @@ export interface DecoderStatus {
 export type HostPlatform = "windows" | "macos" | "other";
 export const getHostPlatform = () => invoke<HostPlatform>("host_platform");
 
+/** 右から左へ書く言語の確認画面（Windows だけ。`confirm.ts` からだけ呼ぶ）。OK なら `true` */
+export const confirmRightToLeft = (args: {
+  title: string;
+  message: string;
+  okLabel: string;
+  cancelLabel: string;
+  warning: boolean;
+}) => invoke<boolean>("confirm_right_to_left", args);
+
 export const getDecoderStatus = () =>
   invoke<DecoderStatus>("decoder_status");
 /**

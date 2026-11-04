@@ -46,6 +46,7 @@
  * 「`تم` ＋動作名詞＋数えた物」（`تم نقل 3 صور`＝3枚の移動がなされた）か、動詞を前に置く形
  * （動詞が前なら数に関わらず単数で、性だけ合わせればよい）で書き、形の組み合わせを減らす。
  */
+import { isolate } from "../direction.ts";
 import { folderExample } from "./folderExample.ts";
 import { arabic, num, year } from "./plural.ts";
 import type { Dict } from "./ja.ts";
@@ -67,12 +68,8 @@ const counted =
       other: `${num(n)} ${other}`,
     });
 
-/**
- * **パス・名前・検索語・失敗の理由は、向きを閉じて差し込む**（FSI … PDI）。右→左の文に `/Volumes/SD/DCIM` を
- * そのまま入れると、先頭の `/` が文の向きに取られて `Volumes/SD/DCIM/` に見える。画面の側の
- * `.path` / `.name` は要素で包める所だけで、`title` やお知らせの文の中は届かない（ゲート2）
- */
-const iso = (s: string): string => `\u2068${s}\u2069`;
+/** パス・名前・検索語・失敗の理由は、向きを閉じて差し込む（`direction.ts` の `isolate`） */
+const iso = isolate;
 
 /** 写真（女性） */
 const photos = counted("صورة واحدة", "صورتان", "صورتين", "صور", "صورة");

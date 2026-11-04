@@ -49,6 +49,9 @@ ureq = "3"
 # `enable_time()` を feature で守っているので、これが無いと
 # `tokio::time::timeout` は「no reactor running」で落ちる
 tokio = { version = "1", default-features = false, features = ["time", "sync"] }
+# 向きの閉じを古い埋め込みへ直す（`legacy_bidi.rs`）。字の bidi の分類を引く表。Windows の TaskDialog が
+# 閉じ（FSI…PDI）を解さないため。JS の正規表現は分類を引けず、手で近似すると周ごとに穴が出た（#283）
+unicode-bidi = "0.3"
 # 抽出（Issue #13）でクリップボードへ**画像として**載せる。
 #
 # フロントで済ませる道は無い。`media://` を fetch するのは CSP の
@@ -109,6 +112,8 @@ windows = { version = "0.61", features = [
     # WebView2 が無いときの案内（`webview2_check.rs`、dev #72）: DPI の宣言と、ShellExecuteExW の構造体の既定値
     "Win32_UI_HiDpi",
     "Win32_System_Registry",
+    # 右から左へ書く言語の確認画面（`confirm_dialog.rs`）: TaskDialogIndirect
+    "Win32_UI_Controls",
 ] }
 # クリップボードへ置く PNG を、開く前に自分で作る（`clipboard_image.rs`）。pictkura-core が同じ版を引いているので、
 # 新しくビルドされるものは無い

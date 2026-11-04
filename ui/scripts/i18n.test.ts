@@ -1515,3 +1515,11 @@ test("韓国語の辞書は、変数の直後に助詞を書き込んでいな�
   const hits = [...src.matchAll(/\$\{(?!num\()[^}]*\}["”’)」』»\]]*(을|를|이|가|은|는|과|와|으로|로|라)/gu)].map((m) => m[0]);
   assert.deepEqual(hits, []);
 });
+
+test("アラビア語で差し込む名前の中の向きの印は外す（閉じが途中で切れない）", () => {
+  const out = ar.rootRemoveConfirm("a\u2069ب\u2066c\u202bd\u2029e");
+  assert.equal(out.match(/\u2068/gu)?.length, 1);
+  assert.equal(out.match(/\u2069/gu)?.length, 1);
+  assert.ok(out.includes("\u2068aبcd e\u2069"), out);
+  assert.ok(!/[\u202a-\u202e\u2066\u2067\u2029]/u.test(out), out);
+});

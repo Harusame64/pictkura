@@ -68,3 +68,16 @@ export const asciiDateTokens = (q: string): string =>
   (q.match(/[^\s"]*"[^"]*"?|\S+|\s+/gu) ?? [])
     .map((tok) => (/^((year|年):)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
     .join("");
+
+/**
+ * **右から左の辞書で、パス・名前・検索語・失敗の理由を文へ差し込むときに包む**（FSI … PDI）。
+ * 右→左の文に `/Volumes/SD/DCIM` をそのまま入れると、先頭の `/` が文の向きに取られて
+ * `Volumes/SD/DCIM/` に見える。画面の側の `.path` / `.name` は要素で包める所だけで、`title` や
+ * お知らせの文の中は届かない（#282 のゲート2）。**右から左の辞書はどれもこれを使う**（写さない）。
+ *
+ * 値の中の、閉じを壊す文字は直してから包む（#283 の2ゲート目）。どれも名前には目に見えない文字:
+ * - 向きの印（LRE〜RLO・LRI〜PDI）は外す——PDI が在ると閉じが途中で切れ、LRI が在ると後ろの文まで巻き込む
+ * - 段落の切れ目（改行・U+0085・U+2029・U+001C〜001E）は空白にする——閉じは段落の終わりで切れる
+ */
+export const isolate = (s: string): string =>
+  `\u2068${s.replace(/[\u202a-\u202e\u2066-\u2069]/gu, "").replace(/[\n\r\u001c-\u001e\u0085\u2029]/gu, " ")}\u2069`;
