@@ -20,7 +20,8 @@ body,
    段落の中のパスは `<span class="path">` で囲う（段落ごと左→右にすると、揃えまで左に寄る） */
 code,
 .path,
-.pattern-custom-input {
+.pattern-custom-input,
+kbd {
   direction: ltr;
   unicode-bidi: isolate;
 }
@@ -1934,6 +1935,9 @@ body {
   flex: 1;
   min-width: 0;
   word-break: break-word;
+  /* 値は数と単位（`580 KB`・`35 mm`・`1/250 s`）か名前。右→左の画面のままだと `KB 580` に並ぶので、
+     値ごとに最初の文字で向きを決める（日付はアラビア文字を含むので右→左のまま） */
+  unicode-bidi: plaintext;
 }
 .exif-value.link {
   color: var(--blue-soft);

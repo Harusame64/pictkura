@@ -84,7 +84,8 @@ export const ar: Dict = {
   searchPlaceholder: "ابحث عن ملف أو مجلد أو كاميرا أو 2019-08 أو year:2019",
   searchClear: "مسح البحث (Esc)",
   commandPalette: "لوحة الأوامر",
-  importFromUsb: "استيراد من USB",
+  // 「من USB」は改行しない空白でつなぐ——狭い窓で3行に折れて、上の帯からはみ出した（win の実測、960 幅）
+  importFromUsb: "استيراد من\u00a0USB",
   rescan: "إعادة الفحص",
   size: "الحجم",
   itemsCount: (n: number) => items(n, false),
