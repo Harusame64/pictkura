@@ -87,3 +87,30 @@ export const oneFewMany = (n: number, singular: string, few: string, many: strin
   if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return few;
   return many;
 };
+
+/** アラビア語の数の6形（下の `arabic()` に渡す） */
+export type ArabicForms = { zero: string; one: string; two: string; few: string; many: string; other: string };
+
+/**
+ * **アラビア語の6形**（2026-11-04。アラビア語の辞書のための用意）。名詞は数で6通りに形を変える:
+ * - **zero**: 0（`لا توجد صور` のように「無い」と言う）
+ * - **one**: 1（単数。数詞を付けずに名詞だけで言うのが普通）
+ * - **two**: 2（双数。これも数詞を付けずに `صورتان` と言う）
+ * - **few**: 下2桁が 3〜10（複数の属格。`3 صور`・`103 صور`）
+ * - **many**: 下2桁が 11〜99（単数の対格。`11 صورة`・`99 صورة`）
+ * - **other**: それ以外（100・101・102・200…。単数の属格。`100 صورة`）
+ *
+ * 規則は CLDR の `ar` と同じ。`oneFewMany()` と同じ理由で `Intl.PluralRules` に任せずに手で書き、
+ * 0〜100000 の整数で `Intl.PluralRules("ar")` と一致することを確かめてある（`scripts/plural.test.ts`）。
+ * 形が6つあって位置で渡すと取り違えるので、名前で渡す
+ */
+export const arabic = (n: number, forms: ArabicForms): string => {
+  const a = Math.abs(n);
+  const h = a % 100;
+  if (a === 0) return forms.zero;
+  if (a === 1) return forms.one;
+  if (a === 2) return forms.two;
+  if (h >= 3 && h <= 10) return forms.few;
+  if (h >= 11 && h <= 99) return forms.many;
+  return forms.other;
+};

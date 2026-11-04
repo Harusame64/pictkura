@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { oneFewMany } from "../src/i18n/plural.ts";
+import { arabic, oneFewMany } from "../src/i18n/plural.ts";
 
 const form = (n: number) => oneFewMany(n, "one", "few", "many");
 
@@ -19,4 +19,22 @@ test("1／2〜4／5〜 の3形は、11〜14 を 5〜 の形にすること（下
     ["one", "few", "few", "many", "many", "many", "many", "one", "few", "many", "one", "many", "many", "one", "many"],
   );
   assert.equal(form(0), "many");
+});
+
+const ar = (n: number) =>
+  arabic(n, { zero: "zero", one: "one", two: "two", few: "few", many: "many", other: "other" });
+
+test("アラビア語の6形は、CLDR の ar と全部の整数で一致すること", () => {
+  const cldr = new Intl.PluralRules("ar");
+  for (let n = 0; n <= 100000; n++) {
+    if (ar(n) !== cldr.select(n)) assert.fail(`n=${n}: ${ar(n)} / CLDR ${cldr.select(n)}`);
+  }
+});
+
+test("アラビア語の6形は、下2桁で few と many を分け、100〜102 を other にすること", () => {
+  // 0・1・2 を数そのもので見ずに下2桁で見る誤り（101 を one、102 を two にする）は、ここで落ちる
+  assert.deepEqual(
+    [0, 1, 2, 3, 10, 11, 99, 100, 101, 102, 103, 110, 111, 199, 200, 1000, 1001, 1002, 1003].map(ar),
+    ["zero", "one", "two", "few", "few", "many", "many", "other", "other", "other", "few", "few", "many", "many", "other", "other", "other", "other", "few"],
+  );
 });
