@@ -1,5 +1,10 @@
 /**
- * 辞書の中で数を扱うための2つ。**辞書から呼べる唯一の書式**。
+ * 辞書の中で数を扱うための道具。**辞書から呼べる唯一の書式**。
+ *
+ * - `num()`: 桁区切り（書式ロケールで）
+ * - `one()`: 1 とそれ以外（英・独・西・葡など）
+ * - `oneFewMany()`: 1／2〜4／5〜（露語）
+ * - `arabic()`: 0／1／2／3〜10／11〜99／その他（アラビア語）
  *
  * ## なぜ辞書の中で整形するのか
  *
@@ -86,4 +91,33 @@ export const oneFewMany = (n: number, singular: string, few: string, many: strin
   if (d === 1 && h !== 11) return singular;
   if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return few;
   return many;
+};
+
+/** アラビア語の数の6形（下の `arabic()` に渡す） */
+export type ArabicForms = { zero: string; one: string; two: string; few: string; many: string; other: string };
+
+/**
+ * **アラビア語の6形**（2026-11-04。アラビア語の辞書のための用意）。名詞は数で6通りに形を変える:
+ * - **zero**: 0（`لا توجد صور` のように「無い」と言う）
+ * - **one**: 1（単数。数詞を付けずに名詞だけで言うのが普通）
+ * - **two**: 2（双数。これも数詞を付けずに `صورتان` と言う）
+ * - **few**: 下2桁が 3〜10（複数の属格。`3 صور`・`103 صور`）
+ * - **many**: 下2桁が 11〜99（単数の対格。`11 صورة`・`99 صورة`）
+ * - **other**: それ以外（100・101・102・200…。単数の属格。`100 صورة`）
+ *
+ * 規則は CLDR の `ar` と同じ。`oneFewMany()` と同じ理由で `Intl.PluralRules` に任せずに手で書き、
+ * 0〜100000 の整数で `Intl.PluralRules("ar")` と一致することを確かめてある（`scripts/plural.test.ts`）。
+ * 形が6つあって位置で渡すと取り違えるので、名前で渡す
+ */
+export const arabic = (n: number, forms: ArabicForms): string => {
+  const a = Math.abs(n);
+  // 件数にしか使わないが、小数が来たら CLDR と同じく other（`3.5` を few にしない）
+  if (!Number.isInteger(a)) return forms.other;
+  const h = a % 100;
+  if (a === 0) return forms.zero;
+  if (a === 1) return forms.one;
+  if (a === 2) return forms.two;
+  if (h >= 3 && h <= 10) return forms.few;
+  if (h >= 11 && h <= 99) return forms.many;
+  return forms.other;
 };
