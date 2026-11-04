@@ -96,7 +96,7 @@
             <tr><td class="k">macOS</td><td>macOS 11 or later (Apple Silicon). There is no Intel build</td></tr>
             <tr><td class="k">Linux</td><td>No build is published (Tauri v2 could target it)</td></tr>
             <tr><td class="k">OS components</td><td>HEIC / HEVC pixels are decoded by the OS. On Windows that means "HEIF Image Extensions" (free) and "HEVC Video Extensions" (paid)</td></tr>
-            <tr><td class="k">Languages</td><td>English, German, Spanish (Spain and Latin America), Simplified and Traditional Chinese, Japanese &mdash; seven interface languages to choose from. Follows the OS language; can be overridden in settings</td></tr>
+            <tr><td class="k">Languages</td><td>English, German, French, Italian, Russian, Portuguese (Brazil, also used in Portugal), Spanish (Spain and Latin America), Simplified and Traditional Chinese, Korean, Arabic, Hebrew, Japanese &mdash; fourteen interface languages to choose from. Arabic and Hebrew lay out the window right to left. Follows the OS language; can be overridden in settings</td></tr>
           </tbody>
         </table>
       </div>
@@ -122,7 +122,7 @@
       <figure class="demo">
         <video src="../images/d-filter.mp4" poster="../images/d-filter.jpg" width="960" height="630"
                muted loop playsinline preload="metadata" controls data-autoplay></video>
-        <figcaption class="fig">Picking a camera with <code>Ctrl</code>+<code>K</code>, then adding a year on top. Conditions stack with AND, taking 30,000 photos down to 1,200. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is available in 7 languages.</span></figcaption>
+        <figcaption class="fig">Picking a camera with <code>Ctrl</code>+<code>K</code>, then adding a year on top. Conditions stack with AND, taking 30,000 photos down to 1,200. <span style="opacity:.75">The recordings on this site show the Japanese interface; the app itself is available in 14 languages.</span></figcaption>
       </figure>
     </section>
 
@@ -144,7 +144,6 @@
             <tr><td class="k">Playing <code>.m2ts</code> / <code>.avi</code> in-app</td><td>The browser engine cannot handle those containers. They still appear in the grid</td></tr>
             <tr><td class="k">A size for a RAW that declares none</td><td>Dimensions come from the file's own declaration, from the sensor borders in Panasonic's own RAW formats (<code>rw2</code> <code>raw</code> <code>rwl</code>), or from the embedded preview. A RAW with none of those — the Blackmagic CinemaDNG we tested — shows no size. On Windows a file that only exists in the cloud is the exception: the Shell supplies its dimensions without downloading it</td></tr>
             <tr><td class="k">Rebuilding the index from the UI</td><td>Delete <code>pictkura.db</code> in the settings folder and it is rebuilt (★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing or is waiting to be placed again are lost)</td></tr>
-            <tr><td class="k">Right-to-left layout</td><td>Not supported</td></tr>
           </tbody>
         </table>
       </div>
