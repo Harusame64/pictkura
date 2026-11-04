@@ -49,6 +49,12 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
+/* **韓国語は語（空白）で折る。** 既定の `word-break: normal` は CJK と同じく音節ごとに割るので、
+   `이동` が「이 / 동」に割れる（win の実測、ショートカット一覧・設定の説明）。韓国語の組版の定石の
+   keep-all にする。パスのように自分で `break-all` / `overflow-wrap: anywhere` を持つ所はそちらが勝つ */
+:lang(ko) {
+  word-break: keep-all;
+}
 /* 件数・EXIF等の数字は等幅数字にして、更新のたびに幅が揺れないようにする */
 .count,
 .date-count,
