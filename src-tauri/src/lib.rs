@@ -2734,7 +2734,14 @@ async fn confirm_right_to_left(
     cancel_label: String,
     warning: bool,
 ) -> Result<bool, String> {
-    let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    // **どの道で転んでも記録に残す**（errs.rs の決まり）。画面にはプラグインの失敗と同じく理由だけが出る
+    let failed = |e: String| {
+        applog::note(&format!(
+            "could not show the right-to-left confirm dialog: {e}"
+        ));
+        e
+    };
+    let hwnd = window.hwnd().map_err(|e| failed(e.to_string()))?.0 as isize;
     let confirm = confirm_dialog::Confirm {
         title,
         message,
@@ -2746,13 +2753,8 @@ async fn confirm_right_to_left(
         confirm_dialog::show(windows::Win32::Foundation::HWND(hwnd as _), &confirm)
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| {
-        applog::note(&format!(
-            "could not show the right-to-left confirm dialog: {e}"
-        ));
-        e.to_string()
-    })
+    .map_err(|e| failed(e.to_string()))?
+    .map_err(|e| failed(e.to_string()))
 }
 
 /// ほかの OS ではプラグインのまま（macOS の NSAlert は AppKit の言語で向きを決める）。呼ばれたら断る

@@ -1,3 +1,5 @@
+import type { HostPlatform } from "./api";
+
 /**
  * 確認ダイアログのキャンセルの語を決める（純関数。`scripts/confirmLabels.test.ts` が表で見る）。
  *
@@ -29,7 +31,7 @@ export function cancelLabelFor(
  * 左から右の言語は、これまでどおりプラグイン（見た目を変えない）。
  */
 export function confirmRoute(
-  platform: "windows" | "macos" | "other",
+  platform: HostPlatform,
   rtl: boolean,
 ): "plugin" | "windowsRtl" {
   return platform === "windows" && rtl ? "windowsRtl" : "plugin";

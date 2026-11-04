@@ -565,7 +565,6 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | **No UI to rebuild the search index** | delete `pictkura.db` in the settings folder to rebuild (thumbnails are regenerated too, and ★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing or is waiting to be placed again are lost) |
 | **No sort order for results** | always newest capture date first |
 | **Imports cannot be canceled** | once started, an import runs to completion |
-| **No RTL layout** | Arabic and other right-to-left languages are not supported |
 
 ---
 
