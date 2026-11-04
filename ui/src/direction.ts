@@ -58,12 +58,13 @@ export const stepOfArrow = (key: "ArrowLeft" | "ArrowRight", rtl: boolean): -1 |
   (key === "ArrowRight") !== rtl ? 1 : -1;
 
 /**
- * 検索語のうち、**数と区切りだけの語**（`٢٠١٩`・`٢٠١٩-٠٨`・`year:٢٠١٩`）の数字だけを揃える。
- * 名前に混ざった数字（`رحلة٢٠١٩`・`IMG_٠٠٠١`）は名前として探すので触らない（ゲート2）。
- * 数だけの語は ASCII の利用者と同じく日付として読まれる——`trip 2019` と同じ結果になる
+ * 検索語のうち、**日付として読まれる語**の数字だけを揃える——素の数と区切りだけの語（`٢٠١٩`・`٢٠١٩-٠٨`）と、
+ * 年の指定（`year:٢٠١٩`・`年:٢٠١٩`）。素の数だけの語は ASCII の利用者と同じく日付として読まれる
+ * （`trip 2019` と同じ結果）。**それ以外は打ったまま**——名前に混ざった数字（`رحلة٢٠١٩`・`DSC٠٠٠٨٩`）、
+ * 名前を指す欄（`folder:٢٠١٩`・`camera:…`。`search.rs` は字のまま探す）、引用符の中（`"trip ٢٠١٩"`）
  */
 export const asciiDateTokens = (q: string): string =>
-  q
-    .split(/(\s+)/)
-    .map((tok) => (/^([a-z]+:)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
+  // 引用符で括った値（`"…"`・`folder:"…"`）は空白を含んでも1語として扱う
+  (q.match(/[^\s"]*"[^"]*"?|\S+|\s+/gu) ?? [])
+    .map((tok) => (/^((year|年):)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
     .join("");

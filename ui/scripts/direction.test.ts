@@ -42,5 +42,10 @@ test("only tokens made of digits and separators are turned into ASCII", () => {
   assert.equal(asciiDateTokens("DSC٠٠٠٨٩"), "DSC٠٠٠٨٩");
   assert.equal(asciiDateTokens("رحلة٢٠١٩"), "رحلة٢٠١٩");
   assert.equal(asciiDateTokens("IMG_1234 year:2019"), "IMG_1234 year:2019");
+  // 名前を指す欄と引用符の中は字のまま（search.rs は folder: / camera: を名前として探す）
+  assert.equal(asciiDateTokens("folder:٢٠١٩"), "folder:٢٠١٩");
+  assert.equal(asciiDateTokens('folder:"trip ٢٠١٩ summer"'), 'folder:"trip ٢٠١٩ summer"');
+  assert.equal(asciiDateTokens('"رحلة ٢٠١٩" ٢٠١٩'), '"رحلة ٢٠١٩" 2019');
+  assert.equal(asciiDateTokens("年:٢٠١٩"), "年:2019");
   assert.ok(!hasRtlText("\ufeffCtrl+K"), "BOM is not right-to-left text");
 });
