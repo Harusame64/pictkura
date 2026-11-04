@@ -40,6 +40,7 @@
  * **動詞の一致を避ける書き方にする。** 過去と受け身の動詞は単数で性が割れる（`הועברה`＝女性、
  * `הועבר`＝男性）。写真（`תמונה`）は女性、ファイル（`קובץ`）・動画（`סרטון`）・項目（`פריט`）は男性。
  * 件数の報告は「ラベル: N」（`נוספו: 3`）か動作名詞（`העברת 3 תמונות`）で書き、形の組み合わせを減らす。
+ * 写真と動画・ファイルが混ざる物を指すときは、ヘブライ語の既定どおり男性の複数（`במקומם`・`אותם`）
  */
 import { isolate } from "../direction.ts";
 import { folderExample } from "./folderExample.ts";
@@ -184,8 +185,8 @@ export const he: Dict = {
   extractCopy: (key: string) => `העתקת התמונה הזו ללוח (${key})`,
   extractSaveTitle: "שמירת התמונה בשם",
   extractFilter: "תמונה",
-  extractSaved: "נשמר",
-  extractCopied: "הועתק",
+  extractSaved: "נשמרה",
+  extractCopied: "הועתקה",
   extractCopying: "מעתיק…",
   extractFailed: "לא ניתן היה לחלץ את התמונה הזו",
   extractSameFile: "לא ניתן לשמור מעל הקובץ המקורי",
@@ -468,9 +469,9 @@ export const he: Dict = {
   moveDone: (moved: number, skipped: number, failed: number, leftBehind: number, missing: number) => {
     const parts: string[] = [];
     if (moved > 0 || skipped + failed + leftBehind + missing === 0) parts.push(`הועברו: ${num(moved)}`);
-    if (skipped > 0) parts.push(`כבר היו שם ונשארו במקומן: ${num(skipped)}`);
-    if (failed > 0) parts.push(`לא ניתן היה להעביר ולכן נשארו במקומן: ${num(failed)}`);
-    if (leftBehind > 0) parts.push(`הועתקו, אבל לא ניתן היה להסיר אותן מהמקום המקורי: ${num(leftBehind)}`);
+    if (skipped > 0) parts.push(`כבר היו שם ונשארו במקומם: ${num(skipped)}`);
+    if (failed > 0) parts.push(`לא ניתן היה להעביר ולכן נשארו במקומם: ${num(failed)}`);
+    if (leftBehind > 0) parts.push(`הועתקו, אבל לא ניתן היה להסיר אותם מהמקום המקורי: ${num(leftBehind)}`);
     if (missing > 0) parts.push(`כבר לא בספרייה ולכן לא הועברו: ${num(missing)}`);
     return parts.join(". ") + ".";
   },
@@ -545,7 +546,7 @@ export const he: Dict = {
   },
   googleSendLeftOut: (n: number) =>
     `מתוך מה שבחרתם ${one(n, "מושמט פריט אחד", `מושמטים ${num(n)} פריטים`)} (ה-RAW של זוג RAW+JPEG, קבצים שבתוך OneDrive וכדומה).`,
-  googleSendFolders: (list: string) => `יונח ב: ${iso(list)}`,
+  googleSendFolders: (list: string) => `מקום ההנחה: ${iso(list)}`,
   googleSendNewFolder: (path: string) => `התיקייה ${iso(path)} תיווצר.`,
   googleSendGoogleNote:
     "אם אתם משתמשים ב-Google Photos: ההעלאה נעשית בדף האינטרנט של Google Photos‏ (photos.google.com), ולכן היא מתקדמת כל עוד הדף הזה פתוח בדפדפן.",

@@ -410,7 +410,8 @@ export const firstWeekday: number = (() => {
   // `en-GB` と同じ粗さで、**地域の表を持ち込まない**というこの節の方針のほうを優先する
   // （直すなら「どの地域が日曜か」をCLDRから写すことになり、写した時点で古びる）
   const tag = formatLocale.toLowerCase();
-  return tag.startsWith("ja") || tag.startsWith("en") || tag.startsWith("zh-hant")
+  // ヘブライ語も日曜（話されているのはほぼイスラエルで、週は日曜に始まる）
+  return tag.startsWith("ja") || tag.startsWith("en") || tag.startsWith("zh-hant") || tag.startsWith("he")
     ? 0
     : 1;
 })();

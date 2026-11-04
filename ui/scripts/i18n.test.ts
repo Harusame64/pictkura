@@ -1411,6 +1411,8 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("ar-OM"), "ar");
   assert.equal(pick("ar-DZ"), "ar");
   assert.equal(pick("he-IL"), "he");
+  assert.equal(pick("iw-IL"), "he");
+  assert.equal(pick("iw"), "he");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");

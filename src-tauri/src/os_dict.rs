@@ -18,6 +18,10 @@ pub const DICT_CODES: &[&str] = &[
 pub fn guess(os_locales: &[String]) -> &'static str {
     for tag in os_locales {
         let tag = tag.to_lowercase();
+        // ヘブライ語の古いコード `iw` も `he`（`pickLocale()` の `matchLocale` と同じ寄せ方）
+        if tag == "iw" || tag.starts_with("iw-") {
+            return "he";
+        }
         // **粵語もここ。** `pickLocale()` が `yue` を書き言葉として繁体字へ寄せている
         // （香港・マカオの書き言葉は繁体字の中国語）ので、当て推量も同じ側へ寄せる
         // ——ここだけ英語へ落とすと、**繁体字のMacで毎回英語のメニューが一瞬見える**、
@@ -125,6 +129,8 @@ pub(crate) mod tests {
         assert_eq!(guess(&["ar-OM".into()]), "ar");
         assert_eq!(guess(&["ar-DZ".into()]), "ar");
         assert_eq!(guess(&["he-IL".into()]), "he");
+        assert_eq!(guess(&["iw-IL".into()]), "he");
+        assert_eq!(guess(&["iw".into()]), "he");
         assert_eq!(guess(&["en-GB".into()]), "en");
         // 簡体字と繁体字
         assert_eq!(guess(&["zh-Hans-CN".into()]), "zh");

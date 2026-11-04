@@ -67,6 +67,9 @@ export function matchLocale(tags: string[], hasDict: (code: string) => boolean):
     // **裸の `yue` も繁体字へ**（4巡目の指摘）。`zh` に置き換えるだけだと、
     // 地域が落ちたタグ（`navigator.languages` は地域を落とす。上の注記）で
     // **簡体字**に着く。CLDRの既定も `yue` → `yue-Hant-HK`
+    // **ヘブライ語の古いコード `iw` も `he` へ**（2026-11-04、#284 のゲート2）。Java 由来の環境は
+    // まだ `iw-IL` と言う。`direction.ts` の `RTL_LANGS` は `iw` を右から左に数えている
+    if (parts[0] === "iw") parts[0] = "he";
     if (parts[0] === "yue") {
       parts[0] = "zh";
       if (!parts.includes("hans") && !parts.includes("hant")) parts.splice(1, 0, "hant");
