@@ -159,8 +159,8 @@ import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
-import { asciiDigits, hasRtlText, inlineSign, isRtl, stepOfArrow } from "./direction";
-import { letterOf } from "./keyLetter";
+import { asciiDateTokens, hasRtlText, inlineSign, isRtl, stepOfArrow } from "./direction";
+import { digitOf, letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
 import {
@@ -1846,9 +1846,9 @@ export default function App() {
   // 打鍵のたびにIPCを撃たないが、体感で待たされない間隔にする
   useEffect(() => {
     const trimmed = queryInput.trim();
-    if (asciiDigits(trimmed) === query) return;
-    // アラビア語の配列の数字（`٢٠١٩`）は ASCII に揃えて渡す——日付として読ませる（direction.ts）
-    const t = window.setTimeout(() => setQuery(asciiDigits(trimmed)), 160);
+    if (asciiDateTokens(trimmed) === query) return;
+    // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
+    const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
     return () => window.clearTimeout(t);
   }, [queryInput, query]);
 
@@ -5707,11 +5707,10 @@ export default function App() {
       } else if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
-      // **数字の列は物理キー（e.code）で見る**——仏語の AZERTY は 1 の位置で `&`、アラビア語の配列は
-      // `١` を送る。テンキーも同じ扱い
-      } else if (/^(Digit|Numpad)1$/.test(e.code) || e.key === "1") {
+      // 数字は `digitOf()`（keyLetter.ts）——アラビア・インド数字と、仏語の AZERTY の `&`（1 の位置）も拾う
+      } else if (digitOf(e) === 1) {
         toggleActualSize();
-      } else if (/^(Digit|Numpad)0$/.test(e.code) || e.key === "0") {
+      } else if (digitOf(e) === 0) {
         setZoom(1);
         setPinnedActualId(null);
         setPan({ x: 0, y: 0 });

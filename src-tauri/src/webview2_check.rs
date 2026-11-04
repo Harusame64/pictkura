@@ -116,9 +116,10 @@ fn open_page(url: &str) -> windows::core::Result<()> {
     unsafe { ShellExecuteExW(&mut info) }
 }
 
-/// 辞書のコードのうち、右から左へ書くもの（画面の `ui/src/direction.ts` と同じ顔ぶれ）
+/// 辞書のコードのうち、右から左へ書くもの。**辞書のある言語だけを書く**——試験が `ui/src/direction.ts` の
+/// `RTL_LANGS` と突き合わせるので、右→左の辞書を足してここを忘れると落ちる
 fn right_to_left(code: &str) -> bool {
-    matches!(code, "ar" | "he")
+    matches!(code, "ar")
 }
 
 /// 案内の文と、開く頁。**頁は手引き（`docs/*/install.html`）と同じ Microsoft の WebView2 の頁**

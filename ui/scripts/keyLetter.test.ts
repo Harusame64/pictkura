@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { letterOf } from "../src/keyLetter.ts";
+import { digitOf, letterOf } from "../src/keyLetter.ts";
 
 test("ラテン文字は刻印どおり（大文字も小文字に）", () => {
   assert.equal(letterOf({ key: "p", code: "KeyP" }), "p");
@@ -56,4 +56,20 @@ test("文字でないキーはそのまま（位置が文字キーでなけれ�
   assert.equal(letterOf({ key: " ", code: "Space" }), " ");
   assert.equal(letterOf({ key: ",", code: "Comma" }), ",");
   assert.equal(letterOf({ key: "?", code: "Digit7" }), "?");
+});
+
+test("digit keys read the printed digit, then the number row without modifiers", () => {
+  assert.equal(digitOf({ key: "1", code: "Digit1" }), 1);
+  assert.equal(digitOf({ key: "١", code: "Digit1" }), 1, "Arabic-Indic");
+  assert.equal(digitOf({ key: "۰", code: "Digit0" }), 0, "Persian");
+  assert.equal(digitOf({ key: "1", code: "Numpad1" }), 1, "numpad with NumLock");
+  assert.equal(digitOf({ key: "&", code: "Digit1" }), 1, "French AZERTY 1 key");
+  assert.equal(digitOf({ key: "à", code: "Digit0" }), 0, "French AZERTY 0 key");
+  // 拾わない
+  assert.equal(digitOf({ key: "!", code: "Digit1", shiftKey: true }), null, "US Shift+1");
+  assert.equal(digitOf({ key: "¡", code: "Digit1", altKey: true }), null, "Alt+1");
+  assert.equal(digitOf({ key: "1", code: "Digit1", ctrlKey: true }), null, "Ctrl+1");
+  assert.equal(digitOf({ key: "1", code: "Digit1", metaKey: true }), null, "⌘1");
+  assert.equal(digitOf({ key: "End", code: "Numpad1" }), null, "numpad with NumLock off");
+  assert.equal(digitOf({ key: "x", code: "KeyX" }), null);
 });

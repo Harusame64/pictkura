@@ -60,7 +60,7 @@ import { ru } from "./ru.ts";
 import { pt } from "./pt.ts";
 import { ko } from "./ko.ts";
 import { ar } from "./ar.ts";
-import { num, setNumberLocale } from "./plural.ts";
+import { clockPart, num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
 
@@ -441,22 +441,10 @@ export const formatDuration = (ms: number) => {
   const s = total % 60;
   const m = Math.floor(total / 60) % 60;
   const h = Math.floor(total / 3600);
-  const mm = h > 0 ? pad2(m) : plainDigits(m);
-  return `${h > 0 ? `${plainDigits(h)}:` : ""}${mm}:${pad2(s)}`;
+  // 数字は書式ロケールの数字で（ar-SA ならアラビア・インド数字。寸法や件数と揃える。`plural.ts`）
+  const mm = clockPart(m, h > 0);
+  return `${h > 0 ? `${clockPart(h, false)}:` : ""}${mm}:${clockPart(s, true)}`;
 };
-/** 時計表記の数字も書式ロケールの数字で（ar-SA ならアラビア・インド数字。寸法や件数と揃える） */
-const clockFormat = (() => {
-  try {
-    return {
-      plain: new Intl.NumberFormat(formatLocale, { useGrouping: false }),
-      pad: new Intl.NumberFormat(formatLocale, { useGrouping: false, minimumIntegerDigits: 2 }),
-    };
-  } catch {
-    return null;
-  }
-})();
-const plainDigits = (n: number) => (clockFormat ? clockFormat.plain.format(n) : String(n));
-const pad2 = (n: number) => (clockFormat ? clockFormat.pad.format(n) : String(n).padStart(2, "0"));
 
 /**
  * **辞書へ書式ロケールを渡す**（2026-09-02）。

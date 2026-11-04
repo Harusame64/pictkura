@@ -29,8 +29,8 @@
  *   ja の「数百円」を特定の通貨に直さない
  * - **確認画面の取消は `إلغاء`**（AppKit の Cancel。違うと macOS で Esc が効かない）
  * - **自動再生の項目名は日本語のまま引く**（Windows に登録してあるのは日本語だけ。葡・韓と同じ）
- * - キーの文字（P・X・U・F・I…）と製品名はラテン文字のまま。パス・名前の型・ファイル名は画面の側が
- *   左→右に囲うので、辞書に向きの制御文字は入れない
+ * - キーの文字（P・X・U・F・I…）と製品名はラテン文字のまま。文に差し込むパス・名前・検索語・理由は
+ *   下の `iso()` で向きを閉じる（要素で囲える所は画面の側の `.path` / `.name` が囲う）
  *
  * **数は `arabic()` の6形**（`plural.ts`）。名詞の形が数で変わる:
  * - **0**: 画面の数の札として `0 صورة`（数字＋単数）。「ありません」と文で言う所は文で言う
@@ -66,6 +66,13 @@ const counted =
       many: `${num(n)} ${many}`,
       other: `${num(n)} ${other}`,
     });
+
+/**
+ * **パス・名前・検索語・失敗の理由は、向きを閉じて差し込む**（FSI … PDI）。右→左の文に `/Volumes/SD/DCIM` を
+ * そのまま入れると、先頭の `/` が文の向きに取られて `Volumes/SD/DCIM/` に見える。画面の側の
+ * `.path` / `.name` は要素で包める所だけで、`title` やお知らせの文の中は届かない（ゲート2）
+ */
+const iso = (s: string): string => `\u2068${s}\u2069`;
 
 /** 写真（女性） */
 const photos = counted("صورة واحدة", "صورتان", "صورتين", "صور", "صورة");
@@ -190,7 +197,7 @@ export const ar: Dict = {
   rejectGateConfirm: (n: number) => `نقل ${photos(n)} إلى سلة المهملات`,
   rejectGateTrashing: (done: number, total: number) =>
     `جارٍ النقل… (${num(done)} / ${num(total)})`,
-  updateFound: (v: string) => `يتوفر إصدار جديد${v ? ` (${v})` : ""}`,
+  updateFound: (v: string) => `يتوفر إصدار جديد${v ? ` (${iso(v)})` : ""}`,
   updateOpenPage: "فتح صفحة التنزيل",
   updateLater: "لاحقًا",
   updateCheckNow: "التحقق من وجود تحديثات",
@@ -252,7 +259,7 @@ export const ar: Dict = {
   paletteGroupCameras: "التصفية حسب الكاميرا",
   paletteGroupSearch: "البحث",
   paletteGroupActions: "الإجراءات",
-  paletteSearchFor: (q: string) => `البحث عن “${q}”`,
+  paletteSearchFor: (q: string) => `البحث عن “${iso(q)}”`,
   paletteSearchHint: "اسم الملف، المجلد، الكاميرا",
   paletteSelect: "اختيار",
   paletteRun: "تنفيذ",
@@ -271,30 +278,30 @@ export const ar: Dict = {
   indexIncompleteWarning:
     "⚠ توقفت فهرسة البحث — قد تكون النتائج ناقصة (تُستأنف عند التشغيل التالي)",
   indexProgressSuffix: "% — قد تكون النتائج ناقصة حتى ينتهي هذا",
-  removeRoot: (path: string) => `إزالة ${path} من المكتبة`,
+  removeRoot: (path: string) => `إزالة ${iso(path)} من المكتبة`,
   rootMissingNotice: (name: string, count: number) =>
-    `المجلد “${name}” غير موجود${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيه)` : ""}. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”.`,
+    `المجلد “${iso(name)}” غير موجود${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيه)` : ""}. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”.`,
   rootsMissingNotice: (names: string, count: number) =>
-    `بعض المجلدات غير موجودة: ${names}${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيها)` : ""}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”. للتوقف عن استخدام مجلد، أزِله من المكتبة بزر ✕ في القائمة الجانبية (لا تُحذف ملفات الصور).`,
+    `بعض المجلدات غير موجودة: ${iso(names)}${count > 0 ? ` (يتعذّر فتح ${photos(count)} فيها)` : ""}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”. للتوقف عن استخدام مجلد، أزِله من المكتبة بزر ✕ في القائمة الجانبية (لا تُحذف ملفات الصور).`,
   rootRemoveFromLibrary: "إزالة من المكتبة",
   rootRemoveKeepsFiles: "يزيل المجلد من المكتبة فقط. لا تُحذف ملفات الصور",
   rootRemoveConfirm: (name: string) =>
-    `هل تريد إزالة “${name}” من المكتبة؟\nلا تُحذف ملفات الصور، لكن علامات ★ و⚑ على صوره تُحذف.`,
+    `هل تريد إزالة “${iso(name)}” من المكتبة؟\nلا تُحذف ملفات الصور، لكن علامات ★ و⚑ على صوره تُحذف.`,
   rootTempConfirm: (path: string) =>
-    `المجلد “${path}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك. هل تريد إضافته إلى المكتبة على أي حال؟`,
+    `المجلد “${iso(path)}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك. هل تريد إضافته إلى المكتبة على أي حال؟`,
   rootTempConfirmOk: "إضافة على أي حال",
   destTempConfirm: (path: string) =>
-    `المجلد “${path}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الصور المستوردة إليه دون علمك. وبعد مسح البطاقة لن تبقى في أي مكان آخر. هل تريد استخدامه وجهةً على أي حال؟`,
+    `المجلد “${iso(path)}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الصور المستوردة إليه دون علمك. وبعد مسح البطاقة لن تبقى في أي مكان آخر. هل تريد استخدامه وجهةً على أي حال؟`,
   destTempConfirmOk: "استخدامه وجهةً",
   destTempWarning: "⚠ الوجهة داخل مجلد مؤقت. قد تختفي الصور المستوردة دون إنذار.",
   rootTempTip: (path: string) =>
-    `${path} — داخل مجلد مؤقت. قد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك`,
+    `${iso(path)} — داخل مجلد مؤقت. قد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك`,
   rootMissingTempTip: (path: string) =>
-    `${path} — غير موجود. كان داخل مجلد مؤقت، فربما حذفه النظام أو تطبيق آخر`,
+    `${iso(path)} — غير موجود. كان داخل مجلد مؤقت، فربما حذفه النظام أو تطبيق آخر`,
   rootMissingTip: (path: string) =>
-    `${path} — غير موجود. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”`,
-  importFrom: (path: string) => `استيراد من ${path}`,
-  filterByCamera: (name: string) => `عرض الصور الملتقطة بـ ${name} فقط`,
+    `${iso(path)} — غير موجود. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”`,
+  importFrom: (path: string) => `استيراد من ${iso(path)}`,
+  filterByCamera: (name: string) => `عرض الصور الملتقطة بـ ${iso(name)} فقط`,
   jumpToYear: (y: number) => `الانتقال إلى ${year(y)}`,
   importing: (done: number, total: number) => `جارٍ الاستيراد… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
@@ -324,13 +331,13 @@ export const ar: Dict = {
   emptyNoRoots:
     "لم يُضبط أي مجلد للمكتبة بعد. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
   emptyMissing: (names: string) =>
-    `هذه الأماكن غير موجودة: ${names}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”.`,
+    `هذه الأماكن غير موجودة: ${iso(names)}. إذا كانت على ذاكرة USB أو بطاقة SD، فأعد توصيلها واضغط على “إعادة الفحص”.`,
   emptyUnreadableMac: (names: string) =>
-    `تعذّر فتح هذه الأماكن: ${names}. امنح pictkura حق الوصول إلى ذلك المجلد (سطح المكتب، المستندات، قرص خارجي) من إعدادات النظام ← الخصوصية والأمن. وإذا كان على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
+    `تعذّر فتح هذه الأماكن: ${iso(names)}. امنح pictkura حق الوصول إلى ذلك المجلد (سطح المكتب، المستندات، قرص خارجي) من إعدادات النظام ← الخصوصية والأمن. وإذا كان على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
   emptyUnreadableWin: (names: string) =>
-    `تعذّر فتح هذه الأماكن: ${names}. تحقق من أذونات المجلد. وإذا كان محرك أقراص على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
+    `تعذّر فتح هذه الأماكن: ${iso(names)}. تحقق من أذونات المجلد. وإذا كان محرك أقراص على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.`,
   emptyUnreadableOther: (names: string) =>
-    `تعذّر فتح هذه الأماكن: ${names}. تأكد من أن لديك إذنًا بقراءتها، ثم اضغط على “إعادة الفحص”.`,
+    `تعذّر فتح هذه الأماكن: ${iso(names)}. تأكد من أن لديك إذنًا بقراءتها، ثم اضغط على “إعادة الفحص”.`,
   listSeparator: "، ",
   listLastSeparator: " ",
   andMore: (n: number) => `و${num(n)} غيرها`,
@@ -343,13 +350,13 @@ export const ar: Dict = {
   emptyRootIsManagedLibrary:
     "أحد مجلدات المكتبة هو مكتبة مُدارة لتطبيق صور (الصور أو iPhoto أو Aperture). لا يقرأ pictkura داخلها عن قصد، لذا لن يأتي منها شيء. اختر مجلدًا فيه صور، أو استورد من بطاقة.",
   emptyAllExcluded: (names: string) =>
-    `كل ما عُثر عليه تتخطاه أنماط الاستبعاد (مثل ${names}). يمكنك تغييرها في pictkura.toml داخل مجلد الإعدادات.`,
+    `كل ما عُثر عليه تتخطاه أنماط الاستبعاد (مثل ${iso(names)}). يمكنك تغييرها في pictkura.toml داخل مجلد الإعدادات.`,
   emptyNothingHere:
     "لم يُعثر بعد على صور يستطيع pictkura قراءتها. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
   calendarChecking: "جارٍ التحقق…",
   emptyTitleStalled: "بعض الأماكن لا تستجيب",
   emptyStalled: (names: string) =>
-    `هذه الأماكن لا تستجيب: ${names}. إذا كان أحدها على الشبكة، فتأكد من أنه ما زال متصلًا واضغط على “إعادة الفحص”. وإذا زال نهائيًا، فأزِله من مجلدات المكتبة ليظهر الباقي.`,
+    `هذه الأماكن لا تستجيب: ${iso(names)}. إذا كان أحدها على الشبكة، فتأكد من أنه ما زال متصلًا واضغط على “إعادة الفحص”. وإذا زال نهائيًا، فأزِله من مجلدات المكتبة ليظهر الباقي.`,
   emptyChecking:
     "ما زال البحث في المجلدات جاريًا. إذا كان أحدها على الشبكة، فتأكد من أنه متصل واضغط على “إعادة الفحص”.",
   emptyLoadFailed: "تعذّر تحميل القائمة. اضغط على “إعادة الفحص”، أو أعد فتح التطبيق.",
@@ -397,7 +404,7 @@ export const ar: Dict = {
   wizardCapped: (n: number) => `${num(n)}+`,
   wizardMoreFiles: (n: number) => `${num(n)} أخرى (مرّر للتحميل)`,
   menuOpen: "فتح",
-  menuOpenWith: (name: string) => `فتح باستخدام ${name}`,
+  menuOpenWith: (name: string) => `فتح باستخدام ${iso(name)}`,
   menuOpenWithOther: "فتح باستخدام تطبيق آخر…",
   menuReveal: "إظهار في المجلد",
   menuMoreOptions: "إظهار المزيد من الخيارات",
@@ -471,7 +478,7 @@ export const ar: Dict = {
   moveConfirmOk: "اختيار مكان النقل",
   rootRemoveConfirmOk: "إزالة",
   exporting: (done: number, total: number, name: string) =>
-    `جارٍ التصدير… ${num(done)}/${num(total)} ${name}`,
+    `جارٍ التصدير… ${num(done)}/${num(total)} ${iso(name)}`,
   exportDone: (done: number, skipped: number, failed: number, missing: number) => {
     const parts: string[] = [];
     // 書き出すものが無かったときに「0枚を書き出しました」から始めない（pictkura-dev #33）
@@ -482,7 +489,7 @@ export const ar: Dict = {
     return parts.join(". ") + ".";
   },
   moving: (done: number, total: number, name: string) =>
-    `جارٍ النقل… ${num(done)}/${num(total)} ${name}`,
+    `جارٍ النقل… ${num(done)}/${num(total)} ${iso(name)}`,
   moveDone: (moved: number, skipped: number, failed: number, leftBehind: number, missing: number) => {
     const parts: string[] = [];
     if (moved > 0 || skipped + failed + leftBehind + missing === 0) parts.push(`تم نقل ${photos(moved)}`);
@@ -546,7 +553,7 @@ export const ar: Dict = {
   pickGoogleFolder: "اختيار مجلد الإرسال",
   importGoogle: (n: number) => ` · في مجلد الإرسال: ${num(n)}`,
   importGoogleFailed: (n: number) => `تعذّر وضع ${num(n)} في مجلد الإرسال (راجع السجل)`,
-  importGoogleError: (why: string) => `لم يُوضع شيء في مجلد الإرسال: ${why}`,
+  importGoogleError: (why: string) => `لم يُوضع شيء في مجلد الإرسال: ${iso(why)}`,
   bulkSendGoogle: "إضافة إلى مجلد الإرسال",
   bulkRemoveGoogle: "إزالة من مجلد الإرسال",
   calendarSendMonth: "إضافة هذا الشهر إلى مجلد الإرسال",
@@ -563,14 +570,14 @@ export const ar: Dict = {
   },
   googleSendLeftOut: (n: number) =>
     `يُستبعد ${items(n, false)} مما اخترته (ملف RAW من زوج RAW+JPEG، والملفات داخل OneDrive وما شابه).`,
-  googleSendFolders: (list: string) => `يوضع في: ${list}`,
-  googleSendNewFolder: (path: string) => `سيُنشأ ${path}.`,
+  googleSendFolders: (list: string) => `يوضع في: ${iso(list)}`,
+  googleSendNewFolder: (path: string) => `سيُنشأ ${iso(path)}.`,
   googleSendGoogleNote:
     "إذا كنت تستخدم صور Google: يتولى الرفعَ موقع صور Google (photos.google.com)، فيتقدم ما دامت هذه الصفحة مفتوحة في المتصفح.",
   googleSendGoogleNoteNew:
     "إذا كنت تستخدم صور Google: أضف كل مجلد جديد إلى النسخ الاحتياطي للمجلدات في صور Google أيضًا. يتولى الرفعَ موقع صور Google (photos.google.com)، فيتقدم ما دامت هذه الصفحة مفتوحة في المتصفح.",
   googleFolderCreated: (path: string) =>
-    `أُنشئ ${path}. إذا كنت تستخدم صور Google: أضف هذا المجلد إلى النسخ الاحتياطي للمجلدات أيضًا.`,
+    `أُنشئ ${iso(path)}. إذا كنت تستخدم صور Google: أضف هذا المجلد إلى النسخ الاحتياطي للمجلدات أيضًا.`,
   googleSendNothing: "لا يوجد هنا ما يمكن وضعه.",
   googleSendConfirmOk: "وضع",
   googleSent: (total: number, already: number) =>
@@ -614,7 +621,7 @@ export const ar: Dict = {
     "إذا ثُبّت pictkura بالمثبّت أو من Microsoft Store، يظهر “pictkura で写真を取り込む” (استيراد الصور باستخدام pictkura) بين الخيارات عند توصيل وسيط (اسم الخيار باليابانية)؛ ولا تقدّمه النسخة المحمولة. لا يبدأ شيء حتى تختاره. بعد اختياره، يتذكره Windows إجراءً افتراضيًا لذلك النوع من الوسائط (بطاقات الذاكرة ومحركات USB تُضبط كلٌّ على حدة) ويفتح نافذة الاستيراد كلما وصّلت النوع نفسه. غيّر الإجراء الافتراضي من إعدادات “التشغيل التلقائي” في Windows. ومع مثبّت MSI الإنجليزي يظهر الخيار بعنوان “Import photos with pictkura”.",
   settingsAutoplayOpenWindows: "فتح إعدادات التشغيل التلقائي في Windows",
   settingsImportWaitingFrom: (path: string) =>
-    `استيراد من ${path} في الانتظار. يُفتح عند إغلاق الإعدادات.`,
+    `استيراد من ${iso(path)} في الانتظار. يُفتح عند إغلاق الإعدادات.`,
   settingsImportWaiting: "استيراد في الانتظار. يُفتح عند إغلاق الإعدادات.",
   settingsImportWaitingOpen: "إغلاق واستيراد",
   settingsAbout: "حول",
@@ -643,8 +650,8 @@ export const ar: Dict = {
   filterEmptyTitle: (conds: string) => `لا توجد صور تطابق هذه الشروط: ${conds}`,
   filterEmptyMessage: "امسح البحث أو عوامل التصفية في القائمة الجانبية لرؤية البقية.",
   filterEmptyStillIndexing: "ما زالت الصور تُستورد أو تُفهرس، فقد يظهر المزيد.",
-  filterCondQuery: (q: string) => `البحث “${q}”`,
-  filterCondCamera: (name: string) => `الملتقطة بـ ${name}`,
+  filterCondQuery: (q: string) => `البحث “${iso(q)}”`,
+  filterCondCamera: (name: string) => `الملتقطة بـ ${iso(name)}`,
   filterEmptyClearSearch: "مسح البحث",
   errGoogleOverlapsRoot: "لا يمكن اختيار مجلد مكتبة، ولا مجلد داخله، ولا مجلد يحتويه.",
   errGoogleInsideSync:

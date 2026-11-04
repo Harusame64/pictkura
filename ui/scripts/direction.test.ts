@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { asciiDigits, dirOf, hasRtlText, stepOfArrow } from "../src/direction.ts";
+import { asciiDateTokens, asciiDigits, dirOf, hasRtlText, stepOfArrow } from "../src/direction.ts";
 
 test("Arabic, Hebrew, Persian and Urdu read right to left", () => {
   for (const l of ["ar", "ar-EG", "he", "he-IL", "fa", "ur", "ckb", "ps", "yi", "iw", "ji", "ks", "prs", "fa-u-nu-latn", "pa-Arab", "az-Arab-IR", "pa-arab"])
@@ -33,4 +33,14 @@ test("right-to-left text is found in base and presentation forms", () => {
   assert.ok(hasRtlText("שלום"));
   assert.ok(!hasRtlText("⌘K"));
   assert.ok(!hasRtlText("Ctrl+,"));
+});
+
+test("only tokens made of digits and separators are turned into ASCII", () => {
+  assert.equal(asciiDateTokens("folder:pk ٢٠٢٦-٠٨"), "folder:pk 2026-08");
+  assert.equal(asciiDateTokens("year:٢٠٢٦"), "year:2026");
+  // 名前に混ざった数字は名前として探す
+  assert.equal(asciiDateTokens("DSC٠٠٠٨٩"), "DSC٠٠٠٨٩");
+  assert.equal(asciiDateTokens("رحلة٢٠١٩"), "رحلة٢٠١٩");
+  assert.equal(asciiDateTokens("IMG_1234 year:2019"), "IMG_1234 year:2019");
+  assert.ok(!hasRtlText("\ufeffCtrl+K"), "BOM is not right-to-left text");
 });
