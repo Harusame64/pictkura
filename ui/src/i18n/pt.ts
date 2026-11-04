@@ -29,7 +29,8 @@
  *   Windows の `Lixeira`、macOS の `Lixo` のどちらで読んでも通じる語にする
  * - **アプリの設定は `Configurações`**（ブラジルのソフトウェアで最も普通の語。
  *   Windows の設定アプリも `Configurações`）
- * - **金額はレアルに直す**（`alguns reais`。独西仏がユーロに直すのと同じ扱いで、直訳しない）
+ * - **金額は通貨で言わない**（`paga e barata`）。独西仏はユーロに直したが、この辞書はブラジル・
+ *   ポルトガル・アンゴラ…で出るので、`alguns reais` と書くとブラジル以外で値段の言い方が外れる（ゲート2）
  * - **呼びかけは você**（ブラジルのソフトウェアUIの標準）。釦は不定詞
  *   （`Apagar` / `Cancelar` のような Apple・Microsoft の pt-BR の書き方）、見出しは名詞
  * - 引用符は “ ”、省略は …
@@ -190,7 +191,7 @@ export const pt: Dict = {
   videoFailed: "Não foi possível reproduzir este vídeo",
   videoOpenExternal: "Abrir no app padrão",
   videoCodecNote:
-    "Os vídeos de iPhones e câmeras parecidas usam HEVC (H.265). A reprodução precisa de um decodificador do sistema; no Windows, é uma extensão paga da Microsoft Store (alguns reais).",
+    "Os vídeos de iPhones e câmeras parecidas usam HEVC (H.265). A reprodução precisa de um decodificador do sistema; no Windows, é uma extensão paga e barata da Microsoft Store.",
   videoCodecNoteMac:
     "O macOS decodifica HEVC de fábrica, então é mais provável que seja um formato de gravação que ele não suporta.",
   videoCodecNoteOther:
@@ -342,7 +343,7 @@ export const pt: Dict = {
     `Mostrando só as primeiras ${num(n)}. Use “Pasta inteira” para importar tudo`,
   wizardScanIncomplete: "⚠ Algumas pastas não puderam ser lidas (podem faltar fotos)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}. São necessárias as Extensões de Imagem HEIF (gratuitas) e também as Extensões de Vídeo HEVC (pagas, alguns reais), que decodificam os pixels`,
+    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}. São necessárias as Extensões de Imagem HEIF (gratuitas) e também as Extensões de Vídeo HEVC (pagas, mas baratas), que decodificam os pixels`,
   decoderHeifNoticeMac: (n: number) =>
     `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}`,
   decoderHeifNoticeOther: (n: number) =>
@@ -515,7 +516,7 @@ export const pt: Dict = {
   pickGoogleFolder: "Escolha a pasta de Saída",
   importGoogle: (n: number) => ` · ${num(n)} ${one(n, "colocado", "colocados")} na Saída`,
   importGoogleFailed: (n: number) =>
-    `${num(n)} não ${one(n, "pôde ser colocada", "puderam ser colocadas")} na Saída (veja o registro)`,
+    `${num(n)} não ${one(n, "pôde ser colocado", "puderam ser colocados")} na Saída (veja o registro)`,
   importGoogleError: (why: string) => `Nada foi colocado na Saída: ${why}`,
   bulkSendGoogle: "Adicionar à Saída",
   bulkRemoveGoogle: "Remover da Saída",
