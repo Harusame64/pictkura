@@ -1609,3 +1609,24 @@ test("右から左の辞書は、大きさ（`1.22 MB`）を閉じて差し込�
     assert.ok(d.selectionTotal("1.22 MB").includes("\u20681.22 MB\u2069"), d.selectionTotal("1.22 MB"));
   }
 });
+
+/**
+ * **Store の対応言語（MSIX のマニフェスト）と、画面の辞書が揃っていること**。Store が「対応言語」に出し、
+ * 掲載ページを作れるのはマニフェストに書いた言語だけ——辞書を足してここを忘れると、アプリは話すのに
+ * Store では見つからない（1.0.1 まで日英の2つだけだった。1.0.2 の準備で判明）
+ */
+test("MSIX のマニフェストが、辞書の言語をすべて宣言していること", () => {
+  const manifest = readFileSync(new URL("../../src-tauri/windows/msix/AppxManifest.xml", import.meta.url), "utf8");
+  const declared = [...manifest.matchAll(/<Resource Language="([^"]+)"/g)].map((m) => m[1].toLowerCase());
+  // 辞書のコード → Store の綴り（地域を付ける辞書だけ書く。ほかは同じ綴り）
+  const storeTags: Record<string, string[]> = {
+    ja: ["ja-jp"],
+    en: ["en-us"],
+    es: ["es-es"],
+    zh: ["zh-hans"],
+    "zh-hant": ["zh-hant"],
+    pt: ["pt-br", "pt-pt"],
+  };
+  const expected = Object.keys(DICTS).flatMap((code) => storeTags[code] ?? [code]);
+  assert.deepEqual(declared.slice().sort(), expected.slice().sort());
+});

@@ -31,9 +31,27 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
 
+  <!-- Store が「対応言語」に出し、言語ごとの掲載ページを作れるのはここに書いた言語だけ。
+       **画面の辞書（ui/src/i18n/index.ts の DICTS）と揃える**——ui/scripts/i18n.test.ts が突き合わせる。
+       ja-JP・en-US は 1.0.0 からの掲載がこの綴りに結びついているので残す。地域で割らない辞書は地域を付けない。
+       葡語はブラジルの辞書1つでポルトガルも覆う（pt-PT の掲載にもブラジルの文を出す）。
+       綴りは Store の一覧にあるもの（learn.microsoft.com の App package requirements → Supported languages） -->
   <Resources>
     <Resource Language="ja-JP" />
     <Resource Language="en-US" />
+    <Resource Language="de" />
+    <Resource Language="fr" />
+    <Resource Language="it" />
+    <Resource Language="ru" />
+    <Resource Language="es-ES" />
+    <Resource Language="es-419" />
+    <Resource Language="zh-Hans" />
+    <Resource Language="zh-Hant" />
+    <Resource Language="pt-BR" />
+    <Resource Language="pt-PT" />
+    <Resource Language="ko" />
+    <Resource Language="ar" />
+    <Resource Language="he" />
   </Resources>
 
   <Applications>
