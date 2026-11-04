@@ -8,7 +8,7 @@ import { containBox, fitScaleFor, viewerBox } from "../src/viewerZoomBox.ts";
 
 test("a large photo fits inside the margins, centred", () => {
   // 幅の上限 1920-120=1800、高さの上限 1080-80=1000。横長 6000x4000 は高さで決まる（1500x1000）
-  assert.deepEqual(viewerBox([6000, 4000], 0, 1920, 1080), {
+  assert.deepEqual(viewerBox([6000, 4000], 0, false, 1920, 1080), {
     left: 210,
     top: 40,
     width: 1500,
@@ -17,7 +17,7 @@ test("a large photo fits inside the margins, centred", () => {
 });
 
 test("a small photo is not enlarged", () => {
-  assert.deepEqual(viewerBox([400, 300], 0, 1920, 1080), {
+  assert.deepEqual(viewerBox([400, 300], 0, false, 1920, 1080), {
     left: 760,
     top: 390,
     width: 400,
@@ -27,7 +27,7 @@ test("a small photo is not enlarged", () => {
 
 test("the info panel's reserve narrows the area and shifts the centre left", () => {
   // 残りの幅 1920-300=1620、上限 1500。横長 3000x1000 は幅で決まる（1500x500）
-  assert.deepEqual(viewerBox([3000, 1000], 300, 1920, 1080), {
+  assert.deepEqual(viewerBox([3000, 1000], 300, false, 1920, 1080), {
     left: 60,
     top: 290,
     width: 1500,
@@ -35,9 +35,21 @@ test("the info panel's reserve narrows the area and shifts the centre left", () 
   });
 });
 
+test("right to left puts the panel on the left and the photo after it", () => {
+  // パネル 300 が左。残り 1620 の中央は 300 + (1620-1500)/2 = 360——左→右の 60 を鏡に映した位置
+  assert.deepEqual(viewerBox([3000, 1000], 300, true, 1920, 1080), {
+    left: 360,
+    top: 290,
+    width: 1500,
+    height: 500,
+  });
+  // パネルが閉じていれば左右どちらでも同じ
+  assert.deepEqual(viewerBox([3000, 1000], 0, true, 1920, 1080), viewerBox([3000, 1000], 0, false, 1920, 1080));
+});
+
 test("unknown dimensions give no box (the viewer opens without the zoom)", () => {
-  assert.equal(viewerBox([0, 0], 0, 1920, 1080), null);
-  assert.equal(viewerBox([NaN, 100], 0, 1920, 1080), null);
+  assert.equal(viewerBox([0, 0], 0, false, 1920, 1080), null);
+  assert.equal(viewerBox([NaN, 100], 0, false, 1920, 1080), null);
 });
 
 test("containBox finds the drawn picture inside a box of the wrong shape", () => {

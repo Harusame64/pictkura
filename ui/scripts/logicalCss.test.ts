@@ -9,7 +9,9 @@
  *
  * **走査は手がかりであって証明ではない。** よく書く形（位置・余白・枠・角丸・影・移動・グラデーション）は拾うが、
  * `background` の省略形の中の数値の位置、`var()` の先（トークンの中身）、`calc()` で書いた角度は見ない。
- * KEEP の VIEWER は `.viewer` の中に描かれる部品にだけ使う（外に出る ViewerZoom などは留まらない）。
+ *
+ * 右→左の付け直しは `[dir="rtl"] …` で書く（`<html dir>` は main.tsx が必ず付ける）。`:dir()` は
+ * WebKit 16.4 より前で効かないので使わない。
  *
  * 論理の角丸（`border-start-start-radius`）は WebKit 15 から。画面は既に `oklch()`（15.4〜）で
  * 色を塗っているので、それより古い WebKit では元から描けない。
@@ -24,12 +26,11 @@ const src = new URL("../src/", import.meta.url);
 const SHEETS = ["App.css", "tokens.css"];
 
 /**
- * ビューアの左右。情報パネルは右に開き、絵の大きさは JS（viewerZoomBox.ts）も右にパネルが
- * ある前提で計算する。送り（← →）・戻る（←）・道具の帯も、その向きと組で決まっている。
- * **一部だけ鏡に映ると、右→左で絵と合図と送りがずれる**ので、`.viewer` を `direction: ltr` で
- * まるごと留めてある。パネルを左へ移すときに、JS・矢印キー・印の向きと一緒にまとめて外す。
+ * 論理の形が無いもの（影・横の移動）は、横の値に `--inline-sign`（tokens.css。左→右は 1、右→左は -1）を
+ * 掛けて鏡に映す。下の試験が、掛かっていることと符号の定義を確かめる
  */
-const VIEWER = "ビューアは direction: ltr に留めてある（パネル・viewerZoomBox・送りと一緒に外す）";
+const SIGNED = "横の値に --inline-sign を掛けて鏡に映す";
+const FLIP = "右→左で部品ごと裏返す";
 const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
 const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
 const SPINNER = "回転する印の欠け。向きの意味が無い";
@@ -40,8 +41,6 @@ const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-q
 const KEEP: Record<string, string> = {
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
-  ".wiz-node.wiz-card|box-shadow|inset 3px 0 0 var(--accent)": "影に論理の形が無い。右→左は [dir=rtl] で裏返す",
-  '.wiz-node.wiz-card:dir(rtl)|box-shadow|inset -3px 0 0 var(--accent)': "上の裏返し",
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":
     SHIMMER,
   "@keyframes placeholder-shimmer from|background-position|0 0": SHIMMER,
@@ -59,29 +58,18 @@ const KEEP: Record<string, string> = {
   ".print-fit-sample-cover > span::after|left|6%": PICTURE,
   ".print-fit-sample-cover > span|left|-50%": PICTURE,
 
-  ".viewer-stage|right|var(--info-reserve)": VIEWER,
-  ".viewer-loading-overlay|right|var(--info-reserve)": VIEWER,
-  ".viewer-missing-band|left|calc((100vw - var(--info-reserve)) / 2)": VIEWER,
-  ".viewer-missing-band|transform|translateX(-50%)": VIEWER,
-  ".viewer-caption|left|0": VIEWER,
-  ".viewer-caption|right|var(--info-reserve)": VIEWER,
-  ".viewer-strip|left|0": VIEWER,
-  ".viewer-strip|right|var(--info-reserve)": VIEWER,
-  ".viewer-tools|right|var(--sp-4)": VIEWER,
-  ".viewer-back|left|var(--sp-4)": VIEWER,
-  ".viewer-badges|left|var(--sp-4)": VIEWER,
-  ".viewer-flash|left|calc((100% - var(--info-reserve)) / 2)": VIEWER,
-  "@keyframes viewer-flash 0%|transform|translate(-50%, -50%) scale(0.7)": VIEWER,
-  "@keyframes viewer-flash 18%|transform|translate(-50%, -50%) scale(1)": VIEWER,
-  "@keyframes viewer-flash 70%|transform|translate(-50%, -50%) scale(1)": VIEWER,
-  "@keyframes viewer-flash 100%|transform|translate(-50%, -50%) scale(1.08)": VIEWER,
-  [`${QUIET} 0%, 70%|transform|translate(-50%, -50%)`]: VIEWER,
-  [`${QUIET} 100%|transform|translate(-50%, -50%)`]: VIEWER,
-  "@keyframes viewer-progress-slide from|transform|translateX(-100%)": VIEWER,
-  "@keyframes viewer-progress-slide to|transform|translateX(360%)": VIEWER,
-  ".viewer-nav.prev|left|var(--sp-4)": VIEWER,
-  ".viewer-nav.next|right|calc(var(--info-reserve) + var(--sp-4))": VIEWER,
-  ".exif-panel|right|var(--sp-4)": VIEWER,
+  ".wiz-node.wiz-card|box-shadow|inset calc(3px * var(--inline-sign)) 0 0 var(--accent)": SIGNED,
+  ".viewer-missing-band|transform|translateX(calc(-50% * var(--inline-sign)))": SIGNED,
+  "@keyframes viewer-flash 0%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(0.7)": SIGNED,
+  "@keyframes viewer-flash 18%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1)": SIGNED,
+  "@keyframes viewer-flash 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1)": SIGNED,
+  "@keyframes viewer-flash 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1.08)": SIGNED,
+  [`${QUIET} 0%, 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
+  [`${QUIET} 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
+  '[dir="rtl"] .viewer-back-icon|transform|scaleX(-1)': FLIP,
+  '[dir="rtl"] .wiz-twisty|transform|scaleX(-1)': FLIP,
+  "@keyframes viewer-progress-slide from|transform|translateX(calc(-100% * var(--inline-sign)))": SIGNED,
+  "@keyframes viewer-progress-slide to|transform|translateX(calc(360% * var(--inline-sign)))": SIGNED,
 };
 
 type Decl = { key: string; prop: string; value: string };
@@ -310,22 +298,16 @@ test("the scanner flags each physical shape", () => {
   }
 });
 
-test("no right-to-left language ships while the viewer is pinned", () => {
-  // `.viewer` の direction: ltr は文字の向きも留める。アラビア語・ヘブライ語の字幕や情報パネルが
-  // 左→右で組まれてしまうので、それらの辞書を足す前に外す
-  // index.ts は window を読むので import できない（i18n.test と同じく文字で読む）
-  const index = readFileSync(new URL("i18n/index.ts", src), "utf8");
-  const block = /export const LOCALES[\s\S]*?\n\];/.exec(index)?.[0] ?? "";
-  const codes = [...block.matchAll(/code: "([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(codes.includes("ja") && codes.length >= 10, `LOCALES を読めていない: ${codes}`);
-  const rtl = codes.filter((c) => /^(ar|he|fa|ur)\b/.test(c));
-  const pinned = all.some((d) => d.key === ".viewer|direction|ltr");
-  assert.ok(!(pinned && rtl.length), `.viewer を留めたまま ${rtl} を足している`);
+test("signed values carry --inline-sign and the sign flips with dir", () => {
+  for (const k of Object.keys(KEEP).filter((k) => KEEP[k] === SIGNED)) {
+    assert.ok(k.split("|")[2].includes("var(--inline-sign)"), k);
+  }
+  const keys = new Set(all.map((d) => d.key));
+  assert.ok(keys.has(":root|--inline-sign|1"), "tokens.css に :root の --inline-sign: 1 が無い");
+  assert.ok(keys.has(':root[dir="rtl"]|--inline-sign|-1'), 'tokens.css に :root[dir="rtl"] の --inline-sign: -1 が無い');
 });
 
-test("the viewer stays pinned left-to-right while its rules are kept physical", () => {
-  // VIEWER の物理が許されるのは、.viewer を direction: ltr で留めている間だけ
-  const pinned = all.some((d) => d.key === ".viewer|direction|ltr");
-  const kept = Object.values(KEEP).includes(VIEWER);
-  assert.equal(pinned, kept, pinned ? "VIEWER が空なら direction: ltr も外す" : "direction: ltr を外すなら VIEWER の物理も直す");
+test("right-to-left rules key on the dir attribute, not :dir()", () => {
+  // :dir() は WebKit 16.4 より前で効かない（macOS 11・12）。鏡が半分になる
+  assert.deepEqual(all.filter((d) => d.key.includes(":dir(")).map((d) => d.key), []);
 });

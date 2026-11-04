@@ -696,7 +696,7 @@ export default function ImportWizard({
             {...pressKeys(() => openFolder(node.path, node.deepDefault))}
             aria-current={current === node.path ? "true" : undefined}
           >
-            {node.name}
+            <span className="name">{node.name}</span>
           </span>
           {node.imageCount > 0 && (
             <span className="wiz-count">
@@ -944,7 +944,9 @@ export default function ImportWizard({
           <div className="wiz-dest-col">
           <div className="wiz-dest">
             <span className="wiz-dest-label">{t.wizardDestination}</span>
-            <code>{destination ?? t.settingsDestinationUnset}</code>
+            <code className={destination ? undefined : "prose"}>
+              {destination ?? t.settingsDestinationUnset}
+            </code>
             <button
               className="wiz-dest-change"
               disabled={busy}

@@ -177,3 +177,13 @@ html[data-theme="dark"] {
   --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
   --shadow-3: 0 2px 6px oklch(0 0 0 / 0.5), 0 24px 56px -12px oklch(0 0 0 / 0.7);
 }
+
+/* 横の向きの符号。左→右は 1、右→左は -1。論理の形が無いもの（影・横の移動）に掛けて鏡に映す
+   （`<html dir>` は main.tsx が言語から付ける） */
+:root {
+  --inline-sign: 1;
+}
+/* `:root` と同じ重みだと、後に :root の塊が足されたとき上書きされる。重みを1段上げておく */
+:root[dir="rtl"] {
+  --inline-sign: -1;
+}

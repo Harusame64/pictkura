@@ -158,6 +158,7 @@ import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
+import { inlineSign, isRtl, stepOfArrow } from "./direction";
 import { letterOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
@@ -469,13 +470,13 @@ type Row =
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
 
 /**
- * ビューアの情報パネル（I）の幅。パネルを開いている間は、写真・「次へ」・フィルムストリップ・字幕と、絵の中央に
- * 出すもの（判定の印・読み込み中・原本が無い帯）を、パネルの左端まで左へ寄せて横に並べる（pictkura-dev #48。
- * パネルが「次へ」と写真の右端を覆っていた）。
+ * ビューアの情報パネル（I）の幅。パネルは行の終わりの側（左→右なら右、右→左なら左）に開く。開いている間は、
+ * 写真・「次へ」・フィルムストリップ・字幕と、絵の中央に出すもの（判定の印・読み込み中・原本が無い帯）を、
+ * パネルの手前まで寄せて横に並べる（pictkura-dev #48。パネルが「次へ」と写真の端を覆っていた）。
  * CSS はこの値を `--exif-panel-width` / `--info-reserve` で受ける——倍率の計算と1か所で揃える
  */
 const EXIF_PANEL_WIDTH = 260;
-/** パネルと窓の右端の間（CSS の `right: var(--sp-4)`）。空ける幅はパネルの左端まで——「次へ」はその内側に `--sp-4` で付く */
+/** パネルと窓の端の間（CSS の `inset-inline-end: var(--sp-4)`）。空ける幅はパネルの内側の縁まで——「次へ」はその内側に `--sp-4` で付く */
 const EXIF_PANEL_INSET = 16;
 /** 一覧に問い合わせた絞り込み（棚・種類・検索語）。`summaryFor` を見よ */
 type Asked = { filter: MediaFilter; kind: MediaKind; query: string };
@@ -4732,7 +4733,8 @@ export default function App() {
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!ghost || !stage) return;
-    const w = window.innerWidth;
+    // 次の絵は読む向きの先から入ってくる。右→左では左から
+    const w = window.innerWidth * inlineSign();
     const slide = ghost.kind === "slide";
     const timing: KeyframeAnimationOptions = {
       duration: ghost.ms,
@@ -5685,8 +5687,8 @@ export default function App() {
         }
       }
       if (e.key === "Escape") requestCloseViewer();
-      else if (e.key === "ArrowLeft") moveViewer(-1);
-      else if (e.key === "ArrowRight") moveViewer(1);
+      // 右→左の画面では左が「次」（direction.ts）
+      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") moveViewer(stepOfArrow(e.key, isRtl()));
       // **`F` も判定と同じ扱いにする**（2026-09-08）。★も**写真の状態を書き換える**のに、
       // ここだけ修飾キーを見ていなかった——**`⌘F` / `Ctrl+F`（頁内検索の手癖）で
       // 黙って★が付く**。Windows では WebView2 の検索バーがその上に出る
@@ -6261,7 +6263,7 @@ export default function App() {
         const known = naturalRef.current.get(opened.id);
         const db = servedSize(opened);
         const size = known && known[0] > known[1] === db[0] > db[1] ? known : db;
-        const to = viewerBox(size, infoReserve);
+        const to = viewerBox(size, infoReserve, isRtl());
         setTileZoom(
           to
             ? {
@@ -7831,7 +7833,7 @@ export default function App() {
               >
                 <span className="root-name">
                   {mark !== null && "⚠ "}
-                  {rootName(r)}
+                  <span className="name">{rootName(r)}</span>
                 </span>
                 <button
                   className="root-remove"
@@ -8458,7 +8460,9 @@ export default function App() {
                         : t.videoUnsupported}
                 </p>
                 {!videoInfo.exists && (
-                  <p className="fallback-note fallback-path">{videoInfo.path}</p>
+                  <p className="fallback-note fallback-path">
+                    <span className="path">{videoInfo.path}</span>
+                  </p>
                 )}
                 {/* 拡張機能の案内を出すのは「コンテナは扱えるのに再生できなかった」
                     ときだけ。ファイルが無い・コンテナが違う・クラウドにしか無いのを
@@ -8826,7 +8830,9 @@ export default function App() {
               <p className="viewer-missing-title">
                 {t[TROUBLE_TEXT[missingOriginal.reason]]}
               </p>
-              <p className="fallback-path">{missingOriginal.path}</p>
+              <p className="fallback-path">
+                <span className="path">{missingOriginal.path}</span>
+              </p>
             </div>
           )}
           {/* 前後に何があるか（0.2 ②）。送りが速いので、次に何が来るかが
@@ -8888,7 +8894,7 @@ export default function App() {
               className="viewer-caption"
               onClick={(e) => e.stopPropagation()}
             >
-              {viewerItem.file_name}
+              <span className="name">{viewerItem.file_name}</span>
               <span className="viewer-date">
                 {formatDateTime(viewerItem.taken_at_ms)}
               </span>

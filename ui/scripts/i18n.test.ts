@@ -47,6 +47,7 @@ import { ru } from "../src/i18n/ru.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
+import { dirOf } from "../src/direction.ts";
 
 type Any = Record<string, unknown>;
 
@@ -1274,5 +1275,17 @@ test("書き出し・移動の結果が、ライブラリから無くなった�
       call(d, "moveDone", [8, 0, 0, 0, 0]),
       `${lang}: 8枚移動して2枚無くなったのに、8枚だけの文と同じ`,
     );
+  }
+});
+
+test("the prev/next arrows point the way the keys step", () => {
+  // 右→左の画面では ← が「次」（direction.ts の stepOfArrow）。← → は鏡像文字ではないので、
+  // 右→左の辞書は自分で入れ替える（index.ts の手順）
+  for (const [code, d] of Object.entries(DICTS)) {
+    const rtl = dirOf(code) === "rtl";
+    const next = String(d.viewerNext);
+    const prev = String(d.viewerPrev);
+    assert.ok(next.includes(rtl ? "←" : "→"), `${code}: viewerNext = ${next}`);
+    assert.ok(prev.includes(rtl ? "→" : "←"), `${code}: viewerPrev = ${prev}`);
   }
 });

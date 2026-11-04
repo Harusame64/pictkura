@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./App.css";
 import { rememberLocaleChoice, syncMenuLocale } from "./api";
+import { dirOf } from "./direction";
 import { locale } from "./i18n";
 import { initTheme } from "./theme";
 
@@ -14,6 +15,9 @@ initTheme();
 // ここで実際に使う言語に合わせておく（言語の切り替えは読み込み直しを伴うので、
 // 起動時に一度当てれば足りる）
 document.documentElement.lang = locale;
+// **向きも同じく。** アラビア語・ヘブライ語は右から左。CSS（論理プロパティと `[dir="rtl"]`）も
+// JS（`direction.ts` の `isRtl`）もこの属性を見る
+document.documentElement.dir = dirOf(locale);
 
 // **メニューバーも同じ言語にする**（macOSだけ。Issue #14）。Rustは起動の一瞬だけ
 // OSの言語から当てているので、`localStorage` で別の言語を選んでいる人は
