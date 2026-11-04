@@ -3078,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "pictkura"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "arboard",
  "chrono",
@@ -3108,7 +3108,7 @@ dependencies = [
 
 [[package]]
 name = "pictkura-core"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "chrono",
  "fast_image_resize",
