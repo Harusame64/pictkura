@@ -40,7 +40,7 @@ import { folderExample } from "./folderExample.ts";
 import { num } from "./plural.ts";
 import type { Dict } from "./ja.ts";
 
-/** 語の終わりにパッチムがあるか。ハングルなら字から、数字なら読みから。分からなければ null */
+/** 語の終わりにパッチムがあるか。ハングルの字から読む。それ以外（ラテン文字・数字）は分からないので null */
 function batchim(word: string): { has: boolean; rieul: boolean } | null {
   const ch = word.replace(/[\s)\]」』"'”’]+$/u, "").slice(-1);
   if (!ch) return null;
@@ -49,8 +49,9 @@ function batchim(word: string): { has: boolean; rieul: boolean } | null {
     const jong = (c - 0xac00) % 28;
     return { has: jong !== 0, rieul: jong === 8 };
   }
-  // 数字の読み: 0 영・1 일・3 삼・6 육・7 칠・8 팔 はパッチムあり（1・7・8 は ㄹ）
-  if (/[0-9]/.test(ch)) return { has: "013678".includes(ch), rieul: "178".includes(ch) };
+  // **数字で終わる語は読みが割れる**——製品名は英語で読まれることが多い（`Windows 11` は 일레븐、
+  // `Photoshop 2025` は 이천이십오 とも twenty-twenty-five とも）。数は助数詞（장・개）を付けて
+  // 助詞を数字に直に付けないので、ここに来るのは名前だけ。ラテン文字と同じく両方書く（ゲート2）
   return null;
 }
 
@@ -68,7 +69,7 @@ const euro = (word: string): string => {
 
 export const ko: Dict = {
   appName: "pictkura",
-  viewThumbnails: "미리보기",
+  viewThumbnails: "썸네일",
   viewCalendar: "캘린더",
   searchPlaceholder: "검색 (파일 이름, 폴더, 카메라, 2019-08, year:2019)",
   searchClear: "검색어 지우기 (Esc)",
@@ -141,7 +142,7 @@ export const ko: Dict = {
   browse: "찾아보기…",
   addFolderPlaceholder: folderExample("예: ", "사용자"),
   pickLibraryFolder: "라이브러리에 추가할 폴더 선택",
-  showMore: (n: number) => `외 ${num(n)}대`,
+  showMore: (n: number) => `${num(n)}대 더보기`,
   collapse: "접기",
   photosCount: (n: number) => `${num(n)}장`,
   memoriesTitle: (years: number) => `${num(years)}년 전 오늘`,
@@ -167,7 +168,8 @@ export const ko: Dict = {
   rejectGateConfirm: (n: number) => `${num(n)}장을 휴지통으로`,
   rejectGateTrashing: (done: number, total: number) =>
     `이동 중… (${num(done)} / ${num(total)})`,
-  updateFound: (v: string) => `새 버전 ${josa(v, "이", "가")} 나왔습니다`,
+  // 版の文字列は空で来ることがある（`latest ?? ""`）。助詞が浮かないよう、版を後ろに回す
+  updateFound: (v: string) => `새 버전이 나왔습니다${v ? ` (${v})` : ""}`,
   updateOpenPage: "다운로드 페이지 열기",
   updateLater: "나중에",
   updateCheckNow: "업데이트 확인",
@@ -206,7 +208,7 @@ export const ko: Dict = {
   videoFailed: "이 동영상을 재생하지 못했습니다",
   videoOpenExternal: "기본 앱으로 열기",
   videoCodecNote:
-    "iPhone 등의 동영상은 HEVC(H.265)로 기록됩니다. 재생하려면 OS의 디코더가 필요하며, Windows에서는 Microsoft Store의 유료 확장 기능(저렴한 유료)입니다.",
+    "iPhone 등의 동영상은 HEVC(H.265)로 기록됩니다. 재생하려면 OS의 디코더가 필요하며, Windows에서는 Microsoft Store의 저렴한 유료 확장 기능입니다.",
   videoCodecNoteMac:
     "macOS는 처음부터 HEVC를 재생할 수 있으므로, 지원하지 않는 기록 방식일 수 있습니다.",
   videoCodecNoteOther:
@@ -238,7 +240,7 @@ export const ko: Dict = {
   actionShowPicked: "플래그 지정된 사진만 보기",
   actionShowAll: "모든 이미지 보기",
   actionCalendar: "캘린더로 보기",
-  actionThumbnails: "미리보기로 보기",
+  actionThumbnails: "썸네일로 보기",
   indexBuilding: "🔍 검색 색인을 만드는 중… ",
   bgScanning: "라이브러리를 업데이트하는 중…",
   bgThumbs: (n: number) => `사진을 불러오는 중 (${num(n)}장 남음)`,
@@ -258,10 +260,10 @@ export const ko: Dict = {
   rootRemoveConfirm: (name: string) =>
     `“${name}” 폴더를 라이브러리에서 제거하시겠습니까?\n사진 파일은 지워지지 않지만, 안의 사진에 붙인 ★와 ⚑ 표시는 사라집니다.`,
   rootTempConfirm: (path: string) =>
-    `${josa(`“${path}”`, "은", "는")} 임시 폴더 안에 있습니다.\nOS나 다른 앱이 이 안의 파일을 모르는 사이에 지울 수 있습니다. 그래도 라이브러리에 추가하시겠습니까?`,
+    `“${path}” 폴더는 임시 폴더 안에 있습니다.\nOS나 다른 앱이 이 안의 파일을 모르는 사이에 지울 수 있습니다. 그래도 라이브러리에 추가하시겠습니까?`,
   rootTempConfirmOk: "추가",
   destTempConfirm: (path: string) =>
-    `${josa(`“${path}”`, "은", "는")} 임시 폴더 안에 있습니다.\n여기로 가져오면 OS나 다른 앱이 모르는 사이에 사진을 지울 수 있습니다. 카드를 지운 뒤에는 그 사진이 어디에도 남지 않습니다. 그래도 복사 위치로 지정하시겠습니까?`,
+    `“${path}” 폴더는 임시 폴더 안에 있습니다.\n여기로 가져오면 OS나 다른 앱이 모르는 사이에 사진을 지울 수 있습니다. 카드를 지운 뒤에는 그 사진이 어디에도 남지 않습니다. 그래도 복사 위치로 지정하시겠습니까?`,
   destTempConfirmOk: "복사 위치로 지정",
   destTempWarning:
     "⚠ 복사 위치가 임시 폴더 안에 있습니다. 가져온 사진이 모르는 사이에 사라질 수 있습니다.",
@@ -294,9 +296,9 @@ export const ko: Dict = {
   emptyTitle: "아직 사진이 없습니다",
   emptyTitleFailed: "목록을 표시하지 못했습니다",
   emptyTitleChecking: "확인하고 있습니다",
-  emptyTitleStartupFailed: "가져오기가 끝까지 완료되지 않았습니다",
+  emptyTitleStartupFailed: "시작할 때의 동기화가 완료되지 않았습니다",
   emptyStartupFailed:
-    "시작할 때의 동기화가 끝까지 완료되지 않았습니다. 사진이 있어도 아직 목록에 들어오지 않았을 수 있습니다. ‘다시 스캔’을 누르십시오. 그래도 해결되지 않으면 앱을 다시 여십시오.",
+    "시작할 때의 동기화가 완료되지 않았습니다. 사진이 있어도 아직 목록에 들어오지 않았을 수 있습니다. ‘다시 스캔’을 누르십시오. 그래도 해결되지 않으면 앱을 다시 여십시오.",
   emptyTitleMissing: "찾을 수 없는 위치가 있습니다",
   emptyTitleUnreadable: "열 수 없는 위치가 있습니다",
   emptyNoRoots:
@@ -310,12 +312,13 @@ export const ko: Dict = {
   emptyUnreadableOther: (names: string) =>
     `다음 위치를 열지 못했습니다: ${names}. 읽기 권한이 있는지 확인한 뒤 ‘다시 스캔’을 누르십시오.`,
   listSeparator: ", ",
-  listLastSeparator: ", ",
+  // `외 N개` は前の名詞に直に付く（`A, B 외 2개`）。読点を挟まない（Gemini）
+  listLastSeparator: " ",
   andMore: (n: number) => `외 ${num(n)}개`,
   emptyRootIsPackage:
     "라이브러리 폴더로 ‘사진’ 앱의 사진 보관함 자체가 지정되어 있습니다. pictkura는 그 안을 다루지 않으므로, 여기서는 아무것도 나오지 않습니다. 사진이 있는 폴더를 다시 선택하거나, 카드에서 가져오십시오.",
   emptyPhotoLibrary:
-    "‘사진’ 앱의 사진 보관함 말고는 다룰 수 있는 것을 찾지 못했습니다. pictkura는 기본적으로 ‘사진’ 앱 안을 다루지 않습니다 (원본 대부분은 iCloud에 있고, 이 Mac에는 없습니다). 카드에서 가져오거나, 사진이 있는 폴더를 선택하십시오.",
+    "‘사진’ 앱의 사진 보관함 말고는 다룰 수 있는 것을 찾지 못했습니다. pictkura는 기본적으로 ‘사진’ 앱 안을 다루지 않습니다 (원본 대부분은 iCloud에 있고, 이 컴퓨터에는 없습니다). 카드에서 가져오거나, 사진이 있는 폴더를 선택하십시오.",
   emptyManagedLibrary:
     "사진을 관리하는 앱의 보관함(‘사진’ 앱·iPhoto·Aperture 등) 말고는 다룰 수 있는 것을 찾지 못했습니다. pictkura는 그 안을 다루지 않습니다 (안을 색인해도 나중의 변경이 반영되지 않아 오래된 상태로 남기 때문입니다). 카드에서 가져오거나, 사진이 있는 폴더를 선택하십시오.",
   emptyRootIsManagedLibrary:
@@ -340,7 +343,7 @@ export const ko: Dict = {
   wizardSelectNew: "가져오지 않은 것만 선택",
   wizardClearSelection: "선택 해제",
   wizardSelected: (n: number) => `${num(n)}장 선택됨`,
-  wizardImportedBadge: "완료",
+  wizardImportedBadge: "✓",
   wizardImportedTitle: "가져오기 완료 (복사 위치에 같은 파일이 있습니다)",
   wizardUnsureBadge: "?",
   wizardUnsureTitle:
@@ -350,15 +353,15 @@ export const ko: Dict = {
   wizardStructure: "분류",
   wizardImportButton: (n: number) => `${num(n)}장 가져오기`,
   wizardImportAll: "이 폴더를 통째로 가져오기 (하위 폴더 포함)",
-  wizardImportAllShort: "폴더째",
+  wizardImportAllShort: "폴더 전체",
   wizardDeep: "하위 폴더 포함",
   wizardDeepHint: "미디어 안을 모두 뒤져서 보여 줍니다 (어디에 들어 있는지 몰라도 됩니다)",
   wizardScanning: "미디어 안을 찾고 있습니다…",
   wizardTruncated: (n: number) =>
-    `너무 많아서 처음 ${num(n)}장만 표시합니다. 모두 가져오려면 ‘폴더째’를 쓰십시오`,
+    `너무 많아서 처음 ${num(n)}장만 표시합니다. 모두 가져오려면 ‘폴더 전체’를 쓰십시오`,
   wizardScanIncomplete: "⚠ 읽을 수 없는 폴더가 있었습니다 (빠진 사진이 있을 수 있습니다)",
   decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다). 무료 ‘HEIF 이미지 확장’에 더해, 화소를 풀어내는 유료 ‘HEVC 비디오 확장’(저렴한 유료)이 필요합니다`,
+    `⚠ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다). 무료 ‘HEIF 이미지 확장’에 더해, 화소를 풀어내는 저렴한 유료 ‘HEVC 비디오 확장’이 필요합니다`,
   decoderHeifNoticeMac: (n: number) =>
     `⚠ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다)`,
   decoderHeifNoticeOther: (n: number) =>
@@ -375,7 +378,7 @@ export const ko: Dict = {
   wizardEtaMinutes: (n: number) => `약 ${num(n)}분 남음`,
   wizardEtaCalculating: "남은 시간을 계산하고 있습니다…",
   wizardCapped: (n: number) => `${num(n)}+장`,
-  wizardMoreFiles: (n: number) => `외 ${num(n)}장 (스크롤하면 표시)`,
+  wizardMoreFiles: (n: number) => `${num(n)}장 더 있음 (스크롤하면 표시)`,
   menuOpen: "열기",
   menuOpenWith: (name: string) => `${euro(name)} 열기`,
   menuOpenWithOther: "다른 앱으로 열기…",
@@ -516,7 +519,7 @@ export const ko: Dict = {
   settingsGoogleFoldersNote:
     "pictkura가 지금까지 사진을 놓은 보내기 폴더입니다 (드라이브마다 만듭니다). Google 포토를 사용하는 경우: 쓰는 폴더는 모두 ‘폴더 백업’에 등록하십시오.",
   settingsGoogleVideo: "동영상도 놓기",
-  settingsGoogleRawOnly: "RAW만 있는 컷",
+  settingsGoogleRawOnly: "RAW만 있는 사진",
   googleRawOnlyNone: "놓지 않음",
   googleRawOnlyEmbedded: "내장 JPEG 놓기",
   settingsGoogleRawOnlyNote:
@@ -525,7 +528,7 @@ export const ko: Dict = {
   settingsGoogleOneDriveNote: "놓으면 그 사진은 OneDrive에서 ‘온라인 전용’으로 만들 수 없게 됩니다.",
   settingsGoogleAfterNote:
     "pictkura에서 사진을 휴지통에 넣으면 보내기 폴더에서도 뺍니다. Google 포토를 사용하는 경우: Google 포토에서는 지워지지 않습니다. 업로드는 Google 포토의 웹 페이지(photos.google.com)가 하므로, 브라우저에서 그 페이지를 열어 둔 동안에만 진행됩니다.",
-  pickGoogleFolder: "보내기 폴더를 선택하십시오",
+  pickGoogleFolder: "보내기 폴더 선택",
   importGoogle: (n: number) => ` · 보내기 폴더에 ${num(n)}개`,
   importGoogleFailed: (n: number) =>
     `보내기 폴더에 ${num(n)}개를 놓지 못했습니다 (로그 참고)`,
@@ -640,7 +643,7 @@ export const ko: Dict = {
   errGoogleOtherDrive: "가져올 위치와 같은 드라이브의 폴더를 고르십시오.",
   errNotFound: "그 사진의 기록을 찾을 수 없습니다.",
   errRotateNoOrientation: "이 사진에는 방향 정보가 없어서 회전할 수 없습니다.",
-  errRotateXmp: "현상 프로그램이 쓰는 방향 정보(XMP)와 어긋나서 회전할 수 없습니다.",
+  errRotateXmp: "RAW 현상 프로그램이 사용하는 방향 정보(XMP)와 어긋나서 회전할 수 없습니다.",
   errRotateCloudOnly: "사진이 클라우드에만 있어서 회전할 수 없습니다. 다운로드한 뒤 다시 시도하십시오.",
   errRotateCameraCard:
     "카메라 카드 안의 사진은 가져올 원본으로 보호하고 있어서 회전할 수 없습니다. 가져온 뒤 회전하십시오.",
@@ -658,9 +661,9 @@ export const ko: Dict = {
   errConfigFormat: "설정 파일의 내용을 읽지 못했습니다.",
   errNoDestination: "복사 위치 폴더가 정해지지 않았습니다.",
   errRootManaged:
-    "앱이 관리하는 보관함은 폴더로 등록할 수 없습니다 (내용은 내부 파일입니다).",
+    "앱이 관리하는 보관함은 폴더로 등록할 수 없습니다 (그 안은 앱의 내부 파일입니다).",
   errDestManaged:
-    "앱이 관리하는 보관함은 복사 위치로 지정할 수 없습니다 (내용은 내부 파일입니다).",
+    "앱이 관리하는 보관함은 복사 위치로 지정할 수 없습니다 (그 안은 앱의 내부 파일입니다).",
   errNoImageToExtract: "이 사진에서 꺼낼 수 있는 이미지가 없습니다.",
   errSourceUnreadable: "가져올 원본 폴더를 읽을 수 없습니다.",
   errSourceManaged:
@@ -686,4 +689,4 @@ export const ko: Dict = {
 };
 
 // 助詞の関数は辞書の外から試験できるように出しておく（`scripts/` が読む）
-export { batchim as koBatchim, josa as koJosa, euro as koEuro };
+export { josa as koJosa, euro as koEuro };

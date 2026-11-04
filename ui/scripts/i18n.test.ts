@@ -983,7 +983,6 @@ const SAME_AS_EN: Record<string, string[]> = {
     "exifIso",
     "keyCtrl",
     "kindRaw",
-    "listLastSeparator", // `, `——韓国語も読点で並べる
     "listSeparator",
     "rejectChip", // 記号と数だけ
   ],
@@ -1411,23 +1410,22 @@ test("the prev/next arrows point the way the keys step", () => {
   }
 });
 
-test("韓国語の助詞は、前の語の終わり（パッチム・数字の読み）で形を選ぶこと", () => {
-  // 을/를: パッチムの有無。ハングルは字から、数字は読みから（0 영・1 일・3 삼・6 육・7 칠・8 팔 はあり）
+test("韓国語の助詞は、前の語の終わり（パッチム）で形を選び、読めなければ両方書くこと", () => {
+  // 을/를: パッチムの有無をハングルの字から読む。数字で終わる名前は読みが割れる（Windows 11 は 일레븐）ので両方書く
   assert.equal(koJosa("사진", "을", "를"), "사진을");
   assert.equal(koJosa("파일", "을", "를"), "파일을");
   assert.equal(koJosa("포토샵", "을", "를"), "포토샵을");
   assert.equal(koJosa("폴더", "을", "를"), "폴더를");
-  assert.equal(koJosa("GIMP 3", "을", "를"), "GIMP 3을");
-  assert.equal(koJosa("GIMP 2", "을", "를"), "GIMP 2를");
+  assert.equal(koJosa("GIMP 3", "을", "를"), "GIMP 3을(를)");
+  assert.equal(koJosa("Windows 11", "을", "를"), "Windows 11을(를)");
   assert.equal(koJosa("“C:\\Temp\\사진”", "은", "는"), "“C:\\Temp\\사진”은", "閉じの引用符は飛ばして読む");
   // 読めない語（ラテン文字）は両方書く
   assert.equal(koJosa("Canon", "을", "를"), "Canon을(를)");
-  // 으로/로: パッチムが無いか ㄹ なら 로（数字の 1・7・8 は ㄹ）
+  // 으로/로: パッチムが無いか ㄹ なら 로
   assert.equal(koEuro("사진"), "사진으로");
   assert.equal(koEuro("파일"), "파일로");
   assert.equal(koEuro("포토샵"), "포토샵으로");
-  assert.equal(koEuro("Canon EOS R5"), "Canon EOS R5로");
-  assert.equal(koEuro("GIMP 3"), "GIMP 3으로");
-  assert.equal(koEuro("GIMP 7"), "GIMP 7로");
+  assert.equal(koEuro("Canon EOS R5"), "Canon EOS R5(으)로");
+  assert.equal(koEuro("필름"), "필름으로", "ㅁ で終わる語は 으로");
   assert.equal(koEuro("Canon"), "Canon(으)로");
 });
