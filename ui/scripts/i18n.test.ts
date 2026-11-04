@@ -45,7 +45,7 @@ import { fr } from "../src/i18n/fr.ts";
 import { it as itDict } from "../src/i18n/it.ts";
 import { ru } from "../src/i18n/ru.ts";
 import { pt } from "../src/i18n/pt.ts";
-import { ko, koEuro, koJosa } from "../src/i18n/ko.ts";
+import { ko, koEuro } from "../src/i18n/ko.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -1410,22 +1410,25 @@ test("the prev/next arrows point the way the keys step", () => {
   }
 });
 
-test("韓国語の助詞は、前の語の終わり（パッチム）で形を選び、読めなければ両方書くこと", () => {
-  // 을/를: パッチムの有無をハングルの字から読む。数字で終わる名前は読みが割れる（Windows 11 は 일레븐）ので両方書く
-  assert.equal(koJosa("사진", "을", "를"), "사진을");
-  assert.equal(koJosa("파일", "을", "를"), "파일을");
-  assert.equal(koJosa("포토샵", "을", "를"), "포토샵을");
-  assert.equal(koJosa("폴더", "을", "를"), "폴더를");
-  assert.equal(koJosa("GIMP 3", "을", "를"), "GIMP 3을(를)");
-  assert.equal(koJosa("Windows 11", "을", "를"), "Windows 11을(를)");
-  assert.equal(koJosa("“C:\\Temp\\사진”", "은", "는"), "“C:\\Temp\\사진”은", "閉じの引用符は飛ばして読む");
-  // 読めない語（ラテン文字）は両方書く
-  assert.equal(koJosa("Canon", "을", "를"), "Canon을(를)");
-  // 으로/로: パッチムが無いか ㄹ なら 로
+test("韓国語の 으로/로 は、前の語の終わり（パッチム）で形を選び、読めなければ両方書くこと", () => {
   assert.equal(koEuro("사진"), "사진으로");
-  assert.equal(koEuro("파일"), "파일로");
+  assert.equal(koEuro("파일"), "파일로", "ㄹ で終わる語は 로");
   assert.equal(koEuro("포토샵"), "포토샵으로");
-  assert.equal(koEuro("Canon EOS R5"), "Canon EOS R5(으)로");
   assert.equal(koEuro("필름"), "필름으로", "ㅁ で終わる語は 으로");
+  assert.equal(koEuro("“C:\\Temp\\사진”"), "“C:\\Temp\\사진”으로", "閉じの引用符は飛ばして読む");
+  // 括弧書きの前の語で読む（助詞はそちらに付く）
+  assert.equal(koEuro("사진 보관함 (백업)"), "사진 보관함 (백업)으로".replace("으로", "으로"));
+  assert.equal(koEuro("미리보기 (Preview)"), "미리보기 (Preview)로");
+  // 読めない語（ラテン文字・数字で終わる名前）は両方書く。Windows 11 は 일레븐 と読まれる
   assert.equal(koEuro("Canon"), "Canon(으)로");
+  assert.equal(koEuro("Canon EOS R5"), "Canon EOS R5(으)로");
+  assert.equal(koEuro("Windows 11"), "Windows 11(으)로");
+});
+
+test("韓国語の辞書は、変数の直後に助詞を書き込んでいないこと", () => {
+  // 助詞の形は前の語の終わりで変わるので、`${name}을` と書くと名前次第で誤る。変数の後ろには名詞を
+  // 置く（`“${name}” 폴더를`）か、`euro()` を通す。数は助数詞（장・개）が後ろに付くので対象外
+  const src = readFileSync(new URL("../src/i18n/ko.ts", import.meta.url), "utf8");
+  const hits = [...src.matchAll(/\$\{(?!num\()[^}]*\}["”’)]?(을|를|이|가|은|는|과|와|으로|로)(?![가-힣])/gu)].map((m) => m[0]);
+  assert.deepEqual(hits, []);
 });

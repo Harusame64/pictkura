@@ -33,7 +33,8 @@
  * 助詞の形が数字の読みに左右されない。
  *
  * **助詞は前の語の終わり（パッチム）で形が変わる**（은/는・이/가・을/를・으로/로）。
- * 変数（フォルダ名・アプリ名・カメラ名）の直後に助詞を置く所は、下の `josa()` / `euro()` を通す。
+ * 変数（アプリ名・カメラ名）の直後に「〜で・〜へ」を置く所は、下の `euro()` を通す（試験が、ほかの助詞を
+ * 変数の直後に書いていないことを見る）。
  * できるだけ「“名前” 폴더를」のように、**変数の後ろに名詞を置いて助詞をそちらに付ける**言い方にする。
  */
 import { folderExample } from "./folderExample.ts";
@@ -42,7 +43,10 @@ import type { Dict } from "./ja.ts";
 
 /** 語の終わりにパッチムがあるか。ハングルの字から読む。それ以外（ラテン文字・数字）は分からないので null */
 function batchim(word: string): { has: boolean; rieul: boolean } | null {
-  const ch = word.replace(/[\s)\]」』"'”’]+$/u, "").slice(-1);
+  // 助詞は括弧の前の語に付く（`확장자(.photoslibrary 등)를`）ので、末尾の括弧書きは丸ごと外して読む。
+  // 閉じの引用符も外す
+  const head = word.replace(/\s*[(（][^()（）]*[)）]\s*$/u, "");
+  const ch = head.replace(/[\s\]」』"'”’»]+$/u, "").slice(-1);
   if (!ch) return null;
   const c = ch.charCodeAt(0);
   if (c >= 0xac00 && c <= 0xd7a3) {
@@ -55,11 +59,6 @@ function batchim(word: string): { has: boolean; rieul: boolean } | null {
   return null;
 }
 
-/** 助詞を付ける（`josa(name, "을", "를")`）。読みが分からない語（ラテン文字など）は `을(를)` と両方書く */
-const josa = (word: string, withBatchim: string, without: string): string => {
-  const b = batchim(word);
-  return word + (b === null ? `${withBatchim}(${without})` : b.has ? withBatchim : without);
-};
 
 /** 「〜で・〜へ」の 으로/로。ㄹ で終わる語とパッチムの無い語は 로 */
 const euro = (word: string): string => {
@@ -178,7 +177,7 @@ export const ko: Dict = {
   updateFailed: "확인하지 못했습니다",
   updateOnStart: "시작할 때 새 버전 확인",
   updateOnStartNote:
-    "GitHub에 최신 버전을 물어봅니다(하루 1회). 사진도 파일 이름도 보내지 않습니다. 끄면 위의 ‘업데이트 확인’을 누를 때 말고는 전혀 통신하지 않습니다",
+    "GitHub에 최신 버전을 물어봅니다(하루 1회). 사진도 파일 이름도 보내지 않습니다. 끄면 위의 ‘업데이트 확인’ 버튼을 누를 때 말고는 전혀 통신하지 않습니다",
   viewerSlideshow: "슬라이드쇼 (Space)",
   extractSave: (key: string) => `이 이미지를 파일로 저장 (${key})`,
   extractCopy: (key: string) => `이 이미지를 클립보드에 복사 (${key})`,
@@ -498,9 +497,9 @@ export const ko: Dict = {
   settingsGrid: "목록",
   settingsStackRawJpegToggle: "RAW와 JPEG 쌍을 한 장으로 겹치기",
   settingsStackRawJpegNote:
-    "같은 폴더에 있는 같은 이름의 RAW와 JPEG를 목록에서는 JPEG 한 장으로 묶습니다. 목록에서의 ★·⚑·삭제·선택은 쌍의 양쪽에 적용됩니다. 사진을 크게 볼 때 어느 쪽을 보여 줄지는 ‘사진을 크게 볼 때’ 설정에서 고를 수 있습니다.",
+    "같은 폴더에 있는 같은 이름의 RAW와 JPEG을 목록에서는 JPEG 한 장으로 묶습니다. 목록에서의 ★·⚑·삭제·선택은 쌍의 양쪽에 적용됩니다. 사진을 크게 볼 때 어느 쪽을 보여 줄지는 ‘사진을 크게 볼 때’ 설정에서 고를 수 있습니다.",
   stackRawChipTitle: (files: number) =>
-    `RAW와 JPEG를 한 장으로 겹쳤습니다 (파일 ${num(files)}개)`,
+    `RAW와 JPEG을 한 장으로 겹쳤습니다 (파일 ${num(files)}개)`,
   settingsStackBurstsToggle: "연속 촬영을 한 장으로 겹치기",
   settingsStackBurstsNote:
     "같은 카메라로 연달아 찍은 사진을 목록에서는 한 장으로 묶습니다. 촬영 시각이 초보다 잘게 기록된 사진만 대상입니다 (기록하지 않는 카메라도 있습니다). 목록의 오른쪽 클릭으로 붙이는 ★·⚑는 대표 사진 한 장에만 붙고, 삭제와 선택은 연속 촬영 전체에 적용됩니다. 사진을 크게 볼 때는 연속 촬영도 묶지 않고 한 장씩 넘깁니다.",
@@ -523,7 +522,7 @@ export const ko: Dict = {
   googleRawOnlyNone: "놓지 않음",
   googleRawOnlyEmbedded: "내장 JPEG 놓기",
   settingsGoogleRawOnlyNote:
-    "JPEG를 함께 찍지 않은 RAW를 어떻게 할지입니다. ‘내장 JPEG’는 카메라가 RAW 안에 넣어 둔 표시용 이미지를 꺼내, 촬영 일시를 붙여 놓습니다. 꺼낸 JPEG는 별도의 파일이므로 그만큼 디스크를 씁니다.",
+    "JPEG을 함께 찍지 않은 RAW를 어떻게 할지입니다. ‘내장 JPEG’는 카메라가 RAW 안에 넣어 둔 표시용 이미지를 꺼내, 촬영 일시를 붙여 놓습니다. 꺼낸 JPEG는 별도의 파일이므로 그만큼 디스크를 씁니다.",
   settingsGoogleOneDrive: "OneDrive 안의 사진도 놓기",
   settingsGoogleOneDriveNote: "놓으면 그 사진은 OneDrive에서 ‘온라인 전용’으로 만들 수 없게 됩니다.",
   settingsGoogleAfterNote:
@@ -596,7 +595,7 @@ export const ko: Dict = {
     "크게 보는 화면에서 다음 사진으로 넘어갈 때(화살표 키·넘기기 버튼·아래 띠·판정 뒤의 자동 넘김)와 슬라이드쇼가 다음으로 넘어갈 때의 효과입니다. 슬라이드는 누른 방향으로 흐릅니다. OS 설정에서 애니메이션을 줄여 두었다면 무엇을 골라도 움직이지 않습니다.",
   settingsAutoplay: "USB나 SD 카드를 꽂았을 때",
   settingsAutoplayNote:
-    "설치 프로그램판 pictkura와 Microsoft Store판은 꽂았을 때의 선택지에 ‘pictkura로 사진 가져오기’가 나옵니다 (휴대용판은 나오지 않습니다). 고르기 전에는 실행되지 않습니다. 한 번 고르면 Windows가 그 종류(메모리 카드와 USB 드라이브는 따로)의 기본 동작으로 기억하고, 다음부터는 같은 종류를 꽂을 때마다 가져오기 화면이 열립니다. 꽂았을 때의 기본 동작은 Windows의 ‘자동 실행’ 설정에서 바꿀 수 있습니다.",
+    "설치 프로그램판 pictkura와 Microsoft Store판은 꽂았을 때의 선택지에 “pictkura で写真を取り込む”(pictkura로 사진 가져오기)가 나옵니다 (항목 이름은 일본어로 표시됩니다) (휴대용판은 나오지 않습니다). 고르기 전에는 실행되지 않습니다. 한 번 고르면 Windows가 그 종류(메모리 카드와 USB 드라이브는 따로)의 기본 동작으로 기억하고, 다음부터는 같은 종류를 꽂을 때마다 가져오기 화면이 열립니다. 꽂았을 때의 기본 동작은 Windows의 ‘자동 실행’ 설정에서 바꿀 수 있습니다.",
   settingsAutoplayOpenWindows: "Windows 자동 실행 설정 열기",
   settingsImportWaitingFrom: (path: string) =>
     `${path}에서 가져오기가 기다리고 있습니다. 설정을 닫으면 열립니다.`,
@@ -689,4 +688,4 @@ export const ko: Dict = {
 };
 
 // 助詞の関数は辞書の外から試験できるように出しておく（`scripts/` が読む）
-export { josa as koJosa, euro as koEuro };
+export { euro as koEuro };
