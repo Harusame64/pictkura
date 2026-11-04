@@ -25,6 +25,11 @@ kbd {
   direction: ltr;
   unicode-bidi: isolate;
 }
+/* 訳した語が混ざるキーの札（`Shift + نقر`）は右→左で読む。CSS の direction は dir 属性より強いので、
+   属性を見て戻す */
+kbd[dir="rtl"] {
+  direction: rtl;
+}
 /* **名前（ファイル・フォルダ）は書き手の文字で向きを決める**——`20261104_123045.jpg` や `100CANON` は
    左→右、アラビア文字の名前は右→左。ページの向きのままだと、先頭の数字の並びが `_` `.` の向こうへ回る。
    フォルダを足す欄も同じ（空のあいだは訳した案内がページの向きで出て、打ち始めると打った文字の向きになる）。
@@ -1935,9 +1940,6 @@ body {
   flex: 1;
   min-width: 0;
   word-break: break-word;
-  /* 値は数と単位（`580 KB`・`35 mm`・`1/250 s`）か名前。右→左の画面のままだと `KB 580` に並ぶので、
-     値ごとに最初の文字で向きを決める（日付はアラビア文字を含むので右→左のまま） */
-  unicode-bidi: plaintext;
 }
 .exif-value.link {
   color: var(--blue-soft);

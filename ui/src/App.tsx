@@ -5705,9 +5705,10 @@ export default function App() {
       } else if (e.key === "F11") {
         e.preventDefault();
         toggleFullscreen();
-      } else if (e.key === "1") {
+      // アラビア語の配列の数字の列は、アラビア・インド数字（`١` `٠`。ペルシア語は `۱` `۰`）を送る
+      } else if (/^[1١۱]$/u.test(e.key)) {
         toggleActualSize();
-      } else if (e.key === "0") {
+      } else if (/^[0٠۰]$/u.test(e.key)) {
         setZoom(1);
         setPinnedActualId(null);
         setPan({ x: 0, y: 0 });
@@ -5860,7 +5861,8 @@ export default function App() {
         el?.tagName === "TEXTAREA" ||
         el?.isContentEditable === true;
       if (typing) return;
-      if (e.key === "?" || e.key === "F1") {
+      // アラビア語の配列の Shift+/ は `؟`（アラビア語の疑問符）を送る
+      if (e.key === "?" || e.key === "؟" || e.key === "F1") {
         e.preventDefault();
         // パレットと同じ——**手前に幕が在るときは開かない。閉じるのは通す**。
         // 一覧は `z-index: 400` で**関所より手前に出る**ので見えはするが、
@@ -8944,7 +8946,9 @@ export default function App() {
                     value ? (
                       <div className="exif-row" key={label}>
                         <span className="exif-key">{label}</span>
-                        <span className="exif-value">{value}</span>
+                        {/* 値は数と単位か名前。中の文字列が自分の向きを決める（`.name`）——段落ごとに
+                            決めると揃えが左右にばらつく */}
+                        <span className="exif-value"><span className="name">{value}</span></span>
                       </div>
                     ) : null,
                   )}
@@ -8957,7 +8961,8 @@ export default function App() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        📍 {exif.gps[0].toFixed(4)}, {exif.gps[1].toFixed(4)}
+                        {/* 緯度と経度は左→右の組（右→左の画面で順が入れ替わらない） */}
+                        📍 <span className="path">{exif.gps[0].toFixed(4)}, {exif.gps[1].toFixed(4)}</span>
                       </a>
                     </div>
                   )}
@@ -9392,7 +9397,9 @@ export default function App() {
                           {key.split(" / ").map((k, i) => (
                             <span key={k}>
                               {i > 0 && <span className="shortcut-or"> / </span>}
-                              <kbd>{k}</kbd>
+                              {/* 札は左→右（`⌘K`・`Ctrl+,`）。訳した語が混ざる札（`Shift + نقر`）だけ、
+                                  右→左の言語の文字があればそちらの向きで読む（App.css の kbd） */}
+                              <kbd dir={/[\u0590-\u08ff]/u.test(k) ? "rtl" : undefined}>{k}</kbd>
                             </span>
                           ))}
                         </dt>

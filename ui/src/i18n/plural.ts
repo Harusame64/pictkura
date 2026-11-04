@@ -5,6 +5,7 @@
  * - `one()`: 1 とそれ以外（英・独・西・葡など）
  * - `oneFewMany()`: 1／2〜4／5〜（露語）
  * - `arabic()`: 0／1／2／3〜10／11〜99／その他（アラビア語）
+ * - `year()`: 年（桁区切り無し、数字の書き方は地域に従う）
  *
  * ## なぜ辞書の中で整形するのか
  *
@@ -39,16 +40,30 @@
  * 辞書だけを単体で読んだとき（`ui/scripts/i18n.test.ts`）。
  */
 let format: Intl.NumberFormat | null = null;
+/** 年（桁区切りを付けない。数字の書き方だけ書式ロケールに従う） */
+let yearFormat: Intl.NumberFormat | null = null;
 
 /** 桁区切りに使うロケールを渡す。`index.ts` が `formatLocale` を決めた直後に1度だけ呼ぶ */
 export function setNumberLocale(tag: string): void {
   try {
     format = new Intl.NumberFormat(tag);
+    yearFormat = new Intl.NumberFormat(tag, { useGrouping: false });
   } catch {
     // 綴りを受け付けないロケール。桁区切り無しで出す（画面は落とさない）
     format = null;
+    yearFormat = null;
   }
 }
+
+/**
+ * **年**。`num()` を通すと `2,026` になるので年は `String(year)` で書いてきたが、それだと
+ * アラビア・インド数字の地域（ar-EG・ar-SA）で年だけラテン数字に残る（ゲート2）。桁区切りを付けずに
+ * 数字の書き方だけ揃える。年が数字の文字列で来るときも受ける
+ */
+export const year = (y: number | string): string => {
+  const n = typeof y === "string" ? Number(y) : y;
+  return yearFormat && Number.isFinite(n) ? yearFormat.format(n) : String(y);
+};
 
 /**
  * 件数などの数値。**辞書の中の `${n}` は、原則これを通す。**

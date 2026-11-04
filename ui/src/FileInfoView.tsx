@@ -53,7 +53,8 @@ export function FileInfoRows({ info }: { info: FileInfo }) {
         <div className="exif-row" key={label}>
           <span className="exif-key">{label}</span>
           <span className="exif-value file-info-value">
-            {kind ? <span className={kind}>{value}</span> : value}
+            {/* 種類の無い値（大きさ・日時・寸法）も、中の文字列が自分の向きを決める（`580 KB` が `KB 580` に並ばない） */}
+            <span className={kind ?? "name"}>{value}</span>
           </span>
         </div>
       ))}

@@ -47,7 +47,7 @@
  * （動詞が前なら数に関わらず単数で、性だけ合わせればよい）で書き、形の組み合わせを減らす。
  */
 import { folderExample } from "./folderExample.ts";
-import { arabic, num } from "./plural.ts";
+import { arabic, num, year } from "./plural.ts";
 import type { Dict } from "./ja.ts";
 
 /**
@@ -55,25 +55,27 @@ import type { Dict } from "./ja.ts";
  * （主格 `-ان`、斜格 `-ين`）。1 と 2 は数字を付けない
  */
 const counted =
-  (one: string, twoNom: string, twoObl: string, few: string, many: string) =>
+  (one: string, twoNom: string, twoObl: string, few: string, many: string, other = many) =>
   (n: number, obl = true): string =>
     arabic(n, {
-      zero: `${num(n)} ${many}`,
+      zero: `${num(n)} ${other}`,
       one,
       two: obl ? twoObl : twoNom,
       few: `${num(n)} ${few}`,
+      // 11〜99 は単数の対格（男性名詞は語尾に ًا が付く: `11 ملفًا`）、100〜 と 0 は単数の属格（`100 ملف`）
       many: `${num(n)} ${many}`,
-      other: `${num(n)} ${many}`,
+      other: `${num(n)} ${other}`,
     });
 
 /** 写真（女性） */
 const photos = counted("صورة واحدة", "صورتان", "صورتين", "صور", "صورة");
 /** ファイル（男性） */
-const files = counted("ملف واحد", "ملفان", "ملفين", "ملفات", "ملف");
+const files = counted("ملف واحد", "ملفان", "ملفين", "ملفات", "ملفًا", "ملف");
 /** 動画（男性。`فيديو` は外来語で、複数は `فيديوهات`） */
+// `فيديو` は語尾が変わらない（外来語）ので、11〜99 と 100〜 は同じ形
 const videos = counted("فيديو واحد", "فيديوهان", "فيديوهين", "فيديوهات", "فيديو");
 /** 項目（男性。写真と動画が混ざる物） */
-const items = counted("عنصر واحد", "عنصران", "عنصرين", "عناصر", "عنصر");
+const items = counted("عنصر واحد", "عنصران", "عنصرين", "عناصر", "عنصرًا", "عنصر");
 /** 連写の1枚（女性） */
 const shots = counted("لقطة واحدة", "لقطتان", "لقطتين", "لقطات", "لقطة");
 
@@ -95,7 +97,7 @@ export const ar: Dict = {
   navPicked: "⚑ المنتقاة",
   navOutgoing: "مجلد الإرسال",
   outgoingGuide:
-    "اختر مجلد الإرسال هذا في تطبيق خدمة الصور لديك كمجلد للنسخ الاحتياطي (المزامنة). بعد ذلك، كلما استوردت صورًا تُصفّ هنا وتلتقطها الخدمة. إذا كنت تستخدم صور Google: أضف هذا المجلد إلى النسخ الاحتياطي للمجلدات في صور Google.",
+    "اختر مجلد الإرسال هذا في تطبيق خدمة الصور لديك كمجلد للنسخ الاحتياطي (المزامنة). بعد ذلك، كلما استوردت صورًا تُوضع هنا وتلتقطها الخدمة. إذا كنت تستخدم صور Google: أضف هذا المجلد إلى النسخ الاحتياطي للمجلدات في صور Google.",
   navKinds: "النوع",
   kindPhoto: "الصور",
   kindRaw: "RAW",
@@ -142,7 +144,7 @@ export const ar: Dict = {
         ["العجلة", "تكبير / تصغير"],
         ["السحب", "التنقل أثناء التكبير"],
         ["النقر بالزر الأيمن", "القائمة (فتح، نسخ، تدوير، طباعة، معلومات، حذف وغير ذلك)"],
-        ["النقر على الشريط", "الانتقال إلى تلك الصورة"],
+        ["النقر على الشريط السفلي", "الانتقال إلى تلك الصورة"],
       ],
     },
   ] as { title: string; keys: [string, string][] }[],
@@ -170,9 +172,9 @@ export const ar: Dict = {
   viewerPick: "انتقاء (P)",
   viewerUnpick: "إلغاء الانتقاء (U)",
   viewerPicked: "صورة منتقاة",
-  judgeFav: "أُضيفت إلى المفضلة",
+  judgeFav: "مفضلة",
   judgeUnfav: "أُزيلت من المفضلة",
-  judgePick: "انتُقيت",
+  judgePick: "منتقاة",
   judgeUnflag: "أُلغي التقييم",
   viewerReject: "رفض (X)",
   viewerRejected: "مرفوضة",
@@ -279,21 +281,21 @@ export const ar: Dict = {
   rootRemoveConfirm: (name: string) =>
     `هل تريد إزالة “${name}” من المكتبة؟\nلا تُحذف ملفات الصور، لكن علامات ★ و⚑ على صوره تُحذف.`,
   rootTempConfirm: (path: string) =>
-    `المجلد “${path}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الملفات فيه دون أن تسأل. هل تريد إضافته إلى المكتبة على أي حال؟`,
+    `المجلد “${path}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك. هل تريد إضافته إلى المكتبة على أي حال؟`,
   rootTempConfirmOk: "إضافة على أي حال",
   destTempConfirm: (path: string) =>
-    `المجلد “${path}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الصور المستوردة إليه دون أن تسأل. وبعد مسح البطاقة لن تبقى في أي مكان آخر. هل تريد استخدامه وجهةً على أي حال؟`,
+    `المجلد “${path}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الصور المستوردة إليه دون علمك. وبعد مسح البطاقة لن تبقى في أي مكان آخر. هل تريد استخدامه وجهةً على أي حال؟`,
   destTempConfirmOk: "استخدامه وجهةً",
   destTempWarning: "⚠ الوجهة داخل مجلد مؤقت. قد تختفي الصور المستوردة دون إنذار.",
   rootTempTip: (path: string) =>
-    `${path} — داخل مجلد مؤقت. قد يحذف النظام أو تطبيقات أخرى الملفات فيه دون أن تسأل`,
+    `${path} — داخل مجلد مؤقت. قد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك`,
   rootMissingTempTip: (path: string) =>
     `${path} — غير موجود. كان داخل مجلد مؤقت، فربما حذفه النظام أو تطبيق آخر`,
   rootMissingTip: (path: string) =>
     `${path} — غير موجود. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”`,
   importFrom: (path: string) => `استيراد من ${path}`,
   filterByCamera: (name: string) => `عرض الصور الملتقطة بـ ${name} فقط`,
-  jumpToYear: (year: number) => `الانتقال إلى ${year}`,
+  jumpToYear: (y: number) => `الانتقال إلى ${year(y)}`,
   importing: (done: number, total: number) => `جارٍ الاستيراد… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `اكتمل الاستيراد: نُسخ ${num(copied)}، وتُخطّي ${num(skipped)}`,
@@ -335,7 +337,7 @@ export const ar: Dict = {
   emptyRootIsPackage:
     "أحد مجلدات المكتبة هو مكتبة تطبيق الصور نفسها. لا يقرأ pictkura داخلها عن قصد، لذا لن يأتي منها شيء. اختر مجلدًا فيه صور، أو استورد من بطاقة.",
   emptyPhotoLibrary:
-    "لم يُعثر إلا على مكتبة تطبيق الصور. لا يقرأ pictkura داخل تطبيق الصور افتراضيًا — فمعظم الأصول موجودة في iCloud وليست على هذا الجهاز. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
+    "لم يُعثر إلا على مكتبة تطبيق الصور. لا يقرأ pictkura داخل تطبيق الصور افتراضيًا — فمعظم الملفات الأصلية موجودة في iCloud وليست على هذا الجهاز. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
   emptyManagedLibrary:
     "لم يُعثر إلا على مكتبات مُدارة لتطبيقات الصور (الصور أو iPhoto أو Aperture). لا يقرأ pictkura داخلها عن قصد — فلو فعل لفهرس محتواها مرة واحدة ولن يرى تغيّرها بعد ذلك. استورد من بطاقة، أو اختر مجلدًا فيه صور.",
   emptyRootIsManagedLibrary:
@@ -377,11 +379,11 @@ export const ar: Dict = {
     `يُعرض أول ${num(n)} فقط. استخدم “المجلد كله” لاستيراد كل شيء`,
   wizardScanIncomplete: "⚠ تعذّرت قراءة بعض المجلدات (قد تنقص بعض الصور)",
   decoderHeifNotice: (n: number) =>
-    `⚠ لا توجد هنا صور مصغّرة لـ${photos(n)} بتنسيق HEIC/HEIF، ولا يمكن فتحها أيضًا. يلزم “امتدادات صور HEIF” المجانية، ومعها “امتدادات فيديو HEVC” المدفوعة وزهيدة الثمن التي تفك ترميز الصورة`,
+    `⚠ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF. يلزم “امتدادات صور HEIF” المجانية، ومعها “امتدادات فيديو HEVC” المدفوعة وزهيدة الثمن التي تفك ترميز الصورة`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ لا توجد هنا صور مصغّرة لـ${photos(n)} بتنسيق HEIC/HEIF، ولا يمكن فتحها أيضًا`,
+    `⚠ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ لا توجد هنا صور مصغّرة لـ${photos(n)} بتنسيق HEIC/HEIF، ولا يمكن فتحها أيضًا. قد لا يتوفر في نظامك برنامج فك ترميز لـ HEIC/HEVC`,
+    `⚠ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF. قد لا يتوفر في نظامك برنامج فك ترميز لـ HEIC/HEVC`,
   decoderHeifHow: "امتدادات صور HEIF (مجانية)",
   decoderHevcHow: "امتدادات فيديو HEVC (مدفوعة)",
   decoderNoticeDismiss: "عدم الإظهار مرة أخرى",
@@ -421,7 +423,7 @@ export const ar: Dict = {
     `يمكن طباعة ${photos(max)} على الأكثر دفعة واحدة بهذا الحجم. اختر عددًا أكبر في كل صفحة، أو حدّد عددًا أقل.`,
   printPreparingN: (done: number, total: number) => `جارٍ التحضير للطباعة… ${num(done)}/${num(total)}`,
   printSkipped: (n: number) =>
-    `تعذّرت طباعة ${items(n)} (فيديوهات وما شابه) فاستُبعدت.`,
+    `تعذّرت طباعة ${items(n)} (فيديوهات وما شابه)، فتم استبعادها.`,
   errPrint: "تعذّر تحضير الصورة للطباعة.",
   errShellMenu: "تعذّر عرض قائمة المستكشف.",
   menuDelete: "حذف (نقل إلى سلة المهملات)",
@@ -521,7 +523,7 @@ export const ar: Dict = {
   settingsOutgoing: "مجلد الإرسال",
   settingsGoogleToggle: "وضع الصور المستوردة في مجلد الإرسال أيضًا",
   settingsGoogleNote:
-    "كل استيراد يصفّ الصور في مجلد الإرسال أيضًا (دون أن يشغل مساحة إضافية على القرص). من أزواج RAW+JPEG يدخل JPEG وحده. إذا كنت تستخدم صور Google: أضف هذا المجلد إلى النسخ الاحتياطي للمجلدات في صور Google.",
+    "كل استيراد يضع الصور في مجلد الإرسال أيضًا (دون أن يشغل مساحة إضافية على القرص). من أزواج RAW+JPEG يدخل JPEG وحده. إذا كنت تستخدم صور Google: أضف هذا المجلد إلى النسخ الاحتياطي للمجلدات في صور Google.",
   settingsGoogleFolder: "المجلد",
   settingsGoogleOpenFolder: "فتح المجلد",
   settingsGoogleCopyPath: "نسخ المسار",
@@ -536,7 +538,7 @@ export const ar: Dict = {
   googleRawOnlyNone: "استبعاد",
   googleRawOnlyEmbedded: "وضع JPEG المضمّن",
   settingsGoogleRawOnlyNote:
-    "ما يُفعل بملفات RAW الملتقطة بلا JPEG. “JPEG المضمّن” يستخرج صورة المعاينة التي خزنتها الكاميرا داخل RAW ويضعها مع تاريخ التصوير. JPEG المستخرج ملف منفصل، فيشغل مساحة على القرص.",
+    "ما يُفعل بملفات RAW الملتقطة بلا JPEG. “وضع JPEG المضمّن” يستخرج صورة المعاينة التي خزنتها الكاميرا داخل RAW ويضعها مع تاريخ التصوير. وملف JPEG المستخرج منفصل، فيشغل مساحة على القرص.",
   settingsGoogleOneDrive: "وضع الصور الموجودة داخل OneDrive أيضًا",
   settingsGoogleOneDriveNote: "إن فعلت، فلن يتمكن OneDrive من جعل تلك الصور متاحة عبر الإنترنت فقط.",
   settingsGoogleAfterNote:
@@ -548,7 +550,7 @@ export const ar: Dict = {
   bulkSendGoogle: "إضافة إلى مجلد الإرسال",
   bulkRemoveGoogle: "إزالة من مجلد الإرسال",
   calendarSendMonth: "إضافة هذا الشهر إلى مجلد الإرسال",
-  calendarSendYear: (year: string) => `إضافة عام ${year} كله إلى مجلد الإرسال`,
+  calendarSendYear: (y: string) => `إضافة عام ${year(y)} كله إلى مجلد الإرسال`,
   googleSendSummary: (photoCount: number, videoCount: number, rawOnly: number, size: string) => {
     const parts: string[] = [];
     if (photoCount > 0) parts.push(photos(photoCount, false));
@@ -647,7 +649,7 @@ export const ar: Dict = {
   errGoogleOverlapsRoot: "لا يمكن اختيار مجلد مكتبة، ولا مجلد داخله، ولا مجلد يحتويه.",
   errGoogleInsideSync:
     "لا يمكن اختيار مكان داخل مجلد مزامنة (OneDrive وGoogle Drive وDropbox وiCloud Drive وما شابه).",
-  errGoogleNoHardLinks: "لا يتسع له محرك الأقراص هذا (لا يمكن إنشاء ارتباطات ثابتة على exFAT وFAT وما شابه).",
+  errGoogleNoHardLinks: "لا يمكن وضعه على محرك الأقراص هذا (لا يمكن إنشاء ارتباطات ثابتة على exFAT وFAT وما شابه).",
   errGoogleWholeVolume:
     "وجهة الاستيراد محرك أقراص كامل، فلا مكان عليه لمجلد الإرسال. غيّر وجهة الاستيراد.",
   errGoogleNoName: "لا يمكن اختيار محرك الأقراص نفسه. اختر مجلدًا عليه.",

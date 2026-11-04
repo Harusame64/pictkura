@@ -232,13 +232,24 @@ mod tests {
         }
     }
 
-    /// 右から左の言語だけ、箱を右から組む（`ui/src/direction.ts` と同じ顔ぶれ）
+    /// 右から左の言語だけ、箱を右から組む。**顔ぶれは画面の `ui/src/direction.ts` の `RTL_LANGS` から読む**
+    /// ——ここに同じ一覧を写すと、ペルシア語の辞書を足したときに「左→右のまま」を正しいと言ってしまう
     #[test]
     fn only_right_to_left_languages_flip_the_box() {
-        assert!(right_to_left("ar"));
-        assert!(right_to_left("he"));
-        for code in DICT_CODES.iter().filter(|c| !matches!(**c, "ar" | "he")) {
-            assert!(!right_to_left(code), "{code}");
+        let src = include_str!("../../ui/src/direction.ts");
+        let line = src
+            .lines()
+            .find(|l| l.contains("const RTL_LANGS"))
+            .expect("direction.ts の RTL_LANGS を読めない");
+        let inner = line
+            .split("/^(")
+            .nth(1)
+            .and_then(|r| r.split(")$/").next())
+            .expect("RTL_LANGS の形が変わった");
+        let rtl: Vec<&str> = inner.split('|').collect();
+        assert!(rtl.contains(&"ar") && rtl.contains(&"he"), "{rtl:?}");
+        for code in DICT_CODES {
+            assert_eq!(right_to_left(code), rtl.contains(code), "{code}");
         }
     }
 }
