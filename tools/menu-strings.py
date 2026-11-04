@@ -39,6 +39,7 @@ LOCALES = [
     ("it", "it"),
     ("ru", "ru"),
     ("pt", "pt_BR"),
+    ("ko", "ko"),
 ]
 
 # (Rustのフィールド名, loctableのキー, どちらの表か)

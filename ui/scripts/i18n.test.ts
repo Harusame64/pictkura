@@ -45,6 +45,7 @@ import { fr } from "../src/i18n/fr.ts";
 import { it as itDict } from "../src/i18n/it.ts";
 import { ru } from "../src/i18n/ru.ts";
 import { pt } from "../src/i18n/pt.ts";
+import { ko, koEuro } from "../src/i18n/ko.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -69,6 +70,7 @@ const DICTS: Record<string, Any> = {
   it: itDict as Any,
   ru: ru as Any,
   pt: pt as Any,
+  ko: ko as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -662,7 +664,7 @@ const INFLECTS: Record<string, string[]> = {
  *
  * `INFLECTS` と合わせて `DICTS` を覆い切る。**覆えていなければ下のテストが落ちる。**
  */
-const NO_PLURAL = ["ja", "zh", "zh-hant"];
+const NO_PLURAL = ["ja", "zh", "zh-hant", "ko"];
 
 /**
  * **2〜4 と 5〜 で形が変わる位置**（露語の few と many）。`INFLECTS` は 1 と 2 しか比べないので、
@@ -731,6 +733,7 @@ const APPKIT_CANCEL: Record<string, string> = {
   it: "Annulla",
   ru: "Отменить",
   pt: "Cancelar",
+  ko: "취소",
 };
 
 test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
@@ -974,6 +977,15 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
+  ko: [
+    "appName",
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "exifIso",
+    "keyCtrl",
+    "kindRaw",
+    "listSeparator",
+    "rejectChip", // 記号と数だけ
+  ],
   pt: [
     "actualSizeBadge", // `1:1`
     "appName",
@@ -1275,6 +1287,7 @@ test("辞書のコードの選び方（梯子）", () => {
   assert.equal(pick("pt-BR"), "pt");
   assert.equal(pick("pt-PT"), "pt");
   assert.equal(pick("pt-AO"), "pt");
+  assert.equal(pick("ko-KR"), "ko");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1395,4 +1408,30 @@ test("the prev/next arrows point the way the keys step", () => {
     assert.ok(next.includes(rtl ? "←" : "→"), `${code}: viewerNext = ${next}`);
     assert.ok(prev.includes(rtl ? "→" : "←"), `${code}: viewerPrev = ${prev}`);
   }
+});
+
+test("韓国語の 으로/로 は、前の語の終わり（パッチム）で形を選び、読めなければ両方書くこと", () => {
+  assert.equal(koEuro("사진"), "사진으로");
+  assert.equal(koEuro("파일"), "파일로", "ㄹ で終わる語は 로");
+  assert.equal(koEuro("포토샵"), "포토샵으로");
+  assert.equal(koEuro("필름"), "필름으로", "ㅁ で終わる語は 으로");
+  assert.equal(koEuro("“C:\\Temp\\사진”"), "“C:\\Temp\\사진”으로", "閉じの引用符は飛ばして読む");
+  // 括弧書きの前の語で読む（助詞はそちらに付く）
+  // 中の語と前の語で形が割れる組で見る（파일 なら 로、사진 なら 으로）
+  assert.equal(koEuro("사진 (파일)"), "사진 (파일)으로");
+  assert.equal(koEuro("“미리보기 (Preview)”"), "“미리보기 (Preview)”로", "引用符の内側の括弧書きも外す");
+  assert.equal(koEuro("미리보기 (Preview)"), "미리보기 (Preview)로");
+  // 読めない語（ラテン文字・数字で終わる名前）は両方書く。Windows 11 は 일레븐 と読まれる
+  assert.equal(koEuro("Canon"), "Canon(으)로");
+  assert.equal(koEuro("Canon EOS R5"), "Canon EOS R5(으)로");
+  assert.equal(koEuro("Windows 11"), "Windows 11(으)로");
+});
+
+test("韓国語の辞書は、変数の直後に助詞を書き込んでいないこと", () => {
+  // 助詞の形は前の語の終わりで変わるので、`${name}을` と書くと名前次第で誤る。変数の後ろには名詞を
+  // 置く（`“${name}” 폴더를`）か、`euro()` を通す。数は助数詞（장・개）が後ろに付くので対象外
+  const src = readFileSync(new URL("../src/i18n/ko.ts", import.meta.url), "utf8");
+  // 後ろに続く字は問わない（`으로는`・`이라는`・`과의` も前の語の終わりで形が変わる）。閉じの括弧・引用符も越える
+  const hits = [...src.matchAll(/\$\{(?!num\()[^}]*\}["”’)」』»\]]*(을|를|이|가|은|는|과|와|으로|로|라)/gu)].map((m) => m[0]);
+  assert.deepEqual(hits, []);
 });
