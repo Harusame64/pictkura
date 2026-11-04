@@ -51,6 +51,7 @@ import { zhHant } from "./zh-hant.ts";
 import { fr } from "./fr.ts";
 import { it } from "./it.ts";
 import { ru } from "./ru.ts";
+import { pt } from "./pt.ts";
 import { num, setNumberLocale } from "./plural.ts";
 import { matchLocale } from "./match.ts";
 import { firstWeekdayFromOs } from "./weekday.ts";
@@ -69,6 +70,7 @@ const DICTS: Record<string, Dict> = {
   fr,
   it,
   ru,
+  pt,
 };
 
 /**
@@ -84,6 +86,7 @@ export const LOCALES: { code: string; label: string }[] = [
   { code: "fr", label: "Français" },
   { code: "it", label: "Italiano" },
   { code: "ru", label: "Русский" },
+  { code: "pt", label: "Português (Brasil)" },
   // **本国と中南米を分けたので、どちらも地域まで名乗る**。`Español` が2つ並ぶと
   // 選べない（Appleの綴りに合わせている）
   { code: "es", label: "Español (España)" },

@@ -312,6 +312,29 @@ static RU: MenuText = MenuText {
     zoom: "Изменить масштаб",
     help: "Справка",
 };
+static PT: MenuText = MenuText {
+    about: "Sobre o App %@",
+    settings: "Ajustes…",
+    services: "Serviços",
+    hide: "Ocultar %@",
+    hide_others: "Ocultar Outros",
+    quit: "Encerrar %@",
+    file: "Arquivo",
+    close_window: "Fechar Janela",
+    edit: "Editar",
+    undo: "Desfazer",
+    redo: "Refazer",
+    cut: "Cortar",
+    copy: "Copiar",
+    paste: "Colar",
+    select_all: "Selecionar Tudo",
+    view: "Visualizar",
+    fullscreen: "Entrar em Tela Cheia",
+    window: "Janela",
+    minimize: "Minimizar",
+    zoom: "Zoom",
+    help: "Ajuda",
+};
 
 /// 辞書のコードと、その語。**`ui/src/i18n/index.ts` の `DICTS` と同じ顔ぶれ**
 static TEXTS: &[(&str, &MenuText)] = &[
@@ -325,6 +348,7 @@ static TEXTS: &[(&str, &MenuText)] = &[
     ("fr", &FR),
     ("it", &IT),
     ("ru", &RU),
+    ("pt", &PT),
 ];
 
 /// 辞書のコードに対応する語を返す。**知らないコードは英語へ倒す**
@@ -532,6 +556,7 @@ mod tests {
             let appkit = match code.as_str() {
                 "zh" => "zh-Hans",
                 "zh-hant" => "zh-Hant",
+                "pt" => "pt-BR",
                 other => other,
             };
             assert!(

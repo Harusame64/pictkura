@@ -44,6 +44,7 @@ import { zhHant } from "../src/i18n/zh-hant.ts";
 import { fr } from "../src/i18n/fr.ts";
 import { it as itDict } from "../src/i18n/it.ts";
 import { ru } from "../src/i18n/ru.ts";
+import { pt } from "../src/i18n/pt.ts";
 import { setNumberLocale } from "../src/i18n/plural.ts";
 import { matchLocale } from "../src/i18n/match.ts";
 import { firstWeekdayFromOs } from "../src/i18n/weekday.ts";
@@ -66,6 +67,7 @@ const DICTS: Record<string, Any> = {
   fr: fr as Any,
   it: itDict as Any,
   ru: ru as Any,
+  pt: pt as Any,
 };
 
 const KEYS = Object.keys(ja);
@@ -245,6 +247,65 @@ test("件数が桁区切りを通ること", () => {
  * 到達しないものもある（`wizardTruncated` は `TREE_LIMIT` でしか出ない。理由は `ja.ts` に）。
  */
 const INFLECTS: Record<string, string[]> = {
+  // 葡語（pt-BR）は 1 だけ単数。0 は複数（`0 fotos`）——CLDR の pt は 0 も one だが、ブラジルの画面の書き方に合わせた（pt.ts の冒頭）
+  pt: [
+    "bgThumbs:0",
+    "bgThumbsShort:0",
+    "bulkFavoriteDone:0",
+    "bulkPickDone:0",
+    "bulkUnfavoriteDone:0",
+    "bulkUnpickDone:0",
+    "decoderHeifNotice:0",
+    "decoderHeifNoticeMac:0",
+    "decoderHeifNoticeOther:0",
+    "deleteConfirm:0",
+    "deleted:0",
+    "deletedMissing:0",
+    "deletedMissing:1",
+    "deletedSomeLeft:0",
+    "deletedSomeLeft:1",
+    "drivesReturnedScanned:0",
+    "drivesReturnedScanned:1",
+    "errTrashPartly:0",
+    "exportDone:0",
+    "exportDone:1",
+    "exportDone:3",
+    "googleRemoveFailed:0",
+    "googleRemoved:0",
+    "googleSendLeftOut:0",
+    "googleSendSummary:0",
+    "googleSendSummary:1",
+    "googleSendSummary:2",
+    "googleSent:0",
+    "googleSent:1",
+    "googleSentCloudOnly:0",
+    "googleSentLeftOut:0",
+    "importDone:0",
+    "importDone:1",
+    "importGoogle:0",
+    "importGoogleFailed:0",
+    "itemsCount:0",
+    "memoriesTitle:0",
+    "moveConfirm:0",
+    "moveDone:0",
+    "moveDone:1",
+    "moveDone:2",
+    "moveDone:3",
+    "moveDone:4",
+    "printSheetTitle:0",
+    "printSkipped:0",
+    "rejectGateTitle:0",
+    "rootMissingNotice:1",
+    "rootsMissingNotice:1",
+    "selectedCount:0",
+    "syncDone:0",
+    "syncDone:1",
+    "syncDone:2",
+    "wizardEtaMinutes:0",
+    "wizardEtaSeconds:0",
+    "wizardHiddenCount:0",
+    "wizardSelected:0",
+  ],
   en: [
     "printSheetTitle:0",
     "printSkipped:0",
@@ -669,6 +730,7 @@ const APPKIT_CANCEL: Record<string, string> = {
   fr: "Annuler",
   it: "Annulla",
   ru: "Отменить",
+  pt: "Cancelar",
 };
 
 test("確認画面のキャンセルの語は、AppKit の Cancel と同じであること（macOS の Esc）", () => {
@@ -886,6 +948,20 @@ test("単複の無い言語が場合分けしていないこと", () => {
  * **`DICTS` の全言語（英語自身を除く）を覆うこと**——覆えていなければ上のテストが落ちる。
  */
 const SAME_AS_EN: Record<string, string[]> = {
+  pt: [
+    "actualSizeBadge", // `1:1`
+    "appName",
+    "burstChipShort", // `▤ 12`: 記号と数だけ
+    "burstGapOption", // `0,5 s` など数と単位だけ
+    "exifIso",
+    "keyCtrl",
+    "kindRaw",
+    "listSeparator", // `, `
+    "photosCount", // 数だけ
+    "rejectChip", // 記号と数だけ
+    "settingsManual", // `Manual` は葡語の語でもある
+    "wizardCapped", // 数だけ
+  ],
   de: [
     "burstChipShort", // `▤ 12`: 記号と数だけ
     "burstGapOption", // `0,5 s` など数と単位だけ
@@ -1169,6 +1245,10 @@ test("辞書のコードの選び方（梯子）", () => {
   // 露語も地域で割らない（カザフスタンも本国の辞書。Rust の `os_dict::guess` と同じ答え）
   assert.equal(pick("ru-RU"), "ru");
   assert.equal(pick("ru-KZ"), "ru");
+  // 葡語も地域で割らない。ポルトガルの人にもブラジルの言葉で出す（2026-11-04 利用者。Rust の guess と同じ）
+  assert.equal(pick("pt-BR"), "pt");
+  assert.equal(pick("pt-PT"), "pt");
+  assert.equal(pick("pt-AO"), "pt");
 
   // **スペイン語は地域で本国と中南米に割れる**（dev #17）
   assert.equal(pick("es-ES"), "es", "本国はそのまま");
@@ -1231,6 +1311,8 @@ test("見つからないフォルダの知らせは、1枚と2枚で単複がそ
     [["it"], "rootsMissingNotice", [["1 foto non può essere aperta", "2 foto non possono essere aperte"]]],
     [["ru"], "rootMissingNotice", [["1 фото в ней недоступно", "2 фото в ней недоступны"]]],
     [["ru"], "rootsMissingNotice", [["1 фото недоступно", "2 фото недоступны"]]],
+    [["pt"], "rootMissingNotice", [["1 foto nela não pode ser aberta", "2 fotos nela não podem ser abertas"]]],
+    [["pt"], "rootsMissingNotice", [["1 foto nelas não pode ser aberta", "2 fotos nelas não podem ser abertas"]]],
   ];
   for (const [langs, key, pairs] of cases) {
     for (const lang of langs) {

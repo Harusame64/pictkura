@@ -76,6 +76,8 @@ fn appkit_id(code: &str) -> Option<&'static str> {
         .map(|c| match *c {
             "zh" => "zh-Hans",
             "zh-hant" => "zh-Hant",
+            // 葡語の辞書はブラジルの言葉。AppKit の枠も pt_BR.lproj を引かせる（ポルトガルの Mac でも）
+            "pt" => "pt-BR",
             other => other,
         })
 }
