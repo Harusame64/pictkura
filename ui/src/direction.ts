@@ -86,23 +86,39 @@ const RTL_RANGE =
  * - FSI の向きは、中で最初に出る強い向きの文字で決める（字と LRM・RLM・ALM）。入れ子の中と、
  *   段落の切れ目より先は見ない。何も無ければ左から右
  * - **対の無い PDI は捨てる**——Unicode でも何もしない文字で、PDF に変えると開いている埋め込みを閉じてしまう
+ * - **閉じの境目を守る**: 名前の中で開いたまま残った埋め込みは PDI の位置で閉じ、名前の中の対の無い PDF は捨てる
  */
 export function isolatesToEmbeddings(s: string): string {
   const chars = [...s];
-  let open = 0;
+  // 開いている閉じごとに、その中で開いた埋め込み（LRE・RLE・LRO・RLO）の数
+  const inner: number[] = [];
   return chars
     .map((c, i) => {
-      if (c === "\u2066" || c === "\u2067" || c === "\u2068") open++;
-      if (c === "\u2066") return "\u202a";
-      if (c === "\u2067") return "\u202b";
-      if (c === "\u2069") {
-        if (open === 0) return "";
-        open--;
-        return "\u202c";
+      if (c === "\n" || c === "\r" || c === "\u2029") {
+        inner.length = 0;
+        return c;
       }
-      if (c === "\n" || c === "\r" || c === "\u2029") open = 0;
-      if (c !== "\u2068") return c;
-      return fsiIsRtl(chars, i + 1) ? "\u202b" : "\u202a";
+      if (c === "\u2066" || c === "\u2067" || c === "\u2068") {
+        inner.push(0);
+        if (c === "\u2066") return "\u202a";
+        if (c === "\u2067") return "\u202b";
+        return fsiIsRtl(chars, i + 1) ? "\u202b" : "\u202a";
+      }
+      if (c === "\u2069") {
+        // 対の無い PDI は捨てる。対があれば、中で開いたまま残った埋め込みもここで閉じる
+        const open = inner.pop();
+        return open === undefined ? "" : "\u202c".repeat(open + 1);
+      }
+      if (inner.length > 0) {
+        if (c === "\u202a" || c === "\u202b" || c === "\u202d" || c === "\u202e") {
+          inner[inner.length - 1]++;
+        } else if (c === "\u202c") {
+          // 閉じの中で対の無い PDF は捨てる——残すと、こちらが開いた埋め込みを閉じてしまう
+          if (inner[inner.length - 1] === 0) return "";
+          inner[inner.length - 1]--;
+        }
+      }
+      return c;
     })
     .join("");
 }

@@ -80,6 +80,12 @@ test("閉じの印を、中の最初の字の向きの埋め込みに置き換�
   // 対の無い PDI は捨てる（開いている埋め込みを閉じない）
   assert.equal(isolatesToEmbeddings("\u2069x"), "x");
   assert.equal(isolatesToEmbeddings("\u202bب\u2069x\u202c"), "\u202bبx\u202c");
+  // 名前の中で開いたままの埋め込みは、PDI で一緒に閉じる（外の文へ漏らさない）
+  assert.equal(isolatesToEmbeddings("\u2068a\u202bb\u2069c"), "\u202aa\u202bb\u202c\u202cc");
+  // 名前の中の対の無い PDF は捨てる（こちらの埋め込みを早く閉じない）
+  assert.equal(isolatesToEmbeddings("\u2068a\u202cb\u2069c"), "\u202aab\u202cc");
+  // 閉じの外の埋め込みには触らない
+  assert.equal(isolatesToEmbeddings("\u202ba\u202c"), "\u202ba\u202c");
   // 段落の切れ目より先の字で向きを決めない
   assert.equal(isolatesToEmbeddings("\u2068123\nب"), "\u202a123\nب");
   // LRI・RLI もそのまま対応する埋め込みへ。印の無い文は変えない
