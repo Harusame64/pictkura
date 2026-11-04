@@ -60,6 +60,11 @@ test("閉じの印を、中の最初の字の向きの埋め込みに置き換�
   assert.equal(isolatesToEmbeddings("\u20682024 صور\u2069"), "\u202b2024 صور\u202c");
   // 補助面の右から左の字（Adlam）も右から左
   assert.equal(isolatesToEmbeddings("\u2068\u{1E900}x\u2069"), "\u202b\u{1E900}x\u202c");
+  // 画面の言語に無い字種でも、右から左の範囲の字なら右から左（Phoenician・Mende Kikakui）
+  assert.equal(isolatesToEmbeddings("\u2068\u{10900}\u2069"), "\u202b\u{10900}\u202c");
+  assert.equal(isolatesToEmbeddings("\u2068\u{1E800}\u2069"), "\u202b\u{1E800}\u202c");
+  // 補助面でも左から右の字（Brahmi）は左から右
+  assert.equal(isolatesToEmbeddings("\u2068\u{11005}\u2069"), "\u202a\u{11005}\u202c");
   // アラビア・インド数字は字ではない（向きは後の字で決まる）
   assert.equal(isolatesToEmbeddings("\u2068٢٠٢٤ a\u2069"), "\u202a٢٠٢٤ a\u202c");
   // 字が無ければ左から右

@@ -69,9 +69,14 @@ export const asciiDateTokens = (q: string): string =>
     .map((tok) => (/^((year|年):)?[\p{Nd}\-/.]+$/iu.test(tok) ? asciiDigits(tok) : tok))
     .join("");
 
-/** 右から左へ書く字（`RTL_SCRIPTS` と同じ字種。補助面の Adlam・Hanifi Rohingya も入る） */
-const RTL_LETTER =
-  /[\p{sc=Arab}\p{sc=Hebr}\p{sc=Thaa}\p{sc=Syrc}\p{sc=Nkoo}\p{sc=Adlm}\p{sc=Rohg}\p{sc=Mand}\p{sc=Samr}]/u;
+/**
+ * 右から左へ書く字の在る範囲。**Unicode が既定の向きを R・AL に決めている範囲**（DerivedBidiClass の
+ * 既定値）で、この中の字はすべて右から左——Adlam・Mende Kikakui・Phoenician のような補助面の字も入る。
+ * JS の正規表現は bidi の分類を引けないので、字（`\p{L}`）であることと合わせて使う。Unicode 17 の
+ * 全字で確かめた: 範囲の中の字はすべて R・AL、範囲の外に R・AL の字は無い
+ */
+const RTL_RANGE =
+  /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff\u{10800}-\u{10fff}\u{1e800}-\u{1efff}]/u;
 
 /**
  * **向きの閉じ（FSI/LRI/RLI … PDI）を、古い埋め込み（LRE/RLE … PDF）に置き換える**。
@@ -114,7 +119,7 @@ function fsiIsRtl(chars: string[], from: number): boolean {
       if (d === "\u200f" || d === "\u061c") return true;
       if (d === "\u200e") return false;
       // 字だけを見る——アラビア・インド数字も字種はアラビア文字だが、強い向きを持たない
-      if (/\p{L}/u.test(d)) return RTL_LETTER.test(d);
+      if (/\p{L}/u.test(d)) return RTL_RANGE.test(d);
     }
   }
   return false;
