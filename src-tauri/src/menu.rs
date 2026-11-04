@@ -548,17 +548,14 @@ mod tests {
     /// **一度忘れている**——独語と西語の辞書（#94 / #95）を足したとき、あちらは
     /// そのままだった。書き忘れると**保存パネルとフォルダ選択だけ英語**という
     /// 混ざり方になり、画面を見ているだけでは気づきにくい。
-    /// **綴りはAppKitの言語IDなので、中国語だけ辞書のコードと違う。**
+    /// **綴りはAppKitの言語IDなので、辞書のコードと違う言語がある**（中国語・葡語）。
+    /// 対応は [`crate::appkit_lang::appkit_id`] の1か所だけに置き、ここはそれを呼ぶ
     #[test]
     fn the_bundle_declares_every_language_the_app_ships() {
         let plist = include_str!("../Info.plist");
         for code in dict_codes() {
-            let appkit = match code.as_str() {
-                "zh" => "zh-Hans",
-                "zh-hant" => "zh-Hant",
-                "pt" => "pt-BR",
-                other => other,
-            };
+            let appkit = crate::appkit_lang::appkit_id(&code)
+                .unwrap_or_else(|| panic!("{code} に AppKit の ID が無い"));
             assert!(
                 plist.contains(&format!("<string>{appkit}</string>")),
                 "{appkit} が Info.plist の CFBundleLocalizations に無い"

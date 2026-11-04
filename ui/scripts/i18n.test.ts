@@ -927,6 +927,32 @@ test("仏語は 0 を単数で言うこと", () => {
   }
 });
 
+/**
+ * **葡語（pt-BR）は 0 を複数で言う**（`0 fotos`。`pt.ts` の冒頭）。CLDR の `pt` は 0 も単数なので、
+ * 「CLDR に合わせる」直しや仏語の `un()` の持ち込みで `0 foto` に戻っても、1 と 2 しか比べない
+ * 顔ぶれの升は落ちない。仏語の升の裏返しで、**0 が 2（複数）と同じ文になる**ことを見る
+ */
+test("葡語は 0 を複数で言うこと", () => {
+  let checked = 0;
+  const digitless = (s: string) => s.replace(/\d+/g, "#");
+  for (const pair of INFLECTS.pt) {
+    const [key, at] = pair.split(":");
+    const pos = Number(at);
+    const make = (n: number) => {
+      const args = argsFor(key, 2, "X");
+      args[pos] = n;
+      return call(DICTS.pt, key, args);
+    };
+    // 0 のときは節ごと出さない文がある（`exportDone` の「0 枚書き出した」）。数の数が合うものだけ比べる
+    const hashes = (t: string) => (digitless(t).match(/#/g) ?? []).length;
+    if (hashes(make(0)) !== hashes(make(2))) continue;
+    checked++;
+    assert.equal(digitless(make(0)), digitless(make(2)), `pt.${key} の ${pos} 番目が 0 で単数になった`);
+  }
+  // 飛ばしすぎて空振りしていないこと
+  assert.ok(checked >= 40, `only ${checked}`);
+});
+
 test("単複の無い言語が場合分けしていないこと", () => {
   for (const lang of NO_PLURAL) {
     const unexpected = inflectionsOf(DICTS[lang]).filter(

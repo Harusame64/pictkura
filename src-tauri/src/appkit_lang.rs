@@ -68,8 +68,10 @@ pub fn resolved() -> Option<&'static str> {
     dict_code(&first.to_string())
 }
 
-/// 画面の辞書のコード → AppKit の言語 ID（`Info.plist` の `CFBundleLocalizations` の綴り）
-fn appkit_id(code: &str) -> Option<&'static str> {
+/// 画面の辞書のコード → AppKit の言語 ID（`Info.plist` の `CFBundleLocalizations` の綴り）。
+/// **言語を足す人はここを見る**——辞書のコードと綴りが違う言語（中国語・葡語）はここにしか書かない
+/// （`menu.rs` の升もこれを呼ぶ）
+pub(crate) fn appkit_id(code: &str) -> Option<&'static str> {
     crate::os_dict::DICT_CODES
         .iter()
         .find(|c| **c == code)
@@ -82,17 +84,31 @@ fn appkit_id(code: &str) -> Option<&'static str> {
         })
 }
 
-/// AppKit の言語 ID → 画面の辞書のコード（[`appkit_id`] の逆）
+/// `Info.plist` に**枠のためだけに**載せている AppKit の言語 ID と、その辞書のコード。
+///
+/// **葡語の本国（`pt-PT`）。** 辞書はブラジルの言葉1つだが、`pt-BR` しか載せないと、言語の並びに
+/// 英語も入っているポルトガルの Mac（`pt-PT, en`）で、AppKit は国をまたいで `pt-BR` へ寄らずに
+/// **英語を選ぶ**（2026-11-04、`Bundle.preferredLocalizations` で確かめた）——画面は葡語なのに
+/// 保存・フォルダ選択の枠だけ英語になる。本国の ID も載せて、枠は本国の訳、画面は同じ辞書にする
+const ALIASES: &[(&str, &str)] = &[("pt-PT", "pt")];
+
+/// AppKit の言語 ID → 画面の辞書のコード（[`appkit_id`] の逆。[`ALIASES`] も引く）
 fn dict_code(id: &str) -> Option<&'static str> {
     crate::os_dict::DICT_CODES
         .iter()
         .copied()
         .find(|c| appkit_id(c).is_some_and(|a| a.eq_ignore_ascii_case(id)))
+        .or_else(|| {
+            ALIASES
+                .iter()
+                .find(|(a, _)| a.eq_ignore_ascii_case(id))
+                .map(|(_, c)| *c)
+        })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{appkit_id, dict_code};
+    use super::{appkit_id, dict_code, ALIASES};
     use crate::os_dict::DICT_CODES;
 
     /// **辞書のどの言語も、AppKit の ID と行き来できる**（`Info.plist` の綴りと同じ）
@@ -109,6 +125,16 @@ mod tests {
             );
             assert_eq!(dict_code(id), Some(*code));
         }
+        // 枠のためだけの ID も Info.plist に在り、辞書の言語へ戻ること
+        for (id, code) in ALIASES {
+            assert!(
+                plist.contains(&format!("<string>{id}</string>")),
+                "{id} が Info.plist に無い"
+            );
+            assert!(DICT_CODES.contains(code), "{code} は辞書に無い");
+            assert_eq!(dict_code(id), Some(*code));
+        }
+        assert_eq!(dict_code("pt-pt"), Some("pt"), "大文字小文字は問わない");
     }
 
     /// 知らない言語は置かないし、返さない（OS に合わせる側へ倒す）

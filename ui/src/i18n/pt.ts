@@ -38,7 +38,12 @@
  * ブラジルの画面の文では `0 fotos` が普通で、`0 foto` は不自然に読める。
  * 仏語（`0 photo` が正しい）とはここが違うので、仏語の `un()` は持ち込まない。
  * **性の一致**: `foto`・`pasta`・`biblioteca` は女性（`1 foto escolhida`）、
- * `vídeo`・`arquivo`・`item` は男性。
+ * `vídeo`・`arquivo`・`item` は男性。**数える物で決めて、対になる文で揃える**——写真を数える文
+ * （取り込み・同期・ゴミ箱へ）は女性、Saída へ送る物（写真と動画が混ざる `itens`）は男性。
+ * 片方の文だけ性が変わると、同じ操作の結果が2通りに読める（ゲート2）
+ * - **重ねたタイルは `miniatura`**（一覧の1枚。`bloco` は「一括で」と読まれる。Gemini）。
+ *   写真アプリの蔵書（`.photoslibrary`）は Apple の pt-BR の `Fototeca`——`biblioteca` と書くと
+ *   「ライブラリのフォルダが、写真アプリのライブラリそのもの」のように同じ語がぶつかる
  */
 import { folderExample } from "./folderExample.ts";
 import { num, one } from "./plural.ts";
@@ -48,7 +53,7 @@ export const pt: Dict = {
   appName: "pictkura",
   viewThumbnails: "Fotos",
   viewCalendar: "Calendário",
-  searchPlaceholder: "Buscar arquivos, pastas, câmeras, 2019-08 ou year:2019",
+  searchPlaceholder: "Buscar arquivo, pasta, câmera, 2019-08, year:2019",
   searchClear: "Limpar busca (Esc)",
   commandPalette: "Paleta de comandos",
   importFromUsb: "Importar de USB",
@@ -119,7 +124,7 @@ export const pt: Dict = {
   addFolderPlaceholder: folderExample("ex.: ", "usuario"),
   pickLibraryFolder: "Escolha uma pasta para adicionar à biblioteca",
   showMore: (n: number) => `mais ${num(n)}`,
-  collapse: "Mostrar menos",
+  collapse: "Menos",
   photosCount: (n: number) => `${num(n)}`,
   memoriesTitle: (years: number) =>
     years === 1 ? "Há 1 ano, neste dia" : `Há ${num(years)} anos, neste dia`,
@@ -139,7 +144,7 @@ export const pt: Dict = {
   rejectChipTitle: "Revisar as fotos rejeitadas",
   rejectGateTitle: (n: number) =>
     n === 1 ? "Mover 1 foto para a lixeira" : `Mover ${num(n)} fotos para a lixeira`,
-  rejectGateNote: "Você pode restaurá-las da lixeira (elas também voltam para a biblioteca).",
+  rejectGateNote: "É possível restaurar da lixeira (o que for restaurado volta também para a biblioteca).",
   rejectGateRestore: "Manter",
   rejectGateBack: "Voltar",
   rejectGateDiscard: "Fechar sem apagar",
@@ -261,7 +266,7 @@ export const pt: Dict = {
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${one(added, "adicionada", "adicionadas")}, ${num(changed)} ${one(changed, "alterada", "alteradas")}, ${num(removed)} ${one(removed, "removida", "removidas")}`,
   drivesReturnedScanned: (added: number, changed: number) =>
-    `As pastas da unidade conectada foram lidas de novo (${num(added)} ${one(added, "adicionada", "adicionadas")}, ${num(changed)} ${one(changed, "alterada", "alteradas")})`,
+    `As pastas da unidade conectada foram lidas de novo (${num(added)} ${one(added, "foto adicionada", "fotos adicionadas")}, ${num(changed)} ${one(changed, "alterada", "alteradas")})`,
   pickSource: "Escolha a pasta de origem da importação (USB / DCIM)",
   pickDestination: "Escolha a pasta de destino",
   wizardTitle: "Importar",
@@ -292,13 +297,13 @@ export const pt: Dict = {
   listLastSeparator: " ",
   andMore: (n: number) => `e mais ${num(n)}`,
   emptyRootIsPackage:
-    "Uma das pastas da biblioteca é a própria biblioteca do app Fotos. O pictkura não lê o interior dela de propósito, então nada virá dali. Escolha uma pasta que tenha fotos ou importe de um cartão.",
+    "Uma das pastas da biblioteca é a própria Fototeca do app Fotos. O pictkura não lê o interior dela de propósito, então nada virá dali. Escolha uma pasta que tenha fotos ou importe de um cartão.",
   emptyPhotoLibrary:
-    "Só foi encontrada a biblioteca do app Fotos. Por padrão, o pictkura não lê o interior do Fotos — a maioria dos originais fica no iCloud, não neste Mac. Importe de um cartão ou escolha uma pasta que tenha fotos.",
+    "Só foi encontrada a Fototeca do app Fotos. Por padrão, o pictkura não lê o interior do Fotos — a maioria dos originais fica no iCloud, não neste Mac. Importe de um cartão ou escolha uma pasta que tenha fotos.",
   emptyManagedLibrary:
-    "Só foram encontradas bibliotecas de gerenciadores de fotos (Fotos, iPhoto ou Aperture). O pictkura não lê o interior delas de propósito — indexaria o conteúdo uma vez e nunca mais veria as mudanças. Importe de um cartão ou escolha uma pasta que tenha fotos.",
+    "Só foram encontradas fototecas de gerenciadores de fotos (Fotos, iPhoto ou Aperture). O pictkura não lê o interior delas de propósito — indexaria o conteúdo uma vez e nunca mais veria as mudanças. Importe de um cartão ou escolha uma pasta que tenha fotos.",
   emptyRootIsManagedLibrary:
-    "Uma das pastas da biblioteca é a própria biblioteca de um gerenciador de fotos (Fotos, iPhoto ou Aperture). O pictkura não lê o interior dela de propósito, então nada virá dali. Escolha uma pasta que tenha fotos ou importe de um cartão.",
+    "Uma das pastas da biblioteca é a própria fototeca de um gerenciador de fotos (Fotos, iPhoto ou Aperture). O pictkura não lê o interior dela de propósito, então nada virá dali. Escolha uma pasta que tenha fotos ou importe de um cartão.",
   emptyAllExcluded: (names: string) =>
     `Tudo o que foi encontrado é ignorado pelos padrões de exclusão (por exemplo ${names}). Você pode alterá-los no pictkura.toml da pasta de configurações.`,
   emptyNothingHere:
@@ -391,9 +396,9 @@ export const pt: Dict = {
   fileInfoName: "Nome",
   fileInfoFolder: "Pasta",
   fileInfoSize: "Tamanho",
-  fileInfoTaken: "Tirada em",
+  fileInfoTaken: "Captura",
   fileInfoTakenUnknown: "Desconhecida",
-  fileInfoModified: "Modificado em",
+  fileInfoModified: "Modificação",
   fileInfoDimensions: "Dimensões",
   fileInfoDuration: "Duração",
   fileInfoType: "Tipo",
@@ -480,14 +485,14 @@ export const pt: Dict = {
     "{year} {month} {day} são trocados pela data. Use / para criar níveis. Caracteres inválidos e subidas para a pasta pai (..) são removidos automaticamente.",
   settingsCustomPatternResult: "Pasta resultante",
   settingsGrid: "Grade de fotos",
-  settingsStackRawJpegToggle: "Empilhar pares RAW+JPEG em um só bloco",
+  settingsStackRawJpegToggle: "Empilhar pares RAW+JPEG em uma só miniatura",
   settingsStackRawJpegNote:
-    "Um RAW e um JPEG com o mesmo nome na mesma pasta aparecem como um só bloco, o JPEG. Na grade, ★, ⚑, apagar e a seleção valem para os dois. Qual arquivo a tela cheia mostra é definido em “Ao ver uma foto em tela cheia”.",
+    "Um RAW e um JPEG com o mesmo nome na mesma pasta aparecem como uma só miniatura, o JPEG. Na grade, ★, ⚑, apagar e a seleção valem para os dois. Qual arquivo a tela cheia mostra é definido em “Ao ver uma foto em tela cheia”.",
   stackRawChipTitle: (files: number) =>
-    `RAW e JPEG empilhados em um só bloco (${num(files)} arquivos)`,
-  settingsStackBurstsToggle: "Empilhar sequências em um só bloco",
+    `RAW e JPEG empilhados em uma só miniatura (${num(files)} arquivos)`,
+  settingsStackBurstsToggle: "Empilhar sequências em uma só miniatura",
   settingsStackBurstsNote:
-    "Fotos tiradas em sequência rápida com a mesma câmera aparecem como um só bloco. Só são empilhadas as fotos cujo horário de captura é registrado em frações de segundo (algumas câmeras não registram). Na grade, ★ e ⚑ do menu do clique direito valem só para a foto de capa; apagar e a seleção valem para a sequência inteira. A tela cheia não junta as sequências; ela passa por cada foto.",
+    "Fotos tiradas em sequência rápida com a mesma câmera aparecem como uma só miniatura. Só são empilhadas as fotos cujo horário de captura é registrado em frações de segundo (algumas câmeras não registram). Na grade, ★ e ⚑ do menu do clique direito valem só para a foto de capa; apagar e a seleção valem para a sequência inteira. A tela cheia não junta as sequências; ela passa por cada foto.",
   settingsBurstGap: "Intervalo máximo dentro de uma sequência",
   settingsOutgoing: "Saída",
   settingsGoogleToggle: "Colocar as fotos importadas também na pasta de Saída",
@@ -508,7 +513,7 @@ export const pt: Dict = {
   settingsGoogleOneDriveNote: "Se fizer isso, o OneDrive não poderá mais deixar essas fotos só on-line.",
   settingsGoogleAfterNote: "Quando você move uma foto para a lixeira no pictkura, ela também sai da pasta de Saída. Se você usa o Google Fotos: ela continua no Google Fotos. O envio é feito pela página web do Google Fotos (photos.google.com), então só avança enquanto essa página estiver aberta no navegador.",
   pickGoogleFolder: "Escolha a pasta de Saída",
-  importGoogle: (n: number) => ` · ${num(n)} ${one(n, "colocada", "colocadas")} na Saída`,
+  importGoogle: (n: number) => ` · ${num(n)} ${one(n, "colocado", "colocados")} na Saída`,
   importGoogleFailed: (n: number) =>
     `${num(n)} não ${one(n, "pôde ser colocada", "puderam ser colocadas")} na Saída (veja o registro)`,
   importGoogleError: (why: string) => `Nada foi colocado na Saída: ${why}`,
@@ -524,7 +529,8 @@ export const pt: Dict = {
     if (parts.length > 0) items.push(`${parts.join(", ")}${size ? ` (${size})` : ""}`);
     if (rawOnly > 0)
       items.push(`${num(rawOnly)} ${one(rawOnly, "JPEG extraído", "JPEGs extraídos")} de fotos só em RAW`);
-    return `Será colocado na pasta de Saída: ${items.join("; ")}.`;
+    // 主語は後ろの品目の合計。1つなら単数（Será colocado）、2つ以上なら複数（Serão colocados）
+    return `${one(photos + videos + rawOnly, "Será colocado", "Serão colocados")} na pasta de Saída: ${items.join("; ")}.`;
   },
   googleSendLeftOut: (n: number) =>
     `${num(n)} dos itens escolhidos ${one(n, "fica", "ficam")} de fora (o RAW de um par RAW+JPEG, arquivos dentro do OneDrive e afins).`,
@@ -565,7 +571,7 @@ export const pt: Dict = {
   pairViewRaw: "Só o RAW",
   pairViewBoth: "Os dois (RAW, depois JPEG)",
   settingsPairViewNote:
-    "Como a tela cheia passa por um par mostrado como um só bloco na grade. Mostrando um lado, ★, ⚑, ✕ e apagar em tela cheia valem para os dois arquivos do par. Mostrando os dois, valem só para o arquivo que você está vendo. Os botões RAW / JPEG da tela cheia também alternam. Se os pares não estiverem empilhados na grade, os dois arquivos aparecem.",
+    "Como a tela cheia passa por um par mostrado como uma só miniatura na grade. Mostrando um lado, ★, ⚑, ✕ e apagar em tela cheia valem para os dois arquivos do par. Mostrando os dois, valem só para o arquivo que você está vendo. Os botões RAW / JPEG da tela cheia também alternam. Se os pares não estiverem empilhados na grade, os dois arquivos aparecem.",
   viewerPairSide: "Qual arquivo do par mostrar (também fica salvo nas configurações)",
   settingsTransition: "Ao passar para a próxima foto",
   settingsSlideshowTransition: "Transição da apresentação",
@@ -622,13 +628,13 @@ export const pt: Dict = {
   errGoogleOtherDrive: "Escolha uma pasta na mesma unidade que o destino da importação.",
   errNotFound: "Essa foto não está mais no índice.",
   errRotateNoOrientation: "Esta foto não tem informação de orientação, então não pode ser girada.",
-  errRotateXmp: "Isso entraria em conflito com a orientação que os editores de fotos leem do XMP, então ela não pode ser girada.",
+  errRotateXmp: "Isso entraria em conflito com a orientação que os editores de fotos leem do XMP, então a foto não pode ser girada.",
   errRotateCloudOnly: "Esta foto está só na nuvem, então não pode ser girada. Baixe-a e tente de novo.",
-  errRotateCameraCard: "As fotos no cartão da câmera ficam como estão, porque é de lá que você importa. Importe-a e depois gire.",
+  errRotateCameraCard: "As fotos no cartão da câmera ficam como estão, porque é de lá que você importa. Importe a foto e depois gire.",
   errRotateNotReady: "Ainda lendo esta foto. Espere um pouco e tente de novo.",
   errRotateChanged: "O arquivo foi alterado em outro lugar enquanto era girado. Tente de novo.",
   errRotateBusy: "Verificando as suas pastas. Espere um pouco e tente de novo.",
-  errRotateWrite: "Não foi possível gravar no arquivo, então ela não foi girada. Verifique se nenhum outro app está com ele aberto e se ele não é somente leitura.",
+  errRotateWrite: "Não foi possível gravar no arquivo, então a foto não foi girada. Verifique se nenhum outro app está com ele aberto e se ele não é somente leitura.",
   errRotateLeftChanged: "Algo deu errado depois que o arquivo foi regravado, e não foi possível desfazer. A foto pode continuar girada. Veja o registro para mais detalhes.",
   errRotateCannotRestore: "Esta foto não pode mais voltar à orientação de antes de o pictkura girá-la, por exemplo porque outro app a alterou.",
   errDb: "Não foi possível ler ou gravar o índice.",
@@ -636,13 +642,13 @@ export const pt: Dict = {
   errConfigFormat: "Não foi possível entender o arquivo de configurações.",
   errNoDestination: "Ainda não foi escolhida uma pasta de destino.",
   errRootManaged:
-    "Uma biblioteca gerenciada não pode ser adicionada como pasta — o que está dentro pertence a esse app.",
+    "Uma fototeca gerenciada não pode ser adicionada como pasta — o que está dentro pertence a esse app.",
   errDestManaged:
-    "Uma biblioteca gerenciada não pode ser o destino — o que está dentro pertence a esse app.",
+    "Uma fototeca gerenciada não pode ser o destino — o que está dentro pertence a esse app.",
   errNoImageToExtract: "Não há imagem neste arquivo para extrair.",
   errSourceUnreadable: "Não foi possível ler essa pasta.",
   errSourceManaged:
-    "O interior de uma biblioteca gerenciada não pode ser importado. Tire a extensão (.photoslibrary e afins) do nome da pasta e escolha-a de novo.",
+    "O interior de uma fototeca gerenciada não pode ser importado. Tire a extensão (.photoslibrary e afins) do nome da pasta e escolha-a de novo.",
   errExportDest: "Não foi possível criar essa pasta de destino.",
   errExportManaged: "Nada pode ser gravado ali — outro app gerencia esse pacote.",
   errFolderMissing: "Essa pasta não está lá.",
@@ -651,7 +657,7 @@ export const pt: Dict = {
   errTrashFailed: "Não foi possível mover para a lixeira.",
   errTrashUnreachable: "Não é possível acessar a unidade ou a pasta, então nada foi movido para a lixeira.",
   errTrashPartly: (n: number) =>
-    `${num(n)} ${one(n, "movido", "movidos")} para a lixeira; o resto não pôde ser movido.`,
+    `${num(n)} ${one(n, "movida", "movidas")} para a lixeira; o resto não pôde ser movido.`,
   errNoLogYet: "Nada foi registrado ainda.",
   errOutgoingFolderMissing: "A pasta de Saída não está lá. Ligar a Saída a cria (se já estiver ligada, desligue e ligue de novo).",
   errOpenOutgoingFailed: "Não foi possível abrir a pasta de Saída. Use “Copiar caminho” e abra-a por lá.",
