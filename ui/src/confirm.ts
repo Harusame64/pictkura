@@ -33,7 +33,7 @@ export async function confirmAction(
         // 閉じの印は TaskDialog で箱に描かれ、向きも効かない（#283 の win の実機）
         message: isolatesToEmbeddings(message),
         okLabel,
-        cancelLabel: t.confirmCancel,
+        cancelLabel: cancelLabelFor(platform, t.confirmCancel, osT?.confirmCancel) ?? t.confirmCancel,
         warning: kind === "warning",
       });
     }

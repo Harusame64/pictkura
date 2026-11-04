@@ -77,27 +77,45 @@ const RTL_LETTER =
  * **向きの閉じ（FSI/LRI/RLI … PDI）を、古い埋め込み（LRE/RLE … PDF）に置き換える**。
  * Windows の TaskDialog は閉じの印を解さず、点線の箱で描いたうえ、アラビア語で終わる名前を
  * 周りの文へ混ぜた（#283 の win の実機）。埋め込みは古い描き手でも効く。
- * FSI の向きは、中の最初の文字（字）で決める——Unicode の FSI と同じ決め方。字が無ければ左から右
+ *
+ * - FSI の向きは、中で最初に出る強い向きの文字で決める（字と LRM・RLM・ALM）。入れ子の中と、
+ *   段落の切れ目より先は見ない。何も無ければ左から右
+ * - **対の無い PDI は捨てる**——Unicode でも何もしない文字で、PDF に変えると開いている埋め込みを閉じてしまう
  */
 export function isolatesToEmbeddings(s: string): string {
   const chars = [...s];
+  let open = 0;
   return chars
     .map((c, i) => {
+      if (c === "\u2066" || c === "\u2067" || c === "\u2068") open++;
       if (c === "\u2066") return "\u202a";
       if (c === "\u2067") return "\u202b";
-      if (c === "\u2069") return "\u202c";
-      if (c !== "\u2068") return c;
-      let depth = 0;
-      for (const d of chars.slice(i + 1)) {
-        if (d === "\u2066" || d === "\u2067" || d === "\u2068") depth++;
-        else if (d === "\u2069") {
-          if (depth === 0) break;
-          depth--;
-        } else if (depth === 0 && /\p{L}/u.test(d)) {
-          return RTL_LETTER.test(d) ? "\u202b" : "\u202a";
-        }
+      if (c === "\u2069") {
+        if (open === 0) return "";
+        open--;
+        return "\u202c";
       }
-      return "\u202a";
+      if (c === "\n" || c === "\r" || c === "\u2029") open = 0;
+      if (c !== "\u2068") return c;
+      return fsiIsRtl(chars, i + 1) ? "\u202b" : "\u202a";
     })
     .join("");
+}
+
+function fsiIsRtl(chars: string[], from: number): boolean {
+  let depth = 0;
+  for (const d of chars.slice(from)) {
+    if (d === "\n" || d === "\r" || d === "\u2029") return false;
+    if (d === "\u2066" || d === "\u2067" || d === "\u2068") depth++;
+    else if (d === "\u2069") {
+      if (depth === 0) return false;
+      depth--;
+    } else if (depth === 0) {
+      if (d === "\u200f" || d === "\u061c") return true;
+      if (d === "\u200e") return false;
+      // 字だけを見る——アラビア・インド数字も字種はアラビア文字だが、強い向きを持たない
+      if (/\p{L}/u.test(d)) return RTL_LETTER.test(d);
+    }
+  }
+  return false;
 }

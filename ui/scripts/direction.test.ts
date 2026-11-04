@@ -60,6 +60,8 @@ test("閉じの印を、中の最初の字の向きの埋め込みに置き換�
   assert.equal(isolatesToEmbeddings("\u20682024 صور\u2069"), "\u202b2024 صور\u202c");
   // 補助面の右から左の字（Adlam）も右から左
   assert.equal(isolatesToEmbeddings("\u2068\u{1E900}x\u2069"), "\u202b\u{1E900}x\u202c");
+  // アラビア・インド数字は字ではない（向きは後の字で決まる）
+  assert.equal(isolatesToEmbeddings("\u2068٢٠٢٤ a\u2069"), "\u202a٢٠٢٤ a\u202c");
   // 字が無ければ左から右
   assert.equal(isolatesToEmbeddings("\u2068123\u2069"), "\u202a123\u202c");
   // 入れ子の中の字は外の向きを決めない
@@ -67,6 +69,14 @@ test("閉じの印を、中の最初の字の向きの埋め込みに置き換�
     isolatesToEmbeddings("\u2068\u2067ب\u2069a\u2069"),
     "\u202a\u202bب\u202ca\u202c",
   );
+  // RLM・ALM は強い右から左、LRM は強い左から右
+  assert.equal(isolatesToEmbeddings("\u2068\u200fabc\u2069"), "\u202b\u200fabc\u202c");
+  assert.equal(isolatesToEmbeddings("\u2068\u200eب\u2069"), "\u202a\u200eب\u202c");
+  // 対の無い PDI は捨てる（開いている埋め込みを閉じない）
+  assert.equal(isolatesToEmbeddings("\u2069x"), "x");
+  assert.equal(isolatesToEmbeddings("\u202bب\u2069x\u202c"), "\u202bبx\u202c");
+  // 段落の切れ目より先の字で向きを決めない
+  assert.equal(isolatesToEmbeddings("\u2068123\nب"), "\u202a123\nب");
   // LRI・RLI もそのまま対応する埋め込みへ。印の無い文は変えない
   assert.equal(isolatesToEmbeddings("\u2066a\u2069\u2067b\u2069"), "\u202aa\u202c\u202bb\u202c");
   assert.equal(isolatesToEmbeddings("abc"), "abc");
