@@ -37,6 +37,9 @@ mod clipboard_image;
 // エクスプローラーと同じ右クリックのメニュー（ADR B-4）。Windows だけ
 #[cfg(windows)]
 mod shell_menu;
+// 右から左へ書く言語の確認画面。プラグインは旗を渡せない（`confirm_dialog.rs`）。Windows だけ
+#[cfg(windows)]
+mod confirm_dialog;
 // メニューバーをアプリの言語で組む（Issue #14）。**macOSにしかメニューが無い**
 // ——Windowsは窓にメニューを載せていないので、あちらでは1行もコンパイルしない
 #[cfg(target_os = "macos")]
@@ -2716,6 +2719,53 @@ async fn show_shell_menu(
 #[tauri::command]
 fn show_shell_menu(_ids: Vec<i64>, _x: f64, _y: f64) -> Result<(), String> {
     Err(errs::code("errShellMenu"))
+}
+
+/// **右から左へ書く言語の確認画面**（Windows だけ。`ui/src/confirm.ts` が `isRtl()` のときに呼ぶ）。
+/// OK なら `true`。プラグインの `confirm` と同じく、**箱は別のスレッドで出す**——UI のスレッドで
+/// 待つと、開いている間 WebView が描かれない
+#[cfg(windows)]
+#[tauri::command]
+async fn confirm_right_to_left(
+    window: tauri::WebviewWindow,
+    title: String,
+    message: String,
+    ok_label: String,
+    cancel_label: String,
+    warning: bool,
+) -> Result<bool, String> {
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+    let confirm = confirm_dialog::Confirm {
+        title,
+        message,
+        ok_label,
+        cancel_label,
+        warning,
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        confirm_dialog::show(windows::Win32::Foundation::HWND(hwnd as _), &confirm)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| {
+        applog::note(&format!(
+            "could not show the right-to-left confirm dialog: {e}"
+        ));
+        e.to_string()
+    })
+}
+
+/// ほかの OS ではプラグインのまま（macOS の NSAlert は AppKit の言語で向きを決める）。呼ばれたら断る
+#[cfg(not(windows))]
+#[tauri::command]
+fn confirm_right_to_left(
+    _title: String,
+    _message: String,
+    _ok_label: String,
+    _cancel_label: String,
+    _warning: bool,
+) -> Result<bool, String> {
+    Err("the right-to-left confirm dialog is only for Windows".to_string())
 }
 
 /// エクスプローラー／Finderでファイルの場所を開き、その項目を選択する。
@@ -7514,6 +7564,7 @@ pub fn run() {
             log_path,
             open_with,
             show_shell_menu,
+            confirm_right_to_left,
             forget_editor,
             delete_media,
             list_folder_patterns,

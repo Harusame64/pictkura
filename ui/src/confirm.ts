@@ -5,14 +5,16 @@
  */
 import { confirm } from "@tauri-apps/plugin-dialog";
 
-import { cancelLabelFor } from "./confirmLabels";
+import { cancelLabelFor, confirmRoute } from "./confirmLabels";
+import { isRtl } from "./direction";
 import { errText } from "./i18n/err.ts";
 import { osT, t } from "./i18n";
-import { isTemporaryFolder, type HostPlatform } from "./api";
+import { confirmRightToLeft, isTemporaryFolder, type HostPlatform } from "./api";
 
 /**
  * - **OK は押すと何が起きるかを言う**（`okLabel`）
  * - キャンセルの語は `cancelLabelFor`（macOS は AppKit の言語）
+ * - **Windows の右から左の言語は自前の箱**（`confirmRoute`）——プラグインは向きの旗を渡せない
  * - **開けなかったら、知らせてから「取り消した」と同じに扱う**——黙って取り消しに倒すと、
  *   押しても何も起きないボタンになる（呼び側の `catch` に届いていた失敗を握り潰さない）
  */
@@ -25,6 +27,15 @@ export async function confirmAction(
   kind: "warning" | "info" = "warning",
 ): Promise<boolean> {
   try {
+    if (confirmRoute(platform, isRtl()) === "windowsRtl") {
+      return await confirmRightToLeft({
+        title: t.appName,
+        message,
+        okLabel,
+        cancelLabel: t.confirmCancel,
+        warning: kind === "warning",
+      });
+    }
     return await confirm(message, {
       title: t.appName,
       kind,
