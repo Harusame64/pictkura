@@ -49,6 +49,9 @@ mod menu;
 // macOS の枠（AppKit）を画面で選んだ言語に合わせる（dev #27）
 #[cfg(target_os = "macos")]
 mod appkit_lang;
+// macOS の WebView に頁の全画面を入れ、窓の全画面を抜けたらキーの受け手を戻す（dev #75）
+#[cfg(target_os = "macos")]
+mod mac_fullscreen;
 // OS の言語から辞書のコードを当てる（メニューの繋ぎと、WebView2 が無いときの案内。dev #72）
 mod os_dict;
 mod packaged;
@@ -6920,22 +6923,9 @@ pub fn run() {
             // 画面に入らない台では、ここで縮めて押し戻す
             window_fit::fit_main_window(app.handle());
 
-            // **macOS のビューアの全画面（⛶・F11）を効かせる。** WKWebView は頁の全画面を既定で切っていて、
-            // `document.documentElement.requestFullscreen` が無く、押しても何も起きなかった（v0.1 から）。
-            // 動画の再生バーに全画面ボタンが出ないのも同じ理由。公開の設定で入れ、Windows（WebView2）と同じ道に乗せる
+            // **macOS のビューアの全画面（⛶・F11・動画の再生バーのボタン）を効かせる**（`mac_fullscreen.rs`）
             #[cfg(target_os = "macos")]
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.with_webview(|wv| {
-                    // SAFETY: macOS の `inner()` は、この窓の WKWebView を指す（tauri の PlatformWebview）。
-                    // 呼ばれるのは主スレッド
-                    unsafe {
-                        let view = &*(wv.inner() as *const objc2_web_kit::WKWebView);
-                        view.configuration()
-                            .preferences()
-                            .setElementFullscreenEnabled(true);
-                    }
-                });
-            }
+            mac_fullscreen::install(app.handle());
 
             // **メニューバーを、まず当て推量の言語で掛ける**（macOSだけ・Issue #14）。
             // 控えの言語で AppKit を上書きした起動では、ここで読む言語はその控えになる

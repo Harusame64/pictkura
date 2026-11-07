@@ -19,8 +19,6 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { isMac } from "./api";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
@@ -5450,16 +5448,6 @@ export default function App() {
   // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
   // **こちらの言葉ではない**——それでも黙るよりはよい。
   // **押した物が動かなかったことは、必ず伝わるようにする。**
-  /**
-   * macOS で窓の全画面に入ってから、抜けた後のキーの受け手をまだ戻していないか。入る・抜けるはアニメーションで、
-   * その間の読みは外れうる。この印がある間は、大きさの知らせのたびに窓を読み直す
-   */
-  const refocusAfterFullscreenRef = useRef(false);
-  /**
-   * 抜けたと最初に読んでから印を下ろすまでのタイマー。読みの側で締め切りを見ると、次の読みまで印が残り、
-   * 後の頁の全画面・緑のボタンの全画面まで窓の全画面として記録した（mac の実測）
-   */
-  const refocusTimerRef = useRef<number | null>(null);
   /** 窓の全画面の記録を、実際の窓に合わせる。緑のボタン・Ctrl+Cmd+F など、こちらを通らずに抜けても食い違わない */
   const syncWindowFullscreen = useCallback(() => {
     getCurrentWindow()
@@ -5467,27 +5455,6 @@ export default function App() {
       .then((on) => {
         winFullscreenRef.current = on;
         setWinFullscreen(on);
-        if (!isMac || !refocusAfterFullscreenRef.current) return;
-        if (on) {
-          if (refocusTimerRef.current !== null) window.clearTimeout(refocusTimerRef.current);
-          refocusTimerRef.current = null;
-          return;
-        }
-        //macOS は窓の全画面を抜けると、キーの受け手が WebView から窓へ移る（Esc も ←/→ も頁に届かなくなった。
-        //mac の実測 2026-11-07）。抜けたと読んだら WebView に戻す。戻した直後、抜けるアニメーションの終わりに
-        //もう一度奪われた（戻した直後に blur、その後に最後の resize が来た）ので、抜けてしばらくは読むたびに戻す
-        refocusTimerRef.current ??= window.setTimeout(() => {
-          refocusAfterFullscreenRef.current = false;
-          refocusTimerRef.current = null;
-        }, 1500);
-        getCurrentWebview()
-          .setFocus()
-          .then(() => {
-            //頁の中で何かを選んでいたら（ダイアログ・パレット）、そこからは取らない
-            const a = document.activeElement;
-            if (a === null || a === document.body) viewerRootRef.current?.focus();
-          })
-          .catch(() => {});
       })
       .catch(() => {});
   }, []);
@@ -5495,7 +5462,6 @@ export default function App() {
     (on: boolean) => {
       winFullscreenRef.current = on;
       setWinFullscreen(on);
-      if (on && isMac) refocusAfterFullscreenRef.current = true;
       getCurrentWindow()
         .setFullscreen(on)
         .catch((e) => fail(errText(e)))
@@ -5507,10 +5473,15 @@ export default function App() {
   //窓の大きさが変わったら（全画面の出入りを含む）記録を合わせる。頁の全画面のときは記録を使わないので害は無い
   useEffect(() => {
     const un = getCurrentWindow().onResized(() => {
-      if (winFullscreenRef.current || refocusAfterFullscreenRef.current) syncWindowFullscreen();
+      if (winFullscreenRef.current) syncWindowFullscreen();
     });
+    //macOS は窓の全画面の出入りがアニメーションで、途中の読みは外れうる（入った直後に偽と読んで記録が偽に
+    //固まると、Esc がビューアだけを閉じ、一覧が全画面に残る）。終わったときに本体が知らせるので、そこで読み直す
+    //（`mac_fullscreen.rs`。抜けたときのキーの受け手もそこで WebView に戻している）
+    const unMac = listen("window-fullscreen-changed", () => syncWindowFullscreen());
     return () => {
       void un.then((f) => f());
+      void unMac.then((f) => f());
     };
   }, [syncWindowFullscreen]);
   const toggleFullscreen = useCallback(() => {
