@@ -5485,6 +5485,16 @@ export default function App() {
       setWindowFullscreen(false);
       return;
     }
+    //macOS の WebView（WKWebView）は頁の全画面を持たない（wry の `fullscreen` 機能は private API で、入れていない）。
+    //`requestFullscreen` が無く、押しても黙って何も起きなかった。そこではウィンドウの全画面で同じ見え方にする。
+    //緑のボタンなどで先に全画面になっていることがあるので、実際の窓を読んでから切り替える
+    if (!document.fullscreenEnabled) {
+      getCurrentWindow()
+        .isFullscreen()
+        .then((on) => setWindowFullscreen(!on))
+        .catch((e) => fail(errText(e)));
+      return;
+    }
     if (document.fullscreenElement) {
       document.exitFullscreen().catch((e) => fail(errText(e)));
     } else {
