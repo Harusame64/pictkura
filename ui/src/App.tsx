@@ -31,6 +31,7 @@ import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
+import { afterVideoEnded, isVideoOnlyFullscreen, rememberDir, type ViewerDir } from "./videoPlayOn";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
@@ -3941,12 +3942,20 @@ export default function App() {
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
    */
+  /**
+   * ビューアで最後に自分で動かした向き（dev #75）。動画が終わったら、スライドショーでなくてもこの向きへ続ける。
+   * ← で来たら新しい方（時系列）、→ で来たら古い方。開いただけで動かしていなければ null（→ と同じ扱い）。
+   * ビューアを閉じたら忘れる
+   */
+  const lastMoveDirRef = useRef<ViewerDir | null>(null);
   const moveViewer = useCallback(
     (dir: 1 | -1, wrap = false, slideshow = false) => {
       if (!viewerInfo) return;
       // 送るときは向きを名乗る（送りの動き）。端で送れなかったときは名乗らない
       const go = (to: ViewerPos) => {
         markNav(dir, slideshow);
+        // 自分で動かした向きを覚える。動画が終わったらこの向きへ続ける（dev #75 の C）
+        lastMoveDirRef.current = rememberDir(lastMoveDirRef.current, dir, slideshow);
         setViewer(to);
       };
       // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
@@ -5433,10 +5442,21 @@ export default function App() {
     }
   }, [fail]);
   useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    const onChange = () => {
+      const el = document.fullscreenElement;
+      setIsFullscreen(el !== null);
+      // 動画の再生バーの全画面ボタン（右下）は、動画だけを全画面にする。そこではビューアの前後の矢印も
+      // ←/→ も届かず、見終わっても次の動画を選べない（dev #75）。アプリの全画面（⛶・F11）に差し替える
+      if (isVideoOnlyFullscreen(el)) {
+        document
+          .exitFullscreen()
+          .then(() => document.documentElement.requestFullscreen())
+          .catch((e) => fail(errText(e)));
+      }
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  }, [fail]);
   // ビューアを閉じたら全画面も解く（2026-08-22）。
   //
   // **全画面はビューアの見方であって、一覧の見方ではない**。一覧に戻ったあとも
@@ -5446,6 +5466,7 @@ export default function App() {
   // 閉じる処理ではなく「閉じている」状態を見る）
   useEffect(() => {
     if (viewer !== null) return;
+    lastMoveDirRef.current = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   }, [viewer]);
 
@@ -8443,9 +8464,11 @@ export default function App() {
                     item: viewerItem,
                   });
                 }}
-                // スライドショー中は最後まで見せてから次へ送る
+                // スライドショー中は最後まで見せてから次へ送る。
+                // スライドショーでなくても、終わったら最後に動かした向きへ続ける（dev #75）。端では止まる（一周しない）
                 onEnded={() => {
-                  if (playing) moveViewer(1, true, true);
+                  const next = afterVideoEnded(playing, lastMoveDirRef.current);
+                  moveViewer(next.dir, next.wrap, next.slideshow);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
