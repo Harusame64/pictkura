@@ -1047,6 +1047,8 @@ export default function App() {
    */
   const [winFullscreen, setWinFullscreen] = useState(false);
   const winFullscreenRef = useRef(false);
+  /** こちらが窓の全画面を頼んだか。macOS の出入りはアニメーションで、途中の読みで記録が偽になっても、終わりの知らせで読み直す */
+  const winFullscreenWantedRef = useRef(false);
   /** ビューアが開いているか（約束の後で見る用） */
   const viewerOpenRef = useRef(false);
   /** 頁か窓のどちらかで全画面（⛶ の表示） */
@@ -5461,6 +5463,7 @@ export default function App() {
   const setWindowFullscreen = useCallback(
     (on: boolean) => {
       winFullscreenRef.current = on;
+      winFullscreenWantedRef.current = on;
       setWinFullscreen(on);
       getCurrentWindow()
         .setFullscreen(on)
@@ -5478,7 +5481,20 @@ export default function App() {
     //macOS は窓の全画面の出入りがアニメーションで、途中の読みは外れうる（入った直後に偽と読んで記録が偽に
     //固まると、Esc がビューアだけを閉じ、一覧が全画面に残る）。終わったときに本体が知らせるので、そこで読み直す
     //（`mac_fullscreen.rs`。抜けたときのキーの受け手もそこで WebView に戻している）
-    const unMac = listen("window-fullscreen-changed", () => syncWindowFullscreen());
+    //読み直すのは、こちらが窓の全画面に入れた（または記録がそう言う）ときだけ。緑のボタンで一覧ごと入った全画面は
+    //利用者の見方で、ビューアの記録には取り込まない（取り込むと、ビューアの Esc・閉じるがアプリの全画面まで解いた）
+    //知らせはアニメーションの終わりなので、そこで抜けていたら頼みも下ろす（緑のボタンで抜けたときも）
+    const unMac = listen("window-fullscreen-changed", () => {
+      if (!winFullscreenWantedRef.current && !winFullscreenRef.current) return;
+      getCurrentWindow()
+        .isFullscreen()
+        .then((on) => {
+          winFullscreenRef.current = on;
+          if (!on) winFullscreenWantedRef.current = false;
+          setWinFullscreen(on);
+        })
+        .catch(() => {});
+    });
     return () => {
       void un.then((f) => f());
       void unMac.then((f) => f());
@@ -5488,6 +5504,12 @@ export default function App() {
     //動画の再生バーのボタンから入った全画面は、ウィンドウの全画面（下）。そこから抜けるのもウィンドウの側
     if (winFullscreenRef.current) {
       setWindowFullscreen(false);
+      return;
+    }
+    //頁の全画面が無い WebView（macOS 12.3 より前、または頁が設定より先に建った起動）では、ウィンドウの全画面で
+    //同じ見え方にする。`requestFullscreen` が無いと、呼んだ時点で投げて黙って何も起きなかった
+    if (!document.fullscreenEnabled) {
+      setWindowFullscreen(true);
       return;
     }
     if (document.fullscreenElement) {

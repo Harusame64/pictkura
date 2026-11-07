@@ -12,6 +12,8 @@
 //! `restore_state_from_fullscreen` が `set_style_mask_async` を主キューに積み、そこで自分の
 //! `ns_view` を first responder にする（WKWebView はその子）。だから `didExitFullScreen` で、
 //! **同じ主キューの後ろに**戻す処理を積む（その場で戻すと、後から来る tao の分に上書きされた）。
+//! 同じ知らせを tao の窓の delegate とこちらのどちらが先に受けるかは AppKit が決めない。こちらが先でも
+//! tao の分より後ろに来るよう、主キューで一度回ってから**もう一度**積み直す。
 //! 緑のボタン・メニューの「フルスクリーンにする」から抜けたときも同じ道を通る。
 //! 入った・抜けたは画面にも知らせる（`window-fullscreen-changed`）。窓の記録をアニメーションの途中で読むと
 //! 外れるので、終わったところで読み直させる。
@@ -75,12 +77,14 @@ pub fn install(app: &AppHandle) {
             };
             let pair = MainThreadBound::new((win.clone(), v.clone()), mtm);
             DispatchQueue::main().exec_async(move || {
-                let Some(mtm) = MainThreadMarker::new() else {
-                    return;
-                };
-                let (win, v) = pair.get(mtm);
-                let r: &NSResponder = v;
-                win.makeFirstResponder(Some(r));
+                DispatchQueue::main().exec_async(move || {
+                    let Some(mtm) = MainThreadMarker::new() else {
+                        return;
+                    };
+                    let (win, v) = pair.get(mtm);
+                    let r: &NSResponder = v;
+                    win.makeFirstResponder(Some(r));
+                });
             });
         });
         // SAFETY: 名前は AppKit の定数、相手はこの窓。queue を渡さないので、知らせを出した主スレッドで走る
@@ -89,14 +93,14 @@ pub fn install(app: &AppHandle) {
                 (NSWindowDidEnterFullScreenNotification, &entered),
                 (NSWindowDidExitFullScreenNotification, &exited),
             ] {
-                let token = center.addObserverForName_object_queue_usingBlock(
+                // 受け口は通知センターが外されるまで持つ（窓はアプリと同じだけ生き、外す時は無い）。
+                // 戻り値の印は外すときにだけ要る
+                let _ = center.addObserverForName_object_queue_usingBlock(
                     Some(name),
                     Some(obj),
                     None,
                     block,
                 );
-                // 窓はアプリと同じだけ生きる。外す時は無いので、受け口は持ったままにする
-                std::mem::forget(token);
             }
         }
     });
