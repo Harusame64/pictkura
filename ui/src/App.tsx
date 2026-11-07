@@ -31,7 +31,7 @@ import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
-import { afterVideoEnded, rememberDir, type ViewerDir } from "./videoPlayOn";
+import { afterVideoEnded, isVideoOnlyFullscreen, rememberDir, type ViewerDir } from "./videoPlayOn";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
@@ -1040,6 +1040,12 @@ export default function App() {
   /** ビューアのUI（キャプション・ツール・矢印）を隠しているか（マウス静止で自動） */
   const [viewerIdle, setViewerIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  /**
+   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
+   * 頁の全画面（`isFullscreen`）とは別に持ち、⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける
+   */
+  const [winFullscreen, setWinFullscreen] = useState(false);
+  const winFullscreenRef = useRef(false);
   /** ウィンドウサイズ。表示倍率（実ピクセル比）の計算に使う */
   const [windowSize, setWindowSize] = useState({
     w: window.innerWidth,
@@ -5433,18 +5439,53 @@ export default function App() {
   // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
   // **こちらの言葉ではない**——それでも黙るよりはよい。
   // **押した物が動かなかったことは、必ず伝わるようにする。**
+  const setWindowFullscreen = useCallback(
+    (on: boolean) => {
+      winFullscreenRef.current = on;
+      setWinFullscreen(on);
+      getCurrentWindow()
+        .setFullscreen(on)
+        .catch((e) => {
+          winFullscreenRef.current = false;
+          setWinFullscreen(false);
+          fail(errText(e));
+        });
+    },
+    [fail],
+  );
   const toggleFullscreen = useCallback(() => {
+    //動画の再生バーのボタンから入った全画面は、ウィンドウの全画面（下）。そこから抜けるのもウィンドウの側
+    if (winFullscreenRef.current) {
+      setWindowFullscreen(false);
+      return;
+    }
     if (document.fullscreenElement) {
       document.exitFullscreen().catch((e) => fail(errText(e)));
     } else {
       document.documentElement.requestFullscreen().catch((e) => fail(errText(e)));
     }
-  }, [fail]);
+  }, [fail, setWindowFullscreen]);
   useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    const onChange = () => {
+      const el = document.fullscreenElement;
+      setIsFullscreen(el !== null);
+      // 動画の再生バーの全画面ボタン（右下）は、動画だけを全画面にする。そこではビューアの前後の矢印も ←/→ も届かず、
+      // 次の動画へ送ると要素が作り直されて全画面も解ける（dev #75）。動画だけの全画面は抜けて、ウィンドウを全画面にする。
+      // 頁の requestFullscreen は使えない——押した手の中でないので、WebView2 が「Permissions check failed」で断った
+      // （win の実測 2026-11-07）。ウィンドウの全画面（Tauri）はその制限を受けない。ビューアは窓いっぱいなので見え方は同じ
+      if (isVideoOnlyFullscreen(el)) {
+        document
+          .exitFullscreen()
+          .then(() => {
+            //アプリの全画面の中で押したときは、抜けた後もアプリの全画面のまま
+            if (!document.fullscreenElement) setWindowFullscreen(true);
+          })
+          .catch((e) => fail(errText(e)));
+      }
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  }, [fail, setWindowFullscreen]);
   // ビューアを閉じたら全画面も解く（2026-08-22）。
   //
   // **全画面はビューアの見方であって、一覧の見方ではない**。一覧に戻ったあとも
@@ -5456,7 +5497,8 @@ export default function App() {
     if (viewer !== null) return;
     lastMoveDirRef.current = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  }, [viewer]);
+    if (winFullscreenRef.current) setWindowFullscreen(false);
+  }, [viewer, setWindowFullscreen]);
 
   // ビューアのUIはマウスを止めると消す（写真だけが残るのが現代の標準）。
   // スライドショー中も同じ扱いで、鑑賞の邪魔をしない
@@ -5697,7 +5739,10 @@ export default function App() {
           return;
         }
       }
-      if (e.key === "Escape") requestCloseViewer();
+      //ウィンドウの全画面（動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
+      //（頁の全画面は WebView が Esc を先に取って抜ける。2 回目で閉じる）
+      if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);
+      else if (e.key === "Escape") requestCloseViewer();
       // 右→左の画面では左が「次」（direction.ts）
       else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         const step = stepOfArrow(e.key, isRtl());
@@ -8451,11 +8496,6 @@ export default function App() {
                 className="viewer-video"
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
-                // 再生バーの全画面ボタン（右下）は出さない（dev #75）。それは動画だけを全画面にし、ビューアの前後の矢印も
-                // ←/→ も届かず、見終わっても次の動画を選べない。全画面はビューアの ⛶・F11 の 1 つにする。
-                // 押されたあとでアプリの全画面へ差し替える案は、WebView2 が「Permissions check failed」で断った
-                // （利用者の操作の中でないため。win の実測 2026-11-07）
-                controlsList="nofullscreen"
                 autoPlay
                 onClick={(e) => e.stopPropagation()}
                 onContextMenu={(e) => {
@@ -9169,12 +9209,12 @@ export default function App() {
               <span aria-hidden="true">?</span>
             </button>
             <button
-              className={"viewer-tool" + (isFullscreen ? " on" : "")}
+              className={"viewer-tool" + (isFullscreen || winFullscreen ? " on" : "")}
               title={t.viewerFullscreen} id="pk-viewer-fullscreen" data-testid="viewer-fullscreen"
-              aria-pressed={isFullscreen}
+              aria-pressed={isFullscreen || winFullscreen}
               onClick={toggleFullscreen}
             >
-              <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
+              <span aria-hidden="true">{isFullscreen || winFullscreen ? "⤡" : "⛶"}</span>
             </button>
           </div>
           {hasPrev && (
