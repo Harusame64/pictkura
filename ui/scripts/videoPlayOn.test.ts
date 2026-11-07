@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { afterVideoEnded, isVideoOnlyFullscreen, rememberDir } from "../src/videoPlayOn.ts";
+import { afterVideoEnded, rememberDir } from "../src/videoPlayOn.ts";
 
 const filtered = { playing: false, videosOnly: true, curtainUp: false };
 
@@ -48,11 +48,4 @@ test("only the user's own moves change the remembered direction", () => {
   //スライドショーの送り（いつも 1）で、前へ動かして決めた向きを上書きしない
   assert.equal(rememberDir(-1, 1, true), -1);
   assert.equal(rememberDir(null, 1, true), null);
-});
-
-test("only a video element in full screen is redirected", () => {
-  assert.equal(isVideoOnlyFullscreen({ tagName: "VIDEO" }), true);
-  for (const el of [{ tagName: "HTML" }, { tagName: "DIV" }, null, undefined]) {
-    assert.equal(isVideoOnlyFullscreen(el), false, String(el?.tagName));
-  }
 });

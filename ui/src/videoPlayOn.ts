@@ -30,11 +30,3 @@ export function afterVideoEnded(s: {
   if (!s.videosOnly || s.curtainUp) return null;
   return { dir: s.lastDir ?? 1, wrap: false, slideshow: false };
 }
-
-/**
- * 全画面になったのが動画の要素だけか（動画の再生バーの全画面ボタン）。そこではビューアの前後の矢印や
- * ←/→ が届かないので、アプリの全画面に差し替える
- */
-export function isVideoOnlyFullscreen(el: { tagName?: string } | null | undefined): boolean {
-  return el?.tagName === "VIDEO";
-}

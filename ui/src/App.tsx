@@ -31,7 +31,7 @@ import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
-import { afterVideoEnded, isVideoOnlyFullscreen, rememberDir, type ViewerDir } from "./videoPlayOn";
+import { afterVideoEnded, rememberDir, type ViewerDir } from "./videoPlayOn";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
@@ -5441,22 +5441,10 @@ export default function App() {
     }
   }, [fail]);
   useEffect(() => {
-    const onChange = () => {
-      const el = document.fullscreenElement;
-      setIsFullscreen(el !== null);
-      // 動画の再生バーの全画面ボタン（右下）は、動画だけを全画面にする。そこではビューアの前後の矢印も
-      // ←/→ も届かず、見終わっても次の動画を選べない（dev #75）。アプリの全画面（⛶・F11）に差し替える
-      if (isVideoOnlyFullscreen(el)) {
-        document
-          .exitFullscreen()
-          //アプリの全画面の中で押したときは、抜けた後もアプリの全画面のまま（重ねて求めると、押した手が無いので断られる）
-          .then(() => (document.fullscreenElement ? undefined : document.documentElement.requestFullscreen()))
-          .catch((e) => fail(errText(e)));
-      }
-    };
+    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
-  }, [fail]);
+  }, []);
   // ビューアを閉じたら全画面も解く（2026-08-22）。
   //
   // **全画面はビューアの見方であって、一覧の見方ではない**。一覧に戻ったあとも
@@ -8463,6 +8451,11 @@ export default function App() {
                 className="viewer-video"
                 src={videoSrc(viewerItem.id, viewerItem.mtime_ms, viewerItem.rev)}
                 controls
+                // 再生バーの全画面ボタン（右下）は出さない（dev #75）。それは動画だけを全画面にし、ビューアの前後の矢印も
+                // ←/→ も届かず、見終わっても次の動画を選べない。全画面はビューアの ⛶・F11 の 1 つにする。
+                // 押されたあとでアプリの全画面へ差し替える案は、WebView2 が「Permissions check failed」で断った
+                // （利用者の操作の中でないため。win の実測 2026-11-07）
+                controlsList="nofullscreen"
                 autoPlay
                 onClick={(e) => e.stopPropagation()}
                 onContextMenu={(e) => {
