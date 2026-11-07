@@ -1042,8 +1042,9 @@ export default function App() {
   const [viewerIdle, setViewerIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   /**
-   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
-   * 頁の全画面（`isFullscreen`）とは別に持ち、⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける
+   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったとき（dev #75）と、
+   * 頁の全画面を持たない macOS の ⛶ で使う。頁の全画面（`isFullscreen`）とは別に持ち、
+   * ⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける。macOS では緑のボタンで入った全画面もここに載る
    */
   const [winFullscreen, setWinFullscreen] = useState(false);
   const winFullscreenRef = useRef(false);
@@ -5442,7 +5443,7 @@ export default function App() {
     setZoom(1 / fitScale);
   }, [pinnedActualId, viewerItem?.id, fitScale]);
 
-  // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す。
+  // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す（macOS は標準APIが無いので、ウィンドウの全画面）。
   //
   // **これも「押しても何も起きない」だった**（台紙の12か所には数えていないが、
   // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
@@ -5470,17 +5471,20 @@ export default function App() {
     },
     [fail, syncWindowFullscreen],
   );
-  //窓の大きさが変わったら（全画面の出入りを含む）記録を合わせる。頁の全画面のときは記録を使わないので害は無い
+  //窓の大きさが変わったら（全画面の出入りを含む）記録を合わせる。頁の全画面のときは記録を使わないので害は無い。
+  //macOS（頁の全画面が無い）は記録が偽でも読む——緑のボタン・Ctrl+Cmd+F で入った全画面も、入る途中の
+  //アニメーションで読み違えた記録も、終わったときの resize で正しくなる。WebView2 では読まない
+  //（頁の全画面でも窓が全画面と答えうるので、⛶ が窓の側へ分かれてしまう）
   useEffect(() => {
     const un = getCurrentWindow().onResized(() => {
-      if (winFullscreenRef.current) syncWindowFullscreen();
+      if (winFullscreenRef.current || !document.fullscreenEnabled) syncWindowFullscreen();
     });
     return () => {
       void un.then((f) => f());
     };
   }, [syncWindowFullscreen]);
   const toggleFullscreen = useCallback(() => {
-    //動画の再生バーのボタンから入った全画面は、ウィンドウの全画面（下）。そこから抜けるのもウィンドウの側
+    //ウィンドウの全画面（動画の再生バーのボタンから・macOS の ⛶ から）に居るなら、抜けるのもウィンドウの側
     if (winFullscreenRef.current) {
       setWindowFullscreen(false);
       return;
@@ -5491,7 +5495,10 @@ export default function App() {
     if (!document.fullscreenEnabled) {
       getCurrentWindow()
         .isFullscreen()
-        .then((on) => setWindowFullscreen(!on))
+        //待つ間にビューアを閉じていたら入らない（閉じたときの片付けは先に済んでいて、一覧が全画面に残る）
+        .then((on) => {
+          if (on || viewerOpenRef.current) setWindowFullscreen(!on);
+        })
         .catch((e) => fail(errText(e)));
       return;
     }
@@ -5779,7 +5786,7 @@ export default function App() {
           return;
         }
       }
-      //ウィンドウの全画面（動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
+      //ウィンドウの全画面（動画の再生バーのボタン・macOS の ⛶ から）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
       //（頁の全画面は WebView が Esc を先に取って抜ける。2 回目で閉じる）
       if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);
       else if (e.key === "Escape") requestCloseViewer();
