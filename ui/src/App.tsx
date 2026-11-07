@@ -32,6 +32,7 @@ import { openWithId } from "./automationIds";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { afterVideoEnded, isVideoOnlyFullscreen, rememberDir, type ViewerDir } from "./videoPlayOn";
+import { IDLE_HIDDEN_UI, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
@@ -5479,6 +5480,8 @@ export default function App() {
           .then(() => {
             //アプリの全画面の中で押したときは、抜けた後もアプリの全画面のまま
             if (!document.fullscreenElement) setWindowFullscreen(true);
+            //フォーカスは動画の全画面ボタンに残り、最初の ←/→・F11 が動画に取られる（win の実測）。ビューアへ戻す
+            viewerRootRef.current?.focus();
           })
           .catch((e) => fail(errText(e)));
       }
@@ -5515,10 +5518,13 @@ export default function App() {
     };
     window.addEventListener("mousemove", wake);
     window.addEventListener("keydown", wake);
+    //カーソルを止めたまま押しても UI を出す（押した所が消えた UI の上なら、そのクリックでは閉じない。dev #75）
+    window.addEventListener("pointerdown", wake);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener("mousemove", wake);
       window.removeEventListener("keydown", wake);
+      window.removeEventListener("pointerdown", wake);
     };
   }, [viewer]);
   useEffect(() => {
@@ -8447,8 +8453,19 @@ export default function App() {
           // **動いている最中に押したら、動きを即座に終わらせてから効かせる**（2026-09-27 の
           // 利用者の選択）。見えている写真と、★・⚑・削除・右クリックが効く写真を必ず一致させる。
           // 終わらせたクリックそのものは地に落ちても閉じない——押した手は前の写真を狙っていた
-          onPointerDownCapture={() => {
-            swallowClickRef.current = transitioning;
+          onPointerDownCapture={(e) => {
+            // UI が消えている間に、道具バー・←・矢印・帯の描かれていた所を押したときも閉じない。UI を出すだけ
+            // （消えると当たり判定も無くなり、手が地に落ちて閉じていた。dev #75、win の実測）
+            const onHiddenUi =
+              viewerIdle &&
+              pointInAnyRect(
+                e.clientX,
+                e.clientY,
+                IDLE_HIDDEN_UI.flatMap((sel) =>
+                  [...(viewerRootRef.current?.querySelectorAll(sel) ?? [])].map((el) => el.getBoundingClientRect()),
+                ),
+              );
+            swallowClickRef.current = transitioning || onHiddenUi;
             if (transitioning) settleTransition();
           }}
           onWheelCapture={() => {
