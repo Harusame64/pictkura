@@ -3087,6 +3087,7 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-foundation",
+ "objc2-web-kit",
  "pictkura-core",
  "serde",
  "serde_json",

@@ -138,6 +138,15 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSString",
     "NSUserDefaults",
 ] }
+# ビューアの全画面（⛶）: WKWebView の頁の全画面は既定で切ってあり、`requestFullscreen` が無い。
+# 公開の `WKPreferences.elementFullscreenEnabled`（macOS 12.3+）で入れる。wry が同じ版を引いている
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2-app-kit",
+    "WKPreferences",
+    "WKWebView",
+    "WKWebViewConfiguration",
+] }
 
 # 実物のフォルダとシンボリックリンクを作るテストで使う
 # （綴りを揃える方と、空の理由を答える方の両方）

@@ -20,6 +20,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { isMac } from "./api";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
@@ -1043,9 +1044,8 @@ export default function App() {
   const [viewerIdle, setViewerIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   /**
-   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったとき（dev #75）と、
-   * 頁の全画面を持たない macOS の ⛶ で使う。頁の全画面（`isFullscreen`）とは別に持ち、
-   * ⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける。macOS では緑のボタンで入った全画面もここに載る
+   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
+   * 頁の全画面（`isFullscreen`）とは別に持ち、⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける
    */
   const [winFullscreen, setWinFullscreen] = useState(false);
   const winFullscreenRef = useRef(false);
@@ -5444,19 +5444,22 @@ export default function App() {
     setZoom(1 / fitScale);
   }, [pinnedActualId, viewerItem?.id, fitScale]);
 
-  // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す（macOS は標準APIが無いので、ウィンドウの全画面）。
+  // フルスクリーン（F11）。Webviewの標準APIで、ウィンドウ枠ごと消す。
   //
   // **これも「押しても何も起きない」だった**（台紙の12か所には数えていないが、
   // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
   // **こちらの言葉ではない**——それでも黙るよりはよい。
   // **押した物が動かなかったことは、必ず伝わるようにする。**
   /**
-   * macOS で、窓の全画面に入ってから、抜けた後のキーの受け手をまだ戻していないか。抜ける手（Esc・⛶）は
-   * 記録を先に偽にするので、記録の前後では「抜けた」を読めない。窓が全画面だったことをここに持つ
+   * macOS で窓の全画面に入ってから、抜けた後のキーの受け手をまだ戻していないか。入る・抜けるはアニメーションで、
+   * その間の読みは外れうる。この印がある間は、大きさの知らせのたびに窓を読み直す
    */
   const refocusAfterFullscreenRef = useRef(false);
-  /** 抜けたと最初に読んでから、キーの受け手を戻し続ける締め切り（`Date.now()`） */
-  const refocusUntilRef = useRef<number | null>(null);
+  /**
+   * 抜けたと最初に読んでから印を下ろすまでのタイマー。読みの側で締め切りを見ると、次の読みまで印が残り、
+   * 後の頁の全画面・緑のボタンの全画面まで窓の全画面として記録した（mac の実測）
+   */
+  const refocusTimerRef = useRef<number | null>(null);
   /** 窓の全画面の記録を、実際の窓に合わせる。緑のボタン・Ctrl+Cmd+F など、こちらを通らずに抜けても食い違わない */
   const syncWindowFullscreen = useCallback(() => {
     getCurrentWindow()
@@ -5464,26 +5467,26 @@ export default function App() {
       .then((on) => {
         winFullscreenRef.current = on;
         setWinFullscreen(on);
-        if (document.fullscreenEnabled) return;
+        if (!isMac || !refocusAfterFullscreenRef.current) return;
         if (on) {
-          refocusAfterFullscreenRef.current = true;
-          refocusUntilRef.current = null;
+          if (refocusTimerRef.current !== null) window.clearTimeout(refocusTimerRef.current);
+          refocusTimerRef.current = null;
           return;
         }
-        //macOS は全画面を抜けると、キーの受け手が WebView から窓へ移る（Esc も ←/→ も頁に届かなくなった。
-        //mac の実測 2026-11-07）。抜けたと読んだら WebView に戻す。戻した後、抜けるアニメーションの終わりに
+        //macOS は窓の全画面を抜けると、キーの受け手が WebView から窓へ移る（Esc も ←/→ も頁に届かなくなった。
+        //mac の実測 2026-11-07）。抜けたと読んだら WebView に戻す。戻した直後、抜けるアニメーションの終わりに
         //もう一度奪われた（戻した直後に blur、その後に最後の resize が来た）ので、抜けてしばらくは読むたびに戻す
-        if (!refocusAfterFullscreenRef.current) return;
-        const now = Date.now();
-        refocusUntilRef.current ??= now + 1500;
-        if (now > refocusUntilRef.current) {
+        refocusTimerRef.current ??= window.setTimeout(() => {
           refocusAfterFullscreenRef.current = false;
-          refocusUntilRef.current = null;
-          return;
-        }
+          refocusTimerRef.current = null;
+        }, 1500);
         getCurrentWebview()
           .setFocus()
-          .then(() => viewerRootRef.current?.focus())
+          .then(() => {
+            //頁の中で何かを選んでいたら（ダイアログ・パレット）、そこからは取らない
+            const a = document.activeElement;
+            if (a === null || a === document.body) viewerRootRef.current?.focus();
+          })
           .catch(() => {});
       })
       .catch(() => {});
@@ -5492,6 +5495,7 @@ export default function App() {
     (on: boolean) => {
       winFullscreenRef.current = on;
       setWinFullscreen(on);
+      if (on && isMac) refocusAfterFullscreenRef.current = true;
       getCurrentWindow()
         .setFullscreen(on)
         .catch((e) => fail(errText(e)))
@@ -5500,35 +5504,19 @@ export default function App() {
     },
     [fail, syncWindowFullscreen],
   );
-  //窓の大きさが変わったら（全画面の出入りを含む）記録を合わせる。頁の全画面のときは記録を使わないので害は無い。
-  //macOS（頁の全画面が無い）は記録が偽でも読む——緑のボタン・Ctrl+Cmd+F で入った全画面も、入る途中の
-  //アニメーションで読み違えた記録も、終わったときの resize で正しくなる。WebView2 では読まない
-  //（頁の全画面でも窓が全画面と答えうるので、⛶ が窓の側へ分かれてしまう）
+  //窓の大きさが変わったら（全画面の出入りを含む）記録を合わせる。頁の全画面のときは記録を使わないので害は無い
   useEffect(() => {
     const un = getCurrentWindow().onResized(() => {
-      if (winFullscreenRef.current || !document.fullscreenEnabled) syncWindowFullscreen();
+      if (winFullscreenRef.current || refocusAfterFullscreenRef.current) syncWindowFullscreen();
     });
     return () => {
       void un.then((f) => f());
     };
   }, [syncWindowFullscreen]);
   const toggleFullscreen = useCallback(() => {
-    //ウィンドウの全画面（動画の再生バーのボタンから・macOS の ⛶ から）に居るなら、抜けるのもウィンドウの側
+    //動画の再生バーのボタンから入った全画面は、ウィンドウの全画面（下）。そこから抜けるのもウィンドウの側
     if (winFullscreenRef.current) {
       setWindowFullscreen(false);
-      return;
-    }
-    //macOS の WebView（WKWebView）は頁の全画面を持たない（wry の `fullscreen` 機能は private API で、入れていない）。
-    //`requestFullscreen` が無く、押しても黙って何も起きなかった。そこではウィンドウの全画面で同じ見え方にする。
-    //緑のボタンなどで先に全画面になっていることがあるので、実際の窓を読んでから切り替える
-    if (!document.fullscreenEnabled) {
-      getCurrentWindow()
-        .isFullscreen()
-        //待つ間にビューアを閉じていたら入らない（閉じたときの片付けは先に済んでいて、一覧が全画面に残る）
-        .then((on) => {
-          if (on || viewerOpenRef.current) setWindowFullscreen(!on);
-        })
-        .catch((e) => fail(errText(e)));
       return;
     }
     if (document.fullscreenElement) {
@@ -5815,7 +5803,7 @@ export default function App() {
           return;
         }
       }
-      //ウィンドウの全画面（動画の再生バーのボタン・macOS の ⛶ から）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
+      //ウィンドウの全画面（動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
       //（頁の全画面は WebView が Esc を先に取って抜ける。2 回目で閉じる）
       if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);
       else if (e.key === "Escape") requestCloseViewer();
