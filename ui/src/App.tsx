@@ -31,6 +31,8 @@ import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
+import { afterVideoEnded, isVideoOnlyFullscreen, type ViewerDir } from "./videoPlayOn";
+import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
@@ -1039,6 +1041,16 @@ export default function App() {
   /** ビューアのUI（キャプション・ツール・矢印）を隠しているか（マウス静止で自動） */
   const [viewerIdle, setViewerIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  /**
+   * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
+   * 頁の全画面（`isFullscreen`）とは別に持ち、⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける
+   */
+  const [winFullscreen, setWinFullscreen] = useState(false);
+  const winFullscreenRef = useRef(false);
+  /** ビューアが開いているか（約束の後で見る用） */
+  const viewerOpenRef = useRef(false);
+  /** 頁か窓のどちらかで全画面（⛶ の表示） */
+  const anyFullscreen = isFullscreen || winFullscreen;
   /** ウィンドウサイズ。表示倍率（実ピクセル比）の計算に使う */
   const [windowSize, setWindowSize] = useState({
     w: window.innerWidth,
@@ -3938,15 +3950,24 @@ export default function App() {
     };
   }, [shownImageEl]);
   /**
+   * ビューアで利用者が最後に自分で動かした向き（dev #75）。動画のフィルター中は、動画が終わったらこの向きへ続ける。
+   * -1 はひとつ新しい項目（グリッドは新しい順なので時系列の向き）、1 はひとつ古い項目。キー・前後のボタン・帯で
+   * 実際に動いたときだけ覚え、判定の後の自動送り・スライドショー・続けて再生の送りでは変えない（`moveViewer` の `remember`）。
+   * 開き直したら・閉じたら忘れる（null は 1 と同じ扱い）
+   */
+  const lastMoveDirRef = useRef<ViewerDir | null>(null);
+  /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
    */
   const moveViewer = useCallback(
-    (dir: 1 | -1, wrap = false, slideshow = false) => {
+    (dir: 1 | -1, wrap = false, slideshow = false, remember = !slideshow) => {
       if (!viewerInfo) return;
       // 送るときは向きを名乗る（送りの動き）。端で送れなかったときは名乗らない
       const go = (to: ViewerPos) => {
         markNav(dir, slideshow);
+        //実際に動いたときだけ、利用者の向きとして覚える（端で何も動かなかったキーでは覚えない。dev #75）
+        if (remember) lastMoveDirRef.current = dir;
         setViewer(to);
       };
       // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
@@ -4094,7 +4115,7 @@ export default function App() {
       // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
       for (const f of targets) markReject(f, false);
       flashViewer(pick ? "pick" : "unflag");
-      if (autoAdvance) moveViewer(1);
+      if (autoAdvance) moveViewer(1, false, false, false); //判定の後の自動送りは利用者の向きにしない（dev #75）
     },
     [markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
   );
@@ -4113,7 +4134,7 @@ export default function App() {
       const picked = targets.filter((f) => f.picked);
       if (picked.length > 0) markStackRef.current(picked, "picked", false);
       flashViewer("reject");
-      if (autoAdvance) moveViewer(1);
+      if (autoAdvance) moveViewer(1, false, false, false); //判定の後の自動送りは利用者の向きにしない（dev #75）
     },
     [markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
   );
@@ -4661,6 +4682,8 @@ export default function App() {
   }, []);
   /** 動きを終わらせた押下の、後に来るクリックを1回だけ受け止める印 */
   const swallowClickRef = useRef(false);
+  /** 止めたクリックが、消えた UI の上だったか（そのクリックで UI を出す。dev #75） */
+  const hiddenUiClickRef = useRef(false);
   const transitionAnimsRef = useRef<Animation[]>([]);
   /**
    * 次の絵が**描ける**か——原寸のデコードが済んだ（か出せないと分かった）、または下敷きが出た。
@@ -5425,18 +5448,73 @@ export default function App() {
   // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
   // **こちらの言葉ではない**——それでも黙るよりはよい。
   // **押した物が動かなかったことは、必ず伝わるようにする。**
+  /** 窓の全画面の記録を、実際の窓に合わせる。緑のボタン・Ctrl+Cmd+F など、こちらを通らずに抜けても食い違わない */
+  const syncWindowFullscreen = useCallback(() => {
+    getCurrentWindow()
+      .isFullscreen()
+      .then((on) => {
+        winFullscreenRef.current = on;
+        setWinFullscreen(on);
+      })
+      .catch(() => {});
+  }, []);
+  const setWindowFullscreen = useCallback(
+    (on: boolean) => {
+      winFullscreenRef.current = on;
+      setWinFullscreen(on);
+      getCurrentWindow()
+        .setFullscreen(on)
+        .catch((e) => fail(errText(e)))
+        //失敗しても、効いても、実際の窓の状態を読み直す（記録だけが先に進まないように）
+        .finally(syncWindowFullscreen);
+    },
+    [fail, syncWindowFullscreen],
+  );
+  //窓の大きさが変わったら（全画面の出入りを含む）記録を合わせる。頁の全画面のときは記録を使わないので害は無い
+  useEffect(() => {
+    const un = getCurrentWindow().onResized(() => {
+      if (winFullscreenRef.current) syncWindowFullscreen();
+    });
+    return () => {
+      void un.then((f) => f());
+    };
+  }, [syncWindowFullscreen]);
   const toggleFullscreen = useCallback(() => {
+    //動画の再生バーのボタンから入った全画面は、ウィンドウの全画面（下）。そこから抜けるのもウィンドウの側
+    if (winFullscreenRef.current) {
+      setWindowFullscreen(false);
+      return;
+    }
     if (document.fullscreenElement) {
       document.exitFullscreen().catch((e) => fail(errText(e)));
     } else {
       document.documentElement.requestFullscreen().catch((e) => fail(errText(e)));
     }
-  }, [fail]);
+  }, [fail, setWindowFullscreen]);
   useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    const onChange = () => {
+      const el = document.fullscreenElement;
+      setIsFullscreen(el !== null);
+      // 動画の再生バーの全画面ボタン（右下）は、動画だけを全画面にする。そこではビューアの前後の矢印も ←/→ も届かず、
+      // 次の動画へ送ると要素が作り直されて全画面も解ける（dev #75）。動画だけの全画面は抜けて、ウィンドウを全画面にする。
+      // 頁の requestFullscreen は使えない——押した手の中でないので、WebView2 が「Permissions check failed」で断った
+      // （win の実測 2026-11-07）。ウィンドウの全画面（Tauri）はその制限を受けない。ビューアは窓いっぱいなので見え方は同じ
+      if (isVideoOnlyFullscreen(el)) {
+        document
+          .exitFullscreen()
+          .then(() => {
+            //アプリの全画面の中で押したときは、抜けた後もアプリの全画面のまま。抜ける間にビューアを閉じていたら入らない
+            //（閉じたときの片付けは先に済んでいるので、一覧が全画面に残り、出る手が無くなる）
+            if (!document.fullscreenElement && viewerOpenRef.current) setWindowFullscreen(true);
+            //フォーカスは動画の全画面ボタンに残り、最初の ←/→・F11 が動画に取られる（win の実測）。ビューアへ戻す
+            viewerRootRef.current?.focus();
+          })
+          .catch((e) => fail(errText(e)));
+      }
+    };
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
+  }, [fail, setWindowFullscreen]);
   // ビューアを閉じたら全画面も解く（2026-08-22）。
   //
   // **全画面はビューアの見方であって、一覧の見方ではない**。一覧に戻ったあとも
@@ -5445,9 +5523,12 @@ export default function App() {
   // 地をクリックして閉じたときにここへ来る（閉じ方が増えても取りこぼさないよう、
   // 閉じる処理ではなく「閉じている」状態を見る）
   useEffect(() => {
+    viewerOpenRef.current = viewer !== null;
     if (viewer !== null) return;
+    lastMoveDirRef.current = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  }, [viewer]);
+    if (winFullscreenRef.current) setWindowFullscreen(false);
+  }, [viewer, setWindowFullscreen]);
 
   // ビューアのUIはマウスを止めると消す（写真だけが残るのが現代の標準）。
   // スライドショー中も同じ扱いで、鑑賞の邪魔をしない
@@ -5688,7 +5769,10 @@ export default function App() {
           return;
         }
       }
-      if (e.key === "Escape") requestCloseViewer();
+      //ウィンドウの全画面（動画の再生バーのボタンから）では、Esc はまず全画面を抜ける。頁の全画面と同じ順
+      //（頁の全画面は WebView が Esc を先に取って抜ける。2 回目で閉じる）
+      if (e.key === "Escape" && winFullscreenRef.current) setWindowFullscreen(false);
+      else if (e.key === "Escape") requestCloseViewer();
       // 右→左の画面では左が「次」（direction.ts）
       else if (e.key === "ArrowLeft" || e.key === "ArrowRight") moveViewer(stepOfArrow(e.key, isRtl()));
       // **`F` も判定と同じ扱いにする**（2026-09-08）。★も**写真の状態を書き換える**のに、
@@ -5748,6 +5832,7 @@ export default function App() {
     printFor,
     printSheetFor,
     toggleFullscreen,
+    setWindowFullscreen,
     toggleActualSize,
     canExtract,
     canCopyImage,
@@ -6182,6 +6267,7 @@ export default function App() {
     if (selectEpochRef.current !== epoch) return;
     if (scope.length === 0) return;
     setViewerScope(scope);
+    lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
     setViewer({ dayKey: scope[0].day_key, id: openIdOf(scope[0].id) });
   }, [openIdOf]);
 
@@ -6282,6 +6368,7 @@ export default function App() {
       } else {
         setTileZoom(null);
       }
+      lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
       setViewer({ dayKey, id });
     },
     [
@@ -7940,7 +8027,10 @@ export default function App() {
                     src={thumbSrc(item)}
                     title={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
                     alt={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
-                    {...pressable(() => setViewer({ dayKey: item.day_key, id: item.id }))}
+                    {...pressable(() => {
+                      lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
+                      setViewer({ dayKey: item.day_key, id: item.id });
+                    })}
                   />
                 ))}
               </div>
@@ -8377,6 +8467,12 @@ export default function App() {
           onClick={() => {
             if (swallowClickRef.current) {
               swallowClickRef.current = false;
+              //消えた UI の上のクリックは、UI を出すだけ。押した瞬間に出すと当たり判定が離す前に戻り、
+              //動画のつまみを押した手が帯の上で離れて、クリックが別の所へ行く（ゲート2）
+              if (hiddenUiClickRef.current) {
+                hiddenUiClickRef.current = false;
+                setViewerIdle(false);
+              }
               return;
             }
             if (!transitioning) requestCloseViewer();
@@ -8384,8 +8480,20 @@ export default function App() {
           // **動いている最中に押したら、動きを即座に終わらせてから効かせる**（2026-09-27 の
           // 利用者の選択）。見えている写真と、★・⚑・削除・右クリックが効く写真を必ず一致させる。
           // 終わらせたクリックそのものは地に落ちても閉じない——押した手は前の写真を狙っていた
-          onPointerDownCapture={() => {
-            swallowClickRef.current = transitioning;
+          onPointerDownCapture={(e) => {
+            // UI が消えている間に、道具バー・←・矢印・帯の描かれていた所を押したときも閉じない。UI を出すだけ
+            // （消えると当たり判定も無くなり、手が地に落ちて閉じていた。dev #75、win の実測）
+            const onHiddenUi =
+              viewerIdle &&
+              pointInAnyRect(
+                e.clientX,
+                e.clientY,
+                IDLE_HIT_TARGETS.flatMap((sel) =>
+                  [...(viewerRootRef.current?.querySelectorAll(sel) ?? [])].map((el) => el.getBoundingClientRect()),
+                ),
+              );
+            swallowClickRef.current = transitioning || onHiddenUi;
+            hiddenUiClickRef.current = onHiddenUi;
             if (transitioning) settleTransition();
           }}
           onWheelCapture={() => {
@@ -8443,9 +8551,16 @@ export default function App() {
                     item: viewerItem,
                   });
                 }}
-                // スライドショー中は最後まで見せてから次へ送る
+                // スライドショー中は最後まで見せてから次へ送る。
+                // 動画のフィルター中は、スライドショーでなくても、終わったら最後に動かした向きへ続ける（dev #75）
                 onEnded={() => {
-                  if (playing) moveViewer(1, true, true);
+                  const next = afterVideoEnded({
+                    playing,
+                    lastDir: lastMoveDirRef.current,
+                    videosOnly: kind === "video",
+                    curtainUp,
+                  });
+                  if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
@@ -8876,7 +8991,10 @@ export default function App() {
                   aria-current={offset === 0 ? "true" : undefined}
                   onClick={() => {
                     // 帯で選んだ絵も、押した側から流れてくる（今の絵を押したときは名乗らない）
-                    if (offset !== 0) markNav(offset > 0 ? 1 : -1, false);
+                    if (offset !== 0) {
+                      markNav(offset > 0 ? 1 : -1, false);
+                      lastMoveDirRef.current = offset > 0 ? 1 : -1; //帯で選んだ向きも利用者の向き（dev #75）
+                    }
                     setViewer({ dayKey: item.day_key, id: item.id });
                   }}
                 >
@@ -9136,12 +9254,12 @@ export default function App() {
               <span aria-hidden="true">?</span>
             </button>
             <button
-              className={"viewer-tool" + (isFullscreen ? " on" : "")}
+              className={"viewer-tool" + (anyFullscreen ? " on" : "")}
               title={t.viewerFullscreen} id="pk-viewer-fullscreen" data-testid="viewer-fullscreen"
-              aria-pressed={isFullscreen}
+              aria-pressed={anyFullscreen}
               onClick={toggleFullscreen}
             >
-              <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
+              <span aria-hidden="true">{anyFullscreen ? "⤡" : "⛶"}</span>
             </button>
           </div>
           {hasPrev && (
