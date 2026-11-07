@@ -1131,6 +1131,11 @@ body {
   background: #000;
   box-shadow: 0 4px 32px oklch(0 0 0 / 0.6);
 }
+/* 操作バーの全画面ボタンを消す（dev #75）。`controlsList="nofullscreen"` だけだと WebView2 は灰色で残し、
+ * 押しても何も起きないボタンが見える（win の実測 2026-11-07）。全画面はビューアの ⛶・F11 の 1 つ */
+.viewer-video::-webkit-media-controls-fullscreen-button {
+  display: none;
+}
 /* 再生できないとき（容器が合わない／OSにHEVCが無い）の逃げ道 */
 .viewer-fallback {
   max-width: min(560px, 86vw);
