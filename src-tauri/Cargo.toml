@@ -135,9 +135,29 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSArray",
     "NSBundle",
     "NSDictionary",
+    "NSNotification",
+    "NSOperation",
+    "block2",
     "NSString",
     "NSUserDefaults",
 ] }
+# ビューアの全画面（`mac_fullscreen.rs`）: WKWebView の頁の全画面を入れ、窓の全画面を抜けたらキーの受け手を戻す。
+# どれも wry / tao が同じ版を引いている
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2-app-kit",
+    "WKPreferences",
+    "WKWebView",
+    "WKWebViewConfiguration",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+block2 = "0.6"
+dispatch2 = "0.3"
 
 # 実物のフォルダとシンボリックリンクを作るテストで使う
 # （綴りを揃える方と、空の理由を答える方の両方）

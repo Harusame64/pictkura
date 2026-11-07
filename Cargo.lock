@@ -3081,12 +3081,16 @@ name = "pictkura"
 version = "1.0.2"
 dependencies = [
  "arboard",
+ "block2",
  "chrono",
  "core-foundation-sys",
+ "dispatch2",
  "image",
  "libc",
  "objc2",
+ "objc2-app-kit",
  "objc2-foundation",
+ "objc2-web-kit",
  "pictkura-core",
  "serde",
  "serde_json",

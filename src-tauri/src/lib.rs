@@ -49,6 +49,9 @@ mod menu;
 // macOS の枠（AppKit）を画面で選んだ言語に合わせる（dev #27）
 #[cfg(target_os = "macos")]
 mod appkit_lang;
+// macOS の WebView に頁の全画面を入れ、窓の全画面を抜けたらキーの受け手を戻す（dev #75）
+#[cfg(target_os = "macos")]
+mod mac_fullscreen;
 // OS の言語から辞書のコードを当てる（メニューの繋ぎと、WebView2 が無いときの案内。dev #72）
 mod os_dict;
 mod packaged;
@@ -6919,6 +6922,10 @@ pub fn run() {
             // **窓は設定どおりに作られたあと**（config の窓は `setup` より前に建つ）。
             // 画面に入らない台では、ここで縮めて押し戻す
             window_fit::fit_main_window(app.handle());
+
+            // **macOS のビューアの全画面（⛶・F11・動画の再生バーのボタン）を効かせる**（`mac_fullscreen.rs`）
+            #[cfg(target_os = "macos")]
+            mac_fullscreen::install(app.handle());
 
             // **メニューバーを、まず当て推量の言語で掛ける**（macOSだけ・Issue #14）。
             // 控えの言語で AppKit を上書きした起動では、ここで読む言語はその控えになる
