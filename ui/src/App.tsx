@@ -19,6 +19,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import Palette, { type PaletteItem } from "./Palette";
@@ -5449,6 +5450,13 @@ export default function App() {
   // 同じ形である）。ここの失敗は WebView が投げる `DOMException` で、
   // **こちらの言葉ではない**——それでも黙るよりはよい。
   // **押した物が動かなかったことは、必ず伝わるようにする。**
+  /**
+   * macOS で、窓の全画面に入ってから、抜けた後のキーの受け手をまだ戻していないか。抜ける手（Esc・⛶）は
+   * 記録を先に偽にするので、記録の前後では「抜けた」を読めない。窓が全画面だったことをここに持つ
+   */
+  const refocusAfterFullscreenRef = useRef(false);
+  /** 抜けたと最初に読んでから、キーの受け手を戻し続ける締め切り（`Date.now()`） */
+  const refocusUntilRef = useRef<number | null>(null);
   /** 窓の全画面の記録を、実際の窓に合わせる。緑のボタン・Ctrl+Cmd+F など、こちらを通らずに抜けても食い違わない */
   const syncWindowFullscreen = useCallback(() => {
     getCurrentWindow()
@@ -5456,6 +5464,27 @@ export default function App() {
       .then((on) => {
         winFullscreenRef.current = on;
         setWinFullscreen(on);
+        if (document.fullscreenEnabled) return;
+        if (on) {
+          refocusAfterFullscreenRef.current = true;
+          refocusUntilRef.current = null;
+          return;
+        }
+        //macOS は全画面を抜けると、キーの受け手が WebView から窓へ移る（Esc も ←/→ も頁に届かなくなった。
+        //mac の実測 2026-11-07）。抜けたと読んだら WebView に戻す。戻した後、抜けるアニメーションの終わりに
+        //もう一度奪われた（戻した直後に blur、その後に最後の resize が来た）ので、抜けてしばらくは読むたびに戻す
+        if (!refocusAfterFullscreenRef.current) return;
+        const now = Date.now();
+        refocusUntilRef.current ??= now + 1500;
+        if (now > refocusUntilRef.current) {
+          refocusAfterFullscreenRef.current = false;
+          refocusUntilRef.current = null;
+          return;
+        }
+        getCurrentWebview()
+          .setFocus()
+          .then(() => viewerRootRef.current?.focus())
+          .catch(() => {});
       })
       .catch(() => {});
   }, []);
