@@ -573,7 +573,7 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
   <tr><td><kbd>I</kbd></td><td>File details (name, folder, size, date taken, date modified, dimensions, type, and length for a video) and capture details (camera, lens, focal length, aperture, shutter, ISO, GPS)</td></tr>
   <tr><td><kbd>1</kbd> / <kbd>0</kbd></td><td><kbd>1</kbd> <strong>toggles</strong> between actual size 100% and fit to screen; <kbd>0</kbd> always fits</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
-  <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>Close (in full screen, the first press leaves full screen)</td></tr>
   <tr><td><kbd>?</kbd> / <kbd>F1</kbd></td><td>Show the keyboard shortcuts (works in the grid too)</td></tr>
   <tr><td><kbd>Ctrl</kbd> + <kbd>,</kbd></td><td>Open Settings (<strong>works in the grid too</strong>; <kbd>⌘</kbd> + <kbd>,</kbd> on macOS, or pictkura &rarr; Settings… in the menu). The same panel the toolbar gear opens &mdash; <strong>and the way in if the toolbar is ever too narrow to show the gear</strong></td></tr>
 </table>
@@ -901,6 +901,11 @@ date falls back to the file name or the modification time.
 
 <p>
 Video volume and mute are remembered, so the next video starts the same way. While muted (volume 0 included), the viewer shows a speaker icon with a cross; click it to turn the sound on.
+</p>
+<p>
+With the kind filter in the left pane set to <strong>Video</strong>, a video that ends is followed by the next one.
+It goes the way you last moved: stepping back with <kbd>←</kbd> plays them in the order they were taken, stepping on with <kbd>→</kbd> goes from newer to older, and it stops at the end of the list.
+The full-screen button in the video's control bar puts the whole viewer in full screen, with the prev/next arrows.
 </p>
 
 <h2 id="cloud">8. Files that only exist in the cloud</h2>
