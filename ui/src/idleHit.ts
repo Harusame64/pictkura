@@ -15,3 +15,15 @@ export function pointInAnyRect(x: number, y: number, rects: readonly Rect[]): bo
 
 /** 消えるビューアの UI。App.css の `.viewer.idle …` と同じ並び */
 export const IDLE_HIDDEN_UI = [".viewer-caption", ".viewer-tools", ".viewer-back", ".viewer-strip", ".viewer-nav"];
+
+/**
+ * 押した所を見る相手。帯と題名は横幅いっぱいの箱なので、その箱ではなく中身（コマ・文字）を見る——箱で見ると、
+ * 下の 2 本の帯のどこを押しても閉じなくなる（ゲート2）。道具バーも並んだボタンを見る
+ */
+export const IDLE_HIT_TARGETS = [
+  ".viewer-tools > *",
+  ".viewer-back",
+  ".viewer-nav",
+  ".viewer-strip > *",
+  ".viewer-caption > *",
+];

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { afterVideoEnded, isVideoOnlyFullscreen, rememberDir } from "../src/videoPlayOn.ts";
+import { afterVideoEnded, isVideoOnlyFullscreen } from "../src/videoPlayOn.ts";
 
 const filtered = { playing: false, videosOnly: true, curtainUp: false };
 
@@ -40,14 +40,6 @@ test("during a slideshow: next, wrapping to the start, whatever the filter or th
       });
     }
   }
-});
-
-test("only the user's own moves change the remembered direction", () => {
-  assert.equal(rememberDir(null, -1, false), -1);
-  assert.equal(rememberDir(-1, 1, false), 1);
-  //スライドショーの送り（いつも 1）で、前へ動かして決めた向きを上書きしない
-  assert.equal(rememberDir(-1, 1, true), -1);
-  assert.equal(rememberDir(null, 1, true), null);
 });
 
 test("only a video element in full screen is moved to the window's full screen", () => {

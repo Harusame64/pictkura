@@ -6,14 +6,6 @@
 export type ViewerDir = 1 | -1;
 
 /**
- * 覚えておく向き。利用者が自分で動かした向き（キー・前後のボタン・帯）だけを覚え、スライドショーの送りでは変えない。
- * 向きは画面の左右ではなく一覧の前後で持つ——右から左の言語では ← が「次」（1）になる
- */
-export function rememberDir(prev: ViewerDir | null, dir: ViewerDir, slideshow: boolean): ViewerDir | null {
-  return slideshow ? prev : dir;
-}
-
-/**
  * 動画が終わったときの送り方。送らないなら null。
  * - スライドショー中: 今までどおり次へ、末尾では先頭へ戻る
  * - 動画のフィルター中（一覧が動画だけ）で、手前に幕が無い: 最後に自分で動かした向きへ続ける。
