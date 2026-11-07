@@ -3939,23 +3939,22 @@ export default function App() {
     };
   }, [shownImageEl]);
   /**
+   * ビューアで利用者が最後に自分で動かした向き（dev #75）。動画のフィルター中は、動画が終わったらこの向きへ続ける。
+   * -1 はひとつ新しい項目（グリッドは新しい順なので時系列の向き）、1 はひとつ古い項目。キー・前後のボタン・帯で
+   * 動かしたときだけ覚え、判定の後の自動送りやスライドショーの送りでは変えない（`rememberDir` を押した所で呼ぶ）。
+   * 開き直したら・閉じたら忘れる（null は 1 と同じ扱い）
+   */
+  const lastMoveDirRef = useRef<ViewerDir | null>(null);
+  /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
    */
-  /**
-   * ビューアで最後に自分で動かした向き（dev #75）。動画が終わったら、スライドショーでなくてもこの向きへ続ける。
-   * ← で来たら新しい方（時系列）、→ で来たら古い方。開いただけで動かしていなければ null（→ と同じ扱い）。
-   * ビューアを閉じたら忘れる
-   */
-  const lastMoveDirRef = useRef<ViewerDir | null>(null);
   const moveViewer = useCallback(
     (dir: 1 | -1, wrap = false, slideshow = false) => {
       if (!viewerInfo) return;
       // 送るときは向きを名乗る（送りの動き）。端で送れなかったときは名乗らない
       const go = (to: ViewerPos) => {
         markNav(dir, slideshow);
-        // 自分で動かした向きを覚える。動画が終わったらこの向きへ続ける（dev #75 の C）
-        lastMoveDirRef.current = rememberDir(lastMoveDirRef.current, dir, slideshow);
         setViewer(to);
       };
       // 選択スコープで開いているあいだは、その列の中だけを歩く（0.2 ②）。
@@ -5450,7 +5449,8 @@ export default function App() {
       if (isVideoOnlyFullscreen(el)) {
         document
           .exitFullscreen()
-          .then(() => document.documentElement.requestFullscreen())
+          //アプリの全画面の中で押したときは、抜けた後もアプリの全画面のまま（重ねて求めると、押した手が無いので断られる）
+          .then(() => (document.fullscreenElement ? undefined : document.documentElement.requestFullscreen()))
           .catch((e) => fail(errText(e)));
       }
     };
@@ -5711,7 +5711,11 @@ export default function App() {
       }
       if (e.key === "Escape") requestCloseViewer();
       // 右→左の画面では左が「次」（direction.ts）
-      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") moveViewer(stepOfArrow(e.key, isRtl()));
+      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const step = stepOfArrow(e.key, isRtl());
+        lastMoveDirRef.current = rememberDir(lastMoveDirRef.current, step, false);
+        moveViewer(step);
+      }
       // **`F` も判定と同じ扱いにする**（2026-09-08）。★も**写真の状態を書き換える**のに、
       // ここだけ修飾キーを見ていなかった——**`⌘F` / `Ctrl+F`（頁内検索の手癖）で
       // 黙って★が付く**。Windows では WebView2 の検索バーがその上に出る
@@ -6203,6 +6207,7 @@ export default function App() {
     if (selectEpochRef.current !== epoch) return;
     if (scope.length === 0) return;
     setViewerScope(scope);
+    lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
     setViewer({ dayKey: scope[0].day_key, id: openIdOf(scope[0].id) });
   }, [openIdOf]);
 
@@ -6303,6 +6308,7 @@ export default function App() {
       } else {
         setTileZoom(null);
       }
+      lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
       setViewer({ dayKey, id });
     },
     [
@@ -7961,7 +7967,10 @@ export default function App() {
                     src={thumbSrc(item)}
                     title={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
                     alt={`${t.memoriesTitle(years_ago)} — ${item.file_name}`}
-                    {...pressable(() => setViewer({ dayKey: item.day_key, id: item.id }))}
+                    {...pressable(() => {
+                      lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
+                      setViewer({ dayKey: item.day_key, id: item.id });
+                    })}
                   />
                 ))}
               </div>
@@ -8465,10 +8474,15 @@ export default function App() {
                   });
                 }}
                 // スライドショー中は最後まで見せてから次へ送る。
-                // スライドショーでなくても、終わったら最後に動かした向きへ続ける（dev #75）。端では止まる（一周しない）
+                // 動画のフィルター中は、スライドショーでなくても、終わったら最後に動かした向きへ続ける（dev #75）
                 onEnded={() => {
-                  const next = afterVideoEnded(playing, lastMoveDirRef.current);
-                  moveViewer(next.dir, next.wrap, next.slideshow);
+                  const next = afterVideoEnded({
+                    playing,
+                    lastDir: lastMoveDirRef.current,
+                    videosOnly: kind === "video",
+                    curtainUp,
+                  });
+                  if (next) moveViewer(next.dir, next.wrap, next.slideshow);
                 }}
                 // コンテナは扱えてもコーデック（HEVC）がOSに無ければここへ来る
                 onError={() => setVideoError(true)}
@@ -8899,7 +8913,10 @@ export default function App() {
                   aria-current={offset === 0 ? "true" : undefined}
                   onClick={() => {
                     // 帯で選んだ絵も、押した側から流れてくる（今の絵を押したときは名乗らない）
-                    if (offset !== 0) markNav(offset > 0 ? 1 : -1, false);
+                    if (offset !== 0) {
+                      markNav(offset > 0 ? 1 : -1, false);
+                      lastMoveDirRef.current = rememberDir(lastMoveDirRef.current, offset > 0 ? 1 : -1, false);
+                    }
                     setViewer({ dayKey: item.day_key, id: item.id });
                   }}
                 >
@@ -9173,6 +9190,7 @@ export default function App() {
               title={t.viewerPrev} id="pk-viewer-prev" data-testid="viewer-prev"
               onClick={(e) => {
                 e.stopPropagation();
+                lastMoveDirRef.current = rememberDir(lastMoveDirRef.current, -1, false);
                 moveViewer(-1);
               }}
             >
@@ -9185,6 +9203,7 @@ export default function App() {
               title={t.viewerNext} id="pk-viewer-next" data-testid="viewer-next"
               onClick={(e) => {
                 e.stopPropagation();
+                lastMoveDirRef.current = rememberDir(lastMoveDirRef.current, 1, false);
                 moveViewer(1);
               }}
             >
