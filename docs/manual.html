@@ -66,8 +66,17 @@
     font-size: 15.5px; line-height: 1.95;
     -webkit-font-smoothing: antialiased; text-wrap: pretty;
   }
-  /* 画面写真は元の画像へのリンク。押すと原寸で開き、スマホでも指で拡げて読める */
-  .shot-link { display: block; cursor: zoom-in; }
+  /* 画面写真は元の画像へのリンク。押すと原寸で開き、スマホでも指で拡げて読める。
+     指で触る端末には矢印もカーソルも出ないので、隅に拡大の印を置く。枠は箱に切られないよう内側に描く */
+  .shot-link { display: block; position: relative; cursor: zoom-in; }
+  .shot-link:focus-visible { outline-offset: -3px; }
+  @media (hover: none) {
+    .shot-link::after {
+      content: "⤢"; position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px;
+      display: grid; place-items: center; font-size: 15px; line-height: 1; color: #fff;
+      background: oklch(0 0 0 / 0.55); border-radius: 6px; pointer-events: none;
+    }
+  }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -150,9 +159,11 @@
     vertical-align: top; color: var(--text-muted); line-height: 1.75;
   }
   td:first-child { color: var(--text); }
-  /* 狭い画面で最初の列（操作の名前）が1〜2字ずつに割れないよう、最低限の幅を持たせる。
+  /* 最初の列（どの表も項目の名前）が1〜2字ずつに割れないよう、最低限の幅を持たせる。目次が横に
+     出る 900px 超えでも本文の列は 600px 前後まで狭くなるので、幅を問わず掛ける。表の自動の
+     割り付けでは width が最低限として効く（td の min-width は Safari が無視しうる）。
      表は .table-scroll の中なので、合計が画面を超えれば横に送れる */
-  @media (max-width: 700px) { td:first-child { min-width: 7em; } }
+  td:first-child { width: 7em; }
   td.center, th.center { text-align: center; }
 
   kbd {
