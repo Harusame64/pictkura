@@ -147,7 +147,12 @@
     text-align: left; padding: 12px 14px 12px 0; border-bottom: 1px solid var(--line);
     vertical-align: top; color: var(--text-muted); line-height: 1.75;
   }
+  /* A screenshot links to its full-size file: tap it to open the whole image, and zoom in on a phone */
+  .shot-link { display: block; cursor: zoom-in; }
   td:first-child { color: var(--text); }
+  /* 狭い画面で最初の列（操作の名前）が1〜2字ずつに割れないよう、最低限の幅を持たせる。
+     表は .table-scroll の中なので、合計が画面を超えれば横に送れる */
+  @media (max-width: 700px) { td:first-child { min-width: 7em; } }
   td.center, th.center { text-align: center; }
 
   kbd {
@@ -274,7 +279,7 @@ While a scan is running (a folder added or removed, Rescan, the import destinati
 </p>
 
 <figure>
-  <img src="images/grid.en.jpg" alt="The grid, with photos laid out by date">
+  <a class="shot-link" href="images/grid.en.jpg" title="Open full size"><img src="images/grid.en.jpg" alt="The grid, with photos laid out by date"></a>
   <figcaption>The grid. The vertical strip on the right is the year scrubber — grab it to jump.</figcaption>
 </figure>
 
@@ -293,7 +298,7 @@ While a scan is running (a folder added or removed, Rescan, the import destinati
 <p>Press “<strong>Import from USB</strong>” at the top.</p>
 
 <figure>
-  <img src="images/import.en.jpg" alt="The import wizard: a source tree on the left, photos on the right">
+  <a class="shot-link" href="images/import.en.jpg" title="Open full size"><img src="images/import.en.jpg" alt="The import wizard: a source tree on the left, photos on the right"></a>
   <figcaption>Pick a source on the left and its photos appear.</figcaption>
 </figure>
 
@@ -439,7 +444,7 @@ so it is worth deciding first. There are nine common layouts to choose from.
 </p>
 
 <figure>
-  <img src="images/settings.en.jpg" alt="The settings dialog: folder layout choices and the custom pattern field">
+  <a class="shot-link" href="images/settings.en.jpg" title="Open full size"><img src="images/settings.en.jpg" alt="The settings dialog: folder layout choices and the custom pattern field"></a>
   <figcaption>Choose “Custom” to write your own.</figcaption>
 </figure>
 
@@ -555,7 +560,7 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
 <p>Click a tile to open the full-size viewer.</p>
 
 <figure>
-  <img src="images/viewer.en.jpg" alt="The viewer, with zoom and controls at the top and file name and date at the bottom">
+  <a class="shot-link" href="images/viewer.en.jpg" title="Open full size"><img src="images/viewer.en.jpg" alt="The viewer, with zoom and controls at the top and file name and date at the bottom"></a>
   <figcaption>Hold the mouse still and the controls fade out; move it and they come back.</figcaption>
 </figure>
 

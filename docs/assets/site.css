@@ -54,6 +54,9 @@ body {
   -webkit-font-smoothing: antialiased;
   text-wrap: pretty;
 }
+/* 画面写真は元の画像へのリンク。サイトでは切り抜いて小さく出すので、スマホでは字が読めない——
+   押すと全体を原寸で開き、指で拡げて読める */
+.shot-link { display: block; cursor: zoom-in; }
 /* 英文の面にも和字が1文字だけ出ることがある（about の `kura (蔵)`）。
    Archivo は CJK を持たないので、和字だけが落ちる先を後ろに足しておく——
    font-family は1文字ずつ落ちるので、ラテン字の見た目は変わらない */
