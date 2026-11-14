@@ -66,6 +66,17 @@
     font-size: 15.5px; line-height: 1.95;
     -webkit-font-smoothing: antialiased; text-wrap: pretty;
   }
+  /* 画面写真は元の画像へのリンク。押すと原寸で開き、スマホでも指で拡げて読める。
+     指で触る端末には矢印もカーソルも出ないので、隅に拡大の印を置く。枠は箱に切られないよう内側に描く */
+  .shot-link { display: block; position: relative; cursor: zoom-in; }
+  .shot-link:focus-visible { outline-offset: -3px; }
+  @media (hover: none) {
+    .shot-link::after {
+      content: "⤢"; position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px;
+      display: grid; place-items: center; font-size: 15px; line-height: 1; color: #fff;
+      background: oklch(0 0 0 / 0.55); border-radius: 6px; pointer-events: none;
+    }
+  }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -148,6 +159,11 @@
     vertical-align: top; color: var(--text-muted); line-height: 1.75;
   }
   td:first-child { color: var(--text); }
+  /* 最初の列（どの表も項目の名前）が1〜2字ずつに割れないよう、最低限の幅を持たせる。目次が横に
+     出る 900px 超えでも本文の列は 600px 前後まで狭くなるので、幅を問わず掛ける。表の自動の
+     割り付けでは width が最低限として効く（td の min-width は Safari が無視しうる）。
+     表は .table-scroll の中なので、合計が画面を超えれば横に送れる */
+  td:first-child { width: 7em; }
   td.center, th.center { text-align: center; }
 
   kbd {
@@ -273,7 +289,7 @@
 </p>
 
 <figure>
-  <img src="images/grid.jpg" alt="日付ごとに写真が並んだ一覧画面">
+  <a class="shot-link" href="images/grid.jpg" title="原寸で開く"><img src="images/grid.jpg" alt="日付ごとに写真が並んだ一覧画面"></a>
   <figcaption>一覧。右端の縦棒は年のスクラバーで、つまんで一気に移動できます。</figcaption>
 </figure>
 
@@ -292,7 +308,7 @@
 <p>上部の「<strong>USBから取り込み</strong>」を押します。</p>
 
 <figure>
-  <img src="images/import.jpg" alt="取り込みウィザード。左に取り込み元のツリー、右に写真の一覧">
+  <a class="shot-link" href="images/import.jpg" title="原寸で開く"><img src="images/import.jpg" alt="取り込みウィザード。左に取り込み元のツリー、右に写真の一覧"></a>
   <figcaption>左で取り込み元を選ぶと、中の写真が並びます。</figcaption>
 </figure>
 
@@ -436,7 +452,7 @@ sidecar_extensions = ["xmp", "aae", "dop", "pp3", "on1", "wav"]
 </p>
 
 <figure>
-  <img src="images/settings.jpg" alt="設定ダイアログ。フォルダ構成の選択肢と自由記述の入力欄">
+  <a class="shot-link" href="images/settings.jpg" title="原寸で開く"><img src="images/settings.jpg" alt="設定ダイアログ。フォルダ構成の選択肢と自由記述の入力欄"></a>
   <figcaption>「自分で決める」を選ぶと、自由に書けます。</figcaption>
 </figure>
 
@@ -549,7 +565,7 @@ EXIF、OSの情報に続く3番目の候補として使います。ファイル�
 <p>タイルをクリックすると原寸のビューアが開きます。</p>
 
 <figure>
-  <img src="images/viewer.jpg" alt="ビューア。上部に倍率と操作ボタン、下部にファイル名と日付">
+  <a class="shot-link" href="images/viewer.jpg" title="原寸で開く"><img src="images/viewer.jpg" alt="ビューア。上部に倍率と操作ボタン、下部にファイル名と日付"></a>
   <figcaption>マウスを止めると操作系が消え、動かすと戻ります。</figcaption>
 </figure>
 

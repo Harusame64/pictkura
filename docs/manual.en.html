@@ -66,6 +66,18 @@
     font-size: 15.5px; line-height: 1.95;
     -webkit-font-smoothing: antialiased; text-wrap: pretty;
   }
+  /* A screenshot links to its full-size file: tap it to open the whole image, and zoom in on a phone.
+     A touch screen shows no cursor and no tooltip, so a zoom mark sits in the corner there. The focus
+     ring is drawn inside, so the cropping box does not cut it off */
+  .shot-link { display: block; position: relative; cursor: zoom-in; }
+  .shot-link:focus-visible { outline-offset: -3px; }
+  @media (hover: none) {
+    .shot-link::after {
+      content: "⤢"; position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px;
+      display: grid; place-items: center; font-size: 15px; line-height: 1; color: #fff;
+      background: oklch(0 0 0 / 0.55); border-radius: 6px; pointer-events: none;
+    }
+  }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -148,6 +160,11 @@
     vertical-align: top; color: var(--text-muted); line-height: 1.75;
   }
   td:first-child { color: var(--text); }
+  /* Give the first column (an item's name in every table) a minimum width, so it does not break a
+     character or two a line. Applied at every width: with the table of contents beside it above 900px
+     the text column narrows to about 600px too. In the automatic table layout, width works as a
+     minimum (Safari may ignore min-width on a td). The table scrolls inside .table-scroll if wider. */
+  td:first-child { width: 7em; }
   td.center, th.center { text-align: center; }
 
   kbd {
@@ -274,7 +291,7 @@ While a scan is running (a folder added or removed, Rescan, the import destinati
 </p>
 
 <figure>
-  <img src="images/grid.en.jpg" alt="The grid, with photos laid out by date">
+  <a class="shot-link" href="images/grid.en.jpg" title="Open full size"><img src="images/grid.en.jpg" alt="The grid, with photos laid out by date"></a>
   <figcaption>The grid. The vertical strip on the right is the year scrubber — grab it to jump.</figcaption>
 </figure>
 
@@ -293,7 +310,7 @@ While a scan is running (a folder added or removed, Rescan, the import destinati
 <p>Press “<strong>Import from USB</strong>” at the top.</p>
 
 <figure>
-  <img src="images/import.en.jpg" alt="The import wizard: a source tree on the left, photos on the right">
+  <a class="shot-link" href="images/import.en.jpg" title="Open full size"><img src="images/import.en.jpg" alt="The import wizard: a source tree on the left, photos on the right"></a>
   <figcaption>Pick a source on the left and its photos appear.</figcaption>
 </figure>
 
@@ -439,7 +456,7 @@ so it is worth deciding first. There are nine common layouts to choose from.
 </p>
 
 <figure>
-  <img src="images/settings.en.jpg" alt="The settings dialog: folder layout choices and the custom pattern field">
+  <a class="shot-link" href="images/settings.en.jpg" title="Open full size"><img src="images/settings.en.jpg" alt="The settings dialog: folder layout choices and the custom pattern field"></a>
   <figcaption>Choose “Custom” to write your own.</figcaption>
 </figure>
 
@@ -555,7 +572,7 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
 <p>Click a tile to open the full-size viewer.</p>
 
 <figure>
-  <img src="images/viewer.en.jpg" alt="The viewer, with zoom and controls at the top and file name and date at the bottom">
+  <a class="shot-link" href="images/viewer.en.jpg" title="Open full size"><img src="images/viewer.en.jpg" alt="The viewer, with zoom and controls at the top and file name and date at the bottom"></a>
   <figcaption>Hold the mouse still and the controls fade out; move it and they come back.</figcaption>
 </figure>
 

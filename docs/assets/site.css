@@ -54,6 +54,18 @@ body {
   -webkit-font-smoothing: antialiased;
   text-wrap: pretty;
 }
+/* 画面写真は元の画像へのリンク。スマホでは画面の幅に縮み（一番上と全幅の図は切り抜きもする）、
+   字が読めない——押すと全体を原寸で開き、指で拡げて読める。指で触る端末にはカーソルも説明も
+   出ないので、隅に拡大の印を置く。枠は、写真を切り抜く箱に切られないよう内側に描く */
+.shot-link { display: block; position: relative; cursor: zoom-in; }
+.shot-link:focus-visible { outline-offset: -3px; }
+@media (hover: none) {
+  .shot-link::after {
+    content: "⤢"; position: absolute; right: 8px; bottom: 8px; width: 26px; height: 26px;
+    display: grid; place-items: center; font-size: 15px; line-height: 1; color: #fff;
+    background: oklch(0 0 0 / 0.55); border-radius: 6px; pointer-events: none;
+  }
+}
 /* 英文の面にも和字が1文字だけ出ることがある（about の `kura (蔵)`）。
    Archivo は CJK を持たないので、和字だけが落ちる先を後ろに足しておく——
    font-family は1文字ずつ落ちるので、ラテン字の見た目は変わらない */
