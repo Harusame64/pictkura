@@ -2800,6 +2800,7 @@ fn open_with(
 ) -> Result<(), String> {
     let path = path_of(&state, id)?;
     let app = PathBuf::from(&app_path);
+    os_apps::let_launched_app_take_focus();
     tauri_plugin_opener::open_path(&path, Some(app_path.as_str())).map_err(|e| e.to_string())?;
     if remember {
         update_config(&state, |c| {
