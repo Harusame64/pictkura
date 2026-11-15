@@ -7091,7 +7091,7 @@ export default function App() {
   const onOpenWithOther = useCallback(
     async (item: MediaItem, pos?: MenuPos) => {
       const req = ++openWithReq.current;
-      const apps = pos ? await osAppsFor(item.id, item.is_raw).catch(() => [] as OsApp[]) : [];
+      const apps = pos ? await osAppsFor(item.id).catch(() => [] as OsApp[]) : [];
       if (req !== openWithReq.current) return;
       if (!pos || apps.length === 0) {
         void pickOtherApp(item);
@@ -7104,7 +7104,7 @@ export default function App() {
   /** 候補のメニューの項目（名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…） */
   const appMenuItems = useCallback(
     (item: MediaItem, apps: readonly OsApp[]): MenuItem[] => {
-      const { top, rest } = rankOsApps(apps, item.is_video);
+      const { top, rest } = rankOsApps(apps, item.is_video, item.is_raw);
       const all = [...top, ...rest];
       const keys = all.map((a) => a.key);
       const toItem = (a: OsApp, i: number, separator: boolean): MenuItem => ({

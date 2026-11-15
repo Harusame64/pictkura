@@ -2829,18 +2829,15 @@ async fn app_display_names(paths: Vec<String>) -> Vec<String> {
 /// その写真を開ける、OS が挙げるアプリ（「他のアプリで開く」の候補。並べ替えは画面の側）。
 /// OS への問い合わせは遅いことがある（拡張子の登録を読む）ので、窓の外で
 #[tauri::command]
-async fn os_apps_for(
-    app: tauri::AppHandle,
-    id: i64,
-    raw: bool,
-) -> Result<Vec<os_apps::OsApp>, String> {
+async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsApp>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = path_of(&state, id)?;
         let mut apps = os_apps::list(&path);
-        // RAW は、ほかの画像の形式に挙がっている現像ソフトも足す（画面の側が名簿で絞る）
-        if raw {
-            let extra = os_apps::raw_extras(&apps);
+        // RAW は、ほかの画像の形式に挙がっている現像ソフトも足す（画面の側が名簿で絞る）。RAW かどうかは
+        // ここで決める（画面から受け取らない。判定は Rust に 1 か所）
+        if pictkura_core::raw::is_raw_path(&path) {
+            let extra = os_apps::raw_extras(&path, &apps);
             apps.extend(extra);
         }
         Ok(apps)
@@ -2860,6 +2857,9 @@ async fn open_with_os(
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = path_of(&app.state::<AppState>(), id)?;
+        if !os_apps::via_allowed(&path, via.as_deref()) {
+            return Err(errs::code("errAppGone"));
+        }
         #[cfg(windows)]
         {
             let (tx, rx) = std::sync::mpsc::channel();

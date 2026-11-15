@@ -35,19 +35,56 @@ pub fn list(file: &Path) -> Vec<OsApp> {
 /// 画面の側で残す
 pub const RAW_EXTRA_TYPES: [&str; 3] = ["dng", "tif", "jpg"];
 
-/// [`RAW_EXTRA_TYPES`] に OS が挙げるアプリ（`via` 付き。`own` に既に在る鍵は除く）
-pub fn raw_extras(own: &[OsApp]) -> Vec<OsApp> {
-    let mut out: Vec<OsApp> = Vec::new();
-    for ext in RAW_EXTRA_TYPES {
-        for mut a in imp::list_for_type(ext) {
-            if own.iter().chain(out.iter()).any(|o| o.key == a.key) {
-                continue;
+/// [`RAW_EXTRA_TYPES`] に OS が挙げるアプリ（`via` 付き。`own` に既に在る鍵と、写真自身の形式は除く）。
+///
+/// 3 つの形式への問い合わせは遅い（拡張子の登録を読む）ので、**5 分のあいだ覚えて使い回す**——RAW を右クリック
+/// するたびに 3 回重ねていた（/code-review）。入れたばかりのアプリは 5 分のうちに出てくる
+pub fn raw_extras(file: &Path, own: &[OsApp]) -> Vec<OsApp> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static CACHE: Mutex<Option<(Instant, Vec<OsApp>)>> = Mutex::new(None);
+    const KEEP: Duration = Duration::from_secs(300);
+
+    let all = {
+        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.as_ref() {
+            Some((at, apps)) if at.elapsed() < KEEP => apps.clone(),
+            _ => {
+                let mut apps = Vec::new();
+                for ext in RAW_EXTRA_TYPES {
+                    for mut a in imp::list_for_type(ext) {
+                        a.via = Some(ext.to_string());
+                        apps.push(a);
+                    }
+                }
+                *cache = Some((Instant::now(), apps.clone()));
+                apps
             }
-            a.via = Some(ext.to_string());
-            out.push(a);
         }
+    };
+    let own_ext = file
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let mut out: Vec<OsApp> = Vec::new();
+    for a in all {
+        if a.via.as_deref() == Some(own_ext.as_str())
+            || own.iter().chain(out.iter()).any(|o| o.key == a.key)
+        {
+            continue;
+        }
+        out.push(a);
     }
     out
+}
+
+/// `via` として受け取ってよい形式か（[`RAW_EXTRA_TYPES`] のどれかで、写真が RAW のときだけ）。それ以外で
+/// 別の形式のハンドラに写真を渡させない（/code-review: 任意の拡張子のハンドラを呼べた）
+pub fn via_allowed(file: &Path, via: Option<&str>) -> bool {
+    match via {
+        None => true,
+        Some(ext) => RAW_EXTRA_TYPES.contains(&ext) && pictkura_core::raw::is_raw_path(file),
+    }
 }
 
 /// `list`（または `raw_extras`）で返した `id` のアプリで `file` を開く。`via` は `raw_extras` の印をそのまま

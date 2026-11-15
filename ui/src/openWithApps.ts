@@ -20,51 +20,39 @@ export type OsApp = {
   via?: string | null;
 };
 
-/** よく知られた写真・動画のアプリ。上から順に並ぶ（有料 → カメラメーカー → 無料 → OS 付属） */
-const KNOWN_PHOTO: readonly string[] = [
-  // 有料
-  "lightroom.exe", "com.adobe.lightroomclassic*", "com.adobe.lightroomcc*", "com.adobe.mas.lightroomcc*",
-  "photoshop.exe", "com.adobe.photoshop*",
-  "captureone.exe", "com.captureone.*", "com.phaseone.captureone*",
-  "photo.exe", "affinity photo*.exe", "com.seriflabs.affinityphoto*",
-  "dxo.photolab.exe", "com.dxo.photolab*",
-  "luminar neo.exe", "com.skylum.luminar*",
-  "on1 photo raw*.exe", "com.on1.photoraw*",
-  "com.pixelmatorteam.pixelmator*", "com.flyingmeat.acorn*",
-  "lightroom*.exe", "photoshop*.exe", "adobe bridge*.exe", "com.adobe.bridge*",
-  "acdsee*.exe", "com.acdsystems.*", "photo mechanic*.exe", "photomechanic*.exe", "com.camerabits.*",
-  "*silkypix*", "*fastrawviewer*",
-  // カメラメーカー
-  "dpp4.exe", "jp.co.canon.dpp*", "nx studio.exe", "com.nikon.nxstudio*",
-  "imaging edge*.exe", "com.sony.imagingedge*", "x raw studio.exe", "com.fujifilm.xrawstudio*", "om workspace.exe", "jp.co.omsystem.omworkspace*",
-  "*digital camera utility*", "*pentax*utility*", "olympus workspace.exe", "*silkypix*developer*",
-  // 無料
-  "gimp*", "org.gimp.*", "darktable.exe", "org.darktable*", "rawtherapee*.exe", "com.rawtherapee*",
-  "krita.exe", "org.kde.krita", "paintdotnet.exe", "i_view64.exe", "i_view32.exe", "xnviewmp.exe", "com.xnview.*",
-  "fsviewer.exe", "digikam.exe", "org.kde.digikam",
-  // OS 付属
-  "mspaint.exe", "com.apple.preview", "com.apple.photos",
-];
-
 /**
- * 名簿のうち RAW を開けるもの（現像ソフト・カメラメーカー純正・RAW の閲覧ソフト）。RAW のとき、別の形式の一覧から
- * 拾ったアプリ（`via`）はこれに載るものだけ残す——Paint.NET や Word を RAW に出さないため
+ * よく知られた写真のアプリ。上から順に並ぶ（有料 → カメラメーカー → 無料 → OS 付属）。`raw` は RAW を開けるもの
+ * （現像ソフト・カメラメーカー純正・RAW の閲覧ソフト）。**1 本の表に印で持つ**——別の表にすると片方だけ足して
+ * 黙ってずれる（/code-review）
  */
-const RAW_CAPABLE: readonly string[] = [
-  "lightroom*.exe", "com.adobe.lightroom*", "com.adobe.mas.lightroomcc*",
-  "photoshop*.exe", "com.adobe.photoshop*", "adobe bridge*.exe", "com.adobe.bridge*",
-  "captureone*.exe", "com.captureone.*", "com.phaseone.captureone*",
-  "photo.exe", "affinity photo*.exe", "com.seriflabs.affinityphoto*",
-  "dxo.photolab.exe", "com.dxo.photolab*", "luminar*.exe", "com.skylum.luminar*",
-  "on1 photo raw*.exe", "com.on1.photoraw*", "com.pixelmatorteam.pixelmator*",
-  "acdsee*.exe", "com.acdsystems.*", "photo mechanic*.exe", "photomechanic*.exe", "com.camerabits.*",
-  "*silkypix*", "*fastrawviewer*",
-  "dpp4.exe", "jp.co.canon.dpp*", "nx studio.exe", "com.nikon.nxstudio*", "imaging edge*.exe",
-  "com.sony.imagingedge*", "x raw studio.exe", "com.fujifilm.xrawstudio*", "om workspace.exe",
-  "jp.co.omsystem.omworkspace*", "olympus workspace.exe", "*digital camera utility*", "*pentax*utility*",
-  "darktable.exe", "org.darktable*", "rawtherapee*.exe", "com.rawtherapee*", "digikam.exe", "org.kde.digikam",
-  "xnviewmp.exe", "com.xnview.*",
+const R = true;
+const KNOWN_PHOTO_TABLE: readonly (readonly [string, boolean?])[] = [
+  // 有料
+  ["lightroom*.exe", R], ["com.adobe.lightroom*", R], ["com.adobe.mas.lightroomcc*", R],
+  ["photoshop*.exe", R], ["com.adobe.photoshop*", R], ["adobe bridge*.exe", R], ["com.adobe.bridge*", R],
+  ["captureone*.exe", R], ["com.captureone.*", R], ["com.phaseone.captureone*", R],
+  ["photo.exe", R], ["affinity photo*.exe", R], ["com.seriflabs.affinityphoto*", R],
+  ["dxo.photolab.exe", R], ["com.dxo.photolab*", R],
+  ["luminar*.exe", R], ["com.skylum.luminar*", R],
+  ["on1 photo raw*.exe", R], ["com.on1.photoraw*", R],
+  ["com.pixelmatorteam.pixelmator*", R], ["com.flyingmeat.acorn*"],
+  ["acdsee*.exe", R], ["com.acdsystems.acdsee*", R],
+  ["photo mechanic*.exe", R], ["photomechanic*.exe", R], ["com.camerabits.photomechanic*", R],
+  ["*silkypix*", R], ["*fastrawviewer*", R],
+  // カメラメーカー
+  ["dpp4.exe", R], ["jp.co.canon.dpp*", R], ["nx studio.exe", R], ["com.nikon.nxstudio*", R],
+  ["imaging edge*.exe", R], ["com.sony.imagingedge*", R], ["x raw studio.exe", R], ["com.fujifilm.xrawstudio*", R],
+  ["om workspace.exe", R], ["jp.co.omsystem.omworkspace*", R], ["olympus workspace.exe", R],
+  ["*digital camera utility*", R], ["*pentax*utility*", R],
+  // 無料
+  ["gimp*"], ["org.gimp.*"], ["darktable.exe", R], ["org.darktable*", R], ["rawtherapee*.exe", R],
+  ["com.rawtherapee*", R], ["krita.exe"], ["org.kde.krita"], ["paintdotnet.exe"], ["i_view64.exe"], ["i_view32.exe"],
+  ["xnviewmp.exe", R], ["com.xnview.*", R], ["fsviewer.exe"], ["digikam.exe", R], ["org.kde.digikam", R],
+  // OS 付属
+  ["mspaint.exe"], ["com.apple.preview"], ["com.apple.photos"],
 ];
+const KNOWN_PHOTO: readonly string[] = KNOWN_PHOTO_TABLE.map(([k]) => k);
+const RAW_CAPABLE: readonly string[] = KNOWN_PHOTO_TABLE.filter(([, raw]) => raw).map(([k]) => k);
 
 const KNOWN_VIDEO: readonly string[] = [
   "vlc.exe", "org.videolan.vlc",
@@ -80,6 +68,8 @@ const NOISE: readonly string[] = [
   "msedge.exe", "chrome.exe", "firefox.exe", "snippingtool.exe",
   "com.google.chrome*", "com.microsoft.edgemac*", "com.apple.safari", "org.mozilla.firefox",
   "com.anthropic.*", "com.apple.colorsyncutility", "com.apple.generativeplaygroundapp", "com.microsoft.vscode",
+  // 仮想機械（Parallels）が Mac に出す Windows のアプリ。名簿の名前に当たっても上げない
+  "com.parallels.winapp.*",
 ];
 
 /** `*` はどこに書いても「何文字でも」（`rawtherapee*.exe`・`gimp*`）。ほかの字はそのまま比べる */
@@ -97,13 +87,19 @@ function rankOf(key: string, list: readonly string[]): number {
  * OS の候補を、上の段（名簿の順 → OS が勧める残り）と下の段（雑音）に分ける。
  * `video` は動画のとき（QuickTime や VLC は動画では上、写真では QuickTime は雑音）
  */
-export function rankOsApps(apps: readonly OsApp[], video: boolean): { top: OsApp[]; rest: OsApp[] } {
+export function rankOsApps(
+  apps: readonly OsApp[],
+  video: boolean,
+  raw = false,
+): { top: OsApp[]; rest: OsApp[] } {
   const known = video ? [...KNOWN_VIDEO, ...KNOWN_PHOTO] : KNOWN_PHOTO;
   const noise = video ? NOISE : [...NOISE, "com.apple.quicktimeplayerx", "wmplayer.exe"];
-  // 別の形式から拾ったものは、RAW を開けると名簿にあるものだけ。それは勧められたものと同じ上の段へ
-  const own = apps.filter((a) => !a.via || rankOf(a.key, RAW_CAPABLE) < Infinity);
+  const rawCapable = (a: OsApp) => rankOf(a.key, RAW_CAPABLE) < Infinity;
+  // 別の形式から拾ったもの（via）は、RAW を開けると名簿にあるものだけ。**RAW では、RAW を開ける名簿のアプリは
+  // どこから来ても上の段**——RAW の一覧に推奨なしで居るか、別の形式から拾ったかで上下が分かれていた（/code-review）
+  const own = apps.filter((a) => !a.via || rawCapable(a));
   const scored = own.map((a, i) => ({
-    a: a.via ? { ...a, recommended: true } : a,
+    a: raw && rawCapable(a) ? { ...a, recommended: true } : a,
     i,
     k: rankOf(a.key, known),
     n: rankOf(a.key, noise) < Infinity,

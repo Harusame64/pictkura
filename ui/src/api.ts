@@ -802,8 +802,7 @@ export const openWith = (id: number, appPath: string, remember: boolean) =>
 export const appDisplayNames = (paths: string[]) => invoke<string[]>("app_display_names", { paths });
 export type { OsApp } from "./openWithApps";
 /** その写真を開ける、OS が挙げるアプリ（並べ替える前） */
-export const osAppsFor = (id: number, raw: boolean) =>
-  invoke<import("./openWithApps").OsApp[]>("os_apps_for", { id, raw });
+export const osAppsFor = (id: number) => invoke<import("./openWithApps").OsApp[]>("os_apps_for", { id });
 /** OS が挙げたアプリ（`osAppsFor` の id）で開く。覚えない */
 export const openWithOs = (id: number, appId: string, via?: string | null) =>
   invoke<void>("open_with_os", { id, appId, via: via ?? null });
