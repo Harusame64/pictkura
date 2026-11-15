@@ -6209,7 +6209,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   const singleInfos = useFileInfos(singleSelected === null ? null : [singleSelected]);
   const singleInfo = singleSelected === null ? undefined : singleInfos.get(singleSelected);
   /** ビューアの撮影情報パネルの「ファイル」の節。表示中の1ファイル */
-  const viewerFileInfos = useFileInfos(infoOpen ? [viewerItem.id] : null);
+  // ライブラリの外の写真（負の id）は記録が無いので訊かない（訊くと「見つかりません」が出た。/code-review）
+  const viewerFileInfos = useFileInfos(infoOpen && viewerItem.id >= 0 ? [viewerItem.id] : null);
 
   /** 選択をやめる */
   const clearSelection = useCallback(() => {
@@ -7161,10 +7162,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           setFilter("all");
           setKind("all");
           setQueryInput("");
-          setViewer({ dayKey: library.day_key, id: library.id });
+          // 日の骨組み（summary）が届いてから開く——先に開くと「位置が解けない」の片付けがビューアを閉じ、
+          // ビューアだけの窓ごと消えた（/code-review・codex）
+          setPendingLibraryOpen({ dayKey: library.day_key, id: library.id });
           return;
         }
-        if (items.length === 0) return;
+        // 並べる写真が無ければ（読めないフォルダ等）ふつうの窓に戻す——黒い窓のまま何も出ない、にしない
+        if (items.length === 0) {
+          setViewerOnly(false);
+          return;
+        }
         setOutsideItems(items);
         setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY })));
         setViewer({ dayKey: OUTSIDE_DAY, id: items[index].id });
@@ -7175,6 +7182,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         fail(errText(e));
       });
   }, [openAtStart]);
+  const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
+  useEffect(() => {
+    if (pendingLibraryOpen && dayIdxByKey.has(pendingLibraryOpen.dayKey)) {
+      setViewer(pendingLibraryOpen);
+      setPendingLibraryOpen(null);
+    }
+  }, [pendingLibraryOpen, dayIdxByKey]);
   // ビューアだけの窓は、ビューアを閉じたら窓ごと閉じる（一度ビューアが出たあとだけ）
   const viewerShownRef = useRef(false);
   useEffect(() => {

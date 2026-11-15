@@ -3738,7 +3738,8 @@ button:active:not(:disabled),
 /* ===== ビューアだけの窓（「プログラムから開く」で写真を渡されて起動した。2026-11-15）=====
    一覧・左の欄・上の帯は描かず、地はビューアの黒。ビューアが開くまでの一瞬も白や一覧を見せない（ちらつき） */
 html.viewer-only,
-html.viewer-only body {
+html.viewer-only body,
+html.viewer-only .app {
   background: #000;
 }
 html.viewer-only .app > .topbar,
