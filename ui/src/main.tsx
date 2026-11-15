@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./App.css";
 import { rememberLocaleChoice, syncMenuLocale } from "./api";
+import { invoke } from "@tauri-apps/api/core";
+void invoke("spike_timing", { stage: "ui script start (main.tsx)" });
 import { dirOf } from "./direction";
 import { locale } from "./i18n";
 import { initTheme } from "./theme";

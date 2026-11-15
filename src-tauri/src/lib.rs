@@ -2692,6 +2692,7 @@ struct OutsideDto {
 #[tauri::command]
 async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        spike_mark("open_outside start");
         let state = app.state::<AppState>();
         let file = PathBuf::from(&path);
         let dir = file
@@ -2739,6 +2740,7 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             table.insert(id, record);
         }
         *lock_ok(&state.outside) = table;
+        spike_mark("open_outside end");
         Ok(OutsideDto { items, index })
     })
     .await
@@ -7045,7 +7047,23 @@ fn align_appkit_language() -> Option<&'static str> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// SPIKE: 起動から各段までの時間（%TEMP%/pictkura-open-timing.log）
+static SPIKE_T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+fn spike_mark(stage: &str) {
+    use std::io::Write;
+    let t0 = SPIKE_T0.get_or_init(std::time::Instant::now);
+    let p = std::env::temp_dir().join("pictkura-open-timing.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+        let _ = writeln!(f, "{:>6} ms  {stage}", t0.elapsed().as_millis());
+    }
+}
+#[tauri::command]
+fn spike_timing(stage: String) {
+    spike_mark(&stage);
+}
+
 pub fn run() {
+    spike_mark("--- run() start");
     // AutoPlay の片付けの入口（窓を出さずに終わる。pictkura-dev #53）。登録はインストーラーと Store の
     // マニフェストが書くので、アプリに残る仕事は片付けだけ（`autoplay.rs`）:
     //
@@ -7128,6 +7146,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            spike_mark("setup start");
             let config_dir = app.path().app_config_dir()?;
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&config_dir)?;
@@ -7193,7 +7212,9 @@ pub fn run() {
                 config.save(&config_path).map_err(errs::for_log_err)?;
             }
             let db_path = data_dir.join("pictkura.db");
+            spike_mark("before Db::open");
             let db = Db::open(&db_path).map_err(errs::for_log_err)?;
+            spike_mark("after Db::open");
             // 読み取り接続プール（段階B-4）。本数はコア数の半分・2〜4本で十分
             // （読み取りは短時間で返り、WALによりライターと並行に動ける）
             let pool_size = std::thread::available_parallelism()
@@ -7233,6 +7254,7 @@ pub fn run() {
             // 冷起動（AutoPlay/2重起動でこのプロセスが最初のとき）の取り込み対象
             let pending_import =
                 import_path_from_args(&std::env::args().collect::<Vec<_>>()).map(narrow_to_dcim);
+            spike_mark("before manage");
             app.manage(AppState {
                 db: Mutex::new(db),
                 read_pool,
@@ -7809,6 +7831,7 @@ pub fn run() {
             open_with,
             open_outside,
             take_pending_open,
+            spike_timing,
             app_display_names,
             app_keys,
             os_apps_for,

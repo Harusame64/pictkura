@@ -33,6 +33,7 @@ import { printSheet, printSides, type SheetItem, type SheetLayout } from "./prin
 import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
 import { rankOsApps, suitsFile } from "./openWithApps";
+import { invoke } from "@tauri-apps/api/core";
 import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
@@ -7139,8 +7140,10 @@ export default function App() {
   };
   // 「プログラムから開く」で渡された写真（spike）: フォルダを外の写真として並べ、渡された 1 枚でビューアを開く
   useEffect(() => {
+    void invoke("spike_timing", { stage: "ui mounted (App effect)" });
     void takePendingOpen().then(async (path) => {
       if (!path) return;
+      void invoke("spike_timing", { stage: "ui got pending path" });
       const { items, index } = await openOutside(path);
       if (items.length === 0) return;
       setOutsideItems(items);
@@ -9054,6 +9057,7 @@ export default function App() {
               // 完了が遅れて届くことがあり、そのまま信じると「まだ出ていない
               // 新しい絵」を出たものとして扱ってしまう
               onLoad={(e) => {
+                void invoke("spike_timing", { stage: `full image loaded id=${viewerItem.id}` });
                 if (isSrcOf(e.currentTarget.currentSrc, viewerItem.id)) {
                   // 届いた絵の実寸を控える（等倍100%の較正と先読みの予算）
                   const { naturalWidth: nw, naturalHeight: nh } =
@@ -9210,6 +9214,7 @@ export default function App() {
                 aria-hidden={fullFailedId !== viewerItem.id}
                 draggable={false}
                 onLoad={(e) => {
+                  void invoke("spike_timing", { stage: `thumb under viewer loaded id=${viewerItem.id}` });
                   if (
                     isSrcOf(e.currentTarget.currentSrc, viewerItem.id, "thumb")
                   )
