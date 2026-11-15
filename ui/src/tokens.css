@@ -48,7 +48,7 @@
   --text: var(--n-8);
   --text-muted: var(--n-6);
   /* 薄い字は n-5 から離して 4.5:1 に届かせる（n-5 はビューアの暗い地の上の字でも使うので動かさない） */
-  --text-faint: oklch(0.545 0.01 75);
+  --text-faint: oklch(0.52 0.01 75); /* 地・キャンバス・surface-2 のどれの上でも 4.6:1 以上 */
   --accent: var(--indigo);
   --accent-contrast: var(--n-0);
   --accent-soft: oklch(0.42 0.11 262 / 0.1);
@@ -178,7 +178,7 @@
     --border-strong: oklch(1 0 0 / 0.16);
     --text: oklch(0.93 0.006 85);
     --text-muted: oklch(0.72 0.008 80);
-    --text-faint: oklch(0.6 0.008 75);
+    --text-faint: oklch(0.64 0.008 75); /* キャンバス 5.8・地 5.4・surface 4.8:1（surface-2 は 3.9——hover の面と押せない物だけ） */
     --accent: var(--indigo-light);
     --accent-contrast: var(--n-10);
     --accent-soft: oklch(0.76 0.09 258 / 0.18);
@@ -200,7 +200,7 @@ html[data-theme="dark"] {
   --border-strong: oklch(1 0 0 / 0.16);
   --text: oklch(0.93 0.006 85);
   --text-muted: oklch(0.72 0.008 80);
-  --text-faint: oklch(0.6 0.008 75);
+  --text-faint: oklch(0.64 0.008 75); /* キャンバス 5.8・地 5.4・surface 4.8:1（surface-2 は 3.9——hover の面と押せない物だけ） */
   --accent: var(--indigo-light);
   --accent-contrast: var(--n-10);
   --accent-soft: oklch(0.76 0.09 258 / 0.18);
