@@ -66,18 +66,31 @@ fn os_name(path: &Path) -> Option<String> {
         }
     }
     candidates.extend([(0x0409, 0x04b0), (0x0409, 0x04e4)]);
-    for (lang, cp) in candidates {
-        if let Some((p, len)) = query(&format!(
-            "\\StringFileInfo\\{lang:04x}{cp:04x}\\FileDescription"
-        )) {
-            // SAFETY: len は NUL を含む u16 の数。1 文字ずつ read_unaligned で読む
-            let units: Vec<u16> = (0..len as usize)
-                .map(|k| unsafe { p.add(k).read_unaligned() })
-                .take_while(|&c| c != 0)
-                .collect();
-            let name = String::from_utf16_lossy(&units);
-            if !name.trim().is_empty() {
-                return Some(name);
+    let read = |lang: u16, cp: u16, key: &str| -> Option<String> {
+        let (p, len) = query(&format!("\\StringFileInfo\\{lang:04x}{cp:04x}\\{key}"))?;
+        // SAFETY: len は NUL を含む u16 の数。1 文字ずつ read_unaligned で読む
+        let units: Vec<u16> = (0..len as usize)
+            .map(|k| unsafe { p.add(k).read_unaligned() })
+            .take_while(|&c| c != 0)
+            .collect();
+        let s = String::from_utf16_lossy(&units);
+        (!s.trim().is_empty()).then_some(s)
+    };
+    // 「ファイルの説明」を先に。ただ、説明がファイル名そのもの（Store のペイントは「mspaint.exe」）なら
+    // 製品名（「Paint」）へ落とす（win2 の実測）
+    let file_name = path.file_name().map(|f| f.to_string_lossy().to_lowercase());
+    let file_ish = |s: &str| {
+        let l = s.trim().to_lowercase();
+        Some(&l) == file_name.as_ref()
+            || l == fallback_name(path).to_lowercase()
+            || l.ends_with(".exe")
+    };
+    for key in ["FileDescription", "ProductName"] {
+        for &(lang, cp) in &candidates {
+            if let Some(name) = read(lang, cp, key) {
+                if !file_ish(&name) {
+                    return Some(name);
+                }
             }
         }
     }
