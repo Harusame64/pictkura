@@ -32,7 +32,7 @@ import { printPhoto, type PrintFit } from "./printPhoto";
 import { printSheet, printSides, type SheetItem, type SheetLayout } from "./printSheet";
 import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
-import { rankOsApps } from "./openWithApps";
+import { rankOsApps, suitsFile } from "./openWithApps";
 import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
@@ -172,7 +172,7 @@ import { errText } from "./i18n/err.ts";
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
 import { asciiDateTokens, hasRtlText, inlineSign, isolateEach, isRtl, stepOfArrow } from "./direction";
-import { digitOf, letterOf } from "./keyLetter";
+import { digitOf, letterOf, modDigitOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
 import { ViewerZoom, ZOOM_MS, zoomAllowed, type Zoom } from "./ViewerZoom";
 import {
@@ -7078,6 +7078,36 @@ export default function App() {
    * 「他のアプリで開く…」: OS がその写真に挙げるアプリを、名簿で並べ替えて同じ場所にメニューで出す
    * （名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…）。OS が何も挙げなければ選ぶ画面へ
    */
+  /**
+   * OS の候補を、拡張子ごとに 5 分だけ覚える（右クリックのたび・Ctrl+1〜3 のたびに OS へ訊かない）。**問い合わせ中の
+   * 約束ごと覚える**（同じ問いを重ねない）。**空・失敗は覚えない**——抜いたドライブの 1 枚で失敗した答えが、同じ形式の
+   * ほかの写真の候補を 5 分消していた（/code-review）。RAW の拾いは Rust 側でも 5 分覚えている
+   */
+  const osAppsCache = useRef(new Map<string, { at: number; apps: Promise<OsApp[]>; done?: OsApp[] }>());
+  const extOf = (item: MediaItem) => (item.file_name.split(".").pop() ?? "").toLowerCase();
+  const osAppsOf = useCallback((item: MediaItem): Promise<OsApp[]> => {
+    const ext = extOf(item);
+    const hit = osAppsCache.current.get(ext);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.apps;
+    const entry: { at: number; apps: Promise<OsApp[]>; done?: OsApp[] } = { at: Date.now(), apps: Promise.resolve([]) };
+    entry.apps = osAppsFor(item.id)
+      .then((apps) => {
+        if (apps.length > 0) entry.done = apps;
+        else osAppsCache.current.delete(ext);
+        return apps;
+      })
+      .catch(() => {
+        osAppsCache.current.delete(ext);
+        return [] as OsApp[];
+      });
+    osAppsCache.current.set(ext, entry);
+    return entry.apps;
+  }, []);
+  /** 届いている答えだけを今すぐ返す（無ければ undefined） */
+  const cachedOsApps = (item: MediaItem): OsApp[] | undefined => {
+    const hit = osAppsCache.current.get(extOf(item));
+    return hit && Date.now() - hit.at < 5 * 60_000 ? hit.done : undefined;
+  };
   // 答えを待つ間に、別の写真で右クリックした・ビューアの写真が替わったら、古い答えでメニューを出さない
   // （出すと、選んだアプリが前の写真を開く。/code-review）
   useEffect(() => {
@@ -7093,7 +7123,7 @@ export default function App() {
   const onOpenWithOther = useCallback(
     async (item: MediaItem, pos?: MenuPos) => {
       const req = ++openWithReq.current;
-      const apps = pos ? await osAppsFor(item.id).catch(() => [] as OsApp[]) : [];
+      const apps = pos ? await osAppsOf(item) : [];
       if (req !== openWithReq.current) return;
       if (!pos || apps.length === 0) {
         void pickOtherApp(item);
@@ -7101,41 +7131,40 @@ export default function App() {
       }
       setMenu({ pos, item, apps });
     },
-    [pickOtherApp],
+    [pickOtherApp, osAppsOf],
   );
-  /**
-   * OS の候補を、拡張子ごとに 5 分だけ覚える（右クリックのたび・Ctrl+1〜3 のたびに OS へ訊かない）。
-   * RAW の拾いは Rust 側でも 5 分覚えている
-   */
-  const osAppsCache = useRef(new Map<string, { at: number; apps: OsApp[] }>());
-  const osAppsOf = useCallback(async (item: MediaItem): Promise<OsApp[]> => {
-    const ext = (item.file_name.split(".").pop() ?? "").toLowerCase();
-    const hit = osAppsCache.current.get(ext);
-    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.apps;
-    const apps = await osAppsFor(item.id).catch(() => [] as OsApp[]);
-    osAppsCache.current.set(ext, { at: Date.now(), apps });
-    return apps;
-  }, []);
   /**
    * 「開く」の次に並ぶアプリと、Ctrl+1〜3 の割り当て（2026-11-15 利用者「メジャー扱いのアプリを 3 つくらい
    * ショートカットで」「抜けてもユーザー指定でメジャー扱いに」）。**覚えたアプリ（別のアプリを選ぶ…で選んだもの）が
-   * 先**、足りないぶんを OS の候補の上の段（名簿の順）から足す。覚えたアプリと同じものは重ねない
+   * 先**——ただし名簿が「この形式は開けない」と知っているものは外す（Paint.NET で mp4 等）。足りないぶんを OS の候補の
+   * 上の段（名簿の順）から足す。**同じアプリは重ねない**（パス・ファイル名・表示名のどれかが同じなら同じアプリ）
    */
   const quickApps = useCallback(
     (item: MediaItem, apps: readonly OsApp[]): { key: string; label: string; run: () => void }[] => {
-      const remembered = editors.map((app, i) => ({
-        key: openWithId(app.name, i, editors.map((e) => e.name)),
-        label: editorLabel(app, editors, editorNames),
-        run: () => void openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
-      }));
-      const mine = new Set(editors.map((e) => e.path.toLowerCase()));
+      const baseOf = (p: string) => (p.split(/[\\/]/).pop() ?? p).toLowerCase();
+      const remembered = editors
+        .map((app, i) => ({ app, i }))
+        .filter(({ app }) => suitsFile(baseOf(app.path), item.is_raw, item.is_video))
+        .map(({ app, i }) => ({
+          key: openWithId(app.name, i, editors.map((e) => e.name)),
+          label: editorLabel(app, editors, editorNames),
+          path: app.path.toLowerCase(),
+          base: baseOf(app.path),
+          run: () => void openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
+        }));
+      const same = (a: OsApp) =>
+        remembered.some(
+          (r) => r.path === a.id.toLowerCase() || r.base === a.key || r.label.toLowerCase() === a.name.toLowerCase(),
+        );
       const { top } = rankOsApps(apps, item.is_video, item.is_raw);
       const keys = top.map((a) => a.key);
+      // 名前は絞り込む前の上の段での番号で付ける（「他のアプリで開く…」の一覧と同じ名前になるように）
       const suggested = top
-        .filter((a) => !mine.has(a.id.toLowerCase()))
+        .map((a, i) => ({ a, id: `os-${openWithId(a.key, i, keys)}` }))
+        .filter(({ a }) => !same(a))
         .slice(0, Math.max(0, 3 - remembered.length))
-        .map((a, i) => ({
-          key: `os-${openWithId(a.key, i, keys)}`,
+        .map(({ a, id }) => ({
+          key: id,
           label: a.name,
           run: () => void openWithOs(item.id, a.id, a.via).catch((e) => fail(errText(e))),
         }));
@@ -7143,34 +7172,71 @@ export default function App() {
     },
     [editors, editorNames],
   );
-  /** 右クリックした写真の OS の候補（届いたらメニューに上位が足される） */
+  /**
+   * 右クリックした写真の OS の候補。**開いてすぐ（0.25 秒以内）に届いたときだけメニューに足す**——遅れて足すと、
+   * 狙っている下の項目がずれて押し間違える（/code-review）。間に合わなければ覚えるだけで、次の右クリックから出る
+   */
   const [menuOsApps, setMenuOsApps] = useState<{ id: number; apps: OsApp[] } | null>(null);
   useEffect(() => {
     if (!menu || menu.apps) return;
     const item = menu.item;
+    const opened = Date.now();
     let live = true;
     void osAppsOf(item).then((apps) => {
-      if (live) setMenuOsApps({ id: item.id, apps });
+      if (live && Date.now() - opened < 250) setMenuOsApps({ id: item.id, apps });
     });
     return () => {
       live = false;
     };
   }, [menu, osAppsOf]);
+  // ビューアの写真が替わったら、その形式の候補を先に訊いておく（Ctrl+1〜3 をすぐ効かせる）
+  useEffect(() => {
+    if (viewerItem) void osAppsOf(viewerItem);
+  }, [viewerItem, osAppsOf]);
   /** Ctrl+1〜3（mac は ⌘1〜3）の表示と、読み上げに渡す名前 */
   const quickHint = (n: number) => (isMac ? `⌘${n}` : `${t.keyCtrl}+${n}`);
   const quickKeys = (n: number) => (isMac ? `Meta+${n}` : `Control+${n}`);
+  /** Ctrl+1〜3 で起動を待っている間（二度押しで 2 本起こさない） */
+  const quickBusy = useRef(false);
   // 右クリックのメニューかビューアが出ているとき、Ctrl+1〜3 でその写真を上から n 番目のアプリで開く
   useWindowEvent("keydown", (menu !== null && !menu.apps) || viewer !== null, (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-    const d = /^Digit([1-3])$/.exec(e.code)?.[1] ?? (/^[1-3]$/.test(e.key) ? e.key : null);
-    if (!d || curtainUp) return;
-    const t0 = e.target;
-    if (t0 instanceof HTMLElement && (t0.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t0.tagName))) return;
+    // 押しっぱなしの繰り返しでは開かない（1 回の押下で外部アプリを何本も起こさない。codex）
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.repeat) return;
+    const n = modDigitOf(e);
+    if (n === null || n < 1 || n > 3 || curtainUp) return;
+    // 字を打てる口だけを「打っている」と数える（ビューアのキーと同じ規則）
+    const target = e.target as HTMLElement | null;
+    const typing =
+      (target?.tagName === "INPUT" && !NON_TEXT_INPUT_TYPES.has((target as HTMLInputElement).type)) ||
+      target?.tagName === "TEXTAREA" ||
+      target?.isContentEditable === true;
+    if (typing) return;
     const item = menu && !menu.apps ? menu.item : viewerItem;
     if (!item) return;
     e.preventDefault();
-    setMenu(null);
-    void osAppsOf(item).then((apps) => quickApps(item, apps)[Number(d) - 1]?.run());
+    if (quickBusy.current) return;
+    const launch = (apps: readonly OsApp[]) => {
+      const slot = quickApps(item, apps)[n - 1];
+      // 割り当ての無い番号は何もしない（メニューも閉じない。押したのに消えて何も起きない、にしない）
+      if (!slot) return;
+      setMenu(null);
+      slot.run();
+    };
+    const now = cachedOsApps(item);
+    if (now) {
+      launch(now);
+      return;
+    }
+    // 答えを待つ間に、別の写真へ移った・幕が上がったら開かない（「他のアプリで開く…」と同じ印）
+    const req = ++openWithReq.current;
+    quickBusy.current = true;
+    void osAppsOf(item)
+      .then((apps) => {
+        if (req === openWithReq.current) launch(apps);
+      })
+      .finally(() => {
+        quickBusy.current = false;
+      });
   });
 
   /** 候補のメニューの項目（名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…） */

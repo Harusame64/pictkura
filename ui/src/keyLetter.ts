@@ -49,3 +49,15 @@ export function digitOf(e: {
   const d = /^Digit([0-9])$/.exec(e.code ?? "");
   return d ? Number(d[1]) : null;
 }
+
+/**
+ * Ctrl/⌘ 付きの数字（Ctrl+1 など）。`digitOf` は修飾付きを外すので、こちらで読む。位置（`Digit1`）を先に見て、
+ * 仏語の AZERTY（1 の位置が `&`）でも同じ鍵で効く。アラビア・インド数字の字も拾う
+ */
+export function modDigitOf(e: { key: string; code?: string }): number | null {
+  const d = /^Digit([0-9])$/.exec(e.code ?? "");
+  if (d) return Number(d[1]);
+  if (!/^[0-9٠-٩۰-۹]$/u.test(e.key)) return null;
+  const c = e.key.charCodeAt(0);
+  return c >= 0x06f0 ? c - 0x06f0 : c >= 0x0660 ? c - 0x0660 : c - 0x30;
+}

@@ -113,3 +113,16 @@ export function rankOsApps(
   const rest = scored.filter((s) => !top.includes(s.a)).map((s) => s.a);
   return { top, rest };
 }
+
+/**
+ * 覚えたアプリ（利用者が選んだもの）を、この写真の Ctrl+1〜3 に載せてよいか。**名簿が「開けない」と知っている
+ * ときだけ外す**——写真用と分かっているアプリを RAW・動画に（Paint.NET で mp4 等）、動画用を写真に。名簿に無い
+ * アプリは利用者の選択なので外さない。`key` は exe のファイル名か束 ID（小文字）
+ */
+export function suitsFile(key: string, raw: boolean, video: boolean): boolean {
+  const photo = rankOf(key, KNOWN_PHOTO) < Infinity;
+  const videoApp = rankOf(key, KNOWN_VIDEO) < Infinity;
+  if (video) return !photo || videoApp;
+  if (raw) return !photo || rankOf(key, RAW_CAPABLE) < Infinity;
+  return !videoApp || photo;
+}

@@ -119,3 +119,16 @@ test("Parallels' Windows apps never go up, even when their name matches the list
   );
   assert.deepEqual(top.map((a) => a.name), ["プレビュー"]);
 });
+
+test("a remembered app stays on the shortcut unless the list knows it cannot open the file", async () => {
+  const { suitsFile } = await import("../src/openWithApps.ts");
+  assert.equal(suitsFile("paintdotnet.exe", false, false), true);
+  assert.equal(suitsFile("paintdotnet.exe", true, false), false, "Paint.NET for a RAW");
+  assert.equal(suitsFile("paintdotnet.exe", false, true), false, "Paint.NET for a video");
+  assert.equal(suitsFile("lightroom.exe", true, false), true);
+  assert.equal(suitsFile("vlc.exe", false, true), true);
+  assert.equal(suitsFile("vlc.exe", false, false), false, "VLC for a photo");
+  // 名簿に無いアプリは利用者の選択なので、どれにも残す
+  assert.equal(suitsFile("myeditor.exe", true, false), true);
+  assert.equal(suitsFile("myeditor.exe", false, true), true);
+});
