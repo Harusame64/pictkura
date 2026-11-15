@@ -61,6 +61,10 @@
   --fav: var(--amber);
   --pick: var(--teal);
   --danger: var(--red);
+  /* 文字に使う赤。--danger（0.58）は暗い地の上で 3.36:1 しかなく、ダークの「ゴミ箱へ」が 4.5 に届かなかった
+     （win2 の実測）。面に塗る赤（白い字を乗せる）は --danger のまま */
+  --danger-on-dark: oklch(0.68 0.18 25); /* 暗い地の上の赤い字（n-8 で 5.1、ビューアの黒で 6.1） */
+  --danger-text: var(--danger); /* ライトでは n-0 の上で 4.6 */
   --warn: var(--orange);
   --scrim: oklch(0.15 0 0 / 0.45);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.1);
@@ -188,6 +192,7 @@
     --accent: var(--indigo-light);
     --accent-contrast: var(--n-10);
     --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
+    --danger-text: var(--danger-on-dark);
     --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
     --scrim: oklch(0 0 0 / 0.6);
     --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
@@ -211,6 +216,7 @@ html[data-theme="dark"] {
   --accent: var(--indigo-light);
   --accent-contrast: var(--n-10);
   --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
+  --danger-text: var(--danger-on-dark);
   --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
   --scrim: oklch(0 0 0 / 0.6);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);

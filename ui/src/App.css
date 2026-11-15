@@ -482,7 +482,7 @@ body {
   opacity: 1;
 }
 .root-remove:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--surface-2);
 }
 .drive-icon,
@@ -648,7 +648,7 @@ body {
 }
 .outgoing-guide-error,
 .folder-actions-error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 /* 思い出（〇年前の今日） */
 .memories {
@@ -1792,7 +1792,7 @@ body {
   color: var(--pick);
 }
 .viewer-flash.reject {
-  color: var(--danger);
+  color: var(--danger-on-dark);
 }
 .viewer-flash.unflag {
   color: var(--n-4);
@@ -1805,7 +1805,7 @@ body {
 }
 .viewer-flash.extractFailed,
 .viewer-flash.extractSameFile {
-  color: var(--danger);
+  color: var(--danger-on-dark);
 }
 @keyframes viewer-flash {
   0% {
@@ -2119,7 +2119,7 @@ body {
 /* ボツの✕。付いていないときから赤くしておく。かつては帯の右端の「閉じる」も✕で、
    字で見分けられなかった（2026-11-03 に閉じるは左上の ← へ移した）。赤は印の色として残す */
 .viewer-tool.reject-tool {
-  color: var(--danger);
+  color: var(--danger-on-dark);
 }
 /* ボツの候補にしている1枚。**隣の🗑と同じ色にはしない**——
    ✕はまだ何も消しておらず、🗑はその場で消すから */
@@ -2256,7 +2256,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .file-info-error {
-  color: var(--danger);
+  color: var(--danger-text);
+}
+/* ビューアの撮影情報（テーマに依らず暗い地）の中では、暗い地の赤 */
+.exif-panel .file-info-error {
+  color: var(--danger-on-dark);
 }
 /* 右クリックの「情報」。右クリック（300）より下・パレット（200）より上。開くのはメニューを閉じた後 */
 .file-info-backdrop {
@@ -2577,7 +2581,7 @@ body {
    このダイアログが覆っているうえ32chで省略されるため読めない */
 .settings-error {
   margin: var(--sp-2) 0 0;
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--fs-md);
   overflow-wrap: anywhere;
 }
@@ -2845,7 +2849,7 @@ body {
   border-radius: var(--radius-sm);
 }
 .editor-row button:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--surface-2);
 }
 
@@ -2885,7 +2889,7 @@ body {
   color: var(--text);
 }
 .context-item.danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .context-item.danger:hover {
   background: var(--danger);
@@ -3531,7 +3535,7 @@ body {
   background: var(--surface-2);
 }
 .select-bar button.danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .select-bar-close {
   padding: 4px 8px !important;
