@@ -16,6 +16,8 @@ export type OsApp = {
   name: string;
   recommended: boolean;
   key: string;
+  /** RAW のとき、別の形式（dng・tif・jpg）に OS が挙げたアプリ。名簿で RAW を扱えるとしたものだけ残す */
+  via?: string | null;
 };
 
 /** よく知られた写真・動画のアプリ。上から順に並ぶ（有料 → カメラメーカー → 無料 → OS 付属） */
@@ -29,15 +31,39 @@ const KNOWN_PHOTO: readonly string[] = [
   "luminar neo.exe", "com.skylum.luminar*",
   "on1 photo raw*.exe", "com.on1.photoraw*",
   "com.pixelmatorteam.pixelmator*", "com.flyingmeat.acorn*",
+  "lightroom*.exe", "photoshop*.exe", "adobe bridge*.exe", "com.adobe.bridge*",
+  "acdsee*.exe", "com.acdsystems.*", "photo mechanic*.exe", "photomechanic*.exe", "com.camerabits.*",
+  "*silkypix*", "*fastrawviewer*",
   // カメラメーカー
   "dpp4.exe", "jp.co.canon.dpp*", "nx studio.exe", "com.nikon.nxstudio*",
   "imaging edge*.exe", "com.sony.imagingedge*", "x raw studio.exe", "com.fujifilm.xrawstudio*", "om workspace.exe", "jp.co.omsystem.omworkspace*",
+  "*digital camera utility*", "*pentax*utility*", "olympus workspace.exe", "*silkypix*developer*",
   // 無料
   "gimp*", "org.gimp.*", "darktable.exe", "org.darktable*", "rawtherapee*.exe", "com.rawtherapee*",
   "krita.exe", "org.kde.krita", "paintdotnet.exe", "i_view64.exe", "i_view32.exe", "xnviewmp.exe", "com.xnview.*",
   "fsviewer.exe", "digikam.exe", "org.kde.digikam",
   // OS 付属
   "mspaint.exe", "com.apple.preview", "com.apple.photos",
+];
+
+/**
+ * 名簿のうち RAW を開けるもの（現像ソフト・カメラメーカー純正・RAW の閲覧ソフト）。RAW のとき、別の形式の一覧から
+ * 拾ったアプリ（`via`）はこれに載るものだけ残す——Paint.NET や Word を RAW に出さないため
+ */
+const RAW_CAPABLE: readonly string[] = [
+  "lightroom*.exe", "com.adobe.lightroom*", "com.adobe.mas.lightroomcc*",
+  "photoshop*.exe", "com.adobe.photoshop*", "adobe bridge*.exe", "com.adobe.bridge*",
+  "captureone*.exe", "com.captureone.*", "com.phaseone.captureone*",
+  "photo.exe", "affinity photo*.exe", "com.seriflabs.affinityphoto*",
+  "dxo.photolab.exe", "com.dxo.photolab*", "luminar*.exe", "com.skylum.luminar*",
+  "on1 photo raw*.exe", "com.on1.photoraw*", "com.pixelmatorteam.pixelmator*",
+  "acdsee*.exe", "com.acdsystems.*", "photo mechanic*.exe", "photomechanic*.exe", "com.camerabits.*",
+  "*silkypix*", "*fastrawviewer*",
+  "dpp4.exe", "jp.co.canon.dpp*", "nx studio.exe", "com.nikon.nxstudio*", "imaging edge*.exe",
+  "com.sony.imagingedge*", "x raw studio.exe", "com.fujifilm.xrawstudio*", "om workspace.exe",
+  "jp.co.omsystem.omworkspace*", "olympus workspace.exe", "*digital camera utility*", "*pentax*utility*",
+  "darktable.exe", "org.darktable*", "rawtherapee*.exe", "com.rawtherapee*", "digikam.exe", "org.kde.digikam",
+  "xnviewmp.exe", "com.xnview.*",
 ];
 
 const KNOWN_VIDEO: readonly string[] = [
@@ -74,7 +100,14 @@ function rankOf(key: string, list: readonly string[]): number {
 export function rankOsApps(apps: readonly OsApp[], video: boolean): { top: OsApp[]; rest: OsApp[] } {
   const known = video ? [...KNOWN_VIDEO, ...KNOWN_PHOTO] : KNOWN_PHOTO;
   const noise = video ? NOISE : [...NOISE, "com.apple.quicktimeplayerx", "wmplayer.exe"];
-  const scored = apps.map((a, i) => ({ a, i, k: rankOf(a.key, known), n: rankOf(a.key, noise) < Infinity }));
+  // 別の形式から拾ったものは、RAW を開けると名簿にあるものだけ。それは勧められたものと同じ上の段へ
+  const own = apps.filter((a) => !a.via || rankOf(a.key, RAW_CAPABLE) < Infinity);
+  const scored = own.map((a, i) => ({
+    a: a.via ? { ...a, recommended: true } : a,
+    i,
+    k: rankOf(a.key, known),
+    n: rankOf(a.key, noise) < Infinity,
+  }));
   const top = scored
     // 上の段は OS が勧めたものだけ。名簿は並べ替えにだけ使う——名簿に載っていても、その種類を開けるとは
     // 限らない（Paint.NET は動画も RAW も開けないのに、mp4・CR3 で先頭に来た。win2 の実測）

@@ -2829,11 +2829,21 @@ async fn app_display_names(paths: Vec<String>) -> Vec<String> {
 /// その写真を開ける、OS が挙げるアプリ（「他のアプリで開く」の候補。並べ替えは画面の側）。
 /// OS への問い合わせは遅いことがある（拡張子の登録を読む）ので、窓の外で
 #[tauri::command]
-async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsApp>, String> {
+async fn os_apps_for(
+    app: tauri::AppHandle,
+    id: i64,
+    raw: bool,
+) -> Result<Vec<os_apps::OsApp>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = path_of(&state, id)?;
-        Ok(os_apps::list(&path))
+        let mut apps = os_apps::list(&path);
+        // RAW は、ほかの画像の形式に挙がっている現像ソフトも足す（画面の側が名簿で絞る）
+        if raw {
+            let extra = os_apps::raw_extras(&apps);
+            apps.extend(extra);
+        }
+        Ok(apps)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2842,21 +2852,26 @@ async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsAp
 /// [`os_apps_for`] が返したアプリ（`app_id`）でその写真を開く。覚えない（OS の一覧から毎回引く）。
 /// Windows は UI の糸で起動させる（`os_apps::open` の節。そこは STA でメッセージが回っている）
 #[tauri::command]
-async fn open_with_os(app: tauri::AppHandle, id: i64, app_id: String) -> Result<(), String> {
+async fn open_with_os(
+    app: tauri::AppHandle,
+    id: i64,
+    app_id: String,
+    via: Option<String>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = path_of(&app.state::<AppState>(), id)?;
         #[cfg(windows)]
         {
             let (tx, rx) = std::sync::mpsc::channel();
             app.run_on_main_thread(move || {
-                let _ = tx.send(os_apps::open(&path, &app_id));
+                let _ = tx.send(os_apps::open(&path, &app_id, via.as_deref()));
             })
             .map_err(|e| e.to_string())?;
             rx.recv().map_err(|e| e.to_string())?
         }
         #[cfg(not(windows))]
         {
-            os_apps::open(&path, &app_id)
+            os_apps::open(&path, &app_id, via.as_deref())
         }
     })
     .await

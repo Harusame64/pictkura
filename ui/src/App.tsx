@@ -7091,7 +7091,7 @@ export default function App() {
   const onOpenWithOther = useCallback(
     async (item: MediaItem, pos?: MenuPos) => {
       const req = ++openWithReq.current;
-      const apps = pos ? await osAppsFor(item.id).catch(() => [] as OsApp[]) : [];
+      const apps = pos ? await osAppsFor(item.id, item.is_raw).catch(() => [] as OsApp[]) : [];
       if (req !== openWithReq.current) return;
       if (!pos || apps.length === 0) {
         void pickOtherApp(item);
@@ -7112,7 +7112,7 @@ export default function App() {
         id: `os-${openWithId(a.key, i, keys)}`,
         label: a.name,
         separator,
-        run: () => openWithOs(item.id, a.id).catch((e) => fail(errText(e))),
+        run: () => openWithOs(item.id, a.id, a.via).catch((e) => fail(errText(e))),
       });
       return [
         ...top.map((a, i) => toItem(a, i, false)),
