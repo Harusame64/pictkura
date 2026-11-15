@@ -8154,6 +8154,17 @@ mod tests {
             "<uap:FileType>.",
             "</uap:FileType>",
         );
+        // 他のアプリの既定を崩さないための印（無いと .cr3 等がフォトで開かなくなる。2026-11-16 win2 の対照）
+        assert!(
+            wxs.contains(r#"<RegistryValue Name="AllowSilentDefaultTakeOver""#),
+            "openwith.wxs: AllowSilentDefaultTakeOver"
+        );
+        assert!(
+            include_str!("../windows/installer-hooks.nsh").contains(
+                r#"WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "AllowSilentDefaultTakeOver" """#
+            ),
+            "installer-hooks.nsh: AllowSilentDefaultTakeOver"
+        );
         assert_eq!(msi, want, "openwith.wxs");
         assert_eq!(nsis, want, "installer-hooks.nsh");
         assert_eq!(msix, want, "AppxManifest.xml");

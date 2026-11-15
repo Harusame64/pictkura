@@ -201,6 +201,9 @@
   ; 拡張子は openwith.wxs・msix/AppxManifest.xml と同じ一覧
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "" "pictkura"
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "FriendlyTypeName" "pictkura"
+  ; 他のアプリの既定を崩さないための印（外さないこと）。既定を選んだ記録の無い拡張子は、候補が 1 つ（.cr3 のフォト等）
+  ; だとそれで開いている。印の無い 2 つ目の候補を足すと「アプリの選択」に落ちる（2026-11-16 win2 の対照で付け外しして再現）
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "AllowSilentDefaultTakeOver" ""
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\DefaultIcon" "" "$INSTDIR\pictkura.exe,0"
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\shell\open\command" "" '"$INSTDIR\pictkura.exe" "%1"'
   WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe" "FriendlyAppName" "pictkura"
