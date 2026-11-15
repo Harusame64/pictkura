@@ -495,6 +495,20 @@ body {
   flex: none;
   vertical-align: -0.2em;
 }
+/* 付いている状態を塗りで見せる（★ お気に入り・旗・再生） */
+.icon.filled {
+  fill: currentColor;
+}
+/* 向きのあるアイコン（前・次）は、右→左の行で裏返す。字の ‹ › は鏡像文字で勝手に向きが変わったが、絵は変わらない */
+[dir="rtl"] .icon.flip-rtl {
+  transform: scaleX(-1);
+}
+/* ビューアの丸いボタンの真ん中に置く */
+.viewer-tool .icon,
+.viewer-nav .icon {
+  display: block;
+  margin: auto;
+}
 /* 文字の前に置くアイコン。大きさを字に合わせ（em）、行の高さを押し上げない——16px のままだと 12px の
    ボタンだけが隣より 2px 高くなった（/code-review） */
 .btn-icon {
@@ -1777,8 +1791,7 @@ body {
   animation: viewer-flash 700ms var(--easing) forwards;
 }
 .viewer-flash-mark {
-  font-size: 44px;
-  line-height: 1;
+  display: flex;
 }
 .viewer-flash-word {
   font-size: var(--fs-sm);
@@ -2191,8 +2204,8 @@ body {
 .viewer-nav:hover {
   background: oklch(1 0 0 / 0.22);
 }
-/* 前は行の始まり、次は行の終わり。**字形（‹ ›）は裏返さない**——どちらも Unicode の鏡像文字
-   （Bidi_Mirrored）なので、右→左の行では文字のほうが向きを変えて描かれる（win の実測: 前が右で ›） */
+/* 前は行の始まり、次は行の終わり。矢は線の絵なので、右→左の行では .flip-rtl で裏返す（前が右で、右向き）。
+   字の ‹ › だったころは鏡像文字（Bidi_Mirrored）が勝手に向きを変えていた（win の実測: 前が右で ›） */
 .viewer-nav.prev {
   inset-inline-start: var(--sp-4);
 }
