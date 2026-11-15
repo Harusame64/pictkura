@@ -2315,9 +2315,23 @@ impl ThumbnailService {
         worker_count: usize,
         on_done: impl Fn(i64, CameraWrite) + Send + Sync + 'static,
     ) -> Self {
-        // 前回の作業が落ちて残した一時ファイル（[`temp_thumb_path`]）を掃く。ワーカーが動き出す前なので、
-        // 今の作業のものを消すことは無い（単一起動はアプリが守っている）
-        sweep_partial_thumbs(&thumbs_dir);
+        // 前回の作業が落ちて残した一時ファイル（[`temp_thumb_path`]）を掃く。**裏の糸で**——置き場の全ファイルを
+        // 見るので、サムネが 3 万を超える台の Windows（NTFS）では 0.3〜0.4 秒かかり、その間ずっと起動を止めていた
+        // （2026-11-15 win2 の実測。mac の 118 件では 3 ms）。**働き手は掃除が済むまで仕事を取らない**——同時に
+        // 走ると、働き手が書いている途中のファイルを掃除が消してしまう（単一起動はアプリが守っている）
+        let swept = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        {
+            let swept = swept.clone();
+            let thumbs_dir = thumbs_dir.clone();
+            std::thread::spawn(move || {
+                let _ = crate::panics::catching("sweep partial thumbnails", || {
+                    sweep_partial_thumbs(&thumbs_dir)
+                });
+                let (done, cv) = &*swept;
+                *done.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                cv.notify_all();
+            });
+        }
         let queue = ThumbQueue::new();
         let on_done = Arc::new(on_done);
         let count = if worker_count == 0 {
@@ -2334,10 +2348,18 @@ impl ThumbnailService {
                 let db_path = db_path.clone();
                 let thumbs_dir = thumbs_dir.clone();
                 let on_done = on_done.clone();
+                let swept = swept.clone();
                 std::thread::spawn(move || {
                     let Ok(mut db) = Db::open(&db_path) else {
                         return;
                     };
+                    {
+                        let (done, cv) = &*swept;
+                        let mut ok = done.lock().unwrap_or_else(|e| e.into_inner());
+                        while !*ok {
+                            ok = cv.wait(ok).unwrap_or_else(|e| e.into_inner());
+                        }
+                    }
                     while let Some((id, want_final)) = queue.pop() {
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
