@@ -188,6 +188,11 @@ struct AppState {
     /// 受け取れたフロントが `take_pending_import` で消すので、取りこぼしと
     /// 二重処理のどちらも起きない。
     pending_import: Mutex<Option<String>>,
+    /// 「プログラムから開く」で渡された写真のうち、まだ画面が受け取っていないもの（`pending_import` と同じ方式）
+    pending_open: Mutex<Option<String>>,
+    /// ライブラリの外の写真（「プログラムから開く」で開いたフォルダ）。**負の id で、メモリの中だけ**に持つ——
+    /// DB には書かず、裏の仕事も動かさない（dev/plan.md 2026-11-15 の設計 A）。[`record_of`] が引く
+    outside: Mutex<std::collections::HashMap<i64, pictkura_core::MediaRecord>>,
     /// 抽出（Issue #13）でだけ使うクリップボード。**持ち回るのはLinuxのため**。
     ///
     /// X11では、置いた側のプロセスが「いま持っている」と名乗り続けないと
@@ -2659,13 +2664,115 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
 }
 
 /// レコードIDから実ファイルのパスを引く（ファイル操作コマンドの共通部）。
-fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
+/// id から記録を引く。負の id はライブラリの外の写真（[`AppState::outside`]）、正は DB
+fn record_of(state: &AppState, id: i64) -> Result<Option<pictkura_core::MediaRecord>, String> {
+    if id < 0 {
+        return Ok(lock_ok(&state.outside).get(&id).cloned());
+    }
     state
         .read_pool
         .with(|db| db.get_by_id(id))
-        .map_err(errs::from_err)?
+        .map_err(errs::from_err)
+}
+
+fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
+    record_of(state, id)?
         .map(|r| r.path)
         .ok_or_else(|| errs::code("errNotFound"))
+}
+
+/// 「プログラムから開く」で渡された写真のフォルダを、ライブラリの外の写真として並べる（spike）。
+/// 返すのは、そのフォルダの写真・動画（取り込みと同じ拡張子）と、渡された写真の位置
+#[derive(serde::Serialize)]
+struct OutsideDto {
+    items: Vec<MediaItemDto>,
+    index: usize,
+}
+
+#[tauri::command]
+async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let file = PathBuf::from(&path);
+        let dir = file
+            .parent()
+            .ok_or_else(|| errs::code("errNotFound"))?
+            .to_path_buf();
+        let extensions = lock_ok(&state.config).import.extensions.clone();
+        let listing = pictkura_core::browse::list_dir(&dir, &extensions);
+        let mut files = listing.files;
+        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        let mut table = std::collections::HashMap::new();
+        let mut items = Vec::with_capacity(files.len());
+        let mut index = 0;
+        for (i, f) in files.iter().enumerate() {
+            let id = -(i as i64) - 1;
+            if f.path == file {
+                index = i;
+            }
+            let record = pictkura_core::MediaRecord {
+                id,
+                path: f.path.clone(),
+                size: f.size as i64,
+                mtime_ms: f.mtime_ms,
+                width: None,
+                height: None,
+                preview_width: None,
+                preview_height: None,
+                taken_at_ms: None,
+                taken_subsec: None,
+                camera_id: None,
+                body_serial: None,
+                day_key: OUTSIDE_DAY_KEY,
+                thumb_path: None,
+                thumb_state: 0,
+                favorite: false,
+                picked: false,
+                duration_ms: None,
+                rev: 0,
+                taken_source: None,
+            };
+            let mut dto = MediaItemDto::from(record.clone());
+            // 生成済みのサムネは無いが、配信がファイルから直接作る（media の Thumb の外の写真の枝）
+            dto.has_thumb = true;
+            items.push(dto);
+            table.insert(id, record);
+        }
+        *lock_ok(&state.outside) = table;
+        Ok(OutsideDto { items, index })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// ライブラリの外の写真に付ける日（番兵）。画面の側も同じ値で見分ける
+const OUTSIDE_DAY_KEY: i64 = -1;
+
+/// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）
+#[tauri::command]
+fn take_pending_open(state: tauri::State<'_, AppState>) -> Option<String> {
+    lock_ok(&state.pending_open).take()
+}
+
+/// 起動の引数から「開く写真」を拾う（`pictkura.exe "C:\…\a.jpg"`）。フラグ（`--import` 等）とその値、
+/// argv[0] は飛ばし、在るファイルの絶対パスだけを受ける
+fn open_path_from_args(args: &[String]) -> Option<String> {
+    let mut skip_next = false;
+    for a in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if a.starts_with("--") {
+            skip_next = a == "--import";
+            continue;
+        }
+        let p = Path::new(a);
+        if p.is_absolute() && p.is_file() {
+            return Some(a.clone());
+        }
+    }
+    None
 }
 
 /// OS既定のアプリで開く（Windowsの「開く」相当）。
@@ -6405,10 +6512,22 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // 取り込み元のプレビュー（第5部 段階E）: DBを通らずファイルから直接作る
         MediaTarget::Source { path } => return source_preview_response(state, &path),
     };
-    let record = match state.read_pool.with(|db| db.get_by_id(id)) {
+    let record = match record_of(state, id) {
         Ok(Some(r)) => r,
         _ => return not_found(),
     };
+    // ライブラリの外の写真のサムネは、ファイルから直接（取り込み画面と同じ。生成済みのサムネが無い）
+    if id < 0 && kind == ServeKind::Thumb {
+        let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+        return match pictkura_core::browse::preview(&record.path, thumb_size) {
+            Some(preview) => Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", preview.mime)
+                .body(preview.bytes)
+                .unwrap_or_else(|_| server_error()),
+            None => not_found(),
+        };
+    }
     // 高品質サムネイルの配信はLRUのタッチとして記録する（メモリ集約→定期フラッシュ）
     if kind == ServeKind::Thumb && record.thumb_state == 2 {
         let now_ms = std::time::SystemTime::now()
@@ -7135,6 +7254,10 @@ pub fn run() {
                 browse_allow: Mutex::new(HashSet::new()),
                 source_tiles: SourceTiles::default(),
                 pending_import: Mutex::new(pending_import),
+                pending_open: Mutex::new(open_path_from_args(
+                    &std::env::args().collect::<Vec<_>>(),
+                )),
+                outside: Mutex::new(std::collections::HashMap::new()),
                 // 抽出が初めて押されたときに作る（`AppState::clipboard`）
                 #[cfg(not(windows))]
                 clipboard: Mutex::new(None),
@@ -7684,6 +7807,8 @@ pub fn run() {
             open_log,
             log_path,
             open_with,
+            open_outside,
+            take_pending_open,
             app_display_names,
             app_keys,
             os_apps_for,
