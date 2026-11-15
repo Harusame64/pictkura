@@ -155,7 +155,8 @@ body {
   font-size: var(--fs-sm);
 }
 .slider input[type="range"] {
-  accent-color: var(--accent);
+  /* 写真の大きさのつまみは道具であって「選んでいる物」ではないので、アクセントで光らせない */
+  accent-color: var(--text-muted);
   width: 96px;
 }
 .status {
@@ -173,7 +174,7 @@ body {
   flex: none;
 }
 .count.searching {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 600;
 }
 /* 裏で走っている仕事（dev #64）。件数の隣に小さく、レイアウトを動かさない程度に */
@@ -356,7 +357,7 @@ body {
   text-align: end;
   border: none;
   background: none;
-  color: var(--accent);
+  color: var(--text-muted);
   font-family: inherit;
   font-size: var(--fs-xs);
   cursor: pointer;
@@ -406,9 +407,10 @@ body {
   background: var(--surface-2);
   color: var(--text);
 }
+/* 選んでいる項目は面と太さで示す（アクセントの塗りは使わない。色は「押してほしい1つ」と写真の選択に取っておく） */
 .nav-item.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
   font-weight: 600;
 }
 .nav-item.root {
@@ -461,14 +463,14 @@ body {
   font-size: var(--fs-sm);
 }
 .nav-item.drive.removable {
-  color: var(--accent);
+  color: var(--text);
 }
 .dcim-badge {
   flex: none;
   font-size: 10px;
   font-weight: 600;
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text-muted);
   border-radius: var(--radius-full);
   padding: 1px 6px;
 }
@@ -494,15 +496,14 @@ body {
 /* 「参照…」を主動線にする（フォルダ選択ダイアログを開く）。手入力は下に控えとして残す */
 .add-folder .browse-folder {
   width: 100%;
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--border-strong);
+  color: var(--text);
   font-weight: 500;
 }
 /* アクセント地の文字色はテーマで反転する（暗い地では明るい青＋濃色の字）ので
    `#fff` を直に置かない。disabled 中は busy なので塗り潰さない */
 .add-folder .browse-folder:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--surface-2);
 }
 /* **釦は必ず次の行へ落とす**。ここは「何を入れる欄か」を置き字のパスだけで
    説明している場所なので、**入力欄が1行を丸ごと取れないと成立しない**。
@@ -778,7 +779,8 @@ body {
     transform 110ms ease-out;
 }
 .scrub-dial-item.target {
-  color: var(--accent);
+  /* 窓の白い札が「ここ」を示しているので、字は濃い色で足りる */
+  color: var(--text);
   font-weight: 600;
   text-shadow: none;
 }
@@ -849,7 +851,7 @@ body {
   cursor: pointer;
 }
 .scrub-card-month:hover:not(:disabled) {
-  background: color-mix(in oklch, var(--accent) 16%, var(--surface-2));
+  background: color-mix(in oklch, var(--text) 10%, var(--surface-2));
 }
 .scrub-card-month:active:not(:disabled) {
   transform: scale(0.97);
@@ -1199,7 +1201,7 @@ body {
   cursor: pointer;
 }
 .day-cell.has-photos:hover {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--border-strong);
   outline-offset: -2px;
 }
 .day-thumb {
@@ -2169,7 +2171,8 @@ body {
 .exif-title {
   font-weight: 700;
   margin-bottom: var(--sp-2);
-  color: var(--blue-soft);
+  /* ビューアの上（暗い地）。色は付けない——写真の色と張り合わないように */
+  color: oklch(0.7 0 0);
 }
 .exif-row {
   display: flex;
@@ -2187,7 +2190,8 @@ body {
   word-break: break-word;
 }
 .exif-value.link {
-  color: var(--blue-soft);
+  /* ビューアは常に暗い地なので、ダークのアクセント（明るい藍）を直に使う */
+  color: var(--indigo-light);
   text-decoration: none;
 }
 .exif-value.link:hover {
@@ -2436,8 +2440,8 @@ body {
   cursor: pointer;
 }
 .palette-item.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
 }
 .palette-icon {
   flex: none;
@@ -2560,7 +2564,8 @@ body {
 .settings-note {
   margin: 0 0 var(--sp-3);
   font-size: var(--fs-sm);
-  color: var(--text-faint);
+  /* 読ませる説明文なので、薄い字ではなく控えめな字（--text-faint は 4.5:1 ぎりぎり） */
+  color: var(--text-muted);
   line-height: 1.6;
 }
 /* 送り出しで作ったフォルダの一覧（設定）。注記と同じ大きさで、パスは折り返す */
@@ -2601,8 +2606,8 @@ body {
   background: var(--surface-2);
 }
 .pattern-item.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
 }
 .pattern-item input {
   accent-color: var(--accent);
@@ -2826,8 +2831,8 @@ body {
   cursor: pointer;
 }
 .context-item:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
 }
 .context-item.danger {
   color: var(--danger);
@@ -3327,8 +3332,8 @@ body {
 
 /* 新しい版の知らせ（0.2）。色は警告ではなく accent——直さないと困るものではない */
 .speed-toast.update-notice {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 
 /* 見つからないライブラリのフォルダの知らせ（dev #23）。クリックで閉じない
