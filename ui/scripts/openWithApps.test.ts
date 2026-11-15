@@ -128,6 +128,8 @@ test("a remembered app stays on the shortcut unless the list knows it cannot ope
   assert.equal(suitsFile("lightroom.exe", true, false), true);
   assert.equal(suitsFile("vlc.exe", false, true), true);
   assert.equal(suitsFile("vlc.exe", false, false), false, "VLC for a photo");
+  assert.equal(suitsFile("vlc.exe", true, false), false, "VLC for a RAW");
+  assert.equal(suitsFile("com.apple.quicktimeplayerx", true, false), false, "QuickTime for a RAW");
   // 名簿に無いアプリは利用者の選択なので、どれにも残す
   assert.equal(suitsFile("myeditor.exe", true, false), true);
   assert.equal(suitsFile("myeditor.exe", false, true), true);

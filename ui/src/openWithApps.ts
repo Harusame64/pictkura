@@ -123,6 +123,7 @@ export function suitsFile(key: string, raw: boolean, video: boolean): boolean {
   const photo = rankOf(key, KNOWN_PHOTO) < Infinity;
   const videoApp = rankOf(key, KNOWN_VIDEO) < Infinity;
   if (video) return !photo || videoApp;
-  if (raw) return !photo || rankOf(key, RAW_CAPABLE) < Infinity;
+  // RAW: 写真用でも RAW を開けないもの（Paint.NET）と、動画用（VLC・QuickTime）を外す（codex）
+  if (raw) return photo ? rankOf(key, RAW_CAPABLE) < Infinity : !videoApp;
   return !videoApp || photo;
 }
