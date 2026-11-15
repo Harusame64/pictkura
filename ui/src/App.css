@@ -659,19 +659,34 @@ body {
   border-radius: 5px;
   background: color-mix(in oklch, var(--border) 60%, transparent);
 }
-/* いま見ている範囲 */
-.scrub-thumb {
+/* 現在地: 溝の上の印（一覧の上端の位置） */
+.scrub-here {
   position: absolute;
   inset-inline-end: 4px;
   width: 10px;
-  border-radius: 5px;
-  background: var(--border-strong);
-  pointer-events: none;
-  transition: background var(--dur) var(--easing);
-}
-.scrub-rail:hover .scrub-thumb,
-.scrub-rail.active .scrub-thumb {
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
   background: var(--accent);
+  pointer-events: none;
+}
+/* 現在地の札（年月）。帯の写真の側に出す。指を帯に乗せている間は拡大鏡に譲る */
+.scrub-here-label {
+  position: absolute;
+  inset-inline-end: calc(var(--scrub-rail-width) - 4px + var(--sp-1));
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px oklch(0 0 0 / 0.18);
+  transition: opacity var(--dur) var(--easing);
+}
+.scrub-rail.active .scrub-here-label {
+  opacity: 0;
 }
 /* 指の所の横線。ダークでは白、ライトでは黒に寄る（`--text` の色） */
 .scrub-cursor {
@@ -681,20 +696,32 @@ body {
   background: color-mix(in oklch, var(--text) 75%, transparent);
   pointer-events: none;
 }
-/* 指の位置の年月。帯の内側（写真の側）へ出す */
-.scrub-bubble {
+/* 拡大鏡: 指の月を中央に大きく、前後の月を小さく（帯の写真の側。見るだけで、押すのは帯） */
+.scrub-loupe {
   position: absolute;
-  inset-inline-end: calc(100% + var(--sp-1));
-  transform: translateY(-50%);
-  padding: var(--sp-1) var(--sp-2);
+  inset-inline-end: calc(100% + var(--sp-2));
+  width: 0;
+  pointer-events: none;
+}
+.scrub-loupe-item {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  margin-top: -0.7em;
+  padding: 1px var(--sp-2);
   border-radius: var(--radius-sm);
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  transition: transform 80ms linear, opacity 80ms linear;
+}
+.scrub-loupe-item.center {
   background: var(--surface);
   color: var(--text);
+  font-weight: 600;
   border: 1px solid var(--border);
   box-shadow: 0 2px 8px oklch(0 0 0 / 0.15);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-  pointer-events: none;
+  z-index: 1;
 }
 .scrub-tick {
   position: absolute;

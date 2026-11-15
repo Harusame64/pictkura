@@ -102,3 +102,32 @@ export function chooseLabels(tops: readonly number[], spans: readonly number[], 
   }
   return out;
 }
+
+/** 月の頭の並び（`yyyymm` と中身の上端からの位置）。上から順（新しい月から）。拡大鏡が指の前後の月を引く */
+export function monthStarts(
+  tops: readonly number[],
+  dayKeys: readonly number[],
+): { month: number; offset: number }[] {
+  const out: { month: number; offset: number }[] = [];
+  let last = -1;
+  for (let i = 0; i < dayKeys.length; i++) {
+    const month = Math.floor(dayKeys[i] / 100);
+    if (month === last) continue;
+    last = month;
+    out.push({ month, offset: tops[i] });
+  }
+  return out;
+}
+
+/** 位置 `offset` を含む月の、`starts` の中の番号（その位置より上で、いちばん近い月の頭）。無ければ -1 */
+export function monthIndexAt(offset: number, starts: readonly { offset: number }[]): number {
+  let lo = 0;
+  let hi = starts.length - 1;
+  if (hi < 0) return -1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid].offset <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}

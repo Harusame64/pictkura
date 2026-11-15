@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
-import { formatMonth, t } from "./i18n";
+import { formatLocale, formatMonth, t } from "./i18n";
 import { year } from "./i18n/plural.ts";
-import { dayKeyAt, fractionAt, monthDots, scrollTopFor, thumbOf } from "./scrubRailMath";
+import {
+  dayKeyAt,
+  fractionAt,
+  monthDots,
+  monthIndexAt,
+  monthStarts,
+  scrollTopFor,
+  thumbOf,
+} from "./scrubRailMath";
 
 /** 帯の上の位置（%）。下端の目盛りは、文字の半分が帯の外へはみ出さないよう、帯の中に留める */
 const edgeTop = (percent: number) => `clamp(8px, ${percent}%, calc(100% - 8px))`;
@@ -23,12 +31,26 @@ const MONTH_GAP_PX = 7;
  * 一覧はこの間隔で追いつく。離したときは必ず指の所へ動かす
  */
 const DRAG_MOVE_MS = 120;
+/** 拡大鏡に並べる月の数（指の月の前後それぞれ） */
+const LOUPE_SPAN = 3;
+/** 拡大鏡の月どうしの間隔（px） */
+const LOUPE_STEP = 22;
+
+/** 「2023年8月」（年をまたぐ所と、指の月） */
+const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
+/** 「8月」（同じ年の前後の月） */
+const monthOnly = (yyyymm: number) =>
+  new Date(Math.floor(yyyymm / 100), (yyyymm % 100) - 1, 1).toLocaleDateString(formatLocale, {
+    month: "long",
+  });
 
 /**
  * 一覧の帯（普通のスクロールバーの代わり。計算は `scrubRailMath.ts`）。
  *
  * - 帯のどこを押しても・掴んで動かしても、その比の所へ一覧が移る
- * - 動かしている間と、帯の上に指があるあいだは、その位置の年月を吹き出しで出す
+ * - 帯の上に指があるあいだと掴んでいる間は、指の所に横線を引き、帯の横に拡大鏡を出す（指の月を中央に大きく、
+ *   前後の月を小さく。押す場所は帯の上のまま——拡大鏡は見るだけ。利用者の「Dock みたいに」から 2026-11-15）
+ * - いま見ている位置には、現在地の札（年月）を常に出す。つまみ（見えている範囲の棒）は、3 万枚では 0.04% で意味が無かった
  * - 年の目盛りの近くを押すと、その年の頭へ飛ぶ（前からの動き。目盛りは帯の一部で、上で掴んでも動かせる）
  * - 年と年の間には、月の仕切りの小さな点を置く（Google フォトのように。詰まる所は省く）
  * - ホイール・トラックパッド・キーは一覧そのものが受ける（帯は触らない）
@@ -52,8 +74,10 @@ export function ScrubRail({
   const total = rowTops[rowTops.length - 1] ?? 0;
   const [thumb, setThumb] = useState({ top: 0, height: 1 });
   const [viewport, setViewport] = useState(0);
-  // 吹き出し: 帯の上の位置（px）と年月。指が帯の外で、掴んでもいないときは出さない
-  const [bubble, setBubble] = useState<{ y: number; text: string } | null>(null);
+  // 指の所: 帯の上の位置（px）と、拡大鏡の中央の月（yyyymm）。指が帯の外で、掴んでもいないときは出さない
+  const [bubble, setBubble] = useState<{ y: number; month: number | null } | null>(null);
+  // 現在地（一覧の上端の位置）
+  const [scrollTop, setScrollTop] = useState(0);
   // 押している間の記録。動かしたかどうかで、離したときの意味（飛ぶ／送り終わり）が変わる
   const drag = useRef<{ startY: number; moved: boolean } | null>(null);
   const frame = useRef(0);
@@ -71,6 +95,7 @@ export function ScrubRail({
       cancelAnimationFrame(frame.current);
       frame.current = requestAnimationFrame(() => {
         setViewport(el.clientHeight);
+        setScrollTop(el.scrollTop);
         setThumb(
           thumbOf(el.scrollTop, total, el.clientHeight, MIN_THUMB_PX / Math.max(1, el.clientHeight)),
         );
@@ -93,11 +118,12 @@ export function ScrubRail({
     [rowTops, dayKeys, viewport, markers],
   );
 
-  const textAt = useCallback(
-    (fraction: number): string => {
+  const starts = useMemo(() => monthStarts(rowTops, dayKeys), [rowTops, dayKeys]);
+
+  const monthAt = useCallback(
+    (fraction: number): number | null => {
       const key = dayKeyAt(fraction * total, rowTops, dayKeys);
-      if (key === null) return "";
-      return formatMonth(Math.floor(key / 10000), Math.floor(key / 100) % 100);
+      return key === null ? null : Math.floor(key / 100);
     },
     [total, rowTops, dayKeys],
   );
@@ -124,13 +150,7 @@ export function ScrubRail({
   const bubbleAt = (y: number, fraction: number, snap: boolean) => {
     const m = snap ? nearMarker(y) : null;
     const key = m ? dayKeys[m.rowIndex] : undefined;
-    return {
-      y,
-      text:
-        key !== undefined
-          ? formatMonth(Math.floor(key / 10000), Math.floor(key / 100) % 100)
-          : textAt(fraction),
-    };
+    return { y, month: key !== undefined ? Math.floor(key / 100) : monthAt(fraction) };
   };
 
   /** 帯の上の点（画面の y）を、比と帯の中の位置へ */
@@ -169,6 +189,20 @@ export function ScrubRail({
     setDragFraction(null);
   };
   useEffect(() => () => window.clearTimeout(moveTimer.current), []);
+
+  // 拡大鏡: 指の月を中央に、前後の月を上下へ（上が新しい月。一覧と同じ向き）
+  const loupe: { month: number; d: number }[] = [];
+  if (bubble?.month != null) {
+    const c = starts.findIndex((x) => x.month === bubble.month);
+    const center = c >= 0 ? c : monthIndexAt(0, starts);
+    for (let k = Math.max(0, center - LOUPE_SPAN); k <= Math.min(starts.length - 1, center + LOUPE_SPAN); k++) {
+      loupe.push({ month: starts[k].month, d: k - center });
+    }
+  }
+
+  // 現在地: 掴んで送っている間は指の所、それ以外は一覧の上端
+  const hereFraction = dragFraction ?? (total > 0 ? scrollTop / total : 0);
+  const hereMonth = monthAt(dragFraction ?? (total > 0 ? (scrollTop + 1) / total : 0));
 
   // 中身が1画面に収まるなら、帯は要らない（動かす先が無い）
   if (!(total > viewport + 1) && viewport > 0) return null;
@@ -236,17 +270,10 @@ export function ScrubRail({
         endDrag();
       }}
     >
-      <div
-        className="scrub-thumb"
-        style={
-          dragFraction === null
-            ? { top: `${thumb.top * 100}%`, height: `${thumb.height * 100}%` }
-            : {
-                top: `${Math.min(1 - thumb.height, dragFraction) * 100}%`,
-                height: `${thumb.height * 100}%`,
-              }
-        }
-      />
+      {/* 現在地: 帯の溝の印と、帯の横の札（年月）。つまみの代わり */}
+      <div className="scrub-here" style={{ top: edgeTop(hereFraction * 100) }} aria-hidden="true">
+        {hereMonth !== null && <span className="scrub-here-label">{monthLabel(hereMonth)}</span>}
+      </div>
       {dots.map((f) => (
         <span key={f} className="scrub-dot" style={{ top: edgeTop(f * 100) }} />
       ))}
@@ -264,9 +291,27 @@ export function ScrubRail({
         ))}
       {/* 指の所の横線（利用者の希望、2026-11-15）。帯から外れたら消える（掴んでいる間は外でも付いてくる） */}
       {bubble && <div className="scrub-cursor" style={{ top: `${bubble.y}px` }} aria-hidden="true" />}
-      {bubble && bubble.text && (
-        <div className="scrub-bubble" style={{ top: `${bubble.y}px` }} aria-hidden="true">
-          {bubble.text}
+      {bubble && loupe.length > 0 && (
+        <div className="scrub-loupe" style={{ top: `${bubble.y}px` }} aria-hidden="true">
+          {loupe.map(({ month, d }) => {
+            const center = loupe.find((x) => x.d === 0)?.month ?? month;
+            const sameYear = Math.floor(month / 100) === Math.floor(center / 100);
+            const a = Math.abs(d);
+            return (
+              <div
+                key={month}
+                className={"scrub-loupe-item" + (d === 0 ? " center" : "")}
+                style={{
+                  // 大きさは文字で変える（scale は寄せる側が左右の向きで変わり、右→左で逆へ縮んだ）
+                  transform: `translateY(${d * LOUPE_STEP}px)`,
+                  fontSize: `calc(var(--fs-sm) * ${1 - a * 0.12})`,
+                  opacity: 1 - a * 0.22,
+                }}
+              >
+                {d === 0 || !sameYear ? monthLabel(month) : monthOnly(month)}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
