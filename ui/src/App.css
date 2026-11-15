@@ -758,24 +758,31 @@ body {
   font-weight: 700;
   color: var(--text-muted);
 }
-/* 指の真上の月 */
-.scrub-menu-year.near,
-.scrub-menu-item.near {
-  /* 拡大した行は隣に重なるので、上に描く */
+/* 押す先（指の真下の1行）。アクセントの地で塗って、「これが選ばれている」をはっきりさせる */
+.scrub-menu-year.target,
+.scrub-menu-item.target {
   position: relative;
   z-index: 1;
-  background: var(--surface);
-  box-shadow: 0 2px 10px oklch(0 0 0 / 0.18);
-  font-weight: 600;
-}
-/* 帯で指していた月（止めたときの月）。アクセントの点で印す */
-.scrub-menu-item.here::after {
-  content: "";
-  width: 5px;
-  height: 5px;
-  margin-inline-start: var(--sp-1);
-  border-radius: 50%;
   background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  box-shadow: 0 2px 10px oklch(0 0 0 / 0.22);
+}
+.scrub-menu-count {
+  margin-inline-start: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  opacity: 0.85;
+}
+/* 帯で指していた月（今いる月）。押す先の塗りと混ざらないよう、輪の印にする */
+.scrub-menu-item.here::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-inline-end: var(--sp-1);
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  opacity: 0.7;
 }
 .scrub-tick {
   position: absolute;

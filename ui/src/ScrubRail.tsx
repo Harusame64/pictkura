@@ -76,6 +76,7 @@ export function ScrubRail({
   rowTops,
   dayKeys,
   onJumpToRow,
+  monthCounts,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>;
   /** 各行の上端の累積（末尾は総高さ） */
@@ -83,6 +84,8 @@ export function ScrubRail({
   /** 各行の日（`rowTops` と同じ並び、末尾の総高さの分は無い） */
   dayKeys: readonly number[];
   onJumpToRow: (rowIndex: number) => void;
+  /** 月（yyyymm）ごとの枚数。月の一覧で、押す先の月に添える */
+  monthCounts: ReadonlyMap<number, number>;
 }) {
   const railRef = useRef<HTMLDivElement>(null);
   const total = rowTops[rowTops.length - 1] ?? 0;
@@ -279,6 +282,12 @@ export function ScrubRail({
     const cy = menuTop + k * MENU_STEP + MENU_STEP / 2;
     return Math.max(0, 1 - Math.abs(cy - py) / DOCK_REACH_PX);
   };
+  // 押す先: 指の真下の行（行の高さは固定）。指がまだ一覧に入っていなければ、止めたときの月。
+  // この1行だけをアクセントの地で塗る——大きさだけでは「どれが選ばれているか」が分かりにくかった（利用者 2026-11-15）
+  const targetRow =
+    menuPointerY !== null
+      ? Math.floor((menuPointerY - menuTop) / MENU_STEP)
+      : menuIndex + 1;
   const goTo = (offset: number) => {
     const el = scrollRef.current;
     if (el) el.scrollTop = offset;
@@ -429,7 +438,7 @@ export function ScrubRail({
                 className={
                   (isYear ? "scrub-menu-year" : "scrub-menu-item") +
                   (!isYear && x.month === menu.month ? " here" : "") +
-                  (n > 0.75 ? " near" : "")
+                  (k === targetRow ? " target" : "")
                 }
                 style={{
                   height: MENU_STEP,
@@ -442,6 +451,10 @@ export function ScrubRail({
                 onClick={() => goTo(x.offset)}
               >
                 {isYear ? year(Math.floor(menu.month / 100)) : monthOnly(x.month)}
+                {/* 押す先の月には枚数を添える（押す前に行き先を確かめられる） */}
+                {k === targetRow && !isYear && monthCounts.has(x.month) && (
+                  <span className="scrub-menu-count">{t.photosCount(monthCounts.get(x.month) ?? 0)}</span>
+                )}
               </button>
             );
           })}

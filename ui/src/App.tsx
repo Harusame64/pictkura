@@ -3484,6 +3484,16 @@ export default function App() {
 
   /** 各行の日（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める） */
   const rowDayKeys = useMemo(() => rows.map((r) => r.dayKey), [rows]);
+  /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
+  const monthCounts = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of rows) {
+      if (r.kind !== "header") continue;
+      const k = Math.floor(r.dayKey / 100);
+      m.set(k, (m.get(k) ?? 0) + r.count);
+    }
+    return m;
+  }, [rows]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -8184,6 +8194,7 @@ export default function App() {
                 scrollRef={scrollRef}
                 rowTops={rowTops}
                 dayKeys={rowDayKeys}
+                monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
