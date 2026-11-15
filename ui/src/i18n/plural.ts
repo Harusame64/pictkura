@@ -73,7 +73,7 @@ export const year = (y: number | string): string => {
 /**
  * 件数などの数値。**辞書の中の `${n}` は、原則これを通す。**
  *
- * **通さないのは暦の年だけ**——`jumpToYear(2019)` を通すと独語で `2.019` になる。
+ * **通さないのは暦の年だけ**——年を `num()` に通すと独語で `2.019` になる。
  */
 export const num = (n: number): string => (format ? format.format(n) : String(n));
 

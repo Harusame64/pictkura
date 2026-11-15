@@ -21,6 +21,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
+import { ScrubRail } from "./ScrubRail";
+import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -157,7 +159,6 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
-import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
@@ -176,8 +177,12 @@ import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm"
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
-/** グリッド左右のpadding（.grid-scrollのCSSと一致させる） */
-const GRID_PADDING = 16;
+/**
+ * グリッドの左右の余白の和（`.grid-scroll` の CSS と一致させる）: 行の始まりの側 8px（`--sp-2`）＋
+ * 行の終わりの側の帯の幅 48px（`--scrub-rail-width`。写真は帯の手前まで）。帯を入れたとき 16 のままで、
+ * 行の最後の写真が帯の下へ 40px 潜った（/code-review）
+ */
+const GRID_PADDING = 8 + 48;
 /** 日キャッシュの上限（超えたら可視範囲外の古い日から間引く） */
 const DAY_CACHE_MAX = 150;
 const DAY_CACHE_TRIM_TO = 120;
@@ -3481,31 +3486,18 @@ export default function App() {
     return tops;
   }, [rows]);
 
-  /**
-   * 年の変わり目を目盛りにしたスクラバー用のマーカー。
-   * 10年分のライブラリでも1クリックで飛べるようにする（骨組みだけで作れるので
-   * 追加のIPCもレコード取得も要らない）。ラベルは重なる位置では省いて点だけ描く
-   */
-  const yearMarkers = useMemo(() => {
-    const total = rowTops[rows.length] || 1;
-    const out: { year: number; rowIndex: number; top: number; label: boolean }[] =
-      [];
-    let lastYear = -1;
-    let lastLabelTop = -Infinity;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.kind !== "header") continue;
-      const year = Math.floor(row.dayKey / 10000);
-      if (year === lastYear) continue;
-      lastYear = year;
-      const top = (rowTops[i] / total) * 100;
-      // ラベルは4%（≒24px相当）以上離れているときだけ出す
-      const label = top - lastLabelTop >= 4;
-      if (label) lastLabelTop = top;
-      out.push({ year, rowIndex: i, top, label });
+  /** 各行の日（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める） */
+  const rowDayKeys = useMemo(() => rows.map((r) => r.dayKey), [rows]);
+  /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
+  const monthCounts = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const r of rows) {
+      if (r.kind !== "header") continue;
+      const k = Math.floor(r.dayKey / 100);
+      m.set(k, (m.get(k) ?? 0) + r.count);
     }
-    return out;
-  }, [rows, rowTops]);
+    return m;
+  }, [rows]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -3523,6 +3515,36 @@ export default function App() {
     virtualizer.measure();
   }, [virtualizer, rows]);
 
+  // **行の高さが変わっても、画面の上端に同じ日を留める**（`anchoredScrollTop`）。見積もりの行が実際の写真に
+  // 置き換わるたびに上の行の高さが変わり、上端の写真がずれていった（帯で飛んだ先が 1,000px 手前に着いて 3 秒かけて
+  // 落ち着く、帯の横線と現在地の印がずれる。win2 の実測と利用者 2026-11-15）。中身の高さは `rowTops` で描くので、
+  // ここ（描いた直後）で位置を直せる
+  const prevLayoutRef = useRef<{ tops: number[]; days: number[] } | null>(null);
+  // 描き替える前のスクロール位置。描き替えた後に読むと、中身が縮んだ分だけブラウザが位置を詰めた後の値になり、
+  // 下の方を見ていた人が遠い日へ飛ばされた（/code-review）。スクロールのたびに控えておく
+  const lastScrollTopRef = useRef(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      lastScrollTopRef.current = el.scrollTop;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [view]);
+  useLayoutEffect(() => {
+    const prev = prevLayoutRef.current;
+    prevLayoutRef.current = { tops: rowTops, days: rowDayKeys };
+    const el = scrollRef.current;
+    const before = lastScrollTopRef.current;
+    if (!prev || !el || before <= 0) return;
+    const next = anchoredScrollTop(before, prev.tops, prev.days, rowTops, rowDayKeys);
+    if (next !== null && Math.abs(next - el.scrollTop) >= 1) {
+      el.scrollTop = next;
+      lastScrollTopRef.current = el.scrollTop;
+    }
+  }, [rowTops, rowDayKeys]);
+
   // カレンダーの日クリック → グリッドへ切り替えて該当日付の見出しへスクロール
   useEffect(() => {
     if (view !== "grid" || pendingScrollDay === null) return;
@@ -3530,10 +3552,11 @@ export default function App() {
       (r) => r.kind === "header" && r.dayKey === pendingScrollDay,
     );
     if (idx >= 0) {
-      virtualizer.scrollToIndex(idx, { align: "start" });
+      // 行の上端（`rowTops`）へ直に置く（帯と同じ。仮想スクローラの測りは描き替えの後まで古いことがある）
+      if (scrollRef.current) scrollRef.current.scrollTop = rowTops[idx];
       setPendingScrollDay(null);
     }
-  }, [view, pendingScrollDay, rows, virtualizer]);
+  }, [view, pendingScrollDay, rows, rowTops]);
 
   const virtualItems = virtualizer.getVirtualItems();
 
@@ -4411,7 +4434,12 @@ export default function App() {
           r.kind === "cells" &&
           r.cells.some((c) => c.files.some((f) => f.id === id)),
       );
-      if (idx >= 0) virtualizer.scrollToIndex(idx, { align: "center" });
+      // 行の中央を画面の中央へ。位置は `rowTops` で引く（帯・カレンダーと同じ）
+      const el = scrollRef.current;
+      if (idx >= 0 && el) {
+        const h = (rowTops[idx + 1] ?? rowTops[idx]) - rowTops[idx];
+        el.scrollTop = Math.max(0, rowTops[idx] + h / 2 - el.clientHeight / 2);
+      }
     }
     // 送った分の行が描かれてから測る
     requestAnimationFrame(() =>
@@ -8187,28 +8215,26 @@ export default function App() {
             </div>
           ) : (
             <div className="grid-wrap">
-              {yearMarkers.length > 1 && (
-                <div className="scrubber">
-                  {yearMarkers.map((m) => (
-                    <button
-                      key={m.year}
-                      className={"scrub-tick" + (m.label ? " labeled" : "")}
-                      style={{ top: `${m.top}%` }}
-                      title={t.jumpToYear(m.year)}
-                      onClick={() =>
-                        virtualizer.scrollToIndex(m.rowIndex, { align: "start" })
-                      }
-                    >
-                      {/* 年は地域の数字で（ar-SA ならアラビア・インド数字。`year()`） */}
-                      {m.label ? year(m.year) : ""}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
+              <ScrubRail
+                scrollRef={scrollRef}
+                rowTops={rowTops}
+                dayKeys={rowDayKeys}
+                monthCounts={monthCounts}
+                // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
+                // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
+                onJumpToRow={(i) => {
+                  const el = scrollRef.current;
+                  // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
+                  if (el) el.scrollTop = Math.min(rowTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
+                }}
+              />
               <div className="grid-scroll" ref={scrollRef}>
               <div
                 style={{
-                  height: virtualizer.getTotalSize(),
+                  // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。
+                  // 上の「同じ日を留める」が、伸びた中身の上でスクロール位置を直せるように）
+                  height: rowTops[rows.length],
                   position: "relative",
                 }}
               >
@@ -8224,7 +8250,9 @@ export default function App() {
                         left: 0,
                         width: "100%",
                         height: vr.size,
-                        transform: `translateY(${vr.start}px)`,
+                        // 位置は `rowTops` で（中身の高さ・帯・上端の日の留め置きと同じ和）。仮想スクローラの
+                        // 測りは描き替えの後の effect まで古く、1 コマだけ行がずれて見えた（/code-review）
+                        transform: `translateY(${rowTops[vr.index] ?? vr.start}px)`,
                       }}
                     >
                       {row.kind === "header" ? (

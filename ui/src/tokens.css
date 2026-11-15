@@ -66,6 +66,8 @@
   --sp-7: 32px;
   --radius: 8px;
   --radius-sm: calc(var(--radius) * 0.5);
+  /* 一覧の右端の帯（年の目盛り＋掴んで動かす。`ScrubRail.tsx`）の幅 */
+  --scrub-rail-width: 48px;
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) * 1.5);
   --radius-full: 999px;

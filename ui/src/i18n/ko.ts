@@ -275,7 +275,7 @@ export const ko: Dict = {
     `${path} — 찾을 수 없습니다. USB 메모리나 SD 카드에 있다면 꽂은 뒤 ‘다시 스캔’을 누르십시오`,
   importFrom: (path: string) => `${path}에서 가져오기`,
   filterByCamera: (name: string) => `${euro(name)} 찍은 사진만 보기`,
-  jumpToYear: (year: number) => `${year}년으로`,
+  scrubRailLabel: "타임라인(끌어서 사진 탐색)",
   importing: (done: number, total: number) => `가져오는 중… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `가져오기 완료: 복사 ${num(copied)}, 건너뜀 ${num(skipped)}`,

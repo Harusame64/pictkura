@@ -283,7 +283,7 @@ export const ru: Dict = {
     `${path} — не найдена. Если она на USB-накопителе или SD-карте, подключите носитель и нажмите «Пересканировать»`,
   importFrom: (path: string) => `Импортировать из ${path}`,
   filterByCamera: (name: string) => `Показать только фото, снятые на ${name}`,
-  jumpToYear: (year: number) => `Перейти к ${year} году`,
+  scrubRailLabel: "Шкала времени (перетащите, чтобы листать фотографии)",
   importing: (done: number, total: number) => `Импорт… ${num(done)}/${num(total)}`,
   /** 述語を前に置く（`скопировано 3`）。中性単数なので数で形が変わらない */
   importDone: (copied: number, skipped: number) =>

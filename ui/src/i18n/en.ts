@@ -223,7 +223,7 @@ export const en: Dict = {
     `${path} — not there. If it is on a USB stick or SD card, plug it in and press Rescan`,
   importFrom: (path: string) => `Import from ${path}`,
   filterByCamera: (name: string) => `Show only photos taken with ${name}`,
-  jumpToYear: (year: number) => `Jump to ${year}`,
+  scrubRailLabel: "Timeline (drag to move through your photos)",
   importing: (done: number, total: number) => `Importing… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `Import finished: ${num(copied)} copied, ${num(skipped)} skipped`,

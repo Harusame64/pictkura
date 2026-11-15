@@ -339,24 +339,33 @@ export const formatLocale: string = (() => {
 export const formatDateTime = (ms: number) =>
   new Date(ms).toLocaleString(formatLocale);
 
+/**
+ * 書式器は1つ作って使い回す。`toLocaleDateString(locale, opts)` は呼ぶたびに書式器を作り、一覧の見出し 999 日を
+ * 作り直すたびに 2 秒かかっていた（win2 の実測 2026-11-15: 帯を掴んで送るときの CPU の首位。3,000 件で 147ms と
+ * 2.9ms）。出力は同じ（`toLocaleDateString` は内部で同じ書式器を作って `format` する）
+ */
+const cachedFormat = (opts: Intl.DateTimeFormatOptions) => {
+  let f: Intl.DateTimeFormat | null = null;
+  return (d: Date) => (f ??= new Intl.DateTimeFormat(formatLocale, opts)).format(d);
+};
+const dayFormat = cachedFormat({ year: "numeric", month: "long", day: "numeric" });
+const monthFormat = cachedFormat({ year: "numeric", month: "long" });
+const monthOnlyFormat = cachedFormat({ month: "long" });
+
 /** day_key（YYYYMMDD整数）を、その言語の日付表記にする */
 export const formatDayKey = (dayKey: number) => {
   const y = Math.floor(dayKey / 10000);
   const m = Math.floor(dayKey / 100) % 100;
   const d = dayKey % 100;
-  return new Date(y, m - 1, d).toLocaleDateString(formatLocale, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return dayFormat(new Date(y, m - 1, d));
 };
 
 /** 「2026年8月」等の月見出し */
-export const formatMonth = (year: number, month: number) =>
-  new Date(year, month - 1, 1).toLocaleDateString(formatLocale, {
-    year: "numeric",
-    month: "long",
-  });
+export const formatMonth = (year: number, month: number) => monthFormat(new Date(year, month - 1, 1));
+
+/** 「8月」等、年の無い月 */
+export const formatMonthOnly = (year: number, month: number) =>
+  monthOnlyFormat(new Date(year, month - 1, 1));
 
 /**
  * 週の始まり（`Date.getDay()` と同じ 0=日曜 … 6=土曜）。

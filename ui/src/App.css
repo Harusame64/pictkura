@@ -631,30 +631,170 @@ body {
   min-height: 0;
   display: flex;
 }
-.scrubber {
+.scrub-rail {
   position: absolute;
   top: 0;
   inset-inline-end: 0;
   bottom: 0;
-  width: 46px;
+  width: var(--scrub-rail-width);
   z-index: 5;
+  touch-action: none;
+  /* 帯が在ることが見えるように、薄い地と写真の側の境の線（空中を触っているようだった。利用者 2026-11-15） */
+  background: color-mix(in oklch, var(--surface-2) 55%, transparent);
+  border-inline-start: 1px solid var(--border);
+  transition: background var(--dur) var(--easing);
+}
+.scrub-rail:hover,
+.scrub-rail.active {
+  background: var(--surface-2);
+}
+/* つまみが走る溝 */
+.scrub-rail::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  inset-inline-end: 4px;
+  width: 10px;
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--border) 60%, transparent);
+}
+/* 現在地: 溝の上の印（一覧の上端の位置） */
+.scrub-here {
+  position: absolute;
+  inset-inline-end: 4px;
+  width: 10px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: var(--accent);
   pointer-events: none;
+}
+/* 現在地の札（年月）。帯の写真の側に出す。指を帯に乗せている間は拡大鏡に譲る */
+.scrub-here-label {
+  position: absolute;
+  inset-inline-end: calc(var(--scrub-rail-width) - 4px + var(--sp-1));
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px oklch(0 0 0 / 0.18);
+  transition: opacity var(--dur) var(--easing);
+}
+.scrub-rail.active .scrub-here-label {
+  opacity: 0;
+}
+/* 指の所の横線。ダークでは白、ライトでは黒に寄る（`--text` の色） */
+.scrub-cursor {
+  position: absolute;
+  inset-inline: 4px;
+  height: 1px;
+  background: color-mix(in oklch, var(--text) 75%, transparent);
+  pointer-events: none;
+}
+/* 拡大鏡: 指の月を中央に大きく、前後の月を小さく（帯の写真の側。見るだけで、押すのは帯） */
+.scrub-loupe {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--sp-2));
+  width: 0;
+  pointer-events: none;
+}
+.scrub-loupe-item {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  margin-top: -0.7em;
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  transition: transform 80ms linear, opacity 80ms linear;
+}
+.scrub-loupe-item.center {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.15);
+  z-index: 1;
+}
+/* 止めた拡大鏡（押せる月の一覧）。箱は出さず、月の文字だけを帯の横に浮かべる（Dock のように、指に近い月ほど大きく
+   濃い。利用者 2026-11-15）。帯にくっつけて出す（間を渡るときに閉じないよう） */
+.scrub-menu {
+  position: absolute;
+  inset-inline-end: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-inline: var(--sp-2) var(--sp-1);
+  z-index: 6;
+}
+.scrub-menu-year,
+.scrub-menu-item {
+  display: flex;
+  align-items: center;
+  border: none;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-full);
+  /* 写真の上でも読めるよう、文字の後ろだけ曇りガラス */
+  background: color-mix(in oklch, var(--surface) 72%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  transition:
+    transform 90ms ease-out,
+    opacity 90ms ease-out,
+    background var(--dur) var(--easing);
+}
+.scrub-menu-year {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+/* 押す先（指の真下の1行）。アクセントの地で塗って、「これが選ばれている」をはっきりさせる */
+.scrub-menu-year.target,
+.scrub-menu-item.target {
+  position: relative;
+  z-index: 1;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+  box-shadow: 0 2px 10px oklch(0 0 0 / 0.22);
+}
+.scrub-menu-count {
+  margin-inline-start: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  opacity: 0.85;
+}
+/* 帯で指していた月（今いる月）。押す先の塗りと混ざらないよう、輪の印にする */
+.scrub-menu-item.here::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-inline-end: var(--sp-1);
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  opacity: 0.7;
 }
 .scrub-tick {
   position: absolute;
-  inset-inline-end: 2px;
+  inset-inline-end: 16px;
   transform: translateY(-50%);
-  pointer-events: auto;
-  border: none;
-  background: none;
+  pointer-events: none;
   color: var(--text-faint);
-  font-family: inherit;
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   padding: 1px var(--sp-1);
   border-radius: var(--radius-sm);
   line-height: 1.2;
-  cursor: pointer;
 }
 .scrub-tick:not(.labeled) {
   width: 8px;
@@ -663,12 +803,19 @@ body {
   background: var(--border-strong);
   border-radius: 1px;
 }
-.scrub-tick:hover {
-  background: var(--surface-2);
-  color: var(--text);
+/* 月の仕切り（年と年の間の小さな点） */
+.scrub-dot {
+  position: absolute;
+  inset-inline-end: 22px;
+  width: 3px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  pointer-events: none;
 }
-.scrub-tick:not(.labeled):hover {
-  background: var(--accent);
+.scrub-rail:hover .scrub-tick.labeled {
+  color: var(--text-muted);
 }
 
 .grid-scroll {
@@ -677,6 +824,12 @@ body {
   overflow-y: auto;
   background: var(--bg-canvas);
   padding: 0 var(--sp-2);
+  /* 普通のスクロールバーは出さない。動かすのは右端の帯（`.scrub-rail`）で、写真は帯の手前まで */
+  padding-inline-end: var(--scrub-rail-width);
+  scrollbar-width: none;
+}
+.grid-scroll::-webkit-scrollbar {
+  display: none;
 }
 .date-header {
   display: flex;
