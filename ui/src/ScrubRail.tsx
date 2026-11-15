@@ -51,6 +51,10 @@ const MENU_STEP = 26;
 const MENU_SLACK_PX = 24;
 /** 日付窓の上下に見せる月の数（それぞれ） */
 const DIAL_ROWS = 4;
+/** 帯から写真の側へ出たとき、この距離（px）以内で止まったら日付窓を開く。それより遠くへ払ったら開かない */
+const DIAL_OPEN_REACH_PX = 60;
+/** 月のカードの高さ（px、およそ）。帯からはみ出さないように置くのに使う */
+const CARD_HEIGHT = 236;
 /**
  * ホイールでこれだけ回したら、日付窓の月を 1 つ送る。1 回の受け取りで送るのは 1 か月まで——マウスの 1 目盛り
  * （120）で 3 か月進み、細かく選べなかった（利用者「1 ずつ変わった方が良い」2026-11-15）。トラックパッドの
@@ -105,6 +109,9 @@ export function ScrubRail({
   const dialAnchor = useRef<{ py: number; month: number } | null>(null);
   const wheelAcc = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
+  // 月のカード（帯を押すと出る、その年の 12 か月のボタン）。y: 出した高さ（帯の上の px）、year: 見せている年
+  const [card, setCard] = useState<{ y: number; year: number } | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   // 現在地（一覧の上端の位置）
   const [scrollTop, setScrollTop] = useState(0);
   // 押している間の記録。動かしたかどうかで、離したときの意味（飛ぶ／送り終わり）が変わる
@@ -298,6 +305,31 @@ export function ScrubRail({
     };
   }, [menu, starts]);
 
+  // 月のカードは、カードと帯の外を押す・Esc で閉じる
+  useEffect(() => {
+    if (!card) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (t && (cardRef.current?.contains(t) || railRef.current?.contains(t))) return;
+      setCard(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      setCard(null);
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [card]);
+  /** 写真のある年（新しい順）と、月（yyyymm）→ 頭の位置 */
+  const years = useMemo(() => [...new Set(starts.map((x) => Math.floor(x.month / 100)))], [starts]);
+  const monthOffset = useMemo(() => new Map(starts.map((x) => [x.month, x.offset])), [starts]);
+
   // 拡大の寄せる側（帯の側）。左右は言語の向きで決まる。`<html dir>` を読む（main.tsx が言語から付ける）。
   // getComputedStyle は描くたびに書式を確定させ、スクロールの 1 コマごとに描き直すこの部品では重かった（/code-review）
   const rtl = document.documentElement.dir === "rtl";
@@ -453,6 +485,13 @@ export function ScrubRail({
         const near = nearMarker(p.y);
         if (near) onJumpToRow(near.rowIndex);
         else moveTo(p.fraction);
+        // 押したら、その年の月のカードも出す（指の精度が要らない月の選び方。日付窓はマウスが得意な人には快適だが、
+        // 指を止める精度が要る——トラックパッド・タッチ・手の震えでも確実に選べるように。利用者 2026-11-15）
+        const ym = near ? Math.floor(dayKeys[near.rowIndex] / 100) : monthAt(p.fraction);
+        if (ym !== null) {
+          setMenu(null);
+          setCard({ y: p.y, year: Math.floor(ym / 100) });
+        }
       }}
       onPointerCancel={() => {
         drag.current = null;
@@ -463,8 +502,10 @@ export function ScrubRail({
         if (drag.current) return;
         // 写真の側へ出たら、拡大鏡をその場に止めて、押せる一覧にする（帯の外側＝窓の端へ出たときは止めない）
         const rect = railRef.current?.getBoundingClientRect();
-        const towardPhotos = rect ? (rtl ? e.clientX > rect.right : e.clientX < rect.left) : false;
-        if (towardPhotos && !afterDrag.current && bubble) {
+        // 写真の側へ出た、ただし帯のすぐ横まで（指を写真へ素早く払っただけで、日付窓が開かないよう。win2 の実測）
+        const gap = rect ? (rtl ? e.clientX - rect.right : rect.left - e.clientX) : -1;
+        const towardPhotos = gap > 0 && gap <= DIAL_OPEN_REACH_PX;
+        if (towardPhotos && !afterDrag.current && !card && bubble) {
           // 月が引けていなければ（起動直後、帯の元データが揃う前に指が乗った）、いまの元データで引き直す
           const month = bubble.month ?? (rect ? monthAt(bubble.y / rect.height) : null);
           openDial(bubble.y, month);
@@ -497,6 +538,74 @@ export function ScrubRail({
         ))}
       {/* 指の所の横線（利用者の希望、2026-11-15）。帯から外れたら消える（掴んでいる間は外でも付いてくる） */}
       {bubble && <div className="scrub-cursor" style={{ top: `${bubble.y}px` }} aria-hidden="true" />}
+      {card && (() => {
+        const yi = years.indexOf(card.year);
+        const top = Math.max(0, Math.min(card.y - CARD_HEIGHT / 2, viewport - CARD_HEIGHT));
+        const go = (y: number) => setCard({ ...card, year: y });
+        return (
+          <div
+            ref={cardRef}
+            className="scrub-card"
+            style={{ top: `${top}px` }}
+            // カードの上の操作を、帯の「押す・掴む・拡大鏡」に渡さない
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerMove={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onPointerLeave={(e) => e.stopPropagation()}
+            onWheel={(e) => {
+              // ホイールで前後の年（下へ回すと古い年。一覧と同じ向き）
+              const n = yi + (e.deltaY > 0 ? 1 : -1);
+              if (e.deltaY !== 0 && years[n] !== undefined) go(years[n]);
+            }}
+            role="dialog"
+            aria-label={year(card.year)}
+          >
+            <div className="scrub-card-head">
+              <button
+                className="scrub-card-step"
+                disabled={yi <= 0}
+                onClick={() => go(years[yi - 1])}
+                aria-label={yi > 0 ? year(years[yi - 1]) : undefined}
+              >
+                {/* 新しい年（一覧の上の側） */}‹
+              </button>
+              <span className="scrub-card-year">{year(card.year)}</span>
+              <button
+                className="scrub-card-step"
+                disabled={yi < 0 || yi >= years.length - 1}
+                onClick={() => go(years[yi + 1])}
+                aria-label={yi >= 0 && yi < years.length - 1 ? year(years[yi + 1]) : undefined}
+              >
+                ›
+              </button>
+            </div>
+            <div className="scrub-card-grid">
+              {/* 12 月から 1 月へ（一覧と同じく新しい月が先） */}
+              {Array.from({ length: 12 }, (_, i) => 12 - i).map((m) => {
+                const ym = card.year * 100 + m;
+                const offset = monthOffset.get(ym);
+                const n = monthCounts.get(ym);
+                return (
+                  <button
+                    key={m}
+                    className="scrub-card-month"
+                    disabled={offset === undefined}
+                    onClick={() => {
+                      const el = scrollRef.current;
+                      if (el && offset !== undefined)
+                        el.scrollTop = Math.min(offset, Math.max(0, total - el.clientHeight));
+                      setCard(null);
+                    }}
+                  >
+                    <span>{monthOnly(ym)}</span>
+                    {n !== undefined && <span className="scrub-card-count">{t.photosCount(n)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
       {menu && sel >= 0 && (
         <div
           ref={menuRef}

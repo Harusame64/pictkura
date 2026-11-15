@@ -796,6 +796,81 @@ body {
   font-weight: 400;
   color: var(--text-muted);
 }
+/* 月のカード（帯を押すと出る、その年の 12 か月。指の精度が要らない選び方） */
+.scrub-card {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--sp-1));
+  width: 224px;
+  padding: var(--sp-2);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 24px oklch(0 0 0 / 0.2);
+  border: 1px solid var(--border);
+  z-index: 7;
+  cursor: default;
+}
+.scrub-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-1);
+}
+.scrub-card-year {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.scrub-card-step {
+  width: 32px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-lg);
+  cursor: pointer;
+}
+.scrub-card-step:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.scrub-card-step:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.scrub-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-1);
+}
+.scrub-card-month {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.scrub-card-month:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--accent) 16%, var(--surface-2));
+}
+.scrub-card-month:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.scrub-card-month:disabled {
+  background: none;
+  color: var(--text-faint);
+  cursor: default;
+}
+.scrub-card-count {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
 /* キーボードで帯にいるとき */
 .scrub-rail:focus-visible {
   outline: 2px solid var(--accent);
