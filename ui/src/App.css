@@ -748,8 +748,9 @@ body {
   font-family: inherit;
   white-space: nowrap;
   cursor: pointer;
+  font-size: var(--fs-sm);
   transition:
-    font-size 90ms ease-out,
+    transform 90ms ease-out,
     opacity 90ms ease-out,
     background var(--dur) var(--easing);
 }
@@ -760,6 +761,9 @@ body {
 /* 指の真上の月 */
 .scrub-menu-year.near,
 .scrub-menu-item.near {
+  /* 拡大した行は隣に重なるので、上に描く */
+  position: relative;
+  z-index: 1;
   background: var(--surface);
   box-shadow: 0 2px 10px oklch(0 0 0 / 0.18);
   font-weight: 600;

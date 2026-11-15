@@ -260,6 +260,8 @@ export function ScrubRail({
 
   /** 止めた一覧の月の並び（その年の、写真のある月。上が新しい月） */
   const menuMonths = menu ? starts.filter((x) => Math.floor(x.month / 100) === Math.floor(menu.month / 100)) : [];
+  // 拡大の寄せる側（帯の側）。左右は言語の向きで決まる
+  const rtl = railRef.current ? getComputedStyle(railRef.current).direction === "rtl" : false;
   const menuIndex = menu ? menuMonths.findIndex((x) => x.month === menu.month) : -1;
   // 一覧の上端（帯の上の px）。指の月を、止めたときの指の高さに置く。帯からはみ出さないように詰める
   const menuTop = menu
@@ -431,7 +433,10 @@ export function ScrubRail({
                 }
                 style={{
                   height: MENU_STEP,
-                  fontSize: `calc(var(--fs-sm) * ${1 + DOCK_GROW * n})`,
+                  // 拡大は transform で（行の箱の寸法は変えない）。文字の大きさを変えると、行ごとの横幅が指の動きで
+                  // 伸び縮みし、列全体が横にうねった（利用者「動きがキモい」、win2 の実測）。寄せる側は帯の側＝行の終わり
+                  transform: `scale(${1 + DOCK_GROW * n})`,
+                  transformOrigin: rtl ? "left center" : "right center",
                   opacity: 0.55 + 0.45 * n,
                 }}
                 onClick={() => goTo(x.offset)}
