@@ -190,7 +190,7 @@ struct AppState {
     pending_import: Mutex<Option<String>>,
     /// 「プログラムから開く」で渡された写真のうち、まだ画面が受け取っていないもの（`pending_import` と同じ方式）
     pending_open: Mutex<Option<String>>,
-    /// 画面が受け取った「開く写真」（[`take_pending_open`] が渡したもの）。[`open_outside`] はこれだけを開く——
+    /// 画面が受け取った「開く写真」（[`take_pending_open`] が渡したもの。直近の数件）。[`open_outside`] はこれだけを開く——
     /// 画面から任意のフォルダを media:// で配れるようにしない（/code-review。取り込み元の `browse_allow` と同じ考え）
     allowed_open: Mutex<std::collections::HashSet<String>>,
     /// 画面が「開く写真」を受け取る用意ができたか（最初の [`take_pending_open`] で立つ）。立つ前に届いた写真は
@@ -2814,10 +2814,16 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0)
             + OPEN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // 開くたびに別の id の範囲（-(範囲×100万 + 位置 + 1)、範囲は呼び番号を 1000 で回したもの）。続けて 2 つ
+        // 開いたとき、画面がどちらの答えを当てても、その id は必ずその答えのファイルを指す（/code-review）
+        static OPEN_CALL: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+        let call = OPEN_CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let band = call % 1_000;
+        let base = band * 1_000_000;
         let mut table = std::collections::HashMap::new();
         let mut items = Vec::with_capacity(files.len());
         for (i, f) in files.iter().enumerate() {
-            let id = -(i as i64) - 1;
+            let id = -(base + i as i64) - 1;
             let record = pictkura_core::MediaRecord {
                 id,
                 path: f.path.clone(),
@@ -2846,7 +2852,16 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             items.push(dto);
             table.insert(id, record);
         }
-        *lock_ok(&state.outside) = table;
+        {
+            // 直近 3 回の範囲だけ残す（その前の答えを今さら当てる画面は無い）
+            let recent: Vec<i64> = (0..3)
+                .filter(|d| call >= *d)
+                .map(|d| (call - d) % 1_000)
+                .collect();
+            let mut outside = lock_ok(&state.outside);
+            outside.retain(|id, _| recent.contains(&((-id - 1) / 1_000_000)));
+            outside.extend(table);
+        }
         Ok(OutsideDto {
             items,
             index,
@@ -2868,7 +2883,12 @@ fn take_pending_open(state: tauri::State<'_, AppState>) -> Option<String> {
         .store(true, std::sync::atomic::Ordering::SeqCst);
     let path = lock_ok(&state.pending_open).take();
     if let Some(p) = &path {
-        lock_ok(&state.allowed_open).insert(p.clone());
+        let mut allowed = lock_ok(&state.allowed_open);
+        // 受け取った写真だけを開ける（直近の数件。増え続けないように）
+        if allowed.len() >= 8 {
+            allowed.clear();
+        }
+        allowed.insert(p.clone());
     }
     path
 }
@@ -2882,19 +2902,44 @@ static EARLY_OPEN: Mutex<Option<String>> = Mutex::new(None);
 fn deliver_open(app: &tauri::AppHandle, path: String) {
     let Some(state) = app.try_state::<AppState>() else {
         *lock_ok(&EARLY_OPEN) = Some(path);
+        // 書いている間に setup が `manage` を済ませていたら、ここで拾い直す（setup も manage の後で拾い直す）
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Some(p) = lock_ok(&EARLY_OPEN).take() {
+                *lock_ok(&state.pending_open) = Some(p);
+            }
+        }
         return;
     };
     *lock_ok(&state.pending_open) = Some(path.clone());
-    if state
+    if !state
         .open_ui_ready
         .load(std::sync::atomic::Ordering::SeqCst)
     {
+        // 画面がまだ起動時の写真を受け取る前（macOS は setup の後に `Opened` が来うる）。窓をいったん隠して地を黒に
+        // ——画面がビューアだけの窓を描いてから見せる（白や一覧を出さない。setup と同じ）
+        prepare_viewer_only_window(app);
+    } else {
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.show();
             let _ = w.unminimize();
             let _ = w.set_focus();
         }
         let _ = app.emit_to("main", "open-file", path);
+    }
+}
+
+/// ビューアだけの窓として見せる準備: 地を黒にして隠し、画面が描いてから見せる（main.tsx）。3 秒で見せる保険
+fn prepare_viewer_only_window(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+        let _ = w.hide();
+        let w = w.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            if !w.is_visible().unwrap_or(true) {
+                let _ = w.show();
+            }
+        });
     }
 }
 
@@ -7422,19 +7467,14 @@ pub fn run() {
             // 窓は見えない状態で作る（tauri.conf.json の `visible: false`）。作った直後の窓は白で、中身が描けるまで
             // 0.3 秒ほど白い窓が見えていた（win2 の色の読み取り）。ふつうの起動はここで見せる。写真を渡されて起動したら
             // 画面がビューアを黒で描いてから見せる（main.tsx）。画面が見せられなかったときのために 3 秒で見せる保険
-            if let Some(w) = app.get_webview_window("main") {
-                if lock_ok(&app.state::<AppState>().pending_open).is_some() {
-                    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
-                    let w = w.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_secs(3));
-                        if !w.is_visible().unwrap_or(true) {
-                            let _ = w.show();
-                        }
-                    });
-                } else {
-                    let _ = w.show();
-                }
+            // `manage` の前に届いて EARLY_OPEN に積まれた写真（deliver_open と競ったとき）を拾い直す
+            if let Some(p) = lock_ok(&EARLY_OPEN).take() {
+                *lock_ok(&app.state::<AppState>().pending_open) = Some(p);
+            }
+            if lock_ok(&app.state::<AppState>().pending_open).is_some() {
+                prepare_viewer_only_window(app.handle());
+            } else if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
             }
 
             // **前の版がアプリから書いた AutoPlay の登録を片付ける**（あれば。pictkura-dev #53）。登録は

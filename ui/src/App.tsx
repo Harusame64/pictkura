@@ -7156,10 +7156,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   // 「プログラムから開く」で渡された写真を開く: ライブラリの中ならライブラリのビューアでその位置（絞り込みは外す——
   // 隠れていると開けない）、外ならフォルダを外の写真として並べ、渡された 1 枚から（←→ でフォルダを送る）。
   // 起動時の写真（`openAtStart`）も、起動中に届いた写真（`open-file`）も同じ道
+  /** 開く要求の番号。続けて 2 つ届いたら、後の答えだけを当てる（先の答えが後から届いても捨てる。/code-review） */
+  const openFileReq = useRef(0);
   const openFile = useCallback((path: string, atStart: boolean) => {
+    const req = ++openFileReq.current;
     void openOutside(path)
       .then(({ items, index, library }) => {
+        if (req !== openFileReq.current) return;
         if (library) {
+          // 外の写真を見ていたなら、その列を下ろす（ライブラリの写真はライブラリの道で歩く）
+          setOutsideItems(null);
+          setViewerScope(null);
           setFilter("all");
           setKind("all");
           setQueryInput("");
@@ -7171,6 +7178,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         // 並べる写真が無ければ（読めないフォルダ等）ふつうの窓に戻す——黒い窓のまま何も出ない、にしない
         if (items.length === 0) {
           if (atStart) setViewerOnly(false);
+          // 起動中に届いたものは、窓が前に出たのに何も起きない、にしない
+          else fail(errText("errNotFound"));
           return;
         }
         setOutsideItems(items);
@@ -7192,27 +7201,39 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
    */
   const [openWhenFree, setOpenWhenFree] = useState<string | null>(null);
   useEffect(() => {
-    const un = listen<string>("open-file", () => {
+    const take = () =>
       void takePendingOpen().then((path) => {
         if (path) setOpenWhenFree(path);
       });
-    });
+    // 受け口ができる前に届いた写真も拾う（取り込みの `open-import-drive` と同じ、聞いてから一度取りに行く）
+    const un = listen<string>("open-file", take);
+    void un.then(take);
     return () => {
       void un.then((off) => off()).catch(() => {});
     };
   }, []);
   useEffect(() => {
-    if (!openWhenFree || curtainUp) return;
+    // 幕の間とファイルの操作（削除・書き出し）の間は待つ（書きかけ・途中の仕事を壊さない）
+    if (!openWhenFree || curtainUp || fileOpRunning) return;
     setOpenWhenFree(null);
     openFile(openWhenFree, false);
-  }, [openWhenFree, curtainUp, openFile]);
+  }, [openWhenFree, curtainUp, fileOpRunning, openFile]);
   const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
+  // 絞り込みを外した一覧の読み直しが**済んでから**開く——外す前の一覧の日に当てると、その日の列に写真が居ず、
+  // 隣の写真へ寄るか閉じた（起動中の窓で絞り込みをしていたとき。/code-review）
   useEffect(() => {
-    if (pendingLibraryOpen && dayIdxByKey.has(pendingLibraryOpen.dayKey)) {
+    if (
+      pendingLibraryOpen &&
+      settled &&
+      filter === "all" &&
+      kind === "all" &&
+      query === "" &&
+      dayIdxByKey.has(pendingLibraryOpen.dayKey)
+    ) {
       setViewer(pendingLibraryOpen);
       setPendingLibraryOpen(null);
     }
-  }, [pendingLibraryOpen, dayIdxByKey]);
+  }, [pendingLibraryOpen, settled, filter, kind, query, dayIdxByKey]);
   // ビューアだけの窓は、ビューアを閉じたら窓ごと閉じる（一度ビューアが出たあとだけ）
   const viewerShownRef = useRef(false);
   useEffect(() => {
