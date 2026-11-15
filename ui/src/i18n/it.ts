@@ -64,6 +64,7 @@ export const it: Dict = {
   navOutgoing: "In uscita",
   outgoingGuide: "Nell'app del tuo servizio di foto, scegli questa cartella In uscita come cartella di cui eseguire il backup (da sincronizzare). Da quel momento, a ogni importazione le foto vengono messe qui e il servizio le raccoglie. Se usi Google Foto: aggiungi questa cartella al backup delle cartelle di Google Foto.",
   navKinds: "Tipo",
+  kindAll: "Tutti",
   kindPhoto: "Foto",
   kindRaw: "RAW",
   kindVideo: "Video",

@@ -85,9 +85,10 @@ export const he: Dict = {
   outgoingGuide:
     "בחרו את תיקיית השליחה הזו כתיקייה לגיבוי (סנכרון) באפליקציה של שירות התמונות שלכם. מעכשיו, כל ייבוא יסדר כאן את התמונות, והשירות יאסוף אותן. אם אתם משתמשים ב-Google Photos: הוסיפו את התיקייה הזו לגיבוי התיקיות ב-Google Photos.",
   navKinds: "סוג",
+  kindAll: "הכל",
   kindPhoto: "תמונות",
   kindRaw: "RAW",
-  kindVideo: "סרטונים",
+  kindVideo: "וידאו",
   shortcutsTitle: "קיצורי מקלדת (?)",
   keyCtrl: "Ctrl",
   actionShortcuts: "הצגת קיצורי המקלדת",

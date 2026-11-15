@@ -227,22 +227,48 @@ body {
   background: var(--surface-2);
   border-radius: var(--radius-full);
 }
-.topbar .view-switch button {
+.view-switch button {
   border: none;
   border-radius: var(--radius-full);
   padding: 4px 12px;
   background: transparent;
   color: var(--text-muted);
 }
-.topbar .view-switch button:hover {
+.view-switch button:hover {
   background: transparent;
   color: var(--text);
 }
-.topbar .view-switch button.active {
+.view-switch button.active {
   background: var(--surface);
   color: var(--text);
   font-weight: 600;
   box-shadow: var(--shadow-1);
+}
+
+/* 左の「種類」の切り替え（上の表示の切り替えと同じ形）。札は中身の幅を基準に、余りを分け合う——等分だと
+   「すべて」「RAW」が余らせた幅を「Photos」「الفيديوهات」が使えず、英・仏・亜・希で … に切れた（/code-review） */
+.kind-switch {
+  margin: 0 var(--sp-2) var(--sp-2);
+}
+.kind-switch button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+/* 太字にしたときの幅を先に取っておく（選ぶたびに札の幅が変わって並びが動かないように） */
+.kind-switch button::after {
+  content: attr(data-label);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
 }
 
 /* 検索ボックス: 塗り＋ピル。⌘Kヒントは中に同居させて部品を1つ減らす */

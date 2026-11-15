@@ -70,6 +70,7 @@ export const pt: Dict = {
   navOutgoing: "Saída",
   outgoingGuide: "Escolha esta pasta de Saída como pasta para fazer backup (sincronizar) no app do seu serviço de fotos. A partir daí, cada importação coloca as fotos aqui e o serviço as recolhe. Se você usa o Google Fotos: adicione esta pasta ao backup de pastas do Google Fotos.",
   navKinds: "Tipo",
+  kindAll: "Tudo",
   kindPhoto: "Fotos",
   kindRaw: "RAW",
   kindVideo: "Vídeos",

@@ -79,6 +79,7 @@ export const es: Dict = {
   navOutgoing: "Salida",
   outgoingGuide: "Elige esta carpeta de Salida como carpeta para copiar (sincronizar) en la aplicación de tu servicio de fotos. A partir de entonces, cada importación coloca aquí las fotos y el servicio las recoge. Si usas Google Fotos: añade esta carpeta a la copia de seguridad de carpetas de Google Fotos.",
   navKinds: "Tipo",
+  kindAll: "Todo",
   kindPhoto: "Fotos",
   kindRaw: "RAW",
   kindVideo: "Vídeos",
