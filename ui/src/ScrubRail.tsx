@@ -57,8 +57,7 @@ const DIAL_OPEN_REACH_PX = 60;
 const CARD_HEIGHT = 236;
 /** マウスの指が帯とカードの両方から離れて、これだけ経ったらカードを閉じる（ms）。渡る途中・一瞬のはみ出しでは閉じない */
 const CARD_LEAVE_MS = 350;
-/** カードの外でも、この距離（px）以内なら「カードの上」とみなす */
-const CARD_LEAVE_SLACK_PX = 16;
+
 /**
  * ホイールでこれだけ回したら、日付窓の月を 1 つ送る。1 回の受け取りで送るのは 1 か月まで——マウスの 1 目盛り
  * （120）で 3 か月進み、細かく選べなかった（利用者「1 ずつ変わった方が良い」2026-11-15）。トラックパッドの
@@ -114,8 +113,13 @@ export function ScrubRail({
   const wheelAcc = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
   // 月のカード（帯を押すと出る、その年の 12 か月のボタン）。y: 出した高さ（帯の上の px）、year: 見せている年
-  // byMouse: マウスで開いたか。マウスなら、指が帯とカードから離れたら閉じる（タッチ・ペンには hover が無いので、外を押して閉じる）
-  const [card, setCard] = useState<{ y: number; year: number; byMouse: boolean } | null>(null);
+  const [card, setCard] = useState<{ y: number; year: number } | null>(null);
+  // マウスの指が帯とカードの両方から離れたときの、閉じるまでの待ち（帯の pointerleave で始め、pointerenter で止める）
+  const cardLeaveTimer = useRef<number | undefined>(undefined);
+  const cancelCardLeave = () => {
+    window.clearTimeout(cardLeaveTimer.current);
+    cardLeaveTimer.current = undefined;
+  };
   const cardRef = useRef<HTMLDivElement>(null);
   // 現在地（一覧の上端の位置）
   const [scrollTop, setScrollTop] = useState(0);
@@ -260,7 +264,13 @@ export function ScrubRail({
     moveTimer.current = undefined;
     setDragFraction(null);
   };
-  useEffect(() => () => window.clearTimeout(moveTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(moveTimer.current);
+      window.clearTimeout(cardLeaveTimer.current);
+    },
+    [],
+  );
 
   // 日付窓が開いている間の指とキー。指の上下で列を回す（窓の外へ縦に出ても回し続ける——窓は 9 行分しかなく、
   // 中だけで数えると前後 4 か月にしか届かなかった。/code-review）。横に離れたら閉じる
@@ -316,34 +326,17 @@ export function ScrubRail({
     };
   }, [menu, starts]);
 
-  // 月のカードは、カードと帯の外を押す・Esc で閉じる。マウスで開いたときは、指が帯とカードの両方から離れたら閉じる
-  // ——帯を押して飛び、そのまま写真を見たい人（従来の使い方）の上にカードが残り、しかも消すための1回の押下が
-  // 飲まれていた（利用者 2026-11-15）。帯からカードへ渡る途中や、一瞬はみ出しただけでは閉じないよう、距離と時間の猶予を持つ
+  // 月のカードは、カードと帯の外を押す・Esc で閉じる。マウスの指が帯とカードの両方から離れても閉じる（帯の
+  // pointerleave。下）——帯を押して飛び、そのまま写真を見たい人（従来の使い方）の上にカードが残り、しかも消すための
+  // 1回の押下が飲まれていた（利用者 2026-11-15）
   useEffect(() => {
     if (!card) return;
-    let leaveTimer: number | undefined;
-    const onMove = (e: PointerEvent) => {
-      if (!card.byMouse || e.pointerType !== "mouse") return;
-      const near = (el: Element | null | undefined, pad: number) => {
-        const r = el?.getBoundingClientRect();
-        return (
-          !!r && e.clientX >= r.left - pad && e.clientX <= r.right + pad && e.clientY >= r.top - pad && e.clientY <= r.bottom + pad
-        );
-      };
-      if (near(cardRef.current, CARD_LEAVE_SLACK_PX) || near(railRef.current, 0)) {
-        window.clearTimeout(leaveTimer);
-        leaveTimer = undefined;
-      } else if (leaveTimer === undefined) {
-        leaveTimer = window.setTimeout(() => setCard(null), CARD_LEAVE_MS);
-      }
-    };
-    // カードの外を押したら、閉じるだけ（押した下の写真のビューアまで開かない。ポップオーバーの作法、
-    // Esc と同じく手前の幕が取る。win2 の実測で、1 回の押下でカードが閉じてビューアも開いた）
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null;
       if (t && (cardRef.current?.contains(t) || railRef.current?.contains(t))) return;
-      // マウスで開いたカードは、外を押したら閉じるだけで押下は通す（離れた時点で閉じるのが本筋。猶予の間に押した分を飲まない）
-      if (card.byMouse && e.pointerType === "mouse") {
+      // マウスの押下は、閉じるだけで通す（離れた時点で閉じるのが本筋。猶予の間に押した分を飲まない）。決めるのは
+      // 押した道具（開いた道具ではない）——タッチで開いてトラックパッドで押す機械でも、押下を飲まない
+      if (e.pointerType === "mouse") {
         setCard(null);
         return;
       }
@@ -365,12 +358,9 @@ export function ScrubRail({
       setCard(null);
     };
     window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("pointermove", onMove, true);
     window.addEventListener("keydown", onKey, true);
     return () => {
-      window.clearTimeout(leaveTimer);
       window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("keydown", onKey, true);
     };
   }, [card]);
@@ -540,7 +530,7 @@ export function ScrubRail({
         const ym = near ? Math.floor(dayKeys[near.rowIndex] / 100) : monthAt(p.fraction);
         if (ym !== null) {
           setMenu(null);
-          setCard({ y: p.y, year: Math.floor(ym / 100), byMouse: e.pointerType === "mouse" });
+          setCard({ y: p.y, year: Math.floor(ym / 100) });
         }
       }}
       onPointerCancel={() => {
@@ -548,8 +538,20 @@ export function ScrubRail({
         endDrag();
         setBubble(null);
       }}
+      onPointerEnter={cancelCardLeave}
       onPointerLeave={(e) => {
         if (drag.current) return;
+        // カードは帯の DOM の子なので、ここに来るのは指が帯とカードの両方から出たとき（窓の外へ出たときも）。
+        // マウスなら、少し待って閉じる（渡る途中・一瞬のはみ出しは pointerenter が止める）。キーボードの的が
+        // カードの中にある間は閉じない（押している最中に的が消えないように）
+        if (card && e.pointerType === "mouse") {
+          cancelCardLeave();
+          cardLeaveTimer.current = window.setTimeout(() => {
+            cardLeaveTimer.current = undefined;
+            if (cardRef.current?.contains(document.activeElement)) return;
+            setCard(null);
+          }, CARD_LEAVE_MS);
+        }
         // 写真の側へ出たら、拡大鏡をその場に止めて、押せる一覧にする（帯の外側＝窓の端へ出たときは止めない）
         const rect = railRef.current?.getBoundingClientRect();
         // 写真の側へ出た、ただし帯のすぐ横まで（指を写真へ素早く払っただけで、日付窓が開かないよう。win2 の実測）
