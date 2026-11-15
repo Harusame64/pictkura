@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { formatMonth, t } from "./i18n";
 import { year } from "./i18n/plural.ts";
-import { dayKeyAt, fractionAt, scrollTopFor, thumbOf } from "./scrubRailMath";
+import { dayKeyAt, fractionAt, monthDots, scrollTopFor, thumbOf } from "./scrubRailMath";
 
 export type YearMarker = { year: number; rowIndex: number; top: number; label: boolean };
 
@@ -12,6 +12,8 @@ const MIN_THUMB = 0.04;
 const DRAG_SLOP = 3;
 /** 年の目盛りのこの距離（px）以内を押したら、その年の頭へ飛ぶ */
 const SNAP_PX = 10;
+/** 月の仕切りの点どうし・年の目盛りとの最小の間隔（px）。詰まる所は点を省く */
+const MONTH_GAP_PX = 7;
 
 /**
  * 一覧の帯（普通のスクロールバーの代わり。計算は `scrubRailMath.ts`）。
@@ -19,6 +21,7 @@ const SNAP_PX = 10;
  * - 帯のどこを押しても・掴んで動かしても、その比の所へ一覧が移る
  * - 動かしている間と、帯の上に指があるあいだは、その位置の年月を吹き出しで出す
  * - 年の目盛りの近くを押すと、その年の頭へ飛ぶ（前からの動き。目盛りは帯の一部で、上で掴んでも動かせる）
+ * - 年と年の間には、月の仕切りの小さな点を置く（Google フォトのように。詰まる所は省く）
  * - ホイール・トラックパッド・キーは一覧そのものが受ける（帯は触らない）
  */
 export function ScrubRail({
@@ -67,6 +70,12 @@ export function ScrubRail({
       cancelAnimationFrame(frame.current);
     };
   }, [scrollRef, total]);
+
+  // 月の仕切り。帯の高さ（≒一覧の見えている高さ）で間引くので、窓の大きさが変わったら置き直す
+  const dots = useMemo(
+    () => monthDots(rowTops, dayKeys, viewport, markers.map((m) => m.top / 100), MONTH_GAP_PX),
+    [rowTops, dayKeys, viewport, markers],
+  );
 
   const textAt = useCallback(
     (fraction: number): string => {
@@ -169,6 +178,9 @@ export function ScrubRail({
         className="scrub-thumb"
         style={{ top: `${thumb.top * 100}%`, height: `${thumb.height * 100}%` }}
       />
+      {dots.map((f) => (
+        <span key={f} className="scrub-dot" style={{ top: `${f * 100}%` }} />
+      ))}
       {markers.length > 1 &&
         markers.map((m) => (
           // 目盛りは絵だけ（押すのは帯。近くを押すと、その年の頭へ飛ぶ）。ボタンにすると、ラベルの上で掴めなかった

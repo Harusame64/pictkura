@@ -50,3 +50,38 @@ export function dayKeyAt(offset: number, tops: readonly number[], dayKeys: reado
   }
   return dayKeys[lo];
 }
+
+/**
+ * 月の仕切り（帯の上の小さな点）。月が変わる行ごとに1つ、帯の上での位置（0〜1 の比）を返す。
+ * 詰まりすぎると帯が点で埋まるので、前に置いた点・年の目盛りから `minGapPx` 未満なら置かない。
+ * 年の変わり目の月は年の目盛りがあるので置かない
+ */
+export function monthDots(
+  tops: readonly number[],
+  dayKeys: readonly number[],
+  railPx: number,
+  yearFractions: readonly number[],
+  minGapPx: number,
+): number[] {
+  const total = tops[dayKeys.length] ?? 0;
+  if (!(total > 0) || !(railPx > 0)) return [];
+  const out: number[] = [];
+  const years = [...yearFractions].sort((a, b) => a - b);
+  let lastPx = -Infinity;
+  let lastMonth = -1;
+  for (let i = 0; i < dayKeys.length; i++) {
+    const month = Math.floor(dayKeys[i] / 100);
+    if (month === lastMonth) continue;
+    const newYear = lastMonth !== -1 && Math.floor(month / 100) !== Math.floor(lastMonth / 100);
+    const first = lastMonth === -1;
+    lastMonth = month;
+    if (first || newYear) continue;
+    const f = tops[i] / total;
+    const px = f * railPx;
+    if (px - lastPx < minGapPx) continue;
+    if (years.some((y) => Math.abs(y * railPx - px) < minGapPx)) continue;
+    out.push(f);
+    lastPx = px;
+  }
+  return out;
+}

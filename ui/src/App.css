@@ -689,6 +689,17 @@ body {
   background: var(--border-strong);
   border-radius: 1px;
 }
+/* 月の仕切り（年と年の間の小さな点） */
+.scrub-dot {
+  position: absolute;
+  inset-inline-end: 17px;
+  width: 3px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  pointer-events: none;
+}
 .scrub-rail:hover .scrub-tick.labeled {
   color: var(--text-muted);
 }
