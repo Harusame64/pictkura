@@ -685,8 +685,14 @@ body {
   box-shadow: 0 1px 4px oklch(0 0 0 / 0.18);
   transition: opacity var(--dur) var(--easing);
 }
-.scrub-rail.active .scrub-here-label {
+/* 現在地: 溝の上の印は常に出す（利用者 2026-11-15「帯のカーソル位置は戻して」）。札（年月）は、写真に集中できるよう
+   ふだんは出さず、キーボードで帯にいるときだけ出す（「帯からカーソルが離れたら見えないように」。指が乗っている間は
+   拡大鏡・日付窓が年月を出す）。表示している年は、年のラベルを太くして示す（下の .scrub-tick.current） */
+.scrub-here-label {
   opacity: 0;
+}
+.scrub-rail:focus-visible:not(.active):not(.dial-open) .scrub-here-label {
+  opacity: 1;
 }
 /* 指の所の横線。ダークでは白、ライトでは黒に寄る（`--text` の色） */
 .scrub-cursor {
@@ -723,66 +729,142 @@ body {
   box-shadow: 0 2px 8px oklch(0 0 0 / 0.15);
   z-index: 1;
 }
-/* 止めた拡大鏡（押せる月の一覧）。箱は出さず、月の文字だけを帯の横に浮かべる（Dock のように、指に近い月ほど大きく
-   濃い。利用者 2026-11-15）。帯にくっつけて出す（間を渡るときに閉じないよう） */
-.scrub-menu {
+/* 日付窓（腕時計の日付の小窓。利用者 2026-11-15）。帯の写真の側に、帯にくっつけて出す。窓は固定で、月の列が
+   その下を流れる。上下の端は薄く消す */
+.scrub-dial {
   position: absolute;
   inset-inline-end: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  padding-inline: var(--sp-2) var(--sp-1);
+  width: 150px;
+  overflow: hidden;
   z-index: 6;
+  cursor: ns-resize;
+  -webkit-mask-image: linear-gradient(transparent, #000 28%, #000 72%, transparent);
+  mask-image: linear-gradient(transparent, #000 28%, #000 72%, transparent);
 }
-.scrub-menu-year,
-.scrub-menu-item {
+/* 窓: 曇りガラスの白い札（縁なし。利用者「時計ホイールは縁なしできる？」2026-11-15） */
+.scrub-dial-window {
+  position: absolute;
+  inset-inline: var(--sp-1);
+  border-radius: var(--radius-full);
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px oklch(0 0 0 / 0.16);
+}
+.scrub-dial-column {
+  position: absolute;
+  inset: 0;
+  transition: transform 110ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scrub-dial-column {
+    transition: none;
+  }
+}
+.scrub-dial-item {
+  position: absolute;
+  inset-inline: var(--sp-1);
   display: flex;
   align-items: center;
-  border: none;
-  padding: 0 var(--sp-2);
-  border-radius: var(--radius-full);
-  /* 写真の上でも読めるよう、文字の後ろだけ曇りガラス */
-  background: color-mix(in oklch, var(--surface) 72%, transparent);
-  backdrop-filter: blur(6px);
-  color: var(--text);
-  font-family: inherit;
+  justify-content: flex-end;
+  padding-inline: var(--sp-3);
   white-space: nowrap;
-  cursor: pointer;
   font-size: var(--fs-sm);
-  transition:
-    transform 90ms ease-out,
-    opacity 90ms ease-out,
-    background var(--dur) var(--easing);
-}
-.scrub-menu-year {
-  font-weight: 700;
   color: var(--text-muted);
+  text-shadow: 0 0 4px var(--surface);
+  transition:
+    opacity 110ms ease-out,
+    transform 110ms ease-out;
 }
-/* 押す先（指の真下の1行）。アクセントの地で塗って、「これが選ばれている」をはっきりさせる */
-.scrub-menu-year.target,
-.scrub-menu-item.target {
-  position: relative;
-  z-index: 1;
-  background: var(--accent);
-  color: var(--accent-contrast);
+.scrub-dial-item.target {
+  color: var(--accent);
   font-weight: 600;
-  box-shadow: 0 2px 10px oklch(0 0 0 / 0.22);
+  text-shadow: none;
 }
 .scrub-menu-count {
   margin-inline-start: var(--sp-2);
   font-size: var(--fs-xs);
   font-weight: 400;
-  opacity: 0.85;
+  color: var(--text-muted);
 }
-/* 帯で指していた月（今いる月）。押す先の塗りと混ざらないよう、輪の印にする */
-.scrub-menu-item.here::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  margin-inline-end: var(--sp-1);
-  border-radius: 50%;
-  border: 1.5px solid currentColor;
-  opacity: 0.7;
+/* 月のカード（帯を押すと出る、その年の 12 か月。指の精度が要らない選び方） */
+.scrub-card {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--sp-1));
+  width: 224px;
+  padding: var(--sp-2);
+  border-radius: var(--radius);
+  background: color-mix(in oklch, var(--surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 24px oklch(0 0 0 / 0.2);
+  border: 1px solid var(--border);
+  z-index: 7;
+  cursor: default;
+}
+.scrub-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-1);
+}
+.scrub-card-year {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.scrub-card-step {
+  width: 32px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-lg);
+  cursor: pointer;
+}
+.scrub-card-step:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.scrub-card-step:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.scrub-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-1);
+}
+.scrub-card-month {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.scrub-card-month:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--accent) 16%, var(--surface-2));
+}
+.scrub-card-month:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.scrub-card-month:disabled {
+  background: none;
+  color: var(--text-faint);
+  cursor: default;
+}
+.scrub-card-count {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+/* キーボードで帯にいるとき */
+.scrub-rail:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .scrub-tick {
   position: absolute;
@@ -813,6 +895,11 @@ body {
   border-radius: 50%;
   background: var(--border-strong);
   pointer-events: none;
+}
+/* 表示している年のラベル。帯から指が離れていても太く濃く（利用者 2026-11-15） */
+.scrub-tick.labeled.current {
+  color: var(--text);
+  font-weight: 700;
 }
 .scrub-rail:hover .scrub-tick.labeled {
   color: var(--text-muted);
