@@ -74,6 +74,68 @@
             </desktop3:InvokeAction>
           </desktop3:AutoPlayHandler>
         </desktop3:Extension>
+        <!-- 「プログラムから開く」の候補（2026-11-15 利用者の決定）。Store 版のファイルの種類の宣言は候補になるだけで、
+             既定のアプリにはならない。拡張子は openwith.wxs・installer-hooks.nsh と同じ一覧 -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="pictkuraimages" Parameters="&quot;%1&quot;">
+            <uap:DisplayName>pictkura</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.jpg</uap:FileType>
+              <uap:FileType>.jpeg</uap:FileType>
+              <uap:FileType>.png</uap:FileType>
+              <uap:FileType>.webp</uap:FileType>
+              <uap:FileType>.cr2</uap:FileType>
+              <uap:FileType>.cr3</uap:FileType>
+              <uap:FileType>.crw</uap:FileType>
+              <uap:FileType>.nef</uap:FileType>
+              <uap:FileType>.nrw</uap:FileType>
+              <uap:FileType>.arw</uap:FileType>
+              <uap:FileType>.srf</uap:FileType>
+              <uap:FileType>.sr2</uap:FileType>
+              <uap:FileType>.arq</uap:FileType>
+              <uap:FileType>.raf</uap:FileType>
+              <uap:FileType>.orf</uap:FileType>
+              <uap:FileType>.ori</uap:FileType>
+              <uap:FileType>.rw2</uap:FileType>
+              <uap:FileType>.pef</uap:FileType>
+              <uap:FileType>.ptx</uap:FileType>
+              <uap:FileType>.srw</uap:FileType>
+              <uap:FileType>.dng</uap:FileType>
+              <uap:FileType>.raw</uap:FileType>
+              <uap:FileType>.rwl</uap:FileType>
+              <uap:FileType>.3fr</uap:FileType>
+              <uap:FileType>.fff</uap:FileType>
+              <uap:FileType>.iiq</uap:FileType>
+              <uap:FileType>.erf</uap:FileType>
+              <uap:FileType>.mrw</uap:FileType>
+              <uap:FileType>.x3f</uap:FileType>
+              <uap:FileType>.dcr</uap:FileType>
+              <uap:FileType>.kdc</uap:FileType>
+              <uap:FileType>.mos</uap:FileType>
+              <uap:FileType>.heic</uap:FileType>
+              <uap:FileType>.heif</uap:FileType>
+              <uap:FileType>.hif</uap:FileType>
+              <uap:FileType>.bmp</uap:FileType>
+              <uap:FileType>.gif</uap:FileType>
+              <uap:FileType>.tif</uap:FileType>
+              <uap:FileType>.tiff</uap:FileType>
+              <uap:FileType>.svg</uap:FileType>
+              <uap:FileType>.avif</uap:FileType>
+              <uap:FileType>.mp4</uap:FileType>
+              <uap:FileType>.m4v</uap:FileType>
+              <uap:FileType>.mov</uap:FileType>
+              <uap:FileType>.webm</uap:FileType>
+              <uap:FileType>.avi</uap:FileType>
+              <uap:FileType>.mts</uap:FileType>
+              <uap:FileType>.m2ts</uap:FileType>
+              <uap:FileType>.mkv</uap:FileType>
+              <uap:FileType>.3gp</uap:FileType>
+              <uap:FileType>.wmv</uap:FileType>
+              <uap:FileType>.mpg</uap:FileType>
+              <uap:FileType>.mpeg</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
       </Extensions>
     </Application>
   </Applications>

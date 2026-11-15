@@ -1,0 +1,357 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  「プログラムから開く」の候補に pictkura を載せるための WiX 断片（2026-11-15 利用者の決定。dev/plan.md の同日の節）。
+
+  **既定のアプリは取りに行かない。** 書くのは候補だけ——拡張子ごとの OpenWithProgids と、Applications の
+  SupportedTypes。UserChoice（既定）には触らない（Windows も、アプリが既定を書き換えることを許していない）。
+  ダブルクリックで開くのは利用者が「常にこのアプリで開く」を選んだときだけ。
+
+  開くと、写真のパスを引数に起動する（受け側は open_path_from_args。引数は MSI・NSIS・Store 版で同じ）。拡張子は
+  取り込みの既定の一覧（config.rs の default extensions）と同じ。AutoPlay の断片（autoplay.wxs）と同じく per-machine
+  なので HKLM に書き、アンインストールで MSI が自分で消す。
+
+  注意: XML のコメントにはハイフン2つを書けない。この断片は scripts で作ったものではなく手で直してよいが、拡張子の
+  一覧は installer-hooks.nsh・msix/AppxManifest.xml と揃えること。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="OpenWithRegistration" Guid="B8F2D3A1-6C4E-4F7B-9A2D-3E5C1F8B7D24" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.Image">
+          <RegistryValue Type="string" Value="pictkura" KeyPath="yes" />
+          <RegistryValue Name="FriendlyTypeName" Type="string" Value="pictkura" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.Image\DefaultIcon">
+          <RegistryValue Type="string" Value="[INSTALLDIR]pictkura.exe,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.Image\shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLDIR]pictkura.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe">
+          <RegistryValue Name="FriendlyAppName" Type="string" Value="pictkura" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLDIR]pictkura.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.jpg\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".jpg" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.jpeg\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".jpeg" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.png\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".png" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.webp\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".webp" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.cr2\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".cr2" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.cr3\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".cr3" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.crw\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".crw" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.nef\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".nef" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.nrw\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".nrw" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.arw\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".arw" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.srf\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".srf" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.sr2\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".sr2" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.arq\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".arq" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.raf\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".raf" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.orf\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".orf" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.ori\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".ori" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.rw2\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".rw2" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.pef\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".pef" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.ptx\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".ptx" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.srw\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".srw" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.dng\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".dng" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.raw\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".raw" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.rwl\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".rwl" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.3fr\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".3fr" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.fff\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".fff" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.iiq\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".iiq" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.erf\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".erf" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mrw\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mrw" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.x3f\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".x3f" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.dcr\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".dcr" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.kdc\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".kdc" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mos\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mos" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.heic\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".heic" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.heif\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".heif" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.hif\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".hif" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.bmp\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".bmp" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.gif\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".gif" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.tif\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".tif" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.tiff\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".tiff" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.svg\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".svg" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.avif\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".avif" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mp4\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mp4" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.m4v\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".m4v" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mov\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mov" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.webm\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".webm" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.avi\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".avi" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mts\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mts" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.m2ts\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".m2ts" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mkv\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mkv" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.3gp\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".3gp" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.wmv\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".wmv" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mpg\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mpg" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mpeg\OpenWithProgids">
+          <RegistryValue Name="pictkura.Image" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\pictkura.exe\SupportedTypes">
+          <RegistryValue Name=".mpeg" Type="string" Value="" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

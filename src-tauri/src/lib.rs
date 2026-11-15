@@ -8116,6 +8116,40 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 「プログラムから開く」の登録（MSI・NSIS・Store 版）の拡張子が、取り込みの既定の一覧と揃っていること。
+    /// 3 か所は手で書くので、どれかに足し忘れると、その形式だけ候補に出ない（黙って欠ける）
+    #[test]
+    fn open_with_registrations_list_the_default_import_extensions() {
+        use std::collections::BTreeSet;
+        let want: BTreeSet<String> = pictkura_core::config::ImportConfig::default()
+            .extensions
+            .iter()
+            .map(|e| e.to_lowercase())
+            .collect();
+        let grab = |text: &str, pre: &str, post: &str| -> BTreeSet<String> {
+            text.split(pre)
+                .skip(1)
+                .filter_map(|rest| rest.split_once(post).map(|(e, _)| e))
+                .filter(|e| !e.contains(['\n', '"', '\\']))
+                .map(|e| e.to_lowercase())
+                .collect()
+        };
+        let msi = grab(include_str!("../windows/openwith.wxs"), "Name=\".", "\"");
+        let nsis = grab(
+            include_str!("../windows/installer-hooks.nsh"),
+            "Software\\Classes\\.",
+            "\\OpenWithProgids\" \"${PK_OPENWITH_PROGID}\" \"\"",
+        );
+        let msix = grab(
+            include_str!("../windows/msix/AppxManifest.xml"),
+            "<uap:FileType>.",
+            "</uap:FileType>",
+        );
+        assert_eq!(msi, want, "openwith.wxs");
+        assert_eq!(nsis, want, "installer-hooks.nsh");
+        assert_eq!(msix, want, "AppxManifest.xml");
+    }
+
     /// タイルを読んでいるあいだと、読み終わってすぐは「静か」と言わない（pictkura-dev #73）
     #[test]
     fn source_tiles_are_quiet_only_a_while_after_the_last_read() {
