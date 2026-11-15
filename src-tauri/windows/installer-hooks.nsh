@@ -201,8 +201,6 @@
   ; 拡張子は openwith.wxs・msix/AppxManifest.xml と同じ一覧
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "" "pictkura"
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "FriendlyTypeName" "pictkura"
-  ; 既定が空いた拡張子で、Windows に自動で既定へ選ばれないための印（文書は REG_NONE。値があることを見る。codex）
-  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "AllowSilentDefaultTakeOver" ""
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\DefaultIcon" "" "$INSTDIR\pictkura.exe,0"
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\shell\open\command" "" '"$INSTDIR\pictkura.exe" "%1"'
   WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe" "FriendlyAppName" "pictkura"

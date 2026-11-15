@@ -4,6 +4,9 @@
 
   **既定のアプリは取りに行かない。** 書くのは候補だけ——拡張子ごとの OpenWithProgids と、Applications の
   SupportedTypes。UserChoice（既定）には触らない（Windows も、アプリが既定を書き換えることを許していない）。
+  ただし、ほかに開けるアプリが無い拡張子（実測では .arq・.x3f）は、候補が pictkura だけなので Windows がそれで開く
+  （UserChoice は書かれない。アンインストールで元の「アプリの選択」に戻る。2026-11-16 win2 の実測、利用者が了承）。
+  AllowSilentDefaultTakeOver を付けても変わらなかったので付けていない
   ダブルクリックで開くのは利用者が「常にこのアプリで開く」を選んだときだけ。
 
   開くと、写真のパスを引数に起動する（受け側は open_path_from_args。引数は MSI・NSIS・Store 版で同じ）。拡張子は
@@ -20,9 +23,6 @@
         <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.Image">
           <RegistryValue Type="string" Value="pictkura" KeyPath="yes" />
           <RegistryValue Name="FriendlyTypeName" Type="string" Value="pictkura" />
-          <!-- 既定が空いた拡張子で、Windows に自動で既定へ選ばれないための印（ProgID の AllowSilentDefaultTakeOver。
-               文書は REG_NONE だが WiX v3 は書けないので空の文字列。値があることを見る。codex） -->
-          <RegistryValue Name="AllowSilentDefaultTakeOver" Type="string" Value="" />
         </RegistryKey>
         <RegistryKey Root="HKLM" Key="Software\Classes\pictkura.Image\DefaultIcon">
           <RegistryValue Type="string" Value="[INSTALLDIR]pictkura.exe,0" />
