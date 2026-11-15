@@ -63,8 +63,11 @@
   </array>
   <!--
     Finder の「このアプリケーションで開く」の候補に pictkura を載せる（2026-11-15 利用者の決定）。役割はビューア、
-    順位は Alternate——候補に並ぶだけで、既定のアプリ（Owner / Default）は取りに行かない。種類は写真・RAW・動画の
-    大きな括り（UTI）で宣言する。開いたファイルは RunEvent::Opened で届く（lib.rs の deliver_open）
+    順位は Alternate——候補に並ぶだけで、既定のアプリ（Owner / Default）は取りに行かない。開いたファイルは
+    RunEvent::Opened で届く（lib.rs の deliver_open）。
+    **種類は名指しする**（取り込みの既定の拡張子と同じ顔ぶれ）——public.image で括ると PSD や ICO など開けない形式に
+    まで候補として出た（/code-review）。RAW は public.camera-raw-image がまとめる。システムの UTI が無い形式
+    （MKV など）は拡張子で宣言する
   -->
   <key>CFBundleDocumentTypes</key>
   <array>
@@ -77,9 +80,52 @@
       <string>Alternate</string>
       <key>LSItemContentTypes</key>
       <array>
-        <string>public.image</string>
+        <string>public.jpeg</string>
+        <string>public.png</string>
+        <string>org.webmproject.webp</string>
         <string>public.camera-raw-image</string>
-        <string>public.movie</string>
+        <string>public.heic</string>
+        <string>public.heif</string>
+        <string>public.avif</string>
+        <string>com.microsoft.bmp</string>
+        <string>com.compuserve.gif</string>
+        <string>public.tiff</string>
+        <string>public.svg-image</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Movie</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.mpeg-4</string>
+        <string>com.apple.m4v-video</string>
+        <string>com.apple.quicktime-movie</string>
+        <string>org.webmproject.webm</string>
+        <string>public.avi</string>
+        <string>public.mpeg-2-transport-stream</string>
+        <string>public.3gpp</string>
+        <string>com.microsoft.windows-media-wmv</string>
+        <string>public.mpeg</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Other media</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>mkv</string>
+        <string>mts</string>
+        <string>m2ts</string>
+        <string>hif</string>
       </array>
     </dict>
   </array>

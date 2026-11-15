@@ -22,6 +22,71 @@
 !define PK_AUTOPLAY_PROGID "pictkura.AutoPlay"
 ; 「プログラムから開く」の候補（openwith.wxs と同じ。既定のアプリは取りに行かない）
 !define PK_OPENWITH_PROGID "pictkura.Image"
+
+; 拡張子の一覧（**ここ 1 か所**。openwith.wxs の foreach・AppxManifest.xml と揃える。lib.rs の試験が見る）。
+; 書くときも消すときも、この一覧を回す（片方だけ足して消し忘れる、を作らない）
+!macro PK_OPENWITH_EXTS OP
+  !insertmacro ${OP} jpg
+  !insertmacro ${OP} jpeg
+  !insertmacro ${OP} png
+  !insertmacro ${OP} webp
+  !insertmacro ${OP} cr2
+  !insertmacro ${OP} cr3
+  !insertmacro ${OP} crw
+  !insertmacro ${OP} nef
+  !insertmacro ${OP} nrw
+  !insertmacro ${OP} arw
+  !insertmacro ${OP} srf
+  !insertmacro ${OP} sr2
+  !insertmacro ${OP} arq
+  !insertmacro ${OP} raf
+  !insertmacro ${OP} orf
+  !insertmacro ${OP} ori
+  !insertmacro ${OP} rw2
+  !insertmacro ${OP} pef
+  !insertmacro ${OP} ptx
+  !insertmacro ${OP} srw
+  !insertmacro ${OP} dng
+  !insertmacro ${OP} raw
+  !insertmacro ${OP} rwl
+  !insertmacro ${OP} 3fr
+  !insertmacro ${OP} fff
+  !insertmacro ${OP} iiq
+  !insertmacro ${OP} erf
+  !insertmacro ${OP} mrw
+  !insertmacro ${OP} x3f
+  !insertmacro ${OP} dcr
+  !insertmacro ${OP} kdc
+  !insertmacro ${OP} mos
+  !insertmacro ${OP} heic
+  !insertmacro ${OP} heif
+  !insertmacro ${OP} hif
+  !insertmacro ${OP} bmp
+  !insertmacro ${OP} gif
+  !insertmacro ${OP} tif
+  !insertmacro ${OP} tiff
+  !insertmacro ${OP} svg
+  !insertmacro ${OP} avif
+  !insertmacro ${OP} mp4
+  !insertmacro ${OP} m4v
+  !insertmacro ${OP} mov
+  !insertmacro ${OP} webm
+  !insertmacro ${OP} avi
+  !insertmacro ${OP} mts
+  !insertmacro ${OP} m2ts
+  !insertmacro ${OP} mkv
+  !insertmacro ${OP} 3gp
+  !insertmacro ${OP} wmv
+  !insertmacro ${OP} mpg
+  !insertmacro ${OP} mpeg
+!macroend
+!macro PK_OPENWITH_WRITE EXT
+  WriteRegStr SHCTX "Software\Classes\.${EXT}\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
+  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".${EXT}" ""
+!macroend
+!macro PK_OPENWITH_DELETE EXT
+  DeleteRegValue SHCTX "Software\Classes\.${EXT}\OpenWithProgids" "${PK_OPENWITH_PROGID}"
+!macroend
 !define PK_AUTOPLAY_ACTION "pictkura で写真を取り込む"
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -73,61 +138,10 @@
     DeleteRegKey SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}"
     DeleteRegKey SHCTX "Software\Classes\${PK_AUTOPLAY_PROGID}"
     ; 「プログラムから開く」の候補
-    DeleteRegValue SHCTX "Software\Classes\.jpg\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.jpeg\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.png\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.webp\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.cr2\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.cr3\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.crw\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.nef\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.nrw\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.arw\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.srf\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.sr2\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.arq\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.raf\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.orf\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.ori\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.rw2\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.pef\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.ptx\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.srw\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.dng\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.raw\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.rwl\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.3fr\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.fff\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.iiq\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.erf\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mrw\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.x3f\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.dcr\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.kdc\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mos\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.heic\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.heif\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.hif\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.bmp\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.gif\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.tif\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.tiff\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.svg\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.avif\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mp4\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.m4v\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mov\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.webm\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.avi\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mts\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.m2ts\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mkv\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.3gp\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.wmv\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mpg\OpenWithProgids" "${PK_OPENWITH_PROGID}"
-    DeleteRegValue SHCTX "Software\Classes\.mpeg\OpenWithProgids" "${PK_OPENWITH_PROGID}"
+    !insertmacro PK_OPENWITH_EXTS PK_OPENWITH_DELETE
     DeleteRegKey SHCTX "Software\Classes\Applications\pictkura.exe"
     DeleteRegKey SHCTX "Software\Classes\${PK_OPENWITH_PROGID}"
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 
     ; **インストール先の記録も消す**（pictkura-dev #70）。Tauri のアンインストーラーは「アプリのデータも消す」に
     ; チェックしたときしか消さず、残った既定値を **MSI が前のインストール先として拾う**——全員向けの MSI が
@@ -187,116 +201,15 @@
   ; 拡張子は openwith.wxs・msix/AppxManifest.xml と同じ一覧
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "" "pictkura"
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "FriendlyTypeName" "pictkura"
+  ; 既定が空いた拡張子で、Windows に自動で既定へ選ばれないための印（文書は REG_NONE。値があることを見る。codex）
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "AllowSilentDefaultTakeOver" ""
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\DefaultIcon" "" "$INSTDIR\pictkura.exe,0"
   WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\shell\open\command" "" '"$INSTDIR\pictkura.exe" "%1"'
   WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe" "FriendlyAppName" "pictkura"
   WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\shell\open\command" "" '"$INSTDIR\pictkura.exe" "%1"'
-  WriteRegStr SHCTX "Software\Classes\.jpg\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".jpg" ""
-  WriteRegStr SHCTX "Software\Classes\.jpeg\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".jpeg" ""
-  WriteRegStr SHCTX "Software\Classes\.png\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".png" ""
-  WriteRegStr SHCTX "Software\Classes\.webp\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".webp" ""
-  WriteRegStr SHCTX "Software\Classes\.cr2\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".cr2" ""
-  WriteRegStr SHCTX "Software\Classes\.cr3\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".cr3" ""
-  WriteRegStr SHCTX "Software\Classes\.crw\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".crw" ""
-  WriteRegStr SHCTX "Software\Classes\.nef\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".nef" ""
-  WriteRegStr SHCTX "Software\Classes\.nrw\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".nrw" ""
-  WriteRegStr SHCTX "Software\Classes\.arw\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".arw" ""
-  WriteRegStr SHCTX "Software\Classes\.srf\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".srf" ""
-  WriteRegStr SHCTX "Software\Classes\.sr2\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".sr2" ""
-  WriteRegStr SHCTX "Software\Classes\.arq\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".arq" ""
-  WriteRegStr SHCTX "Software\Classes\.raf\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".raf" ""
-  WriteRegStr SHCTX "Software\Classes\.orf\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".orf" ""
-  WriteRegStr SHCTX "Software\Classes\.ori\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".ori" ""
-  WriteRegStr SHCTX "Software\Classes\.rw2\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".rw2" ""
-  WriteRegStr SHCTX "Software\Classes\.pef\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".pef" ""
-  WriteRegStr SHCTX "Software\Classes\.ptx\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".ptx" ""
-  WriteRegStr SHCTX "Software\Classes\.srw\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".srw" ""
-  WriteRegStr SHCTX "Software\Classes\.dng\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".dng" ""
-  WriteRegStr SHCTX "Software\Classes\.raw\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".raw" ""
-  WriteRegStr SHCTX "Software\Classes\.rwl\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".rwl" ""
-  WriteRegStr SHCTX "Software\Classes\.3fr\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".3fr" ""
-  WriteRegStr SHCTX "Software\Classes\.fff\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".fff" ""
-  WriteRegStr SHCTX "Software\Classes\.iiq\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".iiq" ""
-  WriteRegStr SHCTX "Software\Classes\.erf\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".erf" ""
-  WriteRegStr SHCTX "Software\Classes\.mrw\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mrw" ""
-  WriteRegStr SHCTX "Software\Classes\.x3f\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".x3f" ""
-  WriteRegStr SHCTX "Software\Classes\.dcr\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".dcr" ""
-  WriteRegStr SHCTX "Software\Classes\.kdc\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".kdc" ""
-  WriteRegStr SHCTX "Software\Classes\.mos\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mos" ""
-  WriteRegStr SHCTX "Software\Classes\.heic\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".heic" ""
-  WriteRegStr SHCTX "Software\Classes\.heif\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".heif" ""
-  WriteRegStr SHCTX "Software\Classes\.hif\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".hif" ""
-  WriteRegStr SHCTX "Software\Classes\.bmp\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".bmp" ""
-  WriteRegStr SHCTX "Software\Classes\.gif\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".gif" ""
-  WriteRegStr SHCTX "Software\Classes\.tif\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".tif" ""
-  WriteRegStr SHCTX "Software\Classes\.tiff\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".tiff" ""
-  WriteRegStr SHCTX "Software\Classes\.svg\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".svg" ""
-  WriteRegStr SHCTX "Software\Classes\.avif\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".avif" ""
-  WriteRegStr SHCTX "Software\Classes\.mp4\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mp4" ""
-  WriteRegStr SHCTX "Software\Classes\.m4v\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".m4v" ""
-  WriteRegStr SHCTX "Software\Classes\.mov\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mov" ""
-  WriteRegStr SHCTX "Software\Classes\.webm\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".webm" ""
-  WriteRegStr SHCTX "Software\Classes\.avi\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".avi" ""
-  WriteRegStr SHCTX "Software\Classes\.mts\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mts" ""
-  WriteRegStr SHCTX "Software\Classes\.m2ts\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".m2ts" ""
-  WriteRegStr SHCTX "Software\Classes\.mkv\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mkv" ""
-  WriteRegStr SHCTX "Software\Classes\.3gp\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".3gp" ""
-  WriteRegStr SHCTX "Software\Classes\.wmv\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".wmv" ""
-  WriteRegStr SHCTX "Software\Classes\.mpg\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mpg" ""
-  WriteRegStr SHCTX "Software\Classes\.mpeg\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
-  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".mpeg" ""
+  !insertmacro PK_OPENWITH_EXTS PK_OPENWITH_WRITE
+  ; エクスプローラーに関連付けが変わったと知らせる（知らせないと、再起動するまで候補に出ないことがある）
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 
   ; **前の版がアプリから書いた登録を消す**（旧い候補と新しい候補が並ぶ時間を作らない）。新しい登録の
   ; 「常にこの操作」には触らない——版上げのたびに選び直させない

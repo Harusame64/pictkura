@@ -8134,11 +8134,19 @@ mod tests {
                 .map(|e| e.to_lowercase())
                 .collect()
         };
-        let msi = grab(include_str!("../windows/openwith.wxs"), "Name=\".", "\"");
+        // MSI: foreach の 1 か所（`<?foreach EXT in jpg;jpeg;...?>`）
+        let wxs = include_str!("../windows/openwith.wxs");
+        let msi: BTreeSet<String> = wxs
+            .split("<?foreach EXT in ")
+            .nth(1)
+            .and_then(|r| r.split("?>").next())
+            .map(|l| l.split(';').map(|e| e.trim().to_lowercase()).collect())
+            .unwrap_or_default();
+        // NSIS: PK_OPENWITH_EXTS の 1 か所（`!insertmacro ${OP} jpg` の行）。書くときも消すときもこれを回す
         let nsis = grab(
             include_str!("../windows/installer-hooks.nsh"),
-            "Software\\Classes\\.",
-            "\\OpenWithProgids\" \"${PK_OPENWITH_PROGID}\" \"\"",
+            "!insertmacro ${OP} ",
+            "\n",
         );
         let msix = grab(
             include_str!("../windows/msix/AppxManifest.xml"),
