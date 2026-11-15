@@ -101,7 +101,8 @@ export function ScrubRail({
   // 取り込みで月が増えると、番号では隣の月を指した（/code-review）
   const [menu, setMenu] = useState<{ y: number; month: number } | null>(null);
   // 日付窓を回し始めたときの指の高さと窓の月。指を 1 行分動かすと、月の列が 1 つ送られる（ダイヤルのように）
-  const dialAnchor = useRef<{ py: number; sel: number } | null>(null);
+  // 起点は月（yyyymm）で持つ——番号で持つと、開いている間に取り込みで月が増えたとき、次の指の動きで別の月へ跳んだ（codex）
+  const dialAnchor = useRef<{ py: number; month: number } | null>(null);
   const wheelAcc = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
   // 現在地（一覧の上端の位置）
@@ -264,11 +265,12 @@ export function ScrubRail({
       }
       const a = dialAnchor.current;
       const now = starts.findIndex((x) => x.month === menu.month);
-      if (!a) {
-        dialAnchor.current = { py: e.clientY, sel: now };
+      const from = a ? starts.findIndex((x) => x.month === a.month) : -1;
+      if (!a || from < 0) {
+        dialAnchor.current = { py: e.clientY, month: menu.month };
         return;
       }
-      const sel = Math.min(starts.length - 1, Math.max(0, a.sel + Math.round((e.clientY - a.py) / MENU_STEP)));
+      const sel = Math.min(starts.length - 1, Math.max(0, from + Math.round((e.clientY - a.py) / MENU_STEP)));
       if (sel !== now && starts[sel]) setMenu({ ...menu, month: starts[sel].month });
     };
     // Esc は手前の幕が取る: 窓を閉じるだけで、下のグリッド（選択の解除）へは渡さない。捕獲の段で受けて止める。
