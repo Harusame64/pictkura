@@ -542,13 +542,16 @@ export function ScrubRail({
       onPointerLeave={(e) => {
         if (drag.current) return;
         // カードは帯の DOM の子なので、ここに来るのは指が帯とカードの両方から出たとき（窓の外へ出たときも）。
-        // マウスなら、少し待って閉じる（渡る途中・一瞬のはみ出しは pointerenter が止める）。キーボードの的が
-        // カードの中にある間は閉じない（押している最中に的が消えないように）
+        // マウスなら、少し待って閉じる（渡る途中・一瞬のはみ出しは pointerenter が止める）。キーボードで操作している
+        // 的がカードの中にある間は閉じない（押している最中に的が消えないように）
         if (card && e.pointerType === "mouse") {
           cancelCardLeave();
           cardLeaveTimer.current = window.setTimeout(() => {
             cardLeaveTimer.current = undefined;
-            if (cardRef.current?.contains(document.activeElement)) return;
+            // 守るのはキーボードで来た的だけ（:focus-visible）。マウスで ‹ › を押してもボタンに的が乗るので、
+            // 「的が中にある」だけで判定すると、年を送ってから写真へ戻ったときに閉じなかった（win2 の実測）
+            const f = document.activeElement;
+            if (f && cardRef.current?.contains(f) && f.matches(":focus-visible")) return;
             setCard(null);
           }, CARD_LEAVE_MS);
         }
