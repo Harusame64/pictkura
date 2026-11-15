@@ -84,6 +84,7 @@ import {
   takePendingImport,
   openWith,
   appDisplayNames,
+  appKeys,
   isMac,
   osAppsFor,
   openWithOs,
@@ -954,6 +955,8 @@ export default function App() {
   const [editors, setEditors] = useState<ExternalApp[]>([]);
   /** 覚えたアプリの画面の名前（パス → OS の表示名）。言語が替わっても追えるよう、設定には書かずに引く */
   const [editorNames, setEditorNames] = useState<Record<string, string>>({});
+  /** 覚えたアプリの名簿の鍵（パス → 束 ID か exe のファイル名）。mac は .app の名前では名簿に当たらない（codex） */
+  const [editorKeys, setEditorKeys] = useState<Record<string, string>>({});
   /** 設定ダイアログの表示と、その中身になる設定スナップショット */
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 取り込みウィザード（第5部 段階E）。startPathはドライブから開いたときの初期フォルダ
@@ -7025,6 +7028,16 @@ export default function App() {
   useEffect(() => {
     if (editors.length === 0) return;
     let cancelled = false;
+    appKeys(editors.map((e) => e.path))
+      .then((keys) => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        editors.forEach((e, i) => {
+          if (keys[i]) next[e.path] = keys[i];
+        });
+        setEditorKeys(next);
+      })
+      .catch(() => {});
     appDisplayNames(editors.map((e) => e.path))
       .then((names) => {
         if (cancelled) return;
@@ -7142,14 +7155,15 @@ export default function App() {
   const quickApps = useCallback(
     (item: MediaItem, apps: readonly OsApp[]): { key: string; label: string; run: () => void }[] => {
       const baseOf = (p: string) => (p.split(/[\\/]/).pop() ?? p).toLowerCase();
+      const keyOf = (p: string) => editorKeys[p] ?? baseOf(p);
       const remembered = editors
         .map((app, i) => ({ app, i }))
-        .filter(({ app }) => suitsFile(baseOf(app.path), item.is_raw, item.is_video))
+        .filter(({ app }) => suitsFile(keyOf(app.path), item.is_raw, item.is_video))
         .map(({ app, i }) => ({
           key: openWithId(app.name, i, editors.map((e) => e.name)),
           label: editorLabel(app, editors, editorNames),
           path: app.path.toLowerCase(),
-          base: baseOf(app.path),
+          base: keyOf(app.path),
           run: () => void openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
         }));
       const same = (a: OsApp) =>
@@ -7170,7 +7184,7 @@ export default function App() {
         }));
       return [...remembered, ...suggested];
     },
-    [editors, editorNames],
+    [editors, editorNames, editorKeys],
   );
   /**
    * 右クリックした写真の OS の候補。**開いてすぐ（0.25 秒以内）に届いたときだけメニューに足す**——遅れて足すと、

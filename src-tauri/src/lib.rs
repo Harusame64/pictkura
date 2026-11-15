@@ -2827,6 +2827,19 @@ async fn app_display_names(paths: Vec<String>) -> Vec<String> {
     .unwrap_or_default()
 }
 
+/// 外部アプリの、名簿と照らす鍵（`app_name::app_key`）。並びは `paths` と同じ
+#[tauri::command]
+async fn app_keys(paths: Vec<String>) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| app_name::app_key(Path::new(p)))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// その写真を開ける、OS が挙げるアプリ（「他のアプリで開く」の候補。並べ替えは画面の側）。
 /// OS への問い合わせは遅いことがある（拡張子の登録を読む）ので、窓の外で
 #[tauri::command]
@@ -7672,6 +7685,7 @@ pub fn run() {
             log_path,
             open_with,
             app_display_names,
+            app_keys,
             os_apps_for,
             open_with_os,
             show_shell_menu,
