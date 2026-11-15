@@ -188,7 +188,7 @@
     --accent: var(--indigo-light);
     --accent-contrast: var(--n-10);
     --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
-    --selected-bg: color-mix(in oklch, var(--text) 8%, transparent);
+    --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
     --scrim: oklch(0 0 0 / 0.6);
     --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
     --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
@@ -211,7 +211,7 @@ html[data-theme="dark"] {
   --accent: var(--indigo-light);
   --accent-contrast: var(--n-10);
   --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
-  --selected-bg: color-mix(in oklch, var(--text) 8%, transparent);
+  --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
   --scrim: oklch(0 0 0 / 0.6);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
   --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
