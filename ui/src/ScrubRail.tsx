@@ -529,7 +529,11 @@ export function ScrubRail({
           // 目盛りは絵だけ（押すのは帯。近くを押すと、その年の頭へ飛ぶ）。ボタンにすると、ラベルの上で掴めなかった
           <span
             key={m.year}
-            className={"scrub-tick" + (m.label ? " labeled" : "")}
+            className={
+              "scrub-tick" +
+              (m.label ? " labeled" : "") +
+              (hereMonth !== null && Math.floor(hereMonth / 100) === m.year ? " current" : "")
+            }
             style={{ top: edgeTop(m.top) }}
           >
             {/* 年は地域の数字で（ar-SA ならアラビア・インド数字。`year()`） */}

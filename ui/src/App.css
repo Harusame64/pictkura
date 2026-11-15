@@ -685,19 +685,9 @@ body {
   box-shadow: 0 1px 4px oklch(0 0 0 / 0.18);
   transition: opacity var(--dur) var(--easing);
 }
-/* 現在地（印と札）は、帯を触っている間だけ出す。離れている間は帯に「今ここ」を出さず、写真に集中させる
-   （利用者 2026-11-15「帯からカーソルが離れたら見えないように」「帯に持ってきたときに分かれば良い」）。
-   札（年月）はキーボードで帯にいるときだけ——指が乗っている間は拡大鏡・日付窓が年月を出す */
-.scrub-here {
-  opacity: 0;
-  transition: opacity var(--dur) var(--easing);
-}
-.scrub-rail:hover .scrub-here,
-.scrub-rail:focus-visible .scrub-here,
-.scrub-rail.dial-open .scrub-here,
-.scrub-rail.dragging .scrub-here {
-  opacity: 1;
-}
+/* 現在地: 溝の上の印は常に出す（利用者 2026-11-15「帯のカーソル位置は戻して」）。札（年月）は、写真に集中できるよう
+   ふだんは出さず、キーボードで帯にいるときだけ出す（「帯からカーソルが離れたら見えないように」。指が乗っている間は
+   拡大鏡・日付窓が年月を出す）。表示している年は、年のラベルを太くして示す（下の .scrub-tick.current） */
 .scrub-here-label {
   opacity: 0;
 }
@@ -905,6 +895,11 @@ body {
   border-radius: 50%;
   background: var(--border-strong);
   pointer-events: none;
+}
+/* 表示している年のラベル。帯から指が離れていても太く濃く（利用者 2026-11-15） */
+.scrub-tick.labeled.current {
+  color: var(--text);
+  font-weight: 700;
 }
 .scrub-rail:hover .scrub-tick.labeled {
   color: var(--text-muted);
