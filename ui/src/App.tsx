@@ -177,8 +177,12 @@ import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm"
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
-/** グリッド左右のpadding（.grid-scrollのCSSと一致させる） */
-const GRID_PADDING = 16;
+/**
+ * グリッドの左右の余白の和（`.grid-scroll` の CSS と一致させる）: 行の始まりの側 8px（`--sp-2`）＋
+ * 行の終わりの側の帯の幅 48px（`--scrub-rail-width`。写真は帯の手前まで）。帯を入れたとき 16 のままで、
+ * 行の最後の写真が帯の下へ 40px 潜った（/code-review）
+ */
+const GRID_PADDING = 8 + 48;
 /** 日キャッシュの上限（超えたら可視範囲外の古い日から間引く） */
 const DAY_CACHE_MAX = 150;
 const DAY_CACHE_TRIM_TO = 120;
@@ -3516,13 +3520,29 @@ export default function App() {
   // 落ち着く、帯の横線と現在地の印がずれる。win2 の実測と利用者 2026-11-15）。中身の高さは `rowTops` で描くので、
   // ここ（描いた直後）で位置を直せる
   const prevLayoutRef = useRef<{ tops: number[]; days: number[] } | null>(null);
+  // 描き替える前のスクロール位置。描き替えた後に読むと、中身が縮んだ分だけブラウザが位置を詰めた後の値になり、
+  // 下の方を見ていた人が遠い日へ飛ばされた（/code-review）。スクロールのたびに控えておく
+  const lastScrollTopRef = useRef(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      lastScrollTopRef.current = el.scrollTop;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [view]);
   useLayoutEffect(() => {
     const prev = prevLayoutRef.current;
     prevLayoutRef.current = { tops: rowTops, days: rowDayKeys };
     const el = scrollRef.current;
-    if (!prev || !el || el.scrollTop <= 0) return;
-    const next = anchoredScrollTop(el.scrollTop, prev.tops, prev.days, rowTops, rowDayKeys);
-    if (next !== null && Math.abs(next - el.scrollTop) >= 1) el.scrollTop = next;
+    const before = lastScrollTopRef.current;
+    if (!prev || !el || before <= 0) return;
+    const next = anchoredScrollTop(before, prev.tops, prev.days, rowTops, rowDayKeys);
+    if (next !== null && Math.abs(next - el.scrollTop) >= 1) {
+      el.scrollTop = next;
+      lastScrollTopRef.current = el.scrollTop;
+    }
   }, [rowTops, rowDayKeys]);
 
   // カレンダーの日クリック → グリッドへ切り替えて該当日付の見出しへスクロール
@@ -3532,10 +3552,11 @@ export default function App() {
       (r) => r.kind === "header" && r.dayKey === pendingScrollDay,
     );
     if (idx >= 0) {
-      virtualizer.scrollToIndex(idx, { align: "start" });
+      // 行の上端（`rowTops`）へ直に置く（帯と同じ。仮想スクローラの測りは描き替えの後まで古いことがある）
+      if (scrollRef.current) scrollRef.current.scrollTop = rowTops[idx];
       setPendingScrollDay(null);
     }
-  }, [view, pendingScrollDay, rows, virtualizer]);
+  }, [view, pendingScrollDay, rows, rowTops]);
 
   const virtualItems = virtualizer.getVirtualItems();
 
@@ -4413,7 +4434,12 @@ export default function App() {
           r.kind === "cells" &&
           r.cells.some((c) => c.files.some((f) => f.id === id)),
       );
-      if (idx >= 0) virtualizer.scrollToIndex(idx, { align: "center" });
+      // 行の中央を画面の中央へ。位置は `rowTops` で引く（帯・カレンダーと同じ）
+      const el = scrollRef.current;
+      if (idx >= 0 && el) {
+        const h = (rowTops[idx + 1] ?? rowTops[idx]) - rowTops[idx];
+        el.scrollTop = Math.max(0, rowTops[idx] + h / 2 - el.clientHeight / 2);
+      }
     }
     // 送った分の行が描かれてから測る
     requestAnimationFrame(() =>
@@ -8199,7 +8225,8 @@ export default function App() {
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
                   const el = scrollRef.current;
-                  if (el) el.scrollTop = rowTops[i];
+                  // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
+                  if (el) el.scrollTop = Math.min(rowTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
               <div className="grid-scroll" ref={scrollRef}>
@@ -8223,7 +8250,9 @@ export default function App() {
                         left: 0,
                         width: "100%",
                         height: vr.size,
-                        transform: `translateY(${vr.start}px)`,
+                        // 位置は `rowTops` で（中身の高さ・帯・上端の日の留め置きと同じ和）。仮想スクローラの
+                        // 測りは描き替えの後の effect まで古く、1 コマだけ行がずれて見えた（/code-review）
+                        transform: `translateY(${rowTops[vr.index] ?? vr.start}px)`,
                       }}
                     >
                       {row.kind === "header" ? (

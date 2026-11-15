@@ -101,6 +101,8 @@ export function ScrubRail({
   const [scrollTop, setScrollTop] = useState(0);
   // 押している間の記録。動かしたかどうかで、離したときの意味（飛ぶ／送り終わり）が変わる
   const drag = useRef<{ startY: number; moved: boolean } | null>(null);
+  // 掴んで送り終えた直後。その後の pointerleave で月の一覧を開かない（帯に指が戻るまで）
+  const afterDrag = useRef(false);
   const frame = useRef(0);
   // 掴んで送っている間の、つまみの仮の位置（指の所）。一覧が追いつくまで、つまみは指に付いて動く
   const [dragFraction, setDragFraction] = useState<number | null>(null);
@@ -250,21 +252,28 @@ export function ScrubRail({
       };
       if (!inside(menuRef.current, MENU_SLACK_PX) && !inside(railRef.current, 0)) setMenu(null);
     };
+    // Esc は手前の幕が取る: 一覧を閉じるだけで、一覧の下のグリッド（選択の解除）へは渡さない。
+    // 捕獲の段で受けて止める（同じ window の泡の段の受け口より先に走る）
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenu(null);
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      setMenu(null);
     };
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
     };
   }, [menu]);
 
   /** 止めた一覧の月の並び（その年の、写真のある月。上が新しい月） */
   const menuMonths = menu ? starts.filter((x) => Math.floor(x.month / 100) === Math.floor(menu.month / 100)) : [];
   // 拡大の寄せる側（帯の側）。左右は言語の向きで決まる
-  const rtl = railRef.current ? getComputedStyle(railRef.current).direction === "rtl" : false;
+  // `<html dir>` を読む（main.tsx が言語から付ける）。getComputedStyle は描くたびに書式を確定させ、スクロールの
+  // 1 コマごとに描き直すこの部品では重かった（/code-review）
+  const rtl = document.documentElement.dir === "rtl";
   const menuIndex = menu ? menuMonths.findIndex((x) => x.month === menu.month) : -1;
   // 一覧の上端（帯の上の px）。指の月を、止めたときの指の高さに置く。帯からはみ出さないように詰める
   const menuTop = menu
@@ -336,6 +345,7 @@ export function ScrubRail({
       onPointerMove={(e) => {
         const p = pointOf(e.clientY);
         if (!p) return;
+        if (!drag.current) afterDrag.current = false;
         const d = drag.current;
         if (d) {
           if (!d.moved && Math.abs(p.y - d.startY) > DRAG_SLOP) d.moved = true;
@@ -352,8 +362,11 @@ export function ScrubRail({
         drag.current = null;
         const p = pointOf(e.clientY);
         if (d?.moved) {
-          // 送り終わり: 間引いた分を残さず、指を離した所へ
+          // 送り終わり: 間引いた分を残さず、指を離した所へ。写真の上で離したときに、続く pointerleave で
+          // 月の一覧が開かないよう、指の所の表示もここで消す（/code-review）
           endDrag();
+          afterDrag.current = true;
+          setBubble(null);
           if (p) moveTo(p.fraction);
           return;
         }
@@ -372,9 +385,8 @@ export function ScrubRail({
         if (drag.current) return;
         // 写真の側へ出たら、拡大鏡をその場に止めて、押せる一覧にする（帯の外側＝窓の端へ出たときは止めない）
         const rect = railRef.current?.getBoundingClientRect();
-        const rtl = railRef.current ? getComputedStyle(railRef.current).direction === "rtl" : false;
         const towardPhotos = rect ? (rtl ? e.clientX > rect.right : e.clientX < rect.left) : false;
-        if (towardPhotos && bubble?.month != null) {
+        if (towardPhotos && !afterDrag.current && bubble?.month != null) {
           setMenuPointerY(null);
           setMenu({ y: bubble.y, month: bubble.month });
         }
