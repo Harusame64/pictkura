@@ -37,6 +37,7 @@ import { afterVideoEnded, isVideoOnlyFullscreen, type ViewerDir } from "./videoP
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
+import { CELL_SIZE_MAX, CELL_SIZE_MIN, CELL_SIZE_STEP, loadCellSize, saveCellSize } from "./cellSize";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -763,7 +764,8 @@ export default function App() {
    * 前の答えの案内を出し続けられるので、0件から0件へ移るときに案内が1コマ消えない（win2 の実機 W51）
    */
   const [summaryFor, setSummaryFor] = useState<Asked | null>(null);
-  const [cellSize, setCellSize] = useState(180);
+  // タイルの大きさは起動をまたいで覚える（毎回 180 に戻っていた）。読めない・壊れた値は既定へ
+  const [cellSize, setCellSize] = useState(loadCellSize);
   /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
   /**
@@ -1045,6 +1047,8 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   /** ビューアのUI（キャプション・ツール・矢印）を隠しているか（マウス静止で自動） */
   const [viewerIdle, setViewerIdle] = useState(false);
+  // カーソルを隠しているか（ビューア）。道具を隠す `viewerIdle` とは別: キーで送る間は道具を出し、カーソルは隠す
+  const [pointerIdle, setPointerIdle] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   /**
    * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
@@ -5590,20 +5594,40 @@ export default function App() {
   useEffect(() => {
     if (viewer === null) {
       setViewerIdle(false);
+      setPointerIdle(false);
       return;
     }
     let timer = window.setTimeout(() => setViewerIdle(true), 1800);
+    let pointerTimer = window.setTimeout(() => setPointerIdle(true), 1800);
     const wake = () => {
       setViewerIdle(false);
       window.clearTimeout(timer);
       timer = window.setTimeout(() => setViewerIdle(true), 1800);
     };
-    window.addEventListener("mousemove", wake);
-    window.addEventListener("keydown", wake);
+    // カーソルはマウスの動き（移動・押す・ホイール）でだけ戻す。キーで送っている間は、写真の上に矢印を
+    // 出し直さず、すぐ隠す（/code-review: ←/→ のたびにカーソルが 1.8 秒戻った・ホイールで拡大すると出なかった）
+    const wakePointer = () => {
+      wake();
+      setPointerIdle(false);
+      window.clearTimeout(pointerTimer);
+      pointerTimer = window.setTimeout(() => setPointerIdle(true), 1800);
+    };
+    const onKey = () => {
+      wake();
+      window.clearTimeout(pointerTimer);
+      setPointerIdle(true);
+    };
+    window.addEventListener("mousemove", wakePointer);
+    window.addEventListener("pointerdown", wakePointer);
+    window.addEventListener("wheel", wakePointer, { passive: true });
+    window.addEventListener("keydown", onKey);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener("mousemove", wake);
-      window.removeEventListener("keydown", wake);
+      window.clearTimeout(pointerTimer);
+      window.removeEventListener("mousemove", wakePointer);
+      window.removeEventListener("pointerdown", wakePointer);
+      window.removeEventListener("wheel", wakePointer);
+      window.removeEventListener("keydown", onKey);
     };
   }, [viewer]);
   useEffect(() => {
@@ -7698,11 +7722,15 @@ export default function App() {
           {t.size}
           <input
             type="range"
-            min={100}
-            max={320}
-            step={20}
+            min={CELL_SIZE_MIN}
+            max={CELL_SIZE_MAX}
+            step={CELL_SIZE_STEP}
             value={cellSize}
-            onChange={(e) => setCellSize(Number(e.target.value))}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setCellSize(v);
+              saveCellSize(v);
+            }}
           />
         </label>
         {/* 32ch で省略されるので、全文はホバーで読めるようにする */}
@@ -8499,6 +8527,7 @@ export default function App() {
           className={
             "viewer" +
             (viewerIdle ? " idle" : "") +
+            (pointerIdle ? " pointer-idle" : "") +
             (tileZoom?.kind === "open" ? " opening" : "")
           }
           // 名前のある窓として見せる（pictkura-dev #65）。名前は見ている写真。上に幕（情報・印刷・一覧…）が

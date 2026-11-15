@@ -335,9 +335,11 @@ export const formatLocale: string = (() => {
   return formatBase;
 })();
 
-/** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
-export const formatDateTime = (ms: number) =>
-  new Date(ms).toLocaleString(formatLocale);
+/**
+ * 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる）。書式器は使い回す（`cachedFormat`）——
+ * ビューアの字幕は描くたびに呼ぶ。オプションは `toLocaleString` の既定と同じ（年月日と時分秒、数字）
+ */
+export const formatDateTime = (ms: number) => dateTimeFormat(new Date(ms));
 
 /**
  * 書式器は1つ作って使い回す。`toLocaleDateString(locale, opts)` は呼ぶたびに書式器を作り、一覧の見出し 999 日を
@@ -346,9 +348,19 @@ export const formatDateTime = (ms: number) =>
  */
 const cachedFormat = (opts: Intl.DateTimeFormatOptions) => {
   let f: Intl.DateTimeFormat | null = null;
-  return (d: Date) => (f ??= new Intl.DateTimeFormat(formatLocale, opts)).format(d);
+  // 不正な日時は `toLocaleString` と同じく "Invalid Date" を返す（Intl は投げるので、壊れた値 1 つで画面が白くなる）
+  return (d: Date) =>
+    Number.isNaN(d.getTime()) ? "Invalid Date" : (f ??= new Intl.DateTimeFormat(formatLocale, opts)).format(d);
 };
 const dayFormat = cachedFormat({ year: "numeric", month: "long", day: "numeric" });
+const dateTimeFormat = cachedFormat({
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+});
 const monthFormat = cachedFormat({ year: "numeric", month: "long" });
 const monthOnlyFormat = cachedFormat({ month: "long" });
 
