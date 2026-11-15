@@ -7937,18 +7937,24 @@ export default function App() {
               「移る先」に見えて、重ねて効く絞り込みだと分からなかった（利用者 2026-11-15）ので、上の
               「サムネイル｜カレンダー」と同じ切り替えの一列にする。「すべて」を入れて、必ずどれか1つが選ばれて見える */}
           <div className="nav-section" id="nav-kinds-label">{t.navKinds}</div>
-          <div className="view-switch kind-switch" role="radiogroup" aria-labelledby="nav-kinds-label">
-            {(["all", ...KINDS] as const).map((k) => (
-              <button
-                key={k}
-                role="radio"
-                aria-checked={kind === k}
-                className={kind === k ? "active" : ""}
-                onClick={() => setKind(k)}
-              >
-                {k === "all" ? t.kindAll : KIND_LABEL[k]()}
-              </button>
-            ))}
+          {/* 役割は上の表示の切り替えと揃えて aria-pressed のボタン（radio にすると矢印キーの移動を約束して
+              しまう。/code-review）。札は data-label に太字の幅を取っておき、選んで太字になっても切れない・動かない */}
+          <div className="view-switch kind-switch" role="group" aria-labelledby="nav-kinds-label">
+            {(["all", ...KINDS] as const).map((k) => {
+              const label = k === "all" ? t.kindAll : KIND_LABEL[k]();
+              return (
+                <button
+                  key={k}
+                  aria-pressed={kind === k}
+                  className={kind === k ? "active" : ""}
+                  data-label={label}
+                  title={label}
+                  onClick={() => setKind(k)}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
           {cameras.length > 0 && (
             <>

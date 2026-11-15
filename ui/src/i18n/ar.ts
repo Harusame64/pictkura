@@ -110,7 +110,7 @@ export const ar: Dict = {
   kindAll: "الكل",
   kindPhoto: "الصور",
   kindRaw: "RAW",
-  kindVideo: "الفيديوهات",
+  kindVideo: "فيديو",
   shortcutsTitle: "اختصارات لوحة المفاتيح (?)",
   keyCtrl: "Ctrl",
   actionShortcuts: "عرض اختصارات لوحة المفاتيح",

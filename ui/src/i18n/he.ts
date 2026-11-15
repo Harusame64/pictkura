@@ -88,7 +88,7 @@ export const he: Dict = {
   kindAll: "הכל",
   kindPhoto: "תמונות",
   kindRaw: "RAW",
-  kindVideo: "סרטונים",
+  kindVideo: "וידאו",
   shortcutsTitle: "קיצורי מקלדת (?)",
   keyCtrl: "Ctrl",
   actionShortcuts: "הצגת קיצורי המקלדת",
