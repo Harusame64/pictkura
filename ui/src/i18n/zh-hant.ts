@@ -432,6 +432,7 @@ export const zhHant: Dict = {
   menuFavoriteOn: "加入最愛",
   menuFavoriteOff: "從最愛移除",
   pickEditor: "選擇用來編輯的程式",
+  appFilter: "程式",
   deleteConfirm: (n: number) =>
     n === 1
       ? "要把這張照片移到資源回收筒嗎？"

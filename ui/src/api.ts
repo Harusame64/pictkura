@@ -798,6 +798,8 @@ export const showShellMenu = (ids: number[], x: number, y: number) =>
 /** 指定した外部アプリで開く（rememberで設定に登録する） */
 export const openWith = (id: number, appPath: string, remember: boolean) =>
   invoke<void>("open_with", { id, appPath, remember });
+/** 外部アプリの、OS が人に見せている名前（並びは paths と同じ）。設定には書かず、出すたびに引く */
+export const appDisplayNames = (paths: string[]) => invoke<string[]>("app_display_names", { paths });
 /** 登録済みの外部エディタを設定から外す */
 export const forgetEditor = (appPath: string) =>
   invoke<void>("forget_editor", { appPath });

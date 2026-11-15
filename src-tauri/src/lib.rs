@@ -28,6 +28,7 @@ const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 /// 設定ファイルの名前（設定フォルダの直下）。窓より前に読む道（[`config_without_app`]）と `setup` が同じ名前を見る
 const CONFIG_FILE: &str = "pictkura.toml";
 
+mod app_name;
 mod autoplay;
 // サムネイルの流れがカメラを埋めたとき、左ペインへ知らせる（dev #28）
 mod camera_signal;
@@ -2805,6 +2806,23 @@ fn open_with(
         })?;
     }
     Ok(())
+}
+
+/// 外部アプリの、OS が人に見せている名前（右クリックの「<名前>で開く」）。並びは `paths` と同じ。
+///
+/// **設定には書かず、出すたびに引く**——書くと、そのとき動いていた言語の名前で固まり、言語を替えても
+/// 「プレビュー で開く」が残る（/code-review）。版情報の読みは遅い場所（抜いたドライブ・共有）で待つことが
+/// あるので、窓の外（spawn_blocking）で読む
+#[tauri::command]
+async fn app_display_names(paths: Vec<String>) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| app_name::display_name(Path::new(p)))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// 登録済みの外部エディタを設定から外す。
@@ -7599,6 +7617,7 @@ pub fn run() {
             open_log,
             log_path,
             open_with,
+            app_display_names,
             show_shell_menu,
             confirm_right_to_left,
             forget_editor,

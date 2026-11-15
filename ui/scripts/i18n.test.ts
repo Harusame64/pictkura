@@ -1123,6 +1123,7 @@ const SAME_AS_EN: Record<string, string[]> = {
     "wizardCapped", // 数だけ
   ],
   de: [
+    "appFilter", // ドイツ語でも「Apps」
     "burstChipShort", // `▤ 12`: 記号と数だけ
     "burstGapOption", // `0,5 s` など数と単位だけ
     "appName",

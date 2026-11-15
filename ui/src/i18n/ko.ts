@@ -426,6 +426,7 @@ export const ko: Dict = {
   menuFavoriteOn: "즐겨찾기에 추가",
   menuFavoriteOff: "즐겨찾기 해제",
   pickEditor: "편집에 쓸 앱 선택",
+  appFilter: "앱",
   deleteConfirm: (n: number) =>
     n === 1
       ? "이 사진을 휴지통으로 이동하시겠습니까?"

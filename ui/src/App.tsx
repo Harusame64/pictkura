@@ -81,6 +81,7 @@ import {
   openDefault,
   takePendingImport,
   openWith,
+  appDisplayNames,
   removeLibraryRoot,
   revealInFolder,
   setFavorite,
@@ -545,6 +546,18 @@ const KIND_LABEL: Record<(typeof KINDS)[number], () => string> = {
 };
 
 /**
+ * 右クリックの「<名前>で開く」の名前。OS の表示名を使い、引けなければ覚えたファイル名。
+ * 表示名が重なる（gimp-2.10 と gimp-3.0 がどちらも「GNU Image Manipulation Program」）ときは、
+ * 見分けられるようファイル名を括弧で添える（/code-review）
+ */
+function editorLabel(app: ExternalApp, all: readonly ExternalApp[], names: Record<string, string>): string {
+  const shown = (a: ExternalApp) => names[a.path] ?? a.name;
+  const label = shown(app);
+  const same = all.filter((a) => shown(a) === label).length > 1;
+  return same && label !== app.name ? `${label} (${app.name})` : label;
+}
+
+/**
  * 重ねの印（`.cell-chip`）の文字の幅を測る（[`chooseBadges`] に渡す）。字体は `body` の
  * 実際の値（言語で替わる `--font-ui`）、大きさと字間は `.cell-chip` と同じ（11px・600・0.02em）。
  * 測った値は覚えておく——描画のたびにタイルの数だけ呼ばれる
@@ -925,6 +938,8 @@ export default function App() {
   } | null>(null);
   /** 登録済みの外部編集アプリ（設定から読む） */
   const [editors, setEditors] = useState<ExternalApp[]>([]);
+  /** 覚えたアプリの画面の名前（パス → OS の表示名）。言語が替わっても追えるよう、設定には書かずに引く */
+  const [editorNames, setEditorNames] = useState<Record<string, string>>({});
   /** 設定ダイアログの表示と、その中身になる設定スナップショット */
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 取り込みウィザード（第5部 段階E）。startPathはドライブから開いたときの初期フォルダ
@@ -6993,13 +7008,46 @@ export default function App() {
   );
 
   /** 「他のアプリで開く…」: 実行ファイルを選ばせ、選んだアプリは設定に覚える */
+  useEffect(() => {
+    if (editors.length === 0) return;
+    let cancelled = false;
+    appDisplayNames(editors.map((e) => e.path))
+      .then((names) => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        editors.forEach((e, i) => {
+          if (names[i]) next[e.path] = names[i];
+        });
+        setEditorNames(next);
+      })
+      // 引けなければファイル名（設定の name）のまま出す
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // 言語を替えると頁ごと読み直すので、そのとき引き直される
+  }, [editors]);
+
   const onOpenWithOther = useCallback(
     async (item: MediaItem) => {
       try {
+        // アプリだけを選ばせる（前は何でも選べた。利用者「雑」2026-11-15）。Windows は起動の包み（.bat・.cmd）も
+        // 選べたので残す。最初の場所はアプリの置き場——ただし Windows は、一度選んだあとは前回の場所を OS が
+        // 覚えているので、まだ 1 つも覚えていないときだけ Program Files から始める（/code-review）
+        const appFilter =
+          platform === "windows"
+            ? {
+                filters: [{ name: t.appFilter, extensions: ["exe", "bat", "cmd", "com"] }],
+                ...(editors.length === 0 ? { defaultPath: "C:\\Program Files" } : {}),
+              }
+            : platform === "macos"
+              ? { filters: [{ name: t.appFilter, extensions: ["app"] }], defaultPath: "/Applications" }
+              : {};
         const app = await open({
           title: t.pickEditor,
           multiple: false,
           directory: false,
+          ...appFilter,
         });
         if (typeof app !== "string") return;
         await openWith(item.id, app, true);
@@ -7008,7 +7056,7 @@ export default function App() {
         fail(errText(e));
       }
     },
-    [refreshRoots],
+    [refreshRoots, platform, editors.length],
   );
 
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
@@ -7259,7 +7307,7 @@ export default function App() {
       // ゲート2）。名前が英数字にならない・重なるときだけ番号を添える
       ...editors.map((app, i) => ({
         id: openWithId(app.name, i, editors.map((e) => e.name)),
-        label: t.menuOpenWith(app.name),
+        label: t.menuOpenWith(editorLabel(app, editors, editorNames)),
         run: () => openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
       })),
       { id: "open-with-other", label: t.menuOpenWithOther, run: () => onOpenWithOther(item) },
@@ -7379,6 +7427,7 @@ export default function App() {
     ],
     [
       editors,
+      editorNames,
       onOpenWithOther,
       onDelete,
       markStack,

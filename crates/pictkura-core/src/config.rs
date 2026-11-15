@@ -78,6 +78,8 @@ pub struct ExternalApp {
 
 impl EditorsConfig {
     /// アプリを登録する（同じパスが既にあれば何もしない）。登録済みなら false。
+    /// `name` はファイル名（拡張子なし）。画面に出す名前は、出すときに OS から引く（言語が替わっても追う。
+    /// src-tauri の `app_name.rs`）。ここに書くのは、自動化の印（`openWithId`）と、引けなかったときの名前
     pub fn remember(&mut self, path: &Path) -> bool {
         if self.apps.iter().any(|a| a.path == path) {
             return false;
