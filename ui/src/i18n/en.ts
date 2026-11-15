@@ -551,6 +551,10 @@ export const en: Dict = {
   settingsAutoplayNote:
     "When pictkura is installed with the installer or from the Microsoft Store, “pictkura で写真を取り込む” (import photos with pictkura) appears among the choices when you insert a drive; the portable build does not offer it. It does not start until you choose it. Once you do, Windows remembers it as the default for that kind of media (memory cards and USB drives are set separately) and opens the import window each time you insert the same kind. Change what happens by default in the Windows AutoPlay settings. The entry itself is worded in Japanese, except with the English MSI, where it reads “Import photos with pictkura”.",
   settingsAutoplayOpenWindows: "Open Windows AutoPlay settings",
+  settingsGraphics: "Graphics",
+  settingsHardwareAccelerationToggle: "Use graphics acceleration",
+  settingsHardwareAccelerationNote:
+    "If the mouse pointer looks frozen while you view photos in full screen, turning this off may fix it (seen on a PC with AMD graphics). With it off, video playback uses more CPU. The change takes effect the next time you start pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `An import from ${path} is waiting. It opens when you close Settings.`,
   settingsImportWaiting: "An import is waiting. It opens when you close Settings.",

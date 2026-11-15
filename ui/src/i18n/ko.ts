@@ -598,6 +598,10 @@ export const ko: Dict = {
   settingsAutoplayNote:
     "설치 프로그램판 pictkura와 Microsoft Store판은 꽂았을 때의 선택지에 “pictkura で写真を取り込む”(pictkura로 사진 가져오기)가 나옵니다 (항목 이름은 일본어로 표시됩니다) (휴대용판은 나오지 않습니다). 고르기 전에는 실행되지 않습니다. 한 번 고르면 Windows가 그 종류(메모리 카드와 USB 드라이브는 따로)의 기본 동작으로 기억하고, 다음부터는 같은 종류를 꽂을 때마다 가져오기 화면이 열립니다. 꽂았을 때의 기본 동작은 Windows의 ‘자동 실행’ 설정에서 바꿀 수 있습니다.",
   settingsAutoplayOpenWindows: "Windows 자동 실행 설정 열기",
+  settingsGraphics: "그래픽",
+  settingsHardwareAccelerationToggle: "그래픽 가속 사용",
+  settingsHardwareAccelerationNote:
+    "사진을 전체 화면으로 볼 때 마우스 포인터가 멈춘 것처럼 보이는 경우, 이 설정을 끄면 해결될 수 있습니다(AMD 그래픽이 탑재된 PC에서 확인됨). 설정을 끄면 동영상 재생 시 CPU 사용량이 늘어납니다. 변경 사항은 다음에 pictkura를 실행할 때 적용됩니다.",
   settingsImportWaitingFrom: (path: string) =>
     `${path}에서 가져오기가 기다리고 있습니다. 설정을 닫으면 열립니다.`,
   settingsImportWaiting: "가져오기가 기다리고 있습니다. 설정을 닫으면 열립니다.",

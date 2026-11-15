@@ -357,6 +357,14 @@ pub struct PerformanceConfig {
     /// 高品質サムネイルのディスクキャッシュ上限（MB）。0 = 無制限。
     /// 超過分は利用時刻の古い順にLRU削除される（段階B-3）。
     pub thumb_cache_mb: u64,
+    /// 画面の描き出しに GPU の合成（DirectComposition）を使うか。**Windows だけ効く**、既定はオン。
+    ///
+    /// オフにすると、起動時に WebView2 へ `--disable-direct-composition` を渡す（`src-tauri` の
+    /// `webview_args`）。AMD のハードウェアカーソルで、全画面のビューアのカーソルの絵が止まる台の
+    /// 逃げ道（2026-11-15 win2 の実測: 位置も入力も正常で、絵だけが止まる。オフで止まらない）。
+    /// 代わりに動画の再生が重くなる（同じ実測で CPU 2%→17%）ので、既定はオン。
+    /// 窓を作るときにしか渡せないので、**切り替えは次の起動から効く**
+    pub hardware_acceleration: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -365,6 +373,7 @@ impl Default for PerformanceConfig {
             thumbnail_size: 512,
             worker_threads: 0,
             thumb_cache_mb: 4096,
+            hardware_acceleration: true,
         }
     }
 }
@@ -1036,6 +1045,8 @@ thumbnail_size = 512
         assert_eq!(parsed.performance.thumbnail_size, 512);
         // 指定していないフィールドはデフォルト
         assert_eq!(parsed.performance.worker_threads, 0);
+        // 配ったあとに足した項目。古い設定ファイルでは既定（オン）になる
+        assert!(parsed.performance.hardware_acceleration);
         assert!(parsed.import.verify_after_copy);
         assert_eq!(parsed.routing.folder_pattern, "{year}/{year}-{month}-{day}");
     }

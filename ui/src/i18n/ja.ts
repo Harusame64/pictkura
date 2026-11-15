@@ -645,6 +645,10 @@ export const ja = {
   settingsAutoplayNote:
     "インストーラー版の pictkura と Microsoft Store 版は、挿したときの選択肢に「pictkura で写真を取り込む」が並びます（持ち歩き版は並びません）。選ぶまでは起動しません。一度選ぶと Windows がその種類（メモリーカードと USB ドライブは別々）の既定の動作として覚え、次からは同じ種類を挿すたびに取り込み画面が開きます。挿したときの既定の動作は、Windows の「自動再生」の設定で変えられます。",
   settingsAutoplayOpenWindows: "Windows の自動再生の設定を開く",
+  settingsGraphics: "グラフィック",
+  settingsHardwareAccelerationToggle: "グラフィック アクセラレーションを使う",
+  settingsHardwareAccelerationNote:
+    "全画面で写真を見ているときにマウスポインターが止まって見える場合は、オフにすると直ることがあります（AMD のグラフィックを搭載した PC で確認しています）。オフのときは、動画の再生で CPU の使用率が上がります。切り替えは、次に pictkura を起動したときから有効になります。",
   settingsImportWaitingFrom: (path: string) =>
     `${path} からの取り込みが待っています。設定を閉じると開きます。`,
   settingsImportWaiting: "取り込みが待っています。設定を閉じると開きます。",

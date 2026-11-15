@@ -49,6 +49,7 @@ mod menu;
 // macOS の枠（AppKit）を画面で選んだ言語に合わせる（dev #27）
 #[cfg(target_os = "macos")]
 mod appkit_lang;
+mod webview_args;
 // macOS の WebView に頁の全画面を入れ、窓の全画面を抜けたらキーの受け手を戻す（dev #75）
 #[cfg(target_os = "macos")]
 mod mac_fullscreen;
@@ -3654,6 +3655,15 @@ fn set_auto_advance(state: tauri::State<'_, AppState>, enabled: bool) -> Result<
     update_config(&state, |c| c.viewer.auto_advance = enabled)
 }
 
+/// 画面の描き出しに GPU の合成を使うか（Windows だけ効く。`webview_args.rs`）。**次の起動から効く**
+#[tauri::command]
+fn set_hardware_acceleration(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    update_config(&state, |c| c.performance.hardware_acceleration = enabled)
+}
+
 /// ビューアでの RAW+JPEG の組の歩き方を変える（JPEG だけ・RAW だけ・両方）。
 /// ビューアの切り替えボタンもここを書く——次に開いたときも同じ側で見られるように
 #[tauri::command]
@@ -6873,6 +6883,15 @@ pub fn run() {
     #[cfg(not(target_os = "macos"))]
     let appkit_locale: Option<&str> = None;
 
+    // **WebView2 の合成を切る設定は、窓より前に効かせる**（`webview_args.rs`。`[performance] hardware_acceleration`）。
+    // 設定が読めなければ既定（オン＝何も足さない）
+    #[cfg(windows)]
+    webview_args::apply(
+        app_dir_without_app()
+            .and_then(|dir| Config::load(&dir.join("pictkura.toml")).ok())
+            .is_none_or(|c| c.performance.hardware_acceleration),
+    );
+
     let run = tauri::Builder::default()
         // single-instanceは**最初のプラグイン**でなければならない（Tauriの規約）。
         // USB挿入の自動起動で2重に立ち上がっても、新しい窓を開かず動作中の
@@ -6922,6 +6941,9 @@ pub fn run() {
             // **窓は設定どおりに作られたあと**（config の窓は `setup` より前に建つ）。
             // 画面に入らない台では、ここで縮めて押し戻す
             window_fit::fit_main_window(app.handle());
+            // 窓（と WebView2 の環境）はもう建った。合成を切る指定を、この先に起こす子のプロセスへ引き継がない
+            #[cfg(windows)]
+            webview_args::restore();
 
             // **macOS のビューアの全画面（⛶・F11・動画の再生バーのボタン）を効かせる**（`mac_fullscreen.rs`）
             #[cfg(target_os = "macos")]
@@ -7595,6 +7617,7 @@ pub fn run() {
             set_picked,
             set_pickeds,
             set_auto_advance,
+            set_hardware_acceleration,
             set_pair_view,
             set_viewer_transition,
             set_slideshow_transition,

@@ -180,6 +180,8 @@ export interface AppConfig {
     /** スライドショーが送るときの動き（同上。無ければフェード） */
     slideshow_transition?: ViewerTransition;
   };
+  /** 性能（2026-11-15 に画面に出した。古い版の Rust は `hardware_acceleration` を返さない） */
+  performance?: { hardware_acceleration?: boolean };
   /** 新しい版の確認（0.2）。これも配ったあとに足した節なので**欠けうる** */
   update?: { check_on_start: boolean; last_check_ms: number };
   /** 一覧の描き方（dev #32）。配ったあとに足した節なので**欠けうる**（既定は重ねる） */
@@ -863,6 +865,10 @@ export const setFolderPattern = (pattern: string) =>
 /** 選別キー（P / U）のあと次の絵へ自動で送るかを切り替える（0.2 ②） */
 export const setAutoAdvance = (enabled: boolean) =>
   invoke<void>("set_auto_advance", { enabled });
+
+/** 画面の描き出しに GPU の合成を使うか（Windows だけ効く）。次の起動から効く */
+export const setHardwareAcceleration = (enabled: boolean) =>
+  invoke<void>("set_hardware_acceleration", { enabled });
 
 /** ビューアでの RAW+JPEG の組の歩き方を変える（設定の3択と、ビューアの切り替えボタン） */
 export const setPairView = (view: "jpeg" | "raw" | "both") =>

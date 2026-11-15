@@ -602,6 +602,10 @@ export const zhHant: Dict = {
   settingsAutoplayNote:
     "用安裝程式或從 Microsoft Store 安裝的 pictkura，插入磁碟機時會在選項中列出「pictkura で写真を取り込む」（用 pictkura 匯入相片）；可攜版不會列出。在你選取這個選項之前，插入記憶卡或 USB 隨身碟不會啟動 pictkura。選取一次後，Windows 會將它記為這類媒體的預設動作（記憶卡和 USB 隨身碟分別設定），之後每次插入同類媒體都會開啟匯入畫面。預設動作請在 Windows 的「自動播放」設定中變更。請注意，這個選項本身的文字是日文（英文版 MSI 則是「Import photos with pictkura」）。",
   settingsAutoplayOpenWindows: "開啟 Windows 自動播放設定",
+  settingsGraphics: "圖形",
+  settingsHardwareAccelerationToggle: "使用圖形加速",
+  settingsHardwareAccelerationNote:
+    "如果全螢幕檢視相片時滑鼠指標似乎卡住，關閉此選項可能有助於解決此問題（已在配備 AMD 顯示卡的電腦上確認）。關閉後，播放影片會佔用更多 CPU。變更會在下次啟動 pictkura 時生效。",
   settingsImportWaitingFrom: (path: string) =>
     `來自 ${path} 的匯入正在等待，關閉設定後就會開啟。`,
   settingsImportWaiting: "有一項匯入正在等待，關閉設定後就會開啟。",
