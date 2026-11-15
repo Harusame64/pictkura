@@ -4,16 +4,25 @@ import { formatMonth, t } from "./i18n";
 import { year } from "./i18n/plural.ts";
 import { dayKeyAt, fractionAt, monthDots, scrollTopFor, thumbOf } from "./scrubRailMath";
 
+/** 帯の上の位置（%）。下端の目盛りは、文字の半分が帯の外へはみ出さないよう、帯の中に留める */
+const edgeTop = (percent: number) => `clamp(8px, ${percent}%, calc(100% - 8px))`;
+
 export type YearMarker = { year: number; rowIndex: number; top: number; label: boolean };
 
-/** つまみの最小の高さ（帯に対する比）。これより小さいと掴めない */
-const MIN_THUMB = 0.04;
+/** つまみの最小の高さ（px）。これより小さいと見えにくい（win2 の試作で 40px） */
+const MIN_THUMB_PX = 40;
 /** これより動いたら「掴んで送る」。手ぶれで、押しただけの操作が送りに化けないように */
 const DRAG_SLOP = 3;
 /** 年の目盛りのこの距離（px）以内を押したら、その年の頭へ飛ぶ */
 const SNAP_PX = 10;
 /** 月の仕切りの点どうし・年の目盛りとの最小の間隔（px）。詰まる所は点を省く */
 const MONTH_GAP_PX = 7;
+/**
+ * 掴んで送っている間、一覧を動かす間隔（ms）。指が動くたびに動かすと、行き先の行を毎フレーム作り直して
+ * カクついた（win2 の実測 2026-11-15、33,178 件: rAF p95 71ms）。間は帯の上だけ（つまみ・吹き出し・横線）が指に付いて動き、
+ * 一覧はこの間隔で追いつく。離したときは必ず指の所へ動かす
+ */
+const DRAG_MOVE_MS = 120;
 
 /**
  * 一覧の帯（普通のスクロールバーの代わり。計算は `scrubRailMath.ts`）。
@@ -48,6 +57,11 @@ export function ScrubRail({
   // 押している間の記録。動かしたかどうかで、離したときの意味（飛ぶ／送り終わり）が変わる
   const drag = useRef<{ startY: number; moved: boolean } | null>(null);
   const frame = useRef(0);
+  // 掴んで送っている間の、つまみの仮の位置（指の所）。一覧が追いつくまで、つまみは指に付いて動く
+  const [dragFraction, setDragFraction] = useState<number | null>(null);
+  const moveTimer = useRef<number | undefined>(undefined);
+  const lastMoveAt = useRef(0);
+  const pendingFraction = useRef(0);
 
   // 一覧が動いたら（ホイールでも帯でも）つまみを合わせる
   useEffect(() => {
@@ -57,7 +71,9 @@ export function ScrubRail({
       cancelAnimationFrame(frame.current);
       frame.current = requestAnimationFrame(() => {
         setViewport(el.clientHeight);
-        setThumb(thumbOf(el.scrollTop, total, el.clientHeight, MIN_THUMB));
+        setThumb(
+          thumbOf(el.scrollTop, total, el.clientHeight, MIN_THUMB_PX / Math.max(1, el.clientHeight)),
+        );
       });
     };
     sync();
@@ -88,9 +104,22 @@ export function ScrubRail({
 
   /** 押すと飛ぶ先になる年の目盛り（点の近く）。吹き出しも同じ目盛りの年月を出す——比で引くと、目盛りの数 px 上は
    *  前の年の終わりで、「2023」の横に「2024年1月」と出た */
+  //ラベルの出ている年だけを見て、いちばん近いものを選ぶ。点だけの年（詰まって省いた年）や先着順で拾うと、帯の下端に
+  //古い年の目盛りが 20 本詰まった所で「2014」を押して 2016 年に着いた（win2 の実測）
   const nearMarker = (y: number) => {
     const h = railRef.current?.getBoundingClientRect().height ?? 0;
-    return markers.find((m) => Math.abs((m.top / 100) * h - y) <= SNAP_PX) ?? null;
+    let best: YearMarker | null = null;
+    let bestD = SNAP_PX;
+    for (const m of markers) {
+      if (!m.label) continue;
+      // 目盛りは帯の端で内側へ留めて描くので（`edgeTop`）、押す位置も同じ所で比べる
+      const d = Math.abs(Math.min(h - 8, Math.max(8, (m.top / 100) * h)) - y);
+      if (d <= bestD) {
+        best = m;
+        bestD = d;
+      }
+    }
+    return best;
   };
   const bubbleAt = (y: number, fraction: number, snap: boolean) => {
     const m = snap ? nearMarker(y) : null;
@@ -117,6 +146,29 @@ export function ScrubRail({
     if (!el) return;
     el.scrollTop = scrollTopFor(fraction, total, el.clientHeight);
   };
+  /** 掴んで送っている間の移動。`DRAG_MOVE_MS` に1回まで、最後の指の位置へ（間引いた分は後追いで必ず動かす） */
+  const moveWhileDragging = (fraction: number) => {
+    pendingFraction.current = fraction;
+    const wait = DRAG_MOVE_MS - (performance.now() - lastMoveAt.current);
+    if (wait <= 0) {
+      window.clearTimeout(moveTimer.current);
+      moveTimer.current = undefined;
+      lastMoveAt.current = performance.now();
+      moveTo(fraction);
+    } else if (moveTimer.current === undefined) {
+      moveTimer.current = window.setTimeout(() => {
+        moveTimer.current = undefined;
+        lastMoveAt.current = performance.now();
+        moveTo(pendingFraction.current);
+      }, wait);
+    }
+  };
+  const endDrag = () => {
+    window.clearTimeout(moveTimer.current);
+    moveTimer.current = undefined;
+    setDragFraction(null);
+  };
+  useEffect(() => () => window.clearTimeout(moveTimer.current), []);
 
   // 中身が1画面に収まるなら、帯は要らない（動かす先が無い）
   if (!(total > viewport + 1) && viewport > 0) return null;
@@ -147,7 +199,10 @@ export function ScrubRail({
         const d = drag.current;
         if (d) {
           if (!d.moved && Math.abs(p.y - d.startY) > DRAG_SLOP) d.moved = true;
-          if (d.moved) moveTo(p.fraction);
+          if (d.moved) {
+            moveWhileDragging(p.fraction);
+            setDragFraction(p.fraction);
+          }
         }
         // 掴んで送っている間は、指の所の年月（目盛りに吸い寄せない）
         setBubble(bubbleAt(p.y, p.fraction, !d?.moved));
@@ -155,9 +210,14 @@ export function ScrubRail({
       onPointerUp={(e) => {
         const d = drag.current;
         drag.current = null;
-        if (!d || d.moved) return;
         const p = pointOf(e.clientY);
-        if (!p) return;
+        if (d?.moved) {
+          // 送り終わり: 間引いた分を残さず、指を離した所へ
+          endDrag();
+          if (p) moveTo(p.fraction);
+          return;
+        }
+        if (!d || !p) return;
         // 年の目盛りの近くを押したら、その年の頭へぴったり飛ぶ（比で送ると数 px ずれて前の年の終わりに着く）
         const near = nearMarker(p.y);
         if (near) onJumpToRow(near.rowIndex);
@@ -165,6 +225,7 @@ export function ScrubRail({
       }}
       onPointerCancel={() => {
         drag.current = null;
+        endDrag();
         setBubble(null);
       }}
       onPointerLeave={() => {
@@ -172,14 +233,22 @@ export function ScrubRail({
       }}
       onLostPointerCapture={() => {
         drag.current = null;
+        endDrag();
       }}
     >
       <div
         className="scrub-thumb"
-        style={{ top: `${thumb.top * 100}%`, height: `${thumb.height * 100}%` }}
+        style={
+          dragFraction === null
+            ? { top: `${thumb.top * 100}%`, height: `${thumb.height * 100}%` }
+            : {
+                top: `${Math.min(1 - thumb.height, dragFraction) * 100}%`,
+                height: `${thumb.height * 100}%`,
+              }
+        }
       />
       {dots.map((f) => (
-        <span key={f} className="scrub-dot" style={{ top: `${f * 100}%` }} />
+        <span key={f} className="scrub-dot" style={{ top: edgeTop(f * 100) }} />
       ))}
       {markers.length > 1 &&
         markers.map((m) => (
@@ -187,12 +256,14 @@ export function ScrubRail({
           <span
             key={m.year}
             className={"scrub-tick" + (m.label ? " labeled" : "")}
-            style={{ top: `${m.top}%` }}
+            style={{ top: edgeTop(m.top) }}
           >
             {/* 年は地域の数字で（ar-SA ならアラビア・インド数字。`year()`） */}
             {m.label ? year(m.year) : ""}
           </span>
         ))}
+      {/* 指の所の横線（利用者の希望、2026-11-15）。帯から外れたら消える（掴んでいる間は外でも付いてくる） */}
+      {bubble && <div className="scrub-cursor" style={{ top: `${bubble.y}px` }} aria-hidden="true" />}
       {bubble && bubble.text && (
         <div className="scrub-bubble" style={{ top: `${bubble.y}px` }} aria-hidden="true">
           {bubble.text}

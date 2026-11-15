@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { dayKeyAt, fractionAt, monthDots, scrollTopFor, thumbOf } from "../src/scrubRailMath.ts";
+import { chooseLabels, dayKeyAt, fractionAt, monthDots, scrollTopFor, thumbOf } from "../src/scrubRailMath.ts";
 
 test("a point on the rail maps to the same fraction of the content, held to the ends", () => {
   assert.equal(fractionAt(0, 800), 0);
@@ -54,4 +54,13 @@ test("month dots mark each new month, skip year changes, and thin out when crowd
   );
   // 帯が小さいと、近すぎる点は省く（1行 = 1px）
   assert.deepEqual(monthDots(tops, days, 6, [0, 400 / 600], 6), []);
+});
+
+test("when two year labels collide, the year with more photos keeps its label", () => {
+  // 2106（3枚・ごく短い）の直下に 2026（長い）、その下に 2025
+  const tops = [0, 0.005, 0.3];
+  const spans = [0.005, 0.295, 0.7];
+  assert.deepEqual(chooseLabels(tops, spans, 0.04), [false, true, true]);
+  // 離れていれば全部
+  assert.deepEqual(chooseLabels([0, 0.5], [0.5, 0.5], 0.04), [true, true]);
 });

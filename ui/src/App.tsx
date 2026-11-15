@@ -22,6 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { ScrubRail } from "./ScrubRail";
+import { chooseLabels } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -3491,23 +3492,24 @@ export default function App() {
 
   const yearMarkers = useMemo(() => {
     const total = rowTops[rows.length] || 1;
-    const out: { year: number; rowIndex: number; top: number; label: boolean }[] =
-      [];
+    const out: { year: number; rowIndex: number; top: number; label: boolean }[] = [];
     let lastYear = -1;
-    let lastLabelTop = -Infinity;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (row.kind !== "header") continue;
       const year = Math.floor(row.dayKey / 10000);
       if (year === lastYear) continue;
       lastYear = year;
-      const top = (rowTops[i] / total) * 100;
-      // ラベルは4%（≒24px相当）以上離れているときだけ出す
-      const label = top - lastLabelTop >= 4;
-      if (label) lastLabelTop = top;
-      out.push({ year, rowIndex: i, top, label });
+      out.push({ year, rowIndex: i, top: (rowTops[i] / total) * 100, label: false });
     }
-    return out;
+    // ラベルは 4%（≒24px 相当）以上離れているときだけ。重なったら写真の多い年を残す（`chooseLabels`）
+    const spans = out.map((m, k) => (k + 1 < out.length ? out[k + 1].top : 100) - m.top);
+    const labels = chooseLabels(
+      out.map((m) => m.top),
+      spans,
+      4,
+    );
+    return out.map((m, k) => ({ ...m, label: labels[k] }));
   }, [rows, rowTops]);
 
   const virtualizer = useVirtualizer({
