@@ -25,6 +25,8 @@ use tauri::{Emitter, Manager};
 /// （CIで踏んだ）
 #[cfg(any(windows, target_os = "macos"))]
 const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
+/// 設定ファイルの名前（設定フォルダの直下）。窓より前に読む道（[`config_without_app`]）と `setup` が同じ名前を見る
+const CONFIG_FILE: &str = "pictkura.toml";
 
 mod autoplay;
 // サムネイルの流れがカメラを埋めたとき、左ペインへ知らせる（dev #28）
@@ -6819,14 +6821,19 @@ impl OsLocale {
     }
 }
 
+/// **窓より前に設定を読む**（Tauri に場所を訊けない時点。`setup` が読むのと同じ `pictkura.toml`）。
+/// 読めなければ `None`——呼ぶ側は既定へ倒す
+#[cfg(any(windows, target_os = "macos"))]
+fn config_without_app() -> Option<Config> {
+    app_dir_without_app().and_then(|dir| Config::load(&dir.join(CONFIG_FILE)).ok())
+}
+
 /// **控えの言語を AppKit に置き、AppKit が解決した言語を返す**（macOS だけ、dev #27）。
 /// 控えは `pictkura.toml` の `[ui] locale`。読めなければ何も置かない（OS に合わせる）。
 /// **[`OsLocale::read`] のあとに呼ぶこと**——置いたあとは OS の言語が読めない
 #[cfg(target_os = "macos")]
 fn align_appkit_language() -> Option<&'static str> {
-    let saved = app_dir_without_app()
-        .and_then(|dir| Config::load(&dir.join("pictkura.toml")).ok())
-        .and_then(|c| c.ui.locale);
+    let saved = config_without_app().and_then(|c| c.ui.locale);
     if let Some(code) = saved {
         appkit_lang::apply(&code);
     }
@@ -6886,11 +6893,7 @@ pub fn run() {
     // **WebView2 の合成を切る設定は、窓より前に効かせる**（`webview_args.rs`。`[performance] hardware_acceleration`）。
     // 設定が読めなければ既定（オン＝何も足さない）
     #[cfg(windows)]
-    webview_args::apply(
-        app_dir_without_app()
-            .and_then(|dir| Config::load(&dir.join("pictkura.toml")).ok())
-            .is_none_or(|c| c.performance.hardware_acceleration),
-    );
+    webview_args::apply(config_without_app().is_none_or(|c| c.performance.hardware_acceleration));
 
     let run = tauri::Builder::default()
         // single-instanceは**最初のプラグイン**でなければならない（Tauriの規約）。
@@ -6966,7 +6969,7 @@ pub fn run() {
                 }
             }
 
-            let config_path = config_dir.join("pictkura.toml");
+            let config_path = config_dir.join(CONFIG_FILE);
             let first_launch = !config_path.exists();
             // **`?` は `Display` をそのまま持ち出す**——こちらの型は日本語なので、
             // **記録に載る形（英語の鍵＋詳細）に開いてから**渡す（PRのcodex）
