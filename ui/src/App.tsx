@@ -7160,6 +7160,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   const openFileReq = useRef(0);
   const openFile = useCallback((path: string, atStart: boolean) => {
     const req = ++openFileReq.current;
+    // 待っていた前のライブラリの写真は取り消す——後から一覧が届いたときに、新しい写真を古い写真で上書きした（codex）
+    setPendingLibraryOpen(null);
     void openOutside(path)
       .then(({ items, index, library }) => {
         if (req !== openFileReq.current) return;
