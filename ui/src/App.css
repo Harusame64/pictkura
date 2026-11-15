@@ -482,7 +482,7 @@ body {
   opacity: 1;
 }
 .root-remove:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--surface-2);
 }
 .drive-icon,
@@ -648,7 +648,7 @@ body {
 }
 .outgoing-guide-error,
 .folder-actions-error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 /* 思い出（〇年前の今日） */
 .memories {
@@ -1304,6 +1304,8 @@ body {
 /* ===== 詳細ビューア（ライトボックス） =====
  * 地は純黒でなく極暗グレー。純黒だとハイライトの階調が実際より飛んで見える */
 .viewer {
+  /* ビューアはテーマに依らず暗い地なので、中の赤い字はいつも暗い地の赤（道具の ✕・合図・撮影情報の失敗） */
+  --danger-text: var(--danger-on-dark);
   /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算、原本が無いときの帯の位置もこれを引く */
   --viewer-tool-size: 36px;
   /* ← の下に並ぶ印の段の高さ（音なしの印が 22px でいちばん高い） */
@@ -1792,7 +1794,7 @@ body {
   color: var(--pick);
 }
 .viewer-flash.reject {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .viewer-flash.unflag {
   color: var(--n-4);
@@ -1805,7 +1807,7 @@ body {
 }
 .viewer-flash.extractFailed,
 .viewer-flash.extractSameFile {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 @keyframes viewer-flash {
   0% {
@@ -2119,7 +2121,7 @@ body {
 /* ボツの✕。付いていないときから赤くしておく。かつては帯の右端の「閉じる」も✕で、
    字で見分けられなかった（2026-11-03 に閉じるは左上の ← へ移した）。赤は印の色として残す */
 .viewer-tool.reject-tool {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 /* ボツの候補にしている1枚。**隣の🗑と同じ色にはしない**——
    ✕はまだ何も消しておらず、🗑はその場で消すから */
@@ -2256,7 +2258,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .file-info-error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 /* 右クリックの「情報」。右クリック（300）より下・パレット（200）より上。開くのはメニューを閉じた後 */
 .file-info-backdrop {
@@ -2418,7 +2420,7 @@ body {
   cursor: pointer;
 }
 .print-dialog-warn {
-  color: var(--danger, var(--text));
+  color: var(--danger-text);
 }
 /* 印刷の絵を作っている間（`printPhoto.ts`） */
 .print-preparing,
@@ -2577,7 +2579,7 @@ body {
    このダイアログが覆っているうえ32chで省略されるため読めない */
 .settings-error {
   margin: var(--sp-2) 0 0;
-  color: var(--danger);
+  color: var(--danger-text);
   font-size: var(--fs-md);
   overflow-wrap: anywhere;
 }
@@ -2845,7 +2847,7 @@ body {
   border-radius: var(--radius-sm);
 }
 .editor-row button:hover {
-  color: var(--danger);
+  color: var(--danger-text);
   background: var(--surface-2);
 }
 
@@ -2885,7 +2887,7 @@ body {
   color: var(--text);
 }
 .context-item.danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .context-item.danger:hover {
   background: var(--danger);
@@ -3531,7 +3533,7 @@ body {
   background: var(--surface-2);
 }
 .select-bar button.danger {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .select-bar-close {
   padding: 4px 8px !important;

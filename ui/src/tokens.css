@@ -61,6 +61,12 @@
   --fav: var(--amber);
   --pick: var(--teal);
   --danger: var(--red);
+  /* 文字に使う赤。--danger（0.58）は字には中途半端で、ダークの地で 3.36:1、ライトでも乗せた面（n-2）や
+     選択の帯の上で 4.5 を割った（win2 の実測と /code-review）。面に塗る赤（白い字を乗せる）は --danger のまま。
+     値は乗る地のうちいちばん厳しいもので決めた: ライト 0.52 は n-2 で 5.1・選択の帯で 4.8、
+     暗い地の 0.74 は n-7（乗せた面）で 5.4・選択の帯で 5.3・ビューアの丸ボタンで 6.1 */
+  --danger-on-dark: oklch(0.74 0.14 25);
+  --danger-text: oklch(0.52 0.2 25);
   --warn: var(--orange);
   --scrim: oklch(0.15 0 0 / 0.45);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.1);
@@ -188,6 +194,7 @@
     --accent: var(--indigo-light);
     --accent-contrast: var(--n-10);
     --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
+    --danger-text: var(--danger-on-dark);
     --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
     --scrim: oklch(0 0 0 / 0.6);
     --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
@@ -211,6 +218,7 @@ html[data-theme="dark"] {
   --accent: var(--indigo-light);
   --accent-contrast: var(--n-10);
   --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
+  --danger-text: var(--danger-on-dark);
   --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
   --scrim: oklch(0 0 0 / 0.6);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
