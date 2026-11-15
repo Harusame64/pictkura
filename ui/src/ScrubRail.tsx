@@ -155,6 +155,10 @@ export function ScrubRail({
     return makeRailMap(starts, total, RAIL_ALPHA, recencyFactor(nowMonth, RECENT_MONTHS, RECENT_BOOST));
   }, [starts, total]);
 
+  // 表示している年（一覧の上端の日の年）。年のラベルを太くし、詰まっていてもラベルを出す
+  const currentKey = dayKeyAt(scrollTop + 1, rowTops, dayKeys);
+  const currentYear = currentKey === null ? null : Math.floor(currentKey / 10000);
+
   // 年の目盛り: 年の変わる行ごとに1つ。ラベルは 4% 以上離れているときだけ、重なったら写真の多い年を残す
   const markers = useMemo((): YearMarker[] => {
     const out: YearMarker[] = [];
@@ -166,13 +170,15 @@ export function ScrubRail({
       out.push({ year: y, rowIndex: i, top: map.toRail(rowTops[i]) * 100, label: false });
     }
     const spans = out.map((m, k) => (k + 1 < out.length ? out[k + 1].top : 100) - m.top);
+    const force = out.findIndex((m) => m.year === currentYear);
     const labels = chooseLabels(
       out.map((m) => m.top),
       spans,
       4,
+      force >= 0 ? force : undefined,
     );
     return out.map((m, k) => ({ ...m, label: labels[k] }));
-  }, [dayKeys, rowTops, map]);
+  }, [dayKeys, rowTops, map, currentYear]);
 
   // 月の仕切り。帯の高さ（≒一覧の見えている高さ）で間引くので、窓の大きさが変わったら置き直す。
   // 位置は帯の対応（`map`）で引く——中身の位置を対応で写した上端を渡す
@@ -545,7 +551,7 @@ export function ScrubRail({
             className={
               "scrub-tick" +
               (m.label ? " labeled" : "") +
-              (hereMonth !== null && Math.floor(hereMonth / 100) === m.year ? " current" : "")
+              (m.year === currentYear ? " current" : "")
             }
             style={{ top: edgeTop(m.top) }}
           >
