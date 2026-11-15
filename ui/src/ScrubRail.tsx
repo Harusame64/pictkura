@@ -50,8 +50,10 @@ const MENU_STEP = 26;
 /** 止めた一覧から、この距離（px）までは指が外れても閉じない（帯との間を渡るため） */
 const MENU_SLACK_PX = 24;
 /** 指からこの距離（px）までの月が大きくなる。真上は 1.6 倍 */
-const DOCK_REACH_PX = 70;
-const DOCK_GROW = 0.6;
+/** 日付窓の上下に見せる月の数（それぞれ） */
+const DIAL_ROWS = 4;
+/** ホイールでこれだけ回したら、日付窓の月を 1 つ送る */
+const WHEEL_STEP_PX = 40;
 
 /** 「2023年8月」（年をまたぐ所と、指の月） */
 const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
@@ -93,9 +95,11 @@ export function ScrubRail({
   // 指の所: 帯の上の位置（px）と、拡大鏡の中央の月（yyyymm）。指が帯の外で、掴んでもいないときは出さない
   const [bubble, setBubble] = useState<{ y: number; month: number | null } | null>(null);
   // 止めた拡大鏡（押せる月の一覧）。帯の上の位置（px）と、その年・指の月
-  const [menu, setMenu] = useState<{ y: number; month: number } | null>(null);
-  // 止めた一覧の上の指の高さ（帯の上の px）。Dock のように、指に近い月ほど大きく濃く描く
-  const [menuPointerY, setMenuPointerY] = useState<number | null>(null);
+  // y: 日付窓の高さ（帯の上の px）、sel: 窓の中の月（`starts` の番号）、here: 帯で指していた月
+  const [menu, setMenu] = useState<{ y: number; sel: number; here: number } | null>(null);
+  // 日付窓を回し始めたときの指の高さと窓の月。指を 1 行分動かすと、月の列が 1 つ送られる（ダイヤルのように）
+  const dialAnchor = useRef<{ py: number; sel: number } | null>(null);
+  const wheelAcc = useRef(0);
   const menuRef = useRef<HTMLDivElement>(null);
   // 現在地（一覧の上端の位置）
   const [scrollTop, setScrollTop] = useState(0);
@@ -254,11 +258,15 @@ export function ScrubRail({
     };
     // Esc は手前の幕が取る: 一覧を閉じるだけで、一覧の下のグリッド（選択の解除）へは渡さない。
     // 捕獲の段で受けて止める（同じ window の泡の段の受け口より先に走る）
+    // ↑↓ で窓の月を送り、Enter で飛ぶ（利用者「上下カーソルで月を選ぶ」2026-11-15）
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key === "Escape") setMenu(null);
+      else if (e.key === "ArrowUp") turnDial(-1);
+      else if (e.key === "ArrowDown") turnDial(1);
+      else if (e.key === "Enter") goToSel();
+      else return;
       e.stopPropagation();
       e.preventDefault();
-      setMenu(null);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("keydown", onKey, true);
@@ -268,40 +276,34 @@ export function ScrubRail({
     };
   }, [menu]);
 
-  /** 止めた一覧の月の並び（その年の、写真のある月。上が新しい月） */
-  const menuMonths = menu ? starts.filter((x) => Math.floor(x.month / 100) === Math.floor(menu.month / 100)) : [];
-  // 拡大の寄せる側（帯の側）。左右は言語の向きで決まる
-  // `<html dir>` を読む（main.tsx が言語から付ける）。getComputedStyle は描くたびに書式を確定させ、スクロールの
-  // 1 コマごとに描き直すこの部品では重かった（/code-review）
+  // 拡大の寄せる側（帯の側）。左右は言語の向きで決まる。`<html dir>` を読む（main.tsx が言語から付ける）。
+  // getComputedStyle は描くたびに書式を確定させ、スクロールの 1 コマごとに描き直すこの部品では重かった（/code-review）
   const rtl = document.documentElement.dir === "rtl";
-  const menuIndex = menu ? menuMonths.findIndex((x) => x.month === menu.month) : -1;
-  // 一覧の上端（帯の上の px）。指の月を、止めたときの指の高さに置く。帯からはみ出さないように詰める
-  const menuTop = menu
-    ? Math.max(
-        0,
-        Math.min(
-          viewport - (menuMonths.length + 1) * MENU_STEP,
-          menu.y - (menuIndex + 1) * MENU_STEP - MENU_STEP / 2,
-        ),
-      )
-    : 0;
-  /** 一覧の k 番目の行（0 は年）の、指からの近さ（1＝真上、0＝遠い）。指がまだ一覧に入っていなければ止めた所から */
-  const nearness = (k: number) => {
-    const py = menuPointerY ?? menu?.y ?? 0;
-    const cy = menuTop + k * MENU_STEP + MENU_STEP / 2;
-    return Math.max(0, 1 - Math.abs(cy - py) / DOCK_REACH_PX);
-  };
-  // 押す先: 指の真下の行（行の高さは固定）。指がまだ一覧に入っていなければ、止めたときの月。
-  // この1行だけをアクセントの地で塗る——大きさだけでは「どれが選ばれているか」が分かりにくかった（利用者 2026-11-15）
-  const targetRow =
-    menuPointerY !== null
-      ? Math.floor((menuPointerY - menuTop) / MENU_STEP)
-      : menuIndex + 1;
-  const goTo = (offset: number) => {
+
+  /**
+   * 日付窓（腕時計の日付の小窓。利用者 2026-11-15）: 窓は止めた高さに固定で、月の列がその下を流れる。窓の中の月が
+   * 押す先。指の上下・ホイール・↑↓ で列を回し、押すか Enter でその月の頭へ。列は年をまたいで続く
+   */
+  const turnDial = (step: number) =>
+    setMenu((m) => (m ? { ...m, sel: Math.min(starts.length - 1, Math.max(0, m.sel + step)) } : m));
+  // いまの窓の月（キーの受け口は window に付けたままなので、描いた時点の値を ref で渡す）
+  const menuNow = useRef(menu);
+  menuNow.current = menu;
+  const goToSel = () => {
+    const m = menuNow.current;
     const el = scrollRef.current;
-    if (el) el.scrollTop = offset;
+    if (m && el && starts[m.sel]) {
+      el.scrollTop = Math.min(starts[m.sel].offset, Math.max(0, total - el.clientHeight));
+    }
     setMenu(null);
-    setMenuPointerY(null);
+    dialAnchor.current = null;
+  };
+  const openDial = (y: number, month: number | null) => {
+    const sel = month !== null ? starts.findIndex((x) => x.month === month) : -1;
+    if (sel < 0) return;
+    dialAnchor.current = null;
+    wheelAcc.current = 0;
+    setMenu({ y, sel, here: month as number });
   };
 
   // 拡大鏡: 指の月を中央に、前後の月を上下へ（上が新しい月。一覧と同じ向き）
@@ -327,6 +329,38 @@ export function ScrubRail({
       ref={railRef}
       className={"scrub-rail" + (bubble ? " active" : "")}
       role="scrollbar"
+      // キーボード（利用者「帯に対してのキーボードショートカット」2026-11-15。年へ飛ぶボタンが無くなったので、
+      // キーだけで年・月を動けるようにする）: Tab で帯へ、↑↓ で月、PageUp/PageDown で年、Home/End で最新・最古、
+      // Enter で日付窓を開く
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (menu) return; // 日付窓が開いている間は、窓の受け口（↑↓・Enter・Esc）が取る
+        const el = scrollRef.current;
+        if (!el || starts.length === 0) return;
+        const cur = Math.max(0, monthIndexAt(el.scrollTop + 1, starts));
+        // 年の頭（`starts` の中で年の変わる番号。上が新しい年）
+        const yearHeads = starts.flatMap((x, i) =>
+          i === 0 || Math.floor(starts[i - 1].month / 100) !== Math.floor(x.month / 100) ? [i] : [],
+        );
+        const h = yearHeads.filter((i) => i <= cur).length - 1; // 今いる年の頭（yearHeads の番号）
+        let target: number | null = null;
+        if (e.key === "ArrowUp") target = starts[Math.max(0, cur - 1)].offset;
+        else if (e.key === "ArrowDown") target = starts[Math.min(starts.length - 1, cur + 1)].offset;
+        else if (e.key === "PageUp") {
+          // 新しい側の年の頭へ。今の年の途中にいるなら、まず今の年の頭へ
+          const head = starts[yearHeads[h]].offset;
+          target = head < el.scrollTop - 1 ? head : starts[yearHeads[Math.max(0, h - 1)]].offset;
+        } else if (e.key === "PageDown") {
+          target = starts[yearHeads[Math.min(yearHeads.length - 1, h + 1)]].offset;
+        } else if (e.key === "Home") target = 0;
+        else if (e.key === "End") target = total;
+        else if (e.key === "Enter") {
+          openDial(hereFraction * viewport, hereMonth);
+        } else return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (target !== null) el.scrollTop = Math.min(target, Math.max(0, total - el.clientHeight));
+      }}
       aria-orientation="vertical"
       aria-label={t.scrubRailLabel}
       aria-valuemin={0}
@@ -386,9 +420,10 @@ export function ScrubRail({
         // 写真の側へ出たら、拡大鏡をその場に止めて、押せる一覧にする（帯の外側＝窓の端へ出たときは止めない）
         const rect = railRef.current?.getBoundingClientRect();
         const towardPhotos = rect ? (rtl ? e.clientX > rect.right : e.clientX < rect.left) : false;
-        if (towardPhotos && !afterDrag.current && bubble?.month != null) {
-          setMenuPointerY(null);
-          setMenu({ y: bubble.y, month: bubble.month });
+        if (towardPhotos && !afterDrag.current && bubble) {
+          // 月が引けていなければ（起動直後、帯の元データが揃う前に指が乗った）、いまの元データで引き直す
+          const month = bubble.month ?? (rect ? monthAt(bubble.y / rect.height) : null);
+          openDial(bubble.y, month);
         }
         setBubble(null);
       }}
@@ -418,58 +453,86 @@ export function ScrubRail({
         ))}
       {/* 指の所の横線（利用者の希望、2026-11-15）。帯から外れたら消える（掴んでいる間は外でも付いてくる） */}
       {bubble && <div className="scrub-cursor" style={{ top: `${bubble.y}px` }} aria-hidden="true" />}
-      {menu && menuMonths.length > 0 && (
+      {menu && starts[menu.sel] && (
         <div
           ref={menuRef}
-          className="scrub-menu"
-          style={{ top: `${menuTop}px` }}
-          // 一覧の上の操作を、帯の「押す・掴む・拡大鏡」に渡さない
+          className="scrub-dial"
+          style={{ top: `${menu.y - (DIAL_ROWS + 0.5) * MENU_STEP}px`, height: (DIAL_ROWS * 2 + 1) * MENU_STEP }}
+          // 窓の上の操作を、帯の「押す・掴む・拡大鏡」に渡さない
           onPointerDown={(e) => e.stopPropagation()}
           onPointerMove={(e) => {
             e.stopPropagation();
-            const r = railRef.current?.getBoundingClientRect();
-            if (r) setMenuPointerY(e.clientY - r.top);
+            const a = dialAnchor.current;
+            if (!a) {
+              dialAnchor.current = { py: e.clientY, sel: menu.sel };
+              return;
+            }
+            const sel = Math.min(
+              starts.length - 1,
+              Math.max(0, a.sel + Math.round((e.clientY - a.py) / MENU_STEP)),
+            );
+            if (sel !== menu.sel) setMenu({ ...menu, sel });
           }}
           onPointerUp={(e) => e.stopPropagation()}
+          onWheel={(e) => {
+            wheelAcc.current += e.deltaY;
+            const step = Math.trunc(wheelAcc.current / WHEEL_STEP_PX);
+            if (step !== 0) {
+              wheelAcc.current -= step * WHEEL_STEP_PX;
+              turnDial(step);
+              // ホイールで回した後の指の動きは、今の窓の月から数え直す
+              dialAnchor.current = { py: e.clientY, sel: Math.min(starts.length - 1, Math.max(0, menu.sel + step)) };
+            }
+          }}
+          onClick={goToSel}
           onPointerLeave={(e) => {
             e.stopPropagation();
             // 帯へ戻ったら、また拡大鏡で選び直せるように閉じる
             const r = railRef.current?.getBoundingClientRect();
-            if (r && e.clientX >= r.left && e.clientX <= r.right) {
-              setMenu(null);
-              setMenuPointerY(null);
-            }
+            if (r && e.clientX >= r.left && e.clientX <= r.right) setMenu(null);
           }}
+          role="listbox"
+          aria-label={t.scrubRailLabel}
+          aria-activedescendant={`scrub-dial-${starts[menu.sel].month}`}
         >
-          {[{ month: -1, offset: menuMonths[0].offset }, ...menuMonths].map((x, k) => {
-            const n = nearness(k);
-            const isYear = x.month === -1;
-            return (
-              <button
-                key={x.month}
-                className={
-                  (isYear ? "scrub-menu-year" : "scrub-menu-item") +
-                  (!isYear && x.month === menu.month ? " here" : "") +
-                  (k === targetRow ? " target" : "")
-                }
-                style={{
-                  height: MENU_STEP,
-                  // 拡大は transform で（行の箱の寸法は変えない）。文字の大きさを変えると、行ごとの横幅が指の動きで
-                  // 伸び縮みし、列全体が横にうねった（利用者「動きがキモい」、win2 の実測）。寄せる側は帯の側＝行の終わり
-                  transform: `scale(${1 + DOCK_GROW * n})`,
-                  transformOrigin: rtl ? "left center" : "right center",
-                  opacity: 0.55 + 0.45 * n,
-                }}
-                onClick={() => goTo(x.offset)}
-              >
-                {isYear ? year(Math.floor(menu.month / 100)) : monthOnly(x.month)}
-                {/* 押す先の月には枚数を添える（押す前に行き先を確かめられる） */}
-                {k === targetRow && !isYear && monthCounts.has(x.month) && (
-                  <span className="scrub-menu-count">{t.photosCount(monthCounts.get(x.month) ?? 0)}</span>
-                )}
-              </button>
-            );
-          })}
+          {/* 窓（固定）。中に来た月が押す先 */}
+          <div className="scrub-dial-window" style={{ top: DIAL_ROWS * MENU_STEP, height: MENU_STEP }} aria-hidden="true" />
+          <div
+            className="scrub-dial-column"
+            style={{ transform: `translateY(${(DIAL_ROWS - menu.sel) * MENU_STEP}px)` }}
+          >
+            {starts
+              .slice(Math.max(0, menu.sel - DIAL_ROWS - 1), menu.sel + DIAL_ROWS + 2)
+              .map((x) => {
+                const k = starts.indexOf(x);
+                const d = Math.abs(k - menu.sel);
+                const prev = starts[k - 1];
+                const yearTurns = !prev || Math.floor(prev.month / 100) !== Math.floor(x.month / 100);
+                return (
+                  <div
+                    key={x.month}
+                    id={`scrub-dial-${x.month}`}
+                    role="option"
+                    aria-selected={d === 0}
+                    className={
+                      "scrub-dial-item" + (d === 0 ? " target" : "") + (x.month === menu.here ? " here" : "")
+                    }
+                    style={{
+                      top: k * MENU_STEP,
+                      height: MENU_STEP,
+                      opacity: d === 0 ? 1 : Math.max(0.15, 0.7 - d * 0.14),
+                      transform: d === 0 ? "scale(1.15)" : undefined,
+                      transformOrigin: rtl ? "left center" : "right center",
+                    }}
+                  >
+                    {d === 0 || yearTurns ? monthLabel(x.month) : monthOnly(x.month)}
+                    {d === 0 && monthCounts.has(x.month) && (
+                      <span className="scrub-menu-count">{t.photosCount(monthCounts.get(x.month) ?? 0)}</span>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
         </div>
       )}
       {bubble && !menu && loupe.length > 0 && (
