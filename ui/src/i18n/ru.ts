@@ -446,6 +446,7 @@ export const ru: Dict = {
   menuFavoriteOn: "Добавить в избранное",
   menuFavoriteOff: "Убрать из избранного",
   pickEditor: "Выберите приложение для редактирования",
+  appFilter: "Приложения",
   deleteConfirm: (n: number) =>
     n === 1
       ? "Переместить это фото в Корзину?"

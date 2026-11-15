@@ -6996,10 +6996,19 @@ export default function App() {
   const onOpenWithOther = useCallback(
     async (item: MediaItem) => {
       try {
+        // アプリだけを選ばせ、アプリの置き場から始める（前は何でも選べ、最初の場所も決めていなかった。
+        // 利用者「雑」2026-11-15）。Linux 等は今までどおり
+        const appFilter =
+          platform === "windows"
+            ? { filters: [{ name: t.appFilter, extensions: ["exe"] }], defaultPath: "C:\\Program Files" }
+            : platform === "macos"
+              ? { filters: [{ name: t.appFilter, extensions: ["app"] }], defaultPath: "/Applications" }
+              : {};
         const app = await open({
           title: t.pickEditor,
           multiple: false,
           directory: false,
+          ...appFilter,
         });
         if (typeof app !== "string") return;
         await openWith(item.id, app, true);
@@ -7008,7 +7017,7 @@ export default function App() {
         fail(errText(e));
       }
     },
-    [refreshRoots],
+    [refreshRoots, platform],
   );
 
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */

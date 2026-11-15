@@ -430,6 +430,7 @@ export const he: Dict = {
   menuFavoriteOn: "הוספה למועדפים",
   menuFavoriteOff: "הסרה מהמועדפים",
   pickEditor: "בחרו אפליקציה לעריכה",
+  appFilter: "יישומים",
   deleteConfirm: (n: number) =>
     n === 1 ? "להעביר את התמונה הזו לפח האשפה?" : `להעביר ${photos(n)} לפח האשפה?`,
   deleted: (n: number) => `הועברו לפח האשפה: ${num(n)}`,

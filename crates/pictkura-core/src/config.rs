@@ -78,14 +78,11 @@ pub struct ExternalApp {
 
 impl EditorsConfig {
     /// アプリを登録する（同じパスが既にあれば何もしない）。登録済みなら false。
-    pub fn remember(&mut self, path: &Path) -> bool {
+    /// 名前は呼ぶ側が OS から取って渡す（Windows の「ファイルの説明」、macOS の Finder の表示名）
+    pub fn remember(&mut self, path: &Path, name: String) -> bool {
         if self.apps.iter().any(|a| a.path == path) {
             return false;
         }
-        let name = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string_lossy().into_owned());
         self.apps.push(ExternalApp {
             name,
             path: path.to_path_buf(),

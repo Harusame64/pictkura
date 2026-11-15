@@ -373,6 +373,7 @@ export const en: Dict = {
   menuFavoriteOn: "Add to favorites",
   menuFavoriteOff: "Remove from favorites",
   pickEditor: "Choose an app to edit with",
+  appFilter: "Apps",
   deleteConfirm: (n: number) =>
     n === 1
       ? "Move this photo to the trash?"

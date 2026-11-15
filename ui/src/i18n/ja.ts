@@ -464,6 +464,7 @@ export const ja = {
   menuFavoriteOn: "お気に入りに追加",
   menuFavoriteOff: "お気に入りを外す",
   pickEditor: "編集に使うアプリを選択",
+  appFilter: "アプリ",
   deleteConfirm: (n: number) =>
     n === 1
       ? "この写真をゴミ箱へ移動しますか？"

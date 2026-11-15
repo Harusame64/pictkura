@@ -451,6 +451,7 @@ export const ar: Dict = {
   menuFavoriteOn: "إضافة إلى المفضلة",
   menuFavoriteOff: "إزالة من المفضلة",
   pickEditor: "اختر تطبيقًا للتحرير",
+  appFilter: "التطبيقات",
   deleteConfirm: (n: number) =>
     n === 1 ? "هل تريد نقل هذه الصورة إلى سلة المهملات؟" : `هل تريد نقل ${photos(n)} إلى سلة المهملات؟`,
   deleted: (n: number) => `تم نقل ${photos(n)} إلى سلة المهملات`,

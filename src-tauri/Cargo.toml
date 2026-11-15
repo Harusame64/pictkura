@@ -135,6 +135,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSArray",
     "NSBundle",
     "NSDictionary",
+    # 外部アプリの表示名（`app_name.rs`）: Finder と同じ名前
+    "NSFileManager",
     "NSNotification",
     "NSOperation",
     "block2",

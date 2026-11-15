@@ -419,6 +419,7 @@ export const fr: Dict = {
   menuFavoriteOn: "Ajouter aux favoris",
   menuFavoriteOff: "Retirer des favoris",
   pickEditor: "Choisir une application de retouche",
+  appFilter: "Applications",
   deleteConfirm: (n: number) =>
     n === 1
       ? "Déplacer cette photo vers la Corbeille ?"

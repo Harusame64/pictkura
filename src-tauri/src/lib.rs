@@ -28,6 +28,7 @@ const APP_IDENTIFIER: &str = "dev.harusame.pictkura";
 /// 設定ファイルの名前（設定フォルダの直下）。窓より前に読む道（[`config_without_app`]）と `setup` が同じ名前を見る
 const CONFIG_FILE: &str = "pictkura.toml";
 
+mod app_name;
 mod autoplay;
 // サムネイルの流れがカメラを埋めたとき、左ペインへ知らせる（dev #28）
 mod camera_signal;
@@ -2801,10 +2802,25 @@ fn open_with(
     tauri_plugin_opener::open_path(&path, Some(app_path.as_str())).map_err(|e| e.to_string())?;
     if remember {
         update_config(&state, |c| {
-            c.editors.remember(&app);
+            c.editors.remember(&app, app_name::display_name(&app));
         })?;
     }
     Ok(())
+}
+
+/// ファイル名（拡張子なし）のまま覚えているアプリの名前を、OS の表示名へ直す。変わったものがあれば true
+fn refresh_editor_names(editors: &mut pictkura_core::config::EditorsConfig) -> bool {
+    let mut changed = false;
+    for app in &mut editors.apps {
+        if app.name == app_name::fallback_name(&app.path) {
+            let name = app_name::display_name(&app.path);
+            if name != app.name {
+                app.name = name;
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 /// 登録済みの外部エディタを設定から外す。
@@ -6987,6 +7003,13 @@ pub fn run() {
                 // 有無で使っている人を見分ける」は、AutoPlay をインストーラーが登録するようになって無くなった
                 // （pictkura-dev #53）。振る舞いは変えていない
                 config.save(&config_path).map_err(errs::for_log_err)?;
+            }
+            // 前の版はアプリの名前をファイル名（拡張子なし）で覚えていた（`gimp-2.10`・`mspaint`）。その形のままの
+            // ものだけ OS の表示名へ直す（利用者が付けた名前は無いので、ファイル名と同じなら機械が付けたもの）。
+            // 直せたときだけ書く。書けなくても起動は止めない
+            if refresh_editor_names(&mut config.editors) {
+                // 書けなくても、この起動では新しい名前で出る（次の起動でまた直す）
+                let _ = config.save(&config_path);
             }
             let db_path = data_dir.join("pictkura.db");
             let db = Db::open(&db_path).map_err(errs::for_log_err)?;
