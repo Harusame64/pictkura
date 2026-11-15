@@ -83,6 +83,8 @@ import {
   openDefault,
   takePendingImport,
   openWith,
+  openOutside,
+  takePendingOpen,
   appDisplayNames,
   appKeys,
   isMac,
@@ -486,6 +488,8 @@ type Row =
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
+/** ライブラリの外の写真の番兵の日（Rust の `OUTSIDE_DAY_KEY` と同じ） */
+const OUTSIDE_DAY = -1;
 
 /**
  * ビューアの情報パネル（I）の幅。パネルは行の終わりの側（左→右なら右、右→左なら左）に開く。開いている間は、
@@ -3142,11 +3146,17 @@ export default function App() {
     }
     return out;
   }, [summary]);
+  /**
+   * ライブラリの外の写真（「プログラムから開く」で渡されたフォルダ。負の id）。ビューアは番兵の日
+   * `OUTSIDE_DAY` の列としてこれを歩く（選択スコープの道。dev/plan.md 2026-11-15 の設計 A、spike）
+   */
+  const [outsideItems, setOutsideItems] = useState<MediaItem[] | null>(null);
   const dayIdxByKey = useMemo(() => {
     const map = new Map<number, number>();
     summary.forEach((d, i) => map.set(d.day_key, i));
+    if (outsideItems) map.set(OUTSIDE_DAY, -1);
     return map;
-  }, [summary]);
+  }, [summary, outsideItems]);
 
   // 日付の骨組み＋取得済みの日のjustifiedレイアウトを行モデルへフラット化する。
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
@@ -3246,15 +3256,21 @@ export default function App() {
    */
   const { viewerDayItems, pairOf } = useMemo(() => {
     const pairs = new Map<number, MediaItem[]>();
-    if (pairView === null) return { viewerDayItems: dayItems, pairOf: pairs };
+    if (pairView === null) {
+      if (!outsideItems) return { viewerDayItems: dayItems, pairOf: pairs };
+      const withOutside = new Map(dayItems);
+      withOutside.set(OUTSIDE_DAY, outsideItems);
+      return { viewerDayItems: withOutside, pairOf: pairs };
+    }
     const out = new Map<number, MediaItem[]>();
+    if (outsideItems) out.set(OUTSIDE_DAY, outsideItems);
     for (const [dayKey, items] of dayItems) {
       const { walk, pairOf: p } = viewerWalk(items, pairView, unpaired);
       out.set(dayKey, walk);
       for (const [id, files] of p) pairs.set(id, files);
     }
     return { viewerDayItems: out, pairOf: pairs };
-  }, [dayItems, pairView, unpaired]);
+  }, [dayItems, pairView, unpaired, outsideItems]);
   /**
    * 選択スコープを組の歩き方にそろえたもの（`pairAwareScope`）。**ビューアはこちらを歩く**——
    * 送り・端・分母・隣の先読みがみな同じ列を見るように、ここで1回だけ作る
@@ -3866,7 +3882,7 @@ export default function App() {
 
   // ビューアの表示日と前後の日を先読みする（日またぎ移動を途切れさせない）
   useEffect(() => {
-    if (!viewer) return;
+    if (!viewer || viewer.dayKey === OUTSIDE_DAY) return;
     if (!dayItems.has(viewer.dayKey)) loadDay(viewer.dayKey);
     const dayIdx = dayIdxByKey.get(viewer.dayKey);
     if (dayIdx === undefined) return;
@@ -7121,6 +7137,22 @@ export default function App() {
     const hit = osAppsCache.current.get(extOf(item));
     return hit && Date.now() - hit.at < 5 * 60_000 ? hit.done : undefined;
   };
+  // 「プログラムから開く」で渡された写真（spike）: フォルダを外の写真として並べ、渡された 1 枚でビューアを開く
+  useEffect(() => {
+    void takePendingOpen().then(async (path) => {
+      if (!path) return;
+      const { items, index } = await openOutside(path);
+      if (items.length === 0) return;
+      setOutsideItems(items);
+      setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY })));
+      setViewer({ dayKey: OUTSIDE_DAY, id: items[index].id });
+    }).catch((e) => fail(errText(e)));
+  }, []);
+  // ビューアを閉じたら外の写真を捨てる（一覧には混ぜない）
+  useEffect(() => {
+    if (viewer === null && outsideItems) setOutsideItems(null);
+  }, [viewer, outsideItems]);
+
   // 答えを待つ間に、別の写真で右クリックした・ビューアの写真が替わったら、古い答えでメニューを出さない
   // （出すと、選んだアプリが前の写真を開く。/code-review）
   useEffect(() => {
@@ -7758,7 +7790,9 @@ export default function App() {
           viewerInfo.itemIdx === viewerInfo.dayLength - 1
         );
   const viewerFileIdx = (() => {
-    if (!viewerInfo || pairView === null || pairView === "both") return viewerInfo?.itemIdx ?? 0;
+    if (!viewerInfo || pairView === null || pairView === "both" || viewerInfo.dayIdx < 0) {
+      return viewerInfo?.itemIdx ?? 0;
+    }
     const files = dayItems.get(summary[viewerInfo.dayIdx].day_key);
     if (!files) return viewerInfo.itemIdx;
     // **組の席**（組の最初のファイルの番号）で数える。列は組を最初の席に置くので、送るほど必ず増える
