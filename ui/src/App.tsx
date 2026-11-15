@@ -21,6 +21,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
+import { Icon, driveIconName } from "./Icon";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -7612,7 +7613,7 @@ export default function App() {
             disabled={busy}
             onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
           >
-            <span aria-hidden="true">🗑 </span>{t.bulkDelete}
+            <Icon name="trash" className="btn-icon" />{t.bulkDelete}
           </button>
         </div>
       )}
@@ -7661,7 +7662,7 @@ export default function App() {
           </button>
         </div>
         <div className="search-box">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon"><Icon name="search" size={15} /></span>
           <input
             type="search"
             placeholder={t.searchPlaceholder}
@@ -7740,7 +7741,7 @@ export default function App() {
         {/* 裏で走っている仕事（dev #64）。取り込みの面を開いている間は黙る */}
         <BackgroundWork quiet={wizardOpen} />
         <span className={"count" + (query ? " searching" : "")}>
-          {query && "🔍 "}
+          {query && <Icon name="search" className="btn-icon" />}
           {t.itemsCount(totalShown)}
         </span>
       </header>
@@ -7997,7 +7998,7 @@ export default function App() {
                     {...pressable(() => setQueryInput(active ? "" : term))}
                     aria-pressed={active}
                   >
-                    <span className="camera-icon" aria-hidden="true">📷</span>
+                    <span className="camera-icon" aria-hidden="true"><Icon name="camera" /></span>
                     <span className="camera-name">{cam.name}</span>
                     <span className="fav-count">{formatNumber(cam.count)}</span>
                   </div>
@@ -8039,7 +8040,7 @@ export default function App() {
               {...pressable(() => !busy && openWizard(d.dcim_path ?? d.path))}
               aria-disabled={busy || undefined}
             >
-              <span className="drive-icon" aria-hidden="true">{d.removable ? "🔌" : "💾"}</span>
+              <span className="drive-icon" aria-hidden="true"><Icon name={driveIconName(d)} /></span>
               {d.label}
               {d.dcim_path && <span className="dcim-badge">DCIM</span>}
             </div>
@@ -8051,7 +8052,7 @@ export default function App() {
               onClick={onBrowseFolder}
               disabled={busy}
             >
-              <span aria-hidden="true">📂 </span>{t.browse}
+              <Icon name="folderOpen" className="btn-icon" />{t.browse}
             </button>
             <div className="add-folder-manual">
               <input
@@ -8157,7 +8158,7 @@ export default function App() {
                   {t.importFromUsb}
                 </button>
                 <button onClick={onBrowseFolder} disabled={busy}>
-                  <span aria-hidden="true">📂 </span>{t.browse}
+                  <Icon name="folderOpen" className="btn-icon" />{t.browse}
                 </button>
               </div>
             </div>
@@ -8176,7 +8177,7 @@ export default function App() {
             )}
           {/* **絞り込んで0件**（plan.filter-empty.md、案B）。一覧もカレンダーも同じ案内——
               カレンダーの自前の「写真がありません」は止める（並べると空の知らせが2つになる）。
-              ツールバーの「🔍 0件」はそのまま残す */}
+              ツールバーの「（虫眼鏡）0件」はそのまま残す */}
           {filterEmpty && summaryFor && (
             <div className="empty-library filter-empty">
               <h2>
