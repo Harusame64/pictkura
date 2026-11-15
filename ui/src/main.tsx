@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 import { rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
 import { dirOf } from "./direction";
@@ -36,4 +37,9 @@ void takePendingOpen()
         <App openAtStart={openAtStart ?? null} />
       </React.StrictMode>,
     );
+    // ビューアだけの窓は、黒い地を描いてから見せる（窓は見えない状態で作ってある。白や一覧の地色を出さない）。
+    // 描き終わりを待つため、次の 2 コマ後に見せる
+    if (openAtStart) {
+      requestAnimationFrame(() => requestAnimationFrame(() => void getCurrentWindow().show()));
+    }
   });

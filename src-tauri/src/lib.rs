@@ -7371,9 +7371,21 @@ pub fn run() {
 
             // 写真を渡されて起動したら（「プログラムから開く」）、窓の地を最初からビューアの黒に——白い窓が
             // 一瞬出てからビューアに替わる「ちらつき」を出さない（2026-11-15 利用者「起動時なんかちらちらする」）
-            if lock_ok(&app.state::<AppState>().pending_open).is_some() {
-                if let Some(w) = app.get_webview_window("main") {
+            // 窓は見えない状態で作る（tauri.conf.json の `visible: false`）。作った直後の窓は白で、中身が描けるまで
+            // 0.3 秒ほど白い窓が見えていた（win2 の色の読み取り）。ふつうの起動はここで見せる。写真を渡されて起動したら
+            // 画面がビューアを黒で描いてから見せる（main.tsx）。画面が見せられなかったときのために 3 秒で見せる保険
+            if let Some(w) = app.get_webview_window("main") {
+                if lock_ok(&app.state::<AppState>().pending_open).is_some() {
                     let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+                    let w = w.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        if !w.is_visible().unwrap_or(true) {
+                            let _ = w.show();
+                        }
+                    });
+                } else {
+                    let _ = w.show();
                 }
             }
 
