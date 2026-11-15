@@ -620,6 +620,10 @@ export const de: Dict = {
   settingsAutoplayNote:
     "Mit dem Installer oder aus dem Microsoft Store installiert, erscheint beim Anschließen eines Laufwerks „pictkura で写真を取り込む“ (Fotos mit pictkura importieren) unter den Optionen; die portable Version bietet das nicht an. pictkura startet erst, wenn du diesen Eintrag auswählst. Danach merkt sich Windows deine Auswahl als Standard für diese Art von Medium (Speicherkarten und USB-Laufwerke getrennt) und öffnet das Importfenster jedes Mal, wenn du ein solches Medium einsteckst. Die Standardaktion änderst du in den Windows-Einstellungen für die automatische Wiedergabe. Der Eintrag selbst ist auf Japanisch beschriftet – außer beim englischen MSI, dort heißt er „Import photos with pictkura“.",
   settingsAutoplayOpenWindows: "Windows-Einstellungen für die automatische Wiedergabe öffnen",
+  settingsGraphics: "Grafik",
+  settingsHardwareAccelerationToggle: "Grafikbeschleunigung verwenden",
+  settingsHardwareAccelerationNote:
+    "Wenn der Mauszeiger beim Anzeigen von Fotos im Vollbildmodus eingefroren wirkt, kann das Ausschalten helfen (beobachtet auf einem PC mit AMD-Grafik). Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",
   settingsImportWaitingFrom: (path: string) =>
     `Ein Import von ${path} wartet. Er öffnet sich, wenn Sie die Einstellungen schließen.`,
   settingsImportWaiting: "Ein Import wartet. Er öffnet sich, wenn Sie die Einstellungen schließen.",

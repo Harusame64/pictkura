@@ -597,6 +597,10 @@ export const it: Dict = {
   settingsAutoplayNote:
     "Se hai installato pictkura con il programma di installazione o da Microsoft Store, “pictkura で写真を取り込む” (importa foto con pictkura) compare tra le opzioni quando inserisci un'unità; la versione portatile non la offre. Non si avvia finché non la scegli. Dopo averla scelta, Windows la ricorda come azione predefinita per quel tipo di supporto (schede di memoria e unità USB si impostano separatamente) e apre la finestra di importazione ogni volta che inserisci un supporto dello stesso tipo. L'azione predefinita si cambia nelle impostazioni di AutoPlay di Windows. La voce stessa è scritta in giapponese, tranne con l'MSI in inglese, dove si legge “Import photos with pictkura”.",
   settingsAutoplayOpenWindows: "Apri le impostazioni di AutoPlay di Windows",
+  settingsGraphics: "Grafica",
+  settingsHardwareAccelerationToggle: "Usa l’accelerazione grafica",
+  settingsHardwareAccelerationNote:
+    "Se il puntatore del mouse sembra bloccato mentre guardi le foto a schermo intero, disattivare questa opzione può risolvere il problema (riscontrato su un PC con grafica AMD). Se è disattivata, la riproduzione dei video usa più CPU. La modifica ha effetto dal prossimo avvio di pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Un'importazione da ${path} è in attesa. Si aprirà quando chiudi le impostazioni.`,
   settingsImportWaiting: "Un'importazione è in attesa. Si aprirà quando chiudi le impostazioni.",

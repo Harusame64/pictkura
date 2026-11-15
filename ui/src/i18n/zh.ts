@@ -599,6 +599,10 @@ export const zh: Dict = {
   settingsAutoplayNote:
     "用安装程序或从 Microsoft Store 安装的 pictkura，插入驱动器时会在选项中列出“pictkura で写真を取り込む”（用 pictkura 导入照片）；便携版不会列出。在你选择此选项之前，插入存储卡或 U 盘不会启动 pictkura。选择一次后，Windows 会将其记为这类介质的默认操作（存储卡和 U 盘分别设置），此后每次插入同类介质都会打开导入界面。默认操作请在 Windows 的“自动播放”设置中更改。请注意，这个选项本身的文字是日语（英文版 MSI 则是“Import photos with pictkura”）。",
   settingsAutoplayOpenWindows: "打开 Windows 自动播放设置",
+  settingsGraphics: "图形",
+  settingsHardwareAccelerationToggle: "使用图形加速",
+  settingsHardwareAccelerationNote:
+    "如果全屏查看照片时鼠标指针似乎卡住，关闭此选项可能有助于解决该问题（已在配备 AMD 显卡的电脑上确认）。关闭后，播放视频会占用更多 CPU。更改将在下次启动 pictkura 时生效。",
   settingsImportWaitingFrom: (path: string) =>
     `来自 ${path} 的导入正在等待，关闭设置后就会打开。`,
   settingsImportWaiting: "有一项导入正在等待，关闭设置后就会打开。",

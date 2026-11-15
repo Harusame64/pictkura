@@ -617,6 +617,10 @@ export const fr: Dict = {
   settingsAutoplayNote:
     "Si pictkura a été installé avec le programme d’installation ou depuis le Microsoft Store, « pictkura で写真を取り込む » (importer des photos avec pictkura) apparaît parmi les choix lorsque vous branchez un lecteur ; la version portable ne le propose pas. pictkura ne démarre pas tant que vous ne l’avez pas choisi. Une fois ce choix fait, Windows le retient comme action par défaut pour ce type de support (les cartes mémoire et les clés USB sont réglées séparément) et ouvre la fenêtre d’importation chaque fois que vous insérez un support du même type. L’action par défaut se modifie dans les paramètres d’exécution automatique de Windows. L’entrée elle-même est libellée en japonais, sauf avec le MSI anglais, où elle s’intitule « Import photos with pictkura ».",
   settingsAutoplayOpenWindows: "Ouvrir les paramètres d’exécution automatique de Windows",
+  settingsGraphics: "Graphiques",
+  settingsHardwareAccelerationToggle: "Utiliser l’accélération graphique",
+  settingsHardwareAccelerationNote:
+    "Si le pointeur de la souris semble figé pendant que vous regardez des photos en plein écran, désactiver cette option peut corriger le problème (constaté sur un PC équipé d’une carte graphique AMD). Lorsque cette option est désactivée, la lecture des vidéos sollicite davantage le processeur. Le changement prend effet au prochain démarrage de pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Une importation depuis ${path} est en attente. Elle s’ouvrira à la fermeture des paramètres.`,
   settingsImportWaiting: "Une importation est en attente. Elle s’ouvrira à la fermeture des paramètres.",

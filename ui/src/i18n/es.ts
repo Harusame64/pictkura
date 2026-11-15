@@ -624,6 +624,10 @@ export const es: Dict = {
   settingsAutoplayNote:
     "Si instalaste pictkura con el instalador o desde Microsoft Store, «pictkura で写真を取り込む» (importar fotos con pictkura) aparece entre las opciones al conectar una unidad; la versión portable no lo ofrece. No se abre hasta que lo eliges. Después, Windows lo guarda como opción predeterminada para ese tipo de medio (las tarjetas de memoria y las unidades USB se configuran por separado) y abre la ventana de importación cada vez que insertas uno del mismo tipo. Lo que ocurre de forma predeterminada se cambia en la configuración de Reproducción automática de Windows. Ten en cuenta que la entrada está escrita en japonés, salvo con el MSI en inglés, donde dice «Import photos with pictkura».",
   settingsAutoplayOpenWindows: "Abrir la configuración de Reproducción automática de Windows",
+  settingsGraphics: "Gráficos",
+  settingsHardwareAccelerationToggle: "Usar aceleración gráfica",
+  settingsHardwareAccelerationNote:
+    "Si el puntero del ratón parece congelado mientras ves fotos en pantalla completa, desactivar esta opción puede solucionarlo (se ha observado en un PC con gráficos AMD). Si está desactivada, la reproducción de vídeos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
   settingsImportWaitingFrom: (path: string) =>
     `Hay una importación desde ${path} esperando. Se abrirá al cerrar la configuración.`,
   settingsImportWaiting: "Hay una importación esperando. Se abrirá al cerrar la configuración.",

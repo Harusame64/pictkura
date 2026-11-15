@@ -15,6 +15,7 @@ import {
   setFolderPattern,
   setImportDestination,
   setAutoAdvance,
+  setHardwareAcceleration,
   setPairView,
   setSlideshowTransition,
   setViewerTransition,
@@ -816,6 +817,31 @@ export default function Settings({
               >
                 {t.settingsAutoplayOpenWindows}
               </button>
+            </section>
+          )}
+
+          {/* GPU の合成（Windows だけ。`webview_args.rs`）。AMD のハードウェアカーソルで、全画面のビューアの
+              カーソルの絵が止まる台の逃げ道（2026-11-15 win2 の実測）。窓を作るときにしか渡せないので次の起動から効く */}
+          {platform === "windows" && (
+            <section className="settings-section">
+              <h3>{t.settingsGraphics}</h3>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  // 古い設定ファイルには無い。Rust 側の既定（オン）に合わせる
+                  checked={config?.performance?.hardware_acceleration ?? true}
+                  onChange={async (e) => {
+                    try {
+                      await setHardwareAcceleration(e.target.checked);
+                    } catch (err) {
+                      onError(errText(err));
+                    }
+                    onConfigChanged();
+                  }}
+                />
+                {t.settingsHardwareAccelerationToggle}
+              </label>
+              <p className="settings-note">{t.settingsHardwareAccelerationNote}</p>
             </section>
           )}
 
