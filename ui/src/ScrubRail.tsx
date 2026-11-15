@@ -52,8 +52,12 @@ const MENU_SLACK_PX = 24;
 /** 指からこの距離（px）までの月が大きくなる。真上は 1.6 倍 */
 /** 日付窓の上下に見せる月の数（それぞれ） */
 const DIAL_ROWS = 4;
-/** ホイールでこれだけ回したら、日付窓の月を 1 つ送る */
-const WHEEL_STEP_PX = 40;
+/**
+ * ホイールでこれだけ回したら、日付窓の月を 1 つ送る。1 回の受け取りで送るのは 1 か月まで——マウスの 1 目盛り
+ * （120）で 3 か月進み、細かく選べなかった（利用者「1 ずつ変わった方が良い」2026-11-15）。トラックパッドの
+ * 細かい量はここまで溜めてから 1 か月
+ */
+const WHEEL_STEP_PX = 50;
 
 /** 「2023年8月」（年をまたぐ所と、指の月） */
 const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
@@ -306,6 +310,9 @@ export function ScrubRail({
     setMenu({ y, sel, here: month as number });
   };
 
+  // 日付窓の高さ。帯の上下の端からはみ出さないように留める（いちばん上の月で開くと、帯の上へ 13px 出た）
+  const dialY = menu ? Math.min(Math.max(menu.y, MENU_STEP / 2), Math.max(MENU_STEP / 2, viewport - MENU_STEP / 2)) : 0;
+
   // 拡大鏡: 指の月を中央に、前後の月を上下へ（上が新しい月。一覧と同じ向き）
   const loupe: { month: number; d: number }[] = [];
   if (bubble?.month != null) {
@@ -457,7 +464,7 @@ export function ScrubRail({
         <div
           ref={menuRef}
           className="scrub-dial"
-          style={{ top: `${menu.y - (DIAL_ROWS + 0.5) * MENU_STEP}px`, height: (DIAL_ROWS * 2 + 1) * MENU_STEP }}
+          style={{ top: `${dialY - (DIAL_ROWS + 0.5) * MENU_STEP}px`, height: (DIAL_ROWS * 2 + 1) * MENU_STEP }}
           // 窓の上の操作を、帯の「押す・掴む・拡大鏡」に渡さない
           onPointerDown={(e) => e.stopPropagation()}
           onPointerMove={(e) => {
@@ -476,9 +483,9 @@ export function ScrubRail({
           onPointerUp={(e) => e.stopPropagation()}
           onWheel={(e) => {
             wheelAcc.current += e.deltaY;
-            const step = Math.trunc(wheelAcc.current / WHEEL_STEP_PX);
+            const step = Math.max(-1, Math.min(1, Math.trunc(wheelAcc.current / WHEEL_STEP_PX)));
             if (step !== 0) {
-              wheelAcc.current -= step * WHEEL_STEP_PX;
+              wheelAcc.current = 0;
               turnDial(step);
               // ホイールで回した後の指の動きは、今の窓の月から数え直す
               dialAnchor.current = { py: e.clientY, sel: Math.min(starts.length - 1, Math.max(0, menu.sel + step)) };
@@ -515,7 +522,8 @@ export function ScrubRail({
                     role="option"
                     aria-selected={d === 0}
                     className={
-                      "scrub-dial-item" + (d === 0 ? " target" : "") + (x.month === menu.here ? " here" : "")
+                      // 帯で指していた月の輪は外した（利用者「年月の左の○が気になる」2026-11-15）
+                      "scrub-dial-item" + (d === 0 ? " target" : "")
                     }
                     style={{
                       top: k * MENU_STEP,
