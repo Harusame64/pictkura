@@ -152,6 +152,7 @@ export const zh: Dict = {
   photosCount: (n: number) => `${num(n)} 张`,
   memoriesTitle: (years: number) => `${num(years)} 年前的今天`,
   viewerFavorite: "收藏 (F)",
+  viewerShowLibrary: "在图库中查看",
   viewerPick: "留用 (P)",
   viewerUnpick: "取消留用 (U)",
   viewerPicked: "已留用的照片",

@@ -134,6 +134,7 @@ export const pt: Dict = {
   memoriesTitle: (years: number) =>
     years === 1 ? "Há 1 ano, neste dia" : `Há ${num(years)} anos, neste dia`,
   viewerFavorite: "Favorita (F)",
+  viewerShowLibrary: "Ver na biblioteca",
   viewerPick: "Escolher (P)",
   viewerUnpick: "Desfazer escolha (U)",
   viewerPicked: "Foto escolhida",

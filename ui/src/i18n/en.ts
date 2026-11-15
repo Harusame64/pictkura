@@ -93,6 +93,7 @@ export const en: Dict = {
   memoriesTitle: (years: number) =>
     years === 1 ? "1 year ago today" : `${num(years)} years ago today`,
   viewerFavorite: "Favorite (F)",
+  viewerShowLibrary: "Show in library",
   viewerPick: "Pick (P)",
   viewerUnpick: "Unpick (U)",
   viewerPicked: "Picked photo",

@@ -1413,12 +1413,9 @@ fn get_exif_info(
     state: tauri::State<'_, AppState>,
     id: i64,
 ) -> Result<pictkura_core::thumbs::ExifInfo, String> {
-    let record = state
-        .read_pool
-        .with(|db| db.get_by_id(id))
-        .map_err(errs::from_err)?
-        .ok_or_else(|| errs::code("errNotFound"))?;
-    Ok(pictkura_core::thumbs::read_exif_info(&record.path))
+    // 外の写真（負の id）も読める——ファイルだけを読む
+    let path = path_of(&state, id)?;
+    Ok(pictkura_core::thumbs::read_exif_info(&path))
 }
 
 /// ファイルの基本情報（`dev/adr.file-info-and-context-menu.md` の A）。**DB の値だけ**——
@@ -2635,8 +2632,19 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
     if ids.len() > MAX_IDS {
         return Err(errs::coded("errTooManyIds", MAX_IDS));
     }
+    // 外の写真（負の id）は表から引く。クラウドにしか無い外の写真を先読みで落とさない
+    let (outside, ids): (Vec<i64>, Vec<i64>) = ids.into_iter().partition(|&id| id < 0);
+    let mut outside_cloud = Vec::new();
+    for id in outside {
+        if let Some(path) = lock_ok(&state.outside).get(&id).map(|r| r.path.clone()) {
+            match std::fs::symlink_metadata(&path) {
+                Ok(m) if !pictkura_core::cloud::is_cloud_only(&m) => {}
+                _ => outside_cloud.push(id),
+            }
+        }
+    }
     state.read_pool.with(|db| {
-        let mut cloud = Vec::new();
+        let mut cloud = outside_cloud;
         for id in ids {
             match db.get_by_id(id) {
                 Ok(Some(r)) => match std::fs::symlink_metadata(&r.path) {
@@ -2687,6 +2695,14 @@ fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
 struct OutsideDto {
     items: Vec<MediaItemDto>,
     index: usize,
+    /// 渡された写真がライブラリの中なら、その id と日（画面はライブラリのビューアで開く。★ 等が効く）
+    library: Option<LibraryPosDto>,
+}
+
+#[derive(serde::Serialize)]
+struct LibraryPosDto {
+    id: i64,
+    day_key: i64,
 }
 
 #[tauri::command]
@@ -2694,6 +2710,27 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let file = PathBuf::from(&path);
+        // ライブラリの中の写真なら、外の表は作らずにその位置を返す
+        let in_library = state
+            .read_pool
+            .with(|db| {
+                Ok::<_, pictkura_core::db::DbError>(match db.get_meta_by_path(&file)? {
+                    Some(meta) => db.get_by_id(meta.id)?,
+                    None => None,
+                })
+            })
+            .map_err(errs::from_err)?;
+        if let Some(r) = in_library {
+            lock_ok(&state.outside).clear();
+            return Ok(OutsideDto {
+                items: Vec::new(),
+                index: 0,
+                library: Some(LibraryPosDto {
+                    id: r.id,
+                    day_key: r.day_key,
+                }),
+            });
+        }
         let dir = file
             .parent()
             .ok_or_else(|| errs::code("errNotFound"))?
@@ -2739,7 +2776,11 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             table.insert(id, record);
         }
         *lock_ok(&state.outside) = table;
-        Ok(OutsideDto { items, index })
+        Ok(OutsideDto {
+            items,
+            index,
+            library: None,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -3618,12 +3659,8 @@ async fn save_display_image(app: tauri::AppHandle, id: i64, dest: String) -> Res
 async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let record = state
-            .read_pool
-            .with(|db| db.get_by_id(id))
-            .map_err(errs::from_err)?
-            .ok_or_else(|| errs::code("errNotFound"))?;
-        let path = record.path;
+        let record = record_of(&state, id)?.ok_or_else(|| errs::code("errNotFound"))?;
+        let path = record.path.clone();
         // **配信が残したバイト列を先に掴む**（0.2 ① の `display_cache`）。
         // 画面に出ている1枚は必ずここに居るので、詰め直しをもう一度払わない
         // ——HEICは1枚0.6〜1秒で、そのぶんまるごと待たせることになる。
@@ -7263,6 +7300,14 @@ pub fn run() {
                 clipboard: Mutex::new(None),
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
+
+            // 写真を渡されて起動したら（「プログラムから開く」）、窓の地を最初からビューアの黒に——白い窓が
+            // 一瞬出てからビューアに替わる「ちらつき」を出さない（2026-11-15 利用者「起動時なんかちらちらする」）
+            if lock_ok(&app.state::<AppState>().pending_open).is_some() {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+                }
+            }
 
             // **前の版がアプリから書いた AutoPlay の登録を片付ける**（あれば。pictkura-dev #53）。登録は
             // インストーラーと Store のマニフェストが書くようになった——旧い候補が新しい候補と並ばないように。

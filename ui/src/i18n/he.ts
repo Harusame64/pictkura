@@ -155,6 +155,7 @@ export const he: Dict = {
         ? "היום לפני שנתיים"
         : `היום לפני ${num(years)} שנים`,
   viewerFavorite: "מועדף (F)",
+  viewerShowLibrary: "הצגה בספרייה",
   viewerPick: "סימון (P)",
   viewerUnpick: "ביטול סימון (U)",
   viewerPicked: "תמונה מסומנת",

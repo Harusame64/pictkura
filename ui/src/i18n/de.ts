@@ -127,6 +127,7 @@ export const de: Dict = {
   memoriesTitle: (years: number) =>
     years === 1 ? "Heute vor 1 Jahr" : `Heute vor ${num(years)} Jahren`,
   viewerFavorite: "Favorit (F)",
+  viewerShowLibrary: "In der Bibliothek zeigen",
   viewerPick: "Als Auswahl markieren (P)",
   viewerUnpick: "Markierung aufheben (U)",
   viewerPicked: "Als Auswahl markiert",

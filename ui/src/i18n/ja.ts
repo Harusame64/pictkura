@@ -105,6 +105,7 @@ export const ja = {
   photosCount: (n: number) => `${num(n)}枚`,
   memoriesTitle: (years: number) => `${num(years)}年前の今日`,
   viewerFavorite: "お気に入り (F)",
+  viewerShowLibrary: "一覧で見る",
   viewerPick: "選ぶ (P)",
   viewerUnpick: "選ぶのをやめる (U)",
   viewerPicked: "選別で選んだ写真",
