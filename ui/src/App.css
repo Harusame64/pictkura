@@ -758,21 +758,24 @@ body {
   font-weight: 700;
   color: var(--text-muted);
 }
-/* 押す先（指の真下の1行）。アクセントの地で塗って、「これが選ばれている」をはっきりさせる */
+/* 押す先（指の真下の1行）。白い札・アクセントの細い縁と文字で「これが選ばれている」を示す。全面のアクセントの
+   塗りは分かりやすいが派手すぎた（利用者 2026-11-15「わかりやすくはなった、派手だなぁ」） */
 .scrub-menu-year.target,
 .scrub-menu-item.target {
   position: relative;
   z-index: 1;
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--surface);
+  color: var(--accent);
   font-weight: 600;
-  box-shadow: 0 2px 10px oklch(0 0 0 / 0.22);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklch, var(--accent) 70%, transparent),
+    0 2px 10px oklch(0 0 0 / 0.16);
 }
 .scrub-menu-count {
   margin-inline-start: var(--sp-2);
   font-size: var(--fs-xs);
   font-weight: 400;
-  opacity: 0.85;
+  color: var(--text-muted);
 }
 /* 帯で指していた月（今いる月）。押す先の塗りと混ざらないよう、輪の印にする */
 .scrub-menu-item.here::before {
