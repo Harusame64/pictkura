@@ -284,7 +284,7 @@ body {
   position: absolute;
   inset-inline-start: 9px;
   display: flex;
-  color: var(--text-muted);
+  color: var(--text-faint);
   pointer-events: none;
 }
 .search-box input {
@@ -489,16 +489,19 @@ body {
 .camera-icon {
   flex: none;
   display: flex;
-  color: var(--text-muted);
 }
 /* 線のアイコン（Icon.tsx）。字の並びの中で縦の真ん中に置く */
 .icon {
   flex: none;
   vertical-align: -0.2em;
 }
-/* 文字の前に置くボタンのアイコン */
+/* 文字の前に置くアイコン。大きさを字に合わせ（em）、行の高さを押し上げない——16px のままだと 12px の
+   ボタンだけが隣より 2px 高くなった（/code-review） */
 .btn-icon {
-  margin-inline-end: 0.35em;
+  width: 1.15em;
+  height: 1.15em;
+  margin-inline-end: 0.3em;
+  vertical-align: -0.18em;
 }
 .nav-item.drive.removable {
   color: var(--text);

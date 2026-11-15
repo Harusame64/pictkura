@@ -34,6 +34,20 @@ const PATHS = {
       <path d="M9 9.5V4h6v5.5M10.75 6.5v0.5M13.25 6.5v0.5" />
     </>
   ),
+  // ネットワークの場所: 地球（経線 1 本と緯線 1 本）
+  network: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M4 12h16M12 4c2.5 2.4 2.5 13.6 0 16M12 4c-2.5 2.4-2.5 13.6 0 16" />
+    </>
+  ),
+  // 光学ドライブ: 円盤と穴
+  disc: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="2" />
+    </>
+  ),
   // 開いたフォルダ
   folderOpen: (
     <>
@@ -50,6 +64,14 @@ const PATHS = {
 } as const;
 
 export type IconName = keyof typeof PATHS;
+
+/** ドライブの種類から絵を選ぶ（左の欄と取り込みの画面で同じにする）。ネットワークと光学は
+ *  「取り込み元らしくない」ことを示す */
+export function driveIconName(drive: { kind: string; removable: boolean }): IconName {
+  if (drive.kind === "network") return "network";
+  if (drive.kind === "optical") return "disc";
+  return drive.removable ? "usb" : "drive";
+}
 
 export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string }) {
   return (
