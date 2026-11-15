@@ -495,6 +495,22 @@ body {
   flex: none;
   vertical-align: -0.2em;
 }
+/* 塗りの形（付いている★・旗。再生の三角は塗りの形そのもの） */
+.icon.filled {
+  fill: currentColor;
+}
+/* 向きのあるアイコン（前・次）は、右→左の行で裏返す。字の ‹ › は鏡像文字で勝手に向きが変わったが、絵は変わらない */
+[dir="rtl"] .icon.flip-rtl {
+  transform: scaleX(-1);
+}
+/* ビューアの丸いボタンの真ん中に置く */
+.viewer-tool .icon,
+.viewer-nav .icon {
+  display: block;
+  margin: auto;
+  /* 写真の上の白い線。一覧の 1.8 のままだと 20px で細く、明るい写真の上で ← より弱く見えた（/code-review） */
+  stroke-width: 2.3;
+}
 /* 文字の前に置くアイコン。大きさを字に合わせ（em）、行の高さを押し上げない——16px のままだと 12px の
    ボタンだけが隣より 2px 高くなった（/code-review） */
 .btn-icon {
@@ -1631,26 +1647,11 @@ body {
     opacity var(--dur) var(--easing),
     background var(--dur-fast) var(--easing);
 }
-.viewer-back-icon {
-  display: block;
-  margin: auto;
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-[dir="rtl"] .viewer-back-icon {
-  transform: scaleX(-1);
-}
 .viewer-tool {
   border: none;
   background: oklch(1 0 0 / 0.1);
   color: #fff;
   font-family: inherit;
-  font-size: var(--fs-xl);
   width: var(--viewer-tool-size);
   height: var(--viewer-tool-size);
   border-radius: var(--radius-full);
@@ -1777,8 +1778,7 @@ body {
   animation: viewer-flash 700ms var(--easing) forwards;
 }
 .viewer-flash-mark {
-  font-size: 44px;
-  line-height: 1;
+  display: flex;
 }
 .viewer-flash-word {
   font-size: var(--fs-sm);
@@ -2181,8 +2181,6 @@ body {
   border: none;
   background: oklch(1 0 0 / 0.1);
   color: #fff;
-  font-size: 22px;
-  line-height: 1;
   width: 44px;
   height: 44px;
   border-radius: var(--radius-full);
@@ -2191,8 +2189,8 @@ body {
 .viewer-nav:hover {
   background: oklch(1 0 0 / 0.22);
 }
-/* 前は行の始まり、次は行の終わり。**字形（‹ ›）は裏返さない**——どちらも Unicode の鏡像文字
-   （Bidi_Mirrored）なので、右→左の行では文字のほうが向きを変えて描かれる（win の実測: 前が右で ›） */
+/* 前は行の始まり、次は行の終わり。矢は線の絵なので、右→左の行では .flip-rtl で裏返す（前が右で、右向き）。
+   字の ‹ › だったころは鏡像文字（Bidi_Mirrored）が勝手に向きを変えていた（win の実測: 前が右で ›） */
 .viewer-nav.prev {
   inset-inline-start: var(--sp-4);
 }

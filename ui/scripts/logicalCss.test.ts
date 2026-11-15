@@ -69,7 +69,7 @@ const KEEP: Record<string, string> = {
   "@keyframes viewer-flash 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1.08)": SIGNED,
   [`${QUIET} 0%, 70%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
   [`${QUIET} 100%|transform|translate(calc(-50% * var(--inline-sign)), -50%)`]: SIGNED,
-  '[dir="rtl"] .viewer-back-icon|transform|scaleX(-1)': FLIP,
+  '[dir="rtl"] .icon.flip-rtl|transform|scaleX(-1)': FLIP,
   '[dir="rtl"] .wiz-twisty|transform|scaleX(-1)': FLIP,
   "@keyframes viewer-progress-slide from|transform|translateX(calc(-100% * var(--inline-sign)))": SIGNED,
   "@keyframes viewer-progress-slide to|transform|translateX(calc(360% * var(--inline-sign)))": SIGNED,

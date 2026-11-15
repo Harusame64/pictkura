@@ -21,7 +21,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
-import { Icon, driveIconName } from "./Icon";
+import { Icon, driveIconName, type IconName } from "./Icon";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -510,17 +510,18 @@ type ViewerFlashKind =
   | "extractSameFile";
 
 /** その合図の見た目と文言（**1つにつき1行**。増えたらここへ足す） */
-const VIEWER_FLASH: Record<ViewerFlashKind, { mark: string; word: () => string }> =
+const VIEWER_FLASH: Record<ViewerFlashKind, { icon: IconName; filled?: boolean; word: () => string }> =
   {
-    fav: { mark: "★", word: () => t.judgeFav },
-    unfav: { mark: "☆", word: () => t.judgeUnfav },
-    pick: { mark: "⚑", word: () => t.judgePick },
-    unflag: { mark: "⌫", word: () => t.judgeUnflag },
-    reject: { mark: "✕", word: () => t.viewerRejected },
-    copied: { mark: "📋", word: () => t.extractCopied },
-    saved: { mark: "💾", word: () => t.extractSaved },
-    extractFailed: { mark: "⚠", word: () => t.extractFailed },
-    extractSameFile: { mark: "⚠", word: () => t.extractSameFile },
+    // 印は道具の帯と同じ線のアイコン。付けた＝塗り、外した＝線だけ
+    fav: { icon: "star", filled: true, word: () => t.judgeFav },
+    unfav: { icon: "star", word: () => t.judgeUnfav },
+    pick: { icon: "flag", filled: true, word: () => t.judgePick },
+    unflag: { icon: "flag", word: () => t.judgeUnflag },
+    reject: { icon: "close", word: () => t.viewerRejected },
+    copied: { icon: "copy", word: () => t.extractCopied },
+    saved: { icon: "save", word: () => t.extractSaved },
+    extractFailed: { icon: "warning", word: () => t.extractFailed },
+    extractSameFile: { icon: "warning", word: () => t.extractSameFile },
   };
 
 /**
@@ -8988,14 +8989,15 @@ export default function App() {
                   </button>
                 )}
                 {viewerItem.favorite && (
-                  <span className="viewer-badge fav"><span aria-hidden="true">★ </span>{t.judgeFav}</span>
+                  <span className="viewer-badge fav"><Icon name="star" className="btn-icon filled" />{t.judgeFav}</span>
                 )}
                 {viewerItem.picked && (
-                  <span className="viewer-badge pick"><span aria-hidden="true">⚑ </span>{t.judgePick}</span>
+                  <span className="viewer-badge pick"><Icon name="flag" className="btn-icon filled" />{t.judgePick}</span>
                 )}
                 {rejected.has(viewerItem.id) && (
                   <span className="viewer-badge reject">
-                    ✕ {t.viewerRejected}
+                    <Icon name="close" className="btn-icon" />
+                    {t.viewerRejected}
                   </span>
                 )}
               </div>
@@ -9009,7 +9011,11 @@ export default function App() {
               aria-live="polite"
             >
               <span className="viewer-flash-mark">
-                {VIEWER_FLASH[viewerFlash.kind].mark}
+                <Icon
+                  name={VIEWER_FLASH[viewerFlash.kind].icon}
+                  size={44}
+                  className={VIEWER_FLASH[viewerFlash.kind].filled ? "filled" : undefined}
+                />
               </span>
               <span className="viewer-flash-word">
                 {VIEWER_FLASH[viewerFlash.kind].word()}
@@ -9209,10 +9215,9 @@ export default function App() {
               requestCloseViewer();
             }}
           >
-            {/* 字の ← は書体の矢印で細く小さく、隣の ★・📋 より弱く見えた（利用者）。線で描いて太さを揃える */}
-            <svg className="viewer-back-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M19 12H5M11 6l-6 6 6 6" />
-            </svg>
+            {/* 字の ← は書体の矢印で細く小さく、隣の ★・📋 より弱く見えた（利用者）。帯の道具と同じ線の絵で、
+                太さも揃える（.viewer-tool .icon） */}
+            <Icon name="back" size={22} className="flip-rtl" />
           </button>
           <div className="viewer-tools" onClick={(e) => e.stopPropagation()}>
             {/* RAW+JPEG の組のどちらを見るか（2026-09-26 の利用者の要望）。片方だけ見せている
@@ -9254,7 +9259,7 @@ export default function App() {
                 aria-pressed={viewerItem.favorite}
                 onClick={() => favoriteViewer(viewerItem)}
               >
-                <span aria-hidden="true">{viewerItem.favorite ? "★" : "☆"}</span>
+                <Icon name="star" size={20} className={viewerItem.favorite ? "filled" : undefined} />
               </button>
             )}
             {viewerItem && (
@@ -9263,7 +9268,7 @@ export default function App() {
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
-                <span aria-hidden="true">⚑</span>
+                <Icon name="flag" size={20} className={viewerItem.picked ? "filled" : undefined} />
               </button>
             )}
             {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
@@ -9278,7 +9283,7 @@ export default function App() {
                 aria-pressed={rejected.has(viewerItem.id)}
                 onClick={() => rejectTool(viewerItem)}
               >
-                <span aria-hidden="true">✕</span>
+                <Icon name="close" size={20} />
               </button>
             )}
             <button
@@ -9287,7 +9292,7 @@ export default function App() {
               aria-pressed={showExif}
               onClick={() => setShowExif((s) => !s)}
             >
-              <span aria-hidden="true">ℹ</span>
+              <Icon name="info" size={20} />
             </button>
             <button
               className={"viewer-tool" + (playing ? " on" : "")}
@@ -9295,7 +9300,7 @@ export default function App() {
               aria-pressed={playing}
               onClick={() => setPlaying((p) => !p)}
             >
-              <span aria-hidden="true">{playing ? "⏸" : "▶"}</span>
+              <Icon name={playing ? "pause" : "play"} size={20} className={playing ? undefined : "filled"} />
             </button>
             {/* 抽出（Issue #13）。**「書き出し」の隣ではなくここに置く**——
                 書き出しは選んだぶんをフォルダへ運ぶ一覧側の機能で、これは
@@ -9308,7 +9313,7 @@ export default function App() {
                 disabled={extracting}
                 onClick={() => void copyViewerImage(viewerItem)}
               >
-                <span aria-hidden="true">📋</span>
+                <Icon name="copy" size={20} />
               </button>
             )}
             {viewerItem && canExtract && (
@@ -9318,7 +9323,7 @@ export default function App() {
                 disabled={extracting}
                 onClick={() => void saveViewerImage(viewerItem)}
               >
-                <span aria-hidden="true">💾</span>
+                <Icon name="save" size={20} />
               </button>
             )}
             {viewerItem && (
@@ -9327,7 +9332,7 @@ export default function App() {
                 title={t.menuReveal} id="pk-viewer-reveal" data-testid="viewer-reveal"
                 onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
               >
-                <span aria-hidden="true">📁</span>
+                <Icon name="folder" size={20} />
               </button>
             )}
             {viewerItem && (
@@ -9336,7 +9341,7 @@ export default function App() {
                 title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
                 onClick={() => onDelete(viewerTargets(viewerItem))}
               >
-                <span aria-hidden="true">🗑</span>
+                <Icon name="trash" size={20} />
               </button>
             )}
             <button
@@ -9344,7 +9349,7 @@ export default function App() {
               title={t.shortcutsTitle} id="pk-viewer-shortcuts" data-testid="viewer-shortcuts"
               onClick={() => setShortcutsOpen(true)}
             >
-              <span aria-hidden="true">?</span>
+              <Icon name="help" size={20} />
             </button>
             <button
               className={"viewer-tool" + (anyFullscreen ? " on" : "")}
@@ -9352,7 +9357,7 @@ export default function App() {
               aria-pressed={anyFullscreen}
               onClick={toggleFullscreen}
             >
-              <span aria-hidden="true">{anyFullscreen ? "⤡" : "⛶"}</span>
+              <Icon name={anyFullscreen ? "fullscreenExit" : "fullscreen"} size={20} />
             </button>
           </div>
           {hasPrev && (
@@ -9364,7 +9369,7 @@ export default function App() {
                 moveViewer(-1);
               }}
             >
-              <span aria-hidden="true">‹</span>
+              <Icon name="chevronPrev" size={24} className="flip-rtl" />
             </button>
           )}
           {hasNext && (
@@ -9376,7 +9381,7 @@ export default function App() {
                 moveViewer(1);
               }}
             >
-              <span aria-hidden="true">›</span>
+              <Icon name="chevronNext" size={24} className="flip-rtl" />
             </button>
           )}
         </div>
