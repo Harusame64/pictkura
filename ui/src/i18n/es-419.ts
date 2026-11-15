@@ -187,6 +187,7 @@ export const es419: Dict = {
         ["Ctrl+C / ⌘C", "Copiar al portapapeles la imagen que hay en pantalla"],
         ["Ctrl+S / ⌘S", "Guardar en un archivo la imagen que hay en pantalla"],
         ["Ctrl+P / ⌘P", "Imprimir la foto que hay en pantalla"],
+        ["Ctrl+1–3 / ⌘1–3", "Abrir con la 1.ª–3.ª aplicación de la lista «Abrir con» del clic derecho"],
         ["F", "Poner o quitar favorita (★)"],
         ["I", "Datos del archivo y de la toma (cámara, objetivo, diafragma, obturación, ISO, distancia focal, GPS)"],
         ["Espacio", "Pase de diapositivas. En un video, reproducir / pausar"],

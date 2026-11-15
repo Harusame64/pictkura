@@ -89,7 +89,20 @@ pub fn via_allowed(file: &Path, via: Option<&str>) -> bool {
 
 /// `list`（または `raw_extras`）で返した `id` のアプリで `file` を開く。`via` は `raw_extras` の印をそのまま
 pub fn open(file: &Path, id: &str, via: Option<&str>) -> Result<(), String> {
+    let_launched_app_take_focus();
     imp::open(file, id, via)
+}
+
+/// 起こしたアプリが前に出られるようにする（Windows）。前面を持っている pictkura が許さないと、OS の前面ロックで
+/// 起こしたアプリの窓が裏に開き、「何も起きない」に見える（2026-11-15 利用者「つねに裏で起動だと混乱する」）。
+/// 許すのは、押した直後のこの 1 回の前面の移しだけ（次の入力で OS が自然に取り消す）
+pub fn let_launched_app_take_focus() {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{AllowSetForegroundWindow, ASFW_ANY};
+        // SAFETY: 引数は定数。失敗（前面を持っていない等）しても起動はそのまま進める
+        let _ = unsafe { AllowSetForegroundWindow(ASFW_ANY) };
+    }
 }
 
 #[cfg(windows)]

@@ -13,6 +13,10 @@ export type MenuItem = {
   danger?: boolean;
   /** この項目の前に区切り線を入れる */
   separator?: boolean;
+  /** 右端に添えるショートカットの表示（「Ctrl+1」など）。読み上げには aria-keyshortcuts で渡す */
+  hint?: string;
+  /** aria-keyshortcuts の値（「Control+1」など）。hint と一緒に */
+  keys?: string;
   run: () => void;
 };
 
@@ -129,13 +133,23 @@ export default function ContextMenu({
             aria-checked={item.checked}
             id={item.id ? `pk-menu-${item.id}` : undefined}
             data-testid={item.id ? `menu-${item.id}` : undefined}
-            className={"context-item" + (item.danger ? " danger" : "")}
+            className={"context-item" + (item.danger ? " danger" : "") + (item.hint ? " has-hint" : "")}
+            aria-keyshortcuts={item.keys}
             onClick={() => {
               onClose();
               item.run();
             }}
           >
-            {item.label}
+            {item.hint ? (
+              <>
+                <span className="context-label">{item.label}</span>
+                <kbd className="context-hint" aria-hidden="true">
+                  {item.hint}
+                </kbd>
+              </>
+            ) : (
+              item.label
+            )}
           </button>
         </div>
       ))}

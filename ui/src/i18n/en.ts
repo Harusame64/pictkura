@@ -59,6 +59,7 @@ export const en: Dict = {
         ["Ctrl+C / ⌘C", "Copy the picture on screen to the clipboard"],
         ["Ctrl+S / ⌘S", "Save the picture on screen to a file"],
         ["Ctrl+P / ⌘P", "Print the photo on screen"],
+        ["Ctrl+1–3 / ⌘1–3", "Open in the 1st–3rd app of the right-click \"Open with\" list"],
         ["F", "Toggle favorite (★)"],
         ["I", "File details and capture details (camera, lens, aperture, shutter, ISO, focal length, GPS)"],
         ["Space", "Slideshow. On a video, play / pause"],

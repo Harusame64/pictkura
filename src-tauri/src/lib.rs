@@ -2800,6 +2800,7 @@ fn open_with(
 ) -> Result<(), String> {
     let path = path_of(&state, id)?;
     let app = PathBuf::from(&app_path);
+    os_apps::let_launched_app_take_focus();
     tauri_plugin_opener::open_path(&path, Some(app_path.as_str())).map_err(|e| e.to_string())?;
     if remember {
         update_config(&state, |c| {
@@ -2820,6 +2821,19 @@ async fn app_display_names(paths: Vec<String>) -> Vec<String> {
         paths
             .iter()
             .map(|p| app_name::display_name(Path::new(p)))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// 外部アプリの、名簿と照らす鍵（`app_name::app_key`）。並びは `paths` と同じ
+#[tauri::command]
+async fn app_keys(paths: Vec<String>) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| app_name::app_key(Path::new(p)))
             .collect()
     })
     .await
@@ -7671,6 +7685,7 @@ pub fn run() {
             log_path,
             open_with,
             app_display_names,
+            app_keys,
             os_apps_for,
             open_with_os,
             show_shell_menu,

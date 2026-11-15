@@ -24,6 +24,25 @@ pub fn display_name(path: &Path) -> String {
         .unwrap_or_else(|| fallback_name(path))
 }
 
+/// 名簿と照らす鍵（小文字）。`os_apps::OsApp::key` と同じ形——Windows は exe のファイル名、macOS は束 ID
+/// （取れなければファイル名）。覚えたアプリを名簿に照らすのに使う（codex: mac で preview.app と
+/// com.apple.preview が噛み合わず、名簿の外として扱われていた）
+pub fn app_key(path: &Path) -> String {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_foundation::{NSBundle, NSString, NSURL};
+        if let Some(p) = path.to_str() {
+            let url = NSURL::fileURLWithPath(&NSString::from_str(p));
+            if let Some(id) = NSBundle::bundleWithURL(&url).and_then(|b| b.bundleIdentifier()) {
+                return id.to_string().to_lowercase();
+            }
+        }
+    }
+    path.file_name()
+        .map(|f| f.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
+}
+
 #[cfg(windows)]
 fn os_name(path: &Path) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
@@ -126,6 +145,15 @@ mod tests {
         assert_eq!(
             display_name(Path::new("/nowhere/does-not-exist.app")),
             "does-not-exist"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_key_is_the_bundle_id() {
+        assert_eq!(
+            app_key(Path::new("/System/Applications/Preview.app")),
+            "com.apple.preview"
         );
     }
 

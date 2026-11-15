@@ -2882,6 +2882,20 @@ body {
   font-size: var(--fs-md);
   cursor: pointer;
 }
+/* ショートカットを右端に添える項目（「Paint.NET で開く   Ctrl+1」）。キーの字は淡く、詰めない */
+.context-item.has-hint {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+}
+.context-label {
+  flex: 1;
+}
+.context-hint {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
 .context-item:hover {
   background: var(--surface-2);
   color: var(--text);

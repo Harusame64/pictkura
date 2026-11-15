@@ -73,3 +73,11 @@ test("digit keys read the printed digit, then the number row without modifiers",
   assert.equal(digitOf({ key: "End", code: "Numpad1" }), null, "numpad with NumLock off");
   assert.equal(digitOf({ key: "x", code: "KeyX" }), null);
 });
+
+test("modDigitOf reads Ctrl+digits by position and by the typed digit", async () => {
+  const { modDigitOf } = await import("../src/keyLetter.ts");
+  assert.equal(modDigitOf({ key: "1", code: "Digit1" }), 1);
+  assert.equal(modDigitOf({ key: "&", code: "Digit1" }), 1, "AZERTY");
+  assert.equal(modDigitOf({ key: "٢", code: "" }), 2, "Arabic-Indic");
+  assert.equal(modDigitOf({ key: "a", code: "KeyA" }), null);
+});

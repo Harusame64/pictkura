@@ -93,6 +93,7 @@ export const de: Dict = {
         ["Strg+C / ⌘C", "Das angezeigte Bild in die Zwischenablage kopieren"],
         ["Strg+S / ⌘S", "Das angezeigte Bild als Datei speichern"],
         ["Strg+P / ⌘P", "Das angezeigte Foto drucken"],
+        ["Strg+1–3 / ⌘1–3", "Mit der 1.–3. App aus der Rechtsklick-Liste „Öffnen mit“ öffnen"],
         ["F", "Favorit (★) an- und abschalten"],
         ["I", "Datei- und Aufnahmedaten (Kamera, Objektiv, Blende, Belichtungszeit, ISO, Brennweite, GPS)"],
         ["Leertaste", "Diashow. Bei einem Video: abspielen / anhalten"],
