@@ -176,6 +176,26 @@ import {
 import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm";
 
 const GAP = 4;
+/** タイルの大きさの控え（localStorage。この端末だけの好み） */
+const CELL_SIZE_KEY = "pictkura.cellSize";
+const CELL_SIZE_MIN = 100;
+const CELL_SIZE_MAX = 320;
+function loadCellSize(): number {
+  try {
+    const v = Number(localStorage.getItem(CELL_SIZE_KEY));
+    if (Number.isFinite(v) && v >= CELL_SIZE_MIN && v <= CELL_SIZE_MAX) return v;
+  } catch {
+    // 読めない（保存が無効など）なら既定
+  }
+  return 180;
+}
+function saveCellSize(v: number) {
+  try {
+    localStorage.setItem(CELL_SIZE_KEY, String(v));
+  } catch {
+    // 書けなくても大きさは今の起動では効いている
+  }
+}
 const HEADER_HEIGHT = 40;
 /**
  * グリッドの左右の余白の和（`.grid-scroll` の CSS と一致させる）: 行の始まりの側 8px（`--sp-2`）＋
@@ -763,7 +783,8 @@ export default function App() {
    * 前の答えの案内を出し続けられるので、0件から0件へ移るときに案内が1コマ消えない（win2 の実機 W51）
    */
   const [summaryFor, setSummaryFor] = useState<Asked | null>(null);
-  const [cellSize, setCellSize] = useState(180);
+  // タイルの大きさは起動をまたいで覚える（毎回 180 に戻っていた）。読めない・壊れた値は既定へ
+  const [cellSize, setCellSize] = useState(loadCellSize);
   /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
   /**
@@ -7698,11 +7719,15 @@ export default function App() {
           {t.size}
           <input
             type="range"
-            min={100}
-            max={320}
+            min={CELL_SIZE_MIN}
+            max={CELL_SIZE_MAX}
             step={20}
             value={cellSize}
-            onChange={(e) => setCellSize(Number(e.target.value))}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setCellSize(v);
+              saveCellSize(v);
+            }}
           />
         </label>
         {/* 32ch で省略されるので、全文はホバーで読めるようにする */}

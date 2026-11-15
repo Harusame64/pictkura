@@ -446,7 +446,9 @@ body {
   opacity: 0;
   transition: opacity var(--dur-fast) var(--easing);
 }
-.nav-item:hover .root-remove {
+.nav-item:hover .root-remove,
+.root-remove:focus-visible {
+  /* キーボードで止まったときも見せる（本物のボタンなので Tab で止まるのに、見えなかった） */
   opacity: 1;
 }
 .root-remove:hover {
@@ -3631,4 +3633,27 @@ body {
   color: var(--warn);
   font-size: var(--fs-md);
   overflow-wrap: anywhere;
+}
+
+/* 押した手応え: ボタンは押している間だけ1段暗く（hover しか無く、押したことが指に返らなかった）。
+   形や位置は変えない——transform を持つボタン（ビューアの前後の矢印など）の配置を崩さないため */
+button:active:not(:disabled) {
+  filter: brightness(0.88);
+}
+
+/* 動きを減らす設定: 読み込み中のきらめきと、知らせの滑り込みも止める（ほかの動きは各所で対応済み） */
+@media (prefers-reduced-motion: reduce) {
+  .placeholder-row {
+    animation: none;
+  }
+  .speed-toast,
+  .notice-stack > .speed-toast {
+    animation: none;
+  }
+}
+
+/* 止めて見ている間は、カーソルも道具と一緒に消す（写真の上に矢印が残り続けた）。動かせばすぐ戻る。
+   idleHit の試験が上の「隠す一覧」を最初の .viewer.idle から読むので、この規則は後ろに置く */
+.viewer.idle {
+  cursor: none;
 }

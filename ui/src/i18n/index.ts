@@ -335,9 +335,11 @@ export const formatLocale: string = (() => {
   return formatBase;
 })();
 
-/** 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる） */
-export const formatDateTime = (ms: number) =>
-  new Date(ms).toLocaleString(formatLocale);
+/**
+ * 日付・時刻の書式はIntlに任せる（全ロケールが自動的に正しくなる）。書式器は使い回す（`cachedFormat`）——
+ * ビューアの字幕は描くたびに呼ぶ。オプションは `toLocaleString` の既定と同じ（年月日と時分秒、数字）
+ */
+export const formatDateTime = (ms: number) => dateTimeFormat(new Date(ms));
 
 /**
  * 書式器は1つ作って使い回す。`toLocaleDateString(locale, opts)` は呼ぶたびに書式器を作り、一覧の見出し 999 日を
@@ -349,6 +351,14 @@ const cachedFormat = (opts: Intl.DateTimeFormatOptions) => {
   return (d: Date) => (f ??= new Intl.DateTimeFormat(formatLocale, opts)).format(d);
 };
 const dayFormat = cachedFormat({ year: "numeric", month: "long", day: "numeric" });
+const dateTimeFormat = cachedFormat({
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+});
 const monthFormat = cachedFormat({ year: "numeric", month: "long" });
 const monthOnlyFormat = cachedFormat({ month: "long" });
 
