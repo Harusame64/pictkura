@@ -378,7 +378,7 @@ body {
 .nav-more-off {
   visibility: hidden;
 }
-/* 選択は角丸ピル。塗りは accent-soft の淡い面にして文字だけを色づける */
+/* 選択は角丸ピル。淡い面（--selected-bg）と太さ、行頭のアクセントの線で示す（hover の面とは別の濃さ） */
 .nav-item {
   display: flex;
   align-items: center;
@@ -407,9 +407,11 @@ body {
   background: var(--surface-2);
   color: var(--text);
 }
-/* 選んでいる項目は面と太さで示す（アクセントの塗りは使わない。色は「押してほしい1つ」と写真の選択に取っておく） */
+/* 選んでいる項目は面と太さで示す（アクセントの塗りは使わない。色は「押してほしい1つ」と写真の選択に取っておく）。
+   hover と同じ面にすると、選んだ行と指の下の行が見分けられなかった（/code-review）ので、別の淡い面＋行頭の線 */
 .nav-item.active {
-  background: var(--surface-2);
+  background: var(--selected-bg);
+  box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
   font-weight: 600;
 }
@@ -469,7 +471,9 @@ body {
   flex: none;
   font-size: 10px;
   font-weight: 600;
-  background: var(--surface-2);
+  /* 面で塗ると、行の hover・選択の面と同じ色になって札が消えた。縁で描く */
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text-muted);
   border-radius: var(--radius-full);
   padding: 1px 6px;
@@ -477,8 +481,10 @@ body {
 .fav-count {
   margin-inline-start: auto;
   font-size: var(--fs-xs);
-  background: var(--surface-2);
-  color: var(--text-faint);
+  /* 行の hover・選択の面の上でも札が見えるよう、面でなく縁で描く */
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-muted);
   border-radius: var(--radius-full);
   padding: 1px 6px;
 }
@@ -499,11 +505,6 @@ body {
   border-color: var(--border-strong);
   color: var(--text);
   font-weight: 500;
-}
-/* アクセント地の文字色はテーマで反転する（暗い地では明るい青＋濃色の字）ので
-   `#fff` を直に置かない。disabled 中は busy なので塗り潰さない */
-.add-folder .browse-folder:hover:not(:disabled) {
-  background: var(--surface-2);
 }
 /* **釦は必ず次の行へ落とす**。ここは「何を入れる欄か」を置き字のパスだけで
    説明している場所なので、**入力欄が1行を丸ごと取れないと成立しない**。
@@ -1201,7 +1202,8 @@ body {
   cursor: pointer;
 }
 .day-cell.has-photos:hover {
-  outline: 2px solid var(--border-strong);
+  /* 写真の上でも見える濃さ（--border-strong は透けて見えなかった。/code-review） */
+  outline: 2px solid var(--text-muted);
   outline-offset: -2px;
 }
 .day-thumb {
@@ -2172,7 +2174,7 @@ body {
   font-weight: 700;
   margin-bottom: var(--sp-2);
   /* ビューアの上（暗い地）。色は付けない——写真の色と張り合わないように */
-  color: oklch(0.7 0 0);
+  color: var(--on-dark-muted);
 }
 .exif-row {
   display: flex;
@@ -2190,8 +2192,8 @@ body {
   word-break: break-word;
 }
 .exif-value.link {
-  /* ビューアは常に暗い地なので、ダークのアクセント（明るい藍）を直に使う */
-  color: var(--indigo-light);
+  /* ビューアは常に暗い地なので、暗い地のためのリンクの色 */
+  color: var(--on-dark-link);
   text-decoration: none;
 }
 .exif-value.link:hover {
@@ -2440,7 +2442,7 @@ body {
   cursor: pointer;
 }
 .palette-item.active {
-  background: var(--surface-2);
+  background: var(--selected-bg);
   color: var(--text);
 }
 .palette-icon {
@@ -2606,7 +2608,8 @@ body {
   background: var(--surface-2);
 }
 .pattern-item.active {
-  background: var(--surface-2);
+  background: var(--selected-bg);
+  box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
 }
 .pattern-item input {
@@ -2979,7 +2982,8 @@ body {
   color: var(--text);
 }
 .wiz-node.active {
-  background: var(--accent-soft);
+  background: var(--selected-bg);
+  box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
 }
 /* カードと取り外せるドライブ（pictkura-dev #39）。挿したカードが一覧に埋もれないように */
@@ -3330,7 +3334,7 @@ body {
   background: color-mix(in oklch, currentColor 15%, transparent);
 }
 
-/* 新しい版の知らせ（0.2）。色は警告ではなく accent——直さないと困るものではない */
+/* 新しい版の知らせ（0.2）。警告の色にはしない——直さないと困るものではない。色は押す所（設定の釦）だけ */
 .speed-toast.update-notice {
   color: var(--text);
   border-color: var(--border-strong);

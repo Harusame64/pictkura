@@ -51,7 +51,13 @@
   --text-faint: oklch(0.52 0.01 75); /* 地・キャンバス・surface-2 のどれの上でも 4.6:1 以上 */
   --accent: var(--indigo);
   --accent-contrast: var(--n-0);
-  --accent-soft: oklch(0.42 0.11 262 / 0.1);
+  --accent-soft: color-mix(in oklch, var(--indigo) 10%, transparent);
+  /* 選んでいる行（左の項目・パレット・設定の選択・取り込みの木）。hover（--surface-2）より一段淡い面に、
+     行頭のアクセントの線を添えて見分ける。薄い字がこの上でも 4.5:1 を保つ濃さ */
+  --selected-bg: color-mix(in oklch, var(--text) 6%, transparent);
+  /* ビューア（常に暗い地）の上の控えめな字とリンク。テーマに依らない */
+  --on-dark-muted: oklch(0.72 0.008 80);
+  --on-dark-link: var(--indigo-light);
   --fav: var(--amber);
   --pick: var(--teal);
   --danger: var(--red);
@@ -181,7 +187,8 @@
     --text-faint: oklch(0.64 0.008 75); /* キャンバス 5.8・地 5.4・surface 4.8:1（surface-2 は 3.9——hover の面と押せない物だけ） */
     --accent: var(--indigo-light);
     --accent-contrast: var(--n-10);
-    --accent-soft: oklch(0.76 0.09 258 / 0.18);
+    --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
+    --selected-bg: color-mix(in oklch, var(--text) 8%, transparent);
     --scrim: oklch(0 0 0 / 0.6);
     --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
     --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
@@ -203,7 +210,8 @@ html[data-theme="dark"] {
   --text-faint: oklch(0.64 0.008 75); /* キャンバス 5.8・地 5.4・surface 4.8:1（surface-2 は 3.9——hover の面と押せない物だけ） */
   --accent: var(--indigo-light);
   --accent-contrast: var(--n-10);
-  --accent-soft: oklch(0.76 0.09 258 / 0.18);
+  --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
+  --selected-bg: color-mix(in oklch, var(--text) 8%, transparent);
   --scrim: oklch(0 0 0 / 0.6);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
   --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);

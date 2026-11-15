@@ -59,6 +59,9 @@ const KEEP: Record<string, string> = {
   ".print-fit-sample-cover > span|left|-50%": PICTURE,
 
   ".wiz-node.wiz-card|box-shadow|inset calc(3px * var(--inline-sign)) 0 0 var(--accent)": SIGNED,
+  ".nav-item.active|box-shadow|inset calc(2px * var(--inline-sign)) 0 0 var(--accent)": SIGNED,
+  ".pattern-item.active|box-shadow|inset calc(2px * var(--inline-sign)) 0 0 var(--accent)": SIGNED,
+  ".wiz-node.active|box-shadow|inset calc(2px * var(--inline-sign)) 0 0 var(--accent)": SIGNED,
   ".viewer-missing-band|transform|translateX(calc(-50% * var(--inline-sign)))": SIGNED,
   "@keyframes viewer-flash 0%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(0.7)": SIGNED,
   "@keyframes viewer-flash 18%|transform|translate(calc(-50% * var(--inline-sign)), -50%) scale(1)": SIGNED,
