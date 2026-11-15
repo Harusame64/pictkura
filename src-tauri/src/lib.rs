@@ -188,6 +188,14 @@ struct AppState {
     /// 受け取れたフロントが `take_pending_import` で消すので、取りこぼしと
     /// 二重処理のどちらも起きない。
     pending_import: Mutex<Option<String>>,
+    /// 「プログラムから開く」で渡された写真のうち、まだ画面が受け取っていないもの（`pending_import` と同じ方式）
+    pending_open: Mutex<Option<String>>,
+    /// 画面が受け取った「開く写真」（[`take_pending_open`] が渡したもの）。[`open_outside`] はこれだけを開く——
+    /// 画面から任意のフォルダを media:// で配れるようにしない（/code-review。取り込み元の `browse_allow` と同じ考え）
+    allowed_open: Mutex<Option<String>>,
+    /// ライブラリの外の写真（「プログラムから開く」で開いたフォルダ）。**負の id で、メモリの中だけ**に持つ——
+    /// DB には書かず、裏の仕事も動かさない（dev/plan.md 2026-11-15 の設計 A）。[`record_of`] が引く
+    outside: Mutex<std::collections::HashMap<i64, pictkura_core::MediaRecord>>,
     /// 抽出（Issue #13）でだけ使うクリップボード。**持ち回るのはLinuxのため**。
     ///
     /// X11では、置いた側のプロセスが「いま持っている」と名乗り続けないと
@@ -1408,12 +1416,9 @@ fn get_exif_info(
     state: tauri::State<'_, AppState>,
     id: i64,
 ) -> Result<pictkura_core::thumbs::ExifInfo, String> {
-    let record = state
-        .read_pool
-        .with(|db| db.get_by_id(id))
-        .map_err(errs::from_err)?
-        .ok_or_else(|| errs::code("errNotFound"))?;
-    Ok(pictkura_core::thumbs::read_exif_info(&record.path))
+    // 外の写真（負の id）も読める——ファイルだけを読む
+    let path = path_of(&state, id)?;
+    Ok(pictkura_core::thumbs::read_exif_info(&path))
 }
 
 /// ファイルの基本情報（`dev/adr.file-info-and-context-menu.md` の A）。**DB の値だけ**——
@@ -2630,8 +2635,19 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
     if ids.len() > MAX_IDS {
         return Err(errs::coded("errTooManyIds", MAX_IDS));
     }
+    // 外の写真（負の id）は表から引く。クラウドにしか無い外の写真を先読みで落とさない
+    let (outside, ids): (Vec<i64>, Vec<i64>) = ids.into_iter().partition(|&id| id < 0);
+    let mut outside_cloud = Vec::new();
+    for id in outside {
+        if let Some(path) = lock_ok(&state.outside).get(&id).map(|r| r.path.clone()) {
+            match std::fs::symlink_metadata(&path) {
+                Ok(m) if !pictkura_core::cloud::is_cloud_only(&m) => {}
+                _ => outside_cloud.push(id),
+            }
+        }
+    }
     state.read_pool.with(|db| {
-        let mut cloud = Vec::new();
+        let mut cloud = outside_cloud;
         for id in ids {
             match db.get_by_id(id) {
                 Ok(Some(r)) => match std::fs::symlink_metadata(&r.path) {
@@ -2659,13 +2675,212 @@ fn cloud_only_media(state: tauri::State<'_, AppState>, ids: Vec<i64>) -> Result<
 }
 
 /// レコードIDから実ファイルのパスを引く（ファイル操作コマンドの共通部）。
-fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
+/// id から記録を引く。負の id はライブラリの外の写真（[`AppState::outside`]）、正は DB
+fn record_of(state: &AppState, id: i64) -> Result<Option<pictkura_core::MediaRecord>, String> {
+    if id < 0 {
+        return Ok(lock_ok(&state.outside).get(&id).cloned());
+    }
     state
         .read_pool
         .with(|db| db.get_by_id(id))
-        .map_err(errs::from_err)?
+        .map_err(errs::from_err)
+}
+
+fn path_of(state: &AppState, id: i64) -> Result<PathBuf, String> {
+    record_of(state, id)?
         .map(|r| r.path)
         .ok_or_else(|| errs::code("errNotFound"))
+}
+
+/// 「プログラムから開く」で渡された写真のフォルダを、ライブラリの外の写真として並べる（spike）。
+/// 返すのは、そのフォルダの写真・動画（取り込みと同じ拡張子）と、渡された写真の位置
+#[derive(serde::Serialize)]
+struct OutsideDto {
+    items: Vec<MediaItemDto>,
+    index: usize,
+    /// 渡された写真がライブラリの中なら、その id と日（画面はライブラリのビューアで開く。★ 等が効く）
+    library: Option<LibraryPosDto>,
+}
+
+#[derive(serde::Serialize)]
+struct LibraryPosDto {
+    id: i64,
+    day_key: i64,
+}
+
+#[tauri::command]
+async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        if lock_ok(&state.allowed_open).as_deref() != Some(path.as_str()) {
+            return Err(errs::code("errNotFound"));
+        }
+        let file = PathBuf::from(&path);
+        // ライブラリの中の写真なら、外の表は作らずにその位置を返す
+        let in_library = state
+            .read_pool
+            .with(|db| {
+                Ok::<_, pictkura_core::db::DbError>(match db.get_meta_by_path(&file)? {
+                    Some(meta) => db.get_by_id(meta.id)?,
+                    None => None,
+                })
+            })
+            .map_err(errs::from_err)?;
+        if let Some(r) = in_library {
+            lock_ok(&state.outside).clear();
+            return Ok(OutsideDto {
+                items: Vec::new(),
+                index: 0,
+                library: Some(LibraryPosDto {
+                    id: r.id,
+                    day_key: r.day_key,
+                }),
+            });
+        }
+        let dir = file
+            .parent()
+            .ok_or_else(|| errs::code("errNotFound"))?
+            .to_path_buf();
+        let extensions = lock_ok(&state.config).import.extensions.clone();
+        // そのフォルダの写真・動画（ファイルだけ。下のフォルダは数えない——取り込み元の一覧と違い、要らない）。
+        // シンボリックリンクも先を見る
+        struct Entry {
+            path: PathBuf,
+            name: String,
+            size: u64,
+            mtime_ms: i64,
+        }
+        let entry_of = |p: &Path| -> Option<Entry> {
+            let m = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
+            Some(Entry {
+                path: p.to_path_buf(),
+                name: p.file_name()?.to_string_lossy().into_owned(),
+                size: m.len(),
+                mtime_ms: m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0),
+            })
+        };
+        let mut files: Vec<Entry> = std::fs::read_dir(&dir)
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| pictkura_core::scanner::has_target_extension(p, &extensions))
+                    .filter_map(|p| entry_of(&p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        // **渡された写真は必ず入れる**——取り込みの拡張子から外れた形式・パスの書き方の違い（大文字小文字、短い名前）
+        // で一覧から漏れると、フォルダの先頭の別の写真が開いていた（/code-review）
+        // 同じファイルか: まずパスが完全に同じもの。無ければ**実体が同じもの**（名前の大文字小文字が違うだけなら、
+        // 大文字小文字を区別しない置き場では同じファイル）。名前の大文字小文字だけで同じとみなすと、区別する置き場で
+        // `IMG.jpg` と `img.jpg` が並んだときに別の写真を開いた（codex）
+        let canon_file = std::fs::canonicalize(&file).ok();
+        let same_file = |e: &Entry| {
+            e.path == file
+                || (file
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&e.name))
+                    && canon_file.is_some()
+                    && std::fs::canonicalize(&e.path).ok() == canon_file)
+        };
+        if !files.iter().any(same_file) {
+            if let Some(e) = entry_of(&file) {
+                files.push(e);
+            }
+        }
+        files.sort_by_key(|f| f.name.to_lowercase());
+        let index = files
+            .iter()
+            .position(|e| e.path == file)
+            .or_else(|| files.iter().position(same_file))
+            .unwrap_or(0);
+        // 絵の URL の版（`v=<mtime>-<rev>`）を開くたびに変える。外の id はフォルダの中の位置にすぎないので、
+        // 前の起動の別の写真のキャッシュ（immutable）が出ないように（/code-review）
+        static OPEN_SEQ: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+        let rev = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+            + OPEN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut table = std::collections::HashMap::new();
+        let mut items = Vec::with_capacity(files.len());
+        for (i, f) in files.iter().enumerate() {
+            let id = -(i as i64) - 1;
+            let record = pictkura_core::MediaRecord {
+                id,
+                path: f.path.clone(),
+                size: f.size as i64,
+                mtime_ms: f.mtime_ms,
+                width: None,
+                height: None,
+                preview_width: None,
+                preview_height: None,
+                taken_at_ms: None,
+                taken_subsec: None,
+                camera_id: None,
+                body_serial: None,
+                day_key: OUTSIDE_DAY_KEY,
+                thumb_path: None,
+                thumb_state: 0,
+                favorite: false,
+                picked: false,
+                duration_ms: None,
+                rev,
+                taken_source: None,
+            };
+            let mut dto = MediaItemDto::from(record.clone());
+            // 生成済みのサムネは無いが、配信がファイルから直接作る（media の Thumb の外の写真の枝）
+            dto.has_thumb = true;
+            items.push(dto);
+            table.insert(id, record);
+        }
+        *lock_ok(&state.outside) = table;
+        Ok(OutsideDto {
+            items,
+            index,
+            library: None,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// ライブラリの外の写真に付ける日（番兵）。画面の側も同じ値で見分ける
+const OUTSIDE_DAY_KEY: i64 = -1;
+
+/// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）
+#[tauri::command]
+fn take_pending_open(state: tauri::State<'_, AppState>) -> Option<String> {
+    let path = lock_ok(&state.pending_open).take();
+    if path.is_some() {
+        *lock_ok(&state.allowed_open) = path.clone();
+    }
+    path
+}
+
+/// 起動の引数から「開く写真」を拾う（`pictkura.exe "C:\…\a.jpg"`）。フラグ（`--import` 等）とその値、
+/// argv[0] は飛ばし、在るファイルの絶対パスだけを受ける
+fn open_path_from_args(args: &[String]) -> Option<String> {
+    let mut skip_next = false;
+    for a in args.iter().skip(1) {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if a.starts_with("--") {
+            skip_next = a == "--import";
+            continue;
+        }
+        let p = Path::new(a);
+        if p.is_absolute() && p.is_file() {
+            return Some(a.clone());
+        }
+    }
+    None
 }
 
 /// OS既定のアプリで開く（Windowsの「開く」相当）。
@@ -3511,12 +3726,8 @@ async fn save_display_image(app: tauri::AppHandle, id: i64, dest: String) -> Res
 async fn copy_display_image(app: tauri::AppHandle, id: i64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let record = state
-            .read_pool
-            .with(|db| db.get_by_id(id))
-            .map_err(errs::from_err)?
-            .ok_or_else(|| errs::code("errNotFound"))?;
-        let path = record.path;
+        let record = record_of(&state, id)?.ok_or_else(|| errs::code("errNotFound"))?;
+        let path = record.path.clone();
         // **配信が残したバイト列を先に掴む**（0.2 ① の `display_cache`）。
         // 画面に出ている1枚は必ずここに居るので、詰め直しをもう一度払わない
         // ——HEICは1枚0.6〜1秒で、そのぶんまるごと待たせることになる。
@@ -6405,10 +6616,26 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // 取り込み元のプレビュー（第5部 段階E）: DBを通らずファイルから直接作る
         MediaTarget::Source { path } => return source_preview_response(state, &path),
     };
-    let record = match state.read_pool.with(|db| db.get_by_id(id)) {
+    let record = match record_of(state, id) {
         Ok(Some(r)) => r,
         _ => return not_found(),
     };
+    // ライブラリの外の写真のサムネは、ファイルから直接（取り込み画面と同じ。生成済みのサムネが無い）
+    if id < 0 && kind == ServeKind::Thumb {
+        // クラウドにしか無いものは作らない（開くとダウンロードが走る。一覧のサムネと同じ扱い）
+        if pictkura_core::cloud::is_cloud_only_path(&record.path) {
+            return not_found();
+        }
+        let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+        return match pictkura_core::browse::preview(&record.path, thumb_size) {
+            Some(preview) => Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", preview.mime)
+                .body(preview.bytes)
+                .unwrap_or_else(|_| server_error()),
+            None => not_found(),
+        };
+    }
     // 高品質サムネイルの配信はLRUのタッチとして記録する（メモリ集約→定期フラッシュ）
     if kind == ServeKind::Thumb && record.thumb_state == 2 {
         let now_ms = std::time::SystemTime::now()
@@ -6975,6 +7202,12 @@ pub fn run() {
     #[cfg(not(target_os = "macos"))]
     let appkit_locale: Option<&str> = None;
 
+    // 写真を渡されて起動したら、WebView2 の既定の地を黒に（HTML が読み込まれるまでの白を出さない。win2 の実測で
+    // 約 0.3 秒の白。窓の地は setup で黒にする）。WebView2 は環境を作るときにこの変数を読む
+    #[cfg(windows)]
+    if open_path_from_args(&std::env::args().collect::<Vec<_>>()).is_some() {
+        std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF000000");
+    }
     // **WebView2 の合成を切る設定は、窓より前に効かせる**（`webview_args.rs`。`[performance] hardware_acceleration`）。
     // 設定が読めなければ既定（オン＝何も足さない）
     #[cfg(windows)]
@@ -7135,11 +7368,36 @@ pub fn run() {
                 browse_allow: Mutex::new(HashSet::new()),
                 source_tiles: SourceTiles::default(),
                 pending_import: Mutex::new(pending_import),
+                pending_open: Mutex::new(open_path_from_args(
+                    &std::env::args().collect::<Vec<_>>(),
+                )),
+                outside: Mutex::new(std::collections::HashMap::new()),
+                allowed_open: Mutex::new(None),
                 // 抽出が初めて押されたときに作る（`AppState::clipboard`）
                 #[cfg(not(windows))]
                 clipboard: Mutex::new(None),
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
+
+            // 写真を渡されて起動したら（「プログラムから開く」）、窓の地を最初からビューアの黒に——白い窓が
+            // 一瞬出てからビューアに替わる「ちらつき」を出さない（2026-11-15 利用者「起動時なんかちらちらする」）
+            // 窓は見えない状態で作る（tauri.conf.json の `visible: false`）。作った直後の窓は白で、中身が描けるまで
+            // 0.3 秒ほど白い窓が見えていた（win2 の色の読み取り）。ふつうの起動はここで見せる。写真を渡されて起動したら
+            // 画面がビューアを黒で描いてから見せる（main.tsx）。画面が見せられなかったときのために 3 秒で見せる保険
+            if let Some(w) = app.get_webview_window("main") {
+                if lock_ok(&app.state::<AppState>().pending_open).is_some() {
+                    let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+                    let w = w.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        if !w.is_visible().unwrap_or(true) {
+                            let _ = w.show();
+                        }
+                    });
+                } else {
+                    let _ = w.show();
+                }
+            }
 
             // **前の版がアプリから書いた AutoPlay の登録を片付ける**（あれば。pictkura-dev #53）。登録は
             // インストーラーと Store のマニフェストが書くようになった——旧い候補が新しい候補と並ばないように。
@@ -7684,6 +7942,8 @@ pub fn run() {
             open_log,
             log_path,
             open_with,
+            open_outside,
+            take_pending_open,
             app_display_names,
             app_keys,
             os_apps_for,

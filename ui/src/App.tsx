@@ -83,6 +83,7 @@ import {
   openDefault,
   takePendingImport,
   openWith,
+  openOutside,
   appDisplayNames,
   appKeys,
   isMac,
@@ -486,6 +487,8 @@ type Row =
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
+/** ライブラリの外の写真の番兵の日（Rust の `OUTSIDE_DAY_KEY` と同じ） */
+const OUTSIDE_DAY = -1;
 
 /**
  * ビューアの情報パネル（I）の幅。パネルは行の終わりの側（左→右なら右、右→左なら左）に開く。開いている間は、
@@ -691,7 +694,12 @@ const NON_TEXT_INPUT_TYPES = new Set([
 const rootName = (r: string) =>
   r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r;
 
-export default function App() {
+export default function App({ openAtStart = null }: { openAtStart?: string | null } = {}) {
+  /**
+   * ビューアだけの窓（「プログラムから開く」で写真を渡されて起動した。2026-11-15 利用者の決定）。一覧・左の欄・
+   * 上の帯は出さず、ビューアを閉じたら窓ごと閉じる。「一覧で見る」でふつうの窓に戻る
+   */
+  const [viewerOnly, setViewerOnly] = useState(openAtStart !== null);
   /** タイムラインの骨組み（日付→枚数、新しい日付順）。全件レコードは持たない */
   const [summary, setSummary] = useState<DaySummary[]>([]);
   /**
@@ -3142,11 +3150,17 @@ export default function App() {
     }
     return out;
   }, [summary]);
+  /**
+   * ライブラリの外の写真（「プログラムから開く」で渡されたフォルダ。負の id）。ビューアは番兵の日
+   * `OUTSIDE_DAY` の列としてこれを歩く（選択スコープの道。dev/plan.md 2026-11-15 の設計 A、spike）
+   */
+  const [outsideItems, setOutsideItems] = useState<MediaItem[] | null>(null);
   const dayIdxByKey = useMemo(() => {
     const map = new Map<number, number>();
     summary.forEach((d, i) => map.set(d.day_key, i));
+    if (outsideItems) map.set(OUTSIDE_DAY, -1);
     return map;
-  }, [summary]);
+  }, [summary, outsideItems]);
 
   // 日付の骨組み＋取得済みの日のjustifiedレイアウトを行モデルへフラット化する。
   // 未取得の日は平均アスペクト4:3で高さを見積もった placeholder 1行になる
@@ -3246,15 +3260,21 @@ export default function App() {
    */
   const { viewerDayItems, pairOf } = useMemo(() => {
     const pairs = new Map<number, MediaItem[]>();
-    if (pairView === null) return { viewerDayItems: dayItems, pairOf: pairs };
+    if (pairView === null) {
+      if (!outsideItems) return { viewerDayItems: dayItems, pairOf: pairs };
+      const withOutside = new Map(dayItems);
+      withOutside.set(OUTSIDE_DAY, outsideItems);
+      return { viewerDayItems: withOutside, pairOf: pairs };
+    }
     const out = new Map<number, MediaItem[]>();
+    if (outsideItems) out.set(OUTSIDE_DAY, outsideItems);
     for (const [dayKey, items] of dayItems) {
       const { walk, pairOf: p } = viewerWalk(items, pairView, unpaired);
       out.set(dayKey, walk);
       for (const [id, files] of p) pairs.set(id, files);
     }
     return { viewerDayItems: out, pairOf: pairs };
-  }, [dayItems, pairView, unpaired]);
+  }, [dayItems, pairView, unpaired, outsideItems]);
   /**
    * 選択スコープを組の歩き方にそろえたもの（`pairAwareScope`）。**ビューアはこちらを歩く**——
    * 送り・端・分母・隣の先読みがみな同じ列を見るように、ここで1回だけ作る
@@ -3866,7 +3886,7 @@ export default function App() {
 
   // ビューアの表示日と前後の日を先読みする（日またぎ移動を途切れさせない）
   useEffect(() => {
-    if (!viewer) return;
+    if (!viewer || viewer.dayKey === OUTSIDE_DAY) return;
     if (!dayItems.has(viewer.dayKey)) loadDay(viewer.dayKey);
     const dayIdx = dayIdxByKey.get(viewer.dayKey);
     if (dayIdx === undefined) return;
@@ -4138,6 +4158,8 @@ export default function App() {
   /** ビューアの `F`・☆ボタン。トグルなので、**どちらに転んだか**を合図に出す */
   const favoriteViewer = useCallback(
     (item: MediaItem) => {
+      // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
+      if (item.id < 0) return;
       flashViewer(item.favorite ? "unfav" : "fav");
       // 組の両方を**見ている側の向き**にそろえる（片方ずつトグルすると、ずれた組が逆向きにずれる）
       markStackRef.current(viewerTargets(item), "favorite", !item.favorite);
@@ -4151,6 +4173,8 @@ export default function App() {
    */
   const rejectTool = useCallback(
     (item: MediaItem) => {
+      // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
+      if (item.id < 0) return;
       const on = !rejectedRef.current.has(item.id);
       const targets = viewerTargets(item);
       for (const f of targets) markReject(f, on);
@@ -4164,6 +4188,8 @@ export default function App() {
   /** ビューアの⚑ボタン。**送らない**——押した相手を見たままにする */
   const pickViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
+      // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
+      if (item.id < 0) return;
       flashViewer(pick ? "pick" : "unflag");
       markStackRef.current(viewerTargets(item), "picked", pick);
     },
@@ -4172,6 +4198,8 @@ export default function App() {
 
   const judgeViewer = useCallback(
     (item: MediaItem, pick: boolean) => {
+      // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
+      if (item.id < 0) return;
       const targets = viewerTargets(item);
       markStackRef.current(targets, "picked", pick);
       // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
@@ -4189,6 +4217,8 @@ export default function App() {
    */
   const rejectViewer = useCallback(
     (item: MediaItem) => {
+      // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
+      if (item.id < 0) return;
       const targets = viewerTargets(item);
       for (const f of targets) markReject(f, true);
       // **判定は1枚につき1つ**（`judgeViewer` の逆向き）。⚑を付けた1枚を
@@ -6179,7 +6209,8 @@ export default function App() {
   const singleInfos = useFileInfos(singleSelected === null ? null : [singleSelected]);
   const singleInfo = singleSelected === null ? undefined : singleInfos.get(singleSelected);
   /** ビューアの撮影情報パネルの「ファイル」の節。表示中の1ファイル */
-  const viewerFileInfos = useFileInfos(infoOpen ? [viewerItem.id] : null);
+  // ライブラリの外の写真（負の id）は記録が無いので訊かない（訊くと「見つかりません」が出た。/code-review）
+  const viewerFileInfos = useFileInfos(infoOpen && viewerItem.id >= 0 ? [viewerItem.id] : null);
 
   /** 選択をやめる */
   const clearSelection = useCallback(() => {
@@ -7121,6 +7152,62 @@ export default function App() {
     const hit = osAppsCache.current.get(extOf(item));
     return hit && Date.now() - hit.at < 5 * 60_000 ? hit.done : undefined;
   };
+  // 「プログラムから開く」で渡された写真: ライブラリの中ならライブラリのビューアでその位置（絞り込みは外す——
+  // 隠れていると開けない）、外ならフォルダを外の写真として並べ、渡された 1 枚から（←→ でフォルダを送る）
+  useEffect(() => {
+    if (!openAtStart) return;
+    void openOutside(openAtStart)
+      .then(({ items, index, library }) => {
+        if (library) {
+          setFilter("all");
+          setKind("all");
+          setQueryInput("");
+          // 日の骨組み（summary）が届いてから開く——先に開くと「位置が解けない」の片付けがビューアを閉じ、
+          // ビューアだけの窓ごと消えた（/code-review・codex）
+          setPendingLibraryOpen({ dayKey: library.day_key, id: library.id });
+          return;
+        }
+        // 並べる写真が無ければ（読めないフォルダ等）ふつうの窓に戻す——黒い窓のまま何も出ない、にしない
+        if (items.length === 0) {
+          setViewerOnly(false);
+          return;
+        }
+        setOutsideItems(items);
+        setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY })));
+        setViewer({ dayKey: OUTSIDE_DAY, id: items[index].id });
+      })
+      .catch((e) => {
+        // 開けなければふつうの窓に戻す（黒い窓のまま何も出ない、にしない）
+        setViewerOnly(false);
+        fail(errText(e));
+      });
+  }, [openAtStart]);
+  const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
+  useEffect(() => {
+    if (pendingLibraryOpen && dayIdxByKey.has(pendingLibraryOpen.dayKey)) {
+      setViewer(pendingLibraryOpen);
+      setPendingLibraryOpen(null);
+    }
+  }, [pendingLibraryOpen, dayIdxByKey]);
+  // ビューアだけの窓は、ビューアを閉じたら窓ごと閉じる（一度ビューアが出たあとだけ）
+  const viewerShownRef = useRef(false);
+  useEffect(() => {
+    if (viewer !== null) viewerShownRef.current = true;
+    else if (viewerOnly && viewerShownRef.current) {
+      // ×と同じ終わり方（`destroy`。`close` は権限に無く、閉じる判断は JS が持つ）。ファイルの操作（削除・書き出し）の
+      // 途中なら、終わってから閉じる（×の 1 度目と同じ印。終わった側が窓を壊す）
+      if (fileOpRef.current) quitAfterTrashRef.current = true;
+      else void getCurrentWindow().destroy();
+    }
+  }, [viewer, viewerOnly]);
+  useEffect(() => {
+    document.documentElement.classList.toggle("viewer-only", viewerOnly);
+  }, [viewerOnly]);
+  // ビューアを閉じたら外の写真を捨てる（一覧には混ぜない）
+  useEffect(() => {
+    if (viewer === null && outsideItems) setOutsideItems(null);
+  }, [viewer, outsideItems]);
+
   // 答えを待つ間に、別の写真で右クリックした・ビューアの写真が替わったら、古い答えでメニューを出さない
   // （出すと、選んだアプリが前の写真を開く。/code-review）
   useEffect(() => {
@@ -7758,7 +7845,9 @@ export default function App() {
           viewerInfo.itemIdx === viewerInfo.dayLength - 1
         );
   const viewerFileIdx = (() => {
-    if (!viewerInfo || pairView === null || pairView === "both") return viewerInfo?.itemIdx ?? 0;
+    if (!viewerInfo || pairView === null || pairView === "both" || viewerInfo.dayIdx < 0) {
+      return viewerInfo?.itemIdx ?? 0;
+    }
     const files = dayItems.get(summary[viewerInfo.dayIdx].day_key);
     if (!files) return viewerInfo.itemIdx;
     // **組の席**（組の最初のファイルの番号）で数える。列は組を最初の席に置くので、送るほど必ず増える
@@ -9412,9 +9501,11 @@ export default function App() {
           )}
           {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
-              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む */}
-              <div className="exif-title">{t.fileInfoTitle}</div>
-              {(() => {
+              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む。
+                  ライブラリの外の写真（負の id）は記録が無いので、ファイルの節を出さない（「読み込み中」のまま
+                  止まっていた。codex） */}
+              {viewerItem.id >= 0 && <div className="exif-title">{t.fileInfoTitle}</div>}
+              {viewerItem.id >= 0 && (() => {
                 const v = viewerFileInfos.get(viewerItem.id);
                 if (v === undefined) return <div className="exif-row">{t.loading}</div>;
                 if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
@@ -9522,7 +9613,7 @@ export default function App() {
                 {isActualSize ? ` ${t.actualSizeBadge}` : ""}
               </button>
             )}
-            {viewerItem && (
+            {viewerItem && viewerItem.id >= 0 && (
               <button
                 className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
@@ -9532,7 +9623,7 @@ export default function App() {
                 <Icon name="star" size={20} className={viewerItem.favorite ? "filled" : undefined} />
               </button>
             )}
-            {viewerItem && (
+            {viewerItem && viewerItem.id >= 0 && (
               <button
                 className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
@@ -9543,7 +9634,7 @@ export default function App() {
             )}
             {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
                 **この場では何も消えない**——閉じるときに関所へ集まる */}
-            {viewerItem && (
+            {viewerItem && viewerItem.id >= 0 && (
               <button
                 className={
                   "viewer-tool reject-tool" +
@@ -9605,13 +9696,26 @@ export default function App() {
                 <Icon name="folder" size={20} />
               </button>
             )}
-            {viewerItem && (
+            {viewerItem && viewerItem.id >= 0 && (
               <button
                 className="viewer-tool danger"
                 title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
                 onClick={() => onDelete(viewerTargets(viewerItem))}
               >
                 <Icon name="trash" size={20} />
+              </button>
+            )}
+            {/* ビューアだけの窓から、ふつうの窓（一覧）へ（2026-11-15 利用者「一覧も起動できるように」） */}
+            {viewerOnly && (
+              <button
+                className="viewer-tool"
+                title={t.viewerShowLibrary} id="pk-viewer-show-library" data-testid="viewer-show-library"
+                onClick={() => {
+                  setViewerOnly(false);
+                  requestCloseViewer();
+                }}
+              >
+                <Icon name="grid" size={20} />
               </button>
             )}
             <button
@@ -9703,7 +9807,12 @@ export default function App() {
           menu
             ? menu.apps
               ? appMenuItems(menu.item, menu.apps)
-              : menuItemsFor(menu.item, menu.files, menu.markFiles, menu.pos)
+              : menuItemsFor(menu.item, menu.files, menu.markFiles, menu.pos).filter(
+                  // ライブラリの外の写真（負の id）は、ファイルだけで済むものに限る（印・回転・削除・情報は記録が要る）
+                  (m) =>
+                    menu.item.id >= 0 ||
+                    /^(open|open-with-.*|os-.*|reveal|more-options|copy-image|print)$/.test(m.id ?? ""),
+                )
             : []
         }
         onClose={() => setMenu(null)}

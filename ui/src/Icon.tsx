@@ -113,6 +113,15 @@ const PATHS = {
   // 全画面に: 四隅が外へ。戻す: 四隅が内へ
   fullscreen: <path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" />,
   fullscreenExit: <path d="M9 4.5V9H4.5M19.5 9H15V4.5M15 19.5V15h4.5M4.5 15H9v4.5" />,
+  // 一覧で見る: 4 つの升
+  grid: (
+    <>
+      <rect x="4.5" y="4.5" width="6" height="6" rx="1" />
+      <rect x="13.5" y="4.5" width="6" height="6" rx="1" />
+      <rect x="4.5" y="13.5" width="6" height="6" rx="1" />
+      <rect x="13.5" y="13.5" width="6" height="6" rx="1" />
+    </>
+  ),
   // 注意: 三角と !
   warning: (
     <>

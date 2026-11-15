@@ -1,8 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
-import { rememberLocaleChoice, syncMenuLocale } from "./api";
+import { rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
 import { dirOf } from "./direction";
 import { locale } from "./i18n";
 import { initTheme } from "./theme";
@@ -25,8 +26,20 @@ document.documentElement.dir = dirOf(locale);
 void syncMenuLocale();
 void rememberLocaleChoice();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+// 「プログラムから開く」で写真を渡されて起動したか。**描く前に受け取る**——一覧を一度描いてからビューアへ
+// 替えると、起動時に一覧がちらつく（2026-11-15 利用者）。渡されていればビューアだけの窓として描き始める
+void takePendingOpen()
+  .catch(() => null)
+  .then((openAtStart) => {
+    if (openAtStart) document.documentElement.classList.add("viewer-only");
+    ReactDOM.createRoot(document.getElementById("root")!).render(
+      <React.StrictMode>
+        <App openAtStart={openAtStart ?? null} />
+      </React.StrictMode>,
+    );
+    // ビューアだけの窓は、黒い地を描いてから見せる（窓は見えない状態で作ってある。白や一覧の地色を出さない）。
+    // 描き終わりを待つため、次の 2 コマ後に見せる
+    if (openAtStart) {
+      requestAnimationFrame(() => requestAnimationFrame(() => void getCurrentWindow().show()));
+    }
+  });

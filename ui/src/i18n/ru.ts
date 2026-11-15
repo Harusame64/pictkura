@@ -148,6 +148,7 @@ export const ru: Dict = {
   memoriesTitle: (years: number) =>
     `В этот день ${num(years)} ${ofm(years, "год", "года", "лет")} назад`,
   viewerFavorite: "Избранное (F)",
+  viewerShowLibrary: "Показать в библиотеке",
   viewerPick: "Выбрать (P)",
   viewerUnpick: "Снять флажок (U)",
   viewerPicked: "Выбрано",

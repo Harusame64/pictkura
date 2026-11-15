@@ -149,6 +149,7 @@ export const ko: Dict = {
   photosCount: (n: number) => `${num(n)}장`,
   memoriesTitle: (years: number) => `${num(years)}년 전 오늘`,
   viewerFavorite: "즐겨찾기 (F)",
+  viewerShowLibrary: "라이브러리에서 보기",
   viewerPick: "플래그 지정 (P)",
   viewerUnpick: "플래그 해제 (U)",
   viewerPicked: "플래그 지정된 사진",

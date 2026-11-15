@@ -127,6 +127,7 @@ export const fr: Dict = {
   memoriesTitle: (years: number) =>
     `Il y a ${num(years)} ${un(years, "an", "ans")}, jour pour jour`,
   viewerFavorite: "Favori (F)",
+  viewerShowLibrary: "Afficher dans la bibliothèque",
   viewerPick: "Retenir (P)",
   viewerUnpick: "Retirer le marqueur (U)",
   viewerPicked: "Photo retenue",

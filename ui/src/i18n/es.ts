@@ -146,6 +146,7 @@ export const es: Dict = {
       ? "Un día como hoy hace 1 año"
       : `Un día como hoy hace ${num(years)} años`,
   viewerFavorite: "Favorita (F)",
+  viewerShowLibrary: "Ver en la biblioteca",
   viewerPick: "Marcar con un indicador (P)",
   viewerUnpick: "Quitar el indicador (U)",
   viewerPicked: "Foto con indicador",

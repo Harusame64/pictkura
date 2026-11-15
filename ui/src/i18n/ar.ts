@@ -179,6 +179,7 @@ export const ar: Dict = {
       other: `قبل ${num(years)} سنة`,
     })}`,
   viewerFavorite: "المفضلة (F)",
+  viewerShowLibrary: "العرض في المكتبة",
   viewerPick: "انتقاء (P)",
   viewerUnpick: "إلغاء الانتقاء (U)",
   viewerPicked: "صورة منتقاة",
