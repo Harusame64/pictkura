@@ -22,7 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { ScrubRail } from "./ScrubRail";
-import { anchoredScrollTop, chooseLabels } from "./scrubRailMath";
+import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -3482,35 +3482,8 @@ export default function App() {
     return tops;
   }, [rows]);
 
-  /**
-   * 年の変わり目を目盛りにしたスクラバー用のマーカー。
-   * 10年分のライブラリでも1クリックで飛べるようにする（骨組みだけで作れるので
-   * 追加のIPCもレコード取得も要らない）。ラベルは重なる位置では省いて点だけ描く
-   */
-  /** 各行の日（帯の吹き出しが、指の位置の年月を引く） */
+  /** 各行の日（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める） */
   const rowDayKeys = useMemo(() => rows.map((r) => r.dayKey), [rows]);
-
-  const yearMarkers = useMemo(() => {
-    const total = rowTops[rows.length] || 1;
-    const out: { year: number; rowIndex: number; top: number; label: boolean }[] = [];
-    let lastYear = -1;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.kind !== "header") continue;
-      const year = Math.floor(row.dayKey / 10000);
-      if (year === lastYear) continue;
-      lastYear = year;
-      out.push({ year, rowIndex: i, top: (rowTops[i] / total) * 100, label: false });
-    }
-    // ラベルは 4%（≒24px 相当）以上離れているときだけ。重なったら写真の多い年を残す（`chooseLabels`）
-    const spans = out.map((m, k) => (k + 1 < out.length ? out[k + 1].top : 100) - m.top);
-    const labels = chooseLabels(
-      out.map((m) => m.top),
-      spans,
-      4,
-    );
-    return out.map((m, k) => ({ ...m, label: labels[k] }));
-  }, [rows, rowTops]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -8211,7 +8184,6 @@ export default function App() {
                 scrollRef={scrollRef}
                 rowTops={rowTops}
                 dayKeys={rowDayKeys}
-                markers={yearMarkers}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {

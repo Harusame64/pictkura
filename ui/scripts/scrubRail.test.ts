@@ -9,6 +9,7 @@ import {
   dayKeyAt,
   anchoredScrollTop,
   fractionAt,
+  makeRailMap,
   monthDots,
   monthIndexAt,
   monthStarts,
@@ -105,4 +106,20 @@ test("the day at the top stays at the top when rows above change height", () => 
   assert.equal(anchoredScrollTop(1500, prevTops, prevDays, nextTops, nextDays), 800);
   // その日が縮んで届かなければ、その日の終わりに留める
   assert.equal(anchoredScrollTop(1500, prevTops, prevDays, [0, 40, 340, 380, 440], nextDays), 439);
+});
+
+test("the rail gives small months room, and maps back to the same place", () => {
+  // 1か月目は 100px、2か月目は 900px
+  const starts = [{ offset: 0 }, { offset: 100 }];
+  const map = makeRailMap(starts, 1000, 0.5);
+  // 量だけなら 10%。半分を等分に回すと 0.5*0.1 + 0.5*0.5 = 30%
+  assert.ok(Math.abs(map.toRail(100) - 0.3) < 1e-9);
+  assert.equal(map.toRail(0), 0);
+  assert.ok(Math.abs(map.toRail(1000) - 1) < 1e-9);
+  for (const o of [0, 50, 100, 400, 999]) {
+    assert.ok(Math.abs(map.toContent(map.toRail(o)) - o) < 1e-6, String(o));
+  }
+  // alpha=1 なら量に比例（前の振る舞い）
+  const prop = makeRailMap(starts, 1000, 1);
+  assert.ok(Math.abs(prop.toRail(100) - 0.1) < 1e-9);
 });

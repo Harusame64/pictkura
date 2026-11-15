@@ -171,3 +171,67 @@ function indexAt(offset: number, tops: readonly number[], n: number): number {
   }
   return lo;
 }
+
+/**
+ * 帯の上の位置と、中身の位置の対応。**写真の量だけに比例させない**——月ごとに、量の比（`alpha`）と
+ * 月の数で等分した比（`1 - alpha`）を混ぜた幅を割り当てる。
+ *
+ * 量だけに比例させると、写真の少ない月や、始まったばかりの今年が帯の上でほとんど幅を持たず、窓を縦に狭くすると
+ * 2026 と 2025 の間に月の点が1つも置けなかった（利用者 2026-11-15）。月の頭どうしの間は直線でつなぐので、
+ * 行き来しても同じ位置へ戻る
+ */
+export type RailMap = {
+  /** 中身の位置（上端からの距離）→ 帯の上の比（0〜1） */
+  toRail: (offset: number) => number;
+  /** 帯の上の比 → 中身の位置 */
+  toContent: (fraction: number) => number;
+};
+
+export function makeRailMap(
+  starts: readonly { offset: number }[],
+  total: number,
+  alpha: number,
+): RailMap {
+  const k = starts.length;
+  if (k === 0 || !(total > 0)) {
+    return {
+      toRail: (o) => (total > 0 ? Math.min(1, Math.max(0, o / total)) : 0),
+      toContent: (f) => Math.min(1, Math.max(0, f)) * total,
+    };
+  }
+  const len = starts.map((s, i) => (i + 1 < k ? starts[i + 1].offset : total) - s.offset);
+  const weight = len.map((l) => alpha * (l / total) + (1 - alpha) / k);
+  const sum = weight.reduce((a, b) => a + b, 0);
+  const railStart: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < k; i++) {
+    railStart.push(acc / sum);
+    acc += weight[i];
+  }
+  const w = weight.map((x) => x / sum);
+  const find = (arr: readonly number[], v: number) => {
+    let lo = 0;
+    let hi = arr.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (arr[mid] <= v) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const offs = starts.map((s) => s.offset);
+  return {
+    toRail: (o) => {
+      if (o <= offs[0]) return railStart[0] * (o / Math.max(1, offs[0]));
+      const i = find(offs, o);
+      const within = len[i] > 0 ? Math.min(1, (o - offs[i]) / len[i]) : 0;
+      return Math.min(1, railStart[i] + w[i] * within);
+    },
+    toContent: (f) => {
+      const c = Math.min(1, Math.max(0, f));
+      const i = find(railStart, c);
+      const within = w[i] > 0 ? Math.min(1, (c - railStart[i]) / w[i]) : 0;
+      return offs[i] + within * len[i];
+    },
+  };
+}

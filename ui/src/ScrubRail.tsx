@@ -8,8 +8,8 @@ import {
   monthDots,
   monthIndexAt,
   monthStarts,
-  scrollTopFor,
-  thumbOf,
+  chooseLabels,
+  makeRailMap,
 } from "./scrubRailMath";
 
 /** 帯の上の位置（%）。下端の目盛りは、文字の半分が帯の外へはみ出さないよう、帯の中に留める */
@@ -17,14 +17,17 @@ const edgeTop = (percent: number) => `clamp(8px, ${percent}%, calc(100% - 8px))`
 
 export type YearMarker = { year: number; rowIndex: number; top: number; label: boolean };
 
-/** つまみの最小の高さ（px）。これより小さいと見えにくい（win2 の試作で 40px） */
-const MIN_THUMB_PX = 40;
 /** これより動いたら「掴んで送る」。手ぶれで、押しただけの操作が送りに化けないように */
 const DRAG_SLOP = 3;
 /** 年の目盛りのこの距離（px）以内を押したら、その年の頭へ飛ぶ */
 const SNAP_PX = 10;
 /** 月の仕切りの点どうし・年の目盛りとの最小の間隔（px）。詰まる所は点を省く */
-const MONTH_GAP_PX = 7;
+const MONTH_GAP_PX = 5;
+/**
+ * 帯の幅の割り当てで、写真の量に比例させる割合（残りは月の数で等分）。量だけだと、写真の少ない月・始まったばかりの
+ * 今年が帯の上で幅を持たず、窓を縦に狭くすると 2026 と 2025 の間に月の点が置けなかった（利用者 2026-11-15）
+ */
+const RAIL_ALPHA = 0.5;
 /**
  * 掴んで送っている間、一覧を動かす間隔（ms）。指が動くたびに動かすと、行き先の行を毎フレーム作り直して
  * カクついた（win2 の実測 2026-11-15、33,178 件: rAF p95 71ms）。間は帯の上だけ（つまみ・吹き出し・横線）が指に付いて動き、
@@ -65,7 +68,6 @@ export function ScrubRail({
   scrollRef,
   rowTops,
   dayKeys,
-  markers,
   onJumpToRow,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -73,12 +75,10 @@ export function ScrubRail({
   rowTops: readonly number[];
   /** 各行の日（`rowTops` と同じ並び、末尾の総高さの分は無い） */
   dayKeys: readonly number[];
-  markers: readonly YearMarker[];
   onJumpToRow: (rowIndex: number) => void;
 }) {
   const railRef = useRef<HTMLDivElement>(null);
   const total = rowTops[rowTops.length - 1] ?? 0;
-  const [thumb, setThumb] = useState({ top: 0, height: 1 });
   const [viewport, setViewport] = useState(0);
   // 指の所: 帯の上の位置（px）と、拡大鏡の中央の月（yyyymm）。指が帯の外で、掴んでもいないときは出さない
   const [bubble, setBubble] = useState<{ y: number; month: number | null } | null>(null);
@@ -107,9 +107,6 @@ export function ScrubRail({
       frame.current = requestAnimationFrame(() => {
         setViewport(el.clientHeight);
         setScrollTop(el.scrollTop);
-        setThumb(
-          thumbOf(el.scrollTop, total, el.clientHeight, MIN_THUMB_PX / Math.max(1, el.clientHeight)),
-        );
       });
     };
     sync();
@@ -121,22 +118,44 @@ export function ScrubRail({
       ro.disconnect();
       cancelAnimationFrame(frame.current);
     };
-  }, [scrollRef, total]);
-
-  // 月の仕切り。帯の高さ（≒一覧の見えている高さ）で間引くので、窓の大きさが変わったら置き直す
-  const dots = useMemo(
-    () => monthDots(rowTops, dayKeys, viewport, markers.map((m) => m.top / 100), MONTH_GAP_PX),
-    [rowTops, dayKeys, viewport, markers],
-  );
+  }, [scrollRef]);
 
   const starts = useMemo(() => monthStarts(rowTops, dayKeys), [rowTops, dayKeys]);
+  // 帯と中身の対応（`makeRailMap`）。写真の少ない月・今年にも幅を回す
+  const map = useMemo(() => makeRailMap(starts, total, RAIL_ALPHA), [starts, total]);
+
+  // 年の目盛り: 年の変わる行ごとに1つ。ラベルは 4% 以上離れているときだけ、重なったら写真の多い年を残す
+  const markers = useMemo((): YearMarker[] => {
+    const out: YearMarker[] = [];
+    let lastYear = -1;
+    for (let i = 0; i < dayKeys.length; i++) {
+      const y = Math.floor(dayKeys[i] / 10000);
+      if (y === lastYear) continue;
+      lastYear = y;
+      out.push({ year: y, rowIndex: i, top: map.toRail(rowTops[i]) * 100, label: false });
+    }
+    const spans = out.map((m, k) => (k + 1 < out.length ? out[k + 1].top : 100) - m.top);
+    const labels = chooseLabels(
+      out.map((m) => m.top),
+      spans,
+      4,
+    );
+    return out.map((m, k) => ({ ...m, label: labels[k] }));
+  }, [dayKeys, rowTops, map]);
+
+  // 月の仕切り。帯の高さ（≒一覧の見えている高さ）で間引くので、窓の大きさが変わったら置き直す。
+  // 位置は帯の対応（`map`）で引く——中身の位置を対応で写した上端を渡す
+  const dots = useMemo(() => {
+    const mapped = rowTops.map((t) => map.toRail(t) * total);
+    return monthDots(mapped, dayKeys, viewport, markers.map((m) => m.top / 100), MONTH_GAP_PX);
+  }, [rowTops, dayKeys, viewport, markers, map, total]);
 
   const monthAt = useCallback(
     (fraction: number): number | null => {
-      const key = dayKeyAt(fraction * total, rowTops, dayKeys);
+      const key = dayKeyAt(map.toContent(fraction), rowTops, dayKeys);
       return key === null ? null : Math.floor(key / 100);
     },
-    [total, rowTops, dayKeys],
+    [map, rowTops, dayKeys],
   );
 
   /** 押すと飛ぶ先になる年の目盛り（点の近く）。吹き出しも同じ目盛りの年月を出す——比で引くと、目盛りの数 px 上は
@@ -175,7 +194,7 @@ export function ScrubRail({
   const moveTo = (fraction: number) => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = scrollTopFor(fraction, total, el.clientHeight);
+    el.scrollTop = Math.min(Math.max(0, total - el.clientHeight), map.toContent(fraction));
   };
   /** 掴んで送っている間の移動。`DRAG_MOVE_MS` に1回まで、最後の指の位置へ（間引いた分は後追いで必ず動かす） */
   const moveWhileDragging = (fraction: number) => {
@@ -265,8 +284,9 @@ export function ScrubRail({
   }
 
   // 現在地: 掴んで送っている間は指の所、それ以外は一覧の上端
-  const hereFraction = dragFraction ?? (total > 0 ? scrollTop / total : 0);
-  const hereMonth = monthAt(dragFraction ?? (total > 0 ? (scrollTop + 1) / total : 0));
+  const hereFraction = dragFraction ?? map.toRail(scrollTop);
+  const hereKey = dragFraction === null ? dayKeyAt(scrollTop + 1, rowTops, dayKeys) : null;
+  const hereMonth = dragFraction !== null ? monthAt(dragFraction) : hereKey === null ? null : Math.floor(hereKey / 100);
 
   // 中身が1画面に収まるなら、帯は要らない（動かす先が無い）
   if (!(total > viewport + 1) && viewport > 0) return null;
@@ -280,7 +300,7 @@ export function ScrubRail({
       aria-label={t.scrubRailLabel}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(thumb.top * 100)}
+      aria-valuenow={Math.round(hereFraction * 100)}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         const p = pointOf(e.clientY);
