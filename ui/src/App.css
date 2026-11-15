@@ -1209,9 +1209,11 @@ body {
   inset: 0;
   z-index: 1;
   border-radius: inherit;
+  /* 写真の色は選べないので、暗い線と明るい線の 2 重にする（どんな写真でもどちらかが見える）。テーマにも依らない。
+     明るい側だけだと真っ白な写真の上で消えた（利用者「真っ黒とか真っ白だと見えない」） */
   box-shadow:
-    inset 0 0 0 2px var(--text),
-    inset 0 0 0 3px oklch(1 0 0 / 0.5);
+    inset 0 0 0 2px oklch(0.15 0 0 / 0.85),
+    inset 0 0 0 4px oklch(1 0 0 / 0.9);
   pointer-events: none;
 }
 .day-thumb {
