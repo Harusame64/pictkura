@@ -308,9 +308,20 @@ export function ScrubRail({
   // 月のカードは、カードと帯の外を押す・Esc で閉じる
   useEffect(() => {
     if (!card) return;
+    // カードの外を押したら、閉じるだけ（押した下の写真のビューアまで開かない。ポップオーバーの作法、
+    // Esc と同じく手前の幕が取る。win2 の実測で、1 回の押下でカードが閉じてビューアも開いた）
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null;
       if (t && (cardRef.current?.contains(t) || railRef.current?.contains(t))) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const swallow = (c: MouseEvent) => {
+        c.stopPropagation();
+        c.preventDefault();
+      };
+      // 続く click も、この押下の分だけ飲む
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      window.setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 600);
       setCard(null);
     };
     const onKey = (e: KeyboardEvent) => {
