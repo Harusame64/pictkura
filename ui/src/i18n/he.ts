@@ -387,6 +387,7 @@ export const he: Dict = {
   menuOpen: "פתיחה",
   menuOpenWith: (name: string) => `פתיחה באמצעות ${iso(name)}`,
   menuOpenWithOther: "פתיחה באמצעות אפליקציה אחרת…",
+  pickAnotherApp: "בחירת אפליקציה אחרת…",
   menuReveal: "הצגה בתיקייה",
   menuMoreOptions: "הצג אפשרויות נוספות",
   menuCopyImage: "העתקת התמונה ללוח",
@@ -651,6 +652,8 @@ export const he: Dict = {
   errGoogleIo: "לא ניתן היה לקרוא מתיקיית השליחה או לכתוב אליה.",
   errGoogleOtherDrive: "בחרו תיקייה באותו כונן שבו נמצא יעד הייבוא.",
   errNotFound: "התמונה הזו כבר לא באינדקס.",
+  errAppGone: "האפליקציה הזו כבר לא מוצעת לפתיחת התמונה. נסו שוב.",
+  errOpenWith: "לא ניתן היה לפתוח את התמונה באפליקציה הזו.",
   errRotateNoOrientation: "אין לתמונה הזו מידע על כיוון, ולכן אי אפשר לסובב אותה.",
   errRotateXmp:
     "זה יתנגש בכיוון שתוכנות עריכת תמונות קוראות מ-XMP, ולכן אי אפשר לסובב את התמונה הזו.",

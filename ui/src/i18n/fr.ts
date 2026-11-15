@@ -373,6 +373,7 @@ export const fr: Dict = {
   menuOpen: "Ouvrir",
   menuOpenWith: (name: string) => `Ouvrir avec ${name}`,
   menuOpenWithOther: "Ouvrir avec une autre application…",
+  pickAnotherApp: "Choisir une autre application…",
   menuReveal: "Afficher dans le dossier",
   menuMoreOptions: "Afficher d’autres options",
   menuCopyImage: "Copier l’image dans le presse-papiers",
@@ -673,6 +674,8 @@ export const fr: Dict = {
   errGoogleIo: "Impossible de lire ou d’écrire dans le dossier Envoi.",
   errGoogleOtherDrive: "Choisissez un dossier sur le même lecteur que la destination de l’importation.",
   errNotFound: "Cette photo ne figure plus dans l’index.",
+  errAppGone: "Cette application n'est plus proposée pour cette photo. Réessayez.",
+  errOpenWith: "Impossible d'ouvrir la photo dans cette application.",
   errRotateNoOrientation:
     "Cette photo ne contient aucune information d’orientation ; impossible de la faire pivoter.",
   errRotateXmp:

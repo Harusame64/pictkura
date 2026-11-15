@@ -374,6 +374,7 @@ export const it: Dict = {
   menuOpen: "Apri",
   menuOpenWith: (name: string) => `Apri con ${name}`,
   menuOpenWithOther: "Apri con un'altra app…",
+  pickAnotherApp: "Scegli un'altra app…",
   menuReveal: "Mostra nella cartella",
   // Windows 11 のエクスプローラーの同じ項目と同じ言葉（ADR B-4）
   menuMoreOptions: "Mostra altre opzioni",
@@ -647,6 +648,8 @@ export const it: Dict = {
   errGoogleIo: "Impossibile leggere o scrivere nella cartella In uscita.",
   errGoogleOtherDrive: "Scegli una cartella sulla stessa unità della destinazione di importazione.",
   errNotFound: "Quella foto non è più nell'indice.",
+  errAppGone: "Questa app non è più proposta per questa foto. Riprova.",
+  errOpenWith: "Impossibile aprire la foto con questa app.",
   errRotateNoOrientation: "Questa foto non ha informazioni sull'orientamento, quindi non può essere ruotata.",
   errRotateXmp: "Sarebbe in conflitto con l'orientamento che i programmi di fotoritocco leggono dall'XMP, quindi non può essere ruotata.",
   errRotateCloudOnly: "Questa foto è solo nel cloud, quindi non può essere ruotata. Scaricala e riprova.",

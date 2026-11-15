@@ -422,6 +422,7 @@ export const ja = {
   menuOpen: "開く",
   menuOpenWith: (name: string) => `${name} で開く`,
   menuOpenWithOther: "他のアプリで開く…",
+  pickAnotherApp: "別のアプリを選ぶ…",
   menuReveal: "ファイルの場所を開く",
   // Windows 11 のエクスプローラーの同じ項目と同じ言葉（ADR B-4。Microsoft のサポートページで確かめた）
   menuMoreOptions: "その他のオプションを表示",
@@ -700,6 +701,8 @@ export const ja = {
   errGoogleIo: "送り出しフォルダを読み書きできませんでした。",
   errGoogleOtherDrive: "取り込み先と同じドライブのフォルダを選んでください。",
   errNotFound: "その写真の記録が見つかりません。",
+  errAppGone: "そのアプリは、この写真を開く候補から外れました。もう一度お試しください。",
+  errOpenWith: "このアプリで開けませんでした。",
   errRotateNoOrientation: "この写真には向きの情報がないため、回転できません。",
   errRotateXmp: "現像ソフトが使う向きの情報（XMP）と食い違うため、回転できません。",
   errRotateCloudOnly: "写真がクラウドにしかないため、回転できません。ダウンロードしてからもう一度お試しください。",
