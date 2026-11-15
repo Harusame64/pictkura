@@ -7343,7 +7343,30 @@ pub fn run() {
             // **配布ビルドでは、これが無いと黙って1本死ぬ**
             applog::install_panic_hook();
 
-            // **窓は設定どおりに作られたあと**（config の窓は `setup` より前に建つ）。
+            // **主窓はここで作る**（tauri.conf.json の `create: false`）。**この下の処理（画面に収める・WebView2 の
+            // 引数を戻す・mac の全画面）は窓が要るので、窓より後に置くこと**（#317 の /code-review: 後ろで作ったら
+            // 3 つとも黙って空振りした）。写真を渡されて起動したら、生まれたときから地を黒に——作ってから黒にしても、
+            // WebView2 が最初の 1 コマを描くまで窓の地（白）が見えることがあった（#314、win2 の色の読み取りで白〜明るい
+            // 灰が 40〜80ms）。ふつうの起動の地は今までどおり。見せるのは下（ふつうは setup の終わり、写真なら画面が描いてから）
+            let viewer_only = open_path_from_args(&std::env::args().collect::<Vec<_>>()).is_some()
+                || lock_ok(&EARLY_OPEN).is_some();
+            let main_cfg = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("tauri.conf.json has no main window")?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &main_cfg)?;
+            if viewer_only {
+                builder = builder.background_color(tauri::window::Color(0, 0, 0, 255));
+            }
+            // 作れなかったら記録に残す（setup の失敗は tauri がパニックにするので、run() の末尾の記録には届かない）
+            builder
+                .build()
+                .inspect_err(|e| applog::note(&format!("could not create the main window: {e}")))?;
+
             // 画面に入らない台では、ここで縮めて押し戻す
             window_fit::fit_main_window(app.handle());
             // 窓（と WebView2 の環境）はもう建った。合成を切る指定を、この先に起こす子のプロセスへ引き継がない
@@ -7465,36 +7488,19 @@ pub fn run() {
                 display_cache: pictkura_core::display_cache::DisplayCache::default(),
             });
 
-            // 写真を渡されて起動したら（「プログラムから開く」）、窓の地を最初からビューアの黒に——白い窓が
-            // 一瞬出てからビューアに替わる「ちらつき」を出さない（2026-11-15 利用者「起動時なんかちらちらする」）
-            // 窓は見えない状態で作る（tauri.conf.json の `visible: false`）。作った直後の窓は白で、中身が描けるまで
-            // 0.3 秒ほど白い窓が見えていた（win2 の色の読み取り）。ふつうの起動はここで見せる。写真を渡されて起動したら
-            // 画面がビューアを黒で描いてから見せる（main.tsx）。画面が見せられなかったときのために 3 秒で見せる保険
+            // 窓を見せる（2026-11-15 利用者「起動時なんかちらちらする」）。窓は見えない状態で作ってある（`visible:
+            // false`）。ふつうの起動はここで見せる。写真を渡されて起動したら、画面がビューアを黒で描いてから見せる
+            // （main.tsx）。画面が見せられなかったときのために 3 秒で見せる保険（prepare_viewer_only_window）
             // `manage` の前に届いて EARLY_OPEN に積まれた写真（deliver_open と競ったとき）を拾い直す
             if let Some(p) = lock_ok(&EARLY_OPEN).take() {
                 *lock_ok(&app.state::<AppState>().pending_open) = Some(p);
             }
-            // **窓はここで作る**（tauri.conf.json の `create: false`）。写真を渡されたら、生まれたときから地を黒に
-            // ——作ってから黒にしても、WebView2 が最初の 1 コマを描くまで窓の地（白）が見えることがあった（#314、
-            // win2 の色の読み取りで白〜明るい灰が 40〜80ms）。ふつうの起動は今までどおり（地は既定のまま）
-            let viewer_only = lock_ok(&app.state::<AppState>().pending_open).is_some();
-            let main_cfg = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|w| w.label == "main")
-                .cloned()
-                .ok_or("tauri.conf.json に main の窓が無い")?;
-            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &main_cfg)?;
-            if viewer_only {
-                builder = builder.background_color(tauri::window::Color(0, 0, 0, 255));
-            }
-            let main_window = builder.build()?;
-            if viewer_only {
+            // 窓は setup の先頭で作ってある（隠れたまま）。作っている間に別の起動から写真が届いた場合も、ここで拾う
+            // （そのときの窓は黒で生まれていないが、まだ見えていないので、黒にしてから画面が描いて見せる）
+            if lock_ok(&app.state::<AppState>().pending_open).is_some() {
                 prepare_viewer_only_window(app.handle());
-            } else {
-                let _ = main_window.show();
+            } else if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
             }
 
             // **前の版がアプリから書いた AutoPlay の登録を片付ける**（あれば。pictkura-dev #53）。登録は
