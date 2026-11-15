@@ -35,6 +35,10 @@ const DRAG_MOVE_MS = 120;
 const LOUPE_SPAN = 3;
 /** 拡大鏡の月どうしの間隔（px） */
 const LOUPE_STEP = 22;
+/** 止めた一覧の1行の高さ（px）。押しやすい大きさ */
+const MENU_STEP = 26;
+/** 止めた一覧から、この距離（px）までは指が外れても閉じない（帯との間を渡るため） */
+const MENU_SLACK_PX = 24;
 
 /** 「2023年8月」（年をまたぐ所と、指の月） */
 const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
@@ -47,6 +51,8 @@ const monthOnly = (yyyymm: number) => formatMonthOnly(Math.floor(yyyymm / 100), 
  * - 帯のどこを押しても・掴んで動かしても、その比の所へ一覧が移る
  * - 帯の上に指があるあいだと掴んでいる間は、指の所に横線を引き、帯の横に拡大鏡を出す（指の月を中央に大きく、
  *   前後の月を小さく。押す場所は帯の上のまま——拡大鏡は見るだけ。利用者の「Dock みたいに」から 2026-11-15）
+ * - 帯から写真の側へ指を出すと、拡大鏡がその場に止まり、その年の月を押せる一覧になる（2 段: 粗く帯で年へ、
+ *   細かく一覧で月へ。帯の上では 1 か月が 1px に満たないことがあり、月を狙えなかった。利用者 2026-11-15）
  * - いま見ている位置には、現在地の札（年月）を常に出す。つまみ（見えている範囲の棒）は、3 万枚では 0.04% で意味が無かった
  * - 年の目盛りの近くを押すと、その年の頭へ飛ぶ（前からの動き。目盛りは帯の一部で、上で掴んでも動かせる）
  * - 年と年の間には、月の仕切りの小さな点を置く（Google フォトのように。詰まる所は省く）
@@ -73,6 +79,9 @@ export function ScrubRail({
   const [viewport, setViewport] = useState(0);
   // 指の所: 帯の上の位置（px）と、拡大鏡の中央の月（yyyymm）。指が帯の外で、掴んでもいないときは出さない
   const [bubble, setBubble] = useState<{ y: number; month: number | null } | null>(null);
+  // 止めた拡大鏡（押せる月の一覧）。帯の上の位置（px）と、その年・指の月
+  const [menu, setMenu] = useState<{ y: number; month: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   // 現在地（一覧の上端の位置）
   const [scrollTop, setScrollTop] = useState(0);
   // 押している間の記録。動かしたかどうかで、離したときの意味（飛ぶ／送り終わり）が変わる
@@ -187,6 +196,41 @@ export function ScrubRail({
   };
   useEffect(() => () => window.clearTimeout(moveTimer.current), []);
 
+  // 止めた一覧は、指が一覧からも帯からも離れたら閉じる（一覧へ入らずに別の所へ行ったときも残らないように）
+  useEffect(() => {
+    if (!menu) return;
+    const onMove = (e: PointerEvent) => {
+      const inside = (el: Element | null | undefined, pad: number) => {
+        const r = el?.getBoundingClientRect();
+        return (
+          !!r &&
+          e.clientX >= r.left - pad &&
+          e.clientX <= r.right + pad &&
+          e.clientY >= r.top - pad &&
+          e.clientY <= r.bottom + pad
+        );
+      };
+      if (!inside(menuRef.current, MENU_SLACK_PX) && !inside(railRef.current, 0)) setMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
+  /** 止めた一覧の月の並び（その年の、写真のある月。上が新しい月） */
+  const menuMonths = menu ? starts.filter((x) => Math.floor(x.month / 100) === Math.floor(menu.month / 100)) : [];
+  const goTo = (offset: number) => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = offset;
+    setMenu(null);
+  };
+
   // 拡大鏡: 指の月を中央に、前後の月を上下へ（上が新しい月。一覧と同じ向き）
   const loupe: { month: number; d: number }[] = [];
   if (bubble?.month != null) {
@@ -259,8 +303,14 @@ export function ScrubRail({
         endDrag();
         setBubble(null);
       }}
-      onPointerLeave={() => {
-        if (!drag.current) setBubble(null);
+      onPointerLeave={(e) => {
+        if (drag.current) return;
+        // 写真の側へ出たら、拡大鏡をその場に止めて、押せる一覧にする（帯の外側＝窓の端へ出たときは止めない）
+        const rect = railRef.current?.getBoundingClientRect();
+        const rtl = railRef.current ? getComputedStyle(railRef.current).direction === "rtl" : false;
+        const towardPhotos = rect ? (rtl ? e.clientX > rect.right : e.clientX < rect.left) : false;
+        if (towardPhotos && bubble?.month != null) setMenu({ y: bubble.y, month: bubble.month });
+        setBubble(null);
       }}
       onLostPointerCapture={() => {
         drag.current = null;
@@ -288,7 +338,51 @@ export function ScrubRail({
         ))}
       {/* 指の所の横線（利用者の希望、2026-11-15）。帯から外れたら消える（掴んでいる間は外でも付いてくる） */}
       {bubble && <div className="scrub-cursor" style={{ top: `${bubble.y}px` }} aria-hidden="true" />}
-      {bubble && loupe.length > 0 && (
+      {menu && menuMonths.length > 0 && (
+        <div
+          ref={menuRef}
+          className="scrub-menu"
+          style={{
+            // 指の月を、止めたときの指の高さに置く。帯からはみ出さないように詰める
+            top: `${Math.max(
+              0,
+              Math.min(
+                viewport - (menuMonths.length + 1) * MENU_STEP,
+                menu.y - (menuMonths.findIndex((x) => x.month === menu.month) + 1) * MENU_STEP - MENU_STEP / 2,
+              ),
+            )}px`,
+          }}
+          // 一覧の上の操作を、帯の「押す・掴む・拡大鏡」に渡さない
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerMove={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onPointerLeave={(e) => {
+            e.stopPropagation();
+            // 帯へ戻ったら、また拡大鏡で選び直せるように閉じる
+            const r = railRef.current?.getBoundingClientRect();
+            if (r && e.clientX >= r.left && e.clientX <= r.right) setMenu(null);
+          }}
+        >
+          <button
+            className="scrub-menu-year"
+            style={{ height: MENU_STEP }}
+            onClick={() => goTo(menuMonths[0].offset)}
+          >
+            {year(Math.floor(menu.month / 100))}
+          </button>
+          {menuMonths.map((x) => (
+            <button
+              key={x.month}
+              className={"scrub-menu-item" + (x.month === menu.month ? " center" : "")}
+              style={{ height: MENU_STEP }}
+              onClick={() => goTo(x.offset)}
+            >
+              {monthOnly(x.month)}
+            </button>
+          ))}
+        </div>
+      )}
+      {bubble && !menu && loupe.length > 0 && (
         <div className="scrub-loupe" style={{ top: `${bubble.y}px` }} aria-hidden="true">
           {loupe.map(({ month, d }) => {
             const center = loupe.find((x) => x.d === 0)?.month ?? month;
