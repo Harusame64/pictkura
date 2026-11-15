@@ -9501,9 +9501,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           )}
           {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
-              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む */}
-              <div className="exif-title">{t.fileInfoTitle}</div>
-              {(() => {
+              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む。
+                  ライブラリの外の写真（負の id）は記録が無いので、ファイルの節を出さない（「読み込み中」のまま
+                  止まっていた。codex） */}
+              {viewerItem.id >= 0 && <div className="exif-title">{t.fileInfoTitle}</div>}
+              {viewerItem.id >= 0 && (() => {
                 const v = viewerFileInfos.get(viewerItem.id);
                 if (v === undefined) return <div className="exif-row">{t.loading}</div>;
                 if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;

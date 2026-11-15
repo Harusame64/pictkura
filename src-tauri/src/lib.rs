@@ -2775,19 +2775,29 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             .unwrap_or_default();
         // **渡された写真は必ず入れる**——取り込みの拡張子から外れた形式・パスの書き方の違い（大文字小文字、短い名前）
         // で一覧から漏れると、フォルダの先頭の別の写真が開いていた（/code-review）
-        let same = |e: &Entry| {
+        // 同じファイルか: まずパスが完全に同じもの。無ければ**実体が同じもの**（名前の大文字小文字が違うだけなら、
+        // 大文字小文字を区別しない置き場では同じファイル）。名前の大文字小文字だけで同じとみなすと、区別する置き場で
+        // `IMG.jpg` と `img.jpg` が並んだときに別の写真を開いた（codex）
+        let canon_file = std::fs::canonicalize(&file).ok();
+        let same_file = |e: &Entry| {
             e.path == file
-                || file
+                || (file
                     .file_name()
                     .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&e.name))
+                    && canon_file.is_some()
+                    && std::fs::canonicalize(&e.path).ok() == canon_file)
         };
-        if !files.iter().any(same) {
+        if !files.iter().any(same_file) {
             if let Some(e) = entry_of(&file) {
                 files.push(e);
             }
         }
         files.sort_by_key(|f| f.name.to_lowercase());
-        let index = files.iter().position(same).unwrap_or(0);
+        let index = files
+            .iter()
+            .position(|e| e.path == file)
+            .or_else(|| files.iter().position(same_file))
+            .unwrap_or(0);
         // 絵の URL の版（`v=<mtime>-<rev>`）を開くたびに変える。外の id はフォルダの中の位置にすぎないので、
         // 前の起動の別の写真のキャッシュ（immutable）が出ないように（/code-review）
         static OPEN_SEQ: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
