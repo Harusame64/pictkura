@@ -21,6 +21,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
+import { Icon } from "./Icon";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -7612,7 +7613,7 @@ export default function App() {
             disabled={busy}
             onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
           >
-            <span aria-hidden="true">🗑 </span>{t.bulkDelete}
+            <Icon name="trash" className="btn-icon" />{t.bulkDelete}
           </button>
         </div>
       )}
@@ -7661,7 +7662,7 @@ export default function App() {
           </button>
         </div>
         <div className="search-box">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon"><Icon name="search" size={15} /></span>
           <input
             type="search"
             placeholder={t.searchPlaceholder}
@@ -7997,7 +7998,7 @@ export default function App() {
                     {...pressable(() => setQueryInput(active ? "" : term))}
                     aria-pressed={active}
                   >
-                    <span className="camera-icon" aria-hidden="true">📷</span>
+                    <span className="camera-icon" aria-hidden="true"><Icon name="camera" /></span>
                     <span className="camera-name">{cam.name}</span>
                     <span className="fav-count">{formatNumber(cam.count)}</span>
                   </div>
@@ -8039,7 +8040,7 @@ export default function App() {
               {...pressable(() => !busy && openWizard(d.dcim_path ?? d.path))}
               aria-disabled={busy || undefined}
             >
-              <span className="drive-icon" aria-hidden="true">{d.removable ? "🔌" : "💾"}</span>
+              <span className="drive-icon" aria-hidden="true"><Icon name={d.removable ? "usb" : "drive"} /></span>
               {d.label}
               {d.dcim_path && <span className="dcim-badge">DCIM</span>}
             </div>
@@ -8051,7 +8052,7 @@ export default function App() {
               onClick={onBrowseFolder}
               disabled={busy}
             >
-              <span aria-hidden="true">📂 </span>{t.browse}
+              <Icon name="folderOpen" className="btn-icon" />{t.browse}
             </button>
             <div className="add-folder-manual">
               <input
@@ -8157,7 +8158,7 @@ export default function App() {
                   {t.importFromUsb}
                 </button>
                 <button onClick={onBrowseFolder} disabled={busy}>
-                  <span aria-hidden="true">📂 </span>{t.browse}
+                  <Icon name="folderOpen" className="btn-icon" />{t.browse}
                 </button>
               </div>
             </div>

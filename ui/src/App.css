@@ -282,9 +282,9 @@ body {
 }
 .search-icon {
   position: absolute;
-  inset-inline-start: 10px;
-  font-size: var(--fs-sm);
-  opacity: 0.55;
+  inset-inline-start: 9px;
+  display: flex;
+  color: var(--text-muted);
   pointer-events: none;
 }
 .search-box input {
@@ -488,7 +488,17 @@ body {
 .drive-icon,
 .camera-icon {
   flex: none;
-  font-size: var(--fs-sm);
+  display: flex;
+  color: var(--text-muted);
+}
+/* 線のアイコン（Icon.tsx）。字の並びの中で縦の真ん中に置く */
+.icon {
+  flex: none;
+  vertical-align: -0.2em;
+}
+/* 文字の前に置くボタンのアイコン */
+.btn-icon {
+  margin-inline-end: 0.35em;
 }
 .nav-item.drive.removable {
   color: var(--text);
