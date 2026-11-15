@@ -12,28 +12,6 @@ export function fractionAt(y: number, railHeight: number): number {
   return Math.min(1, Math.max(0, y / railHeight));
 }
 
-/** 比を、スクロール位置へ。底より先へは行けない（最後の画面の頭で止まる） */
-export function scrollTopFor(fraction: number, total: number, viewport: number): number {
-  const max = Math.max(0, total - viewport);
-  return Math.min(max, Math.max(0, fraction * total));
-}
-
-/**
- * つまみ（いま見ている範囲）の、帯の上での位置と高さ（帯の高さに対する比）。
- * 小さすぎると掴めないので、高さは `minFraction` より小さくしない
- */
-export function thumbOf(
-  scrollTop: number,
-  total: number,
-  viewport: number,
-  minFraction: number,
-): { top: number; height: number } {
-  if (!(total > 0)) return { top: 0, height: 1 };
-  const height = Math.min(1, Math.max(minFraction, viewport / total));
-  const top = Math.min(1 - height, Math.max(0, scrollTop / total));
-  return { top, height };
-}
-
 /**
  * 中身の位置（上端からの距離）にある日。`tops` は各行の上端の累積（末尾は総高さ）、`dayKeys` は各行の日。
  * 行の間を二分探索する。行が無ければ `null`

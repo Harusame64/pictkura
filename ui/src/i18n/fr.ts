@@ -262,7 +262,6 @@ export const fr: Dict = {
     `${path} — introuvable. S’il se trouve sur une clé USB ou une carte SD, branchez-la, puis cliquez sur « Réanalyser »`,
   importFrom: (path: string) => `Importer depuis ${path}`,
   filterByCamera: (name: string) => `Afficher uniquement les photos prises avec ${name}`,
-  jumpToYear: (year: number) => `Aller à ${year}`,
   scrubRailLabel: "Chronologie (faites glisser pour parcourir vos photos)",
   importing: (done: number, total: number) => `Importation… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>

@@ -303,7 +303,6 @@ export const ar: Dict = {
     `${iso(path)} — غير موجود. إذا كان على ذاكرة USB أو بطاقة SD، فوصِّلها واضغط على “إعادة الفحص”`,
   importFrom: (path: string) => `استيراد من ${iso(path)}`,
   filterByCamera: (name: string) => `عرض الصور الملتقطة بـ ${iso(name)} فقط`,
-  jumpToYear: (y: number) => `الانتقال إلى ${year(y)}`,
   scrubRailLabel: "المخطط الزمني (اسحب للتنقل بين صورك)",
   importing: (done: number, total: number) => `جارٍ الاستيراد… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>

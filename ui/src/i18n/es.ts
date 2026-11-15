@@ -277,7 +277,6 @@ export const es: Dict = {
     `${path}: no está. Si está en una memoria USB o una tarjeta SD, insértala y pulsa «Volver a explorar»`,
   importFrom: (path: string) => `Importar desde ${path}`,
   filterByCamera: (name: string) => `Mostrar solo las fotos hechas con ${name}`,
-  jumpToYear: (year: number) => `Ir a ${year}`,
   scrubRailLabel: "Cronología (arrastra para recorrer tus fotos)",
   importing: (done: number, total: number) => `Importando… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>

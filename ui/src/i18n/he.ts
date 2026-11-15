@@ -282,7 +282,6 @@ export const he: Dict = {
     `${iso(path)} — לא נמצאת. אם היא בזיכרון USB או בכרטיס SD, חברו אותו ולחצו על ״סריקה מחדש״`,
   importFrom: (path: string) => `ייבוא מ-${iso(path)}`,
   filterByCamera: (name: string) => `הצגת התמונות שצולמו ב-${iso(name)} בלבד`,
-  jumpToYear: (y: number) => `מעבר ל-${year(y)}`,
   scrubRailLabel: "ציר זמן (גררו כדי לעבור בין התמונות)",
   importing: (done: number, total: number) => `מייבא… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
