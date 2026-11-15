@@ -7221,6 +7221,7 @@ pub fn run() {
                 .map(|n| (n.get() / 2).clamp(2, 4))
                 .unwrap_or(2);
             let read_pool = ReadPool::open(&db_path, pool_size).map_err(errs::for_log_err)?;
+            spike_mark("after ReadPool::open");
 
             // サムネイルワーカーを起動。1件完了ごとに**更新後のレコードだけ**を
             // フロントへpushする（全件再取得のイベントの嵐を防ぐ）
@@ -7250,6 +7251,7 @@ pub fn run() {
                 },
             );
 
+            spike_mark("after ThumbnailService::start");
             let thumb_cache_mb = config.performance.thumb_cache_mb;
             // 冷起動（AutoPlay/2重起動でこのプロセスが最初のとき）の取り込み対象
             let pending_import =
