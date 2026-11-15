@@ -7817,7 +7817,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     () => [
       {
         group: t.paletteGroupActions,
-        icon: "importIn",
+        icon: "usb",
         label: t.importFromUsb,
         alias: en.importFromUsb,
         run: () => openWizard(),
@@ -7832,6 +7832,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       {
         group: t.paletteGroupActions,
         icon: "star",
+        iconFilled: true,
         label: t.actionShowFavorites,
         alias: en.actionShowFavorites,
         run: () => setFilter("fav"),
@@ -7839,6 +7840,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       {
         group: t.paletteGroupActions,
         icon: "flag",
+        iconFilled: true,
         label: t.actionShowPicked,
         alias: en.actionShowPicked,
         run: () => setFilter("picked"),
@@ -8279,10 +8281,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         {indexProgress &&
           (indexProgress.building ? (
             <div className="speed-toast index index-progress">
-              <Icon name={indexProgress.phase === "camera" ? "camera" : "search"} />{" "}
-              {indexProgress.phase === "camera"
-                ? t.cameraScanning
-                : t.indexBuilding}
+              {/* 絵と文を同じ判定から取る（片方だけ直して食い違わないように） */}
+              {indexProgress.phase === "camera" ? (
+                <>
+                  <Icon name="camera" /> {t.cameraScanning}
+                </>
+              ) : (
+                <>
+                  <Icon name="search" /> {t.indexBuilding}
+                </>
+              )}
               {Math.min(
                 99,
                 Math.floor(
@@ -8428,7 +8436,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 title={view ? t[view.tip](r) : r}
               >
                 <span className="root-name">
-                  {mark !== null && "⚠ "}
+                  {mark !== null && "⚠︎ "}
                   <span className="name">{rootName(r)}</span>
                 </span>
                 <button

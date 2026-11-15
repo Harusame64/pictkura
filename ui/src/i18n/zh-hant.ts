@@ -259,7 +259,7 @@ export const zhHant: Dict = {
   bgThumbsShort: (n: number) => `還剩 ${num(n)}`,
   cameraScanning: "正在讀取相機資訊… ",
   indexIncompleteWarning:
-    "⚠ 搜尋索引的建立中斷了，搜尋結果可能不完整（下次啟動時接著建立）",
+    "⚠︎ 搜尋索引的建立中斷了，搜尋結果可能不完整（下次啟動時接著建立）",
   indexProgressSuffix: "% —— 完成之前搜尋結果可能不完整",
   removeRoot: (path: string) => `把 ${path} 從圖庫中移除`,
   rootMissingNotice: (name: string, count: number) =>
@@ -276,7 +276,7 @@ export const zhHant: Dict = {
   destTempConfirm: (path: string) =>
     `「${path}」位於暫存資料夾中。\n匯入到這裡的照片可能會被系統或其他應用程式隨時刪除，而且不會事先通知。清空記憶卡之後，這些照片就再也沒有其他副本了。仍要把它設為複製的目的地嗎？`,
   destTempConfirmOk: "仍設為複製的目的地",
-  destTempWarning: "⚠ 複製的目的地位於暫存資料夾中。匯入的照片可能會在不知不覺中消失。",
+  destTempWarning: "⚠︎ 複製的目的地位於暫存資料夾中。匯入的照片可能會在不知不覺中消失。",
   rootTempTip: (path: string) =>
     `${path}——位於暫存資料夾中。系統或其他應用程式可能會隨時刪除其中的檔案，而且不會事先通知`,
   rootMissingTempTip: (path: string) =>
@@ -290,7 +290,7 @@ export const zhHant: Dict = {
   importDone: (copied: number, skipped: number) =>
     `匯入完成：複製 ${num(copied)} 張，略過 ${num(skipped)} 張`,
   importFailed: (n: number) => `，失敗 ${num(n)} 張`,
-  importIncomplete: " ⚠ 有資料夾無法讀取（請先不要清空記憶卡）",
+  importIncomplete: " ⚠︎ 有資料夾無法讀取（請先不要清空記憶卡）",
   syncDone: (added: number, changed: number, removed: number) =>
     `新增 ${num(added)}，變更 ${num(changed)}，刪除 ${num(removed)}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -369,13 +369,13 @@ export const zhHant: Dict = {
   wizardScanning: "正在尋找來源裡的照片…",
   wizardTruncated: (n: number) =>
     `數量太多，只顯示前 ${num(n)} 張。要全部匯入，請用「整個資料夾」`,
-  wizardScanIncomplete: "⚠ 有資料夾無法讀取（可能有遺漏）",
+  wizardScanIncomplete: "⚠︎ 有資料夾無法讀取（可能有遺漏）",
   decoderHeifNotice: (n: number) =>
-    `⚠ 有 ${num(n)} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）。除了免費的「HEIF 影像延伸模組」，還需要用來解碼像素的付費「HEVC 視訊延伸模組」（數十元）`,
+    `⚠︎ 有 ${num(n)} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）。除了免費的「HEIF 影像延伸模組」，還需要用來解碼像素的付費「HEVC 視訊延伸模組」（數十元）`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ 有 ${num(n)} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）`,
+    `⚠︎ 有 ${num(n)} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ 有 ${num(n)} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）。這台裝置上可能沒有安裝支援 HEIC/HEVC 的解碼器`,
+    `⚠︎ 有 ${num(n)} 張 HEIC/HEIF 照片在這台裝置上無法產生縮圖（開啟也顯示不出來）。這台裝置上可能沒有安裝支援 HEIC/HEVC 的解碼器`,
   decoderHeifHow: "HEIF 影像延伸模組（免費）",
   decoderHevcHow: "HEVC 視訊延伸模組（付費）",
   decoderNoticeDismiss: "不再顯示",

@@ -253,7 +253,7 @@ export const es: Dict = {
   bgThumbsShort: (n: number) => `${one(n, "queda", "quedan")} ${num(n)}`,
   cameraScanning: "Leyendo los datos de la cámara… ",
   indexIncompleteWarning:
-    "⚠ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",
+    "⚠︎ La indexación de la búsqueda se interrumpió — pueden faltar resultados (continúa en el próximo arranque)",
   indexProgressSuffix: " % — hasta que esto termine, pueden faltar resultados",
   removeRoot: (path: string) => `Quitar ${path} de la biblioteca`,
   rootMissingNotice: (name: string, count: number) =>
@@ -271,7 +271,7 @@ export const es: Dict = {
     `«${path}» está dentro de una carpeta temporal.\nEl sistema u otras aplicaciones pueden borrar sin avisar las fotos que importes aquí. Cuando borres la tarjeta, no quedará ninguna otra copia. ¿Usarla como destino de todos modos?`,
   destTempConfirmOk: "Usar como destino",
   destTempWarning:
-    "⚠ El destino está dentro de una carpeta temporal. Las fotos importadas pueden desaparecer sin aviso.",
+    "⚠︎ El destino está dentro de una carpeta temporal. Las fotos importadas pueden desaparecer sin aviso.",
   rootTempTip: (path: string) =>
     `${path}: está dentro de una carpeta temporal. El sistema u otras aplicaciones pueden borrar sin avisar los archivos que contiene`,
   rootMissingTempTip: (path: string) =>
@@ -286,7 +286,7 @@ export const es: Dict = {
     `Importación terminada: ${num(copied)} ${one(copied, "copiada", "copiadas")}, ${num(skipped)} ${one(skipped, "omitida", "omitidas")}`,
   importFailed: (n: number) => `, ${num(n)} con error`,
   importIncomplete:
-    " ⚠ No se han podido leer algunas carpetas — no borres la tarjeta todavía",
+    " ⚠︎ No se han podido leer algunas carpetas — no borres la tarjeta todavía",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${one(added, "añadida", "añadidas")}, ${num(changed)} ${one(changed, "cambiada", "cambiadas")}, ${num(removed)} ${one(removed, "quitada", "quitadas")}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -368,13 +368,13 @@ export const es: Dict = {
   wizardTruncated: (n: number) =>
     `Solo se muestran las primeras ${num(n)}. Usa «Carpeta entera» para importarlo todo`,
   wizardScanIncomplete:
-    "⚠ No se han podido leer algunas carpetas (puede que falten fotos)",
+    "⚠︎ No se han podido leer algunas carpetas (puede que falten fotos)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de vídeo HEVC (de pago, unos pocos euros), que son las que descodifican los píxeles`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de vídeo HEVC (de pago, unos pocos euros), que son las que descodifican los píxeles`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Puede que a tu sistema le falte un descodificador para HEIC/HEVC`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Puede que a tu sistema le falte un descodificador para HEIC/HEVC`,
   decoderHeifHow: "Extensiones de imagen HEIF (gratis)",
   decoderHevcHow: "Extensiones de vídeo HEVC (de pago)",
   decoderNoticeDismiss: "No volver a mostrar",

@@ -12,6 +12,8 @@ export type PaletteItem = {
   label: string;
   hint?: string;
   icon: IconName;
+  /** 塗りの形で描く（★・⚑ の棚は「付いている」もの。輪郭だけは「付いていない」の意味になる） */
+  iconFilled?: boolean;
   /** 英語の名前（操作だけ。今の言語が英語でなくても、英語で打てば当たる。`paletteOrder.ts`） */
   alias?: string;
   run: () => void;
@@ -234,7 +236,7 @@ export default function Palette({
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => run(item)}
                 >
-                  <span className="palette-icon" aria-hidden="true"><Icon name={item.icon} /></span>
+                  <span className="palette-icon" aria-hidden="true"><Icon name={item.icon} className={item.iconFilled ? "filled" : undefined} /></span>
                   <span className="palette-label">{item.label}</span>
                   {item.hint && <span className="palette-hint">{item.hint}</span>}
                 </div>

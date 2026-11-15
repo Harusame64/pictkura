@@ -2501,6 +2501,9 @@ body {
   justify-content: center;
   color: var(--text-muted);
 }
+.palette-item.active .palette-icon {
+  color: inherit;
+}
 .palette-label {
   flex: 1;
   min-width: 0;
@@ -3314,7 +3317,6 @@ body {
   align-items: center;
   justify-content: center;
   aspect-ratio: 1;
-  font-size: 28px;
   color: var(--text-faint);
   background: var(--surface-2);
 }

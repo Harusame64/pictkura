@@ -236,7 +236,7 @@ export const pt: Dict = {
   bgThumbsShort: (n: number) => `${one(n, "falta", "faltam")} ${num(n)}`,
   cameraScanning: "Lendo informações da câmera… ",
   indexIncompleteWarning:
-    "⚠ A indexação da busca foi interrompida — os resultados podem estar incompletos (ela continua na próxima abertura)",
+    "⚠︎ A indexação da busca foi interrompida — os resultados podem estar incompletos (ela continua na próxima abertura)",
   indexProgressSuffix: "% — os resultados podem estar incompletos até terminar",
   removeRoot: (path: string) => `Remover ${path} da biblioteca`,
   rootMissingNotice: (name: string, count: number) =>
@@ -254,7 +254,7 @@ export const pt: Dict = {
     `“${path}” está dentro de uma pasta temporária.\nAs fotos importadas ali podem ser apagadas pelo sistema ou por outros apps sem perguntar. Depois que o cartão for apagado, elas não existirão em nenhum outro lugar. Usar como destino mesmo assim?`,
   destTempConfirmOk: "Usar como destino",
   destTempWarning:
-    "⚠ O destino está dentro de uma pasta temporária. As fotos importadas podem sumir sem aviso.",
+    "⚠︎ O destino está dentro de uma pasta temporária. As fotos importadas podem sumir sem aviso.",
   rootTempTip: (path: string) =>
     `${path} — dentro de uma pasta temporária. O sistema ou outros apps podem apagar arquivos ali sem perguntar`,
   rootMissingTempTip: (path: string) =>
@@ -268,7 +268,7 @@ export const pt: Dict = {
   importDone: (copied: number, skipped: number) =>
     `Importação concluída: ${num(copied)} ${one(copied, "copiada", "copiadas")}, ${num(skipped)} ${one(skipped, "ignorada", "ignoradas")}`,
   importFailed: (n: number) => `, ${num(n)} com falha`,
-  importIncomplete: " ⚠ Algumas pastas não puderam ser lidas — não apague o cartão ainda",
+  importIncomplete: " ⚠︎ Algumas pastas não puderam ser lidas — não apague o cartão ainda",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${one(added, "adicionada", "adicionadas")}, ${num(changed)} ${one(changed, "alterada", "alteradas")}, ${num(removed)} ${one(removed, "removida", "removidas")}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -346,13 +346,13 @@ export const pt: Dict = {
   wizardScanning: "Procurando na mídia…",
   wizardTruncated: (n: number) =>
     `Mostrando só as primeiras ${num(n)}. Use “Pasta inteira” para importar tudo`,
-  wizardScanIncomplete: "⚠ Algumas pastas não puderam ser lidas (podem faltar fotos)",
+  wizardScanIncomplete: "⚠︎ Algumas pastas não puderam ser lidas (podem faltar fotos)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}. São necessárias as Extensões de Imagem HEIF (gratuitas) e também as Extensões de Vídeo HEVC (pagas, mas baratas), que decodificam os pixels`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}. São necessárias as Extensões de Imagem HEIF (gratuitas) e também as Extensões de Vídeo HEVC (pagas, mas baratas), que decodificam os pixels`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}. Seu sistema pode não ter um decodificador para HEIC/HEVC`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF não ${one(n, "tem", "têm")} miniatura aqui e também não ${one(n, "abre", "abrem")}. Seu sistema pode não ter um decodificador para HEIC/HEVC`,
   decoderHeifHow: "Extensões de Imagem HEIF (gratuitas)",
   decoderHevcHow: "Extensões de Vídeo HEVC (pagas)",
   decoderNoticeDismiss: "Não mostrar de novo",

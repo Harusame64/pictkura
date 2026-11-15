@@ -156,9 +156,9 @@ export const es419: Dict = {
 
   // 製品名・通貨・`decodificar`
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de video HEVC (de pago, unos pocos dólares), que son las que decodifican los píxeles`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Hacen falta las Extensiones de imagen HEIF (gratis) y, además, las Extensiones de video HEVC (de pago, unos pocos dólares), que son las que decodifican los píxeles`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Puede que a tu sistema le falte un decodificador para HEIC/HEVC`,
+    `⚠︎ ${num(n)} ${one(n, "foto", "fotos")} HEIC/HEIF no ${one(n, "tiene", "tienen")} miniatura aquí, y tampoco se ${one(n, "puede", "pueden")} abrir. Puede que a tu sistema le falte un decodificador para HEIC/HEVC`,
 
   // **ショートカット一覧は入れ子なので、丸ごと差し替えるしかない。**
   // 変えたのは `Ratón` → `Mouse`・`Añadir` → `Agregar`・`vídeo` → `video` の3語だけで、

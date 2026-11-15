@@ -256,7 +256,7 @@ export const zh: Dict = {
   bgThumbsShort: (n: number) => `还剩 ${num(n)}`,
   cameraScanning: "正在读取相机信息… ",
   indexIncompleteWarning:
-    "⚠ 搜索索引的建立中断了，搜索结果可能不完整（下次启动时接着建立）",
+    "⚠︎ 搜索索引的建立中断了，搜索结果可能不完整（下次启动时接着建立）",
   indexProgressSuffix: "% —— 完成之前搜索结果可能不完整",
   removeRoot: (path: string) => `把 ${path} 从图库中移除`,
   rootMissingNotice: (name: string, count: number) =>
@@ -273,7 +273,7 @@ export const zh: Dict = {
   destTempConfirm: (path: string) =>
     `“${path}”位于临时文件夹中。\n导入到这里的照片可能会被系统或其他应用随时删除，而且不会事先提示。清空存储卡之后，这些照片就再也没有别的副本了。仍要把它设为复制目标吗？`,
   destTempConfirmOk: "仍设为复制目标",
-  destTempWarning: "⚠ 复制目标位于临时文件夹中。导入的照片可能会在不知不觉中消失。",
+  destTempWarning: "⚠︎ 复制目标位于临时文件夹中。导入的照片可能会在不知不觉中消失。",
   rootTempTip: (path: string) =>
     `${path}——位于临时文件夹中。系统或其他应用可能会随时删除其中的文件，而且不会事先提示`,
   rootMissingTempTip: (path: string) =>
@@ -287,7 +287,7 @@ export const zh: Dict = {
   importDone: (copied: number, skipped: number) =>
     `导入完成：复制 ${num(copied)} 张，跳过 ${num(skipped)} 张`,
   importFailed: (n: number) => `，失败 ${num(n)} 张`,
-  importIncomplete: " ⚠ 有文件夹无法读取（请先不要清空存储卡）",
+  importIncomplete: " ⚠︎ 有文件夹无法读取（请先不要清空存储卡）",
   syncDone: (added: number, changed: number, removed: number) =>
     `新增 ${num(added)}，变更 ${num(changed)}，删除 ${num(removed)}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -366,13 +366,13 @@ export const zh: Dict = {
   wizardScanning: "正在查找来源里的照片…",
   wizardTruncated: (n: number) =>
     `数量太多，只显示前 ${num(n)} 张。要全部导入，请用“整个文件夹”`,
-  wizardScanIncomplete: "⚠ 有文件夹无法读取（可能有遗漏）",
+  wizardScanIncomplete: "⚠︎ 有文件夹无法读取（可能有遗漏）",
   decoderHeifNotice: (n: number) =>
-    `⚠ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。除了免费的“HEIF 图像扩展”，还需要用来解码像素的付费“HEVC 视频扩展”（几元）`,
+    `⚠︎ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。除了免费的“HEIF 图像扩展”，还需要用来解码像素的付费“HEVC 视频扩展”（几元）`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）`,
+    `⚠︎ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。这台设备上可能没有安装支持 HEIC/HEVC 的解码器`,
+    `⚠︎ 有 ${num(n)} 张 HEIC/HEIF 照片在这台设备上无法生成缩略图（打开也显示不出来）。这台设备上可能没有安装支持 HEIC/HEVC 的解码器`,
   decoderHeifHow: "HEIF 图像扩展（免费）",
   decoderHevcHow: "HEVC 视频扩展（付费）",
   decoderNoticeDismiss: "不再显示",

@@ -280,7 +280,7 @@ export const ar: Dict = {
   bgThumbsShort: (n: number) => `المتبقي ${num(n)}`,
   cameraScanning: "جارٍ قراءة معلومات الكاميرا… ",
   indexIncompleteWarning:
-    "⚠ توقفت فهرسة البحث — قد تكون النتائج ناقصة (تُستأنف عند التشغيل التالي)",
+    "⚠︎ توقفت فهرسة البحث — قد تكون النتائج ناقصة (تُستأنف عند التشغيل التالي)",
   indexProgressSuffix: "% — قد تكون النتائج ناقصة حتى ينتهي هذا",
   removeRoot: (path: string) => `إزالة ${iso(path)} من المكتبة`,
   rootMissingNotice: (name: string, count: number) =>
@@ -297,7 +297,7 @@ export const ar: Dict = {
   destTempConfirm: (path: string) =>
     `المجلد “${iso(path)}” داخل مجلد مؤقت.\nقد يحذف النظام أو تطبيقات أخرى الصور المستوردة إليه دون علمك. وبعد مسح البطاقة لن تبقى في أي مكان آخر. هل تريد استخدامه وجهةً على أي حال؟`,
   destTempConfirmOk: "استخدامه وجهةً",
-  destTempWarning: "⚠ الوجهة داخل مجلد مؤقت. قد تختفي الصور المستوردة دون إنذار.",
+  destTempWarning: "⚠︎ الوجهة داخل مجلد مؤقت. قد تختفي الصور المستوردة دون إنذار.",
   rootTempTip: (path: string) =>
     `${iso(path)} — داخل مجلد مؤقت. قد يحذف النظام أو تطبيقات أخرى الملفات فيه دون علمك`,
   rootMissingTempTip: (path: string) =>
@@ -311,7 +311,7 @@ export const ar: Dict = {
   importDone: (copied: number, skipped: number) =>
     `اكتمل الاستيراد: نُسخ ${num(copied)}، وتُخطّي ${num(skipped)}`,
   importFailed: (n: number) => `، وفشل ${num(n)}`,
-  importIncomplete: " ⚠ تعذّرت قراءة بعض المجلدات — لا تمسح البطاقة بعد",
+  importIncomplete: " ⚠︎ تعذّرت قراءة بعض المجلدات — لا تمسح البطاقة بعد",
   syncDone: (added: number, changed: number, removed: number) =>
     `أُضيف ${num(added)}، وتغيّر ${num(changed)}، وأُزيل ${num(removed)}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -388,13 +388,13 @@ export const ar: Dict = {
   wizardScanning: "جارٍ البحث في الوسائط…",
   wizardTruncated: (n: number) =>
     `يُعرض أول ${num(n)} فقط. استخدم “المجلد كله” لاستيراد كل شيء`,
-  wizardScanIncomplete: "⚠ تعذّرت قراءة بعض المجلدات (قد تنقص بعض الصور)",
+  wizardScanIncomplete: "⚠︎ تعذّرت قراءة بعض المجلدات (قد تنقص بعض الصور)",
   decoderHeifNotice: (n: number) =>
-    `⚠ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF. يلزم “امتدادات صور HEIF” المجانية، ومعها “امتدادات فيديو HEVC” المدفوعة وزهيدة الثمن التي تفك ترميز الصورة`,
+    `⚠︎ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF. يلزم “امتدادات صور HEIF” المجانية، ومعها “امتدادات فيديو HEVC” المدفوعة وزهيدة الثمن التي تفك ترميز الصورة`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF`,
+    `⚠︎ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF. قد لا يتوفر في نظامك برنامج فك ترميز لـ HEIC/HEVC`,
+    `⚠︎ يتعذّر هنا عرض صور مصغّرة أو فتح ${photos(n)} بتنسيق HEIC/HEIF. قد لا يتوفر في نظامك برنامج فك ترميز لـ HEIC/HEVC`,
   decoderHeifHow: "امتدادات صور HEIF (مجانية)",
   decoderHevcHow: "امتدادات فيديو HEVC (مدفوعة)",
   decoderNoticeDismiss: "عدم الإظهار مرة أخرى",

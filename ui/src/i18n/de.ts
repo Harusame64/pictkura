@@ -236,7 +236,7 @@ export const de: Dict = {
   bgThumbsShort: (n: number) => `noch ${num(n)}`,
   cameraScanning: "Kameradaten werden gelesen… ",
   indexIncompleteWarning:
-    "⚠ Der Suchindex wurde unterbrochen — Treffer können unvollständig sein (es geht beim nächsten Start weiter)",
+    "⚠︎ Der Suchindex wurde unterbrochen — Treffer können unvollständig sein (es geht beim nächsten Start weiter)",
   indexProgressSuffix: " % — bis das fertig ist, können Treffer fehlen",
   removeRoot: (path: string) => `${path} aus der Bibliothek entfernen`,
   rootMissingNotice: (name: string, count: number) =>
@@ -254,7 +254,7 @@ export const de: Dict = {
     `„${path}“ liegt in einem temporären Ordner.\nDas System oder andere Apps können Fotos, die du hierher importierst, ohne Rückfrage löschen. Sobald die Karte gelöscht ist, gibt es diese Fotos nirgendwo sonst mehr. Trotzdem als Ziel verwenden?`,
   destTempConfirmOk: "Als Ziel verwenden",
   destTempWarning:
-    "⚠ Der Zielordner liegt in einem temporären Ordner. Importierte Fotos können ohne Vorwarnung verschwinden.",
+    "⚠︎ Der Zielordner liegt in einem temporären Ordner. Importierte Fotos können ohne Vorwarnung verschwinden.",
   rootTempTip: (path: string) =>
     `${path} — liegt in einem temporären Ordner. Das System oder andere Apps können Dateien dort ohne Rückfrage löschen`,
   rootMissingTempTip: (path: string) =>
@@ -269,7 +269,7 @@ export const de: Dict = {
     `Import fertig: ${num(copied)} kopiert, ${num(skipped)} übersprungen`,
   importFailed: (n: number) => `, ${num(n)} fehlgeschlagen`,
   importIncomplete:
-    " ⚠ Einige Ordner konnten nicht gelesen werden — lösche die Karte noch nicht",
+    " ⚠︎ Einige Ordner konnten nicht gelesen werden — lösche die Karte noch nicht",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} hinzugefügt, ${num(changed)} geändert, ${num(removed)} entfernt`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -369,13 +369,13 @@ export const de: Dict = {
   wizardTruncated: (n: number) =>
     `Es werden nur die ersten ${num(n)} gezeigt. Nimm „Ganzer Ordner“, um alles zu importieren`,
   wizardScanIncomplete:
-    "⚠ Einige Ordner ließen sich nicht lesen (es können Fotos fehlen)",
+    "⚠︎ Einige Ordner ließen sich nicht lesen (es können Fotos fehlen)",
   decoderHeifNotice: (n: number) =>
-    `⚠ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht. Dafür braucht es die kostenlosen HEIF-Bilderweiterungen und zusätzlich die kostenpflichtigen HEVC-Videoerweiterungen (ein paar Euro), die die Pixel decodieren`,
+    `⚠︎ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht. Dafür braucht es die kostenlosen HEIF-Bilderweiterungen und zusätzlich die kostenpflichtigen HEVC-Videoerweiterungen (ein paar Euro), die die Pixel decodieren`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht`,
+    `⚠︎ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht. Auf deinem System fehlt vermutlich ein Decoder für HEIC/HEVC`,
+    `⚠︎ Für ${num(n)} ${one(n, "HEIC/HEIF-Foto", "HEIC/HEIF-Fotos")} gibt es hier keine Vorschau, und ${one(n, "öffnen lässt es sich", "öffnen lassen sie sich")} auch nicht. Auf deinem System fehlt vermutlich ein Decoder für HEIC/HEVC`,
   decoderHeifHow: "HEIF-Bilderweiterungen (kostenlos)",
   decoderHevcHow: "HEVC-Videoerweiterungen (kostenpflichtig)",
   decoderNoticeDismiss: "Nicht mehr anzeigen",

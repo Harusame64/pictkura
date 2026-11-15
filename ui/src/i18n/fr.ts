@@ -237,7 +237,7 @@ export const fr: Dict = {
   bgThumbsShort: (n: number) => `encore ${num(n)}`,
   cameraScanning: "Lecture des informations de l’appareil… ",
   indexIncompleteWarning:
-    "⚠ L’indexation a été interrompue — des résultats peuvent manquer (elle reprendra au prochain démarrage)",
+    "⚠︎ L’indexation a été interrompue — des résultats peuvent manquer (elle reprendra au prochain démarrage)",
   indexProgressSuffix: " % — tant que ce n’est pas terminé, des résultats peuvent manquer",
   removeRoot: (path: string) => `Retirer ${path} de la bibliothèque`,
   rootMissingNotice: (name: string, count: number) =>
@@ -256,7 +256,7 @@ export const fr: Dict = {
     `« ${path} » se trouve dans un dossier temporaire.\nLe système ou d’autres applications peuvent supprimer sans prévenir les photos importées ici. Une fois la carte effacée, elles n’existeront plus nulle part ailleurs. L’utiliser quand même comme destination ?`,
   destTempConfirmOk: "Utiliser comme destination",
   destTempWarning:
-    "⚠ La destination se trouve dans un dossier temporaire. Les photos importées peuvent disparaître sans prévenir.",
+    "⚠︎ La destination se trouve dans un dossier temporaire. Les photos importées peuvent disparaître sans prévenir.",
   rootTempTip: (path: string) =>
     `${path} — se trouve dans un dossier temporaire. Le système ou d’autres applications peuvent y supprimer des fichiers sans prévenir`,
   rootMissingTempTip: (path: string) =>
@@ -271,7 +271,7 @@ export const fr: Dict = {
     `Importation terminée : ${num(copied)} ${un(copied, "copiée", "copiées")}, ${num(skipped)} ${un(skipped, "ignorée", "ignorées")}`,
   importFailed: (n: number) => `, ${num(n)} en échec`,
   importIncomplete:
-    " ⚠ Certains dossiers n’ont pas pu être lus — n’effacez pas encore la carte",
+    " ⚠︎ Certains dossiers n’ont pas pu être lus — n’effacez pas encore la carte",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${un(added, "ajoutée", "ajoutées")}, ${num(changed)} ${un(changed, "modifiée", "modifiées")}, ${num(removed)} ${un(removed, "supprimée", "supprimées")}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -351,13 +351,13 @@ export const fr: Dict = {
   wizardTruncated: (n: number) =>
     `Seules les ${num(n)} premières sont affichées. Utilisez « Dossier entier » pour tout importer`,
   wizardScanIncomplete:
-    "⚠ Certains dossiers n’ont pas pu être lus (des photos peuvent manquer)",
+    "⚠︎ Certains dossiers n’ont pas pu être lus (des photos peuvent manquer)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}. Il faut les « Extensions d’image HEIF » (gratuites) et, en plus, les « Extensions vidéo HEVC » (payantes, quelques euros, sur le Microsoft Store), qui décodent les pixels`,
+    `⚠︎ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}. Il faut les « Extensions d’image HEIF » (gratuites) et, en plus, les « Extensions vidéo HEVC » (payantes, quelques euros, sur le Microsoft Store), qui décodent les pixels`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}`,
+    `⚠︎ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}. Il manque peut-être sur votre système un décodeur HEIC/HEVC`,
+    `⚠︎ ${num(n)} ${un(n, "photo HEIC/HEIF n’a", "photos HEIC/HEIF n’ont")} pas de miniature ici et ne ${un(n, "peut", "peuvent")} pas non plus être ${un(n, "ouverte", "ouvertes")}. Il manque peut-être sur votre système un décodeur HEIC/HEVC`,
   decoderHeifHow: "Extensions d’image HEIF (gratuites)",
   decoderHevcHow: "Extensions vidéo HEVC (payantes)",
   decoderNoticeDismiss: "Ne plus afficher",
