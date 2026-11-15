@@ -84,6 +84,7 @@ import {
   takePendingImport,
   openWith,
   openOutside,
+  takePendingOpen,
   appDisplayNames,
   appKeys,
   isMac,
@@ -7152,13 +7153,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     const hit = osAppsCache.current.get(extOf(item));
     return hit && Date.now() - hit.at < 5 * 60_000 ? hit.done : undefined;
   };
-  // 「プログラムから開く」で渡された写真: ライブラリの中ならライブラリのビューアでその位置（絞り込みは外す——
-  // 隠れていると開けない）、外ならフォルダを外の写真として並べ、渡された 1 枚から（←→ でフォルダを送る）
-  useEffect(() => {
-    if (!openAtStart) return;
-    void openOutside(openAtStart)
+  // 「プログラムから開く」で渡された写真を開く: ライブラリの中ならライブラリのビューアでその位置（絞り込みは外す——
+  // 隠れていると開けない）、外ならフォルダを外の写真として並べ、渡された 1 枚から（←→ でフォルダを送る）。
+  // 起動時の写真（`openAtStart`）も、起動中に届いた写真（`open-file`）も同じ道
+  /** 開く要求の番号。続けて 2 つ届いたら、後の答えだけを当てる（先の答えが後から届いても捨てる。/code-review） */
+  const openFileReq = useRef(0);
+  const openFile = useCallback((path: string, atStart: boolean) => {
+    const req = ++openFileReq.current;
+    // 待っていた前のライブラリの写真は取り消す——後から一覧が届いたときに、新しい写真を古い写真で上書きした（codex）
+    setPendingLibraryOpen(null);
+    void openOutside(path)
       .then(({ items, index, library }) => {
+        if (req !== openFileReq.current) return;
         if (library) {
+          // 外の写真を見ていたなら、その列を下ろす（ライブラリの写真はライブラリの道で歩く）
+          setOutsideItems(null);
+          setViewerScope(null);
           setFilter("all");
           setKind("all");
           setQueryInput("");
@@ -7169,7 +7179,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         }
         // 並べる写真が無ければ（読めないフォルダ等）ふつうの窓に戻す——黒い窓のまま何も出ない、にしない
         if (items.length === 0) {
-          setViewerOnly(false);
+          if (atStart) setViewerOnly(false);
+          // 起動中に届いたものは、窓が前に出たのに何も起きない、にしない
+          else fail(errText("errNotFound"));
           return;
         }
         setOutsideItems(items);
@@ -7178,17 +7190,55 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       })
       .catch((e) => {
         // 開けなければふつうの窓に戻す（黒い窓のまま何も出ない、にしない）
-        setViewerOnly(false);
+        if (atStart) setViewerOnly(false);
         fail(errText(e));
       });
-  }, [openAtStart]);
-  const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
+  }, []);
   useEffect(() => {
-    if (pendingLibraryOpen && dayIdxByKey.has(pendingLibraryOpen.dayKey)) {
+    if (openAtStart) openFile(openAtStart, true);
+  }, [openAtStart, openFile]);
+  /**
+   * 起動中に届いた写真（Windows の二重起動・macOS の「このアプリで開く」）。**今の窓で**開く（2026-11-15 利用者）。
+   * 設定・取り込み・ボツの確認などの幕が出ている間は、閉じてから開く（書きかけを壊さない）
+   */
+  const [openWhenFree, setOpenWhenFree] = useState<string | null>(null);
+  useEffect(() => {
+    const take = () =>
+      void takePendingOpen().then((path) => {
+        if (path) setOpenWhenFree(path);
+      });
+    // 受け口ができる前に届いた写真も拾う（取り込みの `open-import-drive` と同じ、聞いてから一度取りに行く）
+    const un = listen<string>("open-file", take);
+    void un.then(take);
+    return () => {
+      void un.then((off) => off()).catch(() => {});
+    };
+  }, []);
+  useEffect(() => {
+    // 幕の間とファイルの操作（削除・書き出し）の間は待つ（書きかけ・途中の仕事を壊さない）
+    if (!openWhenFree || curtainUp || fileOpRunning) return;
+    setOpenWhenFree(null);
+    // 開いていた右クリックのメニューは閉じる——残ると、新しい写真の上で前の写真への操作（削除・印・Ctrl+1〜3）が
+    // 効いた（codex）
+    setMenu(null);
+    openFile(openWhenFree, false);
+  }, [openWhenFree, curtainUp, fileOpRunning, openFile]);
+  const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
+  // 絞り込みを外した一覧の読み直しが**済んでから**開く——外す前の一覧の日に当てると、その日の列に写真が居ず、
+  // 隣の写真へ寄るか閉じた（起動中の窓で絞り込みをしていたとき。/code-review）
+  useEffect(() => {
+    if (
+      pendingLibraryOpen &&
+      settled &&
+      filter === "all" &&
+      kind === "all" &&
+      query === "" &&
+      dayIdxByKey.has(pendingLibraryOpen.dayKey)
+    ) {
       setViewer(pendingLibraryOpen);
       setPendingLibraryOpen(null);
     }
-  }, [pendingLibraryOpen, dayIdxByKey]);
+  }, [pendingLibraryOpen, settled, filter, kind, query, dayIdxByKey]);
   // ビューアだけの窓は、ビューアを閉じたら窓ごと閉じる（一度ビューアが出たあとだけ）
   const viewerShownRef = useRef(false);
   useEffect(() => {
