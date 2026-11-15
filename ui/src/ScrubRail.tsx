@@ -419,6 +419,8 @@ export function ScrubRail({
       tabIndex={0}
       onKeyDown={(e) => {
         if (menu) return; // 日付窓が開いている間は、窓の受け口（↑↓・Enter・Esc）が取る
+        // 帯そのものにいるときだけ。カードのボタンで押した Enter が泡でここへ来ると、ボタンの代わりに日付窓が開いた（codex）
+        if (e.target !== e.currentTarget) return;
         const el = scrollRef.current;
         if (!el || starts.length === 0) return;
         const cur = Math.max(0, monthIndexAt(el.scrollTop + 1, starts));
