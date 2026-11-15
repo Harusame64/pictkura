@@ -8212,7 +8212,12 @@ export default function App() {
                 rowTops={rowTops}
                 dayKeys={rowDayKeys}
                 markers={yearMarkers}
-                onJumpToRow={(i) => virtualizer.scrollToIndex(i, { align: "start" })}
+                // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
+                // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
+                onJumpToRow={(i) => {
+                  const el = scrollRef.current;
+                  if (el) el.scrollTop = rowTops[i];
+                }}
               />
               <div className="grid-scroll" ref={scrollRef}>
               <div

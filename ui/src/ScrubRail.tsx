@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
-import { formatLocale, formatMonth, t } from "./i18n";
+import { formatMonth, formatMonthOnly, t } from "./i18n";
 import { year } from "./i18n/plural.ts";
 import {
   dayKeyAt,
@@ -39,10 +39,7 @@ const LOUPE_STEP = 22;
 /** 「2023年8月」（年をまたぐ所と、指の月） */
 const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
 /** 「8月」（同じ年の前後の月） */
-const monthOnly = (yyyymm: number) =>
-  new Date(Math.floor(yyyymm / 100), (yyyymm % 100) - 1, 1).toLocaleDateString(formatLocale, {
-    month: "long",
-  });
+const monthOnly = (yyyymm: number) => formatMonthOnly(Math.floor(yyyymm / 100), yyyymm % 100);
 
 /**
  * 一覧の帯（普通のスクロールバーの代わり。計算は `scrubRailMath.ts`）。
