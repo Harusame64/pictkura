@@ -2701,7 +2701,7 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
         let extensions = lock_ok(&state.config).import.extensions.clone();
         let listing = pictkura_core::browse::list_dir(&dir, &extensions);
         let mut files = listing.files;
-        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        files.sort_by_key(|f| f.name.to_lowercase());
         let mut table = std::collections::HashMap::new();
         let mut items = Vec::with_capacity(files.len());
         let mut index = 0;
