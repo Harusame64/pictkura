@@ -7218,6 +7218,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     // 幕の間とファイルの操作（削除・書き出し）の間は待つ（書きかけ・途中の仕事を壊さない）
     if (!openWhenFree || curtainUp || fileOpRunning) return;
     setOpenWhenFree(null);
+    // 開いていた右クリックのメニューは閉じる——残ると、新しい写真の上で前の写真への操作（削除・印・Ctrl+1〜3）が
+    // 効いた（codex）
+    setMenu(null);
     openFile(openWhenFree, false);
   }, [openWhenFree, curtainUp, fileOpRunning, openFile]);
   const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
