@@ -348,7 +348,9 @@ export const formatDateTime = (ms: number) => dateTimeFormat(new Date(ms));
  */
 const cachedFormat = (opts: Intl.DateTimeFormatOptions) => {
   let f: Intl.DateTimeFormat | null = null;
-  return (d: Date) => (f ??= new Intl.DateTimeFormat(formatLocale, opts)).format(d);
+  // 不正な日時は `toLocaleString` と同じく "Invalid Date" を返す（Intl は投げるので、壊れた値 1 つで画面が白くなる）
+  return (d: Date) =>
+    Number.isNaN(d.getTime()) ? "Invalid Date" : (f ??= new Intl.DateTimeFormat(formatLocale, opts)).format(d);
 };
 const dayFormat = cachedFormat({ year: "numeric", month: "long", day: "numeric" });
 const dateTimeFormat = cachedFormat({
