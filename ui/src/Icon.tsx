@@ -121,6 +121,8 @@ const PATHS = {
       <circle cx="12" cy="17" r="0.4" fill="currentColor" />
     </>
   ),
+  // ビューアを閉じる（一覧へ戻る）矢。右→左の行では .flip-rtl で裏返す
+  back: <path d="M19 12H5M11 6l-6 6 6 6" />,
   // 前・次（右→左の行では .flip-rtl で裏返す）
   chevronPrev: <path d="M14.5 5.5L8 12l6.5 6.5" />,
   chevronNext: <path d="M9.5 5.5L16 12l-6.5 6.5" />,

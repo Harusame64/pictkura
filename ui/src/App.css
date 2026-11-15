@@ -495,7 +495,7 @@ body {
   flex: none;
   vertical-align: -0.2em;
 }
-/* 付いている状態を塗りで見せる（★ お気に入り・旗・再生） */
+/* 塗りの形（付いている★・旗。再生の三角は塗りの形そのもの） */
 .icon.filled {
   fill: currentColor;
 }
@@ -508,6 +508,8 @@ body {
 .viewer-nav .icon {
   display: block;
   margin: auto;
+  /* 写真の上の白い線。一覧の 1.8 のままだと 20px で細く、明るい写真の上で ← より弱く見えた（/code-review） */
+  stroke-width: 2.3;
 }
 /* 文字の前に置くアイコン。大きさを字に合わせ（em）、行の高さを押し上げない——16px のままだと 12px の
    ボタンだけが隣より 2px 高くなった（/code-review） */
@@ -1645,26 +1647,11 @@ body {
     opacity var(--dur) var(--easing),
     background var(--dur-fast) var(--easing);
 }
-.viewer-back-icon {
-  display: block;
-  margin: auto;
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-[dir="rtl"] .viewer-back-icon {
-  transform: scaleX(-1);
-}
 .viewer-tool {
   border: none;
   background: oklch(1 0 0 / 0.1);
   color: #fff;
   font-family: inherit;
-  font-size: var(--fs-xl);
   width: var(--viewer-tool-size);
   height: var(--viewer-tool-size);
   border-radius: var(--radius-full);
@@ -2194,8 +2181,6 @@ body {
   border: none;
   background: oklch(1 0 0 / 0.1);
   color: #fff;
-  font-size: 22px;
-  line-height: 1;
   width: 44px;
   height: 44px;
   border-radius: var(--radius-full);

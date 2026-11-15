@@ -8989,14 +8989,15 @@ export default function App() {
                   </button>
                 )}
                 {viewerItem.favorite && (
-                  <span className="viewer-badge fav"><span aria-hidden="true">★ </span>{t.judgeFav}</span>
+                  <span className="viewer-badge fav"><Icon name="star" className="btn-icon filled" />{t.judgeFav}</span>
                 )}
                 {viewerItem.picked && (
-                  <span className="viewer-badge pick"><span aria-hidden="true">⚑ </span>{t.judgePick}</span>
+                  <span className="viewer-badge pick"><Icon name="flag" className="btn-icon filled" />{t.judgePick}</span>
                 )}
                 {rejected.has(viewerItem.id) && (
                   <span className="viewer-badge reject">
-                    ✕ {t.viewerRejected}
+                    <Icon name="close" className="btn-icon" />
+                    {t.viewerRejected}
                   </span>
                 )}
               </div>
@@ -9214,10 +9215,9 @@ export default function App() {
               requestCloseViewer();
             }}
           >
-            {/* 字の ← は書体の矢印で細く小さく、隣の ★・📋 より弱く見えた（利用者）。線で描いて太さを揃える */}
-            <svg className="viewer-back-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M19 12H5M11 6l-6 6 6 6" />
-            </svg>
+            {/* 字の ← は書体の矢印で細く小さく、隣の ★・📋 より弱く見えた（利用者）。帯の道具と同じ線の絵で、
+                太さも揃える（.viewer-tool .icon） */}
+            <Icon name="back" size={22} className="flip-rtl" />
           </button>
           <div className="viewer-tools" onClick={(e) => e.stopPropagation()}>
             {/* RAW+JPEG の組のどちらを見るか（2026-09-26 の利用者の要望）。片方だけ見せている
