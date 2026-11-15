@@ -7084,6 +7084,10 @@ export default function App() {
   useEffect(() => {
     openWithReq.current++;
   }, [viewerItemId]);
+  // 幕（設定・取り込み・確かめの画面など）が上がったら、待っている答えも捨てる——上に候補のメニューが出ていた（codex）
+  useEffect(() => {
+    if (curtainUp) openWithReq.current++;
+  }, [curtainUp]);
   const onOpenWithOther = useCallback(
     async (item: MediaItem, pos?: MenuPos) => {
       const req = ++openWithReq.current;

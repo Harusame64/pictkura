@@ -45,8 +45,8 @@ mod imp {
         SHCreateItemFromParsingName, ASSOC_FILTER_NONE,
     };
 
-    /// COM を自分の糸で STA として使う（呼ぶ側の糸の状態に寄らない）。終わったら畳む
-    fn with_com<T>(f: impl FnOnce() -> T + Send) -> T
+    /// COM を自分の糸で STA として使う（呼ぶ側の糸の状態に寄らない）。終わったら畳む。糸が落ちたら None
+    fn with_com<T>(f: impl FnOnce() -> T + Send) -> Option<T>
     where
         T: Send,
     {
@@ -61,7 +61,7 @@ mod imp {
                 out
             })
             .join()
-            .expect("COM worker panicked")
+            .ok()
         })
     }
 
@@ -123,7 +123,7 @@ mod imp {
 
     pub fn list(file: &Path) -> Vec<OsApp> {
         let file = file.to_path_buf();
-        with_com(move || handlers(&file).iter().filter_map(describe).collect())
+        with_com(move || handlers(&file).iter().filter_map(describe).collect()).unwrap_or_default()
     }
 
     /// **呼ぶ側の糸で動かす（UI の糸から呼ぶこと）。** そこは STA でメッセージも回っている。使い捨ての糸で
