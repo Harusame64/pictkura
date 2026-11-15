@@ -3654,6 +3654,9 @@ button:active:not(:disabled) {
 
 /* 止めて見ている間は、カーソルも道具と一緒に消す（写真の上に矢印が残り続けた）。動かせばすぐ戻る。
    idleHit の試験が上の「隠す一覧」を最初の .viewer.idle から読むので、この規則は後ろに置く */
-.viewer.idle {
-  cursor: none;
+.viewer.idle,
+.viewer.idle * {
+  /* 写真の <img> はインラインの style に cursor（拡大の zoom-in／掴む grab）を持つので、!important で上書きする
+     （付けないと写真の上だけ矢印が残った。win2 の実測） */
+  cursor: none !important;
 }
