@@ -69,8 +69,19 @@ export function monthDots(
  * 上から先着順で決めると、外れ値の年（日付の読めない数枚が 2106 年に並ぶ等）が一番上に来たとき、今年のラベルを
  * 奪った（win2 の実測 2026-11-15: 「2106」の直下が「2025」で、2026 が出なかった）
  */
-export function chooseLabels(tops: readonly number[], spans: readonly number[], minGap: number): boolean[] {
-  const order = tops.map((_, i) => i).sort((a, b) => spans[b] - spans[a] || a - b);
+export function chooseLabels(
+  tops: readonly number[],
+  spans: readonly number[],
+  minGap: number,
+  /**
+   * 必ずラベルを出す年（番号）。表示している年は、詰まっていても省かない——省くと、帯の上に「今この年」と読める物が
+   * 無かった（利用者 2026-11-15「年が飛ばされるところは年が太くならないんだね」）。近いラベルが譲る
+   */
+  force?: number,
+): boolean[] {
+  const order = tops
+    .map((_, i) => i)
+    .sort((a, b) => (b === force ? 1 : 0) - (a === force ? 1 : 0) || spans[b] - spans[a] || a - b);
   const chosen: number[] = [];
   const out = tops.map(() => false);
   for (const i of order) {

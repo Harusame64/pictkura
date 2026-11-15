@@ -120,3 +120,11 @@ test("recent months get a wider share, and future-dated months only their photos
   // 0.5*0.5 + 0.5*(3/4) = 0.625
   assert.ok(Math.abs(map.toRail(500) - 0.625) < 1e-9);
 });
+
+test("the year on screen always gets its label, and its crowded neighbours give way", () => {
+  // 3 つの年が 1% ずつ詰まっている。真ん中を表示中に
+  const tops = [10, 11, 12];
+  const spans = [1, 1, 50];
+  assert.deepEqual(chooseLabels(tops, spans, 4), [false, false, true]);
+  assert.deepEqual(chooseLabels(tops, spans, 4, 1), [false, true, false]);
+});
