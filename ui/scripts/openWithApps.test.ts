@@ -85,3 +85,37 @@ test("a * inside a key matches too (codex: rawtherapee*.exe never matched)", () 
   // 名簿に載ったものが名簿の順で先、名簿外（SnapSwift・拡張子違い）は OS の順で後
   assert.deepEqual(top.map((a) => a.name), ["Affinity Photo 2", "RawTherapee", "SnapSwift", "not an exe"]);
 });
+
+test("a RAW keeps editors found under other types only when they open RAW (user: 'RAW 用もあるの？')", () => {
+  const apps: OsApp[] = [
+    app("フォト", "フォト"),
+    app("notepad.exe", "メモ帳", false),
+    // DNG・TIFF・JPEG の一覧から拾ったもの（via 付き）。OS は RAW の拡張子には挙げていない
+    { ...app("lightroom.exe", "Adobe Lightroom Classic", false), via: "dng" },
+    { ...app("silkypix developer studio pro11.exe", "SILKYPIX", false), via: "tif" },
+    { ...app("paintdotnet.exe", "Paint.NET", false), via: "jpg" },
+    { ...app("winword.exe", "Word", false), via: "jpg" },
+  ];
+  const { top, rest } = rankOsApps(apps, false, true);
+  // 名簿の順（Lightroom → SILKYPIX）、そのあと名簿外の推奨（フォト）。Paint.NET・Word は RAW に出さない
+  assert.deepEqual(top.map((a) => a.name), ["Adobe Lightroom Classic", "SILKYPIX", "フォト"]);
+  assert.deepEqual(rest.map((a) => a.name), ["メモ帳"]);
+});
+
+test("on a RAW, a RAW editor goes on top whether the OS listed it for the RAW or for another type", () => {
+  // RAW の一覧に推奨なしで居る Lightroom も上（別の形式から拾ったときと同じ扱い。/code-review）
+  const own = rankOsApps([app("フォト", "フォト"), app("lightroom.exe", "Lightroom", false)], false, true);
+  assert.deepEqual(own.top.map((a) => a.name), ["Lightroom", "フォト"]);
+  // RAW でなければ、勧められていない Lightroom は下のまま
+  const jpeg = rankOsApps([app("フォト", "フォト"), app("lightroom.exe", "Lightroom", false)], false, false);
+  assert.deepEqual(jpeg.top.map((a) => a.name), ["フォト"]);
+});
+
+test("Parallels' Windows apps never go up, even when their name matches the list", () => {
+  const { top } = rankOsApps(
+    [app("com.apple.preview", "プレビュー"), { ...app("com.parallels.winapp.silkypix", "SILKYPIX", false), via: "jpg" }],
+    false,
+    true,
+  );
+  assert.deepEqual(top.map((a) => a.name), ["プレビュー"]);
+});

@@ -2833,7 +2833,14 @@ async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsAp
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = path_of(&state, id)?;
-        Ok(os_apps::list(&path))
+        let mut apps = os_apps::list(&path);
+        // RAW は、ほかの画像の形式に挙がっている現像ソフトも足す（画面の側が名簿で絞る）。RAW かどうかは
+        // ここで決める（画面から受け取らない。判定は Rust に 1 か所）
+        if pictkura_core::raw::is_raw_path(&path) {
+            let extra = os_apps::raw_extras(&path, &apps);
+            apps.extend(extra);
+        }
+        Ok(apps)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2842,21 +2849,29 @@ async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsAp
 /// [`os_apps_for`] が返したアプリ（`app_id`）でその写真を開く。覚えない（OS の一覧から毎回引く）。
 /// Windows は UI の糸で起動させる（`os_apps::open` の節。そこは STA でメッセージが回っている）
 #[tauri::command]
-async fn open_with_os(app: tauri::AppHandle, id: i64, app_id: String) -> Result<(), String> {
+async fn open_with_os(
+    app: tauri::AppHandle,
+    id: i64,
+    app_id: String,
+    via: Option<String>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = path_of(&app.state::<AppState>(), id)?;
+        if !os_apps::via_allowed(&path, via.as_deref()) {
+            return Err(errs::code("errAppGone"));
+        }
         #[cfg(windows)]
         {
             let (tx, rx) = std::sync::mpsc::channel();
             app.run_on_main_thread(move || {
-                let _ = tx.send(os_apps::open(&path, &app_id));
+                let _ = tx.send(os_apps::open(&path, &app_id, via.as_deref()));
             })
             .map_err(|e| e.to_string())?;
             rx.recv().map_err(|e| e.to_string())?
         }
         #[cfg(not(windows))]
         {
-            os_apps::open(&path, &app_id)
+            os_apps::open(&path, &app_id, via.as_deref())
         }
     })
     .await

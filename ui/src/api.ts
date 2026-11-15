@@ -804,7 +804,8 @@ export type { OsApp } from "./openWithApps";
 /** その写真を開ける、OS が挙げるアプリ（並べ替える前） */
 export const osAppsFor = (id: number) => invoke<import("./openWithApps").OsApp[]>("os_apps_for", { id });
 /** OS が挙げたアプリ（`osAppsFor` の id）で開く。覚えない */
-export const openWithOs = (id: number, appId: string) => invoke<void>("open_with_os", { id, appId });
+export const openWithOs = (id: number, appId: string, via?: string | null) =>
+  invoke<void>("open_with_os", { id, appId, via: via ?? null });
 /** 登録済みの外部エディタを設定から外す */
 export const forgetEditor = (appPath: string) =>
   invoke<void>("forget_editor", { appPath });

@@ -7104,7 +7104,7 @@ export default function App() {
   /** 候補のメニューの項目（名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…） */
   const appMenuItems = useCallback(
     (item: MediaItem, apps: readonly OsApp[]): MenuItem[] => {
-      const { top, rest } = rankOsApps(apps, item.is_video);
+      const { top, rest } = rankOsApps(apps, item.is_video, item.is_raw);
       const all = [...top, ...rest];
       const keys = all.map((a) => a.key);
       const toItem = (a: OsApp, i: number, separator: boolean): MenuItem => ({
@@ -7112,7 +7112,7 @@ export default function App() {
         id: `os-${openWithId(a.key, i, keys)}`,
         label: a.name,
         separator,
-        run: () => openWithOs(item.id, a.id).catch((e) => fail(errText(e))),
+        run: () => openWithOs(item.id, a.id, a.via).catch((e) => fail(errText(e))),
       });
       return [
         ...top.map((a, i) => toItem(a, i, false)),

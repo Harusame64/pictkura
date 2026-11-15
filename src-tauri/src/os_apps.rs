@@ -20,6 +20,8 @@ pub struct OsApp {
     pub recommended: bool,
     /// 名簿と照らす鍵（小文字）。Windows は exe のファイル名（パスが無い Store アプリは名前）、macOS は束 ID
     pub key: String,
+    /// その写真の形式ではなく、別の形式（拡張子、点なし）に OS が挙げたアプリ。RAW のときだけ [`raw_extras`] が付ける
+    pub via: Option<String>,
 }
 
 /// `file` を開けるアプリの一覧（OS の順）。取れなければ空
@@ -27,9 +29,67 @@ pub fn list(file: &Path) -> Vec<OsApp> {
     imp::list(file)
 }
 
-/// `list` で返した `id` のアプリで `file` を開く
-pub fn open(file: &Path, id: &str) -> Result<(), String> {
-    imp::open(file, id)
+/// RAW のときに足す候補を探す形式。現像ソフトの多くは RAW の拡張子に関連付けを登録しない（Lightroom 等）が、
+/// DNG・TIFF・JPEG には登録していることが多い（2026-11-15 利用者「RAW 用もあるの？ 漏れがないように」）。
+/// **探しに行くのではなく、OS がほかの形式に挙げているアプリを読むだけ**。名簿で RAW を扱えるとしたものだけを
+/// 画面の側で残す
+pub const RAW_EXTRA_TYPES: [&str; 3] = ["dng", "tif", "jpg"];
+
+/// [`RAW_EXTRA_TYPES`] に OS が挙げるアプリ（`via` 付き。`own` に既に在る鍵と、写真自身の形式は除く）。
+///
+/// 3 つの形式への問い合わせは遅い（拡張子の登録を読む）ので、**5 分のあいだ覚えて使い回す**——RAW を右クリック
+/// するたびに 3 回重ねていた（/code-review）。入れたばかりのアプリは 5 分のうちに出てくる
+pub fn raw_extras(file: &Path, own: &[OsApp]) -> Vec<OsApp> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    static CACHE: Mutex<Option<(Instant, Vec<OsApp>)>> = Mutex::new(None);
+    const KEEP: Duration = Duration::from_secs(300);
+
+    let all = {
+        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.as_ref() {
+            Some((at, apps)) if at.elapsed() < KEEP => apps.clone(),
+            _ => {
+                let mut apps = Vec::new();
+                for ext in RAW_EXTRA_TYPES {
+                    for mut a in imp::list_for_type(ext) {
+                        a.via = Some(ext.to_string());
+                        apps.push(a);
+                    }
+                }
+                *cache = Some((Instant::now(), apps.clone()));
+                apps
+            }
+        }
+    };
+    let own_ext = file
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let mut out: Vec<OsApp> = Vec::new();
+    for a in all {
+        if a.via.as_deref() == Some(own_ext.as_str())
+            || own.iter().chain(out.iter()).any(|o| o.key == a.key)
+        {
+            continue;
+        }
+        out.push(a);
+    }
+    out
+}
+
+/// `via` として受け取ってよい形式か（[`RAW_EXTRA_TYPES`] のどれかで、写真が RAW のときだけ）。それ以外で
+/// 別の形式のハンドラに写真を渡させない（/code-review: 任意の拡張子のハンドラを呼べた）
+pub fn via_allowed(file: &Path, via: Option<&str>) -> bool {
+    match via {
+        None => true,
+        Some(ext) => RAW_EXTRA_TYPES.contains(&ext) && pictkura_core::raw::is_raw_path(file),
+    }
+}
+
+/// `list`（または `raw_extras`）で返した `id` のアプリで `file` を開く。`via` は `raw_extras` の印をそのまま
+pub fn open(file: &Path, id: &str, via: Option<&str>) -> Result<(), String> {
+    imp::open(file, id, via)
 }
 
 #[cfg(windows)]
@@ -76,10 +136,15 @@ mod imp {
     }
 
     fn handlers(file: &Path) -> Vec<IAssocHandler> {
-        let Some(ext) = file.extension() else {
-            return Vec::new();
-        };
-        let ext = HSTRING::from(format!(".{}", ext.to_string_lossy()));
+        match file.extension() {
+            Some(ext) => handlers_for(&ext.to_string_lossy()),
+            None => Vec::new(),
+        }
+    }
+
+    /// 拡張子（点なし）に OS が挙げるハンドラ
+    fn handlers_for(ext: &str) -> Vec<IAssocHandler> {
+        let ext = HSTRING::from(format!(".{ext}"));
         // SAFETY: 拡張子の文字列を渡して列挙子を受け取る
         let Ok(e) = (unsafe { SHAssocEnumHandlers(&ext, ASSOC_FILTER_NONE) }) else {
             return Vec::new();
@@ -118,6 +183,7 @@ mod imp {
             name,
             recommended,
             key,
+            via: None,
         })
     }
 
@@ -126,11 +192,22 @@ mod imp {
         with_com(move || handlers(&file).iter().filter_map(describe).collect()).unwrap_or_default()
     }
 
+    pub fn list_for_type(ext: &str) -> Vec<OsApp> {
+        let ext = ext.to_string();
+        with_com(move || handlers_for(&ext).iter().filter_map(describe).collect())
+            .unwrap_or_default()
+    }
+
     /// **呼ぶ側の糸で動かす（UI の糸から呼ぶこと）。** そこは STA でメッセージも回っている。使い捨ての糸で
     /// `Invoke` すると、非同期で起動するハンドラ（DelegateExecute・一部の Store アプリ）が働く前に COM を畳んで
     /// しまう（/code-review。`ShellExecuteEx` に `SEE_MASK_NOASYNC` が要るのと同じ理由）
-    pub fn open(file: &Path, id: &str) -> Result<(), String> {
-        let h = handlers(file)
+    pub fn open(file: &Path, id: &str, via: Option<&str>) -> Result<(), String> {
+        // `via` があれば、そのアプリは別の形式の一覧に居る。そこから引き直して、この写真を渡す
+        let all = match via {
+            Some(ext) => handlers_for(ext),
+            None => handlers(file),
+        };
+        let h = all
             .into_iter()
             .find(|h| {
                 unsafe { h.GetName() }
@@ -155,6 +232,15 @@ mod imp {
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::{NSBundle, NSString, NSURL};
     use std::path::Path;
+
+    /// 拡張子（点なし）の空のファイルを一時フォルダに置いて訊く（LaunchServices は拡張子で引く）
+    pub fn list_for_type(ext: &str) -> Vec<OsApp> {
+        let probe = std::env::temp_dir().join(format!("pictkura-openwith-probe.{ext}"));
+        if !probe.exists() && std::fs::write(&probe, b"").is_err() {
+            return Vec::new();
+        }
+        list(&probe)
+    }
 
     pub fn list(file: &Path) -> Vec<OsApp> {
         // `URLsForApplicationsToOpenURL:` は macOS 12 から。11 では呼ぶと例外で落ちるので、空を返して
@@ -196,12 +282,14 @@ mod imp {
                 name,
                 recommended,
                 key,
+                via: None,
             });
         }
         out
     }
 
-    pub fn open(file: &Path, id: &str) -> Result<(), String> {
+    pub fn open(file: &Path, id: &str, _via: Option<&str>) -> Result<(), String> {
+        // `open -a` はアプリのパスで開くので、どの形式の一覧から来たかは要らない
         tauri_plugin_opener::open_path(file, Some(id))
             .map_err(|e| crate::errs::coded("errOpenWith", e))
     }
@@ -216,7 +304,11 @@ mod imp {
         Vec::new()
     }
 
-    pub fn open(file: &Path, id: &str) -> Result<(), String> {
+    pub fn list_for_type(_ext: &str) -> Vec<OsApp> {
+        Vec::new()
+    }
+
+    pub fn open(file: &Path, id: &str, _via: Option<&str>) -> Result<(), String> {
         tauri_plugin_opener::open_path(file, Some(id)).map_err(|e| e.to_string())
     }
 }
