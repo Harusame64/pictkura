@@ -1201,10 +1201,18 @@ body {
 .day-cell.has-photos {
   cursor: pointer;
 }
-.day-cell.has-photos:hover {
-  /* 写真の上でも見える濃さ（--border-strong は透けて見えなかった。/code-review） */
-  outline: 2px solid var(--text-muted);
-  outline-offset: -2px;
+/* 写真のある日に乗せたときの枠。マスの outline は位置指定の写真（.day-thumb）の下に描かれ、内側の 2px が写真に
+   隠れて「1px くらいしか違いが無い」になった（利用者、win2 の読み）。写真より上の ::after に描く */
+.day-cell.has-photos:hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 2px var(--text),
+    inset 0 0 0 3px oklch(1 0 0 / 0.5);
+  pointer-events: none;
 }
 .day-thumb {
   position: absolute;
