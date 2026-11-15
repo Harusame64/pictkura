@@ -2883,9 +2883,14 @@ const OUTSIDE_DAY_KEY: i64 = -1;
 /// 作っても同じ）。**隠したまま（cloak）見せて合成させ、`phase` = "end" で隠しを解く**。開く動きの重ね（transition）
 /// も切る。画面（main.tsx）は "begin" の 2 コマ後に "end" を呼ぶ。macOS などは "begin" で見せるだけ
 #[tauri::command]
-fn reveal_main_window(app: tauri::AppHandle, phase: String) {
+fn reveal_main_window(app: tauri::AppHandle, phase: String) -> u32 {
+    // 隠しを解くまで待つコマ数（試作。PK_REVEAL_FRAMES で変えて win2 で測る。既定 2）
+    let frames = std::env::var("PK_REVEAL_FRAMES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
     let Some(w) = app.get_webview_window("main") else {
-        return;
+        return frames;
     };
     #[cfg(windows)]
     {
@@ -2895,7 +2900,7 @@ fn reveal_main_window(app: tauri::AppHandle, phase: String) {
         };
         let Ok(h) = w.hwnd() else {
             let _ = w.show();
-            return;
+            return frames;
         };
         let hwnd = HWND(h.0 as _);
         let set = |attr, on: bool| {
@@ -2923,6 +2928,7 @@ fn reveal_main_window(app: tauri::AppHandle, phase: String) {
     if phase == "begin" {
         let _ = w.show();
     }
+    frames
 }
 
 /// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）

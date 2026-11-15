@@ -42,13 +42,15 @@ void takePendingOpen()
     // 描き終わりを待つため、次の 2 コマ後に見せる
     // Windows では隠したまま（cloak）見せて合成させ、さらに 2 コマ後に隠しを解く（#314。lib.rs の reveal_main_window）
     if (openAtStart) {
-      const reveal = (phase: "begin" | "end") => invoke("reveal_main_window", { phase });
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          void reveal("begin")
-            .then(() => requestAnimationFrame(() => requestAnimationFrame(() => void reveal("end"))))
-            .catch(() => void getCurrentWindow().show()),
-        ),
+      const reveal = (phase: "begin" | "end") => invoke<number>("reveal_main_window", { phase });
+      // n コマ待ってから次へ
+      const afterFrames = (n: number, f: () => void) =>
+        n <= 0 ? f() : requestAnimationFrame(() => afterFrames(n - 1, f));
+      afterFrames(2, () =>
+        void reveal("begin")
+          // 隠しを解くまでのコマ数は Rust が返す（試作: 環境変数 PK_REVEAL_FRAMES で変えて測る）
+          .then((frames) => afterFrames(frames, () => void reveal("end")))
+          .catch(() => void getCurrentWindow().show()),
       );
     }
   });
