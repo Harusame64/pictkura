@@ -283,6 +283,7 @@ export const zhHant: Dict = {
   importFrom: (path: string) => `從 ${path} 匯入`,
   filterByCamera: (name: string) => `只顯示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳到 ${year} 年`,
+  scrubRailLabel: "時間軸（拖曳以瀏覽相片）",
   importing: (done: number, total: number) => `正在匯入… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `匯入完成：複製 ${num(copied)} 張，略過 ${num(skipped)} 張`,

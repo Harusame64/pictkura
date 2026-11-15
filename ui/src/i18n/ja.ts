@@ -260,6 +260,7 @@ export const ja = {
   importFrom: (path: string) => `${path} から取り込む`,
   filterByCamera: (name: string) => `${name} で撮った写真だけを表示`,
   jumpToYear: (year: number) => `${year}年へ`,
+  scrubRailLabel: "タイムライン（掴んで動かす）",
   importing: (done: number, total: number) => `取り込み中… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `取り込み完了: コピー${num(copied)} スキップ${num(skipped)}`,

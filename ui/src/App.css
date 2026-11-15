@@ -631,30 +631,56 @@ body {
   min-height: 0;
   display: flex;
 }
-.scrubber {
+.scrub-rail {
   position: absolute;
   top: 0;
   inset-inline-end: 0;
   bottom: 0;
-  width: 46px;
+  width: var(--scrub-rail-width);
   z-index: 5;
+  cursor: ns-resize;
+  touch-action: none;
+}
+/* いま見ている範囲。帯の縦線の上に乗る細い棒（掴むのは帯のどこでもよい） */
+.scrub-thumb {
+  position: absolute;
+  inset-inline-end: 4px;
+  width: 6px;
+  border-radius: 3px;
+  background: var(--border-strong);
+  pointer-events: none;
+  transition: background var(--dur) var(--easing);
+}
+.scrub-rail:hover .scrub-thumb,
+.scrub-rail.active .scrub-thumb {
+  background: var(--accent);
+}
+/* 指の位置の年月。帯の内側（写真の側）へ出す */
+.scrub-bubble {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--sp-1));
+  transform: translateY(-50%);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.15);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
   pointer-events: none;
 }
 .scrub-tick {
   position: absolute;
-  inset-inline-end: 2px;
+  inset-inline-end: 12px;
   transform: translateY(-50%);
-  pointer-events: auto;
-  border: none;
-  background: none;
+  pointer-events: none;
   color: var(--text-faint);
-  font-family: inherit;
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   padding: 1px var(--sp-1);
   border-radius: var(--radius-sm);
   line-height: 1.2;
-  cursor: pointer;
 }
 .scrub-tick:not(.labeled) {
   width: 8px;
@@ -663,12 +689,8 @@ body {
   background: var(--border-strong);
   border-radius: 1px;
 }
-.scrub-tick:hover {
-  background: var(--surface-2);
-  color: var(--text);
-}
-.scrub-tick:not(.labeled):hover {
-  background: var(--accent);
+.scrub-rail:hover .scrub-tick.labeled {
+  color: var(--text-muted);
 }
 
 .grid-scroll {
@@ -677,6 +699,12 @@ body {
   overflow-y: auto;
   background: var(--bg-canvas);
   padding: 0 var(--sp-2);
+  /* 普通のスクロールバーは出さない。動かすのは右端の帯（`.scrub-rail`）で、写真は帯の手前まで */
+  padding-inline-end: var(--scrub-rail-width);
+  scrollbar-width: none;
+}
+.grid-scroll::-webkit-scrollbar {
+  display: none;
 }
 .date-header {
   display: flex;

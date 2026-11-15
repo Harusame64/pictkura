@@ -283,6 +283,7 @@ export const he: Dict = {
   importFrom: (path: string) => `ייבוא מ-${iso(path)}`,
   filterByCamera: (name: string) => `הצגת התמונות שצולמו ב-${iso(name)} בלבד`,
   jumpToYear: (y: number) => `מעבר ל-${year(y)}`,
+  scrubRailLabel: "ציר זמן (גררו כדי לעבור בין התמונות)",
   importing: (done: number, total: number) => `מייבא… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `הייבוא הסתיים: הועתקו ${num(copied)}, דולגו ${num(skipped)}`,

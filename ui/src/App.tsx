@@ -21,6 +21,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
+import { ScrubRail } from "./ScrubRail";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -157,7 +158,6 @@ import {
   t,
 } from "./i18n";
 import { errText } from "./i18n/err.ts";
-import { year } from "./i18n/plural.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
 import { filterConditions, joinConditions } from "./filterEmpty";
@@ -3486,6 +3486,9 @@ export default function App() {
    * 10年分のライブラリでも1クリックで飛べるようにする（骨組みだけで作れるので
    * 追加のIPCもレコード取得も要らない）。ラベルは重なる位置では省いて点だけ描く
    */
+  /** 各行の日（帯の吹き出しが、指の位置の年月を引く） */
+  const rowDayKeys = useMemo(() => rows.map((r) => r.dayKey), [rows]);
+
   const yearMarkers = useMemo(() => {
     const total = rowTops[rows.length] || 1;
     const out: { year: number; rowIndex: number; top: number; label: boolean }[] =
@@ -8187,24 +8190,14 @@ export default function App() {
             </div>
           ) : (
             <div className="grid-wrap">
-              {yearMarkers.length > 1 && (
-                <div className="scrubber">
-                  {yearMarkers.map((m) => (
-                    <button
-                      key={m.year}
-                      className={"scrub-tick" + (m.label ? " labeled" : "")}
-                      style={{ top: `${m.top}%` }}
-                      title={t.jumpToYear(m.year)}
-                      onClick={() =>
-                        virtualizer.scrollToIndex(m.rowIndex, { align: "start" })
-                      }
-                    >
-                      {/* 年は地域の数字で（ar-SA ならアラビア・インド数字。`year()`） */}
-                      {m.label ? year(m.year) : ""}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
+              <ScrubRail
+                scrollRef={scrollRef}
+                rowTops={rowTops}
+                dayKeys={rowDayKeys}
+                markers={yearMarkers}
+                onJumpToRow={(i) => virtualizer.scrollToIndex(i, { align: "start" })}
+              />
               <div className="grid-scroll" ref={scrollRef}>
               <div
                 style={{

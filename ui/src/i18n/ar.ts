@@ -304,6 +304,7 @@ export const ar: Dict = {
   importFrom: (path: string) => `استيراد من ${iso(path)}`,
   filterByCamera: (name: string) => `عرض الصور الملتقطة بـ ${iso(name)} فقط`,
   jumpToYear: (y: number) => `الانتقال إلى ${year(y)}`,
+  scrubRailLabel: "المخطط الزمني (اسحب للتنقل بين صورك)",
   importing: (done: number, total: number) => `جارٍ الاستيراد… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `اكتمل الاستيراد: نُسخ ${num(copied)}، وتُخطّي ${num(skipped)}`,

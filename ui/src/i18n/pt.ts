@@ -261,6 +261,7 @@ export const pt: Dict = {
   importFrom: (path: string) => `Importar de ${path}`,
   filterByCamera: (name: string) => `Mostrar só as fotos tiradas com ${name}`,
   jumpToYear: (year: number) => `Ir para ${year}`,
+  scrubRailLabel: "Linha do tempo (arraste para percorrer suas fotos)",
   importing: (done: number, total: number) => `Importando… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `Importação concluída: ${num(copied)} ${one(copied, "copiada", "copiadas")}, ${num(skipped)} ${one(skipped, "ignorada", "ignoradas")}`,

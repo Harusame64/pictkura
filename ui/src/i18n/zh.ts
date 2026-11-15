@@ -280,6 +280,7 @@ export const zh: Dict = {
   importFrom: (path: string) => `从 ${path} 导入`,
   filterByCamera: (name: string) => `只显示用 ${name} 拍的照片`,
   jumpToYear: (year: number) => `跳转到 ${year} 年`,
+  scrubRailLabel: "时间轴（拖动以浏览照片）",
   importing: (done: number, total: number) => `正在导入… ${num(done)}/${num(total)}`,
   importDone: (copied: number, skipped: number) =>
     `导入完成：复制 ${num(copied)} 张，跳过 ${num(skipped)} 张`,
