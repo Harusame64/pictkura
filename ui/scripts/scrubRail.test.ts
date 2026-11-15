@@ -10,6 +10,7 @@ import {
   anchoredScrollTop,
   fractionAt,
   makeRailMap,
+  recencyFactor,
   monthDots,
   monthIndexAt,
   monthStarts,
@@ -122,4 +123,20 @@ test("the rail gives small months room, and maps back to the same place", () => 
   // alpha=1 なら量に比例（前の振る舞い）
   const prop = makeRailMap(starts, 1000, 1);
   assert.ok(Math.abs(prop.toRail(100) - 0.1) < 1e-9);
+});
+
+test("recent months get a wider share, and future-dated months only their photos' share", () => {
+  const f = recencyFactor(202611, 24, 3);
+  assert.equal(f(202611), 3);
+  assert.equal(f(202412), 3);
+  assert.equal(f(202411), 1);
+  assert.equal(f(210602), 0);
+  // 2 か月・同じ量: 新しい方（倍率 3）が等分の 3/4 を取る
+  const starts = [
+    { offset: 0, month: 202610 },
+    { offset: 500, month: 201001 },
+  ];
+  const map = makeRailMap(starts, 1000, 0.5, f);
+  // 0.5*0.5 + 0.5*(3/4) = 0.625
+  assert.ok(Math.abs(map.toRail(500) - 0.625) < 1e-9);
 });

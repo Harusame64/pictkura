@@ -10,6 +10,7 @@ import {
   monthStarts,
   chooseLabels,
   makeRailMap,
+  recencyFactor,
 } from "./scrubRailMath";
 
 /** 帯の上の位置（%）。下端の目盛りは、文字の半分が帯の外へはみ出さないよう、帯の中に留める */
@@ -28,6 +29,12 @@ const MONTH_GAP_PX = 5;
  * 今年が帯の上で幅を持たず、窓を縦に狭くすると 2026 と 2025 の間に月の点が置けなかった（利用者 2026-11-15）
  */
 const RAIL_ALPHA = 0.5;
+/**
+ * 最近の月を広く取る（等分の重みを `RECENT_BOOST` 倍）。「いちばん使うのは最近」（利用者 2026-11-15）。
+ * 今より先の日付の月は等分の重みを 0 にする——時計の狂った写真が 1 枚ずつ月を持つと、帯の上端を食った
+ */
+const RECENT_MONTHS = 24;
+const RECENT_BOOST = 3;
 /**
  * 掴んで送っている間、一覧を動かす間隔（ms）。指が動くたびに動かすと、行き先の行を毎フレーム作り直して
  * カクついた（win2 の実測 2026-11-15、33,178 件: rAF p95 71ms）。間は帯の上だけ（つまみ・吹き出し・横線）が指に付いて動き、
@@ -122,7 +129,11 @@ export function ScrubRail({
 
   const starts = useMemo(() => monthStarts(rowTops, dayKeys), [rowTops, dayKeys]);
   // 帯と中身の対応（`makeRailMap`）。写真の少ない月・今年にも幅を回す
-  const map = useMemo(() => makeRailMap(starts, total, RAIL_ALPHA), [starts, total]);
+  const map = useMemo(() => {
+    const now = new Date();
+    const nowMonth = now.getFullYear() * 100 + now.getMonth() + 1;
+    return makeRailMap(starts, total, RAIL_ALPHA, recencyFactor(nowMonth, RECENT_MONTHS, RECENT_BOOST));
+  }, [starts, total]);
 
   // 年の目盛り: 年の変わる行ごとに1つ。ラベルは 4% 以上離れているときだけ、重なったら写真の多い年を残す
   const markers = useMemo((): YearMarker[] => {

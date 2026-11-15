@@ -188,9 +188,14 @@ export type RailMap = {
 };
 
 export function makeRailMap(
-  starts: readonly { offset: number }[],
+  starts: readonly { offset: number; month?: number }[],
   total: number,
   alpha: number,
+  /**
+   * 月ごとの等分の重みに掛ける倍率（`yyyymm` から）。最近の月を広く（いちばん使うのは最近）、
+   * 今より先の月（時計の狂った写真・日付の読めない写真）は 0 にして量の分だけにする。省けば全部 1
+   */
+  factor?: (month: number) => number,
 ): RailMap {
   const k = starts.length;
   if (k === 0 || !(total > 0)) {
@@ -200,7 +205,9 @@ export function makeRailMap(
     };
   }
   const len = starts.map((s, i) => (i + 1 < k ? starts[i + 1].offset : total) - s.offset);
-  const weight = len.map((l) => alpha * (l / total) + (1 - alpha) / k);
+  const f = starts.map((s) => (factor && s.month !== undefined ? factor(s.month) : 1));
+  const fSum = f.reduce((a, b) => a + b, 0) || 1;
+  const weight = len.map((l, i) => alpha * (l / total) + (1 - alpha) * (f[i] / fSum));
   const sum = weight.reduce((a, b) => a + b, 0);
   const railStart: number[] = [];
   let acc = 0;
@@ -233,5 +240,19 @@ export function makeRailMap(
       const within = w[i] > 0 ? Math.min(1, (c - railStart[i]) / w[i]) : 0;
       return offs[i] + within * len[i];
     },
+  };
+}
+
+/**
+ * 等分の重みの倍率（`makeRailMap` の `factor`）。今月から数えて `recent` か月以内は `boost` 倍、
+ * 今月より先（未来の日付）は 0、それ以外は 1
+ */
+export function recencyFactor(nowMonth: number, recent: number, boost: number): (month: number) => number {
+  const index = (m: number) => Math.floor(m / 100) * 12 + (m % 100) - 1;
+  const now = index(nowMonth);
+  return (month) => {
+    const age = now - index(month);
+    if (age < 0) return 0;
+    return age < recent ? boost : 1;
   };
 }
