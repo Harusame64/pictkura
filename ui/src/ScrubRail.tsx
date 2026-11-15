@@ -39,6 +39,9 @@ const LOUPE_STEP = 22;
 const MENU_STEP = 26;
 /** 止めた一覧から、この距離（px）までは指が外れても閉じない（帯との間を渡るため） */
 const MENU_SLACK_PX = 24;
+/** 指からこの距離（px）までの月が大きくなる。真上は 1.6 倍 */
+const DOCK_REACH_PX = 70;
+const DOCK_GROW = 0.6;
 
 /** 「2023年8月」（年をまたぐ所と、指の月） */
 const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
@@ -81,6 +84,8 @@ export function ScrubRail({
   const [bubble, setBubble] = useState<{ y: number; month: number | null } | null>(null);
   // 止めた拡大鏡（押せる月の一覧）。帯の上の位置（px）と、その年・指の月
   const [menu, setMenu] = useState<{ y: number; month: number } | null>(null);
+  // 止めた一覧の上の指の高さ（帯の上の px）。Dock のように、指に近い月ほど大きく濃く描く
+  const [menuPointerY, setMenuPointerY] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   // 現在地（一覧の上端の位置）
   const [scrollTop, setScrollTop] = useState(0);
@@ -225,10 +230,28 @@ export function ScrubRail({
 
   /** 止めた一覧の月の並び（その年の、写真のある月。上が新しい月） */
   const menuMonths = menu ? starts.filter((x) => Math.floor(x.month / 100) === Math.floor(menu.month / 100)) : [];
+  const menuIndex = menu ? menuMonths.findIndex((x) => x.month === menu.month) : -1;
+  // 一覧の上端（帯の上の px）。指の月を、止めたときの指の高さに置く。帯からはみ出さないように詰める
+  const menuTop = menu
+    ? Math.max(
+        0,
+        Math.min(
+          viewport - (menuMonths.length + 1) * MENU_STEP,
+          menu.y - (menuIndex + 1) * MENU_STEP - MENU_STEP / 2,
+        ),
+      )
+    : 0;
+  /** 一覧の k 番目の行（0 は年）の、指からの近さ（1＝真上、0＝遠い）。指がまだ一覧に入っていなければ止めた所から */
+  const nearness = (k: number) => {
+    const py = menuPointerY ?? menu?.y ?? 0;
+    const cy = menuTop + k * MENU_STEP + MENU_STEP / 2;
+    return Math.max(0, 1 - Math.abs(cy - py) / DOCK_REACH_PX);
+  };
   const goTo = (offset: number) => {
     const el = scrollRef.current;
     if (el) el.scrollTop = offset;
     setMenu(null);
+    setMenuPointerY(null);
   };
 
   // 拡大鏡: 指の月を中央に、前後の月を上下へ（上が新しい月。一覧と同じ向き）
@@ -309,7 +332,10 @@ export function ScrubRail({
         const rect = railRef.current?.getBoundingClientRect();
         const rtl = railRef.current ? getComputedStyle(railRef.current).direction === "rtl" : false;
         const towardPhotos = rect ? (rtl ? e.clientX > rect.right : e.clientX < rect.left) : false;
-        if (towardPhotos && bubble?.month != null) setMenu({ y: bubble.y, month: bubble.month });
+        if (towardPhotos && bubble?.month != null) {
+          setMenuPointerY(null);
+          setMenu({ y: bubble.y, month: bubble.month });
+        }
         setBubble(null);
       }}
       onLostPointerCapture={() => {
@@ -342,44 +368,47 @@ export function ScrubRail({
         <div
           ref={menuRef}
           className="scrub-menu"
-          style={{
-            // 指の月を、止めたときの指の高さに置く。帯からはみ出さないように詰める
-            top: `${Math.max(
-              0,
-              Math.min(
-                viewport - (menuMonths.length + 1) * MENU_STEP,
-                menu.y - (menuMonths.findIndex((x) => x.month === menu.month) + 1) * MENU_STEP - MENU_STEP / 2,
-              ),
-            )}px`,
-          }}
+          style={{ top: `${menuTop}px` }}
           // 一覧の上の操作を、帯の「押す・掴む・拡大鏡」に渡さない
           onPointerDown={(e) => e.stopPropagation()}
-          onPointerMove={(e) => e.stopPropagation()}
+          onPointerMove={(e) => {
+            e.stopPropagation();
+            const r = railRef.current?.getBoundingClientRect();
+            if (r) setMenuPointerY(e.clientY - r.top);
+          }}
           onPointerUp={(e) => e.stopPropagation()}
           onPointerLeave={(e) => {
             e.stopPropagation();
             // 帯へ戻ったら、また拡大鏡で選び直せるように閉じる
             const r = railRef.current?.getBoundingClientRect();
-            if (r && e.clientX >= r.left && e.clientX <= r.right) setMenu(null);
+            if (r && e.clientX >= r.left && e.clientX <= r.right) {
+              setMenu(null);
+              setMenuPointerY(null);
+            }
           }}
         >
-          <button
-            className="scrub-menu-year"
-            style={{ height: MENU_STEP }}
-            onClick={() => goTo(menuMonths[0].offset)}
-          >
-            {year(Math.floor(menu.month / 100))}
-          </button>
-          {menuMonths.map((x) => (
-            <button
-              key={x.month}
-              className={"scrub-menu-item" + (x.month === menu.month ? " center" : "")}
-              style={{ height: MENU_STEP }}
-              onClick={() => goTo(x.offset)}
-            >
-              {monthOnly(x.month)}
-            </button>
-          ))}
+          {[{ month: -1, offset: menuMonths[0].offset }, ...menuMonths].map((x, k) => {
+            const n = nearness(k);
+            const isYear = x.month === -1;
+            return (
+              <button
+                key={x.month}
+                className={
+                  (isYear ? "scrub-menu-year" : "scrub-menu-item") +
+                  (!isYear && x.month === menu.month ? " here" : "") +
+                  (n > 0.75 ? " near" : "")
+                }
+                style={{
+                  height: MENU_STEP,
+                  fontSize: `calc(var(--fs-sm) * ${1 + DOCK_GROW * n})`,
+                  opacity: 0.55 + 0.45 * n,
+                }}
+                onClick={() => goTo(x.offset)}
+              >
+                {isYear ? year(Math.floor(menu.month / 100)) : monthOnly(x.month)}
+              </button>
+            );
+          })}
         </div>
       )}
       {bubble && !menu && loupe.length > 0 && (
