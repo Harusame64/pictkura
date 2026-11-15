@@ -2853,10 +2853,12 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             table.insert(id, record);
         }
         {
-            // 直近 3 回の範囲だけ残す（その前の答えを今さら当てる画面は無い）
+            // 直近 3 回の範囲だけ残す（その前の答えを今さら当てる画面は無い）。**数えるのは、いまいちばん新しい呼び
+            // から**——自分の呼びから数えると、遅れて終わった古い呼びが、先に終わった新しい呼びの分を消した（codex）
+            let latest = OPEN_CALL.load(std::sync::atomic::Ordering::Relaxed) - 1;
             let recent: Vec<i64> = (0..3)
-                .filter(|d| call >= *d)
-                .map(|d| (call - d) % 1_000)
+                .filter(|d| latest >= *d)
+                .map(|d| (latest - d) % 1_000)
                 .collect();
             let mut outside = lock_ok(&state.outside);
             outside.retain(|id, _| recent.contains(&((-id - 1) / 1_000_000)));
