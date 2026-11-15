@@ -800,6 +800,11 @@ export const openWith = (id: number, appPath: string, remember: boolean) =>
   invoke<void>("open_with", { id, appPath, remember });
 /** 外部アプリの、OS が人に見せている名前（並びは paths と同じ）。設定には書かず、出すたびに引く */
 export const appDisplayNames = (paths: string[]) => invoke<string[]>("app_display_names", { paths });
+export type { OsApp } from "./openWithApps";
+/** その写真を開ける、OS が挙げるアプリ（並べ替える前） */
+export const osAppsFor = (id: number) => invoke<import("./openWithApps").OsApp[]>("os_apps_for", { id });
+/** OS が挙げたアプリ（`osAppsFor` の id）で開く。覚えない */
+export const openWithOs = (id: number, appId: string) => invoke<void>("open_with_os", { id, appId });
 /** 登録済みの外部エディタを設定から外す */
 export const forgetEditor = (appPath: string) =>
   invoke<void>("forget_editor", { appPath });

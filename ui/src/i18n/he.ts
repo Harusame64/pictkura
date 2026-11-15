@@ -387,6 +387,7 @@ export const he: Dict = {
   menuOpen: "פתיחה",
   menuOpenWith: (name: string) => `פתיחה באמצעות ${iso(name)}`,
   menuOpenWithOther: "פתיחה באמצעות אפליקציה אחרת…",
+  pickAnotherApp: "בחירת אפליקציה אחרת…",
   menuReveal: "הצגה בתיקייה",
   menuMoreOptions: "הצג אפשרויות נוספות",
   menuCopyImage: "העתקת התמונה ללוח",

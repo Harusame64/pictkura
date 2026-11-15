@@ -383,6 +383,7 @@ export const ko: Dict = {
   menuOpen: "열기",
   menuOpenWith: (name: string) => `${euro(name)} 열기`,
   menuOpenWithOther: "다른 앱으로 열기…",
+  pickAnotherApp: "다른 앱 선택…",
   menuReveal: "파일 위치 열기",
   menuMoreOptions: "추가 옵션 표시",
   menuCopyImage: "이미지를 클립보드에 복사",

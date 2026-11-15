@@ -141,6 +141,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSOperation",
     "block2",
     "NSString",
+    # 「他のアプリで開く」の候補（`os_apps.rs`）
+    "NSURL",
     "NSUserDefaults",
 ] }
 # ビューアの全画面（`mac_fullscreen.rs`）: WKWebView の頁の全画面を入れ、窓の全画面を抜けたらキーの受け手を戻す。
@@ -154,6 +156,8 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
 ] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
+    # 「他のアプリで開く」の候補（`os_apps.rs`）: そのファイルを開けるアプリを OS に訊く
+    "NSWorkspace",
     "NSResponder",
     "NSView",
     "NSWindow",

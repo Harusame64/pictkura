@@ -32,6 +32,7 @@ import { printPhoto, type PrintFit } from "./printPhoto";
 import { printSheet, printSides, type SheetItem, type SheetLayout } from "./printSheet";
 import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
+import { rankOsApps } from "./openWithApps";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { afterVideoEnded, isVideoOnlyFullscreen, type ViewerDir } from "./videoPlayOn";
@@ -82,6 +83,9 @@ import {
   takePendingImport,
   openWith,
   appDisplayNames,
+  osAppsFor,
+  openWithOs,
+  type OsApp,
   removeLibraryRoot,
   revealInFolder,
   setFavorite,
@@ -7028,7 +7032,8 @@ export default function App() {
     // 言語を替えると頁ごと読み直すので、そのとき引き直される
   }, [editors]);
 
-  const onOpenWithOther = useCallback(
+  /** ファイルを選ぶ画面でアプリを選ばせ、そのアプリで開いて覚える（「別のアプリを選ぶ…」） */
+  const pickOtherApp = useCallback(
     async (item: MediaItem) => {
       try {
         // アプリだけを選ばせる（前は何でも選べた。利用者「雑」2026-11-15）。Windows は起動の包み（.bat・.cmd）も
@@ -7058,6 +7063,39 @@ export default function App() {
     },
     [refreshRoots, platform, editors.length],
   );
+
+  /**
+   * 「他のアプリで開く…」: OS がその写真に挙げるアプリを、名簿で並べ替えて同じ場所にメニューで出す
+   * （名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…）。OS が何も挙げなければ選ぶ画面へ
+   */
+  const [appMenu, setAppMenu] = useState<{ pos: MenuPos; item: MediaItem; apps: OsApp[] } | null>(null);
+  const onOpenWithOther = useCallback(
+    async (item: MediaItem, pos?: MenuPos) => {
+      const apps = pos ? await osAppsFor(item.id).catch(() => [] as OsApp[]) : [];
+      if (!pos || apps.length === 0) {
+        void pickOtherApp(item);
+        return;
+      }
+      setAppMenu({ pos, item, apps });
+    },
+    [pickOtherApp],
+  );
+  const appMenuItems = useMemo((): MenuItem[] => {
+    if (!appMenu) return [];
+    const { item, apps } = appMenu;
+    const { top, rest } = rankOsApps(apps, item.is_video);
+    const toItem = (a: OsApp, i: number, separator: boolean): MenuItem => ({
+      id: `os-app-${i}`,
+      label: a.name,
+      separator,
+      run: () => openWithOs(item.id, a.id).catch((e) => fail(errText(e))),
+    });
+    return [
+      ...top.map((a, i) => toItem(a, i, false)),
+      ...rest.map((a, i) => toItem(a, top.length + i, i === 0 && top.length > 0)),
+      { id: "open-with-pick", label: t.pickAnotherApp, separator: true, run: () => void pickOtherApp(item) },
+    ];
+  }, [appMenu, pickOtherApp]);
 
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
   const googleOn = config?.google_mirror?.enabled ?? false;
@@ -7310,7 +7348,7 @@ export default function App() {
         label: t.menuOpenWith(editorLabel(app, editors, editorNames)),
         run: () => openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
       })),
-      { id: "open-with-other", label: t.menuOpenWithOther, run: () => onOpenWithOther(item) },
+      { id: "open-with-other", label: t.menuOpenWithOther, run: () => void onOpenWithOther(item, pos) },
       {
         id: "reveal", label: t.menuReveal,
         separator: true,
@@ -9481,6 +9519,7 @@ export default function App() {
         items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles, menu.pos) : []}
         onClose={() => setMenu(null)}
       />
+      <ContextMenu pos={appMenu?.pos ?? null} items={appMenuItems} onClose={() => setAppMenu(null)} />
       {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}
       {printFor !== null && (
         <PrintDialog

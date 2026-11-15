@@ -30,6 +30,7 @@ const CONFIG_FILE: &str = "pictkura.toml";
 
 mod app_name;
 mod autoplay;
+mod os_apps;
 // サムネイルの流れがカメラを埋めたとき、左ペインへ知らせる（dev #28）
 mod camera_signal;
 // 画面に出す失敗に辞書の鍵を付ける（完成度週間の項目3）
@@ -2823,6 +2824,31 @@ async fn app_display_names(paths: Vec<String>) -> Vec<String> {
     })
     .await
     .unwrap_or_default()
+}
+
+/// その写真を開ける、OS が挙げるアプリ（「他のアプリで開く」の候補。並べ替えは画面の側）。
+/// OS への問い合わせは遅いことがある（拡張子の登録を読む）ので、窓の外で
+#[tauri::command]
+async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsApp>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = path_of(&state, id)?;
+        Ok(os_apps::list(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// [`os_apps_for`] が返したアプリ（`app_id`）でその写真を開く。覚えない（OS の一覧から毎回引く）
+#[tauri::command]
+async fn open_with_os(app: tauri::AppHandle, id: i64, app_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = path_of(&state, id)?;
+        os_apps::open(&path, &app_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 登録済みの外部エディタを設定から外す。
@@ -7618,6 +7644,8 @@ pub fn run() {
             log_path,
             open_with,
             app_display_names,
+            os_apps_for,
+            open_with_os,
             show_shell_menu,
             confirm_right_to_left,
             forget_editor,

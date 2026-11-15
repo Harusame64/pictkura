@@ -422,6 +422,7 @@ export const ja = {
   menuOpen: "開く",
   menuOpenWith: (name: string) => `${name} で開く`,
   menuOpenWithOther: "他のアプリで開く…",
+  pickAnotherApp: "別のアプリを選ぶ…",
   menuReveal: "ファイルの場所を開く",
   // Windows 11 のエクスプローラーの同じ項目と同じ言葉（ADR B-4。Microsoft のサポートページで確かめた）
   menuMoreOptions: "その他のオプションを表示",

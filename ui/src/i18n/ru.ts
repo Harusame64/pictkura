@@ -398,6 +398,7 @@ export const ru: Dict = {
   menuOpen: "Открыть",
   menuOpenWith: (name: string) => `Открыть с помощью ${name}`,
   menuOpenWithOther: "Открыть в другом приложении…",
+  pickAnotherApp: "Выбрать другое приложение…",
   menuReveal: "Показать в папке",
   // Windows 11 のエクスプローラーの同じ項目と同じ言葉（ADR B-4）
   menuMoreOptions: "Показать дополнительные параметры",

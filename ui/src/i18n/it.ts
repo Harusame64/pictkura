@@ -374,6 +374,7 @@ export const it: Dict = {
   menuOpen: "Apri",
   menuOpenWith: (name: string) => `Apri con ${name}`,
   menuOpenWithOther: "Apri con un'altra app…",
+  pickAnotherApp: "Scegli un'altra app…",
   menuReveal: "Mostra nella cartella",
   // Windows 11 のエクスプローラーの同じ項目と同じ言葉（ADR B-4）
   menuMoreOptions: "Mostra altre opzioni",

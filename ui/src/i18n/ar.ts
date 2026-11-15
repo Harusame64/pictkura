@@ -408,6 +408,7 @@ export const ar: Dict = {
   menuOpen: "فتح",
   menuOpenWith: (name: string) => `فتح باستخدام ${iso(name)}`,
   menuOpenWithOther: "فتح باستخدام تطبيق آخر…",
+  pickAnotherApp: "اختيار تطبيق آخر…",
   menuReveal: "إظهار في المجلد",
   menuMoreOptions: "إظهار المزيد من الخيارات",
   menuCopyImage: "نسخ الصورة إلى الحافظة",

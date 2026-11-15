@@ -331,6 +331,7 @@ export const en: Dict = {
   menuOpen: "Open",
   menuOpenWith: (name: string) => `Open with ${name}`,
   menuOpenWithOther: "Open with another app…",
+  pickAnotherApp: "Choose another app…",
   menuReveal: "Show in folder",
   menuMoreOptions: "Show more options",
   menuCopyImage: "Copy image to clipboard",
