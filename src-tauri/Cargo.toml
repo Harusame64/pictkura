@@ -114,6 +114,8 @@ windows = { version = "0.61", features = [
     "Win32_System_Registry",
     # 右から左へ書く言語の確認画面（`confirm_dialog.rs`）: TaskDialogIndirect
     "Win32_UI_Controls",
+    # ビューアだけの窓を、隠したまま合成させてから見せる（`reveal_main_window`、#314）: DwmSetWindowAttribute
+    "Win32_Graphics_Dwm",
 ] }
 # クリップボードへ置く PNG を、開く前に自分で作る（`clipboard_image.rs`）。pictkura-core が同じ版を引いているので、
 # 新しくビルドされるものは無い

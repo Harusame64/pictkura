@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
 import { dirOf } from "./direction";
@@ -39,7 +40,15 @@ void takePendingOpen()
     );
     // ビューアだけの窓は、黒い地を描いてから見せる（窓は見えない状態で作ってある。白や一覧の地色を出さない）。
     // 描き終わりを待つため、次の 2 コマ後に見せる
+    // Windows では隠したまま（cloak）見せて合成させ、さらに 2 コマ後に隠しを解く（#314。lib.rs の reveal_main_window）
     if (openAtStart) {
-      requestAnimationFrame(() => requestAnimationFrame(() => void getCurrentWindow().show()));
+      const reveal = (phase: "begin" | "end") => invoke("reveal_main_window", { phase });
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          void reveal("begin")
+            .then(() => requestAnimationFrame(() => requestAnimationFrame(() => void reveal("end"))))
+            .catch(() => void getCurrentWindow().show()),
+        ),
+      );
     }
   });

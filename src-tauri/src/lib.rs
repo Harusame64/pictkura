@@ -2878,6 +2878,52 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
 /// ライブラリの外の写真に付ける日（番兵）。画面の側も同じ値で見分ける
 const OUTSIDE_DAY_KEY: i64 = -1;
 
+/// ビューアだけの窓を見せる（#314）。Windows では、作っただけで一度も見せていない窓をそのまま見せると、DWM が
+/// まだ描かれていない白い面を先に合成し、白→灰→黒へ 100ms ほどで移って見えた（win2 の画素の読み取り、窓を黒で
+/// 作っても同じ）。**隠したまま（cloak）見せて合成させ、`phase` = "end" で隠しを解く**。開く動きの重ね（transition）
+/// も切る。画面（main.tsx）は "begin" の 2 コマ後に "end" を呼ぶ。macOS などは "begin" で見せるだけ
+#[tauri::command]
+fn reveal_main_window(app: tauri::AppHandle, phase: String) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::{BOOL, HWND};
+        use windows::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
+        };
+        let Ok(h) = w.hwnd() else {
+            let _ = w.show();
+            return;
+        };
+        let hwnd = HWND(h.0 as _);
+        let set = |attr, on: bool| {
+            let v = BOOL::from(on);
+            // SAFETY: hwnd はこのプロセスの生きている窓。値は BOOL 1 つ
+            unsafe {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    attr,
+                    &v as *const BOOL as *const _,
+                    std::mem::size_of::<BOOL>() as u32,
+                );
+            }
+        };
+        if phase == "begin" {
+            set(DWMWA_TRANSITIONS_FORCEDISABLED, true);
+            set(DWMWA_CLOAK, true);
+            let _ = w.show();
+        } else {
+            set(DWMWA_CLOAK, false);
+        }
+    }
+    #[cfg(not(windows))]
+    if phase == "begin" {
+        let _ = w.show();
+    }
+}
+
 /// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）
 #[tauri::command]
 fn take_pending_open(state: tauri::State<'_, AppState>) -> Option<String> {
@@ -8048,6 +8094,7 @@ pub fn run() {
             open_with,
             open_outside,
             take_pending_open,
+            reveal_main_window,
             app_display_names,
             app_keys,
             os_apps_for,
