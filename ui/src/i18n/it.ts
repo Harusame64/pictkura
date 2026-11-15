@@ -95,6 +95,7 @@ export const it: Dict = {
         ["Ctrl+C / ⌘C", "Copia negli Appunti l'immagine sullo schermo"],
         ["Ctrl+S / ⌘S", "Salva in un file l'immagine sullo schermo"],
         ["Ctrl+P / ⌘P", "Stampa la foto sullo schermo"],
+        ["Ctrl+1–3 / ⌘1–3", "Apri con la 1ª–3ª app dell'elenco «Apri con» del clic destro"],
         ["F", "Aggiungi o togli dai preferiti (★)"],
         ["I", "Dati del file e dello scatto (fotocamera, obiettivo, diaframma, tempo di posa, ISO, lunghezza focale, GPS)"],
         ["Barra spaziatrice", "Presentazione. Su un video, riproduci / metti in pausa"],

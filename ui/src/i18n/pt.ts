@@ -100,6 +100,7 @@ export const pt: Dict = {
         ["Ctrl+C / ⌘C", "Copiar a imagem da tela para a área de transferência"],
         ["Ctrl+S / ⌘S", "Salvar a imagem da tela em um arquivo"],
         ["Ctrl+P / ⌘P", "Imprimir a foto da tela"],
+        ["Ctrl+1–3 / ⌘1–3", "Abrir com o 1º–3º app da lista \"Abrir com\" do clique direito"],
         ["F", "Marcar / desmarcar como favorita (★)"],
         ["I", "Detalhes do arquivo e da captura (câmera, lente, abertura, obturador, ISO, distância focal, GPS)"],
         ["Espaço", "Apresentação de slides. Em um vídeo, reproduzir / pausar"],

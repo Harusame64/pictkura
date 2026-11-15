@@ -93,6 +93,7 @@ export const fr: Dict = {
         ["Ctrl+C / ⌘C", "Copier l’image affichée dans le presse-papiers"],
         ["Ctrl+S / ⌘S", "Enregistrer l’image affichée dans un fichier"],
         ["Ctrl+P / ⌘P", "Imprimer la photo affichée"],
+        ["Ctrl+1–3 / ⌘1–3", "Ouvrir avec la 1re à 3e application de la liste « Ouvrir avec » du clic droit"],
         ["F", "Ajouter aux favoris (★) ou l’en retirer"],
         ["I", "Informations sur le fichier et la prise de vue (appareil, objectif, ouverture, vitesse, ISO, focale, GPS)"],
         ["Espace", "Diaporama. Sur une vidéo : lecture / pause"],

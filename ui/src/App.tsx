@@ -33,6 +33,7 @@ import { printSheet, printSides, type SheetItem, type SheetLayout } from "./prin
 import { pressable } from "./pressable";
 import { openWithId } from "./automationIds";
 import { rankOsApps } from "./openWithApps";
+import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
 import { afterVideoEnded, isVideoOnlyFullscreen, type ViewerDir } from "./videoPlayOn";
@@ -83,6 +84,7 @@ import {
   takePendingImport,
   openWith,
   appDisplayNames,
+  isMac,
   osAppsFor,
   openWithOs,
   type OsApp,
@@ -7101,6 +7103,76 @@ export default function App() {
     },
     [pickOtherApp],
   );
+  /**
+   * OS の候補を、拡張子ごとに 5 分だけ覚える（右クリックのたび・Ctrl+1〜3 のたびに OS へ訊かない）。
+   * RAW の拾いは Rust 側でも 5 分覚えている
+   */
+  const osAppsCache = useRef(new Map<string, { at: number; apps: OsApp[] }>());
+  const osAppsOf = useCallback(async (item: MediaItem): Promise<OsApp[]> => {
+    const ext = (item.file_name.split(".").pop() ?? "").toLowerCase();
+    const hit = osAppsCache.current.get(ext);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.apps;
+    const apps = await osAppsFor(item.id).catch(() => [] as OsApp[]);
+    osAppsCache.current.set(ext, { at: Date.now(), apps });
+    return apps;
+  }, []);
+  /**
+   * 「開く」の次に並ぶアプリと、Ctrl+1〜3 の割り当て（2026-11-15 利用者「メジャー扱いのアプリを 3 つくらい
+   * ショートカットで」「抜けてもユーザー指定でメジャー扱いに」）。**覚えたアプリ（別のアプリを選ぶ…で選んだもの）が
+   * 先**、足りないぶんを OS の候補の上の段（名簿の順）から足す。覚えたアプリと同じものは重ねない
+   */
+  const quickApps = useCallback(
+    (item: MediaItem, apps: readonly OsApp[]): { key: string; label: string; run: () => void }[] => {
+      const remembered = editors.map((app, i) => ({
+        key: openWithId(app.name, i, editors.map((e) => e.name)),
+        label: editorLabel(app, editors, editorNames),
+        run: () => void openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
+      }));
+      const mine = new Set(editors.map((e) => e.path.toLowerCase()));
+      const { top } = rankOsApps(apps, item.is_video, item.is_raw);
+      const keys = top.map((a) => a.key);
+      const suggested = top
+        .filter((a) => !mine.has(a.id.toLowerCase()))
+        .slice(0, Math.max(0, 3 - remembered.length))
+        .map((a, i) => ({
+          key: `os-${openWithId(a.key, i, keys)}`,
+          label: a.name,
+          run: () => void openWithOs(item.id, a.id, a.via).catch((e) => fail(errText(e))),
+        }));
+      return [...remembered, ...suggested];
+    },
+    [editors, editorNames],
+  );
+  /** 右クリックした写真の OS の候補（届いたらメニューに上位が足される） */
+  const [menuOsApps, setMenuOsApps] = useState<{ id: number; apps: OsApp[] } | null>(null);
+  useEffect(() => {
+    if (!menu || menu.apps) return;
+    const item = menu.item;
+    let live = true;
+    void osAppsOf(item).then((apps) => {
+      if (live) setMenuOsApps({ id: item.id, apps });
+    });
+    return () => {
+      live = false;
+    };
+  }, [menu, osAppsOf]);
+  /** Ctrl+1〜3（mac は ⌘1〜3）の表示と、読み上げに渡す名前 */
+  const quickHint = (n: number) => (isMac ? `⌘${n}` : `${t.keyCtrl}+${n}`);
+  const quickKeys = (n: number) => (isMac ? `Meta+${n}` : `Control+${n}`);
+  // 右クリックのメニューかビューアが出ているとき、Ctrl+1〜3 でその写真を上から n 番目のアプリで開く
+  useWindowEvent("keydown", (menu !== null && !menu.apps) || viewer !== null, (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const d = /^Digit([1-3])$/.exec(e.code)?.[1] ?? (/^[1-3]$/.test(e.key) ? e.key : null);
+    if (!d || curtainUp) return;
+    const t0 = e.target;
+    if (t0 instanceof HTMLElement && (t0.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t0.tagName))) return;
+    const item = menu && !menu.apps ? menu.item : viewerItem;
+    if (!item) return;
+    e.preventDefault();
+    setMenu(null);
+    void osAppsOf(item).then((apps) => quickApps(item, apps)[Number(d) - 1]?.run());
+  });
+
   /** 候補のメニューの項目（名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…） */
   const appMenuItems = useCallback(
     (item: MediaItem, apps: readonly OsApp[]): MenuItem[] => {
@@ -7369,10 +7441,13 @@ export default function App() {
       { id: "open", label: t.menuOpen, run: () => openDefault(item.id).catch((e) => fail(errText(e))) },
       // 編集アプリは何本でも並ぶので、アプリの名前で分ける（並びの番号だと台や一覧の順で別のアプリを指す。
       // ゲート2）。名前が英数字にならない・重なるときだけ番号を添える
-      ...editors.map((app, i) => ({
-        id: openWithId(app.name, i, editors.map((e) => e.name)),
-        label: t.menuOpenWith(editorLabel(app, editors, editorNames)),
-        run: () => openWith(item.id, app.path, false).catch((e) => fail(errText(e))),
+      // 覚えたアプリ → OS の候補の上位（3 つまで Ctrl+1〜3）。覚えたアプリが 4 つ以上あれば全部出す
+      ...quickApps(item, menuOsApps?.id === item.id ? menuOsApps.apps : []).map((q, i) => ({
+        id: q.key,
+        label: t.menuOpenWith(q.label),
+        hint: i < 3 ? quickHint(i + 1) : undefined,
+        keys: i < 3 ? quickKeys(i + 1) : undefined,
+        run: q.run,
       })),
       { id: "open-with-other", label: t.menuOpenWithOther, run: () => void onOpenWithOther(item, pos) },
       {
@@ -7492,6 +7567,8 @@ export default function App() {
     [
       editors,
       editorNames,
+      quickApps,
+      menuOsApps,
       onOpenWithOther,
       onDelete,
       markStack,
