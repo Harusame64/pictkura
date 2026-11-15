@@ -5,7 +5,7 @@
  * **名簿は探しに行くためのものではない。** 並べるのは OS が挙げたアプリだけで（`os_apps.rs`）、名簿はその中で
  * 上へ出すもの・区切りの下へ回すものを決める。名簿に無いアプリも、OS が勧めていれば上の段に残る。
  *
- * 鍵は Windows が exe のファイル名（小文字）、macOS がアプリの束 ID（小文字）。末尾の `*` は前方一致。
+ * 鍵は Windows が exe のファイル名（小文字）、macOS がアプリの束 ID（小文字）。`*` は何文字でも（途中にも書ける）。
  * **会社名だけの前方一致はしない**（`jp.co.canon.*` はプリンタの道具まで上へ出す。/code-review）。
  * 編集ソフトの鍵は各社の名付けからの見込みで、実物で確かめたのは mac の雑音の束 ID（mdls）だけ
  */
@@ -56,8 +56,10 @@ const NOISE: readonly string[] = [
   "com.anthropic.*", "com.apple.colorsyncutility", "com.apple.generativeplaygroundapp", "com.microsoft.vscode",
 ];
 
+/** `*` はどこに書いても「何文字でも」（`rawtherapee*.exe`・`gimp*`）。ほかの字はそのまま比べる */
 function matches(key: string, pattern: string): boolean {
-  return pattern.endsWith("*") ? key.startsWith(pattern.slice(0, -1)) : key === pattern;
+  const re = new RegExp(`^${pattern.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+  return re.test(key);
 }
 
 function rankOf(key: string, list: readonly string[]): number {

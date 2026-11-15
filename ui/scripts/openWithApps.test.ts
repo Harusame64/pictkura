@@ -73,3 +73,15 @@ test("a known editor the OS does not recommend for this type stays below (win2: 
   assert.deepEqual(top.map((a) => a.name), ["フォト", "Microsoft Clipchamp"]);
   assert.deepEqual(rest.map((a) => a.name), ["Paint.NET"]);
 });
+
+test("a * inside a key matches too (codex: rawtherapee*.exe never matched)", () => {
+  const apps = [
+    app("snapswift", "SnapSwift"),
+    app("rawtherapee-5.11.exe", "RawTherapee"),
+    app("affinity photo 2.exe", "Affinity Photo 2"),
+    app("rawtherapee.txt", "not an exe"),
+  ];
+  const { top } = rankOsApps(apps, false);
+  // 名簿に載ったものが名簿の順で先、名簿外（SnapSwift・拡張子違い）は OS の順で後
+  assert.deepEqual(top.map((a) => a.name), ["Affinity Photo 2", "RawTherapee", "SnapSwift", "not an exe"]);
+});
