@@ -8131,7 +8131,8 @@ mod tests {
                 .skip(1)
                 .filter_map(|rest| rest.split_once(post).map(|(e, _)| e))
                 .filter(|e| !e.contains(['\n', '"', '\\']))
-                .map(|e| e.to_lowercase())
+                // Windows の取り出しでは行末が CRLF（`\r` が残る。CI の Windows で落ちた）
+                .map(|e| e.trim().to_lowercase())
                 .collect()
         };
         // MSI: foreach の 1 か所（`<?foreach EXT in jpg;jpeg;...?>`）
