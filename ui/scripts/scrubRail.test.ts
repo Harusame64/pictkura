@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   chooseLabels,
   dayKeyAt,
+  anchoredScrollTop,
   fractionAt,
   monthDots,
   monthIndexAt,
@@ -87,4 +88,21 @@ test("month starts list each month once, and a point finds the month it is in", 
   assert.equal(monthIndexAt(200, starts), 1);
   assert.equal(monthIndexAt(999, starts), 2);
   assert.equal(monthIndexAt(5, []), -1);
+});
+
+test("the day at the top stays at the top when rows above change height", () => {
+  // 前: 0801 の見積もり 1000px、0701 の見出し 40＋見積もり 1000
+  const prevDays = [20260801, 20260801, 20260701, 20260701];
+  const prevTops = [0, 40, 1040, 1080, 2080];
+  // 後: 0801 の写真が実際は 300px
+  const nextDays = [20260801, 20260801, 20260701, 20260701];
+  const nextTops = [0, 40, 340, 380, 1380];
+  // 0701 の頭から 50px 下を見ていた
+  assert.equal(anchoredScrollTop(1090, prevTops, prevDays, nextTops, nextDays), 390);
+  // 日が消えたら動かさない
+  assert.equal(anchoredScrollTop(1090, prevTops, prevDays, [0, 40, 100], [20250101, 20250101]), null);
+  // その日の中ほども、その日の頭からの距離を保つ
+  assert.equal(anchoredScrollTop(1500, prevTops, prevDays, nextTops, nextDays), 800);
+  // その日が縮んで届かなければ、その日の終わりに留める
+  assert.equal(anchoredScrollTop(1500, prevTops, prevDays, [0, 40, 340, 380, 440], nextDays), 439);
 });

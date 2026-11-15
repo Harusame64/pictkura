@@ -131,3 +131,43 @@ export function monthIndexAt(offset: number, starts: readonly { offset: number }
   }
   return lo;
 }
+
+/**
+ * 行の高さが変わった（見積もりの行が実際の写真に置き換わった等）あとも、画面の上端に同じ日が来るスクロール位置。
+ * 上端にあった日の頭からの距離を保つ（その日の高さを超えるなら、その日の終わりに留める）。
+ * その日が新しい並びに無ければ `null`（動かさない）。
+ *
+ * 置き換わるたびに上の行の高さが変わり、上端の写真がずれていった——帯で 2022 年へ飛ぶと 1,000px 手前に着き、
+ * 3 秒かけて落ち着いた（win2 の実測 2026-11-15）。帯の横線と現在地の印も、そのずれの分だけ離れた
+ */
+export function anchoredScrollTop(
+  scrollTop: number,
+  prevTops: readonly number[],
+  prevDays: readonly number[],
+  nextTops: readonly number[],
+  nextDays: readonly number[],
+): number | null {
+  if (prevDays.length === 0 || nextDays.length === 0) return null;
+  const i = indexAt(scrollTop, prevTops, prevDays.length);
+  const day = prevDays[i];
+  let p = i;
+  while (p > 0 && prevDays[p - 1] === day) p--;
+  const delta = scrollTop - prevTops[p];
+  const j = nextDays.indexOf(day);
+  if (j < 0) return null;
+  let k = j;
+  while (k + 1 < nextDays.length && nextDays[k + 1] === day) k++;
+  const dayHeight = nextTops[k + 1] - nextTops[j];
+  return nextTops[j] + Math.min(delta, Math.max(0, dayHeight - 1));
+}
+
+function indexAt(offset: number, tops: readonly number[], n: number): number {
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (tops[mid] <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}

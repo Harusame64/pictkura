@@ -22,7 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { ScrubRail } from "./ScrubRail";
-import { chooseLabels } from "./scrubRailMath";
+import { anchoredScrollTop, chooseLabels } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -3527,6 +3527,20 @@ export default function App() {
   useEffect(() => {
     virtualizer.measure();
   }, [virtualizer, rows]);
+
+  // **行の高さが変わっても、画面の上端に同じ日を留める**（`anchoredScrollTop`）。見積もりの行が実際の写真に
+  // 置き換わるたびに上の行の高さが変わり、上端の写真がずれていった（帯で飛んだ先が 1,000px 手前に着いて 3 秒かけて
+  // 落ち着く、帯の横線と現在地の印がずれる。win2 の実測と利用者 2026-11-15）。中身の高さは `rowTops` で描くので、
+  // ここ（描いた直後）で位置を直せる
+  const prevLayoutRef = useRef<{ tops: number[]; days: number[] } | null>(null);
+  useLayoutEffect(() => {
+    const prev = prevLayoutRef.current;
+    prevLayoutRef.current = { tops: rowTops, days: rowDayKeys };
+    const el = scrollRef.current;
+    if (!prev || !el || el.scrollTop <= 0) return;
+    const next = anchoredScrollTop(el.scrollTop, prev.tops, prev.days, rowTops, rowDayKeys);
+    if (next !== null && Math.abs(next - el.scrollTop) >= 1) el.scrollTop = next;
+  }, [rowTops, rowDayKeys]);
 
   // カレンダーの日クリック → グリッドへ切り替えて該当日付の見出しへスクロール
   useEffect(() => {
@@ -8203,7 +8217,9 @@ export default function App() {
               <div className="grid-scroll" ref={scrollRef}>
               <div
                 style={{
-                  height: virtualizer.getTotalSize(),
+                  // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。
+                  // 上の「同じ日を留める」が、伸びた中身の上でスクロール位置を直せるように）
+                  height: rowTops[rows.length],
                   position: "relative",
                 }}
               >
