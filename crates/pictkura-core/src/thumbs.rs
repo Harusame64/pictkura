@@ -1471,18 +1471,25 @@ fn write_temp_thumb(
     }
 }
 
-/// 落ちた作業が残した一時ファイルを掃く（[`ThumbnailService::start`] で1回）。置き場は `thumbs/xx/`
-/// の2段なので、2段だけ見る
+/// 落ちた作業が残した一時ファイルを掃く（[`ThumbnailService::start`] が裏の糸で1回）。置き場は `thumbs/xx/`
+/// の2段なので、2段だけ見る。
+///
+/// **このプロセスの一時ファイル（名前に今の pid が入ったもの）は消さない**——働き手と並んで走るので、書いている
+/// 途中のものを消してはいけない。落ちた作業の残りは前のプロセスの pid を持つ。たまたま同じ pid が回ってきた
+/// 残りは、次の起動（別の pid）で掃かれる
 fn sweep_partial_thumbs(thumbs_dir: &Path) {
     let Ok(dirs) = std::fs::read_dir(thumbs_dir) else {
         return;
     };
+    let mine = format!("{PARTIAL_MARK}{}-", std::process::id());
     for dir in dirs.flatten() {
         let Ok(files) = std::fs::read_dir(dir.path()) else {
             continue;
         };
         for f in files.flatten() {
-            if f.file_name().to_string_lossy().contains(PARTIAL_MARK) {
+            let name = f.file_name();
+            let name = name.to_string_lossy();
+            if name.contains(PARTIAL_MARK) && !name.contains(&mine) {
                 let _ = std::fs::remove_file(f.path());
             }
         }
@@ -2315,9 +2322,23 @@ impl ThumbnailService {
         worker_count: usize,
         on_done: impl Fn(i64, CameraWrite) + Send + Sync + 'static,
     ) -> Self {
-        // 前回の作業が落ちて残した一時ファイル（[`temp_thumb_path`]）を掃く。ワーカーが動き出す前なので、
-        // 今の作業のものを消すことは無い（単一起動はアプリが守っている）
-        sweep_partial_thumbs(&thumbs_dir);
+        // 前回の作業が落ちて残した一時ファイル（[`temp_thumb_path`]）を掃く。**裏の糸で、働き手と並べて**——
+        // 置き場の全ファイルを見るので、サムネが 3 万を超える台の Windows（NTFS）では 0.3〜0.4 秒かかり、
+        // その間ずっと起動を止めていた（2026-11-15 win2 の実測。mac の 118 件では 3 ms）。掃除は**このプロセスの
+        // 一時ファイルを飛ばす**ので、働き手が書いている途中のものを消さない（[`sweep_partial_thumbs`]）。
+        // 糸が作れなければ、ここでそのまま掃く（前と同じ）
+        let sweep_dir = thumbs_dir.clone();
+        if std::thread::Builder::new()
+            .name("thumb-sweep".into())
+            .spawn(move || {
+                let _ = crate::panics::catching("sweep partial thumbnails", || {
+                    sweep_partial_thumbs(&sweep_dir)
+                });
+            })
+            .is_err()
+        {
+            sweep_partial_thumbs(&thumbs_dir);
+        }
         let queue = ThumbQueue::new();
         let on_done = Arc::new(on_done);
         let count = if worker_count == 0 {
@@ -2970,19 +2991,24 @@ mod tests {
         assert!(q.is_active(id), "Stale は積み直す");
     }
 
-    /// 起動時の掃除は一時ファイルだけを消す
+    /// 起動時の掃除は、**前のプロセスの**一時ファイルだけを消す。このプロセスが書いている途中のもの
+    /// （働き手と並んで走る）と、出来上がったサムネは残す
     #[test]
-    fn the_startup_sweep_removes_only_partial_thumbnails() {
+    fn the_startup_sweep_removes_only_partial_thumbnails_of_earlier_runs() {
         let dir = tempfile::tempdir().unwrap();
         let sub = dir.path().join("07");
         std::fs::create_dir_all(&sub).unwrap();
         let kept = sub.join("7.webp");
         std::fs::write(&kept, b"x").unwrap();
-        let partial = temp_thumb_path(&kept);
-        std::fs::write(&partial, b"y").unwrap();
+        let in_flight = temp_thumb_path(&kept);
+        std::fs::write(&in_flight, b"y").unwrap();
+        let other_pid = std::process::id().wrapping_add(1);
+        let left_over = sub.join(format!("7.webp{PARTIAL_MARK}{other_pid}-0"));
+        std::fs::write(&left_over, b"z").unwrap();
         sweep_partial_thumbs(dir.path());
         assert!(kept.exists());
-        assert!(!partial.exists());
+        assert!(in_flight.exists(), "このプロセスの書きかけは消さない");
+        assert!(!left_over.exists(), "前のプロセスの残りは消す");
     }
 
     /// F1: 作業の途中で行の版が進んだら、古い作業の絵は付け替えず、一時ファイルも残さず、行も書き換えない。
