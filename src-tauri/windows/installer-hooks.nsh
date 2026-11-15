@@ -20,6 +20,73 @@
 !define PK_AUTOPLAY "Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers"
 !define PK_AUTOPLAY_HANDLER "pictkuraAutoPlay"
 !define PK_AUTOPLAY_PROGID "pictkura.AutoPlay"
+; 「プログラムから開く」の候補（openwith.wxs と同じ。既定のアプリは取りに行かない）
+!define PK_OPENWITH_PROGID "pictkura.Image"
+
+; 拡張子の一覧（**ここ 1 か所**。openwith.wxs の foreach・AppxManifest.xml と揃える。lib.rs の試験が見る）。
+; 書くときも消すときも、この一覧を回す（片方だけ足して消し忘れる、を作らない）
+!macro PK_OPENWITH_EXTS OP
+  !insertmacro ${OP} jpg
+  !insertmacro ${OP} jpeg
+  !insertmacro ${OP} png
+  !insertmacro ${OP} webp
+  !insertmacro ${OP} cr2
+  !insertmacro ${OP} cr3
+  !insertmacro ${OP} crw
+  !insertmacro ${OP} nef
+  !insertmacro ${OP} nrw
+  !insertmacro ${OP} arw
+  !insertmacro ${OP} srf
+  !insertmacro ${OP} sr2
+  !insertmacro ${OP} arq
+  !insertmacro ${OP} raf
+  !insertmacro ${OP} orf
+  !insertmacro ${OP} ori
+  !insertmacro ${OP} rw2
+  !insertmacro ${OP} pef
+  !insertmacro ${OP} ptx
+  !insertmacro ${OP} srw
+  !insertmacro ${OP} dng
+  !insertmacro ${OP} raw
+  !insertmacro ${OP} rwl
+  !insertmacro ${OP} 3fr
+  !insertmacro ${OP} fff
+  !insertmacro ${OP} iiq
+  !insertmacro ${OP} erf
+  !insertmacro ${OP} mrw
+  !insertmacro ${OP} x3f
+  !insertmacro ${OP} dcr
+  !insertmacro ${OP} kdc
+  !insertmacro ${OP} mos
+  !insertmacro ${OP} heic
+  !insertmacro ${OP} heif
+  !insertmacro ${OP} hif
+  !insertmacro ${OP} bmp
+  !insertmacro ${OP} gif
+  !insertmacro ${OP} tif
+  !insertmacro ${OP} tiff
+  !insertmacro ${OP} svg
+  !insertmacro ${OP} avif
+  !insertmacro ${OP} mp4
+  !insertmacro ${OP} m4v
+  !insertmacro ${OP} mov
+  !insertmacro ${OP} webm
+  !insertmacro ${OP} avi
+  !insertmacro ${OP} mts
+  !insertmacro ${OP} m2ts
+  !insertmacro ${OP} mkv
+  !insertmacro ${OP} 3gp
+  !insertmacro ${OP} wmv
+  !insertmacro ${OP} mpg
+  !insertmacro ${OP} mpeg
+!macroend
+!macro PK_OPENWITH_WRITE EXT
+  WriteRegStr SHCTX "Software\Classes\.${EXT}\OpenWithProgids" "${PK_OPENWITH_PROGID}" ""
+  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\SupportedTypes" ".${EXT}" ""
+!macroend
+!macro PK_OPENWITH_DELETE EXT
+  DeleteRegValue SHCTX "Software\Classes\.${EXT}\OpenWithProgids" "${PK_OPENWITH_PROGID}"
+!macroend
 !define PK_AUTOPLAY_ACTION "pictkura で写真を取り込む"
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -70,6 +137,11 @@
     DeleteRegValue SHCTX "${PK_AUTOPLAY}\EventHandlers\StorageOnArrival" "${PK_AUTOPLAY_HANDLER}"
     DeleteRegKey SHCTX "${PK_AUTOPLAY}\Handlers\${PK_AUTOPLAY_HANDLER}"
     DeleteRegKey SHCTX "Software\Classes\${PK_AUTOPLAY_PROGID}"
+    ; 「プログラムから開く」の候補
+    !insertmacro PK_OPENWITH_EXTS PK_OPENWITH_DELETE
+    DeleteRegKey SHCTX "Software\Classes\Applications\pictkura.exe"
+    DeleteRegKey SHCTX "Software\Classes\${PK_OPENWITH_PROGID}"
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 
     ; **インストール先の記録も消す**（pictkura-dev #70）。Tauri のアンインストーラーは「アプリのデータも消す」に
     ; チェックしたときしか消さず、残った既定値を **MSI が前のインストール先として拾う**——全員向けの MSI が
@@ -124,6 +196,21 @@
   WriteRegStr SHCTX "${PK_AUTOPLAY}\EventHandlers\ShowPicturesOnArrival" "${PK_AUTOPLAY_HANDLER}" ""
   WriteRegStr SHCTX "${PK_AUTOPLAY}\EventHandlers\MixedContentOnArrival" "${PK_AUTOPLAY_HANDLER}" ""
   WriteRegStr SHCTX "${PK_AUTOPLAY}\EventHandlers\StorageOnArrival" "${PK_AUTOPLAY_HANDLER}" ""
+
+  ; **「プログラムから開く」の候補に載せる**（2026-11-15 利用者の決定）。候補だけで、既定（UserChoice）には触らない。
+  ; 拡張子は openwith.wxs・msix/AppxManifest.xml と同じ一覧
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "" "pictkura"
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "FriendlyTypeName" "pictkura"
+  ; 他のアプリの既定を崩さないための印（外さないこと）。既定を選んだ記録の無い拡張子は、候補が 1 つ（.cr3 のフォト等）
+  ; だとそれで開いている。印の無い 2 つ目の候補を足すと「アプリの選択」に落ちる（2026-11-16 win2 の対照で付け外しして再現）
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "AllowSilentDefaultTakeOver" ""
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\DefaultIcon" "" "$INSTDIR\pictkura.exe,0"
+  WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}\shell\open\command" "" '"$INSTDIR\pictkura.exe" "%1"'
+  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe" "FriendlyAppName" "pictkura"
+  WriteRegStr SHCTX "Software\Classes\Applications\pictkura.exe\shell\open\command" "" '"$INSTDIR\pictkura.exe" "%1"'
+  !insertmacro PK_OPENWITH_EXTS PK_OPENWITH_WRITE
+  ; エクスプローラーに関連付けが変わったと知らせる（知らせないと、再起動するまで候補に出ないことがある）
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 
   ; **前の版がアプリから書いた登録を消す**（旧い候補と新しい候補が並ぶ時間を作らない）。新しい登録の
   ; 「常にこの操作」には触らない——版上げのたびに選び直させない

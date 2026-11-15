@@ -8116,6 +8116,60 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 「プログラムから開く」の登録（MSI・NSIS・Store 版）の拡張子が、取り込みの既定の一覧と揃っていること。
+    /// 3 か所は手で書くので、どれかに足し忘れると、その形式だけ候補に出ない（黙って欠ける）
+    #[test]
+    fn open_with_registrations_list_the_default_import_extensions() {
+        use std::collections::BTreeSet;
+        let want: BTreeSet<String> = pictkura_core::config::ImportConfig::default()
+            .extensions
+            .iter()
+            .map(|e| e.to_lowercase())
+            .collect();
+        let grab = |text: &str, pre: &str, post: &str| -> BTreeSet<String> {
+            text.split(pre)
+                .skip(1)
+                .filter_map(|rest| rest.split_once(post).map(|(e, _)| e))
+                .filter(|e| !e.contains(['\n', '"', '\\']))
+                // Windows の取り出しでは行末が CRLF（`\r` が残る。CI の Windows で落ちた）
+                .map(|e| e.trim().to_lowercase())
+                .collect()
+        };
+        // MSI: foreach の 1 か所（`<?foreach EXT in jpg;jpeg;...?>`）
+        let wxs = include_str!("../windows/openwith.wxs");
+        let msi: BTreeSet<String> = wxs
+            .split("<?foreach EXT in ")
+            .nth(1)
+            .and_then(|r| r.split("?>").next())
+            .map(|l| l.split(';').map(|e| e.trim().to_lowercase()).collect())
+            .unwrap_or_default();
+        // NSIS: PK_OPENWITH_EXTS の 1 か所（`!insertmacro ${OP} jpg` の行）。書くときも消すときもこれを回す
+        let nsis = grab(
+            include_str!("../windows/installer-hooks.nsh"),
+            "!insertmacro ${OP} ",
+            "\n",
+        );
+        let msix = grab(
+            include_str!("../windows/msix/AppxManifest.xml"),
+            "<uap:FileType>.",
+            "</uap:FileType>",
+        );
+        // 他のアプリの既定を崩さないための印（無いと .cr3 等がフォトで開かなくなる。2026-11-16 win2 の対照）
+        assert!(
+            wxs.contains(r#"<RegistryValue Name="AllowSilentDefaultTakeOver""#),
+            "openwith.wxs: AllowSilentDefaultTakeOver"
+        );
+        assert!(
+            include_str!("../windows/installer-hooks.nsh").contains(
+                r#"WriteRegStr SHCTX "Software\Classes\${PK_OPENWITH_PROGID}" "AllowSilentDefaultTakeOver" """#
+            ),
+            "installer-hooks.nsh: AllowSilentDefaultTakeOver"
+        );
+        assert_eq!(msi, want, "openwith.wxs");
+        assert_eq!(nsis, want, "installer-hooks.nsh");
+        assert_eq!(msix, want, "AppxManifest.xml");
+    }
+
     /// タイルを読んでいるあいだと、読み終わってすぐは「静か」と言わない（pictkura-dev #73）
     #[test]
     fn source_tiles_are_quiet_only_a_while_after_the_last_read() {
