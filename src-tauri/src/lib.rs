@@ -7474,10 +7474,27 @@ pub fn run() {
             if let Some(p) = lock_ok(&EARLY_OPEN).take() {
                 *lock_ok(&app.state::<AppState>().pending_open) = Some(p);
             }
-            if lock_ok(&app.state::<AppState>().pending_open).is_some() {
+            // **窓はここで作る**（tauri.conf.json の `create: false`）。写真を渡されたら、生まれたときから地を黒に
+            // ——作ってから黒にしても、WebView2 が最初の 1 コマを描くまで窓の地（白）が見えることがあった（#314、
+            // win2 の色の読み取りで白〜明るい灰が 40〜80ms）。ふつうの起動は今までどおり（地は既定のまま）
+            let viewer_only = lock_ok(&app.state::<AppState>().pending_open).is_some();
+            let main_cfg = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("tauri.conf.json に main の窓が無い")?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &main_cfg)?;
+            if viewer_only {
+                builder = builder.background_color(tauri::window::Color(0, 0, 0, 255));
+            }
+            let main_window = builder.build()?;
+            if viewer_only {
                 prepare_viewer_only_window(app.handle());
-            } else if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
+            } else {
+                let _ = main_window.show();
             }
 
             // **前の版がアプリから書いた AutoPlay の登録を片付ける**（あれば。pictkura-dev #53）。登録は
