@@ -78,11 +78,16 @@ pub struct ExternalApp {
 
 impl EditorsConfig {
     /// アプリを登録する（同じパスが既にあれば何もしない）。登録済みなら false。
-    /// 名前は呼ぶ側が OS から取って渡す（Windows の「ファイルの説明」、macOS の Finder の表示名）
-    pub fn remember(&mut self, path: &Path, name: String) -> bool {
+    /// `name` はファイル名（拡張子なし）。画面に出す名前は、出すときに OS から引く（言語が替わっても追う。
+    /// src-tauri の `app_name.rs`）。ここに書くのは、自動化の印（`openWithId`）と、引けなかったときの名前
+    pub fn remember(&mut self, path: &Path) -> bool {
         if self.apps.iter().any(|a| a.path == path) {
             return false;
         }
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
         self.apps.push(ExternalApp {
             name,
             path: path.to_path_buf(),

@@ -2802,25 +2802,27 @@ fn open_with(
     tauri_plugin_opener::open_path(&path, Some(app_path.as_str())).map_err(|e| e.to_string())?;
     if remember {
         update_config(&state, |c| {
-            c.editors.remember(&app, app_name::display_name(&app));
+            c.editors.remember(&app);
         })?;
     }
     Ok(())
 }
 
-/// ファイル名（拡張子なし）のまま覚えているアプリの名前を、OS の表示名へ直す。変わったものがあれば true
-fn refresh_editor_names(editors: &mut pictkura_core::config::EditorsConfig) -> bool {
-    let mut changed = false;
-    for app in &mut editors.apps {
-        if app.name == app_name::fallback_name(&app.path) {
-            let name = app_name::display_name(&app.path);
-            if name != app.name {
-                app.name = name;
-                changed = true;
-            }
-        }
-    }
-    changed
+/// 外部アプリの、OS が人に見せている名前（右クリックの「<名前>で開く」）。並びは `paths` と同じ。
+///
+/// **設定には書かず、出すたびに引く**——書くと、そのとき動いていた言語の名前で固まり、言語を替えても
+/// 「プレビュー で開く」が残る（/code-review）。版情報の読みは遅い場所（抜いたドライブ・共有）で待つことが
+/// あるので、窓の外（spawn_blocking）で読む
+#[tauri::command]
+async fn app_display_names(paths: Vec<String>) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| app_name::display_name(Path::new(p)))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// 登録済みの外部エディタを設定から外す。
@@ -7004,13 +7006,6 @@ pub fn run() {
                 // （pictkura-dev #53）。振る舞いは変えていない
                 config.save(&config_path).map_err(errs::for_log_err)?;
             }
-            // 前の版はアプリの名前をファイル名（拡張子なし）で覚えていた（`gimp-2.10`・`mspaint`）。その形のままの
-            // ものだけ OS の表示名へ直す（利用者が付けた名前は無いので、ファイル名と同じなら機械が付けたもの）。
-            // 直せたときだけ書く。書けなくても起動は止めない
-            if refresh_editor_names(&mut config.editors) {
-                // 書けなくても、この起動では新しい名前で出る（次の起動でまた直す）
-                let _ = config.save(&config_path);
-            }
             let db_path = data_dir.join("pictkura.db");
             let db = Db::open(&db_path).map_err(errs::for_log_err)?;
             // 読み取り接続プール（段階B-4）。本数はコア数の半分・2〜4本で十分
@@ -7622,6 +7617,7 @@ pub fn run() {
             open_log,
             log_path,
             open_with,
+            app_display_names,
             show_shell_menu,
             confirm_right_to_left,
             forget_editor,

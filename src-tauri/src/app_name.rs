@@ -37,11 +37,11 @@ fn os_name(path: &Path) -> Option<String> {
     if size == 0 {
         return None;
     }
-    let mut buf = vec![0u8; size as usize];
+    // u16 を読むので、2 バイト境界に揃った領域を取る（Vec<u8> は揃うと約束しない。/code-review）
+    let mut buf = vec![0u16; (size as usize).div_ceil(2)];
     if unsafe { GetFileVersionInfoW(wide.as_ptr(), 0, size, buf.as_mut_ptr().cast()) } == 0 {
         return None;
     }
-    // 言語とコードページの組。先頭の組を使う（たいてい 1 つ）
     let query = |sub: &str| -> Option<(*const u16, u32)> {
         let q: Vec<u16> = sub.encode_utf16().chain(Some(0)).collect();
         let mut ptr: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -50,20 +50,32 @@ fn os_name(path: &Path) -> Option<String> {
         let ok = unsafe { VerQueryValueW(buf.as_ptr().cast(), q.as_ptr(), &mut ptr, &mut len) };
         (ok != 0 && !ptr.is_null() && len > 0).then_some((ptr as *const u16, len))
     };
-    let (tr, tr_len) = query("\\VarFileInfo\\Translation")?;
-    let pairs: Vec<(u16, u16)> = (0..(tr_len as usize / 4))
-        .map(|i| unsafe { (*tr.add(i * 2), *tr.add(i * 2 + 1)) })
-        .collect();
-    // 版情報に載っている組を順に。無ければ英語（米）・Unicode を試す
-    let candidates = pairs.into_iter().chain(Some((0x0409, 0x04b0)));
+    // 言語とコードページの組（版情報に載っている順）。載っていない exe もあるので、その後に
+    // 英語（米）の Unicode と cp1252 を必ず試す——組の表が無いだけで諦めない（/code-review）
+    let mut candidates: Vec<(u16, u16)> = Vec::new();
+    if let Some((tr, tr_len)) = query("\\VarFileInfo\\Translation") {
+        for i in 0..(tr_len as usize / 4) {
+            // SAFETY: 組の表は u16 の対が tr_len バイト。read_unaligned で境界を仮定しない
+            let pair = unsafe {
+                (
+                    tr.add(i * 2).read_unaligned(),
+                    tr.add(i * 2 + 1).read_unaligned(),
+                )
+            };
+            candidates.push(pair);
+        }
+    }
+    candidates.extend([(0x0409, 0x04b0), (0x0409, 0x04e4)]);
     for (lang, cp) in candidates {
         if let Some((p, len)) = query(&format!(
             "\\StringFileInfo\\{lang:04x}{cp:04x}\\FileDescription"
         )) {
-            // SAFETY: len は NUL を含む u16 の数
-            let s = unsafe { std::slice::from_raw_parts(p, len as usize) };
-            let end = s.iter().position(|&c| c == 0).unwrap_or(s.len());
-            let name = String::from_utf16_lossy(&s[..end]);
+            // SAFETY: len は NUL を含む u16 の数。1 文字ずつ read_unaligned で読む
+            let units: Vec<u16> = (0..len as usize)
+                .map(|k| unsafe { p.add(k).read_unaligned() })
+                .take_while(|&c| c != 0)
+                .collect();
+            let name = String::from_utf16_lossy(&units);
             if !name.trim().is_empty() {
                 return Some(name);
             }
@@ -106,19 +118,25 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn mac_uses_the_finder_name() {
-        // Finder の表示名は .app を外す（言語で「プレビュー」にもなる）
-        let n = display_name(Path::new("/System/Applications/Preview.app"));
-        assert!(!n.ends_with(".app"), "{n}");
-        assert!(!n.is_empty());
+    fn mac_reads_a_name_from_the_os() {
+        // 代わりの名前（Preview）でも通ってしまわないよう、OS から引けたこと自体を見る
+        let n = os_name(Path::new("/System/Applications/Preview.app"));
+        assert!(
+            n.as_deref()
+                .is_some_and(|n| !n.is_empty() && !n.ends_with(".app")),
+            "{n:?}"
+        );
     }
 
     #[cfg(windows)]
     #[test]
     fn windows_reads_the_file_description() {
-        // notepad.exe の FileDescription は空でない（言語で文言は変わる）。ファイル名そのものではない
-        let n = display_name(Path::new(r"C:\Windows\System32\notepad.exe"));
-        assert!(!n.is_empty());
-        assert_ne!(n, "notepad.exe");
+        // notepad.exe には FileDescription がある（言語で文言は変わる）。代わりの名前（notepad）では通らない
+        let n = os_name(Path::new(r"C:\Windows\System32\notepad.exe"));
+        assert!(
+            n.as_deref()
+                .is_some_and(|n| !n.is_empty() && n != "notepad"),
+            "{n:?}"
+        );
     }
 }
