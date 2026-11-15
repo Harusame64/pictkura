@@ -225,15 +225,15 @@ export const it: Dict = {
   actionShowAll: "Mostra tutte le foto",
   actionCalendar: "Vista calendario",
   actionThumbnails: "Griglia delle foto",
-  indexBuilding: "🔍 Creazione dell'indice di ricerca… ",
+  indexBuilding: "Creazione dell'indice di ricerca… ",
   bgScanning: "Aggiornamento della libreria…",
   bgThumbs: (n: number) => `Lettura delle foto (${num(n)} ${one(n, "rimanente", "rimanenti")})`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "Aggiornamento",
   bgThumbsShort: (n: number) => `ancora ${num(n)}`,
-  cameraScanning: "📷 Lettura dei dati della fotocamera… ",
+  cameraScanning: "Lettura dei dati della fotocamera… ",
   indexIncompleteWarning:
-    "⚠ L'indicizzazione della ricerca è stata interrotta — i risultati potrebbero essere incompleti (riprende al prossimo avvio)",
+    "⚠︎ L'indicizzazione della ricerca è stata interrotta — i risultati potrebbero essere incompleti (riprende al prossimo avvio)",
   indexProgressSuffix: "% — finché non termina, i risultati potrebbero essere incompleti",
   removeRoot: (path: string) => `Rimuovi ${path} dalla libreria`,
   rootMissingNotice: (name: string, count: number) =>
@@ -251,7 +251,7 @@ export const it: Dict = {
     `“${path}” si trova in una cartella temporanea.\nIl sistema o altre app possono eliminare senza avvisare le foto importate qui. Dopo aver cancellato la scheda, quelle foto non esisteranno da nessun'altra parte. Usarla comunque come destinazione?`,
   destTempConfirmOk: "Usa come destinazione",
   destTempWarning:
-    "⚠ La destinazione si trova in una cartella temporanea. Le foto importate potrebbero sparire senza preavviso.",
+    "⚠︎ La destinazione si trova in una cartella temporanea. Le foto importate potrebbero sparire senza preavviso.",
   rootTempTip: (path: string) =>
     `${path} — si trova in una cartella temporanea. Il sistema o altre app possono eliminare senza avvisare i file al suo interno`,
   rootMissingTempTip: (path: string) =>
@@ -265,7 +265,7 @@ export const it: Dict = {
   importDone: (copied: number, skipped: number) =>
     `Importazione completata: ${num(copied)} ${one(copied, "copiata", "copiate")}, ${num(skipped)} ${one(skipped, "saltata", "saltate")}`,
   importFailed: (n: number) => `, ${num(n)} non ${one(n, "riuscita", "riuscite")}`,
-  importIncomplete: " ⚠ Alcune cartelle non sono state lette — non cancellare ancora la scheda",
+  importIncomplete: " ⚠︎ Alcune cartelle non sono state lette — non cancellare ancora la scheda",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} ${one(added, "aggiunta", "aggiunte")}, ${num(changed)} ${one(changed, "modificata", "modificate")}, ${num(removed)} ${one(removed, "rimossa", "rimosse")}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -350,13 +350,13 @@ export const it: Dict = {
   wizardScanning: "Esplorazione del supporto…",
   wizardTruncated: (n: number) =>
     `Vengono mostrate solo le prime ${num(n)}. Usa “Cartella intera” per importare tutto`,
-  wizardScanIncomplete: "⚠ Alcune cartelle non sono state lette (potrebbero mancare foto)",
+  wizardScanIncomplete: "⚠︎ Alcune cartelle non sono state lette (potrebbero mancare foto)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Servono Estensioni immagini HEIF (gratuite) e, per decodificare i pixel, Estensioni video HEVC (a pagamento, pochi euro)`,
+    `⚠︎ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Servono Estensioni immagini HEIF (gratuite) e, per decodificare i pixel, Estensioni video HEVC (a pagamento, pochi euro)`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno`,
+    `⚠︎ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Forse sul tuo sistema non è installato un decodificatore per HEIC/HEVC`,
+    `⚠︎ ${num(n)} foto HEIC/HEIF su questo computer non ${one(n, "ha", "hanno")} miniatura e non si ${one(n, "apre", "aprono")} nemmeno. Forse sul tuo sistema non è installato un decodificatore per HEIC/HEVC`,
   decoderHeifHow: "Estensioni immagini HEIF (gratuite)",
   decoderHevcHow: "Estensioni video HEVC (a pagamento)",
   decoderNoticeDismiss: "Non mostrare più",

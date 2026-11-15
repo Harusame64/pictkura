@@ -244,14 +244,14 @@ export const ko: Dict = {
   actionShowAll: "모든 이미지 보기",
   actionCalendar: "캘린더로 보기",
   actionThumbnails: "썸네일로 보기",
-  indexBuilding: "🔍 검색 색인을 만드는 중… ",
+  indexBuilding: "검색 색인을 만드는 중… ",
   bgScanning: "라이브러리를 업데이트하는 중…",
   bgThumbs: (n: number) => `사진을 불러오는 중 (${num(n)}장 남음)`,
   bgScanningShort: "업데이트 중",
   bgThumbsShort: (n: number) => `${num(n)}장 남음`,
-  cameraScanning: "📷 카메라 정보를 읽는 중… ",
+  cameraScanning: "카메라 정보를 읽는 중… ",
   indexIncompleteWarning:
-    "⚠ 검색 색인 만들기가 중단되었습니다 / 검색 결과가 일부 빠져 있습니다 (다음 실행 때 이어서 다시 만듭니다)",
+    "⚠︎ 검색 색인 만들기가 중단되었습니다 / 검색 결과가 일부 빠져 있습니다 (다음 실행 때 이어서 다시 만듭니다)",
   indexProgressSuffix: "% / 완료될 때까지 검색 결과가 일부 빠져 있습니다",
   removeRoot: (path: string) => `라이브러리에서 ${path} 제거`,
   rootMissingNotice: (name: string, count: number) =>
@@ -269,7 +269,7 @@ export const ko: Dict = {
     `“${path}” 폴더는 임시 폴더 안에 있습니다.\n여기로 가져오면 OS나 다른 앱이 모르는 사이에 사진을 지울 수 있습니다. 카드를 지운 뒤에는 그 사진이 어디에도 남지 않습니다. 그래도 복사 위치로 지정하시겠습니까?`,
   destTempConfirmOk: "복사 위치로 지정",
   destTempWarning:
-    "⚠ 복사 위치가 임시 폴더 안에 있습니다. 가져온 사진이 모르는 사이에 사라질 수 있습니다.",
+    "⚠︎ 복사 위치가 임시 폴더 안에 있습니다. 가져온 사진이 모르는 사이에 사라질 수 있습니다.",
   rootTempTip: (path: string) =>
     `${path} — 임시 폴더 안에 있습니다. OS나 다른 앱이 이 안의 파일을 모르는 사이에 지울 수 있습니다`,
   rootMissingTempTip: (path: string) =>
@@ -283,7 +283,7 @@ export const ko: Dict = {
   importDone: (copied: number, skipped: number) =>
     `가져오기 완료: 복사 ${num(copied)}, 건너뜀 ${num(skipped)}`,
   importFailed: (n: number) => `, 실패 ${num(n)}`,
-  importIncomplete: " ⚠ 읽을 수 없는 폴더가 있습니다 (카드를 아직 지우지 마십시오)",
+  importIncomplete: " ⚠︎ 읽을 수 없는 폴더가 있습니다 (카드를 아직 지우지 마십시오)",
   syncDone: (added: number, changed: number, removed: number) =>
     `추가 ${num(added)}, 변경 ${num(changed)}, 삭제 ${num(removed)}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -362,13 +362,13 @@ export const ko: Dict = {
   wizardScanning: "미디어 안을 찾고 있습니다…",
   wizardTruncated: (n: number) =>
     `너무 많아서 처음 ${num(n)}장만 표시합니다. 모두 가져오려면 ‘폴더 전체’를 쓰십시오`,
-  wizardScanIncomplete: "⚠ 읽을 수 없는 폴더가 있었습니다 (빠진 사진이 있을 수 있습니다)",
+  wizardScanIncomplete: "⚠︎ 읽을 수 없는 폴더가 있었습니다 (빠진 사진이 있을 수 있습니다)",
   decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다). 무료 ‘HEIF 이미지 확장’에 더해, 화소를 풀어내는 저렴한 유료 ‘HEVC 비디오 확장’이 필요합니다`,
+    `⚠︎ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다). 무료 ‘HEIF 이미지 확장’에 더해, 화소를 풀어내는 저렴한 유료 ‘HEVC 비디오 확장’이 필요합니다`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다)`,
+    `⚠︎ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다)`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다). HEIC/HEVC를 지원하는 디코더가 설치되어 있지 않은 것일 수 있습니다`,
+    `⚠︎ HEIC/HEIF ${num(n)}장은 이 환경에서 미리보기를 만들 수 없습니다 (열어도 표시되지 않습니다). HEIC/HEVC를 지원하는 디코더가 설치되어 있지 않은 것일 수 있습니다`,
   decoderHeifHow: "HEIF 이미지 확장 (무료)",
   decoderHevcHow: "HEVC 비디오 확장 (유료)",
   decoderNoticeDismiss: "다시 표시하지 않기",

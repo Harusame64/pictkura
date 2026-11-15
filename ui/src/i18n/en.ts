@@ -191,15 +191,15 @@ export const en: Dict = {
   actionShowAll: "Show all photos",
   actionCalendar: "Calendar view",
   actionThumbnails: "Photo grid",
-  indexBuilding: "🔍 Building the search index… ",
+  indexBuilding: "Building the search index… ",
   bgScanning: "Updating the library…",
   bgThumbs: (n: number) => `Reading photos (${num(n)} left)`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "Updating",
   bgThumbsShort: (n: number) => `${num(n)} left`,
-  cameraScanning: "📷 Reading camera info… ",
+  cameraScanning: "Reading camera info… ",
   indexIncompleteWarning:
-    "⚠ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",
+    "⚠︎ Search indexing was interrupted — results may be incomplete (it resumes on next launch)",
   indexProgressSuffix: "% — results may be incomplete until this finishes",
   removeRoot: (path: string) => `Remove ${path} from the library`,
   rootMissingNotice: (name: string, count: number) =>
@@ -217,7 +217,7 @@ export const en: Dict = {
     `“${path}” is inside a temporary folder.\nPhotos imported here may be deleted by the system or other apps without asking. Once the card is erased, they will not exist anywhere else. Use it as the destination anyway?`,
   destTempConfirmOk: "Use as destination",
   destTempWarning:
-    "⚠ The destination is inside a temporary folder. Imported photos may disappear without warning.",
+    "⚠︎ The destination is inside a temporary folder. Imported photos may disappear without warning.",
   rootTempTip: (path: string) =>
     `${path} — inside a temporary folder. The system or other apps may delete files there without asking`,
   rootMissingTempTip: (path: string) =>
@@ -231,7 +231,7 @@ export const en: Dict = {
   importDone: (copied: number, skipped: number) =>
     `Import finished: ${num(copied)} copied, ${num(skipped)} skipped`,
   importFailed: (n: number) => `, ${num(n)} failed`,
-  importIncomplete: " ⚠ Some folders could not be read — do not erase the card yet",
+  importIncomplete: " ⚠︎ Some folders could not be read — do not erase the card yet",
   syncDone: (added: number, changed: number, removed: number) =>
     `${num(added)} added, ${num(changed)} changed, ${num(removed)} removed`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -310,13 +310,13 @@ export const en: Dict = {
   wizardScanning: "Looking through the media…",
   wizardTruncated: (n: number) =>
     `Showing the first ${num(n)} only. Use "Whole folder" to import everything`,
-  wizardScanIncomplete: "⚠ Some folders could not be read (photos may be missing)",
+  wizardScanIncomplete: "⚠︎ Some folders could not be read (photos may be missing)",
   decoderHeifNotice: (n: number) =>
-    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. ${one(n, "It needs", "They need")} the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
+    `⚠︎ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. ${one(n, "It needs", "They need")} the free HEIF Image Extensions plus the paid HEVC Video Extensions (a few dollars) that decode the pixels`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either`,
+    `⚠︎ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
+    `⚠︎ ${num(n)} HEIC/HEIF ${one(n, "photo has", "photos have")} no thumbnail here, and will not open either. Your system may not have a decoder for HEIC/HEVC`,
   decoderHeifHow: "HEIF Image Extensions (free)",
   decoderHevcHow: "HEVC Video Extensions (paid)",
   decoderNoticeDismiss: "Don't show again",

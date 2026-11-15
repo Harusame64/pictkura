@@ -7817,42 +7817,44 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     () => [
       {
         group: t.paletteGroupActions,
-        icon: "📥",
+        icon: "usb",
         label: t.importFromUsb,
         alias: en.importFromUsb,
         run: () => openWizard(),
       },
       {
         group: t.paletteGroupActions,
-        icon: "🔄",
+        icon: "refresh",
         label: t.rescan,
         alias: en.rescan,
         run: () => onSync(),
       },
       {
         group: t.paletteGroupActions,
-        icon: "★",
+        icon: "star",
+        iconFilled: true,
         label: t.actionShowFavorites,
         alias: en.actionShowFavorites,
         run: () => setFilter("fav"),
       },
       {
         group: t.paletteGroupActions,
-        icon: "⚑",
+        icon: "flag",
+        iconFilled: true,
         label: t.actionShowPicked,
         alias: en.actionShowPicked,
         run: () => setFilter("picked"),
       },
       {
         group: t.paletteGroupActions,
-        icon: "⌨",
+        icon: "keyboard",
         label: t.actionShortcuts,
         alias: en.actionShortcuts,
         run: () => setShortcutsOpen(true),
       },
       {
         group: t.paletteGroupActions,
-        icon: "🖼",
+        icon: "image",
         label: t.actionShowAll,
         alias: en.actionShowAll,
         run: () => {
@@ -7864,14 +7866,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       },
       {
         group: t.paletteGroupActions,
-        icon: "📆",
+        icon: "calendar",
         label: t.actionCalendar,
         alias: en.actionCalendar,
         run: () => setView("calendar"),
       },
       {
         group: t.paletteGroupActions,
-        icon: "▦",
+        icon: "grid",
         label: t.actionThumbnails,
         alias: en.actionThumbnails,
         run: () => setView("grid"),
@@ -8279,9 +8281,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         {indexProgress &&
           (indexProgress.building ? (
             <div className="speed-toast index index-progress">
-              {indexProgress.phase === "camera"
-                ? t.cameraScanning
-                : t.indexBuilding}
+              {/* 絵と文を同じ判定から取る（片方だけ直して食い違わないように） */}
+              {indexProgress.phase === "camera" ? (
+                <>
+                  <Icon name="camera" /> {t.cameraScanning}
+                </>
+              ) : (
+                <>
+                  <Icon name="search" /> {t.indexBuilding}
+                </>
+              )}
               {Math.min(
                 99,
                 Math.floor(
@@ -8427,7 +8436,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 title={view ? t[view.tip](r) : r}
               >
                 <span className="root-name">
-                  {mark !== null && "⚠ "}
+                  {mark !== null && "⚠︎ "}
                   <span className="name">{rootName(r)}</span>
                 </span>
                 <button
@@ -8520,7 +8529,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           {view === "grid" && !filtering && memories.length > 0 && (
             <div className="memories">
               <span className="memories-title">
-                🎞 {t.memoriesTitle(memories[0].years_ago)}
+                <Icon name="film" /> {t.memoriesTitle(memories[0].years_ago)}
               </span>
               <div className="memories-strip">
                 {memories.map(({ years_ago, item }) => (
@@ -9595,7 +9604,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                         rel="noreferrer"
                       >
                         {/* 緯度と経度は左→右の組（右→左の画面で順が入れ替わらない） */}
-                        📍 <span className="path">{exif.gps[0].toFixed(4)}, {exif.gps[1].toFixed(4)}</span>
+                        <Icon name="pin" size={14} /> <span className="path">{exif.gps[0].toFixed(4)}, {exif.gps[1].toFixed(4)}</span>
                       </a>
                     </div>
                   )}

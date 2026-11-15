@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pressable } from "./pressable";
+import { driveIconName, Icon } from "./Icon";
 
 /** `pressable` のうち、クリック以外（役割・Tab・キー）。クリックは外側の行が受ける */
 function pressKeys(onActivate: () => void) {
@@ -69,16 +70,6 @@ type TreeNode = {
   /** ドライブ行（種類でアイコンを変える） */
   drive?: DriveInfo;
 };
-
-/** ドライブ種別のアイコン。ネットワークと光学は「取り込み元らしくない」ことを示す */
-const driveIcon = (drive: DriveInfo) =>
-  drive.kind === "network"
-    ? "🌐"
-    : drive.kind === "optical"
-      ? "💿"
-      : drive.removable
-        ? "🔌"
-        : "💾";
 
 /** パスの末尾（ファイル名）だけを取り出す */
 const baseName = (path: string) =>
@@ -689,7 +680,7 @@ export default function ImportWizard({
           >
             {node.hasSubdirs ? (isOpenNode ? "▾" : "▸") : ""}
           </button>
-          <span className="wiz-icon" aria-hidden="true">{node.drive ? driveIcon(node.drive) : "📁"}</span>
+          <span className="wiz-icon" aria-hidden="true"><Icon name={node.drive ? driveIconName(node.drive) : "folder"} /></span>
           <span
             className="wiz-name"
             // 行はフォルダを開くボタン（名前はフォルダ名。pictkura-dev #65）。クリックは行へ上がる
@@ -902,7 +893,7 @@ export default function ImportWizard({
                         {f.offline ? (
                           // クラウド上にしか無いファイル: サムネイルを取りに行くと
                           // 実体のダウンロードが始まるので、雲マークだけ出す
-                          <span className="wiz-cloud">☁</span>
+                          <span className="wiz-cloud"><Icon name="cloud" size={28} /></span>
                         ) : (
                           <SourceThumb
                             // 更新日時が変わったら別のタイルとして順番に並び直す

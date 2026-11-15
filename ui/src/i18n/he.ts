@@ -252,14 +252,14 @@ export const he: Dict = {
   actionShowAll: "הצגת כל התמונות",
   actionCalendar: "תצוגת לוח שנה",
   actionThumbnails: "רשת התמונות",
-  indexBuilding: "🔍 בונה את אינדקס החיפוש… ",
+  indexBuilding: "בונה את אינדקס החיפוש… ",
   bgScanning: "מעדכן את הספרייה…",
   bgThumbs: (n: number) => `קורא תמונות (נותרו ${num(n)})`,
   bgScanningShort: "מעדכן",
   bgThumbsShort: (n: number) => `נותרו ${num(n)}`,
-  cameraScanning: "📷 קורא את פרטי המצלמה… ",
+  cameraScanning: "קורא את פרטי המצלמה… ",
   indexIncompleteWarning:
-    "⚠ בניית אינדקס החיפוש נקטעה — ייתכן שהתוצאות חלקיות (היא תימשך בהפעלה הבאה)",
+    "⚠︎ בניית אינדקס החיפוש נקטעה — ייתכן שהתוצאות חלקיות (היא תימשך בהפעלה הבאה)",
   indexProgressSuffix: "% — ייתכן שהתוצאות חלקיות עד שזה יסתיים",
   removeRoot: (path: string) => `הסרת ${iso(path)} מהספרייה`,
   rootMissingNotice: (name: string, count: number) =>
@@ -276,7 +276,7 @@ export const he: Dict = {
   destTempConfirm: (path: string) =>
     `״${iso(path)}״ נמצאת בתוך תיקייה זמנית.\nהמערכת או אפליקציות אחרות עלולות למחוק תמונות שיובאו אליה בלי לשאול. אחרי מחיקת הכרטיס, הן לא יהיו בשום מקום אחר. להשתמש בה כיעד בכל זאת?`,
   destTempConfirmOk: "שימוש כיעד",
-  destTempWarning: "⚠ היעד נמצא בתוך תיקייה זמנית. תמונות מיובאות עלולות להיעלם בלי אזהרה.",
+  destTempWarning: "⚠︎ היעד נמצא בתוך תיקייה זמנית. תמונות מיובאות עלולות להיעלם בלי אזהרה.",
   rootTempTip: (path: string) =>
     `${iso(path)} — בתוך תיקייה זמנית. המערכת או אפליקציות אחרות עלולות למחוק בה קבצים בלי לשאול`,
   rootMissingTempTip: (path: string) =>
@@ -290,7 +290,7 @@ export const he: Dict = {
   importDone: (copied: number, skipped: number) =>
     `הייבוא הסתיים: הועתקו ${num(copied)}, דולגו ${num(skipped)}`,
   importFailed: (n: number) => `, נכשלו ${num(n)}`,
-  importIncomplete: " ⚠ לא ניתן היה לקרוא חלק מהתיקיות — אל תמחקו עדיין את הכרטיס",
+  importIncomplete: " ⚠︎ לא ניתן היה לקרוא חלק מהתיקיות — אל תמחקו עדיין את הכרטיס",
   syncDone: (added: number, changed: number, removed: number) =>
     `נוספו: ${num(added)}, השתנו: ${num(changed)}, הוסרו: ${num(removed)}`,
   drivesReturnedScanned: (added: number, changed: number) =>
@@ -366,14 +366,14 @@ export const he: Dict = {
   wizardScanning: "מחפש במדיה…",
   wizardTruncated: (n: number) =>
     `מוצגות רק ${num(n)} הראשונות. השתמשו ב״התיקייה כולה״ כדי לייבא הכול`,
-  wizardScanIncomplete: "⚠ לא ניתן היה לקרוא חלק מהתיקיות (ייתכן שחסרות תמונות)",
+  wizardScanIncomplete: "⚠︎ לא ניתן היה לקרוא חלק מהתיקיות (ייתכן שחסרות תמונות)",
   // 「N枚に…が無い」は前置詞が数に付く（`לתמונה אחת` / `ל-3 תמונות`）
   decoderHeifNotice: (n: number) =>
-    `⚠ ${one(n, "לתמונה אחת", `ל-${num(n)} תמונות`)} בפורמט HEIC/HEIF אין כאן תמונה ממוזערת, ${one(n, "והיא גם לא תיפתח", "והן גם לא ייפתחו")}. נדרשות ״הרחבות תמונה של HEIF״ החינמיות, ואיתן ״הרחבות וידאו של HEVC״ בתשלום של כמה שקלים, שמפענחות את התמונה`,
+    `⚠︎ ${one(n, "לתמונה אחת", `ל-${num(n)} תמונות`)} בפורמט HEIC/HEIF אין כאן תמונה ממוזערת, ${one(n, "והיא גם לא תיפתח", "והן גם לא ייפתחו")}. נדרשות ״הרחבות תמונה של HEIF״ החינמיות, ואיתן ״הרחבות וידאו של HEVC״ בתשלום של כמה שקלים, שמפענחות את התמונה`,
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ ${one(n, "לתמונה אחת", `ל-${num(n)} תמונות`)} בפורמט HEIC/HEIF אין כאן תמונה ממוזערת, ${one(n, "והיא גם לא תיפתח", "והן גם לא ייפתחו")}`,
+    `⚠︎ ${one(n, "לתמונה אחת", `ל-${num(n)} תמונות`)} בפורמט HEIC/HEIF אין כאן תמונה ממוזערת, ${one(n, "והיא גם לא תיפתח", "והן גם לא ייפתחו")}`,
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ ${one(n, "לתמונה אחת", `ל-${num(n)} תמונות`)} בפורמט HEIC/HEIF אין כאן תמונה ממוזערת, ${one(n, "והיא גם לא תיפתח", "והן גם לא ייפתחו")}. ייתכן שאין במערכת שלכם מפענח ל-HEIC/HEVC`,
+    `⚠︎ ${one(n, "לתמונה אחת", `ל-${num(n)} תמונות`)} בפורמט HEIC/HEIF אין כאן תמונה ממוזערת, ${one(n, "והיא גם לא תיפתח", "והן גם לא ייפתחו")}. ייתכן שאין במערכת שלכם מפענח ל-HEIC/HEVC`,
   decoderHeifHow: "הרחבות תמונה של HEIF (חינם)",
   decoderHevcHow: "הרחבות וידאו של HEVC (בתשלום)",
   decoderNoticeDismiss: "לא להציג שוב",

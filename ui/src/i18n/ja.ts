@@ -220,15 +220,15 @@ export const ja = {
   actionShowAll: "すべての画像を表示",
   actionCalendar: "カレンダー表示",
   actionThumbnails: "サムネイル表示",
-  indexBuilding: "🔍 検索インデックスを作成中… ",
+  indexBuilding: "検索インデックスを作成中… ",
   bgScanning: "ライブラリを更新中…",
   bgThumbs: (n: number) => `写真を読み込み中（残り${num(n)}枚）`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "更新中",
   bgThumbsShort: (n: number) => `残り${num(n)}`,
-  cameraScanning: "📷 カメラ情報を読み取り中… ",
+  cameraScanning: "カメラ情報を読み取り中… ",
   indexIncompleteWarning:
-    "⚠ 検索インデックスの作成を中断しました ／ 検索結果が一部欠けています（次の起動で続きから作り直します）",
+    "⚠︎ 検索インデックスの作成を中断しました ／ 検索結果が一部欠けています（次の起動で続きから作り直します）",
   indexProgressSuffix: "％ ／ 完了までは検索結果が一部欠けます",
   removeRoot: (path: string) => `${path} をライブラリから外す`,
   /* 見つからないライブラリのフォルダ（dev #23）。**自動では外さない**——外付けを
@@ -251,7 +251,7 @@ export const ja = {
     `「${path}」は一時フォルダの中にあります。\nここに取り込むと、OSや他のアプリが写真を知らないうちに消すことがあります。カードを消去したあとは、その写真はどこにも残りません。それでもコピー先にしますか？`,
   destTempConfirmOk: "コピー先にする",
   destTempWarning:
-    "⚠ コピー先は一時フォルダの中です。取り込んだ写真が知らないうちに消えることがあります。",
+    "⚠︎ コピー先は一時フォルダの中です。取り込んだ写真が知らないうちに消えることがあります。",
   /* 一時フォルダの中にあるライブラリのフォルダ（dev #23）。文は追加時の確認と同じ */
   rootTempTip: (path: string) =>
     `${path} — 一時フォルダの中にあります。OSや他のアプリが、この中のファイルを知らないうちに消すことがあります`,
@@ -267,7 +267,7 @@ export const ja = {
   importDone: (copied: number, skipped: number) =>
     `取り込み完了: コピー${num(copied)} スキップ${num(skipped)}`,
   importFailed: (n: number) => ` 失敗${num(n)}`,
-  importIncomplete: " ⚠読み取れないフォルダあり（カードを消去しないでください）",
+  importIncomplete: " ⚠︎読み取れないフォルダあり（カードを消去しないでください）",
   syncDone: (added: number, changed: number, removed: number) =>
     `追加${num(added)} 変更${num(changed)} 削除${num(removed)}`,
   /* USB メモリや SD カードを差し直したとき、その上のライブラリのフォルダを読み直した（dev #36）。
@@ -383,7 +383,7 @@ export const ja = {
    */
   wizardTruncated: (n: number) =>
     `多すぎるため先頭${num(n)}枚だけ表示しています。全部入れるなら「フォルダごと」をどうぞ`,
-  wizardScanIncomplete: "⚠読み取れないフォルダがありました（取りこぼしの可能性があります）",
+  wizardScanIncomplete: "⚠︎読み取れないフォルダがありました（取りこぼしの可能性があります）",
   /**
    * **枚数は生の `number` で受け取り、辞書の中で `num()` に通す**（2026-09-02）。
    *
@@ -394,19 +394,19 @@ export const ja = {
    * 循環参照は `plural.ts` への注入で解いてある（そちらの冒頭に理由）。
    */
   decoderHeifNotice: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
+    `⚠︎ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。無料の「HEIF 画像拡張機能」に加え、画素の展開に有料の「HEVC ビデオ拡張機能」（数百円）が要ります`,
   /**
    * macOS。**買わせる話をしない**——インストールするものが無いので、次にやることが無い
    * （動画側と違い、ここは「デコーダが要る」と言っても利用者は動けない）
    */
   decoderHeifNoticeMac: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
+    `⚠︎ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）`,
   /**
    * それ以外（Linux）。HEICもOSの部品次第なので、**理由は言うが買わせない**
    * ——動画側（`videoCodecNoteOther`）と揃える
    */
   decoderHeifNoticeOther: (n: number) =>
-    `⚠ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダがインストールされていないのかもしれません`,
+    `⚠︎ HEIC/HEIF ${num(n)}枚は、この環境ではサムネイルを作成できません（開いても表示できません）。HEIC/HEVCに対応するデコーダがインストールされていないのかもしれません`,
   decoderHeifHow: "HEIF 画像拡張機能（無料）",
   decoderHevcHow: "HEVC ビデオ拡張機能（有料）",
   decoderNoticeDismiss: "今後表示しない",
