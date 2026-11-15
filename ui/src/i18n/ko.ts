@@ -86,6 +86,7 @@ export const ko: Dict = {
   outgoingGuide:
     "이 보내기 폴더를 사진 서비스 앱에서 백업(동기화)할 폴더로 지정하십시오. 그러면 가져올 때마다 여기에 놓인 사진을 서비스가 가져갑니다. Google 포토를 사용하는 경우: 이 폴더를 Google 포토의 ‘폴더 백업’에 등록하십시오.",
   navKinds: "종류",
+  kindAll: "전체",
   kindPhoto: "이미지",
   kindRaw: "RAW",
   kindVideo: "동영상",

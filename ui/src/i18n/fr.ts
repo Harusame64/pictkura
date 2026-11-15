@@ -62,6 +62,7 @@ export const fr: Dict = {
   outgoingGuide:
     "Choisissez ce dossier Envoi comme dossier à sauvegarder (synchroniser) dans l’application de votre service photo. Ensuite, chaque importation y dépose les photos, et le service les récupère. Si vous utilisez Google Photos : ajoutez ce dossier à la sauvegarde de dossiers de Google Photos.",
   navKinds: "Type",
+  kindAll: "Tout",
   kindPhoto: "Photos",
   kindRaw: "RAW",
   kindVideo: "Vidéos",

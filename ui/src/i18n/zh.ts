@@ -88,6 +88,7 @@ export const zh: Dict = {
   navOutgoing: "送出",
   outgoingGuide: "请在照片服务的应用中，把这个送出文件夹选为要备份（同步）的文件夹。之后每次导入，照片都会排进这里，由服务自动取走。使用 Google 相册时：请在 Google 相册的文件夹备份中添加这个文件夹。",
   navKinds: "类型",
+  kindAll: "全部",
   kindPhoto: "照片",
   kindRaw: "RAW",
   kindVideo: "视频",

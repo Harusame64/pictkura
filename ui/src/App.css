@@ -227,22 +227,41 @@ body {
   background: var(--surface-2);
   border-radius: var(--radius-full);
 }
-.topbar .view-switch button {
+.topbar .view-switch button,
+.kind-switch button {
   border: none;
   border-radius: var(--radius-full);
   padding: 4px 12px;
   background: transparent;
   color: var(--text-muted);
 }
-.topbar .view-switch button:hover {
+.topbar .view-switch button:hover,
+.kind-switch button:hover {
   background: transparent;
   color: var(--text);
 }
-.topbar .view-switch button.active {
+.topbar .view-switch button.active,
+.kind-switch button.active {
   background: var(--surface);
   color: var(--text);
   font-weight: 600;
   box-shadow: var(--shadow-1);
+}
+
+/* 左の「種類」の切り替え（上の表示の切り替えと同じ形）。左の欄の幅に合わせて等分する */
+.kind-switch {
+  margin: 0 var(--sp-2) var(--sp-2);
+}
+.kind-switch button {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 4px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
 
 /* 検索ボックス: 塗り＋ピル。⌘Kヒントは中に同居させて部品を1つ減らす */

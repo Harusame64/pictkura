@@ -7933,21 +7933,23 @@ export default function App() {
               )}
             </div>
           )}
-          {/* 種類（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので節を分ける
-              ——重ねて効くものを同じ列に並べると、片方を押したときに
-              もう片方が外れる棚に見える。カメラと同じで、押している1つを
-              もう一度押せば外れる（「すべて」の行は置かない） */}
-          <div className="nav-section">{t.navKinds}</div>
-          {KINDS.map((k) => (
-            <div
-              key={k}
-              className={"nav-item" + (kind === k ? " active" : "")}
-              {...pressable(() => setKind(kind === k ? "all" : k))}
-              aria-pressed={kind === k}
-            >
-              {KIND_LABEL[k]()}
-            </div>
-          ))}
+          {/* 種類（画像 / RAW / 動画）。**★ / ⚑ とは別の軸**なので節を分ける。場所の一覧と同じ行の見た目だと
+              「移る先」に見えて、重ねて効く絞り込みだと分からなかった（利用者 2026-11-15）ので、上の
+              「サムネイル｜カレンダー」と同じ切り替えの一列にする。「すべて」を入れて、必ずどれか1つが選ばれて見える */}
+          <div className="nav-section" id="nav-kinds-label">{t.navKinds}</div>
+          <div className="view-switch kind-switch" role="radiogroup" aria-labelledby="nav-kinds-label">
+            {(["all", ...KINDS] as const).map((k) => (
+              <button
+                key={k}
+                role="radio"
+                aria-checked={kind === k}
+                className={kind === k ? "active" : ""}
+                onClick={() => setKind(k)}
+              >
+                {k === "all" ? t.kindAll : KIND_LABEL[k]()}
+              </button>
+            ))}
+          </div>
           {cameras.length > 0 && (
             <>
               {/* 開け閉めは**見出しの横に置いて動かさない**（2026-11-03 利用者）。一覧の末尾へ移すと
