@@ -2735,7 +2735,8 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             })
             .map_err(errs::from_err)?;
         if let Some(r) = in_library {
-            lock_ok(&state.outside).clear();
+            // 外の表は消さない——遅れて終わったこの呼びが、先に終わった新しい外の写真の記録を消した（codex）。
+            // 古い範囲は外の写真を開くたびに直近 3 回ぶんへ絞られる
             return Ok(OutsideDto {
                 items: Vec::new(),
                 index: 0,
