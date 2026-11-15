@@ -192,7 +192,10 @@ struct AppState {
     pending_open: Mutex<Option<String>>,
     /// 画面が受け取った「開く写真」（[`take_pending_open`] が渡したもの）。[`open_outside`] はこれだけを開く——
     /// 画面から任意のフォルダを media:// で配れるようにしない（/code-review。取り込み元の `browse_allow` と同じ考え）
-    allowed_open: Mutex<Option<String>>,
+    allowed_open: Mutex<std::collections::HashSet<String>>,
+    /// 画面が「開く写真」を受け取る用意ができたか（最初の [`take_pending_open`] で立つ）。立つ前に届いた写真は
+    /// 起動時の写真としてビューアだけの窓で開き、立った後は今の窓へ知らせる（[`deliver_open`]）
+    open_ui_ready: std::sync::atomic::AtomicBool,
     /// ライブラリの外の写真（「プログラムから開く」で開いたフォルダ）。**負の id で、メモリの中だけ**に持つ——
     /// DB には書かず、裏の仕事も動かさない（dev/plan.md 2026-11-15 の設計 A）。[`record_of`] が引く
     outside: Mutex<std::collections::HashMap<i64, pictkura_core::MediaRecord>>,
@@ -338,6 +341,11 @@ fn narrow_to_dcim(path: String) -> String {
 /// 既に起動中のインスタンスへ2重起動の引数が届いたとき（single-instance）。
 /// 窓を前面に出し、取り込み対象があればウィザードを開くイベントを送る。
 fn handle_second_instance(app: &tauri::AppHandle, argv: &[String]) {
+    // 写真を渡された二重起動（「プログラムから開く」）は、今の窓で開く
+    if let Some(path) = open_path_from_args(argv) {
+        deliver_open(app, path);
+        return;
+    }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.set_focus();
@@ -2712,7 +2720,7 @@ struct LibraryPosDto {
 async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        if lock_ok(&state.allowed_open).as_deref() != Some(path.as_str()) {
+        if !lock_ok(&state.allowed_open).contains(&path) {
             return Err(errs::code("errNotFound"));
         }
         let file = PathBuf::from(&path);
@@ -2855,11 +2863,39 @@ const OUTSIDE_DAY_KEY: i64 = -1;
 /// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）
 #[tauri::command]
 fn take_pending_open(state: tauri::State<'_, AppState>) -> Option<String> {
+    state
+        .open_ui_ready
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let path = lock_ok(&state.pending_open).take();
-    if path.is_some() {
-        *lock_ok(&state.allowed_open) = path.clone();
+    if let Some(p) = &path {
+        lock_ok(&state.allowed_open).insert(p.clone());
     }
     path
+}
+
+/// `manage` より前に届いた「開く写真」（macOS は起動の途中で `RunEvent::Opened` が来うる）。setup が拾う
+static EARLY_OPEN: Mutex<Option<String>> = Mutex::new(None);
+
+/// 「開く写真」を受け取る（Windows の二重起動・macOS の `RunEvent::Opened`）。画面がまだ受け取る前なら
+/// 起動時の写真として積む（ビューアだけの窓）。受け取れる画面が居れば、積んでから今の窓へ知らせ、窓を前に出す
+/// ——起動中に開いた写真は**今の窓で**開く（2026-11-15 利用者。別の窓は画面が丸ごと 2 つ動くので見送り）
+fn deliver_open(app: &tauri::AppHandle, path: String) {
+    let Some(state) = app.try_state::<AppState>() else {
+        *lock_ok(&EARLY_OPEN) = Some(path);
+        return;
+    };
+    *lock_ok(&state.pending_open) = Some(path.clone());
+    if state
+        .open_ui_ready
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+        }
+        let _ = app.emit_to("main", "open-file", path);
+    }
 }
 
 /// 起動の引数から「開く写真」を拾う（`pictkura.exe "C:\…\a.jpg"`）。フラグ（`--import` 等）とその値、
@@ -7368,11 +7404,13 @@ pub fn run() {
                 browse_allow: Mutex::new(HashSet::new()),
                 source_tiles: SourceTiles::default(),
                 pending_import: Mutex::new(pending_import),
-                pending_open: Mutex::new(open_path_from_args(
-                    &std::env::args().collect::<Vec<_>>(),
-                )),
+                pending_open: Mutex::new(
+                    open_path_from_args(&std::env::args().collect::<Vec<_>>())
+                        .or_else(|| lock_ok(&EARLY_OPEN).take()),
+                ),
                 outside: Mutex::new(std::collections::HashMap::new()),
-                allowed_open: Mutex::new(None),
+                allowed_open: Mutex::new(std::collections::HashSet::new()),
+                open_ui_ready: std::sync::atomic::AtomicBool::new(false),
                 // 抽出が初めて押されたときに作る（`AppState::clipboard`）
                 #[cfg(not(windows))]
                 clipboard: Mutex::new(None),
@@ -7997,7 +8035,22 @@ pub fn run() {
             set_menu_locale,
             remember_locale_choice
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|_handle, _event| {
+                // macOS の Finder の「このアプリで開く」は引数ではなくこの知らせで届く（冷えた起動でも起動中でも）
+                #[cfg(target_os = "macos")]
+                if let tauri::RunEvent::Opened { urls } = &_event {
+                    if let Some(path) = urls
+                        .iter()
+                        .filter_map(|u| u.to_file_path().ok())
+                        .find(|p| p.is_file())
+                    {
+                        deliver_open(_handle, path.to_string_lossy().into_owned());
+                    }
+                }
+            })
+        });
     // **起動できなかったときは黙って消えない**。`expect` で落とすと
     // Windowsでは何も出ないまま終わる（コンソールが無いため）ので、
     // 理由を書いてから終了コードで知らせる

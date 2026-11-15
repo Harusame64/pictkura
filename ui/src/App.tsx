@@ -84,6 +84,7 @@ import {
   takePendingImport,
   openWith,
   openOutside,
+  takePendingOpen,
   appDisplayNames,
   appKeys,
   isMac,
@@ -7152,11 +7153,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     const hit = osAppsCache.current.get(extOf(item));
     return hit && Date.now() - hit.at < 5 * 60_000 ? hit.done : undefined;
   };
-  // 「プログラムから開く」で渡された写真: ライブラリの中ならライブラリのビューアでその位置（絞り込みは外す——
-  // 隠れていると開けない）、外ならフォルダを外の写真として並べ、渡された 1 枚から（←→ でフォルダを送る）
-  useEffect(() => {
-    if (!openAtStart) return;
-    void openOutside(openAtStart)
+  // 「プログラムから開く」で渡された写真を開く: ライブラリの中ならライブラリのビューアでその位置（絞り込みは外す——
+  // 隠れていると開けない）、外ならフォルダを外の写真として並べ、渡された 1 枚から（←→ でフォルダを送る）。
+  // 起動時の写真（`openAtStart`）も、起動中に届いた写真（`open-file`）も同じ道
+  const openFile = useCallback((path: string, atStart: boolean) => {
+    void openOutside(path)
       .then(({ items, index, library }) => {
         if (library) {
           setFilter("all");
@@ -7169,7 +7170,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         }
         // 並べる写真が無ければ（読めないフォルダ等）ふつうの窓に戻す——黒い窓のまま何も出ない、にしない
         if (items.length === 0) {
-          setViewerOnly(false);
+          if (atStart) setViewerOnly(false);
           return;
         }
         setOutsideItems(items);
@@ -7178,10 +7179,33 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       })
       .catch((e) => {
         // 開けなければふつうの窓に戻す（黒い窓のまま何も出ない、にしない）
-        setViewerOnly(false);
+        if (atStart) setViewerOnly(false);
         fail(errText(e));
       });
-  }, [openAtStart]);
+  }, []);
+  useEffect(() => {
+    if (openAtStart) openFile(openAtStart, true);
+  }, [openAtStart, openFile]);
+  /**
+   * 起動中に届いた写真（Windows の二重起動・macOS の「このアプリで開く」）。**今の窓で**開く（2026-11-15 利用者）。
+   * 設定・取り込み・ボツの確認などの幕が出ている間は、閉じてから開く（書きかけを壊さない）
+   */
+  const [openWhenFree, setOpenWhenFree] = useState<string | null>(null);
+  useEffect(() => {
+    const un = listen<string>("open-file", () => {
+      void takePendingOpen().then((path) => {
+        if (path) setOpenWhenFree(path);
+      });
+    });
+    return () => {
+      void un.then((off) => off()).catch(() => {});
+    };
+  }, []);
+  useEffect(() => {
+    if (!openWhenFree || curtainUp) return;
+    setOpenWhenFree(null);
+    openFile(openWhenFree, false);
+  }, [openWhenFree, curtainUp, openFile]);
   const [pendingLibraryOpen, setPendingLibraryOpen] = useState<{ dayKey: number; id: number } | null>(null);
   useEffect(() => {
     if (pendingLibraryOpen && dayIdxByKey.has(pendingLibraryOpen.dayKey)) {
