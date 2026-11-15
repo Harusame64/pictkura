@@ -904,7 +904,15 @@ export default function App() {
     files?: MediaItem[];
     /** ★・⚑ が効くファイル（連写では表紙のコマだけ。`Cell.markFiles`）。無ければ `files` */
     markFiles?: MediaItem[];
+    /**
+     * あれば「他のアプリで開く…」の候補のメニュー（OS が挙げたアプリ）。**同じ menu の状態に載せる**——
+     * 別の状態にすると、メニューが開いている間はキーを止める・幕が上がったら閉じる、の確かめから漏れた
+     * （/code-review: Esc でビューアごと閉じる、★ のキーが後ろの写真に効く）
+     */
+    apps?: OsApp[];
   } | null>(null);
+  /** 「他のアプリで開く…」の問い合わせの番号。待つ間に別のメニューを開いた・写真を替えたら、古い答えは捨てる */
+  const openWithReq = useRef(0);
   /**
    * 右クリックした写真が「向きを元に戻す」を出せるか（pictkura が回した写真だけ。ADR B-2 の R3）。
    * メニューを開くたびに Rust へ訊く——控えは DB にしか無い。答えが来るまでは出さない（出してから消すより
@@ -7068,34 +7076,48 @@ export default function App() {
    * 「他のアプリで開く…」: OS がその写真に挙げるアプリを、名簿で並べ替えて同じ場所にメニューで出す
    * （名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…）。OS が何も挙げなければ選ぶ画面へ
    */
-  const [appMenu, setAppMenu] = useState<{ pos: MenuPos; item: MediaItem; apps: OsApp[] } | null>(null);
+  // 答えを待つ間に、別の写真で右クリックした・ビューアの写真が替わったら、古い答えでメニューを出さない
+  // （出すと、選んだアプリが前の写真を開く。/code-review）
+  useEffect(() => {
+    if (menu && !menu.apps) openWithReq.current++;
+  }, [menu]);
+  useEffect(() => {
+    openWithReq.current++;
+  }, [viewerItemId]);
   const onOpenWithOther = useCallback(
     async (item: MediaItem, pos?: MenuPos) => {
+      const req = ++openWithReq.current;
       const apps = pos ? await osAppsFor(item.id).catch(() => [] as OsApp[]) : [];
+      if (req !== openWithReq.current) return;
       if (!pos || apps.length === 0) {
         void pickOtherApp(item);
         return;
       }
-      setAppMenu({ pos, item, apps });
+      setMenu({ pos, item, apps });
     },
     [pickOtherApp],
   );
-  const appMenuItems = useMemo((): MenuItem[] => {
-    if (!appMenu) return [];
-    const { item, apps } = appMenu;
-    const { top, rest } = rankOsApps(apps, item.is_video);
-    const toItem = (a: OsApp, i: number, separator: boolean): MenuItem => ({
-      id: `os-app-${i}`,
-      label: a.name,
-      separator,
-      run: () => openWithOs(item.id, a.id).catch((e) => fail(errText(e))),
-    });
-    return [
-      ...top.map((a, i) => toItem(a, i, false)),
-      ...rest.map((a, i) => toItem(a, top.length + i, i === 0 && top.length > 0)),
-      { id: "open-with-pick", label: t.pickAnotherApp, separator: true, run: () => void pickOtherApp(item) },
-    ];
-  }, [appMenu, pickOtherApp]);
+  /** 候補のメニューの項目（名簿の順・OS の推奨 → 区切り → 雑音 → 区切り → 別のアプリを選ぶ…） */
+  const appMenuItems = useCallback(
+    (item: MediaItem, apps: readonly OsApp[]): MenuItem[] => {
+      const { top, rest } = rankOsApps(apps, item.is_video);
+      const all = [...top, ...rest];
+      const keys = all.map((a) => a.key);
+      const toItem = (a: OsApp, i: number, separator: boolean): MenuItem => ({
+        // 並びの番号ではなく鍵で名付ける（台や OS の順で別のアプリを指さないように。openWithId と同じ理由）
+        id: `os-${openWithId(a.key, i, keys)}`,
+        label: a.name,
+        separator,
+        run: () => openWithOs(item.id, a.id).catch((e) => fail(errText(e))),
+      });
+      return [
+        ...top.map((a, i) => toItem(a, i, false)),
+        ...rest.map((a, i) => toItem(a, top.length + i, i === 0 && top.length > 0)),
+        { id: "open-with-pick", label: t.pickAnotherApp, separator: true, run: () => void pickOtherApp(item) },
+      ];
+    },
+    [pickOtherApp],
+  );
 
   /** 送り出し（Google フォト用のフォルダ）を入れているか。切っているときは入口を出さない（設計 ② §1） */
   const googleOn = config?.google_mirror?.enabled ?? false;
@@ -9516,10 +9538,15 @@ export default function App() {
       />
       <ContextMenu
         pos={menu?.pos ?? null}
-        items={menu ? menuItemsFor(menu.item, menu.files, menu.markFiles, menu.pos) : []}
+        items={
+          menu
+            ? menu.apps
+              ? appMenuItems(menu.item, menu.apps)
+              : menuItemsFor(menu.item, menu.files, menu.markFiles, menu.pos)
+            : []
+        }
         onClose={() => setMenu(null)}
       />
-      <ContextMenu pos={appMenu?.pos ?? null} items={appMenuItems} onClose={() => setAppMenu(null)} />
       {infoFor !== null && <FileInfoDialog ids={infoFor} onClose={() => setInfoFor(null)} />}
       {printFor !== null && (
         <PrintDialog

@@ -601,6 +601,8 @@ export const en: Dict = {
   errGoogleIo: "Could not read or write the Outgoing folder.",
   errGoogleOtherDrive: "Choose a folder on the same drive as the import destination.",
   errNotFound: "That photo is no longer in the index.",
+  errAppGone: "That app is no longer offered for this photo. Try again.",
+  errOpenWith: "Couldn't open the photo in that app.",
   errRotateNoOrientation: "This photo has no orientation information, so it can’t be rotated.",
   errRotateXmp: "This would conflict with the orientation that photo editors read from XMP, so it can’t be rotated.",
   errRotateCloudOnly: "This photo is only in the cloud, so it can’t be rotated. Download it, then try again.",

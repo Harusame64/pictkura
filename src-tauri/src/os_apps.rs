@@ -126,27 +126,26 @@ mod imp {
         with_com(move || handlers(&file).iter().filter_map(describe).collect())
     }
 
+    /// **呼ぶ側の糸で動かす（UI の糸から呼ぶこと）。** そこは STA でメッセージも回っている。使い捨ての糸で
+    /// `Invoke` すると、非同期で起動するハンドラ（DelegateExecute・一部の Store アプリ）が働く前に COM を畳んで
+    /// しまう（/code-review。`ShellExecuteEx` に `SEE_MASK_NOASYNC` が要るのと同じ理由）
     pub fn open(file: &Path, id: &str) -> Result<(), String> {
-        let file = file.to_path_buf();
-        let id = id.to_string();
-        with_com(move || {
-            let h = handlers(&file)
-                .into_iter()
-                .find(|h| {
-                    unsafe { h.GetName() }
-                        .ok()
-                        .map(take)
-                        .is_some_and(|n| n == id)
-                })
-                .ok_or_else(|| "the app is no longer offered for this file".to_string())?;
-            let path = HSTRING::from(file.as_os_str());
-            // SAFETY: ファイルのシェル項目からデータオブジェクトを作り、ハンドラに渡す
-            let item: IShellItem =
-                unsafe { SHCreateItemFromParsingName(&path, None) }.map_err(|e| e.to_string())?;
-            let data: IDataObject =
-                unsafe { item.BindToHandler(None, &BHID_DataObject) }.map_err(|e| e.to_string())?;
-            unsafe { h.Invoke(&data) }.map_err(|e| e.to_string())
-        })
+        let h = handlers(file)
+            .into_iter()
+            .find(|h| {
+                unsafe { h.GetName() }
+                    .ok()
+                    .map(take)
+                    .is_some_and(|n| n == id)
+            })
+            .ok_or_else(|| crate::errs::code("errAppGone"))?;
+        let path = HSTRING::from(file.as_os_str());
+        // SAFETY: ファイルのシェル項目からデータオブジェクトを作り、ハンドラに渡す
+        let item: IShellItem = unsafe { SHCreateItemFromParsingName(&path, None) }
+            .map_err(|e| crate::errs::coded("errOpenWith", e))?;
+        let data: IDataObject = unsafe { item.BindToHandler(None, &BHID_DataObject) }
+            .map_err(|e| crate::errs::coded("errOpenWith", e))?;
+        unsafe { h.Invoke(&data) }.map_err(|e| crate::errs::coded("errOpenWith", e))
     }
 }
 
@@ -154,10 +153,15 @@ mod imp {
 mod imp {
     use super::OsApp;
     use objc2_app_kit::NSWorkspace;
-    use objc2_foundation::{NSBundle, NSFileManager, NSString, NSURL};
+    use objc2_foundation::{NSBundle, NSString, NSURL};
     use std::path::Path;
 
     pub fn list(file: &Path) -> Vec<OsApp> {
+        // `URLsForApplicationsToOpenURL:` は macOS 12 から。11 では呼ぶと例外で落ちるので、空を返して
+        // 選ぶ画面へ落とす（/code-review。最低の版は tauri.macos.conf.json の 11.0）
+        if !objc2::available!(macos = 12.0) {
+            return Vec::new();
+        }
         let Some(p) = file.to_str() else {
             return Vec::new();
         };
@@ -178,13 +182,13 @@ mod imp {
             let in_apps = |p: &str| p.starts_with("/Applications/") || p.starts_with("/System/");
             if let Some(prev) = out.iter_mut().find(|a| a.key == key) {
                 if !in_apps(&prev.id) && in_apps(&path) {
+                    // 名前も残すほうのものに（古い版の置き場の名前を出さない）
+                    prev.name = crate::app_name::display_name(Path::new(&path));
                     prev.id = path;
                 }
                 continue;
             }
-            let name = NSFileManager::defaultManager()
-                .displayNameAtPath(&NSString::from_str(&path))
-                .to_string();
+            let name = crate::app_name::display_name(Path::new(&path));
             // 仮想機械（Parallels）が出す Windows のアプリは、この Mac では写真の道具ではない
             let recommended = !path.contains("Applications (Parallels)");
             out.push(OsApp {
@@ -198,7 +202,8 @@ mod imp {
     }
 
     pub fn open(file: &Path, id: &str) -> Result<(), String> {
-        tauri_plugin_opener::open_path(file, Some(id)).map_err(|e| e.to_string())
+        tauri_plugin_opener::open_path(file, Some(id))
+            .map_err(|e| crate::errs::coded("errOpenWith", e))
     }
 }
 

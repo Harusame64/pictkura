@@ -675,6 +675,8 @@ export const es: Dict = {
   errGoogleIo: "No se ha podido leer ni escribir en la carpeta de Salida.",
   errGoogleOtherDrive: "Elige una carpeta en la misma unidad que el destino de la importación.",
   errNotFound: "Esa foto ya no está en el índice.",
+  errAppGone: "Esta aplicación ya no se ofrece para esta foto. Vuelve a intentarlo.",
+  errOpenWith: "No se pudo abrir la foto con esta aplicación.",
   errRotateNoOrientation: "Esta foto no tiene información de orientación, así que no se puede girar.",
   errRotateXmp: "Entraría en conflicto con la orientación que los editores de fotos leen del XMP, así que no se gira.",
   errRotateCloudOnly: "Esta foto solo está en la nube, así que no se puede girar. Descárgala y vuelve a intentarlo.",

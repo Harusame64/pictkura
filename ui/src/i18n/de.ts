@@ -672,6 +672,8 @@ export const de: Dict = {
   errGoogleIo: "Der Ordner „Ausgang“ konnte nicht gelesen oder beschrieben werden.",
   errGoogleOtherDrive: "Wähle einen Ordner auf demselben Laufwerk wie das Importziel.",
   errNotFound: "Dieses Foto steht nicht mehr im Index.",
+  errAppGone: "Diese App wird für dieses Foto nicht mehr angeboten. Versuche es erneut.",
+  errOpenWith: "Das Foto ließ sich in dieser App nicht öffnen.",
   errRotateNoOrientation: "Dieses Foto enthält keine Ausrichtungsangabe und kann daher nicht gedreht werden.",
   errRotateXmp: "Das würde der Ausrichtung widersprechen, die Fotobearbeitungsprogramme aus XMP lesen. Deshalb wird nicht gedreht.",
   errRotateCloudOnly: "Dieses Foto liegt nur in der Cloud und kann daher nicht gedreht werden. Lade es herunter und versuche es erneut.",

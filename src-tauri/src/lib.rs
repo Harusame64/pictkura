@@ -2839,13 +2839,25 @@ async fn os_apps_for(app: tauri::AppHandle, id: i64) -> Result<Vec<os_apps::OsAp
     .map_err(|e| e.to_string())?
 }
 
-/// [`os_apps_for`] が返したアプリ（`app_id`）でその写真を開く。覚えない（OS の一覧から毎回引く）
+/// [`os_apps_for`] が返したアプリ（`app_id`）でその写真を開く。覚えない（OS の一覧から毎回引く）。
+/// Windows は UI の糸で起動させる（`os_apps::open` の節。そこは STA でメッセージが回っている）
 #[tauri::command]
 async fn open_with_os(app: tauri::AppHandle, id: i64, app_id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        let path = path_of(&state, id)?;
-        os_apps::open(&path, &app_id)
+        let path = path_of(&app.state::<AppState>(), id)?;
+        #[cfg(windows)]
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.run_on_main_thread(move || {
+                let _ = tx.send(os_apps::open(&path, &app_id));
+            })
+            .map_err(|e| e.to_string())?;
+            rx.recv().map_err(|e| e.to_string())?
+        }
+        #[cfg(not(windows))]
+        {
+            os_apps::open(&path, &app_id)
+        }
     })
     .await
     .map_err(|e| e.to_string())?

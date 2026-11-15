@@ -649,6 +649,8 @@ export const ko: Dict = {
   errGoogleIo: "보내기 폴더를 읽거나 쓰지 못했습니다.",
   errGoogleOtherDrive: "가져올 위치와 같은 드라이브의 폴더를 고르십시오.",
   errNotFound: "그 사진의 기록을 찾을 수 없습니다.",
+  errAppGone: "이 앱은 더 이상 이 사진을 여는 앱으로 표시되지 않습니다. 다시 시도하십시오.",
+  errOpenWith: "이 앱으로 사진을 열 수 없었습니다.",
   errRotateNoOrientation: "이 사진에는 방향 정보가 없어서 회전할 수 없습니다.",
   errRotateXmp: "RAW 현상 프로그램이 사용하는 방향 정보(XMP)와 어긋나서 회전할 수 없습니다.",
   errRotateCloudOnly: "사진이 클라우드에만 있어서 회전할 수 없습니다. 다운로드한 뒤 다시 시도하십시오.",

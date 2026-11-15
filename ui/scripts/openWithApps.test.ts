@@ -21,10 +21,10 @@ test("Windows, a JPEG: known editors first, OS suggestions next, noise below", (
     app("gimp-2.10.exe", "GIMP", false),
   ];
   const { top, rest } = rankOsApps(apps, false);
-  // 名簿の順（無料の GIMP・Paint.NET → OS 付属のペイント）、そのあと OS が勧める名簿外（OS の順）
-  assert.deepEqual(top.map((a) => a.name), ["GIMP", "Paint.NET", "ペイント", "SnapSwift", "フォト"]);
-  // 勧めていても雑音は下（Snipping Tool）。勧められていない名簿外も下
-  assert.deepEqual(rest.map((a) => a.name), ["Snipping Tool", "メモ帳", "Word"]);
+  // 勧められたものを、名簿の順（Paint.NET → ペイント）、そのあと名簿外（OS の順）
+  assert.deepEqual(top.map((a) => a.name), ["Paint.NET", "ペイント", "SnapSwift", "フォト"]);
+  // 勧めていても雑音は下（Snipping Tool）。**名簿に載っていても、勧められていなければ下**（GIMP）
+  assert.deepEqual(rest.map((a) => a.name), ["Snipping Tool", "メモ帳", "Word", "GIMP"]);
 });
 
 test("macOS, a JPEG: QuickTime and browsers go below, Parallels apps too", () => {
@@ -61,4 +61,15 @@ test("nothing is dropped: every app the OS offered is in one of the two lists", 
   const { top, rest } = rankOsApps(apps, false);
   assert.equal(top.length + rest.length, apps.length);
   assert.deepEqual(top.map((a) => a.name), ["Photoshop"]);
+});
+
+test("a known editor the OS does not recommend for this type stays below (win2: Paint.NET for mp4 and CR3)", () => {
+  const apps = [
+    app("paintdotnet.exe", "Paint.NET", false),
+    app("フォト", "フォト"),
+    app("clipchamp", "Microsoft Clipchamp"),
+  ];
+  const { top, rest } = rankOsApps(apps, true);
+  assert.deepEqual(top.map((a) => a.name), ["フォト", "Microsoft Clipchamp"]);
+  assert.deepEqual(rest.map((a) => a.name), ["Paint.NET"]);
 });

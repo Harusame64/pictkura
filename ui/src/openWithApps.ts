@@ -6,6 +6,8 @@
  * 上へ出すもの・区切りの下へ回すものを決める。名簿に無いアプリも、OS が勧めていれば上の段に残る。
  *
  * 鍵は Windows が exe のファイル名（小文字）、macOS がアプリの束 ID（小文字）。末尾の `*` は前方一致。
+ * **会社名だけの前方一致はしない**（`jp.co.canon.*` はプリンタの道具まで上へ出す。/code-review）。
+ * 編集ソフトの鍵は各社の名付けからの見込みで、実物で確かめたのは mac の雑音の束 ID（mdls）だけ
  */
 
 /** OS が挙げたアプリ（Rust の `OsApp`） */
@@ -25,11 +27,11 @@ const KNOWN_PHOTO: readonly string[] = [
   "photo.exe", "affinity photo*.exe", "com.seriflabs.affinityphoto*",
   "dxo.photolab.exe", "com.dxo.photolab*",
   "luminar neo.exe", "com.skylum.luminar*",
-  "on1 photo raw*.exe", "com.on1.*",
+  "on1 photo raw*.exe", "com.on1.photoraw*",
   "com.pixelmatorteam.pixelmator*", "com.flyingmeat.acorn*",
   // カメラメーカー
-  "dpp4.exe", "jp.co.canon.*", "nx studio.exe", "com.nikon.*",
-  "imaging edge*.exe", "com.sony.*", "x raw studio.exe", "com.fujifilm.*", "om workspace.exe", "jp.co.omsystem.*",
+  "dpp4.exe", "jp.co.canon.dpp*", "nx studio.exe", "com.nikon.nxstudio*",
+  "imaging edge*.exe", "com.sony.imagingedge*", "x raw studio.exe", "com.fujifilm.xrawstudio*", "om workspace.exe", "jp.co.omsystem.omworkspace*",
   // 無料
   "gimp*", "org.gimp.*", "darktable.exe", "org.darktable*", "rawtherapee*.exe", "com.rawtherapee*",
   "krita.exe", "org.kde.krita", "paintdotnet.exe", "i_view64.exe", "i_view32.exe", "xnviewmp.exe", "com.xnview.*",
@@ -72,7 +74,9 @@ export function rankOsApps(apps: readonly OsApp[], video: boolean): { top: OsApp
   const noise = video ? NOISE : [...NOISE, "com.apple.quicktimeplayerx", "wmplayer.exe"];
   const scored = apps.map((a, i) => ({ a, i, k: rankOf(a.key, known), n: rankOf(a.key, noise) < Infinity }));
   const top = scored
-    .filter((s) => !s.n && (s.k < Infinity || s.a.recommended))
+    // 上の段は OS が勧めたものだけ。名簿は並べ替えにだけ使う——名簿に載っていても、その種類を開けるとは
+    // 限らない（Paint.NET は動画も RAW も開けないのに、mp4・CR3 で先頭に来た。win2 の実測）
+    .filter((s) => !s.n && s.a.recommended)
     .sort((x, y) => x.k - y.k || x.i - y.i)
     .map((s) => s.a);
   const rest = scored.filter((s) => !top.includes(s.a)).map((s) => s.a);

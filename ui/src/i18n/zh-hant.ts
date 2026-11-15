@@ -651,6 +651,8 @@ export const zhHant: Dict = {
   errGoogleIo: "無法讀寫送出資料夾。",
   errGoogleOtherDrive: "請選擇與匯入目的地在同一個磁碟上的資料夾。",
   errNotFound: "索引裡已經沒有這張照片。",
+  errAppGone: "該程式已不再用於開啟此相片。請再試一次。",
+  errOpenWith: "無法用此程式開啟相片。",
   errRotateNoOrientation: "這張照片沒有方向資訊，無法旋轉。",
   errRotateXmp: "會與修圖軟體從 XMP 讀取的方向衝突，因此不旋轉。",
   errRotateCloudOnly: "這張照片只在雲端，無法旋轉。請先下載，再試一次。",
