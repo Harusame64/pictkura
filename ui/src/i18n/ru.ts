@@ -251,13 +251,13 @@ export const ru: Dict = {
   actionShowAll: "Показать все фото",
   actionCalendar: "Открыть календарь",
   actionThumbnails: "Открыть сетку фото",
-  indexBuilding: "🔍 Создание поискового индекса… ",
+  indexBuilding: "Создание поискового индекса… ",
   bgScanning: "Обновление библиотеки…",
   bgThumbs: (n: number) => `Загрузка фото (осталось ${num(n)})`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "Обновление",
   bgThumbsShort: (n: number) => `ещё ${num(n)}`,
-  cameraScanning: "📷 Чтение данных камеры… ",
+  cameraScanning: "Чтение данных камеры… ",
   indexIncompleteWarning:
     "⚠ Создание поискового индекса прервано — часть результатов отсутствует (продолжится при следующем запуске)",
   indexProgressSuffix: "% — пока индекс не готов, часть результатов будет отсутствовать",

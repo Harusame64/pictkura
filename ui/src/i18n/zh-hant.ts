@@ -251,13 +251,13 @@ export const zhHant: Dict = {
   actionShowAll: "顯示全部照片",
   actionCalendar: "行事曆檢視",
   actionThumbnails: "照片網格",
-  indexBuilding: "🔍 正在建立搜尋索引… ",
+  indexBuilding: "正在建立搜尋索引… ",
   bgScanning: "正在更新圖庫…",
   bgThumbs: (n: number) => `正在讀取相片（還剩 ${num(n)} 張）`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "更新中",
   bgThumbsShort: (n: number) => `還剩 ${num(n)}`,
-  cameraScanning: "📷 正在讀取相機資訊… ",
+  cameraScanning: "正在讀取相機資訊… ",
   indexIncompleteWarning:
     "⚠ 搜尋索引的建立中斷了，搜尋結果可能不完整（下次啟動時接著建立）",
   indexProgressSuffix: "% —— 完成之前搜尋結果可能不完整",

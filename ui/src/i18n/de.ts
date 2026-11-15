@@ -228,13 +228,13 @@ export const de: Dict = {
   actionShowAll: "Alle Fotos zeigen",
   actionCalendar: "Kalenderansicht",
   actionThumbnails: "Fotoübersicht",
-  indexBuilding: "🔍 Suchindex wird aufgebaut… ",
+  indexBuilding: "Suchindex wird aufgebaut… ",
   bgScanning: "Mediathek wird aktualisiert…",
   bgThumbs: (n: number) => `Fotos werden eingelesen (noch ${num(n)})`,
   /* ヘッダーに出す短い形。全文（上の2つ）はマウスを乗せたときに出す（dev #64、2026-10-17 利用者の選択） */
   bgScanningShort: "Aktualisieren",
   bgThumbsShort: (n: number) => `noch ${num(n)}`,
-  cameraScanning: "📷 Kameradaten werden gelesen… ",
+  cameraScanning: "Kameradaten werden gelesen… ",
   indexIncompleteWarning:
     "⚠ Der Suchindex wurde unterbrochen — Treffer können unvollständig sein (es geht beim nächsten Start weiter)",
   indexProgressSuffix: " % — bis das fertig ist, können Treffer fehlen",

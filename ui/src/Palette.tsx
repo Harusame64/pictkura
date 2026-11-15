@@ -3,6 +3,7 @@ import { type Camera, type DaySummary } from "./api";
 import { formatDayKey, t } from "./i18n";
 import { actionMatch, orderSearchAndActions } from "./paletteOrder";
 import { asciiDigits } from "./direction";
+import { Icon, type IconName } from "./Icon";
 
 /** パレットの1候補。実行するとパレットは閉じる */
 export type PaletteItem = {
@@ -10,7 +11,7 @@ export type PaletteItem = {
   group: string;
   label: string;
   hint?: string;
-  icon: string;
+  icon: IconName;
   /** 英語の名前（操作だけ。今の言語が英語でなくても、英語で打てば当たる。`paletteOrder.ts`） */
   alias?: string;
   run: () => void;
@@ -86,7 +87,7 @@ export default function Palette({
           if (key.startsWith(digits) || label.includes(q)) {
             out.push({
               group: t.paletteGroupJumpDate,
-              icon: "📅",
+              icon: "calendar",
               label,
               hint: t.photosCount(day.count),
               run: () => onJumpDay(day.day_key),
@@ -99,7 +100,7 @@ export default function Palette({
       for (const day of summary.slice(0, 3)) {
         out.push({
           group: t.paletteGroupRecentDays,
-          icon: "📅",
+          icon: "calendar",
           label: formatDayKey(day.day_key),
           hint: t.photosCount(day.count),
           run: () => onJumpDay(day.day_key),
@@ -114,7 +115,7 @@ export default function Palette({
     for (const cam of cameraHits) {
       out.push({
         group: t.paletteGroupCameras,
-        icon: "📷",
+        icon: "camera",
         label: cam.name,
         hint: t.photosCount(cam.count),
         // 名前に空白を含むので引用符でくくる
@@ -127,7 +128,7 @@ export default function Palette({
     const search: PaletteItem | null = q
       ? {
           group: t.paletteGroupSearch,
-          icon: "🔍",
+          icon: "search",
           label: t.paletteSearchFor(q),
           hint: t.paletteSearchHint,
           run: () => onSearch(q),
@@ -233,7 +234,7 @@ export default function Palette({
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => run(item)}
                 >
-                  <span className="palette-icon" aria-hidden="true">{item.icon}</span>
+                  <span className="palette-icon" aria-hidden="true"><Icon name={item.icon} /></span>
                   <span className="palette-label">{item.label}</span>
                   {item.hint && <span className="palette-hint">{item.hint}</span>}
                 </div>
