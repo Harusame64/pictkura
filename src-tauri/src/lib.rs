@@ -2889,7 +2889,7 @@ fn reveal_main_window(app: tauri::AppHandle, phase: String) {
     };
     #[cfg(windows)]
     {
-        use windows::Win32::Foundation::{BOOL, HWND};
+        use windows::Win32::Foundation::HWND;
         use windows::Win32::Graphics::Dwm::{
             DwmSetWindowAttribute, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
         };
@@ -2899,14 +2899,15 @@ fn reveal_main_window(app: tauri::AppHandle, phase: String) {
         };
         let hwnd = HWND(h.0 as _);
         let set = |attr, on: bool| {
-            let v = BOOL::from(on);
-            // SAFETY: hwnd はこのプロセスの生きている窓。値は BOOL 1 つ
+            // Win32 の BOOL（i32）。windows 0.61 では BOOL 型が別の crate へ移ったので i32 で渡す
+            let v: i32 = on.into();
+            // SAFETY: hwnd はこのプロセスの生きている窓。値は BOOL（i32）1 つ
             unsafe {
                 let _ = DwmSetWindowAttribute(
                     hwnd,
                     attr,
-                    &v as *const BOOL as *const _,
-                    std::mem::size_of::<BOOL>() as u32,
+                    &v as *const i32 as *const _,
+                    std::mem::size_of::<i32>() as u32,
                 );
             }
         };
