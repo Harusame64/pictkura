@@ -2408,6 +2408,46 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font-size: var(--fs-sm);
   box-shadow: var(--shadow-3);
 }
+/* 露出の 4 つ（焦点距離・絞り・シャッター・ISO）。カメラの液晶のように 2×2 に大きく、数の幅をそろえる。区切りの線は
+   下に行が続くときだけ */
+.exif-hero {
+  /* 2 つずつ 2 段の格子（パネルの幅に 4 つは入らず、ISO だけが 2 段目に落ちて不揃いだった） */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-1) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  color: oklch(0.96 0 0);
+  font-size: var(--fs-title-section);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.exif-hero-item {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exif-hero:has(+ .exif-row) {
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid oklch(1 0 0 / 0.1);
+}
+/* 欠けた値の升は「–」を薄く */
+.exif-hero-item.missing {
+  color: var(--n-5);
+  font-weight: 400;
+}
+.exif-hero-unit {
+  color: var(--n-5);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+/* 2 つ目の節（ファイル）の上は空ける */
+.exif-panel .exif-title ~ .exif-title {
+  margin-top: var(--sp-4);
+}
 .exif-title {
   font-weight: 700;
   margin-bottom: var(--sp-2);
@@ -2427,7 +2467,13 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .exif-value {
   flex: 1;
   min-width: 0;
-  word-break: break-word;
+  /* 区切りの無い長い名前（ファイル名・パス）は、入らないところで折る */
+  overflow-wrap: anywhere;
+}
+/* カメラ・レンズの名前の語。語の中（ハイフンの後など）では折らない——`hyphens` は自動のハイフン付けの指定で、
+   字としての「-」の後で折るのは止めなかった（win2 の実測）。行が変わるのは語の間の空白だけ */
+.exif-value .nobreak {
+  white-space: nowrap;
 }
 .exif-value.link {
   /* ビューアは常に暗い地なので、暗い地のためのリンクの色 */
@@ -2438,11 +2484,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   text-decoration: underline;
 }
 
-/* ファイルの基本情報（ADR の A）。パネルではファイルの節の後に撮影情報の節が続く */
-.exif-panel .exif-title + .exif-row ~ .exif-title,
-.exif-panel .file-info-error + .exif-title {
-  margin-top: var(--sp-3);
-}
+/* ファイルの基本情報（ADR の A）。パネルでは撮影情報の節の後に続く（間は上の .exif-title ~ .exif-title） */
 .file-info-value {
   font-variant-numeric: tabular-nums;
 }

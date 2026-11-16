@@ -145,6 +145,9 @@ fn humanize(shown: String, unit: Unit) -> String {
         return shown; // 数として読めない（"f/5.0" 等の整形済み表記）
     };
     match unit {
+        // カメラの表示と同じ形: 10 以上は整数（f/22・f/11）、それ未満は小数 1 桁（f/5.0・f/2.8）。
+        // f/22 を「f/22.0」と出していた（win2）。f/5.0 は「f/5」にしない（カメラは f/5.0 と出す）
+        Unit::Aperture if value >= 9.95 => format!("f/{}", value.round()),
         Unit::Aperture => format!("f/{value:.1}"),
         Unit::Focal => format!("{} mm", trim_decimals(value)),
         // シャッターは 1/60 のような表記のまま単位だけ足す
@@ -2454,6 +2457,9 @@ mod tests {
         // CR3のように文脈を跨いで拾った値（パーサが意味を知らない形）
         assert_eq!(humanize("5/1".into(), Unit::Aperture), "f/5.0");
         assert_eq!(humanize("63/10".into(), Unit::Aperture), "f/6.3");
+        assert_eq!(humanize("22/1".into(), Unit::Aperture), "f/22");
+        assert_eq!(humanize("11/1".into(), Unit::Aperture), "f/11");
+        assert_eq!(humanize("8/1".into(), Unit::Aperture), "f/8.0");
         assert_eq!(humanize("24/1".into(), Unit::Focal), "24 mm");
         assert_eq!(humanize("1/60".into(), Unit::Shutter), "1/60 s");
         assert_eq!(humanize("2/1".into(), Unit::Shutter), "2 s");

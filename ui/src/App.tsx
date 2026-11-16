@@ -9631,37 +9631,66 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           )}
           {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
-              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む。
-                  ライブラリの外の写真（負の id）は記録が無いので、ファイルの節を出さない（「読み込み中」のまま
-                  止まっていた。codex） */}
-              {viewerItem.id >= 0 && <div className="exif-title">{t.fileInfoTitle}</div>}
-              {viewerItem.id >= 0 && (() => {
-                const v = viewerFileInfos.get(viewerItem.id);
-                if (v === undefined) return <div className="exif-row">{t.loading}</div>;
-                if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
-                return <FileInfoRows info={v} />;
-              })()}
+              {/* **撮影情報を先に、露出の 4 つを大きく 2×2 に**（2026-11-16 デザインレビュー: 写真好きがいちばん見たい
+                  焦点距離・絞り・シャッター・ISO が表の下半分に埋もれていた。カメラの液晶のように上に並べる）。
+                  ファイルの節は後ろ。値は DB（ADR の A）。撮影情報は今どおり開くたびにファイルを読む */}
               <div className="exif-title">{t.exifTitle}</div>
               {exif === null ? (
                 <div className="exif-row">{t.loading}</div>
               ) : (
                 <>
+                  {(exif.focal || exif.aperture || exif.shutter || exif.iso) && (
+                    <div className="exif-hero" role="group">
+                      {(
+                        [
+                          ["focal", t.exifFocal, exif.focal, false],
+                          ["aperture", t.exifAperture, exif.aperture, false],
+                          ["shutter", t.exifShutter, exif.shutter, false],
+                          ["iso", t.exifIso, exif.iso, true],
+                        ] as const
+                      )
+                        // 段（焦点距離・絞り／シャッター・ISO）ごと値が無ければ、その段は出さない——ISO だけの写真で
+                        // 「–」が 3 つ並んで空の升だらけに見えた（win2）。段の中の欠けは「–」で位置を保つ
+                        .filter((_, i, all) => {
+                          const row = i < 2 ? all.slice(0, 2) : all.slice(2, 4);
+                          return row.some(([, , v]) => v);
+                        })
+                        .map(([id, label, value, showLabel]) => (
+                        // 欠けた値も升は残す（–）——写真を送るたびに値が別の升へ跳ばないように。単位の付く 3 つは数だけで
+                        // 読める。ISO は数だけだと何の数か分からないので、札を小さく前に置く。ほかの札は読み上げだけに
+                        <span className={"exif-hero-item" + (value ? "" : " missing")} key={id}>
+                          {/* 札と値をひと続きの左→右に閉じ込める（右→左の画面で「400 ISO」と入れ替わった。win2） */}
+                          <bdi dir="ltr">
+                            {showLabel ? (
+                              <span className="exif-hero-unit">{label} </span>
+                            ) : (
+                              <span className="sr-only">{label} </span>
+                            )}
+                            <span title={value ?? undefined}>{value ?? "–"}</span>
+                          </bdi>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {(
                     [
                       [t.exifCamera, exif.camera],
                       [t.exifLens, exif.lens],
-                      [t.exifAperture, exif.aperture],
-                      [t.exifShutter, exif.shutter],
-                      [t.exifIso, exif.iso],
-                      [t.exifFocal, exif.focal],
                     ] as const
                   ).map(([label, value]) =>
                     value ? (
                       <div className="exif-row" key={label}>
                         <span className="exif-key">{label}</span>
                         {/* 値は数と単位か名前。中の文字列が自分の向きを決める（`.name`）——段落ごとに
-                            決めると揃えが左右にばらつく */}
-                        <span className="exif-value"><span className="name">{value}</span></span>
+                            決めると揃えが左右にばらつく。折るのは語と語の間（空白）だけ——「F5-6.3」がハイフンの後で
+                            割れた（win2）。語ごとに折れない箱に包む（コピーされる字は変えない） */}
+                        <span className="exif-value">
+                          <span className="name">
+                            {value.split(/(\s+)/).map((w, i) =>
+                              /\s/.test(w) ? w : <span className="nobreak" key={i}>{w}</span>,
+                            )}
+                          </span>
+                        </span>
                       </div>
                     ) : null,
                   )}
@@ -9681,13 +9710,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                   )}
                   {!exif.camera &&
                     !exif.lens &&
+                    !exif.focal &&
                     !exif.aperture &&
+                    !exif.shutter &&
                     !exif.iso &&
                     !exif.gps && (
                       <div className="exif-row">{t.exifNone}</div>
                     )}
                 </>
               )}
+              {/* ライブラリの外の写真（負の id）は記録が無いので、ファイルの節を出さない（「読み込み中」のまま止まっていた。codex） */}
+              {viewerItem.id >= 0 && <div className="exif-title">{t.fileInfoTitle}</div>}
+              {viewerItem.id >= 0 && (() => {
+                const v = viewerFileInfos.get(viewerItem.id);
+                if (v === undefined) return <div className="exif-row">{t.loading}</div>;
+                if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
+                return <FileInfoRows info={v} />;
+              })()}
             </div>
           )}
           {/* mac: ビューアの間も窓をつかんで動かせる上の細い帯（窓の題の帯が無いので）。写真より上・道具より下に置く
