@@ -137,7 +137,10 @@ export function anchoredScrollTop(
   nextDays: readonly number[],
 ): number | null {
   if (prevDays.length === 0 || nextDays.length === 0) return null;
-  const i = indexAt(scrollTop, prevTops, prevDays.length);
+  let i = indexAt(scrollTop, prevTops, prevDays.length);
+  // **同じ上端に並ぶ日（少ない日を並べた行）は、行の頭の日で見る**。日の高さは、次に上端が変わる所まで（行の高さ）。
+  // 帯のためにずらした位置で留めると、並べた行の途中に着いて見出しが隠れた（PR の codex）
+  while (i > 0 && prevTops[i - 1] === prevTops[i]) i--;
   const day = prevDays[i];
   let p = i;
   while (p > 0 && prevDays[p - 1] === day) p--;
@@ -146,7 +149,9 @@ export function anchoredScrollTop(
   if (j < 0) return null;
   let k = j;
   while (k + 1 < nextDays.length && nextDays[k + 1] === day) k++;
-  const dayHeight = nextTops[k + 1] - nextTops[j];
+  let end = k + 1;
+  while (end < nextDays.length && nextTops[end] === nextTops[j]) end++;
+  const dayHeight = nextTops[end] - nextTops[j];
   return nextTops[j] + Math.min(delta, Math.max(0, dayHeight - 1));
 }
 

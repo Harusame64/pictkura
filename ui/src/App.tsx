@@ -3670,8 +3670,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   /**
    * 日ごとの位置（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める）。並べた行（`pack`）は日ごとに開き、
    * **行の高さを日の数で割って、上から順に置く**（`tops`）。同じ上端を並べると、帯の計算（`makeRailMap`・`dayKeyAt`）が
-   * 長さ 0 の月を作り、現在地はいつも行の最後の日を指し、留め置きはその行で位置を失った（/code-review）。
-   * 帯から飛ぶ先は、ずらした位置ではなく行の上端（`jumpTops`）——行の途中で切れて着かないように
+   * 長さ 0 の月を作り、現在地はいつも行の最後の日を指した（/code-review）。
+   * 帯から飛ぶ先と、上端の日の留め置きは、ずらした位置ではなく行の上端（`jumpTops`）——行の途中で切れて着かないように
    */
   const dayRows = useMemo(() => {
     const days: number[] = [];
@@ -3745,11 +3745,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   }, [view]);
   useLayoutEffect(() => {
     const prev = prevLayoutRef.current;
-    prevLayoutRef.current = { tops: dayRows.tops, days: dayRows.days };
+    // 留め置きは行の本当の上端で（`jumpTops`。並べた行の日は同じ上端に並ぶ）。帯のためにずらした `tops` で留めると、
+    // 並べた行の途中に着いて見出しが隠れた（PR の codex）
+    prevLayoutRef.current = { tops: dayRows.jumpTops, days: dayRows.days };
     const el = scrollRef.current;
     const before = lastScrollTopRef.current;
     if (!prev || !el || before <= 0) return;
-    const next = anchoredScrollTop(before, prev.tops, prev.days, dayRows.tops, dayRows.days);
+    const next = anchoredScrollTop(before, prev.tops, prev.days, dayRows.jumpTops, dayRows.days);
     if (next !== null && Math.abs(next - el.scrollTop) >= 1) {
       el.scrollTop = next;
       lastScrollTopRef.current = el.scrollTop;
