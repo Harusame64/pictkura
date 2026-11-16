@@ -23,7 +23,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
-import { queryDelayMs } from "./queryDelay";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -314,6 +313,8 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
+/** 検索欄の最後の打鍵から、0件の見出しを出してよくなるまで（打ちかけの語で見出しを一瞬出さない） */
+const TYPING_SETTLE_MS = 700;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -1998,10 +1999,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const trimmed = queryInput.trim();
     if (asciiDateTokens(trimmed) === query) return;
     // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
-    // 打ちかけの `year:202` は長く待つ（queryDelay.ts）
-    const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), queryDelayMs(trimmed));
+    const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
     return () => window.clearTimeout(t);
   }, [queryInput, query]);
+
+  /**
+   * 検索欄の手が止まったか。打ちかけの語は何にも当たらないことが多い（`year:202`・`kind:vi`——search.rs は
+   * 読めない値を「何にも当たらない」にする）ので、打っている途中は「該当する写真はありません」を出さない。
+   * 1字ずつ打つと、打ちかけの語で一瞬だけ見出しが出た（win2）。止まってから出せば、打ち間違いには今までどおり気付ける
+   */
+  const [typingSettled, setTypingSettled] = useState(true);
+  const typingStartedRef = useRef(false);
+  useEffect(() => {
+    if (!typingStartedRef.current) {
+      typingStartedRef.current = true;
+      return;
+    }
+    setTypingSettled(false);
+    const t = window.setTimeout(() => setTypingSettled(true), TYPING_SETTLE_MS);
+    return () => window.clearTimeout(t);
+  }, [queryInput]);
 
   // フィルタ・検索クエリの変更で骨組みを読み込み直す（初回はマウント時のeffectが行う）
   const filterInitRef = useRef(true);
@@ -2520,6 +2537,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * （`busy` は見ない。削除・書き出しでも立つ）
    */
   const filterEmpty =
+    typingSettled &&
     !showEmptyPanel &&
     !loadFailed &&
     summary.length === 0 &&
