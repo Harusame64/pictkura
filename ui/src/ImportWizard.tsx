@@ -767,7 +767,7 @@ export default function ImportWizard({
             <div className="wiz-tree-head">{t.wizardSources}</div>
             {roots.length === 0 && <div className="wiz-empty">{t.wizardNoDrives}</div>}
             {roots.map((r) => renderNode(r, 0))}
-            {/* 木の行と同じ形（灰色の帯は押せない物に見えた。デザインレビュー） */}
+            {/* 木の行と同じ寸法（灰色の帯は押せない物に見えた。デザインレビュー） */}
             <button className="wiz-add" onClick={addFolderRoot}>
               <Icon name="folderOpen" />
               {t.wizardOtherFolder}
@@ -862,8 +862,10 @@ export default function ImportWizard({
             )}
             {emptyMessage ? (
               <div className={"wiz-empty big" + (scanIncomplete ? " warn" : "")}>
-                {/* 空の面に、何をする画面かの絵を添える（1 行だけの空白は寂しかった。デザインレビュー） */}
-                {!scanIncomplete && <Icon name="usb" size={40} className="wiz-empty-icon" />}
+                {/* まだ取り込み元を選んでいない面に、何をする画面かの絵を添える（1 行だけの空白は寂しかった。デザイン
+                    レビュー）。選んだ後の「数えています」「画像がありません」などには出さない——内蔵ディスクやネットワークを
+                    選んだのに USB の絵が出た（/code-review） */}
+                {!current && !scanIncomplete && <Icon name="usb" size={40} className="wiz-empty-icon" />}
                 {emptyMessage}
               </div>
             ) : (
@@ -999,7 +1001,7 @@ export default function ImportWizard({
               {t.wizardImportAllShort}
             </button>
             <button
-              className="primary"
+              className={"primary" + (selected.size === 0 ? " nothing" : "")}
               disabled={busy || selected.size === 0}
               onClick={() => runImport(false)}
             >
