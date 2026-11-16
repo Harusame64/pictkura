@@ -9631,7 +9631,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           )}
           {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
-              {/* **撮影情報を先に、露出の 4 つを大きく 1 段に**（2026-11-16 デザインレビュー: 写真好きがいちばん見たい
+              {/* **撮影情報を先に、露出の 4 つを大きく 2×2 に**（2026-11-16 デザインレビュー: 写真好きがいちばん見たい
                   焦点距離・絞り・シャッター・ISO が表の下半分に埋もれていた。カメラの液晶のように上に並べる）。
                   ファイルの節は後ろ。値は DB（ADR の A）。撮影情報は今どおり開くたびにファイルを読む */}
               <div className="exif-title">{t.exifTitle}</div>
@@ -9640,28 +9640,28 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
               ) : (
                 <>
                   {(exif.focal || exif.aperture || exif.shutter || exif.iso) && (
-                    <div className="exif-hero" role="group" aria-label={t.exifTitle}>
+                    <div className="exif-hero" role="group">
                       {(
                         [
-                          [t.exifFocal, exif.focal],
-                          [t.exifAperture, exif.aperture],
-                          [t.exifShutter, exif.shutter],
-                          [t.exifIso, exif.iso],
+                          ["focal", t.exifFocal, exif.focal, false],
+                          ["aperture", t.exifAperture, exif.aperture, false],
+                          ["shutter", t.exifShutter, exif.shutter, false],
+                          ["iso", t.exifIso, exif.iso, true],
                         ] as const
-                      ).map(([label, value]) =>
-                        value ? (
-                          // 単位の付く 3 つは数だけで読める。ISO は数だけだと何の数か分からないので、札を小さく前に置く。
-                          // ほかの札は title と読み上げに残す
-                          <span className="exif-hero-item" key={label} title={label}>
-                            {label === t.exifIso ? (
-                              <span className="exif-hero-unit">{label} </span>
-                            ) : (
-                              <span className="sr-only">{label} </span>
-                            )}
-                            <span className="name">{value}</span>
+                      ).map(([id, label, value, showLabel]) => (
+                        // 欠けた値も升は残す（–）——写真を送るたびに値が別の升へ跳ばないように。単位の付く 3 つは数だけで
+                        // 読める。ISO は数だけだと何の数か分からないので、札を小さく前に置く。ほかの札は読み上げだけに
+                        <span className={"exif-hero-item" + (value ? "" : " missing")} key={id}>
+                          {showLabel ? (
+                            <span className="exif-hero-unit">{label} </span>
+                          ) : (
+                            <span className="sr-only">{label} </span>
+                          )}
+                          <span className="name" title={value ?? undefined}>
+                            {value ?? "–"}
                           </span>
-                        ) : null,
-                      )}
+                        </span>
+                      ))}
                     </div>
                   )}
                   {(
@@ -9695,7 +9695,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                   )}
                   {!exif.camera &&
                     !exif.lens &&
+                    !exif.focal &&
                     !exif.aperture &&
+                    !exif.shutter &&
                     !exif.iso &&
                     !exif.gps && (
                       <div className="exif-row">{t.exifNone}</div>
