@@ -3188,6 +3188,11 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 /* ===== 取り込みウィザード（第5部 段階E） =====
    左にツリー・右にサムネイル・下に取り込み設定の3ペイン。
    ダイアログの枠は設定ダイアログ（.settings）と同じ作りに揃える */
+/* 取り込みは大きな面なので、上下の真ん中に置く（上 12vh から始めると、下端が窓の縁に接した。デザインレビュー） */
+.palette-backdrop:has(> .wizard) {
+  align-items: center;
+  padding-top: 0;
+}
 .wizard {
   width: min(1040px, 94vw);
   height: min(720px, 88vh);
@@ -3281,8 +3286,23 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font-variant-numeric: tabular-nums;
 }
 .wiz-add {
-  margin: var(--sp-2) var(--sp-3) 0;
-  width: calc(100% - var(--sp-3) * 2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-2) var(--sp-2) 0;
+  width: calc(100% - var(--sp-2) * 2);
+  padding: 6px var(--sp-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.wiz-add:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .wizard-main {
   flex: 1;
@@ -3405,6 +3425,14 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   margin: auto;
   padding: var(--sp-6);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.wiz-empty-icon {
+  color: var(--text-faint);
+  opacity: 0.7;
 }
 .wizard-foot {
   flex: none;
@@ -3465,6 +3493,38 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: var(--sp-2);
   flex: none;
+}
+/* 取り込みの行き先のボタン。この画面でいちばん押してほしい物なので、他の小さな札より大きく、選んでいる間は藍で塗る。
+   まだ選んでいないときは枠だけ（薄い灰の札と同じ顔で、目的地が見えなかった。デザインレビュー） */
+.wiz-actions button {
+  min-height: 32px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.wiz-actions button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.wiz-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+.wiz-actions button.primary:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--accent) 88%, black);
+}
+.wiz-actions button:disabled {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-faint);
+  font-weight: 400;
+  cursor: default;
 }
 .wiz-progress {
   font-size: var(--fs-sm);
