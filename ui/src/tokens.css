@@ -93,12 +93,8 @@
   --sp-5: 20px;
   --sp-6: 24px;
   --sp-7: 32px;
-  --radius: 8px;
-  --radius-sm: calc(var(--radius) * 0.5);
   /* 一覧の右端の帯（年の目盛り＋掴んで動かす。`ScrubRail.tsx`）の幅 */
   --scrub-rail-width: 48px;
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) * 1.5);
   --radius-full: 999px;
   /* 角丸は部品の役割で決める（デザインレビュー: 選ぶ行・入力・ボタン・メニュー・写真が、どれも 8px 前後の同じ輪郭で
      テンプレートに見えた）。小さく持つ物ほど角を小さく、面が大きいほど丸く。ピル（--radius-full）は状態の切り替え・
