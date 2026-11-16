@@ -98,6 +98,7 @@ export const ar: Dict = {
   importFromUsb: "استيراد من\u00a0USB",
   rescan: "إعادة الفحص",
   size: "الحجم",
+  packDays: "ضمّ الأيام قليلة الصور في صف واحد",
   itemsCount: (n: number) => items(n, false),
   navPlaces: "الأماكن",
   navAllPhotos: "كل الصور",

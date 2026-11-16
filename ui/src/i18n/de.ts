@@ -47,6 +47,7 @@ export const de: Dict = {
   importFromUsb: "Von USB importieren",
   rescan: "Neu einlesen",
   size: "Größe",
+  packDays: "Tage mit wenigen Fotos nebeneinander",
   /**
    * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
    * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、

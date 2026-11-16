@@ -41,6 +41,7 @@ import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { CELL_SIZE_MAX, CELL_SIZE_MIN, CELL_SIZE_STEP, loadCellSize, saveCellSize } from "./cellSize";
+import { loadPackDays, planDayRows, savePackDays, type DayFit } from "./packDays";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -190,6 +191,8 @@ import { confirmAction as confirmActionIn, confirmIfTemporary } from "./confirm"
 
 const GAP = 4;
 const HEADER_HEIGHT = 40;
+/** 並べた日（`pack` の行）どうしの間。同じ日の写真の間（`GAP`）より広くして、日の切れ目を見せる */
+const PACK_DAY_GAP = 28;
 /**
  * グリッドの左右の余白の和（`.grid-scroll` の CSS と一致させる）: 行の始まりの側 8px（`--sp-2`）＋
  * 行の終わりの側の帯の幅 48px（`--scrub-rail-width`。写真は帯の手前まで）。帯を入れたとき 16 のままで、
@@ -485,7 +488,13 @@ type Cell = {
 type Row =
   | { kind: "header"; dayKey: number; label: string; count: number }
   | { kind: "cells"; dayKey: number; cells: Cell[]; height: number }
-  | { kind: "placeholder"; dayKey: number; height: number };
+  | { kind: "placeholder"; dayKey: number; height: number }
+  /**
+   * 写真の少ない日（その日の写真が1行に収まる日）を、同じ月の中で横に並べた行。日ごとに見出しを上に置く
+   * （デザインレビュー: 1枚の日が縦に積まれ、右が大きく空いていた）。`dayKey` は先頭の日
+   */
+  | { kind: "pack"; dayKey: number; segs: PackSeg[]; height: number };
+type PackSeg = { dayKey: number; label: string; count: number; cells: Cell[]; width: number };
 
 /** ビューアの位置。日をまたぐ移動先が未取得でも指せるよう "first"/"last" を許す */
 type ViewerPos = { dayKey: number; id: number | "first" | "last" };
@@ -600,6 +609,39 @@ function measureChipText(text: string): number {
     ? Math.ceil(chipCtx.measureText(text).width + 0.22 * [...text].length) + 1
     : 12 * [...text].length;
   chipWidthCache.set(text, w);
+  return w;
+}
+
+/**
+ * 日付の見出し（`.date-header`: 日付は太字の `--fs-title-section`、枚数は `--fs-sm`、間は `--sp-2`）の幅。
+ * 少ない日を並べる行（`pack`）で、写真より見出しが長い日（縦位置の1枚など）の幅を見出しに合わせる。
+ * 測れないときは大きめに見積もる（広く取れば並ぶ日が減るだけで、見出しが隣の日に重ならない）
+ */
+const dayHeaderWidthCache = new Map<string, number>();
+let dayHeaderCtx: CanvasRenderingContext2D | null | undefined;
+function measureDayHeader(label: string, count: string): number {
+  const key = label + "\u0000" + count;
+  const hit = dayHeaderWidthCache.get(key);
+  if (hit !== undefined) return hit;
+  const root = getComputedStyle(document.documentElement);
+  const px = (name: string, fallback: number) => parseFloat(root.getPropertyValue(name)) || fallback;
+  const title = px("--fs-title-section", 16);
+  const small = px("--fs-sm", 12);
+  const gap = px("--sp-2", 8);
+  if (dayHeaderCtx === undefined) dayHeaderCtx = document.createElement("canvas").getContext("2d");
+  const ctx = dayHeaderCtx;
+  const family = getComputedStyle(document.body).fontFamily || "sans-serif";
+  let w: number;
+  if (ctx) {
+    ctx.font = `700 ${title}px ${family}`;
+    const a = ctx.measureText(label).width;
+    ctx.font = `400 ${small}px ${family}`;
+    const b = ctx.measureText(count).width;
+    w = Math.ceil(a + gap + b) + 8;
+  } else {
+    w = (title + 2) * [...label].length + gap + small * [...count].length;
+  }
+  dayHeaderWidthCache.set(key, w);
   return w;
 }
 
@@ -803,6 +845,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   const [summaryFor, setSummaryFor] = useState<Asked | null>(null);
   // タイルの大きさは起動をまたいで覚える（毎回 180 に戻っていた）。読めない・壊れた値は既定へ
   const [cellSize, setCellSize] = useState(loadCellSize);
+  /** 写真の少ない日を1行に並べるか（`packDays.ts`。上の帯のボタン） */
+  const [packDays, setPackDays] = useState(loadPackDays);
   /** 成功と進捗の一行（ツールバー）。**失敗はここへ流さない**——[`fail`] を使う */
   const [status, setStatus] = useState("");
   /**
@@ -3488,15 +3532,78 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     const target = cellSize;
     const out: Row[] = [];
 
-    for (const day of summary) {
+    /** 重ねの列を、高さ `h` のタイルに起こす（広げた重ねの下線を、同じ行で右隣も同じ重ねのときだけつなぐ） */
+    const toCells = (items: Stack<MediaItem>[], h: number): Cell[] => {
+      const cells = items.map((st): Cell => {
+        const frames = st.shots.length;
+        return {
+          item: st.cover.lead,
+          files: filesOf(st),
+          markFiles: frames > 1 ? st.cover.files : filesOf(st),
+          frames,
+          rawPair: st.shots.some(
+            (sh) => sh.files.length > 1 && sh.files.some((f) => f.is_raw),
+          ),
+          // 連写の長さは束ね役が鎖に使った時刻で出したもの（ここで数え直さない。#160 のゲート2）
+          spanMs: st.spanMs ?? 0,
+          groupIds: st.spread?.ids ?? filesOf(st).map((f) => f.id),
+          spread: st.spread && { index: st.spread.index, join: false },
+          w: Math.floor(aspectOf(st.cover.lead) * h),
+          h: Math.round(h),
+        };
+      });
+      for (let i = 0; i + 1 < cells.length; i++) {
+        const here = cells[i].spread;
+        if (here && cells[i + 1].spread && items[i].spread?.key === items[i + 1].spread?.key) {
+          here.join = true;
+        }
+      }
+      return cells;
+    };
+
+    // **写真の少ない日を1行に並べる**（`packDays.ts`。並べるかは上の帯のボタンで切り替える）。
+    // 右の帯には、並べた行を日ごとに開いて渡す（`railRows`）ので、月の目盛りは欠けない
+    const fits: DayFit[] = summary.map((day) => {
+      const stacks = packDays && dayItems.get(day.day_key) ? dayStacks.get(day.day_key) : undefined;
+      if (!stacks || stacks.length === 0) return { dayKey: day.day_key, width: null };
+      const photosWidth =
+        stacks.reduce((w, st) => w + Math.floor(aspectOf(st.cover.lead) * target), 0) +
+        GAP * (stacks.length - 1);
+      if (photosWidth > usable) return { dayKey: day.day_key, width: null };
+      const header = measureDayHeader(formatDayKey(day.day_key), t.photosCount(day.count));
+      return { dayKey: day.day_key, width: Math.min(usable, Math.max(photosWidth, header)) };
+    });
+
+    for (const unit of planDayRows(fits, usable, PACK_DAY_GAP)) {
+      if (unit.length > 1) {
+        out.push({
+          kind: "pack",
+          dayKey: summary[unit[0]].day_key,
+          segs: unit.map((i): PackSeg => {
+            const day = summary[i];
+            return {
+              dayKey: day.day_key,
+              label: formatDayKey(day.day_key),
+              count: day.count,
+              cells: toCells(dayStacks.get(day.day_key) ?? [], target),
+              width: fits[i].width ?? 0,
+            };
+          }),
+          height: HEADER_HEIGHT + Math.round(target) + GAP,
+        });
+        continue;
+      }
+      const day = summary[unit[0]];
+      const label = formatDayKey(day.day_key);
+      const items = dayItems.get(day.day_key);
+      const stacks = items ? (dayStacks.get(day.day_key) ?? []) : null;
       out.push({
         kind: "header",
         dayKey: day.day_key,
-        label: formatDayKey(day.day_key),
+        label,
         count: day.count,
       });
-      const items = dayItems.get(day.day_key);
-      if (!items) {
+      if (!stacks) {
         const perRow = Math.max(
           1,
           Math.floor((usable + GAP) / (target * (4 / 3) + GAP)),
@@ -3521,41 +3628,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         let h = justify ? (usable - gaps) / sumAspect : target;
         // 最終行や1枚パノラマ行が巨大化しないよう上限を設ける
         h = Math.min(h, target * 1.3);
-        const cells = rowItems.map((st): Cell => {
-          const frames = st.shots.length;
-          return {
-            item: st.cover.lead,
-            files: filesOf(st),
-            markFiles: frames > 1 ? st.cover.files : filesOf(st),
-            frames,
-            rawPair: st.shots.some(
-              (sh) => sh.files.length > 1 && sh.files.some((f) => f.is_raw),
-            ),
-            // 連写の長さは束ね役が鎖に使った時刻で出したもの（ここで数え直さない。#160 のゲート2）
-            spanMs: st.spanMs ?? 0,
-            groupIds: st.spread?.ids ?? filesOf(st).map((f) => f.id),
-            spread: st.spread && { index: st.spread.index, join: false },
-            w: Math.floor(aspectOf(st.cover.lead) * h),
-            h: Math.round(h),
-          };
-        });
-        // 広げた重ねの下線を、同じ行で右隣も同じ重ねのときだけ隙間までつなぐ
-        for (let i = 0; i + 1 < cells.length; i++) {
-          const here = cells[i].spread;
-          if (here && cells[i + 1].spread && rowItems[i].spread?.key === rowItems[i + 1].spread?.key) {
-            here.join = true;
-          }
-        }
         out.push({
           kind: "cells",
           dayKey: day.day_key,
-          cells,
+          cells: toCells(rowItems, h),
           height: Math.round(h) + GAP,
         });
         rowItems = [];
         sumAspect = 0;
       };
-      for (const st of dayStacks.get(day.day_key) ?? []) {
+      for (const st of stacks) {
         rowItems.push(st);
         sumAspect += aspectOf(st.cover.lead);
         // 基準高さで並べて幅が埋まったら、その行を幅ピッタリに伸縮して確定
@@ -3566,7 +3648,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       flushRow(false); // 端数の最終行は基準高さのまま（右側は空ける）
     }
     return out;
-  }, [summary, dayItems, dayStacks, cellSize, viewportWidth]);
+  }, [summary, dayItems, dayStacks, cellSize, viewportWidth, packDays]);
 
   /**
    * 各行の上端オフセットの累積（末尾は総高さ）。
@@ -3587,13 +3669,38 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
 
   /** 各行の日（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める） */
   const rowDayKeys = useMemo(() => rows.map((r) => r.dayKey), [rows]);
+  /**
+   * 右の帯に渡す行（`ScrubRail`）。並べた行（`pack`）は日ごとに開き、どの日も行の上端に置く（高さは最後の日が持つ）。
+   * 帯は行ごとの日から月の目盛り・月の一覧・現在地を引くので、行の頭の日だけを渡すと、並べた2日目以降の月が帯から消える
+   */
+  const railRows = useMemo(() => {
+    const tops: number[] = [];
+    const days: number[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.kind === "pack") {
+        for (const seg of row.segs) {
+          tops.push(rowTops[i]);
+          days.push(seg.dayKey);
+        }
+      } else {
+        tops.push(rowTops[i]);
+        days.push(row.dayKey);
+      }
+    }
+    tops.push(rowTops[rows.length]);
+    return { tops, days };
+  }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
     const m = new Map<number, number>();
+    const add = (dayKey: number, count: number) => {
+      const k = Math.floor(dayKey / 100);
+      m.set(k, (m.get(k) ?? 0) + count);
+    };
     for (const r of rows) {
-      if (r.kind !== "header") continue;
-      const k = Math.floor(r.dayKey / 100);
-      m.set(k, (m.get(k) ?? 0) + r.count);
+      if (r.kind === "header") add(r.dayKey, r.count);
+      else if (r.kind === "pack") for (const seg of r.segs) add(seg.dayKey, seg.count);
     }
     return m;
   }, [rows]);
@@ -3648,7 +3755,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   useEffect(() => {
     if (view !== "grid" || pendingScrollDay === null) return;
     const idx = rows.findIndex(
-      (r) => r.kind === "header" && r.dayKey === pendingScrollDay,
+      (r) =>
+        (r.kind === "header" && r.dayKey === pendingScrollDay) ||
+        (r.kind === "pack" && r.segs.some((seg) => seg.dayKey === pendingScrollDay)),
     );
     if (idx >= 0) {
       // 行の上端（`rowTops`）へ直に置く（帯と同じ。仮想スクローラの測りは描き替えの後まで古いことがある）
@@ -3873,8 +3982,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     }
     for (const vr of virtualItems) {
       const row = rows[vr.index];
-      if (row?.kind !== "cells") continue;
-      for (const cell of row.cells) want(cell.item);
+      if (row?.kind === "cells") for (const cell of row.cells) want(cell.item);
+      else if (row?.kind === "pack") for (const seg of row.segs) for (const cell of seg.cells) want(cell.item);
     }
     return ids;
   }, [virtualItems, rows, memories, view, filtering, bandAskableIds]);
@@ -4557,8 +4666,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     if (!tileBox()) {
       const idx = rows.findIndex(
         (r) =>
-          r.kind === "cells" &&
-          r.cells.some((c) => c.files.some((f) => f.id === id)),
+          (r.kind === "cells" && r.cells.some((c) => c.files.some((f) => f.id === id))) ||
+          (r.kind === "pack" &&
+            r.segs.some((seg) => seg.cells.some((c) => c.files.some((f) => f.id === id)))),
       );
       // 行の中央を画面の中央へ。位置は `rowTops` で引く（帯・カレンダーと同じ）
       const el = scrollRef.current;
@@ -8211,6 +8321,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             }}
           />
         </label>
+        {/* 少ない日を1行に並べる（`packDays.ts`）。押されている＝並べる。並べ方の好みなので、大きさのつまみの隣 */}
+        <button
+          type="button"
+          className={"pack-days-btn" + (packDays ? " on" : "")}
+          title={t.packDays}
+          aria-label={t.packDays}
+          aria-pressed={packDays}
+          id="pk-pack-days" data-testid="pack-days"
+          onClick={() => {
+            const next = !packDays;
+            setPackDays(next);
+            savePackDays(next);
+          }}
+        >
+          <Icon name="packDays" size={18} />
+        </button>
         {/* 32ch で省略されるので、全文はホバーで読めるようにする */}
         <span className="status" title={status}>
           {status}
@@ -8745,15 +8871,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
               {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
               <ScrubRail
                 scrollRef={scrollRef}
-                rowTops={rowTops}
-                dayKeys={rowDayKeys}
+                rowTops={railRows.tops}
+                dayKeys={railRows.days}
                 monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
                   const el = scrollRef.current;
                   // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
-                  if (el) el.scrollTop = Math.min(rowTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
+                  if (el) el.scrollTop = Math.min(railRows.tops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
               <div className="grid-scroll" ref={scrollRef}>
@@ -8768,21 +8894,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 {virtualItems.map((vr) => {
                   const row = rows[vr.index];
                   if (!row) return null;
-                  return (
-                    <div
-                      key={vr.key}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        height: vr.size,
-                        // 位置は `rowTops` で（中身の高さ・帯・上端の日の留め置きと同じ和）。仮想スクローラの
-                        // 測りは描き替えの後の effect まで古く、1 コマだけ行がずれて見えた（/code-review）
-                        transform: `translateY(${rowTops[vr.index] ?? vr.start}px)`,
-                      }}
-                    >
-                      {row.kind === "header" ? (
+                  /** 日付の見出し（押すとその日をまとめて選ぶ）。普通の行と、少ない日を並べた行（`pack`）の両方で使う */
+                  const dayHeader = (dayKey: number, label: string, count: number) => (
                         <div className="date-header">
                           {/*
                             日付を押すとその日をまとめて選ぶ。**全部入っているときだけ
@@ -8792,24 +8905,18 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                             className="date-header-btn"
                             title={t.selectDay}
                             onClick={() => {
-                              const key = row.dayKey;
+                              const key = dayKey;
                               toggleDay(key).catch((e) => fail(errText(e)));
                             }}
                           >
-                            {row.label}
+                            {label}
                             <span className="date-count">
-                              {t.photosCount(row.count)}
+                              {t.photosCount(count)}
                             </span>
                           </button>
                         </div>
-                      ) : row.kind === "placeholder" ? (
-                        <div
-                          className="placeholder-row"
-                          style={{ height: row.height - GAP }}
-                        />
-                      ) : (
-                        <div className="cell-row" style={{ gap: GAP }}>
-                          {row.cells.map((cell) => {
+                  );
+                  const tile = (cell: Cell, dayKey: number) => {
                             // 重ねのタイル（dev #32）: 印も選択も**組のどれか**で見せる
                             const stacked = cell.files.length > 1;
                             const burst = cell.frames > 1;
@@ -8840,7 +8947,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                               // **押す口はタイル全体**（写真ではなく）。タイルの上には印（★・⚑・▶・重ねの印）が
                               // 重なるので、写真だけに付けると印の縁で押し損ねる（#156 の codex の P3 から）
                               onClick={(e) =>
-                                onCellClick(cell.item, row.dayKey, e, cell.files)
+                                onCellClick(cell.item, dayKey, e, cell.files)
                               }
                               onContextMenu={(e) => {
                                 e.preventDefault();
@@ -9006,7 +9113,43 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                               </button>
                             </div>
                             );
-                          })}
+                  };
+                  return (
+                    <div
+                      key={vr.key}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: vr.size,
+                        // 位置は `rowTops` で（中身の高さ・帯・上端の日の留め置きと同じ和）。仮想スクローラの
+                        // 測りは描き替えの後の effect まで古く、1 コマだけ行がずれて見えた（/code-review）
+                        transform: `translateY(${rowTops[vr.index] ?? vr.start}px)`,
+                      }}
+                    >
+                      {row.kind === "header" ? (
+                        dayHeader(row.dayKey, row.label, row.count)
+                      ) : row.kind === "placeholder" ? (
+                        <div
+                          className="placeholder-row"
+                          style={{ height: row.height - GAP }}
+                        />
+                      ) : row.kind === "pack" ? (
+                        // 写真の少ない日を1行に並べる（デザインレビュー）。日ごとに見出しを上に置く
+                        <div className="pack-row" style={{ columnGap: PACK_DAY_GAP }}>
+                          {row.segs.map((seg) => (
+                            <div key={seg.dayKey} className="pack-seg" style={{ width: seg.width }}>
+                              {dayHeader(seg.dayKey, seg.label, seg.count)}
+                              <div className="cell-row" style={{ gap: GAP }}>
+                                {seg.cells.map((cell) => tile(cell, seg.dayKey))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="cell-row" style={{ gap: GAP }}>
+                          {row.cells.map((cell) => tile(cell, row.dayKey))}
                         </div>
                       )}
                     </div>

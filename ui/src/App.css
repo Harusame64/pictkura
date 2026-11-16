@@ -190,6 +190,18 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   justify-content: center;
   padding: 4px 8px;
 }
+/* 少ない日を1行に並べる（App.tsx の pk-pack-days）。歯車と同じ大きさの絵だけのボタン。押されている（並べる）ときは
+   藍の字と淡い藍の地——上の帯で「入っている」と読める物はこれだけなので、ホバーの灰色と見分けがつくように */
+.topbar button.pack-days-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+}
+.topbar button.pack-days-btn.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
 .topbar button:disabled {
   opacity: 0.45;
   cursor: default;
@@ -4145,4 +4157,15 @@ html.viewer-only .app > .topbar,
 html.viewer-only .app > .body,
 html.viewer-only .app > .select-bar {
   visibility: hidden;
+}
+
+/* 写真の少ない日を1行に並べた行（`pack`）。日ごとに見出しを上に、写真を下に。日どうしの間は App.tsx の
+   PACK_DAY_GAP（同じ日の写真の間より広くして、日の切れ目を見せる） */
+.pack-row {
+  display: flex;
+  align-items: flex-start;
+}
+.pack-seg {
+  flex: none;
+  min-width: 0;
 }

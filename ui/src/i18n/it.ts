@@ -52,6 +52,7 @@ export const it: Dict = {
   importFromUsb: "Importa da USB",
   rescan: "Ripeti scansione",
   size: "Dimensioni",
+  packDays: "Affianca i giorni con poche foto",
   /**
    * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
    * 単位だけのキーでは、どの言語も単数形を書けない。

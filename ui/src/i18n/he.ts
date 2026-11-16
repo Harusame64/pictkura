@@ -76,6 +76,7 @@ export const he: Dict = {
   importFromUsb: "ייבוא מ‑USB",
   rescan: "סריקה מחדש",
   size: "גודל",
+  packDays: "הצגת ימים עם מעט תמונות בשורה אחת",
   itemsCount: (n: number) => items(n),
   navPlaces: "מקומות",
   navAllPhotos: "כל התמונות",

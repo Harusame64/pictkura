@@ -167,6 +167,15 @@ const PATHS = {
       <rect x="13.5" y="13.5" width="6" height="6" rx="1" />
     </>
   ),
+  // 少ない日を並べる: 日付の短い線と写真が、横に3つ並ぶ（日が横に並ぶ、だけを言う。段を描くと 18px で塊に見えた）
+  packDays: (
+    <>
+      <path d="M3 5.5h3M10.5 5.5h3M17 5.5h3" />
+      <rect x="3" y="9" width="5.5" height="9" rx="1" />
+      <rect x="10.5" y="9" width="4.5" height="9" rx="1" />
+      <rect x="17" y="9" width="4" height="9" rx="1" />
+    </>
+  ),
   // 注意: 三角と !
   warning: (
     <>

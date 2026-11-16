@@ -77,6 +77,7 @@ export const ko: Dict = {
   importFromUsb: "USB에서 가져오기",
   rescan: "다시 스캔",
   size: "크기",
+  packDays: "사진이 적은 날을 한 줄에 모으기",
   itemsCount: (n: number) => `${num(n)}개`,
   navPlaces: "이미지 위치",
   navAllPhotos: "모든 이미지",
