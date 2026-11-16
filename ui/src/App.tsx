@@ -22,9 +22,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
-
-/** 左の欄の行は絵を Icon で描くので、訳の頭に付いた字の ★・⚑ は外す（訳はそのまま。絞り込んで0件の見出しでは字のまま使う） */
-const navLabel = (s: string) => s.replace(/^[★⚑]\s*/u, "");
+import { navLabel } from "./navLabel";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";

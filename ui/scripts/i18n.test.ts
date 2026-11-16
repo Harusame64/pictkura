@@ -34,6 +34,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+import { navLabel } from "../src/navLabel.ts";
 import { ja } from "../src/i18n/ja.ts";
 import type { Dict } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
@@ -163,6 +164,16 @@ test("Rustが使う失敗の鍵が、辞書に在ること", () => {
       KEYS.includes(code),
       `Rust が使う鍵 ${code} が ja.ts に無い（画面に鍵の字が出る）`,
     );
+  }
+});
+
+test("左の欄の ★・⚑ の行は、字の印を外すと語だけが残ること（絵は Icon が描く）", () => {
+  for (const [lang, d] of Object.entries(DICTS)) {
+    for (const key of ["navFavorites", "navPicked"] as const) {
+      const label = navLabel((d as Dict)[key]);
+      assert.ok(label.length > 0, `${lang}.${key} が空になる`);
+      assert.doesNotMatch(label, /[★☆⭐⚑⚐🏁🚩\uFE0F]/u, `${lang}.${key} に字の印が残る: ${label}`);
+    }
   }
 });
 
