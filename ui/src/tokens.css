@@ -38,8 +38,9 @@
 
   /* ---- semantic: ライト ---- */
   color-scheme: light;
-  /* スクロールバーのつまみ（App.css の :root）。字の色を薄く混ぜるので、ダークでは自動で明るい側に回る */
-  --scroll-thumb: color-mix(in oklch, var(--text) 24%, transparent);
+  /* スクロールバーのつまみ（App.css の :root）。字の色を混ぜる。割合はテーマで分ける——同じ 24% では、ライトで
+     地に対して約 1.3:1 しかなく見えず、ダークでは約 4:1 で目を引いた（/code-review・win2） */
+  --scroll-thumb: color-mix(in oklch, var(--text) 42%, transparent);
   --bg: var(--n-1); /* クローム地 */
   --bg-canvas: var(--n-0); /* グリッド背景（写真の後ろ） */
   --surface: var(--n-0); /* パレット・カード */
@@ -85,6 +86,8 @@
   --viewer-control-hover: oklch(0.42 0.004 70 / 0.74);
   /* 道具の縁と、カプセルの区画の仕切り線 */
   --viewer-control-ring: oklch(1 0 0 / 0.16);
+  /* ビューア（テーマに依らず暗い地）のスクロールバーのつまみ */
+  --viewer-scroll-thumb: oklch(1 0 0 / 0.3);
   /* フィルムストリップの台（写真の上に浮かぶ）。ぼかしは使わないので、ほぼ不透明——0.82 では白黒の縞の写真の上で、
      空いた席に縞が透けてうるさかった（win2） */
   --viewer-dock: color-mix(in oklch, var(--viewer-ground) 90%, transparent);
@@ -211,6 +214,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
+    --scroll-thumb: color-mix(in oklch, var(--text) 28%, transparent);
     --bg: var(--n-9);
     --bg-canvas: var(--n-10); /* グリッドは一段暗く＝写真が最前面に浮く */
     --surface: var(--n-8);
@@ -237,6 +241,7 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
+  --scroll-thumb: color-mix(in oklch, var(--text) 28%, transparent);
   --bg: var(--n-9);
   --bg-canvas: var(--n-10);
   --surface: var(--n-8);

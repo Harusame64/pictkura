@@ -12,17 +12,17 @@ body,
   height: 100%;
   margin: 0;
 }
-/* スクロールバーは細く、つまみは字の色を薄くしたもの、溝は描かない。Windows（WebView2）は既定で太い溝と明るい
-   灰色のつまみを描き、ダークのパレットや設定で選んだ行より目を引いた（win2）。mac は重ねて出る細い棒のまま */
+/* スクロールバーは溝を描かず、つまみは字の色を混ぜたもの（tokens.css の --scroll-thumb。テーマで割合が違う）。Windows
+   （WebView2）は既定で明るい灰色の太い帯を描き、ダークのパレットや設定で選んだ行より目を引いた（win2）。太さは既定の
+   まま——細くすると Windows で矢印のボタンが消え、掴める幅も狭くなる（/code-review）。mac は重ねて出る細い棒のまま。
+   **scrollbar-color を指定した所では、Chromium は ::-webkit-scrollbar の指定を見ない**（継承するので全体がそう） */
 :root {
   scrollbar-color: var(--scroll-thumb) transparent;
 }
-* {
-  scrollbar-width: thin;
-}
-/* ビューアはテーマに依らず暗い地なので、つまみも明るい側に固定する（情報パネルなど） */
-.viewer {
-  scrollbar-color: oklch(1 0 0 / 0.3) transparent;
+/* ビューアはテーマに依らず暗い地なので、つまみも明るい側に固定する（情報パネルなど・ビューアだけの窓の外側） */
+.viewer,
+html.viewer-only {
+  scrollbar-color: var(--viewer-scroll-thumb) transparent;
 }
 /* `<code>` の既定。ブラウザ既定の `monospace` に任せると、日本語の Windows で `¥` に化ける
    （`tokens.css` の `--font-mono`）。`<code>` の書体はここだけで決める（個別の規則に書き写さない）。
