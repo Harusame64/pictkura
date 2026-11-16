@@ -3321,6 +3321,28 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
+/* 上の帯の小さな操作（すべて選択・選択を解除）とコピー先の「変更」は、角張った OS 既定のボタンのままで、周りの
+   丸い部品の中で浮いていた（win2 の画面）。枠と角丸を周りとそろえる */
+.wizard-toolbar button,
+.wiz-dest-change {
+  padding: 3px var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.wizard-toolbar button:hover:not(:disabled),
+.wiz-dest-change:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.wizard-toolbar button:disabled,
+.wiz-dest-change:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
 .wiz-selected {
   margin-inline-start: auto;
   font-size: var(--fs-sm);
