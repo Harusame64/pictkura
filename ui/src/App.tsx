@@ -9693,7 +9693,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 判定（★⚑✕）がこの画面の主役で 1 本のカプセル。見る道具（情報・再生・全画面）がもう 1 本。
                 ファイルの道具・ごみ箱・キーの一覧は地を持たない控えめな丸——使う回数が少ない */}
             {viewerItem && viewerItem.id >= 0 && (
-              <span className="tool-group" role="group">
+              <span className="tool-group">
                 <button
                   className={"viewer-tool fav-tool" + (viewerItem.favorite ? " on" : "")}
                   title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
@@ -9728,8 +9728,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     }
                   />
                 </button>
-              {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
-                  **この場では何も消えない**——閉じるときに関所へ集まる */}
+                {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
+                    **この場では何も消えない**——閉じるときに関所へ集まる */}
                 <button
                   className={
                     "viewer-tool reject-tool" +
@@ -9743,7 +9743,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 </button>
               </span>
             )}
-            <span className="tool-group" role="group">
+            <span className="tool-group">
               <button
                 className={"viewer-tool" + (showExif ? " on" : "")}
                 title={t.viewerExif} id="pk-viewer-info" data-testid="viewer-info"
@@ -9769,68 +9769,71 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 <Icon name={anyFullscreen ? "fullscreenExit" : "fullscreen"} size={20} />
               </button>
             </span>
-            {/* 抽出（Issue #13）。**「書き出し」の隣ではなくここに置く**——
-                書き出しは選んだぶんをフォルダへ運ぶ一覧側の機能で、これは
-                「いま見えている1枚」の道具である。出るのは絵が出ているときだけ
-                （[`canExtract`]） */}
-            {viewerItem && canCopyImage && (
+            {/* 控えめな道具は狭く並べる（塊どうしの間より詰める） */}
+            <span className="quiet-tools">
+              {/* 抽出（Issue #13）。**「書き出し」の隣ではなくここに置く**——
+                  書き出しは選んだぶんをフォルダへ運ぶ一覧側の機能で、これは
+                  「いま見えている1枚」の道具である。出るのは絵が出ているときだけ
+                  （[`canExtract`]） */}
+              {viewerItem && canCopyImage && (
+                <button
+                  className="viewer-tool quiet"
+                  title={t.extractCopy(modKey("C"))} id="pk-viewer-copy" data-testid="viewer-copy"
+                  disabled={extracting}
+                  onClick={() => void copyViewerImage(viewerItem)}
+                >
+                  <Icon name="copy" size={20} />
+                </button>
+              )}
+              {viewerItem && canExtract && (
+                <button
+                  className="viewer-tool quiet"
+                  title={t.extractSave(modKey("S"))} id="pk-viewer-save" data-testid="viewer-save"
+                  disabled={extracting}
+                  onClick={() => void saveViewerImage(viewerItem)}
+                >
+                  <Icon name="save" size={20} />
+                </button>
+              )}
+              {viewerItem && (
+                <button
+                  className="viewer-tool quiet"
+                  title={t.menuReveal} id="pk-viewer-reveal" data-testid="viewer-reveal"
+                  onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
+                >
+                  <Icon name="folder" size={20} />
+                </button>
+              )}
+              {/* ビューアだけの窓から、ふつうの窓（一覧）へ（2026-11-15 利用者「一覧も起動できるように」） */}
+              {viewerOnly && (
+                <button
+                  className="viewer-tool quiet"
+                  title={t.viewerShowLibrary} id="pk-viewer-show-library" data-testid="viewer-show-library"
+                  onClick={() => {
+                    setViewerOnly(false);
+                    requestCloseViewer();
+                  }}
+                >
+                  <Icon name="grid" size={20} />
+                </button>
+              )}
+              {viewerItem && viewerItem.id >= 0 && (
+                <button
+                  className="viewer-tool quiet danger"
+                  title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
+                  onClick={() => onDelete(viewerTargets(viewerItem))}
+                >
+                  <Icon name="trash" size={20} />
+                </button>
+              )}
               <button
                 className="viewer-tool quiet"
-                title={t.extractCopy(modKey("C"))} id="pk-viewer-copy" data-testid="viewer-copy"
-                disabled={extracting}
-                onClick={() => void copyViewerImage(viewerItem)}
+                title={t.shortcutsTitle} id="pk-viewer-shortcuts" data-testid="viewer-shortcuts"
+                onClick={() => setShortcutsOpen(true)}
               >
-                <Icon name="copy" size={20} />
+                <Icon name="help" size={20} />
               </button>
-            )}
-            {viewerItem && canExtract && (
-              <button
-                className="viewer-tool quiet"
-                title={t.extractSave(modKey("S"))} id="pk-viewer-save" data-testid="viewer-save"
-                disabled={extracting}
-                onClick={() => void saveViewerImage(viewerItem)}
-              >
-                <Icon name="save" size={20} />
-              </button>
-            )}
-            {viewerItem && (
-              <button
-                className="viewer-tool quiet"
-                title={t.menuReveal} id="pk-viewer-reveal" data-testid="viewer-reveal"
-                onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
-              >
-                <Icon name="folder" size={20} />
-              </button>
-            )}
-            {/* ビューアだけの窓から、ふつうの窓（一覧）へ（2026-11-15 利用者「一覧も起動できるように」） */}
-            {viewerOnly && (
-              <button
-                className="viewer-tool quiet"
-                title={t.viewerShowLibrary} id="pk-viewer-show-library" data-testid="viewer-show-library"
-                onClick={() => {
-                  setViewerOnly(false);
-                  requestCloseViewer();
-                }}
-              >
-                <Icon name="grid" size={20} />
-              </button>
-            )}
-            {viewerItem && viewerItem.id >= 0 && (
-              <button
-                className="viewer-tool quiet danger"
-                title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
-                onClick={() => onDelete(viewerTargets(viewerItem))}
-              >
-                <Icon name="trash" size={20} />
-              </button>
-            )}
-            <button
-              className="viewer-tool quiet"
-              title={t.shortcutsTitle} id="pk-viewer-shortcuts" data-testid="viewer-shortcuts"
-              onClick={() => setShortcutsOpen(true)}
-            >
-              <Icon name="help" size={20} />
-            </button>
+            </span>
           </div>
           {hasPrev && (
             <button

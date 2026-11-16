@@ -1635,7 +1635,8 @@ body {
   inset-inline-end: var(--sp-4);
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  /* 塊（倍率・組・判定・見る道具・控えめな道具）の間。塊の中はそれぞれが詰める */
+  gap: var(--sp-3);
 }
 /* 閉じる（一覧へ戻る）。道具の帯と反対の角——行の始まりの側に置く。右→左では右上へ移り、矢印も裏返る */
 .viewer-back {
@@ -1653,7 +1654,7 @@ body {
 }
 .viewer-tool {
   border: none;
-  background: oklch(1 0 0 / 0.1);
+  background: var(--viewer-control);
   color: #fff;
   font-family: inherit;
   width: var(--viewer-tool-size);
@@ -1663,7 +1664,7 @@ body {
   transition: background var(--dur-fast) var(--easing);
 }
 .viewer-tool:hover {
-  background: oklch(1 0 0 / 0.22);
+  background: var(--viewer-control-hover);
 }
 /* 走っている最中の道具（抽出。Issue #13）。**押せないことを見せる**——
    HEICの詰め直しは実測0.6〜1秒あり、無反応に見えると二度押しされる */
@@ -1672,7 +1673,7 @@ body {
   cursor: default;
 }
 .viewer-tool:disabled:hover {
-  background: oklch(1 0 0 / 0.1);
+  background: var(--viewer-control);
 }
 /* 入っている道具（情報・再生・全画面・並べて見る）は白地。琥珀は ★ だけのもの——情報を開いた「i」が琥珀だと、
    お気に入りにしたと読めた（デザインレビュー） */
@@ -2148,7 +2149,7 @@ body {
 /* 倍率表示（クリックで等倍⇔フィット） */
 .viewer-zoom {
   border: none;
-  background: oklch(1 0 0 / 0.1);
+  background: var(--viewer-control);
   color: #fff;
   font-family: inherit;
   font-size: var(--fs-sm);
@@ -2160,7 +2161,7 @@ body {
   cursor: pointer;
 }
 .viewer-zoom:hover {
-  background: oklch(1 0 0 / 0.22);
+  background: var(--viewer-control-hover);
 }
 /* RAW+JPEG の組のどちらを見るか（2026-09-26）。倍率のボタンと同じ文字の丸ボタンを2つ並べ、
    いま見ている側を倍率の「等倍」と同じ色で示す（★の黄色は ★ の状態と紛れるので使わない） */
@@ -2168,22 +2169,24 @@ body {
   display: flex;
   gap: 2px;
 }
-/* 道具の塊（判定・見る道具。デザインレビュー）。RAW/JPEG の組と同じ継ぎ方の 1 本のカプセルにする。塊の間は広く空ける */
+/* 道具の塊（判定・見る道具。デザインレビュー）。RAW/JPEG の組と同じ継ぎ方の 1 本のカプセル（継ぎ方の規則は上の
+   `.viewer-pair-side` と共有）。塊どうしの間は `.viewer-tools` の gap で一律に空ける */
 .tool-group {
   display: flex;
   gap: 2px;
-  margin-inline: var(--sp-2);
 }
 .tool-group .viewer-tool {
   border-radius: 0;
 }
-.tool-group .viewer-tool:first-child {
-  border-start-start-radius: var(--radius-full);
-  border-end-start-radius: var(--radius-full);
+/* カプセルの区画は押しても沈めない（1 区画だけ縮むと継ぎ目が割れて見えた。/code-review）。暗くなる手応えは残る */
+.tool-group .viewer-tool:active:not(:disabled),
+.viewer-pair-side .viewer-tool:active:not(:disabled) {
+  scale: none;
 }
-.tool-group .viewer-tool:last-child {
-  border-start-end-radius: var(--radius-full);
-  border-end-end-radius: var(--radius-full);
+.quiet-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
 }
 /* 使う回数の少ない道具（写し・保存・フォルダ・一覧へ・ごみ箱・キーの一覧）は地を持たない。写真の明るい所に
    掛かっても見えるよう、絵に薄い影を付ける。触れると地が出る */
@@ -2191,14 +2194,15 @@ body {
   background: transparent;
 }
 .viewer-tool.quiet .icon {
-  filter: drop-shadow(0 0 2px oklch(0 0 0 / 0.55));
+  /* 細い縁取り＋柔らかい影の 2 段。白い写真の上でも線が読める（1 段の薄い影では消えた。mac・win2 の実測） */
+  filter: drop-shadow(0 0 1px oklch(0 0 0 / 0.85)) drop-shadow(0 1px 3px oklch(0 0 0 / 0.45));
 }
-.viewer-tool.quiet:hover {
-  background: oklch(1 0 0 / 0.14);
+.viewer-tool.quiet:hover:not(:disabled) {
+  background: var(--viewer-control-hover);
 }
-/* ごみ箱は隣の持ち出しの道具から離す（押し違えて消さない） */
+/* ごみ箱は両隣（持ち出しの道具とキーの一覧）から離す（押し違えて消さない） */
 .viewer-tool.quiet.danger {
-  margin-inline-start: var(--sp-2);
+  margin-inline: var(--sp-2);
 }
 .viewer-pair-side .viewer-tool {
   width: auto;
@@ -2206,12 +2210,14 @@ body {
   font-size: var(--fs-sm);
   font-weight: 600;
 }
-.viewer-pair-side .viewer-tool:first-child {
+.viewer-pair-side .viewer-tool:first-child,
+.tool-group .viewer-tool:first-child {
   border-radius: 0;
   border-start-start-radius: var(--radius-full);
   border-end-start-radius: var(--radius-full);
 }
-.viewer-pair-side .viewer-tool:last-child {
+.viewer-pair-side .viewer-tool:last-child,
+.tool-group .viewer-tool:last-child {
   border-radius: 0;
   border-start-end-radius: var(--radius-full);
   border-end-end-radius: var(--radius-full);
@@ -2231,7 +2237,7 @@ body {
      transform で置くと押している間に中心が下へ 1.3px ずれた（win2 の実測）。translate なら scale と同じ段で合わさる */
   translate: 0 -50%;
   border: none;
-  background: oklch(1 0 0 / 0.1);
+  background: var(--viewer-control);
   color: #fff;
   width: 44px;
   height: 44px;
@@ -2239,7 +2245,7 @@ body {
   cursor: pointer;
 }
 .viewer-nav:hover {
-  background: oklch(1 0 0 / 0.22);
+  background: var(--viewer-control-hover);
 }
 /* 前は行の始まり、次は行の終わり。矢は線の絵なので、右→左の行では .flip-rtl で裏返す（前が右で、右向き）。
    字の ‹ › だったころは鏡像文字（Bidi_Mirrored）が勝手に向きを変えていた（win の実測: 前が右で ›） */
