@@ -46,6 +46,8 @@ kbd[dir="rtl"] {
 code.prose {
   direction: inherit;
   unicode-bidi: normal;
+  /* 文なので字体もページのもの。等幅のままだと、アラビア文字・キリル文字が詰まって読みにくかった（win2） */
+  font-family: inherit;
 }
 code {
   font-family: var(--font-mono);
@@ -2893,10 +2895,106 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .editor-path {
   font-size: var(--fs-sm);
 }
-.pattern-list {
+/* 見本の札（取り込むとできる場所。デザインレビュー: 方式の名前より「実際にどこへ入るか」を先に見せる） */
+.settings-route {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--surface-2);
+}
+.settings-route-main {
+  flex: 1;
+  min-width: 0;
+}
+.settings-route-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 2px;
+  font-size: var(--fs-xl);
+  color: var(--text);
+}
+.settings-route-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+/* 「/」と次のフォルダは離さない。長い名前は名前の途中でも折り返す（札からはみ出さない。/code-review） */
+.route-seg-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+}
+.route-dest,
+.route-seg,
+.route-file {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.route-dest {
+  font-weight: 600;
+}
+.route-dest.unset {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.route-sep {
+  padding-inline: 5px;
+  color: var(--text-faint);
+}
+.route-seg {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-chip);
+}
+/* 選び方を変えると、変わったフォルダだけが一瞬だけ藍で光る（変わった階層が目で追える）。開いた直後は光らない */
+.route-seg.changed {
+  animation: route-seg-in 600ms var(--easing);
+}
+.route-file {
+  color: var(--text-muted);
+}
+@keyframes route-seg-in {
+  from {
+    background: color-mix(in oklch, var(--accent) 22%, transparent);
+    color: var(--accent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-seg.changed {
+    animation: none;
+  }
+}
+.settings-route-full {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.settings-route .settings-dest-change {
+  flex: none;
+  margin-inline-start: 0;
+}
+/* 選び方は 2 列（10 行が縦に並び、下の設定が隠れていた。デザインレビュー）。自分で決める行と式の欄は 2 列ぶん */
+.pattern-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px var(--sp-1);
+}
+.pattern-item-custom,
+.pattern-custom {
+  grid-column: 1 / -1;
+}
+.pattern-folders {
+  color: var(--text);
+}
+.pattern-file {
+  color: var(--text-faint);
 }
 .pattern-item {
   display: flex;
@@ -2910,9 +3008,9 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .pattern-item:hover {
   background: var(--surface-2);
 }
+/* 選んだ行は地と字だけ。印は藍の丸（ラジオ）が持つ——行頭の藍の線と重なってくどかった（デザインレビュー） */
 .pattern-item.active {
   background: var(--selected-bg);
-  box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
 }
 /* 入／切のひとつだけのチェック。説明文が下に続くので行間は詰めない */

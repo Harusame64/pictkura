@@ -204,6 +204,37 @@ export default function Settings({
     };
   }, [custom, customMode]);
 
+  // 見本の札は**保存済みの形**で描く（打っている途中の式や、保存されない空の式を「実際に入る場所」として見せない。
+  // /code-review）。選んだ形の実例があればそれ、自分で決めた形なら保存済みの式を Rust に描かせる
+  const currentPattern = config?.routing.folder_pattern ?? "";
+  const presetExample = patterns.find((p) => p.pattern === currentPattern)?.example;
+  const [savedPreview, setSavedPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (presetExample !== undefined || patterns.length === 0) {
+      setSavedPreview(null);
+      return;
+    }
+    let cancelled = false;
+    previewFolderPattern(currentPattern)
+      .then((rendered) => {
+        if (!cancelled) setSavedPreview(rendered);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPattern, presetExample, patterns.length]);
+  /**
+   * 見本の札で光らせるフォルダ。並びが変わったときにだけ決め直す（他の更新で描き直しても、光っている途中で外さない）。
+   * 開いた直後（前の並びが無い）は光らせない。閉じたら忘れる
+   */
+  const routeFlash = useRef<{ folders: string[]; changed: ReadonlySet<number> } | null>(null);
+  useEffect(() => {
+    if (!open) routeFlash.current = null;
+  }, [open]);
+
   /** 最後に書いた値。入力欄を離れるのと閉じるので二重に書かないための印 */
   const lastWritten = useRef<string | null>(null);
 
@@ -345,6 +376,32 @@ export default function Settings({
 
   const current = config?.routing.folder_pattern ?? "";
   const destination = config?.routing.destination ?? null;
+  /**
+   * 見本の札に出す、保存済みの選び方でできるフォルダ（今日の日付）。振り分けないなら空
+   * （デザインレビュー: 「実際にどこへ入るか」が等幅の 1 行に埋もれていた）。描き終わるまで（自分で決めた形の結果を
+   * 待つ間）は `null`——空の並び（振り分けない）を一瞬見せない
+   */
+  const routeText = presetExample ?? savedPreview;
+  const routeFolders = routeText === null ? null : routeText.split("/").filter((seg) => seg !== "");
+  if (routeFolders) {
+    const prev = routeFlash.current;
+    if (!prev) {
+      routeFlash.current = { folders: routeFolders, changed: new Set() };
+    } else if (prev.folders.join("/") !== routeFolders.join("/")) {
+      routeFlash.current = {
+        folders: routeFolders,
+        changed: new Set(routeFolders.flatMap((seg, i) => (prev.folders[i] === seg ? [] : [i]))),
+      };
+    }
+  }
+  const changedAt = routeFlash.current?.changed ?? new Set<number>();
+  /**
+   * コピー先の最後のフォルダ名（札の頭に出す。全文はその下に小さく）。区切りは OS どおり——mac では `\` もフォルダ名に
+   * 使える字なので、Windows だけ `\` でも切る
+   */
+  const destinationName = destination
+    ? (destination.split(platform === "windows" ? /[\\/]/ : /\//).filter(Boolean).pop() ?? destination)
+    : null;
   const editors: ExternalApp[] = config?.editors?.apps ?? [];
 
   const choose = async (pattern: string) => {
@@ -390,11 +447,34 @@ export default function Settings({
           <section className="settings-section">
             <h3>{t.settingsImportStructure}</h3>
             <p className="settings-note">{t.settingsImportStructureNote}</p>
-            <div className="settings-dest">
-              {t.settingsDestination}:{" "}
-              <code className={destination ? undefined : "prose"}>
-                {destination ?? t.settingsDestinationUnset}
-              </code>
+            {/*
+              見本の札: コピー先から写真 1 枚まで、取り込むと実際にできる場所。選び方を変えると、変わったフォルダが
+              一瞬だけ藍で光る（`key` で描き直す）。「変更」は札の右端（文の途中に置くと、パスの長さで位置が跳ねた）
+            */}
+            <div className="settings-route">
+              <div className="settings-route-main">
+                <div className="settings-route-label">{t.settingsDestination}</div>
+                {/* パスは左→右（右→左の画面でも 「/」 の前後が入れ替わらないように。App.css の `.path`） */}
+                <div className="settings-route-path path">
+                  {/* 区切りの「/」は前の名前に付けて折り返す（次の名前に付けると、折り返した行が「/」で始まった。win2） */}
+                  <span className="route-seg-wrap">
+                    <span className={"route-dest" + (destinationName ? "" : " unset")}>
+                      {destinationName ?? "…"}
+                    </span>
+                    <span className="route-sep" aria-hidden="true">/</span>
+                  </span>
+                  {(routeFolders ?? []).map((seg, i) => (
+                    <span key={`${i}:${seg}`} className="route-seg-wrap">
+                      <span className={"route-seg" + (changedAt.has(i) ? " changed" : "")}>{seg}</span>
+                      <span className="route-sep" aria-hidden="true">/</span>
+                    </span>
+                  ))}
+                  <span className="route-file">IMG_0001.JPG</span>
+                </div>
+                <code className={"settings-route-full" + (destination ? "" : " prose")}>
+                  {destination ?? t.settingsDestinationUnset}
+                </code>
+              </div>
               <button
                 className="settings-dest-change"
                 disabled={destPicking}
@@ -468,14 +548,20 @@ export default function Settings({
                     }}
                   />
                   <code className={"pattern-example" + (p.example ? "" : " prose")}>
-                    {p.example
-                      ? `${p.example}/IMG_0001.JPG`
-                      : t.settingsFlatExample}
+                    {p.example ? (
+                      <>
+                        {/* フォルダの部分だけを濃く、どの形にも付く写真の名前は薄く——違いが一目で読める（デザインレビュー） */}
+                        <span className="pattern-folders">{p.example}</span>
+                        <span className="pattern-file">/IMG_0001.JPG</span>
+                      </>
+                    ) : (
+                      t.settingsFlatExample
+                    )}
                   </code>
                 </label>
               ))}
               <label
-                className={"pattern-item" + (customMode ? " active" : "")}
+                className={"pattern-item pattern-item-custom" + (customMode ? " active" : "")}
               >
                 <input
                   type="radio"
