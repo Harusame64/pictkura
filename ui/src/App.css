@@ -3274,32 +3274,35 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   background: var(--surface-2);
   color: var(--text);
 }
-/* フォーカスは輪ではなく、ホバーと同じ地で示す（OS のメニューと同じ。指の下の行へもフォーカスが移るので、光る行は
-   いつも1つ）。キーで動くまでは示さない（`.keys`。ContextMenu.tsx） */
+/* 光る行はいつも1つ（ContextMenu.tsx の `keys`）。マウスの間は指の下の行（:hover）、キーの間はフォーカスのある行を、
+   同じ地で示す——輪は出さない（OS のメニューと同じ。開くと先頭へフォーカスが移るので、既定の輪が「開く」に毎回付いて
+   いた）。キーの間は止まった指の下のホバーを消す（2行が同じ地で光り、Enter がどちらに効くか分からなかった。/code-review） */
+.context-menu:focus,
 .context-item:focus {
   outline: none;
+}
+.context-menu.keys .context-item:hover {
+  background: transparent;
 }
 .context-menu.keys .context-item:focus {
   background: var(--surface-2);
   color: var(--text);
 }
+.context-item.danger {
+  color: var(--danger-text);
+}
+.context-menu:not(.keys) .context-item.danger:hover,
 .context-menu.keys .context-item.danger:focus {
   background: var(--danger);
   color: #fff;
 }
-/* ハイコントラストでは地が消されるので、フォーカスのある行を強調色の枠で示す */
+/* ハイコントラストでは地が消されるので、光る1行を強調色の枠で示す（同じ規則: マウスなら指の下、キーならフォーカス） */
 @media (forced-colors: active) {
-  .context-item:focus {
+  .context-menu:not(.keys) .context-item:hover,
+  .context-menu.keys .context-item:focus {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
-}
-.context-item.danger {
-  color: var(--danger-text);
-}
-.context-item.danger:hover {
-  background: var(--danger);
-  color: #fff;
 }
 .context-separator {
   height: 1px;

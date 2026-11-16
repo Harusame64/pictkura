@@ -1,6 +1,18 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 import { isRtl } from "./direction";
+import { menuMoveIndex } from "./menuMove";
+
+/**
+ * 直前の操作がキーボードだったか（メニューを開いたときに、フォーカスのある行を最初から示すかを決める）。
+ * Shift+F10・メニューキーで開いた・Enter で入れ子を開いたときは示す、マウスで開いたときは示さない（OS のメニューと
+ * 同じ）。捕まえ口は1度だけ張る
+ */
+let lastInputWasKey = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", () => (lastInputWasKey = true), { capture: true });
+  window.addEventListener("pointerdown", () => (lastInputWasKey = false), { capture: true });
+}
 
 /** 右クリックメニューの1項目。`separator` の前に区切り線を引く */
 export type MenuItem = {
@@ -75,16 +87,15 @@ export default function ContextMenu({
   // ゲート2）
   const isOpen = pos !== null;
   /**
-   * キーで項目を動いたか。動いたら、フォーカスのある行をホバーと同じ地で示す（`.context-menu.keys`）。マウスで開いた
-   * だけでは光らせない——開くと先頭へフォーカスを移すので、ブラウザ既定の輪が「開く」に毎回付いた（ダークでは
-   * 暗い面に暗い輪で、どこにいるか分からなかった。win2）。開き直すたびに戻す
+   * いまキーで動いているか。キーなら、フォーカスのある行をホバーと同じ地で示し、止まった指の下のホバーは消す
+   * （`.context-menu.keys`）。マウスなら、指の下の行だけを光らせる——どちらでも光る行は1つ。開くと先頭へフォーカスを
+   * 移すので、ブラウザ既定の輪が「開く」に毎回付いていた（ダークでは暗い面に暗い輪で、どこにいるか分からなかった。
+   * win2）。開いたときの値は、直前の操作がキーボードだったか
    */
   const [keys, setKeys] = useState(false);
   useLayoutEffect(() => {
-    if (isOpen) setKeys(false);
-  }, [isOpen, pos]);
-  useLayoutEffect(() => {
     if (!isOpen) return;
+    setKeys(lastInputWasKey);
     const before = document.activeElement;
     ref.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true });
     return () => {
@@ -101,20 +112,13 @@ export default function ContextMenu({
       onClose();
       return;
     }
-    const moveKeys = ["ArrowDown", "ArrowUp", "Home", "End"];
-    if (!moveKeys.includes(e.key)) return;
-    setKeys(true);
     const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
-    if (list.length === 0) return;
+    const at = list.indexOf(document.activeElement as HTMLElement);
+    const next = menuMoveIndex(e.key, at, list.length);
+    if (next === null) return;
+    setKeys(true);
     e.preventDefault();
     e.stopPropagation();
-    const at = list.indexOf(document.activeElement as HTMLElement);
-    const next =
-      e.key === "Home"
-        ? 0
-        : e.key === "End"
-          ? list.length - 1
-          : (at + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
     list[next].focus({ preventScroll: true });
   };
   // スクロールやリサイズで位置がずれるくらいなら閉じる
@@ -131,6 +135,9 @@ export default function ContextMenu({
       id="pk-context-menu"
       data-testid="context-menu"
       onKeyDown={onMenuKey}
+      // 指が項目から外れたら、フォーカスはメニューそのものへ（光っていない行が Enter で動かないように。/code-review）。
+      // 矢印はメニューで受けるので、そこから続けて動ける
+      tabIndex={-1}
       style={{ left: adjusted?.x ?? pos.x, top: adjusted?.y ?? pos.y }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
@@ -147,7 +154,11 @@ export default function ContextMenu({
             aria-keyshortcuts={item.keys}
             // 指の下の行へフォーカスも移す——光る行がいつも1つになり、マウスからキーへ移っても続きから動ける
             onMouseMove={(e) => {
+              if (keys) setKeys(false);
               if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true });
+            }}
+            onMouseLeave={(e) => {
+              if (!keys && document.activeElement === e.currentTarget) ref.current?.focus({ preventScroll: true });
             }}
             onClick={() => {
               onClose();
