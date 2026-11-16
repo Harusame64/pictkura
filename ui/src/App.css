@@ -999,10 +999,14 @@ body {
   align-items: baseline;
   gap: var(--sp-2);
   height: 40px;
-  padding: var(--sp-4) var(--sp-1) var(--sp-1);
+  /* 行の始まり側は 0——見出しの字の始まりを写真の端にそろえる（4px 内側にずれていた。デザインレビュー） */
+  padding-block: var(--sp-4) var(--sp-1);
+  padding-inline: 0 var(--sp-1);
   font-weight: 700;
-  font-size: var(--fs-lg);
+  font-size: var(--fs-h3);
   color: var(--text);
+  /* 行の高さは HEADER_HEIGHT（40px）で固定。字を上げても行が膨らまないよう行送りを詰める */
+  line-height: 1.25;
 }
 .date-count {
   font-size: var(--fs-sm);
@@ -1235,7 +1239,7 @@ body {
   gap: var(--sp-2);
   margin: var(--sp-2) 0;
   color: var(--text);
-  font-size: var(--fs-xl);
+  font-size: var(--fs-h1);
 }
 .month-count {
   font-size: var(--fs-sm);
@@ -1922,7 +1926,7 @@ body {
 }
 .reject-gate-head h2 {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-size: var(--fs-h2);
 }
 .reject-gate-head p {
   margin: 4px 0 0;
@@ -2037,7 +2041,7 @@ body {
 }
 .shortcuts-head h2 {
   margin: 0;
-  font-size: var(--fs-lg);
+  font-size: var(--fs-h2);
 }
 .shortcuts-close {
   padding: 4px 10px;
@@ -2389,7 +2393,7 @@ body {
 /* 右クリックの「印刷…」（ADR B-3）。情報の箱を借りて、載せ方の3択を並べる */
 .print-dialog-title {
   margin-bottom: var(--sp-3);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-h2);
   font-weight: 600;
 }
 .print-fit {
@@ -2647,7 +2651,7 @@ body {
 }
 .settings-head h2 {
   margin: 0;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-h2);
   color: var(--text);
 }
 /* 設定の裏で待っている取り込みの知らせ（pictkura-dev #71）。見出しのすぐ下、本文のスクロールの外に置く */
@@ -2702,7 +2706,7 @@ body {
 }
 .settings-section h3 {
   margin: 0 0 var(--sp-1);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-h3);
   color: var(--text);
 }
 .settings-note {
