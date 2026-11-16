@@ -17,13 +17,14 @@ export function pointInAnyRect(x: number, y: number, rects: readonly Rect[]): bo
 export const IDLE_HIDDEN_UI = [".viewer-caption", ".viewer-tools", ".viewer-back", ".viewer-strip", ".viewer-nav"];
 
 /**
- * 押した所を見る相手。帯と題名は横幅いっぱいの箱なので、その箱ではなく中身（コマ・文字）を見る——箱で見ると、
- * 下の 2 本の帯のどこを押しても閉じなくなる（ゲート2）。道具バーも並んだボタンを見る
+ * 押した所を見る相手。題名は横幅いっぱいの箱なので、その箱ではなく中身（文字）を見る——箱で見ると、下の帯の
+ * どこを押しても閉じなくなる（ゲート2）。フィルムストリップは中身の幅の台なので台そのもの（台の余白やコマの間を
+ * 押しても、見えている間と同じく閉じない。/code-review）。道具バーも並んだボタンを見る
  */
 export const IDLE_HIT_TARGETS = [
   ".viewer-tools > *",
   ".viewer-back",
   ".viewer-nav",
-  ".viewer-strip > *",
+  ".viewer-strip",
   ".viewer-caption > *",
 ];
