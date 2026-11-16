@@ -8129,11 +8129,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             </span>
           )}
         </div>
-        <button className="primary" onClick={() => openWizard()} disabled={busy} id="pk-import" data-testid="import">
-          {t.importFromUsb}
+        {/* 帯が狭いときは字を隠して絵だけになる（字は読み上げに残る。App.css の @container topbar） */}
+        <button className="primary" onClick={() => openWizard()} disabled={busy} id="pk-import" data-testid="import" title={t.importFromUsb}>
+          <Icon name="usb" className="topbar-icon" />
+          <span className="topbar-label">{t.importFromUsb}</span>
         </button>
-        <button onClick={onSync} disabled={busy} id="pk-rescan" data-testid="rescan">
-          {t.rescan}
+        <button onClick={onSync} disabled={busy} id="pk-rescan" data-testid="rescan" title={t.rescan}>
+          <Icon name="refresh" className="topbar-icon" />
+          <span className="topbar-label">{t.rescan}</span>
         </button>
         {/* 設定。**文字の ⚙ ではなく絵にする**——字は他のボタンと同じ 13px で小さく、
             OS とフォントで形も大きさも変わった（2026-09-25 利用者「歯車がちっちゃい」）。
