@@ -1323,8 +1323,12 @@ fn taken_at_of(path: &Path) -> Option<i64> {
     } else {
         read_exif_meta(path).taken_at_ms
     };
-    // 撮影日時を持たないファイルはファイル名に聞く（段階H-2）
-    from_meta.or_else(|| crate::namedate::guess_taken_at(path))
+    // 撮影日時を持たないファイルはファイル名に聞く（段階H-2）。「日時なし」の印（1980-01-01・2106-02-07。#296）は
+    // 読み手（EXIF・動画）が落とすが、振り分けの入口でも確かめる（そのまま使うと、コピー先に 1980 年や 2106 年の
+    // フォルダができる）。名前の日付は 1990 年より前と先の日付を読まない（`namedate`）ので、印は来ない
+    from_meta
+        .filter(|&ms| !crate::db::is_placeholder_taken_at(ms))
+        .or_else(|| crate::namedate::guess_taken_at(path))
 }
 
 /// 同じフォルダの、**同じ名前（拡張子違い）の写真**を覚えておく箱。
@@ -1410,7 +1414,9 @@ fn dest_dir_for(
         // 「取り込んだ日」になり、一覧の表示日（同じ順で名前を見る）とずれる
         .and_then(date_from_local_ms)
         .or_else(|| {
-            (mtime_ms > 0)
+            // 更新日時も「日時なし」の印なら使わない——時計を合わせていないカメラは、カードの上のファイルの
+            // 更新日時も 1980-01-01 にする（#296 の /code-review）。そのときは取り込んだ日
+            (mtime_ms > 0 && !crate::db::is_placeholder_taken_at(mtime_ms))
                 .then(|| date_from_local_ms(mtime_ms))
                 .flatten()
         })
@@ -1938,6 +1944,44 @@ mod tests {
         let photo = dir.path().join("IMG_0001.jpg");
         fs::write(&photo, jpeg_with_taken_at("2019:08:11 12:00:00")).unwrap();
         assert!(taken_at_of(&photo).is_some(), "EXIFの日時が読めていない");
+    }
+
+    /// 時計を合わせていないカメラの 1980-01-01 は撮影日時として使わない（#296）——コピー先に 1980 年のフォルダを
+    /// 作らず、名前の日付・更新日時へ落とす
+    #[test]
+    fn a_clock_never_set_is_not_a_capture_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let unset = dir.path().join("CRW_0001.jpg");
+        fs::write(&unset, jpeg_with_taken_at("1980:01:01 00:04:45")).unwrap();
+        assert_eq!(taken_at_of(&unset), None);
+        // 名前に日付があれば、そちらを使う
+        let named = dir.path().join("IMG_20190811_120000.jpg");
+        fs::write(&named, jpeg_with_taken_at("1980:01:01 00:01:16")).unwrap();
+        let ms = taken_at_of(&named).expect("名前の日付");
+        assert!(!crate::db::is_placeholder_taken_at(ms));
+    }
+
+    /// 撮影日時が無く、更新日時も「日時なし」の印（カードの上の 1980-01-01）なら、取り込んだ日のフォルダへ
+    /// （1980 年のフォルダを作らない。#296）
+    #[test]
+    fn a_placeholder_mtime_does_not_make_a_1980_folder() {
+        use chrono::{Local, TimeZone};
+        let config = Config::default();
+        let root = Path::new("/dest");
+        let fat = Local
+            .with_ymd_and_hms(1980, 1, 1, 0, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let dir = dest_dir_for(None, fat, root, &config);
+        assert!(!dir.to_string_lossy().contains("1980"), "{}", dir.display());
+        assert_eq!(
+            dir,
+            root.join(render_folder_pattern(
+                &config.routing.folder_pattern,
+                today_local()
+            ))
+        );
     }
 
     /// **自分の撮影日時は、組に上書きされない**（ゲート1のP2）。

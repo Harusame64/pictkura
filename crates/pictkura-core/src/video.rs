@@ -115,6 +115,10 @@ pub fn read_info(path: &Path) -> Option<VideoInfo> {
     if let Some(ms) = creation_date_from_udta(&moov, end) {
         info.taken_at_ms = Some(ms);
     }
+    // 「日時なし」の印（#296）は日時として読まない
+    info.taken_at_ms = info
+        .taken_at_ms
+        .filter(|&ms| !crate::db::is_placeholder_taken_at(ms));
 
     Some(info)
 }

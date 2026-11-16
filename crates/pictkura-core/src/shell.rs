@@ -468,8 +468,10 @@ mod windows_shell {
             };
 
             // 写真は DateTaken、動画は DateEncoded。どちらもUTCで入っている
+            // 「日時なし」の印（.mos の XMP の 2106-02-07 など。#296）は日時として読まない
             let taken_at_ms = read_time(&store, &PKEY_PHOTO_DATE_TAKEN)
-                .or_else(|| read_time(&store, &PKEY_MEDIA_DATE_ENCODED));
+                .or_else(|| read_time(&store, &PKEY_MEDIA_DATE_ENCODED))
+                .filter(|&ms| !crate::db::is_placeholder_taken_at(ms));
 
             // 長さは100ナノ秒単位。0は「書いていない」ことを表すので採らない
             let duration_ms = read_u64(&store, &PKEY_MEDIA_DURATION)
