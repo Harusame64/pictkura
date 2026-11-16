@@ -3546,9 +3546,12 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
-  /* 触れたときの地は、写真の端から少しだけ外へ（見出しの字は写真の端にそろえてある） */
-  padding: 2px 4px;
-  margin: -2px -4px;
+  /* 触れたときの地は、写真の端から少しだけ外へ（見出しの字は写真の端にそろえてある）。下には伸ばさない——字の
+     下端から写真まで 3px しかなく、下へ伸ばすと地が写真に接して見えた（win2 の画面） */
+  padding-block: 2px 0;
+  padding-inline: 4px;
+  margin-block: -2px 0;
+  margin-inline: -4px;
   font: inherit;
   color: inherit;
   background: none;
