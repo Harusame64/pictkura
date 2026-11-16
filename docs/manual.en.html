@@ -541,8 +541,9 @@ for the grid and the viewer. The first of these that exists is used.</p>
   <li><strong>File modification time</strong> — when none of the above exist</li>
 </ol>
 <p>
-January 1, 1980 and February 7, 2106 count as no date, and the next source is used instead: they are stand-in dates written by cameras whose clock was never set, among others.
-The same goes for picking the destination folder, so no 1980 or 2106 folder is made.
+A date of January 1, 1980 or February 7, 2106 read from EXIF, the OS or the file name counts as no date, and the next source is used instead: these are stand-in dates written by cameras whose clock was never set, among others.
+The file’s modification time is used as it is, even on those dates.
+When picking the destination folder, the modification time is checked the same way, so no 1980 or 2106 folder is made (the photo goes into the folder for the day of the import).
 </p>
 <p>
 Screenshots and images saved from social apps usually carry no EXIF, and modification time
@@ -610,7 +611,8 @@ The strip at the bottom shows up to seven photos on each side; click one to go t
 </p>
 
 <p>
-When a video ends, the next video plays on, in the order they were taken. This happens when <strong>Kind</strong> on the left is set to Videos, and when you open the photos you selected in the grid with “View the selection”.
+When a video ends, the next video plays on. This happens when <strong>Kind</strong> on the left is set to Videos, and when you open the photos you selected in the grid with “View the selection”.
+It starts out in the order they were taken (oldest to newest); after you step with <kbd>←</kbd> <kbd>→</kbd>, it carries on in that direction, and it stops at the end.
 If only videos are selected, playback starts from the oldest.
 </p>
 
@@ -641,10 +643,10 @@ With Outgoing on, “Add to Outgoing” is there too; while Outgoing on the left
 </p>
 
 <p>
-At the top of the right-click menu, up to three apps that can open the photo are listed as “Open with …”, with the apps you picked before first.
-<kbd>Ctrl</kbd> + <kbd>1</kbd>–<kbd>3</kbd> (<kbd>⌘</kbd> + <kbd>1</kbd>–<kbd>3</kbd> on macOS) opens it in them, top to bottom; this works in the viewer too.
+Just under “Open” in the right-click menu, apps that can open the photo are listed as “Open with …”: the apps you picked before come first, topped up with the system’s suggestions to make three (if you have picked four or more before, all of them are listed).
+<kbd>Ctrl</kbd> + <kbd>1</kbd>–<kbd>3</kbd> (<kbd>⌘</kbd> + <kbd>1</kbd>–<kbd>3</kbd> on macOS) opens it in the top three, in order; this works in the viewer too.
 “Open with another app…” lists the apps your system knows; if yours is not there, “Choose another app…” lets you find it.
-For a RAW file, apps that open DNG, TIFF or JPEG are offered too, so raw developers are included.
+For a RAW file, raw developers found as apps that open DNG, TIFF or JPEG are offered too (only ones pictkura knows as raw developers).
 </p>
 
 <p>
@@ -750,12 +752,12 @@ If pictkura is already open, the file opens in that window.
 </p>
 
 <p>
-Select several files and open them together, and only those are shown. Videos play on one after another, in the order they were taken.
+Select several files and open them together, and only those are shown. Videos play on one after another (for files outside your library, name order stands in for the order they were taken).
 </p>
 
 <p>
 The installer, Microsoft Store and macOS versions add pictkura to the system’s “Open with” list (on Windows it is under “Choose another app”).
-<code>.arq</code> and <code>.x3f</code> files open in pictkura when no other app can open them.
+On Windows, <code>.arq</code> and <code>.x3f</code> files open in pictkura when no other app can open them.
 </p>
 
 <div class="note">
