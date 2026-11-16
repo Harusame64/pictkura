@@ -22,6 +22,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
+
+/** 左の欄の行は絵を Icon で描くので、訳の頭に付いた字の ★・⚑ は外す（訳はそのまま。絞り込んで0件の見出しでは字のまま使う） */
+const navLabel = (s: string) => s.replace(/^[★⚑]\s*/u, "");
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -8382,6 +8385,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             max={CELL_SIZE_MAX}
             step={CELL_SIZE_STEP}
             value={cellSize}
+            // 自前で描いたつまみの「左の濃い側」の長さ（App.css の .slider）
+            style={{ "--fill": `${((cellSize - CELL_SIZE_MIN) / (CELL_SIZE_MAX - CELL_SIZE_MIN)) * 100}%` } as React.CSSProperties}
             onChange={(e) => {
               const v = Number(e.target.value);
               setCellSize(v);
@@ -8575,6 +8580,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             {...pressable(() => setFilter("all"))}
             aria-pressed={filter === "all"}
           >
+            <span className="nav-icon" aria-hidden="true"><Icon name="image" /></span>
             {t.navAllPhotos}
           </div>
           <div
@@ -8582,7 +8588,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             {...pressable(() => setFilter("fav"))}
             aria-pressed={filter === "fav"}
           >
-            {t.navFavorites}
+            <span className="nav-icon" aria-hidden="true"><Icon name="star" /></span>
+            {navLabel(t.navFavorites)}
             {stats.favorites > 0 && (
               <span className="fav-count">{formatNumber(stats.favorites)}</span>
             )}
@@ -8593,7 +8600,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             {...pressable(() => setFilter("picked"))}
             aria-pressed={filter === "picked"}
           >
-            {t.navPicked}
+            <span className="nav-icon" aria-hidden="true"><Icon name="flag" /></span>
+            {navLabel(t.navPicked)}
             {stats.picked > 0 && (
               <span className="fav-count">{formatNumber(stats.picked)}</span>
             )}
@@ -8606,6 +8614,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               {...pressable(() => setFilter("outgoing"))}
               aria-pressed={filter === "outgoing"}
             >
+              <span className="nav-icon" aria-hidden="true"><Icon name="outgoing" /></span>
               {t.navOutgoing}
               {stats.outgoing > 0 && (
                 <span className="fav-count">{formatNumber(stats.outgoing)}</span>

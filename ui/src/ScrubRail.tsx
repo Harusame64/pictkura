@@ -672,7 +672,8 @@ export function ScrubRail({
                 return (
                   <button
                     key={m}
-                    className="scrub-card-month"
+                    className={"scrub-card-month" + (ym === hereMonth ? " here" : "")}
+                    aria-current={ym === hereMonth ? "date" : undefined}
                     disabled={offset === undefined}
                     onClick={() => {
                       const el = scrollRef.current;
