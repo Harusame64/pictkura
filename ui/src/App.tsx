@@ -9648,18 +9648,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                           ["shutter", t.exifShutter, exif.shutter, false],
                           ["iso", t.exifIso, exif.iso, true],
                         ] as const
-                      ).map(([id, label, value, showLabel]) => (
+                      )
+                        // 段（焦点距離・絞り／シャッター・ISO）ごと値が無ければ、その段は出さない——ISO だけの写真で
+                        // 「–」が 3 つ並んで空の升だらけに見えた（win2）。段の中の欠けは「–」で位置を保つ
+                        .filter((_, i, all) => {
+                          const row = i < 2 ? all.slice(0, 2) : all.slice(2, 4);
+                          return row.some(([, , v]) => v);
+                        })
+                        .map(([id, label, value, showLabel]) => (
                         // 欠けた値も升は残す（–）——写真を送るたびに値が別の升へ跳ばないように。単位の付く 3 つは数だけで
                         // 読める。ISO は数だけだと何の数か分からないので、札を小さく前に置く。ほかの札は読み上げだけに
                         <span className={"exif-hero-item" + (value ? "" : " missing")} key={id}>
-                          {showLabel ? (
-                            <span className="exif-hero-unit">{label} </span>
-                          ) : (
-                            <span className="sr-only">{label} </span>
-                          )}
-                          <span className="name" title={value ?? undefined}>
-                            {value ?? "–"}
-                          </span>
+                          {/* 札と値をひと続きの左→右に閉じ込める（右→左の画面で「400 ISO」と入れ替わった。win2） */}
+                          <bdi dir="ltr">
+                            {showLabel ? (
+                              <span className="exif-hero-unit">{label} </span>
+                            ) : (
+                              <span className="sr-only">{label} </span>
+                            )}
+                            <span title={value ?? undefined}>{value ?? "–"}</span>
+                          </bdi>
                         </span>
                       ))}
                     </div>
