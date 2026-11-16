@@ -53,8 +53,9 @@
   --accent-contrast: var(--n-0);
   --accent-soft: color-mix(in oklch, var(--indigo) 10%, transparent);
   /* 選んでいる行（左の項目・パレット・設定の選択・取り込みの木）。hover（--surface-2）より一段淡い面に、
-     行頭の藍の棒（App.css の .nav-item.active::before。設定の選択は藍の丸）を添えて見分ける。薄い字がこの上でも
-     4.5:1 を保つ濃さ */
+     行頭の藍の棒（App.css の .nav-item.active::before。設定の選択は藍の丸）を添えて見分ける。**ダークでは薄い字が
+     この上で 4.5:1 に届かない**（パレットの右端の数で 4.05:1。win2 の実測 2026-11-16）——選んだ行の上の薄い字は
+     --text-muted へ上げる */
   --selected-bg: color-mix(in oklch, var(--text) 6%, transparent);
   /* ビューア（常に暗い地）の上の控えめな字とリンク。テーマに依らない */
   --on-dark-muted: oklch(0.72 0.008 80);

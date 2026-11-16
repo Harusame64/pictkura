@@ -563,11 +563,16 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .wiz-node.active::before {
   content: "";
   position: absolute;
-  inset-block: 25%;
+  /* 低い行（取り込みの木は 25px）でも、角丸（6px）の弧と離れるように */
+  inset-block: max(25%, 7px);
   inset-inline-start: 2px;
   width: 3px;
   border-radius: var(--radius-full);
   background: var(--accent);
+}
+/* 左欄は字が行の端から 8px で始まる（絵が無い）ので、棒を端まで寄せて字から離す（くっついて見えた。win2） */
+.nav-item.active::before {
+  inset-inline-start: 0;
 }
 /* ハイコントラスト（Windows）では地の色が消されるので、棒をシステムの強調色で残す——選んでいる行の唯一の印になる */
 @media (forced-colors: active) {
@@ -2785,6 +2790,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font-size: var(--fs-xs);
   color: var(--text-faint);
 }
+/* 選んだ行の地の上では薄い字が 4.5:1 に届かない（ダークで 4.05:1。win2 の実測）ので一段濃く */
+.palette-item.active .palette-hint {
+  color: var(--text-muted);
+}
 .palette-empty {
   padding: var(--sp-5) var(--sp-4);
   color: var(--text-faint);
@@ -3418,6 +3427,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   position: relative;
   background: var(--selected-bg);
   color: var(--text);
+  font-weight: 600;
 }
 /* カードの行は行頭の線（カードの印、下の .wiz-card）を持つので、選んでも棒は重ねない */
 .wiz-node.wiz-card.active::before {
