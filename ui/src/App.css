@@ -1315,7 +1315,9 @@ body {
   --viewer-fit-w: calc(100vw - 120px - var(--info-reserve));
   position: fixed;
   inset: 0;
-  background: oklch(0.1 0 0 / 0.97);
+  /* **不透明の暗室**（2026-11-16 デザインレビュー: 97% だと裏の一覧が幽霊のように透けた。3 者とも挙げた）。
+     純黒ではなく生成りの系列の暗い色——写真の暗部を潰さない。開く間の薄れ（viewer-open）はそのまま */
+  background: var(--viewer-ground);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1362,7 +1364,7 @@ body {
 .tile-zoom-back {
   position: absolute;
   inset: 0;
-  background: oklch(0.1 0 0 / 0.97);
+  background: var(--viewer-ground);
 }
 /* 箱の形が変わるにつれて、タイルの切り抜き（cover）が写真全体へほどける */
 .tile-zoom-box {
@@ -1672,9 +1674,23 @@ body {
 .viewer-tool:disabled:hover {
   background: oklch(1 0 0 / 0.1);
 }
+/* 入っている道具（情報・再生・全画面・並べて見る）は白地。琥珀は ★ だけのもの——情報を開いた「i」が琥珀だと、
+   お気に入りにしたと読めた（デザインレビュー） */
 .viewer-tool.on {
-  background: var(--fav);
+  background: oklch(1 0 0 / 0.92);
   color: var(--n-10);
+}
+.viewer-tool.fav-tool.on {
+  background: var(--fav);
+}
+/* ★・⚑ を付けた瞬間だけ、絵が一度弾む（外したときは弾まない。App.tsx が合図の番号で絵を作り直す） */
+.viewer-tool .icon.pop {
+  animation: tool-pop 200ms var(--easing);
+}
+@keyframes tool-pop {
+  40% {
+    scale: 1.28;
+  }
 }
 /* ===== ボツの候補（0.2 ③）===== */
 
@@ -3713,6 +3729,12 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* 選ぶ部品は藍で（取り込みの画面に OS 既定の青が残っていた。デザインレビュー）。個別に色を決めた所は後ろで上書きする */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
 /* 押した手応え: ボタンは押している間だけ1段暗く（hover しか無く、押したことが指に返らなかった）。
    形や位置は変えない——transform を持つボタン（ビューアの前後の矢印など）の配置を崩さないため */
 button:active:not(:disabled),
@@ -3720,10 +3742,53 @@ button:active:not(:disabled),
   /* hover の明るくする規則（より具体的な選択子）に負けないよう !important（押している間だけの状態なので） */
   filter: brightness(0.88) !important;
 }
+/* 押している間だけ、ボタンが少し沈む（暗くなるだけでは指に返らなかった。デザインレビュー）。`transform` ではなく
+   独立した `scale` なので、`transform` で置いているボタン（前後の矢印の translateY(-50%)）の配置は崩れない */
+button:active:not(:disabled) {
+  scale: 0.96;
+}
+
+/* 幕の出入り（デザインレビュー: パレット・設定・取り込み・キーの一覧がパッと出ていた。ビューアの開閉だけが丁寧で、
+   手触りが別のアプリだった）。入りだけ動かす——閉じるのは今までどおりすぐ消える。右クリックのメニューは置く位置を
+   getBoundingClientRect で測るので、形を変えずに薄れだけにする */
+.palette-backdrop,
+.shortcuts-backdrop {
+  animation: scrim-in 120ms var(--easing);
+}
+.palette-backdrop > *,
+.shortcuts {
+  animation: sheet-in 160ms var(--easing);
+}
+.context-menu {
+  animation: scrim-in 90ms var(--easing);
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+    scale: 0.985;
+  }
+}
 
 /* 動きを減らす設定: 読み込み中のきらめきと、知らせの滑り込みも止める（ほかの動きは各所で対応済み） */
 @media (prefers-reduced-motion: reduce) {
   .placeholder-row {
+    animation: none;
+  }
+  /* 幕は薄れだけ（動きなし）。押したときの沈みと ★ の弾みも止める */
+  .palette-backdrop > *,
+  .shortcuts {
+    animation: scrim-in 120ms var(--easing);
+  }
+  button:active:not(:disabled) {
+    scale: none;
+  }
+  .viewer-tool .icon.pop {
     animation: none;
   }
   .speed-toast,

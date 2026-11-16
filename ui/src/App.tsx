@@ -9674,12 +9674,20 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             )}
             {viewerItem && viewerItem.id >= 0 && (
               <button
-                className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
+                className={"viewer-tool fav-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
                 aria-pressed={viewerItem.favorite}
                 onClick={() => favoriteViewer(viewerItem)}
               >
-                <Icon name="star" size={20} className={viewerItem.favorite ? "filled" : undefined} />
+                {/* 付けた瞬間だけ弾む（合図の通し番号で作り直して、動きを1回だけ走らせる） */}
+                <Icon
+                  key={viewerFlash?.kind === "fav" ? viewerFlash.seq : "rest"}
+                  name="star"
+                  size={20}
+                  className={
+                    viewerItem.favorite ? "filled" + (viewerFlash?.kind === "fav" ? " pop" : "") : undefined
+                  }
+                />
               </button>
             )}
             {viewerItem && viewerItem.id >= 0 && (
@@ -9688,7 +9696,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
-                <Icon name="flag" size={20} className={viewerItem.picked ? "filled" : undefined} />
+                <Icon
+                  key={viewerFlash?.kind === "pick" ? viewerFlash.seq : "rest"}
+                  name="flag"
+                  size={20}
+                  className={
+                    viewerItem.picked ? "filled" + (viewerFlash?.kind === "pick" ? " pop" : "") : undefined
+                  }
+                />
               </button>
             )}
             {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って

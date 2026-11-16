@@ -69,6 +69,8 @@
   --danger-text: oklch(0.52 0.2 25);
   --warn: var(--orange);
   --scrim: oklch(0.15 0 0 / 0.45);
+  /* 写真を大きく見る画面の地（テーマに依らない暗室。生成りの系列の、--n-10 より一段暗い色） */
+  --viewer-ground: oklch(0.13 0.004 70);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.1);
   --shadow-2: 0 1px 3px oklch(0 0 0 / 0.06), 0 10px 24px -6px oklch(0 0 0 / 0.14);
   --shadow-3: 0 2px 6px oklch(0 0 0 / 0.1), 0 24px 56px -12px oklch(0 0 0 / 0.3);
