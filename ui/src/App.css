@@ -115,6 +115,28 @@ body {
 .topbar-icon {
   display: none;
 }
+/* ===== mac: 窓の題の帯とアプリの上の帯を 1 枚にする（2026-11-16 デザインレビュー: 窓の題の「pictkura」の下に
+   ロゴの「pictkura」がもう一度出て、「ウェブ画面を包んだ物」に見えた）。信号のボタンは物理の左に居るので、言語の
+   向きに依らず左を空ける（右→左でも左）。いちばん上の行（選んでいる間は選択の帯）だけが空ける ===== */
+html.mac-overlay .topbar,
+html.mac-overlay .select-bar {
+  padding-left: 84px;
+}
+html.mac-overlay .select-bar ~ .topbar {
+  padding-left: var(--sp-4);
+}
+html.mac-overlay .topbar {
+  min-height: 52px;
+}
+/* 名前はメニューバーと Dock にある */
+html.mac-overlay .logo {
+  display: none;
+}
+/* ビューアの左上の道具を、信号のボタンの右へ（左→右なら「戻る」、右→左なら道具の帯が左に居る） */
+html.mac-overlay:not([dir="rtl"]) .viewer-back,
+html.mac-overlay[dir="rtl"] .viewer-tools {
+  margin-left: 68px;
+}
 .logo {
   font-weight: 700;
   font-size: var(--fs-xl);

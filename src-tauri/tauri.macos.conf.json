@@ -1,5 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "pictkura",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 520,
+        "visible": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 18, "y": 26 }
+      }
+    ]
+  },
   "bundle": {
     "targets": ["app"],
     "macOS": {

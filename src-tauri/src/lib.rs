@@ -8119,6 +8119,25 @@ pub fn run() {
 mod tests {
     /// 「プログラムから開く」の登録（MSI・NSIS・Store 版）の拡張子が、取り込みの既定の一覧と揃っていること。
     /// 3 か所は手で書くので、どれかに足し忘れると、その形式だけ候補に出ない（黙って欠ける）
+    /// mac の設定は窓の配列を丸ごと置き換える（JSON merge patch は配列を混ぜない）。窓の寸法などを tauri.conf.json で
+    /// 変えたとき、mac の写しだけ古いまま残らないよう、mac で足した鍵を除いて同じであることを見る
+    #[test]
+    fn mac_window_config_matches_the_base_window() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mac: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
+        let base_win = base["app"]["windows"][0].as_object().unwrap().clone();
+        let mut mac_win = mac["app"]["windows"][0].as_object().unwrap().clone();
+        for k in ["titleBarStyle", "hiddenTitle", "trafficLightPosition"] {
+            assert!(mac_win.remove(k).is_some(), "tauri.macos.conf.json: {k}");
+        }
+        assert_eq!(
+            mac_win, base_win,
+            "tauri.macos.conf.json の窓が tauri.conf.json の窓とずれている"
+        );
+    }
+
     #[test]
     fn open_with_registrations_list_the_default_import_extensions() {
         use std::collections::BTreeSet;

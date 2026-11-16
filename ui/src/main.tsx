@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
-import { rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
+import { isMac, rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
 import { dirOf } from "./direction";
 import { locale } from "./i18n";
 import { initTheme } from "./theme";
@@ -19,6 +19,9 @@ document.documentElement.lang = locale;
 // **向きも同じく。** アラビア語・ヘブライ語は右から左。CSS（論理プロパティと `[dir="rtl"]`）も
 // JS（`direction.ts` の `isRtl`）もこの属性を見る
 document.documentElement.dir = dirOf(locale);
+// mac は窓の題の帯を消し、信号のボタンをアプリの上の行に重ねている（tauri.macos.conf.json の titleBarStyle: Overlay）。
+// 上の行はボタンの分だけ左を空け、つかんで窓を動かせる（App.css の html.mac-overlay）
+if (isMac) document.documentElement.classList.add("mac-overlay");
 
 // **メニューバーも同じ言語にする**（macOSだけ。Issue #14）。Rustは起動の一瞬だけ
 // OSの言語から当てているので、`localStorage` で別の言語を選んでいる人は

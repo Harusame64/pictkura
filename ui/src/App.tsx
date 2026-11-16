@@ -7953,7 +7953,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   return (
     <div className="app">
       {selecting && (
-        <div className="select-bar" {...inertProps}>
+        <div className="select-bar" data-tauri-drag-region={isMac || undefined} {...inertProps}>
           <button
             className="select-bar-close"
             title={t.clearSelection} id="pk-select-clear" data-testid="select-clear"
@@ -8085,7 +8085,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             )}`}
         </div>
       )}
-      <header className="topbar" {...inertProps}>
+      {/* data-tauri-drag-region: 帯の地をつかむと窓が動く（mac だけ——窓の題の帯が無いので、ここが代わり。Windows は
+          OS の題の帯があるので付けない） */}
+      <header className="topbar" data-tauri-drag-region={isMac || undefined} {...inertProps}>
         <span className="logo">{t.appName}</span>
         <div className="view-switch">
           <button
