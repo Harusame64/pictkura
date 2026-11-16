@@ -555,6 +555,12 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .wizard:focus {
   outline: none;
 }
+/* ボタンのキーボードの枠も藍（tokens.css の方針の「キーボードの枠」）。素のままだと OS 既定の太い黒い輪で、
+   箱を開いた直後に既定のボタン（autoFocus）へ付いたとき目立った（win2 の画面）。部品ごとの枠はこれより強い選択子で上書きする */
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 /* div で描いた押せるもの（`pressable`。pictkura-dev #65）は、キーボードで来たときだけ枠を出す */
 [role="button"]:not(button):focus-visible {
   outline: 2px solid var(--accent);
