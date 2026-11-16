@@ -551,10 +551,32 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 /* 選んでいる項目は面と太さで示す（アクセントの塗りは使わない。色は「押してほしい1つ」と写真の選択に取っておく）。
    hover と同じ面にすると、選んだ行と指の下の行が見分けられなかった（/code-review）ので、別の淡い面＋行頭の線 */
 .nav-item.active {
+  position: relative;
   background: var(--selected-bg);
-  box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
   font-weight: 600;
+}
+/* 選んでいる行の、行頭の藍の棒（左欄・パレット・取り込みの木で共通。藍は「現在地」の印）。行の上下の真ん中に収まる
+   別の要素で描く——角丸の行に inset の影で引くと、角に沿って「(」の形に曲がった（デザインレビュー） */
+.nav-item.active::before,
+.palette-item.active::before,
+.wiz-node.active::before {
+  content: "";
+  position: absolute;
+  inset-block: 25%;
+  inset-inline-start: 2px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+/* ハイコントラスト（Windows）では地の色が消されるので、棒をシステムの強調色で残す——選んでいる行の唯一の印になる */
+@media (forced-colors: active) {
+  .nav-item.active::before,
+  .palette-item.active::before,
+  .wiz-node.active::before {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
 }
 .nav-item.root {
   cursor: default;
@@ -2727,7 +2749,6 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .palette-group {
   padding: var(--sp-2) var(--sp-4) var(--sp-1);
   font-size: var(--fs-xs);
-  font-weight: 600;
   color: var(--text-faint);
 }
 .palette-item {
@@ -2743,30 +2764,14 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   cursor: pointer;
 }
-/* 選んでいる行: 淡い藍の地と、行頭の小さな藍の棒（デザインレビュー: 灰色の地だけでは ↓ で素早く送ったときに
-   どこにいるか追いにくかった）。棒は別の要素で描く——角丸の行に inset の影で引くと「(」の形に曲がる */
+/* 選んでいる行は面と太さ（tokens.css の決まり。藍は行頭の棒だけ——左欄と同じ。上の .nav-item.active::before） */
 .palette-item.active {
-  background: var(--accent-soft);
+  background: var(--selected-bg);
   color: var(--text);
-}
-.palette-item.active::before {
-  content: "";
-  position: absolute;
-  inset-block: 9px;
-  inset-inline-start: 3px;
-  width: 3px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-}
-.palette-icon {
-  flex: none;
-  width: 18px;
-  display: inline-flex;
-  justify-content: center;
-  color: var(--text-muted);
+  font-weight: 600;
 }
 .palette-item.active .palette-icon {
-  color: var(--accent);
+  color: inherit;
 }
 .palette-label {
   flex: 1;
@@ -3410,9 +3415,13 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
 }
 .wiz-node.active {
+  position: relative;
   background: var(--selected-bg);
-  box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
+}
+/* カードの行は行頭の線（カードの印、下の .wiz-card）を持つので、選んでも棒は重ねない */
+.wiz-node.wiz-card.active::before {
+  display: none;
 }
 /* カードと取り外せるドライブ（pictkura-dev #39）。挿したカードが一覧に埋もれないように */
 .wiz-node.wiz-card {
