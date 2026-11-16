@@ -1078,7 +1078,10 @@ fn exif_data_from(exif: &exif::Exif) -> ExifData {
             _ => None,
         })
         .and_then(|ascii| exif::DateTime::from_ascii(&ascii).ok())
-        .and_then(|dt| exif_dt_to_local_ms(&dt));
+        .and_then(|dt| exif_dt_to_local_ms(&dt))
+        // 「日時なし」の印（時計を合わせていないカメラの 1980-01-01。#296）は日時として読まない。秒未満も付けない——
+        // 付けると、更新日時で埋めた時刻に「秒未満まで分かっている」と残り、連写の束ね役が別々の写真をつないだ
+        .filter(|&ms| !crate::db::is_placeholder_taken_at(ms));
     let subsec = base_ms
         .and_then(|_| ascii_field(exif, subsec_tag))
         .and_then(|raw| crate::burst::subsec_ms(&raw));
@@ -5223,6 +5226,19 @@ mod tests {
             db.shots_to_backfill(0, 10).unwrap().is_empty(),
             "どちらも後追いの対象外"
         );
+    }
+
+    /// 時計を合わせていないカメラの 1980-01-01 は、EXIF から撮影日時として読まない（#296）。秒未満の印も付けない
+    #[test]
+    fn exif_reader_drops_a_clock_never_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("CRW_0001.jpg");
+        std::fs::write(&path, jpeg_with_taken_at(64, 48, "1980:01:01 00:04:45")).unwrap();
+        let data = read_exif(&path);
+        assert_eq!((data.taken_at_ms, data.taken_subsec), (None, false));
+        // 対照: ふつうの日時は読む
+        std::fs::write(&path, jpeg_with_taken_at(64, 48, "2019:08:11 12:00:00")).unwrap();
+        assert!(read_exif(&path).taken_at_ms.is_some());
     }
 
     #[test]

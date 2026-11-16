@@ -1324,13 +1324,11 @@ fn taken_at_of(path: &Path) -> Option<i64> {
         read_exif_meta(path).taken_at_ms
     };
     // 撮影日時を持たないファイルはファイル名に聞く（段階H-2）。「日時なし」の印（1980-01-01・2106-02-07。#296）は
-    // 無かったことにする——そのまま使うと、コピー先に 1980 年や 2106 年のフォルダができる
+    // 読み手（EXIF・動画）が落とすが、振り分けの入口でも確かめる（そのまま使うと、コピー先に 1980 年や 2106 年の
+    // フォルダができる）。名前の日付は 1990 年より前と先の日付を読まない（`namedate`）ので、印は来ない
     from_meta
         .filter(|&ms| !crate::db::is_placeholder_taken_at(ms))
-        .or_else(|| {
-            crate::namedate::guess_taken_at(path)
-                .filter(|&ms| !crate::db::is_placeholder_taken_at(ms))
-        })
+        .or_else(|| crate::namedate::guess_taken_at(path))
 }
 
 /// 同じフォルダの、**同じ名前（拡張子違い）の写真**を覚えておく箱。
@@ -1416,7 +1414,9 @@ fn dest_dir_for(
         // 「取り込んだ日」になり、一覧の表示日（同じ順で名前を見る）とずれる
         .and_then(date_from_local_ms)
         .or_else(|| {
-            (mtime_ms > 0)
+            // 更新日時も「日時なし」の印なら使わない——時計を合わせていないカメラは、カードの上のファイルの
+            // 更新日時も 1980-01-01 にする（#296 の /code-review）。そのときは取り込んだ日
+            (mtime_ms > 0 && !crate::db::is_placeholder_taken_at(mtime_ms))
                 .then(|| date_from_local_ms(mtime_ms))
                 .flatten()
         })
@@ -1959,6 +1959,29 @@ mod tests {
         fs::write(&named, jpeg_with_taken_at("1980:01:01 00:01:16")).unwrap();
         let ms = taken_at_of(&named).expect("名前の日付");
         assert!(!crate::db::is_placeholder_taken_at(ms));
+    }
+
+    /// 撮影日時が無く、更新日時も「日時なし」の印（カードの上の 1980-01-01）なら、取り込んだ日のフォルダへ
+    /// （1980 年のフォルダを作らない。#296）
+    #[test]
+    fn a_placeholder_mtime_does_not_make_a_1980_folder() {
+        use chrono::{Local, TimeZone};
+        let config = Config::default();
+        let root = Path::new("/dest");
+        let fat = Local
+            .with_ymd_and_hms(1980, 1, 1, 0, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let dir = dest_dir_for(None, fat, root, &config);
+        assert!(!dir.to_string_lossy().contains("1980"), "{}", dir.display());
+        assert_eq!(
+            dir,
+            root.join(render_folder_pattern(
+                &config.routing.folder_pattern,
+                today_local()
+            ))
+        );
     }
 
     /// **自分の撮影日時は、組に上書きされない**（ゲート1のP2）。
