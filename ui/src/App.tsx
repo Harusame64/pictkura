@@ -4156,16 +4156,31 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   }, []);
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
+  /**
+   * ★・⚑ を**付けた**瞬間の弾み（デザインレビュー）。付けた写真の id を持つ——自動送りで隣の写真へ移ったとき、
+   * 既に付いている写真で弾まないように（/code-review）。外したとき・付いている写真で P を押し直したときは呼ばない。
+   * 動き（200ms）が済んだら消す（消さないと、行って戻ったときに作り直されてまた弾む）
+   */
+  const [toolPop, setToolPop] = useState<{ kind: "fav" | "pick"; id: number; seq: number } | null>(null);
+  const toolPopTimer = useRef<number | undefined>(undefined);
+  const popTool = useCallback((kind: "fav" | "pick", id: number) => {
+    setToolPop({ kind, id, seq: Date.now() });
+    window.clearTimeout(toolPopTimer.current);
+    toolPopTimer.current = window.setTimeout(() => setToolPop(null), 300);
+  }, []);
+  useEffect(() => () => window.clearTimeout(toolPopTimer.current), []);
+
   /** ビューアの `F`・☆ボタン。トグルなので、**どちらに転んだか**を合図に出す */
   const favoriteViewer = useCallback(
     (item: MediaItem) => {
       // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
       if (item.id < 0) return;
       flashViewer(item.favorite ? "unfav" : "fav");
+      if (!item.favorite) popTool("fav", item.id);
       // 組の両方を**見ている側の向き**にそろえる（片方ずつトグルすると、ずれた組が逆向きにずれる）
       markStackRef.current(viewerTargets(item), "favorite", !item.favorite);
     },
-    [flashViewer, viewerTargets],
+    [flashViewer, viewerTargets, popTool],
   );
 
   /**
@@ -4192,9 +4207,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
       if (item.id < 0) return;
       flashViewer(pick ? "pick" : "unflag");
+      if (pick && !item.picked) popTool("pick", item.id);
       markStackRef.current(viewerTargets(item), "picked", pick);
     },
-    [flashViewer, viewerTargets],
+    [flashViewer, viewerTargets, popTool],
   );
 
   const judgeViewer = useCallback(
@@ -4202,6 +4218,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       // ライブラリの外の写真（負の id）には印を付けない（記録が無い。ビューアだけの窓で開いたもの）
       if (item.id < 0) return;
       const targets = viewerTargets(item);
+      if (pick && !item.picked) popTool("pick", item.id);
       markStackRef.current(targets, "picked", pick);
       // **判定は1枚につき1つ**。⚑を付けた写真がボツの候補に残っていると、
       // 関所で「選んだはずの1枚」がゴミ箱の列に並ぶ。`U` は両方を外す
@@ -4209,7 +4226,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       flashViewer(pick ? "pick" : "unflag");
       if (autoAdvance) moveViewer(1, false, false, false); //判定の後の自動送りは利用者の向きにしない（dev #75）
     },
-    [markReject, flashViewer, autoAdvance, moveViewer, viewerTargets],
+    [markReject, flashViewer, autoAdvance, moveViewer, viewerTargets, popTool],
   );
 
   /**
@@ -9674,12 +9691,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             )}
             {viewerItem && viewerItem.id >= 0 && (
               <button
-                className={"viewer-tool" + (viewerItem.favorite ? " on" : "")}
+                className={"viewer-tool fav-tool" + (viewerItem.favorite ? " on" : "")}
                 title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
                 aria-pressed={viewerItem.favorite}
                 onClick={() => favoriteViewer(viewerItem)}
               >
-                <Icon name="star" size={20} className={viewerItem.favorite ? "filled" : undefined} />
+                {/* 付けた瞬間だけ弾む（toolPop。付けた写真の id と番号で作り直して、動きを1回だけ走らせる） */}
+                <Icon
+                  key={toolPop?.kind === "fav" && toolPop.id === viewerItem.id ? toolPop.seq : "rest"}
+                  name="star"
+                  size={20}
+                  className={
+                    viewerItem.favorite
+                      ? "filled" + (toolPop?.kind === "fav" && toolPop.id === viewerItem.id ? " pop" : "")
+                      : undefined
+                  }
+                />
               </button>
             )}
             {viewerItem && viewerItem.id >= 0 && (
@@ -9688,7 +9715,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
                 onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
               >
-                <Icon name="flag" size={20} className={viewerItem.picked ? "filled" : undefined} />
+                <Icon
+                  key={toolPop?.kind === "pick" && toolPop.id === viewerItem.id ? toolPop.seq : "rest"}
+                  name="flag"
+                  size={20}
+                  className={
+                    viewerItem.picked
+                      ? "filled" + (toolPop?.kind === "pick" && toolPop.id === viewerItem.id ? " pop" : "")
+                      : undefined
+                  }
+                />
               </button>
             )}
             {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
