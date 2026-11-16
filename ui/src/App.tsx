@@ -23,6 +23,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
+import { queryDelayMs } from "./queryDelay";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -1997,7 +1998,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const trimmed = queryInput.trim();
     if (asciiDateTokens(trimmed) === query) return;
     // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
-    const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
+    // 打ちかけの `year:202` は長く待つ（queryDelay.ts）
+    const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), queryDelayMs(trimmed));
     return () => window.clearTimeout(t);
   }, [queryInput, query]);
 
