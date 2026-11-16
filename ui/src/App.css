@@ -3190,7 +3190,9 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
    ダイアログの枠は設定ダイアログ（.settings）と同じ作りに揃える */
 .wizard {
   width: min(1040px, 94vw);
-  height: min(720px, 88vh);
+  /* 上は他の幕と同じ 12vh から（失敗の知らせ・mac の信号のボタンと重ならない）。下にも同じだけ空ける——88vh だと
+     下端が窓の縁に接した（デザインレビュー） */
+  height: min(720px, 76vh);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -3280,9 +3282,26 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
+/* 木の行（.wiz-node）と同じ寸法: 字の大きさ、絵の位置（余白＋開閉の矢の 16px＋隙間） */
 .wiz-add {
-  margin: var(--sp-2) var(--sp-3) 0;
-  width: calc(100% - var(--sp-3) * 2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+  width: 100%;
+  padding-block: var(--sp-1);
+  padding-inline: calc(var(--sp-2) + 16px + var(--sp-1)) var(--sp-2);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-md);
+  text-align: start;
+  cursor: pointer;
+}
+.wiz-add:hover {
+  background: var(--surface-2);
+  color: var(--text);
 }
 .wizard-main {
   flex: 1;
@@ -3301,6 +3320,28 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   padding: var(--sp-2) var(--sp-3);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+}
+/* 上の帯の小さな操作（すべて選択・選択を解除）とコピー先の「変更」は、角張った OS 既定のボタンのままで、周りの
+   丸い部品の中で浮いていた（win2 の画面）。枠と角丸を周りとそろえる */
+.wizard-toolbar button,
+.wiz-dest-change {
+  padding: 3px var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.wizard-toolbar button:hover:not(:disabled),
+.wiz-dest-change:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.wizard-toolbar button:disabled,
+.wiz-dest-change:disabled {
+  color: var(--text-faint);
+  cursor: default;
 }
 .wiz-selected {
   margin-inline-start: auto;
@@ -3405,6 +3446,14 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   margin: auto;
   padding: var(--sp-6);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.wiz-empty-icon {
+  color: var(--text-faint);
+  opacity: 0.7;
 }
 .wizard-foot {
   flex: none;
@@ -3465,6 +3514,46 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: var(--sp-2);
   flex: none;
+}
+/* 取り込みの行き先のボタン。この画面でいちばん押してほしい物なので、他の小さな札より大きく、選んでいる間は藍で塗る。
+   まだ選んでいないとき（.nothing）は枠だけ（薄い灰の札と同じ顔で、目的地が見えなかった。デザインレビュー）。
+   字の太さは状態で変えない（選ぶたびにボタンの幅が跳ねた） */
+.wiz-actions button {
+  min-height: 32px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.wiz-actions button:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.wiz-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+/* 触れたら明るく（上の帯の取り込みと同じ。暗くすると、ダークで地の明るい藍に暗い字が読みにくくなった） */
+.wiz-actions button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.wiz-actions button:disabled {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: default;
+}
+/* 取り込みの最中（選んだまま押せない）は、塗ったまま薄くする——枠だけにすると「選んでいない」と同じ顔になった */
+.wiz-actions button.primary:disabled:not(.nothing) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  opacity: 0.55;
 }
 .wiz-progress {
   font-size: var(--fs-sm);
