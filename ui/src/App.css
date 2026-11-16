@@ -554,18 +554,21 @@ body {
   gap: var(--sp-1);
   padding: var(--sp-1);
 }
-/* 「参照…」を主動線にする（フォルダ選択ダイアログを開く）。手入力は下に控えとして残す */
-/* 「参照…」は左欄の行と同じ形（.nav-item）。ボタンの既定の枠と地は消す */
+/* 「参照…」（フォルダ選択ダイアログ）は左欄の行と同じ形（.nav-item）。手入力は下に控えとして残す。
+   `.add-folder button` の箱の装い（枠・地・余白・小さい字）をここで外し、行の寸法に戻す。`.add-folder` の内側の
+   余白ぶん外へ出して、ドライブの行と絵の位置をそろえる。押せない間は触れても変わらない */
 .add-folder .browse-folder {
-  width: 100%;
+  width: calc(100% + 2 * var(--sp-1));
+  margin-inline: calc(-1 * var(--sp-1));
+  padding: 0 var(--sp-2);
   border: none;
   background: transparent;
-  font-family: inherit;
+  font-size: var(--fs-md);
   text-align: start;
 }
-.add-folder .browse-folder:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--text);
+.add-folder .browse-folder:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
 }
 /* **釦は必ず次の行へ落とす**。ここは「何を入れる欄か」を置き字のパスだけで
    説明している場所なので、**入力欄が1行を丸ごと取れないと成立しない**。
@@ -1250,23 +1253,18 @@ body {
 .weekday.sat {
   color: var(--weekday-sat);
 }
+/* 写真の無い日は面を持たない——日付の数字だけ。写真のある日だけが「窓」になる（デザインレビュー: 灰色の升が月の
+   大半を埋め、読み込み中の骨組みに見えた。3 者とも挙げた。ごく薄い升を残す案と見比べて、利用者が数字だけを選んだ）。
+   地は写真のある日にだけ塗る（読み込み中の絵の下地） */
 .day-cell {
   position: relative;
   aspect-ratio: 1;
-  background: var(--surface-2);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
-.day-cell.empty {
-  background: transparent;
-}
-/* 写真の無い日は面を持たない——日付の数字だけ。写真のある日だけが「窓」になる（デザインレビュー: 灰色の升が月の
-   大半を埋め、読み込み中の骨組みに見えた。3 者とも挙げた。ごく薄い升を残す案と見比べて、利用者が数字だけを選んだ） */
-.day-cell:not(.has-photos):not(.empty) {
-  background: transparent;
-}
 .day-cell.has-photos {
   cursor: pointer;
+  background: var(--surface-2);
 }
 /* 写真のある日に乗せたときの枠。マスの outline は位置指定の写真（.day-thumb）の下に描かれ、内側の 2px が写真に
    隠れて「1px くらいしか違いが無い」になった（利用者、win2 の読み）。写真より上の ::after に描く */
