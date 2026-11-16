@@ -177,7 +177,7 @@ import {
 import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
-import { filterConditions, holdNoResults, joinConditions, typedQueryOf, TYPING_SETTLE_MS } from "./filterEmpty";
+import { filterConditions, joinConditions } from "./filterEmpty";
 import { asciiDateTokens, hasRtlText, inlineSign, isolateEach, isRtl, stepOfArrow } from "./direction";
 import { digitOf, letterOf, modDigitOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
@@ -313,6 +313,8 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
+/** 0件になってから、0件の見出しを出すまで（打ちかけの検索語で見出しを一瞬出さない。`emptyNoticeReady`） */
+const EMPTY_NOTICE_DELAY_MS = 600;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -2001,25 +2003,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     return () => window.clearTimeout(t);
   }, [queryInput, query]);
 
-  /**
-   * 検索欄に**打った**語と、手が止まったか（`holdNoResults`・`typedQueryOf`、filterEmpty.ts）。打鍵の
-   * ハンドラが、いまの字・変換中か・止まったかを**同じ描画で**決める（effect で後から立てると、
-   * 打った直後の1コマだけ前の値で見出しが出た。/code-review）。アプリが入れた語は `typedQueryOf` が見分ける
-   */
-  const [typing, setTyping] = useState<{ raw: string; composing: boolean; settled: boolean } | null>(null);
-  const settleTimerRef = useRef<number | null>(null);
-  const noteTyping = useCallback((raw: string, composing: boolean) => {
-    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
-    setTyping({ raw, composing, settled: false });
-    settleTimerRef.current = window.setTimeout(() => {
-      settleTimerRef.current = null;
-      setTyping((cur) => (cur && cur.raw === raw ? { ...cur, settled: true } : cur));
-    }, TYPING_SETTLE_MS);
-  }, []);
-  useEffect(() => () => {
-    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
-  }, []);
-
   // フィルタ・検索クエリの変更で骨組みを読み込み直す（初回はマウント時のeffectが行う）
   const filterInitRef = useRef(true);
   useEffect(() => {
@@ -2531,24 +2514,38 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * （`emptyReason`）と見つからないフォルダの知らせの抑止がそれに乗っている。混ぜると、
    * 絞り込んだだけで空のライブラリの理由を聞きに行き、知らせも消える。
    *
-   * 検索欄に打っている途中は出さない（`holdNoResults`。打ちかけの語は何にも当たらないことが多い）。
+   * 出し始めは少し遅らせる（下の `emptyNoticeReady`）。
    * `settled` は見ない——見出しは `summaryFor`（いま出ている答えが問うた絞り込み）から組むので、
    * 次の答えを待つ間も、出ている答えについて正しいことしか言わない。読み込みの失敗は上の
    * 「出せませんでした」に任せる。取り込み・走査・索引の途中は、あとで増えうるので一言添える
    * （`busy` は見ない。削除・書き出しでも立つ）
    */
-  const filterEmpty =
-    !holdNoResults({
-      typed: typedQueryOf(typing?.raw ?? null, queryInput, asciiDateTokens),
-      settled: typing?.settled ?? true,
-      composing: typing?.composing ?? false,
-      answered: summaryFor?.query ?? "",
-    }) &&
+  const filterEmptyNow =
     !showEmptyPanel &&
     !loadFailed &&
     summary.length === 0 &&
     summaryFor !== null &&
     (summaryFor.filter !== "all" || summaryFor.kind !== "all" || summaryFor.query !== "");
+  /**
+   * 0件の見出しは、0件のまま検索欄も [`EMPTY_NOTICE_DELAY_MS`] 動かなかったら**出す**（消すのは写真が出たときすぐ）。検索欄に1字ずつ打つと、
+   * 打ちかけの語（`year:202`・`kind:vi`——search.rs は読めない値を「何にも当たらない」にする）で
+   * 見出しが一瞬出た（win2）。出ている見出しは、0件から0件へ移る間（`summaryFor`）も、0件のまま打ち直す間も
+   * そのまま残る。打鍵や IME を追わず、出し始めだけを遅らせる（打った語とアプリが入れた語を見分ける作りは、
+   * レビューの周ごとに新しい穴が出た）
+   */
+  const [emptyNoticeReady, setEmptyNoticeReady] = useState(false);
+  useEffect(() => {
+    if (!filterEmptyNow) {
+      setEmptyNoticeReady(false);
+      return;
+    }
+    // 一度出たら、0件のあいだは打ち直しても出したまま（出したり消したりしない）
+    if (emptyNoticeReady) return;
+    // 検索欄が動くたびに数え直す——`year:` から `year:2023` まで打つ1秒ほどは、どの段も0件になりうる
+    const t = window.setTimeout(() => setEmptyNoticeReady(true), EMPTY_NOTICE_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [filterEmptyNow, emptyNoticeReady, queryInput]);
+  const filterEmpty = filterEmptyNow && emptyNoticeReady;
   // 一言は取り込み・索引の合図だけで決める——`busy` は削除・書き出しでも立つ（ゲート2）
   const filterEmptyMayGrow = !scanSettled || indexProgress?.building === true;
   /**
@@ -8347,12 +8344,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             placeholder={t.searchPlaceholder}
             id="pk-search" data-testid="search"
             value={queryInput}
-            onChange={(e) => {
-              // 打った語として覚える（打ちかけの語で0件の見出しを出さない。`holdNoResults`）
-              noteTyping(e.target.value, (e.nativeEvent as InputEvent).isComposing === true);
-              setQueryInput(e.target.value);
-            }}
-            onCompositionEnd={(e) => noteTyping(e.currentTarget.value, false)}
+            onChange={(e) => setQueryInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setQueryInput("");

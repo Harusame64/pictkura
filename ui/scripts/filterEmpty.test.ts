@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { cameraOnly, filterConditions, holdNoResults, joinConditions, typedQueryOf } from "../src/filterEmpty.ts";
+import { cameraOnly, filterConditions, joinConditions } from "../src/filterEmpty.ts";
 import { ja } from "../src/i18n/ja.ts";
 import { en } from "../src/i18n/en.ts";
 import type { Dict } from "../src/i18n/ja.ts";
@@ -81,28 +81,4 @@ test("つなぎ方は nameList と同じ: 3つまで出し、残りは数で言�
   assert.equal(joinConditions(["a"], ", ", " ", more, 6), "a +5");
   // 名前が1つも無ければ、区切りを頭に付けない
   assert.equal(joinConditions([], ", ", ", ", more, 5), "+5");
-});
-
-test("打っている途中は0件の見出しを出さない（打ちかけの year:202 で一瞬出た）", () => {
-  const base = { typed: "year:202", settled: true, composing: false, answered: "year:202" };
-  // 打ち終えて答えが届いた → 出す（打ち間違いには今までどおり気付ける）
-  assert.equal(holdNoResults(base), false);
-  // 手が止まる前・変換中 → 出さない
-  assert.equal(holdNoResults({ ...base, settled: false }), true);
-  assert.equal(holdNoResults({ ...base, composing: true }), true);
-  // 打った語への答えがまだ（打ちかけの語への答えが出ている） → 出さない
-  assert.equal(holdNoResults({ ...base, typed: "year:2023" }), true);
-  // アプリが入れた語（検索を消す・左のカメラ）では止めない——0件から0件へ移る間も見出しを落とさない
-  assert.equal(holdNoResults({ typed: null, settled: false, composing: false, answered: "foo" }), false);
-});
-
-test("打った語かどうかは、最後の打鍵の字といまの検索欄が同じかで決める", () => {
-  const norm = (q: string) => q.toUpperCase();
-  // 打った直後: 同じ字 → 打った語（問い合わせに送る形）
-  assert.equal(typedQueryOf("year:202 ", "year:202 ", norm), "YEAR:202");
-  // その後にアプリが語を入れた（検索を消す・左のカメラ・パレット） → 打っていない
-  assert.equal(typedQueryOf("year:202", "", norm), null);
-  assert.equal(typedQueryOf("foo", 'camera:"X"', norm), null);
-  // 一度も打っていない
-  assert.equal(typedQueryOf(null, "foo", norm), null);
 });
