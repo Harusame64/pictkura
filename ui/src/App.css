@@ -3676,6 +3676,7 @@ body {
   padding: 6px var(--sp-3);
   background: var(--accent-soft);
   border-bottom: 1px solid var(--border);
+  container: selectbar / inline-size;
 }
 .select-bar-count {
   font-weight: 700;
@@ -3699,6 +3700,13 @@ body {
   justify-content: flex-end;
   gap: var(--sp-2);
   flex: 1;
+}
+/* 帯が狭いときは塊をほどき、ボタンを左から順に流す。塊のまま折ると、左の組の右の残り幅で折れて 3 段になった
+   （仏語 853px。win2 の画面）。ほどけば帯の全幅で折れて 2 段に収まる */
+@container selectbar (max-width: 1100px) {
+  .select-actions {
+    display: contents;
+  }
 }
 .select-bar button {
   padding: 4px 10px;
