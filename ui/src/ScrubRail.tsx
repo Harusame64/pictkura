@@ -5,6 +5,7 @@ import { year } from "./i18n/plural.ts";
 import {
   dayKeyAt,
   fractionAt,
+  landingTop,
   monthDots,
   monthIndexAt,
   monthStarts,
@@ -89,6 +90,7 @@ export function ScrubRail({
   dayKeys,
   onJumpToRow,
   monthCounts,
+  jumpTops,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>;
   /** 各行の上端の累積（末尾は総高さ） */
@@ -98,6 +100,11 @@ export function ScrubRail({
   onJumpToRow: (rowIndex: number) => void;
   /** 月（yyyymm）ごとの枚数。月の一覧で、押す先の月に添える */
   monthCounts: ReadonlyMap<number, number>;
+  /**
+   * 各行の、飛んだときに着く位置（`rowTops` と同じ並び）。少ない日を並べた行では、行の中の日の `rowTops` は行の途中を
+   * 指すので、月へ飛ぶときはこちら（行の上端）に着く（`landingTop`）。省けば `rowTops` のまま
+   */
+  jumpTops?: readonly number[];
 }) {
   const railRef = useRef<HTMLDivElement>(null);
   const total = rowTops[rowTops.length - 1] ?? 0;
@@ -395,7 +402,7 @@ export function ScrubRail({
     const el = scrollRef.current;
     const x = m ? starts.find((s) => s.month === m.month) : undefined;
     if (x && el) {
-      el.scrollTop = Math.min(x.offset, Math.max(0, total - el.clientHeight));
+      el.scrollTop = Math.min(landingTop(x.offset, rowTops, jumpTops), Math.max(0, total - el.clientHeight));
     }
     setMenu(null);
     dialAnchor.current = null;
@@ -459,9 +466,26 @@ export function ScrubRail({
         let target: number | null = null;
         // ↑ は、月の途中にいるならまず今の月の頭へ（PageUp と同じ）。↓・PageDown は、最後の月・年ではいちばん下へ
         // （頭へ戻すと「下へ」のキーで上へ動いた。/code-review）
-        if (e.key === "ArrowUp")
-          target = starts[cur].offset < el.scrollTop - 1 ? starts[cur].offset : starts[Math.max(0, cur - 1)].offset;
-        else if (e.key === "ArrowDown") target = cur + 1 < starts.length ? starts[cur + 1].offset : total;
+        // 着地は行の上端（`landingTop`）。並べた行に同居する月は同じ所に着くので、実際に動く月まで送る——そのまま
+        // 次の月へ送ると、同じ行の2つ目の月で位置が変わらず、↓が止まって見えた
+        const land = (k: number) => landingTop(starts[k].offset, rowTops, jumpTops);
+        if (e.key === "ArrowUp") {
+          target = 0;
+          for (let k = cur; k >= 0; k--) {
+            if (land(k) < el.scrollTop - 1) {
+              target = land(k);
+              break;
+            }
+          }
+        } else if (e.key === "ArrowDown") {
+          target = total;
+          for (let k = cur + 1; k < starts.length; k++) {
+            if (land(k) > el.scrollTop + 1) {
+              target = land(k);
+              break;
+            }
+          }
+        }
         else if (e.key === "PageUp") {
           // 新しい側の年の頭へ。今の年の途中にいるなら、まず今の年の頭へ
           const head = starts[yearHeads[h]].offset;
@@ -653,7 +677,7 @@ export function ScrubRail({
                     onClick={() => {
                       const el = scrollRef.current;
                       if (el && offset !== undefined)
-                        el.scrollTop = Math.min(offset, Math.max(0, total - el.clientHeight));
+                        el.scrollTop = Math.min(landingTop(offset, rowTops, jumpTops), Math.max(0, total - el.clientHeight));
                       setCard(null);
                     }}
                   >

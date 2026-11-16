@@ -14,6 +14,7 @@ import {
   monthDots,
   monthIndexAt,
   monthStarts,
+  landingTop,
 } from "../src/scrubRailMath.ts";
 
 test("a point on the rail maps to the same fraction of the content, held to the ends", () => {
@@ -127,4 +128,38 @@ test("the year on screen always gets its label, and its crowded neighbours give 
   const spans = [1, 1, 50];
   assert.deepEqual(chooseLabels(tops, spans, 4), [false, false, true]);
   assert.deepEqual(chooseLabels(tops, spans, 4, 1), [false, true, false]);
+});
+
+test("a month inside a packed row lands on the row's top, not part-way down it", () => {
+  // 行 0（上端 0、高さ 224）に 3 日を並べ、行の高さを日の数で割ってずらしてある。行 1 は 224 から
+  const tops = [0, 74.67, 149.33, 224, 400];
+  const jumpTops = [0, 0, 0, 224, 400];
+  assert.equal(landingTop(149.33, tops, jumpTops), 0);
+  assert.equal(landingTop(74.67, tops, jumpTops), 0);
+  assert.equal(landingTop(224, tops, jumpTops), 224);
+  // 渡されなければ位置そのもの
+  assert.equal(landingTop(149.33, tops), 149.33);
+});
+
+test("anchoring lands on a packed row's top, not part-way down it", () => {
+  // 2 日が別々の行（見出し＋写真）→ 1000 から始まる 1 つの並べた行（高さ 264）へ
+  const prevTops = [1000, 1040, 1224, 1264, 1448];
+  const prevDays = [20251227, 20251227, 20251225, 20251225];
+  const nextTops = [1000, 1000, 1264];
+  const nextDays = [20251227, 20251225];
+  // 2日目の見出しが上端にあった → 並べた行の頭へ（行の途中の 1112 ではない）
+  assert.equal(anchoredScrollTop(1224, prevTops, prevDays, nextTops, nextDays), 1000);
+  // 1日目の見出しが上端 → そのまま
+  assert.equal(anchoredScrollTop(1000, prevTops, prevDays, nextTops, nextDays), 1000);
+});
+
+test("anchoring inside a packed row keeps the offset into the row", () => {
+  // 並べた行（1000〜1264）の 200px 入った所。同じ上端の日は行の頭の日で見て、高さは行の高さ
+  const tops = [1000, 1000, 1264];
+  const days = [20251227, 20251225];
+  assert.equal(anchoredScrollTop(1200, tops, days, tops, days), 1200);
+  // 並べるのを切ると、頭の日（12/27）の 200px 入った所へ
+  const offTops = [1000, 1040, 1224, 1264, 1448];
+  const offDays = [20251227, 20251227, 20251225, 20251225];
+  assert.equal(anchoredScrollTop(1200, tops, days, offTops, offDays), 1200);
 });

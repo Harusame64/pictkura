@@ -73,6 +73,7 @@ export const zh: Dict = {
   importFromUsb: "从 USB 导入",
   rescan: "重新扫描",
   size: "大小",
+  packDays: "将照片少的日期并排显示",
   /**
    * 一覧の件数。**数と単位を1つのキーにする**（2026-09-02、ゲート2の指摘）。
    * 呼ぶ側で `${formatNumber(n)} {t.itemsSuffix}` と組んでいたので、

@@ -62,6 +62,7 @@ export const pt: Dict = {
   importFromUsb: "Importar de USB",
   rescan: "Atualizar",
   size: "Tamanho",
+  packDays: "Agrupar em uma linha os dias com poucas fotos",
   itemsCount: (n: number) => `${num(n)} ${one(n, "item", "itens")}`,
   navPlaces: "Locais",
   navAllPhotos: "Todas as fotos",
