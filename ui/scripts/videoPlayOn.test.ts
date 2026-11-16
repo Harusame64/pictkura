@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { afterVideoEnded, isVideoOnlyFullscreen, scopeStartIndex } from "../src/videoPlayOn.ts";
+import { afterVideoEnded, isVideoOnlyFullscreen, nextScopeIndex, scopeStartIndex } from "../src/videoPlayOn.ts";
 
 const filtered = { playing: false, videosOnly: true, inScope: false, curtainUp: false, nextIsVideo: () => true };
 
@@ -77,4 +77,14 @@ test("only a video element in full screen is moved to the window's full screen",
   for (const el of [{ tagName: "HTML" }, { tagName: "DIV" }, null, undefined]) {
     assert.equal(isVideoOnlyFullscreen(el), false, String(el?.tagName));
   }
+});
+
+test("walking a selection skips seats that are gone, the same for moving and for checking what comes next", () => {
+  // 0: 動画, 1: 消えた動画, 2: 写真, 3: 動画
+  const gone = (k: number) => k === 1;
+  assert.equal(nextScopeIndex(4, 0, 1, gone), 2, "消えた席を飛ばして写真へ");
+  assert.equal(nextScopeIndex(4, 2, -1, gone), 0);
+  assert.equal(nextScopeIndex(4, 3, 1, gone), -1, "端");
+  assert.equal(nextScopeIndex(4, 0, -1, gone), -1, "端");
+  assert.equal(nextScopeIndex(4, 1, 1, () => true), -1, "みな消えた");
 });

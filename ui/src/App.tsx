@@ -36,7 +36,7 @@ import { rankOsApps, suitsFile } from "./openWithApps";
 import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
-import { afterVideoEnded, isVideoOnlyFullscreen, scopeStartIndex, type ViewerDir } from "./videoPlayOn";
+import { afterVideoEnded, isVideoOnlyFullscreen, nextScopeIndex, scopeStartIndex, type ViewerDir } from "./videoPlayOn";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
@@ -4203,6 +4203,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
    * 同じ扱い。2026-11-16 利用者の選択）
    */
   const lastMoveDirRef = useRef<ViewerDir | null>(null);
+  /** 選んだものの列の席 `k` が、一覧から消えているか（読めた日に居ない。未取得の日は居る側。`nextScopeIndex`） */
+  const scopeGone = useCallback(
+    (k: number) => {
+      const at = viewerScope?.[k];
+      if (!at) return true;
+      const dayList = viewerDayItems.get(at.day_key);
+      return !!dayList && !dayList.some((x) => x.id === at.id);
+    },
+    [viewerScope, viewerDayItems],
+  );
   /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
@@ -4223,16 +4233,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         // **一覧から消えた席は飛ばす**（ゲート2のP2）。⚑を外した・消したものが
         // 列には残っているので、そこへ歩くと行き止まりになる。
         // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
-        for (
-          let k = scopeIdx + dir;
-          k >= 0 && k < viewerScope.length;
-          k += dir
-        ) {
+        const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
+        if (k >= 0) {
           const at = viewerScope[k];
-          const dayList = viewerDayItems.get(at.day_key);
-          if (dayList && !dayList.some((x) => x.id === at.id)) continue;
           // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
-          if (!dayList && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
+          if (!viewerDayItems.get(at.day_key) && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
           go({ dayKey: at.day_key, id: at.id });
           return;
         }
@@ -4263,7 +4268,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         go({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav, scopeGone],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -9305,8 +9310,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     // 選んだ物ではないので数えない
                     inScope: viewerScope !== null && outsideItems === null,
                     curtainUp,
-                    nextIsVideo: (dir) =>
-                      scopeIdx !== undefined && viewerScope?.[scopeIdx + dir]?.is_video === true,
+                    // 送りと同じ歩き方で着く先を見る（消えた席は飛ばす。`nextScopeIndex`）
+                    nextIsVideo: (dir) => {
+                      if (!viewerScope || scopeIdx === undefined) return false;
+                      const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
+                      return k >= 0 && viewerScope[k].is_video;
+                    },
                   });
                   if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);
                 }}

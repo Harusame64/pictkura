@@ -34,6 +34,20 @@ export function afterVideoEnded(s: {
 }
 
 /**
+ * 選んだものの列で、`from` から `dir` の向きに歩いて着く位置（着く先が無ければ -1）。**一覧から消えた席は飛ばす**
+ * ——⚑を外した・消したものが列には残っている。`gone` はその席が読めた日に居ないか（未取得の日は居る側に倒す）。
+ * ビューアの送り（`moveViewer`）と、動画が終わったときの「次は動画か」（`afterVideoEnded` の `nextIsVideo`）が同じ
+ * 歩き方をするように、ここに1つだけ置く（別々に書くと、送りは消えた動画を飛ばして写真へ着くのに、確かめる側は
+ * 消えた動画を見て「動画」と答えた。PR の codex）
+ */
+export function nextScopeIndex(length: number, from: number, dir: ViewerDir, gone: (k: number) => boolean): number {
+  for (let k = from + dir; k >= 0 && k < length; k += dir) {
+    if (!gone(k)) return k;
+  }
+  return -1;
+}
+
+/**
  * 選んだものだけで開くときの最初の1枚の位置（列は一覧と同じ新しい順）。**選んだのが動画だけなら、いちばん古い
  * もの**——撮った順に続けて流すので、新しい端から開くと何も流れずに終わる。写真が混じれば今までどおり先頭
  */
