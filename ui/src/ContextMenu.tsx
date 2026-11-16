@@ -1,6 +1,18 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { answerKey, useWindowEvent } from "./useWindowEvent";
 import { isRtl } from "./direction";
+import { menuMoveIndex } from "./menuMove";
+
+/**
+ * 直前の操作がキーボードだったか（メニューを開いたときに、フォーカスのある行を最初から示すかを決める）。
+ * Shift+F10・メニューキーで開いた・Enter で入れ子を開いたときは示す、マウスで開いたときは示さない（OS のメニューと
+ * 同じ）。捕まえ口は1度だけ張る
+ */
+let lastInputWasKey = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", () => (lastInputWasKey = true), { capture: true });
+  window.addEventListener("pointerdown", () => (lastInputWasKey = false), { capture: true });
+}
 
 /** 右クリックメニューの1項目。`separator` の前に区切り線を引く */
 export type MenuItem = {
@@ -70,14 +82,27 @@ export default function ContextMenu({
   });
   useWindowEvent("click", pos !== null, () => onClose());
 
-  // **開いたら先頭の項目へフォーカスを移し、閉じたら元へ戻す**。メニューとして名乗る（role="menu"）と、読み上げは
+  // **開いたらメニューの中へフォーカスを移し（キーで開いたら先頭の項目、マウスならメニューそのもの）、閉じたら元へ戻す**。メニューとして名乗る（role="menu"）と、読み上げは
   // 上下の矢印で項目を動く前提で入ってくる——フォーカスが後ろに残ったままだと項目へ届かない（pictkura-dev #65 の
   // ゲート2）
   const isOpen = pos !== null;
+  /**
+   * いまキーで動いているか。キーなら、フォーカスのある行をホバーと同じ地で示し、止まった指の下のホバーは消す
+   * （`.context-menu.keys`）。マウスなら、指の下の行だけを光らせる——どちらでも光る行は1つ。開くと先頭へフォーカスを
+   * 移すので、ブラウザ既定の輪が「開く」に毎回付いていた（ダークでは暗い面に暗い輪で、どこにいるか分からなかった。
+   * win2）。開いたときの値は、直前の操作がキーボードだったか
+   */
+  const [keys, setKeys] = useState(false);
   useLayoutEffect(() => {
     if (!isOpen) return;
+    const byKey = lastInputWasKey;
+    setKeys(byKey);
     const before = document.activeElement;
-    ref.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true });
+    // キーで開いたら先頭の項目へ（読み上げはここから入る）。マウスで開いたら、メニューそのものへ——光らないまま
+    // 先頭に乗せると、最初の ↓ が2番目へ飛んで見えた（win2）。メニューで ↓ を受けて先頭から動ける
+    (byKey ? ref.current?.querySelector<HTMLElement>('[role^="menuitem"]') : ref.current)?.focus({
+      preventScroll: true,
+    });
     return () => {
       // 後ろが inert になっていたら（項目が幕を開いた）戻さない——幕が閉じるときに App が戻す
       if (before instanceof HTMLElement && before.isConnected && !before.closest("[inert]")) {
@@ -92,19 +117,13 @@ export default function ContextMenu({
       onClose();
       return;
     }
-    const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
-    if (!keys.includes(e.key)) return;
     const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
-    if (list.length === 0) return;
+    const at = list.indexOf(document.activeElement as HTMLElement);
+    const next = menuMoveIndex(e.key, at, list.length);
+    if (next === null) return;
+    setKeys(true);
     e.preventDefault();
     e.stopPropagation();
-    const at = list.indexOf(document.activeElement as HTMLElement);
-    const next =
-      e.key === "Home"
-        ? 0
-        : e.key === "End"
-          ? list.length - 1
-          : (at + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
     list[next].focus({ preventScroll: true });
   };
   // スクロールやリサイズで位置がずれるくらいなら閉じる
@@ -115,12 +134,15 @@ export default function ContextMenu({
   return (
     <div
       ref={ref}
-      className="context-menu"
+      className={"context-menu" + (keys ? " keys" : "")}
       // メニューとして見せる（UI Automation の Menu／MenuItem。pictkura-dev #65）
       role="menu"
       id="pk-context-menu"
       data-testid="context-menu"
       onKeyDown={onMenuKey}
+      // 指が項目から外れたら、フォーカスはメニューそのものへ（光っていない行が Enter で動かないように。/code-review）。
+      // 矢印はメニューで受けるので、そこから続けて動ける
+      tabIndex={-1}
       style={{ left: adjusted?.x ?? pos.x, top: adjusted?.y ?? pos.y }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
@@ -135,6 +157,14 @@ export default function ContextMenu({
             data-testid={item.id ? `menu-${item.id}` : undefined}
             className={"context-item" + (item.danger ? " danger" : "") + (item.hint ? " has-hint" : "")}
             aria-keyshortcuts={item.keys}
+            // 指の下の行へフォーカスも移す——光る行がいつも1つになり、マウスからキーへ移っても続きから動ける
+            onMouseMove={(e) => {
+              if (keys) setKeys(false);
+              if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true });
+            }}
+            onMouseLeave={(e) => {
+              if (!keys && document.activeElement === e.currentTarget) ref.current?.focus({ preventScroll: true });
+            }}
             onClick={() => {
               onClose();
               item.run();
