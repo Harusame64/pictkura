@@ -9631,29 +9631,43 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           )}
           {infoOpen && (
             <div className="exif-panel" onClick={(e) => e.stopPropagation()}>
-              {/* ファイルの節は DB の値（ADR の A）。撮影情報の節は今どおり開くたびにファイルを読む。
-                  ライブラリの外の写真（負の id）は記録が無いので、ファイルの節を出さない（「読み込み中」のまま
-                  止まっていた。codex） */}
-              {viewerItem.id >= 0 && <div className="exif-title">{t.fileInfoTitle}</div>}
-              {viewerItem.id >= 0 && (() => {
-                const v = viewerFileInfos.get(viewerItem.id);
-                if (v === undefined) return <div className="exif-row">{t.loading}</div>;
-                if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
-                return <FileInfoRows info={v} />;
-              })()}
+              {/* **撮影情報を先に、露出の 4 つを大きく 1 段に**（2026-11-16 デザインレビュー: 写真好きがいちばん見たい
+                  焦点距離・絞り・シャッター・ISO が表の下半分に埋もれていた。カメラの液晶のように上に並べる）。
+                  ファイルの節は後ろ。値は DB（ADR の A）。撮影情報は今どおり開くたびにファイルを読む */}
               <div className="exif-title">{t.exifTitle}</div>
               {exif === null ? (
                 <div className="exif-row">{t.loading}</div>
               ) : (
                 <>
+                  {(exif.focal || exif.aperture || exif.shutter || exif.iso) && (
+                    <div className="exif-hero" role="group" aria-label={t.exifTitle}>
+                      {(
+                        [
+                          [t.exifFocal, exif.focal],
+                          [t.exifAperture, exif.aperture],
+                          [t.exifShutter, exif.shutter],
+                          [t.exifIso, exif.iso],
+                        ] as const
+                      ).map(([label, value]) =>
+                        value ? (
+                          // 単位の付く 3 つは数だけで読める。ISO は数だけだと何の数か分からないので、札を小さく前に置く。
+                          // ほかの札は title と読み上げに残す
+                          <span className="exif-hero-item" key={label} title={label}>
+                            {label === t.exifIso ? (
+                              <span className="exif-hero-unit">{label} </span>
+                            ) : (
+                              <span className="sr-only">{label} </span>
+                            )}
+                            <span className="name">{value}</span>
+                          </span>
+                        ) : null,
+                      )}
+                    </div>
+                  )}
                   {(
                     [
                       [t.exifCamera, exif.camera],
                       [t.exifLens, exif.lens],
-                      [t.exifAperture, exif.aperture],
-                      [t.exifShutter, exif.shutter],
-                      [t.exifIso, exif.iso],
-                      [t.exifFocal, exif.focal],
                     ] as const
                   ).map(([label, value]) =>
                     value ? (
@@ -9688,6 +9702,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     )}
                 </>
               )}
+              {/* ライブラリの外の写真（負の id）は記録が無いので、ファイルの節を出さない（「読み込み中」のまま止まっていた。codex） */}
+              {viewerItem.id >= 0 && <div className="exif-title">{t.fileInfoTitle}</div>}
+              {viewerItem.id >= 0 && (() => {
+                const v = viewerFileInfos.get(viewerItem.id);
+                if (v === undefined) return <div className="exif-row">{t.loading}</div>;
+                if (typeof v === "string") return <div className="exif-row file-info-error">{v}</div>;
+                return <FileInfoRows info={v} />;
+              })()}
             </div>
           )}
           {/* mac: ビューアの間も窓をつかんで動かせる上の細い帯（窓の題の帯が無いので）。写真より上・道具より下に置く
