@@ -150,6 +150,18 @@ export function anchoredScrollTop(
   return nextTops[j] + Math.min(delta, Math.max(0, dayHeight - 1));
 }
 
+/**
+ * 帯の上の位置（`tops` の中の値）から、着地する中身の位置。少ない日を並べた行（App.tsx の `pack`）では、行の中の日に
+ * 行の高さを割ってずらした位置を与えている（帯の月の区間を 0 にしないため）。そのまま `scrollTop` に置くと、行の
+ * 2日目以降の月へ飛んだとき、行の途中に着いて見出しが隠れた（PR の codex）。`jumpTops` は同じ並びの、行の本当の上端。
+ * 渡されなければ位置そのもの
+ */
+export function landingTop(offset: number, tops: readonly number[], jumpTops?: readonly number[]): number {
+  if (!jumpTops || tops.length === 0) return offset;
+  const i = indexAt(offset, tops, tops.length);
+  return Math.min(offset, jumpTops[i] ?? offset);
+}
+
 function indexAt(offset: number, tops: readonly number[], n: number): number {
   let lo = 0;
   let hi = n - 1;

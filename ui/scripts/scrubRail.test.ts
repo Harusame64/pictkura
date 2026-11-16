@@ -14,6 +14,7 @@ import {
   monthDots,
   monthIndexAt,
   monthStarts,
+  landingTop,
 } from "../src/scrubRailMath.ts";
 
 test("a point on the rail maps to the same fraction of the content, held to the ends", () => {
@@ -127,4 +128,15 @@ test("the year on screen always gets its label, and its crowded neighbours give 
   const spans = [1, 1, 50];
   assert.deepEqual(chooseLabels(tops, spans, 4), [false, false, true]);
   assert.deepEqual(chooseLabels(tops, spans, 4, 1), [false, true, false]);
+});
+
+test("a month inside a packed row lands on the row's top, not part-way down it", () => {
+  // 行 0（上端 0、高さ 224）に 3 日を並べ、行の高さを日の数で割ってずらしてある。行 1 は 224 から
+  const tops = [0, 74.67, 149.33, 224, 400];
+  const jumpTops = [0, 0, 0, 224, 400];
+  assert.equal(landingTop(149.33, tops, jumpTops), 0);
+  assert.equal(landingTop(74.67, tops, jumpTops), 0);
+  assert.equal(landingTop(224, tops, jumpTops), 224);
+  // 渡されなければ位置そのもの
+  assert.equal(landingTop(149.33, tops), 149.33);
 });

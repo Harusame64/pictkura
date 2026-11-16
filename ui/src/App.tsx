@@ -8881,6 +8881,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 scrollRef={scrollRef}
                 rowTops={dayRows.tops}
                 dayKeys={dayRows.days}
+                jumpTops={dayRows.jumpTops}
                 monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
