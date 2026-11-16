@@ -587,6 +587,8 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-1);
+  /* 「参照…」の行と同じく、`.add-folder` の内側の余白ぶん外へ出して、左端を上の行の地とそろえる */
+  margin-inline: calc(-1 * var(--sp-1));
 }
 .add-folder input {
   flex: 1 1 100%;
@@ -599,6 +601,10 @@ body {
   color: var(--text);
   font-family: inherit;
   font-size: var(--fs-sm);
+}
+/* 触れたら枠が出る（休んでいる間は枠なし） */
+.add-folder input:hover {
+  border-color: var(--border);
 }
 .add-folder input:focus {
   outline: none;
