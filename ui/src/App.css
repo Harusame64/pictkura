@@ -240,10 +240,58 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text-faint);
   font-size: var(--fs-sm);
 }
+/* 写真の大きさのつまみは道具であって「選んでいる物」ではないので、アクセントで光らせない。
+   OS 標準のつまみは立体の丸で、mac の WebView では Tab で来ても輪が出なかったので、平らな丸を自前で描く。
+   左の濃い側の長さは App.tsx が --fill で渡す */
 .slider input[type="range"] {
-  /* 写真の大きさのつまみは道具であって「選んでいる物」ではないので、アクセントで光らせない */
-  accent-color: var(--text-muted);
+  -webkit-appearance: none;
+  appearance: none;
   width: 96px;
+  height: 16px;
+  margin: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  cursor: pointer;
+}
+.slider input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  /* 濃い側は行の頭から（右→左では右から。90deg に --inline-sign を掛けて向きを映す） */
+  background: linear-gradient(
+    calc(90deg * var(--inline-sign)),
+    var(--text-muted) 0 var(--fill, 50%),
+    var(--border-strong) var(--fill, 50%) 100%
+  );
+}
+.slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-1);
+}
+.slider input[type="range"]:hover::-webkit-slider-thumb {
+  border-color: var(--text-muted);
+}
+/* ハイコントラスト（Windows）ではグラデーションが消されて溝が無くなるので、システムの色で塗り直す */
+@media (forced-colors: active) {
+  .slider input[type="range"]::-webkit-slider-runnable-track {
+    forced-color-adjust: none;
+    background: linear-gradient(
+      calc(90deg * var(--inline-sign)),
+      Highlight 0 var(--fill, 50%),
+      GrayText var(--fill, 50%) 100%
+    );
+  }
+  .slider input[type="range"]::-webkit-slider-thumb {
+    forced-color-adjust: none;
+    background: Canvas;
+    border-color: CanvasText;
+  }
 }
 .status {
   margin-inline-start: auto;
@@ -329,6 +377,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   font-weight: 600;
   box-shadow: var(--shadow-1);
+}
+/* Tab で来たときは影を消して輪だけにする（白い札の影と藍の輪が二重に見えた） */
+.view-switch button:focus-visible {
+  box-shadow: none;
 }
 
 /* 左の「種類」の切り替え（上の表示の切り替えと同じ形）。札は中身の幅を基準に、余りを分け合う——等分だと
@@ -588,14 +640,14 @@ input[type="range"]:focus-visible {
 .wiz-node.active::before {
   content: "";
   position: absolute;
-  /* 低い行（取り込みの木は 25px）でも、角丸（6px）の弧と離れるように */
+  /* 低い行でも、角丸（6px）の弧と離れるように */
   inset-block: max(25%, 7px);
   inset-inline-start: 2px;
   width: 3px;
   border-radius: var(--radius-full);
   background: var(--accent);
 }
-/* 左欄は字が行の端から 8px で始まる（絵が無い）ので、棒を端まで寄せて字から離す（くっついて見えた。win2） */
+/* 左欄は行の頭の余白が 8px しかない（取り込みの木のような開閉の矢が無い）ので、棒を端まで寄せて中身から離す（くっついて見えた。win2） */
 .nav-item.active::before {
   inset-inline-start: 0;
 }
@@ -653,7 +705,8 @@ input[type="range"]:focus-visible {
   background: var(--surface-2);
 }
 .drive-icon,
-.camera-icon {
+.camera-icon,
+.nav-icon {
   flex: none;
   display: flex;
 }
@@ -1094,6 +1147,22 @@ input[type="range"]:focus-visible {
 }
 .scrub-card-month:active:not(:disabled) {
   transform: scale(0.97);
+}
+/* いま一覧で見ている月（現在地なので藍。tokens.css の方針） */
+.scrub-card-month.here {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  font-weight: 600;
+}
+/* キーボードで来たときは、内側の輪を消して外の輪（button:focus-visible）だけにする——藍の輪が二重になった。太字は残る */
+.scrub-card-month.here:focus-visible {
+  box-shadow: none;
+}
+/* ハイコントラスト（Windows）では影が消されるので、いまの月の輪を枠線で残す */
+@media (forced-colors: active) {
+  .scrub-card-month.here {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 .scrub-card-month:disabled {
   background: none;
@@ -3500,18 +3569,21 @@ input[type="range"]:focus-visible {
   overflow-y: auto;
   padding-bottom: var(--sp-3);
 }
+/* 見出しと行は左の欄（.nav-section・.nav-item）と同じ寸法——同じドライブが2か所で違って見えた */
 .wiz-tree-head {
   padding: var(--sp-3) var(--sp-3) var(--sp-1);
   font-size: var(--fs-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   color: var(--text-faint);
 }
 .wiz-node {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
+  min-height: 30px;
+  padding: 0 var(--sp-2);
+  margin-block: 1px;
   /* 触れた・選んだときの地は、左欄の行と同じ形（行の角丸・木の枠から少し内側）。端から端までの直角の地だった（win2） */
   margin-inline: var(--sp-1);
   border-radius: var(--radius-row);
@@ -3519,6 +3591,16 @@ input[type="range"]:focus-visible {
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
+}
+/* キーボードで来たときの輪は、中のフォルダ名（押せる span）ではなく角丸の行に出す。名前の箱に直角で付いていた */
+@supports selector(:has(*)) {
+  .wiz-node .wiz-name:focus-visible {
+    outline: none;
+  }
+  .wiz-node:has(> .wiz-name:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
 }
 .wiz-node:hover {
   background: var(--surface-2);
@@ -3550,6 +3632,7 @@ input[type="range"]:focus-visible {
   font-size: var(--fs-sm);
   line-height: 1;
   padding: 0;
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 /* 閉じた枝の ▸ は鏡像文字ではないので、右→左では裏返して子の側（左）へ向ける */
@@ -3587,7 +3670,8 @@ input[type="range"]:focus-visible {
   margin-inline: var(--sp-1);
   border-radius: var(--radius-row);
   width: calc(100% - 2 * var(--sp-1));
-  padding-block: var(--sp-1);
+  min-height: 30px;
+  padding-block: 0;
   padding-inline: calc(var(--sp-2) + 16px + var(--sp-1)) var(--sp-2);
   border: none;
   background: transparent;
