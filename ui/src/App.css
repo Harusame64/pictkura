@@ -12,6 +12,21 @@ body,
   height: 100%;
   margin: 0;
 }
+/* スクロールバーは溝を描かず、つまみは字の色を混ぜたもの（tokens.css の --scroll-thumb。テーマで割合が違う）。Windows
+   （WebView2）は既定で明るい灰色の太い帯を描き、ダークのパレットや設定で選んだ行より目を引いた（win2）。細くする
+   （15px → 10px）。WebView2 は細くしても上下の矢印を描き、掴んで動かせる（win2 の実機）。mac は重ねて出る細い棒のまま。
+   **scrollbar-color を指定した所では、Chromium は ::-webkit-scrollbar の指定を見ない**（継承するので全体がそう） */
+:root {
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+* {
+  scrollbar-width: thin;
+}
+/* ビューアはテーマに依らず暗い地なので、つまみも明るい側に固定する（情報パネルなど・ビューアだけの窓の外側） */
+.viewer,
+html.viewer-only {
+  scrollbar-color: var(--viewer-scroll-thumb) transparent;
+}
 /* `<code>` の既定。ブラウザ既定の `monospace` に任せると、日本語の Windows で `¥` に化ける
    （`tokens.css` の `--font-mono`）。`<code>` の書体はここだけで決める（個別の規則に書き写さない）。
    `<code>` でない等幅（`.fallback-path` の `<p>`、名前の型の入力欄）だけが自分で読む。
