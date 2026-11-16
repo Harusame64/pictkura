@@ -2629,6 +2629,24 @@ impl Db {
         Ok(out)
     }
 
+    /// SPIKE（ThumbHash の代わり絵）: 全件の (id, day_key, 幅, 高さ) を表示順で。マージしない
+    pub fn spike_light_rows(&self) -> Result<Vec<(i64, i64, i64, i64)>, DbError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {MEDIA_COLUMNS} FROM media ORDER BY day_key DESC, {SORT_TS} DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map([], Self::row_to_record)?;
+        let mut out = Vec::new();
+        for row in rows {
+            let r = row?;
+            let (w, h) = match (r.preview_width.or(r.width), r.preview_height.or(r.height)) {
+                (Some(w), Some(h)) if w > 0 && h > 0 => (w, h),
+                _ => (3, 2),
+            };
+            out.push((r.id, r.day_key, w, h));
+        }
+        Ok(out)
+    }
+
     /// 検索条件に一致する**IDだけ**を、一覧に並ぶ順で返す。
     ///
     /// 全選択（Ctrl+A）のためのもの。一覧は日ごとに遅延読み込みするので、

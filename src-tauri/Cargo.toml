@@ -32,6 +32,9 @@ trash = "5"
 sysinfo = { version = "0.33", default-features = false, features = ["disk"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+thumbhash = "0.1"  # SPIKE
+base64 = "0.22"  # SPIKE
+image = { version = "0.25", default-features = false, features = ["webp", "jpeg"] }  # SPIKE
 # 設定画面のプレビュー（今日の日付でフォルダ例を作る）用
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # 新しい版が出ていないかを見に行くだけのHTTP（0.2）。**アプリの唯一の外向き通信**で、

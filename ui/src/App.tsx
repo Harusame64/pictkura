@@ -23,6 +23,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
+import { loadSpikeLight, spikeDays, SpikeMosaic } from "./spikeMosaic"; // SPIKE
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -3780,6 +3781,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   }, [view, pendingScrollDay, rows, rowTops]);
 
   const virtualItems = virtualizer.getVirtualItems();
+  // SPIKE: 起動時に全件の骨組みと ThumbHash を1回で取る
+  const [, setSpikeTick] = useState(0);
+  useEffect(() => {
+    loadSpikeLight().then(() => setSpikeTick((n) => n + 1)).catch((e) => console.error("[spike]", e));
+  }, []);
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
@@ -3795,6 +3801,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
+    // SPIKE: localStorage "spike.noload"=1 なら日の一覧を取らない（代わり絵だけを見る）
+    if (localStorage.getItem("spike.noload") === "1") return;
     for (const dayKey of wanted) loadDay(dayKey);
   }, [virtualItems, rows, loadDay]);
 
@@ -9207,10 +9215,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                       {row.kind === "header" ? (
                         dayHeader(row.dayKey, row.label, row.count)
                       ) : row.kind === "placeholder" ? (
+                        spikeDays.has(row.dayKey) ? (
+                          <SpikeMosaic day={row.dayKey} height={row.height - GAP} rowH={cellSize} gap={GAP} />
+                        ) : (
                         <div
                           className="placeholder-row"
                           style={{ height: row.height - GAP }}
                         />
+                        )
                       ) : row.kind === "pack" ? (
                         // 写真の少ない日を1行に並べる（デザインレビュー）。日ごとに見出しを上に置く
                         <div className="pack-row" style={{ columnGap: PACK_DAY_GAP }}>

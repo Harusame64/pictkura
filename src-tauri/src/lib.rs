@@ -1389,6 +1389,98 @@ fn timeline_summary(
         .collect())
 }
 
+/// SPIKE: 全件の軽い骨組みと ThumbHash（列ごとの配列で送る）。マージしない
+#[derive(serde::Serialize)]
+struct SpikeLight {
+    ids: Vec<i64>,
+    days: Vec<i64>,
+    w: Vec<i64>,
+    h: Vec<i64>,
+    /// ThumbHash を base64 で。サムネイルがまだ無ければ空文字
+    th: Vec<String>,
+    rows_ms: u128,
+    hash_ms: u128,
+    computed: usize,
+    cached: usize,
+}
+
+#[tauri::command]
+async fn spike_light(state: tauri::State<'_, AppState>) -> Result<SpikeLight, String> {
+    use base64::Engine as _;
+    let t0 = std::time::Instant::now();
+    let rows = state.read_pool.with(|db| db.spike_light_rows()).map_err(errs::from_err)?;
+    let rows_ms = t0.elapsed().as_millis();
+    let data_dir = state.db_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let thumbs = data_dir.join("thumbs");
+    let cache_path = thumbs.join("spike-thumbhash.json");
+    let mut cache: std::collections::HashMap<i64, String> = std::fs::read(&cache_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let t1 = std::time::Instant::now();
+    let todo: Vec<i64> = rows.iter().map(|r| r.0).filter(|id| !cache.contains_key(id)).collect();
+    let cached = rows.len() - todo.len();
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+    let chunk = todo.len().div_ceil(threads.max(1)).max(1);
+    let computed: Vec<(i64, String)> = std::thread::scope(|sc| {
+        let hs: Vec<_> = todo
+            .chunks(chunk)
+            .map(|ids| {
+                let thumbs = thumbs.clone();
+                sc.spawn(move || {
+                    let mut out = Vec::new();
+                    for &id in ids {
+                        let dir = thumbs.join(format!("{:02x}", (id % 256) as u8));
+                        let img = image::open(dir.join(format!("{id}.webp")))
+                            .or_else(|_| image::open(dir.join(format!("{id}.jpg"))));
+                        let Ok(img) = img else { continue };
+                        let small = img.thumbnail(100, 100).to_rgba8();
+                        let hash = thumbhash::rgba_to_thumb_hash(
+                            small.width() as usize,
+                            small.height() as usize,
+                            small.as_raw(),
+                        );
+                        out.push((id, base64::engine::general_purpose::STANDARD.encode(hash)));
+                    }
+                    out
+                })
+            })
+            .collect();
+        hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+    });
+    let n_computed = computed.len();
+    for (id, h) in computed {
+        cache.insert(id, h);
+    }
+    if n_computed > 0 {
+        let _ = std::fs::write(&cache_path, serde_json::to_vec(&cache).unwrap_or_default());
+    }
+    let hash_ms = t1.elapsed().as_millis();
+    let mut out = SpikeLight {
+        ids: Vec::with_capacity(rows.len()),
+        days: Vec::with_capacity(rows.len()),
+        w: Vec::with_capacity(rows.len()),
+        h: Vec::with_capacity(rows.len()),
+        th: Vec::with_capacity(rows.len()),
+        rows_ms,
+        hash_ms,
+        computed: n_computed,
+        cached,
+    };
+    for (id, day, w, h) in rows {
+        out.ids.push(id);
+        out.days.push(day);
+        out.w.push(w);
+        out.h.push(h);
+        out.th.push(cache.get(&id).cloned().unwrap_or_default());
+    }
+    eprintln!(
+        "[spike_light] n={} rows_ms={} hash_ms={} computed={} cached={}",
+        out.ids.len(), out.rows_ms, out.hash_ms, out.computed, out.cached
+    );
+    Ok(out)
+}
+
 /// 指定日（YYYYMMDD整数）のメディアを表示順（新しい順）で返す。
 /// フロントは可視範囲の日だけをこれで取得する。
 #[tauri::command]
@@ -8220,6 +8312,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             timeline_summary,
             list_day,
+            spike_light,
             list_memories,
             get_stats,
             startup_scan_finished,
