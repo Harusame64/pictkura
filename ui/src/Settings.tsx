@@ -345,6 +345,17 @@ export default function Settings({
 
   const current = config?.routing.folder_pattern ?? "";
   const destination = config?.routing.destination ?? null;
+  /**
+   * 見本の札に出す、今の選び方でできるフォルダ（今日の日付）。自分で決める形は打った式の結果、それ以外は選んだ形の実例。
+   * 振り分けないなら空（デザインレビュー: 「実際にどこへ入るか」が等幅の 1 行に埋もれていた）
+   */
+  const routeFolders = (
+    customMode ? customPreview : (patterns.find((p) => p.pattern === current)?.example ?? "")
+  )
+    .split("/")
+    .filter((seg) => seg !== "");
+  /** コピー先の最後のフォルダ名（札の頭に出す。全文はその下に小さく） */
+  const destinationName = destination ? (destination.split(/[\\/]/).filter(Boolean).pop() ?? destination) : null;
   const editors: ExternalApp[] = config?.editors?.apps ?? [];
 
   const choose = async (pattern: string) => {
@@ -390,11 +401,31 @@ export default function Settings({
           <section className="settings-section">
             <h3>{t.settingsImportStructure}</h3>
             <p className="settings-note">{t.settingsImportStructureNote}</p>
-            <div className="settings-dest">
-              {t.settingsDestination}:{" "}
-              <code className={destination ? undefined : "prose"}>
-                {destination ?? t.settingsDestinationUnset}
-              </code>
+            {/*
+              見本の札: コピー先から写真 1 枚まで、取り込むと実際にできる場所。選び方を変えると、変わったフォルダが
+              一瞬だけ藍で光る（`key` で描き直す）。「変更」は札の右端（文の途中に置くと、パスの長さで位置が跳ねた）
+            */}
+            <div className="settings-route">
+              <div className="settings-route-main">
+                <div className="settings-route-path" aria-label={t.settingsDestination}>
+                  <span className={"route-dest" + (destinationName ? "" : " unset")}>
+                    {destinationName ?? t.settingsDestination}
+                  </span>
+                  {routeFolders.map((seg, i) => (
+                    <span key={`${i}:${seg}`} className="route-seg-wrap">
+                      <span className="route-sep" aria-hidden="true">/</span>
+                      <span className="route-seg">{seg}</span>
+                    </span>
+                  ))}
+                  <span className="route-seg-wrap">
+                    <span className="route-sep" aria-hidden="true">/</span>
+                    <span className="route-file">IMG_0001.JPG</span>
+                  </span>
+                </div>
+                <code className={"settings-route-full" + (destination ? "" : " prose")}>
+                  {destination ?? t.settingsDestinationUnset}
+                </code>
+              </div>
               <button
                 className="settings-dest-change"
                 disabled={destPicking}
@@ -468,9 +499,15 @@ export default function Settings({
                     }}
                   />
                   <code className={"pattern-example" + (p.example ? "" : " prose")}>
-                    {p.example
-                      ? `${p.example}/IMG_0001.JPG`
-                      : t.settingsFlatExample}
+                    {p.example ? (
+                      <>
+                        {/* フォルダの部分だけを濃く、どの形にも付く写真の名前は薄く——違いが一目で読める（デザインレビュー） */}
+                        <span className="pattern-folders">{p.example}</span>
+                        <span className="pattern-file">/IMG_0001.JPG</span>
+                      </>
+                    ) : (
+                      t.settingsFlatExample
+                    )}
                   </code>
                 </label>
               ))}
