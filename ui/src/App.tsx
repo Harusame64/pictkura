@@ -7360,7 +7360,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const openFile = useCallback((given: string[], atStart: boolean) => {
     const prev = lastOpenBatch.current;
     const paths =
-      !atStart && prev && prev.paths.length > 1 && Date.now() - prev.at < 3000
+      // 先の束が 1 つだけでも足す——2 つ目が 0.3 秒より遅れて届くと、先の束は 1 つになる（PR の codex）
+      !atStart && prev && Date.now() - prev.at < 3000
         ? [...prev.paths, ...given.filter((p) => !prev.paths.includes(p))]
         : given;
     lastOpenBatch.current = { paths, at: Date.now() };
