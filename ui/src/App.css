@@ -1003,10 +1003,11 @@ body {
   padding-block: var(--sp-4) var(--sp-1);
   padding-inline: 0 var(--sp-1);
   font-weight: 700;
-  font-size: var(--fs-h3);
+  font-size: var(--fs-title-section);
   color: var(--text);
-  /* 行の高さは HEADER_HEIGHT（40px）で固定。字を上げても行が膨らまないよう行送りを詰める */
-  line-height: 1.25;
+  /* 行の高さは HEADER_HEIGHT（40px）で固定。行送りは「40px から上下の余白を引いた残り」——字の大きさや余白を
+     変えても、行からはみ出さない（数で書くと、見出しの段を変えたとき黙って写真に重なる） */
+  line-height: calc(40px - var(--sp-4) - var(--sp-1));
 }
 .date-count {
   font-size: var(--fs-sm);
@@ -1239,7 +1240,7 @@ body {
   gap: var(--sp-2);
   margin: var(--sp-2) 0;
   color: var(--text);
-  font-size: var(--fs-h1);
+  font-size: var(--fs-title-page);
 }
 .month-count {
   font-size: var(--fs-sm);
@@ -1477,7 +1478,7 @@ body {
 }
 .fallback-title {
   margin: 0 0 var(--sp-3);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-title-section);
 }
 .fallback-note {
   margin: 0 0 var(--sp-4);
@@ -1515,7 +1516,7 @@ body {
 }
 .viewer-missing-title {
   margin: 0 0 var(--sp-2);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-title-section);
 }
 .viewer-missing-band .fallback-path {
   margin: 0;
@@ -1926,7 +1927,7 @@ body {
 }
 .reject-gate-head h2 {
   margin: 0;
-  font-size: var(--fs-h2);
+  font-size: var(--fs-title-dialog);
 }
 .reject-gate-head p {
   margin: 4px 0 0;
@@ -2041,7 +2042,7 @@ body {
 }
 .shortcuts-head h2 {
   margin: 0;
-  font-size: var(--fs-h2);
+  font-size: var(--fs-title-dialog);
 }
 .shortcuts-close {
   padding: 4px 10px;
@@ -2393,8 +2394,8 @@ body {
 /* 右クリックの「印刷…」（ADR B-3）。情報の箱を借りて、載せ方の3択を並べる */
 .print-dialog-title {
   margin-bottom: var(--sp-3);
-  font-size: var(--fs-h2);
-  font-weight: 600;
+  font-size: var(--fs-title-dialog);
+  font-weight: 700;
 }
 .print-fit {
   display: flex;
@@ -2651,7 +2652,7 @@ body {
 }
 .settings-head h2 {
   margin: 0;
-  font-size: var(--fs-h2);
+  font-size: var(--fs-title-dialog);
   color: var(--text);
 }
 /* 設定の裏で待っている取り込みの知らせ（pictkura-dev #71）。見出しのすぐ下、本文のスクロールの外に置く */
@@ -2706,7 +2707,7 @@ body {
 }
 .settings-section h3 {
   margin: 0 0 var(--sp-1);
-  font-size: var(--fs-h3);
+  font-size: var(--fs-title-section);
   color: var(--text);
 }
 .settings-note {
@@ -3545,8 +3546,9 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
-  padding: 2px 6px;
-  margin: -2px -6px;
+  /* 触れたときの地は、写真の端から少しだけ外へ（見出しの字は写真の端にそろえてある） */
+  padding: 2px 4px;
+  margin: -2px -4px;
   font: inherit;
   color: inherit;
   background: none;
@@ -3671,7 +3673,7 @@ body {
 }
 .empty-library h2 {
   margin: 0 0 0.75rem;
-  font-size: 1.25rem;
+  font-size: var(--fs-title-page);
   color: var(--text);
 }
 .empty-library p {
