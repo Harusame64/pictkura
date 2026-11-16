@@ -63,6 +63,11 @@
      この上で 4.5:1 に届かない**（パレットの右端の数で 4.05:1。win2 の実測 2026-11-16）——選んだ行の上の薄い字は
      --text-muted へ上げる */
   --selected-bg: color-mix(in oklch, var(--text) 6%, transparent);
+  /* 入／切のボタンの「入」（並べる・印刷の枚数）。触れたときの --surface-2 より濃い灰と縁——押した瞬間にも変わって見える。
+     藍は使わない（冒頭の方針） */
+  --toggle-on-bg: color-mix(in oklch, var(--text) 11%, transparent);
+  --toggle-on-hover-bg: color-mix(in oklch, var(--text) 15%, transparent);
+  --toggle-on-border: var(--border-strong);
   /* 選択の帯（淡い藍の地）の上のボタン。ライトは白、ダークは一段明るい面——ダークで --surface だと帯より暗い穴に見えた */
   --select-bar-button: var(--surface);
   /* ビューア（常に暗い地）の上の控えめな字とリンク。テーマに依らない */
@@ -89,6 +94,10 @@
      道具ごと消えた（win2 の実測、#319）。暗室の地の上では今までと同じくらいの灰に見える */
   --viewer-control: oklch(0.32 0.004 70 / 0.62);
   --viewer-control-hover: oklch(0.42 0.004 70 / 0.74);
+  /* 入っている道具（情報・再生・全画面・並べて見る・RAW/JPEG の見ている側・等倍）は白地。触れたら少し沈む */
+  --viewer-on: oklch(1 0 0 / 0.92);
+  --viewer-on-hover: oklch(1 0 0 / 0.78);
+  --viewer-on-text: var(--n-10);
   /* 道具の縁と、カプセルの区画の仕切り線 */
   --viewer-control-ring: oklch(1 0 0 / 0.16);
   /* ビューア（テーマに依らず暗い地）のスクロールバーのつまみ */

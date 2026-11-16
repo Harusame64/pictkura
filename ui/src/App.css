@@ -208,7 +208,8 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   padding: 4px 8px;
 }
 /* 少ない日を1行に並べる（App.tsx の pk-pack-days）。歯車と同じ大きさの絵だけのボタン。押されている（並べる）ときは
-   入／切の決まり（tokens.css）どおり灰の面と縁——隣のサムネイル／カレンダーの切り替えと同じ文法。藍は使わない */
+   入／切の決まり（tokens.css の --toggle-on-*）どおり灰の面と縁。藍は使わない。触れたときの灰（--surface-2）より
+   濃いので、押した瞬間にも変わったと分かる */
 .topbar button.pack-days-btn {
   display: inline-flex;
   align-items: center;
@@ -217,12 +218,12 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 .topbar button.pack-days-btn.on {
   color: var(--text);
-  background: var(--selected-bg);
-  border-color: var(--border-strong);
+  background: var(--toggle-on-bg);
+  border-color: var(--toggle-on-border);
 }
 /* 押されている状態でも、触れたら少し濃く（地が同じままで、押せる物に見えなかった。win2 の画面） */
 .topbar button.pack-days-btn.on:hover {
-  background: var(--surface-2);
+  background: var(--toggle-on-hover-bg);
 }
 .topbar button:disabled {
   opacity: 0.45;
@@ -1486,7 +1487,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   --danger-text: var(--danger-on-dark);
   /* 藍も暗い地の藍（保存の合図・再生の進み）。ライトのテーマで暗い藍のまま沈んでいた */
   --accent: var(--indigo-light);
-  --accent-contrast: var(--n-10);
+  --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
   /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算、原本が無いときの帯の位置もこれを引く */
   --viewer-tool-size: 36px;
   /* ← の下に並ぶ印の段の高さ（音なしの印が 22px でいちばん高い） */
@@ -1877,9 +1878,15 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 /* 入っている道具（情報・再生・全画面・並べて見る）は白地。琥珀は ★ だけのもの——情報を開いた「i」が琥珀だと、
    お気に入りにしたと読めた（デザインレビュー） */
-.viewer-tool.on {
-  background: oklch(1 0 0 / 0.92);
-  color: var(--n-10);
+.viewer-tool.on,
+.viewer-zoom.actual {
+  background: var(--viewer-on);
+  color: var(--viewer-on-text);
+}
+/* 入っている道具も、触れたら少し変わる（押せる物に見えるように）。★ の琥珀は下の規則が勝つ */
+.viewer-tool.on:hover,
+.viewer-zoom.actual:hover {
+  background: var(--viewer-on-hover);
 }
 .viewer-tool.fav-tool.on {
   background: var(--fav);
@@ -2435,12 +2442,6 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   border-start-end-radius: var(--radius-full);
   border-end-end-radius: var(--radius-full);
 }
-/* 入っている側・等倍も、ほかの入っている道具（.viewer-tool.on）と同じ白地 */
-.viewer-pair-side .viewer-tool.on,
-.viewer-zoom.actual {
-  background: oklch(1 0 0 / 0.92);
-  color: var(--n-10);
-}
 .viewer-nav {
   position: absolute;
   top: 50%;
@@ -2625,12 +2626,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .print-fit:hover {
   background: var(--surface-2);
 }
-/* 選んだ載せ方は、設定の選択（.pattern-item.active）と同じく面と太さ。印は藍の丸（ラジオ）が持つ */
+/* 選んだ載せ方は、設定の選択（.pattern-item.active）と同じく選んだ行の面。印は藍の丸（ラジオ）が持つ
+   （載せ方の名前はもとから太字なので、太さでは分けない） */
 .print-fit.selected {
   background: var(--selected-bg);
-}
-.print-fit.selected .print-fit-label {
-  font-weight: 600;
 }
 .print-fit input {
   margin: 0;
@@ -2719,12 +2718,24 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 .print-per-page button {
   min-width: 2.2em;
+  padding: 3px var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.print-per-page button:hover {
+  background: var(--surface-2);
 }
 .print-per-page button.selected {
-  border-color: var(--border-strong);
-  background: var(--selected-bg);
-  color: var(--text);
+  border-color: var(--toggle-on-border);
+  background: var(--toggle-on-bg);
   font-weight: 600;
+}
+.print-per-page button.selected:hover {
+  background: var(--toggle-on-hover-bg);
 }
 .print-captions {
   display: flex;
@@ -3076,6 +3087,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   font-weight: 600;
 }
+/* 選んだ行の上の薄い字は --text-muted へ上げる（tokens.css の --selected-bg の注記。ダークで 4.5:1 に届かない） */
+.pattern-item.active .pattern-file {
+  color: var(--text-muted);
+}
 /* 入／切のひとつだけのチェック。説明文が下に続くので行間は詰めない */
 .settings-toggle {
   display: flex;
@@ -3090,6 +3105,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   margin-inline-start: var(--sp-2);
   /* 取り込みの画面の同じ「変更」（.wiz-dest-change）と同じ形。札ではなくボタンなので --radius-control */
   padding: 3px var(--sp-3);
+  font: inherit;
   font-size: var(--fs-sm);
   border-radius: var(--radius-control);
   border: 1px solid var(--border);
