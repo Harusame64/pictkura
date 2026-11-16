@@ -202,9 +202,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--accent);
   background: var(--accent-soft);
 }
-/* 押されている状態でも、触れたら少し濃く（地が同じままで、押せる物に見えなかった。win2 の画面） */
+/* 押されている状態でも、触れたら少し濃く（地が同じままで、押せる物に見えなかった。win2 の画面）。淡い藍そのものに藍を
+   混ぜる——藍の割合で書くと、ダークの淡い藍（もとから 18%）と同じ値になって変わらなかった */
 .topbar button.pack-days-btn.on:hover {
-  background: color-mix(in oklch, var(--accent) 18%, transparent);
+  background: color-mix(in oklch, var(--accent-soft), var(--accent) 12%);
 }
 .topbar button:disabled {
   opacity: 0.45;
