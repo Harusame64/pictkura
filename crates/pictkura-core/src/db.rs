@@ -2796,7 +2796,7 @@ impl Db {
         }
         // 同じIDを2度渡されても2度並ばないようにしておく（選択は集合だが、
         // 呼ぶ側の作り方に依存したくない）
-        rows_out.sort_unstable_by(|a, b| (b.0, b.1, b.2).cmp(&(a.0, a.1, a.2)));
+        rows_out.sort_unstable_by_key(|r| std::cmp::Reverse((r.0, r.1, r.2)));
         rows_out.dedup_by_key(|r| r.2);
         Ok(rows_out
             .into_iter()
