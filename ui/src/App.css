@@ -91,11 +91,29 @@ body {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  height: 48px;
+  min-height: 48px;
+  flex-wrap: wrap;
+  row-gap: var(--sp-1);
+  container: topbar / inline-size;
   padding: 0 var(--sp-4);
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   flex: none;
+}
+/* 狭い窓（小さな画面を 150% にして中身が 850px ほど）でも、帯を 1 行に保つ（win2 の実測: ボタンが 2 行に折れ、
+   「サイズ」が縦に積まれ、⌘K の札が検索欄の案内に重なった）。字は折り返さない。縮むのは検索欄と状態の表示だけ。
+   幅が足りないときは、帯の幅（窓の幅ではない——言語で字の長さが違う）で字を絵に替える（下の @container topbar）。
+   それでも入らない言語・大きさでは、部品ごと 2 段目へ回す（はみ出して押せなくなるより良い。/code-review） */
+.topbar button,
+.topbar .slider,
+.topbar .count {
+  white-space: nowrap;
+}
+.topbar > :not(.search-box):not(.status) {
+  flex-shrink: 0;
+}
+.topbar-icon {
+  display: none;
 }
 .logo {
   font-weight: 700;
@@ -279,7 +297,10 @@ body {
   flex: 1;
   min-width: 160px;
   max-width: 420px;
+  /* 欄の幅で札（⌘K）を出すか決める（下の @container search） */
+  container: search / inline-size;
 }
+
 .search-icon {
   position: absolute;
   inset-inline-start: 9px;
@@ -290,8 +311,11 @@ body {
 .search-box input {
   width: 100%;
   height: 30px;
+  text-overflow: ellipsis;
   padding-block: 0;
-  padding-inline: 28px var(--sp-7);
+  /* 終わりの余白は ⌘K／Ctrl+K の札の幅＋隙間。32px だと札（Windows の Ctrl+K は 43px）の下へ案内の字と「…」が
+     潜った（win2 の実測）。欄が狭くて札を隠すときは下の @container search で詰める */
+  padding-inline: 28px 56px;
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   background: var(--surface-2);
@@ -302,6 +326,45 @@ body {
     background var(--dur-fast) var(--easing),
     border-color var(--dur-fast) var(--easing),
     box-shadow var(--dur-fast) var(--easing);
+}
+/* 欄が狭いときは札を隠し、案内の字を札の分まで使って、入らない分は「…」で切る */
+@container search (max-width: 300px) {
+  .search-kbd {
+    display: none;
+  }
+  .search-box input {
+    padding-inline-end: var(--sp-3);
+  }
+}
+/* 帯が狭いとき: ロゴを外し、「サイズ」と再スキャン（さらに狭ければ取り込みも）の字を絵に替える。字は .sr-only と同じ
+   隠し方——読み上げの名前は残る（display: none だと目盛りが名無しになる。/code-review） */
+@container topbar (max-width: 1100px) {
+  .logo {
+    display: none;
+  }
+  .slider-label,
+  #pk-rescan .topbar-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  #pk-rescan .topbar-icon {
+    display: inline-block;
+  }
+}
+@container topbar (max-width: 860px) {
+  #pk-import .topbar-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  #pk-import .topbar-icon {
+    display: inline-block;
+  }
 }
 .search-box input::placeholder {
   color: var(--text-faint);
@@ -3603,13 +3666,17 @@ body {
 }
 
 /* 選択中に出る操作バー。上部のバーの上に重ねず、その上に積む */
+/* 選択の帯。ボタンの字は折り返さない（仏語で 3 枚選ぶと、ボタンがほぼ全部 2 行に折れた。win2 の画面）。入らない
+   ボタンは丸ごと次の行へ回る（上の帯と同じ考え方） */
 .select-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   padding: 6px var(--sp-3);
   background: var(--accent-soft);
   border-bottom: 1px solid var(--border);
+  container: selectbar / inline-size;
 }
 .select-bar-count {
   font-weight: 700;
@@ -3627,8 +3694,19 @@ body {
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
 }
-.select-bar-spacer {
+.select-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
   flex: 1;
+}
+/* 帯が狭いときは塊をほどき、ボタンを左から順に流す。塊のまま折ると、左の組の右の残り幅で折れて 3 段になった
+   （仏語 853px。win2 の画面）。ほどけば帯の全幅で折れて 2 段に収まる */
+@container selectbar (max-width: 1100px) {
+  .select-actions {
+    display: contents;
+  }
 }
 .select-bar button {
   padding: 4px 10px;
@@ -3639,6 +3717,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
+  white-space: nowrap;
 }
 .select-bar button:hover {
   background: var(--surface-2);

@@ -7979,81 +7979,84 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           >
             {t.bulkViewer}
           </button>
-          <span className="select-bar-spacer" />
-          <button
-            disabled={busy}
-            onClick={() =>
-              onBulkMark("picked", true).catch((e) => fail(errText(e)))
-            }
-          >
-            <span aria-hidden="true">⚑ </span>{t.bulkPickOn}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() =>
-              onBulkMark("picked", false).catch((e) => fail(errText(e)))
-            }
-          >
-            {t.bulkPickOff}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() =>
-              onBulkMark("favorite", true).catch((e) => fail(errText(e)))
-            }
-          >
-            <span aria-hidden="true">★ </span>{t.bulkFavoriteOn}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() =>
-              onBulkMark("favorite", false).catch((e) => fail(errText(e)))
-            }
-          >
-            {t.bulkFavoriteOff}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => onBulkExport(false).catch((e) => fail(errText(e)))}
-          >
-            {t.bulkCopy}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => onBulkExport(true).catch((e) => fail(errText(e)))}
-          >
-            {t.bulkMove}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => onBulkPrint().catch((e) => fail(errText(e)))}
-          >
-            {t.menuPrint}
-          </button>
-          {filter === "outgoing" ? (
+          {/* 操作の塊。入らないときは塊ごと次の行へ回り、右に寄る（1 行目の途中に空きが残って、2 行目だけ左に寄る
+              不揃いを作らない。win2 の画面） */}
+          <div className="select-actions">
             <button
               disabled={busy}
-              onClick={() => onBulkRemoveGoogle().catch((e) => fail(errText(e)))}
+              onClick={() =>
+                onBulkMark("picked", true).catch((e) => fail(errText(e)))
+              }
             >
-              {t.bulkRemoveGoogle}
+              <span aria-hidden="true">⚑ </span>{t.bulkPickOn}
             </button>
-          ) : (
-            googleOn && (
+            <button
+              disabled={busy}
+              onClick={() =>
+                onBulkMark("picked", false).catch((e) => fail(errText(e)))
+              }
+            >
+              {t.bulkPickOff}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() =>
+                onBulkMark("favorite", true).catch((e) => fail(errText(e)))
+              }
+            >
+              <span aria-hidden="true">★ </span>{t.bulkFavoriteOn}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() =>
+                onBulkMark("favorite", false).catch((e) => fail(errText(e)))
+              }
+            >
+              {t.bulkFavoriteOff}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => onBulkExport(false).catch((e) => fail(errText(e)))}
+            >
+              {t.bulkCopy}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => onBulkExport(true).catch((e) => fail(errText(e)))}
+            >
+              {t.bulkMove}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => onBulkPrint().catch((e) => fail(errText(e)))}
+            >
+              {t.menuPrint}
+            </button>
+            {filter === "outgoing" ? (
               <button
                 disabled={busy}
-                onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+                onClick={() => onBulkRemoveGoogle().catch((e) => fail(errText(e)))}
               >
-                {t.bulkSendGoogle}
+                {t.bulkRemoveGoogle}
               </button>
-            )
-          )}
-          <button
-            className="danger"
-            disabled={busy}
-            onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
-          >
-            <Icon name="trash" className="btn-icon" />{t.bulkDelete}
-          </button>
+            ) : (
+              googleOn && (
+                <button
+                  disabled={busy}
+                  onClick={() => onBulkSendGoogle().catch((e) => fail(errText(e)))}
+                >
+                  {t.bulkSendGoogle}
+                </button>
+              )
+            )}
+            <button
+              className="danger"
+              disabled={busy}
+              onClick={() => onBulkDelete().catch((e) => fail(errText(e)))}
+            >
+              <Icon name="trash" className="btn-icon" />{t.bulkDelete}
+            </button>
+          </div>
         </div>
       )}
       {/* 選択バーの下に1行（バーの中は操作のボタンで埋まっていて、名前が読めるだけの幅が残らない）。
@@ -8129,11 +8132,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             </span>
           )}
         </div>
-        <button className="primary" onClick={() => openWizard()} disabled={busy} id="pk-import" data-testid="import">
-          {t.importFromUsb}
+        {/* 帯が狭いときは字を隠して絵だけになる（字は読み上げに残る。App.css の @container topbar） */}
+        <button className="primary" onClick={() => openWizard()} disabled={busy} id="pk-import" data-testid="import" title={t.importFromUsb}>
+          <Icon name="usb" className="topbar-icon" />
+          <span className="topbar-label">{t.importFromUsb}</span>
         </button>
-        <button onClick={onSync} disabled={busy} id="pk-rescan" data-testid="rescan">
-          {t.rescan}
+        <button onClick={onSync} disabled={busy} id="pk-rescan" data-testid="rescan" title={t.rescan}>
+          <Icon name="refresh" className="topbar-icon" />
+          <span className="topbar-label">{t.rescan}</span>
         </button>
         {/* 設定。**文字の ⚙ ではなく絵にする**——字は他のボタンと同じ 13px で小さく、
             OS とフォントで形も大きさも変わった（2026-09-25 利用者「歯車がちっちゃい」）。
@@ -8159,7 +8165,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           </svg>
         </button>
         <label className="slider">
-          {t.size}
+          <span className="slider-label">{t.size}</span>
           <input
             type="range"
             min={CELL_SIZE_MIN}
