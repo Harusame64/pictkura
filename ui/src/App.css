@@ -1655,6 +1655,8 @@ body {
 .viewer-tool {
   border: none;
   background: var(--viewer-control);
+  /* 1px の明るい内側の縁。地の色が写真と同じ明るさ（夕暮れ・L≈0.3）でも、丸の形が残る（win2 の画面） */
+  box-shadow: inset 0 0 0 1px var(--viewer-control-ring);
   color: #fff;
   font-family: inherit;
   width: var(--viewer-tool-size);
@@ -2150,6 +2152,7 @@ body {
 .viewer-zoom {
   border: none;
   background: var(--viewer-control);
+  box-shadow: inset 0 0 0 1px var(--viewer-control-ring);
   color: #fff;
   font-family: inherit;
   font-size: var(--fs-sm);
@@ -2165,15 +2168,26 @@ body {
 }
 /* RAW+JPEG の組のどちらを見るか（2026-09-26）。倍率のボタンと同じ文字の丸ボタンを2つ並べ、
    いま見ている側を倍率の「等倍」と同じ色で示す（★の黄色は ★ の状態と紛れるので使わない） */
-.viewer-pair-side {
-  display: flex;
-  gap: 2px;
-}
-/* 道具の塊（判定・見る道具。デザインレビュー）。RAW/JPEG の組と同じ継ぎ方の 1 本のカプセル（継ぎ方の規則は上の
-   `.viewer-pair-side` と共有）。塊どうしの間は `.viewer-tools` の gap で一律に空ける */
+/* 道具の塊（判定・見る道具。デザインレビュー）と RAW/JPEG の組。**地は塊が 1 枚で持ち**、区画は地を持たない。
+   区画の間は 1px の仕切り線——隙間で継ぐと、明るい写真の上で隙間が白く光り、1 本が 3 粒に割れて見えた（win2 の画面）。
+   縁は `outline`（中身の上に描かれるので、色の付いた区画にも縁が残る）。塊どうしの間は `.viewer-tools` の gap */
+.viewer-pair-side,
 .tool-group {
   display: flex;
-  gap: 2px;
+  background: var(--viewer-control);
+  border-radius: var(--radius-full);
+  outline: 1px solid var(--viewer-control-ring);
+  outline-offset: -1px;
+  overflow: hidden;
+}
+/* :where で弱くして、入っている区画（.on・.picked・ボツ）の色はそのまま効かせる */
+:where(.viewer-pair-side, .tool-group) > .viewer-tool {
+  background: transparent;
+  box-shadow: none;
+}
+.viewer-pair-side > .viewer-tool + .viewer-tool,
+.tool-group > .viewer-tool + .viewer-tool {
+  border-inline-start: 1px solid var(--viewer-control-ring);
 }
 .tool-group .viewer-tool {
   border-radius: 0;
@@ -2192,6 +2206,7 @@ body {
    掛かっても見えるよう、絵に薄い影を付ける。触れると地が出る */
 .viewer-tool.quiet {
   background: transparent;
+  box-shadow: none;
 }
 .viewer-tool.quiet .icon {
   /* 細い縁取り＋柔らかい影の 2 段。白い写真の上でも線が読める（1 段の薄い影では消えた。mac・win2 の実測） */
@@ -2238,6 +2253,7 @@ body {
   translate: 0 -50%;
   border: none;
   background: var(--viewer-control);
+  box-shadow: inset 0 0 0 1px var(--viewer-control-ring);
   color: #fff;
   width: 44px;
   height: 44px;
