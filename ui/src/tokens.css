@@ -3,6 +3,8 @@
  * 方針:
  * - 写真が主役。クロームはごく僅かに温めた生成りで一段引かせ、色（藍）は「いちばん押してほしい1つ」・
  *   選んだ写真・現在地・キーボードの枠にだけ使う。選んでいる項目やメニューの行は、面と太さで示す。
+ *   入／切のボタン（並べる・RAW/JPEG・等倍・印刷の選択肢）も同じ——入っている印は灰の面（ビューアでは白地）と太さで、藍にしない
+ *   （2026-11-16 利用者。部品ごとに藍・灰・白の3通りに分かれていた）。
  *   周辺に彩度があると同時対比で写真の色が歪んで見える（Lightroom等が
  *   ニュートラルグレーを既定にするのと同じ理由）——だから地の彩度は 0.01 以下に留める。
  * - primitive（生の色）→ semantic（用途名）の2層。コンポーネントCSSは
@@ -61,6 +63,8 @@
      この上で 4.5:1 に届かない**（パレットの右端の数で 4.05:1。win2 の実測 2026-11-16）——選んだ行の上の薄い字は
      --text-muted へ上げる */
   --selected-bg: color-mix(in oklch, var(--text) 6%, transparent);
+  /* 選択の帯（淡い藍の地）の上のボタン。ライトは白、ダークは一段明るい面——ダークで --surface だと帯より暗い穴に見えた */
+  --select-bar-button: var(--surface);
   /* ビューア（常に暗い地）の上の控えめな字とリンク。テーマに依らない */
   --on-dark-muted: oklch(0.72 0.008 80);
   --on-dark-link: var(--indigo-light);
@@ -233,6 +237,7 @@
     --weekday-sun: oklch(0.74 0.09 25);
     --weekday-sat: oklch(0.74 0.07 250);
     --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
+    --select-bar-button: var(--surface-2);
     --scrim: oklch(0 0 0 / 0.6);
     --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
     --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);
@@ -260,6 +265,7 @@ html[data-theme="dark"] {
   --weekday-sun: oklch(0.74 0.09 25);
   --weekday-sat: oklch(0.74 0.07 250);
   --selected-bg: color-mix(in oklch, var(--text) 6%, transparent); /* サイドバーの地の上で faint 4.7:1（8% では 4.4 だった） */
+  --select-bar-button: var(--surface-2);
   --scrim: oklch(0 0 0 / 0.6);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.4);
   --shadow-2: 0 1px 3px oklch(0 0 0 / 0.45), 0 10px 24px -6px oklch(0 0 0 / 0.5);

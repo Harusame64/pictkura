@@ -26,7 +26,7 @@ const PATHS = {
     <>
       <rect x="3.5" y="7" width="17" height="10" rx="2" />
       <path d="M3.5 13h17" />
-      <circle cx="16.5" cy="15" r="0.6" fill="currentColor" />
+      <circle cx="16.5" cy="15" r="0.9" fill="currentColor" stroke="none" />
     </>
   ),
   // 外付け（USB・カード）: 差し込みの先と胴
