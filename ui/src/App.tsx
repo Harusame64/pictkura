@@ -585,29 +585,34 @@ function editorLabel(app: ExternalApp, all: readonly ExternalApp[], names: Recor
  */
 const chipWidthCache = new Map<string, number>();
 /**
- * 測る canvas。**字体の指定が効いたかを確かめる**——受け付けられないと、canvas は黙って
- * 既定（`10px sans-serif`）のままで、幅を小さく測り、入らない形を選ぶ（#167 のゲート2）。
- * 効かなければ総称の `sans-serif` で試し、それも駄目なら測らない（`null`）
+ * 字の幅を測る canvas（札と日付の見出しで共用）。**字体の指定が効いたかを確かめる**——受け付けられないと、canvas は
+ * 黙って既定（`10px sans-serif`）のままで、幅を小さく測り、入らない形を選ぶ（#167 のゲート2）。
+ * 効かなければ総称の `sans-serif` で試し、それも駄目なら測らない（`null`）。体の字体は一度だけ読む
  */
-function chipMeasurer(): CanvasRenderingContext2D | null {
-  const ctx = document.createElement("canvas").getContext("2d");
-  if (!ctx) return null;
-  for (const family of [getComputedStyle(document.body).fontFamily, "sans-serif"]) {
-    ctx.font = `600 11px ${family}`;
-    if (/\b11px\b/.test(ctx.font) && /\b(600|bold)\b/.test(ctx.font)) return ctx;
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+let bodyFamily: string | undefined;
+function measureText(weight: number, px: number, text: string): number | null {
+  if (measureCtx === undefined) measureCtx = document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return null;
+  bodyFamily ??= getComputedStyle(document.body).fontFamily;
+  for (const family of [bodyFamily, "sans-serif"]) {
+    measureCtx.font = `${weight} ${px}px ${family}`;
+    if (new RegExp(`\\b${px}px\\b`).test(measureCtx.font) && (weight < 600 || /\b(600|700|bold)\b/.test(measureCtx.font))) {
+      return measureCtx.measureText(text).width;
+    }
   }
   return null;
 }
-let chipCtx: CanvasRenderingContext2D | null | undefined;
 function measureChipText(text: string): number {
   const hit = chipWidthCache.get(text);
   if (hit !== undefined) return hit;
-  if (chipCtx === undefined) chipCtx = chipMeasurer();
+  const measured = measureText(600, 11, text);
   // 測れないときは大きめに見積もる——入らない側に倒せば、短い形になるだけ。
   // 1文字 12px は、11px の漢字（`連写`）や `▤` の全角幅より広い（#167 のゲート2: 8px では漢字で足りない）
-  const w = chipCtx
-    ? Math.ceil(chipCtx.measureText(text).width + 0.22 * [...text].length) + 1
-    : 12 * [...text].length;
+  const w =
+    measured !== null
+      ? Math.ceil(measured + 0.22 * [...text].length) + 1
+      : 12 * [...text].length;
   chipWidthCache.set(text, w);
   return w;
 }
@@ -615,32 +620,27 @@ function measureChipText(text: string): number {
 /**
  * 日付の見出し（`.date-header`: 日付は太字の `--fs-title-section`、枚数は `--fs-sm`、間は `--sp-2`）の幅。
  * 少ない日を並べる行（`pack`）で、写真より見出しが長い日（縦位置の1枚など）の幅を見出しに合わせる。
- * 測れないときは大きめに見積もる（広く取れば並ぶ日が減るだけで、見出しが隣の日に重ならない）
+ * 測れないときは大きめに見積もる（広く取れば並ぶ日が減るだけで、見出しが隣の日に重ならない）。
+ * 字の大きさと間は一度だけ読む（行を組むたびに日の数だけ呼ばれる。/code-review）
  */
 const dayHeaderWidthCache = new Map<string, number>();
-let dayHeaderCtx: CanvasRenderingContext2D | null | undefined;
+let dayHeaderTokens: { title: number; small: number; gap: number } | undefined;
 function measureDayHeader(label: string, count: string): number {
   const key = label + "\u0000" + count;
   const hit = dayHeaderWidthCache.get(key);
   if (hit !== undefined) return hit;
-  const root = getComputedStyle(document.documentElement);
-  const px = (name: string, fallback: number) => parseFloat(root.getPropertyValue(name)) || fallback;
-  const title = px("--fs-title-section", 16);
-  const small = px("--fs-sm", 12);
-  const gap = px("--sp-2", 8);
-  if (dayHeaderCtx === undefined) dayHeaderCtx = document.createElement("canvas").getContext("2d");
-  const ctx = dayHeaderCtx;
-  const family = getComputedStyle(document.body).fontFamily || "sans-serif";
-  let w: number;
-  if (ctx) {
-    ctx.font = `700 ${title}px ${family}`;
-    const a = ctx.measureText(label).width;
-    ctx.font = `400 ${small}px ${family}`;
-    const b = ctx.measureText(count).width;
-    w = Math.ceil(a + gap + b) + 8;
-  } else {
-    w = (title + 2) * [...label].length + gap + small * [...count].length;
+  if (!dayHeaderTokens) {
+    const root = getComputedStyle(document.documentElement);
+    const px = (name: string, fallback: number) => parseFloat(root.getPropertyValue(name)) || fallback;
+    dayHeaderTokens = { title: px("--fs-title-section", 16), small: px("--fs-sm", 12), gap: px("--sp-2", 8) };
   }
+  const { title, small, gap } = dayHeaderTokens;
+  const a = measureText(700, title, label);
+  const b = measureText(400, small, count);
+  const w =
+    a !== null && b !== null
+      ? Math.ceil(a + gap + b) + 8
+      : (title + 2) * [...label].length + gap + small * [...count].length;
   dayHeaderWidthCache.set(key, w);
   return w;
 }
@@ -3562,7 +3562,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     };
 
     // **写真の少ない日を1行に並べる**（`packDays.ts`。並べるかは上の帯のボタンで切り替える）。
-    // 右の帯には、並べた行を日ごとに開いて渡す（`railRows`）ので、月の目盛りは欠けない
+    // 右の帯には、並べた行を日ごとに開いて渡す（`dayRows`）ので、月の目盛りは欠けない
     const fits: DayFit[] = summary.map((day) => {
       const stacks = packDays && dayItems.get(day.day_key) ? dayStacks.get(day.day_key) : undefined;
       if (!stacks || stacks.length === 0) return { dayKey: day.day_key, width: null };
@@ -3667,29 +3667,34 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     return tops;
   }, [rows]);
 
-  /** 各行の日（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める） */
-  const rowDayKeys = useMemo(() => rows.map((r) => r.dayKey), [rows]);
   /**
-   * 右の帯に渡す行（`ScrubRail`）。並べた行（`pack`）は日ごとに開き、どの日も行の上端に置く（高さは最後の日が持つ）。
-   * 帯は行ごとの日から月の目盛り・月の一覧・現在地を引くので、行の頭の日だけを渡すと、並べた2日目以降の月が帯から消える
+   * 日ごとの位置（帯の月・年・吹き出しを引く。行の高さが変わったときに上端の日を留める）。並べた行（`pack`）は日ごとに開き、
+   * **行の高さを日の数で割って、上から順に置く**（`tops`）。同じ上端を並べると、帯の計算（`makeRailMap`・`dayKeyAt`）が
+   * 長さ 0 の月を作り、現在地はいつも行の最後の日を指し、留め置きはその行で位置を失った（/code-review）。
+   * 帯から飛ぶ先は、ずらした位置ではなく行の上端（`jumpTops`）——行の途中で切れて着かないように
    */
-  const railRows = useMemo(() => {
-    const tops: number[] = [];
+  const dayRows = useMemo(() => {
     const days: number[] = [];
+    const tops: number[] = [];
+    const jumpTops: number[] = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (row.kind === "pack") {
-        for (const seg of row.segs) {
-          tops.push(rowTops[i]);
+        const h = rowTops[i + 1] - rowTops[i];
+        row.segs.forEach((seg, k) => {
           days.push(seg.dayKey);
-        }
+          tops.push(rowTops[i] + (k * h) / row.segs.length);
+          jumpTops.push(rowTops[i]);
+        });
       } else {
-        tops.push(rowTops[i]);
         days.push(row.dayKey);
+        tops.push(rowTops[i]);
+        jumpTops.push(rowTops[i]);
       }
     }
     tops.push(rowTops[rows.length]);
-    return { tops, days };
+    jumpTops.push(rowTops[rows.length]);
+    return { days, tops, jumpTops };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
@@ -3740,16 +3745,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   }, [view]);
   useLayoutEffect(() => {
     const prev = prevLayoutRef.current;
-    prevLayoutRef.current = { tops: rowTops, days: rowDayKeys };
+    prevLayoutRef.current = { tops: dayRows.tops, days: dayRows.days };
     const el = scrollRef.current;
     const before = lastScrollTopRef.current;
     if (!prev || !el || before <= 0) return;
-    const next = anchoredScrollTop(before, prev.tops, prev.days, rowTops, rowDayKeys);
+    const next = anchoredScrollTop(before, prev.tops, prev.days, dayRows.tops, dayRows.days);
     if (next !== null && Math.abs(next - el.scrollTop) >= 1) {
       el.scrollTop = next;
       lastScrollTopRef.current = el.scrollTop;
     }
-  }, [rowTops, rowDayKeys]);
+  }, [dayRows]);
 
   // カレンダーの日クリック → グリッドへ切り替えて該当日付の見出しへスクロール
   useEffect(() => {
@@ -3776,6 +3781,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
       const row = rows[vr.index];
       if (!row) continue;
       visible.add(row.dayKey);
+      // 並べた行は日ぜんぶ（頭の日だけだと、画面に出ている2日目以降が控えの整理で捨てられ、行がほどけて
+      // 読み直す、を繰り返した。/code-review）
+      if (row.kind === "pack") for (const seg of row.segs) visible.add(seg.dayKey);
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
@@ -8871,15 +8879,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
               {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
               <ScrubRail
                 scrollRef={scrollRef}
-                rowTops={railRows.tops}
-                dayKeys={railRows.days}
+                rowTops={dayRows.tops}
+                dayKeys={dayRows.days}
                 monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
                   const el = scrollRef.current;
                   // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
-                  if (el) el.scrollTop = Math.min(railRows.tops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
+                  if (el) el.scrollTop = Math.min(dayRows.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
               <div className="grid-scroll" ref={scrollRef}>
