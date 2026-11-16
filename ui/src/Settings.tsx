@@ -456,19 +456,20 @@ export default function Settings({
                 <div className="settings-route-label">{t.settingsDestination}</div>
                 {/* パスは左→右（右→左の画面でも 「/」 の前後が入れ替わらないように。App.css の `.path`） */}
                 <div className="settings-route-path path">
-                  <span className={"route-dest" + (destinationName ? "" : " unset")}>
-                    {destinationName ?? "…"}
+                  {/* 区切りの「/」は前の名前に付けて折り返す（次の名前に付けると、折り返した行が「/」で始まった。win2） */}
+                  <span className="route-seg-wrap">
+                    <span className={"route-dest" + (destinationName ? "" : " unset")}>
+                      {destinationName ?? "…"}
+                    </span>
+                    <span className="route-sep" aria-hidden="true">/</span>
                   </span>
                   {(routeFolders ?? []).map((seg, i) => (
                     <span key={`${i}:${seg}`} className="route-seg-wrap">
-                      <span className="route-sep" aria-hidden="true">/</span>
                       <span className={"route-seg" + (changedAt.has(i) ? " changed" : "")}>{seg}</span>
+                      <span className="route-sep" aria-hidden="true">/</span>
                     </span>
                   ))}
-                  <span className="route-seg-wrap">
-                    <span className="route-sep" aria-hidden="true">/</span>
-                    <span className="route-file">IMG_0001.JPG</span>
-                  </span>
+                  <span className="route-file">IMG_0001.JPG</span>
                 </div>
                 <code className={"settings-route-full" + (destination ? "" : " prose")}>
                   {destination ?? t.settingsDestinationUnset}

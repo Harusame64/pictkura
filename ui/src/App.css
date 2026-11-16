@@ -46,6 +46,8 @@ kbd[dir="rtl"] {
 code.prose {
   direction: inherit;
   unicode-bidi: normal;
+  /* 文なので字体もページのもの。等幅のままだと、アラビア文字・キリル文字が詰まって読みにくかった（win2） */
+  font-family: inherit;
 }
 code {
   font-family: var(--font-mono);
