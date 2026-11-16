@@ -158,7 +158,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .topbar button {
   padding: 5px 12px;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-muted);
   font-family: inherit;
@@ -367,7 +367,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
      潜った（win2 の実測）。欄が狭くて札を隠すときは下の @container search で詰める */
   padding-inline: 28px 56px;
   border: 1px solid transparent;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-control);
   background: var(--surface-2);
   color: var(--text);
   font-family: inherit;
@@ -441,7 +441,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   cursor: pointer;
   font-size: var(--fs-xs);
   padding: 2px 5px;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-row);
 }
 .search-clear:hover {
   color: var(--text);
@@ -452,7 +452,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font-size: var(--fs-xs);
   color: var(--text-faint);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   padding: 1px 5px;
   line-height: 1.4;
 }
@@ -525,7 +525,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   min-height: 30px;
   padding: 0 var(--sp-2);
   margin: 1px 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-row);
   color: var(--text-muted);
   font-size: var(--fs-md);
   cursor: pointer;
@@ -585,7 +585,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   cursor: pointer;
   font-size: var(--fs-sm);
   padding: 2px 4px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--easing);
 }
@@ -709,7 +709,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   padding: 5px var(--sp-2);
   /* 控えの入力欄。枠は出さず、薄い地だけ（触れたら枠が出る） */
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--surface-2);
   color: var(--text);
   font-family: inherit;
@@ -727,7 +727,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .add-folder button {
   padding: 5px var(--sp-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text-muted);
   font-family: inherit;
@@ -803,7 +803,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 .memories-strip img {
   height: 52px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-photo);
   cursor: pointer;
   flex: none;
   background: var(--surface-2);
@@ -903,7 +903,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   top: 0;
   margin-top: -0.7em;
   padding: 1px var(--sp-2);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   white-space: nowrap;
   font-size: var(--fs-sm);
   color: var(--text-muted);
@@ -981,7 +981,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   inset-inline-end: calc(100% + var(--sp-1));
   width: 224px;
   padding: var(--sp-2);
-  border-radius: var(--radius);
+  border-radius: var(--radius-surface);
   background: color-mix(in oklch, var(--surface) 94%, transparent);
   backdrop-filter: blur(8px);
   box-shadow: 0 6px 24px oklch(0 0 0 / 0.2);
@@ -1003,7 +1003,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   width: 32px;
   height: 28px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-row);
   background: none;
   color: var(--text);
   font-size: var(--fs-lg);
@@ -1028,7 +1028,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   justify-content: center;
   height: 44px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-row);
   background: var(--surface-2);
   color: var(--text);
   font-family: inherit;
@@ -1135,7 +1135,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
  * **地はタイルの届く前の四角と同じ色**（`--cell-pending`）——`--surface-2` のままだと、勢いよく
  * スクロールしたとき画面いっぱいに灰色の塊が出た（win の実測、#173）。きらめきの明るい側も1段だけ */
 .placeholder-row {
-  border-radius: 3px;
+  border-radius: var(--radius-photo);
   background: linear-gradient(
       90deg,
       var(--cell-pending) 0 60%,
@@ -1159,7 +1159,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   /* 絵が届くまでの四角。地に近い色にして、勢いよくスクロールしたときに灰色の四角が並んで見えないように
    * （絵は届いたら上に浮かぶ。App.tsx の `revealThumb`） */
   background: var(--cell-pending);
-  border-radius: 3px;
+  border-radius: var(--radius-photo);
   /* 押す口はタイル全体（写真の上に重ねた印の上も押せる。dev #32） */
   cursor: pointer;
 }
@@ -1168,7 +1168,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   height: 100%;
   object-fit: cover;
   background: var(--surface-2);
-  border-radius: 3px;
+  border-radius: var(--radius-photo);
   display: block;
   cursor: pointer;
   /* transform ではなく filter で強調する: justifiedレイアウトで隣とぶつからず、
@@ -1231,7 +1231,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   flex: none;
   white-space: nowrap;
   padding: 0 5px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: oklch(0 0 0 / 0.55);
   color: oklch(0.98 0 0);
   font-size: var(--fs-xs);
@@ -1271,7 +1271,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   bottom: var(--sp-1);
   padding: 0 6px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: var(--accent);
   color: var(--accent-contrast);
   font-size: var(--fs-xs);
@@ -1318,7 +1318,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: oklch(0 0 0 / 0.55);
   color: oklch(0.98 0 0);
   font-size: var(--fs-xs);
@@ -1383,7 +1383,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .day-cell {
   position: relative;
   aspect-ratio: 1;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-row);
   overflow: hidden;
 }
 .day-cell.has-photos {
@@ -1584,7 +1584,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .viewer-fallback {
   max-width: min(560px, 86vw);
   padding: var(--sp-6);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-surface);
   background: oklch(0.2 0 0);
   color: oklch(0.93 0 0);
   text-align: center;
@@ -1622,7 +1622,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   width: max-content;
   max-width: min(640px, calc(100vw - var(--info-reserve) - 2 * var(--sp-6)));
   padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-surface);
   background: oklch(0.2 0 0 / 0.92);
   color: oklch(0.93 0 0);
   box-shadow: 0 4px 24px oklch(0 0 0 / 0.5);
@@ -1645,7 +1645,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 .fallback-actions button {
   border: 1px solid oklch(1 0 0 / 0.25);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: oklch(1 0 0 / 0.08);
   color: inherit;
   font-family: inherit;
@@ -1709,7 +1709,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   height: 56px;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-photo);
   background: oklch(0 0 0 / 0.5);
   cursor: pointer;
   opacity: 0.55;
@@ -1927,7 +1927,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: #fff;
   background: oklch(0 0 0 / 0.55);
   border: 2px solid currentColor;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-surface);
   backdrop-filter: blur(4px);
   pointer-events: none;
   animation: viewer-flash 700ms var(--easing) forwards;
@@ -2035,7 +2035,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-3);
 }
 .reject-gate-head h2 {
@@ -2064,7 +2064,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   height: 100%;
   object-fit: cover;
   display: block;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-photo);
   opacity: 0.55;
 }
 .reject-restore {
@@ -2097,7 +2097,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .reject-gate-actions button:hover:not(:disabled) {
@@ -2144,7 +2144,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-3);
 }
 .shortcuts-head {
@@ -2163,7 +2163,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
 }
 .shortcuts-close:hover {
@@ -2209,7 +2209,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
   border-bottom-width: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
 }
 .shortcut-or {
   color: var(--text-faint);
@@ -2419,7 +2419,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
   border: 1px solid oklch(1 0 0 / 0.08);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-surface);
   background: oklch(0.17 0 0 / 0.94);
   color: oklch(0.9 0 0);
   font-size: var(--fs-sm);
@@ -2527,7 +2527,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-3);
   font-size: var(--fs-sm);
 }
@@ -2558,7 +2558,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   gap: var(--sp-3);
   padding: var(--sp-2);
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-row);
   cursor: pointer;
 }
 .print-fit:hover {
@@ -2697,7 +2697,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   width: min(560px, 92vw);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-3);
   overflow: hidden;
   display: flex;
@@ -2733,7 +2733,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   height: 36px;
   margin: 0 var(--sp-2);
   padding: 0 var(--sp-3);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-row);
   font-size: var(--fs-md);
   color: var(--text);
   cursor: pointer;
@@ -2779,7 +2779,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .palette-foot kbd {
   display: inline-block;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   padding: 0 var(--sp-1);
   margin: 0 1px;
   background: var(--surface);
@@ -2794,7 +2794,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-3);
   overflow: hidden;
 }
@@ -2843,7 +2843,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font-size: var(--fs-lg);
   cursor: pointer;
   padding: var(--sp-1) var(--sp-2);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 .settings-close:hover {
   background: var(--surface-2);
@@ -2902,7 +2902,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: var(--sp-2);
   padding: 6px var(--sp-2);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-row);
   cursor: pointer;
   color: var(--text-muted);
 }
@@ -2928,7 +2928,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   margin-inline-start: var(--sp-2);
   padding: 1px 8px;
   font-size: var(--fs-sm);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -2945,7 +2945,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .pattern-custom-input {
   width: 100%;
   padding: 6px var(--sp-2);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
@@ -2982,7 +2982,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .about-check {
   margin-inline-start: auto;
   padding: 3px 10px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
@@ -3008,7 +3008,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .settings-note.update-say button {
   padding: 2px 10px;
   border: 1px solid var(--accent);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--accent);
   cursor: pointer;
@@ -3026,7 +3026,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .settings-waiting button,
 .settings-plain-button {
   padding: 4px 12px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -3091,7 +3091,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text-faint);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 .editor-row button:hover {
   color: var(--danger-text);
@@ -3113,7 +3113,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   padding: var(--sp-1);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-surface);
   box-shadow: var(--shadow-3);
 }
 .context-item {
@@ -3122,7 +3122,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   text-align: start;
   padding: 6px var(--sp-3);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-row);
   background: transparent;
   color: var(--text);
   font-family: inherit;
@@ -3174,7 +3174,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   z-index: 90;
   padding: var(--sp-2) var(--sp-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-surface);
   background: var(--surface);
   color: var(--text);
   font-size: var(--fs-md);
@@ -3256,7 +3256,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-dialog);
   box-shadow: var(--shadow-3);
   overflow: hidden;
 }
@@ -3386,7 +3386,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .wiz-dest-change {
   padding: 3px var(--sp-3);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -3419,7 +3419,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   display: block;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-photo);
   background: var(--surface-2);
   cursor: pointer;
   overflow: hidden;
@@ -3468,7 +3468,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   top: 6px;
   inset-inline-end: 6px;
   padding: 0 var(--sp-1);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   background: var(--surface);
   color: var(--text-muted);
   font-size: var(--fs-xs);
@@ -3581,7 +3581,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   min-height: 32px;
   padding: 0 var(--sp-4);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -3634,7 +3634,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .wiz-notice {
   margin: var(--sp-2) var(--sp-3) 0;
   padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-row);
   background: var(--surface-2);
   color: var(--text-muted);
   font-size: var(--fs-sm);
@@ -3666,7 +3666,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   block-size: 84px;
   flex: none;
   object-fit: cover;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-photo);
   background: var(--surface);
 }
 .wiz-copying-body {
@@ -3722,7 +3722,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 .speed-toast.decoder-notice button {
   border: 1px solid currentColor;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
   padding: 2px 10px;
@@ -3758,7 +3758,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
 }
 
 /* **選択肢の書体は、ここで初めて効く。** `tokens.css` の `:lang(zh)` は
@@ -3800,7 +3800,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: inherit;
   background: none;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-chip);
   cursor: pointer;
 }
 .date-header-btn:hover {
@@ -3896,7 +3896,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -3958,7 +3958,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .empty-actions button {
   padding: 6px 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   background: var(--surface-2);
   color: var(--text);
   font-family: inherit;
@@ -4023,7 +4023,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   max-width: min(560px, calc(100vw - 2 * var(--sp-5)));
   padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--warn);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-surface);
   background: var(--surface);
   color: var(--warn);
   /* **`button` は書体を継がない**（UA の既定に落ちる）。`font-size` だけ
