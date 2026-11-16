@@ -42,6 +42,7 @@ import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./
 import { quitAfterFileOp } from "./quitAfterFileOp";
 import { CELL_SIZE_MAX, CELL_SIZE_MIN, CELL_SIZE_STEP, loadCellSize, saveCellSize } from "./cellSize";
 import { loadPackDays, planDayRows, savePackDays, type DayFit } from "./packDays";
+import { stripDockWidth, stripRadiusFor } from "./stripSeats";
 import { formatSize, sizeBaseFor, splitPath } from "./fileInfo";
 import SettingsDialog from "./Settings";
 import ImportWizard from "./ImportWizard";
@@ -357,11 +358,13 @@ const TRANSITION_WAIT_MS = 400;
  * ビューア下部のフィルムストリップに出す**片側の枚数**（0.2 ②）。
  *
  * 出しているのは一覧と同じWebPサムネイル（長辺512px）なので、
- * 21枚でもデコード済み画素は約15MB——原寸の先読み予算
+ * 15枚でもデコード済み画素は約11MB——原寸の先読み予算
  * （[`PRELOAD_BUDGET_BYTES`]）に対して桁が2つ小さい。
  * 送るたびに端の1枚が増えるだけで、残りは要素ごと使い回される
  */
-const STRIP_RADIUS = 10;
+// 前後 7 枚まで（15 席・約 900px）。10 枚（21 席）だと、1280 の窓で台が写真より左右にはみ出して黒い地まで伸び、
+// 写真の端と台の端がずれて見えた（win2）。窓が狭ければ `stripSeats.ts` がさらに減らす
+const STRIP_RADIUS = 7;
 
 /**
  * その配信URLが、このidの絵か。
@@ -5262,19 +5265,19 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
    * ビューア下部に出す前後の絵（0.2 ②）。いまの絵を真ん中に、
    * 前後 [`STRIP_RADIUS`] 枚ずつ。
    *
-   * **取れないもの（端・未取得の日）はその席ごと並べない**ので、帯は端で短く
-   * なり、いまの絵は中央から寄る。反対側から余計に取って枚数を揃えることは
-   * しない——「前後に何があるか」を見せる帯で、左右の距離感を偽らないため
+   * **取れないもの（端・未取得の日）の席は空けておく**ので、いまの絵はいつも台の真ん中に居る。反対側から余計に
+   * 取って枚数を揃えることはしない——「前後に何があるか」を見せる帯で、左右の距離感を偽らないため。
+   * 席の数は窓に丸ごと入る数まで（`stripSeats.ts`。台の幅を固定して、送っても台が動かないように）
    */
+  const stripRadius = stripRadiusFor(windowSize.w, infoReserve, STRIP_RADIUS);
   const strip = useMemo(() => {
     if (!viewerItem) return [];
-    const out: { item: MediaItem; offset: number }[] = [];
-    for (let k = -STRIP_RADIUS; k <= STRIP_RADIUS; k++) {
-      const it = neighborItem(k);
-      if (it) out.push({ item: it, offset: k });
+    const out: { item: MediaItem | null; offset: number }[] = [];
+    for (let k = -stripRadius; k <= stripRadius; k++) {
+      out.push({ item: neighborItem(k) ?? null, offset: k });
     }
     return out;
-  }, [viewerItem, neighborItem]);
+  }, [viewerItem, neighborItem, stripRadius]);
 
   useEffect(() => {
     if (!viewerInfo) {
@@ -9708,9 +9711,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
               目に見えて縮んで窮屈になる——動画は「送って選ぶ」より「見る」ものなので、
               見ているあいだは帯を畳むほうを採った。何枚目かは字幕に出ているし、
               送りは ‹ › とキーでできる */}
-          {viewerItem && !viewerItem.is_video && strip.length > 1 && (
-            <div className="viewer-strip" onClick={(e) => e.stopPropagation()}>
-              {strip.map(({ item, offset }) => (
+          {viewerItem && !viewerItem.is_video && strip.filter((s) => s.item).length > 1 && (
+            <div
+              className="viewer-strip"
+              style={{ width: stripDockWidth(stripRadius) }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {strip.map(({ item, offset }) =>
+                !item ? (
+                  // 写真の無い席（端・未取得の日）。空けておくだけ
+                  <span key={`empty${offset}`} className="strip-cell strip-empty" aria-hidden="true" />
+                ) : (
                 <button
                   key={item.id}
                   data-testid="viewer-strip-cell"
@@ -9753,7 +9764,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     <span className="strip-reject">✕</span>
                   )}
                 </button>
-              ))}
+                ),
+              )}
             </div>
           )}
           {viewerItem && (

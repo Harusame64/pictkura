@@ -1716,20 +1716,25 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font-size: var(--fs-md);
   background: linear-gradient(transparent, oklch(0 0 0 / 0.6));
 }
-/* 前後に何があるかの帯（0.2 ②）。字幕のすぐ上に置く。
-   高さは固定で、送っても帯が伸び縮みしない */
+/* 前後に何があるかの帯（0.2 ②）。字幕のすぐ上、写真の上に浮かぶ暗い台に載せる（デザインレビュー: 写真に直に置いた
+   半透明のコマに後ろの写真が透けて混ざり、青も橙も写真の色にくすんで見えた）。台の幅は App.tsx が席の数から決めて
+   固定する（`stripSeats.ts`。送っても台が動かない・角でコマが切れない）。写真の側（情報パネルの分を空けた残り）の真ん中。
+   ぼかしは使わない——写真を送る・動かすたびに描き直しが要り、この濃さではほとんど見えない（/code-review） */
 .viewer-strip {
   position: absolute;
   inset-inline-start: 0;
-  /* 写真と同じく、情報パネルの分を空けた残りの中央に並べる（パネルの下に潜らない、#48） */
   inset-inline-end: var(--info-reserve);
-  bottom: var(--caption-h);
+  bottom: calc(var(--caption-h) + var(--sp-1));
+  margin-inline: auto;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 4px;
-  padding: var(--sp-2);
+  padding: 6px;
   overflow: hidden;
+  border-radius: var(--radius-surface);
+  background: var(--viewer-dock);
+  box-shadow: inset 0 0 0 1px var(--viewer-control-ring);
 }
 .strip-cell {
   position: relative;
@@ -1742,19 +1747,30 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   border-radius: calc(var(--radius-photo) + 2px);
   background: oklch(0 0 0 / 0.5);
   cursor: pointer;
-  opacity: 0.55;
-  transition:
-    opacity var(--dur) var(--easing),
-    transform var(--dur) var(--easing);
 }
-.strip-cell:hover {
-  opacity: 0.9;
+/* 写真の無い席（端・未取得の日）。席は取るが何も描かない */
+.strip-empty {
+  visibility: hidden;
+}
+/* 今の1枚以外は、透かさずに明るさだけ落とす（透かすと後ろの写真の色が混ざった）。触れたら一段明るく——今の1枚
+   （元の明るさ）とは見分けられるように */
+.strip-cell img,
+.strip-cell .strip-blank {
+  filter: brightness(0.72);
+  transition: filter var(--dur) var(--easing);
+}
+.strip-cell:hover img,
+.strip-cell:hover .strip-blank {
+  filter: brightness(0.88);
 }
 /* いま見ている1枚。**大きさは変えず枠と明るさだけ**——大きくすると
    送るたびに帯全体が動いて、目で追う先が落ち着かない */
 .strip-cell.current {
-  opacity: 1;
   border-color: #fff;
+}
+.strip-cell.current img,
+.strip-cell.current .strip-blank {
+  filter: none;
 }
 .strip-cell img {
   width: 100%;
@@ -1865,14 +1881,14 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
    帯の並びが動くと、送るたびに目で追う先が落ち着かない。
    **沈めるのは絵だけで、✕は沈めない**——セルごと薄くすると足あとまで
    薄まり、実機では印が付いているのかどうか読めなかった
-   （2026-08-19に利用者から指摘。16pxの✕を0.3で敷いていた） */
-.strip-cell.rejected,
-.strip-cell.rejected.current {
-  opacity: 1;
-}
+   （2026-08-19に利用者から指摘。16pxの✕を0.3で敷いていた）。
+   明るさは落とさない（薄さに重ねると、前より暗く沈んだ。/code-review）。今の1枚・触れたときも同じ薄さ */
 .strip-cell.rejected img,
-.strip-cell.rejected .strip-blank {
+.strip-cell.rejected .strip-blank,
+.strip-cell.rejected:hover img,
+.strip-cell.rejected:hover .strip-blank {
   opacity: 0.25;
+  filter: none;
 }
 .strip-reject {
   position: absolute;

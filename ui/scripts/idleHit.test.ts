@@ -33,13 +33,12 @@ test("the list matches the elements App.css hides while idle", () => {
   assert.deepEqual([...hidden].sort(), [...IDLE_HIDDEN_UI].sort());
 });
 
-test("every hidden part is hit-tested, through its drawn contents for the full-width bands", () => {
+test("every hidden part is hit-tested, through its drawn contents for the full-width caption", () => {
   for (const sel of IDLE_HIDDEN_UI) {
     assert.ok(IDLE_HIT_TARGETS.some((t) => t === sel || t.startsWith(sel + " ")), sel);
   }
-  //帯と題名は箱でなく中身
-  assert.ok(IDLE_HIT_TARGETS.includes(".viewer-strip > *"));
+  // 題名は箱でなく中身。フィルムストリップは中身の幅の台なので台そのもの
   assert.ok(IDLE_HIT_TARGETS.includes(".viewer-caption > *"));
-  assert.ok(!IDLE_HIT_TARGETS.includes(".viewer-strip"));
   assert.ok(!IDLE_HIT_TARGETS.includes(".viewer-caption"));
+  assert.ok(IDLE_HIT_TARGETS.includes(".viewer-strip"));
 });
