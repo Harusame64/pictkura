@@ -24,9 +24,10 @@ const PATHS = {
   // 内蔵の記憶装置: 平たい箱と、灯り
   drive: (
     <>
+      {/* 仕切りは箱の真ん中。下の段の中に灯りが線と離れて入る（1x の画素で線にくっついていた。win2） */}
       <rect x="3.5" y="7" width="17" height="10" rx="2" />
-      <path d="M3.5 13h17" />
-      <circle cx="16.5" cy="15" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M3.5 12h17" />
+      <circle cx="16.5" cy="14.5" r="0.75" fill="currentColor" stroke="none" />
     </>
   ),
   // 外付け（USB・カード）: 差し込みの先と胴

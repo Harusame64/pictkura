@@ -2608,6 +2608,22 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   justify-content: flex-end;
   margin-top: var(--sp-3);
 }
+/* 情報と印刷の箱の下のボタン（閉じる・キャンセル・印刷画面へ）。素のままだと OS 既定のボタンが出ていた（win2 の画面）。
+   形は取り込みの画面の下のボタン（.wiz-actions button）と同じ */
+.file-info-actions button {
+  min-height: 32px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.file-info-actions button:not(.primary):hover {
+  background: var(--surface-2);
+}
 
 /* 右クリックの「印刷…」（ADR B-3）。情報の箱を借りて、載せ方の3択を並べる */
 .print-dialog-title {
