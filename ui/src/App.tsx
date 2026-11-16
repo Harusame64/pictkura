@@ -88,6 +88,7 @@ import {
   appDisplayNames,
   appKeys,
   isMac,
+  titleBarDoubleClick,
   osAppsFor,
   openWithOs,
   type OsApp,
@@ -1102,6 +1103,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
    * ウィンドウ（Tauri）の全画面。動画の再生バーの全画面ボタンから入ったときだけ使う（dev #75）。
    * 頁の全画面（`isFullscreen`）とは別に持ち、⛶・F11・Esc・ビューアを閉じる、のどれでも抜ける
    */
+  /** mac の、窓の題の帯を消した見た目か（main.tsx がビルドの OS から付ける） */
+  const macOverlay = document.documentElement.classList.contains("mac-overlay");
+  /** 帯のダブルクリック（mac）。ボタン・入力欄の上では何もしない。何をするかはシステム設定（Rust が読む） */
+  const onTitleBarDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!macOverlay) return;
+      if ((e.target as Element).closest("button, input, select, textarea, a, [role='button']")) return;
+      void titleBarDoubleClick().catch(() => {});
+    },
+    [macOverlay],
+  );
   const [winFullscreen, setWinFullscreen] = useState(false);
   const winFullscreenRef = useRef(false);
   /** こちらが窓の全画面を頼んだか。macOS の出入りはアニメーションで、途中の読みで記録が偽になっても、終わりの知らせで読み直す */
@@ -1110,6 +1122,24 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   const viewerOpenRef = useRef(false);
   /** 頁か窓のどちらかで全画面（⛶ の表示） */
   const anyFullscreen = isFullscreen || winFullscreen;
+  // 全画面では信号のボタンが消えるので、mac の左の空きもやめる（App.css の html.mac-fullscreen）。**窓が実際に全画面か**
+  // で決める——winFullscreen はアプリから入った全画面だけを数える（緑のボタンの全画面は数えない作り）ので使えない
+  useEffect(() => {
+    if (!macOverlay) return;
+    const sync = () =>
+      void getCurrentWindow()
+        .isFullscreen()
+        .then((on) => document.documentElement.classList.toggle("mac-fullscreen", on))
+        .catch(() => {});
+    sync();
+    // 出入りのアニメーションが終わったとき（mac_fullscreen.rs が知らせる）と、窓の大きさが変わったときに読み直す
+    const un1 = listen("window-fullscreen-changed", sync);
+    const un2 = getCurrentWindow().onResized(sync);
+    return () => {
+      void un1.then((f) => f());
+      void un2.then((f) => f());
+    };
+  }, [macOverlay]);
   /** ウィンドウサイズ。表示倍率（実ピクセル比）の計算に使う */
   const [windowSize, setWindowSize] = useState({
     w: window.innerWidth,
@@ -7953,7 +7983,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   return (
     <div className="app">
       {selecting && (
-        <div className="select-bar" data-tauri-drag-region={isMac || undefined} {...inertProps}>
+        <div className="select-bar" data-tauri-drag-region={macOverlay ? "deep" : undefined} onDoubleClick={onTitleBarDoubleClick} {...inertProps}>
           <button
             className="select-bar-close"
             title={t.clearSelection} id="pk-select-clear" data-testid="select-clear"
@@ -8085,9 +8115,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             )}`}
         </div>
       )}
-      {/* data-tauri-drag-region: 帯の地をつかむと窓が動く（mac だけ——窓の題の帯が無いので、ここが代わり。Windows は
-          OS の題の帯があるので付けない） */}
-      <header className="topbar" data-tauri-drag-region={isMac || undefined} {...inertProps}>
+      {/* data-tauri-drag-region="deep": 帯をつかむと窓が動く（ボタン・入力欄は除く。mac だけ——窓の題の帯が無いので、
+          ここが代わり。Windows は OS の題の帯があるので付けない）。ダブルクリックはシステム設定に従う（onTitleBarDoubleClick） */}
+      <header className="topbar" data-tauri-drag-region={macOverlay ? "deep" : undefined} onDoubleClick={onTitleBarDoubleClick} {...inertProps}>
         <span className="logo">{t.appName}</span>
         <div className="view-switch">
           <button
@@ -9659,6 +9689,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 </>
               )}
             </div>
+          )}
+          {/* mac: ビューアの間も窓をつかんで動かせる上の細い帯（窓の題の帯が無いので）。写真より上・道具より下に置く
+              ——DOM で写真の台の後、道具の前。押しても閉じない（地のクリックで閉じるのを止める） */}
+          {macOverlay && (
+            <div
+              className="viewer-drag-strip"
+              data-tauri-drag-region="deep"
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={onTitleBarDoubleClick}
+            />
           )}
           {/* **閉じるは左上の ←**（2026-11-03 利用者「抜けるボタンとボツボタンが一緒で怖い」）。
               右上の帯にあったときは字も ✕ でボツ（✕、X キー・札と同じ印）と並び、押し違えると

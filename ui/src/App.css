@@ -118,24 +118,35 @@ body {
 /* ===== mac: 窓の題の帯とアプリの上の帯を 1 枚にする（2026-11-16 デザインレビュー: 窓の題の「pictkura」の下に
    ロゴの「pictkura」がもう一度出て、「ウェブ画面を包んだ物」に見えた）。信号のボタンは物理の左に居るので、言語の
    向きに依らず左を空ける（右→左でも左）。いちばん上の行（選んでいる間は選択の帯）だけが空ける ===== */
-html.mac-overlay .topbar,
-html.mac-overlay .select-bar {
+html.mac-overlay:not(.mac-fullscreen) .topbar,
+html.mac-overlay:not(.mac-fullscreen) .select-bar {
   padding-left: 84px;
 }
-html.mac-overlay .select-bar ~ .topbar {
+html.mac-overlay:not(.mac-fullscreen) .select-bar ~ .topbar {
   padding-left: var(--sp-4);
 }
-html.mac-overlay .topbar {
+/* 信号のボタンは 52px の行の真ん中に来る（trafficLightPosition の y）。いちばん上の行はどちらも 52px にそろえる */
+html.mac-overlay .topbar,
+html.mac-overlay .select-bar {
   min-height: 52px;
 }
 /* 名前はメニューバーと Dock にある */
 html.mac-overlay .logo {
   display: none;
 }
-/* ビューアの左上の道具を、信号のボタンの右へ（左→右なら「戻る」、右→左なら道具の帯が左に居る） */
-html.mac-overlay:not([dir="rtl"]) .viewer-back,
-html.mac-overlay[dir="rtl"] .viewer-tools {
+/* ビューアの左上の道具を、信号のボタンの右へ（左→右なら「戻る」とその下の印、右→左なら道具の帯が左に居る）。
+   全画面では信号のボタンが消えるので戻す */
+html.mac-overlay:not(.mac-fullscreen):not([dir="rtl"]) .viewer-back,
+html.mac-overlay:not(.mac-fullscreen):not([dir="rtl"]) .viewer-badges,
+html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   margin-left: 68px;
+}
+/* ビューアの間も窓をつかめる上の細い帯（mac。App.tsx が mac のときだけ置く） */
+.viewer-drag-strip {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  height: 52px;
 }
 .logo {
   font-weight: 700;
