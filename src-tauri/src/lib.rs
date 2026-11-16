@@ -3031,8 +3031,9 @@ fn take_open_batch(state: &AppState) -> Vec<String> {
     lock_ok(&state.open_batch).started = None;
     if !paths.is_empty() {
         let mut allowed = lock_ok(&state.allowed_open);
-        // 受け取った写真だけを開ける（直近の数件。増え続けないように。束の分は必ず入れる）
-        if allowed.len() + paths.len() > 64 {
+        // 受け取った写真だけを開ける（増え続けないように上限は置くが、画面が遅れて届いた束を前の束に足して開き直す
+        // ので、前の束の分も残る広さにする。エクスプローラーが 1 度に開くのは 15 件まで。PR の codex）
+        if allowed.len() + paths.len() > 1024 {
             allowed.clear();
         }
         allowed.extend(paths.iter().cloned());

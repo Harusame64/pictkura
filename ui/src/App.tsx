@@ -7357,11 +7357,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // `openFile` は起動時の写真の effect が依存に持つので、作り直さない（作り直すと同じ写真を開き直す）。組の頭は ref で引く
   const openIdOfRef = useRef(openIdOf);
   openIdOfRef.current = openIdOf;
+  const platformRef = useRef(platform);
+  platformRef.current = platform;
   const openFile = useCallback((given: string[], atStart: boolean) => {
     const prev = lastOpenBatch.current;
     const paths =
-      // 先の束が 1 つだけでも足す——2 つ目が 0.3 秒より遅れて届くと、先の束は 1 つになる（PR の codex）
-      !atStart && prev && Date.now() - prev.at < 3000
+      // 先の束が 1 つだけでも足す——2 つ目が 0.3 秒より遅れて届くと、先の束は 1 つになる（PR の codex）。
+      // **Windows だけ**——macOS の Finder は選んだ分を 1 回で渡すので、3 秒以内に別々に開いたものは別々の要求
+      !atStart && platformRef.current === "windows" && prev && Date.now() - prev.at < 3000
         ? [...prev.paths, ...given.filter((p) => !prev.paths.includes(p))]
         : given;
     lastOpenBatch.current = { paths, at: Date.now() };
