@@ -78,6 +78,21 @@ export function joinConditions(
  *   ——時間だけで決めると、問い合わせが遅いライブラリでは打ちかけの語への答えで見出しが出た（/code-review）
  */
 export const TYPING_SETTLE_MS = 700;
+
+/**
+ * 最後の打鍵で検索欄に入っていた字（`typedRaw`）が、いまの検索欄（`input`）と同じなら、打った語として
+ * 問い合わせに送る形（`normalize` を通したもの）を返す。違えば null——その後にアプリが語を入れた
+ * （「検索を消す」・左のカメラ・パレット・Esc）ということなので、打っていない扱いにする。
+ * 打鍵の記録とアプリの書き換えを、印や effect を使わずに描画の中で見分ける（ref の印が残ると、
+ * アプリが入れた語まで打った扱いになった。/code-review）
+ */
+export function typedQueryOf(
+  typedRaw: string | null,
+  input: string,
+  normalize: (s: string) => string,
+): string | null {
+  return typedRaw !== null && typedRaw === input ? normalize(input.trim()) : null;
+}
 export function holdNoResults(s: {
   typed: string | null;
   settled: boolean;

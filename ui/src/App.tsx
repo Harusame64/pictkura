@@ -177,7 +177,7 @@ import {
 import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
-import { filterConditions, holdNoResults, joinConditions, TYPING_SETTLE_MS } from "./filterEmpty";
+import { filterConditions, holdNoResults, joinConditions, typedQueryOf, TYPING_SETTLE_MS } from "./filterEmpty";
 import { asciiDateTokens, hasRtlText, inlineSign, isolateEach, isRtl, stepOfArrow } from "./direction";
 import { digitOf, letterOf, modDigitOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
@@ -2002,27 +2002,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   }, [queryInput, query]);
 
   /**
-   * 検索欄に**打った**語と、手が止まったか（`holdNoResults`、filterEmpty.ts）。打鍵は入力欄の onChange が
-   * `typedByKeyRef` に印を付けて知らせる——アプリが入れた語（「検索を消す」・左のカメラ・パレット・Esc）では
-   * 印が無いので、打っていない扱いに戻す
+   * 検索欄に**打った**語と、手が止まったか（`holdNoResults`・`typedQueryOf`、filterEmpty.ts）。打鍵の
+   * ハンドラが、いまの字・変換中か・止まったかを**同じ描画で**決める（effect で後から立てると、
+   * 打った直後の1コマだけ前の値で見出しが出た。/code-review）。アプリが入れた語は `typedQueryOf` が見分ける
    */
-  const typedByKeyRef = useRef(false);
-  const [typedQuery, setTypedQuery] = useState<string | null>(null);
-  const [typingSettled, setTypingSettled] = useState(true);
-  const [composing, setComposing] = useState(false);
-  useEffect(() => {
-    const byKey = typedByKeyRef.current;
-    typedByKeyRef.current = false;
-    if (!byKey) {
-      setTypedQuery(null);
-      setTypingSettled(true);
-      return;
-    }
-    setTypedQuery(asciiDateTokens(queryInput.trim()));
-    setTypingSettled(false);
-    const t = window.setTimeout(() => setTypingSettled(true), TYPING_SETTLE_MS);
-    return () => window.clearTimeout(t);
-  }, [queryInput]);
+  const [typing, setTyping] = useState<{ raw: string; composing: boolean; settled: boolean } | null>(null);
+  const settleTimerRef = useRef<number | null>(null);
+  const noteTyping = useCallback((raw: string, composing: boolean) => {
+    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
+    setTyping({ raw, composing, settled: false });
+    settleTimerRef.current = window.setTimeout(() => {
+      settleTimerRef.current = null;
+      setTyping((cur) => (cur && cur.raw === raw ? { ...cur, settled: true } : cur));
+    }, TYPING_SETTLE_MS);
+  }, []);
+  useEffect(() => () => {
+    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
+  }, []);
 
   // フィルタ・検索クエリの変更で骨組みを読み込み直す（初回はマウント時のeffectが行う）
   const filterInitRef = useRef(true);
@@ -2535,6 +2531,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * （`emptyReason`）と見つからないフォルダの知らせの抑止がそれに乗っている。混ぜると、
    * 絞り込んだだけで空のライブラリの理由を聞きに行き、知らせも消える。
    *
+   * 検索欄に打っている途中は出さない（`holdNoResults`。打ちかけの語は何にも当たらないことが多い）。
    * `settled` は見ない——見出しは `summaryFor`（いま出ている答えが問うた絞り込み）から組むので、
    * 次の答えを待つ間も、出ている答えについて正しいことしか言わない。読み込みの失敗は上の
    * 「出せませんでした」に任せる。取り込み・走査・索引の途中は、あとで増えうるので一言添える
@@ -2542,9 +2539,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    */
   const filterEmpty =
     !holdNoResults({
-      typed: typedQuery,
-      settled: typingSettled,
-      composing,
+      typed: typedQueryOf(typing?.raw ?? null, queryInput, asciiDateTokens),
+      settled: typing?.settled ?? true,
+      composing: typing?.composing ?? false,
       answered: summaryFor?.query ?? "",
     }) &&
     !showEmptyPanel &&
@@ -8351,13 +8348,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             id="pk-search" data-testid="search"
             value={queryInput}
             onChange={(e) => {
-              // 打った語の印（下の effect が、打ちかけの語で0件の見出しを出さないために見る）
-              typedByKeyRef.current = true;
+              // 打った語として覚える（打ちかけの語で0件の見出しを出さない。`holdNoResults`）
+              noteTyping(e.target.value, (e.nativeEvent as InputEvent).isComposing === true);
               setQueryInput(e.target.value);
             }}
-            onCompositionStart={() => setComposing(true)}
-            onCompositionEnd={() => setComposing(false)}
-            onBlur={() => setComposing(false)}
+            onCompositionEnd={(e) => noteTyping(e.currentTarget.value, false)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setQueryInput("");
