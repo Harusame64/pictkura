@@ -804,12 +804,19 @@ export const showShellMenu = (ids: number[], x: number, y: number) =>
 export const openWith = (id: number, appPath: string, remember: boolean) =>
   invoke<void>("open_with", { id, appPath, remember });
 /** 「プログラムから開く」で渡された写真のパス（受け取ったら消える） */
-export const takePendingOpen = () => invoke<string | null>("take_pending_open");
+/** 「プログラムから開く」で渡された写真（複数を選んで開いたときは、続けて届いた分をまとめた束。無ければ空） */
+export const takePendingOpen = () => invoke<string[]>("take_pending_open");
 /** そのフォルダを、ライブラリの外の写真（負の id）として並べる。渡した写真の位置も返す */
-export const openOutside = (path: string) =>
-  invoke<{ items: MediaItem[]; index: number; library: { id: number; day_key: number } | null }>("open_outside", {
-    path,
-  });
+export const openOutside = (paths: string[]) =>
+  invoke<{
+    items: MediaItem[];
+    index: number;
+    library: { id: number; day_key: number } | null;
+    /** 複数を選んで開いた（選んだものだけの再生リスト） */
+    playlist: boolean;
+    /** 複数がみなライブラリの中なら、選んだものの列（一覧と同じ新しい順） */
+    library_scope: ScopeItem[] | null;
+  }>("open_outside", { paths });
 /** 外部アプリの、OS が人に見せている名前（並びは paths と同じ）。設定には書かず、出すたびに引く */
 export const appDisplayNames = (paths: string[]) => invoke<string[]>("app_display_names", { paths });
 /** 外部アプリの、名簿と照らす鍵（Windows は exe のファイル名、macOS は束 ID。小文字） */

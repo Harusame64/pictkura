@@ -746,7 +746,7 @@ function folderPathOf(input: string): string {
   return input.trim().replace(/^"(.*)"$/, "$1").trim();
 }
 
-export default function App({ openAtStart = null }: { openAtStart?: string | null } = {}) {
+export default function App({ openAtStart = null }: { openAtStart?: string[] | null } = {}) {
   /**
    * ビューアだけの窓（「プログラムから開く」で写真を渡されて起動した。2026-11-15 利用者の決定）。一覧・左の欄・
    * 上の帯は出さず、ビューアを閉じたら窓ごと閉じる。「一覧で見る」でふつうの窓に戻る
@@ -3243,6 +3243,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
    * `OUTSIDE_DAY` の列としてこれを歩く（選択スコープの道。dev/plan.md 2026-11-15 の設計 A、spike）
    */
   const [outsideItems, setOutsideItems] = useState<MediaItem[] | null>(null);
+  /** 外の写真の列が、複数を選んで開いたもの（再生リスト）か。1 枚から並べたフォルダなら false */
+  const [outsidePlaylist, setOutsidePlaylist] = useState(false);
   const dayIdxByKey = useMemo(() => {
     const map = new Map<number, number>();
     summary.forEach((d, i) => map.set(d.day_key, i));
@@ -7346,13 +7348,27 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
   // 起動時の写真（`openAtStart`）も、起動中に届いた写真（`open-file`）も同じ道
   /** 開く要求の番号。続けて 2 つ届いたら、後の答えだけを当てる（先の答えが後から届いても捨てる。/code-review） */
   const openFileReq = useRef(0);
-  const openFile = useCallback((path: string, atStart: boolean) => {
+  const openFile = useCallback((paths: string[], atStart: boolean) => {
     const req = ++openFileReq.current;
     // 待っていた前のライブラリの写真は取り消す——後から一覧が届いたときに、新しい写真を古い写真で上書きした（codex）
     setPendingLibraryOpen(null);
-    void openOutside(path)
-      .then(({ items, index, library }) => {
+    void openOutside(paths)
+      .then(({ items, index, library, playlist, library_scope }) => {
         if (req !== openFileReq.current) return;
+        setOutsidePlaylist(playlist);
+        // 複数を選んで開いた: みなライブラリの中なら、選んで開いたのと同じ列（★ 等が効く）。動画だけなら、
+        // いちばん古いものから（撮った順に続けて流す。`scopeStartIndex`）
+        if (library_scope && library_scope.length > 0) {
+          setOutsideItems(null);
+          setFilter("all");
+          setKind("all");
+          setQueryInput("");
+          setViewerScope(library_scope);
+          lastMoveDirRef.current = null;
+          const start = library_scope[scopeStartIndex(library_scope)];
+          setPendingLibraryOpen({ dayKey: start.day_key, id: start.id });
+          return;
+        }
         if (library) {
           // 外の写真を見ていたなら、その列を下ろす（ライブラリの写真はライブラリの道で歩く）
           setOutsideItems(null);
@@ -7373,8 +7389,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           return;
         }
         setOutsideItems(items);
-        setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY, is_video: i.is_video })));
-        setViewer({ dayKey: OUTSIDE_DAY, id: items[index].id });
+        const scope = items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY, is_video: i.is_video }));
+        setViewerScope(scope);
+        lastMoveDirRef.current = null;
+        // 選んだものだけ（再生リスト）なら、動画だけのときいちばん古いものから。フォルダを並べたときは渡された 1 枚
+        setViewer({ dayKey: OUTSIDE_DAY, id: items[playlist ? scopeStartIndex(scope) : index].id });
       })
       .catch((e) => {
         // 開けなければふつうの窓に戻す（黒い窓のまま何も出ない、にしない）
@@ -7389,14 +7408,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
    * 起動中に届いた写真（Windows の二重起動・macOS の「このアプリで開く」）。**今の窓で**開く（2026-11-15 利用者）。
    * 設定・取り込み・ボツの確認などの幕が出ている間は、閉じてから開く（書きかけを壊さない）
    */
-  const [openWhenFree, setOpenWhenFree] = useState<string | null>(null);
+  const [openWhenFree, setOpenWhenFree] = useState<string[] | null>(null);
   useEffect(() => {
     const take = () =>
-      void takePendingOpen().then((path) => {
-        if (path) setOpenWhenFree(path);
+      void takePendingOpen().then((paths) => {
+        if (paths.length > 0) setOpenWhenFree(paths);
       });
     // 受け口ができる前に届いた写真も拾う（取り込みの `open-import-drive` と同じ、聞いてから一度取りに行く）
-    const un = listen<string>("open-file", take);
+    const un = listen("open-file", take);
     void un.then(take);
     return () => {
       void un.then((off) => off()).catch(() => {});
@@ -9306,9 +9325,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     playing,
                     lastDir: lastMoveDirRef.current,
                     videosOnly: kind === "video",
-                    // 選んだものだけで開いたとき（再生リスト）。「このアプリで開く」で並べたライブラリの外の写真は
-                    // 選んだ物ではないので数えない
-                    inScope: viewerScope !== null && outsideItems === null,
+                    // 選んだものだけで開いたとき（再生リスト）。「このアプリで開く」で 1 枚から並べたフォルダは
+                    // 選んだ物ではないので数えない。複数を選んで開いたときは選んだ物（`outsidePlaylist`）
+                    inScope: viewerScope !== null && (outsideItems === null || outsidePlaylist),
                     curtainUp,
                     // 送りと同じ歩き方で着く先を見る（消えた席は飛ばす。`nextScopeIndex`）
                     nextIsVideo: (dir) => {
