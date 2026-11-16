@@ -88,7 +88,7 @@
   /* 道具の縁と、カプセルの区画の仕切り線 */
   --viewer-control-ring: oklch(1 0 0 / 0.16);
   /* ビューア（テーマに依らず暗い地）のスクロールバーのつまみ */
-  --viewer-scroll-thumb: oklch(1 0 0 / 0.3);
+  --viewer-scroll-thumb: oklch(1 0 0 / 0.36); /* 暗い地に対して約 3:1（0.3 では 2.67:1。win2 の実測） */
   /* フィルムストリップの台（写真の上に浮かぶ）。ぼかしは使わないので、ほぼ不透明——0.82 では白黒の縞の写真の上で、
      空いた席に縞が透けてうるさかった（win2） */
   --viewer-dock: color-mix(in oklch, var(--viewer-ground) 90%, transparent);
