@@ -313,7 +313,9 @@ body {
   height: 30px;
   text-overflow: ellipsis;
   padding-block: 0;
-  padding-inline: 28px var(--sp-7);
+  /* 終わりの余白は ⌘K／Ctrl+K の札の幅＋隙間。32px だと札（Windows の Ctrl+K は 43px）の下へ案内の字と「…」が
+     潜った（win2 の実測）。欄が狭くて札を隠すときは下の @container search で詰める */
+  padding-inline: 28px 56px;
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   background: var(--surface-2);
@@ -3691,7 +3693,11 @@ body {
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
 }
-.select-bar-spacer {
+.select-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
   flex: 1;
 }
 .select-bar button {
