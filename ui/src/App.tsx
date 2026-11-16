@@ -177,7 +177,7 @@ import {
 import { errText } from "./i18n/err.ts";
 // パレットの操作は英語の名前でも当たる（IME で変換する言語で、英語のまま打てるように）
 import { en } from "./i18n/en.ts";
-import { filterConditions, joinConditions } from "./filterEmpty";
+import { filterConditions, holdNoResults, joinConditions, TYPING_SETTLE_MS } from "./filterEmpty";
 import { asciiDateTokens, hasRtlText, inlineSign, isolateEach, isRtl, stepOfArrow } from "./direction";
 import { digitOf, letterOf, modDigitOf } from "./keyLetter";
 import { chooseBadges, PAIR_ICON_WIDTH } from "./stackBadges";
@@ -313,8 +313,6 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
-/** 検索欄の最後の打鍵から、0件の見出しを出してよくなるまで（打ちかけの語で見出しを一瞬出さない） */
-const TYPING_SETTLE_MS = 700;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -2004,17 +2002,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   }, [queryInput, query]);
 
   /**
-   * 検索欄の手が止まったか。打ちかけの語は何にも当たらないことが多い（`year:202`・`kind:vi`——search.rs は
-   * 読めない値を「何にも当たらない」にする）ので、打っている途中は「該当する写真はありません」を出さない。
-   * 1字ずつ打つと、打ちかけの語で一瞬だけ見出しが出た（win2）。止まってから出せば、打ち間違いには今までどおり気付ける
+   * 検索欄に**打った**語と、手が止まったか（`holdNoResults`、filterEmpty.ts）。打鍵は入力欄の onChange が
+   * `typedByKeyRef` に印を付けて知らせる——アプリが入れた語（「検索を消す」・左のカメラ・パレット・Esc）では
+   * 印が無いので、打っていない扱いに戻す
    */
+  const typedByKeyRef = useRef(false);
+  const [typedQuery, setTypedQuery] = useState<string | null>(null);
   const [typingSettled, setTypingSettled] = useState(true);
-  const typingStartedRef = useRef(false);
+  const [composing, setComposing] = useState(false);
   useEffect(() => {
-    if (!typingStartedRef.current) {
-      typingStartedRef.current = true;
+    const byKey = typedByKeyRef.current;
+    typedByKeyRef.current = false;
+    if (!byKey) {
+      setTypedQuery(null);
+      setTypingSettled(true);
       return;
     }
+    setTypedQuery(asciiDateTokens(queryInput.trim()));
     setTypingSettled(false);
     const t = window.setTimeout(() => setTypingSettled(true), TYPING_SETTLE_MS);
     return () => window.clearTimeout(t);
@@ -2537,7 +2541,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * （`busy` は見ない。削除・書き出しでも立つ）
    */
   const filterEmpty =
-    typingSettled &&
+    !holdNoResults({
+      typed: typedQuery,
+      settled: typingSettled,
+      composing,
+      answered: summaryFor?.query ?? "",
+    }) &&
     !showEmptyPanel &&
     !loadFailed &&
     summary.length === 0 &&
@@ -8341,7 +8350,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             placeholder={t.searchPlaceholder}
             id="pk-search" data-testid="search"
             value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
+            onChange={(e) => {
+              // 打った語の印（下の effect が、打ちかけの語で0件の見出しを出さないために見る）
+              typedByKeyRef.current = true;
+              setQueryInput(e.target.value);
+            }}
+            onCompositionStart={() => setComposing(true)}
+            onCompositionEnd={() => setComposing(false)}
+            onBlur={() => setComposing(false)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setQueryInput("");

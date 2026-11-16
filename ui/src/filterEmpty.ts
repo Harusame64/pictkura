@@ -64,3 +64,26 @@ export function joinConditions(
   if (shown.length === 0) return andMore(rest);
   return shown.join(separator) + lastSeparator + andMore(rest);
 }
+
+/**
+ * 検索欄に打っている途中は、0件の見出しを出さないでおくか。打ちかけの語は何にも当たらないことが多い
+ * （`year:202`・`kind:vi`——search.rs は読めない値を「何にも当たらない」にする）。1字ずつ打つと、
+ * 打ちかけの語で見出しが一瞬出た（win2）。
+ *
+ * - `typed`: **利用者が検索欄に打った**語（`asciiDateTokens` を通した、問い合わせに送る形）。アプリが入れた語
+ *   （「検索を消す」・左のカメラ・パレット）なら null——そのときは今までどおり（0件から0件へ移る間も見出しを
+ *   落とさない、`summaryFor` の働きを壊さない）
+ * - `settled`: 最後の打鍵から [`TYPING_SETTLE_MS`] たったか。`composing`: IME で変換している最中か
+ * - `answered`: いま出ている答えが問うた語（`summaryFor.query`）。**打った語への答えが届くまでは出さない**
+ *   ——時間だけで決めると、問い合わせが遅いライブラリでは打ちかけの語への答えで見出しが出た（/code-review）
+ */
+export const TYPING_SETTLE_MS = 700;
+export function holdNoResults(s: {
+  typed: string | null;
+  settled: boolean;
+  composing: boolean;
+  answered: string;
+}): boolean {
+  if (s.typed === null) return false;
+  return s.composing || !s.settled || s.answered !== s.typed;
+}
