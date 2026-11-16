@@ -695,6 +695,11 @@ const NON_TEXT_INPUT_TYPES = new Set([
 const rootName = (r: string) =>
   r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || r;
 
+/** 手入力のパスを整える（前後の空白と、「パスのコピー」の前後の引用符を外す。dev #34） */
+function folderPathOf(input: string): string {
+  return input.trim().replace(/^"(.*)"$/, "$1").trim();
+}
+
 export default function App({ openAtStart = null }: { openAtStart?: string | null } = {}) {
   /**
    * ビューアだけの窓（「プログラムから開く」で写真を渡されて起動した。2026-11-15 利用者の決定）。一覧・左の欄・
@@ -2892,16 +2897,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     }
   };
 
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const onAddFolder = () => {
     // ボタンは disabled になるが Enter キーは素通りするので、ここでも弾く
     if (busy) return;
     // 「パスのコピー」の前後の引用符は外す（一時フォルダの確かめも、同じ綴りで見るため。dev #34）
-    const path = folderInput.trim().replace(/^"(.*)"$/, "$1");
+    const path = folderPathOf(folderInput);
     // 入力欄を空にするのは手入力から追加できたときだけ。「参照…」からの
     // 追加でここを消すと、打ちかけのパスが黙って消える
     if (path)
       void addFolder(path).then((ok) => {
-        if (ok) setFolderInput("");
+        if (ok) {
+          setFolderInput("");
+          // 押した「追加」は空になると押せなくなるので、手を入力欄へ戻す（キーボードの位置を失わない）
+          folderInputRef.current?.focus();
+        }
       });
   };
 
@@ -8483,12 +8493,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           ))}
           <div className="nav-section">{t.navAddFolder}</div>
           <div className="add-folder">
+            {/* 左欄のほかの行と同じ形（枠の箱にしない。デザインレビュー: 参照・入力・追加の 3 つの箱が常に出ていて、
+                設定画面の一部に見えた） */}
             <button
-              className="browse-folder"
+              className="browse-folder nav-item"
               onClick={onBrowseFolder}
               disabled={busy}
             >
-              <Icon name="folderOpen" className="btn-icon" />{t.browse}
+              <span className="drive-icon" aria-hidden="true"><Icon name="folderOpen" /></span>
+              {t.browse}
             </button>
             <div className="add-folder-manual">
               <input
@@ -8498,11 +8511,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                    置き字は削られるが、**例そのものは読めなくならない**ようにする */
                 title={t.addFolderPlaceholder}
                 placeholder={t.addFolderPlaceholder}
+                ref={folderInputRef}
                 value={folderInput}
                 onChange={(e) => setFolderInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && onAddFolder()}
               />
-              <button onClick={onAddFolder} disabled={busy}>
+              {/* 「追加」は常に置き、足せるパスが無い間は押せない（出し入れすると左欄の高さが打つたびに変わった。
+                  判定は onAddFolder と同じ整え方——引用符だけの欄で押せて何も起きない、を作らない） */}
+              <button onClick={onAddFolder} disabled={busy || folderPathOf(folderInput) === ""}>
                 {t.add}
               </button>
             </div>
