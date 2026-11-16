@@ -36,7 +36,7 @@ import { rankOsApps, suitsFile } from "./openWithApps";
 import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
-import { afterVideoEnded, isVideoOnlyFullscreen, type ViewerDir } from "./videoPlayOn";
+import { afterVideoEnded, isVideoOnlyFullscreen, scopeStartIndex, type ViewerDir } from "./videoPlayOn";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
@@ -6593,7 +6593,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     if (scope.length === 0) return;
     setViewerScope(scope);
     lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
-    setViewer({ dayKey: scope[0].day_key, id: openIdOf(scope[0].id) });
+    // 選んだのが動画だけなら、いちばん古いものから開く（撮った順に続けて流す。`scopeStartIndex`）
+    const start = scope[scopeStartIndex(scope)];
+    setViewer({ dayKey: start.day_key, id: openIdOf(start.id) });
   }, [openIdOf]);
 
   /**
@@ -7365,7 +7367,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           return;
         }
         setOutsideItems(items);
-        setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY })));
+        setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY, is_video: i.is_video })));
         setViewer({ dayKey: OUTSIDE_DAY, id: items[index].id });
       })
       .catch((e) => {
@@ -9298,6 +9300,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     playing,
                     lastDir: lastMoveDirRef.current,
                     videosOnly: kind === "video",
+                    // 選んだものだけで開いたとき（再生リスト）。「このアプリで開く」で並べたライブラリの外の写真は
+                    // 選んだ物ではないので数えない
+                    inScope: viewerScope !== null && outsideItems === null,
                     curtainUp,
                   });
                   if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);

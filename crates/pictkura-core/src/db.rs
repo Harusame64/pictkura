@@ -2781,6 +2781,32 @@ impl Db {
         Ok(rows_out.into_iter().map(|(day, _, id)| (id, day)).collect())
     }
 
+    /// 渡したIDのうち動画のもの（`kind` が [`crate::MediaKind::Video`]）。選んだ物だけで開いたビューアが、選んだ動画を
+    /// 撮った順に続けて流すかを決める（`scope_media`）。SQLの変数上限があるので分けて問い合わせる
+    pub fn video_ids_among(&self, ids: &[i64]) -> Result<std::collections::HashSet<i64>, DbError> {
+        let mut out = std::collections::HashSet::new();
+        for chunk in ids.chunks(400) {
+            let mut stmt = self.conn.prepare_cached(&format!(
+                "SELECT id FROM media WHERE kind = ?1 AND id IN ({})",
+                (2..chunk.len() + 2)
+                    .map(|i| format!("?{i}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))?;
+            let mut args: Vec<rusqlite::types::Value> = vec![rusqlite::types::Value::Integer(
+                crate::MediaKind::Video as i64,
+            )];
+            args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
+            let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
+                r.get::<_, i64>(0)
+            })?;
+            for row in rows {
+                out.insert(row?);
+            }
+        }
+        Ok(out)
+    }
+
     /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**だけを返す。
     ///
     /// 一括操作の直前に、選択が画面の中身とズレていないか確かめるためのもの。
@@ -6612,6 +6638,30 @@ mod tests {
                 .collect::<Vec<_>>(),
             [all[0]]
         );
+    }
+
+    /// 動画だけを拾う（選んで開いたビューアの続けての再生。`scope_media`）。居ないIDは落ちる
+    #[test]
+    fn video_ids_among_picks_only_videos() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("/r/act1.mp4", 1, 1000),
+            scanned("/r/break.jpg", 1, 2000),
+            scanned("/r/act2.MOV", 1, 3000),
+        ])
+        .unwrap();
+        let id_of = |name: &str| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path.ends_with(name))
+                .unwrap()
+                .id
+        };
+        let (a1, br, a2) = (id_of("act1.mp4"), id_of("break.jpg"), id_of("act2.MOV"));
+        let got = db.video_ids_among(&[a1, br, a2, -1]).unwrap();
+        assert_eq!(got, [a1, a2].into_iter().collect());
+        assert!(db.video_ids_among(&[]).unwrap().is_empty());
     }
 
     /// 選別の印は★と**別の棚**であること（0.2 ②）。片方を触っても
