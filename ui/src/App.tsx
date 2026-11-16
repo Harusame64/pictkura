@@ -7348,7 +7348,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // 起動時の写真（`openAtStart`）も、起動中に届いた写真（`open-file`）も同じ道
   /** 開く要求の番号。続けて 2 つ届いたら、後の答えだけを当てる（先の答えが後から届いても捨てる。/code-review） */
   const openFileReq = useRef(0);
-  const openFile = useCallback((paths: string[], atStart: boolean) => {
+  /**
+   * 直前に開いた束（複数を選んで開いたとき）。遅れて届いた残り（Windows は選んだ数だけ別の起動で渡すので、遅い台では
+   * 束が途切れて 2 回に分かれる）を、今の列に**足して**開き直す——後の束だけで開き直すと、先の分が列から消えた
+   * （/code-review）。3 秒より後に届いたものは、新しく開いたものとして扱う
+   */
+  const lastOpenBatch = useRef<{ paths: string[]; at: number } | null>(null);
+  // `openFile` は起動時の写真の effect が依存に持つので、作り直さない（作り直すと同じ写真を開き直す）。組の頭は ref で引く
+  const openIdOfRef = useRef(openIdOf);
+  openIdOfRef.current = openIdOf;
+  const openFile = useCallback((given: string[], atStart: boolean) => {
+    const prev = lastOpenBatch.current;
+    const paths =
+      !atStart && prev && prev.paths.length > 1 && Date.now() - prev.at < 3000
+        ? [...prev.paths, ...given.filter((p) => !prev.paths.includes(p))]
+        : given;
+    lastOpenBatch.current = { paths, at: Date.now() };
     const req = ++openFileReq.current;
     // 待っていた前のライブラリの写真は取り消す——後から一覧が届いたときに、新しい写真を古い写真で上書きした（codex）
     setPendingLibraryOpen(null);
@@ -7366,7 +7381,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           setViewerScope(library_scope);
           lastMoveDirRef.current = null;
           const start = library_scope[scopeStartIndex(library_scope)];
-          setPendingLibraryOpen({ dayKey: start.day_key, id: start.id });
+          // 組（RAW+JPEG）なら組の頭へ（アプリの中で選んで開くのと同じ。`openIdOf`）
+          setPendingLibraryOpen({ dayKey: start.day_key, id: openIdOfRef.current(start.id) });
           return;
         }
         if (library) {
