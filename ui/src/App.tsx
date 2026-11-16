@@ -36,7 +36,7 @@ import { rankOsApps, suitsFile } from "./openWithApps";
 import { useWindowEvent } from "./useWindowEvent";
 import { openShellMenu } from "./shellMenu";
 import { isSilent, loadVideoVolume, saveVideoVolume } from "./videoVolume";
-import { afterVideoEnded, isVideoOnlyFullscreen, type ViewerDir } from "./videoPlayOn";
+import { afterVideoEnded, isVideoOnlyFullscreen, nextScopeIndex, scopeStartIndex, type ViewerDir } from "./videoPlayOn";
 import { IDLE_HIT_TARGETS, pointInAnyRect } from "./idleHit";
 import { idleLine, withProgressLine, writeProgress, type ProgressLine } from "./progressLine";
 import { quitAfterFileOp } from "./quitAfterFileOp";
@@ -4196,12 +4196,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     };
   }, [shownImageEl]);
   /**
-   * ビューアで利用者が最後に自分で動かした向き（dev #75）。動画のフィルター中は、動画が終わったらこの向きへ続ける。
-   * -1 はひとつ新しい項目（グリッドは新しい順なので時系列の向き）、1 はひとつ古い項目。キー・前後のボタン・帯で
-   * 実際に動いたときだけ覚え、判定の後の自動送り・スライドショー・続けて再生の送りでは変えない（`moveViewer` の `remember`）。
-   * 開き直したら・閉じたら忘れる（null は 1 と同じ扱い）
+   * ビューアで利用者が最後に自分で動かした向き（dev #75）。動画のフィルター中と、選んだものだけで開いているときは、
+   * 動画が終わったらこの向きへ続ける（`afterVideoEnded`）。-1 はひとつ新しい項目（グリッドは新しい順なので撮った順の
+   * 向き）、1 はひとつ古い項目。キー・前後のボタン・帯で実際に動いたときだけ覚え、判定の後の自動送り・スライドショー・
+   * 続けて再生の送りでは変えない（`moveViewer` の `remember`）。開き直したら・閉じたら忘れる（null は撮った順＝-1 と
+   * 同じ扱い。2026-11-16 利用者の選択）
    */
   const lastMoveDirRef = useRef<ViewerDir | null>(null);
+  /** 選んだものの列の席 `k` が、一覧から消えているか（読めた日に居ない。未取得の日は居る側。`nextScopeIndex`） */
+  const scopeGone = useCallback(
+    (k: number) => {
+      const at = viewerScope?.[k];
+      if (!at) return true;
+      const dayList = viewerDayItems.get(at.day_key);
+      return !!dayList && !dayList.some((x) => x.id === at.id);
+    },
+    [viewerScope, viewerDayItems],
+  );
   /**
    * ビューアを1枚進める(+1)/戻す(-1)。wrapは末尾→先頭のループ。
    * `slideshow` はスライドショーが送ったとき（送りの動きをスライドショーの設定で選ぶ）
@@ -4222,16 +4233,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         // **一覧から消えた席は飛ばす**（ゲート2のP2）。⚑を外した・消したものが
         // 列には残っているので、そこへ歩くと行き止まりになる。
         // 未取得の日は「居るかもしれない」側に倒す（行けば取りに行く）
-        for (
-          let k = scopeIdx + dir;
-          k >= 0 && k < viewerScope.length;
-          k += dir
-        ) {
+        const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
+        if (k >= 0) {
           const at = viewerScope[k];
-          const dayList = viewerDayItems.get(at.day_key);
-          if (dayList && !dayList.some((x) => x.id === at.id)) continue;
           // まだ読めていない日へ入る: 組の順が分からない。読めたら来た向きの端へ寄せる
-          if (!dayList && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
+          if (!viewerDayItems.get(at.day_key) && pairView === "both") pendingOpenIdRef.current = { id: at.id, dir };
           go({ dayKey: at.day_key, id: at.id });
           return;
         }
@@ -4262,7 +4268,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
         go({ dayKey: summary[0].day_key, id: "first" });
       }
     },
-    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav],
+    [viewerInfo, viewerDayItems, summary, viewerScope, scopeIdx, pairView, markNav, scopeGone],
   );
 
   /** 判定キーのあと次の絵へ送るか（設定・既定ON）。古い設定ファイルには無い */
@@ -6593,7 +6599,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     if (scope.length === 0) return;
     setViewerScope(scope);
     lastMoveDirRef.current = null; //開き直したら、向きは覚え直す（dev #75）
-    setViewer({ dayKey: scope[0].day_key, id: openIdOf(scope[0].id) });
+    // 選んだのが動画だけなら、いちばん古いものから開く（撮った順に続けて流す。`scopeStartIndex`）
+    const start = scope[scopeStartIndex(scope)];
+    setViewer({ dayKey: start.day_key, id: openIdOf(start.id) });
   }, [openIdOf]);
 
   /**
@@ -7365,7 +7373,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           return;
         }
         setOutsideItems(items);
-        setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY })));
+        setViewerScope(items.map((i) => ({ id: i.id, day_key: OUTSIDE_DAY, is_video: i.is_video })));
         setViewer({ dayKey: OUTSIDE_DAY, id: items[index].id });
       })
       .catch((e) => {
@@ -9291,14 +9299,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     item: viewerItem,
                   });
                 }}
-                // スライドショー中は最後まで見せてから次へ送る。
-                // 動画のフィルター中は、スライドショーでなくても、終わったら最後に動かした向きへ続ける（dev #75）
+                // スライドショー中は最後まで見せてから次へ送る。動画のフィルター中と、選んだものだけで開いているときは、
+                // スライドショーでなくても、終わったら最後に動かした向き（まだなら撮った順）へ続ける（dev #75）
                 onEnded={() => {
                   const next = afterVideoEnded({
                     playing,
                     lastDir: lastMoveDirRef.current,
                     videosOnly: kind === "video",
+                    // 選んだものだけで開いたとき（再生リスト）。「このアプリで開く」で並べたライブラリの外の写真は
+                    // 選んだ物ではないので数えない
+                    inScope: viewerScope !== null && outsideItems === null,
                     curtainUp,
+                    // 送りと同じ歩き方で着く先を見る（消えた席は飛ばす。`nextScopeIndex`）
+                    nextIsVideo: (dir) => {
+                      if (!viewerScope || scopeIdx === undefined) return false;
+                      const k = nextScopeIndex(viewerScope.length, scopeIdx, dir, scopeGone);
+                      return k >= 0 && viewerScope[k].is_video;
+                    },
                   });
                   if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);
                 }}

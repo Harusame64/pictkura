@@ -4634,20 +4634,26 @@ fn scope_media(
     let query = pictkura_core::parse_query(&query, filter);
     state
         .read_pool
-        .with(|db| db.visible_ids_in_order(&query, &ids))
+        .with(|db| db.visible_in_order_with_video(&query, &ids))
         .map(|rows| {
             rows.into_iter()
-                .map(|(id, day_key)| ScopeItemDto { id, day_key })
+                .map(|(id, day_key, is_video)| ScopeItemDto {
+                    id,
+                    day_key,
+                    is_video,
+                })
                 .collect()
         })
         .map_err(errs::from_err)
 }
 
-/// [`scope_media`] が返す1件。
+/// [`scope_media`] が返す1件。`is_video` は、選んだ動画を撮った順に続けて流すかを決めるのに使う（UI の
+/// `afterVideoEnded`・`openSelectionInViewer`）
 #[derive(serde::Serialize, Clone)]
 struct ScopeItemDto {
     id: i64,
     day_key: i64,
+    is_video: bool,
 }
 
 /// 可視領域のIDをサムネイル生成キューへオンデマンド投入し、最優先へ引き上げる。

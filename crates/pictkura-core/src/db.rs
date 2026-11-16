@@ -2751,24 +2751,44 @@ impl Db {
         query: &SearchQuery,
         ids: &[i64],
     ) -> Result<Vec<(i64, i64)>, DbError> {
+        Ok(self
+            .visible_in_order_with_video(query, ids)?
+            .into_iter()
+            .map(|(id, day, _)| (id, day))
+            .collect())
+    }
+
+    /// [`Self::visible_ids_in_order`] に、動画か（`kind` が [`crate::MediaKind::Video`]）を添えたもの。選んだものだけで
+    /// 開いたビューアが、選んだ動画を撮った順に続けて流すのに使う（`scope_media`）。同じ問い合わせで引く
+    pub fn visible_in_order_with_video(
+        &self,
+        query: &SearchQuery,
+        ids: &[i64],
+    ) -> Result<Vec<(i64, i64, bool)>, DbError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let (conds, base_args) = self.query_filter_mode(query, FTS_FOR_SELECTION)?;
         // 並べる鍵ごと引く。SQLの変数上限があるので [`Db::visible_ids`] と
         // 同じように分けて問い合わせ、並べ直しはこちらで1回だけやる
-        let mut rows_out: Vec<(i64, i64, i64)> = Vec::new();
+        let mut rows_out: Vec<(i64, i64, i64, bool)> = Vec::new();
         for chunk in ids.chunks(400) {
             let mut conds = conds.clone();
             conds.push(format!("id IN ({})", placeholders(chunk.len())));
             let mut args = base_args.clone();
             args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
             let mut stmt = self.conn.prepare_cached(&format!(
-                "SELECT day_key, {SORT_TS}, id FROM media WHERE {}",
+                "SELECT day_key, {SORT_TS}, id, kind = {} FROM media WHERE {}",
+                crate::MediaKind::Video as i64,
                 conds.join(" AND ")
             ))?;
             let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get::<_, Option<bool>>(3)?.unwrap_or(false),
+                ))
             })?;
             for row in rows {
                 rows_out.push(row?);
@@ -2776,9 +2796,12 @@ impl Db {
         }
         // 同じIDを2度渡されても2度並ばないようにしておく（選択は集合だが、
         // 呼ぶ側の作り方に依存したくない）
-        rows_out.sort_unstable_by(|a, b| b.cmp(a));
+        rows_out.sort_unstable_by_key(|r| std::cmp::Reverse((r.0, r.1, r.2)));
         rows_out.dedup_by_key(|r| r.2);
-        Ok(rows_out.into_iter().map(|(day, _, id)| (id, day)).collect())
+        Ok(rows_out
+            .into_iter()
+            .map(|(day, _, id, video)| (id, day, video))
+            .collect())
     }
 
     /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**だけを返す。
@@ -6611,6 +6634,48 @@ mod tests {
                 .map(|(id, _)| *id)
                 .collect::<Vec<_>>(),
             [all[0]]
+        );
+    }
+
+    /// 並びと一緒に、動画かが添う（選んで開いたビューアの続けての再生。`scope_media`）
+    #[test]
+    fn visible_in_order_marks_videos() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("/r/act1.mp4", 1, 1000),
+            scanned("/r/break.jpg", 1, 2000),
+            scanned("/r/act2.MOV", 1, 3000),
+        ])
+        .unwrap();
+        let all: Vec<i64> = db.list_all().unwrap().into_iter().map(|r| r.id).collect();
+        let got = db
+            .visible_in_order_with_video(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &all,
+            )
+            .unwrap();
+        let name_of = |id: i64| db.get_by_id(id).unwrap().unwrap().path;
+        let marks: Vec<(String, bool)> = got
+            .iter()
+            .map(|(id, _, v)| {
+                (
+                    name_of(*id)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                    *v,
+                )
+            })
+            .collect();
+        // 新しい順（更新日時で並ぶ）
+        assert_eq!(
+            marks,
+            [
+                ("act2.MOV".to_string(), true),
+                ("break.jpg".to_string(), false),
+                ("act1.mp4".to_string(), true)
+            ]
         );
     }
 

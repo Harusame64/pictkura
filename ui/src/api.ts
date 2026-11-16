@@ -700,6 +700,8 @@ export const rotationRestorable = (id: number) =>
 export interface ScopeItem {
   id: number;
   day_key: number;
+  /** 動画か（選んだ動画を撮った順に続けて流すかを決める） */
+  is_video: boolean;
 }
 
 /**
