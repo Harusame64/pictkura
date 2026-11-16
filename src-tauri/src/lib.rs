@@ -188,8 +188,12 @@ struct AppState {
     /// 受け取れたフロントが `take_pending_import` で消すので、取りこぼしと
     /// 二重処理のどちらも起きない。
     pending_import: Mutex<Option<String>>,
-    /// 「プログラムから開く」で渡された写真のうち、まだ画面が受け取っていないもの（`pending_import` と同じ方式）
-    pending_open: Mutex<Option<String>>,
+    /// 「プログラムから開く」で渡された写真のうち、まだ画面が受け取っていないもの（`pending_import` と同じ方式）。
+    /// **束で持つ**——エクスプローラーで複数を選んで開くと、Windows は 1 つずつ別の起動で渡してくる（二重起動が
+    /// 1 本ずつ届く）。続けて届いたものは同じ束に足し、途切れてから画面へ渡す（[`deliver_open`]・[`take_pending_open`]）
+    pending_open: Mutex<Vec<String>>,
+    /// 束の時刻: 始まった時刻（空の束へ最初に足した時）と、最後に足した時刻（途切れたかを見る）
+    open_batch: Mutex<OpenBatch>,
     /// 画面が受け取った「開く写真」（[`take_pending_open`] が渡したもの。直近の数件）。[`open_outside`] はこれだけを開く——
     /// 画面から任意のフォルダを media:// で配れるようにしない（/code-review。取り込み元の `browse_allow` と同じ考え）
     allowed_open: Mutex<std::collections::HashSet<String>>,
@@ -342,8 +346,9 @@ fn narrow_to_dcim(path: String) -> String {
 /// 窓を前面に出し、取り込み対象があればウィザードを開くイベントを送る。
 fn handle_second_instance(app: &tauri::AppHandle, argv: &[String]) {
     // 写真を渡された二重起動（「プログラムから開く」）は、今の窓で開く
-    if let Some(path) = open_path_from_args(argv) {
-        deliver_open(app, path);
+    let paths = open_paths_from_args(argv);
+    if !paths.is_empty() {
+        deliver_open(app, paths);
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
@@ -2737,6 +2742,11 @@ struct OutsideDto {
     index: usize,
     /// 渡された写真がライブラリの中なら、その id と日（画面はライブラリのビューアで開く。★ 等が効く）
     library: Option<LibraryPosDto>,
+    /// **複数を選んで開いた**ときの、選んだものの列（再生リスト）。みなライブラリの中なら `library_scope`（一覧と同じ
+    /// 新しい順。画面は「選んで開いた」と同じく歩く）、外が混じれば `items` に選んだものだけ（名前の新しい側から。
+    /// 外の写真は撮影日時を読まないので、カメラの通し番号＝名前の順を撮った順とみなす）
+    playlist: bool,
+    library_scope: Option<Vec<ScopeItemDto>>,
 }
 
 #[derive(serde::Serialize)]
@@ -2746,12 +2756,20 @@ struct LibraryPosDto {
 }
 
 #[tauri::command]
-async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto, String> {
+async fn open_outside(app: tauri::AppHandle, paths: Vec<String>) -> Result<OutsideDto, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        if !lock_ok(&state.allowed_open).contains(&path) {
+        if paths.is_empty()
+            || !paths
+                .iter()
+                .all(|p| lock_ok(&state.allowed_open).contains(p))
+        {
             return Err(errs::code("errNotFound"));
         }
+        if paths.len() > 1 {
+            return open_several(&state, &paths);
+        }
+        let path = paths[0].clone();
         let file = PathBuf::from(&path);
         // ライブラリの中の写真なら、外の表は作らずにその位置を返す
         let in_library = state
@@ -2773,6 +2791,8 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
                     id: r.id,
                     day_key: r.day_key,
                 }),
+                playlist: false,
+                library_scope: None,
             });
         }
         let dir = file
@@ -2782,32 +2802,12 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
         let extensions = lock_ok(&state.config).import.extensions.clone();
         // そのフォルダの写真・動画（ファイルだけ。下のフォルダは数えない——取り込み元の一覧と違い、要らない）。
         // シンボリックリンクも先を見る
-        struct Entry {
-            path: PathBuf,
-            name: String,
-            size: u64,
-            mtime_ms: i64,
-        }
-        let entry_of = |p: &Path| -> Option<Entry> {
-            let m = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
-            Some(Entry {
-                path: p.to_path_buf(),
-                name: p.file_name()?.to_string_lossy().into_owned(),
-                size: m.len(),
-                mtime_ms: m
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0),
-            })
-        };
-        let mut files: Vec<Entry> = std::fs::read_dir(&dir)
+        let mut files: Vec<OutsideEntry> = std::fs::read_dir(&dir)
             .map(|rd| {
                 rd.flatten()
                     .map(|e| e.path())
                     .filter(|p| pictkura_core::scanner::has_target_extension(p, &extensions))
-                    .filter_map(|p| entry_of(&p))
+                    .filter_map(|p| outside_entry(&p))
                     .collect()
             })
             .unwrap_or_default();
@@ -2817,7 +2817,7 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
         // 大文字小文字を区別しない置き場では同じファイル）。名前の大文字小文字だけで同じとみなすと、区別する置き場で
         // `IMG.jpg` と `img.jpg` が並んだときに別の写真を開いた（codex）
         let canon_file = std::fs::canonicalize(&file).ok();
-        let same_file = |e: &Entry| {
+        let same_file = |e: &OutsideEntry| {
             e.path == file
                 || (file
                     .file_name()
@@ -2826,7 +2826,7 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
                     && std::fs::canonicalize(&e.path).ok() == canon_file)
         };
         if !files.iter().any(same_file) {
-            if let Some(e) = entry_of(&file) {
+            if let Some(e) = outside_entry(&file) {
                 files.push(e);
             }
         }
@@ -2836,113 +2836,256 @@ async fn open_outside(app: tauri::AppHandle, path: String) -> Result<OutsideDto,
             .position(|e| e.path == file)
             .or_else(|| files.iter().position(same_file))
             .unwrap_or(0);
-        // 絵の URL の版（`v=<mtime>-<rev>`）を開くたびに変える。外の id はフォルダの中の位置にすぎないので、
-        // 前の起動の別の写真のキャッシュ（immutable）が出ないように（/code-review）
-        static OPEN_SEQ: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-        let rev = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0)
-            + OPEN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // 開くたびに別の id の範囲（-(範囲×100万 + 位置 + 1)、範囲は呼び番号を 1000 で回したもの）。続けて 2 つ
-        // 開いたとき、画面がどちらの答えを当てても、その id は必ずその答えのファイルを指す（/code-review）
-        static OPEN_CALL: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-        let call = OPEN_CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let band = call % 1_000;
-        let base = band * 1_000_000;
-        let mut table = std::collections::HashMap::new();
-        let mut items = Vec::with_capacity(files.len());
-        for (i, f) in files.iter().enumerate() {
-            let id = -(base + i as i64) - 1;
-            let record = pictkura_core::MediaRecord {
-                id,
-                path: f.path.clone(),
-                size: f.size as i64,
-                mtime_ms: f.mtime_ms,
-                width: None,
-                height: None,
-                preview_width: None,
-                preview_height: None,
-                taken_at_ms: None,
-                taken_subsec: None,
-                camera_id: None,
-                body_serial: None,
-                day_key: OUTSIDE_DAY_KEY,
-                thumb_path: None,
-                thumb_state: 0,
-                favorite: false,
-                picked: false,
-                duration_ms: None,
-                rev,
-                taken_source: None,
-            };
-            let mut dto = MediaItemDto::from(record.clone());
-            // 生成済みのサムネは無いが、配信がファイルから直接作る（media の Thumb の外の写真の枝）
-            dto.has_thumb = true;
-            items.push(dto);
-            table.insert(id, record);
-        }
-        {
-            // 直近 3 回の範囲だけ残す（その前の答えを今さら当てる画面は無い）。**数えるのは、いまいちばん新しい呼び
-            // から**——自分の呼びから数えると、遅れて終わった古い呼びが、先に終わった新しい呼びの分を消した（codex）
-            let latest = OPEN_CALL.load(std::sync::atomic::Ordering::Relaxed) - 1;
-            let recent: Vec<i64> = (0..3)
-                .filter(|d| latest >= *d)
-                .map(|d| (latest - d) % 1_000)
-                .collect();
-            let mut outside = lock_ok(&state.outside);
-            outside.retain(|id, _| recent.contains(&((-id - 1) / 1_000_000)));
-            outside.extend(table);
-        }
+        let items = register_outside(&state, &files);
         Ok(OutsideDto {
             items,
             index,
             library: None,
+            playlist: false,
+            library_scope: None,
         })
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
+/// 外の写真の 1 件（[`open_outside`] がフォルダや選んだものから集める）
+struct OutsideEntry {
+    path: PathBuf,
+    name: String,
+    size: u64,
+    mtime_ms: i64,
+}
+
+/// 外の写真の行を作り、メモリの表（`AppState::outside`）に載せる。並びは渡した順
+fn register_outside(state: &AppState, files: &[OutsideEntry]) -> Vec<MediaItemDto> {
+    // 絵の URL の版（`v=<mtime>-<rev>`）を開くたびに変える。外の id はフォルダの中の位置にすぎないので、
+    // 前の起動の別の写真のキャッシュ（immutable）が出ないように（/code-review）
+    static OPEN_SEQ: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    let rev = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+        + OPEN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // 開くたびに別の id の範囲（-(範囲×100万 + 位置 + 1)、範囲は呼び番号を 1000 で回したもの）。続けて 2 つ
+    // 開いたとき、画面がどちらの答えを当てても、その id は必ずその答えのファイルを指す（/code-review）
+    static OPEN_CALL: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+    let call = OPEN_CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let band = call % 1_000;
+    let base = band * 1_000_000;
+    let mut table = std::collections::HashMap::new();
+    let mut items = Vec::with_capacity(files.len());
+    for (i, f) in files.iter().enumerate() {
+        let id = -(base + i as i64) - 1;
+        let record = pictkura_core::MediaRecord {
+            id,
+            path: f.path.clone(),
+            size: f.size as i64,
+            mtime_ms: f.mtime_ms,
+            width: None,
+            height: None,
+            preview_width: None,
+            preview_height: None,
+            taken_at_ms: None,
+            taken_subsec: None,
+            camera_id: None,
+            body_serial: None,
+            day_key: OUTSIDE_DAY_KEY,
+            thumb_path: None,
+            thumb_state: 0,
+            favorite: false,
+            picked: false,
+            duration_ms: None,
+            rev,
+            taken_source: None,
+        };
+        let mut dto = MediaItemDto::from(record.clone());
+        // 生成済みのサムネは無いが、配信がファイルから直接作る（media の Thumb の外の写真の枝）
+        dto.has_thumb = true;
+        items.push(dto);
+        table.insert(id, record);
+    }
+    {
+        // 直近 3 回の範囲だけ残す（その前の答えを今さら当てる画面は無い）。**数えるのは、いまいちばん新しい呼び
+        // から**——自分の呼びから数えると、遅れて終わった古い呼びが、先に終わった新しい呼びの分を消した（codex）
+        let latest = OPEN_CALL.load(std::sync::atomic::Ordering::Relaxed) - 1;
+        let recent: Vec<i64> = (0..3)
+            .filter(|d| latest >= *d)
+            .map(|d| (latest - d) % 1_000)
+            .collect();
+        let mut outside = lock_ok(&state.outside);
+        outside.retain(|id, _| recent.contains(&((-id - 1) / 1_000_000)));
+        outside.extend(table);
+    }
+    items
+}
+
+/// 外の写真の 1 件を、そのパスから読む（ファイルでなければ None）
+fn outside_entry(p: &Path) -> Option<OutsideEntry> {
+    let m = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
+    Some(OutsideEntry {
+        path: p.to_path_buf(),
+        name: p.file_name()?.to_string_lossy().into_owned(),
+        size: m.len(),
+        mtime_ms: m
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0),
+    })
+}
+
+/// 複数を選んで開いた（エクスプローラー・Finder）: 選んだものだけを再生リストに（[`OutsideDto::playlist`]）
+fn open_several(state: &AppState, paths: &[String]) -> Result<OutsideDto, String> {
+    let ids: Option<Vec<i64>> = state
+        .read_pool
+        .with(|db| {
+            let mut ids = Vec::new();
+            for p in paths {
+                match db.get_meta_by_path(Path::new(p))? {
+                    Some(meta) => ids.push(meta.id),
+                    None => return Ok::<_, pictkura_core::db::DbError>(None),
+                }
+            }
+            Ok(Some(ids))
+        })
+        .map_err(errs::from_err)?;
+    if let Some(ids) = ids {
+        // みなライブラリの中: 一覧と同じ並び（絞り込みは画面が外す）で、選んだものの列として返す
+        let query = pictkura_core::parse_query("", pictkura_core::MediaFilter::All);
+        let scope = state
+            .read_pool
+            .with(|db| scope_items(db, &query, &ids))
+            .map_err(errs::from_err)?;
+        if !scope.is_empty() {
+            return Ok(OutsideDto {
+                items: Vec::new(),
+                index: 0,
+                library: None,
+                playlist: true,
+                library_scope: Some(scope),
+            });
+        }
+    }
+    // 外が混じる: 選んだものだけを外の写真として。**名前の新しい側から**（一覧と同じ向き——-1 が撮った順になる）
+    let mut files: Vec<OutsideEntry> = paths
+        .iter()
+        .filter_map(|p| outside_entry(Path::new(p)))
+        .collect();
+    if files.is_empty() {
+        return Err(errs::code("errNotFound"));
+    }
+    // 名前、同じ名前ならフォルダまで含めたパスで並べる（同じ番号が別のフォルダに在っても順が決まる）
+    files.sort_by_cached_key(|f| std::cmp::Reverse((f.name.to_lowercase(), f.path.clone())));
+    let items = register_outside(state, &files);
+    Ok(OutsideDto {
+        items,
+        index: 0,
+        library: None,
+        playlist: true,
+        library_scope: None,
+    })
+}
+
 /// ライブラリの外の写真に付ける日（番兵）。画面の側も同じ値で見分ける
 const OUTSIDE_DAY_KEY: i64 = -1;
 
-/// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）
-#[tauri::command]
-fn take_pending_open(state: tauri::State<'_, AppState>) -> Option<String> {
-    state
-        .open_ui_ready
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    let path = lock_ok(&state.pending_open).take();
-    if let Some(p) = &path {
+/// 続けて届く「開く写真」が途切れたとみなす間（[`OPEN_BATCH_MAX_WAIT`] まで待つ）
+const OPEN_BATCH_QUIET: std::time::Duration = std::time::Duration::from_millis(300);
+/// 束を待つ上限。届き続けても、これを過ぎたら今ある分で開く
+const OPEN_BATCH_MAX_WAIT: std::time::Duration = std::time::Duration::from_millis(2000);
+
+/// 「開く写真」の束の時刻（[`AppState::open_batch`]）
+#[derive(Default)]
+struct OpenBatch {
+    /// 空の束へ最初に足した時刻（束が無ければ None）
+    started: Option<std::time::Instant>,
+    /// 最後に足した時刻
+    last: Option<std::time::Instant>,
+    /// 束の番号（始まるたびに 1 つ進む）。起動中の知らせを束ごとに 1 回だけ出す
+    seq: u64,
+}
+
+/// 束を画面へ渡してよいか。**束を待つのは Windows だけ**——エクスプローラーで複数を選んで開くと、選んだ数だけ
+/// 別の起動で 1 つずつ届く。macOS の Finder は選んだ分を 1 回の `Opened` でまとめて渡すので待たない（1 枚を開く
+/// ときに毎回 0.3 秒待たせない。/code-review）
+fn open_batch_ready(state: &AppState) -> bool {
+    if lock_ok(&state.pending_open).is_empty() {
+        return false;
+    }
+    if !cfg!(windows) {
+        return true;
+    }
+    let b = lock_ok(&state.open_batch);
+    let quiet = b.last.is_none_or(|t| t.elapsed() >= OPEN_BATCH_QUIET);
+    let capped = b
+        .started
+        .is_some_and(|t| t.elapsed() >= OPEN_BATCH_MAX_WAIT);
+    quiet || capped
+}
+
+/// 束を取り出す（取り出したら空。開いてよい写真に加える）
+fn take_open_batch(state: &AppState) -> Vec<String> {
+    let paths = std::mem::take(&mut *lock_ok(&state.pending_open));
+    lock_ok(&state.open_batch).started = None;
+    if !paths.is_empty() {
         let mut allowed = lock_ok(&state.allowed_open);
-        // 受け取った写真だけを開ける（直近の数件。増え続けないように）
-        if allowed.len() >= 8 {
+        // 受け取った写真だけを開ける（増え続けないように上限は置くが、画面が遅れて届いた束を前の束に足して開き直す
+        // ので、前の束の分も残る広さにする。エクスプローラーが 1 度に開くのは 15 件まで。PR の codex）
+        if allowed.len() + paths.len() > 1024 {
             allowed.clear();
         }
-        allowed.insert(p.clone());
+        allowed.extend(paths.iter().cloned());
     }
-    path
+    paths
+}
+
+/// 「プログラムから開く」で渡された写真のパスを受け取る（受け取ったら消える）。**束が途切れるまで待ってから**渡す
+/// （[`open_batch_ready`]）。空なら待たずに空を返す。**「画面が受け取った」の印は渡し終えてから立てる**——待っている
+/// 間に届いた 2 つ目を「画面が居る」と読むと、まだ黒で描いていないビューアだけの窓を前に出した（/code-review）
+#[tauri::command]
+async fn take_pending_open(app: tauri::AppHandle) -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let paths = loop {
+            if lock_ok(&state.pending_open).is_empty() {
+                break Vec::new();
+            }
+            if open_batch_ready(&state) {
+                break take_open_batch(&state);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        state
+            .open_ui_ready
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        paths
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// `manage` より前に届いた「開く写真」（macOS は起動の途中で `RunEvent::Opened` が来うる）。setup が拾う
-static EARLY_OPEN: Mutex<Option<String>> = Mutex::new(None);
+static EARLY_OPEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// 「開く写真」を受け取る（Windows の二重起動・macOS の `RunEvent::Opened`）。画面がまだ受け取る前なら
 /// 起動時の写真として積む（ビューアだけの窓）。受け取れる画面が居れば、積んでから今の窓へ知らせ、窓を前に出す
 /// ——起動中に開いた写真は**今の窓で**開く（2026-11-15 利用者。別の窓は画面が丸ごと 2 つ動くので見送り）
-fn deliver_open(app: &tauri::AppHandle, path: String) {
+fn deliver_open(app: &tauri::AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
     let Some(state) = app.try_state::<AppState>() else {
-        *lock_ok(&EARLY_OPEN) = Some(path);
+        lock_ok(&EARLY_OPEN).extend(paths);
         // 書いている間に setup が `manage` を済ませていたら、ここで拾い直す（setup も manage の後で拾い直す）
         if let Some(state) = app.try_state::<AppState>() {
-            if let Some(p) = lock_ok(&EARLY_OPEN).take() {
-                *lock_ok(&state.pending_open) = Some(p);
-            }
+            let early = std::mem::take(&mut *lock_ok(&EARLY_OPEN));
+            push_open(&state, early);
         }
         return;
     };
-    *lock_ok(&state.pending_open) = Some(path.clone());
+    push_open(&state, paths);
     if !state
         .open_ui_ready
         .load(std::sync::atomic::Ordering::SeqCst)
@@ -2950,13 +3093,59 @@ fn deliver_open(app: &tauri::AppHandle, path: String) {
         // 画面がまだ起動時の写真を受け取る前（macOS は setup の後に `Opened` が来うる）。窓をいったん隠して地を黒に
         // ——画面がビューアだけの窓を描いてから見せる（白や一覧を出さない。setup と同じ）
         prepare_viewer_only_window(app);
-    } else {
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.show();
-            let _ = w.unminimize();
-            let _ = w.set_focus();
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+    // 束が途切れてから（最大 2 秒で）知らせる——続けて届く 2 つ目・3 つ目を待たずに知らせると、画面が 1 つ目だけで
+    // 開き、残りで開き直した。知らせは束ごとに 1 回（同じ束へ届いた起動ごとに知らせない）
+    let seq = lock_ok(&state.open_batch).seq;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        loop {
+            if lock_ok(&state.open_batch).seq != seq || lock_ok(&state.pending_open).is_empty() {
+                return; // 別の束が始まった・画面がもう取った
+            }
+            if open_batch_ready(&state) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        let _ = app.emit_to("main", "open-file", path);
+        static EMITTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+        if EMITTED.swap(seq, std::sync::atomic::Ordering::SeqCst) != seq {
+            let _ = app.emit_to("main", "open-file", ());
+        }
+    });
+}
+
+/// 「開く写真」の束に足す（同じファイルは 1 度だけ）。束の時刻を控える
+fn push_open(state: &AppState, paths: Vec<String>) {
+    let mut pending = lock_ok(&state.pending_open);
+    let was_empty = pending.is_empty();
+    for p in paths {
+        if !pending.iter().any(|q| same_open_path(q, &p)) {
+            pending.push(p);
+        }
+    }
+    let mut b = lock_ok(&state.open_batch);
+    let now = std::time::Instant::now();
+    if was_empty || b.started.is_none() {
+        b.started = Some(now);
+        b.seq = b.seq.wrapping_add(1);
+    }
+    b.last = Some(now);
+}
+
+/// 開く写真として同じパスか。Windows は大文字小文字を区別しない（`C:\a.mp4` と `c:\A.MP4` を 2 度並べない）
+fn same_open_path(a: &str, b: &str) -> bool {
+    if cfg!(windows) {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
     }
 }
 
@@ -2976,9 +3165,11 @@ fn prepare_viewer_only_window(app: &tauri::AppHandle) {
     }
 }
 
-/// 起動の引数から「開く写真」を拾う（`pictkura.exe "C:\…\a.jpg"`）。フラグ（`--import` 等）とその値、
-/// argv[0] は飛ばし、在るファイルの絶対パスだけを受ける
-fn open_path_from_args(args: &[String]) -> Option<String> {
+/// 起動の引数から「開く写真」を拾う（`pictkura.exe "C:\…\a.jpg" "C:\…\b.mp4"`）。フラグ（`--import` 等）とその値、
+/// argv[0] は飛ばし、在るファイルの絶対パスを**全部**受ける（1 回の起動に並べて渡す形と、1 つずつ別の起動で渡す形の
+/// どちらでも束になる）
+fn open_paths_from_args(args: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
     let mut skip_next = false;
     for a in args.iter().skip(1) {
         if skip_next {
@@ -2990,11 +3181,11 @@ fn open_path_from_args(args: &[String]) -> Option<String> {
             continue;
         }
         let p = Path::new(a);
-        if p.is_absolute() && p.is_file() {
-            return Some(a.clone());
+        if p.is_absolute() && p.is_file() && !out.iter().any(|q| same_open_path(q, a)) {
+            out.push(a.clone());
         }
     }
-    None
+    out
 }
 
 /// OS既定のアプリで開く（Windowsの「開く」相当）。
@@ -4634,17 +4825,26 @@ fn scope_media(
     let query = pictkura_core::parse_query(&query, filter);
     state
         .read_pool
-        .with(|db| db.visible_in_order_with_video(&query, &ids))
-        .map(|rows| {
-            rows.into_iter()
-                .map(|(id, day_key, is_video)| ScopeItemDto {
-                    id,
-                    day_key,
-                    is_video,
-                })
-                .collect()
-        })
+        .with(|db| scope_items(db, &query, &ids))
         .map_err(errs::from_err)
+}
+
+/// 選んだものの列（一覧と同じ並び・動画の印付き）。アプリの中で選んで開く（[`scope_media`]）と、複数を選んで外から
+/// 開く（[`open_several`]）が同じ作り方をする
+fn scope_items(
+    db: &pictkura_core::Db,
+    query: &pictkura_core::SearchQuery,
+    ids: &[i64],
+) -> Result<Vec<ScopeItemDto>, pictkura_core::db::DbError> {
+    Ok(db
+        .visible_in_order_with_video(query, ids)?
+        .into_iter()
+        .map(|(id, day_key, is_video)| ScopeItemDto {
+            id,
+            day_key,
+            is_video,
+        })
+        .collect())
 }
 
 /// [`scope_media`] が返す1件。`is_video` は、選んだ動画を撮った順に続けて流すかを決めるのに使う（UI の
@@ -7325,7 +7525,7 @@ pub fn run() {
     // 写真を渡されて起動したら、WebView2 の既定の地を黒に（HTML が読み込まれるまでの白を出さない。win2 の実測で
     // 約 0.3 秒の白。窓の地は setup で黒にする）。WebView2 は環境を作るときにこの変数を読む
     #[cfg(windows)]
-    if open_path_from_args(&std::env::args().collect::<Vec<_>>()).is_some() {
+    if !open_paths_from_args(&std::env::args().collect::<Vec<_>>()).is_empty() {
         std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF080706");
     }
     // **WebView2 の合成を切る設定は、窓より前に効かせる**（`webview_args.rs`。`[performance] hardware_acceleration`）。
@@ -7488,10 +7688,8 @@ pub fn run() {
                 browse_allow: Mutex::new(HashSet::new()),
                 source_tiles: SourceTiles::default(),
                 pending_import: Mutex::new(pending_import),
-                pending_open: Mutex::new(
-                    open_path_from_args(&std::env::args().collect::<Vec<_>>())
-                        .or_else(|| lock_ok(&EARLY_OPEN).take()),
-                ),
+                pending_open: Mutex::new(Vec::new()),
+                open_batch: Mutex::new(OpenBatch::default()),
                 outside: Mutex::new(std::collections::HashMap::new()),
                 allowed_open: Mutex::new(std::collections::HashSet::new()),
                 open_ui_ready: std::sync::atomic::AtomicBool::new(false),
@@ -7507,10 +7705,13 @@ pub fn run() {
             // 0.3 秒ほど白い窓が見えていた（win2 の色の読み取り）。ふつうの起動はここで見せる。写真を渡されて起動したら
             // 画面がビューアを黒で描いてから見せる（main.tsx）。画面が見せられなかったときのために 3 秒で見せる保険
             // `manage` の前に届いて EARLY_OPEN に積まれた写真（deliver_open と競ったとき）を拾い直す
-            if let Some(p) = lock_ok(&EARLY_OPEN).take() {
-                *lock_ok(&app.state::<AppState>().pending_open) = Some(p);
+            // 起動の引数の写真と、`manage` の前に届いて EARLY_OPEN に積まれた写真（deliver_open と競ったとき）を束へ
+            let mut first = open_paths_from_args(&std::env::args().collect::<Vec<_>>());
+            first.extend(std::mem::take(&mut *lock_ok(&EARLY_OPEN)));
+            if !first.is_empty() {
+                push_open(&app.state::<AppState>(), first);
             }
-            if lock_ok(&app.state::<AppState>().pending_open).is_some() {
+            if !lock_ok(&app.state::<AppState>().pending_open).is_empty() {
                 prepare_viewer_only_window(app.handle());
             } else if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
@@ -8120,14 +8321,15 @@ pub fn run() {
             app.run(|_handle, _event| {
                 // macOS の Finder の「このアプリで開く」は引数ではなくこの知らせで届く（冷えた起動でも起動中でも）
                 #[cfg(target_os = "macos")]
+                // Finder で複数を選んで開くと、まとめて 1 回で届く。在るファイルを全部渡す
                 if let tauri::RunEvent::Opened { urls } = &_event {
-                    if let Some(path) = urls
+                    let paths: Vec<String> = urls
                         .iter()
                         .filter_map(|u| u.to_file_path().ok())
-                        .find(|p| p.is_file())
-                    {
-                        deliver_open(_handle, path.to_string_lossy().into_owned());
-                    }
+                        .filter(|p| p.is_file())
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .collect();
+                    deliver_open(_handle, paths);
                 }
             })
         });
@@ -8153,6 +8355,39 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+
+    /// 起動の引数から「開く写真」を全部拾う（1 回の起動に並べて渡す形。エクスプローラーで複数を選んで開いたとき）。
+    /// フラグとその値・argv[0]・相対パス・無いファイル・同じパスの 2 度目は拾わない
+    #[test]
+    fn open_paths_from_args_takes_every_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("act1.mp4");
+        let b = dir.path().join("act2.mp4");
+        std::fs::write(&a, b"x").unwrap();
+        std::fs::write(&b, b"x").unwrap();
+        let a = a.to_string_lossy().into_owned();
+        let b = b.to_string_lossy().into_owned();
+        let missing = dir.path().join("gone.mp4").to_string_lossy().into_owned();
+        let args: Vec<String> = [
+            "pictkura.exe",
+            a.as_str(),
+            "--import",
+            b.as_str(),
+            b.as_str(),
+            "relative.mp4",
+            missing.as_str(),
+            a.as_str(),
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        // `--import` の値（b）は飛ばし、その後の b は拾う。a の 2 度目は拾わない
+        assert_eq!(
+            crate::open_paths_from_args(&args),
+            vec![a.clone(), b.clone()]
+        );
+        assert!(crate::open_paths_from_args(&["pictkura.exe".to_string()]).is_empty());
+    }
     /// mac の設定は窓の配列を丸ごと置き換える（JSON merge patch は配列を混ぜない）。窓の寸法などを tauri.conf.json で
     /// 変えたとき、mac の写しだけ古いまま残らないよう、mac で足した鍵を除いて同じであることを見る
     #[test]

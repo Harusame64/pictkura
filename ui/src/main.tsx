@@ -33,7 +33,9 @@ void rememberLocaleChoice();
 // 上の行はボタンの分だけ左を空け、つかんで窓を動かせる（App.css の html.mac-overlay）。**OS はビルドから訊く**——
 // UA の isMac は WebView 次第で外れうる（api.ts）。訊けなければ UA に頼る
 void Promise.all([
-  takePendingOpen().catch(() => null),
+  takePendingOpen()
+    .then((paths) => (paths.length > 0 ? paths : null))
+    .catch(() => null),
   getHostPlatform().catch(() => (isMac ? "macos" : "other")),
 ]).then(([openAtStart, platform]) => {
     if (platform === "macos") document.documentElement.classList.add("mac-overlay");
