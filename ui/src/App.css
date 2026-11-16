@@ -97,6 +97,23 @@ body {
   border-bottom: 1px solid var(--border);
   flex: none;
 }
+/* 狭い窓（小さな画面を 150% にして中身が 850px ほど）でも、帯を 1 行に保つ（win2 の実測: ボタンが 2 行に折れ、
+   「サイズ」が縦に積まれ、⌘K の札が検索欄の案内に重なった）。字は折り返さない。縮むのは検索欄と状態の表示だけ */
+.topbar button,
+.topbar .slider,
+.topbar .count {
+  white-space: nowrap;
+}
+.topbar > :not(.search-box):not(.status) {
+  flex-shrink: 0;
+}
+@media (max-width: 1040px) {
+  /* 名前は窓の題にもある。目盛りは「サイズ」の字が無くても形で分かる */
+  .logo,
+  .slider-label {
+    display: none;
+  }
+}
 .logo {
   font-weight: 700;
   font-size: var(--fs-xl);
@@ -279,6 +296,17 @@ body {
   flex: 1;
   min-width: 160px;
   max-width: 420px;
+  /* 欄の幅で札（⌘K）を出すか決める（下の @container） */
+  container-type: inline-size;
+}
+/* 欄が狭いときは札を隠し、案内の字を札の分まで使って、入らない分は「…」で切る */
+@container (max-width: 300px) {
+  .search-kbd {
+    display: none;
+  }
+  .search-box input {
+    padding-inline-end: var(--sp-3);
+  }
 }
 .search-icon {
   position: absolute;
@@ -290,6 +318,7 @@ body {
 .search-box input {
   width: 100%;
   height: 30px;
+  text-overflow: ellipsis;
   padding-block: 0;
   padding-inline: 28px var(--sp-7);
   border: 1px solid transparent;

@@ -8159,7 +8159,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           </svg>
         </button>
         <label className="slider">
-          {t.size}
+          <span className="slider-label">{t.size}</span>
           <input
             type="range"
             min={CELL_SIZE_MIN}
