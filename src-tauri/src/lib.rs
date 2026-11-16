@@ -1531,6 +1531,35 @@ struct DecoderStatusDto {
 /// **`decoder_status` に相乗りさせない。** あちらはHEICを1枚実際に展開するので
 /// 高く、しかも「今後表示しない」で丸ごと省かれる。OSの判定はそれとは無関係に
 /// 常に要る（動画の案内が使う）ので、**安くて転ばない口**として分けてある。
+/// mac で、窓の題の帯の代わりになったアプリの帯をダブルクリックしたとき。**システム設定の「ウインドウのタイトルバーを
+/// ダブルクリックして…」（AppleActionOnDoubleClick）に従う**——Tauri の既定は設定に依らず最大化した（/code-review）。
+/// 「しまう」→ Dock へ、「何もしない」→ 何もしない、それ以外（拡大・未設定）→ 拡大と戻すの切り替え
+#[tauri::command]
+fn title_bar_double_click(window: tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    let action = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleActionOnDoubleClick"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    #[cfg(not(target_os = "macos"))]
+    let action = String::new();
+    match action.as_str() {
+        "Minimize" => {
+            let _ = window.minimize();
+        }
+        "None" => {}
+        _ => {
+            if window.is_maximized().unwrap_or(false) {
+                let _ = window.unmaximize();
+            } else {
+                let _ = window.maximize();
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn host_platform() -> &'static str {
     if cfg!(windows) {
@@ -8007,6 +8036,7 @@ pub fn run() {
             get_files_size,
             decoder_status,
             host_platform,
+            title_bar_double_click,
             empty_library_reason,
             open_decoder_help,
             get_index_progress,
@@ -8117,6 +8147,25 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// mac の設定は窓の配列を丸ごと置き換える（JSON merge patch は配列を混ぜない）。窓の寸法などを tauri.conf.json で
+    /// 変えたとき、mac の写しだけ古いまま残らないよう、mac で足した鍵を除いて同じであることを見る
+    #[test]
+    fn mac_window_config_matches_the_base_window() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mac: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
+        let base_win = base["app"]["windows"][0].as_object().unwrap().clone();
+        let mut mac_win = mac["app"]["windows"][0].as_object().unwrap().clone();
+        for k in ["titleBarStyle", "hiddenTitle", "trafficLightPosition"] {
+            assert!(mac_win.remove(k).is_some(), "tauri.macos.conf.json: {k}");
+        }
+        assert_eq!(
+            mac_win, base_win,
+            "tauri.macos.conf.json の窓が tauri.conf.json の窓とずれている"
+        );
+    }
+
     /// 「プログラムから開く」の登録（MSI・NSIS・Store 版）の拡張子が、取り込みの既定の一覧と揃っていること。
     /// 3 か所は手で書くので、どれかに足し忘れると、その形式だけ候補に出ない（黙って欠ける）
     #[test]

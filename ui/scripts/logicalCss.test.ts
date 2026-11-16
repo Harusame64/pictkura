@@ -33,12 +33,17 @@ const SIGNED = "横の値に --inline-sign を掛けて鏡に映す";
 const FLIP = "右→左で部品ごと裏返す";
 const CENTRE = "left: 50% と translateX(-50%) で真ん中。左右どちらから測っても同じ所";
 const PICTURE = "印刷の見本の絵。写真は鏡に映さない";
+/** mac の信号のボタン（窓を閉じる・しまう・広げる）は、言語の向きに依らず窓の物理の左に居る */
+const TRAFFIC = "mac の信号のボタンは物理の左に居る（右→左の言語でも左）";
 const SPINNER = "回転する印の欠け。向きの意味が無い";
 const SHIMMER = "読み込み中の光が流れる向き。飾りで、どちら向きでも読める";
 const QUIET = "@media (prefers-reduced-motion: reduce) @keyframes viewer-flash-quiet";
 
 /** 物理のまま残すもの。鍵は「規則の頭（@media・@keyframes も含む）|宣言|値」 */
 const KEEP: Record<string, string> = {
+  "html.mac-overlay:not(.mac-fullscreen) .topbar, html.mac-overlay:not(.mac-fullscreen) .select-bar|padding-left|84px": TRAFFIC,
+  "html.mac-overlay:not(.mac-fullscreen) .select-bar ~ .topbar|padding-left|var(--sp-4)": TRAFFIC,
+  "html.mac-overlay:not(.mac-fullscreen):not([dir=\"rtl\"]) .viewer-back, html.mac-overlay:not(.mac-fullscreen):not([dir=\"rtl\"]) .viewer-badges, html.mac-overlay:not(.mac-fullscreen)[dir=\"rtl\"] .viewer-tools|margin-left|68px": TRAFFIC,
   ".bg-spinner|border-right-color|transparent": SPINNER,
   "@media (prefers-reduced-motion: reduce) .bg-spinner|border-right-color|currentColor": SPINNER,
   ".placeholder-row|background|linear-gradient( 90deg, var(--cell-pending) 0 60%, var(--surface) 80%, var(--cell-pending) 100% ) 0 0 / 200% 100%":

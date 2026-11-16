@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
-import { rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
+import { getHostPlatform, isMac, rememberLocaleChoice, syncMenuLocale, takePendingOpen } from "./api";
 import { dirOf } from "./direction";
 import { locale } from "./i18n";
 import { initTheme } from "./theme";
@@ -20,6 +20,7 @@ document.documentElement.lang = locale;
 // JS（`direction.ts` の `isRtl`）もこの属性を見る
 document.documentElement.dir = dirOf(locale);
 
+
 // **メニューバーも同じ言語にする**（macOSだけ。Issue #14）。Rustは起動の一瞬だけ
 // OSの言語から当てているので、`localStorage` で別の言語を選んでいる人は
 // ここで直る。**待たない**——描画を止めてまで揃える話ではない
@@ -28,9 +29,14 @@ void rememberLocaleChoice();
 
 // 「プログラムから開く」で写真を渡されて起動したか。**描く前に受け取る**——一覧を一度描いてからビューアへ
 // 替えると、起動時に一覧がちらつく（2026-11-15 利用者）。渡されていればビューアだけの窓として描き始める
-void takePendingOpen()
-  .catch(() => null)
-  .then((openAtStart) => {
+// mac は窓の題の帯を消し、信号のボタンをアプリの上の行に重ねている（tauri.macos.conf.json の titleBarStyle: Overlay）。
+// 上の行はボタンの分だけ左を空け、つかんで窓を動かせる（App.css の html.mac-overlay）。**OS はビルドから訊く**——
+// UA の isMac は WebView 次第で外れうる（api.ts）。訊けなければ UA に頼る
+void Promise.all([
+  takePendingOpen().catch(() => null),
+  getHostPlatform().catch(() => (isMac ? "macos" : "other")),
+]).then(([openAtStart, platform]) => {
+    if (platform === "macos") document.documentElement.classList.add("mac-overlay");
     if (openAtStart) document.documentElement.classList.add("viewer-only");
     ReactDOM.createRoot(document.getElementById("root")!).render(
       <React.StrictMode>

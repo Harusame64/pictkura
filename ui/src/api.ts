@@ -409,6 +409,9 @@ export interface DecoderStatus {
 export type HostPlatform = "windows" | "macos" | "other";
 export const getHostPlatform = () => invoke<HostPlatform>("host_platform");
 
+/** mac で、窓の題の帯の代わりの帯をダブルクリックした（システム設定どおりにしまう・拡大する・何もしない） */
+export const titleBarDoubleClick = () => invoke<void>("title_bar_double_click");
+
 /** 右から左へ書く言語の確認画面（Windows だけ。`confirm.ts` からだけ呼ぶ）。OK なら `true` */
 export const confirmRightToLeft = (args: {
   title: string;
