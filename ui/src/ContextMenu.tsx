@@ -74,6 +74,15 @@ export default function ContextMenu({
   // 上下の矢印で項目を動く前提で入ってくる——フォーカスが後ろに残ったままだと項目へ届かない（pictkura-dev #65 の
   // ゲート2）
   const isOpen = pos !== null;
+  /**
+   * キーで項目を動いたか。動いたら、フォーカスのある行をホバーと同じ地で示す（`.context-menu.keys`）。マウスで開いた
+   * だけでは光らせない——開くと先頭へフォーカスを移すので、ブラウザ既定の輪が「開く」に毎回付いた（ダークでは
+   * 暗い面に暗い輪で、どこにいるか分からなかった。win2）。開き直すたびに戻す
+   */
+  const [keys, setKeys] = useState(false);
+  useLayoutEffect(() => {
+    if (isOpen) setKeys(false);
+  }, [isOpen, pos]);
   useLayoutEffect(() => {
     if (!isOpen) return;
     const before = document.activeElement;
@@ -92,8 +101,9 @@ export default function ContextMenu({
       onClose();
       return;
     }
-    const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
-    if (!keys.includes(e.key)) return;
+    const moveKeys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    if (!moveKeys.includes(e.key)) return;
+    setKeys(true);
     const list = [...(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
     if (list.length === 0) return;
     e.preventDefault();
@@ -115,7 +125,7 @@ export default function ContextMenu({
   return (
     <div
       ref={ref}
-      className="context-menu"
+      className={"context-menu" + (keys ? " keys" : "")}
       // メニューとして見せる（UI Automation の Menu／MenuItem。pictkura-dev #65）
       role="menu"
       id="pk-context-menu"
@@ -135,6 +145,10 @@ export default function ContextMenu({
             data-testid={item.id ? `menu-${item.id}` : undefined}
             className={"context-item" + (item.danger ? " danger" : "") + (item.hint ? " has-hint" : "")}
             aria-keyshortcuts={item.keys}
+            // 指の下の行へフォーカスも移す——光る行がいつも1つになり、マウスからキーへ移っても続きから動ける
+            onMouseMove={(e) => {
+              if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true });
+            }}
             onClick={() => {
               onClose();
               item.run();
