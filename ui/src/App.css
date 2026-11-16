@@ -3286,6 +3286,9 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: var(--sp-1);
   padding: var(--sp-1) var(--sp-2);
+  /* 触れた・選んだときの地は、左欄の行と同じ形（行の角丸・木の枠から少し内側）。端から端までの直角の地だった（win2） */
+  margin-inline: var(--sp-1);
+  border-radius: var(--radius-row);
   font-size: var(--fs-md);
   color: var(--text-muted);
   cursor: pointer;
@@ -3349,7 +3352,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: var(--sp-1);
   margin-top: var(--sp-2);
-  width: 100%;
+  /* 木の行（.wiz-node）と同じ余白・角丸。字の位置も行とそろう */
+  margin-inline: var(--sp-1);
+  border-radius: var(--radius-row);
+  width: calc(100% - 2 * var(--sp-1));
   padding-block: var(--sp-1);
   padding-inline: calc(var(--sp-2) + 16px + var(--sp-1)) var(--sp-2);
   border: none;
