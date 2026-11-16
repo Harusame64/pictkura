@@ -38,6 +38,8 @@
 
   /* ---- semantic: ライト ---- */
   color-scheme: light;
+  /* スクロールバーのつまみ（App.css の :root）。字の色を薄く混ぜるので、ダークでは自動で明るい側に回る */
+  --scroll-thumb: color-mix(in oklch, var(--text) 24%, transparent);
   --bg: var(--n-1); /* クローム地 */
   --bg-canvas: var(--n-0); /* グリッド背景（写真の後ろ） */
   --surface: var(--n-0); /* パレット・カード */
