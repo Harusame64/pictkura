@@ -2168,6 +2168,38 @@ body {
   display: flex;
   gap: 2px;
 }
+/* 道具の塊（判定・見る道具。デザインレビュー）。RAW/JPEG の組と同じ継ぎ方の 1 本のカプセルにする。塊の間は広く空ける */
+.tool-group {
+  display: flex;
+  gap: 2px;
+  margin-inline: var(--sp-2);
+}
+.tool-group .viewer-tool {
+  border-radius: 0;
+}
+.tool-group .viewer-tool:first-child {
+  border-start-start-radius: var(--radius-full);
+  border-end-start-radius: var(--radius-full);
+}
+.tool-group .viewer-tool:last-child {
+  border-start-end-radius: var(--radius-full);
+  border-end-end-radius: var(--radius-full);
+}
+/* 使う回数の少ない道具（写し・保存・フォルダ・一覧へ・ごみ箱・キーの一覧）は地を持たない。写真の明るい所に
+   掛かっても見えるよう、絵に薄い影を付ける。触れると地が出る */
+.viewer-tool.quiet {
+  background: transparent;
+}
+.viewer-tool.quiet .icon {
+  filter: drop-shadow(0 0 2px oklch(0 0 0 / 0.55));
+}
+.viewer-tool.quiet:hover {
+  background: oklch(1 0 0 / 0.14);
+}
+/* ごみ箱は隣の持ち出しの道具から離す（押し違えて消さない） */
+.viewer-tool.quiet.danger {
+  margin-inline-start: var(--sp-2);
+}
 .viewer-pair-side .viewer-tool {
   width: auto;
   padding: 0 var(--sp-3);

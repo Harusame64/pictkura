@@ -9689,82 +9689,93 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 {isActualSize ? ` ${t.actualSizeBadge}` : ""}
               </button>
             )}
+            {/* 道具は役割ごとの塊に分ける（2026-11-16 デザインレビュー: 同じ丸 12 個が等間隔で並び、役割が読めなかった）。
+                判定（★⚑✕）がこの画面の主役で 1 本のカプセル。見る道具（情報・再生・全画面）がもう 1 本。
+                ファイルの道具・ごみ箱・キーの一覧は地を持たない控えめな丸——使う回数が少ない */}
             {viewerItem && viewerItem.id >= 0 && (
-              <button
-                className={"viewer-tool fav-tool" + (viewerItem.favorite ? " on" : "")}
-                title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
-                aria-pressed={viewerItem.favorite}
-                onClick={() => favoriteViewer(viewerItem)}
-              >
-                {/* 付けた瞬間だけ弾む（toolPop。付けた写真の id と番号で作り直して、動きを1回だけ走らせる） */}
-                <Icon
-                  key={toolPop?.kind === "fav" && toolPop.id === viewerItem.id ? toolPop.seq : "rest"}
-                  name="star"
-                  size={20}
+              <span className="tool-group" role="group">
+                <button
+                  className={"viewer-tool fav-tool" + (viewerItem.favorite ? " on" : "")}
+                  title={t.viewerFavorite} id="pk-viewer-favorite" data-testid="viewer-favorite"
+                  aria-pressed={viewerItem.favorite}
+                  onClick={() => favoriteViewer(viewerItem)}
+                >
+                  {/* 付けた瞬間だけ弾む（toolPop。付けた写真の id と番号で作り直して、動きを1回だけ走らせる） */}
+                  <Icon
+                    key={toolPop?.kind === "fav" && toolPop.id === viewerItem.id ? toolPop.seq : "rest"}
+                    name="star"
+                    size={20}
+                    className={
+                      viewerItem.favorite
+                        ? "filled" + (toolPop?.kind === "fav" && toolPop.id === viewerItem.id ? " pop" : "")
+                        : undefined
+                    }
+                  />
+                </button>
+                <button
+                  className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
+                  title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
+                  onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
+                >
+                  <Icon
+                    key={toolPop?.kind === "pick" && toolPop.id === viewerItem.id ? toolPop.seq : "rest"}
+                    name="flag"
+                    size={20}
+                    className={
+                      viewerItem.picked
+                        ? "filled" + (toolPop?.kind === "pick" && toolPop.id === viewerItem.id ? " pop" : "")
+                        : undefined
+                    }
+                  />
+                </button>
+              {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
+                  **この場では何も消えない**——閉じるときに関所へ集まる */}
+                <button
                   className={
-                    viewerItem.favorite
-                      ? "filled" + (toolPop?.kind === "fav" && toolPop.id === viewerItem.id ? " pop" : "")
-                      : undefined
+                    "viewer-tool reject-tool" +
+                    (rejected.has(viewerItem.id) ? " rejecting" : "")
                   }
-                />
-              </button>
+                  title={t.viewerReject} id="pk-viewer-reject" data-testid="viewer-reject"
+                  aria-pressed={rejected.has(viewerItem.id)}
+                  onClick={() => rejectTool(viewerItem)}
+                >
+                  <Icon name="close" size={20} />
+                </button>
+              </span>
             )}
-            {viewerItem && viewerItem.id >= 0 && (
+            <span className="tool-group" role="group">
               <button
-                className={"viewer-tool" + (viewerItem.picked ? " picked" : "")}
-                title={viewerItem.picked ? t.viewerUnpick : t.viewerPick} id="pk-viewer-pick" data-testid="viewer-pick"
-                onClick={() => pickViewer(viewerItem, !viewerItem.picked)}
+                className={"viewer-tool" + (showExif ? " on" : "")}
+                title={t.viewerExif} id="pk-viewer-info" data-testid="viewer-info"
+                aria-pressed={showExif}
+                onClick={() => setShowExif((s) => !s)}
               >
-                <Icon
-                  key={toolPop?.kind === "pick" && toolPop.id === viewerItem.id ? toolPop.seq : "rest"}
-                  name="flag"
-                  size={20}
-                  className={
-                    viewerItem.picked
-                      ? "filled" + (toolPop?.kind === "pick" && toolPop.id === viewerItem.id ? " pop" : "")
-                      : undefined
-                  }
-                />
+                <Icon name="info" size={20} />
               </button>
-            )}
-            {/* マウスだけで選別する人の✕（ゲート2のP3）。隣の🗑と違って
-                **この場では何も消えない**——閉じるときに関所へ集まる */}
-            {viewerItem && viewerItem.id >= 0 && (
               <button
-                className={
-                  "viewer-tool reject-tool" +
-                  (rejected.has(viewerItem.id) ? " rejecting" : "")
-                }
-                title={t.viewerReject} id="pk-viewer-reject" data-testid="viewer-reject"
-                aria-pressed={rejected.has(viewerItem.id)}
-                onClick={() => rejectTool(viewerItem)}
+                className={"viewer-tool" + (playing ? " on" : "")}
+                title={t.viewerSlideshow} id="pk-viewer-slideshow" data-testid="viewer-slideshow"
+                aria-pressed={playing}
+                onClick={() => setPlaying((p) => !p)}
               >
-                <Icon name="close" size={20} />
+                <Icon name={playing ? "pause" : "play"} size={20} className={playing ? undefined : "filled"} />
               </button>
-            )}
-            <button
-              className={"viewer-tool" + (showExif ? " on" : "")}
-              title={t.viewerExif} id="pk-viewer-info" data-testid="viewer-info"
-              aria-pressed={showExif}
-              onClick={() => setShowExif((s) => !s)}
-            >
-              <Icon name="info" size={20} />
-            </button>
-            <button
-              className={"viewer-tool" + (playing ? " on" : "")}
-              title={t.viewerSlideshow} id="pk-viewer-slideshow" data-testid="viewer-slideshow"
-              aria-pressed={playing}
-              onClick={() => setPlaying((p) => !p)}
-            >
-              <Icon name={playing ? "pause" : "play"} size={20} className={playing ? undefined : "filled"} />
-            </button>
+              <button
+                className={"viewer-tool" + (anyFullscreen ? " on" : "")}
+                title={t.viewerFullscreen} id="pk-viewer-fullscreen" data-testid="viewer-fullscreen"
+                aria-pressed={anyFullscreen}
+                onClick={toggleFullscreen}
+              >
+                <Icon name={anyFullscreen ? "fullscreenExit" : "fullscreen"} size={20} />
+              </button>
+            </span>
             {/* 抽出（Issue #13）。**「書き出し」の隣ではなくここに置く**——
                 書き出しは選んだぶんをフォルダへ運ぶ一覧側の機能で、これは
                 「いま見えている1枚」の道具である。出るのは絵が出ているときだけ
                 （[`canExtract`]） */}
             {viewerItem && canCopyImage && (
               <button
-                className="viewer-tool"
+                className="viewer-tool quiet"
                 title={t.extractCopy(modKey("C"))} id="pk-viewer-copy" data-testid="viewer-copy"
                 disabled={extracting}
                 onClick={() => void copyViewerImage(viewerItem)}
@@ -9774,7 +9785,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             )}
             {viewerItem && canExtract && (
               <button
-                className="viewer-tool"
+                className="viewer-tool quiet"
                 title={t.extractSave(modKey("S"))} id="pk-viewer-save" data-testid="viewer-save"
                 disabled={extracting}
                 onClick={() => void saveViewerImage(viewerItem)}
@@ -9784,26 +9795,17 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
             )}
             {viewerItem && (
               <button
-                className="viewer-tool"
+                className="viewer-tool quiet"
                 title={t.menuReveal} id="pk-viewer-reveal" data-testid="viewer-reveal"
                 onClick={() => revealInFolder(viewerItem.id).catch((e) => fail(errText(e)))}
               >
                 <Icon name="folder" size={20} />
               </button>
             )}
-            {viewerItem && viewerItem.id >= 0 && (
-              <button
-                className="viewer-tool danger"
-                title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
-                onClick={() => onDelete(viewerTargets(viewerItem))}
-              >
-                <Icon name="trash" size={20} />
-              </button>
-            )}
             {/* ビューアだけの窓から、ふつうの窓（一覧）へ（2026-11-15 利用者「一覧も起動できるように」） */}
             {viewerOnly && (
               <button
-                className="viewer-tool"
+                className="viewer-tool quiet"
                 title={t.viewerShowLibrary} id="pk-viewer-show-library" data-testid="viewer-show-library"
                 onClick={() => {
                   setViewerOnly(false);
@@ -9813,20 +9815,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 <Icon name="grid" size={20} />
               </button>
             )}
+            {viewerItem && viewerItem.id >= 0 && (
+              <button
+                className="viewer-tool quiet danger"
+                title={t.menuDelete} id="pk-viewer-delete" data-testid="viewer-delete"
+                onClick={() => onDelete(viewerTargets(viewerItem))}
+              >
+                <Icon name="trash" size={20} />
+              </button>
+            )}
             <button
-              className="viewer-tool"
+              className="viewer-tool quiet"
               title={t.shortcutsTitle} id="pk-viewer-shortcuts" data-testid="viewer-shortcuts"
               onClick={() => setShortcutsOpen(true)}
             >
               <Icon name="help" size={20} />
-            </button>
-            <button
-              className={"viewer-tool" + (anyFullscreen ? " on" : "")}
-              title={t.viewerFullscreen} id="pk-viewer-fullscreen" data-testid="viewer-fullscreen"
-              aria-pressed={anyFullscreen}
-              onClick={toggleFullscreen}
-            >
-              <Icon name={anyFullscreen ? "fullscreenExit" : "fullscreen"} size={20} />
             </button>
           </div>
           {hasPrev && (
