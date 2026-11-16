@@ -208,7 +208,8 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   padding: 4px 8px;
 }
 /* 少ない日を1行に並べる（App.tsx の pk-pack-days）。歯車と同じ大きさの絵だけのボタン。押されている（並べる）ときは
-   藍の字と淡い藍の地——上の帯で「入っている」と読める物はこれだけなので、ホバーの灰色と見分けがつくように */
+   入／切の決まり（tokens.css の --toggle-on-*）どおり灰の面と縁。藍は使わない。触れたときの灰（--surface-2）より
+   濃いので、押した瞬間にも変わったと分かる */
 .topbar button.pack-days-btn {
   display: inline-flex;
   align-items: center;
@@ -216,13 +217,13 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   padding: 4px 6px;
 }
 .topbar button.pack-days-btn.on {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--text);
+  background: var(--toggle-on-bg);
+  border-color: var(--toggle-on-border);
 }
-/* 押されている状態でも、触れたら少し濃く（地が同じままで、押せる物に見えなかった。win2 の画面）。淡い藍そのものに藍を
-   混ぜる——藍の割合で書くと、ダークの淡い藍（もとから 18%）と同じ値になって変わらなかった */
+/* 押されている状態でも、触れたら少し濃く（地が同じままで、押せる物に見えなかった。win2 の画面） */
 .topbar button.pack-days-btn.on:hover {
-  background: color-mix(in oklch, var(--accent-soft), var(--accent) 12%);
+  background: var(--toggle-on-hover-bg);
 }
 .topbar button:disabled {
   opacity: 0.45;
@@ -553,6 +554,15 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .settings:focus,
 .wizard:focus {
   outline: none;
+}
+/* ボタンと、チェック・ラジオ・つまみのキーボードの枠も藍（tokens.css の方針の「キーボードの枠」）。素のままだと OS 既定の太い黒い輪で、
+   箱を開いた直後に既定のボタン（autoFocus）へ付いたとき目立った（win2 の画面）。部品ごとの枠はこれより強い選択子で上書きする */
+button:focus-visible,
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 /* div で描いた押せるもの（`pressable`。pictkura-dev #65）は、キーボードで来たときだけ枠を出す */
 [role="button"]:not(button):focus-visible {
@@ -1484,6 +1494,9 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .viewer {
   /* ビューアはテーマに依らず暗い地なので、中の赤い字はいつも暗い地の赤（道具の ✕・合図・撮影情報の失敗） */
   --danger-text: var(--danger-on-dark);
+  /* 藍も暗い地の藍（保存の合図・再生の進み）。ライトのテーマで暗い藍のまま沈んでいた */
+  --accent: var(--indigo-light);
+  --accent-soft: color-mix(in oklch, var(--indigo-light) 18%, transparent);
   /* 道具の丸ボタンの大きさ。左上の ← の下に印を置く計算、原本が無いときの帯の位置もこれを引く */
   --viewer-tool-size: 36px;
   /* ← の下に並ぶ印の段の高さ（音なしの印が 22px でいちばん高い） */
@@ -1874,9 +1887,15 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 /* 入っている道具（情報・再生・全画面・並べて見る）は白地。琥珀は ★ だけのもの——情報を開いた「i」が琥珀だと、
    お気に入りにしたと読めた（デザインレビュー） */
-.viewer-tool.on {
-  background: oklch(1 0 0 / 0.92);
-  color: var(--n-10);
+.viewer-tool.on,
+.viewer-zoom.actual {
+  background: var(--viewer-on);
+  color: var(--viewer-on-text);
+}
+/* 入っている道具も、触れたら少し変わる（押せる物に見えるように）。★ の琥珀は下の規則が勝つ */
+.viewer-tool.on:hover,
+.viewer-zoom.actual:hover {
+  background: var(--viewer-on-hover);
 }
 .viewer-tool.fav-tool.on {
   background: var(--fav);
@@ -2432,14 +2451,6 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   border-start-end-radius: var(--radius-full);
   border-end-end-radius: var(--radius-full);
 }
-.viewer-pair-side .viewer-tool.on {
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
-.viewer-zoom.actual {
-  background: var(--accent);
-  color: var(--accent-contrast);
-}
 .viewer-nav {
   position: absolute;
   top: 50%;
@@ -2606,6 +2617,22 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   justify-content: flex-end;
   margin-top: var(--sp-3);
 }
+/* 情報と印刷の箱の下のボタン（閉じる・キャンセル・印刷画面へ）。素のままだと OS 既定のボタンが出ていた（win2 の画面）。
+   形は取り込みの画面の下のボタン（.wiz-actions button）と同じ */
+.file-info-actions button {
+  min-height: 32px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.file-info-actions button:not(.primary):hover {
+  background: var(--surface-2);
+}
 
 /* 右クリックの「印刷…」（ADR B-3）。情報の箱を借りて、載せ方の3択を並べる */
 .print-dialog-title {
@@ -2618,16 +2645,16 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-2);
-  border: 1px solid transparent;
   border-radius: var(--radius-row);
   cursor: pointer;
 }
 .print-fit:hover {
   background: var(--surface-2);
 }
+/* 選んだ載せ方は、設定の選択（.pattern-item.active）と同じく選んだ行の面。印は藍の丸（ラジオ）が持つ
+   （載せ方の名前はもとから太字なので、太さでは分けない） */
 .print-fit.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--selected-bg);
 }
 .print-fit input {
   margin: 0;
@@ -2716,11 +2743,24 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 .print-per-page button {
   min-width: 2.2em;
+  padding: 3px var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.print-per-page button:hover {
+  background: var(--surface-2);
 }
 .print-per-page button.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--toggle-on-border);
+  background: var(--toggle-on-bg);
   font-weight: 600;
+}
+.print-per-page button.selected:hover {
+  background: var(--toggle-on-hover-bg);
 }
 .print-captions {
   display: flex;
@@ -3070,6 +3110,11 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .pattern-item.active {
   background: var(--selected-bg);
   color: var(--text);
+  font-weight: 600;
+}
+/* 選んだ行の上の薄い字は --text-muted へ上げる（tokens.css の --selected-bg の注記。ダークで 4.5:1 に届かない） */
+.pattern-item.active .pattern-file {
+  color: var(--text-muted);
 }
 /* 入／切のひとつだけのチェック。説明文が下に続くので行間は詰めない */
 .settings-toggle {
@@ -3083,9 +3128,11 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 /* コピー先の「変更」。見出しの一部なので、押せると分かる最小限の装いにする */
 .settings-dest-change {
   margin-inline-start: var(--sp-2);
-  padding: 1px 8px;
+  /* 取り込みの画面の同じ「変更」（.wiz-dest-change）と同じ形。札ではなくボタンなので --radius-control */
+  padding: 3px var(--sp-3);
+  font: inherit;
   font-size: var(--fs-sm);
-  border-radius: var(--radius-chip);
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -4046,7 +4093,8 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
-  padding: 6px var(--sp-3);
+  /* 横の余白は上の帯（.topbar）と同じ。段ごとに字の頭と端がずれていた */
+  padding: 6px var(--sp-4);
   background: var(--accent-soft);
   border-bottom: 1px solid var(--border);
   container: selectbar / inline-size;
@@ -4057,7 +4105,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 }
 /* 選択バーの下の1行。1タイルなら名前・撮影日時・大きさ、複数なら合計（ADR の A）。狭い窓では省略記号で切る */
 .select-info {
-  padding: 2px var(--sp-3) 4px;
+  padding: 2px var(--sp-4) 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4086,14 +4134,14 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font: inherit;
   font-size: var(--fs-sm);
   color: var(--text);
-  background: var(--surface);
+  background: var(--select-bar-button);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   cursor: pointer;
   white-space: nowrap;
 }
 .select-bar button:hover {
-  background: var(--surface-2);
+  background: color-mix(in oklch, var(--select-bar-button), var(--text) 8%);
 }
 .select-bar button.danger {
   color: var(--danger-text);
