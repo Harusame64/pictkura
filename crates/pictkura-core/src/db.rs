@@ -147,9 +147,38 @@ pub struct TakenAt {
 
 impl TakenAt {
     /// 値が在れば出どころを付ける
+    ///
+    /// **「日時なし」の印は値として受けない**（[`is_placeholder_taken_at`]。#296）——無かったことにして、呼ぶ側の
+    /// 次の出どころ（名前 → 更新日時）へ落とす。更新日時で埋める値（[`TakenSource::Mtime`]）はそのまま: ファイルの
+    /// 更新日時が本当にその日なら、それは本物
     pub fn tag(ms: Option<i64>, source: TakenSource) -> Option<Self> {
-        ms.map(|ms| Self { ms, source })
+        ms.filter(|&ms| source == TakenSource::Mtime || !is_placeholder_taken_at(ms))
+            .map(|ms| Self { ms, source })
     }
+}
+
+/// 時差でずれうる幅（UTC から ±14 時間）。印の値を、どの時間帯で読み違えても拾う
+const PLACEHOLDER_SLACK_MS: i64 = 14 * 3_600_000;
+/// 1980-01-01T00:00:00Z（DOS/FAT の日付の起点。時計を合わせていないカメラが書く）
+const PLACEHOLDER_1980_MS: i64 = 315_532_800_000;
+/// 2106-02-07T06:28:15Z（0xFFFFFFFF 秒。符号なし 32 ビットの「無し」。Leaf の .mos が XMP に書く）
+const PLACEHOLDER_U32_MAX_MS: i64 = 4_294_967_295_000;
+
+/// 撮影日時として書かれていても、「日時なし」の印である値か（#296）。
+///
+/// - **1980-01-01**（その土地の日付で）: DOS/FAT の起点。時計を合わせないまま撮ったカメラ（CHDK の DNG など）が
+///   EXIF にそのまま書く。デジタルカメラで 1980 年の元日に撮った本物はまず無い（2026-11-16 利用者の判断）
+/// - **2106-02-07 06:28:15 UTC**（0xFFFFFFFF 秒）: Leaf の .mos が XMP の DateTimeOriginal に書く。Windows の Shell は
+///   末尾の `Z` を無視して現地時刻として読むので、時差の分ずれた値も印として扱う
+///
+/// 幅は UTC の値で決める（時間帯を引かない）——データベースの移行（[`Db::migrate_placeholder_taken`]）も同じ幅で
+/// 読み、どちらで判定しても答えが揃うように
+pub fn is_placeholder_taken_at(ms: i64) -> bool {
+    let day_1980 = PLACEHOLDER_1980_MS - PLACEHOLDER_SLACK_MS
+        ..PLACEHOLDER_1980_MS + 86_400_000 + PLACEHOLDER_SLACK_MS;
+    let u32_max = PLACEHOLDER_U32_MAX_MS - PLACEHOLDER_SLACK_MS
+        ..=PLACEHOLDER_U32_MAX_MS + PLACEHOLDER_SLACK_MS;
+    day_1980.contains(&ms) || u32_max.contains(&ms)
 }
 
 /// 書き手が受け取る撮影日時。製品のコードは `Option<TakenAt>` を渡す。
@@ -403,6 +432,10 @@ const FTS_BUILD_MAX_KEY: &str = "fts_build_max";
 /// v1: 区切り文字をバックスラッシュへ統一し、ドライブ文字を大文字にする
 const PATH_SCHEMA_KEY: &str = "path_schema";
 const PATH_SCHEMA_VERSION: &str = "v1";
+
+/// 「日時なし」の印の撮影日時（[`is_placeholder_taken_at`]。#296）を更新日時へ戻した版。上げると一度だけ書き換える
+const PLACEHOLDER_TAKEN_KEY: &str = "placeholder_taken";
+const PLACEHOLDER_TAKEN_VERSION: &str = "v1";
 
 const FTS_SCHEMA_KEY: &str = "fts_schema";
 const FTS_SCHEMA_VERSION: &str = "v3";
@@ -991,6 +1024,7 @@ impl Db {
         if Self::migrate_path_spelling(conn)? > 0 {
             conn.execute("DELETE FROM meta WHERE key = ?1", params![FTS_SCHEMA_KEY])?;
         }
+        Self::migrate_placeholder_taken(conn)?;
 
         // 索引は派生データなので、構成（列・トークナイザ）を変えたら作り直す。
         // 版が違えば丸ごと捨てて、初期構築のカーソルも巻き戻す
@@ -1050,6 +1084,47 @@ impl Db {
             params![FTS_SCHEMA_KEY, FTS_SCHEMA_VERSION],
         )?;
         Ok(())
+    }
+
+    /// 「日時なし」の印（[`is_placeholder_taken_at`]）で入っている撮影日時を、更新日時で埋めた形へ戻す一度きりの
+    /// 移行（#296）。印が付いたのは今の読み手より前（`legacy`）が多いが、出どころは問わない——更新日時で埋めた行
+    /// （`mtime`）だけは触らない（更新日時そのものが本当にその日）。更新日時で埋めた行は、名前の日付で後から
+    /// 直す流れ（[`Db::rows_with_fallback_taken_at`]）に乗る。書き換えた行数を返す
+    fn migrate_placeholder_taken(conn: &Connection) -> Result<usize, DbError> {
+        let done = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                params![PLACEHOLDER_TAKEN_KEY],
+                |r| r.get::<_, String>(0),
+            )
+            .ok();
+        if done.as_deref() == Some(PLACEHOLDER_TAKEN_VERSION) {
+            return Ok(0);
+        }
+        let tx = conn.unchecked_transaction()?;
+        // 日（`day_key`）も更新日時から作り直す——撮影日時だけ替えると、一覧は 2106 年の日の見出しの下に残る
+        let n = tx.execute(
+            &format!(
+                "UPDATE media SET taken_at_ms = mtime_ms, taken_source = 'mtime', taken_subsec = NULL,
+                        day_key = {}
+                 WHERE taken_at_ms IS NOT NULL AND COALESCE(taken_source, '') <> 'mtime'
+                   AND ((taken_at_ms >= ?1 AND taken_at_ms < ?2) OR (taken_at_ms >= ?3 AND taken_at_ms <= ?4))",
+                day_key_expr("mtime_ms")
+            ),
+            params![
+                PLACEHOLDER_1980_MS - PLACEHOLDER_SLACK_MS,
+                PLACEHOLDER_1980_MS + 86_400_000 + PLACEHOLDER_SLACK_MS,
+                PLACEHOLDER_U32_MAX_MS - PLACEHOLDER_SLACK_MS,
+                PLACEHOLDER_U32_MAX_MS + PLACEHOLDER_SLACK_MS,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![PLACEHOLDER_TAKEN_KEY, PLACEHOLDER_TAKEN_VERSION],
+        )?;
+        tx.commit()?;
+        Ok(n)
     }
 
     /// パスの綴りを揃える一度きりの移行。書き換えた行数を返す。
@@ -4652,6 +4727,133 @@ mod tests {
             (r.taken_at_ms, r.taken_source) = (ms, source);
             assert_eq!(r.taken_at_is_real(), real, "{why}");
         }
+    }
+
+    /// 「日時なし」の印（#296）の幅。1980-01-01 はどの時間帯で読んだ値も、2106-02-07 は Shell が時差でずらした値も拾い、
+    /// その外（1979-12-30、1980-01-03、2106 の前日）は拾わない
+    #[test]
+    fn placeholder_capture_times_are_recognised() {
+        let h = 3_600_000;
+        // CHDK の DNG（JST 1980-01-01 00:04:45 → UTC 1979-12-31 15:04:45）と、UTC で書いた値
+        assert!(is_placeholder_taken_at(315_500_685_000));
+        assert!(is_placeholder_taken_at(315_532_800_000));
+        assert!(is_placeholder_taken_at(315_532_800_000 + 23 * h));
+        // Leaf の .mos: XMP の UTC の値と、Windows の Shell が JST として読んで 9 時間ずらした値
+        assert!(is_placeholder_taken_at(4_294_967_295_000));
+        assert!(is_placeholder_taken_at(4_294_934_895_000));
+        for ms in [
+            315_532_800_000 - 15 * h,
+            315_532_800_000 + 24 * h + 15 * h,
+            4_294_967_295_000 - 15 * h,
+            4_294_967_295_000 + 15 * h,
+            1_787_825_630_396, // 2026 年のふつうの日時
+        ] {
+            assert!(!is_placeholder_taken_at(ms), "{ms}");
+        }
+    }
+
+    /// 印の値は、ファイルから読んだ日時としては受けない（次の出どころへ落ちる）。更新日時で埋める値はそのまま
+    #[test]
+    fn a_placeholder_is_not_tagged_as_a_capture_time() {
+        for source in [
+            TakenSource::Exif,
+            TakenSource::Os,
+            TakenSource::Name,
+            TakenSource::Legacy,
+        ] {
+            assert_eq!(
+                TakenAt::tag(Some(4_294_934_895_000), source),
+                None,
+                "{source:?}"
+            );
+            assert_eq!(
+                TakenAt::tag(Some(315_500_685_000), source),
+                None,
+                "{source:?}"
+            );
+        }
+        assert!(TakenAt::tag(Some(315_532_800_000), TakenSource::Mtime).is_some());
+        assert!(TakenAt::tag(Some(1_787_825_630_396), TakenSource::Exif).is_some());
+    }
+
+    /// 既存の行の移行（#296）: 印で入った撮影日時は更新日時（と、その日）へ戻し、更新日時で埋めた行と
+    /// ふつうの日時は触らない。二度目は何もしない
+    #[test]
+    fn placeholder_capture_times_in_the_library_fall_back_to_mtime() {
+        let mut db = Db::open_in_memory().unwrap();
+        let mtime = 1_787_825_630_396;
+        db.upsert_files(&[
+            scanned("/r/leaf.mos", 1, mtime),
+            scanned("/r/chdk.dng", 1, mtime),
+            scanned("/r/fat.jpg", 1, 315_532_800_000),
+            scanned("/r/real.jpg", 1, mtime),
+        ])
+        .unwrap();
+        let set = |db: &Db, name: &str, ms: i64, source: &str| {
+            db.conn
+                .execute(
+                    &format!(
+                        "UPDATE media SET taken_at_ms = ?1, taken_source = ?2, day_key = {} WHERE path LIKE ?3",
+                        day_key_expr("?1")
+                    ),
+                    params![ms, source, format!("%{name}")],
+                )
+                .unwrap();
+        };
+        set(&db, "leaf.mos", 4_294_934_895_000, "legacy");
+        set(&db, "chdk.dng", 315_500_685_000, "exif");
+        set(&db, "fat.jpg", 315_532_800_000, "mtime");
+        set(&db, "real.jpg", 1_700_000_000_000, "exif");
+        // 開いたときに一度走っているので、印を消してもう一度走らせる
+        db.conn
+            .execute(
+                "DELETE FROM meta WHERE key = ?1",
+                params![PLACEHOLDER_TAKEN_KEY],
+            )
+            .unwrap();
+        assert_eq!(Db::migrate_placeholder_taken(&db.conn).unwrap(), 2);
+        let row = |db: &Db, name: &str| {
+            db.conn
+                .query_row(
+                    "SELECT taken_at_ms, taken_source, day_key FROM media WHERE path LIKE ?1",
+                    params![format!("%{name}")],
+                    |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, i64>(2)?,
+                        ))
+                    },
+                )
+                .unwrap()
+        };
+        let mtime_day: i64 = db
+            .conn
+            .query_row(
+                &format!("SELECT {}", day_key_expr("?1")),
+                params![mtime],
+                |r| r.get(0),
+            )
+            .unwrap();
+        for name in ["leaf.mos", "chdk.dng"] {
+            assert_eq!(
+                row(&db, name),
+                (mtime, "mtime".to_string(), mtime_day),
+                "{name}"
+            );
+        }
+        assert_eq!(row(&db, "fat.jpg").1, "mtime");
+        assert_eq!(
+            row(&db, "fat.jpg").0,
+            315_532_800_000,
+            "更新日時そのものは触らない"
+        );
+        assert_eq!(row(&db, "real.jpg").0, 1_700_000_000_000);
+        assert_eq!(
+            Db::migrate_placeholder_taken(&db.conn).unwrap(),
+            0,
+            "二度目は何もしない"
+        );
     }
 
     /// 拾い直しの対象は出どころで決まる（F2）: 更新日時で埋めた行は更新日時が動いた後も拾い、
