@@ -3664,8 +3664,11 @@ body {
 }
 
 /* 選択中に出る操作バー。上部のバーの上に重ねず、その上に積む */
+/* 選択の帯。ボタンの字は折り返さない（仏語で 3 枚選ぶと、ボタンがほぼ全部 2 行に折れた。win2 の画面）。入らない
+   ボタンは丸ごと次の行へ回る（上の帯と同じ考え方） */
 .select-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
   padding: 6px var(--sp-3);
@@ -3700,6 +3703,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
+  white-space: nowrap;
 }
 .select-bar button:hover {
   background: var(--surface-2);
