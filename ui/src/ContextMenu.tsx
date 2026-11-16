@@ -82,7 +82,7 @@ export default function ContextMenu({
   });
   useWindowEvent("click", pos !== null, () => onClose());
 
-  // **開いたら先頭の項目へフォーカスを移し、閉じたら元へ戻す**。メニューとして名乗る（role="menu"）と、読み上げは
+  // **開いたらメニューの中へフォーカスを移し（キーで開いたら先頭の項目、マウスならメニューそのもの）、閉じたら元へ戻す**。メニューとして名乗る（role="menu"）と、読み上げは
   // 上下の矢印で項目を動く前提で入ってくる——フォーカスが後ろに残ったままだと項目へ届かない（pictkura-dev #65 の
   // ゲート2）
   const isOpen = pos !== null;
@@ -95,9 +95,14 @@ export default function ContextMenu({
   const [keys, setKeys] = useState(false);
   useLayoutEffect(() => {
     if (!isOpen) return;
-    setKeys(lastInputWasKey);
+    const byKey = lastInputWasKey;
+    setKeys(byKey);
     const before = document.activeElement;
-    ref.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus({ preventScroll: true });
+    // キーで開いたら先頭の項目へ（読み上げはここから入る）。マウスで開いたら、メニューそのものへ——光らないまま
+    // 先頭に乗せると、最初の ↓ が2番目へ飛んで見えた（win2）。メニューで ↓ を受けて先頭から動ける
+    (byKey ? ref.current?.querySelector<HTMLElement>('[role^="menuitem"]') : ref.current)?.focus({
+      preventScroll: true,
+    });
     return () => {
       // 後ろが inert になっていたら（項目が幕を開いた）戻さない——幕が閉じるときに App が戻す
       if (before instanceof HTMLElement && before.isConnected && !before.closest("[inert]")) {
