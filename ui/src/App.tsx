@@ -8483,12 +8483,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
           ))}
           <div className="nav-section">{t.navAddFolder}</div>
           <div className="add-folder">
+            {/* 左欄のほかの行と同じ形（枠の箱にしない。デザインレビュー: 参照・入力・追加の 3 つの箱が常に出ていて、
+                設定画面の一部に見えた） */}
             <button
-              className="browse-folder"
+              className="browse-folder nav-item"
               onClick={onBrowseFolder}
               disabled={busy}
             >
-              <Icon name="folderOpen" className="btn-icon" />{t.browse}
+              <span className="drive-icon" aria-hidden="true"><Icon name="folderOpen" /></span>
+              {t.browse}
             </button>
             <div className="add-folder-manual">
               <input
@@ -8502,9 +8505,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                 onChange={(e) => setFolderInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && onAddFolder()}
               />
-              <button onClick={onAddFolder} disabled={busy}>
-                {t.add}
-              </button>
+              {/* 「追加」はパスを書いたときだけ出す（空のときは押す物が無い） */}
+              {folderInput.trim() !== "" && (
+                <button onClick={onAddFolder} disabled={busy}>
+                  {t.add}
+                </button>
+              )}
             </div>
           </div>
         </nav>
