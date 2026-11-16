@@ -7429,10 +7429,18 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 設定・取り込み・ボツの確認などの幕が出ている間は、閉じてから開く（書きかけを壊さない）
    */
   const [openWhenFree, setOpenWhenFree] = useState<string[] | null>(null);
+  /** 待たせている束を最後に足した時刻（Windows の分かれて届く束を、待たせている間も 1 つにまとめる） */
+  const openWhenFreeAt = useRef(0);
   useEffect(() => {
     const take = () =>
       void takePendingOpen().then((paths) => {
-        if (paths.length > 0) setOpenWhenFree(paths);
+        if (paths.length === 0) return;
+        // 幕の間に分かれて届いた束（Windows は選んだ数だけ別の起動で渡す）は、待たせている分に**足す**——上書き
+        // すると、幕を閉じたときに後の分だけで開いた（PR の codex）。足すのは `openFile` と同じく 3 秒以内・Windows だけ
+        const now = Date.now();
+        const merge = platformRef.current === "windows" && now - openWhenFreeAt.current < 3000;
+        openWhenFreeAt.current = now;
+        setOpenWhenFree((prev) => (merge && prev ? [...prev, ...paths.filter((p) => !prev.includes(p))] : paths));
       });
     // 受け口ができる前に届いた写真も拾う（取り込みの `open-import-drive` と同じ、聞いてから一度取りに行く）
     const un = listen("open-file", take);
