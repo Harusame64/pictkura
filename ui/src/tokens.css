@@ -83,8 +83,9 @@
   --viewer-control-hover: oklch(0.42 0.004 70 / 0.74);
   /* 道具の縁と、カプセルの区画の仕切り線 */
   --viewer-control-ring: oklch(1 0 0 / 0.16);
-  /* フィルムストリップの台（写真の上に浮かぶ）。暗室の地をやや透かす——ぼかしは使わないので濃いめ */
-  --viewer-dock: color-mix(in oklch, var(--viewer-ground) 82%, transparent);
+  /* フィルムストリップの台（写真の上に浮かぶ）。ぼかしは使わないので、ほぼ不透明——0.82 では白黒の縞の写真の上で、
+     空いた席に縞が透けてうるさかった（win2） */
+  --viewer-dock: color-mix(in oklch, var(--viewer-ground) 90%, transparent);
   --shadow-1: 0 1px 3px oklch(0 0 0 / 0.07), 0 1px 2px oklch(0 0 0 / 0.1);
   --shadow-2: 0 1px 3px oklch(0 0 0 / 0.06), 0 10px 24px -6px oklch(0 0 0 / 0.14);
   --shadow-3: 0 2px 6px oklch(0 0 0 / 0.1), 0 24px 56px -12px oklch(0 0 0 / 0.3);
