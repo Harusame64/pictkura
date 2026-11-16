@@ -2751,24 +2751,44 @@ impl Db {
         query: &SearchQuery,
         ids: &[i64],
     ) -> Result<Vec<(i64, i64)>, DbError> {
+        Ok(self
+            .visible_in_order_with_video(query, ids)?
+            .into_iter()
+            .map(|(id, day, _)| (id, day))
+            .collect())
+    }
+
+    /// [`Self::visible_ids_in_order`] に、動画か（`kind` が [`crate::MediaKind::Video`]）を添えたもの。選んだものだけで
+    /// 開いたビューアが、選んだ動画を撮った順に続けて流すのに使う（`scope_media`）。同じ問い合わせで引く
+    pub fn visible_in_order_with_video(
+        &self,
+        query: &SearchQuery,
+        ids: &[i64],
+    ) -> Result<Vec<(i64, i64, bool)>, DbError> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let (conds, base_args) = self.query_filter_mode(query, FTS_FOR_SELECTION)?;
         // 並べる鍵ごと引く。SQLの変数上限があるので [`Db::visible_ids`] と
         // 同じように分けて問い合わせ、並べ直しはこちらで1回だけやる
-        let mut rows_out: Vec<(i64, i64, i64)> = Vec::new();
+        let mut rows_out: Vec<(i64, i64, i64, bool)> = Vec::new();
         for chunk in ids.chunks(400) {
             let mut conds = conds.clone();
             conds.push(format!("id IN ({})", placeholders(chunk.len())));
             let mut args = base_args.clone();
             args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
             let mut stmt = self.conn.prepare_cached(&format!(
-                "SELECT day_key, {SORT_TS}, id FROM media WHERE {}",
+                "SELECT day_key, {SORT_TS}, id, kind = {} FROM media WHERE {}",
+                crate::MediaKind::Video as i64,
                 conds.join(" AND ")
             ))?;
             let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get::<_, Option<bool>>(3)?.unwrap_or(false),
+                ))
             })?;
             for row in rows {
                 rows_out.push(row?);
@@ -2776,35 +2796,12 @@ impl Db {
         }
         // 同じIDを2度渡されても2度並ばないようにしておく（選択は集合だが、
         // 呼ぶ側の作り方に依存したくない）
-        rows_out.sort_unstable_by(|a, b| b.cmp(a));
+        rows_out.sort_unstable_by(|a, b| (b.0, b.1, b.2).cmp(&(a.0, a.1, a.2)));
         rows_out.dedup_by_key(|r| r.2);
-        Ok(rows_out.into_iter().map(|(day, _, id)| (id, day)).collect())
-    }
-
-    /// 渡したIDのうち動画のもの（`kind` が [`crate::MediaKind::Video`]）。選んだ物だけで開いたビューアが、選んだ動画を
-    /// 撮った順に続けて流すかを決める（`scope_media`）。SQLの変数上限があるので分けて問い合わせる
-    pub fn video_ids_among(&self, ids: &[i64]) -> Result<std::collections::HashSet<i64>, DbError> {
-        let mut out = std::collections::HashSet::new();
-        for chunk in ids.chunks(400) {
-            let mut stmt = self.conn.prepare_cached(&format!(
-                "SELECT id FROM media WHERE kind = ?1 AND id IN ({})",
-                (2..chunk.len() + 2)
-                    .map(|i| format!("?{i}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))?;
-            let mut args: Vec<rusqlite::types::Value> = vec![rusqlite::types::Value::Integer(
-                crate::MediaKind::Video as i64,
-            )];
-            args.extend(chunk.iter().copied().map(rusqlite::types::Value::Integer));
-            let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
-                r.get::<_, i64>(0)
-            })?;
-            for row in rows {
-                out.insert(row?);
-            }
-        }
-        Ok(out)
+        Ok(rows_out
+            .into_iter()
+            .map(|(day, _, id, video)| (id, day, video))
+            .collect())
     }
 
     /// 渡されたIDのうち、**いまの条件で実際に並んでいるもの**だけを返す。
@@ -6640,9 +6637,9 @@ mod tests {
         );
     }
 
-    /// 動画だけを拾う（選んで開いたビューアの続けての再生。`scope_media`）。居ないIDは落ちる
+    /// 並びと一緒に、動画かが添う（選んで開いたビューアの続けての再生。`scope_media`）
     #[test]
-    fn video_ids_among_picks_only_videos() {
+    fn visible_in_order_marks_videos() {
         let mut db = Db::open_in_memory().unwrap();
         db.upsert_files(&[
             scanned("/r/act1.mp4", 1, 1000),
@@ -6650,18 +6647,36 @@ mod tests {
             scanned("/r/act2.MOV", 1, 3000),
         ])
         .unwrap();
-        let id_of = |name: &str| {
-            db.list_all()
-                .unwrap()
-                .into_iter()
-                .find(|r| r.path.ends_with(name))
-                .unwrap()
-                .id
-        };
-        let (a1, br, a2) = (id_of("act1.mp4"), id_of("break.jpg"), id_of("act2.MOV"));
-        let got = db.video_ids_among(&[a1, br, a2, -1]).unwrap();
-        assert_eq!(got, [a1, a2].into_iter().collect());
-        assert!(db.video_ids_among(&[]).unwrap().is_empty());
+        let all: Vec<i64> = db.list_all().unwrap().into_iter().map(|r| r.id).collect();
+        let got = db
+            .visible_in_order_with_video(
+                &crate::search::parse_query("", crate::MediaFilter::All),
+                &all,
+            )
+            .unwrap();
+        let name_of = |id: i64| db.get_by_id(id).unwrap().unwrap().path;
+        let marks: Vec<(String, bool)> = got
+            .iter()
+            .map(|(id, _, v)| {
+                (
+                    name_of(*id)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned(),
+                    *v,
+                )
+            })
+            .collect();
+        // 新しい順（更新日時で並ぶ）
+        assert_eq!(
+            marks,
+            [
+                ("act2.MOV".to_string(), true),
+                ("break.jpg".to_string(), false),
+                ("act1.mp4".to_string(), true)
+            ]
+        );
     }
 
     /// 選別の印は★と**別の棚**であること（0.2 ②）。片方を触っても

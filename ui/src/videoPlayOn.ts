@@ -13,6 +13,9 @@ export type ViewerDir = 1 | -1;
  *   新しいもの。一覧は新しい順なので、古い→新しいは前へ歩く）——オペラや演劇を 1 幕→2 幕の順に撮ると、一覧の
  *   向きのままでは最終幕から逆に流れた（2026-11-16 利用者の選択）。端では止まる（一周しない）
  * - それ以外は送らない（写真の混じった一覧で写真へ飛んで止まらない。幕の裏でビューアを替えない）
+ *
+ * 選んだものに写真が混じっていても、**流す先が動画のときだけ**流す（`nextIsVideo`。写真へ着いて止まる、にしない。
+ * /code-review）。動画のフィルター中は並ぶのがみな動画なので、訊かなくてよい
  */
 export function afterVideoEnded(s: {
   playing: boolean;
@@ -20,10 +23,14 @@ export function afterVideoEnded(s: {
   videosOnly: boolean;
   inScope: boolean;
   curtainUp: boolean;
+  /** 選んだものの列で、その向きの次が動画か（選んだものだけで開いているときに訊く） */
+  nextIsVideo: (dir: ViewerDir) => boolean;
 }): { dir: ViewerDir; wrap: boolean; slideshow: boolean } | null {
   if (s.playing) return { dir: 1, wrap: true, slideshow: true };
   if (!(s.videosOnly || s.inScope) || s.curtainUp) return null;
-  return { dir: s.lastDir ?? -1, wrap: false, slideshow: false };
+  const dir = s.lastDir ?? -1;
+  if (!s.videosOnly && !s.nextIsVideo(dir)) return null;
+  return { dir, wrap: false, slideshow: false };
 }
 
 /**

@@ -4196,10 +4196,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
     };
   }, [shownImageEl]);
   /**
-   * ビューアで利用者が最後に自分で動かした向き（dev #75）。動画のフィルター中は、動画が終わったらこの向きへ続ける。
-   * -1 はひとつ新しい項目（グリッドは新しい順なので時系列の向き）、1 はひとつ古い項目。キー・前後のボタン・帯で
-   * 実際に動いたときだけ覚え、判定の後の自動送り・スライドショー・続けて再生の送りでは変えない（`moveViewer` の `remember`）。
-   * 開き直したら・閉じたら忘れる（null は 1 と同じ扱い）
+   * ビューアで利用者が最後に自分で動かした向き（dev #75）。動画のフィルター中と、選んだものだけで開いているときは、
+   * 動画が終わったらこの向きへ続ける（`afterVideoEnded`）。-1 はひとつ新しい項目（グリッドは新しい順なので撮った順の
+   * 向き）、1 はひとつ古い項目。キー・前後のボタン・帯で実際に動いたときだけ覚え、判定の後の自動送り・スライドショー・
+   * 続けて再生の送りでは変えない（`moveViewer` の `remember`）。開き直したら・閉じたら忘れる（null は撮った順＝-1 と
+   * 同じ扱い。2026-11-16 利用者の選択）
    */
   const lastMoveDirRef = useRef<ViewerDir | null>(null);
   /**
@@ -9293,8 +9294,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     item: viewerItem,
                   });
                 }}
-                // スライドショー中は最後まで見せてから次へ送る。
-                // 動画のフィルター中は、スライドショーでなくても、終わったら最後に動かした向きへ続ける（dev #75）
+                // スライドショー中は最後まで見せてから次へ送る。動画のフィルター中と、選んだものだけで開いているときは、
+                // スライドショーでなくても、終わったら最後に動かした向き（まだなら撮った順）へ続ける（dev #75）
                 onEnded={() => {
                   const next = afterVideoEnded({
                     playing,
@@ -9304,6 +9305,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                     // 選んだ物ではないので数えない
                     inScope: viewerScope !== null && outsideItems === null,
                     curtainUp,
+                    nextIsVideo: (dir) =>
+                      scopeIdx !== undefined && viewerScope?.[scopeIdx + dir]?.is_video === true,
                   });
                   if (next) moveViewer(next.dir, next.wrap, next.slideshow, false);
                 }}

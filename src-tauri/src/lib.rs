@@ -4634,21 +4634,16 @@ fn scope_media(
     let query = pictkura_core::parse_query(&query, filter);
     state
         .read_pool
-        .with(
-            |db| -> Result<Vec<ScopeItemDto>, pictkura_core::db::DbError> {
-                let rows = db.visible_ids_in_order(&query, &ids)?;
-                let videos =
-                    db.video_ids_among(&rows.iter().map(|(id, _)| *id).collect::<Vec<_>>())?;
-                Ok(rows
-                    .into_iter()
-                    .map(|(id, day_key)| ScopeItemDto {
-                        id,
-                        day_key,
-                        is_video: videos.contains(&id),
-                    })
-                    .collect())
-            },
-        )
+        .with(|db| db.visible_in_order_with_video(&query, &ids))
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(id, day_key, is_video)| ScopeItemDto {
+                    id,
+                    day_key,
+                    is_video,
+                })
+                .collect()
+        })
         .map_err(errs::from_err)
 }
 

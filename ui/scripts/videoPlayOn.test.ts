@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { afterVideoEnded, isVideoOnlyFullscreen, scopeStartIndex } from "../src/videoPlayOn.ts";
 
-const filtered = { playing: false, videosOnly: true, inScope: false, curtainUp: false };
+const filtered = { playing: false, videosOnly: true, inScope: false, curtainUp: false, nextIsVideo: () => true };
 
 test("with the video filter, a move towards newer items plays on towards newer videos (time order) and stops at the end", () => {
   assert.deepEqual(afterVideoEnded({ ...filtered, lastDir: -1 }), { dir: -1, wrap: false, slideshow: false });
@@ -25,6 +25,20 @@ test("opened from a selection (a playlist): plays on in shooting order without t
   assert.deepEqual(afterVideoEnded({ ...scoped, lastDir: null }), { dir: -1, wrap: false, slideshow: false });
   assert.deepEqual(afterVideoEnded({ ...scoped, lastDir: 1 }), { dir: 1, wrap: false, slideshow: false });
   assert.equal(afterVideoEnded({ ...scoped, curtainUp: true, lastDir: null }), null);
+});
+
+test("a mixed selection plays on only when the next item that way is a video (never stops on a photo)", () => {
+  const scoped = { ...filtered, videosOnly: false, inScope: true };
+  // 撮った順の次（-1）が写真、古い側（1）が動画
+  const nextIsVideo = (dir: 1 | -1) => dir === 1;
+  assert.equal(afterVideoEnded({ ...scoped, nextIsVideo, lastDir: null }), null);
+  assert.deepEqual(afterVideoEnded({ ...scoped, nextIsVideo, lastDir: 1 }), { dir: 1, wrap: false, slideshow: false });
+  // 動画のフィルター中は訊かない（並ぶのはみな動画）
+  assert.deepEqual(afterVideoEnded({ ...filtered, nextIsVideo: () => false, lastDir: null }), {
+    dir: -1,
+    wrap: false,
+    slideshow: false,
+  });
 });
 
 test("a selection of only videos opens at the oldest; a mixed selection at the newest", () => {
@@ -49,7 +63,7 @@ test("behind a curtain (info, print, reject, settings…) the viewer does not ch
 test("during a slideshow: next, wrapping to the start, whatever the filter or the last direction", () => {
   for (const lastDir of [null, 1, -1] as const) {
     for (const videosOnly of [true, false]) {
-      assert.deepEqual(afterVideoEnded({ playing: true, lastDir, videosOnly, inScope: false, curtainUp: false }), {
+      assert.deepEqual(afterVideoEnded({ ...filtered, playing: true, lastDir, videosOnly }), {
         dir: 1,
         wrap: true,
         slideshow: true,
