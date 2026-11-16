@@ -2682,9 +2682,6 @@ body {
   box-shadow: inset calc(2px * var(--inline-sign)) 0 0 var(--accent);
   color: var(--text);
 }
-.pattern-item input {
-  accent-color: var(--accent);
-}
 /* 入／切のひとつだけのチェック。説明文が下に続くので行間は詰めない */
 .settings-toggle {
   display: flex;
@@ -2693,9 +2690,6 @@ body {
   margin-bottom: var(--sp-2);
   color: var(--text);
   cursor: pointer;
-}
-.settings-toggle input {
-  accent-color: var(--accent);
 }
 /* コピー先の「変更」。見出しの一部なので、押せると分かる最小限の装いにする */
 .settings-dest-change {
@@ -3729,33 +3723,40 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* 選ぶ部品は藍で（取り込みの画面に OS 既定の青が残っていた。デザインレビュー）。個別に色を決めた所は後ろで上書きする */
+/* 選ぶ部品は藍で（取り込みの画面に OS 既定の青が残っていた。デザインレビュー）。ここで全部を決める——
+   ファイルの終わり近くにあるので、前に同じ強さで別の色を書いても負ける。色を変えたいなら、より強い選択子で */
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--accent);
 }
 
 /* 押した手応え: ボタンは押している間だけ1段暗く（hover しか無く、押したことが指に返らなかった）。
-   形や位置は変えない——transform を持つボタン（ビューアの前後の矢印など）の配置を崩さないため */
+   ビューアの丸い道具だけは、加えて少し沈む（下の規則） */
 button:active:not(:disabled),
 [role="button"]:active:not([aria-disabled="true"]) {
   /* hover の明るくする規則（より具体的な選択子）に負けないよう !important（押している間だけの状態なので） */
   filter: brightness(0.88) !important;
 }
-/* 押している間だけ、ボタンが少し沈む（暗くなるだけでは指に返らなかった。デザインレビュー）。`transform` ではなく
-   独立した `scale` なので、`transform` で置いているボタン（前後の矢印の translateY(-50%)）の配置は崩れない */
-button:active:not(:disabled) {
-  scale: 0.96;
+/* ビューアの丸い道具は、押している間だけ少し沈む（暗くなるだけでは指に返らなかった。デザインレビュー）。
+   **小さな丸だけ**——幅の広いボタンを縮めると、端を押して離したクリックが外へ落ちる（/code-review: 560px の知らせなら
+   両端 11px）。`transform` ではなく独立した `scale` なので、`transform` で置いている前後の矢印も位置がずれない */
+.viewer-tool:active:not(:disabled),
+.viewer-nav:active:not(:disabled) {
+  scale: 0.94;
 }
 
 /* 幕の出入り（デザインレビュー: パレット・設定・取り込み・キーの一覧がパッと出ていた。ビューアの開閉だけが丁寧で、
    手触りが別のアプリだった）。入りだけ動かす——閉じるのは今までどおりすぐ消える。右クリックのメニューは置く位置を
    getBoundingClientRect で測るので、形を変えずに薄れだけにする */
 .palette-backdrop,
-.shortcuts-backdrop {
+.shortcuts-backdrop,
+.file-info-backdrop,
+.reject-gate-backdrop {
   animation: scrim-in 120ms var(--easing);
 }
 .palette-backdrop > *,
+.file-info-backdrop > *,
+.reject-gate-backdrop > *,
 .shortcuts {
   animation: sheet-in 160ms var(--easing);
 }
@@ -3782,10 +3783,13 @@ button:active:not(:disabled) {
   }
   /* 幕は薄れだけ（動きなし）。押したときの沈みと ★ の弾みも止める */
   .palette-backdrop > *,
+  .file-info-backdrop > *,
+  .reject-gate-backdrop > *,
   .shortcuts {
     animation: scrim-in 120ms var(--easing);
   }
-  button:active:not(:disabled) {
+  .viewer-tool:active:not(:disabled),
+  .viewer-nav:active:not(:disabled) {
     scale: none;
   }
   .viewer-tool .icon.pop {
@@ -3811,7 +3815,7 @@ button:active:not(:disabled) {
 html.viewer-only,
 html.viewer-only body,
 html.viewer-only .app {
-  background: #000;
+  background: var(--viewer-ground);
 }
 html.viewer-only .app > .topbar,
 html.viewer-only .app > .body,

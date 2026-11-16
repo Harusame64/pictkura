@@ -2934,7 +2934,8 @@ fn deliver_open(app: &tauri::AppHandle, path: String) {
 /// ビューアだけの窓として見せる準備: 地を黒にして隠し、画面が描いてから見せる（main.tsx）。3 秒で見せる保険
 fn prepare_viewer_only_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+        // ビューアの地（tokens.css の --viewer-ground、oklch(0.13 0.004 70) ≒ rgb(8,7,6)）にそろえる
+        let _ = w.set_background_color(Some(tauri::window::Color(8, 7, 6, 255)));
         let _ = w.hide();
         let w = w.clone();
         std::thread::spawn(move || {
@@ -7290,7 +7291,7 @@ pub fn run() {
     // 約 0.3 秒の白。窓の地は setup で黒にする）。WebView2 は環境を作るときにこの変数を読む
     #[cfg(windows)]
     if open_path_from_args(&std::env::args().collect::<Vec<_>>()).is_some() {
-        std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF000000");
+        std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "FF080706");
     }
     // **WebView2 の合成を切る設定は、窓より前に効かせる**（`webview_args.rs`。`[performance] hardware_acceleration`）。
     // 設定が読めなければ既定（オン＝何も足さない）
