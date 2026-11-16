@@ -9682,8 +9682,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string | nul
                       <div className="exif-row" key={label}>
                         <span className="exif-key">{label}</span>
                         {/* 値は数と単位か名前。中の文字列が自分の向きを決める（`.name`）——段落ごとに
-                            決めると揃えが左右にばらつく */}
-                        <span className="exif-value"><span className="name">{value}</span></span>
+                            決めると揃えが左右にばらつく。折るのは語と語の間（空白）だけ——「F5-6.3」がハイフンの後で
+                            割れた（win2）。語ごとに折れない箱に包む（コピーされる字は変えない） */}
+                        <span className="exif-value">
+                          <span className="name">
+                            {value.split(/(\s+)/).map((w, i) =>
+                              /\s/.test(w) ? w : <span className="nobreak" key={i}>{w}</span>,
+                            )}
+                          </span>
+                        </span>
                       </div>
                     ) : null,
                   )}
