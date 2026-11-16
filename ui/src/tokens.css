@@ -38,9 +38,10 @@
 
   /* ---- semantic: ライト ---- */
   color-scheme: light;
-  /* スクロールバーのつまみ（App.css の :root）。字の色を混ぜる。割合はテーマで分ける——同じ 24% では、ライトで
-     地に対して約 1.3:1 しかなく見えず、ダークでは約 4:1 で目を引いた（/code-review・win2） */
-  --scroll-thumb: color-mix(in oklch, var(--text) 42%, transparent);
+  /* スクロールバーのつまみ（App.css の :root）。字の色を混ぜる。割合はテーマで分け、どちらも地に対して約 3:1
+     （押せる物の目安）——同じ 24% では、ライト 1.6:1・ダーク 2.0:1 で見えにくく、Windows の既定はダークで 6:1 あり
+     目を引いた（win2 の画素の実測 2026-11-16） */
+  --scroll-thumb: color-mix(in oklch, var(--text) 50%, transparent);
   --bg: var(--n-1); /* クローム地 */
   --bg-canvas: var(--n-0); /* グリッド背景（写真の後ろ） */
   --surface: var(--n-0); /* パレット・カード */
@@ -214,7 +215,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --scroll-thumb: color-mix(in oklch, var(--text) 28%, transparent);
+    --scroll-thumb: color-mix(in oklch, var(--text) 36%, transparent);
     --bg: var(--n-9);
     --bg-canvas: var(--n-10); /* グリッドは一段暗く＝写真が最前面に浮く */
     --surface: var(--n-8);
@@ -241,7 +242,7 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --scroll-thumb: color-mix(in oklch, var(--text) 28%, transparent);
+  --scroll-thumb: color-mix(in oklch, var(--text) 36%, transparent);
   --bg: var(--n-9);
   --bg-canvas: var(--n-10);
   --surface: var(--n-8);
