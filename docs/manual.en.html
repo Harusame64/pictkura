@@ -292,8 +292,26 @@ While a scan is running (a folder added or removed, Rescan, the import destinati
 
 <figure>
   <a class="shot-link" href="images/grid.en.jpg" title="Open full size"><img src="images/grid.en.jpg" alt="The grid, with photos laid out by date"></a>
-  <figcaption>The grid. The vertical strip on the right is the year scrubber — grab it to jump.</figcaption>
+  <figcaption>The grid. Grab the strip on the right (the timeline) to jump across years and months.</figcaption>
 </figure>
+
+<h3>Reading the grid</h3>
+
+<p>
+Photos are laid out by date, newest first. <strong>Kind</strong> on the left switches between All, Photos, RAW and Videos. The <strong>Size</strong> slider at the top changes the tile size, and the size is kept for next time.
+The button to its right puts days with only a few photos on one row (on by default). Rows run across months and start afresh at each new year.
+</p>
+
+<p>
+The strip on the right edge is the timeline: year marks, a dot for each month, and a mark where you are now.
+Drag it up or down and the grid follows. Hover over it and the months under the pointer are magnified.
+Move the pointer a little toward the photos from there and a date wheel opens; turn the mouse wheel or press <kbd>↑</kbd> <kbd>↓</kbd> to pick a month.
+Click the strip and a card with that year’s twelve months appears. Only months with photos can be clicked, and the month you are looking at is marked. Turn the mouse wheel over the card to change the year.
+</p>
+
+<p>
+From the keyboard, <kbd>Tab</kbd> into the strip, then use <kbd>↑</kbd> <kbd>↓</kbd> for months, <kbd>PageUp</kbd> <kbd>PageDown</kbd> for years, and <kbd>Home</kbd> <kbd>End</kbd> for the top and bottom. <kbd>Enter</kbd> opens the date wheel.
+</p>
 
 <div class="note">
   <p>
@@ -460,6 +478,11 @@ so it is worth deciding first. There are nine common layouts to choose from.
   <figcaption>Choose “Custom” to write your own.</figcaption>
 </figure>
 
+<p>
+The card at the top shows where a photo will actually land, from the destination down to the file (for example <code>Pictures / 2026 / 2026-08-13 / IMG_0001.JPG</code>).
+Pick another layout and the folders that changed light up for a moment. Use “Change” on the right of the card to change the destination.
+</p>
+
 <div class="table-scroll">
 <table>
   <tr><th>What you can write</th><th>What it becomes</th></tr>
@@ -517,6 +540,10 @@ for the grid and the viewer. The first of these that exists is used.</p>
   <li><strong>A date in the file name</strong> — used when the name carries one, as in <code>2024-01-01 12.34.56.jpg</code></li>
   <li><strong>File modification time</strong> — when none of the above exist</li>
 </ol>
+<p>
+January 1, 1980 and February 7, 2106 count as no date, and the next source is used instead: they are stand-in dates written by cameras whose clock was never set, among others.
+The same goes for picking the destination folder, so no 1980 or 2106 folder is made.
+</p>
 <p>
 Screenshots and images saved from social apps usually carry no EXIF, and modification time
 alone files them under “the day you saved it”. When the name carries a date, that wins, so
@@ -576,6 +603,17 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
   <figcaption>Hold the mouse still and the controls fade out; move it and they come back.</figcaption>
 </figure>
 
+<p>
+The tools at the top are grouped by what they do. From the left: marks (★ favorite, ⚑ pick, ✕ reject), viewing (info, slideshow, full screen),
+and the quieter tools (copy to clipboard, save to a file, show in folder, delete, keyboard shortcuts).
+The strip at the bottom shows up to seven photos on each side; click one to go to it.
+</p>
+
+<p>
+When a video ends, the next video plays on, in the order they were taken. This happens when <strong>Kind</strong> on the left is set to Videos, and when you open the photos you selected in the grid with “View the selection”.
+If only videos are selected, playback starts from the oldest.
+</p>
+
 <div class="table-scroll">
 <table>
   <tr><th>Key</th><th>What it does</th></tr>
@@ -587,7 +625,7 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
   <tr><td><kbd>Ctrl</kbd> + <kbd>P</kbd></td><td>Print the photo on screen (<kbd>⌘</kbd> + <kbd>P</kbd> on macOS)</td></tr>
   <tr><td><kbd>Space</kbd></td><td>Start or stop the slideshow. On a video, play / pause</td></tr>
   <tr><td><kbd>F</kbd></td><td>Toggle favorite (★)</td></tr>
-  <tr><td><kbd>I</kbd></td><td>File details (name, folder, size, date taken, date modified, dimensions, type, and length for a video) and capture details (camera, lens, focal length, aperture, shutter, ISO, GPS)</td></tr>
+  <tr><td><kbd>I</kbd></td><td>Capture details (camera, lens, focal length, aperture, shutter, ISO, GPS) and file details (name, folder, size, date taken, date modified, dimensions, type, and length for a video)</td></tr>
   <tr><td><kbd>1</kbd> / <kbd>0</kbd></td><td><kbd>1</kbd> <strong>toggles</strong> between actual size 100% and fit to screen; <kbd>0</kbd> always fits</td></tr>
   <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
   <tr><td><kbd>Esc</kbd></td><td>Close</td></tr>
@@ -600,7 +638,13 @@ If the sync that runs at startup did not finish, it asks you to press Rescan.
 Right-click for “Open”, “Open with another app…”, “Show in folder”, “Show more options” (Windows), “Copy image to clipboard”, “Rotate right”, “Rotate left”, “Print…”, “Add to favorites”, “Pick”, “Info” and “Delete (move to trash)”.
 “Info” shows the name, folder, size, date taken and more (both files of a RAW+JPEG pair). When you select photos in the grid, a line under the selection bar shows the name and size, or the total for several.
 With Outgoing on, “Add to Outgoing” is there too; while Outgoing on the left is shown, “Remove from Outgoing” takes its place (<a href="#outgoing">9. Outgoing</a>).
-An editing app you pick once is remembered and appears in the menu from then on.
+</p>
+
+<p>
+At the top of the right-click menu, up to three apps that can open the photo are listed as “Open with …”, with the apps you picked before first.
+<kbd>Ctrl</kbd> + <kbd>1</kbd>–<kbd>3</kbd> (<kbd>⌘</kbd> + <kbd>1</kbd>–<kbd>3</kbd> on macOS) opens it in them, top to bottom; this works in the viewer too.
+“Open with another app…” lists the apps your system knows; if yours is not there, “Choose another app…” lets you find it.
+For a RAW file, apps that open DNG, TIFF or JPEG are offered too, so raw developers are included.
 </p>
 
 <p>
@@ -653,7 +697,7 @@ If your system is set to reduce motion, photos change without moving whatever yo
 <h3>Take out the picture you are looking at</h3>
 
 <p>
-<strong>📋</strong> at the top right copies it to the clipboard, <strong>💾</strong> saves it
+Among the quieter tools at the top, the two stacked sheets copy it to the clipboard and the downward arrow saves it
 to a file; the keys are <kbd>Ctrl</kbd> + <kbd>C</kbd> and <kbd>Ctrl</kbd> + <kbd>S</kbd>
 (<kbd>⌘</kbd> on macOS). What comes out is <strong>the picture that is on screen</strong>,
 exactly as you see it.
@@ -693,6 +737,30 @@ Saving starts in <strong>the folder you saved to last time</strong>
   </p>
   <p>
     SVG can only be saved, not copied to the clipboard or printed.
+  </p>
+</div>
+
+<h3 id="open-from">Opening from other apps</h3>
+
+<p>
+Open a photo or video with pictkura from File Explorer or Finder and a viewer-only window opens.
+Click “Show in library” at the top to switch to the usual grid window.
+For a photo outside your library, <kbd>←</kbd> <kbd>→</kbd> step through the other photos in the same folder.
+If pictkura is already open, the file opens in that window.
+</p>
+
+<p>
+Select several files and open them together, and only those are shown. Videos play on one after another, in the order they were taken.
+</p>
+
+<p>
+The installer, Microsoft Store and macOS versions add pictkura to the system’s “Open with” list (on Windows it is under “Choose another app”).
+<code>.arq</code> and <code>.x3f</code> files open in pictkura when no other app can open them.
+</p>
+
+<div class="note">
+  <p>
+    If you open photos from inside and outside your library together, all of them are treated as outside the library, and ★ and ⚑ cannot be set on them.
   </p>
 </div>
 
@@ -1088,6 +1156,7 @@ With that off, pictkura never reaches the network at all — and you can still p
   <tr><td>A RAW that declares its size nowhere shows none</td><td>Dimensions come from the file’s own declaration, from the sensor borders inside Panasonic’s own RAW formats (<code>rw2</code>, <code>raw</code>, <code>rwl</code> — the Leicas built on those bodies included), or from the embedded preview. A RAW with none of those (measured: the Blackmagic CinemaDNG) shows no size in the grid, and is asked again on every startup. On Windows a file that only exists in the cloud is the exception — the Shell supplies its dimensions without downloading it</td></tr>
   <tr><td>No UI to rebuild the search index</td><td>If it breaks, delete <code>pictkura.db</code> in the settings folder and let it rebuild (thumbnails are rebuilt too, and ★, ⚑, the records that let a rotation be undone and the record of what was placed in Outgoing or is waiting to be placed again are lost)</td></tr>
   <tr><td>No sort options for results</td><td>Newest capture date first, always</td></tr>
+  <tr><td>The mouse pointer looks frozen in full screen (Windows)</td><td>Turning off ⚙ (Settings) → “Graphics” → “Use graphics acceleration” may fix it (seen on PCs with AMD graphics). With it off, video playback uses more CPU. The change takes effect the next time pictkura starts</td></tr>
   <tr><td>An import cannot be canceled</td><td>Once started, it runs to the end</td></tr>
 </table>
 </div>
