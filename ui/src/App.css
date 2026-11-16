@@ -2195,7 +2195,9 @@ body {
 .viewer-nav {
   position: absolute;
   top: 50%;
-  transform: translateY(-50%);
+  /* `transform` ではなく独立した `translate` で置く。押したときの `scale` は `transform` の外側にかかるので、
+     transform で置くと押している間に中心が下へ 1.3px ずれた（win2 の実測）。translate なら scale と同じ段で合わさる */
+  translate: 0 -50%;
   border: none;
   background: oklch(1 0 0 / 0.1);
   color: #fff;
