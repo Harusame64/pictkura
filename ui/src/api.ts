@@ -36,6 +36,8 @@ export interface MediaItem {
   has_thumb: boolean;
   /** サムネイルの品質段階: 0=なし, 1=即席, 2=高品質 */
   thumb_state: number;
+  /** 働き手がサムネイルを作るのを諦めた（`media-updated` だけが立てる）。絵の URL を変えて問い直させる */
+  thumb_failed?: boolean;
   favorite: boolean;
   /** 選別で選んだ印（⚑ Pick。0.2 ②）。★とは別の棚 */
   picked: boolean;
@@ -1110,7 +1112,7 @@ export const thumbSrcOf = (
 ) => convertFileSrc(`thumb/${id}`, "media") + `?v=${mtimeMs}-${rev}-${thumbState}`;
 
 export const thumbSrc = (item: MediaItem) =>
-  thumbSrcOf(item.id, item.mtime_ms, item.rev, item.thumb_state);
+  thumbSrcOf(item.id, item.mtime_ms, item.rev, item.thumb_state) + (item.thumb_failed ? "-f" : "");
 
 /**
  * 取り込み**前**のファイルのプレビューURL（第5部 段階E）。
