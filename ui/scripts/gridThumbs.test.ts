@@ -7,11 +7,17 @@ test("最近出した絵は覚え、上限を超えたら古いものから忘�
   const r = new RecentThumbs(2);
   r.add("a");
   r.add("b");
-  assert.equal(r.touch("a"), true); // a を新しい側へ
+  assert.equal(r.touch("a"), "a"); // a を新しい側へ
   r.add("c"); // b が押し出される
-  assert.equal(r.touch("b"), false);
-  assert.equal(r.touch("a"), true);
-  assert.equal(r.touch("c"), true);
+  assert.equal(r.touch("b"), undefined);
+  assert.equal(r.touch("a"), "a");
+  assert.equal(r.touch("c"), "c");
+});
+
+test("問い直して出た絵は、出した URL（回数付き）で覚える。作り直したタイルは素の URL を読み直さない", () => {
+  const r = new RecentThumbs();
+  r.add("t?v=1&grid=1", "t?v=1&grid=1&ask=2");
+  assert.equal(r.touch("t?v=1&grid=1"), "t?v=1&grid=1&ask=2");
 });
 
 test("paintable は読めた絵で、「サムネイルが無い」の 1x1 だけを外す（幅1の細長い絵は出す）", () => {

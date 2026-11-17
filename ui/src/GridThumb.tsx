@@ -46,8 +46,9 @@ export function GridThumb({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (recent.touch(src)) {
-      if (el.getAttribute("src") !== src) el.src = src;
+    const shown = recent.touch(src);
+    if (shown !== undefined) {
+      if (el.getAttribute("src") !== shown) el.src = shown;
       el.setAttribute("data-shown", "");
       return;
     }
@@ -73,7 +74,7 @@ export function GridThumb({
         detach();
         if (paintable(img)) {
           unwait();
-          recent.add(ask);
+          recent.add(src, ask);
           el.src = ask;
         } else {
           // 出せる絵が無い（404・「サムネイルが無い」の 1x1）。前の URL の絵が残っていれば消し、地の灰色を

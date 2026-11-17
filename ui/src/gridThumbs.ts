@@ -42,25 +42,30 @@ export function paintable(img: { complete: boolean; naturalWidth: number; natura
 // 4K の窓でいちばん小さい大きさにすると、画面と前後の控えの行で数百枚が同時に作り直される（/code-review）
 export const RECENT_MAX = 2000;
 
-/** 最近出した絵の URL（数に上限。古いものから忘れる）。出せなかったものは入れない（作り直しで問い直す） */
+/**
+ * 最近出した絵（数に上限。古いものから忘れる）。鍵はタイルの URL、値は実際に出した URL——問い直して出た絵は
+ * 回数の付いた URL（`&ask=n`）で出ているので、作り直したタイルはその URL をそのまま使う（素の URL は空の絵を
+ * 読んだ URL で、macOS の WebView はそれを返しうる。PR の codex）。出せなかったものは入れない（作り直しで問い直す）
+ */
 export class RecentThumbs {
-  private readonly urls = new Map<string, true>();
+  private readonly urls = new Map<string, string>();
   private readonly max: number;
 
   constructor(max = RECENT_MAX) {
     this.max = max;
   }
 
-  /** 覚えていれば新しい側へ回して true */
-  touch(url: string): boolean {
-    if (!this.urls.has(url)) return false;
-    this.add(url);
-    return true;
+  /** 覚えていれば新しい側へ回して、出した URL を返す */
+  touch(url: string): string | undefined {
+    const shown = this.urls.get(url);
+    if (shown === undefined) return undefined;
+    this.add(url, shown);
+    return shown;
   }
 
-  add(url: string): void {
+  add(url: string, shown: string = url): void {
     this.urls.delete(url);
-    this.urls.set(url, true);
+    this.urls.set(url, shown);
     while (this.urls.size > this.max) {
       const oldest = this.urls.keys().next().value;
       if (oldest === undefined) break;
