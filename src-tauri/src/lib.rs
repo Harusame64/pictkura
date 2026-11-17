@@ -6941,6 +6941,14 @@ const MAX_ORIGINAL_THUMB_EDGE: i64 = 2048;
 /// （サムネイルは平均49KB）で、ブラウザは**タイルごとに1200万画素を展開する**。
 /// 40枚並べたら半分のタイルが最後まで描かれなかった（画像デコードの予算切れ）。
 /// 大きすぎるものは配らず、空の枠のままにする方が速くて予測できる。
+/// この要求の糸でサムネイルを作ってよい種類か（`can_serve_original` から寸法の上限を除いたもの——上限は原本を
+/// WebView に渡すときの守りで、作るときには要らない。大きい写真こそ、その場で作る値打ちがある）
+fn can_make_thumb_now(record: &pictkura_core::MediaRecord) -> bool {
+    !(pictkura_core::thumbs::needs_display_transcode(&record.path)
+        || pictkura_core::cloud::is_cloud_only_path(&record.path)
+        || pictkura_core::video::is_video_path(&record.path))
+}
+
 fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     if pictkura_core::thumbs::needs_display_transcode(&record.path)
         || pictkura_core::cloud::is_cloud_only_path(&record.path)
@@ -6970,7 +6978,12 @@ fn made_thumb_now(state: &AppState, id: i64) -> MadeNow {
     match state.thumbs.run_now(id) {
         pictkura_core::RunNow::Busy => return MadeNow::Busy,
         pictkura_core::RunNow::Refused => return MadeNow::Original,
-        pictkura_core::RunNow::Saturated => return MadeNow::Wait,
+        // 混んでいる: 働き手の列へ回し（一覧の可視の要求が来ない表紙・思い出の帯も、いずれ作られる）、
+        // この要求は今までどおりにする——空のタイルにすると、可視の要求の来ない面では作られないまま残った
+        pictkura_core::RunNow::Saturated => {
+            state.thumbs.prioritize(&[id]);
+            return MadeNow::Original;
+        }
         pictkura_core::RunNow::Ran => {}
     }
     let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
@@ -6999,36 +7012,14 @@ fn preview_response(path: &Path, max_edge: u32) -> Option<Response<Vec<u8>>> {
 const PREVIEW_NOW_MAX: usize = 4;
 static PREVIEWS_NOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// その場で縮める枠1つ。落ちても数を戻す
-struct PreviewSlot;
-
-impl PreviewSlot {
-    fn take() -> Option<Self> {
-        use std::sync::atomic::Ordering;
-        if PREVIEWS_NOW.fetch_add(1, Ordering::AcqRel) >= PREVIEW_NOW_MAX {
-            PREVIEWS_NOW.fetch_sub(1, Ordering::AcqRel);
-            return None;
-        }
-        Some(Self)
-    }
-}
-
-impl Drop for PreviewSlot {
-    fn drop(&mut self) {
-        PREVIEWS_NOW.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-    }
-}
-
 /// [`made_thumb_now`] の答え
 enum MadeNow {
     /// 出来たサムネイル
     Thumb(PathBuf),
-    /// 働き手が作っている最中（その場で縮めて埋める）
+    /// 働き手が処理中（その場で縮めて埋める）
     Busy,
-    /// 作らない・作れなかった（今までどおり原本）
+    /// 作らない・作れなかった・混んでいる（今までどおり）
     Original,
-    /// 混んでいる（空のタイルにして、働き手の本番を待つ）
-    Wait,
 }
 
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
@@ -7168,7 +7159,8 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
-            None if !can_serve_original(&record) => return blank_thumb(),
+            // その場で作れない種類（RAW・HEIC・TIFF・動画・クラウドにしか無いもの）は、今までどおり空のタイル
+            None if !can_make_thumb_now(&record) => return blank_thumb(),
             // サムネイルの無い写真は、原本を渡さずに**ここで本番を作って**渡す（`ThumbnailService::run_now`）。
             // 原本を渡すと WebView が大きな絵を1コアで展開し、3万枚の一覧で帯を1回動かすと原本を約600MB
             // 読んだ（win2）。働き手が作っている最中なら、その場で縮めたもので埋める（取り込み画面と同じ縮め方）。
@@ -7179,18 +7171,20 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             }
             None => match made_thumb_now(state, id) {
                 MadeNow::Thumb(thumb) => thumb,
-                // 作らない（失敗が上限）・作れなかった: 今までどおり原本。何度も解き直さない
-                MadeNow::Original => record.path,
-                // 混んでいる: 原本は渡さず空のタイルにする。働き手の本番が出来れば URL が変わって届く
-                MadeNow::Wait => return blank_thumb(),
-                // 働き手が作っている最中: その場で縮めたもので埋める（同時に縮める数も抑える。超えたら空のタイル）
+                // 作らない（失敗が上限）・作れなかった・混んでいる: 今までどおり（大きすぎる原本は渡さない）。
+                // 何度も解き直さない
+                MadeNow::Original if can_serve_original(&record) => record.path,
+                MadeNow::Original => return blank_thumb(),
+                // 働き手が処理中: その場で縮めたもので埋める（同時に縮める数も抑える。超えたら今までどおり）
                 MadeNow::Busy => {
-                    let Some(_slot) = PreviewSlot::take() else {
-                        return blank_thumb();
-                    };
-                    match preview_response(&record.path, state.thumbs.thumb_size()) {
+                    let slot = pictkura_core::CountSlot::take(&PREVIEWS_NOW, PREVIEW_NOW_MAX);
+                    let preview = slot.and_then(|_slot| {
+                        preview_response(&record.path, state.thumbs.thumb_size())
+                    });
+                    match preview {
                         Some(response) => return response,
-                        None => record.path,
+                        None if can_serve_original(&record) => record.path,
+                        None => return blank_thumb(),
                     }
                 }
             },

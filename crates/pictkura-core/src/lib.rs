@@ -59,4 +59,4 @@ pub use search::{parse_query, MediaFilter, MediaKind, SearchQuery};
 pub use sync::{
     apply_scan, scan_library, scan_library_pruned, sync_library, LibraryScan, SyncStats,
 };
-pub use thumbs::{RunNow, ThumbQueue, ThumbnailService};
+pub use thumbs::{CountSlot, RunNow, ThumbQueue, ThumbnailService};

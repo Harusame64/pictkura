@@ -2251,6 +2251,11 @@ impl ThumbQueue {
         *self.lock_state().failures.entry(id).or_insert(0) += 1;
     }
 
+    /// 働き手（か [`ThumbnailService::run_now`]）が処理中か。列に並んでいるだけなら false
+    pub fn is_processing(&self, id: i64) -> bool {
+        self.lock_state().processing.contains(&id)
+    }
+
     /// 失敗が上限に達して、もう作らない ID か
     pub fn is_blocked(&self, id: i64) -> bool {
         self.lock_state().blocked(id)
@@ -2338,26 +2343,26 @@ impl CameraWrite {
 pub enum RunNow {
     /// 作る道を走らせた（作れたかは行の `thumb_state` で見る）
     Ran,
-    /// 働き手が作っている最中（二重に作らない）
+    /// 働き手が処理中（二重に作らない）
     Busy,
     /// 失敗が上限に達している・接続が開けない・止めた後（作らない。今までどおりにする）
     Refused,
-    /// 同時に作る数が上限（[`RUN_NOW_MAX`]）。作らない——配信の口は原本を渡さず空のタイルにし、働き手の
-    /// 作った本番が届くのを待つ（混んでいるときに原本を渡すと、まさに減らしたかった展開が戻る）
+    /// 同時に作る数が上限（[`RUN_NOW_MAX`]）。作らない——配信の口は働き手の列へ回し、今までどおりにする
     Saturated,
 }
 
 /// [`ThumbnailService::run_now`] が同時に作る数の上限。一覧の列は同時に4枚までだが、列を通らない絵
-/// （思い出の帯など）もここへ来るので、口の側でも数を抑える（超えたら今までどおり原本）
+/// （思い出の帯・カレンダーの表紙など）もここへ来るので、口の側でも数を抑える（超えたら [`RunNow::Saturated`]）
 const RUN_NOW_MAX: usize = 4;
 
-/// [`ThumbnailService::run_now`] の枠1つ。落ちても（巻き戻っても）数を戻す
-struct NowSlot<'a>(&'a std::sync::atomic::AtomicUsize);
+/// 数に上限のある枠1つ（[`ThumbnailService::run_now`]・配信の口のその場の縮小）。落ちても（巻き戻っても）数を戻す
+pub struct CountSlot<'a>(&'a std::sync::atomic::AtomicUsize);
 
-impl<'a> NowSlot<'a> {
-    fn take(running: &'a std::sync::atomic::AtomicUsize) -> Option<Self> {
+impl<'a> CountSlot<'a> {
+    /// 使っている数が `max` 未満なら1つ取る
+    pub fn take(running: &'a std::sync::atomic::AtomicUsize, max: usize) -> Option<Self> {
         use std::sync::atomic::Ordering;
-        if running.fetch_add(1, Ordering::AcqRel) >= RUN_NOW_MAX {
+        if running.fetch_add(1, Ordering::AcqRel) >= max {
             running.fetch_sub(1, Ordering::AcqRel);
             return None;
         }
@@ -2365,9 +2370,22 @@ impl<'a> NowSlot<'a> {
     }
 }
 
-impl Drop for NowSlot<'_> {
+impl Drop for CountSlot<'_> {
     fn drop(&mut self) {
         self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
+/// [`ThumbnailService::run_now`] の受け持ち。ジョブが網の外で落ちて巻き戻ったら、受け持ちを返す
+/// （普段は [`run_job`] の中の `finish_job` が返すので、終わったら `forget` する）
+struct ClaimGuard<'a> {
+    queue: &'a ThumbQueue,
+    id: i64,
+}
+
+impl Drop for ClaimGuard<'_> {
+    fn drop(&mut self) {
+        self.queue.complete(self.id);
     }
 }
 
@@ -2517,17 +2535,17 @@ impl ThumbnailService {
     /// 動かすと原本 約600MB）、作った物も残らなかった。ここで作れば、展開は Rust の側で済み、作った物は残る。
     ///
     /// 待たない。列に並べて出来るのを待つ形は、待つ間ずっと一覧の読みの枠を握り、着いた場所の絵が遅れた
-    /// （win2 の実測）。作るのは列の働き手と同じ道（[`run_job`]）で、働き手が処理中なら作らずに false
-    /// （二重に作らない）。作れたかは行の `thumb_state` で見る（[`RunNow`]）
+    /// （win2 の実測）。作るのは列の働き手と同じ道（[`run_job`]）。列に並んでいるだけなら降ろして受け持つ
+    /// （働き手が後でもう一度解かない）。働き手が処理中なら作らない（[`RunNow`]）
     pub fn run_now(&self, id: i64) -> RunNow {
-        // 先に安い確かめ（列の状態だけ）: 働き手が作っている・失敗が上限なら、枠も接続も使わない
-        if self.queue.is_active(id) {
+        // 先に安い確かめ（列の状態だけ）: 働き手が処理中・失敗が上限なら、枠も接続も使わない
+        if self.queue.is_processing(id) {
             return RunNow::Busy;
         }
         if self.queue.is_blocked(id) {
             return RunNow::Refused;
         }
-        let Some(_slot) = NowSlot::take(&self.running_now) else {
+        let Some(_slot) = CountSlot::take(&self.running_now, RUN_NOW_MAX) else {
             return RunNow::Saturated;
         };
         let conn = self.conns.lock().unwrap_or_else(|e| e.into_inner()).pop();
@@ -2540,46 +2558,54 @@ impl ThumbnailService {
                 Err(_) => return RunNow::Refused,
             },
         };
-        let outcome = if self.queue.claim(id) {
+        let outcome = self.run_claimed(&mut db, id);
+        let mut conns = self.conns.lock().unwrap_or_else(|e| e.into_inner());
+        if conns.len() < RUN_NOW_MAX {
+            conns.push(db);
+        }
+        outcome
+    }
+
+    /// 受け持って作る。埋め込みサムネイルのある JPEG は1回目が即席（`thumb_state` 1）で止まるので、2回まで回す
+    /// （即席のままだと 160px しか渡せない。/code-review。試験で押さえてある）
+    fn run_claimed(&self, db: &mut Db, id: i64) -> RunNow {
+        for pass in 0..2 {
+            let state = db.get_by_id(id).ok().flatten().map(|r| r.thumb_state);
+            // 本番が出来ている（確かめた後に働き手が作り終えた・即席から本番まで行った）なら作らない
+            if state.is_some_and(|s| s >= 2) {
+                return RunNow::Ran;
+            }
+            if pass == 1 && state != Some(1) {
+                return RunNow::Ran;
+            }
+            if !self.queue.claim(id) {
+                return if pass == 0 {
+                    if self.queue.is_processing(id) {
+                        RunNow::Busy
+                    } else {
+                        RunNow::Refused
+                    }
+                } else {
+                    RunNow::Ran
+                };
+            }
+            // 受け持ちは、途中で落ちても返す（落ちたまま「処理中」に残ると、その写真は二度と作られない）
+            let claim = ClaimGuard {
+                queue: &self.queue,
+                id,
+            };
             run_job(
                 &self.queue,
-                &mut db,
+                db,
                 &self.thumbs_dir,
                 self.thumb_size,
                 id,
                 true,
                 &*self.on_done,
             );
-            // 埋め込みサムネイルのある JPEG は、1回目は即席（`thumb_state` 1）で止まる。もう1回で本番まで作る
-            // ——即席のままだと、配信の口は 160px の即席しか渡せない（/code-review。試験で押さえてある）
-            if db
-                .get_by_id(id)
-                .ok()
-                .flatten()
-                .is_some_and(|r| r.thumb_state == 1)
-                && self.queue.claim(id)
-            {
-                run_job(
-                    &self.queue,
-                    &mut db,
-                    &self.thumbs_dir,
-                    self.thumb_size,
-                    id,
-                    true,
-                    &*self.on_done,
-                );
-            }
-            RunNow::Ran
-        } else if self.queue.is_active(id) {
-            RunNow::Busy
-        } else {
-            RunNow::Refused
-        };
-        let mut conns = self.conns.lock().unwrap_or_else(|e| e.into_inner());
-        if conns.len() < RUN_NOW_MAX {
-            conns.push(db);
+            std::mem::forget(claim);
         }
-        outcome
+        RunNow::Ran
     }
 
     /// 作るサムネイルの長辺（起動時の設定。配信の口が、その場で縮める大きさにも使う——設定のロックを取らない）
@@ -4868,20 +4894,30 @@ mod tests {
         svc.shutdown();
     }
 
-    /// 働き手が作っている写真は二重に作らない（`Busy`）。失敗が上限なら作らない（`Refused`）
+    /// 失敗が上限の写真は作らない（`Refused`）
     #[test]
-    fn run_now_reports_busy_and_refused_without_working() {
+    fn run_now_refuses_a_blocked_item() {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("now3.db");
         Db::open(&db_path).unwrap();
-        let svc = ThumbnailService::start(db_path, dir.path().join("thumbs"), 160, 0, |_, _| {});
-        svc.queue.enqueue(&[5]);
-        assert_eq!(svc.run_now(5), RunNow::Busy, "列に居る（働き手に任せる）");
+        let svc = ThumbnailService::start(db_path, dir.path().join("thumbs"), 160, 1, |_, _| {});
         for _ in 0..3 {
-            svc.queue.record_failure(6);
+            svc.queue.record_failure(999);
         }
-        assert_eq!(svc.run_now(6), RunNow::Refused);
+        assert_eq!(svc.run_now(999), RunNow::Refused);
         svc.shutdown();
+    }
+
+    /// 「処理中」は働き手が取り出したものだけ（列に並んでいるだけなら `run_now` が受け持てる）
+    #[test]
+    fn processing_means_popped_not_merely_queued() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1]);
+        assert!(!queue.is_processing(1));
+        assert_eq!(queue.pop(), Some((1, false)));
+        assert!(queue.is_processing(1));
+        queue.complete(1);
+        assert!(!queue.is_processing(1));
     }
 
     /// 受け持ち: 列に居れば降ろして処理中にし、働き手が処理中・失敗が上限なら断る（二重に作らない）
