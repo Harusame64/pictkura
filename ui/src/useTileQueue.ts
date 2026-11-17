@@ -46,8 +46,10 @@ export class TileLoader implements TileAttach {
   /** 鍵ごとの絵の URL（`attach` の `src`） */
   private readonly srcs = new Map<string, string>();
   private readonly limit: number;
-  /** 時間切れだが、読み途中が上限だったので枠を空けていない鍵 */
+  /** 時間切れだが、早めに空けた読みが枠の数に達していたので枠を空けていない鍵 */
   private readonly overdue = new Set<string>();
+  /** 時間切れで早めに枠を空け、まだ読み途中の鍵（枠の数まで） */
+  private readonly early = new Set<string>();
 
   /** `makeImage` は試験が差し替える口 */
   constructor(
@@ -145,14 +147,18 @@ export class TileLoader implements TileAttach {
       this.opts.slotTimeoutMs === undefined
         ? undefined
         : setTimeout(() => {
-            // 上限に達していたら、ほかの読みが終わったときに空ける（`releaseOverdue`）
-            if (this.reading.size < this.limit * 2) this.queue.done(key);
-            else this.overdue.add(key);
+            // 早めに枠を空けた読みは、枠と同じ数まで。超えるなら、ほかの読みが終わったときに空ける
+            // （`releaseOverdue`）。読み途中の総数は、列の枠＋早めに空けた読み＝枠の2倍を超えない
+            if (this.early.size < this.limit) {
+              this.early.add(key);
+              this.queue.done(key);
+            } else this.overdue.add(key);
           }, this.opts.slotTimeoutMs);
     const finish = () => {
       img.onload = img.onerror = null;
       this.reading.delete(src);
       this.overdue.delete(key);
+      this.early.delete(key);
       if (timer !== undefined) clearTimeout(timer);
       // 時間切れで先に枠を空けていれば、二度目は何もしない（`TileQueue.done` は読み途中の鍵だけを数える）
       this.queue.done(key);
@@ -165,11 +171,15 @@ export class TileLoader implements TileAttach {
     img.src = src;
   }
 
-  /** 時間切れなのに上限で枠を空けられなかった読みを、上限を割った分だけ空ける */
+  /**
+   * 時間切れなのに空けられなかった枠を、早めに空けた読みが枠の数を割った分だけ空ける（1つずつ数えて空ける——
+   * 読み途中の総数で見ると、代わりの読みが始まる前にまとめて空けてしまい、8本が11本になった。PR の codex）
+   */
   private releaseOverdue(): void {
     for (const k of this.overdue) {
-      if (this.reading.size >= this.limit * 2) return;
+      if (this.early.size >= this.limit) return;
       this.overdue.delete(k);
+      this.early.add(k);
       this.queue.done(k);
     }
   }

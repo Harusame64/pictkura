@@ -43,7 +43,7 @@ export class TileQueue {
    * 読み途中。**この列は時間切れを持たない**——枠を空けてもアプリの側の読みは続くので、
    * 遅い媒体で読みが積み上がる。答えはかならず来る（アプリは失敗も 403・404・500 で
    * 返し、どれも `onerror` になる。抜かれた媒体の読みは失敗で終わる）。一覧の読み手は
-   * 時間切れで `done` を早めに呼ぶが、読み途中の総数を枠の2倍までに抑える（`TileLoaderOptions`）
+   * 時間切れで `done` を早めに呼ぶが、早めに空けた読みを枠の数までに抑え、読み途中の総数を枠の2倍までにする（`TileLoaderOptions`）
    */
   private readonly running = new Set<string>();
   private scheduled = false;

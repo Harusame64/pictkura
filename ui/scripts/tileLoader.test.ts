@@ -191,3 +191,27 @@ test("同じ絵の2枚のタイルが同じ選びで始まっても、読みは1
   made[0]!.onload!();
   assert.deepEqual(got.sort(), ["t1", "t2"]);
 });
+
+test("遅い読みが積み上がっても、1本終わったときに空ける枠は1つずつで、読み途中は枠の2倍を超えない", async () => {
+  const made: FakeImage[] = [];
+  const limit = 4;
+  const l = new TileLoader(
+    limit,
+    () => {
+      const img: FakeImage = { src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null };
+      made.push(img);
+      return img as unknown as HTMLImageElement;
+    },
+    { slotTimeoutMs: 10, coveredBy: null },
+  );
+  for (let i = 0; i < 20; i++) {
+    l.attach(`k${i}`, {} as Element, () => {});
+    l.see(`k${i}`, true);
+  }
+  const live = () => made.filter((m) => m.onload).length;
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(live(), limit * 2);
+  made.find((m) => m.onload)!.onload!(); // 1本終わる
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(live() <= limit * 2, `読み途中 ${live()} 本`);
+});
