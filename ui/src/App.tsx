@@ -1557,6 +1557,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     failedDaysRef.current.clear();
+    pendingDaysRef.current = new Map();
+    pendingKeepRef.current = new Set();
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1724,6 +1726,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
 
   /** 読めなかった日と、次に頼んでよい時刻（`loadDays`） */
   const failedDaysRef = useRef(new Map<number, number>());
+  /** 届いて、次のコマで載せる日（`loadDays`）。載せる前に世代が替われば捨てる */
+  const pendingDaysRef = useRef(new Map<number, MediaItem[]>());
+  /** 次のコマで載せる日のうち、キャッシュの間引きから守る日 */
+  const pendingKeepRef = useRef(new Set<number>());
+  const pendingFlushRef = useRef<number | null>(null);
 
   /**
    * 日の一覧をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
@@ -1763,18 +1770,32 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         }
         // 全部読めなかったなら一覧を組み直さない
         if (pairs.every((p) => p.items === null)) return;
-        setDayItems((prev) => {
-          const next = new Map(prev);
-          for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
-          if (next.size > DAY_CACHE_MAX) {
-            for (const key of next.keys()) {
-              if (next.size <= DAY_CACHE_TRIM_TO) break;
-              if (!got.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
-                next.delete(key);
+        for (const p of pairs) if (p.items !== null) pendingDaysRef.current.set(p.day_key, p.items);
+        for (const d of got) pendingKeepRef.current.add(d);
+        // 届いた日は、1コマに1回まとめて載せる。載せるたびに一覧の組み立て（重ね・行・ビューアの道筋）が
+        // 読み込み済みの全日で走り直すので、返事ごとに載せると帯を動かす間の描画が重くなった（win2 の測定で
+        // 呼び出しが倍になったとき、組み立ての時間が約1.7倍、p95 が約10→15ms）
+        if (pendingFlushRef.current !== null) return;
+        pendingFlushRef.current = requestAnimationFrame(() => {
+          pendingFlushRef.current = null;
+          const add = pendingDaysRef.current;
+          const keep = pendingKeepRef.current;
+          pendingDaysRef.current = new Map();
+          pendingKeepRef.current = new Set();
+          if (generationRef.current !== gen || add.size === 0) return;
+          setDayItems((prev) => {
+            const next = new Map(prev);
+            for (const [d, items] of add) next.set(d, items);
+            if (next.size > DAY_CACHE_MAX) {
+              for (const key of next.keys()) {
+                if (next.size <= DAY_CACHE_TRIM_TO) break;
+                if (!keep.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
+                  next.delete(key);
+                }
               }
             }
-          }
-          return next;
+            return next;
+          });
         });
       })
       .catch((e) => {
@@ -3823,8 +3844,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    // 画面に出ている日を先に、前後の控えの行（overscan）の日を後に取る——まとめて1回にすると、
-    // 見えている日が控えの日の読みを待った（/code-review）
     const el = scrollRef.current;
     const top = el?.scrollTop ?? 0;
     const bottom = top + (el?.clientHeight ?? 0);
@@ -3835,8 +3854,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       const rowTop = rowTops[vr.index] ?? vr.start;
       if (rowTop < bottom && rowTop + vr.size > top) onScreen.add(row.dayKey);
     }
-    loadDays(wanted.filter((d) => onScreen.has(d)));
-    loadDays(wanted.filter((d) => !onScreen.has(d)));
+    // 1回の呼び出しにまとめ、画面に出ている日を先に並べる（呼び出しを分けると載せる回数が倍になり、
+    // 帯を動かす間の描画が重くなった。win2）
+    loadDays([...wanted.filter((d) => onScreen.has(d)), ...wanted.filter((d) => !onScreen.has(d))]);
   }, [virtualItems, rows, rowTops, loadDays]);
 
   /**
