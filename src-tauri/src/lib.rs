@@ -6965,6 +6965,56 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// SPIKE（一覧で原本を展開している割合と、その場で縮める案）。マージしない
+mod spike_serve {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    pub static THUMB_FILE: AtomicU64 = AtomicU64::new(0);
+    pub static ORIGINAL: AtomicU64 = AtomicU64::new(0);
+    pub static ORIGINAL_BYTES: AtomicU64 = AtomicU64::new(0);
+    pub static ONFLY: AtomicU64 = AtomicU64::new(0);
+    pub static ONFLY_US: AtomicU64 = AtomicU64::new(0);
+    pub static BLANK: AtomicU64 = AtomicU64::new(0);
+    pub fn onfly() -> bool {
+        std::env::var("PICTKURA_SPIKE_ONFLY").is_ok_and(|v| v == "1")
+    }
+    pub fn take() -> [u64; 6] {
+        [
+            THUMB_FILE.swap(0, Ordering::Relaxed),
+            ORIGINAL.swap(0, Ordering::Relaxed),
+            ORIGINAL_BYTES.swap(0, Ordering::Relaxed),
+            ONFLY.swap(0, Ordering::Relaxed),
+            ONFLY_US.swap(0, Ordering::Relaxed),
+            BLANK.swap(0, Ordering::Relaxed),
+        ]
+    }
+}
+
+/// SPIKE: 数えた配信の内訳を返して0に戻す
+#[derive(serde::Serialize)]
+struct SpikeServeStats {
+    thumb_file: u64,
+    original: u64,
+    original_bytes: u64,
+    onfly: u64,
+    onfly_ms_total: u64,
+    blank: u64,
+    onfly_enabled: bool,
+}
+
+#[tauri::command]
+fn spike_serve_stats() -> SpikeServeStats {
+    let [thumb_file, original, original_bytes, onfly, onfly_us, blank] = spike_serve::take();
+    SpikeServeStats {
+        thumb_file,
+        original,
+        original_bytes,
+        onfly,
+        onfly_ms_total: onfly_us / 1000,
+        blank,
+        onfly_enabled: spike_serve::onfly(),
+    }
+}
+
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
@@ -7101,9 +7151,37 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         // ここでいちばん高くつくため（要求を捌くスレッドが死ぬ）
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
-            Some(thumb) => thumb,
-            None if !can_serve_original(&record) => return blank_thumb(),
-            None => record.path,
+            Some(thumb) => {
+                spike_serve::THUMB_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                thumb
+            }
+            None if !can_serve_original(&record) => {
+                spike_serve::BLANK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return blank_thumb();
+            }
+            None if spike_serve::onfly() => {
+                // SPIKE: 原本を渡さず、その場で縮めて渡す（取り込み画面の `browse::preview` と同じ）
+                let t = std::time::Instant::now();
+                let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+                let out = pictkura_core::browse::preview(&record.path, thumb_size);
+                spike_serve::ONFLY_US.fetch_add(t.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
+                spike_serve::ONFLY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return match out {
+                    Some(preview) => Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", preview.mime)
+                        .header("Cache-Control", "no-store")
+                        .body(preview.bytes)
+                        .unwrap_or_else(|_| server_error()),
+                    None => blank_thumb(),
+                };
+            }
+            None => {
+                spike_serve::ORIGINAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                spike_serve::ORIGINAL_BYTES
+                    .fetch_add(std::fs::metadata(&record.path).map(|m| m.len()).unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
+                record.path
+            }
         },
         ServeKind::Full => record.path,
     };
@@ -8270,6 +8348,7 @@ pub fn run() {
             timeline_summary,
             list_day,
             list_days,
+            spike_serve_stats,
             list_memories,
             get_stats,
             startup_scan_finished,
