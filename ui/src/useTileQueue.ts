@@ -14,7 +14,7 @@ import { TileQueue, TILE_READS } from "./tileQueue.ts";
  * 見えているかどうかは見張りに訊かず、選ぶときに位置を測る——見張りを2つにすると、
  * 知らせの届く順で、見えているタイルより先読みのタイルが先に選ばれうる
  */
-/** タイルを列に載せる口（一覧の [`GridThumbs`] が使う。試験が差し替える） */
+/** タイルを列に載せる口（一覧の `GridThumb.tsx` が使う。試験が差し替える） */
 export interface TileAttach {
   attach(key: string, el: Element, ready: (img: HTMLImageElement) => void, src?: string): () => void;
 }
@@ -46,6 +46,8 @@ export class TileLoader implements TileAttach {
   /** 鍵ごとの絵の URL（`attach` の `src`） */
   private readonly srcs = new Map<string, string>();
   private readonly limit: number;
+  /** 時間切れだが、読み途中が上限だったので枠を空けていない鍵 */
+  private readonly overdue = new Set<string>();
 
   /** `makeImage` は試験が差し替える口 */
   constructor(
@@ -124,6 +126,13 @@ export class TileLoader implements TileAttach {
 
   private load(key: string): void {
     const src = this.srcs.get(key) ?? key;
+    // 同じ絵がもう読み途中なら、その読みの終わりで受け取る（同じ選びで2枚のタイルが並んで始まったとき）
+    const already = this.reading.get(src);
+    if (already) {
+      already.add(key);
+      this.queue.done(key);
+      return;
+    }
     const waiters = new Set<string>([key]);
     this.reading.set(src, waiters);
     const img = this.makeImage();
@@ -136,20 +145,33 @@ export class TileLoader implements TileAttach {
       this.opts.slotTimeoutMs === undefined
         ? undefined
         : setTimeout(() => {
+            // 上限に達していたら、ほかの読みが終わったときに空ける（`releaseOverdue`）
             if (this.reading.size < this.limit * 2) this.queue.done(key);
+            else this.overdue.add(key);
           }, this.opts.slotTimeoutMs);
     const finish = () => {
       img.onload = img.onerror = null;
       this.reading.delete(src);
+      this.overdue.delete(key);
       if (timer !== undefined) clearTimeout(timer);
       // 時間切れで先に枠を空けていれば、二度目は何もしない（`TileQueue.done` は読み途中の鍵だけを数える）
       this.queue.done(key);
       // 渡す先が居なければ捨てる。居れば、その後は絵はタイルの箱が持つ。読みの途中に並んだ同じ絵のタイルにも渡す
       for (const k of waiters) this.ready.get(k)?.(img);
+      this.releaseOverdue();
     };
     img.onload = finish;
     img.onerror = finish;
     img.src = src;
+  }
+
+  /** 時間切れなのに上限で枠を空けられなかった読みを、上限を割った分だけ空ける */
+  private releaseOverdue(): void {
+    for (const k of this.overdue) {
+      if (this.reading.size >= this.limit * 2) return;
+      this.overdue.delete(k);
+      this.queue.done(k);
+    }
   }
 
   /**

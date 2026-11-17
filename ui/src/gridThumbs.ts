@@ -36,7 +36,8 @@ export function paintable(img: { complete: boolean; naturalWidth: number; natura
  * 画面に出ていた絵はまだ展開済みなので、列を通さずすぐ `src` を渡す（出ていた絵を消して浮かび直させない）。
  * 遠くへスクロールして戻ったときは数を超えて忘れているので、列を通る
  */
-export const RECENT_MAX = 400;
+// 4K の窓でいちばん小さい大きさにすると、画面と前後の控えの行で数百枚が同時に作り直される（/code-review）
+export const RECENT_MAX = 2000;
 
 /** 最近出した絵の URL（数に上限。古いものから忘れる）。出せなかったものは入れない（作り直しで問い直す） */
 export class RecentThumbs {

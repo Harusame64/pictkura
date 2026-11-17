@@ -151,3 +151,43 @@ test("時間切れでも、読み途中が枠の2倍に達していたら枠を�
   await new Promise((r) => setTimeout(r, 80));
   assert.deepEqual(made.map((m) => m.src), ["a", "b"]);
 });
+
+test("上限で空けられなかった時間切れの枠は、ほかの読みが終わって上限を割ったら空く", async () => {
+  const made: FakeImage[] = [];
+  const l = new TileLoader(
+    1,
+    () => {
+      const img: FakeImage = { src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null };
+      made.push(img);
+      return img as unknown as HTMLImageElement;
+    },
+    { slotTimeoutMs: 10, coveredBy: null },
+  );
+  for (const k of ["a", "b", "c"]) {
+    l.attach(k, {} as Element, () => {});
+    l.see(k, true);
+  }
+  await new Promise((r) => setTimeout(r, 60));
+  assert.deepEqual(made.map((m) => m.src), ["a", "b"]); // b は時間切れでも上限（2）で枠を握ったまま
+  made[0]!.onload!(); // a が終わって上限を割った
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(made.map((m) => m.src), ["a", "b", "c"]);
+});
+
+test("同じ絵の2枚のタイルが同じ選びで始まっても、読みは1回で両方に渡す", async () => {
+  const made: FakeImage[] = [];
+  const l = new TileLoader(2, () => {
+    const img: FakeImage = { src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null };
+    made.push(img);
+    return img as unknown as HTMLImageElement;
+  });
+  const got: string[] = [];
+  for (const k of ["t1", "t2"]) {
+    l.attach(k, {} as Element, () => got.push(k), "same.jpg");
+    l.see(k, true);
+  }
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(made.length, 1);
+  made[0]!.onload!();
+  assert.deepEqual(got.sort(), ["t1", "t2"]);
+});

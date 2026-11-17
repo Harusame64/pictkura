@@ -1781,7 +1781,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       .catch((e) => {
         if (generationRef.current !== gen) return;
         fail(errText(e));
-        // 読めなかった日と同じ扱い: 時計が切れるまで頼み直さず、切れたら一度に取り直す
+        // 呼び出しごと失敗した。すぐ頼み直さず（スクロールのたびに同じ失敗を重ねない）、時計が切れたら
+        // まだ見えている日とビューアの表示日だけを取り直す（通り過ぎた日は、見えたときに頼む）
         const until = Date.now() + DAY_RETRY_MS;
         for (const d of want) {
           inflightRef.current.delete(d);
@@ -1791,7 +1792,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           window.setTimeout(() => {
             if (generationRef.current !== gen) return;
             for (const d of want) failedDaysRef.current.delete(d);
-            loadDays(want, attempt + 1);
+            const still = want.filter((d) => visibleDaysRef.current.has(d) || d === viewerDayRef.current);
+            if (still.length > 0) loadDays(still, attempt + 1);
           }, DAY_RETRY_MS);
         }
       });
@@ -3840,10 +3842,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       const rowTop = rowTops[vr.index] ?? vr.start;
       if (rowTop < bottom && rowTop + vr.size > top) onScreen.add(row.dayKey);
     }
-    // 1回の呼び出しにまとめ、画面に出ている日を先に並べる（呼び出しを分けると載せる回数が倍になり、
-    // 帯を動かす間の描画が重くなった。win2）
-    loadDays([...wanted.filter((d) => onScreen.has(d)), ...wanted.filter((d) => !onScreen.has(d))]);
-  }, [virtualItems, rows, rowTops, loadDays]);
+    // 1回の呼び出しにまとめる（見えている日と控えの日で分けると載せる回数が倍になり、帯を動かす間の描画が
+    // 重くなった。win2）
+    loadDays(wanted);
+  }, [virtualItems, rows, loadDays]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
