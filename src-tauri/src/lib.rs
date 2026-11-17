@@ -6974,10 +6974,17 @@ mod spike_serve {
     pub static ONFLY: AtomicU64 = AtomicU64::new(0);
     pub static ONFLY_US: AtomicU64 = AtomicU64::new(0);
     pub static BLANK: AtomicU64 = AtomicU64::new(0);
+    pub static WAITED_OK: AtomicU64 = AtomicU64::new(0);
+    pub static WAIT_TIMEOUT: AtomicU64 = AtomicU64::new(0);
+    pub static WAIT_US: AtomicU64 = AtomicU64::new(0);
+    /// B: 本番作りを待つ上限（ms）。0 で使わない
+    pub fn wait_ms() -> u64 {
+        std::env::var("PICTKURA_SPIKE_WAIT_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+    }
     pub fn onfly() -> bool {
         std::env::var("PICTKURA_SPIKE_ONFLY").is_ok_and(|v| v == "1")
     }
-    pub fn take() -> [u64; 6] {
+    pub fn take() -> [u64; 9] {
         [
             THUMB_FILE.swap(0, Ordering::Relaxed),
             ORIGINAL.swap(0, Ordering::Relaxed),
@@ -6985,6 +6992,9 @@ mod spike_serve {
             ONFLY.swap(0, Ordering::Relaxed),
             ONFLY_US.swap(0, Ordering::Relaxed),
             BLANK.swap(0, Ordering::Relaxed),
+            WAITED_OK.swap(0, Ordering::Relaxed),
+            WAIT_TIMEOUT.swap(0, Ordering::Relaxed),
+            WAIT_US.swap(0, Ordering::Relaxed),
         ]
     }
 }
@@ -6999,11 +7009,16 @@ struct SpikeServeStats {
     onfly_ms_total: u64,
     blank: u64,
     onfly_enabled: bool,
+    waited_ok: u64,
+    wait_timeout: u64,
+    wait_ms_total: u64,
+    wait_ms_setting: u64,
 }
 
 #[tauri::command]
 fn spike_serve_stats() -> SpikeServeStats {
-    let [thumb_file, original, original_bytes, onfly, onfly_us, blank] = spike_serve::take();
+    let [thumb_file, original, original_bytes, onfly, onfly_us, blank, waited_ok, wait_timeout, wait_us] =
+        spike_serve::take();
     SpikeServeStats {
         thumb_file,
         original,
@@ -7012,6 +7027,10 @@ fn spike_serve_stats() -> SpikeServeStats {
         onfly_ms_total: onfly_us / 1000,
         blank,
         onfly_enabled: spike_serve::onfly(),
+        waited_ok,
+        wait_timeout,
+        wait_ms_total: wait_us / 1000,
+        wait_ms_setting: spike_serve::wait_ms(),
     }
 }
 
@@ -7158,6 +7177,45 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             None if !can_serve_original(&record) => {
                 spike_serve::BLANK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return blank_thumb();
+            }
+            None if spike_serve::wait_ms() > 0 => {
+                // SPIKE B: 見えたときの本番作りを列の先頭へ押し、出来るまで少し待ってそれを返す（二度作らない）。
+                // 待ち切れなければ、その場で縮めたもので埋める（原本は渡さない）
+                let t = std::time::Instant::now();
+                state.thumbs.prioritize(&[id]);
+                let deadline = t + std::time::Duration::from_millis(spike_serve::wait_ms());
+                let mut made: Option<PathBuf> = None;
+                while std::time::Instant::now() < deadline {
+                    if let Ok(Some(r)) = state.read_pool.with(|db| db.get_by_id(id)) {
+                        if r.thumb_state == 2 {
+                            made = r.thumb_path;
+                            if made.is_some() {
+                                break;
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                spike_serve::WAIT_US.fetch_add(t.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
+                match made {
+                    Some(thumb) => {
+                        spike_serve::WAITED_OK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        thumb
+                    }
+                    None => {
+                        spike_serve::WAIT_TIMEOUT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+                        return match pictkura_core::browse::preview(&record.path, thumb_size) {
+                            Some(preview) => Response::builder()
+                                .status(StatusCode::OK)
+                                .header("Content-Type", preview.mime)
+                                .header("Cache-Control", "no-store")
+                                .body(preview.bytes)
+                                .unwrap_or_else(|_| server_error()),
+                            None => blank_thumb(),
+                        };
+                    }
+                }
             }
             None if spike_serve::onfly() => {
                 // SPIKE: 原本を渡さず、その場で縮めて渡す（取り込み画面の `browse::preview` と同じ）
