@@ -75,16 +75,26 @@ export class RecentThumbs {
 }
 
 /**
- * 空のタイル（サムネイルがまだ無い写真）の待ち合わせ。働き手がその写真を片付けたら（`media-updated`）、待っている
- * タイルを起こして問い直させる。
+ * 空のタイル（サムネイルがまだ無い写真）の待ち合わせ。働き手がその写真を片付けたら（`media-updated`）、写真ごとの
+ * 知らせの数を1つ進め、待っているタイルを起こして問い直させる。
  *
  * URL が変わるのはサムネイルが書けたときだけなので、それだけを頼ると、ほかの終わり方（素性だけ読んで終わった・
  * 書き換え中で積み直した・失敗した）で灰色のまま残る。問い直せば、その時の状態で答えが決まる——出来ていれば絵、
  * まだなら列の先頭へ押し直して空、作れないと分かれば原本か空（`src-tauri` の `handle_media_request`）。
- * 働き手が知らせない写真（作らない・クラウドだけ・失敗の上限）は起こされないので、問い直しは続かない
+ * 働き手が知らせない写真（作らない・クラウドだけ・失敗の上限）は起こされないので、問い直しは続かない。
+ *
+ * 問い直しの URL には知らせの数を足す（`&ask=n`）。同じ URL だと、macOS の WebView が同じ文書で読んだ空の絵を
+ * そのまま返しうる（no-store でも）。数はタイルでなくここに持つ——タイルが外れている間に来た知らせも、作り直した
+ * タイルが新しい URL で問い直せる（/code-review）
  */
 export class BlankWaiters {
   private readonly waiting = new Map<number, Set<() => void>>();
+  private readonly notices = new Map<number, number>();
+
+  /** 写真 `id` の知らせの数（来ていなければ 0） */
+  count(id: number): number {
+    return this.notices.get(id) ?? 0;
+  }
 
   /** 写真 `id` の知らせを待つ。返り値で待つのをやめる */
   wait(id: number, wake: () => void): () => void {
@@ -102,9 +112,10 @@ export class BlankWaiters {
     };
   }
 
-  /** 働き手が片付けた写真。待っていたタイルを1回ずつ起こす（起こしたら外す。問い直して空ならまた待つ） */
+  /** 働き手が片付けた写真。数を進め、待っていたタイルを1回ずつ起こす（起こしたら外す。問い直して空ならまた待つ） */
   notify(ids: Iterable<number>): void {
     for (const id of ids) {
+      this.notices.set(id, this.count(id) + 1);
       const set = this.waiting.get(id);
       if (!set) continue;
       this.waiting.delete(id);

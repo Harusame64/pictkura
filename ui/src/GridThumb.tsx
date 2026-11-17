@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useReducer, useRef } from "react";
 import { paintable, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
 import type { TileAttach } from "./useTileQueue";
 
@@ -35,14 +35,12 @@ export function GridThumb({
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
 }) {
   const ref = useRef<HTMLImageElement>(null);
-  // 空のタイルが起こされた回数（いまの URL について。URL が替われば 0 から）。増えると下の effect が走り直して
-  // 問い直す（`BlankWaiters`）
-  const [woken, setWoken] = useState({ src: "", n: 0 });
+  // 起こされたら下の effect を走り直させて問い直す（`BlankWaiters`）
+  const [wakes, wakeUp] = useReducer((n: number) => n + 1, 0);
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
   // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
   // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
   const src = `${url}&grid=1`;
-  const asks = woken.src === src ? woken.n : 0;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -52,18 +50,13 @@ export function GridThumb({
       el.setAttribute("data-shown", "");
       return;
     }
-    // 問い直しは URL に回数を足す。同じ URL だと、macOS の WebView が同じ文書で読んだ空の絵をそのまま返しうる
-    // （no-store でも。/code-review）。回数は働き手の知らせのたびに1つ増えるだけなので、URL が際限なく増えはしない
-    const ask = asks === 0 ? src : `${src}&ask=${asks}`;
-    // 知らせは読みを始める前から待つ——空の絵が届く前に知らせが来ると、届いてから待っても取りこぼす
-    // （働き手の自動の回が、要求と入れ違いに素性だけ読んで終わったとき）。届く前の知らせは覚えておき、空が
-    // 届いたら問い直す
+    // 知らせが来ていれば、その数を URL に足して問い直す（同じ URL は macOS で前の空の絵が返りうる。`BlankWaiters`）
+    const asked = waiters.count(id);
+    const ask = asked === 0 ? src : `${src}&ask=${asked}`;
+    // 知らせは読みを始める前から待つ。空の絵が届く前に来た知らせは、届いたときに数が進んでいることで分かる
     let blank = false;
-    let woke = false;
-    const askAgain = () => setWoken((w) => ({ src, n: (w.src === src ? w.n : 0) + 1 }));
     const wake = () => {
-      if (blank) askAgain();
-      else woke = true;
+      if (blank) wakeUp();
     };
     const unwait = waiters.wait(id, wake);
     const detach = loader.attach(
@@ -83,7 +76,7 @@ export function GridThumb({
           el.setAttribute("data-shown", "");
           blank = true;
           // 届く前に知らせが来ていれば、すぐ問い直す（その知らせで待ちは外れている）。来ていなければ待ち続ける
-          if (woke) askAgain();
+          if (waiters.count(id) !== asked) wakeUp();
         }
       },
       ask,
@@ -92,7 +85,7 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, asks]);
+  }, [src, loader, recent, waiters, id, wakes]);
   return (
     <img
       ref={ref}

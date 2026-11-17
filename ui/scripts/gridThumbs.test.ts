@@ -42,3 +42,12 @@ test("空のタイルは、その写真の知らせで1回だけ起こされる�
   w.notify([5]); // 起こしたら外れる。問い直して空ならタイルがまた待つ
   assert.deepEqual(woke, ["a", "b"]);
 });
+
+test("知らせの数は待つタイルが居なくても進む（外れている間の知らせで、作り直したタイルが新しい URL で問い直す）", () => {
+  const w = new BlankWaiters();
+  assert.equal(w.count(9), 0);
+  w.notify([9]);
+  w.notify([9, 3]);
+  assert.equal(w.count(9), 2);
+  assert.equal(w.count(3), 1);
+});
