@@ -1389,6 +1389,32 @@ fn timeline_summary(
         .collect())
 }
 
+/// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
+///
+/// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
+/// 約230回呼んでいた（win2 の実測）。まとめると約40回になり、呼び出しの往復が減る。返す順は渡した順
+#[tauri::command]
+fn list_days(
+    state: tauri::State<'_, AppState>,
+    day_keys: Vec<i64>,
+    query: String,
+    filter: pictkura_core::MediaFilter,
+) -> Result<Vec<(i64, Vec<MediaItemDto>)>, String> {
+    let query = pictkura_core::parse_query(&query, filter);
+    state
+        .read_pool
+        .with(|db| {
+            day_keys
+                .iter()
+                .map(|&d| {
+                    db.search_day(d, &query)
+                        .map(|v| (d, v.into_iter().map(Into::into).collect()))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(errs::from_err)
+}
+
 /// 指定日（YYYYMMDD整数）のメディアを表示順（新しい順）で返す。
 /// フロントは可視範囲の日だけをこれで取得する。
 #[tauri::command]
@@ -8220,6 +8246,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             timeline_summary,
             list_day,
+            list_days,
             list_memories,
             get_stats,
             startup_scan_finished,
