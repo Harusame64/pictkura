@@ -30,23 +30,26 @@ export function GridThumb({
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
 }) {
   const ref = useRef<HTMLImageElement>(null);
+  // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルを作る口が混んでいるとき、一覧のタイルには原本を
+  // 渡さず空のタイルで待たせる——本番が出来れば URL（`thumb_state`）が変わり、この部品が読み直す
+  const src = `${url}&grid=1`;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (recent.touch(url)) {
-      if (el.getAttribute("src") !== url) el.src = url;
+    if (recent.touch(src)) {
+      if (el.getAttribute("src") !== src) el.src = src;
       el.setAttribute("data-shown", "");
       return;
     }
     const detach = loader.attach(
-      `${url}#${++seq}`,
+      `${src}#${++seq}`,
       el,
       (img) => {
         // 読み終わったら列から外す（見張りの知らせを受け続けない）
         detach();
         if (paintable(img)) {
-          recent.add(url);
-          el.src = url;
+          recent.add(src);
+          el.src = src;
         } else {
           // 出せる絵が無い（404・「サムネイルが無い」の 1x1）。前の URL の絵が残っていれば消し、地の灰色を
           // 見せる（古い向き・差し替え前の絵を出したままにしない）。覚えないので、作り直しで問い直す
@@ -54,10 +57,10 @@ export function GridThumb({
           el.setAttribute("data-shown", "");
         }
       },
-      url,
+      src,
     );
     return detach;
-  }, [url, loader, recent]);
+  }, [src, loader, recent]);
   return (
     <img
       ref={ref}

@@ -6959,6 +6959,12 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// 一覧のタイル（`GridThumb.tsx`）からの要求か。タイルは URL に `grid=1` を付ける
+fn requested_by_grid(url: &str) -> bool {
+    url.split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
+}
+
 /// この要求の糸でサムネイルを作ってよい種類か: WebView が描ける形式で、実体が手元にあり、動画ではない
 /// （[`can_serve_original`] から寸法の上限を除いたもの——上限は原本を WebView に渡すときの守りで、作るときには
 /// 要らない。大きい写真こそ、その場で作る値打ちがある）
@@ -6977,7 +6983,7 @@ fn made_thumb_now(state: &AppState, id: i64) -> MadeNow {
         // この要求は今までどおりにする——空のタイルにすると、可視の要求の来ない面では作られないまま残った
         pictkura_core::RunNow::Saturated => {
             state.thumbs.prioritize(&[id]);
-            return MadeNow::Original;
+            return MadeNow::Saturated;
         }
         pictkura_core::RunNow::Ran => {}
     }
@@ -7013,8 +7019,10 @@ enum MadeNow {
     Thumb(PathBuf),
     /// 働き手が処理中（その場で縮めて埋める）
     Busy,
-    /// 作らない・作れなかった・混んでいる（今までどおり）
+    /// 作らない・作れなかった（今までどおり）
     Original,
+    /// 混んでいる（働き手の列へ回した。一覧のタイルは空のタイルで待ち、ほかの面は今までどおり）
+    Saturated,
 }
 
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
@@ -7162,6 +7170,12 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
                 // 何度も解き直さない
                 MadeNow::Original if can_serve_original(&record) => record.path,
                 MadeNow::Original => return blank_thumb(),
+                // 混んでいる: 一覧のタイル（`grid=1`）は空のタイルで待つ——本番が出来れば URL が変わり、タイルが
+                // 読み直す。原本を渡すと、帯を速く動かしたとき一覧に原本が戻った（win2: 75 枚）。一覧以外の面
+                // （カレンダーの表紙・思い出の帯）は URL が変わらないことがあるので、今までどおり原本
+                MadeNow::Saturated if requested_by_grid(url) => return blank_thumb(),
+                MadeNow::Saturated if can_serve_original(&record) => record.path,
+                MadeNow::Saturated => return blank_thumb(),
                 // 働き手が処理中: その場で縮めたもので埋める（同時に縮める数も抑える。超えたら今までどおり）
                 MadeNow::Busy => {
                     let slot = pictkura_core::CountSlot::take(&PREVIEWS_NOW, PREVIEW_NOW_MAX);
@@ -8476,6 +8490,24 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+
+    /// 一覧のタイルの要求だけが `grid=1` を名乗る（混んでいるときに空のタイルで待たせる相手）
+    #[test]
+    fn only_grid_tiles_are_recognised_by_their_marker() {
+        assert!(super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1-0-0&grid=1"
+        ));
+        assert!(super::requested_by_grid(
+            "media://localhost/thumb/5?grid=1&v=1"
+        ));
+        assert!(!super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1-0-0"
+        ));
+        assert!(!super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1&grid=10"
+        ));
+        assert!(!super::requested_by_grid("http://media.localhost/thumb/5"));
+    }
 
     /// 起動の引数から「開く写真」を全部拾う（1 回の起動に並べて渡す形。エクスプローラーで複数を選んで開いたとき）。
     /// フラグとその値・argv[0]・相対パス・無いファイル・同じパスの 2 度目は拾わない
