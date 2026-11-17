@@ -2181,7 +2181,18 @@ impl ThumbQueue {
             if state.blocked(id) || state.processing.contains(&id) {
                 continue;
             }
-            if state.queued.insert(id) {
+            if !state.queued.insert(id) {
+                continue;
+            }
+            // **まだ一度も読んでいない新しい写真は、素性（撮影日・寸法）を先に読む。** 原寸を解くのは、
+            // 日付が分かって本当の場所に並んでからでよい。新しいライブラリでは撮影日の分からない写真が
+            // ファイルの日付（コピーした今日）で一覧の先頭に固まり、見えた写真を原寸から作る→日付が分かって
+            // 去る→次の写真が見える、を繰り返して**全部を原寸から作っていた**（win2: 3万枚で約220秒。帯で
+            // 下へ逃げると素性だけになり約20秒）。自動の列の先頭へ積み、済めば `media-updated` で
+            // タイルが問い直し、まだ見えていれば今度は本番を作る
+            if state.fresh.contains(&id) {
+                state.pending.push_front(id);
+            } else {
                 state.priority.push_front(id);
             }
         }
@@ -4984,6 +4995,27 @@ mod tests {
         assert_eq!(queue.pop(), Some((1, false)));
         assert_eq!(queue.pop(), Some((2, false)));
         assert_eq!(queue.pop(), Some((3, false)));
+    }
+
+    /// まだ読んでいない新しい写真は、見えても先に素性だけ読む（原寸から作るのは日付が分かってから）。
+    /// 読み終えた写真は今までどおり本番を作る
+    #[test]
+    fn a_fresh_photo_is_read_for_metadata_before_it_is_built() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2, 3]);
+        queue.mark_fresh(&[1, 2, 3]);
+        queue.prioritize(&[3]);
+        assert_eq!(
+            queue.pop(),
+            Some((3, false)),
+            "新しい写真は自動の列の先頭へ（素性だけ）"
+        );
+        queue.complete(3);
+        queue.prioritize(&[3]);
+        assert_eq!(queue.pop(), Some((3, true)), "読み終えたら本番");
+        queue.complete(3);
+        queue.prioritize(&[9]); // 新しくない写真
+        assert_eq!(queue.pop(), Some((9, true)));
     }
 
     /// 一覧のタイルは、失敗が上限に達した写真を待たない（`is_blocked` で見分ける）
