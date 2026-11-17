@@ -23,7 +23,8 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
-import { GridThumbs, makeGridLoader } from "./gridThumbs";
+import { GRID_TILE_READS, GridThumbs } from "./gridThumbs";
+import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -330,13 +331,6 @@ const FAST_FLIP_MS = 400;
  */
 function revealThumb(e: { currentTarget: HTMLImageElement }) {
   e.currentTarget.setAttribute("data-shown", "");
-}
-/**
- * 作り直した `<img>` の絵が**もう描ける**なら、浮かべずにそのまま出す——行の組み直し（日を読み込んだ・窓の幅・
- * 大きさ）やスクロールで戻ったとき、出ていた絵が消えて浮かび直さないように（ゲート2）
- */
-function revealIfPainted(img: HTMLImageElement | null) {
-  if (img && img.complete && img.naturalWidth > 0) img.setAttribute("data-shown", "");
 }
 /**
  * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
@@ -1786,9 +1780,18 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         for (const d of want) inflightRef.current.delete(d);
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
         const got = new Set(want);
+        // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）
+        const failed = pairs.filter(([, items]) => items === null).map(([d]) => d);
+        if (failed.length > 0 && attempt < 2) {
+          window.setTimeout(() => {
+            if (generationRef.current !== gen) return;
+            const still = failed.filter((d) => visibleDaysRef.current.has(d));
+            if (still.length > 0) loadDays(still, attempt + 1);
+          }, 2000);
+        }
         setDayItems((prev) => {
           const next = new Map(prev);
-          for (const [d, items] of pairs) next.set(d, items);
+          for (const [d, items] of pairs) if (items !== null) next.set(d, items);
           if (next.size > DAY_CACHE_MAX) {
             for (const key of next.keys()) {
               if (next.size <= DAY_CACHE_TRIM_TO) break;
@@ -3824,15 +3827,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
 
   const virtualItems = virtualizer.getVirtualItems();
   /** 一覧のサムネイルの列（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる） */
-  const [gridThumbs] = useState(() => {
-    const loader = makeGridLoader();
-    return { loader, thumbs: new GridThumbs(loader) };
-  });
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (view !== "grid" || !el) return;
-    return gridThumbs.loader.watch(el);
-  }, [view, gridThumbs]);
+  const gridLoader = useTileLoader(scrollRef, view === "grid", GRID_TILE_READS);
+  const [gridThumbs] = useState(() => new GridThumbs(gridLoader));
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
@@ -3848,8 +3844,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    loadDays(wanted);
-  }, [virtualItems, rows, loadDays]);
+    // 画面に出ている日を先に、前後の控えの行（overscan）の日を後に取る——まとめて1回にすると、
+    // 見えている日が控えの日の読みを待った（/code-review）
+    const el = scrollRef.current;
+    const top = el?.scrollTop ?? 0;
+    const bottom = top + (el?.clientHeight ?? 0);
+    const onScreen = new Set<number>();
+    for (const vr of virtualItems) {
+      const row = rows[vr.index];
+      if (row?.kind !== "placeholder") continue;
+      const rowTop = rowTops[vr.index] ?? vr.start;
+      if (rowTop < bottom && rowTop + vr.size > top) onScreen.add(row.dayKey);
+    }
+    loadDays(wanted.filter((d) => onScreen.has(d)));
+    loadDays(wanted.filter((d) => !onScreen.has(d)));
+  }, [virtualItems, rows, rowTops, loadDays]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
@@ -9089,19 +9098,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               }}
                             >
                               <img
-                                // 読み終えた絵は src を渡し、まだなら列に並ばせる（`gridThumbs.ts`）
-                                ref={
-                                  gridThumbs.thumbs.isLoaded(thumbSrc(cell.item))
-                                    ? revealIfPainted
-                                    : gridThumbs.thumbs.refFor(thumbSrc(cell.item))
-                                }
+                                // `src` は列が入れる（`gridThumbs.ts`。展開まで済ませてから、同時に4枚まで）
+                                ref={gridThumbs.refFor(thumbSrc(cell.item))}
                                 className="cell"
                                 decoding="async"
-                                src={
-                                  gridThumbs.thumbs.isLoaded(thumbSrc(cell.item))
-                                    ? thumbSrc(cell.item)
-                                    : undefined
-                                }
                                 // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
                                 // 「サムネイルが無い」の見た目なので、隠したままにしない
                                 onLoad={revealThumb}

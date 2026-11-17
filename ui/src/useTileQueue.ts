@@ -14,7 +14,12 @@ import { TileQueue, TILE_READS } from "./tileQueue.ts";
  * 見えているかどうかは見張りに訊かず、選ぶときに位置を測る——見張りを2つにすると、
  * 知らせの届く順で、見えているタイルより先読みのタイルが先に選ばれうる
  */
-export class TileLoader {
+/** タイルを列に載せる口（一覧の [`GridThumbs`] が使う。試験が差し替える） */
+export interface TileAttach {
+  attach(key: string, el: Element, ready: (img: HTMLImageElement) => void): () => void;
+}
+
+export class TileLoader implements TileAttach {
   private readonly queue: TileQueue;
   /** 画面に在るタイル。値は読み終わった絵を受け取る関数 */
   private readonly ready = new Map<string, (img: HTMLImageElement) => void>();
@@ -97,7 +102,14 @@ export class TileLoader {
       // 渡す先が居なければ捨てる。居れば、その後は絵はタイルの箱が持つ
       this.ready.get(key)?.(img);
     };
-    img.onload = finish;
+    // **展開が済むまで枠を空けない。** 詰まるのは WebView の絵の展開（ほぼ1コア。win2 の実測）で、
+    // `onload` はバイトが届いた時点——そこで空けると、展開がタイルの側で積み上がって数を絞れない
+    const decoded = () => {
+      img.onload = img.onerror = null;
+      if (typeof img.decode !== "function") return finish();
+      img.decode().then(finish, finish);
+    };
+    img.onload = decoded;
     img.onerror = finish;
     img.src = key;
   }
@@ -130,8 +142,9 @@ export class TileLoader {
 export function useTileLoader(
   root: RefObject<Element | null>,
   shown: boolean,
+  limit = TILE_READS,
 ): TileLoader {
-  const [loader] = useState(() => new TileLoader());
+  const [loader] = useState(() => new TileLoader(limit));
   useEffect(() => {
     const el = root.current;
     if (!shown || !el) return;

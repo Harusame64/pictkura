@@ -387,9 +387,9 @@ export const listDay = (
   query: string,
   filter: MediaFilter,
 ) => invoke<MediaItem[]>("list_day", { dayKey, query, filter });
-/** 日ごとのメディアをまとめて（`list_days`）。返す順は渡した順 */
+/** 日ごとのメディアをまとめて（`list_days`）。読めなかった日は null */
 export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) =>
-  invoke<[number, MediaItem[]][]>("list_days", { dayKeys, query, filter });
+  invoke<[number, MediaItem[] | null][]>("list_days", { dayKeys, query, filter });
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */

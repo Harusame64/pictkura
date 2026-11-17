@@ -83,3 +83,30 @@ test("読めなかった絵も枠を空け、タイルには渡す（壊れた�
   assert.deepEqual(a.got, [made[0]]);
   assert.deepEqual(reading(), ["b"]);
 });
+
+test("展開（decode）が済むまで枠を空けない——詰まるのは WebView の絵の展開", async () => {
+  const made: (FakeImage & { decode: () => Promise<void> })[] = [];
+  const resolvers: (() => void)[] = [];
+  const l = new TileLoader(1, () => {
+    const img = {
+      src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null,
+      decode: () => new Promise<void>((r) => resolvers.push(r)),
+    };
+    made.push(img);
+    return img as unknown as HTMLImageElement;
+  });
+  const turn = () => new Promise((r) => setTimeout(r, 0));
+  for (const k of ["a", "b"]) {
+    l.attach(k, {} as Element, () => {});
+    l.see(k, true);
+  }
+  await turn();
+  assert.deepEqual(made.map((m) => m.src), ["a"]);
+  made[0]!.onload!(); // バイトは届いた。まだ展開中
+  await turn();
+  assert.deepEqual(made.map((m) => m.src), ["a"]);
+  resolvers[0]!(); // 展開が済んだ
+  await turn();
+  await turn();
+  assert.deepEqual(made.map((m) => m.src), ["a", "b"]);
+});

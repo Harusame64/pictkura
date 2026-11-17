@@ -1392,27 +1392,35 @@ fn timeline_summary(
 /// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
 ///
 /// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
-/// 約230回呼んでいた（win2 の実測）。まとめると約40回になり、呼び出しの往復が減る。返す順は渡した順
+/// 約230回呼んでいた（win2 の実測）。まとめると約40回になる。
+///
+/// - **日ごとに失敗を分ける**: 読めなかった日は `None` で返し、ほかの日は返す（1日の失敗で全部を落とさない）
+/// - **メインスレッドで走らせない**: 何十日分をまとめて引く間、窓の操作を止めない（`spawn_blocking`）
 #[tauri::command]
-fn list_days(
-    state: tauri::State<'_, AppState>,
+async fn list_days(
+    app: tauri::AppHandle,
     day_keys: Vec<i64>,
     query: String,
     filter: pictkura_core::MediaFilter,
-) -> Result<Vec<(i64, Vec<MediaItemDto>)>, String> {
-    let query = pictkura_core::parse_query(&query, filter);
-    state
-        .read_pool
-        .with(|db| {
+) -> Result<Vec<(i64, Option<Vec<MediaItemDto>>)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let query = pictkura_core::parse_query(&query, filter);
+        state.read_pool.with(|db| {
             day_keys
                 .iter()
                 .map(|&d| {
-                    db.search_day(d, &query)
-                        .map(|v| (d, v.into_iter().map(Into::into).collect()))
+                    let items = db
+                        .search_day(d, &query)
+                        .map(|v| v.into_iter().map(Into::into).collect())
+                        .ok();
+                    (d, items)
                 })
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<Vec<_>>()
         })
-        .map_err(errs::from_err)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// 指定日（YYYYMMDD整数）のメディアを表示順（新しい順）で返す。
