@@ -6977,12 +6977,26 @@ mod spike_serve {
     pub static WAITED_OK: AtomicU64 = AtomicU64::new(0);
     pub static WAIT_TIMEOUT: AtomicU64 = AtomicU64::new(0);
     pub static WAIT_US: AtomicU64 = AtomicU64::new(0);
+    pub static INLINE_OK: AtomicU64 = AtomicU64::new(0);
+    pub static INLINE_BUSY: AtomicU64 = AtomicU64::new(0);
+    pub static INLINE_US: AtomicU64 = AtomicU64::new(0);
+    /// B2: 待たずにこの糸で作る
+    pub fn inline() -> bool {
+        std::env::var("PICTKURA_SPIKE_INLINE").is_ok_and(|v| v == "1")
+    }
     /// B: 本番作りを待つ上限（ms）。0 で使わない
     pub fn wait_ms() -> u64 {
         std::env::var("PICTKURA_SPIKE_WAIT_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
     }
     pub fn onfly() -> bool {
         std::env::var("PICTKURA_SPIKE_ONFLY").is_ok_and(|v| v == "1")
+    }
+    pub fn take_inline() -> [u64; 3] {
+        [
+            INLINE_OK.swap(0, Ordering::Relaxed),
+            INLINE_BUSY.swap(0, Ordering::Relaxed),
+            INLINE_US.swap(0, Ordering::Relaxed),
+        ]
     }
     pub fn take() -> [u64; 9] {
         [
@@ -7013,12 +7027,17 @@ struct SpikeServeStats {
     wait_timeout: u64,
     wait_ms_total: u64,
     wait_ms_setting: u64,
+    inline_enabled: bool,
+    inline_ok: u64,
+    inline_busy: u64,
+    inline_ms_total: u64,
 }
 
 #[tauri::command]
 fn spike_serve_stats() -> SpikeServeStats {
     let [thumb_file, original, original_bytes, onfly, onfly_us, blank, waited_ok, wait_timeout, wait_us] =
         spike_serve::take();
+    let [inline_ok, inline_busy, inline_us] = spike_serve::take_inline();
     SpikeServeStats {
         thumb_file,
         original,
@@ -7031,6 +7050,10 @@ fn spike_serve_stats() -> SpikeServeStats {
         wait_timeout,
         wait_ms_total: wait_us / 1000,
         wait_ms_setting: spike_serve::wait_ms(),
+        inline_enabled: spike_serve::inline(),
+        inline_ok,
+        inline_busy,
+        inline_ms_total: inline_us / 1000,
     }
 }
 
@@ -7177,6 +7200,41 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             None if !can_serve_original(&record) => {
                 spike_serve::BLANK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return blank_thumb();
+            }
+            None if spike_serve::inline() => {
+                // SPIKE B2: 待たずに、この糸で本番を作って保存し、それを返す（列の働き手と二重に作らない）。
+                // 働き手が作っている最中なら、その場で縮めたもので埋める（原本は渡さない）
+                let t = std::time::Instant::now();
+                let made = state.thumbs.run_now(id)
+                    && matches!(
+                        state.read_pool.with(|db| db.get_by_id(id)),
+                        Ok(Some(ref r)) if r.thumb_state == 2 && r.thumb_path.is_some()
+                    );
+                spike_serve::INLINE_US.fetch_add(t.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
+                let path = if made {
+                    state.read_pool.with(|db| db.get_by_id(id)).ok().flatten().and_then(|r| r.thumb_path)
+                } else {
+                    None
+                };
+                match path {
+                    Some(thumb) => {
+                        spike_serve::INLINE_OK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        thumb
+                    }
+                    None => {
+                        spike_serve::INLINE_BUSY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+                        return match pictkura_core::browse::preview(&record.path, thumb_size) {
+                            Some(preview) => Response::builder()
+                                .status(StatusCode::OK)
+                                .header("Content-Type", preview.mime)
+                                .header("Cache-Control", "no-store")
+                                .body(preview.bytes)
+                                .unwrap_or_else(|_| server_error()),
+                            None => blank_thumb(),
+                        };
+                    }
+                }
             }
             None if spike_serve::wait_ms() > 0 => {
                 // SPIKE B: 見えたときの本番作りを列の先頭へ押し、出来るまで少し待ってそれを返す（二度作らない）。

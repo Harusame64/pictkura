@@ -2210,6 +2210,19 @@ impl ThumbQueue {
         }
     }
 
+    /// SPIKE: 今すぐ作るために受け持つ。働き手が処理中なら false（二重に作らない）。列に居れば降ろす
+    pub fn claim(&self, id: i64) -> bool {
+        let mut state = self.lock_state();
+        if state.processing.contains(&id) || state.blocked(id) {
+            return false;
+        }
+        state.pending.retain(|&x| x != id);
+        state.priority.retain(|&x| x != id);
+        state.queued.remove(&id);
+        state.processing.insert(id);
+        true
+    }
+
     /// 処理完了（成功・失敗とも）を通知し、そのIDの再投入を許可する。
     pub fn complete(&self, id: i64) {
         let mut state = self.lock_state();
@@ -2315,6 +2328,66 @@ impl CameraWrite {
 pub struct ThumbnailService {
     queue: ThumbQueue,
     workers: Vec<std::thread::JoinHandle<()>>,
+    /// SPIKE（今すぐ作る）: 働き手と同じ材料
+    db_path: PathBuf,
+    thumbs_dir: PathBuf,
+    thumb_size: u32,
+    on_done: Arc<dyn Fn(i64, CameraWrite) + Send + Sync>,
+    /// 今すぐ作るための接続（使い終えたら戻す）
+    conns: Mutex<Vec<Db>>,
+}
+
+
+/// 1枚のジョブ（働き手の1周、または配信の口で今すぐ作るとき。[`ThumbnailService::run_now`]）
+#[allow(clippy::too_many_arguments)]
+fn run_job(
+    queue: &ThumbQueue,
+    db: &mut Db,
+    thumbs_dir: &Path,
+    thumb_size: u32,
+    id: i64,
+    want_final: bool,
+    on_done: &(dyn Fn(i64, CameraWrite) + Send + Sync),
+) {
+            // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
+            // 高品質生成は可視領域の要求（優先キュー）時のみ行う
+            //
+            // **1枚のパニックでワーカーを死なせない**（`dev/loadmap.md` 1.3）。
+            // 解読器（rav1d・`image`・libjpeg）は規格外のバイト列に当たると
+            // `Err` ではなくパニックで知らせてくることがある。そのまま
+            // 巻き戻すと**このスレッドが1本消え**、`queue.complete(id)` にも
+            // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
+            // ——以後そのフォルダのサムネイルが永久に出てこない。
+            // 1枚の失敗（下で回数を数える側）へ均す
+            //
+            // カメラは処理の前後で読み比べる（[`CameraWrite`]）
+            let camera_before = db.camera_id_of_media(id);
+            let version_before = db.version_of(id).ok().flatten();
+            let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
+                process_one(db, thumbs_dir, thumb_size, id, want_final)
+            })
+            .unwrap_or(Err(ThumbError::Panicked(id)));
+            let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
+            let stale = matches!(result, Ok(ThumbOutcome::Stale));
+            finish_job(queue, db, id, version_before, stale);
+            // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
+            // 以後の再投入が無視される（無限リトライ防止）
+            if result.is_err() {
+                queue.record_failure(id);
+            }
+            // **成否にかかわらず通知する**。途中で失敗しても
+            // 寸法・撮影日時までは書けていることがあり（動画で
+            // 絵が取れなかった場合がまさにそれ）、黙っていると
+            // グリッドが既定の縦横比と古い日付のまま取り残される。
+            // 再投入は上の失敗回数が止めるので、通知が無限に続くことはない
+            // **通知も網に入れる**（ゲート1の指摘）。`on_done` は
+            // アプリ側の閉包で、共有状態を引きに行く。ここで落ちると
+            // ワーカーが1本静かに消え、しかも「落ちない」ぶん誰も
+            // 気付かない。詰まりを戻さないよう、`complete` は
+            // 網の外（上）に置いたまま通知だけを包む
+            let _ = crate::panics::catching(&format!("notify id={id}"), || {
+                on_done(id, camera)
+            });
 }
 
 impl ThumbnailService {
@@ -2366,51 +2439,43 @@ impl ThumbnailService {
                         return;
                     };
                     while let Some((id, want_final)) = queue.pop() {
-                        // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
-                        // 高品質生成は可視領域の要求（優先キュー）時のみ行う
-                        //
-                        // **1枚のパニックでワーカーを死なせない**（`dev/loadmap.md` 1.3）。
-                        // 解読器（rav1d・`image`・libjpeg）は規格外のバイト列に当たると
-                        // `Err` ではなくパニックで知らせてくることがある。そのまま
-                        // 巻き戻すと**このスレッドが1本消え**、`queue.complete(id)` にも
-                        // 届かないので、そのIDは「処理中」のまま残って**キューが詰まる**
-                        // ——以後そのフォルダのサムネイルが永久に出てこない。
-                        // 1枚の失敗（下で回数を数える側）へ均す
-                        //
-                        // カメラは処理の前後で読み比べる（[`CameraWrite`]）
-                        let camera_before = db.camera_id_of_media(id);
-                        let version_before = db.version_of(id).ok().flatten();
-                        let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
-                            process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
-                        })
-                        .unwrap_or(Err(ThumbError::Panicked(id)));
-                        let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
-                        let stale = matches!(result, Ok(ThumbOutcome::Stale));
-                        finish_job(&queue, &db, id, version_before, stale);
-                        // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
-                        // 以後の再投入が無視される（無限リトライ防止）
-                        if result.is_err() {
-                            queue.record_failure(id);
-                        }
-                        // **成否にかかわらず通知する**。途中で失敗しても
-                        // 寸法・撮影日時までは書けていることがあり（動画で
-                        // 絵が取れなかった場合がまさにそれ）、黙っていると
-                        // グリッドが既定の縦横比と古い日付のまま取り残される。
-                        // 再投入は上の失敗回数が止めるので、通知が無限に続くことはない
-                        // **通知も網に入れる**（ゲート1の指摘）。`on_done` は
-                        // アプリ側の閉包で、共有状態を引きに行く。ここで落ちると
-                        // ワーカーが1本静かに消え、しかも「落ちない」ぶん誰も
-                        // 気付かない。詰まりを戻さないよう、`complete` は
-                        // 網の外（上）に置いたまま通知だけを包む
-                        let _ = crate::panics::catching(&format!("notify id={id}"), || {
-                            on_done(id, camera)
-                        });
+                        run_job(&queue, &mut db, &thumbs_dir, thumb_size, id, want_final, &*on_done);
                     }
                 })
             })
             .collect();
 
-        Self { queue, workers }
+        Self {
+            queue,
+            workers,
+            db_path,
+            thumbs_dir,
+            thumb_size,
+            on_done,
+            conns: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// SPIKE: この写真の本番をいま呼んだ糸で作る（配信の口が、原本を渡す代わりに使う）。
+    /// 働き手が処理中なら作らずに false
+    pub fn run_now(&self, id: i64) -> bool {
+        if !self.queue.claim(id) {
+            return false;
+        }
+        let conn = self.conns.lock().unwrap_or_else(|e| e.into_inner()).pop();
+        let mut db = match conn {
+            Some(db) => db,
+            None => match Db::open(&self.db_path) {
+                Ok(db) => db,
+                Err(_) => {
+                    self.queue.complete(id);
+                    return false;
+                }
+            },
+        };
+        run_job(&self.queue, &mut db, &self.thumbs_dir, self.thumb_size, id, true, &*self.on_done);
+        self.conns.lock().unwrap_or_else(|e| e.into_inner()).push(db);
+        true
     }
 
     pub fn enqueue(&self, ids: &[i64]) {
