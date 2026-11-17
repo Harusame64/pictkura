@@ -4015,6 +4015,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     };
   }, [bandPendingKey, view, filtering]);
 
+  // 差し替え（`applyPatches`）が写真を新しい日へ動かす表示か。検索中・送り出しは動かさないので、日で古さを
+  // 見分けない（タイルの `day` も、`set_visible_priority` の `days` も。見分けると、動かないまま灰色で残る）
+  const patchesMoveDays = askedRef.current.query === "" && filter !== "outgoing";
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
   const visibleMissing = useMemo(() => {
     const ids: number[] = [];
@@ -4028,7 +4031,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (item.thumb_state >= 2 || seen.has(item.id)) return;
       seen.add(item.id);
       ids.push(item.id);
-      days.push(checkDay ? item.day_key : null);
+      days.push(checkDay && patchesMoveDays ? item.day_key : null);
     };
     // **帯は `rows` に居ない。** 「3年前の今日」は `memories` として別に描いて
     // いるので、下の `rows` を歩くだけでは生成を頼まないまま**灰色の四角が残る**。
@@ -4051,7 +4054,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       else if (row?.kind === "pack") for (const seg of row.segs) for (const cell of seg.cells) want(cell.item);
     }
     return { ids, days };
-  }, [virtualItems, rows, memories, view, filtering, bandAskableIds]);
+  }, [virtualItems, rows, memories, view, filtering, bandAskableIds, patchesMoveDays]);
   useEffect(() => {
     if (visibleMissing.ids.length === 0) return;
     const t = window.setTimeout(() => {
@@ -9092,8 +9095,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 recent={recentThumbs}
                                 waiters={gridWaiters}
                                 id={cell.item.id}
-                                // 検索中・送り出しは差し替えが日を動かさないので、日で古さを見分けない（`applyPatches`）
-                                day={askedRef.current.query !== "" || filter === "outgoing" ? undefined : cell.item.day_key}
+                                day={patchesMoveDays ? cell.item.day_key : undefined}
                                 onDone={revealThumb}
                               />
                               {cell.item.is_video && (
