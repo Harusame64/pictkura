@@ -17,8 +17,8 @@
  * - 描き直しても `src` は消えない。絵の URL が替わった（画質の差し替え・回転）ときは、新しい絵が届くまで
  *   前の絵を出したまま
  * - 遠くへスクロールして戻ったタイルは列を通る。行の組み直しで作り直されただけなら、最近出した絵はすぐ出す
- * - 読めなかった（404）・サムネイルが無い（透明な1x1）なら `src` を入れない。もう一度要求しないためで、
- *   見た目は地の灰色（今までの「サムネイルが無い」と同じ）
+ * - 読めなかった（404）・サムネイルが無い（透明な1x1）なら `src` を外し、地の灰色を見せる（今までの
+ *   「サムネイルが無い」と同じ見た目）。結果は覚えないので、タイルを作り直したら問い直す
  */
 import type { TileAttach } from "./useTileQueue.ts";
 
@@ -41,34 +41,23 @@ const RECENT_MAX = 400;
 
 export class GridThumbs {
   private readonly loader: TileAttach;
-  /** URL ごとの ref。毎回作り直すと、描くたびに付け外しが起きる。外れたら消す */
+  /** URL ごとの ref。毎回作り直すと、描くたびに付け外しが起きる。付いている要素が無くなったら消す */
   private readonly refs = new Map<string, (el: HTMLImageElement | null) => void>();
-  /** 最近の結果（挿入順＝古い順）。true は出した絵、false は出せる絵が無かった（404・1x1） */
-  private readonly recent = new Map<string, boolean>();
+  /** ref ごとの、付いている要素と、その列からの外し方（読み終わったら null） */
+  private readonly mounted = new Map<string, Map<HTMLImageElement, (() => void) | null>>();
+  /** 最近出した絵の URL（挿入順＝古い順）。出せなかったものは覚えない（作り直しで問い直す） */
+  private readonly recent = new Map<string, true>();
   private readonly recentMax: number;
+  private sweepScheduled = false;
 
   constructor(loader: TileAttach, recentMax = RECENT_MAX) {
     this.loader = loader;
     this.recentMax = recentMax;
   }
 
-  /** 外れたままなら控えから消す ref（URL → 外れたままかを答える関数）。まとめて1回で見る */
-  private readonly unattached = new Map<string, () => boolean>();
-  private sweepScheduled = false;
-
-  private scheduleSweep(): void {
-    if (this.sweepScheduled) return;
-    this.sweepScheduled = true;
-    setTimeout(() => {
-      this.sweepScheduled = false;
-      for (const [url, stillOff] of this.unattached) if (stillOff()) this.refs.delete(url);
-      this.unattached.clear();
-    }, 0);
-  }
-
-  private remember(url: string, painted: boolean): void {
+  private remember(url: string): void {
     this.recent.delete(url);
-    this.recent.set(url, painted);
+    this.recent.set(url, true);
     while (this.recent.size > this.recentMax) {
       const oldest = this.recent.keys().next().value;
       if (oldest === undefined) break;
@@ -76,45 +65,76 @@ export class GridThumbs {
     }
   }
 
+  /**
+   * 付いている要素の無くなった ref を、まとめて1回で控えから消す。作り直しでは、古い要素の null の直後に
+   * 新しい要素で同じ ref が呼ばれるので、その場では消さない（消すと次の描画で別の ref が作られ、描くたびに
+   * 付け外しが起きた。/code-review）。1枚ごとに時計を立てると、帯を動かす間に数千本立った（win2）
+   */
+  private scheduleSweep(): void {
+    if (this.sweepScheduled) return;
+    this.sweepScheduled = true;
+    setTimeout(() => {
+      this.sweepScheduled = false;
+      for (const [url, els] of this.mounted) {
+        if (els.size === 0) {
+          this.mounted.delete(url);
+          this.refs.delete(url);
+        }
+      }
+    }, 0);
+  }
+
   /** タイルの `<img>` に付ける ref */
   refFor(url: string): (el: HTMLImageElement | null) => void {
     const known = this.refs.get(url);
     if (known) return known;
-    let detach: (() => void) | null = null;
-    let attached: HTMLImageElement | null = null;
     const ref = (el: HTMLImageElement | null) => {
-      detach?.();
-      detach = null;
-      attached = el;
-      // 控えに載せるのは付いたときだけ（捨てられた描画で作られて付かなかった ref を溜めない）
-      if (el && !this.refs.has(url)) this.refs.set(url, ref);
+      let els = this.mounted.get(url);
       if (!el) {
-        // 作り直しでは、古い要素の null の直後に新しい要素で同じ ref が呼ばれる。ここで消すと次の描画で
-        // 別の ref が作られ、描くたびに付け外しが起きた（/code-review）。付いていないままなら後でまとめて消す
-        // （1枚ごとに時計を立てると、帯を動かす間に数千本立って描画が重くなった。win2）
-        this.unattached.set(url, () => attached === null && this.refs.get(url) === ref);
+        // React は外した要素を教えないので、文書から外れた要素を外す（同じ URL のタイルが2枚あっても、
+        // 残っている方の読みを止めない）
+        if (els) {
+          for (const [e, detach] of els) {
+            if (!e.isConnected) {
+              detach?.();
+              els.delete(e);
+            }
+          }
+        }
         this.scheduleSweep();
         return;
       }
-      // 最近の結果は列を通さない。出した絵は展開済みなので、すぐ見せる（浮かび直させない）。
-      // 出せる絵が無かったものは、もう一度要求せず地の灰色を見せる
-      const painted = this.recent.get(url);
-      if (painted !== undefined) {
-        this.remember(url, painted);
-        if (painted && el.getAttribute("src") !== url) el.src = url;
-        // 印はすぐ付ける。`complete` を待つと、作り直したタイルが透明から浮かび直した（大きさ・窓の幅を
-        // 変えたときに 20 枚ほど。win2）。展開済みの絵なので、浮かべずに出してよい
+      // 控えに載せるのは付いたときだけ（捨てられた描画で作られて付かなかった ref を溜めない）
+      if (!this.refs.has(url)) this.refs.set(url, ref);
+      if (!els) this.mounted.set(url, (els = new Map()));
+      if (els.has(el)) return;
+      // 最近出した絵は列を通さず、すぐ見せる（行の組み直しで、出ていた絵を浮かび直させない。win2）
+      if (this.recent.has(url)) {
+        this.remember(url);
+        if (el.getAttribute("src") !== url) el.src = url;
         el.setAttribute("data-shown", "");
+        els.set(el, null);
         return;
       }
-      detach = this.loader.attach(url, el, (img) => {
-        const ok = paintable(img);
-        this.remember(url, ok);
+      const detach = this.loader.attach(url, el, (img) => {
+        // 読み終わったら列から外す（見張りの知らせを受け続けない）
+        const mine = this.mounted.get(url);
+        if (mine?.get(el)) {
+          mine.get(el)?.();
+          mine.set(el, null);
+        }
         if (!el.isConnected) return;
-        if (ok) el.src = url;
-        // 出せる絵が無い。地の灰色を見せる（`revealThumb` と同じ印）
-        else el.setAttribute("data-shown", "");
+        if (paintable(img)) {
+          this.remember(url);
+          el.src = url;
+        } else {
+          // 出せる絵が無い（404・「サムネイルが無い」の 1x1）。前の URL の絵が残っていれば消し、地の灰色を
+          // 見せる（古い向き・差し替え前の絵を出したままにしない）。覚えないので、作り直しで問い直す
+          el.removeAttribute("src");
+          el.setAttribute("data-shown", "");
+        }
       });
+      els.set(el, detach);
     };
     return ref;
   }

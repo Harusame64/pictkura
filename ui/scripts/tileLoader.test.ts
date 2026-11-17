@@ -107,3 +107,27 @@ test("一覧の読み手: 遅い1枚は時間切れで枠を空け、読み終�
   made[0]!.onload!();
   assert.deepEqual(got, ["slow"]);
 });
+
+test("時間切れで枠を空けた読みが続いている間は、同じ鍵を並べ直さない", async () => {
+  const made: FakeImage[] = [];
+  const l = new TileLoader(
+    2,
+    () => {
+      const img: FakeImage = { src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null };
+      made.push(img);
+      return img as unknown as HTMLImageElement;
+    },
+    { slotTimeoutMs: 10, coveredBy: null },
+  );
+  const got: number[] = [];
+  const d1 = l.attach("big", {} as Element, () => got.push(1));
+  l.see("big", true);
+  await new Promise((r) => setTimeout(r, 30));
+  d1();
+  l.attach("big", {} as Element, () => got.push(2));
+  l.see("big", true);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(made.length, 1);
+  made[0]!.onload!();
+  assert.deepEqual(got, [2]);
+});

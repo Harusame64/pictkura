@@ -4,150 +4,148 @@ import assert from "node:assert/strict";
 import { GridThumbs, paintable } from "../src/gridThumbs.ts";
 import type { TileAttach } from "../src/useTileQueue.ts";
 
+/** 偽の列: 載せたタイルの受け取り口を、要素ごとに持つ */
 function fakeLoader() {
-  const attached = new Map<string, (img: HTMLImageElement) => void>();
+  const attached = new Map<unknown, (img: HTMLImageElement) => void>();
+  const keys = new Map<unknown, string>();
   const detached: string[] = [];
   const l: TileAttach = {
-    attach(key, _el, ready) {
-      attached.set(key, ready);
+    attach(key, el, ready) {
+      attached.set(el, ready);
+      keys.set(el, key);
       return () => {
-        attached.delete(key);
+        attached.delete(el);
         detached.push(key);
       };
     },
   };
-  return { l, attached, detached };
+  const deliver = (el: unknown, img: HTMLImageElement) => attached.get(el)!(img);
+  return { l, attached, keys, detached, deliver };
 }
-function tile(connected = true) {
+type Tile = HTMLImageElement & { attrs: Map<string, string>; isConnected: boolean };
+function tile(): Tile {
   const attrs = new Map<string, string>();
   const t = {
-    isConnected: connected,
+    isConnected: true,
     src: "",
     setAttribute: (k: string, v: string) => void attrs.set(k, v),
+    removeAttribute: (k: string) => {
+      if (k === "src") t.src = "";
+      attrs.delete(k);
+    },
     getAttribute: (k: string) => (k === "src" ? t.src || null : (attrs.get(k) ?? null)),
     attrs,
   };
-  return t as unknown as HTMLImageElement & { attrs: Map<string, string> };
+  return t as unknown as Tile;
+}
+/** React が要素を外す: 文書から外れてから ref に null */
+function unmount(ref: (el: HTMLImageElement | null) => void, el: Tile) {
+  el.isConnected = false;
+  ref(null);
 }
 const got = (w: number, h = w) => ({ complete: true, naturalWidth: w, naturalHeight: h }) as HTMLImageElement;
+const tick = () => new Promise((r) => setTimeout(r, 0));
 
-test("読んで展開が済むまで src を入れず、済んだら同じ URL を入れる", () => {
-  const { l, attached } = fakeLoader();
+test("読み終わるまで src を入れず、読み終わったら同じ URL を入れ、列から外す", () => {
+  const { l, deliver, detached } = fakeLoader();
   const g = new GridThumbs(l);
   const el = tile();
   g.refFor("u1")(el);
   assert.equal(el.src, "");
-  attached.get("u1")!(got(512));
+  deliver(el, got(512));
   assert.equal(el.src, "u1");
+  assert.deepEqual(detached, ["u1"]);
 });
 
-test("読めなかった・1x1 なら src を入れず（もう一度要求しない）、地の灰色を見せる印を付ける", () => {
-  const { l, attached } = fakeLoader();
+test("読めなかった・1x1 なら src を外して地の灰色を見せ、覚えない（作り直しで問い直す）", () => {
+  const { l, deliver, attached } = fakeLoader();
   const g = new GridThumbs(l);
-  for (const [u, w] of [["e", 0], ["one", 1]] as const) {
-    const el = tile();
-    g.refFor(u)(el);
-    attached.get(u)!(got(w));
-    assert.equal(el.src, "", u);
-    assert.equal(el.attrs.get("data-shown"), "", u);
-  }
+  const ref = g.refFor("none");
+  const a = tile();
+  a.src = "old";
+  ref(a);
+  deliver(a, got(1, 1));
+  assert.equal(a.src, "");
+  assert.equal(a.attrs.get("data-shown"), "");
+  unmount(ref, a);
+  const b = tile();
+  ref(b);
+  assert.equal(attached.has(b), true);
 });
 
-test("絵の URL が替わったら、新しい絵が届くまで前の絵を出したまま", () => {
-  const { l, attached } = fakeLoader();
-  const g = new GridThumbs(l);
-  const el = tile();
-  g.refFor("v1")(el);
-  attached.get("v1")!(got(512));
-  // 描き直し: React は古い ref に null、新しい ref に要素を渡す
-  g.refFor("v1")(null);
-  g.refFor("v2")(el);
-  assert.equal(el.src, "v1");
-  attached.get("v2")!(got(512));
-  assert.equal(el.src, "v2");
+test("作り直し（古い要素が外れ、すぐ新しい要素）では同じ ref を使い続ける", async () => {
+  const g = new GridThumbs(fakeLoader().l);
+  const ref = g.refFor("u1");
+  const a = tile();
+  ref(a);
+  unmount(ref, a);
+  ref(tile());
+  await tick();
+  assert.equal(g.refFor("u1"), ref);
 });
 
-test("同じ URL には同じ ref を返し、外れたままなら後で ref の控えから消す", async () => {
+test("付いている要素が無くなった ref は、後でまとめて控えから消す", async () => {
   const { l, detached } = fakeLoader();
   const g = new GridThumbs(l);
   const ref = g.refFor("u1");
-  ref(tile());
-  // 付いた後は同じ ref を返す（描くたびに付け外ししない）
-  assert.equal(g.refFor("u1"), ref);
-  ref(null);
+  const a = tile();
+  ref(a);
+  unmount(ref, a);
   assert.deepEqual(detached, ["u1"]);
-  await new Promise((r) => setTimeout(r, 0));
+  await tick();
   assert.equal(g.size(), 0);
 });
 
-test("作り直し（古い要素に null、すぐ新しい要素）では同じ ref を使い続ける——描くたびの付け外しを起こさない", async () => {
-  const g = new GridThumbs(fakeLoader().l);
-  const ref = g.refFor("u1");
-  ref(tile());
-  ref(null);
-  ref(tile());
-  await new Promise((r) => setTimeout(r, 0));
-  assert.equal(g.refFor("u1"), ref);
-});
-
-test("最近出した絵は、作り直したタイルに列を通さずすぐ入れる", () => {
-  const { l, attached } = fakeLoader();
+test("最近出した絵は、作り直したタイルに列を通さずすぐ入れ、すぐ見せる", () => {
+  const { l, deliver, attached } = fakeLoader();
   const g = new GridThumbs(l);
   const ref = g.refFor("u1");
-  ref(tile());
-  attached.get("u1")!(got(512));
-  ref(null);
-  attached.clear();
-  const el = tile();
-  ref(el);
-  assert.equal(el.src, "u1");
-  assert.equal(attached.size, 0);
+  const a = tile();
+  ref(a);
+  deliver(a, got(512));
+  unmount(ref, a);
+  const b = tile();
+  ref(b);
+  assert.equal(b.src, "u1");
+  assert.equal(b.attrs.get("data-shown"), "");
+  assert.equal(attached.has(b), false);
 });
 
 test("最近出した絵の数を超えたら、古いものは列を通る", () => {
-  const { l, attached } = fakeLoader();
+  const { l, deliver, attached } = fakeLoader();
   const g = new GridThumbs(l, 1);
   for (const u of ["a", "b"]) {
-    g.refFor(u)(tile());
-    attached.get(u)!(got(512));
+    const el = tile();
+    g.refFor(u)(el);
+    deliver(el, got(512));
   }
-  attached.clear();
   const el = tile();
   g.refFor("a")(el);
   assert.equal(el.src, "");
-  assert.equal(attached.has("a"), true);
+  assert.equal(attached.has(el), true);
+});
+
+test("同じ URL のタイルが2枚あっても、片方が外れて残る方の読みを止めない", () => {
+  const { l, deliver } = fakeLoader();
+  const g = new GridThumbs(l);
+  const ref = g.refFor("dup");
+  const a = tile();
+  const b = tile();
+  ref(a);
+  ref(b);
+  unmount(ref, a);
+  deliver(b, got(512));
+  assert.equal(b.src, "dup");
 });
 
 test("外れた要素には、読み終わっても src を入れない", () => {
-  const { l, attached } = fakeLoader();
+  const { l, deliver } = fakeLoader();
   const g = new GridThumbs(l);
-  const el = tile(false);
-  g.refFor("u1")(el);
-  attached.get("u1")!(got(512));
-  assert.equal(el.src, "");
-});
-
-test("paintable は読めた絵で、「サムネイルが無い」の 1x1 だけを外す（幅1の細長い絵は出す）", () => {
-  assert.equal(paintable({ complete: true, naturalWidth: 512, naturalHeight: 341 }), true);
-  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 512 }), true);
-  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 1 }), false);
-  assert.equal(paintable({ complete: true, naturalWidth: 0, naturalHeight: 0 }), false);
-  assert.equal(paintable({ complete: false, naturalWidth: 512, naturalHeight: 341 }), false);
-});
-
-test("出せる絵が無かった URL は、作り直しても列に並べず地の灰色を見せる", () => {
-  const { l, attached } = fakeLoader();
-  const g = new GridThumbs(l);
-  const ref = g.refFor("none");
-  ref(tile());
-  attached.get("none")!(got(1, 1));
-  ref(null);
-  attached.clear();
   const el = tile();
-  ref(el);
-  assert.equal(attached.size, 0);
+  g.refFor("u1")(el);
+  el.isConnected = false;
+  deliver(el, got(512));
   assert.equal(el.src, "");
-  assert.equal(el.attrs.get("data-shown"), "");
 });
 
 test("付かなかった ref（捨てられた描画）は控えに残らない", () => {
@@ -157,14 +155,10 @@ test("付かなかった ref（捨てられた描画）は控えに残らない"
   assert.equal(g.size(), 0);
 });
 
-test("最近出した絵を作り直したタイルに入れたら、展開を待たずにすぐ見せる印を付ける（浮かび直させない）", () => {
-  const { l, attached } = fakeLoader();
-  const g = new GridThumbs(l);
-  const ref = g.refFor("u1");
-  ref(tile());
-  attached.get("u1")!(got(512));
-  ref(null);
-  const el = tile();
-  ref(el);
-  assert.equal(el.attrs.get("data-shown"), "");
+test("paintable は読めた絵で、「サムネイルが無い」の 1x1 だけを外す（幅1の細長い絵は出す）", () => {
+  assert.equal(paintable({ complete: true, naturalWidth: 512, naturalHeight: 341 }), true);
+  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 512 }), true);
+  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 1 }), false);
+  assert.equal(paintable({ complete: true, naturalWidth: 0, naturalHeight: 0 }), false);
+  assert.equal(paintable({ complete: false, naturalWidth: 512, naturalHeight: 341 }), false);
 });

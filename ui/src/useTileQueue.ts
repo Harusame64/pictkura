@@ -41,6 +41,8 @@ export class TileLoader implements TileAttach {
   private observer: IntersectionObserver | null = null;
 
   private readonly opts: TileLoaderOptions;
+  /** 読み始めて、まだ終わっていない鍵（時間切れで枠を空けたものも含む） */
+  private readonly reading = new Set<string>();
 
   /** `makeImage` は試験が差し替える口 */
   constructor(
@@ -89,8 +91,10 @@ export class TileLoader implements TileAttach {
     this.keys.set(el, key);
     this.elements.set(key, el);
     this.ready.set(key, ready);
-    // 読み途中なら候補には入らず、読み終わったときに `ready` で絵を受け取る
-    this.queue.add(key);
+    // 読み途中なら候補には入らず、読み終わったときに `ready` で絵を受け取る。時間切れで枠を空けた読みも
+    // 続いているので並べ直さない（並べると同じ大きなファイルをもう一度読み、先の読みの終わりが後の読みの
+    // 枠を空けてしまう。/code-review）
+    if (!this.reading.has(key)) this.queue.add(key);
     this.observer?.observe(el);
     return () => {
       this.observer?.unobserve(el);
@@ -107,6 +111,7 @@ export class TileLoader implements TileAttach {
   }
 
   private load(key: string): void {
+    this.reading.add(key);
     const img = this.makeImage();
     img.decoding = "async";
     img.draggable = false;
@@ -117,6 +122,7 @@ export class TileLoader implements TileAttach {
         : setTimeout(() => this.queue.done(key), this.opts.slotTimeoutMs);
     const finish = () => {
       img.onload = img.onerror = null;
+      this.reading.delete(key);
       if (timer !== undefined) clearTimeout(timer);
       // 時間切れで先に枠を空けていれば、二度目は何もしない（`TileQueue.done` は読み途中の鍵だけを数える）
       this.queue.done(key);

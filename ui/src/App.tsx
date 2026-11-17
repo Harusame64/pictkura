@@ -1722,19 +1722,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   /** ビューアが開いている間、その表示日をキャッシュ間引きから保護する */
   const viewerDayRef = useRef<number | null>(null);
 
-  /** 1日分をオンデマンド取得する（重複・世代違いは無視。失敗は2回まで自動再試行） */
   /** 読めなかった日と、次に頼んでよい時刻（`loadDays`） */
   const failedDaysRef = useRef(new Map<number, number>());
-  /** `loadDays` 自身と `loadDay` が、定義の前後に関わらず最新を呼ぶための口 */
-  const loadDaysRef = useRef<(keys: readonly number[], attempt?: number) => void>(() => {});
-  /** 1日分（ビューアの表示日など）。中身は `loadDays` と同じ道 */
-  const loadDay = useCallback((dayKey: number) => loadDaysRef.current([dayKey]), []);
 
   /**
-   * 画面に入った日をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
-   * 重複・世代違い・キャッシュの間引きは [`loadDay`] と同じ。失敗したら、まだ見えている日だけを少し待って取り直す
+   * 日の一覧をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
+   * 重複・世代違いは無視し、キャッシュは見えている日・ビューアの表示日を残して間引く。
+   * 読めなかった日は、見えているかに関わらず少し待って2回まで取り直す（ビューアの表示日と前後の先読みの日は
+   * 一覧では見えていない）
    */
-  const loadDays = useCallback((keys: readonly number[], attempt = 0) => {
+  const loadDays = useCallback((keys: readonly number[], attempt = 0): void => {
     const now = Date.now();
     // 読めなかった日は、取り直しの時計に任せる（スクロールのたびに頼み直さない）
     const want = keys.filter((d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now);
@@ -1760,7 +1757,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               // 見えている日に限らず取り直す（ビューアの表示日と前後の先読みの日は、一覧では見えていない）
               const still = failed.map((p) => p.day_key);
               for (const d of still) failedDaysRef.current.delete(d);
-              if (still.length > 0) loadDaysRef.current(still, attempt + 1);
+              if (still.length > 0) loadDays(still, attempt + 1);
             }, DAY_RETRY_MS);
           }
         }
@@ -1787,13 +1784,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         if (attempt < 2) {
           window.setTimeout(() => {
             if (generationRef.current !== gen) return;
-            const still = want.filter((d) => visibleDaysRef.current.has(d) || d === viewerDayRef.current);
-            if (still.length > 0) loadDaysRef.current(still, attempt + 1);
+            loadDays(want, attempt + 1);
           }, DAY_RETRY_MS);
         }
       });
   }, []);
-  loadDaysRef.current = loadDays;
+  /** 1日分（ビューアの表示日など）。中身は `loadDays` と同じ道 */
+  const loadDay = useCallback((dayKey: number) => loadDays([dayKey]), [loadDays]);
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
@@ -9080,7 +9077,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               }}
                             >
                               <img
-                                // `src` は列が入れる（`gridThumbs.ts`。展開まで済ませてから、同時に4枚まで）
+                                // `src` は列が入れる（`gridThumbs.ts`。読み手が読み終えてから、同時に4枚まで）
                                 ref={gridThumbs.refFor(thumbSrc(cell.item))}
                                 className="cell"
                                 decoding="async"
