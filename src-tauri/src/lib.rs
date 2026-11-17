@@ -8218,7 +8218,12 @@ pub fn run() {
                                     std::time::Duration::from_secs(600),
                                     &|id| state.thumbs.is_active(id),
                                 ) {
-                                    let _ = db.set_meta(ORPHAN_SWEEP_KEY, "1");
+                                    let (n, deferred) = n;
+                                    // 見送り（新しすぎる・作業中・消せなかった）が残る間は「済んだ」にしない。
+                                    // 控えに載っていない古い孤児なので、次の回にまた見て回る（PR の codex）
+                                    if deferred == 0 {
+                                        let _ = db.set_meta(ORPHAN_SWEEP_KEY, "1");
+                                    }
                                     if n > 0 {
                                         applog::note(&format!("removed {n} orphaned thumbnails"));
                                     }

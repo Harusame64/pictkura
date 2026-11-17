@@ -1516,13 +1516,14 @@ fn sweep_partial_thumbs(thumbs_dir: &Path) {
 ///   ——付け替えから確定までの間、ほかの接続からは記録が見えない
 /// - **作業中の id は消さない**（`active`）。一時ファイル（[`PARTIAL_MARK`]）と形の違う名前には触らない
 ///
-/// 返り値は消した数
+/// 返り値は（消した数, 見送った数）。見送ったのは、新しすぎる・作業中・消せなかった候補——呼ぶ側は、見送りが
+/// 0 になるまで「済んだ」としない（PR の codex）
 pub fn sweep_orphan_thumbs(
     db: &Db,
     thumbs_dir: &Path,
     min_age: std::time::Duration,
     is_active: &dyn Fn(i64) -> bool,
-) -> Result<usize, DbError> {
+) -> Result<(usize, usize), DbError> {
     let known = db.thumb_file_names()?;
     let now = std::time::SystemTime::now();
     // 候補: 行が無い・行のサムネイルが別の名前のファイル。置き場の直下（古い平らな置き方）と、`id % 256` の
@@ -1547,7 +1548,7 @@ pub fn sweep_orphan_thumbs(
         candidates.push((id, entry));
     };
     let Ok(top) = std::fs::read_dir(thumbs_dir) else {
-        return Ok(0);
+        return Ok((0, 0));
     };
     for entry in top.flatten() {
         let Ok(kind) = entry.file_type() else {
@@ -1569,6 +1570,7 @@ pub fn sweep_orphan_thumbs(
         }
     }
     let mut removed = 0;
+    let mut deferred = 0;
     for (id, entry) in candidates {
         let old_enough = entry
             .metadata()
@@ -1577,11 +1579,13 @@ pub fn sweep_orphan_thumbs(
             .and_then(|t| now.duration_since(t).ok())
             .is_some_and(|age| age >= min_age);
         if !old_enough {
+            deferred += 1;
             continue;
         }
         // **消す直前に確かめ直す**（上の一覧は歩き始めの写し）。歩いている間に働き手が同じ名前で作り直して
         // 記録していれば、それは使われている絵（/code-review）。作業中なら触らない
         if is_active(id) {
+            deferred += 1;
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -1594,11 +1598,13 @@ pub fn sweep_orphan_thumbs(
         if at_home && db.thumb_file_name(id)?.is_some_and(|n| n == name) {
             continue;
         }
-        if std::fs::remove_file(&path).is_ok() {
-            removed += 1;
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed += 1,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => deferred += 1,
         }
     }
-    Ok(removed)
+    Ok((removed, deferred))
 }
 
 /// 捨てるサムネイルの控え（DB の `thumb_trash`）を片付ける。消すのは、その名前をどの行も使っていない
@@ -1637,8 +1643,14 @@ pub fn drain_thumb_trash(
             None => thumbs_dir.join(&name),
         };
         let in_use = bucket.is_some() && db.thumb_file_name(id)?.is_some_and(|n| n == name);
-        if !in_use && std::fs::remove_file(&here).is_ok() {
-            removed += 1;
+        if !in_use {
+            match std::fs::remove_file(&here) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                // 消せなかった（Windows で開かれている・置き場の媒体が外れた）。控えは残して次の回に試す——外すと
+                // 二度と拾わない（PR の codex）
+                Err(_) => continue,
+            }
         }
         done.push(recorded);
     }
@@ -5251,11 +5263,11 @@ mod tests {
         // 新しいファイルは消さない
         let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::from_secs(3600), &active)
             .unwrap();
-        assert_eq!(n, 0);
+        assert_eq!(n, (0, 5), "候補5つはどれも新しいので見送り、その数を返す");
         assert!(gone.exists());
 
         let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::ZERO, &active).unwrap();
-        assert_eq!(n, 4);
+        assert_eq!(n, (4, 1), "作業中の1つは見送り");
         assert!(!flat_orphan.exists(), "古い置き方の孤児も消す");
         assert!(!wrong_bucket.exists(), "違うフォルダの同じ名前は消す");
         assert!(
