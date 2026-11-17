@@ -19,6 +19,17 @@ export interface TileAttach {
   attach(key: string, el: Element, ready: (img: HTMLImageElement) => void): () => void;
 }
 
+export interface TileLoaderOptions {
+  /**
+   * 1枚の読みが枠を塞いでよい上限（ms）。過ぎたら枠を空け、読み終わったら絵は渡す。取り込み画面は持たない
+   * （遅い媒体で読みが積み上がる）。一覧は持つ——サムネイルが無い写真は原本を読むので、NAS や USB の大きな
+   * ファイル4枚で一覧の全部が止まりうる（/code-review）
+   */
+  slotTimeoutMs?: number;
+  /** 箱の上端を覆う帯の選択子（その裏のタイルは見えていない扱い）。既定は取り込み画面の帯、null で無し */
+  coveredBy?: string | null;
+}
+
 export class TileLoader implements TileAttach {
   private readonly queue: TileQueue;
   /** 画面に在るタイル。値は読み終わった絵を受け取る関数 */
@@ -29,12 +40,16 @@ export class TileLoader implements TileAttach {
   private root: Element | null = null;
   private observer: IntersectionObserver | null = null;
 
+  private readonly opts: TileLoaderOptions;
+
   /** `makeImage` は試験が差し替える口 */
   constructor(
     limit = TILE_READS,
     makeImage: () => HTMLImageElement = () => new Image(),
+    opts: TileLoaderOptions = {},
   ) {
     this.makeImage = makeImage;
+    this.opts = opts;
     this.queue = new TileQueue(limit, {
       start: (key) => this.load(key),
       measure: () => this.measure(),
@@ -96,8 +111,14 @@ export class TileLoader implements TileAttach {
     img.decoding = "async";
     img.draggable = false;
     img.alt = "";
+    const timer =
+      this.opts.slotTimeoutMs === undefined
+        ? undefined
+        : setTimeout(() => this.queue.done(key), this.opts.slotTimeoutMs);
     const finish = () => {
       img.onload = img.onerror = null;
+      if (timer !== undefined) clearTimeout(timer);
+      // 時間切れで先に枠を空けていれば、二度目は何もしない（`TileQueue.done` は読み途中の鍵だけを数える）
       this.queue.done(key);
       // 渡す先が居なければ捨てる。居れば、その後は絵はタイルの箱が持つ
       this.ready.get(key)?.(img);
@@ -115,7 +136,8 @@ export class TileLoader implements TileAttach {
     const root = this.root;
     if (!root) return () => Infinity;
     const box = root.getBoundingClientRect();
-    const bar = root.querySelector(".wizard-toolbar")?.getBoundingClientRect();
+    const cover = this.opts.coveredBy === undefined ? ".wizard-toolbar" : this.opts.coveredBy;
+    const bar = cover === null ? undefined : root.querySelector(cover)?.getBoundingClientRect();
     const top = Math.max(box.top, bar?.bottom ?? box.top);
     return (key) => {
       const el = this.elements.get(key);
@@ -136,8 +158,9 @@ export function useTileLoader(
   root: RefObject<Element | null>,
   shown: boolean,
   limit = TILE_READS,
+  opts: TileLoaderOptions = {},
 ): TileLoader {
-  const [loader] = useState(() => new TileLoader(limit));
+  const [loader] = useState(() => new TileLoader(limit, undefined, opts));
   useEffect(() => {
     const el = root.current;
     if (!shown || !el) return;

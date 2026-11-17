@@ -23,7 +23,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
-import { GRID_TILE_READS, GridThumbs } from "./gridThumbs";
+import { GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, GridThumbs } from "./gridThumbs";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
@@ -1743,8 +1743,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const gen = generationRef.current;
     listDays(want, queryRef.current, filterRef.current)
       .then((pairs) => {
-        for (const d of want) inflightRef.current.delete(d);
+        // 世代が替わっていれば何も触らない——読み途中の印は新しい世代の要求のものになっている
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
+        for (const d of want) inflightRef.current.delete(d);
         const got = new Set(want);
         // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）。理由は1回だけ出す
         const failed = pairs.filter((p) => p.items === null);
@@ -1756,12 +1757,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           if (attempt < 2) {
             window.setTimeout(() => {
               if (generationRef.current !== gen) return;
-              const still = failed.map((p) => p.day_key).filter((d) => visibleDaysRef.current.has(d));
+              // 見えている日に限らず取り直す（ビューアの表示日と前後の先読みの日は、一覧では見えていない）
+              const still = failed.map((p) => p.day_key);
               for (const d of still) failedDaysRef.current.delete(d);
               if (still.length > 0) loadDaysRef.current(still, attempt + 1);
             }, DAY_RETRY_MS);
           }
         }
+        // 全部読めなかったなら一覧を組み直さない
+        if (pairs.every((p) => p.items === null)) return;
         setDayItems((prev) => {
           const next = new Map(prev);
           for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
@@ -1777,12 +1781,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         });
       })
       .catch((e) => {
+        if (generationRef.current !== gen) return;
         for (const d of want) inflightRef.current.delete(d);
         fail(errText(e));
         if (attempt < 2) {
           window.setTimeout(() => {
             if (generationRef.current !== gen) return;
-            const still = want.filter((d) => visibleDaysRef.current.has(d));
+            const still = want.filter((d) => visibleDaysRef.current.has(d) || d === viewerDayRef.current);
             if (still.length > 0) loadDaysRef.current(still, attempt + 1);
           }, DAY_RETRY_MS);
         }
@@ -3801,7 +3806,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
 
   const virtualItems = virtualizer.getVirtualItems();
   /** 一覧のサムネイルの列（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる） */
-  const gridLoader = useTileLoader(scrollRef, view === "grid", GRID_TILE_READS);
+  const gridLoader = useTileLoader(scrollRef, view === "grid", GRID_TILE_READS, {
+    slotTimeoutMs: GRID_SLOT_TIMEOUT_MS,
+    coveredBy: null,
+  });
   const [gridThumbs] = useState(() => new GridThumbs(gridLoader));
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する

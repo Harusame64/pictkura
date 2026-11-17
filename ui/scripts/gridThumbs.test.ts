@@ -71,8 +71,9 @@ test("同じ URL には同じ ref を返し、外れたままなら後で ref �
   const { l, detached } = fakeLoader();
   const g = new GridThumbs(l);
   const ref = g.refFor("u1");
-  assert.equal(g.refFor("u1"), ref);
   ref(tile());
+  // 付いた後は同じ ref を返す（描くたびに付け外ししない）
+  assert.equal(g.refFor("u1"), ref);
   ref(null);
   assert.deepEqual(detached, ["u1"]);
   await new Promise((r) => setTimeout(r, 0));
@@ -132,4 +133,26 @@ test("paintable は読めた絵で、「サムネイルが無い」の 1x1 だ�
   assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 1 }), false);
   assert.equal(paintable({ complete: true, naturalWidth: 0, naturalHeight: 0 }), false);
   assert.equal(paintable({ complete: false, naturalWidth: 512, naturalHeight: 341 }), false);
+});
+
+test("出せる絵が無かった URL は、作り直しても列に並べず地の灰色を見せる", () => {
+  const { l, attached } = fakeLoader();
+  const g = new GridThumbs(l);
+  const ref = g.refFor("none");
+  ref(tile());
+  attached.get("none")!(got(1, 1));
+  ref(null);
+  attached.clear();
+  const el = tile();
+  ref(el);
+  assert.equal(attached.size, 0);
+  assert.equal(el.src, "");
+  assert.equal(el.attrs.get("data-shown"), "");
+});
+
+test("付かなかった ref（捨てられた描画）は控えに残らない", () => {
+  const g = new GridThumbs(fakeLoader().l);
+  g.refFor("a");
+  g.refFor("b");
+  assert.equal(g.size(), 0);
 });

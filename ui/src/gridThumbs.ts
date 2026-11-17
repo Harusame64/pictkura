@@ -24,6 +24,8 @@ import type { TileAttach } from "./useTileQueue.ts";
 
 /** 同時に読むサムネイルの数（win2 の実測の頭打ちの点） */
 export const GRID_TILE_READS = 4;
+/** 1枚が枠を塞いでよい上限（ms）。サムネイルの読みは 5〜10ms なので、塞ぐのは遅い媒体の原本だけ */
+export const GRID_SLOT_TIMEOUT_MS = 1500;
 
 /** 届いた絵を、タイルに出してよいか（読めた・「サムネイルが無い」の透明な 1x1 ではない） */
 export function paintable(img: { complete: boolean; naturalWidth: number; naturalHeight: number }): boolean {
@@ -41,8 +43,8 @@ export class GridThumbs {
   private readonly loader: TileAttach;
   /** URL ごとの ref。毎回作り直すと、描くたびに付け外しが起きる。外れたら消す */
   private readonly refs = new Map<string, (el: HTMLImageElement | null) => void>();
-  /** 最近出した絵の URL（挿入順＝古い順） */
-  private readonly recent = new Map<string, true>();
+  /** 最近の結果（挿入順＝古い順）。true は出した絵、false は出せる絵が無かった（404・1x1） */
+  private readonly recent = new Map<string, boolean>();
   private readonly recentMax: number;
 
   constructor(loader: TileAttach, recentMax = RECENT_MAX) {
@@ -50,9 +52,9 @@ export class GridThumbs {
     this.recentMax = recentMax;
   }
 
-  private remember(url: string): void {
+  private remember(url: string, painted: boolean): void {
     this.recent.delete(url);
-    this.recent.set(url, true);
+    this.recent.set(url, painted);
     while (this.recent.size > this.recentMax) {
       const oldest = this.recent.keys().next().value;
       if (oldest === undefined) break;
@@ -70,6 +72,8 @@ export class GridThumbs {
       detach?.();
       detach = null;
       attached = el;
+      // 控えに載せるのは付いたときだけ（捨てられた描画で作られて付かなかった ref を溜めない）
+      if (el && !this.refs.has(url)) this.refs.set(url, ref);
       if (!el) {
         // 作り直しでは、古い要素の null の直後に新しい要素で同じ ref が呼ばれる。ここで消すと次の描画で
         // 別の ref が作られ、描くたびに付け外しが起きた（/code-review）。付いていないままなら後で消す
@@ -78,23 +82,24 @@ export class GridThumbs {
         }, 0);
         return;
       }
-      // 最近出した絵は列を通さない（展開済み。作り直しで消して浮かび直させない）
-      if (this.recent.has(url)) {
-        this.remember(url);
-        if (el.getAttribute("src") !== url) el.src = url;
+      // 最近の結果は列を通さない。出した絵は展開済みなので、すぐ見せる（浮かび直させない）。
+      // 出せる絵が無かったものは、もう一度要求せず地の灰色を見せる
+      const painted = this.recent.get(url);
+      if (painted !== undefined) {
+        this.remember(url, painted);
+        if (painted && el.getAttribute("src") !== url) el.src = url;
+        if (!painted || (el.complete && el.naturalWidth > 0)) el.setAttribute("data-shown", "");
         return;
       }
       detach = this.loader.attach(url, el, (img) => {
+        const ok = paintable(img);
+        this.remember(url, ok);
         if (!el.isConnected) return;
-        if (paintable(img)) {
-          this.remember(url);
-          el.src = url;
-        }
+        if (ok) el.src = url;
         // 出せる絵が無い。地の灰色を見せる（`revealThumb` と同じ印）
         else el.setAttribute("data-shown", "");
       });
     };
-    this.refs.set(url, ref);
     return ref;
   }
 

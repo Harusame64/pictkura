@@ -83,3 +83,27 @@ test("読めなかった絵も枠を空け、タイルには渡す（壊れた�
   assert.deepEqual(a.got, [made[0]]);
   assert.deepEqual(reading(), ["b"]);
 });
+
+test("一覧の読み手: 遅い1枚は時間切れで枠を空け、読み終わったら絵は渡す", async () => {
+  const made: FakeImage[] = [];
+  const l = new TileLoader(
+    1,
+    () => {
+      const img: FakeImage = { src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null };
+      made.push(img);
+      return img as unknown as HTMLImageElement;
+    },
+    { slotTimeoutMs: 20, coveredBy: null },
+  );
+  const got: string[] = [];
+  for (const k of ["slow", "next"]) {
+    l.attach(k, {} as Element, () => got.push(k));
+    l.see(k, true);
+  }
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(made.map((m) => m.src), ["slow"]);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.deepEqual(made.map((m) => m.src), ["slow", "next"]);
+  made[0]!.onload!();
+  assert.deepEqual(got, ["slow"]);
+});
