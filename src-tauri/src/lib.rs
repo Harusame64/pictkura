@@ -6965,21 +6965,28 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
-/// サムネイルの無い写真の本番を、この要求の糸でいま作り、出来たサムネイルの場所を返す
-/// （[`pictkura_core::ThumbnailService::run_now`]）。働き手が作っている最中・作れなかったときは `None`
-fn made_thumb_now(state: &AppState, id: i64) -> Option<PathBuf> {
-    if !state.thumbs.run_now(id) {
-        return None;
+/// サムネイルの無い写真の本番を、この要求の糸でいま作る（[`pictkura_core::ThumbnailService::run_now`]）
+fn made_thumb_now(state: &AppState, id: i64) -> MadeNow {
+    match state.thumbs.run_now(id) {
+        pictkura_core::RunNow::Busy => return MadeNow::Busy,
+        pictkura_core::RunNow::Refused => return MadeNow::Original,
+        pictkura_core::RunNow::Ran => {}
     }
-    let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten()?;
-    if record.thumb_state != 2 {
-        return None;
+    let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
+    match record {
+        Some(r) if r.thumb_state == 2 => r.thumb_path.map_or(MadeNow::Original, MadeNow::Thumb),
+        _ => MadeNow::Original,
     }
-    record.thumb_path
 }
 
-fn thumb_size_of(state: &AppState) -> u32 {
-    lock_ok(&state.config).performance.thumbnail_size
+/// [`made_thumb_now`] の答え
+enum MadeNow {
+    /// 出来たサムネイル
+    Thumb(PathBuf),
+    /// 働き手が作っている最中（その場で縮めて埋める）
+    Busy,
+    /// 作らない・作れなかった（今までどおり原本）
+    Original,
 }
 
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
@@ -7124,20 +7131,30 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             // 原本を渡すと WebView が大きな絵を1コアで展開し、3万枚の一覧で帯を1回動かすと原本を約600MB
             // 読んだ（win2）。働き手が作っている最中なら、その場で縮めたもので埋める（取り込み画面と同じ縮め方）。
             // どちらも出来なければ、今までどおり原本
+            // サムネイルを作らない形（SVG。`THUMB_STATE_NOT_NEEDED`）は、今までどおり原本をそのまま（キャッシュできる）
+            None if record.thumb_state == pictkura_core::thumbs::THUMB_STATE_NOT_NEEDED => {
+                record.path
+            }
             None => match made_thumb_now(state, id) {
-                Some(thumb) => thumb,
-                None => match pictkura_core::browse::preview(&record.path, thumb_size_of(state)) {
-                    Some(preview) => {
-                        return Response::builder()
-                            .status(StatusCode::OK)
-                            .header("Content-Type", preview.mime)
-                            // 本番が出来れば URL が変わる（`thumb_state`）。この縮めたものは残さない
-                            .header("Cache-Control", "no-store")
-                            .body(preview.bytes)
-                            .unwrap_or_else(|_| server_error());
+                MadeNow::Thumb(thumb) => thumb,
+                // 作らない（失敗が上限）・作れなかった: 今までどおり原本。何度も解き直さない
+                MadeNow::Original => record.path,
+                // 働き手が作っている最中: その場で縮めたもので埋める
+                MadeNow::Busy => {
+                    match pictkura_core::browse::preview(&record.path, state.thumbs.thumb_size()) {
+                        Some(preview) => {
+                            return Response::builder()
+                                .status(StatusCode::OK)
+                                .header("Content-Type", preview.mime)
+                                // キャッシュしてよい: 一覧の列は読み終えた URL をタイルに入れ直す（2回目はキャッシュから）。
+                                // 本番が出来れば URL が変わる（`thumb_state`）ので、古い縮めたものは使われなくなる
+                                .header("Cache-Control", "max-age=31536000, immutable")
+                                .body(preview.bytes)
+                                .unwrap_or_else(|_| server_error());
+                        }
+                        None => record.path,
                     }
-                    None => record.path,
-                },
+                }
             },
         },
         ServeKind::Full => record.path,

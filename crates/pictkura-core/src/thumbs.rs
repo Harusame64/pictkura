@@ -2215,12 +2215,14 @@ impl ThumbQueue {
     /// [`Self::complete`] か [`Self::requeue`]（[`finish_job`] が選ぶ）
     pub fn claim(&self, id: i64) -> bool {
         let mut state = self.lock_state();
-        if state.processing.contains(&id) || state.blocked(id) {
+        if state.shutdown || state.processing.contains(&id) || state.blocked(id) {
             return false;
         }
-        state.pending.retain(|&x| x != id);
-        state.priority.retain(|&x| x != id);
-        state.queued.remove(&id);
+        // 列に居るときだけ列を掃く（起動直後の列は数万件ある。居ないのに毎回全部を見ない）
+        if state.queued.remove(&id) {
+            state.pending.retain(|&x| x != id);
+            state.priority.retain(|&x| x != id);
+        }
         state.processing.insert(id);
         true
     }
@@ -2326,10 +2328,24 @@ impl CameraWrite {
     }
 }
 
-/// サムネイル生成ワーカー群。
-/// [`ThumbnailService::run_now`] が残しておく接続の数（一覧が同時に頼むのは4枚まで。ビューアの分の余裕）
-const RUN_NOW_CONNS_MAX: usize = 8;
+/// [`ThumbnailService::run_now`] の答え
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunNow {
+    /// 作る道を走らせた（作れたかは行の `thumb_state` で見る）
+    Ran,
+    /// 働き手が作っている最中（二重に作らない）
+    Busy,
+    /// 失敗が上限に達している・接続が開けない・同時に作る数が上限・止めた後（作らない。今までどおりにする）
+    Refused,
+}
 
+/// [`ThumbnailService::run_now`] が同時に作る数の上限。一覧の列は同時に4枚までだが、列を通らない絵
+/// （思い出の帯など）もここへ来るので、口の側でも数を抑える（超えたら今までどおり原本）
+const RUN_NOW_MAX: usize = 4;
+/// [`ThumbnailService::run_now`] が残しておく接続の数
+const RUN_NOW_CONNS_MAX: usize = RUN_NOW_MAX;
+
+/// サムネイル生成ワーカー群。
 pub struct ThumbnailService {
     queue: ThumbQueue,
     workers: Vec<std::thread::JoinHandle<()>>,
@@ -2340,6 +2356,8 @@ pub struct ThumbnailService {
     on_done: Arc<dyn Fn(i64, CameraWrite) + Send + Sync>,
     /// 今すぐ作るための接続（使い終えたら戻す。[`RUN_NOW_CONNS_MAX`] 本まで残す）
     conns: Mutex<Vec<Db>>,
+    /// いま [`Self::run_now`] で作っている数
+    running_now: std::sync::atomic::AtomicUsize,
 }
 
 /// 1枚のジョブ。働き手の1周と、配信の口が今すぐ作るとき（[`ThumbnailService::run_now`]）が同じ道を通る
@@ -2464,6 +2482,7 @@ impl ThumbnailService {
             thumb_size,
             on_done,
             conns: Mutex::new(Vec::new()),
+            running_now: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -2473,36 +2492,56 @@ impl ThumbnailService {
     ///
     /// 待たない。列に並べて出来るのを待つ形は、待つ間ずっと一覧の読みの枠を握り、着いた場所の絵が遅れた
     /// （win2 の実測）。作るのは列の働き手と同じ道（[`run_job`]）で、働き手が処理中なら作らずに false
-    /// （二重に作らない）。作ったら `true`（作れたかは行の `thumb_state` で見る）
-    pub fn run_now(&self, id: i64) -> bool {
-        if !self.queue.claim(id) {
-            return false;
+    /// （二重に作らない）。作れたかは行の `thumb_state` で見る（[`RunNow`]）
+    pub fn run_now(&self, id: i64) -> RunNow {
+        use std::sync::atomic::Ordering;
+        // 同時に作る数を抑える（超えたら今までどおり）
+        if self.running_now.fetch_add(1, Ordering::AcqRel) >= RUN_NOW_MAX {
+            self.running_now.fetch_sub(1, Ordering::AcqRel);
+            return RunNow::Refused;
         }
+        let result = self.run_now_slot(id);
+        self.running_now.fetch_sub(1, Ordering::AcqRel);
+        result
+    }
+
+    fn run_now_slot(&self, id: i64) -> RunNow {
+        // 接続を先に用意する——受け持ってから開けなかったら、列から降ろしたジョブ（と「新しく読む写真」の印）が
+        // 消えてしまう
         let conn = self.conns.lock().unwrap_or_else(|e| e.into_inner()).pop();
         let mut db = match conn {
             Some(db) => db,
             None => match Db::open(&self.db_path) {
                 Ok(db) => db,
-                Err(_) => {
-                    self.queue.complete(id);
-                    return false;
-                }
+                Err(_) => return RunNow::Refused,
             },
         };
-        run_job(
-            &self.queue,
-            &mut db,
-            &self.thumbs_dir,
-            self.thumb_size,
-            id,
-            true,
-            &*self.on_done,
-        );
+        let outcome = if self.queue.claim(id) {
+            run_job(
+                &self.queue,
+                &mut db,
+                &self.thumbs_dir,
+                self.thumb_size,
+                id,
+                true,
+                &*self.on_done,
+            );
+            RunNow::Ran
+        } else if self.queue.is_active(id) {
+            RunNow::Busy
+        } else {
+            RunNow::Refused
+        };
         let mut conns = self.conns.lock().unwrap_or_else(|e| e.into_inner());
         if conns.len() < RUN_NOW_CONNS_MAX {
             conns.push(db);
         }
-        true
+        outcome
+    }
+
+    /// 作るサムネイルの長辺（起動時の設定。配信の口が、その場で縮める大きさにも使う——設定のロックを取らない）
+    pub fn thumb_size(&self) -> u32 {
+        self.thumb_size
     }
 
     pub fn enqueue(&self, ids: &[i64]) {
@@ -4693,7 +4732,7 @@ mod tests {
             1,
             move |_, _| *done2.lock().unwrap() += 1,
         );
-        assert!(svc.run_now(id));
+        assert_eq!(svc.run_now(id), RunNow::Ran);
         let rec = Db::open(&db_path).unwrap().get_by_id(id).unwrap().unwrap();
         assert_eq!(rec.thumb_state, 2);
         assert!(rec.thumb_path.unwrap().exists());
@@ -4731,6 +4770,9 @@ mod tests {
             queue.record_failure(3);
         }
         assert!(!queue.claim(3));
+        // 止めた後は受け持たない（働き手が止まった後に書かない）
+        queue.shutdown();
+        assert!(!queue.claim(4));
     }
 
     /// 完了の通知は、絵を作り直しただけのときにも来る（dev #28）。
