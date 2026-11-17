@@ -4020,14 +4020,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const ids: number[] = [];
     // それぞれを並べていた日。撮影日が読まれて別の日へ移った写真は Rust が頼まない（新しいライブラリで、
     // 画面から去った写真の本番を作らない）
-    const days: number[] = [];
+    // 帯（`memories`）の写真は日が動いても差し替わらないので null（見ない）
+    const days: (number | null)[] = [];
     const seen = new Set<number>();
     // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
-    const want = (item: MediaItem) => {
+    const want = (item: MediaItem, checkDay = true) => {
       if (item.thumb_state >= 2 || seen.has(item.id)) return;
       seen.add(item.id);
       ids.push(item.id);
-      days.push(item.day_key);
+      days.push(checkDay ? item.day_key : null);
     };
     // **帯は `rows` に居ない。** 「3年前の今日」は `memories` として別に描いて
     // いるので、下の `rows` を歩くだけでは生成を頼まないまま**灰色の四角が残る**。
@@ -4041,7 +4042,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       Date.now() - bandAnswerAtRef.current <= CLOUD_ANSWER_TTL_MS;
     if (view === "grid" && !filtering && bandFresh) {
       for (const m of memories) {
-        if (bandAskableIds.has(m.item.id)) want(m.item);
+        if (bandAskableIds.has(m.item.id)) want(m.item, false);
       }
     }
     for (const vr of virtualItems) {
@@ -9091,7 +9092,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 recent={recentThumbs}
                                 waiters={gridWaiters}
                                 id={cell.item.id}
-                                day={cell.item.day_key}
                                 onDone={revealThumb}
                               />
                               {cell.item.is_video && (

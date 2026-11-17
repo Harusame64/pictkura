@@ -17,7 +17,6 @@ let seq = 0;
  */
 export function GridThumb({
   id,
-  day,
   url,
   label,
   loader,
@@ -27,8 +26,6 @@ export function GridThumb({
 }: {
   /** 写真の id（空のタイルが、働き手の知らせを待つ宛先） */
   id: number;
-  /** このタイルを並べている日（`day_key`）。撮影日が読まれて移った後に届く古い要求を、Rust が見分ける */
-  day: number;
   url: string;
   label: string;
   loader: TileAttach;
@@ -43,7 +40,7 @@ export function GridThumb({
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
   // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
   // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
-  const src = `${url}&grid=1&day=${day}`;
+  const src = `${url}&grid=1`;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
