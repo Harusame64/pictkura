@@ -1502,6 +1502,71 @@ fn sweep_partial_thumbs(thumbs_dir: &Path) {
     }
 }
 
+/// **持ち主の居ないサムネイルを消す。** 写真を消す（ゴミ箱へ・外で消した・フォルダを外した）と DB の行は消えるが、
+/// サムネイルのファイルは残っていた。どこからも数えられないので、置き場の上限（`thumb_cache_mb`）の管理からも
+/// 外れ、ディスクを使い続けた（2026-11-18 利用者「対象ファイル実体を消したら一緒に削除するんだっけ？」）。
+/// 行を消す道は多い（走査・監視・ゴミ箱・ルートを外す・パスの正規化）ので、道ごとに消すのでなく、置き場の側から
+/// 突き合わせる。
+///
+/// 消すのは `{2桁の16進}/{id}.{拡張子}` の形のファイルで、その id の行が無いか、行のサムネイルが別の名前
+/// （作り直して拡張子が変わった古い方）のものだけ。
+/// - **名前で突き合わせる**（パス全体ではない）。データのフォルダを動かしたポータブル版では、記録のパスの頭が
+///   今の置き場と違う。パスで比べると、全部を孤児と見て消してしまう
+/// - **新しいファイルは消さない**（`min_age`）。[`publish_thumb`] は記録を書いてから付け替え、その後で確定する
+///   ——付け替えから確定までの間、ほかの接続からは記録が見えない
+/// - **作業中の id は消さない**（`active`）。一時ファイル（[`PARTIAL_MARK`]）と形の違う名前には触らない
+///
+/// 返り値は消した数
+pub fn sweep_orphan_thumbs(
+    db: &Db,
+    thumbs_dir: &Path,
+    min_age: std::time::Duration,
+    active: &HashSet<i64>,
+) -> Result<usize, DbError> {
+    let known = db.thumb_file_names()?;
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    let Ok(dirs) = std::fs::read_dir(thumbs_dir) else {
+        return Ok(0);
+    };
+    for dir in dirs.flatten() {
+        let bucket = dir.file_name();
+        let bucket = bucket.to_string_lossy();
+        if bucket.len() != 2 || !bucket.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let Ok(files) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
+        for f in files.flatten() {
+            let name = f.file_name();
+            let name = name.to_string_lossy();
+            if name.contains(PARTIAL_MARK) {
+                continue;
+            }
+            let Some(id) = name
+                .split_once('.')
+                .and_then(|(stem, _)| stem.parse::<i64>().ok())
+            else {
+                continue;
+            };
+            if known.get(&id).is_some_and(|n| *n == name) || active.contains(&id) {
+                continue;
+            }
+            let old_enough = f
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| now.duration_since(t).ok())
+                .is_some_and(|age| age >= min_age);
+            if old_enough && std::fs::remove_file(f.path()).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    Ok(removed)
+}
+
 /// 一時ファイルに書いたサムネイルを、**行がまだ同じ版のときだけ**本当の名前へ付け替えて記録する（F1）。
 ///
 /// 以前は本当の名前へ直接書いてから行を更新していた。作業の途中で行が新しくなる（回した・外で書き換えた）と、
@@ -4990,6 +5055,72 @@ mod tests {
         queue.record_failure(8);
         queue.enqueue(&[8]);
         assert_eq!(queue.pop(), Some((8, false)));
+    }
+
+    /// 持ち主の居ないサムネイルだけを消す: 行が無い・行のサムネイルが別の名前。行のある名前、新しいファイル、
+    /// 作業中の id、一時ファイル、形の違う名前・フォルダには触らない
+    #[test]
+    fn only_thumbnails_nobody_owns_are_swept() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let files: Vec<ScannedFile> = (1..=4)
+            .map(|i| ScannedFile {
+                path: dir.path().join(format!("p{i}.jpg")),
+                size: 1,
+                mtime_ms: 1,
+            })
+            .collect();
+        db.upsert_files(&files).unwrap();
+        let ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        let (a, b, c) = (ids[0], ids[1], ids[2]);
+        // 記録のパスは**別の置き場**（データのフォルダを動かした後）。名前で突き合わせるので消えない
+        let elsewhere = dir.path().join("old-data").join("thumbs");
+        db.update_thumb_path(a, &thumb_path_for(&elsewhere, a, "webp"), 2, None)
+            .unwrap();
+        db.update_thumb_path(b, &thumb_path_for(&elsewhere, b, "webp"), 2, None)
+            .unwrap();
+        let thumbs = dir.path().join("thumbs");
+        let put = |id: i64, ext: &str| {
+            let p = thumb_path_for(&thumbs, id, ext);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let owned = put(a, "webp");
+        let stale_variant = put(b, "jpg"); // 行は webp。作り直す前の jpg が残った
+        let gone = put(9_999, "webp"); // 行が無い（写真を消した）
+        let in_flight = put(c, "webp"); // 行に記録は無いが作業中
+        let partial = {
+            let p = thumbs.join("0f").join(format!("15.webp{PARTIAL_MARK}1-0"));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let odd = {
+            let p = thumbs.join("notes").join("1.webp");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let active: HashSet<i64> = [c].into_iter().collect();
+
+        // 新しいファイルは消さない
+        let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::from_secs(3600), &active)
+            .unwrap();
+        assert_eq!(n, 0);
+        assert!(gone.exists());
+
+        let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::ZERO, &active).unwrap();
+        assert_eq!(n, 2);
+        assert!(
+            owned.exists(),
+            "行のある名前は残す（記録のパスの頭が違っても）"
+        );
+        assert!(!stale_variant.exists(), "行のサムネイルと違う名前は消す");
+        assert!(!gone.exists(), "行の無いものは消す");
+        assert!(in_flight.exists(), "作業中は消さない");
+        assert!(partial.exists(), "一時ファイルは別の掃除が受け持つ");
+        assert!(odd.exists(), "形の違うフォルダには触らない");
     }
 
     /// 優先の列は上限まで。溢れたぶんは古い側から自動の列（素性だけ）へ降り、新しい要求が先に作られる
