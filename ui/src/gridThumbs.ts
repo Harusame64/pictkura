@@ -52,6 +52,20 @@ export class GridThumbs {
     this.recentMax = recentMax;
   }
 
+  /** 外れたままなら控えから消す ref（URL → 外れたままかを答える関数）。まとめて1回で見る */
+  private readonly unattached = new Map<string, () => boolean>();
+  private sweepScheduled = false;
+
+  private scheduleSweep(): void {
+    if (this.sweepScheduled) return;
+    this.sweepScheduled = true;
+    setTimeout(() => {
+      this.sweepScheduled = false;
+      for (const [url, stillOff] of this.unattached) if (stillOff()) this.refs.delete(url);
+      this.unattached.clear();
+    }, 0);
+  }
+
   private remember(url: string, painted: boolean): void {
     this.recent.delete(url);
     this.recent.set(url, painted);
@@ -76,10 +90,10 @@ export class GridThumbs {
       if (el && !this.refs.has(url)) this.refs.set(url, ref);
       if (!el) {
         // 作り直しでは、古い要素の null の直後に新しい要素で同じ ref が呼ばれる。ここで消すと次の描画で
-        // 別の ref が作られ、描くたびに付け外しが起きた（/code-review）。付いていないままなら後で消す
-        setTimeout(() => {
-          if (attached === null && this.refs.get(url) === ref) this.refs.delete(url);
-        }, 0);
+        // 別の ref が作られ、描くたびに付け外しが起きた（/code-review）。付いていないままなら後でまとめて消す
+        // （1枚ごとに時計を立てると、帯を動かす間に数千本立って描画が重くなった。win2）
+        this.unattached.set(url, () => attached === null && this.refs.get(url) === ref);
+        this.scheduleSweep();
         return;
       }
       // 最近の結果は列を通さない。出した絵は展開済みなので、すぐ見せる（浮かび直させない）。
@@ -88,7 +102,9 @@ export class GridThumbs {
       if (painted !== undefined) {
         this.remember(url, painted);
         if (painted && el.getAttribute("src") !== url) el.src = url;
-        if (!painted || (el.complete && el.naturalWidth > 0)) el.setAttribute("data-shown", "");
+        // 印はすぐ付ける。`complete` を待つと、作り直したタイルが透明から浮かび直した（大きさ・窓の幅を
+        // 変えたときに 20 枚ほど。win2）。展開済みの絵なので、浮かべずに出してよい
+        el.setAttribute("data-shown", "");
         return;
       }
       detach = this.loader.attach(url, el, (img) => {

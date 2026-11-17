@@ -156,3 +156,15 @@ test("付かなかった ref（捨てられた描画）は控えに残らない"
   g.refFor("b");
   assert.equal(g.size(), 0);
 });
+
+test("最近出した絵を作り直したタイルに入れたら、展開を待たずにすぐ見せる印を付ける（浮かび直させない）", () => {
+  const { l, attached } = fakeLoader();
+  const g = new GridThumbs(l);
+  const ref = g.refFor("u1");
+  ref(tile());
+  attached.get("u1")!(got(512));
+  ref(null);
+  const el = tile();
+  ref(el);
+  assert.equal(el.attrs.get("data-shown"), "");
+});
