@@ -9092,6 +9092,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 recent={recentThumbs}
                                 waiters={gridWaiters}
                                 id={cell.item.id}
+                                // 検索中・送り出しは差し替えが日を動かさないので、日で古さを見分けない（`applyPatches`）
+                                day={askedRef.current.query !== "" || filter === "outgoing" ? undefined : cell.item.day_key}
                                 onDone={revealThumb}
                               />
                               {cell.item.is_video && (
