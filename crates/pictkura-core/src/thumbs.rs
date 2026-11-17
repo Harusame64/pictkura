@@ -2234,6 +2234,11 @@ impl ThumbQueue {
         *self.lock_state().failures.entry(id).or_insert(0) += 1;
     }
 
+    /// 失敗が上限に達し、もう作り直さないIDか（一覧のタイルが待つかどうかの判定に使う）
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.lock_state().blocked(id)
+    }
+
     /// このIDがキュー内または処理中か（LRU削除の競合回避用）。
     pub fn is_active(&self, id: i64) -> bool {
         let state = self.lock_state();
@@ -2422,6 +2427,11 @@ impl ThumbnailService {
     /// [`ThumbQueue::prioritize`] に書いた（dev #22）。
     pub fn prioritize(&self, ids: &[i64]) {
         self.queue.prioritize(ids);
+    }
+
+    /// 失敗が上限に達し、もう作り直さないIDか（[`ThumbQueue::is_blocked`]）。
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.queue.is_blocked(id)
     }
 
     /// キュー内＋処理中のIDのスナップショット（LRU削除の除外集合用）。
@@ -4941,6 +4951,19 @@ mod tests {
         queue.record_failure(8);
         queue.enqueue(&[8]);
         assert_eq!(queue.pop(), Some((8, false)));
+    }
+
+    /// 一覧のタイルは、失敗が上限に達した写真を待たない（`is_blocked` で見分ける）
+    #[test]
+    fn is_blocked_turns_on_exactly_at_the_failure_limit() {
+        let queue = ThumbQueue::new();
+        for _ in 0..MAX_FAILURES - 1 {
+            queue.record_failure(7);
+        }
+        assert!(!queue.is_blocked(7), "上限の手前では、まだ作り直す");
+        queue.record_failure(7);
+        assert!(queue.is_blocked(7));
+        assert!(!queue.is_blocked(8), "失敗していない写真は待ってよい");
     }
 
     /// 撮影日時のEXIFを付けたJPEG（カメラが書くプレビューに相当）。
