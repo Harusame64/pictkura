@@ -6965,6 +6965,11 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// SPIKE C: 一覧のタイルからの要求か（`grid=1`）
+fn spike_grid(url: &str) -> bool {
+    url.split_once('?').is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
+}
+
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
@@ -7102,6 +7107,12 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
+            // SPIKE C: 一覧のタイル（`grid=1`）は、サムネイルが無い間は原本を渡さず空のタイルで待つ。働き手の列の
+            // 先頭へ押す（可視の要求と同じ）。本番が出来れば URL（`thumb_state`）が変わり、タイルが読み直す
+            None if spike_grid(url) => {
+                state.thumbs.prioritize(&[id]);
+                return blank_thumb();
+            }
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,
         },
