@@ -3832,16 +3832,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    const el = scrollRef.current;
-    const top = el?.scrollTop ?? 0;
-    const bottom = top + (el?.clientHeight ?? 0);
-    const onScreen = new Set<number>();
-    for (const vr of virtualItems) {
-      const row = rows[vr.index];
-      if (row?.kind !== "placeholder") continue;
-      const rowTop = rowTops[vr.index] ?? vr.start;
-      if (rowTop < bottom && rowTop + vr.size > top) onScreen.add(row.dayKey);
-    }
     // 1回の呼び出しにまとめる（見えている日と控えの日で分けると載せる回数が倍になり、帯を動かす間の描画が
     // 重くなった。win2）
     loadDays(wanted);

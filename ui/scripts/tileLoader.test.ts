@@ -93,7 +93,7 @@ test("一覧の読み手: 遅い1枚は時間切れで枠を空け、読み終�
       made.push(img);
       return img as unknown as HTMLImageElement;
     },
-    { slotTimeoutMs: 20, coveredBy: null },
+    { slotTimeoutMs: 20, coveredBy: null }, // 待ちは時計の粒（Windows で約16ms）の何倍もとる
   );
   const got: string[] = [];
   for (const k of ["slow", "next"]) {
@@ -102,7 +102,7 @@ test("一覧の読み手: 遅い1枚は時間切れで枠を空け、読み終�
   }
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(made.map((m) => m.src), ["slow"]);
-  await new Promise((r) => setTimeout(r, 40));
+  await new Promise((r) => setTimeout(r, 200));
   assert.deepEqual(made.map((m) => m.src), ["slow", "next"]);
   made[0]!.onload!();
   assert.deepEqual(got, ["slow"]);
@@ -122,7 +122,7 @@ test("同じ絵を読み途中に並んだタイルは、もう一度読まず�
   const got: string[] = [];
   const d1 = l.attach("t1", {} as Element, () => got.push("t1"), "big.jpg");
   l.see("t1", true);
-  await new Promise((r) => setTimeout(r, 30)); // 時間切れで枠は空いたが、読みは続いている
+  await new Promise((r) => setTimeout(r, 200)); // 時間切れで枠は空いたが、読みは続いている
   d1(); // そのタイルは外れた
   l.attach("t2", {} as Element, () => got.push("t2"), "big.jpg"); // 作り直したタイル
   l.see("t2", true);
@@ -148,7 +148,7 @@ test("時間切れでも、読み途中が枠の2倍に達していたら枠を�
     l.attach(k, {} as Element, () => {});
     l.see(k, true);
   }
-  await new Promise((r) => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 300));
   assert.deepEqual(made.map((m) => m.src), ["a", "b"]);
 });
 
@@ -167,10 +167,10 @@ test("上限で空けられなかった時間切れの枠は、ほかの読み�
     l.attach(k, {} as Element, () => {});
     l.see(k, true);
   }
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 300));
   assert.deepEqual(made.map((m) => m.src), ["a", "b"]); // b は時間切れでも上限（2）で枠を握ったまま
   made[0]!.onload!(); // a が終わって上限を割った
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 50));
   assert.deepEqual(made.map((m) => m.src), ["a", "b", "c"]);
 });
 
