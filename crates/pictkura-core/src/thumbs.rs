@@ -2251,6 +2251,11 @@ impl ThumbQueue {
         *self.lock_state().failures.entry(id).or_insert(0) += 1;
     }
 
+    /// 失敗が上限に達して、もう作らない ID か
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.lock_state().blocked(id)
+    }
+
     /// このIDがキュー内または処理中か（LRU削除の競合回避用）。
     pub fn is_active(&self, id: i64) -> bool {
         let state = self.lock_state();
@@ -2335,15 +2340,36 @@ pub enum RunNow {
     Ran,
     /// 働き手が作っている最中（二重に作らない）
     Busy,
-    /// 失敗が上限に達している・接続が開けない・同時に作る数が上限・止めた後（作らない。今までどおりにする）
+    /// 失敗が上限に達している・接続が開けない・止めた後（作らない。今までどおりにする）
     Refused,
+    /// 同時に作る数が上限（[`RUN_NOW_MAX`]）。作らない——配信の口は原本を渡さず空のタイルにし、働き手の
+    /// 作った本番が届くのを待つ（混んでいるときに原本を渡すと、まさに減らしたかった展開が戻る）
+    Saturated,
 }
 
 /// [`ThumbnailService::run_now`] が同時に作る数の上限。一覧の列は同時に4枚までだが、列を通らない絵
 /// （思い出の帯など）もここへ来るので、口の側でも数を抑える（超えたら今までどおり原本）
 const RUN_NOW_MAX: usize = 4;
-/// [`ThumbnailService::run_now`] が残しておく接続の数
-const RUN_NOW_CONNS_MAX: usize = RUN_NOW_MAX;
+
+/// [`ThumbnailService::run_now`] の枠1つ。落ちても（巻き戻っても）数を戻す
+struct NowSlot<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> NowSlot<'a> {
+    fn take(running: &'a std::sync::atomic::AtomicUsize) -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        if running.fetch_add(1, Ordering::AcqRel) >= RUN_NOW_MAX {
+            running.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(Self(running))
+    }
+}
+
+impl Drop for NowSlot<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
 
 /// サムネイル生成ワーカー群。
 pub struct ThumbnailService {
@@ -2354,7 +2380,7 @@ pub struct ThumbnailService {
     thumbs_dir: PathBuf,
     thumb_size: u32,
     on_done: Arc<dyn Fn(i64, CameraWrite) + Send + Sync>,
-    /// 今すぐ作るための接続（使い終えたら戻す。[`RUN_NOW_CONNS_MAX`] 本まで残す）
+    /// 今すぐ作るための接続（使い終えたら戻す。[`RUN_NOW_MAX`] 本まで残す）
     conns: Mutex<Vec<Db>>,
     /// いま [`Self::run_now`] で作っている数
     running_now: std::sync::atomic::AtomicUsize,
@@ -2494,21 +2520,19 @@ impl ThumbnailService {
     /// （win2 の実測）。作るのは列の働き手と同じ道（[`run_job`]）で、働き手が処理中なら作らずに false
     /// （二重に作らない）。作れたかは行の `thumb_state` で見る（[`RunNow`]）
     pub fn run_now(&self, id: i64) -> RunNow {
-        use std::sync::atomic::Ordering;
-        // 同時に作る数を抑える（超えたら今までどおり）
-        if self.running_now.fetch_add(1, Ordering::AcqRel) >= RUN_NOW_MAX {
-            self.running_now.fetch_sub(1, Ordering::AcqRel);
+        // 先に安い確かめ（列の状態だけ）: 働き手が作っている・失敗が上限なら、枠も接続も使わない
+        if self.queue.is_active(id) {
+            return RunNow::Busy;
+        }
+        if self.queue.is_blocked(id) {
             return RunNow::Refused;
         }
-        let result = self.run_now_slot(id);
-        self.running_now.fetch_sub(1, Ordering::AcqRel);
-        result
-    }
-
-    fn run_now_slot(&self, id: i64) -> RunNow {
-        // 接続を先に用意する——受け持ってから開けなかったら、列から降ろしたジョブ（と「新しく読む写真」の印）が
-        // 消えてしまう
+        let Some(_slot) = NowSlot::take(&self.running_now) else {
+            return RunNow::Saturated;
+        };
         let conn = self.conns.lock().unwrap_or_else(|e| e.into_inner()).pop();
+        // 接続は受け持つ前に用意する——受け持ってから開けなかったら、列から降ろしたジョブ（と「新しく読む写真」の
+        // 印）が消えてしまう
         let mut db = match conn {
             Some(db) => db,
             None => match Db::open(&self.db_path) {
@@ -2526,6 +2550,25 @@ impl ThumbnailService {
                 true,
                 &*self.on_done,
             );
+            // 埋め込みサムネイルのある JPEG は、1回目は即席（`thumb_state` 1）で止まる。もう1回で本番まで作る
+            // ——即席のままだと、配信の口は 160px の即席しか渡せない（/code-review。試験で押さえてある）
+            if db
+                .get_by_id(id)
+                .ok()
+                .flatten()
+                .is_some_and(|r| r.thumb_state == 1)
+                && self.queue.claim(id)
+            {
+                run_job(
+                    &self.queue,
+                    &mut db,
+                    &self.thumbs_dir,
+                    self.thumb_size,
+                    id,
+                    true,
+                    &*self.on_done,
+                );
+            }
             RunNow::Ran
         } else if self.queue.is_active(id) {
             RunNow::Busy
@@ -2533,7 +2576,7 @@ impl ThumbnailService {
             RunNow::Refused
         };
         let mut conns = self.conns.lock().unwrap_or_else(|e| e.into_inner());
-        if conns.len() < RUN_NOW_CONNS_MAX {
+        if conns.len() < RUN_NOW_MAX {
             conns.push(db);
         }
         outcome
@@ -4743,6 +4786,101 @@ mod tests {
         );
         // 終わったら受け持ちを返す（もう一度頼める）
         assert!(!svc.is_active(id));
+        svc.shutdown();
+    }
+
+    /// 埋め込みサムネイル（IFD1 の JPEG）を持つ JPEG。カメラの JPEG の作り
+    fn jpeg_with_embedded_thumbnail(width: u32, height: u32) -> Vec<u8> {
+        let thumb = test_jpeg_bytes(160, 120);
+        // TIFF: ヘッダ8 + IFD0（項目0、次のIFDへ）6 + IFD1（項目2）30 → サムネイルは44バイト目から
+        let mut tiff: Vec<u8> = b"II".to_vec();
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        // IFD0: 項目なし、次（IFD1）は14バイト目
+        tiff.extend_from_slice(&0u16.to_le_bytes());
+        tiff.extend_from_slice(&14u32.to_le_bytes());
+        // IFD1: JPEGInterchangeFormat / Length
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0201u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&44u32.to_le_bytes());
+        tiff.extend_from_slice(&0x0202u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&(thumb.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(tiff.len(), 44);
+        tiff.extend_from_slice(&thumb);
+        let body = test_jpeg_bytes(width, height);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\x00\x00");
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    /// 試験の材料の確かめ: 下の JPEG は、自動の道（`want_final = false`）で即席（埋め込みサムネイル）が出来る
+    #[test]
+    fn the_embedded_thumbnail_helper_yields_a_provisional_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("prov.db")).unwrap();
+        let p = dir.path().join("camera.jpg");
+        std::fs::write(&p, jpeg_with_embedded_thumbnail(800, 600)).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let out = process_one(&mut db, &dir.path().join("thumbs"), 160, id, false).unwrap();
+        assert!(matches!(out, ThumbOutcome::Provisional), "{out:?}");
+    }
+
+    /// 埋め込みサムネイルのある JPEG も、`run_now` 1回で即席を飛ばして本番まで作る（`process_one` は即席を
+    /// 書いた段で返すので、`run_now` がもう1回回す。/code-review）
+    #[test]
+    fn run_now_goes_past_the_provisional_step_to_the_final_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("now2.db");
+        let mut db = Db::open(&db_path).unwrap();
+        let p = dir.path().join("camera.jpg");
+        std::fs::write(&p, jpeg_with_embedded_thumbnail(800, 600)).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let svc = ThumbnailService::start(
+            db_path.clone(),
+            dir.path().join("thumbs"),
+            160,
+            1,
+            |_, _| {},
+        );
+        assert_eq!(svc.run_now(id), RunNow::Ran);
+        let rec = Db::open(&db_path).unwrap().get_by_id(id).unwrap().unwrap();
+        assert_eq!(rec.thumb_state, 2, "即席（1）で止まらない");
+        svc.shutdown();
+    }
+
+    /// 働き手が作っている写真は二重に作らない（`Busy`）。失敗が上限なら作らない（`Refused`）
+    #[test]
+    fn run_now_reports_busy_and_refused_without_working() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("now3.db");
+        Db::open(&db_path).unwrap();
+        let svc = ThumbnailService::start(db_path, dir.path().join("thumbs"), 160, 0, |_, _| {});
+        svc.queue.enqueue(&[5]);
+        assert_eq!(svc.run_now(5), RunNow::Busy, "列に居る（働き手に任せる）");
+        for _ in 0..3 {
+            svc.queue.record_failure(6);
+        }
+        assert_eq!(svc.run_now(6), RunNow::Refused);
         svc.shutdown();
     }
 

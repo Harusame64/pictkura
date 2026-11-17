@@ -6970,12 +6970,52 @@ fn made_thumb_now(state: &AppState, id: i64) -> MadeNow {
     match state.thumbs.run_now(id) {
         pictkura_core::RunNow::Busy => return MadeNow::Busy,
         pictkura_core::RunNow::Refused => return MadeNow::Original,
+        pictkura_core::RunNow::Saturated => return MadeNow::Wait,
         pictkura_core::RunNow::Ran => {}
     }
     let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
-    match record {
-        Some(r) if r.thumb_state == 2 => r.thumb_path.map_or(MadeNow::Original, MadeNow::Thumb),
-        _ => MadeNow::Original,
+    // 本番まで行けなくても、即席（埋め込みサムネイル）が出来ていればそれを渡す。原本より軽い
+    match record.and_then(|r| r.thumb_path) {
+        Some(thumb) => MadeNow::Thumb(thumb),
+        None => MadeNow::Original,
+    }
+}
+
+/// その場で縮めた絵を返す（ライブラリの外の写真・働き手が作っている最中の写真で共通）。
+/// URL に版が付くので、内容が変わったら別の URL になる——キャッシュしてよい
+fn preview_response(path: &Path, max_edge: u32) -> Option<Response<Vec<u8>>> {
+    let preview = pictkura_core::browse::preview(path, max_edge)?;
+    Some(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", preview.mime)
+            .header("Cache-Control", "max-age=31536000, immutable")
+            .body(preview.bytes)
+            .unwrap_or_else(|_| server_error()),
+    )
+}
+
+/// 働き手が作っている最中の写真を、その場で縮める数の上限（`run_now` と別に数える）
+const PREVIEW_NOW_MAX: usize = 4;
+static PREVIEWS_NOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// その場で縮める枠1つ。落ちても数を戻す
+struct PreviewSlot;
+
+impl PreviewSlot {
+    fn take() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        if PREVIEWS_NOW.fetch_add(1, Ordering::AcqRel) >= PREVIEW_NOW_MAX {
+            PREVIEWS_NOW.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(Self)
+    }
+}
+
+impl Drop for PreviewSlot {
+    fn drop(&mut self) {
+        PREVIEWS_NOW.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
     }
 }
 
@@ -6987,6 +7027,8 @@ enum MadeNow {
     Busy,
     /// 作らない・作れなかった（今までどおり原本）
     Original,
+    /// 混んでいる（空のタイルにして、働き手の本番を待つ）
+    Wait,
 }
 
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
@@ -7019,7 +7061,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         if pictkura_core::cloud::is_cloud_only_path(&record.path) {
             return not_found();
         }
-        let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+        let thumb_size = state.thumbs.thumb_size();
         return match pictkura_core::browse::preview(&record.path, thumb_size) {
             Some(preview) => Response::builder()
                 .status(StatusCode::OK)
@@ -7139,19 +7181,15 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
                 MadeNow::Thumb(thumb) => thumb,
                 // 作らない（失敗が上限）・作れなかった: 今までどおり原本。何度も解き直さない
                 MadeNow::Original => record.path,
-                // 働き手が作っている最中: その場で縮めたもので埋める
+                // 混んでいる: 原本は渡さず空のタイルにする。働き手の本番が出来れば URL が変わって届く
+                MadeNow::Wait => return blank_thumb(),
+                // 働き手が作っている最中: その場で縮めたもので埋める（同時に縮める数も抑える。超えたら空のタイル）
                 MadeNow::Busy => {
-                    match pictkura_core::browse::preview(&record.path, state.thumbs.thumb_size()) {
-                        Some(preview) => {
-                            return Response::builder()
-                                .status(StatusCode::OK)
-                                .header("Content-Type", preview.mime)
-                                // キャッシュしてよい: 一覧の列は読み終えた URL をタイルに入れ直す（2回目はキャッシュから）。
-                                // 本番が出来れば URL が変わる（`thumb_state`）ので、古い縮めたものは使われなくなる
-                                .header("Cache-Control", "max-age=31536000, immutable")
-                                .body(preview.bytes)
-                                .unwrap_or_else(|_| server_error());
-                        }
+                    let Some(_slot) = PreviewSlot::take() else {
+                        return blank_thumb();
+                    };
+                    match preview_response(&record.path, state.thumbs.thumb_size()) {
+                        Some(response) => return response,
                         None => record.path,
                     }
                 }
