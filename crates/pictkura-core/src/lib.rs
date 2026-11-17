@@ -38,6 +38,7 @@ pub mod search;
 pub mod seek;
 pub mod shell;
 pub mod sidecar;
+pub mod stageprof;
 pub mod svg;
 pub mod sync;
 pub mod thumbs;

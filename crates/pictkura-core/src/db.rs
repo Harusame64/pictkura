@@ -2189,9 +2189,12 @@ impl Db {
         expect: RowVersion,
         f: impl FnOnce(&mut Db) -> Result<T, E>,
     ) -> Result<Option<T>, E> {
+        let t_begin = std::time::Instant::now();
         self.conn
             .execute_batch("BEGIN IMMEDIATE")
             .map_err(|e| E::from(DbError::from(e)))?;
+        crate::stageprof::add(3, t_begin);
+        let t_body = std::time::Instant::now();
         let matches = match self.version_of(id) {
             Ok(Some(v)) => v == expect,
             Ok(None) => false,
@@ -2209,7 +2212,13 @@ impl Db {
         // ほかの接続は busy_timeout の末に「database is locked」になる（PR のゲート2）
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
         match ran {
-            Ok(Ok(v)) => match self.conn.execute_batch("COMMIT") {
+            Ok(Ok(v)) => match {
+                crate::stageprof::add(4, t_body);
+                let t_commit = std::time::Instant::now();
+                let r = self.conn.execute_batch("COMMIT");
+                crate::stageprof::add(5, t_commit);
+                r
+            } {
                 Ok(()) => Ok(Some(v)),
                 Err(e) => {
                     let _ = self.conn.execute_batch("ROLLBACK");

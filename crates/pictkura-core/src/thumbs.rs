@@ -2384,7 +2384,14 @@ impl ThumbnailService {
                     let Ok(mut db) = Db::open(&db_path) else {
                         return;
                     };
-                    while let Some((id, want_final)) = queue.pop() {
+                    loop {
+                        let t_pop = std::time::Instant::now();
+                        let Some((id, want_final)) = queue.pop() else {
+                            break;
+                        };
+                        crate::stageprof::add(0, t_pop);
+                        let t_job = std::time::Instant::now();
+                        let t_pre = std::time::Instant::now();
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
                         //
@@ -2399,13 +2406,18 @@ impl ThumbnailService {
                         // カメラは処理の前後で読み比べる（[`CameraWrite`]）
                         let camera_before = db.camera_id_of_media(id);
                         let version_before = db.version_of(id).ok().flatten();
+                        crate::stageprof::add(1, t_pre);
+                        let t_proc = std::time::Instant::now();
                         let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
                             process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         let stale = matches!(result, Ok(ThumbOutcome::Stale));
+                        crate::stageprof::add(2, t_proc);
+                        let t_fin = std::time::Instant::now();
                         finish_job(&queue, &db, id, version_before, stale);
+                        crate::stageprof::add(6, t_fin);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
                         if result.is_err() {
@@ -2421,9 +2433,12 @@ impl ThumbnailService {
                         // ワーカーが1本静かに消え、しかも「落ちない」ぶん誰も
                         // 気付かない。詰まりを戻さないよう、`complete` は
                         // 網の外（上）に置いたまま通知だけを包む
+                        let t_done = std::time::Instant::now();
                         let _ = crate::panics::catching(&format!("notify id={id}"), || {
                             on_done(id, camera)
                         });
+                        crate::stageprof::add(7, t_done);
+                        crate::stageprof::add(8, t_job);
                     }
                 })
             })
