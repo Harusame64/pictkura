@@ -876,16 +876,17 @@ impl Db {
                 id        INTEGER NOT NULL,
                 queued_ms INTEGER NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_thumb_trash_queued ON thumb_trash(queued_ms, path);
             CREATE TRIGGER IF NOT EXISTS thumb_trash_ad AFTER DELETE ON media
             WHEN old.thumb_path IS NOT NULL BEGIN
                 INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
-                VALUES (old.thumb_path, old.id, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+                VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
             END;
             CREATE TRIGGER IF NOT EXISTS thumb_trash_au AFTER UPDATE OF thumb_path ON media
             WHEN old.thumb_path IS NOT NULL
                 AND (new.thumb_path IS NULL OR new.thumb_path <> old.thumb_path) BEGIN
                 INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
-                VALUES (old.thumb_path, old.id, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+                VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
             END;
             "#,
         )?;
@@ -2476,12 +2477,18 @@ impl Db {
         Ok(out)
     }
 
-    /// 捨てるサムネイルの控え（[`thumb_trash`] 表）を古い順に `limit` 件。`(記録のパス, id)`
-    pub fn thumb_trash_batch(&self, limit: usize) -> Result<Vec<(String, i64)>, DbError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT path, id FROM thumb_trash ORDER BY queued_ms LIMIT ?1")?;
-        let rows = stmt.query_map([limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    /// 捨てるサムネイルの控え（`thumb_trash` 表）を古い順に `offset` から `limit` 件。`(記録のパス, id, 積んだ時刻)`
+    pub fn thumb_trash_batch(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(String, i64, i64)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT path, id, queued_ms FROM thumb_trash ORDER BY queued_ms, path LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map([limit as i64, offset as i64], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
@@ -2498,9 +2505,9 @@ impl Db {
         Ok(())
     }
 
-    /// 記録にあるサムネイルのファイルが無い（手で消した・ディスクの不具合）。行のサムネイルを外して、作り直しの
-    /// 対象に戻す。**記録がまだそのパスのときだけ**（作り直しが先に済んでいれば触らない）。外したかを返す
-    pub fn forget_missing_thumb(&mut self, id: i64, path: &Path) -> Result<bool, DbError> {
+    /// 行のサムネイルを外す（記録がまだそのパスのときだけ）。外したかを返す。外したファイルは引き金が
+    /// `thumb_trash` に積む
+    pub fn clear_thumb_path(&mut self, id: i64, path: &Path) -> Result<bool, DbError> {
         let n = self.conn.execute(
             "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
              WHERE id = ?1 AND thumb_path = ?2",

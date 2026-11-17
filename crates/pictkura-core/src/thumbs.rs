@@ -1617,42 +1617,65 @@ pub fn drain_thumb_trash(
     limit: usize,
     is_active: &dyn Fn(i64) -> bool,
 ) -> Result<usize, DbError> {
-    let batch = db.thumb_trash_batch(limit)?;
     let mut done = Vec::new();
     let mut removed = 0;
-    for (recorded, id) in batch {
-        if is_active(id) {
-            continue;
+    // 見送った控えも片付けた控えも、外すのは最後なので表に残っている。読んだ数だけ先へ進む（先頭が作業中ばかり
+    // でも、後ろが詰まらない）
+    let mut offset = 0;
+    'pages: while done.len() < limit {
+        let batch = db.thumb_trash_batch(limit, offset)?;
+        if batch.is_empty() {
+            break;
         }
-        let recorded_path = Path::new(&recorded);
-        let Some(name) = recorded_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-        else {
+        offset += batch.len();
+        for (recorded, id, queued_ms) in batch {
+            if is_active(id) {
+                continue;
+            }
+            let recorded_path = Path::new(&recorded);
+            let Some(name) = recorded_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+            else {
+                done.push(recorded);
+                continue;
+            };
+            // 置き場の中の場所: `{2桁の16進}/{名前}`、古い平らな置き方なら直下
+            let bucket = recorded_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|b| b.to_string_lossy().into_owned())
+                .filter(|b| b.len() == 2 && b.chars().all(|c| c.is_ascii_hexdigit()));
+            let here = match &bucket {
+                Some(b) => thumbs_dir.join(b).join(&name),
+                None => thumbs_dir.join(&name),
+            };
+            let in_use = bucket.is_some() && db.thumb_file_name(id)?.is_some_and(|n| n == name);
+            // **控えた後に書かれたファイルは消さない**。控えた（回して外れた）すぐ後に、同じ名前で作り直されたものが
+            // 確かめと削除の間に置かれうる（/code-review）。古いファイルは控えより前の日時を持つ
+            let written_after = std::fs::metadata(&here)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .is_some_and(|t| t.as_millis() as i64 > queued_ms);
+            if written_after && !in_use {
+                // 作り直しが記録を書くまでの間かもしれない。控えは残して、次の回に名前で確かめ直す
+                continue;
+            }
+            if !in_use {
+                match std::fs::remove_file(&here) {
+                    Ok(()) => removed += 1,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    // 消せなかった（Windows で開かれている・置き場の媒体が外れた）。控えは残して次の回に試す——外すと
+                    // 二度と拾わない（PR の codex）
+                    Err(_) => continue,
+                }
+            }
             done.push(recorded);
-            continue;
-        };
-        // 置き場の中の場所: `{2桁の16進}/{名前}`、古い平らな置き方なら直下
-        let bucket = recorded_path
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|b| b.to_string_lossy().into_owned())
-            .filter(|b| b.len() == 2 && b.chars().all(|c| c.is_ascii_hexdigit()));
-        let here = match &bucket {
-            Some(b) => thumbs_dir.join(b).join(&name),
-            None => thumbs_dir.join(&name),
-        };
-        let in_use = bucket.is_some() && db.thumb_file_name(id)?.is_some_and(|n| n == name);
-        if !in_use {
-            match std::fs::remove_file(&here) {
-                Ok(()) => removed += 1,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                // 消せなかった（Windows で開かれている・置き場の媒体が外れた）。控えは残して次の回に試す——外すと
-                // 二度と拾わない（PR の codex）
-                Err(_) => continue,
+            if done.len() >= limit {
+                break 'pages;
             }
         }
-        done.push(recorded);
     }
     db.thumb_trash_done(&done)?;
     Ok(removed)
@@ -5178,10 +5201,10 @@ mod tests {
         // a: 写真を消した。b: 回して外れ、同じ名前で作り直された。c: 外れたが作業中
         let path_a = db.get_by_id(a).unwrap().unwrap().path;
         db.remove_paths(&[path_a]).unwrap();
-        db.forget_missing_thumb(b, &pb).unwrap();
+        db.clear_thumb_path(b, &pb).unwrap();
         db.update_thumb_path(b, &pb, 2, None).unwrap();
-        db.forget_missing_thumb(c, &pc).unwrap();
-        assert_eq!(db.thumb_trash_batch(10).unwrap().len(), 3);
+        db.clear_thumb_path(c, &pc).unwrap();
+        assert_eq!(db.thumb_trash_batch(10, 0).unwrap().len(), 3);
 
         let n = drain_thumb_trash(&mut db, &thumbs, 10, &|id| id == c).unwrap();
         assert_eq!(n, 1);
@@ -5189,14 +5212,49 @@ mod tests {
         assert!(pb.exists(), "同じ名前で作り直したものは残す");
         assert!(pc.exists(), "作業中は触らない");
         assert_eq!(
-            db.thumb_trash_batch(10).unwrap().len(),
+            db.thumb_trash_batch(10, 0).unwrap().len(),
             1,
             "作業中の控えは次の回へ残る"
         );
         let n = drain_thumb_trash(&mut db, &thumbs, 10, &|_| false).unwrap();
         assert_eq!(n, 1);
         assert!(!pc.exists());
-        assert!(db.thumb_trash_batch(10).unwrap().is_empty());
+        assert!(db.thumb_trash_batch(10, 0).unwrap().is_empty());
+    }
+
+    /// 先頭の控えが作業中で見送られても、後ろの控えは片付く（先頭で詰まらない）
+    #[test]
+    fn the_trash_reads_past_entries_it_has_to_skip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let files: Vec<ScannedFile> = (1..=2)
+            .map(|i| ScannedFile {
+                path: dir.path().join(format!("p{i}.jpg")),
+                size: 1,
+                mtime_ms: 1,
+            })
+            .collect();
+        db.upsert_files(&files).unwrap();
+        let thumbs = dir.path().join("thumbs");
+        let mut made = Vec::new();
+        for r in db.list_all().unwrap() {
+            let p = thumb_path_for(&thumbs, r.id, "webp");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            db.update_thumb_path(r.id, &p, 2, None).unwrap();
+            made.push((r.id, p));
+        }
+        for (id, p) in &made {
+            db.clear_thumb_path(*id, p).unwrap();
+        }
+        let first = db.thumb_trash_batch(1, 0).unwrap()[0].1;
+        let n = drain_thumb_trash(&mut db, &thumbs, 1, &|id| id == first).unwrap();
+        assert_eq!(n, 1, "見送った先頭の後ろを片付ける");
+        assert_eq!(
+            db.thumb_trash_batch(10, 0).unwrap().len(),
+            1,
+            "見送った控えは残る"
+        );
     }
 
     /// 持ち主の居ないサムネイルだけを消す: 行が無い・行のサムネイルが別の名前。行のある名前、新しいファイル、

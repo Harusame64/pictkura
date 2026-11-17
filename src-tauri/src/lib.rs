@@ -7135,12 +7135,6 @@ fn handle_media_request(
             None => not_found(),
         };
     }
-    // サムネイルを出す要求で、記録のあるサムネイルを読む（無ければ下で作り直しへ戻す）
-    let recorded_thumb = match kind {
-        ServeKind::Thumb | ServeKind::Full if is_video => record.thumb_path.clone(),
-        ServeKind::Thumb => record.thumb_path.clone(),
-        _ => None,
-    };
     // 動画の**絵**の要求は原本へ流さない。`<img>` に動画を渡しても絵にならず、
     // 下の `std::fs::read` はファイルを丸ごとメモリへ載せる。
     // サムネイル（あれば）で代用し、無ければ空タイルを出す
@@ -7245,23 +7239,6 @@ fn handle_media_request(
             .header("Cache-Control", "max-age=31536000, immutable")
             .body(bytes)
             .unwrap_or_else(|_| server_error()),
-        // **記録はあるのにサムネイルのファイルが無い**（手で消した・ディスクの不具合）。行のサムネイルを外して
-        // 作り直しへ戻し、いまの行を配り直す（URL が変わってタイルが問い直す）。外さないと、灰色のまま直らない
-        Err(e)
-            if e.kind() == std::io::ErrorKind::NotFound
-                && recorded_thumb.as_deref() == Some(path.as_path()) =>
-        {
-            let forgot = lock_ok(&state.db)
-                .forget_missing_thumb(id, &path)
-                .unwrap_or(false);
-            if forgot {
-                if let Ok(Some(now)) = state.read_pool.with(|db| db.get_by_id(id)) {
-                    resend(now);
-                }
-                state.thumbs.prioritize(&[id]);
-            }
-            blank_thumb()
-        }
         Err(_) => not_found(),
     }
 }
