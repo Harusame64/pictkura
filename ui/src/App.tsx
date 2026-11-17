@@ -23,6 +23,9 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
+import { GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
+import { GridThumb } from "./GridThumb";
+import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -77,6 +80,7 @@ import {
   getStats,
   listCameras,
   listDay,
+  listDays,
   openDecoderHelp,
   listDrives,
   scanRootsOnDrives,
@@ -313,6 +317,8 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
+/** 読めなかった日を取り直すまで（ms） */
+const DAY_RETRY_MS = 2000;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -328,13 +334,6 @@ const FAST_FLIP_MS = 400;
  */
 function revealThumb(e: { currentTarget: HTMLImageElement }) {
   e.currentTarget.setAttribute("data-shown", "");
-}
-/**
- * 作り直した `<img>` の絵が**もう描ける**なら、浮かべずにそのまま出す——行の組み直し（日を読み込んだ・窓の幅・
- * 大きさ）やスクロールで戻ったとき、出ていた絵が消えて浮かび直さないように（ゲート2）
- */
-function revealIfPainted(img: HTMLImageElement | null) {
-  if (img && img.complete && img.naturalWidth > 0) img.setAttribute("data-shown", "");
 }
 /**
  * 送りの動きの長さ（ミリ秒）。手の送りは短く——判定のあとの自動送りで連写を
@@ -1558,6 +1557,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    failedDaysRef.current.clear();
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1723,28 +1723,54 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   /** ビューアが開いている間、その表示日をキャッシュ間引きから保護する */
   const viewerDayRef = useRef<number | null>(null);
 
-  /** 1日分をオンデマンド取得する（重複・世代違いは無視。失敗は2回まで自動再試行） */
-  const loadDay = useCallback((dayKey: number, attempt = 0) => {
-    if (inflightRef.current.has(dayKey)) return;
-    inflightRef.current.add(dayKey);
+  /** 読めなかった日と、次に頼んでよい時刻（`loadDays`） */
+  const failedDaysRef = useRef(new Map<number, number>());
+
+  /**
+   * 日の一覧をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
+   * 重複・世代違いは無視し、キャッシュは見えている日・ビューアの表示日を残して間引く。
+   * 読めなかった日は、見えているかに関わらず少し待って2回まで取り直す（ビューアの表示日と前後の先読みの日は
+   * 一覧では見えていない）
+   */
+  const loadDays = useCallback((keys: readonly number[], attempt = 0): void => {
+    const now = Date.now();
+    // 読めなかった日は、取り直しの時計に任せる（スクロールのたびに頼み直さない）
+    const want = keys.filter((d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now);
+    if (want.length === 0) return;
+    for (const d of want) inflightRef.current.add(d);
     const gen = generationRef.current;
-    listDay(dayKey, queryRef.current, filterRef.current)
-      .then((items) => {
-        inflightRef.current.delete(dayKey);
+    listDays(want, queryRef.current, filterRef.current)
+      .then((pairs) => {
+        // 世代が替わっていれば何も触らない——読み途中の印は新しい世代の要求のものになっている
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
+        for (const d of want) inflightRef.current.delete(d);
+        const got = new Set(want);
+        // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）。理由は1回だけ出す
+        const failed = pairs.filter((p) => p.items === null);
+        if (failed.length > 0) {
+          const firstError = failed.find((p) => p.error)?.error;
+          if (firstError) fail(errText(firstError));
+          const until = Date.now() + DAY_RETRY_MS;
+          for (const p of failed) failedDaysRef.current.set(p.day_key, until);
+          if (attempt < 2) {
+            window.setTimeout(() => {
+              if (generationRef.current !== gen) return;
+              // 見えている日に限らず取り直す（ビューアの表示日と前後の先読みの日は、一覧では見えていない）
+              const still = failed.map((p) => p.day_key);
+              for (const d of still) failedDaysRef.current.delete(d);
+              if (still.length > 0) loadDays(still, attempt + 1);
+            }, DAY_RETRY_MS);
+          }
+        }
+        // 全部読めなかったなら一覧を組み直さない
+        if (pairs.every((p) => p.items === null)) return;
         setDayItems((prev) => {
           const next = new Map(prev);
-          next.set(dayKey, items);
-          // キャッシュ上限を超えたら、可視範囲外の古い日から間引く（挿入順=FIFO）。
-          // ビューアの表示日はスライドショー中に消えないよう保護する
+          for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
           if (next.size > DAY_CACHE_MAX) {
             for (const key of next.keys()) {
               if (next.size <= DAY_CACHE_TRIM_TO) break;
-              if (
-                key !== dayKey &&
-                key !== viewerDayRef.current &&
-                !visibleDaysRef.current.has(key)
-              ) {
+              if (!got.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
                 next.delete(key);
               }
             }
@@ -1753,22 +1779,27 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         });
       })
       .catch((e) => {
-        inflightRef.current.delete(dayKey);
+        if (generationRef.current !== gen) return;
         fail(errText(e));
-        // 一時的な失敗（DBロック競合等）に備え、可視のままなら少し待って再試行。
-        // それでも失敗が続く場合はスクロール等で可視範囲が変わったときに再試行される
+        // 呼び出しごと失敗した。すぐ頼み直さず（スクロールのたびに同じ失敗を重ねない）、時計が切れたら
+        // まだ見えている日とビューアの表示日だけを取り直す（通り過ぎた日は、見えたときに頼む）
+        const until = Date.now() + DAY_RETRY_MS;
+        for (const d of want) {
+          inflightRef.current.delete(d);
+          failedDaysRef.current.set(d, until);
+        }
         if (attempt < 2) {
           window.setTimeout(() => {
-            if (
-              generationRef.current === gen &&
-              visibleDaysRef.current.has(dayKey)
-            ) {
-              loadDay(dayKey, attempt + 1);
-            }
-          }, 2000);
+            if (generationRef.current !== gen) return;
+            for (const d of want) failedDaysRef.current.delete(d);
+            const still = want.filter((d) => visibleDaysRef.current.has(d) || d === viewerDayRef.current);
+            if (still.length > 0) loadDays(still, attempt + 1);
+          }, DAY_RETRY_MS);
         }
       });
   }, []);
+  /** 1日分（ビューアの表示日など）。中身は `loadDays` と同じ道 */
+  const loadDay = useCallback((dayKey: number) => loadDays([dayKey]), [loadDays]);
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */
@@ -3780,6 +3811,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   }, [view, pendingScrollDay, rows, rowTops]);
 
   const virtualItems = virtualizer.getVirtualItems();
+  /** 一覧のサムネイルの列（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる） */
+  const gridLoader = useTileLoader(scrollRef, view === "grid", GRID_TILE_READS, {
+    slotTimeoutMs: GRID_SLOT_TIMEOUT_MS,
+    coveredBy: null,
+  });
+  const [recentThumbs] = useState(() => new RecentThumbs());
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
@@ -3795,8 +3832,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    for (const dayKey of wanted) loadDay(dayKey);
-  }, [virtualItems, rows, loadDay]);
+    // 1回の呼び出しにまとめる（見えている日と控えの日で分けると載せる回数が倍になり、帯を動かす間の描画が
+    // 重くなった。win2）
+    loadDays(wanted);
+  }, [virtualItems, rows, loadDays]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
@@ -9035,28 +9074,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 });
                               }}
                             >
-                              <img
-                                ref={revealIfPainted}
-                                className="cell"
-                                loading="lazy"
-                                decoding="async"
-                                src={thumbSrc(cell.item)}
-                                // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
-                                // 「サムネイルが無い」の見た目なので、隠したままにしない
-                                onLoad={revealThumb}
-                                onError={revealThumb}
-                                // サムネイル未生成のHEIC/RAWや、まだ手元に無い
-                                // クラウド上のファイルは配信されない（404）。
-                                // `alt` 未指定だと Chromium は title を代替テキストとして
-                                // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
-                                // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
-                                alt=""
-                                // **絵をボタンとして、ファイル名で名乗る**（UI Automation では名前の無い Group だった。
-                                // pictkura-dev #65）。タイル全体をボタンにすると、中の「選択」や重ねの印のボタンが
-                                // 読み上げから潰れる（ゲート2）。押すとタイルの onClick へ上がる。Tab では止めない
-                                // ——一覧には自分のキー操作がある
-                                role="button"
-                                aria-label={cell.item.file_name}
+                              <GridThumb
+                                // 絵は列で読む（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる）
+                                url={thumbSrc(cell.item)}
+                                label={cell.item.file_name}
+                                loader={gridLoader}
+                                recent={recentThumbs}
+                                onDone={revealThumb}
                               />
                               {cell.item.is_video && (
                                 <span className="cell-video">

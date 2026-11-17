@@ -1,0 +1,23 @@
+/** 一覧のサムネイルの部品（src/gridThumbs.ts）。`npm --prefix ui test` */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { paintable, RecentThumbs } from "../src/gridThumbs.ts";
+
+test("最近出した絵は覚え、上限を超えたら古いものから忘れる。触れたものは新しい側へ回す", () => {
+  const r = new RecentThumbs(2);
+  r.add("a");
+  r.add("b");
+  assert.equal(r.touch("a"), true); // a を新しい側へ
+  r.add("c"); // b が押し出される
+  assert.equal(r.touch("b"), false);
+  assert.equal(r.touch("a"), true);
+  assert.equal(r.touch("c"), true);
+});
+
+test("paintable は読めた絵で、「サムネイルが無い」の 1x1 だけを外す（幅1の細長い絵は出す）", () => {
+  assert.equal(paintable({ complete: true, naturalWidth: 512, naturalHeight: 341 }), true);
+  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 512 }), true);
+  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 1 }), false);
+  assert.equal(paintable({ complete: true, naturalWidth: 0, naturalHeight: 0 }), false);
+  assert.equal(paintable({ complete: false, naturalWidth: 512, naturalHeight: 341 }), false);
+});
