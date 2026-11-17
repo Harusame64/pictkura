@@ -2165,14 +2165,15 @@ impl ThumbQueue {
     pub fn prioritize(&self, ids: &[i64]) {
         let mut state = self.lock_state();
         let target: HashSet<i64> = ids.iter().copied().collect();
-        // 自動の列で順番を待っている（＝働き手がまだ読んでいない）写真。下で素性を先に読ませる
-        let unread: HashSet<i64> = state
-            .pending
-            .iter()
-            .filter(|id| target.contains(id))
-            .copied()
-            .collect();
-        state.pending.retain(|id| !target.contains(id));
+        // 自動の列で順番を待っている（＝働き手がまだ読んでいない）写真。下で素性を先に読ませる。降ろすついでに拾う
+        let mut unread: HashSet<i64> = HashSet::new();
+        state.pending.retain(|id| {
+            let hit = target.contains(id);
+            if hit {
+                unread.insert(*id);
+            }
+            !hit
+        });
         state.priority.retain(|id| !target.contains(id));
         // 積み直すぶんは「キュー内」からいったん降ろす。下で載せたものだけが戻る。
         // **降ろしたまま積まないIDを残さないこと**——`queued` に居るのに列に

@@ -7007,7 +7007,12 @@ fn worker_makes_thumb(thumb_state: i64) -> bool {
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
-fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Response<Vec<u8>> {
+fn handle_media_request(
+    state: &AppState,
+    url: &str,
+    range: Option<&str>,
+    resend: &dyn Fn(pictkura_core::MediaRecord),
+) -> Response<Vec<u8>> {
     let not_found = || {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -7154,10 +7159,13 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             // 写真まで OneDrive から落とさせる。見えている写真は、止まったときの `set_visible_priority` が積む）。
             // ファイルを stat する判定は最後に置く（遅い NAS で要求ごとに払わない）
             // 古い要求（頼んだ後に撮影日が読まれて別の日へ移った）は、空のタイルで返して積まない。タイルは
-            // 移った先で作り直され、そこで見えていれば頼み直す
+            // 移った先で作り直され、そこで見えていれば頼み直す。**いまの行を配り直す**——移ったことを一覧が
+            // 知らないまま（日を読み込んでいる最中に知らせが来て当たらなかった等）だと、古い日で頼み続けて
+            // 灰色のまま残る（/code-review）。配り直せば一覧が日を動かし、タイルは外れる
             None if requested_by_grid(url)
                 && requested_day(url).is_some_and(|day| day != record.day_key) =>
             {
+                resend(record.clone());
                 return blank_thumb();
             }
             None if requested_by_grid(url)
@@ -8314,7 +8322,11 @@ pub fn run() {
                 // 500を返しておけば、そのセルだけが空になって次へ進める
                 let response =
                     pictkura_core::panics::catching(&format!("media request {uri}"), || {
-                        handle_media_request(&state, &uri, range.as_deref())
+                        // 古い日で頼んできたタイルへ、いまの行を配り直す（一覧が日を動かす）
+                        let resend = |record: pictkura_core::MediaRecord| {
+                            let _ = app.emit("media-updated", MediaItemDto::from(record));
+                        };
+                        handle_media_request(&state, &uri, range.as_deref(), &resend)
                     })
                     .unwrap_or_else(|| {
                         // **一覧のタイルには壊れた画像アイコンを出さない**
