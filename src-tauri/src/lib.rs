@@ -4909,15 +4909,22 @@ struct ScopeItemDto {
 /// 段階B-3: 高品質サムネイルはこの経路でのみ生成される（全件事前生成の廃止）。
 /// LRU削除済み（state=0へ戻ったもの）もここで再生成される。
 #[tauri::command]
-fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>, days: Option<Vec<i64>>) {
+    // `days` は一覧がそれぞれの写真を並べていた日（`ids` と同じ並び）。日が変わった写真は、頼んだ後に撮影日が
+    // 読まれて画面から去ったので頼まない（[`requested_day`]）
     let need: Vec<i64> = state.read_pool.with(|db| {
-        ids.into_iter()
-            .filter(|&id| {
-                db.get_by_id(id)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|r| r.thumb_state < 2)
+        ids.iter()
+            .enumerate()
+            .filter(|&(i, &id)| {
+                db.get_by_id(id).ok().flatten().is_some_and(|r| {
+                    r.thumb_state < 2
+                        && days
+                            .as_ref()
+                            .and_then(|d| d.get(i))
+                            .is_none_or(|&day| day == r.day_key)
+                })
             })
+            .map(|(_, &id)| id)
             .collect()
     });
     if !need.is_empty() {
@@ -6976,6 +6983,17 @@ fn requested_by_grid(url: &str) -> bool {
         .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
 }
 
+/// 一覧のタイルが、その写真をどの日に並べて頼んだか（`GridThumb.tsx` が `day=` を付ける）。
+///
+/// 新しいライブラリでは、撮影日を読んだ写真が本当の日へ移る。移る前に出た要求（タイルの要求・
+/// `set_visible_priority`）が後から届くと、もう画面に居ない写真の本番を作ることになる（win2: 3万枚で約9千枚）。
+/// 日が違えば、その要求は古い
+fn requested_day(url: &str) -> Option<i64> {
+    let (_, q) = url.split_once('?')?;
+    q.split('&')
+        .find_map(|kv| kv.strip_prefix("day=")?.parse().ok())
+}
+
 /// 働き手がこの写真のサムネイルを作るか（品質段階で見る分）。作らない写真（SVG＝[`THUMB_STATE_NOT_NEEDED`]、
 /// 絵の無い RAW＝[`THUMB_STATE_NO_PREVIEW`]）を一覧が空のタイルで待つと、灰色のまま二度と変わらない
 fn worker_makes_thumb(thumb_state: i64) -> bool {
@@ -7132,6 +7150,13 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
             // 写真まで OneDrive から落とさせる。見えている写真は、止まったときの `set_visible_priority` が積む）。
             // ファイルを stat する判定は最後に置く（遅い NAS で要求ごとに払わない）
+            // 古い要求（頼んだ後に撮影日が読まれて別の日へ移った）は、空のタイルで返して積まない。タイルは
+            // 移った先で作り直され、そこで見えていれば頼み直す
+            None if requested_by_grid(url)
+                && requested_day(url).is_some_and(|day| day != record.day_key) =>
+            {
+                return blank_thumb();
+            }
             None if requested_by_grid(url)
                 && worker_makes_thumb(record.thumb_state)
                 && !state.thumbs.is_blocked(id)
@@ -8454,6 +8479,27 @@ mod tests {
         assert!(
             !super::worker_makes_thumb(THUMB_STATE_NO_PREVIEW),
             "絵の無い RAW"
+        );
+    }
+
+    /// タイルが頼んだ日を URL から読む（無ければ None、数でなければ None）
+    #[test]
+    fn the_requested_day_is_read_from_the_query() {
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?v=1-0-0&grid=1&day=20251228"),
+            Some(20251228)
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?v=1&grid=1"),
+            None
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?day=x"),
+            None
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?today=3"),
+            None
         );
     }
 
