@@ -23,8 +23,39 @@ export const SPIKE = {
   cThreshold: num("pk.spike.cThreshold", 3000),
   cSettleMs: num("pk.spike.cSettleMs", 120),
   cDays: num("pk.spike.cDays", 0) === 1,
+  /** 1 でしきい値を実測から決める: 画面の高さ ÷ サムネイル1枚の読み込み時間 × cK */
+  cAdaptive: num("pk.spike.cAdaptive", 0) === 1,
+  cK: num("pk.spike.cK", 1),
+  /** 帯を掴んでいる間の「止まった」とみなすまで（ms）。離したら待たずに戻す */
+  cRailSettleMs: num("pk.spike.cRailSettleMs", 50),
 };
-export const spikeCounters = { listCalls: 0, listDays: 0, fastOn: 0, lastFastOffAt: 0, params: SPIKE };
+/** サムネイル1枚の読み込み時間の移動平均（ms）。resource timing から */
+let thumbLatencyMs = 80;
+let railActive = false;
+let railRelease: (() => void) | null = null;
+try {
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      if (!e.name.includes("thumb")) continue;
+      const d = (e as PerformanceResourceTiming).duration;
+      if (d > 0 && d < 5000) thumbLatencyMs = thumbLatencyMs * 0.9 + d * 0.1;
+    }
+  }).observe({ type: "resource", buffered: false });
+} catch {
+  /* 測れなければ既定のまま */
+}
+/** いまのしきい値（px/s） */
+function threshold(el: HTMLElement): number {
+  if (!SPIKE.cAdaptive) return SPIKE.cThreshold;
+  const t = (el.clientHeight / (thumbLatencyMs / 1000)) * SPIKE.cK;
+  return Math.min(40000, Math.max(2000, t));
+}
+/** 帯を掴んだ（true）・離した（false）。離したら待たずに読み込みを戻す */
+export function setRailActive(on: boolean): void {
+  railActive = on;
+  if (!on && railRelease) railRelease();
+}
+export const spikeCounters = { listCalls: 0, listDays: 0, fastOn: 0, lastFastOffAt: 0, params: SPIKE, threshold: 0, latencyMs: 0 };
 (window as unknown as { __spikeAC: typeof spikeCounters }).__spikeAC = spikeCounters;
 
 /**
@@ -51,20 +82,30 @@ export function watchScrollSpeed(el: HTMLElement, onFast: (fast: boolean) => voi
     v = v * 0.5 + inst * 0.5;
     lastTop = el.scrollTop;
     lastT = t;
-    if (v > SPIKE.cThreshold) set(true);
+    const th = threshold(el);
+    spikeCounters.threshold = Math.round(th);
+    spikeCounters.latencyMs = Math.round(thumbLatencyMs);
+    if (v > th) set(true);
     // 閾値の半分より速い間は時計を巻き直す。遅くなったら巻き直さず、時計が切れたら戻す
     // （ゆっくり送り続けている間も読み込みが始まるように）
-    if (v >= SPIKE.cThreshold / 2 || timer === null) {
+    if (v >= th / 2 || timer === null) {
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         timer = null;
         v = 0;
         set(false);
-      }, SPIKE.cSettleMs);
+      }, railActive ? SPIKE.cRailSettleMs : SPIKE.cSettleMs);
     }
+  };
+  railRelease = () => {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = null;
+    v = 0;
+    set(false);
   };
   el.addEventListener("scroll", onScroll, { passive: true });
   return () => {
+    railRelease = null;
     el.removeEventListener("scroll", onScroll);
     if (timer !== null) window.clearTimeout(timer);
   };

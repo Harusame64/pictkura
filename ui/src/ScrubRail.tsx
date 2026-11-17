@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
+import { setRailActive } from "./scrollSpike"; // SPIKE
 import { formatMonth, formatMonthOnly, t } from "./i18n";
 import { year } from "./i18n/plural.ts";
 import {
@@ -270,6 +271,7 @@ export function ScrubRail({
     window.clearTimeout(moveTimer.current);
     moveTimer.current = undefined;
     setDragFraction(null);
+    setRailActive(false); // SPIKE（C）
   };
   useEffect(
     () => () => {
@@ -524,6 +526,7 @@ export function ScrubRail({
         if (d) {
           if (!d.moved && Math.abs(p.y - d.startY) > DRAG_SLOP) d.moved = true;
           if (d.moved) {
+            setRailActive(true); // SPIKE（C）
             moveWhileDragging(p.fraction);
             setDragFraction(p.fraction);
           }
