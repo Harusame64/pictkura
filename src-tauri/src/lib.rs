@@ -6965,6 +6965,23 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// サムネイルの無い写真の本番を、この要求の糸でいま作り、出来たサムネイルの場所を返す
+/// （[`pictkura_core::ThumbnailService::run_now`]）。働き手が作っている最中・作れなかったときは `None`
+fn made_thumb_now(state: &AppState, id: i64) -> Option<PathBuf> {
+    if !state.thumbs.run_now(id) {
+        return None;
+    }
+    let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten()?;
+    if record.thumb_state != 2 {
+        return None;
+    }
+    record.thumb_path
+}
+
+fn thumb_size_of(state: &AppState) -> u32 {
+    lock_ok(&state.config).performance.thumbnail_size
+}
+
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
@@ -7103,7 +7120,25 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
             None if !can_serve_original(&record) => return blank_thumb(),
-            None => record.path,
+            // サムネイルの無い写真は、原本を渡さずに**ここで本番を作って**渡す（`ThumbnailService::run_now`）。
+            // 原本を渡すと WebView が大きな絵を1コアで展開し、3万枚の一覧で帯を1回動かすと原本を約600MB
+            // 読んだ（win2）。働き手が作っている最中なら、その場で縮めたもので埋める（取り込み画面と同じ縮め方）。
+            // どちらも出来なければ、今までどおり原本
+            None => match made_thumb_now(state, id) {
+                Some(thumb) => thumb,
+                None => match pictkura_core::browse::preview(&record.path, thumb_size_of(state)) {
+                    Some(preview) => {
+                        return Response::builder()
+                            .status(StatusCode::OK)
+                            .header("Content-Type", preview.mime)
+                            // 本番が出来れば URL が変わる（`thumb_state`）。この縮めたものは残さない
+                            .header("Cache-Control", "no-store")
+                            .body(preview.bytes)
+                            .unwrap_or_else(|_| server_error());
+                    }
+                    None => record.path,
+                },
+            },
         },
         ServeKind::Full => record.path,
     };
