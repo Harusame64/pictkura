@@ -8184,12 +8184,11 @@ pub fn run() {
                                 orphans_swept_at = Some(std::time::Instant::now());
                                 // 写真を消しても残っていたサムネイル（`sweep_orphan_thumbs`）。10分より新しい
                                 // ファイルと作業中の id は残す
-                                let active = state.thumbs.active_ids();
                                 if let Ok(n) = pictkura_core::thumbs::sweep_orphan_thumbs(
                                     db,
                                     &janitor_thumbs_dir,
                                     std::time::Duration::from_secs(600),
-                                    &active,
+                                    &|id| state.thumbs.is_active(id),
                                 ) {
                                     if n > 0 {
                                         applog::note(&format!("removed {n} orphaned thumbnails"));

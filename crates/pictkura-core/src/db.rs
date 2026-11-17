@@ -2434,7 +2434,6 @@ impl Db {
         })
     }
 
-    /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     /// サムネイルを持つ行の、サムネイルのファイル名（`{id}.{ext}`）。孤児の掃除（[`crate::thumbs::sweep_orphan_thumbs`]）が
     /// 突き合わせに使う。**名前だけ**を返す——データのフォルダを動かしたポータブル版では、記録のパスの頭が今と違う
     pub fn thumb_file_names(&self) -> Result<std::collections::HashMap<i64, String>, DbError> {
@@ -2452,6 +2451,23 @@ impl Db {
         Ok(out)
     }
 
+    /// 1行のサムネイルのファイル名（無ければ None）。孤児の掃除が、消す直前に確かめ直すのに使う
+    pub fn thumb_file_name(&self, id: i64) -> Result<Option<String>, DbError> {
+        let path: Option<String> = self
+            .conn
+            .query_row("SELECT thumb_path FROM media WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .flatten();
+        Ok(path.and_then(|p| {
+            Path::new(&p)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+        }))
+    }
+
+    /// IDでレコードを1件取得する（カスタムプロトコルの配信元）。
     pub fn get_by_id(&self, id: i64) -> Result<Option<MediaRecord>, DbError> {
         let mut stmt = self
             .conn

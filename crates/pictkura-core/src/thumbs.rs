@@ -1521,47 +1521,81 @@ pub fn sweep_orphan_thumbs(
     db: &Db,
     thumbs_dir: &Path,
     min_age: std::time::Duration,
-    active: &HashSet<i64>,
+    is_active: &dyn Fn(i64) -> bool,
 ) -> Result<usize, DbError> {
     let known = db.thumb_file_names()?;
     let now = std::time::SystemTime::now();
-    let mut removed = 0;
-    let Ok(dirs) = std::fs::read_dir(thumbs_dir) else {
+    // 候補: 行が無い・行のサムネイルが別の名前のファイル。置き場の直下（古い平らな置き方）と、`id % 256` の
+    // 2桁の16進のフォルダの中だけを見る（違うフォルダに居る同じ名前は、行があっても誰も読まないので候補）
+    let mut candidates: Vec<(i64, std::fs::DirEntry)> = Vec::new();
+    let mut look = |entry: std::fs::DirEntry, bucket: Option<&str>| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.contains(PARTIAL_MARK) {
+            return;
+        }
+        let Some(id) = name
+            .split_once('.')
+            .and_then(|(stem, _)| stem.parse::<i64>().ok())
+        else {
+            return;
+        };
+        let in_its_bucket = bucket.is_none_or(|b| b == format!("{:02x}", (id % 256) as u8));
+        if in_its_bucket && known.get(&id).is_some_and(|n| *n == name) {
+            return;
+        }
+        candidates.push((id, entry));
+    };
+    let Ok(top) = std::fs::read_dir(thumbs_dir) else {
         return Ok(0);
     };
-    for dir in dirs.flatten() {
-        let bucket = dir.file_name();
-        let bucket = bucket.to_string_lossy();
+    for entry in top.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_file() {
+            look(entry, None);
+            continue;
+        }
+        let bucket = entry.file_name().to_string_lossy().into_owned();
         if bucket.len() != 2 || !bucket.chars().all(|c| c.is_ascii_hexdigit()) {
             continue;
         }
-        let Ok(files) = std::fs::read_dir(dir.path()) else {
+        let Ok(files) = std::fs::read_dir(entry.path()) else {
             continue;
         };
         for f in files.flatten() {
-            let name = f.file_name();
-            let name = name.to_string_lossy();
-            if name.contains(PARTIAL_MARK) {
-                continue;
-            }
-            let Some(id) = name
-                .split_once('.')
-                .and_then(|(stem, _)| stem.parse::<i64>().ok())
-            else {
-                continue;
-            };
-            if known.get(&id).is_some_and(|n| *n == name) || active.contains(&id) {
-                continue;
-            }
-            let old_enough = f
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| now.duration_since(t).ok())
-                .is_some_and(|age| age >= min_age);
-            if old_enough && std::fs::remove_file(f.path()).is_ok() {
-                removed += 1;
-            }
+            look(f, Some(&bucket));
+        }
+    }
+    let mut removed = 0;
+    for (id, entry) in candidates {
+        let old_enough = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age >= min_age);
+        if !old_enough {
+            continue;
+        }
+        // **消す直前に確かめ直す**（上の一覧は歩き始めの写し）。歩いている間に働き手が同じ名前で作り直して
+        // 記録していれば、それは使われている絵（/code-review）。作業中なら触らない
+        if is_active(id) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        let at_home = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|b| b.to_string_lossy().into_owned())
+            == Some(format!("{:02x}", (id % 256) as u8));
+        if at_home && db.thumb_file_name(id)?.is_some_and(|n| n == name) {
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            removed += 1;
         }
     }
     Ok(removed)
@@ -5102,7 +5136,21 @@ mod tests {
             std::fs::write(&p, b"x").unwrap();
             p
         };
-        let active: HashSet<i64> = [c].into_iter().collect();
+        let active = |id: i64| id == c;
+        let flat_orphan = {
+            // 古い平らな置き方（置き場の直下）の、行の無いもの
+            let p = thumbs.join("8888.jpg");
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let wrong_bucket = {
+            // 行のある名前でも、その id のフォルダでなければ誰も読まない
+            let other = format!("{:02x}", ((a % 256 + 1) % 256) as u8);
+            let p = thumbs.join(other).join(format!("{a}.webp"));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
 
         // 新しいファイルは消さない
         let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::from_secs(3600), &active)
@@ -5111,7 +5159,9 @@ mod tests {
         assert!(gone.exists());
 
         let n = sweep_orphan_thumbs(&db, &thumbs, std::time::Duration::ZERO, &active).unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(n, 4);
+        assert!(!flat_orphan.exists(), "古い置き方の孤児も消す");
+        assert!(!wrong_bucket.exists(), "違うフォルダの同じ名前は消す");
         assert!(
             owned.exists(),
             "行のある名前は残す（記録のパスの頭が違っても）"
