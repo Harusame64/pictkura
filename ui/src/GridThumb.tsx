@@ -35,12 +35,14 @@ export function GridThumb({
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
 }) {
   const ref = useRef<HTMLImageElement>(null);
-  // 空のタイルが起こされた回数。増えると下の effect が走り直して問い直す（`BlankWaiters`）
-  const [asks, setAsks] = useState(0);
+  // 空のタイルが起こされた回数（いまの URL について。URL が替われば 0 から）。増えると下の effect が走り直して
+  // 問い直す（`BlankWaiters`）
+  const [woken, setWoken] = useState({ src: "", n: 0 });
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
   // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
   // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
   const src = `${url}&grid=1`;
+  const asks = woken.src === src ? woken.n : 0;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -49,31 +51,46 @@ export function GridThumb({
       el.setAttribute("data-shown", "");
       return;
     }
-    let unwait: (() => void) | undefined;
+    // 問い直しは URL に回数を足す。同じ URL だと、macOS の WebView が同じ文書で読んだ空の絵をそのまま返しうる
+    // （no-store でも。/code-review）。回数は働き手の知らせのたびに1つ増えるだけなので、URL が際限なく増えはしない
+    const ask = asks === 0 ? src : `${src}&ask=${asks}`;
+    // 知らせは読みを始める前から待つ——空の絵が届く前に知らせが来ると、届いてから待っても取りこぼす
+    // （働き手の自動の回が、要求と入れ違いに素性だけ読んで終わったとき）。届く前の知らせは覚えておき、空が
+    // 届いたら問い直す
+    let blank = false;
+    let woke = false;
+    const askAgain = () => setWoken((w) => ({ src, n: (w.src === src ? w.n : 0) + 1 }));
+    const wake = () => {
+      if (blank) askAgain();
+      else woke = true;
+    };
+    const unwait = waiters.wait(id, wake);
     const detach = loader.attach(
-      `${src}#${++seq}`,
+      `${ask}#${++seq}`,
       el,
       (img) => {
         // 読み終わったら列から外す（見張りの知らせを受け続けない）
         detach();
         if (paintable(img)) {
-          recent.add(src);
-          el.src = src;
+          unwait();
+          recent.add(ask);
+          el.src = ask;
         } else {
           // 出せる絵が無い（404・「サムネイルが無い」の 1x1）。前の URL の絵が残っていれば消し、地の灰色を
           // 見せる（古い向き・差し替え前の絵を出したままにしない）。覚えないので、作り直しで問い直す
           el.removeAttribute("src");
           el.setAttribute("data-shown", "");
-          unwait = waiters.wait(id, () => setAsks((n) => n + 1));
+          blank = true;
+          // 届く前に知らせが来ていれば、すぐ問い直す（その知らせで待ちは外れている）。来ていなければ待ち続ける
+          if (woke) askAgain();
         }
       },
-      src,
+      ask,
     );
     return () => {
       detach();
-      unwait?.();
+      unwait();
     };
-    // `asks` は起こされたら問い直すための依存（effect の中では読まない）
   }, [src, loader, recent, waiters, id, asks]);
   return (
     <img
