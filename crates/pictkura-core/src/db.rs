@@ -864,6 +864,31 @@ impl Db {
                 ON media(thumb_used_ms, thumb_bytes) WHERE thumb_state = 2;
             "#
         ))?;
+        // **捨てるサムネイルの控え。** 写真の行が消える・行のサムネイルが外れる（回した・作り直す・LRU）と、
+        // そのファイル名をここへ積む。行が消えるとサムネイルの持ち主の記録も消え、ファイルだけが置き場に残って
+        // いた（2026-11-18 利用者）。消す道は多い（走査・監視・ゴミ箱・ルートを外す・パスの正規化）ので、
+        // 道ごとでなく DB の引き金で拾う。片付けは掃除役（[`Db::thumb_trash_batch`]）が、消す直前にその名前を
+        // どの行も使っていないことを確かめてから行う
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS thumb_trash (
+                path      TEXT PRIMARY KEY,
+                id        INTEGER NOT NULL,
+                queued_ms INTEGER NOT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS thumb_trash_ad AFTER DELETE ON media
+            WHEN old.thumb_path IS NOT NULL BEGIN
+                INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
+                VALUES (old.thumb_path, old.id, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            END;
+            CREATE TRIGGER IF NOT EXISTS thumb_trash_au AFTER UPDATE OF thumb_path ON media
+            WHEN old.thumb_path IS NOT NULL
+                AND (new.thumb_path IS NULL OR new.thumb_path <> old.thumb_path) BEGIN
+                INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
+                VALUES (old.thumb_path, old.id, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+            END;
+            "#,
+        )?;
         // 移行: day_key未計算（=0）の既存レコードを埋める
         conn.execute(
             &format!(
@@ -2449,6 +2474,39 @@ impl Db {
             }
         }
         Ok(out)
+    }
+
+    /// 捨てるサムネイルの控え（[`thumb_trash`] 表）を古い順に `limit` 件。`(記録のパス, id)`
+    pub fn thumb_trash_batch(&self, limit: usize) -> Result<Vec<(String, i64)>, DbError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, id FROM thumb_trash ORDER BY queued_ms LIMIT ?1")?;
+        let rows = stmt.query_map([limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 片付けた控えを外す
+    pub fn thumb_trash_done(&mut self, paths: &[String]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut del = tx.prepare_cached("DELETE FROM thumb_trash WHERE path = ?1")?;
+            for p in paths {
+                del.execute([p])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 記録にあるサムネイルのファイルが無い（手で消した・ディスクの不具合）。行のサムネイルを外して、作り直しの
+    /// 対象に戻す。**記録がまだそのパスのときだけ**（作り直しが先に済んでいれば触らない）。外したかを返す
+    pub fn forget_missing_thumb(&mut self, id: i64, path: &Path) -> Result<bool, DbError> {
+        let n = self.conn.execute(
+            "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
+             WHERE id = ?1 AND thumb_path = ?2",
+            params![id, path.to_string_lossy()],
+        )?;
+        Ok(n > 0)
     }
 
     /// 1行のサムネイルのファイル名（無ければ None）。孤児の掃除が、消す直前に確かめ直すのに使う

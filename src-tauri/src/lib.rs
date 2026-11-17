@@ -6931,6 +6931,9 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
+/// 控え（`thumb_trash`）を始める前に残った孤児のサムネイルを、置き場を見て回って片付けたかの印（一度だけ）
+const ORPHAN_SWEEP_KEY: &str = "orphan_thumb_sweep_v1";
+
 /// サムネイル未生成のとき、原本を一覧へ出して良い最大の辺（ピクセル）。
 ///
 /// 既定のサムネイル（512px）の4倍。設定値から計算したくなるが、
@@ -7132,6 +7135,12 @@ fn handle_media_request(
             None => not_found(),
         };
     }
+    // サムネイルを出す要求で、記録のあるサムネイルを読む（無ければ下で作り直しへ戻す）
+    let recorded_thumb = match kind {
+        ServeKind::Thumb | ServeKind::Full if is_video => record.thumb_path.clone(),
+        ServeKind::Thumb => record.thumb_path.clone(),
+        _ => None,
+    };
     // 動画の**絵**の要求は原本へ流さない。`<img>` に動画を渡しても絵にならず、
     // 下の `std::fs::read` はファイルを丸ごとメモリへ載せる。
     // サムネイル（あれば）で代用し、無ければ空タイルを出す
@@ -7236,6 +7245,23 @@ fn handle_media_request(
             .header("Cache-Control", "max-age=31536000, immutable")
             .body(bytes)
             .unwrap_or_else(|_| server_error()),
+        // **記録はあるのにサムネイルのファイルが無い**（手で消した・ディスクの不具合）。行のサムネイルを外して
+        // 作り直しへ戻し、いまの行を配り直す（URL が変わってタイルが問い直す）。外さないと、灰色のまま直らない
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                && recorded_thumb.as_deref() == Some(path.as_path()) =>
+        {
+            let forgot = lock_ok(&state.db)
+                .forget_missing_thumb(id, &path)
+                .unwrap_or(false);
+            if forgot {
+                if let Ok(Some(now)) = state.read_pool.with(|db| db.get_by_id(id)) {
+                    resend(now);
+                }
+                state.thumbs.prioritize(&[id]);
+            }
+            blank_thumb()
+        }
         Err(_) => not_found(),
     }
 }
@@ -8163,33 +8189,36 @@ pub fn run() {
                     let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
                         let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
-                        // 持ち主の居ないサムネイルの掃除は、起動後の最初の回と、その後1時間ごと
-                        let mut orphans_swept_at: Option<std::time::Instant> = None;
                         loop {
                             std::thread::sleep(std::time::Duration::from_secs(60));
                             let state = janitor_handle.state::<AppState>();
                             let touches: Vec<(i64, i64)> =
                                 lock_ok(&state.thumb_touches).drain().collect();
-                            let sweep_due = orphans_swept_at.is_none_or(|at| {
-                                at.elapsed() >= std::time::Duration::from_secs(3600)
-                            });
-                            if touches.is_empty() && cap_bytes == 0 && !sweep_due {
-                                continue;
-                            }
                             if db.is_none() {
                                 db = Db::open(&janitor_db_path).ok();
                             }
                             let Some(db) = db.as_mut() else { continue };
-                            if sweep_due {
-                                orphans_swept_at = Some(std::time::Instant::now());
-                                // 写真を消しても残っていたサムネイル（`sweep_orphan_thumbs`）。10分より新しい
-                                // ファイルと作業中の id は残す
+                            // 写真の行が消えた・サムネイルが外れたときに DB が控えたファイルを消す
+                            // （`drain_thumb_trash`。置き場は見て回らない。控えが無ければ1回の読みで終わる）
+                            if let Ok(n) = pictkura_core::thumbs::drain_thumb_trash(
+                                db,
+                                &janitor_thumbs_dir,
+                                2000,
+                                &|id| state.thumbs.is_active(id),
+                            ) {
+                                if n > 0 {
+                                    applog::note(&format!("removed {n} thumbnails no photo uses"));
+                                }
+                            }
+                            // 控えを始める前（この版より前）に残った孤児は、置き場を1回だけ見て回って片付ける
+                            if db.get_meta(ORPHAN_SWEEP_KEY).ok().flatten().is_none() {
                                 if let Ok(n) = pictkura_core::thumbs::sweep_orphan_thumbs(
                                     db,
                                     &janitor_thumbs_dir,
                                     std::time::Duration::from_secs(600),
                                     &|id| state.thumbs.is_active(id),
                                 ) {
+                                    let _ = db.set_meta(ORPHAN_SWEEP_KEY, "1");
                                     if n > 0 {
                                         applog::note(&format!("removed {n} orphaned thumbnails"));
                                     }

@@ -1601,6 +1601,51 @@ pub fn sweep_orphan_thumbs(
     Ok(removed)
 }
 
+/// 捨てるサムネイルの控え（DB の `thumb_trash`）を片付ける。消すのは、その名前をどの行も使っていない
+/// ファイルだけ——控えた後で同じ名前に作り直された（回した写真の作り直し）なら、ファイルは残して控えだけ外す。
+/// 作業中の id は次の回へ回す。記録のパスの頭ではなく、今の置き場で名前を引く（データのフォルダを動かした
+/// ポータブル版）。返り値は消したファイルの数
+pub fn drain_thumb_trash(
+    db: &mut Db,
+    thumbs_dir: &Path,
+    limit: usize,
+    is_active: &dyn Fn(i64) -> bool,
+) -> Result<usize, DbError> {
+    let batch = db.thumb_trash_batch(limit)?;
+    let mut done = Vec::new();
+    let mut removed = 0;
+    for (recorded, id) in batch {
+        if is_active(id) {
+            continue;
+        }
+        let recorded_path = Path::new(&recorded);
+        let Some(name) = recorded_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+        else {
+            done.push(recorded);
+            continue;
+        };
+        // 置き場の中の場所: `{2桁の16進}/{名前}`、古い平らな置き方なら直下
+        let bucket = recorded_path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|b| b.to_string_lossy().into_owned())
+            .filter(|b| b.len() == 2 && b.chars().all(|c| c.is_ascii_hexdigit()));
+        let here = match &bucket {
+            Some(b) => thumbs_dir.join(b).join(&name),
+            None => thumbs_dir.join(&name),
+        };
+        let in_use = bucket.is_some() && db.thumb_file_name(id)?.is_some_and(|n| n == name);
+        if !in_use && std::fs::remove_file(&here).is_ok() {
+            removed += 1;
+        }
+        done.push(recorded);
+    }
+    db.thumb_trash_done(&done)?;
+    Ok(removed)
+}
+
 /// 一時ファイルに書いたサムネイルを、**行がまだ同じ版のときだけ**本当の名前へ付け替えて記録する（F1）。
 ///
 /// 以前は本当の名前へ直接書いてから行を更新していた。作業の途中で行が新しくなる（回した・外で書き換えた）と、
@@ -5089,6 +5134,57 @@ mod tests {
         queue.record_failure(8);
         queue.enqueue(&[8]);
         assert_eq!(queue.pop(), Some((8, false)));
+    }
+
+    /// 写真の行が消える・サムネイルが外れると、そのファイルが控えに積まれ、片付けで消える。同じ名前に作り直した
+    /// ものは残す。作業中は次の回へ
+    #[test]
+    fn the_trash_removes_thumbnails_whose_row_let_go_of_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        let files: Vec<ScannedFile> = (1..=3)
+            .map(|i| ScannedFile {
+                path: dir.path().join(format!("p{i}.jpg")),
+                size: 1,
+                mtime_ms: 1,
+            })
+            .collect();
+        db.upsert_files(&files).unwrap();
+        let ids: Vec<i64> = db.list_all().unwrap().iter().map(|r| r.id).collect();
+        let (a, b, c) = (ids[0], ids[1], ids[2]);
+        let thumbs = dir.path().join("thumbs");
+        let put = |id: i64| {
+            let p = thumb_path_for(&thumbs, id, "webp");
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let (pa, pb, pc) = (put(a), put(b), put(c));
+        for (id, p) in [(a, &pa), (b, &pb), (c, &pc)] {
+            db.update_thumb_path(id, p, 2, None).unwrap();
+        }
+        // a: 写真を消した。b: 回して外れ、同じ名前で作り直された。c: 外れたが作業中
+        let path_a = db.get_by_id(a).unwrap().unwrap().path;
+        db.remove_paths(&[path_a]).unwrap();
+        db.forget_missing_thumb(b, &pb).unwrap();
+        db.update_thumb_path(b, &pb, 2, None).unwrap();
+        db.forget_missing_thumb(c, &pc).unwrap();
+        assert_eq!(db.thumb_trash_batch(10).unwrap().len(), 3);
+
+        let n = drain_thumb_trash(&mut db, &thumbs, 10, &|id| id == c).unwrap();
+        assert_eq!(n, 1);
+        assert!(!pa.exists(), "行の消えた写真のサムネイルは消す");
+        assert!(pb.exists(), "同じ名前で作り直したものは残す");
+        assert!(pc.exists(), "作業中は触らない");
+        assert_eq!(
+            db.thumb_trash_batch(10).unwrap().len(),
+            1,
+            "作業中の控えは次の回へ残る"
+        );
+        let n = drain_thumb_trash(&mut db, &thumbs, 10, &|_| false).unwrap();
+        assert_eq!(n, 1);
+        assert!(!pc.exists());
+        assert!(db.thumb_trash_batch(10).unwrap().is_empty());
     }
 
     /// 持ち主の居ないサムネイルだけを消す: 行が無い・行のサムネイルが別の名前。行のある名前、新しいファイル、
