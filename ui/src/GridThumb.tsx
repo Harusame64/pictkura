@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef } from "react";
-import { paintable, type RecentThumbs } from "./gridThumbs";
+import { useLayoutEffect, useRef, useState } from "react";
+import { paintable, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
 import type { TileAttach } from "./useTileQueue";
 
 /** タイルごとの鍵（同じ写真のタイルが同時に2枚ありうるので、URL とは別に振る） */
@@ -16,22 +16,30 @@ let seq = 0;
  * そうでなければ列に並べ、読み終わったら入れる。URL が替わったら、新しい絵が届くまで前の絵を出したまま
  */
 export function GridThumb({
+  id,
   url,
   label,
   loader,
   recent,
+  waiters,
   onDone,
 }: {
+  /** 写真の id（空のタイルが、働き手の知らせを待つ宛先） */
+  id: number;
   url: string;
   label: string;
   loader: TileAttach;
   recent: RecentThumbs;
+  waiters: BlankWaiters;
   /** 届いた・失敗した（`revealThumb`。地の灰色を見せる印を付ける） */
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
 }) {
   const ref = useRef<HTMLImageElement>(null);
+  // 空のタイルが起こされた回数。増えると下の effect が走り直して問い直す（`BlankWaiters`）
+  const [asks, setAsks] = useState(0);
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
-  // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す
+  // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
+  // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
   const src = `${url}&grid=1`;
   useLayoutEffect(() => {
     const el = ref.current;
@@ -41,6 +49,7 @@ export function GridThumb({
       el.setAttribute("data-shown", "");
       return;
     }
+    let unwait: (() => void) | undefined;
     const detach = loader.attach(
       `${src}#${++seq}`,
       el,
@@ -55,12 +64,17 @@ export function GridThumb({
           // 見せる（古い向き・差し替え前の絵を出したままにしない）。覚えないので、作り直しで問い直す
           el.removeAttribute("src");
           el.setAttribute("data-shown", "");
+          unwait = waiters.wait(id, () => setAsks((n) => n + 1));
         }
       },
       src,
     );
-    return detach;
-  }, [src, loader, recent]);
+    return () => {
+      detach();
+      unwait?.();
+    };
+    // `asks` は起こされたら問い直すための依存（effect の中では読まない）
+  }, [src, loader, recent, waiters, id, asks]);
   return (
     <img
       ref={ref}

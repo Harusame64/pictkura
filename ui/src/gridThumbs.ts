@@ -68,3 +68,42 @@ export class RecentThumbs {
     }
   }
 }
+
+/**
+ * 空のタイル（サムネイルがまだ無い写真）の待ち合わせ。働き手がその写真を片付けたら（`media-updated`）、待っている
+ * タイルを起こして問い直させる。
+ *
+ * URL が変わるのはサムネイルが書けたときだけなので、それだけを頼ると、ほかの終わり方（素性だけ読んで終わった・
+ * 書き換え中で積み直した・失敗した）で灰色のまま残る。問い直せば、その時の状態で答えが決まる——出来ていれば絵、
+ * まだなら列の先頭へ押し直して空、作れないと分かれば原本か空（`src-tauri` の `handle_media_request`）。
+ * 働き手が知らせない写真（作らない・クラウドだけ・失敗の上限）は起こされないので、問い直しは続かない
+ */
+export class BlankWaiters {
+  private readonly waiting = new Map<number, Set<() => void>>();
+
+  /** 写真 `id` の知らせを待つ。返り値で待つのをやめる */
+  wait(id: number, wake: () => void): () => void {
+    let set = this.waiting.get(id);
+    if (!set) {
+      set = new Set();
+      this.waiting.set(id, set);
+    }
+    set.add(wake);
+    return () => {
+      const s = this.waiting.get(id);
+      if (!s) return;
+      s.delete(wake);
+      if (s.size === 0) this.waiting.delete(id);
+    };
+  }
+
+  /** 働き手が片付けた写真。待っていたタイルを1回ずつ起こす（起こしたら外す。問い直して空ならまた待つ） */
+  notify(ids: Iterable<number>): void {
+    for (const id of ids) {
+      const set = this.waiting.get(id);
+      if (!set) continue;
+      this.waiting.delete(id);
+      for (const wake of set) wake();
+    }
+  }
+}
