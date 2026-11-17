@@ -2415,6 +2415,13 @@ impl ThumbnailService {
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         let stale = matches!(result, Ok(ThumbOutcome::Stale));
                         crate::stageprof::add(2, t_proc);
+                        match &result {
+                            Err(e) => crate::stageprof::error(id, &format!("err: {e}")),
+                            Ok(o @ (ThumbOutcome::Stale | ThumbOutcome::MetadataOnly)) => {
+                                crate::stageprof::error(id, &format!("outcome: {o:?}"))
+                            }
+                            _ => {}
+                        }
                         let t_fin = std::time::Instant::now();
                         finish_job(&queue, &db, id, version_before, stale);
                         crate::stageprof::add(6, t_fin);

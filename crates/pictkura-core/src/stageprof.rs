@@ -55,3 +55,26 @@ pub fn add(stage: usize, since: Instant) {
         N[stage].fetch_add(1, Ordering::Relaxed);
     }
 }
+
+static ERRS: AtomicU64 = AtomicU64::new(0);
+
+/// 失敗した仕事を数え、最初の200件は理由を書き出す
+pub fn error(id: i64, what: &str) {
+    if !on() {
+        return;
+    }
+    NS[9].fetch_add(0, Ordering::Relaxed);
+    N[9].fetch_add(1, Ordering::Relaxed);
+    if ERRS.fetch_add(1, Ordering::Relaxed) < 200 {
+        if let Ok(path) = std::env::var("PICTKURA_STAGEPROF") {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(format!("{path}.errors"))
+            {
+                let _ = writeln!(f, "id={id} {what}");
+            }
+        }
+    }
+}
