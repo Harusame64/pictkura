@@ -23,7 +23,8 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
-import { GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, GridThumbs } from "./gridThumbs";
+import { GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
+import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
@@ -1557,8 +1558,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
     failedDaysRef.current.clear();
-    pendingDaysRef.current = new Map();
-    pendingKeepRef.current = new Set();
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1726,11 +1725,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
 
   /** 読めなかった日と、次に頼んでよい時刻（`loadDays`） */
   const failedDaysRef = useRef(new Map<number, number>());
-  /** 届いて、次のコマで載せる日（`loadDays`）。載せる前に世代が替われば捨てる */
-  const pendingDaysRef = useRef(new Map<number, MediaItem[]>());
-  /** 次のコマで載せる日のうち、キャッシュの間引きから守る日 */
-  const pendingKeepRef = useRef(new Set<number>());
-  const pendingFlushRef = useRef<number | null>(null);
 
   /**
    * 日の一覧をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
@@ -1770,41 +1764,33 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         }
         // 全部読めなかったなら一覧を組み直さない
         if (pairs.every((p) => p.items === null)) return;
-        for (const p of pairs) if (p.items !== null) pendingDaysRef.current.set(p.day_key, p.items);
-        for (const d of got) pendingKeepRef.current.add(d);
-        // 届いた日は、1コマに1回まとめて載せる。載せるたびに一覧の組み立て（重ね・行・ビューアの道筋）が
-        // 読み込み済みの全日で走り直すので、返事ごとに載せると帯を動かす間の描画が重くなった（win2 の測定で
-        // 呼び出しが倍になったとき、組み立ての時間が約1.7倍、p95 が約10→15ms）
-        if (pendingFlushRef.current !== null) return;
-        pendingFlushRef.current = requestAnimationFrame(() => {
-          pendingFlushRef.current = null;
-          const add = pendingDaysRef.current;
-          const keep = pendingKeepRef.current;
-          pendingDaysRef.current = new Map();
-          pendingKeepRef.current = new Set();
-          if (generationRef.current !== gen || add.size === 0) return;
-          setDayItems((prev) => {
-            const next = new Map(prev);
-            for (const [d, items] of add) next.set(d, items);
-            if (next.size > DAY_CACHE_MAX) {
-              for (const key of next.keys()) {
-                if (next.size <= DAY_CACHE_TRIM_TO) break;
-                if (!keep.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
-                  next.delete(key);
-                }
+        setDayItems((prev) => {
+          const next = new Map(prev);
+          for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
+          if (next.size > DAY_CACHE_MAX) {
+            for (const key of next.keys()) {
+              if (next.size <= DAY_CACHE_TRIM_TO) break;
+              if (!got.has(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
+                next.delete(key);
               }
             }
-            return next;
-          });
+          }
+          return next;
         });
       })
       .catch((e) => {
         if (generationRef.current !== gen) return;
-        for (const d of want) inflightRef.current.delete(d);
         fail(errText(e));
+        // 読めなかった日と同じ扱い: 時計が切れるまで頼み直さず、切れたら一度に取り直す
+        const until = Date.now() + DAY_RETRY_MS;
+        for (const d of want) {
+          inflightRef.current.delete(d);
+          failedDaysRef.current.set(d, until);
+        }
         if (attempt < 2) {
           window.setTimeout(() => {
             if (generationRef.current !== gen) return;
+            for (const d of want) failedDaysRef.current.delete(d);
             loadDays(want, attempt + 1);
           }, DAY_RETRY_MS);
         }
@@ -3828,7 +3814,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     slotTimeoutMs: GRID_SLOT_TIMEOUT_MS,
     coveredBy: null,
   });
-  const [gridThumbs] = useState(() => new GridThumbs(gridLoader));
+  const [recentThumbs] = useState(() => new RecentThumbs());
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
@@ -9096,27 +9082,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 });
                               }}
                             >
-                              <img
-                                // `src` は列が入れる（`gridThumbs.ts`。読み手が読み終えてから、同時に4枚まで）
-                                ref={gridThumbs.refFor(thumbSrc(cell.item))}
-                                className="cell"
-                                decoding="async"
-                                // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
-                                // 「サムネイルが無い」の見た目なので、隠したままにしない
-                                onLoad={revealThumb}
-                                onError={revealThumb}
-                                // サムネイル未生成のHEIC/RAWや、まだ手元に無い
-                                // クラウド上のファイルは配信されない（404）。
-                                // `alt` 未指定だと Chromium は title を代替テキストとして
-                                // 枠に描いてしまう（ファイル名が並ぶ）。装飾用として空にする。
-                                // サムネイルが出せないセルは、バックエンドが透明な1x1を返す
-                                alt=""
-                                // **絵をボタンとして、ファイル名で名乗る**（UI Automation では名前の無い Group だった。
-                                // pictkura-dev #65）。タイル全体をボタンにすると、中の「選択」や重ねの印のボタンが
-                                // 読み上げから潰れる（ゲート2）。押すとタイルの onClick へ上がる。Tab では止めない
-                                // ——一覧には自分のキー操作がある
-                                role="button"
-                                aria-label={cell.item.file_name}
+                              <GridThumb
+                                // 絵は列で読む（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる）
+                                url={thumbSrc(cell.item)}
+                                label={cell.item.file_name}
+                                loader={gridLoader}
+                                recent={recentThumbs}
+                                onDone={revealThumb}
                               />
                               {cell.item.is_video && (
                                 <span className="cell-video">

@@ -108,7 +108,7 @@ test("一覧の読み手: 遅い1枚は時間切れで枠を空け、読み終�
   assert.deepEqual(got, ["slow"]);
 });
 
-test("時間切れで枠を空けた読みが続いている間は、同じ鍵を並べ直さない", async () => {
+test("同じ絵を読み途中に並んだタイルは、もう一度読まず、その読みの終わりで受け取る", async () => {
   const made: FakeImage[] = [];
   const l = new TileLoader(
     2,
@@ -119,15 +119,35 @@ test("時間切れで枠を空けた読みが続いている間は、同じ鍵�
     },
     { slotTimeoutMs: 10, coveredBy: null },
   );
-  const got: number[] = [];
-  const d1 = l.attach("big", {} as Element, () => got.push(1));
-  l.see("big", true);
-  await new Promise((r) => setTimeout(r, 30));
-  d1();
-  l.attach("big", {} as Element, () => got.push(2));
-  l.see("big", true);
+  const got: string[] = [];
+  const d1 = l.attach("t1", {} as Element, () => got.push("t1"), "big.jpg");
+  l.see("t1", true);
+  await new Promise((r) => setTimeout(r, 30)); // 時間切れで枠は空いたが、読みは続いている
+  d1(); // そのタイルは外れた
+  l.attach("t2", {} as Element, () => got.push("t2"), "big.jpg"); // 作り直したタイル
+  l.see("t2", true);
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(made.length, 1);
+  assert.equal(made[0]!.src, "big.jpg");
   made[0]!.onload!();
-  assert.deepEqual(got, [2]);
+  assert.deepEqual(got, ["t2"]);
+});
+
+test("時間切れでも、読み途中が枠の2倍に達していたら枠を空けない（遅い媒体で読みを積み上げない）", async () => {
+  const made: FakeImage[] = [];
+  const l = new TileLoader(
+    1,
+    () => {
+      const img: FakeImage = { src: "", decoding: "", draggable: true, alt: "x", onload: null, onerror: null };
+      made.push(img);
+      return img as unknown as HTMLImageElement;
+    },
+    { slotTimeoutMs: 10, coveredBy: null },
+  );
+  for (const k of ["a", "b", "c", "d"]) {
+    l.attach(k, {} as Element, () => {});
+    l.see(k, true);
+  }
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(made.map((m) => m.src), ["a", "b"]);
 });
