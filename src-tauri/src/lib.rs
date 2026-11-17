@@ -8149,6 +8149,7 @@ pub fn run() {
             // 残っている」で済み、再生成時に同名パスへ上書きされる
             let janitor_handle = app.handle().clone();
             let janitor_db_path = db_path.clone();
+            let janitor_thumbs_dir = data_dir.join("thumbs");
             std::thread::spawn(move || {
                 // **掃除役を絶やさない**（ゲート1の指摘）。ここが死ぬとLRU削除が
                 // 永久に止まり、サムネイルが上限を超えて**ディスクを埋め続ける**
@@ -8162,18 +8163,38 @@ pub fn run() {
                     let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
                         let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
+                        // 持ち主の居ないサムネイルの掃除は、起動後の最初の回と、その後1時間ごと
+                        let mut orphans_swept_at: Option<std::time::Instant> = None;
                         loop {
                             std::thread::sleep(std::time::Duration::from_secs(60));
                             let state = janitor_handle.state::<AppState>();
                             let touches: Vec<(i64, i64)> =
                                 lock_ok(&state.thumb_touches).drain().collect();
-                            if touches.is_empty() && cap_bytes == 0 {
+                            let sweep_due = orphans_swept_at.is_none_or(|at| {
+                                at.elapsed() >= std::time::Duration::from_secs(3600)
+                            });
+                            if touches.is_empty() && cap_bytes == 0 && !sweep_due {
                                 continue;
                             }
                             if db.is_none() {
                                 db = Db::open(&janitor_db_path).ok();
                             }
                             let Some(db) = db.as_mut() else { continue };
+                            if sweep_due {
+                                orphans_swept_at = Some(std::time::Instant::now());
+                                // 写真を消しても残っていたサムネイル（`sweep_orphan_thumbs`）。10分より新しい
+                                // ファイルと作業中の id は残す
+                                if let Ok(n) = pictkura_core::thumbs::sweep_orphan_thumbs(
+                                    db,
+                                    &janitor_thumbs_dir,
+                                    std::time::Duration::from_secs(600),
+                                    &|id| state.thumbs.is_active(id),
+                                ) {
+                                    if n > 0 {
+                                        applog::note(&format!("removed {n} orphaned thumbnails"));
+                                    }
+                                }
+                            }
                             if !touches.is_empty() {
                                 // 書き込み失敗（長時間の書き込みトランザクションとの競合等）で
                                 // タッチを失うと、直近閲覧中のサムネイルほどLRUで削除されやすく
