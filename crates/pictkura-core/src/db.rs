@@ -2516,6 +2516,19 @@ impl Db {
         Ok(n > 0)
     }
 
+    /// 書き手の順番（`BEGIN IMMEDIATE`）を持ったまま `f` を走らせる。`f` は読むだけ・ファイルを触るだけ。
+    /// サムネイルの付け替え（[`crate::thumbs`] の `publish_thumb`）は書き手の順番の中で記録して付け替えるので、
+    /// この中で確かめて消せば、付け替えの途中と入れ違わない
+    pub fn holding_write_lock<T>(&mut self, f: impl FnOnce(&Db) -> T) -> Result<T, DbError> {
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        let _ = self.conn.execute_batch("COMMIT");
+        match out {
+            Ok(v) => Ok(v),
+            Err(p) => std::panic::resume_unwind(p),
+        }
+    }
+
     /// 1行のサムネイルのファイル名（無ければ None）。孤児の掃除が、消す直前に確かめ直すのに使う
     pub fn thumb_file_name(&self, id: i64) -> Result<Option<String>, DbError> {
         let path: Option<String> = self

@@ -1650,26 +1650,43 @@ pub fn drain_thumb_trash(
                 Some(b) => thumbs_dir.join(b).join(&name),
                 None => thumbs_dir.join(&name),
             };
-            let in_use = bucket.is_some() && db.thumb_file_name(id)?.is_some_and(|n| n == name);
-            // **控えた後に書かれたファイルは消さない**。控えた（回して外れた）すぐ後に、同じ名前で作り直されたものが
-            // 確かめと削除の間に置かれうる（/code-review）。古いファイルは控えより前の日時を持つ
-            let written_after = std::fs::metadata(&here)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .is_some_and(|t| t.as_millis() as i64 > queued_ms);
-            if written_after && !in_use {
-                // 作り直しが記録を書くまでの間かもしれない。控えは残して、次の回に名前で確かめ直す
-                continue;
+            // **書き手の順番を持ったまま確かめて消す**（PR の codex）。付け替えは書き手の順番の中で「記録→付け替え→
+            // 確定」をするので、この中では付け替えの途中と入れ違わない: 見えるのは付け替えの前（古いファイル）か、
+            // 確定した後（行がその名前を持つ＝使っている）のどちらか
+            enum Outcome {
+                Done(bool),
+                Keep,
             }
-            if !in_use {
+            let outcome = db.holding_write_lock(|db| {
+                let in_use = bucket.is_some()
+                    && db
+                        .thumb_file_name(id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|n| n == name);
+                if in_use {
+                    return Outcome::Done(false);
+                }
+                // 控えた後に書かれたファイルは消さない（作り直しが記録を書く前かもしれない。次の回に確かめ直す）
+                let written_after = std::fs::metadata(&here)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .is_some_and(|t| t.as_millis() as i64 > queued_ms);
+                if written_after {
+                    return Outcome::Keep;
+                }
                 match std::fs::remove_file(&here) {
-                    Ok(()) => removed += 1,
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Ok(()) => Outcome::Done(true),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Outcome::Done(false),
                     // 消せなかった（Windows で開かれている・置き場の媒体が外れた）。控えは残して次の回に試す——外すと
                     // 二度と拾わない（PR の codex）
-                    Err(_) => continue,
+                    Err(_) => Outcome::Keep,
                 }
+            })?;
+            match outcome {
+                Outcome::Done(deleted) => removed += usize::from(deleted),
+                Outcome::Keep => continue,
             }
             done.push(recorded);
             if done.len() >= limit {
