@@ -23,7 +23,10 @@
 
 /** 同時に読むサムネイルの数（win2 の実測の頭打ちの点） */
 export const GRID_TILE_READS = 4;
-/** 1枚が枠を塞いでよい上限（ms）。サムネイルの読みは 5〜10ms なので、塞ぐのは遅い媒体の原本だけ */
+/**
+ * 1枚が枠を塞いでよい上限（ms）。サムネイルの読みは 5〜10ms。サムネイルの無い写真は空のタイルがすぐ返るので、
+ * 塞ぐのは遅い媒体の上のサムネイルと、働き手が作らない写真（SVG・失敗が上限に達した写真）の原本だけ
+ */
 export const GRID_SLOT_TIMEOUT_MS = 1500;
 
 /** 届いた絵を、タイルに出してよいか（読めた・「サムネイルが無い」の透明な 1x1 ではない） */
@@ -39,29 +42,84 @@ export function paintable(img: { complete: boolean; naturalWidth: number; natura
 // 4K の窓でいちばん小さい大きさにすると、画面と前後の控えの行で数百枚が同時に作り直される（/code-review）
 export const RECENT_MAX = 2000;
 
-/** 最近出した絵の URL（数に上限。古いものから忘れる）。出せなかったものは入れない（作り直しで問い直す） */
+/**
+ * 最近出した絵（数に上限。古いものから忘れる）。鍵はタイルの URL、値は実際に出した URL——問い直して出た絵は
+ * 回数の付いた URL（`&ask=n`）で出ているので、作り直したタイルはその URL をそのまま使う（素の URL は空の絵を
+ * 読んだ URL で、macOS の WebView はそれを返しうる。PR の codex）。出せなかったものは入れない（作り直しで問い直す）
+ */
 export class RecentThumbs {
-  private readonly urls = new Map<string, true>();
+  private readonly urls = new Map<string, string>();
   private readonly max: number;
 
   constructor(max = RECENT_MAX) {
     this.max = max;
   }
 
-  /** 覚えていれば新しい側へ回して true */
-  touch(url: string): boolean {
-    if (!this.urls.has(url)) return false;
-    this.add(url);
-    return true;
+  /** 覚えていれば新しい側へ回して、出した URL を返す */
+  touch(url: string): string | undefined {
+    const shown = this.urls.get(url);
+    if (shown === undefined) return undefined;
+    this.add(url, shown);
+    return shown;
   }
 
-  add(url: string): void {
+  add(url: string, shown: string = url): void {
     this.urls.delete(url);
-    this.urls.set(url, true);
+    this.urls.set(url, shown);
     while (this.urls.size > this.max) {
       const oldest = this.urls.keys().next().value;
       if (oldest === undefined) break;
       this.urls.delete(oldest);
+    }
+  }
+}
+
+/**
+ * 空のタイル（サムネイルがまだ無い写真）の待ち合わせ。働き手がその写真を片付けたら（`media-updated`）、写真ごとの
+ * 知らせの数を1つ進め、待っているタイルを起こして問い直させる。
+ *
+ * URL が変わるのはサムネイルが書けたときだけなので、それだけを頼ると、ほかの終わり方（素性だけ読んで終わった・
+ * 書き換え中で積み直した・失敗した）で灰色のまま残る。問い直せば、その時の状態で答えが決まる——出来ていれば絵、
+ * まだなら列の先頭へ押し直して空、作れないと分かれば原本か空（`src-tauri` の `handle_media_request`）。
+ * 働き手が知らせない写真（作らない・クラウドだけ・失敗の上限）は起こされないので、問い直しは続かない。
+ *
+ * 問い直しの URL には知らせの数を足す（`&ask=n`）。同じ URL だと、macOS の WebView が同じ文書で読んだ空の絵を
+ * そのまま返しうる（no-store でも）。数はタイルでなくここに持つ——タイルが外れている間に来た知らせも、作り直した
+ * タイルが新しい URL で問い直せる（/code-review）
+ */
+export class BlankWaiters {
+  private readonly waiting = new Map<number, Set<() => void>>();
+  private readonly notices = new Map<number, number>();
+
+  /** 写真 `id` の知らせの数（来ていなければ 0） */
+  count(id: number): number {
+    return this.notices.get(id) ?? 0;
+  }
+
+  /** 写真 `id` の知らせを待つ。返り値で待つのをやめる */
+  wait(id: number, wake: () => void): () => void {
+    let set = this.waiting.get(id);
+    if (!set) {
+      set = new Set();
+      this.waiting.set(id, set);
+    }
+    set.add(wake);
+    return () => {
+      const s = this.waiting.get(id);
+      if (!s) return;
+      s.delete(wake);
+      if (s.size === 0) this.waiting.delete(id);
+    };
+  }
+
+  /** 働き手が片付けた写真。数を進め、待っていたタイルを1回ずつ起こす（起こしたら外す。問い直して空ならまた待つ） */
+  notify(ids: Iterable<number>): void {
+    for (const id of ids) {
+      this.notices.set(id, this.count(id) + 1);
+      const set = this.waiting.get(id);
+      if (!set) continue;
+      this.waiting.delete(id);
+      for (const wake of set) wake();
     }
   }
 }

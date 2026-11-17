@@ -2031,6 +2031,10 @@ pub const THUMB_STATE_NO_PREVIEW: i64 = 4;
 /// フルデコード失敗を延々繰り返すため、セッション内で見切りをつける。
 const MAX_FAILURES: u32 = 3;
 
+/// 優先の列（原寸を解いて本番を作る仕事）の長さの上限。画面と前後の控え（4K のいちばん小さいタイルで数百枚）は
+/// 収まり、帯を速く送ったときの通り過ぎた写真は残さない長さ
+const PRIORITY_MAX: usize = 512;
+
 /// 可視領域優先のジョブキュー。
 struct QueueState {
     /// 優先ジョブ（可視領域のID）。先頭から処理され、高品質生成まで行う
@@ -2181,6 +2185,16 @@ impl ThumbQueue {
                 state.priority.push_front(id);
             }
         }
+        // **優先の列は長くしない。** 一覧のタイルは要求のたびに1枚ずつ先頭へ押すので、帯で端から端まで送ると、
+        // 通り過ぎただけの写真が数千枚、原寸を解く仕事として残る（「開いた時だけ作る」に反する）。古い側
+        // （いちばん前に押されたもの）から自動の列の末尾へ降ろす——素性だけ読まれ、まだ画面にあれば
+        // タイルの問い直しか `set_visible_priority` がまた押す
+        while state.priority.len() > PRIORITY_MAX {
+            let Some(id) = state.priority.pop_back() else {
+                break;
+            };
+            state.pending.push_back(id);
+        }
         drop(state);
         self.inner.cvar.notify_all();
     }
@@ -2232,6 +2246,11 @@ impl ThumbQueue {
     /// 処理失敗を記録する。上限（MAX_FAILURES）を超えたIDは以後投入されない。
     pub fn record_failure(&self, id: i64) {
         *self.lock_state().failures.entry(id).or_insert(0) += 1;
+    }
+
+    /// 失敗が上限に達し、もう作り直さないIDか（一覧のタイルが待つかどうかの判定に使う）
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.lock_state().blocked(id)
     }
 
     /// このIDがキュー内または処理中か（LRU削除の競合回避用）。
@@ -2422,6 +2441,11 @@ impl ThumbnailService {
     /// [`ThumbQueue::prioritize`] に書いた（dev #22）。
     pub fn prioritize(&self, ids: &[i64]) {
         self.queue.prioritize(ids);
+    }
+
+    /// 失敗が上限に達し、もう作り直さないIDか（[`ThumbQueue::is_blocked`]）。
+    pub fn is_blocked(&self, id: i64) -> bool {
+        self.queue.is_blocked(id)
     }
 
     /// キュー内＋処理中のIDのスナップショット（LRU削除の除外集合用）。
@@ -4941,6 +4965,38 @@ mod tests {
         queue.record_failure(8);
         queue.enqueue(&[8]);
         assert_eq!(queue.pop(), Some((8, false)));
+    }
+
+    /// 優先の列は上限まで。溢れたぶんは古い側から自動の列（素性だけ）へ降り、新しい要求が先に作られる
+    #[test]
+    fn the_priority_queue_keeps_only_the_newest_requests() {
+        let queue = ThumbQueue::new();
+        let n = PRIORITY_MAX as i64 + 3;
+        for id in 1..=n {
+            queue.prioritize(&[id]); // 一覧のタイルが1枚ずつ押す形
+        }
+        assert_eq!(queue.pop(), Some((n, true)), "いちばん新しい要求が先");
+        for _ in 1..PRIORITY_MAX {
+            let (_, want_final) = queue.pop().unwrap();
+            assert!(want_final);
+        }
+        // 最初の3枚は自動の列へ降りている（消えてはいない）
+        assert_eq!(queue.pop(), Some((1, false)));
+        assert_eq!(queue.pop(), Some((2, false)));
+        assert_eq!(queue.pop(), Some((3, false)));
+    }
+
+    /// 一覧のタイルは、失敗が上限に達した写真を待たない（`is_blocked` で見分ける）
+    #[test]
+    fn is_blocked_turns_on_exactly_at_the_failure_limit() {
+        let queue = ThumbQueue::new();
+        for _ in 0..MAX_FAILURES - 1 {
+            queue.record_failure(7);
+        }
+        assert!(!queue.is_blocked(7), "上限の手前では、まだ作り直す");
+        queue.record_failure(7);
+        assert!(queue.is_blocked(7));
+        assert!(!queue.is_blocked(8), "失敗していない写真は待ってよい");
     }
 
     /// 撮影日時のEXIFを付けたJPEG（カメラが書くプレビューに相当）。

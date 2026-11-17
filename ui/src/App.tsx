@@ -23,7 +23,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
-import { GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
+import { BlankWaiters, GRID_SLOT_TIMEOUT_MS, GRID_TILE_READS, RecentThumbs } from "./gridThumbs";
 import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
@@ -2203,8 +2203,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // バッファにためて150ms間隔でまとめて反映する（イベントの嵐でも再描画は最小限）
   const patchBuffer = useRef<MediaItem[]>([]);
   const patchTimer = useRef<number | null>(null);
+  // 空のタイルの待ち合わせ（`gridThumbs.ts`）。働き手の知らせ（`media-updated`）で起こす
+  const [gridWaiters] = useState(() => new BlankWaiters());
   const applyPatches = useCallback(
     (patches: MediaItem[]) => {
+      // 待っている空のタイルを起こす（URL が変わらない終わり方でも問い直させる）。検索中に日が動いて下の差し替えが
+      // 当たらない写真も、id で起こすので問い直せる
+      gridWaiters.notify(patches.map((p) => p.id));
       // どの写真の差分をいつ当てたか（`reloadAll` が古い答えで引き戻さないように）。覚えるのはビューアで
       // 追う写真だけで足りるが、見分けるより全部書くほうが安い。表が育ちすぎたら古い回だけ捨てる——
       // 走っている読み直しが見るのは、それぞれが始めた回より後だけ。**いちばん古い読み直しの回より前**を
@@ -2306,7 +2311,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       // 日移動の検知に加え、代表サムネイルのキャッシュバスティングにも必要
       scheduleSummaryRefresh();
     },
-    [scheduleSummaryRefresh, followViewerTo, refreshSummary],
+    [scheduleSummaryRefresh, followViewerTo, refreshSummary, gridWaiters],
   );
 
   useEffect(() => {
@@ -9080,6 +9085,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 label={cell.item.file_name}
                                 loader={gridLoader}
                                 recent={recentThumbs}
+                                waiters={gridWaiters}
+                                id={cell.item.id}
                                 onDone={revealThumb}
                               />
                               {cell.item.is_video && (

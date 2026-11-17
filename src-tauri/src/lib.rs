@@ -6928,7 +6928,12 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
 /// （起動直後のスキャンがそのロックを持っている間、一覧が丸ごと止まる。実測で踏んだ）。
 const MAX_ORIGINAL_THUMB_EDGE: i64 = 2048;
 
-/// サムネイル未生成のとき、元ファイルをそのまま一覧へ出して良いか。
+/// サムネイル未生成のとき、元ファイルをそのまま代わりに出して良いか。
+///
+/// **一覧のタイルはふつうここまで来ない**——働き手が作る写真は空のタイルで待つ（`handle_media_request`）。
+/// ここを通るのは一覧以外（カレンダーの表紙・ビューアの下の帯など）と、一覧でも働き手が作らない写真・失敗が
+/// 上限に達した写真・**クラウドにしか無い写真**。最後のものは下の判定だけが空のタイルにしている（外すと、
+/// 一覧の要求のたびに OneDrive から落とさせる）
 ///
 /// 条件は3つ:
 ///
@@ -6958,11 +6963,24 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     if pictkura_core::svg::is_svg_path(&record.path) {
         return true;
     }
-    // 寸法が未確認のうちは今までどおり配る（最初の一覧をすぐ出すため）
+    // 寸法が未確認のうちは今までどおり配る（最初の表紙をすぐ出すため）
     let Some(longest) = record.width.zip(record.height).map(|(w, h)| w.max(h)) else {
         return true;
     };
     longest <= MAX_ORIGINAL_THUMB_EDGE
+}
+
+/// 一覧のタイルからの要求か（`GridThumb.tsx` が URL に `grid=1` を付ける）
+fn requested_by_grid(url: &str) -> bool {
+    url.split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
+}
+
+/// 働き手がこの写真のサムネイルを作るか（品質段階で見る分）。作らない写真（SVG＝[`THUMB_STATE_NOT_NEEDED`]、
+/// 絵の無い RAW＝[`THUMB_STATE_NO_PREVIEW`]）を一覧が空のタイルで待つと、灰色のまま二度と変わらない
+fn worker_makes_thumb(thumb_state: i64) -> bool {
+    use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
+    thumb_state != THUMB_STATE_NOT_NEEDED && thumb_state != THUMB_STATE_NO_PREVIEW
 }
 
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
@@ -7102,6 +7120,26 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
+            // 一覧のタイルには、サムネイルが無い間は原本を渡さない。働き手の列の先頭へ押して、空のタイルで待たせる。
+            // 出来れば URL（`thumb_state`）が変わり、タイルが読み直す。原本を渡すと、WebView が大きな絵を
+            // ほぼ1コアで展開して、ほかのタイルのサムネイルまで詰まる（帯を速く動かすと3万枚で約600MB を読んだ）。
+            // win2 の比べ合わせでは、その場で作る形（#343）より、止めてから写真がそろうのも、動かしている間に
+            // 写真が出る割合も良かった（埋め込みサムネイルの無い3万枚で、出る割合 0.01〜0.07 → 0.25〜0.33）
+            //
+            // 待っているタイルは、働き手がその写真を片付けた知らせで問い直す（`gridThumbs.ts` の `BlankWaiters`）。
+            // 待たせないのは、働き手が作らない写真と、失敗が上限に達した写真（今までどおり原本か空のタイル。
+            // 上限に達した回の知らせで問い直し、その場で原本へ替わる）、そして
+            // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
+            // 写真まで OneDrive から落とさせる。見えている写真は、止まったときの `set_visible_priority` が積む）。
+            // ファイルを stat する判定は最後に置く（遅い NAS で要求ごとに払わない）
+            None if requested_by_grid(url)
+                && worker_makes_thumb(record.thumb_state)
+                && !state.thumbs.is_blocked(id)
+                && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
+            {
+                state.thumbs.prioritize(&[id]);
+                return blank_thumb();
+            }
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,
         },
@@ -8405,6 +8443,37 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+
+    /// 一覧のタイルが灰色で待つのは、働き手がこれから作る写真だけ（作らない写真で待つと灰色のまま変わらない）
+    #[test]
+    fn the_grid_waits_only_for_thumbnails_the_worker_will_make() {
+        use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
+        assert!(super::worker_makes_thumb(0));
+        assert!(super::worker_makes_thumb(1), "仮のサムネイルから本番へ");
+        assert!(!super::worker_makes_thumb(THUMB_STATE_NOT_NEEDED), "SVG");
+        assert!(
+            !super::worker_makes_thumb(THUMB_STATE_NO_PREVIEW),
+            "絵の無い RAW"
+        );
+    }
+
+    /// 一覧のタイルの要求だけが `grid=1` を名乗る（サムネイルが出来るのを空のタイルで待つ相手）
+    #[test]
+    fn only_grid_tiles_are_recognised_by_their_marker() {
+        assert!(super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1-0-0&grid=1"
+        ));
+        assert!(super::requested_by_grid(
+            "media://localhost/thumb/5?grid=1&v=1"
+        ));
+        assert!(!super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1-0-0"
+        ));
+        assert!(!super::requested_by_grid(
+            "http://media.localhost/thumb/5?v=1&grid=10"
+        ));
+        assert!(!super::requested_by_grid("http://media.localhost/thumb/5"));
+    }
 
     /// 起動の引数から「開く写真」を全部拾う（1 回の起動に並べて渡す形。エクスプローラーで複数を選んで開いたとき）。
     /// フラグとその値・argv[0]・相対パス・無いファイル・同じパスの 2 度目は拾わない
