@@ -10,11 +10,13 @@
  * （混んだら新しいものから・待ちすぎたものは捨てる、の考え方。Facebook "Fail at Scale" の adaptive LIFO と
  * CoDel）。速さのしきい値は持たない——マシンが遅ければ、見えている分を優先して読むだけになる。
  *
- * **`src` はこの ref が持つ**（React には渡さない）。読み手の `Image` が読んで展開まで済ませてから、タイルの
- * `<img>` に同じ URL を入れる（WebView のキャッシュから出て、展開済みの絵がすぐ描ける）。
+ * **`src` はこの ref が持つ**（React には渡さない）。読み手の `Image` が読み終えたら、タイルの `<img>` に同じ URL を
+ * 入れる（WebView のキャッシュから出る）。展開（`decode()`）まで待って枠を空ける形も試したが、要求は4割減った
+ * 代わりに、動かしている間に写真の出る割合が約4割から約1割に落ち、描画も重くなった（win2 の実測。展開が
+ * 読み手とタイルで2回になったと見ている）ので待たない。
  * - 描き直しても `src` は消えない。絵の URL が替わった（画質の差し替え・回転）ときは、新しい絵が届くまで
  *   前の絵を出したまま
- * - 一度出た絵も、タイルが作り直されたら（スクロールで戻った）列を通る——戻ったときも展開の数を絞る
+ * - 遠くへスクロールして戻ったタイルは列を通る。行の組み直しで作り直されただけなら、最近出した絵はすぐ出す
  * - 読めなかった（404）・サムネイルが無い（透明な1x1）なら `src` を入れない。もう一度要求しないためで、
  *   見た目は地の灰色（今までの「サムネイルが無い」と同じ）
  */
@@ -23,18 +25,39 @@ import type { TileAttach } from "./useTileQueue.ts";
 /** 同時に読むサムネイルの数（win2 の実測の頭打ちの点） */
 export const GRID_TILE_READS = 4;
 
-/** 届いた絵を、タイルに出してよいか（読めた・1x1 ではない） */
-export function paintable(img: { complete: boolean; naturalWidth: number }): boolean {
-  return img.complete && img.naturalWidth > 1;
+/** 届いた絵を、タイルに出してよいか（読めた・「サムネイルが無い」の透明な 1x1 ではない） */
+export function paintable(img: { complete: boolean; naturalWidth: number; naturalHeight: number }): boolean {
+  return img.complete && img.naturalWidth > 0 && !(img.naturalWidth === 1 && img.naturalHeight === 1);
 }
+
+/**
+ * 最近出した絵の数。行の組み直し（日を読み込んだ・窓の幅・大きさ・並べ方）ではタイルが作り直されるが、
+ * 画面に出ていた絵はまだ展開済みなので、列を通さずすぐ `src` を渡す（出ていた絵を消して浮かび直させない）。
+ * 遠くへスクロールして戻ったときは数を超えて忘れているので、列を通る
+ */
+const RECENT_MAX = 400;
 
 export class GridThumbs {
   private readonly loader: TileAttach;
   /** URL ごとの ref。毎回作り直すと、描くたびに付け外しが起きる。外れたら消す */
   private readonly refs = new Map<string, (el: HTMLImageElement | null) => void>();
+  /** 最近出した絵の URL（挿入順＝古い順） */
+  private readonly recent = new Map<string, true>();
+  private readonly recentMax: number;
 
-  constructor(loader: TileAttach) {
+  constructor(loader: TileAttach, recentMax = RECENT_MAX) {
     this.loader = loader;
+    this.recentMax = recentMax;
+  }
+
+  private remember(url: string): void {
+    this.recent.delete(url);
+    this.recent.set(url, true);
+    while (this.recent.size > this.recentMax) {
+      const oldest = this.recent.keys().next().value;
+      if (oldest === undefined) break;
+      this.recent.delete(oldest);
+    }
   }
 
   /** タイルの `<img>` に付ける ref */
@@ -42,16 +65,31 @@ export class GridThumbs {
     const known = this.refs.get(url);
     if (known) return known;
     let detach: (() => void) | null = null;
+    let attached: HTMLImageElement | null = null;
     const ref = (el: HTMLImageElement | null) => {
       detach?.();
       detach = null;
+      attached = el;
       if (!el) {
-        this.refs.delete(url);
+        // 作り直しでは、古い要素の null の直後に新しい要素で同じ ref が呼ばれる。ここで消すと次の描画で
+        // 別の ref が作られ、描くたびに付け外しが起きた（/code-review）。付いていないままなら後で消す
+        setTimeout(() => {
+          if (attached === null && this.refs.get(url) === ref) this.refs.delete(url);
+        }, 0);
+        return;
+      }
+      // 最近出した絵は列を通さない（展開済み。作り直しで消して浮かび直させない）
+      if (this.recent.has(url)) {
+        this.remember(url);
+        if (el.getAttribute("src") !== url) el.src = url;
         return;
       }
       detach = this.loader.attach(url, el, (img) => {
         if (!el.isConnected) return;
-        if (paintable(img)) el.src = url;
+        if (paintable(img)) {
+          this.remember(url);
+          el.src = url;
+        }
         // 出せる絵が無い。地の灰色を見せる（`revealThumb` と同じ印）
         else el.setAttribute("data-shown", "");
       });

@@ -20,14 +20,16 @@ function fakeLoader() {
 }
 function tile(connected = true) {
   const attrs = new Map<string, string>();
-  return {
+  const t = {
     isConnected: connected,
     src: "",
     setAttribute: (k: string, v: string) => void attrs.set(k, v),
+    getAttribute: (k: string) => (k === "src" ? t.src || null : (attrs.get(k) ?? null)),
     attrs,
-  } as unknown as HTMLImageElement & { attrs: Map<string, string> };
+  };
+  return t as unknown as HTMLImageElement & { attrs: Map<string, string> };
 }
-const got = (w: number) => ({ complete: true, naturalWidth: w }) as HTMLImageElement;
+const got = (w: number, h = w) => ({ complete: true, naturalWidth: w, naturalHeight: h }) as HTMLImageElement;
 
 test("読んで展開が済むまで src を入れず、済んだら同じ URL を入れる", () => {
   const { l, attached } = fakeLoader();
@@ -65,7 +67,7 @@ test("絵の URL が替わったら、新しい絵が届くまで前の絵を出
   assert.equal(el.src, "v2");
 });
 
-test("同じ URL には同じ ref を返し、外れたら列からも ref の控えからも消す", () => {
+test("同じ URL には同じ ref を返し、外れたままなら後で ref の控えから消す", async () => {
   const { l, detached } = fakeLoader();
   const g = new GridThumbs(l);
   const ref = g.refFor("u1");
@@ -73,7 +75,46 @@ test("同じ URL には同じ ref を返し、外れたら列からも ref の�
   ref(tile());
   ref(null);
   assert.deepEqual(detached, ["u1"]);
+  await new Promise((r) => setTimeout(r, 0));
   assert.equal(g.size(), 0);
+});
+
+test("作り直し（古い要素に null、すぐ新しい要素）では同じ ref を使い続ける——描くたびの付け外しを起こさない", async () => {
+  const g = new GridThumbs(fakeLoader().l);
+  const ref = g.refFor("u1");
+  ref(tile());
+  ref(null);
+  ref(tile());
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(g.refFor("u1"), ref);
+});
+
+test("最近出した絵は、作り直したタイルに列を通さずすぐ入れる", () => {
+  const { l, attached } = fakeLoader();
+  const g = new GridThumbs(l);
+  const ref = g.refFor("u1");
+  ref(tile());
+  attached.get("u1")!(got(512));
+  ref(null);
+  attached.clear();
+  const el = tile();
+  ref(el);
+  assert.equal(el.src, "u1");
+  assert.equal(attached.size, 0);
+});
+
+test("最近出した絵の数を超えたら、古いものは列を通る", () => {
+  const { l, attached } = fakeLoader();
+  const g = new GridThumbs(l, 1);
+  for (const u of ["a", "b"]) {
+    g.refFor(u)(tile());
+    attached.get(u)!(got(512));
+  }
+  attached.clear();
+  const el = tile();
+  g.refFor("a")(el);
+  assert.equal(el.src, "");
+  assert.equal(attached.has("a"), true);
 });
 
 test("外れた要素には、読み終わっても src を入れない", () => {
@@ -85,8 +126,10 @@ test("外れた要素には、読み終わっても src を入れない", () => 
   assert.equal(el.src, "");
 });
 
-test("paintable は読めた 2px 以上の絵だけ", () => {
-  assert.equal(paintable({ complete: true, naturalWidth: 512 }), true);
-  assert.equal(paintable({ complete: true, naturalWidth: 1 }), false);
-  assert.equal(paintable({ complete: false, naturalWidth: 512 }), false);
+test("paintable は読めた絵で、「サムネイルが無い」の 1x1 だけを外す（幅1の細長い絵は出す）", () => {
+  assert.equal(paintable({ complete: true, naturalWidth: 512, naturalHeight: 341 }), true);
+  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 512 }), true);
+  assert.equal(paintable({ complete: true, naturalWidth: 1, naturalHeight: 1 }), false);
+  assert.equal(paintable({ complete: true, naturalWidth: 0, naturalHeight: 0 }), false);
+  assert.equal(paintable({ complete: false, naturalWidth: 512, naturalHeight: 341 }), false);
 });

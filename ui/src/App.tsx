@@ -316,6 +316,8 @@ const DISPLAY_MAX_EDGE = 4096;
  * （その速さなら見ている側なので、出してよい）。時計を2つ持たないための割り切り
  */
 const FAST_FLIP_MS = 400;
+/** 読めなかった日を取り直すまで（ms） */
+const DAY_RETRY_MS = 2000;
 /**
  * 一覧のサムネイルを浮かべる（2026-09-27 の利用者の要望「スクロール中動作をどうにかごまかせると良い」）。
  *
@@ -1554,6 +1556,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 落ちたことは [`loadFailed`] に分けて持つ */
   const reloadAll = useCallback(async () => {
     const gen = ++generationRef.current;
+    failedDaysRef.current.clear();
     const askedFor = askedRef.current;
     const wasGotAt = gotSummaryRef.current;
     inflightRef.current.clear();
@@ -1720,58 +1723,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const viewerDayRef = useRef<number | null>(null);
 
   /** 1日分をオンデマンド取得する（重複・世代違いは無視。失敗は2回まで自動再試行） */
-  const loadDay = useCallback((dayKey: number, attempt = 0) => {
-    if (inflightRef.current.has(dayKey)) return;
-    inflightRef.current.add(dayKey);
-    const gen = generationRef.current;
-    listDay(dayKey, queryRef.current, filterRef.current)
-      .then((items) => {
-        inflightRef.current.delete(dayKey);
-        if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
-        setDayItems((prev) => {
-          const next = new Map(prev);
-          next.set(dayKey, items);
-          // キャッシュ上限を超えたら、可視範囲外の古い日から間引く（挿入順=FIFO）。
-          // ビューアの表示日はスライドショー中に消えないよう保護する
-          if (next.size > DAY_CACHE_MAX) {
-            for (const key of next.keys()) {
-              if (next.size <= DAY_CACHE_TRIM_TO) break;
-              if (
-                key !== dayKey &&
-                key !== viewerDayRef.current &&
-                !visibleDaysRef.current.has(key)
-              ) {
-                next.delete(key);
-              }
-            }
-          }
-          return next;
-        });
-      })
-      .catch((e) => {
-        inflightRef.current.delete(dayKey);
-        fail(errText(e));
-        // 一時的な失敗（DBロック競合等）に備え、可視のままなら少し待って再試行。
-        // それでも失敗が続く場合はスクロール等で可視範囲が変わったときに再試行される
-        if (attempt < 2) {
-          window.setTimeout(() => {
-            if (
-              generationRef.current === gen &&
-              visibleDaysRef.current.has(dayKey)
-            ) {
-              loadDay(dayKey, attempt + 1);
-            }
-          }, 2000);
-        }
-      });
-  }, []);
+  /** 読めなかった日と、次に頼んでよい時刻（`loadDays`） */
+  const failedDaysRef = useRef(new Map<number, number>());
+  /** `loadDays` 自身と `loadDay` が、定義の前後に関わらず最新を呼ぶための口 */
+  const loadDaysRef = useRef<(keys: readonly number[], attempt?: number) => void>(() => {});
+  /** 1日分（ビューアの表示日など）。中身は `loadDays` と同じ道 */
+  const loadDay = useCallback((dayKey: number) => loadDaysRef.current([dayKey]), []);
 
   /**
    * 画面に入った日をまとめて取る（`list_days`。1日ずつ取ると、帯を動かしたとき1回の操作で約230回呼んだ）。
    * 重複・世代違い・キャッシュの間引きは [`loadDay`] と同じ。失敗したら、まだ見えている日だけを少し待って取り直す
    */
   const loadDays = useCallback((keys: readonly number[], attempt = 0) => {
-    const want = keys.filter((d) => !inflightRef.current.has(d));
+    const now = Date.now();
+    // 読めなかった日は、取り直しの時計に任せる（スクロールのたびに頼み直さない）
+    const want = keys.filter((d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now);
     if (want.length === 0) return;
     for (const d of want) inflightRef.current.add(d);
     const gen = generationRef.current;
@@ -1780,18 +1746,25 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         for (const d of want) inflightRef.current.delete(d);
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
         const got = new Set(want);
-        // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）
-        const failed = pairs.filter(([, items]) => items === null).map(([d]) => d);
-        if (failed.length > 0 && attempt < 2) {
-          window.setTimeout(() => {
-            if (generationRef.current !== gen) return;
-            const still = failed.filter((d) => visibleDaysRef.current.has(d));
-            if (still.length > 0) loadDays(still, attempt + 1);
-          }, 2000);
+        // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）。理由は1回だけ出す
+        const failed = pairs.filter((p) => p.items === null);
+        if (failed.length > 0) {
+          const firstError = failed.find((p) => p.error)?.error;
+          if (firstError) fail(errText(firstError));
+          const until = Date.now() + DAY_RETRY_MS;
+          for (const p of failed) failedDaysRef.current.set(p.day_key, until);
+          if (attempt < 2) {
+            window.setTimeout(() => {
+              if (generationRef.current !== gen) return;
+              const still = failed.map((p) => p.day_key).filter((d) => visibleDaysRef.current.has(d));
+              for (const d of still) failedDaysRef.current.delete(d);
+              if (still.length > 0) loadDaysRef.current(still, attempt + 1);
+            }, DAY_RETRY_MS);
+          }
         }
         setDayItems((prev) => {
           const next = new Map(prev);
-          for (const [d, items] of pairs) if (items !== null) next.set(d, items);
+          for (const p of pairs) if (p.items !== null) next.set(p.day_key, p.items);
           if (next.size > DAY_CACHE_MAX) {
             for (const key of next.keys()) {
               if (next.size <= DAY_CACHE_TRIM_TO) break;
@@ -1810,11 +1783,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           window.setTimeout(() => {
             if (generationRef.current !== gen) return;
             const still = want.filter((d) => visibleDaysRef.current.has(d));
-            if (still.length > 0) loadDays(still, attempt + 1);
-          }, 2000);
+            if (still.length > 0) loadDaysRef.current(still, attempt + 1);
+          }, DAY_RETRY_MS);
         }
       });
   }, []);
+  loadDaysRef.current = loadDays;
 
   /** カメラ別の枚数（左ペイン＋パレットの候補）。メタデータ抽出が進むと
    * 増えるため、ライブラリ更新のたびに取り直す */

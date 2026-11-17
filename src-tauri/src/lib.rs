@@ -1389,35 +1389,50 @@ fn timeline_summary(
         .collect())
 }
 
+/// [`list_days`] の1日分。読めなかった日は `items` が無く、`error` に理由
+#[derive(serde::Serialize)]
+struct DayItemsDto {
+    day_key: i64,
+    items: Option<Vec<MediaItemDto>>,
+    error: Option<String>,
+}
+
 /// 指定した日（YYYYMMDD整数）ごとのメディアを、表示順で1回にまとめて返す。
 ///
 /// 画面に入った日を1日ずつ [`list_day`] で取ると、3万枚の一覧で帯を動かしたとき1回の操作で
 /// 約230回呼んでいた（win2 の実測）。まとめると約40回になる。
 ///
-/// - **日ごとに失敗を分ける**: 読めなかった日は `None` で返し、ほかの日は返す（1日の失敗で全部を落とさない）
+/// - **日ごとに失敗を分ける**: 読めなかった日は中身を `None`、理由を添えて返し、ほかの日は返す
+///   （1日の失敗で全部を落とさない。理由は `errs::from_err` が記録へも書く）
 /// - **メインスレッドで走らせない**: 何十日分をまとめて引く間、窓の操作を止めない（`spawn_blocking`）
+/// - **読み取りの接続は1日ずつ借りて返す**: 同じ接続でサムネイルの配信も読むので、まとめて握らない
 #[tauri::command]
 async fn list_days(
     app: tauri::AppHandle,
     day_keys: Vec<i64>,
     query: String,
     filter: pictkura_core::MediaFilter,
-) -> Result<Vec<(i64, Option<Vec<MediaItemDto>>)>, String> {
+) -> Result<Vec<DayItemsDto>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let query = pictkura_core::parse_query(&query, filter);
-        state.read_pool.with(|db| {
-            day_keys
-                .iter()
-                .map(|&d| {
-                    let items = db
-                        .search_day(d, &query)
-                        .map(|v| v.into_iter().map(Into::into).collect())
-                        .ok();
-                    (d, items)
-                })
-                .collect::<Vec<_>>()
-        })
+        day_keys
+            .iter()
+            .map(
+                |&day_key| match state.read_pool.with(|db| db.search_day(day_key, &query)) {
+                    Ok(v) => DayItemsDto {
+                        day_key,
+                        items: Some(v.into_iter().map(Into::into).collect()),
+                        error: None,
+                    },
+                    Err(e) => DayItemsDto {
+                        day_key,
+                        items: None,
+                        error: Some(errs::from_err(e)),
+                    },
+                },
+            )
+            .collect::<Vec<_>>()
     })
     .await
     .map_err(|e| e.to_string())

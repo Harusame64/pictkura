@@ -102,14 +102,7 @@ export class TileLoader implements TileAttach {
       // 渡す先が居なければ捨てる。居れば、その後は絵はタイルの箱が持つ
       this.ready.get(key)?.(img);
     };
-    // **展開が済むまで枠を空けない。** 詰まるのは WebView の絵の展開（ほぼ1コア。win2 の実測）で、
-    // `onload` はバイトが届いた時点——そこで空けると、展開がタイルの側で積み上がって数を絞れない
-    const decoded = () => {
-      img.onload = img.onerror = null;
-      if (typeof img.decode !== "function") return finish();
-      img.decode().then(finish, finish);
-    };
-    img.onload = decoded;
+    img.onload = finish;
     img.onerror = finish;
     img.src = key;
   }
