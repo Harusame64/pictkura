@@ -2165,7 +2165,15 @@ impl ThumbQueue {
     pub fn prioritize(&self, ids: &[i64]) {
         let mut state = self.lock_state();
         let target: HashSet<i64> = ids.iter().copied().collect();
-        state.pending.retain(|id| !target.contains(id));
+        // 自動の列で順番を待っている（＝働き手がまだ読んでいない）写真。下で素性を先に読ませる。降ろすついでに拾う
+        let mut unread: HashSet<i64> = HashSet::new();
+        state.pending.retain(|id| {
+            let hit = target.contains(id);
+            if hit {
+                unread.insert(*id);
+            }
+            !hit
+        });
         state.priority.retain(|id| !target.contains(id));
         // 積み直すぶんは「キュー内」からいったん降ろす。下で載せたものだけが戻る。
         // **降ろしたまま積まないIDを残さないこと**——`queued` に居るのに列に
@@ -2181,7 +2189,19 @@ impl ThumbQueue {
             if state.blocked(id) || state.processing.contains(&id) {
                 continue;
             }
-            if state.queued.insert(id) {
+            if !state.queued.insert(id) {
+                continue;
+            }
+            // **自動の列で順番を待っている写真（まだ読んでいない）は、素性（撮影日・寸法）を先に読む。** 原寸を解くのは、
+            // 日付が分かって本当の場所に並んでからでよい。新しいライブラリでは撮影日の分からない写真が
+            // ファイルの日付（コピーした今日）で一覧の先頭に固まり、見えた写真を原寸から作る→日付が分かって
+            // 去る→次の写真が見える、を繰り返して**全部を原寸から作っていた**（win2: 3万枚で約220秒。帯で
+            // 下へ逃げると素性だけになり約20秒）。自動の列の先頭へ積み、済めば `media-updated` で
+            // タイルが問い直し、まだ見えていれば今度は本番を作る。印（`fresh`）ではなく列で見る——監視が足した
+            // 写真や、読み途中で再起動した後の写真も、自動の列に居るので同じ扱いになる（/code-review）
+            if unread.contains(&id) {
+                state.pending.push_front(id);
+            } else {
                 state.priority.push_front(id);
             }
         }
@@ -4322,9 +4342,14 @@ mod tests {
         let queue = ThumbQueue::new();
         queue.enqueue(&[1, 2, 3, 4, 5]);
         queue.prioritize(&[4, 3]);
-        // 優先キュー由来は want_final = true（高品質まで生成）
+        // 見えている順に先に渡す。自動の列で待っていた（まだ読んでいない）写真なので、まず素性だけ
+        assert_eq!(queue.pop(), Some((4, false)));
+        assert_eq!(queue.pop(), Some((3, false)));
+        queue.complete(4);
+        queue.complete(3);
+        // 読み終えた写真を頼み直すと、優先キュー由来の want_final = true（高品質まで生成）
+        queue.prioritize(&[4]);
         assert_eq!(queue.pop(), Some((4, true)));
-        assert_eq!(queue.pop(), Some((3, true)));
         assert_eq!(queue.pop(), Some((1, false)));
         assert_eq!(queue.pop(), Some((2, false)));
         assert_eq!(queue.pop(), Some((5, false)));
@@ -4426,8 +4451,8 @@ mod tests {
         queue.prioritize(&[1, 2]);
         assert_eq!(
             pop_within(&queue, 10),
-            Some((2, true)),
-            "処理中の1は積み直されない"
+            Some((2, false)),
+            "処理中の1は積み直されない（2はまだ読んでいないので素性から）"
         );
         queue.complete(1);
         queue.prioritize(&[1]);
@@ -4449,7 +4474,7 @@ mod tests {
             queue.record_failure(1);
         }
         queue.prioritize(&[1, 2]);
-        assert_eq!(pop_within(&queue, 10), Some((2, true)));
+        assert_eq!(pop_within(&queue, 10), Some((2, false)));
         assert!(!queue.is_active(1), "載せないIDをキュー内に残さない");
     }
 
@@ -4984,6 +5009,26 @@ mod tests {
         assert_eq!(queue.pop(), Some((1, false)));
         assert_eq!(queue.pop(), Some((2, false)));
         assert_eq!(queue.pop(), Some((3, false)));
+    }
+
+    /// 自動の列で待っている（まだ読んでいない）写真は、見えても先に素性だけ読む（原寸から作るのは日付が
+    /// 分かってから）。読み終えた写真・列に居なかった写真は今までどおり本番を作る
+    #[test]
+    fn an_unread_photo_is_read_for_metadata_before_it_is_built() {
+        let queue = ThumbQueue::new();
+        queue.enqueue(&[1, 2, 3]);
+        queue.prioritize(&[3]);
+        assert_eq!(
+            queue.pop(),
+            Some((3, false)),
+            "自動の列の先頭へ（素性だけ）"
+        );
+        queue.complete(3);
+        queue.prioritize(&[3]);
+        assert_eq!(queue.pop(), Some((3, true)), "読み終えたら本番");
+        queue.complete(3);
+        queue.prioritize(&[9]); // 列に居なかった写真（サムネイルが消えた等）
+        assert_eq!(queue.pop(), Some((9, true)));
     }
 
     /// 一覧のタイルは、失敗が上限に達した写真を待たない（`is_blocked` で見分ける）

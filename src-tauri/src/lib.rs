@@ -4909,15 +4909,25 @@ struct ScopeItemDto {
 /// 段階B-3: 高品質サムネイルはこの経路でのみ生成される（全件事前生成の廃止）。
 /// LRU削除済み（state=0へ戻ったもの）もここで再生成される。
 #[tauri::command]
-fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>, days: Vec<Option<i64>>) {
+    // `days` は一覧がそれぞれの写真を並べていた日（`ids` と同じ並び。帯の写真は None＝見ない）。日が変わった
+    // 写真は、頼んだ後（呼び出しは 150ms まとめてから来る）に撮影日が読まれて画面から去ったので頼まない。
+    // 新しいライブラリでは、撮影日の分からない写真が今日の日付で先頭に固まり、去った写真の本番をこの古い頼みで
+    // 作っていた（win2: 3万枚で約9千枚）
     let need: Vec<i64> = state.read_pool.with(|db| {
-        ids.into_iter()
-            .filter(|&id| {
-                db.get_by_id(id)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|r| r.thumb_state < 2)
+        ids.iter()
+            .enumerate()
+            .filter(|&(i, &id)| {
+                db.get_by_id(id).ok().flatten().is_some_and(|r| {
+                    r.thumb_state < 2
+                        && days
+                            .get(i)
+                            .copied()
+                            .flatten()
+                            .is_none_or(|day| day == r.day_key)
+                })
             })
+            .map(|(_, &id)| id)
             .collect()
     });
     if !need.is_empty() {
@@ -6976,6 +6986,17 @@ fn requested_by_grid(url: &str) -> bool {
         .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
 }
 
+/// 一覧のタイルが、その写真をどの日に並べて頼んだか（`GridThumb.tsx` が `day=` を付ける）。
+///
+/// 新しいライブラリでは、撮影日を読んだ写真が本当の日へ移る。移る前に出た要求（タイルの要求・
+/// `set_visible_priority`）が後から届くと、もう画面に居ない写真の本番を作ることになる（win2: 3万枚で約9千枚）。
+/// 日が違えば、その要求は古い。検索中（日の差し替えが当たらない）は付けない
+fn requested_day(url: &str) -> Option<i64> {
+    let (_, q) = url.split_once('?')?;
+    q.split('&')
+        .find_map(|kv| kv.strip_prefix("day=")?.parse().ok())
+}
+
 /// 働き手がこの写真のサムネイルを作るか（品質段階で見る分）。作らない写真（SVG＝[`THUMB_STATE_NOT_NEEDED`]、
 /// 絵の無い RAW＝[`THUMB_STATE_NO_PREVIEW`]）を一覧が空のタイルで待つと、灰色のまま二度と変わらない
 fn worker_makes_thumb(thumb_state: i64) -> bool {
@@ -6986,7 +7007,12 @@ fn worker_makes_thumb(thumb_state: i64) -> bool {
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
 ///
 /// `range` は要求の `Range` ヘッダ（動画の部分要求。画像では使わない）。
-fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Response<Vec<u8>> {
+fn handle_media_request(
+    state: &AppState,
+    url: &str,
+    range: Option<&str>,
+    resend: &dyn Fn(pictkura_core::MediaRecord),
+) -> Response<Vec<u8>> {
     let not_found = || {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -7132,6 +7158,16 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
             // 写真まで OneDrive から落とさせる。見えている写真は、止まったときの `set_visible_priority` が積む）。
             // ファイルを stat する判定は最後に置く（遅い NAS で要求ごとに払わない）
+            // 古い要求（頼んだ後に撮影日が読まれて別の日へ移った）は、空のタイルで返して積まない。タイルは
+            // 移った先で作り直され、そこで見えていれば頼み直す。**いまの行を配り直す**——移ったことを一覧が
+            // 知らないまま（日を読み込んでいる最中に知らせが来て当たらなかった等）だと、古い日で頼み続けて
+            // 灰色のまま残る（/code-review）。配り直せば一覧が日を動かし、タイルは外れる
+            None if requested_by_grid(url)
+                && requested_day(url).is_some_and(|day| day != record.day_key) =>
+            {
+                resend(record.clone());
+                return blank_thumb();
+            }
             None if requested_by_grid(url)
                 && worker_makes_thumb(record.thumb_state)
                 && !state.thumbs.is_blocked(id)
@@ -8286,7 +8322,11 @@ pub fn run() {
                 // 500を返しておけば、そのセルだけが空になって次へ進める
                 let response =
                     pictkura_core::panics::catching(&format!("media request {uri}"), || {
-                        handle_media_request(&state, &uri, range.as_deref())
+                        // 古い日で頼んできたタイルへ、いまの行を配り直す（一覧が日を動かす）
+                        let resend = |record: pictkura_core::MediaRecord| {
+                            let _ = app.emit("media-updated", MediaItemDto::from(record));
+                        };
+                        handle_media_request(&state, &uri, range.as_deref(), &resend)
                     })
                     .unwrap_or_else(|| {
                         // **一覧のタイルには壊れた画像アイコンを出さない**
@@ -8454,6 +8494,27 @@ mod tests {
         assert!(
             !super::worker_makes_thumb(THUMB_STATE_NO_PREVIEW),
             "絵の無い RAW"
+        );
+    }
+
+    /// タイルが頼んだ日を URL から読む（無ければ None、数でなければ None）
+    #[test]
+    fn the_requested_day_is_read_from_the_query() {
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?v=1-0-0&grid=1&day=20251228"),
+            Some(20251228)
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?v=1&grid=1"),
+            None
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?day=x"),
+            None
+        );
+        assert_eq!(
+            super::requested_day("http://media.localhost/thumb/5?today=3"),
+            None
         );
     }
 

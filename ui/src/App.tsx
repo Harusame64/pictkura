@@ -3888,7 +3888,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 直近の答えが**返った時刻**。状態ではなく ref に置く（ゲート2の指摘）。
    *
    * 状態に混ぜると、**中身が同じでも聞き直すたびに新しいオブジェクトになり**、
-   * [`visibleMissingIds`] が作り直されて**可視領域の全idを送り直す**——
+   * [`visibleMissing`] が作り直されて**可視領域の全idを送り直す**——
    * 利用者が何もしていないのに、20秒ごとに `get_by_id` が100件超。
    * 時刻は**読むときにしか要らない**ので、再計算を誘発しない置き場が正しい
    */
@@ -3954,7 +3954,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           const drop = new Set(cloud);
           const local = asked.filter((id) => !drop.has(id));
           // **古びたまま同じ答えが返ったら、作り直して再計算を起こす**（ゲート2の指摘）。
-          // 同じ顔ぶれで `prev` を返すと React は描き直さず、[`visibleMissingIds`] の
+          // 同じ顔ぶれで `prev` を返すと React は描き直さず、[`visibleMissing`] の
           // memo も依存が変わらないので**寿命を読み直さない**。往復が寿命を越えた回に
           // 画面が動いていると、**帯を外したまま固まる**——ref の時刻だけ新しくなって、
           // 誰もそれを見ない。**古びていた回だけ**新しい集合にすればよく、
@@ -4015,15 +4015,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     };
   }, [bandPendingKey, view, filtering]);
 
+  // 差し替え（`applyPatches`）が写真を新しい日へ動かす表示か。検索中・送り出しは動かさないので、日で古さを
+  // 見分けない（タイルの `day` も、`set_visible_priority` の `days` も。見分けると、動かないまま灰色で残る）
+  const patchesMoveDays = askedRef.current.query === "" && filter !== "outgoing";
   // 可視領域のサムネイル未生成IDをバックエンドへ通知し、生成を優先させる
-  const visibleMissingIds = useMemo(() => {
+  const visibleMissing = useMemo(() => {
     const ids: number[] = [];
+    // それぞれを並べていた日。撮影日が読まれて別の日へ移った写真は Rust が頼まない（新しいライブラリで、
+    // 画面から去った写真の本番を作らない）
+    // 帯（`memories`）の写真は日が動いても差し替わらないので null（見ない）
+    const days: (number | null)[] = [];
     const seen = new Set<number>();
     // 高品質サムネイル未生成（なし or 即席のみ）を優先対象にする
-    const want = (item: MediaItem) => {
+    const want = (item: MediaItem, checkDay = true) => {
       if (item.thumb_state >= 2 || seen.has(item.id)) return;
       seen.add(item.id);
       ids.push(item.id);
+      days.push(checkDay && patchesMoveDays ? item.day_key : null);
     };
     // **帯は `rows` に居ない。** 「3年前の今日」は `memories` として別に描いて
     // いるので、下の `rows` を歩くだけでは生成を頼まないまま**灰色の四角が残る**。
@@ -4037,7 +4045,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       Date.now() - bandAnswerAtRef.current <= CLOUD_ANSWER_TTL_MS;
     if (view === "grid" && !filtering && bandFresh) {
       for (const m of memories) {
-        if (bandAskableIds.has(m.item.id)) want(m.item);
+        if (bandAskableIds.has(m.item.id)) want(m.item, false);
       }
     }
     for (const vr of virtualItems) {
@@ -4045,15 +4053,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row?.kind === "cells") for (const cell of row.cells) want(cell.item);
       else if (row?.kind === "pack") for (const seg of row.segs) for (const cell of seg.cells) want(cell.item);
     }
-    return ids;
-  }, [virtualItems, rows, memories, view, filtering, bandAskableIds]);
+    return { ids, days };
+  }, [virtualItems, rows, memories, view, filtering, bandAskableIds, patchesMoveDays]);
   useEffect(() => {
-    if (visibleMissingIds.length === 0) return;
+    if (visibleMissing.ids.length === 0) return;
     const t = window.setTimeout(() => {
-      setVisiblePriority(visibleMissingIds).catch(() => {});
+      setVisiblePriority(visibleMissing.ids, visibleMissing.days).catch(() => {});
     }, 150);
     return () => window.clearTimeout(t);
-  }, [visibleMissingIds]);
+  }, [visibleMissing]);
 
   // 詳細ビューア: 位置 {dayKey, id} を実レコードへ解決する
   const viewerInfo = useMemo(() => {
@@ -9087,6 +9095,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 recent={recentThumbs}
                                 waiters={gridWaiters}
                                 id={cell.item.id}
+                                day={patchesMoveDays ? cell.item.day_key : undefined}
                                 onDone={revealThumb}
                               />
                               {cell.item.is_video && (
