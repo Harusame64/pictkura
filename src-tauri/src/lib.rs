@@ -1389,6 +1389,29 @@ fn timeline_summary(
         .collect())
 }
 
+/// SPIKE（A: 日の一覧をまとめて取る）。マージ前に形を決め直す
+#[tauri::command]
+fn list_days(
+    state: tauri::State<'_, AppState>,
+    day_keys: Vec<i64>,
+    query: String,
+    filter: pictkura_core::MediaFilter,
+) -> Result<Vec<(i64, Vec<MediaItemDto>)>, String> {
+    let query = pictkura_core::parse_query(&query, filter);
+    state
+        .read_pool
+        .with(|db| {
+            day_keys
+                .iter()
+                .map(|&d| {
+                    db.search_day(d, &query)
+                        .map(|v| (d, v.into_iter().map(Into::into).collect()))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(errs::from_err)
+}
+
 /// 指定日（YYYYMMDD整数）のメディアを表示順（新しい順）で返す。
 /// フロントは可視範囲の日だけをこれで取得する。
 #[tauri::command]
@@ -8220,6 +8243,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             timeline_summary,
             list_day,
+            list_days,
             list_memories,
             get_stats,
             startup_scan_finished,

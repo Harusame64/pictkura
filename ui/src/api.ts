@@ -387,6 +387,9 @@ export const listDay = (
   query: string,
   filter: MediaFilter,
 ) => invoke<MediaItem[]>("list_day", { dayKey, query, filter });
+/** SPIKE（A）: 日の一覧をまとめて */
+export const listDays = (dayKeys: number[], query: string, filter: MediaFilter) =>
+  invoke<[number, MediaItem[]][]>("list_days", { dayKeys, query, filter });
 export const listCameras = () => invoke<Camera[]>("list_cameras");
 
 /** この環境で開けない形式があるか（HEIC/HEIFはOSのデコーダ頼み） */

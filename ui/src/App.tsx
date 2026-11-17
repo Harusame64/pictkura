@@ -23,6 +23,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
+import { SPIKE, spikeCounters, watchScrollSpeed } from "./scrollSpike"; // SPIKE
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -77,6 +78,7 @@ import {
   getStats,
   listCameras,
   listDay,
+  listDays,
   openDecoderHelp,
   listDrives,
   scanRootsOnDrives,
@@ -1728,6 +1730,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     if (inflightRef.current.has(dayKey)) return;
     inflightRef.current.add(dayKey);
     const gen = generationRef.current;
+    spikeCounters.listCalls++;
+    spikeCounters.listDays++;
     listDay(dayKey, queryRef.current, filterRef.current)
       .then((items) => {
         inflightRef.current.delete(dayKey);
@@ -1767,6 +1771,38 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             }
           }, 2000);
         }
+      });
+  }, []);
+
+  /** SPIKE（A）: 見えている日の一覧を1回でまとめて取る */
+  const loadDays = useCallback((keys: number[]) => {
+    const want = keys.filter((d) => !inflightRef.current.has(d));
+    if (want.length === 0) return;
+    for (const d of want) inflightRef.current.add(d);
+    const gen = generationRef.current;
+    spikeCounters.listCalls++;
+    spikeCounters.listDays += want.length;
+    listDays(want, queryRef.current, filterRef.current)
+      .then((pairs) => {
+        for (const d of want) inflightRef.current.delete(d);
+        if (generationRef.current !== gen) return;
+        setDayItems((prev) => {
+          const next = new Map(prev);
+          for (const [d, items] of pairs) next.set(d, items);
+          if (next.size > DAY_CACHE_MAX) {
+            for (const key of next.keys()) {
+              if (next.size <= DAY_CACHE_TRIM_TO) break;
+              if (!want.includes(key) && key !== viewerDayRef.current && !visibleDaysRef.current.has(key)) {
+                next.delete(key);
+              }
+            }
+          }
+          return next;
+        });
+      })
+      .catch((e) => {
+        for (const d of want) inflightRef.current.delete(d);
+        fail(errText(e));
       });
   }, []);
 
@@ -3780,6 +3816,22 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   }, [view, pendingScrollDay, rows, rowTops]);
 
   const virtualItems = virtualizer.getVirtualItems();
+  // SPIKE（C）: 速く動かしている間か
+  const [scrollFast, setScrollFast] = useState(false);
+  /** SPIKE（C）: 一度 src を渡したタイル（速い間も外さない——出ていた絵を消さない） */
+  const thumbAllowedRef = useRef(new Set<number>());
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!SPIKE.c || !el) return;
+    return watchScrollSpeed(el, setScrollFast);
+  }, [view]);
+  const spikeThumbSrc = (item: MediaItem): string | undefined => {
+    if (!SPIKE.c || !scrollFast || thumbAllowedRef.current.has(item.id)) {
+      thumbAllowedRef.current.add(item.id);
+      return thumbSrc(item);
+    }
+    return undefined;
+  };
 
   // 可視範囲の日を追跡し、未取得（placeholder）の日をオンデマンドで取得する
   useEffect(() => {
@@ -3795,8 +3847,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    for (const dayKey of wanted) loadDay(dayKey);
-  }, [virtualItems, rows, loadDay]);
+    if (SPIKE.c && SPIKE.cDays && scrollFast) return;
+    if (SPIKE.a) loadDays(wanted);
+    else for (const dayKey of wanted) loadDay(dayKey);
+  }, [virtualItems, rows, loadDay, loadDays, scrollFast]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
@@ -9040,7 +9094,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                                 className="cell"
                                 loading="lazy"
                                 decoding="async"
-                                src={thumbSrc(cell.item)}
+                                src={spikeThumbSrc(cell.item)}
                                 // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
                                 // 「サムネイルが無い」の見た目なので、隠したままにしない
                                 onLoad={revealThumb}
