@@ -1628,7 +1628,7 @@ pub fn drain_thumb_trash(
             break;
         }
         offset += batch.len();
-        for (recorded, id, queued_ms) in batch {
+        for (recorded, id, _queued_ms) in batch {
             if is_active(id) {
                 continue;
             }
@@ -1666,15 +1666,6 @@ pub fn drain_thumb_trash(
                         .is_some_and(|n| n == name);
                 if in_use {
                     return Outcome::Done(false);
-                }
-                // 控えた後に書かれたファイルは消さない（作り直しが記録を書く前かもしれない。次の回に確かめ直す）
-                let written_after = std::fs::metadata(&here)
-                    .and_then(|m| m.modified())
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .is_some_and(|t| t.as_millis() as i64 > queued_ms);
-                if written_after {
-                    return Outcome::Keep;
                 }
                 match std::fs::remove_file(&here) {
                     Ok(()) => Outcome::Done(true),
