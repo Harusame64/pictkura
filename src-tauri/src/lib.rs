@@ -738,10 +738,6 @@ struct MediaItemDto {
     /// サムネイルの品質段階: 0=なし, 1=即席, 2=高品質。
     /// URLバージョンに含めて、即席→高品質の差し替え時にキャッシュを割る
     thumb_state: i64,
-    /// 働き手がサムネイルを作るのを諦めた（失敗が上限に達した）。一覧のタイルの URL を変えて問い直させ、
-    /// 灰色の待ちから原本（出せる大きさなら）へ移す。働き手の完了の知らせ（`media-updated`）だけが立てる
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    thumb_failed: bool,
     favorite: bool,
     /// 選別で選んだ印（⚑ Pick。0.2 ②）。★とは別の棚
     picked: bool,
@@ -801,7 +797,6 @@ impl From<pictkura_core::MediaRecord> for MediaItemDto {
             rev: r.rev,
             has_thumb: r.thumb_path.is_some(),
             thumb_state: r.thumb_state,
-            thumb_failed: false,
             favorite: r.favorite,
             picked: r.picked,
             duration_ms: r.duration_ms,
@@ -6935,8 +6930,10 @@ const MAX_ORIGINAL_THUMB_EDGE: i64 = 2048;
 
 /// サムネイル未生成のとき、元ファイルをそのまま代わりに出して良いか。
 ///
-/// **一覧のタイルはふつうここまで来ない**——働き手が作る写真は空のタイルで待つ（[`grid_waits_for_thumb`]）。
-/// ここを通るのは一覧以外（カレンダーの表紙・ビューアの下の帯など）と、一覧でも働き手が作らない写真だけ
+/// **一覧のタイルはふつうここまで来ない**——働き手が作る写真は空のタイルで待つ（`handle_media_request`）。
+/// ここを通るのは一覧以外（カレンダーの表紙・ビューアの下の帯など）と、一覧でも働き手が作らない写真・失敗が
+/// 上限に達した写真・**クラウドにしか無い写真**。最後のものは下の判定だけが空のタイルにしている（外すと、
+/// 一覧の要求のたびに OneDrive から落とさせる）
 ///
 /// 条件は3つ:
 ///
@@ -6979,21 +6976,11 @@ fn requested_by_grid(url: &str) -> bool {
         .is_some_and(|(_, q)| q.split('&').any(|kv| kv == "grid=1"))
 }
 
-/// 一覧のタイルが、サムネイルが出来るのを空のタイルで待つか。
-///
-/// 待つのは、働き手がこれから作る写真だけ。作らない写真（SVG＝[`THUMB_STATE_NOT_NEEDED`]、
-/// 絵の無い RAW＝[`THUMB_STATE_NO_PREVIEW`]、失敗が上限に達した写真）は、今までどおり原本か空のタイルで
-/// 答える——待たせると、灰色のまま二度と変わらない。
-///
-/// クラウドにしか無い写真も待たせない（今までどおり空のタイルで、列にも積まない）。要求のたびに列の先頭へ押すと、
-/// 帯を速く動かして通り過ぎただけの写真まで OneDrive から落とさせる。見えている写真は、止まったときの
-/// `set_visible_priority` が積む
-fn grid_waits_for_thumb(thumb_state: i64, cloud_only: bool, blocked: bool) -> bool {
+/// 働き手がこの写真のサムネイルを作るか（品質段階で見る分）。作らない写真（SVG＝[`THUMB_STATE_NOT_NEEDED`]、
+/// 絵の無い RAW＝[`THUMB_STATE_NO_PREVIEW`]）を一覧が空のタイルで待つと、灰色のまま二度と変わらない
+fn worker_makes_thumb(thumb_state: i64) -> bool {
     use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
-    thumb_state != THUMB_STATE_NOT_NEEDED
-        && thumb_state != THUMB_STATE_NO_PREVIEW
-        && !cloud_only
-        && !blocked
+    thumb_state != THUMB_STATE_NOT_NEEDED && thumb_state != THUMB_STATE_NO_PREVIEW
 }
 
 /// `media://` プロトコルのハンドラ。IDからパスを引き、ファイルバイナリをそのまま返す。
@@ -7138,12 +7125,16 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
             // ほぼ1コアで展開して、ほかのタイルのサムネイルまで詰まる（帯を速く動かすと3万枚で約600MB を読んだ）。
             // win2 の比べ合わせでは、その場で作る形（#343）より、止めてから写真がそろうのも、動かしている間に
             // 写真が出る割合も良かった（埋め込みサムネイルの無い3万枚で、出る割合 0.01〜0.07 → 0.25〜0.33）
+            //
+            // 待たせないのは、働き手が作らない写真と、失敗が上限に達した写真（今までどおり原本か空のタイル。
+            // 画面に出ているタイルは読み直さないので、出し直すのは次にタイルが作られたとき）、そして
+            // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
+            // 写真まで OneDrive から落とさせる。見えている写真は、止まったときの `set_visible_priority` が積む）。
+            // ファイルを stat する判定は最後に置く（遅い NAS で要求ごとに払わない）
             None if requested_by_grid(url)
-                && grid_waits_for_thumb(
-                    record.thumb_state,
-                    pictkura_core::cloud::is_cloud_only_path(&record.path),
-                    state.thumbs.is_blocked(id),
-                ) =>
+                && worker_makes_thumb(record.thumb_state)
+                && !state.thumbs.is_blocked(id)
+                && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
             {
                 state.thumbs.prioritize(&[id]);
                 return blank_thumb();
@@ -7749,10 +7740,7 @@ pub fn run() {
                     let state = thumb_handle.state::<AppState>();
                     let record = state.read_pool.with(|db| db.get_by_id(id)).ok().flatten();
                     if let Some(record) = record {
-                        let failed = record.thumb_path.is_none() && state.thumbs.is_blocked(id);
-                        let mut dto = MediaItemDto::from(record);
-                        dto.thumb_failed = failed;
-                        let _ = thumb_handle.emit("media-updated", dto);
+                        let _ = thumb_handle.emit("media-updated", MediaItemDto::from(record));
                     }
                     // `media-updated` の DTO にカメラの欄は無いので、カメラは別に知らせる
                     // （dev #28。`Unchanged` を捨てるのも含め、何を数え直すかは
@@ -8459,22 +8447,12 @@ mod tests {
     #[test]
     fn the_grid_waits_only_for_thumbnails_the_worker_will_make() {
         use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
-        assert!(super::grid_waits_for_thumb(0, false, false));
+        assert!(super::worker_makes_thumb(0));
+        assert!(super::worker_makes_thumb(1), "仮のサムネイルから本番へ");
+        assert!(!super::worker_makes_thumb(THUMB_STATE_NOT_NEEDED), "SVG");
         assert!(
-            !super::grid_waits_for_thumb(THUMB_STATE_NOT_NEEDED, false, false),
-            "SVG"
-        );
-        assert!(
-            !super::grid_waits_for_thumb(THUMB_STATE_NO_PREVIEW, false, false),
+            !super::worker_makes_thumb(THUMB_STATE_NO_PREVIEW),
             "絵の無い RAW"
-        );
-        assert!(
-            !super::grid_waits_for_thumb(0, true, false),
-            "クラウドにしか無い"
-        );
-        assert!(
-            !super::grid_waits_for_thumb(0, false, true),
-            "失敗が上限に達した"
         );
     }
 
