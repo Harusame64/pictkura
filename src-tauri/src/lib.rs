@@ -6931,8 +6931,12 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
-/// 控え（`thumb_trash`）を始める前に残った孤児のサムネイルを、置き場を見て回って片付けたかの印（一度だけ）
+/// 置き場を見て回って孤児のサムネイルを片付けた時刻（ミリ秒）。控え（`thumb_trash`）が拾えない孤児——この版より前に
+/// 残ったもの、付け替えた後で確定に失敗した（落ちた・ディスクが満杯）サムネイル——のために、起動の後に
+/// [`ORPHAN_SWEEP_EVERY_MS`] ごと、1回だけ見て回る（PR の codex）
 const ORPHAN_SWEEP_KEY: &str = "orphan_thumb_sweep_v1";
+/// 置き場を見て回る間隔。3万枚で 0.3〜0.4 秒（Windows の NTFS）なので、週に1回なら気にならない
+const ORPHAN_SWEEP_EVERY_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 /// サムネイル未生成のとき、原本を一覧へ出して良い最大の辺（ピクセル）。
 ///
@@ -8166,6 +8170,7 @@ pub fn run() {
                     let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
                         let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
+                        let mut walked_this_session = false;
                         loop {
                             std::thread::sleep(std::time::Duration::from_secs(60));
                             let state = janitor_handle.state::<AppState>();
@@ -8187,8 +8192,18 @@ pub fn run() {
                                     applog::note(&format!("removed {n} thumbnails no photo uses"));
                                 }
                             }
-                            // 控えを始める前（この版より前）に残った孤児は、置き場を1回だけ見て回って片付ける
-                            if db.get_meta(ORPHAN_SWEEP_KEY).ok().flatten().is_none() {
+                            // 控えが拾えない孤児は、置き場を見て回って片付ける（週に1回まで。この起動で1回だけ）
+                            let sweep_due = !walked_this_session
+                                && db
+                                    .get_meta(ORPHAN_SWEEP_KEY)
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|v| v.parse::<i64>().ok())
+                                    .is_none_or(|at| {
+                                        pictkura_core::db::now_ms() - at >= ORPHAN_SWEEP_EVERY_MS
+                                    });
+                            if sweep_due {
+                                walked_this_session = true;
                                 if let Ok(n) = pictkura_core::thumbs::sweep_orphan_thumbs(
                                     db,
                                     &janitor_thumbs_dir,
@@ -8196,10 +8211,13 @@ pub fn run() {
                                     &|id| state.thumbs.is_active(id),
                                 ) {
                                     let (n, deferred) = n;
-                                    // 見送り（新しすぎる・作業中・消せなかった）が残る間は「済んだ」にしない。
-                                    // 控えに載っていない古い孤児なので、次の回にまた見て回る（PR の codex）
+                                    // 見送り（新しすぎる・作業中・消せなかった）が残る間は「済んだ」時刻を書かない。
+                                    // 控えに載っていない孤児なので、次の起動でまた見て回る（PR の codex）
                                     if deferred == 0 {
-                                        let _ = db.set_meta(ORPHAN_SWEEP_KEY, "1");
+                                        let _ = db.set_meta(
+                                            ORPHAN_SWEEP_KEY,
+                                            &pictkura_core::db::now_ms().to_string(),
+                                        );
                                     }
                                     if n > 0 {
                                         applog::note(&format!("removed {n} orphaned thumbnails"));
