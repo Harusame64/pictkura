@@ -24,6 +24,7 @@ import Calendar from "./Calendar";
 import { Icon, driveIconName, type IconName } from "./Icon";
 import { navLabel } from "./navLabel";
 import { SPIKE, spikeCounters, watchScrollSpeed } from "./scrollSpike"; // SPIKE
+import { gridLoader, gridThumbRef, loadedThumbs, QSPIKE } from "./gridQueueSpike"; // SPIKE
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
 import Palette, { type PaletteItem } from "./Palette";
@@ -3824,6 +3825,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const el = scrollRef.current;
     if (!SPIKE.c || !el) return;
     return watchScrollSpeed(el, setScrollFast);
+  }, [view]);
+  // SPIKE（列で選ぶ）: 一覧の箱を見張る
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!QSPIKE.on || !el) return;
+    return gridLoader.watch(el);
   }, [view]);
   const spikeThumbSrc = (item: MediaItem): string | undefined => {
     if (!SPIKE.c || !scrollFast || thumbAllowedRef.current.has(item.id)) {
@@ -9090,11 +9097,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               }}
                             >
                               <img
-                                ref={revealIfPainted}
+                                ref={
+                                  QSPIKE.on && !loadedThumbs.has(thumbSrc(cell.item))
+                                    ? gridThumbRef(thumbSrc(cell.item))
+                                    : revealIfPainted
+                                }
                                 className="cell"
                                 loading="lazy"
                                 decoding="async"
-                                src={spikeThumbSrc(cell.item)}
+                                src={
+                                  QSPIKE.on
+                                    ? loadedThumbs.has(thumbSrc(cell.item))
+                                      ? thumbSrc(cell.item)
+                                      : undefined
+                                    : spikeThumbSrc(cell.item)
+                                }
                                 // 届いたら浮かべる（`revealThumb`）。失敗でも浮かべる——背景の灰色が
                                 // 「サムネイルが無い」の見た目なので、隠したままにしない
                                 onLoad={revealThumb}
