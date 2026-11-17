@@ -2570,14 +2570,6 @@ impl ThumbnailService {
     /// （即席のままだと 160px しか渡せない。/code-review。試験で押さえてある）
     fn run_claimed(&self, db: &mut Db, id: i64) -> RunNow {
         for pass in 0..2 {
-            let state = db.get_by_id(id).ok().flatten().map(|r| r.thumb_state);
-            // 本番が出来ている（確かめた後に働き手が作り終えた・即席から本番まで行った）なら作らない
-            if state.is_some_and(|s| s >= 2) {
-                return RunNow::Ran;
-            }
-            if pass == 1 && state != Some(1) {
-                return RunNow::Ran;
-            }
             if !self.queue.claim(id) {
                 return if pass == 0 {
                     if self.queue.is_processing(id) {
@@ -2594,6 +2586,13 @@ impl ThumbnailService {
                 queue: &self.queue,
                 id,
             };
+            // 受け持った**後で**状態を読む（前に読むと、その間に働き手が作り終えた本番をもう一度作った）。
+            // 本番が出来ている・2回目なのに即席でないなら、作らずに受け持ちを返す
+            let state = db.get_by_id(id).ok().flatten().map(|r| r.thumb_state);
+            if state.is_some_and(|s| s >= 2) || (pass == 1 && state != Some(1)) {
+                drop(claim);
+                return RunNow::Ran;
+            }
             run_job(
                 &self.queue,
                 db,

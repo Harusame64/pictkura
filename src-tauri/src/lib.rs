@@ -6774,7 +6774,7 @@ fn source_preview_response(state: &AppState, path: &Path) -> Response<Vec<u8>> {
     if !lock_ok(&state.browse_allow).contains(parent) {
         return denied();
     }
-    let thumb_size = lock_ok(&state.config).performance.thumbnail_size;
+    let thumb_size = state.thumbs.thumb_size();
     let _reading = state.source_tiles.start();
     match pictkura_core::browse::preview(path, thumb_size) {
         Some(preview) => Response::builder()
@@ -6941,25 +6941,11 @@ const MAX_ORIGINAL_THUMB_EDGE: i64 = 2048;
 /// （サムネイルは平均49KB）で、ブラウザは**タイルごとに1200万画素を展開する**。
 /// 40枚並べたら半分のタイルが最後まで描かれなかった（画像デコードの予算切れ）。
 /// 大きすぎるものは配らず、空の枠のままにする方が速くて予測できる。
-/// この要求の糸でサムネイルを作ってよい種類か（`can_serve_original` から寸法の上限を除いたもの——上限は原本を
-/// WebView に渡すときの守りで、作るときには要らない。大きい写真こそ、その場で作る値打ちがある）
-fn can_make_thumb_now(record: &pictkura_core::MediaRecord) -> bool {
-    !(pictkura_core::thumbs::needs_display_transcode(&record.path)
-        || pictkura_core::cloud::is_cloud_only_path(&record.path)
-        || pictkura_core::video::is_video_path(&record.path))
-}
-
 fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
-    if pictkura_core::thumbs::needs_display_transcode(&record.path)
-        || pictkura_core::cloud::is_cloud_only_path(&record.path)
-    {
-        return false;
-    }
-    // 動画は原本を代わりに配ってはいけない（第9部）。
-    // `<img>` に動画を渡しても絵にならないうえ、ここは**ファイルを丸ごと
-    // メモリへ読む**ので、2GBの.m2tsが可視領域に入っただけで落ちかねない。
-    // サムネイルができるまでは空タイルを出す
-    if pictkura_core::video::is_video_path(&record.path) {
+    // 1・2 と動画（[`can_make_thumb_now`] と同じ判定。動画は原本を代わりに配ってはいけない——第9部。
+    // `<img>` に動画を渡しても絵にならないうえ、ここは**ファイルを丸ごとメモリへ読む**ので、2GBの.m2tsが
+    // 可視領域に入っただけで落ちかねない。サムネイルができるまでは空タイルを出す）
+    if !can_make_thumb_now(record) {
         return false;
     }
     // ベクタは「原寸」が無く、ブラウザがタイルの大きさで描くので上限を掛けない
@@ -6971,6 +6957,15 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
         return true;
     };
     longest <= MAX_ORIGINAL_THUMB_EDGE
+}
+
+/// この要求の糸でサムネイルを作ってよい種類か: WebView が描ける形式で、実体が手元にあり、動画ではない
+/// （[`can_serve_original`] から寸法の上限を除いたもの——上限は原本を WebView に渡すときの守りで、作るときには
+/// 要らない。大きい写真こそ、その場で作る値打ちがある）
+fn can_make_thumb_now(record: &pictkura_core::MediaRecord) -> bool {
+    !(pictkura_core::thumbs::needs_display_transcode(&record.path)
+        || pictkura_core::cloud::is_cloud_only_path(&record.path)
+        || pictkura_core::video::is_video_path(&record.path))
 }
 
 /// サムネイルの無い写真の本番を、この要求の糸でいま作る（[`pictkura_core::ThumbnailService::run_now`]）
@@ -7052,15 +7047,7 @@ fn handle_media_request(state: &AppState, url: &str, range: Option<&str>) -> Res
         if pictkura_core::cloud::is_cloud_only_path(&record.path) {
             return not_found();
         }
-        let thumb_size = state.thumbs.thumb_size();
-        return match pictkura_core::browse::preview(&record.path, thumb_size) {
-            Some(preview) => Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", preview.mime)
-                .body(preview.bytes)
-                .unwrap_or_else(|_| server_error()),
-            None => not_found(),
-        };
+        return preview_response(&record.path, state.thumbs.thumb_size()).unwrap_or_else(not_found);
     }
     // 高品質サムネイルの配信はLRUのタッチとして記録する（メモリ集約→定期フラッシュ）
     if kind == ServeKind::Thumb && record.thumb_state == 2 {
