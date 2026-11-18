@@ -592,6 +592,15 @@ export const en: Dict = {
   dayUnread: "Photos being read",
   calendarUnread: (n: number) =>
     `${num(n)} ${one(n, "photo is", "photos are")} still being read. ${one(n, "It", "They")} will appear here once ${one(n, "its date is", "their dates are")} known.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filter by year taken",
+    camera: "Filter by camera",
+    kind: "Filter by type (photo, raw, video)",
+    folder: "Filter by folder name",
+    fav: "Favorites (★) only",
+    pick: "Picks (⚑) only",
+  },
   settingsHardwareAccelerationNote:
     "If the mouse pointer looks frozen while you view photos in full screen, turning this off may fix it (seen on a PC with AMD graphics). With it off, video playback uses more CPU. The change takes effect the next time you start pictkura.",
   settingsImportWaitingFrom: (path: string) =>

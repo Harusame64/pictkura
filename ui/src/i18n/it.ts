@@ -637,6 +637,15 @@ export const it: Dict = {
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "Lettura in corso",
   calendarUnread: (n: number) => `Foto ancora in lettura: ${num(n)}. Compariranno qui quando la data sarà nota.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filtra per anno di scatto",
+    camera: "Filtra per fotocamera",
+    kind: "Filtra per tipo (photo, raw, video)",
+    folder: "Filtra per nome della cartella",
+    fav: "Solo preferiti (★)",
+    pick: "Solo selezionate (⚑)",
+  },
   settingsHardwareAccelerationNote:
     "Se il puntatore del mouse sembra bloccato mentre guardi le foto a schermo intero, disattivare questa opzione può risolvere il problema (riscontrato su un PC con grafica AMD). Se è disattivata, la riproduzione dei video usa più CPU. La modifica ha effetto dal prossimo avvio di pictkura.",
   settingsImportWaitingFrom: (path: string) =>

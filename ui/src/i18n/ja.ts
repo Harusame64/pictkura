@@ -687,6 +687,15 @@ export const ja = {
   dayUnread: "読み込み中の写真",
   calendarUnread: (n: number) =>
     `撮影日を読み込み中の写真が${num(n)}枚あります。読み込みが完了すると、ここに表示されます。`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "撮影した年で絞る",
+    camera: "カメラで絞る",
+    kind: "種類（photo・raw・video）で絞る",
+    folder: "フォルダ名で絞る",
+    fav: "お気に入り（★）だけ",
+    pick: "選別で選んだ写真（⚑）だけ",
+  },
   settingsHardwareAccelerationNote:
     "全画面で写真を見ているときにマウスポインターが止まって見える場合は、オフにすると直ることがあります（AMD のグラフィックを搭載した PC で確認しています）。オフのときは、動画の再生で CPU の使用率が上がります。切り替えは、次に pictkura を起動したときから有効になります。",
   settingsImportWaitingFrom: (path: string) =>

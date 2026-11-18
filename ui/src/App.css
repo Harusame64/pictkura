@@ -513,6 +513,57 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   container: search / inline-size;
 }
 
+/* 検索欄の候補（`searchSuggest.ts`）。欄のすぐ下に、欄と同じ幅で */
+.search-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-2);
+}
+.search-suggest li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 10px;
+  border-radius: var(--radius-row);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+.search-suggest li.active {
+  background: var(--surface-2);
+}
+.search-suggest-main {
+  /* 長いカメラ名は省略する（枚数・説明を押し出さない） */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.search-suggest-hint {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  text-align: end;
+}
+/* 上の帯は幅の問い合わせで自分の重なりの層を持つ。候補が開いている間だけ帯ごと持ち上げる（下の一覧に潜らないように） */
+.topbar:has(.search-suggest) {
+  position: relative;
+  z-index: 20;
+}
+
 .search-icon {
   position: absolute;
   inset-inline-start: 9px;
