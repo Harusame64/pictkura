@@ -7013,6 +7013,44 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
+/// 前の版で EXIF を拒まれていた JPEG を読み直した印（[`pictkura_core::thumbs::reread_stray_exif`]）
+const STRAY_EXIF_REREAD_KEY: &str = "stray_exif_reread_v1";
+
+/// 前の版で EXIF を丸ごと拒まれていた JPEG（子 IFD の「次の IFD」の欄が 0 でない形）を、一度だけ読み直しへ回す。
+/// 起動時の同期の後に、裏の糸で。**済んだ印は読み直しを積んでから書く**——先に書いて落ちると、二度と拾わない
+fn reread_stray_exif_once(handle: &tauri::AppHandle) {
+    let handle = handle.clone();
+    let _ = std::thread::Builder::new()
+        .name("stray-exif".into())
+        .spawn(move || {
+            let _ = pictkura_core::panics::catching("reread stray exif", || {
+                let state = handle.state::<AppState>();
+                let Ok(mut db) = Db::open(&state.db_path) else {
+                    return;
+                };
+                if db.get_meta(STRAY_EXIF_REREAD_KEY).ok().flatten().is_some() {
+                    return;
+                }
+                let Ok(ids) = pictkura_core::thumbs::reread_stray_exif(&mut db, &|p| {
+                    pictkura_core::cloud::is_cloud_only_path(p)
+                }) else {
+                    return;
+                };
+                if !ids.is_empty() {
+                    applog::note(&format!(
+                        "re-reading {} photos whose EXIF was rejected before",
+                        ids.len()
+                    ));
+                    state.thumbs.enqueue(&ids);
+                }
+                let _ = db.set_meta(
+                    STRAY_EXIF_REREAD_KEY,
+                    &pictkura_core::db::now_ms().to_string(),
+                );
+            });
+        });
+}
+
 /// サムネイルの置き場の上限（バイト）。0 = 無制限。極端な値で桁があふれないよう 8 TB で抑える
 fn thumb_cache_cap_bytes(config: &Config) -> i64 {
     (config.performance.thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024
@@ -8618,6 +8656,7 @@ pub fn run() {
                 state
                     .startup_done
                     .store(true, std::sync::atomic::Ordering::Release);
+                reread_stray_exif_once(&handle);
                 let _ = handle.emit(
                     "startup-scan-finished",
                     StartupDoneDto {

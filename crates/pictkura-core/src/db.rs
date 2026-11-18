@@ -3978,6 +3978,40 @@ impl Db {
         Ok(out)
     }
 
+    /// 撮影日時の出どころが EXIF でない JPEG（[`crate::thumbs::reread_stray_exif`] の候補）
+    pub fn jpegs_without_exif_date(&self) -> Result<Vec<FallbackDateRow>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, path FROM media
+             WHERE (taken_source IS NULL OR taken_source != 'exif')
+               AND (lower(path) LIKE '%.jpg' OR lower(path) LIKE '%.jpeg')
+             ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 行を、中身が変わったときと同じに空にする（[`CHANGED_ROW_RESET`]。カメラは残す）。外したサムネイルは
+    /// 引き金が `thumb_trash` に積む。読み直しは `ids_missing_metadata` が拾う
+    pub fn reset_for_reread(&mut self, ids: &[i64]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut stmt = tx.prepare_cached(&format!(
+                "UPDATE media SET {CHANGED_ROW_RESET} WHERE id = ?1"
+            ))?;
+            for id in ids {
+                stmt.execute([id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// `width = 0` も対象に含める（第9部 段階H）。0は「読もうとして読めなかった」印で、
     /// コンテナを自前で解釈できない動画（`.m2ts` / `.avi`）がここに落ちる。OSのプロパティを
     /// 聞く道ができた後は取れるようになるので、既に走査済みのDBでも拾い直せるようにする。

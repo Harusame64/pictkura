@@ -809,7 +809,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
 }
 
 /// EXIF を読む（入れ物ごと）。[`tolerate_stray_next_ifd`] を見よ
-pub(crate) fn parse_exif_container<R: std::io::BufRead + std::io::Seek>(
+pub fn parse_exif_container<R: std::io::BufRead + std::io::Seek>(
     reader: &mut R,
 ) -> Result<exif::Exif, exif::Error> {
     tolerate_stray_next_ifd(
@@ -820,7 +820,7 @@ pub(crate) fn parse_exif_container<R: std::io::BufRead + std::io::Seek>(
 }
 
 /// EXIF を読む（TIFF の並び）。[`tolerate_stray_next_ifd`] を見よ
-pub(crate) fn read_exif_raw(data: Vec<u8>) -> Result<exif::Exif, exif::Error> {
+pub fn read_exif_raw(data: Vec<u8>) -> Result<exif::Exif, exif::Error> {
     tolerate_stray_next_ifd(exif::Reader::new().continue_on_error(true).read_raw(data))
 }
 
@@ -832,7 +832,14 @@ pub(crate) fn read_exif_raw(data: Vec<u8>) -> Result<exif::Exif, exif::Error> {
 /// （kamadak の `parse_child_ifd`）ので、誤りを集めて続けた結果はそのまま使える。
 ///
 /// **ほかの誤りが 1 つでも混じれば、これまでどおり読まない**——許す形を広げると、壊れた EXIF から
-/// でたらめな日付や向きを拾う。返す誤りは、そのまま読んだときに返ったものと同じ（最初の誤り）
+/// でたらめな日付や向きを拾う。返す誤りは、そのまま読んだときに返ったものと同じ（最初の誤り）。
+///
+/// 子 IFD へのポインタが**よその IFD を指している**壊れ方でも、同じ誤りだけが出ることがある（指した先が
+/// IFD0 なら、その次は IFD1 で 0 でない）。そのとき読まれる項目は**子の文脈のタグ**として入る（IFD0 の
+/// 向き 0x0112 は Exif 文脈では別のタグ）ので、こちらが引く撮影日時・寸法の申告・シリアル（Exif 文脈の番号）
+/// には当たらない。偶然その番号の項目が並ぶ形まで拒む手立ては無く、そこは受け入れる（PR #349 の /code-review）。
+/// 誤りの見分けは kamadak の文言に頼る——版を上げて文言が変わると許しが黙って外れるが、試験の対照
+/// （そのままの読み手がこの形を `Unexpected next IFD` で拒むこと）が落ちて気付ける
 fn tolerate_stray_next_ifd(
     result: Result<exif::Exif, exif::Error>,
 ) -> Result<exif::Exif, exif::Error> {
@@ -852,6 +859,46 @@ fn tolerate_stray_next_ifd(
         }
         other => other,
     }
+}
+
+/// **前の版で EXIF を丸ごと拒んでいた JPEG を探して、読み直しへ回す**（一度きり。呼ぶ側が済んだ印を持つ）。
+///
+/// [`tolerate_stray_next_ifd`] より前の版は、子 IFD の「次の IFD」の欄が 0 でない EXIF を読めず、向き・撮影日時・
+/// 埋め込みサムネイルを落として行に記録した。ファイルは変わっていないので、走査は読み直さない（PR #349 の
+/// /code-review）。撮影日時の出どころが EXIF でない JPEG のうち、**厳密な読み手がこの誤りで拒み、今の読み手が
+/// 読めるもの**だけを、中身が変わった行と同じに空にする（回っていない向きで作ったサムネイルも外れる）。
+///
+/// クラウドにしか無いファイルは開かない（開くとダウンロードが走る）。読み直しが要る id を返す
+pub fn reread_stray_exif(
+    db: &mut Db,
+    is_cloud_only: &dyn Fn(&Path) -> bool,
+) -> Result<Vec<i64>, DbError> {
+    let mut stale = Vec::new();
+    for (id, path) in db.jpegs_without_exif_date()? {
+        if is_cloud_only(&path) {
+            continue;
+        }
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
+        let mut reader = BufReader::new(file);
+        let strict = exif::Reader::new().read_from_container(&mut reader);
+        if !matches!(
+            strict,
+            Err(exif::Error::InvalidFormat("Unexpected next IFD"))
+        ) {
+            continue;
+        }
+        if std::io::Seek::seek(&mut reader, std::io::SeekFrom::Start(0)).is_ok()
+            && parse_exif_container(&mut reader).is_ok()
+        {
+            stale.push(id);
+        }
+    }
+    if !stale.is_empty() {
+        db.reset_for_reread(&stale)?;
+    }
+    Ok(stale)
 }
 
 /// 先頭ぶんだけを渡されたTIFFを読む。
@@ -5694,6 +5741,56 @@ mod tests {
         assert_eq!((r.width, r.height), (Some(600), Some(800)), "向き6で縦長");
         let (tw, th) = image::image_dimensions(r.thumb_path.as_ref().unwrap()).unwrap();
         assert!(th > tw, "本番のサムネイルも縦長: {tw}x{th}");
+    }
+
+    /// 前の版で EXIF を拒まれていた JPEG だけを、一度きり読み直しへ回す（クラウドにしか無いものは開かない）
+    #[test]
+    fn photos_read_before_the_fix_are_sent_back_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("r.db")).unwrap();
+        let files: [(&str, Vec<u8>); 4] = [
+            ("stray.jpg", jpeg_with_stray_exif_next_ifd(80, 60, 6)),
+            ("cloud.JPG", jpeg_with_stray_exif_next_ifd(80, 60, 6)),
+            ("good.jpg", jpeg_with_embedded_thumbnail(80, 60)),
+            ("plain.jpeg", test_jpeg_bytes(80, 60)),
+        ];
+        let mut ids = std::collections::HashMap::new();
+        for (name, bytes) in &files {
+            let p = dir.path().join(name);
+            std::fs::write(&p, bytes).unwrap();
+            db.upsert_files(&[ScannedFile {
+                path: p.clone(),
+                size: 1,
+                mtime_ms: 1,
+            }])
+            .unwrap();
+            let id = db
+                .list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path == p)
+                .unwrap()
+                .id;
+            // 前の版が読み終えた形: 寸法・本番のサムネイルあり
+            db.update_shell_metadata(id, 80, 60, None::<TakenAt>)
+                .unwrap();
+            db.update_thumb_path(id, &dir.path().join(format!("{id}.webp")), 2, Some(10))
+                .unwrap();
+            ids.insert(*name, id);
+        }
+        let cloud = dir.path().join("cloud.JPG");
+        let sent = reread_stray_exif(&mut db, &|p| p == cloud).unwrap();
+        assert_eq!(sent, vec![ids["stray.jpg"]]);
+        let r = db.get_by_id(ids["stray.jpg"]).unwrap().unwrap();
+        assert_eq!((r.width, r.thumb_state, r.thumb_path), (None, 0, None));
+        for name in ["cloud.JPG", "good.jpg", "plain.jpeg"] {
+            let r = db.get_by_id(ids[name]).unwrap().unwrap();
+            assert_eq!(r.thumb_state, 2, "{name} は触らない");
+        }
+        assert!(db
+            .ids_missing_metadata()
+            .unwrap()
+            .contains(&ids["stray.jpg"]));
     }
 
     /// 許すのは「次の IFD」の誤りだけ。ほかの誤り（値が範囲の外を指す等）が混じれば、これまでどおり読まない
