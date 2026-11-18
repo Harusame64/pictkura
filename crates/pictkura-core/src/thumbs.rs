@@ -993,8 +993,9 @@ pub(crate) const EXIF_TIFF_HEADS_FOR_PICTURES: [u64; 1] = [1 << 20];
 /// [`read_exif_container`] の本体。読み手を外から渡せるのは、**どこまで読んだか**を
 /// テストが数えるため。
 ///
-/// TIFFは `heads` の段の先頭だけで**厳密に**（`continue_on_error` なしで）
-/// パースし、通ればそれを使う。**全体を読んだときと同じ答えになる**: パーサは
+/// TIFFは `heads` の段の先頭だけで**厳密に**パースし、通ればそれを使う。厳密とは、
+/// 誤りを1つでも出せば通さないこと——許すのは子 IFD の「次の IFD」の誤りだけで（[`read_exif_raw`]）、
+/// これは位置ではなく形の誤りなので、先頭だけでも全体でも同じに出る。**全体を読んだときと同じ答えになる**: パーサは
 /// 申告された位置しか読まず、1つでも範囲の外を指せば失敗する。先頭で通ったという
 /// ことは、全体で読んでも同じバイトを同じ順に読む。通らなければ残りを読み足して
 /// 従来と同じ全体のパースへ進む（失敗の形も従来どおり）。段の途中で通らなければ、
@@ -3000,8 +3001,9 @@ mod tests {
     /// 先頭で止める読みと、従来の全体の読みを、同じバイト列で比べる。
     /// 3つ目は読み手が届いた位置。
     fn read_both(bytes: Vec<u8>) -> (DateAndThumb, DateAndThumb, u64) {
-        let full = exif::Reader::new()
-            .read_from_container(&mut std::io::Cursor::new(bytes.clone()))
+        // 比べる相手は製品と同じ読み手（「次の IFD」の誤りだけは許す）。厳密な読み手と比べると、piexif が書いた
+        // ファイルが「違う」と出る（PR #349 の /code-review）
+        let full = parse_exif_container(&mut std::io::Cursor::new(bytes.clone()))
             .map(|e| exif_data_from(&e))
             .expect("全体では読める");
         let mut reach = Reach {
@@ -3173,8 +3175,7 @@ mod tests {
             inner: std::io::Cursor::new(bytes.to_vec()),
             furthest: 0,
         };
-        let date = exif::Reader::new()
-            .read_from_container(&mut BufReader::new(&mut reach))
+        let date = parse_exif_container(&mut BufReader::new(&mut reach))
             .ok()
             .and_then(|e| exif_data_from(&e).taken_at_ms);
         (date, reach.furthest)
@@ -3250,12 +3251,11 @@ mod tests {
                     continue;
                 };
                 files += 1;
-                let old: Option<ExifData> = match exif::Reader::new()
-                    .read_from_container(&mut std::io::Cursor::new(bytes.clone()))
-                {
-                    Ok(e) => Some(exif_data_from(&e)),
-                    Err(_) => None,
-                };
+                let old: Option<ExifData> =
+                    match parse_exif_container(&mut std::io::Cursor::new(bytes.clone())) {
+                        Ok(e) => Some(exif_data_from(&e)),
+                        Err(_) => None,
+                    };
                 let len = bytes.len() as u64;
                 let is_tiff = bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*");
                 // 切手を残す読み（一覧・ビューア）と、捨てる読み（取り込みの日付）の両方
@@ -5710,6 +5710,41 @@ mod tests {
         t.extend_from_slice(&0u32.to_le_bytes());
         assert!(exif::Reader::new().read_raw(t.clone()).is_err(), "対照");
         assert!(read_exif_raw(t).is_err());
+    }
+
+    /// 「次の IFD」の誤りに、ほかの誤りが混じっていたら読まない（許すのは前者だけのとき）
+    #[test]
+    fn a_stray_next_ifd_with_another_error_is_still_rejected() {
+        let jpeg = jpeg_with_stray_exif_next_ifd(80, 60, 6);
+        // TIFF の部分（APP1 の "Exif\0\0" の後）を取り出し、Exif IFD の撮影日時の値の位置を範囲の外へずらす
+        let len = u16::from_be_bytes([jpeg[4], jpeg[5]]) as usize;
+        let mut tiff = jpeg[12..4 + len].to_vec();
+        // Exif IFD(38) の1つ目の項目の値の位置: 38+2+8
+        let at = 38 + 2 + 8;
+        tiff[at..at + 4].copy_from_slice(&0x0010_0000u32.to_le_bytes());
+        // 2つの誤りが集まることの確かめ（片方だけなら、この試験は何も見張らない）
+        match exif::Reader::new()
+            .continue_on_error(true)
+            .read_raw(tiff.clone())
+        {
+            Err(exif::Error::PartialResult(p)) => {
+                let (_, errors) = p.into_inner();
+                assert!(errors.len() >= 2, "{errors:?}");
+            }
+            other => panic!("部分の結果にならない: ok={}", other.is_ok()),
+        }
+        assert!(read_exif_raw(tiff).is_err());
+    }
+
+    /// TIFF の並びで渡す道（TIFF・RAW の先頭読み、CR3 の箱）でも、「次の IFD」の誤りだけなら読む
+    #[test]
+    fn a_stray_next_ifd_is_tolerated_on_the_raw_path_too() {
+        let jpeg = jpeg_with_stray_exif_next_ifd(80, 60, 6);
+        let len = u16::from_be_bytes([jpeg[4], jpeg[5]]) as usize;
+        let tiff = jpeg[12..4 + len].to_vec();
+        assert!(exif::Reader::new().read_raw(tiff.clone()).is_err(), "対照");
+        let exif = read_exif_raw(tiff).unwrap();
+        assert_eq!(exif_data_from(&exif).orientation, 6);
     }
 
     /// 埋め込みサムネイル（IFD1）のある JPEG（向きは 1）
