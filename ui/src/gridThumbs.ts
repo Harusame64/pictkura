@@ -22,7 +22,15 @@
  */
 
 /** 同時に読むサムネイルの数（win2 の実測の頭打ちの点） */
-export const GRID_TILE_READS = 4;
+// SPIKE: localStorage の pk.spike.gridReads で替えられる（既定 4）
+export const GRID_TILE_READS = (() => {
+  try {
+    const v = Number(globalThis.localStorage?.getItem("pk.spike.gridReads"));
+    return Number.isFinite(v) && v >= 1 ? Math.floor(v) : 4;
+  } catch {
+    return 4;
+  }
+})();
 /**
  * 1枚が枠を塞いでよい上限（ms）。サムネイルの読みは 5〜10ms。サムネイルの無い写真は空のタイルがすぐ返るので、
  * 塞ぐのは遅い媒体の上のサムネイルと、働き手が作らない写真（SVG・失敗が上限に達した写真）の原本だけ
