@@ -119,7 +119,8 @@ fn bench_raw(path: &std::path::Path) {
         .enumerate()
     {
         let head: Vec<String> = block.iter().take(4).map(|b| format!("{b:02x}")).collect();
-        match pictkura_core::thumbs::read_exif_raw(block.clone()) {
+        // 診断の表示なので、拒まれた誤りが見える厳密な読み手で読む（製品の読み手は「次の IFD」の誤りを黙って許す）
+        match exif::Reader::new().read_raw(block.clone()) {
             Ok(exif) => {
                 let tags: Vec<String> = exif.fields().take(60).map(|f| f.tag.to_string()).collect();
                 println!(

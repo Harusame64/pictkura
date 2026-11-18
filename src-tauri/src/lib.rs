@@ -7013,12 +7013,22 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
-/// 前の版で EXIF を拒まれていた JPEG を読み直した印（[`pictkura_core::thumbs::reread_stray_exif`]）
+/// 前の版で EXIF を拒まれていた写真を読み直した印（[`pictkura_core::thumbs::reread_stray_exif`]）
 const STRAY_EXIF_REREAD_KEY: &str = "stray_exif_reread_v1";
+/// そのとき開けなかったので見ていない写真の id（カンマ区切り）。次の起動からはこれだけを見直す
+const STRAY_EXIF_PENDING_KEY: &str = "stray_exif_reread_pending";
 
-/// 前の版で EXIF を丸ごと拒まれていた JPEG（子 IFD の「次の IFD」の欄が 0 でない形）を、一度だけ読み直しへ回す。
-/// 起動時の同期の後に、裏の糸で。**済んだ印は読み直しを積んでから書く**——先に書いて落ちると、二度と拾わない
-fn reread_stray_exif_once(handle: &tauri::AppHandle) {
+/// 前の版で EXIF を丸ごと拒まれていた写真（子 IFD の「次の IFD」の欄が 0 でない形）を読み直しへ回す。
+/// 起動時の同期の後に、裏の糸で。
+///
+/// - 一周目は入れ物から読む写真すべて。**済んだ印は読み直しを積んでから書く**——先に書いて落ちると、二度と拾わない
+/// - 開けなかった写真（クラウドにしか無い・ドライブが外れている）は保留に控え、次の起動からはそれだけを見直す
+///   （PR #349 の /code-review: 印だけ書いて捨てると、ファイルが変わらない限り二度と直らない）
+/// - **起動時の同期が転んだ回は走らない**（ルートに届かないと全部が開けず、保留だけが積み上がる）
+fn reread_stray_exif_once(handle: &tauri::AppHandle, startup_failed: bool) {
+    if startup_failed {
+        return;
+    }
     let handle = handle.clone();
     let _ = std::thread::Builder::new()
         .name("stray-exif".into())
@@ -7028,25 +7038,48 @@ fn reread_stray_exif_once(handle: &tauri::AppHandle) {
                 let Ok(mut db) = Db::open(&state.db_path) else {
                     return;
                 };
-                if db.get_meta(STRAY_EXIF_REREAD_KEY).ok().flatten().is_some() {
+                let done = db.get_meta(STRAY_EXIF_REREAD_KEY).ok().flatten().is_some();
+                let pending: Vec<i64> = db
+                    .get_meta(STRAY_EXIF_PENDING_KEY)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter_map(|v| v.trim().parse().ok())
+                    .collect();
+                if done && pending.is_empty() {
                     return;
                 }
-                let Ok(ids) = pictkura_core::thumbs::reread_stray_exif(&mut db, &|p| {
-                    pictkura_core::cloud::is_cloud_only_path(p)
-                }) else {
+                let only = done.then_some(pending.as_slice());
+                let Ok(result) = pictkura_core::thumbs::reread_stray_exif(
+                    &mut db,
+                    &|p| pictkura_core::cloud::is_cloud_only_path(p),
+                    only,
+                ) else {
                     return;
                 };
-                if !ids.is_empty() {
+                if !result.reset.is_empty() {
                     applog::note(&format!(
                         "re-reading {} photos whose EXIF was rejected before",
-                        ids.len()
+                        result.reset.len()
                     ));
-                    state.thumbs.enqueue(&ids);
+                    state.thumbs.enqueue(&result.reset);
+                    // 行を空にしたので、画面に読み直させる（古い寸法・古いサムネイルの URL を持ったままにしない）
+                    let _ = handle.emit("library-updated", ());
                 }
-                let _ = db.set_meta(
-                    STRAY_EXIF_REREAD_KEY,
-                    &pictkura_core::db::now_ms().to_string(),
-                );
+                let deferred = result
+                    .deferred
+                    .iter()
+                    .map(i64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let _ = db.set_meta(STRAY_EXIF_PENDING_KEY, &deferred);
+                if !done {
+                    let _ = db.set_meta(
+                        STRAY_EXIF_REREAD_KEY,
+                        &pictkura_core::db::now_ms().to_string(),
+                    );
+                }
             });
         });
 }
@@ -8064,7 +8097,17 @@ pub fn run() {
                 config.save(&config_path).map_err(errs::for_log_err)?;
             }
             let db_path = data_dir.join("pictkura.db");
-            let db = Db::open(&db_path).map_err(errs::for_log_err)?;
+            let mut db = Db::open(&db_path).map_err(errs::for_log_err)?;
+            // 新しいライブラリでは、前の版で読み違えた写真を読み直す仕事（`reread_stray_exif_once`）が無い。印を先に
+            // 書いて、写真全部の頭を読む一周を省く
+            if db.media_count().unwrap_or(1) == 0
+                && db.get_meta(STRAY_EXIF_REREAD_KEY).ok().flatten().is_none()
+            {
+                let _ = db.set_meta(
+                    STRAY_EXIF_REREAD_KEY,
+                    &pictkura_core::db::now_ms().to_string(),
+                );
+            }
             // 読み取り接続プール（段階B-4）。本数はコア数の半分・2〜4本で十分
             // （読み取りは短時間で返り、WALによりライターと並行に動ける）
             let pool_size = std::thread::available_parallelism()
@@ -8656,7 +8699,7 @@ pub fn run() {
                 state
                     .startup_done
                     .store(true, std::sync::atomic::Ordering::Release);
-                reread_stray_exif_once(&handle);
+                reread_stray_exif_once(&handle, failed);
                 let _ = handle.emit(
                     "startup-scan-finished",
                     StartupDoneDto {

@@ -846,9 +846,7 @@ fn tolerate_stray_next_ifd(
     match result {
         Err(exif::Error::PartialResult(partial)) => {
             let (exif, errors) = partial.into_inner();
-            let stray =
-                |e: &exif::Error| matches!(e, exif::Error::InvalidFormat("Unexpected next IFD"));
-            if errors.iter().all(stray) {
+            if errors.iter().all(is_stray_next_ifd) {
                 Ok(exif)
             } else {
                 Err(errors
@@ -867,39 +865,63 @@ fn tolerate_stray_next_ifd(
 /// 埋め込みサムネイルを落として行に記録した。ファイルは変わっていないので、走査は読み直さない（PR #349 の
 /// /code-review）。JPEG のうち、**厳密な読み手がこの誤りで拒み、今の読み手が読めるもの**だけを、中身が
 /// 変わった行と同じに空にする（回っていない向きで作ったサムネイルも外れる）。候補を行の状態で絞らないのは
-/// [`Db::jpeg_rows`] を見よ。読むのは EXIF の頭だけ（一度きり）。
+/// [`Db::exif_container_rows`] を見よ。読むのは EXIF の頭だけ（一度きり）。
 ///
 /// クラウドにしか無いファイルは開かない（開くとダウンロードが走る）。読み直しが要る id を返す
 pub fn reread_stray_exif(
     db: &mut Db,
     is_cloud_only: &dyn Fn(&Path) -> bool,
-) -> Result<Vec<i64>, DbError> {
-    let mut stale = Vec::new();
-    for (id, path) in db.jpeg_rows()? {
+    only: Option<&[i64]>,
+) -> Result<StrayReread, DbError> {
+    let candidates: Vec<(i64, std::path::PathBuf)> = match only {
+        None => db.exif_container_rows()?,
+        Some(ids) => ids
+            .iter()
+            .filter_map(|&id| db.get_by_id(id).ok().flatten().map(|r| (id, r.path)))
+            .collect(),
+    };
+    let mut out = StrayReread::default();
+    for (id, path) in candidates {
+        // 開けない（クラウドにしか無い・ドライブが外れている）写真は保留にする。呼ぶ側が、次の起動でこれだけを
+        // 見直す（PR #349 の /code-review: 保留を捨てると、ファイルが変わらない限り二度と直らない）
         if is_cloud_only(&path) {
+            out.deferred.push(id);
             continue;
         }
         let Ok(file) = std::fs::File::open(&path) else {
+            out.deferred.push(id);
             continue;
         };
-        let mut reader = BufReader::new(file);
-        let strict = exif::Reader::new().read_from_container(&mut reader);
-        if !matches!(
-            strict,
-            Err(exif::Error::InvalidFormat("Unexpected next IFD"))
-        ) {
-            continue;
-        }
-        if std::io::Seek::seek(&mut reader, std::io::SeekFrom::Start(0)).is_ok()
-            && parse_exif_container(&mut reader).is_ok()
-        {
-            stale.push(id);
+        // 1回の読みで「そのままの読み手はこの誤りで拒み、今の読み手は読む」かを見る: 誤りを集めて続けた結果、
+        // 集まった誤りがこの1種類だけ（そのままの読み手が返すのは最初の誤り＝これ）
+        let read = exif::Reader::new()
+            .continue_on_error(true)
+            .read_from_container(&mut BufReader::new(file));
+        if let Err(exif::Error::PartialResult(partial)) = read {
+            let (_, errors) = partial.into_inner();
+            if !errors.is_empty() && errors.iter().all(is_stray_next_ifd) {
+                out.reset.push(id);
+            }
         }
     }
-    if !stale.is_empty() {
-        db.reset_for_reread(&stale)?;
+    if !out.reset.is_empty() {
+        db.reset_for_reread(&out.reset)?;
     }
-    Ok(stale)
+    Ok(out)
+}
+
+/// [`reread_stray_exif`] の結果
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct StrayReread {
+    /// 読み直しへ回した（行を空にした）id
+    pub reset: Vec<i64>,
+    /// 開けなかったので見ていない id（クラウドにしか無い・開けない）
+    pub deferred: Vec<i64>,
+}
+
+/// kamadak-exif の「子 IFD の次の IFD の欄が 0 でない」誤りか（[`tolerate_stray_next_ifd`]）。見分けは文言に頼る
+fn is_stray_next_ifd(e: &exif::Error) -> bool {
+    matches!(e, exif::Error::InvalidFormat("Unexpected next IFD"))
 }
 
 /// 先頭ぶんだけを渡されたTIFFを読む。
@@ -5789,8 +5811,14 @@ mod tests {
         )
         .unwrap();
         let cloud = dir.path().join("cloud.JPG");
-        let sent = reread_stray_exif(&mut db, &|p| p == cloud).unwrap();
-        assert_eq!(sent, vec![ids["stray.jpg"]]);
+        let sent = reread_stray_exif(&mut db, &|p| p == cloud, None).unwrap();
+        assert_eq!(
+            sent,
+            StrayReread {
+                reset: vec![ids["stray.jpg"]],
+                deferred: vec![ids["cloud.JPG"]],
+            }
+        );
         let r = db.get_by_id(ids["stray.jpg"]).unwrap().unwrap();
         assert_eq!((r.width, r.thumb_state, r.thumb_path), (None, 0, None));
         for name in ["cloud.JPG", "good.jpg", "plain.jpeg"] {
@@ -5801,6 +5829,15 @@ mod tests {
             .ids_missing_metadata()
             .unwrap()
             .contains(&ids["stray.jpg"]));
+        // 保留にした写真は、後で（クラウドから落ちてきた後に）それだけを見直せる
+        let later = reread_stray_exif(&mut db, &|_| false, Some(&[ids["cloud.JPG"]])).unwrap();
+        assert_eq!(
+            later,
+            StrayReread {
+                reset: vec![ids["cloud.JPG"]],
+                deferred: vec![],
+            }
+        );
     }
 
     /// 許すのは「次の IFD」の誤りだけ。ほかの誤り（値が範囲の外を指す等）が混じれば、これまでどおり読まない
