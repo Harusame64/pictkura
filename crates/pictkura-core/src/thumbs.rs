@@ -5652,6 +5652,7 @@ mod tests {
         assert_eq!(queue.enqueue_pregen(&[5]), 0, "もう列に居る");
         queue.enqueue(&[5]);
         queue.clear_pregen();
+        assert!(queue.is_active(5), "読み直しは列に残る");
         assert_eq!(queue.pop_job(), Some((5, Job::Auto)));
         assert!(!queue.is_active(6));
     }
