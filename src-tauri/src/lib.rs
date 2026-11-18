@@ -98,6 +98,8 @@ struct AppState {
     watch_burst: Mutex<WatchBurst>,
     /// 見張りが行を入れ始めてから列に積み終えるまでの数（[`settle_unread_when_quiet`] が、入れたばかりの行を出さないため）
     watch_ingesting: std::sync::atomic::AtomicUsize,
+    /// 見張りの束が最後に届いた時刻（ミリ秒）。コピーが続いている間は「一段落」と見なさない（[`settle_unread_when_quiet`]）
+    watch_last_ms: std::sync::atomic::AtomicI64,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -499,6 +501,10 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     // 行を入れ始めてから列に積み終えるまで「取り込み中」。**DB を握る前に立てる**——「読み込み中」の束の片付けは DB を
     // 握ってからこれを見るので、入れたばかりで列に積む前の行を出さない（PR #351 の codex）
     let _ingesting = WatchIngesting::start(&state.watch_ingesting);
+    state.watch_last_ms.store(
+        pictkura_core::db::now_ms(),
+        std::sync::atomic::Ordering::SeqCst,
+    );
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
     // 行が消えたか（Google 用フォルダの突き合わせを回すかどうか）
@@ -7228,6 +7234,9 @@ const AUTO_THUMBS_TICK: std::time::Duration = std::time::Duration::from_secs(2);
 /// 作り終えた（配るものが無かった）後、新しい写真を見に行くまでの間
 const AUTO_THUMBS_REST: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// 見張りの束が最後に届いてから、これだけ経つまでは「読み込み中」の束を片付けない（[`settle_unread_when_quiet`]）
+const WATCH_SETTLE_QUIET_MS: i64 = 10_000;
+
 /// 見張りの取り込み中の印（[`AppState::watch_ingesting`]）。落ちても外れるように閉じ込める
 struct WatchIngesting<'a>(&'a std::sync::atomic::AtomicUsize);
 
@@ -7263,6 +7272,11 @@ fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
                 .watch_ingesting
                 .load(std::sync::atomic::Ordering::SeqCst)
                 == 0
+            // 見張りの束が続いている間（遅いコピー・書き込み中）は一段落ではない。書きかけで読めなかった写真を、
+            // 書き終える前にファイルの日付（今日＝先頭）へ出さない（PR #351 の /code-review）
+            && pictkura_core::db::now_ms()
+                - state.watch_last_ms.load(std::sync::atomic::Ordering::SeqCst)
+                >= WATCH_SETTLE_QUIET_MS
             && state.thumbs.queue().metadata_idle()
     };
     *quiet_ticks = if quiet() { *quiet_ticks + 1 } else { 0 };
@@ -8312,6 +8326,7 @@ pub fn run() {
                 auto_thumbs,
                 watch_burst: Mutex::new(WatchBurst::default()),
                 watch_ingesting: std::sync::atomic::AtomicUsize::new(0),
+                watch_last_ms: std::sync::atomic::AtomicI64::new(0),
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),

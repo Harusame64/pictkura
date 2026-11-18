@@ -3760,7 +3760,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             tops: [...tops.slice(0, railEnd.n), railEnd.top],
             jumpTops: [...jumpTops.slice(0, railEnd.n), railEnd.top],
           };
-    return { days, jumpTops, rail, unread: railEnd !== null };
+    return { days, jumpTops, rail };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
@@ -9045,9 +9045,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 }}
               />
               )}
-              {/* 「読み込み中」の束がある間は、ふつうのスクロールバーも出す。帯は読めた範囲しか受け持たず（束へは届かない）、
-                  読めた範囲が画面より短いうちは帯そのものが出ない（PR #351 の /code-review） */}
-              <div className={"grid-scroll" + (dayRows.unread ? " no-rail" : "")} ref={scrollRef}>
+              {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の1〜2秒）だけ、ふつうのスクロールバーを出す——帯が
+                  無い。束がある間ずっと出すと、帯の下に隠れて掴めず、Windows では出入りのたびに幅が変わって一覧が
+                  並べ直された（PR #351 の /code-review） */}
+              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。
