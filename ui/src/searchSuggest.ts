@@ -80,11 +80,13 @@ export function suggest(
   }
   const typedKey = token.slice(0, colon);
   const key = KEY_ALIASES[typedKey.toLowerCase()];
-  // 全角の数字（`年:２０`）・アラビア・インド数字（`٢٠`）も、検索の文法が受けるので年の候補では ASCII に揃えて比べる
-  const value = asciiDigits(token.slice(colon + 1).replace(/^"/, "")).toLowerCase();
+  const value = token.slice(colon + 1).replace(/^"/, "").toLowerCase();
   if (key === "year") {
+    // 全角の数字（`年:２０`）・アラビア・インド数字（`٢٠`）も、検索の文法が受けるので**年だけ** ASCII に揃えて比べる。
+    // カメラ名は打ったとおりに比べる（名前の中の数字を揃えると別のカメラに当たった。PR #353 の codex）
+    const digits = asciiDigits(value);
     return data.years
-      .filter((y) => String(y.year).startsWith(value) && String(y.year) !== value)
+      .filter((y) => String(y.year).startsWith(digits) && String(y.year) !== digits)
       .slice(0, max)
       .map((y) => ({ type: "year" as const, year: y.year, count: y.count, insert: `${typedKey}:${y.year} ` }));
   }

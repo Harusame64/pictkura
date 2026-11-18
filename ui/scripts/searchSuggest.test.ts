@@ -140,3 +140,11 @@ test("an unclosed quote keeps the words after the caret", () => {
   const s = suggest('cam:"iph', data)[0];
   assert.deepEqual(applySuggestion('cam:"iph beach 2019年', 8, s).value, 'cam:"iPhone 15 Pro" beach 2019年');
 });
+
+test("camera names keep their own digits", () => {
+  const cams = { years: [], cameras: [{ name: "Camera ٢٠٢٥", count: 1 }, { name: "Camera 2024", count: 1 }] };
+  assert.deepEqual(
+    suggest('camera:"camera ٢٠', cams).map((s) => s.insert),
+    ['camera:"Camera ٢٠٢٥" '],
+  );
+});
