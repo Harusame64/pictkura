@@ -6123,10 +6123,11 @@ mod tests {
     #[test]
     fn unviewed_thumbnails_go_first_oldest_taken_first() {
         let mut db = Db::open_in_memory().unwrap();
+        // 入れる順（rowid）は撮影日の順と逆にしておく——並びが撮影日を見ていることを確かめるため
         db.upsert_files(&[
-            scanned("old.jpg", 1, 1_000_000),
             scanned("new.jpg", 1, 3_000_000),
             scanned("seen.jpg", 1, 2_000_000),
+            scanned("old.jpg", 1, 1_000_000),
         ])
         .unwrap();
         let (old, new, seen) = (
