@@ -28,6 +28,7 @@ import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
+import { applySuggestion, suggest, tokenAt, yearsOf, type Suggestion } from "./searchSuggest";
 import { keepsWhileRefetching, pickStaleDays, type AskedFor } from "./staleDays";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
@@ -948,6 +949,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const [anchorId, setAnchorId] = useState<number | null>(null);
   /** 検索ボックスの入力（打鍵ごとの値） */
   const [queryInput, setQueryInput] = useState("");
+  /** 検索欄の候補（`searchSuggest.ts`）: カーソルの位置・開いているか・選んでいる行（-1 は選んでいない） */
+  const [searchCaret, setSearchCaret] = useState(0);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestActive, setSuggestActive] = useState(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  /** 絞っていない一覧の年ごとの枚数（`year:` の候補）。検索中の骨組みは結果に合わせて変わるので、絞っていない時に控える */
+  const [libraryYears, setLibraryYears] = useState<{ year: number; count: number }[]>([]);
   /** 実際にバックエンドへ投げている検索クエリ（入力のデバウンス後） */
   const [query, setQuery] = useState("");
   /**
@@ -958,6 +966,32 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const filtering = filter !== "all" || kind !== "all" || query !== "";
   /** カメラ別の枚数（左ペインとコマンドパレットの候補） */
   const [cameras, setCameras] = useState<Camera[]>([]);
+  const searchSuggestions: Suggestion[] = useMemo(
+    () =>
+      suggestOpen
+        ? suggest(tokenAt(queryInput, searchCaret).text, { years: libraryYears, cameras })
+        : [],
+    [suggestOpen, queryInput, searchCaret, libraryYears, cameras],
+  );
+  useEffect(() => {
+    if (summaryFor && summaryFor.query === "" && summaryFor.filter === "all" && summaryFor.kind === "all") {
+      setLibraryYears(yearsOf(summary));
+    }
+  }, [summary, summaryFor]);
+  /** 候補を差し込む（カーソルのある語を置き換え、カーソルを後ろへ。値の候補が続くキーなら開いたまま） */
+  const pickSuggestion = (s: Suggestion) => {
+    const el = searchInputRef.current;
+    const caret = el?.selectionStart ?? queryInput.length;
+    const next = applySuggestion(queryInput, caret, s);
+    setQueryInput(next.value);
+    setSearchCaret(next.caret);
+    setSuggestActive(-1);
+    setSuggestOpen(s.type === "key");
+    window.requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(next.caret, next.caret);
+    });
+  };
   /** カメラ一覧を全部見せるか（既定は上位数台だけ） */
   const [camerasExpanded, setCamerasExpanded] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -8432,15 +8466,90 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             type="search"
             placeholder={t.searchPlaceholder}
             id="pk-search" data-testid="search"
+            ref={searchInputRef}
             value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
+            role="combobox"
+            aria-expanded={searchSuggestions.length > 0}
+            aria-controls="pk-search-suggest"
+            aria-autocomplete="list"
+            aria-activedescendant={suggestActive >= 0 ? `pk-search-suggest-${suggestActive}` : undefined}
+            onChange={(e) => {
+              setQueryInput(e.target.value);
+              setSearchCaret(e.target.selectionStart ?? e.target.value.length);
+              setSuggestActive(-1);
+              setSuggestOpen(true);
+            }}
+            onSelect={(e) => setSearchCaret((e.target as HTMLInputElement).selectionStart ?? 0)}
+            onBlur={() => setSuggestOpen(false)}
             onKeyDown={(e) => {
+              const list = searchSuggestions;
+              if (list.length > 0) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const step = e.key === "ArrowDown" ? 1 : -1;
+                  // 選んでいない（-1）→ 先頭 → … → 末尾 → 選んでいない、を巡る
+                  setSuggestActive((i) => {
+                    const next = i + step;
+                    if (next >= list.length) return -1;
+                    if (next < -1) return list.length - 1;
+                    return next;
+                  });
+                  return;
+                }
+                // Tab は選んでいる行（無ければ先頭）を差し込む。Enter は選んでいるときだけ——選んでいなければ今までどおり検索
+                if (e.key === "Tab" && !e.shiftKey) {
+                  e.preventDefault();
+                  pickSuggestion(list[Math.max(0, suggestActive)]);
+                  return;
+                }
+                if (e.key === "Enter" && suggestActive >= 0) {
+                  e.preventDefault();
+                  pickSuggestion(list[suggestActive]);
+                  return;
+                }
+                // Esc は候補だけを閉じる（手前の幕が取る）。もう一度押せば今までどおり欄を空にする
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSuggestOpen(false);
+                  setSuggestActive(-1);
+                  return;
+                }
+              }
               if (e.key === "Escape") {
                 setQueryInput("");
                 (e.target as HTMLInputElement).blur();
               }
             }}
           />
+          {searchSuggestions.length > 0 && (
+            <ul className="search-suggest" id="pk-search-suggest" data-testid="search-suggest" role="listbox">
+              {searchSuggestions.map((s, i) => (
+                <li
+                  key={s.insert}
+                  id={`pk-search-suggest-${i}`}
+                  role="option"
+                  aria-selected={i === suggestActive}
+                  className={i === suggestActive ? "active" : ""}
+                  // 押しても欄から焦点を外さない（外すと閉じてしまう）
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickSuggestion(s)}
+                  onMouseEnter={() => setSuggestActive(i)}
+                >
+                  <span className="search-suggest-main" dir="ltr">
+                    {s.type === "key" ? s.insert : s.type === "year" ? String(s.year) : s.type === "camera" ? s.name : s.kind}
+                  </span>
+                  <span className="search-suggest-hint">
+                    {s.type === "key"
+                      ? t.searchKeyHint[s.key]
+                      : s.type === "kind"
+                        ? { photo: t.kindPhoto, raw: t.kindRaw, video: t.kindVideo }[s.kind]
+                        : t.photosCount(s.count)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           {queryInput ? (
             <button
               className="search-clear"

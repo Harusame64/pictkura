@@ -664,6 +664,15 @@ export const es: Dict = {
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "En lectura",
   calendarUnread: (n: number) => `Fotos aún en lectura: ${num(n)}. Aparecerán aquí cuando se conozca su fecha.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filtrar por año de la toma",
+    camera: "Filtrar por cámara",
+    kind: "Filtrar por tipo (photo, raw, video)",
+    folder: "Filtrar por nombre de carpeta",
+    fav: "Solo favoritas (★)",
+    pick: "Solo seleccionadas (⚑)",
+  },
   settingsHardwareAccelerationNote:
     "Si el puntero del ratón parece congelado mientras ves fotos en pantalla completa, desactivar esta opción puede solucionarlo (se ha observado en un PC con gráficos AMD). Si está desactivada, la reproducción de vídeos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
   settingsImportWaitingFrom: (path: string) =>

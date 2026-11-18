@@ -661,6 +661,15 @@ export const de: Dict = {
   dayUnread: "Fotos werden eingelesen",
   calendarUnread: (n: number) =>
     `${num(n)} ${one(n, "Foto wird", "Fotos werden")} noch eingelesen. ${one(n, "Es erscheint", "Sie erscheinen")} hier, sobald ${one(n, "sein", "ihr")} Datum bekannt ist.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Nach Aufnahmejahr filtern",
+    camera: "Nach Kamera filtern",
+    kind: "Nach Typ filtern (photo, raw, video)",
+    folder: "Nach Ordnername filtern",
+    fav: "Nur Favoriten (★)",
+    pick: "Nur ausgewählte (⚑)",
+  },
   settingsHardwareAccelerationNote:
     "Wenn der Mauszeiger beim Anzeigen von Fotos im Vollbildmodus eingefroren wirkt, kann das Ausschalten helfen (beobachtet auf einem PC mit AMD-Grafik). Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",
   settingsImportWaitingFrom: (path: string) =>

@@ -629,6 +629,15 @@ export const pt: Dict = {
   dayUnread: "Em leitura",
   calendarUnread: (n: number) =>
     `Fotos ainda em leitura: ${num(n)}. Aparecerão aqui quando a data for conhecida.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filtrar pelo ano da foto",
+    camera: "Filtrar por câmera",
+    kind: "Filtrar por tipo (photo, raw, video)",
+    folder: "Filtrar pelo nome da pasta",
+    fav: "Somente favoritas (★)",
+    pick: "Somente selecionadas (⚑)",
+  },
   settingsHardwareAccelerationNote:
     "Se o ponteiro do mouse parecer travado ao visualizar fotos em tela cheia, desativar esta opção pode resolver o problema (observado em um PC com placa de vídeo AMD). Com essa opção desativada, a reprodução de vídeos usa mais CPU. A mudança entra em vigor na próxima vez que você iniciar o pictkura.",
   settingsImportWaitingFrom: (path: string) =>

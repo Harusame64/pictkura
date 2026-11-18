@@ -641,6 +641,15 @@ export const zhHant: Dict = {
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "正在讀取",
   calendarUnread: (n: number) => `還有 ${num(n)} 張相片正在讀取拍攝日期，讀取後會顯示在這裡。`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "依拍攝年份篩選",
+    camera: "依相機篩選",
+    kind: "依類型篩選（photo、raw、video）",
+    folder: "依資料夾名稱篩選",
+    fav: "僅限收藏（★）",
+    pick: "僅限已選（⚑）",
+  },
   settingsHardwareAccelerationNote:
     "如果全螢幕檢視相片時滑鼠指標似乎卡住，關閉此選項可能有助於解決此問題（已在配備 AMD 顯示卡的電腦上確認）。關閉後，播放影片會佔用更多 CPU。變更會在下次啟動 pictkura 時生效。",
   settingsImportWaitingFrom: (path: string) =>

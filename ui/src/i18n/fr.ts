@@ -657,6 +657,15 @@ export const fr: Dict = {
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "Lecture en cours",
   calendarUnread: (n: number) => `Photos en cours de lecture : ${num(n)}. Elles apparaîtront ici une fois leur date connue.`,
+  /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
+  searchKeyHint: {
+    year: "Filtrer par année de prise de vue",
+    camera: "Filtrer par appareil",
+    kind: "Filtrer par type (photo, raw, video)",
+    folder: "Filtrer par nom de dossier",
+    fav: "Favoris (★) uniquement",
+    pick: "Sélection (⚑) uniquement",
+  },
   settingsHardwareAccelerationNote:
     "Si le pointeur de la souris semble figé pendant que vous regardez des photos en plein écran, désactiver cette option peut corriger le problème (constaté sur un PC équipé d’une carte graphique AMD). Lorsque cette option est désactivée, la lecture des vidéos sollicite davantage le processeur. Le changement prend effet au prochain démarrage de pictkura.",
   settingsImportWaitingFrom: (path: string) =>
