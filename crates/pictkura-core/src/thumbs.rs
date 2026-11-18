@@ -238,7 +238,7 @@ fn gps_coord(exif: &exif::Exif, coord: Tag, reference: Tag) -> Option<f64> {
 pub fn read_exif_info(path: &Path) -> ExifInfo {
     if let Ok(file) = std::fs::File::open(path) {
         let mut reader = BufReader::new(file);
-        if let Ok(exif) = exif::Reader::new().read_from_container(&mut reader) {
+        if let Ok(exif) = parse_exif_container(&mut reader) {
             return exif_info_from(&exif);
         }
     }
@@ -247,7 +247,7 @@ pub fn read_exif_info(path: &Path) -> ExifInfo {
     // それぞれ読んで合成する（機種はCMT1、撮影パラメータはCMT2…）
     let mut info = ExifInfo::default();
     for block in crate::raw::bmff_metadata_blocks(path).unwrap_or_default() {
-        let Ok(exif) = exif::Reader::new().read_raw(block) else {
+        let Ok(exif) = read_exif_raw(block) else {
             continue;
         };
         let part = exif_info_from(&exif);
@@ -739,7 +739,7 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
         let blocks = crate::raw::bmff_metadata_blocks(path);
         readable = readable && blocks.is_some();
         for block in blocks.unwrap_or_default() {
-            let Ok(exif) = exif::Reader::new().read_raw(block) else {
+            let Ok(exif) = read_exif_raw(block) else {
                 continue;
             };
             let from_block = exif_data_from(&exif);
@@ -808,6 +808,52 @@ fn read_exif_from(path: &Path, container: Container, want: Want) -> (ExifData, b
     (result, readable)
 }
 
+/// EXIF を読む（入れ物ごと）。[`tolerate_stray_next_ifd`] を見よ
+pub(crate) fn parse_exif_container<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+) -> Result<exif::Exif, exif::Error> {
+    tolerate_stray_next_ifd(
+        exif::Reader::new()
+            .continue_on_error(true)
+            .read_from_container(reader),
+    )
+}
+
+/// EXIF を読む（TIFF の並び）。[`tolerate_stray_next_ifd`] を見よ
+pub(crate) fn read_exif_raw(data: Vec<u8>) -> Result<exif::Exif, exif::Error> {
+    tolerate_stray_next_ifd(exif::Reader::new().continue_on_error(true).read_raw(data))
+}
+
+/// **子 IFD（Exif・GPS・Interop）の「次の IFD」の欄が 0 でない EXIF だけは受け取る。**
+///
+/// 規格では子 IFD の次は 0 だが、piexif などの道具はこの欄にデータを置く。kamadak-exif は
+/// `Unexpected next IFD` で**EXIF を丸ごと**拒むので、向き・撮影日時・埋め込みサムネイルが全部落ちていた
+/// （win2 の試験データ、2026-11-18。ブラウザと PIL は読む）。子 IFD の中身はこの誤りの前に読み終えている
+/// （kamadak の `parse_child_ifd`）ので、誤りを集めて続けた結果はそのまま使える。
+///
+/// **ほかの誤りが 1 つでも混じれば、これまでどおり読まない**——許す形を広げると、壊れた EXIF から
+/// でたらめな日付や向きを拾う。返す誤りは、そのまま読んだときに返ったものと同じ（最初の誤り）
+fn tolerate_stray_next_ifd(
+    result: Result<exif::Exif, exif::Error>,
+) -> Result<exif::Exif, exif::Error> {
+    match result {
+        Err(exif::Error::PartialResult(partial)) => {
+            let (exif, errors) = partial.into_inner();
+            let stray =
+                |e: &exif::Error| matches!(e, exif::Error::InvalidFormat("Unexpected next IFD"));
+            if errors.iter().all(stray) {
+                Ok(exif)
+            } else {
+                Err(errors
+                    .into_iter()
+                    .next()
+                    .unwrap_or(exif::Error::InvalidFormat("partial result")))
+            }
+        }
+        other => other,
+    }
+}
+
 /// 先頭ぶんだけを渡されたTIFFを読む。
 ///
 /// [`crate::raw::patched_tiff_metadata`] はファイルの先頭しか返さないので、
@@ -874,7 +920,7 @@ fn preview_exif_may_fill(result: &ExifData) -> bool {
 /// カメラが書いたJPEGなので、入っている値は実体と同じもの。
 fn merge_preview_exif(result: &mut ExifData, preview: &[u8]) {
     let mut cursor = std::io::Cursor::new(preview);
-    let Ok(exif) = exif::Reader::new().read_from_container(&mut cursor) else {
+    let Ok(exif) = parse_exif_container(&mut cursor) else {
         return;
     };
     let from_preview = exif_data_from(&exif);
@@ -1016,7 +1062,7 @@ fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
     };
     let whole = |exif| (exif, true);
     if !is_tiff {
-        return exif::Reader::new().read_from_container(reader).map(whole);
+        return parse_exif_container(reader).map(whole);
     }
     let mut head = Vec::with_capacity(heads.last().copied().unwrap_or(0) as usize);
     // 日付まで読めたのに切手だけが外れた段。残りを読む途中で落ちたら、これを
@@ -1031,9 +1077,9 @@ fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
         }
         // 段より短い＝ファイルを読み切った。従来どおり全体としてパースする
         if (head.len() as u64) < step {
-            return exif::Reader::new().read_raw(head).map(whole);
+            return read_exif_raw(head).map(whole);
         }
-        match exif::Reader::new().read_raw(head.clone()) {
+        match read_exif_raw(head.clone()) {
             Ok(exif) if !keeps_thumbnail || thumbnail_in_buf(&exif) => return Ok((exif, true)),
             Ok(exif) => without_thumbnail = Some(exif),
             Err(_) => {}
@@ -1041,7 +1087,7 @@ fn read_exif_head_first_checked<R: std::io::BufRead + std::io::Seek>(
     }
     // どの段でも通らなかった。残りを読み足して全体をパースする
     match reader.read_to_end(&mut head) {
-        Ok(_) => exif::Reader::new().read_raw(head).map(whole),
+        Ok(_) => read_exif_raw(head).map(whole),
         Err(e) => partial(without_thumbnail, e),
     }
 }
@@ -5556,6 +5602,114 @@ mod tests {
         assert!(!waiter.is_finished(), "枠が埋まっている間は待つ");
         queue.complete(10);
         assert_eq!(waiter.join().unwrap(), Some((11, Job::Pregen)));
+    }
+
+    /// piexif などが書く形の EXIF を持つ JPEG: Exif IFD の「次の IFD」の欄が 0 でない（規格では 0）。
+    /// IFD0 に向き、Exif IFD に撮影日時、IFD1 に埋め込みサムネイル（win2 の試験データと同じ形、2026-11-18）
+    fn jpeg_with_stray_exif_next_ifd(width: u32, height: u32, orientation: u16) -> Vec<u8> {
+        let thumb = test_jpeg_bytes(160, 120);
+        let mut t: Vec<u8> = b"II".to_vec();
+        let u16le = |t: &mut Vec<u8>, v: u16| t.extend_from_slice(&v.to_le_bytes());
+        let u32le = |t: &mut Vec<u8>, v: u32| t.extend_from_slice(&v.to_le_bytes());
+        u16le(&mut t, 42);
+        u32le(&mut t, 8);
+        // IFD0（8〜38）: 向き・Exif IFD へのポインタ。次は IFD1（76）
+        u16le(&mut t, 2);
+        u16le(&mut t, 0x0112);
+        u16le(&mut t, 3);
+        u32le(&mut t, 1);
+        u16le(&mut t, orientation);
+        u16le(&mut t, 0);
+        u16le(&mut t, 0x8769);
+        u16le(&mut t, 4);
+        u32le(&mut t, 1);
+        u32le(&mut t, 38);
+        u32le(&mut t, 76);
+        // Exif IFD（38〜56）: 撮影日時（56 から 20 バイト）。**次の欄が 0 でない**
+        u16le(&mut t, 1);
+        u16le(&mut t, 0x9003);
+        u16le(&mut t, 2);
+        u32le(&mut t, 20);
+        u32le(&mut t, 56);
+        u32le(&mut t, 0x0000_dead);
+        t.extend_from_slice(b"2021:05:06 07:08:09\0");
+        // IFD1（76〜106）: 埋め込みサムネイル（106 から）
+        u16le(&mut t, 2);
+        u16le(&mut t, 0x0201);
+        u16le(&mut t, 4);
+        u32le(&mut t, 1);
+        u32le(&mut t, 106);
+        u16le(&mut t, 0x0202);
+        u16le(&mut t, 4);
+        u32le(&mut t, 1);
+        u32le(&mut t, thumb.len() as u32);
+        u32le(&mut t, 0);
+        assert_eq!(t.len(), 106);
+        t.extend_from_slice(&thumb);
+        let body = test_jpeg_bytes(width, height);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + t.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\x00\x00");
+        out.extend_from_slice(&t);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    /// Exif IFD の「次の IFD」の欄が 0 でない EXIF（piexif が書く形）でも、向き・撮影日時・埋め込みサムネイルを読む。
+    /// kamadak-exif はこの形を丸ごと拒むので、以前は全部落ちていた（向き 1・撮影日は OS・本番を初回の読みで作る）
+    #[test]
+    fn exif_with_a_stray_next_ifd_in_the_exif_ifd_is_still_read() {
+        let jpeg = jpeg_with_stray_exif_next_ifd(800, 600, 6);
+        // 対照: そのままの読み手はこの形を拒む（試験データがバグを再現していることの確かめ）
+        assert!(matches!(
+            exif::Reader::new().read_from_container(&mut std::io::Cursor::new(&jpeg)),
+            Err(exif::Error::InvalidFormat("Unexpected next IFD"))
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("piexif.jpg");
+        std::fs::write(&p, &jpeg).unwrap();
+        let data = read_exif(&p);
+        assert_eq!(data.orientation, 6);
+        assert!(data.taken_at_ms.is_some(), "撮影日時");
+        assert!(data.thumbnail.is_some(), "埋め込みサムネイル");
+        let info = read_exif_info(&p);
+        assert!(info.camera.is_none() && info.gps.is_none());
+
+        // 一覧の経路でも: 寸法が向きで回り、本番のサムネイルも縦長
+        let mut db = Db::open(&dir.path().join("x.db")).unwrap();
+        db.upsert_files(&[ScannedFile {
+            path: p,
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let thumbs = dir.path().join("thumbs");
+        assert!(matches!(
+            process_one(&mut db, &thumbs, 160, id, false).unwrap(),
+            ThumbOutcome::Provisional
+        ));
+        process_one(&mut db, &thumbs, 160, id, true).unwrap();
+        let r = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!((r.width, r.height), (Some(600), Some(800)), "向き6で縦長");
+        let (tw, th) = image::image_dimensions(r.thumb_path.as_ref().unwrap()).unwrap();
+        assert!(th > tw, "本番のサムネイルも縦長: {tw}x{th}");
+    }
+
+    /// 許すのは「次の IFD」の誤りだけ。ほかの誤り（値が範囲の外を指す等）が混じれば、これまでどおり読まない
+    #[test]
+    fn other_exif_errors_are_still_rejected() {
+        let mut t: Vec<u8> = b"II".to_vec();
+        t.extend_from_slice(&42u16.to_le_bytes());
+        t.extend_from_slice(&8u32.to_le_bytes());
+        t.extend_from_slice(&1u16.to_le_bytes());
+        t.extend_from_slice(&0x010fu16.to_le_bytes()); // Make, ASCII 40 → 範囲の外
+        t.extend_from_slice(&2u16.to_le_bytes());
+        t.extend_from_slice(&40u32.to_le_bytes());
+        t.extend_from_slice(&0x1000u32.to_le_bytes());
+        t.extend_from_slice(&0u32.to_le_bytes());
+        assert!(exif::Reader::new().read_raw(t.clone()).is_err(), "対照");
+        assert!(read_exif_raw(t).is_err());
     }
 
     /// 埋め込みサムネイル（IFD1）のある JPEG（向きは 1）
