@@ -57,7 +57,8 @@ export function BackgroundWork({
         const auto = s.auto_thumbs;
         if (s.scanning) next = { kind: "scan" };
         else if (s.thumbs_pending > 0) next = { kind: "reading", left: s.thumbs_pending };
-        else if (auto && (auto.working || auto.paused) && auto.left > 0)
+        // 一時停止中は数に依らず出す——消えると「再開」の口が無くなる（PR #348 の /code-review）
+        else if (auto && ((auto.working && auto.left > 0) || auto.paused))
           next = { kind: "auto", left: auto.left, paused: auto.paused };
       } catch {
         // 取れなかった回は何も無かったことにする（出しっぱなしにしない）
@@ -68,7 +69,9 @@ export function BackgroundWork({
       const ready = streak >= 2 || (next?.kind === "auto" && next.paused);
       const show = ready && !quietRef.current ? next : null;
       setShown((prev) => (same(prev, show) ? prev : show));
-      setPausedNow(null);
+      // 押した側の見た目は、知らせが追いついてから外す（先に外すと古い状態へ一瞬戻る）
+      const serverPaused = next?.kind === "auto" ? next.paused : null;
+      setPausedNow((p) => (serverPaused === null || p === serverPaused ? null : p));
       if (alive) timer = window.setTimeout(tick, document.hidden ? 5000 : next !== null ? 1000 : 3000);
     };
     void tick();

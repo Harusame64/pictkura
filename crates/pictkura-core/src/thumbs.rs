@@ -1438,6 +1438,8 @@ pub enum ThumbOutcome {
     Provisional,
     /// 高品質サムネイルまで生成完了
     Final,
+    /// 前もって作る仕事（[`Job::Pregen`]）が来たときには、もう本番があった（見えたタイルが先に作った）。何もしていない
+    AlreadyBuilt,
 }
 
 /// サムネイルの保存先。`thumbs/{id % 256}/{id}.<ext>` に分散配置し、
@@ -1898,6 +1900,11 @@ pub fn process_one_job(
 ) -> Result<ThumbOutcome, ThumbError> {
     let want_final = job != Job::Auto;
     let record = db.get_by_id(id)?.ok_or(ThumbError::NotFound(id))?;
+    // 配り手が候補を読んでから、見えたタイルが先に本番を作った。作り直さない——作り直すと、利用者が見た絵を
+    // 「まだ見ていない」に戻してしまう（上限で先に消える。PR #348 の /code-review）
+    if job == Job::Pregen && record.thumb_state >= 2 {
+        return Ok(ThumbOutcome::AlreadyBuilt);
+    }
     let src = &record.path;
 
     // 実体がクラウドにしか無いファイルは、**開いた瞬間にダウンロードが走る**。
@@ -2107,7 +2114,8 @@ pub fn process_one_job(
     // JPEGではないのでバイト列のままでは使えないが、小さいまま展開すれば
     // 主画像を展開するより速い（実測 148ms 対 455ms）。
     // 展開済みなので再エンコードは避けられず、そのままWebPで書く
-    if record.thumb_state == 0 && is_heif {
+    // 前もって作る仕事は即席を飛ばして本番へ（即席を書いて返すと、同じファイルを次の周でもう一度開いて解く）
+    if record.thumb_state == 0 && is_heif && job != Job::Pregen {
         if let Some(img) = crate::heif::decode_thumbnail(src) {
             let webp_path = thumb_path_for(thumbs_dir, id, "webp");
             ensure_parent(&webp_path)?;
@@ -2124,7 +2132,7 @@ pub fn process_one_job(
 
     // 段階1: まだサムネイルが無ければ、埋め込みサムネイルを即席として書き出す（爆速パス）。
     // EXIF埋め込みJPEGは再エンコードせずそのまま書く（デコード回避）ため拡張子はjpg
-    if record.thumb_state == 0 && !is_raw && !is_heif {
+    if record.thumb_state == 0 && !is_raw && !is_heif && job != Job::Pregen {
         if let Some(bytes) = &exif_data.thumbnail {
             if let Ok(embedded) = image::load_from_memory(bytes) {
                 let jpg_path = thumb_path_for(thumbs_dir, id, "jpg");
@@ -2333,7 +2341,7 @@ fn pregen_settle(
         Ok(ThumbOutcome::Final) => {
             let _ = db.mark_thumb_unviewed(id);
         }
-        Ok(ThumbOutcome::Provisional | ThumbOutcome::Stale) => {}
+        Ok(ThumbOutcome::Provisional | ThumbOutcome::Stale | ThumbOutcome::AlreadyBuilt) => {}
         _ => queue.skip_pregen(id),
     }
 }
@@ -2373,6 +2381,12 @@ impl ThumbQueue {
                 continue;
             }
             if !state.processing.contains(&id) && state.queued.insert(id) {
+                state.pending.push_back(id);
+            } else if let Some(at) = state.pregen.iter().position(|&p| p == id) {
+                // 前もって作る列で待っていた写真に、素性の読み直しが来た（ファイルが変わった）。自動の列へ移す——
+                // 残すと読み直しが前もって作る速さでしか進まず、一時停止で列ごと捨てると読み直しも消える
+                // （PR #348 の /code-review）
+                state.pregen.remove(at);
                 state.pending.push_back(id);
             }
         }
@@ -2567,18 +2581,29 @@ impl ThumbQueue {
     }
 
     /// 前もって作る列へ積む（キュー済み・処理中・失敗上限・この起動で見送ったものは無視）
-    pub fn enqueue_pregen(&self, ids: &[i64]) {
+    /// 積んだ数を返す
+    pub fn enqueue_pregen(&self, ids: &[i64]) -> usize {
         let mut state = self.lock_state();
+        let mut added = 0;
         for &id in ids {
             if state.blocked(id) || state.pregen_skip.contains(&id) {
                 continue;
             }
             if !state.processing.contains(&id) && state.queued.insert(id) {
                 state.pregen.push_back(id);
+                added += 1;
             }
         }
         drop(state);
-        self.inner.cvar.notify_all();
+        if added > 0 {
+            self.inner.cvar.notify_all();
+        }
+        added
+    }
+
+    /// 見送りを取り消す（利用者が開いて本番ができた）
+    pub fn unskip_pregen(&self, id: i64) {
+        self.lock_state().pregen_skip.remove(&id);
     }
 
     /// 前もって作る列を空にする（一時停止・設定をオフ）。処理中の分はそのまま終わらせる
@@ -2758,6 +2783,10 @@ impl ThumbnailService {
                         .unwrap_or(Err(ThumbError::Panicked(id)));
                         if job == Job::Pregen {
                             pregen_settle(&queue, &mut db, id, &result);
+                        } else if matches!(result, Ok(ThumbOutcome::Final)) {
+                            // 見送った写真（クラウドにしか無い等）を利用者が開いて本番ができた。見送りの数から外す
+                            // （「残り」は本番の無い数から見送りを引くので、残すと少なく数える）
+                            queue.unskip_pregen(id);
                         }
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         let stale = matches!(result, Ok(ThumbOutcome::Stale));
@@ -5527,6 +5556,104 @@ mod tests {
         assert!(!waiter.is_finished(), "枠が埋まっている間は待つ");
         queue.complete(10);
         assert_eq!(waiter.join().unwrap(), Some((11, Job::Pregen)));
+    }
+
+    /// 埋め込みサムネイル（IFD1）のある JPEG（向きは 1）
+    fn jpeg_with_embedded_thumbnail(width: u32, height: u32) -> Vec<u8> {
+        let thumb = test_jpeg_bytes(160, 120);
+        // TIFF: ヘッダ8 + IFD0（項目1）18 + IFD1（項目2）30 → サムネイルは56バイト目から
+        let mut tiff: Vec<u8> = b"II".to_vec();
+        tiff.extend_from_slice(&42u16.to_le_bytes());
+        tiff.extend_from_slice(&8u32.to_le_bytes());
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes()); // Orientation, SHORT, 1
+        tiff.extend_from_slice(&3u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&1u16.to_le_bytes());
+        tiff.extend_from_slice(&0u16.to_le_bytes());
+        tiff.extend_from_slice(&26u32.to_le_bytes()); // 次は IFD1
+        tiff.extend_from_slice(&2u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0201u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&56u32.to_le_bytes());
+        tiff.extend_from_slice(&0x0202u16.to_le_bytes());
+        tiff.extend_from_slice(&4u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&(thumb.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(tiff.len(), 56);
+        tiff.extend_from_slice(&thumb);
+        let body = test_jpeg_bytes(width, height);
+        let mut out: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        out.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        out.extend_from_slice(b"Exif\x00\x00");
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&body[2..]);
+        out
+    }
+
+    /// 前もって作る仕事は、サムネイルの無い行でも即席を飛ばして本番まで作る（見えたタイルは即席を先に返す）。
+    /// もう本番がある行は作り直さず、利用時刻にも触らない
+    #[test]
+    fn a_pregen_job_builds_the_final_at_once_and_leaves_built_rows_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("p.db")).unwrap();
+        let mut ids = Vec::new();
+        for name in ["a.jpg", "b.jpg"] {
+            let p = dir.path().join(name);
+            std::fs::write(&p, jpeg_with_embedded_thumbnail(800, 600)).unwrap();
+            db.upsert_files(&[ScannedFile {
+                path: p.clone(),
+                size: 1,
+                mtime_ms: 1,
+            }])
+            .unwrap();
+            ids.push(
+                db.list_all()
+                    .unwrap()
+                    .into_iter()
+                    .find(|r| r.path == p)
+                    .unwrap()
+                    .id,
+            );
+        }
+        let thumbs = dir.path().join("thumbs");
+        // 対照: 見えたタイルは、埋め込みがあれば即席を先に返す（この写真で即席の道が通ることの確かめ）
+        assert!(matches!(
+            process_one_job(&mut db, &thumbs, 160, ids[0], Job::Visible).unwrap(),
+            ThumbOutcome::Provisional
+        ));
+        assert!(matches!(
+            process_one_job(&mut db, &thumbs, 160, ids[1], Job::Pregen).unwrap(),
+            ThumbOutcome::Final
+        ));
+        db.touch_thumbs(&[(ids[1], 777)]).unwrap();
+        assert!(matches!(
+            process_one_job(&mut db, &thumbs, 160, ids[1], Job::Pregen).unwrap(),
+            ThumbOutcome::AlreadyBuilt
+        ));
+        let queue = ThumbQueue::new();
+        pregen_settle(&queue, &mut db, ids[1], &Ok(ThumbOutcome::AlreadyBuilt));
+        assert!(!queue.is_pregen_skipped(ids[1]));
+        let used = db.thumb_used_ms_of(ids[1]).unwrap_or(0);
+        assert!(
+            used >= 777,
+            "見た時刻を「まだ見ていない」へ戻さない: {used}"
+        );
+    }
+
+    /// 前もって作る列で待っている写真に素性の読み直しが来たら、自動の列へ移る（列を空にしても読み直しは残る）
+    #[test]
+    fn a_reread_moves_a_photo_out_of_the_pregen_lane() {
+        let queue = ThumbQueue::new();
+        queue.set_pregen_limit(4);
+        assert_eq!(queue.enqueue_pregen(&[5, 6]), 2);
+        assert_eq!(queue.enqueue_pregen(&[5]), 0, "もう列に居る");
+        queue.enqueue(&[5]);
+        queue.clear_pregen();
+        assert_eq!(queue.pop_job(), Some((5, Job::Auto)));
+        assert!(!queue.is_active(6));
     }
 
     /// 前もって作った仕事の後始末: 即席だけ書いた写真は見送らない（次の周でもう一度配る）。本番は「まだ見ていない」に

@@ -161,6 +161,7 @@ export default function Settings({
   /** スライダーの位置（動かしている間は手元の値。離してから保存する） */
   const [capStep, setCapStep] = useState<number | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
+  const savedCapMb = config?.performance?.thumb_cache_mb ?? 4096;
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -989,21 +990,8 @@ export default function Settings({
             </label>
             <p className="settings-note">{t.settingsAutoThumbsNote}</p>
             {(() => {
-              const savedMb = config?.performance?.thumb_cache_mb ?? 4096;
-              const step = capStep ?? capStepOf(savedMb);
+              const step = capStep ?? capStepOf(savedCapMb);
               const mb = THUMB_CAPS_MB[step];
-              const save = async () => {
-                if (capStep === null) return;
-                const next = THUMB_CAPS_MB[capStep];
-                setCapStep(null);
-                if (next === savedMb) return;
-                try {
-                  await setThumbCacheMb(next);
-                } catch (err) {
-                  onError(errText(err));
-                }
-                onConfigChanged();
-              };
               const size = (bytes: number) => formatSize(bytes, sizeBaseFor(platform), formatLocale);
               // 1 枚の大きさは今あるサムネイルの平均から（まだ無ければ 50 KB とみる）
               const per = thumbInfo && thumbInfo.count > 0 ? thumbInfo.bytes / thumbInfo.count : 50 * 1024;
@@ -1025,10 +1013,16 @@ export default function Settings({
                       value={step}
                       aria-valuetext={mb === 0 ? t.settingsThumbCapUnlimited : size(mb * 1024 * 1024)}
                       style={{ "--fill": `${(step / (THUMB_CAPS_MB.length - 1)) * 100}%` } as React.CSSProperties}
-                      onChange={(e) => setCapStep(Number(e.target.value))}
-                      onPointerUp={save}
-                      onKeyUp={save}
-                      onBlur={save}
+                      // 目盛りが変わるたびに保存する（離した事件に頼らない——要素の外で離す・離さずに閉じると
+                      // 保存されなかった。PR #348 の /code-review）。目盛りは 7 つだけで、一方向に動かす間の値は
+                      // 始めと終わりの間にあるので、途中で掃除役が走っても終わりの値より多くは消さない
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setCapStep(v);
+                        setThumbCacheMb(THUMB_CAPS_MB[v])
+                          .catch((err) => onError(errText(err)))
+                          .finally(onConfigChanged);
+                      }}
                     />
                   </div>
                   <p className="settings-note">

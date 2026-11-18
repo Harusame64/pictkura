@@ -4344,6 +4344,10 @@ fn set_auto_thumbnails_paused(state: tauri::State<'_, AppState>, paused: bool) {
     if paused {
         state.thumbs.queue().clear_pregen();
     }
+    // 表示もすぐ変える（配り手の次の拍まで待つと、押した直後に古い状態へ戻って見える。PR #348 の /code-review）
+    let mut status = lock_ok(&state.auto_thumbs.status);
+    status.paused = paused;
+    status.working = !paused && status.left > 0;
 }
 
 /// サムネイルの置き場の上限（MB。0 = 無制限）。下げたら、次の見回り（1分ごと）で超えた分を消す
@@ -4379,8 +4383,12 @@ async fn rebuild_thumbnails(app: tauri::AppHandle) -> Result<usize, String> {
     let n = lock_ok(&state.db)
         .reset_all_thumbs()
         .map_err(errs::from_err)?;
-    // 壊れていて諦めた写真も、もう一度試す
+    // 壊れていて諦めた写真も、もう一度試す。配り手はいちばん新しい写真から読み直す
     state.thumbs.queue().forget_failures();
+    state
+        .auto_thumbs
+        .restart
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     applog::note(&format!("rebuilding thumbnails: cleared {n}"));
     let _ = app.emit("library-updated", ());
     Ok(n)
@@ -7022,6 +7030,8 @@ fn thumb_cache_cap_bytes(config: &Config) -> i64 {
 struct AutoThumbs {
     enabled: std::sync::atomic::AtomicBool,
     paused: std::sync::atomic::AtomicBool,
+    /// 配り手に「いちばん新しい写真から読み直せ」と言う（再生成の後）
+    restart: std::sync::atomic::AtomicBool,
     status: Mutex<AutoThumbsStatus>,
 }
 
@@ -7030,6 +7040,7 @@ impl AutoThumbs {
         Self {
             enabled: std::sync::atomic::AtomicBool::new(enabled),
             paused: std::sync::atomic::AtomicBool::new(false),
+            restart: std::sync::atomic::AtomicBool::new(false),
             status: Mutex::new(AutoThumbsStatus::default()),
         }
     }
@@ -7081,12 +7092,16 @@ fn spawn_auto_thumbs(handle: tauri::AppHandle) {
                         .unwrap_or(0)
                         .saturating_sub(queue.pregen_skipped())
                 };
-                let publish = |next: AutoThumbsStatus| {
-                    let mut status = lock_ok(&state.auto_thumbs.status);
-                    if *status != next {
-                        *status = next;
-                    }
-                };
+                let publish = |next: AutoThumbsStatus| *lock_ok(&state.auto_thumbs.status) = next;
+                if state
+                    .auto_thumbs
+                    .restart
+                    .swap(false, std::sync::atomic::Ordering::SeqCst)
+                {
+                    cursor = None;
+                    rest_until = None;
+                    fed_this_pass = false;
+                }
                 if !enabled {
                     queue.clear_pregen();
                     cursor = None;
@@ -7127,11 +7142,14 @@ fn spawn_auto_thumbs(handle: tauri::AppHandle) {
                     .scans_running
                     .load(std::sync::atomic::Ordering::SeqCst)
                     > 0
-                    || !state
-                        .startup_done
-                        .load(std::sync::atomic::Ordering::SeqCst);
+                    || !state.startup_done.load(std::sync::atomic::Ordering::SeqCst);
                 if scanning || !queue.foreground_idle() {
-                    publish(AutoThumbsStatus::default());
+                    // 表示は前のまま（見えたタイルの仕事の間に消すと、帯の表示が点滅し、開いた小窓が閉じる。
+                    // 読み込み中は画面の側が「読み込み中」を先に出す）。走査や読み込みの後は新しい写真が
+                    // 入っているかもしれないので、いちばん新しい側から読み直す（PR #348 の /code-review）
+                    cursor = None;
+                    rest_until = None;
+                    fed_this_pass = false;
                     continue;
                 }
                 if rest_until.is_some_and(|until| std::time::Instant::now() < until) {
@@ -7153,17 +7171,9 @@ fn spawn_auto_thumbs(handle: tauri::AppHandle) {
                             break;
                         };
                         cursor = Some(last);
-                        let ids: Vec<i64> = batch
-                            .into_iter()
-                            .map(|(id, _)| id)
-                            .filter(|&id| {
-                                !queue.is_active(id)
-                                    && !queue.is_pregen_skipped(id)
-                                    && !queue.is_blocked(id)
-                            })
-                            .collect();
-                        if !ids.is_empty() {
-                            queue.enqueue_pregen(&ids);
+                        let ids: Vec<i64> = batch.into_iter().map(|(id, _)| id).collect();
+                        // 積むかどうか（列に居る・見送り・失敗の上限）は列が 1 回の錠の中で決める
+                        if queue.enqueue_pregen(&ids) > 0 {
                             fed_this_pass = true;
                             break;
                         }

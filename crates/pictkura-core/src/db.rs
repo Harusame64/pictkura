@@ -860,6 +860,8 @@ impl Db {
                 ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE favorite = 1;
             CREATE INDEX IF NOT EXISTS idx_media_picked_day
                 ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE picked = 1;
+            CREATE INDEX IF NOT EXISTS idx_media_thumb_pending
+                ON media(day_key DESC, {SORT_TS} DESC, id DESC) WHERE thumb_state < 2;
             CREATE INDEX IF NOT EXISTS idx_media_thumb_lru
                 ON media(thumb_used_ms, thumb_bytes) WHERE thumb_state = 2;
             "#
@@ -2562,6 +2564,16 @@ impl Db {
             }
         };
         Ok(rows)
+    }
+
+    /// 試験用: サムネイルの利用時刻
+    #[cfg(test)]
+    pub(crate) fn thumb_used_ms_of(&self, id: i64) -> Option<i64> {
+        self.conn
+            .query_row("SELECT thumb_used_ms FROM media WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
     }
 
     /// 本番のサムネイルがまだ無い写真の数（前もって作る「残り」のもと）
