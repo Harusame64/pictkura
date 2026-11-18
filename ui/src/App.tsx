@@ -1684,6 +1684,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 「撮影日が確定して別の日から移ってきた」「メタデータ抽出で検索条件に
    * 合致するようになった」等で起きる。listDayは常にその日の全件を返すので、
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
+  /** `loadDays` は `refreshSummary` より後ろで作るので、ref 越しに呼ぶ */
+  const loadDaysRef = useRef<(keys: readonly number[]) => void>(() => {});
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
     const askedFor = askedRef.current;
@@ -1702,18 +1704,29 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     setLoadFailed(false);
     setLoadError(null);
     setStats(st);
+    // **見えている日は捨てずに取り直す**（届くまで古い中身を出したまま。`loadDays` が届いた中身で差し替える）。
+    // 捨てると、取り直しが届くまでの1コマ、その日が見積もりの枠だけになって一覧の高さが跳ね、画面のタイルが
+    // 0枚になった——読み込み中は写真が日をまたいで動くので、見えている日の枚数が毎回ずれ、この骨組みの取り直し
+    // （2秒ごと）のたびにちらついた（win2 の実測: 30秒に13回。検索結果のちらつきも同じ道）。見えていない日は
+    // 今までどおり捨てる（見えたときに読む）
+    const stale: number[] = [];
     setDayItems((prev) => {
       if (prev.size === 0) return prev;
       const counts = new Map(sum.map((d) => [d.day_key, d.count]));
       let next: Map<number, MediaItem[]> | null = null;
       for (const [dayKey, items] of prev) {
         if (counts.get(dayKey) !== items.length) {
+          if (visibleDaysRef.current.has(dayKey) || dayKey === viewerDayRef.current) {
+            stale.push(dayKey);
+            continue;
+          }
           if (!next) next = new Map(prev);
           next.delete(dayKey);
         }
       }
       return next ?? prev;
     });
+    if (stale.length > 0) loadDaysRef.current(stale);
   }, []);
   const summaryRefreshTimer = useRef<number | null>(null);
   // サムネイル一括生成中はパッチが大量に届くため、骨組みの再取得は2秒デバウンス
@@ -1804,6 +1817,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         }
       });
   }, []);
+  // **レンダー中に ref を書き換えない**——描画が確定してから差し替える（`openSettingsRef` と同じ）
+  useLayoutEffect(() => {
+    loadDaysRef.current = loadDays;
+  }, [loadDays]);
   /** 1日分（ビューアの表示日など）。中身は `loadDays` と同じ道 */
   const loadDay = useCallback((dayKey: number) => loadDays([dayKey]), [loadDays]);
 
