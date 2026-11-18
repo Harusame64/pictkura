@@ -517,7 +517,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .search-suggest {
   position: absolute;
   top: calc(100% + 4px);
-  inset-inline: 0;
+  /* 欄が狭い窓でも説明が切れない幅は取る（欄より広くてよい。幅 700 の英語で切れた。デザインの統一性チェック 3 周目） */
+  inset-inline-start: 0;
+  width: max(100%, 280px);
+  box-sizing: border-box;
   z-index: 40;
   margin: 0;
   padding: 4px;
@@ -536,8 +539,12 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   cursor: pointer;
   font-size: var(--fs-sm);
 }
+/* 選んでいる行はパレットと同じ印（選んでいる行の面・行頭の藍の棒・太さ）。触れたときの面（--surface-2）だけだと、
+   ダークではどの行か見えなかった（デザインの統一性チェック 3 周目） */
 .search-suggest li.active {
-  background: var(--surface-2);
+  position: relative;
+  background: var(--selected-bg);
+  font-weight: 600;
 }
 .search-suggest-main {
   /* 長いカメラ名は省略する（枚数・説明を押し出さない） */
@@ -780,6 +787,7 @@ input[type="range"]:focus-visible {
    別の要素で描く——角丸の行に inset の影で引くと、角に沿って「(」の形に曲がった（デザインレビュー） */
 .nav-item.active::before,
 .palette-item.active::before,
+.search-suggest li.active::before,
 .wiz-node.active::before {
   content: "";
   position: absolute;
@@ -798,6 +806,7 @@ input[type="range"]:focus-visible {
 @media (forced-colors: active) {
   .nav-item.active::before,
   .palette-item.active::before,
+  .search-suggest li.active::before,
   .wiz-node.active::before {
     forced-color-adjust: none;
     background: Highlight;
@@ -1609,8 +1618,11 @@ input[type="range"]:focus-visible {
   overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
 }
+/* 月のカードと同じ列に置く（左端から始めると、中央に並ぶ月のカードとずれた。デザインの統一性チェック 3 周目） */
 .calendar-unread {
-  padding: var(--sp-3) var(--sp-4);
+  max-width: 720px;
+  margin: 0 auto var(--sp-2);
+  padding: var(--sp-2) 0;
   color: var(--text-faint);
   font-size: var(--fs-sm);
 }
@@ -3484,7 +3496,8 @@ input[type="range"]:focus-visible {
   flex: 1;
 }
 .settings-rebuild-title {
-  font-weight: 500;
+  /* ほかの設定の行の名前と同じ太さ（太いと節の見出しに見えた。デザインの統一性チェック 3 周目） */
+  font-weight: 400;
 }
 .settings-rebuild button {
   flex: none;
