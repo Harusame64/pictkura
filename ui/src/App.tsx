@@ -2079,8 +2079,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   useEffect(() => {
     const trimmed = queryInput.trim();
     if (asciiDateTokens(trimmed) === query) return;
-    // カーソルの語が値の無いキー（候補で値を選んでいる途中）なら、まだ流さない（`isBareKey`）
-    if (isBareKey(tokenAt(queryInput, searchCaret).text)) return;
+    // カーソルの語が値の無いキー（候補で値を選んでいる途中）なら、まだ流さない（`isBareKey`）。**語全体で見る**——
+    // カーソルの手前だけで見ると、左の欄やパレットが検索語を `camera:"…"` へ差し替えたのにカーソルが古い位置に
+    // 残っていて、まだ `camera:` だと読んで流さなかった（PR #353 の codex）
+    const tk = tokenAt(queryInput, searchCaret);
+    if (isBareKey(queryInput.slice(tk.start, tk.end))) return;
     // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
     const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
     return () => window.clearTimeout(t);
