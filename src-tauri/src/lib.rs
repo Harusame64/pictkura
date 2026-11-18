@@ -94,6 +94,8 @@ struct AppState {
     thumbs: ThumbnailService,
     /// 設定「サムネイルを自動生成」の入り切り・一時停止・進み具合（[`spawn_auto_thumbs`]）
     auto_thumbs: AutoThumbs,
+    /// 外で入った写真のまとまり（[`WatchBurst`]）
+    watch_burst: Mutex<WatchBurst>,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -416,6 +418,62 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// 外で**まとまって**入った写真（エクスプローラーでのコピー等）を、ヘッダーの「残り n」に数える（2026-11-18 利用者
+/// 「まとまって入ったときだけ出す」）。少しずつ届く写真（同期クライアントが数秒ごとに1枚）は数えない——届くたびに
+/// 表示が出たり消えたりする。
+///
+/// - **まとまりの始まりは速さで決める**: 直近 [`WATCH_BURST_WINDOW`] に新しい写真が [`WATCH_BURST_SHOWN`] 枚
+///   入ったら。間が空かないだけの細い流れ（同期が5秒ごとに1枚）は、何分続いてもまとまりにしない（PR #350 の
+///   /code-review）。代わりに、1枚に10秒以上かかる大きいファイルの遅いコピーも出ない
+/// - **まとまりの終わりは間で決める**: 何かが変わった束（書き込み途中のファイルの大きさが変わっただけでも）が
+///   [`WATCH_BURST_GAP`] より空いたら終わり。時刻は束が**届いたとき**に取る（束の処理の長さを間に数えない）
+/// - 見張りは 800ms ごとの束で届く。遅い USB からのコピーは1つの束に数枚ずつなので、束をまたいで数える
+const WATCH_BURST_SHOWN: usize = 20;
+const WATCH_BURST_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+const WATCH_BURST_GAP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// 外で入った写真のまとまりの様子（[`WATCH_BURST_SHOWN`]）。見張りの束ごとに [`WatchBurst::on_batch`] を呼ぶ
+#[derive(Default)]
+struct WatchBurst {
+    /// まだ数えに入れていない、直近に入った新しい写真（入った時刻と id）
+    recent: std::collections::VecDeque<(std::time::Instant, i64)>,
+    /// 最後に何かが変わった束が届いた時刻
+    last: Option<std::time::Instant>,
+    /// いまのまとまりは数えに入れている
+    shown: bool,
+}
+
+impl WatchBurst {
+    /// 何かが変わった束が `at` に届き、新しい写真 `added` が入った。数えに入れる id を返す（まだなら空）
+    fn on_batch(&mut self, at: std::time::Instant, added: &[i64]) -> Vec<i64> {
+        if self
+            .last
+            .is_some_and(|last| at.saturating_duration_since(last) > WATCH_BURST_GAP)
+        {
+            // 間が空いた。まとまりは終わり
+            self.shown = false;
+            self.recent.clear();
+        }
+        self.last = Some(at);
+        if self.shown {
+            return added.to_vec();
+        }
+        while self
+            .recent
+            .front()
+            .is_some_and(|(t, _)| at.saturating_duration_since(*t) > WATCH_BURST_WINDOW)
+        {
+            self.recent.pop_front();
+        }
+        self.recent.extend(added.iter().map(|&id| (at, id)));
+        if self.recent.len() >= WATCH_BURST_SHOWN {
+            self.shown = true;
+            return self.recent.drain(..).map(|(_, id)| id).collect();
+        }
+        Vec::new()
+    }
+}
+
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
 ///
@@ -433,6 +491,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     use pictkura_core::scanner::{self, ScannedFile};
     use std::time::UNIX_EPOCH;
 
+    // 束が届いた時刻（外で入った写真のまとまりの間はこれで測る。処理の長さを間に数えない）
+    let arrived = std::time::Instant::now();
     let state = app.state::<AppState>();
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
@@ -501,16 +561,25 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         }
     }
 
+    // この束で**新しく入った**写真の行（ヘッダーの「残り n」に数えるかどうかの材料）
+    let mut added: Vec<i64> = Vec::new();
     {
         let mut db = lock_ok(&state.db);
         // 新規・変更のみをupsertする（同一内容のupsertはサムネイルを無効化してしまう）
-        let upsert_if_changed = |db: &mut Db, f: ScannedFile| -> bool {
-            let same = db
-                .get_meta_by_path(&f.path)
-                .ok()
-                .flatten()
+        let mut upsert_if_changed = |db: &mut Db, f: ScannedFile| -> bool {
+            let known = db.get_meta_by_path(&f.path).ok().flatten();
+            let same = known
+                .as_ref()
                 .is_some_and(|m| m.size == f.size && m.mtime_ms == f.mtime_ms);
-            !same && db.upsert_files(std::slice::from_ref(&f)).is_ok()
+            if same || db.upsert_files(std::slice::from_ref(&f)).is_err() {
+                return false;
+            }
+            if known.is_none() {
+                if let Ok(Some(m)) = db.get_meta_by_path(&f.path) {
+                    added.push(m.id);
+                }
+            }
+            true
         };
 
         // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
@@ -571,8 +640,25 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     }
 
     if changed {
-        // 見張りの束は新しい写真を数えない（外でのファイル変化。ヘッダーには出さない）
         enqueue_missing_thumbs(&state, None);
+        // 外でまとまって入った写真は「残り n」に数える（[`WATCH_BURST_SHOWN`]）。印は列に居る行にしか付かないので、
+        // 上で積んだ後に付ける（読み終えた行に付けても数は増えない）
+        let (shown, started) = {
+            let mut burst = lock_ok(&state.watch_burst);
+            let before = burst.shown;
+            let shown = burst.on_batch(arrived, &added);
+            (shown, !before && burst.shown)
+        };
+        if !shown.is_empty() {
+            // まとまりの始まりだけ1行残す（数えたかどうかは、読み込みが速いと帯に出る前に終わって見えない）
+            if started {
+                applog::note(&format!(
+                    "watch: counting photos copied in from outside ({} so far)",
+                    shown.len()
+                ));
+            }
+            state.thumbs.mark_fresh(&shown);
+        }
         let _ = app.emit("library-updated", ());
     }
     // 行が消えた束のときだけ（追加だけの束で表を見直さない。ゲート2）
@@ -8159,6 +8245,7 @@ pub fn run() {
                 config_path,
                 thumbs,
                 auto_thumbs,
+                watch_burst: Mutex::new(WatchBurst::default()),
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
@@ -8898,6 +8985,35 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 外で入った写真は、速くまとまって入ったときだけ数える。続く束も数え、間が空いたら終わり
+    #[test]
+    fn external_photos_count_once_a_burst_is_large_enough() {
+        let mut b = super::WatchBurst::default();
+        let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+        let ids = |r: std::ops::Range<i64>| r.collect::<Vec<_>>();
+        assert!(b.on_batch(at(0), &ids(0..5)).is_empty(), "5 枚では出さない");
+        assert!(b.on_batch(at(3_000), &ids(5..15)).is_empty());
+        // 書き込み途中の大きいファイル（新しい写真は無い束）も、まとまりを続ける
+        assert!(b.on_batch(at(9_000), &[]).is_empty());
+        // 遅い USB: 数枚ずつ続いて 20 枚に届いたら、まとまり全部を数える
+        assert_eq!(b.on_batch(at(15_000), &ids(15..21)), ids(0..21));
+        // 続く束は、その束の写真だけ
+        assert_eq!(b.on_batch(at(18_000), &ids(21..22)), ids(21..22));
+        // 間が空いたら、まとまりは終わり
+        assert!(b.on_batch(at(29_000), &ids(100..103)).is_empty());
+    }
+
+    /// 同期クライアントが数秒ごとに1枚ずつ届ける細い流れは、何分続いても数えない
+    #[test]
+    fn a_steady_trickle_never_counts() {
+        let mut b = super::WatchBurst::default();
+        let t0 = std::time::Instant::now();
+        for i in 0..100 {
+            let t = t0 + std::time::Duration::from_secs(5 * i as u64);
+            assert!(b.on_batch(t, &[i]).is_empty(), "{i} 枚目");
+        }
+    }
 
     /// 一覧のタイルが灰色で待つのは、働き手がこれから作る写真だけ（作らない写真で待つと灰色のまま変わらない）
     #[test]
