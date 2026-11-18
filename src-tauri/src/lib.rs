@@ -92,6 +92,8 @@ struct AppState {
     config: Mutex<Config>,
     config_path: PathBuf,
     thumbs: ThumbnailService,
+    /// 設定「サムネイルを自動生成」の入り切り・一時停止・進み具合（[`spawn_auto_thumbs`]）
+    auto_thumbs: AutoThumbs,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -4316,6 +4318,82 @@ fn set_hardware_acceleration(
     update_config(&state, |c| c.performance.hardware_acceleration = enabled)
 }
 
+/// 設定「サムネイルを自動生成」の入り切り。オンにするとすぐ配り始める（[`spawn_auto_thumbs`]）
+#[tauri::command]
+fn set_auto_thumbnails(state: tauri::State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    update_config(&state, |c| c.performance.auto_thumbnails = enabled)?;
+    state
+        .auto_thumbs
+        .enabled
+        .store(enabled, std::sync::atomic::Ordering::SeqCst);
+    // 入れ直したら一時停止は解く（止めたつもりのまま入れて、動かないと思わせない）
+    state
+        .auto_thumbs
+        .paused
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
+}
+
+/// 自動生成の一時停止・再開（上の帯の表示から）。設定には書かない——次の起動では再開する
+#[tauri::command]
+fn set_auto_thumbnails_paused(state: tauri::State<'_, AppState>, paused: bool) {
+    state
+        .auto_thumbs
+        .paused
+        .store(paused, std::sync::atomic::Ordering::SeqCst);
+    if paused {
+        state.thumbs.queue().clear_pregen();
+    }
+    // 表示もすぐ変える（配り手の次の拍まで待つと、押した直後に古い状態へ戻って見える。PR #348 の /code-review）
+    let mut status = lock_ok(&state.auto_thumbs.status);
+    status.paused = paused;
+    status.working = !paused && status.left > 0;
+}
+
+/// サムネイルの置き場の上限（MB。0 = 無制限）。下げたら、次の見回り（1分ごと）で超えた分を消す
+#[tauri::command]
+fn set_thumb_cache_mb(state: tauri::State<'_, AppState>, mb: u64) -> Result<(), String> {
+    update_config(&state, |c| c.performance.thumb_cache_mb = mb)
+}
+
+/// 設定の「いま n 使用中」
+#[derive(serde::Serialize)]
+struct ThumbCacheInfoDto {
+    /// 本番のサムネイルの数と合計の大きさ
+    count: usize,
+    bytes: i64,
+}
+
+#[tauri::command]
+async fn thumb_cache_info(app: tauri::AppHandle) -> Result<ThumbCacheInfoDto, String> {
+    let state = app.state::<AppState>();
+    let (count, bytes) = state
+        .read_pool
+        .with(|db| db.thumb_cache_stats())
+        .map_err(errs::from_err)?;
+    Ok(ThumbCacheInfoDto { count, bytes })
+}
+
+/// 「サムネイルを作り直す」: 全部の行のサムネイルを外し、画面を読み直させる。ファイルは掃除役が順に消す
+/// （`thumb_trash`）。写真そのものには触らない
+#[tauri::command]
+async fn rebuild_thumbnails(app: tauri::AppHandle) -> Result<usize, String> {
+    let state = app.state::<AppState>();
+    state.thumbs.queue().clear_pregen();
+    let n = lock_ok(&state.db)
+        .reset_all_thumbs()
+        .map_err(errs::from_err)?;
+    // 壊れていて諦めた写真も、もう一度試す。配り手はいちばん新しい写真から読み直す
+    state.thumbs.queue().forget_failures();
+    state
+        .auto_thumbs
+        .restart
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    applog::note(&format!("rebuilding thumbnails: cleared {n}"));
+    let _ = app.emit("library-updated", ());
+    Ok(n)
+}
+
 /// ビューアでの RAW+JPEG の組の歩き方を変える（JPEG だけ・RAW だけ・両方）。
 /// ビューアの切り替えボタンもここを書く——次に開いたときも同じ側で見られるように
 #[tauri::command]
@@ -4398,6 +4476,8 @@ struct BackgroundStatusDto {
     scanning: bool,
     /// **まだサムネイルの無い写真**のうち、読み終えていない数（[`ThumbnailService::fresh_pending`]）
     thumbs_pending: usize,
+    /// 設定「サムネイルを自動生成」の様子（[`AutoThumbsStatus`]）
+    auto_thumbs: AutoThumbsStatus,
 }
 
 /// **本体のスレッドで答えない**（async）。画面は動いている間1秒ごとに訊くので、同期のコマンドだと本体の
@@ -4405,12 +4485,14 @@ struct BackgroundStatusDto {
 #[tauri::command]
 async fn background_status(app: tauri::AppHandle) -> BackgroundStatusDto {
     let state = app.state::<AppState>();
+    let auto_thumbs = lock_ok(&state.auto_thumbs.status).clone();
     BackgroundStatusDto {
         scanning: state
             .scans_running
             .load(std::sync::atomic::Ordering::SeqCst)
             > 0,
         thumbs_pending: state.thumbs.fresh_pending(),
+        auto_thumbs,
     }
 }
 
@@ -6931,6 +7013,193 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
+/// サムネイルの置き場の上限（バイト）。0 = 無制限。極端な値で桁があふれないよう 8 TB で抑える
+fn thumb_cache_cap_bytes(config: &Config) -> i64 {
+    (config.performance.thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024
+}
+
+/// 設定「サムネイルを自動生成」（2026-11-18 利用者と決めた形）。
+///
+/// - 既定はオフ（どの版も）。オンの間、本番のサムネイルが無い写真を**新しい順に**前もって作る
+/// - **クラウドにしか無い写真は開かない**（[`pictkura_core::thumbs::Job::Pregen`]）
+/// - 新しい写真の素性の読み込み（自動の列）と、見えたタイルの仕事が済んでから。USB から取り込んだ後も、
+///   読み込みが終わったところで続きを作り始める
+/// - 置き場の**上限の 8 割で止まる**。掃除役は上限を超えたら 9 割まで消すので、作る・消すが往復しない。
+///   前もって作った絵は「まだ見ていない」として、見た絵より先に（撮影日の古い順に）消える
+/// - 一時停止は設定とは別（上の帯から）。設定には書かず、次の起動では再開する
+struct AutoThumbs {
+    enabled: std::sync::atomic::AtomicBool,
+    paused: std::sync::atomic::AtomicBool,
+    /// 配り手に「いちばん新しい写真から読み直せ」と言う（再生成の後）
+    restart: std::sync::atomic::AtomicBool,
+    status: Mutex<AutoThumbsStatus>,
+}
+
+impl AutoThumbs {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled: std::sync::atomic::AtomicBool::new(enabled),
+            paused: std::sync::atomic::AtomicBool::new(false),
+            restart: std::sync::atomic::AtomicBool::new(false),
+            status: Mutex::new(AutoThumbsStatus::default()),
+        }
+    }
+}
+
+/// 上の帯の「サムネイル 残り n」の材料
+#[derive(serde::Serialize, Clone, Default, PartialEq, Eq, Debug)]
+struct AutoThumbsStatus {
+    /// いま作っている（配っている・作業中がある）
+    working: bool,
+    /// 一時停止中
+    paused: bool,
+    /// 残り（本番の無い写真から、この起動で見送ったものを引いた数）
+    left: usize,
+    /// 置き場が上限の 8 割に達したので止まっている
+    at_cap: bool,
+}
+
+/// 配り手が一度に読む候補の数と、配る間隔
+const AUTO_THUMBS_BATCH: usize = 256;
+const AUTO_THUMBS_TICK: std::time::Duration = std::time::Duration::from_secs(2);
+/// 作り終えた（配るものが無かった）後、新しい写真を見に行くまでの間
+const AUTO_THUMBS_REST: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// [`AutoThumbs`] の配り手。2 秒ごとに起き、作る列が細っていたら次の候補を新しい順に積む
+fn spawn_auto_thumbs(handle: tauri::AppHandle) {
+    std::thread::spawn(move || loop {
+        // 配り手を絶やさない（掃除役と同じ）。落ちたら 1 拍おいて回し直す
+        let _ = pictkura_core::panics::catching("auto thumbnails", || {
+            let mut cursor: Option<pictkura_core::db::PregenCursor> = None;
+            let mut fed_this_pass = false;
+            let mut rest_until: Option<std::time::Instant> = None;
+            loop {
+                std::thread::sleep(AUTO_THUMBS_TICK);
+                let state = handle.state::<AppState>();
+                let queue = state.thumbs.queue();
+                let enabled = state
+                    .auto_thumbs
+                    .enabled
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                let paused = state
+                    .auto_thumbs
+                    .paused
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                let left = || {
+                    state
+                        .read_pool
+                        .with(|db| db.pregen_candidate_count())
+                        .unwrap_or(0)
+                        .saturating_sub(queue.pregen_skipped())
+                };
+                let publish = |next: AutoThumbsStatus| *lock_ok(&state.auto_thumbs.status) = next;
+                if state
+                    .auto_thumbs
+                    .restart
+                    .swap(false, std::sync::atomic::Ordering::SeqCst)
+                {
+                    cursor = None;
+                    rest_until = None;
+                    fed_this_pass = false;
+                }
+                if !enabled {
+                    queue.clear_pregen();
+                    cursor = None;
+                    rest_until = None;
+                    publish(AutoThumbsStatus::default());
+                    continue;
+                }
+                if paused {
+                    queue.clear_pregen();
+                    cursor = None;
+                    rest_until = None;
+                    publish(AutoThumbsStatus {
+                        paused: true,
+                        left: left(),
+                        ..Default::default()
+                    });
+                    continue;
+                }
+                let cap = thumb_cache_cap_bytes(&lock_ok(&state.config));
+                if cap > 0 {
+                    let used = state
+                        .read_pool
+                        .with(|db| db.thumb_cache_usage())
+                        .unwrap_or(0);
+                    if used >= cap / 10 * 8 {
+                        queue.clear_pregen();
+                        cursor = None;
+                        publish(AutoThumbsStatus {
+                            at_cap: true,
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                }
+                // 新しい写真の素性の読み込み・走査・見えたタイルの仕事が先。その間は帯に「読み込み中」が出ている
+                // 起動時の同期は `scans_running` に数えない（#57）ので、終わった旗も見る
+                let scanning = state
+                    .scans_running
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    > 0
+                    || !state.startup_done.load(std::sync::atomic::Ordering::SeqCst);
+                if scanning || !queue.foreground_idle() {
+                    // 表示は前のまま（見えたタイルの仕事の間に消すと、帯の表示が点滅し、開いた小窓が閉じる。
+                    // 読み込み中は画面の側が「読み込み中」を先に出す）。走査や読み込みの後は新しい写真が
+                    // 入っているかもしれないので、いちばん新しい側から読み直す（PR #348 の /code-review）
+                    cursor = None;
+                    rest_until = None;
+                    fed_this_pass = false;
+                    continue;
+                }
+                if rest_until.is_some_and(|until| std::time::Instant::now() < until) {
+                    continue;
+                }
+                rest_until = None;
+                // 作る列が細ったら足す（働き手の枠の数倍だけ。列を長くすると一時停止やオフで捨てる量が増える）
+                if queue.pregen_backlog() < AUTO_THUMBS_BATCH / 4 {
+                    // 見送った写真ばかりの区間は、続けて読み進める（1 拍に 1 区間だと、クラウドにしか無い写真が
+                    // 何千枚も続くライブラリで一周に何分もかかる）
+                    let mut pass_done = false;
+                    for _ in 0..40 {
+                        let batch = state
+                            .read_pool
+                            .with(|db| db.pregen_candidates(cursor, AUTO_THUMBS_BATCH))
+                            .unwrap_or_default();
+                        let Some(&(_, last)) = batch.last() else {
+                            pass_done = true;
+                            break;
+                        };
+                        cursor = Some(last);
+                        let ids: Vec<i64> = batch.into_iter().map(|(id, _)| id).collect();
+                        // 積むかどうか（列に居る・見送り・失敗の上限）は列が 1 回の錠の中で決める
+                        if queue.enqueue_pregen(&ids) > 0 {
+                            fed_this_pass = true;
+                            break;
+                        }
+                    }
+                    if pass_done {
+                        // 一周した。何か積んだ周なら、すぐもう一周（積み直された写真・取り込まれた写真を拾う）。
+                        // 何も積まなかった周なら作り終えた——しばらく休んで、新しい写真を見に行く
+                        cursor = None;
+                        if !fed_this_pass && queue.pregen_backlog() == 0 {
+                            rest_until = Some(std::time::Instant::now() + AUTO_THUMBS_REST);
+                        }
+                        fed_this_pass = false;
+                    }
+                }
+                let working = queue.pregen_backlog() > 0;
+                publish(AutoThumbsStatus {
+                    working,
+                    left: if working { left().max(1) } else { 0 },
+                    ..Default::default()
+                });
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_secs(10));
+    });
+}
+
 /// 置き場を見て回って孤児のサムネイルを片付けた時刻（ミリ秒）。控え（`thumb_trash`）が拾えない孤児——この版より前に
 /// 残ったもの、付け替えた後で確定に失敗した（落ちた・ディスクが満杯）サムネイル——のために、起動の後に
 /// [`ORPHAN_SWEEP_EVERY_MS`] ごと、1回だけ見て回る（PR の codex）
@@ -7793,7 +8062,11 @@ pub fn run() {
                 },
             );
 
-            let thumb_cache_mb = config.performance.thumb_cache_mb;
+            // 前もって作る仕事は働き手の半分まで（見えたタイルの仕事を待たせない）
+            thumbs
+                .queue()
+                .set_pregen_limit((thumbs.worker_count() / 2).max(1));
+            let auto_thumbs = AutoThumbs::new(config.performance.auto_thumbnails);
             // 冷起動（AutoPlay/2重起動でこのプロセスが最初のとき）の取り込み対象
             let pending_import =
                 import_path_from_args(&std::env::args().collect::<Vec<_>>()).map(narrow_to_dcim);
@@ -7804,6 +8077,7 @@ pub fn run() {
                 config: Mutex::new(config),
                 config_path,
                 thumbs,
+                auto_thumbs,
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
@@ -8168,7 +8442,6 @@ pub fn run() {
                 // 見なされて**掃除役が静かに永久停止する**——落ちないぶん誰も気付けない
                 loop {
                     let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
-                        let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
                         let mut walked_this_session = false;
                         loop {
@@ -8180,6 +8453,8 @@ pub fn run() {
                                 db = Db::open(&janitor_db_path).ok();
                             }
                             let Some(db) = db.as_mut() else { continue };
+                            // 上限は毎回読む（設定のスライダーで変わる）
+                            let cap_bytes = thumb_cache_cap_bytes(&lock_ok(&state.config));
                             // 写真の行が消えた・サムネイルが外れたときに DB が控えたファイルを消す
                             // （`drain_thumb_trash`。置き場は見て回らない。控えが無ければ1回の読みで終わる）
                             if let Ok(n) = pictkura_core::thumbs::drain_thumb_trash(
@@ -8271,6 +8546,9 @@ pub fn run() {
                     });
                 }
             });
+
+            // 設定「サムネイルを自動生成」の配り手
+            spawn_auto_thumbs(app.handle().clone());
 
             // ライブラリルートのファイルシステム監視を開始（アプリ外の操作に追従）
             rebuild_watcher(app.handle());
@@ -8467,6 +8745,11 @@ pub fn run() {
             set_pickeds,
             set_auto_advance,
             set_hardware_acceleration,
+            set_auto_thumbnails,
+            set_auto_thumbnails_paused,
+            set_thumb_cache_mb,
+            thumb_cache_info,
+            rebuild_thumbnails,
             set_pair_view,
             set_viewer_transition,
             set_slideshow_transition,

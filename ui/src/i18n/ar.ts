@@ -629,6 +629,35 @@ export const ar: Dict = {
   settingsAutoplayOpenWindows: "فتح إعدادات التشغيل التلقائي في Windows",
   settingsGraphics: "الرسومات",
   settingsHardwareAccelerationToggle: "استخدام تسريع الرسومات",
+  bgAutoThumbs: (n: number) => `جارٍ إنشاء الصور المصغّرة في الخلفية (المتبقي ${num(n)})`,
+  bgAutoThumbsShort: (n: number) => `المصغّرات: المتبقي ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `إنشاء الصور المصغّرة متوقف مؤقتًا (المتبقي ${num(n)})`,
+  bgAutoThumbsPausedShort: (n: number) => `متوقف مؤقتًا: المتبقي ${num(n)}`,
+  autoThumbsHeading: "جارٍ إنشاء الصور المصغّرة في الخلفية",
+  autoThumbsPausedHeading: "إنشاء الصور المصغّرة متوقف مؤقتًا",
+  autoThumbsBody: (n: number) =>
+    `المتبقي: ${num(n)}. ستظهر الصور فورًا حتى عند التنقل السريع في المخطط الزمني. يتم تخطي الصور الموجودة في السحابة فقط.`,
+  autoThumbsPause: "إيقاف مؤقت",
+  autoThumbsResume: "استئناف",
+  autoThumbsOpenSettings: "فتح الإعدادات",
+  settingsThumbnails: "الصور المصغّرة",
+  settingsAutoThumbsToggle: "إنشاء الصور المصغّرة تلقائيًا",
+  settingsAutoThumbsNote:
+    "ينشئ في الخلفية صورًا مصغّرة للمكتبة كلها، بدءًا من أحدث الصور، لتظهر الصور فورًا حتى عند التنقل السريع بين سنوات لم تفتحها بعد. يستخدم المعالج والقرص أثناء ذلك. لا تُفتح أبدًا الصور الموجودة في السحابة فقط (مثل ملفات OneDrive «عبر الإنترنت فقط»). عند إيقافه، تُنشأ الصور المصغّرة للصور التي تعرضها فقط.",
+  settingsAutoThumbsAtCap: "امتلأت مساحة الصور المصغّرة بنسبة 80%، لذا توقف الإنشاء التلقائي.",
+  settingsThumbCap: "حد مساحة الصور المصغّرة",
+  settingsThumbCapUnlimited: "بلا حد",
+  settingsThumbCapUsage: (size: string, n: number) => `المستخدم الآن: \u2068${size}\u2069 (الصور المصغّرة: ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `يتسع الحد لنحو ${num(n)} صورة مصغّرة. عند تجاوزه، تُحذف أولًا الصور المصغّرة للصور التي لم تنظر إليها منذ مدة (الصور نفسها لا تُمس).`,
+  settingsThumbCapNoLimit: "لا يوجد حد؛ لا تُحذف الصور المصغّرة أبدًا.",
+  settingsRebuildThumbs: "إعادة إنشاء الصور المصغّرة",
+  settingsRebuildThumbsNote:
+    "مفيد عندما تبدو الصور المصغّرة تالفة أو ما زالت باتجاه قديم. تُحذف كل الصور المصغّرة الحالية وتُنشأ من جديد. الصور نفسها لا تُمس.",
+  settingsRebuildThumbsButton: "إعادة الإنشاء…",
+  rebuildThumbsConfirm:
+    "هل تريد حذف كل الصور المصغّرة الحالية وإنشاءها من جديد؟ الصور نفسها لا تُمس. تُعاد الصور المصغّرة كلما عرضت الصور.",
+  rebuildThumbsOk: "إعادة الإنشاء",
   settingsHardwareAccelerationNote:
     "إذا بدا مؤشر الماوس متجمدًا أثناء عرض الصور بملء الشاشة، فقد يحل إيقاف هذا الخيار المشكلة (لوحظ ذلك على جهاز كمبيوتر مزوّد ببطاقة رسومات AMD). عند إيقافه، يستهلك تشغيل الفيديو المزيد من موارد المعالج. يسري التغيير عند تشغيل pictkura في المرة القادمة.",
   settingsImportWaitingFrom: (path: string) =>

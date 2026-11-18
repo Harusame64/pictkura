@@ -609,6 +609,35 @@ export const he: Dict = {
   settingsAutoplayOpenWindows: "פתיחת הגדרות ההפעלה האוטומטית של Windows",
   settingsGraphics: "גרפיקה",
   settingsHardwareAccelerationToggle: "שימוש בהאצה גרפית",
+  bgAutoThumbs: (n: number) => `יוצר תמונות ממוזערות ברקע (נותרו ${num(n)})`,
+  bgAutoThumbsShort: (n: number) => `ממוזערות: נותרו ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `יצירת התמונות הממוזערות מושהית (נותרו ${num(n)})`,
+  bgAutoThumbsPausedShort: (n: number) => `מושהה: נותרו ${num(n)}`,
+  autoThumbsHeading: "יוצר תמונות ממוזערות ברקע",
+  autoThumbsPausedHeading: "יצירת התמונות הממוזערות מושהית",
+  autoThumbsBody: (n: number) =>
+    `נותרו ${num(n)}. התמונות יופיעו מיד גם בדפדוף מהיר בציר הזמן. תמונות שנמצאות רק בענן מדולגות.`,
+  autoThumbsPause: "השהיה",
+  autoThumbsResume: "המשך",
+  autoThumbsOpenSettings: "פתיחת ההגדרות",
+  settingsThumbnails: "תמונות ממוזערות",
+  settingsAutoThumbsToggle: "יצירה אוטומטית של תמונות ממוזערות",
+  settingsAutoThumbsNote:
+    "יוצר ברקע תמונות ממוזערות לכל הספרייה, החל מהתמונות החדשות ביותר, כך שהתמונות מופיעות מיד גם בדפדוף מהיר בשנים שעוד לא פתחתם. בזמן הזה נעשה שימוש במעבד ובדיסק. תמונות שנמצאות רק בענן (כמו קובצי OneDrive „מקוון בלבד”) אף פעם לא נפתחות. כשהאפשרות כבויה, נוצרות תמונות ממוזערות רק לתמונות שמוצגות.",
+  settingsAutoThumbsAtCap: "שטח התמונות הממוזערות מלא ב־80%, ולכן היצירה האוטומטית נעצרה.",
+  settingsThumbCap: "מגבלת שטח לתמונות ממוזערות",
+  settingsThumbCapUnlimited: "ללא מגבלה",
+  settingsThumbCapUsage: (size: string, n: number) => `בשימוש כעת: \u2068${size}\u2069 (תמונות ממוזערות: ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `במגבלה נכנסות כ־${num(n)} תמונות ממוזערות. מעבר לכך, נמחקות קודם התמונות הממוזערות של תמונות שלא הסתכלתם עליהן זמן מה (התמונות עצמן לא נפגעות).`,
+  settingsThumbCapNoLimit: "אין מגבלה; תמונות ממוזערות אף פעם לא נמחקות.",
+  settingsRebuildThumbs: "יצירה מחדש של התמונות הממוזערות",
+  settingsRebuildThumbsNote:
+    "שימושי כשתמונות ממוזערות נראות פגומות או עדיין בכיוון ישן. כל התמונות הממוזערות הנוכחיות נמחקות ונוצרות מחדש. התמונות עצמן לא נפגעות.",
+  settingsRebuildThumbsButton: "יצירה מחדש…",
+  rebuildThumbsConfirm:
+    "למחוק את כל התמונות הממוזערות הנוכחיות וליצור אותן מחדש? התמונות עצמן לא נפגעות. התמונות הממוזערות נוצרות מחדש בזמן הצפייה בתמונות.",
+  rebuildThumbsOk: "יצירה מחדש",
   settingsHardwareAccelerationNote:
     "אם נראה שסמן העכבר קפוא בזמן צפייה בתמונות במסך מלא, כיבוי האפשרות הזו עשוי לפתור את הבעיה (נצפה במחשב עם כרטיס מסך של AMD). כשהאפשרות כבויה, ניגון וידאו צורך יותר משאבי מעבד. השינוי ייכנס לתוקף בפעם הבאה שתפעילו את pictkura.",
   settingsImportWaitingFrom: (path: string) =>

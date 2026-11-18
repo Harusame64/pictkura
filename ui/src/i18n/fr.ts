@@ -625,6 +625,35 @@ export const fr: Dict = {
   settingsAutoplayOpenWindows: "Ouvrir les paramètres d’exécution automatique de Windows",
   settingsGraphics: "Graphiques",
   settingsHardwareAccelerationToggle: "Utiliser l’accélération graphique",
+  bgAutoThumbs: (n: number) => `Création des miniatures en arrière-plan (encore ${num(n)})`,
+  bgAutoThumbsShort: (n: number) => `Miniatures : encore ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `Création des miniatures en pause (encore ${num(n)})`,
+  bgAutoThumbsPausedShort: (n: number) => `En pause : encore ${num(n)}`,
+  autoThumbsHeading: "Création des miniatures en arrière-plan",
+  autoThumbsPausedHeading: "La création des miniatures est en pause",
+  autoThumbsBody: (n: number) =>
+    `Encore ${num(n)}. Les photos s’afficheront tout de suite, même en parcourant vite la chronologie. Les photos qui ne sont que dans le cloud sont ignorées.`,
+  autoThumbsPause: "Suspendre",
+  autoThumbsResume: "Reprendre",
+  autoThumbsOpenSettings: "Ouvrir les réglages",
+  settingsThumbnails: "Miniatures",
+  settingsAutoThumbsToggle: "Créer les miniatures automatiquement",
+  settingsAutoThumbsNote:
+    "Crée en arrière-plan les miniatures de toute la photothèque, en commençant par les photos les plus récentes : les photos s’affichent tout de suite, même en parcourant vite des années que vous n’avez pas encore ouvertes. Le processeur et le disque sont sollicités pendant ce temps. Les photos qui ne sont que dans le cloud (fichiers « en ligne uniquement » de OneDrive, par exemple) ne sont jamais ouvertes. Désactivé, seules les photos que vous affichez reçoivent une miniature.",
+  settingsAutoThumbsAtCap: "L’espace des miniatures est plein à 80 % : la création automatique est arrêtée.",
+  settingsThumbCap: "Limite d’espace des miniatures",
+  settingsThumbCapUnlimited: "Illimité",
+  settingsThumbCapUsage: (size: string, n: number) => `Utilisé actuellement : ${size} (miniatures : ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `La limite contient environ ${num(n)} miniatures. Au-delà, les miniatures des photos que vous n’avez pas regardées depuis un moment sont supprimées en premier (vos photos elles-mêmes ne sont pas touchées).`,
+  settingsThumbCapNoLimit: "Aucune limite : les miniatures ne sont jamais supprimées.",
+  settingsRebuildThumbs: "Recréer les miniatures",
+  settingsRebuildThumbsNote:
+    "Utile si des miniatures paraissent abîmées ou gardent une ancienne orientation. Toutes les miniatures actuelles sont supprimées puis recréées. Vos photos elles-mêmes ne sont pas touchées.",
+  settingsRebuildThumbsButton: "Recréer…",
+  rebuildThumbsConfirm:
+    "Supprimer toutes les miniatures actuelles et les recréer ? Vos photos elles-mêmes ne sont pas touchées. Les miniatures sont recréées à mesure que vous affichez les photos.",
+  rebuildThumbsOk: "Recréer",
   settingsHardwareAccelerationNote:
     "Si le pointeur de la souris semble figé pendant que vous regardez des photos en plein écran, désactiver cette option peut corriger le problème (constaté sur un PC équipé d’une carte graphique AMD). Lorsque cette option est désactivée, la lecture des vidéos sollicite davantage le processeur. Le changement prend effet au prochain démarrage de pictkura.",
   settingsImportWaitingFrom: (path: string) =>

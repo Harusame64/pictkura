@@ -367,6 +367,10 @@ pub struct PerformanceConfig {
     /// 代わりに動画の再生が重くなる（同じ実測で CPU 2%→17%）ので、既定はオン。
     /// 窓を作るときにしか渡せないので、**切り替えは次の起動から効く**
     pub hardware_acceleration: bool,
+    /// 設定「サムネイルを自動生成」。本番のサムネイルが無い写真を、新しい順に前もって作る。**既定はオフ**
+    /// （どの版も。ポータブル版の利用者に断りなくディスクと CPU を使わせない。2026-11-18 利用者）。
+    /// クラウドにしか無い写真は開かない。置き場の上限の 8 割で止まる
+    pub auto_thumbnails: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -376,6 +380,7 @@ impl Default for PerformanceConfig {
             worker_threads: 0,
             thumb_cache_mb: 4096,
             hardware_acceleration: true,
+            auto_thumbnails: false,
         }
     }
 }

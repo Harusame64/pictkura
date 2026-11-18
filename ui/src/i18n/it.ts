@@ -605,6 +605,35 @@ export const it: Dict = {
   settingsAutoplayOpenWindows: "Apri le impostazioni di AutoPlay di Windows",
   settingsGraphics: "Grafica",
   settingsHardwareAccelerationToggle: "Usa l’accelerazione grafica",
+  bgAutoThumbs: (n: number) => `Creazione delle miniature in background (ancora ${num(n)})`,
+  bgAutoThumbsShort: (n: number) => `Miniature: ancora ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `Creazione delle miniature in pausa (ancora ${num(n)})`,
+  bgAutoThumbsPausedShort: (n: number) => `In pausa: ancora ${num(n)}`,
+  autoThumbsHeading: "Creazione delle miniature in background",
+  autoThumbsPausedHeading: "La creazione delle miniature è in pausa",
+  autoThumbsBody: (n: number) =>
+    `Ancora ${num(n)}. Le foto appariranno subito anche scorrendo velocemente la cronologia. Le foto che si trovano solo nel cloud vengono saltate.`,
+  autoThumbsPause: "Pausa",
+  autoThumbsResume: "Riprendi",
+  autoThumbsOpenSettings: "Apri le impostazioni",
+  settingsThumbnails: "Miniature",
+  settingsAutoThumbsToggle: "Crea le miniature automaticamente",
+  settingsAutoThumbsNote:
+    "Crea in background le miniature di tutta la libreria, partendo dalle foto più recenti: le foto appaiono subito anche scorrendo velocemente anni che non hai ancora aperto. Nel frattempo usa la CPU e il disco. Le foto che si trovano solo nel cloud (come i file «solo online» di OneDrive) non vengono mai aperte. Se è disattivata, le miniature vengono create solo per le foto che visualizzi.",
+  settingsAutoThumbsAtCap: "Lo spazio per le miniature è pieno all’80%, quindi la creazione automatica si è fermata.",
+  settingsThumbCap: "Limite di spazio per le miniature",
+  settingsThumbCapUnlimited: "Nessun limite",
+  settingsThumbCapUsage: (size: string, n: number) => `In uso ora: ${size} (miniature: ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `Entro il limite stanno circa ${num(n)} miniature. Oltre, vengono rimosse per prime le miniature delle foto che non guardi da un po’ (le foto stesse non vengono toccate).`,
+  settingsThumbCapNoLimit: "Nessun limite: le miniature non vengono mai rimosse.",
+  settingsRebuildThumbs: "Ricrea le miniature",
+  settingsRebuildThumbsNote:
+    "Utile quando le miniature appaiono rovinate o mostrano ancora un vecchio orientamento. Tutte le miniature attuali vengono eliminate e ricreate. Le foto stesse non vengono toccate.",
+  settingsRebuildThumbsButton: "Ricrea…",
+  rebuildThumbsConfirm:
+    "Eliminare tutte le miniature attuali e ricrearle? Le foto stesse non vengono toccate. Le miniature vengono ricreate man mano che visualizzi le foto.",
+  rebuildThumbsOk: "Ricrea",
   settingsHardwareAccelerationNote:
     "Se il puntatore del mouse sembra bloccato mentre guardi le foto a schermo intero, disattivare questa opzione può risolvere il problema (riscontrato su un PC con grafica AMD). Se è disattivata, la riproduzione dei video usa più CPU. La modifica ha effetto dal prossimo avvio di pictkura.",
   settingsImportWaitingFrom: (path: string) =>

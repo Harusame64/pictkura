@@ -654,6 +654,35 @@ export const ja = {
   settingsAutoplayOpenWindows: "Windows の自動再生の設定を開く",
   settingsGraphics: "グラフィック",
   settingsHardwareAccelerationToggle: "グラフィック アクセラレーションを使う",
+  bgAutoThumbs: (n: number) => `サムネイルを自動生成中（残り${num(n)}枚）`,
+  bgAutoThumbsShort: (n: number) => `サムネイル 残り${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `サムネイルの自動生成を一時停止中（残り${num(n)}枚）`,
+  bgAutoThumbsPausedShort: (n: number) => `一時停止中 残り${num(n)}`,
+  autoThumbsHeading: "サムネイルを自動生成しています",
+  autoThumbsPausedHeading: "サムネイルの自動生成を一時停止しています",
+  autoThumbsBody: (n: number) =>
+    `残り${num(n)}枚。タイムラインを素早く送っても、写真がスムーズに表示されるようになります。クラウドにしか無い写真のサムネイルは生成しません。`,
+  autoThumbsPause: "一時停止",
+  autoThumbsResume: "再開",
+  autoThumbsOpenSettings: "設定を開く",
+  settingsThumbnails: "サムネイル",
+  settingsAutoThumbsToggle: "サムネイルを自動生成",
+  settingsAutoThumbsNote:
+    "ライブラリ全体のサムネイルを、新しい写真から順にバックグラウンドで生成します。初めて表示する年をタイムラインで素早く送っても、写真がスムーズに表示されます。生成中は CPU とディスクを使用します。クラウドにしか無い写真（OneDrive の「オンライン専用」など）はダウンロードせず、サムネイルも生成しません。オフの場合は、画面に表示した写真のサムネイルだけを生成します。",
+  settingsAutoThumbsAtCap: "サムネイルの保存領域が上限の8割に達したため、自動生成を停止しています。",
+  settingsThumbCap: "サムネイルの保存領域の上限",
+  settingsThumbCapUnlimited: "無制限",
+  settingsThumbCapUsage: (size: string, n: number) => `現在 ${size} を使用中（${num(n)}枚）。`,
+  settingsThumbCapFits: (n: number) =>
+    `上限はサムネイルおよそ${num(n)}枚分です。上限を超えた場合は、しばらく表示していない写真のサムネイルから順に削除します（元の写真ファイルは削除されません）。`,
+  settingsThumbCapNoLimit: "上限はなく、サムネイルは自動では削除されません。",
+  settingsRebuildThumbs: "サムネイルの再生成",
+  settingsRebuildThumbsNote:
+    "サムネイルの表示が崩れている場合や、写真の向きが正しく反映されていない場合に使用します。既存のサムネイルをすべて削除して再生成します（元の写真ファイルは削除されません）。",
+  settingsRebuildThumbsButton: "再生成…",
+  rebuildThumbsConfirm:
+    "既存のサムネイルをすべて削除して再生成しますか？ 元の写真ファイルは削除されません。表示した写真から順に生成します。",
+  rebuildThumbsOk: "再生成",
   settingsHardwareAccelerationNote:
     "全画面で写真を見ているときにマウスポインターが止まって見える場合は、オフにすると直ることがあります（AMD のグラフィックを搭載した PC で確認しています）。オフのときは、動画の再生で CPU の使用率が上がります。切り替えは、次に pictkura を起動したときから有効になります。",
   settingsImportWaitingFrom: (path: string) =>
