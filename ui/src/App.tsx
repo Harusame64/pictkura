@@ -8550,8 +8550,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                   onClick={() => pickSuggestion(s)}
                   onMouseEnter={() => setSuggestActive(i)}
                 >
-                  <span className="search-suggest-main" dir="ltr">
-                    {s.type === "key" ? s.insert : s.type === "year" ? String(s.year) : s.type === "camera" ? s.name : s.kind}
+                  {/* 名前は向きだけを閉じる（`bdi`）。枠に `dir="ltr"` を付けると、幅いっぱいの枠の中で左へ寄り、右から左の
+                      画面で行の頭（右）に来なかった（デザインの統一性チェック 3 周目） */}
+                  <span className="search-suggest-main">
+                    <bdi>
+                      {s.type === "key" ? s.insert : s.type === "year" ? String(s.year) : s.type === "camera" ? s.name : s.kind}
+                    </bdi>
                   </span>
                   <span className="search-suggest-hint">
                     {s.type === "key"
