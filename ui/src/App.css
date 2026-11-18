@@ -517,9 +517,11 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .search-suggest {
   position: absolute;
   top: calc(100% + 4px);
-  /* 欄が狭い窓でも説明が切れない幅は取る（欄より広くてよい。幅 700 の英語で切れた。デザインの統一性チェック 3 周目） */
+  /* 欄が狭い窓でも説明が切れない幅は取る（欄より広くてよい。幅 700 の英語で切れた。デザインの統一性チェック 3 周目）。
+     窓よりは広げない */
   inset-inline-start: 0;
   width: max(100%, 280px);
+  max-width: calc(100vw - 16px);
   box-sizing: border-box;
   z-index: 40;
   margin: 0;
@@ -544,7 +546,23 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
 .search-suggest li.active {
   position: relative;
   background: var(--selected-bg);
+}
+/* 太くするのは名前だけ（説明・枚数まで太くすると幅が変わり、長い名前の省略の位置が行を動くたびにずれた） */
+.search-suggest li.active .search-suggest-main {
   font-weight: 600;
+}
+/* 選んでいる行の面の上では、薄い字（--text-faint）はダークで 4.05:1 しか出ない。パレットと同じく一段濃くする */
+.search-suggest li.active .search-suggest-hint {
+  color: var(--text-muted);
+}
+/* マウスを乗せた行は薄い面だけ（選んでいる行の印は、キーで選んだ行に残す） */
+.search-suggest li:hover:not(.active) {
+  background: var(--surface-2);
+}
+/* 名前の枠は左から右のまま（尻尾の側を省略する）。右から左の画面では、行の頭（右）へ寄せる——枠は左から右なので、
+   その向きの終わり（end）＝右 */
+[dir="rtl"] .search-suggest-main {
+  text-align: end;
 }
 .search-suggest-main {
   /* 長いカメラ名は省略する（枚数・説明を押し出さない） */
