@@ -666,9 +666,9 @@ export const de: Dict = {
     year: "Nach Aufnahmejahr filtern",
     camera: "Nach Kamera filtern",
     kind: "Nach Typ filtern (photo, raw, video)",
-    folder: "Nach Ordnername filtern",
+    folder: "Nach Ordnernamen filtern",
     fav: "Nur Favoriten (★)",
-    pick: "Nur ausgewählte (⚑)",
+    pick: "Nur Ausgewählte (⚑)",
   },
   settingsHardwareAccelerationNote:
     "Wenn der Mauszeiger beim Anzeigen von Fotos im Vollbildmodus eingefroren wirkt, kann das Ausschalten helfen (beobachtet auf einem PC mit AMD-Grafik). Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",

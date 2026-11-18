@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applySuggestion, suggest, tokenAt, yearsOf } from "../src/searchSuggest.ts";
+import { applySuggestion, isBareKey, suggest, tokenAt, yearsOf } from "../src/searchSuggest.ts";
 
 const data = {
   years: [
@@ -78,6 +78,8 @@ test("the token at the caret respects quotes", () => {
   assert.deepEqual(tokenAt("beach year:20", 13), { start: 6, end: 13, text: "year:20" });
   assert.deepEqual(tokenAt('camera:"Canon EOS', 17), { start: 0, end: 17, text: 'camera:"Canon EOS' });
   assert.deepEqual(tokenAt("a b", 1), { start: 0, end: 1, text: "a" });
+  // 引用符を開いたまま: 置き換えはカーソルまで（後ろの語を飲み込まない）
+  assert.deepEqual(tokenAt('cam:"iph beach 2019', 8), { start: 0, end: 8, text: 'cam:"iph' });
 });
 
 test("applying a suggestion replaces the word at the caret and keeps the rest", () => {
@@ -99,10 +101,36 @@ test("years come from dated days, newest first", () => {
       { day_key: 20250303, count: 3 },
       { day_key: 20190101, count: 1 },
       { day_key: -2, count: 99 },
+      { day_key: 16010101, count: 3 }, // 1601（year: が受けない年）
     ]),
     [
       { year: 2025, count: 5 },
       { year: 2019, count: 1 },
     ],
   );
+});
+
+test("full-width and Arabic-Indic digits find years too", () => {
+  assert.deepEqual(
+    suggest("年:２０２", data).map((s) => s.insert),
+    ["年:2025 ", "年:2024 "],
+  );
+  assert.deepEqual(
+    suggest("year:٢٠١", data).map((s) => s.insert),
+    ["year:2019 "],
+  );
+});
+
+test("a key with no value yet is not sent as a search", () => {
+  assert.equal(isBareKey("year:"), true);
+  assert.equal(isBareKey("種類:"), true);
+  assert.equal(isBareKey("folder:"), true);
+  assert.equal(isBareKey("fav:"), false, "値の要らないキーは、そのままで正しい指定");
+  assert.equal(isBareKey("year:2019"), false);
+  assert.equal(isBareKey("beach"), false);
+});
+
+test("an unclosed quote keeps the words after the caret", () => {
+  const s = suggest('cam:"iph', data)[0];
+  assert.deepEqual(applySuggestion('cam:"iph beach 2019年', 8, s).value, 'cam:"iPhone 15 Pro" beach 2019年');
 });

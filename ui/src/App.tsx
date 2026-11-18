@@ -28,7 +28,7 @@ import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
-import { applySuggestion, suggest, tokenAt, yearsOf, type Suggestion } from "./searchSuggest";
+import { applySuggestion, isBareKey, suggest, tokenAt, yearsOf, type Suggestion } from "./searchSuggest";
 import { keepsWhileRefetching, pickStaleDays, type AskedFor } from "./staleDays";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
@@ -968,8 +968,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const [cameras, setCameras] = useState<Camera[]>([]);
   const searchSuggestions: Suggestion[] = useMemo(
     () =>
-      suggestOpen
-        ? suggest(tokenAt(queryInput, searchCaret).text, { years: libraryYears, cameras })
+      suggestOpen && tokenAt(queryInput, searchCaret).end === searchCaret
+        ? // 候補は、カーソルが語の終わりにあるときだけ（語の途中へ戻ったとき、残りを飲み込まないように）
+          suggest(tokenAt(queryInput, searchCaret).text, { years: libraryYears, cameras })
         : [],
     [suggestOpen, queryInput, searchCaret, libraryYears, cameras],
   );
@@ -978,8 +979,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       setLibraryYears(yearsOf(summary));
     }
   }, [summary, summaryFor]);
+  // 候補の顔ぶれが変わったら（カーソルが動いた・カメラの一覧が並び直った）選んでいる行を外す——同じ番号が別の行を指す
+  const suggestKey = searchSuggestions.map((s) => s.insert).join("\n");
+  useEffect(() => setSuggestActive(-1), [suggestKey]);
   /** 候補を差し込む（カーソルのある語を置き換え、カーソルを後ろへ。値の候補が続くキーなら開いたまま） */
-  const pickSuggestion = (s: Suggestion) => {
+  const pickSuggestion = (s: Suggestion | undefined) => {
+    if (!s) return;
     const el = searchInputRef.current;
     const caret = el?.selectionStart ?? queryInput.length;
     const next = applySuggestion(queryInput, caret, s);
@@ -2074,10 +2079,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   useEffect(() => {
     const trimmed = queryInput.trim();
     if (asciiDateTokens(trimmed) === query) return;
+    // カーソルの語が値の無いキー（候補で値を選んでいる途中）なら、まだ流さない（`isBareKey`）
+    if (isBareKey(tokenAt(queryInput, searchCaret).text)) return;
     // アラビア語の配列の数字（`٢٠١٩`）は、数だけの語に限って ASCII に揃えて渡す——日付として読ませる（direction.ts）
     const t = window.setTimeout(() => setQuery(asciiDateTokens(trimmed)), 160);
     return () => window.clearTimeout(t);
-  }, [queryInput, query]);
+  }, [queryInput, query, searchCaret]);
 
   // フィルタ・検索クエリの変更で骨組みを読み込み直す（初回はマウント時のeffectが行う）
   const filterInitRef = useRef(true);
@@ -8483,7 +8490,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             onBlur={() => setSuggestOpen(false)}
             onKeyDown={(e) => {
               // 日本語入力の変換中は、↑↓・Enter・Esc は変換の操作。候補で横取りしない
-              if (e.nativeEvent.isComposing) return;
+              // macOS の WebView は確定の Enter の前に変換を終えるので `isComposing` だけでは足りない（Palette.tsx と同じ）
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               const list = searchSuggestions;
               if (list.length > 0) {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -8498,10 +8506,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                   });
                   return;
                 }
-                // Tab は選んでいる行（無ければ先頭）を差し込む。Enter は選んでいるときだけ——選んでいなければ今までどおり検索
-                if (e.key === "Tab" && !e.shiftKey) {
+                // Tab と Enter は、↑↓ で行を選んでいるときだけ差し込む。選んでいなければ今までどおり（Tab は欄を出る、
+                // Enter は検索）——1〜2文字打って Tab で出ようとした人の語を、キーへ置き換えてしまった（PR #353 の /code-review）
+                if (e.key === "Tab" && !e.shiftKey && suggestActive >= 0) {
                   e.preventDefault();
-                  pickSuggestion(list[Math.max(0, suggestActive)]);
+                  pickSuggestion(list[suggestActive]);
                   return;
                 }
                 if (e.key === "Enter" && suggestActive >= 0) {

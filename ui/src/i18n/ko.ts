@@ -640,10 +640,10 @@ export const ko: Dict = {
   calendarUnread: (n: number) => `촬영일을 읽는 중인 사진이 ${num(n)}장 있습니다. 다 읽으면 여기에 표시됩니다.`,
   /* 検索欄の候補でキー（英語の綴りのまま出す）に添える説明（searchSuggest.ts） */
   searchKeyHint: {
-    year: "촬영 연도로 거르기",
-    camera: "카메라로 거르기",
-    kind: "종류로 거르기 (photo, raw, video)",
-    folder: "폴더 이름으로 거르기",
+    year: "촬영 연도로 필터링",
+    camera: "카메라로 필터링",
+    kind: "종류로 필터링 (photo, raw, video)",
+    folder: "폴더 이름으로 필터링",
     fav: "즐겨찾기(★)만",
     pick: "선별한 사진(⚑)만",
   },

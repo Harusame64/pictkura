@@ -540,13 +540,18 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   background: var(--surface-2);
 }
 .search-suggest-main {
-  flex: none;
+  /* 長いカメラ名は省略する（枚数・説明を押し出さない） */
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 .search-suggest-hint {
-  flex: 1;
-  min-width: 0;
+  flex: none;
+  max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

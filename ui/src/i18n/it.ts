@@ -643,7 +643,7 @@ export const it: Dict = {
     camera: "Filtra per fotocamera",
     kind: "Filtra per tipo (photo, raw, video)",
     folder: "Filtra per nome della cartella",
-    fav: "Solo preferite (★)",
+    fav: "Solo preferiti (★)",
     pick: "Solo selezionate (⚑)",
   },
   settingsHardwareAccelerationNote:

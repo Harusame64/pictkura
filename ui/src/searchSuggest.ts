@@ -44,10 +44,11 @@ export function tokenAt(input: string, caret: number): { start: number; end: num
     if (c === '"') quoted = !quoted;
     else if (!quoted && (c === " " || c === "　" || c === "\t")) start = i + 1;
   }
+  // 引用符を開いたままカーソルがある（`cam:"iph beach`）なら、置き換えはカーソルまで——引用符が閉じていないので、
+  // 後ろの語まで1つの語に見え、差し込むと消えた（PR #353 の /code-review）
   let end = caret;
-  while (end < input.length && !(!quoted && /[\s　]/.test(input[end]))) {
-    if (input[end] === '"') quoted = !quoted;
-    end++;
+  if (!quoted) {
+    while (end < input.length && !/[\s　]/.test(input[end])) end++;
   }
   return { start, end, text: input.slice(start, caret) };
 }
@@ -70,7 +71,8 @@ export function suggest(
   }
   const typedKey = token.slice(0, colon);
   const key = KEY_ALIASES[typedKey.toLowerCase()];
-  const value = token.slice(colon + 1).replace(/^"/, "").toLowerCase();
+  // 全角の数字（`年:２０`）・アラビア・インド数字（`٢٠`）も、検索の文法が受けるので年の候補では ASCII に揃えて比べる
+  const value = asciiDigits(token.slice(colon + 1).replace(/^"/, "")).toLowerCase();
   if (key === "year") {
     return data.years
       .filter((y) => String(y.year).startsWith(value) && String(y.year) !== value)
@@ -98,6 +100,27 @@ export function suggest(
   return [];
 }
 
+/** 全角数字・アラビア・インド数字・ペルシャ数字を ASCII の数字へ */
+function asciiDigits(s: string): string {
+  return s.replace(/[０-９٠-٩۰-۹]/g, (c) => {
+    const code = c.charCodeAt(0);
+    if (code >= 0xff10 && code <= 0xff19) return String(code - 0xff10);
+    if (code >= 0x0660 && code <= 0x0669) return String(code - 0x0660);
+    return String(code - 0x06f0);
+  });
+}
+
+/**
+ * カーソルの語が**値の無いキー**（`year:` `kind:` …）だけか。候補で値を選んでいる途中なので、検索に流さない——
+ * 空の `year:` `kind:` は何にも当たらず、一覧が「該当なし」に一瞬なった（PR #353 の /code-review）
+ */
+export function isBareKey(token: string): boolean {
+  if (!token.endsWith(":")) return false;
+  const k = token.slice(0, -1).toLowerCase();
+  // 値を取るキーだけ（`fav:` `pick:` は値が無くても正しい指定）
+  return k in KEY_ALIASES || ["folder", "dir", "フォルダ"].includes(k);
+}
+
 /** 候補を差し込んだ後の入力とカーソルの位置（カーソルのある語を丸ごと置き換える） */
 export function applySuggestion(input: string, caret: number, s: Suggestion): { value: string; caret: number } {
   const { start, end } = tokenAt(input, caret);
@@ -114,6 +137,8 @@ export function yearsOf(summary: readonly { day_key: number; count: number }[]):
   for (const d of summary) {
     if (d.day_key <= 0) continue;
     const y = Math.floor(d.day_key / 10000);
+    // `year:` が受ける年だけ（search.rs の MIN_YEAR〜MAX_YEAR）。外の年を出すと、選んでも0件になる
+    if (y < 1800 || y > 9999) continue;
     m.set(y, (m.get(y) ?? 0) + d.count);
   }
   return [...m].sort((a, b) => b[0] - a[0]).map(([year, count]) => ({ year, count }));
