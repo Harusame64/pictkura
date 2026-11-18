@@ -287,6 +287,7 @@ Clicking a drive under “Drives” on the left does not add it; it opens an imp
 <p>
 Scanning starts immediately, and a grid ordered by date builds up. The grid stays live
 while the scan runs — rows appear as they are ready.
+Photos whose capture date has not been read yet are gathered at the bottom of the grid, and move to their date as they are read.
 While a scan is running (a folder added or removed, Rescan, the import destination, a drive coming back) or new photos that have no thumbnail yet are still being read, the header shows “Updating” or “n left” next to the count (hover over it for the full text). Work that ends quickly and the sync at startup are not shown, nor is anything while the import screen is open.
 </p>
 
@@ -322,6 +323,13 @@ From the keyboard, <kbd>Tab</kbd> into the strip, then use <kbd>↑</kbd> <kbd>�
     and while the library has one, the journal is not used and the other folders are checked folder by folder.
   </p>
 </div>
+
+<h3>Thumbnails</h3>
+
+<p>
+Thumbnails are made for the photos shown on screen. To make them all ahead of time, turn on “Create thumbnails automatically” under ⚙ (Settings) → “Thumbnails”. While it works, the header shows “Thumbnails: n left”; click it to pause. “Thumbnail storage limit” is set there too.
+If thumbnails look wrong, “Rebuild…” on the same screen makes them again (your photos are not touched).
+</p>
 
 <h2 id="import">2. Import from a USB drive or SD card</h2>
 
@@ -578,6 +586,10 @@ read before.
 </div>
 
 <p>All terms are ANDed. The order is fixed: newest capture date first.</p>
+
+<p>
+Type the start of a key, such as <code>ye</code> or <code>ca</code>, and suggestions appear (after <code>year:</code>, the years; after <code>camera:</code>, the cameras). Choose with <kbd>↑</kbd> <kbd>↓</kbd> and press <kbd>Tab</kbd> or <kbd>Enter</kbd> to enter it.
+</p>
 
 <p>
 Besides jumping to a date, narrowing by camera and searching, the command palette offers actions
