@@ -910,6 +910,17 @@ pub fn reread_stray_exif(
     Ok(out)
 }
 
+/// この失敗は、読み直しても直らない（中身が壊れている）か。「読み込み中」の束から出すかの判断に使う
+///
+/// 開けない（消えた・掴まれている）は `image` の誤りに包まれて来る（`ImageError::IoError`）ので、そこは一時の失敗に数える
+fn gives_up_on_unread(err: &ThumbError) -> bool {
+    match err {
+        ThumbError::Image(image::ImageError::IoError(_)) => false,
+        ThumbError::Image(_) | ThumbError::Panicked(_) => true,
+        ThumbError::Db(_) | ThumbError::Io(_) | ThumbError::NotFound(_) => false,
+    }
+}
+
 /// [`reread_stray_exif`] の結果
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct StrayReread {
@@ -2076,6 +2087,10 @@ pub fn process_one_job(
                 }
             }
         }
+        // OS も名前も何も知らなかった新しい写真は、読めないまま「読み込み中」の束に残さない（開けるのは見たとき）
+        if record.day_key == crate::db::UNREAD_DAY_KEY {
+            db.settle_unread_day(id)?;
+        }
         return Ok(ThumbOutcome::Deferred);
     }
 
@@ -2900,10 +2915,6 @@ impl ThumbnailService {
                             process_one_job(&mut db, &thumbs_dir, thumb_size, id, job)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
-                        // 読めずに終わった新しい写真を「読み込み中」の束から出す（撮影日時を書く道は自分で移す）
-                        if matches!(result, Err(_) | Ok(ThumbOutcome::Deferred)) {
-                            let _ = db.settle_unread_day(id);
-                        }
                         if job == Job::Pregen {
                             pregen_settle(&queue, &mut db, id, &result);
                         } else if matches!(result, Ok(ThumbOutcome::Final)) {
@@ -2916,8 +2927,15 @@ impl ThumbnailService {
                         finish_job(&queue, &db, id, version_before, stale);
                         // 失敗（壊れた画像等）は回数を記録する。上限を超えたIDは
                         // 以後の再投入が無視される（無限リトライ防止）
-                        if result.is_err() {
+                        if let Err(err) = &result {
                             queue.record_failure(id);
+                            // 読めずに終わった新しい写真を「読み込み中」の束から出す。**諦めたとき（失敗の上限）と、
+                            // 中身が壊れていて二度と読めないときだけ**——書き込み中・ほかのアプリが掴んでいる、の
+                            // ような一時の失敗で出すと、ファイルの日付（多くは今日）の先頭へ跳び、読み直して
+                            // また動く（PR #351 の /code-review）。撮影日時を書けた道は自分で移している
+                            if gives_up_on_unread(err) || queue.is_blocked(id) {
+                                let _ = db.settle_unread_day(id);
+                            }
                         }
                         // **成否にかかわらず通知する**。途中で失敗しても
                         // 寸法・撮影日時までは書けていることがあり（動画で
@@ -5812,7 +5830,12 @@ mod tests {
         process_one(&mut db, &dir.path().join("thumbs"), 160, g, false).unwrap();
         assert_eq!(day(&db, g), 20210506);
         // 開けない写真は読みが失敗する。働き手は束からファイルの日付の日へ出す
-        assert!(process_one(&mut db, &dir.path().join("thumbs"), 160, x, false).is_err());
+        let r = process_one(&mut db, &dir.path().join("thumbs"), 160, x, false);
+        assert!(
+            matches!(&r, Err(e) if !gives_up_on_unread(e)),
+            "開けないのは一時の失敗"
+        );
+        assert_eq!(day(&db, x), UNREAD_DAY_KEY, "失敗した読みは日を動かさない");
         db.settle_unread_day(x).unwrap();
         assert_eq!(day(&db, x) / 10000, 2019);
         // 読み終えた行に、もう一度「束から出す」を当てても動かない
@@ -5832,6 +5855,67 @@ mod tests {
             .unwrap()
             .iter()
             .all(|d| d.day_key != UNREAD_DAY_KEY));
+    }
+
+    /// 書き込み中のファイル（大きさが変わった）でも、まだ読んでいない行は「読み込み中」の束から出ない
+    #[test]
+    fn a_file_still_being_written_stays_in_the_unread_day() {
+        use crate::db::UNREAD_DAY_KEY;
+        let mut db = Db::open_in_memory().unwrap();
+        let f = |size| ScannedFile {
+            path: "a.jpg".into(),
+            size,
+            mtime_ms: 1_557_057_600_000,
+        };
+        db.upsert_files(&[f(1)]).unwrap();
+        db.upsert_files(&[f(2)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+    }
+
+    /// 働き手は、開けなかった新しい写真を一時の失敗のうちは束に残し、諦めたときに束から出す
+    #[test]
+    fn the_worker_settles_an_unreadable_photo_only_when_it_gives_up() {
+        use crate::db::UNREAD_DAY_KEY;
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("w.db");
+        let mut db = Db::open(&db_path).unwrap();
+        // 走査の後で消えた（開けない）写真
+        db.upsert_files(&[ScannedFile {
+            path: dir.path().join("gone.jpg"),
+            size: 1,
+            mtime_ms: 1_557_057_600_000,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let svc = ThumbnailService::start(
+            db_path.clone(),
+            dir.path().join("thumbs"),
+            160,
+            1,
+            move |id, _| {
+                let _ = tx.lock().unwrap().send(id);
+            },
+        );
+        let day = || {
+            Db::open(&db_path)
+                .unwrap()
+                .get_by_id(id)
+                .unwrap()
+                .unwrap()
+                .day_key
+        };
+        for round in 1..=MAX_FAILURES {
+            svc.enqueue(&[id]);
+            rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+            if round < MAX_FAILURES {
+                assert_eq!(day(), UNREAD_DAY_KEY, "{round} 回目の失敗では束に残る");
+            }
+        }
+        svc.shutdown();
+        assert_eq!(day() / 10000, 2019, "諦めたらファイルの日付の日へ");
     }
 
     /// 前の版で EXIF を拒まれていた JPEG だけを、一度きり読み直しへ回す（クラウドにしか無いものは開かない）

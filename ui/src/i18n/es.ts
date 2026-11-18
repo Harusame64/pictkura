@@ -663,6 +663,7 @@ export const es: Dict = {
   rebuildThumbsOk: "Volver a crear",
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "Leyendo",
+  calendarUnread: (n: number) => `Fotos aún en lectura: ${num(n)}. Aparecerán aquí cuando se conozca su fecha.`,
   settingsHardwareAccelerationNote:
     "Si el puntero del ratón parece congelado mientras ves fotos en pantalla completa, desactivar esta opción puede solucionarlo (se ha observado en un PC con gráficos AMD). Si está desactivada, la reproducción de vídeos usa más CPU. El cambio se aplica la próxima vez que inicies pictkura.",
   settingsImportWaitingFrom: (path: string) =>

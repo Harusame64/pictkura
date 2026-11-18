@@ -656,6 +656,7 @@ export const fr: Dict = {
   rebuildThumbsOk: "Recréer",
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "Lecture en cours",
+  calendarUnread: (n: number) => `Photos en cours de lecture : ${num(n)}. Elles apparaîtront ici une fois leur date connue.`,
   settingsHardwareAccelerationNote:
     "Si le pointeur de la souris semble figé pendant que vous regardez des photos en plein écran, désactiver cette option peut corriger le problème (constaté sur un PC équipé d’une carte graphique AMD). Lorsque cette option est désactivée, la lecture des vidéos sollicite davantage le processeur. Le changement prend effet au prochain démarrage de pictkura.",
   settingsImportWaitingFrom: (path: string) =>

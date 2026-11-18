@@ -659,6 +659,7 @@ export const de: Dict = {
   rebuildThumbsOk: "Neu erstellen",
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
   dayUnread: "Werden noch eingelesen",
+  calendarUnread: (n: number) => `${num(n)} Fotos werden noch eingelesen. Sie erscheinen hier, sobald ihr Datum bekannt ist.`,
   settingsHardwareAccelerationNote:
     "Wenn der Mauszeiger beim Anzeigen von Fotos im Vollbildmodus eingefroren wirkt, kann das Ausschalten helfen (beobachtet auf einem PC mit AMD-Grafik). Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",
   settingsImportWaitingFrom: (path: string) =>

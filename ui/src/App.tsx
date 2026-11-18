@@ -3724,33 +3724,34 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 帯から飛ぶ先と、上端の日の留め置きは、ずらした位置ではなく行の上端（`jumpTops`）——行の途中で切れて着かないように
    */
   const dayRows = useMemo(() => {
-    // 右の帯には「読み込み中」の束を日付として渡さない: その行は直前の本当の日（いちばん古い日）として扱い、
-    // 年・月の目盛りに混ぜない。まだ1枚も読めていない間だけは束のまま（帯がその旨を言う）
-    let lastReal: number | null = null;
-    const railDay = (dayKey: number) => {
-      if (dayKey > 0) lastReal = dayKey;
-      return dayKey === UNREAD_DAY && lastReal !== null ? lastReal : dayKey;
-    };
+    // 右の帯は**読めた写真の範囲だけ**を受け持つ。末尾の「読み込み中」の束（日付ではない）は渡さず、帯の範囲は
+    // 束の手前で終わる（束へはホイールで行ける）。束の行を日付として渡すと、年 -1 の札・月のカードが出たり、
+    // 何万枚もの未読がいちばん古い月として帯を占めたりした（PR #351 の /code-review）
     const days: number[] = [];
     const tops: number[] = [];
     const jumpTops: number[] = [];
+    let end = rows.length;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      if (row.dayKey === UNREAD_DAY) {
+        end = i;
+        break;
+      }
       if (row.kind === "pack") {
         const h = rowTops[i + 1] - rowTops[i];
         row.segs.forEach((seg, k) => {
-          days.push(railDay(seg.dayKey));
+          days.push(seg.dayKey);
           tops.push(rowTops[i] + (k * h) / row.segs.length);
           jumpTops.push(rowTops[i]);
         });
       } else {
-        days.push(railDay(row.dayKey));
+        days.push(row.dayKey);
         tops.push(rowTops[i]);
         jumpTops.push(rowTops[i]);
       }
     }
-    tops.push(rowTops[rows.length]);
-    jumpTops.push(rowTops[rows.length]);
+    tops.push(rowTops[end]);
+    jumpTops.push(rowTops[end]);
     return { days, tops, jumpTops };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
@@ -9019,6 +9020,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           ) : (
             <div className="grid-wrap">
               {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
+              {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の数秒）は帯を出さない——日付の範囲が無い */}
+              {dayRows.days.length > 0 && (
               <ScrubRail
                 scrollRef={scrollRef}
                 rowTops={dayRows.tops}
@@ -9033,6 +9036,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                   if (el) el.scrollTop = Math.min(dayRows.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
+              )}
               <div className="grid-scroll" ref={scrollRef}>
               <div
                 style={{

@@ -1550,6 +1550,11 @@ input[type="range"]:focus-visible {
   overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
 }
+.calendar-unread {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
 .calendar-empty {
   padding: var(--sp-7);
   color: var(--text-faint);

@@ -498,6 +498,14 @@ const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NU
 /// （`Db::init` が起動のたびに計算し直す）なので使わない。0 以下は思い出（`list_memories`）にも入らない
 pub const UNREAD_DAY_KEY: i64 = -2;
 
+/// 「読み込み中」の束の行を並びの鍵の日へ移す SQL（[`Db::settle_unread_day`]）。`extra` は絞り込みの続き
+fn settle_unread_sql(extra: &str) -> String {
+    format!(
+        "UPDATE media SET day_key = {} WHERE day_key = {UNREAD_DAY_KEY} {extra}",
+        day_key_expr(SORT_TS)
+    )
+}
+
 /// mtime等のエポックミリ秒からローカル日付のYYYYMMDD整数を作るSQL式。
 /// day_keyの計算はすべてSQLite側（strftime + localtime）に統一する。
 fn day_key_expr(ms_expr: &str) -> String {
@@ -1416,7 +1424,7 @@ impl Db {
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
-                    day_key = {},
+                    day_key = CASE WHEN media.day_key = {UNREAD_DAY_KEY} THEN {UNREAD_DAY_KEY} ELSE {} END,
                     {}
                 "#,
                 parent_dir_expr("?1"),
@@ -1568,7 +1576,7 @@ impl Db {
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
-                    day_key = {},
+                    day_key = CASE WHEN media.day_key = {UNREAD_DAY_KEY} THEN {UNREAD_DAY_KEY} ELSE {} END,
                     {}
                 "#,
                 parent_dir_expr("s.path"),
@@ -2581,15 +2589,7 @@ impl Db {
     /// 試験用: 「読み込み中」の束の行を、すべて並びの鍵の日へ移す（読み終えた形にする）
     #[cfg(test)]
     pub(crate) fn settle_all_unread(&mut self) {
-        self.conn
-            .execute(
-                &format!(
-                    "UPDATE media SET day_key = {} WHERE day_key = {UNREAD_DAY_KEY}",
-                    day_key_expr(SORT_TS)
-                ),
-                [],
-            )
-            .unwrap();
+        self.conn.execute(&settle_unread_sql(""), []).unwrap();
     }
 
     /// 試験用: サムネイルの利用時刻
@@ -4007,13 +4007,7 @@ impl Db {
     /// 「読み込み中」の束（[`UNREAD_DAY_KEY`]）に居る行を、並びの鍵の日へ移す。読めずに終わった（開けない・
     /// クラウドにしか無くて OS も何も知らない）行が、束に残り続けないように。撮影日時を書いた行はもう移っている
     pub fn settle_unread_day(&mut self, id: i64) -> Result<(), DbError> {
-        self.conn.execute(
-            &format!(
-                "UPDATE media SET day_key = {} WHERE id = ?1 AND day_key = {UNREAD_DAY_KEY}",
-                day_key_expr(SORT_TS)
-            ),
-            [id],
-        )?;
+        self.conn.execute(&settle_unread_sql("AND id = ?1"), [id])?;
         Ok(())
     }
 
