@@ -8482,6 +8482,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             onSelect={(e) => setSearchCaret((e.target as HTMLInputElement).selectionStart ?? 0)}
             onBlur={() => setSuggestOpen(false)}
             onKeyDown={(e) => {
+              // 日本語入力の変換中は、↑↓・Enter・Esc は変換の操作。候補で横取りしない
+              if (e.nativeEvent.isComposing) return;
               const list = searchSuggestions;
               if (list.length > 0) {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
