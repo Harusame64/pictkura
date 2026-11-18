@@ -7122,10 +7122,14 @@ fn spawn_auto_thumbs(handle: tauri::AppHandle) {
                     }
                 }
                 // 新しい写真の素性の読み込み・走査・見えたタイルの仕事が先。その間は帯に「読み込み中」が出ている
+                // 起動時の同期は `scans_running` に数えない（#57）ので、終わった旗も見る
                 let scanning = state
                     .scans_running
                     .load(std::sync::atomic::Ordering::SeqCst)
-                    > 0;
+                    > 0
+                    || !state
+                        .startup_done
+                        .load(std::sync::atomic::Ordering::SeqCst);
                 if scanning || !queue.foreground_idle() {
                     publish(AutoThumbsStatus::default());
                     continue;
