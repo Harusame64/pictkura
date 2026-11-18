@@ -173,6 +173,7 @@ import {
 import {
   formatDateTime,
   formatDayKey,
+  UNREAD_DAY,
   formatDuration,
   formatLocale,
   formatNumber,
@@ -3611,6 +3612,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // **写真の少ない日を1行に並べる**（`packDays.ts`。並べるかは上の帯のボタンで切り替える）。
     // 右の帯には、並べた行を日ごとに開いて渡す（`dayRows`）ので、月の目盛りは欠けない
     const fits: DayFit[] = summary.map((day) => {
+      // 「読み込み中」の束は、ほかの日と1行に並べない（日付の行ではない）
+      if (day.day_key === UNREAD_DAY) return { dayKey: day.day_key, width: null };
       const stacks = packDays && dayItems.get(day.day_key) ? dayStacks.get(day.day_key) : undefined;
       if (!stacks || stacks.length === 0) return { dayKey: day.day_key, width: null };
       const photosWidth =
@@ -3724,8 +3727,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const days: number[] = [];
     const tops: number[] = [];
     const jumpTops: number[] = [];
+    // 末尾の「読み込み中」の束（日付ではない）が始まる所（`days` の番号と、その行の上端）。束が無ければ null
+    let railEnd: { n: number; top: number } | null = null;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      if (row.dayKey === UNREAD_DAY && railEnd === null) railEnd = { n: days.length, top: rowTops[i] };
       if (row.kind === "pack") {
         const h = rowTops[i + 1] - rowTops[i];
         row.segs.forEach((seg, k) => {
@@ -3741,12 +3747,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
     tops.push(rowTops[rows.length]);
     jumpTops.push(rowTops[rows.length]);
-    return { days, tops, jumpTops };
+    // 右の帯は**読めた写真の範囲だけ**を受け持つ。束の行を日付として渡すと、年 -1 の札・月のカードが出たり、何万枚もの
+    // 未読がいちばん古い月として帯を占めたりした（PR #351 の /code-review）。束へはホイールで行ける。
+    // **上端の日の留め置き（下の `anchoredScrollTop`）には束も含めて渡す**——束を外すと、束を見ている間に上の行の高さが
+    // 変わったとき、いちばん古い日へ留めようとして束の外へ跳ばされる（PR #351 の codex）。留め置きは日を一致で比べる
+    // だけで、日付として計算しない
+    const rail =
+      railEnd === null
+        ? { days, tops, jumpTops }
+        : {
+            days: days.slice(0, railEnd.n),
+            tops: [...tops.slice(0, railEnd.n), railEnd.top],
+            jumpTops: [...jumpTops.slice(0, railEnd.n), railEnd.top],
+          };
+    return { days, jumpTops, rail };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
     const m = new Map<number, number>();
     const add = (dayKey: number, count: number) => {
+      if (dayKey <= 0) return; // 「読み込み中」の束は月に数えない
       const k = Math.floor(dayKey / 100);
       m.set(k, (m.get(k) ?? 0) + count);
     };
@@ -9008,21 +9028,27 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           ) : (
             <div className="grid-wrap">
               {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
+              {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の数秒）は帯を出さない——日付の範囲が無い */}
+              {dayRows.rail.days.length > 0 && (
               <ScrubRail
                 scrollRef={scrollRef}
-                rowTops={dayRows.tops}
-                dayKeys={dayRows.days}
-                jumpTops={dayRows.jumpTops}
+                rowTops={dayRows.rail.tops}
+                dayKeys={dayRows.rail.days}
+                jumpTops={dayRows.rail.jumpTops}
                 monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
                   const el = scrollRef.current;
                   // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
-                  if (el) el.scrollTop = Math.min(dayRows.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
+                  if (el) el.scrollTop = Math.min(dayRows.rail.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
-              <div className="grid-scroll" ref={scrollRef}>
+              )}
+              {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の1〜2秒）だけ、ふつうのスクロールバーを出す——帯が
+                  無い。束がある間ずっと出すと、帯の下に隠れて掴めず、Windows では出入りのたびに幅が変わって一覧が
+                  並べ直された（PR #351 の /code-review） */}
+              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。

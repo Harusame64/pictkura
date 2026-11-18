@@ -638,6 +638,9 @@ export const zhHant: Dict = {
   settingsRebuildThumbsButton: "重新產生…",
   rebuildThumbsConfirm: "要刪除目前所有縮圖並重新產生嗎？相片本身不會被刪除。縮圖會在你檢視相片時依序重新產生。",
   rebuildThumbsOk: "重新產生",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "正在讀取",
+  calendarUnread: (n: number) => `還有 ${num(n)} 張相片正在讀取拍攝日期，讀取後會顯示在這裡。`,
   settingsHardwareAccelerationNote:
     "如果全螢幕檢視相片時滑鼠指標似乎卡住，關閉此選項可能有助於解決此問題（已在配備 AMD 顯示卡的電腦上確認）。關閉後，播放影片會佔用更多 CPU。變更會在下次啟動 pictkura 時生效。",
   settingsImportWaitingFrom: (path: string) =>

@@ -7,6 +7,7 @@ import {
   formatMonth,
   formatNumber,
   t,
+  UNREAD_DAY,
   weekdayLabels,
 } from "./i18n";
 
@@ -22,6 +23,8 @@ interface MonthData {
 function buildMonths(summary: DaySummary[]): MonthData[] {
   const map = new Map<number, MonthData>();
   for (const day of summary) {
+    // 「読み込み中」の束（日付ではない）は月に入れない
+    if (day.day_key <= 0) continue;
     const [year, month, dayOfMonth] = splitDayKey(day.day_key);
     const key = year * 100 + month;
     let m = map.get(key);
@@ -53,13 +56,18 @@ export default function Calendar({
   onMonthMenu?: (pos: { x: number; y: number }, year: number, month: number) => void;
 }) {
   const months = useMemo(() => buildMonths(summary), [summary]);
+  // まだ撮影日を読んでいない写真（一覧の末尾の「読み込み中」の束）。日付が無いのでカレンダーには置けない——
+  // 黙って落とすと、新しいライブラリで「写真がありません」と言ってしまう（PR #351 の /code-review）
+  const unread = summary.find((d) => d.day_key === UNREAD_DAY)?.count ?? 0;
+  const unreadNote = unread > 0 && <div className="calendar-unread">{t.calendarUnread(unread)}</div>;
 
   if (months.length === 0) {
-    return <div className="calendar-empty">{t.calendarEmpty}</div>;
+    return unreadNote || <div className="calendar-empty">{t.calendarEmpty}</div>;
   }
 
   return (
     <div className="calendar">
+      {unreadNote}
       {months.map((m) => {
         // 1日が、週の何番目の枠に入るか。**週の始まりは言語で変わる**ので、
         // 曜日そのもの（0=日曜）から `firstWeekday` を引いて枠の位置へ直す

@@ -96,6 +96,10 @@ struct AppState {
     auto_thumbs: AutoThumbs,
     /// 外で入った写真のまとまり（[`WatchBurst`]）
     watch_burst: Mutex<WatchBurst>,
+    /// 見張りが行を入れ始めてから列に積み終えるまでの数（[`settle_unread_when_quiet`] が、入れたばかりの行を出さないため）
+    watch_ingesting: std::sync::atomic::AtomicUsize,
+    /// 見張りの束が最後に届いた時刻（ミリ秒）。コピーが続いている間は「一段落」と見なさない（[`settle_unread_when_quiet`]）
+    watch_last_ms: std::sync::atomic::AtomicI64,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -494,6 +498,13 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     // 束が届いた時刻（外で入った写真のまとまりの間はこれで測る。処理の長さを間に数えない）
     let arrived = std::time::Instant::now();
     let state = app.state::<AppState>();
+    // 行を入れ始めてから列に積み終えるまで「取り込み中」。**DB を握る前に立てる**——「読み込み中」の束の片付けは DB を
+    // 握ってからこれを見るので、入れたばかりで列に積む前の行を出さない（PR #351 の codex）
+    let _ingesting = WatchIngesting::start(&state.watch_ingesting);
+    state.watch_last_ms.store(
+        pictkura_core::db::now_ms(),
+        std::sync::atomic::Ordering::SeqCst,
+    );
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
     // 行が消えたか（Google 用フォルダの突き合わせを回すかどうか）
@@ -5081,7 +5092,8 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>, days: 
     // `days` は一覧がそれぞれの写真を並べていた日（`ids` と同じ並び。帯の写真は None＝見ない）。日が変わった
     // 写真は、頼んだ後（呼び出しは 150ms まとめてから来る）に撮影日が読まれて画面から去ったので頼まない。
     // 新しいライブラリでは、撮影日の分からない写真が今日の日付で先頭に固まり、去った写真の本番をこの古い頼みで
-    // 作っていた（win2: 3万枚で約9千枚）
+    // 作っていた（win2: 3万枚で約9千枚）。いまは未読の写真は末尾の「読み込み中」の束に居るが、そこを見ている
+    // 間は同じことが起きる
     let need: Vec<i64> = state.read_pool.with(|db| {
         ids.iter()
             .enumerate()
@@ -7222,6 +7234,71 @@ const AUTO_THUMBS_TICK: std::time::Duration = std::time::Duration::from_secs(2);
 /// 作り終えた（配るものが無かった）後、新しい写真を見に行くまでの間
 const AUTO_THUMBS_REST: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// 見張りの束が最後に届いてから、これだけ経つまでは「読み込み中」の束を片付けない（[`settle_unread_when_quiet`]）
+const WATCH_SETTLE_QUIET_MS: i64 = 10_000;
+
+/// 見張りの取り込み中の印（[`AppState::watch_ingesting`]）。落ちても外れるように閉じ込める
+struct WatchIngesting<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> WatchIngesting<'a> {
+    fn start(n: &'a std::sync::atomic::AtomicUsize) -> Self {
+        n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(n)
+    }
+}
+
+impl Drop for WatchIngesting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 素性の読み込みが一段落したら（起動時の同期・走査が終わり、読む列が 2 拍続けて空）、「読み込み中」の束に残った写真を
+/// まとめてファイルの日付の日へ出す（[`pictkura_core::db::UNREAD_DAY_KEY`]）。読めなかった写真は次の起動で読み直す。
+///
+/// **DB を握ってから、見張りの取り込み中でないこと・列が空であることを確かめ直して出す。** 見張りは DB を握る前に
+/// 取り込み中の印を立て、列に積み終えてから外すので、ここで印が立っていなければ、取り込みはまだ始まっていないか、
+/// もう列に積み終えている。拍を数えるだけだと、見張りが DB を握って大きな束を入れている間に拍が揃い、手放した直後
+/// （列に積む前）に入れたばかりの写真を全部出していた（PR #351 の codex）
+fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
+    let state = handle.state::<AppState>();
+    let quiet = || {
+        state.startup_done.load(std::sync::atomic::Ordering::SeqCst)
+            && state
+                .scans_running
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            && state
+                .watch_ingesting
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            // 見張りの束が続いている間（遅いコピー・書き込み中）は一段落ではない。書きかけで読めなかった写真を、
+            // 書き終える前にファイルの日付（今日＝先頭）へ出さない（PR #351 の /code-review）
+            && pictkura_core::db::now_ms()
+                - state.watch_last_ms.load(std::sync::atomic::Ordering::SeqCst)
+                >= WATCH_SETTLE_QUIET_MS
+            && state.thumbs.queue().metadata_idle()
+    };
+    *quiet_ticks = if quiet() { *quiet_ticks + 1 } else { 0 };
+    if *quiet_ticks < 2 {
+        return;
+    }
+    let moved = {
+        let mut db = lock_ok(&state.db);
+        if !quiet() {
+            *quiet_ticks = 0;
+            return;
+        }
+        db.settle_all_unread().unwrap_or(0)
+    };
+    if moved > 0 {
+        applog::note(&format!(
+            "{moved} new photos could not be read; listed by file date"
+        ));
+        let _ = handle.emit("library-updated", ());
+    }
+}
+
 /// [`AutoThumbs`] の配り手。2 秒ごとに起き、作る列が細っていたら次の候補を新しい順に積む
 fn spawn_auto_thumbs(handle: tauri::AppHandle) {
     std::thread::spawn(move || loop {
@@ -7230,10 +7307,12 @@ fn spawn_auto_thumbs(handle: tauri::AppHandle) {
             let mut cursor: Option<pictkura_core::db::PregenCursor> = None;
             let mut fed_this_pass = false;
             let mut rest_until: Option<std::time::Instant> = None;
+            let mut quiet_ticks = 0u32;
             loop {
                 std::thread::sleep(AUTO_THUMBS_TICK);
                 let state = handle.state::<AppState>();
                 let queue = state.thumbs.queue();
+                settle_unread_when_quiet(&handle, &mut quiet_ticks);
                 let enabled = state
                     .auto_thumbs
                     .enabled
@@ -8246,6 +8325,8 @@ pub fn run() {
                 thumbs,
                 auto_thumbs,
                 watch_burst: Mutex::new(WatchBurst::default()),
+                watch_ingesting: std::sync::atomic::AtomicUsize::new(0),
+                watch_last_ms: std::sync::atomic::AtomicI64::new(0),
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),

@@ -683,6 +683,10 @@ export const ja = {
   rebuildThumbsConfirm:
     "既存のサムネイルをすべて削除して再生成しますか？ 元の写真ファイルは削除されません。表示した写真から順に生成します。",
   rebuildThumbsOk: "再生成",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "読み込み中の写真",
+  calendarUnread: (n: number) =>
+    `撮影日を読み込み中の写真が${num(n)}枚あります。読み込みが完了すると、ここに表示されます。`,
   settingsHardwareAccelerationNote:
     "全画面で写真を見ているときにマウスポインターが止まって見える場合は、オフにすると直ることがあります（AMD のグラフィックを搭載した PC で確認しています）。オフのときは、動画の再生で CPU の使用率が上がります。切り替えは、次に pictkura を起動したときから有効になります。",
   settingsImportWaitingFrom: (path: string) =>

@@ -1322,6 +1322,14 @@ input[type="range"]:focus-visible {
 .grid-scroll::-webkit-scrollbar {
   display: none;
 }
+/* 帯が無い間（新しいライブラリで、まだ1枚も撮影日を読めていない最初の1〜2秒）だけ、ふつうのスクロールバーを出す
+   ——帯もスクロールバーも無いと、掴んで動かす手段が無い（PR #351 の /code-review）。太さはほかの所と同じ細いもの */
+.grid-scroll.no-rail {
+  scrollbar-width: thin;
+}
+.grid-scroll.no-rail::-webkit-scrollbar {
+  display: initial;
+}
 .date-header {
   display: flex;
   align-items: baseline;
@@ -1549,6 +1557,11 @@ input[type="range"]:focus-visible {
   flex: 1;
   overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
+}
+.calendar-unread {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
 }
 .calendar-empty {
   padding: var(--sp-7);

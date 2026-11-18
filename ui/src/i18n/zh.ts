@@ -635,6 +635,9 @@ export const zh: Dict = {
   settingsRebuildThumbsButton: "重新生成…",
   rebuildThumbsConfirm: "删除当前所有缩略图并重新生成吗？照片本身不会被删除。缩略图会在你查看照片时依次重新生成。",
   rebuildThumbsOk: "重新生成",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "正在读取",
+  calendarUnread: (n: number) => `还有 ${num(n)} 张照片正在读取拍摄日期，读取后会显示在这里。`,
   settingsHardwareAccelerationNote:
     "如果全屏查看照片时鼠标指针似乎卡住，关闭此选项可能有助于解决该问题（已在配备 AMD 显卡的电脑上确认）。关闭后，播放视频会占用更多 CPU。更改将在下次启动 pictkura 时生效。",
   settingsImportWaitingFrom: (path: string) =>
