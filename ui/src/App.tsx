@@ -9037,7 +9037,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 }}
               />
               )}
-              <div className="grid-scroll" ref={scrollRef}>
+              <div className={"grid-scroll" + (dayRows.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。

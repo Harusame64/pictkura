@@ -390,6 +390,7 @@ const INFLECTS: Record<string, string[]> = {
     "wizardSelected:0",
   ],
   en: [
+    "calendarUnread:0",
     "printSheetTitle:0",
     "printSkipped:0",
     "itemsCount:0",

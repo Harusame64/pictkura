@@ -1322,6 +1322,14 @@ input[type="range"]:focus-visible {
 .grid-scroll::-webkit-scrollbar {
   display: none;
 }
+/* 帯が出ていない間（新しいライブラリで、まだ1枚も撮影日を読めていない最初の数秒）は、ふつうのスクロールバーを出す
+   ——帯もスクロールバーも無いと、掴んで動かす手段が無い（PR #351 の /code-review） */
+.grid-scroll.no-rail {
+  scrollbar-width: auto;
+}
+.grid-scroll.no-rail::-webkit-scrollbar {
+  display: initial;
+}
 .date-header {
   display: flex;
   align-items: baseline;

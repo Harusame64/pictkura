@@ -486,18 +486,18 @@ const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NU
      thumb_path = NULL, \
      thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL, rev = rev + 1";
 
-/// 走査で中身が変わった既存の行は、**日を動かさない**（`upsert_files`・`apply_scan` の `ON CONFLICT`）。撮影日時を
-/// 空にして読み直しへ回すが、読み直すまでの間ファイルの日付（多くは今日）の日へ置くと、外で編集した写真や書き込み中の
-/// ファイルが一瞬一覧の先頭へ跳んだ（win2 の実機、PR #351: 書いている間、今日の見出しが出たり消えたりした）。読み直しが
-/// 撮影日時を書けば本当の日へ移る。まだ読んでいない行（[`UNREAD_DAY_KEY`]）は束に居たまま
-///
 /// **まだ撮影日時を読んでいない新しい写真の日**（一覧の末尾の「読み込み中」の束）。
 ///
 /// 新しいライブラリでは撮影日時が分からないうちは並びの鍵がファイルの日付（コピーした今日）になり、未読の写真が
 /// 一覧の先頭に固まっていた。先頭に見えた写真を読む → 本当の日へ去る → 次の未読が来る、で先頭が読み終わるまで
 /// 灰色のままだった（3万枚で約45秒。2026-11-18 利用者「未読は末尾にまとめる」）。走査で**新しく入れる行**だけに
-/// 付け、撮影日時を書く道（`update_metadata*`・`update_shell_metadata`）が本当の日へ移す。読めずに終わった行は
-/// [`Db::settle_unread_day`] がファイルの日付の日へ移す。中身が変わった既存の行には付けない（今の日に居る）。
+/// 付け、撮影日時を書く道（`update_metadata*`・`update_shell_metadata`）が本当の日へ移す。読めずに終わった行のうち、
+/// 読み直しても直らないものは [`Db::settle_unread_day`] がファイルの日付の日へ移す（`thumbs::leaves_unread_day`）。
+///
+/// **中身が変わった既存の行は、日を動かさない**（`upsert_files`・`apply_scan` の `ON CONFLICT`、[`Db::reset_for_reread`]）。
+/// 撮影日時を空にして読み直しへ回すが、読み直すまでの間ファイルの日付（多くは今日）の日へ置くと、外で編集した写真や
+/// 書き込み中のファイルが一瞬一覧の先頭へ跳んだ（win2 の実機、PR #351）。読み直しが撮影日時を書けば本当の日へ移る。
+/// その間は、元の日の見出しの下にファイルの日付で並ぶ（読み直しが失敗し続ければそのまま）。まだ読んでいない行は束に居たまま
 ///
 /// -1 は「ライブラリの外から開いた写真」の日（`src-tauri` の `OUTSIDE_DAY_KEY`）、0 は「まだ計算していない」印
 /// （`Db::init` が起動のたびに計算し直す）なので使わない。0 以下は思い出（`list_memories`）にも入らない
@@ -4053,11 +4053,10 @@ impl Db {
     pub fn reset_for_reread(&mut self, ids: &[i64]) -> Result<(), DbError> {
         let tx = self.write_tx()?;
         {
-            // 日の束も並びの鍵（撮影日時が空なら mtime）に合わせ直す。`upsert_files` が中身の変わった行で
-            // するのと同じ——空にした撮影日時の古い日に並んだままにしない（PR #349 の /code-review）
+            // 日は動かさない。`upsert_files` が中身の変わった行でするのと同じ（[`UNREAD_DAY_KEY`] の説明）——読み直すまでの
+            // 間ファイルの日付の日へ置くと、今日の先頭へ跳ぶ（PR #351）
             let mut stmt = tx.prepare_cached(&format!(
-                "UPDATE media SET {CHANGED_ROW_RESET}, day_key = {} WHERE id = ?1",
-                day_key_expr("mtime_ms")
+                "UPDATE media SET {CHANGED_ROW_RESET} WHERE id = ?1"
             ))?;
             for id in ids {
                 stmt.execute([id])?;
@@ -6217,34 +6216,32 @@ mod tests {
         assert!(db.evict_final_thumbs(2000, &empty).unwrap().is_empty());
     }
 
-    /// 走査の本流（`apply_scan`）でも、新しく入った行は「読み込み中」の束、中身が変わった行はファイルの日付の日
+    /// 走査の本流（`apply_scan`）でも、新しく入った行は「読み込み中」の束。中身が変わった行は日を動かさない
     #[test]
     fn a_full_scan_puts_new_rows_in_the_unread_day() {
         let mut db = Db::open_in_memory().unwrap();
         let root = vec![PathBuf::from("r")];
-        db.apply_scan(
-            &[scanned("r/a.jpg", 1, 1_557_057_600_000)],
-            &root,
-            &root,
-            None,
-        )
-        .unwrap();
+        let scan = |db: &mut Db, size, mtime| {
+            db.apply_scan(&[scanned("r/a.jpg", size, mtime)], &root, &root, None)
+                .unwrap()
+        };
+        scan(&mut db, 1, 1_557_057_600_000);
         let id = id_of(&db, "r/a.jpg");
         assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+        // 中身が変わっても、まだ読んでいない行は束に居る
+        scan(&mut db, 2, 1_557_057_600_000);
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
         db.settle_unread_day(id).unwrap();
-        db.apply_scan(
-            &[scanned("r/a.jpg", 2, 1_557_057_600_000)],
-            &root,
-            &root,
-            None,
-        )
-        .unwrap();
-        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key / 10000, 2019);
+        let day = db.get_by_id(id).unwrap().unwrap().day_key;
+        assert_eq!(day / 10000, 2019);
+        // 束を出た行は、中身が変わって更新日時が新しくなっても日を動かさない（読み直しで移る）
+        scan(&mut db, 3, 1_767_225_600_000);
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, day);
     }
 
-    /// 読み直しへ回した行は、日の束も並びの鍵（撮影日時が空なので mtime）に合わせ直す
+    /// 読み直しへ回した行は、日を動かさない（読み直すまでの間、今日の先頭へ跳ばないように）
     #[test]
-    fn a_row_reset_for_reread_moves_to_the_day_of_its_mtime() {
+    fn a_row_reset_for_reread_keeps_its_day() {
         let mut db = Db::open_in_memory().unwrap();
         // mtime は 2019-05-05 ごろ、撮影日時は 2021 年
         db.upsert_files(&[scanned("a.jpg", 1, 1_557_057_600_000)])
@@ -6259,9 +6256,9 @@ mod tests {
         .unwrap();
         let before = db.get_by_id(id).unwrap().unwrap().day_key;
         db.reset_for_reread(&[id]).unwrap();
-        let after = db.get_by_id(id).unwrap().unwrap().day_key;
-        assert_ne!(before, after);
-        assert_eq!(after / 10000, 2019, "{after}");
+        let r = db.get_by_id(id).unwrap().unwrap();
+        assert_eq!(r.day_key, before);
+        assert_eq!(r.taken_at_ms, None, "撮影日時は空にして読み直しへ");
     }
 
     /// SVG の「要らない」印（`thumbs::THUMB_STATE_NOT_NEEDED`）
