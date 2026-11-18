@@ -578,7 +578,7 @@ there the picture comes from the OS, not from pictkura. What sits behind it:
 | Fast writes | SQLite in WAL mode, batched inserts in one transaction |
 | No layout shift | width and height live in the DB, so tiles are sized before the image arrives |
 | Instant first paint | the embedded EXIF thumbnail is used as-is, without re-encoding |
-| No blank tiles when scrolling | the thumbnail queue prioritizes whatever is on screen |
+| Thumbnails on screen come first | the thumbnail queue prioritizes whatever is on screen |
 | Serve while scanning | directory scans run outside the DB lock |
 | No full transfer at startup | a date→count index, fetching only the days in view |
 | Don't walk the disk at startup | the NTFS USN journal supplies only what changed (folders on FAT32/exFAT USB drives and SD cards are still walked in full on every launch) |
