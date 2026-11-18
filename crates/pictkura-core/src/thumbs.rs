@@ -2120,13 +2120,12 @@ pub fn process_one_job(
             }
         }
         // OS も名前も何も知らなかった新しい写真は、読めないまま「読み込み中」の束に残さない（開けるのは見たとき）
-        if record.day_key == crate::db::UNREAD_DAY_KEY {
-            if db
+        if record.day_key == crate::db::UNREAD_DAY_KEY
+            && db
                 .guarded(id, record.version(), |db| db.settle_unread_day(id))?
                 .is_none()
-            {
-                return Ok(ThumbOutcome::Stale);
-            }
+        {
+            return Ok(ThumbOutcome::Stale);
         }
         return Ok(ThumbOutcome::Deferred);
     }
