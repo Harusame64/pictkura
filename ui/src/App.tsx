@@ -8547,9 +8547,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                   className={i === suggestActive ? "active" : ""}
                   // 押しても欄から焦点を外さない（外すと閉じてしまう）
                   onMouseDown={(e) => e.preventDefault()}
+                  // マウスを乗せても「選んでいる行」は動かさない（キーで選んだ行を奪わない。乗せた行は薄い面だけ＝App.css）。
+                  // 押せばその行を差し込む
                   onClick={() => pickSuggestion(s)}
-                  onMouseEnter={() => setSuggestActive(i)}
                 >
+                  {/* 名前の枠は左から右（長い名前は尻尾の側を省略する——頭のメーカー名を残す）。右から左の画面では右へ寄せて、
+                      行の頭（右）に置く（App.css。デザインの統一性チェック 3 周目） */}
                   <span className="search-suggest-main" dir="ltr">
                     {s.type === "key" ? s.insert : s.type === "year" ? String(s.year) : s.type === "camera" ? s.name : s.kind}
                   </span>
