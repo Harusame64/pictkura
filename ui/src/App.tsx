@@ -28,7 +28,7 @@ import { GridThumb } from "./GridThumb";
 import { useTileLoader } from "./useTileQueue";
 import { ScrubRail } from "./ScrubRail";
 import { anchoredScrollTop } from "./scrubRailMath";
-import { pickStaleDays, type AskedFor } from "./staleDays";
+import { keepsWhileRefetching, pickStaleDays, type AskedFor } from "./staleDays";
 import Palette, { type PaletteItem } from "./Palette";
 import ContextMenu, { type MenuItem, type MenuPos } from "./ContextMenu";
 import { FileInfoDialog, FileInfoRows, useChangedCount, useFileInfos } from "./FileInfoView";
@@ -1713,7 +1713,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         // 0枚になった（win2: 束を見ている間 2 秒ごと、PR #352）。取り直しは描画の後の「見えている日」の処理が頼む
         // （`pickStaleDays`）。ほかの日はこれまでどおり捨てる——一覧全体で捨てない形にすると、ビューアや選択の
         // 送りが「読み込み済みの日に無い＝消えた」と読む所と食い違った
-        if (dayKey === UNREAD_DAY && visibleDaysRef.current.has(dayKey)) continue;
+        if (keepsWhileRefetching(dayKey, UNREAD_DAY, visibleDaysRef.current, counts.has(dayKey))) continue;
         if (counts.get(dayKey) !== items.length) {
           if (!next) next = new Map(prev);
           next.delete(dayKey);
@@ -2289,7 +2289,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           }
           // 宛先の日が読み込み済みなのに載っていない（日付が移ってきた）:
           // その日を捨てて再取得させる
-          if (shown && arr && idx < 0) {
+          // 束が見えている間は、新しく入った写真（外からのコピー）で束を捨てない（1コマ空くので。PR #352）。
+          // 骨組みの取り直しで枚数がずれれば、描画の後の「見えている日」の処理が取り直す
+          if (
+            shown &&
+            arr &&
+            idx < 0 &&
+            !keepsWhileRefetching(p.day_key, UNREAD_DAY, visibleDaysRef.current, true)
+          ) {
             if (!next) next = new Map(prev);
             next.delete(p.day_key);
           }
@@ -3876,10 +3883,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // 代わり。同じ骨組みには1回、読み途中なら届いた後にまた見る。`staleDays.ts`）
     if (visible.has(UNREAD_DAY)) {
       const items = dayItems.get(UNREAD_DAY);
+      // 束は骨組みの最後に居る（並びの鍵が最も小さい）。全体を走査しない
+      const last = summary[summary.length - 1];
       wanted.push(
         ...pickStaleDays(
           summary,
-          new Map(summary.filter((d) => d.day_key === UNREAD_DAY).map((d) => [d.day_key, d.count])),
+          new Map(last?.day_key === UNREAD_DAY ? [[UNREAD_DAY, last.count]] : []),
           new Map(items ? [[UNREAD_DAY, items.length]] : []),
           [UNREAD_DAY],
           null,
