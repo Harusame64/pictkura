@@ -8465,7 +8465,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
           {status}
         </span>
         {/* 裏で走っている仕事（dev #64）。取り込みの面を開いている間は黙る */}
-        <BackgroundWork quiet={wizardOpen} />
+        <BackgroundWork
+          quiet={wizardOpen}
+          onOpenSettings={() => openSettingsRef.current()}
+          onError={fail}
+        />
         <span className={"count" + (query ? " searching" : "")}>
           {query && <Icon name="search" className="btn-icon" />}
           {t.itemsCount(totalShown)}

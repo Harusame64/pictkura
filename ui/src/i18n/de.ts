@@ -628,6 +628,35 @@ export const de: Dict = {
   settingsAutoplayOpenWindows: "Windows-Einstellungen für die automatische Wiedergabe öffnen",
   settingsGraphics: "Grafik",
   settingsHardwareAccelerationToggle: "Grafikbeschleunigung verwenden",
+  bgAutoThumbs: (n: number) => `Miniaturen werden im Hintergrund erstellt (noch ${num(n)})`,
+  bgAutoThumbsShort: (n: number) => `Miniaturen: noch ${num(n)}`,
+  bgAutoThumbsPaused: (n: number) => `Erstellen der Miniaturen pausiert (noch ${num(n)})`,
+  bgAutoThumbsPausedShort: (n: number) => `Pausiert: noch ${num(n)}`,
+  autoThumbsHeading: "Miniaturen werden im Hintergrund erstellt",
+  autoThumbsPausedHeading: "Erstellen der Miniaturen ist pausiert",
+  autoThumbsBody: (n: number) =>
+    `Noch ${num(n)}. Fotos erscheinen dann sofort, auch wenn Sie mit der Zeitleiste schnell blättern. Fotos, die nur in der Cloud liegen, werden übersprungen.`,
+  autoThumbsPause: "Pausieren",
+  autoThumbsResume: "Fortsetzen",
+  autoThumbsOpenSettings: "Einstellungen öffnen",
+  settingsThumbnails: "Miniaturen",
+  settingsAutoThumbsToggle: "Miniaturen automatisch erstellen",
+  settingsAutoThumbsNote:
+    "Erstellt im Hintergrund Miniaturen für die ganze Bibliothek, die neuesten Fotos zuerst. So erscheinen Fotos sofort, auch wenn Sie schnell durch Jahre blättern, die Sie noch nicht geöffnet haben. Solange das läuft, werden CPU und Festplatte beansprucht. Fotos, die nur in der Cloud liegen (etwa „Nur online“ in OneDrive), werden nie geöffnet. Ist die Option aus, entstehen Miniaturen nur für die Fotos, die Sie ansehen.",
+  settingsAutoThumbsAtCap: "Der Speicher für Miniaturen ist zu 80 % belegt, daher ist das automatische Erstellen angehalten.",
+  settingsThumbCap: "Speichergrenze für Miniaturen",
+  settingsThumbCapUnlimited: "Unbegrenzt",
+  settingsThumbCapUsage: (size: string, n: number) => `Derzeit belegt: ${size} (Miniaturen: ${num(n)}). `,
+  settingsThumbCapFits: (n: number) =>
+    `Bis zur Grenze passen etwa ${num(n)} Miniaturen. Darüber hinaus werden zuerst die Miniaturen von Fotos entfernt, die Sie länger nicht angesehen haben (die Fotos selbst bleiben unberührt).`,
+  settingsThumbCapNoLimit: "Es gibt keine Grenze; Miniaturen werden nie entfernt.",
+  settingsRebuildThumbs: "Miniaturen neu erstellen",
+  settingsRebuildThumbsNote:
+    "Für den Fall, dass Miniaturen fehlerhaft aussehen oder noch eine alte Ausrichtung zeigen. Alle vorhandenen Miniaturen werden gelöscht und neu erstellt. Die Fotos selbst bleiben unberührt.",
+  settingsRebuildThumbsButton: "Neu erstellen…",
+  rebuildThumbsConfirm:
+    "Alle vorhandenen Miniaturen löschen und neu erstellen? Die Fotos selbst bleiben unberührt. Die Miniaturen entstehen neu, während Sie Fotos ansehen.",
+  rebuildThumbsOk: "Neu erstellen",
   settingsHardwareAccelerationNote:
     "Wenn der Mauszeiger beim Anzeigen von Fotos im Vollbildmodus eingefroren wirkt, kann das Ausschalten helfen (beobachtet auf einem PC mit AMD-Grafik). Bei ausgeschalteter Grafikbeschleunigung beansprucht die Videowiedergabe mehr CPU. Die Änderung wird beim nächsten Start von pictkura wirksam.",
   settingsImportWaitingFrom: (path: string) =>

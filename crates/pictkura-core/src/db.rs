@@ -2544,7 +2544,8 @@ impl Db {
                     "SELECT id, day_key, {SORT_TS} FROM media WHERE thumb_state < 2
                      ORDER BY day_key DESC, {SORT_TS} DESC, id DESC LIMIT ?1"
                 ))?;
-                let rows = stmt.query_map(params![limit as i64], map)?
+                let rows = stmt
+                    .query_map(params![limit as i64], map)?
                     .collect::<Result<Vec<_>, _>>()?;
                 rows
             }
@@ -2554,7 +2555,8 @@ impl Db {
                      AND (day_key, {SORT_TS}, id) < (?1, ?2, ?3)
                      ORDER BY day_key DESC, {SORT_TS} DESC, id DESC LIMIT ?4"
                 ))?;
-                let rows = stmt.query_map(params![day, ts, id, limit as i64], map)?
+                let rows = stmt
+                    .query_map(params![day, ts, id, limit as i64], map)?
                     .collect::<Result<Vec<_>, _>>()?;
                 rows
             }
@@ -2564,11 +2566,11 @@ impl Db {
 
     /// 本番のサムネイルがまだ無い写真の数（前もって作る「残り」のもと）
     pub fn pregen_candidate_count(&self) -> Result<usize, DbError> {
-        let n: i64 =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM media WHERE thumb_state < 2", [], |r| {
-                    r.get(0)
-                })?;
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM media WHERE thumb_state < 2",
+            [],
+            |r| r.get(0),
+        )?;
         Ok(n as usize)
     }
 
@@ -6170,7 +6172,8 @@ mod tests {
         db.update_thumb_path(a, Path::new("t/a.webp"), 2, Some(10))
             .unwrap();
         db.mark_thumb_unviewed(a).unwrap();
-        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None).unwrap();
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None)
+            .unwrap();
         db.mark_thumb_unviewed(b).unwrap();
         let used = |id: i64| -> Option<i64> {
             db.conn
@@ -6205,11 +6208,19 @@ mod tests {
         ])
         .unwrap();
         let id = |p: &str| id_of(&db, p);
-        let (a, b, c, d, e) = (id("a.jpg"), id("b.jpg"), id("c.jpg"), id("d.jpg"), id("e.jpg"));
+        let (a, b, c, d, e) = (
+            id("a.jpg"),
+            id("b.jpg"),
+            id("c.jpg"),
+            id("d.jpg"),
+            id("e.jpg"),
+        );
         db.update_thumb_path(d, Path::new("t/d.webp"), 2, Some(1))
             .unwrap(); // 済み
-        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None).unwrap(); // 即席は候補
-        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST).unwrap(); // SVG 相当は外れる
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None)
+            .unwrap(); // 即席は候補
+        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST)
+            .unwrap(); // SVG 相当は外れる
         assert_eq!(db.pregen_candidate_count().unwrap(), 3);
 
         let first = db.pregen_candidates(None, 2).unwrap();
@@ -6238,8 +6249,10 @@ mod tests {
         );
         db.update_thumb_path(a, Path::new("t/a.webp"), 2, Some(10))
             .unwrap();
-        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None).unwrap();
-        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST).unwrap();
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None)
+            .unwrap();
+        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST)
+            .unwrap();
         db.update_thumb_state(d, 4).unwrap();
         assert_eq!(db.reset_all_thumbs().unwrap(), 3);
         for id in [a, b, d] {
