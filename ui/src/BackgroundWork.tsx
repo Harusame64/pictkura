@@ -78,8 +78,10 @@ export function BackgroundWork({
         const auto = s.auto_thumbs;
         if (s.scanning) next = { kind: "scan" };
         else if (s.thumbs_pending > 0) next = { kind: "reading", left: s.thumbs_pending };
-        // 一時停止中は数に依らず出す——消えると「再開」の口が無くなる（PR #348 の /code-review）
-        else if (auto && ((auto.working && auto.left > 0) || auto.paused))
+        // 残りが 0 なら一時停止中でも出さない（止める物が無い。win2 の実機で「一時停止中 残り0」が残った）。新しい写真が
+        // 入って残りが増えれば、一時停止の表示と「再開」の口が戻る。残りの数は、見送った写真を利用者が開いたら
+        // 見送りから外すので、作る物があるのに 0 と数えることは無い（PR #348 の /code-review）
+        else if (auto && (auto.working || auto.paused) && auto.left > 0)
           next = { kind: "auto", left: auto.left, paused: auto.paused };
       } catch {
         // 取れなかった回は何も無かったことにする（出しっぱなしにしない）
