@@ -127,6 +127,11 @@ export class BlankWaiters {
     return this.notices.get(id) ?? 0;
   }
 
+  /** 写真 `id` を待っているタイルが居るか */
+  isWaited(id: number): boolean {
+    return this.waiting.has(id);
+  }
+
   /** 写真 `id` の知らせを待つ。返り値で待つのをやめる */
   wait(id: number, wake: () => void): () => void {
     let set = this.waiting.get(id);

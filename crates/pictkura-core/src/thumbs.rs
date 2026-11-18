@@ -2592,6 +2592,8 @@ impl ThumbQueue {
             let Some(id) = state.priority.pop_back() else {
                 break;
             };
+            // 優先の列に居たのは読み終えた写真——また見えたら未読扱いせず優先の列へ戻す（[`Self::demote`] と同じ）
+            state.demoted.insert(id);
             state.pending.push_back(id);
         }
         drop(state);
@@ -6166,6 +6168,18 @@ mod tests {
         queue.prioritize(&[4]);
         assert_eq!(queue.pop_job(), Some((4, Job::Visible)));
         assert_eq!(queue.demote(&[4]), 0);
+        // 長すぎて切った写真も、また見えたら優先の列へ戻る（未読扱いしない）
+        let over: Vec<i64> = (100..100 + PRIORITY_MAX as i64 + 1).collect();
+        queue.prioritize(&over);
+        // 引数順に先頭へ積むので、切られるのは最後の 1 枚
+        let cut = *over.last().unwrap();
+        queue.prioritize(&[cut]);
+        assert_eq!(queue.pop_job(), Some((cut, Job::Visible)));
+        queue.complete(cut);
+        for _ in 0..PRIORITY_MAX {
+            let (id, _) = queue.pop_job().unwrap();
+            queue.complete(id);
+        }
         // 降ろした写真がまた見えたら、優先の列へ戻る
         queue.complete(1);
         queue.complete(3);
