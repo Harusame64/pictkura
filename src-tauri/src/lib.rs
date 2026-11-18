@@ -96,6 +96,8 @@ struct AppState {
     auto_thumbs: AutoThumbs,
     /// 外で入った写真のまとまり（[`WatchBurst`]）
     watch_burst: Mutex<WatchBurst>,
+    /// 見張りが行を入れ始めてから列に積み終えるまでの数（[`settle_unread_when_quiet`] が、入れたばかりの行を出さないため）
+    watch_ingesting: std::sync::atomic::AtomicUsize,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -494,6 +496,9 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     // 束が届いた時刻（外で入った写真のまとまりの間はこれで測る。処理の長さを間に数えない）
     let arrived = std::time::Instant::now();
     let state = app.state::<AppState>();
+    // 行を入れ始めてから列に積み終えるまで「取り込み中」。**DB を握る前に立てる**——「読み込み中」の束の片付けは DB を
+    // 握ってからこれを見るので、入れたばかりで列に積む前の行を出さない（PR #351 の codex）
+    let _ingesting = WatchIngesting::start(&state.watch_ingesting);
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
     // 行が消えたか（Google 用フォルダの突き合わせを回すかどうか）
@@ -7223,22 +7228,55 @@ const AUTO_THUMBS_TICK: std::time::Duration = std::time::Duration::from_secs(2);
 /// 作り終えた（配るものが無かった）後、新しい写真を見に行くまでの間
 const AUTO_THUMBS_REST: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// 見張りの取り込み中の印（[`AppState::watch_ingesting`]）。落ちても外れるように閉じ込める
+struct WatchIngesting<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl<'a> WatchIngesting<'a> {
+    fn start(n: &'a std::sync::atomic::AtomicUsize) -> Self {
+        n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self(n)
+    }
+}
+
+impl Drop for WatchIngesting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// 素性の読み込みが一段落したら（起動時の同期・走査が終わり、読む列が 2 拍続けて空）、「読み込み中」の束に残った写真を
 /// まとめてファイルの日付の日へ出す（[`pictkura_core::db::UNREAD_DAY_KEY`]）。読めなかった写真は次の起動で読み直す。
-/// 2 拍待つのは、見張りが行を入れてから列に積むまでの隙間で、入れたばかりの行を出さないため
+///
+/// **DB を握ってから、見張りの取り込み中でないこと・列が空であることを確かめ直して出す。** 見張りは DB を握る前に
+/// 取り込み中の印を立て、列に積み終えてから外すので、ここで印が立っていなければ、取り込みはまだ始まっていないか、
+/// もう列に積み終えている。拍を数えるだけだと、見張りが DB を握って大きな束を入れている間に拍が揃い、手放した直後
+/// （列に積む前）に入れたばかりの写真を全部出していた（PR #351 の codex）
 fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
     let state = handle.state::<AppState>();
-    let quiet = state.startup_done.load(std::sync::atomic::Ordering::SeqCst)
-        && state
-            .scans_running
-            .load(std::sync::atomic::Ordering::SeqCst)
-            == 0
-        && state.thumbs.queue().metadata_idle();
-    *quiet_ticks = if quiet { *quiet_ticks + 1 } else { 0 };
+    let quiet = || {
+        state.startup_done.load(std::sync::atomic::Ordering::SeqCst)
+            && state
+                .scans_running
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            && state
+                .watch_ingesting
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            && state.thumbs.queue().metadata_idle()
+    };
+    *quiet_ticks = if quiet() { *quiet_ticks + 1 } else { 0 };
     if *quiet_ticks < 2 {
         return;
     }
-    let moved = lock_ok(&state.db).settle_all_unread().unwrap_or(0);
+    let moved = {
+        let mut db = lock_ok(&state.db);
+        if !quiet() {
+            *quiet_ticks = 0;
+            return;
+        }
+        db.settle_all_unread().unwrap_or(0)
+    };
     if moved > 0 {
         applog::note(&format!(
             "{moved} new photos could not be read; listed by file date"
@@ -8273,6 +8311,7 @@ pub fn run() {
                 thumbs,
                 auto_thumbs,
                 watch_burst: Mutex::new(WatchBurst::default()),
+                watch_ingesting: std::sync::atomic::AtomicUsize::new(0),
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
