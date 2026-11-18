@@ -359,7 +359,7 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   display: inline-flex;
   flex: none;
 }
-.bg-auto-button {
+.topbar .bg-auto-button {
   height: 26px;
   padding: 0 8px;
   border: 1px solid transparent;
@@ -371,13 +371,19 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   /* 「サムネイル 残り 12,345」が入る幅。読み込み中（16ch）より少し長い */
   max-width: 24ch;
 }
-.bg-auto-button:hover,
-.bg-auto-button.open {
+.topbar .bg-auto-button:hover,
+.topbar .bg-auto-button.open {
   background: var(--surface-2);
   color: var(--text);
 }
 .bg-auto-icon {
   flex: none;
+}
+/* 上の帯は幅の問い合わせ（container）で自分の重なりの層を持つので、そのままだと下の一覧（タイムラインの帯など）が
+   小窓の上に描かれる。小窓が開いている間だけ帯ごと持ち上げる（ビューア・知らせより下） */
+.topbar:has(.bg-auto-pop) {
+  position: relative;
+  z-index: 20;
 }
 .bg-auto-pop {
   position: absolute;
@@ -407,13 +413,23 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   color: var(--text-faint);
   line-height: 1.6;
 }
+.topbar .bg-auto-pop .settings-plain-button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.topbar .bg-auto-pop .settings-plain-button:hover {
+  background: var(--surface-2);
+}
 .bg-auto-pop-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-top: 2px;
 }
-.bg-auto-pop-link {
+.topbar .bg-auto-pop-link {
   border: none;
   background: none;
   padding: 0;
@@ -423,6 +439,10 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+.topbar .bg-auto-pop-link:hover {
+  background: none;
+  color: var(--accent);
 }
 
 /* 表示切替: セグメントコントロール */

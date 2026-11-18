@@ -2316,6 +2316,28 @@ fn finish_job(
     }
 }
 
+/// 前もって作った仕事の後始末（[`Job::Pregen`]）。
+///
+/// - 本番ができた: 「まだ見ていない」にする（上限を超えたら、見た絵より先に消える）
+/// - 即席だけ書いた・作業中に行が変わった: 何もしない。行はまだ本番が無いので、配り手の次の周がもう一度配る。
+///   **即席を「見送り」にしてはいけない**——サムネイルの無い行（「作り直す」の後・上限で消えた後）は、埋め込みの
+///   サムネイルがあると本番の前に必ず即席で1回返る。見送ると、その写真はこの起動の間ずっと作られない
+/// - それ以外（クラウドにしか無い・絵が無い・失敗）: この起動の間は配り直さない
+fn pregen_settle(
+    queue: &ThumbQueue,
+    db: &mut Db,
+    id: i64,
+    result: &Result<ThumbOutcome, ThumbError>,
+) {
+    match result {
+        Ok(ThumbOutcome::Final) => {
+            let _ = db.mark_thumb_unviewed(id);
+        }
+        Ok(ThumbOutcome::Provisional | ThumbOutcome::Stale) => {}
+        _ => queue.skip_pregen(id),
+    }
+}
+
 impl ThumbQueue {
     pub fn new() -> Self {
         Self {
@@ -2734,16 +2756,8 @@ impl ThumbnailService {
                             process_one_job(&mut db, &thumbs_dir, thumb_size, id, job)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
-                        // 前もって作った絵は「まだ見ていない」（上限を超えたら、見た絵より先に消える）。作らずに
-                        // 終わった写真（クラウドにしか無い・絵が無い・失敗）は、この起動の間は配り直さない
                         if job == Job::Pregen {
-                            match result {
-                                Ok(ThumbOutcome::Final) => {
-                                    let _ = db.mark_thumb_unviewed(id);
-                                }
-                                Ok(ThumbOutcome::Stale) => {}
-                                _ => queue.skip_pregen(id),
-                            }
+                            pregen_settle(&queue, &mut db, id, &result);
                         }
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         let stale = matches!(result, Ok(ThumbOutcome::Stale));
@@ -5513,6 +5527,29 @@ mod tests {
         assert!(!waiter.is_finished(), "枠が埋まっている間は待つ");
         queue.complete(10);
         assert_eq!(waiter.join().unwrap(), Some((11, Job::Pregen)));
+    }
+
+    /// 前もって作った仕事の後始末: 即席だけ書いた写真は見送らない（次の周でもう一度配る）。本番は「まだ見ていない」に
+    #[test]
+    fn a_provisional_pregen_result_is_not_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("t.db")).unwrap();
+        db.upsert_files(&[crate::ScannedFile {
+            path: dir.path().join("a.jpg"),
+            size: 1,
+            mtime_ms: 1,
+        }])
+        .unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let queue = ThumbQueue::new();
+        pregen_settle(&queue, &mut db, id, &Ok(ThumbOutcome::Provisional));
+        pregen_settle(&queue, &mut db, id, &Ok(ThumbOutcome::Stale));
+        assert!(!queue.is_pregen_skipped(id), "即席・入れ違いは見送らない");
+        pregen_settle(&queue, &mut db, id, &Ok(ThumbOutcome::Deferred));
+        assert!(
+            queue.is_pregen_skipped(id),
+            "クラウドにしか無い写真は見送る"
+        );
     }
 
     /// 見えた写真は前もって作る列から優先の列へ移る。列を空にしても、積み直せなくなる id を残さない
