@@ -643,8 +643,20 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         enqueue_missing_thumbs(&state, None);
         // 外でまとまって入った写真は「残り n」に数える（[`WATCH_BURST_SHOWN`]）。印は列に居る行にしか付かないので、
         // 上で積んだ後に付ける（読み終えた行に付けても数は増えない）
-        let shown = lock_ok(&state.watch_burst).on_batch(arrived, &added);
+        let (shown, started) = {
+            let mut burst = lock_ok(&state.watch_burst);
+            let before = burst.shown;
+            let shown = burst.on_batch(arrived, &added);
+            (shown, !before && burst.shown)
+        };
         if !shown.is_empty() {
+            // まとまりの始まりだけ1行残す（数えたかどうかは、読み込みが速いと帯に出る前に終わって見えない）
+            if started {
+                applog::note(&format!(
+                    "watch: counting photos copied in from outside ({} so far)",
+                    shown.len()
+                ));
+            }
             state.thumbs.mark_fresh(&shown);
         }
         let _ = app.emit("library-updated", ());
