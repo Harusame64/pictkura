@@ -416,6 +416,39 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// 外で**まとまって**入った写真（エクスプローラーでのコピー等）を、ヘッダーの「残り n」に数える（2026-11-18 利用者
+/// 「まとまって入ったときだけ出す」）。少しずつ届く写真（同期クライアントが時々1枚）は数えない——届くたびに
+/// 表示が出たり消えたりする。
+///
+/// 見張りは 800ms ごとの束で届くので、遅い USB からのコピーは1つの束に数枚ずつしか入らない。**前の束から
+/// [`WATCH_BURST_GAP`] 以内に続いた束を1つのまとまり**として数え、合計が [`WATCH_BURST_SHOWN`] に達したら、
+/// まとまりの写真をまとめて数えに入れる（その後に続く束も）
+const WATCH_BURST_SHOWN: usize = 20;
+const WATCH_BURST_GAP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// いま続いている、外で入った写真のまとまり（[`WATCH_BURST_SHOWN`]）
+static WATCH_BURST: Mutex<Option<(std::time::Instant, Vec<i64>)>> = Mutex::new(None);
+
+/// まとまりに `added` を足し、数えに入れる id を返す（まだ少なければ空）
+fn watch_burst_shown(added: &[i64], now: std::time::Instant) -> Vec<i64> {
+    let mut burst = lock_ok(&WATCH_BURST);
+    // 間が空いていたら、前のまとまりは終わり
+    if burst
+        .as_ref()
+        .is_some_and(|(last, _)| now.duration_since(*last) > WATCH_BURST_GAP)
+    {
+        *burst = None;
+    }
+    let (last, ids) = burst.get_or_insert_with(|| (now, Vec::new()));
+    *last = now;
+    ids.extend_from_slice(added);
+    if ids.len() >= WATCH_BURST_SHOWN {
+        ids.clone()
+    } else {
+        Vec::new()
+    }
+}
+
 /// ウォッチャーのイベントバッチをDBへ追従させる。
 /// イベントのあったパスだけを処理する（全ルートの再スキャンはしない）。
 ///
@@ -501,16 +534,25 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         }
     }
 
+    // この束で**新しく入った**写真の行（ヘッダーの「残り n」に数えるかどうかの材料）
+    let mut added: Vec<i64> = Vec::new();
     {
         let mut db = lock_ok(&state.db);
         // 新規・変更のみをupsertする（同一内容のupsertはサムネイルを無効化してしまう）
-        let upsert_if_changed = |db: &mut Db, f: ScannedFile| -> bool {
-            let same = db
-                .get_meta_by_path(&f.path)
-                .ok()
-                .flatten()
+        let mut upsert_if_changed = |db: &mut Db, f: ScannedFile| -> bool {
+            let known = db.get_meta_by_path(&f.path).ok().flatten();
+            let same = known
+                .as_ref()
                 .is_some_and(|m| m.size == f.size && m.mtime_ms == f.mtime_ms);
-            !same && db.upsert_files(std::slice::from_ref(&f)).is_ok()
+            if same || db.upsert_files(std::slice::from_ref(&f)).is_err() {
+                return false;
+            }
+            if known.is_none() {
+                if let Ok(Some(m)) = db.get_meta_by_path(&f.path) {
+                    added.push(m.id);
+                }
+            }
+            true
         };
 
         // **ルートがパッケージなら、その配下は監視でも拾わない**（USN側と同じ）。
@@ -571,8 +613,15 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     }
 
     if changed {
-        // 見張りの束は新しい写真を数えない（外でのファイル変化。ヘッダーには出さない）
         enqueue_missing_thumbs(&state, None);
+        // 外でまとまって入った写真は「残り n」に数える（[`WATCH_BURST_SHOWN`]）。印は列に居る行にしか付かないので、
+        // 上で積んだ後に付ける（読み終えた行に付けても数は増えない）
+        if !added.is_empty() {
+            let shown = watch_burst_shown(&added, std::time::Instant::now());
+            if !shown.is_empty() {
+                state.thumbs.mark_fresh(&shown);
+            }
+        }
         let _ = app.emit("library-updated", ());
     }
     // 行が消えた束のときだけ（追加だけの束で表を見直さない。ゲート2）
@@ -8898,8 +8947,30 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// 外で入った写真は、束をまたいだまとまりで数える。少ないうちは数えず、間が空いたら数え直す
+    #[test]
+    fn external_photos_count_once_a_burst_is_large_enough() {
+        let t0 = std::time::Instant::now();
+        let ids = |r: std::ops::Range<i64>| r.collect::<Vec<_>>();
+        assert!(
+            super::watch_burst_shown(&ids(0..5), t0).is_empty(),
+            "5 枚では出さない"
+        );
+        let at = |s: u64| t0 + std::time::Duration::from_secs(s);
+        assert!(super::watch_burst_shown(&ids(5..15), at(3)).is_empty());
+        // 遅い USB: 数枚ずつ続いて 20 枚に届いたら、まとまり全部を数える
+        assert_eq!(super::watch_burst_shown(&ids(15..21), at(6)), ids(0..21));
+        assert_eq!(
+            super::watch_burst_shown(&ids(21..22), at(9)).len(),
+            22,
+            "続く束も数える"
+        );
+        // 間が空いたら、まとまりは終わり
+        assert!(super::watch_burst_shown(&ids(100..103), at(9 + 11)).is_empty());
+    }
 
     /// 一覧のタイルが灰色で待つのは、働き手がこれから作る写真だけ（作らない写真で待つと灰色のまま変わらない）
+
     #[test]
     fn the_grid_waits_only_for_thumbnails_the_worker_will_make() {
         use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
