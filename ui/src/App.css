@@ -368,8 +368,8 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
-  /* 「サムネイル 残り 12,345」が入る幅。読み込み中（16ch）より少し長い */
-  max-width: 24ch;
+  /* 「サムネイル 残り 12,345」が入る幅。読み込み中（16ch）より長い。アラビア語の一時停止の形が 24ch で切れた（win2） */
+  max-width: 32ch;
 }
 .topbar .bg-auto-button:hover,
 .topbar .bg-auto-button.open {
@@ -386,11 +386,11 @@ html.mac-overlay:not(.mac-fullscreen)[dir="rtl"] .viewer-tools {
   z-index: 20;
 }
 .bg-auto-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  inset-inline-start: 0;
+  /* 置き場は BackgroundWork.tsx が窓の座標で決める（窓からはみ出さないよう寄せる） */
+  position: fixed;
   z-index: 40;
   width: 300px;
+  max-width: calc(100vw - 16px);
   box-sizing: border-box;
   padding: 14px 16px;
   background: var(--surface);

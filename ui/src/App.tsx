@@ -1021,6 +1021,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const [editorKeys, setEditorKeys] = useState<Record<string, string>>({});
   /** 設定ダイアログの表示と、その中身になる設定スナップショット */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 設定を開いたら見せる節（上の帯の「サムネイル 残り n」から開いたとき）。閉じたら忘れる */
+  const [settingsFocus, setSettingsFocus] = useState<"thumbnails" | null>(null);
+  useEffect(() => {
+    if (!settingsOpen) setSettingsFocus(null);
+  }, [settingsOpen]);
   // 取り込みウィザード（第5部 段階E）。startPathはドライブから開いたときの初期フォルダ
   const [wizardOpen, setWizardOpen] = useState(false);
   /**
@@ -8467,7 +8472,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         {/* 裏で走っている仕事（dev #64）。取り込みの面を開いている間は黙る */}
         <BackgroundWork
           quiet={wizardOpen}
-          onOpenSettings={() => openSettingsRef.current()}
+          onOpenSettings={() => {
+            setSettingsFocus("thumbnails");
+            openSettingsRef.current();
+          }}
           onError={fail}
         />
         <span className={"count" + (query ? " searching" : "")}>
@@ -10270,6 +10278,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       />
       <SettingsDialog
         open={settingsOpen}
+        focusSection={settingsFocus}
         // **関所が立ったら畳ませる**（2026-09-08）。開けない向きは
         // [`openSettingsBySecondDoor`] が見ているが、**逆向きがある**——
         // **設定を開いたまま窓の × を押す**と、✕の印が残っていれば関所が立つ。

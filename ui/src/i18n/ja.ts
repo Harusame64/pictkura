@@ -674,7 +674,7 @@ export const ja = {
   settingsThumbCapUnlimited: "無制限",
   settingsThumbCapUsage: (size: string, n: number) => `現在 ${size} を使用中（${num(n)}枚）。`,
   settingsThumbCapFits: (n: number) =>
-    `上限までにおよそ${num(n)}枚を保存できます。上限を超えた場合は、しばらく表示していない写真のサムネイルから順に削除します（元の写真ファイルは削除されません）。`,
+    `上限はサムネイルおよそ${num(n)}枚分です。上限を超えた場合は、しばらく表示していない写真のサムネイルから順に削除します（元の写真ファイルは削除されません）。`,
   settingsThumbCapNoLimit: "上限はなく、サムネイルは自動では削除されません。",
   settingsRebuildThumbs: "サムネイルの再生成",
   settingsRebuildThumbsNote:

@@ -627,7 +627,7 @@ export const he: Dict = {
   settingsAutoThumbsAtCap: "שטח התמונות הממוזערות מלא ב־80%, ולכן היצירה האוטומטית נעצרה.",
   settingsThumbCap: "מגבלת שטח לתמונות ממוזערות",
   settingsThumbCapUnlimited: "ללא מגבלה",
-  settingsThumbCapUsage: (size: string, n: number) => `בשימוש כעת: ${size} (תמונות ממוזערות: ${num(n)}). `,
+  settingsThumbCapUsage: (size: string, n: number) => `בשימוש כעת: \u2068${size}\u2069 (תמונות ממוזערות: ${num(n)}). `,
   settingsThumbCapFits: (n: number) =>
     `במגבלה נכנסות כ־${num(n)} תמונות ממוזערות. מעבר לכך, נמחקות קודם התמונות הממוזערות של תמונות שלא הסתכלתם עליהן זמן מה (התמונות עצמן לא נפגעות).`,
   settingsThumbCapNoLimit: "אין מגבלה; תמונות ממוזערות אף פעם לא נמחקות.",

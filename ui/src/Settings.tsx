@@ -88,6 +88,7 @@ export default function Settings({
   open,
   dismiss = false,
   importWaiting = null,
+  focusSection = null,
   onClose,
   config,
   onConfigChanged,
@@ -109,6 +110,8 @@ export default function Settings({
    * 閉じる道を1つ置く**——閉じれば App が開く（pictkura-dev #71）
    */
   importWaiting?: string | null;
+  /** 開いたときに見せる節（上の帯の「サムネイル 残り n」の小窓から開いたとき） */
+  focusSection?: "thumbnails" | null;
   onClose: () => void;
   config: AppConfig | null;
   onConfigChanged: () => void;
@@ -162,6 +165,15 @@ export default function Settings({
   const [capStep, setCapStep] = useState<number | null>(null);
   const [rebuilding, setRebuilding] = useState(false);
   const savedCapMb = config?.performance?.thumb_cache_mb ?? 4096;
+  const thumbsSectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open || focusSection !== "thumbnails") return;
+    // 面が描かれてから寄せる
+    const raf = window.requestAnimationFrame(() =>
+      thumbsSectionRef.current?.scrollIntoView({ block: "start" }),
+    );
+    return () => window.cancelAnimationFrame(raf);
+  }, [open, focusSection]);
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -971,7 +983,7 @@ export default function Settings({
           )}
 
           {/* サムネイル（2026-11-18 利用者と決めた形）。自動生成は既定オフ・上限はスライダー・トラブル時の作り直し */}
-          <section className="settings-section">
+          <section className="settings-section" ref={thumbsSectionRef}>
             <h3>{t.settingsThumbnails}</h3>
             <label className="settings-toggle">
               <input
@@ -991,7 +1003,9 @@ export default function Settings({
             <p className="settings-note">{t.settingsAutoThumbsNote}</p>
             {(() => {
               const step = capStep ?? capStepOf(savedCapMb);
-              const mb = THUMB_CAPS_MB[step];
+              // 動かしていない間は保存されている値そのもの（設定ファイルに目盛りの間・1 GB 未満の値を書いた人。
+              // 目盛りに丸めると、表示も「8割で止まっています」の判定も裏と食い違う。win2 の実機）
+              const mb = capStep !== null ? THUMB_CAPS_MB[capStep] : savedCapMb;
               const size = (bytes: number) => formatSize(bytes, sizeBaseFor(platform), formatLocale);
               // 1 枚の大きさは今あるサムネイルの平均から（まだ無ければ 50 KB とみる）
               const per = thumbInfo && thumbInfo.count > 0 ? thumbInfo.bytes / thumbInfo.count : 50 * 1024;
@@ -999,9 +1013,10 @@ export default function Settings({
                 <>
                   <div className="settings-cap-head">
                     <label htmlFor="settings-thumb-cap">{t.settingsThumbCap}</label>
-                    <span className="settings-cap-value">
+                    {/* 大きさは向きを閉じる（右から左の画面で「GB 2」と並ばないように） */}
+                    <bdi className="settings-cap-value">
                       {mb === 0 ? t.settingsThumbCapUnlimited : size(mb * 1024 * 1024)}
-                    </span>
+                    </bdi>
                   </div>
                   <div className="slider settings-cap">
                     <input

@@ -23,6 +23,10 @@ type Shown =
   | { kind: "auto"; left: number; paused: boolean }
   | null;
 
+/** 小窓の幅と、窓の縁から空ける量（px） */
+const POP_WIDTH = 300;
+const POP_MARGIN = 8;
+
 const same = (a: Shown, b: Shown) => JSON.stringify(a) === JSON.stringify(b);
 
 export function BackgroundWork({
@@ -36,6 +40,23 @@ export function BackgroundWork({
 }) {
   const [shown, setShown] = useState<Shown>(null);
   const [popOpen, setPopOpen] = useState(false);
+  /** 小窓の置き場（窓の座標）。ボタンの端に揃え、窓からはみ出さないよう寄せる（win2 の実機: 幅 1280 で右へ 71px、
+   *  右から左で左へ 44px はみ出て本文が切れた） */
+  const [popAt, setPopAt] = useState<{ left: number; top: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const openPop = () => {
+    const r = buttonRef.current?.getBoundingClientRect();
+    if (r) {
+      const rtl = document.documentElement.dir === "rtl";
+      const vw = document.documentElement.clientWidth;
+      const want = rtl ? r.right - POP_WIDTH : r.left;
+      setPopAt({
+        left: Math.max(POP_MARGIN, Math.min(want, vw - POP_WIDTH - POP_MARGIN)),
+        top: r.bottom + 6,
+      });
+    }
+    setPopOpen(true);
+  };
   const quietRef = useRef(quiet);
   const wrapRef = useRef<HTMLSpanElement>(null);
   /** 押した直後の一時停止・再開。次の問い合わせが追いつくまで、押した側の見た目を出す */
@@ -99,11 +120,15 @@ export function BackgroundWork({
     const onDown = (e: PointerEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setPopOpen(false);
     };
+    // 窓の大きさが変わったら畳む（置き場は開いたときの窓の座標で決めている）
+    const onResize = () => setPopOpen(false);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [popOpen]);
 
@@ -131,7 +156,8 @@ export function BackgroundWork({
           title={label}
           aria-expanded={popOpen}
           aria-haspopup="dialog"
-          onClick={() => setPopOpen((o) => !o)}
+          ref={buttonRef}
+          onClick={() => (popOpen ? setPopOpen(false) : openPop())}
         >
           {paused ? (
             <svg className="bg-auto-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden>
@@ -153,7 +179,12 @@ export function BackgroundWork({
           <span className="bg-text">{short}</span>
         </button>
         {popOpen && (
-          <div className="bg-auto-pop" role="dialog" aria-label={t.settingsAutoThumbsToggle}>
+          <div
+            className="bg-auto-pop"
+            role="dialog"
+            aria-label={t.settingsAutoThumbsToggle}
+            style={popAt ? { left: popAt.left, top: popAt.top, width: POP_WIDTH } : undefined}
+          >
             <div className="bg-auto-pop-title">
               {paused ? t.autoThumbsPausedHeading : t.autoThumbsHeading}
             </div>

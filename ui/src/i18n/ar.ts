@@ -647,7 +647,7 @@ export const ar: Dict = {
   settingsAutoThumbsAtCap: "امتلأت مساحة الصور المصغّرة بنسبة 80%، لذا توقف الإنشاء التلقائي.",
   settingsThumbCap: "حد مساحة الصور المصغّرة",
   settingsThumbCapUnlimited: "بلا حد",
-  settingsThumbCapUsage: (size: string, n: number) => `المستخدم الآن: ${size} (الصور المصغّرة: ${num(n)}). `,
+  settingsThumbCapUsage: (size: string, n: number) => `المستخدم الآن: \u2068${size}\u2069 (الصور المصغّرة: ${num(n)}). `,
   settingsThumbCapFits: (n: number) =>
     `يتسع الحد لنحو ${num(n)} صورة مصغّرة. عند تجاوزه، تُحذف أولًا الصور المصغّرة للصور التي لم تنظر إليها منذ مدة (الصور نفسها لا تُمس).`,
   settingsThumbCapNoLimit: "لا يوجد حد؛ لا تُحذف الصور المصغّرة أبدًا.",
