@@ -3724,19 +3724,14 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 帯から飛ぶ先と、上端の日の留め置きは、ずらした位置ではなく行の上端（`jumpTops`）——行の途中で切れて着かないように
    */
   const dayRows = useMemo(() => {
-    // 右の帯は**読めた写真の範囲だけ**を受け持つ。末尾の「読み込み中」の束（日付ではない）は渡さず、帯の範囲は
-    // 束の手前で終わる（束へはホイールで行ける）。束の行を日付として渡すと、年 -1 の札・月のカードが出たり、
-    // 何万枚もの未読がいちばん古い月として帯を占めたりした（PR #351 の /code-review）
     const days: number[] = [];
     const tops: number[] = [];
     const jumpTops: number[] = [];
-    let end = rows.length;
+    // 末尾の「読み込み中」の束（日付ではない）が始まる所（`days` の番号）。束が無ければ全部
+    let railEnd: number | null = null;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.dayKey === UNREAD_DAY) {
-        end = i;
-        break;
-      }
+      if (row.dayKey === UNREAD_DAY && railEnd === null) railEnd = days.length;
       if (row.kind === "pack") {
         const h = rowTops[i + 1] - rowTops[i];
         row.segs.forEach((seg, k) => {
@@ -3750,9 +3745,24 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         jumpTops.push(rowTops[i]);
       }
     }
-    tops.push(rowTops[end]);
-    jumpTops.push(rowTops[end]);
-    return { days, tops, jumpTops };
+    tops.push(rowTops[rows.length]);
+    jumpTops.push(rowTops[rows.length]);
+    // 右の帯は**読めた写真の範囲だけ**を受け持つ。束の行を日付として渡すと、年 -1 の札・月のカードが出たり、何万枚もの
+    // 未読がいちばん古い月として帯を占めたりした（PR #351 の /code-review）。束へはホイールで行ける。
+    // **上端の日の留め置き（下の `anchoredScrollTop`）には束も含めて渡す**——束を外すと、束を見ている間に上の行の高さが
+    // 変わったとき、いちばん古い日へ留めようとして束の外へ跳ばされる（PR #351 の codex）。留め置きは日を一致で比べる
+    // だけで、日付として計算しない
+    const n = railEnd ?? days.length;
+    const cut = n < days.length ? rowTops[rows.findIndex((r) => r.dayKey === UNREAD_DAY)] : null;
+    const rail =
+      cut === null
+        ? { days, tops, jumpTops }
+        : {
+            days: days.slice(0, n),
+            tops: [...tops.slice(0, n), cut],
+            jumpTops: [...jumpTops.slice(0, n), cut],
+          };
+    return { days, jumpTops, rail };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
@@ -9021,23 +9031,23 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
             <div className="grid-wrap">
               {/* 帯（普通のスクロールバーの代わり。年の目盛りを載せ、掴んで動かせる。`ScrubRail.tsx`） */}
               {/* まだ1枚も撮影日を読めていない間（新しいライブラリの最初の数秒）は帯を出さない——日付の範囲が無い */}
-              {dayRows.days.length > 0 && (
+              {dayRows.rail.days.length > 0 && (
               <ScrubRail
                 scrollRef={scrollRef}
-                rowTops={dayRows.tops}
-                dayKeys={dayRows.days}
-                jumpTops={dayRows.jumpTops}
+                rowTops={dayRows.rail.tops}
+                dayKeys={dayRows.rail.days}
+                jumpTops={dayRows.rail.jumpTops}
                 monthCounts={monthCounts}
                 // 行の上端（`rowTops`）へ直に置く。帯の目盛りも中身の高さも同じ `rowTops` で描いているので食い違わない
                 // ——仮想スクローラの `scrollToIndex` では 2023 だけ 873px 手前の日に着いた（win2 の実測）
                 onJumpToRow={(i) => {
                   const el = scrollRef.current;
                   // 帯の「掴んで送る」と同じく、底より先へは置かない（現在地の印が離した所から跳ねないように）
-                  if (el) el.scrollTop = Math.min(dayRows.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
+                  if (el) el.scrollTop = Math.min(dayRows.rail.jumpTops[i], Math.max(0, rowTops[rows.length] - el.clientHeight));
                 }}
               />
               )}
-              <div className={"grid-scroll" + (dayRows.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
+              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。

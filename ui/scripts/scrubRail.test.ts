@@ -163,3 +163,15 @@ test("anchoring inside a packed row keeps the offset into the row", () => {
   const offDays = [20251227, 20251227, 20251225, 20251225];
   assert.equal(anchoredScrollTop(1200, tops, days, offTops, offDays), 1200);
 });
+
+// 末尾の「読み込み中」の束（-2）を見ている間に、読めた写真で上にいちばん古い日が増えても、束の中の同じ所に留まる
+// （App.tsx の `dayRows` は、留め置きには束も含めて渡す。束を外すと束の外へ跳ばされた。PR #351 の codex）
+test("an unread group at the end keeps its place when an older day appears above it", () => {
+  const prevTops = [0, 100, 1000];
+  const prevDays = [20250101, -2];
+  const nextTops = [0, 100, 200, 1100];
+  const nextDays = [20250101, 20190101, -2];
+  assert.equal(anchoredScrollTop(500, prevTops, prevDays, nextTops, nextDays), 600);
+  // 束を外して渡すと、いちばん古い日へ留めようとして束の外へ出る（この升が見張る形）
+  assert.notEqual(anchoredScrollTop(500, [0, 100], [20250101], [0, 100, 200], [20250101, 20190101]), 600);
+});
