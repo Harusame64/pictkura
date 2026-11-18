@@ -6931,6 +6931,13 @@ fn video_response(path: &Path, range: Option<&str>, mime: &str) -> Response<Vec<
     }
 }
 
+/// 置き場を見て回って孤児のサムネイルを片付けた時刻（ミリ秒）。控え（`thumb_trash`）が拾えない孤児——この版より前に
+/// 残ったもの、付け替えた後で確定に失敗した（落ちた・ディスクが満杯）サムネイル——のために、起動の後に
+/// [`ORPHAN_SWEEP_EVERY_MS`] ごと、1回だけ見て回る（PR の codex）
+const ORPHAN_SWEEP_KEY: &str = "orphan_thumb_sweep_v1";
+/// 置き場を見て回る間隔。3万枚で 0.3〜0.4 秒（Windows の NTFS）なので、週に1回なら気にならない
+const ORPHAN_SWEEP_EVERY_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
 /// サムネイル未生成のとき、原本を一覧へ出して良い最大の辺（ピクセル）。
 ///
 /// 既定のサムネイル（512px）の4倍。設定値から計算したくなるが、
@@ -8163,33 +8170,55 @@ pub fn run() {
                     let _ = pictkura_core::panics::catching("sweeping thumbnails", || {
                         let cap_bytes = (thumb_cache_mb.min(8 * 1024 * 1024) as i64) * 1024 * 1024;
                         let mut db: Option<Db> = None;
-                        // 持ち主の居ないサムネイルの掃除は、起動後の最初の回と、その後1時間ごと
-                        let mut orphans_swept_at: Option<std::time::Instant> = None;
+                        let mut walked_this_session = false;
                         loop {
                             std::thread::sleep(std::time::Duration::from_secs(60));
                             let state = janitor_handle.state::<AppState>();
                             let touches: Vec<(i64, i64)> =
                                 lock_ok(&state.thumb_touches).drain().collect();
-                            let sweep_due = orphans_swept_at.is_none_or(|at| {
-                                at.elapsed() >= std::time::Duration::from_secs(3600)
-                            });
-                            if touches.is_empty() && cap_bytes == 0 && !sweep_due {
-                                continue;
-                            }
                             if db.is_none() {
                                 db = Db::open(&janitor_db_path).ok();
                             }
                             let Some(db) = db.as_mut() else { continue };
+                            // 写真の行が消えた・サムネイルが外れたときに DB が控えたファイルを消す
+                            // （`drain_thumb_trash`。置き場は見て回らない。控えが無ければ1回の読みで終わる）
+                            if let Ok(n) = pictkura_core::thumbs::drain_thumb_trash(
+                                db,
+                                &janitor_thumbs_dir,
+                                2000,
+                                &|id| state.thumbs.is_active(id),
+                            ) {
+                                if n > 0 {
+                                    applog::note(&format!("removed {n} thumbnails no photo uses"));
+                                }
+                            }
+                            // 控えが拾えない孤児は、置き場を見て回って片付ける（週に1回まで。この起動で1回だけ）
+                            let sweep_due = !walked_this_session
+                                && db
+                                    .get_meta(ORPHAN_SWEEP_KEY)
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|v| v.parse::<i64>().ok())
+                                    .is_none_or(|at| {
+                                        pictkura_core::db::now_ms() - at >= ORPHAN_SWEEP_EVERY_MS
+                                    });
                             if sweep_due {
-                                orphans_swept_at = Some(std::time::Instant::now());
-                                // 写真を消しても残っていたサムネイル（`sweep_orphan_thumbs`）。10分より新しい
-                                // ファイルと作業中の id は残す
+                                walked_this_session = true;
                                 if let Ok(n) = pictkura_core::thumbs::sweep_orphan_thumbs(
                                     db,
                                     &janitor_thumbs_dir,
                                     std::time::Duration::from_secs(600),
                                     &|id| state.thumbs.is_active(id),
                                 ) {
+                                    let (n, deferred) = n;
+                                    // 見送り（新しすぎる・作業中・消せなかった）が残る間は「済んだ」時刻を書かない。
+                                    // 控えに載っていない孤児なので、次の起動でまた見て回る（PR の codex）
+                                    if deferred == 0 {
+                                        let _ = db.set_meta(
+                                            ORPHAN_SWEEP_KEY,
+                                            &pictkura_core::db::now_ms().to_string(),
+                                        );
+                                    }
                                     if n > 0 {
                                         applog::note(&format!("removed {n} orphaned thumbnails"));
                                     }

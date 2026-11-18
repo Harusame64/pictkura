@@ -864,6 +864,32 @@ impl Db {
                 ON media(thumb_used_ms, thumb_bytes) WHERE thumb_state = 2;
             "#
         ))?;
+        // **捨てるサムネイルの控え。** 写真の行が消える・行のサムネイルが外れる（回した・作り直す・LRU）と、
+        // そのファイル名をここへ積む。行が消えるとサムネイルの持ち主の記録も消え、ファイルだけが置き場に残って
+        // いた（2026-11-18 利用者）。消す道は多い（走査・監視・ゴミ箱・ルートを外す・パスの正規化）ので、
+        // 道ごとでなく DB の引き金で拾う。片付けは掃除役（[`Db::thumb_trash_batch`]）が、消す直前にその名前を
+        // どの行も使っていないことを確かめてから行う
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS thumb_trash (
+                path      TEXT PRIMARY KEY,
+                id        INTEGER NOT NULL,
+                queued_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_thumb_trash_queued ON thumb_trash(queued_ms, path);
+            CREATE TRIGGER IF NOT EXISTS thumb_trash_ad AFTER DELETE ON media
+            WHEN old.thumb_path IS NOT NULL BEGIN
+                INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
+                VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+            END;
+            CREATE TRIGGER IF NOT EXISTS thumb_trash_au AFTER UPDATE OF thumb_path ON media
+            WHEN old.thumb_path IS NOT NULL
+                AND (new.thumb_path IS NULL OR new.thumb_path <> old.thumb_path) BEGIN
+                INSERT OR IGNORE INTO thumb_trash (path, id, queued_ms)
+                VALUES (old.thumb_path, old.id, CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER));
+            END;
+            "#,
+        )?;
         // 移行: day_key未計算（=0）の既存レコードを埋める
         conn.execute(
             &format!(
@@ -2449,6 +2475,58 @@ impl Db {
             }
         }
         Ok(out)
+    }
+
+    /// 捨てるサムネイルの控え（`thumb_trash` 表）を古い順に `offset` から `limit` 件。`(記録のパス, id, 積んだ時刻)`
+    pub fn thumb_trash_batch(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(String, i64, i64)>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT path, id, queued_ms FROM thumb_trash ORDER BY queued_ms, path LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map([limit as i64, offset as i64], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 片付けた控えを外す
+    pub fn thumb_trash_done(&mut self, paths: &[String]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            let mut del = tx.prepare_cached("DELETE FROM thumb_trash WHERE path = ?1")?;
+            for p in paths {
+                del.execute([p])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 行のサムネイルを外す（記録がまだそのパスのときだけ）。外したかを返す。外したファイルは引き金が
+    /// `thumb_trash` に積む
+    pub fn clear_thumb_path(&mut self, id: i64, path: &Path) -> Result<bool, DbError> {
+        let n = self.conn.execute(
+            "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
+             WHERE id = ?1 AND thumb_path = ?2",
+            params![id, path.to_string_lossy()],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// 書き手の順番（`BEGIN IMMEDIATE`）を持ったまま `f` を走らせる。`f` は読むだけ・ファイルを触るだけ。
+    /// サムネイルの付け替え（[`crate::thumbs`] の `publish_thumb`）は書き手の順番の中で記録して付け替えるので、
+    /// この中で確かめて消せば、付け替えの途中と入れ違わない
+    pub fn holding_write_lock<T>(&mut self, f: impl FnOnce(&Db) -> T) -> Result<T, DbError> {
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        let _ = self.conn.execute_batch("COMMIT");
+        match out {
+            Ok(v) => Ok(v),
+            Err(p) => std::panic::resume_unwind(p),
+        }
     }
 
     /// 1行のサムネイルのファイル名（無ければ None）。孤児の掃除が、消す直前に確かめ直すのに使う
