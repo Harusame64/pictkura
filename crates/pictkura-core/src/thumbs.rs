@@ -910,16 +910,36 @@ pub fn reread_stray_exif(
     Ok(out)
 }
 
-/// この失敗は、読み直しても直らない（中身が壊れている）か。「読み込み中」の束から出すかの判断に使う
+/// 読めずに終わった新しい写真を「読み込み中」の束から出すか。
 ///
-/// 開けない（消えた・掴まれている）は `image` の誤りに包まれて来る（`ImageError::IoError`）ので、そこは一時の失敗に数える
-fn gives_up_on_unread(err: &ThumbError) -> bool {
-    match err {
+/// 出すと、ファイルの日付の日（多くは今日＝一覧の先頭）へ並ぶ。だから**読み直しても直らないと分かるときだけ**:
+///
+/// - **中身が壊れている**（`image` の解読の失敗・解読器のパニック）。開けない（消えた・掴まれている）は `image` の誤りに
+///   包まれて来る（`ImageError::IoError`）ので一時の失敗に数え、何回失敗しても束に残す——掴まれている間に失敗が上限に
+///   達して今日の日へ落ち、開けるようになっても読み直されなかった（win2 の実機、PR #351）。束に居れば、次に読み直す
+///   機会（ファイルの変化・走査・次の起動）で本当の日へ移る
+/// - **しかも [`UNREAD_SETTLE_QUIET`] より前から書き換わっていない**。書き込み中のファイルは途中で切れていて壊れて
+///   見える。出すと書いている間ずっと、今日の見出しが先頭に出たり消えたりした（win2 の実機、PR #351）。コピーは書いて
+///   いる間は更新時刻が今で、書き終えると元の時刻に戻る
+fn leaves_unread_day(
+    err: &ThumbError,
+    modified: Option<std::time::SystemTime>,
+    now: std::time::SystemTime,
+) -> bool {
+    let broken = match err {
         ThumbError::Image(image::ImageError::IoError(_)) => false,
         ThumbError::Image(_) | ThumbError::Panicked(_) => true,
         ThumbError::Db(_) | ThumbError::Io(_) | ThumbError::NotFound(_) => false,
-    }
+    };
+    broken
+        && modified.is_some_and(|m| {
+            now.duration_since(m)
+                .is_ok_and(|age| age >= UNREAD_SETTLE_QUIET)
+        })
 }
+
+/// 壊れて見えるファイルを、書き込み中ではないとみなすまでの間（[`leaves_unread_day`]）
+const UNREAD_SETTLE_QUIET: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// [`reread_stray_exif`] の結果
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -2929,11 +2949,15 @@ impl ThumbnailService {
                         // 以後の再投入が無視される（無限リトライ防止）
                         if let Err(err) = &result {
                             queue.record_failure(id);
-                            // 読めずに終わった新しい写真を「読み込み中」の束から出す。**諦めたとき（失敗の上限）と、
-                            // 中身が壊れていて二度と読めないときだけ**——書き込み中・ほかのアプリが掴んでいる、の
-                            // ような一時の失敗で出すと、ファイルの日付（多くは今日）の先頭へ跳び、読み直して
-                            // また動く（PR #351 の /code-review）。撮影日時を書けた道は自分で移している
-                            if gives_up_on_unread(err) || queue.is_blocked(id) {
+                            // 読めずに終わった新しい写真を「読み込み中」の束から出すのは、**中身が壊れていて、しかも
+                            // しばらく書き換わっていない**ときだけ（[`leaves_unread_day`]）。撮影日時を書けた道は自分で移す
+                            let modified = db
+                                .get_by_id(id)
+                                .ok()
+                                .flatten()
+                                .and_then(|r| std::fs::metadata(&r.path).ok())
+                                .and_then(|m| m.modified().ok());
+                            if leaves_unread_day(err, modified, std::time::SystemTime::now()) {
                                 let _ = db.settle_unread_day(id);
                             }
                         }
@@ -5832,7 +5856,7 @@ mod tests {
         // 開けない写真は読みが失敗する。働き手は束からファイルの日付の日へ出す
         let r = process_one(&mut db, &dir.path().join("thumbs"), 160, x, false);
         assert!(
-            matches!(&r, Err(e) if !gives_up_on_unread(e)),
+            matches!(&r, Err(e) if !leaves_unread_day(e, None, std::time::SystemTime::now())),
             "開けないのは一時の失敗"
         );
         assert_eq!(day(&db, x), UNREAD_DAY_KEY, "失敗した読みは日を動かさない");
@@ -5873,9 +5897,9 @@ mod tests {
         assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
     }
 
-    /// 働き手は、開けなかった新しい写真を一時の失敗のうちは束に残し、諦めたときに束から出す
+    /// 働き手は、開けない新しい写真を、失敗が上限に達しても「読み込み中」の束に残す（開けるようになれば読み直せる）
     #[test]
-    fn the_worker_settles_an_unreadable_photo_only_when_it_gives_up() {
+    fn the_worker_keeps_an_unopenable_photo_in_the_unread_day() {
         use crate::db::UNREAD_DAY_KEY;
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("w.db");
@@ -5899,23 +5923,50 @@ mod tests {
                 let _ = tx.lock().unwrap().send(id);
             },
         );
-        let day = || {
-            Db::open(&db_path)
-                .unwrap()
-                .get_by_id(id)
-                .unwrap()
-                .unwrap()
-                .day_key
-        };
-        for round in 1..=MAX_FAILURES {
+        for _ in 0..MAX_FAILURES {
             svc.enqueue(&[id]);
             rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
-            if round < MAX_FAILURES {
-                assert_eq!(day(), UNREAD_DAY_KEY, "{round} 回目の失敗では束に残る");
-            }
         }
         svc.shutdown();
-        assert_eq!(day() / 10000, 2019, "諦めたらファイルの日付の日へ");
+        let db = Db::open(&db_path).unwrap();
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+    }
+
+    /// 束から出すのは、中身が壊れていて、しばらく書き換わっていないときだけ
+    #[test]
+    fn only_a_broken_file_at_rest_leaves_the_unread_day() {
+        let now = std::time::SystemTime::now();
+        let old = Some(now - std::time::Duration::from_secs(120));
+        let fresh = Some(now - std::time::Duration::from_secs(2));
+        let broken = || {
+            ThumbError::Image(image::ImageError::Unsupported(
+                image::error::UnsupportedError::from_format_and_kind(
+                    image::error::ImageFormatHint::Unknown,
+                    image::error::UnsupportedErrorKind::GenericFeature("x".into()),
+                ),
+            ))
+        };
+        let unopenable =
+            || ThumbError::Image(image::ImageError::IoError(std::io::Error::other("locked")));
+        assert!(
+            leaves_unread_day(&broken(), old, now),
+            "壊れていて落ち着いている"
+        );
+        assert!(
+            !leaves_unread_day(&broken(), fresh, now),
+            "書き込み中かもしれない"
+        );
+        assert!(!leaves_unread_day(&broken(), None, now), "時刻が分からない");
+        assert!(
+            !leaves_unread_day(&unopenable(), old, now),
+            "開けないのは一時の失敗"
+        );
+        assert!(leaves_unread_day(&ThumbError::Panicked(1), old, now));
+        assert!(!leaves_unread_day(
+            &ThumbError::Io(std::io::Error::other("x")),
+            old,
+            now
+        ));
     }
 
     /// 前の版で EXIF を拒まれていた JPEG だけを、一度きり読み直しへ回す（クラウドにしか無いものは開かない）
