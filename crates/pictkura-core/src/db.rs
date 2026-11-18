@@ -486,6 +486,11 @@ const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NU
      thumb_path = NULL, \
      thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL, duration_ms = NULL, rev = rev + 1";
 
+/// 走査で中身が変わった既存の行は、**日を動かさない**（`upsert_files`・`apply_scan` の `ON CONFLICT`）。撮影日時を
+/// 空にして読み直しへ回すが、読み直すまでの間ファイルの日付（多くは今日）の日へ置くと、外で編集した写真や書き込み中の
+/// ファイルが一瞬一覧の先頭へ跳んだ（win2 の実機、PR #351: 書いている間、今日の見出しが出たり消えたりした）。読み直しが
+/// 撮影日時を書けば本当の日へ移る。まだ読んでいない行（[`UNREAD_DAY_KEY`]）は束に居たまま
+///
 /// **まだ撮影日時を読んでいない新しい写真の日**（一覧の末尾の「読み込み中」の束）。
 ///
 /// 新しいライブラリでは撮影日時が分からないうちは並びの鍵がファイルの日付（コピーした今日）になり、未読の写真が
@@ -1424,11 +1429,10 @@ impl Db {
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
-                    day_key = CASE WHEN media.day_key = {UNREAD_DAY_KEY} THEN {UNREAD_DAY_KEY} ELSE {} END,
+                    day_key = media.day_key,
                     {}
                 "#,
                 parent_dir_expr("?1"),
-                day_key_expr("excluded.mtime_ms"),
                 CHANGED_ROW_RESET
             ))?;
             for f in files {
@@ -1576,11 +1580,10 @@ impl Db {
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime_ms = excluded.mtime_ms,
-                    day_key = CASE WHEN media.day_key = {UNREAD_DAY_KEY} THEN {UNREAD_DAY_KEY} ELSE {} END,
+                    day_key = media.day_key,
                     {}
                 "#,
                 parent_dir_expr("s.path"),
-                day_key_expr("excluded.mtime_ms"),
                 CHANGED_ROW_RESET
             ),
             [],

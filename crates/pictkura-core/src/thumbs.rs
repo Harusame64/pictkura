@@ -5866,14 +5866,18 @@ mod tests {
         db.settle_unread_day(g).unwrap();
         assert_eq!(day(&db, g), 20210506);
 
-        // 中身が変わった既存の写真は、束へ戻らない（ファイルの日付の日に居て、読み直しで撮影日へ）
+        // 中身が変わった既存の写真は、束へ戻らず、今の日に居る（読み直しで撮影日へ）
         db.upsert_files(&[ScannedFile {
             path: good.clone(),
             size: 2,
             mtime_ms: 1_557_057_600_000,
         }])
         .unwrap();
-        assert_ne!(day(&db, g), UNREAD_DAY_KEY);
+        assert_eq!(
+            day(&db, g),
+            20210506,
+            "読んだ写真の中身が変わっても日は動かない"
+        );
         assert!(db
             .timeline_summary(crate::MediaFilter::All)
             .unwrap()
