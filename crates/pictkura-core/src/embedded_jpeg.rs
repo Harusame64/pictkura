@@ -113,12 +113,10 @@ fn app_segments(jpeg: &[u8]) -> Vec<(u8, usize, usize)> {
 /// **先頭に**入れる——読み手は最初の EXIF を使うので、カメラの EXIF より前に置く
 fn has_capture_time(jpeg: &[u8]) -> bool {
     has_exif(jpeg)
-        && exif::Reader::new()
-            .read_from_container(&mut std::io::Cursor::new(jpeg))
-            .is_ok_and(|e| {
-                e.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
-                    .is_some()
-            })
+        && crate::thumbs::parse_exif_container(&mut std::io::Cursor::new(jpeg)).is_ok_and(|e| {
+            e.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
+                .is_some()
+        })
 }
 
 /// EXIF の区切り（`APP1` で `Exif\0\0` から始まるもの）を持つか。

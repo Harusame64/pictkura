@@ -3978,6 +3978,59 @@ impl Db {
         Ok(out)
     }
 
+    /// 写真の行の数（新しいライブラリかどうかの見分け）
+    pub fn media_count(&self) -> Result<i64, DbError> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM media", [], |r| r.get(0))?)
+    }
+
+    /// EXIF を入れ物から読む写真の行すべて（[`crate::thumbs::reread_stray_exif`] の候補）。
+    ///
+    /// **行の状態では絞らない。** 起動時の後追い（連写の材料・カメラ）は、直った読み手で撮影日時の出どころや
+    /// カメラを先に書き換えるので、「出どころが EXIF でない」で絞ると候補から全部漏れた（win2 の実機、
+    /// PR #349）。見分けはファイルの EXIF でする
+    ///
+    /// 入れ物が EXIF の箱だけを読ませる形式（JPEG・WebP・PNG・HEIF）に限る。TIFF と TIFF 系の RAW は、
+    /// 入れ物ごと読むとファイル全体を読むので外す（piexif が書くのは JPEG と WebP）
+    pub fn exif_container_rows(&self) -> Result<Vec<FallbackDateRow>, DbError> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, path FROM media
+             WHERE lower(path) LIKE '%.jpg' OR lower(path) LIKE '%.jpeg'
+                OR lower(path) LIKE '%.jpe' OR lower(path) LIKE '%.jfif'
+                OR lower(path) LIKE '%.webp' OR lower(path) LIKE '%.png'
+                OR lower(path) LIKE '%.heic' OR lower(path) LIKE '%.heif'
+             ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get(0)?, PathBuf::from(r.get::<_, String>(1)?)))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// 行を、中身が変わったときと同じに空にする（[`CHANGED_ROW_RESET`]。カメラは残す）。外したサムネイルは
+    /// 引き金が `thumb_trash` に積む。読み直しは `ids_missing_metadata` が拾う
+    pub fn reset_for_reread(&mut self, ids: &[i64]) -> Result<(), DbError> {
+        let tx = self.write_tx()?;
+        {
+            // 日の束も並びの鍵（撮影日時が空なら mtime）に合わせ直す。`upsert_files` が中身の変わった行で
+            // するのと同じ——空にした撮影日時の古い日に並んだままにしない（PR #349 の /code-review）
+            let mut stmt = tx.prepare_cached(&format!(
+                "UPDATE media SET {CHANGED_ROW_RESET}, day_key = {} WHERE id = ?1",
+                day_key_expr("mtime_ms")
+            ))?;
+            for id in ids {
+                stmt.execute([id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// `width = 0` も対象に含める（第9部 段階H）。0は「読もうとして読めなかった」印で、
     /// コンテナを自前で解釈できない動画（`.m2ts` / `.avi`）がここに落ちる。OSのプロパティを
     /// 聞く道ができた後は取れるようになるので、既に走査済みのDBでも拾い直せるようにする。
@@ -6118,6 +6171,28 @@ mod tests {
 
         // 上限内なら何もしない
         assert!(db.evict_final_thumbs(2000, &empty).unwrap().is_empty());
+    }
+
+    /// 読み直しへ回した行は、日の束も並びの鍵（撮影日時が空なので mtime）に合わせ直す
+    #[test]
+    fn a_row_reset_for_reread_moves_to_the_day_of_its_mtime() {
+        let mut db = Db::open_in_memory().unwrap();
+        // mtime は 2019-05-05 ごろ、撮影日時は 2021 年
+        db.upsert_files(&[scanned("a.jpg", 1, 1_557_057_600_000)])
+            .unwrap();
+        let id = id_of(&db, "a.jpg");
+        db.update_shell_metadata(
+            id,
+            10,
+            10,
+            TakenAt::tag(Some(1_632_000_000_000), TakenSource::Os),
+        )
+        .unwrap();
+        let before = db.get_by_id(id).unwrap().unwrap().day_key;
+        db.reset_for_reread(&[id]).unwrap();
+        let after = db.get_by_id(id).unwrap().unwrap().day_key;
+        assert_ne!(before, after);
+        assert_eq!(after / 10000, 2019, "{after}");
     }
 
     /// SVG の「要らない」印（`thumbs::THUMB_STATE_NOT_NEEDED`）

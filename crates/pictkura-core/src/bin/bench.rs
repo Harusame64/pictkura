@@ -119,6 +119,7 @@ fn bench_raw(path: &std::path::Path) {
         .enumerate()
     {
         let head: Vec<String> = block.iter().take(4).map(|b| format!("{b:02x}")).collect();
+        // 診断の表示なので、拒まれた誤りが見える厳密な読み手で読む（製品の読み手は「次の IFD」の誤りを黙って許す）
         match exif::Reader::new().read_raw(block.clone()) {
             Ok(exif) => {
                 let tags: Vec<String> = exif.fields().take(60).map(|f| f.tag.to_string()).collect();
@@ -314,9 +315,8 @@ fn bench_raw_matrix(
     /// **1〜8の外もそのまま返す。** `pv_orient` 列は二重回転を見抜く材料なので、
     /// 丸めると「壊れた申告」と「タグが無い」の区別が消える
     fn declared_orientation(bytes: &[u8]) -> Option<u32> {
-        let exif = exif::Reader::new()
-            .read_from_container(&mut std::io::Cursor::new(bytes))
-            .ok()?;
+        let exif =
+            pictkura_core::thumbs::parse_exif_container(&mut std::io::Cursor::new(bytes)).ok()?;
         let tag = exif::Tag::Orientation;
         exif.get_field(tag, exif::In::PRIMARY)
             .or_else(|| {
@@ -917,15 +917,15 @@ fn bench_raw_orient(dir: &std::path::Path, out: Option<&std::path::Path>) {
         };
         // プレビュー自身がEXIFの向きを持っているか（持っていれば、その絵が
         // 回転前であることをカメラが明言している）
-        let preview_orient = exif::Reader::new()
-            .read_from_container(&mut std::io::Cursor::new(preview))
-            .ok()
-            .and_then(|e| {
-                e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
-                    .and_then(|f| f.value.get_uint(0))
-            })
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "無".to_string());
+        let preview_orient =
+            pictkura_core::thumbs::parse_exif_container(&mut std::io::Cursor::new(preview))
+                .ok()
+                .and_then(|e| {
+                    e.get_field(exif::Tag::Orientation, exif::In::PRIMARY)
+                        .and_then(|f| f.value.get_uint(0))
+                })
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "無".to_string());
         let pv = image::load_from_memory(preview).ok();
         let pv_dims = pv
             .as_ref()
