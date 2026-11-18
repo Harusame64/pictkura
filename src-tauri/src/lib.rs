@@ -7692,8 +7692,12 @@ fn handle_media_request(
                 && !state.thumbs.is_blocked(id)
                 && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
             {
+                // SPIKE: 原本を出しつつ、作る列にも積む（#342 の列＝同時4枚・画面外は捨てる、があれば詰まらないか）
                 state.thumbs.prioritize(&[id]);
-                return blank_thumb();
+                if !can_serve_original(&record) {
+                    return blank_thumb();
+                }
+                record.path
             }
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,
