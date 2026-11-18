@@ -2974,12 +2974,18 @@ impl ThumbnailService {
                                         .ok()
                                         .and_then(|m| m.modified().ok());
                                     let now = std::time::SystemTime::now();
-                                    if leaves_unread_day(err, modified, now, queue.is_blocked(id)) {
-                                        // 読みの後で行が変わっていたら（書き終えたファイルが入り直した）動かさない。
-                                        // 新しい中身は読み直しが日を決める
-                                        let _ = db.guarded(id, r.version(), |db| {
-                                            db.settle_unread_day(id)
-                                        });
+                                    // 読み始めた時点の版で確かめる。失敗の後に読んだ版で比べると、読みの途中で入れ替わった
+                                    // 新しい中身（書き終えたファイル）を、読まずに束から出してしまう（PR #351 の codex）
+                                    if let Some(before) = version_before {
+                                        if leaves_unread_day(
+                                            err,
+                                            modified,
+                                            now,
+                                            queue.is_blocked(id),
+                                        ) {
+                                            let _ = db
+                                                .guarded(id, before, |db| db.settle_unread_day(id));
+                                        }
                                     }
                                 }
                             }
