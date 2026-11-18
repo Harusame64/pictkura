@@ -3727,11 +3727,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     const days: number[] = [];
     const tops: number[] = [];
     const jumpTops: number[] = [];
-    // 末尾の「読み込み中」の束（日付ではない）が始まる所（`days` の番号）。束が無ければ全部
-    let railEnd: number | null = null;
+    // 末尾の「読み込み中」の束（日付ではない）が始まる所（`days` の番号と、その行の上端）。束が無ければ null
+    let railEnd: { n: number; top: number } | null = null;
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.dayKey === UNREAD_DAY && railEnd === null) railEnd = days.length;
+      if (row.dayKey === UNREAD_DAY && railEnd === null) railEnd = { n: days.length, top: rowTops[i] };
       if (row.kind === "pack") {
         const h = rowTops[i + 1] - rowTops[i];
         row.segs.forEach((seg, k) => {
@@ -3752,17 +3752,15 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // **上端の日の留め置き（下の `anchoredScrollTop`）には束も含めて渡す**——束を外すと、束を見ている間に上の行の高さが
     // 変わったとき、いちばん古い日へ留めようとして束の外へ跳ばされる（PR #351 の codex）。留め置きは日を一致で比べる
     // だけで、日付として計算しない
-    const n = railEnd ?? days.length;
-    const cut = n < days.length ? rowTops[rows.findIndex((r) => r.dayKey === UNREAD_DAY)] : null;
     const rail =
-      cut === null
+      railEnd === null
         ? { days, tops, jumpTops }
         : {
-            days: days.slice(0, n),
-            tops: [...tops.slice(0, n), cut],
-            jumpTops: [...jumpTops.slice(0, n), cut],
+            days: days.slice(0, railEnd.n),
+            tops: [...tops.slice(0, railEnd.n), railEnd.top],
+            jumpTops: [...jumpTops.slice(0, railEnd.n), railEnd.top],
           };
-    return { days, jumpTops, rail };
+    return { days, jumpTops, rail, unread: railEnd !== null };
   }, [rows, rowTops]);
   /** 月（yyyymm）ごとの枚数（帯の月の一覧が、押す先の月に添える）。日の見出しの枚数を足す */
   const monthCounts = useMemo(() => {
@@ -9047,7 +9045,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                 }}
               />
               )}
-              <div className={"grid-scroll" + (dayRows.rail.days.length > 0 ? "" : " no-rail")} ref={scrollRef}>
+              {/* 「読み込み中」の束がある間は、ふつうのスクロールバーも出す。帯は読めた範囲しか受け持たず（束へは届かない）、
+                  読めた範囲が画面より短いうちは帯そのものが出ない（PR #351 の /code-review） */}
+              <div className={"grid-scroll" + (dayRows.unread ? " no-rail" : "")} ref={scrollRef}>
               <div
                 style={{
                   // 行の高さの和そのもの（仮想スクローラの合計と同じ値だが、測り直しを待たずに今の描画で決まる。

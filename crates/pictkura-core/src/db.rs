@@ -491,8 +491,11 @@ const CHANGED_ROW_RESET: &str = "width = NULL, height = NULL, preview_width = NU
 /// 新しいライブラリでは撮影日時が分からないうちは並びの鍵がファイルの日付（コピーした今日）になり、未読の写真が
 /// 一覧の先頭に固まっていた。先頭に見えた写真を読む → 本当の日へ去る → 次の未読が来る、で先頭が読み終わるまで
 /// 灰色のままだった（3万枚で約45秒。2026-11-18 利用者「未読は末尾にまとめる」）。走査で**新しく入れる行**だけに
-/// 付け、撮影日時を書く道（`update_metadata*`・`update_shell_metadata`）が本当の日へ移す。読めずに終わった行のうち、
-/// 読み直しても直らないものは [`Db::settle_unread_day`] がファイルの日付の日へ移す（`thumbs::leaves_unread_day`）。
+/// 付け、撮影日時を書く道（`update_metadata*`・`update_shell_metadata`）が本当の日へ移す。読めずに終わった行（開けない・
+/// 掴まれている・壊れている・クラウドにしか無い）は束に残り、**読み込みが一段落したところで**
+/// [`Db::settle_all_unread`] がまとめてファイルの日付の日へ移す（`src-tauri` の配り手。main と同じ並び）。次の起動で
+/// 読み直され、読めれば本当の日へ移る。行ごとに「いつ出すか」を決める形は、書き込み中・掴まれた・権限が無い・時刻が
+/// 未来…と境目が尽きなかった（PR #351 の /code-review 4周）
 ///
 /// **中身が変わった既存の行は、日を動かさない**（`upsert_files`・`apply_scan` の `ON CONFLICT`、[`Db::reset_for_reread`]）。
 /// 撮影日時を空にして読み直しへ回すが、読み直すまでの間ファイルの日付（多くは今日）の日へ置くと、外で編集した写真や
@@ -2589,10 +2592,10 @@ impl Db {
         Ok(rows)
     }
 
-    /// 試験用: 「読み込み中」の束の行を、すべて並びの鍵の日へ移す（読み終えた形にする）
-    #[cfg(test)]
-    pub(crate) fn settle_all_unread(&mut self) {
-        self.conn.execute(&settle_unread_sql(""), []).unwrap();
+    /// 「読み込み中」の束に残っている行を、すべて並びの鍵の日（撮影日時が無ければファイルの日付）へ移す。移した数を返す。
+    /// 読み込みが一段落したときに呼ぶ（[`UNREAD_DAY_KEY`]）
+    pub fn settle_all_unread(&mut self) -> Result<usize, DbError> {
+        Ok(self.conn.execute(&settle_unread_sql(""), [])?)
     }
 
     /// 試験用: サムネイルの利用時刻
@@ -5362,7 +5365,7 @@ mod tests {
             scanned("c.jpg", 1, d2),
         ])
         .unwrap();
-        db.settle_all_unread();
+        db.settle_all_unread().unwrap();
 
         let summary = db.timeline_summary(crate::MediaFilter::All).unwrap();
         let keys: Vec<_> = summary.iter().map(|d| (d.day_key, d.count)).collect();
@@ -5410,7 +5413,7 @@ mod tests {
             scanned("d.heic", 1, d1 + 3000),
         ])
         .unwrap();
-        db.settle_all_unread();
+        db.settle_all_unread().unwrap();
 
         let names = |kinds: Option<Vec<MediaKind>>| -> Vec<String> {
             let query = SearchQuery {
@@ -5457,7 +5460,7 @@ mod tests {
         let d1 = local_noon_ms(2024, 8, 11);
         db.upsert_files(&[scanned("a.jpg", 1, d1), scanned("b.jpg", 1, d1 + 1000)])
             .unwrap();
-        db.settle_all_unread();
+        db.settle_all_unread().unwrap();
         let id = db
             .list_day(20240811, crate::MediaFilter::All)
             .unwrap()
@@ -5497,7 +5500,7 @@ mod tests {
             ),
         ])
         .unwrap();
-        db.settle_all_unread();
+        db.settle_all_unread().unwrap();
 
         let memories = db.list_memories(24).unwrap();
         let got: Vec<_> = memories

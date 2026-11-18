@@ -7223,6 +7223,30 @@ const AUTO_THUMBS_TICK: std::time::Duration = std::time::Duration::from_secs(2);
 /// 作り終えた（配るものが無かった）後、新しい写真を見に行くまでの間
 const AUTO_THUMBS_REST: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// 素性の読み込みが一段落したら（起動時の同期・走査が終わり、読む列が 2 拍続けて空）、「読み込み中」の束に残った写真を
+/// まとめてファイルの日付の日へ出す（[`pictkura_core::db::UNREAD_DAY_KEY`]）。読めなかった写真は次の起動で読み直す。
+/// 2 拍待つのは、見張りが行を入れてから列に積むまでの隙間で、入れたばかりの行を出さないため
+fn settle_unread_when_quiet(handle: &tauri::AppHandle, quiet_ticks: &mut u32) {
+    let state = handle.state::<AppState>();
+    let quiet = state.startup_done.load(std::sync::atomic::Ordering::SeqCst)
+        && state
+            .scans_running
+            .load(std::sync::atomic::Ordering::SeqCst)
+            == 0
+        && state.thumbs.queue().metadata_idle();
+    *quiet_ticks = if quiet { *quiet_ticks + 1 } else { 0 };
+    if *quiet_ticks < 2 {
+        return;
+    }
+    let moved = lock_ok(&state.db).settle_all_unread().unwrap_or(0);
+    if moved > 0 {
+        applog::note(&format!(
+            "{moved} new photos could not be read; listed by file date"
+        ));
+        let _ = handle.emit("library-updated", ());
+    }
+}
+
 /// [`AutoThumbs`] の配り手。2 秒ごとに起き、作る列が細っていたら次の候補を新しい順に積む
 fn spawn_auto_thumbs(handle: tauri::AppHandle) {
     std::thread::spawn(move || loop {
@@ -7231,10 +7255,12 @@ fn spawn_auto_thumbs(handle: tauri::AppHandle) {
             let mut cursor: Option<pictkura_core::db::PregenCursor> = None;
             let mut fed_this_pass = false;
             let mut rest_until: Option<std::time::Instant> = None;
+            let mut quiet_ticks = 0u32;
             loop {
                 std::thread::sleep(AUTO_THUMBS_TICK);
                 let state = handle.state::<AppState>();
                 let queue = state.thumbs.queue();
+                settle_unread_when_quiet(&handle, &mut quiet_ticks);
                 let enabled = state
                     .auto_thumbs
                     .enabled

@@ -1322,10 +1322,11 @@ input[type="range"]:focus-visible {
 .grid-scroll::-webkit-scrollbar {
   display: none;
 }
-/* 帯が出ていない間（新しいライブラリで、まだ1枚も撮影日を読めていない最初の数秒）は、ふつうのスクロールバーを出す
-   ——帯もスクロールバーも無いと、掴んで動かす手段が無い（PR #351 の /code-review） */
+/* 「読み込み中」の束がある間（新しいライブラリの読み込み中）は、ふつうのスクロールバーも出す。帯は読めた範囲しか
+   受け持たず、読めた範囲が画面より短いうちは帯そのものが出ない——掴んで動かす手段が無くなる（PR #351 の /code-review）。
+   太さはほかの所と同じ細いもの */
 .grid-scroll.no-rail {
-  scrollbar-width: auto;
+  scrollbar-width: thin;
 }
 .grid-scroll.no-rail::-webkit-scrollbar {
   display: initial;
