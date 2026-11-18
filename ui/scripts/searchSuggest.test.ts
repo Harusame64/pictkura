@@ -80,6 +80,12 @@ test("the token at the caret respects quotes", () => {
   assert.deepEqual(tokenAt("a b", 1), { start: 0, end: 1, text: "a" });
   // 引用符を開いたまま: 置き換えはカーソルまで（後ろの語を飲み込まない）
   assert.deepEqual(tokenAt('cam:"iph beach 2019', 8), { start: 0, end: 8, text: 'cam:"iph' });
+  // 閉じた引用符の値の途中: 語は閉じの引用符の後ろまで（語の終わりではないので、画面は候補を出さない）
+  assert.deepEqual(tokenAt('camera:"Canon EOS R8" year:2025', 10), {
+    start: 0,
+    end: 21,
+    text: 'camera:"Can',
+  });
 });
 
 test("applying a suggestion replaces the word at the caret and keeps the rest", () => {

@@ -46,8 +46,17 @@ export function tokenAt(input: string, caret: number): { start: number; end: num
   }
   // 引用符を開いたままカーソルがある（`cam:"iph beach`）なら、置き換えはカーソルまで——引用符が閉じていないので、
   // 後ろの語まで1つの語に見え、差し込むと消えた（PR #353 の /code-review）
+  // ただし**後ろに閉じの引用符がある**（`camera:"Can|on EOS R8" year:2025`）なら、閉じた値の途中に居る。語は閉じの
+  // 引用符の後ろまで（語の途中なので候補は出ない）——カーソルまでで置き換えると、残りの `on EOS R8"` が新しい語と
+  // 開いた引用符になって、後ろの指定まで飲み込んだ（PR #353 の codex）
   let end = caret;
-  if (!quoted) {
+  if (quoted) {
+    const close = input.indexOf('"', caret);
+    if (close >= 0) {
+      end = close + 1;
+      while (end < input.length && !/[\s　]/.test(input[end])) end++;
+    }
+  } else {
     while (end < input.length && !/[\s　]/.test(input[end])) end++;
   }
   return { start, end, text: input.slice(start, caret) };
