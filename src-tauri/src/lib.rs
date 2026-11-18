@@ -94,6 +94,8 @@ struct AppState {
     thumbs: ThumbnailService,
     /// 設定「サムネイルを自動生成」の入り切り・一時停止・進み具合（[`spawn_auto_thumbs`]）
     auto_thumbs: AutoThumbs,
+    /// 外で入った写真のまとまり（[`WatchBurst`]）
+    watch_burst: Mutex<WatchBurst>,
     /// スキャン＋反映の全体を直列化するロック。
     /// 並走したスキャンの古いスナップショットが後から適用されると、
     /// 新しく追加されたルート配下のレコードを誤削除しうるため。
@@ -417,34 +419,57 @@ fn managed_package_roots(config: &Config) -> Vec<PathBuf> {
 }
 
 /// 外で**まとまって**入った写真（エクスプローラーでのコピー等）を、ヘッダーの「残り n」に数える（2026-11-18 利用者
-/// 「まとまって入ったときだけ出す」）。少しずつ届く写真（同期クライアントが時々1枚）は数えない——届くたびに
+/// 「まとまって入ったときだけ出す」）。少しずつ届く写真（同期クライアントが数秒ごとに1枚）は数えない——届くたびに
 /// 表示が出たり消えたりする。
 ///
-/// 見張りは 800ms ごとの束で届くので、遅い USB からのコピーは1つの束に数枚ずつしか入らない。**前の束から
-/// [`WATCH_BURST_GAP`] 以内に続いた束を1つのまとまり**として数え、合計が [`WATCH_BURST_SHOWN`] に達したら、
-/// まとまりの写真をまとめて数えに入れる（その後に続く束も）
+/// - **まとまりの始まりは速さで決める**: 直近 [`WATCH_BURST_WINDOW`] に新しい写真が [`WATCH_BURST_SHOWN`] 枚
+///   入ったら。間が空かないだけの細い流れ（同期が5秒ごとに1枚）は、何分続いてもまとまりにしない（PR #350 の
+///   /code-review）。代わりに、1枚に10秒以上かかる大きいファイルの遅いコピーも出ない
+/// - **まとまりの終わりは間で決める**: 何かが変わった束（書き込み途中のファイルの大きさが変わっただけでも）が
+///   [`WATCH_BURST_GAP`] より空いたら終わり。時刻は束が**届いたとき**に取る（束の処理の長さを間に数えない）
+/// - 見張りは 800ms ごとの束で届く。遅い USB からのコピーは1つの束に数枚ずつなので、束をまたいで数える
 const WATCH_BURST_SHOWN: usize = 20;
+const WATCH_BURST_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
 const WATCH_BURST_GAP: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// いま続いている、外で入った写真のまとまり（[`WATCH_BURST_SHOWN`]）
-static WATCH_BURST: Mutex<Option<(std::time::Instant, Vec<i64>)>> = Mutex::new(None);
+/// 外で入った写真のまとまりの様子（[`WATCH_BURST_SHOWN`]）。見張りの束ごとに [`WatchBurst::on_batch`] を呼ぶ
+#[derive(Default)]
+struct WatchBurst {
+    /// まだ数えに入れていない、直近に入った新しい写真（入った時刻と id）
+    recent: std::collections::VecDeque<(std::time::Instant, i64)>,
+    /// 最後に何かが変わった束が届いた時刻
+    last: Option<std::time::Instant>,
+    /// いまのまとまりは数えに入れている
+    shown: bool,
+}
 
-/// まとまりに `added` を足し、数えに入れる id を返す（まだ少なければ空）
-fn watch_burst_shown(added: &[i64], now: std::time::Instant) -> Vec<i64> {
-    let mut burst = lock_ok(&WATCH_BURST);
-    // 間が空いていたら、前のまとまりは終わり
-    if burst
-        .as_ref()
-        .is_some_and(|(last, _)| now.duration_since(*last) > WATCH_BURST_GAP)
-    {
-        *burst = None;
-    }
-    let (last, ids) = burst.get_or_insert_with(|| (now, Vec::new()));
-    *last = now;
-    ids.extend_from_slice(added);
-    if ids.len() >= WATCH_BURST_SHOWN {
-        ids.clone()
-    } else {
+impl WatchBurst {
+    /// 何かが変わった束が `at` に届き、新しい写真 `added` が入った。数えに入れる id を返す（まだなら空）
+    fn on_batch(&mut self, at: std::time::Instant, added: &[i64]) -> Vec<i64> {
+        if self
+            .last
+            .is_some_and(|last| at.saturating_duration_since(last) > WATCH_BURST_GAP)
+        {
+            // 間が空いた。まとまりは終わり
+            self.shown = false;
+            self.recent.clear();
+        }
+        self.last = Some(at);
+        if self.shown {
+            return added.to_vec();
+        }
+        while self
+            .recent
+            .front()
+            .is_some_and(|(t, _)| at.saturating_duration_since(*t) > WATCH_BURST_WINDOW)
+        {
+            self.recent.pop_front();
+        }
+        self.recent.extend(added.iter().map(|&id| (at, id)));
+        if self.recent.len() >= WATCH_BURST_SHOWN {
+            self.shown = true;
+            return self.recent.drain(..).map(|(_, id)| id).collect();
+        }
         Vec::new()
     }
 }
@@ -466,6 +491,8 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
     use pictkura_core::scanner::{self, ScannedFile};
     use std::time::UNIX_EPOCH;
 
+    // 束が届いた時刻（外で入った写真のまとまりの間はこれで測る。処理の長さを間に数えない）
+    let arrived = std::time::Instant::now();
     let state = app.state::<AppState>();
     let config = lock_ok(&state.config).clone();
     let mut changed = false;
@@ -616,11 +643,9 @@ fn handle_fs_events(app: &tauri::AppHandle, specs: &[RootSpec], paths: Vec<std::
         enqueue_missing_thumbs(&state, None);
         // 外でまとまって入った写真は「残り n」に数える（[`WATCH_BURST_SHOWN`]）。印は列に居る行にしか付かないので、
         // 上で積んだ後に付ける（読み終えた行に付けても数は増えない）
-        if !added.is_empty() {
-            let shown = watch_burst_shown(&added, std::time::Instant::now());
-            if !shown.is_empty() {
-                state.thumbs.mark_fresh(&shown);
-            }
+        let shown = lock_ok(&state.watch_burst).on_batch(arrived, &added);
+        if !shown.is_empty() {
+            state.thumbs.mark_fresh(&shown);
         }
         let _ = app.emit("library-updated", ());
     }
@@ -8208,6 +8233,7 @@ pub fn run() {
                 config_path,
                 thumbs,
                 auto_thumbs,
+                watch_burst: Mutex::new(WatchBurst::default()),
                 scan_lock: Mutex::new(()),
                 google_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
@@ -8947,30 +8973,37 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    /// 外で入った写真は、束をまたいだまとまりで数える。少ないうちは数えず、間が空いたら数え直す
+    /// 外で入った写真は、速くまとまって入ったときだけ数える。続く束も数え、間が空いたら終わり
     #[test]
     fn external_photos_count_once_a_burst_is_large_enough() {
+        let mut b = super::WatchBurst::default();
         let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
         let ids = |r: std::ops::Range<i64>| r.collect::<Vec<_>>();
-        assert!(
-            super::watch_burst_shown(&ids(0..5), t0).is_empty(),
-            "5 枚では出さない"
-        );
-        let at = |s: u64| t0 + std::time::Duration::from_secs(s);
-        assert!(super::watch_burst_shown(&ids(5..15), at(3)).is_empty());
+        assert!(b.on_batch(at(0), &ids(0..5)).is_empty(), "5 枚では出さない");
+        assert!(b.on_batch(at(3_000), &ids(5..15)).is_empty());
+        // 書き込み途中の大きいファイル（新しい写真は無い束）も、まとまりを続ける
+        assert!(b.on_batch(at(9_000), &[]).is_empty());
         // 遅い USB: 数枚ずつ続いて 20 枚に届いたら、まとまり全部を数える
-        assert_eq!(super::watch_burst_shown(&ids(15..21), at(6)), ids(0..21));
-        assert_eq!(
-            super::watch_burst_shown(&ids(21..22), at(9)).len(),
-            22,
-            "続く束も数える"
-        );
+        assert_eq!(b.on_batch(at(15_000), &ids(15..21)), ids(0..21));
+        // 続く束は、その束の写真だけ
+        assert_eq!(b.on_batch(at(18_000), &ids(21..22)), ids(21..22));
         // 間が空いたら、まとまりは終わり
-        assert!(super::watch_burst_shown(&ids(100..103), at(9 + 11)).is_empty());
+        assert!(b.on_batch(at(29_000), &ids(100..103)).is_empty());
+    }
+
+    /// 同期クライアントが数秒ごとに1枚ずつ届ける細い流れは、何分続いても数えない
+    #[test]
+    fn a_steady_trickle_never_counts() {
+        let mut b = super::WatchBurst::default();
+        let t0 = std::time::Instant::now();
+        for i in 0..100 {
+            let t = t0 + std::time::Duration::from_secs(5 * i as u64);
+            assert!(b.on_batch(t, &[i]).is_empty(), "{i} 枚目");
+        }
     }
 
     /// 一覧のタイルが灰色で待つのは、働き手がこれから作る写真だけ（作らない写真で待つと灰色のまま変わらない）
-
     #[test]
     fn the_grid_waits_only_for_thumbnails_the_worker_will_make() {
         use pictkura_core::thumbs::{THUMB_STATE_NOT_NEEDED, THUMB_STATE_NO_PREVIEW};
