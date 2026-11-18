@@ -25,6 +25,7 @@ test("keys are offered only while the word is the start of a key", () => {
     ["folder:", "fav:"],
   );
   assert.deepEqual(suggest("cat", data), [], "ファイル名の検索の邪魔をしない");
+  assert.deepEqual(suggest("ear", data), [], "キーの途中に合うだけでは出さない（頭に合うときだけ）");
   assert.deepEqual(suggest("", data), [], "何も打っていなければ出さない");
   assert.deepEqual(suggest("year", data), [], "打ち切った（コロンの手前）キーは出さない");
   assert.deepEqual(suggest('"ca', data), [], "引用符の語はキーではない");
