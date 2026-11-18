@@ -950,6 +950,38 @@ fn is_held_by_another_app(e: &std::io::Error) -> bool {
     cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33))
 }
 
+/// 読めずに終わった仕事の後で、新しい写真を「読み込み中」の束から出すか決めて、出すなら出す（[`leaves_unread_day`]）。
+///
+/// 束に居ない行（もう日の決まった写真）では何もしない——ファイルの時刻も見に行かない。**読み始めた時点の版**（`before`）で
+/// 確かめる。失敗の後に読んだ版で比べると、読みの途中で入れ替わった新しい中身（書き終えたファイル）を、読まずに束から
+/// 出してしまう（PR #351 の codex）
+fn settle_unread_after_failure(
+    queue: &ThumbQueue,
+    db: &mut Db,
+    id: i64,
+    before: Option<crate::RowVersion>,
+    err: &ThumbError,
+) {
+    let Some(before) = before else { return };
+    let Ok(Some(r)) = db.get_by_id(id) else {
+        return;
+    };
+    if r.day_key != crate::db::UNREAD_DAY_KEY {
+        return;
+    }
+    let modified = std::fs::metadata(&r.path)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    if leaves_unread_day(
+        err,
+        modified,
+        std::time::SystemTime::now(),
+        queue.is_blocked(id),
+    ) {
+        let _ = db.guarded(id, before, |db| db.settle_unread_day(id));
+    }
+}
+
 /// 壊れて見えるファイルを、書き込み中ではないとみなすまでの間（[`leaves_unread_day`]）
 const UNREAD_SETTLE_QUIET: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -2967,28 +2999,7 @@ impl ThumbnailService {
                             queue.record_failure(id);
                             // 読めずに終わった新しい写真を「読み込み中」の束から出すのは、**中身が壊れていて、しかも
                             // しばらく書き換わっていない**ときだけ（[`leaves_unread_day`]）。撮影日時を書けた道は自分で移す
-                            // 束に居ない行（もう日の決まった写真）では何もしない——ファイルの時刻も見に行かない
-                            if let Ok(Some(r)) = db.get_by_id(id) {
-                                if r.day_key == crate::db::UNREAD_DAY_KEY {
-                                    let modified = std::fs::metadata(&r.path)
-                                        .ok()
-                                        .and_then(|m| m.modified().ok());
-                                    let now = std::time::SystemTime::now();
-                                    // 読み始めた時点の版で確かめる。失敗の後に読んだ版で比べると、読みの途中で入れ替わった
-                                    // 新しい中身（書き終えたファイル）を、読まずに束から出してしまう（PR #351 の codex）
-                                    if let Some(before) = version_before {
-                                        if leaves_unread_day(
-                                            err,
-                                            modified,
-                                            now,
-                                            queue.is_blocked(id),
-                                        ) {
-                                            let _ = db
-                                                .guarded(id, before, |db| db.settle_unread_day(id));
-                                        }
-                                    }
-                                }
-                            }
+                            settle_unread_after_failure(&queue, &mut db, id, version_before, err);
                         }
                         // **成否にかかわらず通知する**。途中で失敗しても
                         // 寸法・撮影日時までは書けていることがあり（動画で
@@ -5974,6 +5985,37 @@ mod tests {
         }
         svc.shutdown();
         assert_eq!(day() / 10000, 2019, "上限に達したらファイルの日付の日へ");
+    }
+
+    /// 読みの途中で行が入れ替わった（書き終えたファイルが入り直した）ら、失敗した読みの結果で束から出さない
+    #[test]
+    fn a_failed_read_does_not_settle_a_row_that_changed_meanwhile() {
+        use crate::db::UNREAD_DAY_KEY;
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("v.db")).unwrap();
+        let gone = dir.path().join("gone.jpg");
+        let f = |size| ScannedFile {
+            path: gone.clone(),
+            size,
+            mtime_ms: 1_557_057_600_000,
+        };
+        db.upsert_files(&[f(1)]).unwrap();
+        let id = db.list_all().unwrap()[0].id;
+        let queue = ThumbQueue::new();
+        // 上限に達した開けない写真（そのままなら束から出る）
+        for _ in 0..MAX_FAILURES {
+            queue.record_failure(id);
+        }
+        let err = || ThumbError::Image(image::ImageError::IoError(std::io::Error::other("gone")));
+        let before = db.version_of(id).unwrap();
+        // 読みの途中で、走査が新しい中身を入れた
+        db.upsert_files(&[f(2)]).unwrap();
+        settle_unread_after_failure(&queue, &mut db, id, before, &err());
+        assert_eq!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
+        // 対照: 入れ替わっていなければ出る
+        let now = db.version_of(id).unwrap();
+        settle_unread_after_failure(&queue, &mut db, id, now, &err());
+        assert_ne!(db.get_by_id(id).unwrap().unwrap().day_key, UNREAD_DAY_KEY);
     }
 
     /// 束から出すのは、中身が壊れていてしばらく書き換わっていないとき、または開けないまま失敗が上限に達したとき
