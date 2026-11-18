@@ -418,6 +418,7 @@ const INFLECTS: Record<string, string[]> = {
     "googleSentLeftOut:0",
   ],
   de: [
+    "calendarUnread:0",
     "printSheetTitle:0",
     "printSkipped:0",
     "itemsCount:0",

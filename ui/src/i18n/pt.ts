@@ -626,8 +626,9 @@ export const pt: Dict = {
     "Apagar todas as miniaturas atuais e criá-las de novo? As fotos em si não são tocadas. As miniaturas são recriadas conforme você vê as fotos.",
   rebuildThumbsOk: "Recriar",
   /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
-  dayUnread: "Lendo",
-  calendarUnread: (n: number) => `Fotos ainda em leitura: ${num(n)}. Elas aparecem aqui quando a data for conhecida.`,
+  dayUnread: "Em leitura",
+  calendarUnread: (n: number) =>
+    `Fotos ainda em leitura: ${num(n)}. Aparecerão aqui quando a data for conhecida.`,
   settingsHardwareAccelerationNote:
     "Se o ponteiro do mouse parecer travado ao visualizar fotos em tela cheia, desativar esta opção pode resolver o problema (observado em um PC com placa de vídeo AMD). Com essa opção desativada, a reprodução de vídeos usa mais CPU. A mudança entra em vigor na próxima vez que você iniciar o pictkura.",
   settingsImportWaitingFrom: (path: string) =>
