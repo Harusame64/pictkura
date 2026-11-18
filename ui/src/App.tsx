@@ -113,6 +113,7 @@ import {
   scopeMedia,
   visibleMediaIds,
   setVisiblePriority,
+  demoteThumbnails,
   syncNow,
   thumbSrc,
   timelineSummary,
@@ -2261,12 +2262,11 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const patchBuffer = useRef<MediaItem[]>([]);
   const patchTimer = useRef<number | null>(null);
   // 空のタイルの待ち合わせ（`gridThumbs.ts`）。働き手の知らせ（`media-updated`）で起こす
-  const [gridWaiters] = useState(() => new BlankWaiters());
+  const [gridWaiters] = useState(() => new BlankWaiters((ids) => demoteThumbnails(ids).catch(() => {})));
   const applyPatches = useCallback(
     (patches: MediaItem[]) => {
-      // 待っている空のタイルを起こす（URL が変わらない終わり方でも問い直させる）。検索中に日が動いて下の差し替えが
-      // 当たらない写真も、id で起こすので問い直せる
-      gridWaiters.notify(patches.map((p) => p.id));
+      // 待っている空のタイルは、届いたときに起こしてある（`media-updated` の受け口。URL が変わらない終わり方でも
+      // 問い直させる。検索中に日が動いて下の差し替えが当たらない写真も、id で起こすので問い直せる）
       // どの写真の差分をいつ当てたか（`reloadAll` が古い答えで引き戻さないように）。覚えるのはビューアで
       // 追う写真だけで足りるが、見分けるより全部書くほうが安い。表が育ちすぎたら古い回だけ捨てる——
       // 走っている読み直しが見るのは、それぞれが始めた回より後だけ。**いちばん古い読み直しの回より前**を
@@ -2375,13 +2375,16 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       // 日移動の検知に加え、代表サムネイルのキャッシュバスティングにも必要
       scheduleSummaryRefresh();
     },
-    [scheduleSummaryRefresh, followViewerTo, refreshSummary, gridWaiters],
+    [scheduleSummaryRefresh, followViewerTo, refreshSummary],
   );
 
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     listen<MediaItem>("media-updated", (ev) => {
+      // 待っている空のタイルは**まとめずにすぐ起こす**（150ms まとめると、出来たサムネイルを頼み直すまで平均
+      // 約100ms 灰色のまま待った。win2 の内訳: 1枚の灰色 約220ms のうち約100ms）。一覧の差し替えは下でまとめる
+      gridWaiters.notify([ev.payload.id]);
       patchBuffer.current.push(ev.payload);
       // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
       // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）
@@ -2416,7 +2419,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         patchTimer.current = null;
       }
     };
-  }, [applyPatches]);
+  }, [applyPatches, gridWaiters]);
 
   const onSync = useCallback(async () => {
     setBusy(true);

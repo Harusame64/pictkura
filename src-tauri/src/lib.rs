@@ -5118,6 +5118,13 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>, days: 
     }
 }
 
+/// 絵が出る前に画面から去った一覧のタイルの写真を、優先の列から降ろす（[`pictkura_core::thumbs::ThumbQueue::demote`]）。
+/// ホイールで一気に送ると、通り過ぎた写真の本番が、送り終えた画面の写真の前に並んでいた
+#[tauri::command]
+fn demote_thumbnails(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+    state.thumbs.demote(&ids);
+}
+
 /// 一時フォルダの候補（dev #23）。**中身を OS や他のアプリが黙って消す場所**。
 ///
 /// 報告の形は、Claude の作業フォルダ（macOS の `/private/tmp/claude-…`）から取り込んだ写真が、
@@ -8934,6 +8941,7 @@ pub fn run() {
             remove_library_root,
             get_config,
             set_visible_priority,
+            demote_thumbnails,
             set_import_destination,
             import_from_folder,
             list_drives,

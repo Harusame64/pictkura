@@ -41,6 +41,8 @@ export function GridThumb({
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
 }) {
   const ref = useRef<HTMLImageElement>(null);
+  /** いまの URL の絵を出したか（外れたときに、作る列から降ろすかを決める） */
+  const paintedRef = useRef(false);
   // 起こされたら下の effect を走り直させて問い直す（`BlankWaiters`）
   const [wakes, wakeUp] = useReducer((n: number) => n + 1, 0);
   // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
@@ -54,8 +56,10 @@ export function GridThumb({
     if (shown !== undefined) {
       if (el.getAttribute("src") !== shown) el.src = shown;
       el.setAttribute("data-shown", "");
+      paintedRef.current = true;
       return;
     }
+    paintedRef.current = false;
     // 知らせが来ていれば、その数を URL に足して問い直す（同じ URL は macOS で前の空の絵が返りうる。`BlankWaiters`）
     const asked = waiters.count(id);
     const ask = asked === 0 ? src : `${src}&ask=${asked}`;
@@ -75,6 +79,7 @@ export function GridThumb({
           unwait();
           recent.add(src, ask);
           el.src = ask;
+          paintedRef.current = true;
         } else {
           // 出せる絵が無い（404・「サムネイルが無い」の 1x1）。前の URL の絵が残っていれば消し、地の灰色を
           // 見せる（古い向き・差し替え前の絵を出したままにしない）。覚えないので、作り直しで問い直す
@@ -92,6 +97,14 @@ export function GridThumb({
       unwait();
     };
   }, [src, loader, recent, waiters, id, wakes]);
+  // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、絵が出る前なら
+  // 作る列から降ろす（`BlankWaiters.leave`）
+  useLayoutEffect(
+    () => () => {
+      if (!paintedRef.current) waiters.leave(id);
+    },
+    [waiters, id],
+  );
   return (
     <img
       ref={ref}

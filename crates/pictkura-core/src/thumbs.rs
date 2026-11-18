@@ -2384,6 +2384,9 @@ struct QueueState {
     pregen_limit: usize,
     /// 前もって作ろうとして作らなかった id（クラウドにしか無い・絵が無い・失敗）。この起動の間は配り直さない
     pregen_skip: HashSet<i64>,
+    /// 画面から去ったので優先の列から自動の列へ降ろした id（[`ThumbQueue::demote`]）。読み終えた写真なので、また
+    /// 見えたら優先の列へ戻す（自動の列に居ても「未読」とは見なさない）。取り出されたら外す
+    demoted: HashSet<i64>,
     shutdown: bool,
 }
 
@@ -2478,6 +2481,7 @@ impl ThumbQueue {
                     pregen_running: HashSet::new(),
                     pregen_limit: 1,
                     pregen_skip: HashSet::new(),
+                    demoted: HashSet::new(),
                     shutdown: false,
                 }),
                 cvar: Condvar::new(),
@@ -2531,15 +2535,20 @@ impl ThumbQueue {
     pub fn prioritize(&self, ids: &[i64]) {
         let mut state = self.lock_state();
         let target: HashSet<i64> = ids.iter().copied().collect();
-        // 自動の列で順番を待っている（＝働き手がまだ読んでいない）写真。下で素性を先に読ませる。降ろすついでに拾う
+        // 自動の列で順番を待っている（＝働き手がまだ読んでいない）写真。下で素性を先に読ませる。降ろすついでに拾う。
+        // 画面から去って降ろした写真（`demoted`）は読み終えているので、未読には数えない
         let mut unread: HashSet<i64> = HashSet::new();
-        state.pending.retain(|id| {
+        let st = &mut *state;
+        st.pending.retain(|id| {
             let hit = target.contains(id);
-            if hit {
+            if hit && !st.demoted.contains(id) {
                 unread.insert(*id);
             }
             !hit
         });
+        for id in &target {
+            st.demoted.remove(id);
+        }
         state.priority.retain(|id| !target.contains(id));
         // 前もって作る列で待っていた写真は、見えたので優先の列へ移す（下で載せ直す）
         state.pregen.retain(|id| !target.contains(id));
@@ -2614,6 +2623,7 @@ impl ThumbQueue {
             };
             if let Some((id, job)) = next {
                 state.queued.remove(&id);
+                state.demoted.remove(&id);
                 state.processing.insert(id);
                 if job == Job::Pregen {
                     state.pregen_running.insert(id);
@@ -2661,6 +2671,32 @@ impl ThumbQueue {
     /// 失敗が上限に達し、もう作り直さないIDか（一覧のタイルが待つかどうかの判定に使う）
     pub fn is_blocked(&self, id: i64) -> bool {
         self.lock_state().blocked(id)
+    }
+
+    /// 絵が出る前に画面から去った写真を、優先の列から降ろす（自動の列の末尾へ。素性だけ読まれる）。優先の列に
+    /// 居ない写真には何もしない。降ろした数を返す。
+    ///
+    /// 一覧をホイールで一気に送ると、通り過ぎたタイルが1枚ずつ優先の列へ押し、送り終えた画面の写真が、通り
+    /// 過ぎた写真の本番の後ろで待った（win2: 3万枚の一気送りで積まれた 145〜180 枚を全部作り、画面に残ったのは
+    /// 65 枚。働き手の時間の 55〜64% が通り過ぎた写真で、列の待ちが 20〜150ms）。降ろし方は
+    /// [`Self::prioritize`] が長すぎる列を切るときと同じ——まだ画面にあれば、タイルの問い直しか
+    /// `set_visible_priority` がまた押す
+    pub fn demote(&self, ids: &[i64]) -> usize {
+        let mut state = self.lock_state();
+        let target: HashSet<i64> = ids.iter().copied().collect();
+        let mut moved = Vec::new();
+        state.priority.retain(|id| {
+            let hit = target.contains(id);
+            if hit {
+                moved.push(*id);
+            }
+            !hit
+        });
+        let n = moved.len();
+        // `queued` には居たまま（列を移るだけ）なので、重複防止も崩れない
+        state.demoted.extend(moved.iter().copied());
+        state.pending.extend(moved);
+        n
     }
 
     /// このIDがキュー内または処理中か（LRU削除の競合回避用）。
@@ -2961,6 +2997,11 @@ impl ThumbnailService {
     /// 失敗が上限に達し、もう作り直さないIDか（[`ThumbQueue::is_blocked`]）。
     pub fn is_blocked(&self, id: i64) -> bool {
         self.queue.is_blocked(id)
+    }
+
+    /// 画面から去った写真を優先の列から降ろす（[`ThumbQueue::demote`]）
+    pub fn demote(&self, ids: &[i64]) -> usize {
+        self.queue.demote(ids)
     }
 
     /// キュー内＋処理中のIDのスナップショット（LRU削除の除外集合用）。
@@ -6109,6 +6150,31 @@ mod tests {
             queue.is_pregen_skipped(id),
             "クラウドにしか無い写真は見送る"
         );
+    }
+
+    /// 画面から去った写真は優先の列から自動の列の末尾へ降りる。優先の列に居ない写真・処理中の写真には触らない
+    #[test]
+    fn demote_moves_passed_tiles_out_of_the_priority_lane() {
+        let queue = ThumbQueue::new();
+        queue.prioritize(&[1, 2, 3]);
+        assert_eq!(queue.demote(&[2, 9]), 1, "優先の列に居た 2 だけ");
+        // 残った優先の列が先、降ろした 2 は自動の列から
+        assert_eq!(queue.pop_job(), Some((1, Job::Visible)));
+        assert_eq!(queue.pop_job(), Some((3, Job::Visible)));
+        assert_eq!(queue.pop_job(), Some((2, Job::Auto)));
+        // 処理中の写真は降ろさない（もう走っている）
+        queue.prioritize(&[4]);
+        assert_eq!(queue.pop_job(), Some((4, Job::Visible)));
+        assert_eq!(queue.demote(&[4]), 0);
+        // 降ろした写真がまた見えたら、優先の列へ戻る
+        queue.complete(1);
+        queue.complete(3);
+        queue.complete(2);
+        queue.complete(4);
+        queue.prioritize(&[5]);
+        queue.demote(&[5]);
+        queue.prioritize(&[5]);
+        assert_eq!(queue.pop_job(), Some((5, Job::Visible)));
     }
 
     /// 素性の読み込みが一段落した（自動・優先の列が空で、処理中は前もって作る仕事だけ）

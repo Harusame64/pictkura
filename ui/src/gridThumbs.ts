@@ -90,6 +90,37 @@ export class RecentThumbs {
 export class BlankWaiters {
   private readonly waiting = new Map<number, Set<() => void>>();
   private readonly notices = new Map<number, number>();
+  /** 絵が出る前に画面から去った写真（まとめて `onLeft` へ渡す） */
+  private readonly left = new Set<number>();
+  private leftTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * `onLeft` は、絵が出る前に画面から去ったタイルの写真を受ける（サムネイルを作る優先の列から降ろす。
+   * `api.ts` の `demoteThumbnails`）。ホイールで一気に送ると、通り過ぎたタイルの写真の本番が、送り終えた画面の
+   * 写真の前に並んでいた（win2: 積まれた 145〜180 枚のうち、画面に残ったのは 65 枚）
+   */
+  private readonly onLeft?: (ids: number[]) => void;
+  private readonly leftDelayMs: number;
+  constructor(onLeft?: (ids: number[]) => void, leftDelayMs = 50) {
+    this.onLeft = onLeft;
+    this.leftDelayMs = leftDelayMs;
+  }
+
+  /**
+   * 絵が出る前にタイルが外れた。まとめて `onLeft` へ渡す——渡すときに**また待たれている写真は外す**（同じ写真の
+   * タイルが作り直された・もう1枚ある。その頼みの後に降ろすと、見えている写真を降ろしてしまう）
+   */
+  leave(id: number): void {
+    if (!this.onLeft) return;
+    this.left.add(id);
+    if (this.leftTimer !== null) return;
+    this.leftTimer = setTimeout(() => {
+      this.leftTimer = null;
+      const ids = [...this.left].filter((i) => !this.waiting.has(i));
+      this.left.clear();
+      if (ids.length > 0) this.onLeft?.(ids);
+    }, this.leftDelayMs);
+  }
 
   /** 写真 `id` の知らせの数（来ていなければ 0） */
   count(id: number): number {
