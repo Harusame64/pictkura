@@ -1685,9 +1685,6 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 「撮影日が確定して別の日から移ってきた」「メタデータ抽出で検索条件に
    * 合致するようになった」等で起きる。listDayは常にその日の全件を返すので、
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
-  /** 中身の古くなった日を、捨てずに出したまま取り直すか（見えている日・ビューアの表示日）。ref だけを見る */
-  const keepWhileRefetching = (dayKey: number) =>
-    visibleDaysRef.current.has(dayKey) || dayKey === viewerDayRef.current;
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
     const askedFor = askedRef.current;
@@ -1711,10 +1708,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       const counts = new Map(sum.map((d) => [d.day_key, d.count]));
       let next: Map<number, MediaItem[]> | null = null;
       for (const [dayKey, items] of prev) {
-        // **見えている日・ビューアの表示日は捨てない**。捨てると取り直しが届くまでの1コマ、その日が見積もりの枠だけに
-        // なって一覧の高さが跳ね、画面のタイルが0枚になった（読み込み中は2秒ごと。win2: 30秒に13回、PR #352）。
-        // 取り直しは、描画が確定した後の「見えている日」の処理が、枚数のずれを見て頼む（`staleVisibleDays`）
-        if (counts.get(dayKey) !== items.length && !keepWhileRefetching(dayKey)) {
+        // **見えている「読み込み中の写真」の束だけは捨てない**。読み込み中は写真が束から出ていくので、この取り直し
+        // （2秒ごと）のたびに枚数がずれ、捨てると取り直しが届くまでの1コマ、束が見積もりの枠だけになってタイルが
+        // 0枚になった（win2: 束を見ている間 2 秒ごと、PR #352）。取り直しは描画の後の「見えている日」の処理が頼む
+        // （`pickStaleDays`）。ほかの日はこれまでどおり捨てる——一覧全体で捨てない形にすると、ビューアや選択の
+        // 送りが「読み込み済みの日に無い＝消えた」と読む所と食い違った
+        if (dayKey === UNREAD_DAY && visibleDaysRef.current.has(dayKey)) continue;
+        if (counts.get(dayKey) !== items.length) {
           if (!next) next = new Map(prev);
           next.delete(dayKey);
         }
@@ -2287,10 +2287,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               break;
             }
           }
-          // 宛先の日が読み込み済みなのに載っていない（日付が移ってきた）: その日を捨てて再取得させる。
-          // **見えている日は捨てない**（1コマ空くので。PR #352）——骨組みの取り直しで枚数がずれれば、描画の後の
-          // 「見えている日」の処理が取り直す
-          if (shown && arr && idx < 0 && !keepWhileRefetching(p.day_key)) {
+          // 宛先の日が読み込み済みなのに載っていない（日付が移ってきた）:
+          // その日を捨てて再取得させる
+          if (shown && arr && idx < 0) {
             if (!next) next = new Map(prev);
             next.delete(p.day_key);
           }
@@ -3848,22 +3847,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
   }, [view, pendingScrollDay, rows, rowTops]);
 
-  /** 骨組みごとに、取り直しを頼んだ日（同じ骨組みでは1日1回まで。`pickStaleDays`） */
+  /** 骨組みごとに、束の取り直しを頼んだか（同じ骨組みでは1回まで。`pickStaleDays`） */
   const refetchedForRef = useRef<AskedFor<DaySummary[]>>({ summary: null, days: new Set() });
-  /** 見えている日（とビューアの表示日）のうち、取り直す日（`staleDays.ts`） */
-  const staleVisibleDays = useCallback(
-    (visible: ReadonlySet<number>): number[] =>
-      pickStaleDays(
-        summary,
-        new Map(summary.map((d) => [d.day_key, d.count])),
-        new Map([...dayItems].map(([k, v]) => [k, v.length])),
-        visible,
-        viewerDayRef.current,
-        inflightRef.current,
-        refetchedForRef.current,
-      ),
-    [summary, dayItems],
-  );
 
   const virtualItems = virtualizer.getVirtualItems();
   /** 一覧のサムネイルの列（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる） */
@@ -3887,15 +3872,26 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "placeholder") wanted.push(row.dayKey);
     }
     visibleDaysRef.current = visible;
-    // 見えている日（とビューアの表示日）のうち、骨組みの枚数と中身の数がずれている日を取り直す。**判断はここ1か所**
-    // ——描画が確定した後の状態だけを見るので、状態を更新する関数との食い違いが起きない。中身が届けば
-    // 描き直しでここがまた走り、まだずれていればもう一度頼む。**同じ骨組みには1日1回まで**（骨組みが古いまま中身が
-    // 新しいと、ずれが解けず読み続けるので）。読み途中の日は頼まない（届いた後にここがまた走る）。PR #352
-    wanted.push(...staleVisibleDays(visible));
+    // 見えている「読み込み中の写真」の束の枚数がずれていたら、出したまま取り直す（上の `refreshSummary` で捨てない
+    // 代わり。同じ骨組みには1回、読み途中なら届いた後にまた見る。`staleDays.ts`）
+    if (visible.has(UNREAD_DAY)) {
+      const items = dayItems.get(UNREAD_DAY);
+      wanted.push(
+        ...pickStaleDays(
+          summary,
+          new Map(summary.filter((d) => d.day_key === UNREAD_DAY).map((d) => [d.day_key, d.count])),
+          new Map(items ? [[UNREAD_DAY, items.length]] : []),
+          [UNREAD_DAY],
+          null,
+          inflightRef.current,
+          refetchedForRef.current,
+        ),
+      );
+    }
     // 1回の呼び出しにまとめる（見えている日と控えの日で分けると載せる回数が倍になり、帯を動かす間の描画が
     // 重くなった。win2）
     loadDays(wanted);
-  }, [virtualItems, rows, loadDays, staleVisibleDays]);
+  }, [virtualItems, rows, loadDays, summary, dayItems]);
 
   /**
    * 帯のうち、**まだ絵の無い写真のid**（並びで見る。`memories` は絵が出来るたびに
