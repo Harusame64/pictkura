@@ -173,6 +173,7 @@ import {
 import {
   formatDateTime,
   formatDayKey,
+  UNREAD_DAY,
   formatDuration,
   formatLocale,
   formatNumber,
@@ -3611,6 +3612,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // **写真の少ない日を1行に並べる**（`packDays.ts`。並べるかは上の帯のボタンで切り替える）。
     // 右の帯には、並べた行を日ごとに開いて渡す（`dayRows`）ので、月の目盛りは欠けない
     const fits: DayFit[] = summary.map((day) => {
+      // 「読み込み中」の束は、ほかの日と1行に並べない（日付の行ではない）
+      if (day.day_key === UNREAD_DAY) return { dayKey: day.day_key, width: null };
       const stacks = packDays && dayItems.get(day.day_key) ? dayStacks.get(day.day_key) : undefined;
       if (!stacks || stacks.length === 0) return { dayKey: day.day_key, width: null };
       const photosWidth =
@@ -3721,6 +3724,13 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
    * 帯から飛ぶ先と、上端の日の留め置きは、ずらした位置ではなく行の上端（`jumpTops`）——行の途中で切れて着かないように
    */
   const dayRows = useMemo(() => {
+    // 右の帯には「読み込み中」の束を日付として渡さない: その行は直前の本当の日（いちばん古い日）として扱い、
+    // 年・月の目盛りに混ぜない。まだ1枚も読めていない間だけは束のまま（帯がその旨を言う）
+    let lastReal: number | null = null;
+    const railDay = (dayKey: number) => {
+      if (dayKey > 0) lastReal = dayKey;
+      return dayKey === UNREAD_DAY && lastReal !== null ? lastReal : dayKey;
+    };
     const days: number[] = [];
     const tops: number[] = [];
     const jumpTops: number[] = [];
@@ -3729,12 +3739,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       if (row.kind === "pack") {
         const h = rowTops[i + 1] - rowTops[i];
         row.segs.forEach((seg, k) => {
-          days.push(seg.dayKey);
+          days.push(railDay(seg.dayKey));
           tops.push(rowTops[i] + (k * h) / row.segs.length);
           jumpTops.push(rowTops[i]);
         });
       } else {
-        days.push(row.dayKey);
+        days.push(railDay(row.dayKey));
         tops.push(rowTops[i]);
         jumpTops.push(rowTops[i]);
       }
@@ -3747,6 +3757,7 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const monthCounts = useMemo(() => {
     const m = new Map<number, number>();
     const add = (dayKey: number, count: number) => {
+      if (dayKey <= 0) return; // 「読み込み中」の束は月に数えない
       const k = Math.floor(dayKey / 100);
       m.set(k, (m.get(k) ?? 0) + count);
     };

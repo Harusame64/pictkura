@@ -2566,7 +2566,9 @@ impl ThumbQueue {
             // 去る→次の写真が見える、を繰り返して**全部を原寸から作っていた**（win2: 3万枚で約220秒。帯で
             // 下へ逃げると素性だけになり約20秒）。自動の列の先頭へ積み、済めば `media-updated` で
             // タイルが問い直し、まだ見えていれば今度は本番を作る。印（`fresh`）ではなく列で見る——監視が足した
-            // 写真や、読み途中で再起動した後の写真も、自動の列に居るので同じ扱いになる（/code-review）
+            // 写真や、読み途中で再起動した後の写真も、自動の列に居るので同じ扱いになる（/code-review）。
+            // いまは未読の写真は一覧の末尾の「読み込み中」の束に居る（`db::UNREAD_DAY_KEY`）ので先頭には固まらないが、
+            // 末尾まで送って未読の束を見たときに同じことが起きる
             if unread.contains(&id) {
                 state.pending.push_front(id);
             } else {
@@ -2898,6 +2900,10 @@ impl ThumbnailService {
                             process_one_job(&mut db, &thumbs_dir, thumb_size, id, job)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
+                        // 読めずに終わった新しい写真を「読み込み中」の束から出す（撮影日時を書く道は自分で移す）
+                        if matches!(result, Err(_) | Ok(ThumbOutcome::Deferred)) {
+                            let _ = db.settle_unread_day(id);
+                        }
                         if job == Job::Pregen {
                             pregen_settle(&queue, &mut db, id, &result);
                         } else if matches!(result, Ok(ThumbOutcome::Final)) {
@@ -5764,6 +5770,68 @@ mod tests {
         assert_eq!((r.width, r.height), (Some(600), Some(800)), "向き6で縦長");
         let (tw, th) = image::image_dimensions(r.thumb_path.as_ref().unwrap()).unwrap();
         assert!(th > tw, "本番のサムネイルも縦長: {tw}x{th}");
+    }
+
+    /// 走査で入った新しい写真は「読み込み中」の束（一覧の末尾）に居て、読むと本当の日へ移る。読めなくても束に残らない。
+    /// 中身が変わった既存の写真は束へ戻らない
+    #[test]
+    fn new_photos_wait_at_the_end_until_their_date_is_read() {
+        use crate::db::UNREAD_DAY_KEY;
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Db::open(&dir.path().join("u.db")).unwrap();
+        let good = dir.path().join("good.jpg");
+        std::fs::write(&good, jpeg_with_stray_exif_next_ifd(80, 60, 1)).unwrap();
+        let gone = dir.path().join("gone.jpg"); // 走査の後に消えた（開けない）
+        let scan = |p: &Path, mtime_ms| ScannedFile {
+            path: p.to_path_buf(),
+            size: 1,
+            mtime_ms,
+        };
+        db.upsert_files(&[
+            scan(&good, 1_557_057_600_000),
+            scan(&gone, 1_557_057_600_000),
+        ])
+        .unwrap();
+        let id_of = |db: &Db, p: &Path| {
+            db.list_all()
+                .unwrap()
+                .into_iter()
+                .find(|r| r.path == p)
+                .unwrap()
+                .id
+        };
+        let (g, x) = (id_of(&db, &good), id_of(&db, &gone));
+        let day = |db: &Db, id| db.get_by_id(id).unwrap().unwrap().day_key;
+        assert_eq!((day(&db, g), day(&db, x)), (UNREAD_DAY_KEY, UNREAD_DAY_KEY));
+        assert_eq!(
+            db.timeline_summary(crate::MediaFilter::All).unwrap()[0].day_key,
+            UNREAD_DAY_KEY
+        );
+
+        // 読めた写真は EXIF の撮影日（2021-05-06）の日へ
+        process_one(&mut db, &dir.path().join("thumbs"), 160, g, false).unwrap();
+        assert_eq!(day(&db, g), 20210506);
+        // 開けない写真は読みが失敗する。働き手は束からファイルの日付の日へ出す
+        assert!(process_one(&mut db, &dir.path().join("thumbs"), 160, x, false).is_err());
+        db.settle_unread_day(x).unwrap();
+        assert_eq!(day(&db, x) / 10000, 2019);
+        // 読み終えた行に、もう一度「束から出す」を当てても動かない
+        db.settle_unread_day(g).unwrap();
+        assert_eq!(day(&db, g), 20210506);
+
+        // 中身が変わった既存の写真は、束へ戻らない（ファイルの日付の日に居て、読み直しで撮影日へ）
+        db.upsert_files(&[ScannedFile {
+            path: good.clone(),
+            size: 2,
+            mtime_ms: 1_557_057_600_000,
+        }])
+        .unwrap();
+        assert_ne!(day(&db, g), UNREAD_DAY_KEY);
+        assert!(db
+            .timeline_summary(crate::MediaFilter::All)
+            .unwrap()
+            .iter()
+            .all(|d| d.day_key != UNREAD_DAY_KEY));
     }
 
     /// 前の版で EXIF を拒まれていた JPEG だけを、一度きり読み直しへ回す（クラウドにしか無いものは開かない）

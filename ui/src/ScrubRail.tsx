@@ -66,10 +66,14 @@ const CARD_LEAVE_MS = 350;
  */
 const WHEEL_STEP_PX = 50;
 
+// 「読み込み中」の束（`UNREAD_DAY`、月にすると負）は日付ではない。新しいライブラリでまだ何も読めていない間は、
+// 帯の行がすべてこの束になる
 /** 「2023年8月」（年をまたぐ所と、指の月） */
-const monthLabel = (yyyymm: number) => formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
+const monthLabel = (yyyymm: number) =>
+  yyyymm < 0 ? t.dayUnread : formatMonth(Math.floor(yyyymm / 100), yyyymm % 100);
 /** 「8月」（同じ年の前後の月） */
-const monthOnly = (yyyymm: number) => formatMonthOnly(Math.floor(yyyymm / 100), yyyymm % 100);
+const monthOnly = (yyyymm: number) =>
+  yyyymm < 0 ? t.dayUnread : formatMonthOnly(Math.floor(yyyymm / 100), yyyymm % 100);
 
 /**
  * 一覧の帯（普通のスクロールバーの代わり。計算は `scrubRailMath.ts`）。

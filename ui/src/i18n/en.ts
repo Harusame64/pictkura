@@ -588,6 +588,8 @@ export const en: Dict = {
   rebuildThumbsConfirm:
     "Delete all current thumbnails and create them again? Your photos themselves are not touched. Thumbnails are recreated as you view photos.",
   rebuildThumbsOk: "Rebuild",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "Still being read",
   settingsHardwareAccelerationNote:
     "If the mouse pointer looks frozen while you view photos in full screen, turning this off may fix it (seen on a PC with AMD graphics). With it off, video playback uses more CPU. The change takes effect the next time you start pictkura.",
   settingsImportWaitingFrom: (path: string) =>

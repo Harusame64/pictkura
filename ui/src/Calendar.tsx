@@ -22,6 +22,8 @@ interface MonthData {
 function buildMonths(summary: DaySummary[]): MonthData[] {
   const map = new Map<number, MonthData>();
   for (const day of summary) {
+    // 「読み込み中」の束（日付ではない）は月に入れない
+    if (day.day_key <= 0) continue;
     const [year, month, dayOfMonth] = splitDayKey(day.day_key);
     const key = year * 100 + month;
     let m = map.get(key);

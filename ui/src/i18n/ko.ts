@@ -635,6 +635,8 @@ export const ko: Dict = {
   rebuildThumbsConfirm:
     "현재 미리보기 이미지를 모두 지우고 다시 만들까요? 사진 자체는 지워지지 않습니다. 표시하는 사진부터 차례로 다시 만듭니다.",
   rebuildThumbsOk: "다시 만들기",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "읽는 중",
   settingsHardwareAccelerationNote:
     "사진을 전체 화면으로 볼 때 마우스 포인터가 멈춘 것처럼 보이는 경우, 이 설정을 끄면 해결될 수 있습니다(AMD 그래픽이 탑재된 PC에서 확인됨). 설정을 끄면 동영상 재생 시 CPU 사용량이 늘어납니다. 변경 사항은 다음에 pictkura를 실행할 때 적용됩니다.",
   settingsImportWaitingFrom: (path: string) =>

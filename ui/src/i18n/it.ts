@@ -634,6 +634,8 @@ export const it: Dict = {
   rebuildThumbsConfirm:
     "Eliminare tutte le miniature attuali e ricrearle? Le foto stesse non vengono toccate. Le miniature vengono ricreate man mano che visualizzi le foto.",
   rebuildThumbsOk: "Ricrea",
+  /* 一覧の末尾の、まだ撮影日を読んでいない新しい写真の束の見出し（日付の代わり） */
+  dayUnread: "Lettura in corso",
   settingsHardwareAccelerationNote:
     "Se il puntatore del mouse sembra bloccato mentre guardi le foto a schermo intero, disattivare questa opzione può risolvere il problema (riscontrato su un PC con grafica AMD). Se è disattivata, la riproduzione dei video usa più CPU. La modifica ha effetto dal prossimo avvio di pictkura.",
   settingsImportWaitingFrom: (path: string) =>
