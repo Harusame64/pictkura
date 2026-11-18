@@ -1407,6 +1407,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const generationRef = useRef(0);
   /** 取得中の日（重複リクエスト防止） */
   const inflightRef = useRef(new Set<number>());
+  /** 読み込み途中に「取り直して」と頼まれた日。その読みは古い中身を返しうるので、終わったらもう一度読む（`loadDays`） */
+  const refetchAfterRef = useRef(new Set<number>());
   /** 現在可視の日（キャッシュ間引きから保護する） */
   const visibleDaysRef = useRef(new Set<number>());
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1680,12 +1682,20 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   /** サマリ・件数だけを取り直す（日キャッシュは基本的に維持。部分更新の整合回復用）。
    *
    * 取り直したサマリの枚数と、キャッシュ済みの日の実際の件数がズレていたら、
-   * その日だけキャッシュを捨てて取り直させる。ズレは
+   * その日を取り直す（見えている日は出したまま、見えていない日は捨てて見えたときに）。ズレは
    * 「撮影日が確定して別の日から移ってきた」「メタデータ抽出で検索条件に
    * 合致するようになった」等で起きる。listDayは常にその日の全件を返すので、
    * 「枚数が違う＝キャッシュが古い」は確実に成り立つ */
   /** `loadDays` は `refreshSummary` より後ろで作るので、ref 越しに呼ぶ */
   const loadDaysRef = useRef<(keys: readonly number[]) => void>(() => {});
+  /** いま描いている日ごとの中身（状態を更新する関数の外で、取り直す日を決めるため。描画が確定してから写す） */
+  const dayItemsRef = useRef(dayItems);
+  useLayoutEffect(() => {
+    dayItemsRef.current = dayItems;
+  }, [dayItems]);
+  /** 中身が古くなった日を、捨てずに出したまま取り直すか（見えている日・ビューアの表示日）。捨てると1コマ空く */
+  const keepWhileRefetching = (dayKey: number) =>
+    visibleDaysRef.current.has(dayKey) || dayKey === viewerDayRef.current;
   const refreshSummary = useCallback(async () => {
     const gen = generationRef.current;
     const askedFor = askedRef.current;
@@ -1708,25 +1718,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     // 捨てると、取り直しが届くまでの1コマ、その日が見積もりの枠だけになって一覧の高さが跳ね、画面のタイルが
     // 0枚になった——読み込み中は写真が日をまたいで動くので、見えている日の枚数が毎回ずれ、この骨組みの取り直し
     // （2秒ごと）のたびにちらついた（win2 の実測: 30秒に13回。検索結果のちらつきも同じ道）。見えていない日は
-    // 今までどおり捨てる（見えたときに読む）
-    const stale: number[] = [];
+    // 今までどおり捨てる（見えたときに読む）。
+    // **取り直す日は、状態を更新する関数の外で決める**——その関数は React が後で（描画のときに）走らせることがあり、
+    // 中で集めると、ここで見たときには空のままだった（PR #352 の /code-review: 取り直されず古い中身が居座った）
+    const counts = new Map(sum.map((d) => [d.day_key, d.count]));
+    const mismatched = (map: Map<number, MediaItem[]>) =>
+      [...map].filter(([dayKey, items]) => counts.get(dayKey) !== items.length).map(([k]) => k);
+    const refetch = mismatched(dayItemsRef.current).filter(keepWhileRefetching);
     setDayItems((prev) => {
-      if (prev.size === 0) return prev;
-      const counts = new Map(sum.map((d) => [d.day_key, d.count]));
-      let next: Map<number, MediaItem[]> | null = null;
-      for (const [dayKey, items] of prev) {
-        if (counts.get(dayKey) !== items.length) {
-          if (visibleDaysRef.current.has(dayKey) || dayKey === viewerDayRef.current) {
-            stale.push(dayKey);
-            continue;
-          }
-          if (!next) next = new Map(prev);
-          next.delete(dayKey);
-        }
-      }
-      return next ?? prev;
+      const drop = mismatched(prev).filter((k) => !keepWhileRefetching(k));
+      if (drop.length === 0) return prev;
+      const next = new Map(prev);
+      for (const k of drop) next.delete(k);
+      return next;
     });
-    if (stale.length > 0) loadDaysRef.current(stale);
+    if (refetch.length > 0) loadDaysRef.current(refetch);
   }, []);
   const summaryRefreshTimer = useRef<number | null>(null);
   // サムネイル一括生成中はパッチが大量に届くため、骨組みの再取得は2秒デバウンス
@@ -1754,6 +1760,8 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   const loadDays = useCallback((keys: readonly number[], attempt = 0): void => {
     const now = Date.now();
     // 読めなかった日は、取り直しの時計に任せる（スクロールのたびに頼み直さない）
+    // 読み込み途中の日は、その読みが古い中身を返しうるので、終わったらもう一度読む印を付ける
+    for (const d of keys) if (inflightRef.current.has(d)) refetchAfterRef.current.add(d);
     const want = keys.filter((d) => !inflightRef.current.has(d) && (failedDaysRef.current.get(d) ?? 0) <= now);
     if (want.length === 0) return;
     for (const d of want) inflightRef.current.add(d);
@@ -1763,6 +1771,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
         // 世代が替わっていれば何も触らない——読み途中の印は新しい世代の要求のものになっている
         if (generationRef.current !== gen) return; // フィルタ切替等で無効化済み
         for (const d of want) inflightRef.current.delete(d);
+        // 読んでいる間に「取り直して」と頼まれた日は、もう一度読む（今の中身は出したまま）
+        const again = want.filter((d) => refetchAfterRef.current.delete(d));
+        if (again.length > 0) window.setTimeout(() => loadDays(again), 0);
         const got = new Set(want);
         // 読めなかった日だけを、まだ見えていれば少し待って取り直す（ほかの日は出す）。理由は1回だけ出す
         const failed = pairs.filter((p) => p.items === null);
@@ -2297,15 +2308,31 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
               break;
             }
           }
-          // 宛先の日が読み込み済みなのに載っていない（日付が移ってきた）:
-          // その日を捨てて再取得させる
-          if (shown && arr && idx < 0) {
+          // 宛先の日が読み込み済みなのに載っていない（日付が移ってきた）: その日を捨てて再取得させる。
+          // **見えている日は捨てない**（下で、出したまま取り直す。捨てると1コマ空く。PR #352）
+          if (shown && arr && idx < 0 && !keepWhileRefetching(p.day_key)) {
             if (!next) next = new Map(prev);
             next.delete(p.day_key);
           }
         }
         return next ?? prev;
       });
+      // 移ってきた写真の宛先の日のうち、見えている日は出したまま取り直す（上で捨てなかった日。日は関数の外で決める）
+      if (!searching) {
+        const refetch = new Set<number>();
+        for (const p of patches) {
+          const arr = dayItemsRef.current.get(p.day_key);
+          if (
+            shownUnder(filter, kind, p) &&
+            arr &&
+            !arr.some((it) => it.id === p.id) &&
+            keepWhileRefetching(p.day_key)
+          ) {
+            refetch.add(p.day_key);
+          }
+        }
+        if (refetch.size > 0) loadDaysRef.current([...refetch]);
+      }
       // 開いている写真の日が移ったら、ビューアも付いていく（dev #49）。検索中・送り出しでは、移った先で
       // 結果に入るかをここで判定できないので追わない（今までどおり寄せる）。★・⚑ で絞っていて印が無いなら
       // 一覧から外れるのが正しい
