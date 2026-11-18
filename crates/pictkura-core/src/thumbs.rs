@@ -1884,6 +1884,19 @@ pub fn process_one(
     id: i64,
     want_final: bool,
 ) -> Result<ThumbOutcome, ThumbError> {
+    let job = if want_final { Job::Visible } else { Job::Auto };
+    process_one_job(db, thumbs_dir, thumb_size, id, job)
+}
+
+/// [`process_one`] を仕事の種類で呼ぶ。[`Job::Pregen`] は本番まで作るが、クラウドにしか無いファイルは開かない
+pub fn process_one_job(
+    db: &mut Db,
+    thumbs_dir: &Path,
+    thumb_size: u32,
+    id: i64,
+    job: Job,
+) -> Result<ThumbOutcome, ThumbError> {
+    let want_final = job != Job::Auto;
     let record = db.get_by_id(id)?.ok_or(ThumbError::NotFound(id))?;
     let src = &record.path;
 
@@ -1900,7 +1913,8 @@ pub fn process_one(
     // 同期クライアント経由のmtimeは撮影日に近いことが多く実害は小さいが、
     // これを消すにはファイルを開かずにサムネイルを得る経路
     //（WindowsのShellサムネイル）が要る。plan.md 第7部の未着手に置いた
-    if !want_final && crate::cloud::is_cloud_only_path(src) {
+    // 前もって作る仕事（[`Job::Pregen`]）も開かない——利用者はまだ見ていない（2026-11-18 利用者）
+    if job != Job::Visible && crate::cloud::is_cloud_only_path(src) {
         // 絵は諦めるが、**素性はOSが持っている**（段階H）。同期クライアントが
         // 置いたぶんだけが返るので、ここで問い合わせても
         // 1バイトも落ちない（根拠は `shell::metadata` の説明。長さだけが
@@ -2237,6 +2251,14 @@ struct QueueState {
     failures: HashMap<i64, u32>,
     /// **新しく読む写真**（まだサムネイルの無い行）として積まれた id。済んだら外す（pictkura-dev #64 の「残り n枚」）
     fresh: HashSet<i64>,
+    /// **前もって作る列**（設定「サムネイルを自動生成」）。いちばん後ろ——優先の列も自動の列も空のときだけ取る
+    pregen: VecDeque<i64>,
+    /// 前もって作る仕事のうち処理中の id。同時に走らせる数を [`QueueState::pregen_limit`] までに抑える
+    /// （働き手を全部取ると、見えたタイルの仕事が1枚ぶん待たされる）
+    pregen_running: HashSet<i64>,
+    pregen_limit: usize,
+    /// 前もって作ろうとして作らなかった id（クラウドにしか無い・絵が無い・失敗）。この起動の間は配り直さない
+    pregen_skip: HashSet<i64>,
     shutdown: bool,
 }
 
@@ -2305,6 +2327,10 @@ impl ThumbQueue {
                     processing: HashSet::new(),
                     failures: HashMap::new(),
                     fresh: HashSet::new(),
+                    pregen: VecDeque::new(),
+                    pregen_running: HashSet::new(),
+                    pregen_limit: 1,
+                    pregen_skip: HashSet::new(),
                     shutdown: false,
                 }),
                 cvar: Condvar::new(),
@@ -2362,6 +2388,8 @@ impl ThumbQueue {
             !hit
         });
         state.priority.retain(|id| !target.contains(id));
+        // 前もって作る列で待っていた写真は、見えたので優先の列へ移す（下で載せ直す）
+        state.pregen.retain(|id| !target.contains(id));
         // 積み直すぶんは「キュー内」からいったん降ろす。下で載せたものだけが戻る。
         // **降ろしたまま積まないIDを残さないこと**——`queued` に居るのに列に
         // 居ないIDが出来ると、[`Self::enqueue`] の重複防止に永久に弾かれて、
@@ -2406,22 +2434,36 @@ impl ThumbQueue {
         self.inner.cvar.notify_all();
     }
 
-    /// 次のジョブを取り出す。キューが空なら待機し、shutdownでNoneを返す。
-    /// 戻り値の bool は「優先キュー由来（＝高品質生成まで行う）」か。
+    /// 次のジョブを取り出す（[`Self::pop_job`]）。bool は「高品質生成まで行う」か（試験の書きやすさのため）
     pub fn pop(&self) -> Option<(i64, bool)> {
+        self.pop_job().map(|(id, job)| (id, job != Job::Auto))
+    }
+
+    /// 次のジョブを取り出す。キューが空なら待機し、shutdownでNoneを返す。
+    /// 優先の列 → 自動の列 → 前もって作る列（同時に [`QueueState::pregen_limit`] 本まで）の順
+    pub fn pop_job(&self) -> Option<(i64, Job)> {
         let mut state = self.lock_state();
         loop {
             if state.shutdown {
                 return None;
             }
             let next = match state.priority.pop_front() {
-                Some(id) => Some((id, true)),
-                None => state.pending.pop_front().map(|id| (id, false)),
+                Some(id) => Some((id, Job::Visible)),
+                None => match state.pending.pop_front() {
+                    Some(id) => Some((id, Job::Auto)),
+                    None if state.pregen_running.len() < state.pregen_limit => {
+                        state.pregen.pop_front().map(|id| (id, Job::Pregen))
+                    }
+                    None => None,
+                },
             };
-            if let Some((id, want_final)) = next {
+            if let Some((id, job)) = next {
                 state.queued.remove(&id);
                 state.processing.insert(id);
-                return Some((id, want_final));
+                if job == Job::Pregen {
+                    state.pregen_running.insert(id);
+                }
+                return Some((id, job));
             }
             state = self
                 .inner
@@ -2436,6 +2478,11 @@ impl ThumbQueue {
         let mut state = self.lock_state();
         state.processing.remove(&id);
         state.fresh.remove(&id);
+        // 前もって作る仕事の枠が空いたら、待っている働き手を起こす
+        if state.pregen_running.remove(&id) {
+            drop(state);
+            self.inner.cvar.notify_all();
+        }
     }
 
     /// 処理を終えたが、もう一度解く（ファイルが書き換え途中・行が変わった）。[`Self::complete`] と違い、
@@ -2443,6 +2490,7 @@ impl ThumbQueue {
     pub fn requeue(&self, id: i64) {
         let mut state = self.lock_state();
         state.processing.remove(&id);
+        state.pregen_running.remove(&id);
         if !state.blocked(id) && state.queued.insert(id) {
             state.pending.push_back(id);
         }
@@ -2496,10 +2544,86 @@ impl ThumbQueue {
         state.fresh.len()
     }
 
+    /// 前もって作る列へ積む（キュー済み・処理中・失敗上限・この起動で見送ったものは無視）
+    pub fn enqueue_pregen(&self, ids: &[i64]) {
+        let mut state = self.lock_state();
+        for &id in ids {
+            if state.blocked(id) || state.pregen_skip.contains(&id) {
+                continue;
+            }
+            if !state.processing.contains(&id) && state.queued.insert(id) {
+                state.pregen.push_back(id);
+            }
+        }
+        drop(state);
+        self.inner.cvar.notify_all();
+    }
+
+    /// 前もって作る列を空にする（一時停止・設定をオフ）。処理中の分はそのまま終わらせる
+    pub fn clear_pregen(&self) {
+        let mut state = self.lock_state();
+        let QueueState { pregen, queued, .. } = &mut *state;
+        for id in pregen.drain(..) {
+            queued.remove(&id);
+        }
+    }
+
+    /// 前もって作る仕事で、待っている数と処理中の数の和（配り手が足すかどうかの目安）
+    pub fn pregen_backlog(&self) -> usize {
+        let state = self.lock_state();
+        state.pregen.len() + state.pregen_running.len()
+    }
+
+    /// 前もって作る仕事を同時に何本まで走らせるか（1以上）
+    pub fn set_pregen_limit(&self, limit: usize) {
+        self.lock_state().pregen_limit = limit.max(1);
+        self.inner.cvar.notify_all();
+    }
+
+    /// この起動の間は前もって作らない（クラウドにしか無い・絵が無い・失敗した）
+    pub fn skip_pregen(&self, id: i64) {
+        self.lock_state().pregen_skip.insert(id);
+    }
+
+    /// 見送った数（「残り」から引く）
+    pub fn pregen_skipped(&self) -> usize {
+        self.lock_state().pregen_skip.len()
+    }
+
+    /// 見送った id か（配り手が同じ写真を拾い直さないように）
+    pub fn is_pregen_skipped(&self, id: i64) -> bool {
+        self.lock_state().pregen_skip.contains(&id)
+    }
+
+    /// 自動の列（新しい写真の素性の読み込み）と優先の列が空か。前もって作るのはその後
+    pub fn foreground_idle(&self) -> bool {
+        let state = self.lock_state();
+        state.pending.is_empty() && state.priority.is_empty()
+    }
+
+    /// 「作り直す」の後: 失敗の数と見送りを忘れる（壊れていた写真も、もう一度試す）
+    pub fn forget_failures(&self) {
+        let mut state = self.lock_state();
+        state.failures.clear();
+        state.pregen_skip.clear();
+    }
+
     pub fn shutdown(&self) {
         self.lock_state().shutdown = true;
         self.inner.cvar.notify_all();
     }
+}
+
+/// 働き手が取る仕事の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Job {
+    /// 自動の列: 素性（撮影日・寸法）と、埋め込みの即席サムネイルまで
+    Auto,
+    /// 見えたタイル: 本番のサムネイルまで作る。クラウドにしか無いファイルも開く（利用者が見ている）
+    Visible,
+    /// 前もって作る（設定「サムネイルを自動生成」）: 本番まで作るが、**クラウドにしか無いファイルは開かない**。
+    /// 作ったサムネイルは「まだ見ていない」として残す（上限を超えたら先に消える）
+    Pregen,
 }
 
 /// 1件の処理で、その行の `camera_id` がどう動いたか（dev #28）。
@@ -2591,7 +2715,7 @@ impl ThumbnailService {
                     let Ok(mut db) = Db::open(&db_path) else {
                         return;
                     };
-                    while let Some((id, want_final)) = queue.pop() {
+                    while let Some((id, job)) = queue.pop_job() {
                         // 段階B-3: 自動パス（want_final=false）はメタデータ＋即席まで。
                         // 高品質生成は可視領域の要求（優先キュー）時のみ行う
                         //
@@ -2607,9 +2731,20 @@ impl ThumbnailService {
                         let camera_before = db.camera_id_of_media(id);
                         let version_before = db.version_of(id).ok().flatten();
                         let result = crate::panics::catching(&format!("thumbnail id={id}"), || {
-                            process_one(&mut db, &thumbs_dir, thumb_size, id, want_final)
+                            process_one_job(&mut db, &thumbs_dir, thumb_size, id, job)
                         })
                         .unwrap_or(Err(ThumbError::Panicked(id)));
+                        // 前もって作った絵は「まだ見ていない」（上限を超えたら、見た絵より先に消える）。作らずに
+                        // 終わった写真（クラウドにしか無い・絵が無い・失敗）は、この起動の間は配り直さない
+                        if job == Job::Pregen {
+                            match result {
+                                Ok(ThumbOutcome::Final) => {
+                                    let _ = db.mark_thumb_unviewed(id);
+                                }
+                                Ok(ThumbOutcome::Stale) => {}
+                                _ => queue.skip_pregen(id),
+                            }
+                        }
                         let camera = CameraWrite::between(camera_before, db.camera_id_of_media(id));
                         let stale = matches!(result, Ok(ThumbOutcome::Stale));
                         finish_job(&queue, &db, id, version_before, stale);
@@ -2673,6 +2808,16 @@ impl ThumbnailService {
     /// このIDがキュー内または処理中か（LRU削除ファイル消去直前の再確認用）。
     pub fn is_active(&self, id: i64) -> bool {
         self.queue.is_active(id)
+    }
+
+    /// 列そのもの（前もって作る列の操作: [`ThumbQueue::enqueue_pregen`] ほか）
+    pub fn queue(&self) -> &ThumbQueue {
+        &self.queue
+    }
+
+    /// 働き手の数
+    pub fn worker_count(&self) -> usize {
+        self.workers.len()
     }
 
     /// 全ワーカーを停止して合流する。
@@ -5348,6 +5493,56 @@ mod tests {
     }
 
     /// 優先の列は上限まで。溢れたぶんは古い側から自動の列（素性だけ）へ降り、新しい要求が先に作られる
+    /// 前もって作る列は、優先の列も自動の列も空のときだけ、決めた本数まで取られる
+    #[test]
+    fn the_pregen_lane_waits_behind_everything_and_is_capped() {
+        let queue = ThumbQueue::new();
+        queue.set_pregen_limit(1);
+        queue.enqueue_pregen(&[10, 11]);
+        queue.enqueue(&[1]);
+        queue.prioritize(&[2]);
+        assert_eq!(queue.pop_job(), Some((2, Job::Visible)));
+        assert_eq!(queue.pop_job(), Some((1, Job::Auto)));
+        assert_eq!(queue.pop_job(), Some((10, Job::Pregen)));
+        // 1 本走っている間は、2 本目を取らない（見えたタイルの仕事は取れる）
+        queue.prioritize(&[3]);
+        assert_eq!(queue.pop_job(), Some((3, Job::Visible)));
+        let q2 = queue.clone();
+        let waiter = std::thread::spawn(move || q2.pop_job());
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(!waiter.is_finished(), "枠が埋まっている間は待つ");
+        queue.complete(10);
+        assert_eq!(waiter.join().unwrap(), Some((11, Job::Pregen)));
+    }
+
+    /// 見えた写真は前もって作る列から優先の列へ移る。列を空にしても、積み直せなくなる id を残さない
+    #[test]
+    fn the_pregen_lane_yields_to_visible_tiles_and_clears_cleanly() {
+        let queue = ThumbQueue::new();
+        queue.set_pregen_limit(4);
+        queue.enqueue_pregen(&[1, 2, 3]);
+        queue.prioritize(&[2]);
+        assert_eq!(queue.pop_job(), Some((2, Job::Visible)));
+        queue.clear_pregen();
+        assert_eq!(queue.pregen_backlog(), 0);
+        assert!(!queue.is_active(1) && !queue.is_active(3));
+        // 空にした後も、同じ写真をまた積める
+        queue.enqueue_pregen(&[3]);
+        assert_eq!(queue.pop_job(), Some((3, Job::Pregen)));
+        // 見送った写真は積まない。「作り直す」で忘れる
+        queue.skip_pregen(7);
+        queue.enqueue_pregen(&[7]);
+        assert_eq!(queue.pregen_backlog(), 1);
+        queue.forget_failures();
+        queue.enqueue_pregen(&[7]);
+        assert_eq!(queue.pregen_backlog(), 2);
+        assert_eq!(queue.pregen_skipped(), 0);
+        // 前もって作る列だけが積まれている間は「手前は空いている」
+        assert!(queue.foreground_idle());
+        queue.enqueue(&[20]);
+        assert!(!queue.foreground_idle());
+    }
+
     #[test]
     fn the_priority_queue_keeps_only_the_newest_requests() {
         let queue = ThumbQueue::new();

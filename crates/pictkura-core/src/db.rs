@@ -2062,7 +2062,7 @@ impl Db {
             let mut stmt = tx.prepare_cached(&format!(
                 "SELECT id, thumb_path, thumb_bytes FROM media
                  WHERE thumb_state = 2 AND thumb_bytes IS NOT NULL {filter}
-                 ORDER BY thumb_used_ms ASC"
+                 ORDER BY thumb_used_ms ASC, {SORT_TS} ASC"
             ))?;
             let rows = stmt.query_map(params![guard.unwrap_or(recent_guard_ms)], |r| {
                 Ok((
@@ -2514,6 +2514,84 @@ impl Db {
             params![id, path.to_string_lossy()],
         )?;
         Ok(n > 0)
+    }
+
+    /// 前もって作ったサムネイル（設定「サムネイルを自動生成」）を「まだ見ていない」にする。利用時刻を 0 にするので、
+    /// 上限を超えたときは見た絵より先に、撮影日の古い順に消える（[`Db::evict_final_thumbs`]）。見れば
+    /// タッチ（[`Db::touch_thumbs`]）が今の時刻へ上げる
+    pub fn mark_thumb_unviewed(&mut self, id: i64) -> Result<(), DbError> {
+        self.conn.execute(
+            "UPDATE media SET thumb_used_ms = 0 WHERE id = ?1 AND thumb_state = 2",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    /// 前もって作るサムネイルの候補（本番のサムネイルが無い写真）を、一覧と同じ並び（新しい順）で `after` の
+    /// 次から `limit` 件。戻り値の鍵を次の `after` に渡すと続きが読める
+    pub fn pregen_candidates(
+        &self,
+        after: Option<PregenCursor>,
+        limit: usize,
+    ) -> Result<Vec<(i64, PregenCursor)>, DbError> {
+        let map = |r: &rusqlite::Row<'_>| -> rusqlite::Result<(i64, PregenCursor)> {
+            let id: i64 = r.get(0)?;
+            Ok((id, (r.get(1)?, r.get(2)?, id)))
+        };
+        let rows = match after {
+            None => {
+                let mut stmt = self.conn.prepare_cached(&format!(
+                    "SELECT id, day_key, {SORT_TS} FROM media WHERE thumb_state < 2
+                     ORDER BY day_key DESC, {SORT_TS} DESC, id DESC LIMIT ?1"
+                ))?;
+                let rows = stmt.query_map(params![limit as i64], map)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+            Some((day, ts, id)) => {
+                let mut stmt = self.conn.prepare_cached(&format!(
+                    "SELECT id, day_key, {SORT_TS} FROM media WHERE thumb_state < 2
+                     AND (day_key, {SORT_TS}, id) < (?1, ?2, ?3)
+                     ORDER BY day_key DESC, {SORT_TS} DESC, id DESC LIMIT ?4"
+                ))?;
+                let rows = stmt.query_map(params![day, ts, id, limit as i64], map)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            }
+        };
+        Ok(rows)
+    }
+
+    /// 本番のサムネイルがまだ無い写真の数（前もって作る「残り」のもと）
+    pub fn pregen_candidate_count(&self) -> Result<usize, DbError> {
+        let n: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM media WHERE thumb_state < 2", [], |r| {
+                    r.get(0)
+                })?;
+        Ok(n as usize)
+    }
+
+    /// 本番のサムネイルの数と合計の大きさ（設定の「いま n 使用中」）
+    pub fn thumb_cache_stats(&self) -> Result<(usize, i64), DbError> {
+        let (n, bytes): (i64, i64) = self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(thumb_bytes), 0) FROM media WHERE thumb_state = 2",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((n as usize, bytes))
+    }
+
+    /// 「サムネイルを作り直す」: すべての行のサムネイルを外す。外したファイルは引き金が `thumb_trash` に積み、
+    /// 掃除役が順に消す（同じ名前で作り直された絵は、持ち主がいるので消さない）。SVG の「要らない」印（3）は残す。
+    /// 外した行の数を返す
+    pub fn reset_all_thumbs(&mut self) -> Result<usize, DbError> {
+        let n = self.conn.execute(
+            "UPDATE media SET thumb_path = NULL, thumb_state = 0, thumb_bytes = NULL, thumb_used_ms = NULL
+             WHERE thumb_path IS NOT NULL OR thumb_state IN (1, 2, 4)",
+            [],
+        )?;
+        Ok(n)
     }
 
     /// 書き手の順番（`BEGIN IMMEDIATE`）を持ったまま `f` を走らせる。`f` は読むだけ・ファイルを触るだけ。
@@ -4000,6 +4078,9 @@ impl Db {
 }
 
 /// 現在時刻のUnixエポックミリ秒（サムネイルLRUの利用時刻用）。
+/// [`Db::pregen_candidates`] の続きの位置（`day_key`, 並びの時刻, id）
+pub type PregenCursor = (i64, i64, i64);
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -6023,6 +6104,157 @@ mod tests {
 
         // 上限内なら何もしない
         assert!(db.evict_final_thumbs(2000, &empty).unwrap().is_empty());
+    }
+
+    /// SVG の「要らない」印（`thumbs::THUMB_STATE_NOT_NEEDED`）
+    const THUMB_STATE_NOT_NEEDED_FOR_TEST: i64 = 3;
+
+    /// 名前から id を引く（`list_all` の並びはパスの順ではない）
+    fn id_of(db: &Db, path: &str) -> i64 {
+        db.list_all()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.path == Path::new(path))
+            .unwrap()
+            .id
+    }
+
+    /// 前もって作った（まだ見ていない）絵は、見た絵より先に、撮影日の古い順に消える
+    #[test]
+    fn unviewed_thumbnails_go_first_oldest_taken_first() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("old.jpg", 1, 1_000_000),
+            scanned("new.jpg", 1, 3_000_000),
+            scanned("seen.jpg", 1, 2_000_000),
+        ])
+        .unwrap();
+        let (old, new, seen) = (
+            id_of(&db, "old.jpg"),
+            id_of(&db, "new.jpg"),
+            id_of(&db, "seen.jpg"),
+        );
+        for id in [old, new, seen] {
+            db.update_thumb_path(id, Path::new(&format!("t/{id}.webp")), 2, Some(1000))
+                .unwrap();
+        }
+        // 見た絵は 2 時間前に使った（直近の守りの外）。前もって作った 2 枚は見ていない
+        set_thumb_used(&db, seen, now_ms() - 2 * 60 * 60 * 1000);
+        db.mark_thumb_unviewed(old).unwrap();
+        db.mark_thumb_unviewed(new).unwrap();
+
+        let empty = std::collections::HashSet::new();
+        // 上限 2500 → 2250 まで: 1 枚消す
+        let evicted = db.evict_final_thumbs(2500, &empty).unwrap();
+        assert_eq!(
+            evicted.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![old],
+            "見ていない絵のうち、撮影日の古いほうから"
+        );
+        // 上限 1000 → 900 まで: 残り 2 枚とも消えるが、見ていない new が先
+        let evicted = db.evict_final_thumbs(1000, &empty).unwrap();
+        assert_eq!(
+            evicted.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![new, seen]
+        );
+    }
+
+    /// 見れば「まだ見ていない」から抜ける（タッチが利用時刻を上げる）。本番でない行には印を付けない
+    #[test]
+    fn viewing_lifts_an_unviewed_thumbnail() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[scanned("a.jpg", 1, 1000), scanned("b.jpg", 1, 2000)])
+            .unwrap();
+        let (a, b) = (id_of(&db, "a.jpg"), id_of(&db, "b.jpg"));
+        db.update_thumb_path(a, Path::new("t/a.webp"), 2, Some(10))
+            .unwrap();
+        db.mark_thumb_unviewed(a).unwrap();
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None).unwrap();
+        db.mark_thumb_unviewed(b).unwrap();
+        let used = |id: i64| -> Option<i64> {
+            db.conn
+                .query_row("SELECT thumb_used_ms FROM media WHERE id = ?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(used(a), Some(0));
+        assert_ne!(used(b), Some(0), "即席の行は対象外");
+        db.touch_thumbs(&[(a, 5_000)]).unwrap();
+        assert_eq!(
+            db.conn
+                .query_row("SELECT thumb_used_ms FROM media WHERE id = ?1", [a], |r| {
+                    r.get::<_, i64>(0)
+                })
+                .unwrap(),
+            5_000
+        );
+    }
+
+    /// 候補は本番の無い写真だけ、一覧と同じ新しい順に、続きの位置から読める
+    #[test]
+    fn pregen_candidates_walk_newest_first_and_skip_built_ones() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.jpg", 1, 1_000_000_000_000),
+            scanned("b.jpg", 1, 1_100_000_000_000),
+            scanned("c.jpg", 1, 1_200_000_000_000),
+            scanned("d.jpg", 1, 1_300_000_000_000),
+            scanned("e.jpg", 1, 1_400_000_000_000),
+        ])
+        .unwrap();
+        let id = |p: &str| id_of(&db, p);
+        let (a, b, c, d, e) = (id("a.jpg"), id("b.jpg"), id("c.jpg"), id("d.jpg"), id("e.jpg"));
+        db.update_thumb_path(d, Path::new("t/d.webp"), 2, Some(1))
+            .unwrap(); // 済み
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None).unwrap(); // 即席は候補
+        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST).unwrap(); // SVG 相当は外れる
+        assert_eq!(db.pregen_candidate_count().unwrap(), 3);
+
+        let first = db.pregen_candidates(None, 2).unwrap();
+        assert_eq!(first.iter().map(|x| x.0).collect::<Vec<_>>(), vec![e, b]);
+        let rest = db.pregen_candidates(Some(first[1].1), 2).unwrap();
+        assert_eq!(rest.iter().map(|x| x.0).collect::<Vec<_>>(), vec![a]);
+        assert!(db.pregen_candidates(Some(rest[0].1), 2).unwrap().is_empty());
+    }
+
+    /// 「作り直す」は本番・即席・「絵が無い」の印を外し、SVG の「要らない」は残す。外したファイルは控えに積まれる
+    #[test]
+    fn rebuilding_clears_every_thumbnail_and_queues_the_files() {
+        let mut db = Db::open_in_memory().unwrap();
+        db.upsert_files(&[
+            scanned("a.jpg", 1, 1000),
+            scanned("b.jpg", 1, 2000),
+            scanned("c.svg", 1, 3000),
+            scanned("d.cr3", 1, 4000),
+        ])
+        .unwrap();
+        let (a, b, c, d) = (
+            id_of(&db, "a.jpg"),
+            id_of(&db, "b.jpg"),
+            id_of(&db, "c.svg"),
+            id_of(&db, "d.cr3"),
+        );
+        db.update_thumb_path(a, Path::new("t/a.webp"), 2, Some(10))
+            .unwrap();
+        db.update_thumb_path(b, Path::new("t/b.jpg"), 1, None).unwrap();
+        db.update_thumb_state(c, THUMB_STATE_NOT_NEEDED_FOR_TEST).unwrap();
+        db.update_thumb_state(d, 4).unwrap();
+        assert_eq!(db.reset_all_thumbs().unwrap(), 3);
+        for id in [a, b, d] {
+            let r = db.get_by_id(id).unwrap().unwrap();
+            assert_eq!((r.thumb_state, r.thumb_path), (0, None));
+        }
+        assert_eq!(db.get_by_id(c).unwrap().unwrap().thumb_state, 3);
+        let mut trash: Vec<String> = db
+            .thumb_trash_batch(10, 0)
+            .unwrap()
+            .into_iter()
+            .map(|t| t.0)
+            .collect();
+        trash.sort();
+        assert_eq!(trash, vec!["t/a.webp".to_string(), "t/b.jpg".to_string()]);
+        assert_eq!(db.thumb_cache_stats().unwrap(), (0, 0));
     }
 
     #[test]
