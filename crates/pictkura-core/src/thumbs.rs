@@ -865,8 +865,9 @@ fn tolerate_stray_next_ifd(
 ///
 /// [`tolerate_stray_next_ifd`] より前の版は、子 IFD の「次の IFD」の欄が 0 でない EXIF を読めず、向き・撮影日時・
 /// 埋め込みサムネイルを落として行に記録した。ファイルは変わっていないので、走査は読み直さない（PR #349 の
-/// /code-review）。撮影日時の出どころが EXIF でない JPEG のうち、**厳密な読み手がこの誤りで拒み、今の読み手が
-/// 読めるもの**だけを、中身が変わった行と同じに空にする（回っていない向きで作ったサムネイルも外れる）。
+/// /code-review）。JPEG のうち、**厳密な読み手がこの誤りで拒み、今の読み手が読めるもの**だけを、中身が
+/// 変わった行と同じに空にする（回っていない向きで作ったサムネイルも外れる）。候補を行の状態で絞らないのは
+/// [`Db::jpeg_rows`] を見よ。読むのは EXIF の頭だけ（一度きり）。
 ///
 /// クラウドにしか無いファイルは開かない（開くとダウンロードが走る）。読み直しが要る id を返す
 pub fn reread_stray_exif(
@@ -874,7 +875,7 @@ pub fn reread_stray_exif(
     is_cloud_only: &dyn Fn(&Path) -> bool,
 ) -> Result<Vec<i64>, DbError> {
     let mut stale = Vec::new();
-    for (id, path) in db.jpegs_without_exif_date()? {
+    for (id, path) in db.jpeg_rows()? {
         if is_cloud_only(&path) {
             continue;
         }
@@ -5778,6 +5779,15 @@ mod tests {
                 .unwrap();
             ids.insert(*name, id);
         }
+        // 起動時の後追い（連写の材料）が、直った読み手で撮影日時の出どころを先に exif へ書き換えた形
+        // （win2 の実機。出どころで候補を絞ると、ここで漏れた）
+        db.update_shell_metadata(
+            ids["stray.jpg"],
+            80,
+            60,
+            TakenAt::tag(Some(1_620_000_000_000), TakenSource::Exif),
+        )
+        .unwrap();
         let cloud = dir.path().join("cloud.JPG");
         let sent = reread_stray_exif(&mut db, &|p| p == cloud).unwrap();
         assert_eq!(sent, vec![ids["stray.jpg"]]);

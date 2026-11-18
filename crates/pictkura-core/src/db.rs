@@ -3978,12 +3978,15 @@ impl Db {
         Ok(out)
     }
 
-    /// 撮影日時の出どころが EXIF でない JPEG（[`crate::thumbs::reread_stray_exif`] の候補）
-    pub fn jpegs_without_exif_date(&self) -> Result<Vec<FallbackDateRow>, DbError> {
+    /// JPEG の行すべて（[`crate::thumbs::reread_stray_exif`] の候補）。
+    ///
+    /// **行の状態では絞らない。** 起動時の後追い（連写の材料・カメラ）は、直った読み手で撮影日時の出どころや
+    /// カメラを先に書き換えるので、「出どころが EXIF でない」で絞ると候補から全部漏れた（win2 の実機、
+    /// PR #349）。見分けはファイルの EXIF でする
+    pub fn jpeg_rows(&self) -> Result<Vec<FallbackDateRow>, DbError> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, path FROM media
-             WHERE (taken_source IS NULL OR taken_source != 'exif')
-               AND (lower(path) LIKE '%.jpg' OR lower(path) LIKE '%.jpeg')
+             WHERE lower(path) LIKE '%.jpg' OR lower(path) LIKE '%.jpeg'
              ORDER BY id",
         )?;
         let rows = stmt.query_map([], |r| {
