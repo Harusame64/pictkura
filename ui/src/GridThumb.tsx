@@ -1,4 +1,4 @@
-import { useLayoutEffect, useReducer, useRef } from "react";
+import { useLayoutEffect, useReducer, useRef, useState } from "react";
 import { paintable, type BlankWaiters, type RecentThumbs } from "./gridThumbs";
 import type { TileAttach } from "./useTileQueue";
 
@@ -13,12 +13,15 @@ let seq = 0;
  * URL が替わったときに、そのタイルの片付けが必ず走る。
  *
  * 描く前（layout effect）に決める: 最近出した絵ならその場で `src` と印を入れ、浮かび直させない。
- * そうでなければ列に並べ、読み終わったら入れる。URL が替わったら、新しい絵が届くまで前の絵を出したまま
+ * サムネイルがもうある写真（`ready`）は、列を通さずすぐ `src` を入れる。まだ無い写真は列に並べ（Rust は原本を
+ * 返しつつサムネイルを作る列へ積む）、読み終わったら入れる。URL が替わったら、新しい絵が届くまで前の絵を出したまま
  */
 export function GridThumb({
   id,
   day,
   url,
+  ready,
+  quick,
   label,
   loader,
   recent,
@@ -33,6 +36,15 @@ export function GridThumb({
    */
   day?: number;
   url: string;
+  /**
+   * サムネイル（即席でも本番でも）がもうある。**列を通さず、すぐ `src` に入れる**——DOM に入った瞬間から読み始め、
+   * 画面に入る前に読み終わる。列（同時4枚・見えているものから）は原本を読むときだけでよい。小さな絵を列で
+   * 絞ると、一気に送った間、画面に入ってから読み始めて間に合わなかった（win2 の画素の計器: 初めて通る所の
+   * 写真の割合 0.40 → 0.80〜0.89。即席だけのライブラリでも、全部本番を作ったライブラリでも同じ）
+   */
+  ready?: boolean;
+  /** あるのは即席だけ（本番はまだ）。見えている間は本番を作る列に積まれるので、去ったら降ろす */
+  quick?: boolean;
   label: string;
   loader: TileAttach;
   recent: RecentThumbs;
@@ -41,12 +53,17 @@ export function GridThumb({
   onDone: (e: { currentTarget: HTMLImageElement }) => void;
 }) {
   const ref = useRef<HTMLImageElement>(null);
+  // `ready` の URL が空・404 で返った（一覧の行が古く、サムネイルが消えていた等）。その URL の間だけ列の道で問い直す
+  // （URL が替われば元へ戻す）
+  const [staleSrc, setStaleSrc] = useState<string | null>(null);
   // 起こされたら下の effect を走り直させて問い直す（`BlankWaiters`）
   const [wakes, wakeUp] = useReducer((n: number) => n + 1, 0);
-  // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、原本を渡さず空のタイルで
-  // 待たせる（`src-tauri` の `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
+  // 一覧のタイルからの要求だと名乗る（`grid=1`）。サムネイルがまだ無い写真は、Rust が作る列の先頭へ押し、
+  // 描ける原本（寸法が分かっていて上限以内）なら原本を、描けなければ空のタイルを返す（`src-tauri` の
+  // `requested_by_grid`）——出来れば URL（`thumb_state`）が変わり、この部品が読み直す。
   // それ以外の終わり方でも、働き手がこの写真を片付けたら問い直す（`BlankWaiters`）
   const src = day === undefined ? `${url}&grid=1` : `${url}&grid=1&day=${day}`;
+  const stale = staleSrc === src;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -55,6 +72,29 @@ export function GridThumb({
       if (el.getAttribute("src") !== shown) el.src = shown;
       el.setAttribute("data-shown", "");
       return;
+    }
+    el.removeAttribute("data-instant");
+    if (ready && !stale) {
+      // 出すのは届いてから（`onDone`）。先に印を付けると、届くまでタイルの地（明るい灰色）が見えた。届いたら
+      // フェードせずにその場で出す（`data-instant`。一気送りではフェードの途中の暗い絵のまま去った）。
+      // 覚えるのも、出せる絵が届いてから——空や 404 なら覚えず、列の道で問い直す（行が古くサムネイルが消えて
+      // いたとき、空を覚えて灰色のまま残った。PR #356 の /code-review）
+      el.setAttribute("data-instant", "");
+      const settle = () => {
+        if (paintable(el)) {
+          recent.add(src, src);
+        } else {
+          el.removeAttribute("src");
+          setStaleSrc(src);
+        }
+      };
+      el.addEventListener("load", settle, { once: true });
+      el.addEventListener("error", settle, { once: true });
+      el.src = src;
+      return () => {
+        el.removeEventListener("load", settle);
+        el.removeEventListener("error", settle);
+      };
     }
     // 知らせが来ていれば、その数を URL に足して問い直す（同じ URL は macOS で前の空の絵が返りうる。`BlankWaiters`）
     const asked = waiters.count(id);
@@ -91,7 +131,20 @@ export function GridThumb({
       detach();
       unwait();
     };
-  }, [src, loader, recent, waiters, id, wakes]);
+  }, [src, loader, recent, waiters, id, wakes, ready, stale]);
+  // **画面から去ったとき**（URL が替わったときではない——そのときは同じタイルがすぐ頼み直す）、サムネイルが
+  // まだ無ければ作る列から降ろす（`BlankWaiters.leave`）。原本が描けたタイルも降ろす——Rust は原本を返すときも
+  // 列に積んでいて、通り過ぎた写真の本番が、止めた画面の HEIC・RAW の前に並んだ（PR #356 の /code-review）
+  // 即席だけのタイルも降ろす——見えている間に `set_visible_priority` が本番を積んでいる。本番があるタイルは列に
+  // 居ないので送らない（一気送りで何百枚ぶんの空振りの往復になった。PR #356 の /code-review）
+  const leaveRef = useRef(false);
+  leaveRef.current = !ready || !!quick || stale;
+  useLayoutEffect(
+    () => () => {
+      if (leaveRef.current) waiters.leave(id);
+    },
+    [waiters, id],
+  );
   return (
     <img
       ref={ref}
