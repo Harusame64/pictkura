@@ -70,8 +70,11 @@ export function GridThumb({
       return;
     }
     paintedRef.current = false;
+    el.removeAttribute("data-instant");
     if (ready) {
-      // 浮かべるのは届いてから（`onDone`）。先に印を付けると、届くまでタイルの地（明るい灰色）が見えた
+      // 出すのは届いてから（`onDone`）。先に印を付けると、届くまでタイルの地（明るい灰色）が見えた。届いたら
+      // フェードせずにその場で出す（`data-instant`。一気送りではフェードの途中の暗い絵のまま去った）
+      el.setAttribute("data-instant", "");
       el.src = src;
       recent.add(src, src);
       paintedRef.current = true;
