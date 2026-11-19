@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { formatMonth, formatMonthOnly, t } from "./i18n";
-import { railDrag } from "./gridThumbs";
+import { railDrag, RAIL_DWELL_MS } from "./gridThumbs";
 import { year } from "./i18n/plural.ts";
 import {
   dayKeyAt,
@@ -138,11 +138,17 @@ export function ScrubRail({
   const frame = useRef(0);
   // 掴んで送っている間の、つまみの仮の位置（指の所）。一覧が追いつくまで、つまみは指に付いて動く
   const [dragFraction, setDragFraction] = useState<number | null>(null);
-  // SPIKE: 掴んで動かしている間を一覧のタイルへ知らせる（`gridThumbs.ts` の `railDrag`）
-  const draggingRail = dragFraction !== null;
+  // SPIKE: 掴んで**動かしている**間を一覧のタイルへ知らせる（`gridThumbs.ts` の `railDrag`）。掴んだまま
+  // `RAIL_DWELL_MS` 動かなければ、掴んだままでも読み始める（指を置いて見ているときに何も出ないのは寂しい。利用者）
   useEffect(() => {
-    railDrag.set(draggingRail);
-  }, [draggingRail]);
+    if (dragFraction === null) {
+      railDrag.set(false);
+      return;
+    }
+    railDrag.set(true);
+    const t = window.setTimeout(() => railDrag.set(false), RAIL_DWELL_MS);
+    return () => window.clearTimeout(t);
+  }, [dragFraction]);
   useEffect(() => () => railDrag.set(false), []);
   const moveTimer = useRef<number | undefined>(undefined);
   const lastMoveAt = useRef(0);

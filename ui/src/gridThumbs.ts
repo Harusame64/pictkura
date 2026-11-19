@@ -180,6 +180,16 @@ export const RAIL_PAUSE_ON = (() => {
     return true;
   }
 })();
+/** SPIKE: 帯が最後に動いてから、この ms 止まっていたら読み始める（localStorage の pk.spike.railDwellMs、既定 60） */
+export const RAIL_DWELL_MS = (() => {
+  try {
+    const raw = globalThis.localStorage?.getItem("pk.spike.railDwellMs");
+    const v = Number(raw);
+    return raw !== null && raw !== undefined && Number.isFinite(v) && v >= 0 ? v : 60;
+  } catch {
+    return 60;
+  }
+})();
 let railDragging = false;
 const railListeners = new Set<() => void>();
 export const railDrag = {
