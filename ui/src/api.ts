@@ -747,6 +747,8 @@ export const addLibraryRoot = (path: string) =>
 /** `days` はそれぞれの写真を並べていた日（`ids` と同じ並び。null は見ない）。日が変わった写真は Rust が頼まない */
 export const setVisiblePriority = (ids: number[], days: (number | null)[]) =>
   invoke<void>("set_visible_priority", { ids, days });
+/** 絵が出る前に画面から去ったタイルの写真を、サムネイルを作る優先の列から降ろす（`gridThumbs.ts` の `BlankWaiters.leave`） */
+export const demoteThumbnails = (ids: number[]) => invoke<void>("demote_thumbnails", { ids });
 
 /** 取り込み元フォルダを1階層だけ読む（DBには載せない） */
 export const listSourceDir = (path: string) =>

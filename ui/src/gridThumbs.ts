@@ -21,11 +21,14 @@
  *   「サムネイルが無い」と同じ見た目）。結果は覚えないので、タイルを作り直したら問い直す
  */
 
-/** 同時に読むサムネイルの数（win2 の実測の頭打ちの点） */
+/**
+ * 列で同時に読む数（win2 の実測の頭打ちの点）。列を通るのは、サムネイルがまだ無い写真（原本か空のタイル）と、
+ * 働き手が作らない写真だけ——サムネイルがある写真はタイルがすぐ読む（`GridThumb.tsx` の `ready`）
+ */
 export const GRID_TILE_READS = 4;
 /**
- * 1枚が枠を塞いでよい上限（ms）。サムネイルの読みは 5〜10ms。サムネイルの無い写真は空のタイルがすぐ返るので、
- * 塞ぐのは遅い媒体の上のサムネイルと、働き手が作らない写真（SVG・失敗が上限に達した写真）の原本だけ
+ * 1枚が枠を塞いでよい上限（ms）。塞ぐのは原本の読み——サムネイルがまだ無い写真（寸法が分かっていて上限以内なら
+ * 原本が返る）と、働き手が作らない写真（SVG・失敗が上限に達した写真）。遅い媒体ではここが読みの数を抑える
  */
 export const GRID_SLOT_TIMEOUT_MS = 1500;
 
@@ -90,10 +93,46 @@ export class RecentThumbs {
 export class BlankWaiters {
   private readonly waiting = new Map<number, Set<() => void>>();
   private readonly notices = new Map<number, number>();
+  /** 絵が出る前に画面から去った写真（まとめて `onLeft` へ渡す） */
+  private readonly left = new Set<number>();
+  private leftTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * `onLeft` は、絵が出る前に画面から去ったタイルの写真を受ける（サムネイルを作る優先の列から降ろす。
+   * `api.ts` の `demoteThumbnails`）。ホイールで一気に送ると、通り過ぎたタイルの写真の本番が、送り終えた画面の
+   * 写真の前に並んでいた（win2: 積まれた 145〜180 枚のうち、画面に残ったのは 65 枚）
+   */
+  private readonly onLeft?: (ids: number[]) => void;
+  private readonly leftDelayMs: number;
+  constructor(onLeft?: (ids: number[]) => void, leftDelayMs = 50) {
+    this.onLeft = onLeft;
+    this.leftDelayMs = leftDelayMs;
+  }
+
+  /**
+   * 絵が出る前にタイルが外れた。まとめて `onLeft` へ渡す——渡すときに**また待たれている写真は外す**（同じ写真の
+   * タイルが作り直された・もう1枚ある。その頼みの後に降ろすと、見えている写真を降ろしてしまう）
+   */
+  leave(id: number): void {
+    if (!this.onLeft) return;
+    this.left.add(id);
+    if (this.leftTimer !== null) return;
+    this.leftTimer = setTimeout(() => {
+      this.leftTimer = null;
+      const ids = [...this.left].filter((i) => !this.waiting.has(i));
+      this.left.clear();
+      if (ids.length > 0) this.onLeft?.(ids);
+    }, this.leftDelayMs);
+  }
 
   /** 写真 `id` の知らせの数（来ていなければ 0） */
   count(id: number): number {
     return this.notices.get(id) ?? 0;
+  }
+
+  /** 写真 `id` を待っているタイルが居るか */
+  isWaited(id: number): boolean {
+    return this.waiting.has(id);
   }
 
   /** 写真 `id` の知らせを待つ。返り値で待つのをやめる */

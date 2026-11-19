@@ -1481,6 +1481,11 @@ input[type="range"]:focus-visible {
     opacity var(--dur-fast) var(--easing);
   opacity: 0;
 }
+/* サムネイルがもうあるタイル（`GridThumb.tsx` の `ready`）は、届いたらその場で出す。一気に送ると、タイルが画面に
+   居るのは数十 ms——浮かべると、多くがフェードの途中の暗い絵のまま去った（win2: 動いている間の絵 0.79 → 0.50） */
+.cell[data-instant] {
+  transition: filter var(--dur-fast) var(--easing);
+}
 .cell[data-shown],
 /* 選んだタイルは届く前でも出す——選択の輪（下の `.picked .cell`）が絵の側に付いているので、
  * 隠すと選んだことが見えなくなる（ゲート2） */

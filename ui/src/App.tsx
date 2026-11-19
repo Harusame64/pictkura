@@ -113,6 +113,7 @@ import {
   scopeMedia,
   visibleMediaIds,
   setVisiblePriority,
+  demoteThumbnails,
   syncNow,
   thumbSrc,
   timelineSummary,
@@ -2260,8 +2261,21 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
   // バッファにためて150ms間隔でまとめて反映する（イベントの嵐でも再描画は最小限）
   const patchBuffer = useRef<MediaItem[]>([]);
   const patchTimer = useRef<number | null>(null);
+  /** 差分を当てる予約の時刻（`performance.now()`。早い予約へ詰めるため） */
+  const patchDue = useRef(0);
+  /** いま画面で頼んでいる写真（`visibleMissing`）。画面から去ったタイルの写真を降ろすとき、これは外す */
+  const visibleAskRef = useRef<ReadonlySet<number>>(new Set());
   // 空のタイルの待ち合わせ（`gridThumbs.ts`）。働き手の知らせ（`media-updated`）で起こす
-  const [gridWaiters] = useState(() => new BlankWaiters());
+  // 画面から去ったタイルの写真を降ろす。**いま画面で頼んでいる写真は外す**——同じ写真のタイルが作り直された・
+  // 上の「◯年前の今日」の帯に出ている（帯はタイルの待ち合わせを使わない。PR #356 の /code-review）
+  const [gridWaiters] = useState(
+    () =>
+      new BlankWaiters((ids) => {
+        const keep = visibleAskRef.current;
+        const drop = ids.filter((id) => !keep.has(id));
+        if (drop.length > 0) demoteThumbnails(drop).catch(() => {});
+      }),
+  );
   const applyPatches = useCallback(
     (patches: MediaItem[]) => {
       // 待っている空のタイルを起こす（URL が変わらない終わり方でも問い直させる）。検索中に日が動いて下の差し替えが
@@ -2375,31 +2389,41 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
       // 日移動の検知に加え、代表サムネイルのキャッシュバスティングにも必要
       scheduleSummaryRefresh();
     },
-    [scheduleSummaryRefresh, followViewerTo, refreshSummary, gridWaiters],
+    [scheduleSummaryRefresh, followViewerTo, refreshSummary],
   );
 
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    const flush = () => {
+      if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
+      patchTimer.current = null;
+      const patches = patchBuffer.current;
+      patchBuffer.current = [];
+      if (patches.length > 0) applyPatches(patches);
+    };
+    // `ms` 後に当てる。もう予約があって、それより早ければそのまま（遅い予約は早いほうへ詰める）
+    const schedule = (ms: number) => {
+      const due = performance.now() + ms;
+      if (patchTimer.current != null && patchDue.current <= due) return;
+      if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
+      patchDue.current = due;
+      patchTimer.current = window.setTimeout(flush, ms);
+    };
     listen<MediaItem>("media-updated", (ev) => {
       patchBuffer.current.push(ev.payload);
       // ビューアで見ている写真の差分は、まとめずにすぐ当てる——撮影日が変わったなら、待っている
       // ビューアをすぐ付いていかせる（150ms まとめると、その間ビューアは「読み込み中…」。dev #49）
       if (ev.payload.id === viewerItemIdRef.current || ev.payload.id === viewerHoldRef.current?.id) {
-        if (patchTimer.current != null) window.clearTimeout(patchTimer.current);
-        patchTimer.current = null;
-        const patches = patchBuffer.current;
-        patchBuffer.current = [];
-        applyPatches(patches);
+        flush();
         return;
       }
-      if (patchTimer.current != null) return;
-      patchTimer.current = window.setTimeout(() => {
-        patchTimer.current = null;
-        const patches = patchBuffer.current;
-        patchBuffer.current = [];
-        applyPatches(patches);
-      }, 150);
+      // **空のタイルが待っている写真なら 32ms で当てる**（150ms まとめると、出来たサムネイルを頼み直すまで平均
+      // 約100ms 灰色のまま待った。win2 の内訳: 1枚の灰色 約220ms のうち約100ms）。起こすのは差し替えと同じ
+      // 描画で（`applyPatches`）——先に起こすと、タイルは古い URL・古い日で頼み直し、1枚を2回読んだり、撮影日が
+      // 動いた写真で頼み直しが回り続けた。次のコマ（rAF）にすると、最小化した窓では止まって知らせが溜まり続け、
+      // 動いていると1秒に60回一覧を組み直した（PR #356 の /code-review）。タイマーなら背景でも進み、約30回まで
+      schedule(gridWaiters.isWaited(ev.payload.id) ? 32 : 150);
     }).then((f) => {
       // クリーンアップが先に走っていたら即解除する（リスナーの取り残し防止）
       if (cancelled) {
@@ -2411,12 +2435,10 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     return () => {
       cancelled = true;
       unlisten?.();
-      if (patchTimer.current != null) {
-        window.clearTimeout(patchTimer.current);
-        patchTimer.current = null;
-      }
+      // 溜まった差分は捨てずに当てる（待っている空のタイルを起こし損ねない。PR #356 の /code-review）
+      flush();
     };
-  }, [applyPatches]);
+  }, [applyPatches, gridWaiters]);
 
   const onSync = useCallback(async () => {
     setBusy(true);
@@ -4159,6 +4181,9 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
     }
     return { ids, days };
   }, [virtualItems, rows, memories, view, filtering, bandAskableIds, patchesMoveDays]);
+  useLayoutEffect(() => {
+    visibleAskRef.current = new Set(visibleMissing.ids);
+  }, [visibleMissing]);
   useEffect(() => {
     if (visibleMissing.ids.length === 0) return;
     const t = window.setTimeout(() => {
@@ -9287,8 +9312,12 @@ export default function App({ openAtStart = null }: { openAtStart?: string[] | n
                               }}
                             >
                               <GridThumb
-                                // 絵は列で読む（`gridThumbs.ts`。同時に4枚、見えているものから、外れたら捨てる）
+                                // サムネイルがあればすぐ読む。まだ無い写真（原本を読む）は列で読む（`gridThumbs.ts`。同時に4枚、
+                                // 見えているものから、外れたら捨てる）
                                 url={thumbSrc(cell.item)}
+                                // 即席（1）か本番（2）があるときだけ。作らない写真（SVG・プレビューの無い RAW）は列で読む
+                                ready={cell.item.thumb_state === 1 || cell.item.thumb_state === 2}
+                                quick={cell.item.thumb_state === 1}
                                 label={cell.item.file_name}
                                 loader={gridLoader}
                                 recent={recentThumbs}

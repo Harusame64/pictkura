@@ -5118,6 +5118,13 @@ fn set_visible_priority(state: tauri::State<'_, AppState>, ids: Vec<i64>, days: 
     }
 }
 
+/// 絵が出る前に画面から去った一覧のタイルの写真を、優先の列から降ろす（[`pictkura_core::thumbs::ThumbQueue::demote`]）。
+/// ホイールで一気に送ると、通り過ぎた写真の本番が、送り終えた画面の写真の前に並んでいた
+#[tauri::command]
+fn demote_thumbnails(state: tauri::State<'_, AppState>, ids: Vec<i64>) {
+    state.thumbs.demote(&ids);
+}
+
 /// 一時フォルダの候補（dev #23）。**中身を OS や他のアプリが黙って消す場所**。
 ///
 /// 報告の形は、Claude の作業フォルダ（macOS の `/private/tmp/claude-…`）から取り込んだ写真が、
@@ -7492,6 +7499,10 @@ fn can_serve_original(record: &pictkura_core::MediaRecord) -> bool {
     longest <= MAX_ORIGINAL_THUMB_EDGE
 }
 
+/// サムネイルがまだ無い写真で、一覧のタイルに原本を渡してよいファイルの大きさの上限（`handle_media_request`）。
+/// 寸法の上限（[`MAX_ORIGINAL_THUMB_EDGE`]）の内の JPEG はふつう数 MB まで
+const GRID_ORIGINAL_MAX_BYTES: i64 = 8 * 1024 * 1024;
+
 /// 一覧のタイルからの要求か（`GridThumb.tsx` が URL に `grid=1` を付ける）
 fn requested_by_grid(url: &str) -> bool {
     url.split_once('?')
@@ -7658,13 +7669,15 @@ fn handle_media_request(
         ServeKind::Video | ServeKind::Print | ServeKind::PrintSheet { .. } => return not_found(),
         ServeKind::Thumb => match record.thumb_path {
             Some(thumb) => thumb,
-            // 一覧のタイルには、サムネイルが無い間は原本を渡さない。働き手の列の先頭へ押して、空のタイルで待たせる。
-            // 出来れば URL（`thumb_state`）が変わり、タイルが読み直す。原本を渡すと、WebView が大きな絵を
-            // ほぼ1コアで展開して、ほかのタイルのサムネイルまで詰まる（帯を速く動かすと3万枚で約600MB を読んだ）。
-            // win2 の比べ合わせでは、その場で作る形（#343）より、止めてから写真がそろうのも、動かしている間に
-            // 写真が出る割合も良かった（埋め込みサムネイルの無い3万枚で、出る割合 0.01〜0.07 → 0.25〜0.33）
+            // 一覧のタイルには、サムネイルが無い間は**原本を渡しつつ、働き手の列の先頭へ押す**。出来れば URL
+            // （`thumb_state`）が変わり、タイルがサムネイルへ読み直す。#344 では原本を渡さず空のタイルで待たせたが、
+            // 画素で測り直すと（win2、DOM の数え方は描かれる前の絵を数えていた）、止めてから写真がそろうまでが
+            // 1.0.2 より遅かった（一気送りの後 0.3 秒で灰色 0.48 対 0.04、帯の後 0.62）。原本を渡すと 0.14 で、帯を
+            // 速く動かして原本を約 200MB 描いても詰まらなかった——一覧の読みは列（`gridThumbs.ts`、同時4枚・画面外は
+            // 捨てる）が絞っているので、#344 の前の「約600MB を読んで詰まる」は起きない
             //
-            // 待っているタイルは、働き手がその写真を片付けた知らせで問い直す（`gridThumbs.ts` の `BlankWaiters`）。
+            // 原本を描けない写真（RAW・HEIC・クラウドだけ等）は空のタイルで待ち、働き手がその写真を片付けた知らせで
+            // 問い直す（`gridThumbs.ts` の `BlankWaiters`）。
             // 待たせないのは、働き手が作らない写真と、失敗が上限に達した写真（今までどおり原本か空のタイル。
             // 上限に達した回の知らせで問い直し、その場で原本へ替わる）、そして
             // クラウドにしか無い写真（空のタイルで、列にも積まない。要求のたびに積むと、帯で通り過ぎただけの
@@ -7686,7 +7699,17 @@ fn handle_media_request(
                 && !pictkura_core::cloud::is_cloud_only_path(&record.path) =>
             {
                 state.thumbs.prioritize(&[id]);
-                return blank_thumb();
+                // 一覧で原本を渡すのは、**寸法が分かっていて上限以内**の写真だけ。寸法が未確認のうち（新しい
+                // ライブラリ）は大きさが分からず、NAS の 100MP のパノラマを丸ごと読みうる——その間は空のタイルで
+                // 待つ（素性を読むのは速い。PR #356 の /code-review）
+                // ファイルの大きさにも上限を付ける（寸法が小さくても、長い GIF は何十 MB にもなる）
+                if record.width.is_none()
+                    || record.size > GRID_ORIGINAL_MAX_BYTES
+                    || !can_serve_original(&record)
+                {
+                    return blank_thumb();
+                }
+                record.path
             }
             None if !can_serve_original(&record) => return blank_thumb(),
             None => record.path,
@@ -8934,6 +8957,7 @@ pub fn run() {
             remove_library_root,
             get_config,
             set_visible_priority,
+            demote_thumbnails,
             set_import_destination,
             import_from_folder,
             list_drives,

@@ -51,3 +51,25 @@ test("知らせの数は待つタイルが居なくても進む（外れてい�
   assert.equal(w.count(9), 2);
   assert.equal(w.count(3), 1);
 });
+
+test("絵が出る前に去ったタイルの写真は、まとめて降ろす。そのときまた待たれている写真は降ろさない", async () => {
+  const sent: number[][] = [];
+  const w = new BlankWaiters((ids) => sent.push(ids), 0);
+  w.leave(1);
+  w.leave(2);
+  w.leave(1);
+  // 2 の写真のタイルが作り直された（また待っている）
+  const stop = w.wait(2, () => {});
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(sent, [[1]]);
+  stop();
+  w.leave(3);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(sent, [[1], [3]]);
+});
+
+test("降ろす先が無ければ、去ったタイルは何もしない", async () => {
+  const w = new BlankWaiters();
+  w.leave(1);
+  await new Promise((r) => setTimeout(r, 5));
+});
